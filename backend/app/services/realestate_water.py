@@ -10,15 +10,8 @@ the water's level, so an island standing above it stays dry.
 """
 from __future__ import annotations
 
-import threading
-import time
-
+from app.services.geography_cache import cached_geography
 from app.services.realestate_buildings import BuildingsError, _clean, _overpass, _projector, _stitch
-
-KEEP_S = 30 * 86400
-MISS_S = 600
-_cache: dict[tuple, tuple[float, dict]] = {}
-_lock = threading.Lock()
 
 
 def _clip(ring: list[tuple[float, float]], r: float) -> list[tuple[float, float]]:
@@ -50,18 +43,14 @@ def _clip(ring: list[tuple[float, float]], r: float) -> list[tuple[float, float]
     return [(round(x, 2), round(y, 2)) for x, y in pts]
 
 
-def water(lat: float, lon: float, radius: float = 700) -> dict:
-    key = (round(lat, 3), round(lon, 3), int(radius))
-    hit = _cache.get(key)
-    if hit and time.time() - hit[0] < (KEEP_S if hit[1]["rings"] else MISS_S):
-        return hit[1]
+def _water_lookup(lat: float, lon: float, radius: float = 700) -> dict:
     # (a little past the square: a lake whose middle is outside still reaches in)
     r = int(radius * 1.45)
     sel = "".join(f'{kind}{tag}(around:{r},{lat},{lon});'
                   for tag in ('["natural"="water"]', '["waterway"="riverbank"]', '["landuse"="reservoir"]')
                   for kind in ("way", "relation"))
     try:
-        els = _overpass(f"[out:json][timeout:25];({sel});out geom;")
+        els = _overpass(f"[out:json][timeout:3];({sel});out geom;", deadline_s=4)
     except BuildingsError:
         return {"rings": [], "source": None}
     project = _projector(lat, lon)
@@ -84,29 +73,19 @@ def water(lat: float, lon: float, radius: float = 700) -> dict:
             if clipped:
                 rings.append({"ring": clipped, "kind": kind, "name": name})
     out = {"rings": rings, "source": "OpenStreetMap"}
-    with _lock:
-        _cache[key] = (time.time(), out)
-        if len(_cache) > 2000:
-            _cache.pop(next(iter(_cache)))
     return out
 
 
-_xcache: dict[tuple, tuple[float, dict]] = {}
 
-
-def crossings(lat: float, lon: float, radius: float = 700) -> dict:
+def _crossings_lookup(lat: float, lon: float, radius: float = 700) -> dict:
     """Mapped crosswalks (footway=crossing ways, crossing nodes) and traffic signals round a
     point, from OpenStreetMap: lines and points in metres about it (x east, y north), for the
     3D viewer's junctions — where its zebra crossings, stop lines and signal heads stand."""
-    key = (round(lat, 3), round(lon, 3), int(radius))
-    hit = _xcache.get(key)
-    if hit and time.time() - hit[0] < (KEEP_S if hit[1]["crossings"] or hit[1]["signals"] else MISS_S):
-        return hit[1]
     r = int(radius * 1.2)
-    q = (f'[out:json][timeout:25];(way["footway"="crossing"](around:{r},{lat},{lon});'
+    q = (f'[out:json][timeout:3];(way["footway"="crossing"](around:{r},{lat},{lon});'
          f'node["highway"="crossing"](around:{r},{lat},{lon});node["highway"="traffic_signals"](around:{r},{lat},{lon}););out geom;')
     try:
-        els = _overpass(q)
+        els = _overpass(q, deadline_s=4)
     except BuildingsError:
         return {"crossings": [], "points": [], "signals": [], "source": None}
     project = _projector(lat, lon)
@@ -123,8 +102,12 @@ def crossings(lat: float, lon: float, radius: float = 700) -> dict:
             points.append({"at": project(e["lon"], e["lat"]), "signals": tags.get("crossing") == "traffic_signals",
                            "marked": tags.get("crossing") in ("marked", "zebra", "traffic_signals") or tags.get("crossing:markings") not in (None, "no")})
     out = {"crossings": lines, "points": points, "signals": signals, "source": "OpenStreetMap"}
-    with _lock:
-        _xcache[key] = (time.time(), out)
-        if len(_xcache) > 2000:
-            _xcache.pop(next(iter(_xcache)))
     return out
+
+
+
+def water(lat: float, lon: float, radius: float = 700) -> dict:
+    return cached_geography("water", lat, lon, radius, lambda: _water_lookup(lat, lon, radius))
+
+def crossings(lat: float, lon: float, radius: float = 700) -> dict:
+    return cached_geography("crossings", lat, lon, radius, lambda: _crossings_lookup(lat, lon, radius))

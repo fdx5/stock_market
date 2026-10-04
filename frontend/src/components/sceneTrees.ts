@@ -4,6 +4,13 @@ import * as THREE from "three";
 import { fetchStatic } from "../staticCdn";
 import { bitmapTexture } from "./bitmapTexture";
 import { onSceneMemoryRelease } from "./sceneMemory";
+import { textureBudgetEnabled } from './textureBudget';
+import { loadCompactTrees } from './compactTreeKit';
+import { gpuCaps } from './gpuCaps';
+import { compressedTexture } from './compressedTexture';
+import {packTrees}from'./treeGeometryWire';
+import {assembleBudgetForest,forestGeometry,type BudgetPlant,type BudgetForest}from'./budgetForestGeometry';
+import {frameSlice}from'./frameSlice';
 
 /* Trees as meshes (scripts/gen-mesh-trees.py): bark tubes and leaf-cluster cards per species
  * variant, instanced — every tree of one variant is one draw for its bark and one for its
@@ -29,6 +36,17 @@ onSceneMemoryRelease(() => {
 });
 
 export function loadTreeKit(): Promise<TreeKit> {
+  if (textureBudgetEnabled()) {
+    kit ??= Promise.all([loadCompactTrees(), bitmapTexture('/3d/leaves.webp',true),
+      bitmapTexture('/3d/dense-twigs.webp',true),
+      bitmapTexture('/3d/bark-plane.webp',true).then(t=>{t.colorSpace=THREE.SRGBColorSpace;t.wrapS=t.wrapT=THREE.RepeatWrapping;return new Map([['shared',t]]);}),
+    ]).then(async([compact,texture,twigs,bark])=>{
+      for(const t of [texture,twigs]){t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=4;}
+      if(gpuCaps.bc||gpuCaps.etc2)twigs.userData.compressed=await compressedTexture('/3d/dense-twigs',gpuCaps.bc?'bc7':'etc2').catch(()=>null);
+      return {...compact,texture,twigs,bark};
+    });
+    const pending=kit;pending.catch(()=>{if(kit===pending)kit=null;});return pending;
+  }
   kit ??= Promise.all([
     fetchStatic("/3d/trees.json").then(r => { if (!r.ok) throw new Error("trees.json " + r.status); return r.json() as Promise<Meta>; }),
     fetchStatic("/3d/trees.bin").then(r => { if (!r.ok) throw new Error("trees.bin " + r.status); return r.arrayBuffer(); }),
@@ -68,27 +86,57 @@ export function preloadTrees() { void loadTreeKit().catch(() => {}); }
  * frame had been drawn at the middle copy's detail. */
 const FULL_M = 110, SHADOW_M = 250;
 
-type Planted = { m: THREE.Matrix4; tint: THREE.Color; x: number; y: number; z: number; h: number };
+type Planted = { m: THREE.Matrix4; tint: THREE.Color; crownTint?: THREE.Color; x: number; y: number; z: number; h: number };
 
 /** Trees placed one by one, then built into instanced meshes. */
 export class Forest {
+  private compact=textureBudgetEnabled();
   private placed = new Map<string, Planted[]>();
   /** (kept for callers: the bands no longer depend on it) */
   centre = new THREE.Vector2();
   constructor(private kit: TreeKit, private hq = true) {}
+  get textureTwigs(){return this.kit.twigs;}
   has(species: string) { return this.kit.variants.has(species); }
   /** A tree of `species` at (x, ground, z), `height` metres tall; `pick` chooses the variant. */
-  add(species: string, x: number, ground: number, z: number, height: number, yaw: number, tint: THREE.Color, pick: number) {
+  add(species: string, x: number, ground: number, z: number, height: number, yaw: number, tint: THREE.Color, pick: number, crownTint?: THREE.Color) {
     const list = this.kit.variants.get(species);
     if (!list) return false;
+    // Actual trees use the shared leaf-shaped models in sceneGroves. This kit
+    // remains for shrubs and flowers; never build their obsolete crown shells.
+    if(this.compact&&['zelkova','plane','ginkgo','cherry','fringe','pine','conifer'].includes(species))return true;
     const k = Math.floor(pick * list.length) % list.length, v = list[k].v;
     const s = height / v.height;
     const m = new THREE.Matrix4().compose(new THREE.Vector3(x, ground - 0.05, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(s, s, s));
     const key = `${species}:${k}`;
     const at = this.placed.get(key) ?? [];
-    at.push({ m, tint: tint.clone(), x, y: ground + height * 0.5, z, h: height });
+    at.push({ m, tint: tint.clone(), crownTint:crownTint?.clone(), x, y: ground + height * 0.5, z, h: height });
     this.placed.set(key, at);
     return true;
+  }
+  async buildBudget(){
+    const plants:BudgetPlant[]=[...this.placed].flatMap(([key,list])=>list.map(p=>({key,matrix:p.m.toArray(),tint:[p.tint.r,p.tint.g,p.tint.b],crownTint:p.crownTint&&[p.crownTint.r,p.crownTint.g,p.crownTint.b],x:p.x,z:p.z})));
+    const center=[this.centre.x,this.centre.y];let parts:BudgetForest|undefined;
+    if(typeof Worker!=='undefined')try{parts=await new Promise<BudgetForest>((resolve,reject)=>{
+      const w=new Worker(new URL('./budgetForestWorker.ts',import.meta.url),{type:'module'});
+      const timer=setTimeout(()=>{w.terminate();reject(Error('forest worker timeout'));},10000);
+      w.onmessage=e=>{clearTimeout(timer);w.terminate();e.data.result?resolve(e.data.result):reject(Error(e.data.error));};
+      w.onerror=()=>{clearTimeout(timer);w.terminate();reject(Error('forest worker unavailable'));};
+      w.postMessage({wire:packTrees(this.kit.variants).wire,plants,center});
+    });}catch{/* Identical geometry in short main-thread slices when workers fail. */}
+    parts??=await assembleBudgetForest(this.kit.variants,plants,center,()=>frameSlice());
+    const group=new THREE.Group();group.name='budget forest';const geometries:THREE.BufferGeometry[]=[],materials:THREE.Material[]=[];
+    for(const name of ['crowns','flowers','bark']as const){if(!parts[name].index.length)continue;
+      const geometry=forestGeometry(parts[name]);geometries.push(geometry);
+      const bark=name==='bark';
+      const material=new THREE.MeshStandardMaterial({map:bark?this.kit.bark.get('shared'):name==='crowns'?this.kit.twigs:this.kit.texture,
+        vertexColors:true,roughness:bark?.95:.8,metalness:0,alphaTest:name==='flowers'?.35:0,side:name==='flowers'?THREE.DoubleSide:THREE.FrontSide});
+      material.userData[bark?'bark':name==='crowns'?'volumeFoliage':'leafCluster']=true;materials.push(material);
+      const mesh=new THREE.Mesh(geometry,material);mesh.name='budget '+name;mesh.receiveShadow=true;
+      // The whole forest has one cheap, static crown shadow caster, rather than
+      // hundreds of individual twig meshes. Flower heads don't cast shadows.
+      mesh.castShadow=name!=='flowers';group.add(mesh);
+    }
+    return{group,update:()=>{},dispose:()=>{geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());}};
   }
   build(): { group: THREE.Group; dispose: () => void; update: () => void } {
     const group = new THREE.Group();

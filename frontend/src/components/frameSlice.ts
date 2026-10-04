@@ -9,14 +9,14 @@ function background(f: () => void) {
   ch.port1.onmessage = () => { ch.port1.close(); ch.port2.close(); f(); };
   ch.port2.postMessage(0);
 }
-function schedule() {
+function schedule(frameAt?: number) {
   if (scheduled || !waiting.length) return;
   scheduled = true;
   if (document.hidden) {
     background(() => { scheduled = false; waiting.shift()?.resolve(); schedule(); });
     return;
   }
-  requestAnimationFrame(at => background(() => {
+  const admit = (at: number) => background(() => {
     scheduled = false;
     // This timestamp precedes the view drawing; the task observes its cost too.
     const now = performance.now(), first = waiting[0];
@@ -26,8 +26,14 @@ function schedule() {
       lastAdmission = now;
       waiting.shift()!.resolve();
     }
-    queueMicrotask(schedule);
-  }));
+    // A continuation can finish well before this frame's spare time runs out.
+    // Recheck after its microtasks have run, instead of charging a whole extra
+    // frame for every tiny slice. FIFO and the elapsed admission budget remain.
+    if (waiting.length && performance.now() - at < waiting[0].budget) schedule(at);
+    else schedule();
+  });
+  if (frameAt !== undefined) admit(frameAt);
+  else requestAnimationFrame(admit);
 }
 export function frameSlice(budgetMs = 9): Promise<void> {
   return new Promise(resolve => { waiting.push({ resolve, budget: budgetMs, since: performance.now() }); schedule(); });

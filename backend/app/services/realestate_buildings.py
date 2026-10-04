@@ -256,6 +256,8 @@ def _from_vworld(c: dict, address: str) -> dict | None:
     buildings, context = [], []
     for f in around:
         p = f["properties"]
+        if str(p.get("grnd_flr", "")).strip() == "0" and _num(p.get("ugrnd_flr")) and not _num(p.get("height")):
+            continue  # underground-only stations are not above-ground buildings
         for poly in _polygons(f["geometry"]):
             outer = _clean([project(x, y) for x, y in poly[0]])
             if not outer:
@@ -298,11 +300,16 @@ def _from_vworld(c: dict, address: str) -> dict | None:
 # ── OpenStreetMap ───────────────────────────────────────────────────────────
 
 
-def _overpass(query: str) -> list[dict]:
+def _overpass(query: str, deadline_s: float | None = None) -> list[dict]:
     last: Exception | None = None
+    deadline = time.monotonic() + deadline_s if deadline_s is not None else None
     for url in OVERPASS:
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        if remaining is not None and remaining <= 0:
+            break
         try:
-            res = requests.post(url, data={"data": query}, headers=UA, timeout=(5, 20))
+            timeout = (5, 20) if remaining is None else (min(1, remaining / 3), min(2, remaining * 2 / 3))
+            res = requests.post(url, data={"data": query}, headers=UA, timeout=timeout)
             if res.ok:
                 body = res.json()
                 # (a query that ran out of time or memory still answers 200, with a remark and

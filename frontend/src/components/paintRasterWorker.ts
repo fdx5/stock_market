@@ -19,7 +19,7 @@ async function paint({ id, job }: { id: number; job: PaintJob }) {
     }
     readyNormal = await preparedNormal(job);
     const normal = readyNormal as unknown as HTMLCanvasElement | undefined;
-    const steps = job.kind === "facade" ? facadeSteps(job.palette, job.seed, job.scale ?? 1, normal ?? undefined)
+    const steps = job.kind === "facade" ? facadeSteps(job.palette, job.seed, job.scale ?? 1, normal ?? undefined, job.appearance === 'architecture')
       : job.kind === "plinth" ? plinthSteps(job.seed, job.tone, normal ?? undefined)
         : job.style === "apt" ? facadeSteps(NEIGHBOUR_PALETTE, 4242, job.scale ?? 1) : contextSteps(1000 + job.style.length, job.style, job.scale ?? 1);
     const textures = runNow(steps);
@@ -29,7 +29,8 @@ async function paint({ id, job }: { id: number; job: PaintJob }) {
       for (const [name, t] of Object.entries(textures)) {
         params[name] = { wrapS: t.wrapS, wrapT: t.wrapT, flipY: t.flipY, anisotropy: t.anisotropy,
           colorSpace: t.colorSpace, repeat: [t.repeat.x, t.repeat.y], offset: [t.offset.x, t.offset.y] };
-        if (readyNormal && (name === 'normalMap' || name === 'rmMap')) params[name].surfaceKey = job.kind === 'facade' || (job.kind === 'context' && job.style === 'apt')
+        if (job.kind === 'facade' && job.appearance === 'architecture' && (name === 'normalMap' || name === 'rmMap')) params[name].surfaceKey = 'architecture-facade-v1';
+        else if (readyNormal && (name === 'normalMap' || name === 'rmMap')) params[name].surfaceKey = job.kind === 'facade' || (job.kind === 'context' && job.style === 'apt')
           ? `facade-${job.scale ?? 1}` : job.kind === 'plinth' ? 'plinth' : `context-${job.style}-${job.scale ?? 1}`;
         const image = t.image as unknown as OffscreenCanvas;
         const raw = image instanceof OffscreenCanvas ? image.transferToImageBitmap()

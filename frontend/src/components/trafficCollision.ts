@@ -1,6 +1,22 @@
 export interface VehicleBody { x: number; y: number; hx: number; hy: number; length: number; width: number }
 interface TravelState { conn: object; road: number; forward: boolean; lane: number; s: number; u: number; inConn: boolean }
 interface Pose { x: number; y: number; hx: number; hy: number }
+/** Clamp a movement along its actual lane/turn curve before any other body.
+ * Short sweep samples prevent a thin vehicle being crossed between frames;
+ * binary refinement stops at the last safe pose instead of allowing penetration. */
+export function collisionFreeTravel(distance:number,poseAt:(d:number)=>VehicleBody,others:readonly VehicleBody[],self:VehicleBody){
+  if(distance<=0)return 0;
+  const free=(d:number)=>{const p=poseAt(d);return !others.some(o=>o!==self&&vehicleOverlap(p.x,p.y,p.hx,p.hy,p.length+.06,p.width+.06,o));};
+  let safe=0;
+  for(let d=Math.min(.25,distance);;d=Math.min(distance,d+.25)){
+    if(!free(d)){
+      let lo=safe,hi=d;
+      for(let i=0;i<8;i++){const mid=(lo+hi)/2;if(free(mid))lo=mid;else hi=mid;}
+      return lo;
+    }
+    safe=d;if(d>=distance)return distance;
+  }
+}
 /** Exact trajectory samples reused across candidate bodies; no time-step reduction. */
 export class VehicleTrajectoryCache<T extends TravelState> {
   private entries = new WeakMap<T, TravelState & { values: number[] }>();

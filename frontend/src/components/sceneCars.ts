@@ -103,7 +103,7 @@ class Builder {
 const STATIONS = 40, HALF = 11;
 
 /** The body shell: stations along the car, each a closed section (mirrored half). */
-function body(sp: CarSpec, b: Builder) {
+function body(sp: CarSpec, b: Builder, stations = STATIONS) {
   const L = sp.length, W = sp.width / 2;
   const zOf = (t: number) => (t - 0.5) * L;
   // Rounded in plan: full width over most of the length, easing in at both ends.
@@ -121,9 +121,9 @@ function body(sp: CarSpec, b: Builder) {
     for (const a of axleZ) { const dz = Math.abs(z - a); if (dz < open) y = Math.max(y, R + Math.sqrt(open * open - dz * dz)); }
     return y;
   };
-  for (let i = 0; i <= STATIONS; i++) {
+  for (let i = 0; i <= stations; i++) {
     // (stations closer together at the ends, where the shape turns fastest)
-    const s = i / STATIONS, t = 0.5 - 0.5 * Math.cos(Math.PI * s);
+    const s = i / stations, t = 0.5 - 0.5 * Math.cos(Math.PI * s);
     const z = zOf(t), w = Math.max(0.02, halfW(t)), top = Math.max(bottom(t) + 0.1, curve(sp.top, t));
     const y0 = Math.min(bottom(t), top - 0.05);
     const cabin = t >= sp.cabin[0] && t <= sp.cabin[1] && top > sp.belt + 0.08;
@@ -147,9 +147,9 @@ function body(sp: CarSpec, b: Builder) {
   }
   const [a0, a1] = axleZ;
   const arch = (p: THREE.Vector3) => Math.min(Math.hypot(p.z - a0, p.y - R), Math.hypot(p.z - a1, p.y - R)) < R + 0.12 && p.x > sp.width / 2 * 0.8;
-  for (let i = 0; i < STATIONS; i++) {
+  for (let i = 0; i < stations; i++) {
     const A = sections[i], B = sections[i + 1];
-    const tMid = 0.5 - 0.5 * Math.cos(Math.PI * (i + 0.5) / STATIONS);
+    const tMid = 0.5 - 0.5 * Math.cos(Math.PI * (i + 0.5) / stations);
     const front = tMid > 0.965, rear = tMid < 0.035;
     for (let j = 0; j < HALF - 1; j++) {
       let s: Swatch = kinds[i][j + 1] === "glass" && kinds[i + 1][j + 1] === "glass" ? "glass" : kinds[i][j] === "trim" ? "trim" : "body";
@@ -172,7 +172,7 @@ function body(sp: CarSpec, b: Builder) {
     }
   }
   // caps at the very nose and tail
-  for (const [k, flip] of [[0, true], [STATIONS, false]] as const) {
+  for (const [k, flip] of [[0, true], [stations, false]] as const) {
     const S = sections[k], c = new THREE.Vector3(0, (S[0].y + S[HALF - 1].y) / 2, S[0].z);
     for (let j = 0; j < HALF - 1; j++) for (const m of [1, -1]) {
       const p = (v: THREE.Vector3) => new THREE.Vector3(v.x * m, v.y, v.z);
@@ -182,8 +182,8 @@ function body(sp: CarSpec, b: Builder) {
 }
 
 /** A wheel: tyre tread and walls, a rim face with spokes' shade, at (x, z) facing out. */
-function wheel(b: Builder, x: number, z: number, R: number, width: number, out: 1 | -1) {
-  const N = 20, inner = x - out * width / 2, outer = x + out * width / 2;
+function wheel(b: Builder, x: number, z: number, R: number, width: number, out: 1 | -1, segments = 20) {
+  const N = segments, inner = x - out * width / 2, outer = x + out * width / 2;
   const rimR = R * 0.62;
   const at = (a: number, r: number, xx: number) => new THREE.Vector3(xx, R + Math.sin(a) * r, z + Math.cos(a) * r);
   for (let i = 0; i < N; i++) {
@@ -203,16 +203,17 @@ const cache = new Map<string, THREE.BufferGeometry>();
 export function primeCarGeometry(kind: string, g: THREE.BufferGeometry) { if (!cache.has(kind)) cache.set(kind, g); }
 
 /** The car of a kind (CAR_SPECS keys), shared by every car of that kind. */
-export function carGeometry(kind: string): THREE.BufferGeometry | null {
+export function carGeometry(kind: string, compact = false): THREE.BufferGeometry | null {
   const sp = CAR_SPECS[kind];
   if (!sp) return null;
-  const hit = cache.get(kind);
+  const key = compact ? kind + ':compact' : kind;
+  const hit = cache.get(key);
   if (hit) return hit;
   const b = new Builder();
-  body(sp, b);
+  body(sp, b, compact ? 10 : STATIONS);
   // (outer tyre face just inside the body side)
   const L = sp.length, x = sp.width / 2 - 0.04 - 0.11;
-  for (const t of sp.axles) for (const side of [1, -1] as const) wheel(b, x * side, (t - 0.5) * L, sp.wheel, 0.22, side);
+  for (const t of sp.axles) for (const side of [1, -1] as const) wheel(b, x * side, (t - 0.5) * L, sp.wheel, 0.22, side, compact ? 8 : 20);
   // side mirrors
   const top = curve(sp.top, sp.cabin[1] - 0.04);
   for (const side of [1, -1]) {
@@ -238,7 +239,7 @@ export function carGeometry(kind: string): THREE.BufferGeometry | null {
   // Smooth over the panels, hard at real creases (sills, screen edges, wheel faces).
   const g = toCreasedNormals(merged, (40 * Math.PI) / 180);
   parts.forEach(p => p.dispose()); if (merged !== parts[0]) merged.dispose();
-  cache.set(kind, g);
+  cache.set(key, g);
   return g;
 }
 

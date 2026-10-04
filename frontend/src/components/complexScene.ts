@@ -1,13 +1,17 @@
 import * as THREE from "three";
 import { moonGlow } from "./moonGlow";
 import { RealEstateBuildingsResponse } from "../api/client";
-import { ringIndex, sidewalkWidth } from "./sceneSidewalk";
+import { ringIndex, sidewalkWidth, carriageway } from "./sceneSidewalk";
+import {roadJunctionHulls}from'./roadJunctions';
 import { coveredStream } from "./waterCore";
 import { inRing } from "./ringMath";
 export { inRing };
 import { normalRows } from "./normalKernel";
 import { cdn } from "../staticCdn";
 import { onSceneMemoryRelease } from "./sceneMemory";
+import {woodlandBeds,WOODLAND_FLOWERS,type WoodlandBed}from'./landscapeDiversity';
+import {woodedTerrain} from './woodlandTerrain';
+import type {HeightGrid} from './waterCore';
 
 const WATER_KINDS = new Set(["천", "구", "유", "양"]);
 const coveredMemo = new WeakMap<object, boolean[]>();
@@ -188,9 +192,12 @@ const BAYS = 8, ROWS = 8;
  * AC louvres and pilasters. Colour, normals, roughness (G) / metalness (B) and the
  * lit windows for the evening. */
 export const facadeTextures = (p: Palette, seed: number) => runNow(facadeSteps(p, seed));
-export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal?: HTMLCanvasElement) {
+export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal?: HTMLCanvasElement, architecture = false) {
   // (scale: the same drawing on larger canvases — the complex being viewed gets 2x)
-  const W = 1024, H = 928, cw = W / BAYS, ch = H / ROWS, k = scale;
+  // Four bays at the original tile size have the same facade texel density as
+  // the old 2x eight-bay map, with one quarter of its colour/glass texels.
+  const bays = architecture ? 4 : BAYS, rows = architecture ? 4 : ROWS;
+  const W = 1024, H = 928, cw = W / bays, ch = H / rows, k = architecture ? 1 : scale;
   const color = canvas(W * k, H * k), height = preparedNormal ? null : canvas(W * k, H * k), rm = canvas(W * k, H * k), glow = canvas(W * k, H * k), open = canvas(W * k, H * k);
   const g = color.getContext("2d")!, hh = height?.getContext("2d") ?? null, r = rm.getContext("2d")!, e = glow.getContext("2d")!;
   for (const c of [g, r, e]) c.scale(k, k);
@@ -214,7 +221,7 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
     g.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 18, 1 + rnd() * 2);
   }
   for (let i = 0; i < 180; i++) {
-    const x = rnd() * W, y = Math.floor(rnd() * ROWS) * ch + ch * 0.92;
+    const x = rnd() * W, y = Math.floor(rnd() * rows) * ch + ch * 0.92;
     const grad = g.createLinearGradient(0, y, 0, y + 30 + rnd() * 90);
     grad.addColorStop(0, `rgba(70,62,52,${0.05 + rnd() * 0.06})`); grad.addColorStop(1, "rgba(70,62,52,0)");
     g.fillStyle = grad; g.fillRect(x, y, 1 + rnd() * 4, 120);
@@ -222,10 +229,10 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
 
   const lit = [[255, 196, 128], [255, 214, 160], [255, 228, 196], [226, 236, 255]];
   const curtains = ["#ece4d4", "#ddd5c6", "#d3d9dd", "#efe7d8", "#c9c0b0"];
-  for (let row = 0; row < ROWS; row++) {
+  for (let row = 0; row < rows; row++) {
     if (row % 2 === 0) yield;
     const y = row * ch;
-    for (let bay = 0; bay < BAYS; bay++) {
+    for (let bay = 0; bay < bays; bay++) {
       const x = bay * cw;
       if (bay % 4 === 3) {
         // Pilaster with the outdoor-unit louvre beside it.
@@ -272,32 +279,33 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
         e.fillStyle = lgGrad; e.fillRect(wx + 3, wy + 3, ww - 6, wh - 6);
       }
       // Frames: white aluminium outline, sliding-sash mullion, fixed upper light.
-      g.strokeStyle = "#e3e5e4"; g.lineWidth = 4; g.strokeRect(wx + 2, wy + 2, ww - 4, wh - 4);
+      const frame = architecture ? 2.2 : 4;
+      g.strokeStyle = architecture ? "#b9bdbb" : "#e3e5e4"; g.lineWidth = frame; g.strokeRect(wx + 2, wy + 2, ww - 4, wh - 4);
       g.fillStyle = "#e3e5e4";
-      g.fillRect(wx + ww / 2 - 2, wy, 4, wh);
-      g.fillRect(wx, wy + wh * 0.24, ww, 3);
+      g.fillRect(wx + ww / 2 - frame / 2, wy, frame, wh);
+      g.fillRect(wx, wy + wh * 0.24, ww, architecture ? 1.5 : 3);
       cuts.push([wx - 1, wy - 1, ww + 2, 7, 1], [wx - 1, wy + wh - 6, ww + 2, 7, 1], [wx - 1, wy, 7, wh, 1], [wx + ww - 6, wy, 7, wh, 1],
         [wx + ww / 2 - 3, wy, 6, wh, 1], [wx, wy + wh * 0.24 - 1, ww, 5, 1]);
       if (hh) { hh.fillStyle = "rgb(120,120,120)"; }
-      if (hh) { hh.fillRect(wx + ww / 2 - 2, wy, 4, wh); hh.fillRect(wx, wy + wh * 0.24, ww, 3); }
-      if (hh) { hh.strokeStyle = "rgb(120,120,120)"; hh.lineWidth = 4; hh.strokeRect(wx + 2, wy + 2, ww - 4, wh - 4); }
+      if (hh) { hh.fillRect(wx + ww / 2 - frame / 2, wy, frame, wh); hh.fillRect(wx, wy + wh * 0.24, ww, architecture ? 1.5 : 3); }
+      if (hh) { hh.strokeStyle = "rgb(120,120,120)"; hh.lineWidth = frame; hh.strokeRect(wx + 2, wy + 2, ww - 4, wh - 4); }
       // Glass balcony rail across the lower third.
       const ry = wy + wh * 0.64;
       g.fillStyle = "rgba(190,210,220,0.22)"; g.fillRect(wx, ry, ww, wy + wh - ry);
       g.fillStyle = "#f2f4f4"; g.fillRect(wx - 2, ry - 2, ww + 4, 4);
-      for (let px = wx + 6; px < wx + ww; px += ww / 4) g.fillRect(px, ry, 2, wy + wh - ry);
+      for (let px = wx + 6; px < wx + ww; px += ww / 4) g.fillRect(px, ry, architecture ? 1 : 2, wy + wh - ry);
       cuts.push([wx - 2, ry - 3, ww + 4, 6, 1]);
-      for (let px = wx + 6; px < wx + ww; px += ww / 4) cuts.push([px - 1, ry, 4, wy + wh - ry, 1]);
+      for (let px = wx + 6; px < wx + ww; px += ww / 4) cuts.push([px - .5, ry, architecture ? 2 : 4, wy + wh - ry, 1]);
       // (the rail's tinted glass: the room a little dimmer through it)
       cuts.push([wx, ry + 3, ww, wy + wh - ry - 3, 0.2]);
       if (hh) { hh.fillStyle = "rgb(200,200,200)"; hh.fillRect(wx - 2, ry - 2, ww + 4, 4); }
       r.fillStyle = "rgb(0,90,40)"; r.fillRect(wx - 2, ry - 2, ww + 4, 4);
     }
     // Floor slab band, the strongest horizontal line of a Korean apartment facade.
-    g.fillStyle = slab; g.fillRect(0, y + ch * 0.9, W, ch * 0.1);
+    g.fillStyle = slab; g.fillRect(0, y + ch * (architecture ? .95 : .9), W, ch * (architecture ? .05 : .1));
     g.fillStyle = "rgba(0,0,0,0.22)"; g.fillRect(0, y + ch, W, 3);
-    if (hh) { hh.fillStyle = "rgb(205,205,205)"; hh.fillRect(0, y + ch * 0.9, W, ch * 0.1); }
-    r.fillStyle = "rgb(0,190,0)"; r.fillRect(0, y + ch * 0.9, W, ch * 0.1);
+    if (hh) { hh.fillStyle = "rgb(205,205,205)"; hh.fillRect(0, y + ch * (architecture ? .95 : .9), W, ch * (architecture ? .05 : .1)); }
+    r.fillStyle = "rgb(0,190,0)"; r.fillRect(0, y + ch * (architecture ? .95 : .9), W, ch * (architecture ? .05 : .1));
   }
   yield;
   // The lit-window map keeps its colour and takes the glass mask as its alpha.
@@ -313,14 +321,16 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
   // The original generator remains the fallback when prepared maps are unavailable.
   let normal = preparedNormal;
   if (!normal) {
-    const soft = canvas(W * k, H * k);
+    const soft = canvas(W * k * (architecture ? .5 : 1), H * k * (architecture ? .5 : 1));
     const sctx = soft.getContext("2d")!;
     sctx.filter = `blur(${1.2 * k}px)`;
-    sctx.drawImage(height!, 0, 0);
-    normal = yield* normalCanvas(soft, 5 * k);
+    sctx.drawImage(height!, 0, 0, soft.width, soft.height);
+    normal = yield* normalCanvas(soft, 5 * k * (architecture ? .5 : 1));
   }
-  const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, BAYS * BAY_M, ROWS * FLOOR_M, GROUND_M);
-  return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(rm, false), emissiveMap: tile(glow, true) };
+  const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, bays * BAY_M, rows * FLOOR_M, GROUND_M);
+  let roughness = rm;
+  if (architecture) { roughness = canvas(W / 2, H / 2); roughness.getContext('2d')!.drawImage(rm, 0, 0, W / 2, H / 2); }
+  return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(roughness, false), emissiveMap: tile(glow, true) };
 }
 
 export type ContextStyle = "villa" | "office" | "shop" | "apt";
@@ -674,6 +684,7 @@ float cloudShade(vec2 xz) {
 `;
 
 interface PatchOpts {
+  naturalGround?: number;
   /** Planar reflection: the reflector's texture and matrix, in this mesh's local frame. */
   reflect?: { tex: { value: THREE.Texture | null }; matrix: { value: THREE.Matrix4 }; strength: { value: number }; far: { value: number } };
   /** Ground detail noise, so the painted ground holds up close. */
@@ -688,6 +699,7 @@ interface PatchOpts {
 export function patchMaterial(mat: THREE.Material, opts: PatchOpts = {}) {
   mat.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, shared);
+    if(opts.naturalGround)shader.uniforms.uNaturalGround={value:opts.naturalGround};
     if (opts.reflect) {
       shader.uniforms.tRefl = opts.reflect.tex;
       shader.uniforms.uReflMatrix = opts.reflect.matrix;
@@ -708,12 +720,14 @@ ${opts.reflect ? "vReflUv = uReflMatrix * vec4(transformed, 1.0);" : ""}`);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>
 uniform float uTime; uniform float uCloud; uniform float uGlass; uniform float uWet; uniform float uSnow;
+${opts.naturalGround ? 'uniform float uNaturalGround;' : ''}
 varying vec3 vWPos; varying float vWUp;
 ${opts.roof ? "varying float vUpN; uniform vec3 uRoof;" : ""}
 ${opts.reflect ? "uniform sampler2D tRefl; uniform float uReflect; uniform float uReflFar; varying vec4 vReflUv;" : ""}
 ${NOISE}`)
       .replace("#include <color_fragment>", `#include <color_fragment>
 ${opts.roof ? "if (vUpN > 0.5) diffuseColor.rgb = uRoof;" : ""}
+${opts.naturalGround ? `if (max(abs(vWPos.x),abs(vWPos.z)) > uNaturalGround) diffuseColor.rgb = mix(vec3(0.035,0.115,0.045), vec3(0.085,0.19,0.065), vnoise(vWPos.xz*0.018));` : ""}
 ${opts.detail ? `diffuseColor.rgb *= 0.95 + 0.07 * fbm3(vWPos.xz * 0.12);` : ""}
 // Weather: rain darkens what faces up (and gathers in puddles); snow settles on it,
 // patchy at the edges of a surface and on slopes.
@@ -749,7 +763,7 @@ ${opts.reflect ? `{
 }` : ""}
 #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => `complex:${!!opts.reflect}:${!!opts.detail}:${!!opts.roof}:${!!opts.glass}`;
+  mat.customProgramCacheKey = () => `complex:${!!opts.reflect}:${!!opts.detail}:${!!opts.roof}:${!!opts.glass}:${!!opts.naturalGround}`;
 }
 
 /* ---------- Ground ---------- */
@@ -757,7 +771,10 @@ ${opts.reflect ? `{
 /** Where the 3D plants go (metres, footprint frame): trees, shrubs, flowers. */
 export interface Planting {
   trees: [number, number][]; shrubs: [number, number][]; flowers: [number, number][];
-  /** Flower borders (school grounds): x, y, run. */
+  grass?: [number, number][];
+  groves?: {pattern:number;points:[number,number][]}[];
+  woodlandFlowers?: WoodlandBed[];
+  /** Flower borders along courtyard walks and school grounds: x, y, run. */
   border?: [number, number, number][];
   /** Street trees in sidewalk pits: x, y and the road they line (one species per road). */
   street: [number, number, number][];
@@ -778,7 +795,9 @@ export function streetLamps(data: RealEstateBuildingsResponse): Lamp[] {
   };
   // Bucketed footprints: a city block has well over a thousand of them.
   const inFootprint = ringIndex([...data.buildings, ...data.context].map(b => b.rings[0]));
-  const blocked = (x: number, y: number) => data.site.some(r => inRing([x, y], r)) || inFootprint(x, y);
+  const onRoad=carriageway(data.roads??[],.6),onJunction=ringIndex(roadJunctionHulls(data.roads??[]));
+  const blocked = (x: number, y: number) => data.site.some(r => inRing([x, y], r)) || inFootprint(x, y) || onRoad(x,y) ||
+    [[0,0],[.25,0],[-.25,0],[0,.25],[0,-.25]].some(([dx,dy])=>onJunction(x+dx,y+dy));
   for (const road of data.roads ?? []) {
     let carry = 0;
     for (let i = 0; i < road.line.length - 1; i++) {
@@ -814,15 +833,15 @@ export function seasonNow(): Season {
  * trees, shrubs and flowers are placed as 3D plants (`planting`). */
 export const paintGround = (data: RealEstateBuildingsResponse, T: number, size: number, seed: number) => runNow(paintGroundSteps(data, T, size, seed));
 /** The season's lawn and paddy colours (the ground's paint near and far: farGround.ts). */
-export function seasonGround(season: Season = seasonNow()) {
+export function seasonGround(season: Season = seasonNow(), landscape = false) {
   return {
-    lawn: season === "autumn" ? "#76784c" : season === "winter" ? "#7b795f" : season === "spring" ? "#688a48" : "#5a7b3e",
+    lawn: landscape ? "#508548" : season === "autumn" ? "#76784c" : season === "winter" ? "#7b795f" : season === "spring" ? "#688a48" : "#5a7b3e",
     paddy: season === "summer" ? "#5f7d3c" : season === "autumn" ? "#b39a4e" : season === "spring" ? "#6b7563" : "#7d7461",
   };
 }
 
-export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, size: number, seed: number): Steps<GroundPlan> {
-  const { color, rough, glow, planting, lamps } = yield* groundCanvasSteps(data, T, size, seed);
+export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, size: number, seed: number, landscape = false, grid?: HeightGrid): Steps<GroundPlan> {
+  const { color, rough, glow, planting, lamps } = yield* groundCanvasSteps(data, T, size, seed, landscape, grid);
   return { color: groundTexture(color, true), rough: groundTexture(rough, false), glow: groundTexture(glow, true), planting, lamps };
 }
 /** A ground canvas (or, from the scene worker, a bitmap already flipped upright) as its texture. */
@@ -836,12 +855,12 @@ export function groundTexture(img: HTMLCanvasElement | ImageBitmap, srgb: boolea
 }
 /** The ground's three canvases and what stands on it: on the page (paintGroundSteps) or in the
  * scene worker (sceneWorker.ts). */
-export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number, size: number, seed: number): Steps<{ color: HTMLCanvasElement; rough: HTMLCanvasElement; glow: HTMLCanvasElement; planting: Planting; lamps: Lamp[] }> {
+export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number, size: number, seed: number, landscape = false, grid?: HeightGrid): Steps<{ color: HTMLCanvasElement; rough: HTMLCanvasElement; glow: HTMLCanvasElement; planting: Planting; lamps: Lamp[] }> {
   const S = size, k = S / (2 * T);
   const X = (x: number) => (x + T) * k, Y = (y: number) => (T - y) * k, m = (v: number) => v * k;
   const rnd = rng(seed);
   const season = seasonNow();
-  const { lawn, paddy } = seasonGround(season);
+  const { lawn, paddy } = seasonGround(season, landscape);
   // Colour carries the detail; roughness and the night glow are low-frequency and
   // painted in the same coordinates onto 1024 px canvases (scaled context).
   const R = Math.min(1024, S);
@@ -865,6 +884,9 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
   const towers = data.buildings.map(b => b.rings[0]);
   const rings = [...data.context.map(b => b.rings[0]), ...towers];
   const roads = data.roads ?? [];
+  // These registered surfaces remain visible inside a landscaped complex too.
+  const hardParcels = new Set(["도", "차", "주", "장", "창", "철", "수", ...WATER_KINDS]);
+  const covered = waterCovered(data);
   const lamps = streetLamps(data);
   const hasSite = data.site.length > 0;
 
@@ -888,6 +910,9 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
   mg.lineWidth = 12 * mk;
   rings.forEach(r => { mpath(r); mg.fill(); mg.stroke(); });
   roads.forEach(r => { mg.lineWidth = (r.width + 2 * sidewalkWidth(r.width) + 1) * mk; mpath(r.line, false); mg.stroke(); });
+  if (landscape) (data.parcels ?? []).forEach(p => {
+    if (hardParcels.has(p.kind)) { mpath(p.ring); mg.fill(); }
+  });
   // (read in four strips, a pause between: the whole 1024² at once was one ~15 ms piece)
   const md = new Uint8ClampedArray(M * M * 4);
   for (let y = 0; y < M; y += 256) {
@@ -913,7 +938,15 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
   const beds: [number, number, number, number, number][] = [];
   for (let i = 0; i < 1200 && beds.length < 70; i++) {
     const x = (rnd() * 2 - 1) * reachT, y = (rnd() * 2 - 1) * reachT;
-    if (ok(x, y)) beds.push([x, y, 3 + rnd() * 5, 1.8 + rnd() * 2.6, rnd() * Math.PI]);
+    if (ok(x, y)) {
+      const rx = 3 + rnd() * 5, ry = 1.8 + rnd() * 2.6, a = rnd() * Math.PI;
+      // Keep the entire bed clear, including the area between the sample points.
+      if (landscape && Array.from({ length: 24 }, (_, q) => {
+        const t = q * Math.PI / 12, u = Math.cos(t) * (rx + 1), v = Math.sin(t) * (ry + 1);
+        return ok(x + u * Math.cos(a) - v * Math.sin(a), y + u * Math.sin(a) + v * Math.cos(a));
+      }).some(valid => !valid)) continue;
+      beds.push([x, y, rx, ry, a]);
+    }
   }
   const inBed = (x: number, y: number) => beds.some(([bx, by, rx, ry, a]) => {
     const dx = x - bx, dy = y - by, u = dx * Math.cos(a) + dy * Math.sin(a), v = -dx * Math.sin(a) + dy * Math.cos(a);
@@ -926,7 +959,7 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
     for (let j = 0; j < n; j++) {
       const u = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * 0.92, lx = Math.cos(u) * rx * r, ly = Math.sin(u) * ry * r;
       const p: [number, number] = [bx + lx * Math.cos(a) - ly * Math.sin(a), by + lx * Math.sin(a) + ly * Math.cos(a)];
-      (r > 0.6 ? planting.flowers : r > 0.3 || rnd() < 0.5 ? planting.shrubs : planting.flowers).push(p);
+      if (!landscape || ok(p[0], p[1])) (r > 0.6 ? planting.flowers : r > 0.3 || rnd() < 0.5 ? planting.shrubs : planting.flowers).push(p);
     }
   });
   yield;
@@ -951,6 +984,13 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
     const x = (rnd() * 2 - 1) * reachT, y = (rnd() * 2 - 1) * reachT;
     if (ok(x, y) && !inBed(x, y) && spaced(planting.trees, x, y, 7)) planting.trees.push([x, y]);
   }
+  if (landscape) {
+    planting.grass = [];
+    for (let i = 0; i < 3500 && planting.grass.length < 700; i++) {
+      const x = (rnd() * 2 - 1) * reachT, y = (rnd() * 2 - 1) * reachT;
+      if (ok(x, y) && !inBed(x, y)) planting.grass.push([x, y]);
+    }
+  }
 
   yield;
   // Land use from the 연속지적도 parcels (지목), painted under the complex and the roads:
@@ -961,18 +1001,17 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
   const inSite = (x: number, y: number) => data.site.some(r => inRing([x, y], r));
   const lotTones = ["#a9a59c", "#b3aea4", "#9e9a92", "#bbb4a7", "#a49e92", "#aeaaa2", "#98958f"];
   const LAND: Record<string, { c: string | ((i: number) => string); r: number }> = {
-    대: { c: i => lotTones[i % lotTones.length], r: 205 }, 도: { c: "#55585c", r: 185 }, 차: { c: "#4b4e52", r: 190 },
+    대: { c: landscape ? lawn : i => lotTones[i % lotTones.length], r: landscape ? 245 : 205 }, 도: { c: "#55585c", r: 185 }, 차: { c: "#4b4e52", r: 190 },
     주: { c: "#8f8d88", r: 170 }, 장: { c: "#8a8a86", r: 200 }, 창: { c: "#8e8c87", r: 200 }, 철: { c: "#6d655b", r: 245 },
     공: { c: lawn, r: 245 }, 체: { c: "#5d8744", r: 240 }, 원: { c: lawn, r: 245 }, 묘: { c: lawn, r: 245 },
-    학: { c: "#bfa27a", r: 250 }, 임: { c: "#46542f", r: 252 }, 전: { c: "#86704f", r: 252 }, 답: { c: paddy, r: 200 },
+    학: { c: "#bfa27a", r: 250 }, 임: { c: landscape ? "#376a43" : "#46542f", r: 252 }, 전: { c: "#86704f", r: 252 }, 답: { c: paddy, r: 200 },
     과: { c: "#6f7a45", r: 250 }, 목: { c: "#77814a", r: 250 },
     // Water parcels: their banks (둔치); the water itself is a surface on the channel (sceneWater.ts).
     천: { c: "#6b7a4f", r: 240 }, 구: { c: "#6f7a55", r: 240 }, 유: { c: "#6b7a4f", r: 240 }, 양: { c: "#6b7a4f", r: 240 },
     제: { c: "#7b8a55", r: 245 }, 종: { c: "#a8a298", r: 205 }, 사: { c: "#9f9888", r: 220 }, 수: { c: "#8e8c87", r: 200 },
-    잡: { c: "#948a78", r: 240 }, 광: { c: "#8f877a", r: 240 }, 염: { c: "#b9b8b0", r: 120 },
+    잡: { c: landscape ? "#587c4b" : "#948a78", r: 240 }, 광: { c: "#8f877a", r: 240 }, 염: { c: "#b9b8b0", r: 120 },
   };
   // Covered streams (a road runs along the water parcel) are painted as the road they are.
-  const covered = waterCovered(data);
   // A school ground: a dirt pitch inside a band of grass, the two worked into each other
   // (grass creeping in from the edges, worn earth where the grass is walked), with a
   // lighter, beaten patch in the middle.
@@ -1022,9 +1061,10 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
     }
     ctx.restore();
   };
-  const paintLand = function* (ctx: CanvasRenderingContext2D, rough: boolean): Generator<void, void> {
+  const paintLand = function* (ctx: CanvasRenderingContext2D, rough: boolean, hardOnly = false): Generator<void, void> {
     for (let i = 0; i < parcels.length; i++) {
       const p = parcels[i];
+      if (hardOnly && !hardParcels.has(p.kind)) continue;
       if (i && i % 250 === 0) yield;
       if (p.kind === "학" && !rough) { yield* schoolGround(ctx, p.ring, i); continue; }
       const spec = (WATER_KINDS.has(p.kind) && covered[i] ? LAND.도 : LAND[p.kind]) ?? LAND.대;
@@ -1038,6 +1078,7 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
   // buildings, roads and each other. A school keeps its playground open: its trees
   // stand in a row along the edge of the parcel, a few metres in, as schools plant them.
   const landTrees: [number, number][] = [];
+  const groveCells=new Map<string,{pattern:number;points:[number,number][]}>();
   for (const p of parcels) {
     if (p.kind === "학") {
       const ring = p.ring, n = ring.length;
@@ -1065,15 +1106,58 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
     for (const [x, y] of p.ring) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
     x0 = Math.max(x0, -T); y0 = Math.max(y0, -T); x1 = Math.min(x1, T); y1 = Math.min(y1, T);
     let tested = 0;
-    for (let y = y0 + gap / 2; y < y1 && landTrees.length < 900; y += gap * 0.87) {
-      for (let x = x0 + gap / 2 + ((y / gap) % 2) * gap / 2; x < x1; x += gap) {
+    for (let y = y0 + gap / 2; y < y1 && landTrees.length < (landscape ? 1500 : 900); y += gap * 0.87) {
+      for (let x = x0 + gap / 2 + ((y / gap) % 2) * gap / 2; x < x1 && landTrees.length < (landscape ? 1500 : 900); x += gap) {
         const jx = x + (rnd() - 0.5) * gap * 0.5, jy = y + (rnd() - 0.5) * gap * 0.5;
-        if (free(jx, jy) && inRing([jx, jy], p.ring) && !inSite(jx, jy)) landTrees.push([jx, jy]);
+        if (free(jx, jy) && inRing([jx, jy], p.ring) && !inSite(jx, jy)) {
+          if(landscape && p.kind==='임'){
+            const gx=Math.floor(jx/24),gy=Math.floor(jy/24),key=`${gx}:${gy}`;
+            const patch=groveCells.get(key)??{pattern:Math.abs(gx*31+gy*17+seed)%4,points:[]};
+            if(patch.points.length<26)patch.points.push([jx,jy]);groveCells.set(key,patch);
+          }else landTrees.push([jx,jy]);
+        }
         if (++tested % 400 === 0) yield;
       }
     }
   }
   planting.trees.push(...landTrees);
+  if(landscape)planting.groves=[...groveCells.values()];
+
+  // Decorative courtyard planting follows the cadastral boundary, not invented
+  // surveyed footpaths. All positions are on the complex's open ground.
+  const soilPatches: [number, number, number, number, number][] = [];
+  if (landscape && hasSite) {
+    const garden = rng(seed + 503);
+    for (let i = 0; i < 900 && soilPatches.length < 18; i++) {
+      const x = (garden() * 2 - 1) * reachT, y = (garden() * 2 - 1) * reachT;
+      const rx = 2.6 + garden() * 3.2, ry = 1.8 + garden() * 2.2, a = garden() * Math.PI;
+      if (!ok(x, y) || !inSite(x, y) || inBed(x, y)) continue;
+      if (soilPatches.some(([sx, sy, sr]) => Math.hypot(x - sx, y - sy) < rx + sr + 2)) continue;
+      if (Array.from({ length: 24 }, (_, q) => {
+        const t = q * Math.PI / 12, u = Math.cos(t) * (rx + 1), v = Math.sin(t) * (ry + 1);
+        const px = x + u * Math.cos(a) - v * Math.sin(a), py = y + u * Math.sin(a) + v * Math.cos(a);
+        return ok(px, py) && inSite(px, py);
+      }).every(Boolean)) soilPatches.push([x, y, rx, ry, a]);
+    }
+    planting.border = [];
+    let run = 0;
+    for (const ring of data.site) {
+      let area = 0;
+      ring.forEach(([x, y], i) => { const [bx, by] = ring[(i + 1) % ring.length]; area += x * by - bx * y; });
+      const inward = area > 0 ? 1 : -1;
+      for (let i = 0; i < ring.length; i++, run++) {
+        const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % ring.length], len = Math.hypot(bx - ax, by - ay);
+        if (len < 4) continue;
+        const nx = -(by - ay) / len * inward, ny = (bx - ax) / len * inward;
+        for (let d = 2; d < len - 2 && planting.border.length < 280; d += 1.3) for (const inset of [5, 6.2]) {
+          const x = ax + (bx - ax) * d / len + nx * inset, y = ay + (by - ay) * d / len + ny * inset;
+          if (planting.border.length < 280 && ok(x, y) && inSite(x, y) &&
+            [[.9, 0], [-.9, 0], [0, .9], [0, -.9]].every(([dx, dy]) => ok(x + dx, y + dy) && inSite(x + dx, y + dy)))
+            planting.border.push([x, y, run + Math.floor(d / 12)]);
+        }
+      }
+    }
+  }
 
   const layout = function* (ctx: CanvasRenderingContext2D, c: { base: string; walk: string; asphalt: string; lawn: string; path: string; apron: string; bed: string }): Generator<void, void> {
     ctx.fillStyle = c.base; ctx.fillRect(0, 0, S, S);
@@ -1083,12 +1167,32 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
     ctx.save();
     if (hasSite) { sitePath(ctx); ctx.clip("evenodd"); ctx.fillStyle = c.lawn; ctx.fillRect(0, 0, S, S); }
     else { ctx.fillStyle = c.lawn; ctx.strokeStyle = c.lawn; ctx.lineWidth = m(40); towers.forEach(r => { path(ctx, r); ctx.stroke(); ctx.fill(); }); }
+    if (landscape) {
+      yield* paintLand(ctx, ctx === rg, true);
+      const earthy = ctx === rg;
+      soilPatches.forEach(([x, y, rx, ry, a]) => {
+        ctx.save(); ctx.translate(X(x), Y(y)); ctx.rotate(-a); ctx.scale(m(rx), m(ry));
+        const wash = ctx.createRadialGradient(0, 0, .45, 0, 0, 1);
+        wash.addColorStop(0, earthy ? "rgb(0,250,0)" : "#987950");
+        wash.addColorStop(.7, earthy ? "rgb(0,250,0)" : "#8c704e");
+        wash.addColorStop(1, earthy ? "rgba(0,250,0,0)" : "rgba(140,112,78,0)");
+        ctx.fillStyle = wash; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
+      });
+      ctx.fillStyle = earthy ? "rgb(0,250,0)" : "#785b3b";
+      for (const [x, y] of planting.border ?? []) {
+        ctx.beginPath(); ctx.ellipse(X(x), Y(y), m(.8), m(.8), 0, 0, Math.PI * 2); ctx.fill();
+      }
+    }
     if (hasSite) { ctx.strokeStyle = c.path; ctx.lineWidth = m(7); data.site.forEach(r => { path(ctx, r); ctx.stroke(); }); ctx.strokeStyle = c.lawn; ctx.lineWidth = m(2.2); data.site.forEach(r => { path(ctx, r); ctx.stroke(); }); }
     ctx.strokeStyle = c.apron; ctx.lineWidth = m(10);
     towers.forEach(r => { path(ctx, r); ctx.stroke(); });
     ctx.fillStyle = c.bed;
     beds.forEach(([x, y, rx, ry, a]) => { ctx.beginPath(); ctx.ellipse(X(x), Y(y), m(rx), m(ry), a, 0, Math.PI * 2); ctx.fill(); });
     ctx.restore();
+    if (landscape) {
+      ctx.strokeStyle = c.apron; ctx.lineWidth = m(3);
+      data.context.forEach(b => { path(ctx, b.rings[0]); ctx.stroke(); });
+    }
     // Roads last, at their surveyed width with the sidewalk each side (raised in 3D by
     // sceneSidewalk.ts): a road that crosses the parcel is real and stays paved.
     ctx.strokeStyle = c.walk;
@@ -1096,7 +1200,60 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
     ctx.strokeStyle = c.asphalt;
     roads.forEach(r => { ctx.lineWidth = m(r.width); line(ctx, r.line); ctx.stroke(); });
   };
-  yield* layout(cg, { base: "#8e8c86", walk: "#b3aea5", asphalt: "#3e4146", lawn, path: "#b9b1a2", apron: "#aea799", bed: "#4a3d30" });
+  yield* layout(cg, { base: landscape ? "#4c7846" : "#8e8c86", walk: "#b3aea5", asphalt: "#3e4146", lawn, path: "#b9b1a2", apron: "#aea799", bed: landscape ? "#785b3b" : "#4a3d30" });
+  if (landscape) {
+    // The raster excludes paving; the occupancy mask adds footprint/road clearance.
+    const pixels=cg.getImageData(0,0,S,S).data;
+    const green=(x:number,y:number)=>{const o=(Math.floor(Y(y))*S+Math.floor(X(x)))*4;return pixels[o+1]>pixels[o]*1.18 && pixels[o+1]>pixels[o+2]*1.18;};
+    const earth=(x:number,y:number)=>{const o=(Math.floor(Y(y))*S+Math.floor(X(x)))*4;return pixels[o]>pixels[o+1]*1.14 && pixels[o+1]>pixels[o+2]*1.2 && pixels[o+2]<115;};
+    const plantable=(p:[number,number])=>free(...p)&&(green(...p)||earth(...p));
+    planting.trees=planting.trees.filter(plantable);planting.shrubs=planting.shrubs.filter(plantable);planting.flowers=planting.flowers.filter(plantable);
+    planting.grass=planting.grass!.filter(p=>free(...p)&&green(...p));
+    planting.border=planting.border?.filter(([x,y])=>plantable([x,y]));
+    // Near hills used to require a registered 임야 parcel. The far worker also
+    // rejected hills below +35 m relative to the selected apartment. Both now
+    // recognise local DEM relief, with the same existing occupancy rules.
+    if (grid) {
+      const fallback = new Map<string,{pattern:number;points:[number,number][]}>();
+      let seen = 0;
+      const samples = Math.max(1, Math.ceil((2*T/5.5)**2 / 32000));
+      for (let y=-T+8;y<T;y+=5.5) {
+        yield;
+        for (let x=-T+8;x<T;x+=5.5) {
+          const px=x+(rnd()-.5)*2.5,py=y+(rnd()-.5)*2.5;
+          if (++seen%samples || inSite(px,py) || !free(px,py) || !green(px,py) || !woodedTerrain(grid,px,py)) continue;
+          const gx=Math.floor(px/24),gy=Math.floor(py/24),key=`${gx}:${gy}`;
+          if (groveCells.has(key)) continue;
+          const patch=fallback.get(key)??{pattern:Math.abs(gx*31+gy*17+seed)%4,points:[]};
+          if (patch.points.length<26) patch.points.push([px,py]); fallback.set(key,patch);
+        }
+      }
+      planting.groves!.push(...fallback.values());
+    }
+    const woodland=woodlandBeds(planting.groves??[],(x,y)=>free(x,y)&&green(x,y),seed,WOODLAND_FLOWERS);
+    planting.groves=woodland.groves;planting.woodlandFlowers=woodland.beds;
+    for(let y=-T+10;y<T;y+=16){
+      yield;
+      for(let x=-T+10;x<T;x+=16){
+        const px=x+(rnd()-.5)*8,py=y+(rnd()-.5)*8;
+        if(!free(px,py)||!green(px,py))continue;
+        if(planting.trees.length<1800 && !groveCells.has(`${Math.floor(px/24)}:${Math.floor(py/24)}`) && !(!inSite(px,py)&&woodedTerrain(grid,px,py)) && spaced(planting.trees,px,py,7))planting.trees.push([px,py]);
+        if(planting.shrubs.length<2200 && free(px+1,py-1)&&green(px+1,py-1))planting.shrubs.push([px+1,py-1]);
+        if((planting.grass?.length??0)<1200)planting.grass!.push([px,py]);
+        if(planting.flowers.length<3200 && rnd()<.6)for(let f=0;f<5;f++){
+          const fx=px+2+(rnd()-.5)*3,fy=py+2+(rnd()-.5)*3;
+          if(free(fx,fy)&&green(fx,fy))planting.flowers.push([fx,fy]);
+        }
+      }
+    }
+    // Shared paint: broken soil patches among the greens, no extra terrain geometry.
+    for(let i=0;i<5000;i++){
+      if(i && i%800===0)yield;
+      const x=(rnd()*2-1)*T,y=(rnd()*2-1)*T;if(!green(x,y))continue;
+      cg.globalAlpha=.12;cg.fillStyle=i%7===0?'#876a45':i%2?'#699654':'#315d3c';cg.beginPath();cg.ellipse(X(x),Y(y),m(1+rnd()*3),m(.6+rnd()*2),rnd()*Math.PI,0,Math.PI*2);cg.fill();
+    }
+    cg.globalAlpha=1;
+  }
   yield;
   yield* layout(rg, { base: "rgb(0,190,0)", walk: "rgb(0,150,0)", asphalt: "rgb(0,120,0)", lawn: "rgb(0,245,0)", path: "rgb(0,140,0)", apron: "rgb(0,125,0)", bed: "rgb(0,250,0)" });
 
@@ -1125,7 +1282,7 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
   cg.filter = "none";
   yield;
   // Fade toward the edge, so nothing streaks past the painted area.
-  for (const [ctx, base] of [[cg, "142,140,134"], [rg, "0,190,0"]] as const) {
+  for (const [ctx, base] of [[cg, landscape ? "76,120,70" : "142,140,134"], [rg, landscape ? "0,245,0" : "0,190,0"]] as const) {
     const fade = ctx.createRadialGradient(S / 2, S / 2, S * 0.36, S / 2, S / 2, S * 0.5);
     fade.addColorStop(0, `rgba(${base},0)`); fade.addColorStop(1, `rgba(${base},1)`);
     ctx.fillStyle = fade; ctx.fillRect(0, 0, S, S);

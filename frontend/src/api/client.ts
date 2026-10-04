@@ -1250,6 +1250,8 @@ export interface RealEstateBuildingsResponse {
   /** Surveyed road centrelines (국가기본도 도로중심선) within ~150 m of the parcel,
    * with their registered width (m) and lane count; major roads only. */
   roads?: RealEstateRoad[];
+  /** Above-ground building boundaries covering the complete road query area. */
+  road_building_footprints?: [number, number][][];
   /** 연속지적도 parcels around the complex with their 지목 (대, 도, 공, 학, 천, 임 …),
    * outer ring in the same metre frame; the ground is painted by land use from them. */
   parcels?: RealEstateParcel[];
@@ -1324,10 +1326,10 @@ export const api = {
     getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
   /** Open water round a point (OpenStreetMap lakes, ponds, river areas): rings in metres about it. */
   realEstateWater: (lat: number, lon: number, r: number) =>
-    getJSON<{ rings: { ring: [number, number][]; kind: string; name: string | null }[]; source: string | null }>(`${BASE}/realestate/water?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}`),
+    getJSON<{ rings: { ring: [number, number][]; kind: string; name: string | null }[]; source: string | null }>(`${BASE}/realestate/water?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}&v=2`),
   /** Mapped crosswalks and traffic signals round a point (OpenStreetMap), in metres about it. */
   realEstateCrossings: (lat: number, lon: number, r: number) =>
-    getJSON<{ crossings: { line: [number, number][]; signals: boolean }[]; points: { at: [number, number]; signals: boolean; marked: boolean }[]; signals: [number, number][]; source: string | null }>(`${BASE}/realestate/crossings?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}`),
+    getJSON<{ crossings: { line: [number, number][]; signals: boolean }[]; points: { at: [number, number]; signals: boolean; marked: boolean }[]; signals: [number, number][]; source: string | null }>(`${BASE}/realestate/crossings?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}&v=2`),
   /** 3D 단지뷰 배송 게임: a finished drive recorded; the board (players by total score, rank 1
    * first) and the player's own rank. */
   driveScorePost: (p: { player_id: string; name: string; score: number; deliveries: number; vehicle: string }) =>

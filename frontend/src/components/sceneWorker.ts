@@ -8,6 +8,9 @@ import { cutPaths, type WalkPath } from './sceneWalkers';
 import { makeGroundGeometry } from "./groundGeometry";
 import { FLAT } from "./sceneTerrain";
 import { neighbourArrays, type NeighbourJob, type NeighbourArrays } from "./neighbourGeometry";
+import {constrainRoadCorridors}from'./roadCorridors';
+import {excludeSurface}from'./surfaceExclusion';
+import * as THREE from 'three';
 
 /* The 3D view's scene work that needs no page, done off its thread (sceneWorkerClient.ts):
  * while a complex loads, the page only draws frames and wraps the arrays sent back.
@@ -20,13 +23,15 @@ import { neighbourArrays, type NeighbourJob, type NeighbourArrays } from "./neig
 export type GroundData = Pick<RealEstateBuildingsResponse, "site" | "roads" | "parcels" | "streets"> & { buildings: { rings: [number, number][][] }[]; context: { rings: [number, number][][] }[] };
 
 export type SceneOps = {
+  surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null}};
+  roads: {args:{roads:RealEstateRoad[];footprints:[number,number][][]};result:RealEstateRoad[]};
   neighbours: { args: { jobs: NeighbourJob[] }; result: NeighbourArrays[] };
   walkPaths: {args:{paths:WalkPath[];roads:RealEstateRoad[];footprints:[number,number][][];T:number};result:WalkPath[]};
   terrainGround: {args:{T:number;G:number;segs:number;grid:HeightGrid|null};result:{position:Float32Array;normal:Float32Array;uv:Float32Array;index:Uint16Array|Uint32Array;grid:{xs:Float64Array;ys:Float64Array};sphere:{center:[number,number,number];radius:number}}};
   bridges: { args: { roads: RealEstateRoad[]; parcels: RealEstateParcel[]; covered: boolean[]; grid: HeightGrid | null }; result: Bridge[] };
   sidewalks: { args: { roads: RealEstateRoad[]; footprints: [number, number][][] }; result: Run[] };
   water: { args: { rings: [number, number][][]; grid: HeightGrid | null }; result: { field: FieldData; surface: WaterArrays | null } | null };
-  ground: { args: { data: GroundData; T: number; size: number; seed: number }; result: { color: ImageBitmap; rough: ImageBitmap; glow: ImageBitmap; planting: Planting; lamps: Lamp[]; covered: boolean[] } };
+  ground: { args: { data: GroundData; T: number; size: number; seed: number; landscape?: boolean; grid?: HeightGrid }; result: { color: ImageBitmap; rough: ImageBitmap; glow: ImageBitmap; planting: Planting; lamps: Lamp[]; covered: boolean[] } };
 };
 type Msg = { [K in keyof SceneOps]: { id: number; op: K; args: SceneOps[K]["args"] } }[keyof SceneOps];
 
@@ -43,9 +48,9 @@ async function water({ rings, grid }: SceneOps["water"]["args"]): Promise<[Scene
   return [{ field, surface }, transfer];
 }
 
-async function ground({ data, T, size, seed }: SceneOps["ground"]["args"]): Promise<[SceneOps["ground"]["result"], Transferable[]]> {
+async function ground({ data, T, size, seed, landscape, grid }: SceneOps["ground"]["args"]): Promise<[SceneOps["ground"]["result"], Transferable[]]> {
   const full = data as unknown as RealEstateBuildingsResponse;
-  const made = runNow(groundCanvasSteps(full, T, size, seed));
+  const made = runNow(groundCanvasSteps(full, T, size, seed, landscape, grid));
   // (upright already: a bitmap is not flipped on its way to the GPU in WebGL)
   const up = (c: HTMLCanvasElement) => createImageBitmap(c as unknown as OffscreenCanvas, { imageOrientation: "flipY" });
   const [color, rough, glow] = await Promise.all([up(made.color), up(made.rough), up(made.glow)]);
@@ -56,7 +61,14 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
   const m = e.data;
   try {
     let result: unknown, transfer: Transferable[] = [];
-    if (m.op === 'neighbours') {
+    if(m.op==='surfaceCut'){
+      const g=new THREE.BufferGeometry();for(const a of m.args.attributes)g.setAttribute(a.name,new THREE.BufferAttribute(a.array,a.size));if(m.args.index)g.setIndex(new THREE.BufferAttribute(m.args.index,1));
+      await excludeSurface(g,m.args.rings,go);
+      const attributes=Object.entries(g.attributes).map(([name,a])=>({name,size:a.itemSize,array:a.array})),index=g.index?.array??null;
+      result={attributes,index};transfer=attributes.map(a=>a.array.buffer);if(index)transfer.push(index.buffer);
+    }
+    else if(m.op==='roads')result=constrainRoadCorridors(m.args.roads,m.args.footprints);
+    else if (m.op === 'neighbours') {
       const arrays = m.args.jobs.map(neighbourArrays);
       result = arrays;
       transfer = arrays.flatMap(a => Object.values(a).map(v => v.buffer)) as ArrayBuffer[];

@@ -18,7 +18,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { fastMergeVertices } from "./fastMerge";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex, RealEstateParcel, RealEstateRoad, type DriveBoard } from "../api/client";
-import { vworldBuildingNames, vworldBuildings, vworldPointArea, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
+import { vworldBuildingNames, vworldBuildings, vworldPointArea, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, vworldRoadFootprints, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
@@ -27,10 +27,12 @@ import { paintAhead, paintStats, paintTextures, plinthTone, prefetchPaint } from
 import "../desk2/realestate-hologram.css";
 import type { ComplexRenderer, Quality } from "./tidewater/ComplexRenderer";
 import { endWalls, facadeRelief } from "./tidewater/facadeRelief";
+import { textureBudgetEnabled } from './textureBudget';
+import {plantingSnapshot,samePlanting} from './plantingSnapshot';
 import { loadBuildings, saveBuildings } from "./buildingStore";
 import { buildPlants, preloadPlants } from "./scenePlants";
 import { vehicleShapes } from "./vehicleClient";
-import { buildLamps, buildRoadMarkings, buildRoadSurface, buildTraffic, stitchedRoads } from "./sceneStreet";
+import { buildLamps, buildRoadMarkings, buildRoadSurface, buildTraffic, stitchedRoads,preloadTraffic,type TrafficArms } from "./sceneStreet";
 import { FLAT, gradeRoads, gridNormals, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
 import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
 import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
@@ -45,7 +47,12 @@ import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice } from "./frameSlice";
 import { SceneResources } from "./sceneResources";
 import { makeGroundGeometry } from "./groundGeometry";
-import { drapeRoadSurface } from "./roadDrape";
+import { drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight } from "./roadDrape";
+import { drapeRoadOffThread } from './roadDrapeClient';
+import {constrainRoadCorridors}from'./roadCorridors';
+import {roadFootprints}from'./roadJunctions';
+import {splitRoadJunctions}from'./roadTrafficNetwork';
+import {excludeSurface}from'./surfaceExclusion';
 import { sceneWork } from "./sceneWorkerClient";
 import type { SceneOps } from "./sceneWorker";
 import { neighbourArrays, neighbourGeometry } from "./neighbourGeometry";
@@ -373,6 +380,7 @@ type Stage = {
   attach: (next: HTMLDivElement) => void;
   /** Add decoration; on WebGL its programs compile in parallel before it joins the scene. */
   addWarm: (parent: THREE.Object3D, obj: THREE.Object3D) => void;
+  drawReady: (obj: THREE.Object3D) => boolean;
   frame: () => void;
   /** A picture of the next frame drawn, for sharing (null: none wanted). */
   snap: ((frame: Blob | null) => void) | null;
@@ -490,8 +498,20 @@ function firstLook(id: string): Promise<RealEstateBuildingsResponse | null> {
   return remember(prefetched, id, job);
 }
 /** The surveyed roads for a result that lacks them (once per complex). */
+async function cutSceneSurface(geometry:THREE.BufferGeometry,rings:[number,number][][],pace:()=>Promise<boolean>){
+  const result=await sceneWork('surfaceCut',{attributes:Object.entries(geometry.attributes).map(([name,a])=>({name,size:a.itemSize,array:a.array as Float32Array})),index:geometry.index?.array as Uint16Array|Uint32Array??null,rings})?.catch(()=>null);
+  if(!await pace())return;
+  if(result){geometry.setIndex(result.index?new THREE.BufferAttribute(result.index,1):null);for(const a of result.attributes)geometry.setAttribute(a.name,new THREE.BufferAttribute(a.array,a.size));geometry.computeBoundingSphere();}
+  else await excludeSurface(geometry,rings,pace);
+}
 function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEstateBuildingsResponse> {
-  if (!res.vworld_key || !res.center) return Promise.resolve(res);
+  const footprintJob=res.vworld_key&&res.center?vworldRoadFootprints(res,res.vworld_key,res.vworld_domain,RING_M).catch(()=>[]):Promise.resolve([]);
+  const correct=async(roads:RealEstateRoad[])=>{
+    const footprints=[...await footprintJob,...[...res.buildings,...res.context].filter(b=>b.height>=2.5||b.floors>0).map(b=>b.rings[0])];
+    const fixed=await sceneWork('roads',{roads,footprints})?.catch(()=>null)??constrainRoadCorridors(roads,footprints);
+    return {...res,roads:fixed,road_building_footprints:footprints};
+  };
+  if (!res.vworld_key || !res.center) return res.roads?.length?correct(res.roads):Promise.resolve(res);
   const had = roadsOf.get(id);
   if (had) return had;
   // The roads of the whole neighbourhood drawn (RING_M), not the parcel's 150 m the result carries:
@@ -501,7 +521,7 @@ function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEs
   const job = Promise.race([
     vworldRoadsAround(res, res.vworld_key, res.vworld_domain, RING_M).then(r => (r.length ? r : near)).catch(() => near),
     new Promise<RealEstateRoad[] | null>(r => window.setTimeout(() => void near.then(r), 4000)),
-  ]).then(roads => (roads?.length ? { ...res, roads } : res));
+  ]).then(roads => roads?.length?correct(stitchedRoads(roads)):res);
   return remember(roadsOf, id, job);
 }
 function terrainOnce(id: string, res: RealEstateBuildingsResponse): Promise<Terrain> {
@@ -1081,6 +1101,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       ground: null, model: null, pickables: [], intro: null, fly: null,
       now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null, signs: null, traffic: null, follow: null, drive: null, crowds: [], viewH: 600,
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
+      drawReady: obj => native ? native.objectsReady(obj) : !nativePending && !!obj.parent,
     };
     stageRef.current = stage;
     if (import.meta.env.DEV) Object.assign(window, { __holoStage: stage });
@@ -1747,7 +1768,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Its facades start painting now, alongside the network.
     if (!pausedRef.current) { prefetchPaint(complexId, complexName); preloadPlants(); }
     if (hostRef.current) {
-      for(const key of ['shownAt','plantsStartedAt','plantsPhase','plantsReadyAt','roadsReadyAt','lampsReadyAt','trafficReadyAt','sceneReady','ringAt','ring','ringSurveyed','photoBuildings','farGround','boats','kids','sharp'])delete hostRef.current.dataset[key];
+      for(const key of ['shownAt','plantsStartedAt','plantsPhase','plantsReadyAt','plantsTiming','roadsReadyAt','lampsReadyAt','trafficReadyAt','trafficArmedAt','sceneReady','ringAt','ring','ringSurveyed','ringStart','ringGot','photoBuildings','farGround','farPlants','farGroves','farPlantsReadyAt','waterReadyAt','waterDataReadyAt','boatsReadyAt','walkersReadyAt','parcelActorsReadyAt','boats','kids','sharp'])delete hostRef.current.dataset[key];
       hostRef.current.dataset.selectAt = started.toFixed(0);
     }
     const slowTimer = window.setTimeout(() => { if (live) setSlowData(true); }, 3000);
@@ -1824,6 +1845,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       .then(async res => {
         if (!live) return res;
         if (res.found && res.center) {
+          if(textureBudgetEnabled()){preloadPlants();preloadTraffic();if(!res.parcels&&res.vworld_key)void vworldParcels(res,res.vworld_key,res.vworld_domain).catch(()=>{});}
           void nearbyWater(res.center.lat, res.center.lon).catch(() => {});
           void nearbyCrossings(res.center.lat, res.center.lon).catch(() => {});
         }
@@ -1980,11 +2002,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const T = Math.max((footprintRadius + 300) * 1.15, Math.max(maxX - minX, maxY - minY, 60) * 0.9 + 120);
     const reach = footprintRadius + 300;
     const tints = ["#f1ede4", "#e4e1da", "#d9d4ca", "#c9b8a4", "#b88f78", "#a9b3bb", "#e8e3d3", "#cfc9bd"];
-    // Preserve the surveyed-road filter when scheduling neighbourhood work early.
-    const inRoad = carriageway((data.roads ?? []).filter(r => r.width >= 6), -1.5);
-    const onRoad = (b: RealEstateBuilding) => { const ring = b.rings[0], [cx, cy] = ring.reduce(([sx, sy], [x, y]) => [sx + x / ring.length, sy + y / ring.length], [0, 0]); return inRoad(cx, cy) && ring.filter(([x, y]) => inRoad(x, y)).length * 2 >= ring.length; };
-    const neighbours = data.context.filter(b => b.rings[0].some(([x, y]) => Math.hypot(x, y) <= reach) && !onRoad(b));
-    const groundJob = groundPlan(data, T, stage.hq ? 2048 : 1024, seed, pace).then(plan => {
+    const neighbours = data.context.filter(b => b.rings[0].some(([x, y]) => Math.hypot(x, y) <= reach));
+    const groundJob = groundPlan(data, T, stage.hq ? 2048 : 1024, seed, pace, terrain.grid).then(plan => {
       if (!plan) return null;
       if (!alive) { plan.color.dispose(); plan.rough.dispose(); plan.glow.dispose(); return null; }
       [plan.color, plan.rough, plan.glow].forEach(keep);
@@ -1999,7 +2018,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const facadeMaterial = async (pal: Palette, s: number, bay = BAY_M, storey = FLOOR_M, scale = 1) => {
       // Started when the complex was chosen (alongside its network wait), or kept from
       // an earlier visit.
-      const tex = await paintTextures(scale === 1 ? { kind: "facade", palette: pal, seed: s } : { kind: "facade", palette: pal, seed: s, scale }, pace);
+      const architecture = textureBudgetEnabled();
+      const tex = await paintTextures(architecture ? {kind:'facade',palette:pal,seed:s,appearance:'architecture'}
+        : scale === 1 ? { kind: "facade", palette: pal, seed: s } : { kind: "facade", palette: pal, seed: s, scale }, pace);
       if (!tex) return null;
       if (!alive) { Object.values(tex).forEach(t => t.dispose()); return null; }
       // Painted for this complex only and never repainted: the WebGPU view empties the
@@ -2007,7 +2028,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       Object.values(tex).forEach(t => { t.userData.releaseAfterUpload = true; });
       Object.values(tex).forEach(keep);
       // (the tile is 8 bays by 8 storeys: fitted to the measured window pitch and storey)
-      if (bay !== BAY_M || storey !== FLOOR_M) Object.values(tex).forEach(t => { t.repeat.set(1 / (8 * bay), 1 / (8 * storey)); t.offset.set(0, (1 - GROUND_M) / (8 * storey)); });
+      const cells = architecture ? 4 : 8;
+      if (bay !== BAY_M || storey !== FLOOR_M) Object.values(tex).forEach(t => { t.repeat.set(1 / (cells * bay), 1 / (cells * storey)); t.offset.set(0, (1 - GROUND_M) / (cells * storey)); });
       const m = keep(new THREE.MeshPhysicalMaterial({
         map: tex.map, normalMap: tex.normalMap, normalScale: new THREE.Vector2(0.9, 0.9),
         roughnessMap: tex.rmMap, metalnessMap: tex.rmMap, roughness: 1, metalness: 1,
@@ -2016,7 +2038,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }));
       patchMaterial(m, { glass: true });
       // (WebGPU: rooms behind the clear glass — interior mapping, ComplexRenderer)
-      m.userData.interior = true;
+      m.userData.interior = architecture ? {grid:[4,4],bay,storey,ceil:.1,floor:.84,recess:true} : true;
       m.userData.detail = "paint";
       lit.windows.push(m);
       return m;
@@ -2379,7 +2401,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const surveyedNear: number[] = [];
     const landmarksNear = data.center ? LANDMARKS.filter(lm => Math.hypot(...metresFrom(data.center!, lm.lat, lm.lon)) < RING_M + lm.radius) : [];
     let surveyPass: Promise<unknown> = Promise.resolve();
-    if (photoPending) afterShown(() => { stage.busy++; surveyPass = (async () => {
+    if (photoPending) (textureBudgetEnabled()?(f:()=>void)=>f():afterShown)(() => { stage.busy++; surveyPass = (async () => {
       let photos: PhotoBuilding[] = [];
       const extra = new Set<PhotoBuilding>();
       try {
@@ -2517,7 +2539,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         shelfX += pw; shelfH = Math.max(shelfH, ph2);
         return at;
       };
-      const paintsOf = new Map(await Promise.all(photos.filter(ph => !extra.has(ph)).map(async ph => [ph, await photoWallPaint(data.vworld_key!, ph).catch(() => [] as WallPaint[])] as const)));
+      // Spend photograph analysis on the selected buildings. Distant neighbours
+      // already have shared facade materials; analysing every wall costs hundreds
+      // of image requests without adding detail visible in the overview.
+      const paintPhotos = textureBudgetEnabled() ? own.slice(0,8) : photos;
+      const paintsOf = new Map(await Promise.all(paintPhotos.filter(ph => !extra.has(ph)).map(async ph => [ph, await photoWallPaint(data.vworld_key!, ph).catch(() => [] as WallPaint[])] as const)));
       // In a landmark's area (by where it stands, whichever fetch brought it).
       const lmAt = landmarksNear.map(lm => [...metresFrom(data.center!, lm.lat, lm.lon), lm.radius] as const);
       const inArea = (ph: PhotoBuilding) => extra.has(ph) || lmAt.some(([x, y, r]) => Math.hypot(ph.cx - x, ph.cy - y) <= r);
@@ -2680,6 +2706,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           return [(at.x + fu * w.cols * CELL) / ATLAS, (at.y + (1 - fz) * w.rows * CELL) / ATLAS];
         };
         const shape = surveyedShape(ph, terrain.base(fits[0].ring) - 0.25, windows, 1.0, own ? paintUv : undefined, !landmarkFace);
+        if(import.meta.env.DEV || import.meta.env.VITE_FILM === '1'){
+          const names=fits.map(f=>f.owner.startsWith('b')?data.buildings[Number(f.owner.slice(1))]?.name:neighbours[Number(f.owner.slice(1))]?.title);
+          const area=(g:THREE.BufferGeometry|null)=>{if(!g)return 0;const p=g.getAttribute('position');let total=0;const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();for(let i=0;i<p.count;i+=3){a.fromBufferAttribute(p,i);b.fromBufferAttribute(p,i+1);c.fromBufferAttribute(p,i+2);total+=b.sub(a).cross(c.sub(a)).length()/2;}return Math.round(total);};
+          const audit={key:ph.key,names,height,roof:shape.roofZ===null?null:shape.roofZ-shape.z0,walls:area(shape.walls),cores:area(shape.cores),ends:area(shape.ends),bands:area(shape.bands),source:names.some(n=>/(^|\D)(107|108|813|814)(동|$)/.test(String(n??'')))?{position:Array.from(ph.geometry.getAttribute('position').array),index:ph.geometry.index&&Array.from(ph.geometry.index.array)}:undefined};
+          const debug=window as unknown as {__holoFacadeAudit?:unknown[]};(debug.__holoFacadeAudit??=[]).push(audit);
+        }
         for (const g of [shape.walls, shape.roofs, shape.cores, shape.ends, shape.bands, shape.painted]) g?.translate(dx, dy, 0);
         ph.geometry.dispose();
         if (inArea(ph)) pickSurveyed(shape, cx, cy, height, hull);
@@ -2974,9 +3006,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     groundMat.userData.farGround = { map: blankFar(), half: FAR_HALF, on: false };
     // (WebGPU: grass, asphalt and paving detail in world space)
     groundMat.userData.groundDetail = true;
+    if(textureBudgetEnabled())groundMat.userData.naturalGround=T;
     const level = terrain.relief < 1.2;
     patchMaterial(groundMat, {
       detail: true,
+      naturalGround:textureBudgetEnabled()?T:undefined,
       reflect: stage.reflector && level ? {
         tex: { value: stage.reflector.getRenderTarget().texture },
         matrix: (stage.reflector.material as THREE.ShaderMaterial).uniforms.textureMatrix,
@@ -3008,13 +3042,19 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // the traffic, kerbs, people and lamps there stand on the deck (roadTerrain), not on the
     // river's surface.
     let deckAt: ((x: number, y: number) => number | null) | null = null;
+    let asphaltAt:ReturnType<typeof roadSurfaceHeight>|null=null;
     const roadTerrain: Terrain = { ...terrain, at: (x, y) => deckAt?.(x, y) ?? terrain.at(x, y) };
+    const trafficTerrain:Terrain={...roadTerrain,at:(x,y)=>asphaltAt?.(x,y)??roadTerrain.at(x,y)};
+    const physicalFootprints=[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])];
+    const pavementExclusions=[...roadFootprints(splitRoadJunctions(roads,true)),...physicalFootprints];
+    const cutPavements=async(g:THREE.Group)=>{await Promise.all((g.children as THREE.Mesh[]).map(m=>cutSceneSurface(m.geometry,pavementExclusions,later)));};
     // Open water the parcels don't register as such (석촌호수 is a 공원) or don't reach (a river
     // past them): OpenStreetMap's lakes and river areas, asked once the view is up (kept a day).
     let lakes: RealEstateParcel[] = [];
     // Keep the actual answer: timing out this promise used to discard lakes that
     // arrived late. Registered planting is shown independently below.
-    const lakesFetched: Promise<void> = new Promise<void>(resolve => afterShown(() => {
+    const beginGeography=textureBudgetEnabled()?(f:()=>void)=>f():afterShown;
+    const lakesFetched: Promise<void> = new Promise<void>(resolve => beginGeography(() => {
       if (!data.center) { resolve(); return; }
       const { lat, lon } = data.center, la = +lat.toFixed(4), lo = +lon.toFixed(4);
       // (asked about the rounded point, for the server's cache: moved back onto the centre)
@@ -3031,7 +3071,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let crossLines: { line: [number, number][] }[] = [];
     // (driving on into this area: nothing waits — the vehicle is coming)
     const driveIn = !!came?.drive;
-    const crossingsReady: Promise<void> = driveIn ? Promise.resolve() : new Promise<void>(resolve => afterShown(() => {
+    const crossingsReady: Promise<void> = driveIn ? Promise.resolve() : new Promise<void>(resolve => beginGeography(() => {
       if (!data.center) { resolve(); return; }
       const { lat, lon } = data.center, la = +lat.toFixed(4), lo = +lon.toFixed(4);
       const ox = (lo - lon) * 111320 * Math.cos((lat * Math.PI) / 180), oy = (la - lat) * 110540;
@@ -3082,7 +3122,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const next = await groundPlan(data, T, stage.hq ? 2048 : 1024, seed, async () => {
         if (performance.now() - sliceAt > 6) { await nextFrame(pausedRef.current); sliceAt = performance.now(); }
         return alive;
-      });
+      }, terrain.grid);
       if (!next) return plan.planting;
       for (const k of ["color", "rough", "glow"] as const) {
         // The new paint swapped in (the texture takes the new canvas and uploads it again):
@@ -3114,9 +3154,17 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // buildings, independently of water, walkers and boats. The complete surveyed
     // planting replaces them later, using the same seed, meshes and detail levels.
     let plantsRevision = 0;
+    let visiblePlanting:Planting|null=null;
+    const plantTimings:{phase:string;start:number;ready?:number;reused?:boolean}[]=[];
     let visiblePlants: { plants: NonNullable<Awaited<ReturnType<typeof buildPlants>>>; root: THREE.Group } | null = null;
     const showPlants = async (planting: Planting, phase: "initial" | "surveyed" | "complete") => {
       const revision = ++plantsRevision;
+      const timing={phase,start:Math.round(performance.now()),ready:undefined as number|undefined,reused:false};plantTimings.push(timing);
+      if(visiblePlants&&visiblePlanting&&samePlanting(visiblePlanting,planting)){
+        timing.ready=Math.round(performance.now());timing.reused=true;
+        if(hostRef.current){hostRef.current.dataset.plantsPhase=phase;hostRef.current.dataset.plantsReadyAt=String(timing.ready);hostRef.current.dataset.plantsTiming=JSON.stringify(plantTimings);}return;
+      }
+      const snapshot=plantingSnapshot(planting);
       const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
       if (!plants) return;
       if (!alive || revision !== plantsRevision) { plants.dispose(); return; }
@@ -3127,11 +3175,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       decor.add(root); stage.addWarm(root, plants.mesh);
       const previous = visiblePlants;
       visiblePlants = { plants, root };
+      visiblePlanting=snapshot;timing.ready=Math.round(performance.now());
       previous?.root.removeFromParent(); previous?.plants.dispose();
       stage.plantsFocus = plants.focus as Stage["plantsFocus"];
       if (hostRef.current) {
         hostRef.current.dataset.plantsPhase = phase;
         hostRef.current.dataset.plantsReadyAt = String(Math.round(performance.now()));
+        hostRef.current.dataset.plantsTiming=JSON.stringify(plantTimings);
       }
     };
     disposables.push({ dispose: () => {
@@ -3141,21 +3191,24 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         visiblePlants.root.removeFromParent(); visiblePlants.plants.dispose(); visiblePlants = null;
       }
     } });
-    afterShown(() => {
+    (textureBudgetEnabled()?(f:()=>void)=>f():afterShown)(() => {
       // Copy the lists: the detailed pass later adds street trees and filters water.
       const initial = { ...plan.planting, trees: [...plan.planting.trees], shrubs: [...plan.planting.shrubs],
-        flowers: [...plan.planting.flowers], street: [...plan.planting.street], border: plan.planting.border && [...plan.planting.border] };
+        flowers: [...plan.planting.flowers], grass: plan.planting.grass && [...plan.planting.grass], street: [...plan.planting.street], border: plan.planting.border && [...plan.planting.border] };
       if (hostRef.current) hostRef.current.dataset.plantsStartedAt = String(Math.round(performance.now()));
       void showPlants(initial, "initial").catch(err => console.info("[3D] Initial plants unavailable:", err));
     });
-    afterShown(() => void (async () => {
+    (textureBudgetEnabled()?(f:()=>void)=>f():afterShown)(() => void (async () => {
       if (!await later()) return;
-      await lakesReady;
+      const plantingJob=landUse().catch(err=>{console.info('[3D] Land use unavailable:',err);return plan.planting;});
+      if(!textureBudgetEnabled())await lakesReady;
       if (!await later()) return;
       const footprints = [...data.buildings, ...neighbours].map(b => b.rings[0]);
+      const runsJob=sceneWork("sidewalks", {roads, footprints})?.catch(() => null);
+      if(textureBudgetEnabled())await plantingJob;
       await placeBridges();
       if (!alive) return;
-      const runs = await sceneWork("sidewalks", {roads, footprints})?.catch(() => null)
+      const runs = await runsJob
         ?? (alive ? timed("sidewalkRuns", () => sidewalkRuns(roads, footprints)) : []);
       if (!alive) return;
       if (import.meta.env.DEV) (stage as unknown as { runs: unknown }).runs = runs;
@@ -3163,10 +3216,32 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // (no street trees in pits on a bridge's walkway)
       const streetOf = () => streetTrees(runs, plan.lamps).filter(([x, y]) => deckAt?.(x, y) == null);
       let street = streetOf();
+      const inFootprint = ringIndex(footprints);
+      const onCarriageway = carriageway(roads, 0.8);
+      const blocked = (x: number, y: number) => Math.abs(x) > T || Math.abs(y) > T || inFootprint(x, y) || onCarriageway(x, y);
+      // Water and final vegetation run alongside sidewalk mesh/actor creation.
+      // They use the same surveyed street roots and water field as the later pass.
+      const finalPlantsJob=textureBudgetEnabled()?(async()=>{
+        const planting=plantingSnapshot(await plantingJob);planting.street=street.slice();
+        planting.border=[...(planting.border??[]),...schoolBorders(data.parcels??[],blocked,T)];
+        await lakesFetched;if(!alive)return null;
+        const wp=waterParcels(),water=await buildWater(wp.parcels,wp.covered,terrain,pace);
+        if(!alive){water?.dispose();return null;}
+        if(water)disposables.push(water);
+        if(water){const dry=(p:readonly number[])=>!water.field.wet(p[0],p[1]);
+          planting.trees=planting.trees.filter(dry);planting.shrubs=planting.shrubs.filter(dry);planting.flowers=planting.flowers.filter(dry);planting.street=planting.street.filter(dry);
+          if(planting.grass)planting.grass=planting.grass.filter(dry);if(planting.border)planting.border=planting.border.filter(dry);
+          if(planting.groves)planting.groves=planting.groves.map(g=>({...g,points:g.points.filter(dry)}));
+          if(planting.woodlandFlowers)planting.woodlandFlowers=planting.woodlandFlowers.map(b=>({...b,points:b.points.filter(dry)}));
+        }
+        await showPlants(planting,"complete");return water;
+      })():null;
+      void finalPlantsJob?.catch(err=>console.info('[3D] Final plants unavailable:',err));
       const setPoles = () => { poleHolder.grid = new PoleGrid([...plan.lamps.map(l => ({ x: l.x, y: l.y, r: 0.2 })), ...street.map(([x, y]) => ({ x, y, r: 0.32 }))]); };
       setPoles();
       if (!await later()) return;
       let walks = await buildSidewalks(runs, roadTerrain, street.map(([x, y]) => [x, y] as [number, number]));
+      await cutPavements(walks.group);
       if (!alive) { walks.dispose(); return; }
       stage.addWarm(decor, walks.group);
       disposables.push(walks);
@@ -3176,11 +3251,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // place, parks and forest get their trees, and the parcels are kept with the complex.
       // People: on the sidewalks, the complex's perimeter walk and round its towers
       // now; on the alleys (도로 parcels) and park edges once the parcels are in.
-      const inFootprint = ringIndex(footprints);
       // Nobody walks on a carriageway: paths (parcel edges cross roads where a road's
       // parcels meet) are cut wherever they enter the surveyed road width.
-      const onCarriageway = carriageway(roads, 0.8);
-      const blocked = (x: number, y: number) => Math.abs(x) > T || Math.abs(y) > T || inFootprint(x, y) || onCarriageway(x, y);
       const crowd = async (paths: WalkPath[], salt: number, spacing: number, cap: number, cut = true) => {
         // Keep every original path sample; clipping is pure geometry work.
         let open = paths;
@@ -3212,11 +3284,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const walkersReady = crowd([...sidewalkPaths(runs), ...ringPaths(data.site, 2.4, blocked, 0.5), ...ringPaths(data.buildings.filter(b => b.floors >= 5).map(b => b.rings[0]), -3.2, blocked, 0.45)],
         0, 6, stage.hq ? 650 : 200);
       void walkersReady.catch(err=>console.info('[3D] Walkers unavailable:',err));
+      void walkersReady.then(()=>{if(alive&&hostRef.current)hostRef.current.dataset.walkersReadyAt=String(Math.round(performance.now()));},()=>{});
       // Land use (연속지적도 지목) arrives after the first frame: the ground is repainted in
       // place, parks and forest get their trees, water its surface, alleys their people;
       // the parcels are kept with the complex.
       try {
-        const planting = await landUse();
+        const planting = await plantingJob;
         // The ground's last paint is done (land use in, or none to come): its canvases
         // may go once uploaded again.
         for (const t of [plan.color, plan.rough, plan.glow]) { t.userData.releaseAfterUpload = true; t.needsUpdate = true; }
@@ -3226,6 +3299,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (await placeBridges()) {
           street = streetOf(); setPoles();
           const fresh = await buildSidewalks(runs, roadTerrain, street.map(([x, y]) => [x, y] as [number, number]));
+          await cutPavements(fresh.group);
           if (!alive) { fresh.dispose(); return; }
           decor.remove(walks.group); walks.dispose();
           walks = fresh; stage.addWarm(decor, walks.group); disposables.push(walks);
@@ -3235,10 +3309,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         }
         planting.street = street;
         const parcels = data.parcels ?? [];
-        planting.border = schoolBorders(parcels, blocked, T);
+        planting.border = [...(planting.border ?? []), ...schoolBorders(parcels, blocked, T)];
         // Registered landscaping does not depend on the external lake query or
         // on boats/people finishing. Water masking is applied when that data arrives.
-        await showPlants(planting, "surveyed");
+        if(!textureBudgetEnabled())await showPlants(planting, "surveyed");
         if(!alive)return;
         // Children at play on the school grounds, by day in dry weather.
         const kids = timed("buildKids", () => buildKids(parcels, terrain, blocked, T, seed));
@@ -3252,16 +3326,50 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if (import.meta.env.DEV) Object.assign(window, { __holoKids: kids, __holoStage: stage });
           if (!await later()) return;
         }
+        // Thousands of parcel edges, each tested every 2 m against buildings and
+        // carriageways: laid out 20 parcels per slice (60 were ~30 ms), in idle time.
+        void (async () => {
+          const edges: [Ring, number, number, number][] = [
+            ...parcels.filter(p => p.kind === "도").map(p => [p.ring, 1.1, 0.4, 12] as [Ring, number, number, number]),
+            ...parcels.filter(p => p.kind === "공" || p.kind === "원" || p.kind === "체").map(p => [p.ring, 2.2, 0.5, 20] as [Ring, number, number, number]),
+          ].filter(([ring]) => ring.some(([x, y]) => Math.abs(x) < T && Math.abs(y) < T));
+          const paths: WalkPath[] = [];
+          for (let i = 0; i < edges.length; i += 20) {
+            await nextSlice(pausedRef.current);
+            if (!alive) return;
+            timed("parcelEdges", () => { for (const [ring, off, lateral, minLen] of edges.slice(i, i + 20)) paths.push(...cutPaths(ringPaths([ring], off, blocked, lateral, minLen), blocked)); });
+          }
+          await nextSlice(pausedRef.current);
+          if (alive) await crowd(paths, 1, 9, stage.hq ? 700 : 220, false);
+          if(alive&&hostRef.current)hostRef.current.dataset.parcelActorsReadyAt=String(Math.round(performance.now()));
+        })();
         await lakesFetched;
+        if(hostRef.current)hostRef.current.dataset.waterDataReadyAt=String(Math.round(performance.now()));
         if (!await later()) return;
         const wp = waterParcels();
-        const water = await buildWater(wp.parcels, wp.covered, terrain, pace);
-        if (!alive) { water?.dispose(); return; }
+        const water = finalPlantsJob?await finalPlantsJob:await buildWater(wp.parcels, wp.covered, terrain, pace);
+        if (!alive) { if(!finalPlantsJob)water?.dispose(); return; }
+        const finishPlanting=async()=>{
+          if(water){
+            const dry=(p:[number,number]|[number,number,number])=>!water.field.wet(p[0],p[1]);
+            planting.trees=planting.trees.filter(dry);planting.shrubs=planting.shrubs.filter(dry);planting.flowers=planting.flowers.filter(dry);
+            if(planting.grass)planting.grass=planting.grass.filter(dry);
+            if(planting.groves)planting.groves=planting.groves.map(g=>({...g,points:g.points.filter(dry)}));
+            if(planting.woodlandFlowers)planting.woodlandFlowers=planting.woodlandFlowers.map(b=>({...b,points:b.points.filter(dry)}));
+            planting.street=planting.street.filter(dry);if(planting.border)planting.border=planting.border.filter(dry);
+          }
+          await showPlants(planting,"complete");
+        };
+        // Final planting needs the water mask, not boats, walkers or a second
+        // complete copy of the same forest while those optional actors load.
+        if(textureBudgetEnabled())await finishPlanting();
+        if(!alive){water?.dispose();return;}
         if (water) {
-          stage.addWarm(decor, water.mesh); disposables.push(water);
+          stage.addWarm(decor, water.mesh); if(!finalPlantsJob)disposables.push(water);
           stage.wetAt = (x, y) => water.field.wet(x, y) && deckAt?.(x, y) == null;
           disposables.push({ dispose: () => { stage.wetAt = null; } });
           await water.sink(groundGeo);
+          if(hostRef.current)hostRef.current.dataset.waterReadyAt=String(Math.round(performance.now()));
           if (!await later()) return;
           // A big river: boats in clear weather by day (none on streams and ponds).
           const boats = await buildBoats(water.field, cx, cy, seed);
@@ -3282,31 +3390,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             if (!await later()) return;
           }
         }
-        // Thousands of parcel edges, each tested every 2 m against buildings and
-        // carriageways: laid out 20 parcels per slice (60 were ~30 ms), in idle time.
-        void (async () => {
-          const edges: [Ring, number, number, number][] = [
-            ...parcels.filter(p => p.kind === "도").map(p => [p.ring, 1.1, 0.4, 12] as [Ring, number, number, number]),
-            ...parcels.filter(p => p.kind === "공" || p.kind === "원" || p.kind === "체").map(p => [p.ring, 2.2, 0.5, 20] as [Ring, number, number, number]),
-          ].filter(([ring]) => ring.some(([x, y]) => Math.abs(x) < T && Math.abs(y) < T));
-          const paths: WalkPath[] = [];
-          for (let i = 0; i < edges.length; i += 20) {
-            await nextSlice(pausedRef.current);
-            if (!alive) return;
-            timed("parcelEdges", () => { for (const [ring, off, lateral, minLen] of edges.slice(i, i + 20)) paths.push(...cutPaths(ringPaths([ring], off, blocked, lateral, minLen), blocked)); });
-          }
-          await nextSlice(pausedRef.current);
-          if (alive) await crowd(paths, 1, 9, stage.hq ? 700 : 220, false);
-        })();
+        if(!water&&hostRef.current)hostRef.current.dataset.waterReadyAt=String(Math.round(performance.now()));
+        if(hostRef.current)hostRef.current.dataset.boatsReadyAt=String(Math.round(performance.now()));
         // Nothing planted in the water: a lake the register calls a park (석촌호수) has its park's
         // trees dealt over it. (By the water itself, not the outline: an island keeps its trees.)
-        if (water) {
-          const dry = (p: [number, number] | [number, number, number]) => !water.field.wet(p[0], p[1]);
-          planting.trees = planting.trees.filter(dry); planting.shrubs = planting.shrubs.filter(dry); planting.flowers = planting.flowers.filter(dry);
-          if (planting.street) planting.street = planting.street.filter(dry);
-          if (planting.border) planting.border = planting.border.filter(dry);
-        }
-        await showPlants(planting, "complete");
+        if(!textureBudgetEnabled())await finishPlanting();
       } catch (err) { console.info("[3D] Plants unavailable:", err); }
     })());
     // Street lamps on the surveyed roads (lit from dusk), and traffic both ways.
@@ -3319,9 +3407,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // gave the road's edge against the paving in half-metre steps).
     let marks: Awaited<ReturnType<typeof buildRoadMarkings>> | null = null, marksGen = 0;
     let surface: Awaited<ReturnType<typeof buildRoadSurface>> | null = null;
+    let preparedRoadArms:TrafficArms|null=null;
     const layMarks = async () => {
-      const tr = stage.traffic;
-      if (!tr) return;
+      const arms = stage.traffic?.arms??preparedRoadArms;
+      if (!arms) return;
       const gen = ++marksGen;
       let roadSlice = performance.now();
       const roadPace = async () => {
@@ -3331,14 +3420,21 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         }
         return alive;
       };
-      const f = await buildRoadSurface(tr.arms.roads, roadTerrain);
-      await drapeRoadSurface(f.group.geometry, groundGeo, roadPace);
-      const m = await buildRoadMarkings(tr.arms.roads, roadTerrain, tr.arms.at, tr.arms.inside);
-      for (const mesh of m.group.children as THREE.Mesh[]) await drapeRoadSurface(mesh.geometry, groundGeo, roadPace, .05);
+      const f = await buildRoadSurface(arms.roads, roadTerrain);
+      await cutSceneSurface(f.group.geometry,physicalFootprints,roadPace);
+      const drape = textureBudgetEnabled() ? drapeRoadOffThread : drapeRoadSurface;
+      await drape(f.group.geometry, groundGeo, roadPace);
+      const m = await buildRoadMarkings(arms.roads, roadTerrain, arms.at, arms.inside);
+      await Promise.all((m.group.children as THREE.Mesh[]).map(async mesh=>{
+        await cutSceneSurface(mesh.geometry,physicalFootprints,roadPace);
+        if(textureBudgetEnabled())await drapeRoadOffThread(mesh.geometry,groundGeo,roadPace,.05,f.group.geometry);
+        else{await drapeRoadSurface(mesh.geometry,groundGeo,roadPace,.05);await raiseRoadPaint(mesh.geometry,f.group.geometry,roadPace);}
+      }));
       if (!alive || gen !== marksGen) { f.dispose(); m.dispose(); return; }
       if (surface) { decor.remove(surface.group); surface.dispose(); }
       if (marks) { decor.remove(marks.group); marks.dispose(); }
       surface = f; marks = m;
+      asphaltAt=roadSurfaceHeight(f.group.geometry);
       if (stage.drive) void f.setDetail(true);
       stage.addWarm(decor, f.group); stage.addWarm(decor, m.group);
       if(hostRef.current)hostRef.current.dataset.roadsReadyAt=String(Math.round(performance.now()));
@@ -3367,8 +3463,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const ringStop = new AbortController();
     disposables.push({ dispose: () => ringStop.abort() });
     stage.stopExtras = () => ringStop.abort();
-    const whenIdle = (f: () => void) => { if (typeof requestIdleCallback === "function") requestIdleCallback(f, { timeout: 3000 }); else window.setTimeout(f, 200); };
-    afterShown(() => { window.setTimeout(() => whenIdle(() => {
+    const whenIdle = (f: () => void) => { if(textureBudgetEnabled()){void later().then(ok=>{if(ok)f();});}else if (typeof requestIdleCallback === "function") requestIdleCallback(f, { timeout: 3000 }); else window.setTimeout(f, 200); };
+    (textureBudgetEnabled()?(f:()=>void)=>f():afterShown)(() => { window.setTimeout(() => whenIdle(() => {
       if (!alive || ringStop.signal.aborted || !data.center || !data.vworld_key || new URLSearchParams(location.search).get("ring") === "0") return;
       // (round a landmark the surveyed pass draws more than this view's data: the ring waits for it)
       void (landmarksNear.length ? surveyPass : Promise.resolve()).then(() => {
@@ -3402,8 +3498,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         // The ground under the ring in its land use (farGround.ts): parcels by 지목, roads, channels.
         whenIdle(() => {
           if (!alive || ringStop.signal.aborted || new URLSearchParams(location.search).get("far") === "0") return;
-          const { lawn, paddy } = seasonGround();
-          void farGround(data, terrain, { half: FAR_HALF, size: 1024, lawn, paddy, signal: ringStop.signal }).then(fg => {
+          const { lawn, paddy } = seasonGround(undefined,textureBudgetEnabled());
+          void farGround(data, terrain, { half: FAR_HALF, size: 1024, lawn, paddy, landscape:textureBudgetEnabled(),nearHalf:T,footprints:[...ring.footprints,...data.buildings.map(b=>b.rings[0]),...data.context.map(b=>b.rings[0])],signal: ringStop.signal }).then(async fg => {
             if (!fg) return;
             if (!alive || ringStop.signal.aborted) { fg.bitmap.close(); return; }
             const tex = keep(new THREE.Texture(fg.bitmap as unknown as HTMLImageElement));
@@ -3415,7 +3511,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
            groundMat.userData.farGround = { map: tex, half: FAR_HALF, on: true, box: pb ? [pb[0], -pb[3], pb[2], -pb[1]] : null };
             groundMat.needsUpdate = true;
             if (hostRef.current) hostRef.current.dataset.farGround = `${fg.parcels} parcels in ${Math.round(fg.ms)} ms`;
-          });
+            if(textureBudgetEnabled() && (fg.planting.trees.length || fg.planting.groves?.length || fg.planting.grass?.length || fg.planting.flowers.length || fg.planting.woodlandFlowers?.length)){
+              const plants=await buildPlants(fg.planting,seed+887,terrain,stage.hq);
+              if(!alive||ringStop.signal.aborted){plants?.dispose();return;}
+              if(plants){stage.addWarm(decor,plants.mesh);disposables.push(plants);if(hostRef.current){hostRef.current.dataset.farPlants=String(fg.planting.trees.length);hostRef.current.dataset.farGroves=String(fg.planting.groves?.length??0);hostRef.current.dataset.farPlantsReadyAt=String(Math.round(performance.now()));}}
+            }
+            if(textureBudgetEnabled()&&alive&&hostRef.current){hostRef.current.dataset.farPlants=String(fg.planting.trees.length);hostRef.current.dataset.farGroves=String(fg.planting.groves?.length??0);hostRef.current.dataset.farPlantsReadyAt=String(Math.round(performance.now()));}
+          }).catch(err=>console.info('[3D] Far landscaping unavailable:',err));
         });
         // The ring's apartment blocks in their surveyed shapes (VWorld 3D), as the near ones: shapes
         // only — no photographs (hundreds of them) — the long fronts windowed, the end walls and short
@@ -3496,17 +3598,24 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (hostRef.current) { hostRef.current.dataset.ring = `${ring.buildings} in ${Math.round(ring.ms)} ms`; hostRef.current.dataset.ringAt = performance.now().toFixed(0); }
       });
       });
-    }), 4000); });
-    if (stage.hq) afterShown(() => { window.setTimeout(() => { if (!alive) return; void sharpenNeighbourhood(async () => { await nextSlice(true); return alive; }).then(() => { if (alive && hostRef.current) hostRef.current.dataset.sharp = "2x"; }); }, 4000); });
+    }), textureBudgetEnabled()?0:4000); });
+    if (stage.hq && !textureBudgetEnabled()) afterShown(() => { window.setTimeout(() => { if (!alive) return; void sharpenNeighbourhood(async () => { await nextSlice(true); return alive; }).then(() => { if (alive && hostRef.current) hostRef.current.dataset.sharp = "2x"; }); }, 4000); });
     disposables.push({ dispose: () => lamps?.dispose() });
     const onLook = [(l: Look) => lamps?.setLevel(l.lamps)];
     // Traffic (its vehicle kit decodes on first use) waits for the first frame and idle time.
-    (driveIn ? (f: () => void) => f() : afterShown)(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, roadTerrain, crossLines) : null)) : null)).then(traffic => {
+    (driveIn || textureBudgetEnabled() ? (f: () => void) => f() : afterShown)(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, trafficTerrain, crossLines,arms=>{preparedRoadArms=arms;void layMarks();}) : null)) : null)).then(traffic => {
       if (!traffic) return;
       if (!alive) { traffic.dispose(); return; }
       stage.addWarm(decor, traffic.group);
       disposables.push(traffic);
-      tick.push(dt => traffic.update(dt, stage.camera.position));
+      let trafficArmed=false;
+      tick.push(dt => {
+        if(!trafficArmed){
+          trafficArmed=!!surface&&!!marks&&stage.drawReady(surface.group)&&stage.drawReady(marks.group)&&stage.drawReady(traffic.group);
+          if(trafficArmed&&hostRef.current)hostRef.current.dataset.trafficArmedAt=String(Math.round(performance.now()));
+        }
+        if(trafficArmed)traffic.update(dt,stage.camera.position);
+      });
       onLook.push(l => traffic.setLamps(l.lamps));
       traffic.setLamps(stage.look.lamps);
       // (the drive taken over only once this area is on screen: the old one stays drawn till then)
@@ -3519,7 +3628,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (stage.carry && stage.unshown) stage.onShown.push(adopt); else adopt();
       setHeroesReady(true);
       if(hostRef.current)hostRef.current.dataset.trafficReadyAt=String(Math.round(performance.now()));
-      void layMarks();
+      if(marksGen===0)void layMarks();
       disposables.push({ dispose: () => { if (stage.traffic === traffic) {
         const dv = stage.drive;
         if (dv && import.meta.env.DEV) console.info("[drive] ended: its traffic was released", new Error().stack?.split("\n").slice(1, 6).join(" | "));

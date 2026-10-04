@@ -8,6 +8,11 @@ import { Forest, loadTreeKit, preloadTrees } from "./sceneTrees";
 import { fetchStatic } from "../staticCdn";
 import { bitmapTexture } from "./bitmapTexture";
 import { onSceneMemoryRelease } from "./sceneMemory";
+import {textureBudgetEnabled}from'./textureBudget';
+import {meadowGeometry}from'./sceneMeadow';
+import {groveForest}from'./sceneGroves';
+import {PARK_TREE_STYLES}from'./landscapeDiversity';
+import {treeFoliageTone}from'./foliageTone';
 
 /* Landscaping plants as photoreal impostors. /3d/plants.webp is an atlas baked from
  * Poly Haven's CC0 photoscanned plants (trees, conifers, shrubs, flowers; one cell
@@ -88,34 +93,42 @@ const EVERGREEN = new Set(["pine", "conifer", "boxwood", "spindle"]);
 
 /** The landscape as meshes: park trees in species groups, one street-tree species per road,
  * shrubs (azalea, boxwood, spindle) and flower beds. */
-function plantForest(planting: Planting, seed: number, terrain: Terrain, forest: Forest) {
-  const rnd = rng(seed + 11);
+async function plantForest(planting: Planting, seed: number, terrain: Terrain, forest: Forest) {
+  const rnd = rng(seed + 11),compact=textureBudgetEnabled();
   const season = seasonNow();
   const at = (x: number, y: number) => terrain.at(x, y);
   const tint = (species: string, base = 1) => {
     const v = (0.9 + rnd() * 0.2) * base, t = new THREE.Color(v, v * (0.97 + rnd() * 0.06), v * (0.92 + rnd() * 0.08));
-    if (!EVERGREEN.has(species) && season === "autumn") t.multiply(new THREE.Color(...(AUTUMN_OF[species] ?? [1.25, 0.95, 0.5])));
-    if (!EVERGREEN.has(species) && season === "winter") t.multiply(new THREE.Color(0.85, 0.8, 0.72));
+    if(compact){const style=PARK_TREE_STYLES.find(s=>s.species===species);if(style)t.multiply(new THREE.Color(...style.tint));}
+    if (!compact && !EVERGREEN.has(species) && season === "autumn") t.multiply(new THREE.Color(...(AUTUMN_OF[species] ?? [1.25, 0.95, 0.5])));
+    if (!compact && !EVERGREEN.has(species) && season === "winter") t.multiply(new THREE.Color(0.85, 0.8, 0.72));
     return t;
   };
   // The complex's own grounds are the centre of the view: the distance bands count from them.
+  const crownTint=(species:string,x:number,y:number,base:THREE.Color)=>{
+    if(!compact)return undefined;
+    const tone=treeFoliageTone(x,y);if(tone.name==='green')return undefined;
+    const style=PARK_TREE_STYLES.find(t=>t.species===species)?.tint??[1,1,1];
+    return new THREE.Color(base.r/style[0]*tone.tint[0],base.g/style[1]*tone.tint[1],base.b/style[2]*tone.tint[2]);
+  };
   if (planting.trees.length) {
     const cx = planting.trees.reduce((t, [x]) => t + x, 0) / planting.trees.length, cy = planting.trees.reduce((t, [, y]) => t + y, 0) / planting.trees.length;
     forest.centre.set(cx, -cy);
   }
   // Park trees: groups of one species per ~14 m patch, as landscapers plant them.
-  const PARK: [string, number, [number, number]][] = [["zelkova", 0.2, [7, 11]], ["pine", 0.28, [5.5, 9]], ["cherry", 0.14, [5, 8]], ["plane", 0.08, [8, 12]],
+  const PARK: [string, number, [number, number]][] = compact?[["zelkova",.2,[7,11]],["ginkgo",.16,[7,10]],["pine",.21,[5.5,9]],["cherry",.16,[5,8]],["conifer",.15,[6,10]],["plane",.06,[8,12]],["fringe",.06,[4.5,7]]]:[["zelkova", 0.2, [7, 11]], ["pine", 0.28, [5.5, 9]], ["cherry", 0.14, [5, 8]], ["plane", 0.08, [8, 12]],
     ["ginkgo", 0.08, [7, 10]], ["fringe", 0.1, [4.5, 7]], ["conifer", 0.12, [4, 7]]];
   const total = PARK.reduce((t, [, w]) => t + w, 0);
-  for (const [x, y] of planting.trees) {
+  if(!compact)for (const [x, y] of planting.trees) {
     let r = rng(seed * 7 + Math.floor(x / 14) * 7919 + Math.floor(y / 14) * 104729)() * total;
     const [species, , [h0, h1]] = PARK.find(([, w]) => (r -= w) <= 0) ?? PARK[0];
-    forest.add(species, x, at(x, y), -y, h0 + rnd() * (h1 - h0), rnd() * Math.PI * 2, tint(species), rnd());
+    const height=h0+rnd()*(h1-h0),yaw=rnd()*Math.PI*2,t=tint(species),pick=rnd();
+    forest.add(species, x, at(x, y), -y, height, yaw, t, pick, crownTint(species,x,y,t));
   }
   // Street trees: one species, size and tone per road; the variants alternate.
   const street = Object.keys(STREET_SHARE).filter(k => forest.has(k));
   const perRoad = new Map<number, { species: string; h: number; t: THREE.Color; n: number }>();
-  for (const [x, y, road] of planting.street) {
+  if(!compact)for (const [x, y, road] of planting.street) {
     let spec = perRoad.get(road);
     if (!spec) {
       const r2 = rng(seed * 31 + road * 977);
@@ -124,7 +137,8 @@ function plantForest(planting: Planting, seed: number, terrain: Terrain, forest:
       spec = { species, h: 7 + r2() * 4, t: tint(species), n: 0 };
       perRoad.set(road, spec);
     }
-    forest.add(spec.species, x, at(x, y) + KERB_H, -y, spec.h * (0.94 + rnd() * 0.12), rnd() * Math.PI * 2, spec.t.clone().multiplyScalar(0.97 + rnd() * 0.06), (spec.n++ % 3) / 3 + 0.01);
+    const height=spec.h*(.94+rnd()*.12),yaw=rnd()*Math.PI*2,t=spec.t.clone().multiplyScalar(.97+rnd()*.06),pick=(spec.n++%3)/3+.01;
+    forest.add(spec.species,x,at(x,y)+KERB_H,-y,height,yaw,t,pick,crownTint(spec.species,x,y,t));
   }
   // Shrubs: patches of one kind (azalea mounds, boxwood balls, spindle hedging).
   const SHRUB: [string, [number, number]][] = [["azalea", [0.7, 1.1]], ["boxwood", [0.5, 0.9]], ["spindle", [0.9, 1.5]]];
@@ -144,11 +158,12 @@ function plantForest(planting: Planting, seed: number, terrain: Terrain, forest:
     const [h0, h1] = FLOWER_H[species];
     forest.add(species, x, g, -y, h0 + rnd() * (h1 - h0), rnd() * Math.PI * 2, tint(species), rnd());
   };
-  if (season !== "winter" && FLOWERS.length) {
+  if ((season !== "winter" || compact) && FLOWERS.length) {
     for (const [x, y] of planting.flowers) {
       const g = rng(seed * 23 + Math.floor(x / 4) * 71 + Math.floor(y / 4) * 353)();
       flower(FLOWERS[Math.floor(g * FLOWERS.length)], x, at(x, y), y);
     }
+    for(const bed of planting.woodlandFlowers??[])if(forest.has(bed.species))for(const[x,y]of bed.points)flower(bed.species,x,at(x,y),y);
     // School grounds: a flower border round the edge, a species every ten metres or so,
     // the bright bedding plants in turn.
     const BORDER = ["petunia", "marigold", "salvia", "begonia", "pansy", "tulip_yellow", "coreopsis", "daisy", "tulip_red", "lavender", "cosmos"].filter(k => forest.has(k));
@@ -170,21 +185,42 @@ function plantForest(planting: Planting, seed: number, terrain: Terrain, forest:
       }
     }
   }
-  const built = forest.build();
+  // Worker-merged flowers, meadow and shared trees are independent. Start them
+  // together so worker time and the short main-thread slices overlap.
+  const builtJob = compact ? forest.buildBudget() : Promise.resolve(forest.build());
+  const meadowJob = compact && planting.grass?.length ? meadowGeometry(planting.grass,terrain,seed) : Promise.resolve(undefined);
+  const parkJob = compact ? groveForest([{pattern:0,points:[...planting.trees,...planting.street.map(([x,y])=>[x,y]as[number,number])]}],terrain,seed,forest.textureTwigs,true,.45) : Promise.resolve(undefined);
+  const groveJob = compact && planting.groves?.length ? groveForest(planting.groves,terrain,seed,forest.textureTwigs) : Promise.resolve(undefined);
+  const jobs = await Promise.allSettled([builtJob,meadowJob,parkJob,groveJob]);
+  const failed=jobs.find(j=>j.status==='rejected');
+  if(failed?.status==='rejected'){
+    for(const j of jobs)if(j.status==='fulfilled')j.value?.dispose();
+    throw failed.reason;
+  }
+  const [built,meadow,parkTrees,grove] = await Promise.all([builtJob,meadowJob,parkJob,groveJob]);
+  if(compact)built.group.userData.woodlandFlowerBeds=(planting.woodlandFlowers??[]).filter(b=>b.points.length).map(b=>({species:b.species,count:b.points.length,center:b.points.reduce((p,[x,y])=>[p[0]+x/b.points.length,p[1]+y/b.points.length],[0,0] as [number,number])}));
+  let meadowMaterial:THREE.MeshStandardMaterial|undefined;
+  if(meadow){
+    meadowMaterial=new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide});
+    const mesh=new THREE.Mesh(meadow,meadowMaterial);mesh.name='park meadow';mesh.receiveShadow=true;built.group.add(mesh);
+  }
+  if(parkTrees){parkTrees.group.name='park and street tree meshes';built.group.add(parkTrees.group);}
+  if(grove)built.group.add(grove.group);
   // (driving: the full-detail band round the vehicle; null: back round the complex)
   const home = forest.centre.clone();
   const focus = (x: number | null, y?: number) => {
     if (x === null || y === undefined) forest.centre.copy(home); else forest.centre.set(x, -y);
     built.update();
   };
-  return { mesh: built.group as THREE.Object3D, dispose: built.dispose, update: built.update, focus };
+  return { mesh: built.group as THREE.Object3D, dispose:()=>{built.dispose();meadow?.dispose();meadowMaterial?.dispose();grove?.dispose();parkTrees?.dispose();}, update: built.update, focus };
 }
 
 export async function buildPlants(planting: Planting, seed: number, terrain: Terrain = FLAT, hq = true): Promise<{ mesh: THREE.Object3D; dispose: () => void; update?: () => void; focus?: (x: number | null, y?: number) => void } | null> {
   // Every plant as a mesh where the kit loads (sceneTrees): no cards at all.
-  const treeKit = await loadTreeKit().catch(err => { console.info("[3D] plant meshes unavailable, using cards:", err); return null; });
+  const treeKit = await loadTreeKit().catch(err => { console.info(textureBudgetEnabled()?"[3D] plant assets unavailable, using procedural meshes:":"[3D] plant meshes unavailable, using cards:", err); return null; });
   // (phones and small tablets: every tree as the distant copy)
   if (treeKit) return plantForest(planting, seed, terrain, new Forest(treeKit, hq));
+  if(textureBudgetEnabled())return fallbackPlantMeshes(planting,seed,terrain);
   const forest = null as Forest | null;   // (the card fallback: no meshes)
   const { meta, texture } = await loadAtlas();
   const rnd = rng(seed + 11);
@@ -341,4 +377,24 @@ export async function buildPlants(planting: Planting, seed: number, terrain: Ter
   const group = new THREE.Group();
   group.add(cards, trees3d.group);
   return { mesh: group, dispose: () => { geo.dispose(); mat.dispose(); trees3d.dispose(); } };
+}
+
+/** Asset/network failure must not reintroduce tree billboards. The same shared
+ * closed tree models survive with vertex colours if even the atlas is missing. */
+async function fallbackPlantMeshes(planting:Planting,seed:number,terrain:Terrain){
+ const group=new THREE.Group();group.name='procedural plant fallback';
+ const texture=await bitmapTexture('/3d/dense-twigs.webp',true).catch(()=>null);
+ if(texture){texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=4;}
+ const near=await groveForest([{pattern:0,points:[...planting.trees,...planting.street.map(([x,y])=>[x,y]as[number,number])]}],terrain,seed,texture,true,.45);
+ const far=await groveForest(planting.groves??[],terrain,seed,texture);group.add(near.group,far.group);
+ const flowers=[...planting.flowers,...(planting.woodlandFlowers??[]).flatMap(b=>b.points)],points=[...planting.shrubs,...flowers];
+ const geometry=new THREE.IcosahedronGeometry(1,0),material=new THREE.MeshStandardMaterial({roughness:1,vertexColors:false}),mesh=new THREE.InstancedMesh(geometry,material,points.length);
+ const bloom=['#e3bc3c','#b985c9','#efece1','#d485a6','#bd6766','#b4d4ae'],random=rng(seed+31);
+ for(let i=0;i<points.length;i++){
+  const[x,y]=points[i],shrub=i<planting.shrubs.length,h=shrub?.75:.23;
+  mesh.setMatrixAt(i,new THREE.Matrix4().compose(new THREE.Vector3(x,terrain.at(x,y)+h,-y),new THREE.Quaternion(),new THREE.Vector3(shrub?.8:.25,h,shrub?.8:.25)));
+  mesh.setColorAt(i,new THREE.Color(shrub?'#588344':bloom[Math.floor(random()*bloom.length)]));
+ }
+ mesh.instanceMatrix.needsUpdate=true;mesh.receiveShadow=true;group.add(mesh);
+ return {mesh:group,dispose:()=>{near.dispose();far.dispose();geometry.dispose();material.dispose();mesh.dispose();texture?.dispose();}};
 }

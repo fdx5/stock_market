@@ -2,8 +2,10 @@ import * as THREE from "three";
 
 /* The photographs' analysis (never drawn), pure: run in photoWorker off the main thread. */
 
-/** The main roof of a model: the level (to 1 m) holding the most roof area; stair cores and
- * lift rooms stand on it. Infinity for a model without one. */
+/** The main upper roof, with at most two storeys of stair/lift rooms above it.
+ * A model can contain two towers and a much wider low podium. Choosing the
+ * largest horizontal area anywhere in that model turned all tower walls above
+ * the podium into blank rooftop cores. Infinity when no upper roof is known. */
 export function mainRoofOf(geo: THREE.BufferGeometry) {
   const p = geo.getAttribute("position"), idx = geo.index;
   const levels = new Map<number, number>();
@@ -17,8 +19,9 @@ export function mainRoofOf(geo: THREE.BufferGeometry) {
     const lv = Math.round((q.z + r.z + s.z) / 3);
     levels.set(lv, (levels.get(lv) ?? 0) + m.length() / 2);
   }
+  let top=-Infinity;for(let i=0;i<p.count;i++)top=Math.max(top,p.getZ(i));
   let roof = Infinity, best = 0;
-  for (const [lv, ar] of levels) if (lv > 6 && ar > best) { best = ar; roof = lv; }
+  for (const [lv, ar] of levels) if (lv > 6 && lv >= top - 8 && ar > best) { best = ar; roof = lv; }
   return roof;
 }
 

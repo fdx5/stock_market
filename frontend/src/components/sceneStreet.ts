@@ -1,7 +1,12 @@
 import { frameSlice } from "./frameSlice";
-import { vehicleOverlap, VehicleTrajectoryCache } from "./trafficCollision";
+import { vehicleOverlap, VehicleTrajectoryCache, collisionFreeTravel } from "./trafficCollision";
 import { onSceneMemoryRelease } from "./sceneMemory";
 import * as THREE from "three";
+import {textureBudgetEnabled}from'./textureBudget';
+import {roadJunctionHulls}from'./roadJunctions';
+import {junctionSignalPolicy,junctionOccupied}from'./trafficJunction';
+import {splitRoadJunctions}from'./roadTrafficNetwork';
+import {modelWheelRig,fallbackWheelRig,rollingWheelGeometry,wheelRotation}from'./rollingWheels';
 import { paintedTexture } from "./paintedTexture";
 import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
@@ -35,7 +40,6 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
   const pos: number[] = [], uv: number[] = [];
   const LIFT = 0.08, STEP = 3, TILE = 4;
   const vtx = (x: number, y: number) => { pos.push(x, terrain.at(x, y) + LIFT, -y); uv.push(x / TILE, y / TILE); };
-  const ends: { x: number; y: number; hx: number; hy: number; w: number }[] = [];
   let slice = performance.now();
   for (const r of roads) {
     if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
@@ -63,37 +67,9 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
         vtx(ax + anx * left, ay + any * left); vtx(bx + bnx * right, by + bny * right); vtx(bx + bnx * left, by + bny * left);
       }
     }
-    const n = pts.length;
-    const d0x = pts[1][0] - pts[0][0], d0y = pts[1][1] - pts[0][1], l0 = Math.hypot(d0x, d0y) || 1;
-    const d1x = pts[n - 1][0] - pts[n - 2][0], d1y = pts[n - 1][1] - pts[n - 2][1], l1 = Math.hypot(d1x, d1y) || 1;
-    ends.push({ x: pts[0][0], y: pts[0][1], hx: -d0x / l0, hy: -d0y / l0, w: r.width }, { x: pts[n - 1][0], y: pts[n - 1][1], hx: d1x / l1, hy: d1y / l1, w: r.width });
   }
-  // Junctions, as the traffic finds them: nodes where three or more road ends meet (within 6 m),
-  // and such nodes within 35 m of each other one intersection (split carriageways, offset ends).
-  // Each filled with the hull of its arms' corners (where it reaches past the kerb, the paving
-  // stands over it).
-  const nodes: { x: number; y: number; ends: number[] }[] = [];
-  ends.forEach((e, i) => {
-    let n = nodes.findIndex(o => Math.hypot(o.x - e.x, o.y - e.y) < 6);
-    if (n < 0) { n = nodes.length; nodes.push({ x: e.x, y: e.y, ends: [] }); }
-    nodes[n].ends.push(i);
-  });
-  // Two arms also need a shared surface when widths or bearings differ.
-  // Otherwise their independently offset edges leave a wedge-shaped hole.
-  const jn = nodes.filter(n => n.ends.length >= 2);
-  const parent = jn.map((_, i) => i);
-  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-  jn.forEach((a, i) => jn.forEach((b, j) => { if (j > i && a.ends.length >= 3 && b.ends.length >= 3 && Math.hypot(a.x - b.x, a.y - b.y) < 35) parent[find(i)] = find(j); }));
-  const groups = new Map<number, number[]>();
-  jn.forEach((n, i) => { const r = find(i); groups.set(r, [...(groups.get(r) ?? []), ...n.ends]); });
-  for (const grp of groups.values()) {
-    const corners: [number, number][] = [];
-    for (const k of grp) {
-      const e = ends[k], rx = e.hy, ry = -e.hx, hw = e.w / 2;
-      corners.push([e.x + rx * hw, e.y + ry * hw], [e.x - rx * hw, e.y - ry * hw]);
-    }
-    const h = hull2(corners);
-    if (h.length < 3) continue;
+  // Shared with lamp placement, including the filled gaps between offset arms.
+  for (const h of roadJunctionHulls(roads)) {
     const cx = h.reduce((s, p) => s + p[0], 0) / h.length, cy = h.reduce((s, p) => s + p[1], 0) / h.length;
     // (a fan, sampled along each hull edge so it follows the ground)
     for (let k = 0; k < h.length; k++) {
@@ -144,17 +120,6 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
   };
 }
 
-/** Convex hull, anticlockwise (monotone chain). */
-function hull2(pts: [number, number][]) {
-  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  if (p.length < 3) return p;
-  const cross = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-  const lo: [number, number][] = [], hi: [number, number][] = [];
-  for (const q of p) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
-  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (hi.length >= 2 && cross(hi[hi.length - 2], hi[hi.length - 1], q) <= 0) hi.pop(); hi.push(q); }
-  return lo.slice(0, -1).concat(hi.slice(0, -1));
-}
-
 /** Road markings as geometry on the road surface (the ground's paint is ~0.45 m a texel: a
  * 15 cm line in it came out a faint smear): a solid yellow centre line on a two-way road of two
  * or three lanes, a double one from four lanes up, white dashed lines between the lanes each way
@@ -168,6 +133,8 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
    * on them at all — a centre line and two zebras had stood in the middle of the crossroads. */
   inside?: (road: number) => boolean) {
   const yellow: number[] = [], white: number[] = [];
+  const coverage: {road:number;lanes:number;length:number;spans:number[][]}[]=[];
+  const roadBoxes=roads.map(r=>{let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;for(const[x,y]of r.line){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}return[x0,y0,x1,y1];});
   // (a little over the road: the ground mesh is coarser than the height samples, and a line
   // 3.5 cm up sank under it in patches — the centre line looked broken)
   const LIFT = 0.115, STEP = 3;
@@ -198,7 +165,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
   let slice = performance.now();
   for (const [ri, r] of roads.entries()) {
     if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
-    const lanes = Math.round(r.lanes);
+    const lanes = Math.max(1, Math.round(r.lanes || r.width / 3.5));
     if (lanes < 2 || r.line.length < 2 || inside?.(ri)) continue;
     // resampled every STEP m, with smoothed left normals
     const pts: [number, number][] = [];
@@ -214,10 +181,18 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     // (an arm without the traffic's layout: cut back at a junction found from the road ends)
     const cut0 = arm0 ? 0 : Math.min(total / 3, cutAt(ri, r.line[0])), cut1 = arm1 ? 0 : Math.min(total / 3, cutAt(ri, r.line[r.line.length - 1]));
     const CROSS = 3, GAP = 0.6, STOP = 0.35;
-    const lay = (arm: ArmLayout | null, cut: number) => arm ?? (cut > 0 ? { crossA: cut, crossB: cut + CROSS, stopA: cut + CROSS + GAP, stopB: cut + CROSS + GAP + STOP, surveyed: false } : null);
+    // Never extrapolate a crossing onto another block. Short approaches can have
+    // a junction cut, but cannot accommodate an invented crossing and stop line.
+    const lay = (arm: ArmLayout | null, cut: number): ArmLayout | null => {
+      const candidate = arm ?? (cut > 0 ? { crossA: cut, crossB: cut + CROSS, stopA: cut + CROSS + GAP, stopB: cut + CROSS + GAP + STOP, surveyed: false } : null);
+      if (!candidate) return null;
+      if (candidate.crossA < 0 || candidate.crossB > total || candidate.stopA < 0 || candidate.stopB > total || (!arm && candidate.stopB + .4 > total / 2))
+        return {crossA:cut,crossB:cut,stopA:cut,stopB:cut,surveyed:false,zebra:false,stop:false};
+      return candidate;
+    };
     const L0 = lay(arm0, cut0), L1 = lay(arm1, cut1);
     const s0 = L0 ? L0.stopB + 0.4 : 0, s1 = total - (L1 ? L1.stopB + 0.4 : 0);
-    if (s1 - s0 < 4) continue;
+    if (total < .001) continue;
     const halfW = r.width / 2;
     const nrm = pts.map((_, i) => {
       const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
@@ -225,31 +200,37 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     });
     /** A line `w` wide at offset `off` (left +), from sa to sb along the road. */
     const strip = (out: number[], off: number, w: number, sa: number, sb: number) => {
+      sa=Math.max(0,sa);sb=Math.min(total,sb);if(sb-sa<.001)return;
       const at = (sv: number) => {
         let i = 1; while (i < cum.length - 1 && cum[i] < sv) i++;
         const t = (sv - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1);
         const x = pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, y = pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t;
-        const nx = nrm[i - 1][0] + (nrm[i][0] - nrm[i - 1][0]) * t, ny = nrm[i - 1][1] + (nrm[i][1] - nrm[i - 1][1]) * t, nl = Math.hypot(nx, ny) || 1;
-        return [x + (nx / nl) * off, y + (ny / nl) * off, nx / nl, ny / nl];
+        // Asphalt linearly interpolates its edge normals. Renormalizing here
+        // widens the paint on bends and pushes the kerb lines off the asphalt.
+        const nx = nrm[i - 1][0] + (nrm[i][0] - nrm[i - 1][0]) * t, ny = nrm[i - 1][1] + (nrm[i][1] - nrm[i - 1][1]) * t;
+        return [x + nx * off, y + ny * off, nx, ny];
       };
       let prev = at(sa);
-      for (let sv = Math.min(sb, sa + STEP); ; sv = Math.min(sb, sv + STEP)) {
+      // Include every asphalt knot, including the last partial segment of a
+      // surveyed polyline; otherwise a painted corner cuts across the bend.
+      const knots=[...cum.filter(s=>s>sa&&s<sb),sb];
+      for (const sv of knots) {
         const cur = at(sv);
         const q = (p: number[], side: number) => { const x = p[0] + p[2] * side * w / 2, y = p[1] + p[3] * side * w / 2; return [x, terrain.at(x, y) + LIFT, -y]; };
         const a = q(prev, 1), b = q(prev, -1), c = q(cur, -1), d = q(cur, 1);
         // (wound to face up: world x, up, -y)
         out.push(...a, ...b, ...c, ...a, ...c, ...d);
         prev = cur;
-        if (sv >= sb) break;
       }
     };
     /** A point at sv along the road, `off` to its left: [x, y]. */
     const ptAt = (sv: number, off: number): [number, number] => {
+      sv=Math.max(0,Math.min(total,sv));
       let i = 1; while (i < cum.length - 1 && cum[i] < sv) i++;
       const t = (sv - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1);
       const x = pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, y = pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t;
-      const nx = nrm[i - 1][0] + (nrm[i][0] - nrm[i - 1][0]) * t, ny = nrm[i - 1][1] + (nrm[i][1] - nrm[i - 1][1]) * t, nl = Math.hypot(nx, ny) || 1;
-      return [x + (nx / nl) * off, y + (ny / nl) * off];
+      const nx = nrm[i - 1][0] + (nrm[i][0] - nrm[i - 1][0]) * t, ny = nrm[i - 1][1] + (nrm[i][1] - nrm[i - 1][1]) * t;
+      return [x + nx * off, y + ny * off];
     };
     /** A painted triangle, wound to face up. */
     const tri = (out: number[], a: [number, number], b: [number, number], c: [number, number]) => {
@@ -258,9 +239,31 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
       // (anticlockwise in x, y faces up once y is flipped to −z: three's winding)
       if (up) out.push(...P(a), ...P(b), ...P(c)); else out.push(...P(a), ...P(c), ...P(b));
     };
-    // the centre line: one solid yellow line, a double one from four lanes up
-    if (lanes >= 4) { strip(yellow, 0.17, 0.15, s0, s1); strip(yellow, -0.17, 0.15, s0, s1); }
-    else strip(yellow, 0, 0.15, s0, s1);
+    // Crossings can meet the middle of an unsplit road too (T intersections).
+    // Remove only the junction envelope, keeping all other short road pieces.
+    const blocked:number[][]=[];let along=0;
+    for(let i=1;i<r.line.length;i++){
+      const [ax,ay]=r.line[i-1],[bx,by]=r.line[i],dx=bx-ax,dy=by-ay,len=Math.hypot(dx,dy);if(len<1e-6)continue;
+      for(const [oi,o]of roads.entries())if(oi!==ri){
+       const box=roadBoxes[oi];if(Math.max(ax,bx)<box[0]||Math.min(ax,bx)>box[2]||Math.max(ay,by)<box[1]||Math.min(ay,by)>box[3])continue;
+       for(let j=1;j<o.line.length;j++){
+        const [cx,cy]=o.line[j-1],[ex,ey]=o.line[j],ux=ex-cx,uy=ey-cy,ol=Math.hypot(ux,uy),den=dx*uy-dy*ux;
+        if(ol<1e-6||Math.abs(den)/(len*ol)<.53)continue;
+        const t=((cx-ax)*uy-(cy-ay)*ux)/den,u=((cx-ax)*dy-(cy-ay)*dx)/den;
+        if(t<0||t>1||u<0||u>1)continue;
+        const sine=Math.abs(den)/(len*ol),cosine=Math.abs(dx*ux+dy*uy)/(len*ol),pad=(o.width/2+halfW*cosine)/sine+.5;
+        const s=along+t*len;blocked.push([s-pad,s+pad]);
+       }
+      }
+      along+=len;
+    }
+    blocked.sort((a,b)=>a[0]-b[0]);const spans:number[][]=[];let cursor=Math.max(0,s0);
+    for(const[a,b]of blocked){if(b<=cursor||a>=s1)continue;if(a>cursor)spans.push([cursor,Math.min(a,s1)]);cursor=Math.max(cursor,b);}
+    if(cursor<s1)spans.push([cursor,s1]);coverage.push({road:ri,lanes,length:total,spans});
+    for(const[a,b]of spans){
+      if (lanes >= 4) { strip(yellow, 0.17, 0.15, a,b); strip(yellow, -0.17, 0.15,a,b); }
+      else strip(yellow, 0, 0.15,a,b);
+    }
     for (const [L, atStart] of [[L0, true], [L1, false]] as const) {
       if (!L || r.width < 5 || L.zebra === false && L.stop === false) continue;
       // the zebra crossing: stripes along the road, the full width across
@@ -269,7 +272,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
       // the stop line across the lanes coming in (right-hand traffic: toward the start end on the
       // left half (+), toward the far end on the right (−))
       const st = atStart ? L.stopA : total - L.stopB;
-      strip(white, (atStart ? 1 : -1) * halfW / 2, halfW - 0.3, st, st + (L.stopB - L.stopA));
+      if(L.stop!==false)strip(white, (atStart ? 1 : -1) * halfW / 2, halfW - 0.3, st, st + (L.stopB - L.stopA));
     }
     // Lane arrows (노면 방향표시) before each junction, as painted in Seoul: the inner lane turns
     // left, the outer goes straight on and right, the rest straight; a single lane straight and
@@ -292,15 +295,18 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
       }
     }
     // the edge lines (차도외측선): solid white along both kerbs of a wide road
-    if (r.width >= 7) for (const side of [1, -1]) strip(white, side * (r.width / 2 - 0.3), 0.15, s0, s1);
+    if (r.width >= 7) for (const side of [1, -1]) for(const[a,b]of spans)strip(white, side * (r.width / 2 - 0.3), 0.15,a,b);
     // lane lines each way: dashed white between the lanes
-    const perSide = Math.floor(lanes / 2), laneW = r.width / lanes;
-    for (let k = 1; k < perSide; k++) for (const side of [1, -1]) {
-      for (let d = s0; d + 3 <= s1; d += 8) strip(white, side * k * laneW, 0.12, d, d + 3);
+    for (const side of [1, -1]) {
+      const count=side===1?Math.floor(lanes/2):Math.ceil(lanes/2),laneW=halfW/count;
+      for(let k=1;k<count;k++)for(const[a,b]of spans){
+        for (let d = Math.floor(a/8)*8; d < b; d += 8) strip(white, side * k * laneW, 0.12, Math.max(a,d),Math.min(b,d+3));
+      }
     }
   }
   const group = new THREE.Group();
   group.name = "road markings";
+  group.userData.roadMarkings=coverage;
   const mats: THREE.Material[] = [];
   for (const [pos, color] of [[yellow, "#f0b40a"], [white, "#f2f2ee"]] as const) {
     if (!pos.length) continue;
@@ -360,6 +366,7 @@ export async function buildLamps(lamps: Lamp[], terrain: Terrain = FLAT) {
   [pole, arm, head, halo].forEach(g => g.dispose());
   const group = new THREE.Group();
   const postMat = new THREE.MeshStandardMaterial({ color: "#5b6168", roughness: 0.5, metalness: 0.6 });
+  group.name='street lamps';group.userData.streetLamps=lamps;
   const headMat = new THREE.MeshStandardMaterial({ color: "#e9e4da", emissive: "#ffd29a", emissiveIntensity: 0, roughness: 0.35 });
   // A soft glow around each head, shown only while the lamps are on.
   const haloMat = new THREE.MeshStandardMaterial({ color: "#000000", emissive: "#ffcf93", emissiveIntensity: 0, transparent: true, opacity: 0.28, depthWrite: false, roughness: 1 });
@@ -507,6 +514,7 @@ function stitchRoads(input: RealEstateRoad[]): RealEstateRoad[] {
 }
 
 interface Car {
+  wheelDistance?:number;
   road: number; forward: boolean; lane: number; s: number; type: number; slot: number;
   /** World position and heading last placed (footprint frame), its height, width, id. */
   x: number; y: number; z?: number; hx: number; hy: number; width: number; id: number;
@@ -544,12 +552,17 @@ export function stitchedRoads(roads: RealEstateRoad[]) { return stitchRoads(road
 export interface ArmLayout { crossA: number; crossB: number; stopA: number; stopB: number; surveyed: boolean;
   /** false: no zebra crossing drawn (an unsignalled junction); `stop` false: no stop line either */
   zebra?: boolean; stop?: boolean }
+export interface TrafficArms {roads:RealEstateRoad[];at:(road:number,atStart:boolean)=>ArmLayout|null;inside:(road:number)=>boolean}
+
+/** Download shared traffic assets alongside the scene data, without waiting for
+ * them on the building's first-frame path. */
+export function preloadTraffic(){void loadKit().catch(()=>{});void loadCarModels().catch(()=>{});void plateAtlasReady().catch(()=>{});}
 
 export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: boolean, terrain: Terrain = FLAT,
   /** Mapped crosswalks (OpenStreetMap footway=crossing), in the footprint frame: where a junction
    * arm has one, its crossing (and so its stop line and stopping point) stands there. */
-  crossings: { line: [number, number][] }[] = []) {
-  const usable = stitchRoads(roads.filter(r => r.line.length > 1));
+  crossings: { line: [number, number][] }[] = [],onArms?:(arms:TrafficArms)=>void) {
+  const usable = splitRoadJunctions(stitchRoads(roads.filter(r => r.line.length > 1)),true);
   if (!usable.length) return null;
   const { geos, texture, procedural } = await loadKit();
   // (the boxed vehicles' shapes, kept for the session: shared by every complex's traffic)
@@ -594,10 +607,10 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const lampMat = new THREE.MeshStandardMaterial({ color: "#000000", emissive: "#ffffff", emissiveMap: lampMap(), emissiveIntensity: 0, roughness: 0.3 });
   // Passenger cars from their proportions (sceneCars); vans, trucks and the rest from the kit.
   // (far and by default: the cars built from their proportions; near the eye the modelled ones)
-  const kit = (name: string) => carGeometry(name) ?? geos.get(name)!;
+  const kit = (name: string) => carGeometry(name,textureBudgetEnabled()) ?? geos.get(name)!;
   const modelMat = models ? carModelMaterial() : null;
   const nearGeo = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
-  if (models) for (const name of Object.keys(CAR_SPECS)) { const g = models.get(name), f = carGeometry(name); if (g && f) nearGeo.set(f, g); }
+  if (models) for (const name of Object.keys(CAR_SPECS)) { const g = models.get(name), f = carGeometry(name,textureBudgetEnabled()); if (g && f) nearGeo.set(f, g); }
   // [geometry, material, weight, speed factor, length, width, lamp height, repaint]
   // model: the modelled mesh near the eye (sceneCars loadCarModels); livery: its paint when
   // the kind has one colour (buses by route, trucks, containers)
@@ -737,7 +750,12 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // more road ends meet, within 35 m of each other or joined by a stub under 40 m, form
   // one intersection; the stubs are inside it and carry no queue. Traffic enters from
   // the roads outside (approaches) and leaves by the others (exits).
-  const junction = nodes.map(n => n.ends.length >= 3);
+  const junction = nodes.map(n => {
+    if(n.ends.length>=3)return true;
+    if(n.ends.length!==2)return false;
+    const out=n.ends.map(e=>headingIn(e.road,e.atStart));
+    return out[0][0]*out[1][0]+out[0][1]*out[1][1]>-.85;
+  });
   // (how far apart a junction's pieces lie grows with its roads: across a 50 m boulevard the
   // split carriageways' nodes are ~50 m apart, and two "intersections" stood in one)
   const nodeW = nodes.map(n => Math.max(0, ...n.ends.map(e => paths[e.road].width)));
@@ -825,7 +843,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // Roads with nowhere to go at either end (fragments at the edge of the data), short
   // dead-end stubs, and the stubs inside intersections carry no traffic of their own.
   // (Repeated: a road whose only ways on lead into idle roads is a dead end too.)
-  const idle = paths.map((_, r) => internal[r]);
+  const idle = paths.map((p, r) => internal[r]||p.width<6);
   for (let pass = 0; pass < 6; pass++) {
     const deadEnd = (road: number, forward: boolean) => linksFrom(road, forward).every(o => idle[o.link.road]);
     let changed = false;
@@ -876,10 +894,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
    * road there) joining a road is no signalled crossroads — no lights, no zebra across the main
    * road, no stop line on it; the side street gives way. Signals where three or more major arms meet. */
   const armInfo = clusters.map((_, ci) => {
-    const ends = clusterEnds[ci], wMax = Math.max(0, ...ends.map(e => paths[e.road].width));
-    const minor = new Set(ends.filter(e => paths[e.road].width < Math.max(8, 0.35 * wMax)).map(e => `${e.road}:${e.atStart}`));
-    const majors = ends.length - minor.size;
-    return { minor, majors, signal: ends.length >= 3 && majors >= 3 };
+    return junctionSignalPolicy(clusterEnds[ci].map(e=>({key:`${e.road}:${e.atStart}`,width:paths[e.road].width})));
   });
   /** Where a mapped crossing crosses a road, in metres from the end `atStart` (within lo–hi), or null. */
   const crossingOn = (road: number, atStart: boolean, lo: number, hi: number): number | null => {
@@ -940,6 +955,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     }
   });
   const trim = (road: number, atStart: boolean) => trimAt.get(`${road}:${atStart}`) ?? 1.5;
+  const arms:TrafficArms={roads:paths,at:(road,atStart)=>layout.get(`${road}:${atStart}`)??null,inside:road=>internal[road]};
+  onArms?.(arms);
   // Korean 방향별 신호: each approach direction in turn (clockwise) gets green with the
   // left arrow, then yellow, then all-red, while every other direction is red. Roads
   // arriving from about the same direction share a phase: at most four phases.
@@ -1017,7 +1034,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     if (cars.some(o => !o.inConn && o.road === road && o.forward === forward && o.lane === lane && Math.abs(o.s - s) < (o.length + length) / 2 + 6)) continue;
     // (nor on another vehicle of a road surveyed over this one, or a lane where two meet)
     const at0 = lanePt(road, forward, s, lane), width = kinds[type].dims[1];
-    if (cars.some(o => { const dx = o.x - at0.x, dy = o.y - at0.y; return Math.abs(dx * at0.hx + dy * at0.hy) < (o.length + length) / 2 + 2 && Math.abs(dx * at0.hy - dy * at0.hx) < (o.width + width) / 2 + 0.3; })) continue;
+    if (cars.some(o => vehicleOverlap(at0.x,at0.y,at0.hx,at0.hy,length+4,width+.6,o))) continue;
     const cruise = (7 + rnd() * 5) * kinds[type].speed;
     cars.push({ road, forward, lane, s, type, slot: perKind[type]++, x: at0.x, y: at0.y, hx: at0.hx, hy: at0.hy, width, id: cars.length,
       speed: cruise, cruise, length, conn, inConn: false, u: 0, go: false, arrive: null });
@@ -1034,7 +1051,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       if (cars.some(o => !o.inConn && o.road === road && o.forward === forward && o.lane === lane && Math.abs(o.s - s) < (o.length + length) / 2 + 6)) continue;
     // (nor on another vehicle of a road surveyed over this one, or a lane where two meet)
     const at0 = lanePt(road, forward, s, lane), width = kinds[type].dims[1];
-    if (cars.some(o => { const dx = o.x - at0.x, dy = o.y - at0.y; return Math.abs(dx * at0.hx + dy * at0.hy) < (o.length + length) / 2 + 2 && Math.abs(dx * at0.hy - dy * at0.hx) < (o.width + width) / 2 + 0.3; })) continue;
+    if (cars.some(o => vehicleOverlap(at0.x,at0.y,at0.hx,at0.hy,length+4,width+.6,o))) continue;
       const cruise = 10 * kinds[type].speed;
       const c: Car = { road, forward, lane, s, type, slot: perKind[type]++, x: at0.x, y: at0.y, hx: at0.hx, hy: at0.hy, width, id: cars.length,
         speed: cruise, cruise, length, conn, inConn: false, u: 0, go: false, arrive: null };
@@ -1065,9 +1082,10 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return { c, h, im, spin: 0 };
   });
   const wm = new THREE.Matrix4(), wl = new THREE.Matrix4(), wr = new THREE.Matrix4(), ws = new THREE.Matrix4(), flip = new THREE.Matrix4().makeRotationY(Math.PI);
-  const turnWheels = (dt: number) => {
+  const wheelScale=new THREE.Vector3();
+  const turnWheels = () => {
     for (const hw of heroWheels) {
-      hw.spin = (hw.spin + (hw.c.speed * dt) / hw.h.radius) % (Math.PI * 2);
+      hw.spin = wheelRotation(hw.c.wheelDistance??0,hw.h.radius);
       meshes[hw.c.type].getMatrixAt(hw.c.slot, wm);
       hw.h.wheels.forEach((wh, i) => {
         // (a left wheel faces out the other way: turned half round, its spin reversed)
@@ -1084,13 +1102,26 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // Near the eye (NEAR_M) a car is drawn from its modelled mesh: those instances are packed
   // into a second mesh per kind each frame and hidden in the far one.
   let NEAR_M = 55;   // (wider while driving: setDetail)
+  const wheelRigs=kinds.map((k,i)=>{
+    if(heroShape.has(i))return null;
+    const model=nearGeo.get(k.geo)??(k.model?models?.get(k.model):undefined);
+    if(model)return modelWheelRig(model);
+    const name=[...procedural].find(([,g])=>g===k.geo)?.[0]??Object.keys(CAR_SPECS).find(n=>kit(n)===k.geo)??'';
+    return fallbackWheelRig(k.geo,name,k.dims,CAR_SPECS[name]);
+  });
   const near = kinds.map((k, i) => {
-    const g = nearGeo.get(k.geo) ?? (k.model ? models?.get(k.model) : undefined);
+    const g = wheelRigs[i]?.full?wheelRigs[i]!.body:nearGeo.get(k.geo) ?? (k.model ? models?.get(k.model) : undefined);
     if (!g || !modelMat) return null;
     const im = instanced(g, modelMat, perKind[i], true);
     im.count = 0;
     im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, perKind[i]) * 3).fill(1), 3);
     return im;
+  });
+  const wheelMat=new THREE.MeshStandardMaterial({vertexColors:true,color:0xffffff,roughness:.48,metalness:.25,side:THREE.DoubleSide,transparent:false,opacity:1,depthWrite:true});
+  const rolling=[true,false].map(full=>{
+    const capacity=cars.reduce((s,c)=>s+(wheelRigs[c.type]?.full===full?wheelRigs[c.type]!.wheels.length:0),0);
+    const im=instanced(rollingWheelGeometry(!full),wheelMat,capacity,false);im.count=0;
+    im.name=full?'rotating tyres and rims':'rotating wheel rims';return im;
   });
   const white = new THREE.Color("#ffffff");
   const hidden = new THREE.Matrix4().makeScale(0, 0, 0), mm = new THREE.Matrix4(), cc = new THREE.Color(), eyeLocal = new THREE.Vector3();
@@ -1129,7 +1160,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const swapNear = (eye?: THREE.Vector3) => {
     if (!eye) return;
     eyeLocal.copy(eye); group.worldToLocal(eyeLocal);
-    const packed = near.map(() => 0), platesN = kinds.map(() => 0);
+    const packed = near.map(() => 0), platesN = kinds.map(() => 0),wheelN=[0,0];
     for (const c of cars) {
       const far = meshes[c.type];
       const pdx = c.x - eyeLocal.x, pdz = -c.y - eyeLocal.z;
@@ -1139,11 +1170,24 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         plates[c.type].setMatrixAt(k, mm);
         plates[c.type].setColorAt(k, cc.setRGB((plateOf[c.id] % 256) / 255, Math.floor(plateOf[c.id] / 256) / 255, 0));
       }
-      const im = near[c.type];
-      if (!im) continue;
       far.getMatrixAt(c.slot, mm);
       const was = nearNow[c.type].has(c.slot);
       const dx = c.x - eyeLocal.x, dz = -c.y - eyeLocal.z, isNear = dx * dx + dz * dz < NEAR_M * NEAR_M;
+      const rig=wheelRigs[c.type];
+      if(isNear&&rig){
+        const which=rig.full?0:1;
+        for(const wh of rig.wheels){
+          wl.makeTranslation(wh.x,wh.y,wh.z);
+          const steer=c.steer??(c.inConn?(c.conn.turn==='left'?.25:c.conn.turn==='right'?-.25:c.conn.turn==='uturn'?.4:0):0);
+          if(wh.z>0&&steer)wl.multiply(ws.makeRotationY(steer));
+          if(wh.side<0)wl.multiply(flip);
+          wl.multiply(wr.makeRotationX((wh.side<0?-1:1)*wheelRotation(c.wheelDistance??0,wh.radius)));
+          wl.scale(wheelScale.set(wh.width,wh.radius,wh.radius));
+          rolling[which].setMatrixAt(wheelN[which]++,wr.multiplyMatrices(mm,wl));
+        }
+      }
+      const im = near[c.type];
+      if (!im) continue;
       if (isNear) {
         if (!was) nearNow[c.type].add(c.slot);
         const k = packed[c.type]++;
@@ -1155,6 +1199,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     }
     plates.forEach((im, i) => { im.count = platesN[i]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; });
     near.forEach((im, i) => { if (!im) return; im.count = packed[i]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; });
+    rolling.forEach((im,i)=>{im.count=wheelN[i];im.instanceMatrix.needsUpdate=true;});
   };
   await frameSlice();
   // (the two followed vehicles light their own modelled lamps; the rest a generic pair at each end)
@@ -1191,17 +1236,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const place = (c: Car) => {
     if (c.manual) { /* (where the driver put it) */ }
     else if (c.inConn) {
-      const cn = c.conn, u = Math.min(c.u, cn.len);
-      let i = 1;
-      while (i < cn.cum.length - 1 && cn.cum[i] < u) i++;
-      const seg = cn.cum[i] - cn.cum[i - 1] || 1, t = (u - cn.cum[i - 1]) / seg;
-      const dx = cn.xs[i] - cn.xs[i - 1], dy = cn.ys[i] - cn.ys[i - 1];
-      c.x = cn.xs[i - 1] + dx * t; c.y = cn.ys[i - 1] + dy * t;
-      // (the heading eased from segment to segment, not stepped at each)
-      const n = cn.cum.length - 1, j = t < 0.5 ? Math.max(1, i - 1) : Math.min(n, i + 1), w = t < 0.5 ? 0.5 + t : 1.5 - t;
-      const ox = cn.xs[j] - cn.xs[j - 1], oy = cn.ys[j] - cn.ys[j - 1], lo = Math.hypot(ox, oy) || 1, li = Math.hypot(dx, dy) || 1;
-      const hx = dx / li * w + ox / lo * (1 - w), hy = dy / li * w + oy / lo * (1 - w), l = Math.hypot(hx, hy) || 1;
-      c.hx = hx / l; c.hy = hy / l;
+      connAt(c.conn,c.u);c.x=pose.x;c.y=pose.y;c.hx=pose.hx;c.hy=pose.hy;
     } else {
       const pt = lanePt(c.road, c.forward, c.s, c.lane);
       c.x = pt.x; c.y = pt.y; c.hx = pt.hx; c.hy = pt.hy;
@@ -1236,8 +1271,12 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     let i = 1;
     while (i < cn.cum.length - 1 && cn.cum[i] < u) i++;
     const seg = cn.cum[i] - cn.cum[i - 1] || 1, t = Math.max(0, Math.min(1, (u - cn.cum[i - 1]) / seg));
-    const dx = cn.xs[i] - cn.xs[i - 1], dy = cn.ys[i] - cn.ys[i - 1], l = Math.hypot(dx, dy) || 1;
-    pose.x = cn.xs[i - 1] + dx * t; pose.y = cn.ys[i - 1] + dy * t; pose.hx = dx / l; pose.hy = dy / l;
+    const dx = cn.xs[i] - cn.xs[i - 1], dy = cn.ys[i] - cn.ys[i - 1], li = Math.hypot(dx, dy) || 1;
+    pose.x = cn.xs[i - 1] + dx * t; pose.y = cn.ys[i - 1] + dy * t;
+    const n=cn.cum.length-1,j=t<.5?Math.max(1,i-1):Math.min(n,i+1),w=t<.5?.5+t:1.5-t;
+    const ox=cn.xs[j]-cn.xs[j-1],oy=cn.ys[j]-cn.ys[j-1],lo=Math.hypot(ox,oy)||1;
+    const hx=dx/li*w+ox/lo*(1-w),hy=dy/li*w+oy/lo*(1-w),l=Math.hypot(hx,hy)||1;
+    pose.hx=hx/l;pose.hy=hy/l;
   };
   const laneAt = (road: number, forward: boolean, sv: number, lane: number) => {
     const p = lanePt(road, forward, sv, lane);
@@ -1306,6 +1345,13 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   /** May this vehicle cross its stop line now? */
   const admit = (c: Car, toStop: number) => {
     const cn = c.conn;
+    if(cn.cluster>=0){
+      const phase=(key:string)=>key;
+      if(junctionOccupied(boxes.get(cn.cluster)??[],c,cn.approach,o=>o.inConn||o.go?o.conn.approach:o.arrive?.approach,phase)){c.why='box';return false;}
+    }
+    // Different turns merging onto one lane reserve it before entering the box.
+    // Let a queue on the same connector follow; crossing turns wait outside.
+    if((intoLane.get(cn.toKey)??[]).some(o=>o!==c&&o.conn!==cn&&(o.inConn||o.go))){c.why='merge';return false;}
     if (cn.node >= 0) {
       const light = lightAt(cn.node, cn.approach), inBox = boxes.get(cn.node) ?? [];
       if (light === "red") {
@@ -1360,11 +1406,12 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       if (c.manual) driven.push(c);
       else if (c.inConn) {
         push(onConn, c.conn.key, c); push(intoLane, c.conn.toKey, c); connCars.push(c);
-        if (c.conn.node >= 0) push(boxes, c.conn.node, c);
+        if (c.conn.cluster >= 0) push(boxes, c.conn.cluster, c);
       } else {
         push(lanes, laneKey(c.road, c.forward, c.lane), c);
+        if(c.go)push(intoLane,c.conn.toKey,c);
         // In a box: cleared across its stop line, or rear not yet out of the last one.
-        if (c.conn.node >= 0 && c.go) { c.arrive = null; push(boxes, c.conn.node, c); }
+        if (c.conn.cluster >= 0 && c.go) { c.arrive = null; push(boxes, c.conn.cluster, c); }
         // (Half a metre of slack: one stopped in a queue right at the edge must not hold
         // the box for every other direction.)
         else if (c.arrive && c.s - c.length / 2 < c.arrive.startS - 0.5) push(boxes, c.arrive.node, c);
@@ -1374,7 +1421,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     lanes.forEach(l => l.sort((a, b) => a.s - b.s));
     onConn.forEach(l => l.sort((a, b) => a.u - b.u));
     for (const c of cars) {
-      if (c.manual) { c.pilot?.(dt); place(c); continue; }
+      if (c.manual) { const x=c.x,y=c.y;c.pilot?.(dt);c.wheelDistance=(c.wheelDistance??0)+(c.pilot?(c.x-x)*c.hx+(c.y-y)*c.hy:c.speed*dt);place(c); continue; }
       if (c.stunned && c.stunned > 0) { c.stunned -= dt; c.speed = 0; c.why = "struck"; place(c); continue; }
       const cn = c.conn;
       let room = Infinity;
@@ -1412,7 +1459,11 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         const toStop = cn.endS - 0.5 - (c.s + c.length / 2);
         if (!c.go) {
           if (toStop < 60 && !admit(c, Math.max(0, toStop))) room = Math.min(room, Math.max(0, toStop));
-          else if (toStop < 1.5) c.go = true;
+          else if (toStop < 1.5) {
+            c.go = true;
+            if(cn.cluster>=0)push(boxes,cn.cluster,c);
+            push(intoLane,cn.toKey,c);
+          }
         }
         // Give way to anything already turning across this lane.
         // (Not those merging into this very lane behind it: they follow this vehicle.)
@@ -1436,14 +1487,23 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       }
       const want = c.cruise * Math.min(1, Math.max(0, (room - 2) / 16)) * (c.inConn && cn.turn !== "straight" ? 0.6 : 1);
       c.speed = Math.max(0, c.speed + Math.max(-8 * dt, Math.min(2.5 * dt, want - c.speed)));
-      const adv = Math.min(c.speed * dt, Math.max(0, room - 0.5));
+      const proposed=Math.min(c.speed*dt,Math.max(0,room-.5));
+      // Respect actual current bodies even when priority/deadlock rules give
+      // this car permission to go. Use nearby buckets, not an all-car sweep.
+      const nearby:Car[]=[...driven],gx=Math.floor(c.x/NEAR),gy=Math.floor(c.y/NEAR);
+      const radius=Math.ceil((c.length+proposed+20)/NEAR);
+      for(let i=gx-radius;i<=gx+radius;i++)for(let j=gy-radius;j<=gy+radius;j++)nearby.push(...(bodies.get(i*4096+j)??[]));
+      const swept={x:0,y:0,hx:0,hy:0,length:c.length,width:c.width};
+      const adv=collisionFreeTravel(proposed,d=>{poseAhead(c,d);swept.x=pose.x;swept.y=pose.y;swept.hx=pose.hx;swept.hy=pose.hy;return swept;},nearby,c);
+      if(adv+1e-6<proposed){c.speed=Math.min(c.speed,adv/Math.max(dt,.001));c.why='collision';}
+      c.wheelDistance=(c.wheelDistance??0)+adv;
       if (c.inConn) {
         c.u += adv;
         if (c.u >= cn.len) {
           const over = c.u - cn.len;
           c.road = cn.link.road; c.forward = cn.link.forward; c.lane = cn.lane; c.s = cn.startS + over;
           c.inConn = false; c.u = 0;
-          c.arrive = cn.node >= 0 ? { node: cn.node, startS: cn.startS, approach: cn.approach } : null;
+          c.arrive = cn.cluster >= 0 ? { node: cn.cluster, startS: cn.startS, approach: cn.approach } : null;
           plan(c);
         }
       } else {
@@ -1628,22 +1688,21 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return { line: clean, end: [bx, by] as [number, number] };
   };
 
-  group.userData.traffic = { cars, paths, nodes, nodeOf, trimAt, clusters, idle, internal, drawn: roads.length }; // inspection in dev tools
+  const updateTraffic=(dt:number,eye?:THREE.Vector3)=>{
+    step(Math.min(.1,dt));turnWheels();swapNear(eye);showSignals();
+    meshes.forEach(m=>{m.instanceMatrix.needsUpdate=true;});
+    if(lampsOn)lamps.forEach(m=>{m.instanceMatrix.needsUpdate=true;});
+  };
+  group.userData.traffic = { cars, paths, nodes, nodeOf, trimAt, clusters, clusterEnds, armInfo, signals, heads, lightAt, idle, internal, drawn: roads.length,
+    advance:updateTraffic }; // deterministic inspection in dev tools
 
   return {
     group,
     /** eye: the camera's world position (the cars near it get their modelled mesh). */
-    update(dt: number, eye?: THREE.Vector3) {
-      step(Math.min(0.1, dt));
-      turnWheels(Math.min(0.1, dt));
-      swapNear(eye);
-      showSignals();
-      meshes.forEach(m => { m.instanceMatrix.needsUpdate = true; });
-      if (lampsOn) lamps.forEach(m => { m.instanceMatrix.needsUpdate = true; });
-    },
+    update:updateTraffic,
     /** The roads as the traffic drives them, and each junction arm's crossing and stop line —
      * the road markings are laid from these, so line, signal and stopping point agree. */
-    arms: { roads: paths as RealEstateRoad[], at: (road: number, atStart: boolean) => layout.get(`${road}:${atStart}`) ?? null, inside: (road: number) => internal[road] },
+    arms,
     /** The height of the surface the traffic drives on (the road's ground, a bridge's deck). */
     groundAt: (x: number, y: number) => terrain.at(x, y),
     /** A followed vehicle as it is now (footprint frame), or null. */
@@ -1678,7 +1737,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       c.s = at;
       c.speed = c.cruise * 0.5;
       place(c);
-      turnWheels(0);
+      turnWheels();
       return true;
     },
     /** Take a followed vehicle into the driver's hands (it stops following its lane; the others
@@ -1720,6 +1779,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     },
     dispose() {
       [...meshes, ...lamps].forEach(m => m.dispose());
+      rolling.forEach(m=>m.dispose());
       near.forEach(m => m?.dispose()); modelMat?.dispose();
       plates.forEach(m => m.dispose()); plateGeos.forEach(g => g.dispose()); plateMat.dispose();
       kinds.forEach(k => { if (k.own) k.geo.dispose(); }); heroWheels.forEach(hw => { hw.im.dispose(); hw.h.wheel.dispose(); });
@@ -1728,7 +1788,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       signalMeshes.forEach(m => m.geometry.dispose());
       litMeshes.forEach(m => { if (m.geometry !== arrowG) m.geometry.dispose(); m.dispose(); });
       [signalMat, ...litMats].forEach(m => m.dispose());
-      bodyMat.dispose(); boxMat.dispose(); lampMat.dispose(); heroMats.forEach(m => { (m as THREE.MeshStandardMaterial).map?.dispose(); m.dispose(); });
+      bodyMat.dispose(); boxMat.dispose(); wheelMat.dispose(); lampMat.dispose(); heroMats.forEach(m => { (m as THREE.MeshStandardMaterial).map?.dispose(); m.dispose(); });
     },
   };
 }

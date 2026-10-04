@@ -1,7 +1,7 @@
 import type * as THREE from "three";
 import { frameSlice } from "./frameSlice";
 import { gridAt } from "./waterCore";
-import { continuousRoadGrade } from "./roadGrade";
+import { corridorRoadGrade } from "./roadGrade";
 /* The ground's real relief around one complex (components/ComplexHologram.tsx).
  *
  * Source, best first: VWorld's national DEM (국토지리정보원, the WebGL 3D map's
@@ -321,6 +321,7 @@ export async function gradeRoads(t: Terrain, roads: { line: [number, number][]; 
   const W = i1 - i0 + 1, H = j1 - j0 + 1, N = W * H;
   if (W < 2 || H < 2) return t;
   const near = new Float32Array(N).fill(Infinity), mask = new Float32Array(N);
+  const anchorX = new Float32Array(N), anchorY = new Float32Array(N);
   let slice = performance.now();
   const pace = async () => { if (performance.now() - slice > 6) { await frameSlice(); slice = performance.now(); } };
   for (const r of roads) {
@@ -337,7 +338,7 @@ export async function gradeRoads(t: Terrain, roads: { line: [number, number][]; 
         if (d > reach) continue;
         const k = (j - j0) * W + (i - i0);
         if (d <= core) mask[k] = 1;
-        if (d - hw < near[k]) near[k] = d - hw;
+        if (d - hw < near[k]) { near[k] = d - hw; anchorX[k] = qx; anchorY[k] = qy; }
       }
     }
   }
@@ -380,14 +381,22 @@ export async function gradeRoads(t: Terrain, roads: { line: [number, number][]; 
     for (let i = 0; i < W; i++) grade[j * W + i] = sAt(-R + (i0 + i) * cell, -R + (j0 + j) * cell, h[(j0 + j) * n + i0 + i]);
     await pace();
   }
-  const bounded = continuousRoadGrade(grade, W, H, cell);
+  const bounded = await corridorRoadGrade(grade, W, H, cell, mask, pace);
+  const roadAt = (x: number, y: number, fallback: number) => {
+    const gx = Math.min(W - 1.001, Math.max(0, (x + R) / cell - i0)), gy = Math.min(H - 1.001, Math.max(0, (y + R) / cell - j0));
+    const i = Math.floor(gx), j = Math.floor(gy), fx = gx - i, fy = gy - j;
+    let sum = 0, weight = 0;
+    for (const [q, w] of [[j * W + i, (1-fx)*(1-fy)], [j * W + i + 1, fx*(1-fy)], [(j+1)*W+i, (1-fx)*fy], [(j+1)*W+i+1, fx*fy]])
+      if (mask[q] && w > 0) { sum += bounded[q] * w; weight += w; }
+    return weight > 0 ? sum / weight : fallback;
+  };
   const out = Float32Array.from(h);
   const ease = (v: number) => { const c = Math.max(0, Math.min(1, v)); return c * c * (3 - 2 * c); };
   for (let k = 0; k < N; k++) {
     const e = near[k];
     if (!Number.isFinite(e)) continue;
     const idx = (j0 + Math.floor(k / W)) * n + i0 + (k % W), was = h[idx];
-    const to = bounded[k], diff = to - was;
+    const to = roadAt(anchorX[k], anchorY[k], grade[k]), diff = to - was;
     const w = 1 - ease((e - SIDE) / FADE);
     out[idx] = was + diff * w;
   }

@@ -116,7 +116,7 @@ export async function buildBalloon(pace: () => Promise<unknown>) {
    * where they were to where they go (the balloon keeps circling on the way). */
   let travel: { from: THREE.Vector3; to: THREE.Vector3; r0: number; r1: number; b0: number; b1: number; t: number; dur: number } | null = null;
   const place = () => {
-    // Circling at ~3 m/s; height swinging slowly between ~10 and ~70 m over the roofs
+    // Circling at ~3 m/s; basket height swings around 38 m over the tallest roof.
     // (low enough to sit in the opening view's sky, just above the skyline).
     // Starting beyond the complex from the opening view (it looks in from +x +z), in
     // that view's sky, then on round.
@@ -134,9 +134,9 @@ export async function buildBalloon(pace: () => Promise<unknown>) {
     pickables: [envelope, ...hardware] as THREE.Object3D[],
     /** Over this complex: its centre, its footprint's size, how high the roofs are. */
     setRoute(c: THREE.Vector3, span: number, roofTop: number, glide = false) {
-      // Over the complex itself: a circle inside its footprint, the basket 9-27 m over
+      // Over the complex itself: a circle inside its footprint, the basket 29-47 m over
       // the tallest roof (never low enough to touch a tower).
-      const r1 = Math.max(35, span * 0.42), b1 = roofTop + 18;
+      const r1 = Math.max(35, span * 0.42), b1 = roofTop + 38;
       if (glide) {
         // (about 150 m/s at the most, and never a jump: 1.6 s at the least)
         const dur = Math.min(4, Math.max(1.6, c.distanceTo(center) / 150));

@@ -1311,7 +1311,7 @@ export class ComplexRenderer {
     // Facades with a glass mask (the lit-window map's alpha): a room behind the clear glass.
     const interior = INTERIOR_ALLOWED && !!(source.userData.interior && source.emissiveMap);
     const car = !!(source.userData.carPaint && source.map);
-    const recess = RECESS_ALLOWED && interior && source.userData.interior === true;
+    const recess = RECESS_ALLOWED && interior && (source.userData.interior === true || source.userData.interior.recess === true);
     let surface = '#if !PASS_DEPTH\nenvP = in.P;\n#endif\nvar puv = in.uv;\nvar reveal = 0.0;\nvar revealUV = in.uv;\n' + (recess ? RECESS_WGSL : '') + (interior ? 'var roomOpen = 0.0;\n' : '') + (car ? 'var carTex = vec3f(0.5);\n' : '');
     // Relief normals and roughness / metalness in one texture where they line up (the
     // facades): normal x, y, roughness, metalness; z comes back from x and y.
@@ -1389,6 +1389,13 @@ export class ComplexRenderer {
     // water (alpha ½) smooth, reflecting. Always bound — a blank until the picture comes — so the
     // picture arriving only swaps a texture, never the shader.
     const far = source.userData.farGround;
+    if(source.userData.naturalGround){
+      surface += `if(any(in.uv < vec2f(0.0)) || any(in.uv > vec2f(1.0))) {
+        let green = skyNoise(in.P.xz * 0.018);
+        s.albedo = mix(vec3f(0.035,0.115,0.045),vec3f(0.085,0.19,0.065),green);
+        s.roughness=0.96; s.metalness=0.0; s.emissive=vec3f(0.0);
+      }\n`;
+    }
     if (far?.map) {
       textures.farMap = this.texture(far.map);
       extra.farT = ['vec4f', [far.half, far.on ? 1 : 0, 0, 0]];
@@ -1404,7 +1411,7 @@ export class ComplexRenderer {
         }
       }\n`;
     }
-    if (DETAIL_ALLOWED && source.userData.groundDetail) surface += GROUND_DETAIL + '\n';
+    if (DETAIL_ALLOWED && source.userData.groundDetail) surface += (source.userData.naturalGround ? GROUND_DETAIL.replace('vec3f(0.95, 1.12, 0.62)','vec3f(0.8, 1.2, 0.8)').replace('dry * grass * 0.7 * mid','dry * grass * 0.2 * mid') : GROUND_DETAIL) + '\n';
     const scan = DETAIL_ALLOWED && details?.[source.userData.detail];
     if (scan) {
       textures.detailMap = scan.tex;
@@ -1452,6 +1459,7 @@ export class ComplexRenderer {
       }`;
     // Leaf-cluster cards of the mesh trees: light through the leaves, and a card turning
     // edge-on thins out (no hard straight line of leaves).
+    if (source.userData.volumeFoliage) surface += 's.translucency = s.albedo * 0.12;';
     if (source.userData.leafCluster) surface += `s.translucency = s.albedo * 0.4;
       { let ng = normalize(cross(dpdx(in.P), dpdy(in.P))); let v = normalize(frame.cameraPos - in.P);
         s.alpha *= smoothstep(0.08, 0.3, abs(dot(ng, v)));
@@ -1496,12 +1504,28 @@ export class ComplexRenderer {
         let fq = abs(vec2f(in.P.x, in.P.z)) / mat.farT.x;
         let past = select(pastNear, (max(fq.x, fq.y) - 1.0) * 0.5, mat.farT.y > 0.5);` : `
         let past = pastNear;`}
-        r.color = vec4f(mix(r.color.rgb, frame.horizonColor * 0.92, smoothstep(-0.05, 0.9, past)), r.color.a);` : ''}`,
+        r.color = vec4f(mix(r.color.rgb, frame.horizonColor * 0.92, smoothstep(${source.userData.naturalGround?'1.0, 3.0':'-0.05, 0.9'}, past)), r.color.a);` : ''}`,
       uniforms: { haze: ['f32', 0.0005], hazeScale: ['f32', source.userData.hazeScale ?? 1], ...extra }, defines: { CLEARCOAT: source.clearcoat || car || source.userData.carModel ? 1 : 0, FOLIAGE: source.userData.leafCluster ? 2 : source.userData.foliage ? 1 : 0 },
-      userData: { foliage: !!(source.userData.foliage || source.userData.leafCluster) },
+      userData: { foliage: !!(source.userData.foliage || source.userData.leafCluster || source.userData.volumeFoliage) },
     });
     this.materials.set(source, mat);
     return mat;
+  }
+  objectsReady(root) {
+    let ready = true;
+    root.traverseVisible(obj => {
+      if (!obj.isMesh || obj.material?.isShaderMaterial) return;
+      const mesh = this.meshes.get(obj);
+      if (!mesh) { ready = false; return; }
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const sources = Array.isArray(obj.material) ? obj.material : [obj.material];
+      const passes = [{kind:'color',colorFormats:['rgba16float'],depthFormat:'depth32float'}];
+      if(mesh.castShadow)passes.push({kind:'depth',colorFormats:[],depthFormat:'depth32float',depthCompare:'less-equal',depthBias:2,depthBiasSlopeScale:1.5});
+      materials.forEach((mat,i)=>{
+        if(mat.srcVersion!==sources[i]?.version||!this.renderer.materialReady(mesh,mat,passes))ready=false;
+      });
+    });
+    return ready && !this.failed;
   }
   sync(source) {
     if (this.detailReady === false) { this.pending = true; this.ready = false; return; }

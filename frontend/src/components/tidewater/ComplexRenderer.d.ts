@@ -19,6 +19,7 @@ export class ComplexRenderer {
   /** Smoothed GPU ms per pass and their sum (total); empty without timestamp queries. */
   timer: { enabled: boolean; ms: Record<string, number>; samples: number };
   render(scene: Scene, camera: PerspectiveCamera, look: Look, time: number): void;
+  objectsReady(root: import('three').Object3D): boolean;
   setSize(width: number, height: number, ratio: number): void;
   setQuality(quality: Quality): void;
   suspendTargets(): void;

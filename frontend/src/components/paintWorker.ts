@@ -25,7 +25,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
     cacheQueue = cacheQueue.then(async () => {
       if (!cacheAllowed) return;
       const job=m.job;
-      const textures=runNow(job.kind==='facade' ? facadeSteps(job.palette,job.seed,job.scale??1)
+      const textures=runNow(job.kind==='facade' ? facadeSteps(job.palette,job.seed,job.scale??1,undefined,job.appearance==='architecture')
         : job.kind==='plinth' ? plinthSteps(job.seed,job.tone)
         : job.style==='apt' ? facadeSteps(NEIGHBOUR_PALETTE,4242,job.scale??1) : contextSteps(1000+job.style.length,job.style,job.scale??1));
       const bitmaps: Record<string,ImageBitmap>={}, params: Record<string,TexParams>={};

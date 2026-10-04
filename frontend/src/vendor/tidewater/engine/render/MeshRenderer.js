@@ -818,7 +818,11 @@ export class MeshRenderer {
 			} else {
 
 				// (the counts the direct path keeps, for the overlay)
-				for ( const r of segment ) { this.stats.draws ++; this.stats.triangles += ( r.index ? Math.min( r.it.count, r.geo.index.count - r.it.start ) : r.it.count ) / 3 * r.instances; }
+				for ( const r of segment ) {
+					const total = r.index ? r.geo.index.count : r.geo.attributes.position?.count ?? r.geo.vertexCount;
+					this.stats.draws ++;
+					this.stats.triangles += Math.max( 0, Math.min( r.it.count, total - r.it.start ) ) / 3 * r.instances;
+				}
 
 			}
 

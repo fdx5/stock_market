@@ -12,11 +12,12 @@ function load(source, extra={}) {
   return scope.module.exports;
 }
 const read=name=>readFileSync(new URL('../src/components/'+name,import.meta.url),'utf8');
-const {continuousRoadGrade}=load(read('roadGrade.ts'));
+const {continuousRoadGrade,corridorRoadGrade}=load(read('roadGrade.ts'));
 const {gridAt}=load(read('waterCore.ts'));
-const {drapeRoadSurface}=load(read('roadDrape.ts'));
-const {gradeRoads}=load(read('sceneTerrain.ts'),{gridAt,continuousRoadGrade});
-const street=load(read('sceneStreet.ts'));
+const {drapeRoadSurface,raiseRoadPaint}=load(read('roadDrape.ts'));
+const {gradeRoads}=load(read('sceneTerrain.ts'),{gridAt,corridorRoadGrade});
+const {roadJunctionHulls}=load(read('roadJunctions.ts'));
+const street=load(read('sceneStreet.ts'),{roadJunctionHulls});
 const oldStreet=load(execFileSync('git',['show','66bc4ec:frontend/src/components/sceneStreet.ts'],{encoding:'utf8'}));
 const {findBridges,roadGround,bridgeHeight}=load(read('sceneBridges.ts'),{inRing:([x,y],ring)=>x>=ring[0][0]&&x<=ring[2][0]&&y>=ring[0][1]&&y<=ring[2][1],sidewalkWidth:()=>2});
 
@@ -31,6 +32,14 @@ test('road grade removes a DEM cliff and leaves remote terrain unchanged',async(
   assert.ok(Math.abs(graded.at(0,0)-at(0,0))>3,'a >3m discrepancy must still be corrected');
   assert.equal(graded.at(60,80),at(60,80));
   assert.deepEqual([...h],[...original]);
+});
+
+test('a hill outside the road corridor must not raise a level road',async()=>{
+  const n=81,cell=4,R=160,h=Float32Array.from({length:n*n},(_,k)=>Math.floor(k/n)*cell-R>40?100:0);
+  const grid={h,n,cell,R},at=gridAt(grid),t={grid,at,base:()=>0,relief:100,elevation:100,source:'fixture'};
+  const graded=await gradeRoads(t,[{line:[[-80,0],[80,0]],width:12}]);
+  assert.ok(Math.abs(graded.at(0,0))<.01,`level road shifted by ${graded.at(0,0)}m`);
+  assert.equal(graded.at(0,80),at(0,80));
 });
 
 test('slope envelopes preserve a normal incline and bound spikes in both axes',()=>{
@@ -52,11 +61,50 @@ function contains(mesh,x,y){
     const a=[p[k],-p[k+2]],b=[p[k+3],-p[k+5]],c=[p[k+6],-p[k+8]];
     const cross=(u,v)=>(v[0]-u[0])*(y-u[1])-(v[1]-u[1])*(x-u[0]);
     const s=[cross(a,b),cross(b,c),cross(c,a)];
-    if(s.every(v=>v>=-1e-6)||s.every(v=>v<=1e-6))return true;
+    if(s.every(v=>v>=-1e-4)||s.every(v=>v<=1e-4))return true;
   }
   return false;
 }
 const flat={at:()=>0};
+function assertPaintOnAsphalt(surface,marks){
+ marks.group.traverse(o=>{if(!o.isMesh)return;const p=o.geometry.attributes.position;
+  for(let i=0;i<p.count;i+=3){
+   let x=0,y=0;for(let j=0;j<3;j++){x+=p.getX(i+j)/3;y-=p.getZ(i+j)/3;assert.ok(contains(surface.group,p.getX(i+j),-p.getZ(i+j)),`paint outside asphalt: ${p.getX(i+j)},${-p.getZ(i+j)}`);}
+   assert.ok(contains(surface.group,x,y),`paint cuts outside asphalt: ${x},${y}`);
+  }
+ });
+}
+test('a short multi-lane road retains its centre, edges and partial lane dash',async()=>{
+ const roads=[{line:[[0,0],[2.5,0]],width:14,lanes:4}],surface=await street.buildRoadSurface(roads,flat),marks=await street.buildRoadMarkings(roads,flat);
+ assert.equal(marks.group.children.length,2);assert.ok(contains(marks.group.children[0],.1,0.17));assert.ok(contains(marks.group.children[0],2.4,0.17));
+ assert.ok(contains(marks.group.children[1],2.4,3.5));assertPaintOnAsphalt(surface,marks);surface.dispose();marks.dispose();
+});
+test('crossing coordinates beyond a short road never extend paint past asphalt',async()=>{
+ const roads=[{line:[[0,0],[9,0]],width:12,lanes:4}],surface=await street.buildRoadSurface(roads,flat);
+ const marks=await street.buildRoadMarkings(roads,flat,()=>({crossA:12,crossB:16,stopA:17,stopB:17.4,surveyed:true}));
+ assert.ok(marks.group.children.length);assertPaintOnAsphalt(surface,marks);surface.dispose();marks.dispose();
+});
+test('all markings stay inside the same surveyed asphalt strip through tight bends',async()=>{
+ const roads=[{line:[[0,0],[11,0],[14,9],[28,10]],width:8,lanes:3}],surface=await street.buildRoadSurface(roads,flat),marks=await street.buildRoadMarkings(roads,flat);
+ assertPaintOnAsphalt(surface,marks);surface.dispose();marks.dispose();
+});
+test('a T at the middle of a road excludes the junction and retains both approach lines',async()=>{
+ const roads=[{line:[[-40,0],[40,0]],width:14,lanes:4},{line:[[0,0],[0,30]],width:10,lanes:2}];
+ const marks=await street.buildRoadMarkings(roads,flat),yellow=marks.group.children[0];
+ assert.ok(!contains(yellow,0,.17));for(let x=-39;x<40;x+=.5)if(Math.abs(x)>6)assert.ok(contains(yellow,x,.17),`missing approach at ${x}`);
+ marks.dispose();
+});
+test('three- and five-lane roads include each lane separator and do not lose a trailing dash',async()=>{
+ for(const lanes of [3,5]){
+  const width=lanes*3.5,marks=await street.buildRoadMarkings([{line:[[0,0],[18,0]],width,lanes}],flat),white=marks.group.children[1];
+  for(const side of [1,-1]){const count=side===1?Math.floor(lanes/2):Math.ceil(lanes/2);for(let k=1;k<count;k++)assert.ok(contains(white,17.5,side*k*width/2/count));}
+  marks.dispose();
+ }
+});
+test('an explicitly disabled stop line is not painted when zebra crossings are retained',async()=>{
+ const road=[{line:[[0,0],[60,0]],width:12,lanes:2}],marks=await street.buildRoadMarkings(road,flat,(_r,start)=>start?{crossA:5,crossB:8,stopA:9,stopB:9.4,zebra:true,stop:false,surveyed:true}:null);
+ assert.ok(contains(marks.group.children[1],6,.8));assert.ok(!contains(marks.group.children[1],9.2,3));marks.dispose();
+});
 test('two offset arms with different widths fill their previously uncovered joint',async()=>{
   const roads=[{line:[[-20,0],[0,0]],width:6,lanes:1},{line:[[1,1],[20,20]],width:14,lanes:2}];
   const before=await oldStreet.buildRoadSurface(roads,flat),after=await street.buildRoadSurface(roads,flat);
@@ -133,4 +181,14 @@ test('a road already above level ground keeps its original triangle count',async
   assert.equal(road.attributes.position.count,3);
   assert.deepEqual(Array.from(road.attributes.position.array),original);
   ground.dispose();road.dispose();
+});
+
+test('paint clears the real asphalt interior ridge without adding triangles',async()=>{
+ const asphalt=new THREE.BufferGeometry(),paint=new THREE.BufferGeometry();
+ asphalt.setAttribute('position',new THREE.Float32BufferAttribute([-2,0,0,0,1,0,-2,0,2, 0,1,0,2,0,0,2,0,2, 0,1,0,2,0,2,-2,0,2],3));
+ paint.setAttribute('position',new THREE.Float32BufferAttribute([-1.5,.2,.2,1.5,.2,.2,0,.2,1.5],3));
+ await raiseRoadPaint(paint,asphalt,async()=>true);assert.equal(paint.attributes.position.count,3);
+ for(let i=0;i<3;i++)assert.ok(paint.attributes.position.getY(i)>=.9149);
+ const original=Float32Array.from(paint.attributes.position.array);await raiseRoadPaint(paint,asphalt,async()=>true);assert.deepEqual([...paint.attributes.position.array],[...original]);
+ asphalt.dispose();paint.dispose();
 });

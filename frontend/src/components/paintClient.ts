@@ -4,6 +4,7 @@ import { contextSteps, facadeSteps, keepPaintWith, NEIGHBOUR_PALETTE, paletteFor
 import { normalRows } from "./normalKernel";
 import { onSceneMemoryRelease } from "./sceneMemory";
 import { preparedContext } from './preparedPaint';
+import { textureBudgetEnabled } from './textureBudget';
 
 /* The painted textures of the 3D view, kept between visits (paintWorker stores and
  * decodes them off the page's thread), and a complex's facades started the moment it is
@@ -11,7 +12,7 @@ import { preparedContext } from './preparedPaint';
  * used to follow them now overlaps them. */
 
 export type PaintJob =
-  | { kind: "facade"; palette: Palette; seed: number; scale?: number }
+  | { kind: "facade"; palette: Palette; seed: number; scale?: number; appearance?: 'architecture' }
   | { kind: "plinth"; seed: number; tone: string }
   | { kind: "context"; style: ContextStyle; scale?: number };
 type Textures = Record<string, THREE.Texture>;
@@ -133,7 +134,7 @@ function lookUp(job: PaintJob): Promise<Textures | null> {
 }
 
 const stepsOf = (job: PaintJob) =>
-  job.kind === "facade" ? facadeSteps(job.palette, job.seed, job.scale ?? 1)
+  job.kind === "facade" ? facadeSteps(job.palette, job.seed, job.scale ?? 1, undefined, job.appearance === 'architecture')
     : job.kind === "plinth" ? plinthSteps(job.seed, job.tone)
       : job.style === "apt" ? facadeSteps(NEIGHBOUR_PALETTE, 4242, job.scale ?? 1) : contextSteps(1000 + job.style.length, job.style, job.scale ?? 1);
 
@@ -202,8 +203,8 @@ export function complexPaintJobs(id: string, name: string): PaintJob[] {
   for (const ch of id) seed = (seed * 33 + ch.charCodeAt(0)) % 2147483647;
   const palette = paletteFor(name);
   return [
-    { kind: "facade", palette, seed },
-    { kind: "facade", palette, seed: seed + 7919 },
+    { kind: "facade", palette, seed, ...(textureBudgetEnabled() ? {appearance:'architecture' as const} : {}) },
+    { kind: "facade", palette, seed: seed + 7919, ...(textureBudgetEnabled() ? {appearance:'architecture' as const} : {}) },
     { kind: "plinth", seed: seed + 13, tone: plinthTone(palette) },
   ];
 }

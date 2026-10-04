@@ -20,6 +20,46 @@ function segment(axis: Float64Array,value: number,up: boolean) {
   while(hi-lo>1){const k=(lo+hi)>>1;if(up?axis[k]<=value:axis[k]>=value)lo=k;else hi=k;}
   return lo;
 }
+/** The same visible asphalt supports tyres; a DEM sample can lie centimetres
+ * below the tessellated road and bury the tyre's lower sidewall. */
+export function roadSurfaceHeight(geometry:THREE.BufferGeometry){
+ const p=geometry.getAttribute('position'),bins=new Map<string,number[]>(),cell=6;
+ for(let k=0;k<p.count;k+=3){const x=[0,1,2].map(i=>p.getX(k+i)),y=[0,1,2].map(i=>-p.getZ(k+i));for(let i=Math.floor(Math.min(...x)/cell);i<=Math.floor(Math.max(...x)/cell);i++)for(let j=Math.floor(Math.min(...y)/cell);j<=Math.floor(Math.max(...y)/cell);j++){const key=i+':'+j,l=bins.get(key);if(l)l.push(k);else bins.set(key,[k]);}}
+ return (x:number,y:number)=>{let h=-Infinity;
+  for(const k of bins.get(Math.floor(x/cell)+':'+Math.floor(y/cell))??[]){const a:Point=[p.getX(k),-p.getZ(k)],b:Point=[p.getX(k+1),-p.getZ(k+1)],c:Point=[p.getX(k+2),-p.getZ(k+2)],q:Point=[x,y],den=cross(a,b,c);if(Math.abs(den)<1e-9)continue;const u=cross(a,q,c)/den,v=cross(a,b,q)/den;if(u>=-1e-6&&v>=-1e-6&&u+v<=1.000001)h=Math.max(h,p.getY(k)*(1-u-v)+p.getY(k+1)*u+p.getY(k+2)*v);}
+  return Number.isFinite(h)?h:undefined;
+ };
+}
+
+/** Paint must clear the rendered asphalt plane, including interiors between
+ * samples. A per-triangle vertical correction adds no triangles or draw calls. */
+export async function raiseRoadPaint(paint:THREE.BufferGeometry,asphalt:THREE.BufferGeometry,pace:()=>Promise<boolean>,lift=.015){
+ const p=paint.getAttribute('position'),a=asphalt.getAttribute('position'),bins=new Map<string,number[]>(),size=6;
+ for(let k=0;k<a.count;k+=3){
+  if(k%1500===0&&!await pace())return;
+  const x=[0,1,2].map(i=>a.getX(k+i)),y=[0,1,2].map(i=>-a.getZ(k+i));
+  for(let i=Math.floor(Math.min(...x)/size);i<=Math.floor(Math.max(...x)/size);i++)for(let j=Math.floor(Math.min(...y)/size);j<=Math.floor(Math.max(...y)/size);j++){
+   const key=i+':'+j,l=bins.get(key);if(l)l.push(k);else bins.set(key,[k]);
+  }
+ }
+ for(let k=0;k<p.count;k+=3){
+  if(k%900===0&&!await pace())return;
+  const triangle:Point[]=[0,1,2].map(i=>[p.getX(k+i),-p.getZ(k+i)]),heights=[0,1,2].map(i=>p.getY(k+i)),area=cross(triangle[0],triangle[1],triangle[2]);if(Math.abs(area)<1e-9)continue;
+  const candidates=new Set<number>();
+  for(let i=Math.floor(Math.min(...triangle.map(q=>q[0]))/size);i<=Math.floor(Math.max(...triangle.map(q=>q[0]))/size);i++)for(let j=Math.floor(Math.min(...triangle.map(q=>q[1]))/size);j<=Math.floor(Math.max(...triangle.map(q=>q[1]))/size);j++)for(const id of bins.get(i+':'+j)??[])candidates.add(id);
+  let raise=0;
+  for(const id of candidates){
+   const surface:Point[]=[0,1,2].map(i=>[a.getX(id+i),-a.getZ(id+i)]),den=cross(surface[0],surface[1],surface[2]);if(Math.abs(den)<1e-9)continue;
+   for(const q of clip(triangle,surface)){
+    const u=cross(surface[0],q,surface[2])/den,v=cross(surface[0],surface[1],q)/den,pu=cross(triangle[0],q,triangle[2])/area,pv=cross(triangle[0],triangle[1],q)/area;
+    const ground=a.getY(id)*(1-u-v)+a.getY(id+1)*u+a.getY(id+2)*v,original=heights[0]*(1-pu-pv)+heights[1]*pu+heights[2]*pv;
+    raise=Math.max(raise,ground+lift-original);
+   }
+  }
+  if(raise>0)for(let i=0;i<3;i++)p.setY(k+i,heights[i]+raise);
+ }
+ p.needsUpdate=true;paint.computeVertexNormals();paint.computeBoundingSphere();
+}
 
 /** Partition asphalt at the rendered ground's triangle edges, not merely DEM posts.
  * On each piece both surfaces are planes. Interpolating their maximum keeps the

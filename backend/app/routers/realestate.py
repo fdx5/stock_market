@@ -121,8 +121,9 @@ def realestate_water_areas(response: Response, lat: float = Query(..., ge=33, le
                            r: float = Query(700, ge=100, le=1500)):
     """Open water round a point (OpenStreetMap lakes, ponds and river areas), for the 3D
     viewer: rings in metres about the point, clipped to the square of `r`."""
-    response.headers["Cache-Control"] = "public, max-age=86400"
-    return realestate_water.water(lat, lon, r)
+    result = realestate_water.water(lat, lon, r)
+    response.headers["Cache-Control"] = "public, max-age=86400" if result.get("source") else "no-store"
+    return result
 
 
 @router.get("/crossings")
@@ -130,8 +131,9 @@ def realestate_crossings(response: Response, lat: float = Query(..., ge=33, le=3
                          r: float = Query(700, ge=100, le=1500)):
     """Mapped crosswalks and traffic signals round a point (OpenStreetMap), for the 3D viewer's
     junctions: lines and points in metres about the point."""
-    response.headers["Cache-Control"] = "public, max-age=86400"
-    return realestate_water.crossings(lat, lon, r)
+    result = realestate_water.crossings(lat, lon, r)
+    response.headers["Cache-Control"] = "public, max-age=86400" if result.get("source") else "no-store"
+    return result
 
 
 @router.post("/nearby")

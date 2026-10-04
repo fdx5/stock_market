@@ -70,6 +70,15 @@ const unique = (fs: Feature[]) => {
   const seen = new Set<string>();
   return fs.filter(f => { const k = JSON.stringify(f.geometry?.coordinates ?? null) + (f.properties?.bld_nm ?? ""); if (seen.has(k)) return false; seen.add(k); return true; });
 };
+async function pagedFeatures(page:(n:number)=>Promise<Feature[]>):Promise<Feature[]> {
+  let all:Feature[]=[];
+  for(let n=1;n<=24;n++){
+    const next=await page(n),merged=unique([...all,...next]);
+    if(merged.length===all.length||next.length<1000)return merged;
+    all=merged;
+  }
+  throw new Error('VWorld feature coverage exceeded 24 pages');
+}
 const polygons = (g: Feature["geometry"]): number[][][][] =>
   g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : [];
 const area = (r: Ring) => r.reduce((s, [x1, y1], i) => { const [x2, y2] = r[(i + 1) % r.length]; return s + x1 * y2 - x2 * y1; }, 0) / 2;
@@ -106,6 +115,25 @@ function fillHeights(list: RealEstateBuilding[]) {
 }
 
 /** Major roads only: 8 m or wider, or two lanes and more (alleys and paths are 3 m). */
+export function physicalBuildingFootprints(list: Feature[], project: (p: number[]) => [number,number]): Ring[] {
+  return unique(list).flatMap(f => {
+    const p=f.properties;
+    if(String(p.grnd_flr).trim()==='0'&&Number(p.ugrnd_flr)>0&&!num(p.height))return [];
+    return polygons(f.geometry).flatMap(poly=>{const r=clean(poly[0].map(project));return r?[r]:[];});
+  });
+}
+
+/** Buildings must cover the same square as roads, including structures outside
+ * the selected parcel and the near context loaded for the first frame. */
+export async function vworldRoadFootprints(data:RealEstateBuildingsResponse,key:string,domain="https://kospimap.com",radius=600):Promise<Ring[]> {
+  if(!data.center)return [];
+  const {lat,lon}=data.center,kx=Math.cos(lat*Math.PI/180)*111320,ky=110540,R=radius+80;
+  const box=`BOX(${lon-R/kx},${lat-R/ky},${lon+R/kx},${lat+R/ky})`;
+  const page=async(n:number)=>features(await call(DATA,{service:'data',request:'GetFeature',crs:'EPSG:4326',geometry:'true',attribute:'true',key,domain,data:'LT_C_BLDGINFO',geomFilter:box,size:1000,page:n}));
+  const all=await pagedFeatures(page);
+  return physicalBuildingFootprints(all,([x,y])=>[Math.round((x-lon)*kx*100)/100,Math.round((y-lat)*ky*100)/100]);
+}
+
 function parseRoads(list: Feature[], project: (p: number[]) => [number, number]): RealEstateRoad[] {
   const roads: RealEstateRoad[] = [];
   for (const f of list) {
@@ -144,7 +172,7 @@ export async function vworldRoadsAround(data: RealEstateBuildingsResponse, key: 
   const box = `BOX(${lon - radius / kx},${lat - radius / ky},${lon + radius / kx},${lat + radius / ky})`;
   const page = (n: number) => call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true",
     key, domain, data: "LT_L_N3A0020000", geomFilter: box, size: 1000, page: n }).then(features).catch(() => [] as Feature[]);
-  const all = unique((await Promise.all([1, 2, 3, 4].map(page))).flat());
+  const all = await pagedFeatures(page);
   const project = ([x, y]: number[]): [number, number] => [Math.round((x - lon) * kx * 100) / 100, Math.round((y - lat) * ky * 100) / 100];
   // (a road the box catches runs on for kilometres: cut to the drawn square, a little past it)
   const R = radius + 50, inside = ([x, y]: [number, number]) => Math.abs(x) <= R && Math.abs(y) <= R;
@@ -241,7 +269,18 @@ export function parcelBox(data: RealEstateBuildingsResponse): [number, number, n
   return [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad];
 }
 
-export async function vworldParcels(data: RealEstateBuildingsResponse, key: string, domain = "https://kospimap.com"): Promise<{ parcels: RealEstateParcel[]; streets: [number, number][][] }> {
+// Single-flight cadastral data can download while roads and buildings are prepared.
+const parcelJobs=new Map<string,{at:number;job:ReturnType<typeof fetchParcels>}>();
+export function vworldParcels(data:RealEstateBuildingsResponse,key:string,domain="https://kospimap.com"){
+ const box=parcelBox(data),id=JSON.stringify([data.center,box,key,domain]);
+ const cached=parcelJobs.get(id);if(cached&&Date.now()-cached.at<300000)return cached.job;
+ const job=fetchParcels(data,key,domain);parcelJobs.set(id,{at:Date.now(),job});
+ job.then(r=>{if(!r.parcels.length)parcelJobs.delete(id);},()=>parcelJobs.delete(id));
+ if(parcelJobs.size>8)parcelJobs.delete(parcelJobs.keys().next().value!);
+ return job;
+}
+
+async function fetchParcels(data: RealEstateBuildingsResponse, key: string, domain = "https://kospimap.com"): Promise<{ parcels: RealEstateParcel[]; streets: [number, number][][] }> {
   if (!data.center) return { parcels: [], streets: [] };
   const { lat, lon } = data.center;
   const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
@@ -342,6 +381,7 @@ export async function vworldBuildings(
     if (!polys.length) continue;
     const p = f.properties;
     const mine = rings.some(r => inside(centroid(polys[0][0] as unknown as Ring), r)) || namesMatch(p.bld_nm || "", query.name);
+    if(String(p.grnd_flr).trim()==='0'&&Number(p.ugrnd_flr)>0&&!num(p.height))continue;
     for (const poly of polys) {
       const outer = clean(poly[0].map(project));
       if (!outer) continue;
@@ -462,6 +502,7 @@ export async function vworldPointArea(lat: number, lon: number, key: string, dom
   for (const f of all) {
     const p = f.properties;
     for (const poly of polygons(f.geometry)) {
+      if(String(p.grnd_flr).trim()==='0'&&Number(p.ugrnd_flr)>0&&!num(p.height))continue;
       const outer = clean(poly[0].map(project));
       if (!outer) continue;
       const holes = poly.slice(1).map(r => clean(r.map(project))).filter((h): h is Ring => !!h).map(h => h.reverse());

@@ -34,6 +34,7 @@ export async function preparedContext(job: PaintJob) {
   } catch { Object.values(bitmaps).forEach(b => b.close()); return null; }
 }
 export async function preparedNormal(job: PaintJob): Promise<ImageBitmap | null> {
+  if (job.kind === 'facade' && job.appearance === 'architecture') return null;
   const name = job.kind === 'facade' ? `facade-${job.scale ?? 1}` : job.kind === 'plinth' ? 'plinth' : null;
   if (!name) return null;
   const map = (await records())?.[name]?.normalMap;
