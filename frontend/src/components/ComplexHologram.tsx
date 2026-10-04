@@ -50,6 +50,7 @@ import { makeGroundGeometry } from "./groundGeometry";
 import { drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight } from "./roadDrape";
 import { drapeRoadOffThread } from './roadDrapeClient';
 import {constrainRoadCorridors}from'./roadCorridors';
+import {modelBlocksRoad}from'./roadModelConflict';
 import {roadFootprints}from'./roadJunctions';
 import {splitRoadJunctions}from'./roadTrafficNetwork';
 import {excludeSurface}from'./surfaceExclusion';
@@ -2435,6 +2436,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }
       const median = (v: number[]) => { const a = [...v].sort((x, y) => x - y); return a.length ? a[a.length >> 1] : 0; };
       const [dx, dy] = deltas.length >= 3 ? [median(deltas.map(d => d[0])), median(deltas.map(d => d[1]))] : [0, 0];
+      const surveyRoads=ringIndex(roadFootprints(splitRoadJunctions(stitchedRoads(data.roads??[]),true)));
+      const surveyBuildings=ringIndex([...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])]);
+      let roadRejected=0;
       const skip = new Set<string>();
       const used: THREE.Mesh[] = [];
       // The surveyed shapes in the view's own materials (lit, shadowed, reflecting, lit at
@@ -2658,6 +2662,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       let k = 0, matched = 0;
       for (const ph of photos) {
         if (!await pace()) { drop(); releasePieces(); return; }
+        if(modelBlocksRoad(ph.geometry.getAttribute('position').array,ph.geometry.index?.array??null,dx,dy,surveyRoads,surveyBuildings)){
+          ph.geometry.dispose();roadRejected++;continue;
+        }
         ph.geometry.computeBoundingBox();
         const height = ph.geometry.boundingBox!.max.z;
         const hull = ph.hull.map(([x, y]) => [x + dx, y + dy] as [number, number]);
@@ -2973,6 +2980,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (hostRef.current) {
         hostRef.current.dataset.photoBuildings = `${matched}/${photos.length}`;
         hostRef.current.dataset.photoOffset = `${dx.toFixed(1)},${dy.toFixed(1)}`;
+        hostRef.current.dataset.photoRoadRejected=String(roadRejected);
       }
       stage.resume();
     })().finally(() => { stage.busy--; }); });
@@ -3538,6 +3546,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           }
           const mid = (v: number[]) => { const q = [...v].sort((a, b) => a - b); return q.length ? q[q.length >> 1] : 0; };
           const [ox, oy] = pairs.length >= 3 ? [mid(pairs.map(p => p[0])), mid(pairs.map(p => p[1]))] : [0, 0];
+          const ringRoads=ringIndex(roadFootprints(splitRoadJunctions(roads,true)));
+          const ringBuildingsAt=ringIndex(physicalFootprints);
           const aptMat = sharedContextMaterial("apt");
           const plain = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }));
           const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -3557,6 +3567,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           const hide: [number, number][] = [];
           for (const ph of photos) {
             if (!await pace() || ringStop.signal.aborted) { photos.forEach(q => q.geometry.dispose()); return; }
+            if(modelBlocksRoad(ph.geometry.getAttribute('position').array,ph.geometry.index?.array??null,ox,oy,ringRoads,ringBuildingsAt)){
+              ph.geometry.dispose();continue;
+            }
             const px = ph.cx + ox, py = ph.cy + oy;
             let bd = 12, best: (typeof blocks)[number] | null = null;
             for (const bl of blocks) { if (bl.used) continue; const d = Math.hypot(bl.x - px, bl.y - py); if (d < bd) { bd = d; best = bl; } }

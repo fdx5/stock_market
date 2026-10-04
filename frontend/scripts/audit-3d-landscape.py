@@ -12,6 +12,7 @@ road_hook="()=>{const n=window.__sceneNative;if(!n)return null;const objects=[..
 URL='http://127.0.0.1:4195/realestate-map?sido=11&period=3m&sgg=11680&dong=%EC%88%98%EC%84%9C%EB%8F%99&complex=11680%3A%EC%88%98%EC%84%9C%EB%8F%99%3A795%3A%EA%B0%95%EB%82%A8%EB%8D%B0%EC%8B%9C%EC%95%99%ED%8F%AC%EB%A0%88&area=85&3d=1&sceneBudget=texture'
 
 CASES={
+ 'shindonga':('41','41150','신곡동','580','신동아파밀리에','85'),
  'seolbong':('41','41500','갈산동','783','설봉1차푸르지오','127'),
  'paju':('41','41480','문산읍 당동리','947','파주한양수자인리버팰리스아파트','85'),
  'desian':('11','11680','수서동','795','강남데시앙포레','85'),

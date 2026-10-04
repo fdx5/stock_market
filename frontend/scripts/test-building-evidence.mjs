@@ -13,9 +13,12 @@ const fixtures=[
  {grnd_flr:'0',height:'9'},
  {grnd_flr:'2',height:'0'},
  {height:'0'},
+ {grnd_flr:'1',height:'0',archarea:'0',totalarea:'0',platarea:'0',dong_nm:'2004-1306',usability:'',bld_nm:''},
 ];
 const features=fixtures.map((properties,i)=>({properties,geometry:{type:'Polygon',coordinates:[[[i*20,0],[i*20+5,0],[i*20+5,5],[i*20,5],[i*20,0]]]}}));
-test('zero storeys never invent 6.5m buildings; measured height and missing storeys remain distinct',()=>{assert.deepEqual(fixtures.map(hasAboveGroundEvidence),[false,false,true,true,true]);for(const grnd_flr of ['',null,undefined])assert.equal(hasAboveGroundEvidence({grnd_flr,height:0}),true);});
+test('zero storeys and zero-area permit placeholders never invent buildings',()=>{assert.deepEqual(fixtures.map(hasAboveGroundEvidence),[false,false,true,true,true,false]);for(const grnd_flr of ['',null,undefined])assert.equal(hasAboveGroundEvidence({grnd_flr,height:0}),true);
+ const placeholder=fixtures.at(-1);for(const patch of [{height:'3'},{archarea:'12'},{totalarea:'12'},{platarea:null},{bld_nm:'garage'},{usability:'01000'},{grnd_flr:'2'}])assert.equal(hasAboveGroundEvidence({...placeholder,...patch}),true);
+});
 test('road protection includes only footprints allowed to become above-ground buildings',()=>{const rings=physicalBuildingFootprints(features,p=>p);assert.equal(rings.length,3);assert.ok(rings.every(r=>r[0][0]>=40));});
 test('actual ring worker applies the same zero-storey rule before any height fallback',()=>{
  let result;const self={postMessage(r){result=r;}};

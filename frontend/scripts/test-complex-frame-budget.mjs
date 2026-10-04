@@ -104,11 +104,12 @@ function scheduler() {
     tasks.shift()(); await Promise.resolve(); await Promise.resolve();
   } };
 }
-test('concurrent builders get at most one admission per visible frame', async () => {
+test('cheap concurrent builders share spare frame time in FIFO order', async () => {
   const s = scheduler(), completed = [];
   for (let i = 0; i < 4; i++) s.slice().then(() => completed.push(i));
   assert.equal(s.frames.length, 1);
-  for (let i = 0; i < 4; i++) { await s.frame(); assert.deepEqual(completed, Array.from({ length: i + 1 }, (_, n) => n)); }
+  await s.frame();assert.deepEqual(completed,[0]);
+  for(let i=1;i<4;i++){assert.equal(s.frames.length,0);s.tasks.shift()();await Promise.resolve();await Promise.resolve();assert.deepEqual(completed,Array.from({length:i+1},(_,n)=>n));}
 });
 test('busy visible frames do not force work; admission resumes when there is room', async () => {
   const s = scheduler(); let completed = false;

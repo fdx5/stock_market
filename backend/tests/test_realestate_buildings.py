@@ -12,6 +12,9 @@ from app.services import realestate_buildings as rb
     ({"grnd_flr": "2", "height": "0"}, True),
     ({"height": "0"}, True),
     ({"grnd_flr": None}, True),
+    ({"grnd_flr": "1", "height": "0", "archarea": "0", "totalarea": "0", "platarea": "0", "dong_nm": "2004-1306"}, False),
+    ({"grnd_flr": "1", "height": "0", "archarea": "12", "totalarea": "0", "platarea": "0"}, True),
+    ({"grnd_flr": "1", "height": "0", "archarea": "0", "totalarea": "0", "platarea": "0", "usability": "01000"}, True),
 ])
 def test_explicit_zero_storeys_never_invent_an_above_ground_building(props, expected):
     assert rb._has_above_ground_evidence(props) is expected

@@ -46,7 +46,7 @@ CONTEXT_M = 288         # neighbours drawn around the complex (1.25x the former 
 ROAD_M = 150            # surveyed major roads drawn around the parcel
 KEEP_DAYS = 30
 KEEP_MISS_DAYS = 1
-STORE_VERSION = "bldg-v4"  # v4: explicit zero-storey footprints never become above-ground buildings
+STORE_VERSION = "bldg-v5"  # zero-area one-storey placeholders cannot become buildings
 
 _cache: dict[str, tuple[float, dict]] = {}
 _locks: dict[str, threading.Lock] = {}
@@ -208,7 +208,18 @@ def _has_above_ground_evidence(props: dict) -> bool:
     """Explicit zero storeys is different from an unknown storey count."""
     floors = str(props.get("grnd_flr") if props.get("grnd_flr") is not None else "").strip()
     try:
-        return not (floors and float(floors) == 0 and not _num(props.get("height")))
+        if floors and float(floors) == 0 and not _num(props.get("height")):
+            return False
+        def zero(key):
+            value = props.get(key)
+            try:
+                return value is not None and str(value).strip() != "" and float(value) == 0
+            except (ValueError, TypeError):
+                return False
+        return not (floors and float(floors) <= 1 and zero("height")
+                    and all(zero(k) for k in ("archarea", "totalarea", "platarea"))
+                    and not str(props.get("usability") or "").strip()
+                    and not str(props.get("bld_nm") or "").strip())
     except ValueError:
         return True
 

@@ -83,6 +83,10 @@ function ringWorkerMain() {
         const geom = f.geometry, props = f.properties ?? {};
         const aboveFloors=String(props.grnd_flr??'').trim();
         if(aboveFloors!==''&&Number(aboveFloors)===0&&!(Number(props.height)>0))continue;
+        const zero=(v:unknown)=>v!=null&&String(v).trim()!==''&&Number(v)===0;
+        if(aboveFloors!==''&&Number(aboveFloors)<=1&&zero(props.height)
+          &&['archarea','totalarea','platarea'].every(k=>zero(props[k]))
+          &&!String(props.usability??'').trim()&&!String(props.bld_nm??'').trim())continue;
         const polys: number[][][][] = geom?.type === "Polygon" ? [geom.coordinates] : geom?.type === "MultiPolygon" ? geom.coordinates : [];
         for (const poly of polys) {
           const raw = poly[0];
