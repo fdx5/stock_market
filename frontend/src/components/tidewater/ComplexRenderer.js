@@ -22,7 +22,8 @@ import { gpuCaps } from '../gpuCaps';
 import { fetchStatic, fetchCriticalStatic } from '../../staticCdn';
 import { onSceneMemoryRelease } from '../sceneMemory';
 import { frameSlice } from '../frameSlice';
-import { retireUnusedMaterials } from './materialLifetime';
+import { retireUnusedMaterials,sourceMaterialsMatch,boundTextures } from './materialLifetime';
+import { prepareCanvasResize,sceneDeviceBudget } from '../sceneDeviceBudget';
 
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
  * software / fallback adapters. Visible views keep their selected quality. */
@@ -617,13 +618,22 @@ const DETAIL_ALLOWED = lookParams.get('detail') !== '0';
 // night (the lit-window colour) is a room under its ceiling lamp. The glass itself turns
 // clear, reflecting like double glazing. Painted cells: 8 bays by 8 storeys a texture
 // tile (facadeSteps), the storey's floor at the top of its slab band.
-const INTERIOR_WGSL = /* wgsl */`
+// Derivatives execute for every fragment before the glass-mask branch. Calling
+// them only behind roomOpen uses non-uniform control flow and has indeterminate
+// results on WGSL implementations (including black/invalid room lighting).
+export const INTERIOR_DERIVATIVES_WGSL = /* wgsl */`
+  let roomUV = puv * mat.uvemissiveMap.xy + mat.uvemissiveMap.zw;
+  let roomDx = dpdx(in.P); let roomDy = dpdy(in.P);
+  let roomUVdx = dpdx(roomUV); let roomUVdy = dpdy(roomUV);
+  let roomFilter = max(fwidth(roomUV * mat.room.xy).x, fwidth(roomUV * mat.room.xy).y);
+`;
+export const INTERIOR_WGSL = /* wgsl */`
   let uvT = in.uv * REPEAT + OFFSET;
   let cellUV = uvT * GRID;
   let cell = floor(cellUV);
   let fc = fract(cellUV);
   let Ng = normalize(in.N);
-  let iq0 = dpdx(in.P); let iq1 = dpdy(in.P); let ist0 = dpdx(uvT); let ist1 = dpdy(uvT);
+  let iq0 = roomDx; let iq1 = roomDy; let ist0 = roomUVdx; let ist1 = roomUVdy;
   let iq1p = cross(iq1, Ng); let iq0p = cross(Ng, iq0);
   let Tn = normalize(iq1p * ist0.x + iq0p * ist1.x + vec3f(1e-7));
   let Bn = normalize(iq1p * ist0.y + iq0p * ist1.y + vec3f(1e-7));
@@ -658,7 +668,7 @@ const INTERIOR_WGSL = /* wgsl */`
   var room = col * dayIn * INV_PI * 1.15 + s.emissive * col * (0.5 + 1.15 * lamp);
   // A window a few pixels across: the room's average (single cells would flicker).
   let avg = wallC * (dayIn * INV_PI * 0.7 + s.emissive * 0.95);
-  room = mix(room, avg, smoothstep(0.12, 0.45, max(fwidth(cellUV).x, fwidth(cellUV).y)));
+  room = mix(room, avg, smoothstep(0.12, 0.45, roomFilter));
   s.emissive = mix(s.emissive, room, roomOpen);
   s.albedo = mix(s.albedo, vec3f(0.012, 0.014, 0.016), roomOpen);
   s.metalness = mix(s.metalness, 0.0, roomOpen);
@@ -988,6 +998,7 @@ export class ComplexRenderer {
     const width = Math.min(limit, Math.max(1, Math.round(w * ratio)));
     const height = Math.min(limit, Math.max(1, Math.round(h * ratio)));
     if (this.canvas.width === width && this.canvas.height === height) return;
+    prepareCanvasResize(this.canvas, width, height, sceneDeviceBudget().maxPixels);
     this.canvas.width = width;
     this.canvas.height = height;
     this.target.setSize(this.canvas.width, this.canvas.height);
@@ -1292,6 +1303,7 @@ export class ComplexRenderer {
     if (had && had.srcVersion === source.version) return had;
     if (had) { this.materials.delete(source); (this.retired ??= []).push(had); }
     const mat = this.makeMaterial(source);
+    mat.source = source;
     mat.srcVersion = source.version;
     return mat;
   }
@@ -1378,7 +1390,7 @@ export class ComplexRenderer {
       extra.roomCF = ['vec4f', [g.ceil, g.floor, 0, 0]];
       const code = INTERIOR_WGSL.replace('in.uv * REPEAT', 'puv * REPEAT').replace('REPEAT', 'mat.uvemissiveMap.xy').replace('OFFSET', 'mat.uvemissiveMap.zw')
         .replace('GRID', 'mat.room.xy').replaceAll('BAYW', 'mat.room.z').replaceAll('STOREY', 'mat.room.w').replace('CEIL;', 'mat.roomCF.x;').replace('FLOOR;', 'mat.roomCF.y;');
-      surface += `if (roomOpen > 0.02) { ${code} }\n`;
+      surface += INTERIOR_DERIVATIVES_WGSL + `if (roomOpen > 0.02) { ${code} }\n`;
       // (the opening's reveal: the wall's paint, shaded — no glass, no room)
       if (recess) surface += `if (reveal > 0.5) {
         let wallTex = textureSampleLevel(map, smpAnisoRepeat, revealUV * mat.uvmap.xy + mat.uvmap.zw, 0.0).rgb;
@@ -1551,14 +1563,14 @@ export class ComplexRenderer {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
       active.add(obj);
       let mesh = this.meshes.get(obj);
-      if (mesh && !Array.isArray(obj.material) && mesh.material.srcVersion !== obj.material.version) {
+      if (mesh && !sourceMaterialsMatch(mesh.material, obj.material)) {
         if ((made && (performance.now() > until || texels() - startTexels > room)) || !this.imagesReady(obj.material)) {
           deferred = true;
         } else {
-          const replacement = this.material(obj.material); made++; this.ready = false;
+          const replacement = Array.isArray(obj.material) ? obj.material.map(m => this.material(m)) : this.material(obj.material); made++; this.ready = false;
           const passes = [{kind:'color',colorFormats:['rgba16float'],depthFormat:'depth32float'}];
           if(mesh.castShadow)passes.push({kind:'depth',colorFormats:[],depthFormat:'depth32float',depthCompare:'less-equal',depthBias:2,depthBiasSlopeScale:1.5});
-          if(this.shown && !this.renderer.materialReady(mesh,replacement,passes))deferred=true;
+          if(this.shown && !(Array.isArray(replacement) ? replacement : [replacement]).every(m => this.renderer.materialReady(mesh,m,passes)))deferred=true;
           else mesh.material = replacement;
         }
       }
@@ -1626,6 +1638,8 @@ export class ComplexRenderer {
     if (!removed && !added && !swapped && !this.forgetSoon?.size && this.sweep % 120 !== 0) return;
     if (removed || added || swapped) this.renderer.retainGeometry(this.meshes.values());
     const used = new Set([...active].flatMap(o => Array.isArray(o.material) ? o.material : [o.material]));
+    // Actual bindings survive an asynchronous source replacement, including arrays.
+    for (const mesh of this.meshes.values()) for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) if (m.source) used.add(m.source);
     const unusedAt = this.unusedAt ??= new Map();
     const now = performance.now();
     let dropped = false;
@@ -1647,8 +1661,9 @@ export class ComplexRenderer {
     // Its texture bindings must survive for exactly as long as its uniform block.
     if (this.retired?.length) return;
     const kept = new Set([...this.materials.keys()].flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap, m.userData.farGround?.map]));
+    const bound = boundTextures(this.materials.values());
     const unusedTextures = new Set();
-    for (const [src, tex] of this.textures) if (!kept.has(src)) { unusedTextures.add(tex); this.textures.delete(src); }
+    for (const [src, tex] of this.textures) if (!kept.has(src) && !bound.has(tex)) { unusedTextures.add(tex); this.textures.delete(src); }
     const retained = new Set(this.textures.values());
     for (const tex of unusedTextures) if (!retained.has(tex)) {
       if (this.sharedTextures?.has(tex)) this.sharedTextures.release(tex, this); else tex.destroy();

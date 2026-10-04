@@ -38,4 +38,6 @@ python frontend/scripts/check-rendered-road-buildings.py production-shindonga
 
 ## 별도 진행 항목
 
+2026-10-04 운영 `/api/health`에서 `4e3b74169e43f768e231bcfbed41fe487b62671b` 반영을 확인했다. 동일한 실제 메시 검사를 운영에서 다시 수행하여 신동아파밀리에 25개, 강남데시앙포레 20개, 설봉1차푸르지오 29개 건물 메시 모두 도로 겹침 0건이었다. 원본 API 응답과 실제 메시 검사 결과는 `tmp/prod-road-4e3-{shindonga,desian,seolbong}-*`에 보관했다.
+
 사용자 제공 `I:\ai_root\소셜\error.png`의 신일1 벽면 거울 반사·각도에 따른 검은 면, iPad Safari 메모리 초과 흰 화면은 별도 긴급 수정 작업이다. 이 도로 검증으로 두 문제가 해결됐다고 판단하지 않는다. 사용자 요청에 따라 도로 수정 배포를 먼저 진행한다.
