@@ -1,6 +1,20 @@
 import math
 
+import pytest
+
 from app.services import realestate_buildings as rb
+
+
+@pytest.mark.parametrize("props,expected", [
+    ({"grnd_flr": "0", "ugrnd_flr": "0", "height": "0"}, False),
+    ({"grnd_flr": " 0.0 ", "ugrnd_flr": "2", "height": "0"}, False),
+    ({"grnd_flr": "0", "height": "9"}, True),
+    ({"grnd_flr": "2", "height": "0"}, True),
+    ({"height": "0"}, True),
+    ({"grnd_flr": None}, True),
+])
+def test_explicit_zero_storeys_never_invent_an_above_ground_building(props, expected):
+    assert rb._has_above_ground_evidence(props) is expected
 
 
 def _square(x, y, size):
@@ -45,13 +59,16 @@ def test_vworld_picks_buildings_inside_the_parcel(monkeypatch):
               "geometry": {"type": "MultiPolygon", "coordinates": [[_square(lon0, lat0, 0.0001)]]}}
     outside = {"properties": {"bld_nm": "다른 빌딩", "dong_nm": "", "grnd_flr": "12", "height": "40"},
                "geometry": {"type": "MultiPolygon", "coordinates": [[_square(lon0 + 3 * d, lat0, 0.0001)]]}}
+    placeholders = [{"properties": {"bld_nm": "", "grnd_flr": "0", "height": "0", "ugrnd_flr": "0"},
+                     "geometry": {"type": "Polygon", "coordinates": [_square(lon0 + offset, lat0 + 0.0002, 0.00005)]}}
+                    for offset in (0.0002, 3 * d)]
 
     def fake(url, params):
         if url == rb.VWORLD_ADDRESS:
             return {"point": {"x": str(lon0), "y": str(lat0)}}
         if params["data"] == "LP_PA_CBND_BUBUN":
             return {"featureCollection": {"features": [parcel]}}
-        return {"featureCollection": {"features": [inside, outside]}}
+        return {"featureCollection": {"features": [inside, outside, *placeholders]}}
 
     monkeypatch.setattr(rb, "_vworld", fake)
     result = rb._from_vworld({"name": "헬리오시티"}, "서울특별시 송파구 가락동 913")

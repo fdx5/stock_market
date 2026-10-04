@@ -5,17 +5,17 @@ import type { RealEstateBuildingsResponse } from "../api/client";
  * server keeps them 30 days, and so do we. Any storage failure is a cache miss. */
 
 // v2: responses carry roads. v3: every registered neighbour in the radius. v4: a
-// 288 m radius (1.25x).
-const DB = "kospimap-3d", STORE = "buildings-v4", KEEP_MS = 30 * 86400_000, MAX = 60;
+// 288 m radius (1.25x). v5: discard zero-storey records previously raised to 6.5m.
+const DB = "kospimap-3d", STORE = "buildings-v5", KEEP_MS = 30 * 86400_000, MAX = 60;
 
 let opening: Promise<IDBDatabase | null> | null = null;
 function db(): Promise<IDBDatabase | null> {
   opening ??= new Promise(resolve => {
     try {
-      const req = indexedDB.open(DB, 5);
+      const req = indexedDB.open(DB, 6);
       req.onupgradeneeded = () => {
         const names = req.result.objectStoreNames;
-        for (const old of ["buildings", "buildings-v2", "buildings-v3"]) if (names.contains(old)) req.result.deleteObjectStore(old);
+        for (const old of ["buildings", "buildings-v2", "buildings-v3", "buildings-v4"]) if (names.contains(old)) req.result.deleteObjectStore(old);
         const store = names.contains(STORE) ? req.transaction!.objectStore(STORE) : req.result.createObjectStore(STORE);
         if (!store.indexNames.contains("at")) store.createIndex("at", "at");
       };

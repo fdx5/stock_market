@@ -1,5 +1,6 @@
 import { RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyParcel, RealEstateParcel, RealEstateRoad } from "../api/client";
 import { prefetchTerrain } from "./sceneTerrain";
+import {hasAboveGroundEvidence} from './buildingEvidence';
 
 /* A complex's buildings straight from VWorld (국토교통부 GIS건물통합정보), in the
  * browser. VWorld answers Korean networks only, so the server abroad can't ask it;
@@ -118,7 +119,7 @@ function fillHeights(list: RealEstateBuilding[]) {
 export function physicalBuildingFootprints(list: Feature[], project: (p: number[]) => [number,number]): Ring[] {
   return unique(list).flatMap(f => {
     const p=f.properties;
-    if(String(p.grnd_flr).trim()==='0'&&Number(p.ugrnd_flr)>0&&!num(p.height))return [];
+    if(!hasAboveGroundEvidence(p))return [];
     return polygons(f.geometry).flatMap(poly=>{const r=clean(poly[0].map(project));return r?[r]:[];});
   });
 }
@@ -381,7 +382,7 @@ export async function vworldBuildings(
     if (!polys.length) continue;
     const p = f.properties;
     const mine = rings.some(r => inside(centroid(polys[0][0] as unknown as Ring), r)) || namesMatch(p.bld_nm || "", query.name);
-    if(String(p.grnd_flr).trim()==='0'&&Number(p.ugrnd_flr)>0&&!num(p.height))continue;
+    if(!hasAboveGroundEvidence(p))continue;
     for (const poly of polys) {
       const outer = clean(poly[0].map(project));
       if (!outer) continue;
@@ -502,7 +503,7 @@ export async function vworldPointArea(lat: number, lon: number, key: string, dom
   for (const f of all) {
     const p = f.properties;
     for (const poly of polygons(f.geometry)) {
-      if(String(p.grnd_flr).trim()==='0'&&Number(p.ugrnd_flr)>0&&!num(p.height))continue;
+      if(!hasAboveGroundEvidence(p))continue;
       const outer = clean(poly[0].map(project));
       if (!outer) continue;
       const holes = poly.slice(1).map(r => clean(r.map(project))).filter((h): h is Ring => !!h).map(h => h.reverse());

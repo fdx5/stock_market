@@ -46,7 +46,7 @@ CONTEXT_M = 288         # neighbours drawn around the complex (1.25x the former 
 ROAD_M = 150            # surveyed major roads drawn around the parcel
 KEEP_DAYS = 30
 KEEP_MISS_DAYS = 1
-STORE_VERSION = "bldg-v3"  # v2: every registered neighbour in the radius, not the nearest 700; v3: 288 m radius
+STORE_VERSION = "bldg-v4"  # v4: explicit zero-storey footprints never become above-ground buildings
 
 _cache: dict[str, tuple[float, dict]] = {}
 _locks: dict[str, threading.Lock] = {}
@@ -204,6 +204,15 @@ def _features(result: dict) -> list[dict]:
     return (result.get("featureCollection") or {}).get("features") or []
 
 
+def _has_above_ground_evidence(props: dict) -> bool:
+    """Explicit zero storeys is different from an unknown storey count."""
+    floors = str(props.get("grnd_flr") if props.get("grnd_flr") is not None else "").strip()
+    try:
+        return not (floors and float(floors) == 0 and not _num(props.get("height")))
+    except ValueError:
+        return True
+
+
 def _polygons(geometry: dict) -> list[list[list]]:
     kind, coords = geometry.get("type"), geometry.get("coordinates") or []
     if kind == "Polygon":
@@ -256,8 +265,8 @@ def _from_vworld(c: dict, address: str) -> dict | None:
     buildings, context = [], []
     for f in around:
         p = f["properties"]
-        if str(p.get("grnd_flr", "")).strip() == "0" and _num(p.get("ugrnd_flr")) and not _num(p.get("height")):
-            continue  # underground-only stations are not above-ground buildings
+        if not _has_above_ground_evidence(p):
+            continue  # explicit zero-storey footprints must not acquire invented height
         for poly in _polygons(f["geometry"]):
             outer = _clean([project(x, y) for x, y in poly[0]])
             if not outer:

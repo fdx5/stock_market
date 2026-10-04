@@ -81,7 +81,8 @@ function ringWorkerMain() {
       const last = fs.length < 1000;
       for (const f of fs) {
         const geom = f.geometry, props = f.properties ?? {};
-        if(String(props.grnd_flr).trim()==='0'&&Number(props.ugrnd_flr)>0&&!(Number(props.height)>0))continue;
+        const aboveFloors=String(props.grnd_flr??'').trim();
+        if(aboveFloors!==''&&Number(aboveFloors)===0&&!(Number(props.height)>0))continue;
         const polys: number[][][][] = geom?.type === "Polygon" ? [geom.coordinates] : geom?.type === "MultiPolygon" ? geom.coordinates : [];
         for (const poly of polys) {
           const raw = poly[0];
