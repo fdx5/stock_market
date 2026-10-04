@@ -19,6 +19,7 @@ for (const home of [false, true]) {
       let fuelOut = true, wrecked = 'fuel', delivery = 'old', summoned = 0;
       const st = { drive: dv, traffic: { hero: () => car, drive() {}, summon() { summoned++; } } };
       const deps = { stageRef: { current: st }, signsRef: { current: [] }, lastDest: { current: 'old' },
+        dataRef: { current: null }, drivePool: { current: new Map() },
         endDelivery: d => { d.game = null; }, setResult() {}, setKnocks() {},
         setDelivery: v => { delivery = v; }, setFuelOut: v => { fuelOut = v; },
         setHpWarn() {}, setFuelWarn() {}, paintDamage() {}, setHp() {},

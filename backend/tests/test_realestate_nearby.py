@@ -51,3 +51,19 @@ def test_lot_from_address():
     assert rn._lot("서울특별시 강남구 압구정동 369-1") == ("압구정동", "369-1")
     assert rn._lot("경기도 양평군 양평읍 양근리 산 12") == ("양근리", "산12")
     assert rn._lot("서울특별시 강남구") is None
+
+
+def test_driving_point_finds_complexes_without_a_home_district(monkeypatch):
+    _setup(monkeypatch, [_c("11680:a", "현대아파트", "압구정동", "369-1")])
+    out = rn.nearby("pt:37.53,127.02", [
+        _parcel("서울특별시 강남구 압구정동 369-1", {"x": 120, "y": 80, "floors": 12}),
+    ])
+    assert out["items"][0]["id"] == "11680:a"
+
+
+def test_invalid_driving_point_is_rejected(monkeypatch):
+    import pytest
+    _setup(monkeypatch, [])
+    for point in ["pt:nan,127", "pt:0,127", "pt:37,200", "pt:37,127<script>"]:
+        with pytest.raises(ValueError):
+            rn.nearby(point, [])

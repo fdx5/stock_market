@@ -64,7 +64,11 @@ def nearby(complex_id: str, parcels: list[dict]) -> dict:
     """Complexes on the parcels the browser found round `complex_id` (x east, y north,
     metres from the view's centre). One entry per complex, nearest first."""
     home_lawd = complex_id.split(":", 1)[0]
-    if home_lawd not in rm._sgg_index():
+    if complex_id.startswith("pt:"):
+        point = re.fullmatch(r"pt:(\d{2}(?:\.\d{1,6})?),(\d{3}(?:\.\d{1,6})?)", complex_id)
+        if not point or not (33 <= float(point[1]) <= 39 and 124 <= float(point[2]) <= 132):
+            raise ValueError("invalid area point")
+    elif home_lawd not in rm._sgg_index():
         raise ValueError("unknown 시군구")
     cache: dict[str, dict] = {}
     by_lot: dict[tuple[str, str, str], list[dict]] = {}
