@@ -18,7 +18,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { fastMergeVertices } from "./fastMerge";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex, RealEstateParcel, RealEstateRoad } from "../api/client";
-import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, vworldRoadFootprints, vworldRoadContext, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
+import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, vworldRoadFootprints, vworldRoadContext, prefetchRoadContext, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
 import {roadHeight,roadLevel,roadProfileKey} from './roadLevels';
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
@@ -298,6 +298,12 @@ async function cutSceneSurface(geometry:THREE.BufferGeometry,rings:[number,numbe
   else await excludeSurface(geometry,rings,pace);
 }
 function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEstateBuildingsResponse> {
+  // A result kept from an earlier visit (buildingStore) already carries its roads as corrected here,
+  // their structures and the footprints they were fitted to: asked again, the roads, their context
+  // and ~8 pages of footprints were ~1.8 s before the view's first frame on every return.
+  if (res.road_context && res.road_building_footprints?.length && res.roads?.length) return Promise.resolve(res);
+  // (the roads' structures and the rivers asked now, alongside the roads: see prefetchRoadContext)
+  if (!roadsOf.has(id)) prefetchRoadContext(res, RING_M);
   const footprintJob=res.vworld_key&&res.center?vworldRoadFootprints(res,res.vworld_key,res.vworld_domain,RING_M).catch(()=>[]):Promise.resolve([]);
   const correct=async(roads:RealEstateRoad[])=>{
     const footprints=[...await footprintJob,...[...res.buildings,...res.context].filter(b=>b.height>=2.5||b.floors>0).map(b=>b.rings[0])];

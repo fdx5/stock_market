@@ -93,12 +93,19 @@ const unique = (fs: Feature[]) => {
   const seen = new Set<string>();
   return fs.filter(f => { const k = JSON.stringify(f.geometry?.coordinates ?? null) + (f.properties?.bld_nm ?? ""); if (seen.has(k)) return false; seen.add(k); return true; });
 };
+// Pages asked four at a time (one after another, a 600 m square of buildings was seven round
+// trips — ~1.5 s before the view's first frame); taken in order with the same stop as before (a
+// short page, or nothing new), pages past the last discarded, a failed page only fatal when needed.
 async function pagedFeatures(page:(n:number)=>Promise<Feature[]>):Promise<Feature[]> {
   let all:Feature[]=[];
-  for(let n=1;n<=24;n++){
-    const next=await page(n),merged=unique([...all,...next]);
-    if(merged.length===all.length||next.length<1000)return merged;
-    all=merged;
+  for(let n=1;n<=24;n+=4){
+    const batch=await Promise.allSettled([0,1,2,3].filter(k=>n+k<=24).map(k=>page(n+k)));
+    for(const r of batch){
+      if(r.status==='rejected')throw r.reason;
+      const next=r.value,merged=unique([...all,...next]);
+      if(merged.length===all.length||next.length<1000)return merged;
+      all=merged;
+    }
   }
   throw new Error('VWorld feature coverage exceeded 24 pages');
 }
@@ -170,13 +177,31 @@ export function parseRoads(list: Feature[], project: (p: number[]) => [number, n
 
 /** Official transport structure attributes and river boundaries, in the same centre/CRS
  * as the national road survey. A failed/partial request never claims complete coverage. */
+/** The structure links and river boundaries in a box, asked once (kept a few boxes): the view
+ * starts them with the roads themselves (prefetchRoadContext) — they don't need the roads, and
+ * asked after them they were a further round of pages before the first frame. */
+const contextAsks=new Map<string,Promise<[PromiseSettledResult<Feature[]>,PromiseSettledResult<Feature[]>]>>();
+function roadContextAsk(box:string,key:string,domain='https://kospimap.com'){
+ let hit=contextAsks.get(box);
+ if(!hit){
+  const ask=(layer:string)=>pagedFeatures(async page=>features(await call(DATA,{service:'data',request:'GetFeature',crs:'EPSG:4326',geometry:'true',attribute:'true',key,domain,data:layer,geomFilter:box,size:1000,page})));
+  hit=Promise.allSettled([ask('LT_L_MOCTLINK'),ask('LT_C_WKMSTRM')]) as Promise<[PromiseSettledResult<Feature[]>,PromiseSettledResult<Feature[]>]>;
+  contextAsks.set(box,hit);
+  if(contextAsks.size>4)contextAsks.delete(contextAsks.keys().next().value!);
+ }
+ return hit;
+}
+export function prefetchRoadContext(data:RealEstateBuildingsResponse,radius=600){
+ if(!data.center||!data.vworld_key)return;
+ const {lat,lon}=data.center,kx=Math.cos(lat*Math.PI/180)*111320,ky=110540;
+ void roadContextAsk(`BOX(${lon-(radius+80)/kx},${lat-(radius+80)/ky},${lon+(radius+80)/kx},${lat+(radius+80)/ky})`,data.vworld_key,data.vworld_domain).catch(()=>{});
+}
 export async function vworldRoadContext(data:RealEstateBuildingsResponse,roads:RealEstateRoad[],radius=600):Promise<RealEstateBuildingsResponse>{
  if(!data.center||!data.vworld_key)return {...data,roads};
  const {lat,lon}=data.center,kx=Math.cos(lat*Math.PI/180)*111320,ky=110540;
  const project=([x,y]:number[]):[number,number]=>[(x-lon)*kx,(y-lat)*ky];
  const box=`BOX(${lon-(radius+80)/kx},${lat-(radius+80)/ky},${lon+(radius+80)/kx},${lat+(radius+80)/ky})`;
- const ask=(layer:string)=>pagedFeatures(async page=>features(await call(DATA,{service:'data',request:'GetFeature',crs:'EPSG:4326',geometry:'true',attribute:'true',key:data.vworld_key!,domain:data.vworld_domain??'https://kospimap.com',data:layer,geomFilter:box,size:1000,page})));
- const [linkResult,riverResult]=await Promise.allSettled([ask('LT_L_MOCTLINK'),ask('LT_C_WKMSTRM')]);
+ const [linkResult,riverResult]=await roadContextAsk(box,data.vworld_key,data.vworld_domain);
  const links:RoadStructureLink[]=[];
  if(linkResult.status==='fulfilled')for(const f of linkResult.value){
   const type=f.properties.rd_type_h;
@@ -341,8 +366,13 @@ async function fetchParcels(data: RealEstateBuildingsResponse, key: string, doma
   const streetFs = call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "false",
     key, domain, data: "LT_L_SPRD", geomFilter: box, size: 1000, page: 1 }).then(features).catch(() => [] as Feature[]);
   // Page on only while pages come back full (a page past the end repeats the first).
-  const all = await page(1);
-  for (let n = 2; n <= 6 && all.length >= (n - 1) * 1000; n++) all.push(...await page(n));
+  // (three pages at a time, taken in order while each came back full: one after another a
+  // dense block's four pages were four round trips before its land use could be painted)
+  const all: Feature[] = [];
+  for (let n = 1, full = true; n <= 6 && full; n += 3) {
+    const batch = await Promise.all([n, n + 1, n + 2].filter(k => k <= 6).map(page));
+    for (const fs of batch) { if (!full) break; all.push(...fs); full = fs.length >= 1000; }
+  }
   const seen = new Set<string>();
   const unique = all.filter(f => { const k = f.properties.pnu ?? JSON.stringify(f.geometry?.coordinates ?? "").slice(0, 80); if (seen.has(k)) return false; seen.add(k); return true; });
   const project = ([x, y]: number[]): [number, number] => [Math.round((x - lon) * kx * 100) / 100, Math.round((y - lat) * ky * 100) / 100];
