@@ -65,7 +65,9 @@ export function nextTurn(rest: Pt[]): { kind: TurnKind; dist: number } {
 export function routeRibbon(roadAt: (x: number, y: number) => number) {
   const tex = chevronTexture();
   const mat = new THREE.MeshBasicMaterial({ map: tex, color: "#ffffff", transparent: true, opacity: 0.92, depthWrite: false,
-    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, side: THREE.DoubleSide, toneMapped: false });
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, side: THREE.DoubleSide, toneMapped: false,
+    // (flat on the road: one pass, not back faces then front — each switch set its program up again)
+    forceSinglePass: true });
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
   mesh.renderOrder = 3;
   mesh.frustumCulled = false;

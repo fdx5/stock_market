@@ -58,6 +58,12 @@
 .dg-card p { margin: 6px 0; color: #c6d0dc; }
 .dg-card-name { font-size: 18px; font-weight: 700; color: #fff !important; }
 .dg-card-name small { display: block; font-size: 12.5px; font-weight: 400; color: #9aa7b6; margin-top: 2px; }
+.dg-card-link { display: flex; flex-direction: column; gap: 2px; margin: 10px 0 2px; padding: 9px 12px; border-radius: 12px; background: rgba(90,160,255,.12); border: 1px solid rgba(110,170,255,.35); color: #dce9ff; text-decoration: none; font-size: 13px; }
+.dg-card-link b { font-size: 14px; color: #fff; }
+.dg-card-link span { color: #9fb3cc; font-size: 12px; }
+.dg-card-link em { font-style: normal; color: #7fb6ff; font-weight: 600; }
+.dg-card-link:hover { background: rgba(90,160,255,.2); }
+.dg-card-link.is-wait { background: none; border-color: transparent; color: #8796a8; }
 .dg-card dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; text-align: left; margin: 12px 0; font-variant-numeric: tabular-nums; }
 .dg-card dt { color: #9aa7b6; } .dg-card dd { margin: 0; text-align: right; }
 .dg-card .sum { border-top: 1px solid rgba(255,255,255,.15); padding-top: 6px; font-weight: 800; color: #ffd36a; font-size: 17px; }

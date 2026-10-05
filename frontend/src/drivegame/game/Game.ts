@@ -201,6 +201,23 @@ export class Game {
 
   /** Every material the drive can show, in every form it is drawn in (plain and instanced, lit
    * and in the sun's shadow pass), compiled now behind the loading screen — none later, mid-drive. */
+  /** The shadow pass draws every caster with one depth material unless it has its own; switching
+   * that one between instanced, batched and plain meshes (and instances with and without colours)
+   * set its program up again at each switch (~9 a frame, ~1 ms on a slow phone). Instanced and
+   * batched meshes get theirs, one per kind. */
+  private depthOf = new Map<string, THREE.MeshDepthMaterial>();
+  private instancedDepth() {
+    this.scene.traverse(o => {
+      const im = o as THREE.InstancedMesh, bm = o as THREE.BatchedMesh;
+      if (!(im.isInstancedMesh || bm.isBatchedMesh) || !im.castShadow) return;
+      const m = Array.isArray(im.material) ? im.material[0] : im.material;
+      const key = bm.isBatchedMesh ? `batch|${m.alphaTest > 0}` : `${!!im.instanceColor}|${m.alphaTest > 0}`;
+      if (im.userData.depthKey === key) return;
+      let d = this.depthOf.get(key);
+      if (!d) { d = new THREE.MeshDepthMaterial(); this.depthOf.set(key, d); }
+      im.customDepthMaterial = d; im.userData.depthKey = key;
+    });
+  }
   private async warmUp() {
     const m = this.mats, tri = new THREE.BufferGeometry();
     tri.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 0.3, 0, 0, 0, 0.3, 0], 3));
@@ -210,7 +227,8 @@ export class Game {
     const plain = [m.ground, m.water, m.asphalt, m.walks, m.marks, m.concrete, m.roofs, ...Object.values(m.facades)];
     const inst = [m.lampPost, m.crown, m.pool];
     const group = new THREE.Group();
-    for (const mat of plain) { const o = new THREE.Mesh(tri, mat); o.castShadow = o.receiveShadow = true; group.add(o); }
+    // (the tiles' surfaces are drawn as batches: their programs are the batched ones)
+    for (const mat of plain) { const o = new THREE.BatchedMesh(1, 3, 3, mat); o.addInstance(o.addGeometry(tri)); o.castShadow = o.receiveShadow = true; o.frustumCulled = false; group.add(o); }
     for (const mat of inst) { const o = new THREE.InstancedMesh(tri, mat, 1); o.setMatrixAt(0, new THREE.Matrix4()); o.castShadow = o.receiveShadow = true; group.add(o); }
     // in front of the camera (frustum culling would skip them), out of the shadow camera's way
     const cam = this.camera, dir = new THREE.Vector3();
@@ -224,6 +242,7 @@ export class Game {
     const counts: [THREE.InstancedMesh, number][] = [];
     this.traffic.group.traverse(c => { const im = c as THREE.InstancedMesh; if (im.isInstancedMesh && im.count === 0) { counts.push([im, 0]); im.count = 1; } });
     this.scene.add(group);
+    this.instancedDepth();
     try {
       await this.renderer.compileAsync(this.scene, cam);
       // one real frame: the shadow pass's depth programs too
@@ -243,8 +262,9 @@ export class Game {
     this.heroMesh = new THREE.Mesh(h.geometry, [boxMat, h.material]);
     this.heroMesh.castShadow = this.heroMesh.receiveShadow = true;
     this.heroMesh.matrixAutoUpdate = false;
-    this.heroWheels = new THREE.InstancedMesh(h.wheel, boxMat, h.wheels.length);
-    this.heroWheels.castShadow = true; this.heroWheels.frustumCulled = false;
+    // (its own material: one shared by an instanced and a plain mesh is set up again for each)
+    this.heroWheels = new THREE.InstancedMesh(h.wheel, boxMat.clone(), h.wheels.length);
+    this.heroWheels.castShadow = this.heroWheels.receiveShadow = true; this.heroWheels.frustumCulled = false;
     this.scene.add(this.heroMesh, this.heroWheels);
     if (this.o.time !== "day") {
       // its own head and tail lamps lit (children of the body: they follow it)
@@ -328,6 +348,7 @@ export class Game {
     const slow = this.perf.cpuMs > 9;
     this.renderer.shadowMap.autoUpdate = !slow;
     if (slow) this.renderer.shadowMap.needsUpdate = (this.frameNo & 1) === 0;
+    if ((this.frameNo & 31) === 0) this.instancedDepth();
     this.frameNo++;
     const r0 = performance.now();
     this.renderer.render(this.scene, this.camera);
@@ -428,6 +449,8 @@ export class Game {
     this.camera.updateProjectionMatrix();
   }
   lonLat(x: number, y: number) { return toLonLat(this.origin, x, y); }
+  /** VWorld's key and the site's API, for lookups outside the world's tiles */
+  get sources() { return { key: this.o.key, domain: this.o.domain, apiBase: this.o.apiBase }; }
 
   dispose() {
     this.disposed = true;
@@ -437,6 +460,7 @@ export class Game {
     this.traffic?.dispose();
     this.mats?.dispose();
     this.cab?.dispose();
+    this.depthOf.forEach(d => d.dispose());
     this.renderer.dispose();
   }
 }

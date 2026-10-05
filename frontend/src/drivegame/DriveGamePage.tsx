@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { complexHref } from "./world/complexAt";
 import { api, type DriveBoard } from "../api/client";
 import { Game, type TimeOfDay } from "./game/Game";
 import { Session, goldTotal, type UiState } from "./game/Session";
@@ -193,6 +194,14 @@ export default function DriveGamePage() {
             <div className="dg-card">
               <h2>배송 완료</h2>
               <p className="dg-card-name">{r.name}<small>{r.floors}층 · {(r.dist / 1000).toFixed(1)}km · {Math.floor(r.secs / 60)}분 {Math.round(r.secs % 60)}초</small></p>
+              {r.complex === undefined && <p className="dg-card-link is-wait">단지 정보를 찾는 중…</p>}
+              {r.complex && (
+                <a className="dg-card-link" href={complexHref(r.complex.id)} target="_blank" rel="noopener">
+                  <b>{r.complex.name}</b>
+                  {r.complex.built ? <span>{r.complex.built}년 준공</span> : null}
+                  <em>단지 정보 · 실거래가 보기 ↗</em>
+                </a>
+              )}
               <dl>
                 <dt>거리</dt><dd>+{r.base}</dd>
                 <dt>시간 보너스</dt><dd>+{r.time}</dd>

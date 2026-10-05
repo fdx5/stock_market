@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { complexAt, type ComplexLink } from "../world/complexAt";
 import type { Game, Frame } from "./Game";
 import { GameAudio } from "./audio";
 import { feelSfx, fuelCans, navVoice, pickupPlan, screech, sparks } from "./feel";
@@ -11,7 +12,9 @@ import { SPECS, type Controls } from "../vehicle/physics";
  * damage by the knocks, pickups on the way, gold with a bonus for time, no knocks and a run of
  * on-time deliveries; speed cameras and red lights cost gold; into the river and you start again. */
 
-export interface Result { name: string; base: number; time: number; clean: number; combo: number; penalty: number; total: number; secs: number; dist: number; floors: number }
+export interface Result { name: string; base: number; time: number; clean: number; combo: number; penalty: number; total: number; secs: number; dist: number; floors: number;
+  /** the complex delivered to, as the site knows it: undefined while it is looked up, null if none */
+  complex?: ComplexLink | null }
 export interface UiState {
   hp: number; fuel: number; gold: number; earned: number; delivered: number; combo: number; violations: number;
   delivery: { name: string; n: number; floors: number } | null;
@@ -32,6 +35,8 @@ const DEAD: Controls = { throttle: 0, brake: 1, steer: 0, hand: true, boost: fal
 interface Delivery {
   name: string; x: number; y: number; floors: number; way: Pt[]; wayLen0: number; started: number; knocks: number; knockAt: number;
   routedAt: number; mapAt: number; spoken: { kind: TurnKind; x: number; y: number }[]; rerouteSaidAt: number;
+  /** the complex there (looked up while driving: the arrival card links to it) */
+  complex: Promise<ComplexLink | null>;
 }
 
 export class Session {
@@ -142,7 +147,9 @@ export class Session {
     this.fuelCap = Math.max(this.fuelCap * 0.5, len * 1.6 + 400) * SPECS.coupang.fuelUse;
     this.fuelLeft = Math.max(this.fuelLeft, this.fuelCap); this.fuelCap = Math.max(this.fuelCap, this.fuelLeft); this.dryAt = 0;
     const now = performance.now();
-    this.d = { name: pick.name, x: pick.x, y: pick.y, floors: pick.floors, way, wayLen0: len, started: now, knocks: 0, knockAt: 0, routedAt: now, mapAt: 0, spoken: [], rerouteSaidAt: 0 };
+    const [lon, lat] = g.lonLat(pick.x, pick.y);
+    const complex = complexAt(lon, lat, pick.name, pick.floors, g.sources);
+    this.d = { name: pick.name, x: pick.x, y: pick.y, floors: pick.floors, way, wayLen0: len, started: now, knocks: 0, knockAt: 0, routedAt: now, mapAt: 0, spoken: [], rerouteSaidAt: 0, complex };
     this.ui.delivery = { name: pick.name, n: (this.ui.delivery?.n ?? 0) + 1, floors: pick.floors };
     this.ui.result = null; this.ui.finding = false;
     this.voice.say(`${pick.name}(으)로 배송을 시작합니다`);
@@ -207,7 +214,9 @@ export class Session {
     const combo = Math.round(r0.total * 0.2 * this.ui.combo);
     const total = r0.total + combo;
     this.ui.gold = addGold(total); this.ui.earned += total; this.ui.delivered++;
-    this.ui.result = { name: d.name, base: r0.base, time: r0.time, clean: r0.clean, combo, penalty: r0.penalty, total, secs, dist: d.wayLen0, floors: d.floors };
+    const result: Result = { name: d.name, base: r0.base, time: r0.time, clean: r0.clean, combo, penalty: r0.penalty, total, secs, dist: d.wayLen0, floors: d.floors, complex: undefined };
+    this.ui.result = result;
+    void d.complex.then(c => { result.complex = c; if (this.ui.result === result) this.emit(true); });
     this.d = null;
     this.ribbon.mesh.visible = false; this.beacon.group.visible = false; this.cans.clear(); this.g.route = null;
     sfx.chime(this.audio.ctx, this.audio.master); sfx.coins(this.audio.ctx, Math.min(14, Math.round(total / 10)), this.audio.master);

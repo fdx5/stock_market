@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { type Origin, rectDist, tileKey, tileOf, tileRect } from "./geo";
 import { type Materials, STYLES } from "./materials";
+import { BatchPool, type BatchItem } from "./batches";
 import { startTileWorker, type Dest, type MeshArrays, type RoadLine, type TileResult } from "./tileWorker";
 
 /* The streamed world: tiles asked for ahead of the vehicle (by how soon it can reach them), made
@@ -18,6 +19,8 @@ interface Tile {
   pending?: (() => void)[]; disposables: { dispose(): void }[];
   heights?: Float32Array; nx?: number; ny?: number; wet?: Uint8Array;
   lines?: string[]; casters?: boolean;
+  /** its surfaces in the material batches (detail: shown near the eye only) */
+  items?: BatchItem[]; detailItems?: BatchItem[]; detailOn?: boolean;
 }
 type Foot = { pts: Float32Array; start: number; end: number; top: number; x0: number; y0: number; x1: number; y1: number };
 
@@ -47,6 +50,19 @@ export class World {
   private poolGeo = new THREE.PlaneGeometry(15, 15).rotateX(-Math.PI / 2);
   stats = { asked: 0, built: 0, failed: 0, buildMs: 0, netMs: 0, uploadMs: 0, shown: 0, dropped: 0, resultMax: 0, indexMax: 0, roadsMax: 0, unloadMax: 0 };
   private dead = false;
+  /** One batch a surface material (batches.ts), sized for ~60 tiles held: grown when needed. */
+  private pools = new Map<THREE.Material, BatchPool>();
+  private pool(mat: THREE.Material, cast: boolean, receive: boolean) {
+    let p = this.pools.get(mat);
+    if (!p) {
+      const m = this.o.mats, size = mat === m.ground ? [380_000, 1_900_000] : mat === m.marks ? [310_000, 470_000]
+        : mat === m.asphalt ? [200_000, 300_000] : mat === m.walks ? [120_000, 180_000] : [96_000, 150_000];
+      p = new BatchPool(mat, { cast, receive, vertices: size[0], indices: size[1] });
+      this.pools.set(mat, p);
+      this.o.scene.add(p.mesh);
+    }
+    return p;
+  }
 
   constructor(private o: WorldOptions) {
     // lamp: a 9 m post with an arm over the road (+z), its head — one geometry, the head picked
@@ -133,7 +149,9 @@ export class World {
     // sun's shadow box (a caster outside it costs a draw in the shadow pass for nothing).
     for (const t of this.tiles.values()) {
       const d = rectDist(t.rect, x, y);
-      if (t.detail) { const on = d < 420; for (const o of t.detail) o.visible = on; }
+      const on = d < 420;
+      if (t.detail) for (const o of t.detail) o.visible = on;
+      if (t.detailItems && t.detailOn !== on) { t.detailOn = on; for (const it of t.detailItems) it.pool.visible(it, on); }
       const cast = d < 170;
       if (t.group && t.casters !== cast) { t.casters = cast; t.group.traverse(o => { if ((o as THREE.Mesh).isMesh && o.userData.caster) o.castShadow = cast; }); }
     }
@@ -182,20 +200,29 @@ export class World {
       group.add(mesh);
       if (detail) t.detail!.push(mesh);
     };
+    // the surfaces: copied into their material's batch (the arrays let go after: the batch holds them)
+    t.items = []; t.detailItems = []; t.detailOn = true;
+    const batch = (g: THREE.BufferGeometry, mat: THREE.Material, detail = false, shadow: [boolean, boolean] = [false, true]) => {
+      if (this.dead || !this.tiles.has(t.key)) { g.dispose(); return; }
+      const it = this.pool(mat, shadow[0], shadow[1]).add(g);
+      g.dispose(); t.disposables.splice(t.disposables.indexOf(g), 1);
+      t.items!.push(it);
+      if (detail) { t.detailItems!.push(it); if (t.detailOn === false) it.pool.visible(it, false); }
+    };
     const steps: (() => void)[] = [];
     if (r.ground) {
       const gr = r.ground;
-      steps.push(() => add(new THREE.Mesh(geo({ pos: gr.pos, nor: gr.nor, col: gr.col, index: gr.index }), m.ground)));
+      steps.push(() => { batch(geo({ pos: gr.pos, nor: gr.nor, col: gr.col, index: gr.index }), m.ground); gr.pos = gr.nor = gr.col = gr.index = undefined as never; });
     }
-    if (r.water) steps.push(() => add(new THREE.Mesh(geo(r.water!), m.water), false, [false, false]));
-    if (r.asphalt) steps.push(() => add(new THREE.Mesh(geo(r.asphalt!, true, false), m.asphalt)));
-    if (r.concrete) steps.push(() => add(new THREE.Mesh(geo(r.concrete!, true, false), m.concrete), false, [true, true]));
+    if (r.water) steps.push(() => { batch(geo(r.water!), m.water, false, [false, false]); r.water = undefined; });
+    if (r.asphalt) steps.push(() => { batch(geo(r.asphalt!, true, false), m.asphalt); r.asphalt = undefined; });
+    if (r.concrete) steps.push(() => { batch(geo(r.concrete!, true, false), m.concrete, false, [true, true]); r.concrete = undefined; });
     for (const s of STYLES) {
       const a = r.styles?.[s];
-      if (a) steps.push(() => add(new THREE.Mesh(geo(a), m.facades[s]), false, [true, true]));
+      if (a) steps.push(() => { batch(geo(a), m.facades[s], false, [true, true]); delete r.styles![s]; });
     }
-    if (r.walks) steps.push(() => add(new THREE.Mesh(geo(r.walks!, true, false), m.walks), true));
-    if (r.marks) steps.push(() => add(new THREE.Mesh(geo(r.marks!, false, true), m.marks), true));
+    if (r.walks) steps.push(() => { batch(geo(r.walks!, true, false), m.walks, true); r.walks = undefined; });
+    if (r.marks) steps.push(() => { batch(geo(r.marks!, false, true), m.marks, true); r.marks = undefined; });
     if (r.lamps?.length) steps.push(() => {
       const n = r.lamps!.length / 4, post = new THREE.InstancedMesh(this.lampGeo, m.lampPost, n);
       const mm = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
@@ -301,6 +328,8 @@ export class World {
   private unloadInner(t: Tile) {
     if (t.group) this.o.scene.remove(t.group);
     t.disposables.forEach(d => d.dispose());
+    for (const it of t.items ?? []) it.pool.remove(it);
+    t.items = t.detailItems = undefined;
     const cells = (t as Tile & { cells?: number[] }).cells ?? [];
     const set = new Set(cells), pts = t.result?.feet?.pts;
     for (const k of set) {
@@ -436,5 +465,6 @@ export class World {
     for (const t of [...this.tiles.values()]) { if (t.group) this.o.scene.remove(t.group); t.disposables.forEach(d => d.dispose()); }
     this.tiles.clear(); this.feet.clear(); this.poles.clear(); this.decks.clear();
     [this.lampGeo, this.treeGeo, this.poolGeo].forEach(g => g.dispose());
+    this.pools.forEach(p => p.dispose()); this.pools.clear();
   }
 }
