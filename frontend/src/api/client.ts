@@ -1255,6 +1255,8 @@ export interface RealEstateBuildingsResponse {
   site: [number, number][][];
   buildings: RealEstateBuilding[];
   context: RealEstateBuilding[];
+  /** Cleared parcel with surviving current towers; applies to later surrounding-data loads too. */
+  cleared_site?: { built: number | null; rings: [number, number][][] };
   /** Surveyed road centrelines (국가기본도 도로중심선) within ~150 m of the parcel,
    * with their registered width (m) and lane count; major roads only. */
   roads?: RealEstateRoad[];

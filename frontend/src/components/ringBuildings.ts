@@ -29,6 +29,7 @@ type RingJob = {
   near: Float32Array; seed: number;
   /** the surveyed roads (6 m and wider) as segments: ax, ay, bx, by, half width */
   roads: Float32Array;
+  clearedSite?: RealEstateBuildingsResponse['cleared_site'];
   grid: { h: Float32Array; n: number; R: number; cell: number } | null;
   floorM: Record<string, number>;
 };
@@ -120,6 +121,15 @@ function ringWorkerMain() {
       return hit;
     };
     const cell = (x: number, y: number) => Math.floor(x / 40) + "," + Math.floor(y / 40);
+    // The selected parcel's removed houses must not return through this independent
+    // raw-registry query. Keep genuine old neighbours outside the cleared parcel.
+    if (job.clearedSite) for (let i=cands.length-1;i>=0;i--) {
+      const c=cands[i],p=c.props,day=String(p.useapr_day??''),year=/^(19|20)\d{2}/.test(day)?+day.slice(0,4):null;
+      const floors=Math.round(Number(p.grnd_flr)||0)||(Number(p.height)>0?Math.max(1,Math.round((Number(p.height)-GROUND_M)/FLOOR_M)):2);
+      const gone=(!!job.clearedSite.built&&!!year&&year<job.clearedSite.built-3)
+        || (floors<5&&p.usability==='01000');
+      if(gone&&job.clearedSite.rings.some(r=>inRing(c.cx,c.cy,r)))cands.splice(i,1);
+    }
     const regAt = new Map<string, Cand[]>();
     for (const c of cands) if (c.linked) { const k = cell(c.cx, c.cy); regAt.set(k, [...(regAt.get(k) ?? []), c]); }
     const onLinked = (c: Cand) => {
@@ -223,7 +233,7 @@ export function ringBuildings(data: RealEstateBuildingsResponse, near: Float32Ar
   const src = `(${ringWorkerMain.toString()})()`;
   const worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
   const job: RingJob = {
-    urls, lat, lon, inner: opts.inner ?? 0, outer, near, seed: opts.seed, roads: new Float32Array(segs),
+    urls, lat, lon, inner: opts.inner ?? 0, outer, near, seed: opts.seed, roads: new Float32Array(segs), clearedSite:data.cleared_site,
     grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, floorM: opts.floorM,
   };
   return new Promise(resolve => {

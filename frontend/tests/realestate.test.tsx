@@ -126,6 +126,13 @@ test("houses cleared for a rebuilt complex are dropped, never its towers or an u
   // An old complex keeps its own towers.
   const old = data([b(14, 1979, "02000"), b(14, 1979, "02000"), b(2, 1979, "07000")], 1979);
   assert.equal(withoutDemolished(old).buildings.length, 3);
+  const site = [[[-20,-20],[20,-20],[20,20],[-20,20]]] as [number,number][][];
+  const outside = {...b(2,1980,'01000'), rings:[[[50,50],[60,50],[60,60]]] as [number,number][][]};
+  const cached = {...data([b(36,null,null,'101')],2022), site, context:[b(2,1980,'01000'),outside]};
+  const filtered = withoutDemolished(cached);
+  assert.deepEqual(filtered.context,[outside], 'only cleared-parcel neighbours are removed');
+  assert.deepEqual(filtered.cleared_site,{built:2022,rings:site}, 'clean cached towers still protect later raw queries');
+  assert.deepEqual(withoutDemolished(filtered).cleared_site,filtered.cleared_site);
 });
 
 test("a river runs on under a bridge the elevation data carries across as a dam", async () => {

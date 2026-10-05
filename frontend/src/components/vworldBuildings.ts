@@ -506,8 +506,13 @@ export function withoutDemolished(data: RealEstateBuildingsResponse): RealEstate
   const gone = (b: RealEstateBuilding) => (!!built && !!b.approved && b.approved < built - 3)
     || (b.floors < 5 && b.use === "01000");
   const keep = data.buildings.filter(b => !gone(b));
-  if (keep.length === data.buildings.length || !keep.some(b => b.floors >= 10)) return data;
-  return { ...data, buildings: keep, coverage: { ...data.coverage, buildings: keep.length, with_height: keep.filter(b => b.height_source !== "estimated").length } };
+  if (!keep.some(b => b.floors >= 10)) return data;
+  const context = (data.context ?? []).filter(b => !gone(b) || !data.site.some(r => inside(centroid(b.rings[0]), r)));
+  // Recompute this even for an already-clean cached result: later workers fetch raw
+  // registry data again and cannot infer the cleared parcel from kept centroids.
+  if (keep.length === data.buildings.length && context.length === (data.context ?? []).length && !data.site.length) return data;
+  return { ...data, buildings: keep, context, cleared_site: data.site.length ? { built, rings: data.site } : undefined,
+    coverage: { ...data.coverage, buildings: keep.length, with_height: keep.filter(b => b.height_source !== "estimated").length } };
 }
 
 /** Records of the national building data that aren't buildings as drawn. VWorld's

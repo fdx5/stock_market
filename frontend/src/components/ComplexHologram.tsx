@@ -2368,6 +2368,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const hits = feet.filter(f => inRing([f.c[0], f.c[1]], hull) || Math.hypot(f.c[0] - cx, f.c[1] - cy) < 6);
         // (a landmark's area: the survey trusted over the register's height — the tower's 358 m)
         const fits = inArea(ph) ? hits : hits.filter(f => f.estimated || f.height <= 0 || Math.abs(height - f.height) / f.height < 0.35);
+        if (!fits.length && data.cleared_site?.rings.some(r=>inRing([cx,cy],r))) { ph.geometry.dispose(); continue; }
         if (!fits.length && extra.has(ph)) {
           // (past this view's own data: the surveyed shape alone, the ring told to leave it out)
           const home = residential(ph, []);
