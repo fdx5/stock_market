@@ -32,6 +32,21 @@ def _run(fn):
                 LOCAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
                 _conn = turso.connect(database=str(LOCAL_DB_PATH))
             _conn.execute(_SCHEMA)
+            columns = {row[1] for row in _conn.execute('PRAGMA table_info(support_comments)').fetchall()}
+            if 'checkout_id' not in columns:
+                _conn.execute('ALTER TABLE support_comments ADD COLUMN checkout_id TEXT')
+            _conn.execute('''CREATE TABLE IF NOT EXISTS support_checkouts (
+                id TEXT PRIMARY KEY, product_id INTEGER NOT NULL,
+                created_at INTEGER NOT NULL, returned_at INTEGER
+            )''')
+            _conn.execute('''CREATE TABLE IF NOT EXISTS support_payments (
+                payment_id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL,
+                event_id TEXT NOT NULL, event_type TEXT NOT NULL,
+                status TEXT NOT NULL, amount TEXT NOT NULL, currency TEXT NOT NULL,
+                supporter_name TEXT NOT NULL, supporter_email TEXT NOT NULL,
+                products_json TEXT NOT NULL, paid_at INTEGER NOT NULL,
+                event_created INTEGER NOT NULL, received_at TEXT NOT NULL
+            )''')
             _conn.execute("""CREATE TABLE IF NOT EXISTS support_monthly_donors (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 month TEXT NOT NULL CHECK(month GLOB '20[0-9][0-9]-[0-1][0-9]' AND substr(month, 6, 2) BETWEEN '01' AND '12'),
@@ -68,7 +83,7 @@ def list_comments(limit=30, before=None, visible_only=True):
     return [_public(row) for row in _run(query)]
 
 
-def add_comment(request_id, username, text, text_key, author_hash, now):
+def add_comment(request_id, username, text, text_key, author_hash, now, checkout_id=None):
     created_at = datetime.fromtimestamp(now, timezone.utc).isoformat()
 
     def insert(conn):
@@ -81,14 +96,14 @@ def add_comment(request_id, username, text, text_key, author_hash, now):
             return _public(existing) if existing[4] == 'Y' else None
         # Atomic on SQLite and remote Turso, including requests from different workers.
         row = conn.execute(
-            "INSERT INTO support_comments (request_id, username, text, text_key, author_hash, posted_at, created_at) "
-            "SELECT ?, ?, ?, ?, ?, ?, ? "
+            "INSERT INTO support_comments (request_id, username, text, text_key, author_hash, posted_at, created_at, checkout_id) "
+            "SELECT ?, ?, ?, ?, ?, ?, ?, ? "
             "WHERE NOT EXISTS (SELECT 1 FROM support_comments WHERE request_id = ?) "
             "AND NOT EXISTS (SELECT 1 FROM support_comments WHERE author_hash = ? AND posted_at > ?) "
             "AND (SELECT COUNT(*) FROM support_comments WHERE author_hash = ? AND posted_at > ?) < 5 "
             "AND NOT EXISTS (SELECT 1 FROM support_comments WHERE author_hash = ? AND text_key = ? AND posted_at > ?) "
             "RETURNING id, username, text, created_at, is_visible",
-            (request_id, username, text, text_key, author_hash, now, created_at, request_id,
+            (request_id, username, text, text_key, author_hash, now, created_at, checkout_id, request_id,
              author_hash, now - 60, author_hash, now - 86400, author_hash, text_key, now - 86400),
         ).fetchone()
         conn.commit()
