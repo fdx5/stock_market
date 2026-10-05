@@ -26,7 +26,7 @@ import { readPaint, writePaint } from "./paintStore";
 export type GroundData = Pick<RealEstateBuildingsResponse, "site" | "roads" | "parcels" | "streets"> & { buildings: { rings: [number, number][][] }[]; context: { rings: [number, number][][] }[] };
 
 export type SceneOps = {
-  surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null}};
+  surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]|null;ringsId?:number};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null}};
   roads: {args:{roads:RealEstateRoad[];footprints:[number,number][][]};result:RealEstateRoad[]};
   neighbours: { args: { jobs: NeighbourJob[];hybrid?:boolean }; result: {arrays:NeighbourArrays[];mode:string;computeMs:number;memoryBytes:number;inputBytes:number} };
   walkPaths: {args:{paths:WalkPath[];roads:RealEstateRoad[];footprints:[number,number][][];T:number};result:WalkPath[]};
@@ -105,13 +105,19 @@ async function ground(args: SceneOps["ground"]["args"]): Promise<[GroundResult, 
   return [result, [color, rough, glow]];
 }
 
+/** The surface cut's rings, sent once per complex (sceneWorkerClient). */
+const sharedRings = new Map<number, [number, number][][]>();
+
 self.onmessage = async (e: MessageEvent<Msg>) => {
   const m = e.data;
   try {
     let result: unknown, transfer: Transferable[] = [];
     if(m.op==='surfaceCut'){
+      const {ringsId}=m.args;let rings=m.args.rings;
+      if(ringsId!==undefined){if(rings){sharedRings.set(ringsId,rings);if(sharedRings.size>4)sharedRings.delete(sharedRings.keys().next().value!);}else rings=sharedRings.get(ringsId)??null;}
+      if(!rings)throw Error('surface rings unknown');
       const g=new THREE.BufferGeometry();for(const a of m.args.attributes)g.setAttribute(a.name,new THREE.BufferAttribute(a.array,a.size));if(m.args.index)g.setIndex(new THREE.BufferAttribute(m.args.index,1));
-      await excludeSurface(g,m.args.rings,go);
+      await excludeSurface(g,rings,go);
       const attributes=Object.entries(g.attributes).map(([name,a])=>({name,size:a.itemSize,array:a.array})),index=g.index?.array??null;
       result={attributes,index};transfer=attributes.map(a=>a.array.buffer);if(index)transfer.push(index.buffer);
     }
