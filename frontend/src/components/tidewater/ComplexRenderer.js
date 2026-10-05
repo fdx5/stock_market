@@ -21,6 +21,7 @@ import { canEncodeBC7, encodeBC7 } from './bc7Encode.js';
 import { gpuCaps } from '../gpuCaps';
 import { fetchStatic, fetchCriticalStatic } from '../../staticCdn';
 import { onSceneMemoryRelease } from '../sceneMemory';
+import { warmPipelines, stopPipelineWarm } from './pipelineWarm.js';
 import { frameSlice } from '../frameSlice';
 import { retireUnusedMaterials,sourceMaterialsMatch,boundTextures } from './materialLifetime';
 import { prepareCanvasResize,sceneDeviceBudget } from '../sceneDeviceBudget';
@@ -818,7 +819,7 @@ const CAR_PAINT = /* wgsl */`{
 }`;
 
 /** The device, ahead of the first view (ComplexHologram.warmGpu). */
-export function warmDevice() { return device().catch(() => {}); }
+export function warmDevice() { return device().then(() => warmPipelines()).catch(() => {}); }
 async function warmCopies() {
   try {
     // Warming copy pipelines needs only a bitmap, not a second canvas context.
@@ -1679,6 +1680,9 @@ export class ComplexRenderer {
    * where nothing else uses them), not after 20 s out of use. */
   forget(sources) { this.forgetSoon ??= new Set(); for (const s of sources) this.forgetSoon.add(s); }
   render(source, camera, look, time) {
+    // (a view drawing now compiles what it needs itself: no more ahead — a renderer made and kept
+    // out of sight, the map page's rail, draws nothing and compiles nothing)
+    stopPipelineWarm();
     if (this.disposed || this.failed) return;
     if (this.detailReady === false) { this.pending = true; this.ready = false; GPU.submit(); return; }
     // A rejected shader is a view failure, not a lost shared GPU device. Take
