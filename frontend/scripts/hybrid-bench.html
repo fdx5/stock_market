@@ -1,0 +1,65 @@
+<!doctype html><meta charset="utf-8"><title>Geometry and instance kernel checks</title>
+<script type="module">
+import * as THREE from '/node_modules/.vite/deps/three.js';
+import {neighbourArrays} from '/src/components/neighbourGeometry.ts';
+import {neighbourWasmArrays,neighbourWasmStats} from '/src/components/neighbourWasm.ts';
+import {InstanceBatch,prepareInstanceKernel} from '/src/components/instanceWasm.ts';
+import {retainSceneMemory} from '/src/components/sceneMemory.ts';
+import {sceneWork} from '/src/components/sceneWorkerClient.ts';
+import {treeMeshModel,groveForest} from '/src/components/sceneGroves.ts';
+window.runForestMemory=async()=>{
+ const saved=location.search;history.replaceState({},'', '?hybrid=on');
+ Object.defineProperty(navigator,'deviceMemory',{configurable:true,get:()=>4});
+ let oldBytes=0;
+ for(let species=0;species<5;species++)for(const count of [192,96,48]){
+  const g=treeMeshModel(species,1,count),m=g.userData.treeModel;
+  oldBytes+=m.leafVertices*Object.values(g.attributes).reduce((s,a)=>s+a.itemSize*a.array.BYTES_PER_ELEMENT,0)+m.leafTriangles*3*g.index.array.BYTES_PER_ELEMENT;
+  if(species===0&&count===192)oldBytes+=(g.attributes.position.count-m.leafVertices)*44+(g.index.count-m.leafTriangles*3)*g.index.array.BYTES_PER_ELEMENT;
+  g.dispose();
+ }
+ const points=Array.from({length:100},(_,i)=>[i%10*15,Math.floor(i/10)*15]);
+ const forest=await groveForest([{pattern:0,points}],{at:()=>0},41,null,true,1,async()=>{});
+ const newBytes=forest.group.userData.forestBudget.geometryBytes;
+ const sharedAttributes=forest.group.children.filter(m=>m.userData.forestLod).every(m=>m.userData.forestLod.every(g=>g.attributes.position===m.userData.forestLod[0].attributes.position));
+ forest.dispose();history.replaceState({},'',saved||'/__hybrid-bench');return {oldBytes,newBytes,sharedAttributes,reductionPercent:100*(1-newBytes/oldBytes)};
+};
+window.runGeometryCase=async(name,runs)=>{
+ const jobs=await(await fetch('/__hybrid-fixture/'+name+'.json')).json();
+ const start=performance.now();await neighbourWasmArrays(jobs);const coldMs=performance.now()-start;
+ const rows=[];let mismatches=0,outputBytes=0;
+ const js=jobs.map(neighbourArrays),wasm=await neighbourWasmArrays(jobs);
+ for(let i=0;i<jobs.length;i++)for(const key of Object.keys(js[i])){
+  const a=js[i][key],b=wasm[i][key];outputBytes+=b.byteLength;
+  if(a.length!==b.length)throw Error('geometry length differs');for(let j=0;j<a.length;j++)if(a[j]!==b[j])mismatches++;
+ }
+ for(let i=0;i<runs;i++)for(const mode of i%2?['wasm','js']:['js','wasm']){
+  const t=performance.now();const out=mode==='js'?jobs.map(neighbourArrays):await neighbourWasmArrays(jobs);
+  rows.push({mode,ms:performance.now()-t,vertices:out.reduce((n,a)=>n+a.position.length/3,0)});
+ }
+ return {name,jobs:jobs.length,coldMs,rows,mismatches,outputBytes,wasmMemoryBytes:neighbourWasmStats.memoryBytes,inputBytes:neighbourWasmStats.inputBytes};
+};
+window.runInstanceCase=async(count,runs)=>{
+ const kernel=await prepareInstanceKernel();if(!kernel)throw Error('missing instance WASM');
+ const b=new InstanceBatch(count,kernel),target=new Float32Array(count*16),control=new Float32Array(count*16);
+ const m=new THREE.Matrix4(),q=new THREE.Quaternion(),qp=new THREE.Quaternion(),up=new THREE.Vector3(0,1,0),across=new THREE.Vector3(1,0,0),pos=new THREE.Vector3(),scale=new THREE.Vector3();
+ for(let i=0;i<count;i++)b.set(i,i*.7,i*.013,-i*.017,i*.11,i*.002,i%17?1:0,1.2,.8);
+ const original=()=>{for(let i=0;i<count;i++){const a=b.input,o=i*9;q.setFromAxisAngle(up,a[o+3]).multiply(qp.setFromAxisAngle(across,a[o+4]));m.compose(pos.set(a[o],a[o+1],a[o+2]),q,scale.set(a[o+5],a[o+6],a[o+7]));control.set(m.elements,i*16);}};
+ original();b.compose(target);let maxError=0;for(let i=0;i<target.length;i++)maxError=Math.max(maxError,Math.abs(target[i]-control[i]));
+ for(let i=0;i<20;i++){original();b.compose(target);}
+ const rows=[],memoryBefore=kernel.memory.buffer.byteLength;
+ for(let i=0;i<runs;i++)for(const mode of i%2?['wasm','js']:['js','wasm']){
+  const t=performance.now();for(let f=0;f<50;f++)mode==='wasm'?b.compose(target):original();rows.push({mode,ms:(performance.now()-t)/50});
+ }
+ const result={count,rows,maxError,retainedBytes:b.retainedBytes,memoryBefore,memoryAfter:kernel.memory.buffer.byteLength};b.dispose();return result;
+};
+window.checkHybridLifecycle=async()=>{
+ const release=retainSceneMemory(),other=retainSceneMemory();
+ const jobs=[{building:{rings:[[[0,0],[10,0],[10,8],[0,8]]],base:0,height:21,floors:7},ground:2,floorM:2.9,color:[.3,.5,.8]}];
+ const result=await sceneWork('neighbours',{jobs,hybrid:true});const k=await prepareInstanceKernel(),batch=new InstanceBatch(64,k),a=new Float32Array(1024);for(let i=0;i<64;i++)batch.set(i,i,2,3,.7,.04,1,1,1);batch.compose(a);batch.dispose();
+ release();const shared=window.__liveWorkers;other();await new Promise(r=>setTimeout(r,50));
+ const again=retainSceneMemory(),next=await sceneWork('neighbours',{jobs,hybrid:true});again();
+ const owner=retainSceneMemory(),late=sceneWork('neighbours',{jobs:Array(200).fill(jobs[0]),hybrid:true}).then(()=>false,()=>true);owner();const cancelled=await late;
+ return {mode:result.mode,instanceWasm:!!k,shared,closed:window.__liveWorkers,restored:next.mode,cancelled,height:result.arrays[0].position[2]};
+};
+window.__hybridHarness=true;
+</script>

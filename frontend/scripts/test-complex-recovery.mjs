@@ -81,7 +81,7 @@ test('worker bridge and sidewalk layouts retain every original sample and height
     const bundle = buildSync({
       stdin: { contents: `import './sceneWorker'; export {findBridges} from './sceneBridges'; export {sidewalkRuns,ringIndex,carriageway} from './sceneSidewalk'; export {cutPaths,sidewalkPaths} from './sceneWalkers'; export {gridAt} from './waterCore'; export {FLAT} from './sceneTerrain'; export {makeGroundGeometry} from './groundGeometry';`,
         resolveDir: new URL('../src/components', import.meta.url).pathname.replace(/^\/(\w:)/, '$1') },
-      bundle: true, write: false, format: 'esm', platform: 'node', define: { 'import.meta.env': '{}' },
+      bundle: true, write: false, format: 'esm', platform: 'node', define: { 'import.meta.env': '{}' },loader:{'.wasm':'binary'},
     }).outputFiles[0].text;
     const original = await import('data:text/javascript;base64,' + Buffer.from(bundle).toString('base64'));
     const roads = [{ line: [[-100, 0], [100, 0]], width: 14, lanes: 4 }, { line: [[80, -80], [80, 80]], width: 12, lanes: 2 }];

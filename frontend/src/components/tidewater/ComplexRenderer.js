@@ -24,6 +24,7 @@ import { onSceneMemoryRelease } from '../sceneMemory';
 import { frameSlice } from '../frameSlice';
 import { retireUnusedMaterials,sourceMaterialsMatch,boundTextures } from './materialLifetime';
 import { prepareCanvasResize,sceneDeviceBudget } from '../sceneDeviceBudget';
+import {updateForestLod} from '../spatialForest';
 
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
  * software / fallback adapters. Visible views keep their selected quality. */
@@ -1539,7 +1540,7 @@ export class ComplexRenderer {
     });
     return ready && !this.failed;
   }
-  sync(source) {
+  sync(source, camera) {
     if (this.detailReady === false) { this.pending = true; this.ready = false; return; }
     // Let Three propagate dirty transforms. Forcing the root dirty recalculated every
     // static building, tree and street mesh on every displayed frame.
@@ -1561,6 +1562,7 @@ export class ComplexRenderer {
     let made = 0;
     source.traverseVisible(obj => {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
+      if(camera && obj.userData.forestLod)updateForestLod(obj,camera);
       active.add(obj);
       let mesh = this.meshes.get(obj);
       if (mesh && !sourceMaterialsMatch(mesh.material, obj.material)) {
@@ -1604,6 +1606,7 @@ export class ComplexRenderer {
         mesh.instVersion = obj.instanceMatrix?.version;
       }
       // Casters that moved lately (walkers, traffic, boats, the balloon) are drawn into the
+      if(mesh.geometry!==obj.geometry){mesh.geometry=obj.geometry;swapped=true;if(mesh.castShadow)this.castersChanged=true;}
       // shadow maps every frame; the still ones can be kept (SunShadows.render). A change
       // of either set invalidates what is kept.
       // (instance data replaced — a level of trees grown: the old buffers are let go below)
@@ -1695,7 +1698,7 @@ export class ComplexRenderer {
       retireUnusedMaterials(this.retired, this.meshes.values(), m => { this.renderer.forgetMaterial(m); m.dispose(); m.uniformBlock.buffer?.destroy(); });
       if (!this.retired.length) this.sweep = 119;
     }
-    this.sync(source);
+    this.sync(source,camera);
     this.refreshTextures();
     const c = this.camera;
     c.position.copy(camera.position); c.quaternion.copy(camera.quaternion);

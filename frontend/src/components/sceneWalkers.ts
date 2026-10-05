@@ -1,4 +1,5 @@
 import { frameSlice } from "./frameSlice";
+import {flushInstanceAttribute} from './instanceDirty';
 import { walkerJoint } from "./walkerJoint";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -488,9 +489,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
   const upload = (m: THREE.InstancedMesh, n: number, c0: number, c1: number) => {
     m.count = n;
     if (!n) return;
-    m.instanceMatrix.clearUpdateRanges();
-    m.instanceMatrix.addUpdateRange(0, n * 16);
-    m.instanceMatrix.needsUpdate = true;
+    flushInstanceAttribute(m.instanceMatrix,n);
     if (c1 >= c0) {
       const attr = m.instanceColor!;
       // A draw not yet made may not have consumed the last colour update: keep it.

@@ -8,13 +8,13 @@ import {fileURLToPath,pathToFileURL}from'node:url';
 import * as THREE from'three';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const file=path.join(root,'tmp','budget-tests.mjs');
-await build({stdin:{contents:"export {decodeTreeVariants} from './src/components/treeGeometry';export {densityCrown,shapeSpeciesCrown} from './src/components/densityTreeGeometry';export {assembleBudgetForest} from './src/components/budgetForestGeometry';export {packTrees,unpackTrees} from './src/components/treeGeometryWire';export {carGeometry,CAR_SPECS} from './src/components/sceneCars';export {drapeRoadSurface} from './src/components/roadDrape';export {drapeRoadOffThread} from './src/components/roadDrapeClient';export {plantingSnapshot,samePlanting} from './src/components/plantingSnapshot';export {treeMeshModel,groveForest} from './src/components/sceneGroves';export {PARK_TREE_STYLES,WOODLAND_FLOWERS,woodlandBeds} from './src/components/landscapeDiversity';",resolveDir:root,loader:'ts'},bundle:true,platform:'node',format:'esm',external:['three'],define:{'import.meta.env':'{}'},outfile:file});
+await build({stdin:{contents:"export {decodeTreeVariants} from './src/components/treeGeometry';export {densityCrown,shapeSpeciesCrown} from './src/components/densityTreeGeometry';export {assembleBudgetForest} from './src/components/budgetForestGeometry';export {packTrees,unpackTrees} from './src/components/treeGeometryWire';export {carGeometry,CAR_SPECS} from './src/components/sceneCars';export {drapeRoadSurface} from './src/components/roadDrape';export {drapeRoadOffThread} from './src/components/roadDrapeClient';export {plantingSnapshot,samePlanting} from './src/components/plantingSnapshot';export {treeMeshModel,groveForest} from './src/components/sceneGroves';export {PARK_TREE_STYLES,WOODLAND_FLOWERS,woodlandBeds} from './src/components/landscapeDiversity';",resolveDir:root,loader:'ts'},bundle:true,platform:'node',format:'esm',external:['three'],define:{'import.meta.env':'{}'},loader:{'.wasm':'binary'},outfile:file});
 const {decodeTreeVariants,densityCrown,shapeSpeciesCrown,assembleBudgetForest,packTrees,unpackTrees,carGeometry,CAR_SPECS,drapeRoadSurface,drapeRoadOffThread,treeMeshModel,groveForest,plantingSnapshot,samePlanting,PARK_TREE_STYLES,WOODLAND_FLOWERS,woodlandBeds}=await import(pathToFileURL(file));
 const toneFile=path.join(root,'tmp','foliage-tests.mjs');
 await build({entryPoints:[path.join(root,'src/components/foliageTone.ts')],bundle:true,platform:'node',format:'esm',outfile:toneFile});
 const {treeFoliageTone,FOLIAGE_TONES}=await import(pathToFileURL(toneFile));
 const layoutFile=path.join(root,'tmp','layout-tests.mjs');
-await build({stdin:{contents:"export {streetLamps} from './src/components/complexScene';export {carriageway} from './src/components/sceneSidewalk';export {roadJunctionHulls} from './src/components/roadJunctions';export {inRing} from './src/components/ringMath';export {woodlandDensity} from './src/components/sceneGroves';",resolveDir:root,loader:'ts'},bundle:true,platform:'node',format:'esm',external:['three'],define:{'import.meta.env':'{}'},outfile:layoutFile});
+await build({stdin:{contents:"export {streetLamps} from './src/components/complexScene';export {carriageway} from './src/components/sceneSidewalk';export {roadJunctionHulls} from './src/components/roadJunctions';export {inRing} from './src/components/ringMath';export {woodlandDensity} from './src/components/sceneGroves';",resolveDir:root,loader:'ts'},bundle:true,platform:'node',format:'esm',external:['three'],define:{'import.meta.env':'{}'},loader:{'.wasm':'binary'},outfile:layoutFile});
 const {streetLamps,carriageway,roadJunctionHulls,inRing,woodlandDensity}=await import(pathToFileURL(layoutFile));
 const json=name=>JSON.parse(readFileSync(path.join(root,'public/3d',name),'utf8'));
 const raw=readFileSync(path.join(root,'public/3d/trees.bin'));
@@ -111,7 +111,10 @@ test('leaf and bark surfaces are closed and face outward after position welding'
 test('dense shared forest preserves five silhouettes, leaf-only tint and terrain roots with small buffers',async()=>{
  const points=Array.from({length:6400},(_,i)=>[i%80*5.5,Math.floor(i/80)*5.5]),terrain={at:(x,y)=>x*.2+y*.05};
  const built=await groveForest([{pattern:0,points}],terrain,71,null,false,1,async()=>{}),b=built.group.userData.forestBudget;
- assert.equal(Object.keys(b.speciesCounts).length,5);assert.ok(built.group.children.length<=11);
+ assert.equal(Object.keys(b.speciesCounts).length,5);assert.ok(built.group.children.length<=64);
+ const far=built.group.children.filter(m=>m.userData.forestLod);
+ assert.ok(far.length>0&&far.every(m=>m.count<=1024),'distant crowns use bounded spatial batches');
+ assert.ok(built.group.children.filter(m=>m.name.endsWith('trunks')).every(m=>m.count<=4096));
  assert.ok(b.clusterCanopies>100,'keep forest density instead of funding shape by removing most trees');
  assert.ok(b.totalBufferBytes<b.cardBufferBytes*.7);assert.ok(b.minExposedTrunk>3);
  assert.ok(b.maxTreeHeight/b.minTreeHeight>2,'young trees and tall mature trees must coexist');

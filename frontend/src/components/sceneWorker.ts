@@ -8,6 +8,7 @@ import { cutPaths, type WalkPath } from './sceneWalkers';
 import { makeGroundGeometry } from "./groundGeometry";
 import { FLAT } from "./sceneTerrain";
 import { neighbourArrays, type NeighbourJob, type NeighbourArrays } from "./neighbourGeometry";
+import {neighbourWasmArrays,neighbourWasmStats} from './neighbourWasm';
 import {constrainRoadCorridors}from'./roadCorridors';
 import {excludeSurface}from'./surfaceExclusion';
 import * as THREE from 'three';
@@ -25,7 +26,7 @@ export type GroundData = Pick<RealEstateBuildingsResponse, "site" | "roads" | "p
 export type SceneOps = {
   surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null}};
   roads: {args:{roads:RealEstateRoad[];footprints:[number,number][][]};result:RealEstateRoad[]};
-  neighbours: { args: { jobs: NeighbourJob[] }; result: NeighbourArrays[] };
+  neighbours: { args: { jobs: NeighbourJob[];hybrid?:boolean }; result: {arrays:NeighbourArrays[];mode:string;computeMs:number;memoryBytes:number;inputBytes:number} };
   walkPaths: {args:{paths:WalkPath[];roads:RealEstateRoad[];footprints:[number,number][][];T:number};result:WalkPath[]};
   terrainGround: {args:{T:number;G:number;segs:number;grid:HeightGrid|null};result:{position:Float32Array;normal:Float32Array;uv:Float32Array;index:Uint16Array|Uint32Array;grid:{xs:Float64Array;ys:Float64Array};sphere:{center:[number,number,number];radius:number}}};
   bridges: { args: { roads: RealEstateRoad[]; parcels: RealEstateParcel[]; covered: boolean[]; grid: HeightGrid | null }; result: Bridge[] };
@@ -69,8 +70,9 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
     }
     else if(m.op==='roads')result=constrainRoadCorridors(m.args.roads,m.args.footprints);
     else if (m.op === 'neighbours') {
-      const arrays = m.args.jobs.map(neighbourArrays);
-      result = arrays;
+      const start=performance.now();let mode='javascript';
+      const arrays = m.args.hybrid ? await neighbourWasmArrays(m.args.jobs).then(a=>{mode='rust-wasm';return a;}).catch(()=>m.args.jobs.map(neighbourArrays)) : m.args.jobs.map(neighbourArrays);
+      result = {arrays,mode,computeMs:performance.now()-start,memoryBytes:mode==='rust-wasm'?neighbourWasmStats.memoryBytes:0,inputBytes:mode==='rust-wasm'?neighbourWasmStats.inputBytes:0};
       transfer = arrays.flatMap(a => Object.values(a).map(v => v.buffer)) as ArrayBuffer[];
     } else if (m.op === 'terrainGround') {
       const geo=await makeGroundGeometry(m.args.T,m.args.G,m.args.grid ? {...FLAT,at:gridAt(m.args.grid)} : FLAT,m.args.segs,go);

@@ -2,6 +2,8 @@ import { frameSlice } from "./frameSlice";
 import { vehicleOverlap, VehicleTrajectoryCache, collisionFreeTravel } from "./trafficCollision";
 import { onSceneMemoryRelease } from "./sceneMemory";
 import * as THREE from "three";
+import {flushInstanceAttribute} from './instanceDirty';
+import {InstanceBatch,prepareInstanceKernel} from './instanceWasm';
 import {textureBudgetEnabled}from'./textureBudget';
 import {roadJunctionHulls}from'./roadJunctions';
 import {junctionSignalPolicy,junctionOccupied}from'./trafficJunction';
@@ -1091,6 +1093,12 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   };
   await frameSlice();
   const meshes = kinds.map((k, i) => instanced(k.geo, k.mat, perKind[i], true));
+  const instanceKernel=await prepareInstanceKernel();
+  const instanceBatches=instanceKernel?perKind.map(n=>new InstanceBatch(n,instanceKernel)):null;
+  let batchPlacement=false;
+  group.userData.instanceCompute={mode:instanceKernel?'rust-wasm':'javascript',capacity:cars.length,
+    retainedBytes:instanceBatches?.reduce((n,b)=>n+b.retainedBytes,0)??0,
+    memory:()=>instanceKernel?.memory.buffer.byteLength??0};
   // The followed vehicles' wheels: their own instanced mesh each, turned as the vehicle rolls
   // (the angle: the distance driven over the rolling radius).
   const heroWheels = [...heroes].map(([, c]) => {
@@ -1113,7 +1121,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         wl.multiply(wr.makeRotationX(wh.side < 0 ? -hw.spin : hw.spin));
         hw.im.setMatrixAt(i, wr.multiplyMatrices(wm, wl));
       });
-      hw.im.instanceMatrix.needsUpdate = true;
+      flushInstanceAttribute(hw.im.instanceMatrix,hw.im.count);
     }
   };
   // Near the eye (NEAR_M) a car is drawn from its modelled mesh: those instances are packed
@@ -1214,9 +1222,9 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         far.setMatrixAt(c.slot, hidden);
       } else if (was) nearNow[c.type].delete(c.slot);
     }
-    plates.forEach((im, i) => { im.count = platesN[i]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; });
-    near.forEach((im, i) => { if (!im) return; im.count = packed[i]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; });
-    rolling.forEach((im,i)=>{im.count=wheelN[i];im.instanceMatrix.needsUpdate=true;});
+    plates.forEach((im, i) => { im.count = platesN[i]; flushInstanceAttribute(im.instanceMatrix,im.count); if (im.instanceColor) flushInstanceAttribute(im.instanceColor,im.count); });
+    near.forEach((im, i) => { if (!im) return; im.count = packed[i]; flushInstanceAttribute(im.instanceMatrix,im.count); if (im.instanceColor) flushInstanceAttribute(im.instanceColor,im.count); });
+    rolling.forEach((im,i)=>{im.count=wheelN[i];flushInstanceAttribute(im.instanceMatrix,im.count);});
   };
   await frameSlice();
   // (the two followed vehicles light their own modelled lamps; the rest a generic pair at each end)
@@ -1261,8 +1269,12 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     // On the terrain, pitched to the slope under its wheelbase.
     const reach = c.length * 0.35;
     const hf = terrain.at(c.x + c.hx * reach, c.y + c.hy * reach), hb = terrain.at(c.x - c.hx * reach, c.y - c.hy * reach);
-    q.setFromAxisAngle(up, Math.atan2(c.hx, -c.hy)).multiply(qp.setFromAxisAngle(across, -Math.atan2(hf - hb, 2 * reach)));
+    const yaw=Math.atan2(c.hx,-c.hy),pitch=-Math.atan2(hf-hb,2*reach);
     c.z = (hf + hb) / 2;
+    const scale=c.hide?0:1;
+    instanceBatches?.[c.type].set(c.slot,c.x,c.z+.02,-c.y,yaw,pitch,scale,scale,scale);
+    if(batchPlacement)return;
+    q.setFromAxisAngle(up,yaw).multiply(qp.setFromAxisAngle(across,pitch));
     m4.compose(v.set(c.x, c.z + 0.02, -c.y), q, c.hide ? zero : one);
     meshes[c.type].setMatrixAt(c.slot, m4);
     if (lampsOn) lamps[c.type].setMatrixAt(c.slot, m4);
@@ -1706,9 +1718,12 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   };
 
   const updateTraffic=(dt:number,eye?:THREE.Vector3)=>{
-    step(Math.min(.1,dt));turnWheels();swapNear(eye);showSignals();
-    meshes.forEach(m=>{m.instanceMatrix.needsUpdate=true;});
-    if(lampsOn)lamps.forEach(m=>{m.instanceMatrix.needsUpdate=true;});
+    batchPlacement=!!instanceBatches;
+    try{step(Math.min(.1,dt));}finally{batchPlacement=false;}
+    instanceBatches?.forEach((b,i)=>{b.compose(meshes[i].instanceMatrix.array as Float32Array);if(lampsOn)lamps[i].instanceMatrix.array.set(meshes[i].instanceMatrix.array);});
+    turnWheels();swapNear(eye);showSignals();
+    meshes.forEach(m=>{flushInstanceAttribute(m.instanceMatrix,m.count);});
+    if(lampsOn)lamps.forEach(m=>{flushInstanceAttribute(m.instanceMatrix,m.count);});
   };
   group.userData.traffic = { cars, paths, nodes, nodeOf, trimAt, clusters, clusterEnds, armInfo, signals, heads, lightAt, idle, internal, drawn: roads.length,
     advance:updateTraffic }; // deterministic inspection in dev tools
@@ -1795,6 +1810,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       if (on) { cars.forEach(place); lamps.forEach(m => { m.instanceMatrix.needsUpdate = true; }); }
     },
     dispose() {
+      instanceBatches?.forEach(b=>b.dispose());
       [...meshes, ...lamps].forEach(m => m.dispose());
       rolling.forEach(m=>m.dispose());
       near.forEach(m => m?.dispose()); modelMat?.dispose();

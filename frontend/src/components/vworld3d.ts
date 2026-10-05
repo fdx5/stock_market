@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { vworldToken } from "./sceneTerrain";
 import { sharedVworldBytes } from './vworldBytes';
+import { onSceneMemoryRelease } from './sceneMemory';
 import { mainRoofOf, planeKey, around, type Rhythm, type Colours, type WallPaint } from "./photoAnalysis";
 export { mainRoofOf, planeKey, type Rhythm, type Colours, type WallPaint };
 
@@ -230,25 +231,37 @@ export async function photoBuildingsNear(key: string, lat0: number, lon0: number
 
 /** The photograph read in a worker (a few at a time): fetched here, decoded and
  * analysed there, so the page never stalls on it. One analysis per building. */
-const workers: Worker[] = [];
+const workers: (Worker | undefined)[] = [];
 let wid = 0;
+let photoGeneration = 0;
 const waiting = new Map<number, (r: { rhythm: Rhythm; colours: Colours; paint: WallPaint[] } | null) => void>();
+onSceneMemoryRelease(() => {
+  photoGeneration++;
+  workers.forEach(w => w?.terminate()); workers.length = 0;
+  waiting.forEach(done => done(null)); waiting.clear();
+});
 function worker(i: number) {
   if (!workers[i]) {
     const w = new Worker(new URL("./photoWorker.ts", import.meta.url), { type: "module" });
     w.onmessage = e => { const { id, rhythm, colours, paint } = e.data; const f = waiting.get(id); waiting.delete(id); f?.(rhythm ? { rhythm: { ...rhythm, planes: new Map(rhythm.planes) }, colours, paint: paint ?? [] } : null); };
+    w.onerror = () => {
+      w.terminate(); if (workers[i] === w) workers[i] = undefined;
+      waiting.forEach(done => done(null)); waiting.clear();
+    };
     workers[i] = w;
   }
-  return workers[i];
+  return workers[i]!;
 }
 const analysed = new WeakMap<PhotoBuilding, Promise<{ rhythm: Rhythm; colours: Colours; paint: WallPaint[] } | null>>();
 function photoAnalysis(key: string, ph: PhotoBuilding, signal?: AbortSignal) {
   let p = analysed.get(ph);
   if (!p) {
     p = (async () => {
+      const generation = photoGeneration;
       if (!ph.src.img) return null;
       const token = await vworldToken(key);
       const img = await bytes(url(token, ph.src.x, ph.src.y, ph.src.img), signal);
+      if (signal?.aborted || generation !== photoGeneration) return null;
       const g = ph.geometry, pos = (g.getAttribute("position").array as Float32Array).slice(), uv = (g.getAttribute("uv").array as Float32Array).slice();
       const index = g.index!.array.slice();
       const id = ++wid;

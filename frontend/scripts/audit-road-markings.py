@@ -23,7 +23,9 @@ async def main():
   await page.wait_for_function("()=>{const n=window.__sceneNative;return n?.ready&&!n.pending&&!n.compiling&&!n.failed;}",timeout=60000)
   report=await page.evaluate("""()=>{const n=window.__sceneNative,t=[...n.active].find(o=>o.parent?.userData?.traffic)?.parent.userData.traffic;const roads=t?.arms?.roads??t?.paths,seen=new Set(),plans=[];
    for(const o of n.active){const g=o.parent;if(g?.name==='road markings'&&!seen.has(g)){seen.add(g);plans.push(...g.userData.roadMarkings??[]);}}
+   const owners=new Set();for(const o of n.active)for(let p=o;p;p=p.parent)if(p.userData.instanceCompute)owners.add(p);
    return {state:{...document.querySelector(':is(.re-holo-layer,.re-holo--expanded) .re-holo-stage').dataset},native:{ready:n.ready,pending:n.pending,compiling:n.compiling,failed:n.failed},roads,plans,
+    instanceCompute:[...owners].map(p=>({name:p.name,mode:p.userData.instanceCompute.mode,capacity:p.userData.instanceCompute.capacity})),wasmAssets:performance.getEntriesByType('resource').filter(e=>/scene_geometry.*[.]wasm/.test(e.name)).map(e=>e.name),
     paths:t?.paths,clusters:t?.clusters,arms:roads?.map((r,i)=>({road:i,inside:t.internal[i],startTrim:t.trimAt.get(`${i}:true`),endTrim:t.trimAt.get(`${i}:false`)})),
     geometry:[...n.active].filter(o=>o.name==='road surface'||o.parent?.name==='road markings').map(o=>({name:o.name,parent:o.parent?.name,color:o.material.color?.toArray(),position:Array.from(o.geometry.attributes.position.array),index:o.geometry.index?Array.from(o.geometry.index.array):null}))};}""")
   report['errors']=errors;Path(a.out+'.json').write_text(json.dumps(report,indent=2),encoding='utf8')

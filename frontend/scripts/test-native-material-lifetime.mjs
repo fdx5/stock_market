@@ -28,8 +28,9 @@ test('actual GPU bindings and still drawn array materials survive deferred repla
 });
 
 function syncFixture(text) {
- const begin=text.indexOf('  sync(source) {'),end=text.indexOf('\n  /** The materials of a model',begin);
- const invoke=new Function('source','sourceMaterialsMatch','boundTextures','sameMatrix','performance',text.slice(begin,end).replace('  sync(source) {','') .replace(/\}\s*$/,''));
+ const begin=text.indexOf('  sync(source'),end=text.indexOf('\n  /** The materials of a model',begin);
+ assert.ok(begin>=0 && end>begin, 'renderer sync method must be exercised');
+ const invoke=new Function('source','sourceMaterialsMatch','boundTextures','sameMatrix','performance','camera',text.slice(begin,end).replace(/  sync\(source(?:, camera)?\) \{/,'') .replace(/\}\s*$/,''));
  const sourceA={version:0,userData:{}},sourceB={version:0,userData:{}};
  const old={source:sourceA,srcVersion:0,bindings:{},uniformBlock:{buffer:{destroy(){}}},dispose(){this.disposed=true;}};
  const replacement={source:sourceB,srcVersion:0,bindings:{},uniformBlock:{buffer:{destroy(){}}},dispose(){this.disposed=true;}};

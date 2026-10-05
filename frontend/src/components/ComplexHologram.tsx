@@ -61,6 +61,7 @@ import {excludeSurface}from'./surfaceExclusion';
 import { sceneWork } from "./sceneWorkerClient";
 import type { SceneOps } from "./sceneWorker";
 import { neighbourArrays, neighbourGeometry } from "./neighbourGeometry";
+import {hybridSceneEnabled} from './hybridScene';
 import { retainSceneMemory } from "./sceneMemory";
 import { ringBuildings } from "./ringBuildings";
 import { farGround } from "./farGround";
@@ -2329,16 +2330,17 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (style === "apt") c.lerp(new THREE.Color("#ffffff"), 0.65);
       return { building: b, ground, style, floorM: CONTEXT_FLOOR_M[style], color: [c.r, c.g, c.b] as [number, number, number] };
     });
-    const neighbourJob = sceneWork('neighbours', { jobs: neighbourJobs })?.catch(() => null);
+    const neighbourJob = sceneWork('neighbours', { jobs: neighbourJobs,hybrid:hybridSceneEnabled() })?.catch(() => null);
 
     const neighbourResult = await neighbourJob;
     if (!alive) return;
+    if(hostRef.current){const d=hostRef.current.dataset;d.geometryCompute=neighbourResult?.mode??'javascript';d.geometryComputeMs=String(neighbourResult?.computeMs??0);d.geometryWasmBytes=String(neighbourResult?.memoryBytes??0);}
     sliceStart = performance.now();
     for (const [j, b] of neighbours.entries()) {
       owner = "c" + j;
       if (!await pace()) return;
       const job = neighbourJobs[j], g = job.ground, style = job.style;
-      const geo = neighbourGeometry(neighbourResult?.[j] ?? neighbourArrays(job));
+      const geo = neighbourGeometry(neighbourResult?.arrays[j] ?? neighbourArrays(job));
       ctxGeos[style].push(own(geo));
       landmark(b);
       // Parapet: a 0.9 m upstand, 0.2 m thick, along every roof edge longer than 2 m.

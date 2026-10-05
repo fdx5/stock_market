@@ -11,7 +11,15 @@ function load(file,extra={}){
 }
 const {PARK_TREE_STYLES}=load('landscapeDiversity.ts'),{treeFoliageTone}=load('foliageTone.ts');
 const rng=seed=>()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
-const grove=bounded=>load('sceneGroves.ts',{PARK_TREE_STYLES,treeFoliageTone,rng,performance,frameSlice:async()=>{},sceneDeviceBudget:()=>({constrained:bounded})});
+const grove=bounded=>load('sceneGroves.ts',{PARK_TREE_STYLES,treeFoliageTone,rng,performance,hybridSceneEnabled:()=>false,prepareInstanceKernel:async()=>undefined,frameSlice:async()=>{},sceneDeviceBudget:()=>({constrained:bounded})});
+
+test('cancelled forest construction frees every temporary WASM batch',async()=>{
+ let tick=0,batches=[];
+ class Batch{constructor(){batches.push(this);}dispose(){this.closed=true;}}
+ const api=load('sceneGroves.ts',{PARK_TREE_STYLES,treeFoliageTone,rng,performance:{now:()=>tick+=4},hybridSceneEnabled:()=>true,prepareInstanceKernel:async()=>({}),InstanceBatch:Batch,frameSlice:async()=>{},sceneDeviceBudget:()=>({constrained:true})});
+ await assert.rejects(api.groveForest([{pattern:0,points:[[10,20],[300,20]]}],{at:()=>4},91,null,true,1,async()=>{if(batches.length>=2)throw Error('cancelled');}),/cancelled/);
+ assert.ok(batches.length>0);assert.ok(batches.every(b=>b.closed));
+});
 test('all five reduced models retain closed leaves, a trunk and three branches',()=>{
  const {treeMeshModel}=grove(true);
  for(let species=0;species<5;species++)for(const leaves of [192,96,48]){

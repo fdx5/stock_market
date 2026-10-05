@@ -9,6 +9,9 @@ const server=await createServer({root,configFile:false,plugins:[react(),{name:'b
  if(pathname==='/api/activity/event'){res.statusCode=204;res.end();return;}
  if(req.method==='POST'&&pathname.startsWith('/api/')&&pathname!=='/api/realestate/nearby'){res.statusCode=405;res.end();return;}
  if(pathname==='/__bvh-bench'){res.setHeader('Content-Type','text/html');res.end(readFileSync(new URL('./bvh-bench.html',import.meta.url)));return;}
+ if(pathname==='/__hybrid-bench'){res.setHeader('Content-Type','text/html');res.end(readFileSync(new URL('./hybrid-bench.html',import.meta.url)));return;}
+ const hybrid=pathname.match(/^\/__hybrid-fixture\/(ganeung|shindonga)\.json$/);
+ if(hybrid){res.setHeader('Content-Type','application/json');res.end(readFileSync(fixtures+'hybrid-jobs-'+hybrid[1]+'.json'));return;}
  const match=pathname.match(/^\/__bvh-fixture\/(ganeung|shindonga|luceheim)\.json$/);
  if(match){res.setHeader('Content-Type','application/json');res.end(readFileSync(fixtures+'bvh-'+match[1]+'-fixture.json'));return;}
  next();
