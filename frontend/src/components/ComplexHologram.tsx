@@ -1913,6 +1913,20 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const span = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, 60);
     const cx = (box.max.x + box.min.x) / 2, cy = (box.max.y + box.min.y) / 2;
     const dist = Math.max(span, top * 1.4) * 1.1 + 40;
+    // Consume the same two random draws per neighbour, in the original order (nothing between
+    // here and the neighbours' step draws). Sent before the ground's grid: the scene worker takes
+    // its jobs in turn, and this one is waited on first (~30 ms of work behind ~300).
+    // Only typed arrays cross back; abandoned builds own no GPU objects.
+    const neighbourJobs = neighbours.map(b => {
+      const ground = terrain.base(b.rings[0]);
+      const style = contextStyle(b.use, b.height, rnd());
+      const c = new THREE.Color(tints[Math.floor(rnd() * tints.length)]);
+      if (style === "office") c.lerp(new THREE.Color("#ffffff"), 0.4);
+      if (style === "apt") c.lerp(new THREE.Color("#ffffff"), 0.65);
+      return { building: b, ground, style, floorM: CONTEXT_FLOOR_M[style], color: [c.r, c.g, c.b] as [number, number, number] };
+    });
+    const neighbourJob = sceneWork('neighbours', { jobs: neighbourJobs,hybrid:hybridSceneEnabled() })?.catch(() => null);
+
     const groundGridJob = sceneWork('terrainGround', {T, G: dist * 12, segs: terrain.source === null ? 64 : stage.hq ? 320 : 200, grid: terrain.grid ?? null})?.catch(() => null);
     step("towers");
     if (!Number.isFinite(floor)) floor = 0;
@@ -1940,18 +1954,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       pickables.push(pick);
       if (hostRef.current) hostRef.current.dataset.landmarks = String(+(hostRef.current.dataset.landmarks ?? 0) + 1);
     };
-    // Consume the same two random draws per neighbour, in the original order.
-    // Only typed arrays cross back; abandoned builds own no GPU objects.
-    const neighbourJobs = neighbours.map(b => {
-      const ground = terrain.base(b.rings[0]);
-      const style = contextStyle(b.use, b.height, rnd());
-      const c = new THREE.Color(tints[Math.floor(rnd() * tints.length)]);
-      if (style === "office") c.lerp(new THREE.Color("#ffffff"), 0.4);
-      if (style === "apt") c.lerp(new THREE.Color("#ffffff"), 0.65);
-      return { building: b, ground, style, floorM: CONTEXT_FLOOR_M[style], color: [c.r, c.g, c.b] as [number, number, number] };
-    });
-    const neighbourJob = sceneWork('neighbours', { jobs: neighbourJobs,hybrid:hybridSceneEnabled() })?.catch(() => null);
-
     const neighbourResult = await neighbourJob;
     if (!alive) return;
     if(hostRef.current){const d=hostRef.current.dataset;d.geometryCompute=neighbourResult?.mode??'javascript';d.geometryComputeMs=String(neighbourResult?.computeMs??0);d.geometryWasmBytes=String(neighbourResult?.memoryBytes??0);}

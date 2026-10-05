@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import "./workerCpuRaster";
 import { fieldFrom, gridAt, waterField, waterSurface, type FieldData, type HeightGrid, type WaterArrays } from "./waterCore";
-import { groundCanvasSteps, runNow, waterCovered, type Lamp, type Planting } from "./complexScene";
+import { groundCanvasSteps, runNow, seasonNow, waterCovered, type Lamp, type Planting } from "./complexScene";
 import type { RealEstateBuildingsResponse, RealEstateRoad, RealEstateParcel } from "../api/client";
 import { findBridges, type Bridge } from "./sceneBridges";
 import { sidewalkRuns, carriageway, ringIndex, type Run } from "./sceneSidewalk";
@@ -13,6 +13,7 @@ import {neighbourWasmArrays,neighbourWasmStats} from './neighbourWasm';
 import {constrainRoadCorridors}from'./roadCorridors';
 import {excludeSurface}from'./surfaceExclusion';
 import * as THREE from 'three';
+import { readPaint, writePaint } from "./paintStore";
 
 /* The 3D view's scene work that needs no page, done off its thread (sceneWorkerClient.ts):
  * while a complex loads, the page only draws frames and wraps the arrays sent back.
@@ -50,13 +51,58 @@ async function water({ rings, holes=[], grid }: SceneOps["water"]["args"]): Prom
   return [{ field, surface }, transfer];
 }
 
-async function ground({ data, T, size, seed, landscape, grid }: SceneOps["ground"]["args"]): Promise<[SceneOps["ground"]["result"], Transferable[]]> {
+/* The painted ground, kept (paintStore) for the next visit: painting it is the longest piece of
+ * a complex's first frame (0.6-1.2 s here), and the same complex, data and season paint the same
+ * pixels. Keyed by this worker's own script (its build) and everything the paint reads; written
+ * a while after the paint, so its encoding never runs while a complex loads. */
+const PAINTED_AT = typeof location !== "undefined" ? location.href : "";
+const RAW: ImageBitmapOptions = { colorSpaceConversion: "none", premultiplyAlpha: "none" };
+function fingerprint(v: unknown): string {
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  const mix = (n: number) => { h1 = Math.imul(h1 ^ n, 16777619); h2 = Math.imul(h2 ^ (n + 0x9e3779b9), 2246822519); };
+  const f = new Float64Array(1), u = new Uint32Array(f.buffer);
+  const walk = (x: unknown): void => {
+    if (x === null || x === undefined) mix(x === null ? 1 : 2);
+    else if (typeof x === "number") { f[0] = x; mix(u[0]); mix(u[1]); }
+    else if (typeof x === "string") { mix(x.length); for (let i = 0; i < x.length; i++) mix(x.charCodeAt(i)); }
+    else if (typeof x === "boolean") mix(x ? 3 : 4);
+    else if (ArrayBuffer.isView(x)) {
+      const b = new Uint8Array(x.buffer, x.byteOffset, x.byteLength); mix(b.length);
+      if (b.byteOffset % 4 === 0 && b.length % 4 === 0) { const w = new Uint32Array(b.buffer, b.byteOffset, b.length / 4); for (let i = 0; i < w.length; i++) mix(w[i]); }
+      else for (let i = 0; i < b.length; i++) mix(b[i]);
+    } else if (Array.isArray(x)) { mix(x.length); for (const e of x) walk(e); }
+    else if (typeof x === "object") for (const k of Object.keys(x as object).sort()) { walk(k); walk((x as Record<string, unknown>)[k]); }
+  };
+  walk(v);
+  return (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36);
+}
+type GroundResult = SceneOps["ground"]["result"];
+const GROUND_MAPS = ["color", "rough", "glow"] as const;
+
+async function ground(args: SceneOps["ground"]["args"]): Promise<[GroundResult, Transferable[]]> {
+  const { data, T, size, seed, landscape, grid } = args;
+  const key = `ground:${PAINTED_AT}:${seasonNow()}:${fingerprint(args)}`;
+  try {
+    const hit = await readPaint(key);
+    if (hit) {
+      const maps = await Promise.all(GROUND_MAPS.map(n => createImageBitmap(hit.blobs[n], { ...RAW, imageOrientation: "flipY" })));
+      const [color, rough, glow] = maps, rest = hit.params as Pick<GroundResult, "planting" | "lamps" | "covered">;
+      return [{ color, rough, glow, ...rest }, maps];
+    }
+  } catch { /* painted below */ }
   const full = data as unknown as RealEstateBuildingsResponse;
   const made = runNow(groundCanvasSteps(full, T, size, seed, landscape, grid));
   // (upright already: a bitmap is not flipped on its way to the GPU in WebGL)
   const up = (c: HTMLCanvasElement) => createImageBitmap(c as unknown as OffscreenCanvas, { imageOrientation: "flipY" });
   const [color, rough, glow] = await Promise.all([up(made.color), up(made.rough), up(made.glow)]);
-  return [{ color, rough, glow, planting: made.planting, lamps: made.lamps, covered: waterCovered(full) }, [color, rough, glow]];
+  const result = { color, rough, glow, planting: made.planting, lamps: made.lamps, covered: waterCovered(full) };
+  const kept = { color: made.color, rough: made.rough, glow: made.glow } as unknown as Record<string, OffscreenCanvas>;
+  const rest = { planting: result.planting, lamps: result.lamps, covered: result.covered };
+  setTimeout(() => {
+    const bitmaps = Object.fromEntries(GROUND_MAPS.map(n => [n, kept[n].transferToImageBitmap()]));
+    void writePaint(key, structuredClone(rest), bitmaps);
+  }, 6000);
+  return [result, [color, rough, glow]];
 }
 
 self.onmessage = async (e: MessageEvent<Msg>) => {
