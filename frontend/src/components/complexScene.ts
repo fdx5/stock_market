@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { moonGlow } from "./moonGlow";
-import { RealEstateBuildingsResponse } from "../api/client";
+import { RealEstateBuildingsResponse,type RealEstateRoad } from "../api/client";
+import {roadLevel} from './roadLevels';
 import { ringIndex, sidewalkWidth, carriageway } from "./sceneSidewalk";
 import {roadJunctionHulls}from'./roadJunctions';
 import { coveredStream } from "./waterCore";
@@ -780,7 +781,7 @@ export interface Planting {
   street: [number, number, number][];
 }
 /** A street lamp on a sidewalk: position, and the unit direction its arm reaches over the road. */
-export interface Lamp { x: number; y: number; dx: number; dy: number }
+export interface Lamp { x: number; y: number; dx: number; dy: number; road?:RealEstateRoad }
 export interface GroundPlan { color: THREE.Texture; rough: THREE.Texture; glow: THREE.Texture; planting: Planting; lamps: Lamp[] }
 
 /** Street lamps along the surveyed major roads: both sidewalks, staggered about every
@@ -808,7 +809,7 @@ export function streetLamps(data: RealEstateBuildingsResponse): Lamp[] {
         const side = Math.round((d - carry) / 25 + i) % 2 ? 1 : -1, off = road.width / 2 + 1.2;
         const x = ax + ux * d + nx * off * side, y = ay + uy * d + ny * off * side;
         if (near(x, y) || blocked(x, y)) continue;
-        const lamp = { x, y, dx: -nx * side, dy: -ny * side };
+        const lamp = { x, y, dx: -nx * side, dy: -ny * side, road };
         lamps.push(lamp);
         const k = key(x, y);
         if (!cell.has(k)) cell.set(k, []);
@@ -883,7 +884,7 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
   };
   const towers = data.buildings.map(b => b.rings[0]);
   const rings = [...data.context.map(b => b.rings[0]), ...towers];
-  const roads = data.roads ?? [];
+  const roads = (data.roads ?? []).filter(r=>roadLevel(r)===0);
   // These registered surfaces remain visible inside a landscaped complex too.
   const hardParcels = new Set(["도", "차", "주", "장", "창", "철", "수", ...WATER_KINDS]);
   const covered = waterCovered(data);

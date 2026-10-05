@@ -11,16 +11,17 @@ class Surface:
  def __init__(self,geometry):
   self.bins=defaultdict(list)
   for g in geometry:
-   pos=g['position'];idx=g['index'] or range(len(pos)//3)
+   pos=g['position'];idx=g['index'] or range(len(pos)//3);profiles={v:k for k,v in g.get('roadProfiles',{}).items()}
    for i in range(0,len(idx),3):
     t=[(pos[k*3],-pos[k*3+2],pos[k*3+1]) for k in idx[i:i+3]]
     den=(t[1][0]-t[0][0])*(t[2][1]-t[0][1])-(t[1][1]-t[0][1])*(t[2][0]-t[0][0])
     if abs(den)<1e-8:continue
     for x in range(math.floor(min(v[0] for v in t)/12),math.floor(max(v[0] for v in t)/12)+1):
-     for y in range(math.floor(min(v[1] for v in t)/12),math.floor(max(v[1] for v in t)/12)+1):self.bins[x,y].append((t,den))
- def height(self,x,y):
+     for y in range(math.floor(min(v[1] for v in t)/12),math.floor(max(v[1] for v in t)/12)+1):self.bins[x,y].append((t,den,g.get('roadLevels')[idx[i]] if g.get('roadLevels') else 0,profiles.get(g['roadProfileIndices'][idx[i]]) if g.get('roadProfileIndices') else None))
+ def height(self,x,y,level=0,profile=None):
   heights=[]
-  for t,den in self.bins.get((math.floor(x/12),math.floor(y/12)),[]):
+  for t,den,road_level,road_profile in self.bins.get((math.floor(x/12),math.floor(y/12)),[]):
+   if abs(road_level-level)>.1 or (level and profile and road_profile not in (None,profile)):continue
    A,B,C=t;u=((x-A[0])*(C[1]-A[1])-(y-A[1])*(C[0]-A[0]))/den;v=((B[0]-A[0])*(y-A[1])-(B[1]-A[1])*(x-A[0]))/den
    if min(u,v,1-u-v)>=-1e-4:heights.append(A[2]*(1-u-v)+B[2]*u+C[2]*v)
   return max(heights) if heights else None
@@ -46,9 +47,9 @@ for ri,r in enumerate(d['roads']):
   i=max(1,min(len(cum)-1,bisect.bisect_left(cum,s)));t=(s-cum[i-1])/(cum[i]-cum[i-1] or 1)
   return tuple(pts[i-1][k]+(pts[i][k]-pts[i-1][k])*t+(normals[i-1][k]+(normals[i][k]-normals[i-1][k])*t)*off for k in [0,1])
  def check(s,off,surface,kind):
-  x,y=at(s,off);road=asphalt.height(x,y)
+  x,y=at(s,off);road=asphalt.height(x,y,r.get('layer',0) or 0,r.get('link_id') or r.get('id'))
   if road is None:return
-  samples[kind]+=1;paint=surface.height(x,y)
+  samples[kind]+=1;paint=surface.height(x,y,r.get('layer',0) or 0,r.get('link_id') or r.get('id'))
   if paint is None or paint<road+.001:
    if len(missing)<100:missing.append({'road':ri,'kind':kind,'s':s,'at':[x,y],'roadHeight':road,'paintHeight':paint})
  for lo,hi in plan['spans']:

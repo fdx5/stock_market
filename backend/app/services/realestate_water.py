@@ -9,6 +9,7 @@ square of `radius`. Islands are not cut out: the viewer keeps water only where t
 the water's level, so an island standing above it stays dry.
 """
 from __future__ import annotations
+import datetime as dt
 
 from app.services.geography_cache import cached_geography
 from app.services.realestate_buildings import BuildingsError, _clean, _overpass, _projector, _stitch
@@ -87,21 +88,29 @@ def _crossings_lookup(lat: float, lon: float, radius: float = 700) -> dict:
     try:
         els = _overpass(q, deadline_s=4)
     except BuildingsError:
-        return {"crossings": [], "points": [], "signals": [], "source": None}
+        return {"crossings": [], "points": [], "signals": [], "signal_details": [], "source": None, "signal_state_source": None}
     project = _projector(lat, lon)
-    lines, points, signals = [], [], []
+    lines, points, signals, signal_details = [], [], [], []
     for e in els:
         tags = e.get("tags", {})
+        try:
+            layer = int(tags.get("layer", "0"))
+        except (TypeError, ValueError):
+            layer = 0
         if e.get("type") == "way":
             pts = [project(p["lon"], p["lat"]) for p in e.get("geometry", []) if p]
             if len(pts) >= 2:
-                lines.append({"line": pts, "signals": tags.get("crossing") == "traffic_signals"})
+                lines.append({"line": pts, "signals": tags.get("crossing") == "traffic_signals", "layer": layer, "id": f"way/{e.get('id')}"})
         elif tags.get("highway") == "traffic_signals":
-            signals.append(project(e["lon"], e["lat"]))
+            at = project(e["lon"], e["lat"])
+            signals.append(at)
+            signal_details.append({"id": f"node/{e.get('id')}", "at": at, "layer": layer,
+                                   "direction": tags.get("traffic_signals:direction"), "state": None})
         else:
             points.append({"at": project(e["lon"], e["lat"]), "signals": tags.get("crossing") == "traffic_signals",
                            "marked": tags.get("crossing") in ("marked", "zebra", "traffic_signals") or tags.get("crossing:markings") not in (None, "no")})
-    out = {"crossings": lines, "points": points, "signals": signals, "source": "OpenStreetMap"}
+    out = {"crossings": lines, "points": points, "signals": signals, "signal_details": signal_details, "source": "OpenStreetMap",
+           "signal_state_source": None, "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
     return out
 
 
@@ -110,4 +119,4 @@ def water(lat: float, lon: float, radius: float = 700) -> dict:
     return cached_geography("water", lat, lon, radius, lambda: _water_lookup(lat, lon, radius))
 
 def crossings(lat: float, lon: float, radius: float = 700) -> dict:
-    return cached_geography("crossings", lat, lon, radius, lambda: _crossings_lookup(lat, lon, radius))
+    return cached_geography("crossings-v2", lat, lon, radius, lambda: _crossings_lookup(lat, lon, radius))

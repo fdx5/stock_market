@@ -84,7 +84,7 @@ test('worker bridge and sidewalk layouts retain every original sample and height
       bundle: true, write: false, format: 'esm', platform: 'node', define: { 'import.meta.env': '{}' },loader:{'.wasm':'binary'},
     }).outputFiles[0].text;
     const original = await import('data:text/javascript;base64,' + Buffer.from(bundle).toString('base64'));
-    const roads = [{ line: [[-100, 0], [100, 0]], width: 14, lanes: 4 }, { line: [[80, -80], [80, 80]], width: 12, lanes: 2 }];
+    const roads = [{ line: [[-100, 0], [100, 0]], width: 14, lanes: 4, structure:'bridge', layer:1, link_id:'survey-bridge', structure_source:'VWorld LT_L_MOCTLINK' }, { line: [[80, -80], [80, 80]], width: 12, lanes: 2, structure:'ground', layer:0 }];
     const parcels = [{ kind: '\ucc9c', ring: [[-60,-100],[60,-100],[60,100],[-60,100]] }];
     const grid = { h: Float32Array.from({ length: 81 }, (_, i) => i / 10), n: 9, R: 200, cell: 50 };
     const expectedBridges = original.findBridges(roads, parcels, [false], { ...original.FLAT, at: original.gridAt(grid) });

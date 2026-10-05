@@ -34,18 +34,18 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
   const open = parcels.filter((p, pi) => WATER.has(p.kind) && p.ring.length >= 3 && !covered[pi]
     && Math.abs(p.ring.reduce((acc, [x, y], i) => { const q = p.ring[(i + 1) % p.ring.length]; return acc + x * q[1] - q[0] * y; }, 0) / 2) >= 300);
   if (!open.length) return null;
-  const rings = open.map(p => p.ring);
+  const rings = open.map(p => p.ring),holes=open.flatMap(p=>p.holes??[]);
   // In the scene worker (the raster and the surface were ~1 s of a slow phone's page while a
   // riverside complex loaded); on the page, in slices, where it can't run.
   let made: { field: FieldData; surface: WaterArrays | null } | null = null, off = false;
-  const job = terrain.grid || terrain === FLAT ? sceneWork("water", { rings, grid: terrain.grid ?? null }) : null;
+  const job = terrain.grid || terrain === FLAT ? sceneWork("water", { rings, holes, grid: terrain.grid ?? null }) : null;
   if (job) {
     try { made = await job; off = true; } catch { made = null; }
     if (!await pace()) return null;
   }
   if (!off) {
-    const data = await waterField(rings, terrain.at, pace);
-    const surface = data && await waterSurface(rings, fieldFrom(data, terrain.at), pace);
+    const data = await waterField(rings, terrain.at, pace, holes);
+    const surface = data && await waterSurface(rings, fieldFrom(data, terrain.at), pace, holes);
     if (!data) return null;
     made = { field: data, surface };
   }

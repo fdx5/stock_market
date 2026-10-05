@@ -1,4 +1,4 @@
-export interface VehicleBody { x: number; y: number; hx: number; hy: number; length: number; width: number }
+export interface VehicleBody { x: number; y: number; z?:number; hx: number; hy: number; length: number; width: number }
 interface TravelState { conn: object; road: number; forward: boolean; lane: number; s: number; u: number; inConn: boolean }
 interface Pose { x: number; y: number; hx: number; hy: number }
 /** Clamp a movement along its actual lane/turn curve before any other body.
@@ -6,7 +6,7 @@ interface Pose { x: number; y: number; hx: number; hy: number }
  * binary refinement stops at the last safe pose instead of allowing penetration. */
 export function collisionFreeTravel(distance:number,poseAt:(d:number)=>VehicleBody,others:readonly VehicleBody[],self:VehicleBody){
   if(distance<=0)return 0;
-  const free=(d:number)=>{const p=poseAt(d);return !others.some(o=>o!==self&&vehicleOverlap(p.x,p.y,p.hx,p.hy,p.length+.06,p.width+.06,o));};
+  const free=(d:number)=>{const p=poseAt(d);return !others.some(o=>o!==self&&!(p.z!==undefined&&o.z!==undefined&&Math.abs(p.z-o.z)>3.5)&&vehicleOverlap(p.x,p.y,p.hx,p.hy,p.length+.06,p.width+.06,o));};
   let safe=0;
   for(let d=Math.min(.25,distance);;d=Math.min(distance,d+.25)){
     if(!free(d)){

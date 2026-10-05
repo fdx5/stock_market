@@ -25,7 +25,7 @@ export interface WaterArrays { pos: Float32Array; uv: Float32Array; nor: Float32
  * are one channel, not separate ponds with banks between them). Per node: inside,
  * ground height, the local water level and the distance to the nearest dry node (the
  * bank), in metres. Replaces point-in-polygon tests per vertex (seconds on a river). */
-export async function waterField(rings: [number, number][][], at: (x: number, y: number) => number, pace: Pace): Promise<FieldData | null> {
+export async function waterField(rings: [number, number][][], at: (x: number, y: number) => number, pace: Pace, holes: [number,number][][] = []): Promise<FieldData | null> {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const r of rings) for (const [x, y] of r) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   // 2 m nodes; a coarser step only for very large rivers (at most ~300k nodes).
@@ -46,6 +46,13 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
     xs.sort((a, b) => a - b);
     for (let q = 0; q + 1 < xs.length; q += 2)
       for (let i = Math.max(0, Math.ceil((xs[q] - x0) / s)), e = Math.min(nx - 1, Math.floor((xs[q + 1] - x0) / s)); i <= e; i++) inside[j * nx + i] = 1;
+  }
+  for (const hole of holes) {
+    const minX=Math.min(...hole.map(p=>p[0])),maxX=Math.max(...hole.map(p=>p[0])),minY=Math.min(...hole.map(p=>p[1])),maxY=Math.max(...hole.map(p=>p[1]));
+    for(let j=Math.max(0,Math.ceil((minY-y0)/s));j<ny&&y0+j*s<=maxY;j++){
+      if(!await pace())return null;
+      for(let i=Math.max(0,Math.ceil((minX-x0)/s));i<nx&&x0+i*s<=maxX;i++)if(inRing([x0+i*s,y0+j*s],hole))inside[j*nx+i]=0;
+    }
   }
   for (let j = 0; j < ny; j++) {
     if (!await pace()) return null;
@@ -140,7 +147,7 @@ export function fieldFrom(d: FieldData, at: (x: number, y: number) => number) {
 export type WaterField = ReturnType<typeof fieldFrom>;
 
 /** The surface over the open-water parcels' rings, subdivided to follow the channel. */
-export async function waterSurface(rings: [number, number][][], field: WaterField, pace: Pace): Promise<WaterArrays | null> {
+export async function waterSurface(rings: [number, number][][], field: WaterField, pace: Pace, holes: [number,number][][] = []): Promise<WaterArrays | null> {
   const pos: number[] = [], uv: number[] = [], nor: number[] = [], shore: number[] = [], flow: number[] = [], index: number[] = [];
   // (a corner shared by the triangles round it is one vertex: everything at a vertex follows from
   // where it is and which parcel it belongs to. Unshared, each was stored ~6 times — 8 MB of
@@ -152,7 +159,9 @@ export async function waterSurface(rings: [number, number][][], field: WaterFiel
     ring.forEach((a, i) => { const b = ring[(i + 1) % ring.length], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (l > best) { best = l; ang = Math.atan2(b[1] - a[1], b[0] - a[0]); } });
     const ux = Math.cos(ang), uy = Math.sin(ang);
     const pts = ring.map(([x, y]) => new THREE.Vector2(x, y));
-    const tris = THREE.ShapeUtils.triangulateShape(pts, []);
+    const inner=holes.filter(h=>inRing(h[0],ring)).map(h=>h.map(([x,y])=>new THREE.Vector2(x,y)));
+    const tris = THREE.ShapeUtils.triangulateShape(pts, inner);
+    pts.push(...inner.flat());
     const wet = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2) => field.wet((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3);
     // Subdivided finely so the waterline follows the channel; the surface at the local
     // level. aShore = metres to the bank, aFlow = the channel direction in world x/z

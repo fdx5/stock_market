@@ -24,10 +24,10 @@ function segment(axis: Float64Array,value: number,up: boolean) {
 /** The same visible asphalt supports tyres; a DEM sample can lie centimetres
  * below the tessellated road and bury the tyre's lower sidewall. */
 export function roadSurfaceHeight(geometry:THREE.BufferGeometry,index?:RoadTriangleIndex){
- const p=geometry.getAttribute('position'),bins=new Map<string,number[]>(),cell=6;
+ const p=geometry.getAttribute('position'),levels=geometry.getAttribute('roadLevel'),profiles=geometry.getAttribute('roadProfile'),profileIds=geometry.userData.roadProfiles as Map<string,number>|undefined,bins=new Map<string,number[]>(),cell=6;
  if(!index)for(let k=0;k<p.count;k+=3){const x=[0,1,2].map(i=>p.getX(k+i)),y=[0,1,2].map(i=>-p.getZ(k+i));for(let i=Math.floor(Math.min(...x)/cell);i<=Math.floor(Math.max(...x)/cell);i++)for(let j=Math.floor(Math.min(...y)/cell);j<=Math.floor(Math.max(...y)/cell);j++){const key=i+':'+j,l=bins.get(key);if(l)l.push(k);else bins.set(key,[k]);}}
- return (x:number,y:number)=>{let h=-Infinity;
-  for(const k of index?.query(x,y,x,y)??bins.get(Math.floor(x/cell)+':'+Math.floor(y/cell))??[]){const a:Point=[p.getX(k),-p.getZ(k)],b:Point=[p.getX(k+1),-p.getZ(k+1)],c:Point=[p.getX(k+2),-p.getZ(k+2)],q:Point=[x,y],den=cross(a,b,c);if(Math.abs(den)<1e-9)continue;const u=cross(a,q,c)/den,v=cross(a,b,q)/den;if(u>=-1e-6&&v>=-1e-6&&u+v<=1.000001)h=Math.max(h,p.getY(k)*(1-u-v)+p.getY(k+1)*u+p.getY(k+2)*v);}
+ return (x:number,y:number,reference?:number,level?:number,profile?:string)=>{let h=-Infinity,best=Infinity;const profileId=profile?profileIds?.get(profile):undefined;
+  for(const k of index?.query(x,y,x,y)??bins.get(Math.floor(x/cell)+':'+Math.floor(y/cell))??[]){if(level!==undefined&&levels&&Math.abs(levels.getX(k)-level)>.1)continue;if(profileId!==undefined&&profiles&&Math.abs(profiles.getX(k)-profileId)>.1)continue;const a:Point=[p.getX(k),-p.getZ(k)],b:Point=[p.getX(k+1),-p.getZ(k+1)],c:Point=[p.getX(k+2),-p.getZ(k+2)],q:Point=[x,y],den=cross(a,b,c);if(Math.abs(den)<1e-9)continue;const u=cross(a,q,c)/den,v=cross(a,b,q)/den;if(u>=-1e-6&&v>=-1e-6&&u+v<=1.000001){const z=p.getY(k)*(1-u-v)+p.getY(k+1)*u+p.getY(k+2)*v;if(reference===undefined)h=Math.max(h,z);else if(Math.abs(z-reference)<best){best=Math.abs(z-reference);h=z;}}}
   return Number.isFinite(h)?h:undefined;
  };
 }
@@ -35,7 +35,7 @@ export function roadSurfaceHeight(geometry:THREE.BufferGeometry,index?:RoadTrian
 /** Paint must clear the rendered asphalt plane, including interiors between
  * samples. A per-triangle vertical correction adds no triangles or draw calls. */
 export async function raiseRoadPaint(paint:THREE.BufferGeometry,asphalt:THREE.BufferGeometry,pace:()=>Promise<boolean>,lift=.015,index?:RoadTriangleIndex){
- const p=paint.getAttribute('position'),a=asphalt.getAttribute('position'),bins=new Map<string,number[]>(),size=6;
+ const p=paint.getAttribute('position'),a=asphalt.getAttribute('position'),paintLevels=paint.getAttribute('roadLevel'),asphaltLevels=asphalt.getAttribute('roadLevel'),paintProfiles=paint.getAttribute('roadProfile'),asphaltProfiles=asphalt.getAttribute('roadProfile'),bins=new Map<string,number[]>(),size=6;
  if(!index)for(let k=0;k<a.count;k+=3){
   if(k%1500===0&&!await pace())return;
   const x=[0,1,2].map(i=>a.getX(k+i)),y=[0,1,2].map(i=>-a.getZ(k+i));
@@ -52,6 +52,8 @@ export async function raiseRoadPaint(paint:THREE.BufferGeometry,asphalt:THREE.Bu
   else for(let i=Math.floor(x0/size);i<=Math.floor(x1/size);i++)for(let j=Math.floor(y0/size);j<=Math.floor(y1/size);j++)for(const id of bins.get(i+':'+j)??[])candidates.add(id);
   let raise=0;
   for(const id of candidates){
+   if(paintLevels&&asphaltLevels&&Math.abs(paintLevels.getX(k)-asphaltLevels.getX(id))>.1)continue;
+   if(paintLevels?.getX(k)&&paintProfiles&&asphaltProfiles&&Math.abs(paintProfiles.getX(k)-asphaltProfiles.getX(id))>.1)continue;
    const surface:Point[]=[0,1,2].map(i=>[a.getX(id+i),-a.getZ(id+i)]),den=cross(surface[0],surface[1],surface[2]);if(Math.abs(den)<1e-9)continue;
    for(const q of clip(triangle,surface)){
     const u=cross(surface[0],q,surface[2])/den,v=cross(surface[0],surface[1],q)/den,pu=cross(triangle[0],q,triangle[2])/area,pv=cross(triangle[0],triangle[1],q)/area;
@@ -73,7 +75,7 @@ export async function drapeRoadSurface(road: THREE.BufferGeometry,ground: THREE.
   const grid=ground.userData.grid as {xs:Float64Array;ys:Float64Array}|undefined;
   if(!grid)return;
   const {xs,ys}=grid,row=xs.length,P=ground.getAttribute('position'),source=road.getAttribute('position');
-  const positions:number[]=[],uv:number[]=[];
+  const positions:number[]=[],uv:number[]=[],levels:number[]=[],sourceLevels=road.getAttribute('roadLevel'),profiles:number[]=[],sourceProfiles=road.getAttribute('roadProfile');
   for(let k=0;k<source.count;k+=3){
     if(k%300===0&&!await pace())return;
     const triangle:Point[]=[0,1,2].map(i=>[source.getX(k+i),-source.getZ(k+i)]);
@@ -112,8 +114,12 @@ export async function drapeRoadSurface(road: THREE.BufferGeometry,ground: THREE.
       positions.length=start;uv.length=startUv;
       for(let i=0;i<3;i++){const p=triangle[i];positions.push(p[0],heights[i],-p[1]);uv.push(p[0]/4,p[1]/4);}
     }
+    if(sourceLevels)while(levels.length<positions.length/3)levels.push(sourceLevels.getX(k));
+    if(sourceProfiles)while(profiles.length<positions.length/3)profiles.push(sourceProfiles.getX(k));
   }
   if(!await pace())return;
+  if(sourceLevels)road.setAttribute('roadLevel',new THREE.Float32BufferAttribute(levels,1));
+  if(sourceProfiles)road.setAttribute('roadProfile',new THREE.Float32BufferAttribute(profiles,1));
   road.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
   road.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
   road.computeVertexNormals();road.computeBoundingSphere();

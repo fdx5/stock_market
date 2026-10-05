@@ -1,0 +1,112 @@
+{
+  "previewVerifiedAt": "2026-10-05T02:30:59.726046+00:00",
+  "scope": "preview, not a controlled performance measurement",
+  "tests": {
+    "frontendRegression": 96,
+    "frontendUI": 12,
+    "backend": 9,
+    "typescript": true,
+    "build": true
+  },
+  "cases": {
+    "ganeung": {
+      "coverage": {
+        "roads": 72,
+        "intersectionPieces": 8,
+        "plans": 64,
+        "samples": {
+          "centre": 9408,
+          "edge": 12770,
+          "lane": 3394
+        },
+        "missingPlans": [],
+        "missingPaint": [],
+        "errors": []
+      },
+      "native": {
+        "ready": true,
+        "pending": false,
+        "compiling": false,
+        "failed": false
+      },
+      "wasmMatches": true
+    },
+    "shindonga": {
+      "coverage": {
+        "roads": 154,
+        "intersectionPieces": 16,
+        "plans": 138,
+        "samples": {
+          "centre": 15169,
+          "edge": 23544,
+          "lane": 4257
+        },
+        "missingPlans": [],
+        "missingPaint": [],
+        "errors": []
+      },
+      "native": {
+        "ready": true,
+        "pending": false,
+        "compiling": false,
+        "failed": false
+      },
+      "wasmMatches": true
+    },
+    "luceheim": {
+      "coverage": {
+        "roads": 81,
+        "intersectionPieces": 3,
+        "plans": 78,
+        "samples": {
+          "centre": 15629,
+          "edge": 22608,
+          "lane": 6454
+        },
+        "missingPlans": [],
+        "missingPaint": [],
+        "errors": []
+      },
+      "native": {
+        "ready": true,
+        "pending": false,
+        "compiling": false,
+        "failed": false
+      },
+      "wasmMatches": true
+    }
+  },
+  "before": {
+    "cars": 462,
+    "signals": 11,
+    "heads": 38,
+    "overlaps": 0,
+    "moved": 461,
+    "longWaitOver80s": 101,
+    "movingAt360s": 215,
+    "errors": []
+  },
+  "after": {
+    "cars": 462,
+    "signals": 10,
+    "heads": 0,
+    "overlaps": 0,
+    "moved": 462,
+    "longWaitOver80s": 61,
+    "movingAt360s": 241,
+    "errors": []
+  },
+  "daechiCoverage": {
+    "roads": 53,
+    "intersectionPieces": 1,
+    "plans": 52,
+    "samples": {
+      "centre": 13113,
+      "edge": 17478,
+      "lane": 9494
+    },
+    "missingPlans": [],
+    "missingPaint": [],
+    "errors": []
+  }
+}

@@ -1,6 +1,7 @@
 import { RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyParcel, RealEstateParcel, RealEstateRoad } from "../api/client";
 import { prefetchTerrain } from "./sceneTerrain";
 import {hasAboveGroundEvidence} from './buildingEvidence';
+import {attachRoadStructures,clipRoadContextRing,type RoadStructureLink} from './roadLevels';
 
 /* A complex's buildings straight from VWorld (국토교통부 GIS건물통합정보), in the
  * browser. VWorld answers Korean networks only, so the server abroad can't ask it;
@@ -82,7 +83,7 @@ async function loadCall(url: string, params: Record<string, string | number>) {
 }
 
 type Ring = [number, number][];
-type Feature = { properties: Record<string, string>; geometry: { type: string; coordinates: any } };
+type Feature = { id?:string; properties: Record<string, string>; geometry: { type: string; coordinates: any } };
 
 const features = (r: any): Feature[] => r?.featureCollection?.features ?? [];
 /** Pages asked for at once: past the last one VWorld answers with a page already given (the
@@ -156,15 +157,39 @@ export async function vworldRoadFootprints(data:RealEstateBuildingsResponse,key:
   return physicalBuildingFootprints(all,([x,y])=>[Math.round((x-lon)*kx*100)/100,Math.round((y-lat)*ky*100)/100]);
 }
 
-function parseRoads(list: Feature[], project: (p: number[]) => [number, number]): RealEstateRoad[] {
+export function parseRoads(list: Feature[], project: (p: number[]) => [number, number]): RealEstateRoad[] {
   const roads: RealEstateRoad[] = [];
-  for (const f of list) {
+  for (const f of unique(list)) {
     const width = num(f.properties.rvwd) ?? 0, lanes = Math.round(num(f.properties.rdln) ?? 0);
     if (width < 8 && lanes < 2) continue;
     const lines = f.geometry?.type === "LineString" ? [f.geometry.coordinates] : f.geometry?.type === "MultiLineString" ? f.geometry.coordinates : [];
-    for (const l of lines as number[][][]) if (l.length > 1) roads.push({ line: l.map(project), width: Math.min(60, width || lanes * 3.3), lanes: Math.max(1, lanes) });
+    for (const l of lines as number[][][]) if (l.length > 1) roads.push({ id:f.id??f.properties.ufid,source:'VWorld LT_L_N3A0020000',line: l.map(project), width: Math.min(60, width || lanes * 3.3), lanes: Math.max(1, lanes) });
   }
   return roads;
+}
+
+/** Official transport structure attributes and river boundaries, in the same centre/CRS
+ * as the national road survey. A failed/partial request never claims complete coverage. */
+export async function vworldRoadContext(data:RealEstateBuildingsResponse,roads:RealEstateRoad[],radius=600):Promise<RealEstateBuildingsResponse>{
+ if(!data.center||!data.vworld_key)return {...data,roads};
+ const {lat,lon}=data.center,kx=Math.cos(lat*Math.PI/180)*111320,ky=110540;
+ const project=([x,y]:number[]):[number,number]=>[(x-lon)*kx,(y-lat)*ky];
+ const box=`BOX(${lon-(radius+80)/kx},${lat-(radius+80)/ky},${lon+(radius+80)/kx},${lat+(radius+80)/ky})`;
+ const ask=(layer:string)=>pagedFeatures(async page=>features(await call(DATA,{service:'data',request:'GetFeature',crs:'EPSG:4326',geometry:'true',attribute:'true',key:data.vworld_key!,domain:data.vworld_domain??'https://kospimap.com',data:layer,geomFilter:box,size:1000,page})));
+ const [linkResult,riverResult]=await Promise.allSettled([ask('LT_L_MOCTLINK'),ask('LT_C_WKMSTRM')]);
+ const links:RoadStructureLink[]=[];
+ if(linkResult.status==='fulfilled')for(const f of linkResult.value){
+  const type=f.properties.rd_type_h;
+  const structure:RoadStructureLink['structure']=type==='교량'?'bridge':type==='고가도로'?'elevated':type==='지하차도'?'underpass':type==='터널'?'tunnel':type==='일반도로'?'ground':'unknown';
+  const lines=f.geometry?.type==='LineString'?[f.geometry.coordinates]:f.geometry?.type==='MultiLineString'?f.geometry.coordinates:[];
+  for(const l of lines)if(l.length>1)links.push({id:f.properties.link_id??f.id??'',line:l.map(project),structure});
+ }
+ const rivers=riverResult.status==='fulfilled'?riverResult.value.flatMap(f=>polygons(f.geometry).flatMap(poly=>{
+  const outer=clipRoadContextRing(poly[0].map(project),radius+50);if(outer.length<3)return [];
+  return [{id:f.id??'',name:f.properties.riv_nm??'',rings:[outer,...poly.slice(1).map(r=>clipRoadContextRing(r.map(project),radius+50)).filter(r=>r.length>=3)]}];
+ })):[];
+ const enriched=links.length?attachRoadStructures(roads,links):roads.map(r=>r.structure_source?r:{...r,structure:'unknown' as const}),matched=enriched.filter(r=>r.structure_source&&r.structure!=='unknown').length;
+ return {...data,roads:enriched,road_context:{source:'VWorld LT_L_MOCTLINK · LT_C_WKMSTRM',fetched_at:new Date().toISOString(),coverage:linkResult.status==='fulfilled'&&riverResult.status==='fulfilled'&&matched===enriched.length?'complete':'partial',links:links.length,matched,total:enriched.length,rivers}};
 }
 
 /** Major roads for a result that came without them (kept by the server, or from

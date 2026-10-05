@@ -309,7 +309,8 @@ def _from_vworld(c: dict, address: str) -> dict | None:
             lines = [geom.get("coordinates")] if geom.get("type") == "LineString" else geom.get("coordinates") or []
             for line in lines:
                 if line and len(line) > 1:
-                    roads.append({"line": [project(x, y) for x, y in line], "width": min(60, width or lanes * 3.3), "lanes": max(1, lanes)})
+                    roads.append({"id": f.get("id") or f["properties"].get("ufid"), "source": "VWorld LT_L_N3A0020000",
+                                  "line": [project(point[0], point[1]) for point in line], "width": min(60, width or lanes * 3.3), "lanes": max(1, lanes)})
     except BuildingsError:
         roads = []  # roads are setting; the buildings stand without them
     return {"source": "vworld", "center": {"lat": lat, "lon": lon}, "site": site, "pnu": pnu,

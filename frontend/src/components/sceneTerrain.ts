@@ -1,4 +1,5 @@
 import type * as THREE from "three";
+import type {RealEstateRoad} from '../api/client';
 import { frameSlice } from "./frameSlice";
 import { gridAt } from "./waterCore";
 import { corridorRoadGrade } from "./roadGrade";
@@ -16,6 +17,7 @@ import { corridorRoadGrade } from "./roadGrade";
  * Nothing here is invented: where no tile answers the ground stays level. */
 
 export interface Terrain {
+  roadAt?(road: RealEstateRoad, x: number, y: number): number;
   /** Ground height (m) at x east, y north of the complex centre (footprint frame). */
   at(x: number, y: number): number;
   /** Lowest ground height under a footprint ring (where a building meets its ground). */
@@ -304,7 +306,8 @@ export function gridNormals(geo: THREE.BufferGeometry) {
  * don't pull it). Continuous slope envelopes remove large DEM steps too; the corridor
  * eases back to the surveyed ground over FADE m. Bridge decks are applied separately.
  * A new Terrain; the given one unchanged. */
-export async function gradeRoads(t: Terrain, roads: { line: [number, number][]; width: number }[]): Promise<Terrain> {
+export async function gradeRoads(t: Terrain, roads: { line: [number, number][]; width: number; layer?:number; structure?:string }[]): Promise<Terrain> {
+  roads=roads.filter(r=>!r.layer&&!['bridge','elevated','underpass','tunnel'].includes(r.structure??''));
   const g = t.grid;
   if (!g || !roads.length) return t;
   const { n, R, cell, h } = g;

@@ -16,11 +16,12 @@ const {continuousRoadGrade,corridorRoadGrade}=load(read('roadGrade.ts'));
 const {gridAt}=load(read('waterCore.ts'));
 const {drapeRoadSurface,raiseRoadPaint}=load(read('roadDrape.ts'));
 const {gradeRoads}=load(read('sceneTerrain.ts'),{gridAt,corridorRoadGrade});
-const {roadJunctionHulls}=load(read('roadJunctions.ts'));
+const levels=load(read('roadLevels.ts'));
+const {roadJunctionHulls}=load(read('roadJunctions.ts'),levels);
 const {roadLaneCount}=load(read('roadLanes.ts'));
-const street=load(read('sceneStreet.ts'),{roadJunctionHulls,roadLaneCount});
+const street=load(read('sceneStreet.ts'),{roadJunctionHulls,roadLaneCount,...levels});
 const oldStreet=load(execFileSync('git',['show','66bc4ec:frontend/src/components/sceneStreet.ts'],{encoding:'utf8'}));
-const {findBridges,roadGround,bridgeHeight}=load(read('sceneBridges.ts'),{inRing:([x,y],ring)=>x>=ring[0][0]&&x<=ring[2][0]&&y>=ring[0][1]&&y<=ring[2][1],sidewalkWidth:()=>2});
+const {findBridges,roadGround,bridgeHeight}=load(read('sceneBridges.ts'),{...levels,inRing:([x,y],ring)=>x>=ring[0][0]&&x<=ring[2][0]&&y>=ring[0][1]&&y<=ring[2][1],sidewalkWidth:()=>2});
 
 test('road grade removes a DEM cliff and leaves remote terrain unchanged',async()=>{
   const n=51,cell=4,R=100,h=Float32Array.from({length:n*n},(_,k)=>k%n>=25?40:0);
@@ -159,19 +160,16 @@ test('wide road is sampled across its width and markings remain above its surfac
   surface.dispose();marks.dispose();
 });
 
-test('bridge approaches use available banks instead of a twelve-metre cliff ramp',()=>{
-  const road={line:[[-200,0],[200,0]],width:12,lanes:2};
-  const terrain={at:()=>0,base:()=>0};
-  const bridges=findBridges([road],[{kind:'천',ring:[[-30,-100],[30,-100],[30,100],[-30,100]]}],[false],terrain);
-  assert.ok(bridges.length);
-  for(const b of bridges){
-    let grade=0;
-    for(let k=1;k<b.h.length;k++)grade=Math.max(grade,Math.abs(b.h[k]-b.h[k-1])/(b.s[k]-b.s[k-1]));
-    assert.ok(grade<=.27,`bridge grade ${grade}`);
-    const at=roadGround(terrain,[b]).at;
-    assert.ok(Math.abs(at(b.x[0]-1,0)-at(b.x[0]+1,0))<.1);
-    assert.ok(Math.abs(at(b.x.at(-1)-1,0)-at(b.x.at(-1)+1,0))<.1);
-  }
+test('water adjacency cannot invent a bridge; a registered bridge uses DEM bank heights',()=>{
+ const road={line:[[-200,0],[200,0]],width:12,lanes:2};
+ const terrain={at:x=>x< -30||x>30?8:0,base:()=>0};
+ const parcels=[{kind:'\uCC9C',ring:[[-30,-100],[30,-100],[30,100],[-30,100]]}];
+ assert.equal(findBridges([road],parcels,[false],terrain).length,0);
+ const actual={...road,structure:'bridge',layer:1,structure_source:'VWorld LT_L_MOCTLINK',link_id:'survey-bridge'};
+ const bridges=findBridges([actual],parcels,[false],terrain);
+ assert.equal(bridges.length,1);
+ assert.ok([...bridges[0].h].every(h=>h===8),'no artificial 15m lift');
+ const t=roadGround(terrain,bridges);assert.equal(t.at(0,0),0);assert.equal(t.roadAt(actual,0,0),8);assert.equal(t.roadAt(road,0,0),0);
 });
 
 test('overlapping bridge approaches do not switch abruptly at a bounds edge',()=>{

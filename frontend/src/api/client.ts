@@ -1223,11 +1223,19 @@ export interface RealEstateBuilding {
   approved?: number | null;
 }
 
-export interface RealEstateParcel { ring: [number, number][]; kind: string }
+export interface RealEstateParcel { ring: [number, number][]; kind: string; holes?: [number,number][][] }
 
 export interface DriveBoardRow { rank: number; name: string; score: number; drives: number; deliveries: number; me: boolean }
 export interface DriveBoard { top: DriveBoardRow[]; me: DriveBoardRow | null; players: number }
-export interface RealEstateRoad { line: [number, number][]; width: number; lanes: number }
+export interface RealEstateRoad {
+  line: [number, number][]; width: number; lanes: number;
+  id?: string; source?: string;
+  structure?: 'ground' | 'bridge' | 'elevated' | 'underpass' | 'tunnel' | 'unknown';
+  /** Ordinal road level, never metres of measured elevation. */
+  layer?: number; link_id?: string; structure_source?: string;
+  /** Full official link, used to interpolate DEM bank heights consistently across fragments. */
+  profile_line?: [number, number][];
+}
 
 /** A parcel round a complex with the 공동주택 on it (x east, y north of the view's centre, m). */
 export interface RealEstateNearbyParcel {
@@ -1252,6 +1260,8 @@ export interface RealEstateBuildingsResponse {
   roads?: RealEstateRoad[];
   /** Above-ground building boundaries covering the complete road query area. */
   road_building_footprints?: [number, number][][];
+  road_context?: { source: string; fetched_at: string; coverage: 'complete' | 'partial'; links: number; matched: number; total: number;
+    rivers: { id: string; name: string; rings: [number, number][][] }[] };
   /** 연속지적도 parcels around the complex with their 지목 (대, 도, 공, 학, 천, 임 …),
    * outer ring in the same metre frame; the ground is painted by land use from them. */
   parcels?: RealEstateParcel[];
@@ -1329,7 +1339,7 @@ export const api = {
     getJSON<{ rings: { ring: [number, number][]; kind: string; name: string | null }[]; source: string | null }>(`${BASE}/realestate/water?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}&v=2`),
   /** Mapped crosswalks and traffic signals round a point (OpenStreetMap), in metres about it. */
   realEstateCrossings: (lat: number, lon: number, r: number) =>
-    getJSON<{ crossings: { line: [number, number][]; signals: boolean }[]; points: { at: [number, number]; signals: boolean; marked: boolean }[]; signals: [number, number][]; source: string | null }>(`${BASE}/realestate/crossings?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}&v=2`),
+    getJSON<{ crossings: { line: [number, number][]; signals: boolean; layer?:number }[]; points: { at: [number, number]; signals: boolean; marked: boolean }[]; signals: [number, number][]; signal_details?:{id:string;at:[number,number];layer:number;direction:string|null;state:null}[]; source: string | null }>(`${BASE}/realestate/crossings?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}&v=3`),
   /** 3D 단지뷰 배송 게임: a finished drive recorded; the board (players by total score, rank 1
    * first) and the player's own rank. */
   driveScorePost: (p: { player_id: string; name: string; score: number; deliveries: number; vehicle: string }) =>

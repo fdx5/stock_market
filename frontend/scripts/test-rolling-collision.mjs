@@ -10,6 +10,12 @@ const file=path.join(root,'tmp','rolling-tests.mjs');
 await build({stdin:{contents:"export {modelWheelRig,rollingWheelGeometry,wheelRotation,fallbackWheelRig} from './src/components/rollingWheels';export {collisionFreeTravel,vehicleOverlap} from './src/components/trafficCollision';",resolveDir:root,loader:'ts'},bundle:true,platform:'node',format:'esm',external:['three'],outfile:file});
 const {modelWheelRig,rollingWheelGeometry,wheelRotation,collisionFreeTravel,vehicleOverlap}=await import(new URL('../tmp/rolling-tests.mjs',import.meta.url));
 const body=(x,y,hx=1,hy=0,length=4,width=2)=>({x,y,hx,hy,length,width});
+test('a sweep clears a separated deck but checks the height where an approach converges',()=>{
+ const self={...body(0,0),z:8},other={...body(6,0),z:0};
+ assert.equal(collisionFreeTravel(5,d=>({...body(d,0),z:8}),[self,other],self),5);
+ const distance=collisionFreeTravel(5,d=>({...body(d,0),z:8-2*d}),[self,other],self);
+ assert.ok(distance>2&&distance<2.3,'the descending approach must stop before height separation disappears');
+});
 test('swept movement stops before contact even when a priority rule permits travel',()=>{
  const self=body(0,0),other=body(6,0),pose=d=>body(d,0);
  const distance=collisionFreeTravel(5,pose,[self,other],self);

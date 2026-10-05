@@ -18,7 +18,8 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { fastMergeVertices } from "./fastMerge";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex, RealEstateParcel, RealEstateRoad, type DriveBoard } from "../api/client";
-import { vworldBuildingNames, vworldBuildings, vworldPointArea, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, vworldRoadFootprints, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
+import { vworldBuildingNames, vworldBuildings, vworldPointArea, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, vworldRoadFootprints, vworldRoadContext, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
+import {roadHeight,roadLevel,roadProfileKey} from './roadLevels';
 import { driveAreaPlan, driveSurroundings, DriveAreaCache } from "./driveAreaPlan";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
@@ -521,7 +522,12 @@ function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEs
   const job = Promise.race([
     vworldRoadsAround(res, res.vworld_key, res.vworld_domain, RING_M).then(r => (r.length ? r : near)).catch(() => near),
     new Promise<RealEstateRoad[] | null>(r => window.setTimeout(() => void near.then(r), 4000)),
-  ]).then(roads => roads?.length?correct(stitchedRoads(roads)):res);
+  ]).then(async roads => {
+    if(!roads?.length)return res;
+    const enriched=await vworldRoadContext(res,roads,RING_M);
+    const fixed=await correct(stitchedRoads(enriched.roads??roads));
+    return {...fixed,road_context:enriched.road_context};
+  });
   return remember(roadsOf, id, job);
 }
 function terrainOnce(id: string, res: RealEstateBuildingsResponse): Promise<Terrain> {
@@ -3125,8 +3131,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // river's surface.
     let deckAt: ((x: number, y: number) => number | null) | null = null;
     let asphaltAt:ReturnType<typeof roadSurfaceHeight>|null=null;
-    const roadTerrain: Terrain = { ...terrain, at: (x, y) => deckAt?.(x, y) ?? terrain.at(x, y) };
-    const trafficTerrain:Terrain={...roadTerrain,at:(x,y)=>asphaltAt?.(x,y)??roadTerrain.at(x,y)};
+    const roadTerrain: Terrain = { ...terrain, roadAt:(road,x,y)=>roadHeight(road,terrain,x,y) };
+    const trafficTerrain:Terrain={...roadTerrain,roadAt:(road,x,y)=>{
+      const reference=roadHeight(road,roadTerrain,x,y)+.08;
+      const surface=asphaltAt?.(x,y,reference,roadLevel(road),roadLevel(road)?roadProfileKey(road):undefined);
+      return surface!==undefined&&Math.abs(surface-reference)<=2?surface:reference;
+    }};
+    if(hostRef.current){const d=hostRef.current.dataset;d.roadStructureSource=data.road_context?.source??'unavailable';d.roadStructureCoverage=data.road_context?.coverage??'unavailable';d.roadStructureLinks=String(data.road_context?.links??0);d.roadHeightSource='dem-derived-not-surveyed';d.signalStateSource='simulation';d.riverSource=data.road_context?.rivers.length?'VWorld LT_C_WKMSTRM':'parcel/OSM fallback';}
     const physicalFootprints=[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])];
     const pavementExclusions=[...roadFootprints(splitRoadJunctions(roads,true)),...physicalFootprints];
     const cutPavements=async(g:THREE.Group)=>{await Promise.all((g.children as THREE.Mesh[]).map(m=>cutSceneSurface(m.geometry,pavementExclusions,later)));};
@@ -3137,7 +3148,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // arrived late. Registered planting is shown independently below.
     const beginGeography=textureBudgetEnabled()?(f:()=>void)=>f():afterShown;
     const lakesFetched: Promise<void> = new Promise<void>(resolve => beginGeography(() => {
-      if (!data.center) { resolve(); return; }
+      if (!data.center || data.road_context?.rivers.length) { resolve(); return; }
       const { lat, lon } = data.center, la = +lat.toFixed(4), lo = +lon.toFixed(4);
       // (asked about the rounded point, for the server's cache: moved back onto the centre)
       const ox = (lo - lon) * 111320 * Math.cos((lat * Math.PI) / 180), oy = (la - lat) * 110540;
@@ -3150,7 +3161,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const lakesReady = Promise.race([lakesFetched, new Promise<void>(r => window.setTimeout(r, 2500))]);
     // The mapped crosswalks (OpenStreetMap): the junctions' crossings and stop lines stand on them.
     // (the traffic waits for them a few seconds at most)
-    let crossLines: { line: [number, number][] }[] = [];
+    let crossLines: { line: [number, number][]; layer?:number }[] = [];
+    let signalLocations:{at:[number,number];layer:number}[]=[];
     // (driving on into this area: nothing waits — the vehicle is coming)
     const driveIn = !!came?.drive;
     const crossingsReady: Promise<void> = driveIn ? Promise.resolve() : new Promise<void>(resolve => beginGeography(() => {
@@ -3160,17 +3172,25 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       void Promise.race([
         nearbyCrossings(la, lo).then(r => {
           if (!alive) return;
-          crossLines = r.crossings.map(c => ({ line: c.line.map(([x, y]) => [x + ox, y + oy] as [number, number]) }));
+          crossLines = r.crossings.map(c => ({ layer:c.layer,line: c.line.map(([x, y]) => [x + ox, y + oy] as [number, number]) }));
+          signalLocations = (r.signal_details??r.signals.map(at=>({at,layer:0}))).map(s=>({at:[s.at[0]+ox,s.at[1]+oy],layer:s.layer}));
           if (hostRef.current) hostRef.current.dataset.crossings = `${r.crossings.length} mapped, ${r.signals.length} signals`;
         }).catch(() => {}),
         new Promise(r => window.setTimeout(r, 3500)),
       ]).then(() => resolve());
     }));
     /** The water parcels and OpenStreetMap's water together, each with its covered-stream flag. */
-    const waterParcels = () => ({ parcels: [...(data.parcels ?? []), ...lakes], covered: [...waterCovered(data), ...lakes.map(() => false)] });
+    const waterParcels = () => {
+      const rivers=data.road_context?.rivers??[];
+      if(rivers.length){
+        const parcels=(data.parcels??[]).filter(p=>!['천','구'].includes(p.kind));
+        return {parcels:[...parcels,...rivers.map(r=>({kind:'천',ring:r.rings[0],holes:r.rings.slice(1)}))],covered:[...waterCovered({...data,parcels}),...rivers.map(()=>false)]};
+      }
+      return {parcels:[...(data.parcels??[]),...lakes],covered:[...waterCovered(data),...lakes.map(()=>false)]};
+    };
     let bridgesTried = false;
     const placeBridges = async () => {
-      if (bridgesTried || !data.parcels?.length) return false;
+      if (bridgesTried) return false;
       bridgesTried = true;
       const w = waterParcels();
       const found = await sceneWork("bridges", {roads, parcels:w.parcels, covered:w.covered, grid:terrain.grid ?? null})?.catch(() => null)
@@ -3709,7 +3729,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     disposables.push({ dispose: () => lamps?.dispose() });
     const onLook = [(l: Look) => lamps?.setLevel(l.lamps)];
     // Traffic (its vehicle kit decodes on first use) waits for the first frame and idle time.
-    (driveIn || textureBudgetEnabled() ? (f: () => void) => f() : afterShown)(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, trafficTerrain, crossLines,arms=>{preparedRoadArms=arms;void layMarks();}) : null)) : null)).then(traffic => {
+    (driveIn || textureBudgetEnabled() ? (f: () => void) => f() : afterShown)(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, trafficTerrain, crossLines,arms=>{preparedRoadArms=arms;void layMarks();},signalLocations) : null)) : null)).then(traffic => {
       if (!traffic) return;
       if (!alive) { traffic.dispose(); return; }
       stage.addWarm(decor, traffic.group);

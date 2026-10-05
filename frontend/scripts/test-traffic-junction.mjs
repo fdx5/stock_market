@@ -6,7 +6,9 @@ import vm from 'node:vm';
 const scope={module:{exports:{}},exports:{}};
 vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/trafficJunction.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,scope);
 const {junctionSignalPolicy,junctionOccupied}=scope.module.exports;
-const networkScope={module:{exports:{}},exports:{}};
+const levelsScope={module:{exports:{}},exports:{}};
+vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/roadLevels.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,levelsScope);
+const networkScope={module:{exports:{}},exports:{},require:()=>levelsScope.module.exports};
 vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/roadTrafficNetwork.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,networkScope);
 const {splitRoadJunctions}=networkScope.module.exports;
 test('a surveyed mid-block T junction splits the through road and keeps its width and lanes',()=>{

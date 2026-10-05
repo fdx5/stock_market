@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { paintedTexture } from "./paintedTexture";
 import { PAVER_STYLES } from "./texPaint";
 import type { RealEstateRoad } from "../api/client";
+import {roadHeight,sameRoadLevel} from './roadLevels';
 import type { Terrain } from "./sceneTerrain";
 import { inRing, rng, type Ring } from "./complexScene";
 
@@ -23,7 +24,7 @@ export function sidewalkWidth(w: number) {
 /** One continuous stretch of sidewalk: samples along the road centreline (every STEP
  * metres), the left normal there, which side, the road half-width and sidewalk width. */
 export interface Run {
-  road: number; side: 1 | -1; half: number; width: number;
+  sourceRoad?:RealEstateRoad; road: number; side: 1 | -1; half: number; width: number;
   cx: Float32Array; cy: Float32Array; nx: Float32Array; ny: Float32Array; cum: Float32Array;
 }
 const STEP = 2;
@@ -49,7 +50,7 @@ function segmentIndex(roads: RealEstateRoad[]) {
   /** Whether (x, y) lies on the carriageway of a road other than `self` (plus a margin). */
   return (x: number, y: number, self: number, margin: number) => {
     for (const [ax, ay, bx, by, half, ri] of map.get(`${Math.floor(x / cell)},${Math.floor(y / cell)}`) ?? []) {
-      if (ri === self) continue;
+      if (ri === self || (self>=0&&!sameRoadLevel(roads[self],roads[ri]))) continue;
       const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2));
       if (Math.hypot(ax + dx * t - x, ay + dy * t - y) < half + margin) return true;
     }
@@ -105,7 +106,7 @@ export function sidewalkRuns(roads: RealEstateRoad[], footprints: Ring[]): Run[]
       let cur: [number, number, number, number][] = [];
       const flush = () => {
         if (cur.length >= 3) {
-          const n = cur.length, run: Run = { road: ri, side, half, width,
+          const n = cur.length, run: Run = { sourceRoad:road,road: ri, side, half, width,
             cx: new Float32Array(n), cy: new Float32Array(n), nx: new Float32Array(n), ny: new Float32Array(n), cum: new Float32Array(n) };
           cur.forEach(([x, y, nx, ny], k) => {
             run.cx[k] = x; run.cy[k] = y; run.nx[k] = nx; run.ny[k] = ny;
@@ -158,7 +159,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
       const o0 = r.half + r.width * 0.55, o1 = o0 + 0.3;
       for (let i = 0; i < n - 1; i++) {
         const p0 = runPt(r, i, o0), p1 = runPt(r, i, o1), q0 = runPt(r, i + 1, o0), q1 = runPt(r, i + 1, o1);
-        const y = (q: [number, number]) => terrain.at(...q) + KERB_H + 0.006;
+        const y = (q: [number, number]) => (r.sourceRoad?roadHeight(r.sourceRoad,terrain,...q):terrain.at(...q)) + KERB_H + 0.006;
         const V = (q: [number, number]): [number, number, number] => [q[0], y(q), -q[1]];
         const quad = [V(p0), V(q0), V(q1), V(p0), V(q1), V(p1)], u0 = r.cum[i], u1 = r.cum[i + 1];
         const tq = [[u0, 0], [u1, 0], [u1, 1], [u0, 0], [u1, 1], [u0, 1]];
@@ -171,7 +172,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
     }
     for (let i = 0; i < n - 1; i++) {
       const a0 = runPt(r, i, r.half), a1 = runPt(r, i, r.half + r.width), b0 = runPt(r, i + 1, r.half), b1 = runPt(r, i + 1, r.half + r.width);
-      const ya0 = terrain.at(...a0) + KERB_H, ya1 = terrain.at(...a1) + KERB_H, yb0 = terrain.at(...b0) + KERB_H, yb1 = terrain.at(...b1) + KERB_H;
+      const ya0 = (r.sourceRoad?roadHeight(r.sourceRoad,terrain,...a0):terrain.at(...a0)) + KERB_H, ya1 = (r.sourceRoad?roadHeight(r.sourceRoad,terrain,...a1):terrain.at(...a1)) + KERB_H, yb0 = (r.sourceRoad?roadHeight(r.sourceRoad,terrain,...b0):terrain.at(...b0)) + KERB_H, yb1 = (r.sourceRoad?roadHeight(r.sourceRoad,terrain,...b1):terrain.at(...b1)) + KERB_H;
       // Top: two triangles, wound so the face points up whichever side of the road.
       const tri = (p: [number, number, number][], t: [number, number][]) => {
         const [p0, p1, p2] = p;
