@@ -17,10 +17,9 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { fastMergeVertices } from "./fastMerge";
-import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex, RealEstateParcel, RealEstateRoad, type DriveBoard } from "../api/client";
-import { vworldBuildingNames, vworldBuildings, vworldPointArea, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, vworldRoadFootprints, vworldRoadContext, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
+import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex, RealEstateParcel, RealEstateRoad } from "../api/client";
+import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, vworldRoadFootprints, vworldRoadContext, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
 import {roadHeight,roadLevel,roadProfileKey} from './roadLevels';
-import { driveAreaPlan, driveSurroundings, DriveAreaCache } from "./driveAreaPlan";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
@@ -67,192 +66,16 @@ import { retainSceneMemory } from "./sceneMemory";
 import { ringBuildings } from "./ringBuildings";
 import { farGround } from "./farGround";
 import { coverPage } from "./pageCover";
-import type { HeroName } from "./heroVehicles";
-import { cockpit, DRIVE_SPECS, DriveSim, EngineSound, PoleGrid, solidGrid, type Keys, type SolidGrid } from "./driveSim";
-import { damageSfx, vehicleFx } from "./driveFx";
-import { feelSfx, fuelCans, navVoice, pickupPlan, screech, sparks, type PickupKind } from "./driveFeel";
-import { beacon, cutFrom, drawMinimap, goldFor, lengthOf, nextTurn, progressOn, routeRibbon, sfx, type Pt, type TurnKind } from "./driveGame";
-
-/** health a repair kit gives back */
-const REPAIR_HP = 35;
-
-interface DriveState {
-  /** the view re-centring under it (the new model building): no re-routing, no water test */
-  hopping?: boolean;
-  name: HeroName;
-  sim: DriveSim;
-  /** taken over from the traffic (a driving key pressed) */
-  manual: boolean;
-  keys: Keys;
-  view: "chase" | "cockpit";
-  sound: EngineSound;
-  cab: ReturnType<typeof cockpit> | null;
-  solids: SolidGrid | null;
-  /** looking round (a drag): yaw, pitch; eased back in the chase view */
-  look: { yaw: number; pitch: number; held: boolean };
-  /** the gauges (DOM, written directly each frame) */
-  hud: { speed: HTMLElement | null; gear: HTMLElement | null; revs: HTMLElement | null; hint: HTMLElement | null; fuel: HTMLElement | null };
-  lastSpeed: number;
-  baseFov: number;
-  /** a knock's shake of the camera, dying away */
-  shake: number;
-  /** the delivery under way (driveGame) */
-  game: DeliveryGame | null;
-  /** the vehicle's health (100 new, 0 exploded), its smoke, fire and explosion, its wreck */
-  hp: number; dead: boolean; fx: ReturnType<typeof vehicleFx>; wreck: THREE.Mesh | null;
-  fireStop: ((secs?: number) => void) | null; warnAt: number; hitAt: number;
-  hurt: (n: number) => void;
-  blowUp: (why: "fuel" | "water") => void; onDry: () => void; onWarn: () => void; onPickup: (kind: PickupKind) => void;
-  /** health back (a repair kit), up to 100 */
-  heal: (n: number) => void;
-  /** Fuel (metres of driving left) and the tank for this delivery (its way's length, with some
-   * to spare); when it ran dry (ms; 0 while there is some). */
-  fuel: number; fuelCap: number; dryAt: number;
-  /** where the drive began (the vehicle comes back there after going into the water) */
-  home: { x: number; y: number; hx: number; hy: number };
-  /** this drive's score: the gold earned in it */
-  earned: number; delivered: number;
-  /** where the trees' detail was last centred on the vehicle */
-  focusAt: [number, number];
-  /** the feel (driveFeel): squeal, sparks, the brake lamps, fuel cans, the voice; the acceleration
-   * felt (m/s², smoothed), the warnings given (0 none, 1 low, 2 critical) */
-  feel: {
-    squeal: ReturnType<typeof screech>; sparks: ReturnType<typeof sparks>; cans: ReturnType<typeof fuelCans>; voice: ReturnType<typeof navVoice>;
-    lamps: THREE.Group; prevV: number; acc: number; fuelWarn: number; hpWarn: number; boostOn: boolean; paint: { mat: THREE.MeshStandardMaterial; color: THREE.Color; rough: number } | null;
-    fx: HTMLElement | null; fuelText: HTMLElement | null;
-  };
-}
-/** Brake lamps' place on each vehicle (its frame: x across, y up, z forward): centre height, rear z, half spread. */
-/** The tail lamps that light as brake lamps (the vehicle's frame: x across, y up, z forward; w x h). */
-const BRAKE_LAMPS: Record<HeroName, { x: number; y: number; z: number; w: number; h: number }[]> = {
-  coupang: [-1, 1].map(s => ({ x: s * 0.72, y: 0.72, z: -2.665, w: 0.29, h: 0.17 })),
-  cyber: [{ x: 0, y: 1.26, z: -2.925, w: 1.97, h: 0.062 }, ...[-1, 1].map(s => ({ x: s * 0.95, y: 1.19, z: -2.925, w: 0.07, h: 0.14 }))],
-};
-/** The driven vehicle's brake lamps: two red glows at its tail (shown while braking). */
-function brakeLamps(name: HeroName) {
-  const g = new THREE.Group(); g.name = "brake lamps"; g.matrixAutoUpdate = false; g.visible = false;
-  // (lit lenses the size of the tail lamps, just proud of them: a large soft glow plane over
-  // them had read as a smeared, blocky patch)
-  const mat = new THREE.MeshBasicMaterial({ color: "#ff2010", toneMapped: false });
-  for (const p of BRAKE_LAMPS[name]) { const m = new THREE.Mesh(new THREE.BoxGeometry(p.w, p.h, 0.02), mat); m.position.set(p.x, p.y, p.z); g.add(m); }
-  return g;
-}
-const SCORCH = new THREE.Color("#3b3330");
-/** The body's own surface by its health: darker, duller, scorched toward nothing left. */
-function paintDamage(dv: DriveState) {
-  const p = dv.feel.paint;
-  if (!p) return;
-  const k = 1 - Math.max(0, Math.min(100, dv.hp)) / 100;
-  p.mat.color.copy(p.color).lerp(SCORCH, k * 0.62);
-  p.mat.roughness = Math.min(1, p.rough + k * 0.45);
-}
-/** The tank for a way of `wayM` metres: the way half again, and 250 m to spare. */
-const tankFor = (wayM: number) => Math.round(wayM * 1.5 + 250);
-const DEAD_KEYS: Keys = { up: false, down: false, left: false, right: false, hand: true };
-/** Out of fuel: steering and the brakes only. */
-const dryKeys = (k: Keys): Keys => ({ up: false, down: false, left: k.left, right: k.right, hand: k.hand || k.down });
-
-interface DeliveryGame {
-  dest: { id: string; name: string; x: number; y: number };
-  /** the way there (road polyline) and its length when the delivery began */
-  way: Pt[]; wayLen0: number;
-  started: number; knocks: number; knockAt: number;
-  routedAt: number; mapAt: number; pinged: string; said: string;
-  /** the turns already announced (where they are), and when re-routing was last said */
-  spoken: { kind: TurnKind; x: number; y: number }[]; rerouteSaidAt: number;
-  ribbon: ReturnType<typeof routeRibbon>; beacon: ReturnType<typeof beacon>;
-  done: boolean;
-  hud: { name: HTMLElement | null; dist: HTMLElement | null; gold: HTMLElement | null; time: HTMLElement | null; turn: HTMLElement | null; turnDist: HTMLElement | null; map: HTMLCanvasElement | null };
-  onArrive: (r: DeliveryResult) => void;
-}
-interface DeliveryResult { name: string; wayM: number; secs: number; knocks: number; gold: ReturnType<typeof goldFor>; total: number; stars: number }
-const TURN_LABEL: Record<TurnKind, [string, string]> = {
-  left: ["↰", "좌회전"], right: ["↱", "우회전"], uturn: ["↶", "유턴"], straight: ["↑", "직진"], arrive: ["◎", "목적지 부근"],
-};
-const GOLD_KEY = "kospimap.drive.gold";
-/** Development controls are opt-in on this URL only, never remembered by the browser. */
+const GAME_KEY = "kospimap.devgame";
+/** The driving game (its own page, /drive) offered? Only to whoever opened the view with
+ * ?devgame=1 (remembered here; ?devgame=0 forgets it) until it is public. */
 function gameUnlocked() {
-  return new URLSearchParams(location.search).get("devgame") === "1";
-}
-/** The player on the score board: an anonymous id made once in this browser, and a nickname. */
-const PLAYER_KEY = "kospimap.drive.player", NAME_KEY = "kospimap.drive.name";
-function playerId() {
   try {
-    let id = localStorage.getItem(PLAYER_KEY);
-    if (!id) { id = crypto.randomUUID(); localStorage.setItem(PLAYER_KEY, id); }
-    return id;
-  } catch { return null; }
-}
-function playerName() { try { return localStorage.getItem(NAME_KEY) ?? ""; } catch { return ""; } }
-function setPlayerName(n: string) { try { localStorage.setItem(NAME_KEY, n); } catch { /* private window */ } }
-function goldTotal() { try { return Number(localStorage.getItem(GOLD_KEY)) || 0; } catch { return 0; } }
-function addGold(n: number) { const t = goldTotal() + n; try { localStorage.setItem(GOLD_KEY, String(t)); } catch { /* private window */ } return t; }
-
-/** One frame of the delivery: the way re-found now and then from where the vehicle is (so a
- * wrong turn is put right), the green line and the directions, the minimap; arrival. */
-function deliveryTick(st: Stage, dv: DriveState, g: DeliveryGame, sec: number, _terrain: Terrain) {
-  const tr = st.traffic, c = tr?.hero(dv.name);
-  if (!tr || !c || g.done) return;
-  const now = performance.now();
-  { const e = g.way[g.way.length - 1]; g.ribbon.update(sec); g.beacon.update(sec, Math.hypot(c.x - e[0], c.y - e[1])); }
-  let p = progressOn(g.way, c.x, c.y);
-  // (off the way by more than a lane: found again at once, and said so)
-  const offWay = p.off > 7;
-  if (!dv.hopping && now - g.routedAt > (offWay ? 350 : 1200)) {
-    g.routedAt = now;
-    const r = tr.route(c.x, c.y, g.dest.x, g.dest.y);
-    if (offWay && dv.manual && now - g.rerouteSaidAt > 15000) { g.rerouteSaidAt = now; dv.feel.voice.say("경로를 재탐색합니다"); }
-    if (r && r.line.length > 1) {
-      // (the line starts from the vehicle itself)
-      g.way = [[c.x, c.y], ...r.line];
-      p = progressOn(g.way, c.x, c.y);
-      g.ribbon.set(cutFrom(g.way, p.along + 3));
-      const end = g.way[g.way.length - 1];
-      g.beacon.place(end[0], end[1], tr.groundAt(end[0], end[1]));
-    }
-  }
-  const rest = cutFrom(g.way, p.along), left = Math.max(0, p.total - p.along);
-  const turn = nextTurn(rest), secs = (now - g.started) / 1000;
-  const h = g.hud, m = left >= 1000 ? `${(left / 1000).toFixed(1)} km` : `${Math.round(left)} m`;
-  if (h.dist && h.dist.textContent !== m) h.dist.textContent = m;
-  const tt = `${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, "0")}`;
-  if (h.time && h.time.textContent !== tt) h.time.textContent = tt;
-  const est = String(goldFor(g.wayLen0, secs, g.knocks).total);
-  if (h.gold && h.gold.textContent !== est) h.gold.textContent = est;
-  const [icon, word] = TURN_LABEL[turn.kind];
-  if (h.turn && h.turn.textContent !== icon) h.turn.textContent = icon;
-  const td = turn.kind === "arrive" ? word : turn.kind === "straight" ? `${word} ${Math.round(turn.dist)} m` : `${Math.round(Math.max(0, turn.dist) / 5) * 5} m 앞 ${word}`;
-  if (h.turnDist && h.turnDist.textContent !== td) h.turnDist.textContent = td;
-  // a ping as a turn comes up (once each)
-  const key = `${turn.kind}:${Math.round((p.along + turn.dist) / 10)}`;
-  if (turn.kind !== "straight" && turn.dist < 60 && g.pinged !== key) { g.pinged = key; sfx.ping(dv.sound.ctx, dv.sound.master); }
-  // spoken once a turn: by where the turn is (the way is found again from the vehicle now and
-  // then, and a turn counted from its start came round as a new one, said over and over)
-  if (dv.manual && turn.kind !== "straight" && turn.dist < 130) {
-    const [tx, ty] = cutFrom(g.way, p.along + Math.max(0, turn.dist))[0];
-    if (!g.spoken.some(s => s.kind === turn.kind && Math.hypot(s.x - tx, s.y - ty) < 30)) {
-      g.spoken.push({ kind: turn.kind, x: tx, y: ty });
-      const phrase = turn.kind === "arrive" ? "목적지 부근입니다" : word;
-      dv.feel.voice.say(turn.kind === "arrive" || turn.dist < 40 ? phrase : `${Math.round(turn.dist / 10) * 10}미터 앞, ${phrase}`);
-    }
-  }
-  if (h.map && now - g.mapAt > 50) {
-    g.mapAt = now;
-    drawMinimap(h.map, tr.arms.roads as { line: Pt[]; width: number }[], rest, c, g.way[g.way.length - 1]);
-  }
-  // Arrived: at the end of the way, slowed down.
-  const end = g.way[g.way.length - 1];
-  if ((left < 14 || Math.hypot(c.x - end[0], c.y - end[1]) < 12) && Math.abs(c.speed) < 9 && secs > 2) {
-    g.done = true;
-    const gold = goldFor(g.wayLen0, secs, g.knocks), total = addGold(gold.total);
-    // (the mission done: the tank filled)
-    dv.fuel = dv.fuelCap; dv.dryAt = 0; dv.earned += gold.total; dv.delivered++;
-    const par = g.wayLen0 / 8, stars = g.knocks === 0 && secs < par ? 3 : secs < par * 1.4 && g.knocks <= 2 ? 2 : 1;
-    sfx.chime(dv.sound.ctx, dv.sound.master); sfx.coins(dv.sound.ctx, gold.total, dv.sound.master);
-    dv.feel.voice.say("목적지에 도착했습니다. 배송 완료!", true);
-    g.ribbon.mesh.visible = false; g.beacon.group.visible = false;
-    g.onArrive({ name: g.dest.name, wayM: g.wayLen0, secs, knocks: g.knocks, gold, total, stars });
-  }
+    const q = new URLSearchParams(location.search).get("devgame");
+    if (q === "1") localStorage.setItem(GAME_KEY, "1");
+    else if (q === "0") localStorage.removeItem(GAME_KEY);
+    return localStorage.getItem(GAME_KEY) === "1";
+  } catch { return new URLSearchParams(location.search).get("devgame") === "1"; }
 }
 import { bridgeHeight, buildBridges, findBridges } from "./sceneBridges";
 import { groundPlan } from "./groundClient";
@@ -393,22 +216,12 @@ type Stage = {
     aim?: THREE.Vector3 } | null;
   /** Place the complexes' name signs (a canvas over the view) for this frame's camera. */
   signs: ((camera: THREE.PerspectiveCamera, w: number, h: number) => void) | null;
-  /** The traffic (once made), and the vehicle the camera follows (쿠팡 트럭, 사이버트럭), if any. */
+  /** The traffic (once made). */
   traffic: Awaited<ReturnType<typeof buildTraffic>> | null;
-  follow: HeroName | null;
-  /** Driving the followed vehicle: the traffic drives it until a driving key is pressed, then
-   * the simulation (driveSim) does; behind it (chase) or from the driver's seat (cockpit). */
-  drive: DriveState | null;
   /** the road surface's finer asphalt while driving */
   roadDetail?: (on: boolean) => void;
   /** The trees' full-detail band centred on (x, y) (the driven vehicle); null: the complex again. */
   plantsFocus?: ((x: number, y: number) => void) & ((x: null) => void);
-  /** A drive carried across a re-centring (driving on past the drawn area): the vehicle and its
-   * old traffic (still ticking, still drawn) until the new traffic takes it; the offset between
-   * the two frames; the old model's release, put off until then. */
-  carry?: { dv: DriveState; tr: NonNullable<Stage["traffic"]>; tick: ((dt: number) => void)[]; ox: number; oy: number; dz: number; letGo: (() => void) | null; at: number } | null;
-  /** The street trees and lamp posts of the model whose traffic is driven (a vehicle runs into them). */
-  poles?: { grid: PoleGrid | null } | null;
   /** Open water off the bridges (a driven vehicle that goes in is lost). */
   wetAt?: ((x: number, y: number) => boolean) | null;
   /** The people walking (a driven vehicle can knock them down). */
@@ -453,27 +266,6 @@ const roadsOf = new Map<string, Promise<RealEstateBuildingsResponse>>();
 const terrainOf = new Map<string, Promise<Terrain>>();
 const remember = <T,>(m: Map<string, T>, id: string, v: T) => { m.set(id, v); if (m.size > 6) m.delete(m.keys().next().value!); return v; };
 export function prefetchComplex(id: string): void { void firstLook(id); }
-/** A complex's shapes as the view would load them — the server's, else the surveyed ones the
- * browser asks VWorld for by the parcel — kept for the view to take at once (driving on toward
- * it: re-centring only where there is something to show). */
-async function lookAhead(id: string): Promise<RealEstateBuildingsResponse | null> {
-  const cached = buildingCache.get(id);
-  if (cached && Date.now() - cached.at < 300000) return cached.data;
-  const early = await firstLook(id).catch(() => null);
-  let res: RealEstateBuildingsResponse | null = early?.found ? early : null;
-  if (!res) {
-    const peek = await api.realEstateBuildings(id, undefined, true).catch(() => null);
-    if (peek?.found) res = peek;
-    else if (peek?.vworld_key && peek.query?.parcel) {
-      const v = await vworldBuildings(id, peek.query, peek.vworld_key, peek.vworld_domain).catch(() => null);
-      if (v?.found) res = { ...v, built: peek.built ?? null, vworld_key: peek.vworld_key, vworld_domain: peek.vworld_domain };
-    }
-  }
-  if (!res?.found || !res.buildings.length) return null;
-  buildingCache.set(id, { at: Date.now(), data: res });
-  void withRoads(id, res); void terrainOnce(id, res);
-  return res;
-}
 function firstLook(id: string): Promise<RealEstateBuildingsResponse | null> {
   const had = prefetched.get(id);
   if (had) return had;
@@ -694,13 +486,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const caption = hop ? "주변 단지 · 3D" : homeCaption;
   /** A move under way to another complex: where the view's centre was (to carry the
    * camera and the balloon across when the new model's origin replaces it). */
-  const hopRef = useRef<{ id: string; from: { lat: number; lon: number }; terrain: Terrain; drive?: boolean } | null>(null);
-  // (the loaded result, for the drive's own checks outside the render)
-  const dataRef = useRef<RealEstateBuildingsResponse | null>(null);
-  // Driving on past the drawn area: the complexes known round every one passed (their nearby
-  // lists), the next to re-centre the view on chosen among them.
-  const drivePool = useRef(new Map<string, Nearby>());
-  const driveTrail = useRef<{ release: () => void; parts: () => THREE.Object3D[] }[]>([]);
+  const hopRef = useRef<{ id: string; from: { lat: number; lon: number }; terrain: Terrain } | null>(null);
   const [nearby, setNearby] = useState<{ home: string; name: string; lat: number; lon: number; items: Nearby[] } | null>(null);
   const hourRef = useRef(0);
   /** Build the current model again (its textures painted afresh). */
@@ -709,7 +495,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   const [data, setData] = useState<RealEstateBuildingsResponse | null>(null);
-  dataRef.current = data;
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [slowData, setSlowData] = useState(false);
@@ -1114,7 +899,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null, fly: null,
-      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null, signs: null, traffic: null, follow: null, drive: null, crowds: [], viewH: 600,
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null, signs: null, traffic: null, crowds: [], viewH: 600,
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => { if (!obj.userData.sceneDiscarded) parent.add(obj); }); },
       drawReady: obj => native ? native.objectsReady(obj) : !nativePending && !!obj.parent,
     };
@@ -1158,7 +943,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       ratio = capSceneRatio(W, H, ratio, deviceBudget);
       camera.aspect = W / H;
       camera.updateProjectionMatrix();
-      if (stage.drive && !fixedRatio) ratio = Math.max(1, Math.min(ratio, 1.35, Math.sqrt(2.2e6 / (W * H))));
       native?.setSize(W, H, ratio);
       // The WebGL buffers (MSAA HDR target, AO, bloom, reflection) only while WebGL draws:
       // reallocating them on every native resolution step cost frames for nothing.
@@ -1193,15 +977,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
 
     const keyDir = new THREE.Vector3(), sunDir = new THREE.Vector3();
     const bvAt = new THREE.Vector3(), bvLook = new THREE.Vector3();
-    const chaseAt = new THREE.Vector3(), chaseEye = new THREE.Vector3();
-    const trOff = new THREE.Vector3();
-    const driveM = new THREE.Matrix4(), driveLook = new THREE.Vector3(), driveV = new THREE.Vector3(), fxAt = new THREE.Vector3();
     let envFrame = 0, nativeWaitSince = 0;
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
     const resolutionBudget = frameResolutionBudget();
     // Desktop supersamples with spare GPU time; bounded devices target 30 fps.
     let gpuCool = 0, last = performance.now(), settleUntil = 0;
-    let driveGraphics: { ratio: number; quality: Quality | null } | null = null, drivePressure = 0;
     let inView = true, sampleStart = last, sampleFrames = 0;
     const t0 = performance.now();
     let raf = 0;
@@ -1216,27 +996,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const nowMs = performance.now();
       const dt = nowMs - last;
       last = nowMs;
-      // Driving favours input and frame time; the architectural view keeps its
-      // original quality after the game ends.
-      if (stage.drive && !driveGraphics) {
-        driveGraphics = { ratio, quality: native?.quality ?? null };
-        if (!fixedRatio) ratio = Math.min(ratio, Math.max(1, Math.min(1.35, Math.sqrt(2.2e6 / (W * H)))));
-        native?.setQuality({ name: "medium", shadow: 1024, pcss: 0, ssr: false, clouds: false });
-        resize();
-      } else if (!stage.drive && driveGraphics) {
-        ratio = driveGraphics.ratio;
-        if (driveGraphics.quality) native?.setQuality(driveGraphics.quality);
-        driveGraphics = null; drivePressure = 0; resize();
-      }
-      if (stage.drive && !fixedRatio && !stage.unshown && !stage.building) {
-        const gpuMs = native?.timer.enabled ? native.timer.ms.total ?? 0 : dt;
-        drivePressure = gpuMs > 22 ? drivePressure + 1 : Math.max(0, drivePressure - 1);
-        if (drivePressure >= 20 && ratio > 1) {
-          ratio = Math.max(1, ratio * 0.85); drivePressure = 0; resize();
-        }
-      }
       if (stage.busy) settleUntil = Math.max(settleUntil, nowMs + 1500);
-      if (deviceBudget.constrained && !fixedRatio && !stage.drive) {
+      if (deviceBudget.constrained && !fixedRatio) {
         if (stage.building || stage.unshown || stage.busy || nowMs <= settleUntil || host.dataset.plantsPhase !== 'complete') resolutionBudget.reset();
         else {
           const ceiling = capSceneRatio(W, H, Math.min(maxRatio, Math.sqrt(PIX_START / (W * H))), deviceBudget);
@@ -1244,7 +1005,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           const next = resolutionBudget.sample(nowMs, dt, ratio, floor, ceiling);
           if (next !== ratio) { ratio = next; resize(); }
         }
-      } else if (native?.timer.enabled && !fixedRatio && !stage.drive) {
+      } else if (native?.timer.enabled && !fixedRatio) {
         const top = Math.min(maxRatio, Math.sqrt(PIX_CAP / (W * H))), next = Math.min(top, ratio + 0.25);
         const room = !stage.unshown && nowMs > settleUntil && next > ratio && (native.timer.ms.total ?? 99) * (next / ratio) ** 2 < 12;
         if (!room) gpuCool = 0;
@@ -1286,7 +1047,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (a.envAt && t >= a.envAt) { a.envAt = 0; refreshEnv(); }
       }
       for (const f of stage.tick) f(dt / 1000);
-      if (stage.carry && stage.carry.tick !== stage.tick) for (const f of stage.carry.tick) f(dt / 1000);
       if (balloon?.group.visible) balloon.update(dt / 1000);
       const bv = stage.balloonView;
       if (bv) {
@@ -1307,136 +1067,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         bvLook.set(fx * Math.cos(bv.pitch), Math.sin(bv.pitch), fz * Math.cos(bv.pitch)).add(camera.position);
         camera.lookAt(bvLook);
         if (camera.fov !== bv.fov || camera.near !== 0.08) { camera.fov = bv.fov; camera.near = 0.08; camera.updateProjectionMatrix(); }
-      } else if (stage.follow && stage.traffic?.hero(stage.follow)) {
-        // Following a vehicle: behind and above it, eased toward its heading.
-        const c = stage.traffic.hero(stage.follow)!, sec = Math.min(dt, 100) / 1000;
-        const dv = stage.drive;
-        if (dv) {
-          // The driven vehicle: the simulation (once taken over) or the traffic moving it; the
-          // gauges, the engine's sound and the front wheels following.
-          // (driven by hand, the simulation steps within the traffic's own step, before the
-          // vehicle is placed: this frame's pose drawn, not the last)
-          if (!dv.manual) dv.sim.observe(sec, c.speed > dv.lastSpeed + 0.002);
-          dv.lastSpeed = c.speed;
-          {
-            // the acceleration felt (the camera leans on it), the squeal, sparks, brake lamps
-            const fe = dv.feel, a = sec > 0 ? (c.speed - fe.prevV) / sec : 0;
-            fe.prevV = c.speed;
-            fe.acc += (THREE.MathUtils.clamp(a, -12, 12) - fe.acc) * Math.min(1, sec * 5);
-            fe.squeal.set(dv.manual && !dv.dead ? dv.sim.slip * Math.min(1, Math.abs(c.speed) / 4) : 0);
-            fe.sparks.update(sec, camera);
-            stage.traffic.group.updateWorldMatrix(true, false);
-            const lm = stage.traffic.heroMatrix(dv.name, driveM);
-            if (lm) { fe.lamps.matrix.copy(lm).premultiply(stage.traffic.group.matrixWorld); fe.lamps.matrixWorldNeedsUpdate = true; }
-            fe.lamps.visible = !dv.dead && dv.view === "chase" && (dv.sim.braking || (dv.manual && dv.keys.down && c.speed > 0.3));
-            // pickups on the way, driven through: a fuel can a quarter of the tank, a repair kit 35 hp
-            const got = fe.cans.update(sec, c.x, c.y, 2.6);
-            if (got.fuel && !dv.dead) {
-              dv.fuel = Math.min(dv.fuelCap, dv.fuel + dv.fuelCap * 0.25 * got.fuel); dv.dryAt = 0;
-              feelSfx.pickup(dv.sound.ctx, dv.sound.master); dv.onPickup("fuel");
-            }
-            if (got.repair && !dv.dead) {
-              dv.heal(REPAIR_HP * got.repair);
-              feelSfx.repair(dv.sound.ctx, dv.sound.master); dv.onPickup("repair");
-            }
-            // speed lines: past ~60 km/h, and all the more on the boost
-            if (fe.fx) {
-              const o = dv.dead ? 0 : Math.min(1, Math.max(0, (Math.abs(c.speed) - 16) / 22) + (dv.sim.boosting ? 0.55 : 0));
-              const ov = o.toFixed(2);
-              if (fe.fx.style.opacity !== ov) fe.fx.style.opacity = ov;
-              fe.fx.classList.toggle("is-boost", dv.sim.boosting);
-            }
-          }
-          if (dv.dead) dv.sound.mute(); else dv.sound.set(dv.sim.revs, dv.sim.throttle, Math.abs(c.speed));
-          const kmh = String(Math.round(Math.abs(c.speed) * 3.6)), gear = dv.sim.gearLabel;
-          if (dv.hud.speed && dv.hud.speed.textContent !== kmh) dv.hud.speed.textContent = kmh;
-          if (dv.hud.gear && dv.hud.gear.textContent !== gear) dv.hud.gear.textContent = gear;
-          if (dv.hud.revs) dv.hud.revs.style.transform = `scaleX(${dv.sim.revs.toFixed(3)})`;
-          if (!dv.look.held) { const e = Math.min(1, sec * (dv.view === "chase" ? 1.6 : 0.8)); dv.look.yaw -= dv.look.yaw * e; dv.look.pitch -= dv.look.pitch * e; }
-          if (dv.game) deliveryTick(stage, dv, dv.game, sec, terrainRef.current);
-          // Fuel: by the distance driven (more with the throttle down), a little idling. Dry, it
-          // coasts to a stop and explodes. Into open water (off a bridge): lost, back to the start.
-          if (dv.manual && !dv.dead) {
-            dv.fuel = Math.max(0, dv.fuel - (Math.abs(c.speed) * sec * (0.8 + 0.5 * dv.sim.throttle) + sec * 0.4) * DRIVE_SPECS[dv.name].fuelUse * (dv.sim.boosting ? 3 : 1));
-            // warnings as it runs down: a quarter left, a tenth left (said once each, beeped)
-            const ff = dv.fuelCap > 0 ? dv.fuel / dv.fuelCap : 0, fw = ff < 0.1 ? 2 : ff < 0.25 ? 1 : 0;
-            if (fw > dv.feel.fuelWarn) {
-              feelSfx.alarm(dv.sound.ctx, "fuel", dv.sound.master);
-              const ev = dv.name === "cyber";
-              dv.feel.voice.say(fw === 2 ? (ev ? "배터리가 거의 바닥났습니다" : "연료가 거의 바닥났습니다") : (ev ? "배터리가 부족합니다" : "연료가 부족합니다"), true);
-            }
-            if (fw !== dv.feel.fuelWarn) { dv.feel.fuelWarn = fw; dv.onWarn(); }
-            if (dv.fuel <= 0) {
-              if (!dv.dryAt) { dv.dryAt = nowMs; dv.onDry(); }
-              if (Math.abs(c.speed) < 0.6 || nowMs - dv.dryAt > 6000) dv.blowUp("fuel");
-            }
-            if (!dv.dead && !dv.hopping && stage.wetAt?.(c.x, c.y)) dv.blowUp("water");
-          }
-          // the trees' full detail round the vehicle, not the complex (re-dealt every 40 m)
-          if (stage.plantsFocus && Math.hypot(c.x - dv.focusAt[0], c.y - dv.focusAt[1]) > 40) { dv.focusAt = [c.x, c.y]; stage.plantsFocus(c.x, c.y); }
-          if (dv.feel.fuelText) {
-            const left = dv.fuel / DRIVE_SPECS[dv.name].fuelUse, t = `${Math.round((dv.fuelCap > 0 ? dv.fuel / dv.fuelCap : 0) * 100)}% · ${left >= 1000 ? `${(left / 1000).toFixed(1)}km` : `${Math.round(left)}m`}`;
-            if (dv.feel.fuelText.textContent !== t) dv.feel.fuelText.textContent = t;
-          }
-          if (dv.hud.fuel) {
-            const f = dv.fuelCap > 0 ? dv.fuel / dv.fuelCap : 0, cls = f < 0.1 ? "is-critical" : f < 0.25 ? "is-low" : "";
-            dv.hud.fuel.style.transform = `scaleX(${f.toFixed(3)})`;
-            const box = dv.hud.fuel.parentElement?.parentElement;
-            if (box && box.dataset.level !== cls) { box.dataset.level = cls; box.className = `re-drive-fuel ${cls}`; }
-          }
-          dv.shake *= Math.exp(-sec * 7);
-          // smoke and fire from the engine bay as it weakens; the wreck burning
-          {
-            const gz0 = c.z ?? terrainRef.current.at(c.x, c.y), fwd = dv.dead ? 0 : c.length * 0.32;
-            fxAt.set(c.x + c.hx * fwd, gz0 + (dv.name === "coupang" ? 1.35 : 0.95), -(c.y + c.hy * fwd));
-            dv.fx.update(sec, camera, dv.hp < 45 || dv.dead ? fxAt : null, dv.dead ? 0 : dv.hp);
-            if (!dv.dead && dv.hp < 20 && nowMs - dv.warnAt > 1600) { dv.warnAt = nowMs; damageSfx.warn(dv.sound.ctx, dv.sound.master); }
-          }
-        }
-        const gz = c.z ?? terrainRef.current.at(c.x, c.y), big = stage.follow === "coupang";
-        if (dv?.view === "cockpit" && dv.cab) {
-          // From the driver's seat: the cockpit placed with the vehicle, the eye in it, looking
-          // out along the vehicle (turned by a drag).
-          const m = stage.traffic.heroMatrix(stage.follow, driveM);
-          if (m) {
-            driveM.premultiply(stage.traffic.group.matrixWorld);
-            dv.cab.group.matrix.copy(driveM); dv.cab.group.matrixWorldNeedsUpdate = true;
-            dv.cab.setSteer(dv.sim.steer);
-            const [ex, ey, ez] = DRIVE_SPECS[dv.name].eye;
-            camera.position.set(ex, ey, ez).applyMatrix4(driveM);
-            const yaw = dv.look.yaw, pitch = dv.look.pitch - 0.06;
-            driveLook.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).add(driveV.set(ex, ey, ez)).applyMatrix4(driveM);
-            camera.lookAt(driveLook);
-            if (dv.shake > 0.01) camera.rotateZ((Math.random() - 0.5) * dv.shake * 0.01);
-            controls.target.copy(driveLook);
-          }
-          if (camera.near !== 0.05 || camera.fov !== 72) { camera.near = 0.05; camera.fov = 72; camera.updateProjectionMatrix(); }
-        } else {
-          // (under the street trees' crowns, as a driving game's camera; aimed a little ahead)
-          // Driving: a little closer and quicker to follow, swung round by a drag.
-          const k = 1 - Math.exp(-sec * (dv?.manual ? 6 : 4));
-          // (pulling away the camera falls behind, braking it closes in and the nose dips)
-          const acc = dv?.feel.acc ?? 0;
-          const back = (big ? 11 : 9) + THREE.MathUtils.clamp(acc * 0.32, -1.6, 2.4), high = big ? 4.2 : 3.2, ahead = 6;
-          const yaw = dv?.look.yaw ?? 0, cy = Math.cos(yaw), sy = Math.sin(yaw);
-          // (the heading turned by the look: + round to the left)
-          const bx = c.hx * cy - c.hy * sy, by = c.hx * sy + c.hy * cy;
-          chaseAt.set(c.x + c.hx * ahead, gz + 1.2 - THREE.MathUtils.clamp(-acc * 0.05, 0, 0.45), -(c.y + c.hy * ahead));
-          chaseEye.set(c.x - bx * back, gz + high + (dv ? dv.look.pitch * -6 : 0), -(c.y - by * back));
-          // (in the traffic's frame: shifted while the view re-centres under the vehicle)
-          // (its world matrix brought up to date first: the frame the scene shifts it is otherwise a
-          // frame behind, and the camera swung hundreds of metres for a moment)
-          stage.traffic.group.updateWorldMatrix(true, false);
-          trOff.setFromMatrixPosition(stage.traffic.group.matrixWorld);
-          chaseAt.add(trOff); chaseEye.add(trOff);
-          controls.target.lerp(chaseAt, k);
-          camera.position.lerp(chaseEye, k);
-          camera.lookAt(controls.target);
-          if (dv && dv.shake > 0.01) { const s = dv.shake * 0.05; camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s; }
-          // (the view widens with speed: the sense of it)
-          const fov = dv ? dv.baseFov + Math.min(16, Math.abs(c.speed) * 0.4) + THREE.MathUtils.clamp(acc * 0.6, 0, 4) + (dv.sim.boosting ? 9 : 0) : camera.fov;
-          if (camera.near !== 0.1 || Math.abs(camera.fov - fov) > 0.05) { camera.near = 0.1; camera.fov += (fov - camera.fov) * Math.min(1, sec * 3); camera.updateProjectionMatrix(); }
-        }
       } else {
         controls.update(Math.min(dt, 100) / 1000);
         // Near plane follows the zoom: close enough to stand beside a person, and no
@@ -1639,7 +1269,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       ro.disconnect();
 
       stage.disposeModel();
-      for (const region of driveTrail.current.splice(0)) region.release();
       disposeControls(controls);
       listening.abort();
       composer?.dispose();
@@ -1696,7 +1325,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const navigateView = (action: "in" | "out" | "left" | "right" | "up" | "down" | "home" | "top") => {
     const st = stageRef.current;
     if (!st) return;
-    if (st.follow) stopFollow();
     if (st.balloonView) {
       const bv = st.balloonView;
       bv.aim = undefined;
@@ -1956,39 +1584,21 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const [ox, oy] = metresFrom(came.from, data.center.lat, data.center.lon);
       shift = new THREE.Vector3(-ox, -came.terrain.at(ox, oy), oy);
       if (shift.length() > 3000) shift = null;
-      if (shift && came.drive && stage.carry) { stage.carry.ox = ox; stage.carry.oy = oy; stage.carry.dz = shift.y; }
     }
-    let behind = shift && (came?.drive || (sceneDeviceBudget().retainPrevious && stage.model && !stage.unshown)) ? stage.current : null;
-    const oldTraffic = stage.traffic;
-    if (came?.drive && shift) {
-      for (const region of driveTrail.current) for (const part of region.parts()) part.position.add(shift);
-    } else for (const region of driveTrail.current.splice(0)) region.release();
+    let behind = shift && sceneDeviceBudget().retainPrevious && stage.model && !stage.unshown ? stage.current : null;
     if (behind) {
       behind.stop();
       for (const o of behind.parts()) o.position.add(shift!);
       // (its traffic and people keep moving meanwhile: tick stays until this model's replaces it)
       stage.current = null; stage.model = null; stage.ground = null; stage.pickables = []; stage.onShown = [];
     } else stage.disposeModel();
-    if (shift && import.meta.env.DEV) console.info("[drive] shift", shift.x.toFixed(1), shift.y.toFixed(1), shift.z.toFixed(1), performance.now().toFixed(0));
     if (shift) {
       stage.camera.position.add(shift); stage.controls.target.add(shift);
       if (stage.fly) for (const v of [stage.fly.fromPos, stage.fly.toPos, stage.fly.fromTarget, stage.fly.toTarget]) v.add(shift);
       stage.balloon?.shift(shift);
       stage.balloonView?.aim?.add(shift);
     }
-    const letGo = () => {
-      if (behind && came?.drive && sceneDeviceBudget().retainPrevious) {
-        // Keep the already-rendered neighbourhood behind the vehicle; the new area
-        // is added beside it instead of deleting all previously visible scenery.
-        if (oldTraffic) oldTraffic.group.visible = false;
-        driveTrail.current.push(behind);
-        // Keep static scenery without rendering duplicate crowds and traffic.
-        const parts = behind.parts();
-        if (parts[1]) for (const child of parts[1].children) child.visible = child.name === "road surface and markings";
-        while (driveTrail.current.length > 1) driveTrail.current.shift()!.release();
-      } else behind?.release();
-      behind = null;
-    };
+    const letGo = () => { behind?.release(); behind = null; };
     if (!data?.found || !data.buildings.length) { letGo(); return; }
     // (idle time, once a session: a river complex's boats need them the moment its water is in)
     prepareWakes();
@@ -2008,8 +1618,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let alive = true;
     let ground: THREE.Mesh | null = null;
     const decor = new THREE.Group();
-    // (its street trees and lamp posts, for a driven vehicle to run into: set as they are planted)
-    const poleHolder: { grid: PoleGrid | null } = { grid: null };
     // Set before any work: a newer selection disposes a half-built model cleanly.
     stage.building = true;
     stage.resume();
@@ -3117,8 +2725,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     stage.scene.add(group, ground);
     if (behind) {
       for (const o of behind.parts()) o.position.y -= 0.25;
-      // (driving on: released once the new traffic has taken the vehicle over — carryDrive)
-      if (came?.drive && stage.carry) stage.carry.letGo = letGo; else stage.onShown.push(letGo);
+      stage.onShown.push(letGo);
     }
     stage.unshown = true;
 
@@ -3164,8 +2771,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let crossLines: { line: [number, number][]; layer?:number }[] = [];
     let signalLocations:{at:[number,number];layer:number}[]=[];
     // (driving on into this area: nothing waits — the vehicle is coming)
-    const driveIn = !!came?.drive;
-    const crossingsReady: Promise<void> = driveIn ? Promise.resolve() : new Promise<void>(resolve => beginGeography(() => {
+    const crossingsReady: Promise<void> = new Promise<void>(resolve => beginGeography(() => {
       if (!data.center) { resolve(); return; }
       const { lat, lon } = data.center, la = +lat.toFixed(4), lo = +lon.toFixed(4);
       const ox = (lo - lon) * 111320 * Math.cos((lat * Math.PI) / 180), oy = (la - lat) * 110540;
@@ -3267,7 +2873,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if(hostRef.current){hostRef.current.dataset.plantsPhase=phase;hostRef.current.dataset.plantsReadyAt=String(timing.ready);hostRef.current.dataset.plantsTiming=JSON.stringify(plantTimings);}return;
       }
       const snapshot=plantingSnapshot(planting);
-      const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq && !driveIn));
+      const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
       if (!plants) return;
       if (!alive || revision !== plantsRevision) { plants.dispose(); return; }
       plants.update?.();
@@ -3339,8 +2945,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         await showPlants(planting,"complete");return water;
       })():null;
       void finalPlantsJob?.catch(err=>console.info('[3D] Final plants unavailable:',err));
-      const setPoles = () => { poleHolder.grid = new PoleGrid([...plan.lamps.map(l => ({ x: l.x, y: l.y, r: 0.2 })), ...street.map(([x, y]) => ({ x, y, r: 0.32 }))]); };
-      setPoles();
       if (!await later()) return;
       let walks = await buildSidewalks(runs, roadTerrain, street.map(([x, y]) => [x, y] as [number, number]));
       await cutPavements(walks.group);
@@ -3384,7 +2988,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         disposables.push({ dispose: () => { stage.crowds = stage.crowds.filter(c => c !== walkers); } });
       };
       const walkersReady = crowd([...sidewalkPaths(runs), ...ringPaths(data.site, 2.4, blocked, 0.5), ...ringPaths(data.buildings.filter(b => b.floors >= 5).map(b => b.rings[0]), -3.2, blocked, 0.45)],
-        0, driveIn ? 12 : 6, driveIn ? 120 : stage.hq ? 650 : 200);
+        0, 6, stage.hq ? 650 : 200);
       void walkersReady.catch(err=>console.info('[3D] Walkers unavailable:',err));
       void walkersReady.then(()=>{if(alive&&hostRef.current)hostRef.current.dataset.walkersReadyAt=String(Math.round(performance.now()));},()=>{});
       // Land use (연속지적도 지목) arrives after the first frame: the ground is repainted in
@@ -3399,7 +3003,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         // The water parcels came with the land use: bridges now, and the kerbs, street trees and
         // lamps made before them laid again on the decks (the traffic and people follow by themselves).
         if (await placeBridges()) {
-          street = streetOf(); setPoles();
+          street = streetOf();
           const fresh = await buildSidewalks(runs, roadTerrain, street.map(([x, y]) => [x, y] as [number, number]));
           await cutPavements(fresh.group);
           if (!alive) { fresh.dispose(); return; }
@@ -3442,7 +3046,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             timed("parcelEdges", () => { for (const [ring, off, lateral, minLen] of edges.slice(i, i + 20)) paths.push(...cutPaths(ringPaths([ring], off, blocked, lateral, minLen), blocked)); });
           }
           await nextSlice(pausedRef.current);
-          if (alive) await crowd(paths, 1, driveIn ? 15 : 9, driveIn ? 140 : stage.hq ? 700 : 220, false);
+          if (alive) await crowd(paths, 1, 9, stage.hq ? 700 : 220, false);
           if(alive&&hostRef.current)hostRef.current.dataset.parcelActorsReadyAt=String(Math.round(performance.now()));
         })();
         await lakesFetched;
@@ -3557,7 +3161,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       surface = f; marks = m;
       asphaltAt=roadSurfaceHeight(f.group.geometry,bvh?roadBvhIndex(bvh):undefined);
       if(hostRef.current){const d=hostRef.current.dataset;d.roadIndex=bvh?'rust-wasm-bvh':'js-grid';d.roadIndexBuildMs=bvh?bvh.buildMs.toFixed(1):'0';d.roadIndexWorkers=String(bvh?.workers??0);d.roadIndexBytes=String(bvh?.parts.reduce((n,p)=>n+p.nodes.byteLength+p.ids.byteLength,0)??0);}
-      if (stage.drive) void f.setDetail(true);
       if(hostRef.current)hostRef.current.dataset.roadsReadyAt=String(Math.round(performance.now()));
     };
     stage.roadDetail = on => { void surface?.setDetail(on); };
@@ -3729,7 +3332,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     disposables.push({ dispose: () => lamps?.dispose() });
     const onLook = [(l: Look) => lamps?.setLevel(l.lamps)];
     // Traffic (its vehicle kit decodes on first use) waits for the first frame and idle time.
-    (driveIn || textureBudgetEnabled() ? (f: () => void) => f() : afterShown)(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, trafficTerrain, crossLines,arms=>{preparedRoadArms=arms;void layMarks();},signalLocations) : null)) : null)).then(traffic => {
+    (textureBudgetEnabled() ? (f: () => void) => f() : afterShown)(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, trafficTerrain, crossLines,arms=>{preparedRoadArms=arms;void layMarks();},signalLocations) : null)) : null)).then(traffic => {
       if (!traffic) return;
       if (!alive) { traffic.dispose(); return; }
       stage.addWarm(decor, traffic.group);
@@ -3745,24 +3348,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       });
       onLook.push(l => traffic.setLamps(l.lamps));
       traffic.setLamps(stage.look.lamps);
-      // (the drive taken over only once this area is on screen: the old one stays drawn till then)
       const adopt = () => {
-        if (!alive || (stage.carry && !trafficArmed)) return;
+        if (!alive) return;
         adopted = true;
         stage.traffic = traffic;
-        stage.poles = poleHolder;
-        if (stage.carry) carryRef.current?.(stage, traffic);
       };
-      if (stage.carry && stage.unshown) stage.onShown.push(adopt); else adopt();
-      setHeroesReady(true);
+      adopt();
       if(hostRef.current)hostRef.current.dataset.trafficReadyAt=String(Math.round(performance.now()));
       if(marksGen===0)void layMarks();
-      disposables.push({ dispose: () => { if (stage.traffic === traffic) {
-        const dv = stage.drive;
-        if (dv && import.meta.env.DEV) console.info("[drive] ended: its traffic was released", new Error().stack?.split("\n").slice(1, 6).join(" | "));
-        if (dv) { stage.drive = null; if (dv.game) { dv.game.ribbon.dispose(); dv.game.beacon.dispose(); dv.game = null; } dv.sound.dispose(); if (dv.cab) { dv.cab.group.removeFromParent(); dv.cab.dispose(); } stage.camera.fov = dv.baseFov; stage.camera.updateProjectionMatrix(); setDriving(null); }
-        stage.traffic = null; stage.follow = null; setFollow(null); setHeroesReady(false);
-      } } });
+      disposables.push({ dispose: () => { if (stage.traffic === traffic) stage.traffic = null; } });
     }).catch(err => console.info("[3D] Traffic unavailable:", err)));
 
     // Camera, sun and shadows framed on the complex, not the neighbourhood.
@@ -3795,10 +3389,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     };
     // (from another complex: the camera glides from where it was into this one's opening shot,
     // the look from the balloon turns to it, and the balloon flies on to its sky)
-    if (shift && (stage.follow || came?.drive)) {
-      // (following or driving a vehicle: the camera stays with it — no glide to the new complex)
-      stage.fly = null;
-    } else if (shift) {
+    if (shift) {
       const cam = stage.camera.position.clone(), look = stage.controls.target.clone();
       stage.frame();
       const toPos = stage.camera.position.clone(), toTarget = stage.controls.target.clone();
@@ -3864,642 +3455,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // 열기구: the view from the balloon's basket. Drag looks around, the wheel, a pinch or
   // −/+ zoom (the field of view, like binoculars); the button, 처음 or Esc steps out.
   const [balloonOn, setBalloonOn] = useState(false);
-  // 쿠팡 트럭 · 사이버트럭: brought onto the road the view is looking at, then followed.
-  const [follow, setFollow] = useState<HeroName | null>(null);
-  const [heroesReady, setHeroesReady] = useState(false);
-  // A normal/shared URL must never inherit development buttons from a previous visit.
-  const [gameOn, setGameOn] = useState(gameUnlocked);
-  useEffect(() => {
-    const queryChanged = () => setGameOn(gameUnlocked());
-    window.addEventListener("popstate", queryChanged);
-    return () => window.removeEventListener("popstate", queryChanged);
-  }, []);
-  useEffect(() => {
-    if (gameOn) return;
-    endDrive();
-    const st = stageRef.current;
-    if (st) st.follow = null;
-    setFollow(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameOn]);
-  // Driving it: the camera comes down behind the vehicle as before, the gauges come up and the
-  // engine is heard; the traffic keeps driving it until a driving key (or a touch pedal) takes
-  // over. V the driver's seat and back, Esc (or the button again) hands it back.
-  const [driving, setDriving] = useState<{ name: HeroName; view: "chase" | "cockpit"; manual: boolean } | null>(null);
-  const hudSpeed = useRef<HTMLSpanElement>(null), hudGear = useRef<HTMLSpanElement>(null), hudRevs = useRef<HTMLElement>(null), hudFuel = useRef<HTMLElement>(null);
-  const hudSpeedFx = useRef<HTMLDivElement>(null), hudFuelText = useRef<HTMLElement>(null);
-  // 배송 게임: a complex round the view at random (not the one just reached, 150 m or more away
-  // along the way), the way there, gold on arrival.
-  const [delivery, setDelivery] = useState<{ name: string; n: number } | null>(null);
-  const [result, setResult] = useState<DeliveryResult | null>(null);
-  const [knocks, setKnocks] = useState(0);
-  const [goldSum, setGoldSum] = useState(goldTotal);
+  // The driving game: its own page (/drive), opened from here where the view stands.
+  const [gameOn] = useState(gameUnlocked);
   const signsRef = useRef<{ id: string; name: string; x: number; y: number; here: boolean }[]>([]);
-  const gameHud = {
-    name: useRef<HTMLElement>(null), dist: useRef<HTMLElement>(null), gold: useRef<HTMLElement>(null), time: useRef<HTMLElement>(null),
-    turn: useRef<HTMLElement>(null), turnDist: useRef<HTMLElement>(null), map: useRef<HTMLCanvasElement>(null),
-  };
-  const lastDest = useRef<string | null>(null);
-  const endDelivery = (dv: DriveState) => {
-    if (!dv.game) return;
-    dv.game.ribbon.dispose(); dv.game.beacon.dispose();
-    dv.game = null;
-  };
-  const startDelivery = (st: Stage, dv: DriveState) => {
-    endDelivery(dv);
-    setResult(null); setKnocks(0);
-    const tr = st.traffic, c = tr?.hero(dv.name);
-    if (!tr || !c) { setDelivery(null); return; }
-    // candidates: the complexes with a way to them of 150 m or more (the nearest few too short)
-    const center = dataRef.current?.center;
-    const known = new Map(signsRef.current.map(s => [s.id, s]));
-    if (center) for (const it of drivePool.current.values()) {
-      const [x, y] = metresFrom(center, it.lat, it.lon);
-      known.set(it.id, { id: it.id, name: it.name, x, y, here: it.id === dataRef.current?.id });
-    }
-    const reachable = [...known.values()].filter(s => !s.here && Math.hypot(s.x - c.x, s.y - c.y) > 60 && Math.hypot(s.x - c.x, s.y - c.y) < 1800);
-    const fresh = reachable.filter(s => s.id !== lastDest.current);
-    const cands = (fresh.length ? fresh : reachable).sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y)).slice(0, 20);
-    for (let tries = 0; tries < 20 && cands.length; tries++) {
-      const pick = cands.splice(Math.floor(Math.random() * cands.length), 1)[0];
-      const r = tr.route(c.x, c.y, pick.x, pick.y);
-      if (!r || r.line.length < 2) continue;
-      const way: Pt[] = [[c.x, c.y], ...r.line], len = lengthOf(way);
-      if (len < 80) continue;
-      lastDest.current = pick.id;
-      const ribbon = routeRibbon(terrainRef.current, (x, y) => tr.groundAt(x, y)), bc = beacon();
-      st.addWarm(tr.group, ribbon.mesh); st.addWarm(tr.group, bc.group);
-      ribbon.set(way);
-      // pickups along the way, every ~130 m: fuel cans and repair kits by turns
-      const cans = pickupPlan(len, dv.hp).map(({ at, kind }) => {
-        const [x, y] = cutFrom(way, at)[0];
-        return { x, y, z: terrainRef.current.at(x, y), kind };
-      });
-      dv.feel.cans.place(cans);
-      const end = way[way.length - 1];
-      bc.place(end[0], end[1], tr.groundAt(end[0], end[1]));
-      // the tank for this way (단지까지의 거리), full
-      dv.fuelCap = tankFor(len); dv.fuel = dv.fuelCap; dv.dryAt = 0; setFuelOut(false);
-      dv.game = {
-        dest: { id: pick.id, name: pick.name, x: pick.x, y: pick.y }, way, wayLen0: len,
-        started: performance.now(), knocks: 0, knockAt: 0, routedAt: performance.now(), mapAt: 0, pinged: "", said: "", spoken: [], rerouteSaidAt: 0,
-        ribbon, beacon: bc, done: false,
-        hud: { name: null, dist: null, gold: null, time: null, turn: null, turnDist: null, map: null },
-        onArrive: r2 => { setResult(r2); setGoldSum(r2.total); },
-      };
-      setDelivery(d => ({ name: pick.name, n: (d?.n ?? 0) + 1 }));
-      return;
-    }
-    setDelivery(null);
-  };
-  useEffect(() => {
-    const g = stageRef.current?.drive?.game;
-    if (g) g.hud = { name: gameHud.name.current, dist: gameHud.dist.current, gold: gameHud.gold.current, time: gameHud.time.current,
-      turn: gameHud.turn.current, turnDist: gameHud.turnDist.current, map: gameHud.map.current };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delivery, result]);
-  const nextDelivery = () => { const st = stageRef.current, dv = st?.drive; if (st && dv) startDelivery(st, dv); };
-  // HP: the gauge's bar; a red edge on each hit; at nothing the vehicle explodes and burns.
-  const [hp, setHp] = useState(100);
-  const [hurtKey, setHurtKey] = useState(0);
-  const [wrecked, setWrecked] = useState<null | "hp" | "fuel" | "water">(null);
-  const [fuelOut, setFuelOut] = useState(false);
-  // warnings shown (0 none, 1 low, 2 critical), a passing note (a pickup, a crash)
-  const [fuelWarn, setFuelWarn] = useState(0), [hpWarn, setHpWarn] = useState(0);
-  const [toast, setToast] = useState<{ text: string; n: number } | null>(null);
-  useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(null), 1600); return () => window.clearTimeout(t); }, [toast]);
-  const destroyVehicle = (st: Stage, dv: DriveState, why: "hp" | "fuel" | "water" = "hp") => {
-    const tr = st.traffic, car = tr?.hero(dv.name);
-    if (!tr || !car || dv.dead) return;
-    dv.dead = true;
-    if (dv.view === "cockpit") toggleDriveView();
-    const gz = car.z ?? terrainRef.current.at(car.x, car.y);
-    dv.fx.explode(new THREE.Vector3(car.x, gz + 1.2, -car.y), gz);
-    damageSfx.explosion(dv.sound.ctx, dv.sound.master);
-    dv.fireStop = damageSfx.fire(dv.sound.ctx, dv.sound.master);
-    dv.sound.mute();
-    dv.shake = 9;
-    // the wreck: the body burnt black, sat down on its axles, a little askew
-    const shape = tr.heroShape(dv.name), m = tr.heroMatrix(dv.name, new THREE.Matrix4());
-    if (shape && m) {
-      const char = new THREE.MeshStandardMaterial({ color: "#1b1a19", roughness: 0.95, metalness: 0.25, emissive: "#3a1004", emissiveIntensity: 0.6 });
-      const wreck = new THREE.Mesh(shape.geometry, [char, char]);
-      wreck.matrixAutoUpdate = false;
-      wreck.matrix.copy(m).premultiply(tr.group.matrixWorld)
-        .multiply(new THREE.Matrix4().makeTranslation(0, -shape.radius * 0.7, 0))
-        .multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(0.04, 0.12, -0.06)));
-      wreck.castShadow = wreck.receiveShadow = true;
-      st.addWarm(st.scene, wreck);
-      dv.wreck = wreck;
-      car.hide = true;
-    }
-    const g = dv.game;
-    if (g) { g.done = true; g.ribbon.mesh.visible = false; g.beacon.group.visible = false; }
-    if (why === "water") {
-      // gone under: back where the drive began, as new, a moment after
-      setWrecked("water");
-      setTimeout(() => { if (st.drive === dv && dv.dead) resetVehicle(true); }, 2600);
-    } else setTimeout(() => { if (st.drive === dv && dv.dead) setWrecked(why); }, 1800);
-  };
-  /** Repaired (50 G): back on the nearest lane, full health, a full tank, a new delivery. After
-   * the water: free, and back where the drive began. */
-  const repairVehicle = () => resetVehicle(false);
-  const resetVehicle = (home: boolean) => {
-    const st = stageRef.current, dv = st?.drive, tr = st?.traffic;
-    if (!st || !dv || !tr) return;
-    dv.fireStop?.(1); dv.fireStop = null; dv.fx.clear();
-    if (dv.wreck) { dv.wreck.removeFromParent(); (dv.wreck.material as THREE.Material[])[0].dispose(); dv.wreck = null; }
-    const car = tr.hero(dv.name);
-    if (car) { car.hide = false; car.speed = 0; }
-    tr.drive(dv.name, false);
-    if (home) tr.summon(dv.name, dv.home.x, dv.home.y, dv.home.hx, dv.home.hy);
-    dv.manual = false; dv.dead = false; dv.hp = 100; dv.sim.steer = 0;
-    // Refuel even when no new delivery route can be found after a wreck.
-    dv.fuelCap = Math.max(dv.fuelCap, tankFor(0)); dv.fuel = dv.fuelCap; dv.dryAt = 0;
-    setFuelOut(false);
-    dv.feel.hpWarn = 0; dv.feel.fuelWarn = 0; setHpWarn(0); setFuelWarn(0); paintDamage(dv);
-    setHp(100); setWrecked(null); setDriving(d => d && { ...d, manual: false });
-    if (!home) setGoldSum(addGold(-Math.min(50, goldTotal())));
-    startDelivery(st, dv);
-  };
-  // The score board: each finished drive recorded (its gold) under the player's id and nickname;
-  // the board shows rank 1 down, and the player's own rank and score last.
-  const [board, setBoard] = useState<null | { data: DriveBoard | null; error: string | null; last?: number }>(null);
-  const [nickAsk, setNickAsk] = useState<null | { score: number; deliveries: number; vehicle: string }>(null);
-  const [nick, setNick] = useState(playerName);
-  const recordScore = (r: { score: number; deliveries: number; vehicle: string }, name: string) => {
-    const id = playerId();
-    if (!id) { setBoard({ data: null, error: "이 브라우저에서는 점수를 저장할 수 없습니다 (저장소 차단)" }); return; }
-    setBoard({ data: null, error: null, last: r.score });
-    api.driveScorePost({ player_id: id, name, ...r })
-      .then(data => setBoard({ data, error: null, last: r.score }))
-      .catch(() => setBoard({ data: null, error: "점수를 기록하지 못했습니다. 잠시 후 다시 시도해 주세요.", last: r.score }));
-  };
-  const showBoard = () => {
-    setBoard({ data: null, error: null });
-    api.driveScores(playerId() ?? undefined)
-      .then(data => setBoard({ data, error: null }))
-      .catch(() => setBoard({ data: null, error: "순위를 불러오지 못했습니다." }));
-  };
-  const endDrive = () => {
-    const st = stageRef.current, dv = st?.drive;
-    if (dv && import.meta.env.DEV) console.info("[drive] endDrive", new Error().stack?.split("\n").slice(1, 5).join(" | "));
-    if (!st || !dv) return;
-    // (a drive that earned something goes on the board; the nickname asked the first time)
-    if (dv.earned > 0) {
-      const r = { score: dv.earned, deliveries: dv.delivered, vehicle: dv.name };
-      if (playerName()) recordScore(r, playerName()); else setNickAsk(r);
-    }
-    st.drive = null;
-    endDelivery(dv);
-    dv.feel.cans.dispose(); dv.feel.voice.dispose();
-    setFuelWarn(0); setHpWarn(0);
-    st.traffic?.setDetail(55, 40);
-    st.roadDetail?.(false);
-    st.plantsFocus?.(null);
-    setResult(null); setWrecked(null); setFuelOut(false);
-    releaseVehicle(st, dv);
-    setDriving(null);
-  };
-  /** The driven vehicle handed back to the traffic: its sound, cockpit and effects gone. */
-  const releaseVehicle = (st: Stage, dv: DriveState) => {
-    dv.feel.squeal.dispose(); dv.feel.sparks.dispose(); dv.feel.lamps.removeFromParent();
-    // (the body's own look back as new)
-    const own = st.traffic?.heroShape(dv.name)?.material as THREE.MeshStandardMaterial | undefined;
-    if (own && dv.feel.paint) { own.color.copy(dv.feel.paint.color); own.roughness = dv.feel.paint.rough; }
-    dv.fireStop?.(0.3); dv.fx.dispose(); dv.wreck?.removeFromParent(); (dv.wreck?.material as THREE.Material | undefined)?.dispose();
-    dv.sound.dispose();
-    if (dv.cab) { dv.cab.group.removeFromParent(); dv.cab.dispose(); }
-    const c = st.traffic?.hero(dv.name);
-    if (c) { c.hide = false; c.steer = 0; }
-    st.traffic?.drive(dv.name, false);
-    st.camera.fov = dv.baseFov; st.camera.updateProjectionMatrix();
-  };
-  const stopFollow = () => {
-    const st = stageRef.current;
-    if (!st?.follow) return;
-    endDrive();
-    st.follow = null; setFollow(null); st.resume();
-  };
-  // ---- Driving on past the drawn area ----
-  // Nearing the edge of what is drawn, the view re-centres on the known complex nearest the way
-  // ahead: it builds there in the background while the drive goes on in the old scene (shifted
-  // into the new frame, still ticking), and once the new traffic is up the vehicle, its delivery
-  // and pickups move into it; then the old scene is released. On and on, from complex to complex.
-  const carryRef = useRef<((st: Stage, tr: NonNullable<Stage["traffic"]>) => void) | null>(null);
-  carryRef.current = (st, traffic) => {
-    const k = st.carry;
-    if (!k) return;
-    st.carry = null;
-    if (import.meta.env.DEV) console.info("[drive] handover", k.ox.toFixed(1), k.oy.toFixed(1), "old→new", performance.now().toFixed(0));
-    const dv = k.dv, c0 = k.tr.hero(dv.name);
-    if (!c0 || dv.dead || st.drive !== dv) { k.letGo?.(); return; }
-    const nx = c0.x - k.ox, ny = c0.y - k.oy, v = c0.speed, hx = c0.hx, hy = c0.hy;
-    traffic.summon(dv.name, nx, ny, hx, hy);
-    const car = traffic.drive(dv.name, true);
-    if (!car) { k.letGo?.(); endDrive(); return; }
-    car.x = nx; car.y = ny; car.hx = hx; car.hy = hy; car.speed = v;
-    // the old vehicle's own sound, cockpit and effects (it stays with the old traffic, released next)
-    dv.feel.squeal.dispose(); dv.feel.sparks.dispose(); dv.feel.lamps.removeFromParent();
-    dv.fx.dispose(); dv.sound.dispose();
-    if (dv.cab) { dv.cab.group.removeFromParent(); dv.cab.dispose(); dv.cab = null; }
-    // the delivery and the pickups into the new frame
-    const g = dv.game;
-    if (g) {
-      g.dest = { ...g.dest, x: g.dest.x - k.ox, y: g.dest.y - k.oy };
-      g.way = g.way.map(([x, y]) => [x - k.ox, y - k.oy] as Pt);
-      g.ribbon.dispose();
-      g.ribbon = routeRibbon(terrainRef.current, (x, y) => traffic.groundAt(x, y));
-      st.addWarm(traffic.group, g.ribbon.mesh);
-      g.ribbon.set(g.way);
-      traffic.group.add(g.beacon.group);
-      const end = g.way[g.way.length - 1];
-      g.beacon.place(end[0], end[1], traffic.groundAt(end[0], end[1]));
-      g.routedAt = 0;
-    }
-    dv.feel.cans.shift(k.ox, k.oy, k.dz);
-    dv.hopping = false;
-    const manual = dv.manual, cockpit = dv.view === "cockpit";
-    st.drive = null;
-    startDrive(st, dv.name, dv);
-    if (manual) takeOver();
-    if (cockpit) toggleDriveView();
-    k.letGo?.();
-  };
-  const hopPending = useRef(false), hopRefused = useRef(new Set<string>());
-  // the point ahead the next area is preloaded round (the current view's frame), kept till it is due
-  const heldPoint = useRef<{ from: string; x: number; y: number } | null>(null);
-  // the next areas' data, asked ahead of need and kept (by complex id, or point cell)
-  const areaJobs = useRef(new Map<string, Promise<{ res: RealEstateBuildingsResponse | null; key: string; name: string }>>());
-  const pointAreas = useRef(new DriveAreaCache<RealEstateBuildingsResponse>());
-  // the complexes known round each one reached while driving
-  useEffect(() => {
-    const d = data;
-    if (!driving || !d?.found || !d.center || !d.vworld_key || !complexId) return;
-    let live = true;
-    void nearbyFor(complexId, d, 900).then(items => {
-      if (!live) return;
-      for (const i of items) drivePool.current.set(i.id, i);
-      while (drivePool.current.size > 240) drivePool.current.delete(drivePool.current.keys().next().value!);
-      const st = stageRef.current, dv = st?.drive;
-      if (st && dv && !dv.dead && !dv.game) startDelivery(st, dv);
-    }).catch(() => {});
-    return () => { live = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, driving?.name]);
-  useEffect(() => {
-    if (!driving) return;
-    if (nearby?.items) for (const i of nearby.items) drivePool.current.set(i.id, i);
-    type Area = { res: RealEstateBuildingsResponse | null; key: string; name: string };
-    let lastPreload = 0;
-    const prepare = async (res: RealEstateBuildingsResponse) => {
-      if (res.center) {
-        void nearbyWater(res.center.lat, res.center.lon).catch(() => {});
-        void nearbyCrossings(res.center.lat, res.center.lon).catch(() => {});
-      }
-      const [full] = await Promise.all([withRoads(res.id, res), terrainOnce(res.id, res)]);
-      buildingCache.set(res.id, { at: Date.now(), data: full });
-      return full;
-    };
-    const timer = window.setInterval(() => {
-      const st = stageRef.current, dv = st?.drive, cur = dataRef.current;
-      if (!st || !dv || !cur?.center) return;
-      // (a re-centring that never completed: let the drive end rather than hang)
-      if (st.carry && performance.now() - st.carry.at > 90000) { const k = st.carry; st.carry = null; k.letGo?.(); endDrive(); return; }
-      if (dv.dead || st.carry || hopRef.current) return;
-      const c = st.traffic?.hero(dv.name);
-      if (!c) return;
-      const v = Math.abs(c.speed);
-      // How far on the vehicle looks: about 8 s of driving and a margin. The next area is centred
-      // that far ahead and asked for at once; it is built (in the background, the old one still
-      // driven) as soon as that look reaches the edge of what is drawn — so it is all there before
-      // the vehicle arrives.
-      // The next area, chosen as it will be when the time comes: the known complex nearest the way
-      // ahead (well nearer the vehicle than this one), else the area round a point ahead (no
-      // complex that way: a river bank, a park, a district of houses — VWorld's buildings and roads).
-      const { hx, hy, lead, due } = driveAreaPlan(c);
-      const px = c.x + hx * lead, py = c.y + hy * lead;
-      const key0 = cur.vworld_key, cos = Math.cos((cur.center.lat * Math.PI) / 180);
-      const pointJob = (x: number, y: number, priority = false) => {
-        const lat = cur.center!.lat + y / 110_540, lon = cur.center!.lon + x / (cos * 111_320);
-        const key = `pt:${lat.toFixed(3)},${lon.toFixed(3)}`;
-        return pointAreas.current.request(key, async () => {
-          const res = await vworldPointArea(lat, lon, key0!, cur.vworld_domain);
-          return res?.found ? prepare(res) : null;
-        }, priority);
-      };
-      // Cover every possible turn before the driver chooses a direction.
-      if (key0) for (const [x, y] of driveSurroundings(c.x, c.y)) void pointJob(x, y);
-      const pointAt = (ahead: number) => {
-        const ax = c.x + hx * ahead, ay = c.y + hy * ahead;
-        return { lat: cur.center!.lat + ay / 110_540, lon: cur.center!.lon + ax / (cos * 111_320) };
-      };
-      // (a point ahead, once chosen, is kept while it is still ahead and not yet reached: chosen
-      // afresh every tick, it moved on with the vehicle and its preloaded area never came due)
-      const held = heldPoint.current;
-      const keep = held && held.from === cur.id && (() => {
-        const dx = held.x - c.x, dy = held.y - c.y, dd = Math.hypot(dx, dy);
-        return dd > 120 && (dx * hx + dy * hy) > dd * 0.5;
-      })();
-      if (!keep) {
-        const ahead = lead;
-        heldPoint.current = { from: cur.id, x: c.x + hx * ahead, y: c.y + hy * ahead };
-      }
-      const hp = heldPoint.current!, aheadNow = Math.hypot(hp.x - c.x, hp.y - c.y);
-      const p0 = pointAt(aheadNow), cell = `pt:${(cur.center.lat + hp.y / 110_540).toFixed(3)},${(cur.center.lon + hp.x / (cos * 111_320)).toFixed(3)}`;
-      void p0;
-      const jobKey = cell;
-      if (!key0 || hopRefused.current.has(cell)) return;
-      // Asked once per area and kept: started well before it is needed (선로딩), so the move itself
-      // waits on nothing but the building.
-      let job = areaJobs.current.get(jobKey);
-      // Turning must consume an already prepared surrounding region, rather than
-      // starting another request for a slightly different point farther ahead.
-      const readyArea = pointAreas.current.ready().filter(res => {
-        if (!res.center || res.id === cur.id) return false;
-        const [x, y] = metresFrom(cur.center!, res.center.lat, res.center.lon);
-        return Math.hypot(x - c.x, y - c.y) < 650 && x * hx + y * hy > 150 &&
-          (x - c.x) * hx + (y - c.y) * hy > -120;
-      }).sort((a, b) => {
-        const [ax, ay] = metresFrom(cur.center!, a.center!.lat, a.center!.lon);
-        const [bx, by] = metresFrom(cur.center!, b.center!.lat, b.center!.lon);
-        return Math.hypot(ax - px, ay - py) - Math.hypot(bx - px, by - py);
-      })[0];
-      if (readyArea && due && dv.manual) job = Promise.resolve({ res: readyArea, key: readyArea.id, name: readyArea.name });
-      if (!job) {
-        // (points ahead change as the vehicle moves: one new one asked every 2.5 s at most)
-        if (performance.now() - lastPreload < 500) return;
-        lastPreload = performance.now();
-        job = (async (): Promise<Area> => {
-              for (const extra of [0, 190]) {
-                const ax = hp.x + hx * extra, ay = hp.y + hy * extra;
-                const res = await pointJob(ax, ay, true);
-                if (res?.found) {
-                  if (!pausedRef.current) prefetchPaint(res.id, res.name);
-                  return { res, key: res.id, name: res.name };
-                }
-              }
-              return { res: null, key: "", name: "" };
-            })();
-        void job.then(area => { if (!area.res) areaJobs.current.delete(jobKey); }, () => areaJobs.current.delete(jobKey));
-        areaJobs.current.set(jobKey, job);
-        while (areaJobs.current.size > 12) areaJobs.current.delete(areaJobs.current.keys().next().value!);
-      }
-      if (!due || !dv.manual || (hopPending.current && !readyArea)) return;
-      hopPending.current = true;
-      void job.then(({ res, key: targetId, name: targetName }) => {
-        hopPending.current = false;
-        const st2 = stageRef.current, dv2 = st2?.drive, cur2 = dataRef.current;
-        if (!res?.found || !res.buildings.length) return;
-        if (!st2 || dv2 !== dv || !dv2.manual || dv2.dead || st2.carry || !st2.traffic || !cur2?.center || hopRef.current) return;
-        // (by its own centre, not the list's point: re-centred there the vehicle must be well inside)
-        const c2 = st2.traffic.hero(dv2.name);
-        if (!c2 || !res.center) return;
-        const [tx, ty] = metresFrom(cur2.center, res.center.lat, res.center.lon);
-        // (it must lie on the way ahead, well past this view's centre, near enough to draw the vehicle)
-        const direction = driveAreaPlan(c2);
-        const along = (tx - c2.x) * direction.hx + (ty - c2.y) * direction.hy, here = -(c2.x * direction.hx + c2.y * direction.hy);
-        if (Math.hypot(tx - c2.x, ty - c2.y) > 900 || along < here + 150) return;
-        if (import.meta.env.DEV) console.info("[drive] re-centring on", targetName, targetId, performance.now().toFixed(0));
-        hopRef.current = { id: targetId, from: { ...cur2.center }, terrain: terrainRef.current, drive: true };
-        st2.carry = { dv: dv2, tr: st2.traffic, tick: st2.tick, ox: 0, oy: 0, dz: 0, letGo: null, at: performance.now() };
-        dv2.hopping = true;
-        setToast(t => ({ text: `🗺 ${targetName} 방면 지도를 불러옵니다`, n: (t?.n ?? 0) + 1 }));
-        setHop(targetId === homeId ? null : { id: targetId, name: targetName, home: homeId });
-      }).catch(() => { hopPending.current = false; });
-    }, 250);
-    return () => window.clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [driving?.name, nearby]);
-  /** `from`: the drive switched from the other vehicle — its delivery, fuel, gold and damage
-   * carried over; only the vehicle changes. */
-  const startDrive = (st: Stage, name: HeroName, from?: DriveState) => {
-    const car = st.traffic?.hero(name);
-    if (!car) return;
-    const spec = DRIVE_SPECS[name];
-    const sound = new EngineSound(spec);
-    const dv: DriveState = {
-      name, manual: false, view: "chase", cab: null, solids: null, lastSpeed: car.speed, baseFov: st.camera.fov,
-      keys: from ? { ...from.keys } : { up: false, down: false, left: false, right: false, hand: false },
-      sim: new DriveSim(car, spec, (x, y, r) => st.traffic?.near(x, y, r) ?? [], () => dv.solids, () => st.poles?.grid ?? null),
-      sound,
-      look: { yaw: 0, pitch: 0, held: false },
-      hud: { speed: null, gear: null, revs: null, hint: null, fuel: null },
-      shake: 0, game: null,
-      hp: 100, dead: false, fx: vehicleFx(), wreck: null, fireStop: null, warnAt: 0, hitAt: 0,
-      hurt: n => {
-        if (dv.dead || n <= 0) return;
-        dv.hp = Math.max(0, dv.hp - n);
-        setHp(Math.round(dv.hp)); setHurtKey(k => k + 1);
-        paintDamage(dv);
-        // the driver told as it gets bad: damaged, then about to go
-        const hw = dv.hp < 25 ? 2 : dv.hp < 50 ? 1 : 0;
-        if (hw > dv.feel.hpWarn && dv.hp > 0) {
-          feelSfx.alarm(dv.sound.ctx, "hp", dv.sound.master);
-          dv.feel.voice.say(hw === 2 ? "경고! 차량 내구도가 매우 낮습니다. 폭발 위험!" : "차량이 손상되었습니다. 충돌에 주의하세요", true);
-        }
-        if (hw !== dv.feel.hpWarn) { dv.feel.hpWarn = hw; dv.onWarn(); }
-        if (dv.hp <= 0) destroyVehicle(st, dv);
-      },
-      blowUp: why => destroyVehicle(st, dv, why), onDry: () => setFuelOut(true),
-      onWarn: () => { setFuelWarn(dv.feel.fuelWarn); setHpWarn(dv.feel.hpWarn); },
-      heal: n => {
-        if (dv.dead || n <= 0) return;
-        dv.hp = Math.min(100, dv.hp + n);
-        setHp(Math.round(dv.hp)); paintDamage(dv);
-        const hw = dv.hp < 25 ? 2 : dv.hp < 50 ? 1 : 0;
-        if (hw !== dv.feel.hpWarn) { dv.feel.hpWarn = hw; dv.onWarn(); }
-      },
-      onPickup: kind => {
-        if (kind === "fuel") setFuelOut(false);
-        const text = kind === "repair" ? `🔧 내구도 +${REPAIR_HP}` : dv.name === "cyber" ? "⚡ 배터리 +25%" : "⛽ 연료 +25%";
-        setToast(t => ({ text, n: (t?.n ?? 0) + 1 }));
-      },
-      feel: from ? { ...from.feel, squeal: screech(sound.ctx, sound.master), sparks: sparks(), lamps: brakeLamps(name), prevV: car.speed, paint: null } : {
-        squeal: screech(sound.ctx, sound.master), sparks: sparks(), cans: fuelCans(), voice: navVoice(), lamps: brakeLamps(name),
-        prevV: car.speed, acc: 0, fuelWarn: 0, hpWarn: 0, boostOn: false, paint: null, fx: hudSpeedFx.current, fuelText: hudFuelText.current,
-      },
-      fuel: 0, fuelCap: 0, dryAt: 0, home: { x: car.x, y: car.y, hx: car.hx, hy: car.hy }, earned: 0, delivered: 0, focusAt: [Infinity, Infinity],
-    };
-    st.drive = dv;
-    // (effects, pickups in the traffic's own frame: they move with it when the view re-centres)
-    const frame = st.traffic?.group ?? st.scene;
-    st.addWarm(frame, dv.fx.group);
-    st.addWarm(frame, dv.feel.sparks.mesh); st.addWarm(st.scene, dv.feel.lamps);
-    if (from) frame.add(dv.feel.cans.group); else st.addWarm(frame, dv.feel.cans.group);
-    // the damage seen on the body: its own surface darkened and dulled as health falls
-    const own = st.traffic?.heroShape(name)?.material as THREE.MeshStandardMaterial | undefined;
-    if (own?.color) dv.feel.paint = { mat: own, color: own.color.clone(), rough: own.roughness };
-    paintDamage(dv);
-    // Driving: the vehicles round it drawn from their modelled meshes, with plates, further out
-    // (at speed the ones ahead come up fast: modelled well before they are close).
-    st.traffic?.setDetail(st.hq ? 140 : 100, st.hq ? 65 : 45);
-    st.roadDetail?.(true);
-    if (from) {
-      dv.game = from.game; dv.fuel = from.fuel; dv.fuelCap = from.fuelCap; dv.dryAt = from.dryAt;
-      dv.earned = from.earned; dv.delivered = from.delivered; dv.home = from.home; dv.hp = from.hp;
-      dv.sim.steer = from.sim.steer; dv.sim.gear = from.sim.gear; dv.sim.rpm = from.sim.rpm;
-      dv.sim.throttle = from.sim.throttle; dv.sim.braking = from.sim.braking;
-      setHp(Math.round(dv.hp)); setWrecked(null);
-    } else {
-      dv.fuelCap = tankFor(0); dv.fuel = dv.fuelCap;
-      setHp(100); setWrecked(null); setFuelOut(false);
-      startDelivery(st, dv);
-    }
-    // The buildings to run into: their roofs gridded in idle slices (the drive starts at once).
-    const solid: THREE.Mesh[] = [...st.pickables];
-    st.scene.traverse(o => { if (o.userData.solid && (o as THREE.Mesh).isMesh) solid.push(o as THREE.Mesh); });
-    void solidGrid(solid, terrainRef.current, FAR_HALF, frameSlice).then(g => { if (st.drive === dv) dv.solids = g; });
-    setDriving({ name, view: "chase", manual: false });
-  };
-  /** A driving key: the vehicle taken from the traffic into the driver's hands. */
-  const takeOver = () => {
-    const st = stageRef.current, dv = st?.drive;
-    if (!st || !dv) return;
-    dv.sound.resume();
-    if (dv.manual) return;
-    const car = st.traffic?.drive(dv.name, true);
-    if (!car) return;
-    dv.manual = true;
-    car.pilot = dt => {
-      dv.sim.step(dt, dv.dead ? DEAD_KEYS : dv.fuel <= 0 ? dryKeys(dv.keys) : dv.keys); car.steer = dv.sim.steer;
-      if (dv.dead) return;
-      const now0 = performance.now();
-      // People in the way: knocked down (they get up again), the vehicle damaged by it.
-      const v = car.speed;
-      if (Math.abs(v) > 1.2) for (const crowd of st.crowds) for (const w of crowd.near(car.x, car.y, 7)) {
-        const dx = w.x - car.x, dy = w.y - car.y, al = dx * car.hx + dy * car.hy, side = dy * car.hx - dx * car.hy;
-        if (Math.abs(al) > car.length / 2 + 0.35 || Math.abs(side) > car.width / 2 + 0.35) continue;
-        const push = Math.sign(side || 1) * 1.5;
-        crowd.knock(w, car.hx * v * 0.7 - car.hy * push, car.hy * v * 0.7 + car.hx * push);
-        damageSfx.thud(dv.sound.ctx, dv.sound.master);
-        feelSfx.scream(dv.sound.ctx, dv.sound.master);
-        // (and someone nearby, a beat later)
-        if (Math.random() < 0.6) setTimeout(() => feelSfx.scream(dv.sound.ctx, dv.sound.master), 250 + Math.random() * 400);
-        dv.shake = Math.max(dv.shake, 2.5);
-        dv.hurt(4 + Math.abs(v) * 0.9);
-        const g = dv.game;
-        if (g && !g.done) { g.knocks++; g.knockAt = now0; setKnocks(g.knocks); }
-      }
-      if (dv.sim.bump > 0.6) {
-        dv.sound.knock(dv.sim.bump);
-        // metal and glass, and sparks where it struck (the end it was going toward)
-        if (dv.sim.bump > 2 && now0 - dv.hitAt > 250) {
-          feelSfx.crash(dv.sound.ctx, dv.sim.bump, dv.sound.master);
-          const end = car.speed <= 0 ? 1 : -1, gz = car.z ?? terrainRef.current.at(car.x, car.y);
-          const at = new THREE.Vector3(car.x + car.hx * end * car.length / 2, gz + 0.7, -(car.y + car.hy * end * car.length / 2));
-          dv.feel.sparks.burst(at, new THREE.Vector3(-car.hx * end, 0, car.hy * end), Math.min(70, 12 + dv.sim.bump * 6));
-          setToast(t => ({ text: dv.sim.bumpHit === "solid" ? "💥 건물과 충돌!" : dv.sim.bumpHit === "pole" ? "💥 가로수·가로등과 충돌!" : "💥 차량과 충돌!", n: (t?.n ?? 0) + 1 }));
-          // the other vehicle: it stops where it was struck (longer the harder), its driver leans
-          // on the horn a moment later; smoke from its crumpled end on a hard one
-          const other = dv.sim.bumpCar as (typeof car & { stunned?: number }) | null;
-          if (other) {
-            other.stunned = Math.max(other.stunned ?? 0, 3 + dv.sim.bump * 0.5);
-            const ctx = dv.sound.ctx, out = dv.sound.master;
-            window.setTimeout(() => sfx.horn(ctx, false, out), 500 + Math.random() * 400);
-            if (dv.sim.bump > 6) { const oz = other.z ?? gz; dv.feel.sparks.burst(new THREE.Vector3(other.x, oz + 0.9, -other.y), new THREE.Vector3(other.hx, 0, -other.hy), 30); }
-          }
-        }
-        dv.shake = Math.max(dv.shake, Math.min(6, dv.sim.bump));
-        // damage by the speed of the knock (a scrape nothing; 36 km/h into a wall about a third)
-        if (now0 - dv.hitAt > 250) { dv.hitAt = now0; dv.hurt(Math.max(0, dv.sim.bump - 1.2) * 3.4); }
-        // (a knock counts against the delivery once per half second)
-        const g = dv.game, now = performance.now();
-        if (g && !g.done && dv.sim.bump > 1.5 && now - g.knockAt > 500) { g.knocks++; g.knockAt = now; setKnocks(g.knocks); }
-      }
-    };
-    setDriving(d => d && { ...d, manual: true });
-  };
-  const toggleDriveView = () => {
-    const st = stageRef.current, dv = st?.drive;
-    if (!st || !dv) return;
-    const car = st.traffic?.hero(dv.name);
-    dv.view = dv.view === "chase" ? "cockpit" : "chase";
-    dv.look.yaw = 0; dv.look.pitch = 0;
-    if (dv.view === "cockpit") {
-      if (!dv.cab) { dv.cab = cockpit(dv.name); dv.cab.group.matrixAutoUpdate = false; st.addWarm(st.scene, dv.cab.group); }
-      dv.cab.group.visible = true;
-      if (car) car.hide = true;
-    } else {
-      if (dv.cab) dv.cab.group.visible = false;
-      if (car) car.hide = false;
-    }
-    setDriving(d => d && { ...d, view: dv.view });
-    st.resume();
-  };
-  useEffect(() => {
-    const dv = stageRef.current?.drive;
-    if (dv) { dv.hud = { speed: hudSpeed.current, gear: hudGear.current, revs: hudRevs.current, hint: null, fuel: hudFuel.current }; dv.feel.fx = hudSpeedFx.current; dv.feel.fuelText = hudFuelText.current; }
-  }, [driving]);
-  useEffect(() => {
-    if (!driving) return;
-    // (by the key's place, not its letter: a Korean layout types ㅈ for W)
-    const which = (code: string): keyof Keys | null =>
-      code === "KeyW" || code === "ArrowUp" ? "up" : code === "KeyS" || code === "ArrowDown" ? "down"
-        : code === "KeyA" || code === "ArrowLeft" ? "left" : code === "KeyD" || code === "ArrowRight" ? "right" : code === "Space" ? "hand"
-        : code === "ShiftLeft" || code === "ShiftRight" ? "boost" : null;
-    const typing = (e: KeyboardEvent) => { const el = e.target as HTMLElement | null; return !!el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable); };
-    const down = (e: KeyboardEvent) => {
-      const dv = stageRef.current?.drive;
-      if (!dv || typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.code === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); stopFollow(); return; }
-      if (e.code === "KeyM") { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) { dv.feel.voice.on = !dv.feel.voice.on; setToast(t => ({ text: dv.feel.voice.on ? "🔊 음성 안내 켬" : "🔇 음성 안내 끔", n: (t?.n ?? 0) + 1 })); } return; }
-      if (e.code === "KeyH") { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) sfx.horn(dv.sound.ctx, dv.name === "coupang", dv.sound.master); return; }
-      if (e.code === "KeyV" || e.code === "KeyC") { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) toggleDriveView(); return; }
-      const k = which(e.code);
-      if (!k) return;
-      e.preventDefault(); e.stopImmediatePropagation();
-      dv.keys[k] = true;
-      if (k === "boost" && !e.repeat && dv.fuel > 0 && !dv.dead) feelSfx.boost(dv.sound.ctx, dv.sound.master);
-      if (k !== "hand" && k !== "boost") takeOver();
-    };
-    const up = (e: KeyboardEvent) => {
-      const dv = stageRef.current?.drive, k = which(e.code);
-      if (dv && k) { dv.keys[k] = false; e.preventDefault(); }
-    };
-    const blur = () => { const dv = stageRef.current?.drive; if (dv) for (const k of Object.keys(dv.keys) as (keyof Keys)[]) dv.keys[k] = false; };
-    // (on the window, capturing: ahead of the view's own arrow keys and the full screen's Esc)
-    window.addEventListener("keydown", down, true); window.addEventListener("keyup", up, true); window.addEventListener("blur", blur);
-    return () => { window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); window.removeEventListener("blur", blur); };
-  }, [driving?.name]);
-  /** A touch pedal or steering button held. */
-  const pedal = (k: keyof Keys, on: boolean) => {
-    const dv = stageRef.current?.drive;
-    if (!dv) return;
-    dv.keys[k] = on;
-    if (on && k !== "hand") takeOver();
-  };
-  const followHero = (name: HeroName) => {
-    const st = stageRef.current;
-    if (!st?.traffic) return;
-    if (st.follow === name) { stopFollow(); return; }
-    if (st.balloonView) leaveBalloon();
-    // 운전 중 차종 전환: the delivery, fuel, gold and damage carry over; only the vehicle changes
-    // (brought onto the lane where the other one is). Not from a wreck: that is the repair's.
-    const was = st.drive;
-    if (was && !was.dead && st.follow) {
-      const old = st.traffic.hero(was.name);
-      if (!old) return;
-      const [ox, oy, ohx, ohy] = [old.x, old.y, old.hx, old.hy];
-      st.drive = null;
-      releaseVehicle(st, was);
-      if (!st.traffic.summon(name, ox, oy, ohx, ohy)) { st.drive = was; st.traffic.drive(was.name, was.manual); return; }
-      st.follow = name; setFollow(name);
-      startDrive(st, name, was);
-      if (was.manual) takeOver();
-      st.resume();
-      return;
-    }
-    endDrive();
-    const t = st.controls.target;
-    if (st.follow !== name && !st.traffic.summon(name, t.x, -t.z)) return;
-    st.follow = name;
-    st.controls.autoRotate = false; spinRef.current = false; setSpin(false);
-    st.intro = null; st.fly = null; setTip(null);
-    setFollow(name);
-    startDrive(st, name);
-    st.resume();
-  };
   const enterBalloon = () => {
     const st = stageRef.current;
     if (!st?.balloon || !st.balloon.group.visible || st.balloonView) return;
@@ -4585,18 +3543,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const p = press.current;
     if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) {
       p.moved = true;
-      // (a drag takes the view back from the followed vehicle; driving it, it looks round)
-      const st = stageRef.current, dv = st?.drive;
-      if (dv) {
-        const d = drag.current ?? (drag.current = { x: p.x, y: p.y, pinch: 0 });
-        dv.look.held = true;
-        dv.look.yaw = THREE.MathUtils.clamp(dv.look.yaw - (e.clientX - d.x) * 0.006, -Math.PI, Math.PI);
-        dv.look.pitch = THREE.MathUtils.clamp(dv.look.pitch - (e.clientY - d.y) * 0.004, -0.6, 0.5);
-        d.x = e.clientX; d.y = e.clientY;
-        st!.resume();
-        return;
-      }
-      if (st?.follow) stopFollow();
     }
     if (stageRef.current?.balloonView) {
       if (touchPoints.current.has(e.pointerId)) touchPoints.current.set(e.pointerId, [e.clientX, e.clientY]);
@@ -4611,8 +3557,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     }
     if (e.pointerType !== "mouse") return;
     if (e.buttons) { setTip(null); return; }
-    // (no building names popping up while driving)
-    if (stageRef.current?.drive) return;
     if (!tip?.pinned) pick(e, false);
   };
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -4633,8 +3577,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     touchPoints.current.delete(e.pointerId);
     press.current = null;
     if (stageRef.current?.balloonView) { if (touchPoints.current.size === 0) drag.current = null; else if (drag.current) drag.current.pinch = pinchSpan(); return; }
-    const dv = stageRef.current?.drive;
-    if (dv) { dv.look.held = false; drag.current = null; return; }
     if (!p || p.id !== e.pointerId || pointers.current.size > 0 || p.moved) return;
     // A drag turned the model: whatever was pinned no longer points at its building.
     if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8 || performance.now() - p.t > 450) { setTip(null); return; }
@@ -4904,128 +3846,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         )}
         {failed3d && <p className="re-holo-msg">3D 화면을 불러오지 못했습니다. 브라우저 설정에서 하드웨어 가속이 켜져 있는지 확인해 주세요.{" "}
           <button type="button" className="re-holo-retry" onClick={() => location.reload()}>다시 시도</button></p>}
-        {loading && !driving && <div className="re-holo-scan" role="status"><span />{dataTry ? `응답이 늦어 다시 요청하는 중입니다 (${dataTry + 1}/3)…` : slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
-        {!loading && preparing && !driving && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
+        {loading && <div className="re-holo-scan" role="status"><span />{dataTry ? `응답이 늦어 다시 요청하는 중입니다 (${dataTry + 1}/3)…` : slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
+        {!loading && preparing && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
         {!loading && error && <p className="re-holo-msg" role="status">{error}{" "}
           <button type="button" className="re-holo-retry" onClick={() => setReloadKey(k => k + 1)}>다시 시도</button></p>}
         {balloonOn && <div className="re-holo-balloon-hint" role="status"><b>🎈 열기구에서 내려다보는 중</b><span>{touchMode ? "드래그로 둘러보기 · 두 손가락으로 확대·축소" : "드래그로 둘러보기 · 휠로 확대·축소 · Esc로 내리기"}</span></div>}
-        {driving && <div className={`re-drive${driving.view === "cockpit" ? " is-cockpit" : ""}`}>
-          <div ref={hudSpeedFx} className="re-drive-speedfx" aria-hidden="true" style={{ opacity: 0 }} />
-          {hpWarn > 0 && !wrecked && <div className={`re-drive-vignette${hpWarn === 2 ? " is-critical" : ""}`} aria-hidden="true" />}
-          {hurtKey > 0 && <div key={`hit-${hurtKey}`} className={`re-drive-hit${hp < 20 ? " is-critical" : ""}`} aria-hidden="true" />}
-          {!wrecked && (hpWarn > 0 || fuelWarn > 0) && <div className="re-drive-alerts" role="alert">
-            {hpWarn > 0 && <span className={hpWarn === 2 ? "is-critical" : undefined}>{hpWarn === 2 ? "⚠ 내구도 위험 — 곧 폭발합니다!" : "🔧 차량 손상 — 충돌에 주의하세요"}</span>}
-            {fuelWarn > 0 && !fuelOut && <span className={fuelWarn === 2 ? "is-critical" : undefined}>{driving.name === "cyber" ? "⚡ 배터리" : "⛽ 연료"} {fuelWarn === 2 ? "거의 바닥!" : "부족"}{delivery ? " — 연료통을 찾거나 서둘러 배송하세요" : ""}</span>}
-          </div>}
-          {toast && <div key={`toast-${toast.n}`} className="re-drive-toast" role="status">{toast.text}</div>}
-          {wrecked === "water" && <div className="re-drive-done is-wreck" role="status" aria-label="차량 침수">
-            <strong>물에 빠졌습니다!</strong>
-            <span className="re-drive-dest">차량이 폭발했습니다 · 출발 지점에서 다시 시작합니다</span>
-          </div>}
-          {wrecked && wrecked !== "water" && <div className="re-drive-done is-wreck" role="dialog" aria-label="차량 폭발">
-            <strong>차량 폭발!</strong>
-            <span className="re-drive-dest">{wrecked === "fuel" ? (driving.name === "cyber" ? "배터리가 바닥나 차량이 폭발했습니다" : "연료가 바닥나 차량이 폭발했습니다") : "내구도가 0이 되어 차량이 폭발했습니다"}{delivery ? ` · ${delivery.name} 배송 실패` : ""}</span>
-            <dl><dt>충돌</dt><dd>{knocks}회</dd><dt>수리비</dt><dd>−{Math.min(50, goldSum)} G</dd></dl>
-            <button type="button" onClick={repairVehicle}>수리·주유하고 다시 출발</button>
-          </div>}
-          {fuelOut && !wrecked && <div className="re-drive-dry" role="alert">{driving.name === "cyber" ? "⚡ 배터리가 바닥났습니다" : "⛽ 연료가 바닥났습니다"}</div>}
-          <div className="re-drive-gauge" aria-live="off">
-            <span className="re-drive-name">{driving.name === "coupang" ? "쿠팡 로켓배송 트럭" : "사이버트럭"}</span>
-            <span className="re-drive-read"><span ref={hudSpeed} className="re-drive-speed">0</span><small>km/h</small></span>
-            <span className="re-drive-rpm"><i ref={hudRevs} /></span>
-            <span className={`re-drive-hp${hp < 20 ? " is-critical" : hp < 45 ? " is-low" : ""}`} title={`차량 내구도 ${hp}`}><em>HP</em><span><i style={{ transform: `scaleX(${hp / 100})` }} /></span><b>{hp}</b></span>
-            <span className="re-drive-fuel" title={`${driving.name === "cyber" ? "배터리 (사이버트럭: 빠른 대신 더 빨리 닳습니다)" : "연료"}: 목적지 단지까지의 거리만큼 채워지고, 배송을 마치면 가득 찹니다`}><em>{driving.name === "cyber" ? "⚡" : "⛽"}</em><span><i ref={hudFuel} /></span><b ref={hudFuelText as React.RefObject<HTMLElement>} className="re-drive-fueltxt">–</b></span>
-            <span className="re-drive-gear" ref={hudGear}>{driving.name === "coupang" ? "N" : "P"}</span>
-          </div>
-          {delivery && !result && <>
-            <div className="re-drive-mission">
-              <span className="re-drive-tag">배송 #{delivery.n}</span>
-              <b ref={gameHud.name as React.RefObject<HTMLElement & HTMLElement>}>{delivery.name}</b>
-              <span className="re-drive-row"><i>남은 거리</i><b ref={gameHud.dist as React.RefObject<HTMLElement>}>–</b></span>
-              <span className="re-drive-row"><i>시간</i><b ref={gameHud.time as React.RefObject<HTMLElement>}>0:00</b></span>
-              <span className="re-drive-row"><i>예상 보상</i><b className="re-drive-goldtxt"><span ref={gameHud.gold as React.RefObject<HTMLElement>}>–</span> G</b></span>
-              {knocks > 0 && <span className="re-drive-row is-warn"><i>충돌</i><b>{knocks}회</b></span>}
-              <button type="button" onClick={nextDelivery}>다른 배송지</button>
-            </div>
-            <div className="re-drive-turn"><span className="re-drive-turn-icon" ref={gameHud.turn as React.RefObject<HTMLElement>}>↑</span><span ref={gameHud.turnDist as React.RefObject<HTMLElement>}>경로 안내</span></div>
-            <canvas className="re-drive-map" ref={gameHud.map} aria-label="미니맵" />
-          </>}
-          <div className="re-drive-wallet" title="누적 수익">🪙 <b>{goldSum.toLocaleString()}</b> G</div>
-          {result && <div className="re-drive-done" role="dialog" aria-label="배송 성공">
-            <div className="re-drive-coins" aria-hidden="true">{Array.from({ length: 14 }, (_, i) => <i key={i} style={{ ["--i" as string]: i } as React.CSSProperties}>🪙</i>)}</div>
-            <strong>배송 성공!</strong>
-            <span className="re-drive-stars" aria-label={`별 ${result.stars}개`}>{"★".repeat(result.stars)}<em>{"★".repeat(3 - result.stars)}</em></span>
-            <span className="re-drive-dest">{result.name} 도착</span>
-            <dl>
-              <dt>운행 거리</dt><dd>{result.wayM >= 1000 ? `${(result.wayM / 1000).toFixed(2)} km` : `${Math.round(result.wayM)} m`} · {Math.floor(result.secs / 60)}분 {Math.round(result.secs % 60)}초</dd>
-              <dt>거리 보상</dt><dd>+{result.gold.base} G</dd>
-              {result.gold.time > 0 && <><dt>시간 보너스</dt><dd>+{result.gold.time} G</dd></>}
-              {result.gold.clean > 0 && <><dt>무사고 보너스</dt><dd>+{result.gold.clean} G</dd></>}
-              {result.gold.penalty > 0 && <><dt>충돌 {result.knocks}회</dt><dd>−{result.gold.penalty} G</dd></>}
-            </dl>
-            <span className="re-drive-earned">+{result.gold.total} G</span>
-            <span className="re-drive-sum">누적 {result.total.toLocaleString()} G</span>
-            <button type="button" onClick={nextDelivery}>다음 배송 시작</button>
-          </div>}
-          <p className="re-drive-hint" role="status">
-            {driving.manual
-              ? (touchMode ? "◀ ▶ 조향 · 가속 / 브레이크 · 드래그로 둘러보기" : "W·↑ 가속 · Shift 부스트(연료 3배) · S·↓ 브레이크/후진 · A D·← → 조향 · Space 핸드브레이크 · H 경적 · V 시점 · M 음성안내 · Esc 끝내기")
-              : (touchMode ? "가속 페달을 누르면 직접 운전합니다" : "W 또는 ↑ 를 누르면 직접 운전합니다 · V 운전석 시점")}
-          </p>
-          <div className="re-drive-tools">
-            <button type="button" onClick={toggleDriveView}>{driving.view === "chase" ? "1인칭 운전석" : "3인칭 시점"}</button>
-            <button type="button" onClick={stopFollow}>운전 끝내기</button>
-          </div>
-          {touchMode && <div className="re-drive-pads">
-            {([["left", "◀"], ["right", "▶"]] as const).map(([k, t]) => (
-              <button key={k} type="button" className={`re-drive-pad is-${k}`} aria-label={k === "left" ? "왼쪽" : "오른쪽"}
-                onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); pedal(k, true); }} onPointerUp={() => pedal(k, false)} onPointerCancel={() => pedal(k, false)}>{t}</button>
-            ))}
-            {([["down", "브레이크"], ["up", "가속"]] as const).map(([k, t]) => (
-              <button key={k} type="button" className={`re-drive-pad is-${k}`}
-                onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); pedal(k, true); }} onPointerUp={() => pedal(k, false)} onPointerCancel={() => pedal(k, false)}>{t}</button>
-            ))}
-          </div>}
-        </div>}
-        {nickAsk && <form className="re-drive-board" role="dialog" aria-label="닉네임 입력"
-          onSubmit={e => { e.preventDefault(); const n = nick.trim().slice(0, 16); if (!n) return; setPlayerName(n); recordScore(nickAsk, n); setNickAsk(null); }}>
-          <strong>🏆 스코어 기록</strong>
-          <span className="re-drive-board-sub">이번 운전 점수 <b>{nickAsk.score.toLocaleString()}</b>점 · 배송 {nickAsk.deliveries}건</span>
-          <label>순위표에 표시할 닉네임<input autoFocus maxLength={16} value={nick} onChange={e => setNick(e.currentTarget.value)} placeholder="닉네임 (16자 이내)" /></label>
-          <div className="re-drive-board-btns">
-            <button type="submit" disabled={!nick.trim()}>기록하기</button>
-            <button type="button" onClick={() => setNickAsk(null)}>기록하지 않기</button>
-          </div>
-        </form>}
-        {board && !nickAsk && <div className="re-drive-board" role="dialog" aria-label="배송 게임 순위">
-          <strong>🏆 배송 게임 순위</strong>
-          {board.last !== undefined && <span className="re-drive-board-sub">이번 운전 <b>+{board.last.toLocaleString()}</b>점 기록</span>}
-          {board.error && <p className="re-drive-board-msg">{board.error}</p>}
-          {!board.data && !board.error && <p className="re-drive-board-msg">불러오는 중…</p>}
-          {board.data && <>
-            {board.data.top.length === 0 ? <p className="re-drive-board-msg">아직 기록이 없습니다. 첫 기록의 주인공이 되어 보세요!</p> : (
-              <ol className="re-drive-board-list">
-                {board.data.top.map((r, i) => (
-                  <li key={i} className={r.me ? "is-me" : undefined}>
-                    <span className="re-drive-board-rank">{r.rank <= 3 ? ["🥇", "🥈", "🥉"][r.rank - 1] : r.rank}</span>
-                    <span className="re-drive-board-name">{r.name}</span>
-                    <span className="re-drive-board-n">{r.deliveries}건</span>
-                    <b>{r.score.toLocaleString()}</b>
-                  </li>
-                ))}
-              </ol>
-            )}
-            <div className={`re-drive-board-me${board.data.me ? "" : " is-none"}`}>
-              {board.data.me ? <>
-                <span className="re-drive-board-rank">{board.data.me.rank}위</span>
-                <span className="re-drive-board-name">나 · {board.data.me.name}</span>
-                <span className="re-drive-board-n">{board.data.players}명 중</span>
-                <b>{board.data.me.score.toLocaleString()}</b>
-              </> : <span>내 기록 없음 · 배송을 마치고 운전을 끝내면 점수가 기록됩니다</span>}
-            </div>
-          </>}
-          <div className="re-drive-board-btns"><button type="button" onClick={() => setBoard(null)}>닫기</button></div>
-        </div>}
         {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
           role="status">{tip.text}</div>}
       </div>
@@ -5049,19 +3874,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           title={balloonOn ? "열기구에서 내려 원래 시점으로" : "열기구에 타고 단지를 내려다보기 (열기구를 눌러도 됩니다)"}>
           <i aria-hidden="true">🎈</i><span>{balloonOn ? "내리기" : "열기구"}</span>
         </button>
-        {gameOn && <>
-          <button type="button" className="re-holo-balloon-btn" aria-pressed={follow === "coupang"} disabled={!heroesReady} onClick={() => followHero("coupang")}
-            title={follow === "coupang" ? "쿠팡 트럭 운전 끝내기" : "쿠팡 로켓배송 트럭을 지금 보는 도로로 불러와 운전하기 (W·↑ 가속, V 운전석)"}>
-            <i aria-hidden="true">🚚</i><span>쿠팡트럭</span>
-          </button>
-          <button type="button" className="re-holo-balloon-btn" aria-pressed={follow === "cyber"} disabled={!heroesReady} onClick={() => followHero("cyber")}
-            title={follow === "cyber" ? "사이버트럭 운전 끝내기" : "테슬라 사이버트럭을 지금 보는 도로로 불러와 운전하기 (W·↑ 가속, V 운전석)"}>
-            <i aria-hidden="true">⚡</i><span>사이버트럭</span>
-          </button>
-          <button type="button" className="re-holo-balloon-btn" onClick={showBoard} title="배송 게임 순위 (모든 사용자)">
-            <i aria-hidden="true">🏆</i><span>스코어</span>
-          </button>
-        </>}
+        {gameOn && complexId && data?.center && <a className="re-holo-balloon-btn" title="실제 지도 위를 달리는 배송 게임 (새 화면에서 열립니다)"
+          href={`/drive?${new URLSearchParams({ id: complexId, lat: data.center.lat.toFixed(6), lon: data.center.lon.toFixed(6), back: location.pathname + location.search })}`}>
+          <i aria-hidden="true">🚚</i><span>드라이브</span>
+        </a>}
       </div>}
       {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label="3D 화면 조작">
         {/* One row of views and steps; the gestures do the rest. A mouse also gets

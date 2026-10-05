@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import "./workerCpuRaster";
 // Ground textures painted off the page's thread (texPaint): a 2048 px asphalt held the page
 // ~60 ms painted on it. Each request answered with an ImageBitmap (transferred).
 import { paintAsphalt, paintPaver, paintTactile, type PaverStyle } from "./texPaint";

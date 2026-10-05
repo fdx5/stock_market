@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import "./workerCpuRaster";
 import { contextSteps, facadeSteps, NEIGHBOUR_PALETTE, plinthSteps, runNow } from "./complexScene";
 import type { PaintJob, TexParams } from "./paintClient";
 import { preparedNormal, preparedContext } from './preparedPaint';

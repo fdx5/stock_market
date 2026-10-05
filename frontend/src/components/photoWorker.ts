@@ -1,3 +1,4 @@
+import "./workerCpuRaster";
 import * as THREE from "three";
 import { coloursFrom, rhythmFrom, wallPaintFrom } from "./photoAnalysis";
 

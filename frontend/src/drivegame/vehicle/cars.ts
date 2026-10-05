@@ -1,8 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { fetchStatic } from "../staticCdn";
-import { frameSlice } from "./frameSlice";
-import { onSceneMemoryRelease } from "./sceneMemory";
+import { fetchStatic } from "../../staticCdn";
 
 /* Passenger cars built from their proportions, in place of the Kenney kit's blocky bodies:
  * a side profile (bonnet, windscreen, roof, rear screen, boot or hatch) lofted through
@@ -104,7 +102,7 @@ class Builder {
 const STATIONS = 40, HALF = 11;
 
 /** The body shell: stations along the car, each a closed section (mirrored half). */
-function body(sp: CarSpec, b: Builder, stations = STATIONS) {
+function body(sp: CarSpec, b: Builder) {
   const L = sp.length, W = sp.width / 2;
   const zOf = (t: number) => (t - 0.5) * L;
   // Rounded in plan: full width over most of the length, easing in at both ends.
@@ -122,9 +120,9 @@ function body(sp: CarSpec, b: Builder, stations = STATIONS) {
     for (const a of axleZ) { const dz = Math.abs(z - a); if (dz < open) y = Math.max(y, R + Math.sqrt(open * open - dz * dz)); }
     return y;
   };
-  for (let i = 0; i <= stations; i++) {
+  for (let i = 0; i <= STATIONS; i++) {
     // (stations closer together at the ends, where the shape turns fastest)
-    const s = i / stations, t = 0.5 - 0.5 * Math.cos(Math.PI * s);
+    const s = i / STATIONS, t = 0.5 - 0.5 * Math.cos(Math.PI * s);
     const z = zOf(t), w = Math.max(0.02, halfW(t)), top = Math.max(bottom(t) + 0.1, curve(sp.top, t));
     const y0 = Math.min(bottom(t), top - 0.05);
     const cabin = t >= sp.cabin[0] && t <= sp.cabin[1] && top > sp.belt + 0.08;
@@ -148,9 +146,9 @@ function body(sp: CarSpec, b: Builder, stations = STATIONS) {
   }
   const [a0, a1] = axleZ;
   const arch = (p: THREE.Vector3) => Math.min(Math.hypot(p.z - a0, p.y - R), Math.hypot(p.z - a1, p.y - R)) < R + 0.12 && p.x > sp.width / 2 * 0.8;
-  for (let i = 0; i < stations; i++) {
+  for (let i = 0; i < STATIONS; i++) {
     const A = sections[i], B = sections[i + 1];
-    const tMid = 0.5 - 0.5 * Math.cos(Math.PI * (i + 0.5) / stations);
+    const tMid = 0.5 - 0.5 * Math.cos(Math.PI * (i + 0.5) / STATIONS);
     const front = tMid > 0.965, rear = tMid < 0.035;
     for (let j = 0; j < HALF - 1; j++) {
       let s: Swatch = kinds[i][j + 1] === "glass" && kinds[i + 1][j + 1] === "glass" ? "glass" : kinds[i][j] === "trim" ? "trim" : "body";
@@ -173,7 +171,7 @@ function body(sp: CarSpec, b: Builder, stations = STATIONS) {
     }
   }
   // caps at the very nose and tail
-  for (const [k, flip] of [[0, true], [stations, false]] as const) {
+  for (const [k, flip] of [[0, true], [STATIONS, false]] as const) {
     const S = sections[k], c = new THREE.Vector3(0, (S[0].y + S[HALF - 1].y) / 2, S[0].z);
     for (let j = 0; j < HALF - 1; j++) for (const m of [1, -1]) {
       const p = (v: THREE.Vector3) => new THREE.Vector3(v.x * m, v.y, v.z);
@@ -183,8 +181,8 @@ function body(sp: CarSpec, b: Builder, stations = STATIONS) {
 }
 
 /** A wheel: tyre tread and walls, a rim face with spokes' shade, at (x, z) facing out. */
-function wheel(b: Builder, x: number, z: number, R: number, width: number, out: 1 | -1, segments = 20) {
-  const N = segments, inner = x - out * width / 2, outer = x + out * width / 2;
+function wheel(b: Builder, x: number, z: number, R: number, width: number, out: 1 | -1) {
+  const N = 20, inner = x - out * width / 2, outer = x + out * width / 2;
   const rimR = R * 0.62;
   const at = (a: number, r: number, xx: number) => new THREE.Vector3(xx, R + Math.sin(a) * r, z + Math.cos(a) * r);
   for (let i = 0; i < N; i++) {
@@ -204,17 +202,16 @@ const cache = new Map<string, THREE.BufferGeometry>();
 export function primeCarGeometry(kind: string, g: THREE.BufferGeometry) { if (!cache.has(kind)) cache.set(kind, g); }
 
 /** The car of a kind (CAR_SPECS keys), shared by every car of that kind. */
-export function carGeometry(kind: string, compact = false): THREE.BufferGeometry | null {
+export function carGeometry(kind: string): THREE.BufferGeometry | null {
   const sp = CAR_SPECS[kind];
   if (!sp) return null;
-  const key = compact ? kind + ':compact' : kind;
-  const hit = cache.get(key);
+  const hit = cache.get(kind);
   if (hit) return hit;
   const b = new Builder();
-  body(sp, b, compact ? 10 : STATIONS);
+  body(sp, b);
   // (outer tyre face just inside the body side)
   const L = sp.length, x = sp.width / 2 - 0.04 - 0.11;
-  for (const t of sp.axles) for (const side of [1, -1] as const) wheel(b, x * side, (t - 0.5) * L, sp.wheel, 0.22, side, compact ? 8 : 20);
+  for (const t of sp.axles) for (const side of [1, -1] as const) wheel(b, x * side, (t - 0.5) * L, sp.wheel, 0.22, side);
   // side mirrors
   const top = curve(sp.top, sp.cabin[1] - 0.04);
   for (const side of [1, -1]) {
@@ -240,7 +237,7 @@ export function carGeometry(kind: string, compact = false): THREE.BufferGeometry
   // Smooth over the panels, hard at real creases (sills, screen edges, wheel faces).
   const g = toCreasedNormals(merged, (40 * Math.PI) / 180);
   parts.forEach(p => p.dispose()); if (merged !== parts[0]) merged.dispose();
-  cache.set(key, g);
+  cache.set(kind, g);
   return g;
 }
 
@@ -252,12 +249,9 @@ export function loadCarModels(): Promise<Map<string, THREE.BufferGeometry>> {
   modelled ??= Promise.all([
     fetchStatic("/3d/cars.json").then(r => { if (!r.ok) throw new Error("cars.json " + r.status); return r.json() as Promise<{ kinds: Record<string, CarPart> }>; }),
     fetchStatic("/3d/cars.bin").then(r => { if (!r.ok) throw new Error("cars.bin " + r.status); return r.arrayBuffer(); }),
-  ]).then(async ([meta, bin]) => {
+  ]).then(([meta, bin]) => {
     const out = new Map<string, THREE.BufferGeometry>();
-    // (a kind a slice: all seventeen at once were ~95 ms of one frame, just after the view's first)
-    let at = performance.now();
     for (const [kind, p] of Object.entries(meta.kinds)) {
-      if (performance.now() - at > 4) { await frameSlice(); at = performance.now(); }
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(bin, p.pos, p.verts * 3).slice(), 3));
       const n8 = new Int8Array(bin, p.nor, p.verts * 4), nor = new Float32Array(p.verts * 3);
@@ -283,12 +277,17 @@ export function loadCarModels(): Promise<Map<string, THREE.BufferGeometry>> {
  * surface itself (ComplexRenderer CAR_MODEL). */
 const PART_RGB = ["#ffffff", "#1b2028", "#141414", "#9ea3a8", "#c8ccd0", "#f2efe6", "#9a1c1c", "#eeeeea", "#f0a823", "#0c0c0c", "#d4d7da", "#eeeeeb"];
 let partTex: THREE.Texture | null = null;
-onSceneMemoryRelease(() => {
-  cache.forEach(g => g.dispose()); cache.clear();
-  const old = modelled; modelled = null;
-  void old?.then(models => { models.forEach(g => g.dispose()); models.clear(); }).catch(() => {});
-  partTex?.dispose(); partTex = null;
-});
+/** The modelled cars' lamps lit (night): head lamps white, tail lamps red, by the same uv slots. */
+export function carLampMap() {
+  const c = document.createElement("canvas"); c.width = 16; c.height = 1;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#000"; g.fillRect(0, 0, 16, 1);
+  g.fillStyle = "#fff4dc"; g.fillRect(5, 0, 1, 1);
+  g.fillStyle = "#ff1a10"; g.fillRect(6, 0, 1, 1);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+  return t;
+}
 export function carModelMaterial() {
   if (!partTex) {
     const c = document.createElement("canvas"); c.width = 16; c.height = 1;

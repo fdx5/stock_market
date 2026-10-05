@@ -80,6 +80,7 @@ const KosdaqMapPage = lazy(() => import("./components/KosdaqMapPage"));
 const Sp500MapPage = lazy(() => import("./components/Sp500MapPage"));
 const Nasdaq100MapPage = lazy(() => import("./components/Nasdaq100MapPage"));
 const RealEstateMapPage = lazy(() => import("./components/RealEstateMapPage"));
+const DriveGamePage = lazy(() => import("./drivegame/DriveGamePage"));
 const TugOfWarPage = lazy(() => import("./components/TugOfWarPage"));
 const GlobalStockPage = lazy(() => import("./components/GlobalStockPage"));
 const UsStockIntelligencePage = lazy(() => import("./components/UsStockIntelligencePage"));
@@ -387,6 +388,8 @@ export default function App() {
     page = <Nasdaq100MapPage />;
   } else if (path === "/realestate-map") {
     page = <RealEstateMapPage />;
+  } else if (path === "/drive") {
+    page = <DriveGamePage />;
   } else if (path === "/global") {
     page = <BroadsheetWorldPage />;
   } else if (path === "/battle") {
@@ -458,7 +461,7 @@ export default function App() {
   // Keep the floating recent-stocks rail on browsing/ranking workspaces only.
   // A stock detail page records the visit for use elsewhere, but must not render
   // the desk's rail itself (regardless of viewport size or navigation history).
-  const keepBgm = !["/", "/hub", "/type2"].includes(path) && !path.startsWith("/admin");
+  const keepBgm = !["/", "/hub", "/type2", "/drive"].includes(path) && !path.startsWith("/admin");
   useEffect(() => keepBgm ? attachDeskBgm() : undefined, [keepBgm]);
   const showRecentDock = RECENT_DOCK_PATHS.has(path);
   // The desk's music carries on into these full-screen pages (see DeskBgmFloat).

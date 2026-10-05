@@ -1,0 +1,54 @@
+# 드라이브 배송 게임 — 독립 서비스 재구축 (2026-10-05)
+
+## 결정
+
+- 게임은 3D 건물뷰와 **완전히 분리된 서비스**다. 경로 `/drive` (`frontend/src/drivegame/`, lazy chunk). 런타임에 공유하는 것은 정적 파일(차량 모델 `cars.bin`, 오디오)과 API 클라이언트뿐이다.
+- 3D 건물뷰에서는 게임 코드를 모두 제거했다(ComplexHologram −1,111줄, `driveSim/driveFx/driveFeel/driveGame.ts` 삭제, `.re-drive*` CSS 삭제). 뷰에는 `?devgame=1` 사용자에게만 보이는 「🚚 드라이브」 링크(`/drive?id=&lat=&lon=&back=`) 하나만 남는다.
+- 단지 단위 장면을 재구축하던 기존 방식(hop/carry)은 폐기했다. 고정 격자 타일 스트리밍으로 대체했다.
+
+## 구조
+
+| 모듈 | 역할 |
+|---|---|
+| `world/geo.ts` | 세션 원점 미터 좌표계, 위경도 고정 타일(0.003°×0.0025°, 약 265×277m). 타일 키는 세션과 무관하다 |
+| `world/tileWorker.ts` | 클래식 워커(Blob)다. VWorld JSONP(importScripts): 건물·도로중심선·연속지적도 하천/유지/양어장, DEM. IndexedDB 원자료 캐시(`drivegame/raw`, v4)를 쓴다. 지면(도로 밑 깎기·물 높이), 아스팔트·교차로 채움, 보도·연석, 노면표시, 교량(상판·난간·교각), 스타일별 건물, 지붕(지면 메시에 합침), 가로등·가로수, 충돌용 footprint, 도로 전체 선형(높이 포함), 공동주택 배송지를 모두 만든다 |
+| `world/World.ts` | 도달 예상 기반 타일 요청(진행 방향·경로 가중), 워커 풀(2–4), 프레임당 메시 1개 이상(예산 2ms) 업로드, 멀리 지난 타일 해제를 맡는다. 질의: `surfaceAt`(교량 상판 우선, 물 위면 상판 강제), `wetAt`, `buildingAt`, `poleIn`이다 |
+| `world/materials.ts` | 세션 고정 재질 세트다(타일이 들어와도 새 셰이더가 생기지 않는다). 외벽 텍스처는 `public/3d/drive/facades/`에 별도 복사했다 |
+| `traffic/RoadGraph.ts` | 타일 도로를 증분 그래프로 관리한다(노드·엣지 슬롯 재사용). 교차로 trim, T자 합류, 방향별 신호, 이진 힙 A* 경로 탐색을 한다 |
+| `traffic/Traffic.ts` | 플레이어 주변 380m 영속 교통이다. 시야 밖에서 생성하고 뒤에서 제거한다. 경로 기반 몸체 충돌 회피, IDM 추종, 30Hz 고정 스텝 + 보간 렌더링을 쓴다 |
+| `vehicle/physics.ts` | 120Hz 고정 스텝 자전거 모델이다. 아날로그 입력(게임패드)을 받는다. 외곽선 0.5m 샘플로 건물·기둥·차량 충돌을 판정한다 |
+| `game/Game.ts` | 독립 WebGLRenderer, Sky·안개·그림자(플레이어 추적, 텍셀 스냅)를 맡는다. 모든 재질×변형(인스턴스·그림자)을 로딩 화면 뒤에서 사전 컴파일한다. 느린 기기에서만 그림자 맵을 격프레임 갱신한다 |
+| `game/Session.ts` | 게임 규칙: 배송(경로·재탐색·턴바이턴 음성·미니맵), 연료/내구도/픽업, 충돌 효과, 과속 카메라, 신호위반, 연속 정시 콤보, 침수, 수리, 골드 |
+| `game/Input.ts` | 키보드(위치 기준), 게임패드 표준 매핑, 터치 페달 |
+| `DriveGamePage.tsx` | 메뉴(차량·시간대), 로딩, HUD, 일시정지, 결과·파손 카드, 터치 조작, 순위·닉네임 |
+
+## 측정 (로컬 헤드리스 Edge, 1600×900, 길음 래미안센터피스 출발, 자동주행)
+
+| 조건 | 결과 |
+|---|---|
+| 개발 빌드 60초, 90km/h | p99 18.2ms, 20ms 초과 0 |
+| 120–160km/h 60초 | 20ms 초과 0. 타일 결과 처리 최대 4.7ms, 백로그 0 |
+| CPU 4배 감속 45초 | p50 17.8 / p99 18.6ms, 33ms 초과 25프레임(1%). 대부분 큰 타일 메시의 첫 GPU 업로드 |
+| 프로덕션 빌드(vite preview) 60초 | 시작 4.1s(캐시), p99 18.5ms, 33ms 초과 1 |
+| 프로덕션 6분 장거리(약 3km, 배송 8건) | 힙 약 110MB 평탄, 지오메트리 500±50 평탄, p99 18.4ms |
+| 모바일 에뮬레이션 390×844 DPR3 | p99 18.5ms, 33ms 초과 0 |
+
+- 첫 시작(원자료 미캐시): 약 12–13s다. 이 중 VWorld 응답이 대부분을 차지한다. 두 번째부터는 4s 안팎이다.
+- 측정 중 Playwright 스크린샷을 찍으면 400ms 정지가 생긴다. 측정 후에만 찍도록 했다(`tmp/dg/run.py`).
+
+## 남은 것
+
+- CPU 4배 1% 긴 프레임: 대형 건물 메시 업로드를 청크로 나누거나, 같은 재질 타일을 BatchedMesh로 묶는 방안(드로우 200 → 수십)이 있다.
+- 3D 건물뷰 콘솔 오류 `Buffer "complex N" used in submit while destroyed`(게임 분리와 무관, Tidewater 쪽). 3D 뷰 성능 작업에서 다룬다.
+- 「임장 드라이브」 도착 카드에서 단지 상세(실거래가)로 연결하려면 이름→단지 id 매칭이 필요하다.
+
+## 재현
+
+```bash
+# 개발 서버 (API는 운영으로 프록시)
+cd frontend && REALESTATE_API_TARGET=https://kospimap.com npx vite --port 5190 --strictPort
+# 자동주행 측정 (env: CID, SECS, CPU, EXTRA="apv=40&t=night&v=coupang&lat=&lon=", MOBILE=1, BASE)
+python tmp/dg/run.py
+python tmp/dg/probe.py      # 렌더 비용 분해 (그림자/교통/타일)
+python tmp/dg/view_check.py # 3D 건물뷰 회귀
+```

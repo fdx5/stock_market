@@ -280,3 +280,6 @@ export function sampleTypeOf( format ) {
 	return t;
 
 }
+
+// (inspection by the performance checks: synchronous compiles, pipelines)
+if ( typeof window !== 'undefined' ) window.__tidewaterGPU = GPU;

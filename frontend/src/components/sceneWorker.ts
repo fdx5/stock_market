@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import "./workerCpuRaster";
 import { fieldFrom, gridAt, waterField, waterSurface, type FieldData, type HeightGrid, type WaterArrays } from "./waterCore";
 import { groundCanvasSteps, runNow, waterCovered, type Lamp, type Planting } from "./complexScene";
 import type { RealEstateBuildingsResponse, RealEstateRoad, RealEstateParcel } from "../api/client";

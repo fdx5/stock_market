@@ -1,0 +1,91 @@
+.dg-root { position: fixed; inset: 0; background: #0d1117; color: #f3f5f8; font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; overflow: hidden; z-index: 50; touch-action: none; user-select: none; }
+.dg-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.dg-menu { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: radial-gradient(ellipse at center, rgba(16, 24, 36, .82), rgba(8, 10, 14, .96)); padding: 16px; }
+.dg-menu h1 { margin: 0; font-size: clamp(30px, 6vw, 54px); letter-spacing: -.03em; }
+.dg-sub { margin: 0 0 6px; color: #a9b4c2; font-size: 15px; text-align: center; }
+.dg-pick { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.dg-pick button, .dg-go, .dg-btn { border: 1px solid rgba(255, 255, 255, .22); background: rgba(255, 255, 255, .06); color: inherit; border-radius: 10px; padding: 10px 18px; font-size: 15px; cursor: pointer; font-family: inherit; }
+.dg-pick button.on { background: #2a74ff; border-color: #2a74ff; }
+.dg-go { margin-top: 10px; background: #ffb21a; color: #1b1300; border: 0; font-weight: 800; font-size: 18px; padding: 13px 44px; }
+.dg-go:disabled { opacity: .4; cursor: default; }
+.dg-loading { position: absolute; left: 50%; bottom: 14%; transform: translateX(-50%); width: min(420px, calc(100% - 32px)); text-align: center; }
+.dg-loading p { margin: 10px 0 0; color: #dfe6ee; font-size: 14px; text-shadow: 0 1px 6px rgba(0, 0, 0, .6); }
+.dg-bar { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .15); overflow: hidden; }
+.dg-bar i { display: block; height: 100%; background: #ffb21a; transform-origin: 0 50%; transition: transform .25s; }
+.dg-hud { position: absolute; right: 22px; bottom: 22px; pointer-events: none; text-align: right; text-shadow: 0 2px 10px rgba(0, 0, 0, .55); }
+.dg-speed span { font-size: 54px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+.dg-speed small { font-size: 14px; margin-left: 4px; opacity: .8; }
+.dg-speed b { display: inline-block; margin-left: 12px; font-size: 22px; min-width: 26px; text-align: center; border: 2px solid rgba(255, 255, 255, .7); border-radius: 6px; padding: 0 4px; }
+.dg-revs { width: 200px; height: 5px; margin-left: auto; background: rgba(255, 255, 255, .18); border-radius: 3px; overflow: hidden; }
+.dg-revs div { height: 100%; background: linear-gradient(90deg, #4be38f, #ffd23f 70%, #ff4d3a); transform-origin: 0 50%; }
+.dg-debug { position: absolute; left: 8px; top: 8px; margin: 0; font: 11px/1.35 ui-monospace, Consolas, monospace; color: #c9f; background: rgba(0, 0, 0, .35); padding: 4px 6px; border-radius: 4px; pointer-events: none; white-space: pre; }
+.dg-debug:empty { display: none; }
+.dg-keys { max-width: 640px; text-align: center; color: #8d99a8; font-size: 12.5px; line-height: 1.6; margin: 6px 0 0; }
+.dg-gold { color: #ffd36a; font-size: 14px; margin: 0; }
+.dg-link { background: none; border: 0; color: #9cc3ff; text-decoration: underline; cursor: pointer; font: inherit; padding: 0; }
+.dg-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+.dg-input { font: inherit; font-size: 17px; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.08); color: #fff; width: min(280px, 80vw); text-align: center; }
+.dg-gauges { margin-top: 10px; display: grid; gap: 6px; justify-items: end; }
+.dg-gauge { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.dg-gauge em { font-style: normal; opacity: .8; min-width: 40px; text-align: right; }
+.dg-gauge > div { width: 140px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.18); overflow: hidden; }
+.dg-gauge i { display: block; height: 100%; background: #4be38f; transform-origin: 0 50%; transition: transform .2s; }
+.dg-gauge.fuel i { background: #5fb4ff; }
+.dg-gauge.is-low i { background: #ffc23a; }
+.dg-gauge.is-crit i { background: #ff4d3a; animation: dg-blink .6s infinite alternate; }
+.dg-gauge b { min-width: 48px; text-align: left; font-variant-numeric: tabular-nums; font-weight: 600; }
+@keyframes dg-blink { to { opacity: .35; } }
+.dg-top { position: absolute; top: 14px; right: 18px; display: flex; gap: 12px; align-items: center; pointer-events: none; }
+.dg-gold-now { background: rgba(10,14,20,.6); border-radius: 20px; padding: 7px 14px; font-weight: 700; color: #ffd36a; font-variant-numeric: tabular-nums; }
+.dg-combo { margin-left: 8px; color: #ff9b3a; }
+.dg-limit { width: 46px; height: 46px; border-radius: 50%; border: 5px solid #e3242b; background: #fff; color: #111; font-weight: 800; display: grid; place-items: center; font-size: 17px; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+.dg-job { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: center; background: rgba(10,14,20,.66); border-radius: 14px; padding: 9px 16px; pointer-events: none; max-width: calc(100% - 32px); }
+.dg-finding { color: #b9c4d2; font-size: 14px; }
+.dg-turn { display: flex; flex-direction: column; align-items: center; min-width: 74px; }
+.dg-turn b { font-size: 34px; line-height: 1; color: #49f08f; }
+.dg-turn span { font-size: 12.5px; color: #d6dee8; white-space: nowrap; }
+.dg-dest em { display: block; font-style: normal; font-size: 11.5px; color: #9aa7b6; }
+.dg-dest strong { display: block; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; }
+.dg-dest span { font-size: 13px; color: #d6dee8; font-variant-numeric: tabular-nums; }
+.dg-dest i { font-style: normal; }
+.dg-map { position: absolute; left: 18px; bottom: 18px; width: 180px; height: 180px; pointer-events: none; }
+.dg-toast { position: absolute; top: 92px; left: 50%; transform: translateX(-50%); background: rgba(10,14,20,.78); padding: 9px 18px; border-radius: 22px; font-weight: 700; font-size: 15px; animation: dg-pop .25s ease-out; pointer-events: none; white-space: nowrap; }
+.dg-toast.is-bad { color: #ff8d7a; } .dg-toast.is-good { color: #7dffb0; }
+@keyframes dg-pop { from { transform: translate(-50%, -8px); opacity: 0; } }
+.dg-card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(380px, calc(100% - 32px)); background: rgba(12,16,24,.92); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; padding: 20px 22px; text-align: center; box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+.dg-card h2 { margin: 0 0 6px; font-size: 22px; color: #7dffb0; }
+.dg-wreck h2 { color: #ff8d7a; }
+.dg-card p { margin: 6px 0; color: #c6d0dc; }
+.dg-card-name { font-size: 18px; font-weight: 700; color: #fff !important; }
+.dg-card-name small { display: block; font-size: 12.5px; font-weight: 400; color: #9aa7b6; margin-top: 2px; }
+.dg-card dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; text-align: left; margin: 12px 0; font-variant-numeric: tabular-nums; }
+.dg-card dt { color: #9aa7b6; } .dg-card dd { margin: 0; text-align: right; }
+.dg-card .sum { border-top: 1px solid rgba(255,255,255,.15); padding-top: 6px; font-weight: 800; color: #ffd36a; font-size: 17px; }
+.dg-pause { background: rgba(6,8,12,.72); }
+.dg-board ol { list-style: none; padding: 0; margin: 0; width: min(420px, calc(100% - 32px)); max-height: 60vh; overflow: auto; }
+.dg-board li { display: grid; grid-template-columns: 36px 1fr auto; gap: 8px; padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.dg-board li.me { background: rgba(42,116,255,.25); border-radius: 8px; }
+.dg-board li em { font-style: normal; color: #ffd36a; font-variant-numeric: tabular-nums; }
+.dg-speedfx { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(255,255,255,.08) 75%, rgba(255,255,255,.18)); transition: opacity .2s; }
+.dg-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.dg-flash.on { animation: dg-flash .5s ease-out; }
+@keyframes dg-flash { from { opacity: .85; } to { opacity: 0; } }
+.dg-touch { position: absolute; inset: auto 0 0 0; height: 46%; pointer-events: none; }
+.dg-touch button { pointer-events: auto; touch-action: none; border: 2px solid rgba(255,255,255,.35); background: rgba(10,14,20,.42); color: #fff; font: 700 15px inherit; border-radius: 16px; }
+.dg-touch-l { position: absolute; left: 14px; bottom: 210px; display: flex; gap: 12px; }
+.dg-touch-l button { width: 78px; height: 78px; font-size: 26px; }
+.dg-touch-r { position: absolute; right: 14px; bottom: 150px; display: grid; grid-template-columns: repeat(2, 76px); gap: 10px; }
+.dg-touch-r button { height: 66px; }
+.dg-touch-r .k-up { background: rgba(40,180,90,.5); } .dg-touch-r .k-down { background: rgba(200,60,50,.5); }
+.dg-touch-pause { position: fixed; top: 12px; right: 12px; width: 46px; height: 46px; }
+.is-cockpit .dg-hud { bottom: 34px; }
+@media (max-width: 640px) {
+  .dg-speed span { font-size: 38px; }
+  .dg-map { width: 116px; height: 116px; left: 10px; top: 92px; bottom: auto; }
+  .dg-hud { right: 12px; bottom: auto; top: 92px; }
+  .dg-revs { width: 120px; } .dg-gauge > div { width: 90px; }
+  .dg-job { top: 10px; left: 10px; right: 68px; transform: none; padding: 7px 12px; }
+  .dg-dest strong { max-width: 52vw; font-size: 15px; }
+  .dg-top { top: auto; bottom: 12px; right: 12px; }
+  .dg-toast { top: 220px; font-size: 13.5px; }
+}

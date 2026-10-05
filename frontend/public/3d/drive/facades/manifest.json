@@ -1,0 +1,274 @@
+{
+ "apt": {
+  "map": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "srgb",
+   "repeat": [
+    0.0390625,
+    0.04310344827586207
+   ],
+   "offset": [
+    0,
+    -0.021551724137931036
+   ],
+   "file": "context-apt-1-map.png"
+  },
+  "normalMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "",
+   "repeat": [
+    0.0390625,
+    0.04310344827586207
+   ],
+   "offset": [
+    0,
+    -0.021551724137931036
+   ],
+   "surfaceKey": "facade-1",
+   "file": "context-apt-1-normalMap.png"
+  },
+  "rmMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "",
+   "repeat": [
+    0.0390625,
+    0.04310344827586207
+   ],
+   "offset": [
+    0,
+    -0.021551724137931036
+   ],
+   "surfaceKey": "facade-1",
+   "file": "context-apt-1-rmMap.png"
+  },
+  "emissiveMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "srgb",
+   "repeat": [
+    0.0390625,
+    0.04310344827586207
+   ],
+   "offset": [
+    0,
+    -0.021551724137931036
+   ],
+   "file": "context-apt-1-emissiveMap.png"
+  }
+ },
+ "villa": {
+  "map": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "srgb",
+   "repeat": [
+    0.07352941176470588,
+    0.04310344827586207
+   ],
+   "offset": [
+    0,
+    -0.04310344827586207
+   ],
+   "file": "context-villa-1-map.png"
+  },
+  "normalMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "",
+   "repeat": [
+    0.07352941176470588,
+    0.04310344827586207
+   ],
+   "offset": [
+    0,
+    -0.04310344827586207
+   ],
+   "surfaceKey": "context-villa-1",
+   "file": "context-villa-1-normalMap.png"
+  },
+  "rmMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "",
+   "repeat": [
+    0.07352941176470588,
+    0.04310344827586207
+   ],
+   "offset": [
+    0,
+    -0.04310344827586207
+   ],
+   "surfaceKey": "context-villa-1",
+   "file": "context-villa-1-rmMap.png"
+  },
+  "emissiveMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "srgb",
+   "repeat": [
+    0.07352941176470588,
+    0.04310344827586207
+   ],
+   "offset": [
+    0,
+    -0.04310344827586207
+   ],
+   "file": "context-villa-1-emissiveMap.png"
+  }
+ },
+ "shop": {
+  "map": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "srgb",
+   "repeat": [
+    0.07352941176470588,
+    0.03676470588235294
+   ],
+   "offset": [
+    0,
+    -0.03676470588235294
+   ],
+   "file": "context-shop-1-map.png"
+  },
+  "normalMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "",
+   "repeat": [
+    0.07352941176470588,
+    0.03676470588235294
+   ],
+   "offset": [
+    0,
+    -0.03676470588235294
+   ],
+   "surfaceKey": "context-shop-1",
+   "file": "context-shop-1-normalMap.png"
+  },
+  "rmMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "",
+   "repeat": [
+    0.07352941176470588,
+    0.03676470588235294
+   ],
+   "offset": [
+    0,
+    -0.03676470588235294
+   ],
+   "surfaceKey": "context-shop-1",
+   "file": "context-shop-1-rmMap.png"
+  },
+  "emissiveMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "srgb",
+   "repeat": [
+    0.07352941176470588,
+    0.03676470588235294
+   ],
+   "offset": [
+    0,
+    -0.03676470588235294
+   ],
+   "file": "context-shop-1-emissiveMap.png"
+  }
+ },
+ "office": {
+  "map": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "srgb",
+   "repeat": [
+    0.09259259259259259,
+    0.03289473684210526
+   ],
+   "offset": [
+    0,
+    -0.03289473684210526
+   ],
+   "file": "context-office-1-map.png"
+  },
+  "normalMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "",
+   "repeat": [
+    0.09259259259259259,
+    0.03289473684210526
+   ],
+   "offset": [
+    0,
+    -0.03289473684210526
+   ],
+   "surfaceKey": "context-office-1",
+   "file": "context-office-1-normalMap.png"
+  },
+  "rmMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "",
+   "repeat": [
+    0.09259259259259259,
+    0.03289473684210526
+   ],
+   "offset": [
+    0,
+    -0.03289473684210526
+   ],
+   "surfaceKey": "context-office-1",
+   "file": "context-office-1-rmMap.png"
+  },
+  "emissiveMap": {
+   "wrapS": 1000,
+   "wrapT": 1000,
+   "flipY": false,
+   "anisotropy": 8,
+   "colorSpace": "srgb",
+   "repeat": [
+    0.09259259259259259,
+    0.03289473684210526
+   ],
+   "offset": [
+    0,
+    -0.03289473684210526
+   ],
+   "file": "context-office-1-emissiveMap.png"
+  }
+ }
+}

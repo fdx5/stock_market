@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import type { Terrain } from "./sceneTerrain";
 
 /** The delivery game on top of driving (driveSim): a destination — one of the complexes round
  * the view, at random — the way there along the roads as a green line on the road with arrows
@@ -63,7 +62,7 @@ export function nextTurn(rest: Pt[]): { kind: TurnKind; dist: number } {
 }
 
 /** The way as a ribbon on the road: green, glowing, with chevrons running along it. */
-export function routeRibbon(terrain: Terrain, roadAt: (x: number, y: number) => number = (x, y) => terrain.at(x, y)) {
+export function routeRibbon(roadAt: (x: number, y: number) => number) {
   const tex = chevronTexture();
   const mat = new THREE.MeshBasicMaterial({ map: tex, color: "#ffffff", transparent: true, opacity: 0.92, depthWrite: false,
     polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, side: THREE.DoubleSide, toneMapped: false });
