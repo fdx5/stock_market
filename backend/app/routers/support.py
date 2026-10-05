@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services import support_comment_store as store
-from app.services import supporter_store, support_payment_store
+from app.services import supporter_store
 from app.site import PRIMARY_SITE_URL
 
 router = APIRouter()
@@ -174,9 +174,7 @@ def add_comment(payload: CommentCreate, request: Request, response: Response):
     if now - issued < 3:
         raise HTTPException(429, '잠시 후 다시 등록해 주세요.', headers={'Retry-After': '3'})
     text_key = hashlib.sha256(''.join(payload.text.casefold().split()).encode()).hexdigest()
-    checkout = support_payment_store.checkout(request.cookies.get(support_payment_store.COOKIE), now, returned_only=True)
-    result = store.add_comment(payload.request_id, payload.username, payload.text, text_key, author, now,
-                               checkout_id=checkout['id'] if checkout else None)
+    result = store.add_comment(payload.request_id, payload.username, payload.text, text_key, author, now)
     if result is None:
         raise HTTPException(429, '같은 접속 환경에서 1분에 한 번, 하루 최대 5개까지 남길 수 있습니다. 같은 내용은 하루 동안 다시 등록할 수 없습니다.', headers={'Retry-After': '60'})
     response.headers['Cache-Control'] = 'no-store'

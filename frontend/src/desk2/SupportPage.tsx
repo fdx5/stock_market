@@ -6,10 +6,11 @@ import CoffeeIcon from "./CoffeeIcon";
 import Masthead from "./Masthead";
 import Colophon from "./Colophon";
 import SupportComments from "./SupportComments";
-import CoffeePaymentMethods from "./CoffeePaymentMethods";
 import { useL } from "./lib";
 import { useBroadsheet } from "./shell";
 import "./coffeeSupport.css";
+
+const KAKAOPAY_URL = "https://qr.kakaopay.com/Ej7w8lXu2";
 
 export default function SupportPage() {
   useEffect(() => {
@@ -51,7 +52,18 @@ export default function SupportPage() {
           <div className="coffee-purpose" aria-label={L("후원이 보탬이 되는 곳", "What your support helps with")}><span>↻ {L("꾸준한 업데이트", "Regular updates")}</span><span>☁ {L("안정적인 서버 운영", "Reliable servers")}</span><span>✧ {L("더 나은 서비스", "A better experience")}</span></div>
           <p className="coffee-thanks">{L("후원은 언제나 자유로운 선택입니다. 찾아와 주시고 이용해 주시는 것만으로도 감사합니다. 오래도록 유용한 공간으로 보답하겠습니다.", "Support is always optional. We’re grateful that you visit and use the site. We’ll keep working to make this a useful place for you, for a long time to come.")}</p>
         </section>
-        <CoffeePaymentMethods />
+        <aside className="coffee-payment" aria-labelledby="coffee-payment-title">
+          <span className="coffee-payment-tag">{L("따뜻한 마음 한 잔", "A cup of kindness")}</span>
+          <h2 id="coffee-payment-title">{L("커피 한 잔 후원하기", "Buy us a coffee")}</h2>
+          <p>{L("카카오페이로 간편하게 마음을 전해 주세요.", "Send your support easily with Kakao Pay.")}</p>
+          <a data-activity-key="support-pay" className="coffee-pay-button" href={KAKAOPAY_URL} target="_blank" rel="noopener noreferrer"><span className="coffee-pay-mark">pay</span>{L("카카오페이로 후원하기", "Support with Kakao Pay")} <span aria-hidden="true">↗</span></a>
+          <small className="coffee-pay-help">{L("휴대폰에서는 위 버튼을 눌러 주세요.", "On your phone, tap the button above.")}</small>
+          <div className="coffee-divider"><span>{L("PC에서는 QR 코드로", "On desktop, scan the QR")}</span></div>
+          <a href={KAKAOPAY_URL} target="_blank" rel="noopener noreferrer" data-activity-key="support-qr" className="coffee-qr-link" aria-label={L("카카오페이 후원 QR 코드 · 결제 링크 열기", "Kakao Pay support QR · open payment link")}><img src="/img/kakaopay-support.png" alt={L("카카오페이 후원 결제 QR 코드", "Kakao Pay support payment QR code")} /></a>
+          <p className="coffee-qr-help">{L("휴대폰 카메라로 QR 코드를 스캔하면 카카오페이 후원 화면으로 연결됩니다.", "Scan this QR code with your phone camera to open the Kakao Pay support page.")}</p>
+          <div className="coffee-payment-note">{L("후원 금액과 결제 완료 여부는 카카오페이 화면에서 확인해 주세요.", "Please check the amount and payment confirmation in Kakao Pay.")}</div>
+          <span className="coffee-signoff">{L("보내주신 마음, 소중히 쓰겠습니다. ♡", "Thank you for helping us keep going. ♡")}</span>
+        </aside>
       </div>
       <SupportComments />
     </main>

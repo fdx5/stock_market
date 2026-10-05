@@ -35,35 +35,6 @@
 .d2 .coffee-payment .coffee-qr-help { margin: 14px auto 0; max-width: 255px; font-size: 12px; }
 .d2 .coffee-payment-note { margin-top: 20px; padding: 13px; border-radius: 10px; background: #f4ebdc; font-size: 11px; line-height: 1.7; color: #79624e; }
 .d2 .coffee-signoff { display: block; font-size: 12px; color: #956b48; margin-top: 20px; }
-.d2 .coffee-payment-tabs { display: flex; gap: 4px; padding: 4px; margin-top: 22px; border: 1px solid #e6d4ba; border-radius: 12px; background: #f2e4cd; }
-.d2 .coffee-payment-tabs button { flex: 1; min-height: 42px; padding: 7px 6px; border: 0; border-radius: 8px; background: transparent; color: #79624e; font-size: 12px; font-weight: 700; cursor: pointer; }
-.d2 .coffee-payment-tabs button[aria-selected="true"] { background: #fffdf7; color: #513829; box-shadow: 0 2px 7px #432a1312; }
-.d2 .coffee-payment-tabs button:focus-visible, .d2 .coffee-payment [role="tabpanel"]:focus-visible { outline: 3px solid var(--brass); outline-offset: 3px; }
-.d2 .coffee-payment [hidden] { display: none; }
-.d2 .coffee-bmc-button { display: block; width: 100%; max-width: 280px; margin: 22px auto 0; border-radius: 12px; transition: transform .15s; }
-.d2 .coffee-bmc-button img { display: block; width: 100%; height: auto; border-radius: 12px; }
-.d2 .coffee-bmc-button:hover { transform: translateY(-2px); }
-.d2 .coffee-shop-intro { margin: 20px 0 14px; font-size: 12px; color: #79624e; line-height: 1.7; }
-.d2 .coffee-products { display: grid; gap: 11px; }
-.d2 .coffee-product { display: flex; align-items: center; gap: 12px; min-height: 89px; padding: 14px 12px; border: 1px solid #e6d4ba; border-radius: 15px; text-align: left; background: #fffdf7; color: #513829; transition: transform .15s, border-color .15s; }
-.d2 .coffee-product:hover { transform: translateY(-2px); border-color: #956b48; }
-.d2 .coffee-product-icon { display: grid; place-items: center; flex: none; width: 76px; height: 76px; border-radius: 12px; background: #fff0b1; overflow: hidden; }
-.d2 .coffee-product-starbucks .coffee-product-icon { background: #deece2; }
-.d2 .coffee-product-bluebottle .coffee-product-icon { background: #deedf5; }
-.d2 .coffee-product-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.d2 .coffee-product-copy { flex: 1; min-width: 0; }
-.d2 .coffee-product-copy b { display: block; font-size: 15px; line-height: 1.5; }
-.d2 .coffee-product-price { display: block; margin-top: 2px; font-size: 16px; font-weight: 800; line-height: 1.4; color: #956b48; }
-.d2 .coffee-product-copy small { display: block; margin-top: 4px; font-size: 10px; color: #79624e; line-height: 1.6; word-break: keep-all; }
-.d2 .coffee-product-arrow { flex: none; color: #956b48; font-size: 20px; }
-.d2 .coffee-success-main { max-width: 1000px; }
-.d2 .coffee-success-letter { max-width: 690px; margin: 42px auto 0; }
-.d2 .coffee-success-letter h1 { margin-bottom: 20px; font-size: clamp(26px, 3.7vw, 40px); line-height: 1.6; font-weight: 800; letter-spacing: -.05em; }
-.d2 .coffee-success-letter h1 em { color: var(--brass); font-style: normal; }
-.d2 .coffee-success-letter > p { margin-bottom: 18px; font-size: 15px; color: var(--ink-2); line-height: 1.9; }
-.d2 .coffee-success-product { display: inline-block; padding: 10px 15px; border: 1px solid var(--rule-2); border-radius: 12px; background: var(--p1); font-size: 13px; color: var(--brass); }
-.d2 .coffee-success-letter .coffee-success-receipt { margin-top: 18px; font-size: 12px; }
-.d2 .coffee-success-link { display: inline-block; font-size: 13px; color: var(--brass); text-decoration: underline; text-underline-offset: 4px; }
 @media (min-width: 761px) {
   .d2 .coffee-payment .coffee-pay-button,
   .d2 .coffee-payment .coffee-pay-help { display: none; }
@@ -125,7 +96,7 @@
   .d2 .coffee-comment-count { margin-left: 0; }
   .d2 .coffee-comment-submit button { margin-left: auto; }
 }
-@media (prefers-reduced-motion: reduce) { .d2 .d2-coffee-link, .d2 .coffee-pay-button, .d2 .coffee-product, .d2 .coffee-bmc-button { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .d2 .d2-coffee-link, .d2 .coffee-pay-button { transition: none; } }
 .d2 .coffee-comments-top { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; align-items: center; margin-bottom: 20px; }
 .d2 .coffee-comments-top .coffee-comments-heading { margin-bottom: 0; }
 .d2 .coffee-supporter-board { position: relative; min-width: 0; padding: 10px 14px 9px; border: 1px solid #a48b5770; border-radius: 12px; background: linear-gradient(135deg, #302a24, #191918); color: #f3e9d4; box-shadow: inset 0 1px #e7c78822, 0 5px 18px #31251a14; overflow: hidden; }

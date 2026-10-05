@@ -27,7 +27,6 @@ from app.routers import (
     admin,
     admin_comments,
     support_analytics,
-    support_payments,
     admin_db,
     battle,
     etf,
@@ -250,7 +249,6 @@ app.include_router(notify.router, prefix="/api/notify")
 app.include_router(global_top100.router, prefix="/api/global-top100")
 app.include_router(realestate.router, prefix="/api/realestate")
 app.include_router(support.router, prefix="/api/support")
-app.include_router(support_payments.router, prefix="/api/support")
 
 
 @app.on_event("startup")
@@ -681,8 +679,6 @@ if STATIC_DIR.exists():
             # robots.txt prevents crawling, while X-Robots-Tag also prevents an
             # externally linked admin/API URL from appearing as a URL-only result.
             response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
-        if path.rstrip('/') == '/support-success':
-            response.headers['X-Robots-Tag'] = 'noindex, follow'
         if path.startswith("/assets/"):
             response.headers["Cache-Control"] = ASSETS_CACHE_CONTROL
         elif path.startswith("/img/discussion-pillars-") or (
