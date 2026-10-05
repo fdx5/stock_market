@@ -51,7 +51,7 @@ export default function AdminSupportLogPage() {
       <p className="asl-period">{clock(data.since)} ~ {clock(data.until)}</p>
       <div className="asl-stats">{[
         ["접속 세션",data.summary.sessions.toLocaleString()], ["페이지 방문",data.summary.views.toLocaleString()],
-        ["전체 클릭",data.summary.clicks.toLocaleString()], ["카카오페이 링크 클릭",data.summary.pay_clicks.toLocaleString()],
+        ["전체 클릭",data.summary.clicks.toLocaleString()], ["후원 결제 링크 클릭",data.summary.pay_clicks.toLocaleString()],
         ["측정된 화면 체류",duration(data.summary.seconds)],
       ].map(([label,value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       <p className="asl-note">화면 체류는 후원 페이지가 보인 시간만 합산합니다. 과거 기록은 체류 시간이 미측정일 수 있습니다. 카카오페이 링크 클릭은 결제 완료를 뜻하지 않습니다.</p>
