@@ -29,7 +29,7 @@ _id_counter = itertools.count(1)
 _tail: deque[dict] = deque(maxlen=TAIL_MAXLEN)
 
 
-def record(route: str, method: str, status: int, duration_ms: float) -> None:
+def record(route: str, method: str, status: int, duration_ms: float, trace_id: int | None = None) -> None:
     """One completed API request. `route` should be the matched *route template*
     (`/api/stock/{code}/quote`), not the concrete path — the monitor draws one node per
     endpoint, and a per-path key would scatter one endpoint across thousands of them."""
@@ -41,6 +41,8 @@ def record(route: str, method: str, status: int, duration_ms: float) -> None:
         "status": status,
         "ms": round(duration_ms, 1),
     }
+    if trace_id is not None:
+        event["trace_id"] = trace_id
     with _lock:
         _tail.append(event)
 

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/build-system-inventory.mjs && tsc -b && vite build",
     "preview": "vite preview",
     "test:realestate": "node scripts/test-realestate.mjs"
   },

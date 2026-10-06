@@ -102,6 +102,7 @@ const StocksPage = lazy(() => import("./components/StocksPage"));
 const StockIntelligencePage = lazy(() => import("./components/StockIntelligencePage"));
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
+const AdminSystemAtlasPage = lazy(() => import("./components/AdminSystemAtlasPage"));
 const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
 const AdminGrowthPage = lazy(() => import("./components/AdminGrowthPage"));
 const AdminSupportLogPage = lazy(() => import("./components/AdminSupportLogPage"));
@@ -446,6 +447,8 @@ export default function App() {
     page = <AdminLoginPage />;
   } else if (path === "/admin/dashboard") {
     page = <AdminDashboardPage />;
+  } else if (path === "/admin/system-atlas") {
+    page = <AdminSystemAtlasPage />;
   } else if (path === "/admin/monitor") {
     page = <MonitorPage />;
   } else if (path === "/admin/db") {

@@ -4,6 +4,7 @@ WORKDIR /frontend
 COPY frontend/package.json ./
 RUN npm install
 COPY frontend/ ./
+COPY .github/workflows /.github/workflows
 RUN npm run build
 
 # --- Stage 2: Python backend serving API + built frontend ---
@@ -44,6 +45,7 @@ RUN python -m playwright install --with-deps chromium \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY backend/app ./app
+COPY --from=frontend-build /backend/app/data/system_inventory.json ./app/data/system_inventory.json
 COPY --from=frontend-build /frontend/dist ./app/static
 
 ENV PORT=8000

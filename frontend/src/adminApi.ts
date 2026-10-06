@@ -643,7 +643,7 @@ export async function unlockMonitor(passcode: string): Promise<void> {
  * limit a request the server never finished left its panel on "loading" for good. */
 const ADMIN_GET_TIMEOUT_MS = 25_000;
 
-async function authedGet<T>(path: string): Promise<T> {
+export async function authedGet<T>(path: string): Promise<T> {
   const session = getStoredSession();
   if (!session) throw new AdminAuthError("로그인이 필요합니다.");
   const ctrl = new AbortController();

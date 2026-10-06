@@ -272,6 +272,7 @@ function Overview({
             <Link to="/admin/support-log">☕ 후원 페이지 접속 로그</Link>
             <Link to="/admin/db">🗄 DB 조회</Link>
             <Link to="/admin/monitor">🧠 모니터링</Link>
+            <Link to="/admin/system-atlas">◈ 시스템 아틀라스</Link>
             <Link to="/realestate-map">🏠 부동산 지도</Link>
             <Link to="/desk">📰 마켓데스크</Link>
           </nav>
@@ -485,12 +486,17 @@ export default function AdminDashboardPage() {
               {s.key === "system" && health.data && health.data.errors_last_hour > 0 && <b className="ac-badge">{health.data.errors_last_hour}</b>}
             </button>
           ))}
+          <button type="button" onClick={() => navigate("/admin/system-atlas")}>
+            <span>시스템 아틀라스</span>
+            <small>전체 구조·실시간 연동</small>
+          </button>
         </nav>
         <div className="ac-side-foot">
           <Link to="/admin/growth">성장 통계</Link>
           <Link to="/admin/support-log">후원 접속 로그</Link>
           <Link to="/admin/db">DB 조회</Link>
           <Link to="/admin/monitor">모니터링</Link>
+          <Link to="/admin/system-atlas">시스템 아틀라스</Link>
           <button
             type="button"
             className="ac-logout"

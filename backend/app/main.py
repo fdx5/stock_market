@@ -28,6 +28,7 @@ from app.routers import (
     admin_comments,
     support_analytics,
     support_payments,
+    system_atlas,
     admin_db,
     battle,
     etf,
@@ -51,6 +52,7 @@ from app.routers import (
 )
 from app.services import (
     api_pulse,
+    system_telemetry,
     dram_price,
     global_top100_rank_store,
     hub_event_store,
@@ -80,6 +82,7 @@ from app.services.stock_board import warm_boards
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
 
 app = FastAPI(title="KOSPI 종목 예측")
+system_telemetry.install()
 
 
 @app.middleware("http")
@@ -194,7 +197,7 @@ async def _validate_public_json(request: Request, call_next):
 # The monitor's own polling, which must not be recorded — it fires once a second per
 # open viewer, and feeding that back into the buffer it is reading would drown the real
 # traffic in the act of watching for it.
-_PULSE_EXCLUDED_PREFIX = "/api/admin/monitor"
+_PULSE_EXCLUDED_PREFIX = ("/api/admin/monitor", "/api/admin/atlas")
 
 
 @app.middleware("http")
@@ -213,7 +216,19 @@ async def _record_api_pulse(request: Request, call_next):
         return await call_next(request)
 
     started = time.perf_counter()
-    response = await call_next(request)
+    observation_token = system_telemetry.begin_request(request.scope)
+    try:
+        response = await call_next(request)
+    except Exception:
+        route = request.scope.get("route")
+        try:
+            api_pulse.record(route=getattr(route, "path", path), method=request.method,
+                             status=500, duration_ms=(time.perf_counter() - started) * 1000,
+                             trace_id=system_telemetry.request_id())
+        except Exception:
+            pass
+        system_telemetry.end_request(observation_token)
+        raise
     try:
         route = request.scope.get("route")
         api_pulse.record(
@@ -221,9 +236,12 @@ async def _record_api_pulse(request: Request, call_next):
             method=request.method,
             status=response.status_code,
             duration_ms=(time.perf_counter() - started) * 1000,
+            trace_id=system_telemetry.request_id(),
         )
     except Exception:  # noqa: BLE001 - never let monitoring break the response
         pass
+    finally:
+        system_telemetry.end_request(observation_token)
     return response
 
 app.include_router(search.router, prefix="/api")
@@ -245,6 +263,7 @@ app.include_router(admin.router, prefix="/api/admin")
 app.include_router(admin_comments.router, prefix="/api/admin")
 app.include_router(support_analytics.router, prefix="/api/admin")
 app.include_router(admin_db.router, prefix="/api/admin")
+app.include_router(system_atlas.router, prefix="/api/admin")
 app.include_router(monitor.router, prefix="/api/admin/monitor")
 app.include_router(notify.router, prefix="/api/notify")
 app.include_router(global_top100.router, prefix="/api/global-top100")

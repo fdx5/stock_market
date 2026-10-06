@@ -1,0 +1,385 @@
+{
+  "dependencies": {
+    "echarts": "^6.1.0",
+    "lightweight-charts": "^5.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.185.1"
+  },
+  "dev_dependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/three": "^0.185.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.1"
+  },
+  "routes": [
+    "/",
+    "/admin",
+    "/admin/dashboard",
+    "/admin/db",
+    "/admin/growth",
+    "/admin/live",
+    "/admin/monitor",
+    "/admin/support-log",
+    "/admin/system-atlas",
+    "/ai-prediction",
+    "/ai-prediction/grading",
+    "/battle",
+    "/dashboard",
+    "/desk",
+    "/desk2",
+    "/discussion-explorer",
+    "/dram-price",
+    "/drive",
+    "/etf",
+    "/fight",
+    "/global",
+    "/global-top100",
+    "/hub",
+    "/kosdaq-100",
+    "/kosdaq-map",
+    "/kosdaq-orbit",
+    "/kospi-100",
+    "/kospi-orbit",
+    "/map",
+    "/market-brief",
+    "/market-bubbles",
+    "/market-bubbles2",
+    "/market/kospi/foreign-buying",
+    "/nasdaq-100",
+    "/nasdaq100-map",
+    "/nasdaq100-orbit",
+    "/news",
+    "/ranking/sp500-market-cap",
+    "/ranking/trading-value",
+    "/ranking/us-etf",
+    "/realestate-map",
+    "/sector/semiconductor",
+    "/sp500-map",
+    "/sp500-orbit",
+    "/stocks",
+    "/support",
+    "/support-success",
+    "/support-success/",
+    "/support/",
+    "/type2"
+  ],
+  "source_files": 550,
+  "workers": [
+    "frontend/src/components/budgetForestWorker.ts",
+    "frontend/src/components/moonGlowWorker.ts",
+    "frontend/src/components/normalWorker.ts",
+    "frontend/src/components/paintRasterWorker.ts",
+    "frontend/src/components/paintWorker.ts",
+    "frontend/src/components/photoWorker.ts",
+    "frontend/src/components/roadBvhWorker.ts",
+    "frontend/src/components/roadDrapeWorker.ts",
+    "frontend/src/components/sceneWorker.ts",
+    "frontend/src/components/sceneWorkerClient.ts",
+    "frontend/src/components/texWorker.ts",
+    "frontend/src/components/treeDecodeWorker.ts",
+    "frontend/src/components/vehicleWorker.ts",
+    "frontend/src/components/wakeWorker.ts",
+    "frontend/src/components/workerCpuRaster.ts",
+    "frontend/src/drivegame/world/tileWorker.ts",
+    "frontend/src/vendor/tidewater/engine/gpu/ShaderTextWorker.js"
+  ],
+  "external": [
+    {
+      "file": "frontend/src/components/aerial.ts",
+      "hosts": [
+        "api.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/components/BoardPanel.tsx",
+      "hosts": [
+        "finance.naver.com"
+      ]
+    },
+    {
+      "file": "frontend/src/components/EtfPage.tsx",
+      "hosts": [
+        "finance.naver.com",
+        "www.tossinvest.com"
+      ]
+    },
+    {
+      "file": "frontend/src/components/farGround.ts",
+      "hosts": [
+        "api.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/components/Footer.tsx",
+      "hosts": [
+        "chs2147.github.io"
+      ]
+    },
+    {
+      "file": "frontend/src/components/GlobalBoardPanel.tsx",
+      "hosts": [
+        "m.stock.naver.com"
+      ]
+    },
+    {
+      "file": "frontend/src/components/HubType2.tsx",
+      "hosts": [
+        "www.eso.org"
+      ]
+    },
+    {
+      "file": "frontend/src/components/KospiOrbitPage.tsx",
+      "hosts": [
+        "commons.wikimedia.org",
+        "nebulakit.itch.io",
+        "space-spheremaps.itch.io",
+        "www.wikidata.org"
+      ]
+    },
+    {
+      "file": "frontend/src/components/MarketBubblePage.tsx",
+      "hosts": [
+        "cdn.jsdelivr.net"
+      ]
+    },
+    {
+      "file": "frontend/src/components/MarketSentimentPanel.tsx",
+      "hosts": [
+        "feargreedchart.com",
+        "kospi.feargreedchart.com"
+      ]
+    },
+    {
+      "file": "frontend/src/components/RealEstateSheet.tsx",
+      "hosts": [
+        "hogangnono.com",
+        "m.land.naver.com",
+        "search.naver.com"
+      ]
+    },
+    {
+      "file": "frontend/src/components/ringBuildings.ts",
+      "hosts": [
+        "api.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/components/sceneTerrain.ts",
+      "hosts": [
+        "map.vworld.kr",
+        "s3.amazonaws.com",
+        "xdworld.vworld.kr",
+        "xdworld1.vworld.kr",
+        "xdworld2.vworld.kr",
+        "xdworld3.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/components/SpotlightBoard.tsx",
+      "hosts": [
+        "www.google.com"
+      ]
+    },
+    {
+      "file": "frontend/src/components/stockPlanetTextures.ts",
+      "hosts": [
+        "cdn.jsdelivr.net"
+      ]
+    },
+    {
+      "file": "frontend/src/components/TugOfWarPage.tsx",
+      "hosts": [
+        "cdn.jsdelivr.net"
+      ]
+    },
+    {
+      "file": "frontend/src/components/VoltarisIngressLink.tsx",
+      "hosts": [
+        "voltaris-nyyo.onrender.com"
+      ]
+    },
+    {
+      "file": "frontend/src/components/vworldBuildings.ts",
+      "hosts": [
+        "api.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/data/flagCodes.ts",
+      "hosts": [
+        "flagcdn.com"
+      ]
+    },
+    {
+      "file": "frontend/src/desk2/CoffeePaymentMethods.tsx",
+      "hosts": [
+        "buymeacoffee.com",
+        "qr.kakaopay.com"
+      ]
+    },
+    {
+      "file": "frontend/src/desk2/Colophon.tsx",
+      "hosts": [
+        "chs2147.github.io"
+      ]
+    },
+    {
+      "file": "frontend/src/desk2/deskBgmStore.ts",
+      "hosts": [
+        "www.youtube.com"
+      ]
+    },
+    {
+      "file": "frontend/src/desk2/etf/EtfPage.tsx",
+      "hosts": [
+        "finance.naver.com"
+      ]
+    },
+    {
+      "file": "frontend/src/desk2/fonts.ts",
+      "hosts": [
+        "cdn.jsdelivr.net",
+        "fonts.googleapis.com"
+      ]
+    },
+    {
+      "file": "frontend/src/desk2/lib.ts",
+      "hosts": [
+        "feargreedchart.com",
+        "kospi.feargreedchart.com"
+      ]
+    },
+    {
+      "file": "frontend/src/desk2/Masthead.tsx",
+      "hosts": [
+        "voltaris-nyyo.onrender.com"
+      ]
+    },
+    {
+      "file": "frontend/src/drivegame/world/complexAt.ts",
+      "hosts": [
+        "api.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/drivegame/world/geocode.ts",
+      "hosts": [
+        "api.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/drivegame/world/tileWorker.ts",
+      "hosts": [
+        "api.vworld.kr",
+        "map.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/etfLogo.ts",
+      "hosts": [
+        "ssl.pstatic.net"
+      ]
+    },
+    {
+      "file": "frontend/src/staticCdn.ts",
+      "hosts": [
+        "cdn.jsdelivr.net"
+      ]
+    },
+    {
+      "file": "frontend/src/stockIcon.ts",
+      "hosts": [
+        "ssl.pstatic.net"
+      ]
+    },
+    {
+      "file": "frontend/src/useStockDetailSeo.ts",
+      "hosts": [
+        "schema.org"
+      ]
+    },
+    {
+      "file": "frontend/src/useYouTubeBgm.ts",
+      "hosts": [
+        "www.youtube.com"
+      ]
+    },
+    {
+      "file": "frontend/src/usLogo.ts",
+      "hosts": [
+        "companiesmarketcap.com"
+      ]
+    }
+  ],
+  "schedules": [
+    {
+      "file": "ai-prediction.yml",
+      "cron": [
+        "0 14 * * 1-5",
+        "0 13 * * 0",
+        "0 3 * * 2-6",
+        "0 4 * * 2-6",
+        "0 2 * * 1",
+        "0 3 * * 1"
+      ],
+      "endpoints": [
+        "/api/health",
+        "/api/prediction/run",
+        "/api/prediction/run/status"
+      ]
+    },
+    {
+      "file": "dram-price-refresh.yml",
+      "cron": [
+        "0 11 * * *"
+      ],
+      "endpoints": [
+        "/api/health",
+        "/api/market/dram-price/refresh"
+      ]
+    },
+    {
+      "file": "global-top100-refresh.yml",
+      "cron": [
+        "30 19 * * *"
+      ],
+      "endpoints": [
+        "/api/global-top100/refresh",
+        "/api/health"
+      ]
+    },
+    {
+      "file": "kakao-notify.yml",
+      "cron": [
+        "5 * * * *"
+      ],
+      "endpoints": [
+        "/api/health",
+        "/api/notify/kakao/run"
+      ]
+    },
+    {
+      "file": "keep-alive.yml",
+      "cron": [
+        "*/30 * * * *"
+      ],
+      "endpoints": [
+        "/api/health",
+        "/api/investor/indices",
+        "/api/market/kosdaq-map",
+        "/api/market/map",
+        "/api/stock/005930/"
+      ]
+    }
+  ],
+  "deployment": {
+    "provider": "Render",
+    "container": "Docker multi-stage",
+    "runtime": "Python 3.11 / Node 20 build",
+    "worker_policy": "WEB_CONCURRENCY=1 (Dockerfile)",
+    "domain": "kospimap.com"
+  }
+}

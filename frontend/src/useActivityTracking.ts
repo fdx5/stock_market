@@ -56,6 +56,7 @@ export function pageLabel(path: string): string {
   // trailing slash. Classify the canonical route instead of falling through to 기타.
   const cleanPath = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
   path = cleanPath;
+  if (path === "/admin/system-atlas") return "시스템 아틀라스";
   // The admin dashboard groups per-code paths with routeTemplate before labelling, so
   // the templates themselves have to resolve to the page they stand for.
   if (path === "/stock/{code}") return "국내 종목 상세";
