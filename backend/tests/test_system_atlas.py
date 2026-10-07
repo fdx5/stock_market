@@ -210,3 +210,20 @@ def test_atlas_health_transport_does_not_pollute_external_metrics(monkeypatch):
     assert system_telemetry.snapshot()['count'] == 0
     system_telemetry.record('shared.turso.io', 'POST', 200, 120)
     assert system_telemetry.snapshot()['count'] == 1
+
+
+def test_flow_destinations_resolve_runtime_db_and_preserve_observer_events(client, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setenv('TURSO_DATABASE_URL', 'libsql://shared.turso.io')
+    monkeypatch.setenv('REALESTATE_TURSO_DATABASE_URL', 'libsql://estate.turso.io')
+    token = system_telemetry.begin_request({'route': SimpleNamespace(path='/api/stock/{code}/quote')})
+    trace_id = system_telemetry.request_id()
+    for host in ('shared.turso.io', 'estate.turso.io', 'apis.data.go.kr'):
+        system_telemetry.record(host, 'POST', 200, 50)
+    api_pulse.record('/api/stock/{code}/quote', 'GET', 200, 200, trace_id=trace_id)
+    system_telemetry.end_request(token)
+    snap = client.get('/api/admin/atlas/snapshot', headers={'Authorization': 'Bearer admin-fixture'}).json()
+    expected = {'shared.turso.io': 'database', 'estate.turso.io': 'estate-db', 'apis.data.go.kr': 'ext-spatial'}
+    assert {e['host']: e['target'] for e in snap['traces'][0]['calls']} == expected
+    assert {e['host']: e['target'] for e in snap['external']['recent']} == expected
+    assert all('target' not in event for event in system_telemetry._events)

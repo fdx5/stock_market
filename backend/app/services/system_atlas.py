@@ -187,11 +187,14 @@ def live_snapshot(routes) -> dict:
     for event in events: grouped[route_groups.get(event["route"], "operations")].append(event)
     external = system_telemetry.snapshot(now)
     request_calls = external.pop("request_calls")
+    # Resolve using the running environment, including dedicated estate DB hosts.
+    # Copy rather than mutating the shared observer's retained events.
+    external["recent"] = [{**e, "target": host_group(e["host"])} for e in external["recent"]]
     traces = []
     for event in events[-60:][::-1]:
         if not event.get("trace_id"):
             continue
-        calls = request_calls.get(event["trace_id"], [])
+        calls = [{**e, "target": host_group(e["host"])} for e in request_calls.get(event["trace_id"], [])]
         traces.append({"request": event, "calls": calls[:30], "external_count": len(calls),
                        "calls_truncated": len(calls) > 30})
     endpoints = [{"path": path, "method": method, **system_telemetry.stats([e for e in events if e["route"] == path and e["method"] == method])}

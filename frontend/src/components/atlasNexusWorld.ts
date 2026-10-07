@@ -1,164 +1,131 @@
 import * as T from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { AtlasArchitecture, AtlasSnapshot } from "./systemAtlasApi";
 import { createAtlasSentinel } from "./atlasSentinel";
+import { DOMAIN_COLORS, FLOW_HEIGHT as H, FLOW_WIDTH as W, flowPositions, flowRecords, callDestination, UNIT_COLORS, type FlowRecord, type FlowState, type SentinelMission } from "./atlasFlowModel";
+import type { AtlasArchitecture } from "./systemAtlasApi";
 
 export type NexusQuality = "cinematic" | "balanced" | "eco";
-export interface NexusState { live: AtlasSnapshot | null; selected: string; motion: boolean; reduced: boolean }
-export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, quality: NexusQuality, current: () => NexusState, select: (id: string) => void, recover: () => void) {
-  const renderer = new T.WebGLRenderer({ antialias: true, powerPreference: "high-performance", alpha: false });
-  renderer.setClearColor("#010909"); renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.12;
-  renderer.domElement.setAttribute("aria-label", "센티널이 순찰하는 3D 사이버 관제 공간. 드래그하여 회전하고 서비스 노드를 선택할 수 있습니다.");
-  renderer.domElement.setAttribute("role", "img"); renderer.domElement.className = "an-world-canvas"; host.appendChild(renderer.domElement);
-  const scene = new T.Scene(); scene.fog = new T.FogExp2("#020f0c", .019);
-  const camera = new T.PerspectiveCamera(46, 1, .1, 150);
-  const home = new T.Vector3(19, 12.5, 27), target = new T.Vector3(1, 1, -3);
-  camera.position.copy(home);
-  const controls = new OrbitControls(camera, renderer.domElement); controls.target.copy(target); controls.enableDamping = true; controls.dampingFactor = .075; controls.enablePan = false; controls.minDistance = 17; controls.maxDistance = 49; controls.minPolarAngle = .25; controls.maxPolarAngle = Math.PI * .47; controls.enableZoom = false;
-  const pmrem = new T.PMREMGenerator(renderer), room = new RoomEnvironment();
-  const env = pmrem.fromScene(room, .03); scene.environment = env.texture; scene.environmentIntensity = .53; room.dispose(); pmrem.dispose();
-  const ambient = new T.HemisphereLight("#bbf5ec", "#010503", 1.15); scene.add(ambient);
-  const key = new T.DirectionalLight("#efffff", 2.2); key.position.set(13, 16, 18); scene.add(key);
-  const rim = new T.DirectionalLight("#48ffc4", 2.2); rim.position.set(-10, 7, -8); scene.add(rim);
-  const glow = new T.PointLight("#33ffb3", 90, 30, 2); glow.position.set(0, 3, 0); scene.add(glow);
-  const composer = new EffectComposer(renderer, new T.WebGLRenderTarget(1, 1, { type: T.HalfFloatType, samples: quality === "cinematic" ? 4 : 0 }));
-  const renderPass = new RenderPass(scene, camera), bloom = new UnrealBloomPass(new T.Vector2(1, 1), .38, .3, 1.6), output = new OutputPass();
-  composer.addPass(renderPass); composer.addPass(bloom); composer.addPass(output); bloom.enabled = quality !== "eco";
-  const neon = (color: T.ColorRepresentation, opacity = 1) => new T.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, blending: T.AdditiveBlending, depthWrite: false });
-  const metal = new T.MeshStandardMaterial({ color: "#071717", metalness: .7, roughness: .4 });
-  const mesh = (geo: T.BufferGeometry, mat: T.Material, pos: [number, number, number], parent: T.Object3D = scene) => { const m = new T.Mesh(geo, mat); m.position.set(...pos); parent.add(m); return m; };
-  // The observation deck: radial circuits, concentric machinery and deep perspective.
-  mesh(new T.PlaneGeometry(180, 180), new T.MeshStandardMaterial({ color: "#030d0d", metalness: .5, roughness: .5 }), [0, -3.25, 0]).rotation.x = -Math.PI / 2;
-  const grid = new T.GridHelper(140, 100, "#14563f", "#063327"); grid.position.y = -3.21; (grid.material as T.Material).transparent = true; (grid.material as T.Material).opacity = .52; scene.add(grid);
-  const deck = mesh(new T.CylinderGeometry(8.1, 8.8, .52, 96), metal, [0, -2.91, 0]);
-  for (const radius of [3.3, 5.4, 8.3, 11.8, 15.4]) { const ring = mesh(new T.TorusGeometry(radius, radius === 8.3 ? .042 : .018, 8, 160), neon("#25b784", .55), [0, -2.58, 0]); ring.rotation.x = Math.PI / 2; }
-  const markings = new T.Group(); scene.add(markings);
-  for (let i = 0; i < 96; i++) { const angle = i / 96 * Math.PI * 2; const tick = mesh(new T.BoxGeometry(i % 8 === 0 ? .04 : .018, .018, i % 8 === 0 ? .44 : .18), neon("#49ffa9", .62), [Math.sin(angle) * 8.5, -2.54, Math.cos(angle) * 8.5], markings); tick.rotation.y = angle; }
-  // Core cage, gyro rings and scanning plane.
-  const core = new T.Group(); core.position.set(0, 1.25, 0); scene.add(core);
-  mesh(new T.IcosahedronGeometry(1.24, 1), new T.MeshBasicMaterial({ color: "#5bffd0", wireframe: true, transparent: true, opacity: .75 }), [0, 0, 0], core);
-  mesh(new T.IcosahedronGeometry(.77, 0), new T.MeshStandardMaterial({ color: "#072b23", emissive: "#1cb480", emissiveIntensity: 1.3, metalness: .68, roughness: .15 }), [0, 0, 0], core);
-  const gyro: T.Mesh[] = [];
-  for (let i = 0; i < 3; i++) { const r = mesh(new T.TorusGeometry(1.72 + i * .3, .023, 8, 120), neon(i === 1 ? "#a1ffee" : "#4bffb0"), [0, 0, 0], core); r.rotation.set(i * .85, i * .53, .4 + i); gyro.push(r); }
-  const beam = mesh(new T.CylinderGeometry(.65, 1.4, 5.4, 32, 1, true), new T.ShaderMaterial({ transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide, uniforms: { time: { value: 0 } }, vertexShader: "varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}", fragmentShader: "varying vec2 vUv;uniform float time;void main(){float line=pow(max(0.,1.-abs(fract(vUv.y*19.-time*.11)-.5)*2.),12.);float edge=pow(1.-vUv.y,2.);gl_FragColor=vec4(.15,.95,.63,edge*(.055+line*.085));}" }), [0, -.3, 0]);
-  const scan = mesh(new T.RingGeometry(2.6, 2.63, 128), neon("#61ffbb", .36), [0, .2, 0]); scan.rotation.x = -Math.PI / 2;
-  // Actual source topology, spatially arranged around the gateway.
-  const positions = new Map<string, T.Vector3>(); positions.set("gateway", new T.Vector3(0, 1.25, 0));
-  const services = graph.nodes.filter(n => n.kind === "service"), external = graph.nodes.filter(n => n.kind === "external");
-  services.forEach((n, i) => { const a = i / services.length * Math.PI * 2 + .35; positions.set(n.id, new T.Vector3(Math.cos(a) * 6.2, -.8 + i % 2 * .35, Math.sin(a) * 6.2)); });
-  external.forEach((n, i) => { const a = i / external.length * Math.PI * 2 + .2; positions.set(n.id, new T.Vector3(Math.cos(a) * 13.1, -.85 + i % 3 * .55, Math.sin(a) * 13.1 - 3)); });
-  positions.set("cache", new T.Vector3(-3.6, -1.5, -.5)); positions.set("database", new T.Vector3(3.2, -1.4, -2.8)); positions.set("estate-db", new T.Vector3(3.6, -1.4, 2.5)); positions.set("client", new T.Vector3(-11, .1, 8)); positions.set("graphics", new T.Vector3(-13, -.5, 5));
-  type NodeVisual = { id: string; group: T.Group; ring: T.Mesh; crystal: T.Mesh; light: T.MeshBasicMaterial; label?: HTMLButtonElement };
-  const visuals: NodeVisual[] = [], labels = document.createElement("div"); labels.className = "an-spatial-labels"; host.appendChild(labels);
-  const pickers: T.Object3D[] = [];
-  graph.nodes.forEach(n => {
-    const p = positions.get(n.id); if (!p || n.id === "gateway") return;
-    const g = new T.Group(); g.position.copy(p); scene.add(g);
-    mesh(new T.CylinderGeometry(.65, .78, .22, 6), metal, [0, -.18, 0], g);
-    const light = neon(n.kind === "service" ? "#50eeb3" : "#239685", .84);
-    const ring = mesh(new T.TorusGeometry(.67, .018, 6, 64), light, [0, -.04, 0], g); ring.rotation.x = Math.PI / 2;
-    const crystal = mesh(new T.OctahedronGeometry(n.kind === "service" ? .53 : .3, 0), new T.MeshBasicMaterial({ color: n.kind === "service" ? "#74ffc2" : "#53cfb0", wireframe: true, transparent: true, opacity: .75 }), [0, .56, 0], g);
-    const hit = mesh(new T.SphereGeometry(.78, 12, 8), new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }), [0, .5, 0], g); hit.userData.nodeId = n.id; pickers.push(hit);
-    let label: HTMLButtonElement | undefined;
-    if (n.kind === "service") { label = document.createElement("button"); label.className = "an-spatial-node"; label.type = "button"; label.setAttribute("aria-label", `${n.label} 3D 노드 선택`); label.innerHTML = `<span></span><b></b><small></small>`; label.querySelector("b")!.textContent = n.label.split(" · ")[0]; label.onclick = () => select(n.id); labels.appendChild(label); }
-    visuals.push({ id: n.id, group: g, ring, crystal, light, label });
+export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, quality: NexusQuality, current: () => FlowState, missions: (value: SentinelMission[]) => void, recover: () => void) {
+  const renderer = new T.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+  renderer.setClearColor(0, 0); renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
+  renderer.domElement.className = "af-world-canvas"; renderer.domElement.setAttribute("aria-label", "관측 요청을 따라 빠르게 이동하며 서비스와 외부 연결을 스캔하는 3D 센티널 관제 그래픽"); renderer.domElement.setAttribute("role", "img"); host.appendChild(renderer.domElement);
+  const scene = new T.Scene(), camera = new T.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, 1, 3000); camera.position.z = 1400; camera.lookAt(0, 0, 0);
+  scene.add(new T.HemisphereLight("#dceaff", "#192337", 2.2));
+  const key = new T.DirectionalLight("#e7f5ff", 2.5); key.position.set(-300, 400, 600); scene.add(key);
+  const rim = new T.DirectionalLight("#927dff", 2.7); rim.position.set(600, -150, 160); scene.add(rim);
+  const pmrem = new T.PMREMGenerator(renderer), room = new RoomEnvironment(), env = pmrem.fromScene(room, .04); scene.environment = env.texture; scene.environmentIntensity = .55; room.dispose(); pmrem.dispose();
+  const positions = flowPositions(graph), world = (id: string, z = 0) => new T.Vector3((positions[id]?.x ?? 205) - W / 2, H / 2 - (positions[id]?.y ?? 318), z);
+  const add = (geo: T.BufferGeometry, mat: T.Material, position: T.Vector3) => { const m = new T.Mesh(geo, mat); m.position.copy(position); scene.add(m); return m; };
+  const basic = (color: string, opacity = 1) => new T.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, depthWrite: false, blending: T.AdditiveBlending });
+  type Rail = { source: string; target: string; curve: T.CubicBezierCurve3; material: T.MeshBasicMaterial; observed: boolean };
+  const rails = new Map<string, Rail>();
+  function rail(source: string, target: string, color: string, observed = false) {
+    const id = `${source}:${target}`; if (rails.has(id)) { const existing = rails.get(id)!; existing.observed ||= observed; return existing; }
+    const a = world(source, 12), b = world(target, 12), bend = Math.abs(b.x - a.x) * .46;
+    const curve = new T.CubicBezierCurve3(a, a.clone().add(new T.Vector3(bend, 0, 38)), b.clone().sub(new T.Vector3(bend, 0, -38)), b);
+    const material = basic(color, observed ? .3 : .065);
+    add(new T.TubeGeometry(curve, 50, observed ? 1.65 : .72, 6, false), material, new T.Vector3());
+    add(new T.TubeGeometry(curve, 50, 5.8, 6, false), basic(color, .025), new T.Vector3());
+    const result = { source, target, curve, material, observed }; rails.set(id, result); return result;
+  }
+  rail("ingress", "gateway", "#68dfff", true);
+  const plates: { id: string; ring: T.Mesh; glow: T.MeshBasicMaterial }[] = [];
+  for (const node of graph.nodes) {
+    if (!positions[node.id] || node.id === "gateway") continue;
+    const hue = DOMAIN_COLORS[node.id] || node.color, shape = new T.Shape();
+    shape.moveTo(-94, -31); shape.lineTo(82, -31); shape.lineTo(94, -19); shape.lineTo(94, 22); shape.lineTo(83, 33); shape.lineTo(-84, 33); shape.lineTo(-94, 23); shape.closePath();
+    add(new T.ExtrudeGeometry(shape, { depth: 13, bevelEnabled: true, bevelSize: 2, bevelThickness: 2, bevelSegments: 2, steps: 1 }), new T.MeshStandardMaterial({ color: "#1a263c", emissive: hue, emissiveIntensity: .07, metalness: .68, roughness: .34 }), world(node.id, -22));
+    const glow = basic(hue, .45), ring = add(new T.TorusGeometry(39, .9, 5, 80), glow, world(node.id, -5)); ring.scale.set(2.5, .91, 1); plates.push({ id: node.id, ring, glow });
+  }
+  const gateway = new T.Group(); gateway.position.copy(world("gateway", -15)); scene.add(gateway);
+  const cage = new T.Mesh(new T.IcosahedronGeometry(53, 1), new T.MeshBasicMaterial({ color: "#7adfff", wireframe: true, transparent: true, opacity: .48 })); gateway.add(cage);
+  const crystal = new T.Mesh(new T.OctahedronGeometry(36), new T.MeshStandardMaterial({ color: "#162943", emissive: "#42b2df", emissiveIntensity: .6, metalness: .85, roughness: .2 })); gateway.add(crystal);
+  const rings: T.Mesh[] = [];
+  for (let i = 0; i < 3; i++) { const ring = new T.Mesh(new T.TorusGeometry(65 + i * 8, 1.3, 6, 120), basic(i === 1 ? "#ba9cff" : "#70dfff", .65)); ring.rotation.set(i * .8, i * .5, .5); gateway.add(ring); rings.push(ring); }
+  graph.edges.filter(e => positions[e.source] && positions[e.target]).forEach(e => rail(e.source, e.target, DOMAIN_COLORS[e.source] || DOMAIN_COLORS[e.target] || "#8499bf", e.source === "gateway"));
+  const dots = new T.InstancedMesh(new T.SphereGeometry(1, 12, 10), new T.MeshBasicMaterial(), 260); dots.instanceMatrix.setUsage(T.DynamicDrawUsage); dots.frustumCulled = false; scene.add(dots);
+  const tails = new T.InstancedMesh(new T.SphereGeometry(1, 7, 5), new T.MeshBasicMaterial({ transparent: true, opacity: .27, depthWrite: false, blending: T.AdditiveBlending }), 520); tails.instanceMatrix.setUsage(T.DynamicDrawUsage); tails.frustumCulled = false; scene.add(tails);
+  const units = UNIT_COLORS.map((color, i) => {
+    const sentinel = createAtlasSentinel(scene, i, quality === "cinematic" ? 80 : 48, false, i === 2 ? "#ff354b" : color); sentinel.group.position.set(-350 + i * 120, 130 - i * 140, 120); sentinel.group.scale.setScalar(i === 0 ? 24 : 21);
+    const scanner = add(new T.RingGeometry(18, 20, 70), basic(color, .8), world("gateway", 75)), pulse = add(new T.RingGeometry(34, 35.4, 70), basic(color, .48), world("gateway", 70));
+    const link = new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(), new T.Vector3()]), new T.LineBasicMaterial({ color, transparent: true, opacity: .7, depthWrite: false })); scene.add(link);
+    const trail = new T.Line(new T.BufferGeometry().setFromPoints(Array.from({ length: 14 }, () => sentinel.group.position.clone())), new T.LineBasicMaterial({ color, transparent: true, opacity: .44, depthWrite: false })); scene.add(trail);
+    const badge = document.createElement("div"); badge.className = `af-unit-tag af-unit-${i}`; badge.innerHTML = `<b>S-0${i + 1}</b><span></span>`; host.appendChild(badge);
+    return { sentinel, scanner, pulse, link, trail, badge, target: "gateway", position: sentinel.group.position, record: null as FlowRecord | null };
   });
-  const flowPaths: { id: string; source: string; curve: T.CatmullRomCurve3; dot: T.Mesh; line: T.Material }[] = [];
-  graph.edges.forEach(e => { const from = positions.get(e.source), to = positions.get(e.target); if (!from || !to) return;
-    const middle = from.clone().lerp(to, .5); middle.y += e.source === "gateway" ? 1 : .4;
-    const curve = new T.CatmullRomCurve3([from.clone(), middle, to.clone()]);
-    const material = neon(e.source === "gateway" ? "#27b583" : "#1e695d", .42);
-    mesh(new T.TubeGeometry(curve, 24, .013, 4, false), material, [0, 0, 0]);
-    const dot = mesh(new T.SphereGeometry(.06, 8, 6), neon("#96ffce"), [0, 0, 0]); dot.visible = false;
-    flowPaths.push({ id: e.id, source: e.source, curve, dot, line: material });
-  });
-  // Remote data vaults, suspended hoops and algorithmic code curtains.
-  const towers = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1), new T.MeshStandardMaterial({ color: "#061915", metalness: .62, roughness: .48 }), 80);
-  const transform = new T.Object3D();
-  for (let i = 0; i < 80; i++) { const height = 3 + i % 7 * 1.25; transform.position.set((i % 20 - 9.5) * 3.6, height / 2 - 3.2, -27 - Math.floor(i / 20) * 5); transform.scale.set(.7, height, .7); transform.updateMatrix(); towers.setMatrixAt(i, transform.matrix); }
-  scene.add(towers);
-  const codeCanvas = document.createElement("canvas"); codeCanvas.width = 512; codeCanvas.height = 1024;
-  const ctx = codeCanvas.getContext("2d")!; ctx.fillStyle = "#011008"; ctx.fillRect(0, 0, 512, 1024); ctx.font = "15px monospace";
-  const glyphs = "01アカサタナハマヤラワ0123456789ABCDEF";
-  for (let x = 0; x < 32; x++) for (let y = 0; y < 62; y++) { const v = Math.sin(x * 38.72 + y * 17.23) * 43758.54; const f = v - Math.floor(v); ctx.fillStyle = `rgba(68,255,153,${f > .86 ? .7 : f * .19})`; ctx.fillText(glyphs[Math.floor(f * glyphs.length)], x * 16, y * 17); }
-  const codeTexture = new T.CanvasTexture(codeCanvas); codeTexture.wrapS = codeTexture.wrapT = T.RepeatWrapping; codeTexture.repeat.set(5, 1.8);
-  const curtain = mesh(new T.CylinderGeometry(37, 37, 29, 80, 1, true), new T.MeshBasicMaterial({ map: codeTexture, transparent: true, opacity: .27, blending: T.AdditiveBlending, side: T.BackSide, depthWrite: false }), [0, 9, -4]);
-  const starsGeo = new T.BufferGeometry(), starPositions: number[] = [];
-  for (let i = 0; i < 700; i++) { const r = Math.sin(i * 14.357) * 43758.4, f = r - Math.floor(r); starPositions.push(Math.sin(i * 1.83) * 42, f * 25 - 1, Math.cos(i * 2.31) * 42 - 12); }
-  starsGeo.setAttribute("position", new T.Float32BufferAttribute(starPositions, 3)); const dust = new T.Points(starsGeo, new T.PointsMaterial({ color: "#7bffc5", size: .028, transparent: true, opacity: .4, blending: T.AdditiveBlending, depthWrite: false })); scene.add(dust);
-  const sentinels = [0, 1, 2].map(i => createAtlasSentinel(scene, i, quality === "cinematic" ? 64 : 40));
-  const coreCaption = host.parentElement?.querySelector<HTMLElement>(".an-core-caption"), sentinelCaption = host.parentElement?.querySelector<HTMLElement>(".an-sentinel-tag");
-  host.dataset.sentinels = "3"; host.dataset.state = "ready";
-  let width = 1, height = 1, frame = 0, raf = 0, disposed = false, released = false, contextLost = false, lastFrame = 0, simTime = 0, dirty = true, lastAt = 0, pointerStart = new T.Vector2(), cameraReset = false;
-  const baseRatio = quality === "cinematic" ? 1.5 : quality === "balanced" ? Math.min(devicePixelRatio, 1.25) : .85;
-  let ratio = baseRatio, slowFrames = 0;
-  let compact: boolean | undefined;
-  const resize = () => {
-    width = Math.max(1, host.clientWidth); height = Math.max(1, host.clientHeight);
-    const nextCompact = width < 620;
-    if (compact !== nextCompact) {
-      compact = nextCompact; home.set(...(compact ? [17, 16, 31] : [19, 12.5, 27]) as [number, number, number]);
-      target.set(...(compact ? [8, 5, 0] : [1, 1, -3]) as [number, number, number]);
-      camera.position.copy(home); controls.target.copy(target); camera.fov = compact ? 58 : 46;
-    }
-    camera.aspect = width / height; camera.updateProjectionMatrix(); renderer.setPixelRatio(ratio); renderer.setSize(width, height); composer.setPixelRatio(ratio); composer.setSize(width, height); dirty = true;
-  };
-  const observer = new ResizeObserver(resize); observer.observe(host); resize();
-  const projected = new T.Vector3(), raycaster = new T.Raycaster();
-  const down = (e: PointerEvent) => pointerStart.set(e.clientX, e.clientY);
-  const click = (e: PointerEvent) => { if (pointerStart.distanceTo(new T.Vector2(e.clientX, e.clientY)) > 5) return; const box = renderer.domElement.getBoundingClientRect(); raycaster.setFromCamera(new T.Vector2((e.clientX - box.left) / box.width * 2 - 1, -(e.clientY - box.top) / box.height * 2 + 1), camera); const hit = raycaster.intersectObjects(pickers, false)[0]; if (hit) select(hit.object.userData.nodeId); };
-  renderer.domElement.addEventListener("pointerdown", down); renderer.domElement.addEventListener("pointerup", click);
-  const lose = (e: Event) => { e.preventDefault(); contextLost = true; host.dataset.state = "context-lost"; cancelAnimationFrame(raf); releaseResources(); };
-  renderer.domElement.addEventListener("webglcontextlost", lose);
-  // Rebuild after restoration: old VAOs, programs and composer targets belong to the lost context.
-  const restored = () => { if (!disposed) recover(); };
-  renderer.domElement.addEventListener("webglcontextrestored", restored);
-  controls.addEventListener("change", () => dirty = true);
+  type Playing = { record: FlowRecord; start: number; duration: number };
+  let playing: Playing[] = [], queue: FlowRecord[] = [], records: FlowRecord[] = [], seen = new Set<string>(), lastSnapshot = -1, lastReplay = -1, lastFocus = "", lastSelected = "", nextLaunch = 0, nextMission = 0;
+  let sim = 0, frames = 0, raf = 0, lastFrame = 0, disposed = false, released = false, lost = false, dirty = true, ratio = quality === "cinematic" ? 1.5 : quality === "balanced" ? 1.15 : .8, slowFrames = 0;
+  let width = 1, height = 1;
+  const resize = () => { width = Math.max(1, host.clientWidth); height = Math.max(1, host.clientHeight); renderer.setPixelRatio(ratio); renderer.setSize(width, height); dirty = true; }; const observer = new ResizeObserver(resize); observer.observe(host); resize();
+  const transform = new T.Object3D(), color = new T.Color(), destination = new T.Vector3();
+  function drawPacket(path: Rail, progress: number, hue: string, radius: number, index: number) {
+    if (index >= 260) return index;
+    transform.position.copy(path.curve.getPoint(T.MathUtils.clamp(progress, 0, 1))); transform.position.z += 24; transform.scale.setScalar(radius); transform.updateMatrix(); dots.setMatrixAt(index, transform.matrix); dots.setColorAt(index, color.set(hue));
+    for (let j = 0; j < 2; j++) { transform.position.copy(path.curve.getPoint(T.MathUtils.clamp(progress - .018 * (j + 1), 0, 1))); transform.position.z += 23; transform.scale.setScalar(radius * (1.5 - j * .35)); transform.updateMatrix(); tails.setMatrixAt(index * 2 + j, transform.matrix); tails.setColorAt(index * 2 + j, color); }
+    return index + 1;
+  }
+  function updateMissions(state: FlowState) {
+    const scoped = records.filter(r => (state.selected === "gateway" || r.group === state.selected) && (!state.focus || r.key === state.focus));
+    const services = graph.nodes.filter(n => n.kind === "service").map(n => n.id), cycle = Math.floor(sim / 2.1);
+    const result: SentinelMission[] = [];
+    units.forEach((u, i) => {
+      const candidates = scoped.filter(r => i === 0 ? !r.batch : i === 1 ? r.calls.length : r.fault || r.slow);
+      const record = candidates[(cycle + i * 3) % Math.max(1, candidates.length)] || scoped[(cycle + i) % Math.max(1, scoped.length)] || null;
+      const stage = (Math.floor(sim / 1.8) + i) % 3;
+      const target = record ? stage === 0 ? record.batch ? "batch" : "gateway" : stage === 2 && record.calls.length ? callDestination(graph, record.calls[(cycle + i) % record.calls.length]) : record.batch ? callDestination(graph, record.request) : record.group : state.selected !== "gateway" ? stage === 0 ? "gateway" : state.selected : services[(Math.floor(sim / .8) + i * 2) % services.length];
+      u.target = target; u.record = record;
+      const title = target === "batch" ? "배치 HTTP" : graph.nodes.find(n => n.id === target)?.label.split(" · ")[0] || "표본 대기";
+      const detail = record ? record.batch ? `${record.request.host} · ${Math.round(record.request.ms)}ms` : `#${record.request.trace_id || record.request.id} · ${record.request.method} ${record.request.route}` : "새로운 요청 표본 대기";
+      result.push({ unit: i, target, title, detail, phase: record ? i === 2 && record.fault ? "오류 구간 스캔" : i === 2 && record.slow ? "지연 구간 스캔" : i === 1 ? "연동 경로 스캔" : "요청 경로 추적" : "표본 대기", record });
+      u.badge.querySelector("span")!.textContent = record ? title : "표본 대기";
+    }); missions(result); nextMission = sim + 1.8;
+  }
   function tick(stamp: number) {
-    if (disposed || contextLost || document.hidden) return;
-    raf = requestAnimationFrame(tick);
-    const budget = quality === "cinematic" ? 1000 / 45 : 1000 / 30;
-    if (stamp - lastFrame < budget) return;
-    const delta = lastFrame ? Math.min(.08, (stamp - lastFrame) / 1000) : .025; lastFrame = stamp;
-    const state = current(), moving = state.motion && !state.reduced;
-    if (cameraReset) { camera.position.lerp(home, .13); controls.target.lerp(target, .13); cameraReset = camera.position.distanceTo(home) > .03; dirty = true; }
-    const changed = controls.update();
-    if (!moving && !dirty && !changed && state.live?.at === lastAt) return;
-    if (moving) simTime += delta;
-    const t = simTime; sentinels.forEach(s => s.update(t)); core.rotation.y = t * .14; core.rotation.z = Math.sin(t * .18) * .1;
-    if (coreCaption && !compact) { projected.copy(core.position).add(new T.Vector3(0, 6, 0)).project(camera); coreCaption.style.left = `${(projected.x * .5 + .5) * width}px`; coreCaption.style.top = `${(-projected.y * .5 + .5) * height}px`; }
-    else if (coreCaption) { coreCaption.style.removeProperty("left"); coreCaption.style.removeProperty("top"); }
-    if (sentinelCaption && !compact) { projected.copy(sentinels[0].group.position).add(new T.Vector3(2.5, 1.4, 0)).project(camera); sentinelCaption.style.left = `${(projected.x * .5 + .5) * width}px`; sentinelCaption.style.top = `${(-projected.y * .5 + .5) * height}px`; sentinelCaption.style.right = "auto"; }
-    else if (sentinelCaption) { ["left", "top", "right"].forEach(p => sentinelCaption.style.removeProperty(p)); }
-    gyro.forEach((r, i) => { r.rotation.x = i * .85 + t * .12 * (i % 2 ? -1 : 1); r.rotation.y = i * .53 + t * .08; });
-    (beam.material as T.ShaderMaterial).uniforms.time.value = t; scan.position.y = -1.9 + (Math.sin(t * .7) + 1) * 2.1; codeTexture.offset.y = -t * .016; curtain.rotation.y = t * .006; dust.rotation.y = t * .012;
-    flowPaths.forEach((f, i) => { const observed = state.live?.observed_edges[f.id] || (f.source === "gateway" ? state.live?.api.groups[f.id.split(":")[1]]?.count || 0 : 0); f.dot.visible = moving && observed > 0; if (f.dot.visible) f.dot.position.copy(f.curve.getPointAt((t * .16 + i * .173) % 1)); });
-    visuals.forEach(v => { const stats = state.live?.api.groups[v.id] || state.live?.external.groups[v.id]; const chosen = v.id === state.selected; const error = (stats?.errors || 0) > 0; v.light.color.set(error ? "#ff5868" : chosen ? "#b5ffe5" : "#43b58c"); v.ring.scale.setScalar(chosen ? 1.24 : 1); v.crystal.rotation.y = t * .32; v.crystal.position.y = .55 + Math.sin(t * .7 + v.group.position.x) * .08;
-      if (v.label) { projected.copy(v.group.position).add(new T.Vector3(0, 1.25, 0)).project(camera); v.label.style.left = `${(projected.x * .5 + .5) * width}px`; v.label.style.top = `${(-projected.y * .5 + .5) * height}px`; v.label.style.display = projected.z < 1 && projected.z > -1 && Math.abs(projected.x) < 1.06 && Math.abs(projected.y) < 1.02 ? "" : "none"; v.label.className = `an-spatial-node ${chosen ? "is-selected" : ""} ${error ? "has-error" : ""}`; v.label.setAttribute("aria-pressed", String(chosen)); v.label.querySelector("small")!.textContent = state.live ? `${stats?.count || 0} / 60s` : "표본 대기"; }
+    if (disposed || lost || document.hidden) return;
+    raf = requestAnimationFrame(tick); if (stamp - lastFrame < (quality === "cinematic" ? 1000 / 45 : 1000 / 30)) return;
+    const delta = lastFrame ? Math.min(.08, (stamp - lastFrame) / 1000) : .03; lastFrame = stamp;
+    const state = current(), moving = state.motion && !state.reduced, changed = state.live?.at !== lastSnapshot || state.selected !== lastSelected || (state.focus || "") !== lastFocus || state.replay !== lastReplay;
+    if (!moving && !dirty && !changed) return; if (moving) sim += delta * state.speed;
+    if (state.live?.at !== lastSnapshot) {
+      records = flowRecords(graph, state.live); const retained = new Set(records.map(r => r.key)); playing = playing.filter(p => retained.has(p.record.key)); const fresh = records.filter(r => !seen.has(r.key)); fresh.forEach(r => seen.add(r.key)); queue = [...queue.filter(r => retained.has(r.key)), ...fresh.filter(r => state.selected === "gateway" || r.group === state.selected).reverse()].slice(-80); if (seen.size > 1000) seen = new Set(records.map(r => r.key)); lastSnapshot = state.live?.at || 0;
+      records.flatMap(r => r.calls.map(call => [r.batch ? "batch" : r.group, callDestination(graph, call)] as const)).forEach(([from, to]) => rail(from, to, DOMAIN_COLORS[from] || "#ba9bff", true));
+    }
+    if (state.replay !== lastReplay || state.selected !== lastSelected || (state.focus || "") !== lastFocus) { playing = []; queue = records.filter(r => (state.selected === "gateway" || r.group === state.selected) && (!state.focus || r.key === state.focus)).slice(0, 40).reverse(); nextLaunch = sim; nextMission = 0; lastReplay = state.replay; lastSelected = state.selected; lastFocus = state.focus || ""; }
+    if (moving && queue.length && sim >= nextLaunch && playing.length < 18) { const record = queue.shift()!; playing.push({ record, start: sim, duration: 3.8 + Math.min(2.8, record.request.ms / 1000) }); nextLaunch = sim + .18; }
+    playing = playing.filter(p => sim - p.start < p.duration); let count = 0;
+    for (const p of playing) {
+      const r = p.record, progress = (sim - p.start) / p.duration, hue = r.fault ? "#ff6c83" : DOMAIN_COLORS[r.group] || "#bc9fff";
+      if (!r.batch) {
+        if (progress < .19) count = drawPacket(rails.get("ingress:gateway")!, progress / .19, hue, 3.3, count);
+        if (progress >= .16 && progress < .48) count = drawPacket(rails.get(`gateway:${r.group}`)!, (progress - .16) / .32, hue, 3.2, count);
+        if (progress > .76) count = drawPacket(rails.get(`gateway:${r.group}`)!, 1 - (progress - .76) / .24, r.fault ? "#ff6481" : "#d7f7ff", 2.8, count);
+      }
+      r.calls.forEach(call => { const path = rails.get(`${r.batch ? "batch" : r.group}:${callDestination(graph, call)}`); if (!path) return;
+        const start = r.batch ? .08 : .35 + T.MathUtils.clamp(((call.ts - call.ms / 1000) - (r.request.ts - r.request.ms / 1000)) * 1000 / Math.max(1, r.request.ms) * .3, 0, .3), end = Math.min(.96, start + .33), portion = (progress - start) / (end - start);
+        if (portion >= 0 && portion <= 1) count = drawPacket(path, portion < .55 ? portion / .55 : 1 - (portion - .55) / .45, !call.status || call.status >= 500 ? "#ff6c83" : hue, 3.2, count);
+      });
+    }
+    dots.count = count; tails.count = count * 2; dots.instanceMatrix.needsUpdate = tails.instanceMatrix.needsUpdate = true; if (dots.instanceColor) dots.instanceColor.needsUpdate = true; if (tails.instanceColor) tails.instanceColor.needsUpdate = true;
+    rails.forEach(r => { const focused = state.selected === "gateway" || r.source === state.selected || r.target === state.selected || r.source === "ingress", value = r.source === "gateway" ? state.live?.api.groups[r.target]?.count || 0 : state.live?.observed_edges[`${r.source}:${r.target}`] || 0; r.material.opacity = focused ? value ? .2 + Math.min(.3, value / 160) : r.observed ? .13 : .035 : .015; });
+    plates.forEach(p => { const selected = state.selected === p.id, stats = state.live?.api.groups[p.id] || state.live?.external.groups[p.id]; p.glow.color.set(stats?.errors ? "#ff6481" : DOMAIN_COLORS[p.id] || graph.nodes.find(n => n.id === p.id)!.color); p.glow.opacity = selected ? .95 : stats?.count ? .5 : .2; p.ring.scale.set(2.5 + (selected ? .04 * Math.sin(sim * 3) : 0), .91, 1); });
+    cage.rotation.set(sim * .08, sim * .12, .3); crystal.rotation.y = -sim * .17; rings.forEach((r, i) => { r.rotation.x = i * .8 + sim * .13; r.rotation.y = i * .5 + sim * .09; }); if (sim >= nextMission || changed) updateMissions(state);
+    units.forEach((u, i) => {
+      destination.copy(world(u.target, 125)); destination.x -= i === 1 ? 117 : 145; destination.y += i === 2 ? -39 : 51; destination.y += Math.sin(sim * 1.7 + i) * 9;
+      const travel = destination.clone().sub(u.position); if (moving || frames === 0) u.position.add(travel.clampLength(0, frames === 0 ? 190 : delta * (2400 + state.speed * 350)));
+      u.sentinel.group.rotation.set(.4 + Math.sin(sim * .8 + i) * .08, -.84 + Math.sin(sim * .5 + i) * .18, T.MathUtils.clamp(-travel.y / 450, -.32, .32)); u.sentinel.update(sim * .65);
+      const node = world(u.target, 55); u.scanner.position.copy(node); u.scanner.scale.setScalar(.7 + (Math.sin(sim * 4 + i) + 1) * .4); u.scanner.rotation.z = sim * .8;
+      u.pulse.position.copy(node); u.pulse.scale.setScalar(.75 + (sim * .6 + i * .3) % 1 * 1.8); (u.pulse.material as T.MeshBasicMaterial).opacity = .32 * (1 - (sim * .6 + i * .3) % 1);
+      const a = u.link.geometry.attributes.position as T.BufferAttribute; a.setXYZ(0, u.position.x, u.position.y - 16, 90); a.setXYZ(1, node.x, node.y, node.z); a.needsUpdate = true;
+      const trail = u.trail.geometry.attributes.position as T.BufferAttribute; for (let j = 13; j > 0; j--) trail.setXYZ(j, trail.getX(j - 1), trail.getY(j - 1), 110); trail.setXYZ(0, u.position.x, u.position.y, 110); trail.needsUpdate = true;
+      u.badge.style.left = `${(u.position.x + W / 2) / W * width}px`; u.badge.style.top = `${(H / 2 - u.position.y + 36) / H * height}px`;
     });
-    const began = performance.now(); composer.render(); const elapsed = performance.now() - began;
-    if (moving && elapsed > 38) slowFrames++; else slowFrames = Math.max(0, slowFrames - 1);
-    if (slowFrames > 28 && ratio > .85) { ratio = Math.max(.85, ratio * .82); slowFrames = 0; resize(); }
-    dirty = false; lastAt = state.live?.at || 0; frame++; host.dataset.frames = String(frame); host.dataset.motion = moving ? "running" : "paused"; host.dataset.selected = state.selected; host.dataset.simulationTime = t.toFixed(3); host.dataset.camera = camera.position.toArray().map(v => v.toFixed(2)).join(",");
+    const begin = performance.now(); renderer.render(scene, camera); const elapsed = performance.now() - begin; slowFrames = elapsed > 38 ? slowFrames + 1 : Math.max(0, slowFrames - 1); if (slowFrames > 25 && ratio > .85) { ratio = Math.max(.85, ratio * .82); slowFrames = 0; resize(); }
+    frames++; dirty = false; host.dataset.state = "ready"; host.dataset.frames = String(frames); host.dataset.motion = moving ? "running" : "paused"; host.dataset.simulationTime = sim.toFixed(3); host.dataset.packets = String(count); host.dataset.queued = String(queue.length); host.dataset.seen = String(seen.size); host.dataset.assignments = units.map(u => u.target).join(","); host.dataset.sentinels = "3"; host.dataset.camera = "fixed"; host.dataset.speed = String(state.speed); host.dataset.positions = units.map(u => `${u.position.x.toFixed(0)}:${u.position.y.toFixed(0)}`).join(",");
   }
-  const visibility = () => { cancelAnimationFrame(raf); if (!document.hidden && !disposed && !contextLost) { lastFrame = 0; dirty = true; raf = requestAnimationFrame(tick); } };
-  document.addEventListener("visibilitychange", visibility); raf = requestAnimationFrame(tick);
-  function releaseResources() {
-    if (released) return; released = true;
-    const geometries = new Set<T.BufferGeometry>(), materials = new Set<T.Material>();
-    scene.traverse(object => { if (object instanceof T.InstancedMesh) object.dispose(); if (object instanceof T.Mesh || object instanceof T.Points || object instanceof T.LineSegments) { geometries.add(object.geometry); (Array.isArray(object.material) ? object.material : [object.material]).forEach(m => materials.add(m)); } });
-    geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); codeTexture.dispose(); env.dispose(); renderPass.dispose(); bloom.dispose(); output.dispose(); composer.dispose(); renderer.dispose();
-  }
-  return {
-    reset: () => { cameraReset = true; dirty = true; },
-    invalidate: () => { dirty = true; },
-    dispose: () => { disposed = true; cancelAnimationFrame(raf); observer.disconnect(); document.removeEventListener("visibilitychange", visibility); controls.dispose(); renderer.domElement.removeEventListener("pointerdown", down); renderer.domElement.removeEventListener("pointerup", click); renderer.domElement.removeEventListener("webglcontextlost", lose); renderer.domElement.removeEventListener("webglcontextrestored", restored);
-      releaseResources(); renderer.forceContextLoss(); host.replaceChildren(); delete host.dataset.frames; delete host.dataset.state;
-    },
-  };
+  function release() { if (released) return; released = true; const geos = new Set<T.BufferGeometry>(), mats = new Set<T.Material>(); scene.traverse(o => { if (o instanceof T.InstancedMesh) o.dispose(); if (o instanceof T.Mesh || o instanceof T.Line) { geos.add(o.geometry); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => mats.add(m)); } }); geos.forEach(g => g.dispose()); mats.forEach(m => m.dispose()); env.dispose(); renderer.dispose(); }
+  const lose = (event: Event) => { event.preventDefault(); lost = true; host.dataset.state = "context-lost"; cancelAnimationFrame(raf); release(); }, restore = () => { if (!disposed) recover(); };
+  renderer.domElement.addEventListener("webglcontextlost", lose); renderer.domElement.addEventListener("webglcontextrestored", restore);
+  const visibility = () => { cancelAnimationFrame(raf); if (!document.hidden && !disposed && !lost) { lastFrame = 0; dirty = true; raf = requestAnimationFrame(tick); } }; document.addEventListener("visibilitychange", visibility); raf = requestAnimationFrame(tick);
+  return { invalidate: () => { dirty = true; }, dispose: () => { disposed = true; cancelAnimationFrame(raf); observer.disconnect(); document.removeEventListener("visibilitychange", visibility); renderer.domElement.removeEventListener("webglcontextlost", lose); renderer.domElement.removeEventListener("webglcontextrestored", restore); release(); renderer.forceContextLoss(); host.replaceChildren(); Object.keys(host.dataset).forEach(k => delete host.dataset[k]); } };
 }

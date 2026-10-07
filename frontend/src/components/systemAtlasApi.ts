@@ -18,7 +18,7 @@ export interface AtlasArchitecture {
     deployment?: { provider: string; container: string; runtime: string; worker_policy: string; domain: string } };
   coverage: { architecture: string; traffic: string; limitations: string[] };
 }
-export interface AtlasEvent { id: number; ts: number; method: string; status: number; ms: number; route?: string; host?: string; trace_id?: number }
+export interface AtlasEvent { id: number; ts: number; method: string; status: number; ms: number; route?: string; host?: string; trace_id?: number; target?: string }
 export interface AtlasBreakdown {
   status: Record<string, number>; latency: number[]; timeline: Array<AtlasStats & { at: number }>;
 }
