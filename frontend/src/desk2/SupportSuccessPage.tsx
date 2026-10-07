@@ -16,7 +16,7 @@ const products: Record<number, [string, string]> = {
 
 export default function SupportSuccessPage() {
   const L = useL();
-  useBroadsheet({ lightByDefault: true });
+  useBroadsheet();
   useDocumentTitle(L("후원해 주셔서 감사합니다 · K-Stock Hub", "Thank you for your support · K-Stock Hub"));
   const [checkout, setCheckout] = useState<Checkout | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");

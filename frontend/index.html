@@ -11,13 +11,17 @@
       // replaces that shell, while no-JS crawlers still receive its full content.
       (function () {
         document.documentElement.classList.add("js");
+        var stored = null;
         try {
-          var stored = localStorage.getItem("site_theme");
-          // The market desk and the real-estate map open in the light edition unless the visitor has
-          // chosen a theme — keep in step with PAGE_DEFAULTS in src/theme.ts.
-          var pageLight = !stored && (location.pathname === "/desk" || location.pathname === "/realestate-map");
-          if (stored === "light" || pageLight) document.documentElement.setAttribute("data-theme", "light");
+          stored = localStorage.getItem("site_theme");
         } catch (e) {}
+        // Keep first paint in step with the unselected defaults in src/theme.ts.
+        var path = location.pathname.replace(/\/$/, "");
+        var valid = stored === "light" || stored === "dark";
+        var pageLight = !valid && ["/desk", "/realestate-map", "/support", "/support-success"].indexOf(path) !== -1;
+        var mode = stored === "light" || pageLight ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", mode);
+        document.querySelector('meta[name="theme-color"]').setAttribute("content", mode === "light" ? "#eae7df" : "#0d0d0d");
       })();
     </script>
     <script>

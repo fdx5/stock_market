@@ -1,6 +1,6 @@
 """Read-only access to publicly visible Toss Securities stock communities."""
 
-from app.data.toss_session import INFO_API, resolve_product_code, session
+from app.data.toss_session import request_json, resolve_product_code
 from app.services.cache import cache
 
 TTL_DISCUSSION_SECONDS = 3 * 60
@@ -21,7 +21,9 @@ def _message(comment: dict) -> tuple[str, str]:
 
 
 def _fetch_discussion(symbol: str, limit: int, offset: str | None) -> dict:
-    product_code = resolve_product_code(symbol)
+    # Transient lookup failure must raise: caching it as an empty board would erase
+    # the last successful comments during stale-while-revalidate.
+    product_code = resolve_product_code(symbol, raise_on_error=True)
     if not product_code:
         return {"items": [], "next_offset": None}
     params = {
@@ -31,9 +33,7 @@ def _fetch_discussion(symbol: str, limit: int, offset: str | None) -> dict:
     }
     if offset:
         params["lastCommentId"] = offset
-    response = session.get(f"{INFO_API}/api/v4/comments", params=params, timeout=4)
-    response.raise_for_status()
-    result = response.json().get("result") or {}
+    result = request_json("GET", "/api/v4/comments", params=params, list_field="results")["result"]
     comments = result.get("results") or []
     items = []
     for comment in comments:

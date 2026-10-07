@@ -15,7 +15,7 @@ and is the reason `paragraphs` can come back null. Here the body arrives as data
 
 import urllib.parse
 
-from app.data.toss_session import INFO_API, resolve_company_code, session
+from app.data.toss_session import request_json, resolve_company_code, session
 from app.services.cache import cache
 
 TTL_NEWS_SECONDS = 5 * 60
@@ -84,16 +84,15 @@ def _item(news: dict) -> dict:
 
 
 def _fetch_news(symbol: str, limit: int, page: int) -> dict:
-    company_code = resolve_company_code(symbol)
+    company_code = resolve_company_code(symbol, raise_on_error=True)
     if not company_code:
         return {"items": [], "has_next": False}
-    response = session.get(
-        f"{INFO_API}/api/v2/news/companies/{company_code}",
+    payload = request_json(
+        "GET", f"/api/v2/news/companies/{company_code}", endpoint="/api/v2/news/companies",
+        list_field="body",
         params={"size": limit, "number": page},
-        timeout=5,
     )
-    response.raise_for_status()
-    result = response.json().get("result") or {}
+    result = payload["result"]
     items = [_item(news) for news in (result.get("body") or []) if news.get("title")]
     return {"items": items, "has_next": not result.get("lastPage", True)}
 
@@ -111,9 +110,7 @@ def get_toss_news(symbol: str, limit: int = 12, page: int = 1) -> dict:
 
 
 def _fetch_article(news_id: str) -> dict:
-    response = session.get(f"{INFO_API}/api/v1/news/{news_id}", timeout=5)
-    response.raise_for_status()
-    result = response.json().get("result") or {}
+    result = request_json("GET", f"/api/v1/news/{news_id}", endpoint="/api/v1/news")["result"]
     # `content` is a list of typed blocks; only the text ones carry the article. Image
     # and embed blocks are dropped rather than rendered, because the panel that shows
     # this is a reading column, not a reproduction of the outlet's page.

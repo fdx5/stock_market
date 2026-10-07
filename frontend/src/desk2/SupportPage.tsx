@@ -34,7 +34,7 @@ export default function SupportPage() {
       window.removeEventListener("pagehide", leave); window.removeEventListener("pageshow", resume); };
   }, []);
   const L = useL();
-  useBroadsheet({ lightByDefault: true });
+  useBroadsheet();
   useDocumentTitle(L("커피 한 잔 후원하기 · K-Stock Hub", "Buy us a coffee · K-Stock Hub"));
   return <div className="d2 d2-support">
     <Masthead rail={false} onPrint={() => window.print()} />

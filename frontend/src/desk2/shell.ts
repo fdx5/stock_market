@@ -1,5 +1,4 @@
-import { useEffect } from "react";
-import { setPageDefaultTheme } from "../theme";
+import { useEffect, useLayoutEffect } from "react";
 import { useBroadsheetFonts } from "./fonts";
 import "./desk2.css";
 
@@ -9,22 +8,17 @@ import "./desk2.css";
  * never disagree about which fonts they load or which class scopes them. */
 
 
-/** Loads the fonts once and scopes the page. `lightByDefault` is the main desk's
- * wish to open in the 주간판; see setPageDefaultTheme for why it never overrides a
- * visitor's own choice. The fonts are left in place on unmount — a reader moving
- * between broadsheet pages should not re-download them. */
-export function useBroadsheet({ lightByDefault = false }: { lightByDefault?: boolean } = {}): void {
+/** Loads fonts once and scopes the page before paint. Theme belongs to the router. */
+export function useBroadsheet(): void {
   useBroadsheetFonts();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.classList.add("is-desk2");
-    if (lightByDefault) setPageDefaultTheme("light");
     return () => {
       root.classList.remove("is-desk2");
-      if (lightByDefault) setPageDefaultTheme(null);
     };
-  }, [lightByDefault]);
+  }, []);
 }
 
 /** ⌘K / Ctrl-K anywhere toggles the finder; "/" opens it when nothing is being typed. */

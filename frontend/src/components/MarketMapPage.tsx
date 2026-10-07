@@ -9,6 +9,7 @@ import { Link, navigate } from "../router";
 import { loadStockIconUrl } from "../stockIcon";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { useThemeMode } from "../theme";
 import { usCompanyLogoProxyUrl } from "../usLogo";
 import Colophon from "../desk2/Colophon";
 import Finder from "../desk2/Finder";
@@ -24,7 +25,6 @@ import StockIcon from "./StockIcon";
 import {
   MapExportButtons,
   MapPreviewModal,
-  TILE_NIGHT_MODE,
   drawContained,
   loadImage,
   resolveCssColor,
@@ -262,6 +262,7 @@ export default function MarketMapPage({
 }: MarketMapPageProps) {
   const { lang } = useLanguage();
   const t = useT();
+  const themeMode = useThemeMode();
   useDocumentTitle("K-Stock Hub");
   // The maps sit on the broadsheet: its type, its masthead and colophon, and its
   // palette, which maps.css feeds into the variables this page's own rules read.
@@ -610,7 +611,7 @@ export default function MarketMapPage({
   const renderMapPng = async (): Promise<Blob | null> => {
     if (sectorZones.length === 0 || size.w === 0 || size.h === 0) return null;
 
-    // Resolved inside the canvas, which keeps the 야간판 palette in both editions.
+    // Resolve the same selected theme the on-screen tiles use.
     const host = containerRef.current ?? document.body;
     const cardBg = resolveCssColor("var(--surface-1)", host);
     const gapColor = resolveCssColor("var(--map-gap)", host);
@@ -681,7 +682,7 @@ export default function MarketMapPage({
       }
 
       for (const tile of zone.tiles) {
-        const rgb = changeToRgb(tile.item.change_pct, TILE_NIGHT_MODE);
+        const rgb = changeToRgb(tile.item.change_pct, themeMode);
         ctx.fillStyle = rgbToCss(rgb);
         ctx.fillRect(tile.x, tile.y, tile.w, tile.h);
         ctx.strokeStyle = gapColor;
@@ -698,7 +699,7 @@ export default function MarketMapPage({
 
         const pctText = pct(tile.item.change_pct);
         const padX = 5;
-        const tileTextColor = textColorForRgb(rgb, TILE_NIGHT_MODE);
+        const tileTextColor = textColorForRgb(rgb, themeMode);
         ctx.fillStyle = tileTextColor;
 
         if (showName) {
@@ -913,7 +914,7 @@ export default function MarketMapPage({
             </div>
 
           {view === "map" && (
-            <div className="card kospi-map-canvas map-canvas-night" ref={containerRef}>
+            <div className="card kospi-map-canvas" ref={containerRef}>
               {loading &&
                 skeletonRects.map((rect, i) => (
                   <div
@@ -957,9 +958,9 @@ export default function MarketMapPage({
                     </div>
                   )}
                   {zone.tiles.map((tile) => {
-                    const rgb = changeToRgb(tile.item.change_pct, TILE_NIGHT_MODE);
+                    const rgb = changeToRgb(tile.item.change_pct, themeMode);
                     const bg = rgbToCss(rgb);
-                    const textColor = textColorForRgb(rgb, TILE_NIGHT_MODE);
+                    const textColor = textColorForRgb(rgb, themeMode);
                     const localX = tile.x - zone.rect.x;
                     const localY = tile.y - zone.rect.y;
                     const name = tileLabel(tile.item.code, tile.item.name);

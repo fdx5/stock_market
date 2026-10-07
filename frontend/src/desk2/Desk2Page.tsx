@@ -56,7 +56,7 @@ const SECTIONS: DeskSection[] = [
 export default function Desk2Page() {
   const L = useL();
   const { lang } = useLanguage();
-  useBroadsheet({ lightByDefault: true });
+  useBroadsheet();
   useDocumentTitle("마켓 데스크 · K-Stock Hub");
 
   const [finderOpen, setFinderOpen] = useState(false);

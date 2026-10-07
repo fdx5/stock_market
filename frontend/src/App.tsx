@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect } from "react";
+import { syncThemeForPath } from "./theme";
 import { attachDeskBgm } from "./desk2/deskBgmStore";
 import LoadingState from "./components/LoadingState";
 import VoltarisIngressLink from "./components/VoltarisIngressLink";
@@ -268,6 +269,7 @@ function useNoindexOn(path: string, target: string) {
 
 export default function App() {
   const path = useRoute();
+  useLayoutEffect(() => syncThemeForPath(path), [path]);
   const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})\/?$/i);
   const briefLatestMatch = path.match(/^\/market-brief\/latest\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco)\/?$/i);
   const stockMatch = path.match(/^\/stock\/([A-Za-z0-9.-]{1,16})\/?$/);

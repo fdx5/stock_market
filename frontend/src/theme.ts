@@ -85,11 +85,18 @@ const LIGHT: ThemeColors = {
 
 const STORAGE_KEY = "site_theme";
 const listeners = new Set<() => void>();
+// Keep an explicit choice in this tab if storage is blocked or full.
+let unsavedChoice: ThemeMode | null = null;
 
 function getStoredMode(): ThemeMode | null {
   if (typeof window === "undefined") return null;
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  return stored === "light" || stored === "dark" ? stored : null;
+  if (unsavedChoice) return unsavedChoice;
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return stored === "light" || stored === "dark" ? stored : null;
+  } catch {
+    return null;
+  }
 }
 
 /* A page may ask for a different default than the site's dark one — the market
@@ -100,9 +107,11 @@ function getStoredMode(): ThemeMode | null {
  * The desk's path is also read here at load, not only when the page mounts, so
  * the first render already agrees with the attribute index.html's inline script
  * put on <html> before paint — otherwise the page would paint dark and flip. */
-const PAGE_DEFAULTS: Record<string, ThemeMode> = { "/desk": "light", "/realestate-map": "light" };
+const PAGE_DEFAULTS: Record<string, ThemeMode> = {
+  "/desk": "light", "/realestate-map": "light", "/support": "light", "/support-success": "light",
+};
 let pageDefault: ThemeMode | null =
-  typeof window === "undefined" ? null : PAGE_DEFAULTS[window.location.pathname] ?? null;
+  typeof window === "undefined" ? null : PAGE_DEFAULTS[window.location.pathname.replace(/\/$/, "")] ?? null;
 
 let currentMode: ThemeMode = getStoredMode() ?? pageDefault ?? "dark";
 
@@ -120,23 +129,43 @@ export function getThemeMode(): ThemeMode {
 }
 
 export function setThemeMode(mode: ThemeMode): void {
-  if (mode === currentMode) return;
-  currentMode = mode;
-  window.localStorage.setItem(STORAGE_KEY, mode);
-  applyDomAttribute(mode);
-  listeners.forEach((listener) => listener());
+  // Choosing the already-visible default is still a preference to persist.
+  try {
+    window.localStorage.setItem(STORAGE_KEY, mode);
+    unsavedChoice = null;
+  } catch {
+    unsavedChoice = mode;
+  }
+  applyMode(mode);
 }
 
-/** Sets (or, with null, clears) the current page's default theme. Applies only
- * while the visitor has no stored choice of their own. */
-export function setPageDefaultTheme(mode: ThemeMode | null): void {
-  pageDefault = mode;
-  if (getStoredMode()) return;
-  const next = pageDefault ?? "dark";
-  if (next === currentMode) return;
-  currentMode = next;
-  applyDomAttribute(next);
-  listeners.forEach((listener) => listener());
+function applyMode(mode: ThemeMode): void {
+  const changed = mode !== currentMode;
+  currentMode = mode;
+  applyDomAttribute(mode);
+  if (changed) listeners.forEach((listener) => listener());
+}
+
+/** The router owns defaults; lazy page mount/unmount cannot reset a saved choice. */
+export function syncThemeForPath(path: string): void {
+  pageDefault = PAGE_DEFAULTS[path.replace(/\/$/, "")] ?? null;
+  applyMode(getStoredMode() ?? pageDefault ?? "dark");
+}
+
+if (typeof window !== "undefined") {
+  const sync = () => syncThemeForPath(window.location.pathname);
+  window.addEventListener("storage", (event) => {
+    if (event.key !== STORAGE_KEY && event.key !== null) return;
+    try {
+      if (event.storageArea !== window.localStorage) return;
+    } catch {
+      return;
+    }
+    unsavedChoice = null;
+    sync();
+  });
+  window.addEventListener("pageshow", sync);
+  window.addEventListener("focus", sync);
 }
 
 export function toggleThemeMode(): void {

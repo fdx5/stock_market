@@ -18,9 +18,9 @@ POOL_MAXSIZE = 64
 POOL_CONNECTIONS = 10
 
 
-def mount_pool(session: requests.Session) -> requests.Session:
-    """Mounts the shared pool size on a session (https and http), with one retry."""
-    adapter = HTTPAdapter(pool_connections=POOL_CONNECTIONS, pool_maxsize=POOL_MAXSIZE, max_retries=1)
+def mount_pool(session: requests.Session, *, max_retries: int = 1) -> requests.Session:
+    """Mounts the shared pool; callers with their own recovery can disable retries."""
+    adapter = HTTPAdapter(pool_connections=POOL_CONNECTIONS, pool_maxsize=POOL_MAXSIZE, max_retries=max_retries)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     return session

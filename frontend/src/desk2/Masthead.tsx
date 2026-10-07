@@ -13,7 +13,6 @@ import Logo from "../components/Logo";
 import DeskBgm from "./DeskBgm";
 import CoffeeSupportLink from "./CoffeeSupportLink";
 import { SITE_NAV } from "./siteNav";
-import { currentEdition, frontPageOf } from "./edition";
 import { NEW_YORK, SEOUL, clockText, useL, useNow, zoneParts } from "./lib";
 
 /* The masthead.
@@ -328,11 +327,7 @@ export default function Masthead({
   const dayOfYear = Math.floor((Date.UTC(seoul.y, seoul.m - 1, seoul.d) - startOfYear) / 86400000) + 1;
   const krStatus = kospi?.market_status ?? kosdaq?.market_status ?? null;
   const path = typeof window === "undefined" ? "" : window.location.pathname;
-  // 1면 leads back to the edition the reader is in: the world edition after a US
-  // stock, map or ETF, the domestic desk after a Korean one. Recomputed each render
-  // (the clock re-renders every second), so tab switches that only rewrite the query
-  // string are picked up too.
-  const front = frontPageOf(currentEdition());
+  const front = "/desk";
   /* A phone gets its own arrangement of the same furniture (see the 760px block
      in desk2.css): the logo and the three switches share one bar, the dateline
      one line, and the clocks and rail fold into MobileSessionBar — so the page's
@@ -410,7 +405,7 @@ export default function Masthead({
     <nav className="d2-mast-nav" aria-label={L("사이트 메뉴", "Site sections")} ref={navRef}>
       <ul onScroll={syncNavEdges}>
         {SITE_NAV.map((entry) => {
-          const item = entry.to === "/desk" ? { ...entry, to: front } : entry;
+          const item = entry;
           const base = item.to.split("?")[0];
           const here =
             path === base || (base === "/stock/005930" && path.startsWith("/stock/")) || (base === "/ai-prediction" && path.startsWith("/ai-prediction/"));

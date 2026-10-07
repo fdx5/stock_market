@@ -66,7 +66,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 559,
+  "source_files": 558,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/moonGlowWorker.ts",
