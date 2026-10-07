@@ -88,6 +88,22 @@ def test_duplicate_navigation_and_untrusted_clock(telemetry):
         ActivityEvent(session_id='11111111-1111-4111-8111-111111111111', type='click', path='/desk', occurred_at=float('nan'))
 
 
+def test_sessions_rank_actions_before_heartbeat_presence_and_reorder_live(telemetry, monkeypatch):
+    rows = [dict(id=i, ts=ts, session_id=sid, type='click', path='/stocks')
+            for i, (sid, ts) in enumerate([('older-action', 800), ('active-online', 970), ('active-no-heartbeat', 990)])]
+    monkeypatch.setattr(activity_log, '_behavior', deque(rows, maxlen=2000))
+    visitor_tracker.tracker._sessions.update({'quiet': 1000, 'older-action': 999, 'active-online': 980})
+    snapshot = atlas_behavior.snapshot(1000)
+    aliases = {sid: atlas_behavior._alias(sid) for sid in ('quiet', 'older-action', 'active-online', 'active-no-heartbeat')}
+    assert [s['id'] for s in snapshot['sessions']] == [aliases[sid] for sid in
+        ('active-no-heartbeat', 'active-online', 'older-action', 'quiet')]
+    # A new action promotes its own session, without changing any session identity.
+    activity_log._behavior.append(dict(id=10, ts=1000, session_id='active-online', type='click', path='/map'))
+    updated = atlas_behavior.snapshot(1000)
+    assert [s['id'] for s in updated['sessions']] == [aliases[sid] for sid in
+        ('active-online', 'active-no-heartbeat', 'older-action', 'quiet')]
+
+
 def test_activity_route_accepts_old_clients_and_forwards_occurrence_time(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

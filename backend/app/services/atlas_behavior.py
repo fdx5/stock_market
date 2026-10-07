@@ -63,7 +63,11 @@ def snapshot(now: float) -> dict:
                          "online": sid in presence, "active": active,
                          "path": events[-1]["path"] if events else "",
                          "events": events[-EVENTS_PER_SESSION:]})
-    sessions.sort(key=lambda s: (s["online"], s["active"], s["last_seen"], s["id"]), reverse=True)
+    # Rank actual behavior before mere presence. Heartbeats must never lift a
+    # quiet tab above a session with observed actions, even if its heartbeat is newer.
+    sessions.sort(key=lambda s: (s["active"], bool(s["events"]),
+                                 s["last_seen"] if s["events"] else 0,
+                                 s["online"], s["id"]), reverse=True)
     return {"window_s": WINDOW_SECONDS, "capacity": activity_log.BEHAVIOR_MAXLEN,
             "event_count": event_count, "online_count": len(presence),
             "active_count": sum(s["active"] for s in sessions),

@@ -53,6 +53,10 @@ def api(route):
                 data['behavior']['sessions'][0]['last_seen'] = live['at']
             if state['expired']: data['behavior']['sessions'] = [s for s in data['behavior']['sessions'] if s['id'] != a]
             if state['empty']: data['behavior'].update(sessions=[], event_count=0, online_count=0, active_count=0)
+            # Canonical backend order: newest behavior first, quiet presence last.
+            by_id = {s['id']: s for s in data['behavior']['sessions']}
+            order = [a, b, old, quiet] if state['new'] else [b, a, old, quiet]
+            data['behavior']['sessions'] = [by_id[sid] for sid in order if sid in by_id]
             route.fulfill(json=data)
         else: route.fulfill(json={})
     else: route.fulfill(json={'ok': True, 'country': 'KR', 'count': 0, 'events': []})
@@ -72,6 +76,8 @@ with sync_playwright() as p:
         expect(watch).to_be_visible(timeout=60000)
         expect(watch).to_have_attribute('data-mode', 'all')
         expect(page.locator('.aw-lane')).to_have_count(4)
+        assert page.locator('.aw-lane').evaluate_all('(rows)=>rows.map(row=>row.dataset.session)') == [b, a, old, quiet]
+        expect(page.locator('.aw-session-picker button').first).to_contain_text('22222222')
         expect(page.get_by_label('거미 관찰 대상')).to_have_value('users')
         expect(scene).to_have_attribute('data-state', 'ready', timeout=60000)
         page.wait_for_function("document.querySelector('.af-scene').dataset.recordSessions.includes('22222222')")
@@ -125,6 +131,9 @@ with sync_playwright() as p:
         expect(page.locator('.aw-detail-list')).to_have_js_property('scrollTop', page.locator('.aw-detail-list').evaluate('(el)=>el.scrollHeight-el.clientHeight'))
         watch.get_by_role('button', name='전체 세션', exact=True).click()
         expect(page.locator('.aw-lane')).to_have_count(4)
+        assert page.locator('.aw-lane').evaluate_all('(rows)=>rows.map(row=>row.dataset.session)') == [a, b, old, quiet]
+        expect(page.locator('.aw-session-picker button').first).to_contain_text('11111111')
+        report['checks'].append('session chips and chart lanes rank latest actions first; new actions promote a session while pinned focus persists')
         report['checks'].append('quiet connected session stays visible without invented actions; history auto-follow and return to all')
 
         page.get_by_label('거미 관찰 대상').select_option('system')

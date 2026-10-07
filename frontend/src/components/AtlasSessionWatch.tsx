@@ -68,7 +68,7 @@ export default function AtlasSessionWatch({ live, selected, onSelect, paused, st
   const choose = (id: string | null) => { onSelect(id); setPicked(null); };
   return <section className="aw-watch" aria-label="접속 세션 행동 관찰" data-mode={selected ? "session" : "all"}>
     <header className="aw-head"><div><span className="aw-eyebrow">SESSION / LIVE JOURNEYS</span><h2>접속 세션 행동 관찰 <i className={paused || stale ? "is-stale" : ""}/></h2>
-      <p>{selected ? `${sessionLabel(selected)} 고정 관찰 · 거미와 로그도 이 세션에 집중합니다.` : "모든 세션의 페이지 이동과 선택을 시간순으로 관찰합니다. 세션을 클릭하면 해당 흐름에 집중합니다."}</p></div>
+      <p>{selected ? `${sessionLabel(selected)} 고정 관찰 · 거미와 로그도 이 세션에 집중합니다.` : "활동이 있는 세션을 최근 행동 순으로 먼저 표시합니다. 세션을 클릭하면 해당 흐름에 집중합니다."}</p></div>
       <div className="aw-tools"><button onClick={() => choose(null)} aria-pressed={!selected}>전체 세션</button>
         <label>시간 범위<select aria-label="세션 행동 시간 범위" value={seconds} onChange={e => setSeconds(Number(e.target.value))}><option value={60}>1분</option><option value={300}>5분</option><option value={900}>15분</option></select></label>
         <span>{paused ? "관측 정지" : stale ? "갱신 지연" : "실시간 갱신"}</span></div></header>
