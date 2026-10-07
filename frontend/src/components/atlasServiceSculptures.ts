@@ -10,8 +10,6 @@ export function createServiceLandmark(scene: T.Scene, id: string, point: T.Vecto
   const light = new T.MeshBasicMaterial({ color: hue, transparent: true, opacity: .8, blending: T.AdditiveBlending, depthWrite: false });
   const add = (parent: T.Group, geo: T.BufferGeometry, mat: T.Material, x = 0, y = 0, z = 0) => { const m = new T.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
   const base = add(root, new T.CylinderGeometry(58, 62, 5, id === "realestate" ? 4 : id === "prediction" ? 6 : id === "support" ? 5 : 64), dark, 0, 0, -13); base.rotation.x = Math.PI / 2; if (id === "realestate") base.rotation.z = Math.PI / 4;
-  const halo = add(root, new T.RingGeometry(58, 59.4, 80), light, 0, 0, -9);
-  add(root, new T.RingGeometry(49, 49.5, 80), light, 0, 0, -8);
   const glyph = new T.Group(); glyph.rotation.set(-.65, .08, -.25); root.add(glyph);
   let rotor: T.Object3D | null = null;
   if (id === "market") {
@@ -57,5 +55,5 @@ export function createServiceLandmark(scene: T.Scene, id: string, point: T.Vecto
     const ring=add(glyph,new T.TorusGeometry(41,1.4,6,80),light,0,0,15); ring.rotation.x=.45;
     for(let i=0;i<5;i++) { const a=i*Math.PI*2/5; add(glyph,new T.SphereGeometry(3,12,10),glass,Math.cos(a)*41,Math.sin(a)*41,15); }
   }
-  return { id, root, halo, update(time:number, selected:boolean, active:number) { light.opacity=(selected?.9:.55)+active*.35; glass.emissiveIntensity=.25+active*1.4; halo.scale.setScalar(1+active*.09); if(rotor) rotor.rotation.z=time*(id==='operations'?.22:.06); } };
+  return { id, root, update(time:number, selected:boolean) { light.opacity=selected?.85:.55; glass.emissiveIntensity=.25; if(rotor) rotor.rotation.z=time*(id==='operations'?.22:.06); } };
 }

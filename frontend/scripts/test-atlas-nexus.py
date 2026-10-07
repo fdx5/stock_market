@@ -1,4 +1,4 @@
-"""Spider crawling, arrival effects, flow journal, actual traffic replay, deduplication, fallback and responsive QA.
+"""Spider crawling, progressive silk webs, flow journal, actual traffic replay, deduplication, fallback and responsive QA.
 
 Production assets may be tested; all API responses are isolated read-only fixtures.
 """
@@ -13,7 +13,7 @@ ns = {'__file__': str(fixture)}
 exec(compile(fixture.read_text(encoding='utf-8').split('\nwith sync_playwright() as p:')[0], str(fixture), 'exec'), ns)
 graph, live, health = ns['graph'], ns['live'], ns['health']
 base = os.environ.get('TEST_BASE_URL', 'http://127.0.0.1:5195')
-output = Path(os.environ.get('NEXUS_QA_OUTPUT', str(ns['ROOT'] / 'tmp/atlas-spider-flow-qa')))
+output = Path(os.environ.get('NEXUS_QA_OUTPUT', str(ns['ROOT'] / 'tmp/atlas-spider-web-qa')))
 output.mkdir(parents=True, exist_ok=True)
 report = {'base':base, 'checks':[], 'responsive':[]}
 state = {'empty':False, 'new':False, 'calls':0}
@@ -61,6 +61,11 @@ with sync_playwright() as p:
         page.wait_for_function("Number(document.querySelector('.af-scene').dataset.arrivals)>0",timeout=20000)
         expect(page.locator('.af-log-arrival').first).to_be_attached()
         assert page.locator('[data-flow-node][data-impact=on]').count()>0
+        expect(scene).to_have_attribute('data-effect','silk-web')
+        assert int(scene.get_attribute('data-webs'))>0
+        assert '거미줄 확산' in page.locator('.af-log-arrival').first.inner_text()
+        page.wait_for_function("document.querySelector('.af-scene').dataset.webProgress.split(',').some(p=>Number(p.split(':')[1])>.65)",timeout=5000)
+        page.screenshot(path=str(output/'web-arrival.png'),full_page=True)
         assert float(scene.get_attribute('data-max-step'))<24, 'continuous crawling must never jump across the board'
         assert float(scene.get_attribute('data-gait'))>0
         assert '센티널' not in page.locator('.af-command').inner_text()
@@ -71,7 +76,7 @@ with sync_playwright() as p:
         expect(page.get_by_role('button',name='자동 스크롤 OFF')).to_have_attribute('aria-pressed','false')
         page.get_by_role('button',name='자동 스크롤 OFF').click()
         page.screenshot(path=str(output/'arrival-desktop.png'),full_page=True)
-        report['checks'].append('one eight-legged spider crawls continuously with distance-based gait, arrival impact, distinct functional landmarks and accumulating journal')
+        report['checks'].append('one eight-legged spider crawls continuously with distance-based gait, progressive silk web on arrival, distinct functional landmarks and accumulating journal')
         for width,height in [(1920,1200),(1440,1100),(1024,1100),(768,1000),(390,1000),(360,1000)]:
             page.set_viewport_size({'width':width,'height':height}); page.wait_for_timeout(700)
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), width
@@ -82,11 +87,18 @@ with sync_playwright() as p:
         page.get_by_role('group',name='관제 서비스 선택').get_by_role('button',name='부동산').click()
         expect(page.locator('.af-service-node[aria-label="부동산 흐름 선택"]')).to_have_attribute('aria-pressed','true')
         expect(page.locator('.af-service-load h2')).to_have_text('부동산 관측')
+        page.wait_for_function("document.querySelector('.af-scene').dataset.webTargets.includes('realestate')")
+        page.wait_for_function("document.querySelector('.af-scene').dataset.webProgress.includes('realestate:1.000')",timeout=5000)
+        page.screenshot(path=str(output/'web-selected.png'),full_page=True)
+        page.wait_for_timeout(1600)
+        assert 'realestate' in scene.get_attribute('data-web-targets'), 'selected silk web must persist'
         page.locator('.af-trace-chips button').first.click()
         expect(page.locator('.af-request-route code')).to_contain_text('/api/')
         page.get_by_role('button',name='모션 정지',exact=True).click()
         expect(scene).to_have_attribute('data-motion','paused'); frozen=scene.get_attribute('data-simulation-time'); loc=scene.get_attribute('data-positions')
+        web_frozen=scene.get_attribute('data-web-progress')
         page.wait_for_timeout(1200); assert scene.get_attribute('data-simulation-time')==frozen; assert scene.get_attribute('data-positions')==loc
+        assert scene.get_attribute('data-web-progress')==web_frozen
         page.get_by_role('button',name='모션 재개',exact=True).click(); expect(scene).to_have_attribute('data-motion','running')
         page.get_by_label('거미 이동 속도').select_option('5'); expect(scene).to_have_attribute('data-speed','5')
         report['checks'].append('service isolation, actual request selection and replay, speed control, motion freeze')
@@ -110,7 +122,13 @@ with sync_playwright() as p:
         state['empty']=False
         page.get_by_label('3D 그래픽 품질').select_option('eco'); expect(scene).to_have_attribute('data-state','ready',timeout=60000)
         page.emulate_media(reduced_motion='reduce'); expect(scene).to_have_attribute('data-motion','paused'); expect(page.get_by_role('button',name='모션 감소')).to_be_disabled()
+        page.get_by_role('group',name='관제 서비스 선택').get_by_role('button',name='부동산').click()
+        page.wait_for_function("document.querySelector('.af-scene').dataset.webProgress.includes('realestate:1.000')",timeout=5000)
         page.emulate_media(reduced_motion='no-preference'); expect(scene).to_have_attribute('data-motion','running')
+        assert 'realestate:1.000' in scene.get_attribute('data-web-progress')
+        page.get_by_role('group',name='관제 서비스 선택').get_by_role('button',name='전체 흐름').click()
+        page.wait_for_timeout(1000)
+        report['checks'].append('silk spokes and capture threads, persistent selection, motion freeze, instant reduced-motion web')
         page.evaluate("window.__atlasHidden=true;document.dispatchEvent(new Event('visibilitychange'))")
         frames=scene.get_attribute('data-frames'); page.wait_for_timeout(700); assert scene.get_attribute('data-frames')==frames
         page.evaluate("window.__atlasHidden=false;document.dispatchEvent(new Event('visibilitychange'))")
