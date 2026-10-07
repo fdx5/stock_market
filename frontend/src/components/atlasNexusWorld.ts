@@ -3,7 +3,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { createAtlasSpider } from "./atlasSpider";
 import { createServiceLandmark } from "./atlasServiceSculptures";
 import { createAtlasWeb } from "./atlasWebEffect";
-import { DOMAIN_COLORS, FLOW_HEIGHT as H, FLOW_WIDTH as W, flowPositions, flowRecords, callDestination, UNIT_COLORS, type FlowRecord, type FlowState, type CrawlEvent } from "./atlasFlowModel";
+import { sessionLabel, DOMAIN_COLORS, FLOW_HEIGHT as H, FLOW_WIDTH as W, flowPositions, flowRecords, callDestination, UNIT_COLORS, type FlowRecord, type FlowState, type CrawlEvent } from "./atlasFlowModel";
 import type { AtlasArchitecture } from "./systemAtlasApi";
 
 export type NexusQuality = "cinematic" | "balanced" | "eco";
@@ -54,6 +54,7 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
   });
   type Playing = { record: FlowRecord; start: number; duration: number };
   let playing: Playing[] = [], queue: FlowRecord[] = [], crawlQueue: FlowRecord[] = [], records: FlowRecord[] = [], seen = new Set<string>(), lastSnapshot = -1, lastReplay = -1, lastFocus = "", lastSelected = "", nextLaunch = 0, eventId = 0, arrivals = 0, clock = 0, maxStep = 0;
+  let lastScope = "", behaviorLoads: Record<string, number> = {};
   let sim = 0, frames = 0, raf = 0, lastFrame = 0, disposed = false, released = false, lost = false, dirty = true, ratio = quality === "cinematic" ? 1.5 : quality === "balanced" ? 1.15 : .8, slowFrames = 0;
   let width = 1, height = 1;
   const resize = () => { width = Math.max(1, host.clientWidth); height = Math.max(1, host.clientHeight); renderer.setPixelRatio(ratio); renderer.setSize(width, height); dirty = true; }; const observer = new ResizeObserver(resize); observer.observe(host); resize();
@@ -75,7 +76,7 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
       u.curve=new T.CubicBezierCurve3(from,c1,c2,to);
     } else { const bend=Math.min(90,from.distanceTo(to)*.3);u.curve=new T.CubicBezierCurve3(from,from.clone().add(new T.Vector3(bend,0,0)),to.clone().sub(new T.Vector3(bend,0,0)),to); }
     u.length=Math.max(1,u.curve.getLength());u.progress=0;u.stage=u.step<0?"approach":"crawl";
-    u.badge.querySelector("span")!.textContent=graph.nodes.find(n=>n.id===target)?.label.split(" · ")[0]||"배치";
+    u.badge.querySelector("span")!.textContent=(u.record?.session ? `${sessionLabel(u.record.session)} · ` : "")+(graph.nodes.find(n=>n.id===target)?.label.split(" · ")[0]||"배치");
     if(u.record && u.step>=0) activity({id:++eventId,unit:i,target,kind:"depart",record:u.record});
   }
   function advanceUnit(u: typeof units[number], i:number, delta:number, state:FlowState, moving:boolean) {
@@ -109,17 +110,17 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
     if (disposed || lost || document.hidden) return;
     raf = requestAnimationFrame(tick); if (stamp - lastFrame < (quality === "cinematic" ? 1000 / 45 : 1000 / 30)) return;
     const delta = lastFrame ? Math.min(.08, (stamp - lastFrame) / 1000) : .03; lastFrame = stamp;
-    const state = current(), moving = state.motion && !state.reduced, changed = state.live?.at !== lastSnapshot || state.selected !== lastSelected || (state.focus || "") !== lastFocus || state.replay !== lastReplay;
+    const state = current(), scope = `${state.mode}:${state.session || "all"}`, scopeChanged = scope !== lastScope, moving = state.motion && !state.reduced, changed = scopeChanged || state.live?.at !== lastSnapshot || state.selected !== lastSelected || (state.focus || "") !== lastFocus || state.replay !== lastReplay;
     if (!moving && !dirty && !changed) return; if (moving) { sim += delta * state.speed; clock += delta; }
-    if (state.live?.at !== lastSnapshot) {
-      records = flowRecords(graph, state.live); const retained = new Set(records.map(r => r.key)); playing = playing.filter(p => retained.has(p.record.key)); const fresh = records.filter(r => !seen.has(r.key)); fresh.forEach(r => seen.add(r.key)); crawlQueue=[...crawlQueue.filter(r=>retained.has(r.key)),...fresh.filter(r=>(state.selected==="gateway"||r.group===state.selected)&&(!state.focus||r.key===state.focus))].slice(-24); if(!records.length) units.forEach(u=>{u.record=null;u.curve=null;u.stage="idle";}); queue = [...queue.filter(r => retained.has(r.key)), ...fresh.filter(r => state.selected === "gateway" || r.group === state.selected).reverse()].slice(-80); if (seen.size > 1000) seen = new Set(records.map(r => r.key)); lastSnapshot = state.live?.at || 0;
+    if (state.live?.at !== lastSnapshot || scopeChanged) {
+      records = flowRecords(graph, state.live, state.mode, state.session); behaviorLoads = records.reduce<Record<string, number>>((counts, record) => { counts[record.group] = (counts[record.group] || 0) + 1; return counts; }, {}); host.dataset.recordSessions = [...new Set(records.flatMap(r => r.session ? [r.session] : []))].join(","); const retained = new Set(records.map(r => r.key)); playing = playing.filter(p => retained.has(p.record.key)); const fresh = records.filter(r => !seen.has(r.key)); fresh.forEach(r => seen.add(r.key)); crawlQueue=[...crawlQueue.filter(r=>retained.has(r.key)),...fresh.filter(r=>(state.selected==="gateway"||r.group===state.selected)&&(!state.focus||r.key===state.focus)).reverse()].slice(-24); if(!records.length) units.forEach(u=>{u.record=null;u.curve=null;u.stage="idle";}); queue = [...queue.filter(r => retained.has(r.key)), ...fresh.filter(r => state.selected === "gateway" || r.group === state.selected).reverse()].slice(-80); if (seen.size > 1000) seen = new Set(records.map(r => r.key)); lastSnapshot = state.live?.at || 0;
       records.flatMap(r => r.calls.map(call => [r.batch ? "batch" : r.group, callDestination(graph, call)] as const)).forEach(([from, to]) => rail(from, to, DOMAIN_COLORS[from] || "#ba9bff", true));
     }
     if(state.selected!==lastSelected) {
       webs.forEach(w=>w.deselect(clock));
       if(state.selected!=="gateway") webs.get(state.selected)?.play(clock,DOMAIN_COLORS[state.selected]||"#cde7f7",true,!moving);
     }
-    if (state.replay !== lastReplay || state.selected !== lastSelected || (state.focus || "") !== lastFocus) { playing = []; queue = records.filter(r => (state.selected === "gateway" || r.group === state.selected) && (!state.focus || r.key === state.focus)).slice(0, 40).reverse(); crawlQueue = queue.slice(-24); units.forEach(u=>{u.record=null;u.curve=null;u.hold=0;u.stage="idle";}); nextLaunch = sim; lastReplay = state.replay; lastSelected = state.selected; lastFocus = state.focus || ""; }
+    if (scopeChanged || state.replay !== lastReplay || state.selected !== lastSelected || (state.focus || "") !== lastFocus) { playing = []; queue = records.filter(r => (state.selected === "gateway" || r.group === state.selected) && (!state.focus || r.key === state.focus)).slice(0, 80).reverse(); crawlQueue = queue.slice(-24); units.forEach(u=>{u.record=null;u.curve=null;u.hold=0;u.stage="idle";}); nextLaunch = sim; lastReplay = state.replay; lastSelected = state.selected; lastFocus = state.focus || ""; lastScope = scope; }
     if (moving && queue.length && sim >= nextLaunch && playing.length < 18) { const record = queue.shift()!; playing.push({ record, start: sim, duration: 3.8 + Math.min(2.8, record.request.ms / 1000) }); nextLaunch = sim + .18; }
     playing = playing.filter(p => sim - p.start < p.duration); let count = 0;
     for (const p of playing) {
@@ -135,14 +136,14 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
       });
     }
     dots.count = count; tails.count = count * 2; dots.instanceMatrix.needsUpdate = tails.instanceMatrix.needsUpdate = true; if (dots.instanceColor) dots.instanceColor.needsUpdate = true; if (tails.instanceColor) tails.instanceColor.needsUpdate = true;
-    rails.forEach(r => { const focused = state.selected === "gateway" || r.source === state.selected || r.target === state.selected || r.source === "ingress", value = r.source === "gateway" ? state.live?.api.groups[r.target]?.count || 0 : state.live?.observed_edges[`${r.source}:${r.target}`] || 0; r.material.opacity = focused ? value ? .2 + Math.min(.3, value / 160) : r.observed ? .13 : .035 : .015; });
+    rails.forEach(r => { const focused = state.selected === "gateway" || r.source === state.selected || r.target === state.selected || r.source === "ingress", value = state.mode === "users" ? (r.source === "gateway" ? behaviorLoads[r.target] || 0 : 0) : r.source === "gateway" ? state.live?.api.groups[r.target]?.count || 0 : state.live?.observed_edges[`${r.source}:${r.target}`] || 0; r.material.opacity = state.mode === "users" && !["ingress", "gateway"].includes(r.source) ? .012 : focused ? value ? .2 + Math.min(.3, value / 160) : r.observed ? .13 : .035 : .015; });
     landmarks.forEach(l=>l.update(clock,state.selected===l.id));
     cage.rotation.set(clock * .08, clock * .12, .3); crystal.rotation.y = -clock * .17; rings.forEach((r, i) => { r.rotation.x = i * .8 + clock * .13; r.rotation.y = i * .5 + clock * .09; });
     units.forEach((u,i)=>advanceUnit(u,i,delta,state,moving));
     let visibleWebs=0;webs.forEach(w=>{if(w.update(clock,renderer.getPixelRatio()))visibleWebs++;});
     host.parentElement?.querySelectorAll<HTMLElement>("[data-flow-node]").forEach(el=>{const hit=units.some(u=>u.impactTarget===el.dataset.flowNode&&clock-u.impactAt<1.1);el.dataset.impact=hit?"on":"off";});
     const begin = performance.now(); renderer.render(scene, camera); const elapsed = performance.now() - begin; slowFrames = elapsed > 38 ? slowFrames + 1 : Math.max(0, slowFrames - 1); if (slowFrames > 25 && ratio > .85) { ratio = Math.max(.85, ratio * .82); slowFrames = 0; resize(); }
-    frames++; dirty = false; host.dataset.state = "ready"; host.dataset.frames = String(frames); host.dataset.motion = moving ? "running" : "paused"; host.dataset.simulationTime = sim.toFixed(3); host.dataset.packets = String(count); host.dataset.queued = String(queue.length); host.dataset.seen = String(seen.size); host.dataset.assignments = units.map(u => u.target).join(","); host.dataset.effect="silk-web";host.dataset.webs=String(visibleWebs);host.dataset.webTargets=[...webs.values()].filter(w=>w.group.visible).map(w=>w.id).join(",");host.dataset.webProgress=[...webs.values()].filter(w=>w.group.visible).map(w=>`${w.id}:${w.uniforms.progress.value.toFixed(3)}`).join(",");host.dataset.spiders = String(units.length); host.dataset.legs = "8"; host.dataset.arrivals = String(arrivals); host.dataset.walking = String(units.filter(u=>u.curve).length); host.dataset.crawlQueued=String(crawlQueue.length); host.dataset.maxStep=maxStep.toFixed(2); host.dataset.gait=units.map(u=>u.walked.toFixed(1)).join(","); host.dataset.camera = "fixed"; host.dataset.speed = String(state.speed); host.dataset.positions = units.map(u => `${u.position.x.toFixed(0)}:${u.position.y.toFixed(0)}`).join(",");
+    frames++; dirty = false; host.dataset.state = "ready"; host.dataset.frames = String(frames); host.dataset.scope = scope; host.dataset.motion = moving ? "running" : "paused"; host.dataset.simulationTime = sim.toFixed(3); host.dataset.packets = String(count); host.dataset.queued = String(queue.length); host.dataset.seen = String(seen.size); host.dataset.assignments = units.map(u => u.target).join(","); host.dataset.effect="silk-web";host.dataset.webs=String(visibleWebs);host.dataset.webTargets=[...webs.values()].filter(w=>w.group.visible).map(w=>w.id).join(",");host.dataset.webProgress=[...webs.values()].filter(w=>w.group.visible).map(w=>`${w.id}:${w.uniforms.progress.value.toFixed(3)}`).join(",");host.dataset.spiders = String(units.length); host.dataset.legs = "8"; host.dataset.arrivals = String(arrivals); host.dataset.walking = String(units.filter(u=>u.curve).length); host.dataset.crawlQueued=String(crawlQueue.length); host.dataset.maxStep=maxStep.toFixed(2); host.dataset.gait=units.map(u=>u.walked.toFixed(1)).join(","); host.dataset.camera = "fixed"; host.dataset.speed = String(state.speed); host.dataset.positions = units.map(u => `${u.position.x.toFixed(0)}:${u.position.y.toFixed(0)}`).join(",");
   }
   function release() { if (released) return; released = true; const geos = new Set<T.BufferGeometry>(), mats = new Set<T.Material>(); scene.traverse(o => { if (o instanceof T.InstancedMesh) o.dispose(); if (o instanceof T.Mesh || o instanceof T.Line || o instanceof T.Points) { geos.add(o.geometry); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => mats.add(m)); } }); geos.forEach(g => g.dispose()); mats.forEach(m => m.dispose()); env.dispose(); renderer.dispose(); }
   const lose = (event: Event) => { event.preventDefault(); lost = true; host.dataset.state = "context-lost"; cancelAnimationFrame(raf); release(); }, restore = () => { if (!disposed) recover(); };

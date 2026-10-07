@@ -99,6 +99,12 @@ class VisitorTracker:
             self._prune(now)
             return len(self._sessions)
 
+    def observed_presence(self, now: float) -> dict[str, float]:
+        """Local heartbeat evidence only: no DB query, registration or pruning."""
+        with self._lock:
+            return {sid: seen for sid, seen in self._sessions.items()
+                    if now - HEARTBEAT_TTL_SECONDS <= seen <= now}
+
     def _persistent_total(self) -> int:
         try:
             total = visitor_store.total_count()

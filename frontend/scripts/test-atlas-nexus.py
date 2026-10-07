@@ -48,6 +48,7 @@ with sync_playwright() as p:
     page.goto(base+'/admin/system-atlas'); scene=page.locator('.af-scene')
     try:
         expect(page.get_by_role('button',name='거미 관제',exact=True)).to_have_attribute('aria-pressed','true')
+        page.get_by_label('거미 관찰 대상').select_option('system')
         expect(scene).to_have_attribute('data-state','ready',timeout=60000)
         page.wait_for_function("Number(document.querySelector('.af-scene').dataset.frames)>3",timeout=60000)
         expect(scene).to_have_attribute('data-spiders','1'); expect(scene).to_have_attribute('data-legs','8'); expect(scene).to_have_attribute('data-camera','fixed'); expect(scene).to_have_attribute('data-speed','3')
@@ -152,6 +153,7 @@ with sync_playwright() as p:
         fallback.add_init_script("localStorage.setItem('admin_session',JSON.stringify({token:'fixture-only',expires_at:Date.now()/1000+3600}));const original=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(type,...args){return type.startsWith('webgl')?null:original.call(this,type,...args)}")
         fallback.route('**/api/**',api); fp=fallback.new_page(); fp.goto(base+'/admin/system-atlas')
         expect(fp.get_by_role('heading',name='데이터 관제 모드')).to_be_visible(timeout=30000)
+        fp.get_by_label('거미 관찰 대상').select_option('system')
         expect(fp.locator('.af-kpis strong').first).to_contain_text(f"{(live['api']['count']+1)/60:.2f}")
         fp.get_by_role('button',name='API 성능',exact=True).click(); expect(fp.locator('.am-api-table')).to_be_visible(); fallback.close()
         assert not errors,errors; assert not any('INVALID_OPERATION' in w for w in warnings),warnings

@@ -56,6 +56,7 @@ class ActivityEvent(BaseModel):
     utm_medium: str | None = Field(default=None, max_length=100)
     utm_campaign: str | None = Field(default=None, max_length=150)
     device_info: DeviceInfo | None = None
+    occurred_at: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     @field_validator("type")
     @classmethod
@@ -110,5 +111,6 @@ def post_event(payload: ActivityEvent, request: Request):
         user_agent=user_agent,
         is_bot=bot_detector.is_bot(user_agent),
         device_info=payload.device_info.model_dump() if payload.device_info else None,
+        occurred_at=payload.occurred_at,
     )
     return {"ok": True}

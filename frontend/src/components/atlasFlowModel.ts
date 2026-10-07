@@ -1,4 +1,5 @@
-import type { AtlasArchitecture, AtlasEvent, AtlasSnapshot } from "./systemAtlasApi";
+import type { AtlasAction, AtlasArchitecture, AtlasEvent, AtlasSnapshot } from "./systemAtlasApi";
+import { pageLabel } from "../useActivityTracking";
 export const FLOW_WIDTH = 1200, FLOW_HEIGHT = 760;
 export const DOMAIN_COLORS: Record<string, string> = { market: "#4edbff", community: "#a795ff", realestate: "#ffb969", prediction: "#f28bc6", operations: "#54e2b3", support: "#f9d56e" };
 export const DOMAIN_NAMES: Record<string, string> = { market: "증시", community: "뉴스", realestate: "부동산", prediction: "AI 예측", operations: "운영", support: "후원" };
@@ -23,9 +24,28 @@ export function hostDestination(graph: AtlasArchitecture, host: string) {
 export function callDestination(graph: AtlasArchitecture, call: AtlasEvent) {
   return call.target && graph.nodes.some(n => n.id === call.target) ? call.target : hostDestination(graph, call.host || "");
 }
-export type FlowRecord = { key: string; request: AtlasEvent; calls: AtlasEvent[]; group: string; batch: boolean; fault: boolean; slow: boolean };
-export function flowRecords(graph: AtlasArchitecture, live: AtlasSnapshot | null): FlowRecord[] {
+export type FlowRecord = { key: string; request: AtlasEvent; calls: AtlasEvent[]; group: string; batch: boolean; fault: boolean; slow: boolean; session?: string; action?: AtlasAction };
+export function actionLabel(action: AtlasAction) {
+  if (action.type === "page_view") return `페이지 이동 · ${action.label || pageLabel(action.path)}`;
+  if (action.type === "stock_view") return `종목 조회 · ${action.stock_name || action.stock_code}`;
+  if (action.type === "hub") {
+    const name = ({ object_click: "메인 선택", focus: "관심 대상", control: "화면 조작", bgm: "BGM 변경", exit: "메인에서 이동" } as Record<string, string>)[action.action || ""] || "메인 상호작용";
+    return action.label ? `${name} · ${action.label}` : name;
+  }
+  return action.label || "화면 선택";
+}
+export const sessionLabel = (id: string) => `접속 ${id.slice(0, 8).toUpperCase()}`;
+export function behaviorRecords(live: AtlasSnapshot | null, session: string | null = null, window = 60): FlowRecord[] {
   if (!live) return [];
+  return (live.behavior?.sessions || []).filter(s => !session || s.id === session).flatMap(s => s.events
+    .filter(e => e.ts <= live.at && e.ts >= live.at - window)
+    .map(action => ({ key: `user:${s.id}:${action.id}:${action.ts}`, request: { id: action.id, ts: action.ts, method: "USER", status: 200, ms: 0, route: action.path },
+      calls: [], group: action.group, batch: false, fault: false, slow: false, session: s.id, action })))
+    .sort((a, b) => b.request.ts - a.request.ts || b.request.id - a.request.id);
+}
+export function flowRecords(graph: AtlasArchitecture, live: AtlasSnapshot | null, mode: "users" | "system" = "users", session: string | null = null): FlowRecord[] {
+  if (!live) return [];
+  if (mode === "users") return behaviorRecords(live, session);
   const groups = new Map(graph.endpoints.map(e => [e.path, e.group]));
   const linked = new Map((live.traces || []).map(t => [t.request.id, t.calls]));
   const unique = new Map<string, FlowRecord>();
@@ -43,4 +63,4 @@ export function flowRecords(graph: AtlasArchitecture, live: AtlasSnapshot | null
 }
 export const UNIT_COLORS = ["#55d9ff", "#ba9bff", "#ff8f85"];
 export type CrawlEvent = { id: number; unit: number; target: string; kind: "depart" | "arrival"; record: FlowRecord };
-export type FlowState = { live: AtlasSnapshot | null; selected: string; focus: string | null; replay: number; motion: boolean; reduced: boolean; speed: number };
+export type FlowState = { live: AtlasSnapshot | null; selected: string; focus: string | null; replay: number; motion: boolean; reduced: boolean; speed: number; mode: "users" | "system"; session: string | null };

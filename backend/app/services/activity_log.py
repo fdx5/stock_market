@@ -26,6 +26,10 @@ _lock = threading.Lock()
 _id_counter = itertools.count(1)
 _tail: deque[dict] = deque(maxlen=TAIL_MAXLEN)
 _sessions: dict[str, dict] = {}
+# Atlas keeps deliberate actions separately so dwell packets cannot crowd them out.
+# This is a bounded, process-local view; existing persisted analytics are untouched.
+BEHAVIOR_MAXLEN = 2000
+_behavior: deque[dict] = deque(maxlen=BEHAVIOR_MAXLEN)
 
 
 def _now_iso() -> str:
@@ -51,8 +55,12 @@ def record_event(
     user_agent: str | None = None,
     is_bot: bool = False,
     device_info: dict | None = None,
+    occurred_at: float | None = None,
 ) -> None:
     now = time.time()
+    # Device hint resolution can delay navigation beacons behind later clicks.
+    # Preserve their occurrence order, while bounding untrusted browser clocks.
+    action_at = occurred_at if occurred_at is not None and now - 120 <= occurred_at <= now else now
     created_at = _now_iso()
     # Store one canonical key for an SPA route. Older/browser-specific clients can
     # include a query string, fragment, or trailing slash; treating those as separate
@@ -91,6 +99,13 @@ def record_event(
             state = _sessions.setdefault(session_id, {"first_seen": now})
             state["last_seen"] = now
             state["path"] = path
+            if (not path.startswith("/admin") and event_type in ("page_view", "click", "stock_view", "hub")
+                and not (event_type == "hub" and action == "dwell")):
+                duplicate = (event_type == "page_view" and state.get("behavior_type") == "page_view"
+                             and state.get("behavior_path") == path and now - state.get("behavior_at", 0) < 2)
+                if not duplicate:
+                    _behavior.append({**event, "ts": action_at})
+                state.update(behavior_type=event_type, behavior_path=path, behavior_at=now)
             if stock_code:
                 state["stock_code"] = stock_code
                 state["stock_name"] = stock_name
@@ -144,6 +159,14 @@ def recent_events(limit: int = 100) -> list[dict]:
         events = list(_tail)[-limit:]
     events.reverse()
     return events
+
+
+def behavior_state() -> tuple[list[dict], dict[str, dict]]:
+    """Read-only copy for Atlas, without DB access or session cleanup."""
+    with _lock:
+        keys = {event["session_id"] for event in _behavior}
+        return ([dict(event) for event in _behavior],
+                {sid: dict(_sessions[sid]) for sid in keys if sid in _sessions})
 
 
 def active_sessions(ttl: float = ACTIVE_TTL_SECONDS) -> list[dict]:

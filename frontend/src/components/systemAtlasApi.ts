@@ -23,12 +23,25 @@ export interface AtlasBreakdown {
   status: Record<string, number>; latency: number[]; timeline: Array<AtlasStats & { at: number }>;
 }
 export interface AtlasTrace { request: AtlasEvent; calls: AtlasEvent[]; external_count: number; calls_truncated: boolean }
+export interface AtlasAction {
+  id: number; ts: number; type: "page_view" | "click" | "stock_view" | "hub";
+  path: string; group: string; label: string; stock_code: string; stock_name: string; action?: string | null;
+}
+export interface AtlasSession {
+  id: string; first_seen: number; last_seen: number; last_heartbeat: number | null;
+  online: boolean; active: boolean; path: string; events: AtlasAction[];
+}
+export interface AtlasBehavior {
+  window_s: number; capacity: number; event_count: number; online_count: number; active_count: number;
+  truncated: boolean; sessions: AtlasSession[];
+}
 export interface AtlasSnapshot {
   at: number; active_sessions: number; observed_edges: Record<string, number>;
   api: AtlasStats & { window_s: number; window_truncated: boolean; groups: Record<string, AtlasStats>; endpoints: Array<AtlasStats & { path: string; method: string }>; recent: AtlasEvent[]; breakdown?: AtlasBreakdown };
   external: AtlasStats & { started_at: number; window_s: number; window_truncated: boolean; groups: Record<string, AtlasStats>;
     hosts: Array<AtlasStats & { host: string }>; recent: AtlasEvent[]; flows?: Array<AtlasStats & { route: string; host: string }>; breakdown?: AtlasBreakdown };
   traces?: AtlasTrace[];
+  behavior?: AtlasBehavior;
   cache: { entries: number; fresh: number; stale: number; refreshing: number; capacity: number };
   database: { mode: string; separate_realestate: boolean; realestate_mode: string };
 }

@@ -209,7 +209,8 @@ def live_snapshot(routes) -> dict:
         expiry = [v[0] for v in cache._store.values()]
         cache_state = {"entries": len(expiry), "fresh": sum(t > now for t in expiry), "stale": sum(t <= now for t in expiry),
                        "refreshing": len(cache._refreshing), "capacity": MAX_ENTRIES}
-    from app.services import realestate_store, activity_log
+    from app.services import realestate_store, atlas_behavior
+    behavior = atlas_behavior.snapshot(now)
     db_mode = "turso" if os.environ.get("TURSO_DATABASE_URL") else "sqlite"
     return {"at": now, "api": {**system_telemetry.stats(events), "window_s": 60,
                                "window_truncated": len(retained) == api_pulse.TAIL_MAXLEN and retained[0]["ts"] > now - 60,
@@ -220,4 +221,4 @@ def live_snapshot(routes) -> dict:
             "observed_edges": dict(observed_edges),
             "database": {"mode": db_mode, "separate_realestate": realestate_store.SEPARATE,
                          "realestate_mode": "turso" if realestate_store.TURSO_DATABASE_URL else "sqlite"},
-            "active_sessions": len(activity_log.active_sessions())}
+            "active_sessions": behavior["active_count"], "behavior": behavior}

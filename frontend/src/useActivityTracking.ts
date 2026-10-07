@@ -146,7 +146,7 @@ function isAdminPath(path: string): boolean {
 }
 
 function sendEvent(body: Record<string, unknown>) {
-  const payload = { session_id: getSessionId(), ...body };
+  const payload = { session_id: getSessionId(), occurred_at: Date.now() / 1000, ...body };
   const send = (info: ReturnType<typeof deviceInfo>) => fetch(EVENT_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
