@@ -81,6 +81,7 @@ with sync_playwright() as p:
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))
     page.goto(base + '/admin/system-atlas')
+    page.get_by_role('button', name='운영 요약', exact=True).click()
     expect(page.locator('.am-command')).to_be_visible(timeout=60000)
     expect(page.locator('.sa-live-badge')).to_have_text('LIVE OBSERVATION')
     nav = page.get_by_role('navigation', name='모니터링 보기')

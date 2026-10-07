@@ -3,8 +3,9 @@ import { AdminHealth } from "../adminApi";
 import Icon from "./SystemAtlasIcon";
 import { AtlasArchitecture, AtlasEndpoint, AtlasSnapshot, AtlasStats } from "./systemAtlasApi";
 
-export type MonitorView = "overview" | "services" | "topology" | "api" | "external" | "traces" | "storage" | "stack";
+export type MonitorView = "nexus" | "overview" | "services" | "topology" | "api" | "external" | "traces" | "storage" | "stack";
 export const MONITOR_VIEWS: [MonitorView, string, string][] = [
+  ["nexus", "3D 관제", "atlas"],
   ["overview", "운영 요약", "operations"], ["services", "서비스", "graphics"], ["api", "API 성능", "gateway"],
   ["external", "외부 연동", "external"], ["traces", "요청 추적", "trace"], ["storage", "DB · 캐시", "database"],
   ["topology", "전체 구조", "atlas"], ["stack", "기술 스택", "code"],
