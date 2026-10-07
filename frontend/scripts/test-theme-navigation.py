@@ -12,6 +12,10 @@ PATHS = ["/desk", "/global", "/map", "/kosdaq-map", "/sp500-map", "/nasdaq100-ma
          "/stocks", "/stock/005930", "/stock/AAPL", "/kospi-100", "/kosdaq-100", "/nasdaq-100",
          "/etf", "/news", "/market-brief", "/ai-prediction", "/prediction-grading", "/global-top100",
          "/fight", "/dram-price", "/index/KOSPI", "/discussion-explorer", "/support", "/admin/login"]
+HEATMAP_PATHS = ["/map", "/kosdaq-map", "/sp500-map", "/nasdaq100-map", "/realestate-map"]
+HEATMAP_ONLY = os.environ.get("THEME_TEST_HEATMAP_ONLY") == "1"
+if HEATMAP_ONLY:
+    PATHS = HEATMAP_PATHS
 report = {"url": BASE, "pages": [], "navigation": [], "cross_tab": False, "reload": False}
 
 with sync_playwright() as p:
@@ -57,16 +61,27 @@ with sync_playwright() as p:
             assert state["scheme"] == mode, (path, state)
             assert state["saved"] == mode, (path, state)
             assert len(errors) == before, (path, errors[before:])
-            if path == "/map":
+            if path in HEATMAP_PATHS:
                 page.locator(".kospi-map-tile").first.wait_for(timeout=30000)
-                tile_colors[mode] = page.locator(".kospi-map-tile").first.evaluate("el => getComputedStyle(el).backgroundColor")
-                state["tile"] = tile_colors[mode]
-                page.screenshot(path=str(OUT / f"map-{mode}.png"))
-            if path == "/realestate-map":
-                page.screenshot(path=str(OUT / f"realestate-{mode}.png"))
+                canvas = page.locator(".map-canvas-night")
+                assert canvas.count() == 1, (path, "missing night-only heatmap")
+                assert canvas.evaluate("el => getComputedStyle(el).colorScheme") == "dark", (path, mode)
+                assert canvas.evaluate("el => getComputedStyle(el).getPropertyValue('--map-gap').trim()") == "#0f0f0d", (path, mode)
+                assert canvas.evaluate("el => getComputedStyle(el).getPropertyValue('--baseline').trim()") == "#383835", (path, mode)
+                tile_colors[(path, mode)] = page.locator(".kospi-map-tile").first.evaluate("el => getComputedStyle(el).backgroundColor")
+                state["tile"] = tile_colors[(path, mode)]
+                page.screenshot(path=str(OUT / f"{path.strip('/')}-{mode}.png"))
             report["pages"].append({"path": path, **state})
             print(json.dumps({"path": path, "mode": mode}), flush=True)
-    assert tile_colors["dark"] != tile_colors["light"], tile_colors
+    # Live quotes/tier loading can change a tile's price move between visits. Check
+    # the fixed night palette inside each canvas instead of comparing market data.
+
+    if HEATMAP_ONLY:
+        report.update(errors=errors, heatmap_night=True)
+        (OUT / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps({"result": "passed", "pages": len(report["pages"]), "heatmap_night": True}), flush=True)
+        browser.close()
+        raise SystemExit(0)
 
     for path in ["/sp500-map", "/nasdaq100-map", "/stock/AAPL", "/stocks?market=sp500", "/etf?region=US", "/global"]:
         page.goto(BASE + path, wait_until="domcontentloaded")

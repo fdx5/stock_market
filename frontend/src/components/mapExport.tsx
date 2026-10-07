@@ -22,7 +22,7 @@ export function OnScreen({ children }: { children: ReactNode }) {
 // rgb/rgba string by letting the browser compute it on a throwaway element —
 // avoids hand-duplicating the theme's color formulas for the PNG export. `host` is
 // where the probe is resolved: inside the map canvas, it picks up variables the
-// canvas inherits from the selected edition.
+// canvas redefines (the night palette the maps keep in the 주간판).
 export function resolveCssColor(value: string, host: HTMLElement = document.body): string {
   const probe = document.createElement("div");
   probe.style.cssText = "position:fixed;left:-9999px;top:-9999px;";
@@ -110,6 +110,11 @@ export function drawContained(
   const h = icon.height * scale;
   ctx.drawImage(icon, x + (size - w) / 2, y + (size - h) / 2, w, h);
 }
+
+/** Every map draws its tiles in the 야간판 palette, in both editions: the blue-to-red
+ * scale and the no-trade tiles separate far better on the near-black ground than on
+ * newsprint. The canvas carries .map-canvas-night (desk2/maps.css) to match. */
+export const TILE_NIGHT_MODE = "dark" as const;
 
 export interface MapExportOptions {
   /** Draws the map as it is on screen. null when there is nothing to draw yet. */

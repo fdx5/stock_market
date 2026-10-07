@@ -19,3 +19,10 @@
 - 지도 주간판/야간판 및 부동산 주간판 이미지를 시각 확인.
 
 재시도/타임아웃 동작 참고: [urllib3 Retry](https://urllib3.readthedocs.io/en/stable/reference/urllib3.util.html#urllib3.util.Retry), [Requests timeouts](https://requests.readthedocs.io/en/latest/user/advanced/#timeouts).
+
+## 히트맵 긴급 복구
+
+사용자 확인에 따라 위의 지도 팔레트 변경을 복구했다. 코스피·코스닥·나스닥·S&P500·
+부동산 히트맵은 주간판에서도 기존 야간판 팔레트·배경·무거래 타일·PNG 내보내기를
+사용한다. 페이지 주변의 테마 동기화, Toss 안정화, 1면 이동 변경은 그대로 유지한다.
+브라우저 검증도 다섯 히트맵의 야간판 고정을 검사하도록 수정했다.

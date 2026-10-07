@@ -4,7 +4,6 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { TILE_FONT_FAMILY, measureTextWidth, pct, tileDisplayInfo } from "../mapTile";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { useThemeMode } from "../theme";
 import Colophon from "../desk2/Colophon";
 import Finder from "../desk2/Finder";
 import Masthead from "../desk2/Masthead";
@@ -25,6 +24,7 @@ import "../desk2/realestate-explore.css";
 import {
   MapExportButtons,
   MapPreviewModal,
+  TILE_NIGHT_MODE,
   loadImage,
   resolveCssColor,
   truncateToWidth,
@@ -53,6 +53,13 @@ const PERIODS: { key: RealEstatePeriod; label: string; detail: string }[] = [
  * scale saturates at ±10% rather than the stock maps' ±5%. */
 const SATURATION_PCT = 10;
 const SKELETON_WEIGHTS = [30, 22, 16, 12, 10, 6, 4];
+/** The map area keeps the 야간판 palette in both editions (see TILE_NIGHT_MODE). */
+const MAP_MODE = TILE_NIGHT_MODE;
+/** The no-trade tile, as .re-map-tile--idle draws it (desk2/maps.css). */
+const IDLE_FILL = "#22221e";
+const IDLE_RING = "rgba(236, 230, 214, 0.1)";
+const IDLE_TEXT = "#bdb6a4";
+const IDLE_PCT = "#8a8475";
 
 /** Draws `img` inside a w×h box the way CSS object-fit: contain does. */
 function drawInBox(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number) {
@@ -251,7 +258,6 @@ function readQuery() {
 
 export default function RealEstateMapPage() {
   const { lang } = useLanguage();
-  const themeMode = useThemeMode();
   useDocumentTitle("부동산 맵 · 아파트 실거래가 히트맵 · K-Stock Hub");
   useBroadsheet();
   const [finderOpen, setFinderOpen] = useState(false);
@@ -675,10 +681,6 @@ export default function RealEstateMapPage() {
     const textPrimary = resolveCssColor("var(--text-primary)", host);
     const upColor = resolveCssColor("var(--up-color)", host);
     const downColor = resolveCssColor("var(--down-color)", host);
-    const idleFill = resolveCssColor("var(--map-idle-fill)", host);
-    const idleRing = resolveCssColor("var(--map-idle-ring)", host);
-    const idleText = resolveCssColor("var(--map-idle-text)", host);
-    const idlePct = resolveCssColor("var(--map-idle-pct)", host);
 
     const logos = new Map<string, HTMLImageElement>();
     await Promise.all(
@@ -730,12 +732,12 @@ export default function RealEstateMapPage() {
 
       for (const tile of zone.tiles) {
         const it = tile.item;
-        const rgb = colourFor(it.change_pct, themeMode);
-        ctx.fillStyle = rgb ? rgbToCss(rgb) : idleFill;
+        const rgb = colourFor(it.change_pct, MAP_MODE);
+        ctx.fillStyle = rgb ? rgbToCss(rgb) : IDLE_FILL;
         ctx.fillRect(tile.x, tile.y, tile.w, tile.h);
         ctx.lineWidth = 1;
         if (!rgb && tile.w > 4 && tile.h > 4) {
-          ctx.strokeStyle = idleRing;
+          ctx.strokeStyle = IDLE_RING;
           ctx.strokeRect(tile.x + 1.5, tile.y + 1.5, tile.w - 3, tile.h - 3);
         }
         ctx.strokeStyle = gapColor;
@@ -754,7 +756,7 @@ export default function RealEstateMapPage() {
           crown();
           continue;
         }
-        const textColor = rgb ? textColorForRgb(rgb, themeMode) : idleText;
+        const textColor = rgb ? textColorForRgb(rgb, MAP_MODE) : IDLE_TEXT;
         const padX = TILE_PAD_X;
         if (showName) {
           const drawMark = (x: number, y: number) => {
@@ -813,10 +815,10 @@ export default function RealEstateMapPage() {
             y += layout.priceSize * 1.25;
           }
           ctx.font = `600 ${layout.pctSize}px ${TILE_FONT_FAMILY}`;
-          ctx.fillStyle = rgb ? textColor : idlePct;
+          ctx.fillStyle = rgb ? textColor : IDLE_PCT;
           ctx.fillText(tileLabelText(it), tile.x + padX, y + 1);
         } else {
-          ctx.fillStyle = rgb ? textColor : idlePct;
+          ctx.fillStyle = rgb ? textColor : IDLE_PCT;
           ctx.font = `600 ${layout.pctSize}px ${TILE_FONT_FAMILY}`;
           ctx.textBaseline = "middle";
           ctx.fillText(it.change_pct === null ? "—" : pct(it.change_pct), tile.x + padX, tile.y + tile.h / 2);
@@ -1098,7 +1100,7 @@ export default function RealEstateMapPage() {
             )}
 
             {view === "map" && (loading || items.length > 0) && (
-              <div className="card kospi-map-canvas" ref={containerRef}>
+              <div className="card kospi-map-canvas map-canvas-night" ref={containerRef}>
                 {loading &&
                   skeleton.map((rect, i) => (
                     <div
@@ -1140,9 +1142,9 @@ export default function RealEstateMapPage() {
                       )}
                       {zone.tiles.map((tile) => {
                         const it = tile.item;
-                        const rgb = colourFor(it.change_pct, themeMode);
+                        const rgb = colourFor(it.change_pct, MAP_MODE);
                         const idle = rgb === null;
-                        const text = rgb ? textColorForRgb(rgb, themeMode) : undefined;
+                        const text = rgb ? textColorForRgb(rgb, MAP_MODE) : undefined;
                         const rank = crownRanks.get(it.id);
                         const layout = tileLayout(it, tile.w, tile.h, !!rank);
                         const { showName, showPctOnly, iconSize } = layout;
