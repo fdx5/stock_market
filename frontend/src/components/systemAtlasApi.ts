@@ -2,7 +2,7 @@ import { authedGet, AdminHealth } from "../adminApi";
 
 export interface AtlasStats {
   count: number; errors: number; client_errors: number; avg_ms: number | null;
-  p95_ms?: number | null; last_at: number | null;
+  p50_ms?: number | null; p95_ms?: number | null; max_ms?: number | null; slow?: number; last_at: number | null;
 }
 export interface AtlasNode {
   id: string; label: string; subtitle: string; kind: "client" | "gateway" | "service" | "storage" | "external";
@@ -19,11 +19,16 @@ export interface AtlasArchitecture {
   coverage: { architecture: string; traffic: string; limitations: string[] };
 }
 export interface AtlasEvent { id: number; ts: number; method: string; status: number; ms: number; route?: string; host?: string; trace_id?: number }
+export interface AtlasBreakdown {
+  status: Record<string, number>; latency: number[]; timeline: Array<AtlasStats & { at: number }>;
+}
+export interface AtlasTrace { request: AtlasEvent; calls: AtlasEvent[]; external_count: number; calls_truncated: boolean }
 export interface AtlasSnapshot {
   at: number; active_sessions: number; observed_edges: Record<string, number>;
-  api: AtlasStats & { window_s: number; window_truncated: boolean; groups: Record<string, AtlasStats>; endpoints: Array<AtlasStats & { path: string }>; recent: AtlasEvent[] };
+  api: AtlasStats & { window_s: number; window_truncated: boolean; groups: Record<string, AtlasStats>; endpoints: Array<AtlasStats & { path: string; method: string }>; recent: AtlasEvent[]; breakdown?: AtlasBreakdown };
   external: AtlasStats & { started_at: number; window_s: number; window_truncated: boolean; groups: Record<string, AtlasStats>;
-    hosts: Array<AtlasStats & { host: string }>; recent: AtlasEvent[] };
+    hosts: Array<AtlasStats & { host: string }>; recent: AtlasEvent[]; flows?: Array<AtlasStats & { route: string; host: string }>; breakdown?: AtlasBreakdown };
+  traces?: AtlasTrace[];
   cache: { entries: number; fresh: number; stale: number; refreshing: number; capacity: number };
   database: { mode: string; separate_realestate: boolean; realestate_mode: string };
 }

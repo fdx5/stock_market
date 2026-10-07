@@ -36,7 +36,7 @@ health = {'at': '2026-10-06T15:30:00+09:00', 'uptime_s': 43620, 'commit': 'fixtu
           'errors': 0, 'avg_wait_ms': 1, 'avg_work_ms': 142, 'open': False, 'last_error': None}],
           'threads': [{'name':'prediction-scheduler','count':1},{'name':'realestate-collector','count':1}],
           'errors_last_hour': 1, 'warnings_last_hour': 2, 'logs': [], 'admin_cache': [], 'realestate': {}}
-base = os.environ.get('TEST_BASE_URL', 'http://127.0.0.1:5187')
+base = os.environ.get('TEST_BASE_URL', 'http://127.0.0.1:5189')
 
 with sync_playwright() as p:
     browser = p.chromium.launch(channel='msedge', headless=True)
@@ -61,6 +61,7 @@ with sync_playwright() as p:
     page = context.new_page(); errors=[]
     page.on('pageerror',lambda e: errors.append(str(e)))
     page.goto(base + '/admin/system-atlas')
+    page.get_by_role("button",name="전체 구조",exact=True).click()
     try:
         expect(page.locator('.sa-node')).to_have_count(len(graph['nodes']),timeout=30000)
     except Exception:
@@ -76,11 +77,11 @@ with sync_playwright() as p:
     page.locator('.sa-inspector .sa-endpoint').first.click()
     expect(page.locator('.sa-dependency-flow')).to_be_visible()
     page.screenshot(path=str(output/'endpoint-detail.png'),full_page=True)
-    page.get_by_role('button',name='API 인벤토리',exact=True).click()
+    page.get_by_role('button',name='API 성능',exact=True).click()
     search=page.get_by_role('textbox',name='시스템 검색')
     search.fill('/api/support')
-    expect(page.locator('.sa-inventory .sa-endpoint').first).to_be_visible()
-    assert all('/api/support' in text for text in page.locator('.sa-inventory .sa-endpoint-path').all_text_contents())
+    expect(page.locator('.am-api-table .sa-endpoint').first).to_be_visible()
+    assert all('/api/support' in text for text in page.locator('.am-api-table .sa-endpoint-path').all_text_contents())
     search.fill('')
     page.get_by_role('button',name='DB · 캐시',exact=True).click()
     expect(page.locator('.sa-gate-table')).to_be_visible()

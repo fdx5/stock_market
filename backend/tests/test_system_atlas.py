@@ -147,3 +147,66 @@ def test_external_classification_separates_finance_resources_payments_and_databa
     assert system_atlas.host_group('cdn.jsdelivr.net') == 'ext-resources'
     assert system_atlas.host_group('query1.finance.yahoo.com') == 'ext-market'
     assert system_atlas.host_group('apis.data.go.kr') == 'ext-spatial'
+
+
+def test_distributions_percentiles_and_timeline_conserve_samples():
+    now = 1000
+    rows = [{'ts': 940 + i * 10, 'ms': ms, 'status': code}
+            for i, (ms, code) in enumerate([(50, 200), (100, 302), (300, 404), (1000, 503), (3000, 0), (500, 200)])]
+    stats = system_telemetry.stats(rows)
+    assert (stats['p50_ms'], stats['p95_ms'], stats['max_ms'], stats['slow']) == (300, 3000, 3000, 2)
+    data = system_telemetry.breakdown(rows, now)
+    assert data['status'] == {'2xx': 2, '3xx': 1, '4xx': 1, '5xx': 1, 'transport': 1}
+    assert data['latency'] == [1, 1, 2, 1, 1]
+    assert len(data['timeline']) == 12
+    assert sum(b['count'] for b in data['timeline']) == len(rows)
+    assert sum(b['errors'] for b in data['timeline']) == stats['errors']
+    assert system_telemetry.stats([])['p50_ms'] is None
+    assert system_telemetry.stats([])['max_ms'] is None
+
+
+def test_method_specific_metrics_and_trace_calls_beyond_display_tail(client):
+    from types import SimpleNamespace
+    path = '/api/stock/{code}/quote'
+    token = system_telemetry.begin_request({'route': SimpleNamespace(path=path)})
+    trace_id = system_telemetry.request_id()
+    for _ in range(35):
+        system_telemetry.record('query1.finance.yahoo.com', 'GET', 200, 100)
+    api_pulse.record(path, 'GET', 200, 4500, trace_id=trace_id)
+    system_telemetry.end_request(token)
+    api_pulse.record(path, 'POST', 503, 2000)
+    # These background calls evict the request calls from the 60-event display tail.
+    for _ in range(65):
+        system_telemetry.record('m.stock.naver.com', 'GET', 404, 500)
+    snap = client.get('/api/admin/atlas/snapshot', headers={'Authorization': 'Bearer admin-fixture'}).json()
+    methods = {e['method']: e for e in snap['api']['endpoints']}
+    assert methods['GET']['count'] == 1 and methods['GET']['errors'] == 0
+    assert methods['POST']['errors'] == 1 and methods['POST']['p95_ms'] == 2000
+    trace = snap['traces'][0]
+    assert trace['request']['trace_id'] == trace_id
+    assert trace['external_count'] == 35 and len(trace['calls']) == 30 and trace['calls_truncated']
+    assert len(snap['external']['recent']) == 60
+    assert not any(e.get('trace_id') == trace_id for e in snap['external']['recent'])
+    group = snap['external']['groups']['ext-market']
+    assert group['count'] == 100 and group['p95_ms'] == 500 and group['p50_ms'] == 500
+    assert 'request_calls' not in snap['external']
+
+
+def test_external_recent_excludes_expired_and_future_samples(monkeypatch):
+    monkeypatch.setattr(system_telemetry, '_events', deque([
+        {'id': i, 'ts': ts, 'host': 'example.com', 'status': 200, 'method': 'GET', 'ms': 20}
+        for i, ts in enumerate((100, 950, 1100))], maxlen=2400))
+    snap = system_telemetry.snapshot(1000)
+    assert snap['count'] == 1 and len(snap['recent']) == 1
+    assert snap['recent'][0]['ts'] == 950
+
+
+def test_atlas_health_transport_does_not_pollute_external_metrics(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(system_telemetry, '_events', deque(maxlen=2400))
+    token = system_telemetry.begin_request({'route': SimpleNamespace(path='/api/admin/atlas/health')})
+    system_telemetry.record('shared.turso.io', 'POST', 200, 120)
+    system_telemetry.end_request(token)
+    assert system_telemetry.snapshot()['count'] == 0
+    system_telemetry.record('shared.turso.io', 'POST', 200, 120)
+    assert system_telemetry.snapshot()['count'] == 1

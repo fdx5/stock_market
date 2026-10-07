@@ -6,8 +6,9 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import Icon from "./SystemAtlasIcon";
 import { atlasApi, AtlasArchitecture, AtlasEdge, AtlasEndpoint, AtlasNode, AtlasSnapshot, AtlasStats } from "./systemAtlasApi";
 import "./adminSystemAtlas.css";
+import { ApiPerformance, ExternalMonitor, MONITOR_VIEWS, MonitorView, OperationsOverview, RequestTraces, ServiceGrid, StorageDetails } from "./AtlasMonitoring";
+import "./atlasMonitoring.css";
 
-type View = "topology" | "api" | "storage" | "stack";
 type DetailTab = "overview" | "endpoints" | "modules" | "connections";
 type History = { at: number; count: number; latency: number | null; external: number; memory: number | null };
 const EMPTY: AtlasStats = { count: 0, errors: 0, client_errors: 0, avg_ms: null, last_at: null };
@@ -19,7 +20,7 @@ const POS: Record<string, [number, number]> = {
   "ext-resources": [24, 475],
 };
 const NODE_W = 208, NODE_H = 72;
-const time = (ts?: number | null) => ts ? new Date(ts * 1000).toLocaleTimeString("ko-KR", { hour12: false, timeZone: "Asia/Seoul" }) : "—";
+const time = (ts?: number | null) => ts ? new Date(ts * 1000).toLocaleTimeString("en-GB", { hour12: false, timeZone: "Asia/Seoul" }) : "—";
 const ms = (v?: number | null) => v == null ? "—" : v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${Math.round(v)}ms`;
 const number = (n?: number | null) => n == null ? "—" : n.toLocaleString("ko-KR");
 const colorStyle = (color: string) => ({ "--node-color": color } as CSSProperties);
@@ -111,7 +112,7 @@ function Topology({ graph, live, health, selected, onSelect, onEdge, focus, quer
 
 function EndpointList({ endpoints, live, select, limit }: { endpoints: AtlasEndpoint[]; live: AtlasSnapshot | null; select: (endpoint: AtlasEndpoint) => void; limit?: number }) {
   return <div className="sa-endpoints">{endpoints.slice(0, limit).map(endpoint => {
-    const stats = live?.api.endpoints.find(e => e.path === endpoint.path);
+    const stats = live?.api.endpoints.find(e => e.path === endpoint.path && endpoint.methods.includes(e.method));
     return <button key={`${endpoint.path}-${endpoint.methods.join()}`} className="sa-endpoint" onClick={() => select(endpoint)}>
       <span className={`sa-method ${endpoint.methods[0] === "GET" ? "is-get" : ""}`}>{endpoint.methods.join("/")}</span>
       <span className="sa-endpoint-path">{endpoint.path}<small>{endpoint.function} · {endpoint.dependencies.length} dependencies</small></span>
@@ -126,7 +127,7 @@ function Inspector({ node, edge, endpoint, graph, live, health, onSelect, onEndp
 }) {
   const [query, setQuery] = useState("");
   useEffect(() => setQuery(""), [node.id]);
-  const stats = nodeStats(node, live);
+  const stats = endpoint ? live?.api.endpoints.find(e => e.path === endpoint.path && endpoint.methods.includes(e.method)) || EMPTY : nodeStats(node, live);
   const connections = graph.edges.filter(e => e.source === node.id || e.target === node.id);
   const endpoints = graph.endpoints.filter(e => (node.id === "gateway" || e.group === node.id) && `${e.path} ${e.function}`.toLowerCase().includes(query.toLowerCase()));
   const modules = graph.modules.filter(m => node.modules.includes(m.id) && `${m.id} ${m.file}`.toLowerCase().includes(query.toLowerCase()));
@@ -136,7 +137,7 @@ function Inspector({ node, edge, endpoint, graph, live, health, onSelect, onEndp
     <div className="sa-inspector-label"><span>COMPONENT INSPECTOR</span><span className="sa-index">{String(graph.nodes.indexOf(node) + 1).padStart(2, "0")}</span></div>
     <div className="sa-inspector-title"><span className="sa-big-icon"><Icon name={node.kind === "external" ? "external" : node.id === "estate-db" ? "database" : node.id} size={26}/></span><div><h2>{node.label}</h2><p>{node.subtitle}</p></div></div>
     <p className="sa-description">{node.description}</p>
-    <div className="sa-inspector-metrics"><div><span>최근 60초 호출</span><b>{number(stats.count)}</b></div><div><span>평균 응답</span><b>{ms(stats.avg_ms)}</b></div><div><span>5xx / 전송 실패</span><b className={stats.errors ? "sa-red" : ""}>{stats.errors}</b></div></div>
+    <div className="sa-inspector-metrics"><div><span>최근 60초 호출</span><b>{number(stats.count)}</b></div><div><span>응답 지연 P95</span><b>{ms(stats.p95_ms)}</b></div><div><span>5xx / 전송 실패</span><b className={stats.errors ? "sa-red" : ""}>{stats.errors}</b></div></div>
     <nav className="sa-detail-tabs" aria-label="영역 상세 탭">{tabs.map(([key, label]) => <button key={key} onClick={() => { setTab(key); onEndpoint(null); }} aria-selected={tab === key} role="tab">{label}{key === "connections" && <small>{connections.length}</small>}</button>)}</nav>
     <div className="sa-detail-content">
       {edge && <section className="sa-detail-section sa-edge-detail"><h3>선택한 연결</h3><b>{graph.nodes.find(n => n.id === edge.source)?.label}</b><span>↓ {edge.protocol}</span><b>{graph.nodes.find(n => n.id === edge.target)?.label}</b><p>{edge.evidence}</p><small>소스 의존성 · 요청별 인과관계 추적 아님</small></section>}
@@ -145,11 +146,11 @@ function Inspector({ node, edge, endpoint, graph, live, health, onSelect, onEndp
         <h3>{endpoint.methods.join(" · ")}</h3><code className="sa-code-path">{endpoint.path}</code>
         <p>{endpoint.module}<br/>{endpoint.function}()</p>
         <h3>실제 요청 · 외부 HTTP 흐름</h3>
-        {(live?.api.recent.filter(e => e.route === endpoint.path && e.trace_id).slice(0, 3) || []).map(request => {
-          const calls = live?.external.recent.filter(e => e.trace_id === request.trace_id).slice().reverse() || [];
+        {(live?.api.recent.filter(e => e.route === endpoint.path && endpoint.methods.includes(e.method) && e.trace_id).slice(0, 3) || []).map(request => {
+          const calls = live?.traces?.find(t => t.request.trace_id === request.trace_id)?.calls || [];
           return <div key={request.id} className="sa-request-trace"><header><span>REQUEST #{request.trace_id} · {time(request.ts)}</span><b>{ms(request.ms)}</b></header><div><code>{request.method} → API</code><small className={request.status >= 400 ? "sa-red" : "sa-green"}>{request.status}</small></div>{calls.map(call => <div key={call.id}><code>↳ {call.host}</code><small className={call.status === 0 || call.status >= 400 ? "sa-red" : ""}>{call.status || "ERR"} · {ms(call.ms)}</small></div>)}{!calls.length && <p>보존된 표본에 연결된 외부 HTTP 호출이 없습니다. 캐시 응답 또는 관측 범위 밖의 전송일 수 있습니다.</p>}</div>;
         })}
-        {!live?.api.recent.some(e => e.route === endpoint.path && e.trace_id) && <p>이 API의 요청 표본이 아직 없거나 최근 표시 버퍼에서 제외되었습니다.</p>}
+        {!live?.api.recent.some(e => e.route === endpoint.path && endpoint.methods.includes(e.method) && e.trace_id) && <p>이 API의 요청 표본이 아직 없거나 최근 표시 버퍼에서 제외되었습니다.</p>}
         <h3>의존성 세부 흐름</h3><div className="sa-dependency-flow"><div>HTTP 요청</div><i>↓</i><div>{endpoint.module.replace("app.routers.", "router / ")}</div><i>↓ import</i>
           {endpoint.dependencies.map(id => <div key={id} className="sa-flow-module">{id.replace("app.", "")}</div>)}<i>↓ 선언된 데이터 연동</i>
           {[...new Set(graph.modules.filter(m => endpoint.dependencies.includes(m.id)).flatMap(m => m.hosts))].map(host => <div key={host} className="sa-flow-host">{host}</div>)}
@@ -182,12 +183,15 @@ export default function AdminSystemAtlasPage() {
   const [live, setLive] = useState<AtlasSnapshot | null>(null);
   const [health, setHealth] = useState<AdminHealth | null>(null);
   const [history, setHistory] = useState<History[]>([]);
+  const [memoryHistory, setMemoryHistory] = useState<{ at: number; value: number | null }[]>([]);
+  const [healthReceivedAt, setHealthReceivedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null), [healthError, setHealthError] = useState<string | null>(null);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [selected, setSelected] = useState("gateway"), [edge, setEdge] = useState<AtlasEdge | null>(null), [endpoint, setEndpoint] = useState<AtlasEndpoint | null>(null);
-  const [tab, setTab] = useState<DetailTab>("overview"), [view, setView] = useState<View>("topology");
+  const [tab, setTab] = useState<DetailTab>("overview"), [view, setView] = useState<MonitorView>("overview");
   const [paused, setPaused] = useState(false), [focus, setFocus] = useState(false), [query, setQuery] = useState(""), [zoom, setZoom] = useState(100);
   const [refresh, setRefresh] = useState(0), [range, setRange] = useState(5), [eventFilter, setEventFilter] = useState("all");
+  const [interval, setIntervalMs] = useState(3000);
   const [now, setNow] = useState(Date.now() / 1000);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -208,24 +212,28 @@ export default function AdminSystemAtlasPage() {
     };
     const check = async () => {
       if (checking) return; checking = true;
-      try { const data = await atlasApi.health(); if (!gone) { setHealth(data); setHealthError(null); } }
+      try { const data = await atlasApi.health(); if (!gone) { const receivedAt = Date.now() / 1000; setHealth(data); setHealthReceivedAt(receivedAt); setHealthError(null); setMemoryHistory(rows => [...rows, { at: receivedAt, value: data.memory_mb }].slice(-40)); } }
       catch (e) { if (!gone && !failed(e)) setHealthError(`DB·서버 점검 실패: ${e instanceof Error ? e.message : String(e)}`); }
       finally { checking = false; }
     };
     void load(); void check();
-    const stop = startVisibilityAwareInterval(() => void load(), 3000);
+    const stop = startVisibilityAwareInterval(() => void load(), interval);
     const stopHealth = startVisibilityAwareInterval(() => void check(), 15000);
     return () => { gone = true; stop(); stopHealth(); };
-  }, [paused, refresh]);
+  }, [paused, refresh, interval]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now() / 1000), 1000); return () => window.clearInterval(timer); }, []);
   const stale = !paused && (!!error || !!live && now - live.at > 15);
+  const healthStale = !paused && (!!healthError || healthReceivedAt !== null && now - healthReceivedAt > 45);
+  const [initialFilter, setInitialFilter] = useState("all");
+  const changeView = (next: MonitorView, filter = "all") => { setView(next); setQuery(""); setInitialFilter(filter); };
   const select = (id: string) => { setSelected(id); setEdge(null); setEndpoint(null); setTab("overview"); };
+  const openEndpoint = (e: AtlasEndpoint) => { setSelected(e.group); setEdge(null); setEndpoint(e); setTab("endpoints"); };
+  const inspectNode = (id: string) => { select(id); changeView(graph?.nodes.find(n => n.id === id)?.kind === "external" ? "topology" : "services"); };
   const selectedNode = graph?.nodes.find(n => n.id === selected);
-  const shownHistory = useMemo(() => history.filter(h => h.at >= now - range * 60), [history, now, range]);
+  const shownHistory = useMemo(() => history.filter(h => h.at >= (paused ? live?.at ?? now : now) - range * 60), [history, now, range, paused, live?.at]);
   const events = useMemo(() => [...(live?.api.recent || []).map(e => ({ ...e, type: "API" })), ...(live?.external.recent || []).map(e => ({ ...e, type: "HTTP" }))].sort((a, b) => b.ts - a.ts).filter(e => eventFilter === "all" || (eventFilter === "errors" ? e.status === 0 || e.status >= 400 : e.type === eventFilter)).slice(0, 60), [live, eventFilter]);
-  const relevantEndpoints = graph?.endpoints.filter(e => `${e.path} ${e.module} ${e.function}`.toLowerCase().includes(query.toLowerCase())) || [];
   const exportSnapshot = () => {
-    const blob = new Blob([JSON.stringify({ architecture: graph, snapshot: live, captured_at: new Date().toISOString() }, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ architecture: graph, snapshot: live, chart_history: shownHistory, captured_at: new Date().toISOString() }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `kstock-system-atlas-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
   };
   return <div className="sa-page" ref={root}>
@@ -234,9 +242,9 @@ export default function AdminSystemAtlasPage() {
       <span className="sa-rail-bottom"><Link to="/desk" title="사이트로 돌아가기"><Icon name="back"/></Link><span>KH</span></span>
     </aside>
     <div className="sa-body">
-      <header className="sa-header"><div className="sa-breadcrumb"><Link to="/admin/dashboard">관리자</Link><span>/</span><b>시스템 아틀라스</b><span className="sa-environment">{health?.commit && health.commit !== "dev" ? health.commit : "CURRENT INSTANCE"}</span></div><div className="sa-header-right"><span className={`sa-live-badge ${stale ? "is-stale" : paused ? "is-paused" : ""}`}><i/>{paused ? "일시 정지" : stale ? "갱신 지연" : live ? "LIVE OBSERVATION" : "연결 중"}</span><span className="sa-time">{time(now)} KST</span></div></header>
+      <header className="sa-header"><div className="sa-breadcrumb"><Link to="/admin/dashboard">관리자</Link><span>/</span><b>시스템 아틀라스</b><span className="sa-environment">{health?.commit && health.commit !== "dev" ? health.commit : "CURRENT INSTANCE"}</span></div><div className="sa-header-right"><span className={`sa-live-badge ${stale || healthStale ? "is-stale" : paused ? "is-paused" : ""}`}><i/>{paused ? "일시 정지" : stale ? "갱신 지연" : healthStale ? "점검 지연" : live ? "LIVE OBSERVATION" : "연결 중"}</span><span className="sa-time">{time(now)} KST</span></div></header>
       <main className="sa-main">
-        <div className="sa-title-row"><div><p className="sa-eyebrow">K-STOCK HUB / SYSTEM INTELLIGENCE</p><h1>모든 연결을, <span>한눈에.</span></h1><p className="sa-subtitle">서비스 구조부터 실시간 데이터 흐름까지. 시스템 전체를 탐색하는 운영 관제실.</p></div><div className="sa-actions"><button onClick={() => setPaused(p => !p)}><Icon name={paused ? "play" : "pause"} size={15}/>{paused ? "관측 재개" : "일시 정지"}</button><button onClick={() => setRefresh(n => n + 1)} disabled={paused} title={paused ? "관측을 재개하면 새로고침할 수 있습니다" : "구조와 상태 새로고침"}><Icon name="refresh" size={15}/>새로고침</button><button onClick={exportSnapshot} disabled={!graph} title="관측 스냅샷 JSON 다운로드"><Icon name="download" size={16}/></button></div></div>
+        <div className="sa-title-row"><div><p className="sa-eyebrow">K-STOCK HUB / SYSTEM INTELLIGENCE</p><h1>서버 모니터링 <span>관제실</span></h1><p className="sa-subtitle">운영 상태를 한눈에, 병목과 오류는 요청 단위까지.</p></div><div className="sa-actions"><select aria-label="관측 갱신 주기" value={interval} onChange={e => setIntervalMs(Number(e.target.value))}><option value={3000}>3초 갱신</option><option value={5000}>5초 갱신</option><option value={10000}>10초 갱신</option></select><button onClick={() => setPaused(p => !p)}><Icon name={paused ? "play" : "pause"} size={15}/>{paused ? "관측 재개" : "일시 정지"}</button><button onClick={() => setRefresh(n => n + 1)} disabled={paused} title={paused ? "관측을 재개하면 새로고침할 수 있습니다" : "구조와 상태 새로고침"}><Icon name="refresh" size={15}/>새로고침</button><button onClick={exportSnapshot} disabled={!graph} title="관측 스냅샷 JSON 다운로드"><Icon name="download" size={16}/></button></div></div>
         {(graphError || error || healthError || stale) && <div className="sa-alert" role="alert"><Icon name="info" size={17}/><span>{graphError || error || healthError || "최근 관측이 15초 이상 지연되었습니다."} {live && `마지막 성공 값 ${time(live.at)} 표시 중.`}</span><button onClick={() => setRefresh(n => n + 1)} disabled={paused}>다시 시도</button></div>}
         <div className="sa-kpis">
           {[{ label: "전체 API", value: number(graph?.endpoints.length), unit: "endpoints", color: "#58cfef", icon: "gateway", sub: `${graph?.modules.length || 0} backend modules`, node: "gateway" },
@@ -244,27 +252,32 @@ export default function AdminSystemAtlasPage() {
             { label: "응답 지연 P95", value: ms(live?.api.p95_ms), unit: "", color: "#b098ff", icon: "cache", sub: `평균 ${ms(live?.api.avg_ms)} · API 표본`, node: "gateway", spark: shownHistory.map(h => h.latency) },
             { label: "데이터베이스", value: health ? health.db.ok ? `${health.db.ms}` : "실패" : "—", unit: health?.db.ok ? "ms" : "", color: "#eeb97e", icon: "database", sub: live ? `${live.database.mode.toUpperCase()} · 공유 DB ping${healthError ? " · 이전 값" : ""}` : "공유 DB 점검 중", node: "database" },
             { label: "외부 HTTP", value: number(live?.external.count), unit: "calls / 60s", color: "#ee8cb9", icon: "external", sub: `${live?.external.hosts.length || 0} 관측 호스트 · requests${live?.external.window_truncated ? " · 버퍼 초과" : ""}`, node: "ext-market", spark: shownHistory.map(h => h.external) },
-            { label: "유효 캐시", value: number(live?.cache.fresh), unit: "keys", color: "#75d4b0", icon: "cache", sub: `만료 ${number(live?.cache.stale)} · 갱신 ${number(live?.cache.refreshing)}`, node: "cache" }].map(k => <button key={k.label} className="sa-kpi" style={colorStyle(k.color)} onClick={() => select(k.node)}><div className="sa-kpi-label"><span>{k.label}</span><Icon name={k.icon} size={16}/></div><div className="sa-kpi-value">{k.value}<small>{k.unit}</small></div><p>{k.sub}</p>{k.spark && <div className="sa-kpi-spark"><Sparkline values={k.spark} color={k.color} height={34}/></div>}</button>)}
+            { label: "유효 캐시", value: number(live?.cache.fresh), unit: "keys", color: "#75d4b0", icon: "cache", sub: `만료 ${number(live?.cache.stale)} · 갱신 ${number(live?.cache.refreshing)}`, node: "cache" }].map(k => <button key={k.label} className="sa-kpi" style={colorStyle(k.color)} onClick={() => { select(k.node); changeView(k.node === "cache" || k.node === "database" ? "storage" : k.node.startsWith("ext-") ? "external" : "api"); }}><div className="sa-kpi-label"><span>{k.label}</span><Icon name={k.icon} size={16}/></div><div className="sa-kpi-value">{k.value}<small>{k.unit}</small></div><p>{k.sub}</p>{k.spark && <div className="sa-kpi-spark"><Sparkline values={k.spark} color={k.color} height={34}/></div>}</button>)}
         </div>
-        <div className="sa-workspace"><section className="sa-topology-panel">
-          <div className="sa-panel-head"><div><span className="sa-panel-dot"/><h2>시스템 연결 지도</h2><span className="sa-count">{graph?.nodes.length || 0} 영역 · {graph?.edges.length || 0} 연결</span></div><button className="sa-icon-button" title="관제 화면 전체화면" onClick={() => { if (!document.fullscreenElement) void root.current?.requestFullscreen().catch(() => setError("이 브라우저에서는 전체화면을 사용할 수 없습니다.")); else void document.exitFullscreen(); }}><Icon name="expand" size={17}/></button></div>
-          <div className="sa-map-toolbar"><nav aria-label="모니터링 보기">{([["topology", "전체 구조"], ["api", "API 인벤토리"], ["storage", "DB · 캐시"], ["stack", "기술 스택"]] as [View, string][]).map(([key, label]) => <button key={key} className={view === key ? "is-active" : ""} onClick={() => setView(key)}>{label}</button>)}</nav><label className="sa-search"><Icon name="search" size={15}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder={view === "api" ? "API 경로 검색…" : "영역 · 기술 · 호스트 검색…"} aria-label="시스템 검색"/>{query && <button onClick={() => setQuery("")} aria-label="검색 초기화">×</button>}</label></div>
+        <nav className="am-view-nav" aria-label="모니터링 보기">{MONITOR_VIEWS.map(([key, label, icon]) => <button key={key} className={view === key ? "is-active" : ""} aria-pressed={view === key} aria-label={label} onClick={() => changeView(key)}><Icon name={icon} size={16}/>{label}{key === "api" && !!live?.api.errors && <small>{live.api.errors}</small>}{key === "external" && !!live?.external.errors && <small>{live.external.errors}</small>}</button>)}</nav>
+        <div className={`sa-workspace ${["overview", "external", "traces"].includes(view) ? "is-wide" : ""}`}><section className="sa-topology-panel">
+          <div className="sa-panel-head"><div><span className="sa-panel-dot"/><h2>{MONITOR_VIEWS.find(v => v[0] === view)?.[1]}</h2><span className="sa-count">{view === "topology" ? `${graph?.nodes.length || 0} 영역 · ${graph?.edges.length || 0} 연결` : "ATLAS MONITORING"}</span></div><button className="sa-icon-button" title="관제 화면 전체화면" onClick={() => { if (!document.fullscreenElement) void root.current?.requestFullscreen().catch(() => setError("이 브라우저에서는 전체화면을 사용할 수 없습니다.")); else void document.exitFullscreen(); }}><Icon name="expand" size={17}/></button></div>
+          {!["overview", "storage", "stack"].includes(view) && <div className="sa-map-toolbar"><div className="am-context"><Icon name={MONITOR_VIEWS.find(v => v[0] === view)?.[2]} size={15}/>{view === "api" ? "엔드포인트별 성능 분석" : view === "services" ? "서비스 영역별 관측" : view === "traces" ? "API 요청과 외부 HTTP 흐름" : view === "external" ? "호스트별 성능 분석" : view === "topology" ? "시스템 연결 지도" : "구성 및 실행 상태"}<span>· 현재 프로세스</span></div><label className="sa-search"><Icon name="search" size={15}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder={view === "api" ? "API 경로 · 함수 검색…" : view === "traces" ? "요청 번호 · API · 호스트 검색…" : "영역 · 기술 · 호스트 검색…"} aria-label="시스템 검색"/>{query && <button onClick={() => setQuery("")} aria-label="검색 초기화">×</button>}</label></div>}
           {!graph ? <div className="sa-loading"><Icon name="atlas" size={45}/><h3>{graphError ? "구조를 불러오지 못했습니다" : "시스템 구조를 분석하고 있습니다"}</h3><p>라우트 · 서비스 · 저장소 · 외부 연동</p>{graphError && <button onClick={() => setRefresh(n => n + 1)}>구조 다시 불러오기</button>}</div> : <>
-            {view === "topology" && <Topology graph={graph} live={live} health={health} selected={selected} onSelect={select} onEdge={e => { setSelected(e.source); setEdge(e); setEndpoint(null); setTab("connections"); }} focus={focus} query={query} zoom={zoom} paused={paused} stale={stale}/>}
-            {view === "api" && <div className="sa-inventory"><div className="sa-inventory-head"><h3>{relevantEndpoints.length} API 엔드포인트</h3><span>실제 FastAPI 라우트 테이블 · 평균 응답은 최근 60초 표본</span></div><EndpointList endpoints={relevantEndpoints} live={live} select={e => { setSelected(e.group); setEndpoint(e); setTab("endpoints"); }}/></div>}
-            {view === "storage" && <div className="sa-storage-view"><div className="sa-inventory-head"><h3>데이터 계층</h3><span>SQL 저장소 · 캐시 · Circuit breaker</span></div><div className="sa-storage-cards">{graph.nodes.filter(n => n.kind === "storage").map(n => <button key={n.id} style={colorStyle(n.color)} onClick={() => select(n.id)}><Icon name={n.id === "cache" ? "cache" : "database"} size={28}/><h3>{n.label}</h3><p>{n.description}</p><b>{n.id === "cache" ? `${number(live?.cache.entries)} keys` : `${n.tables?.length || 0} schema declarations`}</b></button>)}</div><h3>저장소 게이트 · 프로세스 누적</h3><div className="sa-gate-table"><table><thead><tr><th>저장소</th><th>호출</th><th>대기</th><th>처리</th><th>오류</th><th>상태</th></tr></thead><tbody>{health?.gates.map(g => <tr key={g.name}><td>{g.name}</td><td>{number(g.calls)}</td><td>{g.avg_wait_ms}ms</td><td>{g.avg_work_ms}ms</td><td>{g.errors}</td><td className={g.open ? "sa-red" : "sa-green"}>{g.open ? "차단" : "통과"}</td></tr>)}</tbody></table>{!health && <p className="sa-empty">게이트 상태 점검 중</p>}</div><Link className="sa-text-button" to="/admin/db">실제 테이블 · SQL 조회 콘솔 열기 ↗</Link></div>}
+            {view === "topology" && <Topology graph={graph} live={live} health={health} selected={selected} onSelect={select} onEdge={e => { setSelected(e.source); setEdge(e); setEndpoint(null); setTab("connections"); }} focus={focus} query={query} zoom={zoom} paused={paused} stale={stale || healthStale}/>}
+            {view === "overview" && <OperationsOverview graph={graph} live={live} health={health} query={query} onSelect={select} onEndpoint={openEndpoint} onView={changeView} paused={paused} stale={stale} healthStale={healthStale} memoryHistory={memoryHistory}/>}
+            {view === "services" && <div className="am-services-view"><ServiceGrid graph={graph} live={live} health={health} query={query} onSelect={select} onEndpoint={openEndpoint}/><p className="am-observation-note">최근 60초 영역별 API 표본 · 카드를 선택하면 API와 소스 연결을 상세 패널에서 탐색합니다.</p></div>}
+            {view === "external" && <ExternalMonitor key={initialFilter} initialFilter={initialFilter} graph={graph} live={live} health={health} query={query} onSelect={inspectNode} onEndpoint={e => { changeView("api"); openEndpoint(e); }}/>}
+            {view === "traces" && <RequestTraces graph={graph} live={live} health={health} query={query} onSelect={select} onEndpoint={e => { changeView("api"); openEndpoint(e); }}/>}
+            {view === "api" && <ApiPerformance key={initialFilter} initialFilter={initialFilter} graph={graph} live={live} health={health} query={query} onSelect={select} onEndpoint={openEndpoint}/>}
+            {view === "storage" && <div className="sa-storage-view"><StorageDetails live={live} health={health}/><div className="sa-inventory-head"><h3>데이터 계층</h3><span>SQL 저장소 · 캐시 · Circuit breaker</span></div><div className="sa-storage-cards">{graph.nodes.filter(n => n.kind === "storage").map(n => <button key={n.id} style={colorStyle(n.color)} onClick={() => select(n.id)}><Icon name={n.id === "cache" ? "cache" : "database"} size={28}/><h3>{n.label}</h3><p>{n.description}</p><b>{n.id === "cache" ? `${number(live?.cache.entries)} keys` : `${n.tables?.length || 0} schema declarations`}</b></button>)}</div><h3>저장소 게이트 · 프로세스 누적</h3><div className="sa-gate-table"><table><thead><tr><th>저장소</th><th>호출</th><th>대기</th><th>처리</th><th>오류</th><th>혼잡 거절</th><th>상태</th></tr></thead><tbody>{health?.gates.map(g => <tr key={g.name}><td>{g.name}</td><td>{number(g.calls)}</td><td>{g.avg_wait_ms}ms</td><td>{g.avg_work_ms}ms</td><td>{g.errors}</td><td>{g.busy_rejects}</td><td className={g.open ? "sa-red" : "sa-green"}>{g.open ? "차단" : "통과"}</td></tr>)}</tbody></table>{!health && <p className="sa-empty">게이트 상태 점검 중</p>}</div><Link className="sa-text-button" to="/admin/db">실제 테이블 · SQL 조회 콘솔 열기 ↗</Link></div>}
             {view === "stack" && <div className="sa-stack-view"><div className="sa-inventory-head"><h3>기술 스택 & 실행 환경</h3><span>패키지 버전은 프로젝트 선언 기준</span></div><div className="sa-stack-grid"><section><Icon name="client" size={25}/><h3>Frontend</h3>{Object.entries(graph.frontend.dependencies || {}).map(([n, v]) => <div className="sa-stack-row" key={n}><b>{n}</b><code>{v}</code></div>)}<p>History API 라우터 · 순수 CSS · 코드 분할</p></section><section><Icon name="gateway" size={25}/><h3>Backend</h3>{Object.entries(graph.backend_dependencies || {}).map(([n, v]) => <div className="sa-stack-row" key={n}><b>{n}</b><code>{v}</code></div>)}</section><section><Icon name="database" size={25}/><h3>Storage & runtime</h3>{Object.entries(graph.frontend.deployment || {}).map(([n, v]) => <div className="sa-stack-row" key={n}><span>{n}</span><b>{v}</b></div>)}<p>현재 메모리 {number(health?.memory_mb)} MB · 가동 {health ? Math.floor(health.uptime_s / 3600) : "—"}h · 활성 세션 {number(live?.active_sessions)}</p></section><section><Icon name="operations" size={25}/><h3>Background workers</h3>{health?.threads.map(t => <div className="sa-stack-row" key={t.name}><b>{t.name}</b><code>×{t.count}</code></div>)}<p>현재 Python 프로세스의 스레드 목록</p></section></div><details className="sa-coverage"><summary>분석 · 관측 범위와 데이터 해석</summary><p>{graph.coverage.architecture}</p><p>{graph.coverage.traffic}</p>{graph.coverage.limitations.map(l => <p key={l}>{l}</p>)}</details></div>}
           </>}
-          <div className="sa-map-footer"><div className="sa-legend"><span><i className="sa-status-active"/>활동 관측</span><span><i className="sa-status-error"/>5xx / 전송 실패</span><span><i className="sa-status-idle"/>최근 표본 없음</span></div><div className="sa-map-controls"><button onClick={() => setFocus(f => !f)} className={focus ? "is-active" : ""} aria-pressed={focus}>선택 영역 집중</button><button onClick={() => setZoom(z => Math.max(75, z - 25))} disabled={zoom <= 75} aria-label="지도 축소">−</button><button onClick={() => setZoom(100)} title="지도 배율 초기화">{zoom}%</button><button onClick={() => setZoom(z => Math.min(200, z + 25))} disabled={zoom >= 200} aria-label="지도 확대">+</button></div></div>
+          {view === "topology" && <div className="sa-map-footer"><div className="sa-legend"><span><i className="sa-status-active"/>활동 관측</span><span><i className="sa-status-error"/>5xx / 전송 실패</span><span><i className="sa-status-idle"/>최근 표본 없음</span></div><div className="sa-map-controls"><button onClick={() => setFocus(f => !f)} className={focus ? "is-active" : ""} aria-pressed={focus}>선택 영역 집중</button><button onClick={() => setZoom(z => Math.max(75, z - 25))} disabled={zoom <= 75} aria-label="지도 축소">−</button><button onClick={() => setZoom(100)} title="지도 배율 초기화">{zoom}%</button><button onClick={() => setZoom(z => Math.min(200, z + 25))} disabled={zoom >= 200} aria-label="지도 확대">+</button></div></div>}
         </section>
-        {graph && selectedNode && <Inspector node={selectedNode} edge={edge} endpoint={endpoint} graph={graph} live={live} health={health} onSelect={select} onEndpoint={setEndpoint} tab={tab} setTab={setTab}/>}
+        {graph && selectedNode && !["overview", "external", "traces"].includes(view) && <Inspector node={selectedNode} edge={edge} endpoint={endpoint} graph={graph} live={live} health={health} onSelect={select} onEndpoint={setEndpoint} tab={tab} setTab={setTab}/>}
         </div>
         <div className="sa-bottom-grid">
           <section className="sa-bottom-card"><header><h2>API 응답 추이</h2><select value={range} onChange={e => setRange(Number(e.target.value))} aria-label="차트 관측 기간"><option value="1">최근 1분</option><option value="5">최근 5분</option><option value="10">최근 10분</option></select></header><div className="sa-chart-metrics"><b>{ms(live?.api.p95_ms)}<small>P95 / 60s</small></b><span><i/>응답 시간</span></div><Sparkline values={shownHistory.map(h => h.latency)} color="#b098ff" height={90} fill/><div className="sa-chart-axis"><span>{shownHistory.length ? time(shownHistory[0].at) : "표본 대기"}</span><span>{time(live?.at)}</span></div><p className="sa-footnote">이 페이지를 연 뒤 수집한 표본 · 트래픽이 없으면 지연 값 없음</p></section>
-          <section className="sa-bottom-card"><header><h2>서비스별 호출 분포</h2><span>최근 60초</span></header><div className="sa-service-bars">{graph?.nodes.filter(n => n.kind === "service").map(n => { const stats = nodeStats(n, live); return <button key={n.id} onClick={() => select(n.id)}><span>{n.label.split(" · ")[0]}</span><div><i style={{ width: `${stats.count / Math.max(1, live?.api.count || 0) * 100}%`, background: n.color }}/></div><b>{stats.count}</b></button>; })}</div><p className="sa-footnote">API 요청을 담당 라우터 영역별로 집계</p></section>
-          <section className="sa-bottom-card sa-events-card"><header><h2>실시간 이벤트</h2><select value={eventFilter} onChange={e => setEventFilter(e.target.value)} aria-label="이벤트 필터"><option value="all">전체</option><option value="API">API</option><option value="HTTP">외부 HTTP</option><option value="errors">오류 · 4xx</option></select></header><div className="sa-event-list">{events.map(e => <button key={`${e.type}-${e.id}`} onClick={() => { const found = graph?.endpoints.find(p => p.path === e.route); if (found) { setSelected(found.group); setEndpoint(found); setTab("endpoints"); } else if (e.host) { const n = graph?.nodes.find(n => n.hosts?.includes(e.host!)); if (n) select(n.id); } }}><time>{time(e.ts)}</time><span className={`sa-event-type ${e.type === "HTTP" ? "is-http" : ""}`}>{e.type}</span><code title={e.route || e.host}>{e.route || e.host}</code><b className={e.status === 0 || e.status >= 400 ? "sa-red" : "sa-green"}>{e.status || "ERR"}</b><small>{ms(e.ms)}</small></button>)}{!events.length && <p className="sa-empty">현재 관측된 이벤트가 없습니다.<br/>새 요청이 완료되면 여기에 표시됩니다.</p>}</div></section>
+          <section className="sa-bottom-card"><header><h2>서비스별 호출 분포</h2><span>최근 60초</span></header><div className="sa-service-bars">{graph?.nodes.filter(n => n.kind === "service").map(n => { const stats = nodeStats(n, live); return <button key={n.id} onClick={() => { changeView("services"); select(n.id); }}><span>{n.label.split(" · ")[0]}</span><div><i style={{ width: `${stats.count / Math.max(1, live?.api.count || 0) * 100}%`, background: n.color }}/></div><b>{stats.count}</b></button>; })}</div><p className="sa-footnote">API 요청을 담당 라우터 영역별로 집계</p></section>
+          <section className="sa-bottom-card sa-events-card"><header><h2>실시간 이벤트</h2><select value={eventFilter} onChange={e => setEventFilter(e.target.value)} aria-label="이벤트 필터"><option value="all">전체</option><option value="API">API</option><option value="HTTP">외부 HTTP</option><option value="errors">오류 · 4xx</option></select></header><div className="sa-event-list">{events.map(e => <button key={`${e.type}-${e.id}`} onClick={() => { const found = graph?.endpoints.find(p => p.path === e.route); if (found) { changeView("api"); openEndpoint(found); } else if (e.host) { const n = graph?.nodes.find(n => n.hosts?.includes(e.host!)); if (n) inspectNode(n.id); } }}><time>{time(e.ts)}</time><span className={`sa-event-type ${e.type === "HTTP" ? "is-http" : ""}`}>{e.type}</span><code title={e.route || e.host}>{e.route || e.host}</code><b className={e.status === 0 || e.status >= 400 ? "sa-red" : "sa-green"}>{e.status || "ERR"}</b><small>{ms(e.ms)}</small></button>)}{!events.length && <p className="sa-empty">현재 관측된 이벤트가 없습니다.<br/>새 요청이 완료되면 여기에 표시됩니다.</p>}</div></section>
         </div>
-        <footer className="sa-page-foot"><span><i/>업데이트 {time(live?.at)} · HTTP 폴링 3초 · 서버/DB 점검 15초 · 단일 프로세스 관측</span><span>설계 연결 ≠ 요청별 분산 추적 <button onClick={() => setView("stack")}>관측 범위 보기 ↗</button></span></footer>
+        <footer className="sa-page-foot"><span><i/>업데이트 {time(live?.at)} · HTTP 폴링 {interval / 1000}초 · 서버/DB 점검 15초 · 단일 프로세스 관측</span><span>설계 연결 ≠ 요청별 분산 추적 <button onClick={() => changeView("stack")}>관측 범위 보기 ↗</button></span></footer>
       </main>
     </div>
   </div>;

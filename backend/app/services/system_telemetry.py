@@ -13,7 +13,7 @@ import itertools
 import math
 import threading
 import time
-from collections import deque
+from collections import defaultdict, deque
 from urllib.parse import urlsplit
 
 import requests.adapters
@@ -88,19 +88,51 @@ def stats(events: list[dict]) -> dict:
     return {"count": len(events), "errors": sum(e["status"] == 0 or e["status"] >= 500 for e in events),
             "client_errors": sum(400 <= e["status"] < 500 for e in events),
             "avg_ms": round(sum(values) / len(values), 1) if values else None,
+            "p50_ms": values[max(0, math.ceil(len(values) * .5) - 1)] if values else None,
             "p95_ms": values[max(0, math.ceil(len(values) * .95) - 1)] if values else None,
+            "max_ms": values[-1] if values else None,
+            "slow": sum(v >= 1000 for v in values),
             "last_at": max((e["ts"] for e in events), default=None)}
 
 
-def snapshot() -> dict:
-    now = time.time()
+def breakdown(events: list[dict], now: float) -> dict:
+    """Disjoint distributions and 5-second buckets from the same retained minute."""
+    status = {key: 0 for key in ("2xx", "3xx", "4xx", "5xx", "transport")}
+    latency = [0] * 5
+    buckets = [[] for _ in range(12)]
+    for event in events:
+        code = event["status"]
+        status["transport" if code < 200 else "2xx" if code < 300 else "3xx" if code < 400 else "4xx" if code < 500 else "5xx"] += 1
+        latency[next((i for i, limit in enumerate((100, 300, 1000, 3000)) if event["ms"] < limit), 4)] += 1
+        buckets[min(11, max(0, int((event["ts"] - (now - 60)) / 5)))].append(event)
+    return {"status": status, "latency": latency,
+            "timeline": [{"at": round(now - 60 + i * 5, 3), **stats(rows)} for i, rows in enumerate(buckets)]}
+
+
+def snapshot(now: float | None = None) -> dict:
+    now = time.time() if now is None else now
     with _lock:
         retained = list(_events)
-    events = [e for e in retained if e["ts"] >= now - 60]
-    hosts = sorted({e["host"] for e in events})
+    events = [e for e in retained if now - 60 <= e["ts"] <= now and not e.get("route", "").startswith("/api/admin/atlas")]
+    by_host, by_flow, by_trace = defaultdict(list), defaultdict(list), defaultdict(list)
+    for event in events:
+        by_host[event["host"]].append(event)
+        if event.get("route"):
+            by_flow[(event["route"], event["host"])].append(event)
+        if event.get("trace_id"):
+            by_trace[event["trace_id"]].append(event)
     return {"started_at": _started, "window_s": 60, "capacity": _events.maxlen,
             "window_truncated": len(retained) == _events.maxlen and retained[0]["ts"] > now - 60,
-            "hosts": [{"host": host, **stats([e for e in events if e["host"] == host])} for host in hosts],
-            "flows": [{"route": route, "host": host, **stats([e for e in events if e.get("route") == route and e["host"] == host])}
-                      for route, host in sorted({(e["route"], e["host"]) for e in events if e.get("route")})],
-            "recent": retained[-60:][::-1], **stats(events)}
+            "hosts": [{"host": host, **stats(rows)} for host, rows in sorted(by_host.items())],
+            "flows": [{"route": route, "host": host, **stats(rows)} for (route, host), rows in sorted(by_flow.items())],
+            "groups": {key: stats(rows) for key, rows in _group_hosts(events).items()},
+            "request_calls": dict(by_trace),
+            "recent": events[-60:][::-1], "breakdown": breakdown(events, now), **stats(events)}
+
+
+def _group_hosts(events: list[dict]) -> dict:
+    from app.services.system_atlas import host_group
+    groups: dict[str, list] = {}
+    for event in events:
+        groups.setdefault(host_group(event["host"]), []).append(event)
+    return groups

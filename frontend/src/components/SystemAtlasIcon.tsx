@@ -9,6 +9,8 @@ export default function SystemAtlasIcon({ name = "atlas", size = 20 }: { name?: 
     realestate: <><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7"/></>,
     prediction: <><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/></>,
     operations: <><path d="M3 12h4l3-7 4 14 3-7h4"/></>,
+    trace: <><circle cx="5" cy="5" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="19" r="2"/><path d="M7 5h5v7h5M12 12v7H7"/></>,
+    check: <path d="m5 12 4 4L19 6"/>,
     support: <><path d="M4 8h12v8a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4zM16 9h2a3 3 0 0 1 0 6h-2M7 3v2m4-2v2"/></>,
     cache: <><path d="m13 2-9 12h7l-1 8 10-12h-7z"/></>,
     database: <><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0"/></>,

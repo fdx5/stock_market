@@ -181,21 +181,21 @@ def live_snapshot(routes) -> dict:
     now = time.time()
     graph = architecture(routes)
     retained, _ = api_pulse.since(0, api_pulse.TAIL_MAXLEN)
-    events = [e for e in retained if e["ts"] >= now - 60 and not e["route"].startswith("/api/admin/atlas")]
+    events = [e for e in retained if now - 60 <= e["ts"] <= now and not e["route"].startswith("/api/admin/atlas")]
     grouped = defaultdict(list)
     route_groups = {e["path"]: e["group"] for e in graph["endpoints"]}
     for event in events: grouped[route_groups.get(event["route"], "operations")].append(event)
-    external = system_telemetry.snapshot()
-    # Group statistics use the complete retained minute, not only the displayed tail.
-    external_groups = {}
-    for key in {host_group(h["host"]) for h in external["hosts"]}:
-        rows = [h for h in external["hosts"] if host_group(h["host"]) == key]
-        count = sum(h["count"] for h in rows)
-        external_groups[key] = {"count": count, "errors": sum(h["errors"] for h in rows),
-                                "client_errors": sum(h["client_errors"] for h in rows),
-                                "avg_ms": round(sum((h["avg_ms"] or 0) * h["count"] for h in rows) / count, 1) if count else None,
-                                "last_at": max(h["last_at"] for h in rows)}
-    endpoints = [{"path": path, **system_telemetry.stats([e for e in events if e["route"] == path])} for path in sorted({e["route"] for e in events})]
+    external = system_telemetry.snapshot(now)
+    request_calls = external.pop("request_calls")
+    traces = []
+    for event in events[-60:][::-1]:
+        if not event.get("trace_id"):
+            continue
+        calls = request_calls.get(event["trace_id"], [])
+        traces.append({"request": event, "calls": calls[:30], "external_count": len(calls),
+                       "calls_truncated": len(calls) > 30})
+    endpoints = [{"path": path, "method": method, **system_telemetry.stats([e for e in events if e["route"] == path and e["method"] == method])}
+                 for path, method in sorted({(e["route"], e["method"]) for e in events})]
     observed_edges = defaultdict(int)
     for flow in external["flows"]:
         source = route_groups.get(flow["route"])
@@ -211,8 +211,9 @@ def live_snapshot(routes) -> dict:
     return {"at": now, "api": {**system_telemetry.stats(events), "window_s": 60,
                                "window_truncated": len(retained) == api_pulse.TAIL_MAXLEN and retained[0]["ts"] > now - 60,
                                "groups": {key: system_telemetry.stats(value) for key, value in grouped.items()},
+                               "breakdown": system_telemetry.breakdown(events, now),
                                "endpoints": endpoints, "recent": events[-60:][::-1]},
-            "external": {**external, "groups": external_groups}, "cache": cache_state,
+            "external": external, "traces": traces, "cache": cache_state,
             "observed_edges": dict(observed_edges),
             "database": {"mode": db_mode, "separate_realestate": realestate_store.SEPARATE,
                          "realestate_mode": "turso" if realestate_store.TURSO_DATABASE_URL else "sqlite"},
