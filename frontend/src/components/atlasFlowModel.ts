@@ -1,11 +1,12 @@
 import type { AtlasArchitecture, AtlasEvent, AtlasSnapshot } from "./systemAtlasApi";
-export const FLOW_WIDTH = 1200, FLOW_HEIGHT = 660;
+export const FLOW_WIDTH = 1200, FLOW_HEIGHT = 760;
 export const DOMAIN_COLORS: Record<string, string> = { market: "#4edbff", community: "#a795ff", realestate: "#ffb969", prediction: "#f28bc6", operations: "#54e2b3", support: "#f9d56e" };
 export const DOMAIN_NAMES: Record<string, string> = { market: "증시", community: "뉴스", realestate: "부동산", prediction: "AI 예측", operations: "운영", support: "후원" };
 export function flowPositions(graph: AtlasArchitecture) {
-  const points: Record<string, { x: number; y: number }> = { ingress: { x: 44, y: 318 }, gateway: { x: 205, y: 318 }, batch: { x: 205, y: 572 } };
-  graph.nodes.filter(n => n.kind === "service").forEach((n, i) => points[n.id] = { x: 550, y: 98 + i * 91 });
-  [...graph.nodes.filter(n => n.kind === "external"), ...graph.nodes.filter(n => n.id === "database" || n.id === "estate-db")].forEach((n, i) => points[n.id] = { x: 1025, y: 76 + i * 63 });
+  const points: Record<string, { x: number; y: number }> = { ingress: { x: 30, y: 357 }, gateway: { x: 160, y: 357 }, batch: { x: 160, y: 656 } };
+  const sites = [{x:440,y:136},{x:745,y:160},{x:465,y:366},{x:748,y:402},{x:440,y:614},{x:748,y:649}];
+  graph.nodes.filter(n => n.kind === "service").forEach((n, i) => points[n.id] = sites[i] || {x:600,y:380});
+  [...graph.nodes.filter(n => n.kind === "external"), ...graph.nodes.filter(n => n.id === "database" || n.id === "estate-db")].forEach((n, i) => points[n.id] = { x: 1077, y: 87 + i * 72 });
   return points;
 }
 export function hostDestination(graph: AtlasArchitecture, host: string) {
@@ -40,7 +41,6 @@ export function flowRecords(graph: AtlasArchitecture, live: AtlasSnapshot | null
   }
   return [...unique.values()].sort((a, b) => b.request.ts - a.request.ts || b.request.id - a.request.id).slice(0, 80);
 }
-export const UNIT_ROLES = ["ROUTE / 요청 경로 추적", "LINK / 외부 연동 스캔", "WATCH / 오류·지연 스캔"];
 export const UNIT_COLORS = ["#55d9ff", "#ba9bff", "#ff8f85"];
-export type SentinelMission = { unit: number; target: string; title: string; detail: string; phase: string; record: FlowRecord | null };
+export type CrawlEvent = { id: number; unit: number; target: string; kind: "depart" | "arrival"; record: FlowRecord };
 export type FlowState = { live: AtlasSnapshot | null; selected: string; focus: string | null; replay: number; motion: boolean; reduced: boolean; speed: number };

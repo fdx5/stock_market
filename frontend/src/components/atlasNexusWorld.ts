@@ -1,14 +1,15 @@
 import * as T from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { createAtlasSentinel } from "./atlasSentinel";
-import { DOMAIN_COLORS, FLOW_HEIGHT as H, FLOW_WIDTH as W, flowPositions, flowRecords, callDestination, UNIT_COLORS, type FlowRecord, type FlowState, type SentinelMission } from "./atlasFlowModel";
+import { createAtlasSpider } from "./atlasSpider";
+import { createServiceLandmark } from "./atlasServiceSculptures";
+import { DOMAIN_COLORS, FLOW_HEIGHT as H, FLOW_WIDTH as W, flowPositions, flowRecords, callDestination, UNIT_COLORS, type FlowRecord, type FlowState, type CrawlEvent } from "./atlasFlowModel";
 import type { AtlasArchitecture } from "./systemAtlasApi";
 
 export type NexusQuality = "cinematic" | "balanced" | "eco";
-export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, quality: NexusQuality, current: () => FlowState, missions: (value: SentinelMission[]) => void, recover: () => void) {
+export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, quality: NexusQuality, current: () => FlowState, activity: (value: CrawlEvent) => void, recover: () => void) {
   const renderer = new T.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
   renderer.setClearColor(0, 0); renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
-  renderer.domElement.className = "af-world-canvas"; renderer.domElement.setAttribute("aria-label", "관측 요청을 따라 빠르게 이동하며 서비스와 외부 연결을 스캔하는 3D 센티널 관제 그래픽"); renderer.domElement.setAttribute("role", "img"); host.appendChild(renderer.domElement);
+  renderer.domElement.className = "af-world-canvas"; renderer.domElement.setAttribute("aria-label", "관측 트래픽 경로를 다리로 기어가는 3D 거미, 기능별 서비스 랜드마크와 도착 빛 효과"); renderer.domElement.setAttribute("role", "img"); host.appendChild(renderer.domElement);
   const scene = new T.Scene(), camera = new T.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, 1, 3000); camera.position.z = 1400; camera.lookAt(0, 0, 0);
   scene.add(new T.HemisphereLight("#dceaff", "#192337", 2.2));
   const key = new T.DirectionalLight("#e7f5ff", 2.5); key.position.set(-300, 400, 600); scene.add(key);
@@ -29,13 +30,12 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
     const result = { source, target, curve, material, observed }; rails.set(id, result); return result;
   }
   rail("ingress", "gateway", "#68dfff", true);
-  const plates: { id: string; ring: T.Mesh; glow: T.MeshBasicMaterial }[] = [];
+  const landmarks = graph.nodes.filter(n => n.kind === "service").map(n => createServiceLandmark(scene, n.id, world(n.id)));
   for (const node of graph.nodes) {
-    if (!positions[node.id] || node.id === "gateway") continue;
-    const hue = DOMAIN_COLORS[node.id] || node.color, shape = new T.Shape();
-    shape.moveTo(-94, -31); shape.lineTo(82, -31); shape.lineTo(94, -19); shape.lineTo(94, 22); shape.lineTo(83, 33); shape.lineTo(-84, 33); shape.lineTo(-94, 23); shape.closePath();
-    add(new T.ExtrudeGeometry(shape, { depth: 13, bevelEnabled: true, bevelSize: 2, bevelThickness: 2, bevelSegments: 2, steps: 1 }), new T.MeshStandardMaterial({ color: "#1a263c", emissive: hue, emissiveIntensity: .07, metalness: .68, roughness: .34 }), world(node.id, -22));
-    const glow = basic(hue, .45), ring = add(new T.TorusGeometry(39, .9, 5, 80), glow, world(node.id, -5)); ring.scale.set(2.5, .91, 1); plates.push({ id: node.id, ring, glow });
+    if (!positions[node.id] || node.kind === "service" || node.id === "gateway") continue;
+    const hue = node.color, pad = add(new T.CylinderGeometry(22, 25, 5, node.kind === "storage" ? 36 : 6), new T.MeshStandardMaterial({ color: "#1d3048", emissive: hue, emissiveIntensity: .12, metalness: .72, roughness: .28 }), world(node.id, -12)); pad.rotation.x = Math.PI / 2; pad.position.x -= 91;
+    add(new T.RingGeometry(23, 24.5, 48), basic(hue, .32), pad.position.clone().add(new T.Vector3(0, 0, 6)));
+    if (node.kind === "storage") for (let i=0;i<3;i++) { const disk=add(new T.CylinderGeometry(15,15,4,32),new T.MeshStandardMaterial({color:"#8299bc",emissive:hue,emissiveIntensity:.12,metalness:.8,roughness:.25}),pad.position.clone().add(new T.Vector3(0,7+i*5,7+i*3)));disk.rotation.x=1.05; }
   }
   const gateway = new T.Group(); gateway.position.copy(world("gateway", -15)); scene.add(gateway);
   const cage = new T.Mesh(new T.IcosahedronGeometry(53, 1), new T.MeshBasicMaterial({ color: "#7adfff", wireframe: true, transparent: true, opacity: .48 })); gateway.add(cage);
@@ -45,53 +45,86 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
   graph.edges.filter(e => positions[e.source] && positions[e.target]).forEach(e => rail(e.source, e.target, DOMAIN_COLORS[e.source] || DOMAIN_COLORS[e.target] || "#8499bf", e.source === "gateway"));
   const dots = new T.InstancedMesh(new T.SphereGeometry(1, 12, 10), new T.MeshBasicMaterial(), 260); dots.instanceMatrix.setUsage(T.DynamicDrawUsage); dots.frustumCulled = false; scene.add(dots);
   const tails = new T.InstancedMesh(new T.SphereGeometry(1, 7, 5), new T.MeshBasicMaterial({ transparent: true, opacity: .27, depthWrite: false, blending: T.AdditiveBlending }), 520); tails.instanceMatrix.setUsage(T.DynamicDrawUsage); tails.frustumCulled = false; scene.add(tails);
-  const units = UNIT_COLORS.map((color, i) => {
-    const sentinel = createAtlasSentinel(scene, i, quality === "cinematic" ? 80 : 48, false, i === 2 ? "#ff354b" : color); sentinel.group.position.set(-350 + i * 120, 130 - i * 140, 120); sentinel.group.scale.setScalar(i === 0 ? 24 : 21);
-    const scanner = add(new T.RingGeometry(18, 20, 70), basic(color, .8), world("gateway", 75)), pulse = add(new T.RingGeometry(34, 35.4, 70), basic(color, .48), world("gateway", 70));
-    const link = new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(), new T.Vector3()]), new T.LineBasicMaterial({ color, transparent: true, opacity: .7, depthWrite: false })); scene.add(link);
-    const trail = new T.Line(new T.BufferGeometry().setFromPoints(Array.from({ length: 14 }, () => sentinel.group.position.clone())), new T.LineBasicMaterial({ color, transparent: true, opacity: .44, depthWrite: false })); scene.add(trail);
-    const badge = document.createElement("div"); badge.className = `af-unit-tag af-unit-${i}`; badge.innerHTML = `<b>S-0${i + 1}</b><span></span>`; host.appendChild(badge);
-    return { sentinel, scanner, pulse, link, trail, badge, target: "gateway", position: sentinel.group.position, record: null as FlowRecord | null };
+  const units = UNIT_COLORS.slice(0,1).map((color, i) => {
+    const spider = createAtlasSpider(scene, i, quality === "cinematic", color); spider.group.position.copy(world("gateway", 40)).add(new T.Vector3(-25,-112,0)); spider.group.scale.setScalar(1.8);
+    const burst = new T.Group(); scene.add(burst); burst.visible = false;
+    const flash = new T.Mesh(new T.PlaneGeometry(210,210),new T.ShaderMaterial({transparent:true,depthWrite:false,blending:T.AdditiveBlending,uniforms:{hue:{value:new T.Color(color)},strength:{value:0}},vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',fragmentShader:'varying vec2 vUv;uniform vec3 hue;uniform float strength;void main(){float d=length(vUv-.5)*2.;float a=pow(max(0.,1.-d),3.)*strength;gl_FragColor=vec4(hue,a);}' })); burst.add(flash);
+    const shock = [0,1,2].map(j=>{const m=new T.Mesh(new T.RingGeometry(47,48.2+j*.4,80),basic(color,.8));m.position.z=j*.3;burst.add(m);return m;});
+    const rays:number[]=[]; for(let j=0;j<28;j++){const a=j*Math.PI*2/28, r=52+(j%4)*6;rays.push(Math.cos(a)*r,Math.sin(a)*r,1,Math.cos(a)*(r+8),Math.sin(a)*(r+8),1);}
+    const sparks=new T.BufferGeometry();sparks.setAttribute('position',new T.Float32BufferAttribute(rays,3));const flare=new T.LineSegments(sparks,new T.LineBasicMaterial({color,transparent:true,opacity:0,blending:T.AdditiveBlending,depthWrite:false}));burst.add(flare);
+    const badge = document.createElement("div"); badge.className = `af-unit-tag af-unit-${i}`; badge.innerHTML = `<b>W-0${i + 1}</b><span>대기</span>`; host.appendChild(badge);
+    return { spider, burst, flash, shock, flare, impactAt:-10, impactTarget:"", badge, target: "gateway", position: spider.group.position, record: null as FlowRecord | null, steps:[] as string[], step:-1, curve:null as T.Curve<T.Vector3>|null, length:1, progress:0, hold:0, walked:0, heading:0, stage:"idle" };
   });
   type Playing = { record: FlowRecord; start: number; duration: number };
-  let playing: Playing[] = [], queue: FlowRecord[] = [], records: FlowRecord[] = [], seen = new Set<string>(), lastSnapshot = -1, lastReplay = -1, lastFocus = "", lastSelected = "", nextLaunch = 0, nextMission = 0;
+  let playing: Playing[] = [], queue: FlowRecord[] = [], crawlQueue: FlowRecord[] = [], records: FlowRecord[] = [], seen = new Set<string>(), lastSnapshot = -1, lastReplay = -1, lastFocus = "", lastSelected = "", nextLaunch = 0, eventId = 0, arrivals = 0, clock = 0, maxStep = 0;
   let sim = 0, frames = 0, raf = 0, lastFrame = 0, disposed = false, released = false, lost = false, dirty = true, ratio = quality === "cinematic" ? 1.5 : quality === "balanced" ? 1.15 : .8, slowFrames = 0;
   let width = 1, height = 1;
   const resize = () => { width = Math.max(1, host.clientWidth); height = Math.max(1, host.clientHeight); renderer.setPixelRatio(ratio); renderer.setSize(width, height); dirty = true; }; const observer = new ResizeObserver(resize); observer.observe(host); resize();
-  const transform = new T.Object3D(), color = new T.Color(), destination = new T.Vector3();
+  const transform = new T.Object3D(), color = new T.Color();
   function drawPacket(path: Rail, progress: number, hue: string, radius: number, index: number) {
     if (index >= 260) return index;
     transform.position.copy(path.curve.getPoint(T.MathUtils.clamp(progress, 0, 1))); transform.position.z += 24; transform.scale.setScalar(radius); transform.updateMatrix(); dots.setMatrixAt(index, transform.matrix); dots.setColorAt(index, color.set(hue));
     for (let j = 0; j < 2; j++) { transform.position.copy(path.curve.getPoint(T.MathUtils.clamp(progress - .018 * (j + 1), 0, 1))); transform.position.z += 23; transform.scale.setScalar(radius * (1.5 - j * .35)); transform.updateMatrix(); tails.setMatrixAt(index * 2 + j, transform.matrix); tails.setColorAt(index * 2 + j, color); }
     return index + 1;
   }
-  function updateMissions(state: FlowState) {
-    const scoped = records.filter(r => (state.selected === "gateway" || r.group === state.selected) && (!state.focus || r.key === state.focus));
-    const services = graph.nodes.filter(n => n.kind === "service").map(n => n.id), cycle = Math.floor(sim / 2.1);
-    const result: SentinelMission[] = [];
-    units.forEach((u, i) => {
-      const candidates = scoped.filter(r => i === 0 ? !r.batch : i === 1 ? r.calls.length : r.fault || r.slow);
-      const record = candidates[(cycle + i * 3) % Math.max(1, candidates.length)] || scoped[(cycle + i) % Math.max(1, scoped.length)] || null;
-      const stage = (Math.floor(sim / 1.8) + i) % 3;
-      const target = record ? stage === 0 ? record.batch ? "batch" : "gateway" : stage === 2 && record.calls.length ? callDestination(graph, record.calls[(cycle + i) % record.calls.length]) : record.batch ? callDestination(graph, record.request) : record.group : state.selected !== "gateway" ? stage === 0 ? "gateway" : state.selected : services[(Math.floor(sim / .8) + i * 2) % services.length];
-      u.target = target; u.record = record;
-      const title = target === "batch" ? "배치 HTTP" : graph.nodes.find(n => n.id === target)?.label.split(" · ")[0] || "표본 대기";
-      const detail = record ? record.batch ? `${record.request.host} · ${Math.round(record.request.ms)}ms` : `#${record.request.trace_id || record.request.id} · ${record.request.method} ${record.request.route}` : "새로운 요청 표본 대기";
-      result.push({ unit: i, target, title, detail, phase: record ? i === 2 && record.fault ? "오류 구간 스캔" : i === 2 && record.slow ? "지연 구간 스캔" : i === 1 ? "연동 경로 스캔" : "요청 경로 추적" : "표본 대기", record });
-      u.badge.querySelector("span")!.textContent = record ? title : "표본 대기";
-    }); missions(result); nextMission = sim + 1.8;
+  function dock(id: string, i: number) { return world(id,40).add(new T.Vector3(-38+i*12,35-i*11,0)); }
+  function beginLeg(u: typeof units[number], i: number) {
+    const source=u.step<0 ? "" : u.steps[u.step], target=u.steps[u.step+1];
+    if(!target) { u.record=null;u.curve=null;u.stage="idle";u.badge.querySelector("span")!.textContent="대기";return; }
+    u.target=target; const from=u.position.clone(), to=dock(target,i), forward=rails.get(`${source}:${target}`), reverse=rails.get(`${target}:${source}`);
+    if(forward || reverse) {
+      const path=(forward||reverse)!.curve, a=reverse&&!forward?path.v2:path.v1, b=reverse&&!forward?path.v1:path.v2;
+      const shift=new T.Vector3(-38+i*12,35-i*11,0), c1=a.clone().add(shift), c2=b.clone().add(shift); c1.z=c2.z=40;
+      u.curve=new T.CubicBezierCurve3(from,c1,c2,to);
+    } else { const bend=Math.min(90,from.distanceTo(to)*.3);u.curve=new T.CubicBezierCurve3(from,from.clone().add(new T.Vector3(bend,0,0)),to.clone().sub(new T.Vector3(bend,0,0)),to); }
+    u.length=Math.max(1,u.curve.getLength());u.progress=0;u.stage=u.step<0?"approach":"crawl";
+    u.badge.querySelector("span")!.textContent=graph.nodes.find(n=>n.id===target)?.label.split(" · ")[0]||"배치";
+    if(u.record && u.step>=0) activity({id:++eventId,unit:i,target,kind:"depart",record:u.record});
+  }
+  function advanceUnit(u: typeof units[number], i:number, delta:number, state:FlowState, moving:boolean) {
+    let walking=false;
+    if(moving) {
+      if(u.hold>0) u.hold=Math.max(0,u.hold-delta);
+      if(!u.record && crawlQueue.length) {
+        const r=crawlQueue.shift()!; u.record=r;u.step=-1;u.steps=r.batch?["batch",callDestination(graph,r.request),"batch"]:["gateway",r.group,...r.calls.flatMap(c=>[callDestination(graph,c),r.group]),"gateway"];beginLeg(u,i);
+      }
+      if(u.record && !u.curve && !u.hold) beginLeg(u,i);
+      if(u.curve && !u.hold) {
+        const velocity=154+state.speed*22, remaining=(1-u.progress)*u.length, easing=T.MathUtils.clamp(remaining/42,.34,1);
+        u.progress=Math.min(1,u.progress+delta*velocity*easing/u.length);
+        const next=u.curve.getPointAt(u.progress), travel=next.clone().sub(u.position), distance=travel.length();maxStep=Math.max(maxStep,distance);
+        if(distance>.02) { const angle=Math.atan2(travel.y,travel.x);u.heading+=Math.atan2(Math.sin(angle-u.heading),Math.cos(angle-u.heading))*Math.min(1,delta*9);u.walked+=distance/u.spider.group.scale.x;walking=true; }
+        u.position.copy(next); u.spider.group.rotation.z=u.heading;
+        if(u.progress===1) {
+          const approach=u.step<0;u.step++;u.curve=null;u.hold=approach?.12:.46;u.stage="arrived";
+          if(!approach && u.record) {
+            arrivals++;u.impactAt=clock;u.impactTarget=u.target;u.burst.position.copy(world(u.target,27));
+            const hue=u.record.fault?"#ff668e":DOMAIN_COLORS[u.record.group]||UNIT_COLORS[i];(u.flash.material as T.ShaderMaterial).uniforms.hue.value.set(hue);u.shock.forEach(m=>(m.material as T.MeshBasicMaterial).color.set(hue));u.flare.material.color.set(hue);
+            activity({id:++eventId,unit:i,target:u.target,kind:"arrival",record:u.record});
+          }
+        }
+      }
+      u.spider.update(u.walked,walking,clock);
+    }
+    const age=clock-u.impactAt;u.burst.visible=age<1.35;
+    if(u.burst.visible) {
+      (u.flash.material as T.ShaderMaterial).uniforms.strength.value=Math.pow(1-age/1.35,2)*1.35;
+      u.shock.forEach((m,j)=>{const t=T.MathUtils.clamp(age/1.35-j*.11,0,1);m.scale.setScalar(.5+t*1.6);(m.material as T.MeshBasicMaterial).opacity=Math.sin(t*Math.PI)*(.8-j*.15);});
+      u.flare.scale.setScalar(.8+age*.6);u.flare.material.opacity=Math.max(0,1-age/1.1)*.9;
+    }
+    u.badge.style.left=`${(u.position.x+W/2)/W*width}px`;u.badge.style.top=`${(H/2-u.position.y+39)/H*height}px`;
   }
   function tick(stamp: number) {
     if (disposed || lost || document.hidden) return;
     raf = requestAnimationFrame(tick); if (stamp - lastFrame < (quality === "cinematic" ? 1000 / 45 : 1000 / 30)) return;
     const delta = lastFrame ? Math.min(.08, (stamp - lastFrame) / 1000) : .03; lastFrame = stamp;
     const state = current(), moving = state.motion && !state.reduced, changed = state.live?.at !== lastSnapshot || state.selected !== lastSelected || (state.focus || "") !== lastFocus || state.replay !== lastReplay;
-    if (!moving && !dirty && !changed) return; if (moving) sim += delta * state.speed;
+    if (!moving && !dirty && !changed) return; if (moving) { sim += delta * state.speed; clock += delta; }
     if (state.live?.at !== lastSnapshot) {
-      records = flowRecords(graph, state.live); const retained = new Set(records.map(r => r.key)); playing = playing.filter(p => retained.has(p.record.key)); const fresh = records.filter(r => !seen.has(r.key)); fresh.forEach(r => seen.add(r.key)); queue = [...queue.filter(r => retained.has(r.key)), ...fresh.filter(r => state.selected === "gateway" || r.group === state.selected).reverse()].slice(-80); if (seen.size > 1000) seen = new Set(records.map(r => r.key)); lastSnapshot = state.live?.at || 0;
+      records = flowRecords(graph, state.live); const retained = new Set(records.map(r => r.key)); playing = playing.filter(p => retained.has(p.record.key)); const fresh = records.filter(r => !seen.has(r.key)); fresh.forEach(r => seen.add(r.key)); crawlQueue=[...crawlQueue.filter(r=>retained.has(r.key)),...fresh.filter(r=>(state.selected==="gateway"||r.group===state.selected)&&(!state.focus||r.key===state.focus))].slice(-24); if(!records.length) units.forEach(u=>{u.record=null;u.curve=null;u.stage="idle";}); queue = [...queue.filter(r => retained.has(r.key)), ...fresh.filter(r => state.selected === "gateway" || r.group === state.selected).reverse()].slice(-80); if (seen.size > 1000) seen = new Set(records.map(r => r.key)); lastSnapshot = state.live?.at || 0;
       records.flatMap(r => r.calls.map(call => [r.batch ? "batch" : r.group, callDestination(graph, call)] as const)).forEach(([from, to]) => rail(from, to, DOMAIN_COLORS[from] || "#ba9bff", true));
     }
-    if (state.replay !== lastReplay || state.selected !== lastSelected || (state.focus || "") !== lastFocus) { playing = []; queue = records.filter(r => (state.selected === "gateway" || r.group === state.selected) && (!state.focus || r.key === state.focus)).slice(0, 40).reverse(); nextLaunch = sim; nextMission = 0; lastReplay = state.replay; lastSelected = state.selected; lastFocus = state.focus || ""; }
+    if (state.replay !== lastReplay || state.selected !== lastSelected || (state.focus || "") !== lastFocus) { playing = []; queue = records.filter(r => (state.selected === "gateway" || r.group === state.selected) && (!state.focus || r.key === state.focus)).slice(0, 40).reverse(); crawlQueue = queue.slice(-24); units.forEach(u=>{u.record=null;u.curve=null;u.hold=0;u.stage="idle";}); nextLaunch = sim; lastReplay = state.replay; lastSelected = state.selected; lastFocus = state.focus || ""; }
     if (moving && queue.length && sim >= nextLaunch && playing.length < 18) { const record = queue.shift()!; playing.push({ record, start: sim, duration: 3.8 + Math.min(2.8, record.request.ms / 1000) }); nextLaunch = sim + .18; }
     playing = playing.filter(p => sim - p.start < p.duration); let count = 0;
     for (const p of playing) {
@@ -108,20 +141,12 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
     }
     dots.count = count; tails.count = count * 2; dots.instanceMatrix.needsUpdate = tails.instanceMatrix.needsUpdate = true; if (dots.instanceColor) dots.instanceColor.needsUpdate = true; if (tails.instanceColor) tails.instanceColor.needsUpdate = true;
     rails.forEach(r => { const focused = state.selected === "gateway" || r.source === state.selected || r.target === state.selected || r.source === "ingress", value = r.source === "gateway" ? state.live?.api.groups[r.target]?.count || 0 : state.live?.observed_edges[`${r.source}:${r.target}`] || 0; r.material.opacity = focused ? value ? .2 + Math.min(.3, value / 160) : r.observed ? .13 : .035 : .015; });
-    plates.forEach(p => { const selected = state.selected === p.id, stats = state.live?.api.groups[p.id] || state.live?.external.groups[p.id]; p.glow.color.set(stats?.errors ? "#ff6481" : DOMAIN_COLORS[p.id] || graph.nodes.find(n => n.id === p.id)!.color); p.glow.opacity = selected ? .95 : stats?.count ? .5 : .2; p.ring.scale.set(2.5 + (selected ? .04 * Math.sin(sim * 3) : 0), .91, 1); });
-    cage.rotation.set(sim * .08, sim * .12, .3); crystal.rotation.y = -sim * .17; rings.forEach((r, i) => { r.rotation.x = i * .8 + sim * .13; r.rotation.y = i * .5 + sim * .09; }); if (sim >= nextMission || changed) updateMissions(state);
-    units.forEach((u, i) => {
-      destination.copy(world(u.target, 125)); destination.x -= i === 1 ? 117 : 145; destination.y += i === 2 ? -39 : 51; destination.y += Math.sin(sim * 1.7 + i) * 9;
-      const travel = destination.clone().sub(u.position); if (moving || frames === 0) u.position.add(travel.clampLength(0, frames === 0 ? 190 : delta * (2400 + state.speed * 350)));
-      u.sentinel.group.rotation.set(.4 + Math.sin(sim * .8 + i) * .08, -.84 + Math.sin(sim * .5 + i) * .18, T.MathUtils.clamp(-travel.y / 450, -.32, .32)); u.sentinel.update(sim * .65);
-      const node = world(u.target, 55); u.scanner.position.copy(node); u.scanner.scale.setScalar(.7 + (Math.sin(sim * 4 + i) + 1) * .4); u.scanner.rotation.z = sim * .8;
-      u.pulse.position.copy(node); u.pulse.scale.setScalar(.75 + (sim * .6 + i * .3) % 1 * 1.8); (u.pulse.material as T.MeshBasicMaterial).opacity = .32 * (1 - (sim * .6 + i * .3) % 1);
-      const a = u.link.geometry.attributes.position as T.BufferAttribute; a.setXYZ(0, u.position.x, u.position.y - 16, 90); a.setXYZ(1, node.x, node.y, node.z); a.needsUpdate = true;
-      const trail = u.trail.geometry.attributes.position as T.BufferAttribute; for (let j = 13; j > 0; j--) trail.setXYZ(j, trail.getX(j - 1), trail.getY(j - 1), 110); trail.setXYZ(0, u.position.x, u.position.y, 110); trail.needsUpdate = true;
-      u.badge.style.left = `${(u.position.x + W / 2) / W * width}px`; u.badge.style.top = `${(H / 2 - u.position.y + 36) / H * height}px`;
-    });
+    landmarks.forEach(l=>{const hit=units.some(u=>u.impactTarget===l.id&&clock-u.impactAt<1.35),age=Math.min(...units.filter(u=>u.impactTarget===l.id).map(u=>clock-u.impactAt));l.update(clock,state.selected===l.id,hit?Math.max(0,1-age/1.35):0);});
+    cage.rotation.set(clock * .08, clock * .12, .3); crystal.rotation.y = -clock * .17; rings.forEach((r, i) => { r.rotation.x = i * .8 + clock * .13; r.rotation.y = i * .5 + clock * .09; });
+    units.forEach((u,i)=>advanceUnit(u,i,delta,state,moving));
+    host.parentElement?.querySelectorAll<HTMLElement>("[data-flow-node]").forEach(el=>{const hit=units.some(u=>u.impactTarget===el.dataset.flowNode&&clock-u.impactAt<1.1);el.dataset.impact=hit?"on":"off";});
     const begin = performance.now(); renderer.render(scene, camera); const elapsed = performance.now() - begin; slowFrames = elapsed > 38 ? slowFrames + 1 : Math.max(0, slowFrames - 1); if (slowFrames > 25 && ratio > .85) { ratio = Math.max(.85, ratio * .82); slowFrames = 0; resize(); }
-    frames++; dirty = false; host.dataset.state = "ready"; host.dataset.frames = String(frames); host.dataset.motion = moving ? "running" : "paused"; host.dataset.simulationTime = sim.toFixed(3); host.dataset.packets = String(count); host.dataset.queued = String(queue.length); host.dataset.seen = String(seen.size); host.dataset.assignments = units.map(u => u.target).join(","); host.dataset.sentinels = "3"; host.dataset.camera = "fixed"; host.dataset.speed = String(state.speed); host.dataset.positions = units.map(u => `${u.position.x.toFixed(0)}:${u.position.y.toFixed(0)}`).join(",");
+    frames++; dirty = false; host.dataset.state = "ready"; host.dataset.frames = String(frames); host.dataset.motion = moving ? "running" : "paused"; host.dataset.simulationTime = sim.toFixed(3); host.dataset.packets = String(count); host.dataset.queued = String(queue.length); host.dataset.seen = String(seen.size); host.dataset.assignments = units.map(u => u.target).join(","); host.dataset.spiders = String(units.length); host.dataset.legs = "8"; host.dataset.arrivals = String(arrivals); host.dataset.walking = String(units.filter(u=>u.curve).length); host.dataset.crawlQueued=String(crawlQueue.length); host.dataset.maxStep=maxStep.toFixed(2); host.dataset.gait=units.map(u=>u.walked.toFixed(1)).join(","); host.dataset.camera = "fixed"; host.dataset.speed = String(state.speed); host.dataset.positions = units.map(u => `${u.position.x.toFixed(0)}:${u.position.y.toFixed(0)}`).join(",");
   }
   function release() { if (released) return; released = true; const geos = new Set<T.BufferGeometry>(), mats = new Set<T.Material>(); scene.traverse(o => { if (o instanceof T.InstancedMesh) o.dispose(); if (o instanceof T.Mesh || o instanceof T.Line) { geos.add(o.geometry); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => mats.add(m)); } }); geos.forEach(g => g.dispose()); mats.forEach(m => m.dispose()); env.dispose(); renderer.dispose(); }
   const lose = (event: Event) => { event.preventDefault(); lost = true; host.dataset.state = "context-lost"; cancelAnimationFrame(raf); release(); }, restore = () => { if (!disposed) recover(); };
