@@ -110,6 +110,7 @@ with sync_playwright() as p:
         page.locator('.aw-session-picker button').filter(has_text='33333333').click()
         expect(page.locator('.aw-lane')).to_have_count(1)
         expect(page.locator('.aw-lane')).to_contain_text('접속 유지')
+        expect(page.locator('.aw-detail header')).to_contain_text('관측 행동 없음')
         expect(page.locator('.af-log-user')).to_have_count(0)
         expect(scene).to_have_attribute('data-record-sessions', '')
         expect(scene).to_have_attribute('data-packets', '0')
