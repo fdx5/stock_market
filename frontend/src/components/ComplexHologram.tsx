@@ -44,6 +44,10 @@ import type { Palette } from "./complexScene";
 import { convexHull, photoBuildings, photoBuildingsNear, photoColours, photoRhythm, photoWallPaint, surveyedShape, type PhotoBuilding, type WallPaint } from "./vworld3d";
 import { aerialColours } from "./aerial";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
+import { DroneSession, type DroneHud } from "./droneMode";
+import DroneOverlay from "./DroneOverlay";
+import DeskBgm from "../desk2/DeskBgm";
+import { useDeskBgm } from "../desk2/deskBgmStore";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice } from "./frameSlice";
 import { SceneResources } from "./sceneResources";
@@ -230,6 +234,15 @@ type Stage = {
   viewH: number;
   /** The route given before the balloon was made (it is made in idle time). */
   balloonRoute?: [THREE.Vector3, number, number] | null;
+  /** 드론 mode (droneMode.ts): its flight is the camera while it lasts. */
+  drone: DroneSession | null;
+  /** The drone's sky, 0…1 (crisper clouds, the sun's corona), in whichever renderer draws, and
+   * its distance haze (start, end in metres: the edge of the world it has loaded). */
+  setDroneSky?: (k: number, fog?: [number, number]) => void;
+  /** Free materials of the drone's tiles (the WebGPU view's forget). */
+  forgetMaterials?: (materials: Set<THREE.Material>) => void;
+  /** Where this model's trees stand (view frame): the drone flies round them. */
+  viewTrees: { near: [number, number][]; far: [number, number][] };
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -381,6 +394,8 @@ const bearing = (x: number, y: number) => BEARINGS[Math.round(((Math.atan2(x, y)
 /** The neighbourhood drawn round a complex: buildings and land use out to 600 m (1 km until 10-02 —
  * trimmed for loading and frame rate on modest machines), the far ground a little past it. */
 const RING_M = 600, FAR_HALF = 680;
+/** (the drone's tiles start where the view's own neighbourhood ends) */
+const DRONE_RING_M = RING_M, DRONE_FAR_HALF = FAR_HALF;
 // Start independent geography while buildings/terrain load, and share it across
 // the rail and expanded view. Failed requests remain retryable.
 const geography = new Map<string, { at: number; promise: Promise<unknown> }>();
@@ -701,7 +716,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (view.canvas.parentElement !== host) host.appendChild(view.canvas);
         native = view;
         stage.forget = mats => view.forget(mats);
-        if (import.meta.env.DEV) Object.assign(window, { __holoNative: view, __holoGL: renderer, __holoStageAny: stageRef });
+        if (import.meta.env.DEV || location.search.includes("dronedebug=1")) Object.assign(window, { __holoNative: view, __holoGL: renderer, __holoStageAny: stageRef });
         nativePending = false;
         resize();
       }).catch(err => {
@@ -905,11 +920,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null, fly: null,
-      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null, signs: null, traffic: null, crowds: [], viewH: 600,
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null, signs: null, traffic: null, crowds: [], viewH: 600, drone: null, viewTrees: { near: [], far: [] },
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => { if (!obj.userData.sceneDiscarded) parent.add(obj); }); },
       drawReady: obj => native ? native.objectsReady(obj) : !nativePending && !!obj.parent,
     };
     stageRef.current = stage;
+    stage.setDroneSky = (k, fog) => {
+      if (native) { native.droneSky = k; native.droneFog = fog; }
+      (sky.material.uniforms as Record<string, { value: number }>).uDrone.value = k;
+    };
+    stage.forgetMaterials = mats => native?.forget(mats);
     if (import.meta.env.DEV) Object.assign(window, { __holoStage: stage });
     const idleBuild = (f: () => void) => { if (typeof requestIdleCallback === "function") requestIdleCallback(f, { timeout: 2500 }); else window.setTimeout(f, 300); };
     idleBuild(() => void buildBalloon(() => frameSlice()).then(b => {
@@ -994,7 +1014,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Covered/off-screen views do not render or compile in the background.
     // Their build resumes when visible, without competing with the active view.
     // Render every visible display frame, including animated traffic and pedestrians.
-    let renderMax = 0;
+    let renderMax = 0, renderSum = 0, tickMax = 0, tickSum = 0;
     const loop = () => {
       if (document.hidden || !inView || pausedRef.current) { native?.suspendTargets(); return; }
       raf = requestAnimationFrame(loop);
@@ -1052,10 +1072,23 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         }
         if (a.envAt && t >= a.envAt) { a.envAt = 0; refreshEnv(); }
       }
-      for (const f of stage.tick) f(dt / 1000);
+      // (the drone far off: the complex's traffic and people stepped less often, past its haze not at all)
+      const tk0 = performance.now();
+      if (stage.drone) stage.drone.runViewTicks(stage.tick, stage.center, RING_M + 120, dt / 1000);
+      else for (const f of stage.tick) f(dt / 1000);
+      tickMax = Math.max(tickMax, performance.now() - tk0); tickSum += performance.now() - tk0;
       if (balloon?.group.visible) balloon.update(dt / 1000);
       const bv = stage.balloonView;
-      if (bv) {
+      if (stage.drone) {
+        stage.drone.tick(Math.min(dt, 100) / 1000, W, H);
+        // (WebGL: the sun's shadow box goes with the drone; WebGPU's cascades follow the camera)
+        if (!native) {
+          const p = camera.position;
+          sun.target.position.set(p.x, p.y - stage.drone.flight.agl, p.z);
+          sun.position.copy(sun.target.position).addScaledVector(keyDir, 900);
+          sun.target.updateMatrixWorld();
+        }
+      } else if (bv) {
         // Standing at the basket's rim on the side the look faces, leaning out a little:
         // the rim along the bottom of the view, the complex below, the envelope overhead.
         balloon?.basket(bvAt);
@@ -1086,14 +1119,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       camera.updateMatrixWorld();
       moon.update(camera);
       precip.update(camera, t, H);   // (H from the resize observer: reading clientHeight here forced a page layout every frame)
-      stage.signs?.(camera, W, H);
+      if (!stage.drone) stage.signs?.(camera, W, H);
 
 
       if (native) {
         try {
           const r0 = performance.now();
           native.render(scene, camera, stage.look, t);
-          renderMax = Math.max(renderMax, performance.now() - r0);
+          renderMax = Math.max(renderMax, performance.now() - r0); renderSum += performance.now() - r0;
         }
         catch (err) { host.dataset.gpuFallback = String(err).slice(0,240); console.warn("[3D] WebGPU fallback:", err); native.failed = true; }
         // Watchdog for a device that neither finishes compilation nor reports a failure.
@@ -1124,6 +1157,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
         host.dataset.pixelRatio = ratio.toFixed(2);
         host.dataset.renderMaxMs = renderMax.toFixed(0); renderMax = 0;
+        host.dataset.tickMs = `${(tickSum / sampleFrames).toFixed(1)}/${tickMax.toFixed(0)}`; tickSum = tickMax = 0;
+        host.dataset.renderMs = (renderSum / sampleFrames).toFixed(1); renderSum = 0;
+        if (stage.drone) { host.dataset.droneMs = stage.drone.timing.map(v => v.toFixed(1)).join("/"); stage.drone.timing.fill(0); }
         if (native) {
           host.dataset.quality = native.quality.name; host.dataset.gpuMs = (native.timer.ms.total ?? 0).toFixed(2); host.dataset.pipelines = String((native as unknown as { renderer: { pipelines: Map<string, unknown> } }).renderer.pipelines.size);
           host.dataset.sceneReady = String(native.ready && !native.pending && !native.compiling && !native.failed);
@@ -1198,7 +1234,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       hemi.intensity = l.hemiI;
       const fog = scene.fog as THREE.FogExp2;
       fog.color.copy(l.fog);
-      fog.density = l.fogK / stage.dist;
+      // (the drone sees kilometres: a haze for that distance, not the one framing the complex)
+      fog.density = stage.drone ? l.fogK / 150 : l.fogK / stage.dist;
       renderer.toneMappingExposure = l.exposure;
       scene.environmentIntensity = l.env;
       shared.uGlass.value = 0.7 / Math.max(0.05, l.env);
@@ -1274,6 +1311,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       io.disconnect();
       ro.disconnect();
 
+      stage.drone?.end(); stage.drone = null;
       stage.disposeModel();
       disposeControls(controls);
       listening.abort();
@@ -1583,6 +1621,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // centre, so everything in the scene moves by the offset between the two centres and stays
     // where it was in the world — the camera, the orbit, the balloon, and the complex left
     // behind, which stays in view (no empty sky) until this one's first frame is up.
+    // (the drone lands first: its world is built round this model's ground)
+    if (stage.drone) leaveDroneRef.current();
+    stage.viewTrees = { near: [], far: [] };
     const came = hopRef.current?.id === complexId && data?.found && data.center && data.buildings.length ? hopRef.current : null;
     hopRef.current = null;
     let shift: THREE.Vector3 | null = null;
@@ -2885,6 +2926,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
       if (!plants) return;
       if (!alive || revision !== plantsRevision) { plants.dispose(); return; }
+      stage.viewTrees.near = [...planting.trees, ...planting.street.map(([x, y]) => [x, y] as [number, number]), ...(planting.groves ?? []).flatMap(g => g.points)];
       plants.update?.();
       // A detached wrapper also prevents a late WebGL compile from reattaching
       // an obsolete forest after replacement or model disposal.
@@ -3245,6 +3287,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             groundMat.needsUpdate = true;
             if (hostRef.current) hostRef.current.dataset.farGround = `${fg.parcels} parcels in ${Math.round(fg.ms)} ms`;
             if(textureBudgetEnabled() && (fg.planting.trees.length || fg.planting.groves?.length || fg.planting.grass?.length || fg.planting.flowers.length || fg.planting.woodlandFlowers?.length)){
+              stage.viewTrees.far = [...fg.planting.trees, ...(fg.planting.groves ?? []).flatMap(g => g.points)];
               const plants=await buildPlants(fg.planting,seed+887,terrain,stage.hq);
               if(!alive||ringStop.signal.aborted){plants?.dispose();return;}
               if(plants){stage.addWarm(decor,plants.mesh);disposables.push(plants);if(hostRef.current){hostRef.current.dataset.farPlants=String(fg.planting.trees.length);hostRef.current.dataset.farGroves=String(fg.planting.groves?.length??0);hostRef.current.dataset.farPlantsReadyAt=String(Math.round(performance.now()));}}
@@ -3512,6 +3555,96 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // A new complex, or the view going away: back on the ground.
   // (a move to a neighbouring complex keeps the ride: the balloon flies there)
   useEffect(() => { if (balloonOn) leaveBalloon(); }, [homeId]);
+  // 드론: fly over the area from where the camera is (droneMode.ts). Keys or the on-screen sticks
+  // fly it, a drag turns and tilts the camera; 착륙 or Esc lands it back in the orbit view.
+  const [droneOn, setDroneOn] = useState(false);
+  const [droneView, setDroneView] = useState<"fpv" | "chase">("fpv");
+  // The site's music (deskBgmStore): its player in the full-screen view; while it plays, the drone is quiet.
+  const bgm = useDeskBgm();
+  const musicOn = bgm.on && bgm.playing;
+  useEffect(() => { stageRef.current?.drone?.audio.setDucked(musicOn); }, [musicOn, droneOn]);
+  const droneHud = useRef<((h: DroneHud) => void) | null>(null);
+  const droneShadow = useRef<{ left: number; right: number; top: number; bottom: number; far: number } | null>(null);
+  const enterDrone = () => {
+    const st = stageRef.current;
+    if (!st || st.drone || !data?.found || !data.center || !data.vworld_key || !st.model) return;
+    if (st.balloonView) leaveBalloon();
+    let seed = 0;
+    for (const ch of data.id) seed = (seed * 33 + ch.charCodeAt(0)) % 2147483647;
+    const drone = new DroneSession({
+      scene: st.scene, camera: st.camera, ground: st.ground, terrain: terrainRef.current, data, seed, hq: st.hq,
+      extent: { ring: DRONE_RING_M, farHalf: DRONE_FAR_HALF },
+      addWarm: st.addWarm, drawReady: st.drawReady, forget: st.forgetMaterials, viewTrees: () => [...st.viewTrees.near, ...st.viewTrees.far],
+      setSky: (k, fog) => st.setDroneSky?.(k, fog), onHud: h => droneHud.current?.(h),
+    });
+    st.controls.enabled = false; st.controls.autoRotate = false; spinRef.current = false; setSpin(false);
+    st.intro = null; st.fly = null; setTip(null);
+    // (WebGL: a shadow box round the drone, not the complex)
+    const sc = st.sun.shadow.camera;
+    droneShadow.current = { left: sc.left, right: sc.right, top: sc.top, bottom: sc.bottom, far: sc.far };
+    sc.left = sc.bottom = -320; sc.right = sc.top = 320; sc.far = 2400; sc.updateProjectionMatrix();
+    drone.start();
+    st.drone = drone;
+    if (droneView === "chase") drone.toggleView();
+    // (the button pressed keeps no focus: a Space for climbing must not press it again)
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    // (?dronedebug=1: the session on the window, for the checks in scripts/)
+    if (new URLSearchParams(location.search).get("dronedebug") === "1") Object.assign(window, {
+      __drone: drone,
+      // (a time of day between the slider's steps, for a time-lapse)
+      __holoHour: (h: number) => { hourRef.current = h; st.atmos.hour = h; st.atmos.dirty = true; },
+    });
+    st.atmos.dirty = true;
+    setDroneOn(true); st.resume();
+  };
+  const leaveDrone = () => {
+    const st = stageRef.current;
+    if (!st?.drone) { setDroneOn(false); return; }
+    st.drone.end();
+    st.drone = null;
+    const sc = st.sun.shadow.camera, b = droneShadow.current;
+    if (b) { Object.assign(sc, b); sc.updateProjectionMatrix(); droneShadow.current = null; }
+    st.controls.enabled = true;
+    st.atmos.dirty = true;
+    st.frame();
+    setDroneOn(false); st.resume();
+  };
+  const leaveDroneRef = useRef(leaveDrone);
+  leaveDroneRef.current = leaveDrone;
+  useEffect(() => {
+    if (!droneOn) return;
+    const host = hostRef.current;
+    const flight = () => stageRef.current?.drone?.flight;
+    const typing = (e: KeyboardEvent) => { const el = e.target as HTMLElement | null; return !!el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable); };
+    const FLY = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "KeyR", "KeyF", "KeyC", "Space", "ShiftLeft", "ShiftRight", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"]);
+    // (on the window, capturing: ahead of the view's own keys and the full-screen layer's Esc)
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); leaveDroneRef.current(); return; }
+      if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.code === "KeyV" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); return; }
+      if (!FLY.has(e.code)) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      flight()?.keys.add(e.code);
+    };
+    // (the key's release too: Space let go over a focused button would press it — the 착륙 button)
+    const up = (e: KeyboardEvent) => { if (FLY.has(e.code)) { e.preventDefault(); flight()?.keys.delete(e.code); e.stopImmediatePropagation(); } };
+    const blur = () => flight()?.keys.clear();
+    // (the wheel: up and down)
+    const wheel = (e: WheelEvent) => { e.preventDefault(); flight()?.wheelClimb(e.deltaY); };
+    const vis = () => stageRef.current?.drone?.audio.pause(document.hidden);
+    window.addEventListener("keydown", down, true);
+    window.addEventListener("keyup", up, true);
+    window.addEventListener("blur", blur);
+    document.addEventListener("visibilitychange", vis);
+    host?.addEventListener("wheel", wheel, { passive: false });
+    return () => {
+      window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true);
+      window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", vis);
+      host?.removeEventListener("wheel", wheel);
+    };
+  }, [droneOn, big]);
+  // A new complex, or the view going away: the drone lands.
+  useEffect(() => { if (droneOn) leaveDrone(); }, [homeId]);
   const drag = useRef<{ x: number; y: number; pinch: number } | null>(null);
   // Keys, while the pointer is over the view or it is full screen: arrows turn and
   // tilt, +/- zoom, H back to the opening shot, T from above, R auto-rotation,
@@ -3519,7 +3652,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const hovering = useRef(false);
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   keyRef.current = (e: KeyboardEvent) => {
-    if (!(hovering.current || big) || e.ctrlKey || e.metaKey || e.altKey || !data?.found) return;
+    if (!(hovering.current || big) || e.ctrlKey || e.metaKey || e.altKey || !data?.found || stageRef.current?.drone) return;
     const el = e.target as HTMLElement | null;
     if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
     const k = e.key;
@@ -3553,6 +3686,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) {
       p.moved = true;
     }
+    if (stageRef.current?.drone) {
+      const d = drag.current;
+      if (d && (e.buttons || e.pointerType !== "mouse")) { stageRef.current.drone.flight.look(e.clientX - d.x, e.clientY - d.y); d.x = e.clientX; d.y = e.clientY; }
+      return;
+    }
     if (stageRef.current?.balloonView) {
       if (touchPoints.current.has(e.pointerId)) touchPoints.current.set(e.pointerId, [e.clientX, e.clientY]);
       const d = drag.current;
@@ -3571,6 +3709,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!(e.target instanceof HTMLCanvasElement)) return;
     pointers.current.add(e.pointerId);
+    if (stageRef.current?.drone) {
+      drag.current = { x: e.clientX, y: e.clientY, pinch: 0 };
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      return;
+    }
     if (stageRef.current?.balloonView) {
       touchPoints.current.set(e.pointerId, [e.clientX, e.clientY]);
       drag.current = { x: e.clientX, y: e.clientY, pinch: pinchSpan() };
@@ -3585,6 +3728,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     pointers.current.delete(e.pointerId);
     touchPoints.current.delete(e.pointerId);
     press.current = null;
+    if (stageRef.current?.drone) { if (pointers.current.size === 0) drag.current = null; return; }
     if (stageRef.current?.balloonView) { if (touchPoints.current.size === 0) drag.current = null; else if (drag.current) drag.current.pinch = pinchSpan(); return; }
     if (!p || p.id !== e.pointerId || pointers.current.size > 0 || p.moved) return;
     // A drag turned the model: whatever was pinned no longer points at its building.
@@ -3840,12 +3984,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       <div className="re-holo-stage" ref={hostRef} onPointerMove={onMove} onPointerDown={onDown} onPointerUp={onUp}
         onPointerCancel={e => { pointers.current.delete(e.pointerId); press.current = null; }}
         onPointerEnter={() => { hovering.current = true; }}
-        onDoubleClick={e => { if (!stageRef.current?.balloonView && e.target instanceof HTMLCanvasElement) focusAt(e); }}
+        onDoubleClick={e => { if (!stageRef.current?.balloonView && !stageRef.current?.drone && e.target instanceof HTMLCanvasElement) focusAt(e); }}
         onPointerLeave={e => { hovering.current = false; if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
         {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{sceneTitle}</strong></div>}
         {hudOn && <pre ref={hudRef} style={{ position: "fixed", right: 8, bottom: 8, zIndex: 2147483647, margin: 0, padding: "6px 8px", background: "rgba(0,0,0,.65)", color: "#9f9", font: "11px/1.35 ui-monospace, monospace", pointerEvents: "none", whiteSpace: "pre" }} />}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
-        <canvas ref={signCanvas} className="re-holo-signs" aria-hidden="true" style={{ display: !loading && signs.length ? undefined : "none" }} />
+        <canvas ref={signCanvas} className="re-holo-signs" aria-hidden="true" style={{ display: !loading && signs.length && !droneOn ? undefined : "none" }} />
         {!loading && signs.length > 0 && (
           <div className="sr-only">
             {signs.filter(sg => !sg.here).map(sg => (
@@ -3859,6 +4003,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         {!loading && preparing && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
         {!loading && error && <p className="re-holo-msg" role="status">{error}{" "}
           <button type="button" className="re-holo-retry" onClick={() => setReloadKey(k => k + 1)}>다시 시도</button></p>}
+        {droneOn && stageRef.current?.drone && <DroneOverlay sink={droneHud} flight={stageRef.current.drone.flight} signs={stageRef.current.drone.signs} touch={touchMode}
+          radar={{ vkey: data!.vworld_key!, domain: data!.vworld_domain ?? "https://kospimap.com", origin: data!.center!, where: stageRef.current.drone.where }}
+          onExit={leaveDrone} onMute={m => stageRef.current?.drone?.audio.setMuted(m)}
+          view={droneView} onView={() => { const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); }} />}
         {balloonOn && <div className="re-holo-balloon-hint" role="status"><b>🎈 열기구에서 내려다보는 중</b><span>{touchMode ? "드래그로 둘러보기 · 두 손가락으로 확대·축소" : "드래그로 둘러보기 · 휠로 확대·축소 · Esc로 내리기"}</span></div>}
         {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
           role="status">{tip.text}</div>}
@@ -3883,6 +4031,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           title={balloonOn ? "열기구에서 내려 원래 시점으로" : "열기구에 타고 단지를 내려다보기 (열기구를 눌러도 됩니다)"}>
           <i aria-hidden="true">🎈</i><span>{balloonOn ? "내리기" : "열기구"}</span>
         </button>
+        {big && <div className="d2 d2-bgm-float re-holo-bgm"><DeskBgm variant="strip" /></div>}
+        {data.vworld_key && data.center && <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn} onClick={() => (droneOn ? leaveDrone() : enterDrone())}
+          title={droneOn ? "드론 착륙 (원래 시점으로)" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 상공 500m까지)"}>
+          <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : "드론"}</span>
+        </button>}
         {gameOn && complexId && data?.center && <a className="re-holo-balloon-btn" title="실제 지도 위를 달리는 배송 게임 (새 화면에서 열립니다)"
           href={`/drive?${new URLSearchParams({ id: complexId, lat: data.center.lat.toFixed(6), lon: data.center.lon.toFixed(6), back: location.pathname + location.search })}`}>
           <i aria-hidden="true">🚚</i><span>드라이브</span>

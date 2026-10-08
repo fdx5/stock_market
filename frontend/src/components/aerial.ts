@@ -15,7 +15,8 @@ export interface AerialColours { roof: [number, number, number]; rim: [number, n
 
 const tileUrl = (key: string, z: number, row: number, col: number) => `https://api.vworld.kr/req/wmts/1.0.0/${encodeURIComponent(key)}/Satellite/${z}/${row}/${col}.jpeg`;
 
-export async function aerialColours(key: string, lat0: number, lon0: number, rings: [number, number][][], signal?: AbortSignal): Promise<(AerialColours | null)[]> {
+export async function aerialColours(key: string, lat0: number, lon0: number, rings: [number, number][][], signal?: AbortSignal, zoom = Z): Promise<(AerialColours | null)[]> {
+  const Z = zoom;
   if (!rings.length) return [];
   const kx = Math.cos((lat0 * Math.PI) / 180) * 111_320, ky = 110_540;
   const n = 2 ** Z;

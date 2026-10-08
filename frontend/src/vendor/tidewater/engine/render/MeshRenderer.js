@@ -441,14 +441,23 @@ export class MeshRenderer {
 			// on the main thread, and a new scene asks for a dozen or two at once (one long,
 			// janky frame). The rest wait a frame or two — they compile asynchronously anyway.
 			if ( this._budgetFrame !== GPU.frame ) { this._budgetFrame = GPU.frame; this._created = 0; }
-			if ( this._created >= ( this.pipelinesPerFrame ?? Infinity ) ) return this._starve();
+			// (local modification) a material shaped like one already made — a new tile's ground, its
+			// buildings' styles: the same program, only its own textures and uniforms — shares the
+			// compiled pipeline (sharedPipelines) and costs no GPU compile: it is not held to the pace.
+			// Held to it, a drone's tiles waited 10–20 s behind one another's look-alike materials.
+			const shape = `${ material.constructor.name }|${ material.__pk.split( '.' ).slice( 2 ).join( '.' ) }|${ JSON.stringify( material.allDefines?.() ?? null ) }|${ [ 'map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'alphaMap' ].map( k => material[ k ] ? 1 : 0 ).join( '' ) }|${ vl.key }|${ passKey }`;
+			const known = ( this._shapes ??= new Set() ).has( shape );
+			if ( known && ( this._createdKnown = this._budgetFrame === this._knownFrame ? ( this._createdKnown ?? 0 ) + 1 : 1, this._knownFrame = this._budgetFrame, this._createdKnown <= 12 ) ) { p = this._createPipeline( material, vl, pass, key ); if ( vl.pipelines ) vl.pipelines.set( passKey, { materialKey: material.__pk, p } ); return p; }
+			if ( known ) return this._starve();
+			this._shapes.add( shape );
+			if ( this._created >= ( this.pipelinesPerFrame ?? Infinity ) ) { this._shapes.delete( shape ); return this._starve(); }
 			// (local modification) and a pace in time, not only per frame: each new pipeline costs
 			// the browser's GPU process ~10 ms (its one busy thread, which also draws the page), so
 			// frames at a high rate still have to leave it room
 			if ( this.pipelineGapMs ) {
 
 				const now = performance.now();
-				if ( now - ( this._lastCreated ?? - Infinity ) < this.pipelineGapMs ) return this._starve();
+				if ( now - ( this._lastCreated ?? - Infinity ) < this.pipelineGapMs ) { this._shapes.delete( shape ); return this._starve(); }
 				this._lastCreated = now;
 
 			}

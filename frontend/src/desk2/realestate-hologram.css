@@ -554,3 +554,53 @@
 /* (one canvas: ComplexHologram draws the signs on it, from images made once a sign) */
 .re-holo-signs { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; font-family: var(--f-sans); }
 
+
+/* 드론 (DroneOverlay.tsx): the flight's numbers top left, its tools top right, the keys along the
+ * bottom, two sticks on touch screens. Over the 3D picture: dark glass, nothing that blocks a
+ * drag except the sticks and buttons. */
+.re-drone { position: absolute; inset: 0; z-index: 3; pointer-events: none; font: 500 12px var(--f-sans, sans-serif); color: #eaf6ff; }
+.re-drone-hud { position: absolute; left: 12px; top: 12px; display: grid; grid-template-columns: auto auto; gap: 2px 12px; align-items: baseline; padding: 8px 12px; border-radius: 12px; background: #07131cb8; backdrop-filter: blur(4px); font-variant-numeric: tabular-nums; }
+.re-drone-speed { grid-row: span 2; font: 800 26px/1 var(--f-sans, sans-serif); color: #fff; }
+.re-drone-speed small { margin-left: 3px; font: 700 10.5px var(--f-sans, sans-serif); color: #9fc3d8; }
+.re-drone-alt b { font-size: 15px; color: #ffd27a; }
+.re-drone-dir { color: #bfe3f7; }
+.re-drone-world { grid-column: 1 / -1; color: #8fb6cc; font-size: 11px; }
+.re-drone-world.is-held { color: #ffb36b; }
+.re-drone-tools { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; pointer-events: auto; }
+.re-drone-tools button { min-width: 34px; height: 32px; padding: 0 10px; border: 1px solid #ffffff38; border-radius: 10px; background: #07131cc0; color: #eaf6ff; font: 700 13px var(--f-sans, sans-serif); cursor: pointer; }
+.re-drone-tools button:hover { background: #17303fe0; }
+.re-drone-tools .re-drone-exit { background: #c9532ee0; border-color: #ff9a74; }
+.re-drone-help { position: absolute; left: 50%; bottom: 14px; display: block; width: max-content; max-width: min(720px, calc(100% - 24px)); padding: 8px 14px; border-radius: 12px; background: #07131cd0; text-align: center; transform: translateX(-50%); line-height: 1.5; }
+.re-drone-help b { color: #ffd27a; }
+.re-drone-help span { display: block; margin-top: 2px; color: #8fb6cc; font-size: 11px; }
+.re-drone-stick { position: absolute; bottom: 22px; width: 132px; height: 132px; border-radius: 50%; border: 2px solid #ffffff55; background: radial-gradient(circle, #ffffff1c 0 30%, #07131c66 31%); pointer-events: auto; touch-action: none; }
+.re-drone-stick.is-left { left: 18px; }
+.re-drone-stick.is-right { right: 18px; }
+.re-drone-stick i { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: #eaf6ffcc; box-shadow: 0 2px 10px #0008; }
+.re-drone-stick-label { position: absolute; color: #ffffffb0; font: 700 9.5px var(--f-sans, sans-serif); white-space: nowrap; }
+.re-drone-stick-label.is-v { left: 50%; top: -17px; transform: translateX(-50%); }
+.re-drone-stick-label.is-h { left: 50%; bottom: -16px; transform: translateX(-50%); }
+@media (pointer: coarse) { .re-drone-help { bottom: 170px; } }
+.re-holo-drone-btn[aria-pressed="true"] { background: #c9532e; color: #fff; }
+.re-drone-signs { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* 레이더 (DroneRadar.tsx) under the drone's tools, top right */
+.re-drone-radar { position: absolute; right: 12px; top: 54px; width: 210px; display: grid; gap: 5px; justify-items: end; pointer-events: auto; }
+.re-holo-stage .re-drone-radar canvas { position: relative; inset: auto; display: block; width: 210px !important; height: 210px !important; border-radius: 50%; box-shadow: 0 4px 18px #0009, 0 0 0 1px #7fd8ff40; touch-action: none; cursor: zoom-in; }
+.re-drone-radar.is-big { width: min(420px, 46vw); }
+.re-holo-stage .re-drone-radar.is-big canvas { width: min(420px, 46vw) !important; height: min(420px, 46vw) !important; }
+.re-drone-radar-tools { display: flex; gap: 4px; }
+.re-drone-radar-tools button { min-width: 30px; height: 26px; padding: 0 7px; border: 1px solid #ffffff38; border-radius: 8px; background: #07131cc8; color: #eaf6ff; font: 700 12px var(--f-sans, sans-serif); cursor: pointer; }
+.re-drone-radar-where { max-width: 100%; padding: 6px 10px; border-radius: 10px; background: #07131cc8; text-align: right; line-height: 1.35; }
+.re-drone-radar-where b { display: block; color: #fff; font-size: 12.5px; }
+.re-drone-radar-where span { color: #8fb6cc; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) { .re-drone-radar { width: 132px; } .re-holo-stage .re-drone-radar canvas { width: 132px !important; height: 132px !important; } .re-drone-radar-where span { display: none; } }
+/* 고도 ▲▼ (DroneOverlay): held to climb or sink; on the left middle, clear of the sticks */
+.re-drone-alt-buttons { position: absolute; left: 12px; top: 50%; display: grid; gap: 8px; transform: translateY(-50%); pointer-events: auto; }
+.re-drone-alt-buttons button { width: 46px; height: 46px; border: 1px solid #ffffff4d; border-radius: 12px; background: #07131cc8; color: #eaf6ff; font: 800 18px var(--f-sans, sans-serif); cursor: pointer; touch-action: none; user-select: none; }
+.re-drone-alt-buttons button:active { background: #c9532ee0; }
+/* The site's music player (DeskBgm) in the full-screen 3D view, in the row under the picture. */
+.re-holo-env .d2.d2-bgm-float.re-holo-bgm { position: static; width: 340px; flex: 0 1 340px; z-index: auto; font-size: 13px; }
+.re-holo-env .d2.d2-bgm-float.re-holo-bgm .d2-bgm.d2-bgm--strip { padding: 4px 6px; gap: 8px; --eq-h: 20px; --eq-w: 44px; }
+.re-holo-env .d2.d2-bgm-float.re-holo-bgm .d2-bgm.d2-bgm--strip .d2-bgm-transport button { width: 30px; height: 32px; }
+.re-holo-env .d2.d2-bgm-float.re-holo-bgm .d2-bgm.d2-bgm--strip .d2-bgm-transport .d2-bgm-play { width: 34px; height: 34px; }
+@media (max-width: 760px) { .re-holo-env .d2.d2-bgm-float.re-holo-bgm { flex: 1 1 100%; width: auto; } }

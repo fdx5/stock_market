@@ -15,6 +15,10 @@ export class ComplexRenderer {
   /** Canvases emptied after upload (a fall back to WebGL must repaint them). */
   released?: number;
   quality: Quality;
+  /** The drone's sky (0…1): crisper clouds and the sun's corona. */
+  droneSky?: number;
+  /** The drone's distance haze: where it starts and where all is haze (m, horizontal). */
+  droneFog?: [number, number];
   stats: { draws: number; triangles: number; pipelines: number };
   /** Smoothed GPU ms per pass and their sum (total); empty without timestamp queries. */
   timer: { enabled: boolean; ms: Record<string, number>; samples: number };

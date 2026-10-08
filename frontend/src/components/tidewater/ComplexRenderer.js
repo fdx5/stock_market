@@ -174,13 +174,15 @@ fn skyFbm(p0: vec2f) -> f32 {
   return s;
 }
 // Fair-weather cumulus: domain-warped billows, gathered into separate puffs of varied
-// size by a slow coverage field.
+// size by a slow coverage field. (frame.cameraWaterHeight, unused by this view's water: the
+// drone's sky, 0…1 — a few more puffs, their edges sharp. Twin: patchSky uDrone.)
 fn cumulus(uv: vec2f) -> f32 {
+  let k = frame.cameraWaterHeight;
   let warp = vec2f(skyFbm(uv * 0.7 + vec2f(3.1, 1.7)), skyFbm(uv * 0.7 + vec2f(8.3, 2.8))) - 0.5;
   let billow = skyFbm(uv * 1.7 + warp * 0.9);
   let cover = smoothstep(0.34, 0.6, skyNoise(uv * 0.85 + vec2f(5.0, 1.0)) * 0.7 + skyNoise(uv * 0.3 + vec2f(2.0, 7.0)) * 0.3);
   // Crisp, heaped edges where a puff is dense; nothing between puffs.
-  return smoothstep(0.5, 0.6, billow * (0.62 + 0.55 * cover)) * smoothstep(0.05, 0.4, cover);
+  return smoothstep(mix(0.5, 0.532, k), mix(0.6, 0.568, k), billow * (0.62 + 0.55 * cover) + 0.03 * k) * smoothstep(0.05 - 0.03 * k, 0.4 - 0.1 * k, cover);
 }
 // Weather (frame.debug): x overcast 0..1, y rain, z snow.
 // The overcast deck's colour without its texture (grey by day, milky in snow, leaden in
@@ -199,7 +201,8 @@ fn skyBase(ray: vec3f) -> vec3f {
   let e = clamp(ray.y, 0.0, 1.0);
   let dusk = 1.0 - smoothstep(0.04, 0.45, frame.sunDir.y);
   let zenith = mix(vec3f(0.08, 0.27, 0.72), vec3f(0.24, 0.2, 0.34), dusk);
-  let horizon = mix(vec3f(0.55, 0.71, 0.9), frame.horizonColor, dusk * 0.85);
+  // (the drone: the sky's horizon in the ground's haze colour, where the faded ground meets it)
+  let horizon = mix(mix(vec3f(0.55, 0.71, 0.9), frame.horizonColor, dusk * 0.85), frame.horizonColor, frame.cameraWaterHeight * 0.75 * (1.0 - smoothstep(0.0, 0.25, ray.y)));
   let daySky = mix(horizon, zenith, pow(e, 0.55));
   let nightSky = mix(frame.horizonColor * 0.45, vec3f(0.006, 0.013, 0.04), pow(e, 0.35));
   return mix(mix(nightSky, daySky, day), deckColor(ray), frame.debug.x * smoothstep(-0.02, 0.06, ray.y) * 0.95);
@@ -217,9 +220,13 @@ fn skyCloudsOver(ray: vec3f, base: vec3f) -> vec3f {
     if (d > 0.002) {
       // Self-shadow: denser toward the sun means a darker underside.
       let toSun = normalize(frame.sunDir.xz + vec2f(0.0001, 0.0)) * 0.22;
-      let lit = clamp(1.0 - (cumulus(uv + toSun) - d * 0.35) * 1.5, 0.0, 1.0);
+      let k = frame.cameraWaterHeight;
+      let lit0 = clamp(1.0 - (cumulus(uv + toSun) - d * 0.35) * 1.5, 0.0, 1.0);
+      let lit = mix(lit0, smoothstep(0.12, 0.88, lit0), k);
       let sunTint = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
-      let dayCloud = mix(vec3f(0.6, 0.65, 0.74), vec3f(1.06, 1.05, 1.02) * mix(vec3f(1.0), sunTint, 0.3), lit);
+      // (the drone's sky: shaded bases, bright tops, a silver lining toward the sun)
+      var dayCloud = mix(mix(vec3f(0.6, 0.65, 0.74), vec3f(0.5, 0.56, 0.67), k), vec3f(1.06, 1.05, 1.02) * mix(vec3f(1.0), sunTint, 0.3) * (1.0 + 0.08 * k), lit);
+      dayCloud += sunTint * k * 0.45 * pow(max(dot(ray, frame.sunDir), 0.0), 10.0) * (1.0 - smoothstep(0.3, 0.9, d));
       let cloud = mix(frame.horizonColor * 0.25, dayCloud, day);
       // Thin toward the horizon, where the haze takes over.
       sky = mix(sky, cloud, clamp(d * 1.25, 0.0, 0.97) * smoothstep(0.0, 0.08, ray.y));
@@ -249,7 +256,7 @@ fn starLayer(d: vec3f, scale: f32, density: f32, pr: f32, bright: f32, halo: f32
   var col = vec3f(1.15, 0.78, 0.58);
   if (k < 0.12) { col = vec3f(0.72, 0.82, 1.15); } else if (k < 0.6) { col = vec3f(1.0, 0.98, 0.95); } else if (k < 0.86) { col = vec3f(1.1, 0.95, 0.78); }
   let b = bright * (0.2 + 0.8 * pow(h.y, 3.0));
-  let tw = 1.0 + 0.45 * sin(t * (1.5 + 5.0 * h.y) + h.x * 90.0) * sin(t * (2.3 + 3.0 * h.z) + h.y * 40.0);
+  let tw = 1.0 + mix(0.45, 0.22, frame.cameraWaterHeight) * sin(t * (1.5 + 5.0 * h.y) + h.x * 90.0) * sin(t * (2.3 + 3.0 * h.z) + h.y * 40.0);
   let core = exp(-pow(ang / (pr * 0.95), 2.0)) + halo * exp(-ang / (pr * 3.5));
   return col * b * tw * core;
 }
@@ -265,26 +272,91 @@ fn starField(ray: vec3f, pr: f32) -> vec3f {
   let t = frame.time;
   let s = starLayer(d, 95.0, 0.5 + 0.4 * band, pr, 0.32, 0.0, t)
         + starLayer(d, 42.0, 0.45, pr, 0.85, 0.04, t)
-        + starLayer(d, 15.0, 0.28, pr * 1.3, 2.6, 0.12, t);
-  let milky = vec3f(0.022, 0.025, 0.036) * band * smoothstep(0.3, 0.75, dust) * (1.0 - 0.6 * smoothstep(0.55, 0.7, skyFbm(vec2f(atan2(d.z, d.x) * 11.0, d.y * 16.0))));
-  return (s + milky) * vis * smoothstep(-0.02, 0.22, ray.y);
+        + starLayer(d, 15.0, 0.28, pr * 1.3, 2.6, 0.12 * (1.0 - frame.cameraWaterHeight), t);
+  var milky = vec3f(0.022, 0.025, 0.036) * band * smoothstep(0.3, 0.75, dust) * (1.0 - 0.6 * smoothstep(0.55, 0.7, skyFbm(vec2f(atan2(d.z, d.x) * 11.0, d.y * 16.0))));
+  // The drone's night (frame.cameraWaterHeight): a deeper field — a dense layer of faint stars
+  // under the bright ones, a few brighter still (no glow past a star's own cell: it showed as a
+  // box), and the Milky Way's band brighter,
+  // warm along its core and cool at its edges, cut by its dark dust lanes.
+  let dk = frame.cameraWaterHeight;
+  var extra = vec3f(0.0);
+  if (dk > 0.001) {
+    extra = starLayer(d, 210.0, 0.28 + 0.5 * band, pr * 0.85, 0.16, 0.0, t) + starLayer(d, 11.0, 0.3, pr * 1.1, 3.2, 0.0, t);
+    let lanes = smoothstep(0.5, 0.68, skyFbm(vec2f(atan2(d.z, d.x) * 14.0 + 3.0, d.y * 22.0)));
+    let core = exp(-pow(dot(d, n) / 0.07, 2.0));
+    milky = (mix(vec3f(0.03, 0.036, 0.06), vec3f(0.07, 0.058, 0.045), core) * band * (0.4 + 0.9 * smoothstep(0.25, 0.8, dust))) * (1.0 - 0.75 * lanes);
+  }
+  return (s + extra * dk + milky) * vis * smoothstep(-0.02, 0.22, ray.y);
 }
 fn complexSky(ray: vec3f, pr: f32) -> vec3f {
   let day = 1.0 - frame.night;
-  var sky = skyCloudsOver(ray, skyBase(ray) + starField(ray, pr));
+  var sky = skyBase(ray) + starField(ray, pr);
+  // (the drawn clouds, except under the drone's photographed sky by day: the two together showed
+  // coarse painted clouds beside the photograph's)
+  if (frame.cameraWaterHeight * frame.windSpeed < 0.5) { sky = skyCloudsOver(ray, sky); }
   // The sun: a small soft disc, no glare halo (the sky reads as plain blue with clouds).
   let sun = max(dot(ray, frame.sunDir), 0.0);
   let sunHue = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
-  sky = mix(sky, sunHue * 1.15, smoothstep(0.99985, 0.99995, sun) * day * 0.85 * (1.0 - frame.debug.x));
+  let k = frame.cameraWaterHeight;
+  sky = mix(sky, sunHue * mix(1.15, 2.6, k), smoothstep(mix(0.99985, 0.99974, k), mix(0.99995, 0.99989, k), sun) * day * 0.85 * (1.0 - frame.debug.x));
+  // (the drone's sky: the sun's corona, no glare across the view)
+  sky += sunHue * k * day * (1.0 - frame.debug.x) * smoothstep(-0.05, 0.05, frame.sunDir.y) * (pow(sun, 1400.0) * 0.8 + pow(sun, 120.0) * 0.12 + pow(sun, 10.0) * 0.035);
   return sky;
 }` });
+// The drone's sky picture (public/3d/drone/sky.jpg, SOURCES.md): where its sun is (u across the
+// picture, elevation in radians), which way its azimuth runs, and its brightness against the sky.
+const DRONE_SKY_SUN_U = '0.600', DRONE_SKY_SUN_E = '0.855', DRONE_SKY_TURN = '1.0', DRONE_SKY_GAIN = '1.0';
 const skyCode = /* wgsl */`
 fn fragment(in: FSIn) -> vec4f {
   let p = frame.invProj * vec4f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0, 0.001, 1.0);
   let ray = normalize((frame.invView * vec4f(normalize(p.xyz / p.w), 0.0)).xyz);
   // (a pixel's angular size, for stars one pixel across)
   let pr = length(fwidth(ray));
-  return vec4f(complexSky(ray, pr), 1.0);
+  var c = complexSky(ray, pr);
+  // The drone's day sky (frame.cameraWaterHeight: how much; frame.windSpeed: its picture is in):
+  // photographed clouds (droneSkyTex, the upper hemisphere of a CC0 sky) turned so the picture's
+  // sun lies at the view's sun, its elevations stretched to match (the horizon and the zenith
+  // stay), faded out toward dusk, under an overcast and into the haze at the horizon.
+  let k = frame.cameraWaterHeight * frame.windSpeed;
+  if (k > 0.001 && ray.y > -0.02) {
+    let sunE = asin(clamp(frame.sunDir.y, -1.0, 1.0));
+    // By day the photograph is the sky. As the sun goes down the sky becomes the sunset's own
+    // (skyBase: its warm horizon and dimming zenith), the photograph's clouds kept on it lit in the
+    // sunset's colours — gold and rose toward the sun, grey-violet away from it; by night they
+    // are gone and the sky is clear for the stars.
+    let photoK = k * (1.0 - frame.debug.x);
+    if (photoK > 0.001) {
+      let e = asin(clamp(ray.y, 0.0, 1.0));
+      let eImg = ${DRONE_SKY_SUN_E};
+      let eS = clamp(sunE, 0.1, 1.45);
+      let e2 = select(eImg + (e - eS) * (1.5708 - eImg) / (1.5708 - eS), e * eImg / eS, e < eS);
+      let az = atan2(ray.x, -ray.z);
+      let saz = atan2(frame.sunDir.x, -frame.sunDir.z);
+      let u = fract(${DRONE_SKY_SUN_U} + ${DRONE_SKY_TURN} * (az - saz) / 6.2831853);
+      let v = clamp(1.0 - e2 / 1.5707963, 0.001, 0.999);
+      let photo = textureSampleLevel(droneSkyTex, smpLinearRepeat, vec2f(u, v), 0.0).rgb * ${DRONE_SKY_GAIN};
+      let hue = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
+      let fade = smoothstep(0.0, 0.1, ray.y);
+      let dayW = smoothstep(0.05, 0.32, sunE) * (1.0 - frame.night);
+      let duskW = (1.0 - smoothstep(0.05, 0.32, sunE)) * smoothstep(-0.16, -0.01, sunE);
+      // (the clouds in the photograph: its white, bright parts)
+      let lum = dot(photo, vec3f(0.2126, 0.7152, 0.0722));
+      let mx = max(photo.r, max(photo.g, photo.b));
+      let mn = min(photo.r, min(photo.g, photo.b));
+      let cloud = smoothstep(0.55, 0.85, mn / max(mx, 0.001)) * smoothstep(0.25, 0.7, lum);
+      let toward = pow(max(dot(normalize(vec3f(ray.x, 0.0, ray.z) + vec3f(0.0001)), normalize(vec3f(frame.sunDir.x, 0.0, frame.sunDir.z) + vec3f(0.0001))), 0.0), 2.0);
+      let lit = mix(vec3f(0.42, 0.36, 0.48), mix(vec3f(1.0, 0.55, 0.42), hue * vec3f(1.05, 0.82, 0.55), 0.5) * 1.25, toward) * (0.55 + 0.7 * lum);
+      let low = 1.0 - smoothstep(-0.12, 0.0, sunE);
+      let duskCloud = mix(lit, lit * vec3f(0.35, 0.3, 0.42), low);
+      c = mix(c, photo, photoK * dayW * fade);
+      c = mix(c, duskCloud, photoK * duskW * cloud * fade * 0.9);
+      // (the sun's own disc over it, where the picture's glare now lies)
+      let sun = max(dot(ray, frame.sunDir), 0.0);
+      let sunHue = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
+      c += sunHue * photoK * (1.0 - frame.night) * smoothstep(-0.03, 0.02, sunE) * (smoothstep(0.99975, 0.9999, sun) * 1.6 + pow(sun, 900.0) * 0.4);
+    }
+  }
+  return vec4f(c, 1.0);
 }`;
 
 // Falling rain and snow: twin of PRECIP_GLSL / precipField in complexScene.ts (keep the
@@ -889,7 +961,11 @@ export class ComplexRenderer {
     // What the water sees through and reflects: the opaque scene, copied before the water
     // pass (Tidewater's sceneCopy). Allocated once water is in the scene.
     this.copy = null;
-    this.sky = new FullscreenPass({ label: 'complex atmosphere', modules: [atmosphere], code: skyCode, colorFormats: ['rgba16float'], depthFormat: 'depth32float', depthCompare: 'equal' });
+    // (the drone's sky picture: a 1-pixel stand-in until it is in — see droneSkyPicture)
+    this.droneSkyTex = new Texture({ label: 'drone sky stand-in', width: 1, height: 1, format: 'rgba8unorm-srgb', usage: ['sample', 'copyDst'] });
+    this.droneSkyTex.upload(new Uint8Array([140, 170, 220, 255]));
+    this.sky = new FullscreenPass({ label: 'complex atmosphere', modules: [atmosphere], code: skyCode, colorFormats: ['rgba16float'], depthFormat: 'depth32float', depthCompare: 'equal',
+      bindings: { droneSkyTex: { texture: () => this.droneSkyTex } } });
     // (?envdebug=1: the captured surroundings as the background, to check the cube's faces)
     if (lookParams.get('envdebug')) this.sky = new FullscreenPass({ label: 'complex env debug', modules: [atmosphere], colorFormats: ['rgba16float'], depthFormat: 'depth32float', depthCompare: 'always',
       bindings: { envCube: { texture: envTexture, viewDimension: 'cube' } }, code: `
@@ -1264,6 +1340,24 @@ export class ComplexRenderer {
     source.userData.released = true;
     this.released = (this.released ?? 0) + 1;
   }
+  /** The drone's sky picture, fetched the first time the drone flies (a few hundred KB). */
+  droneSkyPicture() {
+    this.droneSkyAsked = true;
+    fetchStatic('/3d/drone/sky.jpg').then(r => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+      .then(b => createImageBitmap(b, { imageOrientation: 'none' }))
+      .then(img => {
+        if (this.disposed) { img.close(); return; }
+        const tex = new Texture({ label: 'drone sky', width: img.width, height: img.height, format: 'rgba8unorm-srgb', mips: true, usage: ['sample', 'render', 'copyDst'] });
+        GPU.queue.copyExternalImageToTexture({ source: img }, { texture: tex.getGPU() }, [img.width, img.height]);
+        generateMipmaps(tex);
+        img.close();
+        const old = this.droneSkyTex;
+        this.droneSkyTex = tex;
+        this.droneSkyReady = true;
+        GPU.onSubmit(null, () => old.destroy());
+      })
+      .catch(err => console.info('[3D] drone sky picture unavailable:', err));
+  }
   /** Canvas textures repainted in place (the ground once land use arrives): upload again. */
   refreshTextures() {
     // About one big canvas a frame: the ground repainted with land use and the facades with the
@@ -1511,7 +1605,10 @@ export class ComplexRenderer {
         // bloom, would flash the whole frame black or white)
         r.color = vec4f(select(min(r.color.rgb, vec3f(30000.0)), vec3f(0.0), r.color.rgb != r.color.rgb), r.color.a);
         let fog = 1.0 - exp(-length(in.P - frame.cameraPos) * mat.haze * mat.hazeScale);
-        r.color = vec4f(mix(r.color.rgb, frame.horizonColor, clamp(fog, 0.0, 0.9)), r.color.a);${source.userData.edgeFade ? `
+        // (the drone: everything fades into the horizon's haze toward the edge of the world it has
+        // loaded — frame.windDir, unused by this view's water: where the fade starts and ends)
+        let wall = frame.cameraWaterHeight * smoothstep(frame.windDir.x, frame.windDir.y, length((in.P - frame.cameraPos).xz));
+        r.color = vec4f(mix(r.color.rgb, frame.horizonColor, max(clamp(fog, 0.0, 0.9), wall)), r.color.a);${source.userData.edgeFade ? `
         // Past the painted (surveyed) ground, uv leaves 0..1: fade into the horizon haze (past the
         // 1 km land use once it is in).
         let pastNear = max(max(-in.uv.x, in.uv.x - 1.0), max(-in.uv.y, in.uv.y - 1.0));${source.userData.farGround ? `
@@ -1524,6 +1621,15 @@ export class ComplexRenderer {
     });
     this.materials.set(source, mat);
     return mat;
+  }
+  /** (checks) why a mesh is not drawn yet */
+  explain(obj) {
+    const mesh = this.meshes.get(obj);
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    const tex = mats.flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.userData?.farGround?.map].filter(Boolean).map(t => ({ w: t.image?.width, h: t.image?.height, kind: t.image?.constructor?.name, has: this.textures.has(t), stripped: this.stripped(t.image), staged: this.stagings?.get(t) ? this.stagings.get(t).y : null })));
+    if (!mesh) return { inScene: false, imagesReady: this.imagesReady(obj.material), tex, pending: this.pending, frame: this.frameNo };
+    const passes = [{kind:'color',colorFormats:['rgba16float'],depthFormat:'depth32float'}];
+    return { inScene: true, mats: (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((m, i) => ({ ver: m.srcVersion === mats[i]?.version, ready: this.renderer.materialReady(mesh, m, passes) })), tex };
   }
   objectsReady(root) {
     let ready = true;
@@ -1560,17 +1666,23 @@ export class ComplexRenderer {
     const texels = () => { let n = 0; for (const t of this.textures.values()) n += t.width * t.height; return n; };
     const room = (this.shown ? 1 : 1.5) * 1e6;
     const startTexels = texels();
+    // (the texels made this frame, counted once a material is made — the sum over every texture,
+    // taken for each mesh looked at, ate the frame's 3 ms itself, and a tile's ground late in
+    // the list was put off frame after frame)
+    let madeTexels = 0;
     let made = 0;
     source.traverseVisible(obj => {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
       if(camera && obj.userData.forestLod)updateForestLod(obj,camera);
       active.add(obj);
       let mesh = this.meshes.get(obj);
+      // (a caster turned on or off — the drone's far tiles — joins or leaves the shadows)
+      if (mesh && mesh.castShadow !== obj.castShadow) { mesh.castShadow = obj.castShadow; this.castersChanged = true; }
       if (mesh && !sourceMaterialsMatch(mesh.material, obj.material)) {
-        if ((made && (performance.now() > until || texels() - startTexels > room)) || !this.imagesReady(obj.material)) {
+        if ((made && (performance.now() > until || madeTexels > room)) || !this.imagesReady(obj.material)) {
           deferred = true;
         } else {
-          const replacement = Array.isArray(obj.material) ? obj.material.map(m => this.material(m)) : this.material(obj.material); made++; this.ready = false;
+          const replacement = Array.isArray(obj.material) ? obj.material.map(m => this.material(m)) : this.material(obj.material); made++; madeTexels = texels() - startTexels; this.ready = false;
           const passes = [{kind:'color',colorFormats:['rgba16float'],depthFormat:'depth32float'}];
           if(mesh.castShadow)passes.push({kind:'depth',colorFormats:[],depthFormat:'depth32float',depthCompare:'less-equal',depthBias:2,depthBiasSlopeScale:1.5});
           if(this.shown && !(Array.isArray(replacement) ? replacement : [replacement]).every(m => this.renderer.materialReady(mesh,m,passes)))deferred=true;
@@ -1578,12 +1690,15 @@ export class ComplexRenderer {
         }
       }
       if (!mesh) {
-        if (made && (performance.now() > until || texels() - startTexels > room)) { deferred = true; return; }
-        // (its painted canvases taken off the page first: they come in a frame or two)
-        if (!this.imagesReady(obj.material)) { deferred = true; return; }
+        // (its painted canvases taken off the page first, in strips within each frame's own budget —
+        // asked before the per-frame cap on new materials: asked after it, a big canvas behind a
+        // frame's other newcomers never got its strips at all, and the drone's tiles waited on it)
+        const imagesIn = this.imagesReady(obj.material);
+        if (made && (performance.now() > until || madeTexels > room)) { deferred = true; return; }
+        if (!imagesIn) { deferred = true; return; }
         const before = this.materials.size + this.textures.size;
         const material = Array.isArray(obj.material) ? obj.material.map(m => this.material(m)) : this.material(obj.material);
-        if (this.materials.size + this.textures.size !== before) made++;
+        if (this.materials.size + this.textures.size !== before) { made++; madeTexels = texels() - startTexels; }
         // CPU geometry is shared; no WebGL draw calls are used in this path.
         mesh = new Mesh(obj.geometry, material);
         mesh.matrixAutoUpdate = false;
@@ -1720,6 +1835,11 @@ export class ComplexRenderer {
     f.time.value = time; f.night.value = look.stars; f.envIntensity.value = Math.max(0.9, look.env);
     f.debug.value.set(look.overcast ?? 0, look.rain ?? 0, look.snow ?? 0, (look.stars ?? 0) * (1 - (look.overcast ?? 0)));
     f.pad0.value = look.starTurn ?? 0;
+    // (the drone's sky: crisper clouds and the sun's corona — see cumulus)
+    f.cameraWaterHeight.value = this.droneSky ?? 0;
+    f.windDir.value.set(this.droneFog?.[0] ?? 1e7, this.droneFog?.[1] ?? 2e7);
+    if (this.droneSky && !this.droneSkyAsked) this.droneSkyPicture();
+    f.windSpeed.value = this.droneSkyReady ? 1 : 0;
     // (the look's bloom: faint by day, strong at night; threshold in exposed units)
     this.bloomStrength = (look.bloom ?? 0.2) * 0.5;
     BloomUniforms.set('threshold', Math.max(0.6, (look.bloomAt ?? 4) * 0.35));
@@ -1745,6 +1865,9 @@ export class ComplexRenderer {
     this.renderer.starved = false;
     const timer = this.timer;
     timer.begin();
+    // (the drone: its view always moving, every caster is drawn again at each refit — the far
+    // cascades, whose texels are metres, refit less often; their maps stay put in the world)
+    shadows.periods = this.droneSky ? [1, 3, 6] : [1, 2, 4];
     shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value), i => timer.pass('shadow' + i), this.renderer.precompiling ? null : isMoving);
     if (this.env && this.shown) this.captureEnv(look);
     // TAA: the frame a sub-pixel off (8 Halton offsets); a jump (a hop, a resize, the balloon's

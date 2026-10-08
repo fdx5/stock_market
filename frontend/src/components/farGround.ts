@@ -23,12 +23,21 @@ type FarJob = {
   landscape?: boolean; nearHalf: number; footprints: [number,number][][];
   roads: {line:[number,number][];width:number}[];
   flowers: readonly string[];
+  /** The drone's tiles: the national stream network's water areas (하천망, LT_C_WKMSTRM), filled
+   * whole — a channel stays one channel where its parcels' relief rule leaves gaps. */
+  riverUrls?: string[];
+  /** The drone's tiles: the open water OpenStreetMap maps (lakes, ponds — 석촌호수 is a park's
+   * parcel in the cadastre), from the site's /api/realestate/water: rings in metres about the
+   * rounded point it was asked at, (ox, oy) from this picture's centre. */
+  osmWater?: { url: string; ox: number; oy: number };
 };
 
 function farWorkerMain() {
-  self.onmessage = (e: MessageEvent<FarJob>) => {
+  self.onmessage = async (e: MessageEvent<FarJob>) => {
     const t0 = performance.now();
     const job = e.data, { lat, lon, half, size: S } = job;
+    // (two seconds at most: the drone asked ahead, when the tile was queued)
+    const osm: { rings?: { ring: [number, number][] }[] } | null = job.osmWater ? await fetch(job.osmWater.url, { signal: AbortSignal.timeout(2000) }).then(r => (r.ok ? r.json() : null)).catch(() => null) : null;
     const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540;
     const g = job.grid;
     const at = (x: number, y: number) => {
@@ -152,6 +161,39 @@ function farWorkerMain() {
       for (let o = 0; o < S * S; o++) if (unknown[o] && dist[o] >= inset) paint(o);
       ctx.putImageData(img, 0, 0);
     }
+    if (job.riverUrls?.length || osm?.rings?.length) {
+      const img = ctx.getImageData(0, 0, S, S), d = img.data;
+      const mask = new OffscreenCanvas(S, S), mc = mask.getContext("2d", { willReadFrequently: true })!;
+      mc.fillStyle = "#fff";
+      let any = false;
+      for (const w of osm?.rings ?? []) {
+        if (w.ring.length < 3) continue;
+        mc.beginPath();
+        w.ring.forEach(([x, y], k) => { const px = X(x + job.osmWater!.ox), py = Y(y + job.osmWater!.oy); if (k) mc.lineTo(px, py); else mc.moveTo(px, py); });
+        mc.closePath(); mc.fill(); any = true;
+      }
+      for (const url of job.riverUrls ?? []) {
+        let body: any = null;
+        (self as any).riverCb = (b: unknown) => { body = b; };
+        try { importScripts(url); } catch { break; }
+        const fs = body?.response?.result?.featureCollection?.features ?? [];
+        for (const f of fs) {
+          const geom = f.geometry;
+          const polys: number[][][][] = geom?.type === "Polygon" ? [geom.coordinates] : geom?.type === "MultiPolygon" ? geom.coordinates : [];
+          for (const poly of polys) {
+            mc.beginPath();
+            for (const ring of poly) ring.forEach(([x, y], k) => { const px = X((x - lon) * kx), py = Y((y - lat) * ky); if (k) mc.lineTo(px, py); else mc.moveTo(px, py); });
+            mc.fill("evenodd"); any = true;
+          }
+        }
+        if (fs.length < 1000) break;
+      }
+      if (any) {
+        const md = mc.getImageData(0, 0, S, S).data;
+        for (let o = 0; o < S * S; o++) if (md[o * 4 + 3] > 127) { d[o * 4] = 31; d[o * 4 + 1] = 61; d[o * 4 + 2] = 73; d[o * 4 + 3] = 128; }
+        ctx.putImageData(img, 0, 0);
+      }
+    }
     const planting:import('./complexScene').Planting={trees:[],shrubs:[],flowers:[],grass:[],street:[],groves:[]};
     if(job.landscape){
       // The registered footprints and roads stay clear even when a lot is park-styled.
@@ -192,8 +234,9 @@ function farWorkerMain() {
   };
 }
 
+let farUrl: string | null = null;
 /** The land-use picture of ±half metres round the result's centre (north up), made in a worker. */
-export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, opts: { half: number; size: number; lawn: string; paddy: string; landscape?: boolean; nearHalf?:number; footprints?:[number,number][][]; signal?: AbortSignal }): Promise<{ bitmap: ImageBitmap; parcels: number; planting:import('./complexScene').Planting; ms: number } | null> {
+export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, opts: { half: number; size: number; lawn: string; paddy: string; landscape?: boolean; nearHalf?:number; footprints?:[number,number][][]; signal?: AbortSignal; rivers?: boolean; lakes?: boolean }): Promise<{ bitmap: ImageBitmap; parcels: number; planting:import('./complexScene').Planting; ms: number } | null> {
   if (!data.center || !data.vworld_key || typeof OffscreenCanvas === "undefined") return Promise.resolve(null);
   const { lat, lon } = data.center, H = opts.half;
   const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540;
@@ -203,8 +246,20 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
     key: data.vworld_key!, domain: data.vworld_domain ?? "https://kospimap.com", data: "LP_PA_CBND_BUBUN", geomFilter: box,
     size: "1000", page: String(i + 1), format: "json", callback: "farCb",
   }));
-  const worker = new Worker(URL.createObjectURL(new Blob([`self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" })));
-  const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS };
+  // (one Blob URL for the page's lifetime: the drone makes these tile after tile)
+  farUrl ??= URL.createObjectURL(new Blob([`self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
+  const worker = new Worker(farUrl);
+  const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS,
+    riverUrls: opts.rivers ? Array.from({ length: 3 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
+      service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "false",
+      key: data.vworld_key!, domain: data.vworld_domain ?? "https://kospimap.com", data: "LT_C_WKMSTRM", geomFilter: box,
+      size: "1000", page: String(i + 1), format: "json", callback: "riverCb",
+    })) : undefined,
+    // (asked about the rounded point, as the view asks: the server's cache)
+    osmWater: opts.lakes && typeof location !== "undefined" ? (() => {
+      const la = +lat.toFixed(4), lo = +lon.toFixed(4);
+      return { url: `${location.origin}/api/realestate/water?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=${Math.round(H * 1.5)}&v=2`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
+    })() : undefined };
   return new Promise(resolve => {
     worker.onmessage = e => { worker.terminate(); resolve(e.data); };
     worker.onerror = () => { worker.terminate(); resolve(null); };

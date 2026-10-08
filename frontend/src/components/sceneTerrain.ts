@@ -161,8 +161,9 @@ function vworldTile(token: string, x: number, y: number): Promise<Float32Array |
   return hit;
 }
 
-/** Absolute elevation at (lon, lat) from VWorld DEM tiles, or null if any tile is missing. */
-async function vworldSampler(key: string, lat: number, lon: number, radius: number) {
+/** Absolute elevation at (lon, lat) from VWorld DEM tiles, or null if any tile is missing.
+ * (Also the drone's tiles: droneWorld.ts samples the same posts, so tile edges meet exactly.) */
+export async function vworldSampler(key: string, lat: number, lon: number, radius: number) {
   const token = await vworldToken(key);
   const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
   const tx0 = Math.floor((lon - radius / kx + 180) / VW_TILE), tx1 = Math.floor((lon + radius / kx + 180) / VW_TILE);

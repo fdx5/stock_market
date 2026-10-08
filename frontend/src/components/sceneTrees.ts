@@ -89,6 +89,27 @@ const FULL_M = 110, SHADOW_M = 250;
 type Planted = { m: THREE.Matrix4; tint: THREE.Color; crownTint?: THREE.Color; x: number; y: number; z: number; h: number };
 
 /** Trees placed one by one, then built into instanced meshes. */
+/** The forest builder worker, kept for the page (its tree kit sent once). */
+type ForestWorker={w:Worker;kit:Map<string,Built[]>;jobs:Map<number,{resolve:(r:BudgetForest)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>}>};
+let forestWorker:ForestWorker|null=null;
+let forestJobId=0;
+function forestJob(kit:Map<string,Built[]>,plants:BudgetPlant[],center:number[]):Promise<BudgetForest>{
+  if(forestWorker&&forestWorker.kit!==kit){forestWorker.w.terminate();for(const j of forestWorker.jobs.values()){clearTimeout(j.timer);j.reject(Error('forest worker replaced'));}forestWorker=null;}
+  if(!forestWorker){
+    const w=new Worker(new URL('./budgetForestWorker.ts',import.meta.url),{type:'module'}),fw:ForestWorker={w,kit,jobs:new Map()};
+    const fail=(err:Error)=>{w.terminate();if(forestWorker===fw)forestWorker=null;for(const j of fw.jobs.values()){clearTimeout(j.timer);j.reject(err);}fw.jobs.clear();};
+    w.onmessage=e=>{const j=fw.jobs.get(e.data.id);if(!j)return;fw.jobs.delete(e.data.id);clearTimeout(j.timer);e.data.result?j.resolve(e.data.result):j.reject(Error(e.data.error));};
+    w.onerror=()=>fail(Error('forest worker unavailable'));
+    w.postMessage({wire:packTrees(kit).wire});
+    forestWorker=fw;
+  }
+  const fw=forestWorker,id=++forestJobId;
+  return new Promise<BudgetForest>((resolve,reject)=>{
+    const timer=setTimeout(()=>{fw.jobs.delete(id);reject(Error('forest worker timeout'));},20000);
+    fw.jobs.set(id,{resolve,reject,timer});
+    fw.w.postMessage({plants,center,id});
+  });
+}
 export class Forest {
   private compact=textureBudgetEnabled();
   private placed = new Map<string, Planted[]>();
@@ -116,13 +137,7 @@ export class Forest {
   async buildBudget(){
     const plants:BudgetPlant[]=[...this.placed].flatMap(([key,list])=>list.map(p=>({key,matrix:p.m.toArray(),tint:[p.tint.r,p.tint.g,p.tint.b],crownTint:p.crownTint&&[p.crownTint.r,p.crownTint.g,p.crownTint.b],x:p.x,z:p.z})));
     const center=[this.centre.x,this.centre.y];let parts:BudgetForest|undefined;
-    if(typeof Worker!=='undefined')try{parts=await new Promise<BudgetForest>((resolve,reject)=>{
-      const w=new Worker(new URL('./budgetForestWorker.ts',import.meta.url),{type:'module'});
-      const timer=setTimeout(()=>{w.terminate();reject(Error('forest worker timeout'));},10000);
-      w.onmessage=e=>{clearTimeout(timer);w.terminate();e.data.result?resolve(e.data.result):reject(Error(e.data.error));};
-      w.onerror=()=>{clearTimeout(timer);w.terminate();reject(Error('forest worker unavailable'));};
-      w.postMessage({wire:packTrees(this.kit.variants).wire,plants,center});
-    });}catch{/* Identical geometry in short main-thread slices when workers fail. */}
+    if(typeof Worker!=='undefined')try{parts=await forestJob(this.kit.variants,plants,center);}catch{/* Identical geometry in short main-thread slices when workers fail. */}
     parts??=await assembleBudgetForest(this.kit.variants,plants,center,()=>frameSlice());
     const group=new THREE.Group();group.name='budget forest';const geometries:THREE.BufferGeometry[]=[],materials:THREE.Material[]=[];
     for(const name of ['crowns','flowers','bark']as const){if(!parts[name].index.length)continue;

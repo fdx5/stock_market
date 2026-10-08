@@ -1579,10 +1579,12 @@ export function patchSky(mat: THREE.ShaderMaterial, horizon: THREE.Color) {
   mat.uniforms.uWeather = { value: new THREE.Vector3() }; // overcast, rain, snow
   mat.uniforms.uStarVis = { value: 0 };
   mat.uniforms.uStarTurn = { value: 0 };
+  // (the drone's sky, 0…1: crisper clouds and the sun's corona; twin of frame.cameraWaterHeight)
+  mat.uniforms.uDrone = { value: 0 };
   mat.fragmentShader = /* glsl */`
 varying vec3 vWorldPosition;
 uniform vec3 sunPosition; uniform float time; uniform vec3 uHorizon; uniform vec3 uSunColor; uniform float uNight; uniform vec3 uWeather;
-uniform float uStarVis; uniform float uStarTurn;
+uniform float uStarVis; uniform float uStarTurn; uniform float uDrone;
 float skyHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float skyNoise(vec2 p) {
   vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
@@ -1597,7 +1599,8 @@ float cumulus(vec2 uv) {
   vec2 warp = vec2(skyFbm(uv * 0.7 + vec2(3.1, 1.7)), skyFbm(uv * 0.7 + vec2(8.3, 2.8))) - 0.5;
   float billow = skyFbm(uv * 1.7 + warp * 0.9);
   float cover = smoothstep(0.34, 0.6, skyNoise(uv * 0.85 + vec2(5.0, 1.0)) * 0.7 + skyNoise(uv * 0.3 + vec2(2.0, 7.0)) * 0.3);
-  return smoothstep(0.5, 0.6, billow * (0.62 + 0.55 * cover)) * smoothstep(0.05, 0.4, cover);
+  float k = uDrone;
+  return smoothstep(mix(0.5, 0.532, k), mix(0.6, 0.568, k), billow * (0.62 + 0.55 * cover) + 0.03 * k) * smoothstep(0.05 - 0.03 * k, 0.4 - 0.1 * k, cover);
 }
 // Stars: three layers (many faint, some medium, a few bright with a soft halo), each
 // star its own colour (blue-white to orange) and twinkle, the Milky Way a faint dusty
@@ -1649,8 +1652,10 @@ void main() {
     float d = cumulus(uv) * (1.0 - overcast);
     if (d > 0.002) {
       vec2 toSun = normalize(sunDir.xz + vec2(0.0001, 0.0)) * 0.22;
-      float lit = clamp(1.0 - (cumulus(uv + toSun) - d * 0.35) * 1.5, 0.0, 1.0);
-      vec3 dayCloud = mix(vec3(0.6, 0.65, 0.74), vec3(1.06, 1.05, 1.02) * mix(vec3(1.0), tint, 0.3), lit);
+      float lit0 = clamp(1.0 - (cumulus(uv + toSun) - d * 0.35) * 1.5, 0.0, 1.0);
+      float lit = mix(lit0, smoothstep(0.12, 0.88, lit0), uDrone);
+      vec3 dayCloud = mix(mix(vec3(0.6, 0.65, 0.74), vec3(0.5, 0.56, 0.67), uDrone), vec3(1.06, 1.05, 1.02) * mix(vec3(1.0), tint, 0.3) * (1.0 + 0.08 * uDrone), lit);
+      dayCloud += tint * uDrone * 0.45 * pow(max(dot(ray, sunDir), 0.0), 10.0) * (1.0 - smoothstep(0.3, 0.9, d));
       sky = mix(sky, mix(uHorizon * 0.25, dayCloud, day), clamp(d * 1.25, 0.0, 0.97) * smoothstep(0.0, 0.08, ray.y));
     }
   }
@@ -1669,7 +1674,8 @@ void main() {
     sky = mix(sky, deck, overcast * smoothstep(-0.02, 0.06, ray.y) * 0.95);
   }
   float sun = max(dot(ray, sunDir), 0.0);
-  sky = mix(sky, tint * 1.15, smoothstep(0.99985, 0.99995, sun) * day * 0.85 * (1.0 - overcast));
+  sky = mix(sky, tint * mix(1.15, 2.6, uDrone), smoothstep(mix(0.99985, 0.99974, uDrone), mix(0.99995, 0.99989, uDrone), sun) * day * 0.85 * (1.0 - overcast));
+  sky += tint * uDrone * day * (1.0 - overcast) * smoothstep(-0.05, 0.05, sunDir.y) * (pow(sun, 1400.0) * 0.8 + pow(sun, 120.0) * 0.12 + pow(sun, 10.0) * 0.035);
   sky = mix(uHorizon, sky, smoothstep(-0.01, 0.07, ray.y));
   gl_FragColor = vec4(sky * 1.15, 1.0);
   #include <tonemapping_fragment>
