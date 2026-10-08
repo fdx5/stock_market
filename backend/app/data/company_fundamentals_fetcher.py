@@ -10,6 +10,9 @@ session's crumb invalidated mid-batch.
 
 import logging
 import time
+import threading
+
+import requests
 
 from app.data import korea_fundamentals_fetcher, yahoo_session
 
@@ -32,6 +35,8 @@ RECOMMENDATION_LABELS_KO = {
 # Delay between sequential requests in fetch_fundamentals_bulk — spacing out ~100
 # crumb-authenticated calls so the batch doesn't read as a scrape burst to Yahoo.
 _BATCH_DELAY_SECONDS = 0.35
+_summary_lock = threading.Lock()
+_summary_retry_at = 0.0
 
 _EMPTY_FIELDS = {
     "sector": None,
@@ -104,13 +109,22 @@ def fetch_fundamentals(symbol: str) -> dict:
     """One symbol's fundamentals, or all-None fields if the call fails or Yahoo has no
     data for it (thinly-covered exchanges like China's STAR board routinely answer
     200 with an empty result) — a missing company's failure must not sink the batch."""
+    global _summary_retry_at
+    resp = None
+    with _summary_lock:
+        cooling = time.monotonic() < _summary_retry_at
+    if cooling:
+        return _fill_korea_gaps(symbol, dict(_EMPTY_FIELDS))
     try:
         session, crumb = yahoo_session.get_crumb()
         url = QUOTE_SUMMARY_URL.format(symbol=symbol)
         resp = session.get(url, params={"modules": MODULES, "crumb": crumb}, timeout=8)
         if resp.status_code in (401, 403):
-            session, crumb = yahoo_session.get_crumb(force_refresh=True)
-            resp = session.get(url, params={"modules": MODULES, "crumb": crumb}, timeout=8)
+            renewed_session, renewed_crumb = yahoo_session.get_crumb(force_refresh=True)
+            if renewed_session is not session or renewed_crumb != crumb:
+                resp.close()
+                resp = None
+                resp = renewed_session.get(url, params={"modules": MODULES, "crumb": renewed_crumb}, timeout=8)
         resp.raise_for_status()
         result = ((resp.json().get("quoteSummary") or {}).get("result")) or []
         fields = _parse(result[0]) if result else dict(_EMPTY_FIELDS)
@@ -118,9 +132,20 @@ def fetch_fundamentals(symbol: str) -> dict:
         # Cooling down: yahoo_session has logged it once; a traceback per symbol of a
         # hundred-symbol batch would only repeat it.
         fields = dict(_EMPTY_FIELDS)
-    except Exception:
-        logger.warning("company_fundamentals_fetcher: failed for %s", symbol, exc_info=True)
+    except requests.HTTPError:
+        status = resp.status_code if resp is not None else None
+        if status in (401, 403, 429) or status is not None and status >= 500:
+            wait = max(yahoo_session._retry_after_seconds(resp) or 0, 900 if status == 429 else 300 if status in (401, 403) else 60)
+            with _summary_lock:
+                _summary_retry_at = max(_summary_retry_at, time.monotonic() + wait)
+            logger.info("company_fundamentals_fetcher: summary unavailable status=%s next_probe_s=%.0f; retaining previous fundamentals", status, wait)
         fields = dict(_EMPTY_FIELDS)
+    except Exception as error:
+        logger.warning("company_fundamentals_fetcher: failed for %s (%s)", symbol, type(error).__name__)
+        fields = dict(_EMPTY_FIELDS)
+    finally:
+        if resp is not None:
+            resp.close()
     # Outside the try: a Yahoo failure is exactly when the fallback is most useful,
     # and this one keeps its own exceptions to itself.
     return _fill_korea_gaps(symbol, fields)

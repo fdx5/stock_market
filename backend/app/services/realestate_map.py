@@ -118,6 +118,25 @@ def _load_static_regions() -> dict:
         return json.load(f)
 
 
+def _compatible_regions(live: list[dict], previous: dict) -> list[dict]:
+    """Keep historical codes readable when MOIS replaces an administrative area.
+
+    Queued builds, saved maps, complex IDs and browser selections still use those
+    codes. This is a read compatibility catalog; no stored trades are rewritten.
+    Live names/districts win, and old codes supplement them without duplicates.
+    """
+    by_code = {s["code"]: {**s, "sgg": list(s["sgg"])} for s in live}
+    for old in previous["sido"]:
+        current = by_code.get(old["code"])
+        if current is None:
+            by_code[old["code"]] = old
+            continue
+        existing = {g["code"] for g in current["sgg"]}
+        current["sgg"].extend(g for g in old["sgg"] if g["code"] not in existing)
+    order = {s["code"]: i for i, s in enumerate(_load_static_regions()["sido"])}
+    return sorted(by_code.values(), key=lambda s: order.get(s["code"], 99))
+
+
 def regions() -> dict:
     global _regions
     with _regions_lock:
@@ -156,12 +175,14 @@ def _refresh_regions_from_mois() -> bool:
             total = int(next(h["totalCount"] for h in head if "totalCount" in h))
             batch = body[1]["row"]
             rows.extend(batch)
-            if not batch or page * 1000 >= total:
+            if (not batch or page * 1000 >= total) and len(rows) < total:
+                raise ValueError("incomplete region response")
+            if page * 1000 >= total:
                 break
             page += 1
             time.sleep(CALL_SPACING_SECONDS)
     except Exception as exc:  # noqa: BLE001 — any shape surprise keeps the bundled table
-        log.info("realestate: region refresh skipped (%s)", exc)
+        log.info("realestate: region refresh skipped (%s)", type(exc).__name__)
         return False
 
     sido_names: dict[str, str] = {}
@@ -200,7 +221,9 @@ def _refresh_regions_from_mois() -> bool:
 
     global _regions
     with _regions_lock:
-        _regions = {"source": "행정안전부 법정동코드 (StanReginCd, 실시간)", "sido": tree}
+        previous = _regions if _regions is not None else _load_static_regions()
+        tree = _compatible_regions(tree, previous)
+        _regions = {"source": "행정안전부 법정동코드 (StanReginCd, 실시간·이전 코드 호환)", "sido": tree}
     return True
 
 

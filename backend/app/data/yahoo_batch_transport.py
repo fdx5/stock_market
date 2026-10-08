@@ -25,6 +25,8 @@ MAX_CONCURRENT_PER_HOST = 4
 BACKOFF_SECONDS = 60
 AUTH_BACKOFF_SECONDS = 300
 MAX_BACKOFF_SECONDS = 900
+THROTTLE_BASE_SECONDS = 900
+THROTTLE_MAX_SECONDS = 6 * 3600
 
 
 class QuoteUnavailable(RuntimeError):
@@ -72,8 +74,9 @@ class _QuoteGate:
             else:
                 state.failures += 1
                 state.generation += 1
-                base = AUTH_BACKOFF_SECONDS if status in (401, 403) else BACKOFF_SECONDS
-                wait = max(retry_after, min(MAX_BACKOFF_SECONDS, base * 2 ** min(state.failures - 1, 4)))
+                base = THROTTLE_BASE_SECONDS if status == 429 else AUTH_BACKOFF_SECONDS if status in (401, 403) else BACKOFF_SECONDS
+                maximum = THROTTLE_MAX_SECONDS if status == 429 else MAX_BACKOFF_SECONDS
+                wait = max(retry_after, min(maximum, base * 2 ** min(state.failures - 1, 5)))
                 state.retry_at = time.monotonic() + wait
                 report = (reason, status, wait)
         if report:

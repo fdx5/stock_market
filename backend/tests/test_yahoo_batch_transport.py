@@ -52,6 +52,7 @@ def isolated(monkeypatch):
     monkeypatch.setattr(auth, '_crumb_at', 0)
     monkeypatch.setattr(auth, '_blocked_until', 0)
     monkeypatch.setattr(auth, '_failures', 0)
+    monkeypatch.setattr(auth, '_throttles', 0)
 
 
 def use_session(monkeypatch, handler):
@@ -215,6 +216,54 @@ def test_retry_after_date_and_jitter_never_undercut_requested_delay(monkeypatch)
     monkeypatch.setattr(auth, '_new_session_and_crumb', unavailable)
     with pytest.raises(auth.CrumbUnavailable): auth.get_crumb()
     assert auth._blocked_until >= 1200
+
+
+def test_persistent_auth_429_reduces_probes_and_recovers(monkeypatch, caplog):
+    now = [1000]
+    monkeypatch.setattr(auth.time, 'time', lambda: now[0])
+    monkeypatch.setattr(auth.random, 'uniform', lambda *args: 1)
+    calls = []
+    def limited():
+        calls.append(1)
+        raise auth._Throttled(None)
+    monkeypatch.setattr(auth, '_new_session_and_crumb', limited)
+    with caplog.at_level(logging.INFO):
+        for expected in [900, 1800, 3600, 7200, 14400, 21600, 21600]:
+            with pytest.raises(auth.CrumbUnavailable): auth.get_crumb()
+            assert auth._blocked_until == now[0] + expected
+            for _ in range(20):
+                assert top.fetch_live_quotes(['AAPL']) == {}
+                assert bulk.get_quotes(['AAPL']) == {}
+            now[0] = auth._blocked_until + 1
+    assert len(calls) == 7 and len(caplog.records) == 7
+    assert all(record.levelno == logging.INFO for record in caplog.records)
+    session = Session(lambda *args: response(rows=[row()]))
+    monkeypatch.setattr(auth, '_new_session_and_crumb', lambda: (session, 'fixture'))
+    assert top.fetch_live_quotes(['AAPL'])['AAPL']['price'] == 100
+    assert auth._throttles == auth._failures == 0
+
+
+def test_cookie_429_stops_before_crumb_request(monkeypatch):
+    class CookieSession(Session):
+        def __init__(self):
+            super().__init__(lambda *args: response(429, headers={'Retry-After': '3600'}))
+            self.headers = {}; self.closed = False
+        def close(self): self.closed = True
+    session = CookieSession()
+    monkeypatch.setattr(auth.requests, 'Session', lambda: session)
+    monkeypatch.setattr(auth, 'mount_pool', lambda session, **kwargs: session)
+    with pytest.raises(auth._Throttled) as error: auth._new_session_and_crumb()
+    assert error.value.retry_after == 3600
+    assert len(session.calls) == 1 and session.calls[0][0] == auth._COOKIE_URL
+    assert session.closed
+
+
+def test_quote_429_uses_long_quiet_period_without_new_auth(monkeypatch):
+    monkeypatch.setattr(transport.time, 'monotonic', lambda: 1000)
+    session = use_session(monkeypatch, lambda *args: response(429))
+    for _ in range(30): assert top.fetch_live_quotes(['AAPL']) == {}
+    assert len(session.calls) == 2
+    assert all(state.retry_at == 1900 for state in transport._gate._states.values())
 
 
 @pytest.mark.parametrize('meta', ['bad', {'regularMarketPrice': 'NaN'}, {'regularMarketPrice': 100, 'previousClose': 'bad'}])

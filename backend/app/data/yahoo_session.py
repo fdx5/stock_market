@@ -36,14 +36,12 @@ long as it asks.
 """
 
 import logging
-import math
 import random
 import threading
 import time
-from email.utils import parsedate_to_datetime
 
 import requests
-from app.data.http_pool import mount_pool
+from app.data.http_pool import mount_pool, retry_after_seconds as _retry_after_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +71,10 @@ _REFRESH_MIN_AGE_SECONDS = 30.0
 # each consecutive failure so a persistent block is not probed at a fixed rate.
 _COOLDOWN_BASE_SECONDS = 60.0
 _COOLDOWN_MAX_SECONDS = 900.0
+# A real 429 needs a quiet period, rather than five short failed handshakes before
+# reaching 15 minutes. Persistent rate limits progressively reduce recovery probes.
+_THROTTLE_BASE_SECONDS = 900.0
+_THROTTLE_MAX_SECONDS = 6 * 3600.0
 
 _lock = threading.Lock()
 _session: requests.Session | None = None
@@ -80,26 +82,12 @@ _crumb: str | None = None
 _crumb_at = 0.0
 _blocked_until = 0.0
 _failures = 0
+_throttles = 0
 
 
 class CrumbUnavailable(RuntimeError):
     """No crumb, and it is not worth asking for one yet. Callers treat this the
     same as any other fetch failure — the point is that it costs no request."""
-
-
-def _retry_after_seconds(resp: requests.Response) -> float | None:
-    """Retry-After in seconds or HTTP-date form; ignore invalid/nonfinite values."""
-    raw = resp.headers.get("Retry-After")
-    if not raw:
-        return None
-    try:
-        value = float(raw.strip())
-    except ValueError:
-        try:
-            value = parsedate_to_datetime(raw).timestamp() - time.time()
-        except (TypeError, ValueError, OverflowError):
-            return None
-    return max(0.0, value) if math.isfinite(value) else None
 
 
 def _new_session_and_crumb() -> tuple[requests.Session, str]:
@@ -108,7 +96,15 @@ def _new_session_and_crumb() -> tuple[requests.Session, str]:
     # fc.yahoo.com answers 404 by design (it's a cookie-setting redirect target, not a
     # real page) — only the Set-Cookie header on the response matters here.
     try:
-        session.get(_COOKIE_URL, timeout=_TIMEOUT_SECONDS)
+        cookie_response = session.get(_COOKIE_URL, timeout=_TIMEOUT_SECONDS)
+        try:
+            if cookie_response.status_code == 429:
+                raise _Throttled(_retry_after_seconds(cookie_response))
+        finally:
+            cookie_response.close()
+    except _Throttled:
+        session.close()
+        raise
     except requests.RequestException:
         pass
 
@@ -155,7 +151,7 @@ def get_crumb(force_refresh: bool = False) -> tuple[requests.Session, str]:
     deliberate part of the contract: the alternative is spending a connection
     timeout, or a 429, to learn what is already known.
     """
-    global _session, _crumb, _crumb_at, _blocked_until, _failures
+    global _session, _crumb, _crumb_at, _blocked_until, _failures, _throttles
 
     with _lock:
         have = _session is not None and _crumb is not None
@@ -183,23 +179,31 @@ def get_crumb(force_refresh: bool = False) -> tuple[requests.Session, str]:
         except Exception as exc:
             _failures += 1
             wait = min(_COOLDOWN_BASE_SECONDS * 2 ** min(_failures - 1, 4), _COOLDOWN_MAX_SECONDS)
+            if isinstance(exc, _Throttled):
+                _throttles += 1
+                wait = min(_THROTTLE_BASE_SECONDS * 2 ** min(_throttles - 1, 5), _THROTTLE_MAX_SECONDS)
+            elif _throttles:
+                # A network failure during the recovery probe is not proof that
+                # the previous rate limit has lifted.
+                wait = max(wait, _THROTTLE_BASE_SECONDS)
             if isinstance(exc, _Throttled) and exc.retry_after is not None:
                 # Yahoo's own number wins, and is never undercut by ours.
                 wait = max(wait, exc.retry_after)
             # Jitter, so several workers that were throttled together do not come
             # back together and throttle each other again.
-            delay = wait * random.uniform(0.85, 1.15)
+            delay = wait * random.uniform(1.0, 1.15)
+            delay = max(wait, delay)
             if isinstance(exc, _Throttled) and exc.retry_after is not None:
                 delay = max(delay, exc.retry_after)
             _blocked_until = time.time() + delay
-            logger.warning(
-                "yahoo_session: crumb handshake failed (%s), backing off %.0fs",
-                type(exc).__name__,
-                delay,
-            )
+            if isinstance(exc, _Throttled):
+                logger.info("yahoo_session: authentication rate limited (HTTP 429); next_probe_s=%.0f; chart fallback remains available", delay)
+            else:
+                logger.warning("yahoo_session: crumb handshake failed (%s), backing off %.0fs", type(exc).__name__, delay)
             # The first failed handshake is unavailable too, not just subsequent
             # callers. Do not leak its HTTP exception/crumb URL into each chunk log.
             raise CrumbUnavailable("Yahoo authentication temporarily unavailable") from None
         _crumb_at = time.time()
         _failures = 0
+        _throttles = 0
         return _session, _crumb
