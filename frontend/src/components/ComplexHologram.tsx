@@ -527,7 +527,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const t = q?.get("tod");
     if (initialTod) return hourForTod(initialTod);
     if (q?.has("hour") && Number.isFinite(h)) return ((h % 24) + 24) % 24;
-    return t === "day" || t === "dusk" || t === "night" ? hourForTod(t) : Math.round(hourNow() * 4) / 4;
+    // (no time asked for: noon — the view opens in full daylight, not at the clock's hour)
+    return t === "day" || t === "dusk" || t === "night" ? hourForTod(t) : 12;
   });
   const [weather, setWeather] = useState<Weather>(() => {
     const q = typeof location !== "undefined" ? new URLSearchParams(location.search).get("weather") : null;
