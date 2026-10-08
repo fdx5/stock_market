@@ -33,7 +33,7 @@ live['behavior'] = dict(window_s=900, capacity=2000, event_count=85, online_coun
               session(quiet, []), session(old, [action(1401, 800, '/global', '해외 종목', kind='page_view')], False)])
 live['api']['recent'].append(dict(id=1901, ts=live['at']-1, route='/api/visitors/count', method='GET', status=200, ms=20))
 live['external']['recent'].append(dict(id=1902, ts=live['at']-1, host='fixture-db.turso.io', method='POST', status=200, ms=20, target='database'))
-state = dict(calls=0, new=False, same=False, expired=False, failed=False, empty=False)
+state = dict(calls=0, new=False, same=False, awaken=False, expired=False, failed=False, empty=False)
 report = dict(base=base, checks=[], responsive=[], errors=[])
 
 
@@ -53,11 +53,15 @@ def api(route):
                 data['behavior']['sessions'][0]['last_seen'] = live['at']
             if state['same']:
                 data['behavior']['sessions'][0]['events'].append(action(2002, 0, '/stock/AAPL', '차트 기간 선택'))
+            if state['awaken']:
+                data['behavior']['sessions'][2]['events'].append(action(2003, .1, '/desk', '마켓 데스크', kind='page_view'))
+                data['behavior']['sessions'][2].update(active=True, last_seen=live['at']-.1)
             if state['expired']: data['behavior']['sessions'] = [s for s in data['behavior']['sessions'] if s['id'] != a]
             if state['empty']: data['behavior'].update(sessions=[], event_count=0, online_count=0, active_count=0)
             # Canonical backend order: newest behavior first, quiet presence last.
             by_id = {s['id']: s for s in data['behavior']['sessions']}
             order = [a, b, old, quiet] if state['new'] else [b, a, old, quiet]
+            if state['awaken']: order = [a, quiet, b, old]
             data['behavior']['sessions'] = [by_id[sid] for sid in order if sid in by_id]
             route.fulfill(json=data)
         else: route.fulfill(json={})
@@ -88,7 +92,10 @@ with sync_playwright() as p:
         expect(watch.get_by_role('button', name='행동 경로', exact=True)).to_have_attribute('aria-pressed', 'true')
         expect(page.locator('.aw-action-card')).to_have_count(10)
         expect(page.locator(f'.aw-lane[data-session="{b}"]')).to_contain_text('최근 6개 요약')
-        expect(page.locator('.aw-spark')).to_have_count(4)
+        expect(page.locator('.aw-spark')).to_have_count(2)
+        expect(page.locator('.aw-lane[data-folded="true"]')).to_have_count(2)
+        expect(page.locator(f'.aw-lane[data-session="{quiet}"] .aw-lane-plot')).to_have_count(0)
+        expect(page.locator(f'.aw-lane[data-session="{old}"] .aw-lane-label')).to_have_attribute('aria-expanded', 'false')
         watch.get_by_role('button', name='시간축', exact=True).click()
         assert page.locator('.aw-lane .aw-trail').count() == 82
         page.screenshot(path=str(output/'time-axis-1920.png'), full_page=True)
@@ -103,10 +110,23 @@ with sync_playwright() as p:
         expect(scene).to_have_attribute('data-record-sessions', a)
         expect(page.locator('.af-log-user')).to_have_count(4)
         expect(page.locator('.aw-detail-list button')).to_have_count(4)
+        # Capture transient animation frames before the next poll. Waiting until
+        # React's lists update can miss a short, already completed same-site leg.
+        page.evaluate("""() => {
+            window.__atlasActionMotion = {};
+            const host = document.querySelector('.af-scene');
+            new MutationObserver(() => {
+                const id = host.dataset.crawlActions, position = host.dataset.positions;
+                if (!id) return;
+                const prior = window.__atlasActionMotion[id];
+                if (!prior) window.__atlasActionMotion[id] = {first: position, moved: false};
+                else if (prior.first !== position) prior.moved = true;
+            }).observe(host, {attributes: true, attributeFilter: ['data-crawl-actions', 'data-positions']});
+        }""")
         state['new'] = True
         expect(page.locator('.aw-detail-list button')).to_have_count(5, timeout=10000)
         expect(page.locator('.af-log-user')).to_have_count(5)
-        expect(scene).to_have_attribute('data-crawl-actions', '2001', timeout=10000)
+        page.wait_for_function("window.__atlasActionMotion['2001']?.moved", timeout=10000)
         expect(scene).to_have_attribute('data-record-sessions', a)
         page.screenshot(path=str(output/'session-focus-1920.png'), full_page=True)
         report['checks'].append('click session isolates diagram, spider and logs; focus persists across live updates')
@@ -125,15 +145,13 @@ with sync_playwright() as p:
 
         page.wait_for_function("document.querySelector('.af-scene').dataset.spiderState==='patrol'", timeout=20000)
         state['same'] = True
-        expect(scene).to_have_attribute('data-crawl-actions', '2002', timeout=10000)
-        location = scene.get_attribute('data-positions')
-        page.wait_for_timeout(200)
-        assert scene.get_attribute('data-positions') != location
+        page.wait_for_function("window.__atlasActionMotion['2002']?.moved", timeout=10000)
         assert float(scene.get_attribute('data-max-step')) < 24
         report['checks'].append('new action interrupts patrol immediately; repeat action in same service crawls smoothly')
 
         page.locator('.aw-session-picker button').filter(has_text='33333333').click()
         expect(page.locator('.aw-lane')).to_have_count(1)
+        expect(page.locator('.aw-lane')).to_have_attribute('data-folded', 'false')
         expect(page.locator('.aw-lane')).to_contain_text('접속 유지')
         expect(page.locator('.aw-detail header')).to_contain_text('관측 행동 없음')
         expect(page.locator('.af-log-user')).to_have_count(0)
@@ -163,6 +181,13 @@ with sync_playwright() as p:
         expect(page.locator('.aw-lane')).to_have_count(4)
         assert page.locator('.aw-lane').evaluate_all('(rows)=>rows.map(row=>row.dataset.session)') == [a, b, old, quiet]
         expect(page.locator('.aw-session-picker button').first).to_contain_text('11111111')
+        expect(page.locator(f'.aw-lane[data-session="{quiet}"]')).to_have_attribute('data-folded', 'true')
+        state['awaken'] = True
+        expect(page.locator(f'.aw-lane[data-session="{quiet}"]')).to_have_attribute('data-folded', 'false', timeout=10000)
+        expect(page.locator('.aw-lane [data-action="2003"]')).to_have_count(1)
+        state['awaken'] = False
+        expect(page.locator(f'.aw-lane[data-session="{quiet}"]')).to_have_attribute('data-folded', 'true', timeout=10000)
+        report['checks'].append('inactive sessions fold into summaries; selection unfolds history; new activity auto-unfolds')
         report['checks'].append('session chips and chart lanes rank latest actions first; new actions promote a session while pinned focus persists')
         report['checks'].append('quiet connected session stays visible without invented actions; history auto-follow and return to all')
 

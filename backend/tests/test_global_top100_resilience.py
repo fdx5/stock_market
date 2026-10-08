@@ -118,3 +118,33 @@ def test_live_falls_back_to_the_chart_endpoint_and_keeps_old_quotes(svc, monkeyp
     g.refresh_live()  # within the minute: no second round of 100 chart calls
     assert calls == [100]
     assert g.get_top100()["items"][0]["price"] == 111.0
+
+
+def test_failed_handshake_uses_chart_once_and_preserves_last_valid_live_quote(svc, monkeypatch, caplog):
+    import logging
+    import requests
+    from app.data import yahoo_session as auth
+    g.force_refresh_full()
+    monkeypatch.setattr(g, '_live', {'S1': {'price': 222.0, 'currency': 'USD', 'change_pct': 3.0}})
+    # svc patches cooling_down; emulate its contract using fresh in-memory state.
+    monkeypatch.setattr(auth, '_session', None)
+    monkeypatch.setattr(auth, '_crumb', None)
+    monkeypatch.setattr(auth, '_blocked_until', 0)
+    monkeypatch.setattr(auth, '_failures', 0)
+    monkeypatch.setattr(auth, 'cooling_down', lambda: auth._crumb is None and auth.time.time() < auth._blocked_until)
+    attempts, charts = [], []
+    def handshake():
+        attempts.append(1)
+        raise requests.ReadTimeout()
+    def chart(symbols):
+        charts.append(list(symbols))
+        return {'S0': {'price': 111.0, 'currency': 'USD', 'change_pct': 2.0}}
+    monkeypatch.setattr(auth, '_new_session_and_crumb', handshake)
+    monkeypatch.setattr(g, 'fetch_chart_quotes', chart)
+    with caplog.at_level(logging.WARNING):
+        for _ in range(5): assert g.refresh_live() == 2
+    assert len(attempts) == len(charts) == 1
+    items = {item['symbol']: item for item in g.get_top100()['items']}
+    assert items['S0']['price'] == 111.0 and items['S1']['price'] == 222.0
+    assert len(items) == 100
+    assert 'chunk fetch failed' not in caplog.text

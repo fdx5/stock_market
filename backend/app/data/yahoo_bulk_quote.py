@@ -20,13 +20,12 @@ a failed batch must cost those names their live print — never the page.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+import math
 
 from app.data import yahoo_session
+from app.data import yahoo_batch_transport as transport
 
-QUOTE_URLS = (
-    "https://query1.finance.yahoo.com/v7/finance/quote",
-    "https://query2.finance.yahoo.com/v7/finance/quote",
-)
+QUOTE_URLS = transport.QUOTE_URLS
 logger = logging.getLogger(__name__)
 
 # 200 covers the S&P 500 in three requests and keeps the comma-joined query string well
@@ -132,23 +131,14 @@ def _read(row: dict) -> dict | None:
 
 
 def _fetch_chunk_from(url: str, symbols: list[str], retry: bool = True) -> dict[str, dict]:
-    session, crumb = yahoo_session.get_crumb()
-    resp = session.get(
-        url, params={"symbols": ",".join(symbols), "crumb": crumb}, timeout=TIMEOUT_SECONDS
-    )
-    if resp.status_code in (401, 403) and retry:
-        # A crumb expires with its cookie. One re-acquisition, then give up: a genuinely
-        # blocked upstream must not turn into a retry loop per chunk per refresh.
-        # get_crumb decides whether that re-acquisition actually happens — four chunks
-        # failing together are four reports of one dead crumb, not four dead crumbs.
-        yahoo_session.get_crumb(force_refresh=True)
-        return _fetch_chunk_from(url, symbols, retry=False)
-    resp.raise_for_status()
-
     quotes: dict[str, dict] = {}
-    for row in resp.json().get("quoteResponse", {}).get("result") or []:
-        quote = _read(row)
-        if quote and row.get("symbol"):
+    for row in transport.fetch_rows_from(url, symbols, allow_refresh=retry):
+        try:
+            quote = _read(row)
+        except (ValueError, TypeError, OverflowError):
+            continue
+        if (quote and row.get("symbol") and quote["close"] > 0
+                and all(math.isfinite(quote[key]) for key in ("close", "change", "change_pct", "regular_close"))):
             quotes[row["symbol"]] = quote
     return quotes
 
@@ -168,9 +158,11 @@ def _fetch_chunk(symbols: list[str]) -> dict[str, dict]:
             last_error = RuntimeError(f"Yahoo v7 returned no quotes from {url}")
         except yahoo_session.CrumbUnavailable:
             raise
+        except transport.QuoteUnavailable as exc:
+            last_error = exc
         except Exception as exc:  # noqa: BLE001 - the second host is the recovery path
             last_error = exc
-            logger.warning("Yahoo v7 quote host failed: host=%s error=%s", url, type(exc).__name__)
+            logger.warning("Yahoo v7 unexpected quote error: host=%s error=%s", url.split("/")[2], type(exc).__name__)
     raise last_error or RuntimeError("Yahoo v7 quote hosts returned no quotes")
 
 

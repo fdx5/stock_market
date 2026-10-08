@@ -9,11 +9,13 @@ requiring it in 2024.
 """
 
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
 from app.data import yahoo_session
+from app.data.yahoo_batch_transport import fetch_rows
 
 logger = logging.getLogger(__name__)
 
@@ -28,27 +30,34 @@ _CHUNK_SIZE = 50
 
 
 def _fetch_chunk(symbols: list[str]) -> dict[str, dict]:
-    session, crumb = yahoo_session.get_crumb()
-    params = {"symbols": ",".join(symbols), "crumb": crumb}
-    resp = session.get(QUOTE_URL, params=params, timeout=10)
-    if resp.status_code in (401, 403):
-        session, crumb = yahoo_session.get_crumb(force_refresh=True)
-        resp = session.get(QUOTE_URL, params={"symbols": ",".join(symbols), "crumb": crumb}, timeout=10)
-    resp.raise_for_status()
-
-    results = ((resp.json().get("quoteResponse") or {}).get("result")) or []
+    results = fetch_rows(symbols)
     out: dict[str, dict] = {}
     for r in results:
         symbol = r.get("symbol")
-        if not symbol:
+        if not isinstance(symbol, str) or symbol not in symbols:
             continue
+        price = _finite_number(r.get("regularMarketPrice"))
+        if price is None or price <= 0:
+            continue  # A malformed symbol must not discard the other quotes.
+        change = _finite_number(r.get("regularMarketChangePercent"))
+        market_cap = _finite_number(r.get("marketCap"))
         out[symbol] = {
-            "price": r.get("regularMarketPrice"),
-            "market_cap": r.get("marketCap"),
-            "change_pct": r.get("regularMarketChangePercent"),
+            "price": price,
+            "market_cap": market_cap,
+            "change_pct": change,
             "currency": r.get("currency"),
         }
     return out
+
+
+def _finite_number(value) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def fetch_live_quotes(symbols: list[str]) -> dict[str, dict]:
@@ -63,6 +72,7 @@ def fetch_live_quotes(symbols: list[str]) -> dict[str, dict]:
     # 20-30s refresh.
     if yahoo_session.cooling_down():
         return out
+    symbols = list(dict.fromkeys(symbol for symbol in symbols if symbol))
     for i in range(0, len(symbols), _CHUNK_SIZE):
         chunk = symbols[i : i + _CHUNK_SIZE]
         try:
@@ -70,8 +80,8 @@ def fetch_live_quotes(symbols: list[str]) -> dict[str, dict]:
         except yahoo_session.CrumbUnavailable:
             # Every remaining chunk would get the same answer without a request.
             break
-        except Exception:  # noqa: BLE001 - one chunk's failure must not sink the refresh
-            logger.warning("global_top100_batch_quote: chunk fetch failed", exc_info=True)
+        except Exception as error:  # noqa: BLE001 - unexpected failure isolated to one chunk
+            logger.warning("global_top100_batch_quote: unexpected chunk error (%s), preserving prior quotes", type(error).__name__)
     return out
 
 
@@ -92,13 +102,15 @@ def _chart_quote(symbol: str) -> dict | None:
         meta = (resp.json()["chart"]["result"] or [{}])[0].get("meta") or {}
     except Exception:  # noqa: BLE001 - one symbol's miss costs that symbol only
         return None
-    price = meta.get("regularMarketPrice")
-    if price is None:
+    if not isinstance(meta, dict):
         return None
-    change_pct = meta.get("regularMarketChangePercent")
+    price = _finite_number(meta.get("regularMarketPrice"))
+    if price is None or price <= 0:
+        return None
+    change_pct = _finite_number(meta.get("regularMarketChangePercent"))
     if change_pct is None:
-        previous = meta.get("previousClose") or meta.get("chartPreviousClose")
-        change_pct = (float(price) / float(previous) - 1) * 100 if previous else None
+        previous = _finite_number(meta.get("previousClose") or meta.get("chartPreviousClose"))
+        change_pct = (price / previous - 1) * 100 if previous and previous > 0 else None
     return {
         "price": float(price),
         "market_cap": None,

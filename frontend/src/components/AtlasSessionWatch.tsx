@@ -32,6 +32,7 @@ function SessionLane({ session, rank, now, seconds, selected, view, follow, onSe
 }) {
   const events = session.events.filter(e => e.ts >= now - seconds && e.ts <= now);
   const visible = selected ? events : events.slice(-6);
+  const folded = !session.active && !selected;
   const plot = useRef<HTMLDivElement>(null), followTime = useRef(true);
   useEffect(() => {
     const element = plot.current;
@@ -39,21 +40,21 @@ function SessionLane({ session, rank, now, seconds, selected, view, follow, onSe
     const latest = () => { if (followTime.current) element.scrollLeft = element.scrollWidth - element.clientWidth; };
     const observer = new ResizeObserver(latest); observer.observe(element); latest();
     return () => observer.disconnect();
-  }, []);
+  }, [folded]);
   useEffect(() => { followTime.current = follow; if (follow && plot.current) plot.current.scrollLeft = plot.current.scrollWidth - plot.current.clientWidth; }, [follow]);
   useEffect(() => { followTime.current = true; if (plot.current) plot.current.scrollLeft = plot.current.scrollWidth - plot.current.clientWidth; }, [seconds, view, selected]);
   useEffect(() => { if (followTime.current && plot.current) plot.current.scrollLeft = plot.current.scrollWidth - plot.current.clientWidth; }, [now]);
   const x = (e: AtlasAction) => 18 + (e.ts - now + seconds) / seconds * 924;
   const y = (e: AtlasAction) => 48 + (offset[e.group] || 0);
   const last = session.events[session.events.length - 1];
-  return <article className={`aw-lane ${selected ? "is-selected" : ""}`} data-session={session.id} data-view={view}>
-    <button className="aw-lane-label" aria-pressed={selected} onClick={onSelect}>
+  return <article className={`aw-lane ${selected ? "is-selected" : ""} ${folded ? "is-folded" : ""}`} data-session={session.id} data-view={view} data-folded={folded}>
+    <button className="aw-lane-label" aria-pressed={selected} aria-expanded={!folded} onClick={onSelect}>
       <span className="aw-identity"><em>{String(rank).padStart(2, "0")}</em><i className={session.online ? "is-online" : ""}/>{sessionLabel(session.id)}</span>
       <b>{last ? pageLabel(last.path) : "행동 대기"}</b>
       <small>{status(session)}{last && ` · ${age(now, last.ts)}`}</small>
-      <span className="aw-lane-count"><strong>{events.length}</strong> 행동 / {seconds / 60}분{view === "journey" && events.length > visible.length && <span>최근 {visible.length}개 요약</span>}</span>
+      <span className="aw-lane-count">{folded ? <span className="aw-fold-hint">펼쳐 관찰 <SystemAtlasIcon name="arrow" size={14}/></span> : <><strong>{events.length}</strong> 행동 / {seconds / 60}분{view === "journey" && events.length > visible.length && <span>최근 {visible.length}개 요약</span>}</>}</span>
     </button>
-    <div className={`aw-lane-plot aw-${view}`} ref={plot} onWheel={() => { followTime.current = false; }} onTouchStart={() => { followTime.current = false; }}>
+    {!folded && <div className={`aw-lane-plot aw-${view}`} ref={plot} onWheel={() => { followTime.current = false; }} onTouchStart={() => { followTime.current = false; }}>
       {view === "journey" ? <div className="aw-path" role="group" aria-label={`${sessionLabel(session.id)} 시간순 행동 경로`}>
         {visible.map((e, i) => <div className="aw-path-step" key={e.id}>
           {i > 0 && <div className="aw-connector"><small>{elapsed(visible[i - 1], e)}</small><SystemAtlasIcon name="arrow" size={21}/></div>}
@@ -83,7 +84,7 @@ function SessionLane({ session, rank, now, seconds, selected, view, follow, onSe
         <circle cx="942" cy="48" r="3" className={`aw-now ${session.active ? "is-active" : ""}`}/>
         {[0, 1, 2, 3, 4].map(i => <text key={`time:${i}`} className="aw-time" x={18 + i * 231} y="94" textAnchor={i === 0 ? "start" : i === 4 ? "end" : "middle"}>{i === 4 ? "현재" : time(now - seconds + seconds * i / 4)}</text>)}
       </svg>}
-    </div>
+    </div>}
   </article>;
 }
 
@@ -100,7 +101,7 @@ export default function AtlasSessionWatch({ live, selected, onSelect, paused, st
   const choose = (id: string | null) => { onSelect(id); setPicked(null); };
   return <section className="aw-watch" aria-label="접속 세션 행동 관찰" data-mode={selected ? "session" : "all"}>
     <header className="aw-head"><div><span className="aw-eyebrow">SESSION / LIVE JOURNEYS</span><h2>접속 세션 행동 관찰<i className={paused || stale ? "is-stale" : ""}/></h2>
-      <p>{selected ? `${sessionLabel(selected)} 고정 관찰 · 도표, 거미, 로그가 이 세션을 따라갑니다.` : "활동이 있는 세션을 최근 행동 순으로 먼저 표시합니다. 세션을 클릭하면 해당 흐름에 집중합니다."}</p></div>
+      <p>{selected ? `${sessionLabel(selected)} 고정 관찰 · 도표, 거미, 로그가 이 세션을 따라갑니다.` : "활동이 있는 세션을 최근 행동 순으로 표시합니다. 90초간 행동이 없는 세션은 접으며, 클릭하면 펼쳐 관찰합니다."}</p></div>
       <div className="aw-tools"><button onClick={() => choose(null)} aria-pressed={!selected}><SystemAtlasIcon name="client" size={15}/>전체 세션</button>
         <label>시간 범위<select aria-label="세션 행동 시간 범위" value={seconds} onChange={e => setSeconds(Number(e.target.value))}><option value={60}>1분</option><option value={300}>5분</option><option value={900}>15분</option></select></label>
         <span className={`aw-live ${paused || stale ? "is-stale" : ""}`}><i/>{paused ? "관측 정지" : stale ? "갱신 지연" : "실시간 갱신"}</span></div></header>
@@ -110,10 +111,11 @@ export default function AtlasSessionWatch({ live, selected, onSelect, paused, st
       <div className="aw-legend">{Object.entries(DOMAIN_NAMES).filter(([g]) => g !== "operations").map(([g, label]) => <span key={g} style={tint(g)}><i/>{label}</span>)}</div></div>
     {!!sessions.length && <div className="aw-session-picker" role="group" aria-label="관찰할 접속 세션 선택">{sessions.map((s, i) => {
       const last = s.events[s.events.length - 1];
-      return <button key={s.id} aria-pressed={selected === s.id} onClick={() => choose(selected === s.id ? null : s.id)}>
+      const folded = !s.active && selected !== s.id;
+      return <button key={s.id} className={folded ? "is-folded" : ""} aria-pressed={selected === s.id} aria-expanded={!folded} onClick={() => choose(selected === s.id ? null : s.id)}>
         <span className="aw-picker-top"><span><i className={s.online ? "is-online" : ""}/>{sessionLabel(s.id)}</span><em>{String(i + 1).padStart(2, "0")}</em></span>
-        <span className="aw-picker-page">{last ? actionLabel(last) : "관측 행동 없음"}</span>
-        <span className="aw-picker-bottom"><small>{status(s)}{last && ` · ${age(now, last.ts)}`}</small><ActivitySpark session={s} now={now}/></span>
+        {!folded && <span className="aw-picker-page">{last ? actionLabel(last) : "관측 행동 없음"}</span>}
+        <span className="aw-picker-bottom"><small>{status(s)}{last && ` · ${age(now, last.ts)}`}</small>{folded ? <span className="aw-fold-hint">펼치기 <SystemAtlasIcon name="arrow" size={13}/></span> : <ActivitySpark session={s} now={now}/>}</span>
       </button>;
     })}</div>}
     <div className="aw-viewbar"><div><b>{selected ? "선택 세션" : `${sessions.length}개 관측 세션`}</b><small>{view === "journey" ? "시간순 경로 · 전체는 최근 6개 요약, 선택하면 구간 전체" : "실제 발생 시각 · 좌우로 시간축 탐색"}</small></div>

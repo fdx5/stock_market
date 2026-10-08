@@ -36,11 +36,14 @@ long as it asks.
 """
 
 import logging
+import math
 import random
 import threading
 import time
+from email.utils import parsedate_to_datetime
 
 import requests
+from app.data.http_pool import mount_pool
 
 logger = logging.getLogger(__name__)
 
@@ -85,20 +88,22 @@ class CrumbUnavailable(RuntimeError):
 
 
 def _retry_after_seconds(resp: requests.Response) -> float | None:
-    """What Yahoo asked us to wait, if it said. Only the numeric form is read;
-    the HTTP-date form is legal but Yahoo does not use it, and guessing at a
-    parse failure is worse than falling back to our own backoff."""
+    """Retry-After in seconds or HTTP-date form; ignore invalid/nonfinite values."""
     raw = resp.headers.get("Retry-After")
     if not raw:
         return None
     try:
-        return max(0.0, float(raw.strip()))
+        value = float(raw.strip())
     except ValueError:
-        return None
+        try:
+            value = parsedate_to_datetime(raw).timestamp() - time.time()
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return max(0.0, value) if math.isfinite(value) else None
 
 
 def _new_session_and_crumb() -> tuple[requests.Session, str]:
-    session = requests.Session()
+    session = mount_pool(requests.Session(), max_retries=0)
     session.headers.update(HEADERS)
     # fc.yahoo.com answers 404 by design (it's a cookie-setting redirect target, not a
     # real page) — only the Set-Cookie header on the response matters here.
@@ -107,20 +112,22 @@ def _new_session_and_crumb() -> tuple[requests.Session, str]:
     except requests.RequestException:
         pass
 
-    resp = session.get(_CRUMB_URL, timeout=_TIMEOUT_SECONDS)
-    if resp.status_code == 429:
-        # Raised as its own type so the caller below can take Yahoo's own figure
-        # for the cooldown instead of our guess at one.
-        raise _Throttled(_retry_after_seconds(resp))
-    resp.raise_for_status()
-
-    crumb = resp.text.strip()
-    # A crumb is a short opaque token. Anything containing markup is an error or
-    # consent page served with a 200, which would otherwise be sent as a crumb on
-    # every subsequent request and fail all of them.
-    if not crumb or "<" in crumb or len(crumb) > 64:
-        raise ValueError(f"unexpected crumb response: {crumb[:40]!r}")
-    return session, crumb
+    resp = None
+    try:
+        resp = session.get(_CRUMB_URL, timeout=_TIMEOUT_SECONDS)
+        if resp.status_code == 429:
+            raise _Throttled(_retry_after_seconds(resp))
+        resp.raise_for_status()
+        crumb = resp.text.strip()
+        if not crumb or "<" in crumb or len(crumb) > 64:
+            raise ValueError("unexpected crumb response")
+        return session, crumb
+    except Exception:
+        session.close()
+        raise
+    finally:
+        if resp is not None:
+            resp.close()
 
 
 class _Throttled(RuntimeError):
@@ -175,19 +182,24 @@ def get_crumb(force_refresh: bool = False) -> tuple[requests.Session, str]:
             _session, _crumb = _new_session_and_crumb()
         except Exception as exc:
             _failures += 1
-            wait = min(_COOLDOWN_BASE_SECONDS * 2 ** (_failures - 1), _COOLDOWN_MAX_SECONDS)
+            wait = min(_COOLDOWN_BASE_SECONDS * 2 ** min(_failures - 1, 4), _COOLDOWN_MAX_SECONDS)
             if isinstance(exc, _Throttled) and exc.retry_after is not None:
                 # Yahoo's own number wins, and is never undercut by ours.
                 wait = max(wait, exc.retry_after)
             # Jitter, so several workers that were throttled together do not come
             # back together and throttle each other again.
-            _blocked_until = time.time() + wait * random.uniform(0.85, 1.15)
+            delay = wait * random.uniform(0.85, 1.15)
+            if isinstance(exc, _Throttled) and exc.retry_after is not None:
+                delay = max(delay, exc.retry_after)
+            _blocked_until = time.time() + delay
             logger.warning(
                 "yahoo_session: crumb handshake failed (%s), backing off %.0fs",
                 type(exc).__name__,
-                wait,
+                delay,
             )
-            raise
+            # The first failed handshake is unavailable too, not just subsequent
+            # callers. Do not leak its HTTP exception/crumb URL into each chunk log.
+            raise CrumbUnavailable("Yahoo authentication temporarily unavailable") from None
         _crumb_at = time.time()
         _failures = 0
         return _session, _crumb
