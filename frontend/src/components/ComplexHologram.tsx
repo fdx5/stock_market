@@ -70,17 +70,6 @@ import { retainSceneMemory } from "./sceneMemory";
 import { ringBuildings } from "./ringBuildings";
 import { farGround } from "./farGround";
 import { coverPage } from "./pageCover";
-const GAME_KEY = "kospimap.devgame";
-/** The driving game (its own page, /drive) offered? Only to whoever opened the view with
- * ?devgame=1 (remembered here; ?devgame=0 forgets it) until it is public. */
-function gameUnlocked() {
-  try {
-    const q = new URLSearchParams(location.search).get("devgame");
-    if (q === "1") localStorage.setItem(GAME_KEY, "1");
-    else if (q === "0") localStorage.removeItem(GAME_KEY);
-    return localStorage.getItem(GAME_KEY) === "1";
-  } catch { return new URLSearchParams(location.search).get("devgame") === "1"; }
-}
 import { bridgeHeight, buildBridges, findBridges } from "./sceneBridges";
 import { groundPlan } from "./groundClient";
 
@@ -3508,7 +3497,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // −/+ zoom (the field of view, like binoculars); the button, 처음 or Esc steps out.
   const [balloonOn, setBalloonOn] = useState(false);
   // The driving game: its own page (/drive), opened from here where the view stands.
-  const [gameOn] = useState(gameUnlocked);
   const signsRef = useRef<{ id: string; name: string; x: number; y: number; here: boolean }[]>([]);
   const enterBalloon = () => {
     const st = stageRef.current;
@@ -4036,10 +4024,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           title={droneOn ? "드론 착륙 (원래 시점으로)" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 상공 500m까지)"}>
           <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : "드론"}</span>
         </button>}
-        {gameOn && complexId && data?.center && <a className="re-holo-balloon-btn" title="실제 지도 위를 달리는 배송 게임 (새 화면에서 열립니다)"
-          href={`/drive?${new URLSearchParams({ id: complexId, lat: data.center.lat.toFixed(6), lon: data.center.lon.toFixed(6), back: location.pathname + location.search })}`}>
-          <i aria-hidden="true">🚚</i><span>드라이브</span>
-        </a>}
       </div>}
       {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label="3D 화면 조작">
         {/* One row of views and steps; the gestures do the rest. A mouse also gets
