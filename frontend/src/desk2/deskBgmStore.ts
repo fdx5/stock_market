@@ -41,6 +41,12 @@ export const DESK_TRACKS: DeskTrack[] = [
   { id: "PuVO9fow2iI", title: "새벽 도서관 무드 · 집중 로파이", channel: "onia music", bpm: 82, energy: 0.58, bass: 0.55, bright: 0.4 },
   { id: "Uhmq6gmLpGQ", title: "Discipline · Deep Work Music", channel: "Deep Idle Room", bpm: 70, energy: 0.55, bass: 0.4, bright: 0.3 },
   { id: "hydk9hHO1Ko", title: "Focus Like a CEO · Penthouse Mix", channel: "FOCUS ZONE", bpm: 110, energy: 0.75, bass: 0.7, bright: 0.55 },
+  { id: "ahawPLh4epk", title: "Focus Like a CEO · Zero Distraction Mix", channel: "Grind & Groove", bpm: 118, energy: 0.74, bass: 0.75, bright: 0.55 },
+  { id: "wBgVMR8ATHU", title: "Still · Deep Work Music", channel: "MERSO", bpm: 60, energy: 0.42, bass: 0.3, bright: 0.22 },
+  { id: "qXQ6wEipSug", title: "Calm Work Music · High Concentration", channel: "Calm Work Studio", bpm: 72, energy: 0.5, bass: 0.38, bright: 0.32 },
+  { id: "UXwJ9RwdyHs", title: "Hyperfocus · Lock In (Pomodoro 50/10)", channel: "Work With Paul", bpm: 84, energy: 0.6, bass: 0.5, bright: 0.4 },
+  { id: "czMO-L42nnc", title: "Midnight City Ambience · Deep Work", channel: "Focus Room", bpm: 68, energy: 0.48, bass: 0.52, bright: 0.3 },
+  { id: "eo1gKGt6h9M", title: "Hyper Focus Mode · Deep Flow", channel: "Deep Productivity", bpm: 92, energy: 0.66, bass: 0.56, bright: 0.45 },
 ];
 
 export interface DeskBgmState {
