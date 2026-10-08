@@ -604,3 +604,39 @@
 .re-holo-env .d2.d2-bgm-float.re-holo-bgm .d2-bgm.d2-bgm--strip .d2-bgm-transport button { width: 30px; height: 32px; }
 .re-holo-env .d2.d2-bgm-float.re-holo-bgm .d2-bgm.d2-bgm--strip .d2-bgm-transport .d2-bgm-play { width: 34px; height: 34px; }
 @media (max-width: 760px) { .re-holo-env .d2.d2-bgm-float.re-holo-bgm { flex: 1 1 100%; width: auto; } }
+
+/* The drone on a phone or tablet: the view takes the whole screen (the page's bars hidden behind
+   it), the controls round its edges clear of each other — speed top left, tools top right, the
+   radar under them, a stick in each bottom corner with the height buttons over the left one. */
+.re-holo--drone-touch .re-holo-stage { position: fixed !important; left: 0 !important; top: 0 !important; width: 100vw !important; height: 100vh !important; height: 100dvh !important; z-index: 2147483000 !important; margin: 0 !important; border-radius: 0 !important; }
+.re-holo--drone-touch .re-drone { font-size: 11px; }
+.re-holo--drone-touch .re-drone-hud { left: calc(10px + env(safe-area-inset-left)); top: calc(10px + env(safe-area-inset-top)); padding: 6px 10px; gap: 1px 10px; }
+.re-holo--drone-touch .re-drone-speed { font-size: 22px; }
+.re-holo--drone-touch .re-drone-world { font-size: 10px; max-width: 150px; }
+.re-holo--drone-touch .re-drone-tools { right: calc(10px + env(safe-area-inset-right)); top: calc(10px + env(safe-area-inset-top)); gap: 5px; }
+.re-holo--drone-touch .re-drone-tools button { height: 40px; min-width: 40px; padding: 0 10px; font-size: 13px; border-radius: 12px; }
+.re-holo--drone-touch .re-drone-radar { top: calc(58px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); width: 116px; gap: 4px; }
+.re-holo-stage .re-holo--drone-touch .re-drone-radar canvas, .re-holo--drone-touch .re-holo-stage .re-drone-radar canvas { width: 116px !important; height: 116px !important; }
+.re-holo--drone-touch .re-drone-radar.is-big { width: min(300px, 70vw, 60vh); }
+.re-holo--drone-touch .re-holo-stage .re-drone-radar.is-big canvas { width: min(300px, 70vw, 60vh) !important; height: min(300px, 70vw, 60vh) !important; }
+.re-holo--drone-touch .re-drone-radar-tools button { height: 30px; min-width: 30px; }
+.re-holo--drone-touch .re-drone-radar:not(.is-big) .re-drone-radar-tools button:not(:last-child) { display: none; }
+.re-holo--drone-touch .re-drone-radar-where { padding: 4px 8px; }
+.re-holo--drone-touch .re-drone-radar-where b { font-size: 11px; }
+.re-holo--drone-touch .re-drone-radar-where span { display: none; }
+.re-holo--drone-touch .re-drone-stick { width: 128px; height: 128px; bottom: calc(26px + env(safe-area-inset-bottom)); }
+.re-holo--drone-touch .re-drone-stick.is-left { left: calc(16px + env(safe-area-inset-left)); }
+.re-holo--drone-touch .re-drone-stick.is-right { right: calc(16px + env(safe-area-inset-right)); }
+.re-holo--drone-touch .re-drone-stick-label { font-size: 10px; text-shadow: 0 1px 3px #000; }
+.re-holo--drone-touch .re-drone-alt-buttons { left: calc(16px + env(safe-area-inset-left)); top: auto; bottom: calc(178px + env(safe-area-inset-bottom)); transform: none; grid-auto-flow: column; }
+.re-holo--drone-touch .re-drone-alt-buttons button { width: 52px; height: 44px; }
+.re-holo--drone-touch .re-drone-help { top: calc(66px + env(safe-area-inset-top)); bottom: auto; left: 50%; max-width: calc(100% - 150px); font-size: 12px; }
+@media (orientation: portrait) { .re-holo--drone-touch .re-drone-help { top: auto; bottom: calc(240px + env(safe-area-inset-bottom)); max-width: calc(100% - 24px); } }
+/* a short landscape screen: the radar smaller, the sticks a little smaller */
+@media (max-height: 480px) {
+  .re-holo--drone-touch .re-drone-radar { width: 92px; top: calc(56px + env(safe-area-inset-top)); }
+  .re-holo--drone-touch .re-holo-stage .re-drone-radar canvas { width: 92px !important; height: 92px !important; }
+  .re-holo--drone-touch .re-drone-radar-where { display: none; }
+  .re-holo--drone-touch .re-drone-stick { width: 112px; height: 112px; bottom: calc(18px + env(safe-area-inset-bottom)); }
+  .re-holo--drone-touch .re-drone-alt-buttons { grid-auto-flow: row; left: calc(140px + env(safe-area-inset-left)); bottom: calc(18px + env(safe-area-inset-bottom)); }
+}

@@ -516,6 +516,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // primary pointer is fine) and switches when the screen is actually touched.
   const [touchMode, setTouchMode] = useState(() => !!window.matchMedia?.("(pointer: coarse)").matches
     || (navigator.maxTouchPoints > 0 && !!window.matchMedia?.("(hover: none)").matches));
+  // (the drone's touch layout: a phone or tablet by its screen, whatever pointer moved last)
+  const droneTouch = touchMode || navigator.maxTouchPoints > 0 && !!window.matchMedia?.("(hover: none)").matches;
   // Auto-rotation on from the first load (a press on the view or its buttons stops it).
   const [spin, setSpin] = useState(true);
   // The hour on the time slider (?hour= or ?tod= to open elsewhere), and the weather.
@@ -3927,7 +3929,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     <>
     {bigBase && <div className="re-holo-slot" style={{ height: bigBase.h }} aria-hidden="true" />}
     {big && !narrow && createPortal(<div className="re-holo-resize-backdrop" aria-hidden="true" />, document.body)}
-    {portal(<section ref={sectionRef} className={`re-holo${big ? " re-holo--expanded" : ""}${big && !narrow && bigSize ? " re-holo--resized" : ""}`}
+    {portal(<section ref={sectionRef} className={`re-holo${big ? " re-holo--expanded" : ""}${droneOn && droneTouch ? " re-holo--drone-touch" : ""}${big && !narrow && bigSize ? " re-holo--resized" : ""}`}
       data-covers-page={coversPage || undefined}
       style={big && !narrow && bigSize ? { width: bigSize.w, height: bigSize.h } : undefined}
       role={big ? "dialog" : undefined} aria-modal={big || undefined} aria-label={big ? "단지 3D 뷰 전체화면" : "단지 3D 뷰"}>
@@ -3991,7 +3993,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         {!loading && preparing && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
         {!loading && error && <p className="re-holo-msg" role="status">{error}{" "}
           <button type="button" className="re-holo-retry" onClick={() => setReloadKey(k => k + 1)}>다시 시도</button></p>}
-        {droneOn && stageRef.current?.drone && <DroneOverlay sink={droneHud} flight={stageRef.current.drone.flight} signs={stageRef.current.drone.signs} touch={touchMode}
+        {droneOn && stageRef.current?.drone && <DroneOverlay sink={droneHud} flight={stageRef.current.drone.flight} signs={stageRef.current.drone.signs} touch={droneTouch}
           radar={{ vkey: data!.vworld_key!, domain: data!.vworld_domain ?? "https://kospimap.com", origin: data!.center!, where: stageRef.current.drone.where }}
           onExit={leaveDrone} onMute={m => stageRef.current?.drone?.audio.setMuted(m)}
           view={droneView} onView={() => { const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); }} />}

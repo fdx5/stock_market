@@ -57,7 +57,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
   const [help, setHelp] = useState(true);
   useEffect(() => {
     sink.current = setHud;
-    const t = window.setTimeout(() => setHelp(false), 9000);
+    const t = window.setTimeout(() => setHelp(false), touch ? 6000 : 9000);
     return () => { sink.current = null; window.clearTimeout(t); };
   }, [sink]);
   const h = hud;
@@ -75,14 +75,14 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
       </div>
       <div className="re-drone-tools">
         <button type="button" onClick={onView} title="1인칭 ↔ 3인칭 (V)">{view === "fpv" ? "🎥 1인칭" : "🚁 3인칭"}</button>
-        <button type="button" onClick={() => { const m = !muted; setMuted(m); onMute(m); }} aria-pressed={muted} title={muted ? "드론 소리 켜기" : "드론 소리 끄기"}>{muted ? "🔇" : "🔊"}</button>
+        <button type="button" onClick={() => { const m = !muted; setMuted(m); onMute(m); }} aria-pressed={muted} title={muted ? "드론 소리 켜기" : "드론 소리 끄기"} className="re-drone-mute">{muted ? "🔇 음소거" : "🔊 소리"}</button>
         <button type="button" onClick={() => setHelp(v => !v)} aria-pressed={help} title="조작법">?</button>
         <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>
       </div>
       <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} />
       {help && <div className="re-drone-help" role="note">
         {touch
-          ? <><b>왼쪽 스틱</b> 상승·하강 / 좌우 회전 · <b>오른쪽 스틱</b> 전진·후진 / 좌우 이동 · 화면 드래그: 카메라 각도</>
+          ? <><b>왼쪽 스틱</b> ↕ 상승·하강 ↔ 회전<br /><b>오른쪽 스틱</b> ↕ 전진·후진 ↔ 좌우 이동<br />화면 드래그: 카메라 각도</>
           : <><b>W S</b> 전진·후진 · <b>A D</b> 좌우 이동 · <b>Q E</b>·<b>← →</b> 회전 · <b>Space</b>/<b>R</b>/<b>PgUp</b>/휠↑ 상승 · <b>Shift</b>/<b>F</b>/<b>PgDn</b>/휠↓ 하강 · <b>V</b> 1인칭/3인칭 · 드래그: 카메라 각도 · <b>Esc</b> 착륙</>}
         <span>최고 200km/h · 지면 2m ~ 상공 500m</span>
       </div>}
