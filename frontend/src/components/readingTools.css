@@ -1,0 +1,24 @@
+.reading-tools { position: fixed; z-index: 100; right: max(16px, env(safe-area-inset-right)); bottom: 22px; display: flex; align-items: center; gap: 6px; font-family: var(--f-sans, sans-serif); font-size: 12px; }
+.reading-tools button, .reading-tools a { min-height: 38px; padding: 9px 12px; border: 1px solid var(--rule-2, #777); border-radius: 7px; background: var(--p1, var(--surface-1)); color: var(--ink, var(--text-primary)); box-shadow: 0 3px 12px #0002; text-decoration: none; cursor: pointer; }
+.reading-recents b { padding-left: 6px; color: var(--brass, #b78737); }
+.reading-tools :focus-visible, .recent-sheet :focus-visible { outline: 2px solid var(--brass, #b78737); outline-offset: 3px; }
+.recent-sheet { padding: 0; width: min(540px, calc(100vw - 24px)); max-height: min(82dvh, 820px); border: 1px solid var(--rule-2, #777); border-radius: 12px; background: var(--p1, var(--surface-1)); color: var(--ink, var(--text-primary)); font-family: var(--f-sans, sans-serif); }
+.recent-sheet::backdrop { background: #0009; backdrop-filter: blur(3px); }
+.recent-sheet-inner { padding: 24px; }
+.recent-sheet header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.recent-sheet header small { color: var(--ink-3, #999); letter-spacing: .12em; font-size: 10px; }
+.recent-sheet h2 { margin: 6px 0; font-size: 23px; }
+.recent-sheet header button { background: transparent; color: inherit; border: 1px solid var(--rule-2, #777); border-radius: 6px; width: 40px; height: 40px; font-size: 25px; cursor: pointer; }
+.recent-sheet-note { color: var(--ink-2, #999); font-size: 12px; line-height: 1.6; }
+.recent-sheet ol { margin: 20px 0; padding: 0; list-style: none; }
+.recent-sheet li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--rule, #555); }
+.recent-sheet-order { font: 12px var(--f-num, monospace); color: var(--ink-3, #999); }
+.recent-sheet-stock { flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+.recent-sheet-stock b { display: block; overflow-wrap: anywhere; font-size: 15px; }
+.recent-sheet-stock small { display: block; padding-top: 5px; color: var(--ink-2, #999); font-size: 11px; }
+.recent-sheet-report, .recent-sheet-map, .recent-sheet-empty a { color: var(--brass, #b78737); font-size: 12px; text-decoration: none; padding: 10px 0; }
+.recent-sheet-report { white-space: nowrap; }
+.recent-sheet-map { display: block; border-top: 1px solid var(--rule, #555); padding-top: 16px; }
+.recent-sheet-empty { padding: 36px 0; text-align: center; }
+@media (max-width: 760px) { .reading-tools { bottom: calc(82px + env(safe-area-inset-bottom)); right: 10px; font-size: 11px; } .reading-tools.is-report { bottom: calc(12px + env(safe-area-inset-bottom)); } .reading-tools .reading-resume { display: none; } .recent-sheet { margin: auto auto max(12px, env(safe-area-inset-bottom)); } .recent-sheet-inner { padding: 20px 16px; } }
+@media print { .reading-tools, .recent-sheet { display: none !important; } }

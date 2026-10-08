@@ -7,6 +7,7 @@ export interface StoredStock {
   code: string;
   name: string;
   market: string;
+  asset_type?: "STOCK" | "ETF";
 }
 
 const RECENTS_KEY = "kstock_recents";
@@ -59,6 +60,10 @@ export function getRecents(): StoredStock[] {
   return read(RECENTS_KEY);
 }
 
+export function recentStockUrl(stock: StoredStock, report = false): string {
+  return `/stock/${encodeURIComponent(stock.code)}${report ? "/report" : ""}${stock.asset_type === "ETF" ? "?asset=ETF" : ""}`;
+}
+
 /** Records a visit, moving an already-seen stock back to the front rather than
  * duplicating it. A blank name is ignored: the dashboard briefly holds a
  * name-less placeholder while `/summary` is in flight, and storing that would
@@ -84,5 +89,5 @@ export function subscribeWatchlist(listener: () => void): () => void {
 }
 
 export function toSearchResult(stock: StoredStock): StockSearchResult {
-  return { code: stock.code, name: stock.name, market: stock.market };
+  return { code: stock.code, name: stock.name, market: stock.market, asset_type: stock.asset_type };
 }

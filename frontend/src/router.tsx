@@ -1,20 +1,51 @@
 import { CSSProperties, MouseEvent, ReactNode, useEffect, useState } from "react";
+import { readingUrl, resolvedBrowsingUrl, saveReadingPosition } from "./browsingMemory";
+
+const makeEntry = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+let activeUrl = readingUrl();
+let activeEntry = window.history.state?.kstockEntry ?? makeEntry();
+window.history.replaceState({ ...window.history.state, kstockEntry: activeEntry }, "");
+window.history.scrollRestoration = "manual";
+let returning = true;
+let pushing = false;
+window.addEventListener("popstate", () => {
+  if (pushing) return;
+  saveReadingPosition(activeUrl, activeEntry);
+  activeUrl = readingUrl();
+  activeEntry = window.history.state?.kstockEntry ?? makeEntry();
+  window.history.replaceState({ ...window.history.state, kstockEntry: activeEntry }, "");
+  returning = true;
+});
+window.addEventListener("pagehide", () => saveReadingPosition(readingUrl(), activeEntry));
+
+export function navigationSnapshot() { return { url: activeUrl, entry: activeEntry, returning }; }
 
 export function navigate(path: string): void {
-  window.history.pushState({}, "", path);
+  activeUrl = readingUrl();
+  saveReadingPosition(activeUrl, activeEntry);
+  path = resolvedBrowsingUrl(path);
+  const entry = makeEntry();
+  window.history.pushState({ kstockEntry: entry }, "", path);
+  // Update before the synthetic pop event so it cannot save the old scroll for
+  // the newly created entry. Other route consumers still receive popstate.
+  activeUrl = readingUrl();
+  activeEntry = entry;
+  returning = false;
+  pushing = true;
   window.dispatchEvent(new PopStateEvent("popstate"));
+  pushing = false;
 }
 
 export function useRoute(): string {
-  const [path, setPath] = useState(window.location.pathname);
+  const [route, setRoute] = useState(() => ({ path: window.location.pathname }));
 
   useEffect(() => {
-    const onPopState = () => setPath(window.location.pathname);
+    const onPopState = () => setRoute({ path: window.location.pathname });
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  return path;
+  return route.path;
 }
 
 export function Link({

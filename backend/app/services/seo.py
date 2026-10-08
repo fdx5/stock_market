@@ -294,6 +294,7 @@ def is_unknown_kr_code(path: str) -> bool:
         INVESTOR_ROUTE.fullmatch(path)
         or STOCK_ROUTE.fullmatch(path)
         or STOCK_LANDING_ROUTE.fullmatch(path)
+        or re.fullmatch(r"/stock/([A-Za-z0-9.-]{1,16})/report", path)
     )
     if not match:
         return False
@@ -393,10 +394,11 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
 def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
     brief, brief_day, brief_market = _market_brief(canonical_path)
-    stock_code, stock_name, stock_kind = _stock_entry(canonical_path)
+    stock_report = re.fullmatch(r"/stock/([A-Za-z0-9.-]{1,16})/report", canonical_path)
+    stock_code, stock_name, stock_kind = _stock_entry(f"/stock/{stock_report.group(1)}" if stock_report else canonical_path)
     if stock_code:
         # /stock/aapl and /stock/AAPL are one page; say which is canonical.
-        canonical_path = f"/stock/{stock_code}"
+        canonical_path = f"/stock/{stock_code}{'/report' if stock_report else ''}"
     stock_landing = STOCK_LANDING_ROUTE.fullmatch(canonical_path)
     stock_landing_kind = ""
     if stock_landing:
@@ -414,7 +416,10 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         description = _brief_description(brief, brief_day, brief_market)
         page_image = f"{SITE}/market-brief/og/{brief_day}/{brief_market}.png"
     elif stock_code:
-        if stock_landing_kind == "investor":
+        if stock_report:
+            title = f"{stock_name}({stock_code}) 종목 한 장 보고서 | K-Stock Hub"
+            description = f"{stock_name}({stock_code}) 가격 변화, 기간 수익률, 거래량, 기술 지표와 업종 비교 근거를 한 장 보고서로 확인하세요."
+        elif stock_landing_kind == "investor":
             title = f"{stock_name} 외국인·기관 수급 | K-Stock Hub"
             description = f"{stock_name}({stock_code})의 날짜별 외국인·기관·개인 순매수와 주가 흐름을 확인하세요."
         elif stock_landing_kind == "outlook":
@@ -677,6 +682,12 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             if item.get("date") and item.get("market") in {"KOSPI", "KOSDAQ"}
         )
         report_content += f'<nav aria-label="최근 오늘 브리핑" style="display:flex;flex-wrap:wrap;gap:12px">{archive_links}</nav>'
+    elif stock_report and stock_code:
+        report_content = (
+            f'<p>{html.escape(description)}</p>'
+            '<p>수신 시세와 일별 종가 지표의 기준을 구분하며, 누락된 수치는 추정하지 않습니다.</p>'
+            f'<nav aria-label="보고서 분석 근거"><a href="/stock/{stock_code}">종목 상세와 분석 원표</a></nav>'
+        )
     elif stock_code and stock_kind != "kr_stock":
         is_us = stock_kind.startswith("us")
         asset = "ETF" if stock_kind.endswith("etf") else "STOCK"

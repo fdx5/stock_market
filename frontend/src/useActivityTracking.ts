@@ -61,6 +61,7 @@ export function pageLabel(path: string): string {
   // the templates themselves have to resolve to the page they stand for.
   if (path === "/stock/{code}") return "국내 종목 상세";
   if (path === "/stock/{ticker}") return "해외 종목 상세";
+  if (path === "/stock/{code}/report" || path === "/stock/{ticker}/report" || /^\/stock\/[A-Za-z0-9.-]{1,16}\/report$/.test(path)) return "종목 한 장 보고서";
   if (path === "/stock/{code}/investor") return "종목 수급 랜딩";
   if (path === "/stock/{code}/outlook") return "종목 전망 랜딩";
   if (path === "/stock/{code}/news") return "종목 뉴스 랜딩";
@@ -129,10 +130,10 @@ export function pageLabel(path: string): string {
  * the KR and US detail pages stay apart because they are different pages. */
 export function routeTemplate(path: string): string {
   const clean = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
-  const stock = clean.match(/^\/stock\/([A-Za-z0-9.-]{1,16})(\/(investor|outlook|news))?$/);
+  const stock = clean.match(/^\/stock\/([A-Za-z0-9.-]{1,16})(\/(investor|outlook|news|report))?$/);
   if (stock) {
     const tail = stock[2] ?? "";
-    return /^\d{6}$/.test(stock[1]) ? `/stock/{code}${tail}` : "/stock/{ticker}";
+    return /^\d[0-9A-Z]{5}$/.test(stock[1]) ? `/stock/{code}${tail}` : `/stock/{ticker}${tail}`;
   }
   if (/^\/investor\/[^/]+$/.test(clean)) return "/investor/{code}";
   if (/^\/index\/[^/]+$/i.test(clean)) return "/index/{symbol}";

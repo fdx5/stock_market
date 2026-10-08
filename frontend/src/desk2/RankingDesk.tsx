@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useBrowsingChoice } from "../browsingMemory";
 import { EtfItem, MarketMapItem, api } from "../api/client";
 import { Lang, useLanguage } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
@@ -193,8 +194,8 @@ export default function RankingDesk() {
   const L = useL();
   const snapshot = useMarketSnapshot();
   const narrow = useMediaQuery("(max-width: 760px)");
-  const [chosen, setChosen] = useState<Sort | null>(null);
-  const [board, setBoard] = useState<Board>("kr");
+  const [chosen, setChosen] = useBrowsingChoice<Sort | null>("ranking-sort", null, (v): v is Sort | null => v === null || ["amount", "volume", "up", "down", "marcap"].includes(v as string));
+  const [board, setBoard] = useBrowsingChoice<Board>("ranking-board", "kr", (v): v is Board => ["kr", "kretf", "us", "usetf"].includes(v as string));
   const hasTurnover = useMemo(() => [...snapshot.kospi, ...snapshot.kosdaq].some((it) => (it.volume ?? 0) > 0), [snapshot.kospi, snapshot.kosdaq]);
   const sort: Sort = chosen ?? (snapshot.generatedAt !== null && !hasTurnover ? "marcap" : "amount");
 

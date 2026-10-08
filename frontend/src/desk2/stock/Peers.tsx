@@ -6,6 +6,7 @@ import { useMarketSnapshot } from "../../useMarketSnapshot";
 import StockLogo from "../../components/StockLogo";
 import { Skel } from "../parts";
 import { krwPrice, pct, toneOf, usd, usdPrice, useL, won } from "../lib";
+import { peerComparison, PeerComparison } from "./stockBriefModel";
 
 /* 동일 업종 비교 — the stock among the companies it is usually compared with.
  *
@@ -23,6 +24,7 @@ export interface PeerSummary {
   count: number;
   capRank: number;
   moveRank: number;
+  comparison: PeerComparison | null;
 }
 
 type SortKey = "cap" | "chg" | "per" | "roe" | "for";
@@ -34,11 +36,13 @@ export default function Peers({ code, market, onSummary }: { code: string; marke
   const [items, setItems] = useState<MarketMapItem[] | null>(null);
   const [sector, setSector] = useState<string | null>(null);
   const [avg, setAvg] = useState(0);
+  const [generatedAt, setGeneratedAt] = useState<string | undefined>();
   const [sort, setSort] = useState<SortKey>("cap");
 
   useEffect(() => {
     let cancelled = false;
     setItems(null);
+    setGeneratedAt(undefined);
     const req = market === "KR" ? api.sectorMap(code, 40) : api.usSectorMap(code, 40);
     req
       .then((r) => {
@@ -46,6 +50,7 @@ export default function Peers({ code, market, onSummary }: { code: string; marke
         setItems(r.items);
         setSector(r.sector);
         setAvg(r.avg_change_pct);
+        setGeneratedAt(r.generated_at);
       })
       .catch(() => !cancelled && setItems([]));
     return () => {
@@ -69,9 +74,9 @@ export default function Peers({ code, market, onSummary }: { code: string; marke
     const capRank = byCap.findIndex((i) => i.code === code) + 1;
     const moveRank = byMove.findIndex((i) => i.code === code) + 1;
     if (!capRank) return null;
-    return { sector, avg, count: enriched.length, capRank, moveRank };
+    return { sector, avg, count: enriched.length, capRank, moveRank, comparison: peerComparison(code, { sector, items: enriched, generated_at: generatedAt }) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enriched, sector, avg, code]);
+  }, [enriched, sector, avg, code, generatedAt]);
 
   useEffect(() => onSummary?.(summary), [summary, onSummary]);
 

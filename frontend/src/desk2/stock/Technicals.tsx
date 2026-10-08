@@ -12,40 +12,9 @@ import { pct, toneOf, useL } from "../lib";
  * moving average as the distance of today's close from it — and a plain-language
  * state next to it. Descriptive throughout: what the indicator reads, not what to do. */
 
-export interface PeriodReturn {
-  key: string;
-  ko: string;
-  en: string;
-  value: number | null;
-  /** The benchmark's return over the same sessions, when there is one. */
-  bench: number | null;
-}
-
-/** Returns over the windows a reader asks about, from the daily closes. */
-export function periodReturns(points: IndicatorPoint[], bench: IndicatorPoint[] | null): PeriodReturn[] {
-  const windows = [
-    { key: "1w", ko: "1주", en: "1W", n: 5 },
-    { key: "1m", ko: "1개월", en: "1M", n: 21 },
-    { key: "3m", ko: "3개월", en: "3M", n: 63 },
-    { key: "6m", ko: "6개월", en: "6M", n: 126 },
-    { key: "1y", ko: "1년", en: "1Y", n: 252 },
-  ];
-  const ret = (series: IndicatorPoint[], n: number) => {
-    if (series.length <= n) return null;
-    const last = series[series.length - 1].close;
-    const then = series[series.length - 1 - n].close;
-    return then ? (last / then - 1) * 100 : null;
-  };
-  const ytd = (series: IndicatorPoint[]) => {
-    if (series.length === 0) return null;
-    const year = series[series.length - 1].date.slice(0, 4);
-    const prior = [...series].reverse().find((p) => p.date.slice(0, 4) < year);
-    return prior ? (series[series.length - 1].close / prior.close - 1) * 100 : null;
-  };
-  const out: PeriodReturn[] = windows.map((w) => ({ key: w.key, ko: w.ko, en: w.en, value: ret(points, w.n), bench: bench ? ret(bench, w.n) : null }));
-  out.push({ key: "ytd", ko: "연초 이후", en: "YTD", value: ytd(points), bench: bench ? ytd(bench) : null });
-  return out;
-}
+import type { PeriodReturn } from "./stockReturns";
+export type { PeriodReturn } from "./stockReturns";
+export { periodReturns } from "./stockReturns";
 
 export function Returns({ items, benchName }: { items: PeriodReturn[]; benchName: string | null }) {
   const L = useL();

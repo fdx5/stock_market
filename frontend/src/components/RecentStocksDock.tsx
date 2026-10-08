@@ -5,6 +5,7 @@ import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate, useRoute } from "../router";
 import { useWatchlist } from "../useWatchlist";
+import { recentStockUrl } from "../watchlist";
 import DiscussionIcon from "./DiscussionIcon";
 import StockLogo from "./StockLogo";
 import "./recentStocksDock.css";
@@ -247,7 +248,7 @@ export default function RecentStocksDock() {
                 ? `${arrow} $${Math.abs(quote.change).toFixed(2)}`
                 : `${arrow} ${Math.abs(quote.change).toLocaleString("ko-KR")}`
               : null;
-            const href = `/stock/${encodeURIComponent(item.code)}`;
+            const href = recentStockUrl(item);
             const discussHref = `/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${isUs ? "US" : "KR"}`;
             const displayName = names[idx] ?? item.name;
 

@@ -6,6 +6,7 @@ import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { TILE_FONT_FAMILY, pct, tileDisplayInfo } from "../mapTile";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
+import { hasReadingPosition, useBrowsingChoice } from "../browsingMemory";
 import { loadStockIconUrl } from "../stockIcon";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
@@ -280,9 +281,11 @@ export default function MarketMapPage({
   const [session, setSession] = useState<MarketSession | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"map" | "table">("map");
-  const [selectedSector, setSelectedSector] = useState<string>(ALL_SECTORS);
-  const [period, setPeriod] = useState<MapPeriod>("d1");
+  const [view, setView] = useBrowsingChoice<"map" | "table">("view", "map", (v): v is "map" | "table" => v === "map" || v === "table");
+  const [selectedSector, setSelectedSector] = useBrowsingChoice<string>("sector", ALL_SECTORS, (v): v is string => typeof v === "string" && v.length < 100);
+  const [period, setPeriod] = useBrowsingChoice<MapPeriod>("period", "d1", (v): v is MapPeriod => MAP_PERIODS.some((p) => p.key === v));
+  const [selectedCode, setSelectedCode] = useBrowsingChoice<string>("stock", "", (v): v is string => typeof v === "string" && /^[A-Za-z0-9.-]{0,16}$/.test(v));
+  const [resumeScroll] = useState(hasReadingPosition);
   const [periodReturns, setPeriodReturns] = useState<Record<string, MarketReturns>>({});
   const [periodLoading, setPeriodLoading] = useState(false);
   const [periodError, setPeriodError] = useState<string | null>(null);
@@ -310,7 +313,7 @@ export default function MarketMapPage({
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    if (!enhancedSectorView || loading) return;
+    if (!enhancedSectorView || loading || resumeScroll) return;
     const mobileOrFold = window.matchMedia(
       "(max-width: 700px), (max-width: 1400px) and (pointer: coarse)"
     );
@@ -349,7 +352,7 @@ export default function MarketMapPage({
       orientation.removeEventListener("change", handleOrientationChange);
       window.removeEventListener("orientationchange", handleOrientationChange);
     };
-  }, [enhancedSectorView, filePrefix, loading]);
+  }, [enhancedSectorView, filePrefix, loading, resumeScroll]);
 
   const TIER1_REFRESH_MS = 10_000;
   const TIER2_REFRESH_MS = 30_000;
@@ -581,6 +584,7 @@ export default function MarketMapPage({
   }, [size]);
 
   const handleTileClick = (code: string) => {
+    setSelectedCode(code);
     navigate(`/stock/${code}`);
   };
 
@@ -873,7 +877,9 @@ export default function MarketMapPage({
                 {MAP_PERIODS.map((option) => (
                   <label key={option.key} className={period === option.key ? "active" : ""}>
                     <input
-                      type="checkbox"
+                      type="radio"
+                      name="map-period"
+                      value={option.key}
                       checked={period === option.key}
                       onChange={() => setPeriod(option.key)}
                     />
@@ -974,7 +980,8 @@ export default function MarketMapPage({
                       <button
                         key={tile.id}
                         type="button"
-                        className="kospi-map-tile"
+                        className={`kospi-map-tile${selectedCode === tile.item.code ? " is-last-selected" : ""}`}
+                        aria-label={`${tile.item.name} ${tile.item.code}${selectedCode === tile.item.code ? " · 최근 선택" : ""}`}
                         style={{
                           left: localX,
                           top: localY,
@@ -982,6 +989,7 @@ export default function MarketMapPage({
                           height: tile.h,
                           background: bg,
                           color: textColor,
+                          boxShadow: selectedCode === tile.item.code ? "inset 0 0 0 3px #f5d16b" : undefined,
                         }}
                         onClick={() => handleTileClick(tile.item.code)}
                         onMouseEnter={(e) => {
@@ -1064,7 +1072,7 @@ export default function MarketMapPage({
                         </tr>
                       ))
                     : visibleItems.map((item, idx) => (
-                        <tr key={item.code} onClick={() => handleTileClick(item.code)}>
+                        <tr key={item.code} data-last-selected={selectedCode === item.code || undefined} tabIndex={0} onClick={() => handleTileClick(item.code)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); handleTileClick(item.code); } }} style={{ background: selectedCode === item.code ? "var(--mark)" : undefined }}>
                           <td>{idx + 1}</td>
                           <td className="kospi-map-table-name">
                             {tileLabel(item.code, item.name)}

@@ -6,7 +6,9 @@ import VoltarisIngressLink from "./components/VoltarisIngressLink";
 import HeaderBookmark from "./components/HeaderBookmark";
 import HeaderVisitorBadge from "./components/HeaderVisitorBadge";
 import { useActivityTracking } from "./useActivityTracking";
-import { navigate, useRoute } from "./router";
+import { navigate, navigationSnapshot, useRoute } from "./router";
+import { isBrowsingPage, useReadingRestoration } from "./browsingMemory";
+import ReadingTools from "./components/ReadingTools";
 import "./components/marketBriefPrint.css";
 
 // Route-level code splitting: each page only ships the JS it actually needs (e.g. the
@@ -30,6 +32,7 @@ const SupportSuccessPage = lazy(() => import("./desk2/SupportSuccessPage"));
    StockIntelligencePage / UsStockIntelligencePage / StocksPage stay in the tree,
    unrouted, so either can be put back with one line here. */
 const BroadsheetStockPage = lazy(() => import("./desk2/stock/StockPage"));
+const StockReportPage = lazy(() => import("./desk2/stock/StockReportPage"));
 const BroadsheetStocksPage = lazy(() => import("./desk2/stocks/StocksPage"));
 /* ETF and 오늘 브리핑 in the same broadsheet; the classic EtfPage and
    MarketBriefPage stay in the tree, unrouted. */
@@ -269,10 +272,13 @@ function useNoindexOn(path: string, target: string) {
 
 export default function App() {
   const path = useRoute();
+  const location = navigationSnapshot();
+  useReadingRestoration(location.url, location.entry, location.returning);
   useLayoutEffect(() => syncThemeForPath(path), [path]);
   const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})\/?$/i);
   const briefLatestMatch = path.match(/^\/market-brief\/latest\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco)\/?$/i);
   const stockMatch = path.match(/^\/stock\/([A-Za-z0-9.-]{1,16})\/?$/);
+  const stockReportMatch = path.match(/^\/stock\/([A-Za-z0-9.-]{1,16})\/report\/?$/);
   const stockLandingMatch = path.match(/^\/stock\/(\d{6})\/(investor|outlook|news)\/?$/);
   const etfCompareMatch = path.match(/^\/etf\/compare\/([A-Za-z0-9.-]+)\/([A-Za-z0-9.-]+)\/?$/);
   useActivityTracking(path);
@@ -373,6 +379,10 @@ export default function App() {
     page = <SupportSuccessPage />;
   } else if (path === "/desk2") {
     page = <MarketDeskPage />;
+  } else if (stockReportMatch) {
+    const detailCode = stockReportMatch[1].toUpperCase();
+    const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
+    page = <StockReportPage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />;
   } else if (stockMatch) {
     const detailCode = stockMatch[1].toUpperCase();
     const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
@@ -481,7 +491,8 @@ export default function App() {
   // loading line before the page it was standing in for even had a chance to render.
   return (
     <>
-      <Suspense fallback={<LoadingState />}>{page}</Suspense>
+      <Suspense key={location.url} fallback={<LoadingState />}>{page}</Suspense>
+      {(showRecentDock || isBrowsingPage(path) || stockMatch || stockReportMatch || path === "/stocks") && <ReadingTools route={location.url} />}
       <VoltarisIngressLink path={path} />
       <HeaderVisitorBadge path={path} />
       <HeaderBookmark path={path} />

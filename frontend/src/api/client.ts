@@ -1391,16 +1391,16 @@ export const api = {
     getJSON<{ items: PopularStock[] }>(
       `${BASE}/search/popular?limit=${limit}${market ? `&market=${market}` : ""}`
     ),
-  summary: (code: string) => getJSON<StockSummary>(`${BASE}/stock/${code}/summary`),
-  quote: (code: string) => getJSONFresh<StockQuote>(`${BASE}/stock/${code}/quote`),
-  overview: (code: string) => getJSON<CompanyOverview>(`${BASE}/stock/${code}/overview`),
+  summary: (code: string, signal?: AbortSignal) => getJSON<StockSummary>(`${BASE}/stock/${code}/summary`, { signal }),
+  quote: (code: string, signal?: AbortSignal) => getJSONFresh<StockQuote>(`${BASE}/stock/${code}/quote`, signal),
+  overview: (code: string, signal?: AbortSignal) => getJSON<CompanyOverview>(`${BASE}/stock/${code}/overview`, { signal }),
   history: (code: string, years = 3) =>
     getJSON<{ code: string; name: string; points: OhlcvPoint[] }>(
       `${BASE}/stock/${code}/history?years=${years}`
     ),
-  indicators: (code: string, years = 3) =>
+  indicators: (code: string, years = 3, signal?: AbortSignal) =>
     getJSON<{ code: string; name: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(
-      `${BASE}/stock/${code}/indicators?years=${years}`
+      `${BASE}/stock/${code}/indicators?years=${years}`, { signal }
     ),
   news: (code: string) =>
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
@@ -1461,17 +1461,17 @@ export const api = {
       `${BASE}/stock/news-article?link=${encodeURIComponent(link)}`,
       { signal },
     ),
-  sectorMap: (code: string, limit = 40) =>
-    getJSON<SectorMap & { generated_at: string }>(`${BASE}/market/sector-map?code=${code}&limit=${limit}`),
+  sectorMap: (code: string, limit = 40, signal?: AbortSignal) =>
+    getJSON<SectorMap & { generated_at: string }>(`${BASE}/market/sector-map?code=${code}&limit=${limit}`, { signal }),
   sector: (code: string) => getJSON<SectorName>(`${BASE}/market/sector?code=${code}`),
   usSector: (code: string) => getJSON<UsSectorName>(`${BASE}/market/us-sector?code=${encodeURIComponent(code)}`),
   dramPrice: () => getJSON<DramPriceResponse>(`${BASE}/market/dram-price`),
   futures: () => getJSON<{ items: FuturesItem[] }>(`${BASE}/market/futures`),
   dramPriceHistory: (days = 400) =>
     getJSON<DramHistoryResponse>(`${BASE}/market/dram-price/history?days=${days}`),
-  usSectorMap: (code: string, limit = 40) =>
+  usSectorMap: (code: string, limit = 40, signal?: AbortSignal) =>
     getJSON<UsSectorMap & { generated_at: string }>(
-      `${BASE}/market/us-sector-map?code=${encodeURIComponent(code)}&limit=${limit}`
+      `${BASE}/market/us-sector-map?code=${encodeURIComponent(code)}&limit=${limit}`, { signal }
     ),
   marketTicker: () => getJSON<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
   seoulWeather: () =>
@@ -1554,20 +1554,20 @@ export const api = {
     getJSON<{ items: FightComment[]; count: number }>(
       `${BASE}/fight/company-comments?code=${encodeURIComponent(code)}&limit=${limit}`
     ),
-  usStockQuote: (code: string) => getJSONFresh<UsStockQuote>(`${BASE}/us-stock/${code}/quote`),
+  usStockQuote: (code: string, signal?: AbortSignal) => getJSONFresh<UsStockQuote>(`${BASE}/us-stock/${code}/quote`, signal),
   usHistory: (code: string, years = 3) =>
     getJSON<{ code: string; name: string; points: OhlcvPoint[] }>(
       `${BASE}/us-stock/${encodeURIComponent(code)}/history?years=${years}`
     ),
-  usStockIndicators: (code: string, years = 3) =>
+  usStockIndicators: (code: string, years = 3, signal?: AbortSignal) =>
     getJSON<{ code: string; name: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(
-      `${BASE}/us-stock/${code}/indicators?years=${years}`
+      `${BASE}/us-stock/${code}/indicators?years=${years}`, { signal }
     ),
   usDailyPrices: (code: string, offset = 0, limit = 20) =>
     getJSON<DailyPricePage>(`${BASE}/us-stock/${code}/daily?offset=${offset}&limit=${limit}`),
   globalIndices: () => getJSON<{ items: GlobalIndexWidget[] }>(`${BASE}/global/indices`),
-  globalEnrichment: (code: string, lang: string = "ko") =>
-    getJSON<GlobalEnrichment>(`${BASE}/global/${code}/enrichment?lang=${lang}`),
+  globalEnrichment: (code: string, lang: string = "ko", signal?: AbortSignal) =>
+    getJSON<GlobalEnrichment>(`${BASE}/global/${code}/enrichment?lang=${lang}`, { signal }),
   globalDiscussion: (code: string, limit = 10, offset?: string | null, discussionType: "foreignStock" | "foreignEtf" = "foreignStock") =>
     getJSON<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
       `${BASE}/global/${code}/discussion?limit=${limit}&discussion_type=${discussionType}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`

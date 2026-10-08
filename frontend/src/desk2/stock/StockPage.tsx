@@ -8,7 +8,7 @@ import { reportStockView } from "../../useActivityTracking";
 import { useDocumentTitle } from "../../useDocumentTitle";
 import { useStockDetailSeo } from "../../useStockDetailSeo";
 import { useWatchlist } from "../../useWatchlist";
-import { recordRecent } from "../../watchlist";
+import { recentStockUrl, recordRecent } from "../../watchlist";
 import StockLogo from "../../components/StockLogo";
 import Colophon from "../Colophon";
 import CommodityDesk from "../CommodityDesk";
@@ -27,6 +27,8 @@ import Peers, { PeerSummary } from "./Peers";
 import StockChart from "./StockChart";
 import Technicals, { RangeBar, Returns, periodReturns } from "./Technicals";
 import { writeStory } from "./story";
+import StockInsights from "./StockInsights";
+import { stockBrief } from "./stockBriefModel";
 import "../pages.css";
 
 /* 종목면 — one company, set as a newspaper's company page.
@@ -122,6 +124,8 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
 
   const [summary, setSummary] = useState<StockSummary | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [receivedAt, setReceivedAt] = useState<string | null>(null);
+  const [quoteUnavailable, setQuoteUnavailable] = useState(false);
   const [points, setPoints] = useState<IndicatorPoint[]>([]);
   const [overview, setOverview] = useState<CompanyOverview | null>(null);
   const [enrich, setEnrich] = useState<GlobalEnrichment | null>(null);
@@ -139,7 +143,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
   const bubble = useBubbleMarket(code, us);
   useFinderHotkey(setFinderOpen);
 
-  const name = (us ? quote?.name : summary?.name) ?? "";
+  const name = (us ? quote?.name : summary?.name ?? quote?.name) ?? "";
   useDocumentTitle(name ? `${name} 주가·차트·수급 | K-Stock Hub` : "종목 상세 | K-Stock Hub");
   useStockDetailSeo({ code, name: name || undefined, market, price: quote?.close ?? summary?.close });
 
@@ -151,6 +155,8 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
     setError("");
     setSummary(null);
     setQuote(null);
+    setReceivedAt(null);
+    setQuoteUnavailable(false);
     setPoints([]);
     setOverview(null);
     setEnrich(null);
@@ -159,24 +165,28 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
     setPeers(null);
     setSectorName(null);
     setBoardMarket(null);
-    window.scrollTo({ top: 0 });
+    const acceptQuote = (q: Quote) => {
+      if (!alive) return;
+      if (!Number.isFinite(q.close) || q.close <= 0) { setQuoteUnavailable(true); if (us) setError(L("시세 자료를 확인하지 못했습니다.", "Quote data unavailable.")); return; }
+      setQuote(q); setReceivedAt(new Date().toISOString()); setQuoteUnavailable(false);
+    };
 
     if (us) {
-      Promise.allSettled([api.usStockQuote(code), api.usStockIndicators(code, 3), isEtf ? Promise.resolve(null) : api.globalEnrichment(code, "ko")]).then(([q, ind, en]) => {
+      Promise.allSettled([
+        api.usStockQuote(code).then(acceptQuote).catch(() => { if (alive) { setQuoteUnavailable(true); setError(L("해외 종목 정보를 불러오지 못했습니다.", "Could not load this stock.")); } }),
+        api.usStockIndicators(code, 3).then((ind) => { if (alive) setPoints(ind.points); }),
+        isEtf ? Promise.resolve(null) : api.globalEnrichment(code, "ko").then((en) => { if (alive) setEnrich(en); }),
+      ]).then(() => {
         if (!alive) return;
-        if (q.status === "fulfilled") setQuote(q.value);
-        else setError(L("해외 종목 정보를 불러오지 못했습니다.", "Could not load this stock."));
-        if (ind.status === "fulfilled") setPoints(ind.value.points);
-        if (en.status === "fulfilled" && en.value) setEnrich(en.value);
         setLoading(false);
       });
     } else {
-      Promise.allSettled([api.summary(code), api.indicators(code, 3), api.quote(code)]).then(([s, ind, q]) => {
+      Promise.allSettled([
+        api.summary(code).then((s) => { if (alive) setSummary(s); }).catch(() => { if (alive) setError(L("종목 정보를 불러오지 못했습니다.", "Could not load this stock.")); }),
+        api.indicators(code, 3).then((ind) => { if (alive) setPoints(ind.points); }),
+        api.quote(code).then(acceptQuote).catch(() => { if (alive) setQuoteUnavailable(true); }),
+      ]).then(() => {
         if (!alive) return;
-        if (s.status === "fulfilled") setSummary(s.value);
-        else setError(L("종목 정보를 불러오지 못했습니다.", "Could not load this stock."));
-        if (ind.status === "fulfilled") setPoints(ind.value.points);
-        if (q.status === "fulfilled") setQuote(q.value);
         setLoading(false);
       });
       if (!isEtf) api.overview(code).then((o) => alive && setOverview(o)).catch(() => {});
@@ -200,7 +210,11 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
   /* The live price. */
   useEffect(() => {
     let cancelled = false;
-    const poll = () => (us ? api.usStockQuote(code) : api.quote(code)).then((q) => !cancelled && setQuote(q)).catch(() => {});
+    const poll = () => (us ? api.usStockQuote(code) : api.quote(code)).then((q) => {
+      if (cancelled) return;
+      if (!Number.isFinite(q.close) || q.close <= 0) { setQuoteUnavailable(true); return; }
+      setQuote(q); setReceivedAt(new Date().toISOString()); setQuoteUnavailable(false);
+    }).catch(() => { if (!cancelled) setQuoteUnavailable(true); });
     const stop = startVisibilityAwareInterval(poll, QUOTE_POLL_MS);
     return () => {
       cancelled = true;
@@ -211,14 +225,15 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
   useEffect(() => {
     if (!name) return;
     reportStockView(code, name);
-    recordRecent({ code, name, market: us ? "US" : boardMarket ?? "KOSPI" });
-  }, [code, name, us, boardMarket]);
+    recordRecent({ code, name, market: us ? "US" : boardMarket ?? "KR", asset_type: isEtf ? "ETF" : "STOCK" });
+  }, [code, name, us, boardMarket, isEtf]);
 
   const close = quote?.close ?? summary?.close ?? points[points.length - 1]?.close ?? 0;
   const change = quote?.change ?? summary?.change ?? 0;
   const changePct = quote?.change_pct ?? summary?.change_pct ?? 0;
   const tone = toneOf(changePct);
   const latest = points[points.length - 1];
+  const brief = useMemo(() => stockBrief({ points, quote, summary, peers: peers?.comparison, bench: bench?.points }), [points, quote, summary, peers, bench]);
   const year = points.slice(-252);
   const hi52 = year.length ? Math.max(...year.map((p) => p.high)) : null;
   const lo52 = year.length ? Math.min(...year.map((p) => p.low)) : null;
@@ -405,6 +420,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
                 <Forecast code={code} />
               </div>
 
+              <StockInsights model={brief} code={code} isEtf={isEtf} receivedAt={receivedAt} quoteUnavailable={quoteUnavailable} />
               <TalkTape code={code} us={us} asset={asset} />
 
               {story && (
@@ -433,7 +449,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
                 <nav className="sk-recents" aria-label={L("최근 본 종목", "Recently viewed")}>
                   <span>{L("최근 본 종목", "Recently viewed")}</span>
                   {others.map((r) => (
-                    <Link key={r.code} to={`/stock/${r.code}`}>
+                    <Link key={r.code} to={recentStockUrl(r)}>
                       {r.name}
                     </Link>
                   ))}
