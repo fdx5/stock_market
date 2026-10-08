@@ -1,3 +1,5 @@
+import { Link } from "../router";
+import CoffeeIcon from "../desk2/CoffeeIcon";
 import { safeCompileAsync } from "./safeCompile";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -3953,6 +3955,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
               <KakaoIcon /><span className="re-holo-share-long">카카오톡 공유</span><span className="re-holo-share-short">공유</span>
             </button>
           )}
+          {/* 커피 한 잔 후원하기 (the site's support page), in the full-screen view */}
+          <Link to="/support" className="re-holo-coffee" title="커피 한 잔 후원하기" aria-label="커피 한 잔 후원하기">
+            <CoffeeIcon className="re-holo-coffee-icon" /><span className="re-holo-share-long">커피 후원</span>
+          </Link>
           {!wide && !narrow && complexId && !big && (
             <button type="button" className="re-holo-big" onClick={openBig} title="전체화면으로 보기 (Esc로 닫기)">⤢ 전체화면</button>
           )}
