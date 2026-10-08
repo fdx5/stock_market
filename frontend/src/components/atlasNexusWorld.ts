@@ -10,7 +10,7 @@ export type NexusQuality = "cinematic" | "balanced" | "eco";
 export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, quality: NexusQuality, current: () => FlowState, activity: (value: CrawlEvent) => void, recover: () => void) {
   const renderer = new T.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
   renderer.setClearColor(0, 0); renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
-  renderer.domElement.className = "af-world-canvas"; renderer.domElement.setAttribute("aria-label", "관측 트래픽 경로를 다리로 기어가는 3D 거미, 기능별 랜드마크와 선택·도착 지점에 퍼지는 거미줄"); renderer.domElement.setAttribute("role", "img"); host.appendChild(renderer.domElement);
+  renderer.domElement.className = "af-world-canvas"; renderer.domElement.setAttribute("aria-label", "새 관측 행동을 따라가고 조용한 구간에는 대기 순찰하는 3D 거미, 기능별 랜드마크와 선택·도착 지점에 퍼지는 거미줄"); renderer.domElement.setAttribute("role", "img"); host.appendChild(renderer.domElement);
   const scene = new T.Scene(), camera = new T.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, 1, 3000); camera.position.z = 1400; camera.lookAt(0, 0, 0);
   scene.add(new T.HemisphereLight("#dceaff", "#192337", 2.2));
   const key = new T.DirectionalLight("#e7f5ff", 2.5); key.position.set(-300, 400, 600); scene.add(key);
@@ -70,7 +70,11 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
     const source=u.step<0 ? "" : u.steps[u.step], target=u.steps[u.step+1];
     if(!target) { u.record=null;u.curve=null;u.stage="idle";u.badge.querySelector("span")!.textContent="대기";return; }
     u.target=target; const from=u.position.clone(), to=dock(target,i), forward=rails.get(`${source}:${target}`), reverse=rails.get(`${target}:${source}`);
-    if(forward || reverse) {
+    if(source === target && u.record?.action) {
+      const side = u.record.request.id % 2 ? 1 : -1;
+      to.add(new T.Vector3(side * 34, -25, 0));
+      u.curve = new T.CubicBezierCurve3(from, from.clone().add(new T.Vector3(-55, side * 48, 0)), to.clone().add(new T.Vector3(-15, side * 55, 0)), to);
+    } else if(forward || reverse) {
       const path=(forward||reverse)!.curve, a=reverse&&!forward?path.v2:path.v1, b=reverse&&!forward?path.v1:path.v2;
       const shift=new T.Vector3(-38+i*12,35-i*11,0), c1=a.clone().add(shift), c2=b.clone().add(shift); c1.z=c2.z=40;
       u.curve=new T.CubicBezierCurve3(from,c1,c2,to);
@@ -79,23 +83,37 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
     u.badge.querySelector("span")!.textContent=(u.record?.session ? `${sessionLabel(u.record.session)} · ` : "")+(graph.nodes.find(n=>n.id===target)?.label.split(" · ")[0]||"배치");
     if(u.record && u.step>=0) activity({id:++eventId,unit:i,target,kind:"depart",record:u.record});
   }
+  function beginPatrol(u: typeof units[number], state: FlowState) {
+    const watched = state.live?.behavior?.sessions.find(s => s.id === state.session);
+    const anchorId = state.selected !== "gateway" ? state.selected : state.session ? watched?.events[watched.events.length - 1]?.group || "gateway" : "gateway";
+    const anchor = dock(anchorId, 0).add(new T.Vector3(-28, -35, 0));
+    const from = u.position.clone();
+    // A quiet patrol is graphics only. It never creates records, packets, arrivals or logs.
+    const points = [from, anchor.clone().add(new T.Vector3(-62, -42, 0)), anchor.clone().add(new T.Vector3(18, -68, 0)),
+      anchor.clone().add(new T.Vector3(66, -10, 0)), anchor.clone().add(new T.Vector3(16, 40, 0)), anchor.clone().add(new T.Vector3(-62, -42, 0))];
+    u.curve = new T.CatmullRomCurve3(points, false, "centripetal");
+    u.length = Math.max(1, u.curve.getLength()); u.progress = 0; u.target = anchorId; u.stage = "patrol";
+    u.badge.querySelector("span")!.textContent = `${state.session ? `${sessionLabel(state.session)} · ` : ""}대기 순찰`;
+  }
   function advanceUnit(u: typeof units[number], i:number, delta:number, state:FlowState, moving:boolean) {
     let walking=false;
     if(moving) {
       if(u.hold>0) u.hold=Math.max(0,u.hold-delta);
       if(!u.record && crawlQueue.length) {
-        const r=crawlQueue.shift()!; u.record=r;u.step=-1;u.steps=r.batch?["batch",callDestination(graph,r.request),"batch"]:["gateway",r.group,...r.calls.flatMap(c=>[callDestination(graph,c),r.group]),"gateway"];beginLeg(u,i);
+        const r=crawlQueue.shift()!; u.record=r;u.hold=0;u.step=r.action?0:-1;u.steps=r.action?[u.target,r.group]:r.batch?["batch",callDestination(graph,r.request),"batch"]:["gateway",r.group,...r.calls.flatMap(c=>[callDestination(graph,c),r.group]),"gateway"];beginLeg(u,i);
       }
       if(u.record && !u.curve && !u.hold) beginLeg(u,i);
+      if(!u.record && !u.curve && !u.hold) beginPatrol(u,state);
       if(u.curve && !u.hold) {
-        const velocity=154+state.speed*22, remaining=(1-u.progress)*u.length, easing=T.MathUtils.clamp(remaining/42,.34,1);
-        u.progress=Math.min(1,u.progress+delta*velocity*easing/u.length);
+        const patrol = u.stage === "patrol", velocity=patrol?72+state.speed*14:210+state.speed*38, remaining=(1-u.progress)*u.length, easing=T.MathUtils.clamp(remaining/42,.42,1);
+        u.progress=Math.min(1,u.progress+Math.min(18,delta*velocity*easing)/u.length);
         const next=u.curve.getPointAt(u.progress), travel=next.clone().sub(u.position), distance=travel.length();maxStep=Math.max(maxStep,distance);
         if(distance>.02) { const angle=Math.atan2(travel.y,travel.x);u.heading+=Math.atan2(Math.sin(angle-u.heading),Math.cos(angle-u.heading))*Math.min(1,delta*9);u.walked+=distance/u.spider.group.scale.x;walking=true; }
         u.position.copy(next); u.spider.group.rotation.z=u.heading;
         if(u.progress===1) {
-          const approach=u.step<0;u.step++;u.curve=null;u.hold=approach?.12:.46;u.stage="arrived";
-          if(!approach && u.record) {
+          const approach=u.step<0;u.curve=null;u.hold=patrol?0:approach?.08:.22;u.stage=patrol?"idle":"arrived";
+          if(!patrol) u.step++;
+          if(!patrol && !approach && u.record) {
             arrivals++;u.impactAt=clock;u.impactTarget=u.target;
             const hue=u.record.fault?"#ff668e":DOMAIN_COLORS[u.record.group]||UNIT_COLORS[i];webs.get(u.target)?.play(clock,hue,state.selected===u.target);
             activity({id:++eventId,unit:i,target:u.target,kind:"arrival",record:u.record});
@@ -104,6 +122,7 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
       }
       u.spider.update(u.walked,walking,clock);
     }
+    u.badge.dataset.state = u.record ? "following" : "patrol";
     u.badge.style.left=`${(u.position.x+W/2)/W*width}px`;u.badge.style.top=`${(H/2-u.position.y+39)/H*height}px`;
   }
   function tick(stamp: number) {
@@ -113,8 +132,12 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
     const state = current(), scope = `${state.mode}:${state.session || "all"}`, scopeChanged = scope !== lastScope, moving = state.motion && !state.reduced, changed = scopeChanged || state.live?.at !== lastSnapshot || state.selected !== lastSelected || (state.focus || "") !== lastFocus || state.replay !== lastReplay;
     if (!moving && !dirty && !changed) return; if (moving) { sim += delta * state.speed; clock += delta; }
     if (state.live?.at !== lastSnapshot || scopeChanged) {
-      records = flowRecords(graph, state.live, state.mode, state.session); behaviorLoads = records.reduce<Record<string, number>>((counts, record) => { counts[record.group] = (counts[record.group] || 0) + 1; return counts; }, {}); host.dataset.recordSessions = [...new Set(records.flatMap(r => r.session ? [r.session] : []))].join(","); const retained = new Set(records.map(r => r.key)); playing = playing.filter(p => retained.has(p.record.key)); const fresh = records.filter(r => !seen.has(r.key)); fresh.forEach(r => seen.add(r.key)); crawlQueue=[...crawlQueue.filter(r=>retained.has(r.key)),...fresh.filter(r=>(state.selected==="gateway"||r.group===state.selected)&&(!state.focus||r.key===state.focus)).reverse()].slice(-24); if(!records.length) units.forEach(u=>{u.record=null;u.curve=null;u.stage="idle";}); queue = [...queue.filter(r => retained.has(r.key)), ...fresh.filter(r => state.selected === "gateway" || r.group === state.selected).reverse()].slice(-80); if (seen.size > 1000) seen = new Set(records.map(r => r.key)); lastSnapshot = state.live?.at || 0;
+      records = flowRecords(graph, state.live, state.mode, state.session); behaviorLoads = records.reduce<Record<string, number>>((counts, record) => { counts[record.group] = (counts[record.group] || 0) + 1; return counts; }, {}); host.dataset.recordSessions = [...new Set(records.flatMap(r => r.session ? [r.session] : []))].join(","); const retained = new Set(records.map(r => r.key)); playing = playing.filter(p => retained.has(p.record.key)); const fresh = records.filter(r => !seen.has(r.key)); fresh.forEach(r => seen.add(r.key)); crawlQueue=[...crawlQueue.filter(r=>retained.has(r.key)),...fresh.filter(r=>(state.selected==="gateway"||r.group===state.selected)&&(!state.focus||r.key===state.focus)).reverse()].slice(-24); if(!records.length) units.forEach(u=>{if(u.record){u.record=null;u.curve=null;u.hold=0;u.stage="idle";}}); queue = [...queue.filter(r => retained.has(r.key)), ...fresh.filter(r => state.selected === "gateway" || r.group === state.selected).reverse()].slice(-80); if (seen.size > 1000) seen = new Set(records.map(r => r.key)); lastSnapshot = state.live?.at || 0;
       records.flatMap(r => r.calls.map(call => [r.batch ? "batch" : r.group, callDestination(graph, call)] as const)).forEach(([from, to]) => rail(from, to, DOMAIN_COLORS[from] || "#ba9bff", true));
+      // The full chronological history stays in the diagram. New live behavior
+      // replaces older pending animation so it can react after the current leg.
+      const liveActions = fresh.filter(r => (state.selected === "gateway" || r.group === state.selected) && (!state.focus || r.key === state.focus)).reverse();
+      if (!scopeChanged && state.mode === "users" && liveActions.length) crawlQueue = liveActions.slice(-24);
     }
     if(state.selected!==lastSelected) {
       webs.forEach(w=>w.deselect(clock));
@@ -140,10 +163,11 @@ export function createNexusWorld(host: HTMLElement, graph: AtlasArchitecture, qu
     landmarks.forEach(l=>l.update(clock,state.selected===l.id));
     cage.rotation.set(clock * .08, clock * .12, .3); crystal.rotation.y = -clock * .17; rings.forEach((r, i) => { r.rotation.x = i * .8 + clock * .13; r.rotation.y = i * .5 + clock * .09; });
     units.forEach((u,i)=>advanceUnit(u,i,delta,state,moving));
+    host.dataset.crawlActions = units.flatMap(u => u.record?.action ? [u.record.action.id] : []).join(",");
     let visibleWebs=0;webs.forEach(w=>{if(w.update(clock,renderer.getPixelRatio()))visibleWebs++;});
     host.parentElement?.querySelectorAll<HTMLElement>("[data-flow-node]").forEach(el=>{const hit=units.some(u=>u.impactTarget===el.dataset.flowNode&&clock-u.impactAt<1.1);el.dataset.impact=hit?"on":"off";});
     const begin = performance.now(); renderer.render(scene, camera); const elapsed = performance.now() - begin; slowFrames = elapsed > 38 ? slowFrames + 1 : Math.max(0, slowFrames - 1); if (slowFrames > 25 && ratio > .85) { ratio = Math.max(.85, ratio * .82); slowFrames = 0; resize(); }
-    frames++; dirty = false; host.dataset.state = "ready"; host.dataset.frames = String(frames); host.dataset.scope = scope; host.dataset.motion = moving ? "running" : "paused"; host.dataset.simulationTime = sim.toFixed(3); host.dataset.packets = String(count); host.dataset.queued = String(queue.length); host.dataset.seen = String(seen.size); host.dataset.assignments = units.map(u => u.target).join(","); host.dataset.effect="silk-web";host.dataset.webs=String(visibleWebs);host.dataset.webTargets=[...webs.values()].filter(w=>w.group.visible).map(w=>w.id).join(",");host.dataset.webProgress=[...webs.values()].filter(w=>w.group.visible).map(w=>`${w.id}:${w.uniforms.progress.value.toFixed(3)}`).join(",");host.dataset.spiders = String(units.length); host.dataset.legs = "8"; host.dataset.arrivals = String(arrivals); host.dataset.walking = String(units.filter(u=>u.curve).length); host.dataset.crawlQueued=String(crawlQueue.length); host.dataset.maxStep=maxStep.toFixed(2); host.dataset.gait=units.map(u=>u.walked.toFixed(1)).join(","); host.dataset.camera = "fixed"; host.dataset.speed = String(state.speed); host.dataset.positions = units.map(u => `${u.position.x.toFixed(0)}:${u.position.y.toFixed(0)}`).join(",");
+    frames++; dirty = false; host.dataset.state = "ready"; host.dataset.frames = String(frames); host.dataset.scope = scope; host.dataset.motion = moving ? "running" : "paused"; host.dataset.simulationTime = sim.toFixed(3); host.dataset.packets = String(count); host.dataset.queued = String(queue.length); host.dataset.seen = String(seen.size); host.dataset.assignments = units.map(u => u.target).join(","); host.dataset.effect="silk-web";host.dataset.webs=String(visibleWebs);host.dataset.webTargets=[...webs.values()].filter(w=>w.group.visible).map(w=>w.id).join(",");host.dataset.webProgress=[...webs.values()].filter(w=>w.group.visible).map(w=>`${w.id}:${w.uniforms.progress.value.toFixed(3)}`).join(",");host.dataset.spiders = String(units.length); host.dataset.spiderState = units.some(u=>u.record) ? "following" : "patrol"; host.dataset.legs = "8"; host.dataset.arrivals = String(arrivals); host.dataset.walking = String(units.filter(u=>u.curve).length); host.dataset.crawlQueued=String(crawlQueue.length); host.dataset.maxStep=maxStep.toFixed(2); host.dataset.gait=units.map(u=>u.walked.toFixed(1)).join(","); host.dataset.camera = "fixed"; host.dataset.speed = String(state.speed); host.dataset.positions = units.map(u => `${u.position.x.toFixed(0)}:${u.position.y.toFixed(0)}`).join(",");
   }
   function release() { if (released) return; released = true; const geos = new Set<T.BufferGeometry>(), mats = new Set<T.Material>(); scene.traverse(o => { if (o instanceof T.InstancedMesh) o.dispose(); if (o instanceof T.Mesh || o instanceof T.Line || o instanceof T.Points) { geos.add(o.geometry); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => mats.add(m)); } }); geos.forEach(g => g.dispose()); mats.forEach(m => m.dispose()); env.dispose(); renderer.dispose(); }
   const lose = (event: Event) => { event.preventDefault(); lost = true; host.dataset.state = "context-lost"; cancelAnimationFrame(raf); release(); }, restore = () => { if (!disposed) recover(); };

@@ -33,7 +33,7 @@ live['behavior'] = dict(window_s=900, capacity=2000, event_count=85, online_coun
               session(quiet, []), session(old, [action(1401, 800, '/global', '해외 종목', kind='page_view')], False)])
 live['api']['recent'].append(dict(id=1901, ts=live['at']-1, route='/api/visitors/count', method='GET', status=200, ms=20))
 live['external']['recent'].append(dict(id=1902, ts=live['at']-1, host='fixture-db.turso.io', method='POST', status=200, ms=20, target='database'))
-state = dict(calls=0, new=False, expired=False, failed=False, empty=False)
+state = dict(calls=0, new=False, same=False, expired=False, failed=False, empty=False)
 report = dict(base=base, checks=[], responsive=[], errors=[])
 
 
@@ -51,6 +51,8 @@ def api(route):
             if state['new']:
                 data['behavior']['sessions'][0]['events'].append(action(2001, 0, '/stock/AAPL', '종목 선택 · Apple'))
                 data['behavior']['sessions'][0]['last_seen'] = live['at']
+            if state['same']:
+                data['behavior']['sessions'][0]['events'].append(action(2002, 0, '/stock/AAPL', '차트 기간 선택'))
             if state['expired']: data['behavior']['sessions'] = [s for s in data['behavior']['sessions'] if s['id'] != a]
             if state['empty']: data['behavior'].update(sessions=[], event_count=0, online_count=0, active_count=0)
             # Canonical backend order: newest behavior first, quiet presence last.
@@ -83,7 +85,14 @@ with sync_playwright() as p:
         page.wait_for_function("document.querySelector('.af-scene').dataset.recordSessions.includes('22222222')")
         expect(page.locator('.af-log-user')).to_have_count(85)
         assert not any(x in page.locator('.af-log-stream').inner_text() for x in ('visitors/count', 'turso.io', 'CRAWL', 'ARRIVED'))
+        expect(watch.get_by_role('button', name='행동 경로', exact=True)).to_have_attribute('aria-pressed', 'true')
+        expect(page.locator('.aw-action-card')).to_have_count(10)
+        expect(page.locator(f'.aw-lane[data-session="{b}"]')).to_contain_text('최근 6개 요약')
+        expect(page.locator('.aw-spark')).to_have_count(4)
+        watch.get_by_role('button', name='시간축', exact=True).click()
         assert page.locator('.aw-lane .aw-trail').count() == 82
+        page.screenshot(path=str(output/'time-axis-1920.png'), full_page=True)
+        watch.get_by_role('button', name='행동 경로', exact=True).click()
         page.screenshot(path=str(output/'all-sessions-1920.png'), full_page=True)
         report['checks'].append('all sessions draw real chronological actions by default; visit/DB/spider chatter excluded')
 
@@ -97,6 +106,7 @@ with sync_playwright() as p:
         state['new'] = True
         expect(page.locator('.aw-detail-list button')).to_have_count(5, timeout=10000)
         expect(page.locator('.af-log-user')).to_have_count(5)
+        expect(scene).to_have_attribute('data-crawl-actions', '2001', timeout=10000)
         expect(scene).to_have_attribute('data-record-sessions', a)
         page.screenshot(path=str(output/'session-focus-1920.png'), full_page=True)
         report['checks'].append('click session isolates diagram, spider and logs; focus persists across live updates')
@@ -113,6 +123,15 @@ with sync_playwright() as p:
         expect(page.locator('.aw-lane [data-action]')).to_have_count(5)
         report['checks'].append('action-point drilldown and 1/5/15-minute time ranges')
 
+        page.wait_for_function("document.querySelector('.af-scene').dataset.spiderState==='patrol'", timeout=20000)
+        state['same'] = True
+        expect(scene).to_have_attribute('data-crawl-actions', '2002', timeout=10000)
+        location = scene.get_attribute('data-positions')
+        page.wait_for_timeout(200)
+        assert scene.get_attribute('data-positions') != location
+        assert float(scene.get_attribute('data-max-step')) < 24
+        report['checks'].append('new action interrupts patrol immediately; repeat action in same service crawls smoothly')
+
         page.locator('.aw-session-picker button').filter(has_text='33333333').click()
         expect(page.locator('.aw-lane')).to_have_count(1)
         expect(page.locator('.aw-lane')).to_contain_text('접속 유지')
@@ -120,7 +139,18 @@ with sync_playwright() as p:
         expect(page.locator('.af-log-user')).to_have_count(0)
         expect(scene).to_have_attribute('data-record-sessions', '')
         expect(scene).to_have_attribute('data-packets', '0')
+        expect(scene).to_have_attribute('data-spider-state', 'patrol')
+        arrivals = scene.get_attribute('data-arrivals')
+        location = scene.get_attribute('data-positions')
+        gait = float(scene.get_attribute('data-gait'))
+        page.wait_for_timeout(1100)
+        assert scene.get_attribute('data-positions') != location, 'quiet sessions must visibly patrol'
+        assert float(scene.get_attribute('data-gait')) > gait
+        assert scene.get_attribute('data-arrivals') == arrivals
+        expect(page.locator('.af-log-user')).to_have_count(0)
+        report['checks'].append('quiet patrol remains visible without fake actions, packets, arrivals or logs')
         page.locator('.aw-session-picker button').filter(has_text='22222222').click()
+        expect(page.locator('.aw-action-card')).to_have_count(80)
         expect(page.locator('.aw-detail-list button')).to_have_count(80)
         assert page.locator('.aw-detail-list').evaluate('(el)=>el.scrollHeight>el.clientHeight')
         page.get_by_role('button', name='최신 행동 따라가기 ON', exact=True).click()

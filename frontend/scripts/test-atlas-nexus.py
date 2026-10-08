@@ -117,9 +117,16 @@ with sync_playwright() as p:
         page.wait_for_function("Number(document.querySelector('.af-scene').dataset.packets)===0&&Number(document.querySelector('.af-scene').dataset.queued)===0",timeout=10000)
         expect(page.locator('.af-trace-panel h2')).to_have_text('요청 표본 대기',timeout=10000)
         page.wait_for_timeout(700)
-        empty_position=scene.get_attribute('data-positions'); page.wait_for_timeout(700)
-        assert scene.get_attribute('data-positions')==empty_position
-        report['checks'].append('no invented or duplicated traffic, new observed request ingested, empty traffic stops spider and clears signals')
+        expect(scene).to_have_attribute('data-spider-state','patrol')
+        expect(page.locator('.af-unit-tag span')).to_have_text('대기 순찰')
+        empty_position=scene.get_attribute('data-positions'); empty_arrivals=scene.get_attribute('data-arrivals'); empty_logs=journal.locator('button').count(); empty_seen=scene.get_attribute('data-seen')
+        page.wait_for_timeout(1100)
+        assert scene.get_attribute('data-positions')!=empty_position
+        assert scene.get_attribute('data-arrivals')==empty_arrivals
+        assert scene.get_attribute('data-seen')==empty_seen
+        assert journal.locator('button').count()==empty_logs
+        assert scene.get_attribute('data-packets')=='0'
+        report['checks'].append('no invented or duplicated traffic; new request ingested; quiet patrol moves without packets, arrivals or extra logs')
         state['empty']=False
         page.get_by_label('3D 그래픽 품질').select_option('eco'); expect(scene).to_have_attribute('data-state','ready',timeout=60000)
         page.emulate_media(reduced_motion='reduce'); expect(scene).to_have_attribute('data-motion','paused'); expect(page.get_by_role('button',name='모션 감소')).to_be_disabled()
