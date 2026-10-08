@@ -369,7 +369,9 @@ function ringWorkerMain() {
     if (roofs) transfer.push(roofH.buffer);
     const towerArr = box ? new Float32Array(towers) : undefined;
     // (an apartment complex is a sign with two blocks or more, or one tall one)
-    const labels = box ? [...labelAt.values()].filter(e => e.kind !== "apt" || e.n >= 2 || e.tall >= 45)
+    // (a name the register holds garbled — question marks or replacement characters where the
+    // Hangul was lost — is no sign at all)
+    const labels = box ? [...labelAt.values()].filter(e => (e.kind !== "apt" || e.n >= 2 || e.tall >= 45) && !/[?\uFFFD]/.test(e.name))
       .map(e => ({ name: e.name, kind: e.kind, x: e.x / e.area, y: e.y / e.area, top: e.top, n: e.n })) : undefined;
     if (towerArr) transfer.push(towerArr.buffer);
     (self as unknown as Worker).postMessage({ styles, buildings: count, ms: performance.now() - t0, apts: aptArr, footprints:cands.map(c=>c.ring), roofs, towers: towerArr, labels, spans: box ? new Float32Array(spans) : undefined, spanRings: box ? spanRings : undefined }, transfer);
