@@ -91,6 +91,9 @@ SGG_FLOOR = 10
 REFETCH_STORED_BEFORE = dt.datetime(2026, 9, 24, 17, 37, tzinfo=ZoneInfo("Asia/Seoul"))
 PERIODS = {"today": None, "7d": 7, "3m": 91, "6m": 182, "1y": 365}
 WARM_ORDER = ("11", "41", "28")  # 서울, 경기, 인천 first; everything else after
+# MOIS's 2026-07-01 administrative merger. Districts are matched by their unique
+# official name inside the successor, never by replacing digits in a code.
+SIDO_SUCCESSORS = {"46": "12", "29": "12"}
 
 
 def _service_key() -> str | None:
@@ -129,7 +132,12 @@ def _compatible_regions(live: list[dict], previous: dict) -> list[dict]:
     for old in previous["sido"]:
         current = by_code.get(old["code"])
         if current is None:
-            by_code[old["code"]] = old
+            successor = by_code.get(SIDO_SUCCESSORS.get(old["code"]))
+            districts = []
+            for district in old["sgg"]:
+                matches = [g for g in successor["sgg"] if g["name"] == district["name"]] if successor else []
+                districts.append({**district, "current_code": matches[0]["code"]} if len(matches) == 1 else dict(district))
+            by_code[old["code"]] = {**old, "sgg": districts}
             continue
         existing = {g["code"] for g in current["sgg"]}
         current["sgg"].extend(g for g in old["sgg"] if g["code"] not in existing)
@@ -644,8 +652,9 @@ def _next_deep() -> str | None:
     for sido_code in order:
         sido = next((s for s in regions()["sido"] if s["code"] == sido_code), None)
         for g in sido["sgg"] if sido else []:
-            if _deep_missing(g["code"]):
-                return g["code"]
+            code = g.get("current_code", g["code"])
+            if _deep_missing(code):
+                return code
     return None
 
 
@@ -699,7 +708,7 @@ def _warm_all() -> None:
     for rank, sido_code in enumerate(order):
         sido = next((s for s in regions()["sido"] if s["code"] == sido_code), None)
         if sido:
-            request_districts([g["code"] for g in sido["sgg"]], priority=10 + rank)
+            request_districts(_lawd_codes(sido_code, None), priority=10 + rank)
 
 
 def after_migration() -> None:
@@ -990,13 +999,30 @@ def _with_floor(rows: list[dict], limit: int) -> list[dict]:
 
 def _lawd_codes(sido: str | None, sgg: str | None) -> list[str]:
     if sgg:
-        if sgg not in _sgg_index():
+        district = _sgg_index().get(sgg)
+        if district is None:
             raise ValueError("unknown 시군구")
-        return [sgg]
+        return [district.get("current_code", sgg)]
     region = next((s for s in regions()["sido"] if s["code"] == sido), None)
     if region is None:
         raise ValueError("unknown 시도")
-    return [g["code"] for g in region["sgg"]]
+    return list(dict.fromkeys(g.get("current_code", g["code"]) for g in region["sgg"]))
+
+
+def _scope_signature(sido: str | None, sgg: str | None) -> tuple[str, ...]:
+    """Distinguish cached maps built before a legacy scope acquired current codes."""
+    if sgg:
+        current = _sgg_index().get(sgg, {}).get("current_code")
+        return (current,) if current and current != sgg else ()
+    region = next((s for s in regions()["sido"] if s["code"] == sido), None)
+    if region and any(g.get("current_code", g["code"]) != g["code"] for g in region["sgg"]):
+        return tuple(_lawd_codes(sido, None))
+    return ()
+
+
+def _scope_cache_matches(hit: tuple, key: tuple) -> bool:
+    signature = _scope_signature(key[0], key[1])
+    return not signature or len(hit) > 3 and hit[3] == signature
 
 
 def _status(lawd_codes: list[str]) -> dict:
@@ -1347,8 +1373,8 @@ def _older_trades(lawd: str, complex_id: str) -> dict[int, list[tuple]]:
     return out
 
 _map_cache_lock = threading.Lock()
-# key -> (built at, data version, the response as JSON without its "status")
-_map_cache: OrderedDict[tuple, tuple[float, int, str]] = OrderedDict()
+# key -> (built at, data version, JSON without status, administrative scope signature)
+_map_cache: OrderedDict[tuple, tuple[float, int, str, tuple[str, ...]]] = OrderedDict()
 MAP_CACHE_SECONDS = 120
 # A 시·도 map is answered from the last one built — in memory, else as stored — and
 # rebuilt behind the reader once it is this old. Building one means reading every
@@ -1366,7 +1392,8 @@ _rebuild_started = False
 
 def _store_key(key: tuple) -> str:
     sido, _, _, period, top = key
-    return f"v4:sido:{sido}:{period}:{top}"
+    version = "v5" if _scope_signature(key[0], key[1]) else "v4"
+    return f"{version}:sido:{sido}:{period}:{top}"
 
 
 def _body(result: dict) -> str:
@@ -1378,8 +1405,9 @@ def _body(result: dict) -> str:
 
 def _remember(key: tuple, body: str, built: float, persist: bool) -> None:
     persist = persist and realestate_store.migrated.is_set()
+    signature = _scope_signature(key[0], key[1])
     with _map_cache_lock:
-        _map_cache[key] = (built, _version, body)
+        _map_cache[key] = (built, _version, body, signature)
         _map_cache.move_to_end(key)
         while len(_map_cache) > 400:
             _map_cache.popitem(last=False)
@@ -1434,7 +1462,7 @@ def _cached(key: tuple) -> tuple[float, str] | None:
     """A 시·도 map from memory, else from the store (and then kept in memory)."""
     with _map_cache_lock:
         hit = _map_cache.get(key)
-    if hit:
+    if hit and _scope_cache_matches(hit, key):
         return (hit[0] if hit[1] == _version else 0), hit[2]
     try:
         row = realestate_store.load_map(_store_key(key))
@@ -1508,6 +1536,6 @@ def get_map(sido: str | None, sgg: str | None, dong: str | None, period: str, to
         return _served(_build_and_remember(key, persist=True), lawd_codes)
     with _map_cache_lock:
         hit = _map_cache.get(key)
-    if hit and hit[1] == _version and time.time() - hit[0] < MAP_CACHE_SECONDS:
+    if hit and _scope_cache_matches(hit, key) and hit[1] == _version and time.time() - hit[0] < MAP_CACHE_SECONDS:
         return _served(hit[2], lawd_codes)
     return _served(_build_and_remember(key, persist=False), lawd_codes)

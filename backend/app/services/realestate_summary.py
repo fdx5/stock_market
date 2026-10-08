@@ -173,6 +173,7 @@ def region_summary(level: str, period: str, sido: str | None = None, sgg: str | 
     if level == "dong":
         if not sgg or sgg not in rm._sgg_index():
             raise ValueError("unknown 시군구")
+        sgg = rm._lawd_codes(sido, sgg)[0]
         summary = _fresh(sgg, period)
         if summary is None:
             version = rm._lawd_versions.get(sgg, 0)
@@ -185,9 +186,9 @@ def region_summary(level: str, period: str, sido: str | None = None, sgg: str | 
         region = next((s for s in all_sido if s["code"] == sido), None)
         if region is None:
             raise ValueError("unknown 시도")
-        groups = [(g["code"], g["name"], [g["code"]]) for g in region["sgg"]]
+        groups = [(g["code"], g["name"], rm._lawd_codes(sido, g["code"])) for g in region["sgg"]]
     elif level == "sido":
-        groups = [(s["code"], s["name"], [g["code"] for g in s["sgg"]]) for s in all_sido]
+        groups = [(s["code"], s["name"], rm._lawd_codes(s["code"], None)) for s in all_sido]
     else:
         raise ValueError("unknown level")
 
