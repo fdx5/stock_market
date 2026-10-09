@@ -7,6 +7,10 @@
 // (a sparse sum of waves, computed once on the GPU) sampled in three drifting, rotated
 // layers; its mips keep the second moments of the slopes (LEAN mapping), so far water turns
 // rough and dim instead of sparkling.
+// The sea (aSea = 1: OpenStreetMap's coastline, /realestate/water) is the same surface in
+// another water: clear, deepening ~1:18 off the shore over sand; a swell three times the
+// river's ripples running in to the shore; its crests breaking white in the last ~30 m and
+// a line of foam washing up and back at the waterline.
 import { GPU } from '../../vendor/tidewater/engine/gpu/GPU.js';
 import { Texture } from '../../vendor/tidewater/engine/gpu/Texture.js';
 import { generateMipmaps } from '../../vendor/tidewater/engine/gpu/Mipmaps.js';
@@ -149,8 +153,8 @@ export function waterMaterial({ atmosphere, scene, quality }) {
     name: 'complex water',
     lit: false,
     modules: [atmosphere, helpers],
-    attributes: { aShore: 'f32', aFlow: 'vec2f' },
-    varyings: { vShore: 'f32', vFlow: 'vec2f' },
+    attributes: { aShore: 'f32', aFlow: 'vec2f', aSea: 'f32' },
+    varyings: { vShore: 'f32', vFlow: 'vec2f', vSea: 'f32' },
     defines: { IS_WATER: 1, WATER_SSR: quality.ssr ? 1 : 0, WATER_CLOUDS: quality.clouds ? 1 : 0 },
     uniforms: {
       haze: ['f32', 0.0005],
@@ -165,7 +169,7 @@ export function waterMaterial({ atmosphere, scene, quality }) {
       waterSceneColor: { texture: () => scene.textures[0] },
       waterSceneDepth: { texture: () => scene.depthTexture, sampleType: 'unfilterable-float' },
     },
-    vertex: 'o.vShore = v.aShore; o.vFlow = v.aFlow;',
+    vertex: 'o.vShore = v.aShore; o.vFlow = v.aFlow; o.vSea = v.aSea;',
     output: WATER_OUTPUT,
   });
   mat.lightingHooks = false;
@@ -180,11 +184,13 @@ const WATER_OUTPUT = /* wgsl */`
   let dist = length(toCam);
   let V = toCam / dist;
   let shore = in.vs.vShore;
+  let sea = clamp(in.vs.vSea, 0.0, 1.0);
   let flow = normalize(in.vs.vFlow + vec2f(1e-5, 0.0));
   let side = vec2f(-flow.y, flow.x);
-  // metres along / across the channel
-  let q = vec2f(dot(P.xz, flow), dot(P.xz, side));
-  let t = frame.time;
+  // metres along / across the channel (the sea: in units of its longer swell, slower)
+  let swell = mix(1.0, 3.2, sea);
+  let q = vec2f(dot(P.xz, flow), dot(P.xz, side)) / swell;
+  let t = frame.time / mix(1.0, 1.7, sea);
   let footprint = max(length(fwidth(q)), 1e-4);
 
   // Three layers of one slope tile: sizes, turns and drift (current + phase speed) differ,
@@ -197,9 +203,10 @@ const WATER_OUTPUT = /* wgsl */`
   let w2 = textureSample(waterWaves, smpAnisoRepeat, (q2 + vec2f(t * 0.41, t * 0.06)) / 5.3);
   let w3 = textureSample(waterWaves, smpAnisoRepeat, (q3 + vec2f(t * 0.26, -t * 0.05)) / 1.9);
   // calmer against the banks; the finest ripples only where a pixel can show them
-  let calm = mix(0.35, 1.0, smoothstep(0.0, 4.0, shore));
+  let calm = mix(mix(0.35, 1.0, smoothstep(0.0, 4.0, shore)), 1.0, sea);
   let near3 = smoothstep(0.09, 0.025, footprint);
-  let a1 = mat.slope * calm; let a2 = mat.slope * 0.75 * calm; let a3 = mat.slope * 0.6 * calm;
+  let slopeK = mix(mat.slope, 0.085, sea);
+  let a1 = slopeK * calm; let a2 = slopeK * 0.75 * calm; let a3 = slopeK * 0.6 * calm;
   // back from each layer's turned frame into the channel frame
   let g2 = vec2f(c1 * w2.x + s1 * w2.y, -s1 * w2.x + c1 * w2.y);
   let g3 = vec2f(c2 * w3.x + s2 * w3.y, -s2 * w3.x + c2 * w3.y);
@@ -260,7 +267,7 @@ const WATER_OUTPUT = /* wgsl */`
   // ---- the water body along the refracted view ray
   // No survey of the bed exists: a bank sloping ~1:3 to a modest depth, so the shallows
   // show the ground and the channel reads deep.
-  let depth = min(mat.maxDepth, shore * 0.33);
+  let depth = mix(min(mat.maxDepth, shore * 0.33), min(28.0, 0.2 + shore * 0.055), sea);
   let Tr = refract(-V, N, 1.0 / 1.333);
   let Tv = normalize(vec3f(Tr.x, min(Tr.y, -0.08), Tr.z));
   let pathLen = depth / max(-Tv.y, 0.06);
@@ -271,8 +278,12 @@ const WATER_OUTPUT = /* wgsl */`
   let valid = onScreen && waterSceneZ(uvR) < posV.z - 0.05;
   let uvBed = select(screenUV, uvR, valid);
   // wet silt: the painted bank ground, darkened
-  let bed = textureSampleLevel(waterSceneColor, smpLinearClamp, uvBed, 0.0).rgb * vec3f(0.62, 0.6, 0.52);
-  let sigA = mat.absorb; let sigS = mat.scatter; let sigT = sigA + sigS;
+  let bedRaw = textureSampleLevel(waterSceneColor, smpLinearClamp, uvBed, 0.0).rgb;
+  // (the sea's bed: sand, at the brightness of the ground seen through)
+  let bedSea = vec3f(1.0, 0.88, 0.64) * dot(bedRaw, vec3f(0.3, 0.5, 0.2)) * 0.95;
+  let bed = mix(bedRaw * vec3f(0.62, 0.6, 0.52), bedSea, sea);
+  // (clear coastal water: red goes first, then green; a little blue-green scattering)
+  let sigA = mix(mat.absorb, vec3f(0.42, 0.075, 0.045), sea); let sigS = mix(mat.scatter, vec3f(0.010, 0.026, 0.030), sea); let sigT = sigA + sigS;
   let Tview = exp(-sigT * pathLen);
   // single scattering (sun, Henyey-Greenstein) + ambient, integrated analytically
   let Ls = -refract(-L, vec3f(0.0, 1.0, 0.0), 1.0 / 1.333);
@@ -287,6 +298,16 @@ const WATER_OUTPUT = /* wgsl */`
   let transmitted = bed * Tview + inSun + inAmb;
 
   var col = mix(transmitted, refl, F) + glint;
+  // The sea's surf: crests running in (along the flow, toward the shore) break white in the last
+  // ~30 m, torn by the swell; the swash line at the water's edge comes and goes.
+  let surf = smoothstep(32.0, 4.0, shore) * sea;
+  let ph = shore * 0.32 + frame.time * 1.15 + w1.x * 1.6;
+  let crest = smoothstep(0.80, 0.97, 0.5 + 0.5 * sin(ph));
+  let torn = smoothstep(-0.25, 0.55, w2.x * 0.8 + w3.y * 0.5 + 0.2);
+  let swash = smoothstep(2.6, 0.3, shore) * (0.55 + 0.45 * sin(frame.time * 0.9 + w1.y * 2.0)) * sea;
+  let foam = clamp(crest * torn * surf * 0.9 + swash, 0.0, 1.0);
+  let foamLit = (sunLight * max(L.y, 0.0) + frame.skyIrradiance) * 0.26;
+  col = mix(col, foamLit, foam * 0.85);
   // haze, as on every other surface
   let fog = 1.0 - exp(-dist * mat.haze);
   col = mix(col, frame.horizonColor, clamp(fog, 0.0, 0.9));

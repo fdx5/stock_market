@@ -566,6 +566,14 @@ export function withoutStrays(data: RealEstateBuildingsResponse): RealEstateBuil
  * on past the complexes): every registered building within CONTEXT_M (the one nearest the point
  * standing as the view's own, its footprint its site), the major roads, the place's name from
  * VWorld's reverse geocoder. Null where VWorld has no building near. */
+/** The parcel under a point (연속지적도): its PNU (the 건축물대장's key) and 지번 address. */
+export async function vworldParcelAt(lat: number, lon: number, key: string, domain = "https://kospimap.com"): Promise<{ pnu: string; address: string | null } | null> {
+  const list = await call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "false", attribute: "true", key, domain,
+    data: "LP_PA_CBND_BUBUN", geomFilter: `POINT(${lon.toFixed(7)} ${lat.toFixed(7)})`, size: 5 }).then(features).catch(() => [] as Feature[]);
+  const p = list.find(f => /^\d{19}$/.test(String(f.properties?.pnu ?? "")))?.properties;
+  return p ? { pnu: String(p.pnu), address: String(p.addr ?? "").trim() || null } : null;
+}
+
 export async function vworldPointArea(lat: number, lon: number, key: string, domain = "https://kospimap.com"): Promise<RealEstateBuildingsResponse | null> {
   const id = `pt:${lat.toFixed(5)},${lon.toFixed(5)}`;
   if (memo.has(id)) return memo.get(id)!;

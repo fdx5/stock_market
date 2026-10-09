@@ -143,7 +143,10 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
   armAt?: (road: number, atStart: boolean) => ArmLayout | null,
   /** Roads lying inside one intersection (the stubs between a split junction's pieces): no lines
    * on them at all — a centre line and two zebras had stood in the middle of the crossroads. */
-  inside?: (road: number) => boolean) {
+  inside?: (road: number) => boolean,
+  /** Mapped crossings (TrafficArms.crossings): those across a road away from its junction arms are
+   * painted where they are. */
+  crossings?: readonly { line: [number, number][]; layer?: number }[]) {
   const yellow: number[] = [], white: number[] = [],yellowLevels:number[]=[],whiteLevels:number[]=[],yellowProfiles:number[]=[],whiteProfiles:number[]=[],profileIds=roadProfiles(roads);
   const coverage: {road:number;lanes:number;length:number;spans:number[][]}[]=[];
   const roadBoxes=roads.map(r=>{let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;for(const[x,y]of r.line){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}return[x0,y0,x1,y1];});
@@ -196,7 +199,8 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     // Never extrapolate a crossing onto another block. Short approaches can have
     // a junction cut, but cannot accommodate an invented crossing and stop line.
     const lay = (arm: ArmLayout | null, cut: number): ArmLayout | null => {
-      const candidate = arm ?? (cut > 0 ? { crossA: cut, crossB: cut + CROSS, stopA: cut + CROSS + GAP, stopB: cut + CROSS + GAP + STOP, surveyed: false } : null);
+      // (no survey for it: the lines stop short, nothing painted across)
+      const candidate = arm ?? (cut > 0 ? { crossA: cut, crossB: cut + CROSS, stopA: cut + CROSS + GAP, stopB: cut + CROSS + GAP + STOP, surveyed: false, zebra: false, stop: false } : null);
       if (!candidate) return null;
       if (candidate.crossA < 0 || candidate.crossB > total || candidate.stopA < 0 || candidate.stopB > total || (!arm && candidate.stopB + .4 > total / 2))
         return {crossA:cut,crossB:cut,stopA:cut,stopB:cut,surveyed:false,zebra:false,stop:false};
@@ -300,6 +304,29 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
       // left half (+), toward the far end on the right (−))
       const st = atStart ? L.stopA : total - L.stopB;
       if(L.stop!==false)strip(white, (atStart ? 1 : -1) * halfW / 2, halfW - 0.3, st, st + (L.stopB - L.stopA));
+    }
+    // The mapped crossings along the road between its junctions (mid-block, a school's, a T's far
+    // side): 4 m of zebra where the crossing's line meets the centre line.
+    if (crossings?.length && r.width >= 5) {
+      const own: [number, number][] = [];
+      for (const [L, atStart] of [[L0, true], [L1, false]] as const) if (L && L.zebra !== false) own.push(atStart ? [L.crossA, L.crossB] : [total - L.crossB, total - L.crossA]);
+      for (const cw of crossings) {
+        if ((cw.layer ?? 0) !== roadLevel(r)) continue;
+        for (let k = 1; k < cw.line.length; k++) {
+          const [cx0, cy0] = cw.line[k - 1], [cx1, cy1] = cw.line[k];
+          for (let i = 1; i < pts.length; i++) {
+            const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
+            const d1x = bx - ax, d1y = by - ay, d2x = cx1 - cx0, d2y = cy1 - cy0, den = d1x * d2y - d1y * d2x;
+            if (Math.abs(den) < 1e-6) continue;
+            const t = ((cx0 - ax) * d2y - (cy0 - ay) * d2x) / den, u = ((cx0 - ax) * d1y - (cy0 - ay) * d1x) / den;
+            if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+            const sv = cum[i - 1] + t * (cum[i] - cum[i - 1]);
+            if (sv < 2 || sv > total - 2 || own.some(([a, b]) => sv > a - 4 && sv < b + 4)) continue;
+            own.push([sv - 2, sv + 2]);
+            for (let off = -halfW + 0.8; off <= halfW - 0.8; off += 1.0) strip(white, off, 0.5, sv - 2, sv + 2);
+          }
+        }
+      }
     }
     // Lane arrows (노면 방향표시) before each junction, as painted in Seoul: the inner lane turns
     // left, the outer goes straight on and right, the rest straight; a single lane straight and
@@ -589,7 +616,10 @@ export function stitchedRoads(roads: RealEstateRoad[]) { return stitchRoads(road
 export interface ArmLayout { crossA: number; crossB: number; stopA: number; stopB: number; surveyed: boolean;
   /** false: no zebra crossing drawn (an unsignalled junction); `stop` false: no stop line either */
   zebra?: boolean; stop?: boolean }
-export interface TrafficArms {roads:RealEstateRoad[];at:(road:number,atStart:boolean)=>ArmLayout|null;inside:(road:number)=>boolean}
+export interface TrafficArms {roads:RealEstateRoad[];at:(road:number,atStart:boolean)=>ArmLayout|null;inside:(road:number)=>boolean;
+  /** every mapped crossing (ways, and the crossing nodes drawn across their road), for the zebras
+   * away from the junctions */
+  crossings?:{line:[number,number][];layer?:number}[]}
 
 /** Download shared traffic assets alongside the scene data, without waiting for
  * them on the building's first-frame path. */
@@ -598,7 +628,10 @@ export function preloadTraffic(){void loadKit().catch(()=>{});void loadCarModels
 export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: boolean, terrain: Terrain = FLAT,
   /** Mapped crosswalks (OpenStreetMap footway=crossing), in the footprint frame: where a junction
    * arm has one, its crossing (and so its stop line and stopping point) stands there. */
-  crossings: { line: [number, number][]; layer?:number }[] = [],onArms?:(arms:TrafficArms)=>void,signalLocations?:readonly {at:[number,number];layer:number}[]) {
+  crossings: { line: [number, number][]; layer?:number }[] = [],onArms?:(arms:TrafficArms)=>void,signalLocations?:readonly {at:[number,number];layer:number}[],
+  /** Crossings mapped as nodes on the road (OpenStreetMap highway=crossing): a marked one is a
+   * crossing across the road it stands on, as a way would be. */
+  crossPoints?:readonly {at:[number,number];marked:boolean}[]) {
   const usable = splitRoadJunctions(stitchRoads(roads.filter(r => r.line.length > 1)),true);
   if (!usable.length) return null;
   const { geos, texture, procedural } = await loadKit();
@@ -926,6 +959,24 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     }
     return best;
   };
+  // (each marked crossing node: a line across the nearest road at ground level, kerb to kerb and 2 m over)
+  const mappedCrossings: { line: [number, number][]; layer?: number }[] = [...crossings];
+  for (const cp of crossPoints ?? []) {
+    if (!cp.marked) continue;
+    const [x, y] = cp.at;
+    let best: { d: number; dir: [number, number]; w: number } | null = null;
+    for (const o of paths) {
+      if (roadLevel(o) !== 0) continue;
+      for (let i = 1; i < o.line.length; i++) {
+        const [ax, ay] = o.line[i - 1], [bx, by] = o.line[i], dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)), d = Math.hypot(ax + dx * t - x, ay + dy * t - y);
+        if (d < o.width / 2 + 3 && (!best || d < best.d)) { const l = Math.sqrt(l2); best = { d, dir: [dx / l, dy / l], w: o.width }; }
+      }
+    }
+    if (!best) continue;
+    const h = best.w / 2 + 2, [ux, uy] = best.dir;
+    mappedCrossings.push({ line: [[x + uy * h, y - ux * h], [x - uy * h, y + ux * h]], layer: 0 });
+  }
   const trimAt = new Map<string, number>(), layout = new Map<string, ArmLayout>();
   /** An intersection's arms, major and minor: a side street (under 8 m, or a third of the widest
    * road there) joining a road is no signalled crossroads — no lights, no zebra across the main
@@ -940,7 +991,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const crossingOn = (road: number, atStart: boolean, lo: number, hi: number): number | null => {
     const p = paths[road];
     let best: number | null = null;
-    for (const cw of crossings.filter(c=> (c.layer??0)===roadLevel(p))) for (let k = 1; k < cw.line.length; k++) {
+    for (const cw of mappedCrossings.filter(c=> (c.layer??0)===roadLevel(p))) for (let k = 1; k < cw.line.length; k++) {
       const [cx0, cy0] = cw.line[k - 1], [cx1, cy1] = cw.line[k];
       for (let i = 1; i < p.line.length; i++) {
         const [ax, ay] = p.line[i - 1], [bx, by] = p.line[i];
@@ -983,19 +1034,25 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       if (mapped !== null) { cA = Math.max(d, mapped - 2); cB = mapped + 2; surveyed = true; }
       const sA = cB + 1, sB = sA + 0.4, stopAt = sB + 0.3;
       const ai = armInfo[ci], key = `${e.road}:${e.atStart}`;
+      // Paint only what is surveyed: a zebra where a crossing is mapped on this arm; a stop line
+      // behind it, or at a junction whose traffic lights are mapped. (The traffic still stops at
+      // the same place where nothing is painted.)
+      const lights = !!signalLocations?.length && mappedSignalClusters[ci];
       if (ai.signal) {
-        if (stopAt <= limit) layout.set(key, { crossA: cA, crossB: cB, stopA: sA, stopB: sB, surveyed });
+        if (stopAt <= limit) layout.set(key, { crossA: cA, crossB: cB, stopA: sA, stopB: sB, surveyed, zebra: surveyed, stop: surveyed || lights });
         trimAt.set(key, Math.min(stopAt, limit));
       } else if (clusterEnds[ci].length >= 3) {
-        // unsignalled: no zebra drawn; a stop line only where the arm gives way
-        const gives = ai.minor.has(key) || ai.majors === 0, s0 = Math.min(d + 0.5, limit);
-        layout.set(key, { crossA: s0, crossB: s0, stopA: s0, stopB: s0 + 0.4, surveyed: false, zebra: false, stop: gives });
+        // unsignalled: the mapped crossing only, no stop line
+        const s0 = Math.min(d + 0.5, limit);
+        if (surveyed && sB <= limit) layout.set(key, { crossA: cA, crossB: cB, stopA: sA, stopB: sB, surveyed, zebra: true, stop: false });
+        else layout.set(key, { crossA: s0, crossB: s0, stopA: s0, stopB: s0 + 0.4, surveyed: false, zebra: false, stop: false });
+        const gives = ai.minor.has(key) || ai.majors === 0;
         trimAt.set(key, Math.min(gives ? s0 + 0.7 : d + 1.5, limit));
       } else trimAt.set(key, Math.min(d + 1.5, limit));
     }
   });
   const trim = (road: number, atStart: boolean) => trimAt.get(`${road}:${atStart}`) ?? 1.5;
-  const arms:TrafficArms={roads:paths,at:(road,atStart)=>layout.get(`${road}:${atStart}`)??null,inside:road=>internal[road]};
+  const arms:TrafficArms={roads:paths,at:(road,atStart)=>layout.get(`${road}:${atStart}`)??null,inside:road=>internal[road],crossings:mappedCrossings};
   onArms?.(arms);
   // Korean 방향별 신호: each approach direction in turn (clockwise) gets green with the
   // left arrow, then yellow, then all-red, while every other direction is red. Roads

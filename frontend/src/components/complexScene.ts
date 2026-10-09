@@ -1011,6 +1011,8 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
     천: { c: "#6b7a4f", r: 240 }, 구: { c: "#6f7a55", r: 240 }, 유: { c: "#6b7a4f", r: 240 }, 양: { c: "#6b7a4f", r: 240 },
     제: { c: "#7b8a55", r: 245 }, 종: { c: "#a8a298", r: 205 }, 사: { c: "#9f9888", r: 220 }, 수: { c: "#8e8c87", r: 200 },
     잡: { c: landscape ? "#587c4b" : "#948a78", r: 240 }, 광: { c: "#8f877a", r: 240 }, 염: { c: "#b9b8b0", r: 120 },
+    // a beach (OpenStreetMap natural=beach; no 지목 of its own): sand
+    해: { c: "#d9c7a0", r: 250 },
   };
   // Covered streams (a road runs along the water parcel) are painted as the road they are.
   // A school ground: a dirt pitch inside a band of grass, the two worked into each other

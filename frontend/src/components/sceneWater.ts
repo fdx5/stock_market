@@ -34,29 +34,32 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
   const open = parcels.filter((p, pi) => WATER.has(p.kind) && p.ring.length >= 3 && !covered[pi]
     && Math.abs(p.ring.reduce((acc, [x, y], i) => { const q = p.ring[(i + 1) % p.ring.length]; return acc + x * q[1] - q[0] * y; }, 0) / 2) >= 300);
   if (!open.length) return null;
-  const rings = open.map(p => p.ring),holes=open.flatMap(p=>p.holes??[]);
+  const rings = open.map(p => p.ring),holes=open.flatMap(p=>p.holes??[]),sea=open.map(p=>!!p.sea);
+  // (the square the water was cut to: where a ring reaches its edge, the water goes on)
+  const cut = open.reduce<[number, number, number, number] | null>((b, p) => !p.open ? b : !b ? [...p.open] : [Math.min(b[0], p.open[0]), Math.min(b[1], p.open[1]), Math.max(b[2], p.open[2]), Math.max(b[3], p.open[3])], null);
   // In the scene worker (the raster and the surface were ~1 s of a slow phone's page while a
   // riverside complex loaded); on the page, in slices, where it can't run.
   let made: { field: FieldData; surface: WaterArrays | null } | null = null, off = false;
-  const job = terrain.grid || terrain === FLAT ? sceneWork("water", { rings, holes, grid: terrain.grid ?? null }) : null;
+  const job = terrain.grid || terrain === FLAT ? sceneWork("water", { rings, holes, grid: terrain.grid ?? null, sea, open: cut }) : null;
   if (job) {
     try { made = await job; off = true; } catch { made = null; }
     if (!await pace()) return null;
   }
   if (!off) {
-    const data = await waterField(rings, terrain.at, pace, holes);
-    const surface = data && await waterSurface(rings, fieldFrom(data, terrain.at), pace, holes);
+    const data = await waterField(rings, terrain.at, pace, holes, sea, cut);
+    const surface = data && await waterSurface(rings, fieldFrom(data, terrain.at), pace, holes, sea);
     if (!data) return null;
     made = { field: data, surface };
   }
   if (!made?.surface) return null;
-  const field = fieldFrom(made.field, terrain.at), { pos, uv, nor, shore, flow, index } = made.surface;
+  const field = fieldFrom(made.field, terrain.at), { pos, uv, nor, shore, flow, sea: seaA, index } = made.surface;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
   geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
   geo.setAttribute("aShore", new THREE.BufferAttribute(shore, 1));
   geo.setAttribute("aFlow", new THREE.BufferAttribute(flow, 2));
+  geo.setAttribute("aSea", new THREE.BufferAttribute(seaA, 1));
   geo.setIndex(new THREE.BufferAttribute(index, 1));
   geo.computeBoundingSphere();
   const mat = new THREE.MeshStandardMaterial({ color: "#1f3d49", roughness: 0.06, metalness: 0 });

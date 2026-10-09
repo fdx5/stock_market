@@ -14,7 +14,10 @@ import type { ContextStyle } from "./complexScene";
  * worker, which importScripts needs). Keep its rules in step with the view's own neighbours:
  * vworldBuildings.fillHeights, complexScene.contextStyle and the tints in ComplexHologram. */
 
-export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital"; x: number; y: number; top: number; n: number };
+/** What the building register (VWorld GIS건물통합정보) says of a sign's largest building: its parcel
+ * (PNU, for the 건축물대장 card), 사용승인일, floors, height and floor area. */
+export type DroneLabelInfo = { /** the building's centre (view frame, m) */ bx?: number; by?: number; pnu?: string; approved?: string; floors?: number; basements?: number; height?: number; area?: number; dong?: string };
+export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo };
 /** The styles in the order RingResult.towers names them. */
 export const SURVEY_STYLES: ContextStyle[] = ["apt", "villa", "shop", "office"];
 export type RingStyleArrays = { position: Float32Array; normal: Float32Array; uv: Float32Array; color: Float32Array; index: Uint32Array };
@@ -213,7 +216,14 @@ function ringWorkerMain() {
       }
     };
     // The signs (box mode): named buildings gathered by name and kind.
-    const labelAt = new Map<string, { name: string; kind: string; x: number; y: number; top: number; n: number; area: number; tall: number }>();
+    const labelAt = new Map<string, { name: string; kind: string; x: number; y: number; top: number; n: number; area: number; tall: number; big: number; info: DroneLabelInfo }>();
+    const infoOf = (props: any, bx: number, by: number): DroneLabelInfo => {
+      const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : undefined; };
+      const pnu = String(props.pnu ?? "").trim(), day = String(props.useapr_day ?? "").replace(/\D/g, "");
+      return { bx: Math.round(bx * 10) / 10, by: Math.round(by * 10) / 10, pnu: /^\d{19}$/.test(pnu) ? pnu : undefined, approved: /^(18|19|20)\d{2}/.test(day) ? day : undefined,
+        floors: num(props.grnd_flr), basements: num(props.ugrnd_flr), height: num(props.height), area: num(props.totalarea),
+        dong: String(props.dong_nm ?? "").trim() || undefined };
+    };
     const GOV = /(구청|시청|군청|도청|청사|주민센터|행정복지센터|동사무소|경찰서|지구대|파출소|소방서|안전센터|우체국|법원|검찰청|세무서|교육청|교육지원청|보건소|구의회|시의회|도서관|병무청|출입국|등기소)/;
     const JUNK = /^(\d+|[가-힣]?동|.*주택|근생.*|다세대.*|연립.*|단독.*|상가|창고|화장실|관리동|경비실|주차장|기계실|부속.*|.*근린생활시설)$/;
     const sign = (props: any, cx: number, cy: number, top: number, floors: number, area: number, tall: number) => {
@@ -230,8 +240,12 @@ function ringWorkerMain() {
       const name = kind === "apt" ? raw.replace(/\s*아파트$/, "") : raw;
       const k = kind + ":" + name;
       const e = labelAt.get(k);
-      if (!e) labelAt.set(k, { name, kind, x: cx * area, y: cy * area, top, n: 1, area, tall });
-      else { e.x += cx * area; e.y += cy * area; e.top = Math.max(e.top, top); e.tall = Math.max(e.tall, tall); e.n++; e.area += area; }
+      if (!e) labelAt.set(k, { name, kind, x: cx * area, y: cy * area, top, n: 1, area, tall, big: area, info: infoOf(props, cx, cy) });
+      else {
+        e.x += cx * area; e.y += cy * area; e.top = Math.max(e.top, top); e.tall = Math.max(e.tall, tall); e.n++; e.area += area;
+        // (the card tells of the largest building under the sign)
+        if (area > e.big) { e.big = area; e.info = infoOf(props, cx, cy); }
+      }
     };
     // An outline with courtyards as one ring for the roof's ear clipping: each courtyard joined to
     // the outline by a cut from its rightmost point to the nearest outline point it can see.
@@ -372,7 +386,7 @@ function ringWorkerMain() {
     // (a name the register holds garbled — question marks or replacement characters where the
     // Hangul was lost — is no sign at all)
     const labels = box ? [...labelAt.values()].filter(e => (e.kind !== "apt" || e.n >= 2 || e.tall >= 45) && !/[?\uFFFD]/.test(e.name))
-      .map(e => ({ name: e.name, kind: e.kind, x: e.x / e.area, y: e.y / e.area, top: e.top, n: e.n })) : undefined;
+      .map(e => ({ name: e.name, kind: e.kind, x: e.x / e.area, y: e.y / e.area, top: e.top, n: e.n, info: e.info })) : undefined;
     if (towerArr) transfer.push(towerArr.buffer);
     (self as unknown as Worker).postMessage({ styles, buildings: count, ms: performance.now() - t0, apts: aptArr, footprints:cands.map(c=>c.ring), roofs, towers: towerArr, labels, spans: box ? new Float32Array(spans) : undefined, spanRings: box ? spanRings : undefined }, transfer);
   };

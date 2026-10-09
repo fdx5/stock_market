@@ -477,19 +477,7 @@ function roadWorkerMain() {
       if (!hit) marks.push({ mx: pts.reduce((a, p) => a + p[0], 0) / pts.length, my: pts.reduce((a, p) => a + p[1], 0) / pts.length, signals: c.signals });
     }
     for (const p of crossPoints) if (p.marked !== false) marks.push({ mx: p.at[0] + cox, my: p.at[1] + coy, signals: p.signals });
-    // Where the map has nothing for this place at all: the clear cases only — each way into a
-    // junction of two roads both 12 m and wider gets its crossing (as at every such junction).
-    if (!mapped && !marks.length) for (const r of pieces) {
-      if (r.width < 12) continue;
-      for (let q = 0; q < r.line.length - 1; q++) {
-        if (r.kind[q] !== 0 || r.jn[q] || !r.jn[q + 1]) continue;
-        const P = r.line[q], Q = r.line[q + 1], L = Math.hypot(Q[0] - P[0], Q[1] - P[1]) || 1;
-        // (the other road there wide too)
-        const wide = pieces.some(o => o.id !== r.id && o.width >= 12 && o.line.some(v => Math.hypot(v[0] - Q[0], v[1] - Q[1]) < o.width / 2 + 6));
-        if (!wide) continue;
-        marks.push({ mx: P[0] - ((Q[0] - P[0]) / L) * 3, my: P[1] - ((Q[1] - P[1]) / L) * 3, signals: true });
-      }
-    }
+    // (where the map has nothing for this place, nothing is painted across: no crossing is invented)
     for (const c of marks) {
       const { mx, my } = c;
       if (mx < bx0 || my < by0 || mx >= bx1 || my >= by1) continue;

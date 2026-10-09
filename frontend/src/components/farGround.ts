@@ -30,14 +30,20 @@ type FarJob = {
    * parcel in the cadastre), from the site's /api/realestate/water: rings in metres about the
    * rounded point it was asked at, (ox, oy) from this picture's centre. */
   osmWater?: { url: string; ox: number; oy: number };
+  /** the same, already answered (the drone's tile asks it first): rings about this picture's centre */
+  osmBody?: { rings?: { ring: [number, number][] }[]; beaches?: { ring: [number, number][] }[]; works?: SeaWork[] } | null;
 };
+
+/** A sea work (OpenStreetMap man_made=breakwater, groyne, pier; the site's bundled copy). */
+export type SeaWork = { kind: string; closed: boolean; pts: [number, number][] };
 
 function farWorkerMain() {
   self.onmessage = async (e: MessageEvent<FarJob>) => {
     const t0 = performance.now();
     const job = e.data, { lat, lon, half, size: S } = job;
     // (two seconds at most: the drone asked ahead, when the tile was queued)
-    const osm: { rings?: { ring: [number, number][] }[] } | null = job.osmWater ? await fetch(job.osmWater.url, { signal: AbortSignal.timeout(2000) }).then(r => (r.ok ? r.json() : null)).catch(() => null) : null;
+    const osm: { rings?: { ring: [number, number][] }[]; beaches?: { ring: [number, number][] }[]; works?: { kind: string; closed: boolean; pts: [number, number][] }[] } | null = job.osmBody ? job.osmBody
+      : job.osmWater ? await fetch(job.osmWater.url, { signal: AbortSignal.timeout(2000) }).then(r => (r.ok ? r.json() : null)).catch(() => null) : null;
     const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540;
     const g = job.grid;
     const at = (x: number, y: number) => {
@@ -64,6 +70,10 @@ function farWorkerMain() {
     const water: number[][][] = [];
     const seen = new Set<string>();
     let parcels = 0, i = 0;
+    // (where the cadastre has a parcel: the coast's unregistered land — breakwaters, rocks, the
+    // strand — is told apart from it below)
+    const pm = new OffscreenCanvas(S, S), pmc = pm.getContext("2d", { willReadFrequently: true })!;
+    pmc.fillStyle = "#fff";
     for (const url of job.urls) {
       let body: any = null;
       (self as any).farCb = (b: unknown) => { body = b; };
@@ -85,12 +95,20 @@ function farWorkerMain() {
           ctx.closePath();
           ctx.fillStyle = LAND[kind] ?? lots[i++ % lots.length];
           ctx.fill();
+          pmc.beginPath(); ring.forEach(([x, y], k) => (k ? pmc.lineTo(X(x), Y(y)) : pmc.moveTo(X(x), Y(y)))); pmc.closePath(); pmc.fill();
           if(job.landscape && kind==='임'){fc.beginPath();ring.forEach(([x,y],k)=>k?fc.lineTo(X(x),Y(y)):fc.moveTo(X(x),Y(y)));fc.closePath();fc.fill();}
           if (WATER.has(kind)) water.push(ring);
           parcels++;
         }
       }
       if (last) break;
+    }
+    // The beaches (OpenStreetMap natural=beach, the parcels under them often unregistered): sand.
+    for (const w of osm?.beaches ?? []) {
+      if (w.ring.length < 3) continue;
+      ctx.beginPath();
+      w.ring.forEach(([x, y], k) => { const px = X(x + (job.osmWater?.ox ?? 0)), py = Y(y + (job.osmWater?.oy ?? 0)); if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
+      ctx.closePath(); ctx.fillStyle = "#d9c7a0"; ctx.fill();
     }
     // The channels: inside each water parcel, the ground within 0.7 m of its lowest point
     // (sceneWater's rule); parcels under 300 m² are culverts and slivers. Past the relief's
@@ -169,7 +187,7 @@ function farWorkerMain() {
       for (const w of osm?.rings ?? []) {
         if (w.ring.length < 3) continue;
         mc.beginPath();
-        w.ring.forEach(([x, y], k) => { const px = X(x + job.osmWater!.ox), py = Y(y + job.osmWater!.oy); if (k) mc.lineTo(px, py); else mc.moveTo(px, py); });
+        w.ring.forEach(([x, y], k) => { const px = X(x + (job.osmWater?.ox ?? 0)), py = Y(y + (job.osmWater?.oy ?? 0)); if (k) mc.lineTo(px, py); else mc.moveTo(px, py); });
         mc.closePath(); mc.fill(); any = true;
       }
       for (const url of job.riverUrls ?? []) {
@@ -192,6 +210,47 @@ function farWorkerMain() {
         const md = mc.getImageData(0, 0, S, S).data;
         for (let o = 0; o < S * S; o++) if (md[o * 4 + 3] > 127) { d[o * 4] = 31; d[o * 4 + 1] = 61; d[o * 4 + 2] = 73; d[o * 4 + 3] = 128; }
         ctx.putImageData(img, 0, 0);
+      }
+    }
+    // The coast: the land within 28 m of the water that the cadastre has no parcel for (made
+    // ground, rocks, the strand) is sand, not lawn — never a tree on it; the breakwaters,
+    // groynes and piers are concrete.
+    if (osm?.rings?.length || osm?.works?.length) {
+      const img = ctx.getImageData(0, 0, S, S), d = img.data, own = pmc.getImageData(0, 0, S, S).data, m = (2 * half) / S;
+      const dist = new Float32Array(S * S);
+      for (let o = 0; o < S * S; o++) dist[o] = d[o * 4 + 3] === 128 ? 0 : 1e6;
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const o = y * S + x; if (!dist[o]) continue;
+        let v = dist[o];
+        if (x > 0) v = Math.min(v, dist[o - 1] + 1);
+        if (y > 0) { v = Math.min(v, dist[o - S] + 1); if (x > 0) v = Math.min(v, dist[o - S - 1] + 1.414); if (x < S - 1) v = Math.min(v, dist[o - S + 1] + 1.414); }
+        dist[o] = v;
+      }
+      for (let y = S - 1; y >= 0; y--) for (let x = S - 1; x >= 0; x--) {
+        const o = y * S + x; if (!dist[o]) continue;
+        let v = dist[o];
+        if (x < S - 1) v = Math.min(v, dist[o + 1] + 1);
+        if (y < S - 1) { v = Math.min(v, dist[o + S] + 1); if (x < S - 1) v = Math.min(v, dist[o + S + 1] + 1.414); if (x > 0) v = Math.min(v, dist[o + S - 1] + 1.414); }
+        dist[o] = v;
+      }
+      const band = 28 / m;
+      let seed2 = 4271;
+      const r2 = () => { seed2 = (seed2 * 16807) % 2147483647; return seed2 / 2147483647; };
+      for (let o = 0; o < S * S; o++) {
+        if (!dist[o] || dist[o] > band || own[o * 4 + 3] > 127) continue;
+        // (wet sand by the water, dry further up, a little mottled)
+        const k = Math.min(1, (dist[o] * m) / 8), n = 0.94 + r2() * 0.1;
+        d[o * 4] = (163 + 54 * k) * n; d[o * 4 + 1] = (142 + 57 * k) * n; d[o * 4 + 2] = (104 + 56 * k) * n; d[o * 4 + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0);
+      const ox = job.osmWater?.ox ?? 0, oy = job.osmWater?.oy ?? 0;
+      ctx.fillStyle = ctx.strokeStyle = "#a6a39c"; ctx.lineJoin = ctx.lineCap = "round";
+      for (const w of osm?.works ?? []) {
+        if (w.pts.length < 2) continue;
+        ctx.beginPath();
+        w.pts.forEach(([x, y], k) => { const px = X(x + ox), py = Y(y + oy); if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
+        if (w.closed) { ctx.closePath(); ctx.fill(); }
+        else { ctx.lineWidth = (w.kind === "breakwater" ? 12 : 6) / m; ctx.stroke(); }
       }
     }
     const planting:import('./complexScene').Planting={trees:[],shrubs:[],flowers:[],grass:[],street:[],groves:[]};
@@ -236,7 +295,9 @@ function farWorkerMain() {
 
 let farUrl: string | null = null;
 /** The land-use picture of ±half metres round the result's centre (north up), made in a worker. */
-export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, opts: { half: number; size: number; lawn: string; paddy: string; landscape?: boolean; nearHalf?:number; footprints?:[number,number][][]; signal?: AbortSignal; rivers?: boolean; lakes?: boolean }): Promise<{ bitmap: ImageBitmap; parcels: number; planting:import('./complexScene').Planting; ms: number } | null> {
+export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, opts: { half: number; size: number; lawn: string; paddy: string; landscape?: boolean; nearHalf?:number; footprints?:[number,number][][]; signal?: AbortSignal; rivers?: boolean; lakes?: boolean;
+  /** the water already asked about this picture's centre (osmBody) */
+  water?: FarJob["osmBody"] }): Promise<{ bitmap: ImageBitmap; parcels: number; planting:import('./complexScene').Planting; ms: number } | null> {
   if (!data.center || !data.vworld_key || typeof OffscreenCanvas === "undefined") return Promise.resolve(null);
   const { lat, lon } = data.center, H = opts.half;
   const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540;
@@ -256,9 +317,10 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
       size: "1000", page: String(i + 1), format: "json", callback: "riverCb",
     })) : undefined,
     // (asked about the rounded point, as the view asks: the server's cache)
-    osmWater: opts.lakes && typeof location !== "undefined" ? (() => {
+    osmBody: opts.water,
+    osmWater: opts.lakes && !opts.water && typeof location !== "undefined" ? (() => {
       const la = +lat.toFixed(4), lo = +lon.toFixed(4);
-      return { url: `${location.origin}/api/realestate/water?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=${Math.round(H * 1.5)}&v=2`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
+      return { url: `${location.origin}/api/realestate/water?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=${Math.round(H * 1.5)}&v=3&fast=1`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
     })() : undefined };
   return new Promise(resolve => {
     worker.onmessage = e => { worker.terminate(); resolve(e.data); };

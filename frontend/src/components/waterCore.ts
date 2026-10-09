@@ -19,23 +19,28 @@ export function gridAt({ h, n, R, cell }: HeightGrid) {
     return (h[j * n + i] * (1 - fx) + h[j * n + i + 1] * fx) * (1 - fy) + (h[(j + 1) * n + i] * (1 - fx) + h[(j + 1) * n + i + 1] * fx) * fy;
   };
 }
-export interface WaterArrays { pos: Float32Array; uv: Float32Array; nor: Float32Array; shore: Float32Array; flow: Float32Array; index: Uint32Array }
+export interface WaterArrays { pos: Float32Array; uv: Float32Array; nor: Float32Array; shore: Float32Array; flow: Float32Array; sea: Float32Array; index: Uint32Array }
 
 /** Rasterised water: every open-water parcel on one grid (adjacent parcels of one river
  * are one channel, not separate ponds with banks between them). Per node: inside,
  * ground height, the local water level and the distance to the nearest dry node (the
  * bank), in metres. Replaces point-in-polygon tests per vertex (seconds on a river). */
-export async function waterField(rings: [number, number][][], at: (x: number, y: number) => number, pace: Pace, holes: [number,number][][] = []): Promise<FieldData | null> {
+export async function waterField(rings: [number, number][][], at: (x: number, y: number) => number, pace: Pace, holes: [number,number][][] = [],
+  /** per ring: the sea (made from the coastline — its outline is the water's edge): all of it
+   * water, at one level, the sea's */
+  sea: boolean[] = [],
+  /** the square the rings were cut to (the water goes on past it: its edge is no shore) */
+  open: [number, number, number, number] | null = null): Promise<FieldData | null> {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const r of rings) for (const [x, y] of r) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   // 2 m nodes; a coarser step only for very large rivers (at most ~300k nodes).
   const s = Math.max(2, Math.sqrt(((x1 - x0) * (y1 - y0)) / 300000));
   x0 -= s; y0 -= s;
   const nx = Math.ceil((x1 - x0) / s) + 2, ny = Math.ceil((y1 - y0) / s) + 2, n = nx * ny;
-  const inside = new Uint8Array(n), h = new Float32Array(n), lvl = new Float32Array(n);
+  const inside = new Uint8Array(n), h = new Float32Array(n), lvl = new Float32Array(n), seaIn = new Uint8Array(n);
   // Scanline fill (even-odd per ring, union over rings).
   const xs: number[] = [];
-  for (const r of rings) for (let j = 0; j < ny; j++) {
+  for (const [ri, r] of rings.entries()) for (let j = 0; j < ny; j++) {
     if (!await pace()) return null;
     const y = y0 + j * s;
     xs.length = 0;
@@ -45,13 +50,13 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
     }
     xs.sort((a, b) => a - b);
     for (let q = 0; q + 1 < xs.length; q += 2)
-      for (let i = Math.max(0, Math.ceil((xs[q] - x0) / s)), e = Math.min(nx - 1, Math.floor((xs[q + 1] - x0) / s)); i <= e; i++) inside[j * nx + i] = 1;
+      for (let i = Math.max(0, Math.ceil((xs[q] - x0) / s)), e = Math.min(nx - 1, Math.floor((xs[q + 1] - x0) / s)); i <= e; i++) { inside[j * nx + i] = 1; if (sea[ri]) seaIn[j * nx + i] = 1; }
   }
   for (const hole of holes) {
     const minX=Math.min(...hole.map(p=>p[0])),maxX=Math.max(...hole.map(p=>p[0])),minY=Math.min(...hole.map(p=>p[1])),maxY=Math.max(...hole.map(p=>p[1]));
     for(let j=Math.max(0,Math.ceil((minY-y0)/s));j<ny&&y0+j*s<=maxY;j++){
       if(!await pace())return null;
-      for(let i=Math.max(0,Math.ceil((minX-x0)/s));i<nx&&x0+i*s<=maxX;i++)if(inRing([x0+i*s,y0+j*s],hole))inside[j*nx+i]=0;
+      for(let i=Math.max(0,Math.ceil((minX-x0)/s));i<nx&&x0+i*s<=maxX;i++)if(inRing([x0+i*s,y0+j*s],hole))inside[j*nx+i]=seaIn[j*nx+i]=0;
     }
   }
   for (let j = 0; j < ny; j++) {
@@ -99,8 +104,19 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
     }
     return d;
   };
+  // The sea: one level — low in what the DEM gives over it (its posts out at sea; the shore's
+  // are the land's) — and wet to the coastline; the ground under it is sunk below (sink).
+  let seaLevel = Infinity;
+  {
+    const hs: number[] = [];
+    for (let c = 0; c < n; c += 3) if (seaIn[c] && Number.isFinite(h[c])) hs.push(h[c]);
+    if (hs.length) { hs.sort((a, b) => a - b); seaLevel = hs[Math.floor(hs.length * 0.1)]; }
+  }
   const wet = new Uint8Array(n);
-  for (let c = 0; c < n; c++) wet[c] = inside[c] && h[c] <= lvl[c] + 0.7 ? 1 : 0;
+  for (let c = 0; c < n; c++) {
+    if (seaIn[c] && Number.isFinite(seaLevel)) { lvl[c] = seaLevel; wet[c] = 1; continue; }
+    wet[c] = inside[c] && h[c] <= lvl[c] + 0.7 ? 1 : 0;
+  }
   // A river runs on under its bridges, where the DEM carries the road across as a dam:
   // close the channel (dilate by R on the water parcels, erode by R), bridging gaps up
   // to ~2R along it.
@@ -112,6 +128,12 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
   for (let c = 0; c < n; c++) if (!wet[c] && inside[c] && toOut[c] > R) wet[c] = 1;
   const dry = new Uint8Array(n);
   for (let c = 0; c < n; c++) dry[c] = wet[c] ? 0 : 1;
+  // (past the square the rings were cut to, the water is taken to go on: the distance to the
+  // bank is to the real shore, not to the cut — no surf along it)
+  if (open) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const x = x0 + i * s, y = y0 + j * s;
+    if (x <= open[0] || y <= open[1] || x >= open[2] || y >= open[3]) dry[j * nx + i] = 0;
+  }
   const dist = await chamfer(dry);
   if (!dist) return null;
   return { lvl, wet, dist, x0, y0, s, nx, ny };
@@ -147,13 +169,14 @@ export function fieldFrom(d: FieldData, at: (x: number, y: number) => number) {
 export type WaterField = ReturnType<typeof fieldFrom>;
 
 /** The surface over the open-water parcels' rings, subdivided to follow the channel. */
-export async function waterSurface(rings: [number, number][][], field: WaterField, pace: Pace, holes: [number,number][][] = []): Promise<WaterArrays | null> {
-  const pos: number[] = [], uv: number[] = [], nor: number[] = [], shore: number[] = [], flow: number[] = [], index: number[] = [];
+export async function waterSurface(rings: [number, number][][], field: WaterField, pace: Pace, holes: [number,number][][] = [], sea: boolean[] = []): Promise<WaterArrays | null> {
+  const pos: number[] = [], uv: number[] = [], nor: number[] = [], shore: number[] = [], flow: number[] = [], seaA: number[] = [], index: number[] = [];
   // (a corner shared by the triangles round it is one vertex: everything at a vertex follows from
   // where it is and which parcel it belongs to. Unshared, each was stored ~6 times — 8 MB of
   // vertices on the Han river, and as many shore and level look-ups.)
-  for (const ring of rings) {
+  for (const [ri, ring] of rings.entries()) {
     const at = new Map<string, number>();
+    const isSea = !!sea[ri];
     // Flow along the parcel's longest edge.
     let best = 0, ang = 0;
     ring.forEach((a, i) => { const b = ring[(i + 1) % ring.length], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (l > best) { best = l; ang = Math.atan2(b[1] - a[1], b[0] - a[0]); } });
@@ -174,12 +197,25 @@ export async function waterSurface(rings: [number, number][][], field: WaterFiel
       pos.push(x, field.level(x, y) + 0.12, -y);
       uv.push(x * ux + y * uy, -x * uy + y * ux);
       nor.push(0, 1, 0);
-      shore.push(field.shore(x, y));
-      flow.push(ux, -uy);
+      const sh = field.shore(x, y);
+      shore.push(sh);
+      if (isSea) {
+        // (the sea's waves run in to the shore — down the distance to it — near it; out at sea, one
+        // swell for all the sea's surfaces, from the south-east: the distance's slope out there
+        // turned from vertex to vertex and tore the waves into streaks)
+        const gx = field.shore(x + 3, y) - field.shore(x - 3, y), gy = field.shore(x, y + 3) - field.shore(x, y - 3), gl = Math.hypot(gx, gy);
+        const k = Math.min(1, Math.max(0, (sh - 30) / 50)), sx = -0.6, sy = 0.8;
+        let fx = sx, fy = sy;
+        if (gl > 1e-3 && k < 1) { fx = -gx / gl * (1 - k) + sx * k; fy = gy / gl * (1 - k) + sy * k; const fl = Math.hypot(fx, fy) || 1; fx /= fl; fy /= fl; }
+        flow.push(fx, fy);
+      } else flow.push(ux, -uy);
+      seaA.push(isSea ? 1 : 0);
     };
     const split = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2, depth: number): void => {
       const ab = a.distanceTo(b), bc = b.distanceTo(c), ca = c.distanceTo(a), m = Math.max(ab, bc, ca);
-      if (m < 6 || depth > 14) { if (wet(a, b, c)) { push(a.x, a.y); push(b.x, b.y); push(c.x, c.y); } return; }
+      // (the open sea, past its surf zone, in larger triangles: it is all one level)
+      const open = isSea && m < 32 && Math.min(field.shore(a.x, a.y), field.shore(b.x, b.y), field.shore(c.x, c.y)) > 60;
+      if (m < 6 || open || depth > 14) { if (wet(a, b, c)) { push(a.x, a.y); push(b.x, b.y); push(c.x, c.y); } return; }
       if (m === ab) { const d = a.clone().lerp(b, 0.5); split(a, d, c, depth + 1); split(d, b, c, depth + 1); }
       else if (m === bc) { const d = b.clone().lerp(c, 0.5); split(a, b, d, depth + 1); split(a, d, c, depth + 1); }
       else { const d = c.clone().lerp(a, 0.5); split(a, b, d, depth + 1); split(d, b, c, depth + 1); }
@@ -193,7 +229,7 @@ export async function waterSurface(rings: [number, number][][], field: WaterFiel
     }
   }
   if (!pos.length) return null;
-  return { pos: new Float32Array(pos), uv: new Float32Array(uv), nor: new Float32Array(nor), shore: new Float32Array(shore), flow: new Float32Array(flow), index: new Uint32Array(index) };
+  return { pos: new Float32Array(pos), uv: new Float32Array(uv), nor: new Float32Array(nor), shore: new Float32Array(shore), flow: new Float32Array(flow), sea: new Float32Array(seaA), index: new Uint32Array(index) };
 }
 
 /** A water parcel that is not open water: a surveyed road or named street runs along it

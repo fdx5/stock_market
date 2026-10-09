@@ -1,12 +1,14 @@
 import * as THREE from "three";
-import type { DroneLabel } from "./ringBuildings";
+import type { DroneLabel, DroneLabelInfo } from "./ringBuildings";
 
 /* The drone's signs (드론 mode): the apartment complexes, public offices, schools, hospitals and
  * tall named buildings of the tiles round it (ringBuildings: from the building register's names
  * and uses), drawn on one canvas over the view — as the view draws its 단지 팻말 — each frame
  * for the drone's camera. Public offices first, then tall buildings, complexes and hospitals,
  * then schools, nearer before farther; a sign that would cover one already placed is left out.
- * They thin out with the haze toward the edge of the loaded world. */
+ * They thin out with the haze toward the edge of the loaded world.
+ * A sign with a card to show (its register parcel, or a name to look up) glows softly in its own
+ * colour, breathing, and a tap on it opens the card (DroneBuildingCard): `hit` finds it. */
 
 const STYLE: Record<DroneLabel["kind"], { bg: string; fg: string; edge: string; icon: string; rank: number; reach: number }> = {
   gov: { bg: "rgba(18,74,140,0.92)", fg: "#ffffff", edge: "#7fb6ff", icon: "🏛", rank: 5, reach: 2600 },
@@ -16,7 +18,7 @@ const STYLE: Record<DroneLabel["kind"], { bg: string; fg: string; edge: string; 
   school: { bg: "rgba(20,96,58,0.88)", fg: "#ffffff", edge: "#8fe0b0", icon: "🎓", rank: 2, reach: 1400 },
 };
 
-type Sign = { key: string; name: string; kind: DroneLabel["kind"]; x: number; y: number; top: number; n: number; w: number };
+export type Sign = { key: string; name: string; kind: DroneLabel["kind"]; x: number; y: number; top: number; n: number; w: number; info?: DroneLabelInfo };
 
 export class DroneSigns {
   private byTile = new Map<string, DroneLabel[]>();
@@ -28,6 +30,28 @@ export class DroneSigns {
   canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private size = [0, 0, 0];
+  /** where each sign was drawn this frame (CSS px), for taps */
+  private boxes: { x: number; y: number; w: number; h: number; sx: number; sy: number; s: Sign }[] = [];
+  /** the sign whose card is open (drawn lit) */
+  selected: string | null = null;
+  /** no glow (?signfx=0) */
+  private fx = typeof location === "undefined" || !location.search.includes("signfx=0");
+
+  /** The sign under (x, y) (CSS px over the view), the pill or its stem, with a little slack for a
+   * finger; the nearest of several. */
+  hit(x: number, y: number, slack = 10): Sign | null {
+    let best: Sign | null = null, bd = Infinity;
+    for (const b of this.boxes) {
+      const inPill = x > b.x - slack && x < b.x + b.w + slack && y > b.y - slack && y < b.y + b.h + slack;
+      const inStem = Math.abs(x - b.sx) < slack + 4 && y > b.y + b.h && y < b.sy + slack;
+      if (!inPill && !inStem) continue;
+      const d = Math.hypot(x - (b.x + b.w / 2), y - (b.y + b.h / 2));
+      if (d < bd) { bd = d; best = b.s; }
+    }
+    return best;
+  }
+  /** Whether a sign has a card to open. */
+  static hasCard(s: Sign) { return s.name.length >= 2; }
 
   set(tile: string, labels: DroneLabel[] | null) {
     if (labels?.length) this.byTile.set(tile, labels); else if (!this.byTile.delete(tile)) return;
@@ -40,8 +64,8 @@ export class DroneSigns {
     const groups = new Map<string, Sign[]>();
     for (const list of this.byTile.values()) for (const l of list) {
       const k = l.kind + ":" + l.name, near = groups.get(k)?.find(s => Math.hypot(s.x - l.x, s.y - l.y) < 600);
-      if (near) { near.x = (near.x * near.n + l.x * l.n) / (near.n + l.n); near.y = (near.y * near.n + l.y * l.n) / (near.n + l.n); near.top = Math.max(near.top, l.top); near.n += l.n; }
-      else groups.set(k, [...(groups.get(k) ?? []), { key: k, name: l.name, kind: l.kind, x: l.x, y: l.y, top: l.top, n: l.n, w: 0 }]);
+      if (near) { near.x = (near.x * near.n + l.x * l.n) / (near.n + l.n); near.y = (near.y * near.n + l.y * l.n) / (near.n + l.n); near.top = Math.max(near.top, l.top); if (!near.info?.pnu && l.info?.pnu) near.info = l.info; near.n += l.n; }
+      else groups.set(k, [...(groups.get(k) ?? []), { key: k, name: l.name, kind: l.kind, x: l.x, y: l.y, top: l.top, n: l.n, w: 0, info: l.info }]);
     }
     this.merged = [...groups.values()].flat();
     this.dirty = false;
@@ -76,13 +100,16 @@ export class DroneSigns {
     // the most important and nearest first
     seen.sort((a, b) => STYLE[b[1].kind].rank - STYLE[a[1].kind].rank || a[0] - b[0]);
     const placed: [number, number, number, number][] = [];
+    this.boxes.length = 0;
+    const t = performance.now() / 1000;
     let drawn = 0;
     for (const [d, s, sx, sy] of seen) {
       if (drawn >= 60) break;
       const st = STYLE[s.kind];
       const k = 1 - THREE.MathUtils.smoothstep(d, 250, 2200);
       const font = Math.round(10 + 3 * k);
-      const label = st.icon ? `${st.icon} ${s.name}` : s.name;
+      const card = DroneSigns.hasCard(s), lit = this.selected === s.key;
+      const label = (st.icon ? `${st.icon} ${s.name}` : s.name) + (card ? " ⓘ" : "");
       const wkey = font + "|" + label;
       let tw = this.widths.get(wkey);
       if (tw === undefined) { ctx.font = `700 ${font}px system-ui, sans-serif`; tw = ctx.measureText(label).width; this.widths.set(wkey, tw); }
@@ -91,6 +118,7 @@ export class DroneSigns {
       if (x0 < -bw || x0 > w || y0 < -bh || sy > h + 4) continue;
       if (placed.some(([px, py, pw, ph]) => x0 < px + pw + 3 && x0 + bw + 3 > px && y0 < py + ph + 3 && y0 + bh + 3 > py)) continue;
       placed.push([x0, y0, bw, bh]);
+      this.boxes.push({ x: x0, y: y0, w: bw, h: bh, sx, sy, s });
       drawn++;
       // (fading into the haze with the ground under it)
       ctx.globalAlpha = 1 - 0.85 * THREE.MathUtils.smoothstep(d, fade[0], fade[1] * 0.92);
@@ -99,7 +127,19 @@ export class DroneSigns {
       ctx.fillStyle = st.edge; ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = st.bg;
       ctx.beginPath(); ctx.roundRect(x0, y0, bw, bh, bh / 2); ctx.fill();
-      ctx.strokeStyle = st.edge; ctx.lineWidth = 1; ctx.stroke();
+      if (card && this.fx) {
+        // (a soft glow in the sign's own colour, breathing slowly — a sign to tap; steady and
+        // brighter while its card is open)
+        const pulse = lit ? 1 : 0.5 + 0.5 * Math.sin(t * 2.4 + sx * 0.02);
+        ctx.save();
+        ctx.strokeStyle = st.edge;
+        for (const [lw, al] of [[7, 0.07], [4, 0.14]] as const) {
+          ctx.globalAlpha = (1 - 0.85 * THREE.MathUtils.smoothstep(d, fade[0], fade[1] * 0.92)) * al * (0.45 + 0.75 * pulse);
+          ctx.lineWidth = lw; ctx.beginPath(); ctx.roundRect(x0, y0, bw, bh, bh / 2); ctx.stroke();
+        }
+        ctx.restore();
+        ctx.strokeStyle = st.edge; ctx.lineWidth = lit ? 1.8 : 1.2; ctx.stroke();
+      } else { ctx.strokeStyle = st.edge; ctx.lineWidth = 1; ctx.stroke(); }
       ctx.font = `700 ${font}px system-ui, sans-serif`; ctx.fillStyle = st.fg; ctx.textBaseline = "middle"; ctx.textAlign = "center";
       ctx.fillText(label, sx, y0 + bh / 2 + 0.5);
     }

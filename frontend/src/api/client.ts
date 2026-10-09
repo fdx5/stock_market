@@ -1192,6 +1192,23 @@ export interface RealEstateRentResponse {
 }
 
 /** 세대수·주차대수 of a complex, from 공동주택관리정보 (K-apt). */
+/** One building's card (드론 signs): its 건축물대장 rows, the place and photographs of its name,
+ * a geotagged Wikipedia article — each null where its source had nothing. */
+export type RealEstateBuildingRegisterRow = {
+  name: string | null; dong: string | null; kind: string | null; use: string | null; useDetail: string | null;
+  structure: string | null; roof: string | null; floors: number | null; basements: number | null; height: number | null;
+  totalArea: number | null; buildingArea: number | null; siteArea: number | null; households: number | null; lifts: number | null;
+  permitted: string | null; started: string | null; approved: string | null; address: string | null; seismic: boolean | null;
+};
+export type RealEstateBuildingCard = {
+  name: string; lat: number; lon: number; pnu: string | null; area: string | null;
+  register: RealEstateBuildingRegisterRow[] | null;
+  place: { name: string; category: string | null; address: string | null; phone: string | null; url: string | null; distance: number | null } | null;
+  photos: { thumb: string; image: string | null; site: string | null; link: string | null; w: number | null; h: number | null }[] | null;
+  wiki: { title: string; extract: string | null; url: string | null; thumb: string | null } | null;
+  sources: string[];
+};
+
 export interface RealEstateFacts {
   id: string;
   matched: boolean;
@@ -1223,7 +1240,11 @@ export interface RealEstateBuilding {
   approved?: number | null;
 }
 
-export interface RealEstateParcel { ring: [number, number][]; kind: string; holes?: [number,number][][] }
+export interface RealEstateParcel { ring: [number, number][]; kind: string; holes?: [number,number][][];
+  /** the sea (OpenStreetMap's coastline, /realestate/water): water to its outline, at sea level */
+  sea?: boolean;
+  /** the square it was cut to (view frame): past its edge the water goes on, no bank */
+  open?: [number, number, number, number] }
 
 export interface DriveBoardRow { rank: number; name: string; score: number; drives: number; deliveries: number; me: boolean }
 export interface DriveBoard { top: DriveBoardRow[]; me: DriveBoardRow | null; players: number }
@@ -1338,7 +1359,7 @@ export const api = {
     getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
   /** Open water round a point (OpenStreetMap lakes, ponds, river areas): rings in metres about it. */
   realEstateWater: (lat: number, lon: number, r: number) =>
-    getJSON<{ rings: { ring: [number, number][]; kind: string; name: string | null }[]; source: string | null }>(`${BASE}/realestate/water?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}&v=2`),
+    getJSON<{ rings: { ring: [number, number][]; kind: string; name: string | null; islands?: [number, number][][] }[]; beaches?: { ring: [number, number][]; name: string | null }[]; works?: { kind: string; closed: boolean; pts: [number, number][] }[]; source: string | null }>(`${BASE}/realestate/water?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}&v=3`),
   /** Mapped crosswalks and traffic signals round a point (OpenStreetMap), in metres about it. */
   realEstateCrossings: (lat: number, lon: number, r: number) =>
     getJSON<{ crossings: { line: [number, number][]; signals: boolean; layer?:number }[]; points: { at: [number, number]; signals: boolean; marked: boolean }[]; signals: [number, number][]; signal_details?:{id:string;at:[number,number];layer:number;direction:string|null;state:null}[]; source: string | null }>(`${BASE}/realestate/crossings?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}&v=3`),
@@ -1354,6 +1375,12 @@ export const api = {
     getJSONFresh<RealEstateBuildingsResponse>(`${BASE}/realestate/buildings?id=${encodeURIComponent(id)}${peek ? "&peek=true" : ""}`, signal),
   realEstateNearby: (id: string, parcels: RealEstateNearbyParcel[]) =>
     postJSON<{ id: string; items: RealEstateNearbyComplex[] }>(`${BASE}/realestate/nearby`, { id, parcels }),
+  realEstateBuildingInfo: (q: { name: string; lat: number; lon: number; pnu?: string; area?: string }, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ name: q.name, lat: q.lat.toFixed(6), lon: q.lon.toFixed(6) });
+    if (q.pnu) params.set("pnu", q.pnu);
+    if (q.area) params.set("area", q.area);
+    return getJSON<RealEstateBuildingCard>(`${BASE}/realestate/building-info?${params}`, { signal });
+  },
   realEstateFacts: (id: string) =>
     getJSONFresh<RealEstateFacts>(`${BASE}/realestate/facts?id=${encodeURIComponent(id)}`),
   realEstateSummary: (q: { level: RealEstateRegionLevel; sido?: string; sgg?: string; period: RealEstatePeriod }) => {

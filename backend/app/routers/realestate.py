@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import Response
 
-from app.services import realestate_buildings, realestate_facts, realestate_map, realestate_nearby, realestate_rent, realestate_summary, realestate_water
+from app.services import realestate_building_info, realestate_buildings, realestate_facts, realestate_map, realestate_nearby, realestate_rent, realestate_summary, realestate_water
 
 router = APIRouter()
 
@@ -102,6 +102,20 @@ def realestate_complex_facts(response: Response, id: str = Query(..., min_length
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/building-info")
+def realestate_building_card(response: Response, name: str = Query(..., min_length=2, max_length=80),
+                             lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132),
+                             pnu: str | None = Query(None, pattern=r"^\d{19}$"), area: str | None = Query(None, max_length=30)):
+    """One building's card for the 3D view's drone signs: its register (허가·착공·사용승인,
+    용도, 구조, 층수, 면적), the place and photographs of that name, a geotagged article."""
+    try:
+        card = realestate_building_info.building_info(name, lat, lon, pnu, area)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response.headers["Cache-Control"] = "public, max-age=3600" if card.get("sources") else "no-store"
+    return card
+
+
 @router.get("/buildings")
 def realestate_complex_buildings(response: Response, id: str = Query(..., min_length=7, max_length=200),
                                  peek: bool = False):
@@ -118,10 +132,13 @@ def realestate_complex_buildings(response: Response, id: str = Query(..., min_le
 
 @router.get("/water")
 def realestate_water_areas(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132),
-                           r: float = Query(700, ge=100, le=1500)):
-    """Open water round a point (OpenStreetMap lakes, ponds and river areas), for the 3D
-    viewer: rings in metres about the point, clipped to the square of `r`."""
-    result = realestate_water.water(lat, lon, r)
+                           r: float = Query(700, ge=100, le=4000), fast: bool = False):
+    """Open water round a point (OpenStreetMap lakes, ponds and river areas, the sea from the
+    coastline) and the beaches, for the 3D viewer: rings in metres about the point, clipped to
+    the square of `r`. `fast`: at once (the drone's tiles)."""
+    if r > 1500 and not fast:  # (the wide square — the drone's sea round it — only from the bundled coast)
+        raise HTTPException(status_code=400, detail="r over 1500 needs fast=1")
+    result = realestate_water.water(lat, lon, r, fast)
     response.headers["Cache-Control"] = "public, max-age=86400" if result.get("source") else "no-store"
     return result
 

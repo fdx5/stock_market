@@ -329,7 +329,8 @@ def _overpass(query: str, deadline_s: float | None = None) -> list[dict]:
         if remaining is not None and remaining <= 0:
             break
         try:
-            timeout = (5, 20) if remaining is None else (min(1, remaining / 3), min(2, remaining * 2 / 3))
+            # (a long deadline — a background survey — lets a slow mirror take its time)
+            timeout = (5, 20) if remaining is None else (5, min(30, remaining * 2 / 3)) if remaining > 10 else (min(1, remaining / 3), min(2, remaining * 2 / 3))
             res = requests.post(url, data={"data": query}, headers=UA, timeout=timeout)
             if res.ok:
                 body = res.json()

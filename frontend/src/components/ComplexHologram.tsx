@@ -40,6 +40,13 @@ import { FLAT, gradeRoads, gridNormals, loadTerrain, preconnectTerrain, Terrain 
 import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
 import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
 import { buildWater } from "./sceneWater";
+import { buildBeach, buildCoastFringe } from "./sceneBeach";
+import { buildSeaWorks, type SeaWork } from "./sceneSeaWorks";
+/** distance from (x, y) to the segment a–b */
+const segDist = (x: number, y: number, a: [number, number], b: [number, number]) => {
+  const ex = b[0] - a[0], ey = b[1] - a[1], l2 = ex * ex + ey * ey || 1, t = Math.max(0, Math.min(1, ((x - a[0]) * ex + (y - a[1]) * ey) / l2));
+  return Math.hypot(a[0] + ex * t - x, a[1] + ey * t - y);
+};
 import { buildBoats, noBoatsReason, prepareWakes } from "./sceneBoats";
 import { buildKids, schoolBorders } from "./sceneKids";
 import type { Palette } from "./complexScene";
@@ -400,6 +407,17 @@ function geographyOnce<T>(kind: string, lat: number, lon: number, load: () => Pr
   while (geography.size > 16) geography.delete(geography.keys().next().value!);
   void promise.catch(() => { if (geography.get(key) === entry) geography.delete(key); });
   return promise;
+}
+/** The water round a point at once (the bundled sea, beaches and breakwaters, and any lakes the
+ * server already has): tried three times — a missing answer would paint the sea as land. */
+async function seaAnswerAt(lat: number, lon: number, r: number) {
+  for (let k = 0; k < 3; k++) {
+    if (k) await new Promise(res => setTimeout(res, 1200 * k));
+    const body = await fetch(`/api/realestate/water?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}&r=${r}&v=3&fast=1`, { signal: AbortSignal.timeout(10000) })
+      .then(res => (res.ok ? res.json() : null)).catch(() => null);
+    if (body) return body as { rings?: { ring: [number, number][] }[]; beaches?: { ring: [number, number][] }[]; works?: { kind: string; closed: boolean; pts: [number, number][] }[] };
+  }
+  return null;
 }
 const nearbyWater = (lat: number, lon: number) => geographyOnce("water", lat, lon, () => api.realEstateWater(+lat.toFixed(4), +lon.toFixed(4), FAR_HALF));
 const nearbyCrossings = (lat: number, lon: number) => geographyOnce("crossings", lat, lon, () => api.realEstateCrossings(+lat.toFixed(4), +lon.toFixed(4), FAR_HALF));
@@ -2795,17 +2813,28 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Open water the parcels don't register as such (석촌호수 is a 공원) or don't reach (a river
     // past them): OpenStreetMap's lakes and river areas, asked once the view is up (kept a day).
     let lakes: RealEstateParcel[] = [];
+    /** the breakwaters, groynes and piers round (view frame) */
+    let seaWorks: SeaWork[] = [];
     // Keep the actual answer: timing out this promise used to discard lakes that
     // arrived late. Registered planting is shown independently below.
     const beginGeography=textureBudgetEnabled()?(f:()=>void)=>f():afterShown;
     const lakesFetched: Promise<void> = new Promise<void>(resolve => beginGeography(() => {
-      if (!data.center || data.road_context?.rivers.length) { resolve(); return; }
+      if (!data.center) { resolve(); return; }
+      // (where the national stream network has the rivers, OpenStreetMap's lakes and rivers would be
+      // drawn twice: from it only the sea and the beaches)
+      const rivers = !!data.road_context?.rivers.length;
       const { lat, lon } = data.center, la = +lat.toFixed(4), lo = +lon.toFixed(4);
       // (asked about the rounded point, for the server's cache: moved back onto the centre)
       const ox = (lo - lon) * 111320 * Math.cos((lat * Math.PI) / 180), oy = (la - lat) * 110540;
       void nearbyWater(la, lo).then(r => {
           if (!alive) return;
-          lakes = r.rings.map(w => ({ kind: "유", ring: w.ring.map(([x, y]) => [x + ox, y + oy] as [number, number]) }));
+          // (the sea too — made from the coastline — and the beaches, as sand: kind 해, before the water)
+          lakes = [
+            ...(r.beaches ?? []).map(w => ({ kind: "해", ring: w.ring.map(([x, y]) => [x + ox, y + oy] as [number, number]) })),
+            ...r.rings.filter(w => !rivers || w.kind === "sea").map(w => ({ kind: "유", sea: w.kind === "sea", open: [ox - FAR_HALF, oy - FAR_HALF, ox + FAR_HALF, oy + FAR_HALF] as [number, number, number, number], ring: w.ring.map(([x, y]) => [x + ox, y + oy] as [number, number]),
+              ...(w.islands?.length ? { holes: w.islands.map(h => h.map(([x, y]) => [x + ox, y + oy] as [number, number])) } : {}) })),
+          ];
+          seaWorks = (r.works ?? []).map(w => ({ ...w, pts: w.pts.map(([x, y]) => [x + ox, y + oy] as [number, number]) }));
           if (hostRef.current) hostRef.current.dataset.lakes = r.rings.map(w => w.name ?? w.kind).join(",");
         }).catch(() => {}).then(() => resolve());
     }));
@@ -2814,6 +2843,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // (the traffic waits for them a few seconds at most)
     let crossLines: { line: [number, number][]; layer?:number }[] = [];
     let signalLocations:{at:[number,number];layer:number}[]=[];
+    let crossPoints:{at:[number,number];marked:boolean}[]=[];
     // (driving on into this area: nothing waits — the vehicle is coming)
     const crossingsReady: Promise<void> = new Promise<void>(resolve => beginGeography(() => {
       if (!data.center) { resolve(); return; }
@@ -2824,6 +2854,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if (!alive) return;
           crossLines = r.crossings.map(c => ({ layer:c.layer,line: c.line.map(([x, y]) => [x + ox, y + oy] as [number, number]) }));
           signalLocations = (r.signal_details??r.signals.map(at=>({at,layer:0}))).map(s=>({at:[s.at[0]+ox,s.at[1]+oy],layer:s.layer}));
+          crossPoints = (r.points ?? []).map(p => ({ at: [p.at[0] + ox, p.at[1] + oy] as [number, number], marked: p.marked }));
           if (hostRef.current) hostRef.current.dataset.crossings = `${r.crossings.length} mapped, ${r.signals.length} signals`;
         }).catch(() => {}),
         new Promise(r => window.setTimeout(r, 3500)),
@@ -2834,7 +2865,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const rivers=data.road_context?.rivers??[];
       if(rivers.length){
         const parcels=(data.parcels??[]).filter(p=>!['천','구'].includes(p.kind));
-        return {parcels:[...parcels,...rivers.map(r=>({kind:'천',ring:r.rings[0],holes:r.rings.slice(1)}))],covered:[...waterCovered({...data,parcels}),...rivers.map(()=>false)]};
+        // (and the sea: lakes holds only it and the beaches here)
+        const sea=lakes.filter(p=>p.kind==='유');
+        return {parcels:[...parcels,...rivers.map(r=>({kind:'천',ring:r.rings[0],holes:r.rings.slice(1)})),...sea],covered:[...waterCovered({...data,parcels}),...rivers.map(()=>false),...sea.map(()=>false)]};
       }
       return {parcels:[...(data.parcels??[]),...lakes],covered:[...waterCovered(data),...lakes.map(()=>false)]};
     };
@@ -3101,8 +3134,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const water = finalPlantsJob?await finalPlantsJob:await buildWater(wp.parcels, wp.covered, terrain, pace);
         if (!alive) { if(!finalPlantsJob)water?.dispose(); return; }
         const finishPlanting=async()=>{
-          if(water){
-            const dry=(p:[number,number]|[number,number,number])=>!water.field.wet(p[0],p[1]);
+          // (no tree on a beach: the land use under the sand is often a park or unregistered)
+          const sands=lakes.filter(p=>p.kind==="해").map(p=>p.ring);
+          // (nor within 10 m of the sea, on its islands, or by a breakwater, groyne or pier)
+          const seaNear=(x:number,y:number)=>{ if(!water||!lakes.some(p=>p.sea))return false; for(const dd of [4,9,14])for(let k=0;k<8;k++){const a=k*Math.PI/4;if(water.field.wet(x+Math.cos(a)*dd,y+Math.sin(a)*dd))return true;} return false; };
+          const nearWork=(x:number,y:number)=>seaWorks.some(w=>w.closed?inRing([x,y],w.pts):w.pts.some((q,i)=>i>0&&segDist(x,y,w.pts[i-1],q)<9));
+          if(water||sands.length||seaWorks.length){
+            const dry=(p:[number,number]|[number,number,number])=>!(water?.field.wet(p[0],p[1]))&&!sands.some(r=>inRing([p[0],p[1]],r))&&!seaNear(p[0],p[1])&&!nearWork(p[0],p[1]);
             planting.trees=planting.trees.filter(dry);planting.shrubs=planting.shrubs.filter(dry);planting.flowers=planting.flowers.filter(dry);
             if(planting.grass)planting.grass=planting.grass.filter(dry);
             if(planting.groves)planting.groves=planting.groves.map(g=>({...g,points:g.points.filter(dry)}));
@@ -3121,6 +3159,28 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           disposables.push({ dispose: () => { stage.wetAt = null; } });
           await water.sink(groundGeo);
           if(hostRef.current)hostRef.current.dataset.waterReadyAt=String(Math.round(performance.now()));
+          // The breakwaters, groynes and piers: concrete crowns out of the sea, tetrapods along them.
+          if (seaWorks.length && lakes.some(p => p.sea)) {
+            const lv: number[] = [];
+            for (const w of seaWorks) for (const [x, y] of w.pts) for (const [dx, dy] of [[0, 0], [12, 0], [-12, 0], [0, 12], [0, -12]]) if (water.field.wet(x + dx, y + dy)) lv.push(water.field.level(x + dx, y + dy));
+            lv.sort((a, b) => a - b);
+            const works = lv.length ? buildSeaWorks(seaWorks, lv[lv.length >> 1], seed, { maxTetrapods: stage.hq ? 8000 : 4000 }) : null;
+            if (works) { stage.addWarm(decor, works.group); disposables.push(works); if (hostRef.current) hostRef.current.dataset.seaWorks = String(seaWorks.length); }
+          }
+          // The strand: the land along the sea laid with sand (never a lawn by the water).
+          const seaRings = lakes.filter(p => p.sea).map(p => ({ ring: p.ring, holes: p.holes }));
+          if (seaRings.length) {
+            const strand = await buildCoastFringe(seaRings, FAR_HALF, terrain, pace, 14, seed);
+            if (!alive) { strand?.dispose(); return; }
+            if (strand) { stage.addWarm(decor, strand.mesh); disposables.push(strand); }
+          }
+          // The beaches: sand over the ground, darkening wet down into the sea.
+          const beachRings = lakes.filter(p => p.kind === "해").map(p => p.ring);
+          if (beachRings.length) {
+            const beach = await buildBeach(beachRings, terrain, water.field, pace, seed);
+            if (!alive) { beach?.dispose(); return; }
+            if (beach) { stage.addWarm(decor, beach.mesh); disposables.push(beach); if (hostRef.current) hostRef.current.dataset.beaches = String(beachRings.length); }
+          }
           if (!await later()) return;
           // A big river: boats in clear weather by day (none on streams and ponds).
           const boats = await buildBoats(water.field, cx, cy, seed);
@@ -3183,7 +3243,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!alive || gen !== marksGen) { f.dispose(); return; }
       roadBvhAbort?.abort();roadBvhAbort=new AbortController();
       const bvhJob=roadBvhEnabled()?buildRoadBvh(f.group.geometry,{signal:roadBvhAbort.signal}):Promise.resolve(null);
-      const m = await buildRoadMarkings(arms.roads, roadTerrain, arms.at, arms.inside);
+      const m = await buildRoadMarkings(arms.roads, roadTerrain, arms.at, arms.inside, arms.crossings);
       const bvh=await bvhJob;
       if (!alive || gen !== marksGen) { f.dispose(); m.dispose(); return; }
       await Promise.all((m.group.children as THREE.Mesh[]).map(async mesh=>{
@@ -3265,10 +3325,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if (style === "apt") aptGeo = geo;
         }
         // The ground under the ring in its land use (farGround.ts): parcels by 지목, roads, channels.
-        whenIdle(() => {
+        whenIdle(async () => {
           if (!alive || ringStop.signal.aborted || new URLSearchParams(location.search).get("far") === "0") return;
           const { lawn, paddy } = seasonGround(undefined,textureBudgetEnabled());
-          void farGround(data, terrain, { half: FAR_HALF, size: 1024, lawn, paddy, landscape:textureBudgetEnabled(),nearHalf:T,footprints:[...ring.footprints,...data.buildings.map(b=>b.rings[0]),...data.context.map(b=>b.rings[0])],signal: ringStop.signal }).then(async fg => {
+          // (its water asked first, at once and again if need be — without it the sea out there
+          // was painted as lawn, trees on it)
+          const farWater = data.center ? await seaAnswerAt(data.center.lat, data.center.lon, Math.round(FAR_HALF * 1.5)) : null;
+          if (!alive || ringStop.signal.aborted) return;
+          void farGround(data, terrain, { water: farWater ?? undefined, half: FAR_HALF, size: 1024, lawn, paddy, landscape:textureBudgetEnabled(),nearHalf:T,footprints:[...ring.footprints,...data.buildings.map(b=>b.rings[0]),...data.context.map(b=>b.rings[0])],signal: ringStop.signal, lakes: true }).then(async fg => {
             if (!fg) return;
             if (!alive || ringStop.signal.aborted) { fg.bitmap.close(); return; }
             const tex = keep(new THREE.Texture(fg.bitmap as unknown as HTMLImageElement));
@@ -3378,7 +3442,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     disposables.push({ dispose: () => lamps?.dispose() });
     const onLook = [(l: Look) => lamps?.setLevel(l.lamps)];
     // Traffic (its vehicle kit decodes on first use) waits for the first frame and idle time.
-    (textureBudgetEnabled() ? (f: () => void) => f() : afterShown)(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, trafficTerrain, crossLines,arms=>{preparedRoadArms=arms;void layMarks();},signalLocations) : null)) : null)).then(traffic => {
+    (textureBudgetEnabled() ? (f: () => void) => f() : afterShown)(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, trafficTerrain, crossLines,arms=>{preparedRoadArms=arms;void layMarks();},signalLocations,crossPoints) : null)) : null)).then(traffic => {
       if (!traffic) return;
       if (!alive) { traffic.dispose(); return; }
       stage.addWarm(decor, traffic.group);
@@ -3612,7 +3676,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const FLY = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "KeyR", "KeyF", "KeyC", "Space", "ShiftLeft", "ShiftRight", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"]);
     // (on the window, capturing: ahead of the view's own keys and the full-screen layer's Esc)
     const down = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); leaveDroneRef.current(); return; }
+      if (e.key === "Escape") {
+        e.preventDefault(); e.stopImmediatePropagation();
+        // (a building's card open: Esc closes it, not the flight)
+        if (stageRef.current?.drone?.signs.selected) window.dispatchEvent(new Event("drone-card-close"));
+        else leaveDroneRef.current();
+        return;
+      }
       if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.code === "KeyV" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); return; }
       if (!FLY.has(e.code)) return;
@@ -3623,7 +3693,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const up = (e: KeyboardEvent) => { if (FLY.has(e.code)) { e.preventDefault(); flight()?.keys.delete(e.code); e.stopImmediatePropagation(); } };
     const blur = () => flight()?.keys.clear();
     // (the wheel: up and down)
-    const wheel = (e: WheelEvent) => { e.preventDefault(); flight()?.wheelClimb(e.deltaY); };
+    const wheel = (e: WheelEvent) => { if ((e.target as HTMLElement | null)?.closest?.(".re-drone-card")) return; e.preventDefault(); flight()?.wheelClimb(e.deltaY); };
     const vis = () => stageRef.current?.drone?.audio.pause(document.hidden);
     window.addEventListener("keydown", down, true);
     window.addEventListener("keyup", up, true);

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type MutableRefObject, type PointerEvent as RPointerEvent } from "react";
 import type { DroneHud } from "./droneMode";
 import type { DroneFlight } from "./droneFlight";
-import type { DroneSigns } from "./droneSigns";
+import type { DroneSigns, Sign } from "./droneSigns";
+import DroneBuildingCard from "./DroneBuildingCard";
 import DroneRadar, { type DroneWhere } from "./DroneRadar";
 
 /* 드론 mode's screen: speed, height, heading, how much of the world round it is drawn (and when
@@ -60,10 +61,54 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
     const t = window.setTimeout(() => setHelp(false), touch ? 6000 : 9000);
     return () => { sink.current = null; window.clearTimeout(t); };
   }, [sink]);
+  // A tap on a sign (a short press that hardly moved, not on a control) opens its building's card.
+  const root = useRef<HTMLDivElement>(null);
+  const [card, setCard] = useState<{ sign: Sign; at: { lat: number; lon: number }; distance: number } | null>(null);
+  useEffect(() => {
+    const stage = root.current?.parentElement;
+    if (!stage) return;
+    let down: { x: number; y: number; t: number; id: number } | null = null;
+    const local = (e: PointerEvent) => { const r = (signs.canvas ?? stage).getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] as const; };
+    const onControl = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.("button, a, .re-drone-stick, .re-drone-card, .re-drone-radar, .re-drone-tools");
+    const pd = (e: PointerEvent) => { down = onControl(e) ? null : { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; };
+    const pu = (e: PointerEvent) => {
+      const d = down; down = null;
+      if (!d || d.id !== e.pointerId || onControl(e) || performance.now() - d.t > 600 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 12) return;
+      const [x, y] = local(e);
+      const s = signs.hit(x, y, e.pointerType === "touch" ? 16 : 6);
+      if (!s) return;
+      const o = radar.origin, kx = Math.cos((o.lat * Math.PI) / 180) * 111320;
+      const p = flight.pos;
+      signs.selected = s.key;
+      // (looked up at its largest building — the parcel under it is the register's — else at the sign)
+      const bx = s.info?.bx ?? s.x, by = s.info?.by ?? s.y;
+      setCard({ sign: s, at: { lat: o.lat + by / 110540, lon: o.lon + bx / kx }, distance: Math.hypot(s.x - p.x, s.y + p.z) });
+    };
+    // (a mouse over a sign: the hand)
+    const pm = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse" || e.buttons) return;
+      const [x, y] = local(e);
+      const over = !onControl(e) && !!signs.hit(x, y, 4);
+      if (stage.style.cursor !== (over ? "pointer" : "")) stage.style.cursor = over ? "pointer" : "";
+    };
+    stage.addEventListener("pointerdown", pd, true);
+    stage.addEventListener("pointerup", pu, true);
+    stage.addEventListener("pointermove", pm, { passive: true });
+    return () => {
+      stage.removeEventListener("pointerdown", pd, true); stage.removeEventListener("pointerup", pu, true);
+      stage.removeEventListener("pointermove", pm); stage.style.cursor = "";
+    };
+  }, [signs, flight, radar.origin]);
+  const closeCard = () => { signs.selected = null; setCard(null); };
+  useEffect(() => {
+    const close = () => { signs.selected = null; setCard(null); };
+    window.addEventListener("drone-card-close", close);
+    return () => { window.removeEventListener("drone-card-close", close); signs.selected = null; };
+  }, [signs]);
   const h = hud;
   const dir = h ? COMPASS[Math.round(h.heading / 45) % 8] : "";
   return (
-    <div className="re-drone" aria-live="off">
+    <div ref={root} className="re-drone" aria-live="off">
       <canvas className="re-drone-signs" aria-hidden="true" ref={el => { signs.canvas = el; }} />
       <div className="re-drone-hud" role="status" data-ahead={h ? Math.round(Math.min(h.ahead, 9999)) : ""} data-unready={h ? Math.round(h.unready) : ""} data-front={h ? Math.round(h.unreadyFront) : ""} data-kmh={h ? h.kmh.toFixed(1) : ""}>
         <b className="re-drone-speed">{h ? Math.round(h.kmh) : 0}<small>km/h</small></b>
@@ -82,8 +127,8 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
       <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} />
       {help && <div className="re-drone-help" role="note">
         {touch
-          ? <><b>왼쪽 스틱</b> ↕ 상승·하강 ↔ 회전<br /><b>오른쪽 스틱</b> ↕ 전진·후진 ↔ 좌우 이동<br />화면 드래그: 카메라 각도</>
-          : <><b>W S</b> 전진·후진 · <b>A D</b> 좌우 이동 · <b>Q E</b>·<b>← →</b> 회전 · <b>Space</b>/<b>R</b>/<b>PgUp</b>/휠↑ 상승 · <b>Shift</b>/<b>F</b>/<b>PgDn</b>/휠↓ 하강 · <b>V</b> 1인칭/3인칭 · 드래그: 카메라 각도 · <b>Esc</b> 착륙</>}
+          ? <><b>왼쪽 스틱</b> ↕ 상승·하강 ↔ 회전<br /><b>오른쪽 스틱</b> ↕ 전진·후진 ↔ 좌우 이동<br />화면 드래그: 카메라 각도 · <b>빛나는 팻말</b>을 누르면 건물 정보</>
+          : <><b>W S</b> 전진·후진 · <b>A D</b> 좌우 이동 · <b>Q E</b>·<b>← →</b> 회전 · <b>Space</b>/<b>R</b>/<b>PgUp</b>/휠↑ 상승 · <b>Shift</b>/<b>F</b>/<b>PgDn</b>/휠↓ 하강 · <b>V</b> 1인칭/3인칭 · 드래그: 카메라 각도 · <b>Esc</b> 착륙 · <b>빛나는 팻말</b> 클릭: 건물 정보</>}
         <span>최고 200km/h · 지면 2m ~ 상공 500m</span>
       </div>}
       <div className="re-drone-alt-buttons" aria-label="고도 조절">
@@ -94,6 +139,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
             onLostPointerCapture={() => flight.keys.delete(code)} onContextMenu={e => e.preventDefault()}>{label}</button>
         ))}
       </div>
+      {card && <DroneBuildingCard sign={card.sign} at={card.at} distance={card.distance} vkey={radar.vkey} domain={radar.domain} onClose={closeCard} />}
       {touch && <>
         <Stick side="left" flight={flight} label={["상승·하강", "회전"]} />
         <Stick side="right" flight={flight} label={["전진·후진", "좌우 이동"]} />

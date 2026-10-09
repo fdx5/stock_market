@@ -1516,6 +1516,14 @@ export class ComplexRenderer {
           let ft = textureSample(farMap, smpAnisoClamp, fuv);
           s.albedo = ft.rgb; s.metalness = 0.0; s.emissive = vec3f(0.0);
           s.roughness = select(0.95, 0.07, ft.a < 0.75);
+          if (ft.a < 0.75) {
+            // (its water — under the sea surfaces that come over it, or past them: a calm distant
+            // sea, matte enough not to mirror the sky in streaks)
+            let farD = length(in.P - frame.cameraPos);
+            s.normal = vec3f(0.0, 1.0, 0.0);
+            s.roughness = mix(0.38, 0.5, smoothstep(250.0, 2500.0, farD));
+            s.albedo = mix(vec3f(0.016, 0.062, 0.085), vec3f(0.024, 0.085, 0.1), skyNoise(in.P.xz * 0.02));
+          }
         }
       }\n`;
     }

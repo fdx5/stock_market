@@ -1,5 +1,7 @@
 import * as THREE from "three";
-import type { RealEstateBuildingsResponse } from "../api/client";
+import type { RealEstateBuildingsResponse, RealEstateParcel } from "../api/client";
+import { buildWater } from "./sceneWater";
+import { buildSeaWorks } from "./sceneSeaWorks";
 import { ringTile, SURVEY_STYLES, type DroneLabel, type RingResult } from "./ringBuildings";
 import type { ColourJob, ColourResult, SurveyJob, SurveyResult } from "./droneSurveyWorker";
 import { roadTile } from "./droneRoads";
@@ -22,6 +24,9 @@ import { textureBudgetEnabled } from "./textureBudget";
  *     tile, extruded in a worker in the shared neighbourhood facades (ringBuildings.ringTile);
  *   - ground: the parcels in their registered land use (연속지적도 지목), painted in a worker
  *     (farGround.ts), with its park and woodland trees (scenePlants).
+ *   - sea: the coastline's sea (bundled on the server, /api/realestate/water), the view's own
+ *     water surface — swell, surf, its depth over the sand — at sea level, the ground under it
+ *     sunk below it; not inside the view's square (its own water is there).
  * The tiles inside the view's own square draw only what it does not (the ring's corners past
  * 600 m) and give the collision roofs. Loading runs ahead of the drone: by distance from where it
  * will be in a few seconds, more tiles the higher it flies. `clearAhead` tells the flight how far
@@ -30,6 +35,8 @@ import { textureBudgetEnabled } from "./textureBudget";
  * Nothing invented here: where VWorld does not answer, a tile stays empty and is retried. */
 
 export const TILE_M = 340;
+/** The coarse sea laid round the drone at once (see regionSea), half a side (m). */
+const REGION_SEA = 3000;
 /** The view's own neighbourhood: buildings out to RING_M (a disc), land use over ±FAR_HALF. */
 export type ViewExtent = { ring: number; farHalf: number };
 
@@ -66,7 +73,32 @@ type Tile = {
   /** whether its buildings and its trees cast shadows now */
   castB: boolean; castP: boolean;
   surveyGroup: THREE.Group | null;
+  /** its water as the server had it (asked before the rest; undefined: not yet asked) */
+  seaBody?: SeaBody | null;
 };
+type SeaBody = { rings?: { ring: [number, number][]; kind: string; islands?: [number, number][][] }[]; beaches?: { ring: [number, number][] }[]; works?: { kind: string; closed: boolean; pts: [number, number][] }[] };
+/** A ring cut to an axis-aligned box (Sutherland–Hodgman; a concave ring leaving and coming back
+ * keeps a seam along the box's edge, harmless to the fill). */
+function clipToBox(ring: [number, number][], [x0, y0, x1, y1]: [number, number, number, number]): [number, number][] {
+  let pts = ring;
+  const edges: [(p: [number, number]) => boolean, (a: [number, number], b: [number, number]) => [number, number]][] = [
+    [p => p[0] >= x0, (a, b) => [x0, a[1] + (b[1] - a[1]) * (x0 - a[0]) / ((b[0] - a[0]) || 1e-9)]],
+    [p => p[0] <= x1, (a, b) => [x1, a[1] + (b[1] - a[1]) * (x1 - a[0]) / ((b[0] - a[0]) || 1e-9)]],
+    [p => p[1] >= y0, (a, b) => [a[0] + (b[0] - a[0]) * (y0 - a[1]) / ((b[1] - a[1]) || 1e-9), y0]],
+    [p => p[1] <= y1, (a, b) => [a[0] + (b[0] - a[0]) * (y1 - a[1]) / ((b[1] - a[1]) || 1e-9), y1]],
+  ];
+  for (const [inside, cross] of edges) {
+    if (!pts.length) break;
+    const out: [number, number][] = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], q = pts[(i + pts.length - 1) % pts.length];
+      if (inside(p)) { if (!inside(q)) out.push(cross(q, p)); out.push(p); }
+      else if (inside(q)) out.push(cross(q, p));
+    }
+    pts = out;
+  }
+  return pts;
+}
 export type DroneWorldStats = { tiles: number; ready: number; loading: number; failed: number; buildings: number; lastMs: number; radius: number };
 
 const key = (i: number, j: number) => `${i},${j}`;
@@ -245,6 +277,7 @@ export class DroneWorld {
    * queued nearest-to-where-it-will-be first; tiles left far behind freed; placed tiles checked. */
   update(x: number, y: number, vx: number, vy: number, alt: number, look?: [number, number]) {
     if (this.disposed) return;
+    if (!OFF.includes("sea") && !this.regionBusy && (!this.region || Math.hypot(x - this.region.x, y - this.region.y) > REGION_SEA * 0.5)) void this.regionSea(x, y);
     // (higher, more of the city in sight: 1.15 km low down, 1.8 km at 500 m; less on a phone — and
     // loaded for where the drone will be in 5.5 s)
     this.radius = Math.min(this.o.hq ? 1820 : 1260, 1155 + Math.max(0, alt) * 1.4) * this.memoryScale();
@@ -363,7 +396,7 @@ export class DroneWorld {
       const c = this.o.data.center!, la = +(c.lat + ((box[1] + box[3]) / 2) / this.ky).toFixed(4), lo = +(c.lon + ((box[0] + box[2]) / 2) / this.kx).toFixed(4);
       const q = `lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}`;
       void fetch(`${location.origin}/api/realestate/crossings?${q}&r=260&v=3`).catch(() => {});
-      void fetch(`${location.origin}/api/realestate/water?${q}&r=${Math.round((TILE_M / 2) * 1.5)}&v=2`).catch(() => {});
+      void fetch(`${location.origin}/api/realestate/water?${q}&r=${Math.round((TILE_M / 2) * 1.5)}&v=3&fast=1`).catch(() => {});
     }
     return {
       i, j, key: key(i, j), box, cx: (box[0] + box[2]) / 2, cy: (box[1] + box[3]) / 2,
@@ -442,6 +475,29 @@ export class DroneWorld {
       t.grid = grid;
       const local = gridAt(grid);
       t.at = (x, y) => local(x - grid.ox, y - grid.oy);
+      // Its water first (the server answers at once from the bundled coastline): without it the
+      // sea would be painted as land — no answer, the tile is tried again. A tile all at sea:
+      // nothing to ask VWorld for (no building, road or parcel out there) — only the sea.
+      let sea: SeaBody | null = null;
+      if (!t.inner && !OFF.includes("sea")) {
+        sea = await this.seaAnswer(t);
+        if (stop.signal.aborted || this.disposed) return;
+        if (!sea) { fail(); return; }
+        if (this.seaCovers(sea)) {
+          const localTerrain: Terrain = { at: local, base: r => Math.min(...r.map(([x, y]) => local(x, y))), relief: 0, elevation: null, source: "drone tile", grid };
+          await this.seaOn(t, null, localTerrain, stop.signal, sea);
+          if (stop.signal.aborted || this.disposed) return;
+          const zup = new THREE.Group();
+          zup.rotation.x = -Math.PI / 2; zup.name = `drone tile ${t.key} (sea)`; zup.updateMatrixWorld();
+          t.zup = zup;
+          this.o.addWarm(this.root, zup);
+          if (t.yup) this.o.addWarm(this.root, t.yup);
+          t.state = "placed";
+          performance.mark?.(`drone:placed ${t.key} sea`);
+          return;
+        }
+        t.seaBody = sea;
+      }
       // The tile's three workers at once: its roads (past the view's own square, where it draws none),
       // its ground's land use and its buildings.
       const dlog = (w: string) => { if (DTRACE) console.info(`[dtile] ${t.key} ${w} ${Math.round(performance.now())}`); };
@@ -451,7 +507,7 @@ export class DroneWorld {
       const tileLat = data.center!.lat + t.cy / this.ky, tileLon = data.center!.lon + t.cx / this.kx;
       const localTerrain: Terrain = { at: local, base: r => Math.min(...r.map(([x, y]) => local(x, y))), relief: 0, elevation: null, source: "drone tile", grid };
       const groundJob = t.inner || OFF.includes("ground") ? Promise.resolve(null) : farGround({ ...data, center: { lat: tileLat, lon: tileLon }, roads: [] } as RealEstateBuildingsResponse, localTerrain,
-        { half: TILE_M / 2, size: hq ? 1024 : 512, lawn: this.season.lawn, paddy: this.season.paddy, landscape: textureBudgetEnabled(), nearHalf: 0, footprints: [], signal: stop.signal, rivers: true, lakes: true });
+        { half: TILE_M / 2, size: hq ? 1024 : 512, lawn: this.season.lawn, paddy: this.season.paddy, landscape: textureBudgetEnabled(), nearHalf: 0, footprints: [], signal: stop.signal, rivers: true, lakes: true, water: sea });
       void roadJob.then(() => dlog("roads done")); void groundJob.then(() => dlog("ground done"));
       const ring = OFF.includes("ring") ? null : await ringTile(data.center!.lat, data.center!.lon, data.vworld_key!, data.vworld_domain, t.box, grid,
         { inner: this.o.extent.ring, floorM: CONTEXT_FLOOR_M, seed: this.o.seed + t.i * 7919 + t.j * 104729, heightCell: 2, signal: stop.signal });
@@ -547,6 +603,8 @@ export class DroneWorld {
         t.materials.push(mat);
         t.dispose.push(() => { ground.dispose(); tex.dispose(); mat.dispose(); fg.bitmap.close(); });
         if (!await this.pace(true)) return;
+        if (!OFF.includes("sea")) await this.seaOn(t, ground, localTerrain, stop.signal);
+        if (stop.signal.aborted || this.disposed) return;
         // The trees (park trees and woodland), planted while the drone is near (update): flowers,
         // shrubs and grass are a few centimetres to a metre — specks from the air for a dozen draws
         // a tile — so the tiles leave them out.
@@ -578,6 +636,150 @@ export class DroneWorld {
       this.loading--;
       if (t.state === "loading" && !this.disposed && !stop.signal.aborted) fail();
     }
+  }
+
+  /** The sea on a tile (see the top): its surface under t.yup (the tile's centre), the tile's
+   * ground (view frame, z up) sunk under it. */
+  /** The sea round the drone out to REGION_SEA, at once (the bundled coastline): a coarse surface
+   * a little under the tiles' own, so the sea is there before they come in — not their land-use
+   * picture's lawn — and past what is loaded. Laid again when the drone has gone half its reach;
+   * none inside the view's square (its own sea is there). */
+  private region: { x: number; y: number; mesh: THREE.Mesh; dispose: () => void } | null = null;
+  /** the region's answer (view frame): its sea rings with their islands, and the beaches */
+  private regionWater: { x: number; y: number; R: number; rings: { ring: [number, number][]; islands: [number, number][][] }[]; beaches: [number, number][][]; works: NonNullable<SeaBody["works"]> } | null = null;
+  private regionWait: (() => void)[] = [];
+  private regionBusy = false;
+  private async regionSea(x: number, y: number) {
+    if (typeof location === "undefined") return;
+    this.regionBusy = true;
+    try {
+      const c = this.o.data.center!, R = REGION_SEA;
+      const lat = c.lat + y / this.ky, lon = c.lon + x / this.kx;
+      let body: SeaBody | null = null;
+      for (let k = 0; k < 4 && !body && !this.disposed; k++) {
+        if (k) await new Promise(r => setTimeout(r, 1500 * k));
+        body = await fetch(`${location.origin}/api/realestate/water?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}&r=${R}&v=3&fast=1`, { signal: AbortSignal.timeout(15000) })
+          .then(r => (r.ok ? r.json() : null)).catch(() => null) as SeaBody | null;
+      }
+      if (this.disposed || !body) return;
+      // (its rings in the view frame, for the tiles to cut theirs from: no request a tile)
+      const shift = (r: [number, number][]) => r.map(([px, py]) => [px + x, py + y] as [number, number]);
+      this.regionWater = { x, y, R, rings: (body.rings ?? []).filter(w => w.kind === "sea").map(w => ({ ring: shift(w.ring), islands: (w.islands ?? []).map(shift) })), beaches: (body.beaches ?? []).map(b => shift(b.ring)), works: (body.works ?? []).map(w => ({ ...w, pts: shift(w.pts) })) };
+      for (const f of this.regionWait.splice(0)) f();
+      const seas = (body?.rings ?? []).filter(w => w.kind === "sea");
+      if (!seas.length) { this.dropRegion(); this.region = { x, y, mesh: new THREE.Mesh(), dispose: () => {} }; return; }
+      const parcels: RealEstateParcel[] = seas.map(w => ({ kind: "유", sea: true, ring: w.ring.map(([px, py]) => [px + x, py + y] as [number, number]), holes: w.islands?.map(h => h.map(([px, py]) => [px + x, py + y] as [number, number])), open: [x - R, y - R, x + R, y + R] }));
+      const water = await buildWater(parcels, parcels.map(() => false), this.o.terrain, () => this.pace());
+      if (!water || this.disposed) { water?.dispose(); return; }
+      const geo = water.mesh.geometry, pos = geo.getAttribute("position") as THREE.BufferAttribute, idx = geo.getIndex()!;
+      const F = this.o.extent.farHalf, keep: number[] = [];
+      for (let k = 0; k < idx.count; k += 3) {
+        const a = idx.getX(k), b = idx.getX(k + 1), d = idx.getX(k + 2);
+        const cx = (pos.getX(a) + pos.getX(b) + pos.getX(d)) / 3, cy = -(pos.getZ(a) + pos.getZ(b) + pos.getZ(d)) / 3;
+        if (Math.abs(cx) < F && Math.abs(cy) < F) continue;
+        keep.push(a, b, d);
+      }
+      if (keep.length !== idx.count) { geo.setIndex(keep); geo.computeBoundingSphere(); }
+      // (under the tiles' sea, which takes its place as it comes in)
+      water.mesh.position.y = -0.3;
+      water.mesh.name = "drone region sea";
+      water.mesh.updateMatrixWorld();
+      this.dropRegion();
+      this.region = { x, y, mesh: water.mesh, dispose: () => water.dispose() };
+      if (keep.length) this.o.addWarm(this.root, water.mesh);
+    } finally { this.regionBusy = false; }
+  }
+  private dropRegion() {
+    const r = this.region;
+    if (!r) return;
+    this.region = null;
+    if (r.mesh.parent) { r.mesh.removeFromParent(); this.o.forget?.(new Set([r.mesh.material as THREE.Material])); }
+    r.dispose();
+  }
+
+  /** The tile's water, as the server has it at once (its sea from the bundled coastline). */
+  private async seaAnswer(t: Tile): Promise<SeaBody | null> {
+    if (typeof location === "undefined") return null;
+    const H = TILE_M / 2, c = this.o.data.center!;
+    // (the region's answer, cut to the tile: waited for a few seconds as it comes)
+    const covers = () => { const w = this.regionWater; return !!w && Math.max(Math.abs(t.cx - w.x), Math.abs(t.cy - w.y)) + H <= w.R; };
+    if (!covers()) await Promise.race([new Promise<void>(r => this.regionWait.push(r)), new Promise(r => setTimeout(r, 8000))]);
+    if (covers()) {
+      const w = this.regionWater!, box: [number, number, number, number] = [t.cx - H, t.cy - H, t.cx + H, t.cy + H];
+      const local = (r: [number, number][]) => r.map(([px, py]) => [px - t.cx, py - t.cy] as [number, number]);
+      const rings: NonNullable<SeaBody["rings"]> = [];
+      for (const sw of w.rings) {
+        const cut = clipToBox(sw.ring, box);
+        if (cut.length < 3) continue;
+        const islands = sw.islands.map(h => clipToBox(h, box)).filter(h => h.length >= 3).map(local);
+        rings.push({ ring: local(cut), kind: "sea", ...(islands.length ? { islands } : {}) });
+      }
+      const beaches = w.beaches.map(b => clipToBox(b, box)).filter(b => b.length >= 3).map(b => ({ ring: local(b) }));
+      // (the works with a point on the tile — each on the one tile its first point is on, whole)
+      const works = w.works.filter(k => { const [px, py] = k.pts[0]; return px >= box[0] && py >= box[1] && px < box[2] && py < box[3]; }).map(k => ({ ...k, pts: local(k.pts) }));
+      return { rings, beaches, works };
+    }
+    const lat = c.lat + t.cy / this.ky, lon = c.lon + t.cx / this.kx;
+    return fetch(`${location.origin}/api/realestate/water?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}&r=${H}&v=3&fast=1`, { signal: AbortSignal.timeout(12000) })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null) as Promise<SeaBody | null>;
+  }
+  /** Whether the sea covers the whole tile (its islands, rocks and piers aside: under 0.5 %). */
+  private seaCovers(body: SeaBody) {
+    const area = (r: [number, number][]) => Math.abs(r.reduce((a, [x, y], i) => { const q = r[(i + 1) % r.length]; return a + x * q[1] - q[0] * y; }, 0) / 2);
+    let wet = 0;
+    for (const w of body.rings ?? []) if (w.kind === "sea") wet += area(w.ring) - (w.islands ?? []).reduce((a, h) => a + area(h), 0);
+    return wet >= TILE_M * TILE_M * 0.995;
+  }
+  private async seaOn(t: Tile, ground: THREE.BufferGeometry | null, terrain: Terrain, signal: AbortSignal, answer?: SeaBody | null) {
+    const H = TILE_M / 2;
+    const body = answer !== undefined ? answer : t.seaBody !== undefined ? t.seaBody : await this.seaAnswer(t);
+    const seas = (body?.rings ?? []).filter(w => w.kind === "sea");
+    if (!seas.length || signal.aborted || this.disposed) return;
+    const parcels: RealEstateParcel[] = seas.map(w => ({ kind: "유", sea: true, ring: w.ring, holes: w.islands, open: [-H, -H, H, H] }));
+    const water = await buildWater(parcels, parcels.map(() => false), terrain, () => this.pace());
+    if (!water || signal.aborted || this.disposed) { water?.dispose(); return; }
+    // (none of it inside the view's square: the view's own sea is there)
+    const geo = water.mesh.geometry, pos = geo.getAttribute("position") as THREE.BufferAttribute, idx = geo.getIndex()!;
+    const F = this.o.extent.farHalf, keep: number[] = [];
+    for (let k = 0; k < idx.count; k += 3) {
+      const a = idx.getX(k), b = idx.getX(k + 1), d = idx.getX(k + 2);
+      const x = (pos.getX(a) + pos.getX(b) + pos.getX(d)) / 3 + t.cx, y = -(pos.getZ(a) + pos.getZ(b) + pos.getZ(d)) / 3 + t.cy;
+      if (Math.abs(x) < F && Math.abs(y) < F) continue;
+      keep.push(a, b, d);
+    }
+    if (!keep.length) { water.dispose(); return; }
+    if (keep.length !== idx.count) { geo.setIndex(keep); geo.computeBoundingSphere(); }
+    // the tile's ground under the sea: below its surface (the DEM's coast rises through it)
+    const gp = ground?.getAttribute("position") as THREE.BufferAttribute | undefined;
+    let sunk = false;
+    if (gp) for (let i = 0; i < gp.count; i++) {
+      const lx = gp.getX(i) - t.cx, ly = gp.getY(i) - t.cy;
+      if (!water.field.wet(lx, ly)) continue;
+      const z = water.field.level(lx, ly) - 0.6;
+      if (gp.getZ(i) > z) { gp.setZ(i, z); sunk = true; }
+    }
+    if (sunk && gp && ground) { gp.needsUpdate = true; ground.computeVertexNormals(); ground.computeBoundingSphere(); }
+    const yup = t.yup ?? new THREE.Group();
+    yup.name = `drone tile ${t.key} sea`;
+    yup.position.set(t.cx, 0, -t.cy);
+    yup.add(water.mesh);
+    // its breakwaters, groynes and piers (none inside the view's square: the view has its own)
+    const works = (body?.works ?? []).filter(k => { const [px, py] = k.pts[0]; return Math.abs(px + t.cx) >= this.o.extent.farHalf || Math.abs(py + t.cy) >= this.o.extent.farHalf; });
+    if (works.length) {
+      let lvl = NaN;
+      for (const k of works) for (const [px, py] of k.pts) { if (water.field.wet(px, py)) { lvl = water.field.level(px, py); break; } }
+      if (!Number.isFinite(lvl)) { const g = (water.mesh.geometry.getAttribute("position") as THREE.BufferAttribute); if (g.count) lvl = g.getY(0) - 0.12; }
+      const sw = buildSeaWorks(works, lvl, this.o.seed + t.i * 31 + t.j * 17, { maxTetrapods: this.o.hq ? 1500 : 700 });
+      if (sw) {
+        yup.add(sw.group);
+        sw.group.traverse(o => { const m = (o as THREE.Mesh).material; if (m) for (const x of Array.isArray(m) ? m : [m]) t.materials.push(x); });
+        t.dispose.push(() => sw.dispose());
+      }
+    }
+    yup.updateMatrixWorld(true);
+    t.yup = yup;
+    t.materials.push(water.mesh.material as THREE.Material);
+    t.dispose.push(() => water.dispose());
   }
 
   /** The tile's ground: a 4 m grid on its relief, uv over the land-use picture (north at v 0),
@@ -825,6 +1027,7 @@ export class DroneWorld {
   dispose() {
     this.disposed = true;
     for (const t of [...this.tiles.values()]) this.drop(t);
+    this.dropRegion();
     this.o.forget?.(new Set([this.plain, this.asphalt, this.paint, this.concrete, this.paving, ...this.traffic.materials()]));
     this.plain.dispose(); this.asphalt.dispose(); this.paint.dispose(); this.concrete.dispose(); this.paving.dispose();
     this.traffic.dispose();
