@@ -10,7 +10,7 @@ export { inRing };
 import { normalRows } from "./normalKernel";
 import { cdn } from "../staticCdn";
 import { onSceneMemoryRelease } from "./sceneMemory";
-import {woodlandBeds,woodlandPatchPattern,WOODLAND_FLOWERS,type WoodlandBed}from'./landscapeDiversity';
+import {woodlandBeds,WOODLAND_FLOWERS,type WoodlandBed}from'./landscapeDiversity';
 import {woodedTerrain} from './woodlandTerrain';
 import type {HeightGrid} from './waterCore';
 
@@ -1081,7 +1081,6 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
   // buildings, roads and each other. A school keeps its playground open: its trees
   // stand in a row along the edge of the parcel, a few metres in, as schools plant them.
   const landTrees: [number, number][] = [];
-  const woodlandOriginX=(data.center?.lon??0)*111320*Math.cos(37.5*Math.PI/180),woodlandOriginY=(data.center?.lat??0)*110540;
   const groveCells=new Map<string,{pattern:number;points:[number,number][]}>();
   for (const p of parcels) {
     if (p.kind === "학") {
@@ -1112,12 +1111,11 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
     let tested = 0;
     for (let y = y0 + gap / 2; y < y1 && landTrees.length < (landscape ? 1500 : 900); y += gap * 0.87) {
       for (let x = x0 + gap / 2 + ((y / gap) % 2) * gap / 2; x < x1 && landTrees.length < (landscape ? 1500 : 900); x += gap) {
-        const scatter=p.kind==='임'?.94:.5;
-        const jx = x + (rnd() - 0.5) * gap * scatter, jy = y + (rnd() - 0.5) * gap * scatter;
+        const jx = x + (rnd() - 0.5) * gap * 0.5, jy = y + (rnd() - 0.5) * gap * 0.5;
         if (free(jx, jy) && inRing([jx, jy], p.ring) && !inSite(jx, jy)) {
           if(landscape && p.kind==='임'){
             const gx=Math.floor(jx/24),gy=Math.floor(jy/24),key=`${gx}:${gy}`;
-            const patch=groveCells.get(key)??{pattern:woodlandPatchPattern(gx*24+woodlandOriginX,gy*24+woodlandOriginY),points:[]};
+            const patch=groveCells.get(key)??{pattern:Math.abs(gx*31+gy*17+seed)%4,points:[]};
             if(patch.points.length<26)patch.points.push([jx,jy]);groveCells.set(key,patch);
           }else landTrees.push([jx,jy]);
         }
@@ -1225,11 +1223,11 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
       for (let y=-T+8;y<T;y+=5.5) {
         yield;
         for (let x=-T+8;x<T;x+=5.5) {
-          const px=x+(rnd()-.5)*5.1,py=y+(rnd()-.5)*5.1;
+          const px=x+(rnd()-.5)*2.5,py=y+(rnd()-.5)*2.5;
           if (++seen%samples || inSite(px,py) || !free(px,py) || !green(px,py) || !woodedTerrain(grid,px,py)) continue;
           const gx=Math.floor(px/24),gy=Math.floor(py/24),key=`${gx}:${gy}`;
           if (groveCells.has(key)) continue;
-          const patch=fallback.get(key)??{pattern:woodlandPatchPattern(gx*24+woodlandOriginX,gy*24+woodlandOriginY),points:[]};
+          const patch=fallback.get(key)??{pattern:Math.abs(gx*31+gy*17+seed)%4,points:[]};
           if (patch.points.length<26) patch.points.push([px,py]); fallback.set(key,patch);
         }
       }

@@ -3,7 +3,7 @@ import type {Planting}from'./complexScene';
 import {rng}from'./complexScene';
 import type {Terrain}from'./sceneTerrain';
 import {frameSlice}from'./frameSlice';
-import {PARK_TREE_STYLES,WOODLAND_STANDS,woodlandTreeStyle}from'./landscapeDiversity';
+import {PARK_TREE_STYLES}from'./landscapeDiversity';
 import {treeFoliageTone}from'./foliageTone';
 import {sceneDeviceBudget}from'./sceneDeviceBudget';
 import {hybridSceneEnabled} from './hybridScene';
@@ -127,10 +127,10 @@ export async function groveForest(patches:NonNullable<Planting['groves']>,terrai
  for(let n=0;n<candidates.length;n++){if(n%256===0)await checkpoint();const r=candidates[n],cell=FOREST_CELL_M,key=`${Math.floor(r.x/cell)}:${Math.floor(r.y/cell)}`,prev=bins.get(key);if(!prev||r.priority<prev.priority)bins.set(key,r);}
  const roots=(preserveRoots?candidates:[...bins.values()].filter(r=>{
   const bx=Math.floor(r.x/FOREST_CELL_M),by=Math.floor(r.y/FOREST_CELL_M);
-  return rng(seed+bx*8191+by*131071)()<woodlandDensity(r.x,r.y).occupancy*WOODLAND_STANDS[((r.pattern%5)+5)%5].density;
+  return rng(seed+bx*8191+by*131071)()<woodlandDensity(r.x,r.y).occupancy;
  })).sort((a,b)=>a.x-b.x||a.y-b.y);
- const lists=Array.from({length:5},()=>Array.from({length:bounded?3:2},()=>[] as Root[])),toneCounts:Record<string,number>={},speciesCounts:Record<string,number>={},standCounts:Record<string,number>={};let shadowTrees=0,triangles=0;
- for(const r of roots){const pick=rng(seed+Math.round(r.x*100)*313+Math.round(r.y*100)*977)(),i=preserveRoots?Math.floor(pick*5):woodlandTreeStyle(r.pattern,pick),distance=Math.hypot(r.x,r.y),band=distance<250?0:bounded&&distance>=500?2:1;lists[i][band].push(r);triangles+=(bounded?[800,416,224][band]:TREE_TRIANGLES);if(!band)shadowTrees++;const name=PARK_TREE_STYLES[i].species;speciesCounts[name]=(speciesCounts[name]??0)+1;const stand=preserveRoots?'park':WOODLAND_STANDS[((r.pattern%5)+5)%5].name;standCounts[stand]=(standCounts[stand]??0)+1;const tone=treeFoliageTone(r.x,r.y);toneCounts[tone.name]=(toneCounts[tone.name]??0)+1;}
+ const lists=Array.from({length:5},()=>Array.from({length:bounded?3:2},()=>[] as Root[])),toneCounts:Record<string,number>={},speciesCounts:Record<string,number>={};let shadowTrees=0,triangles=0;
+ for(const r of roots){const i=Math.floor(rng(seed+Math.round(r.x*100)*313+Math.round(r.y*100)*977)()*5),distance=Math.hypot(r.x,r.y),band=distance<250?0:bounded&&distance>=500?2:1;lists[i][band].push(r);triangles+=(bounded?[800,416,224][band]:TREE_TRIANGLES);if(!band)shadowTrees++;const name=PARK_TREE_STYLES[i].species;speciesCounts[name]=(speciesCounts[name]??0)+1;const tone=treeFoliageTone(r.x,r.y);toneCounts[tone.name]=(toneCounts[tone.name]??0)+1;}
  const group=new THREE.Group();group.name='woodland leaf meshes';
  if(!roots.length)return{group,dispose:()=>{}};
  await pause();const bank=await acquireBank(texture,pause,bounded);
@@ -151,12 +151,11 @@ export async function groveForest(patches:NonNullable<Planting['groves']>,terrai
   if(crownBatch)temporaryBatches.push(crownBatch);
   for(let j=0;j<list.length;j++){
    if(j%128===0)await checkpoint();const r=list[j],random=rng(seed+Math.round(r.x*100)*421+Math.round(r.y*100)*1193),density=woodlandDensity(r.x,r.y);
-   const stand=WOODLAND_STANDS[((r.pattern%5)+5)%5],base=(preserveRoots?.90+random()*.20:.72+random()*.38+density.cluster*.16)*heightScale;
-   const scale=preserveRoots?base:base*(stand.height[0]+random()*(stand.height[1]-stand.height[0]));
+   const scale=(preserveRoots?.90+random()*.20:.72+random()*.38+density.cluster*.16)*heightScale;
    minTreeHeight=Math.min(minTreeHeight,heights[i]*scale);maxTreeHeight=Math.max(maxTreeHeight,heights[i]*scale);
-   const yaw=random()*Math.PI*2,width=preserveRoots?1:stand.width[0]+random()*(stand.width[1]-stand.width[0]),sx=base*density.crownScale*width,sz=preserveRoots?sx:sx*(.84+random()*.32),lean=preserveRoots?0:(random()-.5)*.11;
-   if(crownBatch&&stemBatch){crownBatch.set(j,r.x,r.floor,-r.y,yaw,lean,sx,scale,sz);stemBatch.set(stemCursor++,r.x,r.floor,-r.y,yaw,lean,sx*radii[i]/radii[0],scale*heights[i]/heights[0],sz*radii[i]/radii[0]);}
-   else{const matrix=new THREE.Matrix4().compose(new THREE.Vector3(r.x,r.floor,-r.y),new THREE.Quaternion().setFromEuler(new THREE.Euler(lean,yaw,0,'YXZ')),new THREE.Vector3(sx,scale,sz));
+   const yaw=random()*Math.PI*2,sx=scale*density.crownScale;
+   if(crownBatch&&stemBatch){crownBatch.set(j,r.x,r.floor,-r.y,yaw,0,sx,scale,sx);stemBatch.set(stemCursor++,r.x,r.floor,-r.y,yaw,0,sx*radii[i]/radii[0],scale*heights[i]/heights[0],sx*radii[i]/radii[0]);}
+   else{const matrix=new THREE.Matrix4().compose(new THREE.Vector3(r.x,r.floor,-r.y),new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),yaw),new THREE.Vector3(sx,scale,sx));
     crowns.setMatrixAt(j,matrix);const barkMatrix=matrix.clone();barkMatrix.scale(new THREE.Vector3(radii[i]/radii[0],heights[i]/heights[0],radii[i]/radii[0]));stems.setMatrixAt(stemCursor++,barkMatrix);}
    const tone=treeFoliageTone(r.x,r.y),t=tone.name==='green'?PARK_TREE_STYLES[i].tint:tone.tint,shade=(.90+random()*.14)*density.shade;crowns.setColorAt(j,new THREE.Color(t[0]*shade,t[1]*shade,t[2]*shade));minExposedTrunk=Math.min(minExposedTrunk,exposed[i]*scale);
   }
@@ -168,7 +167,7 @@ export async function groveForest(patches:NonNullable<Planting['groves']>,terrai
  if(stemBatch){stemBatch.compose(stems.instanceMatrix.array as Float32Array);stemBatch.dispose();}
  stems.instanceMatrix.needsUpdate=true;stems.receiveShadow=true;stems.computeBoundingBox();stems.computeBoundingSphere();
  if(hybridSceneEnabled()){group.add(...forestCells(stems,1024,4096));stems.dispose();ownedMeshes.delete(stems);}else group.add(stems);instanceBytes+=stems.instanceMatrix.array.byteLength;
- group.userData.forestBudget={sourceCanopies,clusterCanopies:roots.length,preserveRoots,heightScale,cardClusters:legacy.size,cardTriangleBudget:legacy.size*6,triangles,treeTriangles:TREE_TRIANGLES,leafGroups:TREE_LEAVES/4,meshLeaves:TREE_LEAVES,leafLevels:bounded?[192,96,48]:[192],baseTriangles:bank.baseTriangles,sharedGeometryKey:bank.key,geometryBytes:bank.bytes,instanceBytes,totalBufferBytes:bank.bytes+instanceBytes,cardBufferBytes:legacy.size*600,shadowTrees,mode:'shared leaf-shaped 3D models',toneCounts,speciesCounts,standCounts,minExposedTrunk,minTreeHeight,maxTreeHeight,treeCellM:preserveRoots?null:FOREST_CELL_M,clusterCellM:preserveRoots?null:64,roots:roots.map(r=>[r.x,r.y,r.floor])};
+ group.userData.forestBudget={sourceCanopies,clusterCanopies:roots.length,preserveRoots,heightScale,cardClusters:legacy.size,cardTriangleBudget:legacy.size*6,triangles,treeTriangles:TREE_TRIANGLES,leafGroups:TREE_LEAVES/4,meshLeaves:TREE_LEAVES,leafLevels:bounded?[192,96,48]:[192],baseTriangles:bank.baseTriangles,sharedGeometryKey:bank.key,geometryBytes:bank.bytes,instanceBytes,totalBufferBytes:bank.bytes+instanceBytes,cardBufferBytes:legacy.size*600,shadowTrees,mode:'shared leaf-shaped 3D models',toneCounts,speciesCounts,minExposedTrunk,minTreeHeight,maxTreeHeight,treeCellM:preserveRoots?null:FOREST_CELL_M,clusterCellM:preserveRoots?null:64,roots:roots.map(r=>[r.x,r.y,r.floor])};
  let disposed=false;return {group,dispose:()=>{if(disposed)return;disposed=true;group.children.forEach(o=>{if(o instanceof THREE.InstancedMesh)o.dispose();});releaseBank(bank);}};
  }catch(error){for(const o of group.children)if(o instanceof THREE.InstancedMesh)ownedMeshes.add(o);ownedMeshes.forEach(o=>o.dispose());releaseBank(bank);throw error;}
  finally{temporaryBatches.forEach(batch=>batch.dispose());}

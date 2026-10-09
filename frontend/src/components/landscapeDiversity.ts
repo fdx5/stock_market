@@ -10,29 +10,6 @@ export const WOODLAND_FLOWERS=['cosmos','daisy','coreopsis','lavender','hydrange
 export type GrovePatch={pattern:number;points:[number,number][]};
 export type WoodlandBed={species:string;points:[number,number][]};
 
-/** Hash whole stands rather than repeating a diagonal modulo pattern. Self-contained for the parcel worker. */
-export function woodlandPatchPattern(x:number,y:number,seed=7919){
- let h=(Math.imul(Math.floor(x/96),73856093)^Math.imul(Math.floor(y/96),19349663)^seed)>>>0;
- h=Math.imul(h^(h>>>16),0x7feb352d);h=Math.imul(h^(h>>>15),0x846ca68b);
- return ((h^(h>>>16))>>>0)%5;
-}
-
-/** Same five shared models, with different species mixes and mature/young crown proportions. */
-export const WOODLAND_STANDS = [
- {name:'mixed',density:1,height:[.60,.98],width:[1.02,1.35],species:[.30,.14,.28,.18,.10]},
- {name:'pine',density:.98,height:[.72,1.05],width:[.86,1.14],species:[.15,.06,.62,.06,.11]},
- {name:'broadleaf',density:1,height:[.58,.90],width:[1.14,1.48],species:[.53,.22,.10,.12,.03]},
- {name:'young',density:.92,height:[.44,.78],width:[.82,1.18],species:[.26,.12,.23,.29,.10]},
- {name:'open',density:.72,height:[.60,1.00],width:[1.00,1.42],species:[.30,.08,.40,.12,.10]},
-] as const;
-
-export function woodlandTreeStyle(pattern:number,pick:number){
- const weights=WOODLAND_STANDS[((pattern%5)+5)%5].species;
- let remaining=pick*weights.reduce((total,w)=>total+w,0);
- for(let i=0;i<weights.length;i++){remaining-=weights[i];if(remaining<=0)return i;}
- return weights.length-1;
-}
-
 /** Self-contained so the parcel worker can use the same function through its Blob.
  * Small clearings make the actual flower meshes visible below the dense canopy.
  * Existing road, building and water masks are consulted for every flower centre. */

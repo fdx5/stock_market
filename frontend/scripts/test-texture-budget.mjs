@@ -116,7 +116,7 @@ test('dense shared forest preserves five silhouettes, leaf-only tint and terrain
  assert.ok(far.length>0&&far.every(m=>m.count<=1024),'distant crowns use bounded spatial batches');
  assert.ok(built.group.children.filter(m=>m.name.endsWith('trunks')).every(m=>m.count<=4096));
  assert.ok(b.clusterCanopies>100,'keep forest density instead of funding shape by removing most trees');
- assert.ok(b.totalBufferBytes<b.cardBufferBytes*.7);assert.ok(b.minExposedTrunk>1,'young woodland keeps a visible trunk');
+ assert.ok(b.totalBufferBytes<b.cardBufferBytes*.7);assert.ok(b.minExposedTrunk>3);
  assert.ok(b.maxTreeHeight/b.minTreeHeight>2,'young trees and tall mature trees must coexist');
  assert.ok(b.clusterCanopies>800,'woodland should visibly fill the plantable fixture');
  for(const mesh of built.group.children){assert.ok(mesh.isInstancedMesh);assert.equal(mesh.material.alphaTest,0);assert.equal(mesh.material.side,THREE.FrontSide);assert.ok(mesh.boundingSphere.radius>0);
