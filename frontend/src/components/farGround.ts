@@ -3,6 +3,7 @@ import type { Terrain } from "./sceneTerrain";
 import {woodlandBeds,woodlandPatchPattern,WOODLAND_FLOWERS}from'./landscapeDiversity';
 import {woodedTerrain}from'./woodlandTerrain';
 import { palaceGardens, palaceParcelGarden, palaceGardenCover, paintPalaceGarden, type PalaceGarden, type PalaceGardenPlanting } from './palaceGardens';
+import {jamsilTreeMask,withoutStadiumTrees} from './stadiumPlanting';
 
 /* The ground out to 1 km in its land use (연속지적도 지목), under the 1 km ring of buildings: past
  * the view's own painted square the ground was one plain colour fading into the haze. Each parcel
@@ -332,6 +333,7 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
   water?: FarJob["osmBody"] }): Promise<{ bitmap: ImageBitmap; parcels: number; planting:import('./complexScene').Planting; gardens: PalaceGardenPlanting[]; ms: number } | null> {
   if (!data.center || !data.vworld_key || typeof OffscreenCanvas === "undefined") return Promise.resolve(null);
   const { lat, lon } = data.center, H = opts.half;
+  const stadiumTreeMask = jamsilTreeMask(lat,lon,H);
   const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540;
   const box = `BOX(${lon - H / kx},${lat - H / ky},${lon + H / kx},${lat + H / ky})`;
   const urls = Array.from({ length: 30 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
@@ -355,7 +357,7 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
       return { url: `${location.origin}/api/realestate/water?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=${Math.round(H * 1.5)}&v=3&fast=1`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
     })() : undefined };
   return new Promise(resolve => {
-    worker.onmessage = e => { worker.terminate(); resolve(e.data); };
+    worker.onmessage = e => { worker.terminate(); e.data.planting=withoutStadiumTrees(e.data.planting,stadiumTreeMask); resolve(e.data); };
     worker.onerror = () => { worker.terminate(); resolve(null); };
     opts.signal?.addEventListener("abort", () => { worker.terminate(); resolve(null); });
     worker.postMessage(job);

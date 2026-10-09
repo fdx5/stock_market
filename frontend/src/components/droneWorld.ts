@@ -13,6 +13,7 @@ import { vworldSampler, type Terrain } from "./sceneTerrain";
 import { gridAt } from "./waterCore";
 import { CONTEXT_FLOOR_M, seasonGround, sharedContextMaterial, sharedContextTexturesSliced, type ContextStyle, type Planting } from "./complexScene";
 import { buildPlants } from "./scenePlants";
+import {jamsilTreeMask,withoutStadiumTrees} from './stadiumPlanting';
 import { frameSlice } from "./frameSlice";
 import { textureBudgetEnabled } from "./textureBudget";
 
@@ -635,8 +636,8 @@ export class DroneWorld {
         const gardenBeds = fg.gardens.flatMap(g => g.beds).map(b => ({ ...b, points: b.points.filter(free) })).filter(b => b.points.length);
         const gardenGrass = fg.gardens.flatMap(g => g.grass).filter(free);
         mesh.userData.palaceGardens = fg.gardens.map(g => ({ id: g.id, earthM2: g.earthM2, lawnM2: g.lawnM2, flowerM2: g.flowerM2 }));
-        const p = { ...fg.planting, trees: fg.planting.trees.filter(free), groves: (fg.planting.groves ?? []).map(g => ({ ...g, points: g.points.filter(free) })),
-          shrubs: [], flowers: [], grass: gardenGrass, street, woodlandFlowers: gardenBeds };
+        const p = withoutStadiumTrees({ ...fg.planting, trees: fg.planting.trees.filter(free), groves: (fg.planting.groves ?? []).map(g => ({ ...g, points: g.points.filter(free) })),
+          shrubs: [], flowers: [], grass: gardenGrass, street, woodlandFlowers: gardenBeds },jamsilTreeMask(tileLat,tileLon,TILE_M/2));
         if (textureBudgetEnabled() && (p.trees.length || p.groves?.length || p.street.length || p.grass.length || p.woodlandFlowers.length)) {
           t.planting = p; t.local = localTerrain;
           // (and the drone flies round them)

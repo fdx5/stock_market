@@ -32,6 +32,7 @@ import type { ComplexRenderer, Quality } from "./tidewater/ComplexRenderer";
 import { endWalls, facadeRelief } from "./tidewater/facadeRelief";
 import { textureBudgetEnabled } from './textureBudget';
 import {plantingSnapshot,samePlanting} from './plantingSnapshot';
+import {jamsilTreeMask,withoutStadiumTrees} from './stadiumPlanting';
 import { loadBuildings, saveBuildings } from "./buildingStore";
 import { buildPlants, preloadPlants } from "./scenePlants";
 import { vehicleShapes } from "./vehicleClient";
@@ -2962,11 +2963,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Parcel trees already known to the ground plan belong immediately after the
     // buildings, independently of water, walkers and boats. The complete surveyed
     // planting replaces them later, using the same seed, meshes and detail levels.
+    const stadiumTreeMask = data.center ? jamsilTreeMask(data.center.lat,data.center.lon,T) : null;
     let plantsRevision = 0;
     let visiblePlanting:Planting|null=null;
     const plantTimings:{phase:string;start:number;ready?:number;reused?:boolean}[]=[];
     let visiblePlants: { plants: NonNullable<Awaited<ReturnType<typeof buildPlants>>>; root: THREE.Group } | null = null;
     const showPlants = async (planting: Planting, phase: "initial" | "surveyed" | "complete") => {
+      planting = withoutStadiumTrees(planting,stadiumTreeMask);
       const revision = ++plantsRevision;
       const timing={phase,start:Math.round(performance.now()),ready:undefined as number|undefined,reused:false};plantTimings.push(timing);
       if(visiblePlants&&visiblePlanting&&samePlanting(visiblePlanting,planting)){
