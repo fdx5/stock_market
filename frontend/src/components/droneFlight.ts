@@ -15,12 +15,13 @@ export const MIN_AGL = 2;
 export const MAX_AGL = 500;
 export const AUTO_MIN_AGL = 100;
 export const AUTO_MAX_AGL = 250;
-/** A sightseeing cruise, with time to climb before the terrain or a roof ahead. */
-export const AUTO_SPEED = 90 / 3.6;
+/** Default cruise when autopilot is engaged from a hover. */
+export const AUTO_SPEED = 100 / 3.6;
 /** Everything within this distance ahead must be on screen (droneWorld.clearAhead). */
 export const READY_AHEAD = 300;
 
 const ACCEL = 10.5, BRAKE = 8, VACCEL = 9, CLIMB = 15, SINK = 10, YAW_RATE = 1.5, RADIUS = 0.45;
+const DRAG = ACCEL / (MAX_SPEED * MAX_SPEED * 1.32);
 
 export interface DroneWorldQuery {
   groundAt(x: number, y: number): number;
@@ -65,10 +66,20 @@ export class DroneFlight {
   autopilot = false;
   autopilotStatus: 'off' | 'cruise' | 'altitude' | 'obstacle' = 'off';
   autoTargetAgl = 175;
+  /** Horizontal speed captured at engagement (m/s), retained through temporary holds. */
+  autoCruiseSpeed = AUTO_SPEED;
   private autoClock = 0;
   private autoEntered = false;
+  private autoHeldInput = { fwd: 0, side: 0, climb: 0 };
 
   setAutopilot(on: boolean) {
+    if (on && !this.autopilot) {
+      const speed = Math.hypot(this.vel.x, this.vel.z);
+      this.autoCruiseSpeed = speed > 1e-3 ? Math.min(speed, MAX_SPEED) : AUTO_SPEED;
+      // A pilot can engage while holding the throttle. Only subsequent input takes over.
+      const { fwd, side, climb } = this.input();
+      this.autoHeldInput = { fwd, side, climb };
+    }
     this.autopilot = on;
     this.autopilotStatus = on ? 'altitude' : 'off';
     this.autoClock = 0; this.autoEntered = false; this.wheel = 0;
@@ -117,7 +128,7 @@ export class DroneFlight {
   private autoControls(dt: number, world: DroneWorldQuery, fx: number, fz: number) {
     this.autoClock += dt;
     const x=this.pos.x,y=-this.pos.z,ground=world.groundAt(x,y),agl=this.pos.y-ground;
-    let target=ground+175+40*Math.sin(this.autoClock*Math.PI/40),cap=AUTO_SPEED,obstacle=false;
+    let target=ground+175+40*Math.sin(this.autoClock*Math.PI/40),cap=this.autoCruiseSpeed,obstacle=false;
     for(let distance=15;distance<=180;distance+=15){
       const px=x+fx*distance,py=y-fz*distance,g=world.groundAt(px,py),roof=world.roofAt(px,py);
       const impassable=roof-g>AUTO_MAX_AGL-24;
@@ -138,7 +149,11 @@ export class DroneFlight {
     this.autopilotStatus=obstacle ? 'obstacle' : !inBand ? 'altitude' : 'cruise';
     const vy=THREE.MathUtils.clamp((target-this.pos.y)*.65,-6,10);
     const along=this.vel.x*fx+this.vel.z*fz;
-    const fwd=cap>0 ? THREE.MathUtils.clamp((cap-along)*.3+.16,0,1) : 0;
+    // Balance the same drag and partial-throttle braking used below, so the captured
+    // speed is maintained rather than settling a few km/h below the requested cruise.
+    const controlSpeed=Math.min(cap,Math.max(0,this.limit));
+    const holdThrust=(BRAKE*.6+controlSpeed*controlSpeed*DRAG)/(ACCEL+BRAKE*.6);
+    const fwd=controlSpeed>0 ? THREE.MathUtils.clamp((controlSpeed-along)*.3+holdThrust,0,1) : 0;
     return {fwd,climb:vy>0 ? vy/CLIMB : vy/SINK,cap};
   }
 
@@ -149,7 +164,13 @@ export class DroneFlight {
     if (Math.abs(this.wheel) < 0.02) this.wheel = 0;
     let { fwd, side, climb, turn } = this.input();
     // Looking/turning steers the cruise. A direct movement or altitude input takes over.
-    if(this.autopilot && (Math.abs(fwd)>.08 || Math.abs(side)>.08 || Math.abs(climb)>.08))this.setAutopilot(false);
+    if(this.autopilot){
+      const movement={fwd,side,climb};
+      for(const axis of ['fwd','side','climb'] as const){
+        if(Math.abs(movement[axis]-this.autoHeldInput[axis])>.08)this.autoHeldInput[axis]=0;
+      }
+      if((['fwd','side','climb'] as const).some(axis=>Math.abs(movement[axis])>.08 && Math.abs(this.autoHeldInput[axis])<=.08))this.setAutopilot(false);
+    }
     // Turning: eased, a little slower at speed (a wider arc, as a real drone flies it).
     const h = Math.hypot(this.vel.x, this.vel.z);
     const want = -turn * YAW_RATE * (1 - 0.35 * Math.min(1, h / MAX_SPEED));
@@ -164,8 +185,7 @@ export class DroneFlight {
     const il = Math.hypot(ix, iz);
     if (il > 1) { ix /= il; iz /= il; }
     // (drag balancing the thrust a little past the top speed: ~8 s to 200 km/h, where it is held)
-    const drag = ACCEL / (MAX_SPEED * MAX_SPEED * 1.32);
-    let ax = ix * ACCEL - this.vel.x * h * drag, az = iz * ACCEL - this.vel.z * h * drag;
+    let ax = ix * ACCEL - this.vel.x * h * DRAG, az = iz * ACCEL - this.vel.z * h * DRAG;
     // Braking: whatever motion the sticks don't ask for is taken off (a hover hold).
     if (h > 1e-3) {
       const ux = this.vel.x / h, uz = this.vel.z / h;

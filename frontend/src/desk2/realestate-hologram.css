@@ -670,6 +670,17 @@
 .re-drone-card-body section { margin-top: 12px; }
 .re-drone-card-body h4 { margin: 0 0 6px; font: 800 12.5px var(--f-sans, sans-serif); color: #ffd27a; }
 .re-drone-card-body h4 small { margin-left: 4px; color: #8fb6cc; font-weight: 600; }
+.re-drone-card-body .re-drone-card-market { margin: 0 0 12px; padding: 10px 12px; border: 1px solid #ffffff22; border-radius: 12px; background: #ffffff08; }
+.re-drone-card-market-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.re-drone-card-market-title h4 { margin: 0; }
+.re-drone-card-market-title span, .re-drone-card-market-title select { color: #bcd8e8; font-size: 11px; }
+.re-drone-card-market-title select { max-width: 65%; border: 1px solid #ffffff33; border-radius: 6px; padding: 3px 5px; background: #102a3a; }
+.re-drone-card-price { display: block; margin-top: 5px; font-size: 25px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.re-drone-card-price-trend { display: block; font-size: 11px; font-weight: 700; }
+.re-drone-card-market.is-up .re-drone-card-price, .re-drone-card-market.is-up .re-drone-card-price-trend { color: #ff676e; }
+.re-drone-card-market.is-down .re-drone-card-price, .re-drone-card-market.is-down .re-drone-card-price-trend { color: #64b5ff; }
+.re-drone-card-market p { margin: 4px 0 0; color: #aac6d8; font-size: 10.5px; }
+.re-drone-card-market small { display: block; margin-top: 4px; color: #8fb6cc; font-size: 10px; }
 .re-drone-card-shimmer { height: 170px; border-radius: 12px; background: linear-gradient(90deg, #ffffff0d 0, #ffffff22 40%, #ffffff0d 80%); background-size: 200% 100%; animation: re-drone-shimmer 1.2s linear infinite; }
 @keyframes re-drone-shimmer { to { background-position: -200% 0; } }
 .re-drone-card-hero { position: relative; margin: 0; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 16 / 10; }

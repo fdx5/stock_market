@@ -109,7 +109,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
   const auto = flight.autopilot;
   const autoStatus = flight.autopilotStatus === 'obstacle' ? '장애물 앞 대기 · 방향을 바꿔주세요'
     : flight.autopilotStatus === 'altitude' ? '자동 고도 조절 중 · 100~250m'
-    : '100~250m · 바라보는 방향으로 전진';
+    : `${Math.round(flight.autoCruiseSpeed * 3.6)}km/h 항속 · 100~250m`;
   const dir = h ? COMPASS[Math.round(h.heading / 45) % 8] : "";
   return (
     <div ref={root} className="re-drone" aria-live="off">
@@ -123,10 +123,10 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
         </span>
       </div>
       <button type="button" className={`re-drone-autopilot${auto ? ' is-on' : ''}`} aria-pressed={auto}
-        title="바라보는 방향으로 자동 전진 · 지상 100~250m 자동 고도 · 이동/고도 조작 시 수동 전환"
+        title="현재 속도로 항속 (정지 시 100km/h) · 바라보는 방향으로 자동 전진 · 지상 100~250m 자동 고도 · 이동/고도 조작 시 수동 전환"
         onClick={() => { flight.toggleAutopilot(); setHud(h => h ? { ...h, autopilot: flight.autopilot, autopilotStatus: flight.autopilotStatus } : h); }}>
         <b>{auto ? '⏸ 오토 파일럿 켜짐' : '▶ 오토 파일럿'}</b>
-        <small>{auto ? autoStatus : '100~250m · 자동 비행 시작'}</small>
+        <small>{auto ? autoStatus : '현재 속도 유지 · 정지 시 100km/h'}</small>
       </button>
       <div className="re-drone-tools">
         <button type="button" onClick={onView} title="1인칭 ↔ 3인칭 (V)">{view === "fpv" ? "🎥 1인칭" : "🚁 3인칭"}</button>
@@ -140,7 +140,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
           ? <><b>왼쪽 스틱</b> ↕ 상승·하강 ↔ 회전<br /><b>오른쪽 스틱</b> ↕ 전진·후진 ↔ 좌우 이동<br />화면 드래그: 카메라 각도 · <b>빛나는 팻말</b>을 누르면 건물 정보</>
           : <><b>W S</b> 전진·후진 · <b>A D</b> 좌우 이동 · <b>Q E</b>·<b>← →</b> 회전 · <b>Space</b>/<b>R</b>/<b>PgUp</b>/휠↑ 상승 · <b>Shift</b>/<b>F</b>/<b>PgDn</b>/휠↓ 하강 · <b>V</b> 1인칭/3인칭 · 드래그: 카메라 각도 · <b>Esc</b> 착륙 · <b>빛나는 팻말</b> 클릭: 건물 정보</>}
         <span>최고 200km/h · 지면 2m ~ 상공 500m</span>
-        <span>오토 파일럿: 시선 방향 전진 · 100~250m 자동 고도 · 이동·고도 조작 시 수동 전환</span>
+        <span>오토 파일럿: 현재 속도 항속 (정지 시 100km/h) · 시선 방향 전진 · 100~250m 자동 고도 · 이동·고도 조작 시 수동 전환</span>
       </div>}
       <div className="re-drone-alt-buttons" aria-label="고도 조절">
         {([["BtnUp", "▲", "상승 (누르고 있기)"], ["BtnDown", "▼", "하강 (누르고 있기)"]] as const).map(([code, label, title]) => (

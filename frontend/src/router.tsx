@@ -54,6 +54,7 @@ export function Link({
   children,
   style,
   "aria-label": ariaLabel,
+  "aria-current": ariaCurrent,
   title,
 }: {
   to: string;
@@ -63,6 +64,7 @@ export function Link({
    * fixed in the stylesheet — an index tile tinted by whether it is up or down. */
   style?: CSSProperties;
   "aria-label"?: string;
+  "aria-current"?: "page";
   title?: string;
 }) {
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -72,7 +74,7 @@ export function Link({
   };
 
   return (
-    <a href={to} className={className} style={style} aria-label={ariaLabel} title={title} onClick={handleClick}>
+    <a href={to} className={className} style={style} aria-label={ariaLabel} aria-current={ariaCurrent} title={title} onClick={handleClick}>
       {children}
     </a>
   );

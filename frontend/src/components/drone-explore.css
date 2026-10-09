@@ -1,0 +1,11 @@
+.drone-explore-main { padding: 12px clamp(8px, 2vw, 24px) 20px; }
+.drone-explore-intro { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-bottom: 12px; }
+.drone-explore-intro h2 { margin: 0; color: var(--ink); font-size: 24px; }
+.drone-explore-intro p { margin: 0; color: var(--ink-2); font-size: 13px; }
+.drone-explore-main > .re-holo { margin: 0; width: 100%; }
+.drone-explore-main > .re-holo:not(.re-holo--expanded) .re-holo-stage { flex: none; height: max(460px, calc(100dvh - 310px)); }
+@media (max-width: 600px) {
+  .drone-explore-intro h2 { font-size: 21px; }
+  .drone-explore-intro p { font-size: 12px; }
+  .drone-explore-main > .re-holo:not(.re-holo--expanded) .re-holo-stage { height: max(510px, calc(100dvh - 255px)); }
+}

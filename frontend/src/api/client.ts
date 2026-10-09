@@ -1340,9 +1340,10 @@ async function getJSONFresh<T>(url: string, signal?: AbortSignal): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function postJSON<T>(url: string, payload: unknown): Promise<T> {
+async function postJSON<T>(url: string, payload: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
+    signal,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
@@ -1355,8 +1356,8 @@ async function postJSON<T>(url: string, payload: unknown): Promise<T> {
 
 export const api = {
   realEstateRegions: () => getJSON<{ source: string; sido: RealEstateSido[] }>(`${BASE}/realestate/regions`),
-  realEstateComplex: (id: string, period: RealEstatePeriod) =>
-    getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
+  realEstateComplex: (id: string, period: RealEstatePeriod, signal?: AbortSignal) =>
+    getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`, signal),
   /** Open water round a point (OpenStreetMap lakes, ponds, river areas): rings in metres about it. */
   realEstateWater: (lat: number, lon: number, r: number) =>
     getJSON<{ rings: { ring: [number, number][]; kind: string; name: string | null; islands?: [number, number][][] }[]; beaches?: { ring: [number, number][]; name: string | null }[]; works?: { kind: string; closed: boolean; pts: [number, number][] }[]; source: string | null }>(`${BASE}/realestate/water?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}&v=3`),
@@ -1373,8 +1374,8 @@ export const api = {
     getJSONFresh<RealEstateRentResponse>(`${BASE}/realestate/rent?id=${encodeURIComponent(id)}`),
   realEstateBuildings: (id: string, signal?: AbortSignal, peek = false) =>
     getJSONFresh<RealEstateBuildingsResponse>(`${BASE}/realestate/buildings?id=${encodeURIComponent(id)}${peek ? "&peek=true" : ""}`, signal),
-  realEstateNearby: (id: string, parcels: RealEstateNearbyParcel[]) =>
-    postJSON<{ id: string; items: RealEstateNearbyComplex[] }>(`${BASE}/realestate/nearby`, { id, parcels }),
+  realEstateNearby: (id: string, parcels: RealEstateNearbyParcel[], signal?: AbortSignal) =>
+    postJSON<{ id: string; items: RealEstateNearbyComplex[] }>(`${BASE}/realestate/nearby`, { id, parcels }, signal),
   realEstateBuildingInfo: (q: { name: string; lat: number; lon: number; pnu?: string; area?: string }, signal?: AbortSignal) => {
     const params = new URLSearchParams({ name: q.name, lat: q.lat.toFixed(6), lon: q.lon.toFixed(6) });
     if (q.pnu) params.set("pnu", q.pnu);

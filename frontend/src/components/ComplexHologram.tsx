@@ -493,12 +493,14 @@ function inputOnlyRenderer(): THREE.WebGLRenderer {
   } as unknown as THREE.WebGLRenderer;
 }
 
-export default function ComplexHologram({ complexId: homeId, complexName: homeName, caption: homeCaption, wide = false, initialTod, paused = false, openFull = 0, onFullChange }: {
+export default function ComplexHologram({ complexId: homeId, complexName: homeName, caption: homeCaption, wide = false, initialTod, paused = false, openFull = 0, onFullChange, autoDrone = false }: {
   complexId: string | null; complexName?: string; caption?: string;
   /** Each increase opens this view full screen (the map's detail card on a desktop
    * shows its complex here rather than in a second renderer). */
   openFull?: number;
   onFullChange?: (open: boolean) => void;
+  /** The dedicated explorer takes off once its first scene has actually been drawn. */
+  autoDrone?: boolean;
   /** Covered by something the reader is using (the detail popup): stop drawing, and do
    * any loading only in the browser's idle time. */
   paused?: boolean;
@@ -3654,6 +3656,17 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     st.atmos.dirty = true;
     setDroneOn(true); st.resume();
   };
+  const autoDroneStarted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!autoDrone || !data?.found || autoDroneStarted.current === complexId) return;
+    const timer = window.setInterval(() => {
+      if (!stageRef.current?.model || !hostRef.current?.dataset.shownAt) return;
+      autoDroneStarted.current = complexId;
+      enterDrone();
+      window.clearInterval(timer);
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [autoDrone, complexId, data]);
   const leaveDrone = () => {
     const st = stageRef.current;
     if (!st?.drone) { setDroneOn(false); return; }

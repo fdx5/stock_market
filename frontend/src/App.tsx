@@ -85,6 +85,7 @@ const KosdaqMapPage = lazy(() => import("./components/KosdaqMapPage"));
 const Sp500MapPage = lazy(() => import("./components/Sp500MapPage"));
 const Nasdaq100MapPage = lazy(() => import("./components/Nasdaq100MapPage"));
 const RealEstateMapPage = lazy(() => import("./components/RealEstateMapPage"));
+const DroneExplorePage = lazy(() => import("./components/DroneExplorePage"));
 const DriveGamePage = lazy(() => import("./drivegame/DriveGamePage"));
 const TugOfWarPage = lazy(() => import("./components/TugOfWarPage"));
 const GlobalStockPage = lazy(() => import("./components/GlobalStockPage"));
@@ -405,6 +406,8 @@ export default function App() {
     page = <Nasdaq100MapPage />;
   } else if (path === "/realestate-map") {
     page = <RealEstateMapPage />;
+  } else if (path === "/drone-explore" || path === "/drone-explore/") {
+    page = <DroneExplorePage />;
   } else if (path === "/drive") {
     page = <DriveGamePage />;
   } else if (path === "/global") {

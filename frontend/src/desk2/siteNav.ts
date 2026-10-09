@@ -10,6 +10,7 @@ export const SITE_NAV: { to: string; ko: string; en: string; tag?: string }[] = 
   { to: "/sp500-map", ko: "S&P500 지도", en: "S&P 500 map" },
   { to: "/nasdaq100-map", ko: "나스닥 지도", en: "NASDAQ map" },
   { to: "/realestate-map", ko: "부동산 지도", en: "Real estate map" },
+  { to: "/drone-explore", ko: "드론 탐험", en: "Drone explorer" },
   { to: "/etf", ko: "ETF", en: "ETF" },
   { to: "/market-brief", ko: "오늘 브리핑", en: "Daily brief" },
   { to: "/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", ko: "종목토론", en: "Discussions" },

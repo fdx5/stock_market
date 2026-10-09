@@ -408,10 +408,10 @@ export default function Masthead({
           const item = entry;
           const base = item.to.split("?")[0];
           const here =
-            path === base || (base === "/stock/005930" && path.startsWith("/stock/")) || (base === "/ai-prediction" && path.startsWith("/ai-prediction/"));
+            path === base || (base === '/drone-explore' && path === `${base}/`) || (base === "/stock/005930" && path.startsWith("/stock/")) || (base === "/ai-prediction" && path.startsWith("/ai-prediction/"));
           return (
             <li key={entry.to}>
-              <Link to={item.to} className={here ? "is-here" : undefined} aria-current={here ? "page" : undefined}>
+              <Link to={item.to} className={here ? `is-here${base === '/drone-explore' ? ' is-drone-explore' : ''}` : undefined} aria-current={here ? "page" : undefined}>
                 {lang === "ko" ? item.ko : item.en}
               </Link>
             </li>
