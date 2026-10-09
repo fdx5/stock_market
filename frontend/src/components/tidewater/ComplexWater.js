@@ -279,8 +279,12 @@ const WATER_OUTPUT = /* wgsl */`
   let uvBed = select(screenUV, uvR, valid);
   // wet silt: the painted bank ground, darkened
   let bedRaw = textureSampleLevel(waterSceneColor, smpLinearClamp, uvBed, 0.0).rgb;
-  // (the sea's bed: sand, at the brightness of the ground seen through)
-  let bedSea = vec3f(1.0, 0.88, 0.64) * dot(bedRaw, vec3f(0.3, 0.5, 0.2)) * 0.95;
+  // The open sea has no surveyed bed. A constant lit sand estimate must replace the
+  // opaque terrain tiles below it: their presence/absence otherwise paints a grid in the sea.
+  // Keep the actual ground colour in the coastal shallows.
+  let shallowSand = vec3f(1.0, 0.88, 0.64) * dot(bedRaw, vec3f(0.3, 0.5, 0.2)) * 0.95;
+  let deepSand = vec3f(0.55, 0.48, 0.35) * (frame.skyIrradiance * 0.5 + sunLight * 0.25);
+  let bedSea = mix(shallowSand, deepSand, smoothstep(1.0, 6.0, depth));
   let bed = mix(bedRaw * vec3f(0.62, 0.6, 0.52), bedSea, sea);
   // (clear coastal water: red goes first, then green; a little blue-green scattering)
   let sigA = mix(mat.absorb, vec3f(0.42, 0.075, 0.045), sea); let sigS = mix(mat.scatter, vec3f(0.010, 0.026, 0.030), sea); let sigT = sigA + sigS;

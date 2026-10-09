@@ -74,7 +74,12 @@ function ringWorkerMain() {
     if (/주택|기숙/.test(u)) return height > 24 ? "apt" : "villa";
     return height > 36 ? "office" : r < 0.5 ? "shop" : "villa";
   };
-  const rng = (seed: number) => () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  const rng = (seed: number) => {
+    // West/south drone tiles have signed grid coordinates and can produce negative seeds.
+    // JavaScript keeps the sign of %, which otherwise selects a negative palette index.
+    seed = ((Math.trunc(seed) % 2147483647) + 2147483647) % 2147483647 || 1;
+    return () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  };
   type Buf = { p: number[]; n: number[]; u: number[]; c: number[]; i: number[] };
   self.onmessage = (e: MessageEvent<RingJob>) => {
     const t0 = performance.now();

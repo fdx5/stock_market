@@ -44,6 +44,12 @@ type RoadJob = {
   /** the crossings OpenStreetMap maps round the tile (the site's /api/realestate/crossings): lines in
    * metres about the rounded point asked at, (ox, oy) that point in this frame */
   crossings?: { url: string; ox: number; oy: number };
+  /** the sea round the tile (the coastline's, view frame): a road over it is on a bridge, clear of
+   * the sea's level by 8 m and more */
+  sea?: number[][][]; seaLevel?: number;
+  /** a landmark bridge's upper deck (광안대교: sceneLandmarks.gwanganDeck), its line and heights:
+   * the roads along it are on it — its own model draws the structure */
+  deck?: { pts: number[][]; z: number[] };
 };
 
 function roadWorkerMain() {
@@ -148,10 +154,28 @@ function roadWorkerMain() {
       }
       return c;
     };
-    const overWater = (x: number, y: number) => (wcell.get(Math.floor(x / 50) + "," + Math.floor(y / 50)) ?? []).some(k => {
+    // (and the sea: the coastline's)
+    const seaRings = e.data.sea ?? [], seaBox = seaRings.map(r => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of r) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } return [x0, y0, x1, y1]; });
+    const overSea = (x: number, y: number) => seaRings.some((r, i) => x >= seaBox[i][0] && x <= seaBox[i][2] && y >= seaBox[i][1] && y <= seaBox[i][3] && inside(x, y, r));
+    const overWater = (x: number, y: number) => overSea(x, y) || (wcell.get(Math.floor(x / 50) + "," + Math.floor(y / 50)) ?? []).some(k => {
       const rings = water[k] as unknown as number[][][];
       return inside(x, y, rings[0]) && !rings.slice(1).some(h => inside(x, y, h));
     });
+    const seaLevel = e.data.seaLevel ?? -1e9;
+    // the landmark deck: a road point within 32 m of it (either carriageway), running along it, is on it (its height)
+    const deck = e.data.deck;
+    const onDeck = (x: number, y: number, dx: number, dy: number): number | null => {
+      if (!deck) return null;
+      let best: number | null = null, bd = 32;
+      for (let i = 1; i < deck.pts.length; i++) {
+        const [ax, ay] = deck.pts[i - 1], [bx, by] = deck.pts[i], ex = bx - ax, ey = by - ay, l2 = ex * ex + ey * ey || 1;
+        const t = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / l2)), d = Math.hypot(ax + ex * t - x, ay + ey * t - y);
+        if (d >= bd) continue;
+        if (Math.abs(ex * dx + ey * dy) / (Math.sqrt(l2) * (Math.hypot(dx, dy) || 1)) < 0.85) continue;
+        bd = d; best = deck.z[i - 1] + (deck.z[i] - deck.z[i - 1]) * t;
+      }
+      return best;
+    };
     // A road point's structure: a link within 20 m running the same way (a road under a bridge
     // crosses it: not the same way); a point over the water, a bridge.
     const structureAt = (x: number, y: number, dx: number, dy: number): number => {
@@ -189,10 +213,15 @@ function roadWorkerMain() {
         k = e2;
       }
       const z = pts.map(p => ground(p[0], p[1]));
+      // (on the landmark deck: its height, kind 3 — no slab or piers of ours under it)
+      pts.forEach((p, k) => {
+        const q = pts[Math.min(pts.length - 1, k + 1)], o = pts[Math.max(0, k - 1)], h = onDeck(p[0], p[1], q[0] - o[0], q[1] - o[1]);
+        if (h !== null && h > z[k] + 1) { z[k] = h; kind[k] = 3; }
+      });
       // decks: straight between their ends' ground; a viaduct at least 7 m up, eased in and out
       for (let k = 0; k < kind.length;) {
         let e2 = k; while (e2 < kind.length && kind[e2] === kind[k]) e2++;
-        if (kind[k] > 0) {
+        if (kind[k] > 0 && kind[k] !== 3) {
           bridges++;
           const a = Math.max(0, k - 1), b = Math.min(kind.length - 1, e2), za = ground(pts[a][0], pts[a][1]), zb = ground(pts[b][0], pts[b][1]);
           for (let q = k; q < e2; q++) {
@@ -201,7 +230,7 @@ function roadWorkerMain() {
             const ease = Math.min(1, Math.min(q - a, b - q) * 6 / 60);
             if (kind[k] === 2) h = Math.max(h, z[q] + 7 * ease);
             // (over the water, clear of it: a river bridge stands 8 m or more over its channel)
-            else if (overWater(pts[q][0], pts[q][1])) h = Math.max(h, z[q] + 8 * ease);
+            else if (overWater(pts[q][0], pts[q][1])) h = Math.max(h, Math.max(z[q], seaLevel) + 8 * ease);
             z[q] = Math.max(h, z[q] + 0.3);
           }
         }
@@ -361,7 +390,7 @@ function roadWorkerMain() {
       }
       // Bridges: the slab under the deck's edges, parapets, piers every ~30 m.
       for (let k = 0; k < r.line.length - 1; k++) {
-        if (r.kind[k] <= 0 || r.kind[k + 1] <= 0) continue;
+        if (r.kind[k] <= 0 || r.kind[k + 1] <= 0 || r.kind[k] === 3 || r.kind[k + 1] === 3) continue;
         const A = r.line[k], B = r.line[k + 1], na = normalAt(r.line, k), nb = normalAt(r.line, k + 1), za = r.z[k] + 0.3, zb = r.z[k + 1] + 0.3;
         for (const side of [-1, 1]) {
           const h = w / 2 + 0.3;
@@ -549,7 +578,8 @@ function roadWorkerMain() {
 let roadUrl: string | null = null;
 /** One tile's roads (box in the view's frame, metres from lat/lon), made in a worker. */
 export function roadTile(lat: number, lon: number, key: string, domain: string | null | undefined, box: [number, number, number, number],
-  grid: RoadJob["grid"], wide: Grid | null, signal?: AbortSignal, tile?: { lat: number; lon: number }): Promise<RoadTileResult | null> {
+  grid: RoadJob["grid"], wide: Grid | null, signal?: AbortSignal, tile?: { lat: number; lon: number },
+  extra?: Pick<RoadJob, "sea" | "seaLevel" | "deck">): Promise<RoadTileResult | null> {
   const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540, m = 30;
   const q = `BOX(${lon + (box[0] - m) / kx},${lat + (box[1] - m) / ky},${lon + (box[2] + m) / kx},${lat + (box[3] + m) / ky})`;
   const ask = (layer: string, cb: string, n: number) => Array.from({ length: n }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
@@ -568,6 +598,6 @@ export function roadTile(lat: number, lon: number, key: string, domain: string |
       const la = +tile.lat.toFixed(4), lo = +tile.lon.toFixed(4);
       return { url: `${location.origin}/api/realestate/crossings?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=260&v=3`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
     })() : undefined;
-    worker.postMessage({ urls: ask("LT_L_N3A0020000", "roadCb", 4), linkUrls: ask("LT_L_MOCTLINK", "linkCb", 2), riverUrls: ask("LT_C_WKMSTRM", "riverCb", 2), lat, lon, box, grid, wide, crossings } satisfies RoadJob);
+    worker.postMessage({ urls: ask("LT_L_N3A0020000", "roadCb", 4), linkUrls: ask("LT_L_MOCTLINK", "linkCb", 2), riverUrls: ask("LT_C_WKMSTRM", "riverCb", 2), lat, lon, box, grid, wide, crossings, ...extra } satisfies RoadJob);
   });
 }

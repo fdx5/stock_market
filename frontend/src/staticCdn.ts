@@ -14,6 +14,9 @@ const SCENE_ROOT = (import.meta.env.VITE_STATIC_CDN as string | undefined || `ht
 /** The URL a site path ("/3d/trees.bin") is fetched from: the CDN in production. */
 export function cdn(path: string): string {
   if (import.meta.env.DEV || !path.startsWith("/")) return path;
+  // Drone assets were added after STATIC_PIN. Serve their deployed copy directly
+  // until a CDN pin containing them is published, rather than requesting a 404 first.
+  if (path.startsWith('/3d/drone/')) return path;
   return (SCENE_FILES.has(path) ? SCENE_ROOT : ROOT) + path;
 }
 

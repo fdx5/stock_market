@@ -2832,7 +2832,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           lakes = [
             ...(r.beaches ?? []).map(w => ({ kind: "해", ring: w.ring.map(([x, y]) => [x + ox, y + oy] as [number, number]) })),
             ...r.rings.filter(w => !rivers || w.kind === "sea").map(w => ({ kind: "유", sea: w.kind === "sea", open: [ox - FAR_HALF, oy - FAR_HALF, ox + FAR_HALF, oy + FAR_HALF] as [number, number, number, number], ring: w.ring.map(([x, y]) => [x + ox, y + oy] as [number, number]),
-              ...(w.islands?.length ? { holes: w.islands.map(h => h.map(([x, y]) => [x + ox, y + oy] as [number, number])) } : {}) })),
+              ...(w.islands?.length ? { holes: w.islands.filter(h => Math.abs(h.reduce((a, [x, y], i) => { const q = h[(i + 1) % h.length]; return a + x * q[1] - q[0] * y; }, 0) / 2) >= 2500).map(h => h.map(([x, y]) => [x + ox, y + oy] as [number, number])) } : {}) })),
           ];
           seaWorks = (r.works ?? []).map(w => ({ ...w, pts: w.pts.map(([x, y]) => [x + ox, y + oy] as [number, number]) }));
           if (hostRef.current) hostRef.current.dataset.lakes = r.rings.map(w => w.name ?? w.kind).join(",");

@@ -101,7 +101,7 @@ async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex
   const bc = [(box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2];
   const faces = r.u8();
   const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [];
-  let img = "";
+  let img = "", thumbnail: ArrayBuffer | null = null;
   const cl = Math.cos((lat0 * Math.PI) / 180), la0 = (lat0 * Math.PI) / 180, lo0 = (lon0 * Math.PI) / 180;
   for (let f = 0; f < faces; f++) {
     const nv = r.u32(), base = pos.length / 3;
@@ -126,9 +126,10 @@ async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex
     r.o += ni * 2;
     r.u32(); r.u8();
     const name = r.str();
-    if (name && !img) img = name;
+    const firstImage = !!name && !img;
+    if (firstImage) img = name;
     // (a face with no image has no thumbnail either: nothing more to skip)
-    if (name) { const nail = r.u32(); r.o += nail; }
+    if (name) { const nail = r.u32(); if (firstImage && nail) thumbnail = b.slice(r.o, r.o + nail); r.o += nail; }
   }
   if (!idx.length) return null;
   // ground: the model's lowest point; heights from it
@@ -144,26 +145,33 @@ async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex
   g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   g.computeBoundingSphere();
-  let texture: THREE.Texture | null = null;
-  if (img && photo) {
-    try {
-      const blob = new Blob([await bytes(url(token, e.x, e.y, img), signal)], { type: "image/jpeg" });
-      let bmp = await createImageBitmap(blob, { imageOrientation: "none" });
-      if (bmp.width > maxTex) { const s = maxTex / bmp.width; const small = await createImageBitmap(bmp, { resizeWidth: maxTex, resizeHeight: Math.round(bmp.height * s), resizeQuality: "high" }); bmp.close(); bmp = small; }
-      texture = new THREE.Texture(bmp as unknown as HTMLImageElement);
-      texture.flipY = false;
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.anisotropy = 8;
-      texture.needsUpdate = true;
-    } catch { texture = null; }
-  }
+  const texture = img && photo ? await photoTexture(() => bytes(url(token, e.x, e.y, img), signal), thumbnail, maxTex, signal) : null;
   return { key: e.key, geometry: g, texture, cx, cy, ground: zmin, hull: h, src: { x: e.x, y: e.y, img } };
+}
+
+/** Some surveyed JPEGs no longer exist on XDServer. Their XDO still includes the original
+ * thumbnail: use that photograph instead of leaving palace walls without a texture. */
+async function photoTexture(download: () => Promise<ArrayBuffer>, thumbnail: ArrayBuffer | null, maxTex: number, signal?: AbortSignal): Promise<THREE.Texture | null> {
+  let bmp: ImageBitmap, embedded = false;
+  try { bmp = await createImageBitmap(new Blob([await download()], { type: "image/jpeg" }), { imageOrientation: "none" }); }
+  catch {
+    if (!thumbnail || signal?.aborted) return null;
+    try { bmp = await createImageBitmap(new Blob([thumbnail], { type: "image/jpeg" }), { imageOrientation: "none" }); embedded = true; }
+    catch { return null; }
+  }
+  if (bmp.width > maxTex) { const s = maxTex / bmp.width; const small = await createImageBitmap(bmp, { resizeWidth: maxTex, resizeHeight: Math.round(bmp.height * s), resizeQuality: "high" }); bmp.close(); bmp = small; }
+  const texture = new THREE.Texture(bmp as unknown as HTMLImageElement);
+  texture.flipY = false; texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 8; texture.needsUpdate = true;
+  if (embedded) texture.userData.embeddedThumbnail = true;
+  return texture;
 }
 
 /** Every VWorld 3D building whose centre is within `radius` m of the centre. */
 export async function photoBuildings(key: string, lat0: number, lon0: number, radius: number, opts: { maxTex?: number; signal?: AbortSignal; onBuilding?: (b: PhotoBuilding) => void; photo?: boolean;
   /** Round another point (a landmark), the models still placed about (lat0, lon0). */
-  at?: { lat: number; lon: number } } = {}): Promise<PhotoBuilding[]> {
+  at?: { lat: number; lon: number };
+  /** models fetched at once (4) */
+  workers?: number } = {}): Promise<PhotoBuilding[]> {
   const token = await vworldToken(key);
   const cLat = opts.at?.lat ?? lat0, cLon = opts.at?.lon ?? lon0;
   const dlat = radius / 110540, dlon = radius / (111320 * Math.cos((cLat * Math.PI) / 180));
@@ -189,7 +197,7 @@ export async function photoBuildings(key: string, lat0: number, lon0: number, ra
       if (b) { out.push(b); opts.onBuilding?.(b); }
     }
   };
-  await Promise.all([worker(), worker(), worker(), worker()]);
+  await Promise.all(Array.from({ length: opts.workers ?? 4 }, () => worker()));
   return out;
 }
 
