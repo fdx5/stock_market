@@ -1,4 +1,5 @@
-import { Link } from "../router";
+import { Link, navigate } from "../router";
+import { developmentDriveEnabled, driveEntryUrl } from './driveEntry';
 import CoffeeIcon from "../desk2/CoffeeIcon";
 import { safeCompileAsync } from "./safeCompile";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -3592,7 +3593,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // 열기구: the view from the balloon's basket. Drag looks around, the wheel, a pinch or
   // −/+ zoom (the field of view, like binoculars); the button, 처음 or Esc steps out.
   const [balloonOn, setBalloonOn] = useState(false);
-  // The driving game: its own page (/drive), opened from here where the view stands.
+  // The existing game stays on its own page; only its development entry is shown here.
+  const driveEnabled = developmentDriveEnabled(location.search);
+  const openDrive = () => {
+    if (!developmentDriveEnabled(location.search) || !complexId) return;
+    const at = stageRef.current?.drone?.where() ?? data?.center;
+    navigate(driveEntryUrl(complexId, at, hour, location.pathname + location.search + location.hash));
+  };
   const signsRef = useRef<{ id: string; name: string; x: number; y: number; here: boolean }[]>([]);
   const enterBalloon = () => {
     const st = stageRef.current;
@@ -4139,10 +4146,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           <i aria-hidden="true">🎈</i><span>{balloonOn ? "내리기" : "열기구"}</span>
         </button>
         {(big || autoDrone) && <div className="d2 d2-bgm-float re-holo-bgm"><DeskBgm variant="strip" /></div>}
-        {data.vworld_key && data.center && <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn} onClick={() => (droneOn ? exitDrone() : enterDrone())}
-          title={droneOn ? "드론 착륙 (원래 시점으로)" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 상공 500m까지)"}>
-          <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : "드론"}</span>
-        </button>}
+        {data.vworld_key && data.center && <div className="re-holo-flight-buttons">
+          <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn} onClick={() => (droneOn ? exitDrone() : enterDrone())}
+            title={droneOn ? "드론 착륙 (원래 시점으로)" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 상공 500m까지)"}>
+            <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : "드론"}</span>
+          </button>
+          {driveEnabled && <button type="button" className="re-holo-balloon-btn re-holo-drive-btn" onClick={openDrive}
+            aria-label="드라이브" title="현재 지역에서 드라이브 게임 열기">
+            <i aria-hidden="true">🚗</i><span>드라이브</span>
+          </button>}
+        </div>}
       </div>}
       {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label={droneOn ? '드론 비행 조작' : "3D 화면 조작"}>
         {/* One row of views and steps; the gestures do the rest. A mouse also gets

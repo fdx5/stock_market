@@ -525,6 +525,7 @@
 /* 열기구: right of the weather, like its buttons; lit while riding. The note over the
  * view says how to look around. */
 .re-holo-balloon-btn { display: flex; flex: none; align-items: center; justify-content: center; gap: 4px; min-width: 36px; min-height: 36px; padding: 5px 8px; border: 1px solid #516a7c; border-radius: 7px; background: #20333f; color: #eaf6ff; font: 600 11px var(--f-sans, sans-serif); white-space: nowrap; cursor: pointer; touch-action: manipulation; }
+.re-holo-flight-buttons { display: inline-flex; flex: none; align-items: center; gap: 10px; }
 .re-holo-balloon-btn i { font-style: normal; font-size: 14px; line-height: 1; }
 .re-holo-balloon-btn[aria-pressed="true"] { color: #07131c; background: #ffd27a; border-color: #ffd27a; }
 .re-holo-balloon-btn:disabled { opacity: .45; cursor: default; }

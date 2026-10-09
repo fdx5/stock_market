@@ -43,15 +43,23 @@ export function saveReadingPosition(url: string, entry: string) {
 }
 export function lastMapUrl(): string | null {
   const url = read<unknown>("last-map");
-  return typeof url === "string" && url.length < 500 && MAPS.has(url.split(/[?#]/)[0]) ? url : null;
+  return typeof url === "string" && url.length < 500 && MAPS.has(url.split(/[?#]/)[0]) ? restoredBrowsingUrl(url) : null;
 }
 export function hasReadingPosition(): boolean {
   return read(`position:${readingUrl().split("#")[0]}`) !== null;
 }
+/** A normal menu visit may restore public view choices, but never development access.
+ * Only the returned URL changes; existing browsing records remain untouched. */
+function restoredBrowsingUrl(url: string): string {
+  const parsed = new URL(url, window.location.origin);
+  if (!parsed.searchParams.has('devgame')) return url;
+  parsed.searchParams.delete('devgame');
+  return parsed.pathname + parsed.search + parsed.hash;
+}
 export function resolvedBrowsingUrl(url: string): string {
   if (!isBrowsingPage(url) || /[?#]/.test(url)) return url;
   const saved = read<unknown>(`last-url:${url}`);
-  return typeof saved === "string" && saved.length < 500 && saved.split(/[?#]/)[0] === url ? saved : url;
+  return typeof saved === "string" && saved.length < 500 && saved.split(/[?#]/)[0] === url ? restoredBrowsingUrl(saved) : url;
 }
 
 /** Retry during lazy/async layout, then yield immediately to reader interaction. */
