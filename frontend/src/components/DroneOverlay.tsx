@@ -129,7 +129,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
         <small>{auto ? autoStatus : '현재 속도 유지 · 정지 시 100km/h'}</small>
       </button>
       <div className="re-drone-tools">
-        <button type="button" onClick={onView} title="1인칭 ↔ 3인칭 (V)">{view === "fpv" ? "🎥 1인칭" : "🚁 3인칭"}</button>
+        <button type="button" className="re-drone-view" onClick={onView} title="1인칭 ↔ 3인칭 (V)"><i className="re-drone-view-icon" aria-hidden="true">🚁</i><span>{view === "fpv" ? "1인칭" : "3인칭"}</span></button>
         <button type="button" onClick={() => { const m = !muted; setMuted(m); onMute(m); }} aria-pressed={muted} title={muted ? "드론 소리 켜기" : "드론 소리 끄기"} className="re-drone-mute">{muted ? "🔇 음소거" : "🔊 소리"}</button>
         <button type="button" onClick={() => setHelp(v => !v)} aria-pressed={help} title="조작법">?</button>
         <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>

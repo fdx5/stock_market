@@ -493,7 +493,7 @@ function inputOnlyRenderer(): THREE.WebGLRenderer {
   } as unknown as THREE.WebGLRenderer;
 }
 
-export default function ComplexHologram({ complexId: homeId, complexName: homeName, caption: homeCaption, wide = false, initialTod, paused = false, openFull = 0, onFullChange, autoDrone = false }: {
+export default function ComplexHologram({ complexId: homeId, complexName: homeName, caption: homeCaption, wide = false, initialTod, paused = false, openFull = 0, onFullChange, autoDrone = false, onDroneExit }: {
   complexId: string | null; complexName?: string; caption?: string;
   /** Each increase opens this view full screen (the map's detail card on a desktop
    * shows its complex here rather than in a second renderer). */
@@ -501,6 +501,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   onFullChange?: (open: boolean) => void;
   /** The dedicated explorer takes off once its first scene has actually been drawn. */
   autoDrone?: boolean;
+  /** The dedicated explorer returns to its map when the flight is closed. */
+  onDroneExit?: () => void;
   /** Covered by something the reader is using (the detail popup): stop drawing, and do
    * any loading only in the browser's idle time. */
   paused?: boolean;
@@ -3680,7 +3682,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     setDroneOn(false); st.resume();
   };
   const leaveDroneRef = useRef(leaveDrone);
-  leaveDroneRef.current = leaveDrone;
+  const exitDrone = () => { leaveDrone(); onDroneExit?.(); };
+  leaveDroneRef.current = exitDrone;
   useEffect(() => {
     if (!droneOn) return;
     const host = hostRef.current;
@@ -4085,7 +4088,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           <button type="button" className="re-holo-retry" onClick={() => setReloadKey(k => k + 1)}>다시 시도</button></p>}
         {droneOn && stageRef.current?.drone && <DroneOverlay sink={droneHud} flight={stageRef.current.drone.flight} signs={stageRef.current.drone.signs} touch={droneTouch}
           radar={{ vkey: data!.vworld_key!, domain: data!.vworld_domain ?? "https://kospimap.com", origin: data!.center!, where: stageRef.current.drone.where }}
-          onExit={leaveDrone} onMute={m => stageRef.current?.drone?.audio.setMuted(m)}
+          onExit={exitDrone} onMute={m => stageRef.current?.drone?.audio.setMuted(m)}
           view={droneView} onView={() => { const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); }} />}
         {balloonOn && <div className="re-holo-balloon-hint" role="status"><b>🎈 열기구에서 내려다보는 중</b><span>{touchMode ? "드래그로 둘러보기 · 두 손가락으로 확대·축소" : "드래그로 둘러보기 · 휠로 확대·축소 · Esc로 내리기"}</span></div>}
         {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
@@ -4112,7 +4115,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           <i aria-hidden="true">🎈</i><span>{balloonOn ? "내리기" : "열기구"}</span>
         </button>
         {big && <div className="d2 d2-bgm-float re-holo-bgm"><DeskBgm variant="strip" /></div>}
-        {data.vworld_key && data.center && <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn} onClick={() => (droneOn ? leaveDrone() : enterDrone())}
+        {data.vworld_key && data.center && <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn} onClick={() => (droneOn ? exitDrone() : enterDrone())}
           title={droneOn ? "드론 착륙 (원래 시점으로)" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 상공 500m까지)"}>
           <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : "드론"}</span>
         </button>}
