@@ -149,8 +149,13 @@ def _crossings_lookup(lat: float, lon: float, radius: float = 700, deadline_s: f
          f'node["highway"="crossing"](around:{r},{lat},{lon});node["highway"="traffic_signals"](around:{r},{lat},{lon}););out geom;')
     try:
         els = _overpass(q, deadline_s=deadline_s)
-    except BuildingsError:
+        return _parse_crossings(els, lat, lon)
+    except (BuildingsError, KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
+        log.info("crossings: unavailable (%s)", type(exc).__name__)
         return {"crossings": [], "points": [], "signals": [], "signal_details": [], "source": None, "signal_state_source": None}
+
+
+def _parse_crossings(els: list[dict], lat: float, lon: float) -> dict:
     project = _projector(lat, lon)
     lines, points, signals, signal_details = [], [], [], []
     for e in els:

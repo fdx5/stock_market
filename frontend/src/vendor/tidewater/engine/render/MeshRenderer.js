@@ -112,13 +112,20 @@ export class MeshRenderer {
 		}
 
 		this.drawCount = 0;
+		this._dirtyDrawStart = Infinity; this._dirtyDrawEnd = 0;
 		GPU.onSubmit( () => {
 
-			if ( this.drawCount ) GPU.queue.writeBuffer( this.drawBuffer, 0, this.drawData.buffer, 0, this.drawCount * DRAW_STRIDE );
+			if ( this.dirtyDrawUploads && this.bundles ) {
+				if ( this._dirtyDrawEnd > this._dirtyDrawStart ) {
+					const offset = this._dirtyDrawStart * DRAW_STRIDE;
+					GPU.queue.writeBuffer( this.drawBuffer, offset, this.drawData.buffer, offset, ( this._dirtyDrawEnd - this._dirtyDrawStart ) * DRAW_STRIDE );
+				}
+			} else if ( this.drawCount ) GPU.queue.writeBuffer( this.drawBuffer, 0, this.drawData.buffer, 0, this.drawCount * DRAW_STRIDE );
 
 		} );
 		this.stats.draws = 0;
 		this.stats.triangles = 0;
+		this.stats.bundleBuilds = this.stats.bundleEncodedDraws = 0;
 
 	}
 
@@ -152,6 +159,10 @@ export class MeshRenderer {
 		}
 
 		g.frame = GPU.frame;
+		const version = obj.worldTransformVersion, p = obj.drawParams;
+		if ( this.dirtyDrawUploads && this.bundles && version !== undefined && g.data === this.drawData && g.dataSlot === g.slot && g.version === version && g.prevVersion === version && ! obj.resetVelocity && g.staticVelocity === !! obj.staticVelocity && g.id === ( obj.id ?? 0 ) && g.paramHas === !! p && g.tailHas === !! ( p && p.length > 3 ) && g.p0 === ( p ? p[ 0 ] : 0 ) && g.p1 === ( p ? p[ 1 ] : 0 ) && g.p2 === ( p ? p[ 2 ] : 0 ) && g.p3 === ( p?.[ 3 ] ?? 0 ) && g.p4 === ( p?.[ 4 ] ?? 0 ) && g.p5 === ( p?.[ 5 ] ?? 0 ) && g.p6 === ( p?.[ 6 ] ?? 0 ) ) return g.slot;
+		g.prevVersion = g.has && ! obj.resetVelocity ? g.version : version;
+		g.version = version;
 		const e = obj.matrixWorld.elements;
 		if ( g.has && ! obj.resetVelocity ) g.prev.set( g.cur );
 		else g.prev.set( e );
@@ -162,12 +173,15 @@ export class MeshRenderer {
 		const d = this.drawData;
 		d.set( g.cur, o );
 		d.set( obj.staticVelocity ? g.cur : g.prev, o + 16 );
-		const p = obj.drawParams;
 		d[ o + 32 ] = obj.id ?? 0;
 		d[ o + 33 ] = p ? p[ 0 ] : 0;
 		d[ o + 34 ] = p ? p[ 1 ] : 0;
 		d[ o + 35 ] = p ? p[ 2 ] : 0;
 		if ( p && p.length > 3 ) for ( let i = 0; i < 4; i ++ ) d[ o + 36 + i ] = p[ 3 + i ] ?? 0;
+		g.data = d; g.dataSlot = g.slot; g.staticVelocity = !! obj.staticVelocity; g.id = obj.id ?? 0;
+		g.paramHas = !! p; g.tailHas = !! ( p && p.length > 3 );
+		g.p0 = p ? p[ 0 ] : 0; g.p1 = p ? p[ 1 ] : 0; g.p2 = p ? p[ 2 ] : 0; g.p3 = p?.[ 3 ] ?? 0; g.p4 = p?.[ 4 ] ?? 0; g.p5 = p?.[ 5 ] ?? 0; g.p6 = p?.[ 6 ] ?? 0;
+		this._dirtyDrawStart = Math.min( this._dirtyDrawStart, g.slot ); this._dirtyDrawEnd = Math.max( this._dirtyDrawEnd, g.slot + 1 );
 		return g.slot;
 
 	}
@@ -581,7 +595,8 @@ export class MeshRenderer {
 		const visit = ( o ) => {
 
 			if ( ! o.visible && ! all ) return;
-			if ( o.isMesh && o.material && o.geometry && ( o.layers.mask & layerMask ) !== 0 && ( ! filter || filter( o ) ) && ( kind !== 'depth' || o.castShadow ) ) {
+			const emptyNative = ! all && o.worldTransformVersion !== undefined && o.isInstancedMesh && o.count === 0 && ! Object.hasOwn( o, 'onBeforeRender' );
+			if ( ! emptyNative && o.isMesh && o.material && o.geometry && ( o.layers.mask & layerMask ) !== 0 && ( ! filter || filter( o ) ) && ( kind !== 'depth' || o.castShadow ) ) {
 
 				if ( all || ! cull || ! camera || o.frustumCulled === false || this._inFrustum( o ) ) {
 
@@ -624,11 +639,16 @@ export class MeshRenderer {
 		if ( ! s || s.radius < 0 || ! Number.isFinite( s.radius ) ) return true;
 		// (local modification) the world sphere once a frame, not once a pass
 		let w = o.__worldSphere;
-		if ( ! w || w.frame !== GPU.frame || w.src !== s ) {
+		const version = o.worldTransformVersion;
+		const managed = version !== undefined;
+		if ( ! w || w.src !== s || ( managed
+			? w.version !== version || w.x !== s.center.x || w.y !== s.center.y || w.z !== s.center.z || w.radius !== s.radius
+			: w.frame !== GPU.frame ) ) {
 
 			w = o.__worldSphere ??= { frame: - 1, src: null, sphere: new Sphere() };
 			w.sphere.copy( s ).applyMatrix4( o.matrixWorld );
 			w.frame = GPU.frame; w.src = s;
+			w.version = version; w.x = s.center.x; w.y = s.center.y; w.z = s.center.z; w.radius = s.radius;
 
 		}
 		return _frustum.intersectsSphere( w.sphere );
@@ -789,19 +809,27 @@ export class MeshRenderer {
 		const nth = this._bundleCalls.get( site ) ?? 0;
 		this._bundleCalls.set( site, nth + 1 );
 		this._bundles ??= new Map();
-		const callKey = site + '|' + nth;
+		const chunked = this.bundleChunking;
+		const atomic = chunked && this.bundleChunkSize === 1;
+		const callKey = site + '|' + nth + ( chunked ? atomic ? '|objects' : '|chunks' : '' );
 		let cache = this._bundles.get( callKey );
-		if ( ! cache ) this._bundles.set( callKey, cache = [] );
+		if ( ! cache ) this._bundles.set( callKey, cache = chunked ? new Map() : [] );
 		const state = { pipeline: null, group: null };
 		let segment = [], segments = 0, replayed = false;
+		const pendingBundles = [];
+		const replay = () => {
+			if ( ! pendingBundles.length ) return;
+			rp.executeBundles( pendingBundles ); pendingBundles.length = 0;
+			replayed = true; state.pipeline = null; state.group = null;
+		};
 		const flush = () => {
 
 			if ( ! segment.length ) return;
 			// The segment's inputs as a list of numbers (compared, not joined into a string: that
 			// was most of this method's time), -1 between draws.
 			const key = _sig; key.length = 0;
-			key.push( _gpuId( pass.group0 ), _gpuId( this.drawBindGroup ) );
-			for ( const r of segment ) {
+			if ( ! atomic ) key.push( _gpuId( pass.group0 ), _gpuId( this.drawBindGroup ) );
+			if ( ! atomic ) for ( const r of segment ) {
 
 				key.push( - 1, _gpuId( r.pipeline ), _gpuId( r.group ), r.offset, r.instances, r.it.start, r.it.count, r.vbs.length );
 				for ( const b of r.vbs ) key.push( _gpuId( b ) );
@@ -810,9 +838,24 @@ export class MeshRenderer {
 
 			}
 
-			let c = cache[ segments ];
-			let same = !! c && c.key.length === key.length;
-			if ( same ) for ( let i = 0; i < key.length; i ++ ) if ( c.key[ i ] !== key[ i ] ) { same = false; break; }
+			// Stable draw-slot boundaries keep a camera cull from invalidating a
+			// several-hundred-draw bundle. Draw order, buffers and ranges are identical.
+			const last = segment[ segment.length - 1 ];
+			const chunkKey = atomic ? last.o : chunked ? `${ last.offset }/${ _gpuId( last.group ) }/${ last.it.start }` : segments;
+			let c = chunked ? cache.get( chunkKey ) : cache[ segments ];
+			let same;
+			if ( atomic ) {
+				// Compare GPU references directly for the single-object bundle. A
+				// numeric signature otherwise repeated WeakMap lookups for every
+				// buffer in every pass, despite those references being unchanged.
+				const r = last;
+				const total = r.index ? r.geo.index.count : r.geo.attributes.position?.count ?? r.geo.vertexCount;
+				same = !! c && c.group0 === pass.group0 && c.drawGroup === this.drawBindGroup && c.pipeline === r.pipeline && c.group === r.group && c.offset === r.offset && c.instances === r.instances && c.start === r.it.start && c.count === r.it.count && c.total === total && c.indexBuffer === ( r.index?.buffer ?? null ) && c.indexFormat === r.index?.format && c.vbs.length === r.vbs.length;
+				if ( same ) for ( let i = 0; i < r.vbs.length; i ++ ) if ( c.vbs[ i ] !== r.vbs[ i ] ) { same = false; break; }
+			} else {
+				same = !! c && c.key.length === key.length;
+				if ( same ) for ( let i = 0; i < key.length; i ++ ) if ( c.key[ i ] !== key[ i ] ) { same = false; break; }
+			}
 			if ( ! same ) {
 
 				const be = GPU.device.createRenderBundleEncoder( {
@@ -822,7 +865,14 @@ export class MeshRenderer {
 				be.setBindGroup( 0, pass.group0 );
 				const own = { pipeline: null, group: null };
 				for ( const r of segment ) this._drawRow( be, r, own );
-				c = cache[ segments ] = { key: key.slice(), bundle: be.finish() };
+				c = { key: key.slice(), bundle: be.finish(), at: GPU.frame };
+				if ( atomic ) {
+					const r = last;
+					Object.assign( c, { group0: pass.group0, drawGroup: this.drawBindGroup, pipeline: r.pipeline, group: r.group, offset: r.offset, instances: r.instances, start: r.it.start, count: r.it.count, total: r.index ? r.geo.index.count : r.geo.attributes.position?.count ?? r.geo.vertexCount, indexBuffer: r.index?.buffer ?? null, indexFormat: r.index?.format, vbs: r.vbs.slice() } );
+				}
+				if ( chunked ) cache.set( chunkKey, c ); else cache[ segments ] = c;
+				this.stats.bundleBuilds ++;
+				this.stats.bundleEncodedDraws += segment.length;
 
 			} else {
 
@@ -835,26 +885,32 @@ export class MeshRenderer {
 
 			}
 
-			rp.executeBundles( [ c.bundle ] );
-			replayed = true;
-			// (a bundle leaves the pass with nothing bound)
-			state.pipeline = null; state.group = null;
+			c.at = GPU.frame;
+			pendingBundles.push( c.bundle );
 			segments ++;
-			segment = [];
+			segment.length = 0;
 
 		};
 
 		for ( const r of rows ) {
 
-			if ( r.steady ) { segment.push( r ); continue; }
+			if ( r.steady ) {
+				segment.push( r );
+				if ( atomic || ( chunked && ( ( ( r.offset / DRAW_STRIDE ) & 31 ) === 0 || segment.length >= 64 ) ) ) flush();
+				continue;
+			}
 			flush();
+			replay();
 			if ( replayed ) { rp.setBindGroup( 0, pass.group0 ); replayed = false; }
 			this._drawRow( rp, r, state );
 
 		}
 
 		flush();
-		cache.length = segments;
+		replay();
+		if ( chunked ) {
+			if ( GPU.frame % 120 === 0 || cache.size > 1024 ) for ( const [ key, c ] of cache ) if ( GPU.frame - c.at > 240 ) cache.delete( key );
+		} else cache.length = segments;
 		if ( replayed ) rp.setBindGroup( 0, pass.group0 );
 
 	}

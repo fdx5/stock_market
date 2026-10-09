@@ -48,3 +48,40 @@ test('JS benchmark BVH and Rust BVH both cover identical bounds',async()=>{
  const b=Float32Array.from({length:400},(_,i)=>i%4<2?random()*10:0);for(let i=0;i<400;i+=4){b[i+2]=b[i]+1;b[i+3]=b[i+1]+1;}
  for(const part of [buildRoadBvhJs(b),await wasm(b)]){const tree=index([part]);for(let i=0;i<100;i++)assert.ok(tree.query(b[i*4],b[i*4+1],b[i*4+2],b[i*4+3]).includes(i*3));}
 });
+
+test('cached tyre samples preserve exact road planes, bridge levels, profiles and reference ties',()=>{
+ const positions=[],bounds=[],levels=[],profiles=[];
+ for(let x=-18;x<18;x+=3)for(let y=-12;y<12;y+=3)for(let layer=0;layer<3;layer++){
+  for(const t of [[[x,y],[x+3,y],[x,y+3]],[[x+3,y],[x+3,y+3],[x,y+3]]]){
+   for(const [a,b] of t){positions.push(a,layer*8+a*.07+b*.11,-b);levels.push(layer);profiles.push(layer===0?0:layer+10);}
+   bounds.push(x,y,x+3,y+3);
+  }
+ }
+ const g=geometry(positions);g.setAttribute('roadLevel',new THREE.Float32BufferAttribute(levels,1));g.setAttribute('roadProfile',new THREE.Float32BufferAttribute(profiles,1));g.userData.roadProfiles=new Map([['bridge-a',11],['bridge-b',12]]);
+ const tree=index([buildRoadBvhJs(Float32Array.from(bounds))]);let queries=0;
+ const cached=roadSurfaceHeight(g,{query(...args){queries++;return tree.query(...args);}});
+ const oracle=(x,y,reference,level,profile)=>{
+  let height=-Infinity,best=Infinity;const p=g.attributes.position,profileId=g.userData.roadProfiles.get(profile);
+  const cross=(a,b,q)=>(b[0]-a[0])*(q[1]-a[1])-(b[1]-a[1])*(q[0]-a[0]);
+  for(const k of tree.query(x,y,x,y)){
+   if(level!==undefined&&Math.abs(g.attributes.roadLevel.getX(k)-level)>.1)continue;
+   if(profileId!==undefined&&Math.abs(g.attributes.roadProfile.getX(k)-profileId)>.1)continue;
+   const a=[p.getX(k),-p.getZ(k)],b=[p.getX(k+1),-p.getZ(k+1)],c=[p.getX(k+2),-p.getZ(k+2)],q=[x,y],den=cross(a,b,c);
+   if(Math.abs(den)<1e-9)continue;const u=cross(a,q,c)/den,v=cross(a,b,q)/den;
+   if(u>=-1e-6&&v>=-1e-6&&u+v<=1.000001){const z=p.getY(k)*(1-u-v)+p.getY(k+1)*u+p.getY(k+2)*v;if(reference===undefined)height=Math.max(height,z);else if(Math.abs(z-reference)<best){best=Math.abs(z-reference);height=z;}}
+  }
+  return Number.isFinite(height)?height:undefined;
+ };
+ for(let i=0;i<4000;i++){
+  const x=i%10===0?-18+(i%13)*3:random()*40-20,y=i%10===0?-12+(i%9)*3:random()*28-14;
+  for(const args of [[x,y],[x,y,4],[x,y,8,1,'bridge-a'],[x,y,16,2,'bridge-b'],[x,y,8,2,'bridge-a']])assert.equal(cached(...args),oracle(...args));
+ }
+ assert.ok(queries<100,`expected one BVH query per nearby cell, got ${queries} for 20,000 samples`);
+ const before=cached(-4,-4,8,1,'bridge-a');
+ for(let i=0;i<g.attributes.position.count;i++)g.attributes.position.setY(i,g.attributes.position.getY(i)+1);
+ g.attributes.position.needsUpdate=true;
+ assert.equal(cached(-4,-4,8,1,'bridge-a'),oracle(-4,-4,8,1,'bridge-a'));assert.equal(cached(-4,-4,8,1,'bridge-a'),before+1);
+ g.attributes.roadProfile.array.fill(99);g.attributes.roadProfile.needsUpdate=true;
+ assert.equal(cached(-4,-4,8,1,'bridge-a'),undefined);
+ g.dispose();
+});

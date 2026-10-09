@@ -1,6 +1,6 @@
 import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
-import {woodlandBeds,WOODLAND_FLOWERS}from'./landscapeDiversity';
+import {woodlandBeds,woodlandPatchPattern,WOODLAND_FLOWERS}from'./landscapeDiversity';
 import {woodedTerrain}from'./woodlandTerrain';
 import { palaceGardens, palaceParcelGarden, palaceGardenCover, paintPalaceGarden, type PalaceGarden, type PalaceGardenPlanting } from './palaceGardens';
 
@@ -293,12 +293,13 @@ function farWorkerMain() {
       let seed=7919;const rnd=()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646;};
       const green=(x:number,y:number)=>{const px=Math.floor(X(x)),py=Math.floor(Y(y));if(px<0||py<0||px>=S||py>=S||inGarden(x,y))return false;const o=(py*S+px)*4;return blocked[o+3]<128 && paint[o+3]>200 && paint[o+1]>paint[o]*1.18 && paint[o+1]>paint[o+2]*1.18;};
       const groves=new Map<string,{pattern:number;points:[number,number][]}>();let parkSeen=0;
+      const woodlandOriginX=job.lon*111320*Math.cos(37.5*Math.PI/180),woodlandOriginY=job.lat*110540;
       const wooded=(x:number,y:number)=>forest[(Math.floor(Y(y))*S+Math.floor(X(x)))*4+3]>127 || (self as unknown as {woodedTerrain:typeof woodedTerrain}).woodedTerrain(job.grid,x,y);
       for(let y=-half+8;y<half;y+=5.5)for(let x=-half+8;x<half;x+=5.5){
-        const px=x+(rnd()-.5)*2.5,py=y+(rnd()-.5)*2.5;
+        const scatter=wooded(x,y)?5.1:2.5,px=x+(rnd()-.5)*scatter,py=y+(rnd()-.5)*scatter;
         if(Math.abs(px)<job.nearHalf && Math.abs(py)<job.nearHalf || !green(px,py))continue;
         if(wooded(px,py)){
-          const gx=Math.floor(px/24),gy=Math.floor(py/24),key=`${gx}:${gy}`,patch=groves.get(key)??{pattern:Math.abs(gx*31+gy*17)%4,points:[]};
+          const gx=Math.floor(px/24),gy=Math.floor(py/24),key=`${gx}:${gy}`,patch=groves.get(key)??{pattern:(self as unknown as {woodlandPatchPattern:typeof woodlandPatchPattern}).woodlandPatchPattern(gx*24+woodlandOriginX,gy*24+woodlandOriginY),points:[]};
           if(patch.points.length<26)patch.points.push([px,py]);groves.set(key,patch);continue;
         }
         // Park trees are sparse among the dense wooded clusters, evenly spread across the view.
@@ -339,7 +340,7 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
     size: "1000", page: String(i + 1), format: "json", callback: "farCb",
   }));
   // (one Blob URL for the page's lifetime: the drone makes these tile after tile)
-  farUrl ??= URL.createObjectURL(new Blob([`self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});self.palaceParcelGarden=(${palaceParcelGarden.toString()});self.palaceGardenCover=(${palaceGardenCover.toString()});self.paintPalaceGarden=(${paintPalaceGarden.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
+  farUrl ??= URL.createObjectURL(new Blob([`self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});self.woodlandPatchPattern=(${woodlandPatchPattern.toString()});self.palaceParcelGarden=(${palaceParcelGarden.toString()});self.palaceGardenCover=(${palaceGardenCover.toString()});self.paintPalaceGarden=(${paintPalaceGarden.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
   const worker = new Worker(farUrl);
   const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS,gardens:palaceGardens(lat,lon,H),
     riverUrls: opts.rivers ? Array.from({ length: 3 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({

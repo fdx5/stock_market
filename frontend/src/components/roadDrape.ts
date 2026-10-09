@@ -24,10 +24,49 @@ function segment(axis: Float64Array,value: number,up: boolean) {
 /** The same visible asphalt supports tyres; a DEM sample can lie centimetres
  * below the tessellated road and bury the tyre's lower sidewall. */
 export function roadSurfaceHeight(geometry:THREE.BufferGeometry,index?:RoadTriangleIndex){
- const p=geometry.getAttribute('position'),levels=geometry.getAttribute('roadLevel'),profiles=geometry.getAttribute('roadProfile'),profileIds=geometry.userData.roadProfiles as Map<string,number>|undefined,bins=new Map<string,number[]>(),cell=6;
- if(!index)for(let k=0;k<p.count;k+=3){const x=[0,1,2].map(i=>p.getX(k+i)),y=[0,1,2].map(i=>-p.getZ(k+i));for(let i=Math.floor(Math.min(...x)/cell);i<=Math.floor(Math.max(...x)/cell);i++)for(let j=Math.floor(Math.min(...y)/cell);j<=Math.floor(Math.max(...y)/cell);j++){const key=i+':'+j,l=bins.get(key);if(l)l.push(k);else bins.set(key,[k]);}}
- return (x:number,y:number,reference?:number,level?:number,profile?:string)=>{let h=-Infinity,best=Infinity;const profileId=profile?profileIds?.get(profile):undefined;
-  for(const k of index?.query(x,y,x,y)??bins.get(Math.floor(x/cell)+':'+Math.floor(y/cell))??[]){if(level!==undefined&&levels&&Math.abs(levels.getX(k)-level)>.1)continue;if(profileId!==undefined&&profiles&&Math.abs(profiles.getX(k)-profileId)>.1)continue;const a:Point=[p.getX(k),-p.getZ(k)],b:Point=[p.getX(k+1),-p.getZ(k+1)],c:Point=[p.getX(k+2),-p.getZ(k+2)],q:Point=[x,y],den=cross(a,b,c);if(Math.abs(den)<1e-9)continue;const u=cross(a,q,c)/den,v=cross(a,b,q)/den;if(u>=-1e-6&&v>=-1e-6&&u+v<=1.000001){const z=p.getY(k)*(1-u-v)+p.getY(k+1)*u+p.getY(k+2)*v;if(reference===undefined)h=Math.max(h,z);else if(Math.abs(z-reference)<best){best=Math.abs(z-reference);h=z;}}}
+ // Four tyres repeatedly sample the same road cell. Cache the broad phase and
+ // immutable vertex reads, retaining the exact asphalt barycentric calculation.
+ // BVH traversal order is retained, including reference-height ties on bridges.
+ type Triangle = {ax:number;ay:number;bx:number;by:number;cx:number;cy:number;az:number;bz:number;cz:number;den:number;minX:number;minY:number;maxX:number;maxY:number;level?:number;profile?:number};
+ type Attribute = THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
+ const version=(a:Attribute|undefined)=>a instanceof THREE.InterleavedBufferAttribute?a.data.version:a?.version;
+ const cells=new Map<string,Triangle[]>(),bins=new Map<string,number[]>(),cell=6;
+ let p:Attribute,levels:Attribute|undefined,profiles:Attribute|undefined,pv:number|undefined,lv:number|undefined,sv:number|undefined;
+ const refresh=()=>{
+  const next=geometry.getAttribute('position'),nl=geometry.getAttribute('roadLevel'),ns=geometry.getAttribute('roadProfile');
+  const npv=version(next),nlv=version(nl),nsv=version(ns);
+  if(next===p&&nl===levels&&ns===profiles&&npv===pv&&nlv===lv&&nsv===sv)return;
+  p=next;levels=nl;profiles=ns;pv=npv;lv=nlv;sv=nsv;cells.clear();bins.clear();
+  if(!index)for(let k=0;k<p.count;k+=3){
+   const ax=p.getX(k),bx=p.getX(k+1),cx=p.getX(k+2),ay=-p.getZ(k),by=-p.getZ(k+1),cy=-p.getZ(k+2);
+   for(let i=Math.floor(Math.min(ax,bx,cx)/cell);i<=Math.floor(Math.max(ax,bx,cx)/cell);i++)for(let j=Math.floor(Math.min(ay,by,cy)/cell);j<=Math.floor(Math.max(ay,by,cy)/cell);j++){
+    const key=i+':'+j,l=bins.get(key);if(l)l.push(k);else bins.set(key,[k]);
+   }
+  }
+ };
+ return (x:number,y:number,reference?:number,level?:number,profile?:string)=>{
+  refresh();let h=-Infinity,best=Infinity;
+  const profileIds=geometry.userData.roadProfiles as Map<string,number>|undefined,profileId=profile?profileIds?.get(profile):undefined;
+  const i=Math.floor(x/cell),j=Math.floor(y/cell),key=i+':'+j;let triangles=cells.get(key);
+  if(!triangles){
+   triangles=[];
+   for(const k of index?.query(i*cell,j*cell,(i+1)*cell,(j+1)*cell)??bins.get(key)??[]){
+    const ax=p.getX(k),ay=-p.getZ(k),bx=p.getX(k+1),by=-p.getZ(k+1),cx=p.getX(k+2),cy=-p.getZ(k+2),den=(bx-ax)*(cy-ay)-(by-ay)*(cx-ax);
+    const minX=Math.min(ax,bx,cx),maxX=Math.max(ax,bx,cx),minY=Math.min(ay,by,cy),maxY=Math.max(ay,by,cy);
+    const marginX=(maxX-minX)*2e-6+1e-5,marginY=(maxY-minY)*2e-6+1e-5;
+    if(Math.abs(den)>=1e-9)triangles.push({ax,ay,bx,by,cx,cy,az:p.getY(k),bz:p.getY(k+1),cz:p.getY(k+2),den,minX:minX-marginX,maxX:maxX+marginX,minY:minY-marginY,maxY:maxY+marginY,level:levels?.getX(k),profile:profiles?.getX(k)});
+   }
+   // Bound this computed cache during a long flight; no scene or stored data is affected.
+   if(cells.size>=1024)cells.delete(cells.keys().next().value!);
+   cells.set(key,triangles);
+  }
+  for(const t of triangles){
+   if(x<t.minX||x>t.maxX||y<t.minY||y>t.maxY)continue;
+   if(level!==undefined&&t.level!==undefined&&Math.abs(t.level-level)>.1)continue;
+   if(profileId!==undefined&&t.profile!==undefined&&Math.abs(t.profile-profileId)>.1)continue;
+   const u=((x-t.ax)*(t.cy-t.ay)-(y-t.ay)*(t.cx-t.ax))/t.den,v=((t.bx-t.ax)*(y-t.ay)-(t.by-t.ay)*(x-t.ax))/t.den;
+   if(u>=-1e-6&&v>=-1e-6&&u+v<=1.000001){const z=t.az*(1-u-v)+t.bz*u+t.cz*v;if(reference===undefined)h=Math.max(h,z);else if(Math.abs(z-reference)<best){best=Math.abs(z-reference);h=z;}}
+  }
   return Number.isFinite(h)?h:undefined;
  };
 }

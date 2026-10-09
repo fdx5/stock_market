@@ -31,7 +31,8 @@ def test_copies_the_shared_rows_keeps_newer_ones_and_marks_itself_done(tmp_path,
     c = sqlite3.connect(own)
     assert c.execute("SELECT COUNT(*) FROM re_trade_months").fetchone()[0] == 90
     assert c.execute("SELECT payload FROM re_trade_months WHERE deal_ym = '202605'").fetchone()[0] == "fresh"
-    assert c.execute("SELECT COUNT(*) FROM re_map_cache").fetchone()[0] == 0
+    assert c.execute("SELECT COUNT(*) FROM re_map_cache").fetchone()[0] == 1
+    assert c.execute("SELECT payload FROM re_map_cache WHERE key = 'sido:11:3m:200'").fetchone()[0] == "built from an empty database"
     assert c.execute("SELECT value FROM re_meta WHERE key = 'migrated_from_shared'").fetchone()
     # A second start sees it done and copies nothing.
     monkeypatch.setattr(st, "migrated", st._threading.Event())

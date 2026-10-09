@@ -3,6 +3,23 @@ function load(name,extra={}){const scope={module:{exports:{}},exports:{},THREE,F
 const {neighbourArrays}=load('neighbourGeometry.ts'),{neighbourWasmArrays}=load('neighbourWasm.ts'),{forestCells,updateForestLod}=load('spatialForest.ts'),{flushInstanceAttribute}=load('instanceDirty.ts');
 const binary=readFileSync(new URL('../src/wasm/scene-geometry/scene_geometry.wasm',import.meta.url));
 const {InstanceBatch}=load('instanceWasm.ts');
+const {staticSceneTransforms}=load('staticSceneTransforms.ts');
+
+test('static scenery retains exact world matrices, late children and moving-parent propagation',()=>{
+ const scene=new THREE.Scene();scene.matrixAutoUpdate=false;
+ const root=new THREE.Group();root.position.set(17,3,-42);root.rotation.x=-Math.PI/2;
+ const tree=new THREE.Mesh(new THREE.BoxGeometry(3,17,4),new THREE.MeshBasicMaterial());tree.position.set(4,11,6);tree.rotation.y=.7;tree.scale.set(1.3,.8,.7);root.add(tree);
+ const original=root.clone(true);scene.add(root,original);scene.updateMatrixWorld();
+ const before=tree.matrixWorld.clone();staticSceneTransforms(root);scene.updateMatrixWorld();assert.deepEqual(tree.matrixWorld.elements,before.elements);
+ let compositions=0;root.traverse(o=>{const update=o.updateMatrix.bind(o);o.updateMatrix=()=>{compositions++;update();};});
+ for(let i=0;i<30;i++){scene.updateMatrixWorld();assert.deepEqual(tree.matrixWorld.elements,original.children[0].matrixWorld.elements);}
+ assert.equal(compositions,0);
+ root.position.x+=15;root.updateMatrix();original.position.x+=15;scene.updateMatrixWorld();assert.deepEqual(tree.matrixWorld.elements,original.children[0].matrixWorld.elements);
+ const late=new THREE.Group();late.position.set(-7,2,8);staticSceneTransforms(late);root.add(late);scene.updateMatrixWorld();
+ assert.deepEqual(late.matrixWorld.elements,new THREE.Matrix4().multiplyMatrices(root.matrixWorld,late.matrix).elements);
+ const actor=new THREE.Object3D();root.add(actor);actor.position.x=23;scene.updateMatrixWorld();assert.equal(actor.matrixWorld.elements[12],root.matrixWorld.elements[12]+23);
+ tree.geometry.dispose();tree.material.dispose();
+});
 
 test('photo workers release pending analysis and late downloads cannot reopen them',async()=>{
  let release,download,workers=[];

@@ -602,7 +602,8 @@
 @media (max-width: 600px) { .re-drone-radar { width: 132px; } .re-holo-stage .re-drone-radar canvas { width: 132px !important; height: 132px !important; } .re-drone-radar-where span { display: none; } }
 /* 고도 ▲▼ (DroneOverlay): held to climb or sink; on the left middle, clear of the sticks */
 .re-drone-alt-buttons { position: absolute; left: 12px; top: 50%; display: grid; gap: 8px; transform: translateY(-50%); pointer-events: auto; }
-.re-drone-alt-buttons button { width: 46px; height: 46px; border: 1px solid #ffffff4d; border-radius: 12px; background: #07131cc8; color: #eaf6ff; font: 800 18px var(--f-sans, sans-serif); cursor: pointer; touch-action: none; user-select: none; }
+.re-holo .re-drone-alt-buttons button { display: grid; place-items: center; width: 46px; height: 46px; min-width: 0; padding: 0; text-align: center; text-indent: 0; line-height: 1; border: 1px solid #ffffff4d; border-radius: 12px; background: #07131cc8; color: #eaf6ff; font: 800 18px var(--f-sans, sans-serif); cursor: pointer; touch-action: none; user-select: none; }
+.re-drone-alt-arrow { display: block; width: 24px; height: 24px; fill: currentColor; pointer-events: none; }
 .re-drone-alt-buttons button:active { background: #c9532ee0; }
 /* The site's music player (DeskBgm) in the full-screen 3D view, in the row under the picture. */
 .re-holo-env .d2.d2-bgm-float.re-holo-bgm { position: static; width: 340px; flex: 0 1 340px; z-index: auto; font-size: 13px; }
@@ -636,7 +637,7 @@
 .re-holo--drone-touch .re-drone-stick.is-right { right: calc(16px + env(safe-area-inset-right)); }
 .re-holo--drone-touch .re-drone-stick-label { font-size: 10px; text-shadow: 0 1px 3px #000; }
 .re-holo--drone-touch .re-drone-alt-buttons { left: calc(16px + env(safe-area-inset-left)); top: auto; bottom: calc(178px + env(safe-area-inset-bottom)); transform: none; grid-auto-flow: column; }
-.re-holo--drone-touch .re-drone-alt-buttons button { width: 52px; height: 44px; }
+.re-holo.re-holo--drone-touch .re-drone-alt-buttons button { width: 52px; height: 44px; }
 .re-holo--drone-touch .re-drone-help { top: calc(66px + env(safe-area-inset-top)); bottom: auto; left: 50%; max-width: calc(100% - 150px); font-size: 12px; }
 @media (orientation: portrait) { .re-holo--drone-touch .re-drone-help { top: auto; bottom: calc(240px + env(safe-area-inset-bottom)); max-width: calc(100% - 24px); } }
 /* a short landscape screen: the radar smaller, the sticks a little smaller */

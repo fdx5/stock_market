@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import {staticSceneTransforms} from './staticSceneTransforms';
 import type { RealEstateBuildingsResponse, RealEstateParcel } from "../api/client";
 import { buildWater, type WaterField } from "./sceneWater";
 import { buildSeaWorks } from "./sceneSeaWorks";
@@ -178,6 +179,7 @@ export class DroneWorld {
   }) {
     this.kx = Math.cos((o.data.center!.lat * Math.PI) / 180) * 111320;
     this.root.name = "drone world";
+    this.root.matrixAutoUpdate = false;
     // (WebGPU: the same asphalt grain as the view's road surfaces)
     this.asphalt.userData.groundDetail = true;
     this.traffic = new DroneTraffic(o.seed + 31);
@@ -504,6 +506,7 @@ export class DroneWorld {
           const zup = new THREE.Group();
           zup.rotation.x = -Math.PI / 2; zup.name = `drone tile ${t.key} (sea)`; zup.updateMatrixWorld();
           t.zup = zup;
+          staticSceneTransforms(zup);
           this.o.addWarm(this.root, zup);
           if (t.yup) this.o.addWarm(this.root, t.yup);
           t.state = "placed";
@@ -642,6 +645,7 @@ export class DroneWorld {
       }
       if (this.disposed || stop.signal.aborted) return;
       t.zup = zup;
+      staticSceneTransforms(zup);
       this.o.addWarm(this.root, zup);
       if (t.yup) this.o.addWarm(this.root, t.yup);
       t.state = "placed";
@@ -872,6 +876,7 @@ export class DroneWorld {
       }
     }
     yup.updateMatrixWorld(true);
+    staticSceneTransforms(yup);
     t.yup = yup;
     t.materials.push(water.mesh.material as THREE.Material);
     t.dispose.push(() => water.dispose());
@@ -981,6 +986,7 @@ export class DroneWorld {
       t.dispose.push(() => geos.splice(0).forEach(g => g.dispose()));
       t.zup.add(group);
       group.updateMatrixWorld(true);
+      staticSceneTransforms(group);
       if (!t.castB) castShadows(group, false);
       t.surveyGroup = group;
       t.survey = "placed";
@@ -1095,6 +1101,7 @@ export class DroneWorld {
       yup.position.set(t.cx, 0, -t.cy);
       yup.add(plants.mesh);
       yup.updateMatrixWorld(true);
+      staticSceneTransforms(yup);
       plants.mesh.traverse(o => { const m = (o as THREE.Mesh).material; if (m) for (const x of Array.isArray(m) ? m : [m]) entry.materials.push(x); });
       entry.group = yup; entry.dispose = () => plants.dispose();
       if (!t.castP) castShadows(yup, false);

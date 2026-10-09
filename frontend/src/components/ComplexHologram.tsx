@@ -570,6 +570,23 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     h: Math.round(Math.min(window.innerHeight, Math.max(480, h))),
   });
   const big = !!bigBase;
+  // The explorer keeps the full-size canvas beneath its chrome. Measure only
+  // when the bars resize, so flight controls stay clear of both bars on phones too.
+  useEffect(() => {
+    if (!autoDrone || !sectionRef.current) return;
+    const section = sectionRef.current;
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const size = entry.borderBoxSize?.[0]?.blockSize ?? (entry.target as HTMLElement).offsetHeight;
+        section.style.setProperty(entry.target.classList.contains('re-holo-head') ? '--drone-header-height' : '--drone-footer-height', `${size}px`);
+      }
+    });
+    for (const selector of ['.re-holo-head', '.re-holo-bottom']) {
+      const bar = section.querySelector(selector);
+      if (bar) observer.observe(bar);
+    }
+    return () => observer.disconnect();
+  }, [autoDrone]);
   const openBig = () => {
     const r = sectionRef.current?.getBoundingClientRect();
     if (!r) return;
@@ -592,7 +609,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (!complexId || sharing) return;
     const name = data?.name ?? complexName ?? "단지";
     shareUrl.current = view3dUrl(complexId, hour, weather);
-    setShareStage(await shareLink3d({ url: shareUrl.current, title: `${name} 3D 단지뷰`, text: `${name} 3D 단지뷰 · ${phaseCaption()}` }));
+    const viewName = autoDrone ? '드론 탐험' : '3D 단지뷰';
+    setShareStage(await shareLink3d({ url: shareUrl.current, title: `${name} ${viewName}`, text: `${name} ${viewName} · ${phaseCaption()}` }));
   };
   // 이미지 저장: the next frame drawn, with its caption band.
   const onSaveImage = async () => {
@@ -1651,7 +1669,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let behind = shift && sceneDeviceBudget().retainPrevious && stage.model && !stage.unshown ? stage.current : null;
     if (behind) {
       behind.stop();
-      for (const o of behind.parts()) o.position.add(shift!);
+      for (const o of behind.parts()) { o.position.add(shift!); o.updateMatrix(); }
       // (its traffic and people keep moving meanwhile: tick stays until this model's replaces it)
       stage.current = null; stage.model = null; stage.ground = null; stage.pickables = []; stage.onShown = [];
     } else stage.disposeModel();
@@ -1677,10 +1695,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const group = new THREE.Group();
     group.rotation.x = -Math.PI / 2; // footprints are x east / y north, extruded up z
     group.updateMatrixWorld();
+    group.matrixAutoUpdate = false;
     const lit: Stage["lit"] = { windows: [], crowns: [], ground: [] };
     let alive = true;
     let ground: THREE.Mesh | null = null;
     const decor = new THREE.Group();
+    decor.matrixAutoUpdate = false;
     // Set before any work: a newer selection disposes a half-built model cleanly.
     stage.building = true;
     stage.resume();
@@ -2790,7 +2810,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // two coincide; then it is freed.
     stage.scene.add(group, ground);
     if (behind) {
-      for (const o of behind.parts()) o.position.y -= 0.25;
+      for (const o of behind.parts()) { o.position.y -= 0.25; o.updateMatrix(); }
       stage.onShown.push(letGo);
     }
     stage.unshown = true;
@@ -4030,7 +4050,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         <div className="re-holo-tools">
           {big && !narrow && <button type="button" onClick={() => { resizeDrag.current = null; setBigSize(null); }}
             title="3D 뷰를 화면 전체 크기로 되돌리기">⤢ 화면 채우기</button>}
-          <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} aria-label="자동 회전" title="360° 자동 회전">{spin ? "자동 ■" : "자동 ▶"}</button>
+          <button type="button" aria-pressed={spin} disabled={droneOn} onClick={() => setSpin(v => !v)} aria-label="자동 회전" title={droneOn ? '드론 비행 중에는 직접 방향을 조절하세요' : "360° 자동 회전"}>{spin ? "자동 ■" : "자동 ▶"}</button>
           {complexId && data?.found && (
             <button type="button" className="re-holo-save" onClick={() => void onSaveImage()} disabled={sharing} title="지금 3D 화면을 이미지(PNG)로 저장" aria-label="이미지 저장">
               <span aria-hidden="true">⤓</span><span className="re-holo-share-long">{sharing ? "저장 중…" : "이미지 저장"}</span>
@@ -4094,6 +4114,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
           role="status">{tip.text}</div>}
       </div>
+      <div className="re-holo-bottom" style={autoDrone ? undefined : { display: 'contents' }}>
       {data?.found && !failed3d && <div className="re-holo-env">
         <label className="re-holo-time">
           <span className="re-holo-time-read"><b>{formatHour(hour)}</b>{phase}
@@ -4114,16 +4135,20 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           title={balloonOn ? "열기구에서 내려 원래 시점으로" : "열기구에 타고 단지를 내려다보기 (열기구를 눌러도 됩니다)"}>
           <i aria-hidden="true">🎈</i><span>{balloonOn ? "내리기" : "열기구"}</span>
         </button>
-        {big && <div className="d2 d2-bgm-float re-holo-bgm"><DeskBgm variant="strip" /></div>}
+        {(big || autoDrone) && <div className="d2 d2-bgm-float re-holo-bgm"><DeskBgm variant="strip" /></div>}
         {data.vworld_key && data.center && <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn} onClick={() => (droneOn ? exitDrone() : enterDrone())}
           title={droneOn ? "드론 착륙 (원래 시점으로)" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 상공 500m까지)"}>
           <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : "드론"}</span>
         </button>}
       </div>}
-      {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label="3D 화면 조작">
+      {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label={droneOn ? '드론 비행 조작' : "3D 화면 조작"}>
         {/* One row of views and steps; the gestures do the rest. A mouse also gets
          * turn buttons (a finger turns by dragging anyway). */}
         <div className="re-holo-nav-row">
+          {droneOn ? <>
+            <button type="button" onClick={() => { const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); }}>🚁 {droneView === 'fpv' ? '3인칭으로' : '1인칭으로'}</button>
+            <button type="button" onClick={() => stageRef.current?.drone?.flight.toggleAutopilot()}>오토 파일럿 전환</button>
+          </> : <>
           <button type="button" onClick={() => navigateView("home")} title="처음 시점으로">⟲ 처음</button>
           <button type="button" onClick={() => navigateView("top")} title="위에서 내려다보기">⤓ 위에서</button>
           <button type="button" aria-label="3D 축소" title="축소" onClick={() => navigateView("out")}>−</button>
@@ -4132,8 +4157,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             <button type="button" aria-label="3D 왼쪽 회전" title="왼쪽으로 돌리기" onClick={() => navigateView("left")}>↶</button>
             <button type="button" aria-label="3D 오른쪽 회전" title="오른쪽으로 돌리기" onClick={() => navigateView("right")}>↷</button>
           </>}
+          </>}
         </div>
-        <p>{touchMode ? "한 손가락 회전 · 두 손가락 이동·확대 · 두 번 탭: 건물로" : "드래그 회전 · 우클릭 이동 · 휠 확대 · 더블클릭: 건물로 · ←→ +− H B"}</p>
+        <p>{droneOn ? (droneTouch ? '스틱: 비행 · ▲▼: 상승·하강 · 드래그: 시선 · 건물 팻말: 정보' : 'W S: 전진·후진 · A D: 좌우 이동 · Q E / ← →: 회전 · Space / Shift / 휠: 상승·하강 · V: 시점 전환') : touchMode ? "한 손가락 회전 · 두 손가락 이동·확대 · 두 번 탭: 건물로" : "드래그 회전 · 우클릭 이동 · 휠 확대 · 더블클릭: 건물로 · ←→ +− H B"}</p>
       </nav>}
       <footer className="re-holo-foot">
         <a className="re-holo-credit" href="/licenses/tidewater-MIT.txt" target="_blank" rel="noreferrer" title="렌더링 엔진 MIT 라이선스">MIT</a>
@@ -4144,6 +4170,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           </>
         ) : <span>{touchMode ? "한 손가락으로 돌리고 두 손가락으로 확대·이동, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 커서 쪽 확대, 우클릭 드래그로 이동합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
       </footer>
+      </div>
       {big && <button type="button" className="re-holo-wide-close" onClick={closeBig} aria-label="전체화면 닫기" title="닫기 (Esc)">×</button>}
       {big && !narrow && <button type="button" className="re-holo-resize" aria-label="3D 뷰 크기 조절"
         title="드래그로 화면 크기 조절 · 방향키로 조절 · 두 번 클릭으로 화면 채우기"

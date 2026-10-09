@@ -147,7 +147,9 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
           <button key={code} type="button" title={title} aria-label={title}
             onPointerDown={e => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); flight.keys.add(code); }}
             onPointerUp={e => { e.stopPropagation(); flight.keys.delete(code); }} onPointerCancel={() => flight.keys.delete(code)}
-            onLostPointerCapture={() => flight.keys.delete(code)} onContextMenu={e => e.preventDefault()}>{label}</button>
+            onLostPointerCapture={() => flight.keys.delete(code)} onContextMenu={e => e.preventDefault()}>
+            <svg className="re-drone-alt-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d={label === '▲' ? 'M5 16L12 8L19 16Z' : 'M5 8L12 16L19 8Z'} /></svg>
+          </button>
         ))}
       </div>
       {card && <DroneBuildingCard sign={card.sign} at={card.at} distance={card.distance} vkey={radar.vkey} domain={radar.domain} onClose={closeCard} />}

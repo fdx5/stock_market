@@ -8,14 +8,15 @@ import { IS_IOS_LIKE, IS_MOBILE_LIKE, downloadTimestamp } from "./mapExport";
 /** /realestate-map?…&complex=…&3d=1&hour=…[&weather=…]: the region the page is on, the
  * complex, and the view's time and weather. RealEstateSheet opens the view from `3d`. */
 export function view3dUrl(complexId: string, hour: number, weather: Weather): string {
-  const q = new URLSearchParams(location.search);
+  const drone = location.pathname === '/drone-explore';
+  const q = drone ? new URLSearchParams() : new URLSearchParams(location.search);
   q.set("complex", complexId);
-  q.set("3d", "1");
+  if (!drone) q.set("3d", "1");
   q.set("hour", String(Math.round(hour * 100) / 100));
   if (weather === "clear") q.delete("weather"); else q.set("weather", weather);
   q.delete("tod"); q.delete("renderer"); q.delete("devgame");
   q.set("utm_source", "kakaotalk"); q.set("utm_medium", "social"); q.set("utm_campaign", "realestate_3d");
-  return `${location.origin}/realestate-map?${q}`;
+  return `${location.origin}/${drone ? 'drone-explore' : 'realestate-map'}?${q}`;
 }
 
 /** The picture to share: the frame with a caption band (the complex, when and the site). */

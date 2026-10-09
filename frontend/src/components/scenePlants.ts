@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import {staticSceneTransforms} from './staticSceneTransforms';
 import type { Planting } from "./complexScene";
 import { rng, seasonNow } from "./complexScene";
 import { FLAT, type Terrain } from "./sceneTerrain";
@@ -206,6 +207,7 @@ async function plantForest(planting: Planting, seed: number, terrain: Terrain, f
   }
   if(parkTrees){parkTrees.group.name='park and street tree meshes';built.group.add(parkTrees.group);}
   if(grove)built.group.add(grove.group);
+  staticSceneTransforms(built.group);
   // (driving: the full-detail band round the vehicle; null: back round the complex)
   const home = forest.centre.clone();
   const focus = (x: number | null, y?: number) => {

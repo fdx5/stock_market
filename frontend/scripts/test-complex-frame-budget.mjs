@@ -73,10 +73,14 @@ test('allocation-free collisions retain all four original separating-axis result
     return true;
   }
   for (let i = 0; i < 100000; i++) {
-    const a = rnd() * 7, b = rnd() * 7;
-    const body = { x: rnd() * 20 - 10, y: rnd() * 20 - 10, hx: Math.cos(b), hy: Math.sin(b), length: rnd() * 15, width: rnd() * 5 };
-    const args = [rnd() * 20 - 10, rnd() * 20 - 10, Math.cos(a), Math.sin(a), rnd() * 15, rnd() * 5, body];
+    const a = rnd() * 7, b = rnd() * 7, sa = .5+rnd()*1.5, sb = .5+rnd()*1.5;
+    const body = { x: rnd() * 20 - 10, y: rnd() * 20 - 10, hx: Math.cos(b)*sb, hy: Math.sin(b)*sb, length: rnd() * 15, width: rnd() * 5 };
+    const args = [rnd() * 20 - 10, rnd() * 20 - 10, Math.cos(a)*sa, Math.sin(a)*sa, rnd() * 15, rnd() * 5, body];
     assert.equal(vehicleOverlap(...args), original(...args));
+  }
+  for(const x of [3.99999999999999,4,4.00000000000001])for(const heading of [[1,0],[0,1],[Math.SQRT1_2,Math.SQRT1_2]]){
+    const body={x:x*heading[0],y:x*heading[1],hx:heading[0],hy:heading[1],length:4,width:2};
+    const args=[0,0,...heading,4,2,body];assert.equal(vehicleOverlap(...args),original(...args));
   }
 });
 test('trajectory cache retains exact poses and invalidates every travel-state change', () => {

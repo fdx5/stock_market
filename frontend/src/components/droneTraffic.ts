@@ -9,7 +9,7 @@ import { DIMS } from "./vehicleShapes";
  * block in the same colour: the whole traffic is a draw or two per kind, however many tiles.
  * A car with nowhere to go is set down again at a lane start out of sight. */
 
-type Lane = { tile: string; p: Float32Array; cum: Float32Array; len: number; cars: Car[]; width: number };
+type Lane = { tile: string; p: Float32Array; cum: Float32Array; orientation: Float64Array; len: number; cars: Car[]; width: number; minX:number;minY:number;maxX:number;maxY:number;renderOutside:boolean };
 type Car = { lane: Lane; s: number; v: number; vmax: number; kind: number; colour: THREE.Color; k: number; hidden: boolean;
   /** across a junction: from the end of the last lane to the start of this one (s < 0 on it) */
   via: { x: number; y: number; z: number; len: number } | null };
@@ -71,6 +71,9 @@ export class DroneTraffic {
   readonly group = new THREE.Group();
   private lanes = new Map<string, Lane[]>();
   private starts = new Map<string, Lane[]>();
+  private networkRevision=0;
+  private continuations=new WeakMap<Lane,{revision:number;choices:[Lane,number][]}>();
+  private laneList:{revision:number;lanes:Lane[]}|null=null;
   private cars: Car[] = [];
   private near: (THREE.InstancedMesh | null)[] = KINDS.map(() => null);
   private far: THREE.InstancedMesh;
@@ -114,13 +117,24 @@ export class DroneTraffic {
       o += n * 3;
       const cum = new Float32Array(n);
       for (let k = 1; k < n; k++) cum[k] = cum[k - 1] + Math.hypot(p[k * 3] - p[k * 3 - 3], p[k * 3 + 1] - p[k * 3 - 2]);
-      const lane: Lane = { tile, p, cum, len: cum[n - 1], cars: [], width };
+      // Immutable lane segments share their exact double-precision heading
+      // and pitch. Recomputing their square roots for every car adds no detail.
+      const orientation = new Float64Array(Math.max(0,n-1)*4);
+      for(let k=0;k<n-1;k++){
+        const dx=p[k*3+3]-p[k*3],dy=p[k*3+4]-p[k*3+1],dz=p[k*3+5]-p[k*3+2];
+        const seg=cum[k+1]-cum[k]||1,hl=Math.hypot(dx,dy)||1,pl=Math.hypot(seg,dz)||1;
+        orientation[k*4]=-dy/hl;orientation[k*4+1]=dx/hl;orientation[k*4+2]=seg/pl;orientation[k*4+3]=-dz/pl;
+      }
+      let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+      for(let k=0;k<n;k++){minX=Math.min(minX,p[k*3]);maxX=Math.max(maxX,p[k*3]);minY=Math.min(minY,p[k*3+1]);maxY=Math.max(maxY,p[k*3+1]);}
+      const lane: Lane = { tile, p, cum, orientation, len: cum[n - 1], cars: [], width, minX,minY,maxX,maxY,renderOutside:false };
       if (lane.len < 8) continue;
       list.push(lane);
       const key = this.cell(p[0], p[1]);
       this.starts.set(key, [...(this.starts.get(key) ?? []), lane]);
     }
     this.lanes.set(tile, list);
+    this.networkRevision++;
     for (const lane of list) {
       // (the city's density: a car every ~30–55 m on a boulevard, 45–85 m on a street, sparse on lanes)
       const gap = lane.width >= 15 ? [30, 25] : lane.width >= 8 ? [45, 40] : [80, 60];
@@ -146,6 +160,7 @@ export class DroneTraffic {
     const list = this.lanes.get(tile);
     if (!list) return;
     this.lanes.delete(tile);
+    this.networkRevision++;
     for (const lane of list) {
       const key = this.cell(lane.p[0], lane.p[1]);
       const at = this.starts.get(key)?.filter(l => l !== lane);
@@ -159,6 +174,8 @@ export class DroneTraffic {
    * (the same road, across a tile's edge) or, across a junction, within 22 m ahead of it — straight
    * on twice as likely as a turn, never back the way it came. */
   private next(x: number, y: number, dx: number, dy: number, from: Lane): Lane | null {
+    const cached=this.continuations.get(from);
+    if(cached?.revision===this.networkRevision)return cached.choices.length?pick(cached.choices,this.rnd()):null;
     const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
     const cx = Math.round(x / 4), cy = Math.round(y / 4), out: [Lane, number][] = [];
     for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) for (const l of this.starts.get(`${cx + i},${cy + j}`) ?? []) {
@@ -171,9 +188,10 @@ export class DroneTraffic {
       if ((ox * dx + oy * dy) / d < 0.2 || turn < -0.3) continue;
       out.push([l, turn > 0.8 ? 2 : 1]);
     }
-    if (!out.length) return null;
     const near = out.filter(o => o[1] === 4);
-    return pick(near.length ? near : out, this.rnd());
+    const choices=near.length?near:out;
+    this.continuations.set(from,{revision:this.networkRevision,choices});
+    return choices.length?pick(choices,this.rnd()):null;
   }
 
   /** One step: every car on (gap-keeping), then the instances placed for the camera at (cx, cz). */
@@ -183,6 +201,10 @@ export class DroneTraffic {
     // (lanes far off are not driven: their cars wait, unseen, till the drone comes back near)
     const reach2 = (FAR_M + 150) ** 2;
     for (const list of this.lanes.values()) for (const lane of list) {
+      // The whole polyline is enclosed, including long roads whose endpoints
+      // are off screen. This only skips placement already rejected at FAR_M.
+      const bx=Math.max(lane.minX-camera.x,0,camera.x-lane.maxX),by=Math.max(lane.minY+camera.z,0,-camera.z-lane.maxY);
+      lane.renderOutside=bx*bx+by*by>FAR_M*FAR_M+1e-6;
       const n3 = lane.p.length - 3, lx = lane.p[0] - camera.x, lz = -lane.p[1] - camera.z, ex = lane.p[n3] - camera.x, ez = -lane.p[n3 + 1] - camera.z;
       if (lx * lx + lz * lz > reach2 && ex * ex + ez * ez > reach2) continue;
       const cs = lane.cars;
@@ -217,6 +239,9 @@ export class DroneTraffic {
     const cx = camera.x, cz = camera.z;
     for (const c of this.cars) {
       const l = c.lane, p = l.p;
+      // Junction transfers can lie outside the new lane's bounds; preserve
+      // their original point test and the original vehicle/random-choice order.
+      if(l.renderOutside&&!(c.s<0&&c.via))continue;
       let x: number, y: number, z: number, dx: number, dy: number, dz: number, seg: number;
       if (c.s < 0 && c.via) {
         // on the way across a junction: straight from where it left to where its lane starts
@@ -233,8 +258,13 @@ export class DroneTraffic {
       const ddx = x - cx, ddz = -y - cz;
       if (ddx * ddx + ddz * ddz > FAR_M * FAR_M) continue;
       // heading (scene: forward +z, x east, z south) and slope, without trigonometry
-      const hl = Math.hypot(dx, dy) || 1, cyaw = -dy / hl, syaw = dx / hl;
-      const pl = Math.hypot(seg, dz) || 1, cp = seg / pl, sp = -dz / pl;
+      let cyaw:number,syaw:number,cp:number,sp:number;
+      if(c.s<0&&c.via){
+        const hl=Math.hypot(dx,dy)||1,pl=Math.hypot(seg,dz)||1;
+        cyaw=-dy/hl;syaw=dx/hl;cp=seg/pl;sp=-dz/pl;
+      }else{
+        const k=c.k*4;cyaw=l.orientation[k];syaw=l.orientation[k+1];cp=l.orientation[k+2];sp=l.orientation[k+3];
+      }
       const near = ddx * ddx + ddz * ddz < NEAR_M * NEAR_M;
       const im = near ? this.near[c.kind] : null;
       if (im && counts[c.kind] < CAP_NEAR) {
@@ -259,7 +289,8 @@ export class DroneTraffic {
 
   /** A lane start out of sight (over 300 m from the camera), for a car with nowhere to go. */
   private elsewhere(camera: THREE.Vector3): Lane | null {
-    const all = [...this.lanes.values()].flat();
+    if(this.laneList?.revision!==this.networkRevision)this.laneList={revision:this.networkRevision,lanes:[...this.lanes.values()].flat()};
+    const all = this.laneList.lanes;
     for (let t = 0; t < 8 && all.length; t++) {
       const l = all[Math.floor(this.rnd() * all.length)];
       if (Math.hypot(l.p[0] - camera.x, -l.p[1] - camera.z) > 300) return l;

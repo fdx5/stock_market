@@ -361,9 +361,8 @@ if not SEPARATE:
 migration_state: dict = {"needed": SEPARATE, "running": False, "table": None, "rows": 0, "done": not SEPARATE, "error": None}
 
 _META_SCHEMA = "CREATE TABLE IF NOT EXISTS re_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-# (table, columns, rows per round trip). The finished-map cache is not copied: it is
-# rebuilt in minutes, and whatever a build before this code wrote to the new database
-# came from an empty one — so it is cleared once the copy is done.
+# (table, columns, rows per round trip). The finished-map cache is not copied;
+# existing target cache rows are retained and normal freshness checks still apply.
 _MOVE = (
     ("re_trade_months", "lawd_cd, deal_ym, fetched_at, deal_count, payload", 40),
     ("re_rent_months", "lawd_cd, deal_ym, fetched_at, deal_count, payload", 20),
@@ -438,8 +437,7 @@ def _migrate_once() -> None:
                 _moved_upto[table] = last
                 migration_state["rows"] += len(rows)
         stamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
-        _retry(lambda: target.execute("DELETE FROM re_map_cache"))
-        _retry(lambda: target.execute("INSERT OR REPLACE INTO re_meta (key, value) VALUES ('migrated_from_shared', ?)", (stamp,)))
+        _retry(lambda: target.execute("INSERT OR IGNORE INTO re_meta (key, value) VALUES ('migrated_from_shared', ?)", (stamp,)))
         if hasattr(target, "commit"):
             target.commit()
         migration_state.update(done=True, table=None)

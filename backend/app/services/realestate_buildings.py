@@ -23,6 +23,7 @@ import os
 import re
 import threading
 import time
+from email.utils import parsedate_to_datetime
 from statistics import median
 
 import requests
@@ -36,8 +37,12 @@ UA = {"User-Agent": "kospimap.com apartment 3D viewer (https://kospimap.com)"}
 OVERPASS = (
     "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
 )
+# kumi.systems is the former name of private.coffee, not an independent fallback.
+# The foreground tile requests and background surveys share this process-wide limit.
+_overpass_gate = threading.BoundedSemaphore(2)
+_overpass_health_lock = threading.Lock()
+_overpass_retry_at: dict[str, float] = {}
 VWORLD_ADDRESS = "https://api.vworld.kr/req/address"
 VWORLD_DATA = "https://api.vworld.kr/req/data"
 FLOOR_M = 2.9           # typical 공동주택 floor-to-floor height
@@ -321,30 +326,106 @@ def _from_vworld(c: dict, address: str) -> dict | None:
 # ── OpenStreetMap ───────────────────────────────────────────────────────────
 
 
-def _overpass(query: str, deadline_s: float | None = None) -> list[dict]:
-    last: Exception | None = None
-    deadline = time.monotonic() + deadline_s if deadline_s is not None else None
-    for url in OVERPASS:
-        remaining = deadline - time.monotonic() if deadline is not None else None
-        if remaining is not None and remaining <= 0:
-            break
+def _overpass_ready(url: str) -> bool:
+    with _overpass_health_lock:
+        return time.monotonic() >= _overpass_retry_at.get(url, 0)
+
+
+def _overpass_pause(url: str, reason: str, seconds: float = 30) -> None:
+    with _overpass_health_lock:
+        now = time.monotonic()
+        already_waiting = _overpass_retry_at.get(url, 0) > now
+        _overpass_retry_at[url] = max(_overpass_retry_at.get(url, 0), now + seconds)
+    if not already_waiting:
+        # Do not log the query, response body, coordinates or request tokens.
+        log.info("Overpass %s: %s; retry paused %.0fs", url.split("/")[2], reason, seconds)
+
+
+def _overpass_retry_delay(res) -> float:
+    value = res.headers.get("Retry-After", "")
+    try:
+        seconds = float(value)
+    except (ValueError, TypeError):
         try:
-            # (a long deadline — a background survey — lets a slow mirror take its time)
-            timeout = (5, 20) if remaining is None else (5, min(30, remaining * 2 / 3)) if remaining > 10 else (min(1, remaining / 3), min(2, remaining * 2 / 3))
-            res = requests.post(url, data={"data": query}, headers=UA, timeout=timeout)
-            if res.ok:
-                body = res.json()
-                # (a query that ran out of time or memory still answers 200, with a remark and
-                # whatever it had: not an answer)
-                remark = str(body.get("remark") or "")
-                if "error" in remark.lower() or "timed out" in remark.lower():
-                    last = BuildingsError(f"Overpass: {remark[:80]}")
+            seconds = (parsedate_to_datetime(value) - dt.datetime.now(dt.timezone.utc)).total_seconds()
+        except (ValueError, TypeError, OverflowError):
+            seconds = 30
+    # Never retry an explicit longer wait early. Infinite/invalid values use the default.
+    return max(30, seconds) if math.isfinite(seconds) else 30
+
+
+def _overpass_elements(body) -> list[dict]:
+    if not isinstance(body, dict) or not isinstance(body.get("elements"), list):
+        raise BuildingsError("Overpass invalid JSON shape")
+    remark = str(body.get("remark") or "").lower()
+    if "error" in remark or "timed out" in remark:
+        raise BuildingsError("Overpass incomplete response")
+    def validate(e):
+        if not isinstance(e, dict):
+            raise BuildingsError("Overpass invalid element")
+        if "tags" in e and (not isinstance(e["tags"], dict)
+                            or any(not isinstance(v, str) for v in e["tags"].values())):
+            raise BuildingsError("Overpass invalid tags")
+        if "lon" in e or "lat" in e:
+            x, y = e.get("lon"), e.get("lat")
+            if (type(x) not in (int, float) or type(y) not in (int, float)
+                    or not math.isfinite(x) or not math.isfinite(y)
+                    or abs(x) > 180 or abs(y) > 90):
+                raise BuildingsError("Overpass invalid coordinate")
+        if "geometry" in e:
+            if not isinstance(e["geometry"], list):
+                raise BuildingsError("Overpass invalid geometry")
+            for p in e["geometry"]:
+                # Null points are already explicitly skipped by the geometry consumers.
+                if p is None:
                     continue
-                return body.get("elements", [])
-            last = BuildingsError(f"Overpass {res.status_code}")
-        except (requests.RequestException, ValueError) as exc:
-            last = exc
-    raise BuildingsError(f"OpenStreetMap 응답 없음 ({type(last).__name__})")
+                if not isinstance(p, dict):
+                    raise BuildingsError("Overpass invalid coordinate")
+                x, y = p.get("lon"), p.get("lat")
+                if (type(x) not in (int, float) or type(y) not in (int, float)
+                        or not math.isfinite(x) or not math.isfinite(y)
+                        or abs(x) > 180 or abs(y) > 90):
+                    raise BuildingsError("Overpass invalid coordinate")
+        if "members" in e:
+            if not isinstance(e["members"], list):
+                raise BuildingsError("Overpass invalid members")
+            for member in e["members"]:
+                validate(member)
+    for e in body["elements"]:
+        validate(e)
+    return body["elements"]
+
+
+def _overpass(query: str, deadline_s: float | None = None) -> list[dict]:
+    deadline = time.monotonic() + deadline_s if deadline_s is not None else None
+    remaining = deadline - time.monotonic() if deadline is not None else None
+    wait = 5 if remaining is None or remaining > 10 else .25
+    if remaining is not None:
+        wait = min(wait, max(0, remaining))
+    if not _overpass_gate.acquire(timeout=wait):
+        raise BuildingsError("OpenStreetMap request capacity busy")
+    last = "unavailable"
+    try:
+        for url in OVERPASS:
+            remaining = deadline - time.monotonic() if deadline is not None else None
+            if remaining is not None and remaining <= 0:
+                break
+            if not _overpass_ready(url):
+                continue
+            try:
+                # A timeout bounds connect/read inactivity; it is not an absolute wall clock.
+                timeout = (5, 20) if remaining is None else (5, min(30, remaining * 2 / 3)) if remaining > 10 else (min(1, remaining / 3), min(2, remaining * 2 / 3))
+                res = requests.post(url, data={"data": query}, headers=UA, timeout=timeout)
+                if res.ok:
+                    return _overpass_elements(res.json())
+                last = f"HTTP {res.status_code}"
+                _overpass_pause(url, last, _overpass_retry_delay(res))
+            except (requests.RequestException, ValueError, BuildingsError) as exc:
+                last = type(exc).__name__
+                _overpass_pause(url, last)
+    finally:
+        _overpass_gate.release()
+    raise BuildingsError(f"OpenStreetMap 응답 없음 ({last})")
 
 
 def _dong_area(address: str) -> int | None:

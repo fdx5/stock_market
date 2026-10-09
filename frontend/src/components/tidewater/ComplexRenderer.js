@@ -957,6 +957,9 @@ export class ComplexRenderer {
     // Unchanged runs of draws replayed as render bundles (MeshRenderer.drawItems); ?bundles=0 draws
     // every one directly, for comparison.
     this.renderer.bundles = typeof location === 'undefined' || new URLSearchParams(location.search).get('bundles') !== '0';
+    this.renderer.bundleChunking = true;
+    this.renderer.bundleChunkSize = 1;
+    this.renderer.dirtyDrawUploads = true;
     this.target = new RenderTarget(1, 1, { colors: ['rgba16float'], depth: 'depth32float', label: 'complex HDR' });
     // What the water sees through and reflects: the opaque scene, copied before the water
     // pass (Tidewater's sceneCopy). Allocated once water is in the scene.
@@ -1710,6 +1713,9 @@ export class ComplexRenderer {
         // CPU geometry is shared; no WebGL draw calls are used in this path.
         mesh = new Mesh(obj.geometry, material);
         mesh.matrixAutoUpdate = false;
+        // Native meshes are owned here; advance this revision for every world
+        // transform change so static bounds can be reused between frames.
+        mesh.worldTransformVersion = 0;
         mesh.frustumCulled = obj.frustumCulled;
         mesh.castShadow = obj.castShadow;
         if (obj.isInstancedMesh) {
@@ -1726,6 +1732,7 @@ export class ComplexRenderer {
         // A new caster joins the cached shadows (as still, until it moves).
         if (mesh.castShadow) this.castersChanged = true;
         mesh.matrix.copy(obj.matrixWorld); mesh.matrixWorldNeedsUpdate = true;
+        mesh.worldTransformVersion++;
         mesh.count = obj.count ?? 1;
         mesh.instVersion = obj.instanceMatrix?.version;
       }
@@ -1744,6 +1751,7 @@ export class ComplexRenderer {
         mesh.count = obj.count ?? 1;
         mesh.instVersion = obj.instanceMatrix?.version;
         mesh.matrix.copy(obj.matrixWorld); mesh.matrixWorldNeedsUpdate = true;
+        mesh.worldTransformVersion++;
       } else if (mesh.moving && this.frameNo - mesh.movedAt > 90) {
         mesh.moving = false;
         if (mesh.castShadow) this.castersChanged = true;

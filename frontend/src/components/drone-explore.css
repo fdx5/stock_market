@@ -1,9 +1,26 @@
 .d2.drone-explore-page { position: fixed; inset: 0; z-index: 2147483000; min-height: 0; height: 100dvh; margin: 0; padding: 0; display: flex; background: #07090d; overscroll-behavior: none; }
-.drone-explore-page > .re-holo { flex: 1; min-width: 0; min-height: 0; width: 100%; height: 100%; margin: 0; border: 0; border-radius: 0; }
-.drone-explore-page .re-holo-head, .drone-explore-page .re-holo-env, .drone-explore-page .re-holo-navigation, .drone-explore-page .re-holo-foot { display: none; }
-.drone-explore-page .re-holo-stage { flex: 1; min-height: 0; width: 100%; height: 100%; border-radius: 0; }
-.drone-explore-page .re-holo--drone-touch .re-holo-stage { position: relative !important; inset: auto !important; width: 100% !important; height: 100% !important; z-index: auto !important; }
-.drone-explore-page .re-holo .re-drone-tools { right: calc(62px + env(safe-area-inset-right)); }
+.drone-explore-page > .re-holo { position: relative; flex: 1; min-width: 0; min-height: 0; width: 100%; height: 100%; margin: 0; border: 0; border-radius: 0; --drone-header-height: 90px; --drone-footer-height: 180px; }
+.drone-explore-page .re-holo-head { position: relative; z-index: 4; flex: none; flex-wrap: wrap; padding: calc(8px + env(safe-area-inset-top)) calc(62px + env(safe-area-inset-right)) 8px calc(12px + env(safe-area-inset-left)); background: #10191fee; }
+.drone-explore-page .re-holo-head > div:first-child { flex: 1 1 140px; }
+.drone-explore-page .re-holo-nearby { flex: 0 1 280px; width: 280px; height: 32px; }
+.drone-explore-page .re-holo-tools { flex-wrap: wrap; }
+.drone-explore-page .re-holo .re-holo-tools button { min-height: 36px; }
+.drone-explore-page .re-holo-share-long { display: inline; }
+.drone-explore-page .re-holo-share-short { display: none; }
+.drone-explore-page .re-holo-bottom { position: relative; z-index: 4; flex: none; margin-top: auto; max-height: 45%; overflow: auto; overscroll-behavior: contain; padding-bottom: env(safe-area-inset-bottom); background: #13212aee; }
+.drone-explore-page .re-holo-env { flex-wrap: wrap; align-items: center; padding: 8px 12px; background: transparent; }
+.drone-explore-page .re-holo-time { flex: 1 1 200px; }
+.drone-explore-page .re-holo-navigation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 6px 12px; background: transparent; }
+.drone-explore-page .re-holo-navigation p { margin: 0; text-align: left; }
+.drone-explore-page .re-holo-foot { padding: 5px 12px; background: transparent; }
+.drone-explore-page .re-holo-stage, .drone-explore-page .re-holo--drone-touch .re-holo-stage { position: absolute !important; inset: 0 !important; flex: none; min-height: 0; width: 100% !important; height: 100% !important; z-index: auto !important; border-radius: 0; }
+.drone-explore-page .re-holo .re-drone-tools { top: calc(var(--drone-header-height) + 12px); right: calc(12px + env(safe-area-inset-right)); }
+.drone-explore-page .re-drone-hud { top: calc(var(--drone-header-height) + 12px); }
+.drone-explore-page .re-drone-autopilot { top: calc(var(--drone-header-height) + 106px); }
+.drone-explore-page .re-drone-radar { top: calc(var(--drone-header-height) + 54px); }
+.drone-explore-page .re-drone-help { bottom: calc(var(--drone-footer-height) + 14px); }
+.drone-explore-page .re-drone-stick { bottom: calc(var(--drone-footer-height) + 22px); }
+.drone-explore-page .re-drone-card { top: calc(var(--drone-header-height) + 58px); max-height: calc(100% - var(--drone-header-height) - var(--drone-footer-height) - 76px); }
 .drone-explore-page .re-drone-exit { display: none; }
 .drone-explore-page .drone-explore-close { position: absolute; top: calc(8px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); z-index: 6; width: 40px; height: 40px; border: 1px solid #7fd8ff66; border-radius: 50%; background: #07131ce6; color: #eaf6ff; font: 400 26px/1 sans-serif; text-align: center; cursor: pointer; touch-action: manipulation; }
 .drone-explore-close:focus-visible { outline: 2px solid #ffd27a; outline-offset: 2px; }
@@ -17,4 +34,14 @@
   66% { background-position: 0 0, 100% 50%; box-shadow: 0 0 7px #e788f477; }
 }
 @media (prefers-reduced-motion: reduce) { .drone-explore-page .re-drone-view-icon { animation: none; box-shadow: 0 0 7px #57d8e677; } }
-@media (max-width: 600px) { .drone-explore-page .re-drone-view span { display: none; } }
+@media (max-width: 760px) {
+  .drone-explore-page .re-holo-env .re-holo-bgm { order: -1; }
+  .drone-explore-page .re-holo-nearby { flex: 1 1 100%; width: 100%; }
+  .drone-explore-page .re-holo .re-holo-weather span, .drone-explore-page .re-holo .re-holo-balloon-btn span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  .drone-explore-page .re-holo--drone-touch .re-drone-alt-buttons { top: auto; bottom: calc(var(--drone-footer-height) + 166px); }
+  .drone-explore-page .re-drone-help { top: auto; bottom: calc(var(--drone-footer-height) + 180px); max-width: calc(100% - 24px); }
+}
+@media (max-width: 600px) { .drone-explore-page .re-drone-view span { display: none; } .drone-explore-page .re-holo-head strong { font-size: 12px; } }
+@media (max-height: 540px) and (orientation: landscape) {
+  .drone-explore-page .re-holo--drone-touch .re-drone-alt-buttons { left: calc(200px + env(safe-area-inset-left)); top: auto; bottom: calc(var(--drone-footer-height) + 12px); transform: none; grid-auto-flow: column; }
+}

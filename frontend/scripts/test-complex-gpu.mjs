@@ -1,12 +1,111 @@
 // Buffer regression checks without a browser/GPU. Run: node scripts/test-complex-gpu.mjs
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BufferGeometry, Float32BufferAttribute, InstancedBufferAttribute } from 'three';
+import { BufferGeometry, Float32BufferAttribute, InstancedBufferAttribute, Scene, Mesh, MeshBasicMaterial, PerspectiveCamera, Sphere, Vector3 } from 'three';
 import { GPU } from '../src/vendor/tidewater/engine/gpu/GPU.js';
 import { MeshRenderer } from '../src/vendor/tidewater/engine/render/MeshRenderer.js';
 import { stripUnusedFunctions } from '../src/vendor/tidewater/engine/gpu/Shader.js';
 import { BoundedCache } from '../src/vendor/tidewater/engine/gpu/BoundedCache.js';
 import { UniformBlock } from '../src/vendor/tidewater/engine/gpu/Uniforms.js';
+import { execFileSync } from 'node:child_process';
+
+test('dirty draw uploads match all legacy GPU bytes through motion, velocity resets, parameters and buffer growth',()=>{
+ const saved={frame:GPU.frame,device:GPU.device,queue:GPU.queue,onSubmit:GPU.onSubmit};
+ const {writes}=mockGPU();const submits=[];GPU.onSubmit=fn=>submits.push(fn);
+ const previous=execFileSync('git',['show','8311d04:frontend/src/vendor/tidewater/engine/render/MeshRenderer.js'],{encoding:'utf8'});
+ const stride=256;
+ const oldSlot=Function('GPU','DRAW_STRIDE','return function '+previous.match(/_slot\( obj \) \{[\s\S]*?\n\t\}/)[0])(GPU,stride);
+ const oldBegin=Function('GPU','DRAW_STRIDE','return function '+previous.match(/_beginFrame\(\) \{[\s\S]*?\n\t\}/)[0])(GPU,stride);
+ const old=new MeshRenderer(),next=new MeshRenderer();
+ const objects=()=>Array.from({length:50},(_,id)=>({id,worldTransformVersion:0,matrixWorld:{elements:[1,0,0,0,0,1,0,0,0,0,1,0,id,0,0,1]}}));
+ const before=objects(),after=objects();let oldBytes=0,newBytes=0;
+ for(const r of [old,next]){r.bundles=true;r.capacity=128;r._ensureDrawBuffer=function(){if(this.drawData?.byteLength>=this.capacity*stride)return;this.drawBuffer=GPU.device.createBuffer({size:this.capacity*stride});this.drawData=new Float32Array(this.capacity*stride/4);};}
+ old._slot=oldSlot;old._beginFrame=oldBegin;next.dirtyDrawUploads=true;
+ try{
+  for(let frame=1;frame<=330;frame++){
+   GPU.frame=frame;
+   for(const list of [before,after]){
+    const o=list[5];if(frame%11===0){o.matrixWorld.elements[12]+=.01;o.worldTransformVersion++;}
+    o.resetVelocity=frame%29===0;o.staticVelocity=frame%40<10;
+    if(frame%7===0)o.drawParams=frame%21===0?[.25,undefined,null]:[frame,1,2,3,4,5,6];
+    if(frame%13===0)o.drawParams=undefined;
+   }
+   if(frame===150)for(const r of [old,next])r.capacity*=2;
+   for(const [r,list]of [[old,before],[next,after]]){
+    const start=writes.length;r._beginFrame();
+    for(const o of list)if(!(o.id===0&&frame>20&&frame<300))r._slot(o);
+    submits.shift()();const bytes=writes.slice(start).reduce((n,w)=>n+w.size,0);if(r===old)oldBytes+=bytes;else newBytes+=bytes;
+   }
+   assert.equal(Buffer.compare(Buffer.from(next.drawBuffer.data),Buffer.from(old.drawBuffer.data)),0,`GPU uniform bytes at frame ${frame}`);
+  }
+  assert.ok(newBytes<oldBytes*.15,`uploaded ${newBytes}/${oldBytes} bytes`);
+ }finally{Object.assign(GPU,saved);}
+});
+
+test('managed static bounds are reused and invalidate for transforms, edited spheres and replaced geometry',()=>{
+ const saved=GPU.frame,r=new MeshRenderer(),scene=new Scene(),camera=new PerspectiveCamera(60,1,.1,100);
+ const geometry=new BufferGeometry();geometry.setAttribute('position',new Float32BufferAttribute([-1,-1,0,1,-1,0,0,1,0],3));geometry.boundingSphere=new Sphere(new Vector3(),2);
+ const mesh=new Mesh(geometry,new MeshBasicMaterial());mesh.position.z=-10;mesh.worldTransformVersion=0;scene.add(mesh);scene.updateMatrixWorld();
+ try{
+  GPU.frame=1;r.collect(scene,{camera});let copies=0;const cache=mesh.__worldSphere,apply=cache.sphere.applyMatrix4.bind(cache.sphere);cache.sphere.applyMatrix4=m=>{copies++;return apply(m);};
+  for(let i=0;i<30;i++){GPU.frame++;assert.equal(r.collect(scene,{camera}).opaque.length,1);}
+  assert.equal(copies,0);
+  mesh.position.x=100;mesh.worldTransformVersion++;GPU.frame++;assert.equal(r.collect(scene,{camera}).opaque.length,0);assert.equal(copies,1);
+  geometry.boundingSphere.radius=200;GPU.frame++;assert.equal(r.collect(scene,{camera}).opaque.length,1);assert.equal(copies,2);
+  geometry.boundingSphere.center.x=12;GPU.frame++;r.collect(scene,{camera});assert.equal(copies,3);
+  geometry.boundingSphere=new Sphere(new Vector3(),1);GPU.frame++;assert.equal(r.collect(scene,{camera}).opaque.length,0);assert.equal(copies,4);
+  mesh.worldTransformVersion=undefined;mesh.position.x=0;GPU.frame++;assert.equal(r.collect(scene,{camera}).opaque.length,1);assert.equal(copies,5);
+ }finally{GPU.frame=saved;geometry.dispose();mesh.material.dispose();}
+});
+
+test('stable bundle chunks preserve draw commands and avoid rebuilding an entire culled run',()=>{
+ const savedDevice=GPU.device,savedFrame=GPU.frame;
+ const pipeline={},group={},group0={},buffer={},geometry={attributes:{position:{count:3}},instanceCount:1};
+ let encoded=0;
+ const recorder=()=>({draws:[],offset:0,setPipeline(){},setBindGroup(i,g,offset){if(i===2)this.offset=offset[0];},setVertexBuffer(){},draw(count,instances,start){encoded++;this.draws.push([this.offset,count,instances,start]);},finish(){return {draws:this.draws};}});
+ GPU.device={createRenderBundleEncoder:recorder};
+ try{
+  const run=(chunked,size=32)=>{
+   GPU.frame=100;const r=new MeshRenderer();r.bundles=true;r.bundleChunking=chunked;r.bundleChunkSize=size;r.drawBindGroup={};
+   r._pipeline=()=>({handle:{pipeline},bindings:{getBindGroup:()=>group}});r._slot=o=>o.id;
+   const items=Array.from({length:180},(_,id)=>{const o={id,__bsI:1,__bsS:0,__bsC:3,__bundleShapeAt:0};return {object:o,geometry,material:{id:1},start:0,count:3};});
+   const warm=()=>{for(const it of items)it.object.__frameRow={frame:GPU.frame,material:it.material,geo:geometry,owner:r,vbs:[buffer],vl:{},index:null};};
+   const render=list=>{warm();const rp=recorder();rp.executeBundles=bs=>{for(const b of bs)rp.draws.push(...b.draws);};r.drawItems(rp,list,{group0,passKey:'color',colorFormats:['rgba16float'],depthFormat:'depth32float'},'opaque');return rp.draws;};
+   const initial=render(items);GPU.frame++;encoded=0;
+   const culled=render(items.filter(it=>it.object.id!==5));const built=encoded;
+   GPU.frame++;encoded=0;assert.deepEqual(render(items.filter(it=>it.object.id!==5)),culled);assert.equal(encoded,0);
+   return {initial,culled,built};
+  };
+  const old=run(false),next=run(true);assert.deepEqual(next.initial,old.initial);assert.deepEqual(next.culled,old.culled);
+  assert.equal(old.built,179);assert.ok(next.built<=64,`rebuilt ${next.built} draws after one cull`);
+  const atomic=run(true,1);assert.deepEqual(atomic.initial,old.initial);assert.deepEqual(atomic.culled,old.culled);assert.equal(atomic.built,0);
+ }finally{GPU.device=savedDevice;GPU.frame=savedFrame;}
+});
+
+test('empty native instance batches skip culling while populated, compiling and callback-driven meshes stay visible',()=>{
+ const r=new MeshRenderer(),object={visible:true,isMesh:true,isInstancedMesh:true,count:0,worldTransformVersion:0,layers:{mask:1},children:[],geometry:{attributes:{},drawRange:{start:0,count:3}},material:{id:7,visible:true},matrixWorld:{elements:[1,0,0,0,0,1,0,0,0,0,1,0,0,0,-10,1]}};
+ const scene={visible:true,children:[object],updateMatrixWorld(){}};
+ assert.equal(r.collect(scene,{cull:false}).opaque.length,0);
+ object.count=1;assert.equal(r.collect(scene,{cull:false}).opaque.length,1);
+ object.count=0;r.precompiling=true;assert.equal(r.collect(scene,{cull:false}).opaque.length,1);
+ r.precompiling=false;object.onBeforeRender=()=>{object.count=1;};assert.equal(r.collect(scene,{cull:false}).opaque.length,1);assert.equal(object.count,1);
+});
+
+test('per-object bundle references invalidate every GPU input and draw range',()=>{
+ const savedDevice=GPU.device,savedFrame=GPU.frame;let builds=0;
+ GPU.device={createRenderBundleEncoder(){builds++;return {setPipeline(){},setBindGroup(){},setVertexBuffer(){},setIndexBuffer(){},draw(){},drawIndexed(){},finish(){return {};}};}};
+ try{
+  GPU.frame=100;const r=new MeshRenderer();r.bundles=true;r.bundleChunking=true;r.bundleChunkSize=1;r.drawBindGroup={};
+  let pipeline={},group={},vbs=[{}],index=null,offset=0;
+  const geo={attributes:{position:{count:6}},instanceCount:1},o={id:0},material={},it={object:o,geometry:geo,material,start:0,count:6},pass={group0:{},passKey:'color',colorFormats:['rgba16float']};
+  r._pipeline=()=>({handle:{pipeline},bindings:{getBindGroup:()=>group}});r._slot=()=>offset;
+  const draw=()=>{o.__frameRow={frame:GPU.frame,material,geo,owner:r,vbs,vl:{},index};o.__bsI=geo.instanceCount;o.__bsS=it.start;o.__bsC=it.count;o.__bundleShapeAt=0;r.drawItems({executeBundles(){},setBindGroup(){}},[it],pass,'opaque');GPU.frame++;};
+  draw();assert.equal(builds,1);draw();assert.equal(builds,1);
+  for(const change of [()=>pass.group0={},()=>r.drawBindGroup={},()=>pipeline={},()=>group={},()=>offset++,()=>geo.instanceCount++,()=>it.start++,()=>it.count--,()=>vbs[0]={},()=>vbs.push({}),()=>geo.attributes.position.count++,()=>{index={buffer:{},format:'uint16'};geo.index={count:6};},()=>index.buffer={},()=>index.format='uint32',()=>geo.index.count++]){
+   const before=builds;change();draw();assert.equal(builds,before+1);draw();assert.equal(builds,before+1);
+  }
+ }finally{GPU.device=savedDevice;GPU.frame=savedFrame;}
+});
 
 test('material replacement waits for both colour and shadow pipelines without synchronous compilation',()=>{
  const r=new MeshRenderer(),passes=[],handles=[{pipeline:{}},{pipeline:null}],object={geometry:{}},material={};

@@ -1,5 +1,5 @@
 import { frameSlice } from "./frameSlice";
-import { vehicleOverlap, VehicleTrajectoryCache, collisionFreeTravel } from "./trafficCollision";
+import { vehicleOverlap, VehicleTrajectoryCache, VehiclePathHitCache, collisionFreeTravel, missesTrajectory } from "./trafficCollision";
 import { onSceneMemoryRelease } from "./sceneMemory";
 import * as THREE from "three";
 import {flushInstanceAttribute} from './instanceDirty';
@@ -1409,14 +1409,23 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // Each candidate car checks the same one-metre trajectory against many other
   // bodies. Cache those exact double-precision poses until its travel state changes.
   const trajectories = new VehicleTrajectoryCache<Car>();
+  const stoppedPathHits = new VehiclePathHitCache<Car>();
   /** How far (m) this vehicle can go along its own way before its body meets the other's as it
    * stands (Infinity: not within `reach`); followed along the lane and through the turn it will
    * really take, not straight on from its heading (a turn swept straight on across the waiting
    * cars of the road beside, and stopped in the junction for them). */
   const pathHits = (c: Car, o: Car, reach: number) => {
     if (Math.hypot(o.x - c.x, o.y - c.y) > reach + (c.length + o.length) / 2 + 1) return Infinity;
+    if(c.speed===0&&o.speed===0&&sameRoadLevel(paths[c.road],paths[o.road])&&sameRoadLevel(paths[c.road],paths[c.conn.link.road]))return stoppedPathHits.read(c,o,reach,()=>computePathHits(c,o,reach));
+    return computePathHits(c,o,reach);
+  };
+  const computePathHits = (c: Car, o: Car, reach: number) => {
+    const sweep = trajectories.sweep(c, reach, pose, poseAhead, c.length, c.width + .3);
+    if (missesTrajectory(sweep, o)) return Infinity;
+    const samples = sweep.values;
     for (let d = 0; d <= reach; d += 1) {
-      trajectories.read(c, d, pose, poseAhead);
+      const k = d * 4;
+      pose.x = samples[k]; pose.y = samples[k + 1]; pose.hx = samples[k + 2]; pose.hy = samples[k + 3];
       if(o.z!==undefined&&(!sameRoadLevel(paths[c.road],paths[o.road])||!sameRoadLevel(paths[c.road],paths[c.conn.link.road]))&&Math.abs(heightAhead(c,d,pose.x,pose.y)-o.z)>3.5)continue;
       if (overlap(pose.x, pose.y, pose.hx, pose.hy, c.length, c.width + 0.3, o)) {
         // touching already: only what is ahead of it holds it (one beside or behind pulls clear)
@@ -1813,7 +1822,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     meshes.forEach(m=>{flushInstanceAttribute(m.instanceMatrix,m.count);});
     if(lampsOn)lamps.forEach(m=>{flushInstanceAttribute(m.instanceMatrix,m.count);});
   };
-  group.userData.traffic = { signalStateSource:'simulation',signalLocationSource:signalLocations?'OpenStreetMap':'inferred',cars, paths, nodes, nodeOf, trimAt, clusters, clusterEnds, armInfo, signals, heads, lightAt, idle, internal, drawn: roads.length,
+  group.userData.traffic = { pathCache:stoppedPathHits.stats,signalStateSource:'simulation',signalLocationSource:signalLocations?'OpenStreetMap':'inferred',cars, paths, nodes, nodeOf, trimAt, clusters, clusterEnds, armInfo, signals, heads, lightAt, idle, internal, drawn: roads.length,
     advance:updateTraffic }; // deterministic inspection in dev tools
 
   return {
