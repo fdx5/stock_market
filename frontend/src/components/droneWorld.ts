@@ -33,7 +33,8 @@ import { textureBudgetEnabled } from "./textureBudget";
  * will be in a few seconds, more tiles the higher it flies. `clearAhead` tells the flight how far
  * along a direction everything is on screen — the flight keeps 300 m of it ahead (droneFlight.ts).
  *
- * Nothing invented here: where VWorld does not answer, a tile stays empty and is retried. */
+ * Palace courtyards also receive the requested earth, lawn and flower garden treatment.
+ * Where VWorld does not answer, a tile stays empty and is retried. */
 
 export const TILE_M = 340;
 /** The coarse sea laid round the drone at once (see regionSea), half a side (m). */
@@ -620,18 +621,20 @@ export class DroneWorld {
         if (!await this.pace(true)) return;
         if (!OFF.includes("sea")) await this.seaOn(t, ground, localTerrain, stop.signal);
         if (stop.signal.aborted || this.disposed) return;
-        // The trees (park trees and woodland), planted while the drone is near (update): flowers,
-        // shrubs and grass are a few centimetres to a metre — specks from the air for a dozen draws
-        // a tile — so the tiles leave them out.
+        // General park trees are loaded near the drone. The requested palace flower beds
+        // and grass tufts also have 3D geometry; their ground colors remain visible from above.
         // (and the street trees by the kerbs of the roads with sidewalks: one species a road)
         const street: [number, number, number][] = [];
         const st = roads?.streetTrees;
         if (st) for (let k = 0; k < st.length; k += 3) street.push([st[k] - t.cx, st[k + 1] - t.cy, st[k + 2]]);
         // (painted before the buildings were in: no tree where a building stands)
         const free = ([lx, ly]: [number, number]) => this.roofAt(lx + t.cx, ly + t.cy) < local(lx, ly) + 1;
+        const gardenBeds = fg.gardens.flatMap(g => g.beds).map(b => ({ ...b, points: b.points.filter(free) })).filter(b => b.points.length);
+        const gardenGrass = fg.gardens.flatMap(g => g.grass).filter(free);
+        mesh.userData.palaceGardens = fg.gardens.map(g => ({ id: g.id, earthM2: g.earthM2, lawnM2: g.lawnM2, flowerM2: g.flowerM2 }));
         const p = { ...fg.planting, trees: fg.planting.trees.filter(free), groves: (fg.planting.groves ?? []).map(g => ({ ...g, points: g.points.filter(free) })),
-          shrubs: [], flowers: [], grass: [], street, woodlandFlowers: [] };
-        if (textureBudgetEnabled() && (p.trees.length || p.groves?.length || p.street.length)) {
+          shrubs: [], flowers: [], grass: gardenGrass, street, woodlandFlowers: gardenBeds };
+        if (textureBudgetEnabled() && (p.trees.length || p.groves?.length || p.street.length || p.grass.length || p.woodlandFlowers.length)) {
           t.planting = p; t.local = localTerrain;
           // (and the drone flies round them)
           if (t.roofs) this.treesOnGrid(t.roofs, [...p.trees, ...p.street.map(([lx, ly]) => [lx, ly] as [number, number]), ...(p.groves ?? []).flatMap(g => g.points)].map(([lx, ly]) => [lx + t.cx, ly + t.cy] as [number, number]), (x, y) => local(x - t.cx, y - t.cy));

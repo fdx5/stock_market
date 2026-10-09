@@ -2,6 +2,7 @@ import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
 import {woodlandBeds,WOODLAND_FLOWERS}from'./landscapeDiversity';
 import {woodedTerrain}from'./woodlandTerrain';
+import { palaceGardens, palaceParcelGarden, palaceGardenCover, paintPalaceGarden, type PalaceGarden, type PalaceGardenPlanting } from './palaceGardens';
 
 /* The ground out to 1 km in its land use (연속지적도 지목), under the 1 km ring of buildings: past
  * the view's own painted square the ground was one plain colour fading into the haze. Each parcel
@@ -23,6 +24,7 @@ type FarJob = {
   landscape?: boolean; nearHalf: number; footprints: [number,number][][];
   roads: {line:[number,number][];width:number}[];
   flowers: readonly string[];
+  gardens: PalaceGarden[];
   /** The drone's tiles: the national stream network's water areas (하천망, LT_C_WKMSTRM), filled
    * whole — a channel stays one channel where its parcels' relief rule leaves gaps. */
   riverUrls?: string[];
@@ -74,6 +76,11 @@ function farWorkerMain() {
     // strand — is told apart from it below)
     const pm = new OffscreenCanvas(S, S), pmc = pm.getContext("2d", { willReadFrequently: true })!;
     pmc.fillStyle = "#fff";
+    const gardens = new Map<string, { plan: PalaceGarden; ctx: OffscreenCanvasRenderingContext2D }>();
+    const hard = new OffscreenCanvas(S, S), hc = hard.getContext('2d', { willReadFrequently: true })!;
+    hc.fillStyle = '#fff';
+    const hardKinds = new Set(['도', '차', '주', '철', '수', ...WATER]);
+    const gardenHelpers = self as unknown as { palaceParcelGarden: typeof palaceParcelGarden; palaceGardenCover: typeof palaceGardenCover; paintPalaceGarden: typeof paintPalaceGarden };
     for (const url of job.urls) {
       let body: any = null;
       (self as any).farCb = (b: unknown) => { body = b; };
@@ -98,6 +105,19 @@ function farWorkerMain() {
           pmc.beginPath(); ring.forEach(([x, y], k) => (k ? pmc.lineTo(X(x), Y(y)) : pmc.moveTo(X(x), Y(y)))); pmc.closePath(); pmc.fill();
           if(job.landscape && kind==='임'){fc.beginPath();ring.forEach(([x,y],k)=>k?fc.lineTo(X(x),Y(y)):fc.moveTo(X(x),Y(y)));fc.closePath();fc.fill();}
           if (WATER.has(kind)) water.push(ring);
+          const garden = job.gardens.length ? gardenHelpers.palaceParcelGarden(kind, poly.map(r => r.map(([x,y]) => [(x-lon)*kx, (y-lat)*ky] as [number,number])), job.gardens) : null;
+          if (garden) {
+            let entry = gardens.get(garden.id);
+            if (!entry) {
+              const mask = new OffscreenCanvas(S, S);
+              entry = { plan: { ...garden, rings: poly.map(r => r.map(([x,y]) => [((x-lon)*kx-garden.x)*garden.scaleX,(y-lat)*ky-garden.y] as [number,number])) }, ctx: mask.getContext('2d', { willReadFrequently: true })! };
+              entry.ctx.fillStyle = '#fff'; gardens.set(garden.id, entry);
+            }
+            entry.ctx.beginPath();
+            for (const r of poly) { r.forEach(([x,y],j) => j ? entry!.ctx.lineTo(X((x-lon)*kx),Y((y-lat)*ky)) : entry!.ctx.moveTo(X((x-lon)*kx),Y((y-lat)*ky))); entry.ctx.closePath(); }
+            entry.ctx.fill('evenodd');
+          }
+          if (job.gardens.length && hardKinds.has(kind)) { hc.beginPath(); ring.forEach(([x,y],j) => j ? hc.lineTo(X(x),Y(y)) : hc.moveTo(X(x),Y(y))); hc.closePath(); hc.fill(); }
           parcels++;
         }
       }
@@ -254,6 +274,15 @@ function farWorkerMain() {
       }
     }
     const planting:import('./complexScene').Planting={trees:[],shrubs:[],flowers:[],grass:[],street:[],groves:[]};
+    // Roads and registered footprints remain clear. Water was painted first and its
+    // translucent pixels are excluded from the requested palace garden treatment.
+    hc.strokeStyle = hc.fillStyle = '#fff'; hc.lineJoin = hc.lineCap = 'round';
+    for (const ring of job.footprints) { hc.beginPath(); ring.forEach(([x,y],i) => i ? hc.lineTo(X(x),Y(y)) : hc.moveTo(X(x),Y(y))); hc.closePath(); hc.fill(); hc.lineWidth = 8*S/(2*half); hc.stroke(); }
+    for (const road of job.roads) { hc.beginPath(); road.line.forEach(([x,y],i) => i ? hc.lineTo(X(x),Y(y)) : hc.moveTo(X(x),Y(y))); hc.lineWidth = (road.width+6)*S/(2*half); hc.stroke(); }
+    const hardPixels = gardens.size ? hc.getImageData(0,0,S,S).data : null;
+    const gardenMasks = [...gardens.values()].map(g => ({ ...g, pixels: g.ctx.getImageData(0,0,S,S).data }));
+    const gardenPlanting: PalaceGardenPlanting[] = gardenMasks.map(g => gardenHelpers.paintPalaceGarden(ctx,g.pixels,g.plan,S,half,hardPixels,job.nearHalf,gardenHelpers.palaceGardenCover));
+    const inGarden = (x:number,y:number) => { const px=Math.floor(X(x)),py=Math.floor(Y(y));return px>=0 && py>=0 && px<S && py<S && gardenMasks.some(g => g.pixels[(py*S+px)*4+3]>127); };
     if(job.landscape){
       // The registered footprints and roads stay clear even when a lot is park-styled.
       const mask=new OffscreenCanvas(S,S),mc=mask.getContext('2d',{willReadFrequently:true})!;
@@ -262,7 +291,7 @@ function farWorkerMain() {
       for(const road of job.roads){mc.beginPath();road.line.forEach(([x,y],i)=>i?mc.lineTo(X(x),Y(y)):mc.moveTo(X(x),Y(y)));mc.lineWidth=(road.width+6)*S/(2*half);mc.stroke();}
       const blocked=mc.getImageData(0,0,S,S).data,paint=ctx.getImageData(0,0,S,S).data,forest=fc.getImageData(0,0,S,S).data;
       let seed=7919;const rnd=()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646;};
-      const green=(x:number,y:number)=>{const px=Math.floor(X(x)),py=Math.floor(Y(y));if(px<0||py<0||px>=S||py>=S)return false;const o=(py*S+px)*4;return blocked[o+3]<128 && paint[o+3]>200 && paint[o+1]>paint[o]*1.18 && paint[o+1]>paint[o+2]*1.18;};
+      const green=(x:number,y:number)=>{const px=Math.floor(X(x)),py=Math.floor(Y(y));if(px<0||py<0||px>=S||py>=S||inGarden(x,y))return false;const o=(py*S+px)*4;return blocked[o+3]<128 && paint[o+3]>200 && paint[o+1]>paint[o]*1.18 && paint[o+1]>paint[o+2]*1.18;};
       const groves=new Map<string,{pattern:number;points:[number,number][]}>();let parkSeen=0;
       const wooded=(x:number,y:number)=>forest[(Math.floor(Y(y))*S+Math.floor(X(x)))*4+3]>127 || (self as unknown as {woodedTerrain:typeof woodedTerrain}).woodedTerrain(job.grid,x,y);
       for(let y=-half+8;y<half;y+=5.5)for(let x=-half+8;x<half;x+=5.5){
@@ -288,8 +317,10 @@ function farWorkerMain() {
       for(let i=0;i<6000;i++){const x=(rnd()*2-1)*half,y=(rnd()*2-1)*half;if(!green(x,y))continue;ctx.fillStyle=i%6===0?'#876a45':i%2?'#64904e':'#315d3c';ctx.beginPath();ctx.ellipse(X(x),Y(y),2+rnd()*4,1+rnd()*3,rnd()*Math.PI,0,Math.PI*2);ctx.fill();}
       ctx.globalAlpha=1;
     }
+    planting.woodlandFlowers = [...(planting.woodlandFlowers ?? []), ...gardenPlanting.flatMap(g => g.beds)];
+    planting.grass = gardenPlanting.flatMap(g => g.grass);
     const bitmap = canvas.transferToImageBitmap();
-    (self as unknown as Worker).postMessage({ bitmap, parcels, planting, ms: performance.now() - t0 }, [bitmap]);
+    (self as unknown as Worker).postMessage({ bitmap, parcels, planting, gardens: gardenPlanting, ms: performance.now() - t0 }, [bitmap]);
   };
 }
 
@@ -297,7 +328,7 @@ let farUrl: string | null = null;
 /** The land-use picture of ±half metres round the result's centre (north up), made in a worker. */
 export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, opts: { half: number; size: number; lawn: string; paddy: string; landscape?: boolean; nearHalf?:number; footprints?:[number,number][][]; signal?: AbortSignal; rivers?: boolean; lakes?: boolean;
   /** the water already asked about this picture's centre (osmBody) */
-  water?: FarJob["osmBody"] }): Promise<{ bitmap: ImageBitmap; parcels: number; planting:import('./complexScene').Planting; ms: number } | null> {
+  water?: FarJob["osmBody"] }): Promise<{ bitmap: ImageBitmap; parcels: number; planting:import('./complexScene').Planting; gardens: PalaceGardenPlanting[]; ms: number } | null> {
   if (!data.center || !data.vworld_key || typeof OffscreenCanvas === "undefined") return Promise.resolve(null);
   const { lat, lon } = data.center, H = opts.half;
   const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540;
@@ -308,9 +339,9 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
     size: "1000", page: String(i + 1), format: "json", callback: "farCb",
   }));
   // (one Blob URL for the page's lifetime: the drone makes these tile after tile)
-  farUrl ??= URL.createObjectURL(new Blob([`self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
+  farUrl ??= URL.createObjectURL(new Blob([`self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});self.palaceParcelGarden=(${palaceParcelGarden.toString()});self.palaceGardenCover=(${palaceGardenCover.toString()});self.paintPalaceGarden=(${paintPalaceGarden.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
   const worker = new Worker(farUrl);
-  const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS,
+  const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS,gardens:palaceGardens(lat,lon,H),
     riverUrls: opts.rivers ? Array.from({ length: 3 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
       service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "false",
       key: data.vworld_key!, domain: data.vworld_domain ?? "https://kospimap.com", data: "LT_C_WKMSTRM", geomFilter: box,

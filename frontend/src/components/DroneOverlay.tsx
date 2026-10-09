@@ -106,11 +106,15 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
     return () => { window.removeEventListener("drone-card-close", close); signs.selected = null; };
   }, [signs]);
   const h = hud;
+  const auto = flight.autopilot;
+  const autoStatus = flight.autopilotStatus === 'obstacle' ? '장애물 앞 대기 · 방향을 바꿔주세요'
+    : flight.autopilotStatus === 'altitude' ? '자동 고도 조절 중 · 100~250m'
+    : '100~250m · 바라보는 방향으로 전진';
   const dir = h ? COMPASS[Math.round(h.heading / 45) % 8] : "";
   return (
     <div ref={root} className="re-drone" aria-live="off">
       <canvas className="re-drone-signs" aria-hidden="true" ref={el => { signs.canvas = el; }} />
-      <div className="re-drone-hud" role="status" data-ahead={h ? Math.round(Math.min(h.ahead, 9999)) : ""} data-unready={h ? Math.round(h.unready) : ""} data-front={h ? Math.round(h.unreadyFront) : ""} data-kmh={h ? h.kmh.toFixed(1) : ""}>
+      <div className="re-drone-hud" role="status" data-autopilot={auto ? flight.autopilotStatus : 'off'} data-agl={h?.agl.toFixed(1) ?? ''} data-ahead={h ? Math.round(Math.min(h.ahead, 9999)) : ""} data-unready={h ? Math.round(h.unready) : ""} data-front={h ? Math.round(h.unreadyFront) : ""} data-kmh={h ? h.kmh.toFixed(1) : ""}>
         <b className="re-drone-speed">{h ? Math.round(h.kmh) : 0}<small>km/h</small></b>
         <span className="re-drone-alt">고도 <b>{h ? Math.round(h.agl) : 0}</b>m</span>
         <span className="re-drone-dir">{dir} {h ? Math.round(h.heading) : 0}°</span>
@@ -118,6 +122,12 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
           {h ? (h.limited ? `앞쪽 렌더링 대기 · 최고 ${Math.round(h.limit)}km/h` : `주변 ${(h.radius / 1000).toFixed(1)}km 렌더링 ${h.ready}/${h.tiles}`) : "준비 중"}
         </span>
       </div>
+      <button type="button" className={`re-drone-autopilot${auto ? ' is-on' : ''}`} aria-pressed={auto}
+        title="바라보는 방향으로 자동 전진 · 지상 100~250m 자동 고도 · 이동/고도 조작 시 수동 전환"
+        onClick={() => { flight.toggleAutopilot(); setHud(h => h ? { ...h, autopilot: flight.autopilot, autopilotStatus: flight.autopilotStatus } : h); }}>
+        <b>{auto ? '⏸ 오토 파일럿 켜짐' : '▶ 오토 파일럿'}</b>
+        <small>{auto ? autoStatus : '100~250m · 자동 비행 시작'}</small>
+      </button>
       <div className="re-drone-tools">
         <button type="button" onClick={onView} title="1인칭 ↔ 3인칭 (V)">{view === "fpv" ? "🎥 1인칭" : "🚁 3인칭"}</button>
         <button type="button" onClick={() => { const m = !muted; setMuted(m); onMute(m); }} aria-pressed={muted} title={muted ? "드론 소리 켜기" : "드론 소리 끄기"} className="re-drone-mute">{muted ? "🔇 음소거" : "🔊 소리"}</button>
@@ -130,6 +140,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
           ? <><b>왼쪽 스틱</b> ↕ 상승·하강 ↔ 회전<br /><b>오른쪽 스틱</b> ↕ 전진·후진 ↔ 좌우 이동<br />화면 드래그: 카메라 각도 · <b>빛나는 팻말</b>을 누르면 건물 정보</>
           : <><b>W S</b> 전진·후진 · <b>A D</b> 좌우 이동 · <b>Q E</b>·<b>← →</b> 회전 · <b>Space</b>/<b>R</b>/<b>PgUp</b>/휠↑ 상승 · <b>Shift</b>/<b>F</b>/<b>PgDn</b>/휠↓ 하강 · <b>V</b> 1인칭/3인칭 · 드래그: 카메라 각도 · <b>Esc</b> 착륙 · <b>빛나는 팻말</b> 클릭: 건물 정보</>}
         <span>최고 200km/h · 지면 2m ~ 상공 500m</span>
+        <span>오토 파일럿: 시선 방향 전진 · 100~250m 자동 고도 · 이동·고도 조작 시 수동 전환</span>
       </div>}
       <div className="re-drone-alt-buttons" aria-label="고도 조절">
         {([["BtnUp", "▲", "상승 (누르고 있기)"], ["BtnDown", "▼", "하강 (누르고 있기)"]] as const).map(([code, label, title]) => (

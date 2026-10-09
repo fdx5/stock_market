@@ -16,6 +16,7 @@ import { buildWalkers, type WalkPath } from "./sceneWalkers";
  *   - the sky's clouds are crisp and the sun shows its corona (droneSky). */
 
 export type DroneHud = {
+  autopilot: boolean; autopilotStatus: DroneFlight['autopilotStatus']; autoTargetAgl: number;
   kmh: number; agl: number; alt: number; heading: number; limited: boolean; limit: number;
   tiles: number; ready: number; loading: number; buildings: number; radius: number; clearance: number;
   /** on screen along the flight (m), and the nearest part of the world not yet on screen (m) */
@@ -178,6 +179,7 @@ export class DroneSession {
       this.hudAt = now;
       const s = w.stats();
       this.p.onHud({
+        autopilot: f.autopilot, autopilotStatus: f.autopilotStatus, autoTargetAgl: f.autoTargetAgl,
         kmh: f.kmh, agl: f.agl, alt: f.pos.y, heading: f.heading, limited: f.limit < MAX_SPEED - 0.5, limit: f.limit * 3.6,
         tiles: s.tiles, ready: s.ready, loading: s.loading, buildings: s.buildings, radius: s.radius, clearance: f.clearance,
         ahead: f.ahead, unready: w.nearestUnready(x, y, 2000),
@@ -259,6 +261,7 @@ export class DroneSession {
   end() {
     const { camera, scene, ground } = this.p;
     this.ended = true;
+    this.flight.setAutopilot(false);
     if (this.crowd) { this.dropCrowd(this.crowd.c); this.crowd = null; }
     this.audio.stop();
     this.world.dispose();

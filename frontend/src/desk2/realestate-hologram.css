@@ -570,6 +570,12 @@
 .re-drone-tools button { min-width: 34px; height: 32px; padding: 0 10px; border: 1px solid #ffffff38; border-radius: 10px; background: #07131cc0; color: #eaf6ff; font: 700 13px var(--f-sans, sans-serif); cursor: pointer; }
 .re-drone-tools button:hover { background: #17303fe0; }
 .re-drone-tools .re-drone-exit { background: #c9532ee0; border-color: #ff9a74; }
+.re-drone-autopilot { position: absolute; left: 12px; top: 106px; display: grid; gap: 3px; width: 200px; min-height: 48px; padding: 8px 10px; border: 1px solid #ffffff48; border-radius: 12px; background: #07131cde; color: #eaf6ff; text-align: left; font-family: var(--f-sans, sans-serif); cursor: pointer; pointer-events: auto; }
+.re-drone-autopilot b { font-size: 13px; }
+.re-drone-autopilot small { font-size: 10px; color: #aacada; }
+.re-drone-autopilot.is-on { border-color: #8ac6a2; background: #194836e8; }
+.re-drone-autopilot.is-on small { color: #d1eddd; }
+.re-drone-autopilot:focus-visible { outline: 2px solid #ffd27a; outline-offset: 3px; }
 .re-drone-help { position: absolute; left: 50%; bottom: 14px; display: block; width: max-content; max-width: min(720px, calc(100% - 24px)); padding: 8px 14px; border-radius: 12px; background: #07131cd0; text-align: center; transform: translateX(-50%); line-height: 1.5; }
 .re-drone-help b { color: #ffd27a; }
 .re-drone-help span { display: block; margin-top: 2px; color: #8fb6cc; font-size: 11px; }
@@ -615,6 +621,7 @@
 .re-holo--drone-touch .re-drone-world { font-size: 10px; max-width: 150px; }
 .re-holo--drone-touch .re-drone-tools { right: calc(10px + env(safe-area-inset-right)); top: calc(10px + env(safe-area-inset-top)); gap: 5px; }
 .re-holo--drone-touch .re-drone-tools button { height: 40px; min-width: 40px; padding: 0 10px; font-size: 13px; border-radius: 12px; }
+.re-holo--drone-touch .re-drone-autopilot { left: calc(10px + env(safe-area-inset-left)); top: calc(96px + env(safe-area-inset-top)); width: 178px; min-height: 48px; }
 .re-holo--drone-touch .re-drone-radar { top: calc(58px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); width: 116px; gap: 4px; }
 .re-holo-stage .re-holo--drone-touch .re-drone-radar canvas, .re-holo--drone-touch .re-holo-stage .re-drone-radar canvas { width: 116px !important; height: 116px !important; }
 .re-holo--drone-touch .re-drone-radar.is-big { width: min(300px, 70vw, 60vh); }

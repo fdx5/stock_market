@@ -13,6 +13,10 @@ import * as THREE from "three";
 export const MAX_SPEED = 200 / 3.6;
 export const MIN_AGL = 2;
 export const MAX_AGL = 500;
+export const AUTO_MIN_AGL = 100;
+export const AUTO_MAX_AGL = 250;
+/** A sightseeing cruise, with time to climb before the terrain or a roof ahead. */
+export const AUTO_SPEED = 90 / 3.6;
 /** Everything within this distance ahead must be on screen (droneWorld.clearAhead). */
 export const READY_AHEAD = 300;
 
@@ -58,6 +62,19 @@ export class DroneFlight {
   load = 0;
   /** hit a wall this frame (for the sound) */
   bumped = 0;
+  autopilot = false;
+  autopilotStatus: 'off' | 'cruise' | 'altitude' | 'obstacle' = 'off';
+  autoTargetAgl = 175;
+  private autoClock = 0;
+  private autoEntered = false;
+
+  setAutopilot(on: boolean) {
+    this.autopilot = on;
+    this.autopilotStatus = on ? 'altitude' : 'off';
+    this.autoClock = 0; this.autoEntered = false; this.wheel = 0;
+    return on;
+  }
+  toggleAutopilot() { return this.setAutopilot(!this.autopilot); }
 
   /** Start hovering at (x, y) of the view frame, `alt` over the ground, facing `yaw`. */
   place(x: number, y: number, ground: number, alt: number, yaw: number) {
@@ -65,6 +82,8 @@ export class DroneFlight {
     this.vel.set(0, 0, 0);
     this.yaw = yaw;
     this.pitchBody = this.roll = this.yawRate = 0;
+    this.agl = this.clearance = alt;
+    this.setAutopilot(false);
   }
 
   /** Mouse or finger drag on the view: turn and tilt the camera. */
@@ -91,14 +110,46 @@ export class DroneFlight {
   }
 
   /** The mouse wheel: up climbs, down sinks (a notch about a second of half climb). */
-  wheelClimb(deltaY: number) { this.wheel = THREE.MathUtils.clamp(this.wheel - deltaY * 0.004, -1, 1); }
+  wheelClimb(deltaY: number) { if (deltaY && this.autopilot) this.setAutopilot(false); this.wheel = THREE.MathUtils.clamp(this.wheel - deltaY * 0.004, -1, 1); }
+
+  /** Fly along the current camera heading. Gentle height changes and terrain/roof
+   * look-ahead fit inside 100–250 m AGL. An impassable tower causes a hover before it. */
+  private autoControls(dt: number, world: DroneWorldQuery, fx: number, fz: number) {
+    this.autoClock += dt;
+    const x=this.pos.x,y=-this.pos.z,ground=world.groundAt(x,y),agl=this.pos.y-ground;
+    let target=ground+175+40*Math.sin(this.autoClock*Math.PI/40),cap=AUTO_SPEED,obstacle=false;
+    for(let distance=15;distance<=180;distance+=15){
+      const px=x+fx*distance,py=y-fz*distance,g=world.groundAt(px,py),roof=world.roofAt(px,py);
+      const impassable=roof-g>AUTO_MAX_AGL-24;
+      if(impassable){
+        obstacle=true;cap=Math.min(cap,Math.sqrt(Math.max(0,2*BRAKE*(distance-30))));
+        continue;
+      }
+      const top=Math.max(g+AUTO_MIN_AGL,roof+24);
+      target=Math.max(target,top);
+      const rise=top-this.pos.y;
+      if(rise>8)cap=Math.min(cap,Math.max(0,distance-15)/(rise/8+2));
+    }
+    target=THREE.MathUtils.clamp(target,ground+AUTO_MIN_AGL,ground+AUTO_MAX_AGL);
+    this.autoTargetAgl=target-ground;
+    const inBand=agl>=AUTO_MIN_AGL && agl<=AUTO_MAX_AGL;
+    if(inBand)this.autoEntered=true;
+    if(!inBand)cap=0;
+    this.autopilotStatus=obstacle ? 'obstacle' : !inBand ? 'altitude' : 'cruise';
+    const vy=THREE.MathUtils.clamp((target-this.pos.y)*.65,-6,10);
+    const along=this.vel.x*fx+this.vel.z*fz;
+    const fwd=cap>0 ? THREE.MathUtils.clamp((cap-along)*.3+.16,0,1) : 0;
+    return {fwd,climb:vy>0 ? vy/CLIMB : vy/SINK,cap};
+  }
 
   /** One step of `dt` seconds. */
   step(dt: number, world: DroneWorldQuery) {
     dt = Math.min(dt, 0.05);
     this.wheel *= Math.exp(-dt * 2.5);
     if (Math.abs(this.wheel) < 0.02) this.wheel = 0;
-    const { fwd, side, climb, turn } = this.input();
+    let { fwd, side, climb, turn } = this.input();
+    // Looking/turning steers the cruise. A direct movement or altitude input takes over.
+    if(this.autopilot && (Math.abs(fwd)>.08 || Math.abs(side)>.08 || Math.abs(climb)>.08))this.setAutopilot(false);
     // Turning: eased, a little slower at speed (a wider arc, as a real drone flies it).
     const h = Math.hypot(this.vel.x, this.vel.z);
     const want = -turn * YAW_RATE * (1 - 0.35 * Math.min(1, h / MAX_SPEED));
@@ -106,6 +157,8 @@ export class DroneFlight {
     this.yaw += this.yawRate * dt;
     // Heading in the scene: yaw 0 looks along −z (north).
     const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw), rx = -fz, rz = fx;
+    let autoCap=MAX_SPEED;
+    if(this.autopilot){const a=this.autoControls(dt,world,fx,fz);fwd=a.fwd;side=0;climb=a.climb;autoCap=a.cap;}
     // Thrust along the sticks (diagonals no faster), drag up to the top speed.
     let ix = fx * fwd + rx * side, iz = fz * fwd + rz * side;
     const il = Math.hypot(ix, iz);
@@ -130,14 +183,14 @@ export class DroneFlight {
     // on screen (stopping distance v² / 2·BRAKE).
     const x = this.pos.x, y = -this.pos.z;
     let hs = Math.hypot(this.vel.x, this.vel.z);
-    if (hs > 0.5) {
-      const dx = this.vel.x / hs, dy = -this.vel.z / hs;
+    if (hs > 0.5 || this.autopilot) {
+      const dx = hs > .5 ? this.vel.x / hs : fx, dy = hs > .5 ? -this.vel.z / hs : -fz;
       const look = READY_AHEAD + (hs * hs) / (2 * BRAKE) + 40;
       const clear = world.clearAhead(x, y, dx, dy, look);
       this.ahead = clear;
       this.limit = clear >= look ? MAX_SPEED : Math.sqrt(Math.max(0, 2 * BRAKE * (clear - READY_AHEAD)));
     } else { this.limit = MAX_SPEED; this.ahead = Infinity; }
-    const cap = Math.min(MAX_SPEED, Math.max(this.limit, 0));
+    const cap = Math.min(MAX_SPEED, autoCap, Math.max(this.limit, 0));
     hs = Math.hypot(this.vel.x, this.vel.z);
     if (hs > cap) {
       // (a firm brake, not a jump: the drone slows as it would with the stick pulled back)
@@ -170,6 +223,11 @@ export class DroneFlight {
     const under = Math.max(ground, world.roofAt(gx, gy));
     if (this.pos.y < under + MIN_AGL) { this.pos.y = under + MIN_AGL; if (this.vel.y < 0) this.vel.y = 0; }
     if (this.pos.y > ground + MAX_AGL) { this.pos.y = ground + MAX_AGL; if (this.vel.y > 0) this.vel.y = 0; }
+    if(this.autopilot && this.autoEntered && under+MIN_AGL<=ground+AUTO_MAX_AGL){
+      const low=Math.max(ground+AUTO_MIN_AGL,under+MIN_AGL),high=ground+AUTO_MAX_AGL;
+      if(this.pos.y<low){this.pos.y=low;if(this.vel.y<0)this.vel.y=0;}
+      if(this.pos.y>high){this.pos.y=high;if(this.vel.y>0)this.vel.y=0;}
+    }
     this.agl = this.pos.y - ground;
     this.clearance = this.pos.y - under;
 
