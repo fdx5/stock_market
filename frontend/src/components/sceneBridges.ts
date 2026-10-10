@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { RealEstateParcel, RealEstateRoad } from "../api/client";
 import {roadHeight,sameRoadLevel,roadProfileKey} from "./roadLevels";
+import {roadApproachTerrain} from "./roadApproaches";
 
 import type { Terrain } from "./sceneTerrain";
 
@@ -10,9 +11,11 @@ import type { Terrain } from "./sceneTerrain";
  * available in this feed, so invented clearance/ramps/piers are deliberately absent. */
 export interface Bridge {
  x:Float32Array;y:Float32Array;nx:Float32Array;ny:Float32Array;s:Float32Array;h:Float32Array;
+ left_h?:Float32Array;right_h?:Float32Array;
  half:number;outer:number;lanes:number;level:number;box:[number,number,number,number];road:RealEstateRoad;
 }
 export function findBridges(roads:RealEstateRoad[],_parcels:RealEstateParcel[],_covered:boolean[],terrain:Terrain):Bridge[]{
+ const surface=roadApproachTerrain(roads,terrain);
  const out:Bridge[]=[];
  for(const road of roads){
   if(!['bridge','elevated'].includes(road.structure??'')||!road.structure_source||road.line.length<2)continue;
@@ -20,9 +23,11 @@ export function findBridges(roads:RealEstateRoad[],_parcels:RealEstateParcel[],_
   for(let i=1;i<road.line.length;i++){const a=road.line[i-1],b=road.line[i],len=Math.hypot(b[0]-a[0],b[1]-a[1]);for(let d=0;d<len;d+=3)pts.push([a[0]+(b[0]-a[0])*d/len,a[1]+(b[1]-a[1])*d/len]);}
   pts.push(road.line[road.line.length-1]);if(pts.length<2)continue;
   const x=Float32Array.from(pts,p=>p[0]),y=Float32Array.from(pts,p=>p[1]),nx=new Float32Array(pts.length),ny=new Float32Array(pts.length),s=new Float32Array(pts.length),h=new Float32Array(pts.length);
-  for(let k=0;k<pts.length;k++){const a=pts[Math.max(0,k-1)],b=pts[Math.min(pts.length-1,k+1)],l=Math.hypot(b[0]-a[0],b[1]-a[1])||1;nx[k]=-(b[1]-a[1])/l;ny[k]=(b[0]-a[0])/l;h[k]=roadHeight(road,terrain,x[k],y[k]);if(k)s[k]=s[k-1]+Math.hypot(x[k]-x[k-1],y[k]-y[k-1]);}
+  for(let k=0;k<pts.length;k++){const a=pts[Math.max(0,k-1)],b=pts[Math.min(pts.length-1,k+1)],l=Math.hypot(b[0]-a[0],b[1]-a[1])||1;nx[k]=-(b[1]-a[1])/l;ny[k]=(b[0]-a[0])/l;h[k]=roadHeight(road,surface,x[k],y[k]);if(k)s[k]=s[k-1]+Math.hypot(x[k]-x[k-1],y[k]-y[k-1]);}
   const half=road.width/2;
-  out.push({x,y,nx,ny,s,h,half,outer:half,lanes:road.lanes,level:Math.min(...h),road,box:[Math.min(...x)-half,Math.min(...y)-half,Math.max(...x)+half,Math.max(...y)+half]});
+  const left_h=Float32Array.from(x,(_,k)=>roadHeight(road,surface,x[k]+nx[k]*half,y[k]+ny[k]*half));
+  const right_h=Float32Array.from(x,(_,k)=>roadHeight(road,surface,x[k]-nx[k]*half,y[k]-ny[k]*half));
+  out.push({x,y,nx,ny,s,h,left_h,right_h,half,outer:half,lanes:road.lanes,level:Math.min(...h),road,box:[Math.min(...x)-half,Math.min(...y)-half,Math.max(...x)+half,Math.max(...y)+half]});
  }return out;
 }
 /** The deck's height under (x, y), or null off every bridge. */
@@ -61,7 +66,7 @@ export function roadGround(terrain: Terrain, bridges: Bridge[]): Terrain {
 export function buildBridges(bridges:Bridge[]){
  const geometries:THREE.BufferGeometry[]=[];
  for(const b of bridges){const p:number[]=[];
-  const pt=(i:number,off:number,z:number)=>[b.x[i]+b.nx[i]*off,b.h[i]+z,-(b.y[i]+b.ny[i]*off)];
+  const pt=(i:number,off:number,z:number)=>[b.x[i]+b.nx[i]*off,((off>0?b.left_h?.[i]:b.right_h?.[i])??b.h[i])+z,-(b.y[i]+b.ny[i]*off)];
   for(let k=1;k<b.x.length;k++)for(const side of [-1,1]){
    const a=pt(k-1,side*b.half,0),c=pt(k,side*b.half,0),d=pt(k,side*b.half,-.25),e=pt(k-1,side*b.half,-.25);
    p.push(...a,...c,...d,...a,...d,...e);

@@ -23,6 +23,7 @@ import { fastMergeVertices } from "./fastMerge";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex, RealEstateParcel, RealEstateRoad } from "../api/client";
 import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, vworldRoadFootprints, vworldRoadContext, prefetchRoadContext, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
 import {roadHeight,roadLevel,roadProfileKey} from './roadLevels';
+import {roadApproachTerrain} from './roadApproaches';
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
@@ -2826,7 +2827,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // river's surface.
     let deckAt: ((x: number, y: number) => number | null) | null = null;
     let asphaltAt:ReturnType<typeof roadSurfaceHeight>|null=null;
-    const roadTerrain: Terrain = { ...terrain, roadAt:(road,x,y)=>roadHeight(road,terrain,x,y) };
+    const approachTerrain = roadApproachTerrain(roads, terrain);
+    const roadTerrain: Terrain = { ...approachTerrain, roadAt:(road,x,y)=>roadHeight(road,approachTerrain,x,y) };
     const trafficTerrain:Terrain={...roadTerrain,roadAt:(road,x,y)=>{
       const reference=roadHeight(road,roadTerrain,x,y)+.08;
       const surface=asphaltAt?.(x,y,reference,roadLevel(road),roadLevel(road)?roadProfileKey(road):undefined);

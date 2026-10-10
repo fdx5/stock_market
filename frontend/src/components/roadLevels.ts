@@ -69,12 +69,12 @@ export function roadEndsConnect(a:RealEstateRoad,b:RealEstateRoad,x:number,y:num
  return end(a)&&end(b);
 }
 export function nearestRoadPoint(line:readonly Point[],x:number,y:number){
- let best=Infinity,along=0,s=0,total=0,dir:Point=[1,0];
+ let best=Infinity,along=0,s=0,total=0,dir:Point=[1,0],point:Point=[x,y];
  for(let i=1;i<line.length;i++){
   const a=line[i-1],b=line[i],dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy);if(!len)continue;
   const t=Math.max(0,Math.min(1,((x-a[0])*dx+(y-a[1])*dy)/(len*len))),d=Math.hypot(x-a[0]-dx*t,y-a[1]-dy*t);
-  if(d<best){best=d;along=s+t*len;dir=[dx/len,dy/len];}s+=len;
- }total=s;return {distance:best,along,total,dir};
+  if(d<best){best=d;along=s+t*len;dir=[dx/len,dy/len];point=[a[0]+dx*t,a[1]+dy*t];}s+=len;
+ }total=s;return {distance:best,along,total,dir,point};
 }
 /** Bridge heights are DEM-derived bank interpolation, not surveyed deck elevation.
  * No invented clearance, ramp, parapet or pier dimensions are substituted for source data. */
