@@ -3,8 +3,10 @@ import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
 import { DroneFlight, MAX_AGL, MAX_SPEED, MIN_AGL } from "./droneFlight";
 import { DroneWorld, type ViewExtent, type DroneViewBuildings } from "./droneWorld";
+import type {NearBuildingSource} from './nearBuildingTargets';
 import { DroneAudio } from "./droneAudio";
 import { DroneSigns } from "./droneSigns";
+import type {DroneLabel} from './ringBuildings';
 import { DroneModel } from "./droneModel";
 import { buildWalkers, type WalkPath } from "./sceneWalkers";
 import { seaOutsideBox } from './coastGeometry';
@@ -52,6 +54,7 @@ export class DroneSession {
   private saved: { fov: number; near: number; far: number } | null = null;
   private sky = 0;
   private hudAt = 0;
+  private stationLabels:DroneLabel[]|undefined;
 
   constructor(private readonly p: {
     scene: THREE.Scene; camera: THREE.PerspectiveCamera; ground: THREE.Mesh | null; terrain: Terrain;
@@ -62,11 +65,13 @@ export class DroneSession {
     /** where the view's own trees stand (view frame) */
     viewTrees?: () => [number, number][];
     viewBuildings?: () => DroneViewBuildings | undefined;
+    nearBuildings?: () => NearBuildingSource | undefined;
+    stationLabels?:()=>DroneLabel[]|undefined;
     /** the drone's sky, 0…1 (both renderers), and its distance haze (start, end; m) */
     setSky: (k: number, fog?: [number, number]) => void;
     onHud: (h: DroneHud) => void;
   }) {
-    this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees, viewBuildings:p.viewBuildings,
+    this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees, viewBuildings:p.viewBuildings,nearBuildings:p.nearBuildings,
       viewWater: () => { const water: THREE.Mesh[] = []; for (const root of p.scene.children) if (root !== this.world.root) root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && !Array.isArray(m.material) && m.material.userData.water && m.geometry.getAttribute('aSea')) water.push(m); }); return water; },
       onSeaReady: field => { void this.sinkSeaGround(field); },
       onLabels: (k, l) => this.signs.set(k, l) });
@@ -213,6 +218,8 @@ export class DroneSession {
     const R = w.reach;
     this.p.setSky(this.sky, [R * 0.72, R * 0.98]);
     this.p.camera.updateMatrixWorld();
+    const stations=this.p.stationLabels?.();
+    if(stations!==this.stationLabels){this.stationLabels=stations;this.signs.set('surface-stations',stations??null);}
     this.signs.draw(this.p.camera, viewW, viewH, [R * 0.72, R * 0.98]);
     const now = performance.now();
     // (where a frame's time goes: flight, world, cars, people, signs — the worst of each a second)

@@ -461,6 +461,7 @@ export async function vworldBuildings(
         rings: [outer, ...holes], height: height ?? 0, floors: floors ? Math.round(floors) : 0, base: 0,
         height_source: height ? "measured" : "floors", name: (p.dong_nm || "").trim() || null, use: p.usability || null,
         title: (p.bld_nm || "").trim() || null,
+        structureCode:p.strct_cd||null,structureName:p.strct_nm||null,
         approved: /^(19|20)\d{2}/.test(p.useapr_day || "") ? +p.useapr_day.slice(0, 4) : null,
       };
       if (!height && !floors) b.height_source = "estimated";
@@ -594,6 +595,7 @@ export async function vworldPointArea(lat: number, lon: number, key: string, dom
         rings: [outer, ...holes], height: height ?? 0, floors: floors ? Math.round(floors) : 0, base: 0,
         height_source: height ? "measured" : floors ? "floors" : "estimated", name: (p.dong_nm || "").trim() || null, use: p.usability || null,
         title: (p.bld_nm || "").trim() || null,
+        structureCode:p.strct_cd||null,structureName:p.strct_nm||null,
         approved: /^(19|20)\d{2}/.test(p.useapr_day || "") ? +p.useapr_day.slice(0, 4) : null,
       });
     }

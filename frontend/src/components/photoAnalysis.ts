@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 /* The photographs' analysis (never drawn), pure: run in photoWorker off the main thread. */
 
-/** The main upper roof, with at most two storeys of stair/lift rooms above it.
+/** The main upper roof, allowing a tall stair/lift machinery enclosure above it.
  * A model can contain two towers and a much wider low podium. Choosing the
  * largest horizontal area anywhere in that model turned all tower walls above
  * the podium into blank rooftop cores. Infinity when no upper roof is known. */
@@ -21,7 +21,11 @@ export function mainRoofOf(geo: THREE.BufferGeometry) {
   }
   let top=-Infinity;for(let i=0;i<p.count;i++)top=Math.max(top,p.getZ(i));
   let roof = Infinity, best = 0;
-  for (const [lv, ar] of levels) if (lv > 6 && lv >= top - 8 && ar > best) { best = ar; roof = lv; }
+  // Older lift machine rooms can be higher than eight metres. Restrict the
+  // search to the upper part of the building so a broad low podium still cannot
+  // turn the residential tower into a blank service enclosure.
+  const lower=Math.max(top-12,top*.65);
+  for (const [lv, ar] of levels) if (lv > 6 && lv >= lower && ar > best) { best = ar; roof = lv; }
   return roof;
 }
 

@@ -2,6 +2,9 @@ import * as THREE from "three";
 import { vworldToken } from "./sceneTerrain";
 import { sharedVworldBytes } from './vworldBytes';
 import { onSceneMemoryRelease } from './sceneMemory';
+import {surveySearch,surveySourceOverlaps} from './surveySearch';
+import {SurveyModelCache} from './surveyModelCache';
+import {downloadSurveyModels} from './surveyDownloads';
 import { mainRoofOf, planeKey, around, type Rhythm, type Colours, type WallPaint } from "./photoAnalysis";
 export { mainRoofOf, planeKey, type Rhythm, type Colours, type WallPaint };
 
@@ -19,7 +22,12 @@ export { mainRoofOf, planeKey, type Rhythm, type Colours, type WallPaint };
 const LEVEL = 15, SIZE = 36 / 2 ** LEVEL, R = 6378137;
 const HOSTS = ["xdworld", "xdworld1", "xdworld2", "xdworld3"];
 
-interface Entry { key: string; lon: number; lat: number; data: string; x: number; y: number }
+interface Entry { key: string; lon: number; lat: number; data: string; x: number; y: number;box:number[] }
+const shapeCache=new SurveyModelCache();
+const listsCache=new Map<string,{at:number;entries:Entry[]}>();
+onSceneMemoryRelease(()=>{shapeCache.clear();listsCache.clear();});
+export const surveyModelCacheStats=()=>shapeCache.stats();
+export type SurveyFailure={kind:'model'|'list'|'unknown';x?:number;y?:number;box?:[number,number,number,number]};
 export interface PhotoBuilding {
   key: string;
   /** Local metres (x east, y north, z up) about the complex centre; ground at z = 0. */
@@ -65,6 +73,9 @@ async function download(u: string, signal?: AbortSignal, retry = 1): Promise<Arr
 }
 
 async function tileList(token: string, x: number, y: number, signal?: AbortSignal, strict = false): Promise<Entry[]> {
+  if(signal?.aborted)throw new DOMException('Survey batch stopped','AbortError');
+  const id=x+','+y,hit=listsCache.get(id);
+  if(hit&&Date.now()-hit.at<5*60*1000){listsCache.delete(id);listsCache.set(id,hit);return hit.entries;}
   const b = await bytes(url(token, x, y), signal).catch(err => { if (strict) throw err; return null; });
   if (!b || b.byteLength < 16) { if (strict) throw new Error('Invalid building list'); return []; }
   const r = new Reader(b);
@@ -73,10 +84,12 @@ async function tileList(token: string, x: number, y: number, signal?: AbortSigna
   for (let i = 0; i < n; i++) {
     r.o += 4; r.u8();
     const key = r.str(), lon = r.f64(), lat = r.f64();
-    r.f32(); r.o += 48; r.u8();
+    r.f32(); const box=Array.from({length:6},()=>r.f64()); r.u8();
     const data = r.str(); r.str();
-    out.push({ key, lon, lat, data, x, y });
+    out.push({ key, lon, lat, data, x, y,box });
   }
+  listsCache.set(id,{at:Date.now(),entries:out});
+  while(listsCache.size>128)listsCache.delete(listsCache.keys().next().value!);
   return out;
 }
 
@@ -93,6 +106,9 @@ function hull(pts: [number, number][]) {
 }
 
 async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex: number, signal?: AbortSignal, photo = false): Promise<PhotoBuilding | null> {
+  if(signal?.aborted)throw new DOMException('Survey batch stopped','AbortError');
+  const cacheKey=e.x+','+e.y+':'+e.data+':'+lat0+','+lon0;
+  if(!photo){const hit=shapeCache.get(cacheKey);if(hit)return hit;}
   const b = await bytes(url(token, e.x, e.y, e.data), signal);
   const r = new Reader(b);
   r.u8(); r.u32(); r.str();
@@ -103,6 +119,11 @@ async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex
   const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [];
   let img = "", thumbnail: ArrayBuffer | null = null;
   const cl = Math.cos((lat0 * Math.PI) / 180), la0 = (lat0 * Math.PI) / 180, lo0 = (lon0 * Math.PI) / 180;
+  // Registered buildings, roads and flight tiles use this same local frame.
+  // R * latitudeRadians diverged from 110540 * latitudeDegrees by ~7m/km,
+  // causing correct models to fail matching/road guards as the drone moved.
+  const degrees=180/Math.PI,kx=111320*cl,ky=110540;
+  const sx=111320/(R*Math.PI/180),sy=ky/(R*Math.PI/180);
   for (let f = 0; f < faces; f++) {
     const nv = r.u32(), base = pos.length / 3;
     for (let i = 0; i < nv; i++) {
@@ -110,11 +131,13 @@ async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex
       const nx = r.f32(), ny = r.f32(), nz = r.f32();
       const u = r.f32(), v = r.f32();
       const rr = Math.hypot(vx, vy, vz), lam = Math.atan2(-vy, vx), phi = Math.asin(vz / rr);
-      pos.push(R * cl * (lam - lo0), R * (phi - la0), rr - R);
+      pos.push(kx * degrees * (lam - lo0), ky * degrees * (phi - la0), rr - R);
       // (the normal in the same frame: rotate the world vector into east, north, up)
       const sl = Math.sin(lam), cln = Math.cos(lam), sp = Math.sin(phi), cp = Math.cos(phi);
       const wx = nx, wy = -ny, wz = nz;   // back to a right-handed ECEF-like frame
-      nor.push(-sl * wx + cln * wy, -sp * cln * wx - sp * sl * wy + cp * wz, cp * cln * wx + cp * sl * wy + sp * wz);
+      const ex=(-sl * wx + cln * wy)/sx,ny_=(-sp * cln * wx - sp * sl * wy + cp * wz)/sy,nz_=cp * cln * wx + cp * sl * wy + sp * wz;
+      const length=Math.hypot(ex,ny_,nz_)||1;
+      nor.push(ex/length,ny_/length,nz_/length);
       uv.push(u, v);
     }
     const ni = r.u32();
@@ -148,7 +171,9 @@ async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex
   g.setIndex(idx);
   g.computeBoundingSphere();
   const texture = img && photo ? await photoTexture(() => bytes(url(token, e.x, e.y, img), signal), thumbnail, maxTex, signal) : null;
-  return { key: e.key, geometry: g, texture, cx, cy, ground: zmin, hull: h, src: { x: e.x, y: e.y, img } };
+  const result={ key: e.key, geometry: g, texture, cx, cy, ground: zmin, hull: h, src: { x: e.x, y: e.y, img } };
+  if(!photo)shapeCache.put(cacheKey,result);
+  return result;
 }
 
 /** Some surveyed JPEGs no longer exist on XDServer. Their XDO still includes the original
@@ -206,7 +231,7 @@ export async function photoBuildings(key: string, lat0: number, lon0: number, ra
 /** The surveyed shapes near some points only (the 1 km ring's apartment blocks): the tiles that
  * hold the points, and of their buildings those within 40 m of one, shapes only (no photograph),
  * nearest first, four at a time. Points in local metres about (lat0, lon0). */
-export async function photoBuildingsNear(key: string, lat0: number, lon0: number, points: { x: number; y: number }[], opts: { signal?: AbortSignal; onBuilding?: (b: PhotoBuilding) => void; onFailure?: () => void; deadlineMs?: number } = {}): Promise<PhotoBuilding[]> {
+export async function photoBuildingsNear(key: string, lat0: number, lon0: number, points: { x: number; y: number }[], opts: { signal?: AbortSignal; onBuilding?: (b: PhotoBuilding) => void; onFailure?: (failure:SurveyFailure) => void; deadlineMs?: number;outlines?:readonly (readonly (readonly number[])[])[] } = {}): Promise<PhotoBuilding[]> {
   if (!points.length) return [];
   // One stalled file must not discard all successful models when the enclosing
   // worker deadline expires. Return the completed subset and retry the remainder.
@@ -214,38 +239,23 @@ export async function photoBuildingsNear(key: string, lat0: number, lon0: number
   const abort = () => ctl?.abort();
   if (ctl) { opts.signal?.addEventListener('abort',abort,{once:true}); if(opts.signal?.aborted)ctl.abort(); }
   const signal = ctl?.signal ?? opts.signal;
-  const timer = ctl ? setTimeout(()=>{opts.onFailure?.();ctl.abort();},opts.deadlineMs) : undefined;
+  const timer = ctl ? setTimeout(()=>ctl.abort(),opts.deadlineMs) : undefined;
   try {
   const token = await vworldToken(key);
   if(signal?.aborted)throw new DOMException('Survey batch stopped','AbortError');
   const kx = 111320 * Math.cos((lat0 * Math.PI) / 180), ky = 110540;
-  const tiles = new Map<string, [number, number]>(), cell = new Set<string>();
-  for (const q of points) {
-    const lon = lon0 + q.x / kx, lat = lat0 + q.y / ky;
-    const tx = Math.floor((lon + 180) / SIZE), ty = Math.floor((lat + 90) / SIZE);
-    tiles.set(tx + "," + ty, [tx, ty]);
-    cell.add(Math.round(q.x / 40) + "," + Math.round(q.y / 40));
-  }
-  const near = (x: number, y: number) => { const a = Math.round(x / 40), b = Math.round(y / 40); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) if (cell.has(a + i + "," + (b + j))) return true; return false; };
-  const lists = await Promise.all([...tiles.values()].map(([x, y]) => tileList(token, x, y, signal, !!opts.onFailure).catch(() => { opts.onFailure?.(); return []; })));
-  const seen = new Set<string>(), entries: Entry[] = [];
-  for (const e of lists.flat()) {
-    if (seen.has(e.key)) continue;
-    seen.add(e.key);
-    if (near((e.lon - lon0) * kx, (e.lat - lat0) * ky)) entries.push(e);
-  }
-  entries.sort((a, b) => Math.hypot(a.lon - lon0, a.lat - lat0) - Math.hypot(b.lon - lon0, b.lat - lat0));
-  const out: PhotoBuilding[] = [];
-  let next = 0;
-  const run = async () => {
-    while (next < entries.length && !signal?.aborted) {
-      const e = entries[next++];
-      const b = await model(token, e, lat0, lon0, 0, signal, false).catch(() => { opts.onFailure?.(); return null; });
-      if (b) { out.push(b); opts.onBuilding?.(b); }
-    }
-  };
-  await Promise.all([run(), run(), run(), run()]);
-  return out;
+  const {tiles,near}=surveySearch(lat0,lon0,points,opts.outlines);
+  const lists = tiles.map(([x, y]) => tileList(token, x, y, signal, !!opts.onFailure).catch(() => {
+    opts.onFailure?.({kind:'list',box:[(x*SIZE-180-lon0)*kx,(y*SIZE-90-lat0)*ky,((x+1)*SIZE-180-lon0)*kx,((y+1)*SIZE-90-lat0)*ky]});return [];
+  }).then(entries=>entries.filter(e=>near((e.lon-lon0)*kx,(e.lat-lat0)*ky)&&surveySourceOverlaps(e.box,lat0,lon0,opts.outlines))));
+  // The selected records can be kilometres from the original scene centre.
+  // In partial/deadline batches their own nearest models must finish first.
+  const distance=(e:Entry)=>{const x=(e.lon-lon0)*kx,y=(e.lat-lat0)*ky;let d=Infinity;for(const p of points)d=Math.min(d,(p.x-x)**2+(p.y-y)**2);return d;};
+  return await downloadSurveyModels(lists,{signal,key:e=>e.key,rank:distance,
+    load:async e=>{
+      const b = await model(token, e, lat0, lon0, 0, signal, false).catch(() => { opts.onFailure?.({kind:'model',x:(e.lon-lon0)*kx,y:(e.lat-lat0)*ky}); return null; });
+      if(b)opts.onBuilding?.(b);return b;
+    },onPending:e=>opts.onFailure?.({kind:'model',x:(e.lon-lon0)*kx,y:(e.lat-lat0)*ky})});
   } finally { if(timer!==undefined)clearTimeout(timer);opts.signal?.removeEventListener('abort',abort); }
 }
 

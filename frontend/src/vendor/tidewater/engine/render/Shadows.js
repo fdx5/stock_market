@@ -175,14 +175,14 @@ export class SunShadows {
 	// cache layer; each later render copies that back and draws only the moving casters over
 	// it. A moving view renders every caster in one pass, as before (nothing is kept then:
 	// the copy would only add to its cost). Near cascades only (cacheLayers).
-	render( scene, meshRenderer, indices, timestamps = null, isDynamic = null ) {
+	render( scene, meshRenderer, indices, timestamps = null, isDynamic = null, casters = null ) {
 
 		for ( const i of indices ) {
 
 			const c = this.cascades[ i ];
 			setFrameCamera( c.camera, this.size, this.size, { block: c.block } );
 			const layer = this.texture.view( { dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 } );
-			const pass = ( extra ) => meshRenderer.render( scene, {
+			const pass = ( extra, objects = casters?.all ) => meshRenderer.render( scene, {
 				label: 'shadow cascade ' + i,
 				kind: 'depth',
 				timestampWrites: timestamps ? timestamps( i ) : undefined,
@@ -195,6 +195,7 @@ export class SunShadows {
 				layerMask: this.layerMask,
 				depthBias: 2,
 				depthBiasSlopeScale: 1.5,
+				objects,
 				...extra,
 			} );
 			const still = c.lastFit.equals( c.viewProj );
@@ -211,17 +212,17 @@ export class SunShadows {
 				this.idleRenders = 0;
 
 				this._copy( this.cache, this.texture, i );
-				pass( { filter: moving, clearDepth: null } );
+				pass( { filter: moving, clearDepth: null }, casters?.moving );
 
 			} else if ( still && c.stillFits >= 24 ) {
 				this.stats.store ++;
 
-				pass( { filter: ( o ) => ! isDynamic( o ) } );
+				pass( { filter: ( o ) => ! isDynamic( o ) }, casters?.still );
 				this.cache ??= new Texture( { label: 'sunShadowCache', width: this.size, height: this.size, depth: this.cacheLayers, dimension: '2d-array', format: 'depth32float', usage: [ 'copySrc', 'copyDst' ] } );
 				this._copy( this.texture, this.cache, i );
 				c.cached = true;
 				c.cacheVP.copy( c.viewProj );
-				pass( { filter: moving, clearDepth: null } );
+				pass( { filter: moving, clearDepth: null }, casters?.moving );
 
 			} else {
 

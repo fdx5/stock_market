@@ -2,6 +2,7 @@ import { sceneWorkerOnce } from "./sceneWorkerPool";
 import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
 import type { ContextStyle } from "./complexScene";
+import {buildingAppearanceProfile,type BuildingAppearance} from './buildingAppearance';
 
 /* The neighbourhood out to 1 km, after the first frame. The view's own data reaches ~290 m round
  * the complex; past that, every registered building (국토교통부 GIS건물통합정보, as the near ones)
@@ -18,10 +19,10 @@ import type { ContextStyle } from "./complexScene";
 /** What the building register (VWorld GIS건물통합정보) says of a sign's largest building: its parcel
  * (PNU, for the 건축물대장 card), 사용승인일, floors, height and floor area. */
 export type DroneLabelInfo = { /** the building's centre (view frame, m) */ bx?: number; by?: number; pnu?: string; approved?: string; floors?: number; basements?: number; height?: number; area?: number; dong?: string };
-export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo };
+export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital" | "station"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo };
 /** The styles in the order RingResult.towers names them. */
 export const SURVEY_STYLES: ContextStyle[] = ["apt", "villa", "shop", "office"];
-export type RingStyleArrays = { position: Float32Array; normal: Float32Array; uv: Float32Array; color: Float32Array; index: Uint32Array };
+export type RingStyleArrays = { position: Float32Array; normal: Float32Array; uv: Float32Array; color: Float32Array; facade?:Float32Array; index: Uint32Array };
 export type RingResult = {
   styles: Partial<Record<ContextStyle, RingStyleArrays>>; buildings: number; ms: number;
   footprints: [number,number][][];
@@ -30,7 +31,7 @@ export type RingResult = {
    * surveyed shape can take its place (ComplexHologram). */
   apts: Float32Array;
   /** The blocks worth their surveyed shape — every building of
-   * 5 storeys and up — nine numbers each: centre x, y, height, ground, where its triangles lie in
+   * 2 storeys and up — nine numbers each: centre x, y, height, ground, where its triangles lie in
    * its style's mesh (start, count), the style (SURVEY_STYLES index), its outline (spanRings
    * index) and its area. */
   towers?: Float32Array;
@@ -41,6 +42,7 @@ export type RingResult = {
   /** Per building drawn, its style (SURVEY_STYLES index), walls' first vertex and
    * count, roof's first vertex and count (5 each), and its outline (spanRings, same order). */
   spans?: Float32Array; spanRings?: number[][][];
+  appearances?:BuildingAppearance[];
   /** Box mode only (the drone's tiles): every building over the box (those straddling its edge
    * too) as roof heights on a `heightCell` grid, x east from box[0], y north from box[1]; -1e4
    * where none stands. */
@@ -61,7 +63,7 @@ type RingJob = {
   heightCell?: number;
 };
 
-function ringWorkerMain() {
+function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile) {
   const SINK = 3, FLOOR_M = 2.9, GROUND_M = 1.5;
   const BRICK = [[0.62, 0.38, 0.3], [0.66, 0.43, 0.34], [0.56, 0.34, 0.27], [0.7, 0.5, 0.4], [0.52, 0.33, 0.27], [0.74, 0.58, 0.47]];
   const STEEL = [[0.62, 0.7, 0.78], [0.55, 0.63, 0.71], [0.72, 0.77, 0.82], [0.6, 0.64, 0.66]];
@@ -81,7 +83,7 @@ function ringWorkerMain() {
     seed = ((Math.trunc(seed) % 2147483647) + 2147483647) % 2147483647 || 1;
     return () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
   };
-  type Buf = { p: number[]; n: number[]; u: number[]; c: number[]; i: number[] };
+  type Buf = { p: number[]; n: number[]; u: number[]; c: number[]; f:number[]; i: number[] };
   self.onmessage = (e: MessageEvent<RingJob>) => {
     const t0 = performance.now();
     const job = e.data, { lat, lon } = job;
@@ -101,13 +103,14 @@ function ringWorkerMain() {
     for (let k = 0; k < job.near.length; k += 2) near.add(Math.round(job.near[k] / 4) + "," + Math.round(job.near[k + 1] / 4));
     const known = (x: number, y: number) => { const a = Math.round(x / 4), b = Math.round(y / 4); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) if (near.has(a + i + "," + (b + j))) return true; return false; };
     const bufs: Record<string, Buf> = {};
-    const buf = (s: string) => (bufs[s] ??= { p: [], n: [], u: [], c: [], i: [] });
+    const buf = (s: string) => (bufs[s] ??= { p: [], n: [], u: [], c: [], f:[], i: [] });
     const rnd = rng(job.seed + 7);
     const seen = new Set<string>();
     const apts: number[] = [], towers: number[] = [];
     // (box mode: each drawn building's vertices — style, walls start and count, roof start and
     // count — and its outline, for its colours read off the aerial photographs later)
     const spans: number[] = [], spanRings: number[][][] = [];
+    const appearances:BuildingAppearance[]=[];
     const STYLES = ["apt", "villa", "shop", "office"];
     let count = 0;
     // All the pages first: a record is judged against the others (vworldBuildings.withoutStrays).
@@ -307,9 +310,11 @@ function ringWorkerMain() {
       // concrete (2x) and the rest in the painted whites and beiges.
       const sc = String(props.strct_cd ?? "").trim().slice(0, 1);
       const brick = sc === "1", steel = sc === "3" && (style === "office" || style === "shop");
-      const tint = (brick ? BRICK : steel ? STEEL : TINTS)[Math.floor(rnd() * (brick ? BRICK : steel ? STEEL : TINTS).length)].slice();
-      const lift = brick || steel ? 0 : style === "office" ? 0.4 : style === "apt" ? 0.65 : 0;
-      for (let k = 0; k < 3; k++) tint[k] += (1 - tint[k]) * lift;
+      const profile=appearanceProfile({id:((lon+cx/kx).toFixed(6))+','+((lat+cy/ky).toFixed(6)),
+        title:props.bld_nm,name:props.dong_nm,use:props.usability,structureCode:props.strct_cd,structureName:props.strct_nm,
+        approved:parseInt(String(props.useapr_day??'').slice(0,4))||null,height,floors,style,ring});
+      const tint=profile.wall;
+      const appearance=[STYLES.indexOf(style)*8+profile.finish,profile.variant+(profile.layout??0)*8,profile.bay,profile.storey];
       // on its own ground: the lowest point under it, sunk 3 m (no gap on a slope)
       let ground = Infinity;
       for (const [x, y] of ring) ground = Math.min(ground, at(x, y));
@@ -326,7 +331,7 @@ function ringWorkerMain() {
         const alongX = Math.abs(ey) < Math.abs(ex);
         const base = b.p.length / 3;
         for (const [x, y, z] of [[ax, ay, bottom], [bx, by, bottom], [bx, by, top], [ax, ay, top]]) {
-          b.p.push(x, y, z); b.n.push(nx, ny, 0); b.u.push(alongX ? x : y, (1 - (z - ground)) * kv); b.c.push(tint[0], tint[1], tint[2]);
+          b.p.push(x, y, z); b.n.push(nx, ny, 0); b.u.push((alongX ? x : y)/profile.bay,(z-ground)/profile.storey); b.c.push(tint[0], tint[1], tint[2]);b.f.push(...appearance);
         }
         b.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
       }
@@ -337,7 +342,7 @@ function ringWorkerMain() {
         const alongX = Math.abs(ey) < Math.abs(ex);
         const hb = b.p.length / 3;
         for (const [x, y, z] of [[ax, ay, bottom], [bx, by, bottom], [bx, by, top], [ax, ay, top]]) {
-          b.p.push(x, y, z); b.n.push(nx, ny, 0); b.u.push(alongX ? x : y, (1 - (z - ground)) * kv); b.c.push(tint[0], tint[1], tint[2]);
+          b.p.push(x, y, z); b.n.push(nx, ny, 0); b.u.push((alongX ? x : y)/profile.bay,(z-ground)/profile.storey); b.c.push(tint[0], tint[1], tint[2]);b.f.push(...appearance);
         }
         b.i.push(hb, hb + 1, hb + 2, hb, hb + 2, hb + 3);
       }
@@ -345,7 +350,7 @@ function ringWorkerMain() {
       // cut out of it
       const roofRing = holes.length ? bridged(ring, holes) : ring;
       const base = b.p.length / 3;
-      for (const [x, y] of roofRing) { b.p.push(x, y, top); b.n.push(0, 0, 1); b.u.push(x, y); b.c.push(tint[0], tint[1], tint[2]); }
+      for (const [x, y] of roofRing) { b.p.push(x, y, top); b.n.push(0, 0, 1); b.u.push(x/profile.bay,y/profile.storey); b.c.push(...profile.roof);b.f.push(...appearance); }
       const idx = roofRing.map((_, k) => k);
       const cross = (o: number[], p: number[], q: number[]) => (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
       let guard = idx.length * idx.length + 16;
@@ -371,17 +376,18 @@ function ringWorkerMain() {
       }
       if (idx.length === 3) b.i.push(base + idx[0], base + idx[1], base + idx[2]);
       spans.push(STYLES.indexOf(style), vWalls, base - vWalls, base, roofRing.length); spanRings.push(ring);
+      appearances.push(profile);
       if (style === "apt" && floors >= 5) apts.push(cx, cy, height, ground, iStart, b.i.length - iStart);
       // (every building of five storeys and up, and the large complexes: their real plan, setbacks
       // and rooftop; lower ones keep their registered outline, which is most of their shape)
-      if (floors >= 5 || Math.abs(area) >= 6000) towers.push(cx, cy, height, ground, iStart, b.i.length - iStart, STYLES.indexOf(style), spanRings.length - 1, area);
+      if (floors >= 2 || Math.abs(area) >= 6000) towers.push(cx, cy, height, ground, iStart, b.i.length - iStart, STYLES.indexOf(style), spanRings.length - 1, area);
       count++;
     }
     const styles: Record<string, unknown> = {}, transfer: ArrayBuffer[] = [];
     for (const [s, b] of Object.entries(bufs)) {
-      const o = { position: new Float32Array(b.p), normal: new Float32Array(b.n), uv: new Float32Array(b.u), color: new Float32Array(b.c), index: new Uint32Array(b.i) };
+      const o = { position: new Float32Array(b.p), normal: new Float32Array(b.n), uv: new Float32Array(b.u), color: new Float32Array(b.c), facade:new Float32Array(b.f), index: new Uint32Array(b.i) };
       styles[s] = o;
-      transfer.push(o.position.buffer, o.normal.buffer, o.uv.buffer, o.color.buffer, o.index.buffer);
+      transfer.push(o.position.buffer, o.normal.buffer, o.uv.buffer, o.color.buffer,o.facade.buffer, o.index.buffer);
     }
     const aptArr = new Float32Array(apts);
     transfer.push(aptArr.buffer);
@@ -394,7 +400,7 @@ function ringWorkerMain() {
     const labels = box ? [...labelAt.values()].filter(e => (e.kind !== "apt" || e.n >= 2 || e.tall >= 45) && !/[?\uFFFD]/.test(e.name))
       .map(e => ({ name: e.name, kind: e.kind, x: e.x / e.area, y: e.y / e.area, top: e.top, n: e.n, info: e.info })) : undefined;
     if (towerArr) transfer.push(towerArr.buffer);
-    (self as unknown as Worker).postMessage({ styles, buildings: count, ms: performance.now() - t0, apts: aptArr, footprints:cands.map(c=>c.ring), roofs, towers: towerArr, labels, spans: new Float32Array(spans), spanRings }, transfer);
+    (self as unknown as Worker).postMessage({ styles, buildings: count, ms: performance.now() - t0, apts: aptArr, footprints:cands.map(c=>c.ring), roofs, towers: towerArr, labels, spans: new Float32Array(spans), spanRings,appearances }, transfer);
   };
 }
 
@@ -418,7 +424,7 @@ export function ringBuildings(data: RealEstateBuildingsResponse, near: Float32Ar
     key: data.vworld_key!, domain: data.vworld_domain ?? "https://kospimap.com", data: "LT_C_BLDGINFO", geomFilter: box,
     size: "1000", page: String(i + 1), format: "json", callback: "ringCb",
   }));
-  const src = `(${ringWorkerMain.toString()})()`;
+  const src = `(${ringWorkerMain.toString()})(${buildingAppearanceProfile.toString()})`;
 
   const job: RingJob = {
     urls, lat, lon, inner: opts.inner ?? 0, outer, near, seed: opts.seed, roads: new Float32Array(segs), clearedSite:data.cleared_site,
@@ -444,5 +450,5 @@ export function ringTile(lat: number, lon: number, key: string, domain: string |
     urls, lat, lon, inner: opts.inner, outer: Infinity, near: new Float32Array(0), seed: opts.seed, roads: new Float32Array(0),
     grid, floorM: opts.floorM, box, heightCell: opts.heightCell ?? 2,
   };
-  return sceneWorkerOnce<RingResult>(() => new Worker(ringWorkerUrl(`(${ringWorkerMain.toString()})()`)), job, opts.signal);
+  return sceneWorkerOnce<RingResult>(() => new Worker(ringWorkerUrl(`(${ringWorkerMain.toString()})(${buildingAppearanceProfile.toString()})`)), job, opts.signal);
 }

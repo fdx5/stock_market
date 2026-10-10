@@ -50,7 +50,7 @@ test('one-shot worker has an abort/deadline and rejects already aborted input be
 });
 
 function fn(file,name){const source=readFileSync(new URL('../src/components/'+file+'.ts',import.meta.url),'utf8'),ast=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true);return ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name||ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>d.name.getText(ast)===name)).getText(ast).replace(/^export /,'');}
-const networkBundle=await build({stdin:{contents:"export {splitRoadJunctions} from './src/components/roadTrafficNetwork';export {roadLaneCount} from './src/components/roadLanes';export * from './src/components/roadLevels';export {junctionSignalPolicy} from './src/components/trafficJunction';",resolveDir:new URL('..',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')},bundle:true,write:false,platform:'node',format:'esm'});
+const networkBundle=await build({stdin:{contents:"export {trafficPathSampler} from './src/components/trafficPathSample';export {splitRoadJunctions} from './src/components/roadTrafficNetwork';export {roadLaneCount} from './src/components/roadLanes';export * from './src/components/roadLevels';export {junctionSignalPolicy} from './src/components/trafficJunction';",resolveDir:new URL('..',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')},bundle:true,write:false,platform:'node',format:'esm'});
 const net=await import('data:text/javascript;base64,'+Buffer.from(networkBundle.outputFiles[0].text).toString('base64'));
 test('actual road arms are prepared even while vehicle downloads never resolve',async()=>{
   let arms,kitCalls=0,failure;

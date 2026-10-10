@@ -1,6 +1,7 @@
 import { frameSlice } from "./frameSlice";
+import {trafficPathSampler} from './trafficPathSample';
 import {surfaceGeometry} from './surfaceGeometry';
-import { vehicleOverlap, VehicleTrajectoryCache, VehiclePathHitCache, VehicleHeightCache, VehicleBuckets, collisionFreeTravel, missesTrajectory } from "./trafficCollision";
+import { vehicleOverlap, VehicleTrajectoryCache, VehiclePathHitCache, VehicleHeightCache, VehicleBuckets, collisionFreeTravel, missesTrajectory,straightVehicleHit } from "./trafficCollision";
 import { onSceneMemoryRelease } from "./sceneMemory";
 import * as THREE from "three";
 import {flushInstanceAttribute,setInstanceMatrix} from './instanceDirty';
@@ -607,41 +608,22 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const paths = usable.map(r => {
     const cum = [0];
     for (let i = 1; i < r.line.length; i++) cum.push(cum[i - 1] + Math.hypot(r.line[i][0] - r.line[i - 1][0], r.line[i][1] - r.line[i - 1][1]));
-    return { ...r, lanes:roadLaneCount(r), cum, len: cum[cum.length - 1] };
+    return { ...r, lanes:roadLaneCount(r), cum, len: cum[cum.length - 1],sample:trafficPathSampler(r.line.map(p=>p[0]),r.line.map(p=>p[1]),cum) };
   }).filter(p => p.len > 0.5); // short pieces stay: they carry the network across
   if (!paths.length) return null;
 
   // ---- The network: nodes where road ends meet, T-junctions, signals ----
   // Lanes per direction: the registered count split both ways, but only as many as
   // fit at 3 m or wider (some registered counts exceed what the width allows).
-  const lanesOf = (road: number) => { const p = paths[road]; return Math.max(1, Math.min(Math.floor(Math.max(2, p.lanes) / 2), Math.floor(p.width / 2 / 3))); };
-  const laneWidth = (road: number) => Math.max(3, paths[road].width / 2 / lanesOf(road));
+  const laneCounts=paths.map(p=>Math.max(1,Math.min(Math.floor(Math.max(2,p.lanes)/2),Math.floor(p.width/2/3))));
+  const laneWidths=paths.map((p,i)=>Math.max(3,p.width/2/laneCounts[i]));
+  const lanesOf = (road: number) => laneCounts[road];
+  const laneWidth = (road: number) => laneWidths[road];
   /** Point at centreline distance d along a road, and the forward unit direction there. The
    * direction eases from one segment's to the next over a few metres either side of each bend
    * (a surveyed curve is a polyline: taken segment by segment, a vehicle turned in steps, and
    * its lane, offset along the turned direction, jumped). */
-  const segDir = (p: (typeof paths)[number], i: number) => {
-    const [ax, ay] = p.line[i - 1], [bx, by] = p.line[i], seg = p.cum[i] - p.cum[i - 1] || 1;
-    return [(bx - ax) / seg, (by - ay) / seg];
-  };
-  const bendR = (p: (typeof paths)[number], i: number) => Math.min(4, 0.45 * (p.cum[i] - p.cum[i - 1]), 0.45 * (p.cum[i + 1] - p.cum[i]));
-  const at = (p: (typeof paths)[number], d: number) => {
-    let i = 1;
-    const last = p.cum.length - 1;
-    while (i < last && p.cum[i] < d) i++;
-    const [ax, ay] = p.line[i - 1], [bx, by] = p.line[i];
-    const seg = p.cum[i] - p.cum[i - 1] || 1, t = Math.min(1, Math.max(0, (d - p.cum[i - 1]) / seg));
-    let [ux, uy] = segDir(p, i);
-    const blend = (o: number[], w: number) => {   // w: this segment's share, 0.5 at the bend
-      w = w * w * (3 - 2 * w);
-      const x = ux * w + o[0] * (1 - w), y = uy * w + o[1] * (1 - w), l = Math.hypot(x, y) || 1;
-      ux = x / l; uy = y / l;
-    };
-    const into = d - p.cum[i - 1], left = p.cum[i] - d;
-    if (i > 1) { const r = bendR(p, i - 1); if (r > 0.05 && into < r) blend(segDir(p, i - 1), 0.5 + 0.5 * Math.max(0, into) / r); }
-    if (i < last) { const r = bendR(p, i); if (r > 0.05 && left < r) blend(segDir(p, i + 1), 0.5 + 0.5 * Math.max(0, left) / r); }
-    return { x: ax + (bx - ax) * t, y: ay + (by - ay) * t, ux, uy };
-  };
+  const at = (p: (typeof paths)[number], d: number) => p.sample.road(d);
   /** Unit heading of travel at the end a vehicle is driving towards. */
   const headingIn = (road: number, forward: boolean) => {
     const p = paths[road], a = at(p, forward ? p.len : 0);
@@ -1327,8 +1309,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     else if (c.inConn) {
       connAt(c.conn,c.u);c.x=pose.x;c.y=pose.y;c.hx=pose.hx;c.hy=pose.hy;
     } else {
-      const pt = lanePt(c.road, c.forward, c.s, c.lane);
-      c.x = pt.x; c.y = pt.y; c.hx = pt.hx; c.hy = pt.hy;
+      laneAt(c.road,c.forward,c.s,c.lane);
+      c.x=pose.x;c.y=pose.y;c.hx=pose.hx;c.hy=pose.hy;
     }
     // On the terrain, pitched to the slope under its wheelbase.
     const reach = c.length * 0.35;
@@ -1363,20 +1345,15 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   /** Where a vehicle's middle will be `d` metres on along its own way — its lane, its connector
    * through the junction, the lane that joins — and its heading there (into `pose`). */
   const pose = { x: 0, y: 0, hx: 1, hy: 0 };
+  const turnSamplers=new WeakMap<Conn,ReturnType<typeof trafficPathSampler>>();
   const connAt = (cn: Conn, u: number) => {
-    let i = 1;
-    while (i < cn.cum.length - 1 && cn.cum[i] < u) i++;
-    const seg = cn.cum[i] - cn.cum[i - 1] || 1, t = Math.max(0, Math.min(1, (u - cn.cum[i - 1]) / seg));
-    const dx = cn.xs[i] - cn.xs[i - 1], dy = cn.ys[i] - cn.ys[i - 1], li = Math.hypot(dx, dy) || 1;
-    pose.x = cn.xs[i - 1] + dx * t; pose.y = cn.ys[i - 1] + dy * t;
-    const n=cn.cum.length-1,j=t<.5?Math.max(1,i-1):Math.min(n,i+1),w=t<.5?.5+t:1.5-t;
-    const ox=cn.xs[j]-cn.xs[j-1],oy=cn.ys[j]-cn.ys[j-1],lo=Math.hypot(ox,oy)||1;
-    const hx=dx/li*w+ox/lo*(1-w),hy=dy/li*w+oy/lo*(1-w),l=Math.hypot(hx,hy)||1;
-    pose.hx=hx/l;pose.hy=hy/l;
+    let sampler=turnSamplers.get(cn);if(!sampler){sampler=trafficPathSampler(cn.xs,cn.ys,cn.cum,true);turnSamplers.set(cn,sampler);}sampler.turn(u,pose);
   };
+  const centrePose={x:0,y:0,ux:1,uy:0};
   const laneAt = (road: number, forward: boolean, sv: number, lane: number) => {
-    const p = lanePt(road, forward, sv, lane);
-    pose.x = p.x; pose.y = p.y; pose.hx = p.hx; pose.hy = p.hy;
+    const p=paths[road],pt=p.sample.road(forward?sv:p.len-sv,centrePose),hx=forward?pt.ux:-pt.ux,hy=forward?pt.uy:-pt.uy;
+    const off=(Math.min(lane,lanesOf(road)-1)+.5)*laneWidth(road);
+    pose.x=pt.x+hy*off;pose.y=pt.y-hx*off;pose.hx=hx;pose.hy=hy;
   };
   const poseAhead = (c: Car, d: number) => {
     const cn = c.conn;
@@ -1391,6 +1368,24 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // bodies. Cache those exact double-precision poses until its travel state changes.
   const trajectories = new VehicleTrajectoryCache<Car>();
   const stoppedPathHits = new VehiclePathHitCache<Car>();
+  const linearBody={x:0,y:0,hx:1,hy:0,length:0,width:0};
+  const linearPose=(d:number)=>{poseAhead(linearCar,d);return pose;};let linearCar:Car;
+  // This envelope covers the continuous lane/connector trajectory, including
+  // eased headings. Both metre look-ahead and sub-metre actual travel can reject
+  // only bodies outside it before running their unchanged precise SAT tests.
+  const continuousBounds=(c:Car,reach:number,length:number,width:number)=>{
+    if(c.manual)return undefined;
+    if(!c.inConn&&c.s+reach<=c.conn.endS){
+      const p=paths[c.road],a=c.forward?c.s:p.len-c.s,b=c.forward?c.s+reach:p.len-c.s-reach;
+      const offset=(Math.min(c.lane,lanesOf(c.road)-1)+.5)*laneWidth(c.road)*(c.forward?1:-1);
+      return trajectories.bounds(c,reach,length,width,()=>p.sample.bounds(a,b,offset,length,width));
+    }
+    if(c.inConn&&c.u+reach<=Math.min(c.conn.len,c.conn.cum[c.conn.cum.length-1])){
+      let sampler=turnSamplers.get(c.conn);if(!sampler){sampler=trafficPathSampler(c.conn.xs,c.conn.ys,c.conn.cum,true);turnSamplers.set(c.conn,sampler);}
+      return trajectories.bounds(c,reach,length,width,()=>sampler!.bounds(c.u,c.u+reach,0,length,width));
+    }
+    return undefined;
+  };
   /** How far (m) this vehicle can go along its own way before its body meets the other's as it
    * stands (Infinity: not within `reach`); followed along the lane and through the turn it will
    * really take, not straight on from its heading (a turn swept straight on across the waiting
@@ -1401,6 +1396,15 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return computePathHits(c,o,reach);
   };
   const computePathHits = (c: Car, o: Car, reach: number) => {
+    const envelope=continuousBounds(c,reach,c.length,c.width+.3);
+    if(envelope&&missesTrajectory(envelope,o))return Infinity;
+    if(!c.inConn&&!c.manual&&c.s+reach<=c.conn.endS&&sameRoadLevel(paths[c.road],paths[o.road])&&sameRoadLevel(paths[c.road],paths[c.conn.link.road])){
+      const p=paths[c.road],a=c.forward?c.s:p.len-c.s,b=c.forward?c.s+reach:p.len-c.s-reach;
+      if(p.sample.straight(a,b)){
+        linearBody.x=c.x;linearBody.y=c.y;linearBody.hx=c.hx;linearBody.hy=c.hy;linearBody.length=c.length;linearBody.width=c.width+.3;linearCar=c;
+        const hit=straightVehicleHit(linearBody,o,reach,linearPose);if(hit!==null)return hit;
+      }
+    }
     const sweep = trajectories.sweep(c, reach, pose, poseAhead, c.length, c.width + .3);
     if (missesTrajectory(sweep, o)) return Infinity;
     const samples = sweep.values;
@@ -1606,8 +1610,13 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         const radius=Math.ceil((c.length+proposed+20)/NEAR);
         for(let i=gx-radius;i<=gx+radius;i++)for(let j=gy-radius;j<=gy+radius;j++)nearby.push(...(bodies.get(i*4096+j)??[]));
         const heightAware=!sameRoadLevel(paths[c.road],paths[c.conn.link.road])||nearby.some(o=>!sameRoadLevel(paths[c.road],paths[o.road]));
+        const envelope=continuousBounds(c,proposed,c.length+.06,c.width+.06);
+        if(envelope){
+          let kept=0;for(const o of nearby)if(o!==c&&!missesTrajectory(envelope,o))nearby[kept++]=o;
+          nearby.length=kept;
+        }
         const swept={x:0,y:0,z:undefined as number|undefined,hx:0,hy:0,length:c.length,width:c.width};
-        adv=collisionFreeTravel(proposed,d=>{poseAhead(c,d);swept.x=pose.x;swept.y=pose.y;swept.hx=pose.hx;swept.hy=pose.hy;swept.z=heightAware?heightAhead(c,d,pose.x,pose.y):undefined;return swept;},nearby,c);
+        adv=nearby.length?collisionFreeTravel(proposed,d=>{poseAhead(c,d);swept.x=pose.x;swept.y=pose.y;swept.hx=pose.hx;swept.hy=pose.hy;swept.z=heightAware?heightAhead(c,d,pose.x,pose.y):undefined;return swept;},nearby,c):proposed;
       }
       if(adv+1e-6<proposed){c.speed=Math.min(c.speed,adv/Math.max(dt,.001));c.why='collision';}
       c.wheelDistance=(c.wheelDistance??0)+adv;

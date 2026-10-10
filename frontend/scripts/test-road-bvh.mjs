@@ -72,16 +72,35 @@ test('cached tyre samples preserve exact road planes, bridge levels, profiles an
   }
   return Number.isFinite(height)?height:undefined;
  };
+ const sampledCells=new Set();
  for(let i=0;i<4000;i++){
   const x=i%10===0?-18+(i%13)*3:random()*40-20,y=i%10===0?-12+(i%9)*3:random()*28-14;
+  sampledCells.add(Math.floor(x/2)+':'+Math.floor(y/2));
   for(const args of [[x,y],[x,y,4],[x,y,8,1,'bridge-a'],[x,y,16,2,'bridge-b'],[x,y,8,2,'bridge-a']])assert.equal(cached(...args),oracle(...args));
  }
- assert.ok(queries<100,`expected one BVH query per nearby cell, got ${queries} for 20,000 samples`);
+ assert.equal(queries,sampledCells.size,'each sampled asphalt cell performs one broad-phase query across all tyre/reference queries');
  const before=cached(-4,-4,8,1,'bridge-a');
  for(let i=0;i<g.attributes.position.count;i++)g.attributes.position.setY(i,g.attributes.position.getY(i)+1);
  g.attributes.position.needsUpdate=true;
  assert.equal(cached(-4,-4,8,1,'bridge-a'),oracle(-4,-4,8,1,'bridge-a'));assert.equal(cached(-4,-4,8,1,'bridge-a'),before+1);
  g.attributes.roadProfile.array.fill(99);g.attributes.roadProfile.needsUpdate=true;
  assert.equal(cached(-4,-4,8,1,'bridge-a'),undefined);
+ g.dispose();
+});
+test('dense asphalt sub-bins retain exact barycentric results at tiny triangle seams and stacked levels',()=>{
+ const positions=[],bounds=[],levels=[];
+ for(let x=0;x<4;x+=.25)for(let y=0;y<4;y+=.25)for(let layer=0;layer<2;layer++)for(const t of [[[x,y],[x+.25,y],[x,y+.25]],[[x+.25,y],[x+.25,y+.25],[x,y+.25]]]){
+  for(const [a,b] of t){positions.push(a,layer*8+a*.07+b*.11,-b);levels.push(layer);}
+  bounds.push(x,y,x+.25,y+.25);
+ }
+ const g=geometry(positions),tree=index([buildRoadBvhJs(Float32Array.from(bounds))]);g.setAttribute('roadLevel',new THREE.Float32BufferAttribute(levels,1));
+ const fast=roadSurfaceHeight(g,tree),plain=roadSurfaceHeight(g,{query(x,y){return tree.query(x,y,x,y);}});
+ // Fresh point-only samplers deliberately avoid a shared spatial bin, providing
+ // the original point BVH/narrow-phase oracle on every exact seam and random point.
+ for(let i=0;i<3000;i++){
+  const x=i%3===0?(i%17)*.25:random()*4,y=i%5===0?(i%17)*.25:random()*4;
+  const oracle=roadSurfaceHeight(g,{query(){return tree.query(x,y,x,y);}});
+  for(const a of [[x,y],[x,y,8,1],[x,y,4],[x,y,0,0]])assert.equal(fast(...a),oracle(...a));
+ }
  g.dispose();
 });

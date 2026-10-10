@@ -33,6 +33,14 @@ test('shared materials cannot admit an entire tile in one visible frame and none
   assert.equal(f.adapter.meshes.size,17);assert.equal(f.adapter.pending,false);
   assert.ok(f.objects.every(o=>f.adapter.meshes.get(o).geometry===o.geometry));
 });
+test('retiring an unused material releases it without clearing live photographed building pipelines',()=>{
+ const f=fixture(1),retired={id:99,dispose(){this.disposed=true;},uniformBlock:{}};
+ const source={userData:{}},live={compiled:true};f.adapter.materials.set(source,retired);
+ f.adapter.unusedAt=new Map([[source,-25000]]);f.adapter.renderer.pipelines.set('live-photo',live);
+ const forgotten=[];f.adapter.renderer.forgetMaterial=m=>forgotten.push(m);f.run();
+ assert.deepEqual(forgotten,[retired]);assert.equal(retired.disposed,true);assert.equal(f.adapter.materials.has(source),false);
+ assert.equal(f.adapter.renderer.pipelines.get('live-photo'),live);
+});
 
 test('geometry replacements keep their visible predecessors while bounded uploads finish',()=>{
   const f=fixture();for(let i=0;i<5;i++)f.run();
@@ -49,4 +57,14 @@ test('one costly admission progresses without admitting its siblings in the same
   const f=fixture(3,4);f.run();assert.equal(f.adapter.meshes.size,1);
   f.run();assert.equal(f.adapter.meshes.size,2);f.run();assert.equal(f.adapter.meshes.size,3);
   assert.equal(f.adapter.pending,false);
+});
+
+test('large full-detail uploads are spread across frames while every source array and predecessor is retained',()=>{
+ const f=fixture(5);f.objects.forEach(o=>{o.geometry={attributes:{position:{array:new Float32Array(300000)},facade:{array:new Float32Array(200000)}},index:{array:new Uint32Array(80000)}};});
+ f.run();assert.equal(f.adapter.meshes.size,1,'one model larger than the byte budget still progresses');
+ for(let i=1;i<5;i++){f.run();assert.equal(f.adapter.meshes.size,i+1);}
+ assert.equal(f.adapter.pending,false);
+ const previous=f.objects.map(o=>o.geometry);f.objects.forEach(o=>{o.geometry={attributes:{position:{array:new Float32Array(600000)}}};});
+ f.run();assert.equal(f.adapter.meshes.get(f.objects[1]).geometry,previous[1]);
+ for(let i=1;i<5;i++)f.run();assert.ok(f.objects.every(o=>f.adapter.meshes.get(o).geometry===o.geometry));
 });

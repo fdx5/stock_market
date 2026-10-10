@@ -6,6 +6,7 @@ import {BuildingClearance} from './BuildingClearance';
 import {stationKit} from './stationKit';
 import type {Clearance} from './railClearance';
 import {setInstanceMatrix} from '../components/instanceDirty';
+import type {DroneLabel} from '../components/ringBuildings';
 
 type Geometry={bed:Float32Array;steel:Float32Array;ties:Float32Array;piers:Float32Array;wire:Float32Array;poles:Float32Array};
 type Entry={source:RailCorridor;path:RailPath;line:RailLine;run:RailRun;group:THREE.Group;dispose:()=>void;built:{x:number;y:number};groundKey:string;ties:THREE.InstancedMesh;tieData:Float32Array};
@@ -24,7 +25,8 @@ export class SurfaceRailLayer {
   private inflight=new Set<string>();
   private wanted=new Set<string>();
   private retryAt=new Map<string,number>();
-  private labels=new Map<string,{sprite:THREE.Sprite;owners:Map<string,THREE.Vector3>}>();
+  private labels=new Map<string,{name:string;sprite:THREE.Sprite;owners:Map<string,THREE.Vector3>}>();
+  private signCache:DroneLabel[]|null=null;
   private jobs:{id:number;source:RailCorridor;eye:{x:number;y:number};at:number;groundKey?:string}[]=[];
   private running:typeof this.jobs[number]|null=null;
   private serial=0;private dead=false;private syncAt=-1;private detailAt=-1;
@@ -120,14 +122,14 @@ export class SurfaceRailLayer {
       if(stop.name==='역')continue;
       const key=line.id+':'+stop.name,p=samplePath(path,stop.d),position=new THREE.Vector3(p.x,p.h+8,-p.y);labelKeys.push(key);
       let label=this.labels.get(key);
-      if(!label){const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:this.stationLabel(stop.name,line.colour),depthTest:true,transparent:true}));sprite.scale.set(12,3,1);label={sprite,owners:new Map()};this.labels.set(key,label);this.group.add(sprite);}
+      if(!label){const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:this.stationLabel(stop.name,line.colour),depthTest:true,transparent:true}));sprite.scale.set(12,3,1);label={name:stop.name,sprite,owners:new Map()};this.labels.set(key,label);this.group.add(sprite);}
       label.owners.set(path.id,position);this.placeLabel(label);
     }
     return {source,path,line,run:makeRun(path,line),group,built,groundKey:'',ties,tieData:geo.ties,dispose:()=>{
       group.removeFromParent();geometries.forEach(g=>g.dispose());instances.forEach(i=>i.dispose());
       for(const f of source.facilities??[]){const station=this.stations.get(f.id);if(!station)continue;station.owners.delete(path.id);station.model?.dispose();station.model=null;if(!station.owners.size)this.stations.delete(f.id);else this.placeStation(station);}
       for(const key of labelKeys){const label=this.labels.get(key);if(!label)continue;label.owners.delete(path.id);
-        if(!label.owners.size){label.sprite.removeFromParent();label.sprite.material.map?.dispose();label.sprite.material.dispose();this.labels.delete(key);}else this.placeLabel(label);
+        if(!label.owners.size){label.sprite.removeFromParent();label.sprite.material.map?.dispose();label.sprite.material.dispose();this.labels.delete(key);this.signCache=null;}else this.placeLabel(label);
       }
     }};
   }
@@ -145,6 +147,12 @@ export class SurfaceRailLayer {
   }
   private placeLabel(label:{sprite:THREE.Sprite;owners:Map<string,THREE.Vector3>}){
     label.sprite.position.set(0,0,0);for(const p of label.owners.values())label.sprite.position.add(p);label.sprite.position.multiplyScalar(1/label.owners.size);
+    this.signCache=null;
+  }
+  /** Native/WebGL drone modes share screen-space signs with buildings. Cached
+   * until a corridor changes; no new textures or station scan per flight frame. */
+  stationLabels():DroneLabel[]{
+    return this.signCache??=Array.from(this.labels.values(),l=>({name:l.name.endsWith('역')?l.name:l.name+'역',kind:'station',x:l.sprite.position.x,y:-l.sprite.position.z,top:l.sprite.position.y,n:1}));
   }
   private stationLabel(name:string,colour:string){
     const canvas=document.createElement('canvas');canvas.width=384;canvas.height=96;const ctx=canvas.getContext('2d')!;
@@ -234,6 +242,7 @@ export class SurfaceRailLayer {
   dispose(){
     this.dead=true;this.stop.abort();this.worker?.terminate();this.clearance?.dispose();this.jobs=[];this.running=null;
     this.entries.forEach(e=>e.dispose());this.entries.clear();this.cache.clear();this.prisms=[];
+    this.signCache=null;
     for(const k of this.kits.values()){k.cab.dispose();k.car.dispose();k.far.dispose();k.kit.dispose();}this.kits.clear();
     this.group.removeFromParent();for(const r of [this.bedMat,this.railMat,this.tieMat,this.pierMat,this.tieGeo,this.pierGeo,this.poleGeo])r.dispose();
   }

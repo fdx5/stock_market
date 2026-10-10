@@ -15,6 +15,8 @@ complexes = {
     'changdong':'11320:창동:333:창동동아청솔',
     'uijeongbu':'41150:의정부동:724:의정부역센트럴자이앤위브캐슬',
     'cheongdam':'11680:청담동:106-7:에테르노청담',
+    'seondeok':'11320:쌍문동:263:선덕중학교',
+    'sinhak':'11320:방학동:460-5:서울신학초등학교',
 }
 if place not in complexes:
     raise SystemExit('Unknown public review place')
@@ -22,7 +24,7 @@ out = root / 'tmp/drone-performance-20261010' / label
 out.mkdir(parents=True, exist_ok=True)
 errors = []
 with sync_playwright() as p:
-    browser = p.chromium.launch(channel='chrome', headless=True)
+    browser = p.chromium.launch(channel='chrome', headless=True, args=['--mute-audio'])
     try:
         page = browser.new_page(viewport={'width':1440, 'height':1000})
         page.on('pageerror', lambda e: errors.append(str(e)[:300]))
@@ -31,6 +33,8 @@ with sync_playwright() as p:
         page.goto(f'http://127.0.0.1:{port}/drone-explore?'+urlencode(query), wait_until='domcontentloaded')
         ready = 'window.__drone?.world.region?.field && window.__holoNative?.shown' if place == 'haeundae' else 'window.__drone && window.__holoNative?.shown'
         page.wait_for_function(ready, timeout=90000)
+        if '--steady' in sys.argv:
+            page.wait_for_function("document.querySelector('.re-holo-stage')?.dataset.trafficArmedAt",timeout=120000)
         page.wait_for_timeout(5000)
         page.evaluate('''()=>{
           window.__qaCpu={};const track=(owner,key,label)=>{if(!owner?.[key])return;const f=owner[key];owner[key]=function(...a){const t=performance.now();try{return f.apply(this,a);}finally{const s=window.__qaCpu[label]??={count:0,total:0,max:0};const ms=performance.now()-t;s.count++;s.total+=ms;s.max=Math.max(s.max,ms);}};};
@@ -86,7 +90,7 @@ with sync_playwright() as p:
         parents={child:n['id'] for n in profile['nodes'] for child in n.get('children',[])}
         def frame_name(frame):
             file=frame['url'].split('/')[-1].split('?')[0]
-            return (frame['functionName'] or '(anonymous)')+' @ '+file+':'+str(frame['lineNumber']+1)
+            return (frame['functionName'] or '(anonymous)')+' @ '+file+':'+str(frame['lineNumber']+1)+':'+str(frame['columnNumber']+1)
         for node in profile.get('samples',[]):
             key=frame_name(nodes[node]);counts[key]=counts.get(key,0)+1
             chain=[];cursor=node

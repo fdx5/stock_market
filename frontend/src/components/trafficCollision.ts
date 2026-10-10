@@ -1,6 +1,30 @@
 export interface VehicleBody { x: number; y: number; z?:number; hx: number; hy: number; length: number; width: number }
 interface TravelState { conn: object; road: number; forward: boolean; lane: number; s: number; u: number; inConn: boolean }
 interface Pose { x: number; y: number; hx: number; hy: number }
+/** Exact integer-sample collision for a proven straight lane section. Intersect
+ * the same four SAT intervals, then confirm the candidate with the original
+ * pose calculation. Turns, grade crossings and moving manual vehicles bypass it. */
+export function straightVehicleHit(c:VehicleBody,o:VehicleBody,reach:number,poseAt:(d:number)=>Pose){
+ const aa=c.hx*c.hx+c.hy*c.hy,bb=o.hx*o.hx+o.hy*o.hy;
+ if(!Number.isFinite(aa+bb+reach)||aa===0||bb===0)return null;
+ const dx=o.x-c.x,dy=o.y-c.y,dot=Math.abs(c.hx*o.hx+c.hy*o.hy),cross=Math.abs(c.hy*o.hx-c.hx*o.hy);
+ const la=c.length/2,wa=c.width/2,lb=o.length/2,wb=o.width/2;
+ let lo=0,hi=Math.floor(reach);
+ const clip=(p:number,v:number,r:number)=>{
+  // Conservative tolerance leaves every floating-point touching case to SAT.
+  r+=1e-7;
+  if(v===0)return Math.abs(p)<=r;
+  const a=(p-r)/v,b=(p+r)/v;lo=Math.max(lo,Math.min(a,b));hi=Math.min(hi,Math.max(a,b));return lo<=hi+1e-7;
+ };
+ if(!clip(dx*c.hx+dy*c.hy,aa,la*aa+lb*dot+wb*cross)||!clip(dx*c.hy-dy*c.hx,0,wa*aa+lb*cross+wb*dot)
+  ||!clip(dx*o.hx+dy*o.hy,c.hx*o.hx+c.hy*o.hy,la*dot+wa*cross+lb*bb)
+  ||!clip(dx*o.hy-dy*o.hx,c.hx*o.hy-c.hy*o.hx,la*cross+wa*dot+wb*bb))return Infinity;
+ for(let d=Math.max(0,Math.ceil(lo-1e-7));d<=Math.min(Math.floor(reach),Math.floor(hi+1e-7));d++){
+  const p=poseAt(d);
+  if(vehicleOverlap(p.x,p.y,p.hx,p.hy,c.length,c.width,o))return d===0&&dx*c.hx+dy*c.hy<=0?Infinity:d;
+ }
+ return Infinity;
+}
 /** The same insertion-ordered map buckets, reused between simulation frames.
  * The number retained is bounded by the number of vehicles in this network. */
 export class VehicleBuckets<K,T> extends Map<K,T[]> {
@@ -22,7 +46,8 @@ export class VehicleHeightCache<T extends TravelState & VehicleBody> {
     return e.heights;
   }
 }
-interface TrajectorySweep { values: number[]; filled: number; length: number; width: number; minX: number; minY: number; maxX: number; maxY: number; degenerate: boolean }
+export interface TrajectoryBounds { minX:number;minY:number;maxX:number;maxY:number;degenerate:boolean }
+interface TrajectorySweep extends TrajectoryBounds { values: number[]; filled: number; length: number; width: number }
 
 /** Exact pair results for stationary road traffic. Every input to the path/body
  * test is checked; moving cars and height-dependent crossings bypass this cache. */
@@ -57,7 +82,7 @@ export function collisionFreeTravel(distance:number,poseAt:(d:number)=>VehicleBo
 }
 /** Exact trajectory samples reused across candidate bodies; no time-step reduction. */
 export class VehicleTrajectoryCache<T extends TravelState> {
-  private entries = new WeakMap<T, TravelState & { values: number[]; sweep?: TrajectorySweep }>();
+  private entries = new WeakMap<T, TravelState & { values: number[]; sweep?: TrajectorySweep; bound?:{reach:number;length:number;width:number;box:TrajectoryBounds} }>();
   /** Validate once for a whole synchronous sweep, rather than at each metre. */
   samples(c: T): number[] {
     return this.entry(c).values;
@@ -71,8 +96,14 @@ export class VehicleTrajectoryCache<T extends TravelState> {
       cached.conn = c.conn; cached.road = c.road; cached.forward = c.forward; cached.lane = c.lane;
       cached.s = c.s; cached.u = c.u; cached.inConn = c.inConn; cached.values.length = 0;
       cached.sweep = undefined;
+      cached.bound = undefined;
     }
     return cached;
+  }
+  bounds(c:T,reach:number,length:number,width:number,compute:()=>TrajectoryBounds){
+    const entry=this.entry(c),b=entry.bound;
+    if(b&&b.reach>=reach&&b.length===length&&b.width===width)return b.box;
+    const box=compute();entry.bound={reach,length,width,box};return box;
   }
   /** Bounds enclose every exact metre sample, including rotated bodies on curves.
    * Rejection only skips bodies that cannot meet any of those samples. */
@@ -116,7 +147,7 @@ export function vehicleOverlap(ax: number, ay: number, ahx: number, ahy: number,
   if (Math.abs(dx * b.hy - dy * b.hx) > (la * cross + wa * dot) + wb * bb) return false;
   return true;
 }
-export function missesTrajectory(sweep: TrajectorySweep, body: VehicleBody) {
+export function missesTrajectory(sweep: TrajectoryBounds, body: VehicleBody) {
   if (sweep.degenerate || (body.hx === 0 && body.hy === 0)) return false;
   const rx = (Math.abs(body.hx) * body.length + Math.abs(body.hy) * body.width) / 2;
   const ry = (Math.abs(body.hy) * body.length + Math.abs(body.hx) * body.width) / 2;

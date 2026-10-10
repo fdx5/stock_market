@@ -54,6 +54,12 @@ import { buildBoats, noBoatsReason, prepareWakes } from "./sceneBoats";
 import { buildKids, schoolBorders } from "./sceneKids";
 import type { Palette } from "./complexScene";
 import { convexHull, photoBuildings, photoBuildingsNear, photoColours, photoRhythm, photoWallPaint, surveyedShape, type PhotoBuilding, type WallPaint } from "./vworld3d";
+import {buildingAppearanceProfile,applyBuildingAppearance,surveyedAppearance} from './buildingAppearance';
+import {surveyAlignment} from './surveyBuildingMatch';
+import {mergedBuildingOwners,nearBuildingSource,type NearBuildingSource} from './nearBuildingTargets';
+import {surveyShapeModel} from './surveyShapeModel';
+import {sceneWorkerOnce} from './sceneWorkerPool';
+import type {FacadeResult} from './droneSurveyWorker';
 import { aerialColours } from "./aerial";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { DroneSession, type DroneHud } from "./droneMode";
@@ -248,6 +254,8 @@ type Stage = {
   /** Where this model's trees stand (view frame): the drone flies round them. */
   viewTrees: { near: [number, number][]; far: [number, number][] };
   viewBuildings?: DroneViewBuildings;
+  nearBuildings?:NearBuildingSource;
+  nearHandoff?:()=>void;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -1644,6 +1652,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (stage.drone) leaveDroneRef.current();
     stage.viewTrees = { near: [], far: [] };
     stage.viewBuildings = undefined;
+    stage.nearBuildings=undefined;
+    stage.nearHandoff=undefined;
     const came = hopRef.current?.id === complexId && data?.found && data.center && data.buildings.length ? hopRef.current : null;
     hopRef.current = null;
     let shift: THREE.Vector3 | null = null;
@@ -1762,6 +1772,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const T = Math.max((footprintRadius + 300) * 1.15, Math.max(maxX - minX, maxY - minY, 60) * 0.9 + 120);
     const reach = footprintRadius + 300;
     const tints = ["#f1ede4", "#e4e1da", "#d9d4ca", "#c9b8a4", "#b88f78", "#a9b3bb", "#e8e3d3", "#cfc9bd"];
+    // A manual take-off happens after this scene is built. Prepare the same
+    // per-building materials in the overview too, so entering drone mode cannot
+    // inherit the old shared green roofs or photograph-based facade path.
+    const constructedDrone=true;
+    const appearanceFor=(b:RealEstateBuilding,style?:string)=>buildingAppearanceProfile({...b,id:JSON.stringify(b.rings[0]),style,ring:b.rings[0]});
     const neighbours = data.context.filter(b => b.rings[0].some(([x, y]) => Math.hypot(x, y) <= reach));
     const groundJob = groundPlan(data, T, stage.hq ? 2048 : 1024, seed, pace, terrain.grid).then(plan => {
       if (!plan) return null;
@@ -1811,7 +1826,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     walls.push(...facades as THREE.MeshPhysicalMaterial[]);
     step("facades");
     if (!await pace(true)) return;
-    const roof = keep(new THREE.MeshStandardMaterial({ color: "#6f8174", roughness: 0.93 }));
+    const roof = keep(new THREE.MeshStandardMaterial({ color: "#77797a", roughness: 0.93 }));
     roof.userData.roofDetail = true;
     roof.userData.detail = "roof";
     const crown = keep(new THREE.MeshStandardMaterial({ color: palette.accent, roughness: 0.4, metalness: 0.45, emissive: palette.accent, emissiveIntensity: 0 }));
@@ -1887,6 +1902,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const add = (mat: THREE.Material, geo: THREE.BufferGeometry | undefined) => {
       if (!geo) return;
       if (!parts.has(mat)) parts.set(mat, []);
+      if(constructedDrone&&owner.startsWith('b')){
+        const b=data.buildings[Number(owner.slice(1))],profile=appearanceFor(b);
+        applyBuildingAppearance(geo,profile,terrain.base(b.rings[0]),mat!==walls[0]&&mat!==walls[1]);
+        mat=sharedContextMaterial(profile.style as ContextStyle);
+        if(!parts.has(mat))parts.set(mat,[]);
+      }
       parts.get(mat)!.push(own(geo));
     };
     const relief: THREE.Matrix4[] = [], reliefOwner: string[] = [];
@@ -1918,7 +1939,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const [caps, sides] = splitGroups(geo);
       add(roof, caps);
       if (isTower) add(walls[i % 2], sides);
-      else if (sides) ctxGeos.shop.push(own(tinted(sides, lowTint)));
+      else if (sides) ctxGeos.shop.push(own(constructedDrone?applyBuildingAppearance(sides,appearanceFor(b,'shop'),g):tinted(sides, lowTint)));
       // Picking only: never rendered, shares the group's transform.
       geo.clearGroups();
       const pick = new THREE.Mesh(keep(geo));
@@ -1989,7 +2010,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const c = new THREE.Color(tints[Math.floor(rnd() * tints.length)]);
       if (style === "office") c.lerp(new THREE.Color("#ffffff"), 0.4);
       if (style === "apt") c.lerp(new THREE.Color("#ffffff"), 0.65);
-      return { building: b, ground, style, floorM: CONTEXT_FLOOR_M[style], color: [c.r, c.g, c.b] as [number, number, number] };
+      const appearance=constructedDrone?appearanceFor(b,style):undefined;
+      return { building: b, ground, style, appearance,floorM: CONTEXT_FLOOR_M[style], color: appearance?.wall??[c.r, c.g, c.b] as [number, number, number] };
     });
     const neighbourJob = sceneWork('neighbours', { jobs: neighbourJobs,hybrid:hybridSceneEnabled() })?.catch(() => null);
 
@@ -2029,6 +2051,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!await pace()) return;
       const job = neighbourJobs[j], g = job.ground, style = job.style;
       const geo = neighbourGeometry(neighbourResult?.arrays[j] ?? neighbourArrays(job));
+      if(job.appearance)applyBuildingAppearance(geo,job.appearance,g);
       ctxGeos[style].push(own(geo));
       landmark(b);
       // Parapet: a 0.9 m upstand, 0.2 m thick, along every roof edge longer than 2 m.
@@ -2059,6 +2082,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const list = geos.filter(kept);
         if (!list.length) continue;
         const mesh = new THREE.Mesh(keep(mergeGeometries(list, false)!), mat);
+        mergedBuildingOwners(mesh,list);
         mesh.castShadow = mesh.receiveShadow = true;
         out.push(mesh);
       }
@@ -2067,6 +2091,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const unit = keep(new THREE.BoxGeometry(1, 1, 1));
         const ledges = new THREE.InstancedMesh(unit, low, reliefKept.length);
         reliefKept.forEach((m, j) => ledges.setMatrixAt(j, m));
+        ledges.userData.buildingInstances=reliefOwner.filter(owner=>!skip.has(owner));
         ledges.castShadow = ledges.receiveShadow = true;
         ledges.computeBoundingSphere();
         out.push(ledges);
@@ -2086,6 +2111,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const ctxMat = sharedContextMaterial(style);
         if (first) lit.windows.push(ctxMat);
         const ctxMesh = new THREE.Mesh(merged, ctxMat);
+        mergedBuildingOwners(ctxMesh,list);
         ctxMesh.castShadow = ctxMesh.receiveShadow = true;
         out.push(ctxMesh);
       }
@@ -2095,12 +2121,21 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const unit = keep(new THREE.BoxGeometry(1, 1, 1));
         const im = new THREE.InstancedMesh(unit, low, parKept.length);
         parKept.forEach((m, j) => im.setMatrixAt(j, m));
+        im.userData.buildingInstances=parapetOwner.filter(owner=>!skip.has(owner));
         im.castShadow = im.receiveShadow = true;
         im.computeBoundingSphere();
         out.push(im);
         disposables.push(im);
       }
       return out;
+    };
+    const publishNear=(objects:THREE.Object3D[])=>{
+      stage.nearBuildings=nearBuildingSource([
+        ...data.buildings.map((b,i)=>({owner:'b'+i,height:b.height,ground:terrain.base(b.rings[0]),outline:b.rings[0],appearance:appearanceFor(b)})),
+        ...neighbourJobs.map((j,i)=>({owner:'c'+i,height:j.building.height,ground:j.ground,outline:j.building.rings[0],appearance:j.appearance??appearanceFor(j.building,j.style)})),
+      ],objects);
+      stage.nearBuildings.roadGuard={key:complexId+':'+group.uuid,roads:roadFootprints(splitRoadJunctions(stitchedRoads(data.roads??[]),true)),
+        buildings:[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])]};
     };
     const releasePieces = () => {
       for (const geos of parts.values()) geos.forEach(g => g.dispose());
@@ -2163,13 +2198,21 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // (what the landmarks' areas add, for the ring to leave out: x, y pairs)
     const surveyedNear: number[] = [];
     const landmarksNear = data.center ? LANDMARKS.filter(lm => Math.hypot(...metresFrom(data.center!, lm.lat, lm.lon)) < RING_M + lm.radius) : [];
+    // Direct drone entry admits the original neighbourhood immediately. The
+    // overview's existing pass hands its remaining coarse owners to this same
+    // retryable queue once complete; it cannot strand initial apartment blocks.
+    const streamingNear=(autoDrone||!!stage.drone)&&!landmarksNear.length;
+    if(streamingNear)publishNear(assembled);
+    const nearPassStop=new AbortController();
+    disposables.push({dispose:()=>nearPassStop.abort()});
+    stage.nearHandoff=()=>{if(landmarksNear.length)return;nearPassStop.abort();publishNear(assembled);};
     let surveyPass: Promise<unknown> = Promise.resolve();
-    if (photoPending) (textureBudgetEnabled()?(f:()=>void)=>f():afterShown)(() => { stage.busy++; surveyPass = (async () => {
+    if (photoPending&&!streamingNear) (textureBudgetEnabled()?(f:()=>void)=>f():afterShown)(() => { stage.busy++; surveyPass = (async () => {
       let photos: PhotoBuilding[] = [];
       const extra = new Set<PhotoBuilding>();
       try {
         // (the complex and the blocks round it: ~220 m, 130 on phones — beyond, the modelled ones)
-        photos = await photoBuildings(data.vworld_key!, data.center!.lat, data.center!.lon, Math.min(reach, stage.hq ? 220 : 130), { photo: false });
+        photos = await photoBuildings(data.vworld_key!, data.center!.lat, data.center!.lon, autoDrone||stage.drone?reach+30:Math.min(reach, stage.hq ? 220 : 130), { photo: false,signal:nearPassStop.signal });
         // A landmark's area: every surveyed building within its radius (shapes only).
         for (const lm of landmarksNear) {
           const got = await photoBuildings(data.vworld_key!, data.center!.lat, data.center!.lon, lm.radius, { photo: false, at: lm }).catch(() => [] as PhotoBuilding[]);
@@ -2184,20 +2227,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         ? await vworldBuildingNames(data, data.vworld_key!, data.vworld_domain, Math.max(...landmarksNear.map(lm => Math.hypot(...metresFrom(data.center!, lm.lat, lm.lon)) + lm.radius))).catch(() => [])
         : [];
       const drop = () => photos.forEach(ph => ph.geometry.dispose());
-      if (!alive) { drop(); return; }
+      if (!alive||nearPassStop.signal.aborted) { drop();releasePieces();return; }
       const centre = (r: [number, number][]) => [r.reduce((t, q) => t + q[0], 0) / r.length, r.reduce((t, q) => t + q[1], 0) / r.length] as const;
       const feet = [
         ...data.buildings.map((b, i) => ({ owner: "b" + i, ring: b.rings[0], height: b.height, estimated: b.height_source === "estimated" })),
         ...neighbours.map((b, j) => ({ owner: "c" + j, ring: b.rings[0], height: b.height, estimated: b.height_source === "estimated" })),
       ].map(f => ({ ...f, c: centre(f.ring) }));
-      const deltas: [number, number][] = [];
-      for (const ph of photos) {
-        let best: (typeof feet)[number] | null = null, bd = 15;
-        for (const f of feet) { const d = Math.hypot(f.c[0] - ph.cx, f.c[1] - ph.cy); if (d < bd) { bd = d; best = f; } }
-        if (best) deltas.push([best.c[0] - ph.cx, best.c[1] - ph.cy]);
-      }
-      const median = (v: number[]) => { const a = [...v].sort((x, y) => x - y); return a.length ? a[a.length >> 1] : 0; };
-      const [dx, dy] = deltas.length >= 3 ? [median(deltas.map(d => d[0])), median(deltas.map(d => d[1]))] : [0, 0];
+      photos.forEach(ph=>ph.geometry.computeBoundingBox());
+      const [dx,dy]=surveyAlignment(feet.map(f=>({x:f.c[0],y:f.c[1],h:f.height,outline:f.ring})),photos.map(ph=>({...ph,height:ph.geometry.boundingBox!.max.z})));
       const surveyRoadRings=roadFootprints(splitRoadJunctions(stitchedRoads(data.roads??[]),true));
       const surveyBuildingRings=[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])];
       let roadRejected=0;
@@ -2214,6 +2251,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         g.setAttribute("color", new THREE.BufferAttribute(col, 3));
         return g;
       };
+      const lmAt = landmarksNear.map(lm => [...metresFrom(data.center!, lm.lat, lm.lon), lm.radius] as const);
+      const inArea = (ph: PhotoBuilding) => extra.has(ph) || lmAt.some(([x, y, r]) => Math.hypot(ph.cx - x, ph.cy - y) <= r);
+      const realDroneAppearance=constructedDrone;
+      const legacyTargets=photos.map((ph,i)=>{
+        ph.geometry.computeBoundingBox();const height=ph.geometry.boundingBox!.max.z,cx=ph.cx+dx,cy=ph.cy+dy,hull=ph.hull.map(([x,y])=>[x+dx,y+dy] as [number,number]);
+        return feet.some(f=>(inRing([f.c[0],f.c[1]],hull)||Math.hypot(f.c[0]-cx,f.c[1]-cy)<6)&&(inArea(ph)||f.estimated||f.height<=0||Math.abs(height-f.height)/f.height<.35))?i:-1;
+      }).filter(i=>i>=0);
+      const facadePass=realDroneAppearance?sceneWorkerOnce<FacadeResult>(()=>new Worker(new URL('./droneSurveyWorker.ts',import.meta.url),{type:'module'}),
+        {kind:'facades',id:1,key:data.vworld_key!,models:photos.map(ph=>surveyShapeModel(ph,dx,dy,terrain.base(ph.hull.map(([x,y])=>[x+dx,y+dy]))-.25)),blocks:feet.map(f=>({x:f.c[0],y:f.c[1],h:f.height,outline:f.ring})),extra:photos.map((ph,i)=>extra.has(ph)?i:-1).filter(i=>i>=0),want:legacyTargets,roads:surveyRoadRings,buildingRings:surveyBuildingRings},roadModelStop.signal,30000):Promise.resolve(null);
       // The real colours: the complex's own buildings' photographs read (not drawn) —
       // the paint of the walls, the band under the roof edge, the roof — and the facade
       // painted again in them. Brand colours stay where the photographs say little.
@@ -2222,13 +2268,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const own = photos.filter(ph => feet.some(f => f.owner.startsWith("b") && Math.hypot(f.c[0] - (ph.cx + dx), f.c[1] - (ph.cy + dy)) < 12));
       // Analyse the selected complex's photographs, not every surrounding wall.
       // Neighbours already have surveyed geometry and their existing materials.
-      const rhythmOf = new Map(own.filter(ph => !extra.has(ph)).map(ph => [ph, photoRhythm(data.vworld_key!, ph).catch(() => null)] as const));
+      const rhythmOf = new Map((realDroneAppearance?[]:own).filter(ph => !extra.has(ph)).map(ph => [ph, photoRhythm(data.vworld_key!, ph).catch(() => null)] as const));
       await Promise.all(rhythmOf.values());
       if (!alive) { drop(); releasePieces(); return; }
       // (a photograph whose walls read near black — deep shade, an empty patch of the image — says
       // nothing of the paint: left out, as in photoAnalysis.wallPaintFrom)
       const lumOf = (c: number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-      const colours = (await Promise.all(own.slice(0, 8).map(ph => photoColours(data.vworld_key!, ph).catch(() => null)))).filter(c => c && c.samples > 40 && lumOf(c.wall) >= 0.2) as NonNullable<Awaited<ReturnType<typeof photoColours>>>[];
+      const colours = (await Promise.all((realDroneAppearance?[]:own.slice(0, 8)).map(ph => photoColours(data.vworld_key!, ph).catch(() => null)))).filter(c => c && c.samples > 40 && lumOf(c.wall) >= 0.2) as NonNullable<Awaited<ReturnType<typeof photoColours>>>[];
       if (!alive) { drop(); releasePieces(); return; }
       let measured = { bay: BAY_M, storey: FLOOR_M };
       let ownWalls = walls, coreMat: THREE.Material = low, gableMat: THREE.Material = low, bandMat: THREE.Material = crown;
@@ -2308,11 +2354,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // Spend photograph analysis on the selected buildings. Distant neighbours
       // already have shared facade materials; analysing every wall costs hundreds
       // of image requests without adding detail visible in the overview.
-      const paintPhotos = textureBudgetEnabled() ? own.slice(0,8) : photos;
+      const paintPhotos = realDroneAppearance?[]:textureBudgetEnabled() ? own.slice(0,8) : photos;
       const paintsOf = new Map(await Promise.all(paintPhotos.filter(ph => !extra.has(ph)).map(async ph => [ph, await photoWallPaint(data.vworld_key!, ph).catch(() => [] as WallPaint[])] as const)));
       // In a landmark's area (by where it stands, whichever fetch brought it).
-      const lmAt = landmarksNear.map(lm => [...metresFrom(data.center!, lm.lat, lm.lon), lm.radius] as const);
-      const inArea = (ph: PhotoBuilding) => extra.has(ph) || lmAt.some(([x, y, r]) => Math.hypot(ph.cx - x, ph.cy - y) <= r);
       // (homes keep the photograph's say on their faces: an apartment's end walls are blank)
       const homeUse = (use: string | null | undefined, title?: string | null) => (use ?? "").startsWith("02") || /^(apartments|residential)$/.test(use ?? "") || /아파트/.test(title ?? "");
       const residential = (ph: PhotoBuilding, fits: { owner: string }[]) => {
@@ -2328,8 +2372,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         for (const b of [...data.buildings, ...neighbours]) { const r = b.rings[0]; if (inRing([x, y], r)) return { ring: r, title: b.title ?? b.name ?? null, floors: b.floors }; }
         return null;
       };
-      const pickSurveyed = (shape: ReturnType<typeof surveyedShape>, _cx: number, _cy: number, _height: number, _hull: [number, number][]) => {
-        const parts = [shape.walls, shape.roofs, shape.ends, shape.cores].filter((g): g is THREE.BufferGeometry => !!g);
+      const pickSurveyed = (shape: ReturnType<typeof surveyedShape>|THREE.BufferGeometry[], _cx: number, _cy: number, _height: number, _hull: [number, number][]) => {
+        const parts = Array.isArray(shape)?shape:[shape.walls, shape.roofs, shape.ends, shape.cores].filter((g): g is THREE.BufferGeometry => !!g);
         if (!parts.length) return;
         const n = parts.reduce((t, g) => t + g.getAttribute("position").count, 0), all = new Float32Array(n * 3);
         let o = 0;
@@ -2421,20 +2465,31 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           surveyedHulls.push(ring);
         }
       };
+      const appearance=await facadePass;
+      if(!alive||nearPassStop.signal.aborted){drop();releasePieces();return;}
+      const confirmedFits=new Map<number,Set<number>>();
+      const checkedModels=new Set(appearance?.checked),rejectedModels=new Set(appearance?.rejected);
+      for(const [fi,models] of appearance?.matches??[])for(const mi of models){let list=confirmedFits.get(mi);if(!list)confirmedFits.set(mi,list=new Set());list.add(fi);}
+      if(hostRef.current){hostRef.current.dataset.facadeMode='constructed-no-photographs';for(const key of ['realFacadeModels','realFacadeImages','realFacadeFailed','realFacadeApplied'])delete hostRef.current.dataset[key];}
       let k = 0, matched = 0;
-      for (const ph of photos) {
-        if (!await pace()) { drop(); releasePieces(); return; }
-        if((await roadModelChecks.test('near',ph.geometry,dx,dy,surveyRoadRings,surveyBuildingRings,roadModelStop.signal))!==false){
-          ph.geometry.dispose();roadRejected++;continue;
-        }
+      for (const [photoIndex,ph] of photos.entries()) {
+        if(hostRef.current&&photoIndex%10===0)hostRef.current.dataset.realFacadePhase=`models:${photoIndex}/${photos.length}`;
+        if (!await pace()||nearPassStop.signal.aborted) { drop(); releasePieces(); return; }
         ph.geometry.computeBoundingBox();
         const height = ph.geometry.boundingBox!.max.z;
         const hull = ph.hull.map(([x, y]) => [x + dx, y + dy] as [number, number]);
         const cx = ph.cx + dx, cy = ph.cy + dy;
         const hits = feet.filter(f => inRing([f.c[0], f.c[1]], hull) || Math.hypot(f.c[0] - cx, f.c[1] - cy) < 6);
         // (a landmark's area: the survey trusted over the register's height — the tower's 358 m)
-        const fits = inArea(ph) ? hits : hits.filter(f => f.estimated || f.height <= 0 || Math.abs(height - f.height) / f.height < 0.35);
+        const confirmed=confirmedFits.get(photos.indexOf(ph));
+        const fits = inArea(ph) ? hits : feet.filter((f,fi)=>confirmed?.has(fi)||(hits.includes(f)&&(f.estimated || f.height <= 0 || Math.abs(height - f.height) / f.height < 0.35)));
         if (!fits.length && data.cleared_site?.rings.some(r=>inRing([cx,cy],r))) { ph.geometry.dispose(); continue; }
+        if(!fits.length&&!extra.has(ph)){ph.geometry.dispose();continue;}
+        // Only candidates that can replace a visible registered building need
+        // the exact annex/road guard. Unmatched tile models are never displayed.
+        if(rejectedModels.has(photoIndex)||(!checkedModels.has(photoIndex)&&(await roadModelChecks.test('near',ph.geometry,dx,dy,surveyRoadRings,surveyBuildingRings,roadModelStop.signal))!==false)){
+          ph.geometry.dispose();roadRejected++;continue;
+        }
         if (!fits.length && extra.has(ph)) {
           // (past this view's own data: the surveyed shape alone, the ring told to leave it out)
           const home = residential(ph, []);
@@ -2446,6 +2501,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if (style === "office") c.lerp(new THREE.Color("#ffffff"), 0.4);
           if (style === "apt") c.lerp(new THREE.Color("#ffffff"), 0.65);
           const m = sharedContextMaterial(style);
+          if(realDroneAppearance){
+            const profile=buildingAppearanceProfile({id:ph.key,height,floors:Math.round(height/CONTEXT_FLOOR_M[style]),style});
+            for(const [g,plain] of [[shape.walls,false],[shape.roofs,true],[shape.cores,true],[shape.bands,true],[shape.ends,true]] as const)if(g)put(m,applyBuildingAppearance(g,profile,terrain.base(hull)-.25,plain));
+            pickSurveyed(shape,cx,cy,height,hull);surveyedNear.push(cx,cy);matched++;continue;
+          }
           put(m, paint(shape.walls, c)); put(m, paint(shape.roofs, c));
           put(plainMat, paint(shape.cores, c)); put(plainMat, paint(shape.bands, c)); put(plainMat, paint(shape.ends, c.clone().multiplyScalar(0.86)));
           pickSurveyed(shape, cx, cy, height, hull);
@@ -2486,7 +2546,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         ph.geometry.dispose();
         if (inArea(ph)) pickSurveyed(shape, cx, cy, height, hull);
         const main = fits.some(f => f.owner.startsWith("b"));
-        if (main) {
+        if(realDroneAppearance){
+          const f=fits.find(f=>f.owner.startsWith('b'))??fits[0];
+          const b=f.owner.startsWith('b')?data.buildings[Number(f.owner.slice(1))]:neighbours[Number(f.owner.slice(1))];
+          const body=shape.roofZ===null?height:shape.roofZ-shape.z0;
+          const profile=surveyedAppearance(appearanceFor(b),body),m=sharedContextMaterial(profile.style as ContextStyle);
+          for(const [g,plain] of [[shape.walls,false],[shape.roofs,true],[shape.cores,true],[shape.ends,true],[shape.bands,true]] as const)if(g)put(m,applyBuildingAppearance(g,profile,terrain.base(f.ring)-.25,plain));
+          shape.painted?.dispose();
+        } else if (main) {
           put(ownWalls[k++ % 2], shape.walls);
           put(roof, shape.roofs);
           put(coreMat, shape.cores);
@@ -2579,6 +2646,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         used.push(mesh);
       }
       if (!used.length) {
+        if(realDroneAppearance){releasePieces();return;}
         // No surveyed shapes here (outside VWorld's 3D coverage): the modelled buildings stay,
         // in the colours the aerial photographs show (roof, its rim, the leaning facade) —
         // or else every complex would look alike — their facade at twice the resolution, and
@@ -2735,18 +2803,25 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         return;
       }
       const out = await assemble(skip, false);
-      if (!out || !alive) { releasePieces(); return; }
+      if (!out || !alive||nearPassStop.signal.aborted) { releasePieces(); return; }
+      if(hostRef.current)hostRef.current.dataset.realFacadePhase=`upload:${used.length}`;
+      for(const object of [...out,...used])stage.addWarm(group,object);
+      while(alive&&[...out,...used].some(object=>!stage.drawReady(object))){
+        if(nearPassStop.signal.aborted){group.remove(...out,...used);releasePieces();return;}await frameSlice();
+      }
+      if(!alive){releasePieces();return;}
       group.remove(...assembled);
-      group.add(...out, ...used);
       assembled = out;
       releasePieces();
       if (hostRef.current) {
         hostRef.current.dataset.photoBuildings = `${matched}/${photos.length}`;
         hostRef.current.dataset.photoOffset = `${dx.toFixed(1)},${dy.toFixed(1)}`;
         hostRef.current.dataset.photoRoadRejected=String(roadRejected);
+        hostRef.current.dataset.surveyShapeApplied=String(matched);
+        hostRef.current.dataset.realFacadePhase='ready';
       }
       stage.resume();
-    })().finally(() => { stage.busy--; }); });
+    })().finally(() => {if(alive&&!nearPassStop.signal.aborted)publishNear(assembled);stage.busy--;}); });
 
 
     // The ground: the surveyed parcel landscaped (flat paint only), laid over the real
@@ -3333,6 +3408,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           geo.setAttribute("normal", new THREE.BufferAttribute(a.normal, 3));
           geo.setAttribute("uv", new THREE.BufferAttribute(a.uv, 2));
           geo.setAttribute("color", new THREE.BufferAttribute(a.color, 3));
+          if(a.facade)geo.setAttribute("facade",new THREE.BufferAttribute(a.facade,4));
           geo.setIndex(new THREE.BufferAttribute(a.index, 1));
           geo.computeBoundingSphere();
           if (!await sharedContextTexturesSliced(style, pace)) return;
@@ -3378,20 +3454,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         // returns plain, roof rooms and parapet bands as painted. Each replaces its block in the ring
         // mesh (its triangles emptied). Re-indexed after: vertices shared, as compact as the ring.
         if (aptGeo && ring.apts.length && !autoDrone && !stage.drone) {
-          const geoA = aptGeo as THREE.BufferGeometry, A = ring.apts;
-          const blocks = Array.from({ length: A.length / 6 }, (_, i) => ({ x: A[i * 6], y: A[i * 6 + 1], h: A[i * 6 + 2], g: A[i * 6 + 3], s: A[i * 6 + 4], n: A[i * 6 + 5], used: false }));
+          const geoA = aptGeo as THREE.BufferGeometry, A = ring.apts,aptOutlines=new Map<number,[number,number][]>();
+          if(ring.towers&&ring.spanRings)for(let i=0;i<ring.towers.length;i+=9)if(ring.towers[i+6]===0)aptOutlines.set(ring.towers[i+4],ring.spanRings[ring.towers[i+7]] as [number,number][]);
+          const blocks = Array.from({ length: A.length / 6 }, (_, i) => ({ x: A[i * 6], y: A[i * 6 + 1], h: A[i * 6 + 2], g: A[i * 6 + 3], s: A[i * 6 + 4], n: A[i * 6 + 5],outline:aptOutlines.get(A[i*6+4])??[], used: false }));
           await new Promise<void>(r => whenIdle(r));
           if (!alive || ringStop.signal.aborted) return;
-          const photos = await photoBuildingsNear(data.vworld_key!, data.center!.lat, data.center!.lon, blocks, { signal: ringStop.signal }).catch(() => [] as PhotoBuilding[]);
+          const photos = await photoBuildingsNear(data.vworld_key!, data.center!.lat, data.center!.lon, blocks, { signal: ringStop.signal,outlines:blocks.map(b=>b.outline) }).catch(() => [] as PhotoBuilding[]);
           if (!alive) { photos.forEach(ph => ph.geometry.dispose()); return; }
-          const pairs: [number, number][] = [];
-          for (const ph of photos) {
-            let bd = 15, best: (typeof blocks)[number] | null = null;
-            for (const bl of blocks) { const d = Math.hypot(bl.x - ph.cx, bl.y - ph.cy); if (d < bd) { bd = d; best = bl; } }
-            if (best) pairs.push([best.x - ph.cx, best.y - ph.cy]);
-          }
-          const mid = (v: number[]) => { const q = [...v].sort((a, b) => a - b); return q.length ? q[q.length >> 1] : 0; };
-          const [ox, oy] = pairs.length >= 3 ? [mid(pairs.map(p => p[0])), mid(pairs.map(p => p[1]))] : [0, 0];
+          photos.forEach(ph=>ph.geometry.computeBoundingBox());
+          const [ox,oy]=surveyAlignment(blocks,photos.map(ph=>({...ph,height:ph.geometry.boundingBox!.max.z})));
           const ringRoadRings=roadFootprints(splitRoadJunctions(roads,true));
           const aptMat = sharedContextMaterial("apt");
           const plain = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }));
@@ -3658,6 +3729,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const enterDrone = () => {
     const st = stageRef.current;
     if (!st || st.drone || !data?.found || !data.center || !data.vworld_key || !st.model) return;
+    st.nearHandoff?.();
     if (st.balloonView) leaveBalloon();
     let seed = 0;
     for (const ch of data.id) seed = (seed * 33 + ch.charCodeAt(0)) % 2147483647;
@@ -3666,6 +3738,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       extent: { ring: DRONE_RING_M, farHalf: DRONE_FAR_HALF },
       addWarm: st.addWarm, drawReady: st.drawReady, forget: st.forgetMaterials, viewTrees: () => [...st.viewTrees.near, ...st.viewTrees.far],
       viewBuildings: () => st.viewBuildings,
+      nearBuildings:()=>st.nearBuildings,
+      stationLabels:()=>st.rail?.stationLabels(),
       setSky: (k, fog) => st.setDroneSky?.(k, fog), onHud: h => droneHud.current?.(h),
     });
     st.controls.enabled = false; st.controls.autoRotate = false; spinRef.current = false; setSpin(false);

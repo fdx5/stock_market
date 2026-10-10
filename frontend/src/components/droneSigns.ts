@@ -16,6 +16,7 @@ const STYLE: Record<DroneLabel["kind"], { bg: string; fg: string; edge: string; 
   apt: { bg: "rgba(10,34,58,0.86)", fg: "#ffe7a8", edge: "#ffcf5c", icon: "", rank: 3, reach: 1900 },
   hospital: { bg: "rgba(150,24,36,0.9)", fg: "#ffffff", edge: "#ff9aa5", icon: "✚", rank: 3, reach: 1700 },
   school: { bg: "rgba(20,96,58,0.88)", fg: "#ffffff", edge: "#8fe0b0", icon: "🎓", rank: 2, reach: 1400 },
+  station: { bg: "rgba(8,68,92,0.92)", fg: "#ffffff", edge: "#86e5f2", icon: "🚉", rank: 4, reach: 1900 },
 };
 
 export type Sign = { key: string; name: string; kind: DroneLabel["kind"]; x: number; y: number; top: number; n: number; w: number; info?: DroneLabelInfo };
@@ -51,7 +52,7 @@ export class DroneSigns {
     return best;
   }
   /** Whether a sign has a card to open. */
-  static hasCard(s: Sign) { return s.name.length >= 2; }
+  static hasCard(s: Sign) { return s.kind !== 'station' && s.name.length >= 2; }
 
   set(tile: string, labels: DroneLabel[] | null) {
     if (labels?.length) this.byTile.set(tile, labels); else if (!this.byTile.delete(tile)) return;

@@ -1,0 +1,27 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import {readFileSync} from 'node:fs';
+import {transformSync} from 'esbuild';
+import * as THREE from 'three';
+import {mergeGeometries} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+const scope={THREE,module:{exports:{}},exports:{}};
+vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/nearBuildingTargets.ts',import.meta.url),'utf8').replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);
+const {mergedBuildingOwners,nearBuildingSource}=scope.module.exports;
+const appearance={style:'apt',finish:0,variant:2,bay:3,storey:3,floors:10,wall:[.7,.6,.5],roof:[.2,.2,.2],inferred:true};
+const entry=owner=>({owner,height:30,ground:1,outline:[[0,0],[10,0],[10,10],[0,10]],appearance});
+for(const indexed of [false,true])test('a measured apartment replaces every merged coarse range and instance, preserving its neighbour and restoring the overview '+indexed,()=>{
+  const part=owner=>{const g=new THREE.BoxGeometry(10,10,30);g.userData.owner=owner;return indexed?g:Object.assign(g.toNonIndexed(),{userData:{owner}});};
+  const pieces=[part('a'),part('b'),part('a')],mesh=new THREE.Mesh(mergeGeometries(pieces,false),new THREE.MeshStandardMaterial());mergedBuildingOwners(mesh,pieces);
+  const instances=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),mesh.material,3);instances.userData.buildingInstances=['a','b','a'];
+  for(let i=0;i<3;i++)instances.setMatrixAt(i,new THREE.Matrix4().makeTranslation(i+1,1,2));
+  const original=Array.from(mesh.geometry.index.array),matrices=Array.from(instances.instanceMatrix.array);
+  const source=nearBuildingSource([entry('a'),entry('b'),entry('absent')],[mesh,instances]);assert.equal(source.targets.length,2);
+  assert.equal(source.targets[0].x,5);assert.equal(source.targets[0].y,5);
+  source.targets[0].hide();source.targets[0].hide();
+  const ranges=mesh.userData.buildingRanges;
+  for(const r of ranges)assert.deepEqual(Array.from(mesh.geometry.index.array.slice(r.first,r.first+r.count)),r.owner==='a'?Array(r.count).fill(0):original.slice(r.first,r.first+r.count));
+  assert.deepEqual(Array.from(instances.instanceMatrix.array.slice(16,32)),matrices.slice(16,32));assert.equal(instances.instanceMatrix.array[0],0);
+  source.targets[0].restore();source.targets[0].restore();assert.deepEqual(Array.from(mesh.geometry.index.array),original);assert.deepEqual(Array.from(instances.instanceMatrix.array),matrices);
+  pieces.forEach(g=>g.dispose());mesh.geometry.dispose();instances.geometry.dispose();mesh.material.dispose();
+});

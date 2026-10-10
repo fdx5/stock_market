@@ -36,7 +36,7 @@ function intersection(hull: Point[], triangles: Point[][]) {
 /** A matching height is supporting evidence; a surveyed footprint is stronger.
  * A nearby building across a street must never replace the registered building.
  * Each model belongs to at most one record; a record can include multiple parts. */
-export function matchSurveyBuildings(blocks: SurveyBlock[], models: SurveyModel[], ox = 0, oy = 0, complete = true) {
+export function matchSurveyBuildings(blocks: SurveyBlock[], models: SurveyModel[], ox = 0, oy = 0, complete:boolean|readonly boolean[] = true) {
   const prepared = blocks.map(bl => ({ ...bl, area: area(bl.outline), box: bounds(bl.outline),
     triangles: ShapeUtils.triangulateShape(bl.outline.map(p => new Vector2(...p)), []).map(t => t.map(i => bl.outline[i])) }));
   const cells = new Map<string, number[]>();
@@ -80,7 +80,40 @@ export function matchSurveyBuildings(blocks: SurveyBlock[], models: SurveyModel[
     // A timed-out multipart download must not hide the whole registered building
     // after receiving only one wing. Wait for near-complete footprint coverage;
     // broad but low roof pieces also keep the coarse building until the retry.
-    if (!complete && ((b.area > 1 && (coverage.get(i) ?? 0) < b.area*.85) || !list.some(mi => models[mi].height >= Math.min(b.h*.65,12)))) groups.delete(i);
+    if (!(typeof complete==='boolean'?complete:complete[i]) && ((b.area > 1 && (coverage.get(i) ?? 0) < b.area*.85) || !list.some(mi => models[mi].height >= Math.min(b.h*.65,12)))) groups.delete(i);
   }
   return groups;
+}
+
+/** Polygon vertex averages differ for L-shaped/slab buildings and their convex
+ * survey hulls. They are not evidence of a coordinate offset. Infer alignment
+ * only from similarly sized, already overlapping whole footprint bounds and a
+ * consistent consensus; otherwise retain the source's georeferenced position. */
+export function surveyAlignment(blocks:SurveyBlock[],models:SurveyModel[]):[number,number]{
+  const groups=matchSurveyBuildings(blocks,models),pairs:[number,number][]=[];
+  for(const [i,list] of groups){
+    const b=bounds(blocks[i].outline),m=bounds(list.flatMap(i=>models[i].hull));
+    const bw=b[2]-b[0],bh=b[3]-b[1],mw=m[2]-m[0],mh=m[3]-m[1];
+    if(Math.min(bw,bh,mw,mh)<2||mw/bw<.85||mw/bw>1.15||mh/bh<.85||mh/bh>1.15)continue;
+    const x=(b[0]+b[2]-m[0]-m[2])/2,y=(b[1]+b[3]-m[1]-m[3])/2;
+    if(Math.hypot(x,y)<=12)pairs.push([x,y]);
+  }
+  if(pairs.length<3)return[0,0];
+  const median=(a:number[])=>{const s=a.sort((a,b)=>a-b);return s[Math.floor(s.length/2)];};
+  const x=median(pairs.map(p=>p[0])),y=median(pairs.map(p=>p[1]));
+  return pairs.filter(p=>Math.hypot(p[0]-x,p[1]-y)<=1).length>=Math.max(3,Math.ceil(pairs.length*.7))?[x,y]:[0,0];
+}
+
+/** A failed neighbour or empty forest tile does not make every apartment's
+ * successfully downloaded model incomplete. Only failures near its footprint
+ * retain the strict multipart protection for that record. */
+export function surveyCompleteFor(blocks:SurveyBlock[],failures:{kind:string;x?:number;y?:number;box?:readonly number[]}[]){
+  return blocks.map(b=>{
+    const box=b.outline.length>=3?bounds(b.outline):[b.x-12,b.y-12,b.x+12,b.y+12];
+    return !failures.some(f=>{
+      if(f.kind==='unknown')return true;
+      if(f.box)return f.box[0]<=box[2]+20&&f.box[2]>=box[0]-20&&f.box[1]<=box[3]+20&&f.box[3]>=box[1]-20;
+      return f.x!==undefined&&f.y!==undefined&&f.x>=box[0]-20&&f.x<=box[2]+20&&f.y>=box[1]-20&&f.y<=box[3]+20;
+    });
+  });
 }

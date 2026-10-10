@@ -599,6 +599,7 @@ export function sharedContextMaterial(style: ContextStyle): THREE.MeshStandardMa
       emissiveMap: ct.emissiveMap, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0,
     });
     m.userData.contextBuilding = true;
+    m.userData.constructedBuilding = true;
     // Rooms behind the glass for every style, on each style's grid (bays across the tile, eight
     // storeys; a curtain wall's spandrel hides the top of each storey).
     m.userData.interior = style === "apt" ? true : {

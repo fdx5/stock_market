@@ -1238,6 +1238,8 @@ export interface RealEstateBuilding {
   title?: string | null;
   /** 사용승인 year from the building register, when known. */
   approved?: number | null;
+  /** Provider frame attributes; these do not certify the exterior cladding. */
+  structureCode?: string | null; structureName?: string | null;
 }
 
 export interface RealEstateParcel { ring: [number, number][]; kind: string; holes?: [number,number][][];

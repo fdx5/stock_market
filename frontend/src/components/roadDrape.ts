@@ -29,14 +29,21 @@ export function roadSurfaceHeight(geometry:THREE.BufferGeometry,index?:RoadTrian
  // BVH traversal order is retained, including reference-height ties on bridges.
  type Triangle = {ax:number;ay:number;bx:number;by:number;cx:number;cy:number;az:number;bz:number;cz:number;den:number;minX:number;minY:number;maxX:number;maxY:number;level?:number;profile?:number};
  type Attribute = THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
- const version=(a:Attribute|undefined)=>a instanceof THREE.InterleavedBufferAttribute?a.data.version:a?.version;
- const cells=new Map<string,Triangle[]>(),bins=new Map<string,number[]>(),cell=6;
+ type Cell={triangles:Triangle[];fine:Map<number,Triangle[]>;references:number};
+ const version=(a:Attribute|undefined)=>(a as THREE.InterleavedBufferAttribute)?.isInterleavedBufferAttribute?(a as THREE.InterleavedBufferAttribute).data.version:(a as THREE.BufferAttribute|undefined)?.version;
+ // Tessellated asphalt can contain many small triangles. Two-metre cells avoid
+ // rescanning unrelated triangles for every moving tyre; the source planes,
+ // level/profile filters and reference-height tie order remain identical.
+ const cells=new Map<string,Cell>(),bins=new Map<string,number[]>(),vertices=new Map<number,Triangle|null>(),cell=2;
+ const stats=typeof location!=='undefined'&&new URLSearchParams(location.search).get('dronedebug')==='1'?{samples:0,candidates:0,queries:0,fineBuilds:0,evictions:0}:null;
+ if(stats)geometry.userData.roadSampling=stats;
+ let references=0;
  let p:Attribute,levels:Attribute|undefined,profiles:Attribute|undefined,pv:number|undefined,lv:number|undefined,sv:number|undefined;
  const refresh=()=>{
-  const next=geometry.getAttribute('position'),nl=geometry.getAttribute('roadLevel'),ns=geometry.getAttribute('roadProfile');
+  const next=geometry.attributes.position,nl=geometry.attributes.roadLevel,ns=geometry.attributes.roadProfile;
   const npv=version(next),nlv=version(nl),nsv=version(ns);
   if(next===p&&nl===levels&&ns===profiles&&npv===pv&&nlv===lv&&nsv===sv)return;
-  p=next;levels=nl;profiles=ns;pv=npv;lv=nlv;sv=nsv;cells.clear();bins.clear();
+  p=next;levels=nl;profiles=ns;pv=npv;lv=nlv;sv=nsv;cells.clear();bins.clear();vertices.clear();references=0;
   if(!index)for(let k=0;k<p.count;k+=3){
    const ax=p.getX(k),bx=p.getX(k+1),cx=p.getX(k+2),ay=-p.getZ(k),by=-p.getZ(k+1),cy=-p.getZ(k+2);
    for(let i=Math.floor(Math.min(ax,bx,cx)/cell);i<=Math.floor(Math.max(ax,bx,cx)/cell);i++)for(let j=Math.floor(Math.min(ay,by,cy)/cell);j<=Math.floor(Math.max(ay,by,cy)/cell);j++){
@@ -45,21 +52,53 @@ export function roadSurfaceHeight(geometry:THREE.BufferGeometry,index?:RoadTrian
   }
  };
  return (x:number,y:number,reference?:number,level?:number,profile?:string)=>{
+  if(stats)stats.samples++;
   refresh();let h=-Infinity,best=Infinity;
   const profileIds=geometry.userData.roadProfiles as Map<string,number>|undefined,profileId=profile?profileIds?.get(profile):undefined;
-  const i=Math.floor(x/cell),j=Math.floor(y/cell),key=i+':'+j;let triangles=cells.get(key);
-  if(!triangles){
-   triangles=[];
+  const i=Math.floor(x/cell),j=Math.floor(y/cell),key=i+':'+j;let entry=cells.get(key);
+  if(!entry){
+   if(stats)stats.queries++;
+   const triangles:Triangle[]=[];
    for(const k of index?.query(i*cell,j*cell,(i+1)*cell,(j+1)*cell)??bins.get(key)??[]){
-    const ax=p.getX(k),ay=-p.getZ(k),bx=p.getX(k+1),by=-p.getZ(k+1),cx=p.getX(k+2),cy=-p.getZ(k+2),den=(bx-ax)*(cy-ay)-(by-ay)*(cx-ax);
-    const minX=Math.min(ax,bx,cx),maxX=Math.max(ax,bx,cx),minY=Math.min(ay,by,cy),maxY=Math.max(ay,by,cy);
-    const marginX=(maxX-minX)*2e-6+1e-5,marginY=(maxY-minY)*2e-6+1e-5;
-    if(Math.abs(den)>=1e-9)triangles.push({ax,ay,bx,by,cx,cy,az:p.getY(k),bz:p.getY(k+1),cz:p.getY(k+2),den,minX:minX-marginX,maxX:maxX+marginX,minY:minY-marginY,maxY:maxY+marginY,level:levels?.getX(k),profile:profiles?.getX(k)});
+    let t=vertices.get(k);
+    if(t===undefined){
+      const ax=p.getX(k),ay=-p.getZ(k),bx=p.getX(k+1),by=-p.getZ(k+1),cx=p.getX(k+2),cy=-p.getZ(k+2),den=(bx-ax)*(cy-ay)-(by-ay)*(cx-ax);
+      const minX=Math.min(ax,bx,cx),maxX=Math.max(ax,bx,cx),minY=Math.min(ay,by,cy),maxY=Math.max(ay,by,cy);
+      const marginX=(maxX-minX)*2e-6+1e-5,marginY=(maxY-minY)*2e-6+1e-5;
+      t=Math.abs(den)>=1e-9?{ax,ay,bx,by,cx,cy,az:p.getY(k),bz:p.getY(k+1),cz:p.getY(k+2),den,minX:minX-marginX,maxX:maxX+marginX,minY:minY-marginY,maxY:maxY+marginY,level:levels?.getX(k),profile:profiles?.getX(k)}:null;
+      if(vertices.size>=131072)vertices.clear();vertices.set(k,t);
+    }
+    // BVH leaves also return nearby triangles. Reject their exact bounds once
+    // per cell, preserving original candidate order and every tolerance edge.
+    if(t&&t.maxX>=i*cell&&t.minX<=(i+1)*cell&&t.maxY>=j*cell&&t.minY<=(j+1)*cell)triangles.push(t);
    }
    // Bound this computed cache during a long flight; no scene or stored data is affected.
-   if(cells.size>=1024)cells.delete(cells.keys().next().value!);
-   cells.set(key,triangles);
+   entry={triangles,fine:new Map(),references:triangles.length};
+   if(triangles.length<=262144){
+    while(cells.size&&(cells.size>=16384||references+triangles.length>262144)){
+     const old=cells.keys().next().value!,value=cells.get(old)!;references-=value.references;cells.delete(old);if(stats)stats.evictions++;
+    }
+    references+=triangles.length;cells.set(key,entry);
+   }
   }
+  let triangles=entry.triangles;
+  if(triangles.length>24){
+   // Dense tessellation needs a smaller narrow-phase bin, but querying a new
+   // BVH cell for every moving tyre was slower. Subdivide the already cached
+   // candidate list, preserving triangle order and the same exact edge margins.
+   const sx=Math.min(3,Math.max(0,Math.floor((x-i*cell)*2))),sy=Math.min(3,Math.max(0,Math.floor((y-j*cell)*2))),sub=sx*4+sy;
+   let fine=entry.fine.get(sub);
+   if(!fine){
+    if(stats)stats.fineBuilds++;
+    const x0=i*cell+sx*.5,y0=j*cell+sy*.5;
+    fine=triangles.filter(t=>t.maxX>=x0&&t.minX<=x0+.5&&t.maxY>=y0&&t.minY<=y0+.5);
+    // Parent and child references share one limit. Never evict the cell being
+    // sampled merely to cache its finer list; compute without retaining if full.
+    if(cells.get(key)===entry&&references+fine.length<=262144){entry.fine.set(sub,fine);entry.references+=fine.length;references+=fine.length;}
+   }
+   triangles=fine;
+  }
+  if(stats)stats.candidates+=triangles.length;
   for(const t of triangles){
    if(x<t.minX||x>t.maxX||y<t.minY||y>t.maxY)continue;
    if(level!==undefined&&t.level!==undefined&&Math.abs(t.level-level)>.1)continue;

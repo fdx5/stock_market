@@ -207,9 +207,6 @@ export class MeshRenderer {
 	// CPU geometry may be cached across views, while GPU buffers belong to this
 	// renderer. Reconcile only when meshes enter/leave the scene, not every frame.
 	retainGeometry( objects ) {
-		// Scratch draw rows must not retain a previous complex's buffers/materials.
-		this._drawRows = [];
-		this._collectPools = [];
 
 		const used = new Map();
 		for ( const o of objects ) {
@@ -229,6 +226,7 @@ export class MeshRenderer {
 			for ( const [ src, b ] of g.buffers ) if ( ! attrs.has( src ) ) {
 				b.buffer.destroy();
 				g.buffers.delete( src );
+				g.bufferEpoch = ( g.bufferEpoch ?? 0 ) + 1;
 			}
 		}
 
@@ -242,6 +240,10 @@ export class MeshRenderer {
 		for ( const b of g.buffers.values() ) b.buffer.destroy();
 		g.index?.buffer.destroy();
 		this.geometries.delete( geometry );
+		// Clear only retired references. Admitting one new tile must not discard
+		// all static buffer caches and pooled draw items across the active city.
+		for ( const r of this._drawRows ?? [] ) if ( r.geo === geometry ) { r.it = r.o = r.geo = r.pipeline = r.group = r.vbs = r.index = null; }
+		for ( const p of this._collectPools ?? [] ) for ( const r of p.items ) if ( r.geometry === geometry ) { r.object = r.geometry = r.material = null; }
 
 	}
 
@@ -321,7 +323,7 @@ export class MeshRenderer {
 
 		}
 
-		if ( g.indexVersion !== ( index.version ?? 0 ) ) {
+		if ( g.indexVersion !== ( index.version ?? 0 ) || g.indexSrc !== index.array ) {
 
 			writePadded( g.index.buffer, arr );
 			g.indexVersion = index.version ?? 0;
@@ -433,6 +435,36 @@ export class MeshRenderer {
 	}
 
 	// ------------------------------------------------------------------------------ pipelines
+	// Stable buildings keep the same GPU buffers across frames. Check actual
+	// attribute/array versions directly; moving instances and late roof/index
+	// updates still upload immediately. Resource reconciliation invalidates every
+	// retained reference before a freed geometry can be drawn again.
+	_frameBuffers( o, geo, material ) {
+
+		const vl = this._cachedLayout( o, geo, material );
+		let m = o.__frameRow;
+		const state = this.geometries.get( geo );
+		const reuse = m && m.material === material && m.geo === geo && m.owner === this && m.vl === vl && m.epoch === ( this.geometryEpoch ?? 0 ) && m.gpuState === state && m.bufferEpoch === ( state?.bufferEpoch ?? 0 );
+		if ( ! reuse ) m = { material, geo, owner: this, vl, vbs: [], refs: [], versions: [], arrays: [] };
+		m.vbs.length = vl.buffers.length;
+		for ( let i = 0; i < vl.buffers.length; i ++ ) {
+			const attr = vl.buffers[ i ].attr;
+			const src = attr.isInterleavedBufferAttribute ? attr.data : attr;
+			if ( ! reuse || src.gpuBuffer || m.refs[ i ] !== src || m.versions[ i ] !== ( src.version ?? 0 ) || m.arrays[ i ] !== src.array ) {
+				m.vbs[ i ] = this._attributeBuffer( geo, attr );
+				m.refs[ i ] = src; m.versions[ i ] = src.version ?? 0; m.arrays[ i ] = src.array;
+			}
+		}
+		const index = geo.index;
+		if ( ! reuse || m.indexSrc !== index || m.indexArray !== index?.array || m.indexVersion !== ( index?.version ?? 0 ) ) {
+			m.index = this._indexBuffer( geo );
+			m.indexSrc = index; m.indexArray = index?.array; m.indexVersion = index?.version ?? 0;
+		}
+		m.epoch = this.geometryEpoch ?? 0; m.frame = GPU.frame;
+		m.gpuState = this.geometries.get( geo ); m.bufferEpoch = m.gpuState?.bufferEpoch ?? 0;
+		o.__frameRow = m;
+		return m;
+	}
 
 	// the pipeline of ( material, vertex layout, pass ); the material key is computed once per frame
 	_pipeline( material, vl, pass ) {
@@ -569,7 +601,7 @@ export class MeshRenderer {
 
 	// ------------------------------------------------------------------------------ draw lists
 
-	collect( scene, { camera, layerMask = 0xffffffff, filter = null, kind = 'main', cull = true } ) {
+	collect( scene, { camera, layerMask = 0xffffffff, filter = null, kind = 'main', cull = true, objects = null } ) {
 
 		let pool;
 		if ( this.reuseDrawLists ) {
@@ -614,7 +646,10 @@ export class MeshRenderer {
 
 		// (local modification) once a frame: every pass of the frame sees the same matrices
 		if ( scene.__mwFrame !== GPU.frame || this.precompiling ) { scene.updateMatrixWorld(); scene.__mwFrame = GPU.frame; }
-		visit( scene );
+		// An owner with a flat native scene can supply the exact caster subset.
+		// Frustum/layer/material/range tests still run for every selected object.
+		if ( objects ) { for ( const o of objects ) visit( o ); }
+		else visit( scene );
 		opaque.sort( ( a, b ) => a.renderOrder - b.renderOrder || a.pipeKey - b.pipeKey || a.z - b.z );
 		transparent.sort( ( a, b ) => a.renderOrder - b.renderOrder || b.z - a.z );
 		return { opaque, transparent };
@@ -772,18 +807,8 @@ export class MeshRenderer {
 			// (local modification) the layout and buffers a draw resolves are the same in every pass of
 			// a frame (scene, plants, each shadow cascade): worked out by its first pass, then reused
 			let m = o.__frameRow;
-			if ( ! m || m.frame !== GPU.frame || m.material !== material || m.geo !== geo || m.owner !== this ) {
-
-				const vl = this._cachedLayout( o, geo, material );
-				const reusable = m && m.material === material && m.geo === geo && m.owner === this;
-				const vbs = reusable ? m.vbs : [];
-				vbs.length = vl.buffers.length;
-				for ( let i = 0; i < vbs.length; i ++ ) vbs[ i ] = this._attributeBuffer( geo, vl.buffers[ i ].attr );
-				if ( ! reusable ) m = { material, geo, owner: this, vbs };
-				m.frame = GPU.frame; m.vl = vl; m.index = this._indexBuffer( geo );
-				// (an object drawn with several materials keeps only its last: the others resolve each time)
-				o.__frameRow = m;
-
+			if ( ! m || m.frame !== GPU.frame || m.material !== material || m.geo !== geo || m.owner !== this || m.epoch !== ( this.geometryEpoch ?? 0 ) || m.gpuState !== this.geometries.get( geo ) || m.bufferEpoch !== ( m.gpuState?.bufferEpoch ?? 0 ) ) {
+				m = this._frameBuffers( o, geo, material );
 			}
 			const vl = m.vl, vbs = m.vbs, index = m.index;
 			const p = this._pipeline( material, vl, pass );

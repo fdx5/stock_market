@@ -1,4 +1,7 @@
 import * as THREE from "three";
+import {observedRoofColour,type BuildingAppearance} from "./buildingAppearance";
+import {droneDetailPriority} from "./droneLoadPriority";
+import type {NearBuildingSource,NearBuildingTarget} from './nearBuildingTargets';
 import { SceneWorkerPool } from "./sceneWorkerPool";
 import { CoastGeometryJobs } from './coastGeometryJobs';
 import {staticSceneTransforms} from './staticSceneTransforms';
@@ -7,7 +10,7 @@ import { buildWater, type WaterField } from "./sceneWater";
 import { buildSeaWorks } from "./sceneSeaWorks";
 import { Landmarks, LANDMARK_SITES, type LandmarkSite } from "./sceneLandmarks";
 import { ringTile, SURVEY_STYLES, type DroneLabel, type RingResult } from "./ringBuildings";
-import type { ColourJob, ColourResult, SurveyJob, SurveyResult } from "./droneSurveyWorker";
+import type { ColourJob, ColourResult, SurveyJob, SurveyResult,SurveyPart } from "./droneSurveyWorker";
 import { roadTile } from "./droneRoads";
 import { DroneTraffic } from "./droneTraffic";
 import { farGround } from "./farGround";
@@ -54,6 +57,9 @@ type Roofs = NonNullable<RingResult["roofs"]>;
 type TileGrid = { h: Float32Array; n: number; R: number; cell: number; ox: number; oy: number };
 type Tile = {
   view?: boolean;
+  near?:NearBuildingTarget[];
+  nearObjects?:THREE.Object3D[];
+  nearRoadGuard?:NearBuildingSource['roadGuard'];
   i: number; j: number; key: string; box: [number, number, number, number]; cx: number; cy: number;
   /** Inside the view's own land-use square: no ground of its own. */
   inner: boolean;
@@ -73,11 +79,15 @@ type Tile = {
   buildingGroup?: THREE.Group;
   survey: "none" | "running" | "placed" | "ready" | "unavailable";
   surveyHidden?: Set<string>;
+  /** A missing/failed model waits with backoff; it never completes the building.
+   * Other records can continue instead of twelve failures blocking the tile. */
+  surveyDeferred?:Map<string,{at:number;tries:number}>;
   surveyPaint?: { geo: THREE.BufferGeometry; spans: Uint32Array }[];
+  surveyGeos?:THREE.BufferGeometry[];
   surveyUndo?: { geo: THREE.BufferGeometry; start: number; indices: Uint32Array }[];
   surveyRetryAt?: number; surveyTries?: number; colourRetryAt?: number; colourTries?: number;
   /** its buildings' vertex spans and outlines (RingResult.spans), and their aerial colours' state */
-  spans?: Float32Array; spanRings?: number[][][]; colour?: "running" | "done";
+  spans?: Float32Array; spanRings?: number[][][]; appearances?:(BuildingAppearance|undefined)[]; colour?: "running" | "done";
   /** its lane paint (true to size, broad) and how many bridges */
   marks?: (THREE.Mesh | null)[]; bridges?: number;
   /** its fine parts, not drawn far off (FINE_R) */
@@ -156,6 +166,7 @@ export class DroneWorld {
   private tiles = new Map<string, Tile>();
   private viewTiles = new Map<string, Tile>();
   private adoptedView: DroneViewBuildings | null = null;
+  private adoptedNear:NearBuildingSource|null=null;
   private base: number | null = null;
   private baseJob: Promise<number | null> | null = null;
   private loading = 0;
@@ -188,6 +199,7 @@ export class DroneWorld {
   private seaCoverageAt = 0;
   private scheduleAt = -Infinity;
   private scheduleX = Infinity; private scheduleY = Infinity;
+  private aheadX=0;private aheadY=0;private viewAheadX=0;private viewAheadY=0;private scheduleLook?:[number,number];
 
   constructor(private readonly o: {
     data: RealEstateBuildingsResponse; terrain: Terrain; extent: ViewExtent; seed: number; hq: boolean;
@@ -197,6 +209,7 @@ export class DroneWorld {
     /** where the view's own trees stand (view frame): on the collision grid of its tiles */
     viewTrees?: () => [number, number][];
     viewBuildings?: () => DroneViewBuildings | undefined;
+    nearBuildings?: () => NearBuildingSource | undefined;
     viewWater?: () => THREE.Mesh[];
     onSeaReady?: (field: WaterField) => void;
     /** a tile's signs (null: gone) */
@@ -314,28 +327,61 @@ export class DroneWorld {
   private adoptViewBuildings() {
     const view = this.o.viewBuildings?.();
     if (!view || view === this.adoptedView || !view.ring.towers || !view.ring.spans || !view.ring.spanRings) return;
-    for (const t of this.viewTiles.values()) { t.stop.abort(); this.clear(t); }
-    this.viewTiles.clear();
+    for (const [k,t] of this.viewTiles) if(!t.near){t.stop.abort();this.clear(t);this.viewTiles.delete(k);}
     this.adoptedView = view;
-    const buckets = new Map<string, { i: number; j: number; towers: number[]; spans: number[]; rings: number[][][]; sources: Map<number,number> }>();
+    const buckets = new Map<string, { i: number; j: number; towers: number[]; spans: number[]; rings: number[][][]; appearances:(BuildingAppearance|undefined)[]; sources: Map<number,number> }>();
     const towers = view.ring.towers, spans = view.ring.spans, rings = view.ring.spanRings;
     for (let k = 0; k < towers.length; k += TOWER) {
       const style = SURVEY_STYLES[towers[k+6]], index = view.styles[style]?.index;
       if (!index || !Array.from(index.array.slice(towers[k+4], towers[k+4]+3)).some(v => v !== 0)) continue;
       const i = Math.floor(towers[k]/TILE_M), j = Math.floor(towers[k+1]/TILE_M), id = key(i,j);
       let b = buckets.get(id);
-      if (!b) buckets.set(id, b = { i, j, towers: [], spans: [], rings: [], sources: new Map() });
+      if (!b) buckets.set(id, b = { i, j, towers: [], spans: [], rings: [], appearances:[],sources: new Map() });
       const source = towers[k+7]; let outline = b.sources.get(source);
-      if (outline === undefined) { outline = b.rings.length; b.sources.set(source, outline); b.rings.push(rings[source]); for (let n = 0; n < 5; n++) b.spans.push(spans[source*5+n]); }
+      if (outline === undefined) { outline = b.rings.length; b.sources.set(source, outline); b.rings.push(rings[source]);b.appearances.push(view.ring.appearances?.[source]); for (let n = 0; n < 5; n++) b.spans.push(spans[source*5+n]); }
       for (let n = 0; n < TOWER; n++) b.towers.push(n === 7 ? outline : towers[k+n]);
     }
     for (const b of buckets.values()) {
       const zup = new THREE.Group(); zup.rotation.x = -Math.PI/2; zup.name = `drone view tile ${b.i},${b.j}`;
       const t: Tile = { view:true, i:b.i,j:b.j,key:'view:'+key(b.i,b.j),box:[b.i*TILE_M,b.j*TILE_M,(b.i+1)*TILE_M,(b.j+1)*TILE_M],cx:(b.i+.5)*TILE_M,cy:(b.j+.5)*TILE_M,
         inner:true,state:'ready',tries:0,retryAt:0,grid:null,at:null,roofs:null,zup,yup:null,materials:[],dispose:[],stop:new AbortController(),startedAt:0,readyAt:0,planting:null,local:null,plants:null,
-        towers:new Float32Array(b.towers),styleGeo:view.styles,buildingGroup:view.group,survey:'none',surveyGroup:null,castB:true,castP:false,spans:new Float32Array(b.spans),spanRings:b.rings };
+        towers:new Float32Array(b.towers),styleGeo:view.styles,buildingGroup:view.group,survey:'none',surveyGroup:null,castB:true,castP:false,spans:new Float32Array(b.spans),spanRings:b.rings,appearances:b.appearances };
       this.viewTiles.set(t.key,t); this.o.addWarm(this.root,zup);
     }
+  }
+  private adoptNearBuildings(){
+    const source=this.o.nearBuildings?.();if(!source||source===this.adoptedNear)return;
+    for(const [k,t] of this.viewTiles)if(t.near){t.stop.abort();this.clear(t);this.viewTiles.delete(k);}
+    this.adoptedNear=source;
+    const buckets=new Map<string,NearBuildingTarget[]>();
+    for(const target of source.targets){const k=key(Math.floor(target.x/TILE_M),Math.floor(target.y/TILE_M));let list=buckets.get(k);if(!list)buckets.set(k,list=[]);list.push(target);}
+    for(const [k,near] of buckets){const [i,j]=k.split(',').map(Number),zup=new THREE.Group();zup.rotation.x=-Math.PI/2;
+      const towers=new Float32Array(near.flatMap((b,n)=>[b.x,b.y,b.height,b.ground,n,0,Math.max(0,SURVEY_STYLES.indexOf(b.appearance.style as ContextStyle)),n,0]));
+      const t:Tile={view:true,near,nearObjects:source.objects,nearRoadGuard:source.roadGuard,i,j,key:'near:'+k,box:[i*TILE_M,j*TILE_M,(i+1)*TILE_M,(j+1)*TILE_M],cx:(i+.5)*TILE_M,cy:(j+.5)*TILE_M,
+        inner:true,state:'ready',tries:0,retryAt:0,grid:null,at:null,roofs:null,zup,yup:null,materials:[],dispose:[],stop:new AbortController(),startedAt:0,readyAt:0,planting:null,local:null,plants:null,
+        towers,styleGeo:{},survey:'none',surveyGroup:null,castB:true,castP:false,spanRings:near.map(b=>b.outline),appearances:near.map(b=>b.appearance)};
+      this.viewTiles.set(t.key,t);this.o.addWarm(this.root,zup);
+    }
+  }
+  // CPU footprints/colours are sufficient to start the network workers. Waiting
+  // for coarse GPU uploads delays the measured model until after first sight.
+  // Replacement still waits for its own complete GPU readiness in surveyTile.
+  private buildingReady(t:Tile){return t.nearObjects?t.nearObjects.every(o=>!!o.parent):!!t.buildingGroup?.parent;}
+  /** A tile centre can sit behind the camera while its unprocessed apartments
+   * are in front. Rank the next eligible building, not the tile's fixed centre;
+   * completed/deferred neighbours cannot hold the visible corridor back. */
+  private surveyPriority(t:Tile,x:number,y:number,ax:number,ay:number,lx:number,ly:number,look:[number,number]|undefined,now:number){
+    const a=t.towers!,range=this.o.hq?SURVEY_R.hq:SURVEY_R.lite;let best=Infinity;
+    for(let i=0;i<a.length;i+=TOWER){const id=a[i+6]+':'+a[i+4];
+      if(t.surveyHidden?.has(id)||(t.surveyDeferred?.get(id)?.at??0)>now)continue;
+      const dx=a[i]-x,dy=a[i+1]-y,d=Math.hypot(dx,dy),visible=!!look&&(dx*look[0]+dy*look[1])/Math.max(1,d)>.35;
+      // The viewing/travel buffers already have visible coarse buildings past
+      // the radius centred on the drone. They also need detail: the old radius
+      // test left those rendered buildings permanently in the coarse state.
+      if(Math.min(d,Math.hypot(a[i]-ax,a[i+1]-ay),Math.hypot(a[i]-lx,a[i+1]-ly))>range&&!visible)continue;
+      best=Math.min(best,droneDetailPriority(a[i],a[i+1],t.appearances?.[a[i+7]]?.floors??Math.round(a[i+2]/3),x,y,ax,ay,look));
+    }
+    return best;
   }
   stats(): DroneWorldStats {
     let ready = 0, failed = 0, detailReady = 0, detailRunning = 0, detailPending = 0, detailUnavailable = 0, detailMatched = 0, detailUnmatched = 0;
@@ -363,15 +409,18 @@ export class DroneWorld {
     if (scheduleNow - this.scheduleAt < 80 && Math.hypot(x - this.scheduleX, y - this.scheduleY) < 20) return;
     this.scheduleAt = scheduleNow; this.scheduleX = x; this.scheduleY = y;
     this.adoptViewBuildings();
+    this.adoptNearBuildings();
     if (!OFF.includes("sea") && !this.regionBusy && (!this.region || Math.hypot(x - this.region.x, y - this.region.y) > REGION_SEA * 0.5)) void this.regionSea(x, y);
     if (!OFF.includes("landmarks")) this.landmarks.update(x, y);
     // (higher, more of the city in sight: 1.15 km low down, 1.8 km at 500 m; less on a phone — and
-    // loaded for where the drone will be in 5.5 s)
+    // scheduled toward its predicted position ten seconds ahead)
     this.radius = Math.min(this.o.hq ? 1820 : 1260, 1155 + Math.max(0, alt) * 1.4) * this.memoryScale();
-    // (and 200 m more ahead still, the way it flies — or looks, hovering — so what it comes to was
-    // loaded well before: the front never waits)
+    // Prepare both travel and viewing corridors, including looking backward
+    // while flying forward. Network failure still uses retry/registered fallback.
     const sp = Math.hypot(vx, vy), fx = sp > 1 ? vx / sp : look?.[0] ?? 0, fy = sp > 1 ? vy / sp : look?.[1] ?? 0;
-    const R = this.radius, lead = 5.5, ax = x + vx * lead + fx * 200, ay = y + vy * lead + fy * 200;
+    const R = this.radius, lead = 10, ax = x + vx * lead + fx * 240, ay = y + vy * lead + fy * 240;
+    const viewLead=Math.min(900,300+sp*8),lx=x+(look?.[0]??fx)*viewLead,ly=y+(look?.[1]??fy)*viewLead;
+    this.aheadX=ax;this.aheadY=ay;this.viewAheadX=lx;this.viewAheadY=ly;this.scheduleLook=look;
     const now = performance.now(), plantR = this.o.hq ? PLANT_R.hq : PLANT_R.lite;
     if (this.region?.field && this.regionWater && now - this.seaCoverageAt > 500) {
       this.seaCoverageAt = now;
@@ -382,7 +431,7 @@ export class DroneWorld {
     const far: [number, Tile][] = [];
     for (const t of this.tiles.values()) {
       if (t.state === "placed" && this.placedReady(t)) { t.state = "ready"; t.readyAt = now; this.lastMs = now - t.startedAt; if (DTRACE) performance.mark?.(`drone:ready ${t.key}`); }
-      const d = Math.min(distToBox(x, y, t.box), distToBox(ax, ay, t.box));
+      const d = Math.min(distToBox(x, y, t.box), distToBox(ax, ay, t.box),distToBox(lx,ly,t.box));
       // (out of reach: freed at once — its meshes, textures and workers' arrays — with 250 m of slack
       // so a tile on the edge is not loaded and freed by turns)
       if (d > R + 250) { this.drop(t); continue; }
@@ -404,15 +453,17 @@ export class DroneWorld {
     if (colourNext && colourBusy < 1) { if (NO_COLOUR) colourNext[1].colour = "done"; else void this.colourTile(colourNext[1]); }
     // Towers: their surveyed shapes, nearest to where the drone is going first, a few tiles at a
     // time (their models come over the network; the merging is the page's, in short slices).
-    const surveyR = this.o.hq ? SURVEY_R.hq : SURVEY_R.lite;
     const surveyWant: [number, Tile][] = [];
     for (const t of [...this.tiles.values(), ...this.viewTiles.values()]) {
-      if (!t.buildingGroup || !this.o.drawReady(t.buildingGroup) || t.survey !== "none" || now < (t.surveyRetryAt ?? 0) || !t.towers?.length) continue;
-      const d = distToBox(x, y, t.box);
-      if (d <= surveyR && !OFF.includes("survey")) surveyWant.push([d, t]);
+      if(t.survey==='unavailable'&&now>=(t.surveyRetryAt??0))t.survey='none';
+      if (!this.buildingReady(t) || t.survey !== "none" || now < (t.surveyRetryAt ?? 0) || !t.towers?.length) continue;
+      if(OFF.includes('survey'))continue;
+      const priority=this.surveyPriority(t,x,y,ax,ay,lx,ly,look,now);
+      if(Number.isFinite(priority))surveyWant.push([priority,t]);
     }
     surveyWant.sort((a, b) => a[0] - b[0]);
-    for (let k = 0; k < Math.min((this.o.hq ? 2 : 1) - this.surveying, surveyWant.length); k++) void this.surveyTile(surveyWant[k][1]);
+    const detailSlots=Math.min((this.o.hq?2:1)-this.surveying,surveyWant.length);
+    for(let k=0;k<detailSlots;k++)void this.surveyTile(surveyWant[k][1]);
     // Shadows from the near tiles only (with 80 m of slack: not switched back and forth); the lane
     // paint true to size within ~260 m of the camera (its height counted), broad past it.
     if (++this.shadowCheck % 15 === 0) for (const t of this.tiles.values()) {
@@ -429,7 +480,7 @@ export class DroneWorld {
     // made; a tile past them (with a few of slack) goes at once. (Freeing tiles the loop below then made
     // again, frame after frame, was what ran the memory out and kept the ones ahead from loading.)
     const cap = this.o.hq ? 90 : 45;
-    const keep = this.nearestPlaces(x, y, ax, ay, R, cap);
+    const keep = this.nearestPlaces(x, y, ax, ay, R, cap,lx,ly);
     if (far.length > cap) {
       far.sort((a, b) => b[0] - a[0]);
       let over = far.length - cap;
@@ -437,12 +488,12 @@ export class DroneWorld {
     }
     plantWant.sort((a, b) => a[0] - b[0]);
     for (let k = 0; k < Math.min((this.o.hq ? 4 : 2) - this.planting, plantWant.length); k++) void this.plant(plantWant[k][1]);
-    const i0 = Math.floor((Math.min(x, ax) - R) / TILE_M), i1 = Math.floor((Math.max(x, ax) + R) / TILE_M);
-    const j0 = Math.floor((Math.min(y, ay) - R) / TILE_M), j1 = Math.floor((Math.max(y, ay) + R) / TILE_M);
+    const i0 = Math.floor((Math.min(x, ax,lx) - R) / TILE_M), i1 = Math.floor((Math.max(x, ax,lx) + R) / TILE_M);
+    const j0 = Math.floor((Math.min(y, ay,ly) - R) / TILE_M), j1 = Math.floor((Math.max(y, ay,ly) + R) / TILE_M);
     const want: [number, Tile][] = [];
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
       const box: [number, number, number, number] = [i * TILE_M, j * TILE_M, (i + 1) * TILE_M, (j + 1) * TILE_M];
-      const near = Math.min(distToBox(x, y, box), distToBox(ax, ay, box));
+      const near = Math.min(distToBox(x, y, box), distToBox(ax, ay, box),distToBox(lx,ly,box));
       if (near > R || !keep.has(key(i, j))) continue;
       // (the way the camera looks first: a tile within ~50° of the view comes before any tile out of
       // it, nearest first among each; the one under the drone always first)
@@ -465,13 +516,13 @@ export class DroneWorld {
   }
 
   /** The keys of the `cap` places (tiles) nearest the drone or where it is going, within R. */
-  private nearestPlaces(x: number, y: number, ax: number, ay: number, R: number, cap: number) {
-    const i0 = Math.floor((Math.min(x, ax) - R) / TILE_M), i1 = Math.floor((Math.max(x, ax) + R) / TILE_M);
-    const j0 = Math.floor((Math.min(y, ay) - R) / TILE_M), j1 = Math.floor((Math.max(y, ay) + R) / TILE_M);
+  private nearestPlaces(x: number, y: number, ax: number, ay: number, R: number, cap: number,lx=ax,ly=ay) {
+    const i0 = Math.floor((Math.min(x, ax,lx) - R) / TILE_M), i1 = Math.floor((Math.max(x, ax,lx) + R) / TILE_M);
+    const j0 = Math.floor((Math.min(y, ay,ly) - R) / TILE_M), j1 = Math.floor((Math.max(y, ay,ly) + R) / TILE_M);
     const all: [number, string][] = [];
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
       const box: [number, number, number, number] = [i * TILE_M, j * TILE_M, (i + 1) * TILE_M, (j + 1) * TILE_M];
-      const near = Math.min(distToBox(x, y, box), distToBox(ax, ay, box));
+      const near = Math.min(distToBox(x, y, box), distToBox(ax, ay, box),distToBox(lx,ly,box));
       if (near <= R) all.push([near, key(i, j)]);
     }
     all.sort((a, b) => a[0] - b[0]);
@@ -613,7 +664,7 @@ export class DroneWorld {
       if (!ring) { fail(); return; }
       t.roofs = ring.roofs ?? null;
       t.towers = ring.towers ?? null;
-      t.spans = ring.spans; t.spanRings = ring.spanRings;
+      t.spans = ring.spans; t.spanRings = ring.spanRings;t.appearances=ring.appearances;
       this.o.onLabels?.(t.key, ring.labels ?? null);
       // (inside the view's square, the trees the view planted itself)
       if (t.inner && t.roofs) this.treesOnGrid(t.roofs, (this.o.viewTrees?.() ?? []).filter(([x, y]) => x >= t.box[0] && y >= t.box[1] && x < t.box[2] && y < t.box[3]), this.o.terrain.at);
@@ -633,6 +684,7 @@ export class DroneWorld {
         geo.setAttribute("normal", new THREE.BufferAttribute(a.normal, 3));
         geo.setAttribute("uv", new THREE.BufferAttribute(a.uv, 2));
         geo.setAttribute("color", new THREE.BufferAttribute(a.color, 3));
+        if(a.facade)geo.setAttribute("facade",new THREE.BufferAttribute(a.facade,4));
         geo.setIndex(new THREE.BufferAttribute(a.index, 1));
         geo.computeBoundingSphere();
         t.dispose.push(() => geo.dispose());
@@ -1033,10 +1085,35 @@ export class DroneWorld {
     const { data } = this.o, stop = t.stop;
     // (not the towers of a landmark site: its photo-textured models stand there — sceneLandmarks)
     const inSite = (x: number, y: number) => LANDMARK_SITES.some(st => { const [sx, sy] = this.landmarks.at(st.lat, st.lon); return Math.hypot(x - sx, y - sy) < st.radius; });
-    const all = t.towers!, keepT: number[] = [];
-    for (let i = 0; i < all.length; i += TOWER) if (!inSite(all[i], all[i + 1]) && !t.surveyHidden?.has(all[i + 6]+':'+all[i + 4])) for (let k = 0; k < TOWER; k++) keepT.push(all[i + k]);
-    const towers = keepT.length === all.length ? all : new Float32Array(keepT);
-    if (!towers.length) { t.survey = "ready"; return; }
+    const all = t.towers!, candidates:number[]=[];
+    const eligible:number[]=[];
+    for(let i=0;i<all.length;i+=TOWER)if(!inSite(all[i],all[i+1])&&!t.surveyHidden?.has(all[i+6]+':'+all[i+4])){
+      eligible.push(i);if(performance.now()>=(t.surveyDeferred?.get(all[i+6]+':'+all[i+4])?.at??0))candidates.push(i);
+    }
+    // A whole dense 340m tile could monopolise both workers for twenty seconds.
+    // Apply small near-first batches so visible buildings finish while the rest
+    // continue with the same worker/download limits and full source resolution.
+    const priority=(i:number)=>droneDetailPriority(all[i],all[i+1],t.appearances?.[all[i+7]]?.floors??Math.round(all[i+2]/3),this.scheduleX,this.scheduleY,this.aheadX,this.aheadY,this.scheduleLook);
+    candidates.sort((a,b)=>priority(a)-priority(b));
+    const selected=candidates.slice(0,12),keepT:number[]=[];
+    for(const i of selected)for(let k=0;k<TOWER;k++)keepT.push(all[i+k]);
+    const towers = new Float32Array(keepT);
+    const nextState=()=>{
+      const remaining=eligible.filter(i=>!t.surveyHidden?.has(all[i+6]+':'+all[i+4]));
+      if(!remaining.length){t.survey='ready';t.surveyRetryAt=undefined;return;}
+      const next=Math.min(...remaining.map(i=>t.surveyDeferred?.get(all[i+6]+':'+all[i+4])?.at??0));
+      t.survey=next<=performance.now()?'none':'unavailable';t.surveyRetryAt=next;
+    };
+    const defer=(hide:ArrayLike<number>,retry:boolean)=>{
+      const matched=new Set<string>();for(let i=0;i<hide.length;i+=3)matched.add(hide[i]+':'+hide[i+1]);
+      t.surveyDeferred??=new Map();
+      for(let i=0;i<towers.length;i+=TOWER){const id=towers[i+6]+':'+towers[i+4];
+        if(matched.has(id)){t.surveyDeferred.delete(id);continue;}
+        const tries=(t.surveyDeferred.get(id)?.tries??0)+1;
+        t.surveyDeferred.set(id,{tries,at:performance.now()+(retry?Math.min(30000,2500*tries):60000)});
+      }
+    };
+    if (!towers.length) {nextState();return;}
     t.survey = "running";
     t.surveyTries = (t.surveyTries ?? 0) + 1;
     this.surveying++;
@@ -1044,6 +1121,8 @@ export class DroneWorld {
       // (each block's colour, from its box: the shape is painted as the box was)
       const n = towers.length / TOWER, tints = new Float32Array(n * 3), facadeScale = new Float32Array(n).fill(1);
       for (let i = 0; i < n; i++) {
+        const near=t.near?.[towers[i*TOWER+7]];
+        if(near){tints.set(near.appearance.wall,i*3);facadeScale[i]=1/near.appearance.storey;continue;}
         const g = t.styleGeo[SURVEY_STYLES[towers[i * TOWER + 6]]];
         if (!g?.index) continue;
         const col = g.getAttribute("color"), v = g.index.getX(towers[i * TOWER + 4]);
@@ -1061,25 +1140,33 @@ export class DroneWorld {
       for (let i = 0; i < n; i++) {
         outlines.push((t.spanRings?.[towers[i * TOWER + 7]] ?? []) as [number, number][]);
       }
-      const res = await this.surveyWork({ key: data.vworld_key!, lat0: data.center!.lat, lon0: data.center!.lon, towers: towers.slice(), tints, facadeScale, outlines }, stop.signal) as SurveyResult | null;
-      if (!res || this.disposed || stop.signal.aborted || !t.zup || !this.liveTile(t)) return;
-      (t as unknown as { surveyInfo: unknown }).surveyInfo = { models: res.models, matched: res.matched, expected: n, retry: res.retry, tall: res.tall };
-      if (!res.parts.length) { if (!res.retry) t.survey = t.surveyGroup ? "ready" : "unavailable"; return; }
+      const previous=(t.surveyPaint??[]).map(({geo,spans}):SurveyPart=>{
+        const array=(name:string)=>(geo.getAttribute(name)?.array as Float32Array|undefined)??null,b=geo.boundingBox!,s=geo.boundingSphere!;
+        return {material:geo.userData.surveyMaterial,position:array('position')!,normal:array('normal')!,uv:array('uv'),color:array('color')!,facade:array('facade'),index:geo.index!.array as Uint32Array,paintSpans:spans,box:[b.min.x,b.min.y,b.min.z,b.max.x,b.max.y,b.max.z],sphere:[s.center.x,s.center.y,s.center.z,s.radius]};
+      });
+      const res = await this.surveyWork({ key: data.vworld_key!, lat0: data.center!.lat, lon0: data.center!.lon, towers: towers.slice(), tints, facadeScale, outlines,appearances:Array.from({length:n},(_,i)=>t.appearances?.[towers[i*TOWER+7]]),previous,roadGuard:t.nearRoadGuard,debug:typeof location!=='undefined'&&new URLSearchParams(location.search).get('dronedebug')==='1' }, stop.signal) as SurveyResult | null;
+      if (!res){defer([],true);nextState();return;}
+      if(this.disposed || stop.signal.aborted || !t.zup || !this.liveTile(t))return;
+      (t as unknown as { surveyInfo: unknown }).surveyInfo = { models: res.models, matched: res.matched, expected: n, retry: res.retry, tall: res.tall,misses:res.misses };
+      if (!res.parts.length) {defer([],res.retry);nextState();return;}
       const group = new THREE.Group(), geos: THREE.BufferGeometry[] = [];
+      const oldGroup=t.surveyGroup,oldGeos=t.surveyGeos;
       const paints: { geo: THREE.BufferGeometry; spans: Uint32Array }[] = [];
       group.name = `drone tile ${t.key} surveyed`;
       for (const part of res.parts) {
         const geo = new THREE.BufferGeometry();
+        geo.userData.surveyMaterial=part.material;
         geo.setAttribute("position", new THREE.BufferAttribute(part.position, 3));
         geo.setAttribute("normal", new THREE.BufferAttribute(part.normal, 3));
         if (part.uv) geo.setAttribute("uv", new THREE.BufferAttribute(part.uv, 2));
         geo.setAttribute("color", new THREE.BufferAttribute(part.color, 3));
+        if(part.facade)geo.setAttribute("facade",new THREE.BufferAttribute(part.facade,4));
         geo.setIndex(new THREE.BufferAttribute(part.index, 1));
         geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(...part.sphere.slice(0, 3) as [number,number,number]), part.sphere[3]);
         if (part.box) geo.boundingBox = new THREE.Box3(new THREE.Vector3(part.box[0],part.box[1],part.box[2]),new THREE.Vector3(part.box[3],part.box[4],part.box[5]));
         geos.push(geo);
         paints.push({ geo, spans: part.paintSpans });
-        const mesh = new THREE.Mesh(geo, part.material >= 0 && part.uv ? sharedContextMaterial(SURVEY_STYLES[part.material]) : this.plain);
+        const mesh = new THREE.Mesh(geo,part.material >= 0 && part.uv ? sharedContextMaterial(SURVEY_STYLES[part.material]) : this.plain);
         mesh.castShadow = mesh.receiveShadow = true;
         mesh.userData.solid = true;
         mesh.userData.railBuilding = true;
@@ -1094,7 +1181,7 @@ export class DroneWorld {
       group.updateMatrixWorld(true);
       staticSceneTransforms(group);
       if (!t.castB) castShadows(group, false);
-      if (!t.surveyGroup) t.surveyGroup = group;
+      // Keep the preceding meshes until the full replacement is GPU-ready.
       t.surveyPaint ??= []; t.surveyPaint.push(...paints);
       t.survey = "placed";
       const hide = res.hide;
@@ -1103,6 +1190,7 @@ export class DroneWorld {
         if (!group.parent || stop.signal.aborted || !this.liveTile(t)) return;
         if (!this.o.drawReady(group)) { requestAnimationFrame(swap); return; }
         for (let k = 0; k < hide.length; k += 3) {
+          if(t.near){t.near[hide[k+1]]?.hide();t.surveyHidden??=new Set();t.surveyHidden.add(hide[k]+':'+hide[k+1]);continue;}
           const g = t.styleGeo[SURVEY_STYLES[hide[k]]];
           if (!g?.index) continue;
           if (t.view) { t.surveyUndo ??= []; t.surveyUndo.push({ geo:g, start:hide[k+1], indices:new Uint32Array(g.index.array.slice(hide[k+1], hide[k+1]+hide[k+2])) }); }
@@ -1110,19 +1198,21 @@ export class DroneWorld {
           g.index.needsUpdate = true;
           t.surveyHidden ??= new Set(); t.surveyHidden.add(hide[k]+':'+hide[k + 1]);
         }
-        t.survey = res.retry ? "none" : "ready";
-        if (res.retry) t.surveyRetryAt = performance.now() + Math.min(30000, 2500 * (t.surveyTries ?? 1));
+        defer(hide,res.retry);
+        oldGroup?.removeFromParent();oldGeos?.splice(0).forEach(g=>g.dispose());
+        t.surveyGroup=group;t.surveyGeos=geos;t.surveyPaint=paints;
+        nextState();
       };
       requestAnimationFrame(swap);
     } catch {
       console.info("[3D] drone survey will retry:", t.key);
     } finally {
       this.surveying--;
-      if (t.survey === "running") { t.survey = "none"; t.surveyRetryAt = performance.now() + Math.min(30000, 2500 * (t.surveyTries ?? 1)); }
+      if(t.survey==='running'){defer([],true);nextState();}
     }
   }
-  /** A tile's buildings in the colours the aerial photographs show: the roof's own colour (a green
-   * waterproofed slab, a grey one, red tiles), the walls' paint where the photograph shows it. */
+  /** Bounded colour evidence, with a neutral per-building fallback for uncertain
+   * roof medians. Constructed facades retain their registered material profile. */
   private async colourTile(t: Tile) {
     const { data } = this.o, spans = t.spans!, rings = t.spanRings!, stop = t.stop;
     t.colour = "running";
@@ -1142,11 +1232,12 @@ export class DroneWorld {
         // (the walls: the photograph's paint only where it is clearly paint — bright, not a wall in
         // shade — mixed into the colour the structure gave; the roof as the photograph shows it)
         const ws = spans[i * 5 + 1], f = c.facade;
-        if (f && 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2] > 0.42) {
+        if (!t.appearances?.[i]&&f && 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2] > 0.42) {
           const mix: [number, number, number] = [a[ws * 3] * 0.35 + f[0] * 0.65, a[ws * 3 + 1] * 0.35 + f[1] * 0.65, a[ws * 3 + 2] * 0.35 + f[2] * 0.65];
           paint(ws, spans[i * 5 + 2], mix);
         }
-        paint(spans[i * 5 + 3], spans[i * 5 + 4], c.roof);
+        const appearance=t.appearances?.[i];
+        paint(spans[i * 5 + 3], spans[i * 5 + 4], appearance?observedRoofColour(appearance,c.roof,c.pitched):c.roof);
         touched.add(g);
         if (i % 200 === 199 && !await this.pace()) return;
       }
@@ -1167,6 +1258,7 @@ export class DroneWorld {
     const source = t.spans;
     if (!source) return;
     for (const { geo, spans } of paints) {
+      if(!spans.length)continue;
       const target = geo.getAttribute('color') as THREE.BufferAttribute;
       const a = target.array as Float32Array;
       for (let k = 0; k < spans.length; k += 5) {
@@ -1247,6 +1339,7 @@ export class DroneWorld {
   }
 
   private clear(t: Tile) {
+    t.near?.forEach(b=>b.restore());t.near=undefined;t.nearObjects=undefined;t.nearRoadGuard=undefined;
     for (const row of t.surveyUndo ?? []) if (row.geo.index) { (row.geo.index.array as Uint32Array).set(row.indices,row.start); row.geo.index.needsUpdate = true; }
     t.surveyUndo = undefined;
     this.unplant(t);
@@ -1256,8 +1349,8 @@ export class DroneWorld {
     if (t.materials.length) this.o.forget?.(new Set(t.materials));
     for (const f of t.dispose) f();
     t.zup = t.yup = null; t.materials = []; t.dispose = []; t.roofs = null; t.surveyGroup = null; t.styleGeo = {}; t.lanes = t.baseLanes = undefined;
-    t.survey = "none"; t.colour = undefined; t.towers = null; t.spans = undefined; t.spanRings = undefined;
-    t.buildingGroup = undefined; t.surveyHidden = undefined; t.surveyPaint = undefined;
+    t.survey = "none"; t.colour = undefined; t.towers = null; t.spans = undefined; t.spanRings = undefined;t.appearances=undefined;
+    t.buildingGroup = undefined; t.surveyHidden = undefined; t.surveyPaint = undefined;t.surveyDeferred=undefined;t.surveyGeos=undefined;
     t.planting = null; t.local = null; t.marks = undefined; t.fine = undefined; t.walkPaths = undefined;
   }
   private drop(t: Tile) {

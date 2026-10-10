@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {transformSync} from 'esbuild';
+import ts from 'typescript';
+import vm from 'node:vm';
+import * as THREE from 'three';
+const scope={module:{exports:{}},exports:{},THREE,performance,window:{devicePixelRatio:1}};
+vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/droneSigns.ts',import.meta.url),'utf8').replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);
+const {DroneSigns}=scope.module.exports;
+const source=readFileSync(new URL('../src/rail/SurfaceRailLayer.ts',import.meta.url),'utf8'),ast=ts.createSourceFile('rail.ts',source,ts.ScriptTarget.Latest,true);
+const cls=ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name.text==='SurfaceRailLayer');
+const methods=['stationLabels','placeLabel'].map(name=>cls.members.find(n=>n.name?.getText(ast)===name).getText(ast).replace(/^private /,''));
+vm.runInNewContext(transformSync('class Rail{'+methods.join('\n')+'};globalThis.Rail=Rail;',{loader:'ts'}).code,scope);
+test('station sign positions follow the rendered rail and cached lists only change when source owners change',()=>{
+ const rail=new scope.Rail();rail.labels=new Map();rail.signCache=null;
+ const label={name:'창동',sprite:new THREE.Sprite(),owners:new Map([['a',new THREE.Vector3(10,18,-20)],['b',new THREE.Vector3(12,20,-22)]])};
+ rail.labels.set('line:창동',label);rail.placeLabel(label);const first=rail.stationLabels();
+ assert.equal(first[0].name,'창동역');assert.equal(first[0].kind,'station');assert.equal(first[0].x,11);assert.equal(first[0].y,21);assert.equal(first[0].top,19);
+ assert.equal(rail.stationLabels(),first);label.owners.delete('a');rail.placeLabel(label);assert.notEqual(rail.stationLabels(),first);assert.equal(rail.stationLabels()[0].x,12);
+});
+test('native screen-space signs draw station names, merge shared platforms and remove unloaded routes without opening building cards',()=>{
+ const signs=new DroneSigns(),texts=[],ctx={measureText:t=>({width:t.length*8})};
+ for(const name of ['setTransform','clearRect','beginPath','moveTo','lineTo','stroke','arc','fill','roundRect','save','restore'])ctx[name]=()=>{};
+ ctx.fillText=t=>texts.push(t);signs.canvas={getContext:()=>ctx};
+ const row=(x,y)=>({name:'창동역',kind:'station',x,y,top:18,n:1});signs.set('route-a',[row(10,20)]);signs.set('route-b',[row(12,22)]);
+ assert.equal(signs.all().length,1);assert.equal(DroneSigns.hasCard(signs.all()[0]),false);
+ const camera=new THREE.PerspectiveCamera(65,1.44,.1,3000);camera.position.set(10,60,100);camera.lookAt(10,18,-20);camera.updateMatrixWorld();
+ signs.draw(camera,1440,1000,[800,1200]);assert.ok(texts.some(t=>t.includes('창동역')));assert.equal(texts.some(t=>t.includes('ⓘ')),false);
+ signs.set('route-a',null);assert.equal(signs.all().length,1);signs.set('route-b',null);assert.equal(signs.all().length,0);
+});

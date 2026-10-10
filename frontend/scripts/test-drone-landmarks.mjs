@@ -3,20 +3,26 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
-import { transformSync } from 'esbuild';
+import { transformSync,buildSync } from 'esbuild';
 import * as THREE from 'three';
 
 const source = readFileSync(new URL('../src/components/ringBuildings.ts', import.meta.url), 'utf8');
 const parsed = ts.createSourceFile('ringBuildings.ts', source, ts.ScriptTarget.Latest, true);
 const worker = parsed.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'ringWorkerMain');
-const workerCode = transformSync(worker.getText(parsed), { loader: 'ts' }).code;
+const appearanceSource=readFileSync(new URL('../src/components/buildingAppearance.ts',import.meta.url),'utf8');
+const ap=ts.createSourceFile('appearance.ts',appearanceSource,ts.ScriptTarget.Latest,true);
+const profile=ap.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='buildingAppearanceProfile').getText(ap).replace(/^export /,'');
+// Exercise the same string serialization after production name minification.
+const serialized={};
+vm.runInNewContext(transformSync(profile+'\n'+worker.getText(parsed)+";globalThis.workerCode='('+ringWorkerMain.toString()+')('+buildingAppearanceProfile.toString()+')';",{loader:'ts',minify:true}).code,serialized);
+const workerCode=serialized.workerCode;
 function renderTile(seed, x, y) {
   let result;
   const lat = 37.57, lon = 126.98, kx = Math.cos(lat * Math.PI / 180) * 111320;
   const ring = [[x+25,y+25],[x+60,y+25],[x+60,y+60],[x+25,y+60],[x+25,y+25]].map(([px,py]) => [lon+px/kx,lat+py/110540]);
   const self = { postMessage: value => result = value };
   const context = { self, performance, importScripts: () => self.ringCb({response:{result:{featureCollection:{features:[{geometry:{type:'Polygon',coordinates:[ring]},properties:{height:12,grnd_flr:3,usability:'01000',strct_cd:'21'}}]}}}}) };
-  vm.runInNewContext(workerCode + '\nringWorkerMain();', context);
+  vm.runInNewContext(workerCode, context);
   self.onmessage({ data: { urls:['fixture'],lat,lon,inner:0,outer:Infinity,near:new Float32Array(),seed,roads:new Float32Array(),grid:null,
     floorM:{apt:2.9,villa:2.9,shop:3.3,office:3.5},box:[x,y,x+340,y+340],heightCell:2 } });
   return result;
@@ -75,9 +81,11 @@ test('an unavailable facade uses its embedded survey photograph; cancellation sk
 });
 
 function landmarks(loader=async()=>[]) {
+  const bridge=buildSync({entryPoints:[new URL('../src/components/bridgeDeck.ts',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')],bundle:true,write:false,platform:'node',format:'cjs',external:['three']}).outputFiles[0].text;
+  const bridgeModule={exports:{}};vm.runInNewContext(bridge,{module:bridgeModule,exports:bridgeModule.exports,require:name=>name==='three'?THREE:{}});
   const code = transformSync(readFileSync(new URL('../src/components/sceneLandmarks.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code;
   const module = {exports:{}};
-  vm.runInNewContext(code,{module,exports:module.exports,require:name=>name==='three'?THREE:{photoBuildings:loader},performance,AbortController,console});
+  vm.runInNewContext(code,{module,exports:module.exports,require:name=>name==='three'?THREE:name==='./bridgeDeck'?bridgeModule.exports:{photoBuildings:loader},performance,AbortController,console});
   return module.exports;
 }
 test('Gwangan double deck stays finite, reaches both approaches, and has cables, railings and markings',()=>{
@@ -86,8 +94,8 @@ test('Gwangan double deck stays finite, reaches both approaches, and has cables,
   const d=gwanganDeck(project,-18,()=>-18);
   assert.ok(d.total>3500 && d.total<5000);
   assert.equal(d.upper((d.s0+d.s1)/2),26);
-  assert.equal(d.upper(0),-16);
-  assert.equal(d.upper(d.total),-16);
+  assert.ok(Math.abs(d.upper(0)-(-18))<.12,'approach must meet surveyed ground within 12cm');
+  assert.ok(Math.abs(d.upper(d.total)-(-18))<.12,'far approach must meet surveyed ground within 12cm');
   const bridge=buildGwanganBridge(project,-18,true,()=>-18);
   assert.equal(bridge.group.children.length,5);
   for(const mesh of bridge.group.children){assert.ok(mesh.geometry.attributes.position.array.every(Number.isFinite));assert.ok(mesh.geometry.index.count>0)}

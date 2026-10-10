@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import {transformSync} from 'esbuild';
 const source=name=>readFileSync(new URL('../src/components/'+name,import.meta.url),'utf8');
 const load=(s,extra={})=>{const scope={module:{exports:{}},exports:{},...extra};vm.runInNewContext(transformSync(s.replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);return scope.module.exports;};
+const {buildingAppearanceProfile}=load(source('buildingAppearance.ts'));
 const {hasAboveGroundEvidence}=load(source('buildingEvidence.ts'));
 const {physicalBuildingFootprints}=load(source('vworldBuildings.ts'),{hasAboveGroundEvidence});
 const fixtures=[
@@ -24,7 +25,7 @@ test('actual ring worker applies the same zero-storey rule before any height fal
  let result;const self={postMessage(r){result=r;}};
  const kx=111320,ky=110540;
  const fs=features.map(f=>({...f,geometry:{...f.geometry,coordinates:f.geometry.coordinates.map(r=>r.map(([x,y])=>[(x+100)/kx,y/ky]))}}));
- const {ringWorkerMain}=load(source('ringBuildings.ts')+'\nexport {ringWorkerMain};',{self,performance:{now:()=>0},importScripts(){self.ringCb({response:{result:{featureCollection:{features:fs}}}});},postMessage(r){result=r;}});
- ringWorkerMain();self.onmessage({data:{lat:0,lon:0,urls:['fixture'],near:new Float32Array(),roads:new Float32Array(),grid:null,seed:1,inner:0,outer:600,floorM:{}}});
+ const {ringWorkerMain}=load(source('ringBuildings.ts')+'\nexport {ringWorkerMain};',{buildingAppearanceProfile,self,performance:{now:()=>0},importScripts(){self.ringCb({response:{result:{featureCollection:{features:fs}}}});},postMessage(r){result=r;}});
+ ringWorkerMain(buildingAppearanceProfile);self.onmessage({data:{lat:0,lon:0,urls:['fixture'],near:new Float32Array(),roads:new Float32Array(),grid:null,seed:1,inner:0,outer:600,floorM:{}}});
  assert.equal(result.buildings,3);assert.equal(result.footprints.length,3);assert.ok(result.footprints.every(r=>r[0][0]>=139.99));
 });

@@ -11,7 +11,7 @@ out = root / 'tmp/drone-performance-20261010' / label
 out.mkdir(parents=True, exist_ok=True)
 errors = []
 with sync_playwright() as p:
-    browser = p.chromium.launch(channel='chrome', headless=True)
+    browser = p.chromium.launch(channel='chrome', headless=True, args=['--mute-audio'])
     try:
         page = browser.new_page(viewport={'width':1440, 'height':1000})
         page.on('pageerror', lambda e: errors.append(str(e)[:200]))
@@ -30,9 +30,13 @@ with sync_playwright() as p:
                 towers:(t.towers?.length??0)/9,survey:t.survey,surveyInfo:t.surveyInfo,replaced:t.surveyHidden?.size??t.surveyInfo?.matched??0,tries:t.surveyTries??0,
                 colour:t.colour??'none',colourTries:t.colourTries??0,detailMeshes:t.surveyGroup?.children.length??0,
                 baseReady:!t.zup||w.o.drawReady(t.zup),detailReady:!t.surveyGroup||w.o.drawReady(t.surveyGroup)}));
-              return {step,px,py,stats:w.stats(),workerStats:w.surveyPool?.stats,resolution:{ratio:document.querySelector('.re-holo-stage')?.dataset.pixelRatio,quality:window.__holoNative.quality.name},tiles:tiles.filter(t=>t.distance<800)};
+              const stage=window.__holoStageAny?.current,native=window.__holoNative,constructedBuildings=[];
+              stage?.scene.traverseVisible(o=>{if(o.isMesh&&o.geometry?.attributes.facade)constructedBuildings.push({ready:stage.drawReady(o),vertices:o.geometry.attributes.position.count,variants:[...new Set(Array.from(o.geometry.attributes.facade.array).filter((_,i)=>i%4===1))]});});
+              return {step,px,py,stats:w.stats(),workerStats:w.surveyPool?.stats,stage:{...document.querySelector('.re-holo-stage')?.dataset},constructedBuildings,resolution:{ratio:document.querySelector('.re-holo-stage')?.dataset.pixelRatio,quality:native.quality.name},tiles:tiles.filter(t=>t.distance<800)};
             }''',step)
             records.append(record)
+            if step in [2,8,14]:
+                page.screenshot(path=str(out/f'view-{step}.png'))
             print(json.dumps({'step':record['step'],'px':record['px'],'stats':record['stats'],'workerStats':record['workerStats'],
                 'near':[t for t in record['tiles'] if t['distance']<350 and t['towers']],'resolution':record['resolution']},ensure_ascii=False),flush=True)
         before=page.evaluate('''()=>{const d=window.__drone;d.flight.place(1080,600,d.world.groundAt(1080,600),300,0);return d.flight.pos.toArray();}''')

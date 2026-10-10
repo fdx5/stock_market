@@ -26,6 +26,7 @@ import { frameSlice } from '../frameSlice';
 import { retireUnusedMaterials,sourceMaterialsMatch,boundTextures } from './materialLifetime';
 import { prepareCanvasResize,sceneDeviceBudget } from '../sceneDeviceBudget';
 import {updateForestLod} from '../spatialForest';
+import {BUILDING_APPEARANCE_WGSL} from './buildingAppearanceShader.js';
 
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
  * software / fallback adapters. Visible views keep their selected quality. */
@@ -1426,6 +1427,8 @@ export class ComplexRenderer {
     let surface = '#if !PASS_DEPTH\nenvP = in.P;\n#endif\nvar puv = in.uv;\nvar reveal = 0.0;\nvar revealUV = in.uv;\n' + (recess ? RECESS_WGSL : '') + (interior ? 'var roomOpen = 0.0;\n' : '') + (car ? 'var carTex = vec3f(0.5);\n' : '');
     // Relief normals and roughness / metalness in one texture where they line up (the
     // facades): normal x, y, roughness, metalness; z comes back from x and y.
+    const constructed = !!source.userData.constructedBuilding;
+    if(constructed)surface+='if (in.vs.facade.z <= 0.0) {\n';
     const surfaceTex = this.packedSurface(source);
     // Roughness alone (the ground): its one channel.
     const roughOnly = !surfaceTex && source.roughnessMap && source.roughnessMap !== source.metalnessMap ? this.singleChannel(source.roughnessMap) : null;
@@ -1588,7 +1591,8 @@ export class ComplexRenderer {
         let texel = in.uv * vec2f(textureDimensions(map));
         let mip = max(0.0, log2(max(length(dpdx(texel)), length(dpdy(texel)))));
         s.alpha *= 1.0 + min(mip, 4.0) * 0.28; }`;
-    if (source.userData.contextBuilding) surface += WALL_WEATHER + 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.27, 0.25); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9;\n' + ROOF_DETAIL + ' }';
+    if (source.userData.contextBuilding) surface += WALL_WEATHER + 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.245, 0.255); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9;\n' + ROOF_DETAIL + ' }';
+    if(constructed)surface+='} else '+BUILDING_APPEARANCE_WGSL+'\n';
     // Weather: rain darkens what faces up and makes it glossy (puddles where the ground
     // dips in the noise); snow settles on it, patchy on slopes. Twin of patchMaterial.
     if (!source.userData.sky) surface += `{
@@ -1612,7 +1616,9 @@ export class ComplexRenderer {
       alphaTest: source.alphaTest || 0, transparent: source.transparent, opacity: source.opacity,
       // Sky objects (the moon) sit beyond the haze.
       // (atmosphere: skyFbm for the puddles and the snow's patchiness)
-      modules: [atmosphere], textures, surface, output: source.userData.sky ? '' : `// (never a NaN or an overflow into the half-float target: one such pixel, spread by the
+      modules: [atmosphere], textures, surface,
+      attributes:constructed?{facade:'vec4f'}:{},varyings:constructed?{facade:'vec4f'}:{},vertex:constructed?'o.facade = v.facade;':'',
+      output: source.userData.sky ? '' : `// (never a NaN or an overflow into the half-float target: one such pixel, spread by the
         // bloom, would flash the whole frame black or white)
         r.color = vec4f(select(min(r.color.rgb, vec3f(30000.0)), vec3f(0.0), r.color.rgb != r.color.rgb), r.color.a);
         let fog = 1.0 - exp(-length(in.P - frame.cameraPos) * mat.haze * mat.hazeScale);
@@ -1685,8 +1691,17 @@ export class ComplexRenderer {
     // Shared facades still bring fresh vertex/index buffers. Count geometry
     // admissions as well as material creation so one tile cannot bypass the
     // visible-frame budget by reusing an already compiled material.
-    let introduced = 0;
-    const geometryRoom = () => introduced === 0 || (introduced < 4 && performance.now() <= until);
+    let introduced = 0, introducedBytes = 0;
+    const geometryBytes = geo => {
+      if (this.renderer.geometries?.has(geo)) return 0;
+      const attributes = new Set(Object.values(geo.attributes ?? {}).map(a => a.isInterleavedBufferAttribute ? a.data : a));
+      if (geo.index) attributes.add(geo.index);
+      let bytes = 0; for (const a of attributes) bytes += a.array?.byteLength ?? 0;
+      return bytes;
+    };
+    // Four large merged facades still caused a burst of main-thread buffer
+    // copies. Bound bytes too, with one unconditional admission for progress.
+    const geometryRoom = geo => introduced === 0 || (introduced < 4 && introducedBytes + geometryBytes(geo) <= 2 * 1024 * 1024 && performance.now() <= until);
     source.traverseVisible(obj => {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
       if(camera && obj.userData.forestLod)updateForestLod(obj,camera);
@@ -1711,7 +1726,7 @@ export class ComplexRenderer {
         // frame's other newcomers never got its strips at all, and the drone's tiles waited on it)
         const imagesIn = this.imagesReady(obj.material);
         if (made && (performance.now() > until || madeTexels > room)) { deferred = true; return; }
-        if (!geometryRoom()) { deferred = true; return; }
+        if (!geometryRoom(obj.geometry)) { deferred = true; return; }
         if (!imagesIn) { deferred = true; return; }
         const before = this.materials.size + this.textures.size;
         const material = Array.isArray(obj.material) ? obj.material.map(m => this.material(m)) : this.material(obj.material);
@@ -1722,6 +1737,8 @@ export class ComplexRenderer {
         // Native meshes are owned here; advance this revision for every world
         // transform change so static bounds can be reused between frames.
         mesh.worldTransformVersion = 0;
+        // sync finishes all source mutations before the synchronous native
+        // shadow/color passes. Their CPU vertex bindings are stable this frame.
         mesh.frustumCulled = obj.frustumCulled;
         mesh.castShadow = obj.castShadow;
         if (obj.isInstancedMesh) {
@@ -1732,6 +1749,7 @@ export class ComplexRenderer {
           mesh.boundingSphere = obj.boundingSphere;
         }
         this.meshes.set(obj, mesh);
+        introducedBytes += geometryBytes(obj.geometry);
         introduced++;
         this.scene.add(mesh);
         this.ready = false;
@@ -1745,8 +1763,8 @@ export class ComplexRenderer {
       }
       // Casters that moved lately (walkers, traffic, boats, the balloon) are drawn into the
       if(mesh.geometry!==obj.geometry){
-        if(!geometryRoom())deferred=true;
-        else{mesh.geometry=obj.geometry;introduced++;swapped=true;if(mesh.castShadow)this.castersChanged=true;}
+        if(!geometryRoom(obj.geometry))deferred=true;
+        else{introducedBytes+=geometryBytes(obj.geometry);mesh.geometry=obj.geometry;introduced++;swapped=true;if(mesh.castShadow)this.castersChanged=true;}
       }
       // shadow maps every frame; the still ones can be kept (SunShadows.render). A change
       // of either set invalidates what is kept.
@@ -1801,7 +1819,9 @@ export class ComplexRenderer {
       if (!gone) dropped = true;
     }
     this.forgetSoon?.clear();
-    if (dropped) this.renderer.pipelines.clear();
+    // forgetMaterial already removes the retiring material's pipelines. Keep
+    // every live building's bindings and compiled shaders: clearing the entire
+    // cache here recompiles hundreds of photo materials during ongoing flight.
     // Some meshes still draw the previous version while a replacement uploads.
     // Its texture bindings must survive for exactly as long as its uniform block.
     if (this.retired?.length) return;
@@ -1894,7 +1914,12 @@ export class ComplexRenderer {
     // (the drone: its view always moving, every caster is drawn again at each refit — the far
     // cascades, whose texels are metres, refit less often; their maps stay put in the world)
     shadows.periods = this.droneSky ? [1, 3, 6] : [1, 2, 4];
-    shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value), i => timer.pass('shadow' + i), this.renderer.precompiling ? null : isMoving);
+    // Native meshes are flat, with visibility already reconciled by sync. Index
+    // the exact caster sets once instead of traversing non-casters in each layer.
+    const casterLists=this.casterLists??={all:[],moving:[],still:[]};
+    casterLists.all.length=casterLists.moving.length=casterLists.still.length=0;
+    for(const mesh of this.meshes.values())if(mesh.castShadow){casterLists.all.push(mesh);(isMoving(mesh)?casterLists.moving:casterLists.still).push(mesh);}
+    shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value), i => timer.pass('shadow' + i), this.renderer.precompiling ? null : isMoving,casterLists);
     if (this.env && this.shown) this.captureEnv(look);
     // TAA: the frame a sub-pixel off (8 Halton offsets); a jump (a hop, a resize, the balloon's
     // basket) starts the history afresh.
@@ -2038,6 +2063,7 @@ export class ComplexRenderer {
     this.taaHist?.forEach(rt => rt.textures.forEach(t => t.destroy()));
     if (this.env) { this.env.tex.destroy(); this.env.back.destroy(); this.env.faceRT.textures.forEach(t => t.destroy()); this.env.depth.depthTexture.destroy(); this.env.block.buffer?.destroy(); if (envView === this) envView = null; }
     this.renderer.pipelines.clear(); this.materials.clear(); this.textures.clear(); this.meshes.clear();
+    this.casterLists=null;
     this.surfaceCache?.clear();
   }
 }

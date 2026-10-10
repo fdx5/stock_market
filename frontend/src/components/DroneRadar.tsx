@@ -11,7 +11,7 @@ export type DroneWhere = { lat: number; lon: number; heading: number; kmh: numbe
 
 const TILE = 256;
 const tiles = new Map<string, ImageBitmap | null | Promise<void>>();
-const DOT: Record<string, string> = { gov: "#7fb6ff", major: "#e8eef5", apt: "#ffcf5c", hospital: "#ff8a96", school: "#8fe0b0" };
+const DOT: Record<string, string> = { gov: "#7fb6ff", major: "#e8eef5", apt: "#ffcf5c", hospital: "#ff8a96", school: "#8fe0b0", station:'#86e5f2' };
 
 function tileUrl(key: string, z: number, row: number, col: number) {
   return `https://api.vworld.kr/req/wmts/1.0.0/${encodeURIComponent(key)}/midnight/${z}/${row}/${col}.png`;

@@ -5,7 +5,25 @@ import {transformSync} from 'esbuild';
 import vm from 'node:vm';
 const scope={module:{exports:{}},exports:{}};
 vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/trafficCollision.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,scope);
-const {VehiclePathHitCache,VehicleTrajectoryCache,VehicleHeightCache,VehicleBuckets,vehicleOverlap,missesTrajectory}=scope.module.exports;
+const {VehiclePathHitCache,VehicleTrajectoryCache,VehicleHeightCache,VehicleBuckets,vehicleOverlap,missesTrajectory,straightVehicleHit}=scope.module.exports;
+
+test('straight-lane SAT intervals preserve the original first metre hit, including behind, scaled headings and touching edges',()=>{
+ let seed=322;const rnd=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/2**32;};let checks=0,naive=0;
+ for(let i=0;i<40000;i++){
+  const a=rnd()*Math.PI*2,b=rnd()*Math.PI*2,sa=.1+rnd()*2,sb=.1+rnd()*2;
+  const c={x:rnd()*1000,y:rnd()*1000,hx:Math.cos(a)*sa,hy:Math.sin(a)*sa,length:2+rnd()*10,width:.5+rnd()*3};
+  const o={x:c.x+rnd()*100-30,y:c.y+rnd()*100-30,hx:Math.cos(b)*sb,hy:Math.sin(b)*sb,length:2+rnd()*10,width:.5+rnd()*3},reach=8+rnd()*40;
+  const poseAt=d=>({x:c.x+c.hx*d,y:c.y+c.hy*d,hx:c.hx,hy:c.hy});
+  let expected=Infinity;
+  for(let d=0;d<=reach;d++){naive++;const p=poseAt(d);if(vehicleOverlap(p.x,p.y,p.hx,p.hy,c.length,c.width,o)){expected=d===0&&(o.x-c.x)*c.hx+(o.y-c.y)*c.hy<=0?Infinity:d;break;}}
+  assert.equal(straightVehicleHit(c,o,reach,d=>{checks++;return poseAt(d);}),expected);
+ }
+ assert.ok(checks<naive/10,`exact confirmations ${checks} vs original samples ${naive}`);
+ const c={x:0,y:0,hx:1,hy:0,length:4,width:2},o={x:10,y:2,hx:1,hy:0,length:4,width:2};
+ assert.equal(straightVehicleHit(c,o,12,d=>({...c,x:d})),6,'touching sides still collide');
+ assert.equal(straightVehicleHit(c,{...o,y:2.000001},12,d=>({...c,x:d})),Infinity);
+ assert.equal(straightVehicleHit({...c,hx:0},o,12,()=>c),null,'degenerate headings fall back');
+});
 
 test('reused vehicle buckets preserve insertion order, sorting and memberships over repeated frames',()=>{
  const buckets=new VehicleBuckets(80),plain=new Map();let seed=237;
