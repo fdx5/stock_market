@@ -1,3 +1,4 @@
+import { sceneWorkerOnce } from "./sceneWorkerPool";
 import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
 import {woodlandBeds,woodlandPatchPattern,WOODLAND_FLOWERS}from'./landscapeDiversity';
@@ -346,7 +347,7 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
   }));
   // (one Blob URL for the page's lifetime: the drone makes these tile after tile)
   farUrl ??= URL.createObjectURL(new Blob([`self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});self.woodlandPatchPattern=(${woodlandPatchPattern.toString()});self.palaceParcelGarden=(${palaceParcelGarden.toString()});self.palaceGardenCover=(${palaceGardenCover.toString()});self.paintPalaceGarden=(${paintPalaceGarden.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
-  const worker = new Worker(farUrl);
+
   const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS,gardens:palaceGardens(lat,lon,H),
     riverUrls: opts.rivers ? Array.from({ length: 3 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
       service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "false",
@@ -359,10 +360,8 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
       const la = +lat.toFixed(4), lo = +lon.toFixed(4);
       return { url: `${location.origin}/api/realestate/water?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=${Math.round(H * 1.5)}&v=3&fast=1`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
     })() : undefined };
-  return new Promise(resolve => {
-    worker.onmessage = e => { worker.terminate(); e.data.planting=withoutStadiumTrees(e.data.planting,stadiumTreeMask); resolve(e.data); };
-    worker.onerror = () => { worker.terminate(); resolve(null); };
-    opts.signal?.addEventListener("abort", () => { worker.terminate(); resolve(null); });
-    worker.postMessage(job);
+  return sceneWorkerOnce<NonNullable<Awaited<ReturnType<typeof farGround>>>>(() => new Worker(farUrl!), job, opts.signal).then(result => {
+    if (result) result.planting = withoutStadiumTrees(result.planting, stadiumTreeMask);
+    return result;
   });
 }

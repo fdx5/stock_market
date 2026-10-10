@@ -1,3 +1,4 @@
+import { sceneWorkerOnce } from "./sceneWorkerPool";
 import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
 import type { ContextStyle } from "./complexScene";
@@ -418,18 +419,12 @@ export function ringBuildings(data: RealEstateBuildingsResponse, near: Float32Ar
     size: "1000", page: String(i + 1), format: "json", callback: "ringCb",
   }));
   const src = `(${ringWorkerMain.toString()})()`;
-  const worker = new Worker(ringWorkerUrl(src));
+
   const job: RingJob = {
     urls, lat, lon, inner: opts.inner ?? 0, outer, near, seed: opts.seed, roads: new Float32Array(segs), clearedSite:data.cleared_site,
     grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, floorM: opts.floorM,
   };
-  return new Promise(resolve => {
-    worker.onmessage = e => { worker.terminate(); resolve(e.data as RingResult); };
-    worker.onerror = () => { worker.terminate(); resolve(null); };
-    // (another complex chosen meanwhile: the work stops at once)
-    opts.signal?.addEventListener("abort", () => { worker.terminate(); resolve(null); });
-    worker.postMessage(job);
-  });
+  return sceneWorkerOnce<RingResult>(() => new Worker(ringWorkerUrl(src)), job, opts.signal);
 }
 
 /** One drone tile's buildings (ringBuildings in box mode): those whose centroid lies in `box`
@@ -444,15 +439,10 @@ export function ringTile(lat: number, lon: number, key: string, domain: string |
     key, domain: domain ?? "https://kospimap.com", data: "LT_C_BLDGINFO", geomFilter: q,
     size: "1000", page: String(i + 1), format: "json", callback: "ringCb",
   }));
-  const worker = new Worker(ringWorkerUrl(`(${ringWorkerMain.toString()})()`));
+
   const job: RingJob = {
     urls, lat, lon, inner: opts.inner, outer: Infinity, near: new Float32Array(0), seed: opts.seed, roads: new Float32Array(0),
     grid, floorM: opts.floorM, box, heightCell: opts.heightCell ?? 2,
   };
-  return new Promise(resolve => {
-    worker.onmessage = e => { worker.terminate(); resolve(e.data as RingResult); };
-    worker.onerror = () => { worker.terminate(); resolve(null); };
-    opts.signal?.addEventListener("abort", () => { worker.terminate(); resolve(null); });
-    worker.postMessage(job);
-  });
+  return sceneWorkerOnce<RingResult>(() => new Worker(ringWorkerUrl(`(${ringWorkerMain.toString()})()`)), job, opts.signal);
 }

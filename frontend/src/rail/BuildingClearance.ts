@@ -1,59 +1,87 @@
 import * as THREE from 'three';
 import type {Clearance,CutGeometry} from './railClearance';
+import {ClearanceIndex} from './clearanceIndex';
+import {SceneWorkerPool} from '../components/sceneWorkerPool';
+import {frameSlice} from '../components/frameSlice';
 
-type Record={source:THREE.BufferGeometry;cut:THREE.BufferGeometry|null;key:string;version:string};
+type Record={source:THREE.BufferGeometry;cut:THREE.BufferGeometry|null;key:string;version:string;bounds:THREE.Box3;boundsKey:string;retryAt:number};
+type Job={mesh:THREE.Mesh;record:Record;key:string;version:string;matrix:string;nearby:Clearance[];distance:number};
 export class BuildingClearance {
   readonly stats={checked:0,corrected:0,pending:0,error:'',lastMs:0};
-  private worker=new Worker(new URL('./railClearanceWorker.ts',import.meta.url),{type:'module'});
+  private pool=new SceneWorkerPool<{input:CutGeometry;matrix:number[];clearances:Clearance[]},{id:number;result:CutGeometry|null;error?:string}>(()=>new Worker(new URL('./railClearanceWorker.ts',import.meta.url),{type:'module'}),1,30000);
+  private stop=new AbortController();
   private records=new Map<THREE.Mesh,Record>();
-  private active:{id:number;mesh:THREE.Mesh;record:Record;version:string;key:string;at:number}|null=null;
-  private serial=0;private dead=false;
-  private waiting:{mesh:THREE.Mesh;record:Record;key:string}[]=[];
-  private clearances:Clearance[]=[];private key='';
-  constructor(private changed:()=>void){
-    this.worker.onmessage=e=>{
-      const job=this.active;if(!job||job.id!==e.data.id)return;this.active=null;
-      if(e.data.error)this.stats.error=e.data.error;
-      else if(!this.dead&&job.mesh.parent&&job.key===this.key&&job.version===this.version(job.record.source)){
-        const a=e.data.result as CutGeometry|null;
-        job.record.cut?.dispose();job.record.cut=null;
-        if(a){const g=new THREE.BufferGeometry();for(const[k,v]of Object.entries(a.attributes))g.setAttribute(k,new THREE.BufferAttribute(v.array,v.size));g.setIndex(new THREE.BufferAttribute(a.index,1));for(const group of a.groups)g.addGroup(group.start,group.count,group.materialIndex);g.computeBoundingSphere();job.record.cut=g;job.mesh.geometry=g;}
-        else job.mesh.geometry=job.record.source;
-        job.record.key=job.key;job.record.version=job.version;this.stats.checked++;this.stats.lastMs=performance.now()-job.at;this.changed();
-      }this.pump();
-    };
-    this.worker.onerror=()=>{this.stats.error='건물 통과 공간 처리 실패';this.active=null;this.waiting=[];};
-  }
+  private active:Job|null=null;private dead=false;
+  private waiting:Job[]=[];private queued=new Set<THREE.Mesh>();
+  private index=new ClearanceIndex([]);private key='';
+  constructor(private changed:()=>void){}
   private version(g:THREE.BufferGeometry){return [g.index?.version,...Object.values(g.attributes).map(a=>'version' in a?a.version:a.data.version)].join(':');}
   update(roots:THREE.Object3D[],clearances:Clearance[],key:string,eye:THREE.Vector3){
     if(this.dead)return;
-    if(key!==this.key){this.key=key;this.clearances=clearances;this.waiting=[];}
+    if(key!==this.key){this.key=key;this.index=new ClearanceIndex(clearances);this.waiting=[];this.queued.clear();}
     const seen=new Set<THREE.Mesh>();
     const visit=(o:THREE.Object3D,building=false)=>{
       building ||= !!o.userData.railBuilding;
       const mesh=o as THREE.Mesh;
       if(building&&mesh.isMesh&&!(mesh as THREE.InstancedMesh).isInstancedMesh&&mesh.geometry.getAttribute('position')&&!mesh.geometry.morphAttributes.position?.length){
         seen.add(mesh);let r=this.records.get(mesh);
-        if(!r||mesh.geometry!==r.source&&mesh.geometry!==r.cut){r?.cut?.dispose();r={source:mesh.geometry,cut:null,key:'',version:''};this.records.set(mesh,r);}
-        if((r.key!==this.key||r.version!==this.version(r.source))&&!this.waiting.some(j=>j.mesh===mesh)&&this.active?.mesh!==mesh){
-          mesh.updateWorldMatrix(true,false);r.source.computeBoundingSphere();const sphere=r.source.boundingSphere!.clone().applyMatrix4(mesh.matrixWorld);
-          if(sphere.center.distanceTo(eye)-sphere.radius<2200&&this.clearances.some(c=>{const mid=new THREE.Vector3((c.a[0]+c.b[0])/2,(c.a[1]+c.b[1])/2+2,(c.a[2]+c.b[2])/2);return mid.distanceTo(sphere.center)<sphere.radius+Math.hypot(c.a[0]-c.b[0],c.a[2]-c.b[2])/2+7;}))this.waiting.push({mesh,record:r,key:this.key});
-          else if(r.cut){mesh.geometry=r.source;r.cut.dispose();r.cut=null;r.key=this.key;r.version=this.version(r.source);}
+        if(!r||mesh.geometry!==r.source&&mesh.geometry!==r.cut){r?.cut?.dispose();r={source:mesh.geometry,cut:null,key:'',version:'',bounds:new THREE.Box3(),boundsKey:'',retryAt:0};this.records.set(mesh,r);}
+        const version=this.version(r.source);
+        if((r.key!==this.key||r.version!==version)&&!this.queued.has(mesh)&&this.active?.mesh!==mesh&&performance.now()>=r.retryAt){
+          mesh.updateWorldMatrix(true,false);const matrix=mesh.matrixWorld.elements.join(',');
+          const position=r.source.getAttribute('position');
+          const boundsKey=String('version' in position?position.version:position.data.version)+':'+matrix;
+          if(r.boundsKey!==boundsKey){r.source.computeBoundingBox();r.bounds.copy(r.source.boundingBox!).applyMatrix4(mesh.matrixWorld);r.boundsKey=boundsKey;}
+          const nearby=this.index.query(r.bounds);
+          if(!nearby.length){
+            // Negative results must also be remembered. Previously every unrelated
+            // building rescanned every track, every 750ms, allocating a vector per test.
+            if(r.cut){mesh.geometry=r.source;r.cut.dispose();r.cut=null;this.changed();}
+            r.key=this.key;r.version=version;
+          }else{
+            const distance=r.bounds.distanceToPoint(eye);
+            if(distance<2200){this.waiting.push({mesh,record:r,key:this.key,version,matrix,nearby,distance});this.queued.add(mesh);}
+          }
         }
       }
       for(const c of o.children)visit(c,building);
     };
     roots.forEach(o=>visit(o));
     for(const[mesh,r]of this.records)if(!seen.has(mesh)){if(mesh.geometry===r.cut)mesh.geometry=r.source;r.cut?.dispose();this.records.delete(mesh);}
-    this.stats.corrected=[...this.records.values()].filter(r=>r.cut).length;this.stats.pending=this.waiting.length+(this.active?1:0);this.pump();
+    this.waiting.sort((a,b)=>a.distance-b.distance);
+    this.stats.corrected=[...this.records.values()].filter(r=>r.cut).length;this.stats.pending=this.waiting.length+(this.active?1:0);void this.pump();
   }
-  private pump(){
-    if(this.dead||this.active)return;let job=this.waiting.shift();while(job&&(!job.mesh.parent||job.key!==this.key))job=this.waiting.shift();if(!job)return;
-    const {mesh,record,key}=job,g=record.source,attributes:CutGeometry['attributes']={};
-    for(const[k,a]of Object.entries(g.attributes)){const array=new Float32Array(a.count*a.itemSize);for(let i=0;i<a.count;i++)for(let j=0;j<a.itemSize;j++)array[i*a.itemSize+j]=a.getComponent(i,j);attributes[k]={array,size:a.itemSize};}
-    const input:CutGeometry={attributes,index:g.index?Uint32Array.from(g.index.array):Uint32Array.from({length:g.getAttribute('position').count},(_,i)=>i),groups:g.groups.map(x=>({start:x.start,count:x.count,materialIndex:x.materialIndex??0}))};
-    const id=++this.serial,version=this.version(g);this.active={id,mesh,record,key,version,at:performance.now()};
-    this.worker.postMessage({id,input,matrix:Array.from(mesh.matrixWorld.elements),clearances:this.clearances},[input.index.buffer,...Object.values(attributes).map(a=>a.array.buffer)]);
+  private async pump(){
+    if(this.dead||this.active)return;
+    let job=this.waiting.shift();if(job)this.queued.delete(job.mesh);
+    while(job&&(!job.mesh.parent||job.key!==this.key||this.records.get(job.mesh)!==job.record)){job=this.waiting.shift();if(job)this.queued.delete(job.mesh);}if(!job)return;
+    this.active=job;
+    const {mesh,record,key}=job,g=record.source,at=performance.now();
+    try{
+      const attributes:CutGeometry['attributes']={};
+      for(const[k,a]of Object.entries(g.attributes)){
+        const array=new Float32Array(a.count*a.itemSize);
+        // Typed bulk copies in bounded chunks instead of millions of getComponent
+        // calls in one render tick. Normalised/interleaved inputs keep their semantics.
+        for(let start=0;start<a.count;){
+          if(this.dead||!mesh.parent||key!==this.key)return;
+          const end=Math.min(a.count,start+8192);
+          if(a instanceof THREE.BufferAttribute&&!a.normalized)array.set(a.array.subarray(start*a.itemSize,end*a.itemSize),start*a.itemSize);
+          else for(let i=start;i<end;i++)for(let j=0;j<a.itemSize;j++)array[i*a.itemSize+j]=a.getComponent(i,j);
+          start=end;await frameSlice(4);
+        }
+        attributes[k]={array,size:a.itemSize};
+      }
+      const input:CutGeometry={attributes,index:g.index?Uint32Array.from(g.index.array):Uint32Array.from({length:g.getAttribute('position').count},(_,i)=>i),groups:g.groups.map(x=>({start:x.start,count:x.count,materialIndex:x.materialIndex??0}))};
+      const result=await this.pool.run({input,matrix:Array.from(mesh.matrixWorld.elements),clearances:job.nearby},this.stop.signal,[input.index.buffer,...Object.values(attributes).map(a=>a.array.buffer)]);
+      if(!result||result.error){record.retryAt=performance.now()+5000;this.stats.error=result?.error??'Rail clearance worker unavailable';return;}
+      if(this.dead||!mesh.parent||key!==this.key||this.records.get(mesh)!==record||job.version!==this.version(g)||job.matrix!==mesh.matrixWorld.elements.join(','))return;
+      const a=result.result;record.cut?.dispose();record.cut=null;
+      if(a){const cut=new THREE.BufferGeometry();for(const[k,v]of Object.entries(a.attributes))cut.setAttribute(k,new THREE.BufferAttribute(v.array,v.size));cut.setIndex(new THREE.BufferAttribute(a.index,1));for(const group of a.groups)cut.addGroup(group.start,group.count,group.materialIndex);cut.computeBoundingSphere();record.cut=cut;mesh.geometry=cut;}
+      else mesh.geometry=g;
+      record.key=key;record.version=job.version;this.stats.checked++;this.stats.lastMs=performance.now()-at;this.changed();
+    }catch{record.retryAt=performance.now()+5000;this.stats.error='Rail clearance preparation failed';}
+    finally{this.active=null;void this.pump();}
   }
-  dispose(){this.dead=true;this.worker.terminate();for(const[mesh,r]of this.records){if(mesh.geometry===r.cut)mesh.geometry=r.source;r.cut?.dispose();}this.records.clear();this.waiting=[];this.active=null;}
+  dispose(){this.dead=true;this.stop.abort();this.pool.dispose();for(const[mesh,r]of this.records){if(mesh.geometry===r.cut)mesh.geometry=r.source;r.cut?.dispose();}this.records.clear();this.waiting=[];this.queued.clear();this.active=null;}
 }

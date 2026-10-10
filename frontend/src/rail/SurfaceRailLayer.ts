@@ -215,8 +215,8 @@ export class SurfaceRailLayer {
     for(const k of this.kits.values())for(const name of ['cab','car','far'] as const){k[name].visible=k[name].count>0;if(k[name].count)k[name].instanceMatrix.needsUpdate=true;}
     if(this.clearance&&time-this.clearanceAt>.75){
       this.clearanceAt=time;const clearances:Clearance[]=[];
-      for(const e of this.entries.values()){const v=e.path.points;for(let i=STRIDE;i<v.length;i+=STRIDE){const a=[v[i-STRIDE],v[i-STRIDE+2],-v[i-STRIDE+1]],b=[v[i],v[i+2],-v[i+1]];if(Math.hypot((a[0]+b[0])/2-camera.x,(a[2]+b[2])/2-camera.z)>2300)continue;clearances.push({a,b,half:e.line.width/2+.25,bottom:-.3,top:5.6});}}
-      this.clearance.update([...(this.o.buildings?.()??[]),...[...this.stations.values()].flatMap(s=>s.model?[s.model.group]:[])],clearances,String(this.revision)+':'+Math.floor(camera.x/400)+':'+Math.floor(camera.z/400),camera);
+      for(const e of this.entries.values()){const v=e.path.points;for(let i=STRIDE;i<v.length;i+=STRIDE){const a=[v[i-STRIDE],v[i-STRIDE+2],-v[i-STRIDE+1]],b=[v[i],v[i+2],-v[i+1]];clearances.push({a,b,half:e.line.width/2+.25,bottom:-.3,top:5.6});}}
+      this.clearance.update([...(this.o.buildings?.()??[]),...[...this.stations.values()].flatMap(s=>s.model?[s.model.group]:[])],clearances,String(this.revision),camera);
     }
     this.stats.updateMs=performance.now()-t0;
   }

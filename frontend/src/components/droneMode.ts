@@ -10,6 +10,8 @@ import { buildWalkers, type WalkPath } from "./sceneWalkers";
 import { seaOutsideBox } from './coastGeometry';
 import type { WaterField } from './sceneWater';
 import { bridgeContains } from './bridgeDeck';
+import {frameSlice} from './frameSlice';
+import {CoastGeometryJobs} from './coastGeometryJobs';
 
 /* 드론 mode of the 3D view (ComplexHologram): the flight, the world streamed round it and the
  * sound, set up over the view's own scene and taken down again. While it lasts:
@@ -65,7 +67,7 @@ export class DroneSession {
   }) {
     this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees,
       viewWater: () => { const water: THREE.Mesh[] = []; for (const root of p.scene.children) if (root !== this.world.root) root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && !Array.isArray(m.material) && m.material.userData.water && m.geometry.getAttribute('aSea')) water.push(m); }); return water; },
-      onSeaReady: field => this.sinkSeaGround(field),
+      onSeaReady: field => { void this.sinkSeaGround(field); },
       onLabels: (k, l) => this.signs.set(k, l) });
   }
 
@@ -123,20 +125,33 @@ export class DroneSession {
     this.p.scene.add(mesh);
   }
 
-  private sinkSeaGround(field: WaterField) {
+  private coastJobs = new CoastGeometryJobs();
+  private seaStop = new AbortController();
+  private async sinkSeaGround(field: WaterField) {
+    this.seaStop.abort();const stop=this.seaStop=new AbortController();
     for (const mesh of [this.p.ground, this.backdrop]) {
       if (!mesh || !this.groundBackup) continue;
-      const p = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const geometry=mesh.geometry,p = geometry.getAttribute('position') as THREE.BufferAttribute;
+      const positions=(p.array as Float32Array).slice();
       const source = mesh === this.backdrop ? this.backdropHeights : null;
       let changed = false;
       for (let i = 0; i < p.count; i++) {
+        if(i%1024===0){await frameSlice(4);if(this.ended||stop.signal.aborted||mesh.geometry!==geometry)return;}
         const x = p.getX(i), y = p.getY(i);
+        if(x<field.bounds.x0||x>field.bounds.x1||y<field.bounds.y0||y>field.bounds.y1)continue;
         if (!field.wet(x, y)) continue;
         const z = field.level(x, y) - .6 - mesh.position.y;
         const original = source?.[i * 3 + 2] ?? p.getZ(i);
-        if (p.getZ(i) > z) { p.setZ(i, Math.min(original, z)); changed = true; }
+        if (p.getZ(i) > z) { positions[i*3+2]=Math.min(original,z); changed = true; }
       }
-      if (changed) { p.needsUpdate = true; mesh.geometry.computeVertexNormals(); mesh.geometry.computeBoundingSphere(); }
+      if(changed&&geometry.index){
+        const result=await this.coastJobs.normals(positions,Uint32Array.from(geometry.index.array),stop.signal);
+        if(!result)continue;
+        if(this.ended||stop.signal.aborted||mesh.geometry!==geometry){result.dispose();return;}
+        geometry.setAttribute('position',result.getAttribute('position'));geometry.setAttribute('normal',result.getAttribute('normal'));geometry.boundingSphere=result.boundingSphere;geometry.boundingBox=null;
+        // Arrays now belong to the live geometry; the temporary has no GPU owner.
+        result.dispose();
+      }
     }
   }
 
@@ -157,8 +172,9 @@ export class DroneSession {
     const f = this.flight.pos;
     const d = Math.hypot(f.x - at.x, f.z - at.z) - r;
     if (d > this.world.reach) { this.tickDue.clear(); return; }
-    const agl = this.flight.agl;
-    const every = d > 800 ? 4 : d > 400 || agl > 200 ? 3 : agl > 60 ? 2 : 1;
+    // Near traffic must not accumulate two/three frames of collision simulation
+    // into one long display frame merely because the drone is higher than 60m.
+    const every = d > 800 ? 4 : d > 400 ? 3 : 1;
     const n = ++this.tickN;
     ticks.forEach((fn, i) => {
       const due = (this.tickDue.get(fn) ?? 0) + dt;
@@ -286,6 +302,7 @@ export class DroneSession {
   end() {
     const { camera, scene, ground } = this.p;
     this.ended = true;
+    this.seaStop.abort();this.coastJobs.dispose();
     this.flight.setAutopilot(false);
     if (this.crowd) { this.dropCrowd(this.crowd.c); this.crowd = null; }
     this.audio.stop();

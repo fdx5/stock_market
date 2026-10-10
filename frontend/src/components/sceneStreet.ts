@@ -602,11 +602,6 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   crossPoints?:readonly {at:[number,number];marked:boolean}[]) {
   const usable = splitRoadJunctions(stitchRoads(roads.filter(r => r.line.length > 1)),true);
   if (!usable.length) return null;
-  const { geos, texture, procedural } = await loadKit();
-  // (the boxed vehicles' shapes, kept for the session: shared by every complex's traffic)
-  const shape = (name: string) => procedural.get(name)!;
-  // (the modelled cars where they load; else built from their proportions)
-  const models = await loadCarModels().catch(err => { console.info("[3D] car models unavailable:", err); return null; });
   const rnd = rng(seed + 29);
   // Road polylines with cumulative lengths.
   const paths = usable.map(r => {
@@ -615,125 +610,6 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return { ...r, lanes:roadLaneCount(r), cum, len: cum[cum.length - 1] };
   }).filter(p => p.len > 0.5); // short pieces stay: they carry the network across
   if (!paths.length) return null;
-
-  const bodyMat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.45, metalness: 0.25 });
-  // (WebGPU: clear-coated paint, dark glazing, matte tyres from the swatches)
-  bodyMat.userData.carPaint = true;
-  // WebGL: the same repaint as the WebGPU view (ComplexRenderer CAR_PAINT) — the body takes
-  // the paint itself, glass and tyres stay; the kit's swatches read at full resolution.
-  // Multiplied over the kit's red body instead, every car came out red-tinted (from afar,
-  // with the swatches blended, red outright).
-  bodyMat.onBeforeCompile = shader => {
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <map_fragment>", `
-        vec4 carTexel = textureLod(map, vMapUv, 0.0);
-        float carL = dot(carTexel.rgb, vec3(0.2126, 0.7152, 0.0722));
-        float carGlass = smoothstep(0.08, 0.16, carTexel.b - carTexel.r) * smoothstep(0.45, 0.65, carL);
-        float carBody = (1.0 - carGlass) * smoothstep(0.02, 0.07, carL);
-        // (three defines USE_INSTANCING_COLOR for the vertex stage only; the fragment stage
-        // sees vColor under USE_COLOR)
-        #if defined( USE_INSTANCING_COLOR ) || defined( USE_COLOR )
-        vec3 carPaint = clamp((vColor.rgb - 0.3) / 0.7, 0.0, 1.0) * 0.92;
-        #else
-        vec3 carPaint = carTexel.rgb;
-        #endif
-        diffuseColor.rgb = mix(mix(carTexel.rgb, carPaint, carBody), vec3(0.01, 0.012, 0.015), carGlass);`)
-      .replace("#include <color_fragment>", "");
-  };
-  bodyMat.customProgramCacheKey = () => "car-paint";
-  const boxMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15 });
-  const lampMat = new THREE.MeshStandardMaterial({ color: "#000000", emissive: "#ffffff", emissiveMap: lampMap(), emissiveIntensity: 0, roughness: 0.3 });
-  // Passenger cars from their proportions (sceneCars); vans, trucks and the rest from the kit.
-  // (far and by default: the cars built from their proportions; near the eye the modelled ones)
-  const kit = (name: string) => carGeometry(name,textureBudgetEnabled()) ?? geos.get(name)!;
-  const modelMat = models ? carModelMaterial() : null;
-  const nearGeo = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
-  if (models) for (const name of Object.keys(CAR_SPECS)) { const g = models.get(name), f = carGeometry(name,textureBudgetEnabled()); if (g && f) nearGeo.set(f, g); }
-  // [geometry, material, weight, speed factor, length, width, lamp height, repaint]
-  // model: the modelled mesh near the eye (sceneCars loadCarModels); livery: its paint when
-  // the kind has one colour (buses by route, trucks, containers)
-  const K = (geo: THREE.BufferGeometry, mat: THREE.Material, weight: number, speed: number, dims: [number, number, number], paint = false, model?: string, livery?: string) =>
-    ({ geo, mat, weight, speed, dims, paint, own: false, model, livery });
-  // (emergency vehicles keep white plates; the other box-built trucks and buses are commercial)
-  const officials = new Set<THREE.BufferGeometry | null>();
-  const official = <G,>(g: G) => { officials.add(g as unknown as THREE.BufferGeometry); return g; };
-  const d = (n: string): [number, number, number] => CAR_SPECS[n] ? [CAR_SPECS[n].length, CAR_SPECS[n].width, CAR_SPECS[n].height] : DIMS[n];
-  // Mix: passenger cars about 70 %; then trucks, buses and containers.
-  // (made one kind at a time, the page breathing between: all at once held it ~0.1 s)
-  const makers: (() => ReturnType<typeof K>)[] = [
-    // (the passenger cars: sceneCars; shares after what Korean roads carry)
-    () => K(kit("sedan"), bodyMat, 12, 1, [d("sedan")[0], d("sedan")[1], 0.62], true),
-    () => K(kit("sedan-large"), bodyMat, 8, 1, [d("sedan-large")[0], d("sedan-large")[1], 0.64], true),
-    () => K(kit("sedan-sports"), bodyMat, 8, 1.06, [d("sedan-sports")[0], d("sedan-sports")[1], 0.58], true),
-    () => K(kit("suv"), bodyMat, 10, 1, [d("suv")[0], d("suv")[1], 0.75], true),
-    () => K(kit("suv-small"), bodyMat, 8, 1.02, [d("suv-small")[0], d("suv-small")[1], 0.72], true),
-    () => K(kit("suv-luxury"), bodyMat, 6, 1, [d("suv-luxury")[0], d("suv-luxury")[1], 0.78], true),
-    () => K(kit("hatchback-sports"), bodyMat, 5, 1.02, [d("hatchback-sports")[0], d("hatchback-sports")[1], 0.62], true),
-    () => K(kit("kei-box"), bodyMat, 4, 1, [d("kei-box")[0], d("kei-box")[1], 0.66], true),
-    () => K(kit("taxi"), bodyMat, 8, 1, [d("taxi")[0], d("taxi")[1], 0.62], true),
-    () => K(kit("mpv"), bodyMat, 5, 0.98, [d("mpv")[0], d("mpv")[1], 0.76], true),
-    () => K(kit("van"), bodyMat, 3, 0.95, [d("van")[0], d("van")[1], 0.78], true),
-    () => K(kit("delivery"), bodyMat, 3, 0.9, [d("delivery")[0], d("delivery")[1], 0.8], true, "boxtruck"),
-    () => K(shape("cargo-blue"), boxMat, 4, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#2d5fa8"),
-    () => K(shape("cargo-white"), boxMat, 2, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#e9e9e6"),
-    () => K(shape("bus-blue"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#2a6fc4"),   // 간선 blue
-    () => K(shape("bus-green"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#3b9a44"),   // 지선 green
-    () => K(shape("bus-red"), boxMat, 0.5, 0.85, [11, 2.5, 0.75], false, "bus", "#c8322f"),  // 광역 red
-    () => K(shape("container-red"), boxMat, 0.5, 0.8, [16.2, 2.45, 0.85], false, "container", "#b2402f"),
-    () => K(shape("container-blue"), boxMat, 1.6, 0.8, [16.2, 2.45, 0.85], false, "container", "#2e5e8c"),
-    () => K(shape("container-orange"), boxMat, 0.5, 0.8, [16.2, 2.45, 0.85], false, "container", "#c77a2a"),
-    () => K(official(shape("ambulance")), boxMat, 1.1, 1.05, [5.7, 2.02, 0.85]),
-    () => K(official(shape("police")), boxMat, 1.3, 1, [4.85, 1.84, 0.62]),
-    () => K(official(shape("fire")), boxMat, 0.6, 0.85, [7.5, 2.42, 1.0]),
-    () => K(shape("garbage"), boxMat, 1.0, 0.75, [7.0, 2.35, 0.95], false, "garbage", "#3f8f4e"),
-    () => K(shape("mixer"), boxMat, 1.2, 0.75, [8.6, 2.39, 1.0], false, "mixer", "#e8e6e0"),
-    // (twenty more: construction plant, goods, service, buses, a scooter, a pickup, the yellow school van)
-    ...(new URLSearchParams(location.search).get("veh") === "0" ? [] : [
-    () => K(shape("dump-orange"), boxMat, 0.9, 0.75, [9.6, 2.5, 1.05]),
-    () => K(shape("dump-yellow"), boxMat, 0.6, 0.75, [9.6, 2.5, 1.05]),
-    () => K(shape("dump-small"), boxMat, 0.6, 0.85, [6.0, 2.0, 0.8]),
-    () => K(shape("excavator"), boxMat, 0.35, 0.55, [9.0, 2.5, 0.9]),
-    () => K(shape("lowbed"), boxMat, 0.25, 0.65, [17.4, 2.6, 1.0]),
-    () => K(shape("cargo-crane"), boxMat, 0.5, 0.8, [8.6, 2.4, 0.95]),
-    () => K(shape("mobile-crane"), boxMat, 0.25, 0.6, [13.2, 2.75, 1.0]),
-    () => K(shape("pump"), boxMat, 0.3, 0.7, [12.0, 2.5, 1.0]),
-    () => K(shape("wing"), boxMat, 0.9, 0.8, [9.6, 2.5, 1.0]),
-    () => K(shape("tanker"), boxMat, 0.35, 0.75, [13.2, 2.48, 1.0]),
-    () => K(shape("box-cooled"), boxMat, 1.4, 0.9, [5.3, 1.86, 0.75]),
-    () => K(shape("box-dry"), boxMat, 1.4, 0.9, [5.3, 1.86, 0.75]),
-    () => K(shape("ladder"), boxMat, 0.5, 0.85, [7.4, 1.8, 0.75]),
-    () => K(shape("tow"), boxMat, 0.4, 1, [6.2, 1.95, 0.8]),
-    () => K(shape("sweeper"), boxMat, 0.25, 0.5, [6.4, 2.17, 0.9]),
-    () => K(shape("bus-village"), boxMat, 1.0, 0.85, [8.9, 2.3, 0.75]),
-    () => K(shape("bus-coach"), boxMat, 0.6, 0.9, [12, 2.5, 0.8]),
-    () => K(shape("bus-double"), boxMat, 0.35, 0.8, [12, 2.5, 0.75]),
-    () => K(shape("scooter"), boxMat, 2.2, 1.05, [1.95, 0.7, 0.8]),
-    () => K(kit("pickup"), bodyMat, 2.5, 1, [d("pickup")[0], d("pickup")[1], 0.78], true),
-    () => K(kit("van"), bodyMat, 0.9, 0.9, [d("van")[0], d("van")[1], 0.78], false, undefined, "#f2c414"),
-    ]),
-  ];
-  const kinds: ReturnType<typeof K>[] = [];
-  let slice = performance.now();
-  for (const make of makers) {
-    // (a slice a kind or two: some take several ms the first time — 45 kinds now)
-    if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
-    const k = make();
-    if (k.geo) kinds.push(k);
-  }
-  // The two vehicles a reader can follow: one of each, never dealt out at random (weight 0).
-  const heroKind = new Map<HeroName, number>(), heroMats: THREE.Material[] = [], heroShape = new Map<number, HeroShape>();
-  for (const [name, make] of [["coupang", coupangTruck], ["cyber", cybertruck]] as const) {
-    await frameSlice();
-    const kit = await loadKit(), prepared = kit.heroes[name];
-    const h = prepared ? {...heroGeometry(prepared), material: heroSurface(name, kit.steel)} : make();
-    heroShape.set(kinds.length, h);
-    const k = K(h.geometry, [boxMat, h.material] as unknown as THREE.Material, 0, name === "cyber" ? 1.05 : 0.95, h.dims);
-    k.own = true;
-    heroKind.set(name, kinds.length); kinds.push(k); heroMats.push(h.material);
-    if (name === "coupang") officials.delete(h.geometry);
-  }
-  const totalW = kinds.reduce((s, k) => s + k.weight, 0);
-  const pickKind = () => { let r = rnd() * totalW; for (let i = 0; i < kinds.length; i++) { r -= kinds[i].weight; if (r <= 0) return i; } return 0; };
 
   // ---- The network: nodes where road ends meet, T-junctions, signals ----
   // Lanes per direction: the registered count split both ways, but only as many as
@@ -1023,6 +899,132 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const trim = (road: number, atStart: boolean) => trimAt.get(`${road}:${atStart}`) ?? 1.5;
   const arms:TrafficArms={roads:paths,at:(road,atStart)=>layout.get(`${road}:${atStart}`)??null,inside:road=>internal[road],crossings:mappedCrossings};
   onArms?.(arms);
+  // Road surfaces are independent of vehicle downloads or decodes.
+  const { geos, texture, procedural } = await loadKit();
+  // (the boxed vehicles' shapes, kept for the session: shared by every complex's traffic)
+  const shape = (name: string) => procedural.get(name)!;
+  // (the modelled cars where they load; else built from their proportions)
+  const models = await loadCarModels().catch(err => { console.info("[3D] car models unavailable:", err); return null; });
+  const bodyMat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.45, metalness: 0.25 });
+  // (WebGPU: clear-coated paint, dark glazing, matte tyres from the swatches)
+  bodyMat.userData.carPaint = true;
+  // WebGL: the same repaint as the WebGPU view (ComplexRenderer CAR_PAINT) — the body takes
+  // the paint itself, glass and tyres stay; the kit's swatches read at full resolution.
+  // Multiplied over the kit's red body instead, every car came out red-tinted (from afar,
+  // with the swatches blended, red outright).
+  bodyMat.onBeforeCompile = shader => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <map_fragment>", `
+        vec4 carTexel = textureLod(map, vMapUv, 0.0);
+        float carL = dot(carTexel.rgb, vec3(0.2126, 0.7152, 0.0722));
+        float carGlass = smoothstep(0.08, 0.16, carTexel.b - carTexel.r) * smoothstep(0.45, 0.65, carL);
+        float carBody = (1.0 - carGlass) * smoothstep(0.02, 0.07, carL);
+        // (three defines USE_INSTANCING_COLOR for the vertex stage only; the fragment stage
+        // sees vColor under USE_COLOR)
+        #if defined( USE_INSTANCING_COLOR ) || defined( USE_COLOR )
+        vec3 carPaint = clamp((vColor.rgb - 0.3) / 0.7, 0.0, 1.0) * 0.92;
+        #else
+        vec3 carPaint = carTexel.rgb;
+        #endif
+        diffuseColor.rgb = mix(mix(carTexel.rgb, carPaint, carBody), vec3(0.01, 0.012, 0.015), carGlass);`)
+      .replace("#include <color_fragment>", "");
+  };
+  bodyMat.customProgramCacheKey = () => "car-paint";
+  const boxMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15 });
+  const lampMat = new THREE.MeshStandardMaterial({ color: "#000000", emissive: "#ffffff", emissiveMap: lampMap(), emissiveIntensity: 0, roughness: 0.3 });
+  // Passenger cars from their proportions (sceneCars); vans, trucks and the rest from the kit.
+  // (far and by default: the cars built from their proportions; near the eye the modelled ones)
+  const kit = (name: string) => carGeometry(name,textureBudgetEnabled()) ?? geos.get(name)!;
+  const modelMat = models ? carModelMaterial() : null;
+  const nearGeo = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
+  if (models) for (const name of Object.keys(CAR_SPECS)) { const g = models.get(name), f = carGeometry(name,textureBudgetEnabled()); if (g && f) nearGeo.set(f, g); }
+  // [geometry, material, weight, speed factor, length, width, lamp height, repaint]
+  // model: the modelled mesh near the eye (sceneCars loadCarModels); livery: its paint when
+  // the kind has one colour (buses by route, trucks, containers)
+  const K = (geo: THREE.BufferGeometry, mat: THREE.Material, weight: number, speed: number, dims: [number, number, number], paint = false, model?: string, livery?: string) =>
+    ({ geo, mat, weight, speed, dims, paint, own: false, model, livery });
+  // (emergency vehicles keep white plates; the other box-built trucks and buses are commercial)
+  const officials = new Set<THREE.BufferGeometry | null>();
+  const official = <G,>(g: G) => { officials.add(g as unknown as THREE.BufferGeometry); return g; };
+  const d = (n: string): [number, number, number] => CAR_SPECS[n] ? [CAR_SPECS[n].length, CAR_SPECS[n].width, CAR_SPECS[n].height] : DIMS[n];
+  // Mix: passenger cars about 70 %; then trucks, buses and containers.
+  // (made one kind at a time, the page breathing between: all at once held it ~0.1 s)
+  const makers: (() => ReturnType<typeof K>)[] = [
+    // (the passenger cars: sceneCars; shares after what Korean roads carry)
+    () => K(kit("sedan"), bodyMat, 12, 1, [d("sedan")[0], d("sedan")[1], 0.62], true),
+    () => K(kit("sedan-large"), bodyMat, 8, 1, [d("sedan-large")[0], d("sedan-large")[1], 0.64], true),
+    () => K(kit("sedan-sports"), bodyMat, 8, 1.06, [d("sedan-sports")[0], d("sedan-sports")[1], 0.58], true),
+    () => K(kit("suv"), bodyMat, 10, 1, [d("suv")[0], d("suv")[1], 0.75], true),
+    () => K(kit("suv-small"), bodyMat, 8, 1.02, [d("suv-small")[0], d("suv-small")[1], 0.72], true),
+    () => K(kit("suv-luxury"), bodyMat, 6, 1, [d("suv-luxury")[0], d("suv-luxury")[1], 0.78], true),
+    () => K(kit("hatchback-sports"), bodyMat, 5, 1.02, [d("hatchback-sports")[0], d("hatchback-sports")[1], 0.62], true),
+    () => K(kit("kei-box"), bodyMat, 4, 1, [d("kei-box")[0], d("kei-box")[1], 0.66], true),
+    () => K(kit("taxi"), bodyMat, 8, 1, [d("taxi")[0], d("taxi")[1], 0.62], true),
+    () => K(kit("mpv"), bodyMat, 5, 0.98, [d("mpv")[0], d("mpv")[1], 0.76], true),
+    () => K(kit("van"), bodyMat, 3, 0.95, [d("van")[0], d("van")[1], 0.78], true),
+    () => K(kit("delivery"), bodyMat, 3, 0.9, [d("delivery")[0], d("delivery")[1], 0.8], true, "boxtruck"),
+    () => K(shape("cargo-blue"), boxMat, 4, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#2d5fa8"),
+    () => K(shape("cargo-white"), boxMat, 2, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#e9e9e6"),
+    () => K(shape("bus-blue"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#2a6fc4"),   // 간선 blue
+    () => K(shape("bus-green"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#3b9a44"),   // 지선 green
+    () => K(shape("bus-red"), boxMat, 0.5, 0.85, [11, 2.5, 0.75], false, "bus", "#c8322f"),  // 광역 red
+    () => K(shape("container-red"), boxMat, 0.5, 0.8, [16.2, 2.45, 0.85], false, "container", "#b2402f"),
+    () => K(shape("container-blue"), boxMat, 1.6, 0.8, [16.2, 2.45, 0.85], false, "container", "#2e5e8c"),
+    () => K(shape("container-orange"), boxMat, 0.5, 0.8, [16.2, 2.45, 0.85], false, "container", "#c77a2a"),
+    () => K(official(shape("ambulance")), boxMat, 1.1, 1.05, [5.7, 2.02, 0.85]),
+    () => K(official(shape("police")), boxMat, 1.3, 1, [4.85, 1.84, 0.62]),
+    () => K(official(shape("fire")), boxMat, 0.6, 0.85, [7.5, 2.42, 1.0]),
+    () => K(shape("garbage"), boxMat, 1.0, 0.75, [7.0, 2.35, 0.95], false, "garbage", "#3f8f4e"),
+    () => K(shape("mixer"), boxMat, 1.2, 0.75, [8.6, 2.39, 1.0], false, "mixer", "#e8e6e0"),
+    // (twenty more: construction plant, goods, service, buses, a scooter, a pickup, the yellow school van)
+    ...(new URLSearchParams(location.search).get("veh") === "0" ? [] : [
+    () => K(shape("dump-orange"), boxMat, 0.9, 0.75, [9.6, 2.5, 1.05]),
+    () => K(shape("dump-yellow"), boxMat, 0.6, 0.75, [9.6, 2.5, 1.05]),
+    () => K(shape("dump-small"), boxMat, 0.6, 0.85, [6.0, 2.0, 0.8]),
+    () => K(shape("excavator"), boxMat, 0.35, 0.55, [9.0, 2.5, 0.9]),
+    () => K(shape("lowbed"), boxMat, 0.25, 0.65, [17.4, 2.6, 1.0]),
+    () => K(shape("cargo-crane"), boxMat, 0.5, 0.8, [8.6, 2.4, 0.95]),
+    () => K(shape("mobile-crane"), boxMat, 0.25, 0.6, [13.2, 2.75, 1.0]),
+    () => K(shape("pump"), boxMat, 0.3, 0.7, [12.0, 2.5, 1.0]),
+    () => K(shape("wing"), boxMat, 0.9, 0.8, [9.6, 2.5, 1.0]),
+    () => K(shape("tanker"), boxMat, 0.35, 0.75, [13.2, 2.48, 1.0]),
+    () => K(shape("box-cooled"), boxMat, 1.4, 0.9, [5.3, 1.86, 0.75]),
+    () => K(shape("box-dry"), boxMat, 1.4, 0.9, [5.3, 1.86, 0.75]),
+    () => K(shape("ladder"), boxMat, 0.5, 0.85, [7.4, 1.8, 0.75]),
+    () => K(shape("tow"), boxMat, 0.4, 1, [6.2, 1.95, 0.8]),
+    () => K(shape("sweeper"), boxMat, 0.25, 0.5, [6.4, 2.17, 0.9]),
+    () => K(shape("bus-village"), boxMat, 1.0, 0.85, [8.9, 2.3, 0.75]),
+    () => K(shape("bus-coach"), boxMat, 0.6, 0.9, [12, 2.5, 0.8]),
+    () => K(shape("bus-double"), boxMat, 0.35, 0.8, [12, 2.5, 0.75]),
+    () => K(shape("scooter"), boxMat, 2.2, 1.05, [1.95, 0.7, 0.8]),
+    () => K(kit("pickup"), bodyMat, 2.5, 1, [d("pickup")[0], d("pickup")[1], 0.78], true),
+    () => K(kit("van"), bodyMat, 0.9, 0.9, [d("van")[0], d("van")[1], 0.78], false, undefined, "#f2c414"),
+    ]),
+  ];
+  const kinds: ReturnType<typeof K>[] = [];
+  let slice = performance.now();
+  for (const make of makers) {
+    // (a slice a kind or two: some take several ms the first time — 45 kinds now)
+    if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
+    const k = make();
+    if (k.geo) kinds.push(k);
+  }
+  // The two vehicles a reader can follow: one of each, never dealt out at random (weight 0).
+  const heroKind = new Map<HeroName, number>(), heroMats: THREE.Material[] = [], heroShape = new Map<number, HeroShape>();
+  for (const [name, make] of [["coupang", coupangTruck], ["cyber", cybertruck]] as const) {
+    await frameSlice();
+    const kit = await loadKit(), prepared = kit.heroes[name];
+    const h = prepared ? {...heroGeometry(prepared), material: heroSurface(name, kit.steel)} : make();
+    heroShape.set(kinds.length, h);
+    const k = K(h.geometry, [boxMat, h.material] as unknown as THREE.Material, 0, name === "cyber" ? 1.05 : 0.95, h.dims);
+    k.own = true;
+    heroKind.set(name, kinds.length); kinds.push(k); heroMats.push(h.material);
+    if (name === "coupang") officials.delete(h.geometry);
+  }
+  const totalW = kinds.reduce((s, k) => s + k.weight, 0);
+  const pickKind = () => { let r = rnd() * totalW; for (let i = 0; i < kinds.length; i++) { r -= kinds[i].weight; if (r <= 0) return i; } return 0; };
+
+
   // Korean 방향별 신호: each approach direction in turn (clockwise) gets green with the
   // left arrow, then yellow, then all-red, while every other direction is red. Roads
   // arriving from about the same direction share a phase: at most four phases.

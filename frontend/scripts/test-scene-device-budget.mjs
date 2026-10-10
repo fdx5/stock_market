@@ -32,6 +32,13 @@ test('loading stalls and reset do not trigger resolution loss',()=>{
  for(let i=0;i<15;i++){b.sample(i*100,100,r,.7,1.1);b.reset();}
  assert.equal(b.sample(2000,100,r,.7,1.1),1);
 });
+test('desktop pressure at 40 fps is corrected before the old 30 fps threshold',()=>{
+ const b=frameResolutionBudget();let r=2,now=0;
+ for(let i=0;i<120;i++){now+=25;r=b.sample(now,25,r,.8,2);}
+ assert.ok(r<2);assert.ok(r>=.8);
+ const down=r;for(let i=0;i<120;i++){now+=16.7;r=b.sample(now,16.7,r,.8,2);}
+ assert.equal(r,down);
+});
 test('classic iPad and iPhone are covered; a desktop Mac retains desktop quality',()=>{
  assert.equal(sceneDeviceBudget({userAgent:'iPad Safari'}).constrained,true);
  assert.equal(sceneDeviceBudget({userAgent:'iPhone Safari'}).constrained,true);

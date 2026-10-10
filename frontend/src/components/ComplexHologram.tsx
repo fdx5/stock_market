@@ -646,6 +646,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // <pre> twice a second; the frames counted by their own requestAnimationFrame.
   const hudRef = useRef<HTMLPreElement>(null);
   const hudOn = useMemo(() => new URLSearchParams(location.search).get("hud") === "1", []);
+  const fpsOn = useMemo(() => new URLSearchParams(location.search).get("fps") === "1", []);
+  const fpsRef = useRef<HTMLOutputElement>(null);
+  useEffect(() => {
+    if (!fpsOn) return;
+    const update = () => {
+      const d = (document.querySelector<HTMLElement>(".re-holo--expanded .re-holo-stage") ?? hostRef.current)?.dataset;
+      const fresh = !document.hidden && d?.fpsAt && performance.now() - Number(d.fpsAt) < 2000;
+      if (fpsRef.current) fpsRef.current.textContent = fresh ? `FPS ${d.fps}` : 'FPS 측정 대기';
+    };
+    update(); const timer = window.setInterval(update, 500);
+    return () => clearInterval(timer);
+  }, [fpsOn]);
   useEffect(() => {
     if (!hudOn) return;
     let raf = 0, last = performance.now(), n = 0, slow = 0, worst = 0, at = last, totalSlow = 0;
@@ -726,7 +738,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     maxRatio = Math.min(maxRatio, deviceBudget.maxRatio);
     // Prefer at least one pixel per CSS pixel; the absolute memory cap still wins
     // on very large screens, including fixed ratios and touch input.
-    const minRatio = Math.min(deviceBudget.constrained ? .7 : 1, dpr);
+    const minRatio = Math.min(deviceBudget.constrained ? .7 : .8, dpr);
     // The last pointer, wheel or key on the view (the loop draws at full rate for 3 s after).
     const touched = () => {};
     renderer.setPixelRatio(ratio);
@@ -1000,7 +1012,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           const want = gpu > 0.5 && drawn > 0 ? Math.sqrt((10 / gpu) * drawn / area) : Math.sqrt(PIX_START / area);
           ratio = deviceBudget.constrained
             ? Math.max(minRatio, Math.min(cap, want))
-            : Math.max(Math.min(dpr, 2), minRatio, Math.min(cap, Math.floor(want * 4) / 4));
+            : Math.max(minRatio, Math.min(cap, Math.floor(want * 4) / 4));
         }
         ratio = Math.min(ratio, cap);
         lastArea = area;
@@ -1045,8 +1057,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let envFrame = 0, nativeWaitSince = 0;
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
     const resolutionBudget = frameResolutionBudget();
-    // Desktop supersamples with spare GPU time; bounded devices target 30 fps.
-    let gpuCool = 0, last = performance.now(), settleUntil = 0;
+    // Every device targets 60 fps. GPU headroom alone cannot justify more pixels
+    // while CPU-side scenery or traffic is already missing the frame budget.
+    let last = performance.now(), settleUntil = 0;
     let inView = true, sampleStart = last, sampleFrames = 0;
     const t0 = performance.now();
     let raf = 0;
@@ -1055,6 +1068,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Render every visible display frame, including animated traffic and pedestrians.
     let renderMax = 0, renderSum = 0, tickMax = 0, tickSum = 0;
     const loop = () => {
+      raf = 0;
       if (document.hidden || !inView || pausedRef.current) { native?.suspendTargets(); return; }
       raf = requestAnimationFrame(loop);
       if (glLost) return;
@@ -1062,19 +1076,17 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const dt = nowMs - last;
       last = nowMs;
       if (stage.busy) settleUntil = Math.max(settleUntil, nowMs + 1500);
-      if (deviceBudget.constrained && !fixedRatio) {
-        if (stage.building || stage.unshown || stage.busy || nowMs <= settleUntil || host.dataset.plantsPhase !== 'complete') resolutionBudget.reset();
+      if (!fixedRatio) {
+        if (stage.unshown || stage.building) resolutionBudget.reset();
         else {
-          const ceiling = capSceneRatio(W, H, Math.min(maxRatio, Math.sqrt(PIX_START / (W * H))), deviceBudget);
-          const floor = Math.min(minRatio, ceiling);
-          const next = resolutionBudget.sample(nowMs, dt, ratio, floor, ceiling);
+          const ceiling = capSceneRatio(W, H, Math.min(maxRatio, Math.sqrt(PIX_CAP / (W * H))), deviceBudget);
+          const floor = Math.min(minRatio, ceiling, Math.sqrt(1.5e6 / (W * H)));
+          const gpuMs = native?.timer.enabled ? native.timer.ms.total ?? 0 : 0;
+          // Never increase during loading, or without measured GPU headroom.
+          const up = !stage.busy && nowMs > settleUntil && (gpuMs === 0 || gpuMs * 1.12 < 9);
+          const next = resolutionBudget.sample(nowMs, dt, ratio, floor, up ? ceiling : ratio);
           if (next !== ratio) { ratio = next; resize(); }
         }
-      } else if (native?.timer.enabled && !fixedRatio) {
-        const top = Math.min(maxRatio, Math.sqrt(PIX_CAP / (W * H))), next = Math.min(top, ratio + 0.25);
-        const room = !stage.unshown && nowMs > settleUntil && next > ratio && (native.timer.ms.total ?? 99) * (next / ratio) ** 2 < 12;
-        if (!room) gpuCool = 0;
-        else if (++gpuCool > 60) { ratio = next; gpuCool = 0; settleUntil = nowMs + 500; resize(); }
       }
 
       const t = (nowMs - t0) / 1000;
@@ -1192,21 +1204,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (wasPreparing !== isPreparing) { setPreparing(isPreparing); wasPreparing = isPreparing; }
       const rendererName = native?.shown ? "tidewater-webgpu" : isPreparing ? "preparing" : "webgl";
       if (host.dataset.renderer !== rendererName) host.dataset.renderer = rendererName;   // (a write each frame dirtied the page's style)
-      if (++sampleFrames >= 60 || (sampleFrames >= 2 && nowMs - sampleStart > 1000)) {
-        host.dataset.fps = (sampleFrames * 1000 / (nowMs - sampleStart)).toFixed(1);
-        host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
-        host.dataset.pixelRatio = ratio.toFixed(2);
-        host.dataset.renderMaxMs = renderMax.toFixed(0); renderMax = 0;
-        host.dataset.tickMs = `${(tickSum / sampleFrames).toFixed(1)}/${tickMax.toFixed(0)}`; tickSum = tickMax = 0;
-        host.dataset.renderMs = (renderSum / sampleFrames).toFixed(1); renderSum = 0;
-        if (stage.drone) { host.dataset.droneMs = stage.drone.timing.map(v => v.toFixed(1)).join("/"); stage.drone.timing.fill(0); }
-        if (native) {
-          host.dataset.quality = native.quality.name; host.dataset.gpuMs = (native.timer.ms.total ?? 0).toFixed(2); host.dataset.pipelines = String((native as unknown as { renderer: { pipelines: Map<string, unknown> } }).renderer.pipelines.size);
-          host.dataset.sceneReady = String(native.ready && !native.pending && !native.compiling && !native.failed);
-          host.dataset.nativeDraws = String(native.stats.draws);
-        }
-        sampleFrames = 0; sampleStart = nowMs;
-      }
       // WebGL: a new model's programs compile in parallel (KHR_parallel_shader_compile)
       // before it is drawn; a first draw would wait on each link in turn (seconds).
       const gl = !native && !nativePending;
@@ -1223,6 +1220,25 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         stage.ground.visible = true;
       }
       if (gl && !glWait) composer?.render();
+      const drewFrame = !!native?.shown || (!!composer && gl && !glWait);
+      if (!drewFrame) { sampleFrames = 0; sampleStart = nowMs; }
+      else if (++sampleFrames >= 60 || (sampleFrames >= 2 && nowMs - sampleStart > 1000)) {
+        host.dataset.fps = (sampleFrames * 1000 / (nowMs - sampleStart)).toFixed(1);
+        host.dataset.fpsAt = String(nowMs);
+        host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
+        host.dataset.pixelRatio = ratio.toFixed(2);
+        host.dataset.renderMaxMs = renderMax.toFixed(0); renderMax = 0;
+        host.dataset.tickMs = `${(tickSum / sampleFrames).toFixed(1)}/${tickMax.toFixed(0)}`; tickSum = tickMax = 0;
+        host.dataset.renderMs = (renderSum / sampleFrames).toFixed(1); renderSum = 0;
+        if (stage.drone) { host.dataset.droneMs = stage.drone.timing.map(v => v.toFixed(1)).join("/"); stage.drone.timing.fill(0); }
+        if (native) {
+          host.dataset.quality = native.quality.name; host.dataset.gpuMs = (native.timer.ms.total ?? 0).toFixed(2); host.dataset.pipelines = String((native as unknown as { renderer: { pipelines: Map<string, unknown> } }).renderer.pipelines.size);
+          host.dataset.sceneReady = String(native.ready && !native.pending && !native.compiling && !native.failed);
+          host.dataset.nativeDraws = String(native.stats.draws);
+        }
+        sampleFrames = 0; sampleStart = nowMs;
+      }
+
       // A picture for sharing: read in the task that drew the frame (neither canvas keeps
       // its drawing after it is shown).
       if (stage.snap) {
@@ -1304,8 +1320,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Paused while off screen: a model below the fold should cost nothing.
     const io = new IntersectionObserver(([entry]) => {
       inView = entry.isIntersecting;
-      cancelAnimationFrame(raf);
-      if (entry.isIntersecting && !pausedRef.current) { last = performance.now(); loop(); }
+      cancelAnimationFrame(raf); raf = 0;
+      if (entry.isIntersecting && !pausedRef.current) stage.resume();
       else native?.suspendTargets();
     });
     io.observe(host);
@@ -1320,11 +1336,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       ro.observe(host); io.observe(host);
       stage.resume();
     };
-    stage.resume = () => { cancelAnimationFrame(raf); touched(); last = performance.now(); loop(); };
+    stage.resume = () => {
+      if (disposed || document.hidden || !inView || pausedRef.current || raf) return;
+      touched(); last = performance.now(); sampleStart = last; sampleFrames = 0;
+      raf = requestAnimationFrame(loop);
+    };
     const visibility = () => {
-      cancelAnimationFrame(raf);
+      cancelAnimationFrame(raf); raf = 0;
       last = performance.now(); sampleStart = last; sampleFrames = 0;
-      if (!document.hidden) loop();
+      if (!document.hidden) stage.resume();
       else native?.suspendTargets();
     };
     document.addEventListener("visibilitychange", visibility);
@@ -4115,6 +4135,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         onPointerLeave={e => { hovering.current = false; if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
         {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{sceneTitle}</strong></div>}
         {hudOn && <pre ref={hudRef} style={{ position: "fixed", right: 8, bottom: 8, zIndex: 2147483647, margin: 0, padding: "6px 8px", background: "rgba(0,0,0,.65)", color: "#9f9", font: "11px/1.35 ui-monospace, monospace", pointerEvents: "none", whiteSpace: "pre" }} />}
+        {fpsOn && <output ref={fpsRef} className="re-holo-fps" aria-live="off" style={{ position:'absolute',right:12,top:72,zIndex:20,padding:'5px 9px',borderRadius:6,background:'rgba(0,0,0,.7)',color:'#d9ffe4',font:'bold 14px ui-monospace, monospace',pointerEvents:'none' }}>FPS 측정 대기</output>}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
         <canvas ref={signCanvas} className="re-holo-signs" aria-hidden="true" style={{ display: !loading && signs.length && !droneOn ? undefined : "none" }} />
         {!loading && signs.length > 0 && (

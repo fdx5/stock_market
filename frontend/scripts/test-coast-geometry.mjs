@@ -10,6 +10,20 @@ const base=fileURLToPath(new URL('..',import.meta.url)),dir=await mkdtemp(join(t
 const bundle=await build({stdin:{contents:`export * from './src/components/coastGeometry';export * from './src/components/waterCore';export * from './src/components/coastRibbon';`,resolveDir:base},bundle:true,write:false,platform:'node',format:'esm'});
 const entry=join(dir,'logic.mjs');await writeFile(entry,bundle.outputFiles[0].text,{flag:'wx'});
 const {seaOutsideBox,SeaCoverage,skirtedGridNormals,waterField,fieldFrom,waterSurface,coastRibbon}=await import(pathToFileURL(entry));
+test('asynchronous sea replacement keeps its source until ready, rejects stale cuts and restores on exit',async()=>{
+  const source=new THREE.PlaneGeometry(100,100);source.rotateX(-Math.PI/2);source.setAttribute('aSea',new THREE.BufferAttribute(new Float32Array(source.getAttribute('position').count).fill(1),1));
+  const mesh=new THREE.Mesh(source),jobs=[];const coverage=new SeaCoverage((g,b,m,s)=>new Promise(resolve=>jobs.push({resolve,signal:s})));
+  coverage.update([mesh],[-10,-10,10,10]);assert.equal(mesh.geometry,source);
+  coverage.update([mesh],[-20,-20,20,20]);assert.equal(jobs[0].signal.aborted,true);
+  const stale=source.clone();let released=0;stale.addEventListener('dispose',()=>released++);jobs[0].resolve(stale);await Promise.resolve();assert.equal(released,1);assert.equal(mesh.geometry,source);
+  const live=source.clone();jobs[1].resolve(live);await Promise.resolve();assert.equal(mesh.geometry,live);
+  coverage.restore();assert.equal(mesh.geometry,source);assert.equal(mesh.visible,true);source.dispose();
+});
+test('sea replacement finishing after landing releases its geometry without changing restored water',async()=>{
+  const source=new THREE.PlaneGeometry(100,100);source.setAttribute('aSea',new THREE.BufferAttribute(new Float32Array(4).fill(1),1));const mesh=new THREE.Mesh(source);let complete;
+  const coverage=new SeaCoverage(()=>new Promise(resolve=>complete=resolve));coverage.update([mesh],[-10,-10,10,10]);coverage.restore();
+  const late=source.clone();let freed=0;late.addEventListener('dispose',()=>freed++);complete(late);await Promise.resolve();assert.equal(mesh.geometry,source);assert.equal(freed,1);source.dispose();
+});
 const geo=(sea=1)=>{const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute([-2,0,2,2,0,2,2,0,-2,-2,0,-2],3));g.setAttribute('aSea',new THREE.Float32BufferAttribute([sea,sea,sea,sea],1));g.setAttribute('aShore',new THREE.Float32BufferAttribute([0,4,4,0],1));g.setAttribute('aFlow',new THREE.Float32BufferAttribute([1,0,1,0,1,0,1,0],2));g.setIndex([0,2,1,0,3,2]);return g;};
 const area=g=>{let total=0,p=g.attributes.position;for(let k=0;k<g.index.count;k+=3){const ids=[g.index.getX(k),g.index.getX(k+1),g.index.getX(k+2)],a=ids.map(i=>[p.getX(i),-p.getZ(i)]);total+=Math.abs((a[1][0]-a[0][0])*(a[2][1]-a[0][1])-(a[1][1]-a[0][1])*(a[2][0]-a[0][0]))/2;}return total;};
 test('exact sea cut conserves area at a tile boundary crossing triangle interiors',()=>{const g=geo(),cut=seaOutsideBox(g,[-1,-1,1,1]);assert.ok(Math.abs(area(cut)-12)<1e-6);const p=cut.attributes.position;for(let k=0;k<cut.index.count;k+=3){const ids=[cut.index.getX(k),cut.index.getX(k+1),cut.index.getX(k+2)],x=ids.reduce((s,i)=>s+p.getX(i),0)/3,y=ids.reduce((s,i)=>s-p.getZ(i),0)/3;assert.ok(Math.abs(x)>=1-1e-6||Math.abs(y)>=1-1e-6);}});

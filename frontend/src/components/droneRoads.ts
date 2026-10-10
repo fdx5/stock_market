@@ -1,3 +1,4 @@
+import { sceneWorkerOnce } from "./sceneWorkerPool";
 /* The drone's roads (드론 mode), tile by tile: the national road survey's centre lines (국가기본도
  * 도로중심선, VWorld LT_L_N3A0020000: width rvwd, lanes rdln) cut to the tile and laid on its
  * relief — an asphalt band the road's width, its lane lines (white dashes between lanes going the
@@ -604,16 +605,11 @@ export function roadTile(lat: number, lon: number, key: string, domain: string |
     size: "1000", page: String(i + 1), format: "json", callback: cb,
   }));
   roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
-  const worker = new Worker(roadUrl);
-  return new Promise(resolve => {
-    worker.onmessage = e => { worker.terminate(); resolve(e.data as RoadTileResult); };
-    worker.onerror = () => { worker.terminate(); resolve(null); };
-    signal?.addEventListener("abort", () => { worker.terminate(); resolve(null); });
     // (the crossings asked about the tile's rounded centre, as the view asks: the server's cache)
     const crossings = tile && typeof location !== "undefined" ? (() => {
       const la = +tile.lat.toFixed(4), lo = +tile.lon.toFixed(4);
       return { url: `${location.origin}/api/realestate/crossings?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=260&v=3`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
     })() : undefined;
-    worker.postMessage({ urls: ask("LT_L_N3A0020000", "roadCb", 4), linkUrls: ask("LT_L_MOCTLINK", "linkCb", 2), riverUrls: [], lat, lon, box, grid, wide, crossings, ...extra } satisfies RoadJob);
-  });
+    const job: RoadJob = { urls: ask("LT_L_N3A0020000", "roadCb", 4), linkUrls: ask("LT_L_MOCTLINK", "linkCb", 2), riverUrls: [], lat, lon, box, grid, wide, crossings, ...extra };
+    return sceneWorkerOnce<RoadTileResult>(() => new Worker(roadUrl!), job, signal);
 }
