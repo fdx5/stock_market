@@ -69,7 +69,7 @@ import { drapeRoadOffThread } from './roadDrapeClient';
 import {buildRoadBvh,roadBvhEnabled} from './roadBvhClient';
 import {roadBvhIndex} from './roadBvh';
 import {constrainRoadCorridors}from'./roadCorridors';
-import {modelBlocksRoad}from'./roadModelConflict';
+import {RoadModelChecks} from './roadModelChecks';
 import {sceneDeviceBudget,capSceneRatio,prepareCanvasResize,frameResolutionBudget} from './sceneDeviceBudget';
 import {roadFootprints}from'./roadJunctions';
 import {splitRoadJunctions}from'./roadTrafficNetwork';
@@ -1718,6 +1718,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const palette = paletteFor(data.name);
     const disposables = new SceneResources();
     const keep = <T extends { dispose: () => void }>(x: T) => disposables.keep(x);
+    const roadModelChecks = keep(new RoadModelChecks()), roadModelStop = new AbortController();
+    disposables.push({dispose:()=>roadModelStop.abort()});
     const group = new THREE.Group();
     group.userData.railBuilding = true;
     group.rotation.x = -Math.PI / 2; // footprints are x east / y north, extruded up z
@@ -1743,7 +1745,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (ground) stage.scene.remove(ground);
       disposables.forEach(d => d.dispose());
     };
-    stage.current = { stop: () => { alive = false; }, release, parts: () => (ground ? [group, decor, ground] : [group, decor]) };
+    stage.current = { stop: () => { alive = false; roadModelStop.abort(); roadModelChecks.dispose(); }, release, parts: () => (ground ? [group, decor, ground] : [group, decor]) };
     stage.disposeModel = () => {
       alive = false;
       letGo();
@@ -2236,8 +2238,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }
       const median = (v: number[]) => { const a = [...v].sort((x, y) => x - y); return a.length ? a[a.length >> 1] : 0; };
       const [dx, dy] = deltas.length >= 3 ? [median(deltas.map(d => d[0])), median(deltas.map(d => d[1]))] : [0, 0];
-      const surveyRoads=ringIndex(roadFootprints(splitRoadJunctions(stitchedRoads(data.roads??[]),true)));
-      const surveyBuildings=ringIndex([...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])]);
+      const surveyRoadRings=roadFootprints(splitRoadJunctions(stitchedRoads(data.roads??[]),true));
+      const surveyBuildingRings=[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])];
       let roadRejected=0;
       const skip = new Set<string>();
       const used: THREE.Mesh[] = [];
@@ -2462,7 +2464,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       let k = 0, matched = 0;
       for (const ph of photos) {
         if (!await pace()) { drop(); releasePieces(); return; }
-        if(modelBlocksRoad(ph.geometry.getAttribute('position').array,ph.geometry.index?.array??null,dx,dy,surveyRoads,surveyBuildings)){
+        if((await roadModelChecks.test('near',ph.geometry,dx,dy,surveyRoadRings,surveyBuildingRings,roadModelStop.signal))!==false){
           ph.geometry.dispose();roadRejected++;continue;
         }
         ph.geometry.computeBoundingBox();
@@ -3426,8 +3428,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           }
           const mid = (v: number[]) => { const q = [...v].sort((a, b) => a - b); return q.length ? q[q.length >> 1] : 0; };
           const [ox, oy] = pairs.length >= 3 ? [mid(pairs.map(p => p[0])), mid(pairs.map(p => p[1]))] : [0, 0];
-          const ringRoads=ringIndex(roadFootprints(splitRoadJunctions(roads,true)));
-          const ringBuildingsAt=ringIndex(physicalFootprints);
+          const ringRoadRings=roadFootprints(splitRoadJunctions(roads,true));
           const aptMat = sharedContextMaterial("apt");
           const plain = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }));
           const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -3447,7 +3448,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           const hide: [number, number][] = [];
           for (const ph of photos) {
             if (!await pace() || ringStop.signal.aborted) { photos.forEach(q => q.geometry.dispose()); return; }
-            if(modelBlocksRoad(ph.geometry.getAttribute('position').array,ph.geometry.index?.array??null,ox,oy,ringRoads,ringBuildingsAt)){
+            if((await roadModelChecks.test('ring',ph.geometry,ox,oy,ringRoadRings,physicalFootprints,ringStop.signal))!==false){
               ph.geometry.dispose();continue;
             }
             const px = ph.cx + ox, py = ph.cy + oy;

@@ -1682,6 +1682,11 @@ export class ComplexRenderer {
     // the list was put off frame after frame)
     let madeTexels = 0;
     let made = 0;
+    // Shared facades still bring fresh vertex/index buffers. Count geometry
+    // admissions as well as material creation so one tile cannot bypass the
+    // visible-frame budget by reusing an already compiled material.
+    let introduced = 0;
+    const geometryRoom = () => introduced === 0 || (introduced < 4 && performance.now() <= until);
     source.traverseVisible(obj => {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
       if(camera && obj.userData.forestLod)updateForestLod(obj,camera);
@@ -1706,6 +1711,7 @@ export class ComplexRenderer {
         // frame's other newcomers never got its strips at all, and the drone's tiles waited on it)
         const imagesIn = this.imagesReady(obj.material);
         if (made && (performance.now() > until || madeTexels > room)) { deferred = true; return; }
+        if (!geometryRoom()) { deferred = true; return; }
         if (!imagesIn) { deferred = true; return; }
         const before = this.materials.size + this.textures.size;
         const material = Array.isArray(obj.material) ? obj.material.map(m => this.material(m)) : this.material(obj.material);
@@ -1726,6 +1732,7 @@ export class ComplexRenderer {
           mesh.boundingSphere = obj.boundingSphere;
         }
         this.meshes.set(obj, mesh);
+        introduced++;
         this.scene.add(mesh);
         this.ready = false;
         added = true;
@@ -1737,7 +1744,10 @@ export class ComplexRenderer {
         mesh.instVersion = obj.instanceMatrix?.version;
       }
       // Casters that moved lately (walkers, traffic, boats, the balloon) are drawn into the
-      if(mesh.geometry!==obj.geometry){mesh.geometry=obj.geometry;swapped=true;if(mesh.castShadow)this.castersChanged=true;}
+      if(mesh.geometry!==obj.geometry){
+        if(!geometryRoom())deferred=true;
+        else{mesh.geometry=obj.geometry;introduced++;swapped=true;if(mesh.castShadow)this.castersChanged=true;}
+      }
       // shadow maps every frame; the still ones can be kept (SunShadows.render). A change
       // of either set invalidates what is kept.
       // (instance data replaced — a level of trees grown: the old buffers are let go below)

@@ -9,6 +9,15 @@ root = Path(__file__).resolve().parents[1]
 label = sys.argv[1]
 port = int(sys.argv[2]) if len(sys.argv) > 2 else 5173
 profile_on = '--profile' in sys.argv
+place = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--place=')), 'haeundae')
+complexes = {
+    'haeundae':'26350:우동:1407:해운대두산위브더제니스',
+    'changdong':'11320:창동:333:창동동아청솔',
+    'uijeongbu':'41150:의정부동:724:의정부역센트럴자이앤위브캐슬',
+    'cheongdam':'11680:청담동:106-7:에테르노청담',
+}
+if place not in complexes:
+    raise SystemExit('Unknown public review place')
 out = root / 'tmp/drone-performance-20261010' / label
 out.mkdir(parents=True, exist_ok=True)
 errors = []
@@ -18,14 +27,15 @@ with sync_playwright() as p:
         page = browser.new_page(viewport={'width':1440, 'height':1000})
         page.on('pageerror', lambda e: errors.append(str(e)[:300]))
         page.route('**/api/**', lambda r: r.continue_() if r.request.url.startswith((f'http://127.0.0.1:{port}/', 'http://127.0.0.1:8003/')) else r.abort())
-        query = {'complex':'26350:\uC6B0\uB3D9:1407:\uD574\uC6B4\uB300\uB450\uC0B0\uC704\uBE0C\uB354\uC81C\uB2C8\uC2A4', 'hour':12, 'dronedebug':1, 'fps':1}
+        query = {'complex':complexes[place], 'hour':12, 'dronedebug':1, 'fps':1}
         page.goto(f'http://127.0.0.1:{port}/drone-explore?'+urlencode(query), wait_until='domcontentloaded')
-        page.wait_for_function('window.__drone?.world.region?.field && window.__holoNative?.shown', timeout=90000)
+        ready = 'window.__drone?.world.region?.field && window.__holoNative?.shown' if place == 'haeundae' else 'window.__drone && window.__holoNative?.shown'
+        page.wait_for_function(ready, timeout=90000)
         page.wait_for_timeout(5000)
         page.evaluate('''()=>{
           window.__qaCpu={};const track=(owner,key,label)=>{if(!owner?.[key])return;const f=owner[key];owner[key]=function(...a){const t=performance.now();try{return f.apply(this,a);}finally{const s=window.__qaCpu[label]??={count:0,total:0,max:0};const ms=performance.now()-t;s.count++;s.total+=ms;s.max=Math.max(s.max,ms);}};};
           const d=window.__drone,w=d.world,s=window.__holoStageAny?.current;
-          track(w,'update','streaming');track(w.traffic,'update','streamed-cars');track(w.seaCoverage,'update','sea-cut');track(w.o,'onSeaReady','ground-sink');track(d.signs,'draw','signs');track(s?.rail,'update','rail');track(window.__holoNative,'render','render');
+          track(w,'update','streaming');track(w.traffic,'update','streamed-cars');track(w.seaCoverage,'update','sea-cut');track(w.o,'onSeaReady','ground-sink');track(d.signs,'draw','signs');track(s?.rail,'update','rail');track(window.__holoNative,'render','render');track(window.__holoNative,'sync','native-sync');track(window.__holoNative,'refreshTextures','texture-refresh');
           s?.tick.forEach((f,i)=>{s.tick[i]=function(...a){const t=performance.now();try{return f.apply(this,a);}finally{const x=window.__qaCpu['view-tick-'+i]??={count:0,total:0,max:0};const ms=performance.now()-t;x.count++;x.total+=ms;x.max=Math.max(x.max,ms);}};});
         }''')
         cdp = page.context.new_cdp_session(page)
@@ -38,6 +48,13 @@ with sync_playwright() as p:
             ('bridge-flight',35.1486,129.1202,50,350,100,-.5),
             ('return-city',35.15661,129.14506,90,0,0,-.3),
         ]
+        if place != 'haeundae':
+            center=page.evaluate('window.__drone.world.o.data.center')
+            segments=[
+                ('initial-city',center['lat'],center['lon'],90,0,0,-.3),
+                ('city-flight',center['lat'],center['lon'],70,0,420,-.3),
+                ('return-city',center['lat'],center['lon'],90,0,0,-.3),
+            ]
         if '--quick' in sys.argv: segments = [segments[0],segments[2]]
         results = []
         for name,lat,lon,h,dx,dy,tilt in segments:
@@ -66,8 +83,8 @@ with sync_playwright() as p:
         for node in profile.get('samples',[]):
             frame=nodes[node];key=frame['functionName'] or '(anonymous)';counts[key]=counts.get(key,0)+1
         cdp.send('HeapProfiler.collectGarbage')
-        retained=page.evaluate('''()=>({heap:performance.memory?.usedJSHeapSize,world:window.__drone.world.stats(),workers:window.__drone.world.surveyPool?.pending??0,rail:window.__holoStageAny?.current?.rail?.inspect()})''')
-        report={'chrome':browser.version,'viewport':[1440,1000],'profileOn':profile_on,'results':results,'retained':retained,'cpuScopes':page.evaluate('window.__qaCpu'),'cpuSamples':sorted(counts.items(),key=lambda a:-a[1])[:40],'errors':errors,
+        retained=page.evaluate('''()=>{const w=window.__drone.world;return {heap:performance.memory?.usedJSHeapSize,world:w.stats(),workers:w.surveyPool?.pending??0,coast:{saved:w.seaCoverage?.saved?.size,pending:w.seaCoverage?.pending?.size,jobs:w.coastJobs?.pool?.stats},rail:window.__holoStageAny?.current?.rail?.inspect()};}''')
+        report={'place':place,'chrome':browser.version,'viewport':[1440,1000],'profileOn':profile_on,'results':results,'retained':retained,'cpuScopes':page.evaluate('window.__qaCpu'),'cpuSamples':sorted(counts.items(),key=lambda a:-a[1])[:40],'errors':errors,
                 'gate50fps':all(r['minWindowFps']>=50 for r in results),'gateNearest':'requires streaming progress check','gateMemory':'bounded resource test plus retained heap; not a nationwide soak test'}
         (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf8')
         page.screenshot(path=str(out/'final.png'))

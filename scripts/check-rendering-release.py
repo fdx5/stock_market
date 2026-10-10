@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--commit', required=True)
 parser.add_argument('--source', type=Path, required=True)
 parser.add_argument('--out', type=Path, required=True)
+parser.add_argument('--build', type=Path, help='Clean frontend build containing the required performance workers.')
 parser.add_argument('--timeout', type=int, default=1200)
 args = parser.parse_args()
 if args.out.exists():
@@ -61,6 +62,20 @@ for path in paths:
     assets.append({'path': path, 'bytes': len(response.content), 'sha256': actual})
     print(json.dumps({'verifiedAsset': path, 'bytes': len(response.content)}), flush=True)
 
+if args.build:
+    for stem in ['coastGeometryWorker', 'roadModelCheckWorker']:
+        matches=list((args.build / 'assets').glob(stem + '-*.js'))
+        assert len(matches) == 1, 'Expected one clean-build worker: ' + stem
+        local=matches[0]
+        path='/assets/' + local.name
+        response=session.get(base + path, timeout=30)
+        response.raise_for_status()
+        expected=hashlib.sha256(local.read_bytes()).hexdigest()
+        actual=hashlib.sha256(response.content).hexdigest()
+        assert actual == expected, 'Performance worker digest mismatch: ' + stem
+        assets.append({'path':path,'bytes':len(response.content),'sha256':actual})
+        print(json.dumps({'verifiedWorker':stem,'bytes':len(response.content)}),flush=True)
+
 # Public HTML references are checked without opening an interactive session or API data.
 import re
 page = session.get(base + '/drone-explore', timeout=30)
@@ -76,7 +91,7 @@ for path in scripts:
         assets.append({'path': path, 'bytes': len(response.content)})
 report = {'deployed': True, 'commit': args.commit, 'checks': checks, 'assets': assets,
           'durationSeconds': round(time.monotonic() - started, 1),
-          'scope': 'Public health, HTML, entry script and seven versioned assets; no browser flight/FPS claim.'}
+          'scope': 'Public health, HTML, entry script, seven versioned assets and optional clean-build workers; no browser flight/FPS claim.'}
 args.out.parent.mkdir(parents=True, exist_ok=True)
 args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf8')
 print(json.dumps({'deployed': True, 'commit': args.commit, 'assetsVerified': len(assets)}), flush=True)
