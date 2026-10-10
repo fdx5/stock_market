@@ -70,7 +70,7 @@ import {buildRoadBvh,roadBvhEnabled} from './roadBvhClient';
 import {roadBvhIndex} from './roadBvh';
 import {constrainRoadCorridors}from'./roadCorridors';
 import {RoadModelChecks} from './roadModelChecks';
-import {sceneDeviceBudget,capSceneRatio,prepareCanvasResize,frameResolutionBudget} from './sceneDeviceBudget';
+import {sceneDeviceBudget,capSceneRatio,prepareCanvasResize,fixedSceneResolution} from './sceneDeviceBudget';
 import {roadFootprints}from'./roadJunctions';
 import {splitRoadJunctions}from'./roadTrafficNetwork';
 import {excludeSurface}from'./surfaceExclusion';
@@ -716,29 +716,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (glMissing && !nativeCapable) { setFailed3d(true); return; }
     const renderer = made ?? inputOnlyRenderer();
     const releaseMemory = retainSceneMemory();
-    // Start at the display's ratio; with frame time to spare, supersample a desktop
-    // panel toward 2x (sharper facades; the native path has no MSAA). Never climb
-    // back past a level that already dropped frames.
+    // Resolution is fixed for this view; FPS must never reduce its sharpness.
     const dpr = window.devicePixelRatio || 1;
     // (a phone at its own pixels, up to 3x: it started at 1.6x and could never climb, so a 3x
     // screen showed a soft picture from the first frame)
-    let ratio = Math.min(dpr, hq ? 2 : 3);
-    // (a desktop supersamples up to 2x where its GPU has the time: the native view has no MSAA,
-    // and at the display's own 1x its window grids and edges shimmered)
-    let maxRatio = hq ? 2 : ratio;
+    let ratio = dpr;
     // Desktop: the first ratio from a pixel budget (a panel or a normal window starts well above
     // 1x, a 5K full screen at its own pixels), never above ~14 MP of drawing in all (the render
-    // targets of a 5120x1440 screen at 2x would be gigabytes). Measured GPU time climbs from there.
-    const PIX_START = deviceBudget.startPixels, PIX_CAP = deviceBudget.maxPixels;
-    let lastArea = 0;
+    // targets of a 5120x1440 screen at 2x would be gigabytes). The initial ratio stays fixed.
+    const PIX_CAP = deviceBudget.maxPixels;
     // (?pr=1.5: a fixed ratio, for comparing sharpness and GPU time)
     const fixedRatio = Number(new URLSearchParams(location.search).get("pr")) || 0;
-    if (fixedRatio) ratio = maxRatio = fixedRatio;
-    ratio = Math.min(ratio, deviceBudget.maxRatio);
-    maxRatio = Math.min(maxRatio, deviceBudget.maxRatio);
-    // Prefer at least one pixel per CSS pixel; the absolute memory cap still wins
-    // on very large screens, including fixed ratios and touch input.
-    const minRatio = Math.min(deviceBudget.constrained ? .7 : .8, dpr);
+    const resolution = fixedSceneResolution(dpr, hq, deviceBudget, fixedRatio);
     // The last pointer, wheel or key on the view (the loop draws at full rate for 3 s after).
     const touched = () => {};
     renderer.setPixelRatio(ratio);
@@ -1002,22 +991,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       W = Math.round(w); H = Math.round(h);
       if (!W || !H) return;
       stage.viewH = H;
-      if ((hq || deviceBudget.constrained) && !fixedRatio) {
-        const area = W * H, cap = Math.max(minRatio, Math.min(maxRatio, Math.sqrt(PIX_CAP / area)));
-        // First size, or a much larger one (full screen): the ratio this GPU should hold at about
-        // 10 ms a frame, from its time measured at the size before (all of it taken as growing with
-        // the pixels: on the safe side); unmeasured, the pixel budget.
-        if (area > lastArea * 1.3) {
-          const gpu = native?.timer.enabled ? native.timer.ms.total ?? 0 : 0, drawn = lastArea * ratio * ratio;
-          const want = gpu > 0.5 && drawn > 0 ? Math.sqrt((10 / gpu) * drawn / area) : Math.sqrt(PIX_START / area);
-          ratio = deviceBudget.constrained
-            ? Math.max(minRatio, Math.min(cap, want))
-            : Math.max(minRatio, Math.min(cap, Math.floor(want * 4) / 4));
-        }
-        ratio = Math.min(ratio, cap);
-        lastArea = area;
-      }
-      ratio = capSceneRatio(W, H, ratio, deviceBudget);
+      ratio = resolution.forSize(W, H);
       camera.aspect = W / H;
       camera.updateProjectionMatrix();
       native?.setSize(W, H, ratio);
@@ -1056,10 +1030,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const bvAt = new THREE.Vector3(), bvLook = new THREE.Vector3();
     let envFrame = 0, nativeWaitSince = 0;
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
-    const resolutionBudget = frameResolutionBudget();
-    // Every device targets 60 fps. GPU headroom alone cannot justify more pixels
-    // while CPU-side scenery or traffic is already missing the frame budget.
-    let last = performance.now(), settleUntil = 0;
+    let last = performance.now();
     let inView = true, sampleStart = last, sampleFrames = 0;
     const t0 = performance.now();
     let raf = 0;
@@ -1075,19 +1046,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const nowMs = performance.now();
       const dt = nowMs - last;
       last = nowMs;
-      if (stage.busy) settleUntil = Math.max(settleUntil, nowMs + 1500);
-      if (!fixedRatio) {
-        if (stage.unshown || stage.building) resolutionBudget.reset();
-        else {
-          const ceiling = capSceneRatio(W, H, Math.min(maxRatio, Math.sqrt(PIX_CAP / (W * H))), deviceBudget);
-          const floor = Math.min(minRatio, ceiling, Math.sqrt(1.5e6 / (W * H)));
-          const gpuMs = native?.timer.enabled ? native.timer.ms.total ?? 0 : 0;
-          // Never increase during loading, or without measured GPU headroom.
-          const up = !stage.busy && nowMs > settleUntil && (gpuMs === 0 || gpuMs * 1.12 < 9);
-          const next = resolutionBudget.sample(nowMs, dt, ratio, floor, up ? ceiling : ratio);
-          if (next !== ratio) { ratio = next; resize(); }
-        }
-      }
 
       const t = (nowMs - t0) / 1000;
       stage.now = t;
@@ -1247,7 +1205,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }
       if (stage.unshown && stage.model && (native?.ready || (gl && !glWait))) {
         stage.unshown = false;
-        settleUntil = nowMs + 4000;
         host.dataset.shownAt = performance.now().toFixed(0);
         const jobs = stage.onShown.splice(0);
         const model = stage.model;

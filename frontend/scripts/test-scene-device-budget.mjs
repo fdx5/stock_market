@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {transformSync} from 'esbuild';
 const {code}=transformSync(readFileSync(new URL('../src/components/sceneDeviceBudget.ts',import.meta.url),'utf8'),{loader:'ts',format:'esm'});
-const {sceneDeviceBudget,capSceneRatio,prepareCanvasResize,frameResolutionBudget}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
+const {sceneDeviceBudget,capSceneRatio,prepareCanvasResize,fixedSceneResolution}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
 test('Safari desktop iPad UA without deviceMemory gets a bounded profile',()=>{
  const b=sceneDeviceBudget({userAgent:'Mozilla/5.0 Macintosh Safari/605.1.15',platform:'MacIntel',maxTouchPoints:5});
  assert.equal(b.constrained,true);assert.equal(b.retainPrevious,false);assert.equal(b.samples,0);
@@ -15,29 +15,22 @@ test('Safari desktop iPad UA without deviceMemory gets a bounded profile',()=>{
  }
 });
 
-test('10 fps pressure lowers resolution with a floor and cooldown; spare time restores it slowly',()=>{
- const b=frameResolutionBudget();let r=1.1,now=0;
- for(let i=0;i<150;i++){now+=100;r=b.sample(now,100,r,.7,1.1);}
- assert.equal(r,.7);
- const low=r;
- for(let i=0;i<100;i++){now+=16;r=b.sample(now,16,r,.7,1.1);}
- assert.equal(r,low);
- for(let i=0;i<1000;i++){now+=16;r=b.sample(now,16,r,.7,1.1);}
- assert.ok(r>low&&r<=1.1);
+test('desktop resolution is locked at initial sharpness across loading and fullscreen resizes',()=>{
+ const b=fixedSceneResolution(1,true,sceneDeviceBudget({deviceMemory:8}));
+ const first=b.forSize(1440,1000);assert.equal(first,1.75);
+ for(let i=0;i<150;i++)for(const [w,h]of [[1440,1000],[1920,1080],[5120,1440],[800,600]])assert.equal(b.forSize(w,h),first);
 });
-test('loading stalls and reset do not trigger resolution loss',()=>{
- const b=frameResolutionBudget();let r=1;
- for(let i=0;i<100;i++)r=b.sample(i*1000,1000,r,.7,1.1);
- assert.equal(r,1);
- for(let i=0;i<15;i++){b.sample(i*100,100,r,.7,1.1);b.reset();}
- assert.equal(b.sample(2000,100,r,.7,1.1),1);
+test('memory profiles cannot silently lower native display resolution',()=>{
+ for(const dpr of [1,1.5,2,3])for(const deviceMemory of [2,4,8]){
+  const b=fixedSceneResolution(dpr,false,sceneDeviceBudget({deviceMemory}));
+  assert.equal(b.forSize(1920,1080),dpr);assert.equal(b.forSize(3840,2160),dpr);
+ }
 });
-test('desktop pressure at 40 fps is corrected before the old 30 fps threshold',()=>{
- const b=frameResolutionBudget();let r=2,now=0;
- for(let i=0;i<120;i++){now+=25;r=b.sample(now,25,r,.8,2);}
- assert.ok(r<2);assert.ok(r>=.8);
- const down=r;for(let i=0;i<120;i++){now+=16.7;r=b.sample(now,16.7,r,.8,2);}
- assert.equal(r,down);
+test('empty layout does not lock resolution and explicit user comparison ratios stay fixed',()=>{
+ const budget=sceneDeviceBudget({deviceMemory:8}),b=fixedSceneResolution(1,true,budget);
+ assert.equal(b.forSize(0,0),1);assert.equal(b.forSize(1440,1000),1.75);
+ const manual=fixedSceneResolution(2,true,budget,1.25);
+ assert.equal(manual.forSize(1440,1000),1.25);assert.equal(manual.forSize(3840,2160),1.25);
 });
 test('classic iPad and iPhone are covered; a desktop Mac retains desktop quality',()=>{
  assert.equal(sceneDeviceBudget({userAgent:'iPad Safari'}).constrained,true);

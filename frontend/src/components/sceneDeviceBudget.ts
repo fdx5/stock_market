@@ -26,29 +26,20 @@ export function prepareCanvasResize(canvas: { width: number; height: number }, w
   if (height * canvas.width > maxPixels) canvas.width = 1;
 }
 
-/** Target 60 fps with a 50 fps lower bound. Sustained pressure reduces pixel
- * work before increasing it again; isolated network/decode stalls are ignored. */
-export function frameResolutionBudget() {
-  let elapsed = 0, frames = 0, coolUntil = 0, fastSince = 0;
+/** User policy: never lower resolution for performance. Choose the initial
+ * display resolution once, then retain it through loading, pressure and resize.
+ * The pixel budget limits optional supersampling, not the display's native DPR.
+ * An explicit pr URL parameter remains a user-selected comparison override. */
+export function fixedSceneResolution(dpr: number, desktop: boolean, budget: ReturnType<typeof sceneDeviceBudget>, requested = 0) {
+  const native = Math.max(.01, dpr || 1);
+  let locked: number | undefined;
   return {
-    reset() { elapsed = frames = fastSince = 0; },
-    sample(now: number, frameMs: number, ratio: number, floor: number, ceiling: number) {
-      if (now < coolUntil || frameMs <= 0 || frameMs > 250) return ratio;
-      elapsed += frameMs; frames++;
-      if (elapsed < 750 || frames < 12) return ratio;
-      const average = elapsed / frames; elapsed = frames = 0;
-      if (average > 19 && ratio > floor + .01) {
-        fastSince = 0; coolUntil = now + 1500;
-        return Math.max(floor, ratio * .875);
-      }
-      if (average < 17.5 && ratio < ceiling - .01) {
-        fastSince ||= now;
-        if (now - fastSince >= 8000) {
-          coolUntil = now + 4000; fastSince = 0;
-          return Math.min(ceiling, ratio * 1.05);
-        }
-      } else fastSince = 0;
-      return ratio;
+    forSize(width: number, height: number) {
+      if (locked !== undefined) return locked;
+      if (width <= 0 || height <= 0) return requested || native;
+      if (requested > 0) return locked = capSceneRatio(width, height, requested, budget);
+      const wanted = desktop ? Math.max(native, Math.min(2, Math.floor(Math.sqrt(budget.startPixels / (width * height)) * 4) / 4)) : native;
+      return locked = Math.max(native, capSceneRatio(width, height, wanted, budget));
     },
   };
 }
