@@ -7,6 +7,9 @@ import { DroneAudio } from "./droneAudio";
 import { DroneSigns } from "./droneSigns";
 import { DroneModel } from "./droneModel";
 import { buildWalkers, type WalkPath } from "./sceneWalkers";
+import { seaOutsideBox } from './coastGeometry';
+import type { WaterField } from './sceneWater';
+import { bridgeContains } from './bridgeDeck';
 
 /* 드론 mode of the 3D view (ComplexHologram): the flight, the world streamed round it and the
  * sound, set up over the view's own scene and taken down again. While it lasts:
@@ -40,8 +43,10 @@ export class DroneSession {
    * again when the drone has gone 350 m, only while it is low enough to see them. */
   private crowd: { c: NonNullable<Awaited<ReturnType<typeof buildWalkers>>>; x: number; y: number } | null = null;
   private crowdBusy = false;
-  private groundBackup: Float32Array | null = null;
+  private groundBackup: THREE.BufferGeometry | null = null;
   private backdrop: THREE.Mesh | null = null;
+  private backdropHeights: Float32Array | null = null;
+  private trafficFilters = new Map<Record<string, any>, any>();
   private saved: { fov: number; near: number; far: number } | null = null;
   private sky = 0;
   private hudAt = 0;
@@ -58,7 +63,10 @@ export class DroneSession {
     setSky: (k: number, fog?: [number, number]) => void;
     onHud: (h: DroneHud) => void;
   }) {
-    this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees, onLabels: (k, l) => this.signs.set(k, l) });
+    this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees,
+      viewWater: () => { const water: THREE.Mesh[] = []; for (const root of p.scene.children) if (root !== this.world.root) root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && !Array.isArray(m.material) && m.material.userData.water && m.geometry.getAttribute('aSea')) water.push(m); }); return water; },
+      onSeaReady: field => this.sinkSeaGround(field),
+      onLabels: (k, l) => this.signs.set(k, l) });
   }
 
   /** Take off from where the camera is (no higher than 500 m over the ground), looking its way. */
@@ -67,6 +75,16 @@ export class DroneSession {
     scene.add(this.world.root);
     scene.add(this.model.group);
     this.keepGroundToSquare();
+    scene.traverse(o => {
+      const traffic = o.userData.traffic;
+      if (!traffic?.cars || !traffic?.paths || o === this.world.traffic.group) return;
+      const previous = traffic.placementFilter;
+      this.trafficFilters.set(traffic, previous);
+      traffic.placementFilter = (car: { x: number; y: number; hx: number; hy: number }) => {
+        const deck = this.world.landmarks.gwanganDeck();
+        return previous?.(car) !== false && (!deck || !bridgeContains(deck.P, car.x, car.y, car.hx, car.hy));
+      };
+    });
     const dir = camera.getWorldDirection(new THREE.Vector3());
     const yaw = Math.atan2(-dir.x, -dir.z);
     const x = camera.position.x, y = -camera.position.z;
@@ -89,22 +107,12 @@ export class DroneSession {
     const g = this.p.ground;
     if (!g) return;
     const H = this.p.extent.farHalf;
-    const pos = g.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const P = pos.array as Float32Array;
-    this.groundBackup = P.slice();
-    const back = new THREE.BufferGeometry();
-    for (const [name, attr] of Object.entries(g.geometry.attributes)) back.setAttribute(name, (attr as THREE.BufferAttribute).clone());
-    if (g.geometry.index) back.setIndex(g.geometry.index.clone());
-    back.boundingSphere = g.geometry.boundingSphere?.clone() ?? null;
-    if (!back.boundingSphere) back.computeBoundingSphere();
-    for (let k = 0; k < P.length; k += 3) {
-      const x = P[k], y = P[k + 1];
-      if (Math.abs(x) <= H && Math.abs(y) <= H) continue;
-      const cx = THREE.MathUtils.clamp(x, -H, H), cy = THREE.MathUtils.clamp(y, -H, H);
-      P[k] = cx; P[k + 1] = cy; P[k + 2] = this.p.terrain.at(cx, cy);
-    }
-    pos.needsUpdate = true;
-    g.geometry.computeBoundingSphere();
+    this.groundBackup = g.geometry;
+    const back = g.geometry.clone();
+    this.backdropHeights = (back.getAttribute('position').array as Float32Array).slice();
+    g.updateWorldMatrix(true, false);
+    // Exact clipping replaces collapsed outer faces, which formed dark vertical seams.
+    g.geometry = seaOutsideBox(g.geometry, [-H, -H, H, H], g.matrixWorld, true);
     const mesh = new THREE.Mesh(back, g.material);
     mesh.rotation.copy(g.rotation);
     mesh.position.copy(g.position);
@@ -113,6 +121,23 @@ export class DroneSession {
     mesh.updateMatrixWorld();
     this.backdrop = mesh;
     this.p.scene.add(mesh);
+  }
+
+  private sinkSeaGround(field: WaterField) {
+    for (const mesh of [this.p.ground, this.backdrop]) {
+      if (!mesh || !this.groundBackup) continue;
+      const p = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const source = mesh === this.backdrop ? this.backdropHeights : null;
+      let changed = false;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i);
+        if (!field.wet(x, y)) continue;
+        const z = field.level(x, y) - .6 - mesh.position.y;
+        const original = source?.[i * 3 + 2] ?? p.getZ(i);
+        if (p.getZ(i) > z) { p.setZ(i, Math.min(original, z)); changed = true; }
+      }
+      if (changed) { p.needsUpdate = true; mesh.geometry.computeVertexNormals(); mesh.geometry.computeBoundingSphere(); }
+    }
   }
 
   /** Where the drone is (for the radar): latitude, longitude, heading, speed, height. */
@@ -268,13 +293,13 @@ export class DroneSession {
     this.p.forget?.(new Set(this.model.materials()));
     this.model.dispose();
     if (ground && this.groundBackup) {
-      const pos = ground.geometry.getAttribute("position") as THREE.BufferAttribute;
-      (pos.array as Float32Array).set(this.groundBackup);
-      pos.needsUpdate = true;
-      ground.geometry.computeBoundingSphere();
+      ground.geometry.dispose(); ground.geometry = this.groundBackup;
     }
     this.groundBackup = null;
     if (this.backdrop) { scene.remove(this.backdrop); this.backdrop.geometry.dispose(); this.backdrop = null; }
+    this.backdropHeights = null;
+    for (const [traffic, previous] of this.trafficFilters) traffic.placementFilter = previous;
+    this.trafficFilters.clear();
     if (this.saved) { camera.fov = this.saved.fov; camera.near = this.saved.near; camera.far = this.saved.far; camera.updateProjectionMatrix(); }
     this.p.setSky(0);
   }

@@ -84,6 +84,7 @@
 .dg-touch-r button { height: 66px; }
 .dg-touch-r .k-up { background: rgba(40,180,90,.5); } .dg-touch-r .k-down { background: rgba(200,60,50,.5); }
 .dg-touch-pause { position: fixed; top: 12px; right: 12px; width: 46px; height: 46px; }
+.dg-rail-credit { position: absolute; left: 10px; bottom: 5px; z-index: 5; color: #d2e1e5; background: rgba(10,20,26,.7); padding: 3px 6px; font-size: 10px; text-decoration: none; }
 .is-cockpit .dg-hud { bottom: 34px; }
 @media (max-width: 640px) {
   .dg-speed span { font-size: 38px; }

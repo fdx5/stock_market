@@ -182,6 +182,10 @@ export class DroneTraffic {
       if (l === from) continue;
       const ox = l.p[0] - x, oy = l.p[1] - y, d = Math.hypot(ox, oy);
       if (d > 22) continue;
+      const z = from.p[from.p.length - 1], dz = Math.abs(l.p[2] - z);
+      // A tile seam allows rounding noise; a junction allows an ordinary approach slope.
+      // Stacked carriageways seven metres apart cannot become a continuation in XY.
+      if (dz > Math.max(.35, d * .12)) continue;
       const ex = l.p[3] - l.p[0], ey = l.p[4] - l.p[1], el = Math.hypot(ex, ey) || 1, turn = (ex * dx + ey * dy) / el;
       if (d <= 4) { if (turn > 0.2) out.push([l, 4]); continue; }
       // (across a junction: ahead of the car, not back; straight on most likely)
@@ -205,8 +209,7 @@ export class DroneTraffic {
       // are off screen. This only skips placement already rejected at FAR_M.
       const bx=Math.max(lane.minX-camera.x,0,camera.x-lane.maxX),by=Math.max(lane.minY+camera.z,0,-camera.z-lane.maxY);
       lane.renderOutside=bx*bx+by*by>FAR_M*FAR_M+1e-6;
-      const n3 = lane.p.length - 3, lx = lane.p[0] - camera.x, lz = -lane.p[1] - camera.z, ex = lane.p[n3] - camera.x, ez = -lane.p[n3 + 1] - camera.z;
-      if (lx * lx + lz * lz > reach2 && ex * ex + ez * ez > reach2) continue;
+      if (bx * bx + by * by > reach2) continue;
       const cs = lane.cars;
       for (let i = cs.length - 1; i >= 0; i--) {
         const c = cs[i];

@@ -1,5 +1,10 @@
 # Drone sounds (3D view 드론 mode)
 
+The current local runtime uses the new [DJI Mini 2 recording version](mini2-20261010-v2/SOURCES.md).
+The Phantom files below and the initial `mini2-20261010` processing are preserved
+as source history. Both Mini 2 versions derive from the two CC0 recordings linked
+in the current version notice; their individual hashes are in build-info.json.
+
 Both are cut from one recording released under **CC0 1.0** (public domain) on Freesound:
 "il mio drone Phantom 4 pro, prova eliche silenzio..." by andreauomogatto —
 https://freesound.org/people/andreauomogatto/sounds/616123/ (a DJI Phantom 4 Pro with its

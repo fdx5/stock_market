@@ -76,6 +76,7 @@ import {splitRoadJunctions}from'./roadTrafficNetwork';
 import {excludeSurface}from'./surfaceExclusion';
 import { sceneWork } from "./sceneWorkerClient";
 import type { SceneOps } from "./sceneWorker";
+import type { SurfaceRailLayer } from '../rail/SurfaceRailLayer';
 import { neighbourArrays, neighbourGeometry } from "./neighbourGeometry";
 import {hybridSceneEnabled} from './hybridScene';
 import { retainSceneMemory } from "./sceneMemory";
@@ -176,6 +177,7 @@ type Stage = {
   lit: { windows: THREE.MeshStandardMaterial[]; crowns: THREE.MeshStandardMaterial[]; ground: THREE.MeshStandardMaterial[] };
   /** Per-frame work of the current model (traffic), and what follows the look (lamps). */
   tick: ((dt: number) => void)[]; onLook: ((l: Look) => void)[];
+  rail?: SurfaceRailLayer;
   ground: THREE.Mesh | null; model: THREE.Group | null;
   pickables: THREE.Mesh[];
   intro: { from: THREE.Vector3; to: THREE.Vector3; t0: number } | null;
@@ -1111,6 +1113,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }
       // (the drone far off: the complex's traffic and people stepped less often, past its haze not at all)
       const tk0 = performance.now();
+      stage.rail?.update(performance.now()/1000,stage.camera.position);
       if (stage.drone) stage.drone.runViewTicks(stage.tick, stage.center, RING_M + 120, dt / 1000);
       else for (const f of stage.tick) f(dt / 1000);
       tickMax = Math.max(tickMax, performance.now() - tk0); tickSum += performance.now() - tk0;
@@ -1696,6 +1699,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const disposables = new SceneResources();
     const keep = <T extends { dispose: () => void }>(x: T) => disposables.keep(x);
     const group = new THREE.Group();
+    group.userData.railBuilding = true;
     group.rotation.x = -Math.PI / 2; // footprints are x east / y north, extruded up z
     group.updateMatrixWorld();
     group.matrixAutoUpdate = false;
@@ -3200,7 +3204,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           // The strand: the land along the sea laid with sand (never a lawn by the water).
           const seaRings = lakes.filter(p => p.sea).map(p => ({ ring: p.ring, holes: p.holes }));
           if (seaRings.length) {
-            const strand = await buildCoastFringe(seaRings, FAR_HALF, terrain, pace, 14, seed);
+            const strand = await buildCoastFringe(seaRings, FAR_HALF, terrain, pace, 14, seed, water.field);
             if (!alive) { strand?.dispose(); return; }
             if (strand) { stage.addWarm(decor, strand.mesh); disposables.push(strand); }
           }
@@ -3471,6 +3475,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (stage.hq && !textureBudgetEnabled()) afterShown(() => { window.setTimeout(() => { if (!alive) return; void sharpenNeighbourhood(async () => { await nextSlice(true); return alive; }).then(() => { if (alive && hostRef.current) hostRef.current.dataset.sharp = "2x"; }); }, 4000); });
     disposables.push({ dispose: () => lamps?.dispose() });
     const onLook = [(l: Look) => lamps?.setLevel(l.lamps)];
+    // Independent static rail assets join after the buildings' first frame.
+    // The same streamed layer follows the drone beyond the initial complex.
+    if(data.center)afterShown(()=>void import('../rail/SurfaceRailLayer').then(({SurfaceRailLayer})=>{
+      if(!alive)return;
+      const rail=new SurfaceRailLayer({origin:data.center!,heightAt:(x,y)=>stage.drone?.world.groundAt(x,y)??terrain.at(x,y),buildings:()=>[group,...(stage.drone?[stage.drone.world.root]:[])],onChange:()=>{if(alive)stage.resume();}});
+      stage.addWarm(decor,rail.group);stage.rail=rail;
+      disposables.push({dispose:()=>{if(stage.rail===rail)stage.rail=undefined;rail.dispose();}});
+    }).catch(()=>{}));
     // Traffic (its vehicle kit decodes on first use) waits for the first frame and idle time.
     (textureBudgetEnabled() ? (f: () => void) => f() : afterShown)(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, trafficTerrain, crossLines,arms=>{preparedRoadArms=arms;void layMarks();},signalLocations,crossPoints) : null)) : null)).then(traffic => {
       if (!traffic) return;
@@ -4185,6 +4197,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           <>
             <span>건물 {total}개 · 층수·높이 확인 {measured}개{total > measured ? ` · ${data.source === "vworld" ? "층수 미등록 부대시설" : "높이 추정"} ${total - measured}개` : ""}</span>
             <span>{data.source === "vworld" ? "건물 윤곽·높이: " : "건물 윤곽: "}{data.attribution}. 도로: 국가기본도 도로중심선 · 지형: {terrainSource ?? "평지(지형 자료 없음)"}{data.vworld_key ? " · 토지이용: 연속지적도 지목" : ""}. 외벽·창호·조경·가로수·보행자·차량은 표현용</span>
+            <span>지상 전철 선로: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors · ODbL</a> · 열차는 모의 운행, 고가 높이·차량 세부 형상은 추정 표현</span>
           </>
         ) : <span>{touchMode ? "한 손가락으로 돌리고 두 손가락으로 확대·이동, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 커서 쪽 확대, 우클릭 드래그로 이동합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
       </footer>

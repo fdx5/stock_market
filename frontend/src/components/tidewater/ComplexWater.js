@@ -53,6 +53,41 @@ ${waveList().map(([nx, ny, a, ph]) => `  g += vec2f(${f(nx)}, ${f(ny)}) * (${f(-
 
 let tile = null;
 let tilePass = null;
+let foamTile = null;
+let foamPass = null;
+// A seamless cellular foam mask, drawn once. R: thin bubble walls, G: coverage.
+// Unlike low-frequency wave slopes, it retains holes within a breaking crest.
+const foamCode = /* wgsl */`
+fn foamHash(p: vec2f) -> vec2f {
+  let a = fract(p / 32.0) * 32.0;
+  return fract(sin(vec2f(dot(a, vec2f(127.1, 311.7)), dot(a, vec2f(269.5, 183.3)))) * 43758.5453);
+}
+fn fragment(in: FSIn) -> vec4f {
+  let q = in.uv * 32.0; let cell = floor(q); let f = fract(q);
+  var d1 = 10.0; var d2 = 10.0;
+  for (var y = -1; y <= 1; y++) { for (var x = -1; x <= 1; x++) {
+    let b = vec2f(f32(x), f32(y)); let h = foamHash(cell + b);
+    let r = b + 0.15 + h * 0.7 - f; let d = length(r);
+    if (d < d1) { d2 = d1; d1 = d; } else { d2 = min(d2, d); }
+  } }
+  let wall = 1.0 - smoothstep(0.035, 0.13, d2 - d1);
+  let small = 1.0 - smoothstep(0.05, 0.14, d1);
+  let broad = q / 4.0; let ib = floor(broad); let fb = fract(broad);
+  let ub = fb * fb * (3.0 - 2.0 * fb);
+  // Continuous periodic coverage: a hard random value per cell made square
+  // foam patches visible from a low drone camera.
+  let coverage = mix(mix(foamHash(ib * 4.0).x, foamHash((ib + vec2f(1.0, 0.0)) * 4.0).x, ub.x),
+    mix(foamHash((ib + vec2f(0.0, 1.0)) * 4.0).x, foamHash((ib + vec2f(1.0)) * 4.0).x, ub.x), ub.y);
+  return vec4f(max(wall, small * 0.65), coverage, 0.0, 1.0);
+}`;
+function foamTexture() {
+  if (!foamTile) {
+    foamTile = new Texture({ label: 'coastal foam cells', width: TILE, height: TILE, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'] });
+    foamTile.ready = false;
+    foamPass = new FullscreenPass({ label: 'coastal foam cells', code: foamCode, colorFormats: ['rgba8unorm'] });
+  }
+  return foamTile;
+}
 /** The shared slope tile; rendered on the first frame its pipeline is ready. */
 export function waveTile() {
   if (tile) return tile;
@@ -62,6 +97,10 @@ export function waveTile() {
   return tile;
 }
 export function updateWaveTile() {
+  if (foamTile && !foamTile.ready && foamPass.handle.pipeline) {
+    foamPass.render({ colorViews: [foamTile.view({ baseMipLevel: 0, mipLevelCount: 1 })] });
+    generateMipmaps(foamTile); foamTile.ready = true;
+  }
   if (!tile || tile.ready || !tilePass.handle.pipeline) return;
   tilePass.render({ colorViews: [tile.view({ baseMipLevel: 0, mipLevelCount: 1 })] });
   generateMipmaps(tile);
@@ -166,6 +205,7 @@ export function waterMaterial({ atmosphere, scene, quality }) {
     },
     bindings: {
       waterWaves: { texture: waveTile() },
+      waterFoam: { texture: foamTexture() },
       waterSceneColor: { texture: () => scene.textures[0] },
       waterSceneDepth: { texture: () => scene.depthTexture, sampleType: 'unfilterable-float' },
     },
@@ -185,7 +225,9 @@ const WATER_OUTPUT = /* wgsl */`
   let V = toCam / dist;
   let shore = in.vs.vShore;
   let sea = clamp(in.vs.vSea, 0.0, 1.0);
-  let flow = normalize(in.vs.vFlow + vec2f(1e-5, 0.0));
+  // A rotating frame multiplied by world position stretches waves into coastal streaks.
+  // All sea patches share one swell frame; shore-distance alone bends the breaking crests.
+  let flow = normalize(mix(in.vs.vFlow, vec2f(-0.6, 0.8), sea) + vec2f(1e-5, 0.0));
   let side = vec2f(-flow.y, flow.x);
   // metres along / across the channel (the sea: in units of its longer swell, slower)
   let swell = mix(1.0, 3.2, sea);
@@ -203,9 +245,9 @@ const WATER_OUTPUT = /* wgsl */`
   let w2 = textureSample(waterWaves, smpAnisoRepeat, (q2 + vec2f(t * 0.41, t * 0.06)) / 5.3);
   let w3 = textureSample(waterWaves, smpAnisoRepeat, (q3 + vec2f(t * 0.26, -t * 0.05)) / 1.9);
   // calmer against the banks; the finest ripples only where a pixel can show them
-  let calm = mix(mix(0.35, 1.0, smoothstep(0.0, 4.0, shore)), 1.0, sea);
+  let calm = mix(mix(0.35, 1.0, smoothstep(0.0, 4.0, shore)), mix(0.85, 1.0, smoothstep(0.0, 12.0, shore)), sea);
   let near3 = smoothstep(0.09, 0.025, footprint);
-  let slopeK = mix(mat.slope, 0.085, sea);
+  let slopeK = mix(mat.slope, 0.082, sea);
   let a1 = slopeK * calm; let a2 = slopeK * 0.75 * calm; let a3 = slopeK * 0.6 * calm;
   // back from each layer's turned frame into the channel frame
   let g2 = vec2f(c1 * w2.x + s1 * w2.y, -s1 * w2.x + c1 * w2.y);
@@ -245,7 +287,11 @@ const WATER_OUTPUT = /* wgsl */`
   var refl = mix(frame.horizonColor * 0.35, sky, smoothstep(-0.12, 0.08, Rraw.y));
   let posV = (frame.view * vec4f(P, 1.0)).xyz;
 #if WATER_SSR
-  if (F > 0.03) {
+  // Estimated coastal terrain produces false reflected blocks at the sand/water
+  // contact. In breaking shallows use the continuous sky reflection; restore city
+  // reflections smoothly beyond the surf, without changing rivers or open sea.
+  let coastReflection = mix(1.0, smoothstep(36.0, 80.0, shore), sea);
+  if (F > 0.03 && coastReflection > 0.0) {
     // Marched off the mean (flat) surface: per-pixel ripples would send neighbouring rays
     // past different edges (speckle, with no temporal filter to average it). The ripples
     // distort the image instead, like a rippled mirror: a screen offset along the tilt.
@@ -253,7 +299,7 @@ const WATER_OUTPUT = /* wgsl */`
     if (Rv.z < 0.5) {
       let tilt = (frame.view * vec4f(N.x, 0.0, N.z, 0.0)).xy;
       let hit = waterSSR(posV, Rv, P.y, tilt * vec2f(frame.proj[0][0], -frame.proj[1][1]) * 0.5);
-      refl = mix(refl, hit.rgb, hit.a);
+      refl = mix(refl, hit.rgb, hit.a * coastReflection);
     }
   }
 #endif
@@ -282,12 +328,13 @@ const WATER_OUTPUT = /* wgsl */`
   // The open sea has no surveyed bed. A constant lit sand estimate must replace the
   // opaque terrain tiles below it: their presence/absence otherwise paints a grid in the sea.
   // Keep the actual ground colour in the coastal shallows.
-  let shallowSand = vec3f(1.0, 0.88, 0.64) * dot(bedRaw, vec3f(0.3, 0.5, 0.2)) * 0.95;
-  let deepSand = vec3f(0.55, 0.48, 0.35) * (frame.skyIrradiance * 0.5 + sunLight * 0.25);
-  let bedSea = mix(shallowSand, deepSand, smoothstep(1.0, 6.0, depth));
+  let bedLight = frame.skyIrradiance * 0.48 + frame.sunColor * max(L.y, 0.0) * 0.22;
+  let shallowSand = vec3f(0.58, 0.52, 0.38) * bedLight;
+  let deepSand = vec3f(0.39, 0.43, 0.38) * bedLight;
+  let bedSea = mix(shallowSand, deepSand, smoothstep(0.4, 7.0, depth));
   let bed = mix(bedRaw * vec3f(0.62, 0.6, 0.52), bedSea, sea);
   // (clear coastal water: red goes first, then green; a little blue-green scattering)
-  let sigA = mix(mat.absorb, vec3f(0.42, 0.075, 0.045), sea); let sigS = mix(mat.scatter, vec3f(0.010, 0.026, 0.030), sea); let sigT = sigA + sigS;
+  let sigA = mix(mat.absorb, vec3f(0.38, 0.085, 0.055), sea); let sigS = mix(mat.scatter, vec3f(0.012, 0.030, 0.038), sea); let sigT = sigA + sigS;
   let Tview = exp(-sigT * pathLen);
   // single scattering (sun, Henyey-Greenstein) + ambient, integrated analytically
   let Ls = -refract(-L, vec3f(0.0, 1.0, 0.0), 1.0 / 1.333);
@@ -304,19 +351,36 @@ const WATER_OUTPUT = /* wgsl */`
   var col = mix(transmitted, refl, F) + glint;
   // The sea's surf: crests running in (along the flow, toward the shore) break white in the last
   // ~30 m, torn by the swell; the swash line at the water's edge comes and goes.
-  let surf = smoothstep(32.0, 4.0, shore) * sea;
-  let ph = shore * 0.32 + frame.time * 1.15 + w1.x * 1.6;
-  let crest = smoothstep(0.80, 0.97, 0.5 + 0.5 * sin(ph));
-  let torn = smoothstep(-0.25, 0.55, w2.x * 0.8 + w3.y * 0.5 + 0.2);
-  let swash = smoothstep(2.6, 0.3, shore) * (0.55 + 0.45 * sin(frame.time * 0.9 + w1.y * 2.0)) * sea;
-  let foam = clamp(crest * torn * surf * 0.9 + swash, 0.0, 1.0);
-  let foamLit = (sunLight * max(L.y, 0.0) + frame.skyIrradiance) * 0.26;
-  col = mix(col, foamLit, foam * 0.85);
+  let foamUV = P.xz / 8.0 + flow * frame.time * 0.012;
+  let foamLOD = max(0.0, log2(max(length(fwidth(foamUV)) * 256.0, 1.0)));
+  let shoreAA = max(fwidth(shore), 0.08);
+  var foam = 0.0;
+  if (sea > 0.5 && shore < 36.0) {
+    // Explicit LOD keeps this narrow coastal branch legal and antialiased.
+    let cells = textureSampleLevel(waterFoam, smpAnisoRepeat, foamUV, foamLOD).rg;
+    let patchiness = clamp(0.6 + w1.y * 0.14 + w2.x * 0.12, 0.2, 1.0);
+    let phase = fract(shore / 11.5 + frame.time * 0.13 + w1.x * 0.025);
+    let aaPhase = min(0.06, shoreAA / 11.5);
+    let front = 1.0 - smoothstep(0.018, 0.06 + aaPhase, min(phase, 1.0 - phase));
+    let wake = smoothstep(0.015, 0.06 + aaPhase, phase) * (1.0 - smoothstep(0.09, 0.29, phase));
+    let surf = (1.0 - smoothstep(16.0, 36.0, shore)) * smoothstep(0.0, 0.65, shore);
+    let lace = cells.r * mix(0.38, 0.85, cells.g);
+    let broken = smoothstep(0.12, 0.62, cells.g);
+    let breaking = (front * (0.06 + 0.94 * lace) + wake * lace * 0.72) * broken * patchiness * surf;
+    let reach = 0.9 + 0.85 * (0.5 + 0.5 * sin(frame.time * 0.85 + w1.x * 0.15));
+    let swash = (1.0 - smoothstep(reach, reach + 0.5 + shoreAA, shore)) * (0.2 + 0.7 * lace);
+    foam = clamp(breaking + swash, 0.0, 0.94);
+  }
+  let foamLit = (sunLight * max(L.y, 0.0) + frame.skyIrradiance) * 0.46;
+  col = mix(col, foamLit, foam);
   // haze, as on every other surface
   let fog = 1.0 - exp(-dist * mat.haze);
   col = mix(col, frame.horizonColor, clamp(fog, 0.0, 0.9));
   // the waterline: into the ground within the first metre (no hard polygon edge)
   let ground = textureSampleLevel(waterSceneColor, smpLinearClamp, screenUV, 0.0).rgb;
-  col = mix(ground * 0.8, col, smoothstep(0.0, 0.9, shore));
+  // Sea shallows meet damp sand. Sampling lawn-painted terrain here leaked green
+  // triangles into the surf, especially when coarse shore distance became zero.
+  let edgeBed = mix(ground * 0.8, shallowSand * 0.85, sea);
+  col = mix(edgeBed, col, smoothstep(0.0, 0.65, shore));
   r.color = vec4f(min(col, vec3f(64.0)), 1.0);
 `;

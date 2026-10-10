@@ -9,6 +9,7 @@ import { coupangTruck, cybertruck, type HeroShape } from "../vehicle/heroes";
 import { SPECS, Vehicle, IDLE, type Controls, type VehicleName } from "../vehicle/physics";
 import { Input, type Action } from "./Input";
 import { cockpit } from "../vehicle/cockpit";
+import type {SurfaceRailLayer} from '../../rail/SurfaceRailLayer';
 
 /* The drive game: its own renderer, world, traffic and vehicle — nothing shared with the 3D
  * building view but static files. A fixed 120 Hz clock drives the vehicle; the world streams in
@@ -70,6 +71,7 @@ export class Game {
   private mark(name: string, t0: number) { const t = performance.now(); this.seg[name] = (this.seg[name] ?? 0) + t - t0; return t; }
   look = { yaw: 0, pitch: 0, held: false };
   private disposed = false;
+  private rail?: SurfaceRailLayer;
   private frameNo = 0;
   private frustum = new THREE.Frustum(); private pm = new THREE.Matrix4();
 
@@ -157,6 +159,11 @@ export class Game {
     progress("지형과 도로를 불러옵니다", 0.12);
     await this.world.init();
     if (this.disposed) return;
+    void import('../../rail/SurfaceRailLayer').then(({SurfaceRailLayer})=>{
+      if(this.disposed)return;
+      this.rail=new SurfaceRailLayer({origin:this.origin,heightAt:(x,y)=>this.world.heightAt(x,y)});
+      this.scene.add(this.rail.group);
+    }).catch(()=>{});
     // the vehicle
     this.makeHero(o.vehicle);
     this.vehicle = new Vehicle(SPECS[o.vehicle], 0, 0, 0, {
@@ -341,6 +348,7 @@ export class Game {
       t = this.mark("camera+world", t);
     }
     this.world?.frame(this.frozen ? 6 : 2);
+    if(!this.frozen&&!this.paused)this.rail?.update(now/1000,this.camera.position);
     t = this.mark("uploads", t);
     this.followSun();
     // A slow device (the frame's own work over ~9 ms): the sun's shadow map drawn every other
@@ -456,6 +464,7 @@ export class Game {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.input.dispose();
+    this.rail?.dispose();
     this.world?.dispose();
     this.traffic?.dispose();
     this.mats?.dispose();

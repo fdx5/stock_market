@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { inRing } from "./ringMath";
+import { coastField, type CoastData } from './coastField';
 
 /* The water's work that needs no page: the raster of the open-water parcels (level, wet,
  * distance to the bank) and the surface's vertices. Run in the scene worker (sceneWorker.ts),
@@ -9,7 +10,7 @@ import { inRing } from "./ringMath";
 export type Pace = () => Promise<boolean>;
 
 /** The water raster: per node the local level, wet (1/0) and metres to the nearest dry node. */
-export interface FieldData { lvl: Float32Array; wet: Uint8Array; dist: Float32Array; x0: number; y0: number; s: number; nx: number; ny: number }
+export interface FieldData { lvl: Float32Array; wet: Uint8Array; dist: Float32Array; x0: number; y0: number; s: number; nx: number; ny: number; coast?: CoastData }
 /** A terrain height grid (sceneTerrain's Terrain.grid) as a height function. */
 export type HeightGrid = { h: Float32Array; n: number; R: number; cell: number };
 export function gridAt({ h, n, R, cell }: HeightGrid) {
@@ -30,7 +31,7 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
    * water, at one level, the sea's */
   sea: boolean[] = [],
   /** the square the rings were cut to (the water goes on past it: its edge is no shore) */
-  open: [number, number, number, number] | null = null): Promise<FieldData | null> {
+  open: [number, number, number, number] | null = null, seaDatum: number | null = null): Promise<FieldData | null> {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const r of rings) for (const [x, y] of r) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   // 2 m nodes; a coarser step only for very large rivers (at most ~300k nodes).
@@ -112,6 +113,7 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
     for (let c = 0; c < n; c += 3) if (seaIn[c] && Number.isFinite(h[c])) hs.push(h[c]);
     if (hs.length) { hs.sort((a, b) => a - b); seaLevel = hs[Math.floor(hs.length * 0.1)]; }
   }
+  if (seaDatum !== null && Number.isFinite(seaDatum)) seaLevel = seaDatum;
   const wet = new Uint8Array(n);
   for (let c = 0; c < n; c++) {
     if (seaIn[c] && Number.isFinite(seaLevel)) { lvl[c] = seaLevel; wet[c] = 1; continue; }
@@ -136,11 +138,14 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
   }
   const dist = await chamfer(dry);
   if (!dist) return null;
-  return { lvl, wet, dist, x0, y0, s, nx, ny };
+  const seaRings = rings.filter((_, i) => sea[i]);
+  const coast = seaRings.length && Number.isFinite(seaLevel) ? { rings: seaRings, holes: holes.filter(h => seaRings.some(r => inRing(h[0], r))), open, level: seaLevel, seaOnly: seaRings.length === rings.length } : undefined;
+  return { lvl, wet, dist, x0, y0, s, nx, ny, coast };
 }
 
 export function fieldFrom(d: FieldData, at: (x: number, y: number) => number) {
   const { lvl, wet, dist, x0, y0, s, nx, ny } = d;
+  const coast = d.coast ? coastField(d.coast) : null;
   /** Bilinear over the nodes (finite values only: the level exists on water parcels). */
   const sample = (f: Float32Array, x: number, y: number, fallback: number) => {
     const fx = Math.min(nx - 1.001, Math.max(0, (x - x0) / s)), fy = Math.min(ny - 1.001, Math.max(0, (y - y0) / s));
@@ -156,11 +161,18 @@ export function fieldFrom(d: FieldData, at: (x: number, y: number) => number) {
     return i < 0 || j < 0 || i >= nx || j >= ny ? -1 : j * nx + i;
   };
   return {
-    level: (x: number, y: number) => sample(lvl, x, y, at(x, y)),
+    coast,
+    level: (x: number, y: number) => coast?.wet(x, y) ? coast.level : sample(lvl, x, y, at(x, y)),
     /** On the (closed) water. */
-    wet: (x: number, y: number) => { const c = node(x, y); return c >= 0 && wet[c] === 1; },
+    wet: (x: number, y: number) => {
+      const c = node(x, y);
+      if (coast && d.coast!.seaOnly) return coast.wet(x, y);
+      if (coast?.wet(x, y)) return true;
+      if (coast && c >= 0 && coast.distance(x, y) < Math.max(32, s * 2) && coast.wet(x0 + (c % nx) * s, y0 + Math.floor(c / nx) * s)) return false;
+      return coast?.wet(x, y) || (c >= 0 && wet[c] === 1);
+    },
     // Half a node: the bank line lies between a wet and a dry node.
-    shore: (x: number, y: number) => Math.max(0, sample(dist, x, y, 0) - s * 0.5),
+    shore: (x: number, y: number) => coast && (d.coast!.seaOnly || coast.wet(x, y) || coast.distance(x, y) < .01) ? coast.distance(x, y) : Math.max(0, sample(dist, x, y, 0) - s * 0.5),
     /** The grid's extent (footprint metres), for walking the water (sceneBoats.ts). */
     bounds: { x0, y0, x1: x0 + (nx - 1) * s, y1: y0 + (ny - 1) * s },
   };
@@ -181,6 +193,8 @@ export async function waterSurface(rings: [number, number][][], field: WaterFiel
     let best = 0, ang = 0;
     ring.forEach((a, i) => { const b = ring[(i + 1) % ring.length], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (l > best) { best = l; ang = Math.atan2(b[1] - a[1], b[0] - a[0]); } });
     const ux = Math.cos(ang), uy = Math.sin(ang);
+    const distances = new WeakMap<THREE.Vector2, number>();
+    const shoreAt = (p: THREE.Vector2) => { let d = distances.get(p); if (d === undefined) { d = field.shore(p.x, p.y); distances.set(p, d); } return d; };
     const pts = ring.map(([x, y]) => new THREE.Vector2(x, y));
     const inner=holes.filter(h=>inRing(h[0],ring)).map(h=>h.map(([x,y])=>new THREE.Vector2(x,y)));
     const tris = THREE.ShapeUtils.triangulateShape(pts, inner);
@@ -214,8 +228,22 @@ export async function waterSurface(rings: [number, number][][], field: WaterFiel
     const split = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2, depth: number): void => {
       const ab = a.distanceTo(b), bc = b.distanceTo(c), ca = c.distanceTo(a), m = Math.max(ab, bc, ca);
       // (the open sea, past its surf zone, in larger triangles: it is all one level)
-      const open = isSea && m < 32 && Math.min(field.shore(a.x, a.y), field.shore(b.x, b.y), field.shore(c.x, c.y)) > 60;
-      if (m < 6 || open || depth > 14) { if (wet(a, b, c)) { push(a.x, a.y); push(b.x, b.y); push(c.x, c.y); } return; }
+      // Sea is level: sub-6 m triangles added no wave detail (waves are per pixel).
+      // Keep every real coastline/island vertex, refine only the narrow surf zone, and
+      // use 96 m triangles beyond the surf zone. River relief keeps its 6 m grid.
+      const da = isSea ? shoreAt(a) : 0, db = isSea ? shoreAt(b) : 0, dc = isSea ? shoreAt(c) : 0, sh = Math.min(da, db, dc);
+      let step = isSea ? sh < 96 ? 16 : 96 : 6;
+      // Straight beaches interpolate the exact vector distance already. Refine only
+      // where curves/corners exceed 25 cm error; full 4 m surf strips were wasteful.
+      if (isSea && sh < 36 && m < 16 && m > 4) {
+        const error = Math.max(
+          Math.abs(field.shore((a.x+b.x)/2,(a.y+b.y)/2)-(da+db)/2),
+          Math.abs(field.shore((b.x+c.x)/2,(b.y+c.y)/2)-(db+dc)/2),
+          Math.abs(field.shore((c.x+a.x)/2,(c.y+a.y)/2)-(dc+da)/2),
+          Math.abs(field.shore((a.x+b.x+c.x)/3,(a.y+b.y+c.y)/3)-(da+db+dc)/3));
+        if (error > .25) step = 4;
+      }
+      if (m < step || depth > 18) { if (isSea || wet(a, b, c)) { push(a.x, a.y); push(b.x, b.y); push(c.x, c.y); } return; }
       if (m === ab) { const d = a.clone().lerp(b, 0.5); split(a, d, c, depth + 1); split(d, b, c, depth + 1); }
       else if (m === bc) { const d = b.clone().lerp(c, 0.5); split(a, b, d, depth + 1); split(a, d, c, depth + 1); }
       else { const d = c.clone().lerp(a, 0.5); split(a, b, d, depth + 1); split(d, b, c, depth + 1); }

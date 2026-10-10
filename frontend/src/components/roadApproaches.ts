@@ -5,7 +5,12 @@ import {nearestRoadPoint, roadHeight, roadProfileKey} from './roadLevels';
 /** Match a deck to ground only at a physical endpoint confirmed by both roads.
  * Match its bank height/crossfall and outward ground slope with a Hermite blend.
  * This changes neither source XY nor the bank-to-bank interior height profile. */
-export function roadApproachTerrain(roads: RealEstateRoad[], terrain: Terrain): Terrain {
+export function roadApproachHeight(roads: RealEstateRoad[], o: {
+  at: (x:number,y:number)=>number;
+  height: (road:RealEstateRoad,x:number,y:number)=>number;
+  nearest: typeof nearestRoadPoint;
+  key: typeof roadProfileKey;
+}) {
   type Anchor = {along: number; direction: number; span: number; point: [number,number];
     normal: [number,number]; cross: number; outside: [number,number]; probe: number; baseline: number; grade: number};
   const anchors = new Map<string, Anchor[]>();
@@ -32,23 +37,23 @@ export function roadApproachTerrain(roads: RealEstateRoad[], terrain: Terrain): 
         return true;
       }));
       if (!connected || !outside || probe < .01) continue;
-      const p = nearestRoadPoint(profile, endpoint[0], endpoint[1]);
+      const p = o.nearest(profile, endpoint[0], endpoint[1]);
       const direction = dx * p.dir[0] + dy * p.dir[1] >= 0 ? 1 : -1;
-      const key = roadProfileKey(road), list = anchors.get(key) ?? [];
+      const key = o.key(road), list = anchors.get(key) ?? [];
       if (!list.some(a => Math.abs(a.along - p.along) < .01 && a.direction === direction))
         list.push({along: p.along, direction, span: p.total, point: endpoint, normal: [-p.dir[1],p.dir[0]],
           cross: (endpoint[0]-p.point[0])*(-p.dir[1])+(endpoint[1]-p.point[1])*p.dir[0], outside, probe,
-          baseline: roadHeight(road, terrain, p.point[0], p.point[1]),
-          grade: (roadHeight(road,terrain,...profile[profile.length-1])-roadHeight(road,terrain,...profile[0]))/(p.total || 1)});
+          baseline: o.height(road, p.point[0], p.point[1]),
+          grade: (o.height(road,...profile[profile.length-1])-o.height(road,...profile[0]))/(p.total || 1)});
       anchors.set(key, list);
     }
   }
-  if (!anchors.size) return terrain;
-  return {...terrain, roadAt: (road, x, y) => {
-    const baseline = roadHeight(road, terrain, x, y);
-    const list = anchors.get(roadProfileKey(road));
+  if (!anchors.size) return null;
+  return (road: RealEstateRoad, x:number, y:number) => {
+    const baseline = o.height(road, x, y);
+    const list = anchors.get(o.key(road));
     if (!list || !['bridge', 'elevated'].includes(road.structure ?? '')) return baseline;
-    const p = nearestRoadPoint(road.profile_line ?? road.line, x, y);
+    const p = o.nearest(road.profile_line ?? road.line, x, y);
     let correction = 0, closest = Infinity;
     for (const anchor of list) {
       const inward = (p.along - anchor.along) * anchor.direction;
@@ -61,8 +66,8 @@ export function roadApproachTerrain(roads: RealEstateRoad[], terrain: Terrain): 
       if (u >= 1 || inward >= closest) continue;
       const cross = (x-p.point[0])*(-p.dir[1])+(y-p.point[1])*p.dir[0]-anchor.cross;
       const ox = anchor.normal[0]*cross, oy = anchor.normal[1]*cross;
-      const bank = terrain.at(anchor.point[0] + ox, anchor.point[1] + oy);
-      const outside = terrain.at(anchor.outside[0] + ox, anchor.outside[1] + oy);
+      const bank = o.at(anchor.point[0] + ox, anchor.point[1] + oy);
+      const outside = o.at(anchor.outside[0] + ox, anchor.outside[1] + oy);
       const slope = (bank - outside) / anchor.probe;
       correction = (bank - anchor.baseline) * (2*u*u*u - 3*u*u + 1)
         + (slope - anchor.grade * anchor.direction) * band * (u*u*u - 2*u*u + u);
@@ -72,5 +77,11 @@ export function roadApproachTerrain(roads: RealEstateRoad[], terrain: Terrain): 
     // the connected ground road supply the tangent; the original profile and
     // slope are restored at the inner edge. No clearance or Z is fabricated.
     return baseline + correction;
-  }};
+  };
+}
+
+/** The pure factory above is also serialized into the streamed-road worker. */
+export function roadApproachTerrain(roads: RealEstateRoad[], terrain: Terrain): Terrain {
+  const roadAt = roadApproachHeight(roads, { at: terrain.at, height: (r,x,y)=>roadHeight(r,terrain,x,y), nearest: nearestRoadPoint, key: roadProfileKey });
+  return roadAt ? {...terrain,roadAt} : terrain;
 }

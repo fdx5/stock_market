@@ -1,4 +1,5 @@
 import { frameSlice } from "./frameSlice";
+import {surfaceGeometry} from './surfaceGeometry';
 import { vehicleOverlap, VehicleTrajectoryCache, VehiclePathHitCache, collisionFreeTravel, missesTrajectory } from "./trafficCollision";
 import { onSceneMemoryRelease } from "./sceneMemory";
 import * as THREE from "three";
@@ -42,7 +43,7 @@ import { coupangTruck, cybertruck, heroSurface, type HeroName, type HeroShape } 
  * ground (decks too). */
 export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain = FLAT) {
   const pos: number[] = [], uv: number[] = [], levels:number[]=[],profiles:number[]=[],profileIds=roadProfiles(roads);
-  const LIFT = 0.08, STEP = 3, TILE = 4;
+  const LIFT = surfaceGeometry.surfaceLift, STEP = surfaceGeometry.step, TILE = 4;
   let surfaceRoad:RealEstateRoad|undefined;
   const vtx = (x: number, y: number) => { pos.push(x, (surfaceRoad?roadHeight(surfaceRoad,terrain,x,y):terrain.at(x,y)) + LIFT, -y); uv.push(x / TILE, y / TILE);levels.push(surfaceRoad?roadLevel(surfaceRoad):0);profiles.push(surfaceRoad?profileIds.get(roadProfileKey(surfaceRoad))!:0); };
   let slice = performance.now();
@@ -58,10 +59,7 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
     pts.push(r.line[r.line.length - 1]);
     if (pts.length < 2) continue;
     const h = r.width / 2;
-    const nrm = pts.map((_, i) => {
-      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
-      return [-dy / l, dx / l] as [number, number];
-    });
+    const nrm = surfaceGeometry.miters(pts);
     for (let i = 1; i < pts.length; i++) {
       const [ax, ay] = pts[i - 1], [bx, by] = pts[i], [anx, any] = nrm[i - 1], [bnx, bny] = nrm[i];
       // Sample across the carriageway too: one triangle across a wide road
@@ -1327,12 +1325,13 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const reach = c.length * 0.35;
     const hf = heightAhead(c,reach,c.x+c.hx*reach,c.y+c.hy*reach), hb = heightAhead(c,-reach,c.x-c.hx*reach,c.y-c.hy*reach);
     const yaw=Math.atan2(c.hx,-c.hy),pitch=-Math.atan2(hf-hb,2*reach);
-    c.z = (hf + hb) / 2;
-    const scale=c.hide?0:1;
+    c.z = (hf + hb) / 2 + surfaceGeometry.surfaceLift;
+    const suppressed = c.hide || group.userData.traffic?.placementFilter?.(c) === false;
+    const scale=suppressed?0:1;
     instanceBatches?.[c.type].set(c.slot,c.x,c.z+.02,-c.y,yaw,pitch,scale,scale,scale);
     if(batchPlacement)return;
     q.setFromAxisAngle(up,yaw).multiply(qp.setFromAxisAngle(across,pitch));
-    m4.compose(v.set(c.x, c.z + 0.02, -c.y), q, c.hide ? zero : one);
+    m4.compose(v.set(c.x, c.z + 0.02, -c.y), q, suppressed ? zero : one);
     meshes[c.type].setMatrixAt(c.slot, m4);
     if (lampsOn) lamps[c.type].setMatrixAt(c.slot, m4);
   };

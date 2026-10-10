@@ -266,6 +266,7 @@ export default function DriveGamePage() {
         </div>
       )}
       {debug && <pre ref={dbgEl} className="dg-debug" />}
+      <a className="dg-rail-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" title="지상 전철 선로: OpenStreetMap / ODbL. 열차는 모의 운행이며 고가 높이와 차량 세부 형상은 추정 표현입니다.">전철 선로 © OpenStreetMap contributors · ODbL · 모의 운행</a>
     </div>
   );
 }

@@ -12,6 +12,7 @@ function load(source, extra={}) {
   return scope.module.exports;
 }
 const read=name=>readFileSync(new URL('../src/components/'+name,import.meta.url),'utf8');
+const {surfaceGeometry}=load(read('surfaceGeometry.ts'));
 const {continuousRoadGrade,corridorRoadGrade}=load(read('roadGrade.ts'));
 const {gridAt}=load(read('waterCore.ts'));
 const {drapeRoadSurface,raiseRoadPaint}=load(read('roadDrape.ts'));
@@ -19,9 +20,9 @@ const {gradeRoads}=load(read('sceneTerrain.ts'),{gridAt,corridorRoadGrade});
 const levels=load(read('roadLevels.ts'));
 const {roadJunctionHulls}=load(read('roadJunctions.ts'),levels);
 const {roadLaneCount}=load(read('roadLanes.ts'));
-const street=load(read('sceneStreet.ts'),{roadJunctionHulls,roadLaneCount,...levels});
+const street=load(read('sceneStreet.ts'),{surfaceGeometry,roadJunctionHulls,roadLaneCount,...levels});
 const oldStreet=load(execFileSync('git',['show','66bc4ec:frontend/src/components/sceneStreet.ts'],{encoding:'utf8'}));
-const {findBridges,roadGround,bridgeHeight}=load(read('sceneBridges.ts'),{...levels,...load(read('roadApproaches.ts'),levels),inRing:([x,y],ring)=>x>=ring[0][0]&&x<=ring[2][0]&&y>=ring[0][1]&&y<=ring[2][1],sidewalkWidth:()=>2});
+const {findBridges,roadGround,bridgeHeight}=load(read('sceneBridges.ts'),{surfaceGeometry,...levels,...load(read('roadApproaches.ts'),levels),inRing:([x,y],ring)=>x>=ring[0][0]&&x<=ring[2][0]&&y>=ring[0][1]&&y<=ring[2][1],sidewalkWidth:()=>2});
 
 test('road grade removes a DEM cliff and leaves remote terrain unchanged',async()=>{
   const n=51,cell=4,R=100,h=Float32Array.from({length:n*n},(_,k)=>k%n>=25?40:0);

@@ -6,6 +6,7 @@ import { sceneWork } from "./sceneWorkerClient";
 export type { Pace, WaterField } from "./waterCore";
 export { coveredStream } from "./waterCore";
 import { shared } from "./complexScene";
+import { coastFoamTexture } from './coastFoam';
 
 /* Water on the parcels registered as water (연속지적도 지목 천 하천, 구 구거, 유 유지,
  * 양 양어장): exactly their surveyed outline, laid on the real terrain. The surface is
@@ -40,13 +41,14 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
   // In the scene worker (the raster and the surface were ~1 s of a slow phone's page while a
   // riverside complex loaded); on the page, in slices, where it can't run.
   let made: { field: FieldData; surface: WaterArrays | null } | null = null, off = false;
-  const job = terrain.grid || terrain === FLAT ? sceneWork("water", { rings, holes, grid: terrain.grid ?? null, sea, open: cut }) : null;
+  const seaDatum = terrain.elevation === null ? null : -terrain.elevation;
+  const job = terrain.grid || terrain === FLAT ? sceneWork("water", { rings, holes, grid: terrain.grid ?? null, sea, open: cut, seaDatum }) : null;
   if (job) {
     try { made = await job; off = true; } catch { made = null; }
     if (!await pace()) return null;
   }
   if (!off) {
-    const data = await waterField(rings, terrain.at, pace, holes, sea, cut);
+    const data = await waterField(rings, terrain.at, pace, holes, sea, cut, seaDatum);
     const surface = data && await waterSurface(rings, fieldFrom(data, terrain.at), pace, holes, sea);
     if (!data) return null;
     made = { field: data, surface };
@@ -69,26 +71,54 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
   // screen derivatives of position and uv), and tint the troughs slightly deeper.
   mat.onBeforeCompile = shader => {
     shader.uniforms.uTime = shared.uTime;
+    shader.uniforms.uCoastFoam = { value: sea.some(Boolean) ? coastFoamTexture() : null };
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vWaterPos;")
-      .replace("#include <project_vertex>", "#include <project_vertex>\nvWaterPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+      .replace("#include <common>", "#include <common>\nvarying vec3 vWaterPos;\nattribute float aShore;\nattribute float aSea;\nvarying float vShore;\nvarying float vSea;")
+      .replace("#include <project_vertex>", "#include <project_vertex>\nvWaterPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvShore = aShore;\nvSea = aSea;");
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>\nuniform float uTime;\nvarying vec3 vWaterPos;\n${WAVES_GLSL}`)
+      .replace("#include <common>", `#include <common>\nuniform float uTime;\nuniform sampler2D uCoastFoam;\nvarying vec3 vWaterPos;\nvarying float vShore;\nvarying float vSea;\n${WAVES_GLSL}`)
+      .replace("#include <color_fragment>", `#include <color_fragment>
+  float shoreSea = clamp(vSea, 0.0, 1.0);
+  vec3 seaTint = mix(vec3(0.075, 0.24, 0.25), vec3(0.023, 0.095, 0.16), smoothstep(2.0, 160.0, vShore));
+  float foam = 0.0;
+  float shoreAA = max(fwidth(vShore), 0.08);
+  vec2 foamUV = vWaterPos.xz / 8.0 + vec2(-0.6, 0.8) * uTime * 0.012;
+  vec2 foamDx = dFdx(foamUV), foamDy = dFdy(foamUV);
+  if (shoreSea > 0.5 && vShore < 36.0) {
+    vec2 cells = textureGrad(uCoastFoam, foamUV, foamDx, foamDy).rg;
+    float lace = cells.r * mix(0.38, 0.85, cells.g);
+    float broken = smoothstep(0.12, 0.62, cells.g);
+    float patchiness = 0.7 + 0.15 * sin(vWaterPos.x * 0.4 + vWaterPos.z * 0.6);
+    float phase = fract(vShore / 11.5 + uTime * 0.13 + sin(vWaterPos.x * 0.07 + vWaterPos.z * 0.1) * 0.018);
+    float aaPhase = min(0.06, shoreAA / 11.5);
+    float front = 1.0 - smoothstep(0.018, 0.06 + aaPhase, min(phase, 1.0 - phase));
+    float wake = smoothstep(0.015, 0.06 + aaPhase, phase) * (1.0 - smoothstep(0.09, 0.29, phase));
+    float surf = (1.0 - smoothstep(16.0, 36.0, vShore)) * smoothstep(0.0, 0.65, vShore);
+    float reach = 0.9 + 0.85 * (0.5 + 0.5 * sin(uTime * 0.85));
+    float swash = (1.0 - smoothstep(reach, reach + 0.5 + shoreAA, vShore)) * (0.2 + 0.7 * lace);
+    foam = clamp((front * (0.06 + 0.94 * lace) + wake * lace * 0.72) * broken * patchiness * surf + swash, 0.0, 0.94);
+  }
+  diffuseColor.rgb = mix(diffuseColor.rgb, mix(seaTint, vec3(0.6, 0.66, 0.67), foam), shoreSea);
+`)
       .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
 {
-  vec2 g = waterGrad(vUv, uTime) + 0.6 * waterGrad(vUv * 2.3 + 11.0, uTime * 1.4);
+  vec2 seaQ = vec2(dot(vWaterPos.xz, vec2(-0.6, 0.8)), dot(vWaterPos.xz, vec2(-0.8, -0.6))) / 3.2;
+  vec2 q = mix(vUv, seaQ, clamp(vSea, 0.0, 1.0));
+  float wt = uTime / mix(1.0, 1.7, clamp(vSea, 0.0, 1.0));
+  vec2 g = waterGrad(q, wt) + 0.6 * waterGrad(q * 2.3 + 11.0, wt * 1.4);
   vec3 q0 = dFdx(vWaterPos), q1 = dFdy(vWaterPos);
-  vec2 s0 = dFdx(vUv), s1 = dFdy(vUv);
+  vec2 s0 = dFdx(q), s1 = dFdy(q);
   vec3 N = vec3(0.0, 1.0, 0.0);
   vec3 T = cross(q1, N) * s0.x + cross(N, q0) * s1.x;
   vec3 B = cross(q1, N) * s0.y + cross(N, q0) * s1.y;
   float inv = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-8));
   float near = 1.0 - smoothstep(80.0, 600.0, length(vWaterPos - cameraPosition));
-  vec3 nW = normalize(N - (T * g.x + B * g.y) * inv * 0.16 * near);
+  float calm = mix(1.0, mix(0.85, 1.0, smoothstep(0.0, 12.0, vShore)), clamp(vSea, 0.0, 1.0));
+  vec3 nW = normalize(N - (T * g.x + B * g.y) * inv * mix(0.16, 0.15, clamp(vSea, 0.0, 1.0)) * calm * near);
   normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
 }`);
   };
-  mat.customProgramCacheKey = () => "complex:water";
+  mat.customProgramCacheKey = () => "complex:water:coast-v4";
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   /** Lower the ground mesh (local x east, y north, z up) under the water below its

@@ -7,7 +7,7 @@ import * as THREE from 'three';
 const read=n=>readFileSync(new URL('../src/components/'+n,import.meta.url),'utf8');
 function load(n,extra={}){const scope={module:{exports:{}},exports:{},THREE,performance,frameSlice:async()=>{},onSceneMemoryRelease(){},paintedTexture:async()=>new THREE.Texture(),...extra};vm.runInNewContext(transformSync(read(n).replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);return scope.module.exports;}
 const levels=load('roadLevels.ts'),network=load('roadTrafficNetwork.ts',levels),junction=load('roadJunctions.ts',levels);
-const street=load('sceneStreet.ts',{...levels,...junction,...load('roadLanes.ts')});
+const street=load('sceneStreet.ts',{...levels,...junction,...load('roadLanes.ts'),...load('surfaceGeometry.ts')});
 const {drapeRoadSurface,roadSurfaceHeight,raiseRoadPaint}=load('roadDrape.ts');
 const {waterField,fieldFrom,waterSurface}=load('waterCore.ts',{inRing:pointIn});
 function pointIn([x,y],r){let inside=false;for(let i=0,j=r.length-1;i<r.length;j=i++)if((r[i][1]>y)!==(r[j][1]>y)&&x<(r[j][0]-r[i][0])*(y-r[i][1])/(r[j][1]-r[i][1])+r[i][0])inside=!inside;return inside;}

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { photoBuildings, type PhotoBuilding } from "./vworld3d";
+import { bridgeSections } from './bridgeDeck';
 
 /* Landmarks the drone flies to: the palaces, the stadiums and arenas, as VWorld surveyed them —
  * every building of the site in its photo-textured 3D model (국토교통부 브이월드 3D 건물:
@@ -44,32 +45,29 @@ export function gwanganDeck(project: (lon: number, lat: number) => [number, numb
   const cum = [0];
   for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
   const total = cum[cum.length - 1], s0 = cum[SUSP[0]], s1 = cum[SUSP[1]];
-  const g0 = Math.max(sea + 2, groundAt(P[0][0], P[0][1]) + 0.3), g1 = Math.max(sea + 2, groundAt(P[P.length - 1][0], P[P.length - 1][1]) + 0.3);
+  // The approach ends meet the ordinary road surface (the common 8 cm lift).
+  const g0 = groundAt(P[0][0], P[0][1]) + .08, g1 = groundAt(P[P.length - 1][0], P[P.length - 1][1]) + .08;
   const top = sea + 44;
-  const upper = (s: number) => {
+  const profile = (s: number) => {
     if (s >= s0 && s <= s1) return top;
     const near = s < s0, d = near ? s0 - s : s - s1, far = near ? s0 : total - s1, end = near ? g0 : g1;
     const k = Math.min(1, d / Math.max(1, far)), e = k * k * (3 - 2 * k);
     return top + (end - top) * e;
   };
-  return { P, cum, total, s0, s1, upper, z: cum.map(upper) };
+  const sections = bridgeSections(P, profile);
+  const lower = sections.points.slice(0, -1).map((p, i) => sections.heights[i] - 7.5 > groundAt(p[0], p[1]) + 1 && sections.heights[i + 1] - 7.5 > groundAt(sections.points[i + 1][0], sections.points[i + 1][1]) + 1);
+  const upper = (s: number) => sections.at(s).z;
+  return { P, cum, total, s0, s1, upper, z: cum.map(upper), sections, lower, g0, g1 };
 }
 
-export function buildGwanganBridge(project: (lon: number, lat: number) => [number, number], sea: number, hq: boolean, groundAt: (x: number, y: number) => number = () => sea) {
-  const deck = gwanganDeck(project, sea, groundAt);
+export function buildGwanganBridge(project: (lon: number, lat: number) => [number, number], sea: number, hq: boolean, groundAt: (x: number, y: number) => number = () => sea, sharedDeck?: ReturnType<typeof gwanganDeck>) {
+  const deck = sharedDeck ?? gwanganDeck(project, sea, groundAt);
   const P = deck.P;
   // distance along the deck
   const cum = [0];
   for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
   const total = cum[cum.length - 1], s0 = cum[SUSP[0]], s1 = cum[SUSP[1]], span = s1 - s0;
-  const at = (s: number) => {
-    let i = 1;
-    while (i < P.length - 1 && cum[i] < s) i++;
-    const f = (s - cum[i - 1]) / Math.max(1e-6, cum[i] - cum[i - 1]);
-    const x = P[i - 1][0] + (P[i][0] - P[i - 1][0]) * f, y = P[i - 1][1] + (P[i][1] - P[i - 1][1]) * f;
-    const L = Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]) || 1;
-    return { x, y, tx: (P[i][0] - P[i - 1][0]) / L, ty: (P[i][1] - P[i - 1][1]) / L };
-  };
+  const at = deck.sections.at;
   // the decks' heights: gwanganDeck (the roads on it follow the same)
   const DEPTH = 7.5, HALF = 12.5, upper = deck.upper;
   const pos: number[] = [], index: number[] = [];
@@ -87,17 +85,20 @@ export function buildGwanganBridge(project: (lon: number, lat: number) => [numbe
     idx.push(k, k + 2, k + 1, k, k + 3, k + 2, k + 4, k + 5, k + 6, k + 4, k + 6, k + 7);
   };
   const stripe = (s: number, end: number, offset: number, dz: number) => {
-    const a = at(s), b = at(end), w = 0.09, k = markings.length / 3;
-    for (const [p, d] of [[a, s], [b, end]] as const) for (const side of [-1, 1]) {
-      markings.push(p.x - p.ty * (offset + side * w), upper(d) + dz + 0.055, -(p.y + p.tx * (offset + side * w)));
+    const cuts = [s, ...deck.sections.stations.filter(v => v > s && v < end), end];
+    for (let i = 1; i < cuts.length; i++) {
+      const a = at(cuts[i - 1]), b = at(cuts[i]), w = .09, k = markings.length / 3;
+      if (dz && !deck.lower[at((cuts[i - 1] + cuts[i]) / 2).k]) continue;
+      for (const p of [a, b]) for (const side of [-1, 1]) {
+        markings.push(p.x + p.nx * (offset + side * w), p.z + dz + .055, -(p.y + p.ny * (offset + side * w)));
+      }
+      markingIdx.push(k, k + 1, k + 3, k, k + 3, k + 2);
     }
-    markingIdx.push(k, k + 1, k + 3, k, k + 3, k + 2);
   };
   // Four lanes on each storey, with solid shoulders and dashed lane divisions. These are
   // part of the bridge itself, including all-sea tiles with no cadastral road response.
   for (let s = 0; s < total; s += 6) {
-    const a = at(s), lower = upper(s) - DEPTH > groundAt(a.x, a.y) + 1;
-    for (const dz of lower ? [0, -DEPTH] : [0]) {
+    for (const dz of [0, -DEPTH]) {
       for (const offset of [-7, 7]) stripe(s, Math.min(total, s + 6), offset, dz);
       for (const offset of [-3.5, 0, 3.5]) stripe(s, Math.min(total, s + 3), offset, dz);
     }
@@ -105,20 +106,20 @@ export function buildGwanganBridge(project: (lon: number, lat: number) => [numbe
   // the deck: two slabs (upper and lower) and the truss's chords and diagonals between them; on
   // the approaches' last metres, where the deck meets the ground, the upper slab alone
   const STEP = 10;
-  for (let s = 0; s < total; s += STEP) {
-    if (upper(s) - DEPTH < groundAt(at(s).x, at(s).y) + 1) {
-      const s2 = Math.min(total, s + STEP), a = at(s), b = at(s2), za = upper(s), zb = upper(s2), nx = -a.ty, ny = a.tx, mx = -b.ty, my = b.tx, k = pos.length / 3;
-      pos.push(a.x + nx * HALF, za - 0.1, -(a.y + ny * HALF), a.x - nx * HALF, za - 0.1, -(a.y - ny * HALF), b.x - mx * HALF, zb - 0.1, -(b.y - my * HALF), b.x + mx * HALF, zb - 0.1, -(b.y + my * HALF));
+  for (let section = 0; section < deck.sections.stations.length - 1; section++) {
+    const s = deck.sections.stations[section], s2 = deck.sections.stations[section + 1];
+    const a = at(s), b = at(s2), za = upper(s), zb = upper(s2), nx = a.nx, ny = a.ny, mx = b.nx, my = b.ny;
+    if (!deck.lower[section]) {
+      const k = pos.length / 3;
+      pos.push(a.x + nx * HALF, za, -(a.y + ny * HALF), a.x - nx * HALF, za, -(a.y - ny * HALF), b.x - mx * HALF, zb, -(b.y - my * HALF), b.x + mx * HALF, zb, -(b.y + my * HALF));
       index.push(k, k + 1, k + 2, k, k + 2, k + 3);
       continue;
     }
-    const s2 = Math.min(total, s + STEP), a = at(s), b = at(s2), za = upper(s), zb = upper(s2);
-    const nx = -a.ty, ny = a.tx, mx = -b.ty, my = b.tx;
     // slabs: a quad each
     for (const dz of [0, -DEPTH]) {
       const k = pos.length / 3;
       pos.push(a.x + nx * HALF, za + dz, -(a.y + ny * HALF), a.x - nx * HALF, za + dz, -(a.y - ny * HALF), b.x - mx * HALF, zb + dz, -(b.y - my * HALF), b.x + mx * HALF, zb + dz, -(b.y + my * HALF));
-      index.push(k, k + 1, k + 2, k, k + 2, k + 3, k, k + 2, k + 1, k, k + 3, k + 2);
+      index.push(k, k + 1, k + 2, k, k + 2, k + 3);
     }
     // the truss on each side: top and bottom chords, a diagonal (alternating), a post
     for (const side of [1, -1]) {
@@ -218,6 +219,7 @@ export class Landmarks {
     forget?: (materials: Set<THREE.Material>) => void;
     /** a site's models are on screen: hide the boxes standing in for them */
     onPlaced?: (site: LandmarkSite) => void;
+    onBridgePlaced?: () => void;
   }) {
     this.root.name = "landmarks";
   }
@@ -260,6 +262,14 @@ export class Landmarks {
         child.position.y = this.o.groundAt(child.userData.landmarkX, child.userData.landmarkY) - 0.15;
         child.updateMatrixWorld();
       }
+      const deck = this.deckMemo;
+      if (deck && this.loaded.has('gwangan')) {
+        const a = deck.P[0], b = deck.P[deck.P.length - 1];
+        // Later streamed DEM posts must update the rendered bridge and its traffic together.
+        if (Math.abs(this.o.groundAt(a[0], a[1]) + .08 - deck.g0) > .15 || Math.abs(this.o.groundAt(b[0], b[1]) + .08 - deck.g1) > .15) {
+          this.drop('gwangan'); this.deckMemo = null;
+        }
+      }
     }
     for (const site of LANDMARK_SITES) {
       const [sx, sy] = this.at(site.lat, site.lon), d = Math.hypot(sx - x, sy - y) - site.radius;
@@ -276,9 +286,11 @@ export class Landmarks {
   private bridge() {
     const sea = this.o.seaLevel();
     if (sea === null) return;   // (asked again next frame: the sea's level first)
-    const made = buildGwanganBridge((lon, lat) => this.at(lat, lon), sea, this.o.hq, this.o.groundAt);
+    const deck = this.gwanganDeck()!;
+    const made = buildGwanganBridge((lon, lat) => this.at(lat, lon), sea, this.o.hq, this.o.groundAt, deck);
     this.loaded.set("gwangan", { state: "placed", group: made.group, materials: made.materials, models: [], dispose: made.dispose, stop: new AbortController() });
     this.o.addWarm(this.root, made.group);
+    this.o.onBridgePlaced?.();
   }
 
   private async load(site: LandmarkSite) {

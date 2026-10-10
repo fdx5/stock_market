@@ -1,0 +1,32 @@
+{
+  "processing": {
+    "sampleRate": 24000,
+    "hoverSourceStart": 2,
+    "hoverSourceDuration": 6.5,
+    "crossfade": 0.5,
+    "startSourceStart": 0.5,
+    "startSourceDuration": 2.4,
+    "filtersHz": [
+      120,
+      5800
+    ]
+  },
+  "hover": {
+    "seconds": 6.0,
+    "rms": 0.10499999999999998,
+    "peak": 0.5112017811028182,
+    "bytes": 288044,
+    "sha256": "7908ef6339a08bce1e03d5a6c4043aa4a1fbc33c0adbde52f28cb09dac8d2d48"
+  },
+  "start": {
+    "seconds": 2.4,
+    "rms": 0.08626088922125978,
+    "peak": 0.4525572242086578,
+    "bytes": 115244,
+    "sha256": "5cd725d1de3643ffc08b951343b520ea70726107dbb649a9654ec8cf14ef33f0"
+  },
+  "sources": {
+    "mini2-hover": "19b21284456fda2de414e8f9b25315b617e39098ce8d5543867efe822e518677",
+    "mini2-start": "c447982728a6581982e36ae9e8bf19d2aa2820606c4698f59950657e4c7066d1"
+  }
+}

@@ -258,7 +258,10 @@ function farWorkerMain() {
       let seed2 = 4271;
       const r2 = () => { seed2 = (seed2 * 16807) % 2147483647; return seed2 / 2147483647; };
       for (let o = 0; o < S * S; o++) {
-        if (!dist[o] || dist[o] > band || own[o * 4 + 3] > 127) continue;
+        const green = d[o*4+1] > d[o*4] * 1.12 && d[o*4+1] > d[o*4+2] * 1.12;
+        // A narrow waterline cannot inherit the cadastre's lawn tint. Keep roads,
+        // paving and the registered park beyond four metres from the sea.
+        if (!dist[o] || dist[o] > band || (own[o * 4 + 3] > 127 && !(green && dist[o] * m < 4))) continue;
         // (wet sand by the water, dry further up, a little mottled)
         const k = Math.min(1, (dist[o] * m) / 8), n = 0.94 + r2() * 0.1;
         d[o * 4] = (163 + 54 * k) * n; d[o * 4 + 1] = (142 + 57 * k) * n; d[o * 4 + 2] = (104 + 56 * k) * n; d[o * 4 + 3] = 255;
