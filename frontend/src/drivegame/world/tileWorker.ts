@@ -329,7 +329,7 @@ export function tileWorkerMain() {
     }
     stats.lines = lines.length;
 
-    // junctions: road ends within 6 m are one node; three ends or more a junction; junction nodes
+    // junctions: road ends within 1.5 m at compatible height; three ends or more a junction; junction nodes
     // within 25 m one intersection
     type End = { li: number; start: boolean; x: number; y: number; hx: number; hy: number; w: number; h: number };
     const ends: End[] = [];
@@ -345,7 +345,7 @@ export function tileWorkerMain() {
       const i0 = Math.floor((x - r) / 30), i1 = Math.floor((x + r) / 30), j0 = Math.floor((y - r) / 30), j1 = Math.floor((y + r) / 30);
       for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (const k of endGrid.get(i + "," + j) ?? []) f(k);
     };
-    const degree = ends.map(e => { let c = 0; near(e.x, e.y, 6, k => { if (Math.hypot(ends[k].x - e.x, ends[k].y - e.y) < 6) c++; }); return c; });
+    const degree = ends.map(e => { let c = 0; near(e.x, e.y, 1.5, k => { if (Math.hypot(ends[k].x - e.x, ends[k].y - e.y) < 1.5&&Math.abs(ends[k].h-e.h)<2) c++; }); return c; });
     // a road end that meets another road's side (a T): the other road's width there
     const segGrid = new Map<string, [number, number][]>();
     lines.forEach((L, li) => { for (let k = 1; k < L.xs.length; k++) { const c = cell((L.xs[k] + L.xs[k - 1]) / 2, (L.ys[k] + L.ys[k - 1]) / 2); const l = segGrid.get(c); if (l) l.push([li, k]); else segGrid.set(c, [[li, k]]); } });
@@ -357,6 +357,8 @@ export function tileWorkerMain() {
         const L = lines[li], ax = L.xs[k - 1], ay = L.ys[k - 1], dx = L.xs[k] - ax, dy = L.ys[k] - ay, l2 = dx * dx + dy * dy || 1;
         const t = ((x - ax) * dx + (y - ay) * dy) / l2;
         if (t < 0 || t > 1) continue;
+        const own=lines[self],endHeight=Math.hypot(x-own.xs[0],y-own.ys[0])<1.5?own.h[0]:own.h[own.h.length-1];
+        if(Math.abs(endHeight-(L.h[k-1]+(L.h[k]-L.h[k-1])*t))>=2)continue;
         if (Math.hypot(x - ax - dx * t, y - ay - dy * t) < L.w / 2 + 1.5) w = Math.max(w, L.w);
       }
       return w;
@@ -364,7 +366,7 @@ export function tileWorkerMain() {
     /** How far back from each end a road's lines and sidewalks stop (a junction, or a T). */
     const cutOf = ends.map((e, k) => {
       let w = 0, n = 0;
-      near(e.x, e.y, 6, m => { if (m !== k && ends[m].li !== e.li && Math.hypot(ends[m].x - e.x, ends[m].y - e.y) < 6) { n++; w = Math.max(w, ends[m].w); } });
+      near(e.x, e.y, 1.5, m => { if (m !== k && ends[m].li !== e.li && Math.hypot(ends[m].x - e.x, ends[m].y - e.y) < 1.5&&Math.abs(ends[m].h-e.h)<2) { n++; w = Math.max(w, ends[m].w); } });
       const tee = sideOf(e.x, e.y, e.li);
       return n >= 2 || tee > 0 ? Math.max(w, tee) / 2 + 2 : 0;
     });
@@ -436,6 +438,7 @@ export function tileWorkerMain() {
           const ax = L.xs[k - 1], ay = L.ys[k - 1], dx = L.xs[k] - ax, dy = L.ys[k] - ay, l2 = dx * dx + dy * dy || 1;
           if (Math.abs(e.x - ax) > hw + 40 || Math.abs(e.y - ay) > hw + 40) continue;
           const t = Math.max(0, Math.min(1, ((e.x - ax) * dx + (e.y - ay) * dy) / l2)), d = Math.hypot(e.x - ax - dx * t, e.y - ay - dy * t);
+          if(Math.abs(e.h-(L.h[k-1]+(L.h[k]-L.h[k-1])*t))>=2)continue;
           if (d < best) { best = d; bs = L.s[k - 1] + t * Math.sqrt(l2); }
         }
         if (best < hw + sw + 2) mouths.push([bs - e.w / 2 - 2, bs + e.w / 2 + 2]);
@@ -522,7 +525,7 @@ export function tileWorkerMain() {
       const jn = ends.map((_, k) => k).filter(k => degree[k] >= 3);
       const parent = new Map<number, number>(); jn.forEach(k => parent.set(k, k));
       const find = (k: number): number => { const p = parent.get(k)!; if (p === k) return k; const r = find(p); parent.set(k, r); return r; };
-      for (const a of jn) near(ends[a].x, ends[a].y, 25, b => { if (b > a && parent.has(b) && Math.hypot(ends[a].x - ends[b].x, ends[a].y - ends[b].y) < 25) parent.set(find(a), find(b)); });
+      for (const a of jn) near(ends[a].x, ends[a].y, 25, b => { if (b > a && parent.has(b) && Math.hypot(ends[a].x - ends[b].x, ends[a].y - ends[b].y) < 25&&Math.abs(ends[a].h-ends[b].h)<2) parent.set(find(a), find(b)); });
       const groups = new Map<number, number[]>();
       for (const k of jn) { const r = find(k); const g = groups.get(r); if (g) g.push(k); else groups.set(r, [k]); }
       for (const g of groups.values()) {

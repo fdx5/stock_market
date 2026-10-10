@@ -33,6 +33,8 @@
     "/discussion-explorer",
     "/dram-price",
     "/drive",
+    "/drone-explore",
+    "/drone-explore/",
     "/etf",
     "/fight",
     "/global",
@@ -66,9 +68,10 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 569,
+  "source_files": 591,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
+    "frontend/src/components/droneSurveyWorker.ts",
     "frontend/src/components/moonGlowWorker.ts",
     "frontend/src/components/normalWorker.ts",
     "frontend/src/components/paintRasterWorker.ts",
@@ -97,6 +100,26 @@
       "file": "frontend/src/components/BoardPanel.tsx",
       "hosts": [
         "finance.naver.com"
+      ]
+    },
+    {
+      "file": "frontend/src/components/DroneBuildingCard.tsx",
+      "hosts": [
+        "map.kakao.com",
+        "map.naver.com",
+        "search.daum.net"
+      ]
+    },
+    {
+      "file": "frontend/src/components/DroneRadar.tsx",
+      "hosts": [
+        "api.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/components/droneRoads.ts",
+      "hosts": [
+        "api.vworld.kr"
       ]
     },
     {

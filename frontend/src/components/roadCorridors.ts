@@ -15,6 +15,10 @@ export function constrainRoadCorridors(roads:readonly RealEstateRoad[],footprint
  const out:RealEstateRoad[]=[];
  for(const road of roads){
   if(road.line.length<2)continue;
+  // These blockers contain XY footprints only. A pier or a building beneath an
+  // official elevated road is not evidence that its deck must be cut away.
+  // Elevated collision exclusion needs measured vertical bounds as well.
+  if((road.structure==='bridge'||road.structure==='elevated')&&road.structure_source){out.push(road);continue;}
   const pad=road.width/2+1,x0=Math.min(...road.line.map(p=>p[0]))-pad,y0=Math.min(...road.line.map(p=>p[1]))-pad,x1=Math.max(...road.line.map(p=>p[0]))+pad,y1=Math.max(...road.line.map(p=>p[1]))+pad;
   const near=entries.filter(e=>e.box[0]<=x1&&e.box[2]>=x0&&e.box[1]<=y1&&e.box[3]>=y0);let clearance=Infinity;
   for(const {r}of near)for(let i=1;i<road.line.length;i++){

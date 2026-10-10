@@ -308,7 +308,7 @@ def _from_vworld(c: dict, address: str) -> dict | None:
         road_box = f"BOX({min(lons) - rlon},{min(lats) - rlat},{max(lons) + rlon},{max(lats) + rlat})"
         for f in _features(_vworld(VWORLD_DATA, {**common, "data": "LT_L_N3A0020000", "geomFilter": road_box, "size": 1000, "page": 1})):
             width, lanes = _num(f["properties"].get("rvwd")) or 0, round(_num(f["properties"].get("rdln")) or 0)
-            if width < 8 and lanes < 2:
+            if width < 4 and lanes < 1:
                 continue
             geom = f.get("geometry") or {}
             lines = [geom.get("coordinates")] if geom.get("type") == "LineString" else geom.get("coordinates") or []

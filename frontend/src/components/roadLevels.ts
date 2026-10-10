@@ -5,6 +5,63 @@ export function roadLevel(r:RealEstateRoad){return r.layer??(r.structure==='brid
 export function sameRoadLevel(a:RealEstateRoad,b:RealEstateRoad){return roadLevel(a)===roadLevel(b);}
 export function roadProfileKey(r:RealEstateRoad){return r.link_id??r.id??JSON.stringify(r.profile_line??r.line);}
 export function roadProfiles(roads:RealEstateRoad[]){const ids=new Map<string,number>();for(const r of roads){const k=roadProfileKey(r);if(!ids.has(k))ids.set(k,ids.size);}return ids;}
+/** Clip every segment at the window edge, including segments with both vertices
+ * outside. Separate excursions stay separate instead of acquiring a shortcut. */
+export function clipRoadLine(line:Point[],radius:number):Point[][]{
+ if(!Number.isFinite(radius)||radius<=0)return [];
+ const out:Point[][]=[];let run:Point[]=[];const eps=1e-7;
+ const distance=(a:Point,b:Point)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+ const flush=()=>{if(run.length>1)out.push(run);run=[];};
+ for(let i=1;i<line.length;i++){
+  const a=line[i-1],b=line[i];if(![...a,...b].every(Number.isFinite)){flush();continue;}
+  const dx=b[0]-a[0],dy=b[1]-a[1];let lo=0,hi=1,visible=true;
+  for(const [p,q]of [[-dx,a[0]+radius],[dx,radius-a[0]],[-dy,a[1]+radius],[dy,radius-a[1]]]){
+   if(Math.abs(p)<eps){if(q < -eps){visible=false;break;}}
+   else if(p<0)lo=Math.max(lo,q/p);else hi=Math.min(hi,q/p);
+  }
+  if(!visible||hi-lo<=eps){flush();continue;}
+  const from:Point=[a[0]+dx*lo,a[1]+dy*lo],to:Point=[a[0]+dx*hi,a[1]+dy*hi];
+  if(distance(from,to)<=eps)continue;
+  if(run.length&&distance(run[run.length-1],from)>eps)flush();
+  if(!run.length)run.push(from);if(distance(run[run.length-1],to)>eps)run.push(to);
+  if(hi<1-eps)flush();
+ }flush();return out;
+}
+/** Actual neighbouring cells are searched, then true distance is checked. Only
+ * unbranched, compatible pieces join; an elevated profile never changes owner. */
+export function stitchRoadSegments(input:RealEstateRoad[]):RealEstateRoad[]{
+ let roads=input.filter(r=>r.line.length>1).map(r=>({...r,line:r.line.map(p=>[...p] as Point)}));
+ const cell=1.5,distance=(a:Point,b:Point)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+ for(let pass=0;pass<50;pass++){
+  const ends=roads.flatMap((r,i)=>[true,false].map(start=>({i,start,p:start?r.line[0]:r.line[r.line.length-1]})));
+  const grid=new Map<string,number[]>(),parent=ends.map((_,i)=>i);
+  const find=(i:number):number=>parent[i]===i?i:(parent[i]=find(parent[i]));
+  const key=(x:number,y:number)=>x+','+y;
+  ends.forEach((e,i)=>{
+   const x=Math.floor(e.p[0]/cell),y=Math.floor(e.p[1]/cell);
+   for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(const j of grid.get(key(x+dx,y+dy))??[]){
+    if(sameRoadLevel(roads[e.i],roads[ends[j].i])&&distance(e.p,ends[j].p)<=cell)parent[find(i)]=find(j);
+   }
+   const k=key(x,y);grid.set(k,[...(grid.get(k)??[]),i]);
+  });
+  const groups=new Map<number,typeof ends>();ends.forEach((e,i)=>{const k=find(i);groups.set(k,[...(groups.get(k)??[]),e]);});
+  const used=new Set<number>(),next:RealEstateRoad[]=[];
+  for(const group of groups.values()){
+   if(group.length!==2)continue;const[a,b]=group;
+   if(a.i===b.i||used.has(a.i)||used.has(b.i)||distance(a.p,b.p)>cell)continue;
+   const ra=roads[a.i],rb=roads[b.i],level=roadLevel(ra);
+   if(ra.lanes!==rb.lanes||Math.abs(ra.width-rb.width)>4)continue;
+   if(level!==0&&(ra.structure!==rb.structure||roadProfileKey(ra)!==roadProfileKey(rb)))continue;
+   const la=a.start?[...ra.line].reverse():ra.line,lb=b.start?rb.line:[...rb.line].reverse();
+   // Keep both surveyed coordinates across a small gap; never drop the next bend.
+   const line=[...la,...(distance(a.p,b.p)<1e-7?lb.slice(1):lb)];
+   next.push({...ra,line,width:Math.max(ra.width,rb.width),structure:ra.structure===rb.structure?ra.structure:'unknown',
+    id:ra.id||rb.id?`${ra.id??JSON.stringify(ra.line)}|${rb.id??JSON.stringify(rb.line)}`:undefined});
+   used.add(a.i);used.add(b.i);
+  }
+  if(!used.size)break;roads=[...roads.filter((_,i)=>!used.has(i)),...next];
+ }return roads;
+}
 /** Different levels may connect at a shared physical approach endpoint, never at an XY crossing. */
 export function roadEndsConnect(a:RealEstateRoad,b:RealEstateRoad,x:number,y:number){
  if(sameRoadLevel(a,b))return true;

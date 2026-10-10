@@ -49,7 +49,7 @@ export class RoadGraph {
       const e: Edge = { id: L.id, idx, xs, ys, hs, cum, len: cum[n - 1], w: L.w, lanes: L.lanes, major: L.major, a: -1, b: -1, trimA: 0, trimB: 0, alive: true };
       this.edges[idx] = e;
       this.byId.set(L.id, idx);
-      e.a = this.nodeAt(xs[0], ys[0]); e.b = this.nodeAt(xs[n - 1], ys[n - 1]);
+      e.a = this.nodeAt(xs[0], ys[0],hs[0]); e.b = this.nodeAt(xs[n - 1], ys[n - 1],hs[n-1]);
       this.nodes[e.a].ends.push({ edge: idx, atA: true }); this.nodes[e.b].ends.push({ edge: idx, atA: false });
       touched.add(e.a); touched.add(e.b);
       for (let k = 1; k < n; k++) this.cellAdd(this.segGrid, (xs[k] + xs[k - 1]) / 2, (ys[k] + ys[k - 1]) / 2, idx);
@@ -71,10 +71,12 @@ export class RoadGraph {
   }
   private cellAdd(m: Map<number, number[]>, x: number, y: number, v: number) { const k = gkey(x, y), l = m.get(k); if (!l) m.set(k, [v]); else if (l[l.length - 1] !== v) l.push(v); }
   private cellDel(m: Map<number, number[]>, x: number, y: number, v: number) { const k = gkey(x, y), l = m.get(k); if (!l) return; const i = l.indexOf(v); if (i >= 0) l.splice(i, 1); if (!l.length) m.delete(k); }
-  private nodeAt(x: number, y: number) {
+  private nodeAt(x: number, y: number,h:number) {
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const ni of this.nodeGrid.get(gkey(x + i * G, y + j * G)) ?? []) {
       const n = this.nodes[ni];
-      if (n.alive && Math.hypot(n.x - x, n.y - y) < 1.5) return ni;
+      if (n.alive && Math.hypot(n.x - x, n.y - y) < 1.5 && n.ends.every(o=>{
+        const e=this.edges[o.edge];return Math.abs(e.hs[o.atA?0:e.hs.length-1]-h)<2;
+      })) return ni;
     }
     const idx = this.freeNodes.pop() ?? this.nodes.length;
     this.nodes[idx] = { idx, x, y, ends: [], signal: null, alive: true };
@@ -154,7 +156,7 @@ export class RoadGraph {
         const nd = this.nodes[atA ? e.a : e.b];
         let tee: { edge: number; at: number } | undefined;
         if (nd.ends.length === 1) {
-          const x = atA ? e.xs[0] : e.xs[e.xs.length - 1], y = atA ? e.ys[0] : e.ys[e.ys.length - 1];
+          const x = atA ? e.xs[0] : e.xs[e.xs.length - 1], y = atA ? e.ys[0] : e.ys[e.ys.length - 1],h=atA?e.hs[0]:e.hs[e.hs.length-1];
           let best = Infinity;
           for (const oi of this.edgesNear(x, y, 30)) {
             if (oi === ei) continue;
@@ -164,6 +166,7 @@ export class RoadGraph {
               const ax = o.xs[k - 1], ay = o.ys[k - 1], dx = o.xs[k] - ax, dy = o.ys[k] - ay, l2 = dx * dx + dy * dy || 1e-6;
               const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)), d = Math.hypot(x - ax - dx * t, y - ay - dy * t);
               const at = o.cum[k - 1] + Math.sqrt(l2) * t;
+              if(Math.abs(h-(o.hs[k-1]+(o.hs[k]-o.hs[k-1])*t))>=2)continue;
               if (d < o.w / 2 + 3 && d < best && at > 4 && at < o.len - 4) { best = d; tee = { edge: oi, at }; }
             }
           }

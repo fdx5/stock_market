@@ -22,7 +22,10 @@ export async function excludeSurface(geometry:THREE.BufferGeometry,rings:readonl
   if(k%900===0&&!await pace()){if(source!==geometry)source.dispose();return;}
   const original=[0,1,2].map(i=>attributes.flatMap(([,a])=>Array.from({length:a.itemSize},(_,j)=>a.array[(k+i)*a.itemSize+j]))),candidates=new Set<number>();
   const xs=original.map(p=>p[po]),ys=original.map(p=>-p[po+2]);
-  for(let x=Math.floor(Math.min(...xs)/cell);x<=Math.floor(Math.max(...xs)/cell);x++)for(let y=Math.floor(Math.min(...ys)/cell);y<=Math.floor(Math.max(...ys)/cell);y++)for(const id of bins.get(x+':'+y)??[])candidates.add(id);
+  // A plan-view footprint cannot prove a collision with an elevated deck.
+  // Road meshes and paint retain their level attributes through worker copies.
+  const levels=source.getAttribute('roadLevel'),elevated=levels&&[0,1,2].every(i=>levels.getX(k+i)>0);
+  if(!elevated)for(let x=Math.floor(Math.min(...xs)/cell);x<=Math.floor(Math.max(...xs)/cell);x++)for(let y=Math.floor(Math.min(...ys)/cell);y<=Math.floor(Math.max(...ys)/cell);y++)for(const id of bins.get(x+':'+y)??[])candidates.add(id);
   let pieces=[original];
   for(const id of candidates){const t=blockers[id],sign=Math.sign((t[1][0]-t[0][0])*(t[2][1]-t[0][1])-(t[1][1]-t[0][1])*(t[2][0]-t[0][0]));if(!sign)continue;
    const next:number[][][]=[];

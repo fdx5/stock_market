@@ -1,0 +1,2 @@
+# Preserve report bytes and keep PDF streams out of textual diffs.
+docs/reports/*.pdf binary

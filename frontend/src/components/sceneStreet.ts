@@ -9,7 +9,7 @@ import {roadJunctionHulls}from'./roadJunctions';
 import {junctionSignalPolicy,junctionOccupied}from'./trafficJunction';
 import {splitRoadJunctions}from'./roadTrafficNetwork';
 import {roadLaneCount}from'./roadLanes';
-import {roadHeight,sameRoadLevel,roadEndsConnect,roadLevel,nearestRoadPoint,vehicleRoad,roadProfiles,roadProfileKey} from './roadLevels';
+import {roadHeight,sameRoadLevel,roadEndsConnect,roadLevel,nearestRoadPoint,vehicleRoad,roadProfiles,roadProfileKey,stitchRoadSegments} from './roadLevels';
 import {modelWheelRig,fallbackWheelRig,rollingWheelGeometry,wheelRotation}from'./rollingWheels';
 import { paintedTexture } from "./paintedTexture";
 import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -544,37 +544,7 @@ interface Conn {
  * pieces of a few metres. Where exactly two pieces meet end to end with the same lane
  * count and about the same width, they are one road: join them, repeatedly. */
 function stitchRoads(input: RealEstateRoad[]): RealEstateRoad[] {
-  let roads = input.map(r => ({ ...r, line: r.line.map(p => [p[0], p[1]] as [number, number]) }));
-  const key = ([x, y]: [number, number]) => `${Math.round(x / 1.5)},${Math.round(y / 1.5)}`;
-  for (let pass = 0; pass < 50; pass++) {
-    const at = new Map<string, { i: number; start: boolean }[]>();
-    roads.forEach((r, i) => {
-      for (const start of [true, false]) {
-        const k = key(start ? r.line[0] : r.line[r.line.length - 1]);
-        const l = at.get(k); if (l) l.push({ i, start }); else at.set(k, [{ i, start }]);
-      }
-    });
-    const used = new Set<number>(), next: typeof roads = [];
-    for (const ends of at.values()) {
-      if (ends.length !== 2) continue;
-      const [a, b] = ends;
-      if (a.i === b.i || used.has(a.i) || used.has(b.i)) continue;
-      const ra = roads[a.i], rb = roads[b.i];
-      const ea=a.start?ra.line[0]:ra.line[ra.line.length-1],eb=b.start?rb.line[0]:rb.line[rb.line.length-1];
-      if(Math.hypot(ea[0]-eb[0],ea[1]-eb[1])>1.5)continue;
-      if (!sameRoadLevel(ra,rb) || (roadLevel(ra)!==0&&ra.structure!==rb.structure) || ra.lanes !== rb.lanes || Math.abs(ra.width - rb.width) > 4) continue;
-      // Orient a to end at the joint and b to start there.
-      const la = a.start ? [...ra.line].reverse() : ra.line, lb = b.start ? rb.line : [...rb.line].reverse();
-      const line=[...la,...lb.slice(1)];
-      next.push({ ...ra,line,structure:ra.structure===rb.structure?ra.structure:'unknown',
-        profile_line:roadLevel(ra)===0?undefined:ra.profile_line===rb.profile_line?ra.profile_line:line,
-        width: Math.max(ra.width, rb.width), lanes: ra.lanes });
-      used.add(a.i); used.add(b.i);
-    }
-    if (!used.size) break;
-    roads = [...roads.filter((_, i) => !used.has(i)), ...next];
-  }
-  return roads;
+  return stitchRoadSegments(input);
 }
 
 interface Car {
@@ -809,7 +779,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   paths.forEach((p, road) => {
     for (const atStart of [true, false]) {
       const [x, y] = atStart ? p.line[0] : p.line[p.line.length - 1];
-      let n = nodes.findIndex(o => o.ends.every(e=>roadEndsConnect(p,paths[e.road],x,y)) && Math.hypot(o.x - x, o.y - y) < (roadLevel(p)===0&&o.ends.every(e=>roadLevel(paths[e.road])===0)?6:1.5));
+      let n = nodes.findIndex(o => o.ends.every(e=>roadEndsConnect(p,paths[e.road],x,y)&&Math.abs(roadHeight(p,terrain,x,y)-roadHeight(paths[e.road],terrain,o.x,o.y))<2) && Math.hypot(o.x - x, o.y - y) < (roadLevel(p)===0&&o.ends.every(e=>roadLevel(paths[e.road])===0)?6:1.5));
       if (n < 0) { n = nodes.length; nodes.push({ x, y, ends: [] }); }
       nodes[n].ends.push({ road, atStart });
       nodeOf.set(`${road}:${atStart}`, n);
@@ -883,6 +853,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
           const [ax, ay] = p.line[i - 1], [bx, by] = p.line[i], dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy) || 1;
           const t = Math.max(0, Math.min(1, ((ex - ax) * dx + (ey - ay) * dy) / (l * l)));
           if (Math.hypot(ax + dx * t - ex, ay + dy * t - ey) > 5) continue;
+          if(Math.abs(roadHeight(paths[road],terrain,ex,ey)-roadHeight(p,terrain,ax+dx*t,ay+dy*t))>=2)continue;
           const d = p.cum[i - 1] + t * l, ux = dx / l, uy = dy / l;
           if (d < p.len - 3) out.push({ link: { road: r, forward: true, s0: d }, dot: ux * hx + uy * hy });
           if (d > 3) out.push({ link: { road: r, forward: false, s0: p.len - d }, dot: -(ux * hx + uy * hy) });

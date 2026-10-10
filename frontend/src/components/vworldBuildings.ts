@@ -1,7 +1,7 @@
 import { RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyParcel, RealEstateParcel, RealEstateRoad } from "../api/client";
 import { prefetchTerrain } from "./sceneTerrain";
 import {hasAboveGroundEvidence} from './buildingEvidence';
-import {attachRoadStructures,clipRoadContextRing,type RoadStructureLink} from './roadLevels';
+import {attachRoadStructures,clipRoadContextRing,clipRoadLine,type RoadStructureLink} from './roadLevels';
 
 /* A complex's buildings straight from VWorld (국토교통부 GIS건물통합정보), in the
  * browser. VWorld answers Korean networks only, so the server abroad can't ask it;
@@ -144,7 +144,6 @@ function fillHeights(list: RealEstateBuilding[]) {
   }
 }
 
-/** Major roads only: 8 m or wider, or two lanes and more (alleys and paths are 3 m). */
 export function physicalBuildingFootprints(list: Feature[], project: (p: number[]) => [number,number]): Ring[] {
   return unique(list).flatMap(f => {
     const p=f.properties;
@@ -168,9 +167,13 @@ export function parseRoads(list: Feature[], project: (p: number[]) => [number, n
   const roads: RealEstateRoad[] = [];
   for (const f of unique(list)) {
     const width = num(f.properties.rvwd) ?? 0, lanes = Math.round(num(f.properties.rdln) ?? 0);
-    if (width < 8 && lanes < 2) continue;
+    // Keep registered single-lane ramps and connecting roads as well as main roads.
+    if (width < 4 && lanes < 1) continue;
     const lines = f.geometry?.type === "LineString" ? [f.geometry.coordinates] : f.geometry?.type === "MultiLineString" ? f.geometry.coordinates : [];
-    for (const l of lines as number[][][]) if (l.length > 1) roads.push({ id:f.id??f.properties.ufid,source:'VWorld LT_L_N3A0020000',line: l.map(project), width: Math.min(60, width || lanes * 3.3), lanes: Math.max(1, lanes) });
+    for (const [part,l] of (lines as number[][][]).entries()) if (l.length > 1) {
+      const id=f.id??f.properties.ufid;
+      roads.push({ id:id?`${id}:${part}`:undefined,source:'VWorld LT_L_N3A0020000',line: l.map(project), width: Math.min(60, width || lanes * 3.3), lanes: Math.max(1, lanes) });
+    }
   }
   return roads;
 }
@@ -247,17 +250,7 @@ export async function vworldRoadsAround(data: RealEstateBuildingsResponse, key: 
   const all = await pagedFeatures(page);
   const project = ([x, y]: number[]): [number, number] => [Math.round((x - lon) * kx * 100) / 100, Math.round((y - lat) * ky * 100) / 100];
   // (a road the box catches runs on for kilometres: cut to the drawn square, a little past it)
-  const R = radius + 50, inside = ([x, y]: [number, number]) => Math.abs(x) <= R && Math.abs(y) <= R;
-  const out: RealEstateRoad[] = [];
-  for (const r of parseRoads(all, project)) {
-    let run: [number, number][] = [];
-    for (const p of r.line) {
-      if (inside(p)) run.push(p);
-      else { if (run.length > 1) out.push({ ...r, line: run }); run = []; }
-    }
-    if (run.length > 1) out.push({ ...r, line: run });
-  }
-  return out;
+  return parseRoads(all,project).flatMap(r=>clipRoadLine(r.line,radius+50).map((line,part)=>({...r,line,id:r.id?`${r.id}:clip${part}`:undefined})));
 }
 
 /** The registered names (건물명), 주용도 and storeys of the buildings round a result, for

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { RealEstateParcel, RealEstateRoad } from "../api/client";
-import {roadHeight,sameRoadLevel} from "./roadLevels";
+import {roadHeight,sameRoadLevel,roadProfileKey} from "./roadLevels";
 
 import type { Terrain } from "./sceneTerrain";
 
@@ -28,9 +28,9 @@ export function findBridges(roads:RealEstateRoad[],_parcels:RealEstateParcel[],_
 /** The deck's height under (x, y), or null off every bridge. */
 export function bridgeHeight(bridges: Bridge[]) {
   return (x: number, y: number, road?:RealEstateRoad): number | null => {
-    let height: number | null = null;
+    let height: number | null = null,closest=Infinity;
     for (const b of bridges) {
-      if(road&&(!sameRoadLevel(b.road,road)||b.road.link_id!==road.link_id))continue;
+      if(road&&(!sameRoadLevel(b.road,road)||roadProfileKey(b.road)!==roadProfileKey(road)))continue;
       if (x < b.box[0] || x > b.box[2] || y < b.box[1] || y > b.box[3]) continue;
       let best = Infinity, h = 0;
       for (let k = 1; k < b.x.length; k++) {
@@ -39,8 +39,11 @@ export function bridgeHeight(bridges: Bridge[]) {
         const d2 = (x - ax - dx * t) ** 2 + (y - ay - dy * t) ** 2;
         if (d2 < best) { best = d2; h = b.h[k - 1] + (b.h[k] - b.h[k - 1]) * t; }
       }
-      // Overlapping approaches must not jump when the first bridge's box ends.
-      if (best <= b.outer * b.outer) height = height === null ? h : Math.max(height, h);
+      // A nearby deck is not this road's deck. Without an owner, the closest
+      // centreline wins; an equal-distance tie keeps the upper surface stable.
+      if(best<=b.outer*b.outer&&(best<closest-1e-7||Math.abs(best-closest)<=1e-7)){
+        height=Math.abs(best-closest)<=1e-7&&height!==null?Math.max(height,h):h;closest=best;
+      }
     }
     return height;
   };
