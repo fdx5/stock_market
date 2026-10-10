@@ -64,9 +64,9 @@ async function download(u: string, signal?: AbortSignal, retry = 1): Promise<Arr
   return b;
 }
 
-async function tileList(token: string, x: number, y: number, signal?: AbortSignal): Promise<Entry[]> {
-  const b = await bytes(url(token, x, y), signal).catch(() => null);
-  if (!b || b.byteLength < 16) return [];
+async function tileList(token: string, x: number, y: number, signal?: AbortSignal, strict = false): Promise<Entry[]> {
+  const b = await bytes(url(token, x, y), signal).catch(err => { if (strict) throw err; return null; });
+  if (!b || b.byteLength < 16) { if (strict) throw new Error('Invalid building list'); return []; }
   const r = new Reader(b);
   r.u32(); r.u32(); r.u32();
   const n = r.u32(), out: Entry[] = [];
@@ -137,7 +137,9 @@ async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex
   for (let i = 2; i < pos.length; i += 3) zmin = Math.min(zmin, pos[i]);
   const low: [number, number][] = [];
   for (let i = 0; i < pos.length; i += 3) { pos[i + 2] -= zmin; if (pos[i + 2] < 1.5) low.push([pos[i], pos[i + 1]]); }
-  const h = hull(low.length >= 3 ? low : pos.reduce<[number, number][]>((a, _, i) => (i % 3 === 0 ? [...a, [pos[i], pos[i + 1]]] : a), []));
+  const footprint = low.length >= 3 ? low : [];
+  if (low.length < 3) for (let i = 0; i < pos.length; i += 3) footprint.push([pos[i], pos[i + 1]]);
+  const h = hull(footprint);
   const cx = h.reduce((s, p) => s + p[0], 0) / h.length, cy = h.reduce((s, p) => s + p[1], 0) / h.length;
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
@@ -204,9 +206,18 @@ export async function photoBuildings(key: string, lat0: number, lon0: number, ra
 /** The surveyed shapes near some points only (the 1 km ring's apartment blocks): the tiles that
  * hold the points, and of their buildings those within 40 m of one, shapes only (no photograph),
  * nearest first, four at a time. Points in local metres about (lat0, lon0). */
-export async function photoBuildingsNear(key: string, lat0: number, lon0: number, points: { x: number; y: number }[], opts: { signal?: AbortSignal; onBuilding?: (b: PhotoBuilding) => void } = {}): Promise<PhotoBuilding[]> {
+export async function photoBuildingsNear(key: string, lat0: number, lon0: number, points: { x: number; y: number }[], opts: { signal?: AbortSignal; onBuilding?: (b: PhotoBuilding) => void; onFailure?: () => void; deadlineMs?: number } = {}): Promise<PhotoBuilding[]> {
   if (!points.length) return [];
+  // One stalled file must not discard all successful models when the enclosing
+  // worker deadline expires. Return the completed subset and retry the remainder.
+  const ctl = opts.deadlineMs ? new AbortController() : null;
+  const abort = () => ctl?.abort();
+  if (ctl) { opts.signal?.addEventListener('abort',abort,{once:true}); if(opts.signal?.aborted)ctl.abort(); }
+  const signal = ctl?.signal ?? opts.signal;
+  const timer = ctl ? setTimeout(()=>{opts.onFailure?.();ctl.abort();},opts.deadlineMs) : undefined;
+  try {
   const token = await vworldToken(key);
+  if(signal?.aborted)throw new DOMException('Survey batch stopped','AbortError');
   const kx = 111320 * Math.cos((lat0 * Math.PI) / 180), ky = 110540;
   const tiles = new Map<string, [number, number]>(), cell = new Set<string>();
   for (const q of points) {
@@ -216,7 +227,7 @@ export async function photoBuildingsNear(key: string, lat0: number, lon0: number
     cell.add(Math.round(q.x / 40) + "," + Math.round(q.y / 40));
   }
   const near = (x: number, y: number) => { const a = Math.round(x / 40), b = Math.round(y / 40); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) if (cell.has(a + i + "," + (b + j))) return true; return false; };
-  const lists = await Promise.all([...tiles.values()].map(([x, y]) => tileList(token, x, y, opts.signal)));
+  const lists = await Promise.all([...tiles.values()].map(([x, y]) => tileList(token, x, y, signal, !!opts.onFailure).catch(() => { opts.onFailure?.(); return []; })));
   const seen = new Set<string>(), entries: Entry[] = [];
   for (const e of lists.flat()) {
     if (seen.has(e.key)) continue;
@@ -227,14 +238,15 @@ export async function photoBuildingsNear(key: string, lat0: number, lon0: number
   const out: PhotoBuilding[] = [];
   let next = 0;
   const run = async () => {
-    while (next < entries.length && !opts.signal?.aborted) {
+    while (next < entries.length && !signal?.aborted) {
       const e = entries[next++];
-      const b = await model(token, e, lat0, lon0, 0, opts.signal, false).catch(() => null);
+      const b = await model(token, e, lat0, lon0, 0, signal, false).catch(() => { opts.onFailure?.(); return null; });
       if (b) { out.push(b); opts.onBuilding?.(b); }
     }
   };
   await Promise.all([run(), run(), run(), run()]);
   return out;
+  } finally { if(timer!==undefined)clearTimeout(timer);opts.signal?.removeEventListener('abort',abort); }
 }
 
 /** The photograph read in a worker (a few at a time): fetched here, decoded and

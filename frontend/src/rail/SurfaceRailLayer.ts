@@ -5,6 +5,7 @@ import {trainKit} from './trainKit';
 import {BuildingClearance} from './BuildingClearance';
 import {stationKit} from './stationKit';
 import type {Clearance} from './railClearance';
+import {setInstanceMatrix} from '../components/instanceDirty';
 
 type Geometry={bed:Float32Array;steel:Float32Array;ties:Float32Array;piers:Float32Array;wire:Float32Array;poles:Float32Array};
 type Entry={source:RailCorridor;path:RailPath;line:RailLine;run:RailRun;group:THREE.Group;dispose:()=>void;built:{x:number;y:number};groundKey:string;ties:THREE.InstancedMesh;tieData:Float32Array};
@@ -29,6 +30,7 @@ export class SurfaceRailLayer {
   private serial=0;private dead=false;private syncAt=-1;private detailAt=-1;
   private eye={x:0,y:0};
   private clearance:BuildingClearance|null=null;private revision=0;private clearanceAt=-1;
+  private prismRevision=-1;private prisms:Clearance[]=[];
   private stations=new Map<string,{owners:Map<string,{facility:RailFacility;path:RailPath}>;model:ReturnType<typeof stationKit>|null}>();
   private kits=new Map<string,{kit:ReturnType<typeof trainKit>;cab:THREE.InstancedMesh;car:THREE.InstancedMesh;far:THREE.InstancedMesh}>();
   private dummy=new THREE.Object3D();private point={x:0,y:0,h:0,dx:1,dy:0,grade:0};
@@ -187,7 +189,7 @@ export class SurfaceRailLayer {
       if(detailed){
         const v=e.tieData;let count=0;
         for(let i=0;i<v.length;i+=4)if(Math.hypot(v[i]-camera.x,v[i+2]-camera.z)<BUDGET.detailDistance){
-          this.dummy.position.set(v[i],v[i+1],v[i+2]);this.dummy.rotation.set(0,v[i+3],0);this.dummy.updateMatrix();e.ties.setMatrixAt(count++,this.dummy.matrix);
+          this.dummy.position.set(v[i],v[i+1],v[i+2]);this.dummy.rotation.set(0,v[i+3],0);this.dummy.updateMatrix();setInstanceMatrix(e.ties,count++,this.dummy.matrix);
         }
         e.ties.count=count;e.ties.instanceMatrix.needsUpdate=true;
       }
@@ -209,22 +211,29 @@ export class SurfaceRailLayer {
         const mesh=distance<BUDGET.detailDistance?(cab?k.cab:k.car):k.far;
         const pose=coachPose(e.path,s,e.line.carLength,cab&&i>0&&i===e.line.cars-1,e.line.mode==='monorail'?-.16:e.line.mode==='agt'?.055:.065);
         this.dummy.position.set(pose.x,pose.h,pose.z);this.dummy.rotation.set(pose.pitch,pose.heading,0,'YXZ');
-        this.dummy.updateMatrix();mesh.setMatrixAt(mesh.count++,this.dummy.matrix);this.stats.cars++;
+        this.dummy.updateMatrix();setInstanceMatrix(mesh,mesh.count++,this.dummy.matrix);this.stats.cars++;
       }
     }
     for(const k of this.kits.values())for(const name of ['cab','car','far'] as const){k[name].visible=k[name].count>0;if(k[name].count)k[name].instanceMatrix.needsUpdate=true;}
     if(this.clearance&&time-this.clearanceAt>.75){
-      this.clearanceAt=time;const clearances:Clearance[]=[];
-      for(const e of this.entries.values()){const v=e.path.points;for(let i=STRIDE;i<v.length;i+=STRIDE){const a=[v[i-STRIDE],v[i-STRIDE+2],-v[i-STRIDE+1]],b=[v[i],v[i+2],-v[i+1]];clearances.push({a,b,half:e.line.width/2+.25,bottom:-.3,top:5.6});}}
-      this.clearance.update([...(this.o.buildings?.()??[]),...[...this.stations.values()].flatMap(s=>s.model?[s.model.group]:[])],clearances,String(this.revision),camera);
+      this.clearanceAt=time;
+      this.clearance.update([...(this.o.buildings?.()??[]),...[...this.stations.values()].flatMap(s=>s.model?[s.model.group]:[])],this.clearancePrisms(),String(this.revision),camera);
     }
     this.stats.updateMs=performance.now()-t0;
+  }
+  /** Track paths are immutable between entry revisions. Reuse their exact
+   * clearance volumes instead of allocating them during every animation scan. */
+  private clearancePrisms(){
+    if(this.prismRevision===this.revision)return this.prisms;
+    const clearances:Clearance[]=[];
+    for(const e of this.entries.values()){const v=e.path.points;for(let i=STRIDE;i<v.length;i+=STRIDE){const a=[v[i-STRIDE],v[i-STRIDE+2],-v[i-STRIDE+1]],b=[v[i],v[i+2],-v[i+1]];clearances.push({a,b,half:e.line.width/2+.25,bottom:-.3,top:5.6});}}
+    this.prismRevision=this.revision;return this.prisms=clearances;
   }
   /** Read-only diagnostics for the local review and numerical regression checks. */
   inspect(){return{...this.stats,stations:[...this.stations.values()].filter(s=>s.model?.group.children.length).length,clearance:this.clearance?.stats,cache:this.cache.size,inflight:this.inflight.size,queued:this.jobs.length,paths:[...this.entries.values()].map(e=>({id:e.path.id,line:e.line.name,lineId:e.line.id,mode:e.line.mode,cars:e.line.cars,vehicle:e.line.vehicle,length:e.path.length,stops:e.path.stops.length,trains:e.run.count}))};}
   dispose(){
     this.dead=true;this.stop.abort();this.worker?.terminate();this.clearance?.dispose();this.jobs=[];this.running=null;
-    this.entries.forEach(e=>e.dispose());this.entries.clear();this.cache.clear();
+    this.entries.forEach(e=>e.dispose());this.entries.clear();this.cache.clear();this.prisms=[];
     for(const k of this.kits.values()){k.cab.dispose();k.car.dispose();k.far.dispose();k.kit.dispose();}this.kits.clear();
     this.group.removeFromParent();for(const r of [this.bedMat,this.railMat,this.tieMat,this.pierMat,this.tieGeo,this.pierGeo,this.poleGeo])r.dispose();
   }

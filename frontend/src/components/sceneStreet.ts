@@ -1,9 +1,9 @@
 import { frameSlice } from "./frameSlice";
 import {surfaceGeometry} from './surfaceGeometry';
-import { vehicleOverlap, VehicleTrajectoryCache, VehiclePathHitCache, collisionFreeTravel, missesTrajectory } from "./trafficCollision";
+import { vehicleOverlap, VehicleTrajectoryCache, VehiclePathHitCache, VehicleHeightCache, VehicleBuckets, collisionFreeTravel, missesTrajectory } from "./trafficCollision";
 import { onSceneMemoryRelease } from "./sceneMemory";
 import * as THREE from "three";
-import {flushInstanceAttribute} from './instanceDirty';
+import {flushInstanceAttribute,setInstanceMatrix} from './instanceDirty';
 import {InstanceBatch,prepareInstanceKernel} from './instanceWasm';
 import {textureBudgetEnabled}from'./textureBudget';
 import {roadJunctionHulls}from'./roadJunctions';
@@ -1168,7 +1168,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         if (wh.z > 0 && hw.c.steer) wl.multiply(ws.makeRotationY(hw.c.steer));
         if (wh.side < 0) wl.multiply(flip);
         wl.multiply(wr.makeRotationX(wh.side < 0 ? -hw.spin : hw.spin));
-        hw.im.setMatrixAt(i, wr.multiplyMatrices(wm, wl));
+        setInstanceMatrix(hw.im,i,wr.multiplyMatrices(wm, wl));
       });
       flushInstanceAttribute(hw.im.instanceMatrix,hw.im.count);
     }
@@ -1241,7 +1241,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       if (pdx * pdx + pdz * pdz < PLATE_M * PLATE_M) {
         far.getMatrixAt(c.slot, mm);
         const k = platesN[c.type]++;
-        plates[c.type].setMatrixAt(k, mm);
+        setInstanceMatrix(plates[c.type],k,mm);
         plates[c.type].setColorAt(k, cc.setRGB((plateOf[c.id] % 256) / 255, Math.floor(plateOf[c.id] / 256) / 255, 0));
       }
       far.getMatrixAt(c.slot, mm);
@@ -1257,7 +1257,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
           if(wh.side<0)wl.multiply(flip);
           wl.multiply(wr.makeRotationX((wh.side<0?-1:1)*wheelRotation(c.wheelDistance??0,wh.radius)));
           wl.scale(wheelScale.set(wh.width,wh.radius,wh.radius));
-          rolling[which].setMatrixAt(wheelN[which]++,wr.multiplyMatrices(mm,wl));
+          setInstanceMatrix(rolling[which],wheelN[which]++,wr.multiplyMatrices(mm,wl));
         }
       }
       const im = near[c.type];
@@ -1265,10 +1265,10 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       if (isNear) {
         if (!was) nearNow[c.type].add(c.slot);
         const k = packed[c.type]++;
-        im.setMatrixAt(k, mm);
+        setInstanceMatrix(im,k,mm);
         if (kinds[c.type].livery) im.setColorAt(k, cc.set(kinds[c.type].livery!).lerp(white, 0.3));
         else if (far.instanceColor) { far.getColorAt(c.slot, cc); im.setColorAt(k, cc); }
-        far.setMatrixAt(c.slot, hidden);
+        setInstanceMatrix(far,c.slot,hidden);
       } else if (was) nearNow[c.type].delete(c.slot);
     }
     plates.forEach((im, i) => { im.count = platesN[i]; flushInstanceAttribute(im.instanceMatrix,im.count); if (im.instanceColor) flushInstanceAttribute(im.instanceColor,im.count); });
@@ -1315,6 +1315,13 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const a=roadHeight(paths[c.road],terrain,x,y),b=roadHeight(paths[cn.link.road],terrain,x,y);
     return a+(b-a)*u/(cn.len||1);
   };
+  const wheelbaseHeights = new VehicleHeightCache<Car>();
+  let heightCar: Car;
+  const computeWheelbase = (out:[number,number]) => {
+    const c=heightCar,reach=c.length*.35;
+    out[0]=heightAhead(c,reach,c.x+c.hx*reach,c.y+c.hy*reach);
+    out[1]=heightAhead(c,-reach,c.x-c.hx*reach,c.y-c.hy*reach);
+  };
   const place = (c: Car) => {
     if (c.manual) { c.road=vehicleRoad(paths,terrain,c); }
     else if (c.inConn) {
@@ -1325,7 +1332,9 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     }
     // On the terrain, pitched to the slope under its wheelbase.
     const reach = c.length * 0.35;
-    const hf = heightAhead(c,reach,c.x+c.hx*reach,c.y+c.hy*reach), hb = heightAhead(c,-reach,c.x-c.hx*reach,c.y-c.hy*reach);
+    let hf:number,hb:number;
+    if(terrain.heightRevision&&!c.manual){heightCar=c;const h=wheelbaseHeights.read(c,terrain.heightRevision(),computeWheelbase);hf=h[0];hb=h[1];}
+    else{hf=heightAhead(c,reach,c.x+c.hx*reach,c.y+c.hy*reach);hb=heightAhead(c,-reach,c.x-c.hx*reach,c.y-c.hy*reach);}
     const yaw=Math.atan2(c.hx,-c.hy),pitch=-Math.atan2(hf-hb,2*reach);
     c.z = (hf + hb) / 2 + surfaceGeometry.surfaceLift;
     const suppressed = c.hide || group.userData.traffic?.placementFilter?.(c) === false;
@@ -1334,8 +1343,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     if(batchPlacement)return;
     q.setFromAxisAngle(up,yaw).multiply(qp.setFromAxisAngle(across,pitch));
     m4.compose(v.set(c.x, c.z + 0.02, -c.y), q, suppressed ? zero : one);
-    meshes[c.type].setMatrixAt(c.slot, m4);
-    if (lampsOn) lamps[c.type].setMatrixAt(c.slot, m4);
+    setInstanceMatrix(meshes[c.type],c.slot,m4);
+    if (lampsOn) setInstanceMatrix(lamps[c.type],c.slot,m4);
   };
 
   const inCorridor = (a: Car, b: Car, reach: number) => {
@@ -1349,7 +1358,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   /** Room (m, from its front) to the nearest other vehicle's body in this one's path: the other's
    * corners in this one's frame, across its width with a little margin, ahead within `reach`. When
    * the two stand in each other's paths (crossing, or already touching) the lower id goes first. */
-  const bodies = new Map<number, Car[]>(), NEAR = 24;
+  const bodies = new VehicleBuckets<number,Car>(cars.length), NEAR = 24;
   const nearKey = (x: number, y: number) => Math.floor(x / NEAR) * 4096 + Math.floor(y / NEAR);
   /** Where a vehicle's middle will be `d` metres on along its own way — its lane, its connector
    * through the junction, the lane that joins — and its heading there (into `pose`). */
@@ -1427,10 +1436,13 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return { room, by };
   };
 
-  const lanes = new Map<string, Car[]>(), onConn = new Map<string, Car[]>(), intoLane = new Map<string, Car[]>();
-  const boxes = new Map<number, Car[]>();
-  const push = <K,>(m: Map<K, Car[]>, k: K, c: Car) => { const l = m.get(k); if (l) l.push(c); else m.set(k, [c]); };
+  const lanes = new VehicleBuckets<string,Car>(cars.length), onConn = new VehicleBuckets<string,Car>(cars.length), intoLane = new VehicleBuckets<string,Car>(cars.length);
+  const boxes = new VehicleBuckets<number,Car>(cars.length);
+  const push = <K,>(m: VehicleBuckets<K,Car>, k: K, c: Car) => m.push(k,c);
   const connCars: Car[] = [], driven: Car[] = [];
+  const giveWayNearby:Car[]=[],travelNearby:Car[]=[];
+  const gap = (c:Car,o:Car,d:number) => d-(o.length+c.length)/2;
+  const firstOnTarget = (cn:Conn) => {for(const o of lanes.get(cn.toKey)??[])if(o.s>=cn.startS-o.length)return o;return null;};
 
   /** Space free on a target lane past where a connector joins it. */
   const exitSpace = (cn: Conn, self: Car) => {
@@ -1463,7 +1475,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       // nothing on the main road is coming up to it.
       const cl = clusters[cn.cluster], reach = cl.r + 26;
       const g = Math.ceil(reach / NEAR), gx = Math.floor(cl.x / NEAR), gy = Math.floor(cl.y / NEAR);
-      const near: Car[] = [...driven];
+      const near=giveWayNearby;near.length=0;near.push(...driven);
       for (let i = gx - g; i <= gx + g; i++) for (let j = gy - g; j <= gy + g; j++) near.push(...(bodies.get(i * 4096 + j) ?? []));
       for (const o of near) {
         if (o === c) continue;
@@ -1499,7 +1511,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     clock += dt;
     lanes.clear(); onConn.clear(); intoLane.clear(); boxes.clear(); connCars.length = 0; driven.length = 0; bodies.clear();
     for (const c of cars) {
-      if (!c.manual) { const k = nearKey(c.x, c.y), l = bodies.get(k); if (l) l.push(c); else bodies.set(k, [c]); }
+      if (!c.manual) bodies.push(nearKey(c.x,c.y),c);
       if (c.manual) driven.push(c);
       else if (c.inConn) {
         push(onConn, c.conn.key, c); push(intoLane, c.conn.toKey, c); connCars.push(c);
@@ -1529,27 +1541,25 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         const al = inCorridor(c, o, Math.max(12, c.speed * 1.8 + c.length));
         if (al >= 0) { room = Math.min(room, al - (o.length + c.length) / 2); c.why = "driver"; }
       }
-      const gap = (o: Car, d: number) => d - (o.length + c.length) / 2;
-      const firstOnTarget = () => { for (const o of lanes.get(cn.toKey) ?? []) if (o.s >= cn.startS - o.length) return o; return null; };
       if (c.inConn) {
         const list = onConn.get(cn.key)!, ahead = list[list.indexOf(c) + 1];
-        if (ahead) room = gap(ahead, ahead.u - c.u);
-        else { const f = firstOnTarget(); if (f) room = gap(f, cn.len - c.u + f.s - cn.startS); }
+        if (ahead) room = gap(c,ahead,ahead.u-c.u);
+        else { const f = firstOnTarget(cn); if (f) room = gap(c,f,cn.len-c.u+f.s-cn.startS); }
         // Two connectors into one lane (from side-by-side lanes): the one nearer the merge goes
         // first, the other falls in behind it, as if on one lane already.
         const mine = cn.len - c.u;
         for (const o of intoLane.get(cn.toKey) ?? []) {
           if (o === c || o.conn === cn || !o.inConn) continue;
           const theirs = o.conn.len - o.u;
-          if (theirs < mine || (theirs === mine && o.id < c.id)) room = Math.min(room, gap(o, mine - theirs));
+          if (theirs < mine || (theirs === mine && o.id < c.id)) room = Math.min(room,gap(c,o,mine-theirs));
         }
       } else {
         const list = lanes.get(laneKey(c.road, c.forward, c.lane))!, ahead = list[list.indexOf(c) + 1];
-        if (ahead) room = gap(ahead, ahead.s - c.s);
+        if (ahead) room = gap(c,ahead,ahead.s-c.s);
         else {
           const inC = onConn.get(cn.key);
-          if (inC?.length) room = gap(inC[0], cn.endS - c.s + inC[0].u);
-          else { const f = firstOnTarget(); if (f) room = gap(f, cn.endS - c.s + cn.len + f.s - cn.startS); }
+          if (inC?.length) room = gap(c,inC[0],cn.endS-c.s+inC[0].u);
+          else { const f = firstOnTarget(cn); if (f) room = gap(c,f,cn.endS-c.s+cn.len+f.s-cn.startS); }
         }
         // Until cleared, the stop line holds (a vehicle already past it on a short road
         // simply waits there). Cleared once its front reaches the line with the way open.
@@ -1568,7 +1578,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         for (const o of connCars) {
           if (o.conn.toKey === own) continue;
           const al = inCorridor(c, o, reach);
-          if (al >= 0) room = Math.min(room, gap(o, al));
+          if (al >= 0) room = Math.min(room,gap(c,o,al));
         }
       }
       // Whatever else stands in its way, on any road or connector (two surveyed roads that run
@@ -1587,12 +1597,18 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       const proposed=Math.min(c.speed*dt,Math.max(0,room-.5));
       // Respect actual current bodies even when priority/deadlock rules give
       // this car permission to go. Use nearby buckets, not an all-car sweep.
-      const nearby:Car[]=[...driven],gx=Math.floor(c.x/NEAR),gy=Math.floor(c.y/NEAR);
-      const radius=Math.ceil((c.length+proposed+20)/NEAR);
-      for(let i=gx-radius;i<=gx+radius;i++)for(let j=gy-radius;j<=gy+radius;j++)nearby.push(...(bodies.get(i*4096+j)??[]));
-      const heightAware=!sameRoadLevel(paths[c.road],paths[c.conn.link.road])||nearby.some(o=>!sameRoadLevel(paths[c.road],paths[o.road]));
-      const swept={x:0,y:0,z:undefined as number|undefined,hx:0,hy:0,length:c.length,width:c.width};
-      const adv=collisionFreeTravel(proposed,d=>{poseAhead(c,d);swept.x=pose.x;swept.y=pose.y;swept.hx=pose.hx;swept.hy=pose.hy;swept.z=heightAware?heightAhead(c,d,pose.x,pose.y):undefined;return swept;},nearby,c);
+      let adv=0;
+      // Zero travel already returns zero from collisionFreeTravel. Avoid building
+      // candidate arrays and road-height checks for every stopped car each frame.
+      if(proposed>0){
+        const nearby=travelNearby;nearby.length=0;nearby.push(...driven);
+        const gx=Math.floor(c.x/NEAR),gy=Math.floor(c.y/NEAR);
+        const radius=Math.ceil((c.length+proposed+20)/NEAR);
+        for(let i=gx-radius;i<=gx+radius;i++)for(let j=gy-radius;j<=gy+radius;j++)nearby.push(...(bodies.get(i*4096+j)??[]));
+        const heightAware=!sameRoadLevel(paths[c.road],paths[c.conn.link.road])||nearby.some(o=>!sameRoadLevel(paths[c.road],paths[o.road]));
+        const swept={x:0,y:0,z:undefined as number|undefined,hx:0,hy:0,length:c.length,width:c.width};
+        adv=collisionFreeTravel(proposed,d=>{poseAhead(c,d);swept.x=pose.x;swept.y=pose.y;swept.hx=pose.hx;swept.hy=pose.hy;swept.z=heightAware?heightAhead(c,d,pose.x,pose.y):undefined;return swept;},nearby,c);
+      }
       if(adv+1e-6<proposed){c.speed=Math.min(c.speed,adv/Math.max(dt,.001));c.why='collision';}
       c.wheelDistance=(c.wheelDistance??0)+adv;
       if (c.inConn) {
@@ -1715,7 +1731,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       if (light === h.light) return;
       h.light = light; dirty = true;
       const on = [light === "red", light === "yellow", light === "green", light === "green"];
-      for (let k = 0; k < 4; k++) litMeshes[k].setMatrixAt(i, on[k] ? tm.copy(headMats[i]).multiply(lampOffset[k]) : off);
+      for (let k = 0; k < 4; k++) setInstanceMatrix(litMeshes[k],i,on[k] ? tm.copy(headMats[i]).multiply(lampOffset[k]) : off);
     });
     if (dirty) litMeshes.forEach(m => { m.instanceMatrix.needsUpdate = true; });
   };

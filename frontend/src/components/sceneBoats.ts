@@ -4,6 +4,7 @@ import { rng } from "./complexScene";
 import type { WaterField } from "./sceneWater";
 import { mergeStatic } from "./sceneMerge";
 import { frameSlice } from "./frameSlice";
+import {setInstanceMatrix} from './instanceDirty';
 import { onSceneMemoryRelease } from './sceneMemory';
 
 /* Boats on a big river (the Han and rivers like it), in clear weather from morning to
@@ -571,7 +572,7 @@ class Spray {
       }
       this.sc.setScalar(Math.max(s, 1e-4));
       this.m.compose(this.at, this.q, this.sc);
-      this.mesh.setMatrixAt(i, this.m);
+      setInstanceMatrix(this.mesh,i,this.m);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
   }

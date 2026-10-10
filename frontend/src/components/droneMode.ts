@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
 import { DroneFlight, MAX_AGL, MAX_SPEED, MIN_AGL } from "./droneFlight";
-import { DroneWorld, type ViewExtent } from "./droneWorld";
+import { DroneWorld, type ViewExtent, type DroneViewBuildings } from "./droneWorld";
 import { DroneAudio } from "./droneAudio";
 import { DroneSigns } from "./droneSigns";
 import { DroneModel } from "./droneModel";
@@ -61,11 +61,12 @@ export class DroneSession {
     forget?: (materials: Set<THREE.Material>) => void;
     /** where the view's own trees stand (view frame) */
     viewTrees?: () => [number, number][];
+    viewBuildings?: () => DroneViewBuildings | undefined;
     /** the drone's sky, 0…1 (both renderers), and its distance haze (start, end; m) */
     setSky: (k: number, fog?: [number, number]) => void;
     onHud: (h: DroneHud) => void;
   }) {
-    this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees,
+    this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees, viewBuildings:p.viewBuildings,
       viewWater: () => { const water: THREE.Mesh[] = []; for (const root of p.scene.children) if (root !== this.world.root) root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && !Array.isArray(m.material) && m.material.userData.water && m.geometry.getAttribute('aSea')) water.push(m); }); return water; },
       onSeaReady: field => { void this.sinkSeaGround(field); },
       onLabels: (k, l) => this.signs.set(k, l) });

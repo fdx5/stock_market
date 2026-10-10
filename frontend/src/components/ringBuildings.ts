@@ -29,7 +29,7 @@ export type RingResult = {
    * ground, and where its triangles lie in the apartment mesh's index (start, count) — so a
    * surveyed shape can take its place (ComplexHologram). */
   apts: Float32Array;
-  /** Box mode only (the drone's tiles): the blocks worth their surveyed shape — every building of
+  /** The blocks worth their surveyed shape — every building of
    * 5 storeys and up — nine numbers each: centre x, y, height, ground, where its triangles lie in
    * its style's mesh (start, count), the style (SURVEY_STYLES index), its outline (spanRings
    * index) and its area. */
@@ -38,7 +38,7 @@ export type RingResult = {
    * and up, together), public offices, schools, hospitals and tall named buildings; x, y the
    * centre, top the highest roof (view frame), n the buildings it gathers. */
   labels?: DroneLabel[];
-  /** Box mode only: per building drawn, its style (SURVEY_STYLES index), walls' first vertex and
+  /** Per building drawn, its style (SURVEY_STYLES index), walls' first vertex and
    * count, roof's first vertex and count (5 each), and its outline (spanRings, same order). */
   spans?: Float32Array; spanRings?: number[][][];
   /** Box mode only (the drone's tiles): every building over the box (those straddling its edge
@@ -370,11 +370,11 @@ function ringWorkerMain() {
         if (!cut) break;
       }
       if (idx.length === 3) b.i.push(base + idx[0], base + idx[1], base + idx[2]);
-      if (box) { spans.push(STYLES.indexOf(style), vWalls, base - vWalls, base, roofRing.length); spanRings.push(ring); }
+      spans.push(STYLES.indexOf(style), vWalls, base - vWalls, base, roofRing.length); spanRings.push(ring);
       if (style === "apt" && floors >= 5) apts.push(cx, cy, height, ground, iStart, b.i.length - iStart);
       // (every building of five storeys and up, and the large complexes: their real plan, setbacks
       // and rooftop; lower ones keep their registered outline, which is most of their shape)
-      if (box && (floors >= 5 || Math.abs(area) >= 6000)) towers.push(cx, cy, height, ground, iStart, b.i.length - iStart, STYLES.indexOf(style), spanRings.length - 1, area);
+      if (floors >= 5 || Math.abs(area) >= 6000) towers.push(cx, cy, height, ground, iStart, b.i.length - iStart, STYLES.indexOf(style), spanRings.length - 1, area);
       count++;
     }
     const styles: Record<string, unknown> = {}, transfer: ArrayBuffer[] = [];
@@ -387,14 +387,14 @@ function ringWorkerMain() {
     transfer.push(aptArr.buffer);
     const roofs = box ? { h: roofH, nx: hnx, ny: hny, cell: HC, x0: box[0], y0: box[1] } : undefined;
     if (roofs) transfer.push(roofH.buffer);
-    const towerArr = box ? new Float32Array(towers) : undefined;
+    const towerArr = new Float32Array(towers);
     // (an apartment complex is a sign with two blocks or more, or one tall one)
     // (a name the register holds garbled — question marks or replacement characters where the
     // Hangul was lost — is no sign at all)
     const labels = box ? [...labelAt.values()].filter(e => (e.kind !== "apt" || e.n >= 2 || e.tall >= 45) && !/[?\uFFFD]/.test(e.name))
       .map(e => ({ name: e.name, kind: e.kind, x: e.x / e.area, y: e.y / e.area, top: e.top, n: e.n, info: e.info })) : undefined;
     if (towerArr) transfer.push(towerArr.buffer);
-    (self as unknown as Worker).postMessage({ styles, buildings: count, ms: performance.now() - t0, apts: aptArr, footprints:cands.map(c=>c.ring), roofs, towers: towerArr, labels, spans: box ? new Float32Array(spans) : undefined, spanRings: box ? spanRings : undefined }, transfer);
+    (self as unknown as Worker).postMessage({ styles, buildings: count, ms: performance.now() - t0, apts: aptArr, footprints:cands.map(c=>c.ring), roofs, towers: towerArr, labels, spans: new Float32Array(spans), spanRings }, transfer);
   };
 }
 

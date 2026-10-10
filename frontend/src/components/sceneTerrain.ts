@@ -17,6 +17,9 @@ import { corridorRoadGrade } from "./roadGrade";
  * Nothing here is invented: where no tile answers the ground stays level. */
 
 export interface Terrain {
+  /** Changes whenever a live road-height source is replaced. Enables exact
+   * stationary vehicle caches; omitted for terrain with unknown mutations. */
+  heightRevision?(): unknown;
   roadAt?(road: RealEstateRoad, x: number, y: number): number;
   /** Ground height (m) at x east, y north of the complex centre (footprint frame). */
   at(x: number, y: number): number;

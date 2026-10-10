@@ -63,29 +63,42 @@ with sync_playwright() as p:
               const x=(a.lon-c.lon)*kx,y=(a.lat-c.lat)*110540;
               const put=t=>{const px=x+a.dx*t,py=y+a.dy*t;d.flight.place(px,py,w.groundAt(px,py),a.h,0);d.flight.tilt=a.tilt;};put(0);
               await new Promise(r=>setTimeout(r,2500));
-              const stamps=[],windows=[],start=performance.now();let last=start,win=start,n=0;
+              const stage=document.querySelector('.re-holo-stage'),native=window.__holoNative,renderStart=native?.frameNo??0;
+              const ratios=new Set(),stamps=[],windows=[],start=performance.now();let last=start,win=start,n=0;
               await new Promise(resolve=>{const frame=now=>{
                 const dt=now-last;last=now;stamps.push(dt);n++;
+                if(stage?.dataset.pixelRatio)ratios.add(Number(stage.dataset.pixelRatio));
                 if(now-win>=1000){windows.push(n*1000/(now-win));win=now;n=0;}
                 const elapsed=now-start;put(Math.min(1,elapsed/10000));
                 if(elapsed<10000)requestAnimationFrame(frame);else resolve();};requestAnimationFrame(frame);});
               stamps.sort((a,b)=>a-b);const q=p=>stamps[Math.min(stamps.length-1,Math.floor(stamps.length*p))];
-              const stage=document.querySelector('.re-holo-stage'),rail=window.__holoRail;
+              const rail=window.__holoRail;
               return {name:a.name,frames:stamps.length,meanFps:stamps.length*1000/(performance.now()-start),minWindowFps:Math.min(...windows),windows,
                 p50Ms:q(.5),p95Ms:q(.95),p99Ms:q(.99),worstMs:stamps.at(-1),over20ms:stamps.filter(t=>t>20).length,
+                resolution:{pixelRatios:[...ratios],canvas:[native?.canvas.width,native?.canvas.height],quality:native?.quality.name},renderedFrames:(native?.frameNo??0)-renderStart,gpuPassMs:{...native?.timer.ms},
                 world:w.stats(),heap:performance.memory?.usedJSHeapSize,stage:{...stage?.dataset},rail:rail?.inspect?.(),fpsText:document.querySelector('.re-holo-fps')?.textContent};
             }''', dict(name=name,lat=lat,lon=lon,h=h,dx=dx,dy=dy,tilt=tilt))
             results.append(result)
-            print(json.dumps({k:result[k] for k in ['name','meanFps','minWindowFps','p95Ms','worstMs','heap','world']},ensure_ascii=False), flush=True)
+            print(json.dumps({k:result[k] for k in ['name','meanFps','minWindowFps','p95Ms','worstMs','heap','world','resolution','renderedFrames','gpuPassMs']},ensure_ascii=False), flush=True)
         profile=cdp.send('Profiler.stop')['profile'] if profile_on else {'nodes':[]}
-        counts={}
+        counts={}; stacks={}
         nodes={n['id']:n['callFrame'] for n in profile['nodes']}
+        parents={child:n['id'] for n in profile['nodes'] for child in n.get('children',[])}
+        def frame_name(frame):
+            file=frame['url'].split('/')[-1].split('?')[0]
+            return (frame['functionName'] or '(anonymous)')+' @ '+file+':'+str(frame['lineNumber']+1)
         for node in profile.get('samples',[]):
-            frame=nodes[node];key=frame['functionName'] or '(anonymous)';counts[key]=counts.get(key,0)+1
+            key=frame_name(nodes[node]);counts[key]=counts.get(key,0)+1
+            chain=[];cursor=node
+            while cursor in nodes and len(chain)<7:
+                chain.append(frame_name(nodes[cursor]));cursor=parents.get(cursor)
+            key=' <- '.join(chain);stacks[key]=stacks.get(key,0)+1
         cdp.send('HeapProfiler.collectGarbage')
         retained=page.evaluate('''()=>{const w=window.__drone.world;return {heap:performance.memory?.usedJSHeapSize,world:w.stats(),workers:w.surveyPool?.pending??0,coast:{saved:w.seaCoverage?.saved?.size,pending:w.seaCoverage?.pending?.size,jobs:w.coastJobs?.pool?.stats},rail:window.__holoStageAny?.current?.rail?.inspect()};}''')
         report={'place':place,'chrome':browser.version,'viewport':[1440,1000],'profileOn':profile_on,'results':results,'retained':retained,'cpuScopes':page.evaluate('window.__qaCpu'),'cpuSamples':sorted(counts.items(),key=lambda a:-a[1])[:40],'errors':errors,
-                'gate50fps':all(r['minWindowFps']>=50 for r in results),'gateNearest':'requires streaming progress check','gateMemory':'bounded resource test plus retained heap; not a nationwide soak test'}
+                'cpuStacks':sorted(stacks.items(),key=lambda a:-a[1])[:100],
+                'gate50fps':all(r['minWindowFps']>=50 for r in results),'gateFixedResolution':len({v for r in results for v in r['resolution']['pixelRatios']})==1,'gateNearest':'requires streaming progress check','gateMemory':'bounded resource test plus retained heap; not a nationwide soak test'}
+        report['gpu']=page.evaluate('''async()=>{const a=await navigator.gpu?.requestAdapter();const i=a?.info;return i?{vendor:i.vendor,architecture:i.architecture,device:i.device,description:i.description}:null;}''')
         (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf8')
         page.screenshot(path=str(out/'final.png'))
         print(json.dumps({'cpuSamples':report['cpuSamples'][:15],'cpuScopes':report['cpuScopes'],'errors':errors},ensure_ascii=False),flush=True)

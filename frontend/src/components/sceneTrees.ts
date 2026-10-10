@@ -11,6 +11,7 @@ import { compressedTexture } from './compressedTexture';
 import {packTrees}from'./treeGeometryWire';
 import {assembleBudgetForest,forestGeometry,type BudgetPlant,type BudgetForest}from'./budgetForestGeometry';
 import {frameSlice}from'./frameSlice';
+import {setInstanceMatrix} from './instanceDirty';
 
 /* Trees as meshes (scripts/gen-mesh-trees.py): bark tubes and leaf-cluster cards per species
  * variant, instanced — every tree of one variant is one draw for its bark and one for its
@@ -223,7 +224,7 @@ export class Forest {
         n.fill(0);
         set.list.forEach((t, i) => {
           const b = bands[i], j = n[b]++;
-          for (const im of set.levels[b]) im.setMatrixAt(j, t.m);
+          for (const im of set.levels[b]) setInstanceMatrix(im,j,t.m);
           set.levels[b][0]?.setColorAt(j, t.tint);
         });
         set.levels.forEach((parts, b) => parts.forEach(im => {

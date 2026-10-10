@@ -1,6 +1,11 @@
 import type * as THREE from 'three';
 import {hybridSceneEnabled} from './hybridScene';
 const previous=new WeakMap<THREE.BufferAttribute,Float32Array>();
+/** Identical Float32 packing to InstancedMesh.setMatrixAt, using one native
+ * bulk copy for the hot vehicle/wheel/sleeper paths. Uploads stay explicit. */
+export function setInstanceMatrix(mesh:THREE.InstancedMesh,index:number,matrix:THREE.Matrix4){
+ mesh.instanceMatrix.array.set(matrix.elements,index*16);
+}
 /** Compare the final packed pose, including hide/show writes that cancel out.
  * Active prefix only; newly exposed slots are compared too. First upload stays full. */
 export function flushInstanceAttribute(a:THREE.BufferAttribute,count=a.count){

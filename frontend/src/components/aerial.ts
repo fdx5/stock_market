@@ -15,7 +15,7 @@ export interface AerialColours { roof: [number, number, number]; rim: [number, n
 
 const tileUrl = (key: string, z: number, row: number, col: number) => `https://api.vworld.kr/req/wmts/1.0.0/${encodeURIComponent(key)}/Satellite/${z}/${row}/${col}.jpeg`;
 
-export async function aerialColours(key: string, lat0: number, lon0: number, rings: [number, number][][], signal?: AbortSignal, zoom = Z): Promise<(AerialColours | null)[]> {
+export async function aerialColours(key: string, lat0: number, lon0: number, rings: [number, number][][], signal?: AbortSignal, zoom = Z, strict = false): Promise<(AerialColours | null)[]> {
   const Z = zoom;
   if (!rings.length) return [];
   const kx = Math.cos((lat0 * Math.PI) / 180) * 111_320, ky = 110_540;
@@ -36,16 +36,22 @@ export async function aerialColours(key: string, lat0: number, lon0: number, rin
   if ((c1 - c0 + 1) * (r1 - r0 + 1) > 64) return rings.map(() => null);   // (a very large complex: not worth the download)
   const W = (c1 - c0 + 1) * TILE, H = (r1 - r0 + 1) * TILE;
   const cv = new OffscreenCanvas(W, H), cx = cv.getContext("2d", { willReadFrequently: true })!;
-  const jobs: Promise<void>[] = [];
-  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) jobs.push((async () => {
+  const jobs: (() => Promise<void>)[] = []; let failed = false;
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) jobs.push(async () => {
+    try {
     const res = await fetch(tileUrl(key, Z, r, c), { signal, mode: "cors" });
-    if (!res.ok) return;
+    if (!res.ok) { failed = true; return; }
     const blob = await res.blob();
-    if (!blob.type.startsWith("image")) return;
+    if (!blob.type.startsWith("image")) { failed = true; return; }
     const bmp = await createImageBitmap(blob);
     cx.drawImage(bmp, (c - c0) * TILE, (r - r0) * TILE); bmp.close();
-  })().catch(() => {}));
-  await Promise.all(jobs);
+    } catch { failed = true; }
+  });
+  let next = 0;
+  const load = async () => { while (next < jobs.length && !signal?.aborted) await jobs[next++](); };
+  await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, load));
+  if (signal?.aborted) throw new DOMException('View closed', 'AbortError');
+  if (strict && failed) throw new Error('Aerial colour download incomplete');
   const img = cx.getImageData(0, 0, W, H).data;
   const at = (x: number, y: number): [number, number, number] | null => {
     const [u, v] = px(x, y);

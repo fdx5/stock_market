@@ -63,7 +63,7 @@ for path in paths:
     print(json.dumps({'verifiedAsset': path, 'bytes': len(response.content)}), flush=True)
 
 if args.build:
-    for stem in ['coastGeometryWorker', 'roadModelCheckWorker']:
+    for stem in ['coastGeometryWorker', 'roadModelCheckWorker', 'droneSurveyWorker', 'railClearanceWorker']:
         matches=list((args.build / 'assets').glob(stem + '-*.js'))
         assert len(matches) == 1, 'Expected one clean-build worker: ' + stem
         local=matches[0]

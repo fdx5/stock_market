@@ -2,12 +2,16 @@
 const waiting: { resolve: () => void; budget: number; since: number }[] = [];
 let scheduled = false;
 let lastAdmission = -Infinity;
+let channel: MessageChannel | null = null;
+const backgroundQueue: (() => void)[] = [];
 function background(f: () => void) {
   // Background-priority postTask itself can starve under continuous animation,
   // before the bounded admission check ever runs. Use the ordinary task queue.
-  const ch = new MessageChannel();
-  ch.port1.onmessage = () => { ch.port1.close(); ch.port2.close(); f(); };
-  ch.port2.postMessage(0);
+  // The streaming builders can yield thousands of times. Reuse one channel
+  // instead of allocating/closing native message ports for every continuation.
+  if (!channel) { channel = new MessageChannel(); channel.port1.onmessage = () => backgroundQueue.shift()?.(); }
+  backgroundQueue.push(f);
+  channel.port2.postMessage(0);
 }
 function schedule(frameAt?: number) {
   if (scheduled || !waiting.length) return;

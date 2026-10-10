@@ -1,6 +1,27 @@
 export interface VehicleBody { x: number; y: number; z?:number; hx: number; hy: number; length: number; width: number }
 interface TravelState { conn: object; road: number; forward: boolean; lane: number; s: number; u: number; inConn: boolean }
 interface Pose { x: number; y: number; hx: number; hy: number }
+/** The same insertion-ordered map buckets, reused between simulation frames.
+ * The number retained is bounded by the number of vehicles in this network. */
+export class VehicleBuckets<K,T> extends Map<K,T[]> {
+  private free:T[][]=[];
+  constructor(private capacity:number){super();}
+  override clear(){for(const list of this.values()){list.length=0;if(this.free.length<this.capacity)this.free.push(list);}super.clear();}
+  push(key:K,value:T){let list=this.get(key);if(!list){list=this.free.pop()??[];this.set(key,list);}list.push(value);}
+}
+/** Exact stationary wheelbase heights. A road-surface revision invalidates the
+ * result, so a newly loaded bridge/deck cannot leave cars at their old height. */
+export class VehicleHeightCache<T extends TravelState & VehicleBody> {
+  private entries = new WeakMap<T, TravelState & VehicleBody & { revision: unknown; heights: [number,number] }>();
+  read(c:T, revision:unknown, compute:(out:[number,number])=>void) {
+    let e=this.entries.get(c);
+    if(e && e.revision===revision && e.conn===c.conn && e.road===c.road && e.forward===c.forward && e.lane===c.lane && e.s===c.s && e.u===c.u && e.inConn===c.inConn && e.x===c.x && e.y===c.y && e.hx===c.hx && e.hy===c.hy && e.length===c.length) return e.heights;
+    if(!e){e={conn:c.conn,road:c.road,forward:c.forward,lane:c.lane,s:c.s,u:c.u,inConn:c.inConn,x:c.x,y:c.y,hx:c.hx,hy:c.hy,length:c.length,width:c.width,revision,heights:[0,0]};this.entries.set(c,e);}
+    compute(e.heights);
+    e.conn=c.conn;e.road=c.road;e.forward=c.forward;e.lane=c.lane;e.s=c.s;e.u=c.u;e.inConn=c.inConn;e.x=c.x;e.y=c.y;e.hx=c.hx;e.hy=c.hy;e.length=c.length;e.revision=revision;
+    return e.heights;
+  }
+}
 interface TrajectorySweep { values: number[]; filled: number; length: number; width: number; minX: number; minY: number; maxX: number; maxY: number; degenerate: boolean }
 
 /** Exact pair results for stationary road traffic. Every input to the path/body

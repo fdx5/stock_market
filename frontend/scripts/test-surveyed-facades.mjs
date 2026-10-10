@@ -6,7 +6,7 @@ import {transformSync} from 'esbuild';
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 const read=name=>readFileSync(new URL('../src/components/'+name,import.meta.url),'utf8');
-function load(source,extra={}){const scope={module:{exports:{}},exports:{},THREE,...extra};vm.runInNewContext(transformSync(source.replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);return scope.module.exports;}
+function load(source,extra={}){const scope={module:{exports:{}},exports:{},THREE,onSceneMemoryRelease:()=>{},...extra};vm.runInNewContext(transformSync(source.replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);return scope.module.exports;}
 const analysis=load(read('photoAnalysis.ts')),survey=load(read('vworld3d.ts'),analysis);
 function box(w,d,h,x,y,z){return new THREE.BoxGeometry(w,d,h).translate(x,y,z+h/2);}
 function model(){const parts=[box(96,52,7,0,0,0),box(32,14,71,-23,0,7),box(32,14,71,23,0,7),box(6,6,6,-23,0,78),box(6,6,6,23,0,78)];const g=mergeGeometries(parts);parts.forEach(p=>p.dispose());return g;}

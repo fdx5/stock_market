@@ -57,6 +57,7 @@ import { convexHull, photoBuildings, photoBuildingsNear, photoColours, photoRhyt
 import { aerialColours } from "./aerial";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { DroneSession, type DroneHud } from "./droneMode";
+import type { DroneViewBuildings } from './droneWorld';
 import DroneOverlay from "./DroneOverlay";
 import DeskBgm from "../desk2/DeskBgm";
 import { useDeskBgm } from "../desk2/deskBgmStore";
@@ -246,6 +247,7 @@ type Stage = {
   forgetMaterials?: (materials: Set<THREE.Material>) => void;
   /** Where this model's trees stand (view frame): the drone flies round them. */
   viewTrees: { near: [number, number][]; far: [number, number][] };
+  viewBuildings?: DroneViewBuildings;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -1641,6 +1643,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // (the drone lands first: its world is built round this model's ground)
     if (stage.drone) leaveDroneRef.current();
     stage.viewTrees = { near: [], far: [] };
+    stage.viewBuildings = undefined;
     const came = hopRef.current?.id === complexId && data?.found && data.center && data.buildings.length ? hopRef.current : null;
     hopRef.current = null;
     let shift: THREE.Vector3 | null = null;
@@ -2812,7 +2815,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let asphaltAt:ReturnType<typeof roadSurfaceHeight>|null=null;
     const approachTerrain = roadApproachTerrain(roads, terrain);
     const roadTerrain: Terrain = { ...approachTerrain, roadAt:(road,x,y)=>roadHeight(road,approachTerrain,x,y) };
-    const trafficTerrain:Terrain={...roadTerrain,roadAt:(road,x,y)=>{
+    const trafficTerrain:Terrain={...roadTerrain,heightRevision:()=>asphaltAt,roadAt:(road,x,y)=>{
       const reference=roadHeight(road,roadTerrain,x,y)+.08;
       const surface=asphaltAt?.(x,y,reference,roadLevel(road),roadLevel(road)?roadProfileKey(road):undefined);
       return surface!==undefined&&Math.abs(surface-reference)<=2?surface:reference;
@@ -3321,6 +3324,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (!ring || !alive || ringStop.signal.aborted) return;
         if (hostRef.current) hostRef.current.dataset.ringGot = performance.now().toFixed(0);
         let aptGeo: THREE.BufferGeometry | null = null;
+        const ringGroup = new THREE.Group(), ringStyles: DroneViewBuildings['styles'] = {};
+        stage.addWarm(group,ringGroup);
         for (const [style, a] of Object.entries(ring.styles) as [ContextStyle, NonNullable<typeof ring.styles.apt>][]) {
           if (!await pace(true)) return;
           const geo = keep(new THREE.BufferGeometry());
@@ -3334,9 +3339,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           const mesh = new THREE.Mesh(geo, sharedContextMaterial(style));
           mesh.castShadow = mesh.receiveShadow = true;
           mesh.userData.solid = true;   // (a driven vehicle runs into these)
-          stage.addWarm(group, mesh);
+          stage.addWarm(ringGroup, mesh);
+          ringStyles[style] = geo;
           if (style === "apt") aptGeo = geo;
         }
+        stage.viewBuildings = { ring, group:ringGroup, styles:ringStyles };
         // The ground under the ring in its land use (farGround.ts): parcels by 지목, roads, channels.
         whenIdle(async () => {
           if (!alive || ringStop.signal.aborted || new URLSearchParams(location.search).get("far") === "0") return;
@@ -3370,7 +3377,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         // only — no photographs (hundreds of them) — the long fronts windowed, the end walls and short
         // returns plain, roof rooms and parapet bands as painted. Each replaces its block in the ring
         // mesh (its triangles emptied). Re-indexed after: vertices shared, as compact as the ring.
-        if (aptGeo && ring.apts.length) {
+        if (aptGeo && ring.apts.length && !autoDrone && !stage.drone) {
           const geoA = aptGeo as THREE.BufferGeometry, A = ring.apts;
           const blocks = Array.from({ length: A.length / 6 }, (_, i) => ({ x: A[i * 6], y: A[i * 6 + 1], h: A[i * 6 + 2], g: A[i * 6 + 3], s: A[i * 6 + 4], n: A[i * 6 + 5], used: false }));
           await new Promise<void>(r => whenIdle(r));
@@ -3658,6 +3665,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       scene: st.scene, camera: st.camera, ground: st.ground, terrain: terrainRef.current, data, seed, hq: st.hq,
       extent: { ring: DRONE_RING_M, farHalf: DRONE_FAR_HALF },
       addWarm: st.addWarm, drawReady: st.drawReady, forget: st.forgetMaterials, viewTrees: () => [...st.viewTrees.near, ...st.viewTrees.far],
+      viewBuildings: () => st.viewBuildings,
       setSky: (k, fog) => st.setDroneSky?.(k, fog), onHud: h => droneHud.current?.(h),
     });
     st.controls.enabled = false; st.controls.autoRotate = false; spinRef.current = false; setSpin(false);

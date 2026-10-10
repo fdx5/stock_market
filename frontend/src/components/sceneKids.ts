@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import {setInstanceMatrix} from './instanceDirty';
 import type { RealEstateParcel } from "../api/client";
 import type { Look } from "./complexScene";
 import { inRing, rng } from "./complexScene";
@@ -160,7 +161,7 @@ export function buildKids(parcels: RealEstateParcel[], terrain: Terrain, blocked
   const place = (im: THREE.InstancedMesh, i: number, x: number, y: number, z: number, rz = 0, rx = 0) => {
     part.makeTranslation(x, y, z);
     if (rz || rx) part.multiply(rot.makeRotationFromEuler(euler.set(rx, 0, rz)));
-    im.setMatrixAt(i, m.multiplyMatrices(body, part));
+    setInstanceMatrix(im,i,m.multiplyMatrices(body,part));
   };
   const update = (dt: number) => {
     if (!on || !(dt > 0)) return;
@@ -198,12 +199,12 @@ export function buildKids(parcels: RealEstateParcel[], terrain: Terrain, blocked
       // Torso leans about the hips.
       const hipY = 0.6;
       part.makeTranslation(0, hipY, 0).multiply(rot.makeRotationZ(-lean)).multiply(lift.makeTranslation(0, 0.2, 0));
-      torso.setMatrixAt(i, m.multiplyMatrices(body, part));
+      setInstanceMatrix(torso,i,m.multiplyMatrices(body,part));
       const headX = Math.sin(lean) * 0.5, headY = hipY + Math.cos(lean) * 0.5;
       place(head, i, headX, headY, 0);
       place(hair, i, headX - 0.005, headY + 0.03, 0);
-      if (k.cap) place(caps, i, headX, headY + 0.08, 0); else caps.setMatrixAt(i, zero);
-      if (k.bag) place(bags, i, -0.16 + headX * 0.3, hipY + 0.24, 0, -lean); else bags.setMatrixAt(i, zero);
+      if (k.cap) place(caps, i, headX, headY + 0.08, 0); else setInstanceMatrix(caps,i,zero);
+      if (k.bag) place(bags, i, -0.16 + headX * 0.3, hipY + 0.24, 0, -lean); else setInstanceMatrix(bags,i,zero);
       // Legs swing opposite; arms opposite to the legs. A balloon arm is raised to the string.
       const sw = Math.sin(k.phase) * swing;
       place(legs, i * 2, 0, hipY, -0.07, sw);
@@ -220,14 +221,14 @@ export function buildKids(parcels: RealEstateParcel[], terrain: Terrain, blocked
         const f = Math.min(1, dt * 4);
         k.bx += (tx - k.bx) * f; k.by += (ty - k.by) * f; k.bz += (tz - k.bz) * f;
         m.compose(v.set(k.bx, k.by, k.bz), q.setFromAxisAngle(up, time * 0.4 + i), s.setScalar(k.scale));
-        balloons.setMatrixAt(i, m);
+        setInstanceMatrix(balloons,i,m);
         m.compose(v.set(k.bx, k.by - 0.2 * k.scale, k.bz), q.identity(), s.setScalar(k.scale));
-        knots.setMatrixAt(i, m);
+        setInstanceMatrix(knots,i,m);
         const dir = v.set(k.bx - hand.x, k.by - 0.22 * k.scale - hand.y, k.bz - hand.z);
         const len = dir.length();
         q.setFromUnitVectors(up, dir.normalize());
-        strings.setMatrixAt(i, m.compose(hand, q, s.set(1, len, 1)));
-      } else { balloons.setMatrixAt(i, zero); knots.setMatrixAt(i, zero); strings.setMatrixAt(i, zero); }
+        setInstanceMatrix(strings,i,m.compose(hand,q,s.set(1,len,1)));
+      } else { setInstanceMatrix(balloons,i,zero); setInstanceMatrix(knots,i,zero); setInstanceMatrix(strings,i,zero); }
     }
     for (const im of [torso, head, hair, legs, arms, caps, bags, balloons, knots, strings]) im.instanceMatrix.needsUpdate = true;
   };

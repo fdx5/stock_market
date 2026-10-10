@@ -91,6 +91,18 @@ test('unrelated buildings cache a negative clearance result rather than rescan a
   assert.equal(queried,0);assert.equal(c.stats.pending,0);c.dispose();assert.equal(c.records.size,0);m.geometry.dispose();m.material.dispose();
 });
 
+test('worker bounds are reused across transforms but changed vertex positions invalidate them',()=>{
+  const c=new BuildingClearance(()=>{}),root=new THREE.Group(),g=new THREE.BoxGeometry(10,10,10),m=new THREE.Mesh(g,new THREE.MeshBasicMaterial());
+  m.userData.railBuilding=true;m.position.x=300;root.add(m);g.computeBoundingBox();
+  let scans=0;const compute=g.computeBoundingBox.bind(g);g.computeBoundingBox=()=>{scans++;return compute();};
+  const rows=[{a:[0,0,-10],b:[0,0,10],half:2,bottom:-.3,top:5.6}];
+  c.update([root],rows,'1',new THREE.Vector3());assert.equal(scans,0);assert.equal(c.records.get(m).bounds.min.x,295);
+  m.position.x=400;c.update([root],rows,'2',new THREE.Vector3());assert.equal(scans,0);assert.equal(c.records.get(m).bounds.min.x,395);
+  const p=g.getAttribute('position');for(let i=0;i<p.count;i++)p.setX(i,p.getX(i)+20);p.needsUpdate=true;
+  c.update([root],rows,'2',new THREE.Vector3());assert.equal(scans,1);assert.equal(c.records.get(m).bounds.min.x,415);
+  c.dispose();g.dispose();m.material.dispose();
+});
+
 function worldMethod(name){const source=readFileSync(new URL('../src/components/droneWorld.ts',import.meta.url),'utf8'),ast=ts.createSourceFile('world.ts',source,ts.ScriptTarget.Latest,true);const c=ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name.text==='DroneWorld');return c.members.find(n=>n.name?.getText(ast)===name).getText(ast).replace(/^private /,'');}
 test('near view updates do not batch several frames of simulation at ordinary drone altitude',()=>{
   const source=readFileSync(new URL('../src/components/droneMode.ts',import.meta.url),'utf8'),ast=ts.createSourceFile('mode.ts',source,ts.ScriptTarget.Latest,true);const c=ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name.text==='DroneSession'),method=c.members.find(n=>n.name?.getText(ast)==='runViewTicks').getText(ast);

@@ -8,7 +8,7 @@ type Record={source:THREE.BufferGeometry;cut:THREE.BufferGeometry|null;key:strin
 type Job={mesh:THREE.Mesh;record:Record;key:string;version:string;matrix:string;nearby:Clearance[];distance:number};
 export class BuildingClearance {
   readonly stats={checked:0,corrected:0,pending:0,error:'',lastMs:0};
-  private pool=new SceneWorkerPool<{input:CutGeometry;matrix:number[];clearances:Clearance[]},{id:number;result:CutGeometry|null;error?:string}>(()=>new Worker(new URL('./railClearanceWorker.ts',import.meta.url),{type:'module'}),1,30000);
+  private pool=new SceneWorkerPool<{input:CutGeometry;matrix:number[];clearances:Clearance[]},{id:number;result:CutGeometry|null;bounds?:{box:number[];sphere:number[]};error?:string}>(()=>new Worker(new URL('./railClearanceWorker.ts',import.meta.url),{type:'module'}),1,30000);
   private stop=new AbortController();
   private records=new Map<THREE.Mesh,Record>();
   private active:Job|null=null;private dead=false;
@@ -31,7 +31,12 @@ export class BuildingClearance {
           mesh.updateWorldMatrix(true,false);const matrix=mesh.matrixWorld.elements.join(',');
           const position=r.source.getAttribute('position');
           const boundsKey=String('version' in position?position.version:position.data.version)+':'+matrix;
-          if(r.boundsKey!==boundsKey){r.source.computeBoundingBox();r.bounds.copy(r.source.boundingBox!).applyMatrix4(mesh.matrixWorld);r.boundsKey=boundsKey;}
+          if(r.boundsKey!==boundsKey){
+            // New surveyed geometry already carries worker-computed bounds. Only
+            // changed positions require another scan; a world transform does not.
+            if(!r.source.boundingBox||r.boundsKey&&!r.boundsKey.startsWith(boundsKey.split(':')[0]+':'))r.source.computeBoundingBox();
+            r.bounds.copy(r.source.boundingBox!).applyMatrix4(mesh.matrixWorld);r.boundsKey=boundsKey;
+          }
           const nearby=this.index.query(r.bounds);
           if(!nearby.length){
             // Negative results must also be remembered. Previously every unrelated
@@ -72,12 +77,19 @@ export class BuildingClearance {
         }
         attributes[k]={array,size:a.itemSize};
       }
-      const input:CutGeometry={attributes,index:g.index?Uint32Array.from(g.index.array):Uint32Array.from({length:g.getAttribute('position').count},(_,i)=>i),groups:g.groups.map(x=>({start:x.start,count:x.count,materialIndex:x.materialIndex??0}))};
+      const index=new Uint32Array(g.index?.count??g.getAttribute('position').count);
+      for(let start=0;start<index.length;start+=32768){
+        if(this.dead||!mesh.parent||key!==this.key)return;
+        const end=Math.min(index.length,start+32768);
+        if(g.index)index.set(g.index.array.subarray(start,end),start);else for(let i=start;i<end;i++)index[i]=i;
+        await frameSlice(4);
+      }
+      const input:CutGeometry={attributes,index,groups:g.groups.map(x=>({start:x.start,count:x.count,materialIndex:x.materialIndex??0}))};
       const result=await this.pool.run({input,matrix:Array.from(mesh.matrixWorld.elements),clearances:job.nearby},this.stop.signal,[input.index.buffer,...Object.values(attributes).map(a=>a.array.buffer)]);
       if(!result||result.error){record.retryAt=performance.now()+5000;this.stats.error=result?.error??'Rail clearance worker unavailable';return;}
       if(this.dead||!mesh.parent||key!==this.key||this.records.get(mesh)!==record||job.version!==this.version(g)||job.matrix!==mesh.matrixWorld.elements.join(','))return;
       const a=result.result;record.cut?.dispose();record.cut=null;
-      if(a){const cut=new THREE.BufferGeometry();for(const[k,v]of Object.entries(a.attributes))cut.setAttribute(k,new THREE.BufferAttribute(v.array,v.size));cut.setIndex(new THREE.BufferAttribute(a.index,1));for(const group of a.groups)cut.addGroup(group.start,group.count,group.materialIndex);cut.computeBoundingSphere();record.cut=cut;mesh.geometry=cut;}
+      if(a){const cut=new THREE.BufferGeometry();for(const[k,v]of Object.entries(a.attributes))cut.setAttribute(k,new THREE.BufferAttribute(v.array,v.size));cut.setIndex(new THREE.BufferAttribute(a.index,1));for(const group of a.groups)cut.addGroup(group.start,group.count,group.materialIndex);const b=result.bounds!;cut.boundingBox=new THREE.Box3(new THREE.Vector3(...b.box.slice(0,3)),new THREE.Vector3(...b.box.slice(3,6)));cut.boundingSphere=new THREE.Sphere(new THREE.Vector3(...b.sphere.slice(0,3)),b.sphere[3]);record.cut=cut;mesh.geometry=cut;}
       else mesh.geometry=g;
       record.key=key;record.version=job.version;this.stats.checked++;this.stats.lastMs=performance.now()-at;this.changed();
     }catch{record.retryAt=performance.now()+5000;this.stats.error='Rail clearance preparation failed';}

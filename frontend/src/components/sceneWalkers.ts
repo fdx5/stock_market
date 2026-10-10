@@ -1,5 +1,5 @@
 import { frameSlice } from "./frameSlice";
-import {flushInstanceAttribute} from './instanceDirty';
+import {flushInstanceAttribute,setInstanceMatrix} from './instanceDirty';
 import { walkerJoint } from "./walkerJoint";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -394,7 +394,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
   const set = (w: Walker, k: number, m: THREE.Matrix4) => {
     const [mi, ci] = w.slots[k];
     const at = cursor[mi]++;
-    meshes[mi].setMatrixAt(at, m);
+    setInstanceMatrix(meshes[mi],at,m);
     if (held[mi][at] !== ci) {
       held[mi][at] = ci;
       meshes[mi].setColorAt(at, entries[mi].colors[ci]);
@@ -440,7 +440,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
   const poseFar = (w: Walker, wi: number) => {
     place(w, 0);
     const at = farAt++;
-    farMeshes.forEach(m => m.setMatrixAt(at, base));
+    farMeshes.forEach(m => setInstanceMatrix(m,at,base));
     if (farHeld[at] !== wi) {
       farHeld[at] = wi;
       farMeshes.forEach((m, k) => m.setColorAt(at, w.far[k]));
