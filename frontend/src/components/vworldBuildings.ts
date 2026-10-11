@@ -398,19 +398,25 @@ export async function vworldBuildings(
   id: string, query: { parcel: string | null; name: string }, key: string,
   // The key is bound to the domain registered with VWorld, sent as `domain`.
   domain = "https://kospimap.com",
+  at?: {lat:number;lon:number;signal:AbortSignal},
 ): Promise<RealEstateBuildingsResponse | null> {
+  at?.signal.throwIfAborted();
   if (memo.has(id)) return memo.get(id)!;
-  if (!query.parcel) return null;
-  const point = (await call(ADDRESS, { service: "address", request: "getcoord", version: "2.0", crs: "epsg:4326",
-    address: query.parcel, refine: "true", simple: "false", type: "parcel", key, domain })).point;
+  if (!query.parcel && !at) return null;
+  const point = at ? {x:at.lon,y:at.lat} : (await call(ADDRESS, { service: "address", request: "getcoord", version: "2.0", crs: "epsg:4326",
+    address: query.parcel!, refine: "true", simple: "false", type: "parcel", key, domain })).point;
   if (!point) { remember(id, null); return null; }
   const lon = +point.x, lat = +point.y;
   prefetchTerrain({ lat, lon }, 700, key);
   const common = { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true", key, domain };
   const parcel = features(await call(DATA, { ...common, data: "LP_PA_CBND_BUBUN", geomFilter: `POINT(${lon} ${lat})`, size: 10 }))[0];
-  if (!parcel) { remember(id, null); return null; }
-  const rings = polygons(parcel.geometry).map(p => p[0] as unknown as Ring);
-  const lons = rings.flat().map(p => p[0]), lats = rings.flat().map(p => p[1]);
+  at?.signal.throwIfAborted();
+  if (!parcel && !at) { remember(id, null); return null; }
+  const rings = parcel ? polygons(parcel.geometry).map(p => p[0] as unknown as Ring) : [];
+  // A district centre or road may have no parcel/building. Query the real
+  // surrounding register at the selected coordinates; never invent a building.
+  const lons = rings.length ? rings.flat().map(p => p[0]) : [lon-30/(111320*Math.cos(lat*Math.PI/180)),lon+30/(111320*Math.cos(lat*Math.PI/180))];
+  const lats = rings.length ? rings.flat().map(p => p[1]) : [lat-30/110540,lat+30/110540];
   const padLon = CONTEXT_M / (111_320 * Math.cos((lat * Math.PI) / 180)), padLat = CONTEXT_M / 110_540;
   const box = `BOX(${Math.min(...lons) - padLon},${Math.min(...lats) - padLat},${Math.max(...lons) + padLon},${Math.max(...lats) + padLat})`;
   // The parcel's own box (every page: the complex must be whole) and the padded
@@ -440,6 +446,7 @@ export async function vworldBuildings(
     return all;
   })();
   const [mineFs, padFs, roadList] = await Promise.all([own, around1, roadFs]);
+  at?.signal.throwIfAborted();
   const seen = new Set<string>();
   const sig = (f: Feature) => JSON.stringify(f.geometry?.coordinates ?? "").slice(0, 80);
   const around = [...mineFs, ...padFs].filter(f => { const k = sig(f); if (seen.has(k)) return false; seen.add(k); return true; });
@@ -450,7 +457,8 @@ export async function vworldBuildings(
     const polys = polygons(f.geometry);
     if (!polys.length) continue;
     const p = f.properties;
-    const mine = rings.some(r => inside(centroid(polys[0][0] as unknown as Ring), r)) || namesMatch(p.bld_nm || "", query.name);
+    const mine = rings.some(r => inside(centroid(polys[0][0] as unknown as Ring), r)) || namesMatch(p.bld_nm || "", query.name)
+      || !!at && Math.hypot(...project(centroid(polys[0][0] as unknown as Ring))) < 80;
     if(!hasAboveGroundEvidence(p))continue;
     for (const poly of polys) {
       const outer = clean(poly[0].map(project));
@@ -468,7 +476,7 @@ export async function vworldBuildings(
       (mine ? buildings : context).push(b);
     }
   }
-  if (!buildings.length) { remember(id, null); return null; }
+  if (!buildings.length && !at) { remember(id, null); return null; }
   fillHeights(buildings);
   fillHeights(context);
   const near = (b: RealEstateBuilding) => Math.hypot(...centroid(b.rings[0]));
@@ -478,7 +486,7 @@ export async function vworldBuildings(
   const roads = parseRoads(roadList, project);
   const measured = buildings.filter(b => b.height_source !== "estimated").length;
   const out: RealEstateBuildingsResponse = {
-    id, name: query.name, address: query.parcel, built: null, found: true, source: "vworld",
+    id, name: query.name, address: query.parcel ?? '', built: null, found: true, source: "vworld",
     attribution: "국토교통부 GIS건물통합정보 · 연속지적도 (브이월드)", center: { lat, lon },
     site, buildings, context: nearby, roads, coverage: { buildings: buildings.length, with_height: measured },
     vworld: true, error: null, fetched_at: new Date().toISOString(),

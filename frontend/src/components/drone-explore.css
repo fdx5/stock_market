@@ -3,7 +3,24 @@
 .drone-explore-page .re-holo-head { position: relative; z-index: 4; flex: none; flex-wrap: wrap; padding: calc(8px + env(safe-area-inset-top)) calc(62px + env(safe-area-inset-right)) 8px calc(12px + env(safe-area-inset-left)); background: #10191fee; }
 .drone-explore-page .re-holo-head > div:first-child { flex: 1 1 140px; }
 .drone-explore-page .re-holo-nearby { flex: 0 1 280px; width: 280px; height: 32px; }
-.drone-explore-page .re-holo-tools { flex-wrap: wrap; }
+.drone-explore-page .re-holo-tools { flex: 0 1 auto; min-width: 0; flex-wrap: wrap; }
+.drone-explore-page .re-drone-place-search { position: relative; display: block; flex: 0 1 350px; width: 350px; min-width: 0; text-align: left; }
+.drone-explore-page .re-drone-place-search-row { display: flex; align-items: stretch; gap: 5px; }
+.drone-explore-page .re-drone-place-search input { flex: 1; min-width: 0; width: 100%; height: 36px; box-sizing: border-box; padding: 7px 10px; border: 1px solid #7fd8ff66; border-radius: 8px; background: #07131c; color: #eaf6ff; font: 12px/1.4 var(--f-sans, sans-serif); }
+.drone-explore-page .re-drone-place-search input::placeholder { color: #aacada; opacity: 1; }
+.drone-explore-page .re-holo .re-drone-place-go { flex: none; padding: 6px 12px; min-height: 36px; border: 1px solid #7fd8ff66; border-radius: 8px; background: #16384a; color: #eaf6ff; text-align: center; font: 700 12px/1.4 var(--f-sans, sans-serif); }
+.drone-explore-page .re-drone-place-go:disabled { opacity: .45; cursor: default; }
+.drone-explore-page .re-drone-place-popup { position: absolute; top: calc(100% + 6px); left: 0; z-index: 12; display: block; width: 100%; box-sizing: border-box; border: 1px solid #7fd8ff66; border-radius: 10px; background: #07131cf5; box-shadow: 0 8px 24px #0008; overflow: hidden; }
+.drone-explore-page .re-drone-place-results { display: block; max-height: min(360px, 40dvh); overflow: auto; overscroll-behavior: contain; }
+.drone-explore-page .re-holo .re-drone-place-results button { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 9px 10px; border: 0; border-bottom: 1px solid #ffffff14; border-radius: 0; background: transparent; color: #eaf6ff; text-align: left; white-space: normal; font: 12px/1.4 var(--f-sans, sans-serif); }
+.drone-explore-page .re-drone-place-results button:hover, .drone-explore-page .re-holo .re-drone-place-results button.is-active { background: #16384a; }
+.drone-explore-page .re-drone-place-kind { flex: none; padding: 2px 4px; border-radius: 4px; background: #ffffff14; color: #aacada; font-size: 10px; }
+.drone-explore-page .re-drone-place-label { display: grid; min-width: 0; gap: 3px; overflow-wrap: anywhere; }
+.drone-explore-page .re-drone-place-label b { font-size: 12px; }
+.drone-explore-page .re-drone-place-label small { font-size: 10px; color: #aacada; white-space: normal; }
+.drone-explore-page .re-drone-place-popup p { margin: 0; padding: 8px 10px; color: #aacada; font: 11px/1.4 var(--f-sans, sans-serif); }
+.drone-explore-page .re-holo .re-drone-place-retry { margin: 0 10px 8px; padding: 5px 8px; border: 1px solid #7fd8ff66; border-radius: 6px; color: #eaf6ff; background: #16384a; font-size: 11px; }
+.drone-explore-page .re-drone-place-search :focus-visible { outline: 2px solid #ffd27a; outline-offset: 2px; }
 .drone-explore-page .re-holo .re-holo-tools button { min-height: 36px; }
 .drone-explore-page .re-holo-share-long { display: inline; }
 .drone-explore-page .re-holo-share-short { display: none; }
@@ -15,12 +32,17 @@
 .drone-explore-page .re-holo-foot { padding: 5px 12px; background: transparent; }
 .drone-explore-page .re-holo-stage, .drone-explore-page .re-holo--drone-touch .re-holo-stage { position: absolute !important; inset: 0 !important; flex: none; min-height: 0; width: 100% !important; height: 100% !important; z-index: auto !important; border-radius: 0; }
 .drone-explore-page .re-holo .re-drone-tools { top: calc(var(--drone-header-height) + 12px); right: calc(12px + env(safe-area-inset-right)); }
-.drone-explore-page .re-drone-hud { top: calc(var(--drone-header-height) + 12px); }
-.drone-explore-page .re-drone-auto-controls { top: calc(var(--drone-header-height) + 106px); }
+.drone-explore-page .re-holo .re-drone-hud { top: calc(var(--drone-header-height) + 12px); }
+.drone-explore-page .re-holo .re-drone-auto-controls { top: calc(var(--drone-header-height) + 106px); }
 .drone-explore-page .re-holo .re-drone-alt-buttons { top: clamp(calc(var(--drone-header-height) + 168px), calc((100% + var(--drone-header-height) - var(--drone-footer-height)) / 2 - 74px), calc(100% - var(--drone-footer-height) - 160px)); bottom: auto; transform: none; }
-.drone-explore-page .re-drone-radar { top: calc(var(--drone-header-height) + 54px); }
-.drone-explore-page .re-drone-help { bottom: calc(var(--drone-footer-height) + 14px); }
-.drone-explore-page .re-drone-stick { bottom: calc(var(--drone-footer-height) + 22px); }
+.drone-explore-page .re-holo .re-drone-radar { top: calc(var(--drone-header-height) + 54px); }
+.drone-explore-page .re-holo .re-drone-radar { --drone-radar-room: max(24px, calc(100dvh - var(--drone-header-height) - var(--drone-footer-height) - 150px)); --drone-radar-size: min(210px, var(--drone-radar-room)); width: max(132px, var(--drone-radar-size)); }
+.drone-explore-page .re-holo .re-drone-radar.is-big { --drone-radar-size: min(420px, 46vw, var(--drone-radar-room)); }
+.drone-explore-page .re-holo.re-holo--drone-touch .re-drone-radar { --drone-radar-room: max(24px, calc(100dvh - var(--drone-header-height) - var(--drone-footer-height) - 270px)); --drone-radar-size: min(116px, var(--drone-radar-room)); }
+.drone-explore-page .re-holo.re-holo--drone-touch .re-drone-radar.is-big { --drone-radar-size: min(300px, 70vw, 60vh, var(--drone-radar-room)); }
+.drone-explore-page .re-holo .re-holo-stage .re-drone-radar canvas, .drone-explore-page .re-holo .re-holo-stage .re-drone-radar.is-big canvas { justify-self: center; width: var(--drone-radar-size) !important; height: var(--drone-radar-size) !important; }
+.drone-explore-page .re-holo .re-drone-help { top: auto; bottom: calc(var(--drone-footer-height) + 14px); }
+.drone-explore-page .re-holo .re-drone-stick { bottom: calc(var(--drone-footer-height) + 22px); }
 .drone-explore-page .re-drone-card { top: calc(var(--drone-header-height) + 58px); max-height: calc(100% - var(--drone-header-height) - var(--drone-footer-height) - 76px); }
 .drone-explore-page .re-drone-exit { display: none; }
 .drone-explore-page .drone-explore-close { position: absolute; top: calc(8px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); z-index: 6; width: 40px; height: 40px; border: 1px solid #7fd8ff66; border-radius: 50%; background: #07131ce6; color: #eaf6ff; font: 400 26px/1 sans-serif; text-align: center; cursor: pointer; touch-action: manipulation; }
@@ -36,15 +58,56 @@
 }
 @media (prefers-reduced-motion: reduce) { .drone-explore-page .re-drone-view-icon { animation: none; box-shadow: 0 0 7px #57d8e677; } }
 @media (max-width: 760px) {
+  .drone-explore-page .re-holo-bottom { max-height: 32%; }
+  .drone-explore-page .re-holo-tools { width: 100%; }
+  .drone-explore-page .re-drone-place-search { flex: 1 1 210px; width: auto; }
   .drone-explore-page .re-holo-env .re-holo-bgm { order: -1; }
   .drone-explore-page .re-holo-nearby { flex: 1 1 100%; width: 100%; }
   .drone-explore-page .re-holo .re-holo-weather span, .drone-explore-page .re-holo .re-holo-balloon-btn span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
   .drone-explore-page .re-holo--drone-touch .re-drone-alt-buttons { top: auto; bottom: calc(var(--drone-footer-height) + 166px); }
-  .drone-explore-page .re-drone-help { top: auto; bottom: calc(var(--drone-footer-height) + 180px); max-width: calc(100% - 24px); }
+  /* A compact horizontal row clears both the settings button and touch stick. */
+  .drone-explore-page .re-holo .re-drone .re-drone-alt-buttons { left: calc(12px + env(safe-area-inset-left)); top: calc(var(--drone-header-height) + 202px); bottom: auto; transform: none; grid-auto-flow: column; grid-template-columns: repeat(3, 44px); gap: 6px; }
+  .drone-explore-page .re-holo .re-drone-alt-buttons button { width: 44px; height: 44px; }
+  .drone-explore-page .re-holo .re-drone-help { top: auto; bottom: calc(var(--drone-footer-height) + 180px); max-width: calc(100% - 24px); }
 }
 @media (max-width: 600px) { .drone-explore-page .re-drone-view span { display: none; } .drone-explore-page .re-holo-head strong { font-size: 12px; } }
 @media (max-height: 540px) and (orientation: landscape) {
+  /* Keep the radar's centered controls above the footer on short screens. */
+  .drone-explore-page .re-holo .re-holo-stage .re-drone-radar { right: calc(154px + env(safe-area-inset-right)); --drone-radar-room: max(24px, calc(100dvh - var(--drone-header-height) - var(--drone-footer-height) - 100px)); --drone-radar-size: min(132px, var(--drone-radar-room)); }
+  .drone-explore-page .re-holo .re-holo-stage .re-drone-radar.is-big { --drone-radar-size: min(300px, var(--drone-radar-room)); }
+  .drone-explore-page .re-drone-radar-where { display: none; }
+  .drone-explore-page .re-holo .re-drone-auto-controls { left: calc(174px + env(safe-area-inset-left)); top: calc(var(--drone-header-height) + 12px); }
   .drone-explore-page .re-holo--drone-touch .re-drone-alt-buttons { left: calc(200px + env(safe-area-inset-left)); top: auto; bottom: calc(var(--drone-footer-height) + 12px); transform: none; grid-auto-flow: column; }
-  .drone-explore-page .re-holo .re-drone .re-drone-alt-buttons { left: calc(224px + env(safe-area-inset-left)); top: calc((100% + var(--drone-header-height) - var(--drone-footer-height)) / 2 - 71px); bottom: auto; gap: 5px; transform: none; }
+  .drone-explore-page .re-holo .re-drone .re-drone-alt-buttons { left: calc(398px + env(safe-area-inset-left)); top: calc((100% + var(--drone-header-height) - var(--drone-footer-height)) / 2 - 71px); bottom: auto; gap: 5px; transform: none; }
   .drone-explore-page .re-holo .re-drone-alt-buttons button { width: 44px; height: 44px; }
+}
+
+/* Search travel: five seconds of CSS motion while the real destination renders.
+   Only transforms/opacity animate; no extra render canvas or bitmap cache. */
+.drone-explore-page .drone-warp { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; color: #eefaff; background: #020a16; overflow: hidden; font-family: var(--f-sans, sans-serif); }
+.drone-warp::backdrop { background: #020a16; }
+.drone-warp-space { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 42%, #12678b 0, #09253d 19%, #020a16 66%); }
+.drone-warp-glow { position: absolute; left: 50%; top: 42%; width: min(48vmin, 400px); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, #bdfcff 0, #43d9ff55 8%, transparent 58%); transform: translate(-50%, -50%); animation: drone-warp-glow 5s ease-in-out both; }
+.drone-warp-ray { position: absolute; top: 42%; left: 50%; width: min(68vw, 800px); height: 2px; transform-origin: left center; background: linear-gradient(90deg, transparent, #68dfff99 45%, #ffffffcc 90%, transparent); animation: drone-warp-ray 1.35s cubic-bezier(.6, 0, 1, .6) infinite; animation-delay: var(--warp-delay); }
+.drone-warp-ring { position: absolute; left: 50%; top: 42%; width: 80vmin; aspect-ratio: 1; border: 1px solid #52d9ff77; border-radius: 50%; box-shadow: inset 0 0 18px #159ccd22, 0 0 18px #159ccd22; animation: drone-warp-ring 1.8s cubic-bezier(.6, 0, 1, .6) infinite; animation-delay: var(--warp-delay); }
+.drone-warp-cross { position: absolute; top: 42%; left: 50%; font: 300 30px/1 sans-serif; color: #c4f6ff; transform: translate(-50%, -50%); }
+.drone-warp-caption { position: absolute; left: 50%; bottom: max(26px, 7dvh); width: min(480px, calc(100vw - 36px)); transform: translateX(-50%); text-align: center; }
+.drone-warp-caption small { color: #75d4f5; font: 700 10px/1.4 sans-serif; letter-spacing: .22em; }
+.drone-warp-caption h2 { margin: 12px 0 8px; color: #eefaff; font-size: clamp(22px, 4vw, 34px); line-height: 1.25; overflow-wrap: anywhere; }
+.drone-warp-caption p { margin: 0; min-height: 20px; color: #b1d7e7; font-size: 13px; line-height: 1.5; }
+.drone-warp-progress { width: min(240px, 70%); height: 2px; margin: 20px auto 18px; overflow: hidden; background: #b1d7e726; }
+.drone-warp-progress i { display: block; height: 100%; background: #8ce6ff; transform-origin: left center; animation: drone-warp-progress 5s linear both; }
+.drone-warp-actions { display: flex; justify-content: center; gap: 8px; }
+.drone-explore-page .drone-warp button { min-height: 36px; padding: 7px 16px; border: 1px solid #8ce6ff66; border-radius: 99px; background: #0b2638; color: #dcf8ff; font: 500 12px/1.4 var(--f-sans, sans-serif); }
+.drone-warp button:focus-visible { outline: 2px solid #ffd27a; outline-offset: 3px; }
+.drone-warp.is-arriving .drone-warp-ray, .drone-warp.is-arriving .drone-warp-ring { animation-duration: 3s; }
+@keyframes drone-warp-ray { 0% { opacity: 0; transform: rotate(var(--warp-angle)) translateX(var(--warp-distance)) scaleX(.015); } 15% { opacity: .8; } 100% { opacity: 0; transform: rotate(var(--warp-angle)) translateX(46vmax) scaleX(.65); } }
+@keyframes drone-warp-ring { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.03); } 20% { opacity: .65; } 100% { opacity: 0; transform: translate(-50%, -50%) scale(2.4); } }
+@keyframes drone-warp-glow { 0%, 100% { opacity: .5; } 60% { opacity: 1; } }
+@keyframes drone-warp-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .drone-warp-ray, .drone-warp-ring, .drone-warp-glow { animation: none; }
+  .drone-warp-ray { opacity: 0; }
+  .drone-warp-ring { opacity: .15; transform: translate(-50%, -50%) scale(.6); }
+  .drone-warp-progress i { animation: none; transform: scaleX(1); }
 }

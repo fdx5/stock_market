@@ -571,9 +571,10 @@
 .re-drone-tools button { min-width: 34px; height: 32px; padding: 0 10px; border: 1px solid #ffffff38; border-radius: 10px; background: #07131cc0; color: #eaf6ff; font: 700 13px var(--f-sans, sans-serif); cursor: pointer; }
 .re-drone-tools button:hover { background: #17303fe0; }
 .re-drone-tools .re-drone-exit { background: #c9532ee0; border-color: #ff9a74; }
-.re-drone-autopilot { position: absolute; left: 12px; top: 106px; display: grid; gap: 3px; width: 200px; min-height: 48px; padding: 8px 10px; border: 1px solid #ffffff48; border-radius: 12px; background: #07131cde; color: #eaf6ff; text-align: left; font-family: var(--f-sans, sans-serif); cursor: pointer; pointer-events: auto; }
-.re-drone-autopilot b { font-size: 13px; }
-.re-drone-autopilot small { font-size: 10px; color: #aacada; }
+.re-holo .re-drone-autopilot { position: absolute; left: 12px; top: 106px; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: stretch; align-content: center; gap: 3px; width: 200px; min-width: 0; min-height: 48px; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ffffff48; border-radius: 12px; background: #07131cde; color: #eaf6ff; text-align: left; text-indent: 0; white-space: normal; line-height: 1.4; font-family: var(--f-sans, sans-serif); cursor: pointer; pointer-events: auto; }
+.re-holo .re-drone-autopilot b, .re-holo .re-drone-autopilot small { display: block; min-width: 0; max-width: 100%; margin: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.re-holo .re-drone-autopilot b { font-size: 13px; }
+.re-holo .re-drone-autopilot small { font-size: 10px; color: #aacada; }
 .re-drone-autopilot.is-on { border-color: #8ac6a2; background: #194836e8; }
 .re-drone-autopilot.is-on small { color: #d1eddd; }
 .re-drone-autopilot:focus-visible { outline: 2px solid #ffd27a; outline-offset: 3px; }
@@ -606,8 +607,8 @@
 .re-holo-stage .re-drone-radar canvas { position: relative; inset: auto; display: block; width: 210px !important; height: 210px !important; border-radius: 50%; box-shadow: 0 4px 18px #0009, 0 0 0 1px #7fd8ff40; touch-action: none; cursor: zoom-in; }
 .re-drone-radar.is-big { width: min(420px, 46vw); }
 .re-holo-stage .re-drone-radar.is-big canvas { width: min(420px, 46vw) !important; height: min(420px, 46vw) !important; }
-.re-drone-radar-tools { display: flex; gap: 4px; }
-.re-drone-radar-tools button { min-width: 30px; height: 26px; padding: 0 7px; border: 1px solid #ffffff38; border-radius: 8px; background: #07131cc8; color: #eaf6ff; font: 700 12px var(--f-sans, sans-serif); cursor: pointer; }
+.re-drone-radar-tools { display: flex; justify-self: center; justify-content: center; align-items: center; gap: 4px; }
+.re-holo .re-drone-radar-tools button { display: grid; place-items: center; min-width: 30px; height: 26px; box-sizing: border-box; padding: 0 7px; border: 1px solid #ffffff38; border-radius: 8px; background: #07131cc8; color: #eaf6ff; font: 700 12px/1 var(--f-sans, sans-serif); text-align: center; text-indent: 0; letter-spacing: 0; cursor: pointer; }
 .re-drone-radar-where { max-width: 100%; padding: 6px 10px; border-radius: 10px; background: #07131cc8; text-align: right; line-height: 1.35; }
 .re-drone-radar-where b { display: block; color: #fff; font-size: 12.5px; }
 .re-drone-radar-where span { color: #8fb6cc; font-size: 10.5px; font-variant-numeric: tabular-nums; }

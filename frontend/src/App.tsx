@@ -494,7 +494,8 @@ export default function App() {
   // loading line before the page it was standing in for even had a chance to render.
   return (
     <>
-      <Suspense key={location.url} fallback={<LoadingState />}>{page}</Suspense>
+      {/* Keep the explorer's warp alive while its keyed 3D destination rebuilds. */}
+      <Suspense key={path==='/drone-explore'||path==='/drone-explore/'?'/drone-explore':location.url} fallback={<LoadingState />}>{page}</Suspense>
       {(showRecentDock || isBrowsingPage(path) || stockMatch || stockReportMatch || path === "/stocks") && <ReadingTools route={location.url} />}
       <VoltarisIngressLink path={path} />
       <HeaderVisitorBadge path={path} />

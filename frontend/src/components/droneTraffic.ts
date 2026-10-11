@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { CAR_SPECS, carModelMaterial, loadCarModels } from "./sceneCars";
 import { DIMS } from "./vehicleShapes";
+import {trafficLaneCurve,sampleLaneCurve,type LaneCurve} from './trafficLaneCurve';
 
 /* The traffic on the drone's roads (드론 mode): cars along the lanes of each tile (droneRoads.ts),
  * right-hand traffic, keeping their distance from the car ahead, on into the lane that continues
@@ -12,7 +13,7 @@ import { DIMS } from "./vehicleShapes";
 type Lane = { tile: string; p: Float32Array; cum: Float32Array; orientation: Float64Array; len: number; cars: Car[]; width: number; minX:number;minY:number;maxX:number;maxY:number;renderOutside:boolean };
 type Car = { lane: Lane; s: number; v: number; vmax: number; kind: number; colour: THREE.Color; k: number; hidden: boolean;
   /** across a junction: from the end of the last lane to the start of this one (s < 0 on it) */
-  via: { x: number; y: number; z: number; len: number } | null };
+  via: LaneCurve | null; planned?: {lane:Lane;curve:LaneCurve|null;revision:number}; stepped?:number };
 
 // [model, share, length, top speed factor, livery]
 const KINDS: [string, number, number, number, string?][] = [
@@ -68,6 +69,13 @@ function blockGeometry() {
 }
 
 export class DroneTraffic {
+  private stepNo=0;
+  private curves=new WeakMap<Lane,WeakMap<Lane,LaneCurve|null>>();
+  private curvePose={x:0,y:0,z:0,dx:0,dy:0,dz:0};
+  private curve(from:Lane,to:Lane){
+    let cache=this.curves.get(from);if(!cache){cache=new WeakMap();this.curves.set(from,cache);}
+    if(!cache.has(to))cache.set(to,trafficLaneCurve(from,to));return cache.get(to)!;
+  }
   readonly group = new THREE.Group();
   private lanes = new Map<string, Lane[]>();
   private starts = new Map<string, Lane[]>();
@@ -193,7 +201,16 @@ export class DroneTraffic {
       out.push([l, turn > 0.8 ? 2 : 1]);
     }
     const near = out.filter(o => o[1] === 4);
-    const choices=near.length?near:out;
+    let choices=near.length?near:out;
+    // A tile seam should continue in the matching lane, rather than randomly
+    // jumping to a parallel adjacent lane. Merge only if that lane has ended.
+    const parallel=choices.filter(([l])=>{const ex=l.p[3]-l.p[0],ey=l.p[4]-l.p[1];return(ex*dx+ey*dy)/(Math.hypot(ex,ey)||1)>.97;});
+    if(parallel.length){
+      const side=(l:Lane)=>Math.abs((l.p[0]-x)*dy-(l.p[1]-y)*dx),best=Math.min(...parallel.map(([l])=>side(l)));
+      const matching=parallel.filter(([l])=>side(l)<=best+.25&&side(l)<=4.2);
+      // Keep real junction turn choices; lane matching governs straight travel.
+      choices=near.length?matching:[...choices.filter(o=>!parallel.includes(o)),...matching];
+    }
     this.continuations.set(from,{revision:this.networkRevision,choices});
     return choices.length?pick(choices,this.rnd()):null;
   }
@@ -202,6 +219,7 @@ export class DroneTraffic {
   update(dt: number, camera: THREE.Vector3) {
     if (!this.cars.length) { this.far.count = 0; this.near.forEach(im => { if (im) im.count = 0; }); return; }
     dt = Math.min(dt, 0.1);
+    const step=++this.stepNo;
     // (lanes far off are not driven: their cars wait, unseen, till the drone comes back near)
     const reach2 = (FAR_M + 150) ** 2;
     for (const list of this.lanes.values()) for (const lane of list) {
@@ -213,25 +231,43 @@ export class DroneTraffic {
       const cs = lane.cars;
       for (let i = cs.length - 1; i >= 0; i--) {
         const c = cs[i];
+        if(c.stepped===step)continue;c.stepped=step;
+        if((!c.via||c.s>=c.via.endS)&&c.s>lane.len-25&&(!c.planned||c.planned.revision!==this.networkRevision)){
+          const n=lane.p.length/3,k=(n-1)*3,j=k-3;
+          const on=this.next(lane.p[k],lane.p[k+1],lane.p[k]-lane.p[j],lane.p[k+1]-lane.p[j+1],lane);
+          c.planned=on?{lane:on,curve:this.curve(lane,on),revision:this.networkRevision}:undefined;
+        }
         // the car ahead: on this lane, or the start of the next if near the end (not looked up: a margin)
         const ahead = cs[i + 1];
         const gap = ahead ? ahead.s - c.s - KINDS[ahead.kind][2] : Infinity;
-        const want = gap < 6 ? 0 : gap < 40 ? c.vmax * (gap - 6) / 34 : c.vmax;
+        let want = gap < 6 ? 0 : gap < 40 ? c.vmax * (gap - 6) / 34 : c.vmax;
+        const plan=c.planned,merge=plan?.curve;
+        if(c.via&&c.s<c.via.endS)want=Math.min(want,c.via.speedLimit);
+        else if(merge){
+          want=Math.min(want,merge.speedLimit);
+          const first=plan.lane.cars[0];
+          if(first&&first.s<merge.endS+KINDS[c.kind][2]+8)want=Math.min(want,Math.sqrt(Math.max(0,2*6*(merge.startS-c.s-.5))));
+        }
         c.v += THREE.MathUtils.clamp(want - c.v, -6 * dt, 2.5 * dt);
         c.s += Math.max(0, c.v) * dt;
       }
       // cars past the end: on into the next lane, or set down elsewhere
-      while (cs.length && cs[cs.length - 1].s > lane.len) {
+      while (cs.length && (!cs[cs.length-1].via||cs[cs.length-1].s>=cs[cs.length-1].via!.endS) && cs[cs.length - 1].s > (cs[cs.length-1].planned?.curve?.startS ?? lane.len)) {
         const c = cs.pop()!, n = lane.p.length / 3;
         const ex = lane.p[(n - 1) * 3], ey = lane.p[(n - 1) * 3 + 1];
         const nx = lane.p[(n - 1) * 3] - lane.p[(n - 2) * 3], ny = lane.p[(n - 1) * 3 + 1] - lane.p[(n - 2) * 3 + 1];
-        const on = this.next(ex, ey, nx, ny, lane), to = on ?? this.elsewhere(camera);
+        const on = c.planned?.lane ?? this.next(ex, ey, nx, ny, lane), to = on ?? this.elsewhere(camera);
         if (!to) { this.cars = this.cars.filter(x => x !== c); continue; }
-        const gap = on ? Math.hypot(to.p[0] - ex, to.p[1] - ey) : 0;
-        // (a gap over a metre: driven across, from where the last lane ended)
-        c.via = on && gap > 1 ? { x: ex, y: ey, z: lane.p[(n - 1) * 3 + 2], len: gap } : null;
-        c.s = on ? c.s - lane.len - (c.via ? gap : 0) : 0;
-        if (to.cars.length && to.cars[0].s < c.s + 8) c.s = Math.max(0, to.cars[0].s - 10);
+        const curve=on?(c.planned?.curve??this.curve(lane,to)):null;
+        const enter=curve?.endS??0;
+        // Wait in the current lane for a safe target gap. Never clamp a negative
+        // connector coordinate to zero (that teleported cars sideways).
+        if(on&&to.cars.length&&to.cars[0].s<enter+KINDS[c.kind][2]+8){
+          c.s=Math.min(c.s,(curve?.startS??lane.len)-.05);c.v=0;cs.push(c);break;
+        }
+        c.via=curve;
+        c.s=on?(curve?curve.endS-curve.len+c.s-curve.startS:c.s-lane.len):0;
+        c.planned=undefined;
         c.lane = to; c.k = 0;
         to.cars.unshift(c);
       }
@@ -244,14 +280,13 @@ export class DroneTraffic {
       const l = c.lane, p = l.p;
       // Junction transfers can lie outside the new lane's bounds; preserve
       // their original point test and the original vehicle/random-choice order.
-      if(l.renderOutside&&!(c.s<0&&c.via))continue;
+      if(l.renderOutside&&!(c.via&&c.s<c.via.endS))continue;
       let x: number, y: number, z: number, dx: number, dy: number, dz: number, seg: number;
-      if (c.s < 0 && c.via) {
-        // on the way across a junction: straight from where it left to where its lane starts
-        const v = c.via, f = 1 + c.s / v.len;
-        dx = p[0] - v.x; dy = p[1] - v.y; dz = p[2] - v.z; seg = v.len;
-        x = v.x + dx * f; y = v.y + dy * f; z = v.z + dz * f;
+      if (c.via && c.s < c.via.endS) {
+        const at=sampleLaneCurve(c.via,c.via.len+c.s-c.via.endS,this.curvePose);
+        x=at.x;y=at.y;z=at.z;dx=at.dx;dy=at.dy;dz=at.dz;seg=Math.hypot(dx,dy)||1;
       } else {
+        c.via=null;
         while (c.k < l.cum.length - 2 && l.cum[c.k + 1] < c.s) c.k++;
         const k = c.k; seg = l.cum[k + 1] - l.cum[k] || 1;
         const f = Math.min(1, Math.max(0, (c.s - l.cum[k]) / seg));
@@ -262,7 +297,7 @@ export class DroneTraffic {
       if (ddx * ddx + ddz * ddz > FAR_M * FAR_M) continue;
       // heading (scene: forward +z, x east, z south) and slope, without trigonometry
       let cyaw:number,syaw:number,cp:number,sp:number;
-      if(c.s<0&&c.via){
+      if(c.via&&c.s<c.via.endS){
         const hl=Math.hypot(dx,dy)||1,pl=Math.hypot(seg,dz)||1;
         cyaw=-dy/hl;syaw=dx/hl;cp=seg/pl;sp=-dz/pl;
       }else{

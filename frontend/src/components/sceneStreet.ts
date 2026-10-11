@@ -1047,8 +1047,20 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const ci = endCluster(road, !forward), sig = ci >= 0 && signals[ci] !== null, tJoin = link.s0 > 0;
     const endTrim = ci >= 0 ? trim(road, !forward) : tJoin ? paths[link.road].width / 2 + 1.5 : turn === "uturn" ? 2 : 1.5;
     const startTrim = ci >= 0 ? trim(link.road, link.forward) : tJoin ? paths[road].width / 2 + 1.5 : turn === "uturn" ? 2 : 1.5;
-    const endS = paths[road].len - endTrim, startS = Math.min(paths[link.road].len - 1, link.s0 + startTrim);
-    const a = lanePt(road, forward, endS, lane), b = lanePt(link.road, link.forward, startS, nextLane);
+    let endS = paths[road].len - endTrim, startS = Math.min(paths[link.road].len - 1, link.s0 + startTrim);
+    let a = lanePt(road, forward, endS, lane), b = lanePt(link.road, link.forward, startS, nextLane);
+    const lateral=Math.abs((b.x-a.x)*a.hy-(b.y-a.y)*a.hx);
+    if(turn==='straight'&&a.hx*b.hx+a.hy*b.hy>.97&&lateral>.4){
+      // Width/lane-count changes need a forward merge, not a short sideways
+      // connector. Extend only over straight registered road segments.
+      const take=Math.max(8,Math.min(24,lateral*5+8)),p=paths[road],q=paths[link.road];
+      const before=Math.max(startOf(road,forward)+4,endS-Math.min(take,p.len*.25));
+      const after=Math.min(q.len-1,startS+Math.min(take,q.len*.25));
+      if(before<endS&&after>startS&&p.sample.straight(forward?before:p.len-before,forward?endS:p.len-endS)&&
+        q.sample.straight(link.forward?startS:q.len-startS,link.forward?after:q.len-after)){
+        endS=before;startS=after;a=lanePt(road,forward,endS,lane);b=lanePt(link.road,link.forward,startS,nextLane);
+      }
+    }
     const dist = Math.hypot(b.x - a.x, b.y - a.y), k = turn === "uturn" ? Math.max(3.5, dist) : Math.max(1, dist * 0.42);
     const p1 = [a.x + a.hx * k, a.y + a.hy * k], p2 = [b.x - b.hx * k, b.y - b.hy * k];
     const N = 24, xs = new Float32Array(N + 1), ys = new Float32Array(N + 1), cum = new Float32Array(N + 1);

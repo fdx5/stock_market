@@ -66,6 +66,8 @@ import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { DroneSession, type DroneHud } from "./droneMode";
 import type { DroneViewBuildings } from './droneWorld';
 import DroneOverlay from "./DroneOverlay";
+import DronePlaceSearch from './DronePlaceSearch';
+import {dronePlaceId,type DronePlace} from './dronePlaces';
 import DeskBgm from "../desk2/DeskBgm";
 import { useDeskBgm } from "../desk2/deskBgmStore";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
@@ -248,6 +250,8 @@ type Stage = {
   balloonRoute?: [THREE.Vector3, number, number] | null;
   /** 드론 mode (droneMode.ts): its flight is the camera while it lasts. */
   drone: DroneSession | null;
+  /** Reveal a search destination only after an actual drone-camera frame. */
+  exploreReady?:()=>void;
   /** The drone's sky, 0…1 (crisper clouds, the sun's corona), in whichever renderer draws, and
    * its distance haze (start, end in metres: the edge of the world it has loaded). */
   setDroneSky?: (k: number, fog?: [number, number]) => void;
@@ -513,7 +517,7 @@ function inputOnlyRenderer(): THREE.WebGLRenderer {
   } as unknown as THREE.WebGLRenderer;
 }
 
-export default function ComplexHologram({ complexId: homeId, complexName: homeName, caption: homeCaption, wide = false, initialTod, paused = false, openFull = 0, onFullChange, autoDrone = false, onDroneExit }: {
+export default function ComplexHologram({ complexId: homeId, complexName: homeName, caption: homeCaption, wide = false, initialTod, paused = false, openFull = 0, onFullChange, autoDrone = false, onDroneExit, explorePlace, onExploreMove, onExploreReady, onExploreError }: {
   complexId: string | null; complexName?: string; caption?: string;
   /** Each increase opens this view full screen (the map's detail card on a desktop
    * shows its complex here rather than in a second renderer). */
@@ -523,6 +527,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   autoDrone?: boolean;
   /** The dedicated explorer returns to its map when the flight is closed. */
   onDroneExit?: () => void;
+  explorePlace?: DronePlace;
+  onExploreMove?: (place:DronePlace)=>void;
+  onExploreReady?:()=>void;
+  onExploreError?:()=>void;
   /** Covered by something the reader is using (the detail popup): stop drawing, and do
    * any loading only in the browser's idle time. */
   paused?: boolean;
@@ -535,8 +543,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // (tied to the home it was chosen from: another complex on the map ends it)
   const [hopState, setHop] = useState<{ id: string; name: string; home: string | null } | null>(null);
   const hop = hopState && hopState.home === homeId ? hopState : null;
-  const complexId = hop?.id ?? homeId;
-  const complexName = hop?.name ?? homeName;
+  const complexId = hop?.id ?? (explorePlace ? dronePlaceId(explorePlace) : homeId);
+  const complexName = hop?.name ?? explorePlace?.title ?? homeName;
   const caption = hop ? "주변 단지 · 3D" : homeCaption;
   /** A move under way to another complex: where the view's centre was (to carry the
    * camera and the balloon across when the new model's origin replaces it). */
@@ -550,6 +558,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const stageRef = useRef<Stage | null>(null);
   const [data, setData] = useState<RealEstateBuildingsResponse | null>(null);
   const [error, setError] = useState("");
+  const exploreReady=useRef(onExploreReady);exploreReady.current=onExploreReady;
+  useEffect(()=>{if(error)onExploreError?.();},[error,onExploreError]);
   const [loading, setLoading] = useState(false);
   const [slowData, setSlowData] = useState(false);
   // Waiting on the building shapes: which attempt (a stalled request is retried), and a
@@ -629,6 +639,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (!complexId || sharing) return;
     const name = data?.name ?? complexName ?? "단지";
     shareUrl.current = view3dUrl(complexId, hour, weather);
+    if(autoDrone&&explorePlace){
+      const url=new URL(location.href);url.searchParams.set('hour',String(hour));url.searchParams.set('weather',weather);
+      url.searchParams.delete('fps');url.searchParams.delete('hud');url.searchParams.delete('dronedebug');
+      shareUrl.current=url.toString();
+    }
     const viewName = autoDrone ? '드론 탐험' : '3D 단지뷰';
     setShareStage(await shareLink3d({ url: shareUrl.current, title: `${name} ${viewName}`, text: `${name} ${viewName} · ${phaseCaption()}` }));
   };
@@ -1147,10 +1162,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!stage.drone) stage.signs?.(camera, W, H);
 
 
+      let droneFrame=false;
       if (native) {
         try {
           const r0 = performance.now();
+          const before=native.frameNo;
           native.render(scene, camera, stage.look, t);
+          droneFrame=native.shown&&native.frameNo>before;
           renderMax = Math.max(renderMax, performance.now() - r0); renderSum += performance.now() - r0;
         }
         catch (err) { host.dataset.gpuFallback = String(err).slice(0,240); console.warn("[3D] WebGPU fallback:", err); native.failed = true; }
@@ -1192,8 +1210,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         (reflector.onBeforeRender as (r: THREE.WebGLRenderer, s: THREE.Scene, c: THREE.Camera) => void)(renderer, scene, camera);
         stage.ground.visible = true;
       }
-      if (gl && !glWait) composer?.render();
+      if (gl && !glWait && composer) {composer.render();droneFrame=true;}
       const drewFrame = !!native?.shown || (!!composer && gl && !glWait);
+      if(droneFrame&&stage.drone&&stage.exploreReady){const ready=stage.exploreReady;stage.exploreReady=undefined;ready();}
       if (!drewFrame) { sampleFrames = 0; sampleStart = nowMs; }
       else if (++sampleFrames >= 60 || (sampleFrames >= 2 && nowMs - sampleStart > 1000)) {
         host.dataset.fps = (sampleFrames * 1000 / (nowMs - sampleStart)).toFixed(1);
@@ -1548,6 +1567,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // limit and the next one starts over (by then the server has usually kept the
     // result, and answers at once).
     const attempt = async (signal: AbortSignal): Promise<RealEstateBuildingsResponse> => {
+      if(explorePlace&&!hop) {
+        // Read the existing public map configuration. Coordinate destinations
+        // do not enter the apartment lookup or persist new search/history data.
+        const config=await api.realEstateBuildings(homeId!,signal,true);
+        if(!config.vworld_key)throw new Error('지도 검색 설정을 가져오지 못했습니다. 다시 시도해 주세요.');
+        const result=await vworldBuildings(complexId,{name:explorePlace.title,parcel:explorePlace.address||null},
+          config.vworld_key,config.vworld_domain,{lat:explorePlace.lat,lon:explorePlace.lon,signal});
+        if(!result)throw new Error('선택한 위치의 지형 정보를 가져오지 못했습니다.');
+        return {...result,vworld_key:config.vworld_key,vworld_domain:config.vworld_domain};
+      }
       const cached = buildingCache.get(complexId);
       if (cached && Date.now() - cached.at < 300000) return cached.data;
       // (the look started ahead — on the tile's hover, or just now — when it found shapes)
@@ -1633,7 +1662,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const res = withoutStrays(withoutDemolished(found));
         if (live && res.found && !pausedRef.current) prefetchPaint(res.id, res.name);
         if (res.found) {
-          if (!buildingCache.has(complexId)) void saveBuildings(complexId, res);
+          if (!explorePlace && !buildingCache.has(complexId)) void saveBuildings(complexId, res);
           buildingCache.set(complexId, { at: Date.now(), data: res });
           if (buildingCache.size > 8) buildingCache.delete(buildingCache.keys().next().value!);
         }
@@ -1643,7 +1672,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       .catch(err => { if (live && !ctl.signal.aborted) { setData(null); setError(err instanceof Error ? err.message : "불러오지 못했습니다."); } })
       .finally(() => { window.clearTimeout(slowTimer); if (live) setLoading(false); });
     return () => { live = false; window.clearTimeout(slowTimer); ctl.abort(); };
-  }, [complexId, reloadKey]);
+  }, [complexId, reloadKey, explorePlace]);
 
   // Build the model for the loaded complex.
   useEffect(() => {
@@ -1681,7 +1710,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       stage.balloonView?.aim?.add(shift);
     }
     const letGo = () => { behind?.release(); behind = null; };
-    if (!data?.found || !data.buildings.length) { letGo(); return; }
+    if (!data?.found || (!data.buildings.length && !(autoDrone && data.center))) { letGo(); return; }
     // (idle time, once a session: a river complex's boats need them the moment its water is in)
     prepareWakes();
     const modelStarted = performance.now();
@@ -1766,7 +1795,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
 
     // Ground painting only needs the footprints, not their finished meshes. Match
     // the float32 extrusion bounds so its extent and pixels are exactly unchanged.
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, footprintRadius = 0;
+    let minX = 0, minY = 0, maxX = 0, maxY = 0, footprintRadius = 0;
+    if(data.buildings.length){minX=minY=Infinity;maxX=maxY=-Infinity;}
     for (const b of data.buildings) {
       const included = !(b.height_source === "estimated" && footArea(b.rings[0]) < 300);
       for (const [x, y] of b.rings[0]) {
@@ -1774,6 +1804,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (included) { const fx = Math.fround(x), fy = Math.fround(y); minX = Math.min(minX, fx); maxX = Math.max(maxX, fx); minY = Math.min(minY, fy); maxY = Math.max(maxY, fy); }
       }
     }
+    if(!Number.isFinite(minX+minY+maxX+maxY))minX=minY=maxX=maxY=0;
     const T = Math.max((footprintRadius + 300) * 1.15, Math.max(maxX - minX, maxY - minY, 60) * 0.9 + 120);
     const reach = footprintRadius + 300;
     const tints = ["#f1ede4", "#e4e1da", "#d9d4ca", "#c9b8a4", "#b88f78", "#a9b3bb", "#e8e3d3", "#cfc9bd"];
@@ -2002,6 +2033,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       top = Math.max(top, H);
       floor = Math.min(floor, g);
     }
+    // An open-space destination needs finite camera bounds, without fake geometry.
+    if(box.isEmpty())box.set(new THREE.Vector3(-30,-30,0),new THREE.Vector3(30,30,10));
     const span = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, 60);
     const cx = (box.max.x + box.min.x) / 2, cy = (box.max.y + box.min.y) / 2;
     const dist = Math.max(span, top * 1.4) * 1.1 + 40;
@@ -3009,7 +3042,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!alive) return plan.planting;
       data.parcels = parcels;
       data.streets = got!.streets;
-      void saveBuildings(data.id, data);
+      if(!explorePlace)void saveBuildings(data.id, data);
       let sliceAt = performance.now();
       const next = await groundPlan(data, T, stage.hq ? 2048 : 1024, seed, async () => {
         if (performance.now() - sliceAt > 6) { await nextFrame(pausedRef.current); sliceAt = performance.now(); }
@@ -3785,10 +3818,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     droneShadow.current = { left: sc.left, right: sc.right, top: sc.top, bottom: sc.bottom, far: sc.far };
     sc.left = sc.bottom = -320; sc.right = sc.top = 320; sc.far = 2400; sc.updateProjectionMatrix();
     drone.start();
+    if(explorePlace&&!hop){
+      drone.flight.place(0,0,drone.world.groundAt(0,0),220,drone.flight.yaw);
+      drone.flight.apply(st.camera);st.camera.updateMatrixWorld();
+    }
     st.drone = drone;
+    st.exploreReady=()=>exploreReady.current?.();
     if (droneView === "chase") drone.toggleView();
     // (the button pressed keeps no focus: a Space for climbing must not press it again)
-    (document.activeElement as HTMLElement | null)?.blur?.();
+    const focused=document.activeElement as HTMLElement|null;
+    if(!focused?.closest('.drone-warp'))focused?.blur?.();
     // (?dronedebug=1: the session on the window, for the checks in scripts/)
     if (new URLSearchParams(location.search).get("dronedebug") === "1") Object.assign(window, {
       __drone: drone,
@@ -3832,6 +3871,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const FLY = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "KeyR", "KeyF", "KeyC", "Space", "ShiftLeft", "ShiftRight", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"]);
     // (on the window, capturing: ahead of the view's own keys and the full-screen layer's Esc)
     const down = (e: KeyboardEvent) => {
+      // The destination keeps rendering under the warp, but flight input waits.
+      if(document.querySelector('.drone-warp'))return;
+      if(e.key==='Escape'&&(e.target as HTMLElement|null)?.closest('.re-drone-place-search'))return;
       if (e.key === "Escape") {
         e.preventDefault(); e.stopImmediatePropagation();
         if(document.querySelector('.re-drone-auto-settings')) { window.dispatchEvent(new Event('drone-auto-settings-close'));return; }
@@ -3847,7 +3889,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       flight()?.keys.add(e.code);
     };
     // (the key's release too: Space let go over a focused button would press it — the 착륙 button)
-    const up = (e: KeyboardEvent) => { if (FLY.has(e.code)) { flight()?.keys.delete(e.code); if(typing(e))return; e.preventDefault(); e.stopImmediatePropagation(); } };
+    const up = (e: KeyboardEvent) => { if (FLY.has(e.code)) { flight()?.keys.delete(e.code); if(typing(e)||document.querySelector('.drone-warp'))return; e.preventDefault(); e.stopImmediatePropagation(); } };
     const blur = () => flight()?.keys.clear();
     // (the wheel: up and down)
     const wheel = (e: WheelEvent) => { if ((e.target as HTMLElement | null)?.closest?.(".re-drone-card, .re-drone-auto-controls")) return; e.preventDefault(); flight()?.wheelClimb(e.deltaY); };
@@ -3992,7 +4034,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // 주변 단지: the apartment complexes round the page's complex (VWorld's 공동주택 and the
   // parcels they stand on, matched to the trades' 지번 by the server), once its view is up.
   useEffect(() => {
-    if (!complexId || !data?.found || !data.center || !data.vworld_key || nearby?.home === complexId) return;
+    if (!complexId || explorePlace || !data?.found || !data.center || !data.vworld_key || nearby?.home === complexId) return;
     let live = true;
     const st = stageRef.current, res = data, home = complexId;
     const go = () => void nearbyFor(home, res)
@@ -4172,6 +4214,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           {big && !narrow && <button type="button" onClick={() => { resizeDrag.current = null; setBigSize(null); }}
             title="3D 뷰를 화면 전체 크기로 되돌리기">⤢ 화면 채우기</button>}
           <button type="button" aria-pressed={spin} disabled={droneOn} onClick={() => setSpin(v => !v)} aria-label="자동 회전" title={droneOn ? '드론 비행 중에는 직접 방향을 조절하세요' : "360° 자동 회전"}>{spin ? "자동 ■" : "자동 ▶"}</button>
+          {autoDrone&&onExploreMove&&<DronePlaceSearch mapKey={data?.vworld_key} domain={data?.vworld_domain}
+            initialPlace={explorePlace} onMove={onExploreMove} onTyping={()=>stageRef.current?.drone?.flight.keys.clear()} />}
           {complexId && data?.found && (
             <button type="button" className="re-holo-save" onClick={() => void onSaveImage()} disabled={sharing} title="지금 3D 화면을 이미지(PNG)로 저장" aria-label="이미지 저장">
               <span aria-hidden="true">⤓</span><span className="re-holo-share-long">{sharing ? "저장 중…" : "이미지 저장"}</span>

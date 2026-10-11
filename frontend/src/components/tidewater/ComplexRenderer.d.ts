@@ -11,6 +11,8 @@ export class ComplexRenderer {
   pending?: boolean;
   compiling?: boolean;
   shown: boolean;
+  /** Existing render counter, used to confirm a destination-camera frame. */
+  frameNo: number;
   failed: boolean;
   /** Canvases emptied after upload (a fall back to WebGL must repaint them). */
   released?: number;

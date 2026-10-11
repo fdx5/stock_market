@@ -1,15 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {transformSync} from 'esbuild';
+import {fileURLToPath} from 'node:url';
+import {transformSync,buildSync} from 'esbuild';
 import vm from 'node:vm';
 const scope={module:{exports:{}},exports:{}};
 vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/trafficJunction.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,scope);
 const {junctionSignalPolicy,junctionOccupied}=scope.module.exports;
-const levelsScope={module:{exports:{}},exports:{}};
-vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/roadLevels.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,levelsScope);
-const networkScope={module:{exports:{}},exports:{},require:()=>levelsScope.module.exports};
-vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/roadTrafficNetwork.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,networkScope);
+const networkScope={module:{exports:{}},exports:{}};
+// Include the production road-level/surface dependencies in memory; the old
+// single-import stub missed the shared bridge geometry added to roadLevels.
+vm.runInNewContext(buildSync({entryPoints:[fileURLToPath(new URL('../src/components/roadTrafficNetwork.ts',import.meta.url))],bundle:true,format:'cjs',platform:'node',write:false}).outputFiles[0].text,networkScope);
 const {splitRoadJunctions}=networkScope.module.exports;
 test('a surveyed mid-block T junction splits the through road and keeps its width and lanes',()=>{
  const main={line:[[-20,0],[0,0],[20,0]],width:24,lanes:6},side={line:[[.5,.4],[0,20]],width:9,lanes:2};
