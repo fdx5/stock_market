@@ -587,6 +587,7 @@
 .re-drone-auto-settings small { font-size: 10px; color: #aacada; }
 .re-drone-auto-settings > button { padding: 6px; border: 1px solid #7fd8ff66; border-radius: 6px; background: #16384a; color: #fff; cursor: pointer; }
 .re-drone-auto-settings input:focus-visible, .re-drone-auto-settings-toggle:focus-visible { outline: 2px solid #ffd27a; outline-offset: 2px; }
+.re-drone-auto-settings::backdrop { background: #02091266; }
 .re-drone-help { position: absolute; left: 50%; bottom: 14px; display: block; width: max-content; max-width: min(720px, calc(100% - 24px)); padding: 8px 14px; border-radius: 12px; background: #07131cd0; text-align: center; transform: translateX(-50%); line-height: 1.5; }
 .re-drone-help b { color: #ffd27a; }
 .re-drone-help span { display: block; margin-top: 2px; color: #8fb6cc; font-size: 11px; }

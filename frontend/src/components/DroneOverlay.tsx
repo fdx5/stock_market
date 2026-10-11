@@ -60,6 +60,18 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
   const [autoSettings, setAutoSettings] = useState(false);
   const [speedDraft, setSpeedDraft] = useState<string | null>(null);
   const [altitudeDraft, setAltitudeDraft] = useState<string | null>(null);
+  const settingsDialog=useRef<HTMLDialogElement>(null);
+  useEffect(()=>{
+    const dialog=settingsDialog.current;
+    if(!autoSettings||!dialog)return;
+    // The native top layer stays above transformed/fullscreen scene containers
+    // and footer layers. Essential control styles travel with the component.
+    if(typeof dialog.showModal==='function')dialog.showModal();
+    else dialog.setAttribute('open','');
+    return()=>{if(dialog.open)dialog.close();};
+  },[autoSettings]);
+  const settingInputStyle={width:80,minWidth:80,height:36,boxSizing:'border-box' as const,marginLeft:'auto',padding:'6px 8px',border:'1px solid #ffffff66',borderRadius:6,background:'#162b38',color:'#fff',fontSize:16,display:'block'};
+  const settingLabelStyle={display:'flex',alignItems:'center',gap:8,minHeight:36,color:'#eaf6ff',fontSize:13};
   const updateFlight = () => setHud(h => h ? { ...h } : h);
   useEffect(() => {
     const close = () => setAutoSettings(false);
@@ -141,24 +153,27 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
       </button>
       <button type="button" className="re-drone-auto-settings-toggle" aria-expanded={autoSettings} aria-controls="drone-auto-settings"
         onClick={() => setAutoSettings(v => !v)}>속도·고도 설정</button>
-      {autoSettings && createPortal(<div className="re-drone-auto-settings" id="drone-auto-settings" role="dialog" aria-label="오토파일럿 설정" onPointerDown={e => e.stopPropagation()}>
-        <label>속도 <input aria-label="오토파일럿 속도" type="number" min={0} max={MAX_SPEED * 3.6} step={1}
+      {autoSettings && createPortal(<dialog ref={settingsDialog} className="re-drone-auto-settings" id="drone-auto-settings" aria-label="오토파일럿 설정"
+        style={{position:'fixed',inset:'50% auto auto 50%',transform:'translate(-50%, -50%)',margin:0,width:304,maxWidth:'calc(100vw - 24px)',maxHeight:'calc(100vh - 24px)',overflowY:'auto',boxSizing:'border-box',display:'grid',gap:12,padding:16,border:'1px solid #7fd8ff88',borderRadius:12,background:'#07131c',color:'#eaf6ff',fontFamily:'sans-serif',visibility:'visible',opacity:1}}
+        onCancel={e=>{e.preventDefault();setAutoSettings(false);}} onPointerDown={e => e.stopPropagation()}>
+        <strong style={{display:'block',fontSize:15,color:'#fff'}}>오토파일럿 속도·고도 설정</strong>
+        <label style={settingLabelStyle}>속도 <input style={settingInputStyle} aria-label="오토파일럿 속도" type="number" min={0} max={MAX_SPEED * 3.6} step={1}
           value={speedDraft ?? Math.round(flight.autoCruiseSpeed * 3.6)} onFocus={e => setSpeedDraft(e.target.value)}
           onChange={e => {setSpeedDraft(e.target.value);if(e.target.value!==''&&e.target.validity.valid)flight.setAutoSpeed(e.target.valueAsNumber);updateFlight();}}
           onBlur={e => {if(e.target.value!=='')flight.setAutoSpeed(e.target.valueAsNumber);setSpeedDraft(null);updateFlight();}}
           onKeyDown={e => {if(e.key==='Enter')e.currentTarget.blur();}} /> km/h</label>
-        <input aria-label="오토파일럿 속도 슬라이더" type="range" min={0} max={MAX_SPEED * 3.6} step={1}
+        <input style={{display:'block',width:'100%',height:24,margin:0,accentColor:'#82d4ff'}} aria-label="오토파일럿 속도 슬라이더" type="range" min={0} max={MAX_SPEED * 3.6} step={1}
           value={Math.round(flight.autoCruiseSpeed * 3.6)} onChange={e => {flight.setAutoSpeed(e.target.valueAsNumber);updateFlight();}} />
-        <label>목표 고도 <input aria-label="오토파일럿 목표 고도" type="number" min={AUTO_MIN_AGL} max={AUTO_MAX_AGL} step={1}
+        <label style={settingLabelStyle}>목표 고도 <input style={settingInputStyle} aria-label="오토파일럿 목표 고도" type="number" min={AUTO_MIN_AGL} max={AUTO_MAX_AGL} step={1}
           value={altitudeDraft ?? Math.round(flight.autoCruiseAgl)} onFocus={e => setAltitudeDraft(e.target.value)}
           onChange={e => {setAltitudeDraft(e.target.value);if(e.target.value!==''&&e.target.validity.valid)flight.setAutoAltitude(e.target.valueAsNumber);updateFlight();}}
           onBlur={e => {if(e.target.value!=='')flight.setAutoAltitude(e.target.valueAsNumber);setAltitudeDraft(null);updateFlight();}}
           onKeyDown={e => {if(e.key==='Enter')e.currentTarget.blur();}} /> m</label>
-        <input aria-label="오토파일럿 고도 슬라이더" type="range" min={AUTO_MIN_AGL} max={AUTO_MAX_AGL} step={1}
+        <input style={{display:'block',width:'100%',height:24,margin:0,accentColor:'#82d4ff'}} aria-label="오토파일럿 고도 슬라이더" type="range" min={AUTO_MIN_AGL} max={AUTO_MAX_AGL} step={1}
           value={Math.round(flight.autoCruiseAgl)} onChange={e => {flight.setAutoAltitude(e.target.valueAsNumber);updateFlight();}} />
-        <small>지면 기준 10~1,000m · 장애물에 따라 상승·대기</small>
-        <button type="button" onClick={() => setAutoSettings(false)}>완료</button>
-      </div>, document.body)}
+        <small style={{display:'block',fontSize:11,color:'#aacada'}}>속도 0~200km/h · 지면 기준 10~1,000m<br/>장애물에 따라 상승·대기</small>
+        <button style={{display:'block',width:'100%',minHeight:36,padding:8,border:'1px solid #7fd8ff88',borderRadius:6,background:'#16384a',color:'#fff',fontSize:14,cursor:'pointer'}} type="button" onClick={() => setAutoSettings(false)}>설정 완료</button>
+      </dialog>, document.body)}
       </div>
       <div className="re-drone-tools">
         <button type="button" className="re-drone-view" onClick={onView} title="1인칭 ↔ 3인칭 (V)"><i className="re-drone-view-icon" aria-hidden="true">🚁</i><span>{view === "fpv" ? "1인칭" : "3인칭"}</span></button>
