@@ -1,6 +1,7 @@
 import {useEffect,useId,useRef,useState} from 'react';
 import {searchDronePlaces} from './dronePlaceClient';
 import {placeDisplayTitle,type DronePlace} from './dronePlaces';
+import './drone-place-search.css';
 
 export default function DronePlaceSearch({mapKey,domain='https://kospimap.com',initialPlace,onMove,onTyping}: {
   mapKey?:string|null; domain?:string; initialPlace?:DronePlace; onMove:(place:DronePlace)=>void; onTyping:()=>void;

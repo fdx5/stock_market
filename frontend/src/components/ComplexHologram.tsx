@@ -68,6 +68,7 @@ import type { DroneViewBuildings } from './droneWorld';
 import DroneOverlay from "./DroneOverlay";
 import DronePlaceSearch from './DronePlaceSearch';
 import {dronePlaceId,type DronePlace} from './dronePlaces';
+import {moveFromBuildingView} from './droneTravel';
 import DeskBgm from "../desk2/DeskBgm";
 import { useDeskBgm } from "../desk2/deskBgmStore";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
@@ -603,7 +604,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // The explorer keeps the full-size canvas beneath its chrome. Measure only
   // when the bars resize, so flight controls stay clear of both bars on phones too.
   useEffect(() => {
-    if (!autoDrone || !sectionRef.current) return;
+    if (!sectionRef.current) return;
     const section = sectionRef.current;
     const observer = new ResizeObserver(entries => {
       for (const entry of entries) {
@@ -4214,8 +4215,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           {big && !narrow && <button type="button" onClick={() => { resizeDrag.current = null; setBigSize(null); }}
             title="3D 뷰를 화면 전체 크기로 되돌리기">⤢ 화면 채우기</button>}
           <button type="button" aria-pressed={spin} disabled={droneOn} onClick={() => setSpin(v => !v)} aria-label="자동 회전" title={droneOn ? '드론 비행 중에는 직접 방향을 조절하세요' : "360° 자동 회전"}>{spin ? "자동 ■" : "자동 ▶"}</button>
-          {autoDrone&&onExploreMove&&<DronePlaceSearch mapKey={data?.vworld_key} domain={data?.vworld_domain}
-            initialPlace={explorePlace} onMove={onExploreMove} onTyping={()=>stageRef.current?.drone?.flight.keys.clear()} />}
+          {(autoDrone||droneOn)&&<DronePlaceSearch mapKey={data?.vworld_key} domain={data?.vworld_domain}
+            initialPlace={explorePlace} onMove={onExploreMove??(target=>moveFromBuildingView(target,homeId!,hour,weather))}
+            onTyping={()=>stageRef.current?.drone?.flight.keys.clear()} />}
           {complexId && data?.found && (
             <button type="button" className="re-holo-save" onClick={() => void onSaveImage()} disabled={sharing} title="지금 3D 화면을 이미지(PNG)로 저장" aria-label="이미지 저장">
               <span aria-hidden="true">⤓</span><span className="re-holo-share-long">{sharing ? "저장 중…" : "이미지 저장"}</span>
@@ -4304,7 +4306,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         {(big || autoDrone) && <div className="d2 d2-bgm-float re-holo-bgm"><DeskBgm variant="strip" /></div>}
         {data.vworld_key && data.center && <div className="re-holo-flight-buttons">
           <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn} onClick={() => (droneOn ? exitDrone() : enterDrone())}
-            title={droneOn ? "드론 착륙 (원래 시점으로)" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 상공 500m까지)"}>
+            title={droneOn ? "드론 착륙 (원래 시점으로)" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 수동 고도 상한 없음)"}>
             <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : "드론"}</span>
           </button>
           {driveEnabled && <button type="button" className="re-holo-balloon-btn re-holo-drive-btn" onClick={openDrive}
