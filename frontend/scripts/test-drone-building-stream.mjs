@@ -13,6 +13,9 @@ const {surveySearch,surveySourceOverlaps}=await import('data:text/javascript;bas
 const downloadsBundle=await build({entryPoints:[new URL('../src/components/surveyDownloads.ts',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')],bundle:true,write:false,platform:'node',format:'esm'});
 const {downloadSurveyModels}=await import('data:text/javascript;base64,'+Buffer.from(downloadsBundle.outputFiles[0].text).toString('base64'));
 const { matchSurveyBuildings,surveyCompleteFor,surveyAlignment } = await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'));
+const storeBundle=await build({entryPoints:[new URL('../src/components/surveyGeometryStore.ts',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')],bundle:true,write:false,platform:'node',format:'cjs',external:['three']});
+const storeScope={require:()=>THREE,module:{exports:{}},exports:{}};vm.runInNewContext(storeBundle.outputFiles[0].text,storeScope);
+const {SurveyGeometryStore}=storeScope.module.exports;
 const appearanceScope={THREE,module:{exports:{}},exports:{}};
 vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/buildingAppearance.ts',import.meta.url),'utf8').replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,appearanceScope);
 const {buildingAppearanceProfile,observedRoofColour}=appearanceScope.module.exports;
@@ -94,7 +97,7 @@ const cls=ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name.text==='DroneW
 const method=name=>cls.members.find(n=>n.name?.getText(ast)===name).getText(ast).replace(/^private /,'');
 function harness(extra={}) {
   const raf=[];
-  const scope={THREE,performance,console,droneDetailPriority,observedRoofColour,LANDMARK_SITES:[],TOWER:9,SURVEY_STYLES:['apt','villa','shop','office'],requestAnimationFrame:f=>raf.push(f),staticSceneTransforms:()=>{},sharedContextMaterial:()=>new THREE.MeshStandardMaterial(),photoAtlasMaterial:()=>({mat:new THREE.MeshStandardMaterial(),dispose(){}}),castShadows:()=>{},...extra};
+  const scope={THREE,SurveyGeometryStore,performance,console,droneDetailPriority,observedRoofColour,LANDMARK_SITES:[],TOWER:9,SURVEY_STYLES:['apt','villa','shop','office'],requestAnimationFrame:f=>raf.push(f),staticSceneTransforms:()=>{},sharedContextMaterial:()=>new THREE.MeshStandardMaterial(),photoAtlasMaterial:()=>({mat:new THREE.MeshStandardMaterial(),dispose(){}}),castShadows:()=>{},...extra};
   vm.runInNewContext(transformSync('class W {'+method('surveyTile')+method('paintSurvey')+method('colourTile')+'};globalThis.W=W;',{loader:'ts'}).code,scope);
   const w=new scope.W();Object.assign(w,{o:{data:{center:{lat:37,lon:127},vworld_key:'synthetic'},drawReady:()=>false},landmarks:{},tiles:new Map(),liveTile:t=>w.tiles.get(t.key)===t,disposed:false,surveying:0,scheduleX:0,scheduleY:0,aheadX:0,aheadY:0,pace:async()=>true,plain:new THREE.MeshStandardMaterial()});
   const base=new THREE.BufferGeometry().setAttribute('color',new THREE.Float32BufferAttribute([.7,.6,.5,.1,.2,.3,.7,.6,.5],3)).setIndex([0,1,2]);
@@ -121,12 +124,21 @@ test('a dense tile admits twelve nearest records at a time and continues beyond 
 });
 test('coarse triangles remain until detail is GPU-ready; retries skip already replaced records',async()=>{
   const {w,t,raf}=harness();let submitted;
-  const part={material:0,position:new Float32Array([0,0,0,1,0,0,0,1,0]),normal:new Float32Array([0,0,1,0,0,1,0,0,1]),uv:new Float32Array(6),color:new Float32Array(9),index:new Uint32Array([0,1,2]),sphere:[0,0,0,2],paintSpans:new Uint32Array([0,0,0,3,0])};
+  const part={material:0,position:new Float32Array([0,0,0,1,0,0,0,1,0]),normal:new Float32Array([0,0,1,0,0,1,0,0,1]),uv:new Float32Array(6),color:new Float32Array(9),index:new Uint32Array([0,1,2]),box:[0,0,0,1,1,0],sphere:[0,0,0,2],paintSpans:new Uint32Array([0,0,0,3,0])};
   w.surveyWork=async job=>{submitted=job;return{parts:[part],hide:new Float32Array([0,0,3]),retry:true,models:1,matched:1};};
   await w.surveyTile(t);assert.equal(t.survey,'placed');assert.deepEqual([...t.styleGeo.apt.index.array],[0,1,2]);
   raf.shift()();assert.equal(t.survey,'placed');w.o.drawReady=()=>true;raf.shift()();
   assert.deepEqual([...t.styleGeo.apt.index.array],[0,0,0]);assert.equal(t.survey,'ready');
   assert.equal(t.surveyHidden.size,1);await w.surveyTile(t);assert.equal(t.survey,'ready');assert.equal(submitted.towers.length,9);
+});
+for(const failure of ['timeout','pipeline'])test('GPU '+failure+' preserves the coarse building and makes detail retryable',async()=>{
+ let now=100;const {w,t,raf}=harness({performance:{now:()=>now}});
+ const part={material:0,position:new Float32Array([0,0,0,1,0,0,0,1,0]),normal:new Float32Array(9),uv:null,color:new Float32Array(9),index:new Uint32Array([0,1,2]),box:[0,0,0,1,1,0],sphere:[0,0,0,2],paintSpans:new Uint32Array()};
+ w.surveyWork=async()=>({parts:[part],hide:new Float32Array([0,0,3]),retry:false,models:1,matched:1});
+ await w.surveyTile(t);assert.equal(t.survey,'placed');
+ if(failure==='pipeline')w.o.drawReady=()=>{throw Error('pipeline rejected');};else now+=15001;
+ raf.shift()();assert.deepEqual([...t.styleGeo.apt.index.array],[0,1,2]);assert.equal(t.surveyHidden,undefined);assert.equal(t.survey,'unavailable');assert.ok(t.surveyRetryAt>now);
+ assert.equal(t.surveyStore.entries.length,0);assert.equal(t.surveyGroup.children.length,0);
 });
 test('failed nearest records cannot monopolise later records; expired missing models are requested again',async()=>{
   let now=100;const {w,t}=harness({performance:{now:()=>now}}),seen=[];

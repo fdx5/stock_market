@@ -28,6 +28,13 @@ import { prepareCanvasResize,sceneDeviceBudget } from '../sceneDeviceBudget';
 import {updateForestLod} from '../spatialForest';
 import {BUILDING_APPEARANCE_WGSL} from './buildingAppearanceShader.js';
 
+// Readiness uses the same pipeline descriptors for every building. Reuse the
+// normalized immutable passes instead of allocating/keying them per mesh.
+const READY_COLOUR=Object.freeze({kind:'color',late:false,colorFormats:['rgba16float'],depthFormat:'depth32float',depthCompare:'greater-equal',passKey:'color.0.rgba16float.depth32float.greater-equal..'});
+const READY_SHADOW=Object.freeze({kind:'depth',late:false,colorFormats:[],depthFormat:'depth32float',depthCompare:'less-equal',depthBias:2,depthBiasSlopeScale:1.5,passKey:'depth.0..depth32float.less-equal..'});
+const READY_COLOUR_PASSES=Object.freeze([READY_COLOUR]);
+const READY_CASTER_PASSES=Object.freeze([READY_COLOUR,READY_SHADOW]);
+
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
  * software / fallback adapters. Visible views keep their selected quality. */
 export const QUALITY = {
@@ -1654,13 +1661,12 @@ export class ComplexRenderer {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
       const mesh = this.meshes.get(obj);
       if (!mesh) { ready = false; return; }
-      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      const sources = Array.isArray(obj.material) ? obj.material : [obj.material];
-      const passes = [{kind:'color',colorFormats:['rgba16float'],depthFormat:'depth32float'}];
-      if(mesh.castShadow)passes.push({kind:'depth',colorFormats:[],depthFormat:'depth32float',depthCompare:'less-equal',depthBias:2,depthBiasSlopeScale:1.5});
-      materials.forEach((mat,i)=>{
-        if(mat.srcVersion!==sources[i]?.version||!this.renderer.materialReady(mesh,mat,passes))ready=false;
-      });
+      if (mesh.geometry !== obj.geometry) ready = false;
+      if(!sourceMaterialsMatch(mesh.material,obj.material)){ready=false;return;}
+      const passes=mesh.castShadow?READY_CASTER_PASSES:READY_COLOUR_PASSES;
+      if(Array.isArray(mesh.material)){
+        for(const mat of mesh.material)if(!this.renderer.geometryReady(mesh,mat)||!this.renderer.materialReady(mesh,mat,passes))ready=false;
+      }else if(!this.renderer.geometryReady(mesh,mesh.material)||!this.renderer.materialReady(mesh,mesh.material,passes))ready=false;
     });
     return ready && !this.failed;
   }
@@ -1677,7 +1683,8 @@ export class ComplexRenderer {
     // burst of GPU work, and the pointer stalls with it. They come a few per frame instead
     // (behind the loading overlay before the first frame, unseen; later meshes just appear
     // a frame or two on).
-    const until = performance.now() + (this.shown ? 3 : 6);
+    const prepareNow=performance.now();
+    const until = prepareNow + (this.shown ? 3 : 6);
     // (and by texels: a 2048 px colour map is a BC7 encode of 260k blocks on the GPU, a
     // 30-50 ms task in the browser's GPU process that the whole page's drawing waits behind)
     const texels = () => { let n = 0; for (const t of this.textures.values()) n += t.width * t.height; return n; };
@@ -1693,10 +1700,14 @@ export class ComplexRenderer {
     // visible-frame budget by reusing an already compiled material.
     let introduced = 0, introducedBytes = 0;
     const geometryBytes = geo => {
-      if (this.renderer.geometries?.has(geo)) return 0;
+      const state=this.renderer.geometries?.get(geo);
       const attributes = new Set(Object.values(geo.attributes ?? {}).map(a => a.isInterleavedBufferAttribute ? a.data : a));
-      if (geo.index) attributes.add(geo.index);
-      let bytes = 0; for (const a of attributes) bytes += a.array?.byteLength ?? 0;
+      let bytes = 0; for (const a of attributes) {
+        const old=state?.buffers.get(a);
+        if(old?.array===a.array&&old.version===(a.version??0))continue;
+        bytes+=old?.array===a.array&&a.updateRanges?.length?a.updateRanges.reduce((n,r)=>n+r.count*a.array.BYTES_PER_ELEMENT,0):a.array?.byteLength??0;
+      }
+      if(geo.index&&(!state||state.indexSrc!==geo.index.array||state.indexVersion!==(geo.index.version??0)))bytes+=geo.index.array.byteLength;
       return bytes;
     };
     // Four large merged facades still caused a burst of main-thread buffer
@@ -1707,6 +1718,7 @@ export class ComplexRenderer {
       if(camera && obj.userData.forestLod)updateForestLod(obj,camera);
       active.add(obj);
       let mesh = this.meshes.get(obj);
+      let admitted=false;
       // (a caster turned on or off — the drone's far tiles — joins or leaves the shadows)
       if (mesh && mesh.castShadow !== obj.castShadow) { mesh.castShadow = obj.castShadow; this.castersChanged = true; }
       if (mesh && !sourceMaterialsMatch(mesh.material, obj.material)) {
@@ -1714,8 +1726,7 @@ export class ComplexRenderer {
           deferred = true;
         } else {
           const replacement = Array.isArray(obj.material) ? obj.material.map(m => this.material(m)) : this.material(obj.material); made++; madeTexels = texels() - startTexels; this.ready = false;
-          const passes = [{kind:'color',colorFormats:['rgba16float'],depthFormat:'depth32float'}];
-          if(mesh.castShadow)passes.push({kind:'depth',colorFormats:[],depthFormat:'depth32float',depthCompare:'less-equal',depthBias:2,depthBiasSlopeScale:1.5});
+          const passes=mesh.castShadow?READY_CASTER_PASSES:READY_COLOUR_PASSES;
           if(this.shown && !(Array.isArray(replacement) ? replacement : [replacement]).every(m => this.renderer.materialReady(mesh,m,passes)))deferred=true;
           else mesh.material = replacement;
         }
@@ -1751,6 +1762,7 @@ export class ComplexRenderer {
         this.meshes.set(obj, mesh);
         introducedBytes += geometryBytes(obj.geometry);
         introduced++;
+        admitted=true;
         this.scene.add(mesh);
         this.ready = false;
         added = true;
@@ -1764,7 +1776,7 @@ export class ComplexRenderer {
       // Casters that moved lately (walkers, traffic, boats, the balloon) are drawn into the
       if(mesh.geometry!==obj.geometry){
         if(!geometryRoom(obj.geometry))deferred=true;
-        else{introducedBytes+=geometryBytes(obj.geometry);mesh.geometry=obj.geometry;introduced++;swapped=true;if(mesh.castShadow)this.castersChanged=true;}
+        else{introducedBytes+=geometryBytes(obj.geometry);mesh.geometry=obj.geometry;introduced++;admitted=true;swapped=true;if(mesh.castShadow)this.castersChanged=true;}
       }
       // shadow maps every frame; the still ones can be kept (SunShadows.render). A change
       // of either set invalidates what is kept.
@@ -1784,6 +1796,31 @@ export class ComplexRenderer {
         mesh.moving = false;
         if (mesh.castShadow) this.castersChanged = true;
       }
+      // Prepare buffers even outside the current frustum. The same byte/time
+      // admission limit covers new models and appended ranges; readiness then
+      // means the exact current geometry is queued on the GPU, not just that a
+      // look-alike shader has compiled.
+      // Existing off-screen scenery needs bounded ahead preparation, not a
+      // full uploaded-attribute audit at display frequency. Admissions always
+      // prepare immediately; dirty deferred work retries next frame. Visible
+      // draws and objectsReady still check/upload exact versions every frame.
+      // Per-mesh deadlines stagger naturally as tiles enter, limiting the
+      // additional off-screen wait to 80 ms without changing model quality.
+      if(this.renderer.geometryReady&&(admitted||prepareNow-(mesh.buffersCheckedAt??-Infinity)>=80)){
+        mesh.buffersCheckedAt=prepareNow;
+        const mats=mesh.material;
+        const dirty=Array.isArray(mats)?mats.some(mat=>!this.renderer.geometryReady(mesh,mat,true)):!this.renderer.geometryReady(mesh,mats,true);
+        if(dirty){
+          // Appends keep geometry identity; invalidate stationary shadow
+          // layers when its contents change, just as a replacement mesh did.
+          if(mesh.castShadow)this.castersChanged=true;
+          if(admitted||geometryRoom(mesh.geometry)){
+            if(!admitted){introducedBytes+=geometryBytes(mesh.geometry);introduced++;}
+            if(Array.isArray(mats))for(const mat of mats)this.renderer._frameBuffers(mesh,mesh.geometry,mat);
+            else this.renderer._frameBuffers(mesh,mesh.geometry,mats);
+          }else{deferred=true;mesh.buffersCheckedAt=-Infinity;}
+        }
+      }
     });
     this.pending = deferred;
     if (deferred) this.ready = false;
@@ -1799,7 +1836,11 @@ export class ComplexRenderer {
     // rebuild them all each time — a stutter. Switching complexes still frees them.
     this.sweep = (this.sweep ?? 0) + 1;
     if (!removed && !added && !swapped && !this.forgetSoon?.size && this.sweep % 120 !== 0) return;
-    if (removed || added || swapped) this.renderer.retainGeometry(this.meshes.values());
+    // Adding a mesh cannot orphan an existing buffer. Reconcile immediately
+    // for removals/replacements, without scanning every city attribute for
+    // each ahead-prepared newcomer. Measured capacity growth frees its own
+    // superseded attributes in _frameBuffers.
+    if (removed || swapped) this.renderer.retainGeometry(this.meshes.values());
     const used = new Set([...active].flatMap(o => Array.isArray(o.material) ? o.material : [o.material]));
     // Actual bindings survive an asynchronous source replacement, including arrays.
     for (const mesh of this.meshes.values()) for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) if (m.source) used.add(m.source);

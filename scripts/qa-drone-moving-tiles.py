@@ -25,12 +25,15 @@ with sync_playwright() as p:
         query=urlencode({'complex':ids[place],'hour':12,'fps':1,'dronedebug':1})
         page.goto(f'http://127.0.0.1:{port}/drone-explore?'+query, wait_until='domcontentloaded')
         page.wait_for_function('window.__drone && window.__holoNative?.shown', timeout=90000)
+        if '--bundles32' in sys.argv:
+            page.evaluate('window.__holoNative.renderer.bundleChunkSize=32')
         cdp=page.context.new_cdp_session(page)
         if '--profile' in sys.argv:
             cdp.send('Profiler.enable');cdp.send('Profiler.setSamplingInterval',{'interval':1000});cdp.send('Profiler.start')
         result = page.evaluate('''async()=>{
           const d=window.__drone,w=d.world,n=window.__holoNative,c=d.p.camera;
-          const start=performance.now(),events=[],targets=new Map(),samples=[],frames=[],windows=[],ratios=new Set(),scopes={};
+          const start=performance.now(),events=[],targets=new Map(),samples=[],frames=[],windows=[],ratios=new Set(),scopes={},modelTargets=new Map(),knownDetailed=new Map();
+          const point=c.position.clone();let sampleCost=0,maxSampleCost=0;
           const pace=w.pace;w.pace=async function(...args){const at=performance.now();try{return await pace.apply(this,args);}finally{const s=scopes.pace??={count:0,total:0,max:0};const ms=performance.now()-at;s.count++;s.total+=ms;s.max=Math.max(s.max,ms);}};
           for(const [owner,key,label] of [[w,'update','streaming'],[n,'sync','sync'],[n,'render','render']]){
             const f=owner[key];owner[key]=function(...args){const at=performance.now();try{return f.apply(this,args);}finally{const s=scopes[label]??={count:0,total:0,max:0};const ms=performance.now()-at;s.count++;s.total+=ms;s.max=Math.max(s.max,ms);}};
@@ -54,6 +57,7 @@ with sync_playwright() as p:
           };
           let next=0,last=start,win=start,winFrames=n.frameNo,initialFrame=n.frameNo;
           const sample=ms=>{
+            const sampleStart=performance.now();
             const visible=[];
             for(const t of w.tiles.values()){
               const dx=t.cx-d.flight.pos.x,dy=t.cy+d.flight.pos.z,dist=Math.hypot(dx,dy);
@@ -65,7 +69,28 @@ with sync_playwright() as p:
               if(ready&&target.readyMs===null)target.readyMs=ms;
               visible.push({id,state:t.state,ready,startedMs:t.startedAt-start,readyAtMs:t.readyAt-start});
             }
-            samples.push({ms,x:d.flight.pos.x,y:-d.flight.pos.z,visible,stats:w.stats()});
+            let visibleModels=0,readyModels=0;
+            for(const t of [...w.tiles.values(),...w.viewTiles.values()]){
+              const a=t.towers;if(!a)continue;
+              const buffered=!!t.surveyGroup&&t.surveyGroup.children.every(o=>{
+                const m=n.meshes.get(o),row=m?.__frameRow,state=n.renderer.geometries.get(o.geometry);
+                if(!m||m.geometry!==o.geometry||!row||row.geo!==o.geometry||row.gpuState!==state)return false;
+                for(let k=0;k<row.refs.length;k++){const src=row.refs[k],b=state?.buffers.get(src);if(!b||b.array!==src.array||b.version!==(src.version??0))return false;}
+                return !o.geometry.index||(state?.indexSrc===o.geometry.index.array&&state.indexVersion===(o.geometry.index.version??0));
+              });
+              for(let i=0;i<a.length;i+=9){
+                const id=t.key+':'+a[i+6]+':'+a[i+4],ready=buffered&&!!t.surveyHidden?.has(a[i+6]+':'+a[i+4]);
+                if(ready&&!knownDetailed.has(id))knownDetailed.set(id,ms);
+                if(Math.hypot(a[i]-d.flight.pos.x,a[i+1]+d.flight.pos.z)>800)continue;
+                point.set(a[i],a[i+3]+a[i+2]*.5,-a[i+1]).project(c);
+                if(Math.abs(point.x)>1||Math.abs(point.y)>1||point.z<0||point.z>1)continue;
+                visibleModels++;if(ready)readyModels++;
+                let target=modelTargets.get(id);if(!target){target={id,firstVisibleMs:ms,detailedAtMs:knownDetailed.get(id)??null,readyAtFirstSight:ready};modelTargets.set(id,target);}
+                if(ready&&target.detailedAtMs===null)target.detailedAtMs=knownDetailed.get(id);
+              }
+            }
+            const cost=performance.now()-sampleStart;sampleCost+=cost;maxSampleCost=Math.max(maxSampleCost,cost);
+            samples.push({ms,x:d.flight.pos.x,y:-d.flight.pos.z,visible,visibleModels,readyModels,gpu:{...n.timer?.ms},stats:w.stats()});
           };
           // Establish the replay camera before the first sample, rather than
           // counting the previous complex-orbit camera as visible replay tiles.
@@ -75,7 +100,7 @@ with sync_playwright() as p:
             const ms=at-start;frames.push(at-last);last=at;ratios.add(document.querySelector('.re-holo-stage').dataset.pixelRatio);
             if(at-win>=1000){windows.push({ms,fps:(n.frameNo-winFrames)*1000/(at-win)});win=at;winFrames=n.frameNo;}
             pose(ms);
-            if(ms>=next){sample(ms);next=ms+100;}
+            if(ms>=next){sample(ms);next=ms+250;}
             if(ms>=66000)resolve();else requestAnimationFrame(tick);
           };requestAnimationFrame(tick);});
           frames.sort((a,b)=>a-b);const q=p=>frames[Math.min(frames.length-1,Math.floor(frames.length*p))];
@@ -84,12 +109,15 @@ with sync_playwright() as p:
           const quant=(a,p)=>a.length?a[Math.min(a.length-1,Math.floor(a.length*p))]:null;
           const waitingIntegral=(from,to)=>samples.slice(0,-1).reduce((sum,s,i)=>sum+
             Math.max(0,Math.min(to,samples[i+1].ms)-Math.max(from,s.ms))*s.visible.filter(t=>!t.ready).length,0);
+          const visibleModels=[...modelTargets.values()],entered=visibleModels.filter(t=>t.firstVisibleMs>=12000);
+          const buildingIntegral=samples.slice(0,-1).reduce((sum,s,i)=>sum+Math.max(0,Math.min(66000,samples[i+1].ms)-Math.max(12000,s.ms))*(s.visibleModels-s.readyModels),0);
           return{path:'north 1000m, east 1000m, south 1000m; 200km/h at 300m AGL',events,targets:all,samples,scopes,
+            visibleAssembly:{movingWaitingBuildingMs:buildingIntegral,enteredMoving:entered.length,preloadedAtFirstSight:entered.filter(t=>t.readyAtFirstSight).length,unresolved:visibleModels.filter(t=>t.detailedAtMs===null).length,models:visibleModels,averageSamplingMs:sampleCost/samples.length,maxSamplingMs:maxSampleCost},
             moving:{newTiles:all.filter(t=>t.firstVisibleMs>=12000).length,coldCompleted:cold.length,unresolved:all.filter(t=>t.readyMs===null).length,
               medianWaitMs:quant(waits,.5),p90WaitMs:quant(waits,.9),waitingTileMs:waitingIntegral(12000,66000)},
             initial:{waitingTileMs:waitingIntegral(0,12000)},
             performance:{minOneSecondFps:Math.min(...windows.map(w=>w.fps)),windows,p95Ms:q(.95),p99Ms:q(.99),maxMs:frames.at(-1),
-              renderedFrames:n.frameNo-initialFrame,canvas:[n.canvas.width,n.canvas.height],pixelRatios:[...ratios],quality:n.quality.name},
+              renderedFrames:n.frameNo-initialFrame,canvas:[n.canvas.width,n.canvas.height],pixelRatios:[...ratios],quality:n.quality.name,bundleChunkSize:n.renderer.bundleChunkSize},
             heap:performance.memory?.usedJSHeapSize,stage:{...document.querySelector('.re-holo-stage').dataset}};
         }''')
         if '--profile' in sys.argv:
@@ -101,7 +129,10 @@ with sync_playwright() as p:
         result.update(chrome=browser.version,muted=True,place=place,errors=errors,phaseLogs=logs)
         (out/'report.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf8')
         page.screenshot(path=str(out/'final.png'))
-        print(json.dumps({k:result[k] for k in ['moving','performance','heap','errors','scopes']},ensure_ascii=False),flush=True)
+        summary={k:result[k] for k in ['moving','heap','errors','scopes']}
+        summary['performance']={k:v for k,v in result['performance'].items() if k!='windows'}
+        summary['visibleAssembly']={k:v for k,v in result['visibleAssembly'].items() if k!='models'}
+        print(json.dumps(summary,ensure_ascii=False),flush=True)
         assert not errors
     finally:
         browser.close()

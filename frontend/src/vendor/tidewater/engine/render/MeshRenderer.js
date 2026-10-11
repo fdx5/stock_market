@@ -251,6 +251,8 @@ export class MeshRenderer {
 		this.disposed = true;
 		this._drawRows = [];
 		this._collectPools = [];
+		this._objectBundles = [];
+		this._objectDrawState = null;
 		this._bundles?.clear();
 
 		for ( const geometry of this.geometries.keys() ) this.releaseGeometry( geometry );
@@ -324,8 +326,11 @@ export class MeshRenderer {
 		}
 
 		if ( g.indexVersion !== ( index.version ?? 0 ) || g.indexSrc !== index.array ) {
-
-			writePadded( g.index.buffer, arr );
+			const ranges = g.indexVersion >= 0 && g.indexSrc === index.array && arr instanceof Uint32Array ? index.updateRanges : null;
+			if ( ranges?.length ) {
+				for ( const r of ranges ) GPU.queue.writeBuffer( g.index.buffer, r.start * 4, arr.buffer, arr.byteOffset + r.start * 4, r.count * 4 );
+			} else writePadded( g.index.buffer, arr );
+			index.clearUpdateRanges?.();
 			g.indexVersion = index.version ?? 0;
 
 		}
@@ -360,8 +365,11 @@ export class MeshRenderer {
 		}
 
 		const vl = this._layout( object, geometry, material );
-		const names = vl.layout.filter( ( l ) => ! l.name.startsWith( 'instance' ) ).map( ( l ) => l.name );
+		// Include absent shader attributes too: adding a normal/UV/facade later
+		// must invalidate the layout as reliably as replacing an existing one.
+		const names = [ 'position', 'normal', 'uv', 'color', ...Object.keys( material.attributes ) ];
 		e = { geometry, version: material.version, attrsVersion: geometry.attributesVersion, instanceMatrix: object.instanceMatrix, instanceColor: object.instanceColor, names, refs: names.map( ( n ) => geometry.attributes[ n ] ), vl };
+		vl.sourceNames = names; vl.sourceRefs = e.refs;
 		vl.pipelines = new Map();
 		byMat.set( mkey, e );
 		return vl;
@@ -444,6 +452,17 @@ export class MeshRenderer {
 		const vl = this._cachedLayout( o, geo, material );
 		let m = o.__frameRow;
 		const state = this.geometries.get( geo );
+		// A measured chunk owns its vertex attributes. Capacity growth replaces
+		// those attributes without replacing the geometry, so release the old
+		// GPU allocations at that layout change rather than retaining every
+		// preceding capacity until the tile eventually leaves the scene.
+		if ( geo.userData?.surveyMaterial !== undefined && state && m?.owner === this && m.geo === geo && m.vl !== vl ) {
+			const live = new Set( Object.values( geo.attributes ).map( a => a.isInterleavedBufferAttribute ? a.data : a ) );
+			for ( const [ src, b ] of state.buffers ) if ( ! live.has( src ) ) {
+				b.buffer.destroy(); state.buffers.delete( src );
+				state.bufferEpoch = ( state.bufferEpoch ?? 0 ) + 1;
+			}
+		}
 		const reuse = m && m.material === material && m.geo === geo && m.owner === this && m.vl === vl && m.epoch === ( this.geometryEpoch ?? 0 ) && m.gpuState === state && m.bufferEpoch === ( state?.bufferEpoch ?? 0 );
 		if ( ! reuse ) m = { material, geo, owner: this, vl, vbs: [], refs: [], versions: [], arrays: [] };
 		m.vbs.length = vl.buffers.length;
@@ -461,6 +480,8 @@ export class MeshRenderer {
 			m.indexSrc = index; m.indexArray = index?.array; m.indexVersion = index?.version ?? 0;
 		}
 		m.epoch = this.geometryEpoch ?? 0; m.frame = GPU.frame;
+		m.materialVersion = material.version; m.attrsVersion = geo.attributesVersion;
+		m.instanceMatrix = o.instanceMatrix; m.instanceColor = o.instanceColor;
 		m.gpuState = this.geometries.get( geo ); m.bufferEpoch = m.gpuState?.bufferEpoch ?? 0;
 		o.__frameRow = m;
 		return m;
@@ -727,12 +748,50 @@ export class MeshRenderer {
 	// ------------------------------------------------------------------------------ render
 
 	// Prepare a replacement while the mesh still draws its previous material.
+	geometryReady( object, material, staticOnly = false ) {
+		const geo = object.geometry, state = this.geometries.get( geo );
+		if ( ! state ) return false;
+		const row = object.__frameRow;
+		// Thousands of unchanged scenery checks per frame previously repeated
+		// the per-material layout lookup. Reuse the last uploaded layout only
+		// after checking its source identities, including absent attributes.
+		let vl;
+		if ( row && row.owner === this && row.geo === geo && row.material === material && row.materialVersion === material.version && row.attrsVersion === geo.attributesVersion && row.instanceMatrix === object.instanceMatrix && row.instanceColor === object.instanceColor && row.vl.sourceNames ) {
+			let same = true;
+			for ( let i = 0; i < row.vl.sourceNames.length; i ++ ) if ( geo.attributes[ row.vl.sourceNames[ i ] ] !== row.vl.sourceRefs[ i ] ) { same = false; break; }
+			if ( same ) vl = row.vl;
+		}
+		vl ??= this._cachedLayout( object, geo, material );
+		const reuse = row && row.owner === this && row.geo === geo && row.material === material && row.vl === vl && row.gpuState === state && row.epoch === ( this.geometryEpoch ?? 0 ) && row.bufferEpoch === ( state.bufferEpoch ?? 0 );
+		let frameCurrent = !! reuse;
+		for ( let i = 0; i < vl.buffers.length; i ++ ) {
+			const attr = vl.buffers[ i ].attr;
+			const src = attr.isInterleavedBufferAttribute ? attr.data : attr;
+			// This check already verifies the exact layout and every uploaded
+			// reference/version. Reuse it in this frame's draw instead of doing
+			// the same scan again in _frameBuffers for unchanged scenery.
+			if ( src.gpuBuffer ) { frameCurrent = false; continue; }
+			if ( reuse && row.refs[ i ] === src && row.arrays[ i ] === src.array && row.versions[ i ] === ( src.version ?? 0 ) ) continue;
+			frameCurrent = false;
+			// Animated instances and Dynamic/StreamDraw attributes (boat wakes)
+			// already upload in their draw pass. They must not consume the four
+			// scenery admissions on every display frame. New meshes still prepare
+			// every attribute once; objectsReady retains the full version check.
+			if ( staticOnly && ( src.isInstancedBufferAttribute || src.isInstancedInterleavedBuffer || src.usage === 35048 || src.usage === 35040 ) ) continue;
+			const b = state.buffers.get( src );
+			if ( ! b || b.array !== src.array || b.version !== ( src.version ?? 0 ) ) return false;
+		}
+		if ( geo.index && ( state.indexSrc !== geo.index.array || state.indexVersion !== ( geo.index.version ?? 0 ) ) ) return false;
+		if ( frameCurrent && row.indexSrc === geo.index && row.indexArray === geo.index?.array && row.indexVersion === ( geo.index?.version ?? 0 ) ) row.frame = GPU.frame;
+		return true;
+	}
+
 	materialReady( object, material, passes ) {
 		const vl = this._cachedLayout( object, object.geometry, material );
 		let ready = true;
 		for ( const descriptor of passes ) {
-			const pass = { kind: 'main', late: false, colorFormats: [], depthFormat: null, depthCompare: 'greater-equal', ...descriptor };
-			pass.passKey = `${ pass.kind }.${ pass.late ? 1 : 0 }.${ pass.colorFormats.join( ',' ) }.${ pass.depthFormat }.${ pass.depthCompare }.${ pass.cullOverride || '' }.${ pass.defines ? JSON.stringify( pass.defines ) : '' }`;
+			const pass = descriptor.passKey && Object.isFrozen( descriptor ) ? descriptor : { kind: 'main', late: false, colorFormats: [], depthFormat: null, depthCompare: 'greater-equal', ...descriptor };
+			if ( pass !== descriptor ) pass.passKey = `${ pass.kind }.${ pass.late ? 1 : 0 }.${ pass.colorFormats.join( ',' ) }.${ pass.depthFormat }.${ pass.depthCompare }.${ pass.cullOverride || '' }.${ pass.defines ? JSON.stringify( pass.defines ) : '' }`;
 			const p = this._pipeline( material, vl, pass );
 			if ( p?.handle.failed ) throw new Error( 'Replacement pipeline failed: ' + p.handle.label );
 			if ( ! p?.handle.pipeline ) ready = false;
@@ -820,7 +879,10 @@ export class MeshRenderer {
 			// (changed within the last second: kept out of the bundles; compared as numbers — a
 			// string a draw each frame was a good part of this loop)
 			if ( o.__bsI !== instances || o.__bsS !== it.start || o.__bsC !== it.count ) { o.__bsI = instances; o.__bsS = it.start; o.__bsC = it.count; o.__bundleShapeAt = GPU.frame; }
-			const steady = ! geo.indirect && GPU.frame - o.__bundleShapeAt > 60;
+			// Appended measured chunks have static bindings and change their range
+			// once per completed batch. Reuse their verified bundles after two
+			// frames; animated populations retain the sixty-frame stability gate.
+			const steady = ! geo.indirect && GPU.frame - o.__bundleShapeAt > ( geo.userData?.surveyMaterial !== undefined ? 1 : 60 );
 			const row = rows[ rowCount ] ??= {};
 			row.it = it; row.o = o; row.geo = geo; row.pipeline = pipeline; row.group = group;
 			row.offset = offset; row.vbs = vbs; row.instances = instances; row.index = index; row.steady = steady;
@@ -839,6 +901,7 @@ export class MeshRenderer {
 		const callKey = site + '|' + nth + ( chunked ? atomic ? '|objects' : '|chunks' : '' );
 		let cache = this._bundles.get( callKey );
 		if ( ! cache ) this._bundles.set( callKey, cache = chunked ? new Map() : [] );
+		if ( atomic ) return this._replayObjects( rp, rows, pass, cache );
 		const state = { pipeline: null, group: null };
 		let segment = [], segments = 0, replayed = false;
 		const pendingBundles = [];
@@ -853,8 +916,8 @@ export class MeshRenderer {
 			// The segment's inputs as a list of numbers (compared, not joined into a string: that
 			// was most of this method's time), -1 between draws.
 			const key = _sig; key.length = 0;
-			if ( ! atomic ) key.push( _gpuId( pass.group0 ), _gpuId( this.drawBindGroup ) );
-			if ( ! atomic ) for ( const r of segment ) {
+			key.push( _gpuId( pass.group0 ), _gpuId( this.drawBindGroup ) );
+			for ( const r of segment ) {
 
 				key.push( - 1, _gpuId( r.pipeline ), _gpuId( r.group ), r.offset, r.instances, r.it.start, r.it.count, r.vbs.length );
 				for ( const b of r.vbs ) key.push( _gpuId( b ) );
@@ -866,21 +929,10 @@ export class MeshRenderer {
 			// Stable draw-slot boundaries keep a camera cull from invalidating a
 			// several-hundred-draw bundle. Draw order, buffers and ranges are identical.
 			const last = segment[ segment.length - 1 ];
-			const chunkKey = atomic ? last.o : chunked ? `${ last.offset }/${ _gpuId( last.group ) }/${ last.it.start }` : segments;
+			const chunkKey = chunked ? `${ last.offset }/${ _gpuId( last.group ) }/${ last.it.start }` : segments;
 			let c = chunked ? cache.get( chunkKey ) : cache[ segments ];
-			let same;
-			if ( atomic ) {
-				// Compare GPU references directly for the single-object bundle. A
-				// numeric signature otherwise repeated WeakMap lookups for every
-				// buffer in every pass, despite those references being unchanged.
-				const r = last;
-				const total = r.index ? r.geo.index.count : r.geo.attributes.position?.count ?? r.geo.vertexCount;
-				same = !! c && c.group0 === pass.group0 && c.drawGroup === this.drawBindGroup && c.pipeline === r.pipeline && c.group === r.group && c.offset === r.offset && c.instances === r.instances && c.start === r.it.start && c.count === r.it.count && c.total === total && c.indexBuffer === ( r.index?.buffer ?? null ) && c.indexFormat === r.index?.format && c.vbs.length === r.vbs.length;
-				if ( same ) for ( let i = 0; i < r.vbs.length; i ++ ) if ( c.vbs[ i ] !== r.vbs[ i ] ) { same = false; break; }
-			} else {
-				same = !! c && c.key.length === key.length;
-				if ( same ) for ( let i = 0; i < key.length; i ++ ) if ( c.key[ i ] !== key[ i ] ) { same = false; break; }
-			}
+			let same = !! c && c.key.length === key.length;
+			if ( same ) for ( let i = 0; i < key.length; i ++ ) if ( c.key[ i ] !== key[ i ] ) { same = false; break; }
 			if ( ! same ) {
 
 				const be = GPU.device.createRenderBundleEncoder( {
@@ -891,10 +943,6 @@ export class MeshRenderer {
 				const own = { pipeline: null, group: null };
 				for ( const r of segment ) this._drawRow( be, r, own );
 				c = { key: key.slice(), bundle: be.finish(), at: GPU.frame };
-				if ( atomic ) {
-					const r = last;
-					Object.assign( c, { group0: pass.group0, drawGroup: this.drawBindGroup, pipeline: r.pipeline, group: r.group, offset: r.offset, instances: r.instances, start: r.it.start, count: r.it.count, total: r.index ? r.geo.index.count : r.geo.attributes.position?.count ?? r.geo.vertexCount, indexBuffer: r.index?.buffer ?? null, indexFormat: r.index?.format, vbs: r.vbs.slice() } );
-				}
 				if ( chunked ) cache.set( chunkKey, c ); else cache[ segments ] = c;
 				this.stats.bundleBuilds ++;
 				this.stats.bundleEncodedDraws += segment.length;
@@ -921,7 +969,7 @@ export class MeshRenderer {
 
 			if ( r.steady ) {
 				segment.push( r );
-				if ( atomic || ( chunked && ( ( ( r.offset / DRAW_STRIDE ) & 31 ) === 0 || segment.length >= 64 ) ) ) flush();
+				if ( chunked && ( ( ( r.offset / DRAW_STRIDE ) & 31 ) === 0 || segment.length >= 64 ) ) flush();
 				continue;
 			}
 			flush();
@@ -934,10 +982,54 @@ export class MeshRenderer {
 		flush();
 		replay();
 		if ( chunked ) {
-			if ( GPU.frame % 120 === 0 || cache.size > 1024 ) for ( const [ key, c ] of cache ) if ( GPU.frame - c.at > 240 ) cache.delete( key );
+			// A fully prepared city can contain more than 1024 live draws. Size
+			// alone must not trigger an O(city) retirement scan in every pass of
+			// every frame. Keep the same 240-frame unused lifetime, swept once
+			// every 120 frames; view disposal still releases the whole cache.
+			if ( GPU.frame % 120 === 0 ) for ( const [ key, c ] of cache ) if ( GPU.frame - c.at > 240 ) cache.delete( key );
 		} else cache.length = segments;
 		if ( replayed ) rp.setBindGroup( 0, pass.group0 );
 
+	}
+
+	// The native city uses one bundle per object. Replay this hot path without
+	// constructing a segment/signature or invoking two closures for every draw.
+	// Every GPU binding and range is still compared before a bundle is reused.
+	_replayObjects( rp, rows, pass, cache ) {
+		const pending = this._objectBundles ??= [];
+		pending.length = 0;
+		const state = this._objectDrawState ??= { pipeline: null, group: null };
+		state.pipeline = state.group = null;
+		for ( const r of rows ) {
+			if ( ! r.steady ) {
+				if ( pending.length ) {
+					rp.executeBundles( pending ); pending.length = 0;
+					rp.setBindGroup( 0, pass.group0 ); state.pipeline = state.group = null;
+				}
+				this._drawRow( rp, r, state );
+				continue;
+			}
+			const total = r.index ? r.geo.index.count : r.geo.attributes.position?.count ?? r.geo.vertexCount;
+			let c = cache.get( r.o );
+			let same = !! c && c.group0 === pass.group0 && c.drawGroup === this.drawBindGroup && c.pipeline === r.pipeline && c.group === r.group && c.offset === r.offset && c.instances === r.instances && c.start === r.it.start && c.count === r.it.count && c.total === total && c.indexBuffer === ( r.index?.buffer ?? null ) && c.indexFormat === r.index?.format && c.vbs.length === r.vbs.length;
+			if ( same ) for ( let i = 0; i < r.vbs.length; i ++ ) if ( c.vbs[ i ] !== r.vbs[ i ] ) { same = false; break; }
+			if ( ! same ) {
+				const be = GPU.device.createRenderBundleEncoder( {
+					label: ( pass.label || pass.kind ) + ' bundle', colorFormats: pass.colorFormats,
+					depthStencilFormat: pass.depthFormat || undefined, sampleCount: pass.sampleCount || 1,
+				} );
+				be.setBindGroup( 0, pass.group0 );
+				this._drawRow( be, r, { pipeline: null, group: null } );
+				c = { bundle: be.finish(), at: GPU.frame, group0: pass.group0, drawGroup: this.drawBindGroup, pipeline: r.pipeline, group: r.group, offset: r.offset, instances: r.instances, start: r.it.start, count: r.it.count, total, indexBuffer: r.index?.buffer ?? null, indexFormat: r.index?.format, vbs: r.vbs.slice() };
+				cache.set( r.o, c ); this.stats.bundleBuilds++; this.stats.bundleEncodedDraws++;
+			} else {
+				this.stats.draws++;
+				this.stats.triangles += Math.max( 0, Math.min( r.it.count, total - r.it.start ) ) / 3 * r.instances;
+			}
+			c.at = GPU.frame; pending.push( c.bundle );
+		}
+		if ( pending.length ) { rp.executeBundles( pending ); pending.length = 0; rp.setBindGroup( 0, pass.group0 ); }
+		if ( GPU.frame % 120 === 0 ) for ( const [ key, c ] of cache ) if ( GPU.frame - c.at > 240 ) cache.delete( key );
 	}
 
 	// one draw (the direct path's body): pipeline and material group when they change, the draw's

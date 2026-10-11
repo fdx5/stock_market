@@ -10,7 +10,8 @@ import {trafficLaneCurve,sampleLaneCurve,type LaneCurve} from './trafficLaneCurv
  * block in the same colour: the whole traffic is a draw or two per kind, however many tiles.
  * A car with nowhere to go is set down again at a lane start out of sight. */
 
-type Lane = { tile: string; p: Float32Array; cum: Float32Array; orientation: Float64Array; len: number; cars: Car[]; width: number; minX:number;minY:number;maxX:number;maxY:number;renderOutside:boolean };
+type JunctionRegion={key:string;revision:number;lanes:Set<Lane>};
+type Lane = { tile: string; p: Float32Array; cum: Float32Array; orientation: Float64Array; len: number; cars: Car[]; width: number; minX:number;minY:number;maxX:number;maxY:number;renderOutside:boolean;junction?:JunctionRegion };
 type Car = { lane: Lane; s: number; v: number; vmax: number; kind: number; colour: THREE.Color; k: number; hidden: boolean;
   /** across a junction: from the end of the last lane to the start of this one (s < 0 on it) */
   via: LaneCurve | null; planned?: {lane:Lane;curve:LaneCurve|null;revision:number}; stepped?:number };
@@ -80,6 +81,7 @@ export class DroneTraffic {
   private lanes = new Map<string, Lane[]>();
   private starts = new Map<string, Lane[]>();
   private networkRevision=0;
+  private junctionRegions=new Map<string,JunctionRegion>();
   private continuations=new WeakMap<Lane,{revision:number;choices:[Lane,number][]}>();
   private laneList:{revision:number;lanes:Lane[]}|null=null;
   private cars: Car[] = [];
@@ -116,8 +118,25 @@ export class DroneTraffic {
 
   private cell = (x: number, y: number) => `${Math.round(x / 4)},${Math.round(y / 4)}`;
 
+  /** A continuation only reads starts within 22 m. Keep its cache when an
+   * unrelated tile arrives; preserve global car planning/random-choice order.
+   * 64 m query buckets and their eight neighbours cover that entire radius,
+   * including negative coordinates and bucket boundaries. Only active lane
+   * endpoints own buckets, so long flights do not retain an ever-growing map. */
+  private invalidateJunctions(lanes:readonly Lane[]){
+    const changed=new Set<string>();
+    for(const lane of lanes){const x=Math.floor(lane.p[0]/64),y=Math.floor(lane.p[1]/64);
+      for(let i=-1;i<=1;i++)for(let j=-1;j<=1;j++)changed.add(`${x+i},${y+j}`);
+    }
+    for(const key of changed){const region=this.junctionRegions.get(key);if(!region)continue;
+      region.revision=this.networkRevision;
+      for(const lane of region.lanes)this.continuations.delete(lane);
+    }
+  }
+
   /** A tile's lanes (droneRoads: [n, road width, x, y, z, …]…), and cars on them by the road's width. */
   addTile(tile: string, packed: Float32Array) {
+    if(this.disposed)return;
     if (this.lanes.has(tile)) this.removeTile(tile);
     const list: Lane[] = [];
     for (let o = 0; o < packed.length;) {
@@ -138,11 +157,16 @@ export class DroneTraffic {
       const lane: Lane = { tile, p, cum, orientation, len: cum[n - 1], cars: [], width, minX,minY,maxX,maxY,renderOutside:false };
       if (lane.len < 8) continue;
       list.push(lane);
+      const end=p.length-3,junctionKey=`${Math.floor(p[end]/64)},${Math.floor(p[end+1]/64)}`;
+      let junction=this.junctionRegions.get(junctionKey);
+      if(!junction){junction={key:junctionKey,revision:this.networkRevision+1,lanes:new Set()};this.junctionRegions.set(junctionKey,junction);}
+      junction.lanes.add(lane);lane.junction=junction;
       const key = this.cell(p[0], p[1]);
       this.starts.set(key, [...(this.starts.get(key) ?? []), lane]);
     }
     this.lanes.set(tile, list);
     this.networkRevision++;
+    this.invalidateJunctions(list);
     for (const lane of list) {
       // (the city's density: a car every ~30–55 m on a boulevard, 45–85 m on a street, sparse on lanes)
       const gap = lane.width >= 15 ? [30, 25] : lane.width >= 8 ? [45, 40] : [80, 60];
@@ -169,7 +193,10 @@ export class DroneTraffic {
     if (!list) return;
     this.lanes.delete(tile);
     this.networkRevision++;
+    this.invalidateJunctions(list);
     for (const lane of list) {
+      const junction=lane.junction;
+      if(junction){junction.lanes.delete(lane);if(!junction.lanes.size)this.junctionRegions.delete(junction.key);}
       const key = this.cell(lane.p[0], lane.p[1]);
       const at = this.starts.get(key)?.filter(l => l !== lane);
       if (at?.length) this.starts.set(key, at); else this.starts.delete(key);
@@ -183,7 +210,8 @@ export class DroneTraffic {
    * on twice as likely as a turn, never back the way it came. */
   private next(x: number, y: number, dx: number, dy: number, from: Lane): Lane | null {
     const cached=this.continuations.get(from);
-    if(cached?.revision===this.networkRevision)return cached.choices.length?pick(cached.choices,this.rnd()):null;
+    const revision=from.junction?.revision??this.networkRevision;
+    if(cached?.revision===revision)return cached.choices.length?pick(cached.choices,this.rnd()):null;
     const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
     const cx = Math.round(x / 4), cy = Math.round(y / 4), out: [Lane, number][] = [];
     for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) for (const l of this.starts.get(`${cx + i},${cy + j}`) ?? []) {
@@ -211,7 +239,7 @@ export class DroneTraffic {
       // Keep real junction turn choices; lane matching governs straight travel.
       choices=near.length?matching:[...choices.filter(o=>!parallel.includes(o)),...matching];
     }
-    this.continuations.set(from,{revision:this.networkRevision,choices});
+    this.continuations.set(from,{revision,choices});
     return choices.length?pick(choices,this.rnd()):null;
   }
 
@@ -317,12 +345,22 @@ export class DroneTraffic {
       }
     }
     this.far.count = farN;
-    this.far.instanceMatrix.needsUpdate = true; if (this.far.instanceColor) this.far.instanceColor.needsUpdate = true;
+    this.uploadPrefix(this.far,farN);
     this.near.forEach((im, i) => {
       if (!im) return;
       im.count = counts[i];
-      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      this.uploadPrefix(im,counts[i]);
     });
+  }
+
+  /** All visible instances are rewritten above; unused capacity never draws.
+   * Replace pending ranges with the complete current prefix so an off-screen
+   * or empty batch cannot accumulate redundant uploads between draws. */
+  private uploadPrefix(mesh:THREE.InstancedMesh,count:number){
+    for(const attr of [mesh.instanceMatrix,mesh.instanceColor]){
+      if(!attr)continue;attr.clearUpdateRanges();if(!count)continue;
+      attr.addUpdateRange(0,count*attr.itemSize);attr.needsUpdate=true;
+    }
   }
 
   /** A lane start out of sight (over 300 m from the camera), for a car with nowhere to go. */
@@ -340,6 +378,8 @@ export class DroneTraffic {
 
   dispose() {
     this.disposed = true;
+    this.cars.length=0;this.lanes.clear();this.starts.clear();this.junctionRegions.clear();
+    this.continuations=new WeakMap();this.curves=new WeakMap();this.laneList=null;
     this.group.removeFromParent();
     this.far.geometry.dispose(); this.far.dispose();
     this.near.forEach(im => im?.dispose());

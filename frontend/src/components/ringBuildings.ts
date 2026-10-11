@@ -22,7 +22,7 @@ export type DroneLabelInfo = { /** the building's centre (view frame, m) */ bx?:
 export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital" | "station"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo };
 /** The styles in the order RingResult.towers names them. */
 export const SURVEY_STYLES: ContextStyle[] = ["apt", "villa", "shop", "office"];
-export type RingStyleArrays = { position: Float32Array; normal: Float32Array; uv: Float32Array; color: Float32Array; facade?:Float32Array; index: Uint32Array };
+export type RingStyleArrays = { position: Float32Array; normal: Float32Array; uv: Float32Array; color: Float32Array; facade?:Float32Array; index: Uint32Array; sphere?:[number,number,number,number] };
 export type RingResult = {
   styles: Partial<Record<ContextStyle, RingStyleArrays>>; buildings: number; ms: number;
   footprints: [number,number][][];
@@ -64,6 +64,16 @@ type RingJob = {
 };
 
 function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile) {
+  // The page used to scan these same vertices again while constructing every
+  // streamed style. Measure exact culling bounds in this existing worker.
+  function sphereOf(position:Float32Array):[number,number,number,number]{
+    let x0=Infinity,y0=Infinity,z0=Infinity,x1=-Infinity,y1=-Infinity,z1=-Infinity;
+    for(let i=0;i<position.length;i+=3){const x=position[i],y=position[i+1],z=position[i+2];x0=Math.min(x0,x);y0=Math.min(y0,y);z0=Math.min(z0,z);x1=Math.max(x1,x);y1=Math.max(y1,y);z1=Math.max(z1,z);}
+    if(!position.length)return[0,0,0,0];
+    const x=(x0+x1)/2,y=(y0+y1)/2,z=(z0+z1)/2;let r2=0;
+    for(let i=0;i<position.length;i+=3)r2=Math.max(r2,(position[i]-x)**2+(position[i+1]-y)**2+(position[i+2]-z)**2);
+    return[x,y,z,Math.sqrt(r2)];
+  }
   const SINK = 3, FLOOR_M = 2.9, GROUND_M = 1.5;
   const BRICK = [[0.62, 0.38, 0.3], [0.66, 0.43, 0.34], [0.56, 0.34, 0.27], [0.7, 0.5, 0.4], [0.52, 0.33, 0.27], [0.74, 0.58, 0.47]];
   const STEEL = [[0.62, 0.7, 0.78], [0.55, 0.63, 0.71], [0.72, 0.77, 0.82], [0.6, 0.64, 0.66]];
@@ -386,7 +396,7 @@ function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile) {
     const styles: Record<string, unknown> = {}, transfer: ArrayBuffer[] = [];
     for (const [s, b] of Object.entries(bufs)) {
       const o = { position: new Float32Array(b.p), normal: new Float32Array(b.n), uv: new Float32Array(b.u), color: new Float32Array(b.c), facade:new Float32Array(b.f), index: new Uint32Array(b.i) };
-      styles[s] = o;
+      styles[s] = {...o,sphere:sphereOf(o.position)};
       transfer.push(o.position.buffer, o.normal.buffer, o.uv.buffer, o.color.buffer,o.facade.buffer, o.index.buffer);
     }
     const aptArr = new Float32Array(apts);

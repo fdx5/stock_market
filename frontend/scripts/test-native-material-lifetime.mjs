@@ -30,7 +30,7 @@ test('actual GPU bindings and still drawn array materials survive deferred repla
 function syncFixture(text) {
  const begin=text.indexOf('  sync(source'),end=text.indexOf('\n  /** The materials of a model',begin);
  assert.ok(begin>=0 && end>begin, 'renderer sync method must be exercised');
- const invoke=new Function('source','sourceMaterialsMatch','boundTextures','sameMatrix','performance','camera',text.slice(begin,end).replace(/  sync\(source(?:, camera)?\) \{/,'') .replace(/\}\s*$/,''));
+ const invoke=new Function('source','sourceMaterialsMatch','boundTextures','sameMatrix','performance','camera','READY_COLOUR_PASSES','READY_CASTER_PASSES',text.slice(begin,end).replace(/  sync\(source(?:, camera)?\) \{/,'') .replace(/\}\s*$/,''));
  const sourceA={version:0,userData:{}},sourceB={version:0,userData:{}};
  const old={source:sourceA,srcVersion:0,bindings:{},uniformBlock:{buffer:{destroy(){}}},dispose(){this.disposed=true;}};
  const replacement={source:sourceB,srcVersion:0,bindings:{},uniformBlock:{buffer:{destroy(){}}},dispose(){this.disposed=true;}};
@@ -39,7 +39,7 @@ function syncFixture(text) {
  const api={detailReady:true,shown:true,frameNo:100,meshes:new Map([[obj,mesh]]),materials:new Map([[sourceA,old]]),textures:new Map(),unusedAt:new Map([[sourceA,0]]),sweep:119,scene:{},
   imagesReady:()=>true,material(){this.materials.set(sourceB,replacement);return replacement;},renderer:{materialReady:()=>false,forgetMaterial(){},pipelines:new Map()}};
  const source={updateMatrixWorld(){},traverseVisible(fn){fn(obj);}};
- invoke.call(api,source,sourceMaterialsMatch,boundTextures,()=>true,{now:()=>25001});
+ invoke.call(api,source,sourceMaterialsMatch,boundTextures,()=>true,{now:()=>25001},undefined,[],[]);
  return {old,mesh,replacement,api,source,invoke};
 }
 test('actual old sync disposes a still drawn same-version replacement; fixed sync retains it until ready',()=>{
@@ -49,6 +49,6 @@ test('actual old sync disposes a still drawn same-version replacement; fixed syn
  const after=syncFixture(readFileSync(new URL('../src/components/tidewater/ComplexRenderer.js',import.meta.url),'utf8'));
  assert.equal(after.mesh.material,after.old);assert.equal(after.old.disposed,undefined);
  after.api.renderer.materialReady=()=>true;
- after.invoke.call(after.api,after.source,sourceMaterialsMatch,boundTextures,()=>true,{now:()=>26001});
+ after.invoke.call(after.api,after.source,sourceMaterialsMatch,boundTextures,()=>true,{now:()=>26001},undefined,[],[]);
  assert.equal(after.mesh.material,after.replacement);
 });

@@ -4,6 +4,7 @@ import test from 'node:test';
 import { BufferGeometry, Float32BufferAttribute, InstancedBufferAttribute, Scene, Mesh, MeshBasicMaterial, PerspectiveCamera, Sphere, Vector3 } from 'three';
 import { GPU } from '../src/vendor/tidewater/engine/gpu/GPU.js';
 import { MeshRenderer } from '../src/vendor/tidewater/engine/render/MeshRenderer.js';
+import { Material } from '../src/vendor/tidewater/engine/render/Material.js';
 import { stripUnusedFunctions } from '../src/vendor/tidewater/engine/gpu/Shader.js';
 import { BoundedCache } from '../src/vendor/tidewater/engine/gpu/BoundedCache.js';
 import { UniformBlock } from '../src/vendor/tidewater/engine/gpu/Uniforms.js';
@@ -69,7 +70,7 @@ test('stable bundle chunks preserve draw commands and avoid rebuilding an entire
    GPU.frame=100;const r=new MeshRenderer();r.bundles=true;r.bundleChunking=chunked;r.bundleChunkSize=size;r.drawBindGroup={};
    r._pipeline=()=>({handle:{pipeline},bindings:{getBindGroup:()=>group}});r._slot=o=>o.id;
    const items=Array.from({length:180},(_,id)=>{const o={id,__bsI:1,__bsS:0,__bsC:3,__bundleShapeAt:0};return {object:o,geometry,material:{id:1},start:0,count:3};});
-   const warm=()=>{for(const it of items)it.object.__frameRow={frame:GPU.frame,material:it.material,geo:geometry,owner:r,vbs:[buffer],vl:{},index:null};};
+   const warm=()=>{for(const it of items)it.object.__frameRow={frame:GPU.frame,material:it.material,geo:geometry,owner:r,epoch:0,gpuState:undefined,bufferEpoch:0,vbs:[buffer],vl:{},index:null};};
    const render=list=>{warm();const rp=recorder();rp.executeBundles=bs=>{for(const b of bs)rp.draws.push(...b.draws);};r.drawItems(rp,list,{group0,passKey:'color',colorFormats:['rgba16float'],depthFormat:'depth32float'},'opaque');return rp.draws;};
    const initial=render(items);GPU.frame++;encoded=0;
    const culled=render(items.filter(it=>it.object.id!==5));const built=encoded;
@@ -91,6 +92,42 @@ test('empty native instance batches skip culling while populated, compiling and 
  r.precompiling=false;object.onBeforeRender=()=>{object.count=1;};assert.equal(r.collect(scene,{cull:false}).opaque.length,1);assert.equal(object.count,1);
 });
 
+test('large live bundle caches reuse draws without a city-wide scan every frame and still retire unused objects',()=>{
+ const savedDevice=GPU.device,savedFrame=GPU.frame;
+ GPU.device={createRenderBundleEncoder:()=>({setPipeline(){},setBindGroup(){},setVertexBuffer(){},draw(){},finish(){return{};}})};
+ try{
+  const r=new MeshRenderer();r.bundles=true;r.bundleChunking=true;r.bundleChunkSize=1;r.drawBindGroup={};
+  const geo={attributes:{position:{count:3}}},material={},pipeline={},group={},vertex={};
+  const items=Array.from({length:1100},(_,id)=>({object:{id,__bsI:1,__bsS:0,__bsC:3,__bundleShapeAt:0},geometry:geo,material,start:0,count:3}));
+  r._pipeline=()=>({handle:{pipeline},bindings:{getBindGroup:()=>group}});r._slot=o=>o.id;
+  const pass={group0:{},passKey:'color',colorFormats:['rgba16float']},rp={executeBundles(){},setBindGroup(){}};
+  const draw=(frame,list)=>{GPU.frame=frame;for(const it of list)it.object.__frameRow={frame,material,geo,owner:r,epoch:0,gpuState:undefined,bufferEpoch:0,vbs:[vertex],vl:{},index:null};r.drawItems(rp,list,pass,'opaque');};
+  draw(100,items);const cache=[...r._bundles.values()][0];assert.equal(cache.size,1100);
+  let scans=0;const iterate=cache[Symbol.iterator].bind(cache);cache[Symbol.iterator]=()=>{scans++;return iterate();};
+  for(let f=101;f<120;f++)draw(f,items.slice(0,1));assert.equal(scans,0);
+  draw(120,items.slice(0,1));assert.equal(scans,1);assert.equal(cache.size,1100);
+  draw(360,items.slice(0,1));assert.equal(cache.size,1);assert.equal(scans,2);
+ }finally{GPU.device=savedDevice;GPU.frame=savedFrame;}
+});
+
+test('object bundle replay preserves draw order and frame bindings through interleaved animated draws',()=>{
+ const savedDevice=GPU.device,savedFrame=GPU.frame;
+ const recorder=()=>({draws:[],group0:null,offset:0,setPipeline(){},setVertexBuffer(){},setBindGroup(i,g,offset){if(i===0)this.group0=g;if(i===2)this.offset=offset[0];},draw(count,instances,start){assert.ok(this.group0,'frame binding must survive bundle/direct transitions');this.draws.push([this.offset,count,instances,start]);},finish(){return{draws:this.draws};}});
+ GPU.device={createRenderBundleEncoder:recorder};
+ try{
+  const run=atomic=>{
+   const r=new MeshRenderer();r.bundles=true;r.bundleChunking=true;r.bundleChunkSize=atomic?1:32;r.drawBindGroup={};
+   const geo={attributes:{position:{count:3}}},material={},vertex={},pipeline={},group={},pass={group0:{},passKey:'color',colorFormats:['rgba16float']};
+   const items=Array.from({length:5},(_,id)=>({object:{id,__bsI:1,__bsS:0,__bsC:3,__bundleShapeAt:id%2?100:0},geometry:geo,material,start:0,count:3}));
+   r._pipeline=()=>({handle:{pipeline},bindings:{getBindGroup:()=>group}});r._slot=o=>o.id;
+   const draw=(frame,list)=>{GPU.frame=frame;for(const it of list)it.object.__frameRow={frame,material,geo,owner:r,epoch:0,gpuState:undefined,bufferEpoch:0,vbs:[vertex],vl:{},index:null};
+    const rp=recorder();rp.setBindGroup(0,pass.group0);rp.executeBundles=bs=>{for(const b of bs)rp.draws.push(...b.draws);rp.group0=null;};r.drawItems(rp,list,pass,'opaque');assert.equal(rp.group0,pass.group0);return rp.draws;};
+   return[draw(100,items),draw(101,items),draw(102,items.filter(it=>it.object.id!==2))];
+  };
+  const reference=run(false),actual=run(true);assert.deepEqual(actual,reference);assert.deepEqual(actual[0].map(d=>d[0]),[0,256,512,768,1024]);
+ }finally{GPU.device=savedDevice;GPU.frame=savedFrame;}
+});
+
 test('per-object bundle references invalidate every GPU input and draw range',()=>{
  const savedDevice=GPU.device,savedFrame=GPU.frame;let builds=0;
  GPU.device={createRenderBundleEncoder(){builds++;return {setPipeline(){},setBindGroup(){},setVertexBuffer(){},setIndexBuffer(){},draw(){},drawIndexed(){},finish(){return {};}};}};
@@ -99,7 +136,7 @@ test('per-object bundle references invalidate every GPU input and draw range',()
   let pipeline={},group={},vbs=[{}],index=null,offset=0;
   const geo={attributes:{position:{count:6}},instanceCount:1},o={id:0},material={},it={object:o,geometry:geo,material,start:0,count:6},pass={group0:{},passKey:'color',colorFormats:['rgba16float']};
   r._pipeline=()=>({handle:{pipeline},bindings:{getBindGroup:()=>group}});r._slot=()=>offset;
-  const draw=()=>{o.__frameRow={frame:GPU.frame,material,geo,owner:r,vbs,vl:{},index};o.__bsI=geo.instanceCount;o.__bsS=it.start;o.__bsC=it.count;o.__bundleShapeAt=0;r.drawItems({executeBundles(){},setBindGroup(){}},[it],pass,'opaque');GPU.frame++;};
+  const draw=()=>{o.__frameRow={frame:GPU.frame,material,geo,owner:r,epoch:0,gpuState:undefined,bufferEpoch:0,vbs,vl:{},index};o.__bsI=geo.instanceCount;o.__bsS=it.start;o.__bsC=it.count;o.__bundleShapeAt=0;r.drawItems({executeBundles(){},setBindGroup(){}},[it],pass,'opaque');GPU.frame++;};
   draw();assert.equal(builds,1);draw();assert.equal(builds,1);
   for(const change of [()=>pass.group0={},()=>r.drawBindGroup={},()=>pipeline={},()=>group={},()=>offset++,()=>geo.instanceCount++,()=>it.start++,()=>it.count--,()=>vbs[0]={},()=>vbs.push({}),()=>geo.attributes.position.count++,()=>{index={buffer:{},format:'uint16'};geo.index={count:6};},()=>index.buffer={},()=>index.format='uint32',()=>geo.index.count++]){
    const before=builds;change();draw();assert.equal(builds,before+1);draw();assert.equal(builds,before+1);
@@ -116,6 +153,29 @@ test('material replacement waits for both colour and shadow pipelines without sy
  assert.equal(passes[0].passKey,'color.0.rgba16float.depth32float.greater-equal..');
  handles[1].pipeline={};assert.equal(r.materialReady(object,material,descriptors),true);
  handles[1].failed=true;assert.throws(()=>r.materialReady(object,material,descriptors),/Replacement pipeline failed/);
+});
+test('normalized immutable readiness passes reuse their exact pipeline descriptor',()=>{
+ const r=new MeshRenderer(),object={geometry:{}},material={},pass=Object.freeze({kind:'color',late:false,colorFormats:['rgba16float'],depthFormat:'depth32float',depthCompare:'greater-equal',passKey:'color.0.rgba16float.depth32float.greater-equal..'});
+ r._cachedLayout=()=>({});r._pipeline=(_m,_vl,p)=>{assert.equal(p,pass);return{handle:{pipeline:{}}};};
+ for(let i=0;i<100;i++)assert.equal(r.materialReady(object,material,[pass]),true);
+});
+test('appended measured geometry reuses early bundles and preserves changed ranges and GPU buffer bindings',()=>{
+ const savedDevice=GPU.device,savedFrame=GPU.frame;let builds=0,direct=0;
+ const recorder=()=>({draws:[],setPipeline(){},setBindGroup(){},setVertexBuffer(){},setIndexBuffer(){},drawIndexed(count,instances,start){this.draws.push([count,instances,start]);},finish(){builds++;return{draws:this.draws};}});
+ GPU.device={createRenderBundleEncoder:recorder};
+ try{
+  const r=new MeshRenderer();r.bundles=true;r.bundleChunking=true;r.bundleChunkSize=1;r.drawBindGroup={};
+  const geo={userData:{surveyMaterial:0},attributes:{position:{count:12}},index:{count:12},instanceCount:1},o={id:1},material={},it={object:o,geometry:geo,material,start:0,count:3},pass={group0:{},passKey:'color',colorFormats:['rgba16float']};
+  const pipeline={},group={};let vertex={},indexBuffer={};r._pipeline=()=>({handle:{pipeline},bindings:{getBindGroup:()=>group}});r._slot=()=>0;
+  const draw=frame=>{GPU.frame=frame;o.__frameRow={frame,material,geo,owner:r,epoch:0,gpuState:undefined,bufferEpoch:0,vbs:[vertex],vl:{},index:{buffer:indexBuffer,format:'uint32'}};
+   const rp=recorder();rp.executeBundles=bs=>{for(const b of bs)rp.draws.push(...b.draws);};const old=rp.drawIndexed.bind(rp);rp.drawIndexed=(...a)=>{direct++;old(...a);};r.drawItems(rp,[it],pass,'opaque');return rp.draws;};
+  assert.deepEqual(draw(1),[[3,1,0]]);draw(2);assert.equal(builds,0);
+  assert.deepEqual(draw(3),[[3,1,0]]);assert.equal(builds,1);const calls=direct;
+  assert.deepEqual(draw(4),[[3,1,0]]);assert.equal(builds,1);assert.equal(direct,calls);
+  it.count=9;assert.deepEqual(draw(5),[[9,1,0]]);draw(6);assert.deepEqual(draw(7),[[9,1,0]]);assert.equal(builds,2);
+  vertex={};assert.deepEqual(draw(8),[[9,1,0]]);assert.equal(builds,3);
+  indexBuffer={};assert.deepEqual(draw(9),[[9,1,0]]);assert.equal(builds,4);
+ }finally{GPU.device=savedDevice;GPU.frame=savedFrame;}
 });
 
 test('stable material epochs pack once across passes and invalidate before the next view frame', () => {
@@ -136,6 +196,19 @@ test('stable material epochs pack once across passes and invalidate before the n
   } finally {GPU.device=savedDevice;GPU.queue=savedQueue;}
 });
 
+test('cached material pipeline keys remain byte-identical to the previous key through every public state change',()=>{
+ const previous=execFileSync('git',['show','0e05c14:frontend/src/vendor/tidewater/engine/render/Material.js'],{encoding:'utf8'});
+ const legacy=Function('return function '+previous.match(/pipelineKey\(\) \{[\s\S]*?\n\t\}/)[0])();
+ const mat=new Material();
+ const same=()=>assert.equal(mat.pipelineKey(),legacy.call(mat));same();const state=mat._pipelineState;
+ for(let i=0;i<100;i++)same();assert.equal(mat._pipelineState,state);
+ for(const [key,value] of Object.entries({id:901,version:3,side:'double',transparent:true,blending:'additive',depthWrite:false,depthTest:false,depthCompare:'always',colorWrite:false,topology:'line-list',alphaTest:.5,underwaterLighting:'lite',appliesHillShadow:true,localLightsCheap:true,receiveShadows:false,depthBias:2,depthBiasSlopeScale:3,vertexColors:true})){
+  const before=mat._pipelineState;mat[key]=value;same();assert.notEqual(mat._pipelineState,before,key);same();
+ }
+ mat.blending={color:{operation:'add',srcFactor:'one',dstFactor:'one'}};same();mat.blending.color.operation='subtract';same();
+ mat.alphaTest=0;same();mat.needsUpdate=true;same();mat.dispose();
+});
+
 test('native scratch lists remain separate within a frame and reuse items across frames', () => {
   const renderer = new MeshRenderer(); renderer.reuseDrawLists = true;
   const object = {visible:true,isMesh:true,layers:{mask:1},children:[],renderOrder:0,
@@ -151,7 +224,7 @@ test('native scratch lists remain separate within a frame and reuse items across
     GPU.frame++;object.renderOrder=5;object.geometry.drawRange.start=1;
     const next=renderer.collect(scene,{cull:false});
     assert.equal(next.opaque[0],item);assert.equal(item.renderOrder,5);assert.equal(item.start,1);
-    renderer.retainGeometry([object]);assert.equal(renderer._collectPools.length,0);
+    const pools=renderer._collectPools;renderer.retainGeometry([object]);assert.equal(renderer._collectPools,pools);assert.equal(renderer._collectPools.length,2);
     renderer.dispose();assert.equal(renderer._collectPools.length,0);
   } finally {GPU.frame=saved;}
 });

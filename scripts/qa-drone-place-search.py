@@ -108,13 +108,15 @@ with sync_playwright() as p:
         page.unroute(pattern,fixture)
         # Real school, district and parcel destinations all rebuild at their
         # provider point. Revisit and history also release the previous session.
+        page.wait_for_function("[...window.__drone.world.tiles.values(),...window.__drone.world.viewTiles.values()].some(t=>t.surveyStore?.entries.length)",timeout=30000)
         warps=[]
         def travel(query=None,history=None):
             if query:
                 search.fill(query);search.click()
                 page.wait_for_function("!document.querySelector('.re-drone-place-popup')?.textContent.includes('검색 중…')",timeout=60000)
                 page.get_by_role('option').first.click()
-            page.evaluate('window.__qaOldDrone=window.__drone;window.__qaOldCanvas=window.__holoNative.canvas')
+            page.evaluate('''()=>{window.__qaOldDrone=window.__drone;window.__qaOldCanvas=window.__holoNative.canvas;
+              const w=window.__drone.world;window.__qaOldResources={renderer:window.__holoNative.renderer,stores:[...w.tiles.values(),...w.viewTiles.values()].map(t=>t.surveyStore).filter(Boolean),pools:[w.surveyPool,w.colourPool].filter(Boolean)};}''')
             started=time.monotonic()
             if history:page.evaluate('history.'+history+'()')
             else:
@@ -129,13 +131,18 @@ with sync_playwright() as p:
                 duration=time.monotonic()-started
                 assert duration>=4.8,'Warp vanished before its five-second animation'
                 warps.append({'seconds':duration,'backgroundSceneReadySeconds':background_ready,'revealedReadyScene':True})
-            point=page.evaluate('''()=>{const q=new URLSearchParams(location.search),d=window.__drone,p=window.__qaOldDrone.world.terrainJobs;return{target:{lat:+q.get('lat'),lon:+q.get('lon')},origin:d.p.data.center,where:d.where(),title:d.p.data.name,canvasReplaced:window.__holoNative.canvas!==window.__qaOldCanvas,oldCanvasDetached:!document.contains(window.__qaOldCanvas),oldSessionEnded:window.__qaOldDrone.ended,oldTerrainWorkers:p?{pending:p.pending,stopped:p.dead,liveWorkers:p.slots.filter(s=>s.worker).length}:null};}''')
+            point=page.evaluate('''()=>{const q=new URLSearchParams(location.search),d=window.__drone,p=window.__qaOldDrone.world.terrainJobs,r=window.__qaOldResources;
+              return{target:{lat:+q.get('lat'),lon:+q.get('lon')},origin:d.p.data.center,where:d.where(),title:d.p.data.name,canvasReplaced:window.__holoNative.canvas!==window.__qaOldCanvas,oldCanvasDetached:!document.contains(window.__qaOldCanvas),oldSessionEnded:window.__qaOldDrone.ended,oldTerrainWorkers:p?{pending:p.pending,stopped:p.dead,liveWorkers:p.slots.filter(s=>s.worker).length}:null,
+              oldModelResources:{stores:r.stores.length,entries:r.stores.reduce((n,s)=>n+s.entries.length,0),gpuGeometries:r.renderer.geometries.size,rendererDisposed:!!r.renderer.disposed,workerPending:r.pools.reduce((n,p)=>n+p.pending,0),liveWorkers:r.pools.reduce((n,p)=>n+p.slots.filter(s=>s.worker).length,0),trafficRegions:window.__qaOldDrone.world.traffic.junctionRegions?.size??0,trafficLanes:window.__qaOldDrone.world.traffic.lanes.size,trafficCars:window.__qaOldDrone.world.traffic.cars.length}};}''')
             for key in ['lat','lon']:
                 assert abs(point['origin'][key]-point['target'][key])<1e-6,point
                 assert abs(point['where'][key]-point['target'][key])<1e-6,point
             assert point['canvasReplaced'] and point['oldCanvasDetached'] and point['oldSessionEnded'],point
             if point['oldTerrainWorkers'] is not None:
                 assert point['oldTerrainWorkers']=={'pending':0,'stopped':True,'liveWorkers':0},point
+            resources=point['oldModelResources']
+            assert resources['entries']==resources['gpuGeometries']==resources['workerPending']==resources['liveWorkers']==0 and resources['rendererDisposed'],point
+            assert resources['trafficRegions']==resources['trafficLanes']==resources['trafficCars']==0,point
             return point
         destinations=[travel(query) for query in ['망미초등학교','수영구','부산광역시 수영구 망미동 209-4']]
         point=destinations[-1]

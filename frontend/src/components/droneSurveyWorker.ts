@@ -12,6 +12,7 @@ import {ringIndex} from './footprintIndex';
 import {applyBuildingAppearance,surveyedAppearance,type BuildingAppearance} from './buildingAppearance';
 import {mergeSurveyParts} from './surveyPartMerge';
 import type {NearBuildingSource} from './nearBuildingTargets';
+import {paintSurveySourceColour} from './surveySourceColour';
 
 /* Match registered footprints to measured geometry. No source photographs are
  * downloaded or applied to drone buildings. Return lit, constructed materials
@@ -25,6 +26,8 @@ export type SurveyJob = {
   outlines: [number, number][][];
   /** each block's colour (r, g, b) */
   tints: Float32Array;
+  /** Optional exact coarse wall RGB then roof RGB per target; missing evidence is NaN. */
+  surfaceTints?:Float32Array;
   /** Registered floor height relative to the shared facade's floor grid. */
   facadeScale?: Float32Array;
   appearances?: (BuildingAppearance|undefined)[];
@@ -78,11 +81,11 @@ scope.onmessage = async (e: MessageEvent<SurveyJob | ColourJob | FacadeJob>) => 
 
 async function survey(e: MessageEvent<SurveyJob>) {
   const t0 = performance.now();
-  const { id, key, lat0, lon0, towers, tints, outlines, facadeScale,appearances } = e.data;
+  const { id, key, lat0, lon0, towers, tints, surfaceTints, outlines, facadeScale,appearances } = e.data;
   const T = 9;
   const blocks = Array.from({ length: towers.length / T }, (_, i) => ({
     x: towers[i * T], y: towers[i * T + 1], h: towers[i * T + 2], g: towers[i * T + 3], s: towers[i * T + 4], n: towers[i * T + 5], style: towers[i * T + 6],
-    c: new THREE.Color(tints[i * 3], tints[i * 3 + 1], tints[i * 3 + 2]), scale: facadeScale?.[i] ?? 1, source: towers[i * T + 7], outline: outlines[i] ?? [],appearance:appearances?.[i],
+    c: new THREE.Color(tints[i * 3], tints[i * 3 + 1], tints[i * 3 + 2]), sourceTints:surfaceTints?.subarray(i*6,i*6+6), scale: facadeScale?.[i] ?? 1, source: towers[i * T + 7], outline: outlines[i] ?? [],appearance:appearances?.[i],
   }));
   // (a large complex's whole outline is looked over, not just round its centre)
   const probes: { x: number; y: number }[] = [...blocks];
@@ -120,6 +123,7 @@ async function survey(e: MessageEvent<SurveyJob>) {
     if (!g.getAttribute("normal")) g.computeVertexNormals();
     const shared = fastMergeVertices(g);
     if (shared !== g) g.dispose();
+    paintSurveySourceColour(shared.getAttribute('color').array as Float32Array,surface,bl.sourceTints);
     let list = byMat.get(m); if (!list) byMat.set(m, list = []);
     list.push({ g: shared, style: bl.style, source: bl.source, surface });
   };

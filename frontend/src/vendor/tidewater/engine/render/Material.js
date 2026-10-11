@@ -163,7 +163,15 @@ export class Material {
 	// the state that selects a pipeline (besides geometry layout and pass)
 	pipelineKey() {
 
-		return `${ this.id }.${ this.version }.${ this.side }.${ this.transparent }.${ typeof this.blending === 'string' ? this.blending : JSON.stringify( this.blending ) }.${ this.depthWrite }.${ this.depthTest }.${ this.depthCompare }.${ this.colorWrite }.${ this.topology }.${ this.alphaTest > 0 }.${ this.underwaterLighting }.${ this.appliesHillShadow }.${ this.localLightsCheap }.${ this.receiveShadows }.${ this.depthBias }.${ this.depthBiasSlopeScale }.${ this.vertexColors }`;
+		// Public pipeline fields can change without needsUpdate. Compare every
+		// one, including mutable custom blending, before reusing the exact key.
+		// Stable terrain/facades avoid allocating this long string each frame.
+		const blend = typeof this.blending === 'string' ? this.blending : JSON.stringify( this.blending );
+		const alpha = this.alphaTest > 0, s = this._pipelineState;
+		if ( s && s.id === this.id && s.version === this.version && s.side === this.side && s.transparent === this.transparent && s.blend === blend && s.depthWrite === this.depthWrite && s.depthTest === this.depthTest && s.depthCompare === this.depthCompare && s.colorWrite === this.colorWrite && s.topology === this.topology && s.alpha === alpha && s.underwaterLighting === this.underwaterLighting && s.appliesHillShadow === this.appliesHillShadow && s.localLightsCheap === this.localLightsCheap && s.receiveShadows === this.receiveShadows && s.depthBias === this.depthBias && s.depthBiasSlopeScale === this.depthBiasSlopeScale && s.vertexColors === this.vertexColors ) return s.key;
+		const key = `${ this.id }.${ this.version }.${ this.side }.${ this.transparent }.${ blend }.${ this.depthWrite }.${ this.depthTest }.${ this.depthCompare }.${ this.colorWrite }.${ this.topology }.${ alpha }.${ this.underwaterLighting }.${ this.appliesHillShadow }.${ this.localLightsCheap }.${ this.receiveShadows }.${ this.depthBias }.${ this.depthBiasSlopeScale }.${ this.vertexColors }`;
+		this._pipelineState = { key, id: this.id, version: this.version, side: this.side, transparent: this.transparent, blend, depthWrite: this.depthWrite, depthTest: this.depthTest, depthCompare: this.depthCompare, colorWrite: this.colorWrite, topology: this.topology, alpha, underwaterLighting: this.underwaterLighting, appliesHillShadow: this.appliesHillShadow, localLightsCheap: this.localLightsCheap, receiveShadows: this.receiveShadows, depthBias: this.depthBias, depthBiasSlopeScale: this.depthBiasSlopeScale, vertexColors: this.vertexColors };
+		return key;
 
 	}
 
