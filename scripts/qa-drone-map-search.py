@@ -1,5 +1,5 @@
 """Actual map -> building view -> flight -> search, muted and read-only API."""
-import json,sys
+import json,re,sys,time
 from pathlib import Path
 from urllib.parse import urlencode,urlsplit
 import requests
@@ -19,6 +19,10 @@ with sync_playwright() as p:
         for width,height,touch in sizes:
             context=browser.new_context(viewport={'width':width,'height':height},has_touch=touch,is_mobile=touch)
             page=context.new_page()
+            explorer_requests=[];held_routes=[]
+            page.on('request',lambda req:explorer_requests.append(time.monotonic()) if re.search(r'/assets/DroneExplorePage-[^/]+\.js$',urlsplit(req.url).path) else None)
+            if '--cold-route' in sys.argv:
+                page.route(re.compile(r'.*/assets/DroneExplorePage-[^/]+\.js$'),lambda route:held_routes.append(route))
             page.add_init_script("Object.defineProperty(globalThis,'indexedDB',{value:undefined,configurable:true});navigator.sendBeacon=()=>false")
             page.on('pageerror',lambda e:errors.append(str(e)[:300]))
             def api(route):
@@ -59,9 +63,15 @@ with sync_playwright() as p:
             first.click()
             page.evaluate('window.__qaOldDrone=window.__drone;window.__qaOldCanvas=window.__holoNative.canvas')
             previous=page.url
+            move_at=time.monotonic()
             page.locator('.re-drone-place-go').click()
+            assert explorer_requests and explorer_requests[0]<move_at,'Explorer chunk was not prepared during the map flight'
+            if '--cold-route' in sys.argv:
+                page.wait_for_timeout(6500)
+                assert len(held_routes)==1, 'Expected one shared explorer request'
+                held_routes[0].continue_()
             warp=page.get_by_role('dialog',name='드론뷰 워프 이동')
-            warp.wait_for(state='visible',timeout=5000)
+            warp.wait_for(state='visible',timeout=30000)
             started=page.evaluate('performance.now()')
             page.screenshot(path=str(out/f'map-warp-{width}.png'))
             warp.wait_for(state='detached',timeout=120000)
@@ -74,12 +84,14 @@ with sync_playwright() as p:
                 assert abs(point['target'][axis]-point['origin'][axis])<1e-6,point
                 assert abs(point['target'][axis]-point['where'][axis])<1e-6,point
             page.screenshot(path=str(out/f'map-arrival-{width}.png'))
-            results.append({'viewport':[width,height],'touch':touch,'from':previous.split('?')[0],'settings':[200,1000],'query':'강남데시앙 (IME, no Space)','warpSeconds':elapsed,'arrival':point})
+            results.append({'viewport':[width,height],'touch':touch,'from':previous.split('?')[0],'settings':[200,1000],'query':'강남데시앙 (IME, no Space)','explorerPreloadBeforeMoveSeconds':move_at-explorer_requests[0],'heldExplorerSeconds':6.5 if held_routes else 0,'warpSeconds':elapsed,'arrival':point})
             context.close()
         report={'entries':results,'errors':errors,'chrome':browser.version,'muted':True}
         (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf8')
         print(json.dumps(report,ensure_ascii=False),flush=True)
         assert not errors
     except Exception:
-        page.screenshot(path=str(out/'failed.png'));raise
+        page.screenshot(path=str(out/'failed.png'))
+        (out/'partial-report.json').write_text(json.dumps({'entries':results,'errors':errors},ensure_ascii=False,indent=2),encoding='utf8')
+        raise
     finally:browser.close()

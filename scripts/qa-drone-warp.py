@@ -1,7 +1,7 @@
 """Muted Chrome warp: delayed/read-only map configuration, retry and cancellation."""
 import asyncio,json,re,sys,time
 from pathlib import Path
-from urllib.parse import urlencode,urlsplit
+from urllib.parse import urlencode,urlsplit,parse_qs
 import requests
 from playwright.async_api import async_playwright
 sys.stdout.reconfigure(encoding='utf8')
@@ -31,10 +31,15 @@ async def run():
         async def destination_data(route):
             # Coordinate visits reuse public configuration in memory. Exercise
             # the required GIS fetch instead of relying on a redundant API call.
-            if mode['value']=='fail':
+            q=parse_qs(urlsplit(route.request.url).query)
+            required=q.get('data')==['LT_C_BLDGINFO'] and q.get('callback',[''])[0].startswith('__vw')
+            if required and mode['value']=='fail':
                 await route.fulfill(status=503,body='');return
-            if mode['value']=='slow':
-                mode['value']='normal';await asyncio.sleep(8)
+            if required and mode['value']=='slow':
+                # Hold every retry until the same deadline. Old tile workers
+                # must not consume this mode before the destination request.
+                await asyncio.sleep(max(0,mode['until']-time.monotonic()))
+                mode['value']='normal'
             await route.continue_()
         await page.route(re.compile(r'^https://api\.vworld\.kr/req/data(?:\?|$)'),destination_data)
         page.on('pageerror',lambda e:errors.append(str(e)[:300]))
@@ -49,7 +54,7 @@ async def run():
                 await search.fill(query);await search.click()
                 await page.wait_for_function("!document.querySelector('.re-drone-place-popup')?.textContent.includes('검색 중…')",timeout=60000)
                 await page.get_by_role('option').first.click()
-            await select('망미초등학교');mode['value']='slow'
+            await select('망미초등학교');mode.update(value='slow',until=time.monotonic()+8)
             started=time.monotonic();await go.click()
             await warp.wait_for(state='visible',timeout=3000)
             await page.wait_for_timeout(2700)

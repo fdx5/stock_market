@@ -20,7 +20,9 @@ export default function DroneExplorePage() {
   useDocumentTitle(L('드론 탐험 | K-Stock Hub', 'Drone explorer | K-Stock Hub'));
   const [route,setRoute]=useState(()=>({query:new URLSearchParams(location.search),visit:0}));
   const incoming=useRef(incomingDroneTravel(location.pathname+location.search));
-  const [warp,setWarp]=useState<{id:number;name:string;started:number;elapsed:boolean;ready:boolean;error:string;from:string}|null>(()=>incoming.current?{...incoming.current,id:1,elapsed:false,ready:false,error:''}:null);
+  // Start the five visible seconds when this route mounts. Downloading the
+  // route must not consume the map flight's promised warp presentation time.
+  const [warp,setWarp]=useState<{id:number;name:string;started:number;elapsed:boolean;ready:boolean;error:string;from:string}|null>(()=>incoming.current?{...incoming.current,started:performance.now(),id:1,elapsed:false,ready:false,error:''}:null);
   const warpSeq=useRef(incoming.current?1:0),warpUrl=useRef(incoming.current?.url??'');
   useEffect(()=>consumeDroneTravel(incoming.current),[]);
   useEffect(()=>{

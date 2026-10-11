@@ -69,6 +69,7 @@ import DroneOverlay from "./DroneOverlay";
 import DronePlaceSearch from './DronePlaceSearch';
 import {dronePlaceId,type DronePlace} from './dronePlaces';
 import {moveFromBuildingView} from './droneTravel';
+import {loadDroneExplorePage} from './droneExploreLoader';
 import DeskBgm from "../desk2/DeskBgm";
 import { useDeskBgm } from "../desk2/deskBgmStore";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
@@ -3793,6 +3794,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // 드론: fly over the area from where the camera is (droneMode.ts). Keys or the on-screen sticks
   // fly it, a drag turns and tilts the camera; 착륙 or Esc lands it back in the orbit view.
   const [droneOn, setDroneOn] = useState(false);
+  useEffect(() => {
+    if (droneOn && !autoDrone) void loadDroneExplorePage().catch(() => {});
+  }, [droneOn, autoDrone]);
   const [droneView, setDroneView] = useState<"fpv" | "chase">("fpv");
   // The site's music (deskBgmStore): its player in the full-screen view; while it plays, the drone is quiet.
   const bgm = useDeskBgm();
