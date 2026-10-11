@@ -59,11 +59,11 @@ test('autopilot cruises continuously, changes height gently and stays inside 100
 });
 
 test('below the band, autopilot climbs before advancing; above it, it descends before advancing',()=>{
-  for(const initial of [40,400]){
+  for(const initial of [2,1200]){
     const f=new DroneFlight();f.place(0,0,0,initial,0);f.setAutopilot(true);
     let entered=false;
-    run(f,flat,50,f=>{if(!entered && (f.agl<100 || f.agl>250))assert.ok(Math.abs(f.pos.z)<1);else entered=true});
-    assert.ok(entered);assert.ok(f.agl>=100 && f.agl<=250);assert.ok(f.pos.z<-100);
+    run(f,flat,70,f=>{if(!entered && (f.agl<AUTO_MIN_AGL || f.agl>AUTO_MAX_AGL))assert.ok(Math.abs(f.pos.z)<1);else entered=true});
+    assert.ok(entered);assert.ok(f.agl>=AUTO_MIN_AGL && f.agl<=AUTO_MAX_AGL);assert.ok(f.pos.z<-100);
   }
 });
 
@@ -75,7 +75,7 @@ test('autopilot follows rising ground and climbs over a passable roof without co
 });
 
 test('an impassable tower causes a hover before it and a new heading resumes the cruise',()=>{
-  const world={...flat,roofAt:(x,y)=>Math.abs(x)<50&&y>=230&&y<=330?300:0};
+  const world={...flat,roofAt:(x,y)=>Math.abs(x)<50&&y>=230&&y<=330?1100:0};
   const f=new DroneFlight();f.place(0,0,0,175,0);f.setAutopilot(true);
   run(f,world,35,f=>{assert.equal(f.bumped,0);assert.ok(-f.pos.z<230);assert.ok(f.agl<=250)});
   assert.equal(f.autopilotStatus,'obstacle');assert.ok(f.kmh<1);
@@ -83,7 +83,7 @@ test('an impassable tower causes a hover before it and a new heading resumes the
 });
 
 test('maximum-speed cruise still brakes before an impassable tower and resumes its saved speed',()=>{
-  const world={...flat,roofAt:(x,y)=>Math.abs(x)<50&&y>=230&&y<=330?300:0};
+  const world={...flat,roofAt:(x,y)=>Math.abs(x)<50&&y>=230&&y<=330?1100:0};
   const f=new DroneFlight();f.place(0,0,0,175,0);f.vel.z=-MAX_SPEED;f.setAutopilot(true);
   run(f,world,30,f=>{assert.equal(f.bumped,0);assert.ok(-f.pos.z<230);assert.ok(f.agl>=100&&f.agl<=250)});
   assert.equal(f.autopilotStatus,'obstacle');assert.ok(f.kmh<1);assert.equal(f.autoCruiseSpeed,MAX_SPEED);
@@ -106,4 +106,43 @@ test('manual movement and altitude inputs cancel autopilot; yaw remains availabl
   const f=new DroneFlight();f.place(0,0,0,175,0);f.setAutopilot(true);f.keys.add('KeyE');run(f,flat,1);assert.equal(f.autopilot,true);assert.notEqual(f.yaw,0);
   f.wheelClimb(100);assert.equal(f.autopilot,false);
   f.toggleAutopilot();assert.equal(f.autopilot,true);f.toggleAutopilot();assert.equal(f.autopilot,false);
+});
+
+test('a user speed setting clamps to 200km/h, applies during cruise and survives holds and re-engagement',()=>{
+  const f=new DroneFlight();f.place(0,0,0,175,0);f.setAutoSpeed(500);f.setAutopilot(true);
+  assert.equal(f.autoCruiseSpeed,MAX_SPEED);run(f,flat,20);assert.ok(Math.abs(f.kmh-200)<.01);
+  f.setAutoSpeed(42);run(f,flat,20);assert.ok(Math.abs(f.kmh-42)<.01);
+  run(f,{...flat,clearAhead:()=>0},8);f.setAutoSpeed(128);run(f,flat,20);assert.ok(Math.abs(f.kmh-128)<.01);
+  f.setAutopilot(false);f.vel.z=-20/3.6;f.setAutopilot(true);assert.ok(Math.abs(f.autoCruiseSpeed*3.6-128)<1e-9);
+  f.setAutoSpeed(NaN);f.setAutoSpeed(Infinity);assert.ok(Math.abs(f.autoCruiseSpeed*3.6-128)<1e-9);
+  f.setAutoSpeed(-10);run(f,flat,20);assert.equal(f.autoCruiseSpeed,0);assert.ok(f.kmh<.01);
+});
+
+test('selected automatic heights include both 10m and 1000m and remain selected across engagement',()=>{
+  assert.equal(AUTO_MIN_AGL,10);assert.equal(AUTO_MAX_AGL,1000);
+  const f=new DroneFlight();f.place(0,0,0,500,0);f.setAutoAltitude(500);f.setAutopilot(true);
+  for(const [request,expected] of [[-50,10],[2000,1000],[10,10],[1000,1000]]){
+    f.setAutoAltitude(request);assert.equal(f.autoCruiseAgl,expected);
+    run(f,flat,180,f=>{assert.ok(f.agl>=10&&f.agl<=1000);assert.equal(f.bumped,0)});
+    assert.ok(Math.abs(f.agl-expected)<.01,`${expected}: ${f.agl}`);
+  }
+  f.setAutoAltitude(NaN);f.setAutoAltitude(Infinity);assert.equal(f.autoCruiseAgl,1000);
+  f.setAutopilot(false);f.setAutopilot(true);assert.equal(f.autoCruiseAgl,1000);
+});
+
+test('automatic flight can clear a 600m obstacle that the old 250m band could not pass',()=>{
+  const world={...flat,roofAt:(_x,y)=>y>=230&&y<=330?600:0};
+  const f=new DroneFlight();f.place(0,0,0,175,0);f.setAutoSpeed(200);f.setAutopilot(true);let passed=false;
+  run(f,world,150,f=>{assert.equal(f.bumped,0);assert.ok(f.agl>=10&&f.agl<=1000);if(-f.pos.z>=230&&-f.pos.z<=330){passed=true;assert.ok(f.clearance>=20)}});
+  assert.ok(passed);assert.ok(-f.pos.z>330);
+});
+
+test('manual keyboard, touch, altitude buttons and wheel can climb beyond 1000m and descend again',()=>{
+  for(const input of ['keyboard','touch','button','wheel']){
+    const f=new DroneFlight();f.place(0,0,0,999,0);
+    if(input==='keyboard')f.keys.add('Space');else if(input==='touch')f.sticks.left=[0,1];else if(input==='button')f.keys.add('BtnUp');
+    run(f,flat,4,(f)=>{if(input==='wheel')f.wheelClimb(-100)});assert.ok(f.agl>1005,`${input}: ${f.agl}`);
+    f.keys.clear();f.sticks.left=[0,0];f.wheelClimb(1000);const high=f.agl;f.keys.add('BtnDown');run(f,flat,5);assert.ok(f.agl<high);
+  }
+  const f=new DroneFlight();f.place(0,0,0,12000,0);const camera=new THREE.PerspectiveCamera();f.apply(camera);assert.ok(camera.far>f.agl);
 });

@@ -1204,7 +1204,7 @@ export type RealEstateBuildingCard = {
   name: string; lat: number; lon: number; pnu: string | null; area: string | null;
   register: RealEstateBuildingRegisterRow[] | null;
   place: { name: string; category: string | null; address: string | null; phone: string | null; url: string | null; distance: number | null } | null;
-  photos: { thumb: string; image: string | null; site: string | null; link: string | null; w: number | null; h: number | null; near?: boolean }[] | null;
+  photos: { thumb: string; image: string | null; site: string | null; link: string | null; w: number | null; h: number | null; near?: boolean; related?: boolean }[] | null;
   wiki: { title: string; extract: string | null; url: string | null; thumb: string | null; image?: string | null } | null;
   sources: string[];
 };

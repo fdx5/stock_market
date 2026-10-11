@@ -3834,6 +3834,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const down = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault(); e.stopImmediatePropagation();
+        if(document.querySelector('.re-drone-auto-settings')) { window.dispatchEvent(new Event('drone-auto-settings-close'));return; }
         // (a building's card open: Esc closes it, not the flight)
         if (stageRef.current?.drone?.signs.selected) window.dispatchEvent(new Event("drone-card-close"));
         else leaveDroneRef.current();
@@ -3846,10 +3847,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       flight()?.keys.add(e.code);
     };
     // (the key's release too: Space let go over a focused button would press it — the 착륙 button)
-    const up = (e: KeyboardEvent) => { if (FLY.has(e.code)) { e.preventDefault(); flight()?.keys.delete(e.code); e.stopImmediatePropagation(); } };
+    const up = (e: KeyboardEvent) => { if (FLY.has(e.code)) { flight()?.keys.delete(e.code); if(typing(e))return; e.preventDefault(); e.stopImmediatePropagation(); } };
     const blur = () => flight()?.keys.clear();
     // (the wheel: up and down)
-    const wheel = (e: WheelEvent) => { if ((e.target as HTMLElement | null)?.closest?.(".re-drone-card")) return; e.preventDefault(); flight()?.wheelClimb(e.deltaY); };
+    const wheel = (e: WheelEvent) => { if ((e.target as HTMLElement | null)?.closest?.(".re-drone-card, .re-drone-auto-controls")) return; e.preventDefault(); flight()?.wheelClimb(e.deltaY); };
     const vis = () => stageRef.current?.drone?.audio.pause(document.hidden);
     window.addEventListener("keydown", down, true);
     window.addEventListener("keyup", up, true);

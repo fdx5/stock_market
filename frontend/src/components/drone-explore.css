@@ -16,7 +16,7 @@
 .drone-explore-page .re-holo-stage, .drone-explore-page .re-holo--drone-touch .re-holo-stage { position: absolute !important; inset: 0 !important; flex: none; min-height: 0; width: 100% !important; height: 100% !important; z-index: auto !important; border-radius: 0; }
 .drone-explore-page .re-holo .re-drone-tools { top: calc(var(--drone-header-height) + 12px); right: calc(12px + env(safe-area-inset-right)); }
 .drone-explore-page .re-drone-hud { top: calc(var(--drone-header-height) + 12px); }
-.drone-explore-page .re-drone-autopilot { top: calc(var(--drone-header-height) + 106px); }
+.drone-explore-page .re-drone-auto-controls { top: calc(var(--drone-header-height) + 106px); }
 .drone-explore-page .re-holo .re-drone-alt-buttons { top: clamp(calc(var(--drone-header-height) + 168px), calc((100% + var(--drone-header-height) - var(--drone-footer-height)) / 2 - 74px), calc(100% - var(--drone-footer-height) - 160px)); bottom: auto; transform: none; }
 .drone-explore-page .re-drone-radar { top: calc(var(--drone-header-height) + 54px); }
 .drone-explore-page .re-drone-help { bottom: calc(var(--drone-footer-height) + 14px); }

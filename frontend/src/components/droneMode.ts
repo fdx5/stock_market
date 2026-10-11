@@ -78,7 +78,7 @@ export class DroneSession {
       onLabels: (k, l) => this.signs.set(k, l) });
   }
 
-  /** Take off from where the camera is (no higher than 500 m over the ground), looking its way. */
+  /** Take off from the camera, starting within 220 m of the ground, looking its way. */
   start() {
     const { camera, scene } = this.p;
     scene.add(this.world.root);

@@ -12,9 +12,10 @@ import * as THREE from "three";
 
 export const MAX_SPEED = 200 / 3.6;
 export const MIN_AGL = 2;
-export const MAX_AGL = 500;
-export const AUTO_MIN_AGL = 100;
-export const AUTO_MAX_AGL = 250;
+/** Manual flight has no altitude ceiling; automatic flight uses its own finite band. */
+export const MAX_AGL = Infinity;
+export const AUTO_MIN_AGL = 10;
+export const AUTO_MAX_AGL = 1000;
 /** Default cruise when autopilot is engaged from a hover. */
 export const AUTO_SPEED = 100 / 3.6;
 /** Everything within this distance ahead must be on screen (droneWorld.clearAhead). */
@@ -71,6 +72,10 @@ export class DroneFlight {
   autoTargetAgl = 175;
   /** Horizontal speed captured at engagement (m/s), retained through temporary holds. */
   autoCruiseSpeed = AUTO_SPEED;
+  /** Selected height above local ground; terrain/roofs may require a higher clearance. */
+  autoCruiseAgl = 175;
+  private autoSpeedSetting: number | null = null;
+  private autoAltitudeSetting: number | null = null;
   private autoClock = 0;
   private autoEntered = false;
   private autoHeldInput = { fwd: 0, side: 0, climb: 0 };
@@ -79,7 +84,8 @@ export class DroneFlight {
     if(on)this.setAutoRotate(false);
     if (on && !this.autopilot) {
       const speed = Math.hypot(this.vel.x, this.vel.z);
-      this.autoCruiseSpeed = speed > 1e-3 ? Math.min(speed, MAX_SPEED) : AUTO_SPEED;
+      this.autoCruiseSpeed = this.autoSpeedSetting ?? (speed > 1e-3 ? Math.min(speed, MAX_SPEED) : AUTO_SPEED);
+      this.autoCruiseAgl = this.autoAltitudeSetting ?? THREE.MathUtils.clamp(this.agl, AUTO_MIN_AGL, AUTO_MAX_AGL);
       // A pilot can engage while holding the throttle. Only subsequent input takes over.
       const { fwd, side, climb } = this.input();
       this.autoHeldInput = { fwd, side, climb };
@@ -90,6 +96,18 @@ export class DroneFlight {
     return on;
   }
   toggleAutopilot() { return this.setAutopilot(!this.autopilot); }
+
+  /** Session-only user controls, also applied during an active cruise or loading hold. */
+  setAutoSpeed(kmh: number) {
+    if (!Number.isFinite(kmh)) return;
+    this.autoSpeedSetting = THREE.MathUtils.clamp(kmh / 3.6, 0, MAX_SPEED);
+    this.autoCruiseSpeed = this.autoSpeedSetting;
+  }
+  setAutoAltitude(agl: number) {
+    if (!Number.isFinite(agl)) return;
+    this.autoAltitudeSetting = THREE.MathUtils.clamp(agl, AUTO_MIN_AGL, AUTO_MAX_AGL);
+    this.autoCruiseAgl = this.autoAltitudeSetting;
+  }
 
   /** Hold the current position and tilt while continuously panning the heading.
    * Uses the flight frame, with no extra timer or retained scene resources. */
@@ -139,11 +157,11 @@ export class DroneFlight {
   wheelClimb(deltaY: number) { if(deltaY)this.setAutoRotate(false);if (deltaY && this.autopilot) this.setAutopilot(false); this.wheel = THREE.MathUtils.clamp(this.wheel - deltaY * 0.004, -1, 1); }
 
   /** Fly along the current camera heading. Gentle height changes and terrain/roof
-   * look-ahead fit inside 100–250 m AGL. An impassable tower causes a hover before it. */
+   * look-ahead fit inside 10–1,000 m AGL. An impassable tower causes a hover before it. */
   private autoControls(dt: number, world: DroneWorldQuery, fx: number, fz: number) {
     this.autoClock += dt;
     const x=this.pos.x,y=-this.pos.z,ground=world.groundAt(x,y),agl=this.pos.y-ground;
-    let target=ground+175+40*Math.sin(this.autoClock*Math.PI/40),cap=this.autoCruiseSpeed,obstacle=false;
+    let target=ground+this.autoCruiseAgl+(this.autoAltitudeSetting===null ? 40*Math.sin(this.autoClock*Math.PI/40) : 0),cap=this.autoCruiseSpeed,obstacle=false;
     for(let distance=15;distance<=180;distance+=15){
       const px=x+fx*distance,py=y-fz*distance,g=world.groundAt(px,py),roof=world.roofAt(px,py);
       const impassable=roof-g>AUTO_MAX_AGL-24;
@@ -151,7 +169,7 @@ export class DroneFlight {
         obstacle=true;cap=Math.min(cap,Math.sqrt(Math.max(0,2*BRAKE*(distance-30))));
         continue;
       }
-      const top=Math.max(g+AUTO_MIN_AGL,roof+24);
+      const top=roof>g+.4 ? Math.max(g+AUTO_MIN_AGL,roof+24) : g+AUTO_MIN_AGL;
       target=Math.max(target,top);
       const rise=top-this.pos.y;
       if(rise>8)cap=Math.min(cap,Math.max(0,distance-15)/(rise/8+2));
@@ -161,7 +179,7 @@ export class DroneFlight {
     const inBand=agl>=AUTO_MIN_AGL && agl<=AUTO_MAX_AGL;
     if(inBand)this.autoEntered=true;
     if(!inBand)cap=0;
-    this.autopilotStatus=obstacle ? 'obstacle' : !inBand ? 'altitude' : 'cruise';
+    this.autopilotStatus=obstacle ? 'obstacle' : !inBand || Math.abs(target-this.pos.y)>8 ? 'altitude' : 'cruise';
     const vy=THREE.MathUtils.clamp((target-this.pos.y)*.65,-6,10);
     const along=this.vel.x*fx+this.vel.z*fz;
     // Balance the same drag and partial-throttle braking used below, so the captured
@@ -265,7 +283,7 @@ export class DroneFlight {
     if (this.bumped > 0 && blockTop - this.pos.y < 30 && Math.hypot(ix, iz) > 0.1) this.vel.y = Math.max(this.vel.y, CLIMB);
     this.pos.y += this.vel.y * dt;
 
-    // Height: 2 m over whatever is beneath (ground or roof), at most 500 m over the ground.
+    // Keep manual flight above ground/roofs; the autopilot has its separate altitude band.
     const gx = this.pos.x, gy = -this.pos.z;
     const ground = world.groundAt(gx, gy);
     const under = Math.max(ground, world.roofAt(gx, gy));
@@ -289,6 +307,8 @@ export class DroneFlight {
   /** Set the camera: at the drone, looking along the yaw and the gimbal's tilt; the gimbal
    * passes on a little of the body's motion (the picture lives, the horizon stays). */
   apply(camera: THREE.PerspectiveCamera) {
+    const far = Math.max(9000, this.agl + 5000);
+    if (Math.abs(camera.far - far) > 200) { camera.far = far; camera.updateProjectionMatrix(); }
     camera.position.copy(this.pos);
     const e = new THREE.Euler(this.tilt + this.pitchBody * 0.12, this.yaw, -this.roll * 0.25, "YXZ");
     camera.quaternion.setFromEuler(e);

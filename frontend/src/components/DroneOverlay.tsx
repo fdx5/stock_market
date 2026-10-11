@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MutableRefObject, type PointerEvent as RPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import type { DroneHud } from "./droneMode";
-import type { DroneFlight } from "./droneFlight";
+import { AUTO_MIN_AGL, AUTO_MAX_AGL, MAX_SPEED, type DroneFlight } from "./droneFlight";
 import type { DroneSigns, Sign } from "./droneSigns";
 import DroneBuildingCard from "./DroneBuildingCard";
 import DroneRadar, { type DroneWhere } from "./DroneRadar";
@@ -56,6 +57,15 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
   const [hud, setHud] = useState<DroneHud | null>(null);
   const [muted, setMuted] = useState(false);
   const [help, setHelp] = useState(true);
+  const [autoSettings, setAutoSettings] = useState(false);
+  const [speedDraft, setSpeedDraft] = useState<string | null>(null);
+  const [altitudeDraft, setAltitudeDraft] = useState<string | null>(null);
+  const updateFlight = () => setHud(h => h ? { ...h } : h);
+  useEffect(() => {
+    const close = () => setAutoSettings(false);
+    window.addEventListener('drone-auto-settings-close', close);
+    return () => window.removeEventListener('drone-auto-settings-close', close);
+  }, []);
   useEffect(() => {
     sink.current = setHud;
     const t = window.setTimeout(() => setHelp(false), touch ? 6000 : 9000);
@@ -69,7 +79,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
     if (!stage) return;
     let down: { x: number; y: number; t: number; id: number } | null = null;
     const local = (e: PointerEvent) => { const r = (signs.canvas ?? stage).getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] as const; };
-    const onControl = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.("button, a, .re-drone-stick, .re-drone-card, .re-drone-radar, .re-drone-tools");
+    const onControl = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.("button, a, input, label, .re-drone-auto-controls, .re-drone-stick, .re-drone-card, .re-drone-radar, .re-drone-tools");
     const pd = (e: PointerEvent) => { down = onControl(e) ? null : { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; };
     const pu = (e: PointerEvent) => {
       const d = down; down = null;
@@ -108,8 +118,8 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
   const h = hud;
   const auto = flight.autopilot;
   const autoStatus = flight.autopilotStatus === 'obstacle' ? '장애물 앞 대기 · 방향을 바꿔주세요'
-    : flight.autopilotStatus === 'altitude' ? '자동 고도 조절 중 · 100~250m'
-    : `${Math.round(flight.autoCruiseSpeed * 3.6)}km/h 항속 · 100~250m`;
+    : flight.autopilotStatus === 'altitude' ? `자동 고도 조절 중 · 목표 ${Math.round(flight.autoCruiseAgl)}m`
+    : `${Math.round(flight.autoCruiseSpeed * 3.6)}km/h 항속 · 목표 ${Math.round(flight.autoCruiseAgl)}m`;
   const dir = h ? COMPASS[Math.round(h.heading / 45) % 8] : "";
   return (
     <div ref={root} className="re-drone" aria-live="off">
@@ -122,12 +132,34 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
           {h ? (h.limited ? `앞쪽 렌더링 대기 · 최고 ${Math.round(h.limit)}km/h` : `주변 ${(h.radius / 1000).toFixed(1)}km 렌더링 ${h.ready}/${h.tiles}`) : "준비 중"}
         </span>
       </div>
+      <div className="re-drone-auto-controls">
       <button type="button" className={`re-drone-autopilot${auto ? ' is-on' : ''}`} aria-pressed={auto}
-        title="현재 속도로 항속 (정지 시 100km/h) · 바라보는 방향으로 자동 전진 · 지상 100~250m 자동 고도 · 이동/고도 조작 시 수동 전환"
+        title="설정한 속도와 고도로 시선 방향 자동 전진 · 10~1,000m 지형·건물 회피 · 이동/고도 조작 시 수동 전환"
         onClick={() => { flight.toggleAutopilot(); setHud(h => h ? { ...h, autopilot: flight.autopilot, autopilotStatus: flight.autopilotStatus } : h); }}>
         <b>{auto ? '⏸ 오토 파일럿 켜짐' : '▶ 오토 파일럿'}</b>
-        <small>{auto ? autoStatus : '현재 속도 유지 · 정지 시 100km/h'}</small>
+        <small>{auto ? autoStatus : `${Math.round(flight.autoCruiseSpeed * 3.6)}km/h · 고도 10~1,000m`}</small>
       </button>
+      <button type="button" className="re-drone-auto-settings-toggle" aria-expanded={autoSettings} aria-controls="drone-auto-settings"
+        onClick={() => setAutoSettings(v => !v)}>속도·고도 설정</button>
+      {autoSettings && createPortal(<div className="re-drone-auto-settings" id="drone-auto-settings" role="dialog" aria-label="오토파일럿 설정" onPointerDown={e => e.stopPropagation()}>
+        <label>속도 <input aria-label="오토파일럿 속도" type="number" min={0} max={MAX_SPEED * 3.6} step={1}
+          value={speedDraft ?? Math.round(flight.autoCruiseSpeed * 3.6)} onFocus={e => setSpeedDraft(e.target.value)}
+          onChange={e => {setSpeedDraft(e.target.value);if(e.target.value!==''&&e.target.validity.valid)flight.setAutoSpeed(e.target.valueAsNumber);updateFlight();}}
+          onBlur={e => {if(e.target.value!=='')flight.setAutoSpeed(e.target.valueAsNumber);setSpeedDraft(null);updateFlight();}}
+          onKeyDown={e => {if(e.key==='Enter')e.currentTarget.blur();}} /> km/h</label>
+        <input aria-label="오토파일럿 속도 슬라이더" type="range" min={0} max={MAX_SPEED * 3.6} step={1}
+          value={Math.round(flight.autoCruiseSpeed * 3.6)} onChange={e => {flight.setAutoSpeed(e.target.valueAsNumber);updateFlight();}} />
+        <label>목표 고도 <input aria-label="오토파일럿 목표 고도" type="number" min={AUTO_MIN_AGL} max={AUTO_MAX_AGL} step={1}
+          value={altitudeDraft ?? Math.round(flight.autoCruiseAgl)} onFocus={e => setAltitudeDraft(e.target.value)}
+          onChange={e => {setAltitudeDraft(e.target.value);if(e.target.value!==''&&e.target.validity.valid)flight.setAutoAltitude(e.target.valueAsNumber);updateFlight();}}
+          onBlur={e => {if(e.target.value!=='')flight.setAutoAltitude(e.target.valueAsNumber);setAltitudeDraft(null);updateFlight();}}
+          onKeyDown={e => {if(e.key==='Enter')e.currentTarget.blur();}} /> m</label>
+        <input aria-label="오토파일럿 고도 슬라이더" type="range" min={AUTO_MIN_AGL} max={AUTO_MAX_AGL} step={1}
+          value={Math.round(flight.autoCruiseAgl)} onChange={e => {flight.setAutoAltitude(e.target.valueAsNumber);updateFlight();}} />
+        <small>지면 기준 10~1,000m · 장애물에 따라 상승·대기</small>
+        <button type="button" onClick={() => setAutoSettings(false)}>완료</button>
+      </div>, document.body)}
+      </div>
       <div className="re-drone-tools">
         <button type="button" className="re-drone-view" onClick={onView} title="1인칭 ↔ 3인칭 (V)"><i className="re-drone-view-icon" aria-hidden="true">🚁</i><span>{view === "fpv" ? "1인칭" : "3인칭"}</span></button>
         <button type="button" onClick={() => { const m = !muted; setMuted(m); onMute(m); }} aria-pressed={muted} title={muted ? "드론 소리 켜기" : "드론 소리 끄기"} className="re-drone-mute">{muted ? "🔇 음소거" : "🔊 소리"}</button>
@@ -139,8 +171,8 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
         {touch
           ? <><b>왼쪽 스틱</b> ↕ 상승·하강 ↔ 회전<br /><b>오른쪽 스틱</b> ↕ 전진·후진 ↔ 좌우 이동<br />화면 드래그: 카메라 각도 · <b>빛나는 팻말</b>을 누르면 건물 정보</>
           : <><b>W S</b> 전진·후진 · <b>A D</b> 좌우 이동 · <b>Q E</b>·<b>← →</b> 회전 · <b>Space</b>/<b>R</b>/<b>PgUp</b>/휠↑ 상승 · <b>Shift</b>/<b>F</b>/<b>PgDn</b>/휠↓ 하강 · <b>V</b> 1인칭/3인칭 · 드래그: 카메라 각도 · <b>Esc</b> 착륙 · <b>빛나는 팻말</b> 클릭: 건물 정보</>}
-        <span>최고 200km/h · 지면 2m ~ 상공 500m</span>
-        <span>오토 파일럿: 현재 속도 항속 (정지 시 100km/h) · 시선 방향 전진 · 100~250m 자동 고도 · 이동·고도 조작 시 수동 전환</span>
+        <span>최고 200km/h · 지면·건물 위 2m 이상 · 수동 고도 상한 없음</span>
+        <span>오토 파일럿: 속도 0~200km/h · 목표 고도 10~1,000m 설정 · 시선 방향 전진 · 이동·고도 조작 시 수동 전환</span>
       </div>}
       <div className="re-drone-alt-buttons" aria-label="고도 조절">
         {([["BtnUp", "▲", "상승 (누르고 있기)"], ["BtnDown", "▼", "하강 (누르고 있기)"]] as const).map(([code, label, title]) => (

@@ -169,7 +169,7 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
               <img src={hero.image ?? hero.thumb} alt={`${sign.name} 사진`} referrerPolicy="no-referrer" decoding="async"
                 onError={e => { const img = e.currentTarget; if (hero.image && img.src !== hero.thumb) img.src = hero.thumb; else setBroken(b => new Set(b).add(hero.thumb)); }} />
             </a>
-            {hero.site && <figcaption>출처 {hero.site}</figcaption>}
+            {hero.site && <figcaption>{hero.related ? '건물명 검색 참고 사진 · ' : '출처 '}{hero.site}</figcaption>}
           </figure>
         )}
         {photos.length > 1 && (
