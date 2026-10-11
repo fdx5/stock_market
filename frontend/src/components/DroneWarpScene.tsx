@@ -1,6 +1,6 @@
 import {useEffect,useRef} from 'react';
 
-/** A bounded, procedural star tunnel. No downloads, extra 3D context or workers;
+/** A bounded, procedural star field. No downloads or workers;
  * the destination renderer keeps running. Canvas follows the device's real DPR. */
 export default function DroneWarpScene({waiting}:{waiting:boolean}){
   const canvas=useRef<HTMLCanvasElement>(null),wait=useRef(waiting);wait.current=waiting;
@@ -16,28 +16,10 @@ export default function DroneWarpScene({waiting}:{waiting:boolean}){
     const draw=(now:number)=>{
       const at=performance.now(),seconds=(now-started)/1000,still=motion.matches;
       const dt=last?Math.min(.07,(now-last)/1000):0;last=now;
-      const ramp=still?0:Math.min(1,Math.max(0,(seconds-.35)/1.3)),speed=wait.current?120:100+1350*ramp*ramp;
-      const cx=width*.5+Math.sin(seconds*.22)*width*.008*ramp,cy=height*.42+Math.cos(seconds*.18)*height*.007*ramp;
+      const ramp=still?0:Math.min(1,Math.max(0,(seconds-.55)/1.1)),speed=wait.current?1900:90+2100*ramp*ramp;
+      const cx=width*.5+Math.sin(seconds*.63)*height*.018*ramp,cy=height*.46-Math.cos(seconds*.47)*height*.011*ramp;
       const unit=Math.min(width,height),focal=unit*.8;
       ctx.clearRect(0,0,width,height);ctx.globalCompositeOperation='lighter';
-      // Concentric depth shells and twisting plasma filaments form a real tunnel
-      // silhouette, rather than a flat spinner. The center stays dark and deep.
-      if(!still){
-        for(let ring=0;ring<18;ring++){
-          const depth=((ring/18+seconds*(wait.current ? .075 : .31))%1),r=unit*(.022+depth*depth*1.55);
-          ctx.strokeStyle=`rgba(38,${110+ring*4},255,${.025+depth*.11*ramp})`;ctx.lineWidth=.7+depth*2.8;
-          ctx.beginPath();ctx.ellipse(cx,cy,r,r*.72,Math.sin(seconds*.15)*.08,0,Math.PI*2);ctx.stroke();
-        }
-        for(let ribbon=0;ribbon<30;ribbon++){
-          ctx.beginPath();
-          for(let j=0;j<=24;j++){
-            const z=j/24,r=unit*(.018+z*z*1.4),angle=ribbon*Math.PI*2/30+z*.42+Math.sin(z*8-seconds*2.1+ribbon)*.025;
-            const x=cx+Math.cos(angle)*r,y=cy+Math.sin(angle)*r*.72;
-            if(!j)ctx.moveTo(x,y);else ctx.lineTo(x,y);
-          }
-          ctx.strokeStyle=ribbon%3===0?'rgba(122,92,255,.12)':'rgba(29,150,255,.13)';ctx.lineWidth=1.2+ribbon%3;ctx.stroke();
-        }
-      }
       // Six color/depth batches keep the draw count fixed while 600 stars rush
       // past the lens. Long trails grow with acceleration; no per-frame objects.
       for(let batch=0;batch<6;batch++){
@@ -50,7 +32,7 @@ export default function DroneWarpScene({waiting}:{waiting:boolean}){
           const tail=z+(still?2:12+speed*.36*(.4+stars[i+3]));
           ctx.moveTo(cx+stars[i]*focal/tail,cy+stars[i+1]*focal/tail);ctx.lineTo(x,y);
         }
-        ctx.strokeStyle=['#419aff99','#75dbffbb','#d5f6ffdd','#f4fcffdd','#677bff88','#40bfffa0'][batch];ctx.lineWidth=.8+batch%3*.55;ctx.stroke();
+        ctx.strokeStyle=['#6fffff99','#9cffe7bb','#e6faffee','#fff3d8dd','#ae89ff99','#ff9adcbb'][batch];ctx.lineWidth=.8+batch%3*.55;ctx.stroke();
       }
       // Optical bloom is a gradient, not a costly canvas blur/filter pass.
       const bloom=ctx.createRadialGradient(cx,cy,unit*.015,cx,cy,unit*.42);

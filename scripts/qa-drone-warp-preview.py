@@ -36,14 +36,18 @@ async def run():
             slow['value']=True;start=time.monotonic()-began
             await page.locator('.re-drone-place-go').click()
             warp=page.get_by_role('dialog',name='드론뷰 워프 이동');await warp.wait_for(state='visible')
-            await page.wait_for_timeout(2600);await page.screenshot(path=str(out/'warp.png'))
+            await page.wait_for_timeout(450);await page.screenshot(path=str(out/'charging.png'))
+            await page.wait_for_timeout(750);await page.screenshot(path=str(out/'ignition.png'))
+            await page.wait_for_timeout(1400);await page.screenshot(path=str(out/'warp.png'))
             visual=await page.locator('.drone-warp-stars').evaluate('(e)=>({canvas:[e.width,e.height],...e.dataset})')
             assert visual['canvas']==[1440,1000],visual
+            tunnel=await page.locator('.drone-warp-tunnel').evaluate('(e)=>({canvas:[e.width,e.height],...e.dataset})')
+            assert tunnel['renderer']=='webgl' and tunnel['canvas']==[1440,1000],tunnel
             await page.wait_for_function("document.querySelector('.drone-warp.is-revealing')",timeout=120000)
             assert await page.evaluate('window.__holoNative.shown && window.__holoNative.frameNo>0')
             await page.wait_for_timeout(90);await page.screenshot(path=str(out/'arrival-flash.png'))
             await warp.wait_for(state='detached');await page.screenshot(path=str(out/'arrival.png'))
-            report={'clipStartSeconds':start,'warpSeconds':time.monotonic()-began-start,'visual':visual,'actualFrameBeforeReveal':True,'errors':errors,'muted':True,'chrome':browser.version}
+            report={'clipStartSeconds':start,'warpSeconds':time.monotonic()-began-start,'visual':visual,'tunnel':tunnel,'actualFrameBeforeReveal':True,'errors':errors,'muted':True,'chrome':browser.version}
             await context.close();report['video']=await video.path()
             (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf8')
             print(json.dumps(report,ensure_ascii=False),flush=True);assert not errors
