@@ -199,8 +199,8 @@ def _photos(query: str):
     key = _kakao_key()
     if not key:
         return None
-    res = requests.get(KAKAO_IMAGE, headers={"Authorization": f"KakaoAK {key}"}, timeout=8,
-                       params={"query": query, "size": "12", "sort": "accuracy"})
+    res = requests.get(KAKAO_IMAGE, headers={"Authorization": f"KakaoAK {key}"}, timeout=4,
+                       params={"query": query, "size": "80", "sort": "accuracy"})
     res.raise_for_status()
     out = []
     for d in res.json().get("documents") or []:
@@ -208,17 +208,42 @@ def _photos(query: str):
         if not thumb or not str(thumb).startswith("https://"):
             continue
         w, h = _num(d.get("width")) or 0, _num(d.get("height")) or 0
-        if w and h and (w < 300 or h < 200 or w / h > 3.2 or h / w > 2.2):
+        if w and h and (w < 300 or h < 200 or w / h > 4.2 or h / w > 4.2):
             continue  # icons, banners, long captures
         photo = {"thumb": thumb, "image": image if str(image).startswith("https://") else None,
                     "site": d.get("display_sitename") or None, "link": d.get("doc_url") or None,
-                    "w": w or None, "h": h or None}
-        if _blog_photo(photo):
+                    "w": w or None, "h": h or None, "related": True}
+        if d.get("collection") == "blog" or _blog_photo(photo):
             continue
         out.append(photo)
         if len(out) >= 8:
             break
     return out
+
+
+def _building_photo_queries(name: str, area: str):
+    # Register spellings (더# / spaces / apartment suffixes) are not search names.
+    clean = re.sub(r"\s+", " ", re.sub(r"[#·_]+", " ", name.replace("더#", "더샵 "))).strip()
+    base = re.sub(r"\s*아파트$|\s*\d+동$", "", clean).strip()
+    queries = [f"{area} {clean} 전경", f"{area} {clean}", f"{area} {base}"]
+    # A distinctive full name still anchors the broader related-information search.
+    if len(_norm(base)) >= 4 and not re.fullmatch(r"(?:주민센터|행정복지센터|시청|구청|보건소|도서관)", base):
+        queries.append(base)
+    return list(dict.fromkeys(re.sub(r"\s+", " ", q).strip() for q in queries if q.strip()))
+
+
+def _building_photos(name: str, area: str):
+    deadline = time.monotonic() + 12
+    for query in _building_photo_queries(name, area)[:3]:
+        if time.monotonic() >= deadline:
+            break
+        try:
+            photos = _photos(query)
+        except requests.RequestException:
+            continue
+        if photos:
+            return photos
+    return []
 
 
 # ----------------------------------------------------------------------------- commons
@@ -321,7 +346,7 @@ def building_info(name: str, lat: float, lon: float, pnu: str | None = None, are
     m = re.search(r"\S+[동읍면리가](?=\s|\d|$)", re.sub(r"^\S+[시도]\s+\S+[시군구]\s+", "", addr or ""))
     area = (m.group(0) if m and not re.search(r"\d", m.group(0)) else "") or area
     # Full building name plus its neighbourhood, with an exterior-view preference.
-    futures["photos"] = _pool.submit(lambda: _cached(f"img:building-v2:{name}:{area}", 86400, lambda: _photos(f'{area} "{name}" 전경'.strip())))
+    futures["photos"] = _pool.submit(lambda: _cached(f"img:building-v3:{name}:{area}", 86400, lambda: _building_photos(name, area)))
     out["area"] = area or None
     for k, fut in futures.items():
         try:

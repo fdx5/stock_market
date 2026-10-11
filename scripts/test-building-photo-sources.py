@@ -4,15 +4,16 @@ import concurrent.futures as cf
 import math
 from pathlib import Path
 import re
+import time
 from types import SimpleNamespace
 import unittest
 import urllib.parse
 
 source = Path(__file__).resolve().parents[1] / 'backend/app/services/realestate_building_info.py'
 tree = ast.parse(source.read_text(encoding='utf8'))
-names = {'_blog_photo', '_photos', '_wiki', '_dist', '_num', 'building_info'}
+names = {'_blog_photo', '_photos', '_wiki', '_dist', '_num', '_norm', '_building_photo_queries', '_building_photos', 'building_info'}
 functions = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names], type_ignores=[])
-scope = {'re': re, 'math': math, 'urllib': urllib, 'UA': 'isolated-test', 'KAKAO_IMAGE': 'https://test.invalid/image',
+scope = {'re': re, 'math': math, 'urllib': urllib, 'time': time, 'UA': 'isolated-test', 'KAKAO_IMAGE': 'https://test.invalid/image',
          'WIKI_SUMMARY': 'https://test.invalid/wiki/', '_kakao_key': lambda: 'synthetic'}
 exec(compile(functions, str(source), 'exec'), scope)
 originals = dict(scope)
@@ -54,7 +55,7 @@ class PhotoSources(unittest.TestCase):
         with cf.ThreadPoolExecutor(max_workers=4) as pool:
             scope['_pool']=pool
             card=scope['building_info']('한성기린',35.17,129.12,area='망미동')
-        self.assertEqual(queries,['망미동 "한성기린" 전경'])
+        self.assertEqual(queries,['망미동 한성기린 전경'])
         return card
 
     def test_article_leads_named_commons_and_search(self):
@@ -65,6 +66,37 @@ class PhotoSources(unittest.TestCase):
     def test_no_article_keeps_non_blog_fallback(self):
         card=self.card(None)
         self.assertEqual([p['thumb'] for p in card['photos']],['https://commons.example/named','https://official.example/photo'])
+
+    def test_empty_exterior_query_retries_building_name_and_neighbourhood(self):
+        queries=[]
+        def search(query):
+            queries.append(query)
+            return [] if query.endswith('전경') else [{'thumb':'https://official.example/building'}]
+        scope['_photos']=search
+        self.assertEqual(len(scope['_building_photos']('한성기린','망미동')),1)
+        self.assertEqual(queries,['망미동 한성기린 전경','망미동 한성기린'])
+
+    def test_register_brand_spelling_normalizes_before_search(self):
+        queries=scope['_building_photo_queries']('더#해운대아델리스','우동')
+        self.assertEqual(queries[0],'우동 더샵 해운대아델리스 전경')
+        self.assertTrue(all('"' not in query and '#' not in query for query in queries))
+        self.assertIn('더샵 해운대아델리스',queries)
+
+    def test_search_checks_more_than_first_twelve_blog_results_and_keeps_full_tower(self):
+        docs=[{'thumbnail_url':f'https://blog.naver.com/{i}','width':1000,'height':800,'collection':'blog'} for i in range(14)]
+        docs.append({'thumbnail_url':'https://official.example/thumb','image_url':'https://official.example/full','width':1000,'height':4000,'doc_url':'https://official.example/building'})
+        calls=[]
+        def get(*args,**kwargs):
+            calls.append(kwargs['params'])
+            return self.response({'documents':docs})
+        scope['requests']=SimpleNamespace(get=get)
+        result=scope['_photos']('한성기린')
+        self.assertEqual(calls[0]['size'],'80')
+        self.assertEqual(len(result),1)
+        self.assertTrue(result[0]['related'])
+
+    def test_common_building_name_keeps_location_in_every_query(self):
+        self.assertTrue(all('망미동' in q for q in scope['_building_photo_queries']('주민센터','망미동')))
 
 if __name__ == '__main__':
     unittest.main()
