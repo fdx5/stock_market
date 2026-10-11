@@ -18,8 +18,9 @@ import { sceneWorkerOnce } from "./sceneWorkerPool";
 
 import {surfaceGeometryRules} from './surfaceGeometry';
 import {roadApproachHeight} from './roadApproaches';
+import {terrainSurfaceClearance} from './terrainSurfaceClearance';
 import type {RealEstateRoad} from '../api/client';
-type Arr = { position: Float32Array; normal: Float32Array; index: Uint32Array };
+type Arr = { position: Float32Array; normal: Float32Array; index: Uint32Array;level?:Float32Array };
 export type RoadTileResult = {
   surface: Arr | null;
   /** lane paint, true to size and broad (for far off) */
@@ -295,7 +296,7 @@ function roadWorkerMain() {
         }
       }
     });
-    const S = { p: [] as number[], n: [] as number[], i: [] as number[] };
+    const S = { p: [] as number[], n: [] as number[], i: [] as number[],level:[] as number[] };
     // (the junctions' asphalt goes with the roads': one mesh)
     const Jn = S;
     const streetTrees: number[] = [];
@@ -303,23 +304,23 @@ function roadWorkerMain() {
     for (const c of clusters.values()) {
       const cx = c.x / c.n, cy = c.y / c.n, cz = c.z / c.n, R = c.r + 1.5, base = Jn.p.length / 3;
       // (a little under the roads' own surfaces and well under their paint)
-      Jn.p.push(cx, cy, (c.elevated?cz:ground(cx,cy)) + rules.surfaceLift-.01); Jn.n.push(0, 0, 1);
-      for (let q = 0; q <= 20; q++) { const a = (q / 20) * Math.PI * 2, x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R; Jn.p.push(x, y, (c.elevated?cz:ground(x,y)) + rules.surfaceLift-.01); Jn.n.push(0, 0, 1); }
+      Jn.p.push(cx, cy, (c.elevated?cz:ground(cx,cy)) + rules.surfaceLift-.01); Jn.n.push(0, 0, 1);Jn.level.push(c.elevated?1:0);
+      for (let q = 0; q <= 20; q++) { const a = (q / 20) * Math.PI * 2, x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R; Jn.p.push(x, y, (c.elevated?cz:ground(x,y)) + rules.surfaceLift-.01); Jn.n.push(0, 0, 1);Jn.level.push(c.elevated?1:0); }
       for (let q = 1; q <= 20; q++) Jn.i.push(base, base + q, base + q + 1);
     }
     // A painted rectangle (a crossing's stripe, a stop line): centre, direction along, half sizes.
     // (`z` here is the height over the ground: each corner follows the relief, as the road does —
     // a flat stripe across a cambered or sloping road sank under it on one side)
-    const rect = (out: { p: number[]; n: number[]; i: number[]; c?: number[] }, x: number, y: number, z: number, dx: number, dy: number, ha: number, hc: number, col: number[], zAt?: (x: number, y: number) => number) => {
+    const rect = (out: { p: number[]; n: number[]; i: number[]; c?: number[];level?:number[] }, x: number, y: number, z: number, dx: number, dy: number, ha: number, hc: number, col: number[], zAt?: (x: number, y: number) => number) => {
       const nx = -dy, ny = dx, base = out.p.length / 3;
       for (const [a, c] of [[-ha, -hc], [ha, -hc], [ha, hc], [-ha, hc]]) {
         const px = x + dx * a + nx * c, py = y + dy * a + ny * c;
-        out.p.push(px, py, zAt ? zAt(px, py) : ground(px, py) + z); out.n.push(0, 0, 1); out.c?.push(col[0], col[1], col[2]);
+        out.p.push(px, py, zAt ? zAt(px, py) : ground(px, py) + z); out.n.push(0, 0, 1); out.c?.push(col[0], col[1], col[2]);out.level?.push(0);
       }
       out.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
     };
-    const Mk = { p: [] as number[], n: [] as number[], i: [] as number[], c: [] as number[] };
-    const Mf = { p: [] as number[], n: [] as number[], i: [] as number[], c: [] as number[] };
+    const Mk = { p: [] as number[], n: [] as number[], i: [] as number[], c: [] as number[],level:[] as number[] };
+    const Mf = { p: [] as number[], n: [] as number[], i: [] as number[], c: [] as number[],level:[] as number[] };
     const St = { p: [] as number[], n: [] as number[], i: [] as number[] };
     const Wk = { p: [] as number[], n: [] as number[], i: [] as number[] };
     const walkPaths: number[] = [];
@@ -328,7 +329,7 @@ function roadWorkerMain() {
     const normalsByLine=new Map(pieces.map(r=>[r.line,r.normals]));
     const normalAt = (l:number[][],k:number)=>normalsByLine.get(l)![k];
     // A band along a piece from s0 to s1 m, offset `off` to the left, `w` wide, `lift` over the road.
-    const band = (r: Piece, off: number, w: number, lift: number, out: { p: number[]; n: number[]; i: number[]; c?: number[] }, col: number[] | null, dash: number, skip: (k: number) => boolean) => {
+    const band = (r: Piece, off: number, w: number, lift: number, out: { p: number[]; n: number[]; i: number[]; c?: number[];level?:number[] }, col: number[] | null, dash: number, skip: (k: number) => boolean) => {
       const l = r.line, cum = [0];
       for (let k = 1; k < l.length; k++) cum.push(cum[k - 1] + Math.hypot(l[k][0] - l[k - 1][0], l[k][1] - l[k - 1][1]));
       const total = cum[cum.length - 1];
@@ -353,6 +354,7 @@ function roadWorkerMain() {
               const next=Math.min(r.kind.length-1,P.k+1),owner=r.owners[P.k];
               const h=r.kind[P.k]===0&&r.kind[next]===0?ground(px,py):owner&&r.kind[P.k]>0&&r.kind[next]>0&&r.owners[next]?.id===owner.id?ownerHeight(owner,px,py):P.z;
               out.p.push(px,py,h+lift);
+              out.level?.push(r.kind[P.k]>0?1:0);
               out.n.push(0, 0, 1);
               if (out.c && col) out.c.push(col[0], col[1], col[2]);
             }
@@ -578,14 +580,21 @@ function roadWorkerMain() {
       }
     }
     const transfer: ArrayBuffer[] = [];
-    const arr = (o: { p: number[]; n: number[]; i: number[]; c?: number[] }) => {
+    const arr = (o: { p: number[]; n: number[]; i: number[]; c?: number[];level?:number[] }) => {
       if (!o.i.length) return null;
       const a: any = { position: new Float32Array(o.p), normal: new Float32Array(o.n), index: new Uint32Array(o.i) };
-      transfer.push(a.position.buffer, a.normal.buffer, a.index.buffer);
-      if (o.c) { a.color = new Float32Array(o.c); transfer.push(a.color.buffer); }
+      if (o.c) a.color = new Float32Array(o.c);
+      if(o.level)a.level=new Float32Array(o.level);
       return a;
     };
-    const out = { surface: arr(S), marks: arr(Mk), marksFar: arr(Mf), structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), junctions: null, lanes: new Float32Array(lanes), roads: pieces.length, bridges, ms: performance.now() - t0 };
+    const clearance=(self as unknown as {__terrainClearance:ReturnType<typeof terrainSurfaceClearance>}).__terrainClearance;
+    const surface=clearance.drape(arr(S),g),nearPaint=clearance.drape(arr(Mk),g,rules.paintLift),farPaint=clearance.drape(arr(Mf),g,rules.paintLift);
+    let paths=new Float32Array(lanes);
+    if(surface){const lookup=clearance.index(surface);clearance.raisePaint(nearPaint,surface,lookup);clearance.raisePaint(farPaint,surface,lookup);
+      const corrected:number[]=[];
+      for(let k=0;k<lanes.length;){const n=lanes[k],points:number[]=[];for(let i=1;i<n;i++){const at=k+2+i*3,segment=lookup.trace(lanes.slice(at-3,at),lanes.slice(at,at+3));for(let j=i===1?0:3;j<segment.length;j++)points.push(segment[j]);}corrected.push(points.length/3,lanes[k+1]);for(const v of points)corrected.push(v);k+=2+n*3;}paths=new Float32Array(corrected);}
+    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), junctions: null, lanes: paths, roads: pieces.length, bridges, ms: performance.now() - t0 };
+    for(const a of [out.surface,out.marks,out.marksFar,out.structure,out.walks])if(a)for(const value of Object.values(a))if(value instanceof Float32Array||value instanceof Uint32Array)transfer.push(value.buffer as ArrayBuffer);
     transfer.push(out.lanes.buffer, out.walkPaths.buffer, out.streetTrees.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
     }catch{(self as unknown as Worker).postMessage(null);}
@@ -605,7 +614,7 @@ export function roadTile(lat: number, lon: number, key: string, domain: string |
     key, domain: domain ?? "https://kospimap.com", data: layer, geomFilter: q,
     size: "1000", page: String(i + 1), format: "json", callback: cb,
   }));
-  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
+  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
     // (the crossings asked about the tile's rounded centre, as the view asks: the server's cache)
     const crossings = tile && typeof location !== "undefined" ? (() => {
       const la = +tile.lat.toFixed(4), lo = +tile.lon.toFixed(4);

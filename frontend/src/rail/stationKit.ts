@@ -2,23 +2,40 @@ import * as THREE from 'three';
 import {mergeGeometries} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {STRIDE,type RailFacility,type RailPath} from './railCore';
 
+export type StationModel={group:THREE.Group;dispose:()=>void};
+const ownership=new WeakMap<StationModel,{geos:THREE.BufferGeometry[];materials:THREE.Material[]}>();
+/** Only inputs used by this station affect its model; another direction's arrival
+ * must not recreate a shared roof or platform. Keep exact (unrounded) heights. */
+export function stationSourceKey(f:RailFacility,path:RailPath,origin:{lon:number;lat:number},heightAt:(x:number,y:number)=>number){
+ const kx=111320*Math.cos(origin.lat*Math.PI/180),ring=f.points.map(p=>[(p[0]-origin.lon)*kx,(p[1]-origin.lat)*110540]);
+ const x0=Math.min(...ring.map(p=>p[0]))-35,x1=Math.max(...ring.map(p=>p[0]))+35,y0=Math.min(...ring.map(p=>p[1]))-35,y1=Math.max(...ring.map(p=>p[1]))+35;
+ const values:number[]=[];for(let i=0;i<path.points.length;i+=STRIDE){const v=path.points;if(v[i]>=x0&&v[i]<=x1&&v[i+1]>=y0&&v[i+1]<=y1)values.push(v[i],v[i+1],v[i+2]);}
+ for(let i=0;i<ring.length;i++){const a=ring[i],b=ring[(i+1)%ring.length],n=Math.max(1,Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/12));for(let j=0;j<n;j++)values.push(heightAt(a[0]+(b[0]-a[0])*j/n,a[1]+(b[1]-a[1])*j/n));}
+ return JSON.stringify([f.id,f.kind,f.points,f.height,f.shelter,values]);
+}
+
 /** Source polygons establish the plan. Roof clearance, columns and facade details
  * are schematic where no surveyed station model/height is supplied. */
-export function stationKit(f:RailFacility,path:RailPath,origin:{lon:number;lat:number},heightAt:(x:number,y:number)=>number){
+export function stationKit(f:RailFacility,path:RailPath,origin:{lon:number;lat:number},heightAt:(x:number,y:number)=>number,previous?:StationModel):StationModel{
   const kx=111320*Math.cos(origin.lat*Math.PI/180),ring=f.points.map(p=>new THREE.Vector2((p[0]-origin.lon)*kx,(p[1]-origin.lat)*110540));
-  const group=new THREE.Group();group.name=`station-${f.stationName}-${f.id}`;group.userData.railBuilding=true;
-  const geos:THREE.BufferGeometry[]=[],materials:THREE.Material[]=[];
-  const add=(g:THREE.BufferGeometry,m:THREE.Material)=>{geos.push(g);const mesh=new THREE.Mesh(g,m);mesh.castShadow=mesh.receiveShadow=true;group.add(mesh);};
+  const group=previous?.group??new THREE.Group();group.name=`station-${f.stationName}-${f.id}`;group.userData.railBuilding=true;
+  const state=previous?ownership.get(previous)!:{geos:[],materials:[]},oldGeos=state.geos.slice(),oldMeshes=group.children.slice();
+  const geos:THREE.BufferGeometry[]=[],materials=state.materials;let used=0;
+  const model=previous??{group,dispose:()=>{group.removeFromParent();state.geos.forEach(g=>g.dispose());state.materials.forEach(m=>m.dispose());state.geos=[];state.materials=[];group.clear();}};
+  ownership.set(model,state);
+  const material=(name:string,create:()=>THREE.Material)=>{let m=materials.find(m=>m.name===name);if(!m){m=create();m.name=name;materials.push(m);}return m;};
+  const add=(g:THREE.BufferGeometry,m:THREE.Material)=>{geos.push(g);const old=oldMeshes[used++] as THREE.Mesh|undefined,mesh=old?.isMesh?old:new THREE.Mesh(g,m);mesh.geometry=g;mesh.material=m;mesh.castShadow=mesh.receiveShadow=true;group.add(mesh);};
+  const finish=()=>{for(const mesh of oldMeshes.slice(used))mesh.removeFromParent();oldGeos.forEach(g=>g.dispose());state.geos=geos;return model;};
   const inside=(x:number,y:number)=>{let hit=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a.y>y)!==(b.y>y)&&x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x)hit=!hit;}return hit;};
   const bounds=[Math.min(...ring.map(p=>p.x))-35,Math.min(...ring.map(p=>p.y))-35,Math.max(...ring.map(p=>p.x))+35,Math.max(...ring.map(p=>p.y))+35],local:number[][]=[];
   for(let i=0;i<path.points.length;i+=STRIDE){const v=path.points,x=v[i],y=v[i+1];if(x>=bounds[0]&&x<=bounds[2]&&y>=bounds[1]&&y<=bounds[3])local.push([x,y,v[i+2]]);}
   const hall=local.filter(p=>inside(p[0],p[1]));
   // A separate station head house is already drawn from the building register.
   // Raising it to the nearby elevated track would put an unrelated roof in midair.
-  if(!local.length||f.kind==='station'&&!hall.length)return{group,dispose:()=>group.removeFromParent()};
+  if(!local.length||f.kind==='station'&&!hall.length)return finish();
   const height=(x:number,y:number)=>local.reduce((best,p)=>Math.hypot(p[0]-x,p[1]-y)<Math.hypot(best[0]-x,best[1]-y)?p:best)[2];
   const railH=Math.max(...(hall.length?hall:local).map(p=>p[2]));
-  const concrete=new THREE.MeshStandardMaterial({color:'#c1c7c7',roughness:.85,side:THREE.DoubleSide}),roof=new THREE.MeshStandardMaterial({color:'#63737c',metalness:.25,roughness:.6,side:THREE.DoubleSide});materials.push(concrete,roof);
+  const concrete=material('station concrete',()=>new THREE.MeshStandardMaterial({color:'#c1c7c7',roughness:.85,side:THREE.DoubleSide})),roof=material('station roof',()=>new THREE.MeshStandardMaterial({color:'#63737c',metalness:.25,roughness:.6,side:THREE.DoubleSide}));
   const outline=new THREE.Shape(ring),tri=THREE.ShapeUtils.triangulateShape(ring,[]);
   const surface=(h:(x:number,y:number)=>number)=>{const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(ring.flatMap(p=>[p.x,h(p.x,p.y),-p.y]),3));g.setIndex(tri.flat().reverse());g.computeVertexNormals();return g;};
   const ground=Math.min(...ring.map(p=>heightAt(p.x,p.y)));
@@ -30,7 +47,7 @@ export function stationKit(f:RailFacility,path:RailPath,origin:{lon:number;lat:n
       const ha=height(a.x,a.y)+.9,hb=height(b.x,b.y)+.9,direction=new THREE.Vector3(b.x-a.x,hb-ha,a.y-b.y),g=new THREE.BoxGeometry(.22,.035,direction.length());
       g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),direction.normalize()));g.translate((a.x+b.x)/2,(ha+hb)/2+.018,-(a.y+b.y)/2);strips.push(g);
     }
-    if(strips.length){const m=new THREE.MeshStandardMaterial({color:'#d8b84c',roughness:.9});materials.push(m);add(mergeGeometries(strips)!,m);strips.forEach(g=>g.dispose());}
+    if(strips.length){const m=material('station tactile',()=>new THREE.MeshStandardMaterial({color:'#d8b84c',roughness:.9}));add(mergeGeometries(strips)!,m);strips.forEach(g=>g.dispose());}
   }
   if(f.kind==='station'||f.shelter){
     const h=Math.max(railH+6.15,ground+(f.height??0)),parts:THREE.BufferGeometry[]=[];
@@ -44,5 +61,5 @@ export function stationKit(f:RailFacility,path:RailPath,origin:{lon:number;lat:n
     }
     if(parts.length){add(mergeGeometries(parts)!,concrete);parts.forEach(g=>g.dispose());}
   }
-  return{group,dispose:()=>{group.removeFromParent();geos.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());}};
+  return finish();
 }

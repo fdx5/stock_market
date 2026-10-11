@@ -953,6 +953,7 @@ export class ComplexRenderer {
     this.scene.matrixAutoUpdate = false;
     this.camera = new PerspectiveCamera();
     this.renderer = new MeshRenderer();
+    this.renderer.deferGeometryDisposal = true;
     // This view consumes every collection within its frame; reuse scratch items
     // instead of allocating hundreds of objects for shadows and color each frame.
     this.renderer.reuseDrawLists = true;
@@ -1784,6 +1785,11 @@ export class ComplexRenderer {
       if (obj.isInstancedMesh && (mesh.instanceMatrix !== obj.instanceMatrix || mesh.instanceColor !== obj.instanceColor)) {
         mesh.instanceMatrix = obj.instanceMatrix; mesh.instanceColor = obj.instanceColor; mesh.instVersion = -1; swapped = true;
       }
+      // Reused railway supports keep their source object while a clipped batch
+      // grows/shrinks. Its world-space instance bounds can change independently
+      // of geometry/matrix identity; a first-admission sphere would wrongly cull
+      // the updated structure. The same rule applies to other static batches.
+      if(obj.isInstancedMesh){if(obj.frustumCulled&&!obj.boundingSphere)obj.computeBoundingSphere();mesh.boundingSphere=obj.boundingSphere;}
       const moved = mesh.count !== (obj.count ?? 1) || mesh.instVersion !== obj.instanceMatrix?.version || !sameMatrix(mesh.matrix, obj.matrixWorld);
       if (moved) {
         if (mesh.castShadow && !mesh.moving) this.castersChanged = true;

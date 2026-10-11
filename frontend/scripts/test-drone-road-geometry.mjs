@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import {transformSync} from 'esbuild';
 function functionSource(file,name){const text=readFileSync(new URL('../src/components/'+file,import.meta.url),'utf8'),ast=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true);return ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name).getText(ast).replace(/^export /,'');}
-const source=functionSource('surfaceGeometry.ts','surfaceGeometryRules')+'\n'+functionSource('roadApproaches.ts','roadApproachHeight')+'\n'+functionSource('droneRoads.ts','roadWorkerMain');
+const source=functionSource('surfaceGeometry.ts','surfaceGeometryRules')+'\n'+functionSource('roadApproaches.ts','roadApproachHeight')+'\n'+functionSource('terrainSurfaceClearance.ts','terrainSurfaceClearance')+'\n'+functionSource('droneRoads.ts','roadWorkerMain');
 const lat=37,lon=127,kx=111320*Math.cos(lat*Math.PI/180),ky=110540;
 const feature=(id,line,props)=>({id,properties:props,geometry:{type:'LineString',coordinates:line.map(([x,y])=>[lon+x/kx,lat+y/ky])}});
 const road=(line,width=12)=>feature('road',line,{rvwd:width,rdln:Math.floor(width/3.3)});
@@ -14,10 +14,16 @@ const grid=(height=()=>0)=>{const n=251,R=500,cell=4;return {n,R,cell,ox:0,oy:0,
 async function run(roads,links=[],box=[-100,-100,100,100],g=grid(),options={}){
   let out,calls=0;const self={__roadRules:null,postMessage:v=>out=v};
   const scope={self,performance,setTimeout,AbortSignal,fetch:async()=>({ok:true,json:async()=>({crossings:[]})}),importScripts:url=>{calls++;if(options.fail)throw Error('unavailable');const cb=url==='roads'?'roadCb':'linkCb';self[cb]({response:{status:options.rejectFirst&&calls===1?'ERROR':'OK',result:{featureCollection:{features:url==='roads'?roads:links}}}});}};
-  vm.runInNewContext(transformSync(source+'\nself.__roadRules=surfaceGeometryRules();self.__approachHeight=roadApproachHeight;roadWorkerMain();',{loader:'ts'}).code,scope);
+  vm.runInNewContext(transformSync(source+'\nself.__roadRules=surfaceGeometryRules();self.__approachHeight=roadApproachHeight;self.__terrainClearance=terrainSurfaceClearance();roadWorkerMain();',{loader:'ts'}).code,scope);
   await self.onmessage({data:{urls:['roads'],linkUrls:['links'],riverUrls:[],lat,lon,box,grid:g,wide:g,...options}});return {out,calls};
 }
 const near=(a,b,t=.0005)=>assert.ok(Math.abs(a-b)<t,`${a} != ${b}`);
+test('actual streamed worker clears rendered saddle terrain throughout pavement triangles, including junction interiors',async()=>{
+ const g=grid((x,y)=>(Math.round(x/4)+Math.round(y/4))%2===0?3:0),{out}=await run([road([[-150,-30],[150,30]],24),road([[0,-150],[0,150]],18)],[],undefined,g);assert.ok(out.surface);
+ const ground=(x,y)=>{const gx=(x+g.R)/g.cell,gy=(y+g.R)/g.cell,i=Math.floor(gx),j=Math.floor(gy),fx=gx-i,fy=gy-j,a=j*g.n+i,b=a+1,c=a+g.n,d=c+1;return fx>=fy?g.h[a]*(1-fx)+g.h[b]*(fx-fy)+g.h[d]*fy:g.h[a]*(1-fy)+g.h[d]*fx+g.h[c]*(fy-fx);};
+ const s=out.surface;let checks=0;for(let k=0;k<s.index.length;k+=3){const ids=Array.from(s.index.subarray(k,k+3));for(const weights of [[1/3,1/3,1/3],[.6,.2,.2],[.2,.6,.2],[.2,.2,.6]]){const x=ids.reduce((v,id,i)=>v+s.position[id*3]*weights[i],0),y=ids.reduce((v,id,i)=>v+s.position[id*3+1]*weights[i],0),z=ids.reduce((v,id,i)=>v+s.position[id*3+2]*weights[i],0);assert.ok(z>=ground(x,y)+.0199,`buried at ${x},${y}`);checks++;}}
+ assert.ok(checks>1000);for(const paint of [out.marks,out.marksFar])if(paint){assert.equal(paint.color.length,paint.position.length);assert.ok(paint.position.every(Number.isFinite));assert.equal(paint.level.length,paint.position.length/3);}
+});
 test('actual drone worker paves across a slope using the same 8 cm lift as the initial view',async()=>{const {out}=await run([road([[-150,0],[150,0]],24)],[],undefined,grid((x,y)=>x*.03+y*.12));assert.ok(out.surface);const p=out.surface.position;for(let i=0;i<p.length;i+=3)near(p[i+2],p[i]*.03+p[i+1]*.12+.08);assert.ok(new Set(Array.from(p).filter((_,i)=>i%3===1).map(v=>v.toFixed(2))).size>5);});
 test('neighbouring tiles share exact position, height and curve normal at their boundary',async()=>{const source=[road([[-180,-40],[20,0],[180,50]])],a=(await run(source,[],[-160,-100,0,100])).out,b=(await run(source,[],[0,-100,160,100])).out;const edges=o=>{const p=o.surface.position;const edges=[];for(let i=0;i<p.length;i+=3)if(Math.abs(p[i])<3)edges.push([p[i],p[i+1],p[i+2]].map(v=>v.toFixed(5)).join(','));return new Set(edges);};const ea=edges(a),eb=edges(b);assert.ok([...ea].filter(x=>eb.has(x)).length>=5);});
 test('official bridge profile uses full-link bank heights and adds no artificial 7 m clearance',async()=>{const {out}=await run([road([[-150,0],[150,0]])],[link('bridge',[[-300,0],[300,0]],'교량')],undefined,grid((x)=>Math.abs(x)>250?10:0));assert.ok(out.bridges>0);for(let i=2;i<out.surface.position.length;i+=3)near(out.surface.position[i],10.08);});

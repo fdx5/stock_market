@@ -195,7 +195,13 @@ export class MeshRenderer {
 
 			g = { buffers: new Map(), index: null, indexVersion: - 1 };
 			this.geometries.set( geometry, g );
-			g.onDispose = () => this.releaseGeometry( geometry );
+			g.onDispose = () => {
+				// The native adapter can still draw this geometry while the source
+				// has moved to a replacement waiting for bounded GPU admission.
+				// Its ownership reconciliation releases the final native reference.
+				if ( this.deferGeometryDisposal ) g.disposeRequested = true;
+				else this.releaseGeometry( geometry );
+			};
 			geometry.addEventListener?.( 'dispose', g.onDispose );
 
 		}

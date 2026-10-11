@@ -39,6 +39,12 @@ test('removing a scene object still reconciles its CPU/GPU ownership immediately
  const f=fixture(4);f.run();const removed=f.objects.pop().geometry;f.run();
  assert.equal(f.adapter.meshes.size,3);assert.equal(f.retained.length,1);assert.ok(!f.retained[0].includes(removed));
 });
+
+test('reused instance batches track their current source bounds after a rail support refresh',()=>{
+ const f=fixture(1),o=f.objects[0];Object.assign(o,{isInstancedMesh:true,frustumCulled:true,instanceMatrix:{version:0},boundingSphere:{radius:5}});f.run();const mesh=f.adapter.meshes.get(o);assert.equal(mesh.boundingSphere,o.boundingSphere);
+ o.boundingSphere={radius:500};f.run();assert.equal(mesh.boundingSphere,o.boundingSphere);assert.equal(f.adapter.meshes.size,1);
+ o.boundingSphere=null;o.computeBoundingSphere=()=>{o.boundingSphere={radius:9};};f.run();assert.equal(mesh.boundingSphere,o.boundingSphere);assert.equal(mesh.boundingSphere.radius,9);
+});
 test('retiring an unused material releases it without clearing live photographed building pipelines',()=>{
  const f=fixture(1),retired={id:99,dispose(){this.disposed=true;},uniformBlock:{}};
  const source={userData:{}},live={compiled:true};f.adapter.materials.set(source,retired);

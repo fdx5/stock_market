@@ -3,13 +3,13 @@ import {mergeGeometries} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {BUDGET,RAIL_ROOT,STRIDE,neededCorridors,makeRun,samplePath,coachPose,trainAt,hashPhase,type RailManifest,type RailLine,type RailCorridor,type RailPath,type RailRun,type RailFacility} from './railCore';
 import {trainKit} from './trainKit';
 import {BuildingClearance} from './BuildingClearance';
-import {stationKit} from './stationKit';
+import {stationKit,stationSourceKey} from './stationKit';
 import type {Clearance} from './railClearance';
 import {setInstanceMatrix} from '../components/instanceDirty';
 import type {DroneLabel} from '../components/ringBuildings';
 
 type Geometry={bed:Float32Array;steel:Float32Array;ties:Float32Array;piers:Float32Array;wire:Float32Array;poles:Float32Array};
-type Entry={source:RailCorridor;path:RailPath;line:RailLine;run:RailRun;group:THREE.Group;dispose:()=>void;built:{x:number;y:number};groundKey:string;ties:THREE.InstancedMesh;tieData:Float32Array};
+type Entry={source:RailCorridor;path:RailPath;line:RailLine;run:RailRun;group:THREE.Group;geometries:THREE.BufferGeometry[];dispose:()=>void;built:{x:number;y:number};groundKey:string;ties:THREE.InstancedMesh;tieData:Float32Array};
 interface Options { origin:{lon:number;lat:number}; heightAt:(x:number,y:number)=>number; buildings?:()=>THREE.Object3D[]; radius?:number; onChange?:()=>void }
 
 /** Bounded static assets, two concurrent reads, one geometry worker, shared instanced
@@ -33,7 +33,7 @@ export class SurfaceRailLayer {
   private eye={x:0,y:0};
   private clearance:BuildingClearance|null=null;private revision=0;private clearanceAt=-1;
   private prismRevision=-1;private prisms:Clearance[]=[];
-  private stations=new Map<string,{owners:Map<string,{facility:RailFacility;path:RailPath}>;model:ReturnType<typeof stationKit>|null}>();
+  private stations=new Map<string,{owners:Map<string,{facility:RailFacility;path:RailPath}>;model:ReturnType<typeof stationKit>|null;ownerId?:string;key?:string}>();
   private kits=new Map<string,{kit:ReturnType<typeof trainKit>;cab:THREE.InstancedMesh;car:THREE.InstancedMesh;far:THREE.InstancedMesh}>();
   private dummy=new THREE.Object3D();private point={x:0,y:0,h:0,dx:1,dy:0,grade:0};
   private front={x:0,y:0,h:0,dx:1,dy:0,grade:0};private back={x:0,y:0,h:0,dx:1,dy:0,grade:0};
@@ -98,8 +98,11 @@ export class SurfaceRailLayer {
     if(data.error)this.stats.error=data.error;
     else if(!this.dead&&this.wanted.has(job.source.id)){
       const line=this.manifest!.lines.find(l=>l.id===job.source.line)!;
-      const old=this.entries.get(data.path.id);old?.dispose();
-      const entry=this.makeEntry(job.source,data.path,data.geometry,line,job.eye);
+      const old=this.entries.get(data.path.id);
+      // Keep source mesh identities and materials: native sync retains their
+      // previous GPU geometry until each bounded replacement is admitted.
+      // Removing the entire group first bypassed that continuity guarantee.
+      const entry=this.makeEntry(job.source,data.path,data.geometry,line,job.eye,old);
       entry.groundKey=job.groundKey??'';
       this.entries.set(entry.path.id,entry);this.group.add(entry.group);
       this.revision++;
@@ -107,15 +110,18 @@ export class SurfaceRailLayer {
     }
     this.pump();
   }
-  private makeEntry(source:RailCorridor,path:RailPath,geo:Geometry,line:RailLine,built:{x:number;y:number}):Entry{
-    const group=new THREE.Group(),geometries:THREE.BufferGeometry[]=[],instances:THREE.InstancedMesh[]=[];
-    const mesh=(p:Float32Array,m:THREE.Material)=>{if(!p.length)return;const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));g.computeVertexNormals();geometries.push(g);group.add(new THREE.Mesh(g,m));};
-    mesh(geo.bed,this.bedMat);mesh(geo.steel,this.railMat);mesh(geo.wire,this.railMat);
-    const ties=new THREE.InstancedMesh(this.tieGeo,this.tieMat,geo.ties.length/4);ties.count=0;ties.frustumCulled=false;group.add(ties);instances.push(ties);
-    const piers=new THREE.InstancedMesh(this.pierGeo,this.pierMat,geo.piers.length/3);
-    for(let i=0;i<geo.piers.length;i+=3){const x=geo.piers[i],z=geo.piers[i+2],top=geo.piers[i+1]+3.65,bottom=this.o.heightAt(x,-z),height=Math.max(.2,top-bottom);this.dummy.position.set(x,(top+bottom)/2,z);this.dummy.rotation.set(0,0,0);this.dummy.scale.set(1,height/7.65,1);this.dummy.updateMatrix();piers.setMatrixAt(i/3,this.dummy.matrix);}this.dummy.scale.set(1,1,1);piers.computeBoundingSphere();group.add(piers);instances.push(piers);
-    const poles=new THREE.InstancedMesh(this.poleGeo,this.railMat,geo.poles.length/4);
-    for(let i=0;i<geo.poles.length;i+=4){this.dummy.position.set(geo.poles[i],geo.poles[i+1],geo.poles[i+2]);this.dummy.rotation.set(0,geo.poles[i+3],0);this.dummy.updateMatrix();poles.setMatrixAt(i/4,this.dummy.matrix);}poles.computeBoundingSphere();group.add(poles);instances.push(poles);
+  private makeEntry(source:RailCorridor,path:RailPath,geo:Geometry,line:RailLine,built:{x:number;y:number},previous?:Entry):Entry{
+    const group=previous?.group??new THREE.Group(),geometries:THREE.BufferGeometry[]=[],instances:THREE.InstancedMesh[]=[],unused=new Set(group.children);group.name=`rail-corridor-${path.id}`;
+    const mesh=(name:string,p:Float32Array,m:THREE.Material)=>{if(!p.length)return;const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));g.computeVertexNormals();geometries.push(g);const old=group.getObjectByName(name) as THREE.Mesh|undefined,mesh=old??new THREE.Mesh(g,m);mesh.name=name;mesh.geometry=g;group.add(mesh);unused.delete(mesh);};
+    const instance=(name:string,g:THREE.BufferGeometry,m:THREE.Material,count:number)=>{const old=group.getObjectByName(name) as THREE.InstancedMesh|undefined,mesh=old??new THREE.InstancedMesh(g,m,count);if(mesh.instanceMatrix.count<count)mesh.instanceMatrix=new THREE.InstancedBufferAttribute(new Float32Array(count*16),16);mesh.name=name;mesh.count=count;mesh.boundingSphere=null;group.add(mesh);unused.delete(mesh);instances.push(mesh);return mesh;};
+    mesh('rail-bed',geo.bed,this.bedMat);mesh('rail-steel',geo.steel,this.railMat);mesh('rail-wire',geo.wire,this.railMat);
+    const ties=instance('rail-ties',this.tieGeo,this.tieMat,geo.ties.length/4);ties.count=0;ties.frustumCulled=false;
+    const piers=instance('rail-piers',this.pierGeo,this.pierMat,geo.piers.length/3);
+    for(let i=0;i<geo.piers.length;i+=3){const x=geo.piers[i],z=geo.piers[i+2],top=geo.piers[i+1]+3.65,bottom=this.o.heightAt(x,-z),height=Math.max(.2,top-bottom);this.dummy.position.set(x,(top+bottom)/2,z);this.dummy.rotation.set(0,0,0);this.dummy.scale.set(1,height/7.65,1);this.dummy.updateMatrix();piers.setMatrixAt(i/3,this.dummy.matrix);}this.dummy.scale.set(1,1,1);piers.instanceMatrix.needsUpdate=true;piers.computeBoundingSphere();
+    const poles=instance('rail-poles',this.poleGeo,this.railMat,geo.poles.length/4);
+    for(let i=0;i<geo.poles.length;i+=4){this.dummy.position.set(geo.poles[i],geo.poles[i+1],geo.poles[i+2]);this.dummy.rotation.set(0,geo.poles[i+3],0);this.dummy.updateMatrix();poles.setMatrixAt(i/4,this.dummy.matrix);}poles.instanceMatrix.needsUpdate=true;poles.computeBoundingSphere();
+    for(const obj of unused){obj.removeFromParent();if((obj as THREE.InstancedMesh).isInstancedMesh)(obj as THREE.InstancedMesh).dispose();}
+    previous?.geometries.forEach(g=>g.dispose());
     const labelKeys:string[]=[];
     for(const facility of source.facilities??[]){let station=this.stations.get(facility.id);if(!station){station={owners:new Map(),model:null};this.stations.set(facility.id,station);}station.owners.set(path.id,{facility,path});this.placeStation(station);}
     for(const stop of path.stops){
@@ -125,9 +131,9 @@ export class SurfaceRailLayer {
       if(!label){const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:this.stationLabel(stop.name,line.colour),depthTest:true,transparent:true}));sprite.scale.set(12,3,1);label={name:stop.name,sprite,owners:new Map()};this.labels.set(key,label);this.group.add(sprite);}
       label.owners.set(path.id,position);this.placeLabel(label);
     }
-    return {source,path,line,run:makeRun(path,line),group,built,groundKey:'',ties,tieData:geo.ties,dispose:()=>{
+    return {source,path,line,run:makeRun(path,line),group,geometries,built,groundKey:'',ties,tieData:geo.ties,dispose:()=>{
       group.removeFromParent();geometries.forEach(g=>g.dispose());instances.forEach(i=>i.dispose());
-      for(const f of source.facilities??[]){const station=this.stations.get(f.id);if(!station)continue;station.owners.delete(path.id);station.model?.dispose();station.model=null;if(!station.owners.size)this.stations.delete(f.id);else this.placeStation(station);}
+      for(const f of source.facilities??[]){const station=this.stations.get(f.id);if(!station||station.owners.get(path.id)?.path!==path)continue;station.owners.delete(path.id);if(!station.owners.size){station.model?.dispose();this.stations.delete(f.id);}else this.placeStation(station);}
       for(const key of labelKeys){const label=this.labels.get(key);if(!label)continue;label.owners.delete(path.id);
         if(!label.owners.size){label.sprite.removeFromParent();label.sprite.material.map?.dispose();label.sprite.material.dispose();this.labels.delete(key);this.signCache=null;}else this.placeLabel(label);
       }
@@ -138,12 +144,14 @@ export class SurfaceRailLayer {
     for(const p of source.points){const x=(p[0]-this.o.origin.lon)*kx,y=(p[1]-this.o.origin.lat)*110540;if(Math.hypot(x-eye.x,y-eye.y)>2600)continue;h=Math.imul(h^Math.round(this.o.heightAt(x,y)*10),16777619);}
     return String(h);
   }
-  private placeStation(station:{owners:Map<string,{facility:RailFacility;path:RailPath}>;model:ReturnType<typeof stationKit>|null}){
-    station.model?.dispose();const owner=station.owners.values().next().value;if(!owner)return;
-    station.model=null;const kx=111320*Math.cos(this.o.origin.lat*Math.PI/180),points=owner.facility.points;
+  private placeStation(station:typeof this.stations extends Map<string,infer S>?S:never){
+    const owner=station.owners.get(station.ownerId??'')??station.owners.values().next().value;if(!owner)return;
+    const kx=111320*Math.cos(this.o.origin.lat*Math.PI/180),points=owner.facility.points;
     const x=(points.reduce((s,p)=>s+p[0],0)/points.length-this.o.origin.lon)*kx,y=(points.reduce((s,p)=>s+p[1],0)/points.length-this.o.origin.lat)*110540;
     if(Math.hypot(x-this.eye.x,y-this.eye.y)>2400)return;
-    station.model=stationKit(owner.facility,owner.path,this.o.origin,this.o.heightAt);this.group.add(station.model.group);
+    const key=stationSourceKey(owner.facility,owner.path,this.o.origin,this.o.heightAt);station.ownerId=owner.path.id;
+    if(station.model&&station.key===key)return;
+    station.model=stationKit(owner.facility,owner.path,this.o.origin,this.o.heightAt,station.model??undefined);station.key=key;this.group.add(station.model.group);
   }
   private placeLabel(label:{sprite:THREE.Sprite;owners:Map<string,THREE.Vector3>}){
     label.sprite.position.set(0,0,0);for(const p of label.owners.values())label.sprite.position.add(p);label.sprite.position.multiplyScalar(1/label.owners.size);
@@ -173,7 +181,11 @@ export class SurfaceRailLayer {
     if(this.manifest&&time-this.syncAt>.6){
       this.syncAt=time;const radius=this.o.radius??BUDGET.radius,kx=111320*Math.cos(this.o.origin.lat*Math.PI/180);
       const longest=Math.max(...this.manifest.lines.map(l=>l.cars*(l.carLength+.6)/2));
-      this.wanted=new Set(neededCorridors(this.manifest,this.o.origin.lon+camera.x/kx,this.o.origin.lat-camera.z/110540,Math.max(radius,BUDGET.farDistance+longest+80)));
+      const reach=Math.max(radius,BUDGET.farDistance+longest+80),lon=this.o.origin.lon+camera.x/kx,lat=this.o.origin.lat-camera.z/110540;
+      this.wanted=new Set(neededCorridors(this.manifest,lon,lat,reach));
+      // Retain already resident corridors at a cell boundary; do not fetch the
+      // larger band. Separate enter/leave radii avoid removal/reload oscillation.
+      const retained=new Set(neededCorridors(this.manifest,lon,lat,reach+400));for(const id of this.entries.keys())if(retained.has(id))this.wanted.add(id);
       for(const[id,e]of this.entries)if(!this.wanted.has(id)){e.dispose();this.entries.delete(id);this.revision++;}
       for(const id of this.wanted){
         if(this.inflight.size>=BUDGET.parallel)break;
@@ -184,10 +196,10 @@ export class SurfaceRailLayer {
       for(const[id,k]of this.kits)if(!usedLines.has(id)){k.cab.removeFromParent();k.car.removeFromParent();k.far.removeFromParent();k.cab.dispose();k.car.dispose();k.far.dispose();k.kit.dispose();this.kits.delete(id);}
       this.stats.corridors=this.entries.size;
       for(const station of this.stations.values()){
-        const owner=station.owners.values().next().value;if(!owner)continue;const p=samplePath(owner.path,owner.facility.d);
-        const near=Math.hypot(p.x-this.eye.x,p.y-this.eye.y)<2200;
+        const owner=station.owners.get(station.ownerId??'')??station.owners.values().next().value;if(!owner)continue;const p=owner.facility.points,kx=111320*Math.cos(this.o.origin.lat*Math.PI/180),x=(p.reduce((s,p)=>s+p[0],0)/p.length-this.o.origin.lon)*kx,y=(p.reduce((s,p)=>s+p[1],0)/p.length-this.o.origin.lat)*110540;
+        const distance=Math.hypot(x-this.eye.x,y-this.eye.y),near=distance<2200;
         if(near&&!station.model)this.placeStation(station);
-        else if(!near&&station.model){station.model.dispose();station.model=null;}
+        else if(distance>2400&&station.model){station.model.dispose();station.model=null;station.key=undefined;}
       }
     }
     const detailed=time-this.detailAt>.4;if(detailed)this.detailAt=time;

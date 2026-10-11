@@ -7,11 +7,11 @@ const source=readFileSync(new URL('../src/vendor/tidewater/engine/render/MeshRen
 const between=(a,b)=>source.slice(source.indexOf('\t'+a+'( '),source.indexOf(b,source.indexOf('\t'+a+'( ')));
 function fixture(){
   let creates=0,uploads=0,layouts=0;const GPU={frame:0,queue:{writeBuffer(b,offset,array,start,length){uploads++;const next=new Uint32Array(array,start,length/4);b.data.splice(offset/4,next.length,...next);}},device:{createBuffer(){creates++;return {data:null,destroyed:false,destroy(){this.destroyed=true;}};}}};
-  const methods=vm.runInNewContext('({'+between('_attributeBuffer','\n\t_indexBuffer')+','+between('_indexBuffer','\n\t// cached _layout')+','+between('_frameBuffers','\n\t// the pipeline of')+','+between('geometryReady','\n\tmaterialReady')+','+between('retainGeometry','\n\treleaseGeometry')+','+between('releaseGeometry','\n\tdispose')+'})',{
+  const methods=vm.runInNewContext('({'+between('_geometryGPU','\n\t// CPU geometry')+','+between('_attributeBuffer','\n\t_indexBuffer')+','+between('_indexBuffer','\n\t// cached _layout')+','+between('_frameBuffers','\n\t// the pipeline of')+','+between('geometryReady','\n\tmaterialReady')+','+between('retainGeometry','\n\treleaseGeometry')+','+between('releaseGeometry','\n\tdispose')+'})',{
     GPU,GPUBufferUsage:{VERTEX:1,COPY_DST:2,INDEX:4},Uint16Array,Uint32Array,
     align4:n=>Math.ceil(n/4)*4,convertArray:a=>a.array,writePadded:(b,a)=>{uploads++;b.data=Array.from(a);},
   });
-  const r={...methods,geometryEpoch:0,geometries:new Map(),_geometryGPU(g){let v=this.geometries.get(g);if(!v)this.geometries.set(g,v={buffers:new Map(),indexVersion:-1});return v;},
+  const r={...methods,geometryEpoch:0,geometries:new Map(),
     _cachedLayout(_o,g){layouts++;if(!g.layout)g.layout={buffers:[{attr:g.attributes.position},{attr:g.attributes.color}]};return g.layout;}};
   const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute([0,0,0,1,0,0,0,1,0],3)).setAttribute('color',new THREE.Float32BufferAttribute([1,0,0,1,0,0,1,0,0],3)).setIndex([0,1,2]);
   const o={},material={};const draw=()=>{GPU.frame++;return r._frameBuffers(o,geometry,material);};
@@ -36,6 +36,17 @@ test('replaced arrays upload even when the new attribute has the same version',(
 test('retired GPU geometry is recreated rather than replaying destroyed buffer references',()=>{
   const f=fixture(),old=f.draw();f.r.geometries.clear();f.r.geometryEpoch++;
   const next=f.draw();assert.notEqual(next.vbs[0],old.vbs[0]);assert.deepEqual(next.index.buffer.data,[0,1,2]);assert.equal(f.count().creates,6);
+});
+test('source disposal preserves the native predecessor until replacement ownership is reconciled',()=>{
+ const f=fixture();f.r.deferGeometryDisposal=true;const old=f.draw();f.geometry.dispose();
+ assert.equal(old.vbs[0].destroyed,false);assert.equal(f.r.geometries.has(f.geometry),true);
+ f.r.retainGeometry([{geometry:f.geometry}]);assert.equal(old.vbs[0].destroyed,false);
+ const replacement=f.geometry.clone(),next=f.r._frameBuffers({},replacement,{});
+ f.r.retainGeometry([{geometry:replacement}]);assert.equal(old.vbs[0].destroyed,true);assert.equal(next.vbs[0].destroyed,false);assert.equal(f.r.geometries.size,1);
+ replacement.dispose();f.r.retainGeometry([]);assert.equal(next.vbs[0].destroyed,true);assert.equal(f.r.geometries.size,0);
+});
+test('standalone renderer disposal still releases geometry immediately',()=>{
+ const f=fixture(),old=f.draw();f.geometry.dispose();assert.equal(old.vbs[0].destroyed,true);assert.equal(f.r.geometries.size,0);
 });
 test('storage attributes obtain the current external GPU buffer on every frame',()=>{
   const f=fixture();let current={id:1};f.geometry.attributes.color.gpuBuffer={getGPU:()=>current};
