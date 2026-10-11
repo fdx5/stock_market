@@ -48,6 +48,9 @@ async def run():
             visual=await page.locator('.drone-warp-stars').evaluate('(e)=>({canvas:[e.width,e.height],motion:e.dataset.motion,drawMaxMs:e.dataset.drawMaxMs,draws:e.dataset.draws,pixelRatio:e.dataset.pixelRatio})')
             assert visual['canvas'][0]>=1440 and visual['canvas'][1]>=1000 and visual['motion']=='animated',visual
             checks.append({'case':'cinematic star tunnel','visual':visual})
+            tunnel=await page.locator('.drone-warp-tunnel').evaluate('(e)=>({canvas:[e.width,e.height],...e.dataset})')
+            assert tunnel['renderer']=='webgl' and tunnel['canvas']==[1440,1000],tunnel
+            checks.append({'case':'multicolour GPU tunnel','visual':tunnel})
             await page.wait_for_timeout(2800)
             assert await warp.get_attribute('data-phase')=='arriving'
             assert '준비하고' in await warp.inner_text(),'Unready destination was revealed after five seconds'
@@ -78,6 +81,7 @@ async def run():
                 if reduced:
                     assert await page.locator('.drone-warp-nebula').first.evaluate('(e)=>getComputedStyle(e).animationName')=='none'
                     assert await page.locator('.drone-warp-stars').get_attribute('data-motion')=='reduced'
+                    assert await page.locator('.drone-warp-tunnel').get_attribute('data-motion')=='reduced'
                 await page.screenshot(path=str(out/f"warp-{size['width']}.png"))
                 await page.wait_for_function("!document.querySelector('.drone-warp')",timeout=120000)
                 checks.append({'case':'mobile','size':size,'reducedMotion':reduced,'controlsVisible':True})
