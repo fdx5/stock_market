@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import {waterOutsideCoast} from './seaGroundGeometry';
+import type {CoastData} from './coastField';
 
 type Box = [number, number, number, number];
 /** Subtract a world x/north box from sea triangles only, with exact interpolated cut edges.
@@ -70,8 +72,8 @@ export class SeaCoverage {
   private saved = new Map<THREE.Mesh, { original: THREE.BufferGeometry; derived: THREE.BufferGeometry; key: string; visible: boolean }>();
   private rivers = new WeakSet<THREE.BufferGeometry>();
   private pending = new Map<THREE.Mesh,{original:THREE.BufferGeometry;key:string;stop:AbortController}>();
-  constructor(private prepare?: (source:THREE.BufferGeometry,box:Box,matrix:THREE.Matrix4,signal:AbortSignal)=>Promise<THREE.BufferGeometry|null>){}
-  update(meshes: THREE.Mesh[], box: Box) {
+  constructor(private prepare?: (source:THREE.BufferGeometry,box:Box,matrix:THREE.Matrix4,signal:AbortSignal,coast?:CoastData)=>Promise<THREE.BufferGeometry|null>){}
+  update(meshes: THREE.Mesh[], box: Box, coast?:CoastData) {
     const key = box.join(',');
     for (const mesh of meshes) {
       const old = this.saved.get(mesh);
@@ -80,14 +82,14 @@ export class SeaCoverage {
       if (current?.key === key) continue;
       const original = current?.original ?? mesh.geometry;
       const sea = original.getAttribute('aSea');
-      if (this.rivers.has(original)) continue;
-      if (!sea || !sea.array.some(v => v >= .5)) { this.rivers.add(original); continue; }
+      if (!coast&&this.rivers.has(original)) continue;
+      if (!coast&&(!sea || !sea.array.some(v => v >= .5))) { this.rivers.add(original); continue; }
       const visible = current?.visible ?? mesh.visible;
       mesh.updateWorldMatrix(true, false);
       if(this.prepare){
         const oldJob=this.pending.get(mesh);if(oldJob?.key===key&&oldJob.original===original)continue;
         oldJob?.stop.abort();const job={original,key,stop:new AbortController()};this.pending.set(mesh,job);
-        void this.prepare(original,box,mesh.matrixWorld.clone(),job.stop.signal).then(derived=>{
+        void this.prepare(original,box,mesh.matrixWorld.clone(),job.stop.signal,coast).then(derived=>{
           if(!derived)return;
           if(job.stop.signal.aborted||this.pending.get(mesh)!==job||mesh.geometry!==(this.saved.get(mesh)?.derived??original)){derived.dispose();return;}
           const previous=this.saved.get(mesh);mesh.geometry=derived;mesh.visible=visible&&!!derived.index?.count;previous?.derived.dispose();
@@ -95,7 +97,9 @@ export class SeaCoverage {
         }).catch(()=>{}).finally(()=>{if(this.pending.get(mesh)===job)this.pending.delete(mesh);});
         continue;
       }
-      const derived = seaOutsideBox(original, box, mesh.matrixWorld);
+      const cut = seaOutsideBox(original, box, mesh.matrixWorld);
+      const derived=coast?waterOutsideCoast(cut,coast,mesh.matrixWorld):cut;
+      if(derived!==cut)cut.dispose();
       mesh.geometry = derived; mesh.visible = visible && !!derived.index?.count; current?.derived.dispose();
       this.saved.set(mesh, { original, derived, key, visible });
     }

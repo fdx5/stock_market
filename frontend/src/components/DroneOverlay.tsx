@@ -151,6 +151,14 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
             <svg className="re-drone-alt-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d={label === '▲' ? 'M5 16L12 8L19 16Z' : 'M5 8L12 16L19 8Z'} /></svg>
           </button>
         ))}
+        <button type="button" className={`re-drone-rotate${flight.autoRotate?' is-on':''}`} aria-pressed={flight.autoRotate}
+          aria-label={flight.autoRotate?'제자리 자동 회전 정지':'제자리 자동 회전 시작'}
+          title={flight.autoRotate?'자동 회전 정지':'제자리에서 천천히 360도 반복 회전 · 조작하면 정지'}
+          onPointerDown={e=>e.stopPropagation()}
+          onClick={e=>{e.stopPropagation();flight.toggleAutoRotate();setHud(h=>h?{...h,autoRotate:flight.autoRotate,autopilot:flight.autopilot}:h);e.currentTarget.blur();}}>
+          <svg viewBox="0 0 24 24" className="re-drone-rotate-icon" aria-hidden="true"><path d="M19 9a7.5 7.5 0 1 0 .2 5M19 4v5h-5" /></svg>
+          <span>회전</span>
+        </button>
       </div>
       {card && <DroneBuildingCard sign={card.sign} at={card.at} distance={card.distance} vkey={radar.vkey} domain={radar.domain} onClose={closeCard} />}
       {touch && <>

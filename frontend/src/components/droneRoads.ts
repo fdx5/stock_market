@@ -48,9 +48,8 @@ type RoadJob = {
   /** the crossings OpenStreetMap maps round the tile (the site's /api/realestate/crossings): lines in
    * metres about the rounded point asked at, (ox, oy) that point in this frame */
   crossings?: { url: string; ox: number; oy: number };
-  /** the sea round the tile (the coastline's, view frame): a road over it is on a bridge, clear of
-   * the sea's level by 8 m and more */
-  sea?: number[][][]; seaLevel?: number;
+  /** Confirmed tidal water and islands. Only official bridge links use bank support. */
+  sea?: number[][][]; seaHoles?: number[][][]; seaLevel?: number;
   /** a landmark bridge's upper deck (광안대교: sceneLandmarks.gwanganDeck), its line and heights:
    * the roads along it are on it — its own model draws the structure */
   deck?: { pts: number[][]; z: number[] };
@@ -224,7 +223,9 @@ function roadWorkerMain() {
         approachRoads.push({line:[endpoint,inside] as [number,number][],width:r.width,lanes:r.lanes,link_id:owner.id,profile_line:owner.line as [number,number][],structure:owner.kind===1?'bridge':owner.kind===2?'elevated':'ground',structure_source:'VWorld LT_L_MOCTLINK'});
       }
     }
-    const baseline=(r:RealEstateRoad,x:number,y:number)=>r.structure==='bridge'||r.structure==='elevated'?rules.profileHeight(r.profile_line??r.line,x,y,ground):ground(x,y);
+    const insideWater=(ring:number[][],x:number,y:number)=>{let odd=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])odd=!odd;}return odd;};
+    const waterAt=(x:number,y:number)=>Number.isFinite(e.data.seaLevel)&&(e.data.sea??[]).some(r=>insideWater(r,x,y))&&!(e.data.seaHoles??[]).some(r=>insideWater(r,x,y))?e.data.seaLevel!:null;
+    const baseline=(r:RealEstateRoad,x:number,y:number)=>r.structure==='bridge'||r.structure==='elevated'?rules.profileHeight(r.profile_line??r.line,x,y,ground,waterAt,(x,y)=>inGrid(g,x,y)||!!wide&&inGrid(wide,x,y),e.data):ground(x,y);
     const nearest=(line:readonly [number,number][],x:number,y:number)=>{const p=rules.along(line as unknown as number[][],x,y);let s=0,dir:[number,number]=[1,0];for(let i=1;i<line.length;i++){const dx=line[i][0]-line[i-1][0],dy=line[i][1]-line[i-1][1],l=Math.hypot(dx,dy);if(s+l>=p.along-1e-8&&l){dir=[dx/l,dy/l];break;}s+=l;}return {...p,point:[p.x,p.y] as [number,number],dir};};
     const approach=(self as unknown as {__approachHeight:typeof roadApproachHeight}).__approachHeight(approachRoads,{at:ground,height:baseline,nearest,key:r=>r.link_id??r.id??JSON.stringify(r.profile_line??r.line)});
     const ownerRoad=(o:Seg):RealEstateRoad=>({line:o.line as [number,number][],profile_line:o.line as [number,number][],link_id:o.id,width:0,lanes:0,structure:o.kind===1?'bridge':'elevated'});
@@ -596,7 +597,7 @@ let roadUrl: string | null = null;
 /** One tile's roads (box in the view's frame, metres from lat/lon), made in a worker. */
 export function roadTile(lat: number, lon: number, key: string, domain: string | null | undefined, box: [number, number, number, number],
   grid: RoadJob["grid"], wide: Grid | null, signal?: AbortSignal, tile?: { lat: number; lon: number },
-  extra?: Pick<RoadJob, "sea" | "seaLevel" | "deck">): Promise<RoadTileResult | null> {
+  extra?: Pick<RoadJob, "sea" | "seaHoles" | "seaLevel" | "deck">): Promise<RoadTileResult | null> {
   const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540, m = 30;
   const q = `BOX(${lon + (box[0] - m) / kx},${lat + (box[1] - m) / ky},${lon + (box[2] + m) / kx},${lat + (box[3] + m) / ky})`;
   const ask = (layer: string, cb: string, n: number) => Array.from({ length: n }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({

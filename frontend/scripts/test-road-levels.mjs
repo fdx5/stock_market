@@ -6,11 +6,18 @@ import vm from 'node:vm';
 import * as THREE from 'three';
 const read=n=>readFileSync(new URL('../src/components/'+n,import.meta.url),'utf8');
 function load(n,extra={}){const scope={module:{exports:{}},exports:{},THREE,performance,frameSlice:async()=>{},onSceneMemoryRelease(){},paintedTexture:async()=>new THREE.Texture(),...extra};vm.runInNewContext(transformSync(read(n).replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);return scope.module.exports;}
-const levels=load('roadLevels.ts'),network=load('roadTrafficNetwork.ts',levels),junction=load('roadJunctions.ts',levels);
+const levels=load('roadLevels.ts',load('surfaceGeometry.ts')),network=load('roadTrafficNetwork.ts',levels),junction=load('roadJunctions.ts',levels);
 const street=load('sceneStreet.ts',{...levels,...junction,...load('roadLanes.ts'),...load('surfaceGeometry.ts')});
 const {drapeRoadSurface,roadSurfaceHeight,raiseRoadPaint}=load('roadDrape.ts');
-const {waterField,fieldFrom,waterSurface}=load('waterCore.ts',{inRing:pointIn});
+const {waterField,fieldFrom,waterSurface,withSeaLevel}=load('waterCore.ts',{inRing:pointIn});
 function pointIn([x,y],r){let inside=false;for(let i=0,j=r.length-1;i<r.length;j=i++)if((r[i][1]>y)!==(r[j][1]>y)&&x<(r[j][0]-r[i][0])*(y-r[i][1])/(r[j][1]-r[i][1])+r[i][0])inside=!inside;return inside;}
+test('boats and wakes follow the sea datum in tidal overlap while inland river levels stay intact',()=>{
+ const river={level:()=>5,wet:()=>true,bounds:{x0:-20,y0:-20,x1:20,y1:20}},sea={level:()=>0,wet:x=>x>=0};let current=null;
+ const field=withSeaLevel(river,()=>current);assert.equal(field.level(8,0),5);
+ current=sea;assert.equal(field.level(8,0),0);assert.equal(field.level(-8,0),5);
+ current={...sea,level:()=>1};assert.equal(field.level(8,0),1);
+ assert.equal(river.level(8,0),5);assert.equal(field.bounds,river.bounds);
+});
 const road=(line,structure='ground')=>({line,width:12,lanes:4,structure,layer:structure==='bridge'?1:structure==='underpass'?-1:0});
 test('true planar mode never connects a bridge or underpass to the road below/above',()=>{
  const roads=[road([[-40,0],[40,0]],'bridge'),road([[0,-40],[0,40]]),road([[-40,-40],[40,40]],'underpass')];

@@ -29,6 +29,10 @@ export interface Terrain {
   relief: number;
   /** Absolute elevation of the centre (m above sea level), null when level fallback. */
   elevation: number | null;
+  /** Confirmed open-water level; only official bridges use dry-bank height support. */
+  waterAt?: (x: number, y: number) => number | null;
+  /** Immutable water revision enables bounded weakly-owned bridge support reuse. */
+  waterRevision?(): object | null;
   source: string | null;
   /** The height grid itself (for work done off the page: the 1 km ring's buildings): n × n
    * heights, CELL metres apart, centred, R the half-size. */

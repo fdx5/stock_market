@@ -1,5 +1,6 @@
 import type {RealEstateRoad} from '../api/client';
 import type {Terrain} from './sceneTerrain';
+import {surfaceGeometry} from './surfaceGeometry';
 type Point=[number,number];
 export function roadLevel(r:RealEstateRoad){return r.layer??(r.structure==='bridge'||r.structure==='elevated'?1:r.structure==='underpass'||r.structure==='tunnel'?-1:0);}
 export function sameRoadLevel(a:RealEstateRoad,b:RealEstateRoad){return roadLevel(a)===roadLevel(b);}
@@ -81,8 +82,7 @@ export function nearestRoadPoint(line:readonly Point[],x:number,y:number){
 export function roadHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
  if(t.roadAt)return t.roadAt(r,x,y);
  if(r.structure==='bridge'||r.structure==='elevated'){
-  const line=r.profile_line??r.line,a=line[0],b=line[line.length-1],p=nearestRoadPoint(line,x,y);
-  return t.at(a[0],a[1])+(t.at(b[0],b[1])-t.at(a[0],a[1]))*p.along/(p.total||1);
+  return surfaceGeometry.profileHeight(r.profile_line??r.line,x,y,t.at,t.waterAt,t.grid?(x,y)=>Math.abs(x)<t.grid!.R&&Math.abs(y)<t.grid!.R:undefined,t.waterRevision?.()??undefined);
  }
  return t.at(x,y);
 }

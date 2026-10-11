@@ -19,6 +19,8 @@ export const AUTO_MAX_AGL = 250;
 export const AUTO_SPEED = 100 / 3.6;
 /** Everything within this distance ahead must be on screen (droneWorld.clearAhead). */
 export const READY_AHEAD = 300;
+/** Gentle clockwise panorama: one revolution in ninety seconds. */
+export const AUTO_ROTATE_RATE = Math.PI * 2 / 90;
 
 const ACCEL = 10.5, BRAKE = 8, VACCEL = 9, CLIMB = 15, SINK = 10, YAW_RATE = 1.5, RADIUS = 0.45;
 const DRAG = ACCEL / (MAX_SPEED * MAX_SPEED * 1.32);
@@ -64,6 +66,7 @@ export class DroneFlight {
   /** hit a wall this frame (for the sound) */
   bumped = 0;
   autopilot = false;
+  autoRotate = false;
   autopilotStatus: 'off' | 'cruise' | 'altitude' | 'obstacle' = 'off';
   autoTargetAgl = 175;
   /** Horizontal speed captured at engagement (m/s), retained through temporary holds. */
@@ -73,6 +76,7 @@ export class DroneFlight {
   private autoHeldInput = { fwd: 0, side: 0, climb: 0 };
 
   setAutopilot(on: boolean) {
+    if(on)this.setAutoRotate(false);
     if (on && !this.autopilot) {
       const speed = Math.hypot(this.vel.x, this.vel.z);
       this.autoCruiseSpeed = speed > 1e-3 ? Math.min(speed, MAX_SPEED) : AUTO_SPEED;
@@ -87,6 +91,15 @@ export class DroneFlight {
   }
   toggleAutopilot() { return this.setAutopilot(!this.autopilot); }
 
+  /** Hold the current position and tilt while continuously panning the heading.
+   * Uses the flight frame, with no extra timer or retained scene resources. */
+  setAutoRotate(on:boolean){
+    if(on){this.setAutopilot(false);this.vel.set(0,0,0);this.wheel=0;this.yawRate=0;}
+    this.autoRotate=on;
+    return on;
+  }
+  toggleAutoRotate(){return this.setAutoRotate(!this.autoRotate);}
+
   /** Start hovering at (x, y) of the view frame, `alt` over the ground, facing `yaw`. */
   place(x: number, y: number, ground: number, alt: number, yaw: number) {
     this.pos.set(x, ground + alt, -y);
@@ -95,10 +108,12 @@ export class DroneFlight {
     this.pitchBody = this.roll = this.yawRate = 0;
     this.agl = this.clearance = alt;
     this.setAutopilot(false);
+    this.setAutoRotate(false);
   }
 
   /** Mouse or finger drag on the view: turn and tilt the camera. */
   look(dx: number, dy: number) {
+    if(dx||dy)this.setAutoRotate(false);
     this.yaw -= dx * 0.0042;
     this.tilt = THREE.MathUtils.clamp(this.tilt - dy * 0.0035, -1.45, 0.6);
   }
@@ -121,7 +136,7 @@ export class DroneFlight {
   }
 
   /** The mouse wheel: up climbs, down sinks (a notch about a second of half climb). */
-  wheelClimb(deltaY: number) { if (deltaY && this.autopilot) this.setAutopilot(false); this.wheel = THREE.MathUtils.clamp(this.wheel - deltaY * 0.004, -1, 1); }
+  wheelClimb(deltaY: number) { if(deltaY)this.setAutoRotate(false);if (deltaY && this.autopilot) this.setAutopilot(false); this.wheel = THREE.MathUtils.clamp(this.wheel - deltaY * 0.004, -1, 1); }
 
   /** Fly along the current camera heading. Gentle height changes and terrain/roof
    * look-ahead fit inside 100–250 m AGL. An impassable tower causes a hover before it. */
@@ -159,10 +174,23 @@ export class DroneFlight {
 
   /** One step of `dt` seconds. */
   step(dt: number, world: DroneWorldQuery) {
+    const rotationDt=Math.max(0,Math.min(dt,.1));
     dt = Math.min(dt, 0.05);
     this.wheel *= Math.exp(-dt * 2.5);
     if (Math.abs(this.wheel) < 0.02) this.wheel = 0;
     let { fwd, side, climb, turn } = this.input();
+    if(this.autoRotate){
+      if(Math.max(Math.abs(fwd),Math.abs(side),Math.abs(climb),Math.abs(turn))>.08)this.setAutoRotate(false);
+      else{
+        this.vel.set(0,0,0);this.yaw-=AUTO_ROTATE_RATE*rotationDt;
+        this.pitchBody*=Math.exp(-dt*5);this.roll*=Math.exp(-dt*5);this.bumped=0;
+        this.limit=MAX_SPEED;this.ahead=Infinity;this.load=.35;
+        const ground=world.groundAt(this.pos.x,-this.pos.z),under=Math.max(ground,world.roofAt(this.pos.x,-this.pos.z));
+        this.pos.y=Math.min(Math.max(this.pos.y,under+MIN_AGL),ground+MAX_AGL);
+        this.agl=this.pos.y-ground;this.clearance=this.pos.y-under;
+        return;
+      }
+    }
     // Looking/turning steers the cruise. A direct movement or altitude input takes over.
     if(this.autopilot){
       const movement={fwd,side,climb};

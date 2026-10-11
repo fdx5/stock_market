@@ -42,7 +42,8 @@ import { buildLamps, buildRoadMarkings, buildRoadSurface, buildTraffic, stitched
 import { FLAT, gradeRoads, gridNormals, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
 import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
 import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
-import { buildWater } from "./sceneWater";
+import { buildWater, type WaterField } from "./sceneWater";
+import {withSeaLevel} from './waterCore';
 import { buildBeach, buildCoastFringe } from "./sceneBeach";
 import { buildSeaWorks, type SeaWork } from "./sceneSeaWorks";
 /** distance from (x, y) to the segment a–b */
@@ -234,6 +235,7 @@ type Stage = {
   traffic: Awaited<ReturnType<typeof buildTraffic>> | null;
   /** the road surface's finer asphalt while driving */
   roadDetail?: (on: boolean) => void;
+  roadSeaReady?:(field:WaterField)=>void;
   /** The trees' full-detail band centred on (x, y) (the driven vehicle); null: the complex again. */
   plantsFocus?: ((x: number, y: number) => void) & ((x: null) => void);
   /** Open water off the bridges (a driven vehicle that goes in is lost). */
@@ -328,6 +330,11 @@ function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEs
   // their structures and the footprints they were fitted to: asked again, the roads, their context
   // and ~8 pages of footprints were ~1.8 s before the view's first frame on every return.
   if (res.road_context && res.road_building_footprints?.length && res.roads?.length) return Promise.resolve(res);
+  // firstLook starts this job before the selection effect awaits it. Reuse it
+  // before launching footprint pagination; checking later issued a second full
+  // footprint download even though the second result could never be consumed.
+  const had = roadsOf.get(id);
+  if (had) return had;
   // (the roads' structures and the rivers asked now, alongside the roads: see prefetchRoadContext)
   if (!roadsOf.has(id)) prefetchRoadContext(res, RING_M);
   const footprintJob=res.vworld_key&&res.center?vworldRoadFootprints(res,res.vworld_key,res.vworld_domain,RING_M).catch(()=>[]):Promise.resolve([]);
@@ -337,8 +344,6 @@ function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEs
     return {...res,roads:fixed,road_building_footprints:footprints};
   };
   if (!res.vworld_key || !res.center) return res.roads?.length?correct(res.roads):Promise.resolve(res);
-  const had = roadsOf.get(id);
-  if (had) return had;
   // The roads of the whole neighbourhood drawn (RING_M), not the parcel's 150 m the result carries:
   // the traffic, its signals, kerbs and lamps reach as far as the buildings. (The parcel's own,
   // or the result's, where the wider ask is late.)
@@ -2888,9 +2893,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // river's surface.
     let deckAt: ((x: number, y: number) => number | null) | null = null;
     let asphaltAt:ReturnType<typeof roadSurfaceHeight>|null=null;
-    const approachTerrain = roadApproachTerrain(roads, terrain);
+    let roadWater:WaterField|null=null;
+    let roadSea:WaterField|null=null;
+    let waterRevision:object={};
+    const waterTerrain:Terrain={...terrain,waterRevision:()=>waterRevision,waterAt:(x,y)=>roadSea?.wet(x,y)?roadSea.level(x,y):roadWater?.wet(x,y)?roadWater.level(x,y):null};
+    let approachTerrain = roadApproachTerrain(roads, waterTerrain);
+    let relayWalks:(()=>Promise<void>)|null=null;
+    const useRoadWater=(field:WaterField)=>{if(roadWater===field)return;roadWater=field;waterRevision={};approachTerrain=roadApproachTerrain(roads,waterTerrain);asphaltAt=null;};
     const roadTerrain: Terrain = { ...approachTerrain, roadAt:(road,x,y)=>roadHeight(road,approachTerrain,x,y) };
-    const trafficTerrain:Terrain={...roadTerrain,heightRevision:()=>asphaltAt,roadAt:(road,x,y)=>{
+    const trafficTerrain:Terrain={...roadTerrain,heightRevision:()=>asphaltAt??waterRevision,roadAt:(road,x,y)=>{
       const reference=roadHeight(road,roadTerrain,x,y)+.08;
       const surface=asphaltAt?.(x,y,reference,roadLevel(road),roadLevel(road)?roadProfileKey(road):undefined);
       return surface!==undefined&&Math.abs(surface-reference)<=2?surface:reference;
@@ -2961,19 +2972,26 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       return {parcels:[...(data.parcels??[]),...lakes],covered:[...waterCovered(data),...lakes.map(()=>false)]};
     };
     let bridgesTried = false;
+    let bridgeGen=0,bridgeRelease:(()=>void)|null=null;
     const placeBridges = async () => {
       if (bridgesTried) return false;
+      if(!roadWater&&!roadSea)return false;
       bridgesTried = true;
+      const gen=++bridgeGen;
       const w = waterParcels();
-      const found = await sceneWork("bridges", {roads, parcels:w.parcels, covered:w.covered, grid:terrain.grid ?? null})?.catch(() => null)
-        ?? (alive ? timed("bridges", () => findBridges(roads, w.parcels, w.covered, terrain)) : []);
-      if (!alive) return false;
+      const found = await sceneWork("bridges", {roads, parcels:w.parcels, covered:w.covered, grid:terrain.grid ?? null,water:roadWater?.data,sea:roadSea?.data})?.catch(() => null)
+        ?? (alive ? timed("bridges", () => findBridges(roads, w.parcels, w.covered, waterTerrain)) : []);
+      if (!alive||gen!==bridgeGen) return false;
       if (hostRef.current) hostRef.current.dataset.bridges = String(found.length);
       if (!found.length) return false;
       deckAt = bridgeHeight(found);
       const made = buildBridges(found);
       stage.addWarm(decor, made.group);
-      disposables.push(made);
+      let released=false;const release=()=>{if(released)return;released=true;made.group.removeFromParent();made.dispose();};
+      disposables.push({dispose:release});
+      while(alive&&gen===bridgeGen&&!stage.drawReady(made.group))await frameSlice();
+      if(!alive||gen!==bridgeGen){release();return false;}
+      bridgeRelease?.();bridgeRelease=release;
       return true;
     };
     // (the plant kit — meshes, twig and bark textures, ~3 MB — after the first frame: fetched and
@@ -3105,6 +3123,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const wp=waterParcels(),water=await buildWater(wp.parcels,wp.covered,terrain,pace);
         if(!alive){water?.dispose();return null;}
         if(water)disposables.push(water);
+        if(water){useRoadWater(water.field);if(await placeBridges()){await relayWalks?.();void layMarks();relayLamps();}}
         if(water){const dry=(p:readonly number[])=>!water.field.wet(p[0],p[1]);
           planting.trees=planting.trees.filter(dry);planting.shrubs=planting.shrubs.filter(dry);planting.flowers=planting.flowers.filter(dry);planting.street=planting.street.filter(dry);
           if(planting.grass)planting.grass=planting.grass.filter(dry);if(planting.border)planting.border=planting.border.filter(dry);
@@ -3120,6 +3139,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!alive) { walks.dispose(); return; }
       stage.addWarm(decor, walks.group);
       disposables.push(walks);
+      relayWalks=async()=>{
+        street=streetOf();
+        const fresh=await buildSidewalks(runs,roadTerrain,street.map(([x,y])=>[x,y] as [number,number]));
+        await cutPavements(fresh.group);
+        if(!alive){fresh.dispose();return;}
+        decor.remove(walks.group);walks.dispose();walks=fresh;
+        stage.addWarm(decor,walks.group);disposables.push(walks);
+      };
       if (!await later()) return;
 
       // Land use (연속지적도 지목) arrives after the first frame: the ground is repainted in
@@ -3223,6 +3250,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (!await later()) return;
         const wp = waterParcels();
         const water = finalPlantsJob?await finalPlantsJob:await buildWater(wp.parcels, wp.covered, terrain, pace);
+        if(water){useRoadWater(water.field);if(await placeBridges()){await relayWalks?.();void layMarks();relayLamps();}}
         if (!alive) { if(!finalPlantsJob)water?.dispose(); return; }
         const finishPlanting=async()=>{
           // (no tree on a beach: the land use under the sand is often a park or unregistered)
@@ -3274,7 +3302,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           }
           if (!await later()) return;
           // A big river: boats in clear weather by day (none on streams and ponds).
-          const boats = await buildBoats(water.field, cx, cy, seed);
+          const boats = await buildBoats(withSeaLevel(water.field,()=>roadSea), cx, cy, seed);
           if (!alive) { boats?.dispose(); return; }
           if (!boats && hostRef.current) hostRef.current.dataset.boats = `none: ${noBoatsReason}`;
           if (boats) {
@@ -3372,6 +3400,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     afterShown(() => void placeLamps());
     // (again on the bridges' decks, once they are found)
     function relayLamps() { void placeLamps(); }
+    const roadSeaReady=(field:WaterField)=>{
+      if(!alive||roadSea===field)return;
+      roadSea=field;waterRevision={};approachTerrain=roadApproachTerrain(roads,waterTerrain);asphaltAt=null;bridgesTried=false;
+      void (async()=>{if(await placeBridges()){await relayWalks?.();void layMarks();relayLamps();}})().catch(err=>console.info('[3D] Coastal roads unavailable:',err));
+    };
+    stage.roadSeaReady=roadSeaReady;
+    disposables.push({dispose:()=>{if(stage.roadSeaReady===roadSeaReady)stage.roadSeaReady=undefined;}});
     // A desktop's neighbourhood painted again at twice the texels, in idle time once all this is
     // in (complexScene.sharpenNeighbourhood: once a session, kept between visits).
     // The neighbourhood out to RING_M (ringBuildings.ts): every registered building past this
@@ -3740,6 +3775,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       viewBuildings: () => st.viewBuildings,
       nearBuildings:()=>st.nearBuildings,
       stationLabels:()=>st.rail?.stationLabels(),
+      onSeaReady:field=>st.roadSeaReady?.(field),
       setSky: (k, fog) => st.setDroneSky?.(k, fog), onHud: h => droneHud.current?.(h),
     });
     st.controls.enabled = false; st.controls.autoRotate = false; spinRef.current = false; setSpin(false);

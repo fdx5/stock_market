@@ -23,6 +23,7 @@ import {CoastGeometryJobs} from './coastGeometryJobs';
  *   - the sky's clouds are crisp and the sun shows its corona (droneSky). */
 
 export type DroneHud = {
+  autoRotate:boolean;
   autopilot: boolean; autopilotStatus: DroneFlight['autopilotStatus']; autoTargetAgl: number;
   kmh: number; agl: number; alt: number; heading: number; limited: boolean; limit: number;
   tiles: number; ready: number; loading: number; buildings: number; radius: number; clearance: number;
@@ -49,7 +50,6 @@ export class DroneSession {
   private crowdBusy = false;
   private groundBackup: THREE.BufferGeometry | null = null;
   private backdrop: THREE.Mesh | null = null;
-  private backdropHeights: Float32Array | null = null;
   private trafficFilters = new Map<Record<string, any>, any>();
   private saved: { fov: number; near: number; far: number } | null = null;
   private sky = 0;
@@ -67,13 +67,14 @@ export class DroneSession {
     viewBuildings?: () => DroneViewBuildings | undefined;
     nearBuildings?: () => NearBuildingSource | undefined;
     stationLabels?:()=>DroneLabel[]|undefined;
+    onSeaReady?:(field:WaterField)=>void;
     /** the drone's sky, 0…1 (both renderers), and its distance haze (start, end; m) */
     setSky: (k: number, fog?: [number, number]) => void;
     onHud: (h: DroneHud) => void;
   }) {
     this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees, viewBuildings:p.viewBuildings,nearBuildings:p.nearBuildings,
       viewWater: () => { const water: THREE.Mesh[] = []; for (const root of p.scene.children) if (root !== this.world.root) root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && !Array.isArray(m.material) && m.material.userData.water && m.geometry.getAttribute('aSea')) water.push(m); }); return water; },
-      onSeaReady: field => { void this.sinkSeaGround(field); },
+      onSeaReady: field => { void this.sinkSeaGround(field); p.onSeaReady?.(field); },
       onLabels: (k, l) => this.signs.set(k, l) });
   }
 
@@ -117,7 +118,6 @@ export class DroneSession {
     const H = this.p.extent.farHalf;
     this.groundBackup = g.geometry;
     const back = g.geometry.clone();
-    this.backdropHeights = (back.getAttribute('position').array as Float32Array).slice();
     g.updateWorldMatrix(true, false);
     // Exact clipping replaces collapsed outer faces, which formed dark vertical seams.
     g.geometry = seaOutsideBox(g.geometry, [-H, -H, H, H], g.matrixWorld, true);
@@ -137,24 +137,13 @@ export class DroneSession {
     this.seaStop.abort();const stop=this.seaStop=new AbortController();
     for (const mesh of [this.p.ground, this.backdrop]) {
       if (!mesh || !this.groundBackup) continue;
-      const geometry=mesh.geometry,p = geometry.getAttribute('position') as THREE.BufferAttribute;
-      const positions=(p.array as Float32Array).slice();
-      const source = mesh === this.backdrop ? this.backdropHeights : null;
-      let changed = false;
-      for (let i = 0; i < p.count; i++) {
-        if(i%1024===0){await frameSlice(4);if(this.ended||stop.signal.aborted||mesh.geometry!==geometry)return;}
-        const x = p.getX(i), y = p.getY(i);
-        if(x<field.bounds.x0||x>field.bounds.x1||y<field.bounds.y0||y>field.bounds.y1)continue;
-        if (!field.wet(x, y)) continue;
-        const z = field.level(x, y) - .6 - mesh.position.y;
-        const original = source?.[i * 3 + 2] ?? p.getZ(i);
-        if (p.getZ(i) > z) { positions[i*3+2]=Math.min(original,z); changed = true; }
-      }
-      if(changed&&geometry.index){
-        const result=await this.coastJobs.normals(positions,Uint32Array.from(geometry.index.array),stop.signal);
+      const geometry=mesh.geometry;
+      if(field.coast&&geometry.index){
+        const result=await this.coastJobs.sink(geometry,field.coast.data,mesh.position.y,stop.signal);
         if(!result)continue;
         if(this.ended||stop.signal.aborted||mesh.geometry!==geometry){result.dispose();return;}
-        geometry.setAttribute('position',result.getAttribute('position'));geometry.setAttribute('normal',result.getAttribute('normal'));geometry.boundingSphere=result.boundingSphere;geometry.boundingBox=null;
+        for(const[name,a]of Object.entries(result.attributes))geometry.setAttribute(name,a);
+        geometry.setIndex(result.index);geometry.boundingSphere=result.boundingSphere;geometry.boundingBox=null;
         // Arrays now belong to the live geometry; the temporary has no GPU owner.
         result.dispose();
       }
@@ -228,6 +217,7 @@ export class DroneSession {
       this.hudAt = now;
       const s = w.stats();
       this.p.onHud({
+        autoRotate:f.autoRotate,
         autopilot: f.autopilot, autopilotStatus: f.autopilotStatus, autoTargetAgl: f.autoTargetAgl,
         kmh: f.kmh, agl: f.agl, alt: f.pos.y, heading: f.heading, limited: f.limit < MAX_SPEED - 0.5, limit: f.limit * 3.6,
         tiles: s.tiles, ready: s.ready, loading: s.loading, buildings: s.buildings, radius: s.radius, clearance: f.clearance,
@@ -312,6 +302,7 @@ export class DroneSession {
     this.ended = true;
     this.seaStop.abort();this.coastJobs.dispose();
     this.flight.setAutopilot(false);
+    this.flight.setAutoRotate(false);
     if (this.crowd) { this.dropCrowd(this.crowd.c); this.crowd = null; }
     this.audio.stop();
     this.world.dispose();
@@ -322,7 +313,6 @@ export class DroneSession {
     }
     this.groundBackup = null;
     if (this.backdrop) { scene.remove(this.backdrop); this.backdrop.geometry.dispose(); this.backdrop = null; }
-    this.backdropHeights = null;
     for (const [traffic, previous] of this.trafficFilters) traffic.placementFilter = previous;
     this.trafficFilters.clear();
     if (this.saved) { camera.fov = this.saved.fov; camera.near = this.saved.near; camera.far = this.saved.far; camera.updateProjectionMatrix(); }

@@ -11,10 +11,11 @@ const bundle=await build({stdin:{contents:`
  export {roadApproachTerrain} from './src/components/roadApproaches';
  export {roadHeight} from './src/components/roadLevels';
  export {findBridges,buildBridges} from './src/components/sceneBridges';
+ export {surfaceGeometry,surfaceGeometryRules} from './src/components/surfaceGeometry';
 `,resolveDir:fileURLToPath(new URL('..',import.meta.url))},bundle:true,write:false,platform:'node',format:'esm'});
 const dir=await mkdtemp(join(tmpdir(),'road-approaches-'));
 const entry=join(dir,'logic.mjs');await writeFile(entry,bundle.outputFiles[0].text,{flag:'wx'});
-const {roadApproachTerrain,roadHeight,findBridges,buildBridges}=await import(pathToFileURL(entry));
+const {roadApproachTerrain,roadHeight,findBridges,buildBridges,surfaceGeometry,surfaceGeometryRules}=await import(pathToFileURL(entry));
 const road=(id,line,structure='ground',extra={})=>({id,line,width:8,lanes:2,structure,layer:structure==='ground'?0:1,structure_source:'fixture',...extra});
 const profile=[[-8,0],[300,0]];
 const bridge=road('bridge',[[0,2],[300,2]],'bridge',{link_id:'official',profile_line:profile});
@@ -77,4 +78,50 @@ test('the bridge slab edges use the same crossfall as the road surface at the ba
  const made=buildBridges(found);
  made.group.traverse(o=>{if(o.geometry)assert.ok([...o.geometry.attributes.position.array].every(Number.isFinite));});
  made.dispose();
+});
+
+test('a surveyed bridge endpoint inside water uses dry bank support rather than river-bed DEM',()=>{
+ const line=[[-80,0],[80,0]],saved=JSON.stringify(line);
+ const water=(x,y)=>Math.abs(x)<160?0:null,ground=x=>Math.abs(x)<160?-3:10;
+ const r=road('wet-ended',line,'bridge'),t={...terrain,at:ground,waterAt:water};
+ for(const x of [-80,0,80])near(roadHeight(r,t,x,0),10);
+ assert.equal(JSON.stringify(line),saved);
+ const ordinary={...r,structure:'ground',layer:0};near(roadHeight(ordinary,t,0,0),-3);
+});
+
+test('wet-ended profiles share support across reversal, tile fragments and serialized rules',()=>{
+ const line=[[-80,0],[80,0]],water=x=>Math.abs(x)<160?0:null,ground=x=>Math.abs(x)<160?-3:10+.02*x;
+ const workerRules=Function('return ('+surfaceGeometryRules.toString()+')()')();
+ for(const x of [-80,-40,0,40,80]){
+  const expected=surfaceGeometry.profileHeight(line,x,0,ground,water);
+  near(workerRules.profileHeight(line,x,0,ground,water),expected);
+  near(surfaceGeometry.profileHeight([...line].reverse(),x,0,ground,water),expected);
+  near(roadHeight(road('fragment',[[x,0],[x+1,0]],'bridge',{profile_line:line}),{...terrain,at:ground,waterAt:water},x,0),expected);
+ }
+});
+
+test('bank support never samples clamped heights outside the available DEM',()=>{
+ let outside=0;const ground=x=>{if(Math.abs(x)>=100)outside++;return Math.abs(x)>=120?10:-3;};
+ const h=surfaceGeometry.profileHeight([[-80,0],[80,0]],0,0,ground,x=>Math.abs(x)<120?0:null,x=>Math.abs(x)<100);
+ near(h,-3);assert.equal(outside,0);
+});
+
+test('a shoreline cell below water level is skipped until valid dry support is found',()=>{
+ const ground=x=>Math.abs(x)<164?-3:10,water=x=>Math.abs(x)<140?0:null;
+ near(surfaceGeometry.profileHeight([[-80,0],[80,0]],0,0,ground,water),10);
+});
+
+test('existing dry bank profiles and inland bridges keep their original heights',()=>{
+ const line=[[-200,0],[200,0]],ground=x=>x*.05+20,water=x=>Math.abs(x)<160?0:null;
+ for(const x of [-200,0,200])near(surfaceGeometry.profileHeight(line,x,0,ground,water),ground(x));
+});
+
+test('repeated bridge samples reuse bank searches and a new water revision refreshes support',()=>{
+ const line=[[-80,0],[80,0]],water=x=>Math.abs(x)<160?0:null;let calls=0,bank=10;
+ const ground=x=>{calls++;return Math.abs(x)<160?-3:bank;},revision={};
+ const sample=key=>surfaceGeometry.profileHeight(line,0,0,ground,water,undefined,key);
+ near(sample(revision),10);const first=calls;
+ for(let i=0;i<100;i++)near(sample(revision),10);
+ assert.equal(calls,first,'no repeated DEM/shore search on road vertices or traffic frames');
+ bank=20;near(sample({}),20);assert.ok(calls>first);
 });

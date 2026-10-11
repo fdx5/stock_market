@@ -60,5 +60,5 @@ export function coastField(data: CoastData) {
     };
     visit(root); return Math.sqrt(best);
   };
-  return { distance, wet: (x: number, y: number) => rings.some(r => inside(r, x, y)) && !holes.some(r => inside(r, x, y)), level: data.level, open: data.open };
+  return { data, distance, wet: (x: number, y: number) => rings.some(r => inside(r, x, y)) && !holes.some(r => inside(r, x, y)), level: data.level, open: data.open };
 }

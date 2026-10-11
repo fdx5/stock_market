@@ -3,6 +3,7 @@ import { api, type RealEstateBuildingCard, type RealEstateBuildingRegisterRow, t
 import type { Sign } from "./droneSigns";
 import { vworldParcelAt } from "./vworldBuildings";
 import { droneComplexMatch, droneMarketQuote, dronePrice } from "./droneMarket";
+import { droneBuildingPhotos } from './droneBuildingPhotos';
 
 /* 드론 mode: the card of a building whose sign was tapped — a layer over the flight, scrolling
  * inside itself. What the sign already knows (the register's 사용승인일, floors, height, area from
@@ -43,7 +44,7 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
   const [marketType, setMarketType] = useState<number | null>(null);
   useEffect(() => {
     const stop = new AbortController();
-    setCard(null); setState("loading"); setPick(0);
+    setCard(null); setState("loading"); setPick(0); setBroken(new Set());
     setParcel(null);
     setMarket(null); setMarketState('loading'); setMarketType(null);
     let marketStarted = false;
@@ -118,7 +119,7 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
     ["동 수", dongs.length > 1 ? `${dongs.length}개 동` : null],
     ["내진설계", head.seismic ? "적용" : null],
   ] as [string, string | null | undefined][]).filter(([, v]) => v);
-  const photos = (card?.photos ?? []).filter(p => !broken.has(p.thumb));
+  const photos = droneBuildingPhotos(card).filter(p => !broken.has(p.thumb));
   const hero = photos[Math.min(pick, photos.length - 1)];
   const address = head.address ?? card?.place?.address ?? parcel?.address ?? null;
   const q = encodeURIComponent(`${card?.area ?? ""} ${sign.name}`.trim());

@@ -22,7 +22,7 @@ import {jamsilTreeMask,withoutStadiumTrees} from './stadiumPlanting';
 import { frameSlice } from "./frameSlice";
 import { textureBudgetEnabled } from "./textureBudget";
 import {paintedTexture} from './paintedTexture';
-import { SeaCoverage, seaOutsideBox, skirtedGridNormals } from './coastGeometry';
+import { SeaCoverage, seaOutsideBox } from './coastGeometry';
 import { bridgeTileLanes } from './bridgeDeck';
 
 /* The drone's world past the view's own neighbourhood (ComplexHologram: the complex, its 600 m
@@ -195,7 +195,7 @@ export class DroneWorld {
   private readonly ky = 110540;
   private readonly season = seasonGround(undefined, textureBudgetEnabled());
   private readonly coastJobs = new CoastGeometryJobs();
-  private readonly seaCoverage = new SeaCoverage((g,b,m,s) => this.coastJobs.cut(g,b,m,false,s));
+  private readonly seaCoverage = new SeaCoverage((g,b,m,s,c) => this.coastJobs.cut(g,b,m,false,s,c));
   private seaCoverageAt = 0;
   private scheduleAt = -Infinity;
   private scheduleX = Infinity; private scheduleY = Infinity;
@@ -425,7 +425,7 @@ export class DroneWorld {
     if (this.region?.field && this.regionWater && now - this.seaCoverageAt > 500) {
       this.seaCoverageAt = now;
       const { x: sx, y: sy, R } = this.regionWater;
-      this.seaCoverage.update(this.o.viewWater?.() ?? [], [sx - R, sy - R, sx + R, sy + R]);
+      this.seaCoverage.update(this.o.viewWater?.() ?? [], [sx - R, sy - R, sx + R, sy + R],this.region.field.coast?.data);
     }
     const plantWant: [number, Tile][] = [];
     const far: [number, Tile][] = [];
@@ -761,13 +761,15 @@ export class DroneWorld {
         const mesh = new THREE.Mesh(ground, mat);
         mesh.receiveShadow = true;
         mesh.name = "drone tile ground";
-        zup.add(mesh);
         t.materials.push(mat);
         t.dispose.push(() => { ground.dispose(); tex.dispose(); mat.dispose(); fg.bitmap.close(); });
         groundClaimed = true;
         if (!await this.pace(true)) return;
         if (!OFF.includes("sea")) await this.seaOn(t, ground, localTerrain, stop.signal);
         if (stop.signal.aborted || this.disposed) return;
+        // Buildings stream independently, but uncorrected terrain must not flash
+        // above the water while its coast worker is still running.
+        zup.add(mesh);
         // General park trees are loaded near the drone. The requested palace flower beds
         // and grass tufts also have 3D geometry; their ground colors remain visible from above.
         // (and the street trees by the kerbs of the roads with sidewalks: one species a road)
@@ -864,7 +866,7 @@ export class DroneWorld {
           mesh.removeFromParent(); this.o.forget?.(new Set([material]));
         }
       }
-      this.seaCoverage.update(this.o.viewWater?.() ?? [], [x - R, y - R, x + R, y + R]);
+      this.seaCoverage.update(this.o.viewWater?.() ?? [], [x - R, y - R, x + R, y + R],water.field.coast?.data);
       this.o.addWarm(this.root, water.mesh);
     } finally { this.regionBusy = false; }
   }
@@ -882,10 +884,11 @@ export class DroneWorld {
     const w = this.regionWater, M = 1500;
     const box: [number, number, number, number] = [t.box[0] - M, t.box[1] - M, t.box[2] + M, t.box[3] + M];
     const sea = w ? w.rings.map(r => clipToBox(r.ring, box)).filter(r => r.length >= 3) : [];
+    const seaHoles=w?w.rings.flatMap(r=>r.islands.map(h=>clipToBox(h,box)).filter(h=>h.length>=3)):[];
     const seaLevel = this.base === null ? undefined : -this.base;
     const d = this.landmarks.gwanganDeck();
     const near = d && d.P.some(([x, y]) => x > box[0] && x < box[2] && y > box[1] && y < box[3]);
-    return { sea, seaLevel, deck: near ? { pts: d.P, z: d.z } : undefined };
+    return { sea, seaHoles, seaLevel, deck: near ? { pts: d.P, z: d.z } : undefined };
   }
 
   /** Landmark lanes also exist on all-sea tiles and inside the initial scene square. */
@@ -981,6 +984,19 @@ export class DroneWorld {
   }
   private async seaOn(t: Tile, ground: THREE.BufferGeometry | null, terrain: Terrain, signal: AbortSignal, answer?: SeaBody | null) {
     const H = TILE_M / 2;
+    const regional=this.regionCovers(t.cx,t.cy)?this.region?.field?.coast?.data:null;
+    const sink=async(data:NonNullable<WaterField['coast']>['data'])=>{
+      if(!ground)return;
+      const sunk=await this.coastJobs.sink(ground,data,0,signal);
+      if(signal.aborted||this.disposed){sunk?.dispose();return;}
+      if(!sunk)throw Error('Sea ground cut unavailable');
+      for(const[name,a]of Object.entries(sunk.attributes))ground.setAttribute(name,a);
+      ground.setIndex(sunk.index);ground.boundingSphere=sunk.boundingSphere;sunk.dispose();
+    };
+    // A tile-local query may omit a thin coastline fragment still covered by the
+    // regional water. Cut its ground from that same source even without local sea.
+    if(regional)await sink(regional);
+    if(signal.aborted||this.disposed)return;
     const body = answer !== undefined ? answer : t.seaBody !== undefined ? t.seaBody : await this.seaAnswer(t);
     const seas = (body?.rings ?? []).filter(w => w.kind === "sea");
     if (!seas.length || signal.aborted || this.disposed) return;
@@ -994,15 +1010,13 @@ export class DroneWorld {
     water.mesh.geometry = cut;
     t.dispose.push(() => cut.dispose());
     // the tile's ground under the sea: below its surface (the DEM's coast rises through it)
-    const gp = ground?.getAttribute("position") as THREE.BufferAttribute | undefined;
-    let sunk = false;
-    if (gp) for (let i = 0; i < gp.count; i++) {
-      const lx = gp.getX(i) - t.cx, ly = gp.getY(i) - t.cy;
-      if (!water.field.wet(lx, ly)) continue;
-      const z = (this.base === null ? water.field.level(lx, ly) : -this.base) - 0.6;
-      if (gp.getZ(i) > z) { gp.setZ(i, z); sunk = true; }
+    if(ground&&!regional&&water.field.coast){
+      const data=water.field.coast.data,shift=(ring:[number,number][])=>ring.map(([x,y])=>[x+t.cx,y+t.cy] as [number,number]);
+      const coast:NonNullable<WaterField['coast']>['data']={...data,rings:data.rings.map(shift),holes:data.holes.map(shift),
+        level:this.base===null?data.level:-this.base,open:data.open?[data.open[0]+t.cx,data.open[1]+t.cy,data.open[2]+t.cx,data.open[3]+t.cy]:null};
+      try{await sink(coast);}catch(err){water.dispose();throw err;}
+      if(signal.aborted||this.disposed){water.dispose();return;}
     }
-    if (sunk && gp && ground) { gp.needsUpdate = true; skirtedGridNormals(ground); ground.computeBoundingSphere(); }
     const yup = t.yup ?? new THREE.Group();
     yup.name = `drone tile ${t.key} sea`;
     yup.position.set(t.cx, 0, -t.cy);

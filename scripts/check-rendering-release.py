@@ -63,7 +63,8 @@ for path in paths:
     print(json.dumps({'verifiedAsset': path, 'bytes': len(response.content)}), flush=True)
 
 if args.build:
-    for stem in ['coastGeometryWorker', 'roadModelCheckWorker', 'droneSurveyWorker', 'railClearanceWorker']:
+    for stem in ['coastGeometryWorker', 'roadModelCheckWorker', 'droneSurveyWorker', 'railClearanceWorker',
+                 'ComplexHologram', 'ComplexRenderer']:
         matches=list((args.build / 'assets').glob(stem + '-*.js'))
         assert len(matches) == 1, 'Expected one clean-build worker: ' + stem
         local=matches[0]
@@ -91,7 +92,7 @@ for path in scripts:
         assets.append({'path': path, 'bytes': len(response.content)})
 report = {'deployed': True, 'commit': args.commit, 'checks': checks, 'assets': assets,
           'durationSeconds': round(time.monotonic() - started, 1),
-          'scope': 'Public health, HTML, entry script, seven versioned assets and optional clean-build workers; no browser flight/FPS claim.'}
+          'scope': 'Public health, HTML, entry script, seven versioned assets and optional clean-build workers/drone bundles; no browser flight/FPS claim.'}
 args.out.parent.mkdir(parents=True, exist_ok=True)
 args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf8')
 print(json.dumps({'deployed': True, 'commit': args.commit, 'assetsVerified': len(assets)}), flush=True)

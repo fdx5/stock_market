@@ -17,6 +17,7 @@
 .drone-explore-page .re-holo .re-drone-tools { top: calc(var(--drone-header-height) + 12px); right: calc(12px + env(safe-area-inset-right)); }
 .drone-explore-page .re-drone-hud { top: calc(var(--drone-header-height) + 12px); }
 .drone-explore-page .re-drone-autopilot { top: calc(var(--drone-header-height) + 106px); }
+.drone-explore-page .re-holo .re-drone-alt-buttons { top: clamp(calc(var(--drone-header-height) + 168px), calc((100% + var(--drone-header-height) - var(--drone-footer-height)) / 2 - 74px), calc(100% - var(--drone-footer-height) - 160px)); bottom: auto; transform: none; }
 .drone-explore-page .re-drone-radar { top: calc(var(--drone-header-height) + 54px); }
 .drone-explore-page .re-drone-help { bottom: calc(var(--drone-footer-height) + 14px); }
 .drone-explore-page .re-drone-stick { bottom: calc(var(--drone-footer-height) + 22px); }
@@ -44,4 +45,6 @@
 @media (max-width: 600px) { .drone-explore-page .re-drone-view span { display: none; } .drone-explore-page .re-holo-head strong { font-size: 12px; } }
 @media (max-height: 540px) and (orientation: landscape) {
   .drone-explore-page .re-holo--drone-touch .re-drone-alt-buttons { left: calc(200px + env(safe-area-inset-left)); top: auto; bottom: calc(var(--drone-footer-height) + 12px); transform: none; grid-auto-flow: column; }
+  .drone-explore-page .re-holo .re-drone .re-drone-alt-buttons { left: calc(224px + env(safe-area-inset-left)); top: calc((100% + var(--drone-header-height) - var(--drone-footer-height)) / 2 - 71px); bottom: auto; gap: 5px; transform: none; }
+  .drone-explore-page .re-holo .re-drone-alt-buttons button { width: 44px; height: 44px; }
 }

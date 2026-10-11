@@ -1,16 +1,19 @@
 /// <reference lib="webworker" />
 import * as THREE from 'three';
 import {seaOutsideBox} from './coastGeometry';
-export type CoastGeometryJob = {kind:'cut';attributes:Record<string,{array:Float32Array;size:number;normalized:boolean}>;index:Uint32Array;box:[number,number,number,number];matrix:number[];inside:boolean} | {kind:'normals';position:Float32Array;index:Uint32Array};
+import {sinkSeaGeometry,waterOutsideCoast} from './seaGroundGeometry';
+import type {CoastData} from './coastField';
+export type CoastGeometryJob = {kind:'cut';attributes:Record<string,{array:Float32Array;size:number;normalized:boolean}>;index:Uint32Array;box:[number,number,number,number];matrix:number[];inside:boolean;coast?:CoastData} | {kind:'sink';attributes:Record<string,{array:Float32Array;size:number;normalized:boolean}>;index:Uint32Array;coast:CoastData;heightOffset:number} | {kind:'normals';position:Float32Array;index:Uint32Array};
 export type CoastGeometryResult = {id:number;attributes:Record<string,{array:Float32Array;size:number;normalized:boolean}>;index:Uint32Array;sphere:{x:number;y:number;z:number;radius:number};error?:boolean};
 const scope=self as unknown as DedicatedWorkerGlobalScope;
 scope.onmessage=(e:MessageEvent<CoastGeometryJob&{id:number}>)=>{
   let source:THREE.BufferGeometry|null=null,result:THREE.BufferGeometry|null=null;
   try{
     const j=e.data;source=new THREE.BufferGeometry();source.setIndex(new THREE.BufferAttribute(j.index,1));
-    if(j.kind==='cut'){
+    if(j.kind==='cut'||j.kind==='sink'){
       for(const[k,a]of Object.entries(j.attributes))source.setAttribute(k,new THREE.BufferAttribute(a.array,a.size,a.normalized));
-      result=seaOutsideBox(source,j.box,new THREE.Matrix4().fromArray(j.matrix),j.inside);
+      result=j.kind==='sink'?sinkSeaGeometry(source,j.coast,j.heightOffset):seaOutsideBox(source,j.box,new THREE.Matrix4().fromArray(j.matrix),j.inside);
+      if(j.kind==='cut'&&j.coast){const cut=result;result=waterOutsideCoast(cut,j.coast,new THREE.Matrix4().fromArray(j.matrix));cut.dispose();}
     }else{
       source.setAttribute('position',new THREE.BufferAttribute(j.position,3));source.computeVertexNormals();source.computeBoundingSphere();result=source;
     }

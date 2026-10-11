@@ -27,12 +27,15 @@ with sync_playwright() as p:
     browser = p.chromium.launch(channel='chrome', headless=True, args=['--mute-audio'])
     try:
         page = browser.new_page(viewport={'width':1440, 'height':1000})
+        page.add_init_script("Object.defineProperty(globalThis,'indexedDB',{value:undefined,configurable:true})")
         page.on('pageerror', lambda e: errors.append(str(e)[:300]))
         page.route('**/api/**', lambda r: r.continue_() if r.request.url.startswith((f'http://127.0.0.1:{port}/', 'http://127.0.0.1:8003/')) else r.abort())
         query = {'complex':complexes[place], 'hour':12, 'dronedebug':1, 'fps':1}
         page.goto(f'http://127.0.0.1:{port}/drone-explore?'+urlencode(query), wait_until='domcontentloaded')
         ready = 'window.__drone?.world.region?.field && window.__holoNative?.shown' if place == 'haeundae' else 'window.__drone && window.__holoNative?.shown'
         page.wait_for_function(ready, timeout=90000)
+        entry = page.evaluate('''()=>{const stage=document.querySelector('.re-holo-stage');return {shownAtMs:Number(stage?.dataset.shownAt),selectAtMs:Number(stage?.dataset.selectAt),renderer:stage?.dataset.renderer,domReadyAtMs:performance.getEntriesByType('navigation')[0]?.domContentLoadedEventEnd};}''')
+        entry['selectionToShownMs']=entry['shownAtMs']-entry['selectAtMs']
         if '--steady' in sys.argv:
             page.wait_for_function("document.querySelector('.re-holo-stage')?.dataset.trafficArmedAt",timeout=120000)
         page.wait_for_timeout(5000)
@@ -99,7 +102,7 @@ with sync_playwright() as p:
             key=' <- '.join(chain);stacks[key]=stacks.get(key,0)+1
         cdp.send('HeapProfiler.collectGarbage')
         retained=page.evaluate('''()=>{const w=window.__drone.world;return {heap:performance.memory?.usedJSHeapSize,world:w.stats(),workers:w.surveyPool?.pending??0,coast:{saved:w.seaCoverage?.saved?.size,pending:w.seaCoverage?.pending?.size,jobs:w.coastJobs?.pool?.stats},rail:window.__holoStageAny?.current?.rail?.inspect()};}''')
-        report={'place':place,'chrome':browser.version,'viewport':[1440,1000],'profileOn':profile_on,'results':results,'retained':retained,'cpuScopes':page.evaluate('window.__qaCpu'),'cpuSamples':sorted(counts.items(),key=lambda a:-a[1])[:40],'errors':errors,
+        report={'place':place,'chrome':browser.version,'viewport':[1440,1000],'profileOn':profile_on,'savedBrowserDatabases':False,'entry':entry,'results':results,'retained':retained,'cpuScopes':page.evaluate('window.__qaCpu'),'cpuSamples':sorted(counts.items(),key=lambda a:-a[1])[:40],'errors':errors,
                 'cpuStacks':sorted(stacks.items(),key=lambda a:-a[1])[:100],
                 'gate50fps':all(r['minWindowFps']>=50 for r in results),'gateFixedResolution':len({v for r in results for v in r['resolution']['pixelRatios']})==1,'gateNearest':'requires streaming progress check','gateMemory':'bounded resource test plus retained heap; not a nationwide soak test'}
         report['gpu']=page.evaluate('''async()=>{const a=await navigator.gpu?.requestAdapter();const i=a?.info;return i?{vendor:i.vendor,architecture:i.architecture,device:i.device,description:i.description}:null;}''')

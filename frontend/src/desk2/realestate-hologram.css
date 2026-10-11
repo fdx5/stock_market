@@ -606,6 +606,11 @@
 .re-holo .re-drone-alt-buttons button { display: grid; place-items: center; width: 46px; height: 46px; min-width: 0; padding: 0; text-align: center; text-indent: 0; line-height: 1; border: 1px solid #ffffff4d; border-radius: 12px; background: #07131cc8; color: #eaf6ff; font: 800 18px var(--f-sans, sans-serif); cursor: pointer; touch-action: none; user-select: none; }
 .re-drone-alt-arrow { display: block; width: 24px; height: 24px; fill: currentColor; pointer-events: none; }
 .re-drone-alt-buttons button:active { background: #c9532ee0; }
+.re-holo .re-drone-alt-buttons .re-drone-rotate { gap: 1px; align-content: center; font-size: 9px; }
+.re-drone-rotate-icon { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.re-holo .re-drone-alt-buttons .re-drone-rotate.is-on { border-color: #83ddd7; background: #095558e8; color: #dcfffc; }
+.re-drone-alt-buttons button:focus-visible { outline: 2px solid #ffd27a; outline-offset: 3px; }
+.re-holo .re-drone .re-drone-alt-buttons { grid-auto-flow: row; grid-template-columns: 1fr; }
 /* The site's music player (DeskBgm) in the full-screen 3D view, in the row under the picture. */
 .re-holo-env .d2.d2-bgm-float.re-holo-bgm { position: static; width: 340px; flex: 0 1 340px; z-index: auto; font-size: 13px; }
 .re-holo-env .d2.d2-bgm-float.re-holo-bgm .d2-bgm.d2-bgm--strip { padding: 4px 6px; gap: 8px; --eq-h: 20px; --eq-w: 44px; }
@@ -686,7 +691,8 @@
 .re-drone-card-shimmer { height: 170px; border-radius: 12px; background: linear-gradient(90deg, #ffffff0d 0, #ffffff22 40%, #ffffff0d 80%); background-size: 200% 100%; animation: re-drone-shimmer 1.2s linear infinite; }
 @keyframes re-drone-shimmer { to { background-position: -200% 0; } }
 .re-drone-card-hero { position: relative; margin: 0; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 16 / 10; }
-.re-drone-card-hero img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.re-drone-card-hero > a { display: block; width: 100%; height: 100%; }
+.re-drone-card-hero img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .re-drone-card-hero figcaption { position: absolute; right: 6px; bottom: 6px; padding: 1px 7px; border-radius: 6px; background: #000a; color: #dfe9f0; font-size: 10px; }
 .re-drone-card-strip { display: flex; gap: 6px; margin-top: 6px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; touch-action: pan-x; }
 .re-drone-card-strip button { flex: none; width: 64px; height: 46px; padding: 0; border: 2px solid transparent; border-radius: 8px; overflow: hidden; background: #000; cursor: pointer; scroll-snap-align: start; }

@@ -161,6 +161,7 @@ export function fieldFrom(d: FieldData, at: (x: number, y: number) => number) {
     return i < 0 || j < 0 || i >= nx || j >= ny ? -1 : j * nx + i;
   };
   return {
+    data: d,
     coast,
     level: (x: number, y: number) => coast?.wet(x, y) ? coast.level : sample(lvl, x, y, at(x, y)),
     /** On the (closed) water. */
@@ -179,6 +180,11 @@ export function fieldFrom(d: FieldData, at: (x: number, y: number) => number) {
 }
 
 export type WaterField = ReturnType<typeof fieldFrom>;
+
+/** Boats/wakes share the continuous sea datum where a tidal river overlaps it. */
+export function withSeaLevel(field:WaterField,sea:()=>WaterField|null):WaterField{
+  return {...field,level:(x,y)=>{const coast=sea();return coast?.wet(x,y)?coast.level(x,y):field.level(x,y);}};
+}
 
 /** The surface over the open-water parcels' rings, subdivided to follow the channel. */
 export async function waterSurface(rings: [number, number][][], field: WaterField, pace: Pace, holes: [number,number][][] = [], sea: boolean[] = []): Promise<WaterArrays | null> {

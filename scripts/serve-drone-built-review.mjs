@@ -9,6 +9,7 @@ const out=process.argv[2],port=Number(process.argv[3]??5173);
 if(!out||!path.isAbsolute(out)||!existsSync(path.join(out,'index.html')))throw new Error('Pass an existing absolute built UI directory.');
 if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('Invalid local port.');
 const places={haeundae:'26350:우동:1407:해운대두산위브더제니스',changdong:'11320:창동:333:창동동아청솔',sinhak:'11320:방학동:460-5:서울신학초등학교',seondeok:'11320:쌍문동:263:선덕중학교',sanggyeong:'11350:상계동:653:상경중학교',uijeongbu:'41150:의정부동:724:의정부역센트럴자이앤위브캐슬'};
+places.mangmi='26500:망미동:209-4:한성기린';
 const entry={name:'built-drone-review-entry',configurePreviewServer(server){
   server.middlewares.use((req,res,next)=>{
     const place=req.url?.split('?')[0].replace(/^\/drone-review\//,'');

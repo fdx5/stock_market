@@ -176,6 +176,25 @@ def _place(name: str, lat: float, lon: float):
     }
 
 
+def _blog_photo(photo: dict) -> bool:
+    if re.search(r"블로그|티스토리|blog|tistory", photo.get("site") or "", re.I):
+        return True
+    for value in (photo.get("link"), photo.get("image"), photo.get("thumb")):
+        if not value:
+            continue
+        try:
+            host = (urllib.parse.urlparse(value).hostname or "").lower()
+        except ValueError:
+            return True
+        if any(host == blocked or host.endswith("." + blocked) for blocked in (
+            "blog.naver.com", "post.naver.com", "blog.daum.net", "tistory.com",
+            "blogspot.com", "wordpress.com", "brunch.co.kr", "naver.me",
+            "blogfiles.pstatic.net", "postfiles.pstatic.net", "blogthumb.pstatic.net",
+        )):
+            return True
+    return False
+
+
 def _photos(query: str):
     key = _kakao_key()
     if not key:
@@ -191,9 +210,12 @@ def _photos(query: str):
         w, h = _num(d.get("width")) or 0, _num(d.get("height")) or 0
         if w and h and (w < 300 or h < 200 or w / h > 3.2 or h / w > 2.2):
             continue  # icons, banners, long captures
-        out.append({"thumb": thumb, "image": image if str(image).startswith("https://") else None,
+        photo = {"thumb": thumb, "image": image if str(image).startswith("https://") else None,
                     "site": d.get("display_sitename") or None, "link": d.get("doc_url") or None,
-                    "w": w or None, "h": h or None})
+                    "w": w or None, "h": h or None}
+        if _blog_photo(photo):
+            continue
+        out.append(photo)
         if len(out) >= 8:
             break
     return out
@@ -256,6 +278,7 @@ def _wiki(name: str, lat: float, lon: float):
         "title": j.get("title"), "extract": (j.get("extract") or "").strip()[:900] or None,
         "url": ((j.get("content_urls") or {}).get("mobile") or {}).get("page") or None,
         "thumb": (j.get("thumbnail") or {}).get("source") or None,
+        "image": (j.get("originalimage") or {}).get("source") or None,
     }
 
 
@@ -297,18 +320,29 @@ def building_info(name: str, lat: float, lon: float, pnu: str | None = None, are
     addr = next((r.get("address") for r in out.get("register") or [] if r.get("address")), None)
     m = re.search(r"\S+[동읍면리가](?=\s|\d|$)", re.sub(r"^\S+[시도]\s+\S+[시군구]\s+", "", addr or ""))
     area = (m.group(0) if m and not re.search(r"\d", m.group(0)) else "") or area
-    futures["photos"] = _pool.submit(lambda: _cached(f"img:{name}:{area}", 86400, lambda: _photos(f"{area} {name}".strip())))
+    # Full building name plus its neighbourhood, with an exterior-view preference.
+    futures["photos"] = _pool.submit(lambda: _cached(f"img:building-v2:{name}:{area}", 86400, lambda: _photos(f'{area} "{name}" 전경'.strip())))
     out["area"] = area or None
     for k, fut in futures.items():
         try:
             out[k] = fut.result(timeout=15)
         except Exception:  # noqa: BLE001
             out[k] = None
-    # (the photographs: those taken at the building and named after it, the searched ones, then the
-    # others taken right there)
+    # The article's representative image leads. Nearby Commons files are not necessarily
+    # this building; keep named files and non-blog building search results as fallbacks.
     commons = out.pop("commons", None) or []
-    searched = out.get("photos") or []
-    out["photos"] = ([p for p in commons if not p["near"]] + searched + [p for p in commons if p["near"]])[:12] or None
+    searched = [p for p in out.get("photos") or [] if not _blog_photo(p)]
+    wiki = out.get("wiki") or {}
+    lead = [{"thumb": wiki["thumb"], "image": wiki.get("image") or wiki["thumb"],
+             "link": wiki.get("url"), "site": "위키백과", "w": None, "h": None}] if wiki.get("thumb") else []
+    seen = set()
+    photos = []
+    for photo in lead + [p for p in commons if not p["near"]] + searched:
+        if photo["thumb"] in seen:
+            continue
+        seen.add(photo["thumb"])
+        photos.append(photo)
+    out["photos"] = photos[:12] or None
     rows = out.get("register") or []
     # (a complex: its 동 rows; the 총괄 row, where there is one, leads)
     rows.sort(key=lambda r: (r.get("kind") != "총괄표제부", -(r.get("floors") or 0)))
