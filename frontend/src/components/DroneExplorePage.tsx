@@ -46,7 +46,11 @@ export default function DroneExplorePage() {
     const deadline=window.setTimeout(()=>setWarp(v=>v?.id===id&&!v.ready?{...v,error:'timeout'}:v),120000);
     return()=>{window.clearTimeout(timer);window.clearTimeout(deadline);};
   },[warpId]);
-  useEffect(()=>{if(warp?.elapsed&&warp.ready){warpUrl.current='';setWarp(null);}},[warp?.elapsed,warp?.ready]);
+  useEffect(()=>{
+    if(!warp?.elapsed||!warp.ready)return;
+    const id=warp.id,timer=window.setTimeout(()=>{warpUrl.current='';setWarp(v=>v?.id===id?null:v);},600);
+    return()=>window.clearTimeout(timer);
+  },[warp?.id,warp?.elapsed,warp?.ready]);
   const cancelWarp=()=>{if(!warp)return;const from=warp.from;warpUrl.current='';setWarp(null);navigate(from);};
   const retryWarp=()=>{if(!warp)return;setWarp({...warp,id:++warpSeq.current,started:performance.now(),elapsed:false,ready:false,error:''});navigate(warpUrl.current);};
   const close = useCallback(() => navigate('/realestate-map'), []);
@@ -66,7 +70,7 @@ export default function DroneExplorePage() {
         <ComplexHologram key={`${place?dronePlaceId(place):complexId}:${route.visit}`} complexId={complexId} explorePlace={place}
           onExploreMove={move} onExploreReady={ready} onExploreError={failed} wide autoDrone onDroneExit={close} caption={L('도시 탐험 · 드론 비행', 'City explorer · drone flight')} />
       </Suspense>
-      {warp&&<DroneWarp key={warp.id} name={warp.name} elapsed={warp.elapsed} error={warp.error} onCancel={cancelWarp} onRetry={retryWarp}/>}
+      {warp&&<DroneWarp key={warp.id} name={warp.name} elapsed={warp.elapsed} error={warp.error} reveal={warp.elapsed&&warp.ready} onCancel={cancelWarp} onRetry={retryWarp}/>}
       <button ref={closeButton} type="button" className="drone-explore-close" onClick={close}
         aria-label={L('드론 탐험 닫기', 'Close drone explorer')} title={L('닫고 부동산 지도로 이동 (Esc)', 'Close and return to the property map (Esc)')}>×</button>
     </main>, document.body,
