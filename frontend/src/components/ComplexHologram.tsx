@@ -72,7 +72,7 @@ import {moveFromBuildingView} from './droneTravel';
 import DeskBgm from "../desk2/DeskBgm";
 import { useDeskBgm } from "../desk2/deskBgmStore";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
-import { frameSlice } from "./frameSlice";
+import { frameSlice,sceneFrameStarted } from "./frameSlice";
 import { SceneResources } from "./sceneResources";
 import { makeGroundGeometry } from "./groundGeometry";
 import { drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight } from "./roadDrape";
@@ -1069,11 +1069,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Their build resumes when visible, without competing with the active view.
     // Render every visible display frame, including animated traffic and pedestrians.
     let renderMax = 0, renderSum = 0, tickMax = 0, tickSum = 0;
-    const loop = () => {
+    const loop = (stamp:number) => {
       raf = 0;
       if (document.hidden || !inView || pausedRef.current) { native?.suspendTargets(); return; }
       raf = requestAnimationFrame(loop);
       if (glLost) return;
+      sceneFrameStarted(stamp);
       const nowMs = performance.now();
       const dt = nowMs - last;
       last = nowMs;

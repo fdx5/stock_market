@@ -129,11 +129,13 @@ with sync_playwright() as p:
                 duration=time.monotonic()-started
                 assert duration>=4.8,'Warp vanished before its five-second animation'
                 warps.append({'seconds':duration,'backgroundSceneReadySeconds':background_ready,'revealedReadyScene':True})
-            point=page.evaluate('''()=>{const q=new URLSearchParams(location.search),d=window.__drone;return{target:{lat:+q.get('lat'),lon:+q.get('lon')},origin:d.p.data.center,where:d.where(),title:d.p.data.name,canvasReplaced:window.__holoNative.canvas!==window.__qaOldCanvas,oldCanvasDetached:!document.contains(window.__qaOldCanvas),oldSessionEnded:window.__qaOldDrone.ended};}''')
+            point=page.evaluate('''()=>{const q=new URLSearchParams(location.search),d=window.__drone,p=window.__qaOldDrone.world.terrainJobs;return{target:{lat:+q.get('lat'),lon:+q.get('lon')},origin:d.p.data.center,where:d.where(),title:d.p.data.name,canvasReplaced:window.__holoNative.canvas!==window.__qaOldCanvas,oldCanvasDetached:!document.contains(window.__qaOldCanvas),oldSessionEnded:window.__qaOldDrone.ended,oldTerrainWorkers:p?{pending:p.pending,stopped:p.dead,liveWorkers:p.slots.filter(s=>s.worker).length}:null};}''')
             for key in ['lat','lon']:
                 assert abs(point['origin'][key]-point['target'][key])<1e-6,point
                 assert abs(point['where'][key]-point['target'][key])<1e-6,point
             assert point['canvasReplaced'] and point['oldCanvasDetached'] and point['oldSessionEnded'],point
+            if point['oldTerrainWorkers'] is not None:
+                assert point['oldTerrainWorkers']=={'pending':0,'stopped':True,'liveWorkers':0},point
             return point
         destinations=[travel(query) for query in ['망미초등학교','수영구','부산광역시 수영구 망미동 209-4']]
         point=destinations[-1]

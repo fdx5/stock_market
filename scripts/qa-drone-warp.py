@@ -1,5 +1,5 @@
 """Muted Chrome warp: delayed/read-only map configuration, retry and cancellation."""
-import asyncio,json,sys,time
+import asyncio,json,re,sys,time
 from pathlib import Path
 from urllib.parse import urlencode,urlsplit
 import requests
@@ -28,6 +28,15 @@ async def run():
             elif u.path=='/api/realestate/nearby':await route.fulfill(json={'items':[]})
             else:await route.abort()
         await page.route('**/api/**',api)
+        async def destination_data(route):
+            # Coordinate visits reuse public configuration in memory. Exercise
+            # the required GIS fetch instead of relying on a redundant API call.
+            if mode['value']=='fail':
+                await route.fulfill(status=503,body='');return
+            if mode['value']=='slow':
+                mode['value']='normal';await asyncio.sleep(8)
+            await route.continue_()
+        await page.route(re.compile(r'^https://api\.vworld\.kr/req/data(?:\?|$)'),destination_data)
         page.on('pageerror',lambda e:errors.append(str(e)[:300]))
         try:
             q=urlencode({'complex':'26350:우동:1407:해운대두산위브더제니스','hour':12,'fps':1,'dronedebug':1})
@@ -53,15 +62,15 @@ async def run():
             assert '준비하고' in await warp.inner_text(),'Unready destination was revealed after five seconds'
             await page.wait_for_function("!document.querySelector('.drone-warp')",timeout=120000)
             checks.append({'case':'delayed destination','seconds':time.monotonic()-started,'heldUntilActualFrame':True})
-            # Each of the existing bounded data attempts gets a safe public-config
-            # failure. The native dialog must offer retry, not a blank scene.
-            mode['value']='fail';await go.click()
+            # An uncached destination fails its required public GIS requests.
+            # The native dialog must offer retry, not a blank scene.
+            await select('수영구');mode['value']='fail';await go.click()
             await page.wait_for_function("document.querySelector('.drone-warp')?.textContent.includes('다시 시도')",timeout=15000)
             await page.screenshot(path=str(out/'warp-retry.png'))
             mode['value']='normal';await warp.get_by_role('button',name='다시 시도',exact=True).click()
             await page.wait_for_function("!document.querySelector('.drone-warp')",timeout=120000)
             checks.append({'case':'failed destination','retryRestoredActualScene':True})
-            before=page.url;await select('수영구');await go.click()
+            before=page.url;await select('망미초등학교');await go.click()
             await page.wait_for_timeout(400);await page.keyboard.press('Escape')
             await page.wait_for_function("!document.querySelector('.drone-warp')",timeout=5000)
             assert page.url==before,'Escape closed the explorer instead of cancelling travel'

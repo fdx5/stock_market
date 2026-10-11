@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import {observedRoofColour,type BuildingAppearance} from "./buildingAppearance";
-import {droneDetailPriority} from "./droneLoadPriority";
+import {droneDetailPriority,droneTilePriority} from "./droneLoadPriority";
 import type {NearBuildingSource,NearBuildingTarget} from './nearBuildingTargets';
 import { SceneWorkerPool } from "./sceneWorkerPool";
 import type {TerrainGridJob} from './terrainGrid';
@@ -498,16 +498,7 @@ export class DroneWorld {
       const box: [number, number, number, number] = [i * TILE_M, j * TILE_M, (i + 1) * TILE_M, (j + 1) * TILE_M];
       const near = Math.min(distToBox(x, y, box), distToBox(ax, ay, box),distToBox(lx,ly,box));
       if (near > R || !keep.has(key(i, j))) continue;
-      // (the way the camera looks first: a tile within ~50° of the view comes before any tile out of
-      // it, nearest first among each; the one under the drone always first)
-      let order = distToBox(x, y, box);
-      if (look && near > TILE_M / 2) {
-        const cx = (box[0] + box[2]) / 2 - x, cy = (box[1] + box[3]) / 2 - y, cl = Math.hypot(cx, cy) || 1, c = (cx * look[0] + cy * look[1]) / cl;
-        // (out of the view's cone a tile comes later in proportion to its distance — never behind
-        // every tile in view: a near tile beside the drone waited there for good, and held it)
-        // (ahead and to the sides — within ~70° of the view — first; abeam a little later; behind last)
-        order *= c > 0.34 ? 1 : c > -0.34 ? 1.2 : 1.6 + 0.6 * (1 - c);
-      }
+      const order=droneTilePriority(box,x,y,look);
       let t = this.tiles.get(key(i, j));
       if (!t) { t = this.make(i, j, box); this.tiles.set(t.key, t); }
       if (t.state === "queued" || (t.state === "failed" && now > t.retryAt)) want.push([order, t]);

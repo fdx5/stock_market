@@ -11,7 +11,7 @@ function scheduler(hidden=false){
  }
  const scope={module:{exports:{}},exports:{},document:{hidden},performance:{now:()=>now},MessageChannel,requestAnimationFrame:f=>frames.push(f)};
  vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/frameSlice.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,scope);
- return {slice:scope.module.exports.frameSlice,frames,tasks,setNow:v=>now=v,spend:v=>now+=v,
+ return {slice:scope.module.exports.frameSlice,start:scope.module.exports.sceneFrameStarted,frames,tasks,setNow:v=>now=v,spend:v=>now+=v,
   async task(){tasks.shift()();for(let i=0;i<5;i++)await Promise.resolve();},
   frame(at,cost=0){now=at+cost;frames.shift()(at);}};
 }
@@ -40,4 +40,24 @@ test('hidden views finish FIFO work without animation frames',async()=>{
  for(let i=0;i<3;i++)s.slice().then(()=>order.push(i));
  await s.task();await s.task();await s.task();
  assert.deepEqual(order,[0,1,2]);assert.equal(s.frames.length,0);
+});
+
+test('display delivery delay does not consume the actual view work budget',async()=>{
+ const s=scheduler(),order=[];s.slice(9).then(()=>order.push(0));
+ s.setNow(10);s.start(0);s.frame(0,15);await s.task();
+ assert.deepEqual(order,[0]);
+});
+
+test('higher-budget work passes an ineligible head without starving it',async()=>{
+ const s=scheduler(),order=[];
+ s.slice(6).then(()=>order.push(0));s.slice(9).then(()=>order.push(1));
+ s.frame(0,7);await s.task();assert.deepEqual(order,[1]);
+ s.slice(9).then(()=>order.push(2));s.frame(100,7);await s.task();
+ assert.deepEqual(order,[1,0]);await s.task();assert.deepEqual(order,[1,0,2]);
+});
+
+test('multiple views on one tick retain cumulative rendering cost',async()=>{
+ const s=scheduler(),order=[];s.slice(9).then(()=>order.push(0));
+ s.setNow(4);s.start(0);s.setNow(10);s.start(0);s.frame(0,15);await s.task();
+ assert.deepEqual(order,[]);
 });
