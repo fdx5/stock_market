@@ -1567,18 +1567,22 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // limit and the next one starts over (by then the server has usually kept the
     // result, and answers at once).
     const attempt = async (signal: AbortSignal): Promise<RealEstateBuildingsResponse> => {
+      const cached = buildingCache.get(complexId);
+      if(cached&&Date.now()-cached.at<300000){
+        return explorePlace&&!hop?{...cached.data,name:explorePlace.title,address:explorePlace.address}:cached.data;
+      }
       if(explorePlace&&!hop) {
         // Read the existing public map configuration. Coordinate destinations
         // do not enter the apartment lookup or persist new search/history data.
-        const config=await api.realEstateBuildings(homeId!,signal,true);
+        const anchor=buildingCache.get(homeId!);
+        const config=anchor&&Date.now()-anchor.at<300000&&anchor.data.vworld_key
+          ?anchor.data:await api.realEstateBuildings(homeId!,signal,true);
         if(!config.vworld_key)throw new Error('지도 검색 설정을 가져오지 못했습니다. 다시 시도해 주세요.');
         const result=await vworldBuildings(complexId,{name:explorePlace.title,parcel:explorePlace.address||null},
           config.vworld_key,config.vworld_domain,{lat:explorePlace.lat,lon:explorePlace.lon,signal});
         if(!result)throw new Error('선택한 위치의 지형 정보를 가져오지 못했습니다.');
         return {...result,vworld_key:config.vworld_key,vworld_domain:config.vworld_domain};
       }
-      const cached = buildingCache.get(complexId);
-      if (cached && Date.now() - cached.at < 300000) return cached.data;
       // (the look started ahead — on the tile's hover, or just now — when it found shapes)
       const early = await firstLook(complexId).catch(() => null);
       prefetched.delete(complexId);

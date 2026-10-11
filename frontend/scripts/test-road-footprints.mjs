@@ -10,6 +10,15 @@ const rectangle=(x0,y0,x1,y1)=>[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
 test('a clear surveyed road keeps its centreline, width and lane count',()=>{
  const road={line:[[-50,0],[50,0]],width:26.7,lanes:4};assert.equal(constrainRoadCorridors([road],[rectangle(-5,20,5,30)])[0],road);
 });
+test('a long diagonal queries original footprints without expanding a huge empty grid',()=>{
+ const road={line:[[-100000,-100000],[100000,100000]],width:6,lanes:2};
+ assert.equal(constrainRoadCorridors([road],[rectangle(20,100,40,120)])[0],road);
+});
+test('an oversized footprint still blocks exactly the obstructed surveyed road portions',()=>{
+ const road={line:[[-40,0],[40,0]],width:10.1,lanes:1};
+ const out=constrainRoadCorridors([road],[rectangle(-5,-100000,5,100000)]);
+ assert.equal(out.length,2);assert.ok(out[0].line.every(p=>p[0]<-7.4));assert.ok(out[1].line.every(p=>p[0]>7.4));
+});
 test('registered excessive width is constrained by measured buildings without moving either',()=>{
  const road={line:[[-50,0],[50,0]],width:26.7,lanes:4},ring=rectangle(-20,7.16,20,20),before=JSON.stringify(ring);
  const [fixed]=constrainRoadCorridors([road],[ring]);assert.equal(fixed.line,road.line);assert.equal(fixed.lanes,4);assert.ok(Math.abs(fixed.width-13.82)<1e-7);assert.equal(JSON.stringify(ring),before);

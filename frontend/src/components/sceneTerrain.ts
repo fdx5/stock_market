@@ -3,6 +3,7 @@ import type {RealEstateRoad} from '../api/client';
 import { frameSlice } from "./frameSlice";
 import { gridAt } from "./waterCore";
 import { corridorRoadGrade } from "./roadGrade";
+import {sampleTerrainPosts,type TerrainPosts} from './terrainGrid';
 /* The ground's real relief around one complex (components/ComplexHologram.tsx).
  *
  * Source, best first: VWorld's national DEM (국토지리정보원, the WebGL 3D map's
@@ -185,14 +186,8 @@ export async function vworldSampler(key: string, lat: number, lon: number, radiu
     return vworldTile(token, x, y).then(t => { if (t) tilesOut[i] = t; else ok = false; });
   }));
   if (!ok) return null;
-  return (lo: number, la: number) => {
-    const fx = (lo + 180) / VW_TILE, fy = (la + 90) / VW_TILE;
-    const x = Math.min(tx1, Math.max(tx0, Math.floor(fx))), y = Math.min(ty1, Math.max(ty0, Math.floor(fy)));
-    const t = tilesOut[(y - ty0) * cols + (x - tx0)]!;
-    const u = Math.min(64, Math.max(0, (fx - x) * 64)), v = Math.min(64, Math.max(0, (1 - (fy - y)) * 64));
-    const c = Math.min(63, Math.floor(u)), r = Math.min(63, Math.floor(v)), a = u - c, b = v - r;
-    return (t[r * 65 + c] * (1 - a) + t[r * 65 + c + 1] * a) * (1 - b) + (t[(r + 1) * 65 + c] * (1 - a) + t[(r + 1) * 65 + c + 1] * a) * b;
-  };
+  const posts:TerrainPosts={tiles:tilesOut as Float32Array[],cols,tx0,tx1,ty0,ty1,tileSize:VW_TILE};
+  return Object.assign((lo:number,la:number)=>sampleTerrainPosts(posts,lo,la),{posts});
 }
 
 /** The ground over ±radius metres around `center`: VWorld's national DEM (bare ground,

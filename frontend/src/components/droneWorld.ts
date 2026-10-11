@@ -3,6 +3,8 @@ import {observedRoofColour,type BuildingAppearance} from "./buildingAppearance";
 import {droneDetailPriority} from "./droneLoadPriority";
 import type {NearBuildingSource,NearBuildingTarget} from './nearBuildingTargets';
 import { SceneWorkerPool } from "./sceneWorkerPool";
+import type {TerrainGridJob} from './terrainGrid';
+import type {TerrainGridResult} from './terrainGridWorker';
 import { CoastGeometryJobs } from './coastGeometryJobs';
 import {staticSceneTransforms} from './staticSceneTransforms';
 import type { RealEstateBuildingsResponse, RealEstateParcel } from "../api/client";
@@ -195,6 +197,7 @@ export class DroneWorld {
   private readonly ky = 110540;
   private readonly season = seasonGround(undefined, textureBudgetEnabled());
   private readonly coastJobs = new CoastGeometryJobs();
+  private readonly terrainJobs=new SceneWorkerPool<TerrainGridJob,TerrainGridResult>(()=>new Worker(new URL('./terrainGridWorker.ts',import.meta.url),{type:'module'}),2,15000);
   private readonly seaCoverage = new SeaCoverage((g,b,m,s,c) => this.coastJobs.cut(g,b,m,false,s,c));
   private seaCoverageAt = 0;
   private scheduleAt = -Infinity;
@@ -582,6 +585,12 @@ export class DroneWorld {
     const [base, sampler, wideSampler] = await Promise.all([this.baseHeight(), vworldSampler(data.vworld_key!, lat, lon, R + 8).catch(() => null),
       t.inner ? Promise.resolve(null) : vworldSampler(data.vworld_key!, lat, lon, WR + 20).catch(() => null)]);
     const fill = async (gr: number, gc: number, gn: number, smp: typeof sampler) => {
+      if(smp&&base!==null){
+        const result=await this.terrainJobs.run({posts:smp.posts,lon:data.center!.lon,lat:data.center!.lat,kx:this.kx,ky:this.ky,
+          base,cx:t.cx,cy:t.cy,R:gr,cell:gc,n:gn},t.stop.signal);
+        if(this.disposed||t.stop.signal.aborted)return null;
+        if(result)return {h:result.h,n:gn,R:gr,cell:gc,ox:t.cx,oy:t.cy};
+      }
       const h = new Float32Array(gn * gn);
       for (let j = 0; j < gn; j++) {
         for (let i = 0; i < gn; i++) {
@@ -1380,6 +1389,7 @@ export class DroneWorld {
     this.dropRegion();
     this.seaCoverage.restore();
     this.coastJobs.dispose();
+    this.terrainJobs.dispose();
     this.landmarks.dispose();
     this.o.forget?.(new Set([this.plain, this.asphalt, this.paint, this.concrete, this.paving, ...this.traffic.materials()]));
     this.plain.dispose(); this.asphalt.dispose(); this.paint.dispose(); this.concrete.dispose(); this.paving.dispose();

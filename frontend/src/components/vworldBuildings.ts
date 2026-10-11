@@ -97,8 +97,11 @@ const unique = (fs: Feature[]) => {
 // trips — ~1.5 s before the view's first frame); taken in order with the same stop as before (a
 // short page, or nothing new), pages past the last discarded, a failed page only fatal when needed.
 async function pagedFeatures(page:(n:number)=>Promise<Feature[]>):Promise<Feature[]> {
-  let all:Feature[]=[];
-  for(let n=1;n<=24;n+=4){
+  // Discover small layers before scheduling more pages; most fit on page one.
+  const first=await page(1);
+  let all:Feature[]=unique(first);
+  if(first.length<1000)return all;
+  for(let n=2;n<=24;n+=4){
     const batch=await Promise.allSettled([0,1,2,3].filter(k=>n+k<=24).map(k=>page(n+k)));
     for(const r of batch){
       if(r.status==='rejected')throw r.reason;
