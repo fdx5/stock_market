@@ -31,10 +31,12 @@ function HologramLayer({ id, name, onClose }: { id: string; name: string; onClos
     ref.current?.querySelector<HTMLElement>("button")?.focus();
     const key = (event: KeyboardEvent) => {
       if (event.key !== "Escape" && event.key !== "Tab") return;
+      if(document.querySelector('.re-drone-auto-settings:modal, .drone-warp:modal'))return;
+      if(event.key==='Escape'&&(event.target as HTMLElement|null)?.closest('.re-drone-place-search'))return;
       event.stopImmediatePropagation();
       event.preventDefault();
       if (event.key === "Escape") { onClose(); return; }
-      const list = Array.from(ref.current?.querySelectorAll<HTMLElement>("button") ?? []);
+      const list = Array.from(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href]') ?? []).filter(el=>el.getClientRects().length);
       const at = list.indexOf(document.activeElement as HTMLElement);
       list[(at + (event.shiftKey ? -1 : 1) + list.length) % list.length]?.focus();
     };

@@ -153,7 +153,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
       </button>
       <button type="button" className="re-drone-auto-settings-toggle" aria-expanded={autoSettings} aria-controls="drone-auto-settings"
         onClick={() => setAutoSettings(v => !v)}>속도·고도 설정</button>
-      {autoSettings && createPortal(<dialog ref={settingsDialog} className="re-drone-auto-settings" id="drone-auto-settings" aria-label="오토파일럿 설정"
+      {autoSettings && createPortal(<dialog ref={settingsDialog} data-covers-page className="re-drone-auto-settings" id="drone-auto-settings" aria-label="오토파일럿 설정"
         style={{position:'fixed',inset:'50% auto auto 50%',transform:'translate(-50%, -50%)',margin:0,width:304,maxWidth:'calc(100vw - 24px)',maxHeight:'calc(100vh - 24px)',overflowY:'auto',boxSizing:'border-box',display:'grid',gap:12,padding:16,border:'1px solid #7fd8ff88',borderRadius:12,background:'#07131c',color:'#eaf6ff',fontFamily:'sans-serif',visibility:'visible',opacity:1}}
         onCancel={e=>{e.preventDefault();setAutoSettings(false);}} onPointerDown={e => e.stopPropagation()}>
         <strong style={{display:'block',fontSize:15,color:'#fff'}}>오토파일럿 속도·고도 설정</strong>

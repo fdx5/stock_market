@@ -1,0 +1,30 @@
+.drone-warp--cinematic .drone-warp-space { background: radial-gradient(ellipse at 50% 42%,#000514 0%,#06133e 24%,#072a5d 47%,#030915 80%); }
+.drone-warp-stars { position:absolute;inset:0;width:100%;height:100%; }
+.drone-warp-nebula { position:absolute;inset:-25%;opacity:.7;transform-origin:50% 44%;background:conic-gradient(from 45deg at 50% 44%,transparent 0deg,#047dcc35 38deg,transparent 75deg,#029bd166 130deg,transparent 176deg,#0244dd66 225deg,transparent 275deg,#118bbc44 322deg,transparent 360deg);animation:warp-plasma 16s linear infinite; }
+.drone-warp-nebula.is-violet { background:conic-gradient(from 70deg at 50% 44%,transparent,#654eff44 55deg,transparent 100deg,#248cff55 205deg,transparent 270deg,#bb5cff22 330deg,transparent);animation-direction:reverse;animation-duration:24s; }
+.drone-warp-vignette { position:absolute;inset:0;background:radial-gradient(ellipse at 50% 42%,transparent 15%,#00030a22 57%,#00030acc 100%),linear-gradient(0deg,#00060ff5 0%,transparent 46%); }
+.drone-warp-lens { position:absolute;left:50%;top:42%;width:12vmin;aspect-ratio:1;transform:translate(-50%,-50%);border:1px solid #82c6ff77;border-radius:50%;box-shadow:0 0 18px #228aff66,inset 0 0 22px #22baff44;animation:warp-engage 5s cubic-bezier(.2,.65,.2,1) both; }
+.drone-warp-horizon { position:absolute;left:12%;right:12%;top:42%;height:1px;opacity:.3;background:linear-gradient(90deg,transparent,#248aff55,#91edffcc,#248aff55,transparent);box-shadow:0 0 12px #52b9ff;animation:warp-horizon 5s ease-in-out both; }
+.drone-warp-hud { position:absolute;inset:28px 34px auto;display:flex;justify-content:space-between;color:#93ccdf;font:600 10px/1.4 sans-serif;letter-spacing:.24em;opacity:.8; }
+.drone-warp-hud b { color:#d3f4ff;font-size:10px; }
+.drone-warp-hud i { position:fixed;top:20%;bottom:36%;width:10px;border-top:1px solid #6592ba55;border-bottom:1px solid #6592ba55; }
+.drone-warp-hud i:first-of-type {left:28px;border-left:1px solid #6592ba33;}.drone-warp-hud i:last-of-type {right:28px;border-right:1px solid #6592ba33;}
+.drone-warp--cinematic .drone-warp-caption { bottom:max(30px,6dvh);width:min(680px,calc(100vw - 40px)); }
+.drone-warp--cinematic .drone-warp-caption small { letter-spacing:.32em;font-size:10px;color:#77c4ef; }
+.drone-warp--cinematic .drone-warp-caption h2 { margin:13px 0 10px;font-size:clamp(24px,4.1vw,46px);font-weight:800;letter-spacing:-.035em;text-shadow:0 0 24px #288fff44; }
+.drone-warp--cinematic .drone-warp-caption p { color:#a7bdd2;font-size:12px;letter-spacing:.04em; }
+.drone-warp--cinematic .drone-warp-progress {width:min(330px,65%);height:3px;margin:22px auto;background:repeating-linear-gradient(90deg,#419eff22 0px,#419eff22 18px,transparent 18px,transparent 22px); }
+.drone-warp--cinematic .drone-warp-progress i { background:linear-gradient(90deg,#355fff,#54caff,#d8f8ff);box-shadow:0 0 12px #39baff; }
+.drone-explore-page .drone-warp.drone-warp--cinematic button {background:#0a152a99;border-color:#6896c155;color:#a8c2d7;border-radius:6px;min-height:36px;font-size:11px;padding:7px 20px;letter-spacing:.05em;}
+.drone-explore-page .drone-warp.is-revealing,.drone-warp.is-revealing::backdrop { background:transparent; }
+.drone-warp.is-revealing .drone-warp-space { animation:warp-reveal .6s ease-out both; }
+.drone-warp.is-revealing .drone-warp-caption,.drone-warp.is-revealing .drone-warp-hud { animation:warp-reveal .18s ease-out both; }
+.drone-warp-arrival-flash {position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 42%,#fff,#defaff 38%,#3591ff44 76%,transparent);animation:warp-arrival .6s ease-out both;}
+@keyframes warp-plasma {to{transform:rotate(360deg);}}
+@keyframes warp-engage {0%{opacity:0;transform:translate(-50%,-50%) scale(.12);}18%{opacity:1;transform:translate(-50%,-50%) scale(.7);}35%{opacity:.9;transform:translate(-50%,-50%) scale(14);}60%,100%{opacity:0;transform:translate(-50%,-50%) scale(30);}}
+@keyframes warp-horizon {0%{opacity:0;transform:scaleX(.1);}25%{opacity:.7;transform:scaleX(.9);}50%,100%{opacity:.2;transform:scaleX(1);}}
+@keyframes warp-reveal {to{opacity:0;}}
+@keyframes warp-arrival {0%{opacity:0;}20%{opacity:.95;}100%{opacity:0;}}
+@media(max-width:600px){.drone-warp-hud{inset:22px 20px auto;font-size:8px;letter-spacing:.16em;}.drone-warp-hud b{font-size:8px;}.drone-warp-hud i:first-of-type{left:16px;}.drone-warp-hud i:last-of-type{right:16px;}.drone-warp--cinematic .drone-warp-caption{bottom:max(30px,8dvh);}}
+@media(max-height:540px) and (orientation:landscape){.drone-warp--cinematic .drone-warp-caption{bottom:16px;}.drone-warp--cinematic .drone-warp-caption h2{font-size:24px;margin:6px 0;}.drone-warp--cinematic .drone-warp-progress{margin:10px auto;}.drone-warp--cinematic .drone-warp-caption small{font-size:8px;}.drone-warp-hud{inset:16px 24px auto;}}
+@media(prefers-reduced-motion:reduce){.drone-warp-nebula,.drone-warp-lens,.drone-warp-horizon,.drone-warp-arrival-flash{animation:none;}.drone-warp-lens,.drone-warp-arrival-flash{display:none;}.drone-warp.is-revealing .drone-warp-space,.drone-warp.is-revealing .drone-warp-caption,.drone-warp.is-revealing .drone-warp-hud{animation:none;opacity:0;}}

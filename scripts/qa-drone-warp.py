@@ -43,9 +43,12 @@ async def run():
             await select('망미초등학교');mode['value']='slow'
             started=time.monotonic();await go.click()
             await warp.wait_for(state='visible',timeout=3000)
-            await page.wait_for_timeout(900)
+            await page.wait_for_timeout(2700)
             await page.screenshot(path=str(out/'warp-desktop.png'))
-            await page.wait_for_timeout(4400)
+            visual=await page.locator('.drone-warp-stars').evaluate('(e)=>({canvas:[e.width,e.height],motion:e.dataset.motion,drawMaxMs:e.dataset.drawMaxMs,draws:e.dataset.draws,pixelRatio:e.dataset.pixelRatio})')
+            assert visual['canvas'][0]>=1440 and visual['canvas'][1]>=1000 and visual['motion']=='animated',visual
+            checks.append({'case':'cinematic star tunnel','visual':visual})
+            await page.wait_for_timeout(2800)
             assert await warp.get_attribute('data-phase')=='arriving'
             assert '준비하고' in await warp.inner_text(),'Unready destination was revealed after five seconds'
             await page.wait_for_function("!document.querySelector('.drone-warp')",timeout=120000)
@@ -72,7 +75,9 @@ async def run():
                 cancel=page.get_by_role('button',name='이동 취소',exact=True)
                 b=await cancel.bounding_box()
                 assert b and b['x']>=0 and b['y']>=0 and b['x']+b['width']<=size['width']+1 and b['y']+b['height']<=size['height']+1,b
-                if reduced:assert await page.locator('.drone-warp-ray').first.evaluate('(e)=>getComputedStyle(e).animationName')=='none'
+                if reduced:
+                    assert await page.locator('.drone-warp-nebula').first.evaluate('(e)=>getComputedStyle(e).animationName')=='none'
+                    assert await page.locator('.drone-warp-stars').get_attribute('data-motion')=='reduced'
                 await page.screenshot(path=str(out/f"warp-{size['width']}.png"))
                 await page.wait_for_function("!document.querySelector('.drone-warp')",timeout=120000)
                 checks.append({'case':'mobile','size':size,'reducedMotion':reduced,'controlsVisible':True})
