@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {transformSync} from 'esbuild';
 import vm from 'node:vm';
+import {execFileSync} from 'node:child_process';
 const scope={module:{exports:{}},exports:{}};
 vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/trafficLaneCurve.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,scope);
 const {trafficLaneCurve,sampleLaneCurve}=scope.module.exports;
@@ -30,4 +31,22 @@ test('bridge grade stays continuous rather than snapping height at the merge',()
  const c=trafficLaneCurve(lane([-100,0,4],[0,0,5]),lane([0,3.5,5],[100,3.5,6]));
  let last=sampleLaneCurve(c,0,pose());
  for(let i=1;i<=100;i++){const p=sampleLaneCurve(c,c.len*i/100,pose());assert.ok(p.z>=4&&p.z<=6);assert.ok(Math.abs(p.z-last.z)<.02);last=p;}
+});
+
+const fragmented=(points)=>{const p=Float32Array.from(points.flat()),cum=new Float32Array(points.length);for(let i=1;i<points.length;i++)cum[i]=cum[i-1]+Math.hypot(p[i*3]-p[i*3-3],p[i*3+1]-p[i*3-2]);return{p,cum,len:cum.at(-1)};};
+const microMerge=(step=.00001,z=0,rise=.01)=>[fragmented([[-100,0,z],[-step,0,z],[0,0,z+rise]]),fragmented([[0,3.5,z+rise],[step,3.5,z],[100,3.5,z]])];
+test('reproduces the shipped height launch and prevents it on the same fragmented lane merge',()=>{
+ const previous={module:{exports:{}},exports:{}};vm.runInNewContext(transformSync(execFileSync('git',['show','003c717:frontend/src/components/trafficLaneCurve.ts'],{encoding:'utf8'}),{loader:'ts',format:'cjs'}).code,previous);
+ const lanes=microMerge(),old=previous.module.exports.trafficLaneCurve(...lanes),next=trafficLaneCurve(...lanes);let launch=0;
+ for(let i=0;i<=1000;i++)launch=Math.max(launch,previous.module.exports.sampleLaneCurve(old,old.len*i/1000,pose()).z);
+ assert.ok(launch>800,'baseline must reproduce the launch rather than merely test the fix');
+ for(let i=0;i<=1000;i++){const p=sampleLaneCurve(next,next.len*i/1000,pose());assert.ok(p.z>=Math.min(next.points[2],next.points[11])-1e-9&&p.z<=Math.max(next.points[2],next.points[11])+1e-9);assert.ok(Object.values(p).every(Number.isFinite));}
+ assert.deepEqual(Array.from(next.cum),Array.from(old.cum),'horizontal route, turn speed and timing must remain unchanged');
+ console.log(`baseline reproduced vertical launch: ${launch.toFixed(3)}m; corrected height: ${next.points[2].toFixed(6)}..${next.points[11].toFixed(6)}m`);
+});
+test('uphill/downhill fragmented seams stay inside actual contact heights across terrain elevations',()=>{
+ for(const step of [.00001,.0001,.001,.01,.05])for(const z of [-40,0,200])for(const rise of [-.2,-.01,.01,.2]){
+  const c=trafficLaneCurve(...microMerge(step,z,rise)),lo=Math.min(c.points[2],c.points[11]),hi=Math.max(c.points[2],c.points[11]);
+  for(let i=0;i<=150;i++){const p=sampleLaneCurve(c,c.len*i/150,pose());assert.ok(p.z>=lo-1e-8&&p.z<=hi+1e-8,`${step},${z},${rise}: ${p.z}`);}
+ }
 });

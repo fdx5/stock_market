@@ -43,6 +43,14 @@ test('a real simulated lane merge has no lateral teleport or 90 degree heading c
  }
  assert.ok(merging);assert.equal(car.lane,to);assert.ok(maxAngle<15*Math.PI/180);t.dispose();
 });
+test('rendered cars on a fragmented lane merge never launch above or fall below the road',()=>{
+ const t=new Current(7),packed=(p)=>Float32Array.from([p.length,16,...p.flat()]);
+ t.addTile('from',packed([[-100,0,0],[-.00001,0,0],[0,0,.01]]));t.addTile('to',packed([[0,3.5,.01],[.00001,3.5,0],[100,3.5,0]]));
+ const from=t.lanes.get('from')[0],to=t.lanes.get('to')[0],car=from.cars[0];from.cars.length=0;to.cars.length=0;t.cars=[car];from.cars.push(car);car.s=98;car.v=car.vmax=10;
+ let merging=false,arrived=false;
+ for(let i=0;i<600;i++){t.update(.016,new THREE.Vector3(0,150,0));assert.equal(t.far.count,1);const m=t.far.instanceMatrix.array;assert.ok(m[13]>=-.00001&&m[13]<=.01001,`rendered height ${m[13]}`);assert.ok(Array.from(m.subarray(0,16)).every(Number.isFinite));merging ||= !!car.via;arrived ||= car.lane===to&&!car.via;}
+ assert.ok(merging);assert.ok(arrived);t.dispose();
+});
 test('a blocked target lane waits before merging instead of teleporting onto its first car',()=>{
  const {t,from,to,car}=isolated(),block={...car,lane:to,s:10,v:0,vmax:0,planned:undefined};
  t.cars.push(block);to.cars.push(block);

@@ -21,6 +21,13 @@ export function trafficLaneCurve(from:LaneLine,to:LaneLine):LaneCurve|null {
     const d0=(from.p[b+k]-from.p[a+k])/u,d1=(to.p[3+k]-to.p[k])/v;
     points[3+k]=points[k]+d0*handle;points[6+k]=points[9+k]-d1*handle;
   }
+  // DEM/road edge partitioning can leave a millimetre-long terminal segment.
+  // Extending its vertical tangent by a metre-sized XY handle launched cars
+  // far above the road. A Bezier stays inside its control-point hull: bound
+  // both height handles to the actual incoming/outgoing contact elevations.
+  const minElevation=Math.min(points[2],points[11]),maxElevation=Math.max(points[2],points[11]);
+  points[5]=Math.max(minElevation,Math.min(maxElevation,points[5]));
+  points[8]=Math.max(minElevation,Math.min(maxElevation,points[8]));
   const cum=new Float64Array(49),pose={x:0,y:0,z:0,dx:0,dy:0,dz:0};let px=points[0],py=points[1],maxCurve=0;
   for(let i=1;i<cum.length;i++){
     const t=i/(cum.length-1);curveAt(points,t,pose);
