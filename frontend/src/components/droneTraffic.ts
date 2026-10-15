@@ -11,7 +11,9 @@ import {trafficLaneCurve,sampleLaneCurve,type LaneCurve} from './trafficLaneCurv
  * A car with nowhere to go is set down again at a lane start out of sight. */
 
 type JunctionRegion={key:string;revision:number;lanes:Set<Lane>};
-type Lane = { tile: string; p: Float32Array; cum: Float32Array; orientation: Float64Array; len: number; cars: Car[]; width: number; minX:number;minY:number;maxX:number;maxY:number;renderOutside:boolean;junction?:JunctionRegion };
+type Lane = { tile: string; p: Float32Array; cum: Float32Array; orientation: Float64Array; len: number; cars: Car[]; width: number; minX:number;minY:number;maxX:number;maxY:number;renderOutside:boolean;junction?:JunctionRegion;
+  /** the stop lines of the signalled junctions it meets: [s, junction, phase, …] (droneRoads) */
+  stops?: Float32Array };
 type Car = { lane: Lane; s: number; v: number; vmax: number; kind: number; colour: THREE.Color; k: number; hidden: boolean;
   /** across a junction: from the end of the last lane to the start of this one (s < 0 on it) */
   via: LaneCurve | null; planned?: {lane:Lane;curve:LaneCurve|null;revision:number}; stepped?:number };
@@ -25,6 +27,14 @@ const KINDS: [string, number, number, number, string?][] = [
 // Korean roads' colours: white, black, grey and silver most; a few blues, reds and the rest.
 const PAINT: [string, number][] = [["#f2f2ef", 30], ["#16181b", 20], ["#8d9196", 14], ["#c4c7cb", 13], ["#1f3a6b", 6], ["#8a1c1f", 5], ["#4b5a4a", 3], ["#b8a58a", 3], ["#5f3a24", 2], ["#2f6f9a", 2], ["#d8c24a", 2]];
 const NEAR_M = 320, FAR_M = 1100, CAP_NEAR = 160, CAP_FAR = 3000;
+/** A signalled junction's cycle (s): the phase along the widest road, then across it, each with
+ * its amber; every junction offset by its place, so neighbours do not all change at once. */
+const CYCLE = 64, GREEN = 28, AMBER = 4;
+export function signalState(time: number, junction: number, phase: number): 'green' | 'amber' | 'red' {
+  const offset = ((junction * 2654435761) >>> 0) % CYCLE, t = ((time + offset) % CYCLE + CYCLE) % CYCLE;
+  const local = phase === 0 ? t : (t - (GREEN + AMBER) + CYCLE) % CYCLE;
+  return local < GREEN ? 'green' : local < GREEN + AMBER ? 'amber' : 'red';
+}
 // the blocks' size per kind (width, height, length)
 const BLOCK: [number, number, number][] = KINDS.map(([name, , L]) => {
   const spec = CAR_SPECS[name], dims = DIMS[name];
@@ -135,13 +145,19 @@ export class DroneTraffic {
   }
 
   /** A tile's lanes (droneRoads: [n, road width, x, y, z, …]…), and cars on them by the road's width. */
-  addTile(tile: string, packed: Float32Array) {
+  private clock = 0;
+  /** far lanes driven every other frame (off: every lane every frame, for frame-exact checks) */
+  farStagger = true;
+  addTile(tile: string, packed: Float32Array, stops?: Float32Array) {
     if(this.disposed)return;
     if (this.lanes.has(tile)) this.removeTile(tile);
     const list: Lane[] = [];
+    let so = 0;
     for (let o = 0; o < packed.length;) {
       const n = packed[o++], width = packed[o++], p = packed.slice(o, o + n * 3);
       o += n * 3;
+      let laneStops: Float32Array | undefined;
+      if (stops && so < stops.length) { const m = stops[so++]; if (m) laneStops = stops.slice(so, so + m * 3); so += m * 3; }
       const cum = new Float32Array(n);
       for (let k = 1; k < n; k++) cum[k] = cum[k - 1] + Math.hypot(p[k * 3] - p[k * 3 - 3], p[k * 3 + 1] - p[k * 3 - 2]);
       // Immutable lane segments share their exact double-precision heading
@@ -154,7 +170,7 @@ export class DroneTraffic {
       }
       let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
       for(let k=0;k<n;k++){minX=Math.min(minX,p[k*3]);maxX=Math.max(maxX,p[k*3]);minY=Math.min(minY,p[k*3+1]);maxY=Math.max(maxY,p[k*3+1]);}
-      const lane: Lane = { tile, p, cum, orientation, len: cum[n - 1], cars: [], width, minX,minY,maxX,maxY,renderOutside:false };
+      const lane: Lane = { tile, p, cum, orientation, len: cum[n - 1], cars: [], width, minX,minY,maxX,maxY,renderOutside:false, stops: laneStops };
       if (lane.len < 8) continue;
       list.push(lane);
       const end=p.length-3,junctionKey=`${Math.floor(p[end]/64)},${Math.floor(p[end+1]/64)}`;
@@ -244,9 +260,10 @@ export class DroneTraffic {
   }
 
   /** One step: every car on (gap-keeping), then the instances placed for the camera at (cx, cz). */
-  update(dt: number, camera: THREE.Vector3) {
+  update(dt: number, camera: THREE.Vector3, look?: THREE.Vector3) {
     if (!this.cars.length) { this.far.count = 0; this.near.forEach(im => { if (im) im.count = 0; }); return; }
     dt = Math.min(dt, 0.1);
+    this.clock += dt;
     const step=++this.stepNo;
     // (lanes far off are not driven: their cars wait, unseen, till the drone comes back near)
     const reach2 = (FAR_M + 150) ** 2;
@@ -256,6 +273,15 @@ export class DroneTraffic {
       const bx=Math.max(lane.minX-camera.x,0,camera.x-lane.maxX),by=Math.max(lane.minY+camera.z,0,-camera.z-lane.maxY);
       lane.renderOutside=bx*bx+by*by>FAR_M*FAR_M+1e-6;
       if (bx * bx + by * by > reach2) continue;
+      // (past 450 m a car is a block of a few pixels: its lane is driven every other frame,
+      // with both frames' time — half the lanes one frame, half the next)
+      let ldt = dt;
+      if (this.farStagger && bx * bx + by * by > 450 * 450) {
+        // (and past 750 m, where a car is a pixel or two, every third frame)
+        const every = bx * bx + by * by > 750 * 750 ? 3 : 2;
+        if ((step + (lane.cum.length % every)) % every !== 0) continue;
+        ldt = Math.min(dt * every, 0.2);
+      }
       const cs = lane.cars;
       for (let i = cs.length - 1; i >= 0; i--) {
         const c = cs[i];
@@ -270,14 +296,24 @@ export class DroneTraffic {
         const gap = ahead ? ahead.s - c.s - KINDS[ahead.kind][2] : Infinity;
         let want = gap < 6 ? 0 : gap < 40 ? c.vmax * (gap - 6) / 34 : c.vmax;
         const plan=c.planned,merge=plan?.curve;
+        // the signal ahead: stop at its line on red, and on amber unless too close to stop
+        const st = lane.stops;
+        if (st) for (let q = 0; q < st.length; q += 3) {
+          const d = st[q] - c.s;
+          if (d < -0.5) continue;
+          if (d > 70) break;
+          const light = signalState(this.clock, st[q + 1], st[q + 2]);
+          if (light === 'red' || (light === 'amber' && d > c.v * c.v / 8 + 1)) want = Math.min(want, Math.sqrt(Math.max(0, 2 * 4 * (d - 0.5))));
+          break;
+        }
         if(c.via&&c.s<c.via.endS)want=Math.min(want,c.via.speedLimit);
         else if(merge){
           want=Math.min(want,merge.speedLimit);
           const first=plan.lane.cars[0];
           if(first&&first.s<merge.endS+KINDS[c.kind][2]+8)want=Math.min(want,Math.sqrt(Math.max(0,2*6*(merge.startS-c.s-.5))));
         }
-        c.v += THREE.MathUtils.clamp(want - c.v, -6 * dt, 2.5 * dt);
-        c.s += Math.max(0, c.v) * dt;
+        c.v += THREE.MathUtils.clamp(want - c.v, -6 * ldt, 2.5 * ldt);
+        c.s += Math.max(0, c.v) * ldt;
       }
       // cars past the end: on into the next lane, or set down elsewhere
       while (cs.length && (!cs[cs.length-1].via||cs[cs.length-1].s>=cs[cs.length-1].via!.endS) && cs[cs.length - 1].s > (cs[cs.length-1].planned?.curve?.startS ?? lane.len)) {
@@ -304,6 +340,8 @@ export class DroneTraffic {
     const counts = this.near.map(() => 0);
     let farN = 0;
     const cx = camera.x, cz = camera.z;
+    // (behind the camera — past 110° off its heading, beyond 40 m — a car is neither placed nor drawn)
+    const lx = look ? look.x / (Math.hypot(look.x, look.z) || 1) : 0, lz = look ? look.z / (Math.hypot(look.x, look.z) || 1) : 0, behind = -0.34;
     for (const c of this.cars) {
       const l = c.lane, p = l.p;
       // Junction transfers can lie outside the new lane's bounds; preserve
@@ -321,8 +359,9 @@ export class DroneTraffic {
         x = p[k * 3] + (p[k * 3 + 3] - p[k * 3]) * f; y = p[k * 3 + 1] + (p[k * 3 + 4] - p[k * 3 + 1]) * f; z = p[k * 3 + 2] + (p[k * 3 + 5] - p[k * 3 + 2]) * f;
         dx = p[k * 3 + 3] - p[k * 3]; dy = p[k * 3 + 4] - p[k * 3 + 1]; dz = p[k * 3 + 5] - p[k * 3 + 2];
       }
-      const ddx = x - cx, ddz = -y - cz;
-      if (ddx * ddx + ddz * ddz > FAR_M * FAR_M) continue;
+      const ddx = x - cx, ddz = -y - cz, dd = ddx * ddx + ddz * ddz;
+      if (dd > FAR_M * FAR_M) continue;
+      if (look && dd > 1600 && (ddx * lx + ddz * lz) < behind * Math.sqrt(dd)) continue;
       // heading (scene: forward +z, x east, z south) and slope, without trigonometry
       let cyaw:number,syaw:number,cp:number,sp:number;
       if(c.via&&c.s<c.via.endS){

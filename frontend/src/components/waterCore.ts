@@ -119,6 +119,38 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
     if (seaIn[c] && Number.isFinite(seaLevel)) { lvl[c] = seaLevel; wet[c] = 1; continue; }
     wet[c] = inside[c] && h[c] <= lvl[c] + 0.7 ? 1 : 0;
   }
+  // The DEM gives open water as a level surface (the Han: the same height to the centimetre for
+  // hundreds of metres; a stream's bed a plane falling along it); a 둔치, a field, a bank varies by
+  // decimetres. Water is only where such a surface is within 12 m and this ground no more than
+  // 0.5 m over it — a riverside field
+  // inside a river parcel, its own lowest point nearby, is no water (it flooded whole 둔치).
+  levelWater(h, wet, nx, ny, s);
+  // A river's channel is the lowest ground round it: a level flat 3.5 m and more over the lowest
+  // ground within 500 m — a reed field on the 둔치 the DEM shows smooth — is no water. (The pool
+  // above one of the Han's weirs lies some 3 m over the river below it: still water.)
+  // (the river's fall allowed: 0.2 % of the distance — a stream's bed stays water along it)
+  {
+    const G = 16, gx0 = x0 - 500, gy0 = y0 - 500, gnx = Math.ceil((nx * s + 1000) / G) + 1, gny = Math.ceil((ny * s + 1000) / G) + 1;
+    const gh = new Float32Array(gnx * gny);
+    for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) { const v = at(gx0 + i * G, gy0 + j * G); gh[j * gnx + i] = Number.isFinite(v) ? v : Infinity; }
+    const floorAt = new Float32Array(gnx * gny), R = Math.ceil(500 / G);
+    for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) {
+      let f = Infinity;
+      for (let b = Math.max(0, j - R); b <= Math.min(gny - 1, j + R); b++) for (let a = Math.max(0, i - R); a <= Math.min(gnx - 1, i + R); a++) { const v = gh[b * gnx + a] + 0.002 * G * Math.hypot(a - i, b - j); if (v < f) f = v; }
+      floorAt[j * gnx + i] = f;
+    }
+    if (!await pace()) return null;
+    for (let c = 0; c < n; c++) {
+      if (!wet[c]) continue;
+      const i = Math.round((x0 + (c % nx) * s - gx0) / G), j = Math.round((y0 + Math.floor(c / nx) * s - gy0) / G);
+      if (h[c] > floorAt[Math.min(gny - 1, Math.max(0, j)) * gnx + Math.min(gnx - 1, Math.max(0, i))] + 3.5) wet[c] = 0;
+    }
+  }
+  // (the riverside parks' raised ground, 둔치, is no water: dryTerraces)
+  for (let c = 0; c < n; c++) if (seaIn[c]) wet[c] = 0;
+  dryTerraces(h, wet, nx, ny, s);
+  for (let c = 0; c < n; c++) if (seaIn[c] && Number.isFinite(seaLevel)) wet[c] = 1;
+  if (!await pace()) return null;
   // A river runs on under its bridges, where the DEM carries the road across as a dam:
   // close the channel (dilate by R on the water parcels, erode by R), bridging gaps up
   // to ~2R along it.
@@ -184,6 +216,91 @@ export type WaterField = ReturnType<typeof fieldFrom>;
 /** Boats/wakes share the continuous sea datum where a tidal river overlaps it. */
 export function withSeaLevel(field:WaterField,sea:()=>WaterField|null):WaterField{
   return {...field,level:(x,y)=>{const coast=sea();return coast?.wet(x,y)?coast.level(x,y):field.level(x,y);}};
+}
+
+/** (waterField, and farGround's painting of the bed) Keeps `wet` only near the level surfaces
+ * open water shows in the DEM: round a node (4 m, over the other candidates only)
+ * the heights lie within 6 cm of a plane (a stream's bed may fall along it). Self-contained. */
+export function levelWater(h: Float32Array, wet: Uint8Array, nx: number, ny: number, s: number) {
+  const n = nx * ny, r = Math.max(1, Math.round(4 / s)), reach = Math.max(1, Math.round(12 / s));
+  const level = new Float32Array(n).fill(NaN);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const c = j * nx + i; if (!wet[c]) continue;
+    // least-squares plane z = a + b·u + d·v over the window's candidates, then its worst residual
+    let N = 0, su = 0, sv = 0, sz = 0, suu = 0, svv = 0, suv = 0, suz = 0, svz = 0;
+    for (let b = Math.max(0, j - r); b <= Math.min(ny - 1, j + r); b++) for (let a = Math.max(0, i - r); a <= Math.min(nx - 1, i + r); a++) {
+      const k = b * nx + a, z = h[k]; if (!wet[k] || !Number.isFinite(z)) continue;
+      const u = a - i, v = b - j; N++; su += u; sv += v; sz += z; suu += u * u; svv += v * v; suv += u * v; suz += u * z; svz += v * z;
+    }
+    if (N < 5) continue;
+    const mu = su / N, mv = sv / N, mz = sz / N, cuu = suu / N - mu * mu, cvv = svv / N - mv * mv, cuv = suv / N - mu * mv, cuz = suz / N - mu * mz, cvz = svz / N - mv * mz;
+    const det = cuu * cvv - cuv * cuv, B = Math.abs(det) > 1e-9 ? (cuz * cvv - cvz * cuv) / det : 0, D = Math.abs(det) > 1e-9 ? (cvz * cuu - cuz * cuv) / det : 0;
+    let worst = 0;
+    for (let b = Math.max(0, j - r); b <= Math.min(ny - 1, j + r); b++) for (let a = Math.max(0, i - r); a <= Math.min(nx - 1, i + r); a++) {
+      const k = b * nx + a, z = h[k]; if (!wet[k] || !Number.isFinite(z)) continue;
+      worst = Math.max(worst, Math.abs(z - (mz + B * (a - i - mu) + D * (b - j - mv))));
+    }
+    if (worst <= 0.06) level[c] = h[c];
+  }
+  const keep = new Uint8Array(n);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const c = j * nx + i; if (!wet[c]) continue;
+    let ok = false;
+    for (let b = Math.max(0, j - reach); b <= Math.min(ny - 1, j + reach) && !ok; b++) for (let a = Math.max(0, i - reach); a <= Math.min(nx - 1, i + reach); a++) {
+      const L = level[b * nx + a]; if (L === L && h[c] <= L + 0.5 && (a - i) ** 2 + (b - j) ** 2 <= reach * reach) { ok = true; break; }
+    }
+    keep[c] = ok ? 1 : 0;
+  }
+  wet.set(keep);
+}
+
+/** The riverside parks' raised ground (둔치) inside a river's parcels: a flat that is its own lowest
+ * point nearby passes the 0.7 m rule as if it were water. The connected water candidates (8-way)
+ * are taken as regions: a region with another one 1.5 m lower within 120 m is a terrace — land —
+ * unless it is a level surface as the DEM gives open water (half its nodes within 6 cm over ±10 m:
+ * the pool above a weir); a park's ground varies more. A stream falling along its bed is one
+ * region with nothing lower beside it. Self-contained (also serialised into farGround's worker).
+ * `wet` (1/0 over nx × ny nodes `s` m apart, heights `h`) is changed in place. */
+export function dryTerraces(h: Float32Array, wet: Uint8Array, nx: number, ny: number, s: number) {
+  const n = nx * ny, label = new Int32Array(n).fill(-1), mins: number[] = [], members: number[][] = [];
+  const queue = new Int32Array(n);
+  for (let c0 = 0; c0 < n; c0++) {
+    if (!wet[c0] || label[c0] >= 0) continue;
+    const id = mins.length; let head = 0, tail = 0, lo = Infinity; const list: number[] = [];
+    queue[tail++] = c0; label[c0] = id;
+    while (head < tail) {
+      const c = queue[head++], i = c % nx, j = (c - i) / nx; list.push(c); if (h[c] < lo) lo = h[c];
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= nx || b >= ny) continue;
+        const k = b * nx + a; if (wet[k] && label[k] < 0) { label[k] = id; queue[tail++] = k; }
+      }
+    }
+    mins.push(lo); members.push(list);
+  }
+  if (mins.length < 2) return;
+  const fr = Math.max(1, Math.round(10 / s)), R = Math.round(120 / s), rs: number[] = [];
+  for (let r = Math.max(1, Math.round(4 / s)); r <= R; r += Math.max(1, Math.round(8 / s))) rs.push(r);
+  for (let id = 0; id < mins.length; id++) {
+    const list = members[id], stride = Math.max(1, Math.floor(list.length / 400));
+    let lower = false;
+    for (let q = 0; q < list.length && !lower; q += stride) {
+      const c = list[q], i = c % nx, j = (c - i) / nx;
+      for (const r of rs) { for (let k = 0; k < 16 && !lower; k++) {
+        const a = i + Math.round(Math.cos(k * Math.PI / 8) * r), b = j + Math.round(Math.sin(k * Math.PI / 8) * r);
+        if (a < 0 || b < 0 || a >= nx || b >= ny) continue;
+        const o = label[b * nx + a]; if (o >= 0 && o !== id && mins[o] <= mins[id] - 1.5) lower = true;
+      } if (lower) break; }
+    }
+    if (!lower) continue;
+    let level = 0, seen = 0;
+    for (let q = 0; q < list.length; q += stride) {
+      const c = list[q], i = c % nx, j = (c - i) / nx; let lo = Infinity, hi = -Infinity;
+      for (let b = Math.max(0, j - fr); b <= Math.min(ny - 1, j + fr); b++) for (let a = Math.max(0, i - fr); a <= Math.min(nx - 1, i + fr); a++) { const v = h[b * nx + a]; if (!Number.isFinite(v)) continue; if (v < lo) lo = v; if (v > hi) hi = v; }
+      seen++; if (hi - lo <= 0.06) level++;
+    }
+    if (level * 2 >= seen) continue;
+    for (const c of list) wet[c] = 0;
+  }
 }
 
 /** The surface over the open-water parcels' rings, subdivided to follow the channel. */

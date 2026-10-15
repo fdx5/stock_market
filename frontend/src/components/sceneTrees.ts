@@ -229,6 +229,9 @@ export class Forest {
         });
         set.levels.forEach((parts, b) => parts.forEach(im => {
           im.count = n[b];
+          // (an empty level is not even visited by the renderer's scene sync and lists: most levels
+          // of most variants hold no tree — a tile's trees keep their level)
+          im.visible = n[b] > 0;
           // (bounds of the trees it holds: a level out of view isn't drawn)
           if (n[b]) im.computeBoundingSphere();
           im.instanceMatrix.needsUpdate = true;

@@ -1258,6 +1258,10 @@ export interface RealEstateRoad {
   layer?: number; link_id?: string; structure_source?: string;
   /** Full official link, used to interpolate DEM bank heights consistently across fragments. */
   profile_line?: [number, number][];
+  /** A chained bridge's deck along profile_line (bridgeChains.ts): stations (m) and heights (view frame). */
+  profile_s?: number[]; profile_z?: number[];
+  /** One direction of travel only (a road drawn from one official link: roadLinkFallback.ts). */
+  oneway?: boolean;
 }
 
 /** A parcel round a complex with the 공동주택 on it (x east, y north of the view's centre, m). */

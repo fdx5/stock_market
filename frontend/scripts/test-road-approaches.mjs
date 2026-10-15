@@ -86,7 +86,8 @@ test('a surveyed bridge endpoint inside water uses dry bank support rather than 
  const r=road('wet-ended',line,'bridge'),t={...terrain,at:ground,waterAt:water};
  for(const x of [-80,0,80])near(roadHeight(r,t,x,0),10);
  assert.equal(JSON.stringify(line),saved);
- const ordinary={...r,structure:'ground',layer:0};near(roadHeight(ordinary,t,0,0),-3);
+ // (a road at grade the data lays across the water: kept 0.3 m over its surface, never on the bed)
+ const ordinary={...r,structure:'ground',layer:0};near(roadHeight(ordinary,t,0,0),.3);
 });
 
 test('wet-ended profiles share support across reversal, tile fragments and serialized rules',()=>{

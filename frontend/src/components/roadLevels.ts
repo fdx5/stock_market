@@ -82,9 +82,17 @@ export function nearestRoadPoint(line:readonly Point[],x:number,y:number){
 export function roadHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
  if(t.roadAt)return t.roadAt(r,x,y);
  if(r.structure==='bridge'||r.structure==='elevated'){
+  if(r.profile_line&&r.profile_s&&r.profile_z)return surfaceGeometry.profileAt(r.profile_line,r.profile_s,r.profile_z,x,y);
   return surfaceGeometry.profileHeight(r.profile_line??r.line,x,y,t.at,t.waterAt,t.grid?(x,y)=>Math.abs(x)<t.grid!.R&&Math.abs(y)<t.grid!.R:undefined,t.waterRevision?.()??undefined);
  }
- return t.at(x,y);
+ // A road at grade is laid smooth along its length: a dip of the relief under it is filled to the
+ // road's ±12 m mean (never under the ground) — the streamed tiles' rule (droneRoads).
+ let g=t.at(x,y);
+ if(r.line.length>1){const p=nearestRoadPoint(r.line,x,y);if(p.distance<=r.width/2+3){let sum=0;for(let d=-12;d<=12;d+=4)sum+=t.at(x+p.dir[0]*d,y+p.dir[1]*d);g=Math.max(g,sum/7);}}
+ // And never under the water's surface: where the data lays it across the water at the relief's
+ // height (the surface's own there), it is kept over it.
+ const w=t.waterAt?.(x,y);
+ return w!=null&&w+.3>g?w+.3:g;
 }
 /** A manually driven vehicle keeps its height/heading context at grade crossings. */
 export function vehicleRoad(roads:RealEstateRoad[],terrain:Terrain,c:{x:number;y:number;z?:number;hx:number;hy:number;road:number}){

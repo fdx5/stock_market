@@ -34,6 +34,7 @@ export type DroneHud = {
 };
 
 export class DroneSession {
+  private lookDir = new THREE.Vector3();
   readonly flight = new DroneFlight();
   readonly world: DroneWorld;
   readonly audio = new DroneAudio();
@@ -179,6 +180,36 @@ export class DroneSession {
     });
   }
 
+  /** The view's own neighbourhood (the complex, its streets, trees, people: everything of the
+   * scene that lies inside its ±farHalf square) is left out of the scene while the drone is
+   * further from it than everything loaded round the drone and 400 m more — past the haze,
+   * unseen — and back in 200 m before it could come into the haze again. Out of the scene, it costs the renderer nothing a frame
+   * (its scene sync and draw lists walked some 300 meshes for nothing). */
+  private viewHidden: THREE.Object3D[] | null = null;
+  private viewParts: THREE.Object3D[] | null = null;
+  private viewCull(x: number, y: number) {
+    const H = this.p.extent.farHalf, d = Math.max(0, Math.hypot(x, y) - H * Math.SQRT2), R = this.world.reach;
+    if (!this.viewHidden && d > R + 400) {
+      if (!this.viewParts) {
+        // (once: the scene's roots that lie wholly inside the view's square)
+        const box = new THREE.Box3(), lim = H + 400;
+        this.viewParts = this.p.scene.children.filter(o => {
+          if (o === this.world.root || (o as THREE.Light).isLight || (o as THREE.Camera).isCamera || o === this.model.group) return false;
+          box.setFromObject(o);
+          return !box.isEmpty() && box.min.x > -lim && box.max.x < lim && box.min.z > -lim && box.max.z < lim;
+        });
+      }
+      this.viewHidden = this.viewParts.filter(o => o.visible);
+      for (const o of this.viewHidden) o.visible = false;
+    } else if (this.viewHidden && d < R + 200) {
+      // (back while still past the haze's end (0.98 of the reach): its ~300 meshes return to the
+      // renderer four a frame — 1.4 s, 80 m at the drone's top speed)
+      for (const o of this.viewHidden) o.visible = true;
+      this.viewHidden = null;
+    }
+  }
+  private restoreView() { if (this.viewHidden) { for (const o of this.viewHidden) o.visible = true; this.viewHidden = null; } }
+
   /** One frame (dt in seconds; the view w × h CSS pixels). */
   tick(dt: number, viewW: number, viewH: number) {
     const f = this.flight, w = this.world, T = this.timing, t0 = performance.now();
@@ -187,7 +218,7 @@ export class DroneSession {
     const t1 = performance.now();
     w.update(x, y, f.vel.x, -f.vel.z, f.agl, [-Math.sin(f.yaw), Math.cos(f.yaw)]);
     const t2 = performance.now();
-    w.traffic.update(dt, this.p.camera.position);
+    w.traffic.update(dt, this.p.camera.position, this.p.camera.getWorldDirection(this.lookDir));
     const t3 = performance.now();
     this.people(x, y);
     if (this.crowd) {
@@ -195,6 +226,7 @@ export class DroneSession {
       this.crowd.c.group.visible = see;
       if (see) this.crowd.c.update(dt, this.p.camera);
     }
+    this.viewCull(x, y);
     const t4 = performance.now();
     this.clock += dt;
     if (this.view === "chase") this.chase(dt);
@@ -300,6 +332,7 @@ export class DroneSession {
   end() {
     const { camera, scene, ground } = this.p;
     this.ended = true;
+    this.restoreView();
     this.seaStop.abort();this.coastJobs.dispose();
     this.flight.setAutopilot(false);
     this.flight.setAutoRotate(false);

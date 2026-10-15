@@ -102,6 +102,11 @@ export class MeshRenderer {
 			}
 
 		}
+		// (local modification) Every bundle cache, swept here once every 120 frames whether its
+		// pass ran this frame or not. Swept only inside drawItems, a pass that skips frames (a
+		// still shadow cascade) or stops being drawn kept every object it ever drew — their
+		// meshes and disposed geometries with all their arrays: gigabytes over a long flight.
+		if ( this._bundles && GPU.frame % 120 === 0 ) this._sweepBundles( 240 );
 
 		// grow for next frame if this one came close
 		if ( Math.max( this.drawCount, this._slotTop ?? 0 ) > this.capacity * 0.75 ) {
@@ -636,6 +641,9 @@ export class MeshRenderer {
 			const index = this._collectIndex ++;
 			const pools = this._collectPools ??= [];
 			pool = pools[ index ] ??= { opaque: [], transparent: [], items: [], count: 0 };
+			// (the items past last frame's count keep no object, geometry or material alive)
+			for ( let i = pool.count; i < ( pool.used ?? 0 ); i ++ ) { const it = pool.items[ i ]; if ( it ) it.object = it.geometry = it.material = null; }
+			pool.used = pool.count;
 			pool.opaque.length = pool.transparent.length = pool.count = 0;
 		}
 		const opaque = pool?.opaque ?? [];
@@ -995,6 +1003,21 @@ export class MeshRenderer {
 			if ( GPU.frame % 120 === 0 ) for ( const [ key, c ] of cache ) if ( GPU.frame - c.at > 240 ) cache.delete( key );
 		} else cache.length = segments;
 		if ( replayed ) rp.setBindGroup( 0, pass.group0 );
+
+	}
+
+	_sweepBundles( age ) {
+
+		for ( const [ callKey, cache ] of this._bundles ) {
+
+			if ( cache instanceof Map ) {
+
+				for ( const [ key, c ] of cache ) if ( GPU.frame - c.at > age ) cache.delete( key );
+				if ( ! cache.size ) this._bundles.delete( callKey );
+
+			} else if ( ! cache.some( c => c && GPU.frame - c.at <= age ) ) this._bundles.delete( callKey );
+
+		}
 
 	}
 

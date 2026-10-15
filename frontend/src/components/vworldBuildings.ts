@@ -1,6 +1,8 @@
 import { RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyParcel, RealEstateParcel, RealEstateRoad } from "../api/client";
-import { prefetchTerrain } from "./sceneTerrain";
+import { prefetchTerrain, vworldSampler } from "./sceneTerrain";
 import {hasAboveGroundEvidence} from './buildingEvidence';
+import {structureChains} from './bridgeChains';
+import {linkFallbackRoads} from './roadLinkFallback';
 import {attachRoadStructures,clipRoadContextRing,clipRoadLine,type RoadStructureLink} from './roadLevels';
 
 /* A complex's buildings straight from VWorld (국토교통부 GIS건물통합정보), in the
@@ -197,10 +199,38 @@ function roadContextAsk(box:string,key:string,domain='https://kospimap.com'){
  }
  return hit;
 }
+/** The official bridge links (표준노드링크 rd_type_h 교량) in a lon/lat box, whole lines,
+ * for joining a bridge's links bank to bank (bridgeChains.ts). */
+export async function vworldStructureLinks(key:string,domain:string|null|undefined,[lon0,lat0,lon1,lat1]:[number,number,number,number]){
+ const out:{id:string;kind:1|2;line:[number,number][]}[]=[];
+ for(const [type,kind] of [['교량',1]] as const){
+  const list=await pagedFeatures(async page=>features(await call(DATA,{service:'data',request:'GetFeature',crs:'EPSG:4326',geometry:'true',attribute:'true',key,domain:domain??'https://kospimap.com',
+   data:'LT_L_MOCTLINK',attrFilter:`rd_type_h:=:${type}`,geomFilter:`BOX(${lon0},${lat0},${lon1},${lat1})`,size:1000,page})));
+  for(const f of list){const g=f.geometry,lines=g?.type==='LineString'?[g.coordinates]:g?.type==='MultiLineString'?g.coordinates:[];
+   for(const l of lines as number[][][])if(l.length>1)out.push({id:String(f.properties?.link_id??f.id??''),kind,line:l.map(p=>[p[0],p[1]] as [number,number])});}
+ }
+ return out;
+}
 export function prefetchRoadContext(data:RealEstateBuildingsResponse,radius=600){
  if(!data.center||!data.vworld_key)return;
  const {lat,lon}=data.center,kx=Math.cos(lat*Math.PI/180)*111320,ky=110540;
  void roadContextAsk(`BOX(${lon-(radius+80)/kx},${lat-(radius+80)/ky},${lon+(radius+80)/kx},${lat+(radius+80)/ky})`,data.vworld_key,data.vworld_domain).catch(()=>{});
+ // (the bridges' whole chains and their decks, asked alongside: cached for the page)
+ void structureChains(data.vworld_key,data.vworld_domain,lat,lon,0,[-radius,-radius,radius,radius]).catch(()=>{});
+}
+/** Each bridge road's deck along its whole official bridge (bridgeChains.ts), in the view's frame. */
+async function withBridgeChains(data:RealEstateBuildingsResponse,roads:RealEstateRoad[],radius:number):Promise<RealEstateRoad[]>{
+ if(!data.center||!data.vworld_key||!roads.some(r=>r.structure==='bridge'&&r.link_id))return roads;
+ const {lat,lon}=data.center,key=data.vworld_key;
+ const job=(async()=>{
+  const sampler=await vworldSampler(key,lat,lon,10);if(!sampler)return null;
+  return structureChains(key,data.vworld_domain,lat,lon,sampler(lon,lat),[-radius,-radius,radius,radius]);
+ })().catch(()=>null);
+ // (never holding the view back long: without them each link keeps its own bank profile)
+ const chains=await Promise.race([job,new Promise<null>(r=>setTimeout(()=>r(null),8000))]);
+ if(!chains?.length)return roads;
+ const by=new Map<string,(typeof chains)[number]>();for(const c of chains)for(const id of c.ids)by.set(id,c);
+ return roads.map(r=>{const c=r.structure==='bridge'&&r.link_id?by.get(r.link_id):undefined;return c?{...r,profile_line:c.line,profile_s:c.s,profile_z:c.z}:r;});
 }
 export async function vworldRoadContext(data:RealEstateBuildingsResponse,roads:RealEstateRoad[],radius=600):Promise<RealEstateBuildingsResponse>{
  if(!data.center||!data.vworld_key)return {...data,roads};
@@ -208,18 +238,25 @@ export async function vworldRoadContext(data:RealEstateBuildingsResponse,roads:R
  const project=([x,y]:number[]):[number,number]=>[(x-lon)*kx,(y-lat)*ky];
  const box=`BOX(${lon-(radius+80)/kx},${lat-(radius+80)/ky},${lon+(radius+80)/kx},${lat+(radius+80)/ky})`;
  const [linkResult,riverResult]=await roadContextAsk(box,data.vworld_key,data.vworld_domain);
- const links:RoadStructureLink[]=[];
+ const links:RoadStructureLink[]=[],linkRanks:string[]=[];
  if(linkResult.status==='fulfilled')for(const f of linkResult.value){
   const type=f.properties.rd_type_h;
   const structure:RoadStructureLink['structure']=type==='교량'?'bridge':type==='고가도로'?'elevated':type==='지하차도'?'underpass':type==='터널'?'tunnel':type==='일반도로'?'ground':'unknown';
   const lines=f.geometry?.type==='LineString'?[f.geometry.coordinates]:f.geometry?.type==='MultiLineString'?f.geometry.coordinates:[];
-  for(const l of lines)if(l.length>1)links.push({id:f.properties.link_id??f.id??'',line:l.map(project),structure});
+  for(const l of lines)if(l.length>1){links.push({id:f.properties.link_id??f.id??'',line:l.map(project),structure});linkRanks.push(f.properties.rd_rank_h??'');}
+ }
+ // Roads the base map's centre lines do not have yet (a new bridge or expressway): from the links.
+ if(links.length){
+  const kind=(s:RoadStructureLink['structure'])=>s==='bridge'?1:s==='elevated'?2:s==='underpass'||s==='tunnel'?-1:0;
+  const R=radius+50;
+  for(const f of linkFallbackRoads(roads,links.map((l,i)=>({id:l.id,kind:kind(l.structure),rank:linkRanks[i],line:l.line})),[-R,-R,R,R]))
+   roads=[...roads,{line:f.line as [number,number][],width:f.width,lanes:f.lanes,oneway:f.oneway||undefined,id:'link:'+f.link,source:'VWorld LT_L_MOCTLINK'}];
  }
  const rivers=riverResult.status==='fulfilled'?riverResult.value.flatMap(f=>polygons(f.geometry).flatMap(poly=>{
   const outer=clipRoadContextRing(poly[0].map(project),radius+50);if(outer.length<3)return [];
   return [{id:f.id??'',name:f.properties.riv_nm??'',rings:[outer,...poly.slice(1).map(r=>clipRoadContextRing(r.map(project),radius+50)).filter(r=>r.length>=3)]}];
  })):[];
- const enriched=links.length?attachRoadStructures(roads,links):roads.map(r=>r.structure_source?r:{...r,structure:'unknown' as const}),matched=enriched.filter(r=>r.structure_source&&r.structure!=='unknown').length;
+ const enriched=await withBridgeChains(data,links.length?attachRoadStructures(roads,links):roads.map(r=>r.structure_source?r:{...r,structure:'unknown' as const}),radius),matched=enriched.filter(r=>r.structure_source&&r.structure!=='unknown').length;
  return {...data,roads:enriched,road_context:{source:'VWorld LT_L_MOCTLINK · LT_C_WKMSTRM',fetched_at:new Date().toISOString(),coverage:linkResult.status==='fulfilled'&&riverResult.status==='fulfilled'&&matched===enriched.length?'complete':'partial',links:links.length,matched,total:enriched.length,rivers}};
 }
 

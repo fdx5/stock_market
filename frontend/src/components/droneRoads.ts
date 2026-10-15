@@ -19,6 +19,7 @@ import { sceneWorkerOnce } from "./sceneWorkerPool";
 import {surfaceGeometryRules} from './surfaceGeometry';
 import {roadApproachHeight} from './roadApproaches';
 import {terrainSurfaceClearance} from './terrainSurfaceClearance';
+import {linkFallbackRoads} from './roadLinkFallback';
 import type {RealEstateRoad} from '../api/client';
 type Arr = { position: Float32Array; normal: Float32Array; index: Uint32Array;level?:Float32Array };
 export type RoadTileResult = {
@@ -38,6 +39,8 @@ export type RoadTileResult = {
   junctions: Arr | null;
   /** lanes: [n, road width, x0, y0, z0, x1, y1, z1, …] one after another (view frame, z the road's height) */
   lanes: Float32Array;
+  /** per lane (in `lanes` order): [m, s, junction, phase, …] — the stop lines of signalled junctions it meets */
+  stops: Float32Array; signals: number;
   roads: number; bridges: number; ms: number;
 };
 type Grid = { h: Float32Array; n: number; R: number; cell: number; ox: number; oy: number };
@@ -54,6 +57,8 @@ type RoadJob = {
   /** a landmark bridge's upper deck (광안대교: sceneLandmarks.gwanganDeck), its line and heights:
    * the roads along it are on it — its own model draws the structure */
   deck?: { pts: number[][]; z: number[] };
+  /** whole bridges (bridgeChains.ts): each official bridge link's deck along its chain, bank to bank */
+  chains?: { ids: string[]; line: number[][]; s: number[]; z: number[] }[];
 };
 
 function roadWorkerMain() {
@@ -66,6 +71,8 @@ function roadWorkerMain() {
     type Crossing = { line: [number, number][]; signals: boolean; layer?: number };
     let crossings: Crossing[] = [];
     let crossPoints: { at: [number, number]; signals: boolean; marked: boolean }[] = [];
+    // (the traffic signals OpenStreetMap maps: highway=traffic_signals nodes)
+    let signalPts: [number, number][] = [];
     let mapped = false;
     // (never holding the tile up: two seconds at most — the drone world asked for them ahead, when
     // the tile was queued, so the server has them by now)
@@ -73,6 +80,7 @@ function roadWorkerMain() {
       const got = await fetch(e.data.crossings.url, { signal: AbortSignal.timeout(2000) }).then(r => (r.ok ? r.json() : null)).catch(() => null) as { crossings?: Crossing[]; points?: typeof crossPoints; source?: string | null } | null;
       crossings = got?.crossings ?? [];
       crossPoints = got?.points ?? [];
+      signalPts = ((got as { signals?: [number, number][] } | null)?.signals ?? []).filter(p => Array.isArray(p) && p.length >= 2);
       mapped = !!got?.source;
     }
     const cox = e.data.crossings?.ox ?? 0, coy = e.data.crossings?.oy ?? 0;
@@ -122,7 +130,7 @@ function roadWorkerMain() {
     };
     const linesOf = (geom: any): number[][][] => geom?.type === "LineString" ? [geom.coordinates] : geom?.type === "MultiLineString" ? geom.coordinates : [];
     const project = ([x, y]: number[]) => [(x - lon) * kx, (y - lat) * ky];
-    type Road = { line: number[][]; width: number; lanes: number };
+    type Road = { line: number[][]; width: number; lanes: number; oneway?: boolean };
     const roads: Road[] = [];
     await pages(e.data.urls, "roadCb", f => {
       const width = parseFloat(f.properties?.rvwd) || 0, lanes = Math.round(parseFloat(f.properties?.rdln) || 0);
@@ -134,15 +142,41 @@ function roadWorkerMain() {
     // The structures: 교량 / 고가도로 (raised), 터널 / 지하차도 (under), as segments on a 10 m hash.
     type Seg = { ax: number; ay: number; bx: number; by: number; kind: 0 | 1 | 2 | -1;id:string;line:number[][] };
     const segs = new Map<string, Seg[]>();
+    const linkList: { id: string; kind: number; rank: string; line: number[][] }[] = [];
     await pages(e.data.linkUrls, "linkCb", f => {
       const t = String(f.properties?.rd_type_h ?? "");
       const kind = t === "교량" ? 1 : t === "고가도로" ? 2 : t === "터널" || t === "지하차도" ? -1 : 0;
+      for (const l of linesOf(f.geometry)) if (l.length > 1) linkList.push({ id: String(f.properties?.link_id ?? f.id ?? ''), kind, rank: String(f.properties?.rd_rank_h ?? ''), line: l.map(project) });
       for (const l of linesOf(f.geometry)) for (let i = 1; i < l.length; i++) {
         const [ax, ay] = project(l[i - 1]), [bx, by] = project(l[i]);
-        const s: Seg = { ax, ay, bx, by, kind: kind as Seg["kind"],id:String(f.id??f.properties?.link_id??JSON.stringify(l)),line:l.map(project) };
+        const s: Seg = { ax, ay, bx, by, kind: kind as Seg["kind"],id:String(f.properties?.link_id??f.id??JSON.stringify(l)),line:l.map(project) };
         cells(Math.min(ax, bx) - 20, Math.min(ay, by) - 20, Math.max(ax, bx) + 20, Math.max(ay, by) + 20, 10, k => add(segs, k, s));
       }
     });
+    // The river areas (하천망 LT_C_WKMSTRM): a road over one that the links do not call a bridge
+    // must still not lie in the water (below).
+    const rivers: number[][][] = [];
+    if (e.data.riverUrls.length) await pages(e.data.riverUrls, "riverCb", f => {
+      const g = f.geometry, polys: number[][][][] = g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : [];
+      for (const poly of polys) if (poly[0]?.length >= 3) {
+        // (cut to the tile and 200 m round it: a river's outline runs on for kilometres)
+        let ring = poly[0].map(project);
+        const lim = [box[0] - 200, box[1] - 200, box[2] + 200, box[3] + 200];
+        for (const [axis, side, v] of [[0, -1, lim[0]], [0, 1, lim[2]], [1, -1, lim[1]], [1, 1, lim[3]]] as const) {
+          if (!ring.length) break;
+          const inside = (p: number[]) => side < 0 ? p[axis] >= v : p[axis] <= v, out: number[][] = [];
+          for (let k = 0; k < ring.length; k++) { const a = ring[(k + ring.length - 1) % ring.length], b = ring[k];
+            if (inside(a) !== inside(b)) { const t = (v - a[axis]) / (b[axis] - a[axis]); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+            if (inside(b)) out.push(b); }
+          ring = out;
+        }
+        if (ring.length >= 3) rivers.push(ring);
+      }
+    });
+    // Roads the base map's centre lines do not have yet (a new bridge, a new expressway): from the
+    // official links themselves (roadLinkFallback.ts).
+    const fallback = (self as unknown as { __linkFallback: typeof linkFallbackRoads }).__linkFallback(roads, linkList, [box[0] - 30, box[1] - 30, box[2] + 30, box[3] + 30]);
+    for (const f of fallback) roads.push({ line: f.line, width: f.width, lanes: f.lanes, oneway: f.oneway });
     // The dedicated landmark supplies its own slab, four-lane markings and traffic on both storeys.
     const deck = e.data.deck;
     const onDeck = (x: number, y: number, dx: number, dy: number): number | null => {
@@ -207,6 +241,8 @@ function roadWorkerMain() {
         edge.record.owners[i]=edge.owner;edge.record.kind[i]=edge.owner.kind;
       }
     }
+    const insideRing=(ring:number[][],x:number,y:number)=>{let odd=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])odd=!odd;}return odd;};
+    const waterAtEarly=(x:number,y:number)=>Number.isFinite(e.data.seaLevel)&&(e.data.sea??[]).some(r=>insideRing(r,x,y))&&!(e.data.seaHoles??[]).some(r=>insideRing(r,x,y))?e.data.seaLevel!:null;
     const approachRoads:RealEstateRoad[]=[];
     for(const {r,pts,owners} of prepared){
       let start=0;
@@ -224,17 +260,59 @@ function roadWorkerMain() {
         approachRoads.push({line:[endpoint,inside] as [number,number][],width:r.width,lanes:r.lanes,link_id:owner.id,profile_line:owner.line as [number,number][],structure:owner.kind===1?'bridge':owner.kind===2?'elevated':'ground',structure_source:'VWorld LT_L_MOCTLINK'});
       }
     }
+    // A bridge link's deck along its whole chain (one profile for every tile and the view).
+    type Chain=NonNullable<RoadJob['chains']>[number];
+    const chainOf=new Map<string,Chain>();
+    for(const c of e.data.chains??[])for(const id of c.ids)chainOf.set(id,c);
+    for(const a of approachRoads){const c=a.structure==='bridge'&&a.link_id?chainOf.get(a.link_id):undefined;if(c){a.profile_line=c.line as [number,number][];a.profile_s=c.s;a.profile_z=c.z;}}
     const insideWater=(ring:number[][],x:number,y:number)=>{let odd=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])odd=!odd;}return odd;};
     const waterAt=(x:number,y:number)=>Number.isFinite(e.data.seaLevel)&&(e.data.sea??[]).some(r=>insideWater(r,x,y))&&!(e.data.seaHoles??[]).some(r=>insideWater(r,x,y))?e.data.seaLevel!:null;
-    const baseline=(r:RealEstateRoad,x:number,y:number)=>r.structure==='bridge'||r.structure==='elevated'?rules.profileHeight(r.profile_line??r.line,x,y,ground,waterAt,(x,y)=>inGrid(g,x,y)||!!wide&&inGrid(wide,x,y),e.data):ground(x,y);
+    const baseline=(r:RealEstateRoad,x:number,y:number)=>r.profile_line&&r.profile_s&&r.profile_z?rules.profileAt(r.profile_line,r.profile_s,r.profile_z,x,y):r.structure==='bridge'||r.structure==='elevated'?rules.profileHeight(r.profile_line??r.line,x,y,ground,waterAt,(x,y)=>inGrid(g,x,y)||!!wide&&inGrid(wide,x,y),e.data):ground(x,y);
     const nearest=(line:readonly [number,number][],x:number,y:number)=>{const p=rules.along(line as unknown as number[][],x,y);let s=0,dir:[number,number]=[1,0];for(let i=1;i<line.length;i++){const dx=line[i][0]-line[i-1][0],dy=line[i][1]-line[i-1][1],l=Math.hypot(dx,dy);if(s+l>=p.along-1e-8&&l){dir=[dx/l,dy/l];break;}s+=l;}return {...p,point:[p.x,p.y] as [number,number],dir};};
     const approach=(self as unknown as {__approachHeight:typeof roadApproachHeight}).__approachHeight(approachRoads,{at:ground,height:baseline,nearest,key:r=>r.link_id??r.id??JSON.stringify(r.profile_line??r.line)});
-    const ownerRoad=(o:Seg):RealEstateRoad=>({line:o.line as [number,number][],profile_line:o.line as [number,number][],link_id:o.id,width:0,lanes:0,structure:o.kind===1?'bridge':'elevated'});
+    const ownerRoads=new Map<Seg,RealEstateRoad>();
+    const ownerRoad=(o:Seg):RealEstateRoad=>{let r=ownerRoads.get(o);if(!r){const c=o.kind===1?chainOf.get(o.id):undefined;
+      r={line:o.line as [number,number][],profile_line:(c?.line??o.line) as [number,number][],profile_s:c?.s,profile_z:c?.z,link_id:o.id,width:0,lanes:0,structure:o.kind===1?'bridge':'elevated'};ownerRoads.set(o,r);}return r;};
     const ownerHeight=(o:Seg,x:number,y:number)=>{const r=ownerRoad(o);return approach?.(r,x,y)??baseline(r,x,y);};
     for (const {r,pts,owners,kind} of prepared) {
       const near = (p: number[]) => p[0] > bx0 - M && p[0] < bx1 + M && p[1] > by0 - M && p[1] < by1 + M;
       if (!pts.some(near)) continue;
       const z = pts.map((p,i)=>{const o=owners[i];return !o||kind[i]<=0?ground(p[0],p[1]):ownerHeight(o,p[0],p[1]);});
+      // A road at grade is laid smooth along its length: the relief's dips under it (a 4 m
+      // grid's hollows, a culvert) are filled to the road's ±12 m mean — never lowered under the
+      // ground — and where it meets a deck it climbs to it at 6 % at most, never a sheer drop
+      // (where the base map's line leaves the official bridge link a few metres early).
+      {
+        const g = z.slice(), W = Math.max(1, Math.round(12 / rules.step)), GRADE = 0.06 * rules.step;
+        for (let i = 0; i < z.length; i++) {
+          if (kind[i] !== 0) continue;
+          let sum = 0, n = 0;
+          for (let k = Math.max(0, i - W); k <= Math.min(z.length - 1, i + W); k++) if (kind[k] === 0) { sum += g[k]; n++; }
+          z[i] = Math.max(g[i], sum / n);
+        }
+        // Never in the sea; and over a river area, a stretch sunk more than 2 m under the line
+        // between its dry ends is a crossing the links do not register: laid straight bank to bank.
+        if (Number.isFinite(e.data.seaLevel)) for (let i = 0; i < z.length; i++) if (kind[i] === 0 && waterAtEarly(pts[i][0], pts[i][1]) !== null) z[i] = Math.max(z[i], e.data.seaLevel! + 0.4);
+        if (rivers.length) {
+          const inRiver = pts.map(p => rivers.some(r => insideRing(r, p[0], p[1])));
+          for (let i = 0; i < z.length;) {
+            if (!inRiver[i] || kind[i] !== 0) { i++; continue; }
+            let j = i; while (j + 1 < z.length && inRiver[j + 1] && kind[j + 1] === 0) j++;
+            const a = i - 1, b = j + 1;
+            if (a >= 0 && b < z.length) {
+              let sag = 0;
+              for (let k = i; k <= j; k++) sag = Math.max(sag, z[a] + (z[b] - z[a]) * (k - a) / (b - a) - z[k]);
+              if (sag > 2) for (let k = i; k <= j; k++) z[k] = Math.max(z[k], z[a] + (z[b] - z[a]) * (k - a) / (b - a));
+            }
+            i = j + 1;
+          }
+        }
+        // (a deck whose link ends low — in a dip, short of the bank — is lifted to the road it meets
+        // the same way; a deck is never lowered, the landmark bridge's own deck never touched)
+        const base = z.slice(), lifts = (from: number, to: number) => kind[to] === 0 ? kind[from] >= 0 && kind[from] !== 3 : kind[to] > 0 && kind[to] !== 3 && (kind[from] === 0 || z[from] > base[from] + 1e-6);
+        for (let i = 1; i < z.length; i++) if (lifts(i - 1, i)) z[i] = Math.max(z[i], z[i - 1] - GRADE);
+        for (let i = z.length - 2; i >= 0; i--) if (lifts(i + 1, i)) z[i] = Math.max(z[i], z[i + 1] - GRADE);
+      }
       // (on the landmark deck: its height, kind 3 — no slab or piers of ours under it)
       pts.forEach((p, k) => {
         const q = pts[Math.min(pts.length - 1, k + 1)], o = pts[Math.max(0, k - 1)], h = onDeck(p[0], p[1], q[0] - o[0], q[1] - o[1]);
@@ -273,7 +351,7 @@ function roadWorkerMain() {
         cells(Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, 15, kk => add(segAt, kk, [pi, k] as [number, number]));
       }
     });
-    const clusters = new Map<string, { x: number; y: number; z: number; n: number; r: number; elevated:boolean }>();
+    const clusters = new Map<string, { x: number; y: number; z: number; n: number; r: number; elevated:boolean; roads?: Map<number, number>; axis?: [number, number, number] }>();
     pieces.forEach(r => {
       for (let k = 0; k < r.line.length; k++) {
         const [x, y] = r.line[k];
@@ -291,6 +369,10 @@ function roadWorkerMain() {
           r.jn[k] = true;
           const ck = Math.round(x / 14) + "," + Math.round(y / 14)+':'+(r.kind[k]>0?r.owners[k]?.id??'deck':'ground'), c = clusters.get(ck) ?? { x: 0, y: 0, z: 0, n: 0, r: 0, elevated:r.kind[k]>0 };
           c.x += x; c.y += y; c.z += r.z[k]; c.n++; c.r = Math.max(c.r, r.width / 2, q.width / 2);
+          // (the roads meeting there and the widest one's direction: the signal's two phases)
+          c.roads ??= new Map(); c.roads.set(r.id, r.width); c.roads.set(q.id, q.width);
+          const rl = Math.hypot(rx, ry) || 1, ql = Math.sqrt(l2);
+          for (const [w, dx, dy] of [[r.width, rx / rl, ry / rl], [q.width, ex / ql, ey / ql]]) if (!c.axis || w > c.axis[2]) c.axis = [dx, dy, w];
           clusters.set(ck, c);
           break;
         }
@@ -352,7 +434,7 @@ function roadWorkerMain() {
               const offset=off-w/2+w*side/across,px=P.x+P.nx*offset,py=P.y+P.ny*offset;
               // Both cross-sections own the slab height, including a structure transition.
               const next=Math.min(r.kind.length-1,P.k+1),owner=r.owners[P.k];
-              const h=r.kind[P.k]===0&&r.kind[next]===0?ground(px,py):owner&&r.kind[P.k]>0&&r.kind[next]>0&&r.owners[next]?.id===owner.id?ownerHeight(owner,px,py):P.z;
+              const h=r.kind[P.k]===0&&r.kind[next]===0?ground(px,py)+Math.max(0,P.z-ground(P.x,P.y)):owner&&r.kind[P.k]>0&&r.kind[next]>0&&r.owners[next]?.id===owner.id?ownerHeight(owner,px,py)+Math.max(0,P.z-ownerHeight(owner,P.x,P.y)):P.z;
               out.p.push(px,py,h+lift);
               out.level?.push(r.kind[P.k]>0?1:0);
               out.n.push(0, 0, 1);
@@ -382,6 +464,13 @@ function roadWorkerMain() {
         quad([x + px, y + py, z0], [x + qx, y + qy, z0], [x + qx, y + qy, z1], [x + px, y + py, z1]);
       }
     };
+    const PIER_SPAN = 45;
+    // (a point on a road's carriageway at ground level, kerb included)
+    const onCarriageway = (x: number, y: number, m: number) => (segAt.get(Math.floor(x / 15) + "," + Math.floor(y / 15)) ?? []).some(([qi, qk]) => {
+      const q = pieces[qi]; if (q.kind[qk] !== 0 || q.kind[qk - 1] !== 0) return false;
+      const a = q.line[qk - 1], b = q.line[qk], ex = b[0] - a[0], ey = b[1] - a[1], l2 = ex * ex + ey * ey || 1, t = Math.max(0, Math.min(1, ((x - a[0]) * ex + (y - a[1]) * ey) / l2));
+      return Math.hypot(a[0] + ex * t - x, a[1] + ey * t - y) < q.width / 2 + m;
+    });
     for (const r of pieces) {
       const w = r.width, lanesN = Math.max(1, r.lanes);
       const under = (k: number) => r.kind[k] < 0 || r.kind[Math.min(r.kind.length - 1, k + 1)] < 0 || r.kind[k]===3 || r.kind[Math.min(r.kind.length-1,k+1)]===3;
@@ -389,7 +478,7 @@ function roadWorkerMain() {
       // (no lane lines through a junction)
       const paintSkip = (k: number) => under(k) || r.jn[k] || r.jn[k1(k)];
       band(r, 0, w, rules.surfaceLift, S, null, 0, under);
-      const twoWay = lanesN >= 2;
+      const twoWay = lanesN >= 2 && !r.oneway;
       const perDir = twoWay ? Math.max(1, Math.floor(lanesN / 2)) : lanesN;
       const laneW = Math.min(3.6, w / Math.max(1, twoWay ? perDir * 2 : perDir));
       // (true to size: 15 cm lines, 3 m dashes in 8 m; broad, for a camera 300 m to 2 km off where a
@@ -421,12 +510,18 @@ function roadWorkerMain() {
         // the slab's underside
         const hw = w / 2 + 0.3;
         quad([A[0] - na[0] * hw, A[1] - na[1] * hw, za - 1.4], [B[0] - nb[0] * hw, B[1] - nb[1] * hw, zb - 1.4], [B[0] + nb[0] * hw, B[1] + nb[1] * hw, zb - 1.4], [A[0] + na[0] * hw, A[1] + na[1] * hw, za - 1.4]);
-        if (k % 5 === 0) {
-          const gz = ground(A[0], A[1]);
-          if (za - 1.4 - gz > 2.5) {
-            // one column under a narrow deck, two under a wide one
-            const cols = w > 14 ? [-w / 4, w / 4] : [0];
-            for (const c of cols) pier(A[0] + na[0] * c, A[1] + na[1] * c, gz - 2, za - 1.4, 0.9, 0.9);
+        // Piers at a fixed spacing along the whole official bridge (its chain: the same stations
+        // in every tile), standing on the ground or the river bed — never on a road under the deck.
+        const owner = r.owners[k], chain = owner && owner.kind === 1 ? chainOf.get(owner.id) : undefined, line = chain?.line ?? owner?.line;
+        const sa = line ? rules.along(line, A[0], A[1]).along : k * rules.step, sb = line ? rules.along(line, B[0], B[1]).along : (k + 1) * rules.step;
+        if (Math.floor(sa / PIER_SPAN) !== Math.floor(sb / PIER_SPAN)) {
+          const f = Math.max(0, Math.min(1, (Math.max(Math.floor(sa / PIER_SPAN), Math.floor(sb / PIER_SPAN)) * PIER_SPAN - sa) / ((sb - sa) || 1)));
+          const px = A[0] + (B[0] - A[0]) * f, py = A[1] + (B[1] - A[1]) * f, pz = za + (zb - za) * f, pn = [na[0] + (nb[0] - na[0]) * f, na[1] + (nb[1] - na[1]) * f];
+          // one column under a narrow deck, two under a wide one
+          const cols = w > 14 ? [-w / 4, w / 4] : [0];
+          for (const c of cols) {
+            const cx = px + pn[0] * c, cy = py + pn[1] * c, gz = ground(cx, cy);
+            if (pz - 1.4 - gz > 2.5 && !onCarriageway(cx, cy, 1.4)) pier(cx, cy, gz - 2, pz - 1.4, 0.9, 0.9);
           }
         }
       }
@@ -487,7 +582,7 @@ function roadWorkerMain() {
         for (let k = 0; k < r.line.length; k++) {
           if (r.kind[k] < 0 || r.kind[k]===3) { emit(); continue; }
           const nn = normalAt(r.line, k), x = r.line[k][0] + nn[0] * off, y = r.line[k][1] + nn[1] * off;
-          const owner=r.owners[k],h=r.kind[k]===0?ground(x,y):owner?ownerHeight(owner,x,y):r.z[k];
+          const owner=r.owners[k],h=r.kind[k]===0?ground(x,y)+Math.max(0,r.z[k]-ground(r.line[k][0],r.line[k][1])):owner?ownerHeight(owner,x,y)+Math.max(0,r.z[k]-ownerHeight(owner,r.line[k][0],r.line[k][1])):r.z[k];
           pts.push(x,y,h+rules.surfaceLift);
         }
         emit();
@@ -593,9 +688,46 @@ function roadWorkerMain() {
     if(surface){const lookup=clearance.index(surface);clearance.raisePaint(nearPaint,surface,lookup);clearance.raisePaint(farPaint,surface,lookup);
       const corrected:number[]=[];
       for(let k=0;k<lanes.length;){const n=lanes[k],points:number[]=[];for(let i=1;i<n;i++){const at=k+2+i*3,segment=lookup.trace(lanes.slice(at-3,at),lanes.slice(at,at+3));for(let j=i===1?0:3;j<segment.length;j++)points.push(segment[j]);}corrected.push(points.length/3,lanes[k+1]);for(const v of points)corrected.push(v);k+=2+n*3;}paths=new Float32Array(corrected);}
-    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), junctions: null, lanes: paths, roads: pieces.length, bridges, ms: performance.now() - t0 };
+    // Signalled junctions: where OpenStreetMap maps a traffic signal at the junction (when the map
+    // answered for this place), else where two roads of 8 m and more cross (the view's own policy,
+    // trafficJunction.ts). Two phases: along the widest road, and across it. Each lane gets the
+    // stop lines it meets: [m, s, junction, phase, …] lane by lane.
+    const junctions: { x: number; y: number; R: number; ax: number; ay: number; wide: Set<number>; aw: number }[] = [];
+    for (const c of clusters.values()) {
+      if (c.elevated || !c.axis) continue;
+      const x = c.x / c.n, y = c.y / c.n;
+      let j = junctions.find(o => Math.hypot(o.x - x, o.y - y) < 25);
+      if (!j) junctions.push(j = { x, y, R: 0, ax: c.axis[0], ay: c.axis[1], wide: new Set(), aw: 0 });
+      j.R = Math.max(j.R, c.r + 1.5, Math.hypot(j.x - x, j.y - y) + c.r);
+      if (c.axis[2] > j.aw) { j.ax = c.axis[0]; j.ay = c.axis[1]; j.aw = c.axis[2]; }
+      for (const [id, w] of c.roads ?? []) if (w >= 8) j.wide.add(id);
+    }
+    const sig = junctions.filter(j => mapped ? signalPts.some(([px, py]) => Math.hypot(px + cox - j.x, py + coy - j.y) < j.R + 20) : j.wide.size >= 2);
+    const stops: number[] = [];
+    for (let k = 0; k < paths.length;) {
+      const n = paths[k], at = k + 2, found: number[] = [];
+      let s = 0;
+      for (let i = 1; i < n; i++) {
+        const ax = paths[at + i * 3 - 3], ay = paths[at + i * 3 - 2], bx = paths[at + i * 3], by = paths[at + i * 3 + 1], L = Math.hypot(bx - ax, by - ay);
+        for (const j of sig) {
+          // entering the junction's disc on this segment (from outside it)
+          const da = Math.hypot(ax - j.x, ay - j.y), db = Math.hypot(bx - j.x, by - j.y);
+          if (!(da >= j.R && db < j.R) || !L) continue;
+          const dx = (bx - ax) / L, dy = (by - ay) / L, fx = ax - j.x, fy = ay - j.y, B = fx * dx + fy * dy, C = fx * fx + fy * fy - j.R * j.R, D = B * B - C;
+          const t = D >= 0 ? -B - Math.sqrt(D) : 0, stop = s + Math.max(0, Math.min(L, t)) - 1.5;
+          if (stop < 3) continue;
+          const id = (Math.round(j.x / 10) & 0xffff) * 65536 + (Math.round(j.y / 10) & 0xffff);
+          found.push(stop, id, Math.abs(dx * j.ax + dy * j.ay) > 0.707 ? 0 : 1);
+        }
+        s += L;
+      }
+      const order = Array.from({ length: found.length / 3 }, (_, q) => q).sort((p, q) => found[p * 3] - found[q * 3]);
+      stops.push(order.length); for (const q of order) stops.push(found[q * 3], found[q * 3 + 1], found[q * 3 + 2]);
+      k += 2 + n * 3;
+    }
+    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), junctions: null, lanes: paths, stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
     for(const a of [out.surface,out.marks,out.marksFar,out.structure,out.walks])if(a)for(const value of Object.values(a))if(value instanceof Float32Array||value instanceof Uint32Array)transfer.push(value.buffer as ArrayBuffer);
-    transfer.push(out.lanes.buffer, out.walkPaths.buffer, out.streetTrees.buffer);
+    transfer.push(out.lanes.buffer, out.stops.buffer, out.walkPaths.buffer, out.streetTrees.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
     }catch{(self as unknown as Worker).postMessage(null);}
   };
@@ -606,7 +738,7 @@ let roadUrl: string | null = null;
 /** One tile's roads (box in the view's frame, metres from lat/lon), made in a worker. */
 export function roadTile(lat: number, lon: number, key: string, domain: string | null | undefined, box: [number, number, number, number],
   grid: RoadJob["grid"], wide: Grid | null, signal?: AbortSignal, tile?: { lat: number; lon: number },
-  extra?: Pick<RoadJob, "sea" | "seaHoles" | "seaLevel" | "deck">): Promise<RoadTileResult | null> {
+  extra?: Pick<RoadJob, "sea" | "seaHoles" | "seaLevel" | "deck" | "chains">): Promise<RoadTileResult | null> {
   const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540, m = 30;
   const q = `BOX(${lon + (box[0] - m) / kx},${lat + (box[1] - m) / ky},${lon + (box[2] + m) / kx},${lat + (box[3] + m) / ky})`;
   const ask = (layer: string, cb: string, n: number) => Array.from({ length: n }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
@@ -614,12 +746,12 @@ export function roadTile(lat: number, lon: number, key: string, domain: string |
     key, domain: domain ?? "https://kospimap.com", data: layer, geomFilter: q,
     size: "1000", page: String(i + 1), format: "json", callback: cb,
   }));
-  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
+  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();self.__linkFallback=(${linkFallbackRoads.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
     // (the crossings asked about the tile's rounded centre, as the view asks: the server's cache)
     const crossings = tile && typeof location !== "undefined" ? (() => {
       const la = +tile.lat.toFixed(4), lo = +tile.lon.toFixed(4);
       return { url: `${location.origin}/api/realestate/crossings?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=260&v=3`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
     })() : undefined;
-    const job: RoadJob = { urls: ask("LT_L_N3A0020000", "roadCb", 4), linkUrls: ask("LT_L_MOCTLINK", "linkCb", 2), riverUrls: [], lat, lon, box, grid, wide, crossings, ...extra };
+    const job: RoadJob = { urls: ask("LT_L_N3A0020000", "roadCb", 4), linkUrls: ask("LT_L_MOCTLINK", "linkCb", 2), riverUrls: ask("LT_C_WKMSTRM", "riverCb", 1), lat, lon, box, grid, wide, crossings, ...extra };
     return sceneWorkerOnce<RoadTileResult>(() => new Worker(roadUrl!), job, signal);
 }

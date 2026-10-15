@@ -5,6 +5,7 @@ import {woodlandBeds,woodlandPatchPattern,WOODLAND_FLOWERS}from'./landscapeDiver
 import {woodedTerrain}from'./woodlandTerrain';
 import { palaceGardens, palaceParcelGarden, palaceGardenCover, paintPalaceGarden, type PalaceGarden, type PalaceGardenPlanting } from './palaceGardens';
 import {jamsilTreeMask,withoutStadiumTrees} from './stadiumPlanting';
+import {dryTerraces, levelWater} from './waterCore';
 
 /* The ground out to 1 km in its land use (연속지적도 지목), under the 1 km ring of buildings: past
  * the view's own painted square the ground was one plain colour fading into the haze. Each parcel
@@ -25,6 +26,9 @@ type FarJob = {
   lawn: string; paddy: string;
   landscape?: boolean; nearHalf: number; footprints: [number,number][][];
   roads: {line:[number,number][];width:number}[];
+  /** The water is drawn as its own surface over this ground (droneWorld.riverOn): the channel's
+   * pixels are its bed, not a reflecting water colour of their own. */
+  waterSurface?: boolean;
   flowers: readonly string[];
   gardens: PalaceGarden[];
   /** The drone's tiles: the national stream network's water areas (하천망, LT_C_WKMSTRM), filled
@@ -72,6 +76,24 @@ function farWorkerMain() {
     const X = (x: number) => ((x + half) / (2 * half)) * S, Y = (y: number) => ((half - y) / (2 * half)) * S;
     ctx.fillStyle = job.landscape ? "#4c7846" : lots[0]; ctx.fillRect(0, 0, S, S);
     const water: number[][][] = [];
+    // The open water's outlines for the drone's water surface (the page's sceneWater): the water
+    // parcels and the stream network's areas, cut to the picture (its edges no shore there).
+    const waterOut: { ring: number[][]; holes: number[][][] }[] = [];
+    const clip = (ring: number[][]) => {
+      let pts = ring;
+      for (const [axis, side] of [[0, -1], [0, 1], [1, -1], [1, 1]]) {
+        if (!pts.length) break;
+        const inside = (p: number[]) => side * p[axis] <= half, out: number[][] = [];
+        for (let k = 0; k < pts.length; k++) {
+          const a = pts[(k + pts.length - 1) % pts.length], b = pts[k];
+          if (inside(a) !== inside(b)) { const t = (side * half - a[axis]) / (b[axis] - a[axis]); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+          if (inside(b)) out.push(b);
+        }
+        pts = out;
+      }
+      return pts.length >= 3 ? pts : null;
+    };
+    const keepWater = (outer: number[][], holes: number[][][]) => { const r = clip(outer); if (r) waterOut.push({ ring: r, holes: holes.map(clip).filter((h): h is number[][] => !!h) }); };
     const seen = new Set<string>();
     let parcels = 0, i = 0;
     // (where the cadastre has a parcel: the coast's unregistered land — breakwaters, rocks, the
@@ -106,7 +128,7 @@ function farWorkerMain() {
           ctx.fill();
           pmc.beginPath(); ring.forEach(([x, y], k) => (k ? pmc.lineTo(X(x), Y(y)) : pmc.moveTo(X(x), Y(y)))); pmc.closePath(); pmc.fill();
           if(job.landscape && kind==='임'){fc.beginPath();ring.forEach(([x,y],k)=>k?fc.lineTo(X(x),Y(y)):fc.moveTo(X(x),Y(y)));fc.closePath();fc.fill();}
-          if (WATER.has(kind)) water.push(ring);
+          if (WATER.has(kind)) { water.push(ring); keepWater(ring, poly.slice(1).map(r => r.map(([x, y]) => [(x - lon) * kx, (y - lat) * ky]))); }
           const garden = job.gardens.length ? gardenHelpers.palaceParcelGarden(kind, poly.map(r => r.map(([x,y]) => [(x-lon)*kx, (y-lat)*ky] as [number,number])), job.gardens) : null;
           if (garden) {
             let entry = gardens.get(garden.id);
@@ -136,11 +158,11 @@ function farWorkerMain() {
     // (sceneWater's rule); parcels under 300 m² are culverts and slivers. Past the relief's
     // reach, the water parcels (all together: a river is cut into several) inset by the banks'
     // width the relief shows nearer in.
-    if (water.length) {
+    if (water.length && !job.waterSurface) {
       const img = ctx.getImageData(0, 0, S, S), d = img.data, m = 2 * half / S;
       const mask = new OffscreenCanvas(S, S), mctx = mask.getContext("2d", { willReadFrequently: true })!;
       mctx.fillStyle = "#fff";
-      const paint = (o: number) => { d[o * 4] = 31; d[o * 4 + 1] = 61; d[o * 4 + 2] = 73; d[o * 4 + 3] = 128; };
+      const paint = (o: number) => { if (job.waterSurface) { d[o * 4] = 92; d[o * 4 + 1] = 88; d[o * 4 + 2] = 70; d[o * 4 + 3] = 255; } else { d[o * 4] = 31; d[o * 4 + 1] = 61; d[o * 4 + 2] = 73; d[o * 4 + 3] = 128; } };
       const all = new Uint8Array(S * S), wet = new Uint8Array(S * S), unknown = new Uint8Array(S * S);
       for (const ring of water) {
         let area = 0;
@@ -201,16 +223,27 @@ function farWorkerMain() {
       for (let o = 0; o < S * S; o++) if (unknown[o] && dist[o] >= inset) paint(o);
       ctx.putImageData(img, 0, 0);
     }
-    if (job.riverUrls?.length || osm?.rings?.length) {
+    if (job.riverUrls?.length || osm?.rings?.length || (job.waterSurface && water.length)) {
       const img = ctx.getImageData(0, 0, S, S), d = img.data;
       const mask = new OffscreenCanvas(S, S), mc = mask.getContext("2d", { willReadFrequently: true })!;
       mc.fillStyle = "#fff";
       let any = false;
+      // (the sea and lakes OpenStreetMap maps: on their own mask — always the reflecting water colour)
+      const om = new OffscreenCanvas(S, S), oc = om.getContext("2d", { willReadFrequently: true })!;
+      oc.fillStyle = "#fff";
       for (const w of osm?.rings ?? []) {
         if (w.ring.length < 3) continue;
-        mc.beginPath();
-        w.ring.forEach(([x, y], k) => { const px = X(x + (job.osmWater?.ox ?? 0)), py = Y(y + (job.osmWater?.oy ?? 0)); if (k) mc.lineTo(px, py); else mc.moveTo(px, py); });
-        mc.closePath(); mc.fill(); any = true;
+        oc.beginPath();
+        w.ring.forEach(([x, y], k) => { const px = X(x + (job.osmWater?.ox ?? 0)), py = Y(y + (job.osmWater?.oy ?? 0)); if (k) oc.lineTo(px, py); else oc.moveTo(px, py); });
+        oc.closePath(); oc.fill(); any = true;
+      }
+      // (with a water surface over it: the water parcels on the same mask, under the same rule as the
+      // surface's own — sceneWater/waterCore — so the bed is painted where the water is)
+      if (job.waterSurface) for (const ring of water) {
+        let area = 0;
+        for (let k = 0; k < ring.length; k++) { const [x1, y1] = ring[k], [x2, y2] = ring[(k + 1) % ring.length]; area += x1 * y2 - x2 * y1; }
+        if (Math.abs(area / 2) < 300) continue;
+        mc.beginPath(); ring.forEach(([x, y], k) => (k ? mc.lineTo(X(x), Y(y)) : mc.moveTo(X(x), Y(y)))); mc.closePath(); mc.fill(); any = true;
       }
       for (const url of job.riverUrls ?? []) {
         let body: any = null;
@@ -221,6 +254,10 @@ function farWorkerMain() {
           const geom = f.geometry;
           const polys: number[][][][] = geom?.type === "Polygon" ? [geom.coordinates] : geom?.type === "MultiPolygon" ? geom.coordinates : [];
           for (const poly of polys) {
+            // (the stream network's areas too: the cadastre's fields in a river that has moved are
+            // water there — the surface's own rules leave the 둔치 and the reed fields dry)
+            const local = poly.map(r => r.map(([x, y]) => [(x - lon) * kx, (y - lat) * ky]));
+            if (local[0]?.length >= 3) keepWater(local[0], local.slice(1));
             mc.beginPath();
             for (const ring of poly) ring.forEach(([x, y], k) => { const px = X((x - lon) * kx), py = Y((y - lat) * ky); if (k) mc.lineTo(px, py); else mc.moveTo(px, py); });
             mc.fill("evenodd"); any = true;
@@ -229,8 +266,45 @@ function farWorkerMain() {
         if (fs.length < 1000) break;
       }
       if (any) {
-        const md = mc.getImageData(0, 0, S, S).data;
-        for (let o = 0; o < S * S; o++) if (md[o * 4 + 3] > 127) { d[o * 4] = 31; d[o * 4 + 1] = 61; d[o * 4 + 2] = 73; d[o * 4 + 3] = 128; }
+        const md = mc.getImageData(0, 0, S, S).data, od = oc.getImageData(0, 0, S, S).data, m = 2 * half / S;
+        // The same rule as the water's surface (sceneWater): an area's islands and banks stay
+        // land — water where the relief is within 0.7 m of the lowest mapped water within 25 m
+        // (on the relief's posts; past the relief, all of it).
+        let low: ((x: number, y: number) => number) | null = null;
+        if (g) {
+          const n = g.n, wetNode = new Uint8Array(n * n), lo = new Float32Array(n * n).fill(Infinity), r = Math.max(1, Math.round(25 / g.cell));
+          for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+            const x = -g.R + i * g.cell, y = -g.R + j * g.cell, px = Math.floor(X(x)), py = Math.floor(Y(y));
+            if (px >= 0 && py >= 0 && px < S && py < S && md[(py * S + px) * 4 + 3] > 127) wetNode[j * n + i] = 1;
+          }
+          for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+            let v = Infinity;
+            for (let b = Math.max(0, j - r); b <= Math.min(n - 1, j + r); b++) for (let a = Math.max(0, i - r); a <= Math.min(n - 1, i + r); a++)
+              if (wetNode[b * n + a] && (a - i) ** 2 + (b - j) ** 2 <= r * r) v = Math.min(v, g.h[b * n + a]);
+            lo[j * n + i] = v;
+          }
+          // (the same water as the surface's: the 0.7 m rule, then the 둔치 taken out — waterCore.dryTerraces)
+          const cand = new Uint8Array(n * n);
+          for (let k = 0; k < n * n; k++) cand[k] = wetNode[k] && g.h[k] <= lo[k] + 0.7 ? 1 : 0;
+          const helpers = self as unknown as { dryTerraces: (h: Float32Array, w: Uint8Array, nx: number, ny: number, s: number) => void; levelWater: typeof helpers.dryTerraces };
+          helpers.levelWater(g.h, cand, n, n, g.cell);
+          // (and never 3.5 m over the lowest ground of the picture and its margin: waterCore's rule)
+          {
+            const st = Math.max(1, Math.round(16 / g.cell)), R = Math.ceil(330 / (st * g.cell)), cn = Math.ceil(n / st), ch = new Float32Array(cn * cn), cf = new Float32Array(cn * cn);
+            for (let j = 0; j < cn; j++) for (let i = 0; i < cn; i++) { const v = g.h[Math.min(n - 1, j * st) * n + Math.min(n - 1, i * st)]; ch[j * cn + i] = Number.isFinite(v) ? v : Infinity; }
+            for (let j = 0; j < cn; j++) for (let i = 0; i < cn; i++) { let f = Infinity; for (let b = Math.max(0, j - R); b <= Math.min(cn - 1, j + R); b++) for (let a = Math.max(0, i - R); a <= Math.min(cn - 1, i + R); a++) { const v = ch[b * cn + a] + 0.002 * st * g.cell * Math.hypot(a - i, b - j); if (v < f) f = v; } cf[j * cn + i] = f; }
+            for (let k = 0; k < n * n; k++) if (cand[k]) { const i = Math.min(cn - 1, Math.round((k % n) / st)), j = Math.min(cn - 1, Math.round(Math.floor(k / n) / st)); if (g.h[k] > cf[j * cn + i] + 3.5) cand[k] = 0; }
+          }
+          helpers.dryTerraces(g.h, cand, n, n, g.cell);
+          low = (x, y) => { const i = Math.round((x + g.R) / g.cell), j = Math.round((y + g.R) / g.cell); return i < 0 || j < 0 || i >= n || j >= n || !cand[j * n + i] ? -Infinity : lo[j * n + i] + 0.7; };
+        }
+        for (let o = 0; o < S * S; o++) {
+          if (od[o * 4 + 3] > 127) { d[o * 4] = 31; d[o * 4 + 1] = 61; d[o * 4 + 2] = 73; d[o * 4 + 3] = 128; continue; }
+          if (md[o * 4 + 3] <= 127) continue;
+          if (low) { const x = -half + ((o % S) + 0.5) * m, y = half - (Math.floor(o / S) + 0.5) * m, z = at(x, y); if (Number.isFinite(z) && z > low(x, y)) continue; }
+          if (job.waterSurface) { d[o * 4] = 92; d[o * 4 + 1] = 88; d[o * 4 + 2] = 70; d[o * 4 + 3] = 255; }
+          else { d[o * 4] = 31; d[o * 4 + 1] = 61; d[o * 4 + 2] = 73; d[o * 4 + 3] = 128; }
+        }
         ctx.putImageData(img, 0, 0);
       }
     }
@@ -326,15 +400,17 @@ function farWorkerMain() {
     planting.woodlandFlowers = [...(planting.woodlandFlowers ?? []), ...gardenPlanting.flatMap(g => g.beds)];
     planting.grass = gardenPlanting.flatMap(g => g.grass);
     const bitmap = canvas.transferToImageBitmap();
-    (self as unknown as Worker).postMessage({ bitmap, parcels, planting, gardens: gardenPlanting, ms: performance.now() - t0 }, [bitmap]);
+    (self as unknown as Worker).postMessage({ bitmap, parcels, planting, gardens: gardenPlanting, water: waterOut, ms: performance.now() - t0 }, [bitmap]);
   };
 }
 
 let farUrl: string | null = null;
 /** The land-use picture of ±half metres round the result's centre (north up), made in a worker. */
-export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, opts: { half: number; size: number; lawn: string; paddy: string; landscape?: boolean; nearHalf?:number; footprints?:[number,number][][]; signal?: AbortSignal; rivers?: boolean; lakes?: boolean;
+export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, opts: { half: number; size: number; lawn: string; paddy: string; landscape?: boolean; waterSurface?: boolean; nearHalf?:number; footprints?:[number,number][][]; signal?: AbortSignal; rivers?: boolean; lakes?: boolean;
   /** the water already asked about this picture's centre (osmBody) */
-  water?: FarJob["osmBody"] }): Promise<{ bitmap: ImageBitmap; parcels: number; planting:import('./complexScene').Planting; gardens: PalaceGardenPlanting[]; ms: number } | null> {
+  water?: FarJob["osmBody"] }): Promise<{ bitmap: ImageBitmap; parcels: number; planting:import('./complexScene').Planting; gardens: PalaceGardenPlanting[];
+  /** the open water (parcels 천·구·유·양, stream network areas): outlines about the centre, cut to the picture */
+  water: { ring: [number, number][]; holes: [number, number][][] }[]; ms: number } | null> {
   if (!data.center || !data.vworld_key || typeof OffscreenCanvas === "undefined") return Promise.resolve(null);
   const { lat, lon } = data.center, H = opts.half;
   const stadiumTreeMask = jamsilTreeMask(lat,lon,H);
@@ -346,9 +422,9 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
     size: "1000", page: String(i + 1), format: "json", callback: "farCb",
   }));
   // (one Blob URL for the page's lifetime: the drone makes these tile after tile)
-  farUrl ??= URL.createObjectURL(new Blob([`self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});self.woodlandPatchPattern=(${woodlandPatchPattern.toString()});self.palaceParcelGarden=(${palaceParcelGarden.toString()});self.palaceGardenCover=(${palaceGardenCover.toString()});self.paintPalaceGarden=(${paintPalaceGarden.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
+  farUrl ??= URL.createObjectURL(new Blob([`self.dryTerraces=(${dryTerraces.toString()});self.levelWater=(${levelWater.toString()});self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});self.woodlandPatchPattern=(${woodlandPatchPattern.toString()});self.palaceParcelGarden=(${palaceParcelGarden.toString()});self.palaceGardenCover=(${palaceGardenCover.toString()});self.paintPalaceGarden=(${paintPalaceGarden.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
 
-  const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS,gardens:palaceGardens(lat,lon,H),
+  const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS,gardens:palaceGardens(lat,lon,H),waterSurface:opts.waterSurface,
     riverUrls: opts.rivers ? Array.from({ length: 3 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
       service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "false",
       key: data.vworld_key!, domain: data.vworld_domain ?? "https://kospimap.com", data: "LT_C_WKMSTRM", geomFilter: box,

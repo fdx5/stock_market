@@ -41,11 +41,18 @@ export function surfaceGeometryRules(){
     const [left,right]=pair;
     return left.h+(right.h-left.h)*(p.along+left.d)/(p.total+left.d+right.d||1);
   };
+  /** A chained bridge's deck (bridgeChains.ts): its stations `s` (m along `line`) and heights. */
+  const profileAt=(line:number[][],st:number[],z:number[],x:number,y:number)=>{
+    const d=along(line,x,y).along;let lo=0,hi=st.length-1;
+    if(d<=st[0])return z[0];if(d>=st[hi])return z[hi];
+    while(hi-lo>1){const m=(lo+hi)>>1;if(st[m]<=d)lo=m;else hi=m;}
+    return z[lo]+(z[hi]-z[lo])*(d-st[lo])/((st[hi]-st[lo])||1);
+  };
   const clipSegment=(a:number[],b:number[],box:number[])=>{
     const dx=b[0]-a[0],dy=b[1]-a[1];let lo=0,hi=1;
     for(const[p,q]of [[-dx,a[0]-box[0]],[dx,box[2]-a[0]],[-dy,a[1]-box[1]],[dy,box[3]-a[1]]]){if(Math.abs(p)<1e-8){if(q<0)return null;}else if(p<0)lo=Math.max(lo,q/p);else hi=Math.min(hi,q/p);}
     return hi-lo>1e-8?{lo,hi,a:[a[0]+dx*lo,a[1]+dy*lo],b:[a[0]+dx*hi,a[1]+dy*hi]}:null;
   };
-  return {miters,along,profileHeight,clipSegment,surfaceLift:.08,paintLift:.16,step:3};
+  return {miters,along,profileHeight,profileAt,clipSegment,surfaceLift:.08,paintLift:.16,step:3};
 }
 export const surfaceGeometry=surfaceGeometryRules();

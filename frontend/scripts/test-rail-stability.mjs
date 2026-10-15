@@ -28,7 +28,8 @@ test('station elevation changes retain every roof/platform mesh and material and
  const b=kit.stationKit(facility,path('one',9),origin,()=>0,a);assert.equal(b,a);assert.deepEqual(b.group.children,meshes);assert.deepEqual(meshes.map(m=>m.material),mats);assert.ok(meshes.every((m,i)=>m.geometry!==geos[i]));assert.equal(disposed,geos.length);assert.ok(meshes[0].geometry.attributes.position.getY(0)>9.8);b.dispose();assert.equal(b.group.children.length,0);
 });
 test('a shared station survives a second direction arrival and first owner removal without recreating its GPU inputs',()=>{
- const r=layer(),a=r.makeEntry({id:'one',facilities:[facility]},path('one'),geometry(),line,{x:0,y:0}),station=r.stations.get('platform'),model=station.model,meshes=model.group.children.slice(),geos=meshes.map(m=>m.geometry);
+ // (a new station's model is built by the layer's update, one a tick: built here as update would)
+ const r=layer(),a=r.makeEntry({id:'one',facilities:[facility]},path('one'),geometry(),line,{x:0,y:0}),station=r.stations.get('platform'),_built=r.placeStation(station),model=station.model,meshes=model.group.children.slice(),geos=meshes.map(m=>m.geometry);
  const b=r.makeEntry({id:'two',facilities:[facility]},path('two'),geometry(),line,{x:0,y:0});assert.equal(station.model,model);assert.deepEqual(meshes.map(m=>m.geometry),geos);a.dispose();assert.equal(station.model,model);assert.equal(station.owners.size,1);assert.deepEqual(meshes.map(m=>m.geometry),geos);b.dispose();assert.equal(r.stations.size,0);r.dispose();
 });
 test('shared owner refresh is exact and distant path changes do not invalidate the station',()=>{

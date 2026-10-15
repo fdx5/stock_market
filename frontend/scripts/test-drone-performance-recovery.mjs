@@ -115,9 +115,9 @@ test('tile failure cancels sibling jobs, releases an unclaimed ground bitmap and
   let closed=0,cancelled=0,cleared=0;
   const context={performance,AbortController,OFF:['sea'],DTRACE:false,TILE_M:340,CONTEXT_FLOOR_M:{},gridAt:()=>()=>0,textureBudgetEnabled:()=>false,
     roadTile:(...a)=>new Promise(resolve=>a[7].addEventListener('abort',()=>{cancelled++;resolve(null);})),
-    farGround:()=>Promise.resolve({bitmap:{close:()=>closed++}}),ringTile:()=>Promise.resolve(null)};
+    farGround:()=>Promise.resolve({bitmap:{close:()=>closed++}}),ringTile:()=>new Promise(r=>setTimeout(()=>r(null),10)),structureChains:()=>Promise.resolve([])};
   vm.runInNewContext(transformSync('class W {'+worldMethod('load')+'};globalThis.W=W;',{loader:'ts'}).code,context);
-  const w=new context.W();Object.assign(w,{o:{data:{center:{lat:37,lon:127},vworld_key:'synthetic'},hq:true,seed:1,extent:{ring:600}},loading:0,disposed:false,kx:1,ky:1,season:{lawn:'',paddy:''},tileGrid:async()=>({grid:{},wide:null}),roadExtras:()=>({}),clear:()=>cleared++});
+  const w=new context.W();Object.assign(w,{o:{data:{center:{lat:37,lon:127},vworld_key:'synthetic'},hq:true,seed:1,extent:{ring:600}},loading:0,disposed:false,kx:1,ky:1,season:{lawn:'',paddy:''},tileGrid:async()=>({grid:{},wide:null}),roadExtras:()=>({}),baseHeight:async()=>0,clear:()=>cleared++});
   const t={key:'test',tries:0,cx:0,cy:0,i:0,j:0,box:[0,0,340,340],inner:false};
   await w.load(t);await Promise.resolve();
   assert.equal(t.state,'failed');assert.equal(w.loading,0);assert.equal(cancelled,1);assert.equal(closed,1);assert.equal(cleared,1);assert.ok(t.retryAt>performance.now());

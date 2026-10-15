@@ -8,7 +8,7 @@ import type {Clearance} from './railClearance';
 import {setInstanceMatrix} from '../components/instanceDirty';
 import type {DroneLabel} from '../components/ringBuildings';
 
-type Geometry={bed:Float32Array;steel:Float32Array;ties:Float32Array;piers:Float32Array;wire:Float32Array;poles:Float32Array};
+type Geometry={bed:Float32Array;steel:Float32Array;ties:Float32Array;piers:Float32Array;wire:Float32Array;poles:Float32Array;bedNormal?:Float32Array;steelNormal?:Float32Array;wireNormal?:Float32Array};
 type Entry={source:RailCorridor;path:RailPath;line:RailLine;run:RailRun;group:THREE.Group;geometries:THREE.BufferGeometry[];dispose:()=>void;built:{x:number;y:number};groundKey:string;ties:THREE.InstancedMesh;tieData:Float32Array};
 interface Options { origin:{lon:number;lat:number}; heightAt:(x:number,y:number)=>number; buildings?:()=>THREE.Object3D[]; radius?:number; onChange?:()=>void }
 
@@ -41,6 +41,7 @@ export class SurfaceRailLayer {
   private railMat=new THREE.MeshStandardMaterial({color:0xa3afb5,metalness:.75,roughness:.35,side:THREE.DoubleSide});
   private tieMat=new THREE.MeshStandardMaterial({color:0x9eaaa2,roughness:.95});
   private pierMat=new THREE.MeshStandardMaterial({color:0xa5b0ad,roughness:.9});
+  private keyTurn=0;
   private tieGeo=new THREE.BoxGeometry(2.4,.15,.23);
   private pierGeo=new THREE.BoxGeometry(1.15,7.65,1.15);
   private poleGeo:THREE.BufferGeometry;
@@ -112,9 +113,9 @@ export class SurfaceRailLayer {
   }
   private makeEntry(source:RailCorridor,path:RailPath,geo:Geometry,line:RailLine,built:{x:number;y:number},previous?:Entry):Entry{
     const group=previous?.group??new THREE.Group(),geometries:THREE.BufferGeometry[]=[],instances:THREE.InstancedMesh[]=[],unused=new Set(group.children);group.name=`rail-corridor-${path.id}`;
-    const mesh=(name:string,p:Float32Array,m:THREE.Material)=>{if(!p.length)return;const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));g.computeVertexNormals();geometries.push(g);const old=group.getObjectByName(name) as THREE.Mesh|undefined,mesh=old??new THREE.Mesh(g,m);mesh.name=name;mesh.geometry=g;group.add(mesh);unused.delete(mesh);};
+    const mesh=(name:string,p:Float32Array,m:THREE.Material,normal?:Float32Array)=>{if(!p.length)return;const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));if(normal?.length===p.length)g.setAttribute('normal',new THREE.BufferAttribute(normal,3));else g.computeVertexNormals();g.computeBoundingSphere();geometries.push(g);const old=group.getObjectByName(name) as THREE.Mesh|undefined,mesh=old??new THREE.Mesh(g,m);mesh.name=name;mesh.geometry=g;group.add(mesh);unused.delete(mesh);};
     const instance=(name:string,g:THREE.BufferGeometry,m:THREE.Material,count:number)=>{const old=group.getObjectByName(name) as THREE.InstancedMesh|undefined,mesh=old??new THREE.InstancedMesh(g,m,count);if(mesh.instanceMatrix.count<count)mesh.instanceMatrix=new THREE.InstancedBufferAttribute(new Float32Array(count*16),16);mesh.name=name;mesh.count=count;mesh.boundingSphere=null;group.add(mesh);unused.delete(mesh);instances.push(mesh);return mesh;};
-    mesh('rail-bed',geo.bed,this.bedMat);mesh('rail-steel',geo.steel,this.railMat);mesh('rail-wire',geo.wire,this.railMat);
+    mesh('rail-bed',geo.bed,this.bedMat,geo.bedNormal);mesh('rail-steel',geo.steel,this.railMat,geo.steelNormal);mesh('rail-wire',geo.wire,this.railMat,geo.wireNormal);
     const ties=instance('rail-ties',this.tieGeo,this.tieMat,geo.ties.length/4);ties.count=0;ties.frustumCulled=false;
     const piers=instance('rail-piers',this.pierGeo,this.pierMat,geo.piers.length/3);
     for(let i=0;i<geo.piers.length;i+=3){const x=geo.piers[i],z=geo.piers[i+2],top=geo.piers[i+1]+3.65,bottom=this.o.heightAt(x,-z),height=Math.max(.2,top-bottom);this.dummy.position.set(x,(top+bottom)/2,z);this.dummy.rotation.set(0,0,0);this.dummy.scale.set(1,height/7.65,1);this.dummy.updateMatrix();piers.setMatrixAt(i/3,this.dummy.matrix);}this.dummy.scale.set(1,1,1);piers.instanceMatrix.needsUpdate=true;piers.computeBoundingSphere();
@@ -123,7 +124,7 @@ export class SurfaceRailLayer {
     for(const obj of unused){obj.removeFromParent();if((obj as THREE.InstancedMesh).isInstancedMesh)(obj as THREE.InstancedMesh).dispose();}
     previous?.geometries.forEach(g=>g.dispose());
     const labelKeys:string[]=[];
-    for(const facility of source.facilities??[]){let station=this.stations.get(facility.id);if(!station){station={owners:new Map(),model:null};this.stations.set(facility.id,station);}station.owners.set(path.id,{facility,path});this.placeStation(station);}
+    for(const facility of source.facilities??[]){let station=this.stations.get(facility.id);if(!station){station={owners:new Map(),model:null};this.stations.set(facility.id,station);}station.owners.set(path.id,{facility,path});this.placeStation(station,false);}
     for(const stop of path.stops){
       if(stop.name==='역')continue;
       const key=line.id+':'+stop.name,p=samplePath(path,stop.d),position=new THREE.Vector3(p.x,p.h+8,-p.y);labelKeys.push(key);
@@ -144,13 +145,15 @@ export class SurfaceRailLayer {
     for(const p of source.points){const x=(p[0]-this.o.origin.lon)*kx,y=(p[1]-this.o.origin.lat)*110540;if(Math.hypot(x-eye.x,y-eye.y)>2600)continue;h=Math.imul(h^Math.round(this.o.heightAt(x,y)*10),16777619);}
     return String(h);
   }
-  private placeStation(station:typeof this.stations extends Map<string,infer S>?S:never){
+  /** (build: false — only an existing model is refitted; a new one is built by update, one a tick) */
+  private placeStation(station:typeof this.stations extends Map<string,infer S>?S:never,build=true){
     const owner=station.owners.get(station.ownerId??'')??station.owners.values().next().value;if(!owner)return;
     const kx=111320*Math.cos(this.o.origin.lat*Math.PI/180),points=owner.facility.points;
     const x=(points.reduce((s,p)=>s+p[0],0)/points.length-this.o.origin.lon)*kx,y=(points.reduce((s,p)=>s+p[1],0)/points.length-this.o.origin.lat)*110540;
     if(Math.hypot(x-this.eye.x,y-this.eye.y)>2400)return;
     const key=stationSourceKey(owner.facility,owner.path,this.o.origin,this.o.heightAt);station.ownerId=owner.path.id;
     if(station.model&&station.key===key)return;
+    if(!station.model&&!build)return;
     station.model=stationKit(owner.facility,owner.path,this.o.origin,this.o.heightAt,station.model??undefined);station.key=key;this.group.add(station.model.group);
   }
   private placeLabel(label:{sprite:THREE.Sprite;owners:Map<string,THREE.Vector3>}){
@@ -187,18 +190,23 @@ export class SurfaceRailLayer {
       // larger band. Separate enter/leave radii avoid removal/reload oscillation.
       const retained=new Set(neededCorridors(this.manifest,lon,lat,reach+400));for(const id of this.entries.keys())if(retained.has(id))this.wanted.add(id);
       for(const[id,e]of this.entries)if(!this.wanted.has(id)){e.dispose();this.entries.delete(id);this.revision++;}
+      // (the relief under a built corridor re-hashed for one corridor a sync, in turn: every
+      // corridor's thousands of ground samples at once were the flight's longest frames)
+      const keyCheck=[...this.entries.keys()][this.keyTurn++%Math.max(1,this.entries.size)];
       for(const id of this.wanted){
         if(this.inflight.size>=BUDGET.parallel)break;
         const entry=this.entries.get(id),queued=this.jobs.some(j=>j.source.id===id)||this.running?.source.id===id;
-        if(!this.inflight.has(id)&&!queued&&(this.retryAt.get(id)??0)<performance.now()&&(!entry||Math.hypot(this.eye.x-entry.built.x,this.eye.y-entry.built.y)>450||entry.groundKey!==this.groundKey(entry.source,entry.built)))void this.fetchCorridor(id);
+        if(!this.inflight.has(id)&&!queued&&(this.retryAt.get(id)??0)<performance.now()&&(!entry||Math.hypot(this.eye.x-entry.built.x,this.eye.y-entry.built.y)>450||id===keyCheck&&entry.groundKey!==this.groundKey(entry.source,entry.built)))void this.fetchCorridor(id);
       }
       const usedLines=new Set([...this.entries.values()].map(e=>e.line.id));
       for(const[id,k]of this.kits)if(!usedLines.has(id)){k.cab.removeFromParent();k.car.removeFromParent();k.far.removeFromParent();k.cab.dispose();k.car.dispose();k.far.dispose();k.kit.dispose();this.kits.delete(id);}
       this.stats.corridors=this.entries.size;
+      // (a station's model is a long task to build: one a tick)
+      let built=false;
       for(const station of this.stations.values()){
         const owner=station.owners.get(station.ownerId??'')??station.owners.values().next().value;if(!owner)continue;const p=owner.facility.points,kx=111320*Math.cos(this.o.origin.lat*Math.PI/180),x=(p.reduce((s,p)=>s+p[0],0)/p.length-this.o.origin.lon)*kx,y=(p.reduce((s,p)=>s+p[1],0)/p.length-this.o.origin.lat)*110540;
         const distance=Math.hypot(x-this.eye.x,y-this.eye.y),near=distance<2200;
-        if(near&&!station.model)this.placeStation(station);
+        if(near&&!station.model&&!built){this.placeStation(station);built=!!station.model;}
         else if(distance>2400&&station.model){station.model.dispose();station.model=null;station.key=undefined;}
       }
     }

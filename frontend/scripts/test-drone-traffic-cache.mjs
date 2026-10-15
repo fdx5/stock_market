@@ -13,7 +13,7 @@ const Previous=load(execFileSync('git',['show','0e05c14:frontend/src/components/
 // A continuous road grade. The previous fixture jumped down three metres at every tile seam.
 const packed=(ox,oy)=>Float32Array.from(Array.from({length:12},(_,i)=>[3,16,ox,oy+i*4,ox*.01,ox+45,oy+i*4,(ox+45)*.01,ox+90,oy+i*4,(ox+90)*.01]).flat());
 test('lane choices and complete traffic frames remain deterministic across tile changes',()=>{
- const old=new Previous(341),next=new Current(341);
+ const old=new Previous(341),next=new Current(341);next.farStagger=false;
  for(const t of [old,next]){t.addTile('a',packed(0,0));t.addTile('b',packed(90,0));t.addTile('c',packed(180,0));t.addTile('d',packed(1200,-40));}
  const camera=new THREE.Vector3();
  for(let frame=0;frame<900;frame++){

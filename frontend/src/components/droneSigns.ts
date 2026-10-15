@@ -66,7 +66,7 @@ export class DroneSigns {
     for (const list of this.byTile.values()) for (const l of list) {
       const k = l.kind + ":" + l.name, near = groups.get(k)?.find(s => Math.hypot(s.x - l.x, s.y - l.y) < 600);
       if (near) { near.x = (near.x * near.n + l.x * l.n) / (near.n + l.n); near.y = (near.y * near.n + l.y * l.n) / (near.n + l.n); near.top = Math.max(near.top, l.top); if (!near.info?.pnu && l.info?.pnu) near.info = l.info; near.n += l.n; }
-      else groups.set(k, [...(groups.get(k) ?? []), { key: k, name: l.name, kind: l.kind, x: l.x, y: l.y, top: l.top, n: l.n, w: 0, info: l.info }]);
+      else { const sign = { key: k, name: l.name, kind: l.kind, x: l.x, y: l.y, top: l.top, n: l.n, w: 0, info: l.info }, list = groups.get(k); if (list) list.push(sign); else groups.set(k, [sign]); }
     }
     this.merged = [...groups.values()].flat();
     this.dirty = false;

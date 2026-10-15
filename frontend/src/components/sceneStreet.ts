@@ -291,6 +291,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     for(const[a,b]of blocked){if(b<=cursor||a>=s1)continue;if(a>cursor)spans.push([cursor,Math.min(a,s1)]);cursor=Math.max(cursor,b);}
     if(cursor<s1)spans.push([cursor,s1]);coverage.push({road:ri,lanes,length:total,spans});
     for(const[a,b]of spans){
+      if (r.oneway) continue;
       if (lanes >= 4) { strip(yellow, 0.17, 0.15, a,b); strip(yellow, -0.17, 0.15,a,b); }
       else if (lanes >= 2) strip(yellow, 0, 0.15,a,b);
     }

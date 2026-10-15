@@ -27,6 +27,8 @@ import { textureBudgetEnabled } from "./textureBudget";
 import {paintedTexture} from './paintedTexture';
 import { SeaCoverage, seaOutsideBox } from './coastGeometry';
 import { bridgeTileLanes } from './bridgeDeck';
+import { PlantPool } from './dronePlantPool';
+import { structureChains } from './bridgeChains';
 
 /* The drone's world past the view's own neighbourhood (ComplexHologram: the complex, its 600 m
  * ring of buildings and the ±680 m land-use ground). Fixed square tiles of TILE_M, in the view's
@@ -102,6 +104,8 @@ type Tile = {
   /** its lanes for the traffic (droneRoads) */
   lanes?: Float32Array;
   baseLanes?: Float32Array;
+  /** its lanes' signal stop lines (droneRoads: per lane in baseLanes order) */
+  stops?: Float32Array;
   /** whether its buildings and its trees cast shadows now */
   castB: boolean; castP: boolean;
   surveyGroup: THREE.Group | null;
@@ -183,6 +187,9 @@ export class DroneWorld {
   private planting = 0;
   private surveying = 0;
   private shadowCheck = 0;
+  private surveyRankAt = -Infinity;
+  private chainsAt = -Infinity;
+  private surveyFreeWas = 0;
   /** Cores, bands and end walls of the surveyed towers: one material for every tile. */
   private plain = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
   /** The roads (droneRoads): asphalt and lane paint, one material each for every tile. */
@@ -195,6 +202,8 @@ export class DroneWorld {
   private paving = new THREE.MeshStandardMaterial({ color: "#a7a39b", roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
   /** The cars on them. */
   readonly traffic: DroneTraffic;
+  /** the tiles' woodland, pooled by cell (dronePlantPool) */
+  private plantPool!: PlantPool;
   readonly landmarks: Landmarks;
   private readonly kx: number;
   private readonly ky = 110540;
@@ -229,6 +238,8 @@ export class DroneWorld {
     void paintedTexture('asphalt',1024).then(map=>{if(this.disposed){map.dispose();return;}this.asphaltMap=map;this.asphalt.map=map;this.asphalt.color.set('#ffffff');this.asphalt.needsUpdate=true;});
     this.traffic = new DroneTraffic(o.seed + 31);
     this.root.add(this.traffic.group);
+    this.plantPool = new PlantPool({ addWarm: o.addWarm });
+    this.root.add(this.plantPool.root);
     // The landmarks: the palaces and stadiums in VWorld's photo-textured models, 광안대교 built.
     this.landmarks = new Landmarks({
       key: o.data.vworld_key!, lat0: o.data.center!.lat, lon0: o.data.center!.lon, hq: o.hq,
@@ -418,6 +429,14 @@ export class DroneWorld {
     this.adoptNearBuildings();
     if (!OFF.includes("sea") && !this.regionBusy && (!this.region || Math.hypot(x - this.region.x, y - this.region.y) > REGION_SEA * 0.5)) void this.regionSea(x, y);
     if (!OFF.includes("landmarks")) this.landmarks.update(x, y);
+    // The bridges' whole links and decks ahead of the tiles that will need them (bridgeChains: kept
+    // by cell for the page) — a tile's roads then find them waiting, not asked for in turn.
+    if (!OFF.includes("roads") && this.base !== null && scheduleNow - this.chainsAt > 3000) {
+      this.chainsAt = scheduleNow;
+      // (±600 m here: the chains reach 2 km past it, a dozen cells of links at most)
+      const { data } = this.o, M = 600;
+      void structureChains(data.vworld_key!, data.vworld_domain, data.center!.lat, data.center!.lon, this.base, [x - M, y - M, x + M, y + M]).catch(() => null);
+    }
     // (higher, more of the city in sight: 1.15 km low down, 1.8 km at 500 m; less on a phone — and
     // scheduled toward its predicted position ten seconds ahead)
     this.radius = Math.min(this.o.hq ? 1820 : 1260, 1155 + Math.max(0, alt) * 1.4) * this.memoryScale();
@@ -452,15 +471,25 @@ export class DroneWorld {
     let colourBusy = 0, colourNext: [number, Tile] | null = null;
     for (const t of [...this.tiles.values(), ...this.viewTiles.values()]) {
       if (t.colour === "running") colourBusy++;
-      if (!t.buildingGroup || !this.o.drawReady(t.buildingGroup) || t.colour || now < (t.colourRetryAt ?? 0) || !t.spans?.length) continue;
+      if (!t.buildingGroup || t.colour || now < (t.colourRetryAt ?? 0) || !t.spans?.length) continue;
+      // (the cheap tests first: a readiness walk of every tile's buildings on every scheduling
+      // pass was a good part of the streaming's frame time)
       const d = distToBox(x, y, t.box);
-      if (d <= colourR && (!colourNext || d < colourNext[0])) colourNext = [d, t];
+      if (d > colourR || (colourNext && d >= colourNext[0]) || !this.o.drawReady(t.buildingGroup)) continue;
+      colourNext = [d, t];
     }
     if (colourNext && colourBusy < 1) { if (NO_COLOUR) colourNext[1].colour = "done"; else void this.colourTile(colourNext[1]); }
     // Towers: their surveyed shapes, nearest to where the drone is going first, a few tiles at a
     // time (their models come over the network; the merging is the page's, in short slices).
     const surveyWant: [number, Tile][] = [];
-    for (const t of [...this.tiles.values(), ...this.viewTiles.values()]) {
+    // (ranking every building of every tile is a few ms in a dense city: four times a second is
+    // enough to keep both detail slots busy nearest-first — a finished slot is refilled at once)
+    const freeSlots = (this.o.hq ? 2 : 1) - this.surveying - [...this.tiles.values(), ...this.viewTiles.values()].filter(t => t.survey === 'placed').length;
+    // (ranked at once whenever a slot has just come free — a job done, a swap drawn — else 4 a second)
+    const surveyDue = freeSlots > 0 && (now - this.surveyRankAt > 250 || freeSlots > this.surveyFreeWas);
+    this.surveyFreeWas = freeSlots;
+    if (surveyDue) this.surveyRankAt = now;
+    if (surveyDue) for (const t of [...this.tiles.values(), ...this.viewTiles.values()]) {
       if(t.survey==='unavailable'&&now>=(t.surveyRetryAt??0))t.survey='none';
       if (!this.buildingReady(t) || t.survey !== "none" || now < (t.surveyRetryAt ?? 0) || !t.towers?.length) continue;
       if(OFF.includes('survey'))continue;
@@ -473,6 +502,7 @@ export class DroneWorld {
     for(let k=0;k<detailSlots;k++)void this.surveyTile(surveyWant[k][1]);
     // Shadows from the near tiles only (with 80 m of slack: not switched back and forth); the lane
     // paint true to size within ~260 m of the camera (its height counted), broad past it.
+    if (this.shadowCheck % 15 === 14) this.plantPool.shadows(x, y, TREE_SHADOW, TILE_M);
     if (++this.shadowCheck % 15 === 0) for (const t of this.tiles.values()) {
       const d = distToBox(x, y, t.box);
       // (the lane paint, true to size, drawn within ~700 m of the camera: past it, under a pixel)
@@ -654,12 +684,16 @@ export class DroneWorld {
       // its ground's land use and its buildings.
       const dlog = (w: string) => { if (DTRACE) console.info(`[dtile] ${t.key} ${w} ${Math.round(performance.now())}`); };
       dlog("start");
-      const roadJob = t.inner || OFF.includes("roads") ? Promise.resolve(null) : roadTile(data.center!.lat, data.center!.lon, data.vworld_key!, data.vworld_domain, t.box, grid, grids.wide, stop.signal,
-        { lat: data.center!.lat + t.cy / this.ky, lon: data.center!.lon + t.cx / this.kx }, this.roadExtras(t));
+      // (its bridges whole, bank to bank: the same deck as the view's and every other tile's —
+      // unanswered, the tile is tried again rather than drawing a deck of its own)
+      const roadJob = t.inner || OFF.includes("roads") ? Promise.resolve(null) : this.baseHeight()
+        .then(b => b === null ? null : structureChains(data.vworld_key!, data.vworld_domain, data.center!.lat, data.center!.lon, b, t.box, stop.signal))
+        .then(chains => chains === null || stop.signal.aborted ? null : roadTile(data.center!.lat, data.center!.lon, data.vworld_key!, data.vworld_domain, t.box, grid, grids.wide, stop.signal,
+          { lat: data.center!.lat + t.cy / this.ky, lon: data.center!.lon + t.cx / this.kx }, { ...this.roadExtras(t), chains }));
       const tileLat = data.center!.lat + t.cy / this.ky, tileLon = data.center!.lon + t.cx / this.kx;
       const localTerrain: Terrain = { at: local, base: r => Math.min(...r.map(([x, y]) => local(x, y))), relief: 0, elevation: null, source: "drone tile", grid };
       groundJob = t.inner || OFF.includes("ground") ? Promise.resolve(null) : farGround({ ...data, center: { lat: tileLat, lon: tileLon }, roads: [] } as RealEstateBuildingsResponse, localTerrain,
-        { half: TILE_M / 2, size: hq ? 1024 : 512, lawn: this.season.lawn, paddy: this.season.paddy, landscape: textureBudgetEnabled(), nearHalf: 0, footprints: [], signal: stop.signal, rivers: true, lakes: true, water: sea });
+        { half: TILE_M / 2, size: hq ? 1024 : 512, lawn: this.season.lawn, paddy: this.season.paddy, landscape: textureBudgetEnabled(), nearHalf: 0, footprints: [], signal: stop.signal, rivers: true, lakes: true, water: sea, waterSurface: !OFF.includes('rivers') });
       void roadJob.then(() => dlog("roads done")); void groundJob.then(() => dlog("ground done"));
       const ring = OFF.includes("ring") ? null : await ringTile(data.center!.lat, data.center!.lon, data.vworld_key!, data.vworld_domain, t.box, grid,
         { inner: this.o.extent.ring, floorM: CONTEXT_FLOOR_M, seed: this.o.seed + t.i * 7919 + t.j * 104729, heightCell: 2, signal: stop.signal });
@@ -750,6 +784,7 @@ export class DroneWorld {
         const lanes = roads.lanes;
         t.lanes = lanes;
         t.baseLanes = lanes;
+        t.stops = roads.stops;
       }
       this.buildings += ring.buildings;
       t.dispose.push(() => { this.buildings -= ring.buildings; });
@@ -774,6 +809,8 @@ export class DroneWorld {
         groundClaimed = true;
         if (!await this.pace(true)) return;
         if (!OFF.includes("sea")) await this.seaOn(t, ground, localTerrain, stop.signal);
+        if (stop.signal.aborted || this.disposed) return;
+        if (!OFF.includes("rivers") && fg.water.length) await this.riverOn(t, ground, localTerrain, fg.water, stop.signal);
         if (stop.signal.aborted || this.disposed) return;
         // Buildings stream independently, but uncorrected terrain must not flash
         // above the water while its coast worker is still running.
@@ -906,7 +943,7 @@ export class DroneWorld {
     const base = t.baseLanes ?? new Float32Array();
     const lanes = new Float32Array(base.length + extra.length);
     lanes.set(base); lanes.set(extra, base.length); t.lanes = lanes;
-    if (lanes.length) this.traffic.addTile(t.key, lanes);
+    if (lanes.length) this.traffic.addTile(t.key, lanes, t.stops);
     else this.traffic.removeTile(t.key);
   }
 
@@ -1047,6 +1084,64 @@ export class DroneWorld {
     t.yup = yup;
     t.materials.push(water.mesh.material as THREE.Material);
     t.dispose.push(() => water.dispose());
+  }
+
+  /** The tile's rivers, streams and ponds as the view's own water (sceneWater: the same surface,
+   * waves, reflections and depth): the open-water parcels and stream areas, the channel where the
+   * relief is within 0.7 m of its lowest; the ground under it lowered below the surface, so the
+   * water's edge is where the surveyed banks rise out of it. Not where the sea already is. */
+  private async riverOn(t: Tile, ground: THREE.BufferGeometry, terrain: Terrain, water: { ring: [number, number][]; holes: [number, number][][] }[], signal: AbortSignal) {
+    const H = TILE_M / 2;
+    const seaRings = (t.seaBody?.rings ?? []).filter(w => w.kind === 'sea').map(w => w.ring);
+    const parcels: RealEstateParcel[] = water.map(w => ({ kind: '천', ring: w.ring, holes: [...w.holes, ...seaRings], open: [-H, -H, H, H] }));
+    const made = await buildWater(parcels, parcels.map(() => false), terrain, () => this.pace());
+    if (!made || signal.aborted || this.disposed) { made?.dispose(); return; }
+    // the ground under the water (view frame vertices; the field is about the tile's centre)
+    const p = ground.getAttribute('position') as THREE.BufferAttribute, nor = ground.getAttribute('normal') as THREE.BufferAttribute;
+    const skirt = ground.userData.skirtGrid as { row: number; cell: number } | undefined;
+    let changed = false;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i) - t.cx, y = p.getY(i) - t.cy;
+      if (!made.field.wet(x, y)) continue;
+      // (deepening away from the bank, 0.35 m at it to 1.5 m 12 m out: the bed under open water
+      // reads as depth, not as the land-use picture under a film of water)
+      const z = made.field.level(x, y) - Math.min(1.5, 0.35 + 0.1 * made.field.shore(x, y)) - (skirt && i >= skirt.row * skirt.row ? 4 : 0);
+      if (p.getZ(i) > z) { p.setZ(i, z); changed = true; }
+    }
+    if (changed && skirt) {
+      // (the grid's normals again from its own heights: the skirt never bends them)
+      const { row } = skirt;
+      for (let j = 0; j < row; j++) for (let i = 0; i < row; i++) {
+        const k = j * row + i, l = j * row + Math.max(0, i - 1), r = j * row + Math.min(row - 1, i + 1), d = Math.max(0, j - 1) * row + i, u = Math.min(row - 1, j + 1) * row + i;
+        const nx = (p.getZ(l) - p.getZ(r)) / ((p.getX(r) - p.getX(l)) || 1), ny = (p.getZ(d) - p.getZ(u)) / ((p.getY(u) - p.getY(d)) || 1), L = Math.hypot(nx, ny, 1);
+        nor.setXYZ(k, nx / L, ny / L, 1 / L);
+      }
+      p.needsUpdate = nor.needsUpdate = true; ground.computeBoundingSphere();
+    }
+    // No road under the water's surface: a road the data lays across the channel at the relief's
+    // height (the water's own, there) is kept over it — its paving, paint, kerbs and lanes.
+    const over = (x: number, y: number) => { const lx = x - t.cx, ly = y - t.cy; return made.field.wet(lx, ly) ? made.field.level(lx, ly) + 0.3 : -Infinity; };
+    for (const m of t.zup?.children ?? []) {
+      const mesh = m as THREE.Mesh, mat = mesh.material as THREE.Material;
+      if (!mesh.isMesh || (mat !== this.asphalt && mat !== this.paint && mat !== this.paving)) continue;
+      const lift = mat === this.paint ? 0.08 : mat === this.paving ? 0.15 : 0;
+      const pp = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+      let moved = false;
+      for (let i = 0; i < pp.count; i++) { const want = over(pp.getX(i), pp.getY(i)) + lift; if (pp.getZ(i) < want) { pp.setZ(i, want); moved = true; } }
+      if (moved) { pp.needsUpdate = true; mesh.geometry.computeBoundingSphere(); }
+    }
+    for (const lanes of [t.baseLanes]) if (lanes) for (let o = 0; o < lanes.length;) {
+      const n = lanes[o]; for (let i = 0; i < n; i++) { const k = o + 2 + i * 3, want = over(lanes[k], lanes[k + 1]) + 0.08; if (lanes[k + 2] < want) lanes[k + 2] = want; } o += 2 + n * 3;
+    }
+    made.mesh.name = 'drone tile river';
+    const yup = t.yup ?? new THREE.Group();
+    if (!t.yup) { yup.name = `drone tile ${t.key} water`; yup.position.set(t.cx, 0, -t.cy); }
+    yup.add(made.mesh);
+    yup.updateMatrixWorld(true);
+    staticSceneTransforms(yup);
+    t.yup = yup;
+    t.materials.push(made.mesh.material as THREE.Material);
+    t.dispose.push(() => made.dispose());
   }
 
   /** The tile's ground: a 4 m grid on its relief, uv over the land-use picture (north at v 0),
@@ -1347,6 +1442,8 @@ export class DroneWorld {
       yup.add(plants.mesh);
       yup.updateMatrixWorld(true);
       staticSceneTransforms(yup);
+      // (its woodland drawn from its cell's pooled meshes)
+      this.plantPool.adopt(t.key, t.i, t.j, yup);
       plants.mesh.traverse(o => { const m = (o as THREE.Mesh).material; if (m) for (const x of Array.isArray(m) ? m : [m]) entry.materials.push(x); });
       entry.group = yup; entry.dispose = () => plants.dispose();
       if (!t.castP) castShadows(yup, false);
@@ -1358,6 +1455,7 @@ export class DroneWorld {
     const p = t.plants;
     if (!p) return;
     t.plants = null;
+    this.plantPool.release(t.key);
     if (p.group) this.root.remove(p.group);
     if (p.materials.length) this.o.forget?.(new Set(p.materials));
     p.dispose();
@@ -1373,7 +1471,7 @@ export class DroneWorld {
     for (const g of [t.zup, t.yup]) if (g) this.root.remove(g);
     if (t.materials.length) this.o.forget?.(new Set(t.materials));
     for (const f of t.dispose) f();
-    t.zup = t.yup = null; t.materials = []; t.dispose = []; t.roofs = null; t.surveyGroup = null; t.styleGeo = {}; t.lanes = t.baseLanes = undefined;
+    t.zup = t.yup = null; t.materials = []; t.dispose = []; t.roofs = null; t.surveyGroup = null; t.styleGeo = {}; t.lanes = t.baseLanes = t.stops = undefined;
     t.survey = "none"; t.colour = undefined; t.towers = null; t.spans = undefined; t.spanRings = undefined;t.appearances=undefined;
     t.buildingGroup = undefined; t.surveyHidden = undefined; t.surveyPaint = undefined;t.surveyDeferred=undefined;t.surveyGeos=undefined;t.surveyStore=undefined;
     t.planting = null; t.local = null; t.marks = undefined; t.fine = undefined; t.walkPaths = undefined;
@@ -1393,6 +1491,7 @@ export class DroneWorld {
     this.coastJobs.dispose();
     this.terrainJobs.dispose();
     this.landmarks.dispose();
+    this.plantPool.dispose();
     this.o.forget?.(new Set([this.plain, this.asphalt, this.paint, this.concrete, this.paving, ...this.traffic.materials()]));
     this.plain.dispose(); this.asphalt.dispose(); this.paint.dispose(); this.concrete.dispose(); this.paving.dispose();
     this.asphaltMap?.dispose();this.asphaltMap=null;

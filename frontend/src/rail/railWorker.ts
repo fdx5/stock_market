@@ -56,10 +56,23 @@ export function railGeometry(p:RailPath,l:RailLine,eye:{x:number;y:number},radiu
   return {bed:new Float32Array(bed),steel:new Float32Array(steel),ties:new Float32Array(ties),piers:new Float32Array(piers),wire:new Float32Array(wire),poles:new Float32Array(poles)};
 }
 
+/** Non-indexed triangles' face normals, as three's computeVertexNormals gives them. */
+export function flatNormals(p:Float32Array){
+  const n=new Float32Array(p.length);
+  for(let i=0;i+8<p.length;i+=9){
+    const ax=p[i+3]-p[i],ay=p[i+4]-p[i+1],az=p[i+5]-p[i+2],bx=p[i+6]-p[i],by=p[i+7]-p[i+1],bz=p[i+8]-p[i+2];
+    let x=ay*bz-az*by,y=az*bx-ax*bz,z=ax*by-ay*bx;const l=Math.hypot(x,y,z)||1;x/=l;y/=l;z/=l;
+    for(let k=0;k<9;k+=3){n[i+k]=x;n[i+k+1]=y;n[i+k+2]=z;}
+  }
+  return n;
+}
+
 if(typeof self!=='undefined'&&typeof document==='undefined')self.onmessage=(e:MessageEvent)=>{
   const {id,corridor,origin,ground,denseGround,line,eye,radius}=e.data as {id:number;corridor:RailCorridor;origin:{lon:number;lat:number};ground:number[];denseGround?:Float32Array;line:RailLine;eye:{x:number;y:number};radius:number};
   try{
-    const path=preparePath(corridor,origin,ground,denseGround),geometry=railGeometry(path,line,eye,radius,corridor.overhead);
+    const path=preparePath(corridor,origin,ground,denseGround),geometry:Record<string,Float32Array>=railGeometry(path,line,eye,radius,corridor.overhead);
+    // (the ribbons' flat normals here: on the page they were a long task as each corridor came in)
+    for(const name of ['bed','steel','wire'])geometry[name+'Normal']=flatNormals(geometry[name]);
     self.postMessage({id,path,geometry}, {transfer:[path.points.buffer,...Object.values(geometry).map(a=>a.buffer)]});
   }catch(error){self.postMessage({id,error:String(error)});}
 };
