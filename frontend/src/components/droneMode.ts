@@ -18,8 +18,8 @@ import {CoastGeometryJobs} from './coastGeometryJobs';
 /* 드론 mode of the 3D view (ComplexHologram): the flight, the world streamed round it and the
  * sound, set up over the view's own scene and taken down again. While it lasts:
  *   - the camera is the drone's (a wide lens, a near plane for 2 m over the ground);
- *   - the view's own ground keeps to its land-use square (its haze-fading skirt to the horizon
- *     moves 30 m down, the backdrop past the drone's tiles: the tiles lie on the real relief);
+ *   - the view's own ground keeps to its land-use square; actual DEM tiles supply the ground
+ *     beyond it, without an extrapolated departure-area sheet over the destination;
  *   - the sky's clouds are crisp and the sun shows its corona (droneSky). */
 
 export type DroneHud = {
@@ -50,7 +50,6 @@ export class DroneSession {
   private crowd: { c: NonNullable<Awaited<ReturnType<typeof buildWalkers>>>; x: number; y: number } | null = null;
   private crowdBusy = false;
   private groundBackup: THREE.BufferGeometry | null = null;
-  private backdrop: THREE.Mesh | null = null;
   private trafficFilters = new Map<Record<string, any>, any>();
   private saved: { fov: number; near: number; far: number } | null = null;
   private sky = 0;
@@ -117,15 +116,14 @@ export class DroneSession {
     void this.audio.start();
   }
 
-  /** The view's own ground: everything past its land-use square (the skirt fading to the haze)
-   * pulled in to the square's edge, and kept as a backdrop 30 m below (past the drone's tiles,
-   * the horizon). Undone on leaving. */
+  /** Keep only the departure area's surveyed square. The broad extrapolated
+   * skirt must not survive as another ground layer: lowering it by 30 m still
+   * covers real destination terrain in lower valleys. Restored on leaving. */
   private keepGroundToSquare() {
     const g = this.p.ground;
     if (!g) return;
     const H = this.p.extent.farHalf;
     this.groundBackup = g.geometry;
-    const back = g.geometry.clone();
     g.updateWorldMatrix(true, false);
     // Exact clipping replaces collapsed outer faces, which formed dark vertical seams.
     // (off the page, in the coast worker: on the page it held the drone's first frame 60 ms; the
@@ -137,14 +135,6 @@ export class DroneSession {
       if (this.ended || g.geometry !== source) { geo.dispose(); return; }
       g.geometry = geo;
     });
-    const mesh = new THREE.Mesh(back, g.material);
-    mesh.rotation.copy(g.rotation);
-    mesh.position.copy(g.position);
-    mesh.position.y -= 30;
-    mesh.name = "drone backdrop";
-    mesh.updateMatrixWorld();
-    this.backdrop = mesh;
-    this.p.scene.add(mesh);
   }
 
   private coastJobs = new CoastGeometryJobs();
@@ -157,7 +147,7 @@ export class DroneSession {
     // (the cut ground sunk, never the view's own kept for the end)
     await this.groundCut;
     if (this.ended || stop.signal.aborted) return;
-    for (const mesh of [this.p.ground, this.backdrop]) {
+    for (const mesh of [this.p.ground]) {
       if (!mesh || !this.groundBackup) continue;
       const geometry=mesh.geometry;
       if(field.coast&&geometry.index){
@@ -470,7 +460,6 @@ export class DroneSession {
       ground.geometry = this.groundBackup;
     }
     this.groundBackup = null;
-    if (this.backdrop) { scene.remove(this.backdrop); this.backdrop.geometry.dispose(); this.backdrop = null; }
     for (const [traffic, previous] of this.trafficFilters) traffic.placementFilter = previous;
     this.trafficFilters.clear();
     if (this.saved) { camera.fov = this.saved.fov; camera.near = this.saved.near; camera.far = this.saved.far; camera.updateProjectionMatrix(); }
