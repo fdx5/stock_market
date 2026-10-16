@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import "./workerCpuRaster";
-import { fieldFrom, gridAt, waterField, waterSurface, type FieldData, type HeightGrid, type WaterArrays } from "./waterCore";
+import { fieldFrom, gridAt, surfaceRings, waterField, waterSurface, type FieldData, type HeightGrid, type WaterArrays } from "./waterCore";
 import { groundCanvasSteps, runNow, seasonNow, waterCovered, type Lamp, type Planting } from "./complexScene";
 import type { RealEstateBuildingsResponse, RealEstateRoad, RealEstateParcel } from "../api/client";
 import { findBridges, type Bridge } from "./sceneBridges";
@@ -33,7 +33,7 @@ export type SceneOps = {
   terrainGround: {args:{T:number;G:number;segs:number;grid:HeightGrid|null};result:{position:Float32Array;normal:Float32Array;uv:Float32Array;index:Uint16Array|Uint32Array;grid:{xs:Float64Array;ys:Float64Array};sphere:{center:[number,number,number];radius:number}}};
   bridges: { args: { roads: RealEstateRoad[]; parcels: RealEstateParcel[]; covered: boolean[]; grid: HeightGrid | null; water?: FieldData; sea?: FieldData }; result: Bridge[] };
   sidewalks: { args: { roads: RealEstateRoad[]; footprints: [number, number][][] }; result: Run[] };
-  water: { args: { rings: [number, number][][]; holes?:[number,number][][]; grid: HeightGrid | null; sea?: boolean[]; open?: [number, number, number, number] | null; seaDatum?: number | null }; result: { field: FieldData; surface: WaterArrays | null } | null };
+  water: { args: { rings: [number, number][][]; holes?:[number,number][][]; grid: HeightGrid | null; sea?: boolean[]; open?: [number, number, number, number] | null; seaDatum?: number | null; clip?: number }; result: { field: FieldData; surface: WaterArrays | null } | null };
   ground: { args: { data: GroundData; T: number; size: number; seed: number; landscape?: boolean; grid?: HeightGrid }; result: { color: ImageBitmap; rough: ImageBitmap; glow: ImageBitmap; planting: Planting; lamps: Lamp[]; covered: boolean[] } };
 };
 type Msg = { [K in keyof SceneOps]: { id: number; op: K; args: SceneOps[K]["args"] } }[keyof SceneOps];
@@ -41,11 +41,12 @@ type Msg = { [K in keyof SceneOps]: { id: number; op: K; args: SceneOps[K]["args
 // (the whole job at once: nothing here waits on frames)
 const go = async () => true;
 
-async function water({ rings, holes=[], grid, sea=[], open=null, seaDatum=null }: SceneOps["water"]["args"]): Promise<[SceneOps["water"]["result"], Transferable[]]> {
+async function water({ rings, holes=[], grid, sea=[], open=null, seaDatum=null, clip }: SceneOps["water"]["args"]): Promise<[SceneOps["water"]["result"], Transferable[]]> {
   const at = grid ? gridAt(grid) : () => 0;
   const field = await waterField(rings, at, go, holes, sea, open, seaDatum);
   if (!field) return [null, []];
-  const surface = await waterSurface(rings, fieldFrom(field, at), go, holes, sea);
+  const cut = surfaceRings(rings, holes, sea, clip);
+  const surface = await waterSurface(cut.rings, fieldFrom(field, at), go, cut.holes, cut.sea);
   const transfer: Transferable[] = [field.lvl.buffer, field.wet.buffer, field.dist.buffer];
   if (surface) for (const a of Object.values(surface)) transfer.push(a.buffer);
   return [{ field, surface }, transfer];

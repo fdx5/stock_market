@@ -69,12 +69,14 @@ export class DroneSession {
     nearBuildings?: () => NearBuildingSource | undefined;
     stationLabels?:()=>DroneLabel[]|undefined;
     onSeaReady?:(field:WaterField)=>void;
+    /** the view's own water (its rivers' field), once it is made */
+    viewRiver?:()=>WaterField|null;
     /** the drone's sky, 0…1 (both renderers), and its distance haze (start, end; m) */
     setSky: (k: number, fog?: [number, number]) => void;
     onHud: (h: DroneHud) => void;
   }) {
     this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees, viewBuildings:p.viewBuildings,nearBuildings:p.nearBuildings,
-      viewWater: () => { const water: THREE.Mesh[] = []; for (const root of p.scene.children) if (root !== this.world.root) root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && !Array.isArray(m.material) && m.material.userData.water && m.geometry.getAttribute('aSea')) water.push(m); }); return water; },
+      viewWater: () => this.viewWater(),
       onSeaReady: field => { void this.sinkSeaGround(field); p.onSeaReady?.(field); },
       onLabels: (k, l) => this.signs.set(k, l) });
   }
@@ -210,6 +212,94 @@ export class DroneSession {
   }
   private restoreView() { if (this.viewHidden) { for (const o of this.viewHidden) o.visible = true; this.viewHidden = null; } }
 
+  /** The view's rivers drawn as the tiles' are while the drone flies (droneWorld.riverOn): their
+   * waves in world metres and one direction — along their own channel, each met the tiles' surface
+   * at the square's edge in a line. Put back as they were at the end. */
+  private viewWater() { const water: THREE.Mesh[] = []; for (const root of this.p.scene.children) if (root !== this.world.root) root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && !Array.isArray(m.material) && m.material.userData.water && m.geometry.getAttribute('aSea')) water.push(m); }); return water; }
+  private waterKept = new Map<THREE.BufferGeometry, { uv: Float32Array; flow: Float32Array }>();
+  private waterAt = 0;
+  private matchViewWater() {
+    // (a walk of the view's scene: every second while its water may still be on the way, then
+    // every ten)
+    const now = performance.now();
+    if (now - this.waterAt < (this.waterKept.size ? 10000 : 1000)) return;
+    this.waterAt = now;
+    const v = new THREE.Vector3();
+    for (const m of this.viewWater()) {
+      const g = m.geometry;
+      if (this.waterKept.has(g)) continue;
+      const pos = g.getAttribute('position') as THREE.BufferAttribute, uv = g.getAttribute('uv') as THREE.BufferAttribute | undefined,
+        flow = g.getAttribute('aFlow') as THREE.BufferAttribute | undefined, sea = g.getAttribute('aSea') as THREE.BufferAttribute | undefined;
+      if (!uv || !flow) continue;
+      this.waterKept.set(g, { uv: (uv.array as Float32Array).slice(), flow: (flow.array as Float32Array).slice() });
+      m.updateWorldMatrix(true, false);
+      for (let i = 0; i < pos.count; i++) {
+        if (sea && sea.getX(i) > 0.5) continue;
+        v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+        uv.setXY(i, v.x, -v.z); flow.setXY(i, -0.6, 0.8);
+      }
+      uv.needsUpdate = flow.needsUpdate = true;
+      void this.cutViewWater(m);
+    }
+  }
+  /** The view's water cut to its square exactly (off the page), as each tile's is to its own:
+   * its arrays swapped in the live geometry (as sinkSeaGround's), the originals kept for the end. */
+  private waterCut = new Map<THREE.BufferGeometry, { attributes: Record<string, THREE.BufferAttribute | THREE.InterleavedBufferAttribute>; index: THREE.BufferAttribute | null; sphere: THREE.Sphere | null }>();
+  private async cutViewWater(m: THREE.Mesh) {
+    const H = this.p.extent.farHalf, g = m.geometry, sea = g.getAttribute('aSea') as THREE.BufferAttribute | undefined;
+    if (!sea || !g.index || this.waterCut.has(g)) return;
+    // (rivers only: a sea's edge with the tiles' is the sea coverage's work)
+    const was = (sea.array as Float32Array).slice();
+    if (was.some(v => v >= 0.5)) return;
+    // (the cut keeps the sea's triangles in the box: the rivers' too, marked so for it)
+    (sea.array as Float32Array).fill(1);
+    const cut = await this.coastJobs.cut(g, [-H, -H, H, H], m.matrixWorld, true, this.seaStop.signal).catch(() => null);
+    (sea.array as Float32Array).set(was);
+    if (!cut) return;
+    if (this.ended || m.geometry !== g || this.waterCut.has(g)) { cut.dispose(); return; }
+    (cut.getAttribute('aSea') as THREE.BufferAttribute | undefined)?.array.fill(0);
+    this.waterCut.set(g, { attributes: { ...g.attributes }, index: g.index, sphere: g.boundingSphere?.clone() ?? null });
+    for (const [name, a] of Object.entries(cut.attributes)) g.setAttribute(name, a);
+    g.setIndex(cut.index); g.boundingSphere = cut.boundingSphere; g.boundingBox = null;
+  }
+  /** The river bed under the view's water laid as the tiles' is (droneWorld.riverOn): 0.35 m under
+   * the surface at the bank, deeper out to 3 m — under the view's own 0.35 m everywhere, its water
+   * read paler than the tiles' at the square's edge. On the drone's copy of the ground, in slices. */
+  private bedAt = 0;
+  private bedDone = false;
+  private layViewBed() {
+    if (this.bedDone || this.ended) return;
+    const g = this.p.ground, f = this.p.viewRiver?.();
+    if (!g || !f || !this.groundBackup || g.geometry === this.groundBackup) return;
+    const p = g.geometry.getAttribute('position') as THREE.BufferAttribute, oy = g.position.y;
+    const end = Math.min(p.count, this.bedAt + 6000);
+    let changed = false;
+    for (let i = this.bedAt; i < end; i++) {
+      const x = p.getX(i), y = p.getY(i);
+      if (!f.wet(x, y) && !f.wet(x + 4, y) && !f.wet(x - 4, y) && !f.wet(x, y + 4) && !f.wet(x, y - 4)) continue;
+      const z0 = p.getZ(i) + oy, L = f.level(x, y);
+      const sh = f.shore(x, y), bed = L - Math.min(3, 0.35 + 0.15 * sh), k = sh > 6 && f.wet(x, y) ? 1 : Math.max(0, Math.min(1, (L + 0.4 - z0) / 0.4));
+      if (!k || z0 <= bed) continue;
+      p.setZ(i, z0 + k * (bed - z0) - oy); changed = true;
+    }
+    this.bedAt = end;
+    if (changed) p.needsUpdate = true;
+    if (end >= p.count) { this.bedDone = true; g.geometry.computeVertexNormals(); g.geometry.computeBoundingSphere(); }
+  }
+  private restoreWater() {
+    for (const [g, k] of this.waterCut) {
+      for (const [name, a] of Object.entries(k.attributes)) g.setAttribute(name, a);
+      g.setIndex(k.index); g.boundingSphere = k.sphere; g.boundingBox = null;
+    }
+    this.waterCut.clear();
+    for (const [g, k] of this.waterKept) {
+      const uv = g.getAttribute('uv') as THREE.BufferAttribute | undefined, flow = g.getAttribute('aFlow') as THREE.BufferAttribute | undefined;
+      if (uv && uv.array.length === k.uv.length) { (uv.array as Float32Array).set(k.uv); uv.needsUpdate = true; }
+      if (flow && flow.array.length === k.flow.length) { (flow.array as Float32Array).set(k.flow); flow.needsUpdate = true; }
+    }
+    this.waterKept.clear();
+  }
+
   /** One frame (dt in seconds; the view w × h CSS pixels). */
   tick(dt: number, viewW: number, viewH: number) {
     const f = this.flight, w = this.world, T = this.timing, t0 = performance.now();
@@ -227,6 +317,8 @@ export class DroneSession {
       if (see) this.crowd.c.update(dt, this.p.camera);
     }
     this.viewCull(x, y);
+    this.matchViewWater();
+    this.layViewBed();
     const t4 = performance.now();
     this.clock += dt;
     if (this.view === "chase") this.chase(dt);
@@ -333,6 +425,7 @@ export class DroneSession {
     const { camera, scene, ground } = this.p;
     this.ended = true;
     this.restoreView();
+    this.restoreWater();
     this.seaStop.abort();this.coastJobs.dispose();
     this.flight.setAutopilot(false);
     this.flight.setAutoRotate(false);

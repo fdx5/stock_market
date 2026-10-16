@@ -1260,6 +1260,9 @@ export interface RealEstateRoad {
   profile_line?: [number, number][];
   /** A chained bridge's deck along profile_line (bridgeChains.ts): stations (m) and heights (view frame). */
   profile_s?: number[]; profile_z?: number[];
+  /** A road at grade a bridge's deck runs on along (its approach to the bank: bridgeChains): that
+   * deck's line, stations and heights — the road is laid no lower than it. */
+  lift_line?: [number, number][]; lift_s?: number[]; lift_z?: number[];
   /** One direction of travel only (a road drawn from one official link: roadLinkFallback.ts). */
   oneway?: boolean;
 }

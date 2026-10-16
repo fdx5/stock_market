@@ -5,7 +5,7 @@ import {woodlandBeds,woodlandPatchPattern,WOODLAND_FLOWERS}from'./landscapeDiver
 import {woodedTerrain}from'./woodlandTerrain';
 import { palaceGardens, palaceParcelGarden, palaceGardenCover, paintPalaceGarden, type PalaceGarden, type PalaceGardenPlanting } from './palaceGardens';
 import {jamsilTreeMask,withoutStadiumTrees} from './stadiumPlanting';
-import {dryTerraces, levelWater} from './waterCore';
+import {dryTerraces, levelWater, floorField} from './waterCore';
 
 /* The ground out to 1 km in its land use (연속지적도 지목), under the 1 km ring of buildings: past
  * the view's own painted square the ground was one plain colour fading into the haze. Each parcel
@@ -79,14 +79,18 @@ function farWorkerMain() {
     // The open water's outlines for the drone's water surface (the page's sceneWater): the water
     // parcels and the stream network's areas, cut to the picture (its edges no shore there).
     const waterOut: { ring: number[][]; holes: number[][][] }[] = [];
+    // (12 m past the picture's edge — past the water rules' own windows: the surface is built over
+    // its edge and cut exactly to it on the page. Built only to the edge, its last metres were taken
+    // for a bank — a strip of bed and shore colour along every tile's edge)
+    const reach = half + 12;
     const clip = (ring: number[][]) => {
       let pts = ring;
       for (const [axis, side] of [[0, -1], [0, 1], [1, -1], [1, 1]]) {
         if (!pts.length) break;
-        const inside = (p: number[]) => side * p[axis] <= half, out: number[][] = [];
+        const inside = (p: number[]) => side * p[axis] <= reach, out: number[][] = [];
         for (let k = 0; k < pts.length; k++) {
           const a = pts[(k + pts.length - 1) % pts.length], b = pts[k];
-          if (inside(a) !== inside(b)) { const t = (side * half - a[axis]) / (b[axis] - a[axis]); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+          if (inside(a) !== inside(b)) { const t = (side * reach - a[axis]) / (b[axis] - a[axis]); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
           if (inside(b)) out.push(b);
         }
         pts = out;
@@ -274,8 +278,10 @@ function farWorkerMain() {
         if (g) {
           const n = g.n, wetNode = new Uint8Array(n * n), lo = new Float32Array(n * n).fill(Infinity), r = Math.max(1, Math.round(25 / g.cell));
           for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-            const x = -g.R + i * g.cell, y = -g.R + j * g.cell, px = Math.floor(X(x)), py = Math.floor(Y(y));
-            if (px >= 0 && py >= 0 && px < S && py < S && md[(py * S + px) * 4 + 3] > 127) wetNode[j * n + i] = 1;
+            // (past the picture, the mask's nearest pixel: the rules' windows at its edge see the river
+            // go on, not end — an edge row taken for dry left a 4 m strip of parcel green under the water)
+            const x = -g.R + i * g.cell, y = -g.R + j * g.cell, px = Math.min(S - 1, Math.max(0, Math.floor(X(x)))), py = Math.min(S - 1, Math.max(0, Math.floor(Y(y))));
+            if (md[(py * S + px) * 4 + 3] > 127) wetNode[j * n + i] = 1;
           }
           for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
             let v = Infinity;
@@ -290,9 +296,9 @@ function farWorkerMain() {
           helpers.levelWater(g.h, cand, n, n, g.cell);
           // (and never 3.5 m over the lowest ground of the picture and its margin: waterCore's rule)
           {
-            const st = Math.max(1, Math.round(16 / g.cell)), R = Math.ceil(330 / (st * g.cell)), cn = Math.ceil(n / st), ch = new Float32Array(cn * cn), cf = new Float32Array(cn * cn);
+            const st = Math.max(1, Math.round(16 / g.cell)), cn = Math.ceil(n / st), ch = new Float32Array(cn * cn);
             for (let j = 0; j < cn; j++) for (let i = 0; i < cn; i++) { const v = g.h[Math.min(n - 1, j * st) * n + Math.min(n - 1, i * st)]; ch[j * cn + i] = Number.isFinite(v) ? v : Infinity; }
-            for (let j = 0; j < cn; j++) for (let i = 0; i < cn; i++) { let f = Infinity; for (let b = Math.max(0, j - R); b <= Math.min(cn - 1, j + R); b++) for (let a = Math.max(0, i - R); a <= Math.min(cn - 1, i + R); a++) { const v = ch[b * cn + a] + 0.002 * st * g.cell * Math.hypot(a - i, b - j); if (v < f) f = v; } cf[j * cn + i] = f; }
+            const cf = (self as unknown as { floorField: (h: Float32Array, nx: number, ny: number, rise: number) => Float32Array }).floorField(ch, cn, cn, 0.002 * st * g.cell);
             for (let k = 0; k < n * n; k++) if (cand[k]) { const i = Math.min(cn - 1, Math.round((k % n) / st)), j = Math.min(cn - 1, Math.round(Math.floor(k / n) / st)); if (g.h[k] > cf[j * cn + i] + 3.5) cand[k] = 0; }
           }
           helpers.dryTerraces(g.h, cand, n, n, g.cell);
@@ -399,6 +405,16 @@ function farWorkerMain() {
     }
     planting.woodlandFlowers = [...(planting.woodlandFlowers ?? []), ...gardenPlanting.flatMap(g => g.beds)];
     planting.grass = gardenPlanting.flatMap(g => g.grass);
+    // The picture's outermost pixels: what lies just inside them. Its parcels' antialiased edges
+    // left the base fill (lawn) showing in a pixel or two all round — the neighbouring tiles' ground
+    // met along a thin green line, plainest seen through the river's water.
+    {
+      const img = ctx.getImageData(0, 0, S, S), d = img.data, B = 2;
+      const copy = (to: number, from: number) => { d[to] = d[from]; d[to + 1] = d[from + 1]; d[to + 2] = d[from + 2]; d[to + 3] = d[from + 3]; };
+      for (let y = 0; y < S; y++) for (let k = 0; k < B; k++) { copy((y * S + k) * 4, (y * S + B) * 4); copy((y * S + S - 1 - k) * 4, (y * S + S - 1 - B) * 4); }
+      for (let x = 0; x < S; x++) for (let k = 0; k < B; k++) { copy((k * S + x) * 4, (B * S + x) * 4); copy(((S - 1 - k) * S + x) * 4, ((S - 1 - B) * S + x) * 4); }
+      ctx.putImageData(img, 0, 0);
+    }
     const bitmap = canvas.transferToImageBitmap();
     (self as unknown as Worker).postMessage({ bitmap, parcels, planting, gardens: gardenPlanting, water: waterOut, ms: performance.now() - t0 }, [bitmap]);
   };
@@ -422,7 +438,7 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
     size: "1000", page: String(i + 1), format: "json", callback: "farCb",
   }));
   // (one Blob URL for the page's lifetime: the drone makes these tile after tile)
-  farUrl ??= URL.createObjectURL(new Blob([`self.dryTerraces=(${dryTerraces.toString()});self.levelWater=(${levelWater.toString()});self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});self.woodlandPatchPattern=(${woodlandPatchPattern.toString()});self.palaceParcelGarden=(${palaceParcelGarden.toString()});self.palaceGardenCover=(${palaceGardenCover.toString()});self.paintPalaceGarden=(${paintPalaceGarden.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
+  farUrl ??= URL.createObjectURL(new Blob([`self.dryTerraces=(${dryTerraces.toString()});self.levelWater=(${levelWater.toString()});self.floorField=(${floorField.toString()});self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});self.woodlandPatchPattern=(${woodlandPatchPattern.toString()});self.palaceParcelGarden=(${palaceParcelGarden.toString()});self.palaceGardenCover=(${palaceGardenCover.toString()});self.paintPalaceGarden=(${paintPalaceGarden.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
 
   const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS,gardens:palaceGardens(lat,lon,H),waterSurface:opts.waterSurface,
     riverUrls: opts.rivers ? Array.from({ length: 3 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({

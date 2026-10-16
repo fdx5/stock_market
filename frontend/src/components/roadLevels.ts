@@ -56,7 +56,7 @@ export function stitchRoadSegments(input:RealEstateRoad[]):RealEstateRoad[]{
    const la=a.start?[...ra.line].reverse():ra.line,lb=b.start?rb.line:[...rb.line].reverse();
    // Keep both surveyed coordinates across a small gap; never drop the next bend.
    const line=[...la,...(distance(a.p,b.p)<1e-7?lb.slice(1):lb)];
-   next.push({...ra,line,width:Math.max(ra.width,rb.width),structure:ra.structure===rb.structure?ra.structure:'unknown',
+   next.push({...ra,...(!ra.lift_z&&rb.lift_z?{lift_line:rb.lift_line,lift_s:rb.lift_s,lift_z:rb.lift_z}:{}),line,width:Math.max(ra.width,rb.width),structure:ra.structure===rb.structure?ra.structure:'unknown',
     id:ra.id||rb.id?`${ra.id??JSON.stringify(ra.line)}|${rb.id??JSON.stringify(rb.line)}`:undefined});
    used.add(a.i);used.add(b.i);
   }
@@ -89,6 +89,8 @@ export function roadHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
  // road's ±12 m mean (never under the ground) — the streamed tiles' rule (droneRoads).
  let g=t.at(x,y);
  if(r.line.length>1){const p=nearestRoadPoint(r.line,x,y);if(p.distance<=r.width/2+3){let sum=0;for(let d=-12;d<=12;d+=4)sum+=t.at(x+p.dir[0]*d,y+p.dir[1]*d);g=Math.max(g,sum/7);}}
+ // (where a bridge's deck runs on along it to the bank, no lower than that deck)
+ if(r.lift_line&&r.lift_s&&r.lift_z){const p=nearestRoadPoint(r.lift_line,x,y);if(p.distance<=r.width/2+4&&p.along>0&&p.along<p.total)g=Math.max(g,surfaceGeometry.profileAt(r.lift_line,r.lift_s,r.lift_z,x,y));}
  // And never under the water's surface: where the data lays it across the water at the relief's
  // height (the surface's own there), it is kept over it.
  const w=t.waterAt?.(x,y);

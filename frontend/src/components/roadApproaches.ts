@@ -38,6 +38,9 @@ export function roadApproachHeight(roads: RealEstateRoad[], o: {
       }));
       if (!connected || !outside || probe < .01) continue;
       const p = o.nearest(profile, endpoint[0], endpoint[1]);
+      // (a whole bridge's deck going on past this end — to its bank, over its approach — is not
+      // brought down here: the road at grade there is laid along it instead)
+      if (road.profile_z && p.along > 2 && p.along < p.total - 2) continue;
       const direction = dx * p.dir[0] + dy * p.dir[1] >= 0 ? 1 : -1;
       const key = o.key(road), list = anchors.get(key) ?? [];
       if (!list.some(a => Math.abs(a.along - p.along) < .01 && a.direction === direction))

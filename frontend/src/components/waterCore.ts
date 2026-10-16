@@ -133,12 +133,7 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
     const G = 16, gx0 = x0 - 500, gy0 = y0 - 500, gnx = Math.ceil((nx * s + 1000) / G) + 1, gny = Math.ceil((ny * s + 1000) / G) + 1;
     const gh = new Float32Array(gnx * gny);
     for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) { const v = at(gx0 + i * G, gy0 + j * G); gh[j * gnx + i] = Number.isFinite(v) ? v : Infinity; }
-    const floorAt = new Float32Array(gnx * gny), R = Math.ceil(500 / G);
-    for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) {
-      let f = Infinity;
-      for (let b = Math.max(0, j - R); b <= Math.min(gny - 1, j + R); b++) for (let a = Math.max(0, i - R); a <= Math.min(gnx - 1, i + R); a++) { const v = gh[b * gnx + a] + 0.002 * G * Math.hypot(a - i, b - j); if (v < f) f = v; }
-      floorAt[j * gnx + i] = f;
-    }
+    const floorAt = floorField(gh, gnx, gny, 0.002 * G);
     if (!await pace()) return null;
     for (let c = 0; c < n; c++) {
       if (!wet[c]) continue;
@@ -216,6 +211,27 @@ export type WaterField = ReturnType<typeof fieldFrom>;
 /** Boats/wakes share the continuous sea datum where a tidal river overlaps it. */
 export function withSeaLevel(field:WaterField,sea:()=>WaterField|null):WaterField{
   return {...field,level:(x,y)=>{const coast=sea();return coast?.wet(x,y)?coast.level(x,y):field.level(x,y);}};
+}
+
+/** The lowest ground with the river's fall allowed: per cell, min over cells of (height + rise ×
+ * distance in cells) — two chamfer passes (8 neighbours), linear in the cells. Self-contained. */
+export function floorField(h: Float32Array, nx: number, ny: number, rise: number) {
+  const f = Float32Array.from(h), d1 = rise, d2 = rise * Math.SQRT2;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const c = j * nx + i; let v = f[c];
+      if (i > 0) v = Math.min(v, f[c - 1] + d1);
+      if (j > 0) { v = Math.min(v, f[c - nx] + d1); if (i > 0) v = Math.min(v, f[c - nx - 1] + d2); if (i < nx - 1) v = Math.min(v, f[c - nx + 1] + d2); }
+      f[c] = v;
+    }
+    for (let j = ny - 1; j >= 0; j--) for (let i = nx - 1; i >= 0; i--) {
+      const c = j * nx + i; let v = f[c];
+      if (i < nx - 1) v = Math.min(v, f[c + 1] + d1);
+      if (j < ny - 1) { v = Math.min(v, f[c + nx] + d1); if (i < nx - 1) v = Math.min(v, f[c + nx + 1] + d2); if (i > 0) v = Math.min(v, f[c + nx - 1] + d2); }
+      f[c] = v;
+    }
+  }
+  return f;
 }
 
 /** (waterField, and farGround's painting of the bed) Keeps `wet` only near the level surfaces
@@ -410,4 +426,29 @@ export function coveredStream(ring: [number, number][], lines: [number, number][
     n++; if (onBuilding(x, y)) built++;
   }
   return n > 0 && built / n > 0.33;
+}
+
+/** The rings a surface is laid over, cut to ±clip (the field is made from the rings as given — past
+ * it, so its edge is no shore): a streamed tile's water meets its neighbour's edge to edge, with
+ * no cut of the finished mesh. Sutherland–Hodgman against each side; without `clip`, as given. */
+export function surfaceRings(rings: [number, number][][], holes: [number, number][][], sea: boolean[], clip?: number) {
+  if (!clip) return { rings, holes, sea };
+  const cut = (ring: [number, number][]) => {
+    let pts = ring;
+    for (const axis of [0, 1] as const) for (const side of [-1, 1]) {
+      const bound = side * clip, out: [number, number][] = [];
+      const inside = (p: [number, number]) => side * (p[axis] - bound) <= 0;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length], ia = inside(a), ib = inside(b);
+        if (ia) out.push(a);
+        if (ia !== ib) { const t = (bound - a[axis]) / ((b[axis] - a[axis]) || 1e-9); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+      }
+      pts = out;
+      if (pts.length < 3) return pts;
+    }
+    return pts;
+  };
+  const outR: [number, number][][] = [], outS: boolean[] = [];
+  rings.forEach((r, i) => { const c = cut(r); if (c.length >= 3) { outR.push(c); outS.push(!!sea[i]); } });
+  return { rings: outR, holes: holes.map(cut).filter(h => h.length >= 3), sea: outS };
 }

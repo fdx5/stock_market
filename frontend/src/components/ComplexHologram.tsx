@@ -244,6 +244,8 @@ type Stage = {
   plantsFocus?: ((x: number, y: number) => void) & ((x: null) => void);
   /** Open water off the bridges (a driven vehicle that goes in is lost). */
   wetAt?: ((x: number, y: number) => boolean) | null;
+  /** the view's own rivers and lakes (its water's field), for the drone to lay their bed as its tiles' */
+  viewRiver?: WaterField | null;
   /** The people walking (a driven vehicle can knock them down). */
   crowds: { near(x: number, y: number, r: number): { x: number; y: number }[]; knock(w: { x: number; y: number }, vx: number, vy: number): void }[];
   /** The view's height in CSS pixels. */
@@ -355,7 +357,7 @@ function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEs
   // or the result's, where the wider ask is late.)
   const near = res.roads ? Promise.resolve(res.roads) : vworldRoads(res, res.vworld_key, res.vworld_domain).catch(() => null);
   const job = Promise.race([
-    vworldRoadsAround(res, res.vworld_key, res.vworld_domain, RING_M).then(r => (r.length ? r : near)).catch(() => near),
+    vworldRoadsAround(res, res.vworld_key, res.vworld_domain, FAR_HALF, FAR_HALF).then(r => (r.length ? r : near)).catch(() => near),
     new Promise<RealEstateRoad[] | null>(r => window.setTimeout(() => void near.then(r), 4000)),
   ]).then(async roads => {
     if(!roads?.length)return res;
@@ -3007,7 +3009,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const parcels=(data.parcels??[]).filter(p=>!['천','구'].includes(p.kind));
         // (and the sea: lakes holds only it and the beaches here)
         const sea=lakes.filter(p=>p.kind==='유');
-        return {parcels:[...parcels,...rivers.map(r=>({kind:'천',ring:r.rings[0],holes:r.rings.slice(1)})),...sea],covered:[...waterCovered({...data,parcels}),...rivers.map(()=>false),...sea.map(()=>false)]};
+        // (cut to the view's square, the drone's tiles' edge: the river goes on past it — no bank there)
+        const open:[number,number,number,number]=[-FAR_HALF-12,-FAR_HALF-12,FAR_HALF+12,FAR_HALF+12];
+        return {parcels:[...parcels,...rivers.map(r=>({kind:'천',ring:r.rings[0],holes:r.rings.slice(1),open})),...sea],covered:[...waterCovered({...data,parcels}),...rivers.map(()=>false),...sea.map(()=>false)]};
       }
       return {parcels:[...(data.parcels??[]),...lakes],covered:[...waterCovered(data),...lakes.map(()=>false)]};
     };
@@ -3315,7 +3319,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (water) {
           stage.addWarm(decor, water.mesh); if(!finalPlantsJob)disposables.push(water);
           stage.wetAt = (x, y) => water.field.wet(x, y) && deckAt?.(x, y) == null;
-          disposables.push({ dispose: () => { stage.wetAt = null; } });
+          stage.viewRiver = water.field;
+          disposables.push({ dispose: () => { stage.wetAt = null; stage.viewRiver = null; } });
           await water.sink(groundGeo);
           if(hostRef.current)hostRef.current.dataset.waterReadyAt=String(Math.round(performance.now()));
           // The breakwaters, groynes and piers: concrete crowns out of the sea, tetrapods along them.
@@ -3819,6 +3824,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       nearBuildings:()=>st.nearBuildings,
       stationLabels:()=>st.rail?.stationLabels(),
       onSeaReady:field=>st.roadSeaReady?.(field),
+      viewRiver:()=>st.viewRiver??null,
       setSky: (k, fog) => st.setDroneSky?.(k, fog), onHud: h => droneHud.current?.(h),
     });
     st.controls.enabled = false; st.controls.autoRotate = false; spinRef.current = false; setSpin(false);

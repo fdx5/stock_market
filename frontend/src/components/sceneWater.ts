@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { RealEstateParcel } from "../api/client";
 import { FLAT, gridNormals, type Terrain } from "./sceneTerrain";
-import { fieldFrom, waterField, waterSurface, type FieldData, type Pace, type WaterArrays } from "./waterCore";
+import { fieldFrom, surfaceRings, waterField, waterSurface, type FieldData, type Pace, type WaterArrays } from "./waterCore";
 import { sceneWork } from "./sceneWorkerClient";
 export type { Pace, WaterField } from "./waterCore";
 export { coveredStream } from "./waterCore";
@@ -30,7 +30,7 @@ vec2 waterGrad(vec2 p, float t) {
 }`;
 
 /** Built in slices (`pace`); null when there is no open water, or the view went away. */
-export async function buildWater(parcels: RealEstateParcel[], covered: boolean[], terrain: Terrain, pace: Pace) {
+export async function buildWater(parcels: RealEstateParcel[], covered: boolean[], terrain: Terrain, pace: Pace, opts: { clip?: number } = {}) {
   // Slivers under 300 m² are left-over strips of channelled streams, not open water.
   const open = parcels.filter((p, pi) => WATER.has(p.kind) && p.ring.length >= 3 && !covered[pi]
     && Math.abs(p.ring.reduce((acc, [x, y], i) => { const q = p.ring[(i + 1) % p.ring.length]; return acc + x * q[1] - q[0] * y; }, 0) / 2) >= 300);
@@ -42,14 +42,17 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
   // riverside complex loaded); on the page, in slices, where it can't run.
   let made: { field: FieldData; surface: WaterArrays | null } | null = null, off = false;
   const seaDatum = terrain.elevation === null ? null : -terrain.elevation;
-  const job = terrain.grid || terrain === FLAT ? sceneWork("water", { rings, holes, grid: terrain.grid ?? null, sea, open: cut, seaDatum }) : null;
+  const job = terrain.grid || terrain === FLAT ? sceneWork("water", { rings, holes, grid: terrain.grid ?? null, sea, open: cut, seaDatum, clip: opts.clip }) : null;
   if (job) {
+    // (no turn in the page's queue for it after: what is left — wrapping the worker's arrays — is
+    // a few hundredths of a millisecond, and behind the scenery's builders that turn was ~0.4 s
+    // of each streamed river tile; the caller checks it is still wanted)
     try { made = await job; off = true; } catch { made = null; }
-    if (!await pace()) return null;
   }
   if (!off) {
     const data = await waterField(rings, terrain.at, pace, holes, sea, cut, seaDatum);
-    const surface = data && await waterSurface(rings, fieldFrom(data, terrain.at), pace, holes, sea);
+    const sr = surfaceRings(rings, holes, sea, opts.clip);
+    const surface = data && await waterSurface(sr.rings, fieldFrom(data, terrain.at), pace, sr.holes, sr.sea);
     if (!data) return null;
     made = { field: data, surface };
   }

@@ -16,10 +16,11 @@ import { vworldSampler } from './sceneTerrain';
  * One profile per chain for the page's lifetime (absolute metres), shared by the view and every
  * drone tile, so tiles meet without a step. */
 
-type Link = { id: string; kind: 1 | 2; line: [number, number][] };
-export type ChainProfile = { ids: string[]; line: [number, number][]; s: number[]; z: number[] };
+type Link = { id: string; kind: number; line: [number, number][] };
+/** `core`: the stations (m) the chain's own links span — before and after it, its approaches. */
+export type ChainProfile = { ids: string[]; line: [number, number][]; s: number[]; z: number[]; core?: [number, number] };
 /** A chain in a view frame (metres east/north of the frame's centre; z over its base). */
-export type FrameChain = { ids: string[]; line: [number, number][]; s: number[]; z: number[] };
+export type FrameChain = { ids: string[]; line: [number, number][]; s: number[]; z: number[]; core?: [number, number] };
 
 const CELL = 0.02;
 const cells = new Map<string, Promise<Link[] | null>>();
@@ -97,15 +98,80 @@ export function deckProfile(g: number[], step: number, ease = 25): number[] {
   return out;
 }
 
-async function profileOf(key: string, chain: Link[]): Promise<ChainProfile | null> {
-  const line: [number, number][] = [];
+const around = new Map<string, Promise<Link[] | null>>();
+/** Every link (any type) within ~1 km of a point, kept by 0.01° cell for the page. */
+function linksAround(key: string, domain: string | null | undefined, lon: number, lat: number) {
+  const cx = Math.round(lon * 100) / 100, cy = Math.round(lat * 100) / 100, k = `${cx},${cy}`;
+  let hit = around.get(k);
+  if (!hit) {
+    hit = vworldStructureLinks(key, domain, [cx - 0.0135, cy - 0.011, cx + 0.0135, cy + 0.011], true).catch(() => null);
+    around.set(k, hit);
+    void hit.then(v => { if (!v && around.get(k) === hit) around.delete(k); });
+    if (around.size > 64) around.delete(around.keys().next().value!);
+  }
+  return hit;
+}
+
+/** A chain whose end lies short of the bank — on the 둔치, on the water — goes on along the links
+ * that continue it (any type: an approach ramp the link register calls a road), up to 600 m, to the
+ * first point 2 m over the end's ground: the bank its deck stands on. (동호대교: its bridge links end
+ * on the 둔치 by 압구정; the 16 m climb to the embankment is a road link.) No bank in reach: none. */
+async function extendToBank(key: string, domain: string | null | undefined, line: [number, number][], atStart: boolean, ids: Set<string>,
+  ground: (p: [number, number]) => number, kx: number): Promise<[number, number][]> {
+  const out: [number, number][] = [];
+  const dist = (a: number[], b: number[]) => Math.hypot((a[0] - b[0]) * kx, (a[1] - b[1]) * KY);
+  const dir = (a: number[], b: number[]) => { const x = (b[0] - a[0]) * kx, y = (b[1] - a[1]) * KY, l = Math.hypot(x, y) || 1; return [x / l, y / l]; };
+  let end = atStart ? line[0] : line[line.length - 1], outward = atStart ? dir(line[1], line[0]) : dir(line[line.length - 2], line[line.length - 1]);
+  const g0 = ground(end);
+  if (!Number.isFinite(g0)) return [];
+  let walked = 0, from: Link | null = null;
+  for (let hop = 0; hop < 4 && walked < 600; hop++) {
+    const links = await linksAround(key, domain, end[0], end[1]);
+    if (!links) break;
+    // (outward from the chain: from its far end a link starting there; from its near end one ending there)
+    let best: { pts: [number, number][]; score: number; link: Link } | null = null;
+    for (const l of links) {
+      if (ids.has(l.id) || l === from || l.kind < 0 || l.line.length < 2) continue;
+      const pts: [number, number][] = atStart ? [...l.line].reverse() : l.line;
+      // Another way in beside the chain's (a ramp met by the road it joins, at grade on the 둔치 —
+      // 마포대교's to 강변북로): the deck has come down to that road; nothing carries it further.
+      const n = pts.length, inward = dir(pts[n - 2], pts[n - 1]);
+      if (dist(pts[n - 1], end) <= 3 && inward[0] * outward[0] + inward[1] * outward[1] > 0.3) return [];
+      if (dist(pts[0], end) > 3) continue;
+      const d = dir(pts[0], pts[1]), score = d[0] * outward[0] + d[1] * outward[1];
+      if (score > 0.3 && (!best || score > best.score)) best = { pts: pts as [number, number][], score, link: l };
+    }
+    if (!best) break;
+    for (let i = 1; i < best.pts.length; i++) {
+      const a = best.pts[i - 1], b = best.pts[i], L = dist(a, b), n = Math.max(1, Math.ceil(L / 5));
+      for (let k = 1; k <= n; k++) {
+        const p: [number, number] = [a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n], h = ground(p);
+        if (!Number.isFinite(h)) return [];
+        out.push(p); walked += L / n;
+        if (h >= g0 + 2) return atStart ? out.reverse() : out;
+        if (walked >= 600) return [];
+      }
+    }
+    end = best.pts[best.pts.length - 1]; outward = dir(best.pts[best.pts.length - 2], end); from = best.link;
+  }
+  return [];
+}
+
+async function profileOf(key: string, domain: string | null | undefined, chain: Link[]): Promise<ChainProfile | null> {
+  let line: [number, number][] = [];
   for (const l of chain) for (const p of l.line) { const q = line[line.length - 1]; if (!q || q[0] !== p[0] || q[1] !== p[1]) line.push(p); }
   if (line.length < 2) return null;
   const lats = line.map(p => p[1]), lons = line.map(p => p[0]);
   const lat = (Math.min(...lats) + Math.max(...lats)) / 2, lon = (Math.min(...lons) + Math.max(...lons)) / 2, kx = kxAt(lat);
-  const radius = Math.hypot((Math.max(...lons) - Math.min(...lons)) * kx, (Math.max(...lats) - Math.min(...lats)) * KY) / 2 + 40;
-  const sampler = await vworldSampler(key, lat, lon, radius).catch(() => null);
+  const span = Math.hypot((Math.max(...lons) - Math.min(...lons)) * kx, (Math.max(...lats) - Math.min(...lats)) * KY) / 2;
+  // (the DEM round the chain and 650 m past it, for the approaches; just the chain where that is too wide)
+  const sampler = (await vworldSampler(key, lat, lon, span + 650).catch(() => null)) ?? (await vworldSampler(key, lat, lon, span + 40).catch(() => null));
   if (!sampler) return null;
+  const ground = (p: [number, number]) => sampler(p[0], p[1]);
+  const ids = new Set(chain.map(l => l.id));
+  const [head, tail] = await Promise.all([extendToBank(key, domain, line, true, ids, ground, kx), extendToBank(key, domain, line, false, ids, ground, kx)]);
+  const own = line.length;
+  line = [...head, ...line, ...tail];
   const step = 5, cum = [0];
   for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + Math.hypot((line[i][0] - line[i - 1][0]) * kx, (line[i][1] - line[i - 1][1]) * KY));
   const total = cum[cum.length - 1], s: number[] = [], g: number[] = [];
@@ -118,7 +184,7 @@ async function profileOf(key: string, chain: Link[]): Promise<ChainProfile | nul
     s.push(d); g.push(h);
     if (d >= total) break;
   }
-  return { ids: chain.map(l => l.id), line, s, z: deckProfile(g, step) };
+  return { ids: chain.map(l => l.id), line, s, z: deckProfile(g, step), core: [cum[head.length], cum[head.length + own - 1]] };
 }
 
 /** The chains of the raised links meeting a view-frame box (and their profiles), in that frame:
@@ -149,7 +215,7 @@ export async function structureChains(key: string, domain: string | null | undef
     let p = chainOf.get(l.id);
     if (!p) {
       const chain = byLink.get(l)!;
-      p = profileOf(key, chain);
+      p = profileOf(key, domain, chain);
       // (each of its links answers with the same profile from now on: one deck for every tile)
       for (const c of chain) if (!chainOf.has(c.id)) chainOf.set(c.id, p);
       void p.then(v => { if (!v) for (const c of chain) if (chainOf.get(c.id) === p) chainOf.delete(c.id); });
@@ -159,11 +225,14 @@ export async function structureChains(key: string, domain: string | null | undef
   }
   const done = await Promise.all(profiles);
   if (signal?.aborted) return null;
+  // (QA: dronedebug pages keep every chain answered, by its first link)
+  const qa = (globalThis as { __qaChains?: Map<string, ChainProfile> }).__qaChains;
+  if (qa) for (const c of done) if (c) qa.set(c.ids[0], c);
   return done.filter((c): c is ChainProfile => !!c).map(c => {
     const line = c.line.map(([x, y]) => [(x - lon0) * kx, (y - lat0) * KY] as [number, number]);
     let total = 0; for (let i = 1; i < line.length; i++) total += Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]);
     // (its stations in this frame's metres: the frame's scale differs a little from the chain's own)
     const scale = total / (c.s[c.s.length - 1] || 1);
-    return { ids: c.ids, line, s: c.s.map(v => v * scale), z: c.z.map(h => h - base) };
+    return { ids: c.ids, line, s: c.s.map(v => v * scale), z: c.z.map(h => h - base), core: c.core ? [c.core[0] * scale, c.core[1] * scale] as [number, number] : undefined };
   });
 }

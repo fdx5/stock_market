@@ -10,7 +10,7 @@ const tree=ts.createSourceFile('ComplexHologram.tsx',source,ts.ScriptTarget.Late
 const method=tree.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='withRoads').getText(tree);
 function fixture(){
  const calls={footprints:0,roads:0,context:0},roadsOf=new Map(),footprintResolvers=[];
- const scope={module:{exports:{}},Promise,RING_M:600,roadsOf,
+ const scope={module:{exports:{}},Promise,RING_M:600,FAR_HALF:680,roadsOf,
   prefetchRoadContext(){calls.context++;},
   vworldRoadFootprints(){calls.footprints++;return new Promise(resolve=>footprintResolvers.push(resolve));},
   vworldRoadsAround:async()=>{calls.roads++;return [{line:[[0,0],[40,0]],width:8,lanes:2}];},

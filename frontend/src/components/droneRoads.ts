@@ -471,6 +471,13 @@ function roadWorkerMain() {
       const a = q.line[qk - 1], b = q.line[qk], ex = b[0] - a[0], ey = b[1] - a[1], l2 = ex * ex + ey * ey || 1, t = Math.max(0, Math.min(1, ((x - a[0]) * ex + (y - a[1]) * ey) / l2));
       return Math.hypot(a[0] + ex * t - x, a[1] + ey * t - y) < q.width / 2 + m;
     });
+    // (a point on another road's carriageway at about the height z — a ramp merging, the next
+    // carriageway where two decks meet: a deck's parapet or sidewalk there stood across its lanes)
+    const onOther = (self: Piece, x: number, y: number, z: number) => (segAt.get(Math.floor(x / 15) + "," + Math.floor(y / 15)) ?? []).some(([qi, qk]) => {
+      const q = pieces[qi]; if (q === self) return false;
+      const a = q.line[qk - 1], b = q.line[qk], ex = b[0] - a[0], ey = b[1] - a[1], l2 = ex * ex + ey * ey || 1, t = Math.max(0, Math.min(1, ((x - a[0]) * ex + (y - a[1]) * ey) / l2));
+      return Math.hypot(a[0] + ex * t - x, a[1] + ey * t - y) < q.width / 2 && Math.abs(q.z[qk - 1] + (q.z[qk] - q.z[qk - 1]) * t - z) < 2.5;
+    });
     for (const r of pieces) {
       const w = r.width, lanesN = Math.max(1, r.lanes);
       const under = (k: number) => r.kind[k] < 0 || r.kind[Math.min(r.kind.length - 1, k + 1)] < 0 || r.kind[k]===3 || r.kind[Math.min(r.kind.length-1,k+1)]===3;
@@ -495,20 +502,45 @@ function roadWorkerMain() {
         // edge lines on the wider roads
         if (w >= 7) for (const side of [1, -1]) band(r, side * (w / 2 - (far ? 0.6 : 0.35)), far ? 0.8 : 0.15, lift, out, WHITE, 0, paintSkip);
       }
-      // Bridges: the slab under the deck's edges, parapets, piers every ~30 m.
+      // Bridges: the slab under the deck's edges, parapets, piers every ~30 m. (Its sidewalks on it:
+      // the slab and parapets outside them, as the view's own bridges have them.)
+      const sw = w >= 8 ? Math.max(1.8, Math.min(4, w * 0.15)) : 0;
+      // Each side's parapet: none where its edge lies on another road's lanes (the ramp merging
+      // there, the deck alongside — the roads run on into one another, open), nor a stub under
+      // 20 m left between such places.
+      const open: Record<number, boolean[]> = {};
+      for (const side of [-1, 1]) {
+        const h = w / 2 + sw + 0.3, f: boolean[] = [];
+        for (let k = 0; k < r.line.length - 1; k++) {
+          const A = r.line[k], B = r.line[k + 1], na = normalAt(r.line, k), nb = normalAt(r.line, k + 1), za = r.z[k], zb = r.z[k + 1];
+          const a0 = [A[0] + na[0] * side * h, A[1] + na[1] * side * h], b0 = [B[0] + nb[0] * side * h, B[1] + nb[1] * side * h];
+          f.push(onOther(r, a0[0], a0[1], za) || onOther(r, b0[0], b0[1], zb) || onOther(r, (a0[0] + b0[0]) / 2, (a0[1] + b0[1]) / 2, (za + zb) / 2));
+        }
+        for (let k = 0; k < f.length;) {
+          if (f[k]) { k++; continue; }
+          let e = k, len = 0;
+          while (e < f.length && !f[e]) { len += Math.hypot(r.line[e + 1][0] - r.line[e][0], r.line[e + 1][1] - r.line[e][1]); e++; }
+          const deck = (q: number) => r.kind[q] > 0 && r.kind[q + 1] > 0;
+          // (only a run cut short by another road: a deck's own whole span, however short, keeps them)
+          if (len < 20 && ((k > 0 && f[k - 1]) || (e < f.length && f[e])) && Array.from({ length: e - k }, (_, i) => deck(k + i)).some(Boolean)) for (let q = k; q < e; q++) f[q] = true;
+          k = e;
+        }
+        open[side] = f;
+      }
       for (let k = 0; k < r.line.length - 1; k++) {
         if (r.kind[k] <= 0 || r.kind[k + 1] <= 0 || r.kind[k] === 3 || r.kind[k + 1] === 3) continue;
         const A = r.line[k], B = r.line[k + 1], na = normalAt(r.line, k), nb = normalAt(r.line, k + 1), za = r.z[k] + rules.surfaceLift, zb = r.z[k + 1] + rules.surfaceLift;
         for (const side of [-1, 1]) {
-          const h = w / 2 + 0.3;
+          const h = w / 2 + sw + 0.3;
           const a0 = [A[0] + na[0] * side * h, A[1] + na[1] * side * h], b0 = [B[0] + nb[0] * side * h, B[1] + nb[1] * side * h];
           const o = side > 0 ? [a0, b0] : [b0, a0], zo = side > 0 ? [za, zb] : [zb, za];
+          if (open[side][k]) continue;
           // slab edge (1.4 m deep) and a 1 m parapet
           quad([o[0][0], o[0][1], zo[0] - 1.4], [o[1][0], o[1][1], zo[1] - 1.4], [o[1][0], o[1][1], zo[1] + 1.0], [o[0][0], o[0][1], zo[0] + 1.0]);
           quad([o[1][0], o[1][1], zo[1] + 1.0], [o[0][0], o[0][1], zo[0] + 1.0], [o[0][0] - na[0] * side * 0.3, o[0][1] - na[1] * side * 0.3, zo[0] + 1.0], [o[1][0] - nb[0] * side * 0.3, o[1][1] - nb[1] * side * 0.3, zo[1] + 1.0]);
         }
         // the slab's underside
-        const hw = w / 2 + 0.3;
+        const hw = w / 2 + sw + 0.3;
         quad([A[0] - na[0] * hw, A[1] - na[1] * hw, za - 1.4], [B[0] - nb[0] * hw, B[1] - nb[1] * hw, zb - 1.4], [B[0] + nb[0] * hw, B[1] + nb[1] * hw, zb - 1.4], [A[0] + na[0] * hw, A[1] + na[1] * hw, za - 1.4]);
         // Piers at a fixed spacing along the whole official bridge (its chain: the same stations
         // in every tile), standing on the ground or the river bed — never on a road under the deck.
@@ -525,14 +557,20 @@ function roadWorkerMain() {
           }
         }
       }
-      // Sidewalks on the roads of 8 m and up (not along a tunnel or a bridge): paving 15 cm over the
-      // road, ~15 % of its width (1.8–4 m), a kerb face along the road's edge; their middle lines
-      // for the people.
+      // Sidewalks on the roads of 8 m and up (on a bridge too — not along a tunnel): paving 15 cm
+      // over the road, ~15 % of its width (1.8–4 m), a kerb face along the road's edge at grade;
+      // their middle lines for the people.
       if (w >= 8) {
-        const sw = Math.max(1.8, Math.min(4, w * 0.15));
         const flat = (k: number) => r.kind[k] !== 0 || r.kind[k1(k)] !== 0 || r.jn[k] || r.jn[k1(k)];
-        band(r, w / 2 + sw / 2, sw, rules.surfaceLift+.15, Wk, null, 0, flat);
-        band(r, -(w / 2 + sw / 2), sw, rules.surfaceLift+.15, Wk, null, 0, flat);
+        const paved = (k: number) => r.kind[k] < 0 || r.kind[k1(k)] < 0 || r.kind[k] === 3 || r.kind[k1(k)] === 3 || r.jn[k] || r.jn[k1(k)];
+        // (nor over another road's lanes: where a ramp joins, the paving stops)
+        const across = (side: number) => (k: number) => {
+          if (paved(k)) return true;
+          const o = side * (w / 2 + sw / 2), A = r.line[k], B = r.line[k1(k)], na = normalAt(r.line, k), nb = normalAt(r.line, k1(k));
+          return onOther(r, A[0] + na[0] * o, A[1] + na[1] * o, r.z[k]) || onOther(r, B[0] + nb[0] * o, B[1] + nb[1] * o, r.z[k1(k)]);
+        };
+        band(r, w / 2 + sw / 2, sw, rules.surfaceLift+.15, Wk, null, 0, across(1));
+        band(r, -(w / 2 + sw / 2), sw, rules.surfaceLift+.15, Wk, null, 0, across(-1));
         for (const side of [1, -1]) {
           for (let k = 0; k < r.line.length - 1; k++) {
             if (flat(k)) continue;

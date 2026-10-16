@@ -3,7 +3,7 @@ import { prefetchTerrain, vworldSampler } from "./sceneTerrain";
 import {hasAboveGroundEvidence} from './buildingEvidence';
 import {structureChains} from './bridgeChains';
 import {linkFallbackRoads} from './roadLinkFallback';
-import {attachRoadStructures,clipRoadContextRing,clipRoadLine,type RoadStructureLink} from './roadLevels';
+import {attachRoadStructures,clipRoadContextRing,clipRoadLine,nearestRoadPoint,type RoadStructureLink} from './roadLevels';
 
 /* A complex's buildings straight from VWorld (국토교통부 GIS건물통합정보), in the
  * browser. VWorld answers Korean networks only, so the server abroad can't ask it;
@@ -201,13 +201,15 @@ function roadContextAsk(box:string,key:string,domain='https://kospimap.com'){
 }
 /** The official bridge links (표준노드링크 rd_type_h 교량) in a lon/lat box, whole lines,
  * for joining a bridge's links bank to bank (bridgeChains.ts). */
-export async function vworldStructureLinks(key:string,domain:string|null|undefined,[lon0,lat0,lon1,lat1]:[number,number,number,number]){
- const out:{id:string;kind:1|2;line:[number,number][]}[]=[];
- for(const [type,kind] of [['교량',1]] as const){
+export async function vworldStructureLinks(key:string,domain:string|null|undefined,[lon0,lat0,lon1,lat1]:[number,number,number,number],every=false){
+ const out:{id:string;kind:number;line:[number,number][]}[]=[];
+ // (every: all the links in the box, whatever their type — a bridge's approaches — kind 0, a tunnel -1)
+ for(const [type,kind] of (every?[[null,0]]:[['교량',1]]) as [string|null,number][]){
   const list=await pagedFeatures(async page=>features(await call(DATA,{service:'data',request:'GetFeature',crs:'EPSG:4326',geometry:'true',attribute:'true',key,domain:domain??'https://kospimap.com',
-   data:'LT_L_MOCTLINK',attrFilter:`rd_type_h:=:${type}`,geomFilter:`BOX(${lon0},${lat0},${lon1},${lat1})`,size:1000,page})));
+   data:'LT_L_MOCTLINK',...(type?{attrFilter:`rd_type_h:=:${type}`}:{}),geomFilter:`BOX(${lon0},${lat0},${lon1},${lat1})`,size:1000,page})));
   for(const f of list){const g=f.geometry,lines=g?.type==='LineString'?[g.coordinates]:g?.type==='MultiLineString'?g.coordinates:[];
-   for(const l of lines as number[][][])if(l.length>1)out.push({id:String(f.properties?.link_id??f.id??''),kind,line:l.map(p=>[p[0],p[1]] as [number,number])});}
+   const t=String(f.properties?.rd_type_h??''),k=every?(t==='교량'?1:t==='고가도로'?2:t==='터널'||t==='지하차도'?-1:0):kind;
+   for(const l of lines as number[][][])if(l.length>1)out.push({id:String(f.properties?.link_id??f.id??''),kind:k,line:l.map(p=>[p[0],p[1]] as [number,number])});}
  }
  return out;
 }
@@ -216,7 +218,7 @@ export function prefetchRoadContext(data:RealEstateBuildingsResponse,radius=600)
  const {lat,lon}=data.center,kx=Math.cos(lat*Math.PI/180)*111320,ky=110540;
  void roadContextAsk(`BOX(${lon-(radius+80)/kx},${lat-(radius+80)/ky},${lon+(radius+80)/kx},${lat+(radius+80)/ky})`,data.vworld_key,data.vworld_domain).catch(()=>{});
  // (the bridges' whole chains and their decks, asked alongside: cached for the page)
- void structureChains(data.vworld_key,data.vworld_domain,lat,lon,0,[-radius,-radius,radius,radius]).catch(()=>{});
+ void structureChains(data.vworld_key,data.vworld_domain,lat,lon,0,[-radius-80,-radius-80,radius+80,radius+80]).catch(()=>{});
 }
 /** Each bridge road's deck along its whole official bridge (bridgeChains.ts), in the view's frame. */
 async function withBridgeChains(data:RealEstateBuildingsResponse,roads:RealEstateRoad[],radius:number):Promise<RealEstateRoad[]>{
@@ -224,13 +226,30 @@ async function withBridgeChains(data:RealEstateBuildingsResponse,roads:RealEstat
  const {lat,lon}=data.center,key=data.vworld_key;
  const job=(async()=>{
   const sampler=await vworldSampler(key,lat,lon,10);if(!sampler)return null;
-  return structureChains(key,data.vworld_domain,lat,lon,sampler(lon,lat),[-radius,-radius,radius,radius]);
+  return structureChains(key,data.vworld_domain,lat,lon,sampler(lon,lat),[-radius-80,-radius-80,radius+80,radius+80]);
  })().catch(()=>null);
  // (never holding the view back long: without them each link keeps its own bank profile)
  const chains=await Promise.race([job,new Promise<null>(r=>setTimeout(()=>r(null),8000))]);
  if(!chains?.length)return roads;
  const by=new Map<string,(typeof chains)[number]>();for(const c of chains)for(const id of c.ids)by.set(id,c);
- return roads.map(r=>{const c=r.structure==='bridge'&&r.link_id?by.get(r.link_id):undefined;return c?{...r,profile_line:c.line,profile_s:c.s,profile_z:c.z}:r;});
+ // A road at grade along a chain's approach — before or after its own links, where the deck goes
+ // on to its bank (동호대교, 마포대교 on 여의도) — is laid along that deck, never under it: it meets
+ // the bridge's end at the deck's height, not a step below.
+ const along=(c:(typeof chains)[number],r:RealEstateRoad)=>{
+  if(!c.core||(c.core[0]<1&&c.core[1]>c.s[c.s.length-1]-1))return false;
+  let hits=0;
+  for(let i=1;i<r.line.length;i++){const a=r.line[i-1],b=r.line[i],L=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.max(1,Math.ceil(L/4));
+   for(let k=0;k<n;k++){const x=a[0]+(b[0]-a[0])*k/n,y=a[1]+(b[1]-a[1])*k/n,p=nearestRoadPoint(c.line,x,y);
+    if(p.distance<=r.width/2+4&&(p.along<c.core[0]-1||p.along>c.core[1]+1)&&Math.abs(p.dir[0]*(b[0]-a[0])+p.dir[1]*(b[1]-a[1]))>.9*L&&++hits>=3)return true;}}
+  return false;
+ };
+ return roads.map(r=>{
+  const c=r.structure==='bridge'&&r.link_id?by.get(r.link_id):undefined;
+  if(c)return {...r,profile_line:c.line,profile_s:c.s,profile_z:c.z};
+  if(r.structure==='bridge'||r.structure==='elevated'||r.structure==='tunnel'||r.structure==='underpass')return r;
+  const a=chains.find(c=>along(c,r));
+  return a?{...r,lift_line:a.line,lift_s:a.s,lift_z:a.z}:r;
+ });
 }
 export async function vworldRoadContext(data:RealEstateBuildingsResponse,roads:RealEstateRoad[],radius=600):Promise<RealEstateBuildingsResponse>{
  if(!data.center||!data.vworld_key)return {...data,roads};
@@ -248,13 +267,15 @@ export async function vworldRoadContext(data:RealEstateBuildingsResponse,roads:R
  // Roads the base map's centre lines do not have yet (a new bridge or expressway): from the links.
  if(links.length){
   const kind=(s:RoadStructureLink['structure'])=>s==='bridge'?1:s==='elevated'?2:s==='underpass'||s==='tunnel'?-1:0;
-  const R=radius+50;
+  const R=radius+80;
   for(const f of linkFallbackRoads(roads,links.map((l,i)=>({id:l.id,kind:kind(l.structure),rank:linkRanks[i],line:l.line})),[-R,-R,R,R]))
    roads=[...roads,{line:f.line as [number,number][],width:f.width,lanes:f.lanes,oneway:f.oneway||undefined,id:'link:'+f.link,source:'VWorld LT_L_MOCTLINK'}];
  }
  const rivers=riverResult.status==='fulfilled'?riverResult.value.flatMap(f=>polygons(f.geometry).flatMap(poly=>{
-  const outer=clipRoadContextRing(poly[0].map(project),radius+50);if(outer.length<3)return [];
-  return [{id:f.id??'',name:f.properties.riv_nm??'',rings:[outer,...poly.slice(1).map(r=>clipRoadContextRing(r.map(project),radius+50)).filter(r=>r.length>=3)]}];
+  // (12 m past the drawn square: the drone cuts its surface to the square exactly, edge to edge
+  // with its tiles' — cut short of it, a strip of bed showed between them)
+  const outer=clipRoadContextRing(poly[0].map(project),radius+92);if(outer.length<3)return [];
+  return [{id:f.id??'',name:f.properties.riv_nm??'',rings:[outer,...poly.slice(1).map(r=>clipRoadContextRing(r.map(project),radius+92)).filter(r=>r.length>=3)]}];
  })):[];
  const enriched=await withBridgeChains(data,links.length?attachRoadStructures(roads,links):roads.map(r=>r.structure_source?r:{...r,structure:'unknown' as const}),radius),matched=enriched.filter(r=>r.structure_source&&r.structure!=='unknown').length;
  return {...data,roads:enriched,road_context:{source:'VWorld LT_L_MOCTLINK · LT_C_WKMSTRM',fetched_at:new Date().toISOString(),coverage:linkResult.status==='fulfilled'&&riverResult.status==='fulfilled'&&matched===enriched.length?'complete':'partial',links:links.length,matched,total:enriched.length,rivers}};
@@ -280,7 +301,7 @@ export async function vworldRoads(data: RealEstateBuildingsResponse, key: string
 /** The surveyed roads (국가기본도 도로중심선) of the whole neighbourhood drawn round a result —
  * `radius` m about its centre (the 3D view's 600 m), not only the parcel's 150 m: the traffic,
  * signals, kerbs and lamps reach as far as the buildings. Pages of 1000 in parallel. */
-export async function vworldRoadsAround(data: RealEstateBuildingsResponse, key: string, domain = "https://kospimap.com", radius = 600): Promise<RealEstateRoad[]> {
+export async function vworldRoadsAround(data: RealEstateBuildingsResponse, key: string, domain = "https://kospimap.com", radius = 600, clip = radius + 50): Promise<RealEstateRoad[]> {
   if (!data.center) return [];
   const { lat, lon } = data.center;
   const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
@@ -289,8 +310,9 @@ export async function vworldRoadsAround(data: RealEstateBuildingsResponse, key: 
     key, domain, data: "LT_L_N3A0020000", geomFilter: box, size: 1000, page: n }).then(features).catch(() => [] as Feature[]);
   const all = await pagedFeatures(page);
   const project = ([x, y]: number[]): [number, number] => [Math.round((x - lon) * kx * 100) / 100, Math.round((y - lat) * ky * 100) / 100];
-  // (a road the box catches runs on for kilometres: cut to the drawn square, a little past it)
-  return parseRoads(all,project).flatMap(r=>clipRoadLine(r.line,radius+50).map((line,part)=>({...r,line,id:r.id?`${r.id}:clip${part}`:undefined})));
+  // (a road the box catches runs on for kilometres: cut to the drawn square — the drone's view, its
+  // tiles' edge exactly: short of it a bridge or road there breaks off before the tiles take it up)
+  return parseRoads(all,project).flatMap(r=>clipRoadLine(r.line,clip).map((line,part)=>({...r,line,id:r.id?`${r.id}:clip${part}`:undefined})));
 }
 
 /** The registered names (건물명), 주용도 and storeys of the buildings round a result, for
