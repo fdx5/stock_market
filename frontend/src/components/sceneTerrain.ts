@@ -163,8 +163,10 @@ function vworldTile(token: string, x: number, y: number): Promise<Float32Array |
       .catch(() => null)
       .then(t => { if (!t) vwTiles.delete(k); return t; });
     vwTiles.set(k, hit);
-    // (a few MB at most: 17 KB per tile, a complex needs a handful)
-    if (vwTiles.size > 256) vwTiles.delete(vwTiles.keys().next().value!);
+    // (17 KB a tile: a complex needs a handful, the drone's reach — each streamed tile's relief
+    // and its long bridges' ±1.3 km — some 1,500; at 256 a third of its asks were tiles fetched
+    // already and dropped. ~17 MB at most.)
+    if (vwTiles.size > 1024) vwTiles.delete(vwTiles.keys().next().value!);
   }
   return hit;
 }

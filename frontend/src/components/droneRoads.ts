@@ -557,6 +557,27 @@ function roadWorkerMain() {
           }
         }
       }
+      // A road at grade raised over the ground (a bridge's approach laid along its deck, a ramp
+      // eased up to it): its embankment's retaining walls down to the ground on both sides, as an
+      // approach stands — not a ribbon of road in the air. (Through a junction, or on another
+      // road's lanes, none.)
+      for (let k = 0; k < r.line.length - 1; k++) {
+        const kb = k + 1;
+        if (r.kind[k] < 0 || r.kind[kb] < 0 || r.kind[k] === 3 || r.kind[kb] === 3 || (r.kind[k] > 0 && r.kind[kb] > 0) || r.jn[k] || r.jn[kb]) continue;
+        const A = r.line[k], B = r.line[kb], na = normalAt(r.line, k), nb = normalAt(r.line, kb);
+        const liftA = r.z[k] - ground(A[0], A[1]), liftB = r.z[kb] - ground(B[0], B[1]);
+        if (Math.max(liftA, liftB) < 0.6) continue;
+        for (const side of [-1, 1]) {
+          if (open[side][k]) continue;
+          const h = w / 2 + sw + 0.3;
+          const a0 = [A[0] + na[0] * side * h, A[1] + na[1] * side * h], b0 = [B[0] + nb[0] * side * h, B[1] + nb[1] * side * h];
+          const ga = ground(a0[0], a0[1]), gb = ground(b0[0], b0[1]);
+          const ta = ga + Math.max(0, liftA) + rules.surfaceLift + (sw ? 0.15 : 0), tb = gb + Math.max(0, liftB) + rules.surfaceLift + (sw ? 0.15 : 0);
+          const o = side > 0 ? [a0, b0] : [b0, a0], top = side > 0 ? [ta, tb] : [tb, ta], bot = side > 0 ? [ga - 0.5, gb - 0.5] : [gb - 0.5, ga - 0.5];
+          quad([o[0][0], o[0][1], bot[0]], [o[1][0], o[1][1], bot[1]], [o[1][0], o[1][1], top[1] + 0.6], [o[0][0], o[0][1], top[0] + 0.6]);
+          quad([o[1][0], o[1][1], top[1] + 0.6], [o[0][0], o[0][1], top[0] + 0.6], [o[0][0] - na[0] * side * 0.3, o[0][1] - na[1] * side * 0.3, top[0] + 0.6], [o[1][0] - nb[0] * side * 0.3, o[1][1] - nb[1] * side * 0.3, top[1] + 0.6]);
+        }
+      }
       // Sidewalks on the roads of 8 m and up (on a bridge too — not along a tunnel): paving 15 cm
       // over the road, ~15 % of its width (1.8–4 m), a kerb face along the road's edge at grade;
       // their middle lines for the people.
