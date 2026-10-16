@@ -50,6 +50,12 @@ function schedule(frameAt?: number) {
   if (frameAt !== undefined) admit(frameAt);
   else requestAnimationFrame(stamp=>admit(sceneStamp===stamp?sceneStartedAt:stamp));
 }
+/** When work let in by frameSlice gives the frame back: 14 ms after the frame began (its drawing
+ * included, the next frame's due at 16.7) — let in late, or with no frame drawing, 2 ms from now. */
+export function sliceDeadline(): number {
+  const now = performance.now(), into = now - sceneStartedAt;
+  return into >= 0 && into < 12 ? sceneStartedAt + 14 : now + 2;
+}
 export function frameSlice(budgetMs = 9): Promise<void> {
   return new Promise(resolve => { waiting.push({ resolve, budget: budgetMs, since: performance.now() }); schedule(); });
 }

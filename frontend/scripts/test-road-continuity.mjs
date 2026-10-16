@@ -20,7 +20,7 @@ const {gradeRoads}=load(read('sceneTerrain.ts'),{gridAt,corridorRoadGrade});
 const levels=load(read('roadLevels.ts'),{surfaceGeometry,...load(read('roadGroundGrade.ts'))});
 const {roadJunctionHulls}=load(read('roadJunctions.ts'),levels);
 const {roadLaneCount}=load(read('roadLanes.ts'));
-const street=load(read('sceneStreet.ts'),{surfaceGeometry,roadJunctionHulls,roadLaneCount,...levels});
+const street=load(read('sceneStreet.ts'),{surfaceGeometry,roadJunctionHulls,roadLaneCount,...levels,...load(read('slicedGeometry.ts'))});
 const oldStreet=load(execFileSync('git',['show','66bc4ec:frontend/src/components/sceneStreet.ts'],{encoding:'utf8'}));
 const {findBridges,roadGround,bridgeHeight}=load(read('sceneBridges.ts'),{surfaceGeometry,...levels,...load(read('roadApproaches.ts'),levels),inRing:([x,y],ring)=>x>=ring[0][0]&&x<=ring[2][0]&&y>=ring[0][1]&&y<=ring[2][1],sidewalkWidth:()=>2});
 

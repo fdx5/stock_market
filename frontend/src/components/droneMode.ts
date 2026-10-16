@@ -128,7 +128,15 @@ export class DroneSession {
     const back = g.geometry.clone();
     g.updateWorldMatrix(true, false);
     // Exact clipping replaces collapsed outer faces, which formed dark vertical seams.
-    g.geometry = seaOutsideBox(g.geometry, [-H, -H, H, H], g.matrixWorld, true);
+    // (off the page, in the coast worker: on the page it held the drone's first frame 60 ms; the
+    // ground stands uncut the moment it takes — no tile is in past the square yet)
+    const source = g.geometry, box: [number, number, number, number] = [-H, -H, H, H], matrix = g.matrixWorld.clone();
+    this.groundCut = this.coastJobs.cut(source, box, matrix, true, this.cutStop.signal).catch(() => null).then(cut => {
+      const geo = cut ?? (this.ended ? null : seaOutsideBox(source, box, matrix, true));
+      if (!geo) return;
+      if (this.ended || g.geometry !== source) { geo.dispose(); return; }
+      g.geometry = geo;
+    });
     const mesh = new THREE.Mesh(back, g.material);
     mesh.rotation.copy(g.rotation);
     mesh.position.copy(g.position);
@@ -141,8 +149,14 @@ export class DroneSession {
 
   private coastJobs = new CoastGeometryJobs();
   private seaStop = new AbortController();
+  private cutStop = new AbortController();
+  /** The view's ground cut to its square (keepGroundToSquare), done. */
+  private groundCut: Promise<void> = Promise.resolve();
   private async sinkSeaGround(field: WaterField) {
     this.seaStop.abort();const stop=this.seaStop=new AbortController();
+    // (the cut ground sunk, never the view's own kept for the end)
+    await this.groundCut;
+    if (this.ended || stop.signal.aborted) return;
     for (const mesh of [this.p.ground, this.backdrop]) {
       if (!mesh || !this.groundBackup) continue;
       const geometry=mesh.geometry;
@@ -277,9 +291,11 @@ export class DroneSession {
     const g = this.p.ground, f = this.p.viewRiver?.();
     if (!g || !f || !this.groundBackup || g.geometry === this.groundBackup) return;
     const p = g.geometry.getAttribute('position') as THREE.BufferAttribute, oy = g.position.y;
-    const end = Math.min(p.count, this.bedAt + 6000);
-    let changed = false;
-    for (let i = this.bedAt; i < end; i++) {
+    // (2 ms a frame: 6000 vertices a frame, each asked of the river five times, was 50 ms at once)
+    const t0 = performance.now();
+    let changed = false, end = this.bedAt;
+    for (let i = this.bedAt; i < p.count; i++, end = i) {
+      if ((i & 255) === 0 && performance.now() - t0 > 2) break;
       const x = p.getX(i), y = p.getY(i);
       if (!f.wet(x, y) && !f.wet(x + 4, y) && !f.wet(x - 4, y) && !f.wet(x, y + 4) && !f.wet(x, y - 4)) continue;
       const z0 = p.getZ(i) + oy, L = f.level(x, y);
@@ -363,18 +379,24 @@ export class DroneSession {
     if (this.crowdBusy || this.flight.agl > 200 || (this.crowd && Math.hypot(this.crowd.x - x, this.crowd.y - y) < 350)) return;
     const packs = this.world.walkPathsNear(x, y, 550);
     if (!packs.length) return;
-    const paths: WalkPath[] = [];
-    for (const pk of packs) for (let o = 0; o < pk.length;) {
-      const n = pk[o++], xs = new Float32Array(n), ys = new Float32Array(n), cum = new Float32Array(n);
-      for (let k = 0; k < n; k++) { xs[k] = pk[o + k * 2]; ys[k] = pk[o + k * 2 + 1]; if (k) cum[k] = cum[k - 1] + Math.hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1]); }
-      o += n * 2;
-      if (cum[n - 1] > 12) paths.push({ xs, ys, cum, closed: false, lift: 0.5, lateral: 0.6 });
-    }
-    if (!paths.length) return;
     this.crowdBusy = true;
     const w = this.world;
     const terrain = { at: (px: number, py: number) => w.groundAt(px, py), base: (r: [number, number][]) => Math.min(...r.map(([px, py]) => w.groundAt(px, py))), relief: 0, elevation: null, source: "drone" } as Terrain;
-    void buildWalkers(paths, terrain, this.p.seed + Math.round(x / 350) * 31 + Math.round(y / 350) * 17, 10, 700).then(c => {
+    // (the sidewalks of the tiles round the drone read a few ms at a time: all at once — thousands
+    // of lines — held a frame 10-20 ms)
+    const walkPaths = async () => {
+      const paths: WalkPath[] = [];
+      let slice = performance.now();
+      for (const pk of packs) for (let o = 0; o < pk.length;) {
+        if (performance.now() - slice > 3) { await frameSlice(); slice = performance.now(); if (this.ended) return paths; }
+        const n = pk[o++], xs = new Float32Array(n), ys = new Float32Array(n), cum = new Float32Array(n);
+        for (let k = 0; k < n; k++) { xs[k] = pk[o + k * 2]; ys[k] = pk[o + k * 2 + 1]; if (k) cum[k] = cum[k - 1] + Math.hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1]); }
+        o += n * 2;
+        if (cum[n - 1] > 12) paths.push({ xs, ys, cum, closed: false, lift: 0.5, lateral: 0.6 });
+      }
+      return paths;
+    };
+    void walkPaths().then(paths => paths.length && !this.ended ? buildWalkers(paths, terrain, this.p.seed + Math.round(x / 350) * 31 + Math.round(y / 350) * 17, 10, 700) : null).then(c => {
       this.crowdBusy = false;
       if (!c) return;
       if (this.ended) { c.dispose(); return; }
@@ -442,8 +464,10 @@ export class DroneSession {
     this.world.dispose();
     this.p.forget?.(new Set(this.model.materials()));
     this.model.dispose();
+    this.cutStop.abort();
     if (ground && this.groundBackup) {
-      ground.geometry.dispose(); ground.geometry = this.groundBackup;
+      if (ground.geometry !== this.groundBackup) ground.geometry.dispose();
+      ground.geometry = this.groundBackup;
     }
     this.groundBackup = null;
     if (this.backdrop) { scene.remove(this.backdrop); this.backdrop.geometry.dispose(); this.backdrop = null; }

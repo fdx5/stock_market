@@ -1,4 +1,4 @@
-import { sceneWorkerOnce } from "./sceneWorkerPool";
+import { sceneWorkerFresh } from "./sceneWorkerPool";
 /* The drone's roads (드론 mode), tile by tile: the national road survey's centre lines (국가기본도
  * 도로중심선, VWorld LT_L_N3A0020000: width rvwd, lanes rdln) cut to the tile and laid on its
  * relief — an asphalt band the road's width, its lane lines (white dashes between lanes going the
@@ -967,5 +967,5 @@ export function roadTile(lat: number, lon: number, key: string, domain: string |
       return { url: `${location.origin}/api/realestate/crossings?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=260&v=3`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
     })() : undefined;
     const job: RoadJob = { urls: ask("LT_L_N3A0020000", "roadCb", 4), linkUrls: ask("LT_L_MOCTLINK", "linkCb", 2), riverUrls: ask("LT_C_WKMSTRM", "riverCb", 1), lat, lon, box, grid, wide, crossings, ...extra };
-    return sceneWorkerOnce<RoadTileResult>(() => new Worker(roadUrl!), job, signal);
+    return sceneWorkerFresh<RoadTileResult>(roadUrl, () => new Worker(roadUrl!), job, signal);
 }

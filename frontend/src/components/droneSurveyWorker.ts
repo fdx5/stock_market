@@ -11,7 +11,7 @@ import {modelBlocksRoad} from './roadModelConflict';
 import {ringIndex} from './footprintIndex';
 import {applyBuildingAppearance,surveyedAppearance,type BuildingAppearance} from './buildingAppearance';
 import {mergeSurveyParts} from './surveyPartMerge';
-import type {NearBuildingSource} from './nearBuildingTargets';
+import {unpackRings,type PackedRoadGuard} from './nearBuildingTargets';
 import {paintSurveySourceColour} from './surveySourceColour';
 
 /* Match registered footprints to measured geometry. No source photographs are
@@ -33,7 +33,7 @@ export type SurveyJob = {
   appearances?: (BuildingAppearance|undefined)[];
   /** The preceding GPU-ready batches, cloned without detaching live geometry. */
   previous?:SurveyPart[];
-  roadGuard?:NearBuildingSource['roadGuard'];
+  roadGuard?:PackedRoadGuard;
   debug?:boolean;
 };
 export type SurveyPart = { material: number; position: Float32Array; normal: Float32Array; uv: Float32Array | null; color: Float32Array; facade?:Float32Array|null; index: Uint32Array;
@@ -104,7 +104,7 @@ async function survey(e: MessageEvent<SurveyJob>) {
   const wanted=new Set([...preliminary.values()].flat());
   const guard=e.data.roadGuard;
   if(guard){let context=roadContexts.get(guard.key);
-    if(!context){context={roads:ringIndex(guard.roads),buildings:ringIndex(guard.buildings,.75)};roadContexts.set(guard.key,context);if(roadContexts.size>2)roadContexts.delete(roadContexts.keys().next().value!);}
+    if(!context){context={roads:ringIndex(unpackRings(guard.roads)),buildings:ringIndex(unpackRings(guard.buildings),.75)};roadContexts.set(guard.key,context);if(roadContexts.size>2)roadContexts.delete(roadContexts.keys().next().value!);}
     photos=photos.filter((ph,i)=>{if(!wanted.has(i))return true;const rejected=modelBlocksRoad(ph.geometry.attributes.position.array as Float32Array,new Uint32Array(ph.geometry.index!.array),ox,oy,context!.roads,context!.buildings,e.data.debug?p=>roadConflicts.set(ph.key,p):undefined);if(rejected){roadRejected.add(ph.key);ph.geometry.dispose();}return !rejected;});
   }
   type Piece = { g: THREE.BufferGeometry; style: number; source: number; surface: number };

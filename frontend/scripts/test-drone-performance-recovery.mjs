@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {transformSync,build} from 'esbuild';
 import ts from 'typescript';
 import vm from 'node:vm';
-const load=async name=>{const {code}=transformSync(readFileSync(new URL('../src/components/'+name+'.ts',import.meta.url),'utf8'),{loader:'ts',format:'esm'});return import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));};
+const load=async name=>{const source=readFileSync(new URL('../src/components/'+name+'.ts',import.meta.url),'utf8').replace(/^import \{ frameSlice \} from "\.\/frameSlice";\r?\n/m,'const frameSlice=async()=>{};\n');const {code}=transformSync(source,{loader:'ts',format:'esm'});return import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));};
 const {SceneWorkerPool,sceneWorkerOnce}=await load('sceneWorkerPool');
 class FakeWorker{
   jobs=[];closed=false;

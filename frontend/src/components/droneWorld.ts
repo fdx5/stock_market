@@ -2,7 +2,7 @@ import * as THREE from "three";
 import {observedRoofColour,type BuildingAppearance} from "./buildingAppearance";
 import {bridgeNameLabels} from './bridgeNames';
 import {droneDetailPriority,droneTilePriority} from "./droneLoadPriority";
-import type {NearBuildingSource,NearBuildingTarget} from './nearBuildingTargets';
+import {packedRoadGuard,type NearBuildingSource,type NearBuildingTarget} from './nearBuildingTargets';
 import { SceneWorkerPool } from "./sceneWorkerPool";
 import type {TerrainGridJob} from './terrainGrid';
 import type {TerrainGridResult} from './terrainGridWorker';
@@ -1156,7 +1156,10 @@ export class DroneWorld {
     const p = ground.getAttribute('position') as THREE.BufferAttribute, nor = ground.getAttribute('normal') as THREE.BufferAttribute;
     const skirt = ground.userData.skirtGrid as { row: number; cell: number } | undefined;
     let changed = false;
+    // (in slices: the tile's every ground vertex asked of the river five times held a frame 20 ms)
+    const paced = async () => { if (await this.pace() && !signal.aborted) return true; made.dispose(); return false; };
     for (let i = 0; i < p.count; i++) {
+      if ((i & 1023) === 1023 && !await paced()) return;
       // (asked 2 m inside the tile: a vertex on its edge, outside its own raster, stood as a wall
       // under the water against its neighbour's lowered bed — a line along the tile's edge)
       const x = Math.max(-H + 2, Math.min(H - 2, p.getX(i) - t.cx)), y = Math.max(-H + 2, Math.min(H - 2, p.getY(i) - t.cy));
@@ -1178,6 +1181,7 @@ export class DroneWorld {
       // (the grid's normals again from its own heights: the skirt never bends them)
       const { row } = skirt;
       for (let j = 0; j < row; j++) for (let i = 0; i < row; i++) {
+        if (i === 0 && (j & 15) === 15 && !await paced()) return;
         const k = j * row + i, l = j * row + Math.max(0, i - 1), r = j * row + Math.min(row - 1, i + 1), d = Math.max(0, j - 1) * row + i, u = Math.min(row - 1, j + 1) * row + i;
         const nx = (p.getZ(l) - p.getZ(r)) / ((p.getX(r) - p.getX(l)) || 1), ny = (p.getZ(d) - p.getZ(u)) / ((p.getY(u) - p.getY(d)) || 1), L = Math.hypot(nx, ny, 1);
         nor.setXYZ(k, nx / L, ny / L, 1 / L);
@@ -1194,7 +1198,7 @@ export class DroneWorld {
       const lift = mat === this.paint ? 0.08 : mat === this.paving ? 0.15 : 0;
       const pp = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
       let moved = false;
-      for (let i = 0; i < pp.count; i++) { const want = over(pp.getX(i), pp.getY(i)) + lift; if (pp.getZ(i) < want) { pp.setZ(i, want); moved = true; } }
+      for (let i = 0; i < pp.count; i++) { if ((i & 2047) === 2047 && !await paced()) return; const want = over(pp.getX(i), pp.getY(i)) + lift; if (pp.getZ(i) < want) { pp.setZ(i, want); moved = true; } }
       if (moved) { pp.needsUpdate = true; mesh.geometry.computeBoundingSphere(); }
     }
     for (const lanes of [t.baseLanes]) if (lanes) for (let o = 0; o < lanes.length;) {
@@ -1340,7 +1344,7 @@ export class DroneWorld {
       for (let i = 0; i < n; i++) {
         outlines.push((t.spanRings?.[towers[i * TOWER + 7]] ?? []) as [number, number][]);
       }
-      const res = await this.surveyWork({ key: data.vworld_key!, lat0: data.center!.lat, lon0: data.center!.lon, towers: towers.slice(), tints, surfaceTints, facadeScale, outlines,appearances:Array.from({length:n},(_,i)=>t.appearances?.[towers[i*TOWER+7]]),roadGuard:t.nearRoadGuard,debug:typeof location!=='undefined'&&new URLSearchParams(location.search).get('dronedebug')==='1' }, stop.signal) as SurveyResult | null;
+      const res = await this.surveyWork({ key: data.vworld_key!, lat0: data.center!.lat, lon0: data.center!.lon, towers: towers.slice(), tints, surfaceTints, facadeScale, outlines,appearances:Array.from({length:n},(_,i)=>t.appearances?.[towers[i*TOWER+7]]),roadGuard:packedRoadGuard(t.nearRoadGuard),debug:typeof location!=='undefined'&&new URLSearchParams(location.search).get('dronedebug')==='1' }, stop.signal) as SurveyResult | null;
       if (!res){defer([],true);nextState();return;}
       if(this.disposed || stop.signal.aborted || !t.zup || !this.liveTile(t))return;
       (t as unknown as { surveyInfo: unknown }).surveyInfo = { models: res.models, matched: res.matched, expected: n, retry: res.retry, tall: res.tall,misses:res.misses };

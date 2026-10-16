@@ -14,7 +14,7 @@ for(const bvhEnabled of [false,true])test(`new roads use new region coordinates 
   const make = () => ({ group: new THREE.Group(), dispose() {}, setDetail() {} });
   const decor = new THREE.Group(),oldLayer=new THREE.Group();decor.add(oldLayer);
   const calls = [];
-  const deps = { THREE, performance, preparedRoadArms: { roads: newRoads, at() {}, inside() {} },
+  const deps = { THREE, performance,sliceDeadline:()=>performance.now()+10, preparedRoadArms: { roads: newRoads, at() {}, inside() {} },
     stage: { traffic: { arms: { roads: oldRoads } }, addWarm: (parent, obj) => parent.add(obj), drawReady: () => ready },
     marksGen: 0, alive: true, roadTerrain: {}, physicalFootprints: [], groundGeo: {},roadWater:null,laidWater:null,
     roadBvhAbort:null,roadBvhEnabled:()=>bvhEnabled,

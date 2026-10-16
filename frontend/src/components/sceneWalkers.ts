@@ -360,6 +360,8 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
       far: [new THREE.Color(top), new THREE.Color(thighC), new THREE.Color(skinC)] });
   }
 
+  // (the meshes in a slice of their own: after the last walker, with the crowd's own handover, a frame)
+  await frameSlice();
   // Only people in view are drawn: each frame they are packed to the front of the
   // instance lists and the draw count set to them (a collapsed instance still costs its
   // vertices, in the main and every shadow pass). Near ones get the jointed figure; past

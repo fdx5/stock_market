@@ -4,6 +4,30 @@ import type {BuildingAppearance} from './buildingAppearance';
 type Range={owner:string;first:number;count:number};
 export type NearBuildingTarget={x:number;y:number;height:number;ground:number;outline:[number,number][];appearance:BuildingAppearance;hide:()=>void;restore:()=>void};
 export type NearBuildingSource={objects:THREE.Object3D[];targets:NearBuildingTarget[];roadGuard?:{key:string;roads:[number,number][][];buildings:[number,number][][]}};
+/** Rings flattened for a worker message: x,y pairs and each ring's end (in pairs). */
+export type PackedRings={xy:Float64Array;ends:Uint32Array};
+export type PackedRoadGuard={key:string;roads:PackedRings;buildings:PackedRings};
+export function packRings(rings:[number,number][][]):PackedRings{
+  let n=0;for(const r of rings)n+=r.length;
+  const xy=new Float64Array(n*2),ends=new Uint32Array(rings.length);let o=0;
+  rings.forEach((r,i)=>{for(const [x,y] of r){xy[o*2]=x;xy[o*2+1]=y;o++;}ends[i]=o;});
+  return {xy,ends};
+}
+export function unpackRings({xy,ends}:PackedRings):[number,number][][]{
+  const out:[number,number][][]=[];let o=0;
+  for(const end of ends){const r:[number,number][]=[];for(;o<end;o++)r.push([xy[o*2],xy[o*2+1]]);out.push(r);}
+  return out;
+}
+const packedGuards=new WeakMap<object,PackedRoadGuard>();
+/** The road guard as typed arrays, packed once per source. Sent with every detail job (either
+ * worker may take it), the nested rings (a complex's 30k road footprints) were a 20 ms clone on
+ * the page each time; typed arrays copy in well under a millisecond. */
+export function packedRoadGuard(g:NearBuildingSource['roadGuard']):PackedRoadGuard|undefined{
+  if(!g)return undefined;
+  let p=packedGuards.get(g);
+  if(!p)packedGuards.set(g,p={key:g.key,roads:packRings(g.roads),buildings:packRings(g.buildings)});
+  return p;
+}
 export type NearBuildingEntry={owner:string;height:number;ground:number;outline:[number,number][];appearance:BuildingAppearance};
 
 /** Preserve ownership through a merged draw. A measured replacement must remove
