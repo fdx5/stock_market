@@ -21,6 +21,7 @@ import {roadApproachHeight} from './roadApproaches';
 import {terrainSurfaceClearance} from './terrainSurfaceClearance';
 import {linkFallbackRoads} from './roadLinkFallback';
 import {chainDeckRoads} from './bridgeDecks';
+import {groundRoadGrade} from './roadGroundGrade';
 import type {RealEstateRoad} from '../api/client';
 type Arr = { position: Float32Array; normal: Float32Array; index: Uint32Array;level?:Float32Array };
 export type RoadTileResult = {
@@ -64,13 +65,14 @@ type RoadJob = {
    * the roads along it are on it — its own model draws the structure */
   deck?: { pts: number[][]; z: number[] };
   /** whole bridges (bridgeChains.ts): each official bridge link's deck along its chain, bank to bank */
-  chains?: { ids: string[]; line: number[][]; s: number[]; z: number[]; deck?: { w: number; off: number; lanes: number; twoWay: boolean } }[];
+  chains?: { ids: string[]; line: number[][]; s: number[]; z: number[]; core?: [number,number]; deck?: { w: number; off: number; lanes: number; twoWay: boolean } }[];
 };
 
 function roadWorkerMain() {
   self.onmessage = async (e: MessageEvent<RoadJob>) => {
     try {
     const rules=(self as unknown as {__roadRules:ReturnType<typeof surfaceGeometryRules>}).__roadRules;
+    const groundGrade=(self as unknown as {__groundGrade:ReturnType<typeof groundRoadGrade>}).__groundGrade;
     const t0 = performance.now();
     // The mapped crossings (the server fetches them from OpenStreetMap on a first ask: asked again
     // a little later while it answers with none and no source).
@@ -281,7 +283,7 @@ function roadWorkerMain() {
           i=j+1;
         }
       });
-      if(spans.length){
+      if(spans.length || decked.size){
         const {decks,taken}=(self as unknown as {__chainDecks:typeof chainDeckRoads}).__chainDecks(spans,e.data.chains!);
         const cut=new Map<number,{i0:number;i1:number}[]>();
         at.forEach((a,k)=>{if(!taken[k])return;let l=cut.get(a.rec);if(!l)cut.set(a.rec,l=[]);l.push(a);});
@@ -345,7 +347,7 @@ function roadWorkerMain() {
     for(const a of approachRoads){const c=a.structure==='bridge'&&a.link_id?chainOf.get(a.link_id):undefined;if(c){a.profile_line=c.line as [number,number][];a.profile_s=c.s;a.profile_z=c.z;}}
     const insideWater=(ring:number[][],x:number,y:number)=>{let odd=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])odd=!odd;}return odd;};
     const waterAt=(x:number,y:number)=>Number.isFinite(e.data.seaLevel)&&(e.data.sea??[]).some(r=>insideWater(r,x,y))&&!(e.data.seaHoles??[]).some(r=>insideWater(r,x,y))?e.data.seaLevel!:null;
-    const baseline=(r:RealEstateRoad,x:number,y:number)=>r.profile_line&&r.profile_s&&r.profile_z?rules.profileAt(r.profile_line,r.profile_s,r.profile_z,x,y):r.structure==='bridge'||r.structure==='elevated'?rules.profileHeight(r.profile_line??r.line,x,y,ground,waterAt,(x,y)=>inGrid(g,x,y)||!!wide&&inGrid(wide,x,y),e.data):ground(x,y);
+    const baseline=(r:RealEstateRoad,x:number,y:number)=>r.profile_line&&r.profile_s&&r.profile_z?rules.profileAt(r.profile_line,r.profile_s,r.profile_z,x,y):r.structure==='bridge'||r.structure==='elevated'?rules.profileHeight(r.profile_line??r.line,x,y,ground,waterAt,(x,y)=>inGrid(g,x,y)||!!wide&&inGrid(wide,x,y),e.data):r.structure==='ground'?groundGrade(r.line,rules.along(r.line,x,y).along,ground,waterAt):ground(x,y);
     const nearest=(line:readonly [number,number][],x:number,y:number)=>{const p=rules.along(line as unknown as number[][],x,y);let s=0,dir:[number,number]=[1,0];for(let i=1;i<line.length;i++){const dx=line[i][0]-line[i-1][0],dy=line[i][1]-line[i-1][1],l=Math.hypot(dx,dy);if(s+l>=p.along-1e-8&&l){dir=[dx/l,dy/l];break;}s+=l;}return {...p,point:[p.x,p.y] as [number,number],dir};};
     const approach=(self as unknown as {__approachHeight:typeof roadApproachHeight}).__approachHeight(approachRoads,{at:ground,height:baseline,nearest,key:r=>r.link_id??r.id??JSON.stringify(r.profile_line??r.line)});
     const ownerRoads=new Map<Seg,RealEstateRoad>();
@@ -363,12 +365,16 @@ function roadWorkerMain() {
       {
         // (the ground under it is cut to the road — the tile's grid, below — so the road is no
         // longer lifted onto each post of the relief: smooth along ±16 m, a filled dip kept filled)
-        const g = z.slice(), W = Math.max(1, Math.round(16 / rules.step)), GRADE = 0.06 * rules.step;
-        for (let i = 0; i < z.length; i++) {
-          if (kind[i] !== 0) continue;
-          let sum = 0, n = 0;
-          for (let k = Math.max(0, i - W); k <= Math.min(z.length - 1, i + W); k++) if (kind[k] === 0) { sum += g[k]; n++; }
-          z[i] = sum / n;
+        const GRADE = 0.06 * rules.step;
+        for (let i = 0; i < z.length;) {
+          if (kind[i] !== 0) { i++; continue; }
+          let end = i; while (end + 1 < z.length && kind[end + 1] === 0) end++;
+          const line = pts.slice(i, end + 1); let station = 0;
+          for (let k = i; k <= end; k++) {
+            if (k > i) station += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]);
+            z[k] = groundGrade(line, station, ground, waterAt);
+          }
+          i = end + 1;
         }
         // Never in the sea; and over a river area, a stretch sunk more than 2 m under the line
         // between its dry ends is a crossing the links do not register: laid straight bank to bank.
@@ -912,7 +918,7 @@ export function roadTile(lat: number, lon: number, key: string, domain: string |
     key, domain: domain ?? "https://kospimap.com", data: layer, geomFilter: q,
     size: "1000", page: String(i + 1), format: "json", callback: cb,
   }));
-  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();self.__linkFallback=(${linkFallbackRoads.toString()});self.__chainDecks=(${chainDeckRoads.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
+  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__groundGrade=(${groundRoadGrade.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();self.__linkFallback=(${linkFallbackRoads.toString()});self.__chainDecks=(${chainDeckRoads.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
     // (the crossings asked about the tile's rounded centre, as the view asks: the server's cache)
     const crossings = tile && typeof location !== "undefined" ? (() => {
       const la = +tile.lat.toFixed(4), lo = +tile.lon.toFixed(4);

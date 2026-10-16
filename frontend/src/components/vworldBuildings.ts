@@ -283,7 +283,6 @@ async function withBridgeChains(data:RealEstateBuildingsResponse,roads:RealEstat
  // the same rule as the streamed tiles'.
  const on=laid.map(r=>r.structure==='bridge'&&r.link_id&&by.get(r.link_id)?.deck?by.get(r.link_id)!:undefined);
  const spanIdx:number[]=[];const spans=laid.flatMap((r,i)=>on[i]?(spanIdx.push(i),[{chain:on[i]!.ids[0],line:r.line}]):[]);
- if(!spans.length)return laid;
  const {decks,taken}=chainDeckRoads(spans,chains);
  const gone=new Set(spanIdx.filter((_,k)=>taken[k]));
  const chainBy=new Map(chains.map(c=>[c.ids[0],c]));

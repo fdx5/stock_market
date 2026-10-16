@@ -25,3 +25,34 @@ test('the two directions of a two-way deck are one deck; a ramp leaving it is ke
   assert.equal(decks.length,1);assert.equal(decks[0].chain,'n');
   assert.ok(len(decks[0].line)>=380,'both halves in one deck');
 });
+
+test('the confirmed bridge core stays complete across missing centre-line pieces and empty tiles',()=>{
+  const c={ids:['a'],line:[[0,0],[0,1000]],core:[0,1000],deck:{w:20,off:0,lanes:4,twoWay:false}};
+  for(const spans of [[],[{chain:'a',line:[[0,0],[0,100]]},{chain:'a',line:[[0,900],[0,1000]]}]]){
+    const {decks}=chainDeckRoads(spans,[c]);
+    assert.equal(decks.length,1);
+    assert.equal(len(decks[0].line),1000);
+  }
+});
+
+test('crossing and stacked bridges never become the same two-way deck',()=>{
+  const north={ids:['a'],line:[[0,0],[0,400]],core:[0,400],s:[0,400],z:[10,10],deck:{w:30,off:0,lanes:6,twoWay:true}};
+  const crossing={...north,ids:['b'],line:[[-200,200],[200,200]]};
+  const stacked={...north,ids:['c'],z:[20,20]};
+  assert.equal(chainDeckRoads([],[north,crossing]).decks.length,2);
+  assert.equal(chainDeckRoads([],[north,stacked]).decks.length,2);
+});
+
+test('a nearby shorter deck cannot swallow the end of a longer bridge',()=>{
+  const a={ids:['a'],line:[[0,0],[0,400]],deck:{w:30,off:0,lanes:6,twoWay:true}};
+  const b={...a,ids:['b'],line:[[0,450],[0,0]]};
+  const {decks}=chainDeckRoads([{chain:'a',line:a.line},{chain:'b',line:b.line}],[a,b]);
+  assert.equal(decks.length,2);
+  assert.equal(len(decks.find(d=>d.chain==='b').line),450);
+});
+
+test('an offset curved deck uses a true miter at its corner',()=>{
+  const c={ids:['a'],line:[[0,0],[100,0],[100,100]],core:[0,200],deck:{w:20,off:10,lanes:4,twoWay:false}};
+  const {decks}=chainDeckRoads([],[c]);
+  assert.deepEqual(decks[0].line,[[0,10],[90,10],[90,100]]);
+});

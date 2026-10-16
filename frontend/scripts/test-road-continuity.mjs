@@ -15,9 +15,9 @@ const read=name=>readFileSync(new URL('../src/components/'+name,import.meta.url)
 const {surfaceGeometry}=load(read('surfaceGeometry.ts'));
 const {continuousRoadGrade,corridorRoadGrade}=load(read('roadGrade.ts'));
 const {gridAt}=load(read('waterCore.ts'));
-const {drapeRoadSurface,raiseRoadPaint}=load(read('roadDrape.ts'));
+const {drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight}=load(read('roadDrape.ts'));
 const {gradeRoads}=load(read('sceneTerrain.ts'),{gridAt,corridorRoadGrade});
-const levels=load(read('roadLevels.ts'),{surfaceGeometry});
+const levels=load(read('roadLevels.ts'),{surfaceGeometry,...load(read('roadGroundGrade.ts'))});
 const {roadJunctionHulls}=load(read('roadJunctions.ts'),levels);
 const {roadLaneCount}=load(read('roadLanes.ts'));
 const street=load(read('sceneStreet.ts'),{surfaceGeometry,roadJunctionHulls,roadLaneCount,...levels});
@@ -157,7 +157,13 @@ test('wide road is sampled across its width and markings remain above its surfac
   const surface=await street.buildRoadSurface(road,terrain),mesh=surface.group,p=mesh.geometry.attributes.position.array;
   for(let k=0;k<p.length;k+=9)for(const [a,b] of [[0,3],[3,6],[6,0]])assert.ok(Math.hypot(p[k+a]-p[k+b],p[k+a+2]-p[k+b+2])<=4.25);
   const marks=await street.buildRoadMarkings(road,terrain);
-  marks.group.traverse(o=>{if(o.isMesh){const v=o.geometry.attributes.position.array;for(let k=0;k<v.length;k+=3)assert.ok(v[k+1]-terrain.at(v[k],-v[k+2])>.08);}});
+  // The ground is cut to the level carriageway. Compare paint with rendered
+  // asphalt, rather than with the uncut cross-slope beneath the road.
+  const asphaltAt=roadSurfaceHeight(mesh.geometry);
+  marks.group.traverse(o=>{if(o.isMesh){const v=o.geometry.attributes.position.array;for(let k=0;k<v.length;k+=3){
+    const asphalt=asphaltAt(v[k],-v[k+2]);assert.notEqual(asphalt,undefined);
+    assert.ok(v[k+1]-asphalt>.03,`paint ${v[k+1]} asphalt ${asphalt} at ${v[k]},${-v[k+2]}`);
+  }}});
   surface.dispose();marks.dispose();
 });
 
