@@ -54,7 +54,9 @@ let shadowKey = '';
 /** (a phone's drone: two cascades out to 900 m — the third, out to 1.8 km, a whole extra pass of
  * the scene's casters for shadows a few pixels long) */
 let shadowSplits = null;
-function useShadows({ shadow: size, pcss }) {
+function useShadows({ shadow: size, pcss: wanted }) {
+  // (and plain PCF there: contact-hardening soft shadows are the costliest filter of the frame)
+  const pcss = shadowSplits ? 0 : wanted;
   const splits = shadowSplits ?? [180, 600, 1800], key = size + '/' + pcss + '/' + splits.join(',');
   if (shadowKey === key) return;
   shadows?.dispose();
