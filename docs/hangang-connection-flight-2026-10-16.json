@@ -1,0 +1,253 @@
+{
+  "method": "One candidate and one baseline flight; public GIS timing and GC not controlled",
+  "baseline": {
+    "label": "baseline-final",
+    "shownSeconds": 6.85,
+    "settledSeconds": 23.94,
+    "bridgeRouteMetres": {
+      "south": [
+        1925.7355433544933,
+        -1411.9273352378507
+      ],
+      "north": [
+        2389.119614978537,
+        -528.9124929278667
+      ]
+    },
+    "segments": [
+      {
+        "name": "river-120m",
+        "meanFps": 46.52050263949966,
+        "minOneSecondFps": 26.336324619586495,
+        "p95Ms": 36,
+        "p99Ms": 53.69999999999709,
+        "maxFrameMs": 142.5,
+        "pixelRatios": [
+          1.25
+        ],
+        "canvas": [
+          2400,
+          1350
+        ],
+        "quality": "high",
+        "renderer": "tidewater-webgpu",
+        "world": {
+          "tiles": 81,
+          "ready": 78,
+          "loading": 2,
+          "failed": 0,
+          "buildings": 7369,
+          "lastMs": 1684.8999999910593,
+          "radius": 1323,
+          "detailReady": 11,
+          "detailRunning": 0,
+          "detailPending": 40,
+          "detailUnavailable": 15,
+          "detailMatched": 2493,
+          "detailUnmatched": 3349,
+          "workerPending": 0
+        },
+        "heapMB": 1011
+      },
+      {
+        "name": "bridge-40m",
+        "meanFps": 47.694952076139536,
+        "minOneSecondFps": 27.553631174965638,
+        "p95Ms": 35.79999999998836,
+        "p99Ms": 53.39999999999418,
+        "maxFrameMs": 143.3000000000029,
+        "pixelRatios": [
+          1.25
+        ],
+        "canvas": [
+          2400,
+          1350
+        ],
+        "quality": "high",
+        "renderer": "tidewater-webgpu",
+        "world": {
+          "tiles": 70,
+          "ready": 70,
+          "loading": 0,
+          "failed": 0,
+          "buildings": 3699,
+          "lastMs": 2426.300000011921,
+          "radius": 1211,
+          "detailReady": 9,
+          "detailRunning": 0,
+          "detailPending": 21,
+          "detailUnavailable": 27,
+          "detailMatched": 1632,
+          "detailUnmatched": 995,
+          "workerPending": 1
+        },
+        "heapMB": 919
+      },
+      {
+        "name": "city-80m",
+        "meanFps": 38.88160551123567,
+        "minOneSecondFps": 25.545293770878292,
+        "p95Ms": 52.69999999999709,
+        "p99Ms": 70.60000000000582,
+        "maxFrameMs": 107.5,
+        "pixelRatios": [
+          1.25
+        ],
+        "canvas": [
+          2400,
+          1350
+        ],
+        "quality": "high",
+        "renderer": "tidewater-webgpu",
+        "world": {
+          "tiles": 75,
+          "ready": 72,
+          "loading": 3,
+          "failed": 0,
+          "buildings": 6979,
+          "lastMs": 1581.4000000059605,
+          "radius": 1267,
+          "detailReady": 6,
+          "detailRunning": 1,
+          "detailPending": 51,
+          "detailUnavailable": 12,
+          "detailMatched": 2021,
+          "detailUnmatched": 3626,
+          "workerPending": 1
+        },
+        "heapMB": 802
+      }
+    ],
+    "gpu": {
+      "vendor": "nvidia",
+      "architecture": "ampere",
+      "description": ""
+    },
+    "pageErrors": []
+  },
+  "candidate": {
+    "label": "candidate-final",
+    "shownSeconds": 7.93,
+    "settledSeconds": 25.59,
+    "bridgeRouteMetres": {
+      "south": [
+        1925.7355433544933,
+        -1411.9273352378507
+      ],
+      "north": [
+        2389.119614978537,
+        -528.9124929278667
+      ]
+    },
+    "segments": [
+      {
+        "name": "river-120m",
+        "meanFps": 44.631095040374696,
+        "minOneSecondFps": 30.550901744358026,
+        "p95Ms": 36.10000000000218,
+        "p99Ms": 54.19999999999709,
+        "maxFrameMs": 427.3000000000029,
+        "pixelRatios": [
+          1.25
+        ],
+        "canvas": [
+          2400,
+          1350
+        ],
+        "quality": "high",
+        "renderer": "tidewater-webgpu",
+        "world": {
+          "tiles": 81,
+          "ready": 77,
+          "loading": 2,
+          "failed": 0,
+          "buildings": 7369,
+          "lastMs": 1813.5,
+          "radius": 1323,
+          "detailReady": 11,
+          "detailRunning": 0,
+          "detailPending": 41,
+          "detailUnavailable": 14,
+          "detailMatched": 2445,
+          "detailUnmatched": 3397,
+          "workerPending": 0
+        },
+        "heapMB": 931
+      },
+      {
+        "name": "bridge-40m",
+        "meanFps": 46.070674995739914,
+        "minOneSecondFps": 25.71202531645577,
+        "p95Ms": 36.10000000000582,
+        "p99Ms": 54.19999999999709,
+        "maxFrameMs": 107.19999999999709,
+        "pixelRatios": [
+          1.25
+        ],
+        "canvas": [
+          2400,
+          1350
+        ],
+        "quality": "high",
+        "renderer": "tidewater-webgpu",
+        "world": {
+          "tiles": 70,
+          "ready": 70,
+          "loading": 0,
+          "failed": 0,
+          "buildings": 3699,
+          "lastMs": 2309,
+          "radius": 1211,
+          "detailReady": 9,
+          "detailRunning": 1,
+          "detailPending": 19,
+          "detailUnavailable": 28,
+          "detailMatched": 1609,
+          "detailUnmatched": 1018,
+          "workerPending": 1
+        },
+        "heapMB": 783
+      },
+      {
+        "name": "city-80m",
+        "meanFps": 42.13938411669368,
+        "minOneSecondFps": 26.126714565716167,
+        "p95Ms": 37.5,
+        "p99Ms": 70.10000000000582,
+        "maxFrameMs": 107.59999999999127,
+        "pixelRatios": [
+          1.25
+        ],
+        "canvas": [
+          2400,
+          1350
+        ],
+        "quality": "high",
+        "renderer": "tidewater-webgpu",
+        "world": {
+          "tiles": 75,
+          "ready": 71,
+          "loading": 4,
+          "failed": 0,
+          "buildings": 6979,
+          "lastMs": 1514.5,
+          "radius": 1267,
+          "detailReady": 6,
+          "detailRunning": 1,
+          "detailPending": 51,
+          "detailUnavailable": 12,
+          "detailMatched": 1965,
+          "detailUnmatched": 3682,
+          "workerPending": 1
+        },
+        "heapMB": 1182
+      }
+    ],
+    "gpu": {
+      "vendor": "nvidia",
+      "architecture": "ampere",
+      "description": ""
+    },
+    "pageErrors": []
+  }
+}

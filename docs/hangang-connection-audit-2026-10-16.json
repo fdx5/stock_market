@@ -1,0 +1,600 @@
+{
+  "baseCommit": "5989baabf3338366bc271b8af70559c9db721008",
+  "spacingMetres": 3,
+  "excludedBorderMetres": 5,
+  "strictStepThresholdMetres": 0.8,
+  "precisionRecheckMetres": 0.001,
+  "demComparedFloat32Values": 8355872,
+  "demChangedValues": 0,
+  "strictAfterSamples": 30161,
+  "regions": [
+    {
+      "name": "팔당대교",
+      "before": {
+        "samples": 340,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 127177,
+        "workerMs": 4587.5999999940395
+      },
+      "after": {
+        "samples": 340,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 128761,
+        "workerMs": 4730.5999999940395
+      }
+    },
+    {
+      "name": "미사대교",
+      "before": {
+        "samples": 790,
+        "missing": 0,
+        "steps": 1,
+        "triangles": 125745,
+        "workerMs": 4375
+      },
+      "after": {
+        "samples": 790,
+        "missing": 0,
+        "steps": 2,
+        "triangles": 134905,
+        "workerMs": 5808.899999991059
+      },
+      "precisionRecheck": {
+        "samples": 790,
+        "missing": 0,
+        "precisionBoundaryHits": 0,
+        "profileNearestSteps": 2,
+        "continuousPathBreaks": 0,
+        "triangles": 134905
+      }
+    },
+    {
+      "name": "강동대교",
+      "before": {
+        "samples": 839,
+        "missing": 20,
+        "steps": 0,
+        "triangles": 200364,
+        "workerMs": 7353.20000000298
+      },
+      "after": {
+        "samples": 839,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 203002,
+        "workerMs": 8620
+      }
+    },
+    {
+      "name": "고덕토평대교",
+      "before": {
+        "samples": 1144,
+        "missing": 21,
+        "steps": 0,
+        "triangles": 192680,
+        "workerMs": 8533.39999999106
+      },
+      "after": {
+        "samples": 1144,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 191523,
+        "workerMs": 9290.70000000298
+      }
+    },
+    {
+      "name": "구리암사대교",
+      "before": {
+        "samples": 326,
+        "missing": 0,
+        "steps": 2,
+        "triangles": 225650,
+        "workerMs": 8091.29999999702
+      },
+      "after": {
+        "samples": 326,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 229085,
+        "workerMs": 8337
+      }
+    },
+    {
+      "name": "광진교",
+      "before": {
+        "samples": 1430,
+        "missing": 0,
+        "steps": 4,
+        "triangles": 275740,
+        "workerMs": 11097.5
+      },
+      "after": {
+        "samples": 1430,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 286781,
+        "workerMs": 12493
+      }
+    },
+    {
+      "name": "천호대교",
+      "before": {
+        "samples": 1431,
+        "missing": 0,
+        "steps": 4,
+        "triangles": 309345,
+        "workerMs": 12415.09999999404
+      },
+      "after": {
+        "samples": 1431,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 321225,
+        "workerMs": 14273.20000000298
+      }
+    },
+    {
+      "name": "올림픽대교",
+      "before": {
+        "samples": 1091,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 244072,
+        "workerMs": 11914.5
+      },
+      "after": {
+        "samples": 1091,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 256931,
+        "workerMs": 13665.39999999106
+      }
+    },
+    {
+      "name": "잠실대교",
+      "before": {
+        "samples": 818,
+        "missing": 0,
+        "steps": 1,
+        "triangles": 204212,
+        "workerMs": 8667.20000000298
+      },
+      "after": {
+        "samples": 818,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 204036,
+        "workerMs": 8554.70000000298
+      }
+    },
+    {
+      "name": "잠실철교",
+      "before": {
+        "samples": 522,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 217444,
+        "workerMs": 13723
+      },
+      "after": {
+        "samples": 522,
+        "missing": 1,
+        "steps": 0,
+        "triangles": 217760,
+        "workerMs": 12901.5
+      },
+      "precisionRecheck": {
+        "samples": 522,
+        "missing": 0,
+        "precisionBoundaryHits": 1,
+        "profileNearestSteps": 0,
+        "continuousPathBreaks": 0,
+        "triangles": 217760
+      }
+    },
+    {
+      "name": "청담대교",
+      "before": {
+        "samples": 603,
+        "missing": 0,
+        "steps": 6,
+        "triangles": 311613,
+        "workerMs": 17224.89999999106
+      },
+      "after": {
+        "samples": 603,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 315373,
+        "workerMs": 15018.800000011921
+      }
+    },
+    {
+      "name": "영동대교",
+      "before": {
+        "samples": 456,
+        "missing": 0,
+        "steps": 2,
+        "triangles": 324517,
+        "workerMs": 14832.90000000596
+      },
+      "after": {
+        "samples": 456,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 329460,
+        "workerMs": 17457.69999998808
+      }
+    },
+    {
+      "name": "성수대교",
+      "before": {
+        "samples": 761,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 228573,
+        "workerMs": 10252
+      },
+      "after": {
+        "samples": 761,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 228979,
+        "workerMs": 12544.800000011921
+      }
+    },
+    {
+      "name": "동호대교",
+      "before": {
+        "samples": 538,
+        "missing": 0,
+        "steps": 1,
+        "triangles": 229265,
+        "workerMs": 10329.300000011921
+      },
+      "after": {
+        "samples": 538,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 226164,
+        "workerMs": 9818.5
+      }
+    },
+    {
+      "name": "한남대교",
+      "before": {
+        "samples": 657,
+        "missing": 0,
+        "steps": 1,
+        "triangles": 324504,
+        "workerMs": 15224.699999988079
+      },
+      "after": {
+        "samples": 657,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 332058,
+        "workerMs": 15693.5
+      }
+    },
+    {
+      "name": "반포대교",
+      "before": {
+        "samples": 1760,
+        "missing": 0,
+        "steps": 18,
+        "triangles": 174455,
+        "workerMs": 7523.79999999702
+      },
+      "after": {
+        "samples": 1760,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 198375,
+        "workerMs": 14001.20000000298
+      }
+    },
+    {
+      "name": "잠수교",
+      "before": {
+        "samples": 1760,
+        "missing": 0,
+        "steps": 18,
+        "triangles": 176291,
+        "workerMs": 7372.20000000298
+      },
+      "after": {
+        "samples": 1760,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 200189,
+        "workerMs": 14596.39999999106
+      }
+    },
+    {
+      "name": "동작대교",
+      "before": {
+        "samples": 784,
+        "missing": 0,
+        "steps": 3,
+        "triangles": 161311,
+        "workerMs": 7028.9000000059605
+      },
+      "after": {
+        "samples": 784,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 160679,
+        "workerMs": 6546.5999999940395
+      }
+    },
+    {
+      "name": "한강대교",
+      "before": {
+        "samples": 666,
+        "missing": 0,
+        "steps": 5,
+        "triangles": 248385,
+        "workerMs": 9754
+      },
+      "after": {
+        "samples": 666,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 255503,
+        "workerMs": 11359.59999999404
+      }
+    },
+    {
+      "name": "한강철교",
+      "before": {
+        "samples": 1344,
+        "missing": 0,
+        "steps": 5,
+        "triangles": 186941,
+        "workerMs": 8564.199999988079
+      },
+      "after": {
+        "samples": 1344,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 201283,
+        "workerMs": 11098.89999999106
+      }
+    },
+    {
+      "name": "원효대교",
+      "before": {
+        "samples": 1127,
+        "missing": 9,
+        "steps": 3,
+        "triangles": 148809,
+        "workerMs": 7219.399999991059
+      },
+      "after": {
+        "samples": 1127,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 155525,
+        "workerMs": 8767.70000000298
+      }
+    },
+    {
+      "name": "마포대교",
+      "before": {
+        "samples": 816,
+        "missing": 0,
+        "steps": 3,
+        "triangles": 178956,
+        "workerMs": 9970
+      },
+      "after": {
+        "samples": 816,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 179842,
+        "workerMs": 7803.20000000298
+      }
+    },
+    {
+      "name": "서강대교",
+      "before": {
+        "samples": 936,
+        "missing": 0,
+        "steps": 2,
+        "triangles": 206426,
+        "workerMs": 10350.79999999702
+      },
+      "after": {
+        "samples": 936,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 204472,
+        "workerMs": 8379.10000000894
+      }
+    },
+    {
+      "name": "양화대교",
+      "before": {
+        "samples": 809,
+        "missing": 0,
+        "steps": 2,
+        "triangles": 254025,
+        "workerMs": 12700
+      },
+      "after": {
+        "samples": 809,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 255157,
+        "workerMs": 11570.09999999404
+      }
+    },
+    {
+      "name": "당산철교",
+      "before": {
+        "samples": 809,
+        "missing": 0,
+        "steps": 1,
+        "triangles": 247420,
+        "workerMs": 11070.40000000596
+      },
+      "after": {
+        "samples": 809,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 249405,
+        "workerMs": 10188
+      }
+    },
+    {
+      "name": "성산대교",
+      "before": {
+        "samples": 739,
+        "missing": 0,
+        "steps": 4,
+        "triangles": 238215,
+        "workerMs": 10498.20000000298
+      },
+      "after": {
+        "samples": 739,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 245321,
+        "workerMs": 12094.40000000596
+      }
+    },
+    {
+      "name": "월드컵대교",
+      "before": {
+        "samples": 1288,
+        "missing": 21,
+        "steps": 0,
+        "triangles": 221358,
+        "workerMs": 12537.60000000894
+      },
+      "after": {
+        "samples": 1288,
+        "missing": 1,
+        "steps": 0,
+        "triangles": 221301,
+        "workerMs": 9925.20000000298
+      },
+      "precisionRecheck": {
+        "samples": 1288,
+        "missing": 0,
+        "precisionBoundaryHits": 1,
+        "profileNearestSteps": 0,
+        "continuousPathBreaks": 0,
+        "triangles": 221301
+      }
+    },
+    {
+      "name": "가양대교",
+      "before": {
+        "samples": 1139,
+        "missing": 71,
+        "steps": 2,
+        "triangles": 165198,
+        "workerMs": 9250.699999988079
+      },
+      "after": {
+        "samples": 1139,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 172823,
+        "workerMs": 8943.70000000298
+      }
+    },
+    {
+      "name": "마곡철교",
+      "excluded": "No bridge location in source"
+    },
+    {
+      "name": "방화대교",
+      "before": {
+        "samples": 1164,
+        "missing": 0,
+        "steps": 6,
+        "triangles": 101163,
+        "workerMs": 5340.9000000059605
+      },
+      "after": {
+        "samples": 1164,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 110330,
+        "workerMs": 6002
+      }
+    },
+    {
+      "name": "행주대교",
+      "before": {
+        "samples": 873,
+        "missing": 0,
+        "steps": 2,
+        "triangles": 171247,
+        "workerMs": 6970.29999999702
+      },
+      "after": {
+        "samples": 873,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 170461,
+        "workerMs": 6281.5
+      },
+      "precisionRecheck": {
+        "samples": 873,
+        "missing": 0,
+        "precisionBoundaryHits": 0,
+        "profileNearestSteps": 0,
+        "continuousPathBreaks": 0,
+        "triangles": 170461
+      }
+    },
+    {
+      "name": "김포대교",
+      "before": {
+        "samples": 1507,
+        "missing": 3,
+        "steps": 1,
+        "triangles": 165910,
+        "workerMs": 7832
+      },
+      "after": {
+        "samples": 1507,
+        "missing": 3,
+        "steps": 0,
+        "triangles": 186877,
+        "workerMs": 11132.5
+      },
+      "precisionRecheck": {
+        "samples": 1509,
+        "missing": 0,
+        "precisionBoundaryHits": 0,
+        "profileNearestSteps": 0,
+        "continuousPathBreaks": 0,
+        "triangles": 186877
+      }
+    },
+    {
+      "name": "일산대교",
+      "before": {
+        "samples": 894,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 110533,
+        "workerMs": 7105.100000008941
+      },
+      "after": {
+        "samples": 894,
+        "missing": 0,
+        "steps": 0,
+        "triangles": 115256,
+        "workerMs": 8258.29999999702
+      }
+    }
+  ]
+}
