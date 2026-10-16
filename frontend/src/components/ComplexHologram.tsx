@@ -76,7 +76,7 @@ import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice,sceneFrameStarted } from "./frameSlice";
 import { SceneResources } from "./sceneResources";
 import { makeGroundGeometry } from "./groundGeometry";
-import { drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight } from "./roadDrape";
+import { cutGroundToRoads,drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight } from "./roadDrape";
 import { drapeRoadOffThread } from './roadDrapeClient';
 import {buildRoadBvh,roadBvhEnabled} from './roadBvhClient';
 import {roadBvhIndex} from './roadBvh';
@@ -2956,7 +2956,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const waterTerrain:Terrain={...terrain,waterRevision:()=>waterRevision,waterAt:(x,y)=>roadSea?.wet(x,y)?roadSea.level(x,y):roadWater?.wet(x,y)?roadWater.level(x,y):null};
     let approachTerrain = roadApproachTerrain(roads, waterTerrain);
     let relayWalks:(()=>Promise<void>)|null=null;
-    const useRoadWater=(field:WaterField)=>{if(roadWater===field)return;roadWater=field;waterRevision={};approachTerrain=roadApproachTerrain(roads,waterTerrain);asphaltAt=null;bridgesTried=false;};
+    // (the roads' heights know the water's surface from the first laying on: a road laid before it
+    // was in sat under it until laid again — waited for, where the stream network has a river here)
+    // (the asphalt and paint already laid, kept over the water's surface the moment the water is in:
+    // a road laid before it never sits under it until it is laid again)
+    let liftRoadsOverWater:(field:WaterField)=>void=()=>{};
+    const roadWaterIn=()=>{if(roadWater)liftRoadsOverWater(roadWater);};
+    const useRoadWater=(field:WaterField)=>{if(roadWater===field)return;roadWater=field;roadWaterIn();waterRevision={};approachTerrain=roadApproachTerrain(roads,waterTerrain);asphaltAt=null;bridgesTried=false;};
     const roadTerrain: Terrain = { ...approachTerrain, roadAt:(road,x,y)=>roadHeight(road,approachTerrain,x,y) };
     const trafficTerrain:Terrain={...roadTerrain,heightRevision:()=>asphaltAt??waterRevision,roadAt:(road,x,y)=>{
       const reference=roadHeight(road,roadTerrain,x,y)+.08;
@@ -3111,8 +3117,17 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let visiblePlanting:Planting|null=null;
     const plantTimings:{phase:string;start:number;ready?:number;reused?:boolean}[]=[];
     let visiblePlants: { plants: NonNullable<Awaited<ReturnType<typeof buildPlants>>>; root: THREE.Group } | null = null;
+    // (no tree in a river from the first planting on: the stream network's surfaces came with the
+    // roads, long before the water's own mask — the first trees stood all over the 한강)
+    const riverRings=(data.road_context?.rivers??[]).map(r=>r.rings);
+    const inRiver=(x:number,y:number)=>riverRings.some(([outer,...holes])=>inRing([x,y],outer)&&!holes.some(h=>inRing([x,y],h)));
+    const offRivers=(p:Planting):Planting=>{if(!riverRings.length)return p;const dry=(q:readonly number[])=>!inRiver(q[0],q[1]);
+      return {...p,trees:p.trees.filter(dry),shrubs:p.shrubs.filter(dry),flowers:p.flowers.filter(dry),street:p.street.filter(dry),
+        ...(p.grass?{grass:p.grass.filter(dry)}:{}),...(p.border?{border:p.border.filter(dry)}:{}),
+        ...(p.groves?{groves:p.groves.map(g=>({...g,points:g.points.filter(dry)}))}:{}),
+        ...(p.woodlandFlowers?{woodlandFlowers:p.woodlandFlowers.map(b=>({...b,points:b.points.filter(dry)}))}:{})};};
     const showPlants = async (planting: Planting, phase: "initial" | "surveyed" | "complete") => {
-      planting = withoutStadiumTrees(planting,stadiumTreeMask);
+      planting = offRivers(withoutStadiumTrees(planting,stadiumTreeMask));
       const revision = ++plantsRevision;
       const timing={phase,start:Math.round(performance.now()),ready:undefined as number|undefined,reused:false};plantTimings.push(timing);
       if(visiblePlants&&visiblePlanting&&samePlanting(visiblePlanting,planting)){
@@ -3177,6 +3192,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const blocked = (x: number, y: number) => Math.abs(x) > T || Math.abs(y) > T || inFootprint(x, y) || onCarriageway(x, y);
       // Water and final vegetation run alongside sidewalk mesh/actor creation.
       // They use the same surveyed street roots and water field as the later pass.
+      let waterShown:object|null=null;
+      const showWater=async(water:NonNullable<Awaited<ReturnType<typeof buildWater>>>)=>{
+        if(waterShown===water)return;waterShown=water;
+        stage.addWarm(decor, water.mesh);
+        stage.wetAt = (x, y) => water.field.wet(x, y) && deckAt?.(x, y) == null;
+        stage.viewRiver = water.field;
+        disposables.push({ dispose: () => { stage.wetAt = null; stage.viewRiver = null; } });
+        await water.sink(groundGeo);
+        if(hostRef.current)hostRef.current.dataset.waterReadyAt=String(Math.round(performance.now()));
+      };
       const finalPlantsJob=textureBudgetEnabled()?(async()=>{
         const planting=plantingSnapshot(await plantingJob);planting.street=street.slice();
         planting.border=[...(planting.border??[]),...schoolBorders(data.parcels??[],blocked,T)];
@@ -3184,6 +3209,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const wp=waterParcels(),water=await buildWater(wp.parcels,wp.covered,terrain,pace);
         if(!alive){water?.dispose();return null;}
         if(water)disposables.push(water);
+        // (the water in at once — not after the whole forest is planted again: the river stood a
+        // green field for 30–60 s)
+        if(water)await showWater(water);
         if(water){useRoadWater(water.field);if(await placeBridges()){await relayWalks?.();void layMarks();relayLamps();}}
         if(water){const dry=(p:readonly number[])=>!water.field.wet(p[0],p[1]);
           planting.trees=planting.trees.filter(dry);planting.shrubs=planting.shrubs.filter(dry);planting.flowers=planting.flowers.filter(dry);planting.street=planting.street.filter(dry);
@@ -3334,12 +3362,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if(textureBudgetEnabled())await finishPlanting();
         if(!alive){water?.dispose();return;}
         if (water) {
-          stage.addWarm(decor, water.mesh); if(!finalPlantsJob)disposables.push(water);
-          stage.wetAt = (x, y) => water.field.wet(x, y) && deckAt?.(x, y) == null;
-          stage.viewRiver = water.field;
-          disposables.push({ dispose: () => { stage.wetAt = null; stage.viewRiver = null; } });
-          await water.sink(groundGeo);
-          if(hostRef.current)hostRef.current.dataset.waterReadyAt=String(Math.round(performance.now()));
+          if(!finalPlantsJob)disposables.push(water);
+          await showWater(water);
           // The breakwaters, groynes and piers: concrete crowns out of the sea, tetrapods along them.
           if (seaWorks.length && lakes.some(p => p.sea)) {
             const lv: number[] = [];
@@ -3403,7 +3427,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let preparedRoadArms:TrafficArms|null=null;
     let roadBvhAbort:AbortController|null=null;
     disposables.push({dispose:()=>roadBvhAbort?.abort()});
+    // (one laying at a time: asked again while one runs — the bridges placed, the water in — the
+    // running one is finished and shown first, then laid once more. Restarted each time, the first
+    // asphalt only came after the water: 40–60 s of bridges standing on nothing.)
+    let laying=false,layAgain=false;
     const layMarks = async () => {
+      if(laying){layAgain=true;return;}
+      laying=true;
+      try{do{layAgain=false;await layMarksOnce();}while(layAgain&&alive);}finally{laying=false;}
+    };
+    const layMarksOnce = async () => {
       // During a handover stage.traffic still belongs to the previous region.
       // Its local coordinates must never be used to paint this region's roads.
       const arms = preparedRoadArms;
@@ -3417,22 +3450,38 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         }
         return alive;
       };
-      const f = await buildRoadSurface(arms.roads, roadTerrain);
-      await cutSceneSurface(f.group.geometry,physicalFootprints,roadPace);
+      const lap:number[]=[Math.round(performance.now())],mark=()=>{lap.push(Math.round(performance.now()));if(hostRef.current)hostRef.current.dataset.roadsLay=lap.map((t,i)=>i?t-lap[i-1]:t).join('/');};
+      // (the ground cut to the roads at grade first: the asphalt is then laid smooth on it, nothing
+      // of the relief to lift it onto)
+      const atGrade=arms.roads.filter(r=>!['bridge','elevated','tunnel','underpass'].includes(r.structure??''));
+      await cutGroundToRoads(groundGeo,atGrade,(i,x,y)=>roadHeight(atGrade[i],roadTerrain,x,y),roadPace);
+      const f = await buildRoadSurface(arms.roads, roadTerrain);mark();
+      await cutSceneSurface(f.group.geometry,physicalFootprints,roadPace);mark();
       const drape = textureBudgetEnabled() ? drapeRoadOffThread : drapeRoadSurface;
-      await drape(f.group.geometry, groundGeo, roadPace);
+      await drape(f.group.geometry, groundGeo, roadPace);mark();
       if (!alive || gen !== marksGen) { f.dispose(); return; }
+      // The first asphalt shown as soon as it is laid — the lane paint follows (9–16 s more): the
+      // bridges and the water are in by then, and roads must meet them, not bare ground.
+      if(!roadLayer){
+        const first=new THREE.Group();first.name="road surface and markings";first.add(f.group);
+        stage.addWarm(decor,first);
+        while(alive&&gen===marksGen&&!stage.drawReady(first))await frameSlice();
+        if(!alive||gen!==marksGen){first.removeFromParent();f.dispose();return;}
+        roadLayer=first;surface=f;if(roadWater)liftRoadsOverWater(roadWater);
+        if(hostRef.current){const d=hostRef.current.dataset;d.roadsFirstAt??=String(Math.round(performance.now()));}
+      }
       roadBvhAbort?.abort();roadBvhAbort=new AbortController();
       const bvhJob=roadBvhEnabled()?buildRoadBvh(f.group.geometry,{signal:roadBvhAbort.signal}):Promise.resolve(null);
-      const m = await buildRoadMarkings(arms.roads, roadTerrain, arms.at, arms.inside, arms.crossings);
-      const bvh=await bvhJob;
-      if (!alive || gen !== marksGen) { f.dispose(); m.dispose(); return; }
+      const m = await buildRoadMarkings(arms.roads, roadTerrain, arms.at, arms.inside, arms.crossings);mark();
+      const bvh=await bvhJob;mark();
+      if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); m.dispose(); return; }
       await Promise.all((m.group.children as THREE.Mesh[]).map(async mesh=>{
         await cutSceneSurface(mesh.geometry,physicalFootprints,roadPace);
         if(textureBudgetEnabled())await drapeRoadOffThread(mesh.geometry,groundGeo,roadPace,.05,f.group.geometry,bvh??undefined);
         else{await drapeRoadSurface(mesh.geometry,groundGeo,roadPace,.05);await raiseRoadPaint(mesh.geometry,f.group.geometry,roadPace,.015,bvh?roadBvhIndex(bvh):undefined);}
       }));
-      if (!alive || gen !== marksGen) { f.dispose(); m.dispose(); return; }
+      if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); m.dispose(); return; }
+      mark();
       const nextLayer = new THREE.Group();
       nextLayer.name = "road surface and markings";
       nextLayer.add(f.group, m.group);
@@ -3441,13 +3490,20 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!alive || gen !== marksGen) {
         nextLayer.userData.sceneDiscarded = true; nextLayer.removeFromParent(); f.dispose(); m.dispose(); return;
       }
+      mark();
       roadLayer?.removeFromParent(); roadLayer = nextLayer;
-      if (surface) { decor.remove(surface.group); surface.dispose(); }
+      if (surface && surface !== f) { decor.remove(surface.group); surface.dispose(); }
       if (marks) { decor.remove(marks.group); marks.dispose(); }
-      surface = f; marks = m;
+      surface = f; marks = m;if(roadWater)liftRoadsOverWater(roadWater);
       asphaltAt=roadSurfaceHeight(f.group.geometry,bvh?roadBvhIndex(bvh):undefined);
       if(hostRef.current){const d=hostRef.current.dataset;d.roadIndex=bvh?'rust-wasm-bvh':'js-grid';d.roadIndexBuildMs=bvh?bvh.buildMs.toFixed(1):'0';d.roadIndexWorkers=String(bvh?.workers??0);d.roadIndexBytes=String(bvh?.parts.reduce((n,p)=>n+p.nodes.byteLength+p.ids.byteLength,0)??0);}
-      if(hostRef.current)hostRef.current.dataset.roadsReadyAt=String(Math.round(performance.now()));
+      if(hostRef.current){const d=hostRef.current.dataset;d.roadsReadyAt=String(Math.round(performance.now()));d.roadsFirstAt??=d.roadsReadyAt;d.roadsLays=String(+(d.roadsLays??0)+1);}
+    };
+    liftRoadsOverWater=field=>{
+      roadLayer?.traverse(o=>{const m=o as THREE.Mesh;if(!m.isMesh)return;const P=m.geometry.getAttribute('position') as THREE.BufferAttribute|undefined;if(!P)return;
+        const lift=m.parent===surface?.group||m===surface?.group?.0:.05;let moved=false;
+        for(let i=0;i<P.count;i++){const x=P.getX(i),y=-P.getZ(i);if(!field.wet(x,y)||deckAt?.(x,y)!=null)continue;const want=field.level(x,y)+.34+lift;if(P.getY(i)<want){P.setY(i,want);moved=true;}}
+        if(moved){P.needsUpdate=true;m.geometry.computeBoundingSphere();}});
     };
     stage.roadDetail = on => { void surface?.setDetail(on); };
     disposables.push({ dispose: () => { roadLayer?.removeFromParent(); marks?.dispose(); surface?.dispose(); if (stage.current?.parts().includes(decor)) stage.roadDetail = undefined; } });

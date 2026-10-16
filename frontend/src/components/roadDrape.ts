@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type {RoadTriangleIndex} from './roadBvh';
+import {gridNormals} from './sceneTerrain';
 
 type Point = [number, number];
 const cross = (a: Point,b: Point,p: Point) => (b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]);
@@ -201,4 +202,35 @@ export async function drapeRoadSurface(road: THREE.BufferGeometry,ground: THREE.
   road.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
   road.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
   road.computeVertexNormals();road.computeBoundingSphere();
+}
+
+/** The ground cut to the roads at grade (pure geometry on the view's ground grid): every post under
+ * a road — its carriageway, sidewalks and half a metre more — no higher than the road's surface,
+ * 12 cm under it. The road is laid smooth (roadLevels.roadHeight) and the relief made to meet it:
+ * never the road draped onto the relief's every post in bumps. */
+export async function cutGroundToRoads(ground: THREE.BufferGeometry, roads: readonly {line:readonly (readonly number[])[];width:number}[], heightAt:(i:number,x:number,y:number)=>number|null, pace:()=>Promise<boolean>) {
+  const grid=ground.userData.grid as {xs:Float64Array;ys:Float64Array}|undefined;
+  if(!grid)return;
+  const {xs,ys}=grid,row=xs.length,P=ground.getAttribute('position');
+  const xi=(v:number)=>{let lo=0,hi=xs.length-1;while(lo<hi){const m=(lo+hi)>>1;if(xs[m]<v)lo=m+1;else hi=m;}return lo;};
+  const desc=ys.length>1&&ys[0]>ys[1];
+  const yi=(v:number)=>{let lo=0,hi=ys.length-1;while(lo<hi){const m=(lo+hi)>>1;if(desc?ys[m]>v:ys[m]<v)lo=m+1;else hi=m;}return lo;};
+  let changed=false;
+  for(let ri=0;ri<roads.length;ri++){
+    if(ri%20===0&&!await pace())return;
+    const r=roads[ri],w=r.width,half=w/2+(w>=30?5:w>=20?4:w>=12?3:2.25)+.5;
+    for(let k=1;k<r.line.length;k++){
+      const a=r.line[k-1],b=r.line[k],ex=b[0]-a[0],ey=b[1]-a[1],L2=ex*ex+ey*ey||1;
+      const i0=Math.max(0,xi(Math.min(a[0],b[0])-half)-1),i1=Math.min(xs.length-1,xi(Math.max(a[0],b[0])+half)+1);
+      const ya=desc?Math.max(a[1],b[1])+half:Math.min(a[1],b[1])-half,yb=desc?Math.min(a[1],b[1])-half:Math.max(a[1],b[1])+half;
+      const j0=Math.max(0,yi(ya)-1),j1=Math.min(ys.length-1,yi(yb)+1);
+      for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++){
+        const id=j*row+i,x=P.getX(id),y=P.getY(id),t=Math.max(0,Math.min(1,((x-a[0])*ex+(y-a[1])*ey)/L2));
+        if(Math.hypot(a[0]+ex*t-x,a[1]+ey*t-y)>half)continue;
+        const z=heightAt(ri,a[0]+ex*t,a[1]+ey*t);if(z===null)continue;
+        if(P.getZ(id)>z-.12){P.setZ(id,z-.12);changed=true;}
+      }
+    }
+  }
+  if(changed){gridNormals(ground);P.needsUpdate=true;ground.computeBoundingSphere();}
 }

@@ -39,6 +39,8 @@ export type RoadTileResult = {
   /** the ground every road takes, kerb to kerb and its sidewalks, 1 m more: [n, half width, x0, y0,
    * x1, y1, …] one line after another — no tree of the land's planted on it */
   clear: Float32Array;
+  /** the tile's grid heights cut to its roads (the ground mesh is made from them) */
+  ground: Float32Array;
   /** the junctions' asphalt (where roads cross: filled, no lane lines through it) */
   junctions: Arr | null;
   /** lanes: [n, road width, x0, y0, z0, x1, y1, z1, …] one after another (view frame, z the road's height) */
@@ -359,12 +361,14 @@ function roadWorkerMain() {
       // ground — and where it meets a deck it climbs to it at 6 % at most, never a sheer drop
       // (where the base map's line leaves the official bridge link a few metres early).
       {
-        const g = z.slice(), W = Math.max(1, Math.round(12 / rules.step)), GRADE = 0.06 * rules.step;
+        // (the ground under it is cut to the road — the tile's grid, below — so the road is no
+        // longer lifted onto each post of the relief: smooth along ±16 m, a filled dip kept filled)
+        const g = z.slice(), W = Math.max(1, Math.round(16 / rules.step)), GRADE = 0.06 * rules.step;
         for (let i = 0; i < z.length; i++) {
           if (kind[i] !== 0) continue;
           let sum = 0, n = 0;
           for (let k = Math.max(0, i - W); k <= Math.min(z.length - 1, i + W); k++) if (kind[k] === 0) { sum += g[k]; n++; }
-          z[i] = Math.max(g[i], sum / n);
+          z[i] = sum / n;
         }
         // Never in the sea; and over a river area, a stretch sunk more than 2 m under the line
         // between its dry ends is a crossing the links do not register: laid straight bank to bank.
@@ -510,7 +514,9 @@ function roadWorkerMain() {
               const offset=off-w/2+w*side/across,px=P.x+P.nx*offset,py=P.y+P.ny*offset;
               // Both cross-sections own the slab height, including a structure transition.
               const next=Math.min(r.kind.length-1,P.k+1),owner=r.owners[P.k];
-              const h=r.kind[P.k]===0&&r.kind[next]===0?ground(px,py)+Math.max(0,P.z-ground(P.x,P.y)):owner&&r.kind[P.k]>0&&r.kind[next]>0&&r.owners[next]?.id===owner.id?ownerHeight(owner,px,py)+Math.max(0,P.z-ownerHeight(owner,P.x,P.y)):P.z;
+              // (a road at grade level across — its centre line's height, smooth along it: never the
+              // relief's every post under its edges)
+              const h=r.kind[P.k]===0&&r.kind[next]===0?P.z:owner&&r.kind[P.k]>0&&r.kind[next]>0&&r.owners[next]?.id===owner.id?ownerHeight(owner,px,py)+Math.max(0,P.z-ownerHeight(owner,P.x,P.y)):P.z;
               out.p.push(px,py,h+lift);
               out.level?.push(r.kind[P.k]>0?1:0);
               out.n.push(0, 0, 1);
@@ -677,7 +683,7 @@ function roadWorkerMain() {
             const A = r.line[k], B = r.line[k + 1], na = normalAt(r.line, k), nb = normalAt(r.line, k + 1), e = w / 2;
             const a = [A[0] + na[0] * side * e, A[1] + na[1] * side * e], b = [B[0] + nb[0] * side * e, B[1] + nb[1] * side * e];
             const base = Wk.p.length / 3;
-            const lo = [ground(a[0],a[1])+rules.surfaceLift,ground(b[0],b[1])+rules.surfaceLift], hi = lo.map(h=>h+.15);
+            const lo = [r.z[k]+rules.surfaceLift,r.z[k + 1]+rules.surfaceLift], hi = lo.map(h=>h+.15);
             Wk.p.push(a[0], a[1], lo[0], b[0], b[1], lo[1], b[0], b[1], hi[1], a[0], a[1], hi[0]);
             for (let q = 0; q < 4; q++) Wk.n.push(-na[0] * side, -na[1] * side, 0);
             if (side > 0) Wk.i.push(base, base + 2, base + 1, base, base + 3, base + 2); else Wk.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -720,7 +726,7 @@ function roadWorkerMain() {
         for (let k = 0; k < r.line.length; k++) {
           if (r.kind[k] < 0 || r.kind[k]===3) { emit(); continue; }
           const nn = normalAt(r.line, k), x = r.line[k][0] + nn[0] * off, y = r.line[k][1] + nn[1] * off;
-          const owner=r.owners[k],h=r.kind[k]===0?ground(x,y)+Math.max(0,r.z[k]-ground(r.line[k][0],r.line[k][1])):owner?ownerHeight(owner,x,y)+Math.max(0,r.z[k]-ownerHeight(owner,r.line[k][0],r.line[k][1])):r.z[k];
+          const owner=r.owners[k],h=r.kind[k]===0?r.z[k]:owner?ownerHeight(owner,x,y)+Math.max(0,r.z[k]-ownerHeight(owner,r.line[k][0],r.line[k][1])):r.z[k];
           pts.push(x,y,h+rules.surfaceLift);
         }
         emit();
@@ -820,6 +826,28 @@ function roadWorkerMain() {
       if(o.level)a.level=new Float32Array(o.level);
       return a;
     };
+    // The ground cut to the roads: every post of the tile's grid under a road at grade (its kerbs and
+    // sidewalks, half a metre more) no higher than the road, 12 cm under it — the road is laid smooth
+    // and the relief made to meet it, never the road lifted onto the relief in bumps. Returned: the
+    // tile's ground mesh is made from the same cut grid.
+    {
+      const G = g, n = G.n, x0 = G.ox - G.R, y0 = G.oy - G.R;
+      for (const r of pieces) {
+        const w = r.width, sw = w >= 8 || r.kind.some(k => k > 0 && k !== 3) ? (w >= 30 ? 5 : w >= 20 ? 4 : w >= 12 ? 3 : 2.25) : 0, half = w / 2 + sw + 0.5;
+        for (let k = 1; k < r.line.length; k++) {
+          if (r.kind[k - 1] !== 0 || r.kind[k] !== 0) continue;
+          const a = r.line[k - 1], b = r.line[k], ex = b[0] - a[0], ey = b[1] - a[1], L2 = ex * ex + ey * ey || 1;
+          const i0 = Math.max(0, Math.floor((Math.min(a[0], b[0]) - half - x0) / G.cell)), i1 = Math.min(n - 1, Math.ceil((Math.max(a[0], b[0]) + half - x0) / G.cell));
+          const j0 = Math.max(0, Math.floor((Math.min(a[1], b[1]) - half - y0) / G.cell)), j1 = Math.min(n - 1, Math.ceil((Math.max(a[1], b[1]) + half - y0) / G.cell));
+          for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+            const x = x0 + i * G.cell, y = y0 + j * G.cell, t = Math.max(0, Math.min(1, ((x - a[0]) * ex + (y - a[1]) * ey) / L2));
+            if (Math.hypot(a[0] + ex * t - x, a[1] + ey * t - y) > half) continue;
+            const zr = r.z[k - 1] + (r.z[k] - r.z[k - 1]) * t - 0.12;
+            if (G.h[j * n + i] > zr) G.h[j * n + i] = zr;
+          }
+        }
+      }
+    }
     const clearance=(self as unknown as {__terrainClearance:ReturnType<typeof terrainSurfaceClearance>}).__terrainClearance;
     const surface=clearance.drape(arr(S),g),nearPaint=clearance.drape(arr(Mk),g,rules.paintLift),farPaint=clearance.drape(arr(Mf),g,rules.paintLift);
     let paths=new Float32Array(lanes);
@@ -863,7 +891,7 @@ function roadWorkerMain() {
       stops.push(order.length); for (const q of order) stops.push(found[q * 3], found[q * 3 + 1], found[q * 3 + 2]);
       k += 2 + n * 3;
     }
-    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), junctions: null, lanes: paths, stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
+    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
     for(const a of [out.surface,out.marks,out.marksFar,out.structure,out.walks])if(a)for(const value of Object.values(a))if(value instanceof Float32Array||value instanceof Uint32Array)transfer.push(value.buffer as ArrayBuffer);
     transfer.push(out.lanes.buffer, out.stops.buffer, out.walkPaths.buffer, out.streetTrees.buffer, out.clear.buffer);
     (self as unknown as Worker).postMessage(out, transfer);

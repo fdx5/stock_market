@@ -85,10 +85,14 @@ export function roadHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
   if(r.profile_line&&r.profile_s&&r.profile_z)return surfaceGeometry.profileAt(r.profile_line,r.profile_s,r.profile_z,x,y);
   return surfaceGeometry.profileHeight(r.profile_line??r.line,x,y,t.at,t.waterAt,t.grid?(x,y)=>Math.abs(x)<t.grid!.R&&Math.abs(y)<t.grid!.R:undefined,t.waterRevision?.()??undefined);
  }
- // A road at grade is laid smooth along its length: a dip of the relief under it is filled to the
- // road's ±12 m mean (never under the ground) — the streamed tiles' rule (droneRoads).
+ // A road at grade is laid smooth: level across (its centre line's height at the nearest point)
+ // and along it the ground's ±16 m mean — the ground under it is cut to it (roadDrape.cutGroundToRoads),
+ // never the road lifted onto every post of the relief. The streamed tiles' rule (droneRoads).
  let g=t.at(x,y);
- if(r.line.length>1){const p=nearestRoadPoint(r.line,x,y);if(p.distance<=r.width/2+3){let sum=0;for(let d=-12;d<=12;d+=4)sum+=t.at(x+p.dir[0]*d,y+p.dir[1]*d);g=Math.max(g,sum/7);}}
+ // (the water's surface in it too: where the road runs on into the water's area, it rises over it
+ // along that same ±16 m — never a step up at the water's edge)
+ const dry=(px:number,py:number)=>{const h=t.at(px,py),wv=t.waterAt?.(px,py);return wv!=null&&wv+.3>h?wv+.3:h;};
+ if(r.line.length>1){const p=nearestRoadPoint(r.line,x,y);if(p.distance<=r.width/2+3){const [cx,cy]=p.point;let sum=0;for(let d=-16;d<=16;d+=4)sum+=dry(cx+p.dir[0]*d,cy+p.dir[1]*d);g=sum/9;}}
  // (where a bridge's deck runs on along it to the bank, no lower than that deck)
  if(r.lift_line&&r.lift_s&&r.lift_z){const p=nearestRoadPoint(r.lift_line,x,y);if(p.distance<=r.width/2+4&&p.along>0&&p.along<p.total)g=Math.max(g,surfaceGeometry.profileAt(r.lift_line,r.lift_s,r.lift_z,x,y));}
  // And never under the water's surface: where the data lays it across the water at the relief's

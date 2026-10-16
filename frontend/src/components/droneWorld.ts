@@ -781,6 +781,9 @@ export class DroneWorld {
       if (DTRACE) console.info(`[dtile] ${t.key} roadsin ${Math.round(performance.now())}`);
       if (stop.signal.aborted || this.disposed) return;
       if(!t.inner&&!OFF.includes('roads')&&!roads){fail();return;}
+      // (the ground cut to the roads in the road worker: the same grid for the ground mesh, the trees
+      // and everything stood on it from now on)
+      if (roads?.ground && roads.ground.length === grid.h.length) grid.h.set(roads.ground);
       if (roads?.surface) {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute("position", new THREE.BufferAttribute(roads.surface.position, 3));
