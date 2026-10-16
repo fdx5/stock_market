@@ -261,6 +261,8 @@ type Stage = {
   setDroneSky?: (k: number, fog?: [number, number]) => void;
   /** a phone's drone: two shadow cascades, not three */
   setDroneLite?: (on: boolean) => void;
+  /** the rail's trains placed every n frames (a phone's drone: 2) */
+  railEvery?: number;
   /** Free materials of the drone's tiles (the WebGPU view's forget). */
   forgetMaterials?: (materials: Set<THREE.Material>) => void;
   /** Where this model's trees stand (view frame): the drone flies round them. */
@@ -1005,7 +1007,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (native) { native.droneSky = k; native.droneFog = fog; }
       (sky.material.uniforms as Record<string, { value: number }>).uDrone.value = k;
     };
-    stage.setDroneLite = on => { (native as unknown as { setShadowSplits?: (s: number[] | null) => void } | null)?.setShadowSplits?.(on ? [200, 900] : null); };
+    // A phone's drone: its own measure for a small screen — the scene drawn at 2x at most while it
+    // flies (a 6-inch screen at 2.6–3x showed no more than at 2x, for twice the pixels), the
+    // effects all kept; the view's own ratio back on landing.
+    let droneRatioCap = 0;
+    stage.setDroneLite = on => {
+      (native as unknown as { setDroneLite?: (on: boolean) => void } | null)?.setDroneLite?.(on); stage.railEvery = on ? 2 : 1;
+      droneRatioCap = on ? 2 : 0; resize();
+      if (stage.rail) stage.rail.clearanceGap = on ? 3 : .75;
+    };
     stage.forgetMaterials = mats => native?.forget(mats);
     if (import.meta.env.DEV) Object.assign(window, { __holoStage: stage });
     const idleBuild = (f: () => void) => { if (typeof requestIdleCallback === "function") requestIdleCallback(f, { timeout: 2500 }); else window.setTimeout(f, 300); };
@@ -1029,6 +1039,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!W || !H) return;
       stage.viewH = H;
       ratio = resolution.forSize(W, H);
+      if (droneRatioCap) ratio = Math.min(ratio, droneRatioCap);
       camera.aspect = W / H;
       camera.updateProjectionMatrix();
       native?.setSize(W, H, ratio);
@@ -1074,7 +1085,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Covered/off-screen views do not render or compile in the background.
     // Their build resumes when visible, without competing with the active view.
     // Render every visible display frame, including animated traffic and pedestrians.
-    let renderMax = 0, renderSum = 0, tickMax = 0, tickSum = 0;
+    let renderMax = 0, renderSum = 0, tickMax = 0, tickSum = 0, frameNo = 0;
     const loop = (stamp:number) => {
       raf = 0;
       if (document.hidden || !inView || pausedRef.current) { native?.suspendTargets(); return; }
@@ -1121,7 +1132,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }
       // (the drone far off: the complex's traffic and people stepped less often, past its haze not at all)
       const tk0 = performance.now();
-      stage.rail?.update(performance.now()/1000,stage.camera.position);
+      // (a phone's drone: the trains placed every other frame)
+      if (!stage.railEvery || stage.railEvery < 2 || (frameNo++ & 1) === 0) stage.rail?.update(performance.now()/1000,stage.camera.position);
       if (stage.drone) stage.drone.runViewTicks(stage.tick, stage.center, RING_M + 120, dt / 1000);
       else for (const f of stage.tick) f(dt / 1000);
       tickMax = Math.max(tickMax, performance.now() - tk0); tickSum += performance.now() - tk0;

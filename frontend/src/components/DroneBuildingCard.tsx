@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, type RealEstateBuildingCard, type RealEstateBuildingRegisterRow, type RealEstateComplexResponse } from "../api/client";
 import type { Sign } from "./droneSigns";
 import { vworldParcelAt } from "./vworldBuildings";
@@ -130,9 +130,26 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
     ["이미지 더보기", `https://search.daum.net/search?w=img&q=${q}`],
   ];
   if (card?.place?.url) links.unshift(["장소 상세", card.place.url]);
+  // Below the view's own header, whatever its height (a phone's drone page: search and share
+  // buttons, ~270 px): at a fixed top the card's ✕ lay under it, and the card could not be closed.
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = cardRef.current, stage = el?.offsetParent as HTMLElement | null;
+    const head = el?.closest(".re-holo")?.querySelector<HTMLElement>(":scope > .re-holo-head");
+    if (!el || !stage) return;
+    el.style.top = ""; el.style.maxHeight = "";
+    if (!head || head.offsetParent === null) return;
+    const sr = stage.getBoundingClientRect(), hb = head.getBoundingClientRect().bottom, er = el.getBoundingClientRect();
+    if (er.top < hb + 8) {
+      const top = hb + 8 - sr.top, foot = el.closest(".re-holo")?.querySelector<HTMLElement>(".re-holo-bottom");
+      const bottom = foot && foot.offsetParent !== null ? Math.min(sr.bottom, foot.getBoundingClientRect().top) : sr.bottom;
+      el.style.top = `${Math.round(top)}px`;
+      el.style.maxHeight = `${Math.max(180, Math.round(bottom - sr.top - top - 8))}px`;
+    }
+  });
 
   return (
-    <div className="re-drone-card" role="dialog" aria-label={`${sign.name} 건물 정보`}
+    <div ref={cardRef} className="re-drone-card" role="dialog" aria-label={`${sign.name} 건물 정보`}
       onPointerDown={e => e.stopPropagation()} onPointerMove={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()}
       onWheel={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}>
       <header className="re-drone-card-head">
@@ -237,6 +254,9 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
             `출처: ${["국토교통부 GIS건물통합정보(VWorld)", ...(card?.sources ?? [])].join(", ")}`}
         </p>
       </div>
+      {/* (always in sight at the card's foot: on a phone its corner ✕ could sit under the view's
+       * header or the radar) */}
+      <footer className="re-drone-card-foot"><button type="button" onClick={onClose}>닫기</button></footer>
     </div>
   );
 }

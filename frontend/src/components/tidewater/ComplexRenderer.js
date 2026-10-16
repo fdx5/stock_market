@@ -1123,6 +1123,16 @@ export class ComplexRenderer {
     shadowSplits = splits;
     useShadows(this.quality);
   }
+  /** A phone's drone: PCF shadows in two cascades while it flies, and back after. */
+  setDroneLite(on) {
+    if (on) {
+      shadowSplits = [200, 900];
+      useShadows(this.quality);
+    } else {
+      shadowSplits = null;
+      useShadows(this.quality);
+    }
+  }
   setQuality(quality) {
     if (this.quality === quality) return;
     this.quality = quality;

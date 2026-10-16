@@ -441,9 +441,9 @@ export class DroneWorld {
     }
     // (higher, more of the city in sight: 1.15 km low down, 1.8 km at 500 m; less on a phone — and
     // scheduled toward its predicted position ten seconds ahead)
-    // (a phone: 900 m round it, past which the haze closes in — the tiles, buildings and cars past it
+    // (a phone: 540–640 m round it, past which the haze closes in — the tiles, buildings and cars past it
     // were most of its frame)
-    this.radius = Math.min(this.o.hq ? 1820 : 900, (this.o.hq ? 1155 : 760) + Math.max(0, alt) * 1.4) * this.memoryScale();
+    this.radius = Math.min(this.o.hq ? 1820 : 640, (this.o.hq ? 1155 : 540) + Math.max(0, alt) * (this.o.hq ? 1.4 : 0.6)) * this.memoryScale();
     // Prepare both travel and viewing corridors, including looking backward
     // while flying forward. Network failure still uses retry/registered fallback.
     const sp = Math.hypot(vx, vy), fx = sp > 1 ? vx / sp : look?.[0] ?? 0, fy = sp > 1 ? vy / sp : look?.[1] ?? 0;
@@ -516,6 +516,9 @@ export class DroneWorld {
       const b = t.castB ? d < BUILDING_SHADOW + 80 : d < BUILDING_SHADOW, p = t.castP ? d < TREE_SHADOW + 80 : d < TREE_SHADOW;
       if (b !== t.castB) { t.castB = b; if (t.zup) castShadows(t.zup, b); }
       if (p !== t.castP) { t.castP = p; if (t.plants?.group) castShadows(t.plants.group, p); }
+      // (a phone: a tile left behind past its reach and 150 m is kept — back at once if the drone
+      // turns — but not drawn: every one walked by the renderer each frame, for haze)
+      if (!this.o.hq) { const show = d < R + 150; for (const g of [t.zup, t.yup, t.plants?.group]) if (g && g.visible !== show) g.visible = show; }
     }
     // Never more tiles than the device holds: the nearest `cap` places within reach are the only ones
     // made; a tile past them (with a few of slack) goes at once. (Freeing tiles the loop below then made

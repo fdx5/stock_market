@@ -106,7 +106,7 @@ export class DroneTraffic {
   private readonly FAR_M: number;
   private readonly CAP_FAR: number;
   constructor(seed: number, lite = false) {
-    this.FAR_M = lite ? 760 : 1100; this.CAP_FAR = lite ? 800 : 3000;
+    this.FAR_M = lite ? 560 : 1100; this.CAP_FAR = lite ? 400 : 3000;
     let s = (seed % 2147483646) + 1;
     this.rnd = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
     this.group.name = "drone traffic";

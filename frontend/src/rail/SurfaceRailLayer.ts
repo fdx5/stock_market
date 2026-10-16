@@ -31,6 +31,9 @@ export class SurfaceRailLayer {
   private running:typeof this.jobs[number]|null=null;
   private serial=0;private dead=false;private syncAt=-1;private detailAt=-1;
   private eye={x:0,y:0};
+  /** seconds between the buildings' rail clearance passes (a phone's drone: 3 — each pass walks
+   * every building mesh, and a cut a few seconds late changes nothing on screen) */
+  clearanceGap=.75;
   private clearance:BuildingClearance|null=null;private revision=0;private clearanceAt=-1;
   private prismRevision=-1;private prisms:Clearance[]=[];
   private stations=new Map<string,{owners:Map<string,{facility:RailFacility;path:RailPath}>;model:ReturnType<typeof stationKit>|null;ownerId?:string;key?:string}>();
@@ -243,7 +246,7 @@ export class SurfaceRailLayer {
       }
     }
     for(const k of this.kits.values())for(const name of ['cab','car','far'] as const){k[name].visible=k[name].count>0;if(k[name].count)k[name].instanceMatrix.needsUpdate=true;}
-    if(this.clearance&&time-this.clearanceAt>.75){
+    if(this.clearance&&time-this.clearanceAt>this.clearanceGap){
       this.clearanceAt=time;
       this.clearance.update([...(this.o.buildings?.()??[]),...[...this.stations.values()].flatMap(s=>s.model?[s.model.group]:[])],this.clearancePrisms(),String(this.revision),camera);
     }
