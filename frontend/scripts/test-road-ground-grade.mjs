@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {transformSync} from 'esbuild';
+import {transformSync,build} from 'esbuild';
 const source=readFileSync(new URL('../src/components/roadGroundGrade.ts',import.meta.url),'utf8').replace(/^export /gm,'');
 const {groundRoadGrade,groundRoadHeight}=new Function(transformSync(source,{loader:'ts'}).code+';return {groundRoadGrade,groundRoadHeight}')();
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
@@ -28,4 +28,15 @@ test('straight-road interior smoothing preserves the existing nine ground sample
 test('worker serialization and a fresh factory preserve exactly the same bank heights',()=>{
  const worker=new Function('return ('+groundRoadGrade.toString()+')()')(),line=[[0,0],[10,0],[10,30]],g=(x,y)=>x*.1+y*.2;
  for(let s=0;s<=40;s++)near(worker(structuredClone(line),s,g),groundRoadHeight(line,s,g));
+});
+
+test('the real cached road-height entry point uses the shared grade and refreshes after water changes',async()=>{
+ const bundled=await build({entryPoints:[new URL('../src/components/roadLevels.ts',import.meta.url).pathname.replace(/^\/(\w:)/,'$1')],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});
+ const {roadHeight}=await import('data:text/javascript;base64,'+Buffer.from(bundled.outputFiles[0].text).toString('base64'));
+ const road={line:[[-50,2],[0,2]],width:12,lanes:4,structure:'ground'};
+ let revision={},water=null;
+ const terrain={at:(x,y)=>x<=0?12+.05*x+.2*y:0,waterAt:()=>water,waterRevision:()=>revision};
+ for(const x of [-50,-46,-25,-4,0])for(const y of [-2,2,6])near(roadHeight(road,terrain,x,y),12.4+.05*x);
+ water=20;revision={};
+ near(roadHeight(road,terrain,0,2),20.3);
 });

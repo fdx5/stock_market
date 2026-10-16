@@ -1681,6 +1681,11 @@ export class ComplexRenderer {
     let ready = true;
     root.traverseVisible(obj => {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
+      // Empty traffic LOD/rolling-wheel batches have no draw and therefore no
+      // uploaded geometry. Waiting for them freezes traffic before its first
+      // update can populate those batches. Active instances still require every
+      // exact buffer version and material pass below.
+      if (obj.isInstancedMesh && obj.count === 0 && !Object.hasOwn(obj, 'onBeforeRender')) return;
       const mesh = this.meshes.get(obj);
       if (!mesh) { ready = false; return; }
       if (mesh.geometry !== obj.geometry) ready = false;

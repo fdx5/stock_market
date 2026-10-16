@@ -123,10 +123,10 @@ export function roadHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
  const memoBy:object=t.waterRevision?.()??t;let byRoad=heightMemo.get(memoBy);if(!byRoad)heightMemo.set(memoBy,byRoad=new WeakMap());
  let memo=byRoad.get(r);if(!memo)byRoad.set(r,memo=new Map());
  const mk=(Math.round(x*20)+1e6)*4e6+(Math.round(y*20)+1e6),hit=memo.get(mk);if(hit!==undefined)return hit;
- const h=groundRoadHeight(r,t,x,y);if(memo.size<200000)memo.set(mk,h);return h;
+ const h=groundRoadSurfaceHeight(r,t,x,y);if(memo.size<200000)memo.set(mk,h);return h;
 }
 const heightMemo=new WeakMap<object,WeakMap<RealEstateRoad,Map<number,number>>>();
-function groundRoadHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
+function groundRoadSurfaceHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
  let g=t.at(x,y);
  // (the water's surface in it too: where the road runs on into the water's area, it rises over it
  // along that same ±16 m — never a step up at the water's edge)

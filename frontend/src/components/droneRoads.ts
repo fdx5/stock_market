@@ -386,9 +386,20 @@ function roadWorkerMain() {
             let j = i; while (j + 1 < z.length && inRiver[j + 1] && kind[j + 1] === 0) j++;
             const a = i - 1, b = j + 1;
             if (a >= 0 && b < z.length) {
+              // Smooth each dry bank inward along its own road. The full-road
+              // window includes river-bed DEM beside the bank and lowers both
+              // supports before interpolation, submerging the entire crossing.
+              let left = a, right = b;
+              while (left > 0 && !inRiver[left - 1] && kind[left - 1] === 0) left--;
+              while (right + 1 < z.length && !inRiver[right + 1] && kind[right + 1] === 0) right++;
+              const dryLeft = pts.slice(left, a + 1), dryRight = pts.slice(b, right + 1);
+              let length = 0;
+              for (let k = 1; k < dryLeft.length; k++) length += Math.hypot(dryLeft[k][0] - dryLeft[k - 1][0], dryLeft[k][1] - dryLeft[k - 1][1]);
+              const za = Math.max(z[a], groundGrade(dryLeft, length, ground, waterAt));
+              const zb = Math.max(z[b], groundGrade(dryRight, 0, ground, waterAt));
               let sag = 0;
-              for (let k = i; k <= j; k++) sag = Math.max(sag, z[a] + (z[b] - z[a]) * (k - a) / (b - a) - z[k]);
-              if (sag > 2) for (let k = i; k <= j; k++) z[k] = Math.max(z[k], z[a] + (z[b] - z[a]) * (k - a) / (b - a));
+              for (let k = i; k <= j; k++) sag = Math.max(sag, za + (zb - za) * (k - a) / (b - a) - z[k]);
+              if (sag > 2) for (let k = a; k <= b; k++) z[k] = Math.max(z[k], za + (zb - za) * (k - a) / (b - a));
             }
             i = j + 1;
           }
