@@ -1697,8 +1697,11 @@ export class ComplexRenderer {
     // Let Three propagate dirty transforms. Forcing the root dirty recalculated every
     // static building, tree and street mesh on every displayed frame.
     source.updateMatrixWorld();
-    const active = this.active ??= new Set();
-    active.clear();
+    // A visible tree visits each source once. A reusable list and native mesh
+    // stamps avoid rebuilding/probing a large hash set on every flight frame.
+    const active = this.active ??= [];
+    active.length = 0;
+    const syncEpoch = this.syncEpoch = (this.syncEpoch ?? 0) + 1;
     let added = false, deferred = false, swapped = false;
     // A new complex brings dozens of materials, each with textures to upload (and encode as
     // BC7 on the GPU) and a shader to compose: all in one frame that is a long task and a
@@ -1738,8 +1741,9 @@ export class ComplexRenderer {
     source.traverseVisible(obj => {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
       if(camera && obj.userData.forestLod)updateForestLod(obj,camera);
-      active.add(obj);
+      active.push(obj);
       let mesh = this.meshes.get(obj);
+      if (mesh) mesh.syncEpoch = syncEpoch;
       let admitted=false;
       // (a caster turned on or off — the drone's far tiles — joins or leaves the shadows)
       if (mesh && mesh.castShadow !== obj.castShadow) { mesh.castShadow = obj.castShadow; this.castersChanged = true; }
@@ -1766,6 +1770,7 @@ export class ComplexRenderer {
         if (this.materials.size + this.textures.size !== before) { made++; madeTexels = texels() - startTexels; }
         // CPU geometry is shared; no WebGL draw calls are used in this path.
         mesh = new Mesh(obj.geometry, material);
+        mesh.syncEpoch = syncEpoch;
         mesh.matrixAutoUpdate = false;
         // Native meshes are owned here; advance this revision for every world
         // transform change so static bounds can be reused between frames.
@@ -1852,7 +1857,7 @@ export class ComplexRenderer {
     this.pending = deferred;
     if (deferred) this.ready = false;
     let removed = false;
-    for (const [obj, mesh] of this.meshes) if (!active.has(obj)) {
+    for (const [obj, mesh] of this.meshes) if (mesh.syncEpoch !== syncEpoch) {
       this.scene.remove(mesh); this.meshes.delete(obj); removed = true;
       if (mesh.castShadow && !mesh.moving) this.castersChanged = true;
     }
@@ -1868,7 +1873,11 @@ export class ComplexRenderer {
     // each ahead-prepared newcomer. Measured capacity growth frees its own
     // superseded attributes in _frameBuffers.
     if (removed || swapped) this.renderer.retainGeometry(this.meshes.values());
-    const used = new Set([...active].flatMap(o => Array.isArray(o.material) ? o.material : [o.material]));
+    const used = new Set();
+    for (const obj of active) {
+      if (Array.isArray(obj.material)) for (const m of obj.material) used.add(m);
+      else used.add(obj.material);
+    }
     // Actual bindings survive an asynchronous source replacement, including arrays.
     for (const mesh of this.meshes.values()) for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) if (m.source) used.add(m.source);
     const unusedAt = this.unusedAt ??= new Map();
