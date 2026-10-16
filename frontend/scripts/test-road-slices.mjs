@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, {after} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {build} from 'esbuild';
@@ -22,6 +22,8 @@ const now = await bundle(fs.readFileSync(dir + 'sceneStreet.ts', 'utf8'));
 const old = await bundle(execFileSync('git', ['show', 'origin/main:frontend/src/components/sceneStreet.ts'], {cwd: dir, encoding: 'utf8', maxBuffer: 1 << 26}));
 const slicedMod = await bundle(`export * from './slicedGeometry';`);
 const THREE = await import('three');
+// (frameSlice's message channel keeps node running: done when the tests are)
+after(() => setImmediate(() => process.exit()));
 
 /** A jittered street grid with diagonals, stubs and a few bridges; widths 4-32 m. */
 const network = seed => {
