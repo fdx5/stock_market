@@ -3,14 +3,10 @@ type Pt=[number,number];
 /** Exact convex subtraction in footprint x/y. Generated pieces preserve all
  * original vertex attributes, including paving UVs and kerb vertex colours. */
 export async function excludeSurface(geometry:THREE.BufferGeometry,rings:readonly Pt[][],pace:()=>Promise<boolean>){
- const blockers:Pt[][]=[],bins=new Map<string,number[]>(),cell=12;
- for(const ring of rings){if(ring.length<3)continue;
-  const pts=ring.map(p=>new THREE.Vector2(...p));
-  for(const tri of THREE.ShapeUtils.triangulateShape(pts,[])){
-   const p=tri.map(i=>ring[i]),id=blockers.length;blockers.push(p);
-   for(let x=Math.floor(Math.min(...p.map(q=>q[0]))/cell);x<=Math.floor(Math.max(...p.map(q=>q[0]))/cell);x++)for(let y=Math.floor(Math.min(...p.map(q=>q[1]))/cell);y<=Math.floor(Math.max(...p.map(q=>q[1]))/cell);y++){const key=x+':'+y,l=bins.get(key);if(l)l.push(id);else bins.set(key,[id]);}
-  }
- }
+ // (the footprints' triangles and their bins: the same rings cut the asphalt and every paint mesh
+ // in turn — triangulated once for them all)
+ const {blockers,bins,boxes}=blockersOf(rings),cell=12;
+ const binKey=(x:number,y:number)=>(x+65536)*131072+(y+65536);
  const source=geometry.index?geometry.toNonIndexed():geometry,attributes=Object.entries(source.attributes),offsets:number[]=[];let stride=0;
  for(const[,a]of attributes){offsets.push(stride);stride+=a.itemSize;}
  const pi=attributes.findIndex(([name])=>name==='position'),po=offsets[pi],position=source.getAttribute('position'),outputs=attributes.map(()=>[] as number[]);let changed=false;
@@ -20,14 +16,20 @@ export async function excludeSurface(geometry:THREE.BufferGeometry,rings:readonl
  };
  for(let k=0;k<position.count;k+=3){
   if(k%900===0&&!await pace()){if(source!==geometry)source.dispose();return;}
-  const original=[0,1,2].map(i=>attributes.flatMap(([,a])=>Array.from({length:a.itemSize},(_,j)=>a.array[(k+i)*a.itemSize+j]))),candidates=new Set<number>();
-  const xs=original.map(p=>p[po]),ys=original.map(p=>-p[po+2]);
+  const xs=[position.getX(k),position.getX(k+1),position.getX(k+2)],ys=[-position.getZ(k),-position.getZ(k+1),-position.getZ(k+2)],candidates=new Set<number>();
   // A plan-view footprint cannot prove a collision with an elevated deck.
   // Road meshes and paint retain their level attributes through worker copies.
   const levels=source.getAttribute('roadLevel'),elevated=levels&&[0,1,2].every(i=>levels.getX(k+i)>0);
-  if(!elevated)for(let x=Math.floor(Math.min(...xs)/cell);x<=Math.floor(Math.max(...xs)/cell);x++)for(let y=Math.floor(Math.min(...ys)/cell);y<=Math.floor(Math.max(...ys)/cell);y++)for(const id of bins.get(x+':'+y)??[])candidates.add(id);
+  if(!elevated)for(let x=Math.floor(Math.min(...xs)/cell);x<=Math.floor(Math.max(...xs)/cell);x++)for(let y=Math.floor(Math.min(...ys)/cell);y<=Math.floor(Math.max(...ys)/cell);y++){const l=bins.get(binKey(x,y));if(l)for(const id of l)candidates.add(id);}
+  // (no footprint near it — nearly every triangle: copied as it is)
+  if(!candidates.size){attributes.forEach(([,a],j)=>{const o=outputs[j],n=a.itemSize,arr=a.array;for(let v=k*n,e=(k+3)*n;v<e;v++)o.push(arr[v]);});continue;}
+  const original=[0,1,2].map(i=>attributes.flatMap(([,a])=>Array.from({length:a.itemSize},(_,j)=>a.array[(k+i)*a.itemSize+j])));
   let pieces=[original];
-  for(const id of candidates){const t=blockers[id],sign=Math.sign((t[1][0]-t[0][0])*(t[2][1]-t[0][1])-(t[1][1]-t[0][1])*(t[2][0]-t[0][0]));if(!sign)continue;
+  const tx0=Math.min(...xs),tx1=Math.max(...xs),ty0=Math.min(...ys),ty1=Math.max(...ys);
+  for(const id of candidates){
+   // (a footprint triangle whose box misses this one's: nothing to clip)
+   const bb=boxes[id];if(bb[0]>=tx1||bb[2]<=tx0||bb[1]>=ty1||bb[3]<=ty0)continue;
+   const t=blockers[id],sign=Math.sign((t[1][0]-t[0][0])*(t[2][1]-t[0][1])-(t[1][1]-t[0][1])*(t[2][0]-t[0][0]));if(!sign)continue;
    const next:number[][][]=[];
    for(const poly of pieces){let rest=poly;
     // A boundary touch with zero horizontal intersection area is not paving
@@ -42,4 +44,19 @@ export async function excludeSurface(geometry:THREE.BufferGeometry,rings:readonl
  }
  if(changed){geometry.setIndex(null);attributes.forEach(([name,a],i)=>geometry.setAttribute(name,new THREE.Float32BufferAttribute(outputs[i],a.itemSize)));geometry.computeBoundingSphere();}
  if(source!==geometry)source.dispose();
+}
+
+const blockerCache=new WeakMap<readonly Pt[][],{blockers:Pt[][];bins:Map<number,number[]>;boxes:number[][]}>();
+function blockersOf(rings:readonly Pt[][]){
+ let hit=blockerCache.get(rings);if(hit)return hit;
+ const blockers:Pt[][]=[],bins=new Map<number,number[]>(),cell=12,binKey=(x:number,y:number)=>(x+65536)*131072+(y+65536);
+ for(const ring of rings){if(ring.length<3)continue;
+  const pts=ring.map(p=>new THREE.Vector2(...p));
+  for(const tri of THREE.ShapeUtils.triangulateShape(pts,[])){
+   const p=tri.map(i=>ring[i]),id=blockers.length;blockers.push(p);
+   for(let x=Math.floor(Math.min(...p.map(q=>q[0]))/cell);x<=Math.floor(Math.max(...p.map(q=>q[0]))/cell);x++)for(let y=Math.floor(Math.min(...p.map(q=>q[1]))/cell);y<=Math.floor(Math.max(...p.map(q=>q[1]))/cell);y++){const key=binKey(x,y),l=bins.get(key);if(l)l.push(id);else bins.set(key,[id]);}
+  }
+ }
+ const boxes=blockers.map(p=>[Math.min(p[0][0],p[1][0],p[2][0]),Math.min(p[0][1],p[1][1],p[2][1]),Math.max(p[0][0],p[1][0],p[2][0]),Math.max(p[0][1],p[1][1],p[2][1])]);
+ hit={blockers,bins,boxes};blockerCache.set(rings,hit);return hit;
 }

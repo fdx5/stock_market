@@ -69,13 +69,42 @@ export function roadEndsConnect(a:RealEstateRoad,b:RealEstateRoad,x:number,y:num
  const end=(r:RealEstateRoad)=>[r.line[0],r.line[r.line.length-1]].some(p=>Math.hypot(p[0]-x,p[1]-y)<=1.5);
  return end(a)&&end(b);
 }
-export function nearestRoadPoint(line:readonly Point[],x:number,y:number){
- let best=Infinity,along=0,s=0,total=0,dir:Point=[1,0],point:Point=[x,y];
+// A long line's segments hashed in 20 m cells (once per line, for the page): its nearest point
+// asked for every vertex of its asphalt, paint, kerbs, lamps and lanes walked the whole line each
+// time — 3 s of a view's loading on the main thread.
+type LineIndex={cell:number;cells:Map<number,number[]>;cum:Float64Array;total:number;seen:Uint32Array;query:number};
+const lineIndex=new WeakMap<readonly Point[],LineIndex>();
+const cellKey=(i:number,j:number)=>(i+32768)*65536+(j+32768);
+function indexOf(line:readonly Point[]):LineIndex{
+ let ix=lineIndex.get(line);if(ix)return ix;
+ const cell=20,cells=new Map<number,number[]>(),cum=new Float64Array(line.length);
  for(let i=1;i<line.length;i++){
-  const a=line[i-1],b=line[i],dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy);if(!len)continue;
-  const t=Math.max(0,Math.min(1,((x-a[0])*dx+(y-a[1])*dy)/(len*len))),d=Math.hypot(x-a[0]-dx*t,y-a[1]-dy*t);
-  if(d<best){best=d;along=s+t*len;dir=[dx/len,dy/len];point=[a[0]+dx*t,a[1]+dy*t];}s+=len;
- }total=s;return {distance:best,along,total,dir,point};
+  const a=line[i-1],b=line[i];cum[i]=cum[i-1]+Math.hypot(b[0]-a[0],b[1]-a[1]);
+  for(let x=Math.floor(Math.min(a[0],b[0])/cell);x<=Math.floor(Math.max(a[0],b[0])/cell);x++)for(let y=Math.floor(Math.min(a[1],b[1])/cell);y<=Math.floor(Math.max(a[1],b[1])/cell);y++){
+   const k=cellKey(x,y),l=cells.get(k);if(l)l.push(i);else cells.set(k,[i]);}
+ }
+ ix={cell,cells,cum,total:cum[line.length-1],seen:new Uint32Array(line.length),query:0};lineIndex.set(line,ix);return ix;
+}
+export function nearestRoadPoint(line:readonly Point[],x:number,y:number){
+ let best=Infinity,bi=-1,bt=0;
+ const seg=(i:number)=>{const a=line[i-1],b=line[i],dx=b[0]-a[0],dy=b[1]-a[1],l2=dx*dx+dy*dy;if(!l2)return;
+  const t=Math.max(0,Math.min(1,((x-a[0])*dx+(y-a[1])*dy)/l2)),d=Math.hypot(x-a[0]-dx*t,y-a[1]-dy*t);if(d<best){best=d;bi=i;bt=t;}};
+ let total=0,cum:Float64Array|null=null,done=false;
+ if(line.length>8){
+  // (the cells round the point, two rings out at most — 100 m: once the best found is no farther
+  // than the ring scanned, nothing outside it is nearer; a point farther off walks the line)
+  const ix=indexOf(line),ci=Math.floor(x/ix.cell),cj=Math.floor(y/ix.cell),q=++ix.query;cum=ix.cum;total=ix.total;
+  for(let k=0;k<=2&&!done;k++){
+   for(let i=ci-k;i<=ci+k;i++)for(let j=cj-k;j<=cj+k;j++){if(Math.max(Math.abs(i-ci),Math.abs(j-cj))!==k)continue;
+    const l=ix.cells.get(cellKey(i,j));if(l)for(const s of l)if(ix.seen[s]!==q){ix.seen[s]=q;seg(s);}}
+   if(best<=k*ix.cell)done=true;
+  }
+  if(!done){best=Infinity;bi=-1;for(let i=1;i<line.length;i++)seg(i);}
+ }else{for(let i=1;i<line.length;i++){seg(i);total+=Math.hypot(line[i][0]-line[i-1][0],line[i][1]-line[i-1][1]);}}
+ if(bi<0)return {distance:Infinity,along:0,total,dir:[1,0] as Point,point:[x,y] as Point};
+ const a=line[bi-1],b=line[bi],dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy);
+ let s0=0;if(cum)s0=cum[bi-1];else for(let i=1;i<bi;i++)s0+=Math.hypot(line[i][0]-line[i-1][0],line[i][1]-line[i-1][1]);
+ return {distance:best,along:s0+bt*len,total,dir:[dx/len,dy/len] as Point,point:[a[0]+dx*bt,a[1]+dy*bt] as Point};
 }
 /** Bridge heights are DEM-derived bank interpolation, not surveyed deck elevation.
  * No invented clearance, ramp, parapet or pier dimensions are substituted for source data. */
@@ -88,6 +117,15 @@ export function roadHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
  // A road at grade is laid smooth: level across (its centre line's height at the nearest point)
  // and along it the ground's ±16 m mean — the ground under it is cut to it (roadDrape.cutGroundToRoads),
  // never the road lifted onto every post of the relief. The streamed tiles' rule (droneRoads).
+ // (asked again and again at the same points — a vertex each of its asphalt, paint, kerbs, lamps
+ // and lanes: kept per terrain and water state, by the 5 cm point)
+ const memoBy:object=t.waterRevision?.()??t;let byRoad=heightMemo.get(memoBy);if(!byRoad)heightMemo.set(memoBy,byRoad=new WeakMap());
+ let memo=byRoad.get(r);if(!memo)byRoad.set(r,memo=new Map());
+ const mk=(Math.round(x*20)+1e6)*4e6+(Math.round(y*20)+1e6),hit=memo.get(mk);if(hit!==undefined)return hit;
+ const h=groundRoadHeight(r,t,x,y);if(memo.size<200000)memo.set(mk,h);return h;
+}
+const heightMemo=new WeakMap<object,WeakMap<RealEstateRoad,Map<number,number>>>();
+function groundRoadHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
  let g=t.at(x,y);
  // (the water's surface in it too: where the road runs on into the water's area, it rises over it
  // along that same ±16 m — never a step up at the water's edge)
@@ -127,6 +165,12 @@ export function clipRoadContextRing(ring:Point[],radius:number):Point[]{
  * mappings stay unknown instead of borrowing the nearby bridge's level. Geometry is never moved. */
 export function attachRoadStructures(roads:RealEstateRoad[],links:RoadStructureLink[]):RealEstateRoad[]{
  const out:RealEstateRoad[]=[];
+ // (the links by 20 m cell: only those within 18 m of a sample can own it — every sample against
+ // every link was 0.7 s on the main thread, a frame held that long)
+ const cells=new Map<number,Set<RoadStructureLink>>();
+ for(const l of links)for(let i=1;i<l.line.length;i++){const a=l.line[i-1],b=l.line[i];
+  for(let x=Math.floor((Math.min(a[0],b[0])-18)/20);x<=Math.floor((Math.max(a[0],b[0])+18)/20);x++)for(let y=Math.floor((Math.min(a[1],b[1])-18)/20);y<=Math.floor((Math.max(a[1],b[1])+18)/20);y++){
+   const k=cellKey(x,y);let set=cells.get(k);if(!set)cells.set(k,set=new Set());set.add(l);}}
  for(const r of roads){
   let run:Point[]=[],owner:RoadStructureLink|undefined;
   const flush=()=>{if(run.length>1)out.push({...r,line:run,structure:owner?.structure??'unknown',layer:owner?roadLevel({line:[],width:0,lanes:0,structure:owner.structure}):undefined,
@@ -137,7 +181,7 @@ export function attachRoadStructures(roads:RealEstateRoad[],links:RoadStructureL
    for(let k=0;k<count;k++){
     const p:Point=[a[0]+(b[0]-a[0])*k/count,a[1]+(b[1]-a[1])*k/count],q:Point=[a[0]+(b[0]-a[0])*(k+1)/count,a[1]+(b[1]-a[1])*(k+1)/count];
     const x=(p[0]+q[0])/2,y=(p[1]+q[1])/2;
-    const candidates=links.map(l=>({l,...nearestRoadPoint(l.line,x,y)})).filter(c=>c.distance<=Math.min(18,r.width/2+6)&&Math.abs(c.dir[0]*(b[0]-a[0])/len+c.dir[1]*(b[1]-a[1])/len)>.9).sort((a,b)=>a.distance-b.distance);
+    const candidates=[...(cells.get(cellKey(Math.floor(x/20),Math.floor(y/20)))??[])].map(l=>({l,...nearestRoadPoint(l.line,x,y)})).filter(c=>c.distance<=Math.min(18,r.width/2+6)&&Math.abs(c.dir[0]*(b[0]-a[0])/len+c.dir[1]*(b[1]-a[1])/len)>.9).sort((a,b)=>a.distance-b.distance);
     const best=candidates[0],ambiguous=best&&candidates.some(c=>c.l.structure!==best.l.structure&&c.distance-best.distance<2);
     const next=ambiguous?undefined:best?.l;
     // Opposite directional links of the same structure do not create duplicate fragments.

@@ -42,7 +42,13 @@ export function seaOutsideBox(source: THREE.BufferGeometry, box: Box, matrix = n
   const values = attrs.map(() => [] as number[]), outIndex: number[] = [];
   const originals = new Map<number, number>();
   const push = (v: Vertex) => { const n = values[0].length / sizes[0]; values.forEach((a, k) => a.push(...v.data.slice(offsets[k], offsets[k] + sizes[k]))); return n; };
-  const keep = (ids: number[]) => { for (const id of ids) { let n = originals.get(id); if (n === undefined) { n = push(vertex(id)); originals.set(id, n); } outIndex.push(n); } };
+  // (a kept vertex copied straight from its attributes — the view's whole ground went through
+  // here as fresh arrays per vertex, 1.5 s on entering the drone)
+  const keep = (ids: number[]) => { for (const id of ids) { let n = originals.get(id); if (n === undefined) { n = values[0].length / sizes[0]; for (let k = 0; k < attrs.length; k++) { const a = attrs[k][1].array, sz = sizes[k], out = values[k]; for (let c = 0; c < sz; c++) out.push(a[id * sz + c]); } originals.set(id, n); } outIndex.push(n); } };
+  // every vertex's world x / north, once
+  const wx = new Float64Array(pos.count), wy = new Float64Array(pos.count), tmp = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) { tmp.fromBufferAttribute(pos, i).applyMatrix4(matrix); wx[i] = tmp.x; wy[i] = -tmp.z; }
+  const at = (i: number, axis: 'x' | 'y') => axis === 'x' ? wx[i] : wy[i];
   const fan = (ring: Vertex[]) => {
     for (let j = 1; j + 1 < ring.length; j++) {
       const a = ring[0], b = ring[j], c = ring[j + 1];
@@ -54,9 +60,9 @@ export function seaOutsideBox(source: THREE.BufferGeometry, box: Box, matrix = n
   for (let k = 0; k < index.count; k += 3) {
     const ids = [index.getX(k), index.getX(k + 1), index.getX(k + 2)];
     if (sea && ids.some(i => sea.getX(i) < .5)) { keep(ids); continue; }
+    if (planes.some(([axis, value, sign]) => ids.every(i => sign * (at(i, axis) - value) <= 0))) { if(!inside)keep(ids); continue; }
+    if (planes.every(([axis, value, sign]) => ids.every(i => sign * (at(i, axis) - value) >= 0))) { if(inside)keep(ids); continue; }
     let ring = ids.map(vertex);
-    if (planes.some(([axis, value, sign]) => ring.every(p => sign * (p[axis] - value) <= 0))) { if(!inside)keep(ids); continue; }
-    if (planes.every(([axis, value, sign]) => ring.every(p => sign * (p[axis] - value) >= 0))) { if(inside)keep(ids); continue; }
     if(inside){for(const[axis,value,sign]of planes)ring=clip(ring,axis,value,sign);fan(ring);continue;}
     for (const [axis, value, sign] of planes) { fan(clip(ring, axis, value, -sign)); ring = clip(ring, axis, value, sign); if (ring.length < 3) break; }
   }

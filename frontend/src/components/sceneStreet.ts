@@ -62,6 +62,8 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
     const h = r.width / 2;
     const nrm = surfaceGeometry.miters(pts);
     for (let i = 1; i < pts.length; i++) {
+      // (a long road's thousands of vertices in one slice held a frame 0.25 s)
+      if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
       const [ax, ay] = pts[i - 1], [bx, by] = pts[i], [anx, any] = nrm[i - 1], [bnx, bny] = nrm[i];
       // Sample across the carriageway too: one triangle across a wide road
       // bridged over local grade changes and could disappear under the ground.
@@ -76,9 +78,14 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
   // Shared with lamp placement, including the filled gaps between offset arms.
   for (const level of [...new Set(roads.map(roadLevel))]) {
    const groupRoads=roads.filter(r=>roadLevel(r)===level);surfaceRoad=groupRoads[0];
+   const groupBoxes=groupRoads.map(r=>{let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;for(const [x,y] of r.line){if(x<x0)x0=x;if(y<y0)y0=y;if(x>x1)x1=x;if(y>y1)y1=y;}return [x0,y0,x1,y1];});
    for (const h of roadJunctionHulls(groupRoads)) {
     const cx = h.reduce((s, p) => s + p[0], 0) / h.length, cy = h.reduce((s, p) => s + p[1], 0) / h.length;
-    surfaceRoad=groupRoads.reduce((a,b)=>nearestRoadPoint(a.line,cx,cy).distance<=nearestRoadPoint(b.line,cx,cy).distance?a:b);
+    // (the nearest of the roads whose box comes within 60 m: every road of the level measured for
+    // every junction held a frame 0.25 s)
+    const near=groupRoads.filter((_,i)=>{const b=groupBoxes[i];return cx>b[0]-60&&cx<b[2]+60&&cy>b[1]-60&&cy<b[3]+60;});
+    surfaceRoad=(near.length?near:groupRoads).reduce((a,b)=>nearestRoadPoint(a.line,cx,cy).distance<=nearestRoadPoint(b.line,cx,cy).distance?a:b);
+    if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
     // (a fan, sampled along each hull edge so it follows the ground)
     for (let k = 0; k < h.length; k++) {
       const a = h[k], b = h[(k + 1) % h.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / STEP));
@@ -604,6 +611,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   crossPoints?:readonly {at:[number,number];marked:boolean}[]) {
   const usable = splitRoadJunctions(stitchRoads(roads.filter(r => r.line.length > 1)),true);
   if (!usable.length) return null;
+  // (its pieces between frames: built in one go, a neighbourhood's traffic held a frame 0.4 s)
+  await frameSlice();
   const rnd = rng(seed + 29);
   // Road polylines with cumulative lengths.
   const paths = usable.map(r => {
@@ -636,7 +645,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   paths.forEach((p, road) => {
     for (const atStart of [true, false]) {
       const [x, y] = atStart ? p.line[0] : p.line[p.line.length - 1];
-      let n = nodes.findIndex(o => o.ends.every(e=>roadEndsConnect(p,paths[e.road],x,y)&&Math.abs(roadHeight(p,terrain,x,y)-roadHeight(paths[e.road],terrain,o.x,o.y))<2) && Math.hypot(o.x - x, o.y - y) < (roadLevel(p)===0&&o.ends.every(e=>roadLevel(paths[e.road])===0)?6:1.5));
+      // (the distance first: every node's road heights compared for every road end held a frame)
+      let n = nodes.findIndex(o => Math.hypot(o.x - x, o.y - y) < (roadLevel(p)===0&&o.ends.every(e=>roadLevel(paths[e.road])===0)?6:1.5) && o.ends.every(e=>roadEndsConnect(p,paths[e.road],x,y)&&Math.abs(roadHeight(p,terrain,x,y)-roadHeight(paths[e.road],terrain,o.x,o.y))<2));
       if (n < 0) { n = nodes.length; nodes.push({ x, y, ends: [] }); }
       nodes[n].ends.push({ road, atStart });
       nodeOf.set(`${road}:${atStart}`, n);
@@ -742,7 +752,9 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // dead-end stubs, and the stubs inside intersections carry no traffic of their own.
   // (Repeated: a road whose only ways on lead into idle roads is a dead end too.)
   const idle = paths.map((p, r) => internal[r]||p.width<6);
+  await frameSlice();
   for (let pass = 0; pass < 6; pass++) {
+    if (pass) await frameSlice();
     const deadEnd = (road: number, forward: boolean) => linksFrom(road, forward).every(o => idle[o.link.road]);
     let changed = false;
     paths.forEach((p, r) => {
@@ -778,6 +790,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // (the box's edge: clear of the crossing roads by half a metre; the crossing, the stop line and
   // the stopping point follow outward from it — ArmLayout)
   const CLEAR = 0.5;
+  const pathBox = paths.map(o => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of o.line) { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; });
   const distToRoad = (x: number, y: number, o: (typeof paths)[number]) => {
     let best = Infinity;
     for (let i = 1; i < o.line.length; i++) {
@@ -833,11 +846,15 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     }
     return best;
   };
-  clusters.forEach((c, ci) => {
+  const layCluster = (c: (typeof clusters)[number], ci: number) => {
     for (const e of clusterEnds[ci]) {
       const p = paths[e.road], [hx, hy] = headingIn(e.road, !e.atStart);
       const crossing = paths.filter((o, r) => {
-        if (r === e.road || !sameRoadLevel(p,o) || distToRoad(c.x, c.y, o) > c.r + 25) return false;
+        // (a road whose box is farther than that is: its every segment measured, for every arm
+        // of every junction, held a frame 0.4 s)
+        const bb = pathBox[r], m = c.r + 25;
+        if (r === e.road || c.x < bb[0] - m || c.x > bb[2] + m || c.y < bb[1] - m || c.y > bb[3] + m) return false;
+        if (!sameRoadLevel(p,o) || distToRoad(c.x, c.y, o) > c.r + 25) return false;
         let dir = [0, 0], dmin = Infinity;
         for (let i = 1; i < o.line.length; i++) {
           const [ax, ay] = o.line[i - 1], [bx, by] = o.line[i], d = Math.hypot((ax + bx) / 2 - c.x, (ay + by) / 2 - c.y);
@@ -878,7 +895,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         trimAt.set(key, Math.min(gives ? s0 + 0.7 : d + 1.5, limit));
       } else trimAt.set(key, Math.min(d + 1.5, limit));
     }
-  });
+  };
+  { let t0 = performance.now(); for (let ci = 0; ci < clusters.length; ci++) { layCluster(clusters[ci], ci); if (performance.now() - t0 > 5) { await frameSlice(); t0 = performance.now(); } } }
   const trim = (road: number, atStart: boolean) => trimAt.get(`${road}:${atStart}`) ?? 1.5;
   const arms:TrafficArms={roads:paths,at:(road,atStart)=>layout.get(`${road}:${atStart}`)??null,inside:road=>internal[road],crossings:mappedCrossings};
   onArms?.(arms);

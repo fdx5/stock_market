@@ -26,7 +26,7 @@ import { readPaint, writePaint } from "./paintStore";
 export type GroundData = Pick<RealEstateBuildingsResponse, "site" | "roads" | "parcels" | "streets"> & { buildings: { rings: [number, number][][] }[]; context: { rings: [number, number][][] }[] };
 
 export type SceneOps = {
-  surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]|null;ringsId?:number};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null}};
+  surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]|null;ringsId?:number;roads?:boolean};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null}};
   roads: {args:{roads:RealEstateRoad[];footprints:[number,number][][]};result:RealEstateRoad[]};
   neighbours: { args: { jobs: NeighbourJob[];hybrid?:boolean }; result: {arrays:NeighbourArrays[];mode:string;computeMs:number;memoryBytes:number;inputBytes:number} };
   walkPaths: {args:{paths:WalkPath[];roads:RealEstateRoad[];footprints:[number,number][][];T:number};result:WalkPath[]};

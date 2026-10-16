@@ -9,7 +9,9 @@ type Lane = { worker: Worker | null | undefined; mine: Set<number>; sent: WeakSe
 const lane = (): Lane => ({ worker: undefined, mine: new Set(), sent: new WeakSet() });
 // (and the water its own: the drone's streamed tiles ask for a river surface each, ~0.1 s apiece,
 // one after another — behind the view's roads and cuts on the main lane they waited 0.3 s more)
-const lanes: Record<"paint" | "main" | "water", Lane> = { paint: lane(), main: lane(), water: lane() };
+// (and the roads' own cuts theirs: queued behind the sidewalks' paving cut — 4.7 s near the
+// buildings — the view's asphalt waited ~6 s for it)
+const lanes: Record<"paint" | "main" | "water" | "cut", Lane> = { paint: lane(), main: lane(), water: lane(), cut: lane() };
 /* The surface cut's rings (every footprint and road round a complex: thousands of rings, ~0.2 s
  * to copy) are the same for each mesh cut: sent to a worker once, named by their id after. */
 const sharedIds = new WeakMap<object, number>();
@@ -41,7 +43,7 @@ function get(lane: Lane): Worker | null {
 
 /** The op's result from the worker; rejects when the worker fails (the caller falls back). */
 export function sceneWork<K extends keyof SceneOps>(op: K, args: SceneOps[K]["args"], transfer: Transferable[] = []): Promise<SceneOps[K]["result"]> | null {
-  const lane = op === "ground" ? lanes.paint : op === "water" ? lanes.water : lanes.main, w = get(lane);
+  const lane = op === "ground" ? lanes.paint : op === "water" ? lanes.water : op === "surfaceCut" && (args as SceneOps["surfaceCut"]["args"]).roads ? lanes.cut : lanes.main, w = get(lane);
   if (!w) return null;
   if (op === "surfaceCut") {
     const a = args as SceneOps["surfaceCut"]["args"], rings = a.rings!;
