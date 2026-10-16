@@ -232,6 +232,8 @@ export class DroneWorld {
   }) {
     this.kx = Math.cos((o.data.center!.lat * Math.PI) / 180) * 111320;
     this.root.name = "drone world";
+    // (its workers made now, ahead of the tiles' downloads: their scripts are not queued behind them)
+    this.terrainJobs.warm();
     this.root.matrixAutoUpdate = false;
     // (WebGPU: the same asphalt grain as the view's road surfaces)
     this.asphalt.userData.groundDetail = true;
@@ -538,6 +540,7 @@ export class DroneWorld {
       if (t.state === "queued" || (t.state === "failed" && now > t.retryAt)) want.push([order, t]);
     }
     want.sort((a, b) => a[0] - b[0]);
+    this.pumpWarm(x, y);
     // Eight tiles started up to 24 geometry workers at once. Bound decodes too.
     // (six at once on a desktop: a tile waits on its downloads in workers — not the page — most of
     // its two seconds; four left the ring round the drone filling at under two tiles a second)
@@ -560,6 +563,21 @@ export class DroneWorld {
   }
   /** The places whose OpenStreetMap answers were asked for already (each once a page). */
   private warmed = new Set<string>();
+  /** The asks warming the server's cache, sent nearest the drone first, four at a time: all at
+   * once — two for each of some sixty tiles the moment the drone took off — they held up the asks
+   * the near tiles were waiting on (and, on a page served over HTTP/1.1, the workers' own scripts,
+   * 15 s). A tile gone from the reach before its turn is not asked for. */
+  private warmQueue: { k: string; cx: number; cy: number; urls: string[] }[] = [];
+  private warmBusy = 0;
+  private pumpWarm(x: number, y: number) {
+    if (!this.warmQueue.length || this.warmBusy >= 4) return;
+    this.warmQueue = this.warmQueue.filter(w => this.tiles.has(w.k));
+    this.warmQueue.sort((a, b) => Math.hypot(a.cx - x, a.cy - y) - Math.hypot(b.cx - x, b.cy - y));
+    while (this.warmBusy < 4 && this.warmQueue.length) {
+      const w = this.warmQueue.shift()!;
+      for (const u of w.urls) { this.warmBusy++; void fetch(u).catch(() => {}).finally(() => { this.warmBusy--; }); }
+    }
+  }
   private make(i: number, j: number, box: [number, number, number, number]): Tile {
     const H = this.o.extent.farHalf;
     // The site's OpenStreetMap answers (water, crossings) asked now, unawaited: the server fetches
@@ -568,8 +586,8 @@ export class DroneWorld {
       this.warmed.add(key(i, j));
       const c = this.o.data.center!, la = +(c.lat + ((box[1] + box[3]) / 2) / this.ky).toFixed(4), lo = +(c.lon + ((box[0] + box[2]) / 2) / this.kx).toFixed(4);
       const q = `lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}`;
-      void fetch(`${location.origin}/api/realestate/crossings?${q}&r=260&v=3`).catch(() => {});
-      void fetch(`${location.origin}/api/realestate/water?${q}&r=${Math.round((TILE_M / 2) * 1.5)}&v=3&fast=1`).catch(() => {});
+      this.warmQueue.push({ k: key(i, j), cx: (box[0] + box[2]) / 2, cy: (box[1] + box[3]) / 2,
+        urls: [`${location.origin}/api/realestate/crossings?${q}&r=260&v=3`, `${location.origin}/api/realestate/water?${q}&r=${Math.round((TILE_M / 2) * 1.5)}&v=3&fast=1`] });
     }
     return {
       i, j, key: key(i, j), box, cx: (box[0] + box[2]) / 2, cy: (box[1] + box[3]) / 2,
@@ -609,12 +627,14 @@ export class DroneWorld {
     const { data } = this.o, R = TILE_M / 2 + 160, cell = 4, n = Math.round((2 * R) / cell) + 1;
     const lat = data.center!.lat + t.cy / this.ky, lon = data.center!.lon + t.cx / this.kx;
     const WR = 1300, wcell = 16, wn = Math.round((2 * WR) / wcell) + 1;
-    const [base, sampler, wideSampler] = await Promise.all([this.baseHeight(), vworldSampler(data.vworld_key!, lat, lon, R + 8).catch(() => null),
-      t.inner ? Promise.resolve(null) : vworldSampler(data.vworld_key!, lat, lon, WR + 20).catch(() => null)]);
+    const gl = (w: string) => { if (DTRACE) console.info(`[dtile] ${t.key} ${w} ${Math.round(performance.now())}`); };
+    const [base, sampler, wideSampler] = await Promise.all([this.baseHeight().then(v => { gl('g-base'); return v; }), vworldSampler(data.vworld_key!, lat, lon, R + 8).catch(() => null).then(v => { gl('g-dem'); return v; }),
+      t.inner ? Promise.resolve(null) : vworldSampler(data.vworld_key!, lat, lon, WR + 20).catch(() => null).then(v => { gl('g-wide'); return v; })]);
     const fill = async (gr: number, gc: number, gn: number, smp: typeof sampler) => {
       if(smp&&base!==null){
         const result=await this.terrainJobs.run({posts:smp.posts,lon:data.center!.lon,lat:data.center!.lat,kx:this.kx,ky:this.ky,
           base,cx:t.cx,cy:t.cy,R:gr,cell:gc,n:gn},t.stop.signal);
+        gl(result ? `g-job${gn}` : `g-jobfail${gn}`);
         if(this.disposed||t.stop.signal.aborted)return null;
         if(result)return {h:result.h,n:gn,R:gr,cell:gc,ox:t.cx,oy:t.cy};
       }

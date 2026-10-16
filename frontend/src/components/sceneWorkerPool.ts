@@ -9,6 +9,17 @@ export class SceneWorkerPool<Q extends object, R extends { id: number }> {
   constructor(private create: () => Worker, size: number, private timeoutMs = 45000) {
     this.slots = Array.from({ length: size }, () => ({ worker: null, job: null }));
   }
+  /** Makes the workers now (their scripts load while nothing else is asked for), not at the first job. */
+  warm() {
+    if (this.dead) return;
+    for (const slot of this.slots) if (!slot.worker) {
+      try {
+        const worker = this.create(); slot.worker = worker;
+        worker.onmessage = (e: MessageEvent<R>) => { if (slot.worker === worker && slot.job?.id === e.data?.id) this.finish(slot, e.data); };
+        worker.onerror = worker.onmessageerror = () => { if (slot.worker === worker) this.finish(slot, null, true); };
+      } catch { slot.worker = null; }
+    }
+  }
   get pending() { return this.queue.length + this.slots.filter(s => s.job).length; }
   run(request: Q, signal: AbortSignal, transfer: Transferable[] = [], priority = 0): Promise<R | null> {
     if (this.dead || signal.aborted) return Promise.resolve(null);
