@@ -8,8 +8,8 @@ import {transformSync} from 'esbuild';
 const read=name=>readFileSync(new URL('../src/components/'+name,import.meta.url),'utf8');
 const declarations=(name,names)=>{const text=read(name),ast=ts.createSourceFile(name,text,ts.ScriptTarget.Latest,true);return ast.statements.filter(n=>names.some(name=>ts.isFunctionDeclaration(n)&&n.name?.text===name)).map(n=>n.getText(ast).replace(/^export /,'')).join('\n');};
 const context={};
-vm.runInNewContext(transformSync(declarations('bridgeChains.ts',['joinStructureLinks','deckProfile','deckClearance','deckFromCentreLines'])+'\nthis.kit={joinStructureLinks,deckProfile,deckClearance,deckFromCentreLines};',{loader:'ts'}).code,context);
-const {joinStructureLinks,deckProfile,deckClearance,deckFromCentreLines}=context.kit;
+vm.runInNewContext(transformSync(declarations('bridgeChains.ts',['joinStructureLinks','deckProfile','deckClearance','deckFromCentreLines','crossingStations'])+'\nthis.kit={joinStructureLinks,deckProfile,deckClearance,deckFromCentreLines,crossingStations};',{loader:'ts'}).code,context);
+const {joinStructureLinks,deckProfile,deckClearance,deckFromCentreLines,crossingStations}=context.kit;
 const L=(id,...pts)=>({id,kind:1,line:pts});
 
 test('a bridge split mid-river joins bank to bank, each direction on its own',()=>{
@@ -62,4 +62,14 @@ test('one deck width along a bridge from the base map: the median of its pieces,
   assert.equal(d.w,34.1);assert.equal(d.off,8);assert.equal(d.twoWay,true);
   // none along it: two lanes on the link itself
   assert.deepEqual({...deckFromCentreLines(chain,st,[])},{w:8,off:0,lanes:2,twoWay:false});
+});
+
+test('a bridge over flat ground clears the road it crosses, eased from its banks; a ramp leaving it is no crossing',()=>{
+  const line=[[0,0],[0,600]];
+  const cross=crossingStations(line,[[[-50,300],[50,300]],[[0,200],[40,260]],[[-30,5],[30,5]]]);
+  assert.deepEqual(Array.from(cross),[300]);
+  const g=Array(121).fill(10),z=deckClearance(deckProfile(g,5),g,5,4,0.05,cross);
+  assert.ok(z[60]>=16-1e-9,`over the road: ${z[60]}`);
+  assert.equal(z[0],10);assert.equal(z.at(-1),10);
+  for(let i=1;i<z.length;i++)assert.ok(Math.abs(z[i]-z[i-1])<=0.25+1e-9,`too steep at ${i}`);
 });

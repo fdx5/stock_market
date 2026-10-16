@@ -210,14 +210,14 @@ function roadContextAsk(box:string,key:string,domain='https://kospimap.com'){
 /** The official bridge links (표준노드링크 rd_type_h 교량) in a lon/lat box, whole lines,
  * for joining a bridge's links bank to bank (bridgeChains.ts). */
 export async function vworldStructureLinks(key:string,domain:string|null|undefined,[lon0,lat0,lon1,lat1]:[number,number,number,number],every=false){
- const out:{id:string;kind:number;line:[number,number][]}[]=[];
+ const out:{id:string;kind:number;rank:string;line:[number,number][]}[]=[];
  // (every: all the links in the box, whatever their type — a bridge's approaches — kind 0, a tunnel -1)
  for(const [type,kind] of (every?[[null,0]]:[['교량',1]]) as [string|null,number][]){
   const list=await pagedFeatures(async page=>features(await call(DATA,{service:'data',request:'GetFeature',crs:'EPSG:4326',geometry:'true',attribute:'true',key,domain:domain??'https://kospimap.com',
    data:'LT_L_MOCTLINK',...(type?{attrFilter:`rd_type_h:=:${type}`}:{}),geomFilter:`BOX(${lon0},${lat0},${lon1},${lat1})`,size:1000,page})));
   for(const f of list){const g=f.geometry,lines=g?.type==='LineString'?[g.coordinates]:g?.type==='MultiLineString'?g.coordinates:[];
    const t=String(f.properties?.rd_type_h??''),k=every?(t==='교량'?1:t==='고가도로'?2:t==='터널'||t==='지하차도'?-1:0):kind;
-   for(const l of lines as number[][][])if(l.length>1)out.push({id:String(f.properties?.link_id??f.id??''),kind:k,line:l.map(p=>[p[0],p[1]] as [number,number])});}
+   for(const l of lines as number[][][])if(l.length>1)out.push({id:String(f.properties?.link_id??f.id??''),kind:k,rank:String(f.properties?.rd_rank_h??''),line:l.map(p=>[p[0],p[1]] as [number,number])});}
  }
  return out;
 }

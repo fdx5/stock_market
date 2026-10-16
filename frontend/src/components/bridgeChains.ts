@@ -16,7 +16,7 @@ import { vworldSampler } from './sceneTerrain';
  * One profile per chain for the page's lifetime (absolute metres), shared by the view and every
  * drone tile, so tiles meet without a step. */
 
-type Link = { id: string; kind: number; line: [number, number][] };
+type Link = { id: string; kind: number; rank?: string; line: [number, number][] };
 /** One bridge's deck across, the same along its whole chain: `w` the carriageway's width, `lanes`,
  * `off` its centre line's offset to the left of the chain's line (a two-way deck on one direction's
  * link: its middle), `twoWay` both directions on it. */
@@ -102,16 +102,50 @@ export function deckProfile(g: number[], step: number, ease = 25): number[] {
   return out;
 }
 
-/** A deck never in the water (pure): the water's surface under a chain is the lowest ground along
- * it (the DEM over a river is its surface; never under the sea's, 0 m); over it the deck keeps
- * `clear` m, climbing to that from each outer bank at `grade` at most — where the banks are
- * scarcely above the water (일산대교, 김포 쪽 갯벌) the bank-to-bank line lay on it. Never lowered. */
-export function deckClearance(z: number[], g: number[], step: number, clear = 4, grade = 0.05): number[] {
+/** A deck never in the water, never on a road it crosses (pure): the water's surface under a chain
+ * is the lowest ground along it (the DEM over a river is its surface; never under the sea's, 0 m) —
+ * over it the deck keeps `clear` m; over a road crossing it (`crossings`: stations along the
+ * chain) it keeps `overRoad` m over the ground there. From each requirement it eases down at
+ * `grade`, and it never rises faster than `grade` from either outer bank: where the banks are
+ * scarcely above the water (일산대교) the bank-to-bank line lay on it; where a bridge's links run on
+ * over flat ground and the roads there (고덕토평대교 over 강변북로 at 토평), its parapets stood across
+ * them at grade. Never lowered. */
+export function deckClearance(z: number[], g: number[], step: number, clear = 4, grade = 0.05, crossings: number[] = [], overRoad = 6): number[] {
   const n = z.length;
   if (n < 3) return z.slice();
   const water = Math.max(0, Math.min(...g.slice(1, -1)));
   const total = (n - 1) * step;
-  return z.map((h, i) => Math.max(h, Math.min(water + clear, z[0] + grade * i * step, z[n - 1] + grade * (total - i * step))));
+  const need = crossings.map(c => { const i = Math.max(0, Math.min(n - 1, Math.round(c / step))); return [i * step, g[i] + overRoad]; });
+  return z.map((h, i) => {
+    let want = water + clear;
+    for (const [sc, zc] of need) want = Math.max(want, zc - grade * Math.abs(i * step - sc));
+    return Math.max(h, Math.min(want, z[0] + grade * i * step, z[n - 1] + grade * (total - i * step)));
+  });
+}
+
+/** The stations along a line (metres, x east y north) where another line crosses it — at 30° or
+ * more, away from both its ends and the other line's (a ramp leaving it is no crossing). (pure) */
+export function crossingStations(line: [number, number][], others: number[][][], end = 15): number[] {
+  const out: number[] = [];
+  let acc = 0;
+  const total = line.reduce((t, p, i) => i ? t + Math.hypot(p[0] - line[i - 1][0], p[1] - line[i - 1][1]) : 0, 0);
+  for (let i = 1; i < line.length; i++) {
+    const a = line[i - 1], b = line[i], ex = b[0] - a[0], ey = b[1] - a[1], L = Math.hypot(ex, ey);
+    if (!L) continue;
+    for (const o of others) for (let k = 1; k < o.length; k++) {
+      const c = o[k - 1], d = o[k], fx = d[0] - c[0], fy = d[1] - c[1], M = Math.hypot(fx, fy), den = ex * fy - ey * fx;
+      if (!M || Math.abs(den) < Math.sin(Math.PI / 6) * L * M) continue;
+      const t = ((c[0] - a[0]) * fy - (c[1] - a[1]) * fx) / den, u = ((c[0] - a[0]) * ey - (c[1] - a[1]) * ex) / den;
+      if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+      const sc = acc + t * L;
+      let ou = 0; for (let q = 1; q < k; q++) ou += Math.hypot(o[q][0] - o[q - 1][0], o[q][1] - o[q - 1][1]);
+      const on = ou + u * M, oTotal = o.reduce((t2, p, q) => q ? t2 + Math.hypot(p[0] - o[q - 1][0], p[1] - o[q - 1][1]) : 0, 0);
+      if (sc < end || sc > total - end || on < 3 || on > oTotal - 3) continue;
+      out.push(sc);
+    }
+    acc += L;
+  }
+  return out.sort((x, y) => x - y);
 }
 
 const around = new Map<string, Promise<Link[] | null>>();
@@ -202,16 +236,29 @@ async function profileOf(key: string, domain: string | null | undefined, chain: 
   }
   const core: [number, number] = [cum[head.length], cum[head.length + own - 1]];
   // (the base map unanswered: no profile — asked again — never a deck of a guessed width)
-  const deck = await deckAcross(key, domain, line, cum, core, kx);
+  const deck = await deckAcross(key, domain, line, cum, core, kx, chain.map(l => l.rank ?? ''));
   if (!deck) return null;
-  return { ids: chain.map(l => l.id), line, s, z: deckClearance(deckProfile(g, step), g, step), core, deck };
+  // The roads it crosses (any link not a bridge's own, at grade or under it: not a deck over it)
+  const ids2 = new Set(chain.map(l => l.id)), lon0 = line[0][0], lat0 = line[0][1];
+  const M = (p: number[]) => [(p[0] - lon0) * kx, (p[1] - lat0) * KY];
+  const asks: Promise<Link[] | null>[] = [];
+  for (let d = 0; d <= total + 1; d += 800) { const i = Math.min(line.length - 1, cum.findIndex(c => c >= d)); asks.push(linksAround(key, domain, line[i < 0 ? line.length - 1 : i][0], line[i < 0 ? line.length - 1 : i][1])); }
+  const near = await Promise.all(asks);
+  if (near.some(v => !v)) return null;
+  const others = new Map<string, number[][]>();
+  for (const l of near.flat() as Link[]) if (!ids2.has(l.id) && l.kind === 0 && l.line.length > 1) others.set(l.id + ':' + l.line[0].join(','), l.line.map(M));
+  // (only on the bridge's own links: a road met on its approach is a junction at grade)
+  const crossings = crossingStations(line.map(M) as [number, number][], [...others.values()]).filter(c => c > core[0] && c < core[1]).map(c => c * (s[s.length - 1] / (total || 1)));
+  return { ids: chain.map(l => l.id), line, s, z: deckClearance(deckProfile(g, step), g, step, 4, 0.05, crossings), core, deck };
 }
 
 /** A bridge's one deck across (pure): from the base map's centre lines along the chain's own span
  * (each within 25 m, running its way, the chain's line on its carriageway), the median width, lanes
  * and offset of them all — every piece of the bridge the same, in the view and in every tile. None
- * along it (a bridge newer than the base map: 월드컵대교): two lanes one way on the link itself. */
-export function deckFromCentreLines(chain: [number, number][], stations: number[], roads: { line: number[][]; width: number; lanes: number }[]): ChainDeck {
+ * along it (a bridge newer than the base map: 월드컵대교, 고덕토평대교): one way on the link itself, its
+ * lanes by the road's class — the rule the roads it meets are laid by where the base map has none
+ * (roadLinkFallback.ts), so the deck meets them at their width. */
+export function deckFromCentreLines(chain: [number, number][], stations: number[], roads: { line: number[][]; width: number; lanes: number }[], ranks: string[] = []): ChainDeck {
   const ws: number[] = [], offs: number[] = [], ls: number[] = [];
   for (const s of stations) {
     let k = 1, acc = 0;
@@ -232,12 +279,17 @@ export function deckFromCentreLines(chain: [number, number][], stations: number[
     if (best) { ws.push(best.w); offs.push(best.o); ls.push(best.lanes); }
   }
   const median = (v: number[]) => { const q = v.slice().sort((x, y) => x - y); return q[Math.floor(q.length / 2)]; };
-  if (ws.length < Math.max(2, stations.length * 0.3)) return { w: 8, off: 0, lanes: 2, twoWay: false };
+  if (ws.length < Math.max(2, stations.length * 0.3)) {
+    // (roadLinkFallback.ts's lanes by class; a class unknown, as a bridge's link often is: two)
+    const LANES: Record<string, number> = { '고속국도': 3, '도시고속국도': 3, '도시고속도로': 3, '일반국도': 2, '특별·광역시도': 2, '국가지원지방도': 2, '지방도': 1, '시·군도': 1, '구도': 1 };
+    const lanes = Math.max(...ranks.map(r => LANES[r] ?? 0), 0) || 2;
+    return { w: Math.min(60, lanes * 3.5 + 1), off: 0, lanes, twoWay: false };
+  }
   const w = median(ws), off = median(offs);
   return { w, off: Math.round(off * 10) / 10, lanes: Math.max(1, Math.round(median(ls))), twoWay: Math.abs(off) > Math.max(2, w * 0.15) };
 }
 
-async function deckAcross(key: string, domain: string | null | undefined, line: [number, number][], cum: number[], core: [number, number], kx: number): Promise<ChainDeck | null> {
+async function deckAcross(key: string, domain: string | null | undefined, line: [number, number][], cum: number[], core: [number, number], kx: number, ranks: string[]): Promise<ChainDeck | null> {
   const lon0 = line[0][0], lat0 = line[0][1], m = line.map(([x, y]) => [(x - lon0) * kx, (y - lat0) * KY] as [number, number]);
   const own = line.filter((_, i) => cum[i] >= core[0] - 1 && cum[i] <= core[1] + 1);
   const lons = own.map(p => p[0]), lats = own.map(p => p[1]), px = 40 / kx, py = 40 / KY;
@@ -245,7 +297,7 @@ async function deckAcross(key: string, domain: string | null | undefined, line: 
   if (!roads) return null;
   const stations: number[] = [];
   for (let s = core[0] + 2.5; s < core[1]; s += 5) stations.push(s);
-  return deckFromCentreLines(m, stations, roads.map(r => ({ ...r, line: r.line.map(([x, y]) => [(x - lon0) * kx, (y - lat0) * KY]) })));
+  return deckFromCentreLines(m, stations, roads.map(r => ({ ...r, line: r.line.map(([x, y]) => [(x - lon0) * kx, (y - lat0) * KY]) })), ranks);
 }
 
 /** The chains of the raised links meeting a view-frame box (and their profiles), in that frame:

@@ -39,12 +39,13 @@ export function findBridges(roads:RealEstateRoad[],_parcels:RealEstateParcel[],_
   const right_h=Float32Array.from(x,(_,k)=>roadHeight(road,surface,x[k]-nx[k]*half,y[k]-ny[k]*half));
   out.push({x,y,nx,ny,s,h,left_h,right_h,half,outer:half,lanes:road.lanes,level:Math.min(...h),road,box:[Math.min(...x)-half,Math.min(...y)-half,Math.max(...x)+half,Math.max(...y)+half]});
  }
- // The parapets: none where an edge lies on another deck's lanes at about its height.
+ // The parapets: none where an edge lies on another road's lanes at about its height.
  const ground=roads.filter(r=>!['bridge','elevated','tunnel','underpass'].includes(r.structure??''));
  const onRoad=(x:number,y:number)=>ground.some(r=>nearestRoadPoint(r.line,x,y).distance<r.width/2+1.4);
  for(const b of out){
   b.sw=sidewalkOf(b.road.width);const h=b.half+b.sw+DECK.margin;
-  const onOther=(x:number,y:number,z:number)=>out.some(o=>{if(o===b||x<o.box[0]-1||x>o.box[2]+1||y<o.box[1]-1||y>o.box[3]+1)return false;
+  // (another deck's lanes, or a road at grade the deck meets at its height: the tiles' rule)
+  const onOther=(x:number,y:number,z:number)=>ground.some(r=>Math.abs(terrain.at(x,y)-z)<2.5&&nearestRoadPoint(r.line,x,y).distance<r.width/2)||out.some(o=>{if(o===b||x<o.box[0]-1||x>o.box[2]+1||y<o.box[1]-1||y>o.box[3]+1)return false;
    if(nearestRoadPoint(o.road.line,x,y).distance>=o.half)return false;let k=0,best=Infinity;for(let i=0;i<o.x.length;i++){const d=(o.x[i]-x)**2+(o.y[i]-y)**2;if(d<best){best=d;k=i;}}return Math.abs(o.h[k]-z)<2.5;});
   b.openL=Uint8Array.from(b.x,(_,k)=>onOther(b.x[k]+b.nx[k]*h,b.y[k]+b.ny[k]*h,b.h[k])?1:0);
   b.openR=Uint8Array.from(b.x,(_,k)=>onOther(b.x[k]-b.nx[k]*h,b.y[k]-b.ny[k]*h,b.h[k])?1:0);

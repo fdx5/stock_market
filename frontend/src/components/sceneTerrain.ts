@@ -159,10 +159,10 @@ function vworldTile(token: string, x: number, y: number): Promise<Float32Array |
       { referrerPolicy: "no-referrer" })
       .then(r => r.arrayBuffer())
       // 65 × 65 little-endian float32 metres, row 0 the tile's north edge, column 0 west.
-      // Where VWorld has no DEM (it answers a short error: 일산·김포, past the capital's coverage)
-      // the tile's posts from SRTM instead — one tile missing failed the whole sampler: no bridge
-      // chain, no streamed roads or ground there at all.
-      .then(b => (b.byteLength === 65 * 65 * 4 ? new Float32Array(b) : b.byteLength > 0 && b.byteLength < 1024 ? srtmPosts(x, y) : null))
+      // Where VWorld has no DEM file (ERROR_SERVICE_FILE_NOTTHING: 일산·김포, past the capital's
+      // coverage) the tile's posts from SRTM instead — one tile missing failed the whole sampler: no
+      // bridge chain, no streamed roads or ground there at all. Any other error: asked again.
+      .then(b => (b.byteLength === 65 * 65 * 4 ? new Float32Array(b) : b.byteLength < 1024 && new TextDecoder().decode(b).includes("FILE_NOTTHING") ? srtmPosts(x, y) : null))
       .catch(() => null)
       .then(t => { if (!t) vwTiles.delete(k); return t; });
     vwTiles.set(k, hit);
