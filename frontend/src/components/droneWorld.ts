@@ -238,7 +238,7 @@ export class DroneWorld {
     // (WebGPU: the same asphalt grain as the view's road surfaces)
     this.asphalt.userData.groundDetail = true;
     void paintedTexture('asphalt',1024).then(map=>{if(this.disposed){map.dispose();return;}this.asphaltMap=map;this.asphalt.map=map;this.asphalt.color.set('#ffffff');this.asphalt.needsUpdate=true;});
-    this.traffic = new DroneTraffic(o.seed + 31);
+    this.traffic = new DroneTraffic(o.seed + 31, !o.hq);
     this.root.add(this.traffic.group);
     this.plantPool = new PlantPool({ addWarm: o.addWarm });
     this.root.add(this.plantPool.root);
@@ -441,7 +441,9 @@ export class DroneWorld {
     }
     // (higher, more of the city in sight: 1.15 km low down, 1.8 km at 500 m; less on a phone — and
     // scheduled toward its predicted position ten seconds ahead)
-    this.radius = Math.min(this.o.hq ? 1820 : 1260, 1155 + Math.max(0, alt) * 1.4) * this.memoryScale();
+    // (a phone: 900 m round it, past which the haze closes in — the tiles, buildings and cars past it
+    // were most of its frame)
+    this.radius = Math.min(this.o.hq ? 1820 : 900, (this.o.hq ? 1155 : 760) + Math.max(0, alt) * 1.4) * this.memoryScale();
     // Prepare both travel and viewing corridors, including looking backward
     // while flying forward. Network failure still uses retry/registered fallback.
     const sp = Math.hypot(vx, vy), fx = sp > 1 ? vx / sp : look?.[0] ?? 0, fy = sp > 1 ? vy / sp : look?.[1] ?? 0;

@@ -736,3 +736,13 @@
 .re-holo--drone-touch .re-drone-card { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); top: calc(64px + env(safe-area-inset-top)); width: auto; max-height: calc(100% - 64px - 190px - env(safe-area-inset-top)); }
 @media (max-width: 600px) { .re-drone-card { left: 8px; right: 8px; width: auto; top: 64px; max-height: calc(100% - 250px); } }
 @media (prefers-reduced-motion: reduce) { .re-drone-card, .re-drone-card-shimmer { animation: none; } }
+
+/* Full screen for the drone (the 전체화면 button): the page's bars folded away, the stage on the
+ * whole screen, the HUD and sticks at its edges (inside the notch and home-bar insets). */
+.re-holo.re-holo--immersive { --drone-header-height: env(safe-area-inset-top, 0px); --drone-footer-height: env(safe-area-inset-bottom, 0px); }
+.re-holo.re-holo--immersive > .re-holo-head, .re-holo.re-holo--immersive .re-holo-bottom, .re-holo.re-holo--immersive .re-holo-foot { display: none !important; }
+.drone-explore-page:has(.re-holo--immersive) .drone-explore-close { display: none; }
+.re-holo.re-holo--immersive .re-holo-stage { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; border-radius: 0; }
+.re-holo--expanded.re-holo--immersive, .drone-explore-page > .re-holo.re-holo--immersive { position: fixed; inset: 0; width: 100vw !important; height: 100dvh !important; max-width: none; z-index: 2147483001; border: 0; border-radius: 0; margin: 0; }
+.re-drone-full { white-space: nowrap; }
+.re-holo--immersive .re-drone-full { border-color: #ffd27a !important; }

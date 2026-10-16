@@ -73,6 +73,8 @@ export class DroneSession {
     viewRiver?:()=>WaterField|null;
     /** the drone's sky, 0…1 (both renderers), and its distance haze (start, end; m) */
     setSky: (k: number, fog?: [number, number]) => void;
+    /** a phone (not hq): the renderer's lighter shadows while the drone flies */
+    setLite?: (on: boolean) => void;
     onHud: (h: DroneHud) => void;
   }) {
     this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees, viewBuildings:p.viewBuildings,nearBuildings:p.nearBuildings,
@@ -86,6 +88,7 @@ export class DroneSession {
     const { camera, scene } = this.p;
     scene.add(this.world.root);
     scene.add(this.model.group);
+    if (!this.p.hq) { this.p.setLite?.(true); this.signs.lite = true; }
     this.keepGroundToSquare();
     scene.traverse(o => {
       const traffic = o.userData.traffic;
@@ -424,6 +427,7 @@ export class DroneSession {
   end() {
     const { camera, scene, ground } = this.p;
     this.ended = true;
+    if (!this.p.hq) this.p.setLite?.(false);
     this.restoreView();
     this.restoreWater();
     this.seaStop.abort();this.coastJobs.dispose();

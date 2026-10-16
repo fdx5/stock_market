@@ -26,7 +26,7 @@ const KINDS: [string, number, number, number, string?][] = [
 ];
 // Korean roads' colours: white, black, grey and silver most; a few blues, reds and the rest.
 const PAINT: [string, number][] = [["#f2f2ef", 30], ["#16181b", 20], ["#8d9196", 14], ["#c4c7cb", 13], ["#1f3a6b", 6], ["#8a1c1f", 5], ["#4b5a4a", 3], ["#b8a58a", 3], ["#5f3a24", 2], ["#2f6f9a", 2], ["#d8c24a", 2]];
-const NEAR_M = 320, FAR_M = 1100, CAP_NEAR = 160, CAP_FAR = 3000;
+const NEAR_M = 320, CAP_NEAR = 160;
 /** A signalled junction's cycle (s): the phase along the widest road, then across it, each with
  * its amber; every junction offset by its place, so neighbours do not all change at once. */
 const CYCLE = 64, GREEN = 28, AMBER = 4;
@@ -102,13 +102,17 @@ export class DroneTraffic {
   private rnd: () => number;
   private disposed = false;
 
-  constructor(seed: number) {
+  /** how far a car is placed (m), and how many there are at most — a phone's drone: fewer, nearer */
+  private readonly FAR_M: number;
+  private readonly CAP_FAR: number;
+  constructor(seed: number, lite = false) {
+    this.FAR_M = lite ? 760 : 1100; this.CAP_FAR = lite ? 800 : 3000;
     let s = (seed % 2147483646) + 1;
     this.rnd = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
     this.group.name = "drone traffic";
-    this.far = new THREE.InstancedMesh(blockGeometry(), this.farMat, CAP_FAR);
+    this.far = new THREE.InstancedMesh(blockGeometry(), this.farMat, this.CAP_FAR);
     this.far.count = 0; this.far.frustumCulled = false; this.far.castShadow = false; this.far.receiveShadow = true;
-    this.far.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAP_FAR * 3), 3);
+    this.far.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.CAP_FAR * 3), 3);
     this.group.add(this.far);
     // The modelled cars once the kit is in (it is the view's: usually loaded already).
     void loadCarModels().then(models => {
@@ -187,7 +191,7 @@ export class DroneTraffic {
       // (the city's density: a car every ~30–55 m on a boulevard, 45–85 m on a street, sparse on lanes)
       const gap = lane.width >= 15 ? [30, 25] : lane.width >= 8 ? [45, 40] : [80, 60];
       for (let s = 5 + this.rnd() * gap[0]; s < lane.len - 6; s += gap[0] + this.rnd() * gap[1]) {
-        if (this.cars.length >= CAP_FAR) return;
+        if (this.cars.length >= this.CAP_FAR) return;
         this.spawn(lane, s);
       }
     }
@@ -266,12 +270,12 @@ export class DroneTraffic {
     this.clock += dt;
     const step=++this.stepNo;
     // (lanes far off are not driven: their cars wait, unseen, till the drone comes back near)
-    const reach2 = (FAR_M + 150) ** 2;
+    const reach2 = (this.FAR_M + 150) ** 2;
     for (const list of this.lanes.values()) for (const lane of list) {
       // The whole polyline is enclosed, including long roads whose endpoints
       // are off screen. This only skips placement already rejected at FAR_M.
       const bx=Math.max(lane.minX-camera.x,0,camera.x-lane.maxX),by=Math.max(lane.minY+camera.z,0,-camera.z-lane.maxY);
-      lane.renderOutside=bx*bx+by*by>FAR_M*FAR_M+1e-6;
+      lane.renderOutside=bx*bx+by*by>this.FAR_M*this.FAR_M+1e-6;
       if (bx * bx + by * by > reach2) continue;
       // (past 450 m a car is a block of a few pixels: its lane is driven every other frame,
       // with both frames' time — half the lanes one frame, half the next)
@@ -360,7 +364,7 @@ export class DroneTraffic {
         dx = p[k * 3 + 3] - p[k * 3]; dy = p[k * 3 + 4] - p[k * 3 + 1]; dz = p[k * 3 + 5] - p[k * 3 + 2];
       }
       const ddx = x - cx, ddz = -y - cz, dd = ddx * ddx + ddz * ddz;
-      if (dd > FAR_M * FAR_M) continue;
+      if (dd > this.FAR_M * this.FAR_M) continue;
       if (look && dd > 1600 && (ddx * lx + ddz * lz) < behind * Math.sqrt(dd)) continue;
       // heading (scene: forward +z, x east, z south) and slope, without trigonometry
       let cyaw:number,syaw:number,cp:number,sp:number;
@@ -376,7 +380,7 @@ export class DroneTraffic {
         const i = counts[c.kind]++;
         writeMatrix(im.instanceMatrix.array as Float32Array, i, x, z, -y, cyaw, syaw, cp, sp, 1, 1, 1);
         const ca = im.instanceColor!.array as Float32Array; ca[i * 3] = c.colour.r; ca[i * 3 + 1] = c.colour.g; ca[i * 3 + 2] = c.colour.b;
-      } else if (farN < CAP_FAR) {
+      } else if (farN < this.CAP_FAR) {
         const b = BLOCK[c.kind];
         writeMatrix(this.far.instanceMatrix.array as Float32Array, farN, x, z, -y, cyaw, syaw, cp, sp, b[0], b[1], b[2]);
         const ca = this.far.instanceColor!.array as Float32Array; ca[farN * 3] = c.colour.r; ca[farN * 3 + 1] = c.colour.g; ca[farN * 3 + 2] = c.colour.b;

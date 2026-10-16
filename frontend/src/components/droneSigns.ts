@@ -73,13 +73,19 @@ export class DroneSigns {
   }
 
   /** Draw for this frame's camera (w × h CSS pixels); `fade`: where the haze starts and ends (m). */
+  /** A phone's drone: the labels drawn every other frame, at 1.5x. Their canvas covers the screen —
+   * redrawn, rasterised and sent to the compositor each frame at the phone's 2x it was a third of
+   * the page's work there; the 3D under them is drawn at its full resolution all the same. */
+  lite = false;
+  private frameNo = 0;
   draw(camera: THREE.PerspectiveCamera, w: number, h: number, fade: [number, number]) {
     const cv = this.canvas;
     if (!cv) return;
+    if (this.lite && (++this.frameNo & 1) && this.size[0] === w && this.size[1] === h) return;
     if (!this.ctx) this.ctx = cv.getContext("2d");
     const ctx = this.ctx;
     if (!ctx) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = Math.min(this.lite ? 1.5 : 2, window.devicePixelRatio || 1);
     if (this.size[0] !== w || this.size[1] !== h || this.size[2] !== dpr) {
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
       this.size = [w, h, dpr];

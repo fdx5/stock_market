@@ -48,7 +48,8 @@ function Stick({ side, flight, label }: { side: "left" | "right"; flight: DroneF
   );
 }
 
-export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit, onMute, view, onView }: {
+export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit, onMute, view, onView, full, onFull }: {
+  full?: boolean; onFull?: () => void;
   view: "fpv" | "chase"; onView: () => void;
   sink: MutableRefObject<((h: DroneHud) => void) | null>; flight: DroneFlight; signs: DroneSigns; touch: boolean;
   radar: { vkey: string; domain: string; origin: { lat: number; lon: number }; where: () => DroneWhere | null };
@@ -178,6 +179,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
       <div className="re-drone-tools">
         <button type="button" className="re-drone-view" onClick={onView} title="1인칭 ↔ 3인칭 (V)"><i className="re-drone-view-icon" aria-hidden="true">🚁</i><span>{view === "fpv" ? "1인칭" : "3인칭"}</span></button>
         <button type="button" onClick={() => { const m = !muted; setMuted(m); onMute(m); }} aria-pressed={muted} title={muted ? "드론 소리 켜기" : "드론 소리 끄기"} className="re-drone-mute">{muted ? "🔇 음소거" : "🔊 소리"}</button>
+        {onFull && <button type="button" className="re-drone-full" onClick={onFull} aria-pressed={!!full} title={full ? "전체화면 끄기" : "전체화면으로 비행 (화면 전체 사용)"}>{full ? "⤡ 전체화면 끄기" : "⛶ 전체화면"}</button>}
         <button type="button" onClick={() => setHelp(v => !v)} aria-pressed={help} title="조작법">?</button>
         <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>
       </div>

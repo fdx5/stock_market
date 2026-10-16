@@ -51,11 +51,15 @@ let deviceLost = false;
 let shadowOwner;
 let shadowKey = '';
 /** pcss: cascades with contact-hardening soft shadows (the costliest filter); 0 = PCF. */
+/** (a phone's drone: two cascades out to 900 m — the third, out to 1.8 km, a whole extra pass of
+ * the scene's casters for shadows a few pixels long) */
+let shadowSplits = null;
 function useShadows({ shadow: size, pcss }) {
-  if (shadowKey === size + '/' + pcss) return;
+  const splits = shadowSplits ?? [180, 600, 1800], key = size + '/' + pcss + '/' + splits.join(',');
+  if (shadowKey === key) return;
   shadows?.dispose();
-  shadows = new SunShadows({ size, splits: [180, 600, 1800], normalBias: [0.12, 0.3, 0.7], pcssCascades: pcss });
-  shadowKey = size + '/' + pcss;
+  shadows = new SunShadows({ size, splits, normalBias: splits.length === 2 ? [0.12, 0.45] : [0.12, 0.3, 0.7], pcssCascades: pcss });
+  shadowKey = key;
   shadowOwner = null;
 }
 // Photographic surface detail (scripts/detail-textures.py): small CC0 scans tiled in world
@@ -1112,6 +1116,11 @@ export class ComplexRenderer {
     this.taaValid = false;
   }
   /** Lower (or raise) the quality: shadow resolution and the water's reflection. */
+  /** The sun's shadow cascades' far edges (m), or null for the usual three. */
+  setShadowSplits(splits) {
+    shadowSplits = splits;
+    useShadows(this.quality);
+  }
   setQuality(quality) {
     if (this.quality === quality) return;
     this.quality = quality;

@@ -259,6 +259,8 @@ type Stage = {
   /** The drone's sky, 0…1 (crisper clouds, the sun's corona), in whichever renderer draws, and
    * its distance haze (start, end in metres: the edge of the world it has loaded). */
   setDroneSky?: (k: number, fog?: [number, number]) => void;
+  /** a phone's drone: two shadow cascades, not three */
+  setDroneLite?: (on: boolean) => void;
   /** Free materials of the drone's tiles (the WebGPU view's forget). */
   forgetMaterials?: (materials: Set<THREE.Material>) => void;
   /** Where this model's trees stand (view frame): the drone flies round them. */
@@ -1003,6 +1005,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (native) { native.droneSky = k; native.droneFog = fog; }
       (sky.material.uniforms as Record<string, { value: number }>).uDrone.value = k;
     };
+    stage.setDroneLite = on => { (native as unknown as { setShadowSplits?: (s: number[] | null) => void } | null)?.setShadowSplits?.(on ? [200, 900] : null); };
     stage.forgetMaterials = mats => native?.forget(mats);
     if (import.meta.env.DEV) Object.assign(window, { __holoStage: stage });
     const idleBuild = (f: () => void) => { if (typeof requestIdleCallback === "function") requestIdleCallback(f, { timeout: 2500 }); else window.setTimeout(f, 300); };
@@ -3825,7 +3828,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       stationLabels:()=>st.rail?.stationLabels(),
       onSeaReady:field=>st.roadSeaReady?.(field),
       viewRiver:()=>st.viewRiver??null,
-      setSky: (k, fog) => st.setDroneSky?.(k, fog), onHud: h => droneHud.current?.(h),
+      setSky: (k, fog) => st.setDroneSky?.(k, fog), onHud: h => droneHud.current?.(h), setLite: on => st.setDroneLite?.(on),
     });
     st.controls.enabled = false; st.controls.autoRotate = false; spinRef.current = false; setSpin(false);
     st.intro = null; st.fly = null; setTip(null);
@@ -3864,6 +3867,31 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     }, 100);
     return () => window.clearInterval(timer);
   }, [autoDrone, complexId, data]);
+  // Full screen for the drone (a phone's whole screen to fly on): the browser's own where it has
+  // it (not an iPhone's Safari), and the page's bars folded away either way.
+  const [droneFull, setDroneFull] = useState(false);
+  const toggleDroneFull = () => {
+    const on = !droneFull;
+    setDroneFull(on);
+    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
+    const doc = document as Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
+    if (on && !document.fullscreenElement && !doc.webkitFullscreenElement) {
+      if (el.requestFullscreen) void el.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+      else el.webkitRequestFullscreen?.();
+    } else if (!on && (document.fullscreenElement || doc.webkitFullscreenElement)) {
+      if (document.exitFullscreen) void document.exitFullscreen().catch(() => {});
+      else doc.webkitExitFullscreen?.();
+    }
+  };
+  useEffect(() => {
+    // (the browser's full screen left by its own means — back, Esc: the page's bars back too)
+    let was = !!document.fullscreenElement;
+    const change = () => { const now = !!document.fullscreenElement; if (was && !now) setDroneFull(false); was = now; };
+    document.addEventListener("fullscreenchange", change);
+    document.addEventListener("webkitfullscreenchange", change);
+    return () => { document.removeEventListener("fullscreenchange", change); document.removeEventListener("webkitfullscreenchange", change); };
+  }, []);
+  useEffect(() => { if (!droneOn && droneFull) { setDroneFull(false); if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); } }, [droneOn, droneFull]);
   const leaveDrone = () => {
     const st = stageRef.current;
     if (!st?.drone) { setDroneOn(false); return; }
@@ -4217,7 +4245,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     <>
     {bigBase && <div className="re-holo-slot" style={{ height: bigBase.h }} aria-hidden="true" />}
     {big && !narrow && createPortal(<div className="re-holo-resize-backdrop" aria-hidden="true" />, document.body)}
-    {portal(<section ref={sectionRef} className={`re-holo${big ? " re-holo--expanded" : ""}${droneOn && droneTouch ? " re-holo--drone-touch" : ""}${big && !narrow && bigSize ? " re-holo--resized" : ""}`}
+    {portal(<section ref={sectionRef} className={`re-holo${big ? " re-holo--expanded" : ""}${droneOn && droneTouch ? " re-holo--drone-touch" : ""}${droneOn && droneFull ? " re-holo--immersive" : ""}${big && !narrow && bigSize ? " re-holo--resized" : ""}`}
       data-covers-page={coversPage || undefined}
       style={big && !narrow && bigSize ? { width: bigSize.w, height: bigSize.h } : undefined}
       role={big ? "dialog" : undefined} aria-modal={big || undefined} aria-label={big ? "단지 3D 뷰 전체화면" : "단지 3D 뷰"}>
@@ -4291,7 +4319,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           <button type="button" className="re-holo-retry" onClick={() => setReloadKey(k => k + 1)}>다시 시도</button></p>}
         {droneOn && stageRef.current?.drone && <DroneOverlay sink={droneHud} flight={stageRef.current.drone.flight} signs={stageRef.current.drone.signs} touch={droneTouch}
           radar={{ vkey: data!.vworld_key!, domain: data!.vworld_domain ?? "https://kospimap.com", origin: data!.center!, where: stageRef.current.drone.where }}
-          onExit={exitDrone} onMute={m => stageRef.current?.drone?.audio.setMuted(m)}
+          onExit={exitDrone} onMute={m => stageRef.current?.drone?.audio.setMuted(m)} full={droneFull} onFull={toggleDroneFull}
           view={droneView} onView={() => { const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); }} />}
         {balloonOn && <div className="re-holo-balloon-hint" role="status"><b>🎈 열기구에서 내려다보는 중</b><span>{touchMode ? "드래그로 둘러보기 · 두 손가락으로 확대·축소" : "드래그로 둘러보기 · 휠로 확대·축소 · Esc로 내리기"}</span></div>}
         {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
