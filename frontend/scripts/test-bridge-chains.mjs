@@ -44,6 +44,14 @@ test('a single DEM spike does not lift the deck',()=>{
   assert.ok(Math.max(...z)<=10+1e-9);
 });
 
+test('easing preserves a steady bank slope without introducing an endpoint step',()=>{
+  for(const n of [2,4,80])for(const grade of [-.05,.05]){
+    const ground=Array.from({length:n},(_,i)=>20+i*5*grade);
+    const deck=deckProfile(ground,5);
+    deck.forEach((h,i)=>assert.ok(Math.abs(h-ground[i])<1e-9,`post ${i}: ${h} vs ${ground[i]}`));
+  }
+});
+
 test('a deck between banks scarcely over the water keeps its clearance, ramped from the banks',()=>{
   // banks 1.5 m, water (the DEM over it) 0.2 m, 600 m across (5 m posts)
   const g=[...Array(10).fill(1.5),...Array(120).fill(0.2),...Array(10).fill(1.5)];

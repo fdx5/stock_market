@@ -93,10 +93,14 @@ export function deckProfile(g: number[], step: number, ease = 25): number[] {
   for (let i = 0; i < n; i++) { while (hull.length >= 2 && cross(hull[hull.length - 2], hull[hull.length - 1], i) >= 0) hull.pop(); hull.push(i); }
   const H = new Array<number>(n);
   for (let k = 1; k < hull.length; k++) { const a = hull[k - 1], b = hull[k]; for (let i = a; i <= b; i++) H[i] = m[a] + (m[b] - m[a]) * (i - a) / ((b - a) || 1); }
-  const w = Math.max(1, Math.round(ease / step)), out = new Array<number>(n);
+  const w = Math.min(n - 1, Math.max(1, Math.round(ease / step))), out = new Array<number>(n);
+  // Reflect the slope about each fixed bank. A truncated mean biases the first
+  // interior post uphill/downhill while the endpoint stays fixed, making a step.
+  const extended = (k: number) => k < 0 ? 2 * H[0] - H[-k]
+    : k >= n ? 2 * H[n - 1] - H[2 * (n - 1) - k] : H[k];
   for (let i = 0; i < n; i++) {
     let sum = 0, c = 0;
-    for (let k = Math.max(0, i - w); k <= Math.min(n - 1, i + w); k++) { sum += H[k]; c++; }
+    for (let k = i - w; k <= i + w; k++) { sum += extended(k); c++; }
     out[i] = Math.max(m[i], i === 0 || i === n - 1 ? H[i] : sum / c);
   }
   return out;

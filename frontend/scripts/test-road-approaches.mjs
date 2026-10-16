@@ -74,7 +74,7 @@ test('two banks remain continuous and their transition bands never overwrite the
 });
 test('the bridge slab edges use the same crossfall as the road surface at the bank',()=>{
  const found=findBridges([bridge,bank],[],[],terrain),b=found[0];
- near(b.h[0],terrain.at(0,2),1e-5);near(b.left_h[0],terrain.at(0,6),1e-5);near(b.right_h[0],terrain.at(0,-2),1e-5);
+ near(b.h[0],height(bank,terrain,0,2),1e-5);near(b.left_h[0],height(bank,terrain,0,6),1e-5);near(b.right_h[0],height(bank,terrain,0,-2),1e-5);
  const made=buildBridges(found);
  made.group.traverse(o=>{if(o.geometry)assert.ok([...o.geometry.attributes.position.array].every(Number.isFinite));});
  made.dispose();

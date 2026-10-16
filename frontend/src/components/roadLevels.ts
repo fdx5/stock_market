@@ -1,5 +1,6 @@
 import type {RealEstateRoad} from '../api/client';
 import type {Terrain} from './sceneTerrain';
+import {groundRoadHeight} from './roadGroundGrade';
 import {surfaceGeometry} from './surfaceGeometry';
 type Point=[number,number];
 export function roadLevel(r:RealEstateRoad){return r.layer??(r.structure==='bridge'||r.structure==='elevated'?1:r.structure==='underpass'||r.structure==='tunnel'?-1:0);}
@@ -91,8 +92,7 @@ export function roadHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
  let g=t.at(x,y);
  // (the water's surface in it too: where the road runs on into the water's area, it rises over it
  // along that same ±16 m — never a step up at the water's edge)
- const dry=(px:number,py:number)=>{const h=t.at(px,py),wv=t.waterAt?.(px,py);return wv!=null&&wv+.3>h?wv+.3:h;};
- if(r.line.length>1){const p=nearestRoadPoint(r.line,x,y);if(p.distance<=r.width/2+3){const [cx,cy]=p.point;let sum=0;for(let d=-16;d<=16;d+=4)sum+=dry(cx+p.dir[0]*d,cy+p.dir[1]*d);g=sum/9;}}
+ if(r.line.length>1){const p=nearestRoadPoint(r.line,x,y);if(p.distance<=r.width/2+3)g=groundRoadHeight(r.line,p.along,t.at,t.waterAt);}
  // (where a bridge's deck runs on along it to the bank, no lower than that deck)
  if(r.lift_line&&r.lift_s&&r.lift_z){const p=nearestRoadPoint(r.lift_line,x,y);if(p.distance<=r.width/2+4&&p.along>0&&p.along<p.total)g=Math.max(g,surfaceGeometry.profileAt(r.lift_line,r.lift_s,r.lift_z,x,y));}
  // And never under the water's surface: where the data lays it across the water at the relief's

@@ -12,7 +12,7 @@ export function roadApproachHeight(roads: RealEstateRoad[], o: {
   key: typeof roadProfileKey;
 }) {
   type Anchor = {along: number; direction: number; span: number; point: [number,number];
-    normal: [number,number]; cross: number; outside: [number,number]; probe: number; baseline: number; grade: number};
+    normal: [number,number]; cross: number; outside: [number,number]; probe: number; baseline: number; grade: number; bankRoad: RealEstateRoad};
   const anchors = new Map<string, Anchor[]>();
   const ground = roads.filter(r => r.structure === 'ground' && r.line.length > 1);
   for (const road of roads) {
@@ -23,7 +23,7 @@ export function roadApproachHeight(roads: RealEstateRoad[], o: {
       const inside = start ? road.line[1] : road.line[road.line.length-2];
       const dx = inside[0] - endpoint[0], dy = inside[1] - endpoint[1], len = Math.hypot(dx, dy);
       if (!len) continue;
-      let outside: [number,number] | undefined, probe = 0;
+      let outside: [number,number] | undefined, probe = 0, bankRoad: RealEstateRoad | undefined;
       const connected = ground.some(r => [true, false].some(atStart => {
         const p = atStart ? r.line[0] : r.line[r.line.length-1];
         const q = atStart ? r.line[1] : r.line[r.line.length-2];
@@ -33,10 +33,11 @@ export function roadApproachHeight(roads: RealEstateRoad[], o: {
         if (!(gl > 0 && Math.hypot(p[0] - endpoint[0], p[1] - endpoint[1]) <= 1.5
           && (gx * dx + gy * dy) / (gl * len) < -.5)) return false;
         probe = Math.min(5, gl);
+        bankRoad = r;
         outside = [p[0] + gx * probe / gl, p[1] + gy * probe / gl];
         return true;
       }));
-      if (!connected || !outside || probe < .01) continue;
+      if (!connected || !outside || !bankRoad || probe < .01) continue;
       const p = o.nearest(profile, endpoint[0], endpoint[1]);
       // (a whole bridge's deck going on past this end — to its bank, over its approach — is not
       // brought down here: the road at grade there is laid along it instead)
@@ -45,7 +46,7 @@ export function roadApproachHeight(roads: RealEstateRoad[], o: {
       const key = o.key(road), list = anchors.get(key) ?? [];
       if (!list.some(a => Math.abs(a.along - p.along) < .01 && a.direction === direction))
         list.push({along: p.along, direction, span: p.total, point: endpoint, normal: [-p.dir[1],p.dir[0]],
-          cross: (endpoint[0]-p.point[0])*(-p.dir[1])+(endpoint[1]-p.point[1])*p.dir[0], outside, probe,
+          cross: (endpoint[0]-p.point[0])*(-p.dir[1])+(endpoint[1]-p.point[1])*p.dir[0], outside, probe, bankRoad,
           baseline: o.height(road, p.point[0], p.point[1]),
           grade: (o.height(road,...profile[profile.length-1])-o.height(road,...profile[0]))/(p.total || 1)});
       anchors.set(key, list);
@@ -69,8 +70,10 @@ export function roadApproachHeight(roads: RealEstateRoad[], o: {
       if (u >= 1 || inward >= closest) continue;
       const cross = (x-p.point[0])*(-p.dir[1])+(y-p.point[1])*p.dir[0]-anchor.cross;
       const ox = anchor.normal[0]*cross, oy = anchor.normal[1]*cross;
-      const bank = o.at(anchor.point[0] + ox, anchor.point[1] + oy);
-      const outside = o.at(anchor.outside[0] + ox, anchor.outside[1] + oy);
+      // Match the surface actually drawn for the connected road, including its
+      // smoothing and crossfall, rather than the bare terrain under that surface.
+      const bank = o.height(anchor.bankRoad, anchor.point[0] + ox, anchor.point[1] + oy);
+      const outside = o.height(anchor.bankRoad, anchor.outside[0] + ox, anchor.outside[1] + oy);
       const slope = (bank - outside) / anchor.probe;
       correction = (bank - anchor.baseline) * (2*u*u*u - 3*u*u + 1)
         + (slope - anchor.grade * anchor.direction) * band * (u*u*u - 2*u*u + u);

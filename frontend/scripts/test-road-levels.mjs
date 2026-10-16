@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import * as THREE from 'three';
 const read=n=>readFileSync(new URL('../src/components/'+n,import.meta.url),'utf8');
 function load(n,extra={}){const scope={module:{exports:{}},exports:{},THREE,performance,frameSlice:async()=>{},onSceneMemoryRelease(){},paintedTexture:async()=>new THREE.Texture(),...extra};vm.runInNewContext(transformSync(read(n).replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);return scope.module.exports;}
-const levels=load('roadLevels.ts',load('surfaceGeometry.ts')),network=load('roadTrafficNetwork.ts',levels),junction=load('roadJunctions.ts',levels);
+const levels=load('roadLevels.ts',{...load('surfaceGeometry.ts'),...load('roadGroundGrade.ts')}),network=load('roadTrafficNetwork.ts',levels),junction=load('roadJunctions.ts',levels);
 const street=load('sceneStreet.ts',{...levels,...junction,...load('roadLanes.ts'),...load('surfaceGeometry.ts')});
 const {drapeRoadSurface,roadSurfaceHeight,raiseRoadPaint}=load('roadDrape.ts');
 const {waterField,fieldFrom,waterSurface,withSeaLevel}=load('waterCore.ts',{inRing:pointIn});
