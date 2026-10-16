@@ -52,6 +52,22 @@ test('one-shot worker has an abort/deadline and rejects already aborted input be
 function fn(file,name){const source=readFileSync(new URL('../src/components/'+file+'.ts',import.meta.url),'utf8'),ast=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true);return ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name||ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>d.name.getText(ast)===name)).getText(ast).replace(/^export /,'');}
 const networkBundle=await build({stdin:{contents:"export {trafficPathSampler} from './src/components/trafficPathSample';export {splitRoadJunctions} from './src/components/roadTrafficNetwork';export {roadLaneCount} from './src/components/roadLanes';export * from './src/components/roadLevels';export {junctionSignalPolicy} from './src/components/trafficJunction';",resolveDir:new URL('..',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')},bundle:true,write:false,platform:'node',format:'esm'});
 const net=await import('data:text/javascript;base64,'+Buffer.from(networkBundle.outputFiles[0].text).toString('base64'));
+
+test('one-way bridge collision bounds retain obstacles in every centred lane',async()=>{
+  const collision=await load('trafficCollision');
+  const source=readFileSync(new URL('../src/components/sceneStreet.ts',import.meta.url),'utf8'),ast=ts.createSourceFile('street.ts',source,ts.ScriptTarget.Latest,true);
+  let declaration;const visit=n=>{if(ts.isVariableDeclaration(n)&&n.name.getText(ast)==='continuousBounds')declaration=n.getText(ast);ts.forEachChild(n,visit);};visit(ast);
+  const sample=net.trafficPathSampler([0,100],[0,0],[0,100]),paths=[{oneway:true,width:14.2,len:100,sample}];
+  const ctx={paths,Math,trajectories:new collision.VehicleTrajectoryCache(),lanesOf:()=>3,laneWidth:()=>14.2/3};
+  vm.runInNewContext(transformSync('const '+declaration+';globalThis.bounds=continuousBounds;',{loader:'ts'}).code,ctx);
+  for(let lane=0;lane<3;lane++){
+    const offset=(lane+.5)*14.2/3-7.1,c={manual:false,inConn:false,road:0,forward:true,lane,s:50,u:0,conn:{endS:100},x:50,y:-offset,hx:1,hy:0,length:4,width:2};
+    const obstacle={...c,x:54.02},distance=2,pose=d=>({...c,x:50+d});
+    const box=ctx.bounds(c,distance,c.length+.06,c.width+.06);
+    assert.equal(collision.missesTrajectory(box,obstacle),false);
+    assert.equal(collision.collisionFreeTravel(distance,pose,[obstacle],c),0);
+  }
+});
 test('actual road arms are prepared even while vehicle downloads never resolve',async()=>{
   let arms,kitCalls=0,failure;
   const context={...net,performance,Math,Map,Set,Float32Array,console,FLAT:{at:()=>0},frameSlice:async()=>{},loadKit:()=>{kitCalls++;return new Promise(()=>{});}};

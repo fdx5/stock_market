@@ -2976,8 +2976,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const useRoadWater=(field:WaterField)=>{if(roadWater===field)return;roadWater=field;roadWaterIn();waterRevision={};approachTerrain=roadApproachTerrain(roads,waterTerrain);asphaltAt=null;bridgesTried=false;};
     const roadTerrain: Terrain = { ...approachTerrain, roadAt:(road,x,y)=>roadHeight(road,approachTerrain,x,y) };
     const trafficTerrain:Terrain={...roadTerrain,heightRevision:()=>asphaltAt??waterRevision,roadAt:(road,x,y)=>{
+      const level=roadLevel(road),profile=roadProfileKey(road);
+      const owned=asphaltAt?.(x,y,undefined,level,profile,true);
+      if(owned!==undefined)return owned;
       const reference=roadHeight(road,roadTerrain,x,y)+.08;
-      const surface=asphaltAt?.(x,y,reference,roadLevel(road),roadLevel(road)?roadProfileKey(road):undefined);
+      const surface=asphaltAt?.(x,y,reference,level,level?profile:undefined);
       return surface!==undefined&&Math.abs(surface-reference)<=2?surface:reference;
     }};
     if(hostRef.current){const d=hostRef.current.dataset;d.roadStructureSource=data.road_context?.source??'unavailable';d.roadStructureCoverage=data.road_context?.coverage??'unavailable';d.roadStructureLinks=String(data.road_context?.links??0);d.roadHeightSource='dem-derived-not-surveyed';d.signalStateSource='simulation';d.riverSource=data.road_context?.rivers.length?'VWorld LT_C_WKMSTRM':'parcel/OSM fallback';}

@@ -52,10 +52,13 @@ export function roadSurfaceHeight(geometry:THREE.BufferGeometry,index?:RoadTrian
    }
   }
  };
- return (x:number,y:number,reference?:number,level?:number,profile?:string)=>{
+ return (x:number,y:number,reference?:number,level?:number,profile?:string,requireProfile=false)=>{
   if(stats)stats.samples++;
   refresh();let h=-Infinity,best=Infinity;
   const profileIds=geometry.userData.roadProfiles as Map<string,number>|undefined,profileId=profile?profileIds?.get(profile):undefined;
+  // A tyre can use its own visible asphalt directly. Missing ownership must
+  // fall back to the analytic road, never to a crossing or neighbouring slab.
+  if(requireProfile&&(profileId===undefined||!profiles))return undefined;
   const i=Math.floor(x/cell),j=Math.floor(y/cell),key=i+':'+j;let entry=cells.get(key);
   if(!entry){
    if(stats)stats.queries++;

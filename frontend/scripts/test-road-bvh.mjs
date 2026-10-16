@@ -17,6 +17,22 @@ async function wasm(bounds){const {instance}=await WebAssembly.instantiate(bytes
 function geometry(p){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));return g;}
 const index=parts=>roadBvhIndex({parts,triangles:parts.reduce((n,p)=>n+p.ids.length,0)});
 let seed=42;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/2**32;};
+
+test('owned tyre heights use only their visible asphalt and explicitly miss unknown owners',()=>{
+ const g=geometry([0,2,0,10,3,0,0,2,-10,0,9,0,10,10,0,0,9,-10]);
+ g.setAttribute('roadLevel',new THREE.Float32BufferAttribute([0,0,0,0,0,0],1));
+ g.setAttribute('roadProfile',new THREE.Float32BufferAttribute([0,0,0,1,1,1],1));
+ g.userData.roadProfiles=new Map([['lower',0],['upper',1]]);
+ const at=roadSurfaceHeight(g);
+ assert.equal(at(2,2,undefined,0,'lower',true),2.2);
+ assert.ok(Math.abs(at(2,2,undefined,0,'upper',true)-9.2)<1e-12);
+ assert.equal(at(2,2,undefined,0,'missing',true),undefined);
+ assert.equal(at(20,20,undefined,0,'lower',true),undefined);
+ g.attributes.position.setY(0,3);g.attributes.position.needsUpdate=true;
+ assert.ok(Math.abs(at(2,2,undefined,0,'lower',true)-2.8)<1e-12);
+ g.deleteAttribute('roadProfile');
+ assert.equal(at(2,2,undefined,0,'lower',true),undefined);g.dispose();
+});
 test('Rust BVH rejects malformed/non-finite bounds and handles a single leaf',async()=>{
  assert.equal(await wasm(Float32Array.from([NaN,0,1,1])),null);
  assert.equal(await wasm(Float32Array.from([2,0,1,1])),null);

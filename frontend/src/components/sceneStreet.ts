@@ -1410,7 +1410,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     if(c.manual)return undefined;
     if(!c.inConn&&c.s+reach<=c.conn.endS){
       const p=paths[c.road],a=c.forward?c.s:p.len-c.s,b=c.forward?c.s+reach:p.len-c.s-reach;
-      const offset=(Math.min(c.lane,lanesOf(c.road)-1)+.5)*laneWidth(c.road)*(c.forward?1:-1);
+      const offset=((Math.min(c.lane,lanesOf(c.road)-1)+.5)*laneWidth(c.road)-(p.oneway?p.width/2:0))*(c.forward?1:-1);
       return trajectories.bounds(c,reach,length,width,()=>p.sample.bounds(a,b,offset,length,width));
     }
     if(c.inConn&&c.u+reach<=Math.min(c.conn.len,c.conn.cum[c.conn.cum.length-1])){
