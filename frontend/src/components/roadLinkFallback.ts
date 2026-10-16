@@ -40,9 +40,13 @@ export function linkFallbackRoads(
       for (let k = i === 1 ? 0 : 1; k <= n; k++) pts.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]);
     }
     let run: number[][] = [];
+    // (a bridge's or a viaduct's, or one reaching the link's own end — where it meets the next
+    // link — even a short stretch: left out, the deck or the road stops short of what it joins)
+    const first = pts[0], last = pts[pts.length - 1];
     const flush = () => {
       let len = 0; for (let i = 1; i < run.length; i++) len += Math.hypot(run[i][0] - run[i - 1][0], run[i][1] - run[i - 1][1]);
-      if (len >= 30) out.push({ line: run, width: Math.min(60, lanes * 3.5 + 1), lanes, oneway: true, link: l.id });
+      const atEnd = run.length > 1 && (run[0] === first || run[run.length - 1] === last);
+      if (len >= (l.kind > 0 || atEnd ? 8 : 30)) out.push({ line: run, width: Math.min(60, lanes * 3.5 + 1), lanes, oneway: true, link: l.id });
       run = [];
     };
     for (let i = 0; i < pts.length; i++) {

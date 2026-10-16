@@ -1,4 +1,4 @@
-import { vworldStructureLinks } from './vworldBuildings';
+import { vworldCentreLines, vworldStructureLinks } from './vworldBuildings';
 import { vworldSampler } from './sceneTerrain';
 
 /* A bridge's deck height, bank to bank, from the official links and the national DEM.
@@ -17,10 +17,14 @@ import { vworldSampler } from './sceneTerrain';
  * drone tile, so tiles meet without a step. */
 
 type Link = { id: string; kind: number; line: [number, number][] };
+/** One bridge's deck across, the same along its whole chain: `w` the carriageway's width, `lanes`,
+ * `off` its centre line's offset to the left of the chain's line (a two-way deck on one direction's
+ * link: its middle), `twoWay` both directions on it. */
+export type ChainDeck = { w: number; off: number; lanes: number; twoWay: boolean };
 /** `core`: the stations (m) the chain's own links span — before and after it, its approaches. */
-export type ChainProfile = { ids: string[]; line: [number, number][]; s: number[]; z: number[]; core?: [number, number] };
+export type ChainProfile = { ids: string[]; line: [number, number][]; s: number[]; z: number[]; core?: [number, number]; deck?: ChainDeck };
 /** A chain in a view frame (metres east/north of the frame's centre; z over its base). */
-export type FrameChain = { ids: string[]; line: [number, number][]; s: number[]; z: number[]; core?: [number, number] };
+export type FrameChain = { ids: string[]; line: [number, number][]; s: number[]; z: number[]; core?: [number, number]; deck?: ChainDeck };
 
 const CELL = 0.02;
 const cells = new Map<string, Promise<Link[] | null>>();
@@ -96,6 +100,18 @@ export function deckProfile(g: number[], step: number, ease = 25): number[] {
     out[i] = Math.max(m[i], i === 0 || i === n - 1 ? H[i] : sum / c);
   }
   return out;
+}
+
+/** A deck never in the water (pure): the water's surface under a chain is the lowest ground along
+ * it (the DEM over a river is its surface; never under the sea's, 0 m); over it the deck keeps
+ * `clear` m, climbing to that from each outer bank at `grade` at most — where the banks are
+ * scarcely above the water (일산대교, 김포 쪽 갯벌) the bank-to-bank line lay on it. Never lowered. */
+export function deckClearance(z: number[], g: number[], step: number, clear = 4, grade = 0.05): number[] {
+  const n = z.length;
+  if (n < 3) return z.slice();
+  const water = Math.max(0, Math.min(...g.slice(1, -1)));
+  const total = (n - 1) * step;
+  return z.map((h, i) => Math.max(h, Math.min(water + clear, z[0] + grade * i * step, z[n - 1] + grade * (total - i * step))));
 }
 
 const around = new Map<string, Promise<Link[] | null>>();
@@ -184,7 +200,52 @@ async function profileOf(key: string, domain: string | null | undefined, chain: 
     s.push(d); g.push(h);
     if (d >= total) break;
   }
-  return { ids: chain.map(l => l.id), line, s, z: deckProfile(g, step), core: [cum[head.length], cum[head.length + own - 1]] };
+  const core: [number, number] = [cum[head.length], cum[head.length + own - 1]];
+  // (the base map unanswered: no profile — asked again — never a deck of a guessed width)
+  const deck = await deckAcross(key, domain, line, cum, core, kx);
+  if (!deck) return null;
+  return { ids: chain.map(l => l.id), line, s, z: deckClearance(deckProfile(g, step), g, step), core, deck };
+}
+
+/** A bridge's one deck across (pure): from the base map's centre lines along the chain's own span
+ * (each within 25 m, running its way, the chain's line on its carriageway), the median width, lanes
+ * and offset of them all — every piece of the bridge the same, in the view and in every tile. None
+ * along it (a bridge newer than the base map: 월드컵대교): two lanes one way on the link itself. */
+export function deckFromCentreLines(chain: [number, number][], stations: number[], roads: { line: number[][]; width: number; lanes: number }[]): ChainDeck {
+  const ws: number[] = [], offs: number[] = [], ls: number[] = [];
+  for (const s of stations) {
+    let k = 1, acc = 0;
+    while (k < chain.length - 1 && acc + Math.hypot(chain[k][0] - chain[k - 1][0], chain[k][1] - chain[k - 1][1]) < s) { acc += Math.hypot(chain[k][0] - chain[k - 1][0], chain[k][1] - chain[k - 1][1]); k++; }
+    const a = chain[k - 1], b = chain[k], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, tx = (b[0] - a[0]) / L, ty = (b[1] - a[1]) / L;
+    const f = Math.max(0, Math.min(1, (s - acc) / L)), px = a[0] + (b[0] - a[0]) * f, py = a[1] + (b[1] - a[1]) * f;
+    let best: { o: number; w: number; lanes: number } | null = null;
+    for (const r of roads) for (let i = 1; i < r.line.length; i++) {
+      const c = r.line[i - 1], d = r.line[i], ex = d[0] - c[0], ey = d[1] - c[1], l = Math.hypot(ex, ey);
+      if (!l || Math.abs(ex * tx + ey * ty) < 0.9 * l) continue;
+      const t = ((px - c[0]) * ex + (py - c[1]) * ey) / (l * l);
+      if (t < -0.05 || t > 1.05) continue;
+      const qx = c[0] + ex * Math.max(0, Math.min(1, t)), qy = c[1] + ey * Math.max(0, Math.min(1, t));
+      const o = (qx - px) * -ty + (qy - py) * tx, dist = Math.hypot(qx - px, qy - py);
+      if (dist > 25 || Math.abs(o) > r.width / 2 + 2) continue;
+      if (!best || Math.abs(o) < Math.abs(best.o)) best = { o, w: r.width, lanes: r.lanes };
+    }
+    if (best) { ws.push(best.w); offs.push(best.o); ls.push(best.lanes); }
+  }
+  const median = (v: number[]) => { const q = v.slice().sort((x, y) => x - y); return q[Math.floor(q.length / 2)]; };
+  if (ws.length < Math.max(2, stations.length * 0.3)) return { w: 8, off: 0, lanes: 2, twoWay: false };
+  const w = median(ws), off = median(offs);
+  return { w, off: Math.round(off * 10) / 10, lanes: Math.max(1, Math.round(median(ls))), twoWay: Math.abs(off) > Math.max(2, w * 0.15) };
+}
+
+async function deckAcross(key: string, domain: string | null | undefined, line: [number, number][], cum: number[], core: [number, number], kx: number): Promise<ChainDeck | null> {
+  const lon0 = line[0][0], lat0 = line[0][1], m = line.map(([x, y]) => [(x - lon0) * kx, (y - lat0) * KY] as [number, number]);
+  const own = line.filter((_, i) => cum[i] >= core[0] - 1 && cum[i] <= core[1] + 1);
+  const lons = own.map(p => p[0]), lats = own.map(p => p[1]), px = 40 / kx, py = 40 / KY;
+  const roads = await vworldCentreLines(key, domain, [Math.min(...lons) - px, Math.min(...lats) - py, Math.max(...lons) + px, Math.max(...lats) + py]).catch(() => null);
+  if (!roads) return null;
+  const stations: number[] = [];
+  for (let s = core[0] + 2.5; s < core[1]; s += 5) stations.push(s);
+  return deckFromCentreLines(m, stations, roads.map(r => ({ ...r, line: r.line.map(([x, y]) => [(x - lon0) * kx, (y - lat0) * KY]) })));
 }
 
 /** The chains of the raised links meeting a view-frame box (and their profiles), in that frame:
@@ -233,6 +294,6 @@ export async function structureChains(key: string, domain: string | null | undef
     let total = 0; for (let i = 1; i < line.length; i++) total += Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]);
     // (its stations in this frame's metres: the frame's scale differs a little from the chain's own)
     const scale = total / (c.s[c.s.length - 1] || 1);
-    return { ids: c.ids, line, s: c.s.map(v => v * scale), z: c.z.map(h => h - base), core: c.core ? [c.core[0] * scale, c.core[1] * scale] as [number, number] : undefined };
+    return { ids: c.ids, line, s: c.s.map(v => v * scale), z: c.z.map(h => h - base), core: c.core ? [c.core[0] * scale, c.core[1] * scale] as [number, number] : undefined, deck: c.deck };
   });
 }

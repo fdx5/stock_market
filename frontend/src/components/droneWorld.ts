@@ -858,7 +858,10 @@ export class DroneWorld {
         const st = roads?.streetTrees;
         if (st) for (let k = 0; k < st.length; k += 3) street.push([st[k] - t.cx, st[k + 1] - t.cy, st[k + 2]]);
         // (painted before the buildings were in: no tree where a building stands)
-        const free = ([lx, ly]: [number, number]) => this.roofAt(lx + t.cx, ly + t.cy) < local(lx, ly) + 1;
+        // (nor on a road: the ground's planting was laid without them — a ramp through a wood,
+        // a road on the 둔치, under trees, looked sunk in the ground)
+        const onRoad = roadClear(roads?.clear);
+        const free = ([lx, ly]: [number, number]) => this.roofAt(lx + t.cx, ly + t.cy) < local(lx, ly) + 1 && !onRoad(lx + t.cx, ly + t.cy);
         const gardenBeds = fg.gardens.flatMap(g => g.beds).map(b => ({ ...b, points: b.points.filter(free) })).filter(b => b.points.length);
         const gardenGrass = fg.gardens.flatMap(g => g.grass).filter(free);
         mesh.userData.palaceGardens = fg.gardens.map(g => ({ id: g.id, earthM2: g.earthM2, lawnM2: g.lawnM2, flowerM2: g.flowerM2 }));
@@ -1565,4 +1568,30 @@ export class DroneWorld {
     this.colourPool?.dispose(); this.colourPool = null;
     this.root.removeFromParent();
   }
+}
+
+/** Whether a point lies on a road's ground (RoadTileResult.clear), by a 20 m hash of its segments. */
+function roadClear(clear: Float32Array | undefined) {
+  if (!clear?.length) return () => false;
+  const cell = 20, hash = new Map<string, number[]>();
+  for (let i = 0; i < clear.length;) {
+    const n = clear[i], h = clear[i + 1], p = i + 2;
+    for (let k = 1; k < n; k++) {
+      const ax = clear[p + 2 * k - 2], ay = clear[p + 2 * k - 1], bx = clear[p + 2 * k], by = clear[p + 2 * k + 1];
+      for (let x = Math.floor((Math.min(ax, bx) - h) / cell); x <= Math.floor((Math.max(ax, bx) + h) / cell); x++)
+        for (let y = Math.floor((Math.min(ay, by) - h) / cell); y <= Math.floor((Math.max(ay, by) + h) / cell); y++) {
+          const key = x + ',' + y, l = hash.get(key); if (l) l.push(ax, ay, bx, by, h); else hash.set(key, [ax, ay, bx, by, h]);
+        }
+    }
+    i = p + 2 * n;
+  }
+  return (x: number, y: number) => {
+    const l = hash.get(Math.floor(x / cell) + ',' + Math.floor(y / cell));
+    if (!l) return false;
+    for (let q = 0; q < l.length; q += 5) {
+      const ax = l[q], ay = l[q + 1], ex = l[q + 2] - ax, ey = l[q + 3] - ay, L2 = ex * ex + ey * ey || 1, t = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / L2));
+      if (Math.hypot(ax + ex * t - x, ay + ey * t - y) < l[q + 4]) return true;
+    }
+    return false;
+  };
 }

@@ -3,6 +3,7 @@ import { prefetchTerrain, vworldSampler } from "./sceneTerrain";
 import {hasAboveGroundEvidence} from './buildingEvidence';
 import {structureChains} from './bridgeChains';
 import {linkFallbackRoads} from './roadLinkFallback';
+import {chainDeckRoads} from './bridgeDecks';
 import {attachRoadStructures,clipRoadContextRing,clipRoadLine,nearestRoadPoint,type RoadStructureLink} from './roadLevels';
 
 /* A complex's buildings straight from VWorld (국토교통부 GIS건물통합정보), in the
@@ -183,6 +184,13 @@ export function parseRoads(list: Feature[], project: (p: number[]) => [number, n
   return roads;
 }
 
+/** The 국가기본도 도로중심선 (width rvwd, lanes rdln) in a lon/lat box, in lon/lat: a bridge's
+ * own deck width along its whole chain (bridgeChains.ts). */
+export async function vworldCentreLines(key:string,domain:string|null|undefined,[lon0,lat0,lon1,lat1]:[number,number,number,number]){
+ const list=await pagedFeatures(async page=>features(await call(DATA,{service:'data',request:'GetFeature',crs:'EPSG:4326',geometry:'true',attribute:'true',key,domain:domain??'https://kospimap.com',
+  data:'LT_L_N3A0020000',geomFilter:`BOX(${lon0},${lat0},${lon1},${lat1})`,size:1000,page})));
+ return parseRoads(list,p=>[p[0],p[1]]);
+}
 /** Official transport structure attributes and river boundaries, in the same centre/CRS
  * as the national road survey. A failed/partial request never claims complete coverage. */
 /** The structure links and river boundaries in a box, asked once (kept a few boxes): the view
@@ -228,10 +236,29 @@ async function withBridgeChains(data:RealEstateBuildingsResponse,roads:RealEstat
   const sampler=await vworldSampler(key,lat,lon,10);if(!sampler)return null;
   return structureChains(key,data.vworld_domain,lat,lon,sampler(lon,lat),[-radius-80,-radius-80,radius+80,radius+80]);
  })().catch(()=>null);
- // (never holding the view back long: without them each link keeps its own bank profile)
- const chains=await Promise.race([job,new Promise<null>(r=>setTimeout(()=>r(null),8000))]);
+ // (a link's own bank-to-bank interpolation puts a long bridge's deck on the water: the chains are
+ // waited for — one more try if the first did not answer — and only given up on after 45 s)
+ const wait=(p:Promise<Awaited<typeof job>>,ms:number)=>Promise.race([p,new Promise<null>(r=>setTimeout(()=>r(null),ms))]);
+ let chains=await wait(job,30000);
+ if(!chains)chains=await wait((async()=>{const sampler=await vworldSampler(key,lat,lon,10);if(!sampler)return null;
+  return structureChains(key,data.vworld_domain,lat,lon,sampler(lon,lat),[-radius-80,-radius-80,radius+80,radius+80]);})().catch(()=>null),15000);
  if(!chains?.length)return roads;
  const by=new Map<string,(typeof chains)[number]>();for(const c of chains)for(const id of c.ids)by.set(id,c);
+ // A piece of a bridge's own centre line the links did not claim (at a link's end, or by a ramp
+ // where the match was ambiguous) is the same deck: laid along the chain of that line's other
+ // pieces, never on the ground or the water between them.
+ const deckOf=new Map<string,Set<(typeof chains)[number]>>();
+ for(const r of roads){const c=r.structure==='bridge'&&r.link_id&&r.id?by.get(r.link_id):undefined;if(c){let s=deckOf.get(r.id!);if(!s)deckOf.set(r.id!,s=new Set());s.add(c);}}
+ const onDeck=(r:RealEstateRoad)=>{
+  for(const c of deckOf.get(r.id??'')??[]){
+   let ok=true;
+   for(let i=1;i<r.line.length&&ok;i++){const a=r.line[i-1],b=r.line[i],L=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.max(1,Math.ceil(L/4));
+    for(let k=0;k<=n&&ok;k++){const x=a[0]+(b[0]-a[0])*k/n,y=a[1]+(b[1]-a[1])*k/n,p=nearestRoadPoint(c.line,x,y);
+     if(p.distance>r.width/2+4||(L>.5&&Math.abs(p.dir[0]*(b[0]-a[0])+p.dir[1]*(b[1]-a[1]))<.8*L))ok=false;}}
+   if(ok)return c;
+  }
+  return undefined;
+ };
  // A road at grade along a chain's approach — before or after its own links, where the deck goes
  // on to its bank (동호대교, 마포대교 on 여의도) — is laid along that deck, never under it: it meets
  // the bridge's end at the deck's height, not a step below.
@@ -243,13 +270,26 @@ async function withBridgeChains(data:RealEstateBuildingsResponse,roads:RealEstat
     if(p.distance<=r.width/2+4&&(p.along<c.core[0]-1||p.along>c.core[1]+1)&&Math.abs(p.dir[0]*(b[0]-a[0])+p.dir[1]*(b[1]-a[1]))>.9*L&&++hits>=3)return true;}}
   return false;
  };
- return roads.map(r=>{
+ const laid=roads.map(r=>{
   const c=r.structure==='bridge'&&r.link_id?by.get(r.link_id):undefined;
   if(c)return {...r,profile_line:c.line,profile_s:c.s,profile_z:c.z};
+  const d=r.structure==='bridge'||r.structure==='elevated'||r.structure==='tunnel'||r.structure==='underpass'?undefined:onDeck(r);
+  if(d)return {...r,structure:'bridge' as const,layer:1,link_id:d.ids[0],structure_source:r.structure_source??'VWorld LT_L_MOCTLINK',profile_line:d.line,profile_s:d.s,profile_z:d.z};
   if(r.structure==='bridge'||r.structure==='elevated'||r.structure==='tunnel'||r.structure==='underpass')return r;
   const a=chains.find(c=>along(c,r));
   return a?{...r,lift_line:a.line,lift_s:a.s,lift_z:a.z}:r;
  });
+ // One deck per bridge: its pieces laid again as one road the chain's width (bridgeDecks.ts) —
+ // the same rule as the streamed tiles'.
+ const on=laid.map(r=>r.structure==='bridge'&&r.link_id&&by.get(r.link_id)?.deck?by.get(r.link_id)!:undefined);
+ const spanIdx:number[]=[];const spans=laid.flatMap((r,i)=>on[i]?(spanIdx.push(i),[{chain:on[i]!.ids[0],line:r.line}]):[]);
+ if(!spans.length)return laid;
+ const {decks,taken}=chainDeckRoads(spans,chains);
+ const gone=new Set(spanIdx.filter((_,k)=>taken[k]));
+ const chainBy=new Map(chains.map(c=>[c.ids[0],c]));
+ return [...laid.filter((_,i)=>!gone.has(i)),...decks.map((d,k)=>{const c=chainBy.get(d.chain)!;
+  return {id:`deck:${d.chain}:${k}`,source:'VWorld LT_L_MOCTLINK',line:d.line as [number,number][],width:d.width,lanes:d.lanes,oneway:d.twoWay?undefined:true,
+   structure:'bridge' as const,layer:1,link_id:c.ids[0],structure_source:'VWorld LT_L_MOCTLINK',profile_line:c.line,profile_s:c.s,profile_z:c.z};})];
 }
 export async function vworldRoadContext(data:RealEstateBuildingsResponse,roads:RealEstateRoad[],radius=600):Promise<RealEstateBuildingsResponse>{
  if(!data.center||!data.vworld_key)return {...data,roads};
@@ -278,6 +318,8 @@ export async function vworldRoadContext(data:RealEstateBuildingsResponse,roads:R
   return [{id:f.id??'',name:f.properties.riv_nm??'',rings:[outer,...poly.slice(1).map(r=>clipRoadContextRing(r.map(project),radius+92)).filter(r=>r.length>=3)]}];
  })):[];
  const enriched=await withBridgeChains(data,links.length?attachRoadStructures(roads,links):roads.map(r=>r.structure_source?r:{...r,structure:'unknown' as const}),radius),matched=enriched.filter(r=>r.structure_source&&r.structure!=='unknown').length;
+ // (QA: dronedebug pages keep the view's roads as laid, for the checks in scripts/)
+ if(typeof location!=='undefined'&&location.search.includes('dronedebug=1'))Object.assign(globalThis,{__qaViewRoads:enriched});
  return {...data,roads:enriched,road_context:{source:'VWorld LT_L_MOCTLINK · LT_C_WKMSTRM',fetched_at:new Date().toISOString(),coverage:linkResult.status==='fulfilled'&&riverResult.status==='fulfilled'&&matched===enriched.length?'complete':'partial',links:links.length,matched,total:enriched.length,rivers}};
 }
 

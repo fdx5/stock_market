@@ -20,6 +20,7 @@ import {surfaceGeometryRules} from './surfaceGeometry';
 import {roadApproachHeight} from './roadApproaches';
 import {terrainSurfaceClearance} from './terrainSurfaceClearance';
 import {linkFallbackRoads} from './roadLinkFallback';
+import {chainDeckRoads} from './bridgeDecks';
 import type {RealEstateRoad} from '../api/client';
 type Arr = { position: Float32Array; normal: Float32Array; index: Uint32Array;level?:Float32Array };
 export type RoadTileResult = {
@@ -35,6 +36,9 @@ export type RoadTileResult = {
   walkPaths: Float32Array;
   /** street trees along the sidewalks, x, y and the road (one species a road), three each */
   streetTrees: Float32Array;
+  /** the ground every road takes, kerb to kerb and its sidewalks, 1 m more: [n, half width, x0, y0,
+   * x1, y1, …] one line after another — no tree of the land's planted on it */
+  clear: Float32Array;
   /** the junctions' asphalt (where roads cross: filled, no lane lines through it) */
   junctions: Arr | null;
   /** lanes: [n, road width, x0, y0, z0, x1, y1, z1, …] one after another (view frame, z the road's height) */
@@ -58,7 +62,7 @@ type RoadJob = {
    * the roads along it are on it — its own model draws the structure */
   deck?: { pts: number[][]; z: number[] };
   /** whole bridges (bridgeChains.ts): each official bridge link's deck along its chain, bank to bank */
-  chains?: { ids: string[]; line: number[][]; s: number[]; z: number[] }[];
+  chains?: { ids: string[]; line: number[][]; s: number[]; z: number[]; deck?: { w: number; off: number; lanes: number; twoWay: boolean } }[];
 };
 
 function roadWorkerMain() {
@@ -241,6 +245,78 @@ function roadWorkerMain() {
         edge.record.owners[i]=edge.owner;edge.record.kind[i]=edge.owner.kind;
       }
     }
+    // A stretch of a base-map line the links did not claim, between two pieces of one bridge's
+    // chain (at a link's end, or by a ramp where the match was ambiguous), is that deck: never
+    // the ground or the water between them.
+    {
+      const chainKey=new Map<string,string>();
+      for(const c of e.data.chains??[])for(const id of c.ids)chainKey.set(id,c.ids[0]);
+      const same=(a:Seg|null|undefined,b:Seg|null|undefined)=>!!a&&!!b&&a.kind>0&&b.kind>0&&(a.id===b.id||(chainKey.get(a.id)??a.id)===(chainKey.get(b.id)??b.id));
+      for(const record of prepared){
+        const {pts,owners}=record;
+        for(let i=1;i<pts.length-1;i++){
+          if(owners[i]||!owners[i-1])continue;
+          let j=i;while(j<pts.length&&!owners[j])j++;
+          if(j<pts.length&&same(owners[i-1],owners[j])&&Math.hypot(pts[j][0]-pts[i-1][0],pts[j][1]-pts[i-1][1])<=120)
+            for(let k=i;k<j;k++){owners[k]=owners[i-1];record.kind[k]=owners[i-1]!.kind;}
+          i=j;
+        }
+      }
+    }
+    // One deck per bridge (bridgeDecks.ts, the view's rule too): the stretches of the lines on a
+    // bridge's chain are not drawn piece by piece, each its own width — one road along the chain's
+    // line, its deck's width, offset and lanes, the same in every tile.
+    {
+      const decked=new Map<string,NonNullable<RoadJob['chains']>[number]>();
+      for(const c of e.data.chains??[])if(c.deck)for(const id of c.ids)decked.set(id,c);
+      const spans:{chain:string;line:number[][]}[]=[],at:{rec:number;i0:number;i1:number}[]=[];
+      prepared.forEach(({pts,owners},rec)=>{
+        const key=(i:number)=>{const o=owners[i];return o&&o.kind===1?decked.get(o.id)?.ids[0]:undefined;};
+        for(let i=0;i<pts.length;){
+          const k=key(i);if(!k){i++;continue;}
+          let j=i;while(j+1<pts.length&&key(j+1)===k)j++;
+          if(j>i){spans.push({chain:k,line:pts.slice(i,j+1)});at.push({rec,i0:i,i1:j});}
+          i=j+1;
+        }
+      });
+      if(spans.length){
+        const {decks,taken}=(self as unknown as {__chainDecks:typeof chainDeckRoads}).__chainDecks(spans,e.data.chains!);
+        const cut=new Map<number,{i0:number;i1:number}[]>();
+        at.forEach((a,k)=>{if(!taken[k])return;let l=cut.get(a.rec);if(!l)cut.set(a.rec,l=[]);l.push(a);});
+        const next:typeof prepared=[];
+        prepared.forEach((record,rec)=>{
+          const cuts=cut.get(rec);if(!cuts){next.push(record);return;}
+          // (the rest of the line, the road at grade on to the bridge: up to the deck's end, where
+          // the deck reaches under it)
+          const starts=new Set(cuts.map(c=>c.i1)),stops=new Set(cuts.map(c=>c.i0));
+          const keep=(a:number,b:number)=>{
+            if(b-a<1)return;
+            const owners=record.owners.slice(a,b+1),kind=record.kind.slice(a,b+1);
+            if(starts.has(a)){owners[0]=record.owners[a+1];kind[0]=record.kind[a+1];}
+            if(stops.has(b)){owners[owners.length-1]=record.owners[b-1];kind[kind.length-1]=record.kind[b-1];}
+            const r={...record.r,line:record.pts.slice(a,b+1)};roads.push(r);
+            next.push({r,pts:record.pts.slice(a,b+1),owners,kind});
+          };
+          cuts.sort((x,y)=>x.i0-y.i0);
+          let from=0;
+          for(const c of cuts){keep(from,c.i0);from=c.i1;}
+          keep(from,record.pts.length-1);
+        });
+        const chainSeg=new Map<string,Seg>();
+        for(const d of decks){
+          const c=(e.data.chains??[]).find(q=>q.ids[0]===d.chain)!;
+          let o=chainSeg.get(d.chain);
+          if(!o){const l=c.line;o={ax:l[0][0],ay:l[0][1],bx:l[l.length-1][0],by:l[l.length-1][1],kind:1,id:c.ids[0],line:l};chainSeg.set(d.chain,o);}
+          const pts:number[][]=[];
+          for(let i=1;i<d.line.length;i++){const a=d.line[i-1],b=d.line[i],L=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.max(1,Math.ceil(L/rules.step));
+            for(let k=i===1?0:1;k<=n;k++)pts.push([a[0]+(b[0]-a[0])*k/n,a[1]+(b[1]-a[1])*k/n]);}
+          if(pts.length<2)continue;
+          const r:Road={line:pts,width:d.width,lanes:d.lanes,oneway:!d.twoWay};roads.push(r);
+          next.push({r,pts,owners:pts.map(()=>o!),kind:pts.map(()=>1)});
+        }
+        prepared.splice(0,prepared.length,...next);
+      }
+    }
     const insideRing=(ring:number[][],x:number,y:number)=>{let odd=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])odd=!odd;}return odd;};
     const waterAtEarly=(x:number,y:number)=>Number.isFinite(e.data.seaLevel)&&(e.data.sea??[]).some(r=>insideRing(r,x,y))&&!(e.data.seaHoles??[]).some(r=>insideRing(r,x,y))?e.data.seaLevel!:null;
     const approachRoads:RealEstateRoad[]=[];
@@ -381,7 +457,7 @@ function roadWorkerMain() {
     const S = { p: [] as number[], n: [] as number[], i: [] as number[],level:[] as number[] };
     // (the junctions' asphalt goes with the roads': one mesh)
     const Jn = S;
-    const streetTrees: number[] = [];
+    const streetTrees: number[] = [], clear: number[] = [];
     // the junctions' asphalt: a disc the widest road's half width round each, over the bands
     for (const c of clusters.values()) {
       const cx = c.x / c.n, cy = c.y / c.n, cz = c.z / c.n, R = c.r + 1.5, base = Jn.p.length / 3;
@@ -504,7 +580,10 @@ function roadWorkerMain() {
       }
       // Bridges: the slab under the deck's edges, parapets, piers every ~30 m. (Its sidewalks on it:
       // the slab and parapets outside them, as the view's own bridges have them.)
-      const sw = w >= 8 ? Math.max(1.8, Math.min(4, w * 0.15)) : 0;
+      // (the view's sidewalk width — sceneSidewalk.sidewalkWidth — so a road or a bridge is the same
+      // inside the view's square and out of it; a deck always has its sidewalks, as the view's)
+      const sw = w >= 8 || r.kind.some(k => k > 0 && k !== 3) ? (w >= 30 ? 5 : w >= 20 ? 4 : w >= 12 ? 3 : 2.25) : 0;
+      if (r.kind.some(k => k >= 0)) { clear.push(r.line.length, w / 2 + sw + 1); for (const p of r.line) clear.push(p[0], p[1]); }
       // Each side's parapet: none where its edge lies on another road's lanes (the ramp merging
       // there, the deck alongside — the roads run on into one another, open), nor a stub under
       // 20 m left between such places.
@@ -581,7 +660,7 @@ function roadWorkerMain() {
       // Sidewalks on the roads of 8 m and up (on a bridge too — not along a tunnel): paving 15 cm
       // over the road, ~15 % of its width (1.8–4 m), a kerb face along the road's edge at grade;
       // their middle lines for the people.
-      if (w >= 8) {
+      if (sw > 0) {
         const flat = (k: number) => r.kind[k] !== 0 || r.kind[k1(k)] !== 0 || r.jn[k] || r.jn[k1(k)];
         const paved = (k: number) => r.kind[k] < 0 || r.kind[k1(k)] < 0 || r.kind[k] === 3 || r.kind[k1(k)] === 3 || r.jn[k] || r.jn[k1(k)];
         // (nor over another road's lanes: where a ramp joins, the paving stops)
@@ -784,9 +863,9 @@ function roadWorkerMain() {
       stops.push(order.length); for (const q of order) stops.push(found[q * 3], found[q * 3 + 1], found[q * 3 + 2]);
       k += 2 + n * 3;
     }
-    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), junctions: null, lanes: paths, stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
+    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), junctions: null, lanes: paths, stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
     for(const a of [out.surface,out.marks,out.marksFar,out.structure,out.walks])if(a)for(const value of Object.values(a))if(value instanceof Float32Array||value instanceof Uint32Array)transfer.push(value.buffer as ArrayBuffer);
-    transfer.push(out.lanes.buffer, out.stops.buffer, out.walkPaths.buffer, out.streetTrees.buffer);
+    transfer.push(out.lanes.buffer, out.stops.buffer, out.walkPaths.buffer, out.streetTrees.buffer, out.clear.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
     }catch{(self as unknown as Worker).postMessage(null);}
   };
@@ -805,7 +884,7 @@ export function roadTile(lat: number, lon: number, key: string, domain: string |
     key, domain: domain ?? "https://kospimap.com", data: layer, geomFilter: q,
     size: "1000", page: String(i + 1), format: "json", callback: cb,
   }));
-  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();self.__linkFallback=(${linkFallbackRoads.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
+  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();self.__linkFallback=(${linkFallbackRoads.toString()});self.__chainDecks=(${chainDeckRoads.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
     // (the crossings asked about the tile's rounded centre, as the view asks: the server's cache)
     const crossings = tile && typeof location !== "undefined" ? (() => {
       const la = +tile.lat.toFixed(4), lo = +tile.lon.toFixed(4);

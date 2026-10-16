@@ -8,8 +8,8 @@ import {transformSync} from 'esbuild';
 const read=name=>readFileSync(new URL('../src/components/'+name,import.meta.url),'utf8');
 const declarations=(name,names)=>{const text=read(name),ast=ts.createSourceFile(name,text,ts.ScriptTarget.Latest,true);return ast.statements.filter(n=>names.some(name=>ts.isFunctionDeclaration(n)&&n.name?.text===name)).map(n=>n.getText(ast).replace(/^export /,'')).join('\n');};
 const context={};
-vm.runInNewContext(transformSync(declarations('bridgeChains.ts',['joinStructureLinks','deckProfile'])+'\nthis.kit={joinStructureLinks,deckProfile};',{loader:'ts'}).code,context);
-const {joinStructureLinks,deckProfile}=context.kit;
+vm.runInNewContext(transformSync(declarations('bridgeChains.ts',['joinStructureLinks','deckProfile','deckClearance','deckFromCentreLines'])+'\nthis.kit={joinStructureLinks,deckProfile,deckClearance,deckFromCentreLines};',{loader:'ts'}).code,context);
+const {joinStructureLinks,deckProfile,deckClearance,deckFromCentreLines}=context.kit;
 const L=(id,...pts)=>({id,kind:1,line:pts});
 
 test('a bridge split mid-river joins bank to bank, each direction on its own',()=>{
@@ -42,4 +42,24 @@ test('a single DEM spike does not lift the deck',()=>{
   const g=Array(100).fill(3);g[0]=10;g[99]=10;g[50]=40;
   const z=deckProfile(g,5);
   assert.ok(Math.max(...z)<=10+1e-9);
+});
+
+test('a deck between banks scarcely over the water keeps its clearance, ramped from the banks',()=>{
+  // banks 1.5 m, water (the DEM over it) 0.2 m, 600 m across (5 m posts)
+  const g=[...Array(10).fill(1.5),...Array(120).fill(0.2),...Array(10).fill(1.5)];
+  const z=deckClearance(deckProfile(g,5),g,5);
+  assert.equal(z[0],1.5);assert.equal(z.at(-1),1.5);
+  for(let i=40;i<100;i++)assert.ok(z[i]>=4.2-1e-9,`over the water at ${i}: ${z[i]}`);
+  for(let i=1;i<z.length;i++)assert.ok(Math.abs(z[i]-z[i-1])<=0.05*5+1e-9,`too steep at ${i}`);
+  // a high deck is never lowered
+  const hi=g.map(()=>15);assert.deepEqual(Array.from(deckClearance(hi,g,5)),hi);
+});
+test('one deck width along a bridge from the base map: the median of its pieces, on its line',()=>{
+  const chain=[[0,0],[0,300]],st=Array.from({length:60},(_,i)=>2.5+i*5);
+  // a two-way centre line 8 m left of this direction's link, 34.1 m wide most of the way, one 39.3 m piece, a 4.5 m stub
+  const roads=[{line:[[-8,0],[-8,200]],width:34.1,lanes:8},{line:[[-8,200],[-8,260]],width:39.3,lanes:8},{line:[[-8,260],[-8,300]],width:34.1,lanes:8},{line:[[30,100],[30,120]],width:4.5,lanes:1}];
+  const d=deckFromCentreLines(chain,st,roads);
+  assert.equal(d.w,34.1);assert.equal(d.off,8);assert.equal(d.twoWay,true);
+  // none along it: two lanes on the link itself
+  assert.deepEqual({...deckFromCentreLines(chain,st,[])},{w:8,off:0,lanes:2,twoWay:false});
 });

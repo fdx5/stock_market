@@ -2956,7 +2956,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const waterTerrain:Terrain={...terrain,waterRevision:()=>waterRevision,waterAt:(x,y)=>roadSea?.wet(x,y)?roadSea.level(x,y):roadWater?.wet(x,y)?roadWater.level(x,y):null};
     let approachTerrain = roadApproachTerrain(roads, waterTerrain);
     let relayWalks:(()=>Promise<void>)|null=null;
-    const useRoadWater=(field:WaterField)=>{if(roadWater===field)return;roadWater=field;waterRevision={};approachTerrain=roadApproachTerrain(roads,waterTerrain);asphaltAt=null;};
+    const useRoadWater=(field:WaterField)=>{if(roadWater===field)return;roadWater=field;waterRevision={};approachTerrain=roadApproachTerrain(roads,waterTerrain);asphaltAt=null;bridgesTried=false;};
     const roadTerrain: Terrain = { ...approachTerrain, roadAt:(road,x,y)=>roadHeight(road,approachTerrain,x,y) };
     const trafficTerrain:Terrain={...roadTerrain,heightRevision:()=>asphaltAt??waterRevision,roadAt:(road,x,y)=>{
       const reference=roadHeight(road,roadTerrain,x,y)+.08;
@@ -3034,7 +3034,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let bridgeGen=0,bridgeRelease:(()=>void)|null=null;
     const placeBridges = async () => {
       if (bridgesTried) return false;
-      if(!roadWater&&!roadSea)return false;
+      // (placed at once, before the water is in — a bridge must never be missing over the river
+      // while it loads — and placed again once it is, for the heights laid by it)
       bridgesTried = true;
       const gen=++bridgeGen;
       const w = waterParcels();
@@ -3051,6 +3052,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       while(alive&&gen===bridgeGen&&!stage.drawReady(made.group))await frameSlice();
       if(!alive||gen!==bridgeGen){release();return false;}
       bridgeRelease?.();bridgeRelease=release;
+      if(hostRef.current)hostRef.current.dataset.bridgesAt=String(Math.round(performance.now()));
       return true;
     };
     // (the plant kit — meshes, twig and bark textures, ~3 MB — after the first frame: fetched and

@@ -159,7 +159,10 @@ function vworldTile(token: string, x: number, y: number): Promise<Float32Array |
       { referrerPolicy: "no-referrer" })
       .then(r => r.arrayBuffer())
       // 65 × 65 little-endian float32 metres, row 0 the tile's north edge, column 0 west.
-      .then(b => (b.byteLength === 65 * 65 * 4 ? new Float32Array(b) : null))
+      // Where VWorld has no DEM (it answers a short error: 일산·김포, past the capital's coverage)
+      // the tile's posts from SRTM instead — one tile missing failed the whole sampler: no bridge
+      // chain, no streamed roads or ground there at all.
+      .then(b => (b.byteLength === 65 * 65 * 4 ? new Float32Array(b) : b.byteLength > 0 && b.byteLength < 1024 ? srtmPosts(x, y) : null))
       .catch(() => null)
       .then(t => { if (!t) vwTiles.delete(k); return t; });
     vwTiles.set(k, hit);
@@ -169,6 +172,25 @@ function vworldTile(token: string, x: number, y: number): Promise<Float32Array |
     if (vwTiles.size > 1024) vwTiles.delete(vwTiles.keys().next().value!);
   }
   return hit;
+}
+
+/** A VWorld DEM tile's 65 × 65 posts (row 0 north, column 0 west) sampled from SRTM (Terrarium
+ * tiles at zoom Z, bilinear), for a tile VWorld has no DEM for. Null if SRTM does not answer. */
+async function srtmPosts(x: number, y: number): Promise<Float32Array | null> {
+  const scale = 256 * 2 ** Z, out = new Float32Array(65 * 65);
+  const gx = (lon: number) => ((lon + 180) / 360) * scale;
+  const gy = (lat: number) => { const f = (lat * Math.PI) / 180; return ((1 - Math.log(Math.tan(f) + 1 / Math.cos(f)) / Math.PI) / 2) * scale; };
+  const lon0 = x * VW_TILE - 180, lat1 = (y + 1) * VW_TILE - 90;
+  const X0 = Math.floor((gx(lon0) - 1) / 256), X1 = Math.floor((gx(lon0 + VW_TILE) + 1) / 256), Y0 = Math.floor((gy(lat1) - 1) / 256), Y1 = Math.floor((gy(lat1 - VW_TILE) + 1) / 256);
+  const got = new Map<string, Float32Array>();
+  for (let ty = Y0; ty <= Y1; ty++) for (let tx = X0; tx <= X1; tx++) { const t = await tile(tx, ty).catch(() => null); if (!t) return null; got.set(tx + '/' + ty, t); }
+  const raw = (px: number, py: number) => { const tx = Math.min(X1, Math.max(X0, Math.floor(px / 256))), ty = Math.min(Y1, Math.max(Y0, Math.floor(py / 256))), t = got.get(tx + '/' + ty)!;
+    return t[Math.min(255, Math.max(0, Math.floor(py - ty * 256))) * 256 + Math.min(255, Math.max(0, Math.floor(px - tx * 256)))]; };
+  for (let r = 0; r < 65; r++) for (let c = 0; c < 65; c++) {
+    const px = gx(lon0 + (c / 64) * VW_TILE) - 0.5, py = gy(lat1 - (r / 64) * VW_TILE) - 0.5, bx = Math.floor(px), by = Math.floor(py), fx = px - bx, fy = py - by;
+    out[r * 65 + c] = (raw(bx, by) * (1 - fx) + raw(bx + 1, by) * fx) * (1 - fy) + (raw(bx, by + 1) * (1 - fx) + raw(bx + 1, by + 1) * fx) * fy;
+  }
+  return out;
 }
 
 /** Absolute elevation at (lon, lat) from VWorld DEM tiles, or null if any tile is missing.
