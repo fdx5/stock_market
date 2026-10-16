@@ -1,4 +1,4 @@
-import { sceneWorkerOnce } from "./sceneWorkerPool";
+import { sceneWorkerFresh } from "./sceneWorkerPool";
 import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
 import {woodlandBeds,woodlandPatchPattern,WOODLAND_FLOWERS}from'./landscapeDiversity';
@@ -452,7 +452,7 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
       const la = +lat.toFixed(4), lo = +lon.toFixed(4);
       return { url: `${location.origin}/api/realestate/water?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=${Math.round(H * 1.5)}&v=3&fast=1`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
     })() : undefined };
-  return sceneWorkerOnce<NonNullable<Awaited<ReturnType<typeof farGround>>>>(() => new Worker(farUrl!), job, opts.signal).then(result => {
+  return sceneWorkerFresh<NonNullable<Awaited<ReturnType<typeof farGround>>>>(farUrl, () => new Worker(farUrl!), job, opts.signal).then(result => {
     if (result) result.planting = withoutStadiumTrees(result.planting, stadiumTreeMask);
     return result;
   });

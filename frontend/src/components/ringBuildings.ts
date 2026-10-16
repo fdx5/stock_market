@@ -1,4 +1,4 @@
-import { sceneWorkerOnce } from "./sceneWorkerPool";
+import { sceneWorkerFresh } from "./sceneWorkerPool";
 import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
 import type { ContextStyle } from "./complexScene";
@@ -440,7 +440,7 @@ export function ringBuildings(data: RealEstateBuildingsResponse, near: Float32Ar
     urls, lat, lon, inner: opts.inner ?? 0, outer, near, seed: opts.seed, roads: new Float32Array(segs), clearedSite:data.cleared_site,
     grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, floorM: opts.floorM,
   };
-  return sceneWorkerOnce<RingResult>(() => new Worker(ringWorkerUrl(src)), job, opts.signal);
+  return sceneWorkerFresh<RingResult>(ringWorkerUrl(src), () => new Worker(ringWorkerUrl(src)), job, opts.signal);
 }
 
 /** One drone tile's buildings (ringBuildings in box mode): those whose centroid lies in `box`
@@ -460,5 +460,6 @@ export function ringTile(lat: number, lon: number, key: string, domain: string |
     urls, lat, lon, inner: opts.inner, outer: Infinity, near: new Float32Array(0), seed: opts.seed, roads: new Float32Array(0),
     grid, floorM: opts.floorM, box, heightCell: opts.heightCell ?? 2,
   };
-  return sceneWorkerOnce<RingResult>(() => new Worker(ringWorkerUrl(`(${ringWorkerMain.toString()})(${buildingAppearanceProfile.toString()})`)), job, opts.signal);
+  const src = `(${ringWorkerMain.toString()})(${buildingAppearanceProfile.toString()})`;
+  return sceneWorkerFresh<RingResult>(ringWorkerUrl(src), () => new Worker(ringWorkerUrl(src)), job, opts.signal);
 }

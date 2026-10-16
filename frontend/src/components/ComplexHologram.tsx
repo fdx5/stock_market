@@ -73,7 +73,7 @@ import {loadDroneExplorePage} from './droneExploreLoader';
 import DeskBgm from "../desk2/DeskBgm";
 import { useDeskBgm } from "../desk2/deskBgmStore";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
-import { frameSlice,sceneFrameStarted } from "./frameSlice";
+import { frameSlice,sceneFrameStarted,sliceDeadline } from "./frameSlice";
 import { SceneResources } from "./sceneResources";
 import { makeGroundGeometry } from "./groundGeometry";
 import { cutGroundToRoads,drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight } from "./roadDrape";
@@ -3456,13 +3456,23 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if(!alive)return;
       laidWater=roadWater;
       const gen = ++marksGen;
-      let roadSlice = performance.now();
+      // (to the frame's deadline, not 2 ms: the roads' cutting, draping and lifting over the water
+      // waited a frame for every 2 ms of work — seconds, the asphalt late)
+      let roadEnd = sliceDeadline();
       const roadPace = async () => {
-        if (performance.now() - roadSlice > 2) {
+        if (performance.now() > roadEnd) {
           if (!await later()) return false;
-          roadSlice = performance.now();
+          roadEnd = sliceDeadline();
         }
         return alive;
+      };
+      // (liftRoadsOverWater's lift, given to a layer before it is shown, a few ms at a time: done on the
+      // shown layer, every vertex of the asphalt and paint against the water at once held a frame
+      // 35-90 ms while the drone flew; the same vertices end up where they did)
+      const liftBeforeShown=async(parts:[THREE.Mesh,number][],field:WaterField)=>{
+        for(const [m,lift] of parts){const P=m.geometry.getAttribute('position') as THREE.BufferAttribute|undefined;if(!P)continue;let moved=false;
+          for(let i=0;i<P.count;i++){if((i&2047)===2047&&!await roadPace())return;const x=P.getX(i),y=-P.getZ(i);if(!field.wet(x,y)||deckAt?.(x,y)!=null)continue;const want=field.level(x,y)+.34+lift;if(P.getY(i)<want){P.setY(i,want);moved=true;}}
+          if(moved){P.needsUpdate=true;m.geometry.computeBoundingSphere();}}
       };
       const lap:number[]=[Math.round(performance.now())],mark=()=>{lap.push(Math.round(performance.now()));if(hostRef.current)hostRef.current.dataset.roadsLay=lap.map((t,i)=>i?t-lap[i-1]:t).join('/');};
       // (the ground cut to the roads at grade first: the asphalt is then laid smooth on it, nothing
@@ -3478,10 +3488,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // bridges and the water are in by then, and roads must meet them, not bare ground.
       if(!roadLayer){
         const first=new THREE.Group();first.name="road surface and markings";first.add(f.group);
+        const lifted=roadWater;if(lifted)await liftBeforeShown([[f.group,0]],lifted);
+        if(!alive||gen!==marksGen){f.dispose();return;}
         stage.addWarm(decor,first);
         while(alive&&gen===marksGen&&!stage.drawReady(first))await frameSlice();
         if(!alive||gen!==marksGen){first.removeFromParent();f.dispose();return;}
-        roadLayer=first;surface=f;if(roadWater)liftRoadsOverWater(roadWater);
+        roadLayer=first;surface=f;if(roadWater&&roadWater!==lifted)liftRoadsOverWater(roadWater);
         if(hostRef.current){const d=hostRef.current.dataset;d.roadsFirstAt??=String(Math.round(performance.now()));}
       }
       roadBvhAbort?.abort();roadBvhAbort=new AbortController();
@@ -3499,6 +3511,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const nextLayer = new THREE.Group();
       nextLayer.name = "road surface and markings";
       nextLayer.add(f.group, m.group);
+      const lifted=roadWater;if(lifted)await liftBeforeShown([[f.group,0],...(m.group.children as THREE.Mesh[]).map(c=>[c,.05] as [THREE.Mesh,number])],lifted);
+      if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); m.dispose(); return; }
       stage.addWarm(decor, nextLayer);
       while (alive && gen === marksGen && !stage.drawReady(nextLayer)) await frameSlice();
       if (!alive || gen !== marksGen) {
@@ -3508,7 +3522,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       roadLayer?.removeFromParent(); roadLayer = nextLayer;
       if (surface && surface !== f) { decor.remove(surface.group); surface.dispose(); }
       if (marks) { decor.remove(marks.group); marks.dispose(); }
-      surface = f; marks = m;if(roadWater)liftRoadsOverWater(roadWater);
+      surface = f; marks = m;if(roadWater&&roadWater!==lifted)liftRoadsOverWater(roadWater);
       asphaltAt=roadSurfaceHeight(f.group.geometry,bvh?roadBvhIndex(bvh):undefined);
       if(hostRef.current){const d=hostRef.current.dataset;d.roadIndex=bvh?'rust-wasm-bvh':'js-grid';d.roadIndexBuildMs=bvh?bvh.buildMs.toFixed(1):'0';d.roadIndexWorkers=String(bvh?.workers??0);d.roadIndexBytes=String(bvh?.parts.reduce((n,p)=>n+p.nodes.byteLength+p.ids.byteLength,0)??0);}
       if(hostRef.current){const d=hostRef.current.dataset;d.roadsReadyAt=String(Math.round(performance.now()));d.roadsFirstAt??=d.roadsReadyAt;d.roadsLays=String(+(d.roadsLays??0)+1);}

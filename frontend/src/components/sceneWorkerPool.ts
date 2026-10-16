@@ -1,3 +1,4 @@
+import { frameSlice } from "./frameSlice";
 /** One job per worker: async handlers must not accumulate concurrent decodes.
  * Cancellation/failure/deadline releases both the job and its worker capacity. */
 export class SceneWorkerPool<Q extends object, R extends { id: number }> {
@@ -96,4 +97,39 @@ export function sceneWorkerOnce<R>(create: () => Worker, request: unknown, signa
       timer = setTimeout(abort, timeoutMs); worker.postMessage(request);
     } catch { finish(null); }
   });
+}
+
+/** Fresh workers made ahead, by script, for sceneWorkerFresh. */
+const spareWorkers = new Map<string, { create: () => Worker; spares: Worker[]; used: number; expiry?: ReturnType<typeof setTimeout> }>();
+let sparing = false;
+const SPARES = 2;
+/** One new worker at a time, each in a frame's spare time (frameSlice), until every script in use
+ * has its spares. */
+function makeSpares() {
+  if (sparing) return;
+  const next = [...spareWorkers.values()].find(s => s.spares.length < SPARES);
+  if (!next) return;
+  sparing = true;
+  void frameSlice().then(() => {
+    try { next.spares.push(next.create()); } catch { /* made on demand instead */ }
+    // (a script not asked for in 20 s — the drone landed, the view closed — lets its spares go)
+    clearTimeout(next.expiry);
+    next.expiry = setTimeout(() => { if (performance.now() - next.used >= 19000) next.spares.splice(0).forEach(w => w.terminate()); }, 20000);
+    sparing = false;
+    makeSpares();
+  });
+}
+/** sceneWorkerOnce with the worker made ahead: a new worker held the page 6-9 ms while Chrome set it
+ * up, and a drone tile asked for three at once (its roads, its buildings, its far ground) — several
+ * frames in a row late, some 35 ms a second of a flight. Each job still has a worker of its own,
+ * ended with the job (its memory with it: kept for the next job instead, the workers held over a
+ * gigabyte more); two fresh ones a script wait, made one at a time in the frames' spare time. */
+export function sceneWorkerFresh<R>(script: string, create: () => Worker, request: unknown, signal?: AbortSignal, timeoutMs = 45000): Promise<R | null> {
+  let entry = spareWorkers.get(script);
+  if (!entry) spareWorkers.set(script, entry = { create, spares: [], used: 0 });
+  entry.used = performance.now();
+  const spare = entry.spares.shift();
+  makeSpares();
+  if (signal?.aborted) { spare && entry.spares.unshift(spare); return Promise.resolve(null); }
+  return sceneWorkerOnce<R>(() => spare ?? create(), request, signal, timeoutMs);
 }

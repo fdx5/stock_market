@@ -14,6 +14,11 @@ export function splitRoadJunctions(roads:readonly RealEstateRoad[],planarCrossin
  const segCells=new Map<number,number[]>(),C=20,ck=(x:number,y:number)=>(x+65536)*131072+(y+65536);
  if(planarCrossings)roads.forEach((o,oi)=>{for(let j=1;j<o.line.length;j++){const c=o.line[j-1],d=o.line[j];
   for(let x=Math.floor(Math.min(c[0],d[0])/C);x<=Math.floor(Math.max(c[0],d[0])/C);x++)for(let y=Math.floor(Math.min(c[1],d[1])/C);y<=Math.floor(Math.max(c[1],d[1])/C);y++){const k=ck(x,y),l=segCells.get(k);if(l)l.push(oi*1e6+j);else segCells.set(k,[oi*1e6+j]);}}});
+ // (the road ends by 50 m cell: each road tried every end of every road — a city's thousands
+ // squared, a tenth of a second as the drone took off; the ends near its box are taken in the same
+ // order as before, so the same cuts)
+ const endCells=new Map<number,number[]>(),EC=50;
+ endpoints.forEach((e,k)=>{const key=ck(Math.floor(e.p[0]/EC),Math.floor(e.p[1]/EC)),l=endCells.get(key);if(l)l.push(k);else endCells.set(key,[k]);});
  return roads.flatMap((r,road)=>{
   const cum=[0];for(let i=1;i<r.line.length;i++)cum.push(cum[i-1]+Math.hypot(r.line[i][0]-r.line[i-1][0],r.line[i][1]-r.line[i-1][1]));
   const cuts:{s:number;p:[number,number]}[]=[];
@@ -34,7 +39,11 @@ export function splitRoadJunctions(roads:readonly RealEstateRoad[],planarCrossin
     if(t>=0&&t<=1&&u>=0&&u<=1)cut(cum[i-1]+t*l,[a[0]+dx*t,a[1]+dy*t]);
    }
   }
-  for(const e of endpoints){
+  const nearEnds:number[]=[];
+  if(roadLevel(r)===0){const B=box[road];
+   for(let x=Math.floor((B[0]-1.5)/EC);x<=Math.floor((B[2]+1.5)/EC);x++)for(let y=Math.floor((B[1]-1.5)/EC);y<=Math.floor((B[3]+1.5)/EC);y++)for(const k of endCells.get(ck(x,y))??[])nearEnds.push(k);
+   nearEnds.sort((a,b)=>a-b);}
+  for(const k of nearEnds){const e=endpoints[k];
    if(e.road===road||roadLevel(r)!==0||apart(box[road],[e.p[0],e.p[1],e.p[0],e.p[1]],1.5)||!sameRoadLevel(r,roads[e.road]))continue;let best=Infinity,at=0,q:[number,number]=[0,0];
    for(let i=1;i<r.line.length;i++){
     const a=r.line[i-1],b=r.line[i],dx=b[0]-a[0],dy=b[1]-a[1],len=cum[i]-cum[i-1];if(!len)continue;

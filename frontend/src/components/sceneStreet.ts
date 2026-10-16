@@ -1,4 +1,5 @@
 import { frameSlice } from "./frameSlice";
+import { float32Sliced, flatNormalsSliced } from "./slicedGeometry";
 import {trafficPathSampler} from './trafficPathSample';
 import {surfaceGeometry} from './surfaceGeometry';
 import { vehicleOverlap, VehicleTrajectoryCache, VehiclePathHitCache, VehicleHeightCache, VehicleBuckets, collisionFreeTravel, missesTrajectory,straightVehicleHit } from "./trafficCollision";
@@ -69,6 +70,8 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
       // bridged over local grade changes and could disappear under the ground.
       const across = Math.max(1, Math.ceil(r.width / STEP));
       for (let lane = 0; lane < across; lane++) {
+        // (and across a wide road: its height asked at every vertex, one segment of a boulevard held 20 ms)
+        if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
         const left = h - r.width * lane / across, right = h - r.width * (lane + 1) / across;
         vtx(ax + anx * left, ay + any * left); vtx(ax + anx * right, ay + any * right); vtx(bx + bnx * right, by + bny * right);
         vtx(ax + anx * left, ay + any * left); vtx(bx + bnx * right, by + bny * right); vtx(bx + bnx * left, by + bny * left);
@@ -90,6 +93,8 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
     for (let k = 0; k < h.length; k++) {
       const a = h[k], b = h[(k + 1) % h.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / STEP));
       for (let s = 0; s < n; s++) {
+        // (a large junction's fan, its every ring asked for the road's height, held a frame 40 ms)
+        if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
         const p0 = [a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n], p1 = [a[0] + (b[0] - a[0]) * (s + 1) / n, a[1] + (b[1] - a[1]) * (s + 1) / n];
         const rings = Math.max(1, Math.ceil(Math.max(Math.hypot(p0[0]-cx,p0[1]-cy),Math.hypot(p1[0]-cx,p1[1]-cy)) / STEP));
         for (let ring = 1; ring <= rings; ring++) {
@@ -105,12 +110,15 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
     }
   }
   }
+  // (the arrays made over and the normals worked out in slices: the network's millions of values in
+  // one piece were a frame of 50 ms)
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-  geo.setAttribute("roadLevel",new THREE.Float32BufferAttribute(levels,1));
-  geo.setAttribute("roadProfile",new THREE.Float32BufferAttribute(profiles,1));geo.userData.roadProfiles=profileIds;
-  geo.computeVertexNormals();
+  geo.setAttribute("position", new THREE.BufferAttribute(await float32Sliced(pos), 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(await float32Sliced(uv), 2));
+  geo.setAttribute("roadLevel",new THREE.BufferAttribute(await float32Sliced(levels),1));
+  geo.setAttribute("roadProfile",new THREE.BufferAttribute(await float32Sliced(profiles),1));geo.userData.roadProfiles=profileIds;
+  await flatNormalsSliced(geo);
+  await frameSlice();
   geo.computeBoundingSphere();
   const map = await paintedTexture("asphalt", 1024);
   const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.92, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
@@ -167,6 +175,9 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     let w = 0;
     roads.forEach((o, j) => {
       if (j === self || roadLevel(roads[self])!==0 || !sameRoadLevel(roads[self],o)) return;
+      // (its box first: every segment of every road measured for each road end held frames)
+      const b = roadBoxes[j], m = o.width / 2 + 1.5;
+      if (x < b[0] - m || x > b[2] + m || y < b[1] - m || y > b[3] + m) return;
       for (let k = 1; k < o.line.length; k++) {
         const [ax, ay] = o.line[k - 1], [bx, by] = o.line[k], dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
         const t = ((x - ax) * dx + (y - ay) * dy) / l2;
@@ -212,6 +223,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
         return {crossA:cut,crossB:cut,stopA:cut,stopB:cut,surveyed:false,zebra:false,stop:false};
       return candidate;
     };
+    if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
     const L0 = lay(arm0, cut0), L1 = lay(arm1, cut1);
     const s0 = L0 ? L0.stopB + 0.4 : 0, s1 = total - (L1 ? L1.stopB + 0.4 : 0);
     if (total < .001) continue;
@@ -280,6 +292,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     // Remove only the junction envelope, keeping all other short road pieces.
     const blocked:number[][]=[];let along=0;
     for(let i=1;i<r.line.length;i++){
+      if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
       const [ax,ay]=r.line[i-1],[bx,by]=r.line[i],dx=bx-ax,dy=by-ay,len=Math.hypot(dx,dy);if(len<1e-6)continue;
       for(const [oi,o]of roads.entries())if(oi!==ri&&roadLevel(r)===0&&sameRoadLevel(r,o)){
        const box=roadBoxes[oi];if(Math.max(ax,bx)<box[0]||Math.min(ax,bx)>box[2]||Math.max(ay,by)<box[1]||Math.min(ay,by)>box[3])continue;
@@ -298,6 +311,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     for(const[a,b]of blocked){if(b<=cursor||a>=s1)continue;if(a>cursor)spans.push([cursor,Math.min(a,s1)]);cursor=Math.max(cursor,b);}
     if(cursor<s1)spans.push([cursor,s1]);coverage.push({road:ri,lanes,length:total,spans});
     for(const[a,b]of spans){
+      if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
       if (r.oneway) continue;
       if (lanes >= 4) { strip(yellow, 0.17, 0.15, a,b); strip(yellow, -0.17, 0.15,a,b); }
       else if (lanes >= 2) strip(yellow, 0, 0.15,a,b);
@@ -318,6 +332,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
       const own: [number, number][] = [];
       for (const [L, atStart] of [[L0, true], [L1, false]] as const) if (L && L.zebra !== false) own.push(atStart ? [L.crossA, L.crossB] : [total - L.crossB, total - L.crossA]);
       for (const cw of crossings) {
+        if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
         if ((cw.layer ?? 0) !== roadLevel(r)) continue;
         for (let k = 1; k < cw.line.length; k++) {
           const [cx0, cy0] = cw.line[k - 1], [cx1, cy1] = cw.line[k];
@@ -338,6 +353,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     // Lane arrows (노면 방향표시) before each junction, as painted in Seoul: the inner lane turns
     // left, the outer goes straight on and right, the rest straight; a single lane straight and
     // left. Each 5 m long, its tip 3 m behind the stop line.
+    if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
     const perSideA = Math.max(1, Math.floor(lanes / 2)), laneWA = r.width / Math.max(2, lanes);
     for (const [L, atStart] of [[L0, true], [L1, false]] as const) {
       if (!L || r.width < 5) continue;
@@ -362,6 +378,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     for (const side of [1, -1]) {
       const count=side===1?Math.floor(lanes/2):Math.ceil(lanes/2),laneW=halfW/count;
       for(let k=1;k<count;k++)for(const[a,b]of spans){
+        if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
         for (let d = Math.floor(a/8)*8; d < b; d += 8) strip(white, side * k * laneW, 0.12, Math.max(a,d),Math.min(b,d+3));
       }
     }
@@ -375,10 +392,11 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
   for (const [pos, color] of [[yellow, "#f0b40a"], [white, "#f2f2ee"]] as const) {
     if (!pos.length) continue;
     const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute("roadLevel",new THREE.Float32BufferAttribute(pos===yellow?yellowLevels:whiteLevels,1));
-    g.setAttribute("roadProfile",new THREE.Float32BufferAttribute(pos===yellow?yellowProfiles:whiteProfiles,1));g.userData.roadProfiles=profileIds;
-    g.computeVertexNormals();
+    g.setAttribute("position", new THREE.BufferAttribute(await float32Sliced(pos), 3));
+    g.setAttribute("roadLevel",new THREE.BufferAttribute(await float32Sliced(pos===yellow?yellowLevels:whiteLevels),1));
+    g.setAttribute("roadProfile",new THREE.BufferAttribute(await float32Sliced(pos===yellow?yellowProfiles:whiteProfiles),1));g.userData.roadProfiles=profileIds;
+    await flatNormalsSliced(g);
+    await frameSlice();
     g.computeBoundingSphere();
     const m = new THREE.MeshStandardMaterial({ color, roughness: 0.62, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const mesh = new THREE.Mesh(g, m);
@@ -614,12 +632,18 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // (its pieces between frames: built in one go, a neighbourhood's traffic held a frame 0.4 s)
   await frameSlice();
   const rnd = rng(seed + 29);
+  // (every step below in slices of a few ms: a neighbourhood's network taken in one piece each held
+  // a frame 50-70 ms while the drone flew)
+  let slice = performance.now();
   // Road polylines with cumulative lengths.
-  const paths = usable.map(r => {
+  const sampled = [];
+  for (const r of usable) {
+    if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
     const cum = [0];
     for (let i = 1; i < r.line.length; i++) cum.push(cum[i - 1] + Math.hypot(r.line[i][0] - r.line[i - 1][0], r.line[i][1] - r.line[i - 1][1]));
-    return { ...r, lanes:roadLaneCount(r), cum, len: cum[cum.length - 1],sample:trafficPathSampler(r.line.map(p=>p[0]),r.line.map(p=>p[1]),cum) };
-  }).filter(p => p.len > 0.5); // short pieces stay: they carry the network across
+    sampled.push({ ...r, lanes:roadLaneCount(r), cum, len: cum[cum.length - 1],sample:trafficPathSampler(r.line.map(p=>p[0]),r.line.map(p=>p[1]),cum) });
+  }
+  const paths = sampled.filter(p => p.len > 0.5); // short pieces stay: they carry the network across
   if (!paths.length) return null;
 
   // ---- The network: nodes where road ends meet, T-junctions, signals ----
@@ -642,16 +666,30 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // Nodes: road ends within 6 m of each other. `${road}:${atStart}` names a road end.
   const nodes: { x: number; y: number; ends: { road: number; atStart: boolean }[] }[] = [];
   const nodeOf = new Map<string, number>();
-  paths.forEach((p, road) => {
+  // (the nodes by 6 m cell: every road end measured against every node so far held frames; the
+  // first node that qualifies is still the one taken, as the plain search took it)
+  const nodeCells = new Map<string, number[]>(), NODE_CELL = 6;
+  for (let road = 0; road < paths.length; road++) {
+    if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
+    const p = paths[road];
     for (const atStart of [true, false]) {
       const [x, y] = atStart ? p.line[0] : p.line[p.line.length - 1];
+      const ci = Math.floor(x / NODE_CELL), cj = Math.floor(y / NODE_CELL);
       // (the distance first: every node's road heights compared for every road end held a frame)
-      let n = nodes.findIndex(o => Math.hypot(o.x - x, o.y - y) < (roadLevel(p)===0&&o.ends.every(e=>roadLevel(paths[e.road])===0)?6:1.5) && o.ends.every(e=>roadEndsConnect(p,paths[e.road],x,y)&&Math.abs(roadHeight(p,terrain,x,y)-roadHeight(paths[e.road],terrain,o.x,o.y))<2));
-      if (n < 0) { n = nodes.length; nodes.push({ x, y, ends: [] }); }
+      let n = -1;
+      for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) for (const k of nodeCells.get(i + ',' + j) ?? []) {
+        if (n >= 0 && k > n) continue;
+        const o = nodes[k];
+        if (Math.hypot(o.x - x, o.y - y) < (roadLevel(p)===0&&o.ends.every(e=>roadLevel(paths[e.road])===0)?6:1.5) && o.ends.every(e=>roadEndsConnect(p,paths[e.road],x,y)&&Math.abs(roadHeight(p,terrain,x,y)-roadHeight(paths[e.road],terrain,o.x,o.y))<2)) n = k;
+      }
+      if (n < 0) {
+        n = nodes.length; nodes.push({ x, y, ends: [] });
+        const key = ci + ',' + cj; let cell = nodeCells.get(key); if (!cell) nodeCells.set(key, cell = []); cell.push(n);
+      }
       nodes[n].ends.push({ road, atStart });
       nodeOf.set(`${road}:${atStart}`, n);
     }
-  });
+  }
   // Intersections. Surveyed centrelines split one real intersection into several nodes
   // (split carriageways, offset road ends) joined by short stubs. Nodes where three or
   // more road ends meet, within 35 m of each other or joined by a stub under 40 m, form
@@ -668,9 +706,21 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const nodeW = nodes.map(n => Math.max(0, ...n.ends.map(e => paths[e.road].width)));
   const parent = nodes.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-  nodes.forEach((a, i) => nodes.forEach((b, j) => {
-    if (j > i && junction[i] && junction[j] && roadLevel(paths[a.ends[0].road])===0&&roadLevel(paths[b.ends[0].road])===0 && Math.hypot(a.x - b.x, a.y - b.y) < Math.max(35, 0.6 * (nodeW[i] + nodeW[j]))) parent[find(i)] = find(j);
-  }));
+  {
+    // (by cells as wide as the farthest joined pair can be apart: every node against every node held
+    // a frame; the same pairs are joined, so the same intersections come out)
+    const reach = Math.max(35, 1.2 * Math.max(0, ...nodeW)), cells = new Map<string, number[]>();
+    nodes.forEach((a, i) => { if (!junction[i]) return; const key = Math.floor(a.x / reach) + ',' + Math.floor(a.y / reach); let c = cells.get(key); if (!c) cells.set(key, c = []); c.push(i); });
+    for (let i = 0; i < nodes.length; i++) {
+      if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
+      if (!junction[i]) continue;
+      const a = nodes[i], ci = Math.floor(a.x / reach), cj = Math.floor(a.y / reach);
+      for (let u = ci - 1; u <= ci + 1; u++) for (let v = cj - 1; v <= cj + 1; v++) for (const j of cells.get(u + ',' + v) ?? []) {
+        const b = nodes[j];
+        if (j > i && junction[i] && junction[j] && roadLevel(paths[a.ends[0].road])===0&&roadLevel(paths[b.ends[0].road])===0 && Math.hypot(a.x - b.x, a.y - b.y) < Math.max(35, 0.6 * (nodeW[i] + nodeW[j]))) parent[find(i)] = find(j);
+      }
+    }
+  }
   paths.forEach((p, r) => {
     const a = nodeOf.get(`${r}:true`)!, b = nodeOf.get(`${r}:false`)!;
     if (junction[a] && junction[b] && p.len < Math.max(40, 1.2 * Math.max(nodeW[a], nodeW[b]))) parent[find(a)] = find(b);
@@ -752,15 +802,16 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // dead-end stubs, and the stubs inside intersections carry no traffic of their own.
   // (Repeated: a road whose only ways on lead into idle roads is a dead end too.)
   const idle = paths.map((p, r) => internal[r]||p.width<6);
-  await frameSlice();
+  await frameSlice(); slice = performance.now();
   for (let pass = 0; pass < 6; pass++) {
-    if (pass) await frameSlice();
     const deadEnd = (road: number, forward: boolean) => linksFrom(road, forward).every(o => idle[o.link.road]);
     let changed = false;
-    paths.forEach((p, r) => {
+    for (let r = 0; r < paths.length; r++) {
+      if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
+      const p = paths[r];
       const now = (deadEnd(r, true) && deadEnd(r, false) && p.len < 60) || ((deadEnd(r, true) || deadEnd(r, false)) && p.len < 30);
       if (now && !idle[r]) { idle[r] = true; changed = true; }
-    });
+    }
     if (!changed) break;
   }
   /** Mostly straight on, sometimes a turn, from the lane that allows it (1차로 좌회전,
@@ -803,6 +854,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // (each marked crossing node: a line across the nearest road at ground level, kerb to kerb and 2 m over)
   const mappedCrossings: { line: [number, number][]; layer?: number }[] = [...crossings];
   for (const cp of crossPoints ?? []) {
+    if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
     if (!cp.marked) continue;
     const [x, y] = cp.at;
     let best: { d: number; dir: [number, number]; w: number } | null = null;
@@ -824,10 +876,15 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
    * road, no stop line on it; the side street gives way. Signals where three or more major arms meet. */
   // A missing external position survey does not remove the simulator's safe
   // junction controller. Only physical signal heads need mapped evidence.
-  const mappedSignalClusters=clusters.map((c,ci)=>!signalLocations||signalLocations.some(s=>
-    clusterEnds[ci].some(e=>roadLevel(paths[e.road])===s.layer)&&Math.hypot(s.at[0]-c.x,s.at[1]-c.y)<=c.r+55&&
-    clusters.every((o,j)=>j===ci||Math.hypot(s.at[0]-c.x,s.at[1]-c.y)<=Math.hypot(s.at[0]-o.x,s.at[1]-o.y))));
-  const armInfo = clusters.map((_, ci) => junctionSignalPolicy(clusterEnds[ci].map(e=>({key:`${e.road}:${e.atStart}`,width:paths[e.road].width}))));
+  const mappedSignalClusters: boolean[] = [], armInfo: ReturnType<typeof junctionSignalPolicy>[] = [];
+  for (let ci = 0; ci < clusters.length; ci++) {
+    if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
+    const c = clusters[ci];
+    mappedSignalClusters.push(!signalLocations||signalLocations.some(s=>
+      clusterEnds[ci].some(e=>roadLevel(paths[e.road])===s.layer)&&Math.hypot(s.at[0]-c.x,s.at[1]-c.y)<=c.r+55&&
+      clusters.every((o,j)=>j===ci||Math.hypot(s.at[0]-c.x,s.at[1]-c.y)<=Math.hypot(s.at[0]-o.x,s.at[1]-o.y))));
+    armInfo.push(junctionSignalPolicy(clusterEnds[ci].map(e=>({key:`${e.road}:${e.atStart}`,width:paths[e.road].width}))));
+  }
   /** Where a mapped crossing crosses a road, in metres from the end `atStart` (within lo–hi), or null. */
   const crossingOn = (road: number, atStart: boolean, lo: number, hi: number): number | null => {
     const p = paths[road];
@@ -1003,7 +1060,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     ]),
   ];
   const kinds: ReturnType<typeof K>[] = [];
-  let slice = performance.now();
+  slice = performance.now();
   for (const make of makers) {
     // (a slice a kind or two: some take several ms the first time — 45 kinds now)
     if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }

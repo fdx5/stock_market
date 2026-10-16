@@ -140,7 +140,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
   // (a few ms at a time: all the runs at once held the page ~45 ms)
   let slice = performance.now();
   for (const r of runs) {
-    if (performance.now() - slice > 6) { await frameSlice(); slice = performance.now(); }
+    if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
     const n = r.cum.length;
     ({ pos, uv, nor } = styled[styleOf(r.road)]);
     // the guide strip: 30 cm, a little past the middle of a pavement 2.6 m or wider
