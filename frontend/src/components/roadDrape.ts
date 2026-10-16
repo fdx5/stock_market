@@ -160,6 +160,10 @@ export async function drapeRoadSurface(road: THREE.BufferGeometry,ground: THREE.
     const triangle:Point[]=[0,1,2].map(i=>[source.getX(k+i),-source.getZ(k+i)]);
     const heights=[0,1,2].map(i=>source.getY(k+i)),area=cross(triangle[0],triangle[1],triangle[2]);
     if(Math.abs(area)<1e-9)continue;
+    if(sourceLevels?.getX(k)){
+      for(let i=0;i<3;i++){const p=triangle[i];positions.push(p[0],heights[i],-p[1]);uv.push(p[0]/4,p[1]/4);levels.push(sourceLevels.getX(k));if(sourceProfiles)profiles.push(sourceProfiles.getX(k));}
+      continue;
+    }
     const roadAt=(p:Point)=>{
       const u=cross(triangle[0],p,triangle[2])/area,v=cross(triangle[0],triangle[1],p)/area;
       return heights[0]*(1-u-v)+heights[1]*u+heights[2]*v;

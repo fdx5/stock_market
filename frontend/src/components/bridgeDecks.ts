@@ -14,6 +14,7 @@ export function chainDeckRoads(
     deck?: { w: number; off: number; lanes: number; twoWay: boolean } }[],
   gap = 120,
   ext = 3,
+  approaches: {line:number[][]}[] = [],
 ): { decks: { chain: string; line: number[][]; width: number; lanes: number; twoWay: boolean }[]; taken: boolean[] } {
   type C = (typeof chains)[number];
   const byKey = new Map<string, C>();
@@ -68,6 +69,29 @@ export function chainDeckRoads(
     const cq = cum(c), oq = cum(o), ct = cq[cq.length - 1], ot = oq[oq.length - 1];
     const ca = at(c, 0, c.deck!.off), cb = at(c, ct, c.deck!.off), oa = at(o, 0, o.deck!.off), ob = at(o, ot, o.deck!.off);
     const distance = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    // Directional links share a surveyed carriageway even when their bank
+    // extensions finish at different nodes. Compare the actual bridge core,
+    // in both directions, rather than rejecting it on those approach endpoints.
+    if (c.core && o.core) {
+      let hits = 0;const differences:number[]=[];
+      for (const [a, b] of [[c, o], [o, c]]) {
+        const core = a.core!;
+        for (let k = 0; k < 10; k++) {
+          const station = core[0] + (core[1] - core[0]) * ((k + .5) / 10);
+          const point = at(a, station, a.deck!.off), p = along(b, point[0], point[1]);
+          const ap = along(a, point[0], point[1]);
+          if (ap.tx * p.tx + ap.ty * p.ty > -.9) return false;
+          const az = height(a, station), bz = height(b, p.s);
+          if (az!==null&&bz!==null)differences.push(Math.abs(az-bz));
+          if (distance(point, at(b, p.s, b.deck!.off)) <= 3) hits++;
+        }
+      }
+      differences.sort((a,b)=>a-b);
+      // Profiles are DEM bank estimates, not measured deck elevations. A few
+      // differing bank samples must not create overlapping opposite slabs.
+      // Consistently separated storeys still remain independent.
+      return hits >= 18 && (!differences.length || differences[Math.floor(differences.length/2)]<1.5&&differences[differences.length-1]<4.5);
+    }
     if (Math.min(Math.max(distance(ca, oa), distance(cb, ob)), Math.max(distance(ca, ob), distance(cb, oa))) > 3) return false;
     for (const [a, b, total] of [[c, o, ct], [o, c, ot]] as [C, C, number][]) {
       for (const fraction of [0, .25, .5, .75, 1]) {
@@ -85,9 +109,11 @@ export function chainDeckRoads(
     let h = home.get(c);
     if (h) return h;
     h = c;
-    if (c.deck!.twoWay) {
+    {
       for (const o of byKey.values()) {
-        if (o === c || !o.deck!.twoWay || o.ids[0] >= h.ids[0]) continue;
+        if (o === c) continue;
+        const oq=cum(o),hq=cum(h),ol=oq[oq.length-1],hl=hq[hq.length-1];
+        if(ol<hl-3||Math.abs(ol-hl)<=3&&o.ids[0]>=h.ids[0])continue;
         if (sameDeck(c, o)) h = o;
       }
     }
@@ -99,7 +125,7 @@ export function chainDeckRoads(
   // pieces or a tile contains none. Only the confirmed chain supplies its shape.
   for (const c of byKey.values()) {
     if (!c.core || !c.core.every(Number.isFinite)) continue;
-    const q = cum(c), total = q[q.length - 1], a = Math.max(0, c.core[0]), b = Math.min(total, c.core[1]);
+    const q = cum(c), total = q[q.length - 1], a = 0, b = total;
     if (b - a < 1) continue;
     const h = homeOf(c), p = at(c, a, c.deck!.off), r = at(c, b, c.deck!.off);
     const s0 = along(h, p[0], p[1]).s, s1 = along(h, r[0], r[1]).s;
@@ -127,10 +153,53 @@ export function chainDeckRoads(
       // (a little past each end, under the road it meets: no seam open between them)
       const s0 = Math.max(0, s0r - ext), s1 = Math.min(total, s1r + ext);
       if (s1 - s0 < 1) continue;
-      const line: number[][] = [at(c, s0, c.deck!.off)];
-      for (let i = 1; i < q.length - 1; i++) if (q[i] > s0 + 0.5 && q[i] < s1 - 0.5) line.push(at(c, q[i], c.deck!.off));
-      line.push(at(c, s1, c.deck!.off));
-      decks.push({ chain: c.ids[0], line, width: c.deck!.w, lanes: c.deck!.lanes, twoWay: c.deck!.twoWay });
+      const knots=[s0,...q.filter(s=>s>s0+.5&&s<s1-.5),s1];
+      if(approaches.length){const band=Math.min(90,(s1-s0)/4);for(const f of [.25,.5,.75,1])knots.push(s0+band*f,s1-band*f);}
+      knots.sort((a,b)=>a-b);
+      const line:number[][]=knots.filter((s,i)=>!i||s-knots[i-1]>1e-6).map(s=>at(c,s,c.deck!.off));
+      // Meet a surveyed bank endpoint exactly. Only an outward continuation
+      // within one lane is eligible; nearby parallel roads and XY crossings
+      // cannot pull the bridge sideways or create an intersection.
+      for (const begin of [true, false]) {
+        const k = begin ? 0 : line.length - 1, p = line[k], inside = line[begin ? 1 : k - 1];
+        const dx = inside[0] - p[0], dy = inside[1] - p[1], length = Math.hypot(dx, dy);
+        let best = 22, endpoint:number[]|undefined;
+        for (const road of approaches) for (let j=1;j<road.line.length;j++) {
+          const a=road.line[j-1],b=road.line[j],ex=b[0]-a[0],ey=b[1]-a[1],l=Math.hypot(ex,ey);
+          if (!l || Math.abs(dx*ex+dy*ey)/(length*l||1)<.9) continue;
+          const t=Math.max(0,Math.min(1,((p[0]-a[0])*ex+(p[1]-a[1])*ey)/(l*l)));
+          // The approach must actually continue beyond the bank, not end below
+          // the bridge's interior. The bank can be inside an unsplit source road.
+          const outward=(q:number[])=>(q[0]-p[0])*dx+(q[1]-p[1])*dy;
+          if(Math.min(outward(a),outward(b))>=-.5*length)continue;
+          const point=[a[0]+ex*t,a[1]+ey*t],d=Math.hypot(point[0]-p[0],point[1]-p[1]);
+          const lateral=Math.abs((point[0]-p[0])*dy-(point[1]-p[1])*dx)/(length||1);
+          if(lateral>Math.min(10,Math.max(4,c.deck!.w/2)))continue;
+          if(d<best){best=d;endpoint=point;}
+        }
+        if (endpoint) {
+          const ex=endpoint[0]-p[0],ey=endpoint[1]-p[1],band=Math.min(90,(s1-s0)/4);
+          let walked=0,previous=[...p];
+          for(let j=k;j>=0&&j<line.length;j+=begin?1:-1){
+            const point=[...line[j]];if(j!==k)walked+=Math.hypot(point[0]-previous[0],point[1]-previous[1]);previous=point;
+            if(walked>=band)break;
+            const u=walked/(band||1),blend=1-3*u*u+2*u*u*u;
+            line[j]=[point[0]+ex*blend,point[1]+ey*blend];
+          }
+        }
+      }
+      const shared = [...byKey.values()].some(o => o !== c && sameDeck(c, o));
+      const separated=[...byKey.values()].some(o=>{
+        if(o===c||!c.core||!o.core)return false;
+        let hits=0;const edge=(c.deck!.w+o.deck!.w)/2;
+        for(const f of [.1,.3,.5,.7,.9]){
+          const point=at(c,c.core[0]+(c.core[1]-c.core[0])*f,c.deck!.off),p=along(o,point[0],point[1]),a=along(c,point[0],point[1]);
+          const d=Math.hypot(point[0]-at(o,p.s,o.deck!.off)[0],point[1]-at(o,p.s,o.deck!.off)[1]);
+          if(a.tx*p.tx+a.ty*p.ty<-.9&&d>=edge-.5&&d<=edge+12)hits++;
+        }return hits>=3;
+      });
+      decks.push({ chain: c.ids[0], line, width: c.deck!.w, lanes: c.deck!.lanes,
+        twoWay: shared || c.deck!.twoWay&&!separated });
     }
   }
   return { decks, taken };

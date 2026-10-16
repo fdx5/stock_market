@@ -53,6 +53,24 @@ export function surfaceGeometryRules(){
     for(const[p,q]of [[-dx,a[0]-box[0]],[dx,box[2]-a[0]],[-dy,a[1]-box[1]],[dy,box[3]-a[1]]]){if(Math.abs(p)<1e-8){if(q<0)return null;}else if(p<0)lo=Math.max(lo,q/p);else hi=Math.min(hi,q/p);}
     return hi-lo>1e-8?{lo,hi,a:[a[0]+dx*lo,a[1]+dy*lo],b:[a[0]+dx*hi,a[1]+dy*hi]}:null;
   };
-  return {miters,along,profileHeight,profileAt,clipSegment,surfaceLift:.08,paintLift:.16,step:3};
+  /** A parallel source strip wholly replaced by a confirmed continuous deck.
+   * Reject transverse roads, separate carriageways and every point past a bank. */
+  const deckCoversLine=(line:number[][],deck:number[][],half:number)=>{
+    if(line.length<2||deck.length<2)return false;
+    for(let k=1;k<line.length;k++){
+      const a=line[k-1],b=line[k],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);if(!length)continue;
+      const count=Math.max(1,Math.ceil(length/8));
+      for(let n=0;n<=count;n++){
+        const x=a[0]+dx*n/count,y=a[1]+dy*n/count;let distance=Infinity,tx=0,ty=0,station=0,segment=0;
+        for(let i=1;i<deck.length;i++){
+          const p=deck[i-1],q=deck[i],ex=q[0]-p[0],ey=q[1]-p[1],l=Math.hypot(ex,ey);if(!l)continue;
+          const raw=((x-p[0])*ex+(y-p[1])*ey)/(l*l),t=Math.max(0,Math.min(1,raw)),d=Math.hypot(x-p[0]-ex*t,y-p[1]-ey*t);
+          if(d<distance){distance=d;tx=ex/l;ty=ey/l;station=raw;segment=i;}
+        }
+        if(distance>half+.2||Math.abs(tx*dx+ty*dy)/length<.9||segment===1&&station<-.001||segment===deck.length-1&&station>1.001)return false;
+      }
+    }return true;
+  };
+  return {miters,along,profileHeight,profileAt,clipSegment,deckCoversLine,surfaceLift:.08,paintLift:.16,step:3};
 }
 export const surfaceGeometry=surfaceGeometryRules();

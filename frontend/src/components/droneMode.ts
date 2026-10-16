@@ -56,6 +56,7 @@ export class DroneSession {
   private sky = 0;
   private hudAt = 0;
   private stationLabels:DroneLabel[]|undefined;
+  private bridgeLabels:readonly DroneLabel[]|undefined;
 
   constructor(private readonly p: {
     scene: THREE.Scene; camera: THREE.PerspectiveCamera; ground: THREE.Mesh | null; terrain: Terrain;
@@ -68,6 +69,7 @@ export class DroneSession {
     viewBuildings?: () => DroneViewBuildings | undefined;
     nearBuildings?: () => NearBuildingSource | undefined;
     stationLabels?:()=>DroneLabel[]|undefined;
+    bridgeLabels?:()=>readonly DroneLabel[];
     onSeaReady?:(field:WaterField)=>void;
     /** the view's own water (its rivers' field), once it is made */
     viewRiver?:()=>WaterField|null;
@@ -336,6 +338,8 @@ export class DroneSession {
     this.p.camera.updateMatrixWorld();
     const stations=this.p.stationLabels?.();
     if(stations!==this.stationLabels){this.stationLabels=stations;this.signs.set('surface-stations',stations??null);}
+    const bridges=this.p.bridgeLabels?.();
+    if(bridges!==this.bridgeLabels){this.bridgeLabels=bridges;this.signs.set('view-bridges',bridges?[...bridges]:null);}
     this.signs.draw(this.p.camera, viewW, viewH, [R * 0.72, R * 0.98]);
     const now = performance.now();
     // (where a frame's time goes: flight, world, cars, people, signs — the worst of each a second)

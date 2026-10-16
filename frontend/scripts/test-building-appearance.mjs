@@ -8,6 +8,13 @@ const source=readFileSync(new URL('../src/components/buildingAppearance.ts',impo
 const scope={THREE,module:{exports:{}},exports:{}};
 vm.runInNewContext(transformSync(source.replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);
 const {buildingAppearanceProfile:profile,applyBuildingAppearance:apply,surveyedAppearance,observedRoofColour}=scope.module.exports;
+test('night lighting identities vary independently from the eight facade palettes and survive GPU packing',()=>{
+ const profiles=Array.from({length:128},(_,i)=>profile({id:'night-building-'+i,height:60,floors:20,use:'02000'}));
+ assert.ok(new Set(profiles.map(p=>p.lightSeed)).size>110);
+ for(const p of profiles){const g=new THREE.BoxGeometry(1,1,1);apply(g,p,0);const packed=g.attributes.facade.getY(0);
+  assert.equal(Math.floor(packed%8),p.variant);assert.equal(Math.floor(packed/8),p.layout??0);
+  assert.ok(Math.abs((packed-Math.floor(packed))/.99-p.lightSeed)<.00001);g.dispose();}
+});
 const priority=await build({entryPoints:[new URL('../src/components/droneLoadPriority.ts',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')],bundle:true,write:false,platform:'node',format:'esm'});
 const {droneLoadPriority:rank}=await import('data:text/javascript;base64,'+Buffer.from(priority.outputFiles[0].text).toString('base64'));
 test('registered use and structure constrain distinct finishes without photos',()=>{
@@ -110,9 +117,9 @@ test('low-rise layouts reuse existing attributes and survive measured replacemen
  const input=Array.from({length:64},(_,i)=>profile({id:'lowrise-'+i,height:12,floors:4,structureName:'벽돌조'})).find(p=>p.layout>0);
  const g=new THREE.BoxGeometry(5,6,12),position=g.attributes.position,normal=g.attributes.normal,index=g.index;
  apply(g,input,0);
- assert.equal(g.attributes.facade.itemSize,4);assert.equal(g.attributes.facade.getY(0),input.variant+input.layout*8);
+ assert.equal(g.attributes.facade.itemSize,4);assert.equal(Math.floor(g.attributes.facade.getY(0)),input.variant+input.layout*8);
  assert.equal(g.attributes.position,position);assert.equal(g.attributes.normal,normal);assert.equal(g.index,index);
  const measured=surveyedAppearance(input,18);
  assert.equal(measured.layout,input.layout);assert.equal(measured.floors,4);assert.equal(measured.finish,1);assert.equal(measured.storey,4.5);
- apply(g,measured,0,true);assert.equal(g.attributes.facade.getY(0),input.variant+input.layout*8);
+ apply(g,measured,0,true);assert.equal(Math.floor(g.attributes.facade.getY(0)),input.variant+input.layout*8);
 });

@@ -53,11 +53,13 @@ export function stitchRoadSegments(input:RealEstateRoad[]):RealEstateRoad[]{
    if(a.i===b.i||used.has(a.i)||used.has(b.i)||distance(a.p,b.p)>cell)continue;
    const ra=roads[a.i],rb=roads[b.i],level=roadLevel(ra);
    if(ra.lanes!==rb.lanes||Math.abs(ra.width-rb.width)>4)continue;
+   if(!!ra.oneway!==!!rb.oneway||ra.oneway&&a.start===b.start)continue;
+   if((ra.profile_z||rb.profile_z)&&ra.profile_line!==rb.profile_line)continue;
    if(level!==0&&(ra.structure!==rb.structure||roadProfileKey(ra)!==roadProfileKey(rb)))continue;
    const la=a.start?[...ra.line].reverse():ra.line,lb=b.start?rb.line:[...rb.line].reverse();
    // Keep both surveyed coordinates across a small gap; never drop the next bend.
    const line=[...la,...(distance(a.p,b.p)<1e-7?lb.slice(1):lb)];
-   next.push({...ra,...(!ra.lift_z&&rb.lift_z?{lift_line:rb.lift_line,lift_s:rb.lift_s,lift_z:rb.lift_z}:{}),line,width:Math.max(ra.width,rb.width),structure:ra.structure===rb.structure?ra.structure:'unknown',
+   next.push({...ra,...(!ra.lift_z&&rb.lift_z?{lift_line:rb.lift_line,lift_s:rb.lift_s,lift_z:rb.lift_z}:{}),line:ra.oneway&&a.start?[...line].reverse():line,width:Math.max(ra.width,rb.width),structure:ra.structure===rb.structure?ra.structure:'unknown',
     id:ra.id||rb.id?`${ra.id??JSON.stringify(ra.line)}|${rb.id??JSON.stringify(rb.line)}`:undefined});
    used.add(a.i);used.add(b.i);
   }
@@ -127,6 +129,7 @@ export function roadHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
 }
 const heightMemo=new WeakMap<object,WeakMap<RealEstateRoad,Map<number,number>>>();
 function groundRoadSurfaceHeight(r:RealEstateRoad,t:Terrain,x:number,y:number){
+ if(r.profile_line&&r.profile_s&&r.profile_z){const h=surfaceGeometry.profileAt(r.profile_line,r.profile_s,r.profile_z,x,y),water=t.waterAt?.(x,y);return water==null?h:Math.max(h,water+.3);}
  let g=t.at(x,y);
  // (the water's surface in it too: where the road runs on into the water's area, it rises over it
  // along that same ±16 m — never a step up at the water's edge)

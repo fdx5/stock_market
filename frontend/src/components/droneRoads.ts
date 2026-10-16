@@ -46,6 +46,8 @@ export type RoadTileResult = {
   junctions: Arr | null;
   /** lanes: [n, road width, x0, y0, z0, x1, y1, z1, …] one after another (view frame, z the road's height) */
   lanes: Float32Array;
+  /** Confirmed physical bank junctions, x/y pairs in the shared view frame. */
+  banks: Float32Array;
   /** per lane (in `lanes` order): [m, s, junction, phase, …] — the stop lines of signalled junctions it meets */
   stops: Float32Array; signals: number;
   roads: number; bridges: number; ms: number;
@@ -267,6 +269,7 @@ function roadWorkerMain() {
         }
       }
     }
+    const bankPoints:number[]=[];
     // One deck per bridge (bridgeDecks.ts, the view's rule too): the stretches of the lines on a
     // bridge's chain are not drawn piece by piece, each its own width — one road along the chain's
     // line, its deck's width, offset and lanes, the same in every tile.
@@ -279,12 +282,16 @@ function roadWorkerMain() {
         for(let i=0;i<pts.length;){
           const k=key(i);if(!k){i++;continue;}
           let j=i;while(j+1<pts.length&&key(j+1)===k)j++;
-          if(j>i){spans.push({chain:k,line:pts.slice(i,j+1)});at.push({rec,i0:i,i1:j});}
+          const i0=Math.max(0,i-1),i1=Math.min(pts.length-1,j+1);
+          if(i1>i0){spans.push({chain:k,line:pts.slice(i0,i1+1)});at.push({rec,i0,i1});}
           i=j+1;
         }
       });
       if(spans.length || decked.size){
-        const {decks,taken}=(self as unknown as {__chainDecks:typeof chainDeckRoads}).__chainDecks(spans,e.data.chains!);
+        const banks:{line:number[][]}[]=[];
+        for(const {pts,kind} of prepared)for(let i=0;i<pts.length-1;i++)
+          if(kind[i]===0&&kind[i+1]===0)banks.push({line:[pts[i],pts[i+1]]});
+        const {decks,taken}=(self as unknown as {__chainDecks:typeof chainDeckRoads}).__chainDecks(spans,e.data.chains!,120,3,banks);
         const cut=new Map<number,{i0:number;i1:number}[]>();
         at.forEach((a,k)=>{if(!taken[k])return;let l=cut.get(a.rec);if(!l)cut.set(a.rec,l=[]);l.push(a);});
         const next:typeof prepared=[];
@@ -303,11 +310,12 @@ function roadWorkerMain() {
           };
           cuts.sort((x,y)=>x.i0-y.i0);
           let from=0;
-          for(const c of cuts){keep(from,c.i0);from=c.i1;}
+          for(const c of cuts){keep(from,c.i0);from=Math.max(from,c.i1);}
           keep(from,record.pts.length-1);
         });
         const chainSeg=new Map<string,Seg>();
         for(const d of decks){
+          bankPoints.push(...d.line[0],...d.line[d.line.length-1]);
           const c=(e.data.chains??[]).find(q=>q.ids[0]===d.chain)!;
           let o=chainSeg.get(d.chain);
           if(!o){const l=c.line;o={ax:l[0][0],ay:l[0][1],bx:l[l.length-1][0],by:l[l.length-1][1],kind:1,id:c.ids[0],line:l};chainSeg.set(d.chain,o);}
@@ -318,7 +326,39 @@ function roadWorkerMain() {
           const r:Road={line:pts,width:d.width,lanes:d.lanes,oneway:!d.twoWay};roads.push(r);
           next.push({r,pts,owners:pts.map(()=>o!),kind:pts.map(()=>1)});
         }
-        prepared.splice(0,prepared.length,...next);
+        // A bank can land inside an unsplit base-map road. Split its ground
+        // record there so the rendered surface AND outgoing lane paths share
+        // that endpoint; an XY overpass crossing never enters this list.
+        const bankEnds=decks.flatMap(d=>[d.line[0],d.line[d.line.length-1]]);
+        const joined:typeof prepared=[];
+        for(const record of next){
+          const {pts,kind,owners}=record,cuts:{k:number;t:number;p:number[]}[]=[];
+          for(const p of bankEnds){
+            for(let k=1;k<pts.length;k++){
+              if(kind[k-1]!==0||kind[k]!==0)continue;
+              const a=pts[k-1],b=pts[k],dx=b[0]-a[0],dy=b[1]-a[1],l2=dx*dx+dy*dy;
+              if(!l2)continue;
+              const t=((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l2;
+              if(t<0||t>1||Math.hypot(a[0]+dx*t-p[0],a[1]+dy*t-p[1])>1e-4)continue;
+              if(k===1&&t<1e-4||k===pts.length-1&&t>1-1e-4)break;
+              if(!cuts.some(c=>Math.hypot(c.p[0]-p[0],c.p[1]-p[1])<.1))cuts.push({k,t,p});
+              break;
+            }
+          }
+          if(!cuts.length){joined.push(record);continue;}
+          cuts.sort((a,b)=>a.k+a.t-b.k-b.t);
+          let line=[pts[0]],ks=[kind[0]],os=[owners[0]],cut=0;
+          const flush=()=>{if(line.length>1)joined.push({r:{...record.r,line},pts:line,kind:ks,owners:os});};
+          for(let k=1;k<pts.length;k++){
+            while(cut<cuts.length&&cuts[cut].k===k){const p=cuts[cut++].p;
+              if(Math.hypot(line[line.length-1][0]-p[0],line[line.length-1][1]-p[1])>.001){line.push(p);ks.push(0);os.push(owners[k-1]);}
+              flush();line=[p];ks=[0];os=[owners[k-1]];
+            }
+            if(Math.hypot(line[line.length-1][0]-pts[k][0],line[line.length-1][1]-pts[k][1])>.001){line.push(pts[k]);ks.push(kind[k]);os.push(owners[k]);}
+          }
+          flush();
+        }
+        prepared.splice(0,prepared.length,...joined.filter(r=>!r.kind.every(k=>k===0)||!decks.some(d=>r.r.width<=d.width*1.2&&rules.deckCoversLine(r.pts,d.line,d.width/2))));
       }
     }
     const insideRing=(ring:number[][],x:number,y:number)=>{let odd=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])odd=!odd;}return odd;};
@@ -359,13 +399,12 @@ function roadWorkerMain() {
       if (!pts.some(near)) continue;
       const z = pts.map((p,i)=>{const o=owners[i];return !o||kind[i]<=0?ground(p[0],p[1]):ownerHeight(o,p[0],p[1]);});
       // A road at grade is laid smooth along its length: the relief's dips under it (a 4 m
-      // grid's hollows, a culvert) are filled to the road's ±12 m mean — never lowered under the
-      // ground — and where it meets a deck it climbs to it at 6 % at most, never a sheer drop
-      // (where the base map's line leaves the official bridge link a few metres early).
+      // grid's hollows, a culvert) are smoothed within its own road corridor.
+      // Confirmed bridge banks are joined separately; ordinary roads never
+      // inherit the height of another road or an overhead deck.
       {
         // (the ground under it is cut to the road — the tile's grid, below — so the road is no
         // longer lifted onto each post of the relief: smooth along ±16 m, a filled dip kept filled)
-        const GRADE = 0.06 * rules.step;
         for (let i = 0; i < z.length;) {
           if (kind[i] !== 0) { i++; continue; }
           let end = i; while (end + 1 < z.length && kind[end + 1] === 0) end++;
@@ -404,11 +443,6 @@ function roadWorkerMain() {
             i = j + 1;
           }
         }
-        // (a deck whose link ends low — in a dip, short of the bank — is lifted to the road it meets
-        // the same way; a deck is never lowered, the landmark bridge's own deck never touched)
-        const base = z.slice(), lifts = (from: number, to: number) => kind[to] === 0 ? kind[from] >= 0 && kind[from] !== 3 : kind[to] > 0 && kind[to] !== 3 && (kind[from] === 0 || z[from] > base[from] + 1e-6);
-        for (let i = 1; i < z.length; i++) if (lifts(i - 1, i)) z[i] = Math.max(z[i], z[i - 1] - GRADE);
-        for (let i = z.length - 2; i >= 0; i--) if (lifts(i + 1, i)) z[i] = Math.max(z[i], z[i + 1] - GRADE);
       }
       // (on the landmark deck: its height, kind 3 — no slab or piers of ours under it)
       pts.forEach((p, k) => {
@@ -438,6 +472,21 @@ function roadWorkerMain() {
         if(!run.length)push(hit.a,hit.lo);push(hit.b,hit.hi);if(hit.hi<1-1e-7)flush();
       }
       flush();
+    }
+    // Every ground arm at a confirmed bank shares the measured terrain node.
+    // River-fill smoothing on one arm must not leave a separate height for the
+    // incoming arm. Ease only these bank endpoints back to their own grade.
+    for(const r of pieces)for(const begin of [true,false]){
+      const end=begin?0:r.line.length-1,p=r.line[end];if(r.kind[end]!==0)continue;
+      let bank:number[]|undefined;
+      for(let i=0;i<bankPoints.length;i+=2)if(Math.hypot(p[0]-bankPoints[i],p[1]-bankPoints[i+1])<.15){bank=[bankPoints[i],bankPoints[i+1]];break;}
+      if(!bank)continue;
+      const delta=ground(bank[0],bank[1])-r.z[end];let walked=0;
+      for(let k=end;k>=0&&k<r.line.length;k+=begin?1:-1){
+        if(k!==end){const j=k+(begin?-1:1);walked+=Math.hypot(r.line[k][0]-r.line[j][0],r.line[k][1]-r.line[j][1]);}
+        if(walked>=16||r.kind[k]!==0)break;
+        const u=walked/16;r.z[k]+=delta*(1-3*u*u+2*u*u*u);
+      }
     }
     // Junctions: a point of one road on another road's carriageway (another road, on the same
     // level — a bridge over a road is no junction).
@@ -659,27 +708,9 @@ function roadWorkerMain() {
           }
         }
       }
-      // A road at grade raised over the ground (a bridge's approach laid along its deck, a ramp
-      // eased up to it): its embankment's retaining walls down to the ground on both sides, as an
-      // approach stands — not a ribbon of road in the air. (Through a junction, or on another
-      // road's lanes, none.)
-      for (let k = 0; k < r.line.length - 1; k++) {
-        const kb = k + 1;
-        if (r.kind[k] < 0 || r.kind[kb] < 0 || r.kind[k] === 3 || r.kind[kb] === 3 || (r.kind[k] > 0 && r.kind[kb] > 0) || r.jn[k] || r.jn[kb]) continue;
-        const A = r.line[k], B = r.line[kb], na = normalAt(r.line, k), nb = normalAt(r.line, kb);
-        const liftA = r.z[k] - ground(A[0], A[1]), liftB = r.z[kb] - ground(B[0], B[1]);
-        if (Math.max(liftA, liftB) < 0.6) continue;
-        for (const side of [-1, 1]) {
-          if (open[side][k]) continue;
-          const h = w / 2 + sw + 0.3;
-          const a0 = [A[0] + na[0] * side * h, A[1] + na[1] * side * h], b0 = [B[0] + nb[0] * side * h, B[1] + nb[1] * side * h];
-          const ga = ground(a0[0], a0[1]), gb = ground(b0[0], b0[1]);
-          const ta = ga + Math.max(0, liftA) + rules.surfaceLift + (sw ? 0.15 : 0), tb = gb + Math.max(0, liftB) + rules.surfaceLift + (sw ? 0.15 : 0);
-          const o = side > 0 ? [a0, b0] : [b0, a0], top = side > 0 ? [ta, tb] : [tb, ta], bot = side > 0 ? [ga - 0.5, gb - 0.5] : [gb - 0.5, ga - 0.5];
-          quad([o[0][0], o[0][1], bot[0]], [o[1][0], o[1][1], bot[1]], [o[1][0], o[1][1], top[1] + 0.6], [o[0][0], o[0][1], top[0] + 0.6]);
-          quad([o[1][0], o[1][1], top[1] + 0.6], [o[0][0], o[0][1], top[0] + 0.6], [o[0][0] - na[0] * side * 0.3, o[0][1] - na[1] * side * 0.3, top[0] + 0.6], [o[1][0] - nb[0] * side * 0.3, o[1][1] - nb[1] * side * 0.3, top[1] + 0.6]);
-        }
-      }
+      // Ground roads have no generated retaining walls. Confirmed bridge chains
+      // include their surveyed bank extensions above and use the same spaced
+      // piers as the river deck; a smoothed ordinary road never becomes a wall.
       // Sidewalks on the roads of 8 m and up (on a bridge too — not along a tunnel): paving 15 cm
       // over the road, ~15 % of its width (1.8–4 m), a kerb face along the road's edge at grade;
       // their middle lines for the people.
@@ -908,9 +939,9 @@ function roadWorkerMain() {
       stops.push(order.length); for (const q of order) stops.push(found[q * 3], found[q * 3 + 1], found[q * 3 + 2]);
       k += 2 + n * 3;
     }
-    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
+    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, banks:new Float32Array(bankPoints), stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
     for(const a of [out.surface,out.marks,out.marksFar,out.structure,out.walks])if(a)for(const value of Object.values(a))if(value instanceof Float32Array||value instanceof Uint32Array)transfer.push(value.buffer as ArrayBuffer);
-    transfer.push(out.lanes.buffer, out.stops.buffer, out.walkPaths.buffer, out.streetTrees.buffer, out.clear.buffer);
+    transfer.push(out.lanes.buffer, out.banks.buffer, out.stops.buffer, out.walkPaths.buffer, out.streetTrees.buffer, out.clear.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
     }catch{(self as unknown as Worker).postMessage(null);}
   };

@@ -33,7 +33,12 @@ export function groundRoadGrade() {
       const p = center + d;
       sum += p < 0 ? start + startSlope * p : p > total ? end + endSlope * (p - total) : at(p);
     }
-    return sum / 9;
+    // Independent pieces meeting at the same surveyed node must agree there.
+    // A truncated smoothing window used to give each piece its own bank height
+    // (metres apart on a slope), breaking otherwise connected traffic lanes.
+    const edge = Math.min(center, total - center), t = Math.min(1, edge / 16);
+    const blend = t * t * (3 - 2 * t);
+    return at(center) * (1 - blend) + (sum / 9) * blend;
   };
 }
 

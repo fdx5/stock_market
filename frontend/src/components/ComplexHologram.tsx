@@ -24,6 +24,8 @@ import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyC
 import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, vworldRoadFootprints, vworldRoadContext, prefetchRoadContext, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
 import {roadHeight,roadLevel,roadProfileKey} from './roadLevels';
 import {roadApproachTerrain} from './roadApproaches';
+import {bridgeNameLabels} from './bridgeNames';
+import {DroneSigns} from './droneSigns';
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
@@ -235,6 +237,7 @@ type Stage = {
     aim?: THREE.Vector3 } | null;
   /** Place the complexes' name signs (a canvas over the view) for this frame's camera. */
   signs: ((camera: THREE.PerspectiveCamera, w: number, h: number) => void) | null;
+  bridgeSigns: DroneSigns;
   /** The traffic (once made). */
   traffic: Awaited<ReturnType<typeof buildTraffic>> | null;
   /** the road surface's finer asphalt while driving */
@@ -341,7 +344,7 @@ function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEs
   // A result kept from an earlier visit (buildingStore) already carries its roads as corrected here,
   // their structures and the footprints they were fitted to: asked again, the roads, their context
   // and ~8 pages of footprints were ~1.8 s before the view's first frame on every return.
-  if (res.road_context && res.road_building_footprints?.length && res.roads?.length) return Promise.resolve(res);
+  if (res.road_context?.source.endsWith('deck-v3') && res.road_building_footprints?.length && res.roads?.length) return Promise.resolve(res);
   // firstLook starts this job before the selection effect awaits it. Reuse it
   // before launching footprint pagination; checking later issued a second full
   // footprint download even though the second result could never be consumed.
@@ -566,6 +569,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const weatherRef = useRef<Weather>("clear");
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
+  const bridgeSignCanvas = useRef<HTMLCanvasElement>(null);
   const [data, setData] = useState<RealEstateBuildingsResponse | null>(null);
   const [error, setError] = useState("");
   const exploreReady=useRef(onExploreReady);exploreReady.current=onExploreReady;
@@ -999,12 +1003,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       atmos: { hour: hourRef.current, rain: +(weatherRef.current === "rain"), snow: +(weatherRef.current === "snow"),
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
+      bridgeSigns: new DroneSigns(),
       ground: null, model: null, pickables: [], intro: null, fly: null,
       now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null, signs: null, traffic: null, crowds: [], viewH: 600, drone: null, viewTrees: { near: [], far: [] },
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => { if (!obj.userData.sceneDiscarded) parent.add(obj); }); },
       drawReady: obj => native ? native.objectsReady(obj) : !nativePending && !!obj.parent,
     };
     stageRef.current = stage;
+    stage.bridgeSigns.canvas=bridgeSignCanvas.current;
     stage.setDroneSky = (k, fog) => {
       if (native) { native.droneSky = k; native.droneFog = fog; }
       (sky.material.uniforms as Record<string, { value: number }>).uDrone.value = k;
@@ -1181,7 +1187,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       camera.updateMatrixWorld();
       moon.update(camera);
       precip.update(camera, t, H);   // (H from the resize observer: reading clientHeight here forced a page layout every frame)
-      if (!stage.drone) stage.signs?.(camera, W, H);
+      if (!stage.drone) { stage.signs?.(camera, W, H); stage.bridgeSigns.draw(camera,W,H,[2300,3000]); }
 
 
       let droneFrame=false;
@@ -1714,6 +1720,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     stage.viewBuildings = undefined;
     stage.nearBuildings=undefined;
     stage.nearHandoff=undefined;
+    stage.bridgeSigns.set('view',data?.center?bridgeNameLabels(data.center,data.roads??[]):null);
     const came = hopRef.current?.id === complexId && data?.found && data.center && data.buildings.length ? hopRef.current : null;
     hopRef.current = null;
     let shift: THREE.Vector3 | null = null;
@@ -3910,6 +3917,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       viewBuildings: () => st.viewBuildings,
       nearBuildings:()=>st.nearBuildings,
       stationLabels:()=>st.rail?.stationLabels(),
+      bridgeLabels:()=>st.bridgeSigns.all(),
       onSeaReady:field=>st.roadSeaReady?.(field),
       viewRiver:()=>st.viewRiver??null,
       setSky: (k, fog) => st.setDroneSky?.(k, fog), onHud: h => droneHud.current?.(h), setLite: on => st.setDroneLite?.(on),
@@ -4388,6 +4396,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         {fpsOn && <output ref={fpsRef} className="re-holo-fps" aria-live="off" style={{ position:'absolute',right:12,top:72,zIndex:20,padding:'5px 9px',borderRadius:6,background:'rgba(0,0,0,.7)',color:'#d9ffe4',font:'bold 14px ui-monospace, monospace',pointerEvents:'none' }}>FPS 측정 대기</output>}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
         <canvas ref={signCanvas} className="re-holo-signs" aria-hidden="true" style={{ display: !loading && signs.length && !droneOn ? undefined : "none" }} />
+        <canvas ref={bridgeSignCanvas} className="re-holo-signs" aria-label="주요 교량 이름" style={{display:!loading&&!droneOn?undefined:'none',pointerEvents:'none'}} />
         {!loading && signs.length > 0 && (
           <div className="sr-only">
             {signs.filter(sg => !sg.here).map(sg => (

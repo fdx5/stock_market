@@ -20,6 +20,10 @@ async function run(roads,links=[],box=[-100,-100,100,100],g=grid(),options={}){
   await self.onmessage({data:structuredClone({urls:['roads'],linkUrls:['links'],riverUrls:options.riverFeatures?['rivers']:[],lat,lon,box,grid:g,wide:g,...options})});return {out,calls};
 }
 const near=(a,b,t=.0005)=>assert.ok(Math.abs(a-b)<t,`${a} != ${b}`);
+test('ordinary terrain-following roads never generate blanket retaining walls',async()=>{
+ const {out}=await run([road([[-150,0],[150,0]],12)],[],undefined,grid((x,y)=>x*.08+Math.sin(x/13)*2+y*.12));
+ assert.ok(out.surface&&out.lanes.length);assert.equal(out.bridges,0);assert.equal(out.structure,null);
+});
 test('actual streamed worker clears rendered saddle terrain throughout pavement triangles, including junction interiors',async()=>{
  const g=grid((x,y)=>(Math.round(x/4)+Math.round(y/4))%2===0?3:0),{out}=await run([road([[-150,-30],[150,30]],24),road([[0,-150],[0,150]],18)],[],undefined,g);assert.ok(out.surface);
  const h=out.ground??g.h;
@@ -62,10 +66,11 @@ test('streamed bridge shares the level bank carriageway and its longitudinal gra
 
 // The lanes' heights along a straight road on y = 0: [x, z] sorted by x.
 const laneProfile=out=>{const pts=[];for(let o=0;o<out.lanes.length;){const n=out.lanes[o];for(let i=0;i<n;i++)pts.push([out.lanes[o+2+i*3],out.lanes[o+4+i*3]]);o+=2+n*3;}return pts.sort((a,b)=>a[0]-b[0]);};
-test('a road leaving an official deck early climbs to it at 6 % at most, never a sheer drop',async()=>{
+test('a full bank-to-bank bridge profile carries its approaches without raising ordinary ground roads',async()=>{
   // the link is a bridge from x=-60 to 60 over a 10 m deep valley; the centre line runs on 15 m past its ends
   const g=grid((x)=>Math.abs(x)<80?-10:0);
-  const {out}=await run([road([[-150,0],[150,0]])],[link('b',[[-60,0],[60,0]],'교량')],undefined,g);
+  const chains=[{ids:['b'],line:[[-150,0],[150,0]],core:[90,210],s:[0,300],z:[0,0],deck:{w:12,off:0,lanes:3,twoWay:false}}];
+  const {out}=await run([road([[-150,0],[150,0]])],[link('b',[[-60,0],[60,0]],'교량')],undefined,g,{chains});
   // each lane on its own, over 3 m steps (the 6 % limit, with the drape's rounding)
   let checked=0;for(let o=0;o<out.lanes.length;){const n=out.lanes[o],pts=[];for(let i=0;i<n;i++)pts.push([out.lanes[o+2+i*3],out.lanes[o+4+i*3]]);o+=2+n*3;
     for(let i=0,j=0;i<pts.length;i++){while(j<pts.length&&Math.abs(pts[j][0]-pts[i][0])<3)j++;if(j>=pts.length)break;const dx=Math.abs(pts[j][0]-pts[i][0]);checked++;assert.ok(Math.abs(pts[j][1]-pts[i][1])/dx<=0.075,`grade ${((pts[j][1]-pts[i][1])/dx).toFixed(3)} at x=${pts[i][0].toFixed(1)}`);}}

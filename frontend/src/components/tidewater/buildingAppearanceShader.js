@@ -5,7 +5,8 @@ export const BUILDING_APPEARANCE_WGSL = /* wgsl */`{
   let f = in.vs.facade;
   let kind = floor((f.x % 32.0) / 8.0);
   let finish = f.x % 8.0;
-  let variant = f.y % 8.0;
+  let variant = floor(f.y % 8.0);
+  let buildingSeed = fract(f.y) * 8192.0;
   let windowLayout = floor(f.y / 8.0);
   let q = fract(in.uv);
   let footprint = max(fwidth(in.uv), vec2f(0.0001));
@@ -78,7 +79,19 @@ export const BUILDING_APPEARANCE_WGSL = /* wgsl */`{
   s.metalness = mix(metal, 0.0, glazing);
   s.specularIntensity = mix(0.6, 1.35, glazing);
   s.alpha = 1.0;
-  // A restrained interior tint sits behind dynamic physical reflections.
-  let room = fract(sin(dot(floor(in.uv), vec2f(12.9898, 78.233)) + variant * 9.1) * 43758.5453);
-  s.emissive = mat.emissive * vec3f(1.0, 0.8, 0.58) * glazing * select(0.0, 0.32, room > 0.69);
+  // Stable per-building, floor and room variation: no frame-dependent flicker,
+  // repeated eight-building light map, extra lights, textures or draw calls.
+  let cell = floor(in.uv);
+  let building = fract(sin(buildingSeed * 1.71 + 3.7) * 43758.5453);
+  let room = fract(sin(dot(cell, vec2f(12.9898, 78.233)) + buildingSeed) * 43758.5453);
+  let floorLight = fract(sin(cell.y * 17.71 + buildingSeed * 2.3) * 15731.743);
+  let suite = fract(sin(dot(floor(cell / vec2f(3.0, 2.0)), vec2f(39.73, 11.13)) + buildingSeed) * 27531.49);
+  let office = select(0.0, 1.0, kind > 2.5);
+  let occupancy = clamp(0.22 + building * 0.32 + office * 0.14 + (floorLight - 0.5) * 0.28 + (suite - 0.5) * 0.3, 0.12, 0.88);
+  let occupied = mix(select(0.0, 1.0, room < occupancy), occupancy, distant);
+  let temperature = fract(building * 2.7 + suite * 0.22 + room * 0.16);
+  let warm = mix(vec3f(1.0, 0.51, 0.22), vec3f(1.0, 0.82, 0.58), smoothstep(0.0, 0.55, temperature));
+  let tint = mix(warm, vec3f(0.70, 0.84, 1.0), smoothstep(0.55, 1.0, temperature));
+  let brightness = (0.24 + building * 0.60 + office * 0.42) * (0.55 + floorLight * 0.50 + room * 0.38);
+  s.emissive = mat.emissive * tint * glazing * occupied * brightness;
 }`;

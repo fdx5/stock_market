@@ -19,10 +19,11 @@ test('an undivided road (two opposite links on one line) becomes one two-way roa
   const out=f([],[{id:'a',kind:0,rank:'지방도',line:[[0,-400],[0,400]]},{id:'b',kind:0,rank:'지방도',line:[[0,400],[0,-400]]}],box);
   assert.equal(out.length,1);assert.equal(out[0].oneway,false);assert.equal(out[0].lanes,2);
 });
-test('tunnels are never drawn; a short uncovered stretch (<30 m) is not a road',()=>{
+test('tunnels stay hidden, while a surveyed 24 m gap is filled instead of severing the road',()=>{
   assert.equal(f([],[{id:'t',kind:-1,rank:'일반국도',line:[[0,-400],[0,400]]}],box).length,0);
   const roads=[{line:[[0,-400],[0,-12]],width:10,lanes:2},{line:[[0,12],[0,400]],width:10,lanes:2}];
-  assert.equal(f(roads,[{id:'a',kind:0,rank:'일반국도',line:[[0,-400],[0,400]]}],box).length,0);
+  const out=f(roads,[{id:'a',kind:0,rank:'일반국도',line:[[0,-400],[0,400]]}],box);
+  assert.equal(out.length,1);assert.ok(out[0].line[0][1]<=-10&&out[0].line.at(-1)[1]>=10);
 });
 test('a gap of 60 m in the centre lines is filled, overlapping both ends',()=>{
   const roads=[{line:[[0,-400],[0,-30]],width:10,lanes:2},{line:[[0,30],[0,400]],width:10,lanes:2}];

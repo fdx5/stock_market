@@ -5,6 +5,12 @@ import {transformSync,build} from 'esbuild';
 const source=readFileSync(new URL('../src/components/roadGroundGrade.ts',import.meta.url),'utf8').replace(/^export /gm,'');
 const {groundRoadGrade,groundRoadHeight}=new Function(transformSync(source,{loader:'ts'}).code+';return {groundRoadGrade,groundRoadHeight}')();
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
+test('separate surveyed roads agree at a shared terrain node even with unequal slopes and curvature',()=>{
+ const ground=(x,y)=>10+x*.04+y*.1+Math.sin(x/7)*2;
+ const left=[[-80,0],[-10,0],[0,0]],right=[[0,0],[5,8],[10,60]];
+ near(groundRoadHeight(left,80,ground),groundRoadHeight(right,0,ground));
+ near(groundRoadHeight(right,0,ground),ground(0,0));
+});
 
 test('a bank approach never averages terrain beyond its physical end into the road',()=>{
  const line=[[-50,2],[0,2]],g=(x,y)=>x<=0?12+.05*x+.2*y:0;

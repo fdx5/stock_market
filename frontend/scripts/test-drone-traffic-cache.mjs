@@ -27,6 +27,23 @@ test('lane choices and complete traffic frames remain deterministic across tile 
 });
 
 const one=(a,b)=>Float32Array.from([2,16,...a,...b]);
+test('short surveyed connectors remain in the real traffic network without spawning cars',()=>{
+ const t=new Current(7);t.addTile('short',one([0,0,0],[3,0,0]));
+ const lane=t.lanes.get('short')[0];assert.ok(lane);assert.equal(lane.cars.length,0);assert.equal(lane.len,3);t.dispose();
+});
+test('Float32 duplicate pavement intersections do not erase the heading at a bridge bank',()=>{
+ const t=new Current(7);t.addTile('from',one([900,0,0],[1000,0,0]));
+ t.addTile('to',Float32Array.from([4,16,1000,0,0,1000,0,0,1000.00001,0,0,1100,0,0]));
+ const from=t.lanes.get('from')[0],to=t.lanes.get('to')[0];assert.equal(to.p.length,6);
+ assert.equal(t.next(1000,0,1,0,from),to);t.dispose();
+});
+test('a confirmed bank allows a three-to-one lane merge; an adjacent or stacked road does not',()=>{
+ for(const [known,z,connected] of [[false,0,false],[true,0,true],[true,7,false]]){
+  const t=new Current(7),bank=known?Float32Array.from([0,0]):undefined;
+  t.addTile('from',one([-100,-5.4,0],[0,-5.4,0]),undefined,bank);t.addTile('to',one([0,0,z],[100,0,z]),undefined,bank);
+  const from=t.lanes.get('from')[0],to=t.lanes.get('to')[0];assert.equal(t.next(0,-5.4,1,0,from),connected?to:null);t.dispose();
+ }
+});
 const isolated=()=>{
  const t=new Current(7);t.addTile('from',one([-100,0,0],[0,0,0]));t.addTile('to',one([0,3.5,0],[100,3.5,0]));
  const from=t.lanes.get('from')[0],to=t.lanes.get('to')[0],car=from.cars[0];

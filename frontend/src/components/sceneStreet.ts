@@ -338,16 +338,17 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     // Lane arrows (노면 방향표시) before each junction, as painted in Seoul: the inner lane turns
     // left, the outer goes straight on and right, the rest straight; a single lane straight and
     // left. Each 5 m long, its tip 3 m behind the stop line.
-    const perSideA = Math.max(1, Math.floor(lanes / 2)), laneWA = r.width / Math.max(2, lanes);
+    const perSideA = Math.max(1,r.oneway?lanes:Math.floor(lanes / 2)), laneWA = r.width / Math.max(r.oneway?1:2, lanes);
     for (const [L, atStart] of [[L0, true], [L1, false]] as const) {
       if (!L || r.width < 5) continue;
+      if(r.oneway&&atStart)continue;
       const tip = atStart ? L.stopB + 3 : total - L.stopB - 3, back = atStart ? 1 : -1;
       if ((atStart ? tip + 6 : total - tip + 6) > total / 2) continue;
       // incoming lanes: the left half of the road (+) toward the start, the right (−) toward the end;
       // the driver's left in road offsets is − going toward the start
       const side = atStart ? 1 : -1, left = atStart ? -1 : 1;
       for (let k = 0; k < perSideA; k++) {
-        const laneOff = side * (k + 0.5) * laneWA;
+        const laneOff = r.oneway?r.width/2-(k+.5)*laneWA:side * (k + 0.5) * laneWA;
         const kind = perSideA === 1 ? "SL" : k === 0 ? "L" : k === perSideA - 1 && perSideA >= 3 ? "SR" : "S";
         for (const poly of arrowPolys(kind)) {
           const w = poly.map(([u, v]) => ptAt(tip + back * u, laneOff + v * left));
@@ -359,10 +360,10 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     // interior separators depend on lane count. Intersection interiors stay clear.
     if (r.width >= 2.4) for (const side of [1, -1]) for(const[a,b]of spans)strip(white, side * (r.width / 2 - 0.3), 0.15,a,b);
     // lane lines each way: dashed white between the lanes
-    for (const side of [1, -1]) {
-      const count=side===1?Math.floor(lanes/2):Math.ceil(lanes/2),laneW=halfW/count;
+    for (const side of r.oneway?[1]:[1, -1]) {
+      const count=r.oneway?lanes:side===1?Math.floor(lanes/2):Math.ceil(lanes/2),laneW=(r.oneway?r.width:halfW)/count;
       for(let k=1;k<count;k++)for(const[a,b]of spans){
-        for (let d = Math.floor(a/8)*8; d < b; d += 8) strip(white, side * k * laneW, 0.12, Math.max(a,d),Math.min(b,d+3));
+        for (let d = Math.floor(a/8)*8; d < b; d += 8) strip(white, r.oneway?k*laneW-halfW:side*k*laneW, 0.12, Math.max(a,d),Math.min(b,d+3));
       }
     }
     while(yellowLevels.length<yellow.length/3){yellowLevels.push(roadLevel(r));yellowProfiles.push(profileIds.get(roadProfileKey(r))!);}
@@ -625,8 +626,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // ---- The network: nodes where road ends meet, T-junctions, signals ----
   // Lanes per direction: the registered count split both ways, but only as many as
   // fit at 3 m or wider (some registered counts exceed what the width allows).
-  const laneCounts=paths.map(p=>Math.max(1,Math.min(Math.floor(Math.max(2,p.lanes)/2),Math.floor(p.width/2/3))));
-  const laneWidths=paths.map((p,i)=>Math.max(3,p.width/2/laneCounts[i]));
+  const laneCounts=paths.map(p=>Math.max(1,Math.min(p.oneway?p.lanes:Math.floor(Math.max(2,p.lanes)/2),Math.floor(p.width/(p.oneway?1:2)/3))));
+  const laneWidths=paths.map((p,i)=>Math.max(3,p.width/(p.oneway?1:2)/laneCounts[i]));
   const lanesOf = (road: number) => laneCounts[road];
   const laneWidth = (road: number) => laneWidths[road];
   /** Point at centreline distance d along a road, and the forward unit direction there. The
@@ -707,6 +708,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     for (const e of candidates) {
       if (e.road === road || internal[e.road]) continue;
       const p = paths[e.road], a = at(p, e.atStart ? 0 : p.len);
+      if(p.oneway&&!e.atStart)continue;
       const ux = e.atStart ? a.ux : -a.ux, uy = e.atStart ? a.uy : -a.uy;
       out.push({ link: { road: e.road, forward: e.atStart, s0: 0 }, dot: ux * hx + uy * hy });
     }
@@ -723,7 +725,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
           if(Math.abs(roadHeight(paths[road],terrain,ex,ey)-roadHeight(p,terrain,ax+dx*t,ay+dy*t))>=2)continue;
           const d = p.cum[i - 1] + t * l, ux = dx / l, uy = dy / l;
           if (d < p.len - 3) out.push({ link: { road: r, forward: true, s0: d }, dot: ux * hx + uy * hy });
-          if (d > 3) out.push({ link: { road: r, forward: false, s0: p.len - d }, dot: -(ux * hx + uy * hy) });
+          if (d > 3&&!p.oneway) out.push({ link: { road: r, forward: false, s0: p.len - d }, dot: -(ux * hx + uy * hy) });
           break;
         }
       }
@@ -738,7 +740,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const p = paths[road], pt = at(p, forward ? s : p.len - s);
     const hx = forward ? pt.ux : -pt.ux, hy = forward ? pt.uy : -pt.uy;
     // Right-hand traffic: lanes to the right of the direction of travel.
-    const off = (Math.min(lane, lanesOf(road) - 1) + 0.5) * laneWidth(road);
+    const off = (Math.min(lane, lanesOf(road) - 1) + 0.5) * laneWidth(road)-(p.oneway?p.width/2:0);
     return { x: pt.x + hy * off, y: pt.y - hx * off, hx, hy };
   };
   const turnOf = (road: number, forward: boolean, link: Link): Turn => {
@@ -758,7 +760,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const deadEnd = (road: number, forward: boolean) => linksFrom(road, forward).every(o => idle[o.link.road]);
     let changed = false;
     paths.forEach((p, r) => {
-      const now = (deadEnd(r, true) && deadEnd(r, false) && p.len < 60) || ((deadEnd(r, true) || deadEnd(r, false)) && p.len < 30);
+      const now = (p.oneway&&deadEnd(r,true)) || (deadEnd(r, true) && deadEnd(r, false) && p.len < 60) || ((deadEnd(r, true) || deadEnd(r, false)) && p.len < 30);
       if (now && !idle[r]) { idle[r] = true; changed = true; }
     });
     if (!changed) break;
@@ -1105,7 +1107,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const cars: Car[] = [];
   const perKind = kinds.map(() => 0);
   for (let tries = 0; cars.length < count && tries < count * 10; tries++) {
-    const road = Math.floor(rnd() * paths.length), forward = rnd() < 0.5, lane = Math.floor(rnd() * lanesOf(road));
+    const road = Math.floor(rnd() * paths.length), forward = paths[road].oneway||rnd() < 0.5, lane = Math.floor(rnd() * lanesOf(road));
     if (idle[road]) continue;
     const type = pickKind(), length = kinds[type].dims[0];
     const conn = connector(road, forward, lane, choose(road, forward, lane));
@@ -1123,7 +1125,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   /** A vehicle of `type` placed on a random free lane (null when none is found). */
   const spawnOf = (type: number): Car | null => {
     for (let tries = 0; tries < 400; tries++) {
-      const road = Math.floor(rnd() * paths.length), forward = rnd() < 0.5, lane = Math.floor(rnd() * lanesOf(road));
+      const road = Math.floor(rnd() * paths.length), forward = paths[road].oneway||rnd() < 0.5, lane = Math.floor(rnd() * lanesOf(road));
       if (idle[road]) continue;
       const length = kinds[type].dims[0], conn = connector(road, forward, lane, choose(road, forward, lane));
       const s0 = startOf(road, forward), span = conn.endS - s0 - length - 2;
@@ -1383,7 +1385,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const centrePose={x:0,y:0,ux:1,uy:0};
   const laneAt = (road: number, forward: boolean, sv: number, lane: number) => {
     const p=paths[road],pt=p.sample.road(forward?sv:p.len-sv,centrePose),hx=forward?pt.ux:-pt.ux,hy=forward?pt.uy:-pt.uy;
-    const off=(Math.min(lane,lanesOf(road)-1)+.5)*laneWidth(road);
+    const off=(Math.min(lane,lanesOf(road)-1)+.5)*laneWidth(road)-(p.oneway?p.width/2:0);
     pose.x=pt.x+hy*off;pose.y=pt.y-hx*off;pose.hx=hx;pose.hy=hy;
   };
   const poseAhead = (c: Car, d: number) => {
@@ -1877,7 +1879,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
           const [ax, ay] = p.line[i - 1], [bx, by] = p.line[i], dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
           const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)), d = Math.hypot(x - ax - dx * t, y - ay - dy * t);
           // (heading as asked, when asked: one handed back from its driver goes on the way it faced)
-          const fwd = hx !== undefined && hy !== undefined ? dx * hx + dy * hy >= 0 : rnd() < 0.5;
+          const fwd = p.oneway||(hx !== undefined && hy !== undefined ? dx * hx + dy * hy >= 0 : rnd() < 0.5);
           if (!best || d < best.d) best = { road, s: p.cum[i - 1] + Math.sqrt(l2) * t, forward: fwd, d };
         }
       });

@@ -19,7 +19,7 @@ import {buildingAppearanceProfile,type BuildingAppearance} from './buildingAppea
 /** What the building register (VWorld GIS건물통합정보) says of a sign's largest building: its parcel
  * (PNU, for the 건축물대장 card), 사용승인일, floors, height and floor area. */
 export type DroneLabelInfo = { /** the building's centre (view frame, m) */ bx?: number; by?: number; pnu?: string; approved?: string; floors?: number; basements?: number; height?: number; area?: number; dong?: string };
-export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital" | "station"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo };
+export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital" | "station" | "bridge"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo };
 /** The styles in the order RingResult.towers names them. */
 export const SURVEY_STYLES: ContextStyle[] = ["apt", "villa", "shop", "office"];
 export type RingStyleArrays = { position: Float32Array; normal: Float32Array; uv: Float32Array; color: Float32Array; facade?:Float32Array; index: Uint32Array; sphere?:[number,number,number,number] };
@@ -324,7 +324,7 @@ function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile) {
         title:props.bld_nm,name:props.dong_nm,use:props.usability,structureCode:props.strct_cd,structureName:props.strct_nm,
         approved:parseInt(String(props.useapr_day??'').slice(0,4))||null,height,floors,style,ring});
       const tint=profile.wall;
-      const appearance=[STYLES.indexOf(style)*8+profile.finish,profile.variant+(profile.layout??0)*8,profile.bay,profile.storey];
+      const appearance=[STYLES.indexOf(style)*8+profile.finish,profile.variant+(profile.layout??0)*8+(profile.lightSeed??0)*.99,profile.bay,profile.storey];
       // on its own ground: the lowest point under it, sunk 3 m (no gap on a slope)
       let ground = Infinity;
       for (const [x, y] of ring) ground = Math.min(ground, at(x, y));

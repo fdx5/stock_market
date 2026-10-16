@@ -23,6 +23,18 @@ const bank=road('bank',[[-50,2],[0,2]]);
 const terrain={at:(x,y)=>x<=0?12+.05*x+.2*y:x>=300?35+.2*y:0,base:()=>0,relief:35,elevation:0,source:'synthetic'};
 const height=(r,t,x,y=2)=>roadHeight(r,t,x,y);
 const near=(a,b,tolerance=1e-6)=>assert.ok(Math.abs(a-b)<tolerance,`${a} differs from ${b}`);
+test('a coarse bank DEM tangent cannot overshoot below the river or above the bridge supports',()=>{
+ const deck=road('bounded',[[0,0],[300,0]],'bridge',{profile_line:[[0,0],[300,0]],profile_s:[0,300],profile_z:[12,18]});
+ const bank=road('steep-bank',[[-50,0],[0,0]],'ground',{profile_line:[[-50,0],[0,0]],profile_s:[0,50],profile_z:[100,12]});
+ const t=roadApproachTerrain([deck,bank],terrain);let previous=12;
+ for(let x=0;x<=90;x++){const z=roadHeight(deck,t,x,0);assert.ok(z>=12&&z<=13.800001);assert.ok(z>=previous-1e-6);previous=z;}
+ near(roadHeight(deck,t,90,0),13.8);
+});
+test('a bank outside the initial terrain grid uses its own measured ground profile',()=>{
+ const r=road('far-bank',[[1000,0],[1100,0]],'ground',{profile_line:[[1000,0],[1100,0]],profile_s:[0,100],profile_z:[10,20]});
+ const outside={...terrain,at:()=>-100};near(roadHeight(r,outside,1030,0),13);
+ near(roadHeight(r,{...outside,waterAt:()=>15},1030,0),15.3);
+});
 
 test('bank height, road edges and longitudinal slope meet the ground DEM',()=>{
  const t=roadApproachTerrain([bridge,bank],terrain);

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import {observedRoofColour,type BuildingAppearance} from "./buildingAppearance";
+import {bridgeNameLabels} from './bridgeNames';
 import {droneDetailPriority,droneTilePriority} from "./droneLoadPriority";
 import type {NearBuildingSource,NearBuildingTarget} from './nearBuildingTargets';
 import { SceneWorkerPool } from "./sceneWorkerPool";
@@ -106,6 +107,7 @@ type Tile = {
   baseLanes?: Float32Array;
   /** its lanes' signal stop lines (droneRoads: per lane in baseLanes order) */
   stops?: Float32Array;
+  banks?: Float32Array;
   /** whether its buildings and its trees cast shadows now */
   castB: boolean; castP: boolean;
   surveyGroup: THREE.Group | null;
@@ -718,8 +720,12 @@ export class DroneWorld {
       // unanswered, the tile is tried again rather than drawing a deck of its own)
       const roadJob = t.inner || OFF.includes("roads") ? Promise.resolve(null) : this.baseHeight()
         .then(b => b === null ? null : structureChains(data.vworld_key!, data.vworld_domain, data.center!.lat, data.center!.lon, b, t.box, stop.signal))
-        .then(chains => chains === null || stop.signal.aborted ? null : roadTile(data.center!.lat, data.center!.lon, data.vworld_key!, data.vworld_domain, t.box, grid, grids.wide, stop.signal,
-          { lat: data.center!.lat + t.cy / this.ky, lon: data.center!.lon + t.cx / this.kx }, { ...this.roadExtras(t), chains }));
+        .then(chains => {
+          if(chains===null||stop.signal.aborted||this.disposed)return null;
+          this.o.onLabels?.('bridges:'+t.key,bridgeNameLabels(data.center!,chains.filter(c=>c.deck).map(c=>({line:c.line,width:c.deck!.w,lanes:c.deck!.lanes,structure:'bridge',structure_source:'VWorld LT_L_MOCTLINK',profile_line:c.line,profile_s:c.s,profile_z:c.z}))));
+          return roadTile(data.center!.lat, data.center!.lon, data.vworld_key!, data.vworld_domain, t.box, grid, grids.wide, stop.signal,
+            { lat: data.center!.lat + t.cy / this.ky, lon: data.center!.lon + t.cx / this.kx }, { ...this.roadExtras(t), chains });
+        });
       const tileLat = data.center!.lat + t.cy / this.ky, tileLon = data.center!.lon + t.cx / this.kx;
       const localTerrain: Terrain = { at: local, base: r => Math.min(...r.map(([x, y]) => local(x, y))), relief: 0, elevation: null, source: "drone tile", grid };
       groundJob = t.inner || OFF.includes("ground") ? Promise.resolve(null) : farGround({ ...data, center: { lat: tileLat, lon: tileLon }, roads: [] } as RealEstateBuildingsResponse, localTerrain,
@@ -820,6 +826,7 @@ export class DroneWorld {
         t.lanes = lanes;
         t.baseLanes = lanes;
         t.stops = roads.stops;
+        t.banks = roads.banks;
       }
       this.buildings += ring.buildings;
       t.dispose.push(() => { this.buildings -= ring.buildings; });
@@ -985,7 +992,7 @@ export class DroneWorld {
     const base = t.baseLanes ?? new Float32Array();
     const lanes = new Float32Array(base.length + extra.length);
     lanes.set(base); lanes.set(extra, base.length); t.lanes = lanes;
-    if (lanes.length) this.traffic.addTile(t.key, lanes, t.stops);
+    if (lanes.length) this.traffic.addTile(t.key, lanes, t.stops,t.banks);
     else this.traffic.removeTile(t.key);
   }
 
@@ -1539,6 +1546,7 @@ export class DroneWorld {
     this.unplant(t);
     this.traffic.removeTile(t.key);
     this.o.onLabels?.(t.key, null);
+    this.o.onLabels?.('bridges:'+t.key, null);
     for (const g of [t.zup, t.yup]) if (g) this.root.remove(g);
     if (t.materials.length) this.o.forget?.(new Set(t.materials));
     for (const f of t.dispose) f();

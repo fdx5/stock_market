@@ -1,5 +1,5 @@
 import type {RealEstateRoad} from '../api/client';
-import {sameRoadLevel,roadLevel} from './roadLevels';
+import {sameRoadLevel,roadLevel,nearestRoadPoint} from './roadLevels';
 
 /** Split only where a surveyed road endpoint actually touches another road.
  * Arbitrary centreline crossings (bridges/underpasses) are not connections. */
@@ -17,7 +17,7 @@ export function splitRoadJunctions(roads:readonly RealEstateRoad[],planarCrossin
  return roads.flatMap((r,road)=>{
   const cum=[0];for(let i=1;i<r.line.length;i++)cum.push(cum[i-1]+Math.hypot(r.line[i][0]-r.line[i-1][0],r.line[i][1]-r.line[i-1][1]));
   const cuts:{s:number;p:[number,number]}[]=[];
-  const cut=(s:number,p:[number,number])=>{if(s>6&&s<cum[cum.length-1]-6&&!cuts.some(c=>Math.abs(c.s-s)<6))cuts.push({s,p});};
+  const cut=(s:number,p:[number,number],minimum=6)=>{if(s>minimum&&s<cum[cum.length-1]-minimum&&!cuts.some(c=>Math.abs(c.s-s)<minimum))cuts.push({s,p});};
   // Only known co-level strips can form planar junctions. Bridges/underpasses never
   // acquire a signal box just because their XY projections intersect.
   if(planarCrossings&&roadLevel(r)===0){
@@ -35,13 +35,17 @@ export function splitRoadJunctions(roads:readonly RealEstateRoad[],planarCrossin
    }
   }
   for(const e of endpoints){
-   if(e.road===road||roadLevel(r)!==0||apart(box[road],[e.p[0],e.p[1],e.p[0],e.p[1]],1.5)||!sameRoadLevel(r,roads[e.road]))continue;let best=Infinity,at=0,q:[number,number]=[0,0];
+   if(e.road===road||roadLevel(r)!==0||apart(box[road],[e.p[0],e.p[1],e.p[0],e.p[1]],1.5))continue;
+   const other=roads[e.road],bank=!sameRoadLevel(r,other)&&other.structure==='bridge'&&other.profile_line&&other.profile_z?nearestRoadPoint(other.profile_line,...e.p):null;
+   if(!sameRoadLevel(r,other)&&(!bank||bank.along>6&&bank.along<bank.total-6))continue;
+   let best=Infinity,at=0,q:[number,number]=[0,0];
    for(let i=1;i<r.line.length;i++){
     const a=r.line[i-1],b=r.line[i],dx=b[0]-a[0],dy=b[1]-a[1],len=cum[i]-cum[i-1];if(!len)continue;
+    if(bank&&Math.abs(dx*bank.dir[0]+dy*bank.dir[1])/len<.9)continue;
     const t=Math.max(0,Math.min(1,((e.p[0]-a[0])*dx+(e.p[1]-a[1])*dy)/(len*len))),x=a[0]+t*dx,y=a[1]+t*dy,d=Math.hypot(x-e.p[0],y-e.p[1]);
     if(d<best){best=d;at=cum[i-1]+t*len;q=[x,y];}
    }
-   if(best<=1.5)cut(at,q);
+   if(best<=1.5)cut(at,q,bank?.05:6);
   }
   if(!cuts.length)return [r];cuts.sort((a,b)=>a.s-b.s);
   const stops=[{s:0,p:r.line[0]},...cuts,{s:cum[cum.length-1],p:r.line[r.line.length-1]}];

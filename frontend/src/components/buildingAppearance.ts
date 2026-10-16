@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export type AppearanceInput={id?:string;title?:string|null;name?:string|null;use?:string|null;structureCode?:string|null;structureName?:string|null;approved?:number|null;height:number;floors:number;style?:string;ring?:number[][]};
-export type BuildingAppearance={style:string;finish:number;variant:number;layout?:number;bay:number;storey:number;floors:number;wall:[number,number,number];roof:[number,number,number];inferred:boolean};
+export type BuildingAppearance={style:string;finish:number;variant:number;layout?:number;lightSeed?:number;bay:number;storey:number;floors:number;wall:[number,number,number];roof:[number,number,number];inferred:boolean};
 
 /** Kept self-contained so the identical rule runs in the JSONP ring worker.
  * Structure/use/floors constrain materials; a stable identity varies compatible
@@ -51,7 +51,7 @@ export function buildingAppearanceProfile(b:AppearanceInput):BuildingAppearance{
   // retain the current openings; the rest use punched, paired, ribbon or spaced
   // windows. This is a compatible inferred facade, not a surveyed window plan.
   const layout=floors<5&&((hash>>>16)&1)?1+(hash>>>21)%4:0;
-  return {style,finish,variant,layout,bay,storey,floors,wall,roof,inferred:true};
+  return {style,finish,variant,layout,lightSeed:((hash>>>8)%8192+.5)/8192,bay,storey,floors,wall,roof,inferred:true};
 }
 
 /** Satellite medians are sRGB, while vertex colours are linear. A registered
@@ -81,7 +81,7 @@ export function applyBuildingAppearance(geometry:THREE.BufferGeometry,p:Building
     const roof=normal&&Math.abs(normal.getZ(i))>.7;
     const along=oldUV?.getX(i)??pos.getX(i);
     uv[i*2]=along/p.bay;uv[i*2+1]=(pos.getZ(i)-ground)/p.storey;
-    color.set(roof?p.roof:p.wall,i*3);facade.set([kind,p.variant+(p.layout??0)*8,p.bay,p.storey],i*4);
+    color.set(roof?p.roof:p.wall,i*3);facade.set([kind,p.variant+(p.layout??0)*8+(p.lightSeed??0)*.99,p.bay,p.storey],i*4);
   }
   geometry.setAttribute('uv',new THREE.BufferAttribute(uv,2));
   geometry.setAttribute('color',new THREE.BufferAttribute(color,3));

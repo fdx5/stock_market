@@ -23,6 +23,9 @@ export function terrainSurfaceClearance(){
    const ids=Array.from(input.index.subarray(k,k+3)),triangle:P[]=ids.map(id=>[p[id*3],p[id*3+1]]),heights=ids.map(id=>p[id*3+2]);
    if(Math.abs(cross(triangle[0],triangle[1],triangle[2]))<1e-9)continue;
    const start=positions.length,parts:{polygon:P[];surface:P[];h:number[]}[]=[];let unsafe=false;
+   // A confirmed deck owns its bank profile. Terrain beneath/alongside it
+   // cannot stretch its triangles up a hillside or turn the slab into a ramp.
+   if(input.level?.[ids[0]]){for(let i=0;i<3;i++)emit(triangle[i],heights[i],i===0?[1,0,0]:i===1?[0,1,0]:[0,0,1],ids);continue;}
    const ix0=Math.max(0,Math.floor((Math.min(...triangle.map(p=>p[0]))-x0)/g.cell)),ix1=Math.min(g.n-2,Math.floor((Math.max(...triangle.map(p=>p[0]))-x0)/g.cell));
    const iy0=Math.max(0,Math.floor((Math.min(...triangle.map(p=>p[1]))-y0)/g.cell)),iy1=Math.min(g.n-2,Math.floor((Math.max(...triangle.map(p=>p[1]))-y0)/g.cell));
    for(let j=iy0;j<=iy1;j++)for(let i=ix0;i<=ix1;i++){

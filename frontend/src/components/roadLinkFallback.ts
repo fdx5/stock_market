@@ -1,7 +1,7 @@
 /** Roads the national base map's centre lines (국가기본도 도로중심선, LT_L_N3A0020000) do not have
  * yet — a new bridge or expressway (고덕토평대교: 세종포천고속도로) — drawn from the standard
  * node-link itself (표준노드링크 LT_L_MOCTLINK): each stretch of an official link (not a tunnel or
- * underpass) with no centre line along it for 30 m or more, inside the box the centre lines were
+ * underpass) with no centre line along it for 8 m or more, inside the box the centre lines were
  * asked for. A link is one direction of travel: one-way, its lanes by the road's class (the link
  * carries no lane count); the two directions of an undivided road on one line become one two-way
  * road. Self-contained (serialised into the streamed-road worker): no imports, no closures.
@@ -23,7 +23,7 @@ export function linkFallbackRoads(
   const covered = (x: number, y: number, dx: number, dy: number) => (hash.get(Math.floor(x / cell) + ',' + Math.floor(y / cell)) ?? []).some(([ax, ay, bx, by, hw]) => {
     const ex = bx - ax, ey = by - ay, l2 = ex * ex + ey * ey || 1, u = ((x - ax) * ex + (y - ay) * ey) / l2, t = Math.max(0, Math.min(1, u));
     // (past a centre line's end by more than 2 m is not covered by it: the road ends there)
-    if (Math.abs(u - t) * Math.sqrt(l2) > 2 || Math.hypot(ax + ex * t - x, ay + ey * t - y) > hw + 8) return false;
+    if (Math.abs(u - t) * Math.sqrt(l2) > 2 || Math.hypot(ax + ex * t - x, ay + ey * t - y) > hw + 2) return false;
     return Math.abs(ex * dx + ey * dy) / Math.sqrt(l2) > 0.8;
   });
   const LANES: Record<string, number> = { '고속국도': 3, '도시고속국도': 3, '도시고속도로': 3, '일반국도': 2, '특별·광역시도': 2, '국가지원지방도': 2, '지방도': 1, '시·군도': 1, '구도': 1 };
@@ -42,11 +42,9 @@ export function linkFallbackRoads(
     let run: number[][] = [];
     // (a bridge's or a viaduct's, or one reaching the link's own end — where it meets the next
     // link — even a short stretch: left out, the deck or the road stops short of what it joins)
-    const first = pts[0], last = pts[pts.length - 1];
     const flush = () => {
       let len = 0; for (let i = 1; i < run.length; i++) len += Math.hypot(run[i][0] - run[i - 1][0], run[i][1] - run[i - 1][1]);
-      const atEnd = run.length > 1 && (run[0] === first || run[run.length - 1] === last);
-      if (len >= (l.kind > 0 || atEnd ? 8 : 30)) out.push({ line: run, width: Math.min(60, lanes * 3.5 + 1), lanes, oneway: true, link: l.id });
+      if (len >= 8) out.push({ line: run, width: Math.min(60, lanes * 3.5 + 1), lanes, oneway: true, link: l.id });
       run = [];
     };
     for (let i = 0; i < pts.length; i++) {

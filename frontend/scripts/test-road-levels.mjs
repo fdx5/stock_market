@@ -62,8 +62,18 @@ test('tyres and paint query their own road level at an overlapping XY coordinate
 });
 test('ground subdivision preserves the road level on every newly generated vertex',async()=>{
  const g=new THREE.PlaneGeometry(20,20,2,2),p=g.attributes.position;g.userData.grid={xs:Float64Array.from([-10,0,10]),ys:Float64Array.from([10,0,-10])};for(let i=0;i<p.count;i++)p.setZ(i,p.getX(i)===0?2:0);
- const road=new THREE.BufferGeometry();road.setAttribute('position',new THREE.Float32BufferAttribute([-9,.08,8,9,.08,8,0,.08,-8],3));road.setAttribute('roadLevel',new THREE.Float32BufferAttribute([1,1,1],1));await drapeRoadSurface(road,g,async()=>true);
- assert.ok(road.attributes.position.count>3);assert.equal(road.attributes.position.count,road.attributes.roadLevel.count);assert.ok([...road.attributes.roadLevel.array].every(v=>v===1));g.dispose();road.dispose();
+ const road=new THREE.BufferGeometry();road.setAttribute('position',new THREE.Float32BufferAttribute([-9,.08,8,9,.08,8,0,.08,-8],3));road.setAttribute('roadLevel',new THREE.Float32BufferAttribute([0,0,0],1));await drapeRoadSurface(road,g,async()=>true);
+ assert.ok(road.attributes.position.count>3);assert.equal(road.attributes.position.count,road.attributes.roadLevel.count);assert.ok([...road.attributes.roadLevel.array].every(v=>v===0));g.dispose();road.dispose();
+});
+test('a confirmed bridge keeps its continuous plane instead of stretching onto unrelated terrain',async()=>{
+ const ground=new THREE.PlaneGeometry(20,20,2,2);ground.userData.grid={xs:Float64Array.from([-10,0,10]),ys:Float64Array.from([10,0,-10])};
+ for(let i=0;i<ground.attributes.position.count;i++)ground.attributes.position.setZ(i,20);
+ const values=[-9,5,8,9,5,8,0,5,-8],road=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(values,3)).setAttribute('roadLevel',new THREE.Float32BufferAttribute([1,1,1],1));
+ await drapeRoadSurface(road,ground,async()=>true);assert.deepEqual(Array.from(road.attributes.position.array),values);assert.equal(road.attributes.roadLevel.count,3);
+ const {terrainSurfaceClearance}=load('terrainSurfaceClearance.ts'),clearance=terrainSurfaceClearance(),p=Float32Array.from([-9,-8,5,9,-8,5,0,8,5]);
+ const input={position:p,normal:Float32Array.from([0,0,1,0,0,1,0,0,1]),index:Uint32Array.from([0,1,2]),level:Float32Array.from([1,1,1])};
+ const result=clearance.drape(input,{h:new Float32Array(9).fill(20),n:3,R:10,cell:10,ox:0,oy:0});
+ assert.deepEqual(Array.from(result.position),Array.from(p));ground.dispose();road.dispose();
 });
 test('river clipping retains true intersections, and islands remain dry in the field and surface',async()=>{
  const outer=[[-40,-40],[40,-40],[40,40],[-40,40]],hole=[[-6,-6],[6,-6],[6,6],[-6,6]];

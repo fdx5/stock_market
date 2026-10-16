@@ -12,7 +12,7 @@ export function roadApproachHeight(roads: RealEstateRoad[], o: {
   key: typeof roadProfileKey;
 }) {
   type Anchor = {along: number; direction: number; span: number; point: [number,number];
-    normal: [number,number]; cross: number; outside: [number,number]; probe: number; baseline: number; grade: number; bankRoad: RealEstateRoad};
+    normal: [number,number]; cross: number; outside: [number,number]; probe: number; baseline: number; grade: number; bankRoad: RealEstateRoad;inner?:{band:number;height:number}};
   const anchors = new Map<string, Anchor[]>();
   const ground = roads.filter(r => r.structure === 'ground' && r.line.length > 1);
   for (const road of roads) {
@@ -41,7 +41,7 @@ export function roadApproachHeight(roads: RealEstateRoad[], o: {
       const p = o.nearest(profile, endpoint[0], endpoint[1]);
       // (a whole bridge's deck going on past this end — to its bank, over its approach — is not
       // brought down here: the road at grade there is laid along it instead)
-      if (road.profile_z && p.along > 2 && p.along < p.total - 2) continue;
+      if (road.profile_z && p.along > 6 && p.along < p.total - 6) continue;
       const direction = dx * p.dir[0] + dy * p.dir[1] >= 0 ? 1 : -1;
       const key = o.key(road), list = anchors.get(key) ?? [];
       if (!list.some(a => Math.abs(a.along - p.along) < .01 && a.direction === direction))
@@ -58,7 +58,7 @@ export function roadApproachHeight(roads: RealEstateRoad[], o: {
     const list = anchors.get(o.key(road));
     if (!list || !['bridge', 'elevated'].includes(road.structure ?? '')) return baseline;
     const p = o.nearest(road.profile_line ?? road.line, x, y);
-    let correction = 0, closest = Infinity;
+    let correction = 0, closest = Infinity,lower=-Infinity,upper=Infinity;
     for (const anchor of list) {
       const inward = (p.along - anchor.along) * anchor.direction;
       if (inward < -1.5) continue;
@@ -74,15 +74,27 @@ export function roadApproachHeight(roads: RealEstateRoad[], o: {
       // smoothing and crossfall, rather than the bare terrain under that surface.
       const bank = o.height(anchor.bankRoad, anchor.point[0] + ox, anchor.point[1] + oy);
       const outside = o.height(anchor.bankRoad, anchor.outside[0] + ox, anchor.outside[1] + oy);
-      const slope = (bank - outside) / anchor.probe;
+      if(!anchor.inner||anchor.inner.band!==band){
+        const line=road.profile_line??road.line,target=anchor.along+band*anchor.direction;let walked=0,point=line[0];
+        for(let k=1;k<line.length;k++){const a=line[k-1],b=line[k],len=Math.hypot(b[0]-a[0],b[1]-a[1]);
+          if(walked+len>=target){const f=Math.max(0,Math.min(1,(target-walked)/(len||1)));point=[a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f];break;}walked+=len;point=b;}
+        anchor.inner={band,height:o.height(road,point[0],point[1])};
+      }
+      const inner=anchor.inner.height,rise=(inner-bank)/band;
+      // A coarse DEM can put a bank probe on another level. Its unbounded
+      // tangent used to pull a 90 m approach metres below the river. A monotone
+      // bank-to-deck blend stays between its measured supports.
+      const measured=(bank-outside)/anchor.probe;
+      const slope=rise>0?Math.max(0,Math.min(measured,.12,3*rise)):rise<0?Math.min(0,Math.max(measured,-.12,3*rise)):0;
       correction = (bank - anchor.baseline) * (2*u*u*u - 3*u*u + 1)
         + (slope - anchor.grade * anchor.direction) * band * (u*u*u - 2*u*u + u);
       closest = inward;
+      lower=Math.min(bank,inner);upper=Math.max(bank,inner);
     }
     // Interior river-bed DEM must never pull a deck downward. Only the bank and
     // the connected ground road supply the tangent; the original profile and
     // slope are restored at the inner edge. No clearance or Z is fabricated.
-    return baseline + correction;
+    return Math.max(lower,Math.min(upper,baseline + correction));
   };
 }
 

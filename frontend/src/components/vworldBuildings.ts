@@ -4,6 +4,9 @@ import {hasAboveGroundEvidence} from './buildingEvidence';
 import {structureChains} from './bridgeChains';
 import {linkFallbackRoads} from './roadLinkFallback';
 import {chainDeckRoads} from './bridgeDecks';
+import {splitRoadJunctions} from './roadTrafficNetwork';
+import {surfaceGeometry} from './surfaceGeometry';
+import {groundRoadHeight} from './roadGroundGrade';
 import {attachRoadStructures,clipRoadContextRing,clipRoadLine,nearestRoadPoint,type RoadStructureLink} from './roadLevels';
 
 /* A complex's buildings straight from VWorld (국토교통부 GIS건물통합정보), in the
@@ -232,17 +235,58 @@ export function prefetchRoadContext(data:RealEstateBuildingsResponse,radius=600)
 async function withBridgeChains(data:RealEstateBuildingsResponse,roads:RealEstateRoad[],radius:number):Promise<RealEstateRoad[]>{
  if(!data.center||!data.vworld_key||!roads.some(r=>r.structure==='bridge'&&r.link_id))return roads;
  const {lat,lon}=data.center,key=data.vworld_key;
+ let originHeight:number|undefined;
  const job=(async()=>{
   const sampler=await vworldSampler(key,lat,lon,10);if(!sampler)return null;
-  return structureChains(key,data.vworld_domain,lat,lon,sampler(lon,lat),[-radius-80,-radius-80,radius+80,radius+80]);
+  originHeight=sampler(lon,lat);
+  return structureChains(key,data.vworld_domain,lat,lon,originHeight,[-radius-80,-radius-80,radius+80,radius+80]);
  })().catch(()=>null);
  // (a link's own bank-to-bank interpolation puts a long bridge's deck on the water: the chains are
  // waited for — one more try if the first did not answer — and only given up on after 45 s)
  const wait=(p:Promise<Awaited<typeof job>>,ms:number)=>Promise.race([p,new Promise<null>(r=>setTimeout(()=>r(null),ms))]);
  let chains=await wait(job,30000);
  if(!chains)chains=await wait((async()=>{const sampler=await vworldSampler(key,lat,lon,10);if(!sampler)return null;
-  return structureChains(key,data.vworld_domain,lat,lon,sampler(lon,lat),[-radius-80,-radius-80,radius+80,radius+80]);})().catch(()=>null),15000);
+  originHeight=sampler(lon,lat);return structureChains(key,data.vworld_domain,lat,lon,originHeight,[-radius-80,-radius-80,radius+80,radius+80]);})().catch(()=>null),15000);
  if(!chains?.length)return roads;
+ // A whole bridge can end beyond the initial road square. Fetch only its bank
+ // neighbourhoods there, so its outgoing lanes meet real streets rather than
+ // terminating in the middle of the loaded deck. Keep these requests bounded.
+ const kx=Math.cos(lat*Math.PI/180)*111320,ky=110540,R=radius+80;
+ const banks=new Map<string,[number,number]>();
+ for(const c of chains)for(const p of [c.line[0],c.line[c.line.length-1]])if(Math.max(Math.abs(p[0]),Math.abs(p[1]))>R-20)
+  banks.set(`${Math.round(p[0]/240)},${Math.round(p[1]/240)}`,p);
+ const outside=(line:[number,number][])=>{
+  const out:[number,number][][]=[];let run:[number,number][]=[];
+  const push=(a:[number,number],b:[number,number])=>{if(Math.hypot(a[0]-b[0],a[1]-b[1])<.01)return;const last=run[run.length-1];if(last&&Math.hypot(last[0]-a[0],last[1]-a[1])>.01){out.push(run);run=[];}if(!run.length)run.push(a);run.push(b);};
+  for(let i=1;i<line.length;i++){
+   const a=line[i-1],b=line[i],inside=clipRoadLine([a,b],R)[0],isOut=(p:[number,number])=>Math.max(Math.abs(p[0]),Math.abs(p[1]))>R+.001;
+   if(!inside){if(isOut(a)||isOut(b))push(a,b);continue;}
+   if(isOut(a))push(a,inside[0]);
+   if(run.length){out.push(run);run=[];}
+   if(isOut(b))push(inside[inside.length-1],b);
+  }if(run.length)out.push(run);return out;
+ };
+ const sites:{x:number;y:number;n:number}[]=[];
+ for(const [x,y]of banks.values()){const site=sites.find(s=>Math.hypot(s.x-x,s.y-y)<160);if(site){site.x=(site.x*site.n+x)/(site.n+1);site.y=(site.y*site.n+y)/(site.n+1);site.n++;}else sites.push({x,y,n:1});}
+ const extra=await Promise.all(sites.slice(0,6).map(async({x,y})=>{
+  const box:[number,number,number,number]=[lon+(x-160)/kx,lat+(y-160)/ky,lon+(x+160)/kx,lat+(y+160)/ky];
+  try{
+   const [base,links,bankTerrain]=await Promise.all([vworldCentreLines(key,data.vworld_domain,box),vworldStructureLinks(key,data.vworld_domain,box,true),vworldSampler(key,lat+y/ky,lon+x/kx,220)]);
+   if(!bankTerrain||originHeight===undefined)return [];
+   const project=([a,b]:number[]):[number,number]=>[(a-lon)*kx,(b-lat)*ky];
+   const near=base.flatMap(r=>clipRoadLine(r.line.map(project).map(([a,b])=>[a-x,b-y]),160).map(line=>({...r,line:line.map(([a,b])=>[a+x,b+y] as [number,number])})));
+   const ls=links.map(l=>({...l,line:l.line.map(project)}));
+   const supplied:RealEstateRoad[]=[...near,...linkFallbackRoads(near,ls,[x-160,y-160,x+160,y+160]).map(f=>({id:'bank-link:'+f.link,line:f.line as [number,number][],width:f.width,lanes:f.lanes,oneway:f.oneway}))];
+   const structures:RoadStructureLink[]=ls.map(l=>({id:l.id,line:l.line,structure:l.kind===0?'ground':l.kind===1?'bridge':l.kind===2?'elevated':'underpass'}));
+   const terrainAt=(a:number,b:number)=>bankTerrain(lon+a/kx,lat+b/ky)-originHeight!;
+   return attachRoadStructures(supplied,structures).filter(r=>r.structure==='ground').flatMap(r=>outside(r.line).map((line,i)=>{
+    const s=[0];for(let k=1;k<line.length;k++)s.push(s[k-1]+Math.hypot(line[k][0]-line[k-1][0],line[k][1]-line[k-1][1]));
+    const z=s.map(station=>groundRoadHeight(line,station,terrainAt));
+    return {...r,id:`${r.id}:bank${x.toFixed(0)},${y.toFixed(0)}:${i}`,line,profile_line:line,profile_s:s,profile_z:z};
+   }));
+  }catch{return [];}
+ }));
+ roads=[...roads,...extra.flat()];
  const by=new Map<string,(typeof chains)[number]>();for(const c of chains)for(const id of c.ids)by.set(id,c);
  // A piece of a bridge's own centre line the links did not claim (at a link's end, or by a ramp
  // where the match was ambiguous) is the same deck: laid along the chain of that line's other
@@ -283,12 +327,12 @@ async function withBridgeChains(data:RealEstateBuildingsResponse,roads:RealEstat
  // the same rule as the streamed tiles'.
  const on=laid.map(r=>r.structure==='bridge'&&r.link_id&&by.get(r.link_id)?.deck?by.get(r.link_id)!:undefined);
  const spanIdx:number[]=[];const spans=laid.flatMap((r,i)=>on[i]?(spanIdx.push(i),[{chain:on[i]!.ids[0],line:r.line}]):[]);
- const {decks,taken}=chainDeckRoads(spans,chains);
+ const {decks,taken}=chainDeckRoads(spans,chains,120,3,laid.filter(r=>r.structure==='ground'));
  const gone=new Set(spanIdx.filter((_,k)=>taken[k]));
  const chainBy=new Map(chains.map(c=>[c.ids[0],c]));
- return [...laid.filter((_,i)=>!gone.has(i)),...decks.map((d,k)=>{const c=chainBy.get(d.chain)!;
+ return splitRoadJunctions([...laid.filter((_,i)=>!gone.has(i)),...decks.map((d,k)=>{const c=chainBy.get(d.chain)!;
   return {id:`deck:${d.chain}:${k}`,source:'VWorld LT_L_MOCTLINK',line:d.line as [number,number][],width:d.width,lanes:d.lanes,oneway:d.twoWay?undefined:true,
-   structure:'bridge' as const,layer:1,link_id:c.ids[0],structure_source:'VWorld LT_L_MOCTLINK',profile_line:c.line,profile_s:c.s,profile_z:c.z};})];
+   structure:'bridge' as const,layer:1,link_id:c.ids[0],structure_source:'VWorld LT_L_MOCTLINK',profile_line:c.line,profile_s:c.s,profile_z:c.z};})]).filter(r=>!['ground','unknown'].includes(r.structure??'unknown')||!decks.some(d=>r.width<=d.width*1.2&&surfaceGeometry.deckCoversLine(r.line,d.line,d.width/2)));
 }
 export async function vworldRoadContext(data:RealEstateBuildingsResponse,roads:RealEstateRoad[],radius=600):Promise<RealEstateBuildingsResponse>{
  if(!data.center||!data.vworld_key)return {...data,roads};
@@ -319,7 +363,7 @@ export async function vworldRoadContext(data:RealEstateBuildingsResponse,roads:R
  const enriched=await withBridgeChains(data,links.length?attachRoadStructures(roads,links):roads.map(r=>r.structure_source?r:{...r,structure:'unknown' as const}),radius),matched=enriched.filter(r=>r.structure_source&&r.structure!=='unknown').length;
  // (QA: dronedebug pages keep the view's roads as laid, for the checks in scripts/)
  if(typeof location!=='undefined'&&location.search.includes('dronedebug=1'))Object.assign(globalThis,{__qaViewRoads:enriched});
- return {...data,roads:enriched,road_context:{source:'VWorld LT_L_MOCTLINK · LT_C_WKMSTRM',fetched_at:new Date().toISOString(),coverage:linkResult.status==='fulfilled'&&riverResult.status==='fulfilled'&&matched===enriched.length?'complete':'partial',links:links.length,matched,total:enriched.length,rivers}};
+ return {...data,roads:enriched,road_context:{source:'VWorld LT_L_MOCTLINK · LT_C_WKMSTRM · deck-v3',fetched_at:new Date().toISOString(),coverage:linkResult.status==='fulfilled'&&riverResult.status==='fulfilled'&&matched===enriched.length?'complete':'partial',links:links.length,matched,total:enriched.length,rivers}};
 }
 
 /** Major roads for a result that came without them (kept by the server, or from

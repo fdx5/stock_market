@@ -11,9 +11,9 @@ import {trafficLaneCurve,sampleLaneCurve,type LaneCurve} from './trafficLaneCurv
  * A car with nowhere to go is set down again at a lane start out of sight. */
 
 type JunctionRegion={key:string;revision:number;lanes:Set<Lane>};
-type Lane = { tile: string; p: Float32Array; cum: Float32Array; orientation: Float64Array; len: number; cars: Car[]; width: number; minX:number;minY:number;maxX:number;maxY:number;renderOutside:boolean;junction?:JunctionRegion;
+type Lane = { tile: string; p: Float32Array; cum: Float32Array; orientation: Float64Array; startDir:[number,number];endDir:[number,number];len: number; cars: Car[]; width: number; minX:number;minY:number;maxX:number;maxY:number;renderOutside:boolean;junction?:JunctionRegion;
   /** the stop lines of the signalled junctions it meets: [s, junction, phase, …] (droneRoads) */
-  stops?: Float32Array };
+  stops?: Float32Array;bankStart?:string;bankEnd?:string };
 type Car = { lane: Lane; s: number; v: number; vmax: number; kind: number; colour: THREE.Color; k: number; hidden: boolean;
   /** across a junction: from the end of the last lane to the start of this one (s < 0 on it) */
   via: LaneCurve | null; planned?: {lane:Lane;curve:LaneCurve|null;revision:number}; stepped?:number };
@@ -152,14 +152,19 @@ export class DroneTraffic {
   private clock = 0;
   /** far lanes driven every other frame (off: every lane every frame, for frame-exact checks) */
   farStagger = true;
-  addTile(tile: string, packed: Float32Array, stops?: Float32Array) {
+  addTile(tile: string, packed: Float32Array, stops?: Float32Array,banks?:Float32Array) {
     if(this.disposed)return;
     if (this.lanes.has(tile)) this.removeTile(tile);
     const list: Lane[] = [];
     let so = 0;
     for (let o = 0; o < packed.length;) {
-      const n = packed[o++], width = packed[o++], p = packed.slice(o, o + n * 3);
-      o += n * 3;
+      const count = packed[o++], width = packed[o++], raw = packed.subarray(o, o + count * 3);
+      o += count * 3;
+      // Pavement triangle intersections can round to duplicate Float32 points.
+      // They must not turn a real bank heading into a zero-length direction.
+      const clean:number[]=[];
+      for(let k=0;k<raw.length;k+=3)if(!clean.length||Math.hypot(raw[k]-clean[clean.length-3],raw[k+1]-clean[clean.length-2])>.001)clean.push(raw[k],raw[k+1],raw[k+2]);
+      const p=new Float32Array(clean),n=p.length/3;
       let laneStops: Float32Array | undefined;
       if (stops && so < stops.length) { const m = stops[so++]; if (m) laneStops = stops.slice(so, so + m * 3); so += m * 3; }
       const cum = new Float32Array(n);
@@ -174,8 +179,23 @@ export class DroneTraffic {
       }
       let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
       for(let k=0;k<n;k++){minX=Math.min(minX,p[k*3]);maxX=Math.max(maxX,p[k*3]);minY=Math.min(minY,p[k*3+1]);maxY=Math.max(maxY,p[k*3+1]);}
-      const lane: Lane = { tile, p, cum, orientation, len: cum[n - 1], cars: [], width, minX,minY,maxX,maxY,renderOutside:false, stops: laneStops };
-      if (lane.len < 8) continue;
+      if(n<2)continue;
+      const direction=(start:boolean):[number,number]=>{
+        const end=start?0:n-1;let k=start?1:n-2;
+        while(k>0&&k<n-1&&Math.abs(cum[k]-cum[end])<.5)k+=start?1:-1;
+        const sign=start?1:-1,dx=(p[k*3]-p[end*3])*sign,dy=(p[k*3+1]-p[end*3+1])*sign,l=Math.hypot(dx,dy)||1;
+        return [dx/l,dy/l];
+      };
+      const lane: Lane = { tile, p, cum, orientation,startDir:direction(true),endDir:direction(false),len: cum[n - 1], cars: [], width, minX,minY,maxX,maxY,renderOutside:false, stops: laneStops };
+      for(let k=0;banks&&k<banks.length;k+=2){
+        const key=`${Math.round(banks[k]*10)},${Math.round(banks[k+1]*10)}`,end=p.length-3;
+        if(Math.hypot(p[0]-banks[k],p[1]-banks[k+1])<=width/2+2)lane.bankStart=key;
+        if(Math.hypot(p[end]-banks[k],p[end+1]-banks[k+1])<=width/2+2)lane.bankEnd=key;
+      }
+      // Short surveyed connectors carry cars between longer paths even though
+      // they cannot spawn one themselves. Dropping them severs bridge banks
+      // and tile/junction seams after the road geometry has already joined.
+      if (lane.len < .05) continue;
       list.push(lane);
       const end=p.length-3,junctionKey=`${Math.floor(p[end]/64)},${Math.floor(p[end+1]/64)}`;
       let junction=this.junctionRegions.get(junctionKey);
@@ -232,7 +252,7 @@ export class DroneTraffic {
     const cached=this.continuations.get(from);
     const revision=from.junction?.revision??this.networkRevision;
     if(cached?.revision===revision)return cached.choices.length?pick(cached.choices,this.rnd()):null;
-    const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+    [dx,dy]=from.endDir;
     const cx = Math.round(x / 4), cy = Math.round(y / 4), out: [Lane, number][] = [];
     for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) for (const l of this.starts.get(`${cx + i},${cy + j}`) ?? []) {
       if (l === from) continue;
@@ -242,8 +262,10 @@ export class DroneTraffic {
       // A tile seam allows rounding noise; a junction allows an ordinary approach slope.
       // Stacked carriageways seven metres apart cannot become a continuation in XY.
       if (dz > Math.max(.35, d * .12)) continue;
-      const ex = l.p[3] - l.p[0], ey = l.p[4] - l.p[1], el = Math.hypot(ex, ey) || 1, turn = (ex * dx + ey * dy) / el;
+      const turn = l.startDir[0]*dx+l.startDir[1]*dy;
+      const bankMerge=!!from.bankEnd&&from.bankEnd===l.bankStart&&turn>.97;
       if (d <= 4) { if (turn > 0.2) out.push([l, 4]); continue; }
+      if(bankMerge&&d<=12){out.push([l,4]);continue;}
       // (across a junction: ahead of the car, not back; straight on most likely)
       if ((ox * dx + oy * dy) / d < 0.2 || turn < -0.3) continue;
       out.push([l, turn > 0.8 ? 2 : 1]);
@@ -252,10 +274,10 @@ export class DroneTraffic {
     let choices=near.length?near:out;
     // A tile seam should continue in the matching lane, rather than randomly
     // jumping to a parallel adjacent lane. Merge only if that lane has ended.
-    const parallel=choices.filter(([l])=>{const ex=l.p[3]-l.p[0],ey=l.p[4]-l.p[1];return(ex*dx+ey*dy)/(Math.hypot(ex,ey)||1)>.97;});
+    const parallel=choices.filter(([l])=>l.startDir[0]*dx+l.startDir[1]*dy>.97);
     if(parallel.length){
       const side=(l:Lane)=>Math.abs((l.p[0]-x)*dy-(l.p[1]-y)*dx),best=Math.min(...parallel.map(([l])=>side(l)));
-      const matching=parallel.filter(([l])=>side(l)<=best+.25&&side(l)<=4.2);
+      const matching=parallel.filter(([l])=>side(l)<=best+.25&&side(l)<=(from.bankEnd&&from.bankEnd===l.bankStart?12:4.2));
       // Keep real junction turn choices; lane matching governs straight travel.
       choices=near.length?matching:[...choices.filter(o=>!parallel.includes(o)),...matching];
     }
