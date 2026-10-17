@@ -8,6 +8,7 @@ import DroneRadar, { type DroneWhere } from "./DroneRadar";
 import { autopilotCallout } from "./autopilotCallout";
 import CctvPopup from './CctvPopup';
 import TrafficCctvControls from './TrafficCctvControls';
+import {TRAFFIC_CCTV_ENABLED} from './trafficCctv';
 import type {DroneCctv} from './droneCctv';
 import './traffic-cctv.css';
 import './drone-flight-settings.css';
@@ -97,6 +98,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
   const root = useRef<HTMLDivElement>(null);
   const [card, setCard] = useState<{ sign: Sign; at: { lat: number; lon: number }; distance: number } | null>(null);
   const pickSign=(s:Sign)=>{
+    if(s.camera&&!TRAFFIC_CCTV_ENABLED)return;
     if(!DroneSigns.hasCard(s))return;
     const o=radar.origin,kx=Math.cos(o.lat*Math.PI/180)*111320;
     signs.selected=s.key;flight.keys.clear();flight.setAutopilot(false);
@@ -234,7 +236,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
         <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>
       </div>
       <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} onPick={pickSign}>
-        <TrafficCctvControls cctv={cctv} signs={signs} {...radar} onPick={pickSign} onUpdate={value=>setCard(old=>{if(!old?.sign.camera)return old;const c=value.items.find(c=>c.id===old.sign.camera?.id);return c?{...old,sign:{...old.sign,camera:c}}:old;})}/>
+        {TRAFFIC_CCTV_ENABLED&&<TrafficCctvControls cctv={cctv} signs={signs} {...radar} onPick={pickSign} onUpdate={value=>setCard(old=>{if(!old?.sign.camera)return old;const c=value.items.find(c=>c.id===old.sign.camera?.id);return c?{...old,sign:{...old.sign,camera:c}}:old;})}/>}
       </DroneRadar>
       {help && <div className="re-drone-help" role="note">
         {touch
@@ -261,7 +263,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
           <span>회전</span>
         </button>
       </div>
-      {card?.sign.camera?<CctvPopup key={card.sign.camera.id} camera={card.sign.camera} onClose={closeCard} onRefresh={()=>window.dispatchEvent(new Event('cctv-refresh'))}/>
+      {card?.sign.camera?(TRAFFIC_CCTV_ENABLED&&<CctvPopup key={card.sign.camera.id} camera={card.sign.camera} onClose={closeCard} onRefresh={()=>window.dispatchEvent(new Event('cctv-refresh'))}/>)
         :card&&<DroneBuildingCard sign={card.sign} at={card.at} distance={card.distance} vkey={radar.vkey} domain={radar.domain} onClose={closeCard} />}
       {touch && <>
         <Stick side="left" flight={flight} label={["상승·하강", "회전"]} />

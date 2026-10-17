@@ -199,7 +199,7 @@ export default function DroneRadar({ vkey, domain, where, signs, origin,onPick,c
   const zoomBy = (d: number) => {manualZoom.current=true;setZoom(z => Math.max(7, Math.min(18, z + d)));};
   return (
     <div className={`re-drone-radar${big ? " is-big" : ""}`}>
-      <canvas ref={cv} aria-label={`레이더 지도 · CCTV ${cameras.visible}/${cameras.total}곳 표시`} data-camera-count={cameras.total} data-camera-visible={cameras.visible} data-zoom={zoom}
+      <canvas ref={cv} aria-label={cameras.total?`레이더 지도 · CCTV ${cameras.visible}/${cameras.total}곳 표시`:'레이더 지도'} data-camera-count={cameras.total} data-camera-visible={cameras.visible} data-zoom={zoom}
         onWheel={e => { e.stopPropagation(); zoomBy(e.deltaY < 0 ? 1 : -1); }}
         onPointerDown={e => { e.stopPropagation();press.current={x:e.clientX,y:e.clientY,at:performance.now()};e.currentTarget.setPointerCapture(e.pointerId); touches.current.set(e.pointerId, [e.clientX, e.clientY]); if (touches.current.size === 2) { press.current=null;const [a, b] = [...touches.current.values()]; pinch.current = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), z: zoomRef.current }; } }}
         onPointerMove={e => {
@@ -207,7 +207,7 @@ export default function DroneRadar({ vkey, domain, where, signs, origin,onPick,c
           if (!touches.current.has(e.pointerId)) {
             const r=e.currentTarget.getBoundingClientRect();
             const hit=hits.current.find(h=>Math.hypot(h.x-e.clientX+r.left,h.y-e.clientY+r.top)<16);
-            e.currentTarget.style.cursor=hit?'pointer':'';e.currentTarget.title=hit?hit.sign.name:'CCTV 아이콘을 누르면 영상을 엽니다.';
+            e.currentTarget.style.cursor=hit?'pointer':'';e.currentTarget.title=hit?hit.sign.name:'';
             return;
           }
           touches.current.set(e.pointerId, [e.clientX, e.clientY]);

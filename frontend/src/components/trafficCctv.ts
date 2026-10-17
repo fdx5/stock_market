@@ -1,6 +1,10 @@
 export type TrafficCamera = { id:string; name:string; lat:number; lon:number; source:string; address?:string;
   media?:string|null; format?:'hls'|'mp4'|'image'; updatedAt?:string };
 
+// Keep all CCTV entry points hidden until an approved city feed actually plays.
+// Reopening city CCTV must not re-enable the paused ITS highway provider.
+export const TRAFFIC_CCTV_ENABLED=false;
+
 export function cameraPoint(camera:TrafficCamera,origin:{lat:number;lon:number}) {
   return {x:(camera.lon-origin.lon)*111320*Math.cos(origin.lat*Math.PI/180),y:(camera.lat-origin.lat)*110540};
 }

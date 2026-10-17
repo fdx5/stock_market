@@ -8,6 +8,19 @@ import pytest
 from app.services import traffic_cctv as c
 
 
+@pytest.fixture(autouse=True)
+def enable_provider_for_isolated_adapter_checks(monkeypatch):
+    monkeypatch.setattr(c, "HIGHWAY_CCTV_ENABLED", True)
+
+
+def test_paused_provider_never_queries_its_even_with_a_key_and_refresh(monkeypatch):
+    monkeypatch.setattr(c, "HIGHWAY_CCTV_ENABLED", False)
+    monkeypatch.setenv("ITS_CCTV_API_KEY", "fixture-not-a-real-key")
+    monkeypatch.setattr(c.requests, "get", lambda *a, **k: pytest.fail("paused provider must not connect"))
+    assert c.cameras(37.5, 127, refresh=True)["status"] == "disabled"
+    assert c.cameras(37.5, 127)["items"] == []
+
+
 def test_missing_key_makes_no_network_request(monkeypatch):
     monkeypatch.delenv("ITS_CCTV_API_KEY", raising=False)
     monkeypatch.delenv("ITS_API_KEY", raising=False)

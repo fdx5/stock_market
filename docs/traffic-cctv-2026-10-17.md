@@ -1,5 +1,17 @@
 # CCTV map and drone integration — verification status
 
+## Owner-requested pause after connection investigation
+
+Highway/national-road CCTV is now hidden and disabled. The drone does not mount
+the controls or refresh timer, show connection warnings, load camera positions,
+or open video popups. The backend returns an empty `disabled` result before
+reading the key or connecting to ITS, including for an older open browser tab.
+Keys and the adapter are retained. No database or saved-data changes are needed.
+
+City/UTIC CCTV remains disabled. The next activation is city CCTV first, after
+approval and successful real-video verification, rather than an automatic
+calendar-based enablement. Its future adapter must not turn the ITS gate back on.
+
 ## 2026-10-17 emergency radar and flight-settings update
 
 The radar initially covered only a few hundred metres at zoom 15. The nearest

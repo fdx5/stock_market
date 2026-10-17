@@ -24,6 +24,9 @@ import urllib3
 
 API = "https://openapi.its.go.kr:9443/cctvInfo"
 SOURCE = "국토교통부 국가교통정보센터"
+# Paused by the owner while hosting-network access is unresolved. Keep credentials
+# intact; a future approved city provider must remain independent of this gate.
+HIGHWAY_CCTV_ENABLED = False
 _cache: OrderedDict = OrderedDict()
 _media: OrderedDict = OrderedDict()
 _by_url: dict = {}
@@ -127,6 +130,8 @@ def _fetch_road(road, lat, lon):
 
 
 def cameras(lat: float, lon: float, refresh: bool = False) -> dict:
+    if not HIGHWAY_CCTV_ENABLED:
+        return {"items": [], "status": "disabled", "source": SOURCE}
     if not _key():
         return {"items": [], "status": "needs_key", "source": SOURCE}
     if _key().lower() == "test":
