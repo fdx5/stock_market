@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "echarts": "^6.1.0",
+    "hls.js": "^1.7.3",
     "lightweight-charts": "^5.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -68,9 +69,10 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 592,
+  "source_files": 658,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
+    "frontend/src/components/coastGeometryWorker.ts",
     "frontend/src/components/droneSurveyWorker.ts",
     "frontend/src/components/moonGlowWorker.ts",
     "frontend/src/components/normalWorker.ts",
@@ -79,14 +81,19 @@
     "frontend/src/components/photoWorker.ts",
     "frontend/src/components/roadBvhWorker.ts",
     "frontend/src/components/roadDrapeWorker.ts",
+    "frontend/src/components/roadModelCheckWorker.ts",
     "frontend/src/components/sceneWorker.ts",
     "frontend/src/components/sceneWorkerClient.ts",
+    "frontend/src/components/sceneWorkerPool.ts",
+    "frontend/src/components/terrainGridWorker.ts",
     "frontend/src/components/texWorker.ts",
     "frontend/src/components/treeDecodeWorker.ts",
     "frontend/src/components/vehicleWorker.ts",
     "frontend/src/components/wakeWorker.ts",
     "frontend/src/components/workerCpuRaster.ts",
     "frontend/src/drivegame/world/tileWorker.ts",
+    "frontend/src/rail/railClearanceWorker.ts",
+    "frontend/src/rail/railWorker.ts",
     "frontend/src/vendor/tidewater/engine/gpu/ShaderTextWorker.js"
   ],
   "external": [
@@ -103,11 +110,23 @@
       ]
     },
     {
+      "file": "frontend/src/components/ComplexHologram.tsx",
+      "hosts": [
+        "www.openstreetmap.org"
+      ]
+    },
+    {
       "file": "frontend/src/components/DroneBuildingCard.tsx",
       "hosts": [
         "map.kakao.com",
         "map.naver.com",
         "search.daum.net"
+      ]
+    },
+    {
+      "file": "frontend/src/components/dronePlaceClient.ts",
+      "hosts": [
+        "api.vworld.kr"
       ]
     },
     {
@@ -213,6 +232,12 @@
       ]
     },
     {
+      "file": "frontend/src/components/trafficCctv.ts",
+      "hosts": [
+        "api.vworld.kr"
+      ]
+    },
+    {
       "file": "frontend/src/components/TugOfWarPage.tsx",
       "hosts": [
         "cdn.jsdelivr.net"
@@ -282,6 +307,12 @@
       ]
     },
     {
+      "file": "frontend/src/drivegame/DriveGamePage.tsx",
+      "hosts": [
+        "www.openstreetmap.org"
+      ]
+    },
+    {
       "file": "frontend/src/drivegame/world/complexAt.ts",
       "hosts": [
         "api.vworld.kr"
@@ -304,6 +335,12 @@
       "file": "frontend/src/etfLogo.ts",
       "hosts": [
         "ssl.pstatic.net"
+      ]
+    },
+    {
+      "file": "frontend/src/rail/review.ts",
+      "hosts": [
+        "www.openstreetmap.org"
       ]
     },
     {

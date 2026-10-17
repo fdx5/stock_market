@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "echarts": "^6.1.0",
+    "hls.js": "^1.7.3",
     "lightweight-charts": "^5.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

@@ -18,9 +18,10 @@ const STYLE: Record<DroneLabel["kind"], { bg: string; fg: string; edge: string; 
   school: { bg: "rgba(20,96,58,0.88)", fg: "#ffffff", edge: "#8fe0b0", icon: "🎓", rank: 2, reach: 1400 },
   station: { bg: "rgba(8,68,92,0.92)", fg: "#ffffff", edge: "#86e5f2", icon: "🚉", rank: 4, reach: 1900 },
   bridge: { bg: "rgba(8,54,78,0.94)", fg: "#ffffff", edge: "#75e0f5", icon: "🌉", rank: 6, reach: 2800 },
+  cctv: { bg: 'rgba(17,65,63,0.94)', fg:'#ffffff',edge:'#79f3ce',icon:'📹 CCTV',rank:3,reach:1300 },
 };
 
-export type Sign = { key: string; name: string; kind: DroneLabel["kind"]; x: number; y: number; top: number; n: number; w: number; info?: DroneLabelInfo };
+export type Sign = { key: string; name: string; kind: DroneLabel["kind"]; x: number; y: number; top: number; n: number; w: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera };
 
 export class DroneSigns {
   private byTile = new Map<string, DroneLabel[]>();
@@ -65,9 +66,9 @@ export class DroneSigns {
   private merge() {
     const groups = new Map<string, Sign[]>();
     for (const list of this.byTile.values()) for (const l of list) {
-      const k = l.kind + ":" + l.name, near = groups.get(k)?.find(s => Math.hypot(s.x - l.x, s.y - l.y) < 600);
+      const k = l.kind + ":" + (l.camera?.id??l.name), near = groups.get(k)?.find(s => Math.hypot(s.x - l.x, s.y - l.y) < 600);
       if (near) { near.x = (near.x * near.n + l.x * l.n) / (near.n + l.n); near.y = (near.y * near.n + l.y * l.n) / (near.n + l.n); near.top = Math.max(near.top, l.top); if (!near.info?.pnu && l.info?.pnu) near.info = l.info; near.n += l.n; }
-      else { const sign = { key: k, name: l.name, kind: l.kind, x: l.x, y: l.y, top: l.top, n: l.n, w: 0, info: l.info }, list = groups.get(k); if (list) list.push(sign); else groups.set(k, [sign]); }
+      else { const sign = { key: k, name: l.name, kind: l.kind, x: l.x, y: l.y, top: l.top, n: l.n, w: 0, info: l.info, camera:l.camera }, list = groups.get(k); if (list) list.push(sign); else groups.set(k, [sign]); }
     }
     this.merged = [...groups.values()].flat();
     this.dirty = false;
@@ -135,7 +136,7 @@ export class DroneSigns {
       ctx.fillStyle = st.edge; ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = st.bg;
       ctx.beginPath(); ctx.roundRect(x0, y0, bw, bh, bh / 2); ctx.fill();
-      if (card && this.fx) {
+      if (card && this.fx && s.kind!=='cctv') {
         // (a soft glow in the sign's own colour, breathing slowly — a sign to tap; steady and
         // brighter while its card is open)
         const pulse = lit ? 1 : 0.5 + 0.5 * Math.sin(t * 2.4 + sx * 0.02);

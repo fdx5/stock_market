@@ -4442,7 +4442,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         {!loading && preparing && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
         {!loading && error && <p className="re-holo-msg" role="status">{error}{" "}
           <button type="button" className="re-holo-retry" onClick={() => setReloadKey(k => k + 1)}>다시 시도</button></p>}
-        {droneOn && stageRef.current?.drone && <DroneOverlay sink={droneHud} flight={stageRef.current.drone.flight} signs={stageRef.current.drone.signs} touch={droneTouch}
+        {droneOn && stageRef.current?.drone && <DroneOverlay sink={droneHud} flight={stageRef.current.drone.flight} signs={stageRef.current.drone.signs} cctv={stageRef.current.drone.cctv} touch={droneTouch}
           radar={{ vkey: data!.vworld_key!, domain: data!.vworld_domain ?? "https://kospimap.com", origin: data!.center!, where: stageRef.current.drone.where }}
           onExit={exitDrone} onMute={m => stageRef.current?.drone?.audio.setMuted(m)} full={droneFull} onFull={toggleDroneFull}
           view={droneView} onView={() => { const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); }} />}

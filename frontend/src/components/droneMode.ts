@@ -6,6 +6,7 @@ import { DroneWorld, type ViewExtent, type DroneViewBuildings } from "./droneWor
 import type {NearBuildingSource} from './nearBuildingTargets';
 import { DroneAudio } from "./droneAudio";
 import { DroneSigns } from "./droneSigns";
+import { DroneCctv } from './droneCctv';
 import type {DroneLabel} from './ringBuildings';
 import { DroneModel } from "./droneModel";
 import { buildWalkers, type WalkPath } from "./sceneWalkers";
@@ -39,6 +40,7 @@ export class DroneSession {
   readonly world: DroneWorld;
   readonly audio = new DroneAudio();
   readonly signs = new DroneSigns();
+  readonly cctv:DroneCctv;
   /** 1인칭 (the drone's camera) or 3인칭 (behind the drone, the drone in view). */
   view: "fpv" | "chase" = "fpv";
   private model = new DroneModel();
@@ -82,6 +84,7 @@ export class DroneSession {
       viewWater: () => this.viewWater(),
       onSeaReady: field => { void this.sinkSeaGround(field); p.onSeaReady?.(field); },
       onLabels: (k, l) => this.signs.set(k, l) });
+    this.cctv=new DroneCctv(p.scene,this.signs,p.data.center!, (x,y)=>this.world.groundAt(x,y));
   }
 
   /** Take off from the camera, starting within 220 m of the ground, looking its way. */
@@ -346,6 +349,7 @@ export class DroneSession {
     if(stations!==this.stationLabels){this.stationLabels=stations;this.signs.set('surface-stations',stations??null);}
     const bridges=this.p.bridgeLabels?.();
     if(bridges!==this.bridgeLabels){this.bridgeLabels=bridges;this.signs.set('view-bridges',bridges?[...bridges]:null);}
+    this.cctv.update(performance.now());
     this.signs.draw(this.p.camera, viewW, viewH, [R * 0.72, R * 0.98]);
     const now = performance.now();
     // (where a frame's time goes: flight, world, cars, people, signs — the worst of each a second)
@@ -451,6 +455,8 @@ export class DroneSession {
     this.flight.setAutoRotate(false);
     if (this.crowd) { this.dropCrowd(this.crowd.c); this.crowd = null; }
     this.audio.stop();
+    this.p.forget?.(new Set(this.cctv.materials()));
+    this.cctv.dispose();
     this.world.dispose();
     this.p.forget?.(new Set(this.model.materials()));
     this.model.dispose();

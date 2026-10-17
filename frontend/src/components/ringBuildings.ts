@@ -19,7 +19,7 @@ import {buildingAppearanceProfile,type BuildingAppearance} from './buildingAppea
 /** What the building register (VWorld GIS건물통합정보) says of a sign's largest building: its parcel
  * (PNU, for the 건축물대장 card), 사용승인일, floors, height and floor area. */
 export type DroneLabelInfo = { /** the building's centre (view frame, m) */ bx?: number; by?: number; pnu?: string; approved?: string; floors?: number; basements?: number; height?: number; area?: number; dong?: string };
-export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital" | "station" | "bridge"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo };
+export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital" | "station" | "bridge" | "cctv"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera };
 /** The styles in the order RingResult.towers names them. */
 export const SURVEY_STYLES: ContextStyle[] = ["apt", "villa", "shop", "office"];
 export type RingStyleArrays = { position: Float32Array; normal: Float32Array; uv: Float32Array; color: Float32Array; facade?:Float32Array; index: Uint32Array; sphere?:[number,number,number,number] };

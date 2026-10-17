@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { DroneSigns } from "./droneSigns";
+import type { DroneSigns,Sign } from "./droneSigns";
 
 /* The drone's radar (드론 mode, top right): where it is, as a GPS shows it — the map round it
  * (VWorld's 2D map, "midnight" style, Web Mercator tiles), turned so the flight points up, north
@@ -49,7 +49,8 @@ function reverseGeocode(key: string, domain: string, lat: number, lon: number): 
   });
 }
 
-export default function DroneRadar({ vkey, domain, where, signs, origin }: {
+export default function DroneRadar({ vkey, domain, where, signs, origin,onPick }: {
+  onPick?:(s:Sign)=>void;
   vkey: string; domain: string; where: () => DroneWhere | null; signs: DroneSigns;
   /** the view's centre: signs are in metres east / north of it */
   origin: { lat: number; lon: number };
@@ -64,6 +65,8 @@ export default function DroneRadar({ vkey, domain, where, signs, origin }: {
   const northRef = useRef(northUp); northRef.current = northUp;
   const pinch = useRef<{ d: number; z: number } | null>(null);
   const touches = useRef(new Map<number, [number, number]>());
+  const hits=useRef<{x:number;y:number;sign:Sign}[]>([]);
+  const press=useRef<{x:number;y:number;at:number}|null>(null);
 
   // The address: again when the drone has gone 150 m, at most every 2.5 s.
   useEffect(() => {
@@ -127,9 +130,15 @@ export default function DroneRadar({ vkey, domain, where, signs, origin }: {
       // the signs round it
       const kx = Math.cos((origin.lat * Math.PI) / 180) * 111320;
       const dxo = (w.lon - origin.lon) * kx, dyo = (w.lat - origin.lat) * 110540;
+      hits.current=[];
       for (const s of signs.all()) {
         const px = ((s.x - dxo) / mpp) * scale, py = (-(s.y - dyo) / mpp) * scale;
         if (Math.hypot(px, py) > R * 1.5) continue;
+        if(s.camera&&Math.hypot(px,py)<R-6*dpr){
+          hits.current.push({x:(R+px*Math.cos(turn)-py*Math.sin(turn))/dpr,y:(R+px*Math.sin(turn)+py*Math.cos(turn))/dpr,sign:s});
+          ctx.fillStyle='#79f3ce';ctx.strokeStyle='#071c21';ctx.lineWidth=dpr;
+          ctx.fillRect(px-4*dpr,py-3*dpr,8*dpr,6*dpr);ctx.strokeRect(px-4*dpr,py-3*dpr,8*dpr,6*dpr);continue;
+        }
         ctx.fillStyle = DOT[s.kind] ?? "#fff";
         ctx.beginPath(); ctx.arc(px, py, (s.kind === "gov" ? 3.2 : 2.4) * dpr, 0, Math.PI * 2); ctx.fill();
       }
@@ -162,15 +171,17 @@ export default function DroneRadar({ vkey, domain, where, signs, origin }: {
     <div className={`re-drone-radar${big ? " is-big" : ""}`}>
       <canvas ref={cv} aria-label="레이더 지도"
         onWheel={e => { e.stopPropagation(); zoomBy(e.deltaY < 0 ? 1 : -1); }}
-        onPointerDown={e => { e.stopPropagation(); touches.current.set(e.pointerId, [e.clientX, e.clientY]); if (touches.current.size === 2) { const [a, b] = [...touches.current.values()]; pinch.current = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), z: zoomRef.current }; } }}
+        onPointerDown={e => { e.stopPropagation();press.current={x:e.clientX,y:e.clientY,at:performance.now()};e.currentTarget.setPointerCapture(e.pointerId); touches.current.set(e.pointerId, [e.clientX, e.clientY]); if (touches.current.size === 2) { press.current=null;const [a, b] = [...touches.current.values()]; pinch.current = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), z: zoomRef.current }; } }}
         onPointerMove={e => {
           e.stopPropagation();
           if (!touches.current.has(e.pointerId)) return;
           touches.current.set(e.pointerId, [e.clientX, e.clientY]);
           if (pinch.current && touches.current.size === 2) { const [a, b] = [...touches.current.values()]; const z = Math.round(pinch.current.z + Math.log2(Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.current.d)); setZoom(Math.max(7, Math.min(18, z))); }
         }}
-        onPointerUp={e => { touches.current.delete(e.pointerId); if (touches.current.size < 2) pinch.current = null; }}
-        onPointerCancel={e => { touches.current.delete(e.pointerId); pinch.current = null; }} />
+        onPointerUp={e => {const p=press.current;press.current=null;if(p&&performance.now()-p.at<600&&Math.hypot(e.clientX-p.x,e.clientY-p.y)<10){const r=e.currentTarget.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+          const hit=hits.current.map(h=>({...h,d:Math.hypot(h.x-x,h.y-y)})).filter(h=>h.d<14).sort((a,b)=>a.d-b.d)[0];if(hit)onPick?.(hit.sign);}
+          touches.current.delete(e.pointerId); if (touches.current.size < 2) pinch.current = null; }}
+        onPointerCancel={e => { press.current=null;touches.current.delete(e.pointerId); pinch.current = null; }} />
       <div className="re-drone-radar-tools">
         <button type="button" onClick={() => zoomBy(1)} aria-label="레이더 확대" title="확대">+</button>
         <button type="button" onClick={() => zoomBy(-1)} aria-label="레이더 축소" title="축소">−</button>

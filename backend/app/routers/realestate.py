@@ -6,6 +6,27 @@ from app.services import realestate_building_info, realestate_buildings, realest
 router = APIRouter()
 
 
+@router.get("/cctv")
+def traffic_cameras(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132)):
+    from app.services import traffic_cctv
+    response.headers["Cache-Control"] = "no-store"
+    return traffic_cctv.cameras(lat, lon)
+
+
+@router.get("/cctv/media/{token}")
+def traffic_camera_media(token: str):
+    from app.services import traffic_cctv
+    if not 20 <= len(token) <= 64 or not all(c.isalnum() or c in "_-" for c in token):
+        raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
+    try:
+        body, content_type = traffic_cctv.media(token)
+        return Response(body, media_type=content_type, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+    except LookupError:
+        raise HTTPException(status_code=410, detail="영상 연결이 만료되었습니다. CCTV 목록을 새로고침하세요.") from None
+    except Exception:
+        raise HTTPException(status_code=502, detail="제공기관 영상을 현재 재생할 수 없습니다.") from None
+
+
 @router.get("/regions")
 def regions(response: Response):
     response.headers["Cache-Control"] = "public, max-age=3600"

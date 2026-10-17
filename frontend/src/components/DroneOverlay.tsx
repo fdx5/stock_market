@@ -2,10 +2,14 @@ import { useEffect, useRef, useState, type MutableRefObject, type PointerEvent a
 import { createPortal } from "react-dom";
 import type { DroneHud } from "./droneMode";
 import { AUTO_MIN_AGL, AUTO_MAX_AGL, MAX_SPEED, type DroneFlight } from "./droneFlight";
-import type { DroneSigns, Sign } from "./droneSigns";
+import { DroneSigns, type Sign } from "./droneSigns";
 import DroneBuildingCard from "./DroneBuildingCard";
 import DroneRadar, { type DroneWhere } from "./DroneRadar";
 import { autopilotCallout } from "./autopilotCallout";
+import CctvPopup from './CctvPopup';
+import TrafficCctvControls from './TrafficCctvControls';
+import type {DroneCctv} from './droneCctv';
+import './traffic-cctv.css';
 
 /* 드론 mode's screen: speed, height, heading, how much of the world round it is drawn (and when
  * the drone is held back for it), sound on/off, leave; on touch screens two sticks (mode 2: the
@@ -49,7 +53,8 @@ function Stick({ side, flight, label }: { side: "left" | "right"; flight: DroneF
   );
 }
 
-export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit, onMute, view, onView, full, onFull }: {
+export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, onExit, onMute, view, onView, full, onFull }: {
+  cctv:DroneCctv;
   full?: boolean; onFull?: () => void;
   view: "fpv" | "chase"; onView: () => void;
   sink: MutableRefObject<((h: DroneHud) => void) | null>; flight: DroneFlight; signs: DroneSigns; touch: boolean;
@@ -89,12 +94,18 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
   // A tap on a sign (a short press that hardly moved, not on a control) opens its building's card.
   const root = useRef<HTMLDivElement>(null);
   const [card, setCard] = useState<{ sign: Sign; at: { lat: number; lon: number }; distance: number } | null>(null);
+  const pickSign=(s:Sign)=>{
+    if(!DroneSigns.hasCard(s))return;
+    const o=radar.origin,kx=Math.cos(o.lat*Math.PI/180)*111320;
+    signs.selected=s.key;flight.keys.clear();flight.setAutopilot(false);
+    setCard({sign:s,at:{lat:o.lat+(s.info?.by??s.y)/110540,lon:o.lon+(s.info?.bx??s.x)/kx},distance:Math.hypot(s.x-flight.pos.x,s.y+flight.pos.z)});
+  };
   useEffect(() => {
     const stage = root.current?.parentElement;
     if (!stage) return;
     let down: { x: number; y: number; t: number; id: number } | null = null;
     const local = (e: PointerEvent) => { const r = (signs.canvas ?? stage).getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] as const; };
-    const onControl = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.("button, a, input, label, .re-drone-auto-controls, .re-drone-stick, .re-drone-card, .re-drone-radar, .re-drone-tools");
+    const onControl = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.("button, a, input, label, .re-cctv-popup, .re-cctv-controls, .re-drone-auto-controls, .re-drone-stick, .re-drone-card, .re-drone-radar, .re-drone-tools");
     const pd = (e: PointerEvent) => { down = onControl(e) ? null : { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; };
     const pu = (e: PointerEvent) => {
       const d = down; down = null;
@@ -102,6 +113,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
       const [x, y] = local(e);
       const s = signs.hit(x, y, e.pointerType === "touch" ? 16 : 6);
       if (!s) return;
+      if(s.camera){pickSign(s);return;}
       const o = radar.origin, kx = Math.cos((o.lat * Math.PI) / 180) * 111320;
       const p = flight.pos;
       signs.selected = s.key;
@@ -203,7 +215,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
         <button type="button" onClick={() => setHelp(v => !v)} aria-pressed={help} title="조작법">?</button>
         <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>
       </div>
-      <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} />
+      <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} onPick={pickSign}/>
       {help && <div className="re-drone-help" role="note">
         {touch
           ? <><b>왼쪽 스틱</b> ↕ 상승·하강 ↔ 회전<br /><b>오른쪽 스틱</b> ↕ 전진·후진 ↔ 좌우 이동<br />화면 드래그: 카메라 각도 · <b>빛나는 팻말</b>을 누르면 건물 정보</>
@@ -229,7 +241,9 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
           <span>회전</span>
         </button>
       </div>
-      {card && <DroneBuildingCard sign={card.sign} at={card.at} distance={card.distance} vkey={radar.vkey} domain={radar.domain} onClose={closeCard} />}
+      <TrafficCctvControls cctv={cctv} signs={signs} {...radar} onPick={pickSign} onUpdate={value=>setCard(old=>{if(!old?.sign.camera)return old;const c=value.items.find(c=>c.id===old.sign.camera?.id);return c?{...old,sign:{...old.sign,camera:c}}:old;})}/>
+      {card?.sign.camera?<CctvPopup key={card.sign.camera.id} camera={card.sign.camera} onClose={closeCard} onRefresh={()=>window.dispatchEvent(new Event('cctv-refresh'))}/>
+        :card&&<DroneBuildingCard sign={card.sign} at={card.at} distance={card.distance} vkey={radar.vkey} domain={radar.domain} onClose={closeCard} />}
       {touch && <>
         <Stick side="left" flight={flight} label={["상승·하강", "회전"]} />
         <Stick side="right" flight={flight} label={["전진·후진", "좌우 이동"]} />

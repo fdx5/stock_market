@@ -15,6 +15,7 @@ const KIND: Record<Sign["kind"], [string, string]> = {
   gov: ["🏛", "공공기관"], major: ["🏢", "주요 건물"], apt: ["🏘", "아파트 단지"], hospital: ["✚", "병원"], school: ["🎓", "학교"],
   station: ["🚉", "전철역"],
   bridge: ["🌉", "교량"],
+  cctv: ["📹", "CCTV"],
 };
 
 const ymd = (s?: string | null) => {
