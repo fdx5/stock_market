@@ -77,7 +77,7 @@ def live_parking(response: Response, lat: float = LAT, lon: float = LON):
 @router.get("/live/facilities")
 def live_facilities(response: Response, lat: float = LAT, lon: float = LON):
     from app.services import public_live
-    response.headers["Cache-Control"] = "public, max-age=600"
+    response.headers["Cache-Control"] = "no-store"
     return public_live.facilities(lat, lon)
 
 

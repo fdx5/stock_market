@@ -54,7 +54,7 @@ export const liveApi = {
   emergency: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<EmergencyRoom>>(`${API}/emergency?${at(lat, lon)}`, signal),
   bikes: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<BikeDock>>(`${API}/bikes?${at(lat, lon)}`, signal),
   parking: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<ParkingLot>>(`${API}/parking?${at(lat, lon)}`, signal),
-  facilities: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<Facility>>(`${API}/facilities?${at(lat, lon)}`, signal),
+  facilities: (lat: number, lon: number, signal?: AbortSignal) => nearFacilities(lat, lon, signal),
   traffic: (lat: number, lon: number, links: string[], signal?: AbortSignal) => json<{ status: LiveStatus; speeds: Record<string, number>; pending?: number; source: string; updated: string }>(
     `${API}/traffic`, signal, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lon, links }) }),
 };
@@ -145,3 +145,31 @@ export const liveState = {
 
 /** An emergency room's free beds as a word: E-Gen reports more patients than beds as a negative. */
 export const bedsText = (er: number | null) => er === null ? '정보 없음' : er < 0 ? `포화 (${-er}명 초과)` : er === 0 ? '병상 없음' : `${er}병상`;
+
+/* The public facilities and subway entrances: static cells built from OpenStreetMap
+ * (scripts/build-public-facilities.py) — the hosting network cannot reach Overpass at run time. */
+const FACILITY_ROOT = '/live/facilities-20261017-v1';
+let facilityCells: Promise<{ cell: number; cells: Set<string> } | null> | null = null;
+const facilityCell = new Map<string, Promise<Facility[]>>();
+async function nearFacilities(lat: number, lon: number, signal?: AbortSignal, radius = 3000): Promise<LiveList<Facility>> {
+  facilityCells ??= fetch(`${FACILITY_ROOT}/manifest.json`).then(r => (r.ok ? r.json() : null)).then(m => m ? { cell: m.cell, cells: new Set<string>(m.cells) } : null).catch(() => { facilityCells = null; return null; });
+  const m = await facilityCells;
+  if (!m) return { status: 'unavailable', items: [] };
+  const dy = radius / 110540, dx = radius / (111320 * Math.cos(lat * Math.PI / 180)), out: Facility[] = [];
+  const keys: string[] = [];
+  for (let i = Math.floor((lat - dy) / m.cell); i <= Math.floor((lat + dy) / m.cell); i++)
+    for (let j = Math.floor((lon - dx) / m.cell); j <= Math.floor((lon + dx) / m.cell); j++) if (m.cells.has(`${i}_${j}`)) keys.push(`${i}_${j}`);
+  const lists = await Promise.all(keys.map(k => {
+    let p = facilityCell.get(k);
+    if (!p) { p = fetch(`${FACILITY_ROOT}/${k}.json`, { signal }).then(r => (r.ok ? r.json() : [])).catch(() => { facilityCell.delete(k); return []; }); facilityCell.set(k, p); }
+    return p;
+  }));
+  if (facilityCell.size > 200) for (const k of facilityCell.keys()) { if (facilityCell.size <= 150) break; if (!keys.includes(k)) facilityCell.delete(k); }
+  const kx = 111320 * Math.cos(lat * Math.PI / 180);
+  for (const list of lists) for (const f of list) {
+    const d = Math.hypot((f.lon - lon) * kx, (f.lat - lat) * 110540);
+    if (d <= radius) out.push(Object.assign({ address: '', phone: '', hours: '', access: '', indoor: false, description: '' }, f, { distance: Math.round(d) }));
+  }
+  out.sort((a, b) => a.distance - b.distance);
+  return { status: 'ok', items: out.slice(0, 800), source: '© OpenStreetMap contributors (ODbL)' };
+}
