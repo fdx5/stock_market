@@ -1,0 +1,29 @@
+.re-holo .re-drone-auto-controls .re-drone-auto-settings-toggle { display:flex;align-items:center;gap:9px;width:100%;min-height:54px;box-sizing:border-box;margin:7px 0 0;padding:9px 11px;border:1px solid #78c9ed88;border-radius:11px;background:#0c2639f2;color:#eaf6ff;text-align:left;text-indent:0;white-space:normal;line-height:1.35;font-family:var(--f-sans,sans-serif);cursor:pointer;pointer-events:auto;box-shadow:0 3px 12px #0003; }
+.re-holo .re-drone-auto-settings-toggle:hover,.re-holo .re-drone-auto-settings-toggle[aria-expanded=true] { border-color:#a0e1ff;background:#163c54; }
+.re-holo .re-drone-auto-settings-toggle .re-flight-settings-icon { width:23px;height:23px;flex:none;color:#8bd9ff; }
+.re-holo .re-drone-auto-settings-toggle>span:not(.re-flight-settings-chevron) { display:grid;gap:3px;min-width:0; }
+.re-holo .re-drone-auto-settings-toggle b { color:#f2faff;font-size:12px;font-weight:700; }
+.re-holo .re-drone-auto-settings-toggle small { color:#a7cadc;font-size:10px;font-variant-numeric:tabular-nums; }
+.re-holo .re-drone-auto-settings-toggle small i { margin:0 4px;font-style:normal;color:#668da1; }
+.re-holo .re-drone-auto-settings-toggle .re-flight-settings-chevron { margin-left:auto;color:#a0dbf7;font-size:25px;line-height:1; }
+.re-drone-auto-settings.re-drone-flight-settings { position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);margin:0;width:360px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);box-sizing:border-box;display:grid;gap:18px;padding:20px;overflow-y:auto;border:1px solid #85cee577;border-radius:18px;background:#091c29;color:#edf8ff;font:13px/1.5 system-ui,sans-serif;visibility:visible;opacity:1;box-shadow:0 24px 80px #0009; }
+.re-drone-flight-settings::backdrop { background:#020b16a6; }
+.re-drone-flight-settings .re-flight-settings-header { display:flex;align-items:center;justify-content:space-between;gap:12px; }
+.re-drone-flight-settings .re-flight-settings-header small { color:#92bfd1;font-size:11px; }
+.re-drone-flight-settings .re-flight-settings-header h2 { margin:2px 0 0;color:#f3fbff;font-size:20px;font-weight:750;letter-spacing:-.5px; }
+.re-drone-flight-settings .re-flight-settings-close { display:grid;place-items:center;flex:none;width:36px;height:36px;padding:0;border:1px solid #afd8ed33;border-radius:10px;background:#153243;color:#c5e4f3;font:24px/1 system-ui,sans-serif;cursor:pointer; }
+.re-drone-flight-settings .re-flight-setting-section { display:grid;gap:8px;margin:0;padding:14px;border:1px solid #aad8eb25;border-radius:12px;background:#102b3b; }
+.re-drone-flight-settings .re-flight-setting-row { display:flex;align-items:center;justify-content:space-between;gap:8px; }
+.re-drone-flight-settings .re-flight-setting-row label { margin:0;font-size:13px;font-weight:650;color:#e6f6ff; }
+.re-drone-flight-settings .re-flight-setting-value { display:flex;align-items:center;gap:7px;color:#93b7c9;font-size:12px; }
+.re-drone-flight-settings .re-flight-setting-value input { display:block;box-sizing:border-box;width:78px;min-height:40px;margin:0;padding:7px 8px;border:1px solid #8bc9e56b;border-radius:8px;background:#071e2c;color:#f4fbff;text-align:right;font:600 19px/1.2 system-ui,sans-serif;font-variant-numeric:tabular-nums; }
+.re-drone-flight-settings .re-flight-setting-section input[type=range] { display:block;width:100%;height:26px;margin:0;accent-color:#8bdbff;cursor:pointer; }
+.re-drone-flight-settings .re-flight-setting-limits { display:flex;justify-content:space-between;margin-top:-6px;color:#8fb3c6;font-size:10px; }
+.re-drone-flight-settings .re-flight-setting-presets { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:4px; }
+.re-drone-flight-settings .re-flight-setting-presets button { min-height:36px;padding:5px 4px;border:1px solid #a6d6eb33;border-radius:7px;background:#173b50;color:#bddfed;font:600 11px/1.3 system-ui,sans-serif;cursor:pointer; }
+.re-drone-flight-settings .re-flight-setting-presets button:hover,.re-drone-flight-settings .re-flight-setting-presets button[aria-pressed=true] { border-color:#90d9fa;background:#265c73;color:#fff; }
+.re-drone-flight-settings .re-flight-settings-note { margin:0;color:#9fbfce;font-size:11px;line-height:1.7; }
+.re-drone-flight-settings .re-flight-settings-done { display:block;width:100%;min-height:44px;padding:10px;border:1px solid #a9e3ff;border-radius:10px;background:#96dcff;color:#082439;font:750 14px/1.4 system-ui,sans-serif;cursor:pointer; }
+.re-drone-flight-settings .re-flight-settings-done:hover { background:#b6e8ff; }
+.re-drone-flight-settings button:focus-visible,.re-drone-flight-settings input:focus-visible,.re-holo .re-drone-auto-settings-toggle:focus-visible { outline:2px solid #ffd27a;outline-offset:3px; }
+@media(max-width:420px) { .re-drone-auto-settings.re-drone-flight-settings { padding:16px;gap:15px; }.re-drone-flight-settings .re-flight-settings-close { width:44px;height:44px; }.re-drone-flight-settings .re-flight-setting-presets button,.re-drone-flight-settings .re-flight-setting-value input { min-height:44px; } }

@@ -1,5 +1,49 @@
 # CCTV map and drone integration — verification status
 
+## 2026-10-17 emergency radar and flight-settings update
+
+The radar initially covered only a few hundred metres at zoom 15. The nearest
+playable camera in the Seongnam check was about 1.3 km away, outside that circle.
+Camera marks were also tiny and could be covered by ordinary building dots.
+The first received camera set now fits inside the circle automatically; manual
+zoom is preserved. A camera-count / fit button brings the verified locations
+back into view. Larger, screen-aligned camera icons draw above other map dots
+and retain the correct click targets as the map rotates.
+
+Brief lookup failures preserve recently verified locations for up to two minutes
+within 3.3 km. Disabling CCTV clears this process-local display state. Refreshes
+no longer remove all markers while waiting. Provider failure is visibly reported
+and remains distinct from a successful query with no nearby cameras. UTIC city
+lookups and links remain disabled pending approval.
+
+The speed/altitude button now displays the selected values and opens a styled
+modal with numeric inputs, sliders and quick presets. Settings apply immediately;
+Escape, close, completion and backdrop dismissal work and return keyboard focus
+to the button. Mobile numeric inputs, presets and close/complete buttons have
+at least 44 px touch targets.
+
+Validation: TypeScript/Vite build and CCTV regression checks passed. Disposable,
+muted real Chrome verified radar fit, marker selection before/after rotation,
+manual zoom preservation, retry/retention, disable cleanup, and settings input,
+clamping, dismissal and 390×844 layout. Radar interaction checks use isolated
+location fixtures over the actual 3D scene; they are not evidence of live video.
+At 3840×2160 high quality, a 60 km/h flight measured minimum 1-second 37.36 FPS,
+p95 33.4 ms, p99 50.1 ms, maximum 66.6 ms. The touch-context repeat measured
+33.99 FPS minimum, p95 33.4 ms, p99/max 50.1 ms. Hardware: Ryzen 7 3700X,
+RTX 3070, 16 logical cores. The actual 116 px touch radar also fit all fixture
+locations and opened their popups correctly. Resolution was not reduced.
+The all-segment 50 FPS requirement remains unmet.
+
+Production now recognizes the configured ITS credential, but fresh catalog checks
+return `connect_timeout` for both highway and national-road requests. No HTTP
+authorization response is reached, so production key validity and live video
+remain unverified. This external connection failure also explains an empty radar
+on first load; rendering changes cannot create a provider list that was not received.
+Local approved-key checks previously played actual highway video successfully.
+
+The historical notes below describe earlier stages and are superseded by this
+update where they conflict.
+
 Implemented in the isolated development branch; not released as verified live video.
 
 Release scope updated by the user: UTIC approval email has not arrived. Disable city

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DroneSigns,Sign } from "./droneSigns";
+import {cameraRadarZoom,radarCameraPoint} from './droneRadarCctv';
 
 /* The drone's radar (드론 mode, top right): where it is, as a GPS shows it — the map round it
  * (VWorld's 2D map, "midnight" style, Web Mercator tiles), turned so the flight points up, north
@@ -68,6 +69,18 @@ export default function DroneRadar({ vkey, domain, where, signs, origin,onPick,c
   const touches = useRef(new Map<number, [number, number]>());
   const hits=useRef<{x:number;y:number;sign:Sign}[]>([]);
   const press=useRef<{x:number;y:number;at:number}|null>(null);
+  const manualZoom=useRef(false),autoFitted=useRef(false);
+  const [cameras,setCameras]=useState({total:0,visible:0});
+  const cameraCounts=useRef(cameras);
+  const fitCameras=()=>{
+    const w=where(),c=cv.current;if(!w||!c)return;
+    const kx=Math.cos(origin.lat*Math.PI/180)*111320;
+    const dx=(w.lon-origin.lon)*kx,dy=(w.lat-origin.lat)*110540;
+    const distances=signs.all().filter(s=>s.camera).map(s=>Math.hypot(s.x-dx,s.y-dy));
+    if(!distances.length)return;
+    const z=cameraRadarZoom(w.lat,c.clientWidth,distances);
+    zoomRef.current=z;setZoom(z);autoFitted.current=true;
+  };
 
   // The address: again when the drone has gone 150 m, at most every 2.5 s.
   useEffect(() => {
@@ -97,6 +110,8 @@ export default function DroneRadar({ vkey, domain, where, signs, origin,onPick,c
       if (c.width !== S) { c.width = c.height = S; }
       const ctx = c.getContext("2d");
       if (!ctx) return;
+      const allSigns=signs.all();
+      if(!autoFitted.current&&!manualZoom.current&&allSigns.some(s=>s.camera))fitCameras();
       const z = zoomRef.current, n = 2 ** z * TILE;
       // the drone in global pixels at this zoom
       const sin = Math.sin((w.lat * Math.PI) / 180);
@@ -131,15 +146,17 @@ export default function DroneRadar({ vkey, domain, where, signs, origin,onPick,c
       // the signs round it
       const kx = Math.cos((origin.lat * Math.PI) / 180) * 111320;
       const dxo = (w.lon - origin.lon) * kx, dyo = (w.lat - origin.lat) * 110540;
-      hits.current=[];
-      for (const s of signs.all()) {
+      const cameraHits:{x:number;y:number;sign:Sign}[]=[];
+      let cameraTotal=0;
+      for (const s of allSigns) {
+        if(s.camera){
+          cameraTotal++;
+          const point=radarCameraPoint(s.x,s.y,dxo,dyo,mpp,css,turn);
+          if(point.visible)cameraHits.push({x:point.x,y:point.y,sign:s});
+          continue;
+        }
         const px = ((s.x - dxo) / mpp) * scale, py = (-(s.y - dyo) / mpp) * scale;
         if (Math.hypot(px, py) > R * 1.5) continue;
-        if(s.camera&&Math.hypot(px,py)<R-6*dpr){
-          hits.current.push({x:(R+px*Math.cos(turn)-py*Math.sin(turn))/dpr,y:(R+px*Math.sin(turn)+py*Math.cos(turn))/dpr,sign:s});
-          ctx.fillStyle='#79f3ce';ctx.strokeStyle='#071c21';ctx.lineWidth=dpr;
-          ctx.fillRect(px-4*dpr,py-3*dpr,8*dpr,6*dpr);ctx.strokeRect(px-4*dpr,py-3*dpr,8*dpr,6*dpr);continue;
-        }
         ctx.fillStyle = DOT[s.kind] ?? "#fff";
         ctx.beginPath(); ctx.arc(px, py, (s.kind === "gov" ? 3.2 : 2.4) * dpr, 0, Math.PI * 2); ctx.fill();
       }
@@ -151,6 +168,18 @@ export default function DroneRadar({ vkey, domain, where, signs, origin,onPick,c
       for (const k of [1, 2]) { ctx.beginPath(); ctx.arc(0, 0, (ring * k / mpp) * scale, 0, Math.PI * 2); ctx.stroke(); }
       ctx.fillStyle = "rgba(160,230,255,0.85)"; ctx.font = `600 ${10 * dpr}px system-ui, sans-serif`; ctx.textAlign = "left";
       ctx.fillText(ring >= 1000 ? `${ring / 1000}km` : `${ring}m`, (ring / mpp) * scale * 0.72 + 3 * dpr, -(ring / mpp) * scale * 0.72);
+      // Screen-aligned camera icons sit above map dots and distance rings.
+      hits.current=cameraHits;
+      if(cameraCounts.current.total!==cameraTotal||cameraCounts.current.visible!==cameraHits.length){
+        cameraCounts.current={total:cameraTotal,visible:cameraHits.length};setCameras(cameraCounts.current);
+      }
+      for(const hit of cameraHits){
+        const x=hit.x*dpr-R,y=hit.y*dpr-R;
+        ctx.fillStyle='#062b30';ctx.strokeStyle='#9cffe1';ctx.lineWidth=1.5*dpr;
+        ctx.beginPath();ctx.arc(x,y,9*dpr,0,Math.PI*2);ctx.fill();ctx.stroke();
+        ctx.fillStyle='#9cffe1';ctx.fillRect(x-5*dpr,y-3*dpr,7*dpr,6*dpr);
+        ctx.beginPath();ctx.moveTo(x+2*dpr,y-2*dpr);ctx.lineTo(x+6*dpr,y-4*dpr);ctx.lineTo(x+6*dpr,y+4*dpr);ctx.lineTo(x+2*dpr,y+2*dpr);ctx.closePath();ctx.fill();
+      }
       // the drone: an arrow along its flight
       ctx.rotate(northRef.current ? (w.heading * Math.PI) / 180 : 0);
       ctx.fillStyle = "#ff8a3d"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 * dpr;
@@ -167,17 +196,22 @@ export default function DroneRadar({ vkey, domain, where, signs, origin,onPick,c
     return () => cancelAnimationFrame(raf);
   }, [vkey, where, signs, origin, big]);
 
-  const zoomBy = (d: number) => setZoom(z => Math.max(7, Math.min(18, z + d)));
+  const zoomBy = (d: number) => {manualZoom.current=true;setZoom(z => Math.max(7, Math.min(18, z + d)));};
   return (
     <div className={`re-drone-radar${big ? " is-big" : ""}`}>
-      <canvas ref={cv} aria-label="레이더 지도"
+      <canvas ref={cv} aria-label={`레이더 지도 · CCTV ${cameras.visible}/${cameras.total}곳 표시`} data-camera-count={cameras.total} data-camera-visible={cameras.visible} data-zoom={zoom}
         onWheel={e => { e.stopPropagation(); zoomBy(e.deltaY < 0 ? 1 : -1); }}
         onPointerDown={e => { e.stopPropagation();press.current={x:e.clientX,y:e.clientY,at:performance.now()};e.currentTarget.setPointerCapture(e.pointerId); touches.current.set(e.pointerId, [e.clientX, e.clientY]); if (touches.current.size === 2) { press.current=null;const [a, b] = [...touches.current.values()]; pinch.current = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), z: zoomRef.current }; } }}
         onPointerMove={e => {
           e.stopPropagation();
-          if (!touches.current.has(e.pointerId)) return;
+          if (!touches.current.has(e.pointerId)) {
+            const r=e.currentTarget.getBoundingClientRect();
+            const hit=hits.current.find(h=>Math.hypot(h.x-e.clientX+r.left,h.y-e.clientY+r.top)<16);
+            e.currentTarget.style.cursor=hit?'pointer':'';e.currentTarget.title=hit?hit.sign.name:'CCTV 아이콘을 누르면 영상을 엽니다.';
+            return;
+          }
           touches.current.set(e.pointerId, [e.clientX, e.clientY]);
-          if (pinch.current && touches.current.size === 2) { const [a, b] = [...touches.current.values()]; const z = Math.round(pinch.current.z + Math.log2(Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.current.d)); setZoom(Math.max(7, Math.min(18, z))); }
+          if (pinch.current && touches.current.size === 2) { manualZoom.current=true;const [a, b] = [...touches.current.values()]; const z = Math.round(pinch.current.z + Math.log2(Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.current.d)); setZoom(Math.max(7, Math.min(18, z))); }
         }}
         onPointerUp={e => {const p=press.current;press.current=null;if(p&&performance.now()-p.at<600&&Math.hypot(e.clientX-p.x,e.clientY-p.y)<10){const r=e.currentTarget.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
           const hit=hits.current.map(h=>({...h,d:Math.hypot(h.x-x,h.y-y)})).filter(h=>h.d<14).sort((a,b)=>a.d-b.d)[0];if(hit)onPick?.(hit.sign);}
@@ -189,6 +223,9 @@ export default function DroneRadar({ vkey, domain, where, signs, origin,onPick,c
         <button type="button" onClick={() => setNorthUp(v => !v)} aria-pressed={northUp} title={northUp ? "진행 방향을 위로" : "북쪽을 위로"}>{northUp ? "N↑" : "⬆"}</button>
         <button type="button" onClick={() => setBig(v => !v)} aria-pressed={big} title={big ? "레이더 작게" : "레이더 크게"}>{big ? "⤡" : "⤢"}</button>
       </div>
+      {cameras.total>0&&<button type="button" className="re-drone-radar-cctv" onClick={fitCameras} title="조회된 CCTV 위치를 지도 안에 모두 표시">
+        <span>CCTV {cameras.visible}/{cameras.total}곳</span><small>위치 모두 보기</small>
+      </button>}
       <div className="re-drone-radar-where">
         <b>📍 {addr}</b>
         {pos && <span>{`N${pos.lat.toFixed(5)} E${pos.lon.toFixed(5)} · 지면 ${Math.round(pos.agl)}m`}</span>}

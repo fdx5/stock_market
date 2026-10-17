@@ -52,7 +52,7 @@ async function locations(lat:number,lon:number,key:string,domain:string,signal:A
   }
   return result;
 }
-export type CameraResult={items:TrafficCamera[];status:string;locationFailed:boolean};
+export type CameraResult={items:TrafficCamera[];status:string;locationFailed:boolean;connectionFailed?:boolean;stale?:boolean};
 // City CCTV remains disconnected until UTIC approval and a verified city feed.
 const CITY_LOCATION_LINKS_ENABLED=false;
 const cache=new Map<string,{at:number;value:CameraResult}>();
@@ -68,7 +68,9 @@ export async function loadCameras(lat:number,lon:number,key:string,domain:string
   const data=video.status==='fulfilled'?video.value:null;
   const feeds:TrafficCamera[]=Array.isArray(data?.items)?data.items:[];
   const items=mergeCameras([...(map.status==='fulfilled'?map.value:[]),...feeds.filter(c=>!!c.media&&c.id.startsWith('its:'))],{lat,lon});
-  const value={items,status:data?.status??'unavailable',locationFailed:map.status==='rejected'};
+  const status=data?.status??'unavailable';
+  const value={items,status,locationFailed:map.status==='rejected'||video.status==='rejected'||(status==='unavailable'&&!items.length),
+    connectionFailed:Array.isArray(data?.issues)&&data.issues.some((i:{code?:string})=>['connect_timeout','read_timeout','connection_failed','tls_error'].includes(i.code??''))};
   if(!value.locationFailed&&['ok','needs_key'].includes(value.status)){cache.set(cell,{at:Date.now(),value});while(cache.size>24)cache.delete(cache.keys().next().value!);}
   return value;
 }

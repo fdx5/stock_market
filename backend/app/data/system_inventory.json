@@ -69,7 +69,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 658,
+  "source_files": 660,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
