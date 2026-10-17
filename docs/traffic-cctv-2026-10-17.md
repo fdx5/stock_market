@@ -45,6 +45,14 @@ Checks performed:
   matrix/label updates and animated camera-sign glows were subsequently removed;
   final measurements are recorded separately in local QA output.
 
+Repeated high-quality runs after that optimization measured CCTV-on minimum
+44.25 FPS (p95 33.3 ms, p99 33.4 ms, max 66.7 ms); the two off runs measured
+47.98 and 54.97 minimum FPS. Loading state varied, so these are not a controlled
+proof of a fixed performance penalty, and the 50 FPS goal remains unmet.
+Actual radar-marker selection was subsequently verified. The CCTV controls
+now follow the radar in normal layout, avoiding overlap with zoom buttons as
+the radar changes size. Material resources are explicitly released on exit.
+
 Remaining release gate: register an approved provider key, confirm actual camera
 video frames progress in Chrome on the HTTPS production site, confirm city-feed
 coverage, and finish performance comparison. A location popup or a generic test

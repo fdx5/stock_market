@@ -215,7 +215,9 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
         <button type="button" onClick={() => setHelp(v => !v)} aria-pressed={help} title="조작법">?</button>
         <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>
       </div>
-      <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} onPick={pickSign}/>
+      <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} onPick={pickSign}>
+        <TrafficCctvControls cctv={cctv} signs={signs} {...radar} onPick={pickSign} onUpdate={value=>setCard(old=>{if(!old?.sign.camera)return old;const c=value.items.find(c=>c.id===old.sign.camera?.id);return c?{...old,sign:{...old.sign,camera:c}}:old;})}/>
+      </DroneRadar>
       {help && <div className="re-drone-help" role="note">
         {touch
           ? <><b>왼쪽 스틱</b> ↕ 상승·하강 ↔ 회전<br /><b>오른쪽 스틱</b> ↕ 전진·후진 ↔ 좌우 이동<br />화면 드래그: 카메라 각도 · <b>빛나는 팻말</b>을 누르면 건물 정보</>
@@ -241,7 +243,6 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
           <span>회전</span>
         </button>
       </div>
-      <TrafficCctvControls cctv={cctv} signs={signs} {...radar} onPick={pickSign} onUpdate={value=>setCard(old=>{if(!old?.sign.camera)return old;const c=value.items.find(c=>c.id===old.sign.camera?.id);return c?{...old,sign:{...old.sign,camera:c}}:old;})}/>
       {card?.sign.camera?<CctvPopup key={card.sign.camera.id} camera={card.sign.camera} onClose={closeCard} onRefresh={()=>window.dispatchEvent(new Event('cctv-refresh'))}/>
         :card&&<DroneBuildingCard sign={card.sign} at={card.at} distance={card.distance} vkey={radar.vkey} domain={radar.domain} onClose={closeCard} />}
       {touch && <>

@@ -1,4 +1,4 @@
-.re-cctv-controls { position:absolute;right:16px;top:310px;z-index:20;pointer-events:auto;max-width:min(300px,80vw);color:#e7fff8;font:12px/1.5 system-ui,sans-serif; }
+.re-cctv-controls { position:relative;z-index:20;justify-self:stretch;pointer-events:auto;max-width:min(300px,80vw);color:#e7fff8;font:12px/1.5 system-ui,sans-serif; }
 .re-cctv-controls>label,.re-cctv-controls summary { display:block;cursor:pointer;padding:6px 10px;border:1px solid #79f3ce66;border-radius:8px;background:#092b32ed; }
 .re-cctv-controls input { vertical-align:middle;accent-color:#79f3ce; }
 .re-cctv-controls details { margin-top:5px; }
@@ -16,4 +16,4 @@
 .re-cctv-popup small { display:block;color:#b4cbd8;margin:5px 0; }
 .re-cctv-popup footer { margin-top:12px;padding-top:8px;border-top:1px solid #79f3ce33;color:#9db9c6;font-size:10px; }
 .re-cctv-popup button:focus-visible,.re-cctv-list button:focus-visible { outline:2px solid #ffd27a;outline-offset:2px; }
-@media(max-width:600px){.re-cctv-controls{right:10px;top:265px;font-size:11px}.re-cctv-popup{top:64px;right:10px;max-height:calc(100% - 80px)}}
+@media(max-width:600px){.re-cctv-controls{font-size:11px}.re-cctv-popup{top:64px;right:10px;max-height:calc(100% - 80px)}}

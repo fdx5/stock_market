@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DroneSigns,Sign } from "./droneSigns";
 
 /* The drone's radar (드론 mode, top right): where it is, as a GPS shows it — the map round it
@@ -49,7 +49,8 @@ function reverseGeocode(key: string, domain: string, lat: number, lon: number): 
   });
 }
 
-export default function DroneRadar({ vkey, domain, where, signs, origin,onPick }: {
+export default function DroneRadar({ vkey, domain, where, signs, origin,onPick,children }: {
+  children?:ReactNode;
   onPick?:(s:Sign)=>void;
   vkey: string; domain: string; where: () => DroneWhere | null; signs: DroneSigns;
   /** the view's centre: signs are in metres east / north of it */
@@ -192,6 +193,7 @@ export default function DroneRadar({ vkey, domain, where, signs, origin,onPick }
         <b>📍 {addr}</b>
         {pos && <span>{`N${pos.lat.toFixed(5)} E${pos.lon.toFixed(5)} · 지면 ${Math.round(pos.agl)}m`}</span>}
       </div>
+      {children}
     </div>
   );
 }
