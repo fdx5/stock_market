@@ -89,6 +89,8 @@ function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, runn
     let synced = 0;
     const seed = hash(trackRef.current.id);
     const frame = (now: number) => {
+      // (near 60 a second on a fast display, as the 3D view under it draws)
+      if (now - last < 12) { raf = requestAnimationFrame(frame); return; }
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       // The player reports its position coarsely; run a local clock and pull it

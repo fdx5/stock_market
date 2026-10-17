@@ -26,6 +26,7 @@ import { frameSlice } from '../frameSlice';
 import { retireUnusedMaterials,sourceMaterialsMatch,boundTextures } from './materialLifetime';
 import { prepareCanvasResize,sceneDeviceBudget } from '../sceneDeviceBudget';
 import {updateForestLod} from '../spatialForest';
+import {leanUpdateMatrixWorld} from '../leanMatrixWorld';
 import {BUILDING_APPEARANCE_WGSL} from './buildingAppearanceShader.js';
 
 // Readiness uses the same pipeline descriptors for every building. Reuse the
@@ -1701,7 +1702,8 @@ export class ComplexRenderer {
     if (this.detailReady === false) { this.pending = true; this.ready = false; return; }
     // Let Three propagate dirty transforms. Forcing the root dirty recalculated every
     // static building, tree and street mesh on every displayed frame.
-    source.updateMatrixWorld();
+    // (three's rule, minus composing again the matrices of objects that did not move: see leanMatrixWorld)
+    leanUpdateMatrixWorld(source);
     // A visible tree visits each source once. A reusable list and native mesh
     // stamps avoid rebuilding/probing a large hash set on every flight frame.
     const active = this.active ??= [];

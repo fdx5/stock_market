@@ -76,6 +76,7 @@ import DeskBgm from "../desk2/DeskBgm";
 import { useDeskBgm, setDeskBgmOn, toggleDeskBgmPlay, warmDeskBgm } from "../desk2/deskBgmStore";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice,sceneFrameStarted,sliceDeadline } from "./frameSlice";
+import { createFramePace } from "./framePace";
 import { SceneResources } from "./sceneResources";
 import { makeGroundGeometry } from "./groundGeometry";
 import { cutGroundToRoads,drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight } from "./roadDrape";
@@ -681,7 +682,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const [preparing, setPreparing] = useState(false);
   // ?hud=1: the view's own numbers on screen (frame rate, frames dropped, GPU time, resolution,
   // quality, renderer), for a reader's device to tell what it does. Written straight into a
-  // <pre> twice a second; the frames counted by their own requestAnimationFrame.
+  // <pre> twice a second; the display's refreshes (and the late ones) counted by their own
+  // requestAnimationFrame, the drawn frames by the view (a fast display draws every Nth).
   const hudRef = useRef<HTMLPreElement>(null);
   const hudOn = useMemo(() => new URLSearchParams(location.search).get("hud") === "1", []);
   const fpsOn = useMemo(() => new URLSearchParams(location.search).get("fps") === "1", []);
@@ -705,7 +707,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (t - at > 500) {
         const d = (document.querySelector<HTMLElement>(".re-holo--expanded .re-holo-stage") ?? hostRef.current)?.dataset ?? {};
         if (hudRef.current) hudRef.current.textContent =
-          `fps ${(n * 1000 / (t - at)).toFixed(0)}  drop>25ms ${slow}/0.5s (total ${totalSlow})  worst ${worst.toFixed(0)}ms
+          `fps ${d.fps ?? "-"} (display ${(n * 1000 / (t - at)).toFixed(0)}/s, drawn every ${d.paceEvery ?? 1})  drop>25ms ${slow}/0.5s (total ${totalSlow})  worst ${worst.toFixed(0)}ms
 ` +
           `gpu ${d.gpuMs ?? "-"}ms  ratio ${d.pixelRatio ?? "-"} x dpr ${devicePixelRatio}  quality ${d.quality ?? "-"}  ${d.renderer ?? ""}
 ` +
@@ -1086,13 +1088,17 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let raf = 0;
     // Covered/off-screen views do not render or compile in the background.
     // Their build resumes when visible, without competing with the active view.
-    // Render every visible display frame, including animated traffic and pedestrians.
+    // Render every visible display frame (a fast display: every Nth, near 60 a second — framePace),
+    // including animated traffic and pedestrians.
     let renderMax = 0, renderSum = 0, tickMax = 0, tickSum = 0, frameNo = 0;
+    const pace = createFramePace();
     const loop = (stamp:number) => {
       raf = 0;
       if (document.hidden || !inView || pausedRef.current) { native?.suspendTargets(); return; }
       raf = requestAnimationFrame(loop);
       if (glLost) return;
+      // (a fast display drawn at every Nth refresh, near 60 a second: see framePace)
+      if (!pace.draw(stamp)) return;
       sceneFrameStarted(stamp);
       const nowMs = performance.now();
       const dt = nowMs - last;
@@ -1241,6 +1247,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         host.dataset.fpsAt = String(nowMs);
         host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
         host.dataset.pixelRatio = ratio.toFixed(2);
+        host.dataset.paceEvery = String(pace.every);
         host.dataset.renderMaxMs = renderMax.toFixed(0); renderMax = 0;
         host.dataset.tickMs = `${(tickSum / sampleFrames).toFixed(1)}/${tickMax.toFixed(0)}`; tickSum = tickMax = 0;
         host.dataset.renderMs = (renderSum / sampleFrames).toFixed(1); renderSum = 0;
