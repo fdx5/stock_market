@@ -53,18 +53,21 @@ async function locations(lat:number,lon:number,key:string,domain:string,signal:A
   return result;
 }
 export type CameraResult={items:TrafficCamera[];status:string;locationFailed:boolean};
+// City CCTV remains disconnected until UTIC approval and a verified city feed.
+const CITY_LOCATION_LINKS_ENABLED=false;
 const cache=new Map<string,{at:number;value:CameraResult}>();
 export async function loadCameras(lat:number,lon:number,key:string,domain:string,signal:AbortSignal,refresh=false):Promise<CameraResult> {
   const cell=`${Math.round(lat/.005)}:${Math.round(lon/.005)}`,hit=cache.get(cell);
   if(!refresh&&hit&&Date.now()-hit.at<180000)return hit.value;
   const results=await Promise.allSettled([
-    locations(lat,lon,key,domain,signal),
+    CITY_LOCATION_LINKS_ENABLED?locations(lat,lon,key,domain,signal):Promise.resolve([]),
     fetch(`/api/realestate/cctv?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}${refresh?'&fresh=true':''}`,{signal}).then(async r=>{if(!r.ok)throw new Error('CCTV 연결 실패');return r.json();}),
   ]);
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
   const [map,video]=results;
   const data=video.status==='fulfilled'?video.value:null;
-  const items=mergeCameras([...(map.status==='fulfilled'?map.value:[]),...(Array.isArray(data?.items)?data.items:[])],{lat,lon});
+  const feeds:TrafficCamera[]=Array.isArray(data?.items)?data.items:[];
+  const items=mergeCameras([...(map.status==='fulfilled'?map.value:[]),...feeds.filter(c=>!!c.media&&c.id.startsWith('its:'))],{lat,lon});
   const value={items,status:data?.status??'unavailable',locationFailed:map.status==='rejected'};
   if(!value.locationFailed&&['ok','needs_key'].includes(value.status)){cache.set(cell,{at:Date.now(),value});while(cache.size>24)cache.delete(cache.keys().next().value!);}
   return value;

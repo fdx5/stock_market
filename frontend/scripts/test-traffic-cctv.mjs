@@ -22,10 +22,13 @@ const crowded=Array.from({length:600},(_,i)=>({...c,id:`near${i}`,name:`near ${i
 const distantVideo={...video,id:'its:distant',name:'Actual traffic video',lon:127.015};
 const prioritized=mergeCameras([...crowded,distantVideo],c);
 assert.equal(prioritized[0].id,distantVideo.id,'location-only registry density must not hide a real video camera');
-const previousFetch=globalThis.fetch,calls=[];
+const previousFetch=globalThis.fetch,previousWindow=globalThis.window,previousDocument=globalThis.document,calls=[];
 try{
-  globalThis.fetch=async url=>{calls.push(url);return {ok:true,json:async()=>({items:[],status:'needs_key'})};};
-  await loadCameras(37.5,127,'fixture','fixture',new AbortController().signal,true);
+  globalThis.window={};globalThis.document={createElement:()=>assert.fail('unapproved city CCTV must not be requested')};
+  globalThis.fetch=async url=>{calls.push(url);return {ok:true,json:async()=>({items:[c,video,{...video,id:'utic:pending'}],status:'ok'})};};
+  const loaded=await loadCameras(37.5,127,'fixture','fixture',new AbortController().signal,true);
   assert.ok(calls[0].includes('fresh=true'),'reconnecting video must renew the server link too');
-}finally{globalThis.fetch=previousFetch;}
+  assert.deepEqual(loaded.items.map(c=>c.id),[video.id],'only playable ITS cameras are linked while city approval is pending');
+  assert.equal(loaded.locationFailed,false,'disabled city lookup is not a failed provider');
+}finally{globalThis.fetch=previousFetch;globalThis.window=previousWindow;globalThis.document=previousDocument;}
 console.log('CCTV: coordinates, missing data, source merge, distinct sites/directions, and bounded list passed');

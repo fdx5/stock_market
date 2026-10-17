@@ -29,18 +29,17 @@ export default function TrafficCctvControls({cctv,signs,vkey,domain,where,onPick
     return()=>{stop.abort();clearInterval(timer);cctv.set([]);};
   },[enabled,retry,cctv,signs,vkey,domain]);
   return <div className="re-cctv-controls">
-    <label><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> CCTV 표시</label>
-    {enabled&&result?.status==='needs_key'&&<p className="re-cctv-connection" role="status">영상 연결 준비 중 · 현재 위치 정보 제공</p>}
+    <label><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> 고속도로·국도 CCTV</label>
+    {enabled&&result?.status==='needs_key'&&<p className="re-cctv-connection" role="status">고속도로 CCTV 영상 연결 준비 중</p>}
     {enabled&&['invalid_key','not_authorized'].includes(result?.status??'')&&<p className="re-cctv-connection" role="status">영상 제공기관의 연결 승인이 필요합니다.</p>}
     {enabled&&<details><summary>주변 CCTV {busy?'조회 중…':`${result?.items.length??0}곳`}</summary>
       <div className="re-cctv-list">
         {!!result?.items.length&&<p>가까운 {Math.min(160,result.items.length)}곳 표시 · 영상 연결 여부를 확인하세요.</p>}
         {result?.items.slice(0,160).map(c=><button key={c.id} type="button" onClick={()=>{const s=signs.all().find(s=>s.camera?.id===c.id);if(s)current.current.onPick(s);}}>{c.name}<small>{c.media?'영상 보기':'위치 정보'}</small></button>)}
-        {!busy&&!result?.items.length&&<p>{result?.locationFailed?'CCTV 위치를 불러오지 못했습니다.':'주변에 제공되는 CCTV가 없습니다.'}</p>}
-        {result?.status==='needs_key'&&<p>공개 영상 연동 준비 중 · 위치 정보 제공</p>}
+        {!busy&&!result?.items.length&&<p>{result?.locationFailed?'CCTV 위치를 불러오지 못했습니다.':'주변에 제공되는 고속도로·국도 CCTV가 없습니다.'}</p>}
         {['partial','unavailable'].includes(result?.status??'')&&<p>일부 CCTV 영상 정보를 불러오지 못했습니다.</p>}
         <button type="button" onClick={()=>setRetry(r=>r+1)}>CCTV 새로고침</button>
-        <small>위치: 국토교통부 VWorld · 영상: 국가교통정보센터</small>
+        <small>국토교통부 국가교통정보센터 · 도심 CCTV 준비 중</small>
       </div>
     </details>}
   </div>;

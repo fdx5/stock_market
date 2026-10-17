@@ -2,6 +2,13 @@
 
 Implemented in the isolated development branch; not released as verified live video.
 
+Release scope updated by the user: UTIC approval email has not arrived. Disable city
+location lookups and links until approval; only video-bearing ITS highway/national-road
+records can create radar markers, 3D camera signs or popup links. There are no city
+JSONP requests in this release. The location decoder remains available for later work.
+The frontend regression check verifies this gate and rejects non-ITS/location-only
+records. TypeScript, the production build and 17 isolated backend tests pass.
+
 Actual locations and provider names come from VWorld `LT_P_UTISCCTV` in the browser,
 using the existing public domain-bound map key. This registry also contains cameras
 whose video is not public. Location records do not imply that video is available.
