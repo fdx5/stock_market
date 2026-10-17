@@ -1150,7 +1150,7 @@ export class DroneWorld {
   private async riverOn(t: Tile, ground: THREE.BufferGeometry, terrain: Terrain, water: { ring: [number, number][]; holes: [number, number][][] }[], signal: AbortSignal) {
     const H = TILE_M / 2;
     const seaRings = (t.seaBody?.rings ?? []).filter(w => w.kind === 'sea').map(w => w.ring);
-    const parcels: RealEstateParcel[] = water.map(w => ({ kind: '천', ring: w.ring, holes: [...w.holes, ...seaRings], open: [-H - 12, -H - 12, H + 12, H + 12] }));
+    const parcels: RealEstateParcel[] = water.map(w => ({ kind: '천', ring: w.ring, holes: [...w.holes, ...seaRings], open: [-H - 80, -H - 80, H + 80, H + 80] }));
     const rt = (w: string) => { if (DTRACE) console.info(`[dtile] ${t.key} river-${w} ${Math.round(performance.now())}`); };
     rt('begin');
     // (its field made 12 m past the tile — no shore at its edge — and its surface laid over the
@@ -1181,7 +1181,7 @@ export class DroneWorld {
       // (out in the channel — 6 m and more from its bank — always: where the DEM's own surface there
       // stands over the water's level (a step between its survey sheets), it showed as a strip of
       // bed across the river)
-      const sh = f.shore(x, y), bed = L - Math.min(3, 0.35 + 0.15 * sh), k = sh > 6 && f.wet(x, y) ? 1 : Math.max(0, Math.min(1, (L + 0.4 - z0) / 0.4));
+      const sh = f.shore(x, y), bed = L - Math.min(3, 0.35 + 0.15 * sh), k = f.wet(x, y) ? 1 : Math.max(0, Math.min(1, (L + 0.4 - z0) / 0.4));
       if (!k || z0 <= bed) continue;
       p.setZ(i, z0 + k * (bed - z0) - below); changed = true;
     }

@@ -31,9 +31,10 @@ vec2 waterGrad(vec2 p, float t) {
 
 /** Built in slices (`pace`); null when there is no open water, or the view went away. */
 export async function buildWater(parcels: RealEstateParcel[], covered: boolean[], terrain: Terrain, pace: Pace, opts: { clip?: number } = {}) {
-  // Slivers under 300 m² are left-over strips of channelled streams, not open water.
+  // Tile-edge fragments and short open stream links can be well below 300 m².
+  // Covered streams are classified separately; area alone cannot decide that.
   const open = parcels.filter((p, pi) => WATER.has(p.kind) && p.ring.length >= 3 && !covered[pi]
-    && Math.abs(p.ring.reduce((acc, [x, y], i) => { const q = p.ring[(i + 1) % p.ring.length]; return acc + x * q[1] - q[0] * y; }, 0) / 2) >= 300);
+    && Math.abs(p.ring.reduce((acc, [x, y], i) => { const q = p.ring[(i + 1) % p.ring.length]; return acc + x * q[1] - q[0] * y; }, 0) / 2) >= 1);
   if (!open.length) return null;
   const rings = open.map(p => p.ring),holes=open.flatMap(p=>p.holes??[]),sea=open.map(p=>!!p.sea);
   // (the square the water was cut to: where a ring reaches its edge, the water goes on)
