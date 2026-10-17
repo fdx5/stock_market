@@ -13,10 +13,11 @@ export async function drapeRoadOffThread(road:THREE.BufferGeometry,ground:THREE.
    const timer=setTimeout(()=>{worker.terminate();reject(Error('road drape worker timeout'));},10000);
    worker.onmessage=e=>{clearTimeout(timer);worker.terminate();e.data.result?resolve(e.data.result):reject(Error(e.data.error));};
    worker.onerror=()=>{clearTimeout(timer);worker.terminate();reject(Error('road drape worker unavailable'));};
-   worker.postMessage({road:road.getAttribute('position').array,roadProfiles:road.getAttribute('roadProfile')?.array,asphaltProfiles:asphalt?.getAttribute('roadProfile')?.array,roadLevels:road.getAttribute('roadLevel')?.array,asphaltLevels:asphalt?.getAttribute('roadLevel')?.array,ground:ground.getAttribute('position').array,xs:grid.xs,ys:grid.ys,lift,asphalt:asphalt?.getAttribute('position').array,asphaltIndex});
+   worker.postMessage({road:road.getAttribute('position').array,roadIndex:road.index?.array,attributes:Object.entries(road.attributes).filter(([name])=>!['position','normal','roadLevel','roadProfile'].includes(name)).map(([name,a])=>({name,size:a.itemSize,array:a.array})),roadProfiles:road.getAttribute('roadProfile')?.array,asphaltProfiles:asphalt?.getAttribute('roadProfile')?.array,roadLevels:road.getAttribute('roadLevel')?.array,asphaltLevels:asphalt?.getAttribute('roadLevel')?.array,ground:ground.getAttribute('position').array,xs:grid.xs,ys:grid.ys,lift,asphalt:asphalt?.getAttribute('position').array,asphaltIndex});
   });
   if(!await pace())return;
-  for(const[name,size]of [['position',3],['normal',3],['uv',2]]as const)road.setAttribute(name,new THREE.BufferAttribute(result[name],size));
+  road.setIndex(null);
+  for(const[name,array]of Object.entries(result))road.setAttribute(name,new THREE.BufferAttribute(array,road.getAttribute(name)?.itemSize??(name==='uv'?2:name==='roadLevel'||name==='roadProfile'?1:3)));
   if(result.roadLevel)road.setAttribute('roadLevel',new THREE.BufferAttribute(result.roadLevel,1));
   if(result.roadProfile)road.setAttribute('roadProfile',new THREE.BufferAttribute(result.roadProfile,1));
   road.computeBoundingSphere();return;

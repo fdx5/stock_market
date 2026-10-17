@@ -69,7 +69,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 660,
+  "source_files": 667,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -179,6 +179,12 @@
         "nebulakit.itch.io",
         "space-spheremaps.itch.io",
         "www.wikidata.org"
+      ]
+    },
+    {
+      "file": "frontend/src/components/LivePanel.tsx",
+      "hosts": [
+        "map.kakao.com"
       ]
     },
     {

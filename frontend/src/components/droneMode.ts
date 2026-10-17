@@ -16,6 +16,7 @@ import type { WaterField } from './sceneWater';
 import { bridgeContains } from './bridgeDeck';
 import {frameSlice} from './frameSlice';
 import {CoastGeometryJobs} from './coastGeometryJobs';
+import {syncGroundRelief} from './roadDrape';
 
 /* 드론 mode of the 3D view (ComplexHologram): the flight, the world streamed round it and the
  * sound, set up over the view's own scene and taken down again. While it lasts:
@@ -149,6 +150,18 @@ export class DroneSession {
   private cutStop = new AbortController();
   /** The view's ground cut to its square (keepGroundToSquare), done. */
   private groundCut: Promise<void> = Promise.resolve();
+  /** Only the session owning this source may update its clipped visible ground. */
+  async syncGround(source:THREE.BufferGeometry){
+    if(this.groundBackup!==source)return;
+    await this.groundCut;
+    const mesh=this.p.ground,visible=mesh?.geometry;
+    if(this.ended||!visible||this.groundBackup!==source)return;
+    let deadline=performance.now()+2;
+    await syncGroundRelief(source,visible,async()=>{
+      if(performance.now()>deadline){await frameSlice(6);deadline=performance.now()+2;}
+      return !this.ended&&mesh?.geometry===visible;
+    });
+  }
   private async sinkSeaGround(field: WaterField) {
     this.seaStop.abort();const stop=this.seaStop=new AbortController();
     // (the cut ground sunk, never the view's own kept for the end)

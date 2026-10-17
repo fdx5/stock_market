@@ -16,6 +16,7 @@ import { ringTile, SURVEY_STYLES, type DroneLabel, type RingResult } from "./rin
 import type { ColourJob, ColourResult, SurveyJob, SurveyResult } from "./droneSurveyWorker";
 import {SurveyGeometryStore} from './surveyGeometryStore';
 import { roadTile } from "./droneRoads";
+import {fitTileStreetSurfaces} from './tileStreetSurfaces';
 import { DroneTraffic } from "./droneTraffic";
 import { farGround } from "./farGround";
 import { vworldSampler, type Terrain } from "./sceneTerrain";
@@ -793,21 +794,24 @@ export class DroneWorld {
       dlog("start");
       // (its bridges whole, bank to bank: the same deck as the view's and every other tile's —
       // unanswered, the tile is tried again rather than drawing a deck of its own)
+      const ringJob = OFF.includes("ring") ? Promise.resolve(null) : ringTile(data.center!.lat, data.center!.lon, data.vworld_key!, data.vworld_domain, t.box, grid,
+        { inner: this.o.extent.ring, floorM: CONTEXT_FLOOR_M, seed: this.o.seed + t.i * 7919 + t.j * 104729, heightCell: 2, signal: stop.signal });
       const roadJob = t.inner || OFF.includes("roads") ? Promise.resolve(null) : this.baseHeight()
         .then(b => b === null ? null : structureChains(data.vworld_key!, data.vworld_domain, data.center!.lat, data.center!.lon, b, t.box, stop.signal))
-        .then(chains => {
+        .then(async chains => {
           if(chains===null||stop.signal.aborted||this.disposed)return null;
+          const buildings=await ringJob;
+          if(!buildings||stop.signal.aborted||this.disposed)return null;
           this.o.onLabels?.('bridges:'+t.key,bridgeNameLabels(data.center!,chains.filter(c=>c.deck).map(c=>({line:c.line,width:c.deck!.w,lanes:c.deck!.lanes,structure:'bridge',structure_source:'VWorld LT_L_MOCTLINK',profile_line:c.line,profile_s:c.s,profile_z:c.z}))));
           return roadTile(data.center!.lat, data.center!.lon, data.vworld_key!, data.vworld_domain, t.box, grid, grids.wide, stop.signal,
-            { lat: data.center!.lat + t.cy / this.ky, lon: data.center!.lon + t.cx / this.kx }, { ...this.roadExtras(t), chains });
+            { lat: data.center!.lat + t.cy / this.ky, lon: data.center!.lon + t.cx / this.kx }, { ...this.roadExtras(t), chains,footprints:buildings.footprints as [number,number][][] });
         });
       const tileLat = data.center!.lat + t.cy / this.ky, tileLon = data.center!.lon + t.cx / this.kx;
       const localTerrain: Terrain = { at: local, base: r => Math.min(...r.map(([x, y]) => local(x, y))), relief: 0, elevation: null, source: "drone tile", grid };
       groundJob = t.inner || OFF.includes("ground") ? Promise.resolve(null) : farGround({ ...data, center: { lat: tileLat, lon: tileLon }, roads: [] } as RealEstateBuildingsResponse, localTerrain,
         { half: TILE_M / 2, size: hq ? 1024 : 512, lawn: this.season.lawn, paddy: this.season.paddy, landscape: textureBudgetEnabled(), nearHalf: 0, footprints: [], signal: stop.signal, rivers: true, lakes: true, water: sea, waterSurface: !OFF.includes('rivers') });
       void roadJob.then(() => dlog("roads done")); void groundJob.then(() => dlog("ground done"));
-      const ring = OFF.includes("ring") ? null : await ringTile(data.center!.lat, data.center!.lon, data.vworld_key!, data.vworld_domain, t.box, grid,
-        { inner: this.o.extent.ring, floorM: CONTEXT_FLOOR_M, seed: this.o.seed + t.i * 7919 + t.j * 104729, heightCell: 2, signal: stop.signal });
+      const ring = await ringJob;
       if (stop.signal.aborted || this.disposed) return;
       dlog("ring done");
       if (!ring) { fail(); return; }
@@ -862,6 +866,12 @@ export class DroneWorld {
       if (DTRACE) console.info(`[dtile] ${t.key} roadsin ${Math.round(performance.now())}`);
       if (stop.signal.aborted || this.disposed) return;
       if(!t.inner&&!OFF.includes('roads')&&!roads){fail();return;}
+      if(roads){
+        const footprints=ring.footprints as [number,number][][];
+        const groundRoads=await fitTileStreetSurfaces(roads,footprints,async()=>!stop.signal.aborted&&await this.pace());
+        if(stop.signal.aborted||this.disposed)return;
+        t.nearRoadGuard={key:'tile:'+t.key+':'+t.startedAt,roads:groundRoads,buildings:footprints};
+      }
       // (the ground cut to the roads in the road worker: the same grid for the ground mesh, the trees
       // and everything stood on it from now on)
       if (roads?.ground && roads.ground.length === grid.h.length) grid.h.set(roads.ground);

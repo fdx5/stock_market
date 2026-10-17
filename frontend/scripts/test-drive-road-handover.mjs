@@ -25,7 +25,7 @@ for(const bvhEnabled of [false,true])test(`new roads use new region coordinates 
     raiseRoadPaint: async () => {}, roadLayer: oldLayer, decor,
     surface: { group: new THREE.Group(), dispose: () => { oldDisposed++; } },
     marks: { group: new THREE.Group(), dispose: () => { oldDisposed++; } },
-    asphaltAt: null, roadSurfaceHeight: () => () => 0, hostRef: { current: null }, later: async () => true,
+    asphaltAt: null,relayWalks:null, roadSurfaceHeight: () => () => 0, hostRef: { current: null }, later: async () => true,
     frameSlice: async () => { assert.equal(oldDisposed, 0); slices++; ready = true; } };
   await new Function(...Object.keys(deps), script)(...Object.values(deps))();
   assert.deepEqual(calls, [newRoads, newRoads]);

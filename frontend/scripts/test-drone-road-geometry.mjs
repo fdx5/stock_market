@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import {transformSync} from 'esbuild';
 function functionSource(file,name){const text=readFileSync(new URL('../src/components/'+file,import.meta.url),'utf8'),ast=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true);return ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name).getText(ast).replace(/^export /,'');}
-const source=functionSource('surfaceGeometry.ts','surfaceGeometryRules')+'\n'+functionSource('roadGroundGrade.ts','groundRoadGrade')+'\n'+functionSource('bridgeDecks.ts','chainDeckRoads')+'\n'+functionSource('roadApproaches.ts','roadApproachHeight')+'\n'+functionSource('terrainSurfaceClearance.ts','terrainSurfaceClearance')+'\n'+functionSource('roadLinkFallback.ts','linkFallbackRoads')+'\n'+functionSource('droneRoads.ts','roadWorkerMain');
+const source=functionSource('roadCorridors.ts','roadCorridorRules')+'\n'+functionSource('surfaceGeometry.ts','surfaceGeometryRules')+'\n'+functionSource('roadGroundGrade.ts','groundRoadGrade')+'\n'+functionSource('bridgeDecks.ts','chainDeckRoads')+'\n'+functionSource('roadApproaches.ts','roadApproachHeight')+'\n'+functionSource('terrainSurfaceClearance.ts','terrainSurfaceClearance')+'\n'+functionSource('roadLinkFallback.ts','linkFallbackRoads')+'\n'+functionSource('droneRoads.ts','roadWorkerMain');
 const lat=37,lon=127,kx=111320*Math.cos(lat*Math.PI/180),ky=110540;
 const feature=(id,line,props)=>({id,properties:props,geometry:{type:'LineString',coordinates:line.map(([x,y])=>[lon+x/kx,lat+y/ky])}});
 const road=(line,width=12)=>feature('road',line,{rvwd:width,rdln:Math.floor(width/3.3)});
@@ -14,12 +14,27 @@ const grid=(height=()=>0)=>{const n=251,R=500,cell=4;return {n,R,cell,ox:0,oy:0,
 async function run(roads,links=[],box=[-100,-100,100,100],g=grid(),options={}){
   let out,calls=0;const self={__roadRules:null,postMessage:v=>out=v};
   const scope={self,performance,setTimeout,AbortSignal,fetch:async()=>({ok:true,json:async()=>({crossings:[]})}),importScripts:url=>{calls++;if(options.fail)throw Error('unavailable');const cb=url==='roads'?'roadCb':url==='rivers'?'riverCb':'linkCb';self[cb]({response:{status:options.rejectFirst&&calls===1?'ERROR':'OK',result:{featureCollection:{features:url==='roads'?roads:url==='rivers'?(options.riverFeatures??[]):links}}}});}};
-  vm.runInNewContext(transformSync(source+'\nself.__roadRules=surfaceGeometryRules();self.__groundGrade=groundRoadGrade();self.__chainDecks=chainDeckRoads;self.__approachHeight=roadApproachHeight;self.__terrainClearance=terrainSurfaceClearance();self.__linkFallback=linkFallbackRoads;roadWorkerMain();',{loader:'ts'}).code,scope);
+  vm.runInNewContext(transformSync(source+'\nself.__corridors=roadCorridorRules();self.__roadRules=surfaceGeometryRules();self.__groundGrade=groundRoadGrade();self.__chainDecks=chainDeckRoads;self.__approachHeight=roadApproachHeight;self.__terrainClearance=terrainSurfaceClearance();self.__linkFallback=linkFallbackRoads;roadWorkerMain();',{loader:'ts'}).code,scope);
   // A real Worker receives a structured clone. Its terrain cutting must not
   // mutate the caller's fixture or the next direction/tile's input DEM.
   await self.onmessage({data:structuredClone({urls:['roads'],linkUrls:['links'],riverUrls:options.riverFeatures?['rivers']:[],lat,lon,box,grid:g,wide:g,...options})});return {out,calls};
 }
 const near=(a,b,t=.0005)=>assert.ok(Math.abs(a-b)<t,`${a} != ${b}`);
+test('streamed ground roads use the same registered building clearance as the initial scene',async()=>{
+ const building=[[-20,10],[20,10],[20,30],[-20,30]],r=road([[-150,0],[150,0]],24);r.properties.rdln=2;
+ const {out}=await run([r],[],undefined,grid(),{footprints:[building]});assert.ok(out?.surface);
+ const p=out.surface.position;for(let i=0;i<p.length;i+=3)assert.ok(Math.abs(p[i+1])<=9.751,'asphalt narrows to the proven physical clearance');
+ const bridge=(await run([r],[link('b',[[-300,0],[300,0]],'교량')],undefined,grid(),{footprints:[building]})).out;
+ assert.ok(bridge?.surface&&bridge.bridges>0);assert.ok(Array.from(bridge.surface.position).some((v,i)=>i%3===1&&Math.abs(v)>10));
+});
+test('streamed paving clears saddle terrain and keeps each vertical kerb exactly fifteen centimetres high',async()=>{
+ const g=grid((x,y)=>(Math.round(x/4)+Math.round(y/4))%2===0?3:0),{out}=await run([road([[-150,-30],[150,30]],24)],[],undefined,g);
+ assert.ok(out?.walks);const {position:p,index:ix}=out.walks;let tops=0,kerbs=0;
+ for(let k=0;k<ix.length;k+=3){const ids=Array.from(ix.subarray(k,k+3)),a=ids.map(i=>[p[i*3],p[i*3+1],p[i*3+2]]),area=(a[1][0]-a[0][0])*(a[2][1]-a[0][1])-(a[1][1]-a[0][1])*(a[2][0]-a[0][0]);
+  if(Math.abs(area)<1e-6){kerbs++;const same=a.find((q,i)=>a.some((r,j)=>i!==j&&Math.hypot(q[0]-r[0],q[1]-r[1])<1e-6&&Math.abs(q[2]-r[2])>.1));assert.ok(same);}
+  else {tops++;for(const q of a)assert.ok(q.every(Number.isFinite));}
+ }assert.ok(tops>20&&kerbs>20);
+});
 test('ordinary terrain-following roads never generate blanket retaining walls',async()=>{
  const {out}=await run([road([[-150,0],[150,0]],12)],[],undefined,grid((x,y)=>x*.08+Math.sin(x/13)*2+y*.12));
  assert.ok(out.surface&&out.lanes.length);assert.equal(out.bridges,0);assert.equal(out.structure,null);

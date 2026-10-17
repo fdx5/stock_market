@@ -26,13 +26,13 @@ import { readPaint, writePaint } from "./paintStore";
 export type GroundData = Pick<RealEstateBuildingsResponse, "site" | "roads" | "parcels" | "streets"> & { buildings: { rings: [number, number][][] }[]; context: { rings: [number, number][][] }[] };
 
 export type SceneOps = {
-  surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]|null;ringsId?:number;roads?:boolean};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null}};
+  surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]|null;ringsId?:number;roads?:boolean;zUp?:boolean};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null}};
   roads: {args:{roads:RealEstateRoad[];footprints:[number,number][][]};result:RealEstateRoad[]};
   neighbours: { args: { jobs: NeighbourJob[];hybrid?:boolean }; result: {arrays:NeighbourArrays[];mode:string;computeMs:number;memoryBytes:number;inputBytes:number} };
   walkPaths: {args:{paths:WalkPath[];roads:RealEstateRoad[];footprints:[number,number][][];T:number};result:WalkPath[]};
   terrainGround: {args:{T:number;G:number;segs:number;grid:HeightGrid|null};result:{position:Float32Array;normal:Float32Array;uv:Float32Array;index:Uint16Array|Uint32Array;grid:{xs:Float64Array;ys:Float64Array};sphere:{center:[number,number,number];radius:number}}};
   bridges: { args: { roads: RealEstateRoad[]; parcels: RealEstateParcel[]; covered: boolean[]; grid: HeightGrid | null; water?: FieldData; sea?: FieldData }; result: Bridge[] };
-  sidewalks: { args: { roads: RealEstateRoad[]; footprints: [number, number][][] }; result: Run[] };
+  sidewalks: { args: { roads: RealEstateRoad[]; footprints: [number, number][][];visual?:boolean }; result: Run[] };
   water: { args: { rings: [number, number][][]; holes?:[number,number][][]; grid: HeightGrid | null; sea?: boolean[]; open?: [number, number, number, number] | null; seaDatum?: number | null; clip?: number }; result: { field: FieldData; surface: WaterArrays | null } | null };
   ground: { args: { data: GroundData; T: number; size: number; seed: number; landscape?: boolean; grid?: HeightGrid }; result: { color: ImageBitmap; rough: ImageBitmap; glow: ImageBitmap; planting: Planting; lamps: Lamp[]; covered: boolean[] } };
 };
@@ -118,7 +118,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       if(ringsId!==undefined){if(rings){sharedRings.set(ringsId,rings);if(sharedRings.size>4)sharedRings.delete(sharedRings.keys().next().value!);}else rings=sharedRings.get(ringsId)??null;}
       if(!rings)throw Error('surface rings unknown');
       const g=new THREE.BufferGeometry();for(const a of m.args.attributes)g.setAttribute(a.name,new THREE.BufferAttribute(a.array,a.size));if(m.args.index)g.setIndex(new THREE.BufferAttribute(m.args.index,1));
-      await excludeSurface(g,rings,go);
+      await excludeSurface(g,rings,go,m.args.zUp);
       const attributes=Object.entries(g.attributes).map(([name,a])=>({name,size:a.itemSize,array:a.array})),index=g.index?.array??null;
       result={attributes,index};transfer=attributes.map(a=>a.array.buffer);if(index)transfer.push(index.buffer);
     }
@@ -147,7 +147,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       const at=m.args.grid?gridAt(m.args.grid):FLAT.at,field=m.args.water?fieldFrom(m.args.water,at):null,sea=m.args.sea?fieldFrom(m.args.sea,at):null;
       result = findBridges(m.args.roads, m.args.parcels, m.args.covered,
         { ...FLAT, at, grid:m.args.grid??undefined, waterRevision:()=>m.args.sea??m.args.water??null, waterAt:(x,y)=>sea?.wet(x,y)?sea.level(x,y):field?.wet(x,y)?field.level(x,y):null });
-    } else if (m.op === "sidewalks") result = sidewalkRuns(m.args.roads, m.args.footprints);
+    } else if (m.op === "sidewalks") result = sidewalkRuns(m.args.roads, m.args.footprints,m.args.visual);
     if (m.op === "bridges" || m.op === "sidewalks") {
       for (const item of result as Record<string, unknown>[]) for (const value of Object.values(item)) {
         if (ArrayBuffer.isView(value)) transfer.push(value.buffer as ArrayBuffer);

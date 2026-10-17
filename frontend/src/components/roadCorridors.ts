@@ -1,5 +1,7 @@
 import type {RealEstateRoad} from '../api/client';
 type Pt=[number,number];
+/** Self-contained rules also serialized into the streamed-road worker. */
+export function roadCorridorRules(){
 function inside(p:Pt,r:Pt[]){let hit=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const a=r[i],b=r[j];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])hit=!hit;}return hit;}
 function pointSegment(p:Pt,a:Pt,b:Pt){const dx=b[0]-a[0],dy=b[1]-a[1],t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/(dx*dx+dy*dy||1)));return Math.hypot(p[0]-a[0]-dx*t,p[1]-a[1]-dy*t);}
 function segments(a:Pt,b:Pt,c:Pt,d:Pt){const dx=b[0]-a[0],dy=b[1]-a[1],ux=d[0]-c[0],uy=d[1]-c[1],den=dx*uy-dy*ux;
@@ -35,7 +37,7 @@ function footprintQuery(footprints:readonly Pt[][]){
  * is a ceiling, not permission to pave through a building. Narrow only when
  * physical clearance proves that width impossible; exclude impossible portions
  * instead of inventing a straight road or moving a measured building. */
-export function constrainRoadCorridors(roads:readonly RealEstateRoad[],footprints:readonly Pt[][]):RealEstateRoad[]{
+return function constrainRoadCorridors(roads:readonly RealEstateRoad[],footprints:readonly Pt[][]):RealEstateRoad[]{
  const query=footprintQuery(footprints);
  const out:RealEstateRoad[]=[];
  for(const road of roads){
@@ -66,3 +68,5 @@ export function constrainRoadCorridors(roads:readonly RealEstateRoad[],footprint
  }
  return out;
 }
+}
+export const constrainRoadCorridors=roadCorridorRules();

@@ -35,6 +35,6 @@ test('different complexes still load their own full footprints and road context'
  f.footprintResolvers.forEach(resolve=>resolve([]));await Promise.all([a,b]);
 });
 test('an already enriched result preserves all roads and footprints without new network work',async()=>{
- const f=fixture(),res={...f.res,road_context:{source:'fixture'},roads:[{line:[[0,0],[1,1]]}],road_building_footprints:[[[0,0],[1,0],[0,1]]]};
+ const f=fixture(),res={...f.res,road_context:{source:'fixture-deck-v3'},roads:[{line:[[0,0],[1,1]]}],road_building_footprints:[[[0,0],[1,0],[0,1]]]};
  assert.equal(await f.load('complete',res),res);assert.deepEqual(f.calls,{footprints:0,roads:0,context:0});
 });

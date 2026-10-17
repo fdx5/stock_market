@@ -22,7 +22,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { fastMergeVertices } from "./fastMerge";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex, RealEstateParcel, RealEstateRoad } from "../api/client";
 import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, vworldRoadFootprints, vworldRoadContext, prefetchRoadContext, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
-import {roadHeight,roadLevel,roadProfileKey} from './roadLevels';
+import {roadHeight,roadLevel,roadProfileKey,nearestRoadPoint} from './roadLevels';
 import {roadApproachTerrain} from './roadApproaches';
 import {bridgeNameLabels} from './bridgeNames';
 import {DroneSigns} from './droneSigns';
@@ -87,7 +87,7 @@ import {RoadModelChecks} from './roadModelChecks';
 import {sceneDeviceBudget,capSceneRatio,prepareCanvasResize,fixedSceneResolution} from './sceneDeviceBudget';
 import {roadFootprints}from'./roadJunctions';
 import {splitRoadJunctions}from'./roadTrafficNetwork';
-import {excludeSurface}from'./surfaceExclusion';
+import {cutSceneSurface}from'./surfaceCutClient';
 import { sceneWork } from "./sceneWorkerClient";
 import type { SceneOps } from "./sceneWorker";
 import type { SurfaceRailLayer } from '../rail/SurfaceRailLayer';
@@ -334,12 +334,6 @@ function firstLook(id: string): Promise<RealEstateBuildingsResponse | null> {
   return remember(prefetched, id, job);
 }
 /** The surveyed roads for a result that lacks them (once per complex). */
-async function cutSceneSurface(geometry:THREE.BufferGeometry,rings:[number,number][][],pace:()=>Promise<boolean>,roads=false){
-  const result=await sceneWork('surfaceCut',{attributes:Object.entries(geometry.attributes).map(([name,a])=>({name,size:a.itemSize,array:a.array as Float32Array})),index:geometry.index?.array as Uint16Array|Uint32Array??null,rings,roads})?.catch(()=>null);
-  if(!await pace())return;
-  if(result){geometry.setIndex(result.index?new THREE.BufferAttribute(result.index,1):null);for(const a of result.attributes)geometry.setAttribute(a.name,new THREE.BufferAttribute(a.array,a.size));geometry.computeBoundingSphere();}
-  else await excludeSurface(geometry,rings,pace);
-}
 function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEstateBuildingsResponse> {
   // A result kept from an earlier visit (buildingStore) already carries its roads as corrected here,
   // their structures and the footprints they were fitted to: asked again, the roads, their context
@@ -2976,6 +2970,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const roadWaterIn=()=>{waterKnown();if(roadWater)liftRoadsOverWater(roadWater);};
     const useRoadWater=(field:WaterField)=>{if(roadWater===field)return;roadWater=field;roadWaterIn();waterRevision={};approachTerrain=roadApproachTerrain(roads,waterTerrain);asphaltAt=null;bridgesTried=false;};
     const roadTerrain: Terrain = { ...approachTerrain, roadAt:(road,x,y)=>roadHeight(road,approachTerrain,x,y) };
+    const walkTerrain:Terrain={...roadTerrain,roadAt:(road,x,y)=>{
+      const near=nearestRoadPoint(road.line,x,y),scale=Math.min(1,(road.width/2)/Math.max(1e-6,near.distance));
+      const sx=near.point[0]+(x-near.point[0])*scale,sy=near.point[1]+(y-near.point[1])*scale;
+      const reference=roadHeight(road,roadTerrain,sx,sy)+.08;
+      return asphaltAt?.(sx,sy,reference,roadLevel(road),roadLevel(road)?roadProfileKey(road):undefined)??reference;
+    }};
     const trafficTerrain:Terrain={...roadTerrain,heightRevision:()=>asphaltAt??waterRevision,roadAt:(road,x,y)=>{
       const level=roadLevel(road),profile=roadProfileKey(road);
       const owned=asphaltAt?.(x,y,undefined,level,profile,true);
@@ -2987,7 +2987,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if(hostRef.current){const d=hostRef.current.dataset;d.roadStructureSource=data.road_context?.source??'unavailable';d.roadStructureCoverage=data.road_context?.coverage??'unavailable';d.roadStructureLinks=String(data.road_context?.links??0);d.roadHeightSource='dem-derived-not-surveyed';d.signalStateSource='simulation';d.riverSource=data.road_context?.rivers.length?'VWorld LT_C_WKMSTRM':'parcel/OSM fallback';}
     const physicalFootprints=[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])];
     const pavementExclusions=[...roadFootprints(splitRoadJunctions(roads,true)),...physicalFootprints];
-    const cutPavements=async(g:THREE.Group)=>{await Promise.all((g.children as THREE.Mesh[]).map(m=>cutSceneSurface(m.geometry,pavementExclusions,later)));};
+    const cutPavements=async(g:THREE.Group)=>{for(const m of g.children as THREE.Mesh[]){
+      // Exact terrain planes keep paving above the displayed ground as well as
+      // its endpoints. Preserve paver UVs, tactile guides and kerb colours.
+      await (textureBudgetEnabled()?drapeRoadOffThread:drapeRoadSurface)(m.geometry,groundGeo,later,.17);
+      await cutSceneSurface(m.geometry,pavementExclusions,later);
+    }};
     // Open water the parcels don't register as such (석촌호수 is a 공원) or don't reach (a river
     // past them): OpenStreetMap's lakes and river areas, asked once the view is up (kept a day).
     let lakes: RealEstateParcel[] = [];
@@ -3193,11 +3198,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!await later()) return;
       const footprints = [...data.buildings, ...neighbours].map(b => b.rings[0]);
       const runsJob=sceneWork("sidewalks", {roads, footprints})?.catch(() => null);
+      const visualRunsJob=sceneWork('sidewalks',{roads,footprints,visual:true})?.catch(()=>null);
       if(textureBudgetEnabled())await plantingJob;
       await placeBridges();
       if (!alive) return;
       const runs = await runsJob
         ?? (alive ? timed("sidewalkRuns", () => sidewalkRuns(roads, footprints)) : []);
+      const visualRuns=await visualRunsJob??(alive?sidewalkRuns(roads,footprints,true):[]);
       if (!alive) return;
       if (import.meta.env.DEV) (stage as unknown as { runs: unknown }).runs = runs;
       if (import.meta.env.DEV) (stage as unknown as { data: unknown }).data = data;
@@ -3217,6 +3224,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         stage.viewRiver = water.field;
         disposables.push({ dispose: () => { stage.wetAt = null; stage.viewRiver = null; } });
         await water.sink(groundGeo);
+        await stage.drone?.syncGround(groundGeo);
         if(hostRef.current)hostRef.current.dataset.waterReadyAt=String(Math.round(performance.now()));
       };
       const finalPlantsJob=textureBudgetEnabled()?(async()=>{
@@ -3240,16 +3248,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       })():null;
       void finalPlantsJob?.catch(err=>console.info('[3D] Final plants unavailable:',err));
       if (!await later()) return;
-      let walks = await buildSidewalks(runs, roadTerrain, street.map(([x, y]) => [x, y] as [number, number]));
+      let walks = await buildSidewalks(visualRuns, walkTerrain, street.map(([x, y]) => [x, y] as [number, number]));
       await cutPavements(walks.group);
       if (!alive) { walks.dispose(); return; }
       stage.addWarm(decor, walks.group);
       disposables.push(walks);
+      let walksGen=0;
       relayWalks=async()=>{
+        const generation=++walksGen;
         street=streetOf();
-        const fresh=await buildSidewalks(runs,roadTerrain,street.map(([x,y])=>[x,y] as [number,number]));
+        const fresh=await buildSidewalks(visualRuns,walkTerrain,street.map(([x,y])=>[x,y] as [number,number]));
         await cutPavements(fresh.group);
-        if(!alive){fresh.dispose();return;}
+        if(!alive||generation!==walksGen){fresh.dispose();return;}
         decor.remove(walks.group);walks.dispose();walks=fresh;
         stage.addWarm(decor,walks.group);disposables.push(walks);
       };
@@ -3490,6 +3500,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // of the relief to lift it onto)
       const atGrade=arms.roads.filter(r=>!['bridge','elevated','tunnel','underpass'].includes(r.structure??''));
       await cutGroundToRoads(groundGeo,atGrade,(i,x,y)=>roadHeight(atGrade[i],roadTerrain,x,y),roadPace);
+      await stage.drone?.syncGround(groundGeo);
       const f = await buildRoadSurface(arms.roads, roadTerrain);mark();
       await cutSceneSurface(f.group.geometry,physicalFootprints,roadPace,true);mark();
       const drape = textureBudgetEnabled() ? drapeRoadOffThread : drapeRoadSurface;
@@ -3535,6 +3546,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (marks) { decor.remove(marks.group); marks.dispose(); }
       surface = f; marks = m;if(roadWater&&roadWater!==lifted)liftRoadsOverWater(roadWater);
       asphaltAt=roadSurfaceHeight(f.group.geometry,bvh?roadBvhIndex(bvh):undefined);
+      void relayWalks?.();
       if(hostRef.current){const d=hostRef.current.dataset;d.roadIndex=bvh?'rust-wasm-bvh':'js-grid';d.roadIndexBuildMs=bvh?bvh.buildMs.toFixed(1):'0';d.roadIndexWorkers=String(bvh?.workers??0);d.roadIndexBytes=String(bvh?.parts.reduce((n,p)=>n+p.nodes.byteLength+p.ids.byteLength,0)??0);}
       if(hostRef.current){const d=hostRef.current.dataset;d.roadsReadyAt=String(Math.round(performance.now()));d.roadsFirstAt??=d.roadsReadyAt;d.roadsLays=String(+(d.roadsLays??0)+1);}
     };

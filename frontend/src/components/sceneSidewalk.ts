@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { paintedTexture } from "./paintedTexture";
 import { PAVER_STYLES } from "./texPaint";
 import type { RealEstateRoad } from "../api/client";
-import {roadHeight,sameRoadLevel} from './roadLevels';
+import {roadHeight,roadLevel,sameRoadLevel} from './roadLevels';
 import type { Terrain } from "./sceneTerrain";
 import { inRing, rng, type Ring } from "./complexScene";
 
@@ -70,7 +70,7 @@ export {ringIndex} from './footprintIndex';
 
 /** Sidewalk runs on both sides of every road, split wherever the sidewalk would cross
  * another carriageway (junctions) or run into a building. */
-export function sidewalkRuns(roads: RealEstateRoad[], footprints: Ring[]): Run[] {
+export function sidewalkRuns(roads: RealEstateRoad[], footprints: Ring[],visual=false): Run[] {
   const onRoad = segmentIndex(roads), inBuilding = ringIndex(footprints);
   const runs: Run[] = [];
   roads.forEach((road, ri) => {
@@ -108,7 +108,9 @@ export function sidewalkRuns(roads: RealEstateRoad[], footprints: Ring[]): Run[]
       for (const p of pts) {
         const o = (d: number): [number, number] => [p[0] + p[2] * side * d, p[1] + p[3] * side * d];
         const [ix, iy] = o(half + 0.2), [mx, my] = o(half + width / 2), [ox, oy] = o(half + width - 0.1);
-        const ok = !onRoad(ix, iy, ri, 0.3) && !onRoad(ox, oy, ri, 0.3) && !inBuilding(mx, my);
+        // Visual paving is clipped at exact footprints later. Actors retain
+        // separated runs, so they cannot cross the carriageway through a gap.
+        const ok = (visual&&roadLevel(road)===0)||(!onRoad(ix, iy, ri, 0.3) && !onRoad(ox, oy, ri, 0.3) && !inBuilding(mx, my));
         if (ok) cur.push(p); else flush();
       }
       flush();
@@ -123,7 +125,8 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
   // The paving in four patterns, by street (both sides of a road alike, as laid): grey running
   // bond most, clay-red herringbone, granite slabs, charcoal basket weave; a yellow tactile guide
   // strip (점자블록) along the wider pavements.
-  const styled = PAVER_STYLES.map(() => ({ pos: [] as number[], uv: [] as number[], nor: [] as number[] }));
+  const styled = PAVER_STYLES.map(() => ({ pos: [] as number[], uv: [] as number[], nor: [] as number[],levels:[] as number[] }));
+  const tLevels:number[]=[],kLevels:number[]=[];let currentLevel=0;
   const tPos: number[] = [], tUv: number[] = [], tNor: number[] = [];
   const styleOf = (road: number) => { const h = ((road * 2654435761) >>> 0) % 100; return h < 42 ? 0 : h < 66 ? 1 : h < 86 ? 2 : 3; };
   let pos: number[] = styled[0].pos, uv: number[] = styled[0].uv, nor: number[] = styled[0].nor;
@@ -131,7 +134,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
   // (kerb faces, bands and pits as indexed quads: four vertices each, not six)
   const kQuad = (q: number[][], nx: number, ny: number, nz: number, r: number, g: number, b: number, order: number[]) => {
     const v = kPos.length / 3;
-    for (const p of q) { push(kPos, p[0], p[1], p[2]); push(kNor, nx, ny, nz); push(kCol, r, g, b); }
+    for (const p of q) { push(kPos, p[0], p[1], p[2]); push(kNor, nx, ny, nz); push(kCol, r, g, b);kLevels.push(currentLevel); }
     for (const k of order) kIdx.push(v + k);
   };
   const kerb = new THREE.Color("#b9b6ae"), pit = new THREE.Color("#3a3129"), grate = new THREE.Color("#2b2d2f");
@@ -140,6 +143,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
   // (a few ms at a time: all the runs at once held the page ~45 ms)
   let slice = performance.now();
   for (const r of runs) {
+    currentLevel=r.sourceRoad?roadLevel(r.sourceRoad):0;
     if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
     const n = r.cum.length;
     ({ pos, uv, nor } = styled[styleOf(r.road)]);
@@ -156,7 +160,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
         const ux = quad[1][0] - quad[0][0], uz = quad[1][2] - quad[0][2], vx = quad[2][0] - quad[0][0], vz = quad[2][2] - quad[0][2];
         const flip = uz * vx - ux * vz < 0;
         const order = flip ? [0, 2, 1, 3, 5, 4] : [0, 1, 2, 3, 4, 5];
-        for (const k of order) { tPos.push(...quad[k]); tUv.push(tq[k][0], tq[k][1]); tNor.push(0, 1, 0); }
+        for (const k of order) { tPos.push(...quad[k]); tUv.push(tq[k][0], tq[k][1]); tNor.push(0, 1, 0);tLevels.push(currentLevel); }
       }
     }
     for (let i = 0; i < n - 1; i++) {
@@ -170,7 +174,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
         const order = ny < 0 ? [0, 2, 1] : [0, 1, 2];
         if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
         const l = Math.hypot(nx, ny, nz) || 1;
-        for (const k of order) { push(pos, ...p[k]); push(uv, ...t[k]); push(nor, nx / l, ny / l, nz / l); }
+        for (const k of order) { push(pos, ...p[k]); push(uv, ...t[k]); push(nor, nx / l, ny / l, nz / l);styled[styleOf(r.road)].levels.push(currentLevel); }
       };
       const W = (p: [number, number], y: number): [number, number, number] => [p[0], y, -p[1]];
       const ua = r.cum[i] / 2, ub = r.cum[i + 1] / 2, v1 = r.width / 2;
@@ -197,6 +201,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
     }
   }
   // Tree pits: 1.2 m squares, soil with a cast-iron grate frame.
+  currentLevel=0;
   for (const [x, y] of pits) {
     const h = terrain.at(x, y) + KERB_H + 0.006;
     for (const [s, c] of [[0.62, grate], [0.5, pit]] as const) {
@@ -217,6 +222,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
     geo.setAttribute("position", new THREE.Float32BufferAttribute(st.pos, 3));
     geo.setAttribute("normal", new THREE.Float32BufferAttribute(st.nor, 3));
     geo.setAttribute("uv", new THREE.Float32BufferAttribute(st.uv, 2));
+    geo.setAttribute('roadLevel',new THREE.Float32BufferAttribute(st.levels,1));
     // (granite a touch smoother; clay and concrete matt)
     const mat = new THREE.MeshStandardMaterial({ map, roughness: k === 2 ? 0.7 : 0.9, metalness: 0 });
     const mesh = new THREE.Mesh(geo, mat);
@@ -231,6 +237,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
     geo.setAttribute("position", new THREE.Float32BufferAttribute(tPos, 3));
     geo.setAttribute("normal", new THREE.Float32BufferAttribute(tNor, 3));
     geo.setAttribute("uv", new THREE.Float32BufferAttribute(tUv, 2));
+    geo.setAttribute('roadLevel',new THREE.Float32BufferAttribute(tLevels,1));
     const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.6, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;
@@ -243,6 +250,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
     geo.setAttribute("position", new THREE.Float32BufferAttribute(kPos, 3));
     geo.setAttribute("normal", new THREE.Float32BufferAttribute(kNor, 3));
     geo.setAttribute("color", new THREE.Float32BufferAttribute(kCol, 3));
+    geo.setAttribute('roadLevel',new THREE.Float32BufferAttribute(kLevels,1));
     geo.setIndex(kIdx);
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);

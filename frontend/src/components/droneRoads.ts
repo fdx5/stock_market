@@ -22,6 +22,7 @@ import {terrainSurfaceClearance} from './terrainSurfaceClearance';
 import {linkFallbackRoads} from './roadLinkFallback';
 import {chainDeckRoads} from './bridgeDecks';
 import {groundRoadGrade} from './roadGroundGrade';
+import {roadCorridorRules} from './roadCorridors';
 import {tunnelPortal, portalNormals, tunnelPortal as tunnelPortalShape, portalNormals as portalNormalsOf} from './tunnelPortal';
 import type {RealEstateRoad} from '../api/client';
 type Arr = { position: Float32Array; normal: Float32Array; index: Uint32Array;level?:Float32Array };
@@ -62,6 +63,7 @@ type Grid = { h: Float32Array; n: number; R: number; cell: number; ox: number; o
 type RoadJob = {
   urls: string[]; linkUrls: string[]; riverUrls: string[]; lat: number; lon: number; box: [number, number, number, number];
   grid: Grid;
+  footprints?:[number,number][][];
   /** the relief over ±1.4 km at 16 m: a long bridge's ends lie far past the tile */
   wide: Grid | null;
   /** the crossings OpenStreetMap maps round the tile (the site's /api/realestate/crossings): lines in
@@ -497,6 +499,27 @@ function roadWorkerMain() {
         const u=walked/16;r.z[k]+=delta*(1-3*u*u+2*u*u*u);
       }
     }
+    // The same registered-footprint clearance as the departure area. Preserve
+    // confirmed decks; XY-only building evidence cannot cut an elevated road.
+    if(e.data.footprints?.length){
+      const constrain=(self as unknown as {__corridors:ReturnType<typeof roadCorridorRules>}).__corridors;
+      const fitted:Piece[]=[];
+      for(const r of pieces){
+        if(r.kind.some(k=>k!==0)){fitted.push(r);continue;}
+        for(const fixed of constrain([{line:r.line as [number,number][],width:r.width,lanes:r.lanes,oneway:r.oneway}],e.data.footprints)){
+          if(fixed.line===r.line){fitted.push({...r,width:fixed.width});continue;}
+          const heights:number[]=[],normals:number[][]=[];
+          let k=1;
+          for(const p of fixed.line){
+            while(k<r.line.length-1&&rules.along(r.line,p[0],p[1]).along>rules.along(r.line,r.line[k][0],r.line[k][1]).along+1e-6)k++;
+            const a=r.line[k-1],b=r.line[k],dx=b[0]-a[0],dy=b[1]-a[1],t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/(dx*dx+dy*dy||1)));
+            heights.push(r.z[k-1]+(r.z[k]-r.z[k-1])*t);normals.push(r.normals[k-1].map((n,i)=>n+(r.normals[k][i]-n)*t));
+          }
+          fitted.push({...r,width:fixed.width,line:fixed.line,z:heights,normals,kind:fixed.line.map(()=>0),owners:fixed.line.map(()=>null),jn:fixed.line.map(()=>false)});
+        }
+      }
+      pieces.splice(0,pieces.length,...fitted);
+    }
     // Junctions: a point of one road on another road's carriageway (another road, on the same
     // level — a bridge over a road is no junction).
     const segAt = new Map<string, [number, number][]>();
@@ -559,7 +582,8 @@ function roadWorkerMain() {
     const Mk = { p: [] as number[], n: [] as number[], i: [] as number[], c: [] as number[],level:[] as number[] };
     const Mf = { p: [] as number[], n: [] as number[], i: [] as number[], c: [] as number[],level:[] as number[] };
     const St = { p: [] as number[], n: [] as number[], i: [] as number[] };
-    const Wk = { p: [] as number[], n: [] as number[], i: [] as number[] };
+    const Wk = { p: [] as number[], n: [] as number[], i: [] as number[],level:[] as number[] };
+    const kerbs:number[][]=[];
     const walkPaths: number[] = [];
     const lanes: number[] = [];
     const WHITE = [0.95, 0.95, 0.93], YELLOW = [0.98, 0.74, 0.1];
@@ -728,6 +752,7 @@ function roadWorkerMain() {
         const paved = (k: number) => r.kind[k] < 0 || r.kind[k1(k)] < 0 || r.kind[k] === 3 || r.kind[k1(k)] === 3 || r.jn[k] || r.jn[k1(k)];
         // (nor over another road's lanes: where a ramp joins, the paving stops)
         const across = (side: number) => (k: number) => {
+          if (r.kind[k]===0&&r.kind[k1(k)]===0)return false; // exact asphalt subtraction after generation
           if (paved(k)) return true;
           const o = side * (w / 2 + sw / 2), A = r.line[k], B = r.line[k1(k)], na = normalAt(r.line, k), nb = normalAt(r.line, k1(k));
           return onOther(r, A[0] + na[0] * o, A[1] + na[1] * o, r.z[k]) || onOther(r, B[0] + nb[0] * o, B[1] + nb[1] * o, r.z[k1(k)]);
@@ -736,14 +761,10 @@ function roadWorkerMain() {
         band(r, -(w / 2 + sw / 2), sw, rules.surfaceLift+.15, Wk, null, 0, across(-1));
         for (const side of [1, -1]) {
           for (let k = 0; k < r.line.length - 1; k++) {
-            if (flat(k)) continue;
+            if (flat(k)||across(side)(k)) continue;
             const A = r.line[k], B = r.line[k + 1], na = normalAt(r.line, k), nb = normalAt(r.line, k + 1), e = w / 2;
             const a = [A[0] + na[0] * side * e, A[1] + na[1] * side * e], b = [B[0] + nb[0] * side * e, B[1] + nb[1] * side * e];
-            const base = Wk.p.length / 3;
-            const lo = [r.z[k]+rules.surfaceLift,r.z[k + 1]+rules.surfaceLift], hi = lo.map(h=>h+.15);
-            Wk.p.push(a[0], a[1], lo[0], b[0], b[1], lo[1], b[0], b[1], hi[1], a[0], a[1], hi[0]);
-            for (let q = 0; q < 4; q++) Wk.n.push(-na[0] * side, -na[1] * side, 0);
-            if (side > 0) Wk.i.push(base, base + 2, base + 1, base, base + 3, base + 2); else Wk.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+            kerbs.push([...a,r.z[k]+rules.surfaceLift,...b,r.z[k+1]+rules.surfaceLift,-na[0]*side,-na[1]*side,side]);
           }
           // street trees by the kerb, one every ~12 m (one species along a road)
           for (let k = 1; k < r.line.length; k += 2) {
@@ -907,6 +928,18 @@ function roadWorkerMain() {
     }
     const clearance=(self as unknown as {__terrainClearance:ReturnType<typeof terrainSurfaceClearance>}).__terrainClearance;
     const surface=clearance.drape(arr(S),g),nearPaint=clearance.drape(arr(Mk),g,rules.paintLift),farPaint=clearance.drape(arr(Mf),g,rules.paintLift);
+    const walks=clearance.drape(arr(Wk),g,.17);
+    if(surface&&walks&&kerbs.length){
+      const lookup=clearance.index(surface),p=Array.from(walks.position),n=Array.from(walks.normal),idx=Array.from(walks.index),levels=Array.from(walks.level??new Float32Array(p.length/3));
+      for(const edge of kerbs){const line=lookup.trace(edge.slice(0,3),edge.slice(3,6));
+        for(let k=3;k<line.length;k+=3){const a=line.slice(k-3,k),b=line.slice(k,k+3),base=p.length/3;
+          p.push(...a,...b,b[0],b[1],b[2]+.15,a[0],a[1],a[2]+.15);
+          for(let j=0;j<4;j++){n.push(edge[6],edge[7],0);levels.push(0);}
+          if(edge[8]>0)idx.push(base,base+2,base+1,base,base+3,base+2);else idx.push(base,base+1,base+2,base,base+2,base+3);
+        }
+      }
+      walks.position=new Float32Array(p);walks.normal=new Float32Array(n);walks.index=new Uint32Array(idx);walks.level=new Float32Array(levels);
+    }
     let paths=new Float32Array(lanes);
     if(surface){const lookup=clearance.index(surface);clearance.raisePaint(nearPaint,surface,lookup);clearance.raisePaint(farPaint,surface,lookup);
       const corrected:number[]=[];
@@ -1030,7 +1063,7 @@ function roadWorkerMain() {
     const portalArr = (p: number[]) => p.length ? { position: new Float32Array(p), normal: portalNormals(p), index: Uint32Array.from({ length: p.length / 3 }, (_, i) => i) } : null;
     const portals = { concrete: portalArr(portal.concrete), dark: portalArr(portal.dark) };
     for (const a of [portals.concrete, portals.dark]) if (a) transfer.push(a.position.buffer as ArrayBuffer, a.normal.buffer as ArrayBuffer, a.index.buffer as ArrayBuffer);
-    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), portals, traffic, walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, banks:new Float32Array(bankPoints), stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
+    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), portals, traffic, walks, walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, banks:new Float32Array(bankPoints), stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
     for(const a of [out.surface,out.marks,out.marksFar,out.structure,out.walks])if(a)for(const value of Object.values(a))if(value instanceof Float32Array||value instanceof Uint32Array)transfer.push(value.buffer as ArrayBuffer);
     transfer.push(out.lanes.buffer, out.banks.buffer, out.stops.buffer, out.walkPaths.buffer, out.streetTrees.buffer, out.clear.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
@@ -1047,7 +1080,7 @@ let roadUrl: string | null = null;
 /** One tile's roads (box in the view's frame, metres from lat/lon), made in a worker. */
 export function roadTile(lat: number, lon: number, key: string, domain: string | null | undefined, box: [number, number, number, number],
   grid: RoadJob["grid"], wide: Grid | null, signal?: AbortSignal, tile?: { lat: number; lon: number },
-  extra?: Pick<RoadJob, "sea" | "seaHoles" | "seaLevel" | "deck" | "chains">): Promise<RoadTileResult | null> {
+  extra?: Pick<RoadJob, "sea" | "seaHoles" | "seaLevel" | "deck" | "chains" | "footprints">): Promise<RoadTileResult | null> {
   const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540, m = 30;
   const q = `BOX(${lon + (box[0] - m) / kx},${lat + (box[1] - m) / ky},${lon + (box[2] + m) / kx},${lat + (box[3] + m) / ky})`;
   const ask = (layer: string, cb: string, n: number) => Array.from({ length: n }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
@@ -1055,7 +1088,7 @@ export function roadTile(lat: number, lon: number, key: string, domain: string |
     key, domain: domain ?? "https://kospimap.com", data: layer, geomFilter: q,
     size: "1000", page: String(i + 1), format: "json", callback: cb,
   }));
-  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__groundGrade=(${groundRoadGrade.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();self.__linkFallback=(${linkFallbackRoads.toString()});self.__chainDecks=(${chainDeckRoads.toString()});self.__tunnelPortal=(${tunnelPortal.toString()});self.__portalNormals=(${portalNormals.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
+  roadUrl ??= URL.createObjectURL(new Blob([`self.__corridors=(${roadCorridorRules.toString()})();self.__roadRules=(${surfaceGeometryRules.toString()})();self.__groundGrade=(${groundRoadGrade.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();self.__linkFallback=(${linkFallbackRoads.toString()});self.__chainDecks=(${chainDeckRoads.toString()});self.__tunnelPortal=(${tunnelPortal.toString()});self.__portalNormals=(${portalNormals.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
     // (the crossings asked about the tile's rounded centre, as the view asks: the server's cache)
     const crossings = tile && typeof location !== "undefined" ? (() => {
       const la = +tile.lat.toFixed(4), lo = +tile.lon.toFixed(4);

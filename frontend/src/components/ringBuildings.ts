@@ -179,7 +179,9 @@ function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile) {
             // (everything over the box and a margin: the roofs of buildings across its edge too)
             let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
             for (const [px, py] of ring) { x0 = Math.min(x0, px); y0 = Math.min(y0, py); x1 = Math.max(x1, px); y1 = Math.max(y1, py); }
-            if (x1 < job.box[0] || y1 < job.box[1] || x0 > job.box[2] || y0 > job.box[3]) continue;
+            // Adjacent footprints constrain the full road/sidewalk width even
+            // when their centroid and walls lie just outside this tile.
+            if (x1 < job.box[0]-60 || y1 < job.box[1]-60 || x0 > job.box[2]+60 || y0 > job.box[3]+60) continue;
           } else if (d > job.outer || known(cx, cy) || (d < job.inner && near.size)) continue;
           cands.push({ ring, area: Math.abs(area), cx, cy, d, props, linked: !!props.usability || /^(19|20)\d{2}/.test(props.useapr_day || ""), holes });
         }

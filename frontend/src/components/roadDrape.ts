@@ -22,6 +22,28 @@ function segment(axis: Float64Array,value: number,up: boolean) {
   while(hi-lo>1){const k=(lo+hi)>>1;if(up?axis[k]<=value:axis[k]>=value)lo=k;else hi=k;}
   return lo;
 }
+/** A drone clips a copy of the departure ground. Road grading can finish after
+ * that copy was made. Transfer the exact source triangle height to the visible
+ * copy, retaining any lower river/sea bed already applied to it. */
+export async function syncGroundRelief(source:THREE.BufferGeometry,visible:THREE.BufferGeometry,pace:()=>Promise<boolean>){
+ const grid=source.userData.grid as {xs:Float64Array;ys:Float64Array}|undefined;
+ if(!grid||source===visible)return;
+ const {xs,ys}=grid,row=xs.length,a=source.getAttribute('position'),p=visible.getAttribute('position');
+ const normals=source.getAttribute('normal'),out=visible.getAttribute('normal');let changed=false;
+ for(let k=0;k<p.count;k++){
+  if(k%512===0&&!await pace())return;
+  const x=p.getX(k),y=p.getY(k),i=segment(xs,x,true),j=segment(ys,y,false);
+  const fx=Math.max(0,Math.min(1,(x-xs[i])/(xs[i+1]-xs[i]))),fy=Math.max(0,Math.min(1,(y-ys[j])/(ys[j+1]-ys[j])));
+  const tl=j*row+i,bl=tl+row,tr=tl+1,br=bl+1;
+  // PlaneGeometry uses tl-bl-tr / bl-br-tr (rows run north to south).
+  const ids=fx+fy<=1?[tl,bl,tr]:[bl,br,tr],w=fx+fy<=1?[1-fx-fy,fy,fx]:[1-fx,fx+fy-1,1-fy];
+  const height=ids.reduce((z,id,n)=>z+a.getZ(id)*w[n],0);
+  if(p.getZ(k)<=height+1e-6)continue;
+  p.setZ(k,height);changed=true;
+  if(normals&&out)for(let c=0;c<3;c++)out.setComponent(k,c,ids.reduce((v,id,n)=>v+normals.getComponent(id,c)*w[n],0));
+ }
+ if(changed){p.needsUpdate=true;if(out)out.needsUpdate=true;visible.computeBoundingSphere();}
+}
 /** The same visible asphalt supports tyres; a DEM sample can lie centimetres
  * below the tessellated road and bury the tyre's lower sidewall. */
 export function roadSurfaceHeight(geometry:THREE.BufferGeometry,index?:RoadTriangleIndex){
@@ -156,22 +178,31 @@ export async function raiseRoadPaint(paint:THREE.BufferGeometry,asphalt:THREE.Bu
 export async function drapeRoadSurface(road: THREE.BufferGeometry,ground: THREE.BufferGeometry,pace:()=>Promise<boolean>,lift=.015) {
   const grid=ground.userData.grid as {xs:Float64Array;ys:Float64Array}|undefined;
   if(!grid)return;
-  const {xs,ys}=grid,row=xs.length,P=ground.getAttribute('position'),source=road.getAttribute('position');
-  const positions:number[]=[],uv:number[]=[],levels:number[]=[],sourceLevels=road.getAttribute('roadLevel'),profiles:number[]=[],sourceProfiles=road.getAttribute('roadProfile');
+  const input=road.index?road.toNonIndexed():road;
+  const {xs,ys}=grid,row=xs.length,P=ground.getAttribute('position'),source=input.getAttribute('position'),sourceUv=input.getAttribute('uv');
+  const extras=Object.entries(input.attributes).filter(([key])=>!['position','normal','uv','roadLevel','roadProfile'].includes(key)).map(([key,a])=>({key,a,out:[] as number[]}));
+  const positions:number[]=[],uv:number[]=[],levels:number[]=[],sourceLevels=input.getAttribute('roadLevel'),profiles:number[]=[],sourceProfiles=input.getAttribute('roadProfile');
+  const copy=(k:number)=>{for(let i=0;i<3;i++){positions.push(source.getX(k+i),source.getY(k+i),source.getZ(k+i));uv.push(sourceUv?sourceUv.getX(k+i):source.getX(k+i)/4,sourceUv?sourceUv.getY(k+i):-source.getZ(k+i)/4);for(const e of extras)for(let c=0;c<e.a.itemSize;c++)e.out.push(e.a.getComponent(k+i,c));if(sourceLevels)levels.push(sourceLevels.getX(k+i));if(sourceProfiles)profiles.push(sourceProfiles.getX(k+i));}};
   for(let k=0;k<source.count;k+=3){
-    if(k%300===0&&!await pace())return;
+    if(k%300===0&&!await pace()){if(input!==road)input.dispose();return;}
     const triangle:Point[]=[0,1,2].map(i=>[source.getX(k+i),-source.getZ(k+i)]);
     const heights=[0,1,2].map(i=>source.getY(k+i)),area=cross(triangle[0],triangle[1],triangle[2]);
-    if(Math.abs(area)<1e-9)continue;
+    if(Math.abs(area)<1e-9){copy(k);continue;}
     if(sourceLevels?.getX(k)){
-      for(let i=0;i<3;i++){const p=triangle[i];positions.push(p[0],heights[i],-p[1]);uv.push(p[0]/4,p[1]/4);levels.push(sourceLevels.getX(k));if(sourceProfiles)profiles.push(sourceProfiles.getX(k));}
+      copy(k);
       continue;
     }
     const roadAt=(p:Point)=>{
       const u=cross(triangle[0],p,triangle[2])/area,v=cross(triangle[0],triangle[1],p)/area;
       return heights[0]*(1-u-v)+heights[1]*u+heights[2]*v;
     };
-    const start=positions.length,startUv=uv.length;
+    const start=positions.length,startUv=uv.length,extraStarts=extras.map(e=>e.out.length);
+    const emit=(p:Point,z:number)=>{
+      const u=cross(triangle[0],p,triangle[2])/area,v=cross(triangle[0],triangle[1],p)/area,w=[1-u-v,u,v];
+      positions.push(p[0],z,-p[1]);
+      uv.push(sourceUv?w.reduce((s,a,i)=>s+a*sourceUv.getX(k+i),0):p[0]/4,sourceUv?w.reduce((s,a,i)=>s+a*sourceUv.getY(k+i),0):p[1]/4);
+      for(const e of extras)for(let c=0;c<e.a.itemSize;c++)e.out.push(w.reduce((s,a,i)=>s+a*e.a.getComponent(k+i,c),0));
+    };
     let needsDrape=false;
     const i0=segment(xs,Math.min(...triangle.map(p=>p[0])),true),i1=segment(xs,Math.max(...triangle.map(p=>p[0])),true);
     const j0=segment(ys,Math.max(...triangle.map(p=>p[1])),false),j1=segment(ys,Math.min(...triangle.map(p=>p[1])),false);
@@ -190,7 +221,7 @@ export async function drapeRoadSurface(road: THREE.BufferGeometry,ground: THREE.
         for(let q=1;q+1<polygon.length;q++){
           const points=[polygon[0],polygon[q],polygon[q+1]];
           if(Math.abs(cross(...points as [Point,Point,Point]))<1e-9)continue;
-          for(const p of points){positions.push(p[0],height(p),-p[1]);uv.push(p[0]/4,p[1]/4);}
+          for(const p of points)emit(p,height(p));
         }
       }
     }
@@ -198,17 +229,21 @@ export async function drapeRoadSurface(road: THREE.BufferGeometry,ground: THREE.
     // Keep the original triangle when safe, so ordinary roads gain no geometry.
     if(!needsDrape){
       positions.length=start;uv.length=startUv;
-      for(let i=0;i<3;i++){const p=triangle[i];positions.push(p[0],heights[i],-p[1]);uv.push(p[0]/4,p[1]/4);}
+      extras.forEach((e,i)=>e.out.length=extraStarts[i]);
+      for(let i=0;i<3;i++)emit(triangle[i],heights[i]);
     }
     if(sourceLevels)while(levels.length<positions.length/3)levels.push(sourceLevels.getX(k));
     if(sourceProfiles)while(profiles.length<positions.length/3)profiles.push(sourceProfiles.getX(k));
   }
-  if(!await pace())return;
+  if(!await pace()){if(input!==road)input.dispose();return;}
+  road.setIndex(null);
   if(sourceLevels)road.setAttribute('roadLevel',new THREE.Float32BufferAttribute(levels,1));
   if(sourceProfiles)road.setAttribute('roadProfile',new THREE.Float32BufferAttribute(profiles,1));
   road.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
   road.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+  for(const e of extras)road.setAttribute(e.key,new THREE.Float32BufferAttribute(e.out,e.a.itemSize));
   road.computeVertexNormals();road.computeBoundingSphere();
+  if(input!==road)input.dispose();
 }
 
 /** The ground cut to the roads at grade (pure geometry on the view's ground grid): every post under
