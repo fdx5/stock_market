@@ -25,6 +25,9 @@ const STYLE: Record<DroneLabel["kind"], { bg: string; fg: string; edge: string; 
   train: { bg: 'rgba(8,20,36,0.92)', fg: '#ffffff', edge: '#9cd', icon: '🚆', rank: 4, reach: 2200 },
   parking: { bg: 'rgba(14,40,92,0.92)', fg: '#ffffff', edge: '#7fb6ff', icon: '🅿️', rank: 2, reach: 1400 },
   bike: { bg: 'rgba(14,62,40,0.92)', fg: '#ffffff', edge: '#8fe0b0', icon: '🚲', rank: 1, reach: 700 },
+  // public facilities (소방서, 경찰, 보건소, 우체국, AED, 대피소): the icon is in the name
+  exit: { bg: 'rgba(40,34,6,0.92)', fg: '#ffe680', edge: '#f2c200', icon: '🚇', rank: 2, reach: 900 },
+  service: { bg: 'rgba(30,30,44,0.92)', fg: '#ffffff', edge: '#c9d3df', icon: '', rank: 3, reach: 1500 },
 };
 
 export type Sign = { key: string; name: string; kind: DroneLabel["kind"]; x: number; y: number; top: number; n: number; w: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera; live?: DroneLabel["live"]; tint?: string };
@@ -143,7 +146,7 @@ export class DroneSigns {
       ctx.fillStyle = edge; ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = st.bg;
       ctx.beginPath(); ctx.roundRect(x0, y0, bw, bh, bh / 2); ctx.fill();
-      if (card && this.fx && s.kind!=='cctv' && s.kind!=='bike' && s.kind!=='parking' && s.kind!=='train') {
+      if (card && this.fx && s.kind!=='cctv' && s.kind!=='bike' && s.kind!=='parking' && s.kind!=='train' && s.kind!=='service' && s.kind!=='exit') {
         // (a soft glow in the sign's own colour, breathing slowly — a sign to tap; steady and
         // brighter while its card is open)
         const pulse = lit ? 1 : 0.5 + 0.5 * Math.sin(t * 2.4 + sx * 0.02);

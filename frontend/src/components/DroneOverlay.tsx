@@ -152,6 +152,12 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
     };
   }, [signs, flight, radar.origin]);
   const closeCard = () => { signs.selected = null; setCard(null); };
+  // (the list's rows, and the list itself, open their panels here)
+  useEffect(() => {
+    const open = (e: Event) => { const item = (e as CustomEvent<LiveRef>).detail; setCard(null); signs.selected = 'live-panel'; setLivePanel({ item, key: JSON.stringify(item).slice(0, 200) }); };
+    window.addEventListener('live-open', open);
+    return () => window.removeEventListener('live-open', open);
+  }, [signs]);
   useEffect(() => {
     const close = () => { signs.selected = null; setCard(null); setLivePanel(null); };
     window.addEventListener("drone-card-close", close);

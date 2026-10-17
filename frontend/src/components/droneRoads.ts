@@ -73,6 +73,8 @@ type RoadJob = {
    * the roads along it are on it — its own model draws the structure */
   deck?: { pts: number[][]; z: number[] };
   /** whole bridges (bridgeChains.ts): each official bridge link's deck along its chain, bank to bank */
+  /** build the live traffic layer's bands (off while that layer is hidden) */
+  traffic?: boolean;
   chains?: { ids: string[]; line: number[][]; s: number[]; z: number[]; core?: [number,number]; deck?: { w: number; off: number; lanes: number; twoWay: boolean } }[];
 };
 
@@ -985,7 +987,7 @@ function roadWorkerMain() {
     // the two directions of a road side by side — on the road's own surface (a bridge's deck, the
     // road at grade), none in a tunnel or an underpass. One vertex attribute names the link.
     const trafficPos: number[] = [], trafficLink: number[] = [], trafficIds: string[] = [], trafficRanks: string[] = [];
-    {
+    if (e.data.traffic) {
       const zHash = new Map<string, [number, number, number, number][]>();
       for (const r of pieces) for (let k = 0; k < r.line.length; k++) {
         if (r.kind[k] < 0) continue;
@@ -1036,6 +1038,10 @@ function roadWorkerMain() {
   };
 }
 
+/** The live traffic layer (droneLive): its bands are built only while it can be shown. Off: TOPIS
+ * answers for few of the standard links, and the national ITS feed does not answer the host. */
+export const LIVE_TRAFFIC_BANDS = false;
+
 /** (one Blob URL for the page's lifetime) */
 let roadUrl: string | null = null;
 /** One tile's roads (box in the view's frame, metres from lat/lon), made in a worker. */
@@ -1055,6 +1061,6 @@ export function roadTile(lat: number, lon: number, key: string, domain: string |
       const la = +tile.lat.toFixed(4), lo = +tile.lon.toFixed(4);
       return { url: `${location.origin}/api/realestate/crossings?lat=${la.toFixed(4)}&lon=${lo.toFixed(4)}&r=260&v=3`, ox: (lo - lon) * kx, oy: (la - lat) * ky };
     })() : undefined;
-    const job: RoadJob = { urls: ask("LT_L_N3A0020000", "roadCb", 4), linkUrls: ask("LT_L_MOCTLINK", "linkCb", 2), riverUrls: ask("LT_C_WKMSTRM", "riverCb", 1), lat, lon, box, grid, wide, crossings, ...extra };
+    const job: RoadJob = { traffic: LIVE_TRAFFIC_BANDS, urls: ask("LT_L_N3A0020000", "roadCb", 4), linkUrls: ask("LT_L_MOCTLINK", "linkCb", 2), riverUrls: ask("LT_C_WKMSTRM", "riverCb", 1), lat, lon, box, grid, wide, crossings, ...extra };
     return sceneWorkerFresh<RoadTileResult>(roadUrl, () => new Worker(roadUrl!), job, signal);
 }

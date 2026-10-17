@@ -16,7 +16,7 @@ const KIND: Record<Sign["kind"], [string, string]> = {
   station: ["🚉", "전철역"],
   bridge: ["🌉", "교량"],
   cctv: ["📹", "CCTV"],
-  subway: ["🚇", "지하철역"], train: ["🚆", "열차"], er: ["🚑", "응급실"], bike: ["🚲", "따릉이"], parking: ["🅿️", "공영주차장"],
+  subway: ["🚇", "지하철역"], train: ["🚆", "열차"], er: ["🚑", "응급실"], bike: ["🚲", "따릉이"], parking: ["🅿️", "공영주차장"], service: ["🏛", "공공시설"], exit: ["🚇", "지하철 출입구"],
 };
 
 const ymd = (s?: string | null) => {

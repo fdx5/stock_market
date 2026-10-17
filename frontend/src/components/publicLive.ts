@@ -3,7 +3,7 @@
  * The provider keys stay on the server; here only what it answers. */
 
 export type LiveStatus = 'ok' | 'partial' | 'needs_key' | 'invalid_key' | 'unavailable' | 'outside';
-export type LiveKind = 'subway' | 'er' | 'traffic' | 'bike' | 'parking';
+export type LiveKind = 'subway' | 'er' | 'traffic' | 'bike' | 'parking' | 'facility';
 
 export type SubwayStation = { name: string; key: string; lat: number; lon: number; lines: string[] };
 export type SubwayData = { lines: Record<string, { colour: string; routes: { stops: number[]; loop?: '내선' | '외선' }[] }>; stations: SubwayStation[]; attribution: string };
@@ -21,15 +21,24 @@ export type BikeDock = { id: string; name: string; lat: number; lon: number; bik
 export type ParkingLot = { id: string; name: string; address: string; lat: number; lon: number; total: number | null; parked: number | null; live: boolean; updated: string;
   type: string; tel: string; paid: string; basic: { won: number | null; minutes: number | null }; extra: { won: number | null; minutes: number | null }; dayMax: number | null;
   hours: { weekday: string; weekend: string; holiday: string }; distance: number };
+export type Facility = { id: string; kind: 'fire' | 'police' | 'health' | 'post' | 'aed' | 'shelter' | 'exit'; ref?: string; wheelchair?: string; name: string; lat: number; lon: number; address: string; phone: string; hours: string; access: string; indoor: boolean; description: string; distance: number };
+export const FACILITY: Record<Facility['kind'], { icon: string; label: string; colour: string }> = {
+  fire: { icon: '🚒', label: '소방서·119안전센터', colour: '#ff6b4a' }, police: { icon: '🚓', label: '경찰서·지구대', colour: '#6aa8ff' },
+  health: { icon: '⚕️', label: '보건소', colour: '#5fd39a' }, post: { icon: '📮', label: '우체국', colour: '#ff9b3d' },
+  aed: { icon: '❤️', label: '자동심장충격기(AED)', colour: '#ff5a7a' }, shelter: { icon: '🛡️', label: '대피소·대피장소', colour: '#ffd34d' },
+  exit: { icon: '🚇', label: '지하철 출입구', colour: '#f2c200' },
+};
 export type LiveList<T> = { status: LiveStatus; items: T[]; source?: string; updated?: string; stale?: boolean };
 
 /** What a sign of the live layers carries: its panel opens on a tap. */
 export type LiveRef =
-  | { type: 'station'; station: SubwayStation }
+  | { type: 'station'; station: SubwayStation; exit?: Facility }
   | { type: 'train'; train: Train; colour: string }
   | { type: 'er'; room: EmergencyRoom }
   | { type: 'bike'; dock: BikeDock }
-  | { type: 'parking'; lot: ParkingLot };
+  | { type: 'parking'; lot: ParkingLot }
+  | { type: 'facility'; place: Facility }
+  | { type: 'list' };
 
 const API = '/api/realestate/live';
 async function json<T>(url: string, signal?: AbortSignal, init?: RequestInit): Promise<T> {
@@ -45,6 +54,7 @@ export const liveApi = {
   emergency: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<EmergencyRoom>>(`${API}/emergency?${at(lat, lon)}`, signal),
   bikes: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<BikeDock>>(`${API}/bikes?${at(lat, lon)}`, signal),
   parking: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<ParkingLot>>(`${API}/parking?${at(lat, lon)}`, signal),
+  facilities: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<Facility>>(`${API}/facilities?${at(lat, lon)}`, signal),
   traffic: (lat: number, lon: number, links: string[], signal?: AbortSignal) => json<{ status: LiveStatus; speeds: Record<string, number>; pending?: number; source: string; updated: string }>(
     `${API}/traffic`, signal, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lon, links }) }),
 };
@@ -127,6 +137,11 @@ export const LIVE_STATUS_TEXT: Record<string, string> = {
 /** The trains last fetched (the station panel counts the ones coming its way). */
 export const liveState = {
   subway: null as SubwayData | null, trains: [] as Train[], trainsAt: 0,
+  /** the last lists round the drone (the 종합 목록 panel) */
+  rooms: [] as EmergencyRoom[], docks: [] as BikeDock[], lots: [] as ParkingLot[], places: [] as Facility[],
   listeners: new Set<() => void>(),
   emit() { for (const f of this.listeners) f(); },
 };
+
+/** An emergency room's free beds as a word: E-Gen reports more patients than beds as a negative. */
+export const bedsText = (er: number | null) => er === null ? '정보 없음' : er < 0 ? `포화 (${-er}명 초과)` : er === 0 ? '병상 없음' : `${er}병상`;

@@ -88,7 +88,7 @@ export class DroneSession {
       onSeaReady: field => { void this.sinkSeaGround(field); p.onSeaReady?.(field); },
       onLabels: (k, l) => this.signs.set(k, l) });
     this.cctv=new DroneCctv(p.scene,this.signs,p.data.center!, (x,y)=>this.world.groundAt(x,y));
-    this.live=new DroneLive(this.signs,p.data.center!,(x,y)=>this.world.groundAt(x,y),this.world);
+    this.live=new DroneLive(this.signs,p.data.center!,(x,y)=>this.world.groundAt(x,y),this.world,p.scene);
   }
 
   /** Take off from the camera, starting within 220 m of the ground, looking its way. */
@@ -461,6 +461,7 @@ export class DroneSession {
     this.audio.stop();
     this.p.forget?.(new Set(this.cctv.materials()));
     this.cctv.dispose();
+    this.p.forget?.(new Set(this.live.materials()));
     this.live.dispose();
     this.world.dispose();
     this.p.forget?.(new Set(this.model.materials()));

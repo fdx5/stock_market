@@ -19,7 +19,7 @@ import {buildingAppearanceProfile,type BuildingAppearance} from './buildingAppea
 /** What the building register (VWorld GIS건물통합정보) says of a sign's largest building: its parcel
  * (PNU, for the 건축물대장 card), 사용승인일, floors, height and floor area. */
 export type DroneLabelInfo = { /** the building's centre (view frame, m) */ bx?: number; by?: number; pnu?: string; approved?: string; floors?: number; basements?: number; height?: number; area?: number; dong?: string };
-export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital" | "station" | "bridge" | "cctv" | "subway" | "train" | "er" | "bike" | "parking"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera;
+export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital" | "station" | "bridge" | "cctv" | "subway" | "train" | "er" | "bike" | "parking" | "service" | "exit"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera;
   /** the live layers (droneLive.ts): what its panel shows, its own edge colour, and a key of its own (never merged with another of the name) */
   live?: import('./publicLive').LiveRef; tint?: string; key?: string };
 /** The styles in the order RingResult.towers names them. */

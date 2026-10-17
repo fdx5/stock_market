@@ -640,3 +640,91 @@ def status() -> dict:
     """Which providers have keys (names only, never values)."""
     return {"seoul": bool(_seoul_key()), "subway": bool(_subway_key()), "egen": bool(_portal_key()),
             "its": bool(_env("ITS_TRAFFIC_API_KEY", "ITS_API_KEY")), "geocoder": bool(_env("VWORLD_API_KEY"))}
+
+
+# ── public facilities (OpenStreetMap) ───────────────────────────────────────
+
+FACILITY_KINDS = (
+    ("fire", "소방서·119안전센터", '["amenity"="fire_station"]'),
+    ("police", "경찰서·지구대·파출소", '["amenity"="police"]'),
+    ("health", "보건소", '["amenity"~"clinic|doctors|hospital"]["name"~"보건(소|지소|분소)"]'),
+    ("post", "우체국", '["amenity"="post_office"]'),
+    ("aed", "자동심장충격기(AED)", '["emergency"="defibrillator"]'),
+    ("shelter", "대피소·대피장소", '["emergency"~"assembly_point|shelter"]'),
+    ("exit", "지하철 출입구", '["railway"="subway_entrance"]'),
+)
+
+
+def _facility_kind(tags: dict) -> str | None:
+    a, e, n = tags.get("amenity", ""), tags.get("emergency", ""), tags.get("name", "")
+    if tags.get("railway") == "subway_entrance":
+        return "exit"
+    if a == "fire_station":
+        return "fire"
+    if a == "police":
+        return "police"
+    if a in ("clinic", "doctors", "hospital") and "보건" in n:
+        return "health"
+    if a == "post_office":
+        return "post"
+    if e == "defibrillator":
+        return "aed"
+    if e in ("assembly_point", "shelter"):
+        return "shelter"
+    return None
+
+
+OVERPASS = ("https://overpass-api.de/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter")
+_overpass_skip: dict[str, float] = {}
+
+
+def _overpass_any(query: str) -> list[dict]:
+    """The first public Overpass server that answers (one that failed is left alone a minute)."""
+    last = "unavailable"
+    for url in OVERPASS:
+        if time.monotonic() < _overpass_skip.get(url, 0):
+            continue
+        try:
+            r = requests.post(url, data={"data": query}, headers={"User-Agent": "kospimap.com drone public facilities"}, timeout=(5, 30))
+            if r.ok:
+                body = r.json()
+                if isinstance(body, dict) and isinstance(body.get("elements"), list) and "error" not in str(body.get("remark", "")).lower():
+                    return body["elements"]
+            last = f"HTTP {r.status_code}"
+        except (requests.RequestException, ValueError) as e:
+            last = type(e).__name__
+        _overpass_skip[url] = time.monotonic() + 60
+    raise ValueError(last)
+
+
+def facilities(lat: float, lon: float) -> dict:
+    """Fire stations, police, public health centres, post offices, AEDs and shelters round (lat, lon)
+    from OpenStreetMap: one query per ~2 km cell, kept a day."""
+    cy, cx = round(lat / 0.02) * 0.02, round(lon / 0.025) * 0.025
+
+    def make():
+        box = f"({cy - 0.03:.4f},{cx - 0.035:.4f},{cy + 0.03:.4f},{cx + 0.035:.4f})"
+        parts = "".join(f"nwr{f}{box};" for _, _, f in FACILITY_KINDS)
+        elements = _overpass_any(f"[out:json][timeout:25];({parts});out center tags;")
+        items = []
+        for el in elements:
+            tags = el.get("tags") or {}
+            kind = _facility_kind(tags)
+            at = (el.get("lat"), el.get("lon")) if "lat" in el else ((el.get("center") or {}).get("lat"), (el.get("center") or {}).get("lon"))
+            if not kind or at[0] is None:
+                continue
+            name = tags.get("name:ko") or tags.get("name") or dict((k, l) for k, l, _ in FACILITY_KINDS)[kind]
+            address = " ".join(v for v in (tags.get("addr:city"), tags.get("addr:district"), tags.get("addr:street"), tags.get("addr:housenumber")) if v) or tags.get("addr:full", "")
+            items.append({"id": f"{el.get('type', 'n')}{el.get('id')}", "kind": kind, "name": name[:80], "lat": float(at[0]), "lon": float(at[1]),
+                          "address": address[:120], "phone": (tags.get("phone") or tags.get("contact:phone") or "")[:40],
+                          "hours": (tags.get("opening_hours") or "")[:80], "access": tags.get("access", ""),
+                          "indoor": tags.get("indoor") == "yes" or tags.get("location") == "indoor",
+                          "description": (tags.get("defibrillator:location") or tags.get("description") or "")[:160],
+                          "ref": (tags.get("ref") or "")[:12], "wheelchair": tags.get("wheelchair", "")})
+        return {"items": items}
+    try:
+        items = _cached(f"fac2:{cy:.3f}:{cx:.3f}", 86400, make, 86400 * 3)["items"]
+    except Exception:  # noqa: BLE001
+        return {"status": "unavailable", "items": []}
+    return {"status": "ok", "items": _near(lat, lon, items, 3000, 800), "source": "© OpenStreetMap contributors (ODbL)"}

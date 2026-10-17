@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { LIVE_STATUS_TEXT, liveApi, liveState, placeTrain, trainsComing, type Arrival, type LiveRef, type StationInfo, type SubwayStation, type Timetable } from './publicLive';
+import { bedsText, FACILITY, LIVE_STATUS_TEXT, liveApi, liveState, placeTrain, trainsComing, type Arrival, type LiveRef, type StationInfo, type SubwayStation, type Timetable } from './publicLive';
 
 /* The panels of the drone's live public layers (a tap on a sign): a subway station's live
  * arrivals both ways, today's timetable, the trains coming and the lines there; a train; an
@@ -52,7 +52,7 @@ function TimetableView({ t }: { t: Timetable }) {
   </section>;
 }
 
-function StationPanel({ station }: { station: SubwayStation }) {
+function StationPanel({ station, exit }: { station: SubwayStation; exit?: import('./publicLive').Facility }) {
   const [week, setWeek] = useState<string | undefined>();
   const [info, setInfo] = useState<StationInfo | null>(null);
   const [received, setReceived] = useState(Date.now());
@@ -69,7 +69,7 @@ function StationPanel({ station }: { station: SubwayStation }) {
   const coming = useMemo(() => d ? station.lines.map(l => ({ line: l, list: trainsComing(d, trains, station, l) })) : [], [d, trains, station]);
   const tts = info?.timetables ?? [];
   return <>
-    <header><div><small>지하철역 · 실시간</small><h3>{station.name}역</h3><p className="re-live-lines">{station.lines.map(l => <LineChip key={l} line={l} />)}</p></div></header>
+    <header><div><small>지하철역 · 실시간{exit ? ' · 출입구에서 연 정보' : ''}</small><h3>{station.name}역{exit ? <span className="re-live-exit">{exit.ref ? `${exit.ref}번 출구` : '출입구'}</span> : null}</h3><p className="re-live-lines">{station.lines.map(l => <LineChip key={l} line={l} />)}</p></div></header>
     <div className="re-live-body">
       <h5>실시간 도착 <small>{info ? `${info.updated} 기준 · 20초마다 갱신` : '불러오는 중…'}</small></h5>
       {error && !info && <p className="re-live-empty">{LIVE_STATUS_TEXT.unavailable}</p>}
@@ -94,6 +94,7 @@ function StationPanel({ station }: { station: SubwayStation }) {
         <dt>노선</dt><dd>{station.lines.join(' · ')}{station.lines.length > 1 ? ` (환승 ${station.lines.length}개 노선)` : ''}</dd>
         {tts.some(t => t.fr) && <><dt>역 번호</dt><dd>{[...new Set(tts.map(t => t.fr && `${t.line} ${t.fr}`).filter(Boolean))].join(' · ')}</dd></>}
         <dt>위치</dt><dd>N{station.lat.toFixed(5)} E{station.lon.toFixed(5)}</dd>
+        {exit && <><dt>이 출입구</dt><dd>{exit.ref ? `${exit.ref}번 출구` : '번호 미등록'}{exit.wheelchair === 'yes' ? ' · 휠체어 이용 가능' : exit.wheelchair === 'no' ? ' · 계단만' : ''} · N{exit.lat.toFixed(5)} E{exit.lon.toFixed(5)}</dd></>}
       </dl>
       <p className="re-live-source">{info?.source ?? '서울 열린데이터광장'} · 역 위치 © OpenStreetMap contributors</p>
     </div>
@@ -125,7 +126,7 @@ function RoomPanel({ room: r }: { room: import('./publicLive').EmergencyRoom }) 
   return <>
     <header><div><small>응급실 · 실시간 가용병상</small><h3>{r.name}</h3><p>{r.kind}</p></div></header>
     <div className="re-live-body">
-      <div className={`re-live-big ${r.er === null ? '' : r.er <= 0 ? 'is-jam' : r.er <= 2 ? 'is-slow' : 'is-go'}`}><b>{n(r.er)}</b><span>응급실 가용 병상{r.erTotal ? ` / 기준 ${r.erTotal}` : ''}</span></div>
+      <div className={`re-live-big ${r.er === null ? '' : r.er <= 0 ? 'is-jam' : r.er <= 2 ? 'is-slow' : 'is-go'}`}><b>{r.er !== null && r.er < 0 ? '포화' : n(r.er)}</b><span>{r.er !== null && r.er < 0 ? `응급실 기준 병상보다 환자 ${-r.er}명 많음` : '응급실 가용 병상'}{r.erTotal ? ` / 기준 ${r.erTotal}` : ''}</span></div>
       <dl className="re-live-facts">
         <dt>수술실</dt><dd>{n(r.surgery)}</dd><dt>일반 중환자실</dt><dd>{n(r.icu)}</dd><dt>입원실</dt><dd>{n(r.ward)}</dd>
         {r.neuroIcu !== null && <><dt>신경 중환자실</dt><dd>{n(r.neuroIcu)}</dd></>}{r.neonatal !== null && <><dt>신생아 중환자실</dt><dd>{n(r.neonatal)}</dd></>}
@@ -170,14 +171,65 @@ function ParkingPanel({ lot: l }: { lot: import('./publicLive').ParkingLot }) {
   </>;
 }
 
+function FacilityPanel({ place: f }: { place: import('./publicLive').Facility }) {
+  const k = FACILITY[f.kind];
+  return <>
+    <header><div><small>공공시설 · 위치 정보</small><h3>{k.icon} {f.name}</h3><p>{k.label}</p></div></header>
+    <div className="re-live-body">
+      <dl className="re-live-facts">
+        <dt>종류</dt><dd>{k.label}</dd>
+        {f.address && <><dt>주소</dt><dd>{f.address}</dd></>}
+        {f.phone && <><dt>전화</dt><dd><a href={`tel:${f.phone}`}>{f.phone}</a></dd></>}
+        {f.hours && <><dt>운영</dt><dd>{f.hours}</dd></>}
+        {f.description && <><dt>설치 위치</dt><dd>{f.description}</dd></>}
+        {f.kind === 'aed' && <><dt>실내/실외</dt><dd>{f.indoor ? '실내' : '확인 필요'}{f.access ? ` · ${f.access}` : ''}</dd></>}
+        <dt>거리</dt><dd>{f.distance >= 1000 ? `${(f.distance / 1000).toFixed(1)}km` : `${f.distance}m`}</dd>
+        <dt>좌표</dt><dd>N{f.lat.toFixed(5)} E{f.lon.toFixed(5)}</dd>
+      </dl>
+      <p className="re-live-links"><a href={`https://map.kakao.com/link/map/${encodeURIComponent(f.name)},${f.lat},${f.lon}`} target="_blank" rel="noreferrer">카카오맵에서 보기</a>
+        <a href={`https://map.kakao.com/link/to/${encodeURIComponent(f.name)},${f.lat},${f.lon}`} target="_blank" rel="noreferrer">길찾기</a></p>
+      {(f.kind === 'fire' || f.kind === 'aed') && <p className="re-live-warn">응급 상황에서는 먼저 119에 신고하세요.</p>}
+      <p className="re-live-source">© OpenStreetMap contributors · 지도 데이터는 실제와 다를 수 있습니다</p>
+    </div>
+  </>;
+}
+
+type Tab = 'er' | 'parking' | 'bike' | 'facility';
+function ListPanel() {
+  useTick(5000);
+  const tabs: [Tab, string, number][] = [['er', '🚑 응급실', liveState.rooms.length], ['parking', '🅿️ 주차장', liveState.lots.length], ['bike', '🚲 따릉이', liveState.docks.length], ['facility', '🚒 공공시설', liveState.places.filter(f => f.kind !== 'exit').length]];
+  const [tab, setTab] = useState<Tab>(() => tabs.find(t => t[2])?.[0] ?? 'er');
+  const [filter, setFilter] = useState<string>('all');
+  const km = (d: number) => d >= 1000 ? `${(d / 1000).toFixed(1)}km` : `${d}m`;
+  const rows: { key: string; open: LiveRef; title: string; sub: string; value: string; tone: string }[] =
+    tab === 'er' ? liveState.rooms.map(r => ({ key: r.id, open: { type: 'er', room: r } as LiveRef, title: r.name, sub: `${r.kind} · ${km(r.distance)}`, value: bedsText(r.er), tone: r.er === null ? '' : r.er <= 0 ? 'is-jam' : r.er <= 2 ? 'is-slow' : 'is-go' }))
+    : tab === 'parking' ? liveState.lots.map(l => { const free = l.total !== null && l.parked !== null ? Math.max(0, l.total - l.parked) : null;
+      return { key: l.id, open: { type: 'parking', lot: l } as LiveRef, title: l.name, sub: `${l.paid} · ${km(l.distance)}`, value: free === null ? '-' : `잔여 ${free}/${l.total}`, tone: free === null || !l.total ? '' : free / l.total < .05 ? 'is-jam' : free / l.total < .2 ? 'is-slow' : 'is-go' }; })
+    : tab === 'bike' ? liveState.docks.map(b => ({ key: b.id, open: { type: 'bike', dock: b } as LiveRef, title: b.name, sub: `거치대 ${b.racks} · ${km(b.distance)}`, value: `${b.bikes}대`, tone: b.bikes <= 0 ? 'is-jam' : b.bikes <= 2 ? 'is-slow' : 'is-go' }))
+    : liveState.places.filter(f => f.kind !== 'exit' && (filter === 'all' || f.kind === filter)).map(f => ({ key: f.id, open: { type: 'facility', place: f } as LiveRef, title: `${FACILITY[f.kind].icon} ${f.name}`, sub: FACILITY[f.kind].label, value: km(f.distance), tone: '' }));
+  return <>
+    <header><div><small>드론 주변 · 실시간 공공정보</small><h3>주변 종합 정보</h3><p>가까운 순서 · 행을 누르면 상세 정보</p></div></header>
+    <div className="re-live-body">
+      <div className="re-live-week" role="tablist">{tabs.map(([t, name, count]) => <button key={t} type="button" role="tab" aria-pressed={tab === t} onClick={() => setTab(t)}>{name} {count}</button>)}</div>
+      {tab === 'facility' && <div className="re-live-week re-live-filter">{['all', ...Object.keys(FACILITY).filter(k => k !== 'exit')].map(k => <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>{k === 'all' ? '전체' : FACILITY[k as keyof typeof FACILITY].icon + ' ' + FACILITY[k as keyof typeof FACILITY].label.split('·')[0]}</button>)}</div>}
+      {!rows.length ? <p className="re-live-empty">{tab === 'facility' ? '주변 3km에 등록된 시설이 없습니다.' : '이 레이어를 켜면 주변 목록이 표시됩니다 (서울 외 지역은 일부 제공되지 않음).'}</p>
+        : <ul className="re-live-list">{rows.map(r => <li key={r.key}><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('live-open', { detail: r.open }))}>
+          <span><b>{r.title}</b><small>{r.sub}</small></span><em className={r.tone}>{r.value}</em></button></li>)}</ul>}
+      <p className="re-live-source">응급실: 국립중앙의료원 E-Gen · 주차장·따릉이: 서울 열린데이터광장 · 공공시설: © OpenStreetMap contributors</p>
+    </div>
+  </>;
+}
+
 export default function LivePanel({ item, onClose }: { item: LiveRef; onClose: () => void }) {
   // (Esc: the drone's own key handler closes it, as it closes a building's card)
   return <div className="re-drone-card re-live-panel" role="dialog" aria-label="실시간 상세 정보" onPointerDown={e => e.stopPropagation()} onWheel={e => e.stopPropagation()}>
     <button type="button" className="re-live-close" onClick={onClose} aria-label="닫기">×</button>
-    {item.type === 'station' ? <StationPanel station={item.station} />
+    {item.type === 'station' ? <StationPanel station={item.station} exit={item.exit} />
       : item.type === 'train' ? <TrainPanel train={item.train} colour={item.colour} />
       : item.type === 'er' ? <RoomPanel room={item.room} />
       : item.type === 'bike' ? <BikePanel dock={item.dock} />
-      : <ParkingPanel lot={item.lot} />}
+      : item.type === 'parking' ? <ParkingPanel lot={item.lot} />
+      : item.type === 'facility' ? <FacilityPanel place={item.place} />
+      : <ListPanel />}
   </div>;
 }
