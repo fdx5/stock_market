@@ -51,6 +51,18 @@ def test_provider_auth_failure_is_not_reported_as_empty_success(monkeypatch):
     assert result["status"] == "not_authorized" and result["items"] == []
 
 
+def test_production_connection_diagnostics_never_include_credential_urls(monkeypatch):
+    monkeypatch.setenv("ITS_CCTV_API_KEY", "fixture-not-a-real-key")
+    monkeypatch.setattr(c, "_cache", OrderedDict())
+    def timeout(*args):
+        raise c.requests.exceptions.ConnectTimeout("https://example.org?apiKey=secret-fixture")
+    monkeypatch.setattr(c, "_fetch_road", timeout)
+    result = c.cameras(37.5, 127)
+    assert result["status"] == "unavailable"
+    assert result["issues"] == [{"road": "ex", "code": "connect_timeout"}, {"road": "its", "code": "connect_timeout"}]
+    assert "secret-fixture" not in str(result) and "example.org" not in str(result)
+
+
 def test_provider_camera_does_not_expose_key_or_url(monkeypatch):
     monkeypatch.setenv("ITS_CCTV_API_KEY", "fixture-not-a-real-key")
     reply = Mock()

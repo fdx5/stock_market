@@ -142,19 +142,31 @@ def cameras(lat: float, lon: float, refresh: bool = False) -> dict:
     if not _slots.acquire(timeout=.1):
         return {"items": [], "status": "unavailable", "source": SOURCE}
     try:
-        items, failed, unauthorized = [], 0, 0
+        items, failed, unauthorized, issues = [], 0, 0, []
         with ThreadPoolExecutor(max_workers=2) as pool:
-            jobs = [pool.submit(_fetch_road, road, lat, lon) for road in ("ex", "its")]
-            for job in jobs:
+            jobs = [(road, pool.submit(_fetch_road, road, lat, lon)) for road in ("ex", "its")]
+            for road, job in jobs:
                 try:
                     items.extend(job.result())
                 except CameraAuthError:
                     failed += 1
                     unauthorized += 1
-                except Exception:
+                    issues.append({"road": road, "code": "not_authorized"})
+                except Exception as error:
                     # Exceptions can contain the credential-bearing request URL.
                     failed += 1
-        result = {"items": items[:1000], "status": "not_authorized" if failed == 2 and unauthorized else "unavailable" if failed == 2 else "partial" if failed else "ok", "source": SOURCE}
+                    code = ("connect_timeout" if isinstance(error, requests.exceptions.ConnectTimeout)
+                        else "read_timeout" if isinstance(error, requests.exceptions.ReadTimeout)
+                        else "tls_error" if isinstance(error, requests.exceptions.SSLError)
+                        else "connection_failed" if isinstance(error, requests.exceptions.ConnectionError)
+                        else "http_error" if isinstance(error, requests.exceptions.HTTPError)
+                        else "invalid_response" if isinstance(error, (ValueError, ET.ParseError))
+                        else "provider_error")
+                    issue = {"road": road, "code": code}
+                    if isinstance(error, requests.exceptions.HTTPError) and error.response is not None:
+                        issue["http"] = error.response.status_code
+                    issues.append(issue)
+        result = {"items": items[:1000], "status": "not_authorized" if failed == 2 and unauthorized else "unavailable" if failed == 2 else "partial" if failed else "ok", "source": SOURCE, "issues": issues}
         with _lock:
             _cache[cell] = (time.monotonic(), result, 30 if failed else 300)
             while len(_cache) > 128:
