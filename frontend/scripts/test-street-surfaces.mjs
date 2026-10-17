@@ -17,6 +17,16 @@ const {fitTileStreetSurfaces}=load('tileStreetSurfaces.ts',{cutSceneSurface});
 const {anchoredTerrainHeight}=load('terrainGrid.ts');
 const go=async()=>true;
 const rectangle=(x0,y0,x1,y1)=>[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
+test('paving reuses exact repeated heights within a build, yields on long runs and refreshes the next build',async()=>{
+ const text=readFileSync(new URL('../src/components/sceneSidewalk.ts',import.meta.url),'utf8'),code=text.slice(text.indexOf('export async function buildSidewalks'),text.indexOf('/** Street trees:'));
+ let clock=0,frames=0,calls=0,base=2;const points=new Set(),module={exports:{}};
+ vm.runInNewContext(transformSync(code,{loader:'ts',format:'cjs'}).code,{module,exports:module.exports,THREE,PAVER_STYLES:['stretcher','herringbone','granite','basket'],KERB_H:.15,performance:{now:()=>clock+=4},frameSlice:async()=>{frames++;},paintedTexture:async()=>new THREE.Texture(),roadLevel:()=>0,
+  roadHeight:(_r,_t,x,y)=>{calls++;points.add(x+','+y);return base+x*.01;},runPt:(r,i,off)=>[r.cx[i]+r.nx[i]*r.side*off,r.cy[i]+r.ny[i]*r.side*off]});
+ const n=40,run={road:0,sourceRoad:{},side:1,half:4,width:3,cx:Float32Array.from({length:n},(_,i)=>i*2),cy:new Float32Array(n),nx:new Float32Array(n),ny:new Float32Array(n).fill(1),cum:Float32Array.from({length:n},(_,i)=>i*2)};
+ const first=await module.exports.buildSidewalks([run],{at:()=>0},[]);assert.equal(calls,points.size);assert.ok(frames>1);
+ let paving=first.group.children.find(m=>m.name.startsWith('paving ')),p=paving.geometry.attributes.position;for(let i=0;i<p.count;i++)assert.ok(Math.abs(p.getY(i)-(base+p.getX(i)*.01+.15))<1e-5);
+ first.dispose();base=12;const second=await module.exports.buildSidewalks([run],{at:()=>0},[]);paving=second.group.children.find(m=>m.name.startsWith('paving '));assert.ok(paving.geometry.attributes.position.getY(0)>12);second.dispose();
+});
 test('streamed terrain agrees with the departure grade at its boundary and returns smoothly to DEM within 128 metres',()=>{
  const n=501,cell=4,R=1000,anchor={h:Float32Array.from({length:n*n},(_,k)=>8+((k%n)*cell-R)*.01),n,cell,R,half:680};
  for(const x of [679.99,680,680.01,700])assert.ok(Math.abs(anchoredTerrainHeight(anchor,x,0,25)-(8+x*.01))<1e-5);

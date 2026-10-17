@@ -122,6 +122,15 @@ export function sidewalkRuns(roads: RealEstateRoad[], footprints: Ring[],visual=
 /** Raised sidewalks with a granite kerb along each run, and tree pits. One draw for the
  * paving, one for kerbs and pits. */
 export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [number, number][]) {
+  // Adjacent paving/guide quads repeatedly ask for the same exact point. Keep
+  // these heights only for this build; no stale water/road revision survives it.
+  const heights=new Map<RealEstateRoad,Map<string,number>>();
+  const heightAt=(r:Run,q:[number,number])=>{
+    if(!r.sourceRoad)return terrain.at(...q);
+    let values=heights.get(r.sourceRoad);if(!values)heights.set(r.sourceRoad,values=new Map());
+    const key=q[0]+','+q[1],had=values.get(key);if(had!==undefined)return had;
+    const h=roadHeight(r.sourceRoad,terrain,...q);values.set(key,h);return h;
+  };
   // The paving in four patterns, by street (both sides of a road alike, as laid): grey running
   // bond most, clay-red herringbone, granite slabs, charcoal basket weave; a yellow tactile guide
   // strip (점자블록) along the wider pavements.
@@ -151,8 +160,9 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
     if (r.width >= 2.6) {
       const o0 = r.half + r.width * 0.55, o1 = o0 + 0.3;
       for (let i = 0; i < n - 1; i++) {
+        if((i&7)===0&&performance.now()-slice>3){await frameSlice();slice=performance.now();}
         const p0 = runPt(r, i, o0), p1 = runPt(r, i, o1), q0 = runPt(r, i + 1, o0), q1 = runPt(r, i + 1, o1);
-        const y = (q: [number, number]) => (r.sourceRoad?roadHeight(r.sourceRoad,terrain,...q):terrain.at(...q)) + KERB_H + 0.006;
+        const y = (q: [number, number]) => heightAt(r,q) + KERB_H + 0.006;
         const V = (q: [number, number]): [number, number, number] => [q[0], y(q), -q[1]];
         const quad = [V(p0), V(q0), V(q1), V(p0), V(q1), V(p1)], u0 = r.cum[i], u1 = r.cum[i + 1];
         const tq = [[u0, 0], [u1, 0], [u1, 1], [u0, 0], [u1, 1], [u0, 1]];
@@ -164,8 +174,9 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
       }
     }
     for (let i = 0; i < n - 1; i++) {
+      if((i&7)===0&&performance.now()-slice>3){await frameSlice();slice=performance.now();}
       const a0 = runPt(r, i, r.half), a1 = runPt(r, i, r.half + r.width), b0 = runPt(r, i + 1, r.half), b1 = runPt(r, i + 1, r.half + r.width);
-      const ya0 = (r.sourceRoad?roadHeight(r.sourceRoad,terrain,...a0):terrain.at(...a0)) + KERB_H, ya1 = (r.sourceRoad?roadHeight(r.sourceRoad,terrain,...a1):terrain.at(...a1)) + KERB_H, yb0 = (r.sourceRoad?roadHeight(r.sourceRoad,terrain,...b0):terrain.at(...b0)) + KERB_H, yb1 = (r.sourceRoad?roadHeight(r.sourceRoad,terrain,...b1):terrain.at(...b1)) + KERB_H;
+      const ya0 = heightAt(r,a0) + KERB_H, ya1 = heightAt(r,a1) + KERB_H, yb0 = heightAt(r,b0) + KERB_H, yb1 = heightAt(r,b1) + KERB_H;
       // Top: two triangles, wound so the face points up whichever side of the road.
       const tri = (p: [number, number, number][], t: [number, number][]) => {
         const [p0, p1, p2] = p;
@@ -258,6 +269,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
     group.add(mesh);
     disposables.push(geo, mat);
   }
+  heights.clear();
   return { group, dispose: () => disposables.forEach(d => d.dispose()) };
 }
 

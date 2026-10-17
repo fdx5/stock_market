@@ -3253,6 +3253,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       await cutPavements(walks.group);
       if (!alive) { walks.dispose(); return; }
       stage.addWarm(decor, walks.group);
+      if(hostRef.current){hostRef.current.dataset.pavementsReadyAt=String(Math.round(performance.now()));hostRef.current.dataset.pavementsOnAsphalt=String(!!asphaltAt);}
       disposables.push(walks);
       let walksGen=0;
       relayWalks=async()=>{
@@ -3263,6 +3264,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if(!alive||generation!==walksGen){fresh.dispose();return;}
         decor.remove(walks.group);walks.dispose();walks=fresh;
         stage.addWarm(decor,walks.group);disposables.push(walks);
+        if(hostRef.current){hostRef.current.dataset.pavementsReadyAt=String(Math.round(performance.now()));hostRef.current.dataset.pavementsOnAsphalt=String(!!asphaltAt);}
       };
       if (!await later()) return;
 
@@ -3552,7 +3554,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (marks) { decor.remove(marks.group); marks.dispose(); }
       surface = f; marks = m;if(roadWater&&roadWater!==lifted)liftRoadsOverWater(roadWater);
       asphaltAt=roadSurfaceHeight(f.group.geometry,bvh?roadBvhIndex(bvh):undefined);
-      await relayWalks?.();
+      void relayWalks?.();
       if(hostRef.current){const d=hostRef.current.dataset;d.roadIndex=bvh?'rust-wasm-bvh':'js-grid';d.roadIndexBuildMs=bvh?bvh.buildMs.toFixed(1):'0';d.roadIndexWorkers=String(bvh?.workers??0);d.roadIndexBytes=String(bvh?.parts.reduce((n,p)=>n+p.nodes.byteLength+p.ids.byteLength,0)??0);}
       if(hostRef.current){const d=hostRef.current.dataset;d.roadsReadyAt=String(Math.round(performance.now()));d.roadsFirstAt??=d.roadsReadyAt;d.roadsLays=String(+(d.roadsLays??0)+1);}
     };
