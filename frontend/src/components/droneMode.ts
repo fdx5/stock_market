@@ -292,7 +292,7 @@ export class DroneSession {
       const x = p.getX(i), y = p.getY(i);
       if (!f.wet(x, y) && !f.wet(x + 4, y) && !f.wet(x - 4, y) && !f.wet(x, y + 4) && !f.wet(x, y - 4)) continue;
       const z0 = p.getZ(i) + oy, L = f.level(x, y);
-      const sh = f.shore(x, y), bed = L - Math.min(3, 0.35 + 0.15 * sh), k = sh > 6 && f.wet(x, y) ? 1 : Math.max(0, Math.min(1, (L + 0.4 - z0) / 0.4));
+      const sh = f.shore(x, y), bed = L - Math.min(3, 0.35 + 0.15 * sh), k = f.wet(x, y) ? 1 : Math.max(0, Math.min(1, (L + 0.4 - z0) / 0.4));
       if (!k || z0 <= bed) continue;
       p.setZ(i, z0 + k * (bed - z0) - oy); changed = true;
     }

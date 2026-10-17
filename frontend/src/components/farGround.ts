@@ -79,10 +79,10 @@ function farWorkerMain() {
     // The open water's outlines for the drone's water surface (the page's sceneWater): the water
     // parcels and the stream network's areas, cut to the picture (its edges no shore there).
     const waterOut: { ring: number[][]; holes: number[][][] }[] = [];
-    // (12 m past the picture's edge — past the water rules' own windows: the surface is built over
+    // (80 m past the picture's edge — past the channel reconnection window: the surface is built over
     // its edge and cut exactly to it on the page. Built only to the edge, its last metres were taken
     // for a bank — a strip of bed and shore colour along every tile's edge)
-    const reach = half + 12;
+    const reach = half + 80;
     const clip = (ring: number[][]) => {
       let pts = ring;
       for (const [axis, side] of [[0, -1], [0, 1], [1, -1], [1, 1]]) {
@@ -171,7 +171,7 @@ function farWorkerMain() {
       for (const ring of water) {
         let area = 0;
         for (let k = 0; k < ring.length; k++) { const [x1, y1] = ring[k], [x2, y2] = ring[(k + 1) % ring.length]; area += x1 * y2 - x2 * y1; }
-        if (Math.abs(area / 2) < 300) continue;
+        if (Math.abs(area / 2) < 1) continue;
         const xs = ring.map(p => p[0]), ys = ring.map(p => p[1]);
         const px0 = Math.max(0, Math.floor(X(Math.min(...xs)))), px1 = Math.min(S - 1, Math.ceil(X(Math.max(...xs))));
         const py0 = Math.max(0, Math.floor(Y(Math.max(...ys)))), py1 = Math.min(S - 1, Math.ceil(Y(Math.min(...ys))));
@@ -432,6 +432,7 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
   const stadiumTreeMask = jamsilTreeMask(lat,lon,H);
   const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540;
   const box = `BOX(${lon - H / kx},${lat - H / ky},${lon + H / kx},${lat + H / ky})`;
+  const riverBox=`BOX(${lon-(H+80)/kx},${lat-(H+80)/ky},${lon+(H+80)/kx},${lat+(H+80)/ky})`;
   const urls = Array.from({ length: 30 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
     service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true",
     key: data.vworld_key!, domain: data.vworld_domain ?? "https://kospimap.com", data: "LP_PA_CBND_BUBUN", geomFilter: box,
@@ -443,7 +444,7 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
   const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS,gardens:palaceGardens(lat,lon,H),waterSurface:opts.waterSurface,
     riverUrls: opts.rivers ? Array.from({ length: 3 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
       service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "false",
-      key: data.vworld_key!, domain: data.vworld_domain ?? "https://kospimap.com", data: "LT_C_WKMSTRM", geomFilter: box,
+      key: data.vworld_key!, domain: data.vworld_domain ?? "https://kospimap.com", data: "LT_C_WKMSTRM", geomFilter: riverBox,
       size: "1000", page: String(i + 1), format: "json", callback: "riverCb",
     })) : undefined,
     // (asked about the rounded point, as the view asks: the server's cache)

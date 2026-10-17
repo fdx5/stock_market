@@ -155,6 +155,44 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
   const toOut = await chamfer(grown);
   if (!toOut) return null;
   for (let c = 0; c < n; c++) if (!wet[c] && inside[c] && toOut[c] > R) wet[c] = 1;
+  // A circular closing cannot reconnect a channel narrower than its 30 m disk:
+  // erosion removes the entire replacement, including streams below bridges.
+  // Search along the channel instead. Both existing water ends must be within
+  // 64 m, the whole connection must remain inside mapped water, and the cross
+  // section must be a narrow corridor (<=40 m). Never propagate from new fills.
+  const seeds=wet.slice(),fills:[number,number][]=[];
+  const axes=[[1,0],[0,1],[1,1],[1,-1]];
+  for(let j=0;j<ny;j++){
+    if(!await pace())return null;
+    for(let i=0;i<nx;i++){
+      const c=j*nx+i;if(!inside[c]||seeds[c]||toWet[c]>32)continue;
+      let best=Infinity,value=0;
+      for(const [dx,dy] of axes){
+        const step=s*Math.hypot(dx,dy),limit=Math.floor(64/step);
+        const end=(sign:number)=>{
+          for(let q=1;q<=limit;q++){
+            const a=i+dx*q*sign,b=j+dy*q*sign;
+            if(a<0||b<0||a>=nx||b>=ny||!inside[b*nx+a])return null;
+            if(seeds[b*nx+a])return {c:b*nx+a,d:q*step};
+          }
+          return null;
+        };
+        const a=end(-1);if(!a)continue;
+        const b=end(1);if(!b||a.d+b.d>64||a.d+b.d>=best)continue;
+        if(Math.abs(lvl[a.c]-lvl[b.c])>.75+.03*(a.d+b.d))continue;
+        let width=0;
+        for(const sign of [-1,1])for(let q=1;q*step<=42;q++){
+          const x=i-dy*q*sign,y=j+dx*q*sign;
+          if(x<0||y<0||x>=nx||y>=ny||!inside[y*nx+x])break;
+          width+=step;if(width>40)break;
+        }
+        if(width>40)continue;
+        best=a.d+b.d;value=(lvl[a.c]*b.d+lvl[b.c]*a.d)/best;
+      }
+      if(Number.isFinite(best))fills.push([c,value]);
+    }
+  }
+  for(const [c,value] of fills){wet[c]=1;lvl[c]=value;}
   const dry = new Uint8Array(n);
   for (let c = 0; c < n; c++) dry[c] = wet[c] ? 0 : 1;
   // (past the square the rings were cut to, the water is taken to go on: the distance to the
@@ -250,7 +288,11 @@ export function levelWater(h: Float32Array, wet: Uint8Array, nx: number, ny: num
     }
     if (N < 5) continue;
     const mu = su / N, mv = sv / N, mz = sz / N, cuu = suu / N - mu * mu, cvv = svv / N - mv * mv, cuv = suv / N - mu * mv, cuz = suz / N - mu * mz, cvz = svz / N - mv * mz;
-    const det = cuu * cvv - cuv * cuv, B = Math.abs(det) > 1e-9 ? (cuz * cvv - cvz * cuv) / det : 0, D = Math.abs(det) > 1e-9 ? (cvz * cuu - cuz * cuv) / det : 0;
+    // A one-node-wide stream has a rank-one covariance: fit along its line,
+    // rather than assuming a horizontal bed when the 2D determinant is zero.
+    const det = cuu * cvv - cuv * cuv, trace=cuu+cvv;
+    const B = Math.abs(det) > 1e-9 ? (cuz * cvv - cvz * cuv) / det : trace>1e-9?cuz/trace:0;
+    const D = Math.abs(det) > 1e-9 ? (cvz * cuu - cuz * cuv) / det : trace>1e-9?cvz/trace:0;
     let worst = 0;
     for (let b = Math.max(0, j - r); b <= Math.min(ny - 1, j + r); b++) for (let a = Math.max(0, i - r); a <= Math.min(nx - 1, i + r); a++) {
       const k = b * nx + a, z = h[k]; if (!wet[k] || !Number.isFinite(z)) continue;

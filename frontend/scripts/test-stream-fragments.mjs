@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {buildSync} from 'esbuild';
+import {mkdtempSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {pathToFileURL} from 'node:url';
+const out=path.join(mkdtempSync(path.join(tmpdir(),'stream-fragments-')),'water.mjs');
+buildSync({entryPoints:['src/components/sceneWater.ts'],bundle:true,format:'esm',platform:'node',define:{'import.meta.env':'{}'},outfile:out,logLevel:'silent'});
+const {buildWater}=await import(pathToFileURL(out));
+const terrain={at:()=>3,base:()=>3,relief:0,elevation:null,source:'isolated fixture'};
+const parcel={kind:'천',ring:[[0,0],[18,0],[18,10],[0,10]]};
+const made=await buildWater([parcel],[false],terrain,async()=>true);
+assert.ok(made,'a real 180 m² stream link must not be discarded');
+assert.ok(made.mesh.geometry.index.count>0,'small link must have visible water triangles');
+made.dispose();
+assert.equal(await buildWater([parcel],[true],terrain,async()=>true),null,'explicitly covered stream must remain covered');
+assert.equal(await buildWater([{kind:'천',ring:[[0,0],[1,0],[2,0]]}],[false],terrain,async()=>true),null,'degenerate geometry stays excluded');
+console.log('Small stream links render, covered culverts and degenerate polygons remain excluded');
