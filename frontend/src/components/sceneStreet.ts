@@ -47,7 +47,16 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
   const pos: number[] = [], uv: number[] = [], levels:number[]=[],profiles:number[]=[],profileIds=roadProfiles(roads);
   const LIFT = surfaceGeometry.surfaceLift, STEP = surfaceGeometry.step, TILE = 4;
   let surfaceRoad:RealEstateRoad|undefined;
-  const vtx = (x: number, y: number) => { pos.push(x, (surfaceRoad?roadHeight(surfaceRoad,terrain,x,y):terrain.at(x,y)) + LIFT, -y); uv.push(x / TILE, y / TILE);levels.push(surfaceRoad?roadLevel(surfaceRoad):0);profiles.push(surfaceRoad?profileIds.get(roadProfileKey(surfaceRoad))!:0); };
+  // Adjacent strips and triangles share exact vertices. A wide boulevard used
+  // to repeat its nine-sample grade up to six times at the same coordinate.
+  const sampled=new Map<RealEstateRoad,Map<string,number>>();
+  const heightAt=(x:number,y:number)=>{
+    if(!surfaceRoad)return terrain.at(x,y);
+    let values=sampled.get(surfaceRoad);if(!values)sampled.set(surfaceRoad,values=new Map());
+    const key=x+','+y,had=values.get(key);if(had!==undefined)return had;
+    const h=roadHeight(surfaceRoad,terrain,x,y);values.set(key,h);return h;
+  };
+  const vtx = (x: number, y: number) => { pos.push(x, heightAt(x,y) + LIFT, -y); uv.push(x / TILE, y / TILE);levels.push(surfaceRoad?roadLevel(surfaceRoad):0);profiles.push(surfaceRoad?profileIds.get(roadProfileKey(surfaceRoad))!:0); };
   let slice = performance.now();
   for (const r of roads) {
     surfaceRoad=r;
@@ -112,6 +121,7 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
   }
   // (the arrays made over and the normals worked out in slices: the network's millions of values in
   // one piece were a frame of 50 ms)
+  sampled.clear();
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(await float32Sliced(pos), 3));
   geo.setAttribute("uv", new THREE.BufferAttribute(await float32Sliced(uv), 2));

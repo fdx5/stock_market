@@ -27,6 +27,12 @@ test('paving exclusions cover the real mitered asphalt at a sharp road bend',asy
  for(let k=0;k<p.count;k+=3)for(const w of [[1/3,1/3,1/3],[.9,.05,.05],[.05,.9,.05],[.05,.05,.9]]){const x=w.reduce((s,v,i)=>s+v*p.getX(k+i),0),y=w.reduce((s,v,i)=>s-v*p.getZ(k+i),0);assert.ok(masks.some(t=>inside(x,y,t)),`paving mask leaves asphalt uncovered at ${x},${y}`);}
  made.dispose();
 });
+test('wide asphalt samples each exact road coordinate once per build and preserves every height',async()=>{
+ let calls=0,base=0;const points=new Set(),road={line:[[-30,0],[30,0]],width:30,lanes:8},terrain={at:()=>0,roadAt:(_r,x,y)=>{calls++;points.add(x+','+y);return base+x*.1;}};
+ const made=await street.buildRoadSurface([road],terrain),p=made.group.geometry.attributes.position;assert.equal(calls,points.size);assert.ok(calls<p.count/2);
+ for(let i=0;i<p.count;i++)assert.ok(Math.abs(p.getY(i)-(p.getX(i)*.1+.08))<1e-5);made.dispose();
+ base=5;const next=await street.buildRoadSurface([road],terrain);assert.ok(next.group.geometry.attributes.position.getY(0)>2);next.dispose();
+});
 const oldStreet=load(execFileSync('git',['show','66bc4ec:frontend/src/components/sceneStreet.ts'],{encoding:'utf8'}));
 const {findBridges,roadGround,bridgeHeight}=load(read('sceneBridges.ts'),{surfaceGeometry,...levels,...load(read('roadApproaches.ts'),levels),inRing:([x,y],ring)=>x>=ring[0][0]&&x<=ring[2][0]&&y>=ring[0][1]&&y<=ring[2][1],sidewalkWidth:()=>2});
 
