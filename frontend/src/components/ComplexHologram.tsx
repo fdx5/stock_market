@@ -1794,6 +1794,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (ground) stage.scene.remove(ground);
       disposables.forEach(d => d.dispose());
       stage.model = null; stage.ground = null; stage.pickables = [];
+      setSceneReady(false);
       stage.lit = { windows: [], crowns: [], ground: [] };
       stage.tick = []; stage.onLook = [];
     };
@@ -3824,6 +3825,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     }
     stage.model = group;
     stage.ground = ground;
+    setSceneReady(true);
     stage.reflectOn = level;
     stage.lit = lit;
     stage.tick = tick;
@@ -3910,6 +3912,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // 드론: fly over the area from where the camera is (droneMode.ts). Keys or the on-screen sticks
   // fly it, a drag turns and tilts the camera; 착륙 or Esc lands it back in the orbit view.
   const [droneOn, setDroneOn] = useState(false);
+  /** The scene the drone flies over is built (stage.model): till then its button says 준비 중. */
+  const [sceneReady, setSceneReady] = useState(false);
   useEffect(() => {
     if (droneOn && !autoDrone) void loadDroneExplorePage().catch(() => {});
   }, [droneOn, autoDrone]);
@@ -4470,9 +4474,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         {(big || autoDrone) && <div className="d2 d2-bgm-float re-holo-bgm"><DeskBgm variant="strip" /></div>}
         {data.vworld_key && data.center && <div className="re-holo-flight-buttons">
           <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn} onClick={() => (droneOn ? exitDrone() : enterDrone())}
+            disabled={!droneOn && !sceneReady} aria-busy={!droneOn && !sceneReady}
             onPointerEnter={warmDeskBgm} onFocus={warmDeskBgm} onTouchStart={warmDeskBgm}
-            title={droneOn ? "드론 착륙 (원래 시점으로)" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 수동 고도 상한 없음)"}>
-            <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : "드론"}</span>
+            title={droneOn ? "드론 착륙 (원래 시점으로)" : !sceneReady ? "드론 준비 중 · 단지 장면을 만드는 중입니다" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 수동 고도 상한 없음)"}>
+            <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : sceneReady ? "드론" : "준비 중"}</span>
           </button>
           {driveEnabled && <button type="button" className="re-holo-balloon-btn re-holo-drive-btn" onClick={openDrive}
             aria-label="드라이브" title="현재 지역에서 드라이브 게임 열기">
