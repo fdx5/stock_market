@@ -10,6 +10,11 @@ import CctvPopup from './CctvPopup';
 import TrafficCctvControls from './TrafficCctvControls';
 import {TRAFFIC_CCTV_ENABLED} from './trafficCctv';
 import type {DroneCctv} from './droneCctv';
+import type {DroneLive} from './droneLive';
+import LiveLayerControls from './LiveLayerControls';
+import LivePanel from './LivePanel';
+import type {LiveRef} from './publicLive';
+import './drone-live.css';
 import './traffic-cctv.css';
 import './drone-flight-settings.css';
 
@@ -55,8 +60,8 @@ function Stick({ side, flight, label }: { side: "left" | "right"; flight: DroneF
   );
 }
 
-export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, onExit, onMute, view, onView, full, onFull }: {
-  cctv:DroneCctv;
+export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, touch, onExit, onMute, view, onView, full, onFull }: {
+  cctv:DroneCctv; live:DroneLive;
   full?: boolean; onFull?: () => void;
   view: "fpv" | "chase"; onView: () => void;
   sink: MutableRefObject<((h: DroneHud) => void) | null>; flight: DroneFlight; signs: DroneSigns; touch: boolean;
@@ -97,7 +102,9 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
   // A tap on a sign (a short press that hardly moved, not on a control) opens its building's card.
   const root = useRef<HTMLDivElement>(null);
   const [card, setCard] = useState<{ sign: Sign; at: { lat: number; lon: number }; distance: number } | null>(null);
+  const [livePanel, setLivePanel] = useState<{ item: LiveRef; key: string } | null>(null);
   const pickSign=(s:Sign)=>{
+    if(s.live){signs.selected=s.key;setCard(null);setLivePanel({item:s.live,key:s.key});return;}
     if(s.camera&&!TRAFFIC_CCTV_ENABLED)return;
     if(!DroneSigns.hasCard(s))return;
     const o=radar.origin,kx=Math.cos(o.lat*Math.PI/180)*111320;
@@ -112,7 +119,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
     if (!stage) return;
     let down: { x: number; y: number; t: number; id: number } | null = null;
     const local = (e: PointerEvent) => { const r = (signs.canvas ?? stage).getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] as const; };
-    const onControl = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.("button, a, input, label, .re-cctv-popup, .re-cctv-controls, .re-drone-auto-controls, .re-drone-stick, .re-drone-card, .re-drone-radar, .re-drone-tools");
+    const onControl = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.("button, a, input, label, .re-cctv-popup, .re-cctv-controls, .re-drone-auto-controls, .re-drone-stick, .re-drone-card, .re-drone-radar, .re-drone-tools, .re-live-panel");
     const pd = (e: PointerEvent) => { down = onControl(e) ? null : { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; };
     const pu = (e: PointerEvent) => {
       const d = down; down = null;
@@ -120,7 +127,8 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
       const [x, y] = local(e);
       const s = signs.hit(x, y, e.pointerType === "touch" ? 16 : 6);
       if (!s) return;
-      if(s.camera){pickSign(s);return;}
+      if(s.camera||s.live){pickSign(s);return;}
+      setLivePanel(null);
       const o = radar.origin, kx = Math.cos((o.lat * Math.PI) / 180) * 111320;
       const p = flight.pos;
       signs.selected = s.key;
@@ -145,7 +153,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
   }, [signs, flight, radar.origin]);
   const closeCard = () => { signs.selected = null; setCard(null); };
   useEffect(() => {
-    const close = () => { signs.selected = null; setCard(null); };
+    const close = () => { signs.selected = null; setCard(null); setLivePanel(null); };
     window.addEventListener("drone-card-close", close);
     return () => { window.removeEventListener("drone-card-close", close); signs.selected = null; };
   }, [signs]);
@@ -236,6 +244,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
         <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>
       </div>
       <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} onPick={pickSign}>
+        <LiveLayerControls live={live} where={radar.where} />
         {TRAFFIC_CCTV_ENABLED&&<TrafficCctvControls cctv={cctv} signs={signs} {...radar} onPick={pickSign} onUpdate={value=>setCard(old=>{if(!old?.sign.camera)return old;const c=value.items.find(c=>c.id===old.sign.camera?.id);return c?{...old,sign:{...old.sign,camera:c}}:old;})}/>}
       </DroneRadar>
       {help && <div className="re-drone-help" role="note">
@@ -265,6 +274,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
       </div>
       {card?.sign.camera?(TRAFFIC_CCTV_ENABLED&&<CctvPopup key={card.sign.camera.id} camera={card.sign.camera} onClose={closeCard} onRefresh={()=>window.dispatchEvent(new Event('cctv-refresh'))}/>)
         :card&&<DroneBuildingCard sign={card.sign} at={card.at} distance={card.distance} vkey={radar.vkey} domain={radar.domain} onClose={closeCard} />}
+      {livePanel && !card && <LivePanel key={livePanel.key} item={livePanel.item} onClose={() => { signs.selected = null; setLivePanel(null); }} />}
       {touch && <>
         <Stick side="left" flight={flight} label={["상승·하강", "회전"]} />
         <Stick side="right" flight={flight} label={["전진·후진", "좌우 이동"]} />

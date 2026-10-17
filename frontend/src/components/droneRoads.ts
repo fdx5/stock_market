@@ -34,6 +34,9 @@ export type RoadTileResult = {
   structure: Arr | null;
   /** tunnels' mouths (터널 links): the portals' concrete, and the dark of their bores */
   portals: { concrete: Arr | null; dark: Arr | null };
+  /** the live traffic layer's bands: triangles (6 vertices a quad), each vertex's link (an index
+   * into ids), the links' standard IDs and road classes */
+  traffic: { position: Float32Array; link: Uint16Array; ids: string[]; ranks: string[] } | null;
   /** sidewalks: raised paving and its kerb along the roads of 8 m and wider */
   walks: Arr | null;
   /** the sidewalks' middle lines, for the people: [n, x0, y0, x1, y1, …] one after another */
@@ -977,10 +980,55 @@ function roadWorkerMain() {
         tunnelPortal(m.x, m.y, z, m.dx, m.dy, { halfWidth: Math.min(12, m.lanes * 1.65 + 1.2), height: 5.4, length: 30, floor: .02 }, portal);
       }
     }
+    // The live traffic layer's bands (droneLive.ts colours them by each link's speed): along each
+    // official link of the tile (one direction of travel each), a band to the right of its line —
+    // the two directions of a road side by side — on the road's own surface (a bridge's deck, the
+    // road at grade), none in a tunnel or an underpass. One vertex attribute names the link.
+    const trafficPos: number[] = [], trafficLink: number[] = [], trafficIds: string[] = [], trafficRanks: string[] = [];
+    {
+      const zHash = new Map<string, [number, number, number, number][]>();
+      for (const r of pieces) for (let k = 0; k < r.line.length; k++) {
+        if (r.kind[k] < 0) continue;
+        const p = r.line[k]; add(zHash, Math.floor(p[0] / 12) + ',' + Math.floor(p[1] / 12), [p[0], p[1], r.z[k], r.kind[k] > 0 ? 1 : 0]);
+      }
+      const zAt = (x: number, y: number, raised: boolean) => {
+        let best = 16, z: number | null = null, any = 16, za: number | null = null;
+        const i = Math.floor(x / 12), j = Math.floor(y / 12);
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const q of zHash.get((i + a) + ',' + (j + b)) ?? []) {
+          const d = Math.hypot(q[0] - x, q[1] - y);
+          if (d < any) { any = d; za = q[2]; }
+          if (d < best && (q[3] === 1) === raised) { best = d; z = q[2]; }
+        }
+        return z ?? (raised ? za : null) ?? ground(x, y);
+      };
+      const ids = new Map<string, number>();
+      for (const l of linkList) {
+        if (l.kind < 0 || !l.id) continue;
+        const raised = l.kind > 0;
+        let index = -1;
+        for (let k = 1; k < l.line.length; k++) {
+          const a = l.line[k - 1], b = l.line[k], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+          // (each segment in the one tile its middle is in)
+          if (mx < bx0 || my < by0 || mx >= bx1 || my >= by1) continue;
+          const L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < .5) continue;
+          if (index < 0) { index = ids.get(l.id) ?? -1; if (index < 0) { index = trafficIds.length; ids.set(l.id, index); trafficIds.push(l.id); trafficRanks.push(l.rank); } }
+          const dx = (b[0] - a[0]) / L, dy = (b[1] - a[1]) / L, rx = dy, ry = -dx, n = Math.max(1, Math.ceil(L / 10));
+          for (let s = 0; s < n; s++) {
+            const t0 = s / n, t1 = (s + 1) / n;
+            const x0 = a[0] + (b[0] - a[0]) * t0, y0 = a[1] + (b[1] - a[1]) * t0, x1 = a[0] + (b[0] - a[0]) * t1, y1 = a[1] + (b[1] - a[1]) * t1;
+            const z0 = zAt(x0, y0, raised) + .4, z1 = zAt(x1, y1, raised) + .4;
+            const q = [[x0 + rx * .7, y0 + ry * .7, z0], [x0 + rx * 3.3, y0 + ry * 3.3, z0], [x1 + rx * 3.3, y1 + ry * 3.3, z1], [x1 + rx * .7, y1 + ry * .7, z1]];
+            for (const v of [q[0], q[1], q[2], q[0], q[2], q[3]]) { trafficPos.push(v[0], v[1], v[2]); trafficLink.push(index); }
+          }
+        }
+      }
+    }
+    const traffic = trafficPos.length ? { position: new Float32Array(trafficPos), link: new Uint16Array(trafficLink), ids: trafficIds, ranks: trafficRanks } : null;
+    if (traffic) transfer.push(traffic.position.buffer as ArrayBuffer, traffic.link.buffer as ArrayBuffer);
     const portalArr = (p: number[]) => p.length ? { position: new Float32Array(p), normal: portalNormals(p), index: Uint32Array.from({ length: p.length / 3 }, (_, i) => i) } : null;
     const portals = { concrete: portalArr(portal.concrete), dark: portalArr(portal.dark) };
     for (const a of [portals.concrete, portals.dark]) if (a) transfer.push(a.position.buffer as ArrayBuffer, a.normal.buffer as ArrayBuffer, a.index.buffer as ArrayBuffer);
-    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), portals, walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, banks:new Float32Array(bankPoints), stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
+    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), portals, traffic, walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, banks:new Float32Array(bankPoints), stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
     for(const a of [out.surface,out.marks,out.marksFar,out.structure,out.walks])if(a)for(const value of Object.values(a))if(value instanceof Float32Array||value instanceof Uint32Array)transfer.push(value.buffer as ArrayBuffer);
     transfer.push(out.lanes.buffer, out.banks.buffer, out.stops.buffer, out.walkPaths.buffer, out.streetTrees.buffer, out.clear.buffer);
     (self as unknown as Worker).postMessage(out, transfer);

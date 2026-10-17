@@ -7,6 +7,7 @@ import type {NearBuildingSource} from './nearBuildingTargets';
 import { DroneAudio } from "./droneAudio";
 import { DroneSigns } from "./droneSigns";
 import { DroneCctv } from './droneCctv';
+import { DroneLive } from './droneLive';
 import type {DroneLabel} from './ringBuildings';
 import { DroneModel } from "./droneModel";
 import { buildWalkers, type WalkPath } from "./sceneWalkers";
@@ -41,6 +42,8 @@ export class DroneSession {
   readonly audio = new DroneAudio();
   readonly signs = new DroneSigns();
   readonly cctv:DroneCctv;
+  /** the live public layers (subway, emergency rooms, road speeds, 따릉이, car parks) */
+  readonly live:DroneLive;
   /** 1인칭 (the drone's camera) or 3인칭 (behind the drone, the drone in view). */
   view: "fpv" | "chase" = "fpv";
   private model = new DroneModel();
@@ -85,6 +88,7 @@ export class DroneSession {
       onSeaReady: field => { void this.sinkSeaGround(field); p.onSeaReady?.(field); },
       onLabels: (k, l) => this.signs.set(k, l) });
     this.cctv=new DroneCctv(p.scene,this.signs,p.data.center!, (x,y)=>this.world.groundAt(x,y));
+    this.live=new DroneLive(this.signs,p.data.center!,(x,y)=>this.world.groundAt(x,y),this.world);
   }
 
   /** Take off from the camera, starting within 220 m of the ground, looking its way. */
@@ -457,6 +461,7 @@ export class DroneSession {
     this.audio.stop();
     this.p.forget?.(new Set(this.cctv.materials()));
     this.cctv.dispose();
+    this.live.dispose();
     this.world.dispose();
     this.p.forget?.(new Set(this.model.materials()));
     this.model.dispose();

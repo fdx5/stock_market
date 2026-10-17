@@ -27,6 +27,67 @@ def traffic_camera_media(token: str):
         raise HTTPException(status_code=502, detail="제공기관 영상을 현재 재생할 수 없습니다.") from None
 
 
+LAT = Query(..., ge=33, le=39)
+LON = Query(..., ge=124, le=132)
+
+
+@router.get("/live/status")
+def live_status(response: Response):
+    from app.services import public_live
+    response.headers["Cache-Control"] = "no-store"
+    return public_live.status()
+
+
+@router.get("/live/subway/trains")
+def live_subway_trains(response: Response, lines: str = Query(..., max_length=200)):
+    from app.services import public_live
+    response.headers["Cache-Control"] = "no-store"
+    return public_live.subway_trains([l.strip() for l in lines.split(",") if l.strip()])
+
+
+@router.get("/live/subway/station")
+def live_subway_station(response: Response, name: str = Query(..., min_length=1, max_length=40), lines: str = Query("", max_length=200),
+                        week: str | None = Query(None, pattern=r"^[123]$")):
+    from app.services import public_live
+    response.headers["Cache-Control"] = "no-store"
+    return public_live.subway_station(name, [l for l in lines.split(",") if l], week)
+
+
+@router.get("/live/emergency")
+def live_emergency(response: Response, lat: float = LAT, lon: float = LON):
+    from app.services import public_live
+    response.headers["Cache-Control"] = "no-store"
+    return public_live.emergency(lat, lon)
+
+
+@router.get("/live/bikes")
+def live_bikes(response: Response, lat: float = LAT, lon: float = LON):
+    from app.services import public_live
+    response.headers["Cache-Control"] = "no-store"
+    return public_live.bikes(lat, lon)
+
+
+@router.get("/live/parking")
+def live_parking(response: Response, lat: float = LAT, lon: float = LON):
+    from app.services import public_live
+    response.headers["Cache-Control"] = "no-store"
+    return public_live.parking(lat, lon)
+
+
+@router.post("/live/traffic")
+def live_traffic(response: Response, body: dict = Body(...)):
+    from app.services import public_live
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        lat, lon = float(body["lat"]), float(body["lon"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="lat, lon") from None
+    if not (33 <= lat <= 39 and 124 <= lon <= 132):
+        raise HTTPException(status_code=422, detail="lat, lon")
+    links = [str(l) for l in (body.get("links") or [])[:1500] if isinstance(l, (str, int))]
+    return public_live.traffic(lat, lon, links)
+
+
 @router.get("/regions")
 def regions(response: Response):
     response.headers["Cache-Control"] = "public, max-age=3600"

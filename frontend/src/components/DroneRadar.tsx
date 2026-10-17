@@ -157,8 +157,9 @@ export default function DroneRadar({ vkey, domain, where, signs, origin,onPick,c
         }
         const px = ((s.x - dxo) / mpp) * scale, py = (-(s.y - dyo) / mpp) * scale;
         if (Math.hypot(px, py) > R * 1.5) continue;
-        ctx.fillStyle = DOT[s.kind] ?? "#fff";
-        ctx.beginPath(); ctx.arc(px, py, (s.kind === "gov" ? 3.2 : 2.4) * dpr, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = s.tint ?? DOT[s.kind] ?? "#fff";
+        ctx.beginPath(); ctx.arc(px, py, (s.kind === "gov" || s.kind === "er" ? 3.2 : s.kind === "train" ? 3.6 : 2.4) * dpr, 0, Math.PI * 2); ctx.fill();
+        if (s.kind === "train" || s.kind === "er") { ctx.strokeStyle = "#fff"; ctx.lineWidth = dpr; ctx.stroke(); }
       }
       ctx.rotate(-turn);
       // range rings: a round distance about a third of the radius

@@ -23,7 +23,15 @@ const KINDS: [string, number, number, number, string?][] = [
   ["sedan", 12, 4.9, 1], ["sedan-large", 8, 5.0, 1], ["sedan-sports", 8, 4.65, 1.06], ["suv", 10, 4.63, 1], ["suv-small", 8, 4.4, 1.02],
   ["suv-luxury", 6, 4.95, 1], ["hatchback-sports", 5, 3.6, 1.02], ["kei-box", 4, 3.6, 1], ["taxi", 8, 4.9, 1, "#f2f0ea"], ["mpv", 5, 5.1, 0.98],
   ["van", 3, 5.2, 0.95], ["boxtruck", 3, 6.5, 0.9, "#e9e9e6"], ["cargo", 4, 5.1, 0.9, "#2d5fa8"], ["bus", 3, 11, 0.8, "#2a6fc4"],
+  // 119: an ambulance (the white Staria-type van) and a fire engine (the red truck), a little
+  // quicker than the rest, their roof lights flashing red and blue (beacons below)
+  ["van", 1.4, 5.2, 1.2, "#f7f7f3"], ["boxtruck", 0.9, 6.5, 1.1, "#c8141c"],
 ];
+/** The kinds with roof beacons: the ambulance and the fire engine (the last two KINDS). */
+const EMERGENCY_FROM = KINDS.length - 2;
+/** each kind's length (m), for the following distances: read for every car every frame */
+const LEN = Float32Array.from(KINDS, k => k[2]);
+const CAP_BEACON = 48;
 // Korean roads' colours: white, black, grey and silver most; a few blues, reds and the rest.
 const PAINT: [string, number][] = [["#f2f2ef", 30], ["#16181b", 20], ["#8d9196", 14], ["#c4c7cb", 13], ["#1f3a6b", 6], ["#8a1c1f", 5], ["#4b5a4a", 3], ["#b8a58a", 3], ["#5f3a24", 2], ["#2f6f9a", 2], ["#d8c24a", 2]];
 const NEAR_M = 320, CAP_NEAR = 160;
@@ -99,6 +107,13 @@ export class DroneTraffic {
   private far: THREE.InstancedMesh;
   private farMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.25 });
   private nearMat: THREE.MeshStandardMaterial | null = null;
+  /** the emergency vehicles' roof lights, red and blue, flashing in turn (near only) */
+  private beaconGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, .5, 0);
+  private beaconMats = [new THREE.MeshStandardMaterial({ color: "#ff2a2a", emissive: "#ff1a1a", emissiveIntensity: 6, roughness: .3 }),
+    new THREE.MeshStandardMaterial({ color: "#2a5cff", emissive: "#1a4cff", emissiveIntensity: 6, roughness: .3 })];
+  private beacons = this.beaconMats.map(m => { const b = new THREE.InstancedMesh(this.beaconGeo, m, CAP_BEACON); b.count = 0; b.frustumCulled = false; b.castShadow = false; b.name = "drone emergency beacons"; return b; });
+  /** each kind's roof: height and how far forward the light bar sits (from its model) */
+  private roofs: [number, number][] = KINDS.map(([, , L]) => [2, L / 2 - .8]);
   private rnd: () => number;
   private disposed = false;
 
@@ -113,7 +128,7 @@ export class DroneTraffic {
     this.far = new THREE.InstancedMesh(blockGeometry(), this.farMat, this.CAP_FAR);
     this.far.count = 0; this.far.frustumCulled = false; this.far.castShadow = false; this.far.receiveShadow = true;
     this.far.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.CAP_FAR * 3), 3);
-    this.group.add(this.far);
+    this.group.add(this.far, ...this.beacons);
     // The modelled cars once the kit is in (it is the view's: usually loaded already).
     void loadCarModels().then(models => {
       if (this.disposed) return;
@@ -121,6 +136,7 @@ export class DroneTraffic {
       KINDS.forEach(([name], i) => {
         const g = models.get(name);
         if (!g) return;
+        if (i >= EMERGENCY_FROM) { g.computeBoundingBox(); const b = g.boundingBox!; this.roofs[i] = [b.max.y, b.max.z - (name === "van" ? 1.3 : .7)]; }
         const im = new THREE.InstancedMesh(g, this.nearMat!, CAP_NEAR);
         im.count = 0; im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true;
         im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAP_NEAR * 3), 3);
@@ -319,7 +335,7 @@ export class DroneTraffic {
         }
         // the car ahead: on this lane, or the start of the next if near the end (not looked up: a margin)
         const ahead = cs[i + 1];
-        const gap = ahead ? ahead.s - c.s - KINDS[ahead.kind][2] : Infinity;
+        const gap = ahead ? ahead.s - c.s - LEN[ahead.kind] : Infinity;
         let want = gap < 6 ? 0 : gap < 40 ? c.vmax * (gap - 6) / 34 : c.vmax;
         const plan=c.planned,merge=plan?.curve;
         // the signal ahead: stop at its line on red, and on amber unless too close to stop
@@ -336,7 +352,7 @@ export class DroneTraffic {
         else if(merge){
           want=Math.min(want,merge.speedLimit);
           const first=plan.lane.cars[0];
-          if(first&&first.s<merge.endS+KINDS[c.kind][2]+8)want=Math.min(want,Math.sqrt(Math.max(0,2*6*(merge.startS-c.s-.5))));
+          if(first&&first.s<merge.endS+LEN[c.kind]+8)want=Math.min(want,Math.sqrt(Math.max(0,2*6*(merge.startS-c.s-.5))));
         }
         c.v += THREE.MathUtils.clamp(want - c.v, -6 * ldt, 2.5 * ldt);
         c.s += Math.max(0, c.v) * ldt;
@@ -352,7 +368,7 @@ export class DroneTraffic {
         const enter=curve?.endS??0;
         // Wait in the current lane for a safe target gap. Never clamp a negative
         // connector coordinate to zero (that teleported cars sideways).
-        if(on&&to.cars.length&&to.cars[0].s<enter+KINDS[c.kind][2]+8){
+        if(on&&to.cars.length&&to.cars[0].s<enter+LEN[c.kind]+8){
           c.s=Math.min(c.s,(curve?.startS??lane.len)-.05);c.v=0;cs.push(c);break;
         }
         c.via=curve;
@@ -364,7 +380,8 @@ export class DroneTraffic {
     }
     // Place them: the modelled cars near, the blocks beyond, none past FAR_M.
     const counts = this.near.map(() => 0);
-    let farN = 0;
+    let farN = 0, beaconN = 0;
+    const flash = performance.now() / 1000, beaconA = [this.beacons[0].instanceMatrix.array as Float32Array, this.beacons[1].instanceMatrix.array as Float32Array];
     const cx = camera.x, cz = camera.z;
     // (behind the camera — past 110° off its heading, beyond 40 m — a car is neither placed nor drawn)
     const lx = look ? look.x / (Math.hypot(look.x, look.z) || 1) : 0, lz = look ? look.z / (Math.hypot(look.x, look.z) || 1) : 0, behind = -0.34;
@@ -402,6 +419,18 @@ export class DroneTraffic {
         const i = counts[c.kind]++;
         writeMatrix(im.instanceMatrix.array as Float32Array, i, x, z, -y, cyaw, syaw, cp, sp, 1, 1, 1);
         const ca = im.instanceColor!.array as Float32Array; ca[i * 3] = c.colour.r; ca[i * 3 + 1] = c.colour.g; ca[i * 3 + 2] = c.colour.b;
+        if (c.kind >= EMERGENCY_FROM && beaconN < CAP_BEACON) {
+          // (two lamps across the roof's front, red left and blue right, each on in its turn:
+          // ~2.5 flashes a second, every vehicle on its own beat)
+          const [H, F] = this.roofs[c.kind], beat = Math.floor(flash * 5 + (c.vmax * 7.3) % 2) & 1;
+          const fx = syaw * cp, fy = -sp, fz = cyaw * cp, ux = syaw * sp, uy = cp, uz = cyaw * sp;
+          for (let side = 0; side < 2; side++) {
+            const u = side === 0 ? -.42 : .42, on = (beat === side) ? 1 : .35;
+            const bx = x + fx * F + ux * H + cyaw * u, by = z + fy * F + uy * H, bz = -y + fz * F + uz * H - syaw * u;
+            writeMatrix(beaconA[side], beaconN, bx, by, bz, cyaw, syaw, cp, sp, .7 * on, .2 * on, .3);
+          }
+          beaconN++;
+        }
       } else if (farN < this.CAP_FAR) {
         const b = BLOCK[c.kind];
         writeMatrix(this.far.instanceMatrix.array as Float32Array, farN, x, z, -y, cyaw, syaw, cp, sp, b[0], b[1], b[2]);
@@ -410,12 +439,15 @@ export class DroneTraffic {
       }
     }
     this.far.count = farN;
+    // (no emergency vehicle near, and none last frame: nothing to send)
+    if (beaconN || this.beacons[0].count) for (const b of this.beacons) { b.count = beaconN; this.uploadPrefix(b, beaconN); }
     this.uploadPrefix(this.far,farN);
-    this.near.forEach((im, i) => {
-      if (!im) return;
+    for (let i = 0; i < this.near.length; i++) {
+      const im = this.near[i];
+      if (!im || (!counts[i] && !im.count)) continue;
       im.count = counts[i];
       this.uploadPrefix(im,counts[i]);
-    });
+    }
   }
 
   /** All visible instances are rewritten above; unused capacity never draws.
@@ -439,7 +471,7 @@ export class DroneTraffic {
     return null;
   }
 
-  materials(): THREE.Material[] { return [this.farMat, ...(this.nearMat ? [this.nearMat] : [])]; }
+  materials(): THREE.Material[] { return [this.farMat, ...this.beaconMats, ...(this.nearMat ? [this.nearMat] : [])]; }
 
   dispose() {
     this.disposed = true;
@@ -449,5 +481,6 @@ export class DroneTraffic {
     this.far.geometry.dispose(); this.far.dispose();
     this.near.forEach(im => im?.dispose());
     this.farMat.dispose(); this.nearMat?.dispose();
+    for (const b of this.beacons) b.dispose(); this.beaconGeo.dispose(); for (const m of this.beaconMats) m.dispose();
   }
 }

@@ -100,6 +100,8 @@ type Tile = {
   marks?: (THREE.Mesh | null)[]; bridges?: number;
   /** its fine parts, not drawn far off (FINE_R) */
   fine?: THREE.Mesh[];
+  /** the live traffic layer's bands (setTraffic colours them): the mesh, each vertex's link, the links */
+  traffic?: { mesh: THREE.Mesh; link: Uint16Array; ids: string[]; highway: boolean[]; shown: number; dirty: boolean };
   /** its sidewalks' middle lines ([n, x, y, …]…), for the people */
   walkPaths?: Float32Array;
   /** its lanes for the traffic (droneRoads) */
@@ -202,6 +204,11 @@ export class DroneWorld {
   private concrete = new THREE.MeshStandardMaterial({ color: "#b9b6ae", roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
   /** A tunnel's bore past its portal (the portal itself: concrete). */
   private bore = new THREE.MeshStandardMaterial({ color: "#101213", roughness: 1, metalness: 0, side: THREE.DoubleSide });
+  /** The live traffic layer's bands: each vertex coloured by its link's speed (setTraffic). */
+  private trafficMat = new THREE.MeshStandardMaterial({ color: "#ffffff", vertexColors: true, roughness: .55, metalness: 0, emissive: "#000000" });
+  /** speeds by standard link ID (km/h), and whether the layer is on */
+  private trafficSpeeds: Map<string, number> | null = null;
+  private trafficOn = false;
   /** Sidewalk paving and kerbs. */
   private paving = new THREE.MeshStandardMaterial({ color: "#a7a39b", roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
   /** The cars on them. */
@@ -428,8 +435,51 @@ export class DroneWorld {
 
   /** Each frame: tiles wanted round the drone (at x, y, `alt` m over the ground, moving vx, vy)
    * queued nearest-to-where-it-will-be first; tiles left far behind freed; placed tiles checked. */
+  /** The live traffic layer: speeds (km/h) by standard link ID, or none; on or off. The bands are
+   * coloured again a few tiles a frame (update), never all at once. */
+  setTraffic(speeds: Map<string, number> | null, on: boolean) {
+    this.trafficSpeeds = speeds; this.trafficOn = on;
+    for (const t of this.tiles.values()) if (t.traffic) { t.traffic.dirty = true; this.trafficDirty++; }
+  }
+  /** The standard link IDs of the bands within r of (x, y) (the speeds to ask for). */
+  trafficLinks(x: number, y: number, r: number): string[] {
+    const out = new Set<string>();
+    for (const t of this.tiles.values()) if (t.traffic && distToBox(x, y, t.box) < r) for (const id of t.traffic.ids) out.add(id);
+    return [...out];
+  }
+  private trafficDirty = 0;
+  private colourTraffic() {
+    if (!this.trafficDirty) return;
+    let budget = 3, left = false;
+    for (const t of this.tiles.values()) {
+      const tr = t.traffic;
+      if (!tr?.dirty) continue;
+      if (budget-- <= 0) { left = true; break; }
+      tr.dirty = false; this.trafficDirty = Math.max(0, this.trafficDirty - 1);
+      const geo = tr.mesh.geometry, speeds = this.trafficSpeeds;
+      if (!this.trafficOn || !speeds?.size) { tr.mesh.visible = false; tr.shown = 0; continue; }
+      // (by the road's class: TOPIS's own bands — 도시고속도로 70/40 km/h, other roads 25/15)
+      const rgb = tr.ids.map((id, i) => {
+        const v = speeds.get(id); if (v === undefined) return null;
+        const [fast, slow] = tr.highway[i] ? [70, 40] : [25, 15];
+        return v >= fast ? [.12, .78, .36] : v >= slow ? [1, .66, .08] : [.92, .12, .14];
+      });
+      const colour = geo.getAttribute("color") as THREE.BufferAttribute, c = colour.array as Float32Array, index = geo.index!, ix = index.array as Uint32Array;
+      let k = 0;
+      for (let v = 0; v < tr.link.length; v += 3) {
+        const col = rgb[tr.link[v]]; if (!col) continue;
+        for (let q = 0; q < 3; q++) { c[(v + q) * 3] = col[0]; c[(v + q) * 3 + 1] = col[1]; c[(v + q) * 3 + 2] = col[2]; ix[k++] = v + q; }
+      }
+      colour.needsUpdate = true; index.needsUpdate = true;
+      geo.setDrawRange(0, k); tr.shown = k;
+      tr.mesh.visible = k > 0;
+    }
+    // (the tiles dropped while waiting count no more)
+    if (!left) this.trafficDirty = 0;
+  }
   update(x: number, y: number, vx: number, vy: number, alt: number, look?: [number, number]) {
     if (this.disposed) return;
+    this.colourTraffic();
     // Streaming decisions do not change at display frequency. Still reconsider
     // immediately after a camera jump; flight and vehicle animation stay 60 Hz.
     const scheduleNow = performance.now();
@@ -826,6 +876,24 @@ export class DroneWorld {
       if (t.marks[0]) t.marks[0].visible = false;
       // (tunnel portals: seen from afar, as the hills they are in — not with the fine parts)
       mesh(roads?.portals?.concrete ?? null, this.concrete, "drone tile tunnel portals", true); mesh(roads?.portals?.dark ?? null, this.bore, "drone tile tunnel portals");
+      if (roads?.traffic) {
+        const tr = roads.traffic, geo = new THREE.BufferGeometry(), n = tr.position.length / 3;
+        geo.setAttribute("position", new THREE.BufferAttribute(tr.position, 3));
+        // (all faces up: the bands lie flat on the road)
+        const normal = new Float32Array(n * 3); for (let i = 0; i < n; i++) normal[i * 3 + 2] = 1;
+        geo.setAttribute("normal", new THREE.BufferAttribute(normal, 3));
+        geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+        // (the links with a speed first in the index, drawn to drawRange: the rest are not drawn)
+        geo.setIndex(new THREE.BufferAttribute(new Uint32Array(n), 1));
+        geo.setDrawRange(0, 0);
+        geo.computeBoundingSphere();
+        const me = new THREE.Mesh(geo, this.trafficMat);
+        me.name = "drone tile live traffic"; me.visible = false; me.receiveShadow = false;
+        zup.add(me);
+        t.dispose.push(() => geo.dispose());
+        t.traffic = { mesh: me, link: tr.link, ids: tr.ids, highway: tr.ranks.map(r => /고속/.test(r)), shown: 0, dirty: this.trafficOn };
+        if (this.trafficOn) this.trafficDirty++;
+      }
       t.fine = [mesh(roads?.structure ?? null, this.concrete, "drone tile bridges", true), mesh(roads?.walks ?? null, this.paving, "drone tile ground")].filter(m => !!m) as THREE.Mesh[];
       if (roads?.walkPaths.length) t.walkPaths = roads.walkPaths;
       t.bridges = roads?.bridges ?? 0;
@@ -1583,8 +1651,8 @@ export class DroneWorld {
     this.terrainJobs.dispose();
     this.landmarks.dispose();
     this.plantPool.dispose();
-    this.o.forget?.(new Set([this.plain, this.asphalt, this.paint, this.concrete, this.bore, this.paving, ...this.traffic.materials()]));
-    this.plain.dispose(); this.asphalt.dispose(); this.paint.dispose(); this.concrete.dispose(); this.bore.dispose(); this.paving.dispose();
+    this.o.forget?.(new Set([this.plain, this.asphalt, this.paint, this.concrete, this.bore, this.trafficMat, this.paving, ...this.traffic.materials()]));
+    this.plain.dispose(); this.asphalt.dispose(); this.paint.dispose(); this.concrete.dispose(); this.bore.dispose(); this.trafficMat.dispose(); this.paving.dispose();
     this.asphaltMap?.dispose();this.asphaltMap=null;
     this.traffic.dispose();
     this.surveyPool?.dispose(); this.surveyPool = null;
