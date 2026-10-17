@@ -43,12 +43,12 @@ else:
     raise SystemExit('Target release is not live within the observation window.')
 
 public = args.source / 'frontend/public'
-manifest_path = 'rail/20261010-v7/manifest.json'
-paths = [manifest_path, 'rail/20261010-v7/NOTICE.md',
+manifest_path = 'rail/20261017-v9/manifest.json'
+paths = [manifest_path, 'rail/20261017-v9/NOTICE.md',
          '3d/drone/mini2-20261010-v2/hover.wav', '3d/drone/mini2-20261010-v2/start.wav']
 manifest = json.loads((public / manifest_path).read_text(encoding='utf8'))
 corridors = sorted({key for ids in manifest['chunks'].values() for key in ids})
-paths += ['rail/20261010-v7/corridors/' + key + '.json' for key in corridors[:3]]
+paths += ['rail/20261017-v9/corridors/' + key + '.json' for key in corridors[:3]]
 assets = []
 for path in paths:
     response = session.get(base + '/' + path, timeout=30)

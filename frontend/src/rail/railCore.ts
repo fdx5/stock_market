@@ -2,12 +2,32 @@
 export type RailMode = 'emu' | 'light' | 'monorail' | 'agt';
 export interface RailLine { id:string; name:string; colour:string; mode:RailMode; cars:number; carLength:number; width:number; gauge:number; vehicle?:'val208' }
 export interface RailFacility {id:string;kind:'station'|'platform';points:number[][];name:string;stationName:string;d:number;height:number|null;level:number;shelter:boolean;source:string}
-export interface RailCorridor { id:string; line:string; route:number; points:number[][]; stops:{id:string;name:string;d:number;point:number[]}[]; length:number; ways:number[]; nodes?:number[]; overhead?:boolean; facilities?:RailFacility[] }
+/** A tunnel the track runs on into past a corridor's end (end 0: its first point, 1: its last):
+ * its first few tens of metres, [lon, lat] from that end's point outwards. */
+export interface RailPortal { end:0|1; points:number[][] }
+export interface RailCorridor { id:string; line:string; route:number; points:number[][]; stops:{id:string;name:string;d:number;point:number[]}[]; length:number; ways:number[]; nodes?:number[]; overhead?:boolean; facilities?:RailFacility[]; portals?:RailPortal[] }
 export interface RailManifest { version:number; cell:number; snapshot:string; attribution:string; sourceUrl:string; lines:RailLine[]; chunks:Record<string,string[]>; stats:Record<string,number> }
 export interface RailPath { id:string; line:string; /** east, north, height, chainage, structure */ points:Float32Array; length:number; stops:RailCorridor['stops']; elevationEstimated:true }
 export const STRIDE=5;
-export const RAIL_ROOT='/rail/20261010-v7';
+/** how steeply a track goes down into a tunnel past its portal (a subway's ramps: 3-4 %) */
+export const TUNNEL_GRADE=.04;
+export const RAIL_ROOT='/rail/20261017-v9';
 export const BUDGET={radius:1400,cache:48,parallel:2,trains:40,detailDistance:420,farDistance:1800};
+
+/** The corridor with its tunnel mouths' track added (structure -1, past each portal), its stops
+ * moved along by what is added before its first point. */
+export function withPortals(c:RailCorridor):RailCorridor{
+  if(!c.portals?.length)return c;
+  const metres=(a:number[],b:number[])=>Math.hypot((b[0]-a[0])*111320*Math.cos(a[1]*Math.PI/180),(b[1]-a[1])*110540);
+  let points=c.points,shift=0,length=c.length;
+  for(const p of c.portals){
+    const extra=p.points.slice(1).map(q=>[q[0],q[1],-1,0]);if(!extra.length)continue;
+    let added=0;for(let i=1;i<p.points.length;i++)added+=metres(p.points[i-1],p.points[i]);
+    length+=added;
+    if(p.end===0){points=[...extra.reverse(),...points];shift+=added;}else points=[...points,...extra];
+  }
+  return {...c,points,length,stops:c.stops.map(s=>({...s,d:s.d+shift}))};
+}
 
 export function neededCorridors(m:RailManifest,lon:number,lat:number,radius:number):string[] {
   const dx=radius/(111320*Math.cos(lat*Math.PI/180)),dy=radius/110540,ids=new Set<string>();
@@ -42,12 +62,30 @@ export function preparePath(c:RailCorridor,origin:{lon:number;lat:number},ground
     const deck=ha+(hb-ha)*t+.16,w=1-Math.min(1,d/250),ease=w*w*(3-2*w);
     h[i]=Math.max(h[i],raw[i][2]+(deck-raw[i][2])*ease);
   }
+  // Past a corridor's end into a tunnel (structure -1) the track goes down at TUNNEL_GRADE from
+  // that end's height — off a viaduct, a ramp down first — and is never lifted onto the ground
+  // over it (the hill, the street).
+  const first=raw.findIndex(p=>p[4]>=0),lastSurface=raw.length-1-[...raw].reverse().findIndex(p=>p[4]>=0);
+  if(first>=0)for(let i=0;i<raw.length;i++)if(raw[i][4]<0){const e=i<first?first:lastSurface;h[i]=h[e]-TUNNEL_GRADE*Math.abs(raw[i][3]-raw[e][3]);}
   const out:number[]=[];
   for(let i=1;i<raw.length;i++){
-    const a=raw[i-1],b=raw[i],n=Math.max(1,Math.ceil((b[3]-a[3])/5));
-    for(let k=0;k<n;k++){const t=k/n,dense=denseGround?.[out.length/STRIDE],height=h[i-1]+(h[i]-h[i-1])*t;out.push(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,Number.isFinite(dense)?Math.max(height,dense!+.16):height,a[3]+(b[3]-a[3])*t,Math.max(a[4],b[4]));}
+    const a=raw[i-1],b=raw[i],n=Math.max(1,Math.ceil((b[3]-a[3])/5)),bored=a[4]<0||b[4]<0;
+    for(let k=0;k<n;k++){const t=k/n,dense=bored?NaN:denseGround?.[out.length/STRIDE],height=h[i-1]+(h[i]-h[i-1])*t;out.push(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,Number.isFinite(dense)?Math.max(height,dense!+.16):height,a[3]+(b[3]-a[3])*t,bored?-1:Math.max(a[4],b[4]));}
   }
-  const last=raw[raw.length-1],dense=denseGround?.[out.length/STRIDE];out.push(last[0],last[1],Number.isFinite(dense)?Math.max(h[h.length-1],dense!+.16):h[h.length-1],last[3],last[4]);
+  const last=raw[raw.length-1],dense=last[4]<0?NaN:denseGround?.[out.length/STRIDE];out.push(last[0],last[1],Number.isFinite(dense)?Math.max(h[h.length-1],dense!+.16):h[h.length-1],last[3],last[4]);
+  // Down the tunnel from each end: -1 while the track is still over the ground (a ramp), -2 from
+  // where it reaches the ground (the portal) on.
+  const n=out.length/STRIDE;
+  for(const [start,step] of [[0,1],[n-1,-1]] as const){
+    if(out[start*STRIDE+4]>=0)continue;
+    let k=start;while(k>=0&&k<n&&out[k*STRIDE+4]<0)k+=step;// (k: the end's surface vertex)
+    let under=false;
+    for(let j=k-step;j>=0&&j<n&&out[j*STRIDE+4]<0;j-=step){
+      // (the ground: the dense samples, or between the source's points where there are none)
+      const g=denseGround?.[j];under||=!Number.isFinite(g)||out[j*STRIDE+2]-.16<=g!+.05;
+      out[j*STRIDE+4]=under?-2:-1;
+    }
+  }
   const ratio=c.length>0?last[3]/c.length:1;
   return {id:c.id,line:c.line,points:new Float32Array(out),length:last[3],stops:c.stops.map(s=>({...s,d:s.d*ratio})),elevationEstimated:true};
 }

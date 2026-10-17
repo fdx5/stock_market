@@ -200,6 +200,8 @@ export class DroneWorld {
   private paint = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0, emissive: "#ffffff", emissiveIntensity: 0.12 });
   /** Bridge slabs, parapets and piers. */
   private concrete = new THREE.MeshStandardMaterial({ color: "#b9b6ae", roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
+  /** A tunnel's bore past its portal (the portal itself: concrete). */
+  private bore = new THREE.MeshStandardMaterial({ color: "#101213", roughness: 1, metalness: 0, side: THREE.DoubleSide });
   /** Sidewalk paving and kerbs. */
   private paving = new THREE.MeshStandardMaterial({ color: "#a7a39b", roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
   /** The cars on them. */
@@ -266,8 +268,12 @@ export class DroneWorld {
 
   private tileAt(x: number, y: number) { return this.tiles.get(key(Math.floor(x / TILE_M), Math.floor(y / TILE_M))); }
 
-  /** Ground height (view frame): the tile's own relief where it has one, else the view's. */
+  /** Ground height (view frame): the ground drawn there — in the view's land-use square its own
+   * relief (the tiles' grids under it are not drawn, and on a mountain stood up to 60 m off it: the
+   * drone's height read that much wrong), past it the tile's, else the view's. */
   groundAt(x: number, y: number): number {
+    const H = this.o.extent.farHalf;
+    if (Math.abs(x) <= H && Math.abs(y) <= H) return this.o.terrain.at(x, y);
     const t = this.tileAt(x, y);
     return t?.at ? t.at(x, y) : this.o.terrain.at(x, y);
   }
@@ -818,6 +824,8 @@ export class DroneWorld {
       // lane paint: true to size near, broad far (droneWorld.update shows one of them)
       t.marks = [mesh(roads?.marks ?? null, this.paint, "drone tile ground"), mesh(roads?.marksFar ?? null, this.paint, "drone tile ground")];
       if (t.marks[0]) t.marks[0].visible = false;
+      // (tunnel portals: seen from afar, as the hills they are in — not with the fine parts)
+      mesh(roads?.portals?.concrete ?? null, this.concrete, "drone tile tunnel portals", true); mesh(roads?.portals?.dark ?? null, this.bore, "drone tile tunnel portals");
       t.fine = [mesh(roads?.structure ?? null, this.concrete, "drone tile bridges", true), mesh(roads?.walks ?? null, this.paving, "drone tile ground")].filter(m => !!m) as THREE.Mesh[];
       if (roads?.walkPaths.length) t.walkPaths = roads.walkPaths;
       t.bridges = roads?.bridges ?? 0;
@@ -1575,8 +1583,8 @@ export class DroneWorld {
     this.terrainJobs.dispose();
     this.landmarks.dispose();
     this.plantPool.dispose();
-    this.o.forget?.(new Set([this.plain, this.asphalt, this.paint, this.concrete, this.paving, ...this.traffic.materials()]));
-    this.plain.dispose(); this.asphalt.dispose(); this.paint.dispose(); this.concrete.dispose(); this.paving.dispose();
+    this.o.forget?.(new Set([this.plain, this.asphalt, this.paint, this.concrete, this.bore, this.paving, ...this.traffic.materials()]));
+    this.plain.dispose(); this.asphalt.dispose(); this.paint.dispose(); this.concrete.dispose(); this.bore.dispose(); this.paving.dispose();
     this.asphaltMap?.dispose();this.asphaltMap=null;
     this.traffic.dispose();
     this.surveyPool?.dispose(); this.surveyPool = null;

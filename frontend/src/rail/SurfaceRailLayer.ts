@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import {BUDGET,RAIL_ROOT,STRIDE,neededCorridors,makeRun,samplePath,coachPose,trainAt,hashPhase,type RailManifest,type RailLine,type RailCorridor,type RailPath,type RailRun,type RailFacility} from './railCore';
+import {BUDGET,RAIL_ROOT,STRIDE,neededCorridors,withPortals,makeRun,samplePath,coachPose,trainAt,hashPhase,type RailManifest,type RailLine,type RailCorridor,type RailPath,type RailRun,type RailFacility} from './railCore';
 import {trainKit} from './trainKit';
 import {BuildingClearance} from './BuildingClearance';
 import {stationKit,stationSourceKey} from './stationKit';
@@ -8,7 +8,7 @@ import type {Clearance} from './railClearance';
 import {setInstanceMatrix} from '../components/instanceDirty';
 import type {DroneLabel} from '../components/ringBuildings';
 
-type Geometry={bed:Float32Array;steel:Float32Array;ties:Float32Array;piers:Float32Array;wire:Float32Array;poles:Float32Array;bedNormal?:Float32Array;steelNormal?:Float32Array;wireNormal?:Float32Array};
+type Geometry={bed:Float32Array;steel:Float32Array;ties:Float32Array;piers:Float32Array;wire:Float32Array;poles:Float32Array;portal:Float32Array;portalDark:Float32Array;bedNormal?:Float32Array;steelNormal?:Float32Array;wireNormal?:Float32Array;portalNormal?:Float32Array;portalDarkNormal?:Float32Array};
 type Entry={source:RailCorridor;path:RailPath;line:RailLine;run:RailRun;group:THREE.Group;geometries:THREE.BufferGeometry[];dispose:()=>void;built:{x:number;y:number};groundKey:string;ties:THREE.InstancedMesh;tieData:Float32Array};
 interface Options { origin:{lon:number;lat:number}; heightAt:(x:number,y:number)=>number; buildings?:()=>THREE.Object3D[]; radius?:number; onChange?:()=>void }
 
@@ -44,6 +44,9 @@ export class SurfaceRailLayer {
   private railMat=new THREE.MeshStandardMaterial({color:0xa3afb5,metalness:.75,roughness:.35,side:THREE.DoubleSide});
   private tieMat=new THREE.MeshStandardMaterial({color:0x9eaaa2,roughness:.95});
   private pierMat=new THREE.MeshStandardMaterial({color:0xa5b0ad,roughness:.9});
+  /** a tunnel's portal and the lining of its bore (railWorker: where the track goes under) */
+  private portalMat=new THREE.MeshStandardMaterial({color:0xb4b2aa,roughness:.9,side:THREE.DoubleSide});
+  private boreMat=new THREE.MeshStandardMaterial({color:0x101213,roughness:1,side:THREE.DoubleSide});
   private keyTurn=0;
   private tieGeo=new THREE.BoxGeometry(2.4,.15,.23);
   private pierGeo=new THREE.BoxGeometry(1.15,7.65,1.15);
@@ -73,7 +76,7 @@ export class SurfaceRailLayer {
       if(c){this.stats.cacheHits++;this.cache.delete(id);this.cache.set(id,c);}
       else{
         const r=await fetch(`${RAIL_ROOT}/corridors/${id}.json`,{signal:this.stop.signal});this.stats.requests++;
-        if(!r.ok)throw new Error(`rail asset ${r.status}`);const raw=await r.text();this.stats.bytes+=new TextEncoder().encode(raw).length;c=JSON.parse(raw) as RailCorridor;
+        if(!r.ok)throw new Error(`rail asset ${r.status}`);const raw=await r.text();this.stats.bytes+=new TextEncoder().encode(raw).length;c=withPortals(JSON.parse(raw) as RailCorridor);
         if(this.dead)return;this.cache.set(id,c);
         while(this.cache.size>BUDGET.cache)this.cache.delete(this.cache.keys().next().value!);
       }
@@ -118,7 +121,7 @@ export class SurfaceRailLayer {
     const group=previous?.group??new THREE.Group(),geometries:THREE.BufferGeometry[]=[],instances:THREE.InstancedMesh[]=[],unused=new Set(group.children);group.name=`rail-corridor-${path.id}`;
     const mesh=(name:string,p:Float32Array,m:THREE.Material,normal?:Float32Array)=>{if(!p.length)return;const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));if(normal?.length===p.length)g.setAttribute('normal',new THREE.BufferAttribute(normal,3));else g.computeVertexNormals();g.computeBoundingSphere();geometries.push(g);const old=group.getObjectByName(name) as THREE.Mesh|undefined,mesh=old??new THREE.Mesh(g,m);mesh.name=name;mesh.geometry=g;group.add(mesh);unused.delete(mesh);};
     const instance=(name:string,g:THREE.BufferGeometry,m:THREE.Material,count:number)=>{const old=group.getObjectByName(name) as THREE.InstancedMesh|undefined,mesh=old??new THREE.InstancedMesh(g,m,count);if(mesh.instanceMatrix.count<count)mesh.instanceMatrix=new THREE.InstancedBufferAttribute(new Float32Array(count*16),16);mesh.name=name;mesh.count=count;mesh.boundingSphere=null;group.add(mesh);unused.delete(mesh);instances.push(mesh);return mesh;};
-    mesh('rail-bed',geo.bed,this.bedMat,geo.bedNormal);mesh('rail-steel',geo.steel,this.railMat,geo.steelNormal);mesh('rail-wire',geo.wire,this.railMat,geo.wireNormal);
+    mesh('rail-bed',geo.bed,this.bedMat,geo.bedNormal);mesh('rail-steel',geo.steel,this.railMat,geo.steelNormal);mesh('rail-wire',geo.wire,this.railMat,geo.wireNormal);mesh('rail-portal',geo.portal,this.portalMat,geo.portalNormal);mesh('rail-bore',geo.portalDark,this.boreMat,geo.portalDarkNormal);
     const ties=instance('rail-ties',this.tieGeo,this.tieMat,geo.ties.length/4);ties.count=0;ties.frustumCulled=false;
     const piers=instance('rail-piers',this.pierGeo,this.pierMat,geo.piers.length/3);
     for(let i=0;i<geo.piers.length;i+=3){const x=geo.piers[i],z=geo.piers[i+2],top=geo.piers[i+1]+3.65,bottom=this.o.heightAt(x,-z),height=Math.max(.2,top-bottom);this.dummy.position.set(x,(top+bottom)/2,z);this.dummy.rotation.set(0,0,0);this.dummy.scale.set(1,height/7.65,1);this.dummy.updateMatrix();piers.setMatrixAt(i/3,this.dummy.matrix);}this.dummy.scale.set(1,1,1);piers.instanceMatrix.needsUpdate=true;piers.computeBoundingSphere();
@@ -257,7 +260,7 @@ export class SurfaceRailLayer {
   private clearancePrisms(){
     if(this.prismRevision===this.revision)return this.prisms;
     const clearances:Clearance[]=[];
-    for(const e of this.entries.values()){const v=e.path.points;for(let i=STRIDE;i<v.length;i+=STRIDE){const a=[v[i-STRIDE],v[i-STRIDE+2],-v[i-STRIDE+1]],b=[v[i],v[i+2],-v[i+1]];clearances.push({a,b,half:e.line.width/2+.25,bottom:-.3,top:5.6});}}
+    for(const e of this.entries.values()){const v=e.path.points;for(let i=STRIDE;i<v.length;i+=STRIDE){if(v[i-STRIDE+4]===-2&&v[i+4]===-2)continue;/* (not in a tunnel: nothing built over it is cut) */const a=[v[i-STRIDE],v[i-STRIDE+2],-v[i-STRIDE+1]],b=[v[i],v[i+2],-v[i+1]];clearances.push({a,b,half:e.line.width/2+.25,bottom:-.3,top:5.6});}}
     this.prismRevision=this.revision;return this.prisms=clearances;
   }
   /** Read-only diagnostics for the local review and numerical regression checks. */
@@ -267,6 +270,6 @@ export class SurfaceRailLayer {
     this.entries.forEach(e=>e.dispose());this.entries.clear();this.cache.clear();this.prisms=[];
     this.signCache=null;
     for(const k of this.kits.values()){k.cab.dispose();k.car.dispose();k.far.dispose();k.kit.dispose();}this.kits.clear();
-    this.group.removeFromParent();for(const r of [this.bedMat,this.railMat,this.tieMat,this.pierMat,this.tieGeo,this.pierGeo,this.poleGeo])r.dispose();
+    this.group.removeFromParent();for(const r of [this.bedMat,this.railMat,this.tieMat,this.pierMat,this.portalMat,this.boreMat,this.tieGeo,this.pierGeo,this.poleGeo])r.dispose();
   }
 }

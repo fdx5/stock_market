@@ -25,7 +25,7 @@ test('elevated river span stays at bank elevation instead of dipping to river DE
 test('approaches are continuous at mapped elevated seams',()=>{const c=corridor([[126.996,37,0],[126.999,37,0],[127,37,1],[127.003,37,1],[127.004,37,0],[127.007,37,0]]),p=preparePath(c,origin,[0,0,0,0,0,0]);let previous=samplePath(p,0);for(let d=1;d<p.length;d++){const q=samplePath(p,d);assert.ok(Math.abs(q.h-previous.h)<.07);previous=q;}});
 test('standard gauge rails and rubber/monorail guideways use distinct geometry',()=>{const eye={x:500,y:0},standard=railGeometry(path,line,eye,1400,true),mono=railGeometry(path,{...line,mode:'monorail'},eye,1400,false),agt=railGeometry(path,{...line,mode:'agt'},eye,1400,false);assert.ok(standard.steel.length&&standard.ties.length&&standard.poles.length);assert.equal(mono.steel.length,0);assert.equal(mono.ties.length,0);assert.equal(agt.ties.length,0);assert.equal(mono.wire.length,0);});
 test('long sparse segments are indexed by all touched cells',()=>{const m={cell:.025,chunks:{'5080_1480':['one'],'5081_1480':['one','two']}};assert.deepEqual(new Set(neededCorridors(m,127.035,37.012,1700)),new Set(['one','two']));});
-const assets=join(base,'public/rail/20261010-v7'),manifest=JSON.parse(await readFile(join(assets,'manifest.json'),'utf8'));
+const assets=join(base,'public/rail/20261017-v9'),manifest=JSON.parse(await readFile(join(assets,'manifest.json'),'utf8'));
 const all=await Promise.all((await readdir(join(assets,'corridors'))).map(async f=>JSON.parse(await readFile(join(assets,'corridors',f),'utf8'))));
 test('Uijeongbu has two rubber-tyred cars and raised lateral guides',()=>{
   const l=manifest.lines.find(l=>l.id==='수도권:의정부');assert.equal(l.vehicle,'val208');assert.equal(l.mode,'agt');assert.equal(l.cars,2);

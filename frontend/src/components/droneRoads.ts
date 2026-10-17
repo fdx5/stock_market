@@ -22,6 +22,7 @@ import {terrainSurfaceClearance} from './terrainSurfaceClearance';
 import {linkFallbackRoads} from './roadLinkFallback';
 import {chainDeckRoads} from './bridgeDecks';
 import {groundRoadGrade} from './roadGroundGrade';
+import {tunnelPortal, portalNormals, tunnelPortal as tunnelPortalShape, portalNormals as portalNormalsOf} from './tunnelPortal';
 import type {RealEstateRoad} from '../api/client';
 type Arr = { position: Float32Array; normal: Float32Array; index: Uint32Array;level?:Float32Array };
 export type RoadTileResult = {
@@ -31,6 +32,8 @@ export type RoadTileResult = {
   marksFar: (Arr & { color: Float32Array }) | null;
   /** bridge decks' slabs, parapets and piers */
   structure: Arr | null;
+  /** tunnels' mouths (터널 links): the portals' concrete, and the dark of their bores */
+  portals: { concrete: Arr | null; dark: Arr | null };
   /** sidewalks: raised paving and its kerb along the roads of 8 m and wider */
   walks: Arr | null;
   /** the sidewalks' middle lines, for the people: [n, x0, y0, x1, y1, …] one after another */
@@ -150,12 +153,13 @@ function roadWorkerMain() {
       for (const l of linesOf(f.geometry)) if (l.length > 1) roads.push({ line: l.map(project), width: w, lanes: Math.max(1, lanes || Math.floor(w / 3.3)) });
     });
     // The structures: 교량 / 고가도로 (raised), 터널 / 지하차도 (under), as segments on a 10 m hash.
-    type Seg = { ax: number; ay: number; bx: number; by: number; kind: 0 | 1 | 2 | -1;id:string;line:number[][] };
+    type Seg = { ax: number; ay: number; bx: number; by: number; kind: 0 | 1 | 2 | -1 | -2;id:string;line:number[][] };
     const segs = new Map<string, Seg[]>();
     const linkList: { id: string; kind: number; rank: string; line: number[][] }[] = [];
     await pages(e.data.linkUrls, "linkCb", f => {
       const t = String(f.properties?.rd_type_h ?? "");
-      const kind = t === "교량" ? 1 : t === "고가도로" ? 2 : t === "터널" || t === "지하차도" ? -1 : 0;
+      // (a tunnel through a hill -2, an underpass -1: both under, only a tunnel's mouth is drawn)
+      const kind = t === "교량" ? 1 : t === "고가도로" ? 2 : t === "터널" ? -2 : t === "지하차도" ? -1 : 0;
       for (const l of linesOf(f.geometry)) if (l.length > 1) linkList.push({ id: String(f.properties?.link_id ?? f.id ?? ''), kind, rank: String(f.properties?.rd_rank_h ?? ''), line: l.map(project) });
       for (const l of linesOf(f.geometry)) for (let i = 1; i < l.length; i++) {
         const [ax, ay] = project(l[i - 1]), [bx, by] = project(l[i]);
@@ -939,7 +943,44 @@ function roadWorkerMain() {
       stops.push(order.length); for (const q of order) stops.push(found[q * 3], found[q * 3 + 1], found[q * 3 + 2]);
       k += 2 + n * 3;
     }
-    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, banks:new Float32Array(bankPoints), stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
+    // A tunnel's mouth: each end of a 터널 link (-2) where a link not under the ground meets it,
+    // its portal and the first metres of the bore; the road in the hill is not drawn. (A link is
+    // one direction of travel: the two of an undivided road at one mouth are one portal, as wide as
+    // both; a divided road's tubes each their own. Lanes by the road's class: the links carry none.)
+    const portal = { concrete: [] as number[], dark: [] as number[] };
+    const { __tunnelPortal: tunnelPortal, __portalNormals: portalNormals } = self as unknown as { __tunnelPortal: typeof tunnelPortalShape; __portalNormals: typeof portalNormalsOf };
+    {
+      const LANES: Record<string, number> = { '고속국도': 3, '도시고속국도': 3, '도시고속도로': 3, '일반국도': 2, '특별·광역시도': 2, '국가지원지방도': 2, '지방도': 1, '시·군도': 1, '구도': 1 };
+      const ends = new Map<string, number>(), key = (p: number[]) => Math.round(p[0] / 2) + ',' + Math.round(p[1] / 2);
+      for (const l of linkList) if (l.kind >= 0) for (const p of [l.line[0], l.line[l.line.length - 1]])
+        for (const dx of [-1, 0, 1]) for (const dy of [-1, 0, 1]) ends.set((Math.round(p[0] / 2) + dx) + ',' + (Math.round(p[1] / 2) + dy), 1);
+      const mouths: { x: number; y: number; dx: number; dy: number; lanes: number }[] = [];
+      for (const l of linkList) {
+        if (l.kind !== -2) continue;
+        for (const begin of [true, false]) {
+          const line = begin ? l.line : [...l.line].reverse(), p = line[0];
+          if (!ends.has(key(p)) || p[0] < bx0 || p[0] >= bx1 || p[1] < by0 || p[1] >= by1) continue;
+          // (in: the tunnel's line 8 m on)
+          let q = 1; while (q < line.length - 1 && Math.hypot(line[q][0] - p[0], line[q][1] - p[1]) < 8) q++;
+          const dx = line[q][0] - p[0], dy = line[q][1] - p[1], L = Math.hypot(dx, dy); if (L < 1) continue;
+          const lanes = LANES[l.rank] ?? 2, same = mouths.find(m => Math.hypot(m.x - p[0], m.y - p[1]) < 3 && m.dx * dx / L + m.dy * dy / L > .8);
+          if (same) same.lanes += lanes; else mouths.push({ x: p[0], y: p[1], dx: dx / L, dy: dy / L, lanes });
+        }
+      }
+      for (const m of mouths) {
+        // (the road's own height at the mouth, where it is drawn: else the ground's)
+        let z = ground(m.x, m.y), best = 12;
+        for (const r of pieces) for (let k = 0; k < r.line.length; k++) {
+          if (r.kind[k] !== 0) continue;
+          const d = Math.hypot(r.line[k][0] - m.x, r.line[k][1] - m.y); if (d < best) { best = d; z = r.z[k]; }
+        }
+        tunnelPortal(m.x, m.y, z, m.dx, m.dy, { halfWidth: Math.min(12, m.lanes * 1.65 + 1.2), height: 5.4, length: 30, floor: .02 }, portal);
+      }
+    }
+    const portalArr = (p: number[]) => p.length ? { position: new Float32Array(p), normal: portalNormals(p), index: Uint32Array.from({ length: p.length / 3 }, (_, i) => i) } : null;
+    const portals = { concrete: portalArr(portal.concrete), dark: portalArr(portal.dark) };
+    for (const a of [portals.concrete, portals.dark]) if (a) transfer.push(a.position.buffer as ArrayBuffer, a.normal.buffer as ArrayBuffer, a.index.buffer as ArrayBuffer);
+    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), portals, walks: arr(Wk), walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, banks:new Float32Array(bankPoints), stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
     for(const a of [out.surface,out.marks,out.marksFar,out.structure,out.walks])if(a)for(const value of Object.values(a))if(value instanceof Float32Array||value instanceof Uint32Array)transfer.push(value.buffer as ArrayBuffer);
     transfer.push(out.lanes.buffer, out.banks.buffer, out.stops.buffer, out.walkPaths.buffer, out.streetTrees.buffer, out.clear.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
@@ -960,7 +1001,7 @@ export function roadTile(lat: number, lon: number, key: string, domain: string |
     key, domain: domain ?? "https://kospimap.com", data: layer, geomFilter: q,
     size: "1000", page: String(i + 1), format: "json", callback: cb,
   }));
-  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__groundGrade=(${groundRoadGrade.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();self.__linkFallback=(${linkFallbackRoads.toString()});self.__chainDecks=(${chainDeckRoads.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
+  roadUrl ??= URL.createObjectURL(new Blob([`self.__roadRules=(${surfaceGeometryRules.toString()})();self.__groundGrade=(${groundRoadGrade.toString()})();self.__approachHeight=(${roadApproachHeight.toString()});self.__terrainClearance=(${terrainSurfaceClearance.toString()})();self.__linkFallback=(${linkFallbackRoads.toString()});self.__chainDecks=(${chainDeckRoads.toString()});self.__tunnelPortal=(${tunnelPortal.toString()});self.__portalNormals=(${portalNormals.toString()});(${roadWorkerMain.toString()})()`], { type: "text/javascript" }));
     // (the crossings asked about the tile's rounded centre, as the view asks: the server's cache)
     const crossings = tile && typeof location !== "undefined" ? (() => {
       const la = +tile.lat.toFixed(4), lo = +tile.lon.toFixed(4);
