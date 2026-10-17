@@ -97,6 +97,7 @@ export function pageLabel(path: string): string {
   if (path === "/sp500-map") return "S&P500 맵";
   if (path === "/nasdaq100-map") return "NASDAQ100 맵";
   if (path === "/realestate-map") return "부동산 지도";
+  if (path === "/drone-explore") return "드론 탐험";
   if (path === "/global") return "해외 종목";
   if (path === "/global-top100") return "글로벌 시총 TOP100";
   if (path === "/etf") return "ETF 마켓";
