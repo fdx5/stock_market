@@ -55,6 +55,7 @@ export const liveApi = {
   bikes: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<BikeDock>>(`${API}/bikes?${at(lat, lon)}`, signal),
   parking: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<ParkingLot>>(`${API}/parking?${at(lat, lon)}`, signal),
   facilities: (lat: number, lon: number, signal?: AbortSignal) => nearFacilities(lat, lon, signal),
+  aed: (lat: number, lon: number, signal?: AbortSignal) => json<LiveList<Facility & { model?: string; manager?: string }>>(`${API}/aed?${at(lat, lon)}`, signal),
   traffic: (lat: number, lon: number, links: string[], signal?: AbortSignal) => json<{ status: LiveStatus; speeds: Record<string, number>; pending?: number; source: string; updated: string }>(
     `${API}/traffic`, signal, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lon, links }) }),
 };

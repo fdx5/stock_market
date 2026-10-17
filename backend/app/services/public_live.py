@@ -746,3 +746,43 @@ def facilities(lat: float, lon: float) -> dict:
     except Exception:  # noqa: BLE001
         return {"status": "unavailable", "items": []}
     return {"status": "ok", "items": _near(lat, lon, items, 3000, 800), "source": "© OpenStreetMap contributors (ODbL)"}
+
+
+# ── AEDs (국립중앙의료원 자동심장충격기 정보) ───────────────────────────────
+
+AED = "https://apis.data.go.kr/B552657/AEDInfoInqireService/getAedLcinfoInqire"
+
+
+def aed(lat: float, lon: float) -> dict:
+    """The registered AEDs nearest (lat, lon): the official register (needs the portal's approval of
+    the AED API for the same service key); a cell of ~1 km asked once an hour."""
+    key = _portal_key()
+    if not key:
+        return {"status": "needs_key", "items": []}
+    cy, cx = round(lat / 0.01) * 0.01, round(lon / 0.0125) * 0.0125
+
+    def make():
+        r = requests.get(AED, params={"serviceKey": key, "WGS84_LAT": cy, "WGS84_LON": cx, "pageNo": 1, "numOfRows": 300}, timeout=(4, 15))
+        if r.status_code in (401, 403) or b"SERVICE_KEY_IS_NOT_REGISTERED" in r.content or b"SERVICE ACCESS DENIED" in r.content:
+            raise KeyRejected("aed")
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+        code = root.findtext("header/resultCode") or ""
+        if code and code not in ("00", "0"):
+            raise KeyRejected("aed") if code in ("20", "30", "31", "32") else ValueError(code)
+        items = []
+        for it in root.findall(".//item"):
+            g = {c.tag: (c.text or "").strip() for c in it}
+            la, lo = _num(g.get("wgs84Lat")), _num(g.get("wgs84Lon"))
+            if not la or not lo:
+                continue
+            items.append({"id": "aed:" + (g.get("rnum") or "") + ":" + f"{la:.6f}:{lo:.6f}", "kind": "aed", "name": (g.get("org") or "자동심장충격기")[:80],
+                          "lat": la, "lon": lo, "address": (g.get("buildAddress") or "")[:120], "phone": (g.get("clerkTel") or "")[:40],
+                          "hours": "", "access": "", "indoor": False, "description": (g.get("buildPlace") or "")[:160],
+                          "model": (g.get("model") or "")[:60], "manager": (g.get("manager") or "")[:20]})
+        return {"items": items}
+    try:
+        items = _cached(f"aed:{cy:.3f}:{cx:.3f}", 3600, make, 86400)["items"]
+    except Exception as e:  # noqa: BLE001
+        return {"status": _status_of(e), "items": []}
+    return {"status": "ok", "items": _near(lat, lon, items, 3000, 300), "source": "국립중앙의료원 자동심장충격기(AED) 정보"}

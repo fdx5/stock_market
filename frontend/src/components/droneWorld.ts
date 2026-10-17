@@ -322,6 +322,25 @@ export class DroneWorld {
     for (let s = 0; s <= d; s += 20) if (!this.tileAt(x + dx * s, y + dy * s)) return s;
     return d;
   }
+  /** The nearest lane centre line within `r` of (x, y) (view frame): its direction, how far off
+   * (signed: + to the lane's left), and the lane's width. */
+  laneNear(x: number, y: number, r: number): { dx: number; dy: number; d: number; side: number; w: number } | null {
+    let best: { dx: number; dy: number; d: number; side: number; w: number } | null = null, bd = r;
+    for (const t of this.tiles.values()) {
+      const lanes = t.baseLanes; if (!lanes || distToBox(x, y, t.box) > r) continue;
+      for (let o = 0; o < lanes.length;) {
+        const n = lanes[o], w = lanes[o + 1], at = o + 2;
+        for (let i = 1; i < n; i++) {
+          const ax = lanes[at + i * 3 - 3], ay = lanes[at + i * 3 - 2], bx = lanes[at + i * 3], by = lanes[at + i * 3 + 1];
+          const ex = bx - ax, ey = by - ay, L2 = ex * ex + ey * ey; if (L2 < .01) continue;
+          const u = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / L2)), d = Math.hypot(ax + ex * u - x, ay + ey * u - y);
+          if (d < bd) { bd = d; const L = Math.sqrt(L2); best = { dx: ex / L, dy: ey / L, d, side: Math.sign(ex * (y - ay) - ey * (x - ax)) || 1, w }; }
+        }
+        o = at + n * 3;
+      }
+    }
+    return best;
+  }
   /** The sidewalks' middle lines on the tiles within `r` of (x, y) (view frame). */
   walkPathsNear(x: number, y: number, r: number): Float32Array[] {
     const out: Float32Array[] = [];

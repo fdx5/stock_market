@@ -14,11 +14,16 @@ export class DroneLive {
   private exitMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .45, metalness: .15 });
   private exitGeo = entranceGeometry();
   private exitMesh = new THREE.InstancedMesh(this.exitGeo, this.exitMat, 400);
+  /** where no surveyed sidewalk passes an entrance: a stretch of sidewalk along the nearest road
+   * (paving, its kerb on the road side), tilted to the ground under its ends */
+  private walkGeo = sidewalkGeometry();
+  private walkMesh = new THREE.InstancedMesh(this.walkGeo, this.exitMat, 400);
   constructor(private signs: DroneSigns, readonly origin: { lat: number; lon: number }, private groundAt: (x: number, y: number) => number, readonly world: DroneWorld, scene?: THREE.Scene) {
     this.exitRoot.name = 'drone subway entrances'; this.exitMesh.count = 0; this.exitMesh.castShadow = false; this.exitMesh.receiveShadow = true;
-    this.exitMesh.frustumCulled = false; this.exitRoot.add(this.exitMesh); scene?.add(this.exitRoot);
+    this.exitMesh.frustumCulled = false; this.exitRoot.add(this.exitMesh);
+    this.walkMesh.count = 0; this.walkMesh.castShadow = false; this.walkMesh.receiveShadow = true; this.walkMesh.frustumCulled = false; this.exitRoot.add(this.walkMesh); scene?.add(this.exitRoot);
   }
-  private yaws = new Map<string, number>();
+  private fits = new Map<string, Fit>();
   materials() { return [this.exitMat]; }
   /** The direction of the nearest sidewalk middle line within 12 m of (x, y), if any. */
   private alongWalk(x: number, y: number): [number, number] | null {
@@ -37,9 +42,9 @@ export class DroneLive {
   }
   /** The subway entrances (OpenStreetMap), each with its station (the nearest within 600 m). */
   exits(list: Facility[] | null, stations: SubwayStation[] | null) {
-    if (!list?.length || !stations) { this.exitMesh.count = 0; this.put('live-exits', null); return; }
+    if (!list?.length || !stations) { this.exitMesh.count = 0; this.walkMesh.count = 0; this.put('live-exits', null); return; }
     const out: DroneLabel[] = [], m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
-    let n = 0;
+    let n = 0, nw = 0;
     for (const f of list.slice(0, 400)) {
       const { x, y } = this.point(f.lat, f.lon);
       let best: SubwayStation | null = null, bd = 600;
@@ -49,14 +54,30 @@ export class DroneLive {
       // within 12 m), its open end the way away from the station (the stairs go down toward it);
       // with no sidewalk known, straight away from the station.
       const sp = best ? this.point(best.lat, best.lon) : { x, y: y - 1 };
-      let yaw = this.yaws.get(f.id);
-      if (yaw === undefined) {
-        let ax = x - sp.x, ay = y - sp.y;
-        const walk = this.alongWalk(x, y);
-        if (walk) { const s = walk[0] * ax + walk[1] * ay >= 0 ? 1 : -1; ax = walk[0] * s; ay = walk[1] * s; }
-        yaw = Math.atan2(ax, -ay);
-        // (kept once a sidewalk was found: the tiles round it are in)
-        if (walk) this.yaws.set(f.id, yaw);
+      let fit = this.fits.get(f.id);
+      if (!fit) {
+        let ax = x - sp.x, ay = y - sp.y, strip: Fit['strip'] = null;
+        const walk = this.alongWalk(x, y), lane = walk ? null : this.world.laneNear(x, y, 25);
+        const along = walk ?? (lane ? [lane.dx, lane.dy] as [number, number] : null);
+        if (along) { const s = along[0] * ax + along[1] * ay >= 0 ? 1 : -1; ax = along[0] * s; ay = along[1] * s; }
+        if (lane && lane.d > lane.w / 2 + .5) {
+          // (the strip between the entrance and the road: its kerb at the road's side)
+          const rx = lane.dy * lane.side, ry = -lane.dx * lane.side, gap = Math.min(3, lane.d - lane.w / 2 - .5);
+          const cx = x + rx * gap * .5, cy = y + ry * gap * .5, h0 = this.groundAt(cx - lane.dx * 9, cy - lane.dy * 9), h1 = this.groundAt(cx + lane.dx * 9, cy + lane.dy * 9);
+          strip = { x: cx, y: cy, across: [rx, ry], z: this.groundAt(cx, cy), pitch: Math.atan2(h1 - h0, 18), along: [lane.dx, lane.dy] };
+        }
+        fit = { yaw: Math.atan2(ax, -ay), strip };
+        // (kept once the roads round it are in)
+        if (walk || lane) this.fits.set(f.id, fit);
+      }
+      const yaw = fit.yaw;
+      if (fit.strip && nw < 400) {
+        const st = fit.strip;
+        // (local x across the strip toward the road, z along it: the road's direction, tilted)
+        const xa = new THREE.Vector3(st.across[0], 0, -st.across[1]), za = new THREE.Vector3(st.along[0], Math.tan(st.pitch), -st.along[1]).normalize(), ya = new THREE.Vector3().crossVectors(za, xa).normalize();
+        if (ya.y < 0) ya.negate();
+        m.makeBasis(xa, ya, za).setPosition(st.x, st.z, -st.y);
+        this.walkMesh.setMatrixAt(nw++, m);
       }
       q.setFromAxisAngle(up, Math.PI - yaw);
       m.compose(new THREE.Vector3(x, g, -y), q, new THREE.Vector3(1, 1, 1));
@@ -65,6 +86,7 @@ export class DroneLive {
         live: { type: 'station', station: best, exit: f }, key: 'exit:' + f.id });
     }
     this.exitMesh.count = n; this.exitMesh.instanceMatrix.needsUpdate = true;
+    this.walkMesh.count = nw; this.walkMesh.instanceMatrix.needsUpdate = true;
     this.put('live-exits', out);
   }
   private point(lat: number, lon: number) {
@@ -127,9 +149,17 @@ export class DroneLive {
   links(x: number, y: number, r = 1500) { return this.world.trafficLinks(x, y, r); }
   dispose() {
     for (const k of ['live-stations', 'live-trains', 'live-er', 'live-bike', 'live-parking', 'live-facility', 'live-exits']) this.signs.set(k, null);
-    this.exitRoot.removeFromParent(); this.exitMesh.dispose(); this.exitGeo.dispose(); this.exitMat.dispose();
+    this.exitRoot.removeFromParent(); this.exitMesh.dispose(); this.walkMesh.dispose(); this.exitGeo.dispose(); this.walkGeo.dispose(); this.exitMat.dispose();
     this.world.setTraffic(null, false);
   }
+}
+
+type Fit = { yaw: number; strip: { x: number; y: number; z: number; across: [number, number]; pitch: number; along: [number, number] } | null };
+
+/** A stretch of sidewalk 18 m long and 4 m wide (local z along it, +x toward the road): paving a
+ * hand's height up and the kerb along its road edge. */
+function sidewalkGeometry() {
+  return boxes([[4, .16, 18, 0, .0, 0, '#c2bcb0'], [.22, .2, 18, 2.05, .02, 0, '#8b8882']]);
 }
 
 /** A Seoul subway entrance's canopy (m, y up, the open end toward +z): a roof on two posts at
@@ -148,6 +178,11 @@ function entranceGeometry() {
     [3.4, .12, 5.8, 0, .06, 0, '#9a9890'],             // the kerb round the stairwell
     [5.2, .06, 8.6, 0, .03, .4, '#b8b2a4'],            // the paving round it (on the sidewalk, or where there is none)
   ];
+  return boxes(parts);
+}
+
+/** Boxes [w, h, d, x, y, z, colour] as one vertex-coloured geometry. */
+function boxes(parts: [number, number, number, number, number, number, string][]) {
   const pos: number[] = [], nor: number[] = [], col: number[] = [], c = new THREE.Color();
   for (const [w, h, d, x, y, z, colour] of parts) {
     const g = new THREE.BoxGeometry(w, h, d).toNonIndexed().translate(x, y, z);

@@ -182,14 +182,15 @@ function FacilityPanel({ place: f }: { place: import('./publicLive').Facility })
         {f.phone && <><dt>전화</dt><dd><a href={`tel:${f.phone}`}>{f.phone}</a></dd></>}
         {f.hours && <><dt>운영</dt><dd>{f.hours}</dd></>}
         {f.description && <><dt>설치 위치</dt><dd>{f.description}</dd></>}
-        {f.kind === 'aed' && <><dt>실내/실외</dt><dd>{f.indoor ? '실내' : '확인 필요'}{f.access ? ` · ${f.access}` : ''}</dd></>}
+        {f.kind === 'aed' && !(f as { model?: string }).model && <><dt>실내/실외</dt><dd>{f.indoor ? '실내' : '확인 필요'}{f.access ? ` · ${f.access}` : ''}</dd></>}
+        {(f as { model?: string }).model && <><dt>모델</dt><dd>{(f as { model?: string }).model}</dd></>}
         <dt>거리</dt><dd>{f.distance >= 1000 ? `${(f.distance / 1000).toFixed(1)}km` : `${f.distance}m`}</dd>
         <dt>좌표</dt><dd>N{f.lat.toFixed(5)} E{f.lon.toFixed(5)}</dd>
       </dl>
       <p className="re-live-links"><a href={`https://map.kakao.com/link/map/${encodeURIComponent(f.name)},${f.lat},${f.lon}`} target="_blank" rel="noreferrer">카카오맵에서 보기</a>
         <a href={`https://map.kakao.com/link/to/${encodeURIComponent(f.name)},${f.lat},${f.lon}`} target="_blank" rel="noreferrer">길찾기</a></p>
       {(f.kind === 'fire' || f.kind === 'aed') && <p className="re-live-warn">응급 상황에서는 먼저 119에 신고하세요.</p>}
-      <p className="re-live-source">© OpenStreetMap contributors · 지도 데이터는 실제와 다를 수 있습니다</p>
+      <p className="re-live-source">{(f as { model?: string }).model !== undefined ? '국립중앙의료원 자동심장충격기(AED) 정보' : '© OpenStreetMap contributors · 지도 데이터는 실제와 다를 수 있습니다'}</p>
     </div>
   </>;
 }

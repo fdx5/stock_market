@@ -87,7 +87,11 @@ export default function LiveLayerControls({ live, where }: { live: DroneLive; wh
   }, () => { live.lots(null); liveState.lots = []; });
 
   loop('facility', 600000, 1500, async (p, signal) => {
-    const r = await liveApi.facilities(p.lat, p.lon, signal); live.places(r.items); liveState.places = r.items;
+    const r = await liveApi.facilities(p.lat, p.lon, signal);
+    // (the official AED register where the server has it approved: it replaces OpenStreetMap's few)
+    const official = await liveApi.aed(p.lat, p.lon, signal).catch(() => null);
+    if (official?.status === 'ok' && official.items.length) r.items = [...r.items.filter(f => f.kind !== 'aed'), ...official.items].sort((a, b) => a.distance - b.distance);
+    live.places(r.items); liveState.places = r.items;
     const count = (k: keyof typeof FACILITY) => r.items.filter(f => f.kind === k).length;
     return told(r.status, `공공시설 ${r.items.length - count('exit')}곳 (3km) · 소방 ${count('fire')} · 경찰 ${count('police')} · 보건소 ${count('health')} · AED ${count('aed')}`);
   }, () => { live.places(null); liveState.places = []; });
