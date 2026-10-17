@@ -73,7 +73,7 @@ import {dronePlaceId,type DronePlace} from './dronePlaces';
 import {moveFromBuildingView} from './droneTravel';
 import {loadDroneExplorePage} from './droneExploreLoader';
 import DeskBgm from "../desk2/DeskBgm";
-import { useDeskBgm } from "../desk2/deskBgmStore";
+import { useDeskBgm, setDeskBgmOn, toggleDeskBgmPlay, warmDeskBgm } from "../desk2/deskBgmStore";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice,sceneFrameStarted,sliceDeadline } from "./frameSlice";
 import { SceneResources } from "./sceneResources";
@@ -3914,10 +3914,19 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (droneOn && !autoDrone) void loadDroneExplorePage().catch(() => {});
   }, [droneOn, autoDrone]);
   const [droneView, setDroneView] = useState<"fpv" | "chase">("fpv");
-  // The site's music (deskBgmStore): its player in the full-screen view; while it plays, the drone is quiet.
+  // The site's music (deskBgmStore): its player in the full-screen view, started with the flight;
+  // the drone's own sound plays along with it only when the visitor turns it on.
   const bgm = useDeskBgm();
-  const musicOn = bgm.on && bgm.playing;
-  useEffect(() => { stageRef.current?.drone?.audio.setDucked(musicOn); }, [musicOn, droneOn]);
+  // (refused by the browser — no press to start it from, or its player not ready by the press —
+  // the music starts on the flight's first touch or key)
+  useEffect(() => {
+    if (!droneOn || !bgm.on || !bgm.blocked) return;
+    // (not a press on the player itself: its own button plays it)
+    const go = (e: Event) => { if ((e.target as Element | null)?.closest?.(".d2-bgm")) return; off(); toggleDeskBgmPlay(); };
+    const off = () => { window.removeEventListener("pointerdown", go, true); window.removeEventListener("keydown", go, true); };
+    window.addEventListener("pointerdown", go, true); window.addEventListener("keydown", go, true);
+    return off;
+  }, [droneOn, bgm.on, bgm.blocked]);
   const droneHud = useRef<((h: DroneHud) => void) | null>(null);
   const droneShadow = useRef<{ left: number; right: number; top: number; bottom: number; far: number } | null>(null);
   const enterDrone = () => {
@@ -3946,6 +3955,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     droneShadow.current = { left: sc.left, right: sc.right, top: sc.top, bottom: sc.bottom, far: sc.far };
     sc.left = sc.bottom = -320; sc.right = sc.top = 320; sc.far = 2400; sc.updateProjectionMatrix();
     drone.start();
+    // (the music on with the flight, from this press's own gesture: a browser plays it only then)
+    if (!bgm.on) setDeskBgmOn(true); else if (!bgm.playing) toggleDeskBgmPlay();
     if(explorePlace&&!hop){
       drone.flight.place(0,0,drone.world.groundAt(0,0),220,drone.flight.yaw);
       drone.flight.apply(st.camera);st.camera.updateMatrixWorld();
@@ -4459,6 +4470,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         {(big || autoDrone) && <div className="d2 d2-bgm-float re-holo-bgm"><DeskBgm variant="strip" /></div>}
         {data.vworld_key && data.center && <div className="re-holo-flight-buttons">
           <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn} onClick={() => (droneOn ? exitDrone() : enterDrone())}
+            onPointerEnter={warmDeskBgm} onFocus={warmDeskBgm} onTouchStart={warmDeskBgm}
             title={droneOn ? "드론 착륙 (원래 시점으로)" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 수동 고도 상한 없음)"}>
             <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : "드론"}</span>
           </button>

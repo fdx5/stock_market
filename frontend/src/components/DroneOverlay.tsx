@@ -5,6 +5,7 @@ import { AUTO_MIN_AGL, AUTO_MAX_AGL, MAX_SPEED, type DroneFlight } from "./drone
 import type { DroneSigns, Sign } from "./droneSigns";
 import DroneBuildingCard from "./DroneBuildingCard";
 import DroneRadar, { type DroneWhere } from "./DroneRadar";
+import { autopilotCallout } from "./autopilotCallout";
 
 /* 드론 mode's screen: speed, height, heading, how much of the world round it is drawn (and when
  * the drone is held back for it), sound on/off, leave; on touch screens two sticks (mode 2: the
@@ -56,7 +57,8 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
   onExit: () => void; onMute: (muted: boolean) => void;
 }) {
   const [hud, setHud] = useState<DroneHud | null>(null);
-  const [muted, setMuted] = useState(false);
+  // (the drone's sound starts off: the 드론소리 button turns it on, along with the music)
+  const [muted, setMuted] = useState(true);
   const [help, setHelp] = useState(true);
   const [autoSettings, setAutoSettings] = useState(false);
   const [speedDraft, setSpeedDraft] = useState<string | null>(null);
@@ -134,9 +136,24 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
     : flight.autopilotStatus === 'altitude' ? `자동 고도 조절 중 · 목표 ${Math.round(flight.autoCruiseAgl)}m`
     : `${Math.round(flight.autoCruiseSpeed * 3.6)}km/h 항속 · 목표 ${Math.round(flight.autoCruiseAgl)}m`;
   const dir = h ? COMPASS[Math.round(h.heading / 45) % 8] : "";
+  // Turning on or off — the button, or a stick input taking over — is called out: the chime and
+  // voice, and a banner across the view for a moment.
+  const [banner, setBanner] = useState<{ on: boolean; n: number } | null>(null);
+  const lastAuto = useRef(auto);
+  useEffect(() => {
+    if (lastAuto.current === auto) return;
+    lastAuto.current = auto;
+    autopilotCallout(auto);
+    setBanner(b => ({ on: auto, n: (b?.n ?? 0) + 1 }));
+    const t = window.setTimeout(() => setBanner(null), 2200);
+    return () => window.clearTimeout(t);
+  }, [auto]);
   return (
     <div ref={root} className="re-drone" aria-live="off">
       <canvas className="re-drone-signs" aria-hidden="true" ref={el => { signs.canvas = el; }} />
+      {banner && <div key={banner.n} className={`re-drone-autopilot-banner${banner.on ? ' is-on' : ''}`} role="status">
+        <b>{banner.on ? 'AUTOPILOT ENGAGED' : 'AUTOPILOT DISENGAGED'}</b><small>{banner.on ? '오토파일럿 켜짐' : '오토파일럿 꺼짐 · 수동 조종'}</small>
+      </div>}
       <div className="re-drone-hud" role="status" data-autopilot={auto ? flight.autopilotStatus : 'off'} data-agl={h?.agl.toFixed(1) ?? ''} data-ahead={h ? Math.round(Math.min(h.ahead, 9999)) : ""} data-unready={h ? Math.round(h.unready) : ""} data-front={h ? Math.round(h.unreadyFront) : ""} data-kmh={h ? h.kmh.toFixed(1) : ""}>
         <b className="re-drone-speed">{h ? Math.round(h.kmh) : 0}<small>km/h</small></b>
         <span className="re-drone-alt">고도 <b>{h ? Math.round(h.agl) : 0}</b>m</span>
@@ -149,8 +166,11 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
       <button type="button" className={`re-drone-autopilot${auto ? ' is-on' : ''}`} aria-pressed={auto}
         title="설정한 속도와 고도로 시선 방향 자동 전진 · 10~1,000m 지형·건물 회피 · 이동/고도 조작 시 수동 전환"
         onClick={() => { flight.toggleAutopilot(); setHud(h => h ? { ...h, autopilot: flight.autopilot, autopilotStatus: flight.autopilotStatus } : h); }}>
-        <b>{auto ? '⏸ 오토 파일럿 켜짐' : '▶ 오토 파일럿'}</b>
-        <small>{auto ? autoStatus : `${Math.round(flight.autoCruiseSpeed * 3.6)}km/h · 고도 10~1,000m`}</small>
+        <span className="re-drone-autopilot-head">
+          <b>AUTOPILOT</b>
+          <span className="re-drone-autopilot-switch" aria-hidden="true"><i /><em>{auto ? 'ON' : 'OFF'}</em></span>
+        </span>
+        <small>{auto ? autoStatus : `눌러서 켜기 · ${Math.round(flight.autoCruiseSpeed * 3.6)}km/h · 고도 ${Math.round(flight.autoCruiseAgl)}m`}</small>
       </button>
       <button type="button" className="re-drone-auto-settings-toggle" aria-expanded={autoSettings} aria-controls="drone-auto-settings"
         onClick={() => setAutoSettings(v => !v)}>속도·고도 설정</button>
@@ -178,7 +198,7 @@ export default function DroneOverlay({ sink, flight, signs, radar, touch, onExit
       </div>
       <div className="re-drone-tools">
         <button type="button" className="re-drone-view" onClick={onView} title="1인칭 ↔ 3인칭 (V)"><i className="re-drone-view-icon" aria-hidden="true">🚁</i><span>{view === "fpv" ? "1인칭" : "3인칭"}</span></button>
-        <button type="button" onClick={() => { const m = !muted; setMuted(m); onMute(m); }} aria-pressed={muted} title={muted ? "드론 소리 켜기" : "드론 소리 끄기"} className="re-drone-mute">{muted ? "🔇 음소거" : "🔊 소리"}</button>
+        <button type="button" onClick={() => { const m = !muted; setMuted(m); onMute(m); }} aria-pressed={muted} title={muted ? "드론 소리 켜기 (배경음과 함께)" : "드론 소리 끄기"} className="re-drone-mute">{muted ? "🔇 드론소리" : "🔊 드론소리"}</button>
         {onFull && <button type="button" className="re-drone-full" onClick={onFull} aria-pressed={!!full} title={full ? "전체화면 끄기" : "전체화면으로 비행 (화면 전체 사용)"}>{full ? "⤡ 해제" : "⛶ 전체화면"}</button>}
         <button type="button" onClick={() => setHelp(v => !v)} aria-pressed={help} title="조작법">?</button>
         <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>

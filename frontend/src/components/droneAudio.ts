@@ -6,8 +6,9 @@
 
 const FILES = ["hover", "start"] as const;
 const ROOT = "/3d/drone/mini2-20261010-v2";
-/** The whole mix's level: a quiet hum, not the room's loudest sound. */
-const LEVEL = 0.32;
+/** The whole mix's level: a quiet hum under the site's music, not the room's loudest sound
+ * (half the 0.32 it was: it now plays along with the music, not instead of it). */
+const LEVEL = 0.16;
 type Name = (typeof FILES)[number];
 
 let encoded: Promise<Partial<Record<Name, ArrayBuffer>>> | null = null;
@@ -33,10 +34,9 @@ export class DroneAudio {
   private generation = 0;
   private starting: Promise<void> | null = null;
   private live = false;
-  muted = false;
-  /** Quiet while the site's music plays (deskBgmStore): the drone is heard again when it stops. */
-  ducked = false;
-  private level() { return this.muted || this.ducked ? 0 : LEVEL; }
+  /** Off until the visitor turns the 드론소리 button on: the flight opens to the site's music. */
+  muted = true;
+  private level() { return this.muted ? 0 : LEVEL; }
 
   /** Call from the button's click (the gesture lets the page play sound). */
   start() {
@@ -134,13 +134,6 @@ export class DroneAudio {
     this.muted = m;
     if(!m&&this.ctx?.state==='suspended')void this.ctx.resume().catch(()=>{});
     if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.level(), this.ctx.currentTime, 0.05);
-  }
-
-  setDucked(d: boolean) {
-    if (d === this.ducked) return;
-    this.ducked = d;
-    // (a short fade: the song comes in over the drone, the drone back under the silence)
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.level(), this.ctx.currentTime, 0.25);
   }
 
   /** Off the page or behind another tab: quiet, and the context paused. */
