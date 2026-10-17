@@ -53,7 +53,16 @@ Actual radar-marker selection was subsequently verified. The CCTV controls
 now follow the radar in normal layout, avoiding overlap with zoom buttons as
 the radar changes size. Material resources are explicitly released on exit.
 
-Remaining release gate: register an approved provider key, confirm actual camera
-video frames progress in Chrome on the HTTPS production site, confirm city-feed
-coverage, and finish performance comparison. A location popup or a generic test
-video is not treated as evidence that actual CCTV video works.
+Subsequent approved-key verification found the official HTTPS HLS redirect uses
+port 8082 at cctvsec.ktict.co.kr. The proxy now permits that host/HTTPS port only.
+17 isolated backend tests pass, including the redirect and arbitrary-host rejection.
+Actual highway video played in the small popup in muted Chrome: 720×480 video,
+time 0.89→8.43 s and frames 31→257 at unchanged 3840×2160 high scene rendering.
+This used the local UI/read-only adapter and is not production verification.
+Embedding the public UTIC player was also tested in Chrome: it produced an
+abnormal-access warning and no video element. A wrapper popup does not remove
+that restriction. See the detailed Korean [access report](cctv-video-access-2026-10-17.md).
+
+Remaining release gate: configure the hosting secret, verify actual video on the
+HTTPS production site, confirm approved city-feed coverage, and finish performance
+comparison. A location popup or a generic test video is not live-CCTV evidence.

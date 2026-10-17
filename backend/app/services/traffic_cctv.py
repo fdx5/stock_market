@@ -35,15 +35,28 @@ class CameraAuthError(ValueError):
     """Provider rejected this service's authorization; never include its URL."""
 
 
+class MediaProviderError(ValueError):
+    def __init__(self, status: int):
+        self.status = status
+        super().__init__("Provider media request rejected")
+
+
 def _key():
     return (os.environ.get("ITS_CCTV_API_KEY") or os.environ.get("ITS_API_KEY") or "").strip()
+
+
+def _allowed_port(p) -> bool:
+    port = p.port or (443 if p.scheme == "https" else 80)
+    # The official HTTPS HLS entry redirects to this provider's port 8082.
+    return port in (80, 443, 8080, 8081, 8443, 9443) or (
+        port == 8082 and p.scheme == "https" and p.hostname == "cctvsec.ktict.co.kr")
 
 
 def _remember(url: str) -> str:
     p = urlsplit(url)
     if p.scheme not in ("http", "https") or not p.hostname or p.username or p.password:
         raise ValueError("Unsupported media URL")
-    if len(url) > 4096 or (p.port or (443 if p.scheme == "https" else 80)) not in (80, 443, 8080, 8081, 8443, 9443):
+    if len(url) > 4096 or not _allowed_port(p):
         raise ValueError("Unsupported media address")
     with _lock:
         old = _by_url.get(url)
@@ -158,7 +171,7 @@ def _public_fetch(url: str):
         if p.scheme not in ("http", "https") or not p.hostname or p.username or p.password:
             raise ValueError("Invalid media")
         port = p.port or (443 if p.scheme == "https" else 80)
-        if port not in (80, 443, 8080, 8081, 8443, 9443):
+        if not _allowed_port(p):
             raise ValueError("Invalid media port")
         addresses = [a[4][0] for a in socket.getaddrinfo(p.hostname, port, type=socket.SOCK_STREAM)]
         if not addresses or any(not ipaddress.ip_address(a).is_global for a in addresses):
@@ -175,7 +188,7 @@ def _public_fetch(url: str):
                     url = urljoin(url, resp.headers.get("Location", ""))
                     continue
                 if resp.status != 200:
-                    raise ValueError("Media unavailable")
+                    raise MediaProviderError(resp.status)
                 content = resp.read(8 * 1024 * 1024 + 1)
                 if len(content) > 8 * 1024 * 1024:
                     raise ValueError("Media too large")

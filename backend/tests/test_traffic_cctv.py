@@ -108,6 +108,26 @@ def test_redirect_rechecks_dns(monkeypatch):
     assert calls == ["example.org", "internal.example"]
 
 
+def test_official_hls_redirect_port_is_supported_without_opening_arbitrary_ports(monkeypatch):
+    monkeypatch.setattr(c.socket, "getaddrinfo", lambda *a, **k: [(None, None, None, None, ("8.8.8.8", 443))])
+    first = Mock(status=302, headers={"Location": "https://cctvsec.ktict.co.kr:8082/live/index.m3u8"})
+    second = Mock(status=200, headers={"Content-Type": "application/vnd.apple.mpegurl"})
+    second.read.return_value = b"#EXTM3U\n"
+    responses = iter([first, second])
+    ports = []
+    def pool(*a, **kwargs):
+        ports.append(kwargs["port"])
+        return Mock(request=lambda *a, **k: next(responses))
+    monkeypatch.setattr(c.urllib3, "HTTPSConnectionPool", pool)
+    body, _, final = c._public_fetch("https://cctvsec.ktict.co.kr/live")
+    assert body == b"#EXTM3U\n" and ports == [443, 8082]
+    assert c._remember(final)
+    with pytest.raises(ValueError, match="port"):
+        c._public_fetch("https://example.org:8082/live")
+    with pytest.raises(ValueError, match="address"):
+        c._remember("https://example.org:8082/live")
+
+
 def test_expired_or_unknown_reference_does_not_fetch(monkeypatch):
     monkeypatch.setattr(c, "_public_fetch", lambda url: pytest.fail("unexpected fetch"))
     with pytest.raises(LookupError):
