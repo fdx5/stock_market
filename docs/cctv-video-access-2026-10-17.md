@@ -29,9 +29,30 @@ UTIC는 신청 IP 인증을 사용한다. Render 서비스의 Connect → Outbou
 신청 정보로 제공하지 않는다. [Render 공식 문서](https://render.com/docs/outbound-ip-addresses)
 
 사용자가 확인한 Render 발신 범위는 `74.220.48.0/24`, `74.220.56.0/24`다.
-두 대역 모두 허용 등록이 필요한지 UTIC 담당자에게 문의한다. 신청 폼 한 칸의
-복수 CIDR 입력 문법은 확인되지 않았다. Render Dedicated IP도 세 IP 중 하나가
-발신하므로, 단일 IP만 허용하는 조건의 해결책으로 단정하지 않는다.
+신청 화면의 실제 JavaScript는 IPv4 한 개만 허용한다. 쉼표로 구분한 복수 IP,
+CIDR, 도메인은 입력 검사에서 거절된다. 다만 다음 실제 UTIC 담당자 답변에서
+**키 하나에 최대 2개의 C Class 대역 등록 및 발급 이메일 회신을 통한 변경**을
+확인했다. 두 Render /24 범위는 이 대역 개수 조건에 맞는다. 유료 고정 IP를
+먼저 구매할 필요 없이 두 대역 등록을 요청한 뒤 승인과 실제 연결을 확인한다.
+
+- [2026-08-11 CCTV 개방데이터 API 연동 관련 요청 URL 및 공인 IP 인증 문의](https://www.utic.go.kr/center/newUserCommentRead.do?seq=3687):
+  담당자는 키 기준으로 신청한 2개 C Class까지 허용되며, IP 변경·수정은 키를
+  발급한 이메일에 회신하면 처리한다고 답했다. 유동 IP도 같은 C Class 안이면
+  가능하다고 설명했다.
+- [2024-10-23 IP변경 관련 문의 드립니다](https://www.utic.go.kr/center/newUserCommentRead.do?seq=3447):
+  발급 키와 변경 IP를 키 발급 이메일로 전달하며, 공인 IP의 C Class 두 개까지
+  등록할 수 있다는 동일한 답변이다.
+- [2025-10-25 등록된 IP 대역 중 일부 서버에서 API 접근 불가 문의](https://www.utic.go.kr/center/newUserCommentRead.do?seq=3601):
+  신청자는 이메일로 두 대역을 등록받은 실제 경위를 적었다. 담당자는 해당
+  문의의 연결 장애를 과도한 요청에 따른 일시 차단으로 설명했다.
+- [2019-07-08 개방데이터 신청시 ip 관련 문의드립니다](https://www.utic.go.kr/center/newUserCommentRead.do?seq=528):
+  담당자는 도메인 기반 인증은 구성되어 있지 않고 키와 IP로 확인하며 두 대역까지
+  등록 가능하다고 답했다. 도메인 답변은 과거 자료라는 날짜를 함께 명시한다.
+- [2026-10-09 개방데이터 신청ip변경 관련](https://www.utic.go.kr/center/newUserCommentRead.do?seq=3705):
+  단일 IP 변경 요청에 담당자가 /24 대역 추가를 완료했다고 답한 최근 사례다.
+
+Render Dedicated IP는 세 IP 중 하나가 발신한다. 현재 두 /24를 등록할 수 있는
+조건에서 불필요하게 유료 IP 구매를 진행하지 않는다. UTIC 키는 ITS 키와 다르다.
 
 키 원문은 채팅, 소스, 브라우저 환경 변수에 넣지 않고 호스팅 비밀 설정으로
 등록한다. ITS 어댑터는 ITS_CCTV_API_KEY(또는 ITS_API_KEY)를 읽는다.
