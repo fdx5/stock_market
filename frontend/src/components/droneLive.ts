@@ -136,7 +136,9 @@ export class DroneLive {
     }) ?? null);
   }
   places(list: Facility[] | null) {
-    this.put('live-facility', list?.filter(f => f.kind !== 'exit').map(f => {
+    // (AEDs: hundreds in a city's 3 km — the nearest forty within 700 m as signs; the list has all)
+    let aeds = 0;
+    this.put('live-facility', list?.filter(f => f.kind !== 'exit' && (f.kind !== 'aed' || (f.distance <= 700 && aeds++ < 40))).map(f => {
       const { x, y } = this.point(f.lat, f.lon), k = FACILITY[f.kind];
       return { name: `${k.icon} ${f.name}`, kind: 'service' as const, x, y, top: this.groundAt(x, y) + (f.kind === 'aed' ? 3 : 10), n: 1,
         live: { type: 'facility' as const, place: f }, tint: k.colour, key: 'facility:' + f.id };
