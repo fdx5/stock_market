@@ -9,8 +9,17 @@ import * as THREE from "three";
  * the meshes, still culled cell by cell. A tile's trees leave its cell's meshes with the tile. */
 
 const CELL = 2;
-type Seg = { start: number; count: number };
-type Pool = { mesh: THREE.InstancedMesh; segs: Map<string, Seg>; total: number };
+/** Within a tile its trees are kept in blocks of this size (m), each block's instances together
+ * with a sphere round them: the renderer draws a pooled mesh as the runs of blocks in sight of
+ * the pass (the camera's, each shadow cascade's) — the same trees in view, not the cell's whole
+ * 680 m of them behind and beside the camera (the trees' vertices were most of the frame's GPU
+ * time on a phone). See MeshRenderer instanceRanges. */
+const BLOCK = 85;
+/** a block of a tile's trees: its offset in the tile's segment, its count and bounding sphere */
+type Block = { off: number; n: number; x: number; y: number; z: number; r: number };
+type Seg = { start: number; count: number; blocks: Block[] };
+/** a tile's runs in a pool: one for each of its meshes of that model, material and role */
+type Pool = { mesh: THREE.InstancedMesh; segs: Map<string, Seg[]>; total: number };
 
 export class PlantPool {
   readonly root = new THREE.Group();
@@ -44,11 +53,19 @@ export class PlantPool {
       const e = src.matrixWorld.elements, n = src.count, need = pool.total + n;
       if (need > pool.mesh.instanceMatrix.count) this.grow(pool, Math.ceil(need * 1.5));
       const dst = pool.mesh.instanceMatrix.array as Float32Array, srcM = src.instanceMatrix.array as Float32Array;
-      const m = new THREE.Matrix4(), w = new THREE.Matrix4().fromArray(e);
-      for (let k = 0; k < n; k++) { m.fromArray(srcM, k * 16).premultiply(w); m.toArray(dst, (pool.total + k) * 16); }
+      const w = new THREE.Matrix4().fromArray(e);
+      const placed = Array.from({ length: n }, (_, k) => new THREE.Matrix4().fromArray(srcM, k * 16).premultiply(w));
+      // (in blocks: the order of a tile's trees is free, the same trees drawn in another order)
+      const blockOf = (m: THREE.Matrix4) => `${Math.floor(m.elements[12] / BLOCK)},${Math.floor(m.elements[14] / BLOCK)}`;
+      const order = placed.map((m, k) => [blockOf(m), k] as const).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1])).map(([, k]) => k);
+      order.forEach((k, at) => placed[k].toArray(dst, (pool.total + at) * 16));
       const dc = pool.mesh.instanceColor!.array as Float32Array, sc = src.instanceColor?.array as Float32Array | undefined;
-      if (sc) dc.set(sc.subarray(0, n * 3), pool.total * 3); else dc.fill(1, pool.total * 3, need * 3);
-      pool.segs.set(tile, { start: pool.total, count: n });
+      if (sc) order.forEach((k, at) => dc.set(sc.subarray(k * 3, k * 3 + 3), (pool.total + at) * 3)); else dc.fill(1, pool.total * 3, need * 3);
+      // (a tile can bring two meshes of one key: each is its own run — one kept per tile left the
+      // first out of the pool's books, never taken out with the tile)
+      const seg = { start: pool.total, count: n, blocks: blocks(src.geometry, order.map(k => placed[k]), blockOf) };
+      const runs = pool.segs.get(tile);
+      if (runs) runs.push(seg); else pool.segs.set(tile, [seg]);
       pool.total = need; pool.mesh.count = need;
       this.touched(pool, pool.total - n, n);
       keys.add(key);
@@ -63,17 +80,21 @@ export class PlantPool {
     if (!keys) return;
     this.byTile.delete(tile);
     for (const key of keys) {
-      const pool = this.pools.get(key), seg = pool?.segs.get(tile);
-      if (!pool || !seg) continue;
+      const pool = this.pools.get(key), segs = pool?.segs.get(tile);
+      if (!pool || !segs) continue;
       pool.segs.delete(tile);
-      // (the later tiles' trees moved down over the gap)
-      const end = seg.start + seg.count, tail = pool.total - end;
-      const mA = pool.mesh.instanceMatrix.array as Float32Array, cA = pool.mesh.instanceColor!.array as Float32Array;
-      mA.copyWithin(seg.start * 16, end * 16, pool.total * 16); cA.copyWithin(seg.start * 3, end * 3, pool.total * 3);
-      for (const s of pool.segs.values()) if (s.start >= end) s.start -= seg.count;
-      pool.total -= seg.count; pool.mesh.count = pool.total;
+      // (the later runs' trees moved down over each gap, the last run first)
+      let from = pool.total;
+      for (const seg of [...segs].sort((a, b) => b.start - a.start)) {
+        const end = seg.start + seg.count;
+        const mA = pool.mesh.instanceMatrix.array as Float32Array, cA = pool.mesh.instanceColor!.array as Float32Array;
+        mA.copyWithin(seg.start * 16, end * 16, pool.total * 16); cA.copyWithin(seg.start * 3, end * 3, pool.total * 3);
+        for (const runs of pool.segs.values()) for (const s of runs) if (s.start >= end) s.start -= seg.count;
+        pool.total -= seg.count; from = seg.start;
+      }
+      pool.mesh.count = pool.total;
       if (!pool.total) { pool.mesh.removeFromParent(); pool.mesh.dispose(); this.pools.delete(key); continue; }
-      this.touched(pool, seg.start, tail);
+      this.touched(pool, from, pool.total - from);
     }
   }
 
@@ -100,9 +121,37 @@ export class PlantPool {
     if (count > 0) { im.addUpdateRange(start * 16, count * 16); ic.addUpdateRange(start * 3, count * 3); }
     im.needsUpdate = true; ic.needsUpdate = true;
     pool.mesh.computeBoundingSphere();
+    // the blocks in the pool's order, for the renderer (instanceRanges: start, count, sphere)
+    const list: number[] = [];
+    for (const seg of [...pool.segs.values()].flat().sort((a, b) => a.start - b.start)) for (const b of seg.blocks) list.push(seg.start + b.off, b.n, b.x, b.y, b.z, b.r);
+    pool.mesh.userData.instanceRanges = { total: pool.total, list: Float64Array.from(list) };
   }
   dispose() {
     for (const p of this.pools.values()) { p.mesh.removeFromParent(); p.mesh.dispose(); }
     this.pools.clear(); this.byTile.clear(); this.root.removeFromParent();
   }
+}
+
+/** A tile's trees (in their drawing order) as blocks: each block's run of instances and a sphere
+ * holding every tree of it whole (the model's own bounding sphere placed by each instance). */
+function blocks(geometry: THREE.BufferGeometry, placed: THREE.Matrix4[], blockOf: (m: THREE.Matrix4) => string): Block[] {
+  if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+  const gs = geometry.boundingSphere!, c = new THREE.Vector3(), out: Block[] = [];
+  let at = 0;
+  while (at < placed.length) {
+    const key = blockOf(placed[at]);
+    let end = at;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    while (end < placed.length && blockOf(placed[end]) === key) {
+      const m = placed[end];
+      c.copy(gs.center).applyMatrix4(m);
+      const r = gs.radius * m.getMaxScaleOnAxis();
+      lo[0] = Math.min(lo[0], c.x - r); lo[1] = Math.min(lo[1], c.y - r); lo[2] = Math.min(lo[2], c.z - r);
+      hi[0] = Math.max(hi[0], c.x + r); hi[1] = Math.max(hi[1], c.y + r); hi[2] = Math.max(hi[2], c.z + r);
+      end++;
+    }
+    out.push({ off: at, n: end - at, x: (lo[0] + hi[0]) / 2, y: (lo[1] + hi[1]) / 2, z: (lo[2] + hi[2]) / 2, r: Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2 });
+    at = end;
+  }
+  return out;
 }

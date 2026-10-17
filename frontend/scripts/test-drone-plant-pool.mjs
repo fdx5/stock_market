@@ -23,3 +23,23 @@ test('a tile\'s woodland is drawn from its cell\'s pool at the same places and t
   assert.ok(left.some(([x,z,r])=>x===170+2&&z===-510&&r===.6));
   pool.release('0,0');pool.release('0,1');meshes=0;pool.root.traverse(o=>{if(o.isInstancedMesh)meshes++;});assert.equal(meshes,0);
 });
+test('two meshes of one key from a tile both leave with it',()=>{
+  const pool=new PlantPool({addWarm:(p,o)=>p.add(o)});
+  const a=grove(170,170,4,.2);a.add(grove(0,0,3,.3).children[0]);a.updateMatrixWorld(true);
+  pool.adopt('0,0',0,0,a);pool.adopt('1,0',1,0,grove(510,170,2,.4));
+  assert.equal(world(pool).length,9);
+  pool.release('0,0');
+  const left=world(pool);assert.equal(left.length,2);assert.ok(left.every(([,,r])=>r===.4));
+});
+test('the pool\'s blocks cover every tree, in order, each tree inside its block\'s sphere',()=>{
+  const pool=new PlantPool({addWarm:(p,o)=>p.add(o)});
+  const spread=(cx,cy,n,tint)=>{const g=grove(cx,cy,n,tint);const m=g.children[0];for(let k=0;k<n;k++)m.setMatrixAt(k,new THREE.Matrix4().makeTranslation((k*37)%300-150,0,(k*53)%300-150));g.updateMatrixWorld(true);return g;};
+  pool.adopt('0,0',0,0,spread(170,170,40,.2));pool.adopt('1,0',1,0,spread(510,170,30,.4));pool.adopt('0,1',0,1,spread(170,510,25,.6));
+  const check=()=>{pool.root.traverse(o=>{if(!o.isInstancedMesh)return;const r=o.userData.instanceRanges;assert.equal(r.total,o.count);
+    let next=0;const L=r.list;geo.computeBoundingSphere();const gs=geo.boundingSphere;
+    for(let i=0;i<L.length;i+=6){assert.equal(L[i],next);next+=L[i+1];
+      for(let k=L[i];k<L[i]+L[i+1];k++){const m=new THREE.Matrix4();o.getMatrixAt(k,m);const c=gs.center.clone().applyMatrix4(m);
+        assert.ok(c.distanceTo(new THREE.Vector3(L[i+2],L[i+3],L[i+4]))+gs.radius*m.getMaxScaleOnAxis()<=L[i+5]+1e-6);}}
+    assert.equal(next,o.count);});};
+  check();pool.release('1,0');check();pool.release('0,0');check();
+});

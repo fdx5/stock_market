@@ -24,6 +24,9 @@ import { Frustum, Matrix4, Sphere, Vector3 } from '../math/index.js';
 const _sphere = new Sphere();
 const _frustum = new Frustum();
 const _vp = new Matrix4();
+const _runVP = new Matrix4();
+const _runInv = new Matrix4();
+const _runSphere = new Sphere();
 const _v = new Vector3();
 const _camPos = new Vector3();
 
@@ -691,6 +694,43 @@ export class MeshRenderer {
 
 	}
 
+	// (local modification) An instanced mesh with `instanceRanges` ({ total, list: start, count,
+	// x, y, z, radius per block, in instance order }: the drone's pooled woodland) is drawn as the
+	// runs of its blocks that intersect the pass's frustum — firstInstance at each run's start, so
+	// every instance keeps its index and its data — instead of all its instances. The trees out of
+	// sight were most of the vertices of the plants and shadow passes. Returns null to draw all.
+	_instanceRuns( o, pass ) {
+
+		const ranges = o.instanceRanges;
+		if ( ! ranges || this.precompiling || this.noRuns || ! pass.camera || ranges.total !== o.count ) return null;
+		// (the pass's frustum, worked out by its first such mesh)
+		let f = pass.__runFrustum;
+		if ( ! f || pass.__runFrame !== GPU.frame ) {
+
+			const camera = pass.camera;
+			_runVP.multiplyMatrices( camera.projectionMatrix, _runInv.copy( camera.matrixWorld ).invert() );
+			f = pass.__runFrustum = ( f ?? new Frustum() ).setFromProjectionMatrix( _runVP, camera.reversedDepth !== false );
+			pass.__runFrame = GPU.frame;
+
+		}
+		const list = ranges.list, runs = o.__runs ??= [];
+		runs.length = 0;
+		const m = o.matrixWorld, scale = m.getMaxScaleOnAxis();
+		for ( let i = 0; i < list.length; i += 6 ) {
+
+			_runSphere.center.set( list[ i + 2 ], list[ i + 3 ], list[ i + 4 ] ).applyMatrix4( m );
+			// (a little slack: the jitter of the frame's projection, rounding)
+			_runSphere.radius = list[ i + 5 ] * scale + 1;
+			if ( ! f.intersectsSphere( _runSphere ) ) continue;
+			const start = list[ i ], n = list[ i + 1 ];
+			if ( runs.length && runs[ runs.length - 2 ] + runs[ runs.length - 1 ] === start ) runs[ runs.length - 1 ] += n;
+			else runs.push( start, n );
+
+		}
+		return runs;
+
+	}
+
 	_inFrustum( o ) {
 
 		let s = null;
@@ -897,9 +937,13 @@ export class MeshRenderer {
 			// once per completed batch. Reuse their verified bundles after two
 			// frames; animated populations retain the sixty-frame stability gate.
 			const steady = ! geo.indirect && GPU.frame - o.__bundleShapeAt > ( geo.userData?.surveyMaterial !== undefined ? 1 : 60 );
+			const runs = o.isInstancedMesh ? this._instanceRuns( o, pass ) : null;
+			if ( runs && ! runs.length ) continue; // none of its blocks in sight
 			const row = rows[ rowCount ] ??= {};
 			row.it = it; row.o = o; row.geo = geo; row.pipeline = pipeline; row.group = group;
 			row.offset = offset; row.vbs = vbs; row.instances = instances; row.index = index; row.steady = steady;
+			// (the runs of a split draw: a copy, the mesh's own list is rewritten by the next pass)
+			if ( runs ) { const rr = row.runs ??= []; rr.length = runs.length; for ( let i = 0; i < runs.length; i ++ ) rr[ i ] = runs[ i ]; } else row.runs = null;
 			rowCount ++;
 
 		}
@@ -934,6 +978,7 @@ export class MeshRenderer {
 			for ( const r of segment ) {
 
 				key.push( - 1, _gpuId( r.pipeline ), _gpuId( r.group ), r.offset, r.instances, r.it.start, r.it.count, r.vbs.length );
+				if ( r.runs ) { key.push( - 2, r.runs.length ); for ( const v of r.runs ) key.push( v ); }
 				for ( const b of r.vbs ) key.push( _gpuId( b ) );
 				if ( r.index ) key.push( _gpuId( r.index.buffer ), r.index.format === 'uint32' ? 2 : 1, r.geo.index ? r.geo.index.count : - 2 );
 				else key.push( 0, 0, r.geo.attributes.position ? r.geo.attributes.position.count : r.geo.vertexCount );
@@ -967,7 +1012,7 @@ export class MeshRenderer {
 				for ( const r of segment ) {
 					const total = r.index ? r.geo.index.count : r.geo.attributes.position?.count ?? r.geo.vertexCount;
 					this.stats.draws ++;
-					this.stats.triangles += Math.max( 0, Math.min( r.it.count, total - r.it.start ) ) / 3 * r.instances;
+					this.stats.triangles += Math.max( 0, Math.min( r.it.count, total - r.it.start ) ) / 3 * _drawnInstances( r );
 				}
 
 			}
@@ -1042,6 +1087,8 @@ export class MeshRenderer {
 			let c = cache.get( r.o );
 			let same = !! c && c.group0 === pass.group0 && c.drawGroup === this.drawBindGroup && c.pipeline === r.pipeline && c.group === r.group && c.offset === r.offset && c.instances === r.instances && c.start === r.it.start && c.count === r.it.count && c.total === total && c.indexBuffer === ( r.index?.buffer ?? null ) && c.indexFormat === r.index?.format && c.vbs.length === r.vbs.length;
 			if ( same ) for ( let i = 0; i < r.vbs.length; i ++ ) if ( c.vbs[ i ] !== r.vbs[ i ] ) { same = false; break; }
+			if ( same && ( c.runs?.length ?? - 1 ) !== ( r.runs?.length ?? - 1 ) ) same = false;
+			if ( same && r.runs ) for ( let i = 0; i < r.runs.length; i ++ ) if ( c.runs[ i ] !== r.runs[ i ] ) { same = false; break; }
 			if ( ! same ) {
 				const be = GPU.device.createRenderBundleEncoder( {
 					label: ( pass.label || pass.kind ) + ' bundle', colorFormats: pass.colorFormats,
@@ -1049,11 +1096,11 @@ export class MeshRenderer {
 				} );
 				be.setBindGroup( 0, pass.group0 );
 				this._drawRow( be, r, { pipeline: null, group: null } );
-				c = { bundle: be.finish(), at: GPU.frame, group0: pass.group0, drawGroup: this.drawBindGroup, pipeline: r.pipeline, group: r.group, offset: r.offset, instances: r.instances, start: r.it.start, count: r.it.count, total, indexBuffer: r.index?.buffer ?? null, indexFormat: r.index?.format, vbs: r.vbs.slice() };
+				c = { bundle: be.finish(), at: GPU.frame, group0: pass.group0, drawGroup: this.drawBindGroup, pipeline: r.pipeline, group: r.group, offset: r.offset, instances: r.instances, start: r.it.start, count: r.it.count, total, indexBuffer: r.index?.buffer ?? null, indexFormat: r.index?.format, vbs: r.vbs.slice(), runs: r.runs ? r.runs.slice() : null };
 				cache.set( r.o, c ); this.stats.bundleBuilds++; this.stats.bundleEncodedDraws++;
 			} else {
 				this.stats.draws++;
-				this.stats.triangles += Math.max( 0, Math.min( r.it.count, total - r.it.start ) ) / 3 * r.instances;
+				this.stats.triangles += Math.max( 0, Math.min( r.it.count, total - r.it.start ) ) / 3 * _drawnInstances( r );
 			}
 			c.at = GPU.frame; pending.push( c.bundle );
 		}
@@ -1093,16 +1140,26 @@ export class MeshRenderer {
 			const count = Math.min( it.count, geo.index.count - it.start );
 			if ( count <= 0 ) return;
 			enc.setIndexBuffer( index.buffer, index.format );
-			enc.drawIndexed( count, instances === Infinity ? 1 : instances, it.start, 0, 0 );
-			this.stats.triangles += count / 3 * instances;
+			if ( r.runs ) {
+
+				for ( let i = 0; i < r.runs.length; i += 2 ) enc.drawIndexed( count, r.runs[ i + 1 ], it.start, 0, r.runs[ i ] );
+				this.stats.triangles += count / 3 * _drawnInstances( r );
+
+			} else {
+
+				enc.drawIndexed( count, instances === Infinity ? 1 : instances, it.start, 0, 0 );
+				this.stats.triangles += count / 3 * instances;
+
+			}
 
 		} else {
 
 			const total = geo.attributes.position ? geo.attributes.position.count : geo.vertexCount;
 			const count = Math.min( it.count, total - it.start );
 			if ( count <= 0 ) return;
-			enc.draw( count, instances, it.start, 0 );
-			this.stats.triangles += count / 3 * instances;
+			if ( r.runs ) for ( let i = 0; i < r.runs.length; i += 2 ) enc.draw( count, r.runs[ i + 1 ], it.start, r.runs[ i ] );
+			else enc.draw( count, instances, it.start, 0 );
+			this.stats.triangles += count / 3 * _drawnInstances( r );
 
 		}
 
@@ -1162,6 +1219,8 @@ export class MeshRenderer {
 			for ( let i = 0; i < vl.buffers.length; i ++ ) rp.setVertexBuffer( i, this._attributeBuffer( geo, vl.buffers[ i ].attr ) );
 			const instances = o.isInstancedMesh ? o.count : geo.instanceCount ?? 1;
 			if ( instances === 0 ) continue;
+			const runs = o.isInstancedMesh ? this._instanceRuns( o, pass ) : null;
+			if ( runs && ! runs.length ) continue;
 			const index = this._indexBuffer( geo );
 			if ( geo.indirect ) {
 
@@ -1187,7 +1246,8 @@ export class MeshRenderer {
 				const count = Math.min( it.count, geo.index.count - it.start );
 				if ( count <= 0 ) continue;
 				rp.setIndexBuffer( index.buffer, index.format );
-				rp.drawIndexed( count, instances === Infinity ? 1 : instances, it.start, 0, 0 );
+				if ( runs ) for ( let i = 0; i < runs.length; i += 2 ) rp.drawIndexed( count, runs[ i + 1 ], it.start, 0, runs[ i ] );
+				else rp.drawIndexed( count, instances === Infinity ? 1 : instances, it.start, 0, 0 );
 				this.stats.triangles += count / 3 * instances;
 
 			} else {
@@ -1195,7 +1255,8 @@ export class MeshRenderer {
 				const total = geo.attributes.position ? geo.attributes.position.count : geo.vertexCount;
 				const count = Math.min( it.count, total - it.start );
 				if ( count <= 0 ) continue;
-				rp.draw( count, instances, it.start, 0 );
+				if ( runs ) for ( let i = 0; i < runs.length; i += 2 ) rp.draw( count, runs[ i + 1 ], it.start, runs[ i ] );
+				else rp.draw( count, instances, it.start, 0 );
 				this.stats.triangles += count / 3 * instances;
 
 			}
@@ -1205,6 +1266,16 @@ export class MeshRenderer {
 		}
 
 	}
+
+}
+
+// instances a row draws: all of them, or the sum of its runs
+function _drawnInstances( r ) {
+
+	if ( ! r.runs ) return r.instances;
+	let n = 0;
+	for ( let i = 1; i < r.runs.length; i += 2 ) n += r.runs[ i ];
+	return n;
 
 }
 

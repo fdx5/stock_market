@@ -1821,6 +1821,8 @@ export class ComplexRenderer {
       // of geometry/matrix identity; a first-admission sphere would wrongly cull
       // the updated structure. The same rule applies to other static batches.
       if(obj.isInstancedMesh){if(obj.frustumCulled&&!obj.boundingSphere)obj.computeBoundingSphere();mesh.boundingSphere=obj.boundingSphere;}
+      // (a pooled mesh's instances in blocks, each with its sphere: drawn as the blocks in sight)
+      if(obj.isInstancedMesh)mesh.instanceRanges=obj.frustumCulled?obj.userData.instanceRanges:undefined;
       const moved = mesh.count !== (obj.count ?? 1) || mesh.instVersion !== obj.instanceMatrix?.version || !sameMatrix(mesh.matrix, obj.matrixWorld);
       if (moved) {
         if (mesh.castShadow && !mesh.moving) this.castersChanged = true;
