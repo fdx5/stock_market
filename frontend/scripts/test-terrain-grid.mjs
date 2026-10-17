@@ -31,3 +31,8 @@ test('tile-grid transfer preserves Float32 heights and cached source buffers',()
  for(let j=0;j<job.n;j++)for(let i=0;i<job.n;i++)expected[j*job.n+i]=before(job.lon+(job.cx-job.R+i*job.cell)/job.kx,job.lat+(job.cy-job.R+j*job.cell)/job.ky)-job.base;
  assert.deepEqual(actual,expected);tiles.forEach((t,i)=>assert.deepEqual(t,saved[i]));
 });
+test('actual terrain worker grid honours the departure grade without mutating its retained anchor',()=>{
+ const anchor={h:new Float32Array(501*501).fill(8),n:501,R:1000,cell:4,half:680},saved=anchor.h.slice();
+ const job={posts,lon:(tx0+1.5)*tileSize-180,lat:(ty0+1.5)*tileSize-90,kx:90000,ky:110540,base:75,cx:680,cy:0,R:8,cell:4,n:5,anchor};
+ const actual=fillTerrainGrid(structuredClone(job));assert.ok(actual.every(h=>h===8));assert.deepEqual(anchor.h,saved);
+});

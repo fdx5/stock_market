@@ -181,7 +181,7 @@ function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile) {
             for (const [px, py] of ring) { x0 = Math.min(x0, px); y0 = Math.min(y0, py); x1 = Math.max(x1, px); y1 = Math.max(y1, py); }
             // Adjacent footprints constrain the full road/sidewalk width even
             // when their centroid and walls lie just outside this tile.
-            if (x1 < job.box[0]-60 || y1 < job.box[1]-60 || x0 > job.box[2]+60 || y0 > job.box[3]+60) continue;
+            if (x1 < job.box[0]-100 || y1 < job.box[1]-100 || x0 > job.box[2]+100 || y0 > job.box[3]+100) continue;
           } else if (d > job.outer || known(cx, cy) || (d < job.inner && near.size)) continue;
           cands.push({ ring, area: Math.abs(area), cx, cy, d, props, linked: !!props.usability || /^(19|20)\d{2}/.test(props.useapr_day || ""), holes });
         }
@@ -452,7 +452,7 @@ export function ringBuildings(data: RealEstateBuildingsResponse, near: Float32Ar
  * same facades as the ring; with every roof over the box on a `heightCell` grid (collisions). The
  * terrain is the tile's own grid, centred at (ox, oy). */
 export function ringTile(lat: number, lon: number, key: string, domain: string | null | undefined, box: [number, number, number, number], grid: { h: Float32Array; n: number; R: number; cell: number; ox: number; oy: number }, opts: { inner: number; floorM: Record<string, number>; seed: number; heightCell?: number; signal?: AbortSignal }): Promise<RingResult | null> {
-  const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540, m = 60;
+  const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540, m = 100;
   const q = `BOX(${lon + (box[0] - m) / kx},${lat + (box[1] - m) / ky},${lon + (box[2] + m) / kx},${lat + (box[3] + m) / ky})`;
   const urls = Array.from({ length: 8 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
     service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true",

@@ -1,5 +1,6 @@
 import type {RealEstateRoad} from '../api/client';
 import {roadLevel} from './roadLevels';
+import {surfaceGeometry} from './surfaceGeometry';
 type Point=[number,number];
 /** Same three-metre knots and edge normals as rendered asphalt, including
  * filled junctions. Used to exclude pavements from the actual carriageway. */
@@ -8,7 +9,8 @@ export function roadFootprints(roads:readonly RealEstateRoad[]):Point[][]{
  for(const r of roads){const pts:Point[]=[];
   for(let i=1;i<r.line.length;i++){const a=r.line[i-1],b=r.line[i],len=Math.hypot(b[0]-a[0],b[1]-a[1]);for(let d=0;d<len;d+=3)pts.push([a[0]+(b[0]-a[0])*d/len,a[1]+(b[1]-a[1])*d/len]);}
   if(r.line.length<2)continue;pts.push(r.line[r.line.length-1]);
-  const edge=pts.map((p,i)=>{const a=pts[Math.max(0,i-1)],b=pts[Math.min(pts.length-1,i+1)],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1,w=r.width/2;return [[p[0]-dy/l*w,p[1]+dx/l*w],[p[0]+dy/l*w,p[1]-dx/l*w]] as [Point,Point];});
+  const normals=surfaceGeometry.miters(pts);
+  const edge=pts.map((p,i)=>{const [nx,ny]=normals[i],w=r.width/2;return [[p[0]+nx*w,p[1]+ny*w],[p[0]-nx*w,p[1]-ny*w]] as [Point,Point];});
   for(let i=1;i<edge.length;i++){const a=edge[i-1],b=edge[i];out.push([a[0],a[1],b[1]],[a[0],b[1],b[0]]);}
  }
  return out.concat(roadJunctionHulls([...roads]));

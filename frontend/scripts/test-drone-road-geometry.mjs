@@ -30,10 +30,22 @@ test('streamed ground roads use the same registered building clearance as the in
 test('streamed paving clears saddle terrain and keeps each vertical kerb exactly fifteen centimetres high',async()=>{
  const g=grid((x,y)=>(Math.round(x/4)+Math.round(y/4))%2===0?3:0),{out}=await run([road([[-150,-30],[150,30]],24)],[],undefined,g);
  assert.ok(out?.walks);const {position:p,index:ix}=out.walks;let tops=0,kerbs=0;
+ const ground=(x,y)=>{const gx=(x+g.R)/g.cell,gy=(y+g.R)/g.cell,i=Math.floor(gx),j=Math.floor(gy),fx=gx-i,fy=gy-j,a=j*g.n+i,b=a+1,c=a+g.n,d=c+1,h=out.ground;return fx>=fy?h[a]*(1-fx)+h[b]*(fx-fy)+h[d]*fy:h[a]*(1-fy)+h[d]*fx+h[c]*(fy-fx);};
  for(let k=0;k<ix.length;k+=3){const ids=Array.from(ix.subarray(k,k+3)),a=ids.map(i=>[p[i*3],p[i*3+1],p[i*3+2]]),area=(a[1][0]-a[0][0])*(a[2][1]-a[0][1])-(a[1][1]-a[0][1])*(a[2][0]-a[0][0]);
-  if(Math.abs(area)<1e-6){kerbs++;const same=a.find((q,i)=>a.some((r,j)=>i!==j&&Math.hypot(q[0]-r[0],q[1]-r[1])<1e-6&&Math.abs(q[2]-r[2])>.1));assert.ok(same);}
-  else {tops++;for(const q of a)assert.ok(q.every(Number.isFinite));}
+  if(Math.abs(area)<1e-6){for(let i=0;i<3;i++)for(let j=i+1;j<3;j++)if(Math.hypot(a[i][0]-a[j][0],a[i][1]-a[j][1])<1e-6){const h=Math.abs(a[i][2]-a[j][2]);assert.ok(h<=.15001);if(h>.14999)kerbs++;}}
+  else {tops++;for(const w of [[1/3,1/3,1/3],[.6,.2,.2],[.2,.6,.2],[.2,.2,.6]]){const q=[0,1,2].map(k=>a.reduce((s,p,i)=>s+p[k]*w[i],0));assert.ok(q.every(Number.isFinite));assert.ok(q[2]>=ground(q[0],q[1])+.1699);}}
  }assert.ok(tops>20&&kerbs>20);
+});
+test('road width crossing a tile boundary is complete even when its centreline lies outside that tile',async()=>{
+ const box=[-100,-100,100,0],{out}=await run([road([[-150,10],[150,10]],24)],[],box);assert.ok(out?.surface);
+ const p=out.surface.position;let low=Infinity,high=-Infinity;for(let k=0;k<p.length;k+=3){low=Math.min(low,p[k+1]);high=Math.max(high,p[k+1]);assert.ok(p[k]>=-100.0001&&p[k]<=100.0001);}
+ near(low,-2);near(high,0);
+});
+test('adjacent tile surfaces and lanes stay inside their owner bounds and meet without a width gap',async()=>{
+ const source=[road([[-180,-40],[20,0],[180,50]],24)],boxes=[[-100,-100,0,100],[0,-100,100,100]],outs=[];
+ for(const box of boxes){const {out}=await run(source,[],box);outs.push(out);for(const key of ['surface','marks','walks','structure'])if(out[key]){const p=out[key].position;for(let k=0;k<p.length;k+=3)assert.ok(p[k]>=box[0]-.0001&&p[k]<=box[2]+.0001&&p[k+1]>=box[1]-.0001&&p[k+1]<=box[3]+.0001,key);}
+  for(let k=0;k<out.lanes.length;){const n=out.lanes[k];for(let i=0;i<n;i++){const x=out.lanes[k+2+i*3],y=out.lanes[k+3+i*3];assert.ok(x>=box[0]-.0001&&x<=box[2]+.0001&&y>=box[1]-.0001&&y<=box[3]+.0001);}k+=2+n*3;}}
+ const edges=outs.map(o=>{const p=o.surface.position,ys=[];for(let i=0;i<p.length;i+=3)if(Math.abs(p[i])<.0001)ys.push(p[i+1]);return [Math.min(...ys),Math.max(...ys)];});near(edges[0][0],edges[1][0],.001);near(edges[0][1],edges[1][1],.001);assert.ok(edges[0][1]-edges[0][0]>20);
 });
 test('ordinary terrain-following roads never generate blanket retaining walls',async()=>{
  const {out}=await run([road([[-150,0],[150,0]],12)],[],undefined,grid((x,y)=>x*.08+Math.sin(x/13)*2+y*.12));

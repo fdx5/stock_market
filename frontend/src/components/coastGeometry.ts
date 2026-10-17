@@ -5,7 +5,7 @@ import type {CoastData} from './coastField';
 type Box = [number, number, number, number];
 /** Subtract a world x/north box from sea triangles only, with exact interpolated cut edges.
  * Rivers, coastline/island outlines and the source geometry are preserved. */
-export function seaOutsideBox(source: THREE.BufferGeometry, box: Box, matrix = new THREE.Matrix4(), inside = false) {
+export function seaOutsideBox(source: THREE.BufferGeometry, box: Box, matrix = new THREE.Matrix4(), inside = false, preserveVertical=false) {
   const pos = source.getAttribute('position'), sea = source.getAttribute('aSea'), index = source.getIndex();
   if (!pos || !index) return source.clone();
   const attrs = Object.entries(source.attributes) as [string, THREE.BufferAttribute][];
@@ -52,7 +52,8 @@ export function seaOutsideBox(source: THREE.BufferGeometry, box: Box, matrix = n
   const fan = (ring: Vertex[]) => {
     for (let j = 1; j + 1 < ring.length; j++) {
       const a = ring[0], b = ring[j], c = ring[j + 1];
-      if (Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) < 1e-8) continue;
+      if(preserveVertical){const u=[0,1,2].map(i=>b.data[pOffset+i]-a.data[pOffset+i]),v=[0,1,2].map(i=>c.data[pOffset+i]-a.data[pOffset+i]);if(Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])<1e-9)continue;}
+      else if (Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) < 1e-8) continue;
       outIndex.push(push(a), push(b), push(c));
     }
   };

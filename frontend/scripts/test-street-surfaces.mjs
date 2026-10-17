@@ -11,10 +11,19 @@ function load(name,extra={}){
 }
 const {syncGroundRelief,drapeRoadSurface}=load('roadDrape.ts');
 const {excludeSurface}=load('surfaceExclusion.ts');
-const {cutSceneSurface}=load('surfaceCutClient.ts',{sceneWork:()=>null,excludeSurface});
+const {seaOutsideBox}=load('coastGeometry.ts');
+const {cutSceneSurface,clipSceneStreetBox}=load('surfaceCutClient.ts',{sceneWork:()=>null,excludeSurface,seaOutsideBox});
 const {fitTileStreetSurfaces}=load('tileStreetSurfaces.ts',{cutSceneSurface});
+const {anchoredTerrainHeight}=load('terrainGrid.ts');
 const go=async()=>true;
 const rectangle=(x0,y0,x1,y1)=>[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
+test('streamed terrain agrees with the departure grade at its boundary and returns smoothly to DEM within 128 metres',()=>{
+ const n=501,cell=4,R=1000,anchor={h:Float32Array.from({length:n*n},(_,k)=>8+((k%n)*cell-R)*.01),n,cell,R,half:680};
+ for(const x of [679.99,680,680.01,700])assert.ok(Math.abs(anchoredTerrainHeight(anchor,x,0,25)-(8+x*.01))<1e-5);
+ assert.equal(anchoredTerrainHeight(anchor,808,0,25),25);assert.equal(anchoredTerrainHeight(anchor,900,0,25),25);
+ let previous=anchoredTerrainHeight(anchor,712,0,25);for(let x=713;x<=808;x++){const z=anchoredTerrainHeight(anchor,x,0,25);assert.ok(z>=previous&&z-previous<.2);previous=z;}
+ assert.equal(anchoredTerrainHeight(undefined,0,0,25),25);
+});
 function ground(){const g=new THREE.PlaneGeometry(4,4);g.userData.grid={xs:new Float64Array([-2,2]),ys:new Float64Array([2,-2])};return g;}
 test('late road grading reaches a clipped drone ground copy on the exact DEM triangles, without refilling water',async()=>{
  const source=ground(),p=source.attributes.position;[4,0,0,4].forEach((z,i)=>p.setZ(i,z));
@@ -58,6 +67,19 @@ test('a vertical kerb crossing a carriageway is clipped but a kerb on its bounda
  const boundary=make(2),saved=boundary.attributes.position;await excludeSurface(boundary,[rectangle(-2,-2,2,2)],go,true);assert.equal(boundary.attributes.position,saved);crossing.dispose();boundary.dispose();
 });
 function surface(x0,y0,x1,y1,z=0){const g=new THREE.PlaneGeometry(x1-x0,y1-y0).translate((x0+x1)/2,(y0+y1)/2,z),p=g.attributes.position.array;const a={position:p,normal:g.attributes.normal.array,index:new Uint32Array(g.index.array),level:new Float32Array(p.length/3)};g.dispose();return a;}
+test('departure road and bridge width clips to the ground square with UVs, profiles and levels preserved',async()=>{
+ const g=new THREE.PlaneGeometry(20,20).rotateX(-Math.PI/2).translate(0,7,0).toNonIndexed();
+ g.setAttribute('roadLevel',new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count).fill(1),1));
+ g.setAttribute('roadProfile',new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count).fill(17),1));
+ await clipSceneStreetBox(g,[-4,-3,4,3],go);assert.equal(g.index,null,'consecutive asphalt remains eligible for the WASM road BVH');const p=g.attributes.position,uv=g.attributes.uv;
+ for(let i=0;i<p.count;i++){assert.ok(Math.abs(p.getX(i))<=4.0001&&Math.abs(p.getZ(i))<=3.0001);assert.equal(p.getY(i),7);assert.equal(g.attributes.roadProfile.getX(i),17);assert.equal(g.attributes.roadLevel.getX(i),1);assert.ok(Math.abs(uv.getX(i)-(p.getX(i)/20+.5))<1e-6);}
+ g.dispose();
+});
+test('departure boundary clipping retains the vertical kerb face and its fifteen centimetre rise',async()=>{
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute([-5,0,0,5,0,0,5,.15,0,-5,0,0,5,.15,0,-5,.15,0],3));
+ await clipSceneStreetBox(g,[-2,-2,2,2],go);const p=g.attributes.position;assert.ok(p.count>=6);let low=Infinity,high=-Infinity;
+ for(let i=0;i<p.count;i++){assert.ok(Math.abs(p.getX(i))<=2.0001);low=Math.min(low,p.getY(i));high=Math.max(high,p.getY(i));}assert.ok(Math.abs(high-low-.15)<1e-6);g.dispose();
+});
 test('streamed asphalt, paint and paving share exact building and carriageway exclusions',async()=>{
  const roads={surface:surface(-20,-4,20,4),marks:{...surface(-20,-.1,20,.1,.03),color:new Float32Array(12).fill(1)},marksFar:null,walks:surface(-20,-8,20,8,.15)};
  const building=rectangle(-2,-2,2,2),guard=await fitTileStreetSurfaces(roads,[building],go);

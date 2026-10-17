@@ -1292,6 +1292,8 @@ export interface RealEstateBuildingsResponse {
   roads?: RealEstateRoad[];
   /** Above-ground building boundaries covering the complete road query area. */
   road_building_footprints?: [number, number][][];
+  /** Client street/terrain ownership revision, independent of provider metadata. */
+  road_surface_version?:number;
   road_context?: { source: string; fetched_at: string; coverage: 'complete' | 'partial'; links: number; matched: number; total: number;
     rivers: { id: string; name: string; rings: [number, number][][] }[] };
   /** 연속지적도 parcels around the complex with their 지목 (대, 도, 공, 학, 천, 임 …),

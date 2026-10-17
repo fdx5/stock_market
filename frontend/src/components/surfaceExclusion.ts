@@ -47,7 +47,10 @@ export async function excludeSurface(geometry:THREE.BufferGeometry,rings:readonl
   }
   for(const poly of pieces)for(let i=1;i+1<poly.length;i++){
    const a=poly[0],b=poly[i],c=poly[i+1],u=[0,1,2].map(k=>b[po+k]-a[po+k]),v=[0,1,2].map(k=>c[po+k]-a[po+k]);
-   if(Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])<1e-9)continue;
+   const twiceArea=Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]),longest=Math.max(Math.hypot(...u),Math.hypot(...v),Math.hypot(...u.map((x,i)=>x-v[i])));
+   // Float32 survey coordinates create sub-millimetre slivers at shared edges.
+   // They carry no visible surface and needlessly split paving into triangles.
+   if(twiceArea<Math.max(1e-9,longest*.0001)){changed=true;continue;}
    for(const p of [a,b,c])attributes.forEach(([,a],j)=>{for(let v=0;v<a.itemSize;v++)outputs[j].push(p[offsets[j]+v]);});
   }
  }

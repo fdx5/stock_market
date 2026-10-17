@@ -19,7 +19,7 @@ for(const bvhEnabled of [false,true])test(`new roads use new region coordinates 
     marksGen: 0, alive: true, roadTerrain: {}, physicalFootprints: [], groundGeo: {},roadWater:null,laidWater:null,
     roadBvhAbort:null,roadBvhEnabled:()=>bvhEnabled,
     buildRoadBvh:async()=>{assert.equal(oldDisposed,0);return {parts:[],buildMs:1,workers:1};},roadBvhIndex:()=>({query:()=>[]}),
-    cutSceneSurface: async () => {},cutGroundToRoads:async()=>{}, textureBudgetEnabled: () => false, drapeRoadSurface: async () => {},
+    cutSceneSurface: async () => {},clipSceneStreetBox:async()=>{},roadFootprints:()=>[],pavementExclusions:[],FAR_HALF:680,cutGroundToRoads:async()=>{}, textureBudgetEnabled: () => false, drapeRoadSurface: async () => {},
     buildRoadSurface: async roads => { calls.push(roads); return make(); },
     buildRoadMarkings: async roads => { calls.push(roads); return make(); },
     raiseRoadPaint: async () => {}, roadLayer: oldLayer, decor,

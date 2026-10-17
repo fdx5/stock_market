@@ -15,6 +15,31 @@ export function terrainSurfaceClearance(){
   }return polygon;
  };
  const weights=(triangle:P[],p:P)=>{const d=cross(triangle[0],triangle[1],triangle[2]),u=cross(triangle[0],p,triangle[2])/d,v=cross(triangle[0],triangle[1],p)/d;return[1-u-v,u,v];};
+ /** Surface ownership follows tile bounds, including road width. Clipping just
+  * the centreline leaves asphalt over a neighbour's independently graded DEM. */
+ const clipBox=(input:Surface|null,box:readonly number[]):Surface|null=>{
+  if(!input)return null;
+  const p:number[]=[],n:number[]=[],c:number[]=[],l:number[]=[],idx:number[]=[],originals=new Map<number,number>();let changed=false;
+  const vertex=(id:number)=>[...input.position.subarray(id*3,id*3+3),...input.normal.subarray(id*3,id*3+3),...(input.color?Array.from(input.color.subarray(id*3,id*3+3)):[])];
+  const emit=(v:number[],level:number)=>{const id=p.length/3;p.push(v[0],v[1],v[2]);n.push(v[3],v[4],v[5]);if(input.color)c.push(v[6],v[7],v[8]);if(input.level)l.push(level);idx.push(id);};
+  for(let k=0;k<input.index.length;k+=3){const ids=Array.from(input.index.subarray(k,k+3)),level=input.level?.[ids[0]]??0;
+   let poly=ids.map(vertex);
+   if(poly.every(v=>v[0]>=box[0]-1e-7&&v[0]<=box[2]+1e-7&&v[1]>=box[1]-1e-7&&v[1]<=box[3]+1e-7)){
+    for(const id of ids){const old=originals.get(id);if(old!==undefined)idx.push(old);else{originals.set(id,p.length/3);emit(vertex(id),level);}}continue;
+   }
+   changed=true;
+   for(const [axis,bound,sign]of [[0,box[0],1],[0,box[2],-1],[1,box[1],1],[1,box[3],-1]]){
+    const out:number[][]=[];for(let i=0;i<poly.length;i++){const a=poly[i],b=poly[(i+1)%poly.length],da=(a[axis]-bound)*sign,db=(b[axis]-bound)*sign;
+     if(da>=0)out.push(a);if((da>=0)!==(db>=0)){const t=da/(da-db);out.push(a.map((v,j)=>v+(b[j]-v)*t));}}
+    poly=out;if(!poly.length)break;
+   }
+   for(let i=1;i+1<poly.length;i++){const a=poly[0],b=poly[i],c=poly[i+1],u=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],v=[c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+    if(Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])<1e-9)continue;
+    for(const q of [a,b,c])emit(q,level);
+   }
+  }
+  return changed?{position:new Float32Array(p),normal:new Float32Array(n),index:new Uint32Array(idx),...(input.color?{color:new Float32Array(c)}:{}),...(input.level?{level:new Float32Array(l)}:{})}:input;
+ };
  const drape=(input:Surface|null,g:Grid,lift=.02):Surface|null=>{
   if(!input)return null;
   const positions:number[]=[],normals:number[]=[],colours:number[]=[],levels:number[]=[],indices:number[]=[],originals=new Map<number,number>(),p=input.position,x0=g.ox-g.R,y0=g.oy-g.R;let changed=false;
@@ -78,5 +103,5 @@ export function terrainSurfaceClearance(){
    }if(raise>0)for(const id of ids)p[id*3+2]+=raise;
   }
  };
- return{drape,index,raisePaint};
+ return{drape,index,raisePaint,clipBox};
 }

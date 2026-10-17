@@ -469,15 +469,18 @@ function roadWorkerMain() {
         }
         k = e2;
       }
-      // cut to the tile
+      // Include centrelines whose width reaches this tile. Final triangles are
+      // clipped to tile bounds, so adjacent road/terrain owners meet exactly.
       const normals=rules.miters(pts);
+      const pad=r.width/2+(r.width>=30?5:r.width>=20?4:r.width>=12?3:2.25)+2;
+      const roadBox=[box[0]-pad,box[1]-pad,box[2]+pad,box[3]+pad];
       let run:number[][]=[],runZ:number[]=[],runKind:number[]=[],runOwners:(Seg|null)[]=[],runNormals:number[][]=[];
       const flush = () => {
         if (run.length > 1) pieces.push({ ...r, line:run,z:runZ,kind:runKind,owners:runOwners,normals:runNormals,jn:run.map(()=>false),id:roads.indexOf(r) });
         run=[];runZ=[];runKind=[];runOwners=[];runNormals=[];
       };
       for(let k=1;k<pts.length;k++){
-        const hit=rules.clipSegment(pts[k-1],pts[k],box);if(!hit){flush();continue;}
+        const hit=rules.clipSegment(pts[k-1],pts[k],roadBox);if(!hit){flush();continue;}
         const push=(p:number[],t:number)=>{run.push(p);runZ.push(z[k-1]+(z[k]-z[k-1])*t);runKind.push(t<.5?kind[k-1]:kind[k]);runOwners.push(t<.5?owners[k-1]:owners[k]);runNormals.push(normals[k-1].map((n,i)=>n+(normals[k][i]-n)*t));};
         if(run.length&&Math.hypot(run[run.length-1][0]-hit.a[0],run[run.length-1][1]-hit.a[1])>1e-5)flush();
         if(!run.length)push(hit.a,hit.lo);push(hit.b,hit.hi);if(hit.hi<1-1e-7)flush();
@@ -927,7 +930,7 @@ function roadWorkerMain() {
       }
     }
     const clearance=(self as unknown as {__terrainClearance:ReturnType<typeof terrainSurfaceClearance>}).__terrainClearance;
-    const surface=clearance.drape(arr(S),g),nearPaint=clearance.drape(arr(Mk),g,rules.paintLift),farPaint=clearance.drape(arr(Mf),g,rules.paintLift);
+    const surface=clearance.clipBox(clearance.drape(arr(S),g),box),nearPaint=clearance.clipBox(clearance.drape(arr(Mk),g,rules.paintLift),box),farPaint=clearance.clipBox(clearance.drape(arr(Mf),g,rules.paintLift),box);
     const walks=clearance.drape(arr(Wk),g,.17);
     if(surface&&walks&&kerbs.length){
       const lookup=clearance.index(surface),p=Array.from(walks.position),n=Array.from(walks.normal),idx=Array.from(walks.index),levels=Array.from(walks.level??new Float32Array(p.length/3));
@@ -940,10 +943,23 @@ function roadWorkerMain() {
       }
       walks.position=new Float32Array(p);walks.normal=new Float32Array(n);walks.index=new Uint32Array(idx);walks.level=new Float32Array(levels);
     }
-    let paths=new Float32Array(lanes);
+    const clipPaths=(packed:number[],stride:number,header:number)=>{
+      const result:number[]=[];
+      for(let k=0;k<packed.length;){const count=packed[k],start=k+header,width=packed[k+1];let run:number[]=[];
+        const flush=()=>{if(run.length>=stride*2){result.push(run.length/stride);if(header===2)result.push(width);for(const v of run)result.push(v);}run=[];};
+        for(let i=1;i<count;i++){const a=packed.slice(start+(i-1)*stride,start+i*stride),b=packed.slice(start+i*stride,start+(i+1)*stride),hit=rules.clipSegment(a,b,box);
+          if(!hit){flush();continue;}
+          const at=(t:number)=>a.map((v,j)=>v+(b[j]-v)*t),p=at(hit.lo),q=at(hit.hi);
+          if(run.length&&Math.hypot(run[run.length-stride]-p[0],run[run.length-stride+1]-p[1])>1e-5)flush();
+          if(!run.length)run.push(...p);run.push(...q);if(hit.hi<1-1e-7)flush();
+        }flush();k=start+count*stride;
+      }return result;
+    };
+    const clippedLanes=clipPaths(lanes,3,2);
+    let paths=new Float32Array(clippedLanes);
     if(surface){const lookup=clearance.index(surface);clearance.raisePaint(nearPaint,surface,lookup);clearance.raisePaint(farPaint,surface,lookup);
       const corrected:number[]=[];
-      for(let k=0;k<lanes.length;){const n=lanes[k],points:number[]=[];for(let i=1;i<n;i++){const at=k+2+i*3,segment=lookup.trace(lanes.slice(at-3,at),lanes.slice(at,at+3));for(let j=i===1?0:3;j<segment.length;j++)points.push(segment[j]);}corrected.push(points.length/3,lanes[k+1]);for(const v of points)corrected.push(v);k+=2+n*3;}paths=new Float32Array(corrected);}
+      for(let k=0;k<clippedLanes.length;){const n=clippedLanes[k],points:number[]=[];for(let i=1;i<n;i++){const at=k+2+i*3,segment=lookup.trace(clippedLanes.slice(at-3,at),clippedLanes.slice(at,at+3));for(let j=i===1?0:3;j<segment.length;j++)points.push(segment[j]);}corrected.push(points.length/3,clippedLanes[k+1]);for(const v of points)corrected.push(v);k+=2+n*3;}paths=new Float32Array(corrected);}
     // Signalled junctions: where OpenStreetMap maps a traffic signal at the junction (when the map
     // answered for this place), else where two roads of 8 m and more cross (the view's own policy,
     // trafficJunction.ts). Two phases: along the widest road, and across it. Each lane gets the
@@ -1063,7 +1079,8 @@ function roadWorkerMain() {
     const portalArr = (p: number[]) => p.length ? { position: new Float32Array(p), normal: portalNormals(p), index: Uint32Array.from({ length: p.length / 3 }, (_, i) => i) } : null;
     const portals = { concrete: portalArr(portal.concrete), dark: portalArr(portal.dark) };
     for (const a of [portals.concrete, portals.dark]) if (a) transfer.push(a.position.buffer as ArrayBuffer, a.normal.buffer as ArrayBuffer, a.index.buffer as ArrayBuffer);
-    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: arr(St), portals, traffic, walks, walkPaths: new Float32Array(walkPaths), streetTrees: new Float32Array(streetTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, banks:new Float32Array(bankPoints), stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
+    const ownedTrees:number[]=[];for(let k=0;k<streetTrees.length;k+=3)if(streetTrees[k]>=box[0]&&streetTrees[k]<box[2]&&streetTrees[k+1]>=box[1]&&streetTrees[k+1]<box[3])ownedTrees.push(streetTrees[k],streetTrees[k+1],streetTrees[k+2]);
+    const out = { surface, marks:nearPaint, marksFar:farPaint, structure: clearance.clipBox(arr(St),box), portals, traffic, walks:clearance.clipBox(walks,box), walkPaths: new Float32Array(clipPaths(walkPaths,2,1)), streetTrees: new Float32Array(ownedTrees), clear: new Float32Array(clear), ground: g.h, junctions: null, lanes: paths, banks:new Float32Array(bankPoints), stops: new Float32Array(stops), signals: sig.length, roads: pieces.length, bridges, ms: performance.now() - t0 };
     for(const a of [out.surface,out.marks,out.marksFar,out.structure,out.walks])if(a)for(const value of Object.values(a))if(value instanceof Float32Array||value instanceof Uint32Array)transfer.push(value.buffer as ArrayBuffer);
     transfer.push(out.lanes.buffer, out.banks.buffer, out.stops.buffer, out.walkPaths.buffer, out.streetTrees.buffer, out.clear.buffer);
     (self as unknown as Worker).postMessage(out, transfer);
@@ -1081,7 +1098,7 @@ let roadUrl: string | null = null;
 export function roadTile(lat: number, lon: number, key: string, domain: string | null | undefined, box: [number, number, number, number],
   grid: RoadJob["grid"], wide: Grid | null, signal?: AbortSignal, tile?: { lat: number; lon: number },
   extra?: Pick<RoadJob, "sea" | "seaHoles" | "seaLevel" | "deck" | "chains" | "footprints">): Promise<RoadTileResult | null> {
-  const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540, m = 30;
+  const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540, m = 64;
   const q = `BOX(${lon + (box[0] - m) / kx},${lat + (box[1] - m) / ky},${lon + (box[2] + m) / kx},${lat + (box[3] + m) / ky})`;
   const ask = (layer: string, cb: string, n: number) => Array.from({ length: n }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({
     service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true",

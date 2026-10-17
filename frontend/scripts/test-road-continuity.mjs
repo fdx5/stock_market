@@ -18,9 +18,15 @@ const {gridAt}=load(read('waterCore.ts'));
 const {drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight}=load(read('roadDrape.ts'));
 const {gradeRoads}=load(read('sceneTerrain.ts'),{gridAt,corridorRoadGrade});
 const levels=load(read('roadLevels.ts'),{surfaceGeometry,...load(read('roadGroundGrade.ts'))});
-const {roadJunctionHulls}=load(read('roadJunctions.ts'),levels);
+const {roadJunctionHulls,roadFootprints}=load(read('roadJunctions.ts'),{...levels,surfaceGeometry});
 const {roadLaneCount}=load(read('roadLanes.ts'));
 const street=load(read('sceneStreet.ts'),{surfaceGeometry,roadJunctionHulls,roadLaneCount,...levels,...load(read('slicedGeometry.ts'))});
+test('paving exclusions cover the real mitered asphalt at a sharp road bend',async()=>{
+ const roads=[{line:[[-30,0],[0,0],[0,30]],width:14,lanes:2}],made=await street.buildRoadSurface(roads,{at:()=>0}),p=made.group.geometry.attributes.position,masks=roadFootprints(roads);
+ const inside=(x,y,t)=>{const [a,b,c]=t,den=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);if(Math.abs(den)<1e-9)return false;const u=((x-a[0])*(c[1]-a[1])-(y-a[1])*(c[0]-a[0]))/den,v=((b[0]-a[0])*(y-a[1])-(b[1]-a[1])*(x-a[0]))/den;return u>=-1e-6&&v>=-1e-6&&u+v<=1+1e-6;};
+ for(let k=0;k<p.count;k+=3)for(const w of [[1/3,1/3,1/3],[.9,.05,.05],[.05,.9,.05],[.05,.05,.9]]){const x=w.reduce((s,v,i)=>s+v*p.getX(k+i),0),y=w.reduce((s,v,i)=>s-v*p.getZ(k+i),0);assert.ok(masks.some(t=>inside(x,y,t)),`paving mask leaves asphalt uncovered at ${x},${y}`);}
+ made.dispose();
+});
 const oldStreet=load(execFileSync('git',['show','66bc4ec:frontend/src/components/sceneStreet.ts'],{encoding:'utf8'}));
 const {findBridges,roadGround,bridgeHeight}=load(read('sceneBridges.ts'),{surfaceGeometry,...levels,...load(read('roadApproaches.ts'),levels),inRing:([x,y],ring)=>x>=ring[0][0]&&x<=ring[2][0]&&y>=ring[0][1]&&y<=ring[2][1],sidewalkWidth:()=>2});
 

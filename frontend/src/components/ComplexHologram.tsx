@@ -87,7 +87,7 @@ import {RoadModelChecks} from './roadModelChecks';
 import {sceneDeviceBudget,capSceneRatio,prepareCanvasResize,fixedSceneResolution} from './sceneDeviceBudget';
 import {roadFootprints}from'./roadJunctions';
 import {splitRoadJunctions}from'./roadTrafficNetwork';
-import {cutSceneSurface}from'./surfaceCutClient';
+import {cutSceneSurface,clipSceneStreetBox}from'./surfaceCutClient';
 import { sceneWork } from "./sceneWorkerClient";
 import type { SceneOps } from "./sceneWorker";
 import type { SurfaceRailLayer } from '../rail/SurfaceRailLayer';
@@ -338,7 +338,7 @@ function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEs
   // A result kept from an earlier visit (buildingStore) already carries its roads as corrected here,
   // their structures and the footprints they were fitted to: asked again, the roads, their context
   // and ~8 pages of footprints were ~1.8 s before the view's first frame on every return.
-  if (res.road_context?.source.endsWith('deck-v3') && res.road_building_footprints?.length && res.roads?.length) return Promise.resolve(res);
+  if (res.road_surface_version===1&&res.road_context?.source.endsWith('deck-v3') && res.road_building_footprints?.length && res.roads?.length) return Promise.resolve(res);
   // firstLook starts this job before the selection effect awaits it. Reuse it
   // before launching footprint pagination; checking later issued a second full
   // footprint download even though the second result could never be consumed.
@@ -350,7 +350,7 @@ function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEs
   const correct=async(roads:RealEstateRoad[])=>{
     const footprints=[...await footprintJob,...[...res.buildings,...res.context].filter(b=>b.height>=2.5||b.floors>0).map(b=>b.rings[0])];
     const fixed=await sceneWork('roads',{roads,footprints})?.catch(()=>null)??constrainRoadCorridors(roads,footprints);
-    return {...res,roads:fixed,road_building_footprints:footprints};
+    return {...res,roads:fixed,road_building_footprints:footprints,road_surface_version:1};
   };
   if (!res.vworld_key || !res.center) return res.roads?.length?correct(res.roads):Promise.resolve(res);
   // The roads of the whole neighbourhood drawn (RING_M), not the parcel's 150 m the result carries:
@@ -358,7 +358,7 @@ function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEs
   // or the result's, where the wider ask is late.)
   const near = res.roads ? Promise.resolve(res.roads) : vworldRoads(res, res.vworld_key, res.vworld_domain).catch(() => null);
   const job = Promise.race([
-    vworldRoadsAround(res, res.vworld_key, res.vworld_domain, FAR_HALF, FAR_HALF).then(r => (r.length ? r : near)).catch(() => near),
+    vworldRoadsAround(res, res.vworld_key, res.vworld_domain, FAR_HALF+64, FAR_HALF+64).then(r => (r.length ? r : near)).catch(() => near),
     new Promise<RealEstateRoad[] | null>(r => window.setTimeout(() => void near.then(r), 4000)),
   ]).then(async roads => {
     if(!roads?.length)return res;
@@ -385,7 +385,7 @@ export function warmGpu(): void {
 async function terrainFor(res: RealEstateBuildingsResponse): Promise<Terrain> {
   if (!res.center) return FLAT;
   const ext = res.buildings.flatMap(b => b.rings[0]).reduce((m, [x, y]) => Math.max(m, Math.hypot(x, y)), 0);
-  const radius = Math.min(1400, (ext + 300) * 1.3 + 80);
+  const radius = Math.min(1400, Math.max(FAR_HALF+160,(ext + 300) * 1.3 + 80));
   return Promise.race([
     loadTerrain(res.center, radius, res.vworld_key).catch(() => FLAT),
     new Promise<Terrain>(r => window.setTimeout(() => r(FLAT), 2500)),
@@ -2200,7 +2200,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         ...data.buildings.map((b,i)=>({owner:'b'+i,height:b.height,ground:terrain.base(b.rings[0]),outline:b.rings[0],appearance:appearanceFor(b)})),
         ...neighbourJobs.map((j,i)=>({owner:'c'+i,height:j.building.height,ground:j.ground,outline:j.building.rings[0],appearance:j.appearance??appearanceFor(j.building,j.style)})),
       ],objects);
-      stage.nearBuildings.roadGuard={key:complexId+':'+group.uuid,roads:roadFootprints(splitRoadJunctions(stitchedRoads(data.roads??[]),true)),
+      stage.nearBuildings.roadGuard={key:complexId+':'+group.uuid,roads:roadFootprints(splitRoadJunctions(stitchedRoads(data.roads??[]).filter(r=>roadLevel(r)===0),true)),
         buildings:[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])]};
     };
     const releasePieces = () => {
@@ -2301,7 +2301,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       ].map(f => ({ ...f, c: centre(f.ring) }));
       photos.forEach(ph=>ph.geometry.computeBoundingBox());
       const [dx,dy]=surveyAlignment(feet.map(f=>({x:f.c[0],y:f.c[1],h:f.height,outline:f.ring})),photos.map(ph=>({...ph,height:ph.geometry.boundingBox!.max.z})));
-      const surveyRoadRings=roadFootprints(splitRoadJunctions(stitchedRoads(data.roads??[]),true));
+      const surveyRoadRings=roadFootprints(splitRoadJunctions(stitchedRoads(data.roads??[]).filter(r=>roadLevel(r)===0),true));
       const surveyBuildingRings=[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])];
       let roadRejected=0;
       const skip = new Set<string>();
@@ -2986,12 +2986,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     }};
     if(hostRef.current){const d=hostRef.current.dataset;d.roadStructureSource=data.road_context?.source??'unavailable';d.roadStructureCoverage=data.road_context?.coverage??'unavailable';d.roadStructureLinks=String(data.road_context?.links??0);d.roadHeightSource='dem-derived-not-surveyed';d.signalStateSource='simulation';d.riverSource=data.road_context?.rivers.length?'VWorld LT_C_WKMSTRM':'parcel/OSM fallback';}
     const physicalFootprints=[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])];
-    const pavementExclusions=[...roadFootprints(splitRoadJunctions(roads,true)),...physicalFootprints];
+    let pavementExclusions=[...roadFootprints(splitRoadJunctions(roads,true)),...physicalFootprints];
     const cutPavements=async(g:THREE.Group)=>{for(const m of g.children as THREE.Mesh[]){
       // Exact terrain planes keep paving above the displayed ground as well as
       // its endpoints. Preserve paver UVs, tactile guides and kerb colours.
       await (textureBudgetEnabled()?drapeRoadOffThread:drapeRoadSurface)(m.geometry,groundGeo,later,.17);
       await cutSceneSurface(m.geometry,pavementExclusions,later);
+      await clipSceneStreetBox(m.geometry,[-FAR_HALF,-FAR_HALF,FAR_HALF,FAR_HALF],later);
     }};
     // Open water the parcels don't register as such (석촌호수 is a 공원) or don't reach (a river
     // past them): OpenStreetMap's lakes and river areas, asked once the view is up (kept a day).
@@ -3471,6 +3472,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // Its local coordinates must never be used to paint this region's roads.
       const arms = preparedRoadArms;
       if (!arms) return;
+      // Traffic preparation fits junction arms. Paving uses those same centre
+      // lines and miter widths as the asphalt that is about to be displayed.
+      pavementExclusions=[...roadFootprints(arms.roads),...physicalFootprints];
       // (where the stream network has a river here, the water is in a second or two after the
       // traffic's arms: waited for, 4 s at most — laid once, not before it and again after)
       if(!roadWater&&!roadLayer&&data.road_context?.rivers.length)await Promise.race([waterIn,new Promise<void>(r=>window.setTimeout(r,4000))]);
@@ -3505,6 +3509,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       await cutSceneSurface(f.group.geometry,physicalFootprints,roadPace,true);mark();
       const drape = textureBudgetEnabled() ? drapeRoadOffThread : drapeRoadSurface;
       await drape(f.group.geometry, groundGeo, roadPace);mark();
+      await clipSceneStreetBox(f.group.geometry,[-FAR_HALF,-FAR_HALF,FAR_HALF,FAR_HALF],roadPace);
       if (!alive || gen !== marksGen) { f.dispose(); return; }
       // The first asphalt shown as soon as it is laid — the lane paint follows (9–16 s more): the
       // bridges and the water are in by then, and roads must meet them, not bare ground.
@@ -3527,6 +3532,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         await cutSceneSurface(mesh.geometry,physicalFootprints,roadPace,true);
         if(textureBudgetEnabled())await drapeRoadOffThread(mesh.geometry,groundGeo,roadPace,.05,f.group.geometry,bvh??undefined);
         else{await drapeRoadSurface(mesh.geometry,groundGeo,roadPace,.05);await raiseRoadPaint(mesh.geometry,f.group.geometry,roadPace,.015,bvh?roadBvhIndex(bvh):undefined);}
+        await clipSceneStreetBox(mesh.geometry,[-FAR_HALF,-FAR_HALF,FAR_HALF,FAR_HALF],roadPace);
       }));
       if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); m.dispose(); return; }
       mark();
@@ -3546,7 +3552,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (marks) { decor.remove(marks.group); marks.dispose(); }
       surface = f; marks = m;if(roadWater&&roadWater!==lifted)liftRoadsOverWater(roadWater);
       asphaltAt=roadSurfaceHeight(f.group.geometry,bvh?roadBvhIndex(bvh):undefined);
-      void relayWalks?.();
+      await relayWalks?.();
       if(hostRef.current){const d=hostRef.current.dataset;d.roadIndex=bvh?'rust-wasm-bvh':'js-grid';d.roadIndexBuildMs=bvh?bvh.buildMs.toFixed(1):'0';d.roadIndexWorkers=String(bvh?.workers??0);d.roadIndexBytes=String(bvh?.parts.reduce((n,p)=>n+p.nodes.byteLength+p.ids.byteLength,0)??0);}
       if(hostRef.current){const d=hostRef.current.dataset;d.roadsReadyAt=String(Math.round(performance.now()));d.roadsFirstAt??=d.roadsReadyAt;d.roadsLays=String(+(d.roadsLays??0)+1);}
     };
@@ -3623,7 +3629,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           ringStyles[style] = geo;
           if (style === "apt") aptGeo = geo;
         }
-        stage.viewBuildings = { ring, group:ringGroup, styles:ringStyles };
+        stage.viewBuildings = { ring, group:ringGroup, styles:ringStyles,roadGuard:{key:'ring:'+complexId+':'+ringGroup.uuid,
+          roads:stage.nearBuildings?.roadGuard?.roads??roadFootprints(splitRoadJunctions(roads.filter(r=>roadLevel(r)===0),true)),
+          buildings:[...physicalFootprints,...ring.footprints as [number,number][][]]} };
         // The ground under the ring in its land use (farGround.ts): parcels by 지목, roads, channels.
         whenIdle(async () => {
           if (!alive || ringStop.signal.aborted || new URLSearchParams(location.search).get("far") === "0") return;

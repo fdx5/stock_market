@@ -19,6 +19,9 @@ const {SurveyGeometryStore}=storeScope.module.exports;
 const appearanceScope={THREE,module:{exports:{}},exports:{}};
 vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/buildingAppearance.ts',import.meta.url),'utf8').replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,appearanceScope);
 const {buildingAppearanceProfile,observedRoofColour}=appearanceScope.module.exports;
+const guardScope={THREE,module:{exports:{}},exports:{}};
+vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/nearBuildingTargets.ts',import.meta.url),'utf8').replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,guardScope);
+const {packedRoadGuard}=guardScope.module.exports;
 const rect=(x,y,w,h)=>[[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
 
 test('a stalled survey file returns completed models for immediate partial replacement and retry',async()=>{
@@ -97,7 +100,7 @@ const cls=ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name.text==='DroneW
 const method=name=>cls.members.find(n=>n.name?.getText(ast)===name).getText(ast).replace(/^private /,'');
 function harness(extra={}) {
   const raf=[];
-  const scope={THREE,SurveyGeometryStore,performance,console,droneDetailPriority,observedRoofColour,LANDMARK_SITES:[],TOWER:9,SURVEY_STYLES:['apt','villa','shop','office'],requestAnimationFrame:f=>raf.push(f),staticSceneTransforms:()=>{},sharedContextMaterial:()=>new THREE.MeshStandardMaterial(),photoAtlasMaterial:()=>({mat:new THREE.MeshStandardMaterial(),dispose(){}}),castShadows:()=>{},...extra};
+  const scope={THREE,SurveyGeometryStore,packedRoadGuard,performance,console,droneDetailPriority,observedRoofColour,LANDMARK_SITES:[],TOWER:9,SURVEY_STYLES:['apt','villa','shop','office'],requestAnimationFrame:f=>raf.push(f),staticSceneTransforms:()=>{},sharedContextMaterial:()=>new THREE.MeshStandardMaterial(),photoAtlasMaterial:()=>({mat:new THREE.MeshStandardMaterial(),dispose(){}}),castShadows:()=>{},...extra};
   vm.runInNewContext(transformSync('class W {'+method('surveyTile')+method('paintSurvey')+method('colourTile')+'};globalThis.W=W;',{loader:'ts'}).code,scope);
   const w=new scope.W();Object.assign(w,{o:{data:{center:{lat:37,lon:127},vworld_key:'synthetic'},drawReady:()=>false},landmarks:{},tiles:new Map(),liveTile:t=>w.tiles.get(t.key)===t,disposed:false,surveying:0,scheduleX:0,scheduleY:0,aheadX:0,aheadY:0,pace:async()=>true,plain:new THREE.MeshStandardMaterial()});
   const base=new THREE.BufferGeometry().setAttribute('color',new THREE.Float32BufferAttribute([.7,.6,.5,.1,.2,.3,.7,.6,.5],3)).setIndex([0,1,2]);
@@ -228,14 +231,21 @@ test('surveyed facades retain the registered floor grid instead of a universal f
   w.surveyWork=async job=>{submitted=job;return null;};await w.surveyTile(t);
   assert.equal(submitted.facadeScale[0],.5);
 });
+test('streamed measured replacements receive the exact tile road and registered building guard',async()=>{
+ const {w,t}=harness();t.nearRoadGuard={key:'tile:fixture',roads:[rect(-30,-3,60,6)],buildings:[rect(-10,-10,20,20)]};
+ let submitted;w.surveyWork=async job=>{submitted=job;return null;};await w.surveyTile(t);
+ assert.equal(submitted.roadGuard.key,'tile:fixture');assert.deepEqual(Array.from(submitted.roadGuard.roads.xy),t.nearRoadGuard.roads.flat(2));
+ assert.deepEqual(Array.from(submitted.roadGuard.buildings.xy),t.nearRoadGuard.buildings.flat(2));
+});
 test('initial neighbourhood targets use the same tile queue and restore coarse geometry on exit',()=>{
   const scope={THREE,Float32Array,Uint32Array,Map,Set,AbortController,SURVEY_STYLES:['apt','villa','shop','office'],TILE_M:340,TOWER:9,key:(i,j)=>i+','+j};
   vm.runInNewContext(transformSync('class W {'+method('adoptViewBuildings')+method('clear')+'};globalThis.W=W;',{loader:'ts'}).code,scope);
   const geo=new THREE.BufferGeometry().setIndex([0,1,2,3,4,5]);
-  const root=new THREE.Group(),view={ring:{towers:new Float32Array([10,10,30,0,0,3,0,1,400,400,10,30,0,3,3,0,0,400]),spans:new Float32Array([0,3,1,4,1,0,0,1,1,1]),spanRings:[rect(390,0,20,20),rect(0,0,20,20)]},group:new THREE.Group(),styles:{apt:geo}};
+  const root=new THREE.Group(),view={roadGuard:{key:'initial-ring',roads:[rect(0,30,60,6)],buildings:[rect(0,0,20,20)]},ring:{towers:new Float32Array([10,10,30,0,0,3,0,1,400,400,10,30,0,3,3,0,0,400]),spans:new Float32Array([0,3,1,4,1,0,0,1,1,1]),spanRings:[rect(390,0,20,20),rect(0,0,20,20)]},group:new THREE.Group(),styles:{apt:geo}};
   const w=new scope.W();Object.assign(w,{o:{viewBuildings:()=>view,addWarm:(p,g)=>p.add(g)},root,viewTiles:new Map(),unplant(){},traffic:{removeTile(){}}});
   w.adoptViewBuildings();w.adoptViewBuildings();assert.equal(w.viewTiles.size,2);
   const t=w.viewTiles.get('view:0,0');assert.equal(t.towers[7],0);assert.equal(t.spans[1],0);assert.deepEqual(t.spanRings[0],view.ring.spanRings[1]);
+  assert.equal(t.nearRoadGuard,view.roadGuard);
   t.surveyUndo=[{geo,start:0,indices:new Uint32Array([0,1,2])}];geo.index.array.fill(0,0,3);w.clear(t);
   assert.deepEqual([...geo.index.array],[0,1,2,3,4,5]);assert.equal(t.surveyUndo,undefined);
 });

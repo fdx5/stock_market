@@ -5,6 +5,7 @@ import {droneDetailPriority,droneTilePriority} from "./droneLoadPriority";
 import {packedRoadGuard,type NearBuildingSource,type NearBuildingTarget} from './nearBuildingTargets';
 import { SceneWorkerPool } from "./sceneWorkerPool";
 import type {TerrainGridJob} from './terrainGrid';
+import {anchoredTerrainHeight} from './terrainGrid';
 import type {TerrainGridResult} from './terrainGridWorker';
 import { CoastGeometryJobs } from './coastGeometryJobs';
 import {staticSceneTransforms} from './staticSceneTransforms';
@@ -58,7 +59,7 @@ export const TILE_M = 340;
 const REGION_SEA = 3000;
 /** The view's own neighbourhood: buildings out to RING_M (a disc), land use over ±FAR_HALF. */
 export type ViewExtent = { ring: number; farHalf: number };
-export type DroneViewBuildings = { ring: RingResult; group: THREE.Group; styles: Partial<Record<ContextStyle, THREE.BufferGeometry>> };
+export type DroneViewBuildings = { ring: RingResult; group: THREE.Group; styles: Partial<Record<ContextStyle, THREE.BufferGeometry>>;roadGuard?:NearBuildingSource['roadGuard'] };
 
 type Roofs = NonNullable<RingResult["roofs"]>;
 type TileGrid = { h: Float32Array; n: number; R: number; cell: number; ox: number; oy: number };
@@ -397,7 +398,7 @@ export class DroneWorld {
     }
     for (const b of buckets.values()) {
       const zup = new THREE.Group(); zup.rotation.x = -Math.PI/2; zup.name = `drone view tile ${b.i},${b.j}`;
-      const t: Tile = { view:true, i:b.i,j:b.j,key:'view:'+key(b.i,b.j),box:[b.i*TILE_M,b.j*TILE_M,(b.i+1)*TILE_M,(b.j+1)*TILE_M],cx:(b.i+.5)*TILE_M,cy:(b.j+.5)*TILE_M,
+      const t: Tile = { view:true,nearRoadGuard:view.roadGuard, i:b.i,j:b.j,key:'view:'+key(b.i,b.j),box:[b.i*TILE_M,b.j*TILE_M,(b.i+1)*TILE_M,(b.j+1)*TILE_M],cx:(b.i+.5)*TILE_M,cy:(b.j+.5)*TILE_M,
         inner:true,state:'ready',tries:0,retryAt:0,grid:null,at:null,roofs:null,zup,yup:null,materials:[],dispose:[],stop:new AbortController(),startedAt:0,readyAt:0,planting:null,local:null,plants:null,
         towers:new Float32Array(b.towers),styleGeo:view.styles,buildingGroup:view.group,survey:'none',surveyGroup:null,castB:true,castP:false,spans:new Float32Array(b.spans),spanRings:b.rings,appearances:b.appearances };
       this.viewTiles.set(t.key,t); this.o.addWarm(this.root,zup);
@@ -710,13 +711,14 @@ export class DroneWorld {
     const { data } = this.o, R = TILE_M / 2 + 160, cell = 4, n = Math.round((2 * R) / cell) + 1;
     const lat = data.center!.lat + t.cy / this.ky, lon = data.center!.lon + t.cx / this.kx;
     const WR = 1300, wcell = 16, wn = Math.round((2 * WR) / wcell) + 1;
+    const anchor=this.o.terrain.grid?{...this.o.terrain.grid,half:this.o.extent.farHalf}:undefined;
     const gl = (w: string) => { if (DTRACE) console.info(`[dtile] ${t.key} ${w} ${Math.round(performance.now())}`); };
     const [base, sampler, wideSampler] = await Promise.all([this.baseHeight().then(v => { gl('g-base'); return v; }), vworldSampler(data.vworld_key!, lat, lon, R + 8).catch(() => null).then(v => { gl('g-dem'); return v; }),
       t.inner ? Promise.resolve(null) : vworldSampler(data.vworld_key!, lat, lon, WR + 20).catch(() => null).then(v => { gl('g-wide'); return v; })]);
     const fill = async (gr: number, gc: number, gn: number, smp: typeof sampler) => {
       if(smp&&base!==null){
         const result=await this.terrainJobs.run({posts:smp.posts,lon:data.center!.lon,lat:data.center!.lat,kx:this.kx,ky:this.ky,
-          base,cx:t.cx,cy:t.cy,R:gr,cell:gc,n:gn},t.stop.signal);
+          base,cx:t.cx,cy:t.cy,R:gr,cell:gc,n:gn,anchor},t.stop.signal);
         gl(result ? `g-job${gn}` : `g-jobfail${gn}`);
         if(this.disposed||t.stop.signal.aborted)return null;
         if(result)return {h:result.h,n:gn,R:gr,cell:gc,ox:t.cx,oy:t.cy};
@@ -725,7 +727,7 @@ export class DroneWorld {
       for (let j = 0; j < gn; j++) {
         for (let i = 0; i < gn; i++) {
           const x = t.cx - gr + i * gc, y = t.cy - gr + j * gc;
-          h[j * gn + i] = smp && base !== null ? smp(data.center!.lon + x / this.kx, data.center!.lat + y / this.ky) - base : this.o.terrain.at(x, y);
+          h[j * gn + i] = anchoredTerrainHeight(anchor,x,y,smp && base !== null ? smp(data.center!.lon + x / this.kx, data.center!.lat + y / this.ky) - base : this.o.terrain.at(x, y));
         }
         if (!await this.pace()) return null;
       }
@@ -879,6 +881,7 @@ export class DroneWorld {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute("position", new THREE.BufferAttribute(roads.surface.position, 3));
         geo.setAttribute("normal", new THREE.BufferAttribute(roads.surface.normal, 3));
+        if(roads.surface.level)geo.setAttribute('roadLevel',new THREE.BufferAttribute(roads.surface.level,1));
         geo.setIndex(new THREE.BufferAttribute(roads.surface.index, 1));
         geo.computeBoundingSphere();
         const mesh = new THREE.Mesh(geo, this.asphalt);
@@ -886,12 +889,13 @@ export class DroneWorld {
         zup.add(mesh);
         t.dispose.push(() => geo.dispose());
       }
-      const mesh = (a: { position: Float32Array; normal: Float32Array; index: Uint32Array; color?: Float32Array } | null, m: THREE.Material, name: string, cast = false) => {
+      const mesh = (a: { position: Float32Array; normal: Float32Array; index: Uint32Array; color?: Float32Array;level?:Float32Array } | null, m: THREE.Material, name: string, cast = false) => {
         if (!a) return null;
         const geo = new THREE.BufferGeometry();
         geo.setAttribute("position", new THREE.BufferAttribute(a.position, 3));
         geo.setAttribute("normal", new THREE.BufferAttribute(a.normal, 3));
         if (a.color) geo.setAttribute("color", new THREE.BufferAttribute(a.color, 3));
+        if(a.level)geo.setAttribute('roadLevel',new THREE.BufferAttribute(a.level,1));
         geo.setIndex(new THREE.BufferAttribute(a.index, 1));
         geo.computeBoundingSphere();
         const me = new THREE.Mesh(geo, m);
