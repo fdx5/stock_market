@@ -31,6 +31,10 @@ _lock = threading.RLock()
 _slots = threading.BoundedSemaphore(6)
 
 
+class CameraAuthError(ValueError):
+    """Provider rejected this service's authorization; never include its URL."""
+
+
 def _key():
     return (os.environ.get("ITS_CCTV_API_KEY") or os.environ.get("ITS_API_KEY") or "").strip()
 
@@ -74,6 +78,8 @@ def _fetch_road(road, lat, lon):
     reply = requests.get(API, params={"apiKey": _key(), "type": road, "cctvType": "4",
         "minX": lon - dx, "maxX": lon + dx, "minY": lat - dy, "maxY": lat + dy,
         "getType": "json"}, timeout=(4, 8))
+    if reply.status_code in (401, 403):
+        raise CameraAuthError("Provider authorization rejected")
     reply.raise_for_status()
     try:
         body = reply.json()
@@ -107,30 +113,35 @@ def _fetch_road(road, lat, lon):
     return out
 
 
-def cameras(lat: float, lon: float) -> dict:
+def cameras(lat: float, lon: float, refresh: bool = False) -> dict:
     if not _key():
         return {"items": [], "status": "needs_key", "source": SOURCE}
+    if _key().lower() == "test":
+        return {"items": [], "status": "invalid_key", "source": SOURCE}
     # Fixed small cells reuse one request while flying; bounded cache, five minutes.
     lat, lon = round(lat / .005) * .005, round(lon / .005) * .005
     cell = (lat, lon)
     with _lock:
         hit = _cache.get(cell)
-        if hit and time.monotonic() - hit[0] < hit[2]:
+        if not refresh and hit and time.monotonic() - hit[0] < hit[2]:
             _cache.move_to_end(cell)
             return hit[1]
     if not _slots.acquire(timeout=.1):
         return {"items": [], "status": "unavailable", "source": SOURCE}
     try:
-        items, failed = [], 0
+        items, failed, unauthorized = [], 0, 0
         with ThreadPoolExecutor(max_workers=2) as pool:
             jobs = [pool.submit(_fetch_road, road, lat, lon) for road in ("ex", "its")]
             for job in jobs:
                 try:
                     items.extend(job.result())
+                except CameraAuthError:
+                    failed += 1
+                    unauthorized += 1
                 except Exception:
                     # Exceptions can contain the credential-bearing request URL.
                     failed += 1
-        result = {"items": items[:1000], "status": "unavailable" if failed == 2 else "partial" if failed else "ok", "source": SOURCE}
+        result = {"items": items[:1000], "status": "not_authorized" if failed == 2 and unauthorized else "unavailable" if failed == 2 else "partial" if failed else "ok", "source": SOURCE}
         with _lock:
             _cache[cell] = (time.monotonic(), result, 30 if failed else 300)
             while len(_cache) > 128:

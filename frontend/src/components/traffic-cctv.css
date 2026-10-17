@@ -1,6 +1,7 @@
 .re-cctv-controls { position:relative;z-index:20;justify-self:stretch;pointer-events:auto;max-width:min(300px,80vw);color:#e7fff8;font:12px/1.5 system-ui,sans-serif; }
 .re-cctv-controls>label,.re-cctv-controls summary { display:block;cursor:pointer;padding:6px 10px;border:1px solid #79f3ce66;border-radius:8px;background:#092b32ed; }
 .re-cctv-controls input { vertical-align:middle;accent-color:#79f3ce; }
+.re-cctv-connection { margin:5px 0;padding:5px 8px;border-radius:6px;background:#09212af5;color:#c4dce5;font-size:11px; }
 .re-cctv-controls details { margin-top:5px; }
 .re-cctv-list { max-height:32vh;overflow:auto;padding:8px;background:#09212af5;border:1px solid #79f3ce66;border-radius:8px; }
 .re-cctv-list button { display:block;width:100%;text-align:left;padding:7px 8px;border:0;border-bottom:1px solid #79f3ce22;background:transparent;color:#e7fff8;font:inherit;cursor:pointer; }

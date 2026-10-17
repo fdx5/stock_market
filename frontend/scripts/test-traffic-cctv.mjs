@@ -6,7 +6,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dir=await mkdtemp(path.join(tmpdir(),'traffic-cctv-')),out=path.join(dir,'cctv.mjs');
 await build({entryPoints:['src/components/trafficCctv.ts'],outfile:out,bundle:true,format:'esm',platform:'node'});
-const {cameraFromFeature,cameraPoint,mergeCameras}=await import(pathToFileURL(out));
+const {cameraFromFeature,cameraPoint,mergeCameras,loadCameras}=await import(pathToFileURL(out));
 const feature={id:'test1',geometry:{type:'Point',coordinates:[127,37.5]},properties:{cctvname:'Test Bridge',locate:'Seoul'}};
 const c=cameraFromFeature(feature);assert.equal(c.name,'Test Bridge');assert.equal(c.address,'Seoul');
 assert.equal(cameraFromFeature({...feature,geometry:{type:'Point',coordinates:[37.5,127]}}),null);
@@ -18,4 +18,14 @@ assert.equal(mergeCameras([c,video],c).length,1);assert.equal(mergeCameras([c,vi
 const next={...c,id:'other',lon:127.002};assert.equal(mergeCameras([c,next],c).length,2,'same camera name at different positions stays separate');
 const opposite={...c,id:'opposite',name:'Other direction',lon:127.00001};assert.equal(mergeCameras([video,opposite],c).length,2,'opposite camera names stay separate');
 assert.equal(mergeCameras(Array.from({length:800},(_,i)=>({...c,id:`c${i}`,name:`camera ${i}`})),c).length,500);
+const crowded=Array.from({length:600},(_,i)=>({...c,id:`near${i}`,name:`near ${i}`}));
+const distantVideo={...video,id:'its:distant',name:'Actual traffic video',lon:127.015};
+const prioritized=mergeCameras([...crowded,distantVideo],c);
+assert.equal(prioritized[0].id,distantVideo.id,'location-only registry density must not hide a real video camera');
+const previousFetch=globalThis.fetch,calls=[];
+try{
+  globalThis.fetch=async url=>{calls.push(url);return {ok:true,json:async()=>({items:[],status:'needs_key'})};};
+  await loadCameras(37.5,127,'fixture','fixture',new AbortController().signal,true);
+  assert.ok(calls[0].includes('fresh=true'),'reconnecting video must renew the server link too');
+}finally{globalThis.fetch=previousFetch;}
 console.log('CCTV: coordinates, missing data, source merge, distinct sites/directions, and bounded list passed');

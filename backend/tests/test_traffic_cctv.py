@@ -1,6 +1,7 @@
 """No app startup, persistence, existing DB, or real provider credentials."""
 import ipaddress
 import time
+from collections import OrderedDict
 from unittest.mock import Mock
 
 import pytest
@@ -12,6 +13,42 @@ def test_missing_key_makes_no_network_request(monkeypatch):
     monkeypatch.delenv("ITS_API_KEY", raising=False)
     monkeypatch.setattr(c.requests, "get", lambda *a, **k: pytest.fail("unexpected network"))
     assert c.cameras(37.5, 127)["status"] == "needs_key"
+
+
+def test_public_sample_key_is_not_treated_as_working_live_credentials(monkeypatch):
+    monkeypatch.setenv("ITS_CCTV_API_KEY", "test")
+    monkeypatch.setattr(c.requests, "get", lambda *a, **k: pytest.fail("sample links are not live credentials"))
+    assert c.cameras(37.5, 127)["status"] == "invalid_key"
+
+
+def test_provider_http_authorization_rejection_is_distinct(monkeypatch):
+    monkeypatch.setattr(c.requests, "get", lambda *a, **k: Mock(status_code=401))
+    with pytest.raises(c.CameraAuthError):
+        c._fetch_road("ex", 37.5, 127)
+
+
+def test_refresh_renews_short_lived_video_links(monkeypatch):
+    monkeypatch.setenv("ITS_CCTV_API_KEY", "fixture-not-a-real-key")
+    monkeypatch.setattr(c, "_cache", OrderedDict())
+    calls = []
+    def provider(road, lat, lon):
+        calls.append(road)
+        return [{"id": road, "media": f"/fixture/{len(calls)}"}]
+    monkeypatch.setattr(c, "_fetch_road", provider)
+    first = c.cameras(37.5, 127)
+    assert c.cameras(37.5, 127) == first and len(calls) == 2
+    fresh = c.cameras(37.5, 127, refresh=True)
+    assert fresh != first and len(calls) == 4
+
+
+def test_provider_auth_failure_is_not_reported_as_empty_success(monkeypatch):
+    monkeypatch.setenv("ITS_CCTV_API_KEY", "fixture-not-a-real-key")
+    monkeypatch.setattr(c, "_cache", OrderedDict())
+    def reject(*args):
+        raise c.CameraAuthError("Rejected")
+    monkeypatch.setattr(c, "_fetch_road", reject)
+    result = c.cameras(37.5, 127)
+    assert result["status"] == "not_authorized" and result["items"] == []
 
 
 def test_provider_camera_does_not_expose_key_or_url(monkeypatch):

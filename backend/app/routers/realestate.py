@@ -7,10 +7,10 @@ router = APIRouter()
 
 
 @router.get("/cctv")
-def traffic_cameras(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132)):
+def traffic_cameras(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132), fresh: bool = False):
     from app.services import traffic_cctv
     response.headers["Cache-Control"] = "no-store"
-    return traffic_cctv.cameras(lat, lon)
+    return traffic_cctv.cameras(lat, lon, refresh=fresh)
 
 
 @router.get("/cctv/media/{token}")

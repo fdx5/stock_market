@@ -21,7 +21,7 @@ export default function TrafficCctvControls({cctv,signs,vkey,domain,where,onPick
         if(stop.signal.aborted)return;
         setResult(value);cctv.set(value.items);current.current.onUpdate(value);
         // Failed lookups retry after 15 s, rather than turning into an empty success.
-        if(!value.locationFailed&&['ok','needs_key'].includes(value.status)){last=p;lastAt=now;}
+        if(!value.locationFailed&&['ok','needs_key','invalid_key','not_authorized'].includes(value.status)){last=p;lastAt=now;}
       }catch{if(!stop.signal.aborted)setResult({items:[],status:'unavailable',locationFailed:true});}
       finally{loading=false;if(!stop.signal.aborted)setBusy(false);}
     };
@@ -30,10 +30,12 @@ export default function TrafficCctvControls({cctv,signs,vkey,domain,where,onPick
   },[enabled,retry,cctv,signs,vkey,domain]);
   return <div className="re-cctv-controls">
     <label><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> CCTV 표시</label>
+    {enabled&&result?.status==='needs_key'&&<p className="re-cctv-connection" role="status">영상 연결 준비 중 · 현재 위치 정보 제공</p>}
+    {enabled&&['invalid_key','not_authorized'].includes(result?.status??'')&&<p className="re-cctv-connection" role="status">영상 제공기관의 연결 승인이 필요합니다.</p>}
     {enabled&&<details><summary>주변 CCTV {busy?'조회 중…':`${result?.items.length??0}곳`}</summary>
       <div className="re-cctv-list">
         {!!result?.items.length&&<p>가까운 {Math.min(160,result.items.length)}곳 표시 · 영상 연결 여부를 확인하세요.</p>}
-        {result?.items.slice(0,160).map(c=><button key={c.id} type="button" onClick={()=>{const s=signs.all().find(s=>s.camera?.id===c.id);if(s)current.current.onPick(s);}}>{c.name}<small>{c.media?'영상 연결':'위치 정보'}</small></button>)}
+        {result?.items.slice(0,160).map(c=><button key={c.id} type="button" onClick={()=>{const s=signs.all().find(s=>s.camera?.id===c.id);if(s)current.current.onPick(s);}}>{c.name}<small>{c.media?'영상 보기':'위치 정보'}</small></button>)}
         {!busy&&!result?.items.length&&<p>{result?.locationFailed?'CCTV 위치를 불러오지 못했습니다.':'주변에 제공되는 CCTV가 없습니다.'}</p>}
         {result?.status==='needs_key'&&<p>공개 영상 연동 준비 중 · 위치 정보 제공</p>}
         {['partial','unavailable'].includes(result?.status??'')&&<p>일부 CCTV 영상 정보를 불러오지 못했습니다.</p>}

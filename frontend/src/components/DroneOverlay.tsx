@@ -99,6 +99,9 @@ export default function DroneOverlay({ sink, flight, signs, cctv, radar, touch, 
     const o=radar.origin,kx=Math.cos(o.lat*Math.PI/180)*111320;
     signs.selected=s.key;flight.keys.clear();flight.setAutopilot(false);
     setCard({sign:s,at:{lat:o.lat+(s.info?.by??s.y)/110540,lon:o.lon+(s.info?.bx??s.x)/kx},distance:Math.hypot(s.x-flight.pos.x,s.y+flight.pos.z)});
+    // Provider video links are short-lived. Opening a camera refreshes them,
+    // rather than reusing a five-minute-old playlist after a 401 response.
+    if(s.camera?.media)window.dispatchEvent(new Event('cctv-refresh'));
   };
   useEffect(() => {
     const stage = root.current?.parentElement;

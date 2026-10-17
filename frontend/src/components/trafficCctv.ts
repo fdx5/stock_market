@@ -19,7 +19,8 @@ export function mergeCameras(items:TrafficCamera[],origin:{lat:number;lon:number
     if(out.some(p=>p.id===c.id||(p.name.replace(/\s/g,'')===c.name.replace(/\s/g,'')&&Math.hypot(...Object.values(cameraPoint(c,p)))<60)))continue;
     out.push(c);
   }
-  return out.sort((a,b)=>{const p=cameraPoint(a,origin),q=cameraPoint(b,origin);return Math.hypot(p.x,p.y)-Math.hypot(q.x,q.y);}).slice(0,500);
+  return out.sort((a,b)=>{const available=Number(!!b.media)-Number(!!a.media);if(available)return available;
+    const p=cameraPoint(a,origin),q=cameraPoint(b,origin);return Math.hypot(p.x,p.y)-Math.hypot(q.x,q.y);}).slice(0,500);
 }
 
 const callbacks=new Map<string,(value:any)=>void>();let seq=0;
@@ -58,7 +59,7 @@ export async function loadCameras(lat:number,lon:number,key:string,domain:string
   if(!refresh&&hit&&Date.now()-hit.at<180000)return hit.value;
   const results=await Promise.allSettled([
     locations(lat,lon,key,domain,signal),
-    fetch(`/api/realestate/cctv?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}`,{signal}).then(async r=>{if(!r.ok)throw new Error('CCTV 연결 실패');return r.json();}),
+    fetch(`/api/realestate/cctv?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}${refresh?'&fresh=true':''}`,{signal}).then(async r=>{if(!r.ok)throw new Error('CCTV 연결 실패');return r.json();}),
   ]);
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
   const [map,video]=results;
