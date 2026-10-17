@@ -14,7 +14,7 @@ Changes:
 
 - Reconnect a narrow mapped corridor only between existing water on both sides,
   within 64 m, interpolating those levels instead of keeping the DEM road ridge.
-  The whole path must remain in mapped water, with a cross section <=40 m.
+  The whole path must remain in mapped water, with a cross section <=128 m.
   Original seeds remain immutable so connections cannot grow recursively.
 - Fit rank-one sloping channels along their line.
 - Keep nondegenerate open fragments from 1 m². Explicit covered-stream flags
@@ -28,7 +28,7 @@ Verification: the 4 previously failing fixtures now pass. Existing floodplain,
 reed-field, weir and island controls still pass. Adjacent 340 m tiles reconnect
 the same crossing with water levels within 5 cm. A real `buildWater` 180 m²
 fragment produces visible triangles; covered and degenerate controls stay
-excluded. 43 combined water/coast/road tests passed, plus the fragment checks.
+excluded. 45 combined water/coast/road tests passed, plus the fragment checks.
 
 Limits: no water is invented across missing polygons or mapped islands. The
 existing broad-parcel floodplain/DEM floor rules remain; these tests do not

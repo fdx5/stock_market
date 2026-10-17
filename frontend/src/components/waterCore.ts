@@ -159,7 +159,7 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
   // erosion removes the entire replacement, including streams below bridges.
   // Search along the channel instead. Both existing water ends must be within
   // 64 m, the whole connection must remain inside mapped water, and the cross
-  // section must be a narrow corridor (<=40 m). Never propagate from new fills.
+  // section must be a stream corridor (<=128 m). Never propagate from new fills.
   const seeds=wet.slice(),fills:[number,number][]=[];
   const axes=[[1,0],[0,1],[1,1],[1,-1]];
   for(let j=0;j<ny;j++){
@@ -181,12 +181,12 @@ export async function waterField(rings: [number, number][][], at: (x: number, y:
         const b=end(1);if(!b||a.d+b.d>64||a.d+b.d>=best)continue;
         if(Math.abs(lvl[a.c]-lvl[b.c])>.75+.03*(a.d+b.d))continue;
         let width=0;
-        for(const sign of [-1,1])for(let q=1;q*step<=42;q++){
+        for(const sign of [-1,1])for(let q=1;q*step<=130;q++){
           const x=i-dy*q*sign,y=j+dx*q*sign;
           if(x<0||y<0||x>=nx||y>=ny||!inside[y*nx+x])break;
-          width+=step;if(width>40)break;
+          width+=step;if(width>128)break;
         }
-        if(width>40)continue;
+        if(width>128)continue;
         best=a.d+b.d;value=(lvl[a.c]*b.d+lvl[b.c]*a.d)/best;
       }
       if(Number.isFinite(best))fills.push([c,value]);
