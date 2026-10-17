@@ -474,6 +474,22 @@ def _geocode(address: str) -> tuple[float, float] | None:
         return None
 
 
+_coords: dict | None = None
+
+
+def _parking_coords() -> dict:
+    global _coords
+    if _coords is None:
+        import json
+        path = os.path.join(os.path.dirname(__file__), "..", "data", "seoul_parking_coords_20261017.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                _coords = json.load(f).get("lots", {})
+        except (OSError, ValueError):
+            _coords = {}
+    return _coords
+
+
 def _parking_all() -> list[dict]:
     def make():
         rows = []
@@ -500,8 +516,10 @@ def _parking_all() -> list[dict]:
                                     "holiday": f"{r.get('LHLDY_OPER_BGNG_TM', '')}-{r.get('LHLDY_OPER_END_TM', '')}"}}
         if not lots:
             raise ValueError("no lots")
-        # (positions: geocoded once per address, in parallel)
-        found = list(_pool.map(lambda lot: _geocode(lot["address"]), lots.values()))
+        # (positions: from the table geocoded in Korea — the hosting network cannot reach the
+        # geocoder — else geocoded here once per address, in parallel)
+        known = _parking_coords()
+        found = list(_pool.map(lambda lot: tuple(known[lot["id"]]) if lot["id"] in known else _geocode(lot["address"]), lots.values()))
         items = []
         for lot, at in zip(lots.values(), found):
             if at:
