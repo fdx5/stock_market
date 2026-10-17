@@ -50,7 +50,7 @@ test('a level reed field 4.5 m over the river beside it (미사리) is no water,
   for(const [x,y] of [[0,50],[100,200],[-120,280]])assert.ok(!f.wet(x,y),`reed field at ${x},${y} wet`);
 });
 
-for(const width of [4,12,28])test(`a ${width} m stream continues below a 44 m DEM bridge ridge`,async()=>{
+for(const width of [4,12,28,60,100])test(`a ${width} m stream continues below a 44 m DEM bridge ridge`,async()=>{
   const ring=[[-180,-width/2],[180,-width/2],[180,width/2],[-180,width/2]];
   const dem=(x,y)=>3+x*.002+(Math.abs(x)<22&&Math.abs(y)<=width/2?6:0);
   const data=await waterField([ring],dem,pace),f=fieldFrom(data,dem);
