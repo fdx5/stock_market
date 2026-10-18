@@ -509,7 +509,7 @@ export class DroneWorld {
     this.adoptViewBuildings();
     this.adoptNearBuildings();
     if (!OFF.includes("sea") && !this.regionBusy && (!this.region || Math.hypot(x - this.region.x, y - this.region.y) > REGION_SEA * 0.5)) void this.regionSea(x, y);
-    if (!OFF.includes("landmarks")) this.landmarks.update(x, y);
+    if (!OFF.includes("landmarks")) this.landmarks.update(x, y, alt);
     // The bridges' whole links and decks ahead of the tiles that will need them (bridgeChains: kept
     // by cell for the page) — a tile's roads then find them waiting, not asked for in turn.
     if (!OFF.includes("roads") && this.base !== null && scheduleNow - this.chainsAt > 3000) {

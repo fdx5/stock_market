@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { photoBuildings, type PhotoBuilding } from "./vworld3d";
+import { photoBuildings, photoTextureAt, type PhotoBuilding } from "./vworld3d";
 import { bridgeSections } from './bridgeDeck';
 
 /* Landmarks the drone flies to: the palaces, the stadiums and arenas, as VWorld surveyed them —
@@ -201,7 +201,23 @@ export function buildGwanganBridge(project: (lon: number, lat: number) => [numbe
   return { group, materials: [deckMat, steelMat, concMat, cableMat, paintMat], dispose: () => { geos.forEach(g => g.dispose()); deckMat.dispose(); steelMat.dispose(); concMat.dispose(); cableMat.dispose(); paintMat.dispose(); } };
 }
 
-type Loaded = { state: "loading" | "placed"; group: THREE.Group | null; materials: THREE.Material[]; models: PhotoBuilding[]; dispose: () => void; stop: AbortController };
+type Loaded = { state: "loading" | "placed"; group: THREE.Group | null; materials: THREE.Material[]; models: PhotoBuilding[]; dispose: () => void; stop: AbortController; shown?: Shown[] };
+
+/* The photographs by distance. A model's photograph is one picture of all its walls (about
+ * π × its width of wall across): a 20 m hall's 1024 px is some 5 cm a texel, a detail the screen
+ * shows only within a few tens of metres — the drone's 1408 px tall view at 74° is d / 934 m a
+ * pixel at d m. Every landmark of every site within 1.9 km kept at full size was ~800 million
+ * texels (a phone's tab reloaded under them; 1,100 models a site visit). Each model is kept at the
+ * size that still gives a texel no larger than a pixel where it is seen from: far (beyond 300 m)
+ * small, nearer (100-300 m) larger, close (within 100 m) its photograph as sent (LEVELS); a
+ * bigger picture asked for as soon as it is needed, a smaller one only 30% past the distance, so
+ * the two do not alternate. A bigger picture replaces the smaller only once it is on the GPU (the renderer
+ * keeps drawing the old material until the new one is ready). */
+const LEVELS = [{ near: 300 }, { near: 100 }, { near: 0 }];
+/** texels across for level `l` (its nearest distance d): the wall's π·D seen at d / 934 m a pixel */
+const levelSize = (diameter: number, l: number, full: number) =>
+  l >= LEVELS.length - 1 ? full : Math.min(full, Math.max(32, Math.ceil(Math.PI * diameter * 934 / LEVELS[l].near)));
+type Shown = { m: PhotoBuilding; mesh: THREE.Mesh; diameter: number; top: number; level: number; mats: (THREE.MeshStandardMaterial | null)[]; asking: AbortController | null };
 
 /** The sites near the drone, loaded and let go as it flies (droneWorld). */
 export class Landmarks {
@@ -251,8 +267,9 @@ export class Landmarks {
     }) ?? false;
   }
 
-  update(x: number, y: number) {
+  update(x: number, y: number, agl = 0) {
     const now = performance.now();
+    if (now - this.lodAt > 400) { this.lodAt = now; this.lod(x, y, agl); }
     // Models usually arrive before their terrain tile. Follow the later DEM instead of
     // leaving palace halls floating at the fallback height used during the download.
     if (now - this.alignedAt > 500) {
@@ -283,6 +300,53 @@ export class Landmarks {
     else if (bh && bd > DROP_M) this.drop("gwangan");
   }
 
+  private lodAt = 0;
+  private asking = 0;
+  private fullTex() { return this.o.hq ? 2048 : 1024; }
+  /** Each placed model's photograph at the size its distance asks for (LEVELS), nearest first. */
+  private lod(x: number, y: number, agl: number) {
+    const want: [number, Shown, number][] = [];
+    for (const e of this.loaded.values()) for (const r of e.shown ?? []) {
+      const h = Math.max(0, Math.hypot(r.m.cx - x, r.m.cy - y) - r.diameter / 2), v = Math.max(0, agl - r.top);
+      const d = Math.hypot(h, v);
+      // the level for this distance: a bigger picture at once, a smaller only 30% past the edge
+      let l = LEVELS.findIndex(L => d >= L.near);
+      if (l < r.level && d < LEVELS[r.level - 1].near * 1.3) l = r.level;
+      if (l === r.level) continue;
+      want.push([d, r, l]);
+    }
+    want.sort((a, b) => a[0] - b[0]);
+    for (const [, r, l] of want) {
+      // (smaller: the largest kept below this one — the far picture is always kept)
+      if (l < r.level) { let k = l; while (k > 0 && !r.mats[k]) k--; this.show(r, k); continue; }
+      if (r.asking || this.asking >= 4) continue;
+      const have = r.mats[l];
+      if (have) { this.show(r, l); continue; }
+      const stop = r.asking = new AbortController();
+      this.asking++;
+      const full = this.fullTex();
+      void photoTextureAt(this.o.key, r.m.src, levelSize(r.diameter, l, full), stop.signal).then(tex => {
+        if (stop.signal.aborted || !r.mesh.parent) { tex?.dispose(); (tex?.image as ImageBitmap | undefined)?.close?.(); return; }
+        if (!tex) return;
+        // (the bigger pictures let go of their bitmap once on the GPU: a level is fetched again if wanted again)
+        tex.userData.releaseAfterUpload = true;
+        r.mats[l] = landmarkMaterial(tex);
+        this.show(r, l);
+      }).catch(() => {}).finally(() => { if (r.asking === stop) r.asking = null; this.asking--; });
+    }
+  }
+  /** Model `r` drawn with level `l`'s photograph; any larger one let go. */
+  private show(r: Shown, l: number) {
+    const mat = r.mats[l];
+    if (!mat) return;
+    r.mesh.material = mat;
+    r.level = l;
+    if (l < LEVELS.length - 1) r.asking?.abort();
+    const gone = new Set<THREE.Material>();
+    for (let k = l + 1; k < r.mats.length; k++) { const old = r.mats[k]; if (old) { gone.add(old); r.mats[k] = null; old.map?.dispose(); old.dispose(); } }
+    if (gone.size) this.o.forget?.(gone);
+  }
+
   private bridge() {
     const sea = this.o.seaLevel();
     if (sea === null) return;   // (asked again next frame: the sea's level first)
@@ -300,15 +364,19 @@ export class Landmarks {
     const mats: THREE.Material[] = [], models: PhotoBuilding[] = [];
     const release = (m: PhotoBuilding) => { m.geometry.dispose(); m.texture?.dispose(); (m.texture?.image as ImageBitmap | undefined)?.close?.(); };
     const entry: Loaded = { state: "loading", group, materials: mats, models, stop,
-      dispose: () => { models.forEach(release); mats.forEach(m => m.dispose()); } };
+      dispose: () => {
+        models.forEach(release); mats.forEach(m => m.dispose());
+        for (const r of entry.shown ?? []) { r.asking?.abort(); for (const lm of r.mats.slice(1)) if (lm) { lm.map?.dispose(); lm.dispose(); } }
+      } };
     this.loaded.set(site.id, entry);
     this.o.addWarm(this.root, group);
     // (each model shown as it comes — nearest the site's centre first — on the ground under its own
     // footprint; z up in its local frame)
+    const shown: Shown[] = entry.shown = [];
     const place = (m: PhotoBuilding) => {
       if (stop.signal.aborted) { release(m); return; }
       models.push(m);
-      const mat = new THREE.MeshStandardMaterial({ map: m.texture, color: m.texture ? "#ffffff" : "#c8c3b8", roughness: 0.82, metalness: 0, side: THREE.DoubleSide });
+      const mat = landmarkMaterial(m.texture);
       const mesh = new THREE.Mesh(m.geometry, mat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.y = this.o.groundAt(m.cx, m.cy) - 0.15;
@@ -319,9 +387,12 @@ export class Landmarks {
       mesh.updateMatrixWorld(true);
       group.add(mesh);
       mats.push(mat);
+      const bs = m.geometry.boundingSphere!, box = m.geometry.boundingBox ?? (m.geometry.computeBoundingBox(), m.geometry.boundingBox!);
+      shown.push({ m, mesh, diameter: bs.radius * 2, top: box.max.z, level: 0, mats: [mat, null, null], asking: null });
     };
     try {
-      await photoBuildings(this.o.key, this.o.lat0, this.o.lon0, site.radius, { photo: true, at: site, maxTex: this.o.hq ? 2048 : 1024, signal: stop.signal, workers: 8, onBuilding: place });
+      // (each first at the far size: the nearer ones come as the drone does — lod)
+      await photoBuildings(this.o.key, this.o.lat0, this.o.lon0, site.radius, { photo: true, at: site, maxTex: g => { if (!g.boundingSphere) g.computeBoundingSphere(); return levelSize(g.boundingSphere!.radius * 2, 0, this.fullTex()); }, signal: stop.signal, workers: 8, onBuilding: place });
     } catch { /* (what came, stays) */ }
     if (stop.signal.aborted || this.loaded.get(site.id) !== entry) return;
     if (!models.length) { this.drop(site.id); this.retryAt.set(site.id, performance.now() + 10000); return; }
@@ -335,9 +406,13 @@ export class Landmarks {
     if (!e) return;
     this.loaded.delete(id);
     e.stop.abort();
-    if (e.group) { e.group.removeFromParent(); this.o.forget?.(new Set(e.materials)); }
+    if (e.group) { e.group.removeFromParent(); this.o.forget?.(new Set([...e.materials, ...(e.shown ?? []).flatMap(r => r.mats.filter((m): m is THREE.MeshStandardMaterial => !!m))])); }
     e.dispose();
   }
 
   dispose() { for (const id of [...this.loaded.keys()]) this.drop(id); this.root.removeFromParent(); }
+}
+
+function landmarkMaterial(map: THREE.Texture | null) {
+  return new THREE.MeshStandardMaterial({ map, color: map ? "#ffffff" : "#c8c3b8", roughness: 0.82, metalness: 0, side: THREE.DoubleSide });
 }

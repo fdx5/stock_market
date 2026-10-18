@@ -105,7 +105,7 @@ function hull(pts: [number, number][]) {
   return lo.slice(0, -1).concat(hi.slice(0, -1));
 }
 
-async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex: number, signal?: AbortSignal, photo = false): Promise<PhotoBuilding | null> {
+async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex: number | ((g: THREE.BufferGeometry) => number), signal?: AbortSignal, photo = false): Promise<PhotoBuilding | null> {
   if(signal?.aborted)throw new DOMException('Survey batch stopped','AbortError');
   const cacheKey=e.x+','+e.y+':'+e.data+':'+lat0+','+lon0;
   if(!photo){const hit=shapeCache.get(cacheKey);if(hit)return hit;}
@@ -170,7 +170,7 @@ async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex
   g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   g.computeBoundingSphere();
-  const texture = img && photo ? await photoTexture(() => bytes(url(token, e.x, e.y, img), signal), thumbnail, maxTex, signal) : null;
+  const texture = img && photo ? await photoTexture(() => bytes(url(token, e.x, e.y, img), signal), thumbnail, typeof maxTex === "function" ? maxTex(g) : maxTex, signal, typeof maxTex === "function") : null;
   const result={ key: e.key, geometry: g, texture, cx, cy, ground: zmin, hull: h, src: { x: e.x, y: e.y, img } };
   if(!photo)shapeCache.put(cacheKey,result);
   return result;
@@ -178,7 +178,7 @@ async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex
 
 /** Some surveyed JPEGs no longer exist on XDServer. Their XDO still includes the original
  * thumbnail: use that photograph instead of leaving palace walls without a texture. */
-async function photoTexture(download: () => Promise<ArrayBuffer>, thumbnail: ArrayBuffer | null, maxTex: number, signal?: AbortSignal): Promise<THREE.Texture | null> {
+async function photoTexture(download: () => Promise<ArrayBuffer>, thumbnail: ArrayBuffer | null, maxTex: number, signal?: AbortSignal, longest = false): Promise<THREE.Texture | null> {
   let bmp: ImageBitmap, embedded = false;
   try { bmp = await createImageBitmap(new Blob([await download()], { type: "image/jpeg" }), { imageOrientation: "none" }); }
   catch {
@@ -186,15 +186,25 @@ async function photoTexture(download: () => Promise<ArrayBuffer>, thumbnail: Arr
     try { bmp = await createImageBitmap(new Blob([thumbnail], { type: "image/jpeg" }), { imageOrientation: "none" }); embedded = true; }
     catch { return null; }
   }
-  if (bmp.width > maxTex) { const s = maxTex / bmp.width; const small = await createImageBitmap(bmp, { resizeWidth: maxTex, resizeHeight: Math.round(bmp.height * s), resizeQuality: "high" }); bmp.close(); bmp = small; }
+  // (its width to maxTex — or, `longest`, its longer side)
+  const side = longest ? Math.max(bmp.width, bmp.height) : bmp.width;
+  if (side > maxTex) { const s = maxTex / side; const small = await createImageBitmap(bmp, { resizeWidth: Math.max(1, Math.round(bmp.width * s)), resizeHeight: Math.max(1, Math.round(bmp.height * s)), resizeQuality: "high" }); bmp.close(); bmp = small; }
   const texture = new THREE.Texture(bmp as unknown as HTMLImageElement);
   texture.flipY = false; texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 8; texture.needsUpdate = true;
   if (embedded) texture.userData.embeddedThumbnail = true;
   return texture;
 }
 
-/** Every VWorld 3D building whose centre is within `radius` m of the centre. */
-export async function photoBuildings(key: string, lat0: number, lon0: number, radius: number, opts: { maxTex?: number; signal?: AbortSignal; onBuilding?: (b: PhotoBuilding) => void; photo?: boolean;
+/** A model's photograph again, at another size (a landmark's close-up: sceneLandmarks). */
+export async function photoTextureAt(key: string, src: PhotoBuilding["src"], maxTex: number, signal?: AbortSignal): Promise<THREE.Texture | null> {
+  if (!src.img) return null;
+  const token = await vworldToken(key);
+  return photoTexture(() => bytes(url(token, src.x, src.y, src.img), signal), null, maxTex, signal);
+}
+
+/** Every VWorld 3D building whose centre is within `radius` m of the centre. `maxTex`: the
+ * photographs' longest side, or that for each model's shape. */
+export async function photoBuildings(key: string, lat0: number, lon0: number, radius: number, opts: { maxTex?: number | ((g: THREE.BufferGeometry) => number); signal?: AbortSignal; onBuilding?: (b: PhotoBuilding) => void; photo?: boolean;
   /** Round another point (a landmark), the models still placed about (lat0, lon0). */
   at?: { lat: number; lon: number };
   /** models fetched at once (4) */
