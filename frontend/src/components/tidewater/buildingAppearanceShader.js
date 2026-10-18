@@ -81,6 +81,7 @@ export const BUILDING_APPEARANCE_WGSL = /* wgsl */`{
   s.alpha = 1.0;
   // Stable per-building, floor and room variation: no frame-dependent flicker,
   // repeated eight-building light map, extra lights, textures or draw calls.
+  if (any(mat.emissive != vec3f(0.0))) {
   let cell = floor(in.uv);
   let building = fract(sin(buildingSeed * 1.71 + 3.7) * 43758.5453);
   let room = fract(sin(dot(cell, vec2f(12.9898, 78.233)) + buildingSeed) * 43758.5453);
@@ -94,4 +95,5 @@ export const BUILDING_APPEARANCE_WGSL = /* wgsl */`{
   let tint = mix(warm, vec3f(0.70, 0.84, 1.0), smoothstep(0.55, 1.0, temperature));
   let brightness = (0.24 + building * 0.60 + office * 0.42) * (0.55 + floorLight * 0.50 + room * 0.38);
   s.emissive = mat.emissive * tint * glazing * occupied * brightness;
+  }
 }`;

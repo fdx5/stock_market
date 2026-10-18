@@ -1,0 +1,25 @@
+{
+  "label": "exact-release-flight",
+  "viewport": [
+    933,
+    704
+  ],
+  "dpr": 2.625,
+  "cpu": 1.0,
+  "seconds": 180.0,
+  "fps": 59.41,
+  "min1s": 52,
+  "p95ms": 19.8,
+  "p99ms": 25.4,
+  "maxms": 69.70000000298023,
+  "over20ms": 478,
+  "errors": [],
+  "crashed": false,
+  "minimumSliding1s": 51,
+  "minimumSlidingAtSeconds": 62.389,
+  "canvas": [
+    1866,
+    1408
+  ],
+  "quality": "high"
+}

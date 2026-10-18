@@ -133,7 +133,10 @@ async function device() {
         let dir = normalize(o + R * t) * vec3f(1.0, 1.0, -1.0);
         // (a new capture fades in over a second: swapped at once, every window's reflection
         // changed in one frame — a flicker whenever the sun had moved on a few degrees)
-        let s = mix(textureSampleLevel(envPrev, smpLinearClamp, dir, 0.0), textureSampleLevel(envCube, smpLinearClamp, dir, 0.0), env.fade);
+        var previous = vec4f(0.0); var current = vec4f(0.0);
+        if (env.fade < 1.0) { previous = textureSampleLevel(envPrev, smpLinearClamp, dir, 0.0); }
+        if (env.fade > 0.0) { current = textureSampleLevel(envCube, smpLinearClamp, dir, 0.0); }
+        let s = mix(previous, current, env.fade);
         // (leaves are drawn with a partial alpha: any cover counts)
         return mix(sky, s.rgb / max(s.a, 1e-3) * min(s.a, 1.0), w * min(s.a * 8.0, 1.0));
       }` }));
@@ -177,12 +180,14 @@ async function device() {
 // atlas is its own to release.
 if (import.meta.hot) import.meta.hot.dispose(() => { shadows?.dispose(); shadows = null; shadowKey = ''; });
 
-const atmosphere = new ShaderModule({ name: 'complex daylight atmosphere', code: /* wgsl */`
+const ATMOSPHERE_NOISE = /* wgsl */`
 fn skyHash(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
 fn skyNoise(p: vec2f) -> f32 {
   let i = floor(p); let f = fract(p); let u = f * f * (3.0 - 2.0 * f);
   return mix(mix(skyHash(i), skyHash(i + vec2f(1, 0)), u.x), mix(skyHash(i + vec2f(0, 1)), skyHash(i + vec2f(1, 1)), u.x), u.y);
 }
+`;
+const atmosphere = new ShaderModule({ name: 'complex daylight atmosphere', code: ATMOSPHERE_NOISE + /* wgsl */`
 fn skyFbm(p0: vec2f) -> f32 {
   var p = p0; var a = 0.5; var s = 0.0;
   for (var i = 0; i < 5; i++) { s += a * skyNoise(p); p = mat2x2f(1.6, 1.2, -1.2, 1.6) * p; a *= 0.5; }
@@ -594,6 +599,9 @@ const TONEMAP_NEUTRAL = lookParams.get('tm') !== 'aces';
 const AO_ALLOWED = lookParams.get('ao') !== '0';
 const BLOOM_ALLOWED = lookParams.get('bloom') !== '0';
 const TAA_ALLOWED = lookParams.get('taa') !== '0';
+// These full-screen passes replace every pixel. Loading yesterday's attachment first
+// is wasted external-memory traffic on tile GPUs; additive bloom still loads its base.
+const POST_CLEAR = [0, 0, 0, 0];
 // Temporal anti-aliasing. The native view has no MSAA: window grids, railings and far rooflines
 // stepped and shimmered, and the soft shadows' sampling noise showed (it was written to be
 // resolved over frames). Each frame is drawn a sub-pixel off (Halton 2,3) and blended into the
@@ -625,6 +633,13 @@ fn fragment(in: FSIn) -> vec4f {
   let p = vec2i(in.pos.xy);
   let cur = textureLoad(src, p, 0).rgb;
   if (taa.valid < 0.5) { return vec4f(cur, 1.0); }
+  // where this pixel was last frame
+  let d = textureLoad(sceneDepth, p, 0).x;
+  let ndc = vec2f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0);
+  let wp = frame.invViewProj * vec4f(ndc, d, 1.0);
+  let pc = frame.prevViewProjNoJitter * vec4f(wp.xyz / wp.w, 1.0);
+  let puv = vec2f(pc.x / pc.w * 0.5 + 0.5, 0.5 - pc.y / pc.w * 0.5);
+  if (pc.w <= 0.0 || any(puv < vec2f(0.0)) || any(puv > vec2f(1.0))) { return vec4f(cur, 1.0); }
   // the neighbours' colour range (mean and spread)
   var m1 = vec3f(0.0); var m2 = vec3f(0.0);
   for (var dy = -1; dy <= 1; dy++) { for (var dx = -1; dx <= 1; dx++) {
@@ -633,13 +648,6 @@ fn fragment(in: FSIn) -> vec4f {
   } }
   m1 /= 9.0; m2 /= 9.0;
   let sigma = sqrt(max(m2 - m1 * m1, vec3f(0.0)));
-  // where this pixel was last frame
-  let d = textureLoad(sceneDepth, p, 0).x;
-  let ndc = vec2f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0);
-  let wp = frame.invViewProj * vec4f(ndc, d, 1.0);
-  let pc = frame.prevViewProjNoJitter * vec4f(wp.xyz / wp.w, 1.0);
-  let puv = vec2f(pc.x / pc.w * 0.5 + 0.5, 0.5 - pc.y / pc.w * 0.5);
-  if (pc.w <= 0.0 || any(puv < vec2f(0.0)) || any(puv > vec2f(1.0))) { return vec4f(cur, 1.0); }
   let h = clamp(taaY(taaTm(taaHistory(puv))), m1 - sigma * 1.25, m1 + sigma * 1.25);
   // (more of the new frame while the view moves fast: less to reproject wrongly)
   let moved = length((puv - in.uv) * vec2f(size));
@@ -779,7 +787,9 @@ const GROUND_DETAIL = /* wgsl */`{
   let fine = 1.0 - smoothstep(0.02, 0.09, px);
   let mid = 1.0 - smoothstep(0.15, 0.7, px);
   let broad = skyNoise(xz * 0.07) * 0.6 + skyNoise(xz * 0.23 + 3.7) * 0.4;
-  let grain = skyNoise(xz * 3.1) * 0.5 + skyNoise(xz * 7.3 + 1.3) * 0.5;
+  // Keep all visible frequencies; a zero footprint weight needs no noise.
+  var grain = 0.0;
+  if (fine > 0.0) { grain = skyNoise(xz * 3.1) * 0.5 + skyNoise(xz * 7.3 + 1.3) * 0.5; }
   let grass = smoothstep(0.015, 0.06, a.g - max(a.r, a.b));
   let tar = (1.0 - grass) * (1.0 - smoothstep(0.05, 0.13, lum)) * (1.0 - smoothstep(0.15, 0.35, chroma));
   let pave = (1.0 - grass) * smoothstep(0.13, 0.28, lum) * (1.0 - smoothstep(0.2, 0.4, chroma));
@@ -788,18 +798,23 @@ const GROUND_DETAIL = /* wgsl */`{
   // (lawns read olive rather than paint-green; clumps and worn patches break them up)
   alb = mix(alb, vec3f(luminance(alb)) * vec3f(0.95, 1.12, 0.62) + alb * 0.25, grass * 0.45);
   let clump = mix(0.7, 1.15, broad) * mix(1.0, mix(0.74, 1.2, grain), fine);
-  let dry = smoothstep(0.55, 0.8, skyNoise(xz * 0.045 + 9.1));
+  var dry = 0.0;
+  if (grass * mid > 0.0) { dry = smoothstep(0.55, 0.8, skyNoise(xz * 0.045 + 9.1)); }
   alb *= mix(1.0, clump, grass);
   alb = mix(alb, alb * vec3f(1.35, 1.1, 0.7), dry * grass * 0.7 * mid);
   // (asphalt is a neutral dark grey, never the blue the painted plan and the sky tint give it)
   alb = mix(alb, vec3f(luminance(alb)) * vec3f(1.02, 1.0, 0.97), tar * 0.7);
   // asphalt: coarse aggregate, worn and patched (repairs a few metres across), the odd stain
-  let agg = mix(0.72, 1.25, skyHash(floor(xz * 45.0)));
-  let repair = smoothstep(0.68, 0.72, skyNoise(floor(xz * 0.4) * 0.37 + 11.0)) * 0.14;
-  let stain = smoothstep(0.7, 0.9, skyNoise(xz * 0.9 + 4.2)) * 0.18;
+  var agg = 1.0; var repair = 0.0; var stain = 0.0;
+  if (tar > 0.0) {
+    if (fine > 0.0) { agg = mix(0.72, 1.25, skyHash(floor(xz * 45.0))); }
+    repair = smoothstep(0.68, 0.72, skyNoise(floor(xz * 0.4) * 0.37 + 11.0)) * 0.14;
+    if (mid > 0.0) { stain = smoothstep(0.7, 0.9, skyNoise(xz * 0.9 + 4.2)) * 0.18; }
+  }
   alb *= mix(1.0, mix(0.84, 1.1, broad) * (1.0 - repair - stain * mid) * mix(1.0, agg, fine * 0.7), tar);
   // (stone chips catch the sun: a jittered normal per few centimetres, only up close)
-  let chip = vec2f(skyHash(floor(xz * 30.0) + 1.7), skyHash(floor(xz * 30.0) + 8.3)) - 0.5;
+  var chip = vec2f(0.0);
+  if (fine * (tar + pave * 0.5) > 0.0) { chip = vec2f(skyHash(floor(xz * 30.0) + 1.7), skyHash(floor(xz * 30.0) + 8.3)) - 0.5; }
   s.normal = normalize(s.normal + vec3f(chip.x, 0.0, chip.y) * 0.22 * fine * (tar + pave * 0.5));
   // paving blocks
   let bw = vec2f(0.2, 0.1);
@@ -808,7 +823,9 @@ const GROUND_DETAIL = /* wgsl */`{
   let joint = min(min(fb.x, 1.0 - fb.x) * bw.x, min(fb.y, 1.0 - fb.y) * bw.y);
   let jointK = 1.0 - smoothstep(0.004, 0.011, joint);
   let fineP = 1.0 - smoothstep(0.012, 0.045, px);
-  alb *= mix(1.0, mix(0.93, 1.04, broad) * mix(1.0, mix(0.9, 1.08, skyHash(cellB + 3.1)) * (1.0 - 0.32 * jointK), fineP), pave * mid);
+  var blockTone = 1.0;
+  if (fineP * pave * mid > 0.0) { blockTone = mix(0.9, 1.08, skyHash(cellB + 3.1)); }
+  alb *= mix(1.0, mix(0.93, 1.04, broad) * mix(1.0, blockTone * (1.0 - 0.32 * jointK), fineP), pave * mid);
   s.albedo = alb;
   s.roughness = s.roughness * mix(1.0, mix(0.86, 1.08, grain), fine);
 }`;
@@ -827,7 +844,9 @@ const ROOF_DETAIL = /* wgsl */`{
 const WALL_WEATHER = /* wgsl */`if (abs(in.N.y) < 0.5) {
   let along = dot(in.P.xz, normalize(vec2f(-in.N.z, in.N.x) + vec2f(1e-5, 0.0)));
   let px = max(length(fwidth(in.P)), 1e-4);
-  let streak = smoothstep(0.55, 0.9, skyNoise(vec2f(along * 1.7, in.P.y * 0.07))) * (1.0 - smoothstep(0.3, 1.5, px));
+  let streakWeight = 1.0 - smoothstep(0.3, 1.5, px);
+  var streak = 0.0;
+  if (streakWeight > 0.0) { streak = smoothstep(0.55, 0.9, skyNoise(vec2f(along * 1.7, in.P.y * 0.07))) * streakWeight; }
   let drift = mix(0.95, 1.03, skyNoise(vec2f(along * 0.035, in.P.y * 0.02) + 5.3));
   s.albedo *= drift * (1.0 - 0.09 * streak);
 }`;
@@ -2050,11 +2069,11 @@ export class ComplexRenderer {
       for (const item of lists.opaque) (item.material.userData.foliage ? plants : solid).push(item);
       this.renderer.render(this.scene, { ...pass, timestampWrites: timer.pass('scene'), items: { opaque: solid, transparent: [] }, clearColors: [[0, 0, 0, 1]], clearDepth: 0 });
       this.aoPass.timestampWrites = timer.pass('ao');
-      this.aoPass.render({ colorViews: [this.ao.texture] });
+      this.aoPass.render({ colorViews: [this.ao.texture], clear: POST_CLEAR });
       this.aoBlurX.timestampWrites = timer.pass('aoBlur');
-      this.aoBlurX.render({ colorViews: [this.aoTmp.texture] });
+      this.aoBlurX.render({ colorViews: [this.aoTmp.texture], clear: POST_CLEAR });
       this.aoBlurY.timestampWrites = timer.pass('aoBlur');
-      this.aoBlurY.render({ colorViews: [this.ao.texture] });
+      this.aoBlurY.render({ colorViews: [this.ao.texture], clear: POST_CLEAR });
       this.renderer.render(this.scene, { ...pass, label: 'complex plants', timestampWrites: timer.pass('plants'), items: { opaque: plants, transparent: water ? [] : lists.transparent }, betweenLists: sky });
     } else {
       this.renderer.render(this.scene, { ...pass, timestampWrites: timer.pass('scene'), items: { opaque: lists.opaque, transparent: water ? [] : lists.transparent }, clearColors: [[0, 0, 0, 1]], clearDepth: 0, betweenLists: sky });
@@ -2075,19 +2094,19 @@ export class ComplexRenderer {
       this.taaIdx ^= 1;
       TaaUniforms.set('valid', this.taaValid ? 1 : 0);
       this.taaPass.timestampWrites = timer.pass('taa');
-      this.taaPass.render({ colorViews: [this.taaHist[this.taaIdx].texture] });
+      this.taaPass.render({ colorViews: [this.taaHist[this.taaIdx].texture], clear: POST_CLEAR });
       this.taaValid = true;
     } else this.taaValid = false;
     const bloomNow = this.shown && this.bloomOn && this.quality.name !== 'low' && !!this.bloomDown?.every(p => p.handle.pipeline) && !!this.bloomUp?.every(p => p.handle.pipeline);
     BloomUniforms.set('strength', bloomNow ? this.bloomStrength ?? 0 : 0);
     if (bloomNow) {
-      this.bloomDown.forEach((p, i) => { p.timestampWrites = timer.pass('bloom'); p.render({ colorViews: [this.bloomRT[i].texture] }); });
+      this.bloomDown.forEach((p, i) => { p.timestampWrites = timer.pass('bloom'); p.render({ colorViews: [this.bloomRT[i].texture], clear: POST_CLEAR }); });
       for (let i = this.bloomUp.length - 1; i >= 0; i--) { this.bloomUp[i].timestampWrites = timer.pass('bloom'); this.bloomUp[i].render({ colorViews: [this.bloomRT[i].texture] }); }
       if (import.meta.env.DEV && lookParams.get('probe')) this.probeBloom();
     }
     if (this.shown) {
       this.finish.timestampWrites = timer.pass('finish');
-      this.finish.render({ colorViews: [this.context.getCurrentTexture().createView()] });
+      this.finish.render({ colorViews: [this.context.getCurrentTexture().createView()], clear: POST_CLEAR });
     }
     // (a frame that held pipelines back to the pace hasn't got the scene's pipelines yet)
     this.starved = this.renderer.starved;

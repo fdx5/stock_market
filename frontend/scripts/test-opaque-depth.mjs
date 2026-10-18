@@ -40,7 +40,7 @@ test('the native world-instance shortcut requires an exactly identity world matr
 test('compact depth buffers follow source versions, moving instances and original geometry ownership',()=>{
  const source=readFileSync(new URL('../src/vendor/tidewater/engine/render/MeshRenderer.js',import.meta.url),'utf8');
  const between=(a,b)=>source.slice(source.indexOf('\t'+a+'( '),source.indexOf(b,source.indexOf('\t'+a+'( ')));
- const methods=vm.runInNewContext('({'+between('_depthBuffers','\n\t// ------------------------------------------------------------------------------ pipelines')+','+between('retainGeometry','\n\treleaseGeometry')+','+between('releaseGeometry','\n\tdispose')+'})',{
+ const methods=vm.runInNewContext('({'+between('_depthBuffers','\n\t// Shared tetrahedral leaves')+','+between('retainGeometry','\n\treleaseGeometry')+','+between('releaseGeometry','\n\tdispose')+'})',{
   compactDepthPositions,opaqueDepthEligible,Uint16Array,GPUBufferUsage:{INDEX:1,COPY_DST:2},GPU:{device:{createBuffer(){return{destroyed:false,destroy(){this.destroyed=true;}};}}},align4:n=>Math.ceil(n/4)*4,writePadded:(b,a)=>b.data=Array.from(a),
  });
  const geo=treeMeshModel(0);geo.userData.compactDepth=true;const state={buffers:new Map()};const renderer={...methods,geometries:new Map([[geo,state]]),_geometryGPU:()=>state,

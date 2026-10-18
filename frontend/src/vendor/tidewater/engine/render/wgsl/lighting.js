@@ -463,7 +463,10 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 
 	// ambient occlusion (specular occlusion after Lagarde)
 	let dotNV = sat( dot( N, V ) );
-	let specAO = sat( pow( dotNV + s.ao, exp2( -16.0 * rough - 1.0 ) ) - 1.0 + s.ao );
+	// With unit material AO, the positive power is >= 1 and saturation
+	// returns exactly 1. SSAO is applied later by the screen-space resolve.
+	var specAO = 1.0;
+	if ( s.ao != 1.0 ) { specAO = sat( pow( dotNV + s.ao, exp2( -16.0 * rough - 1.0 ) ) - 1.0 + s.ao ); }
 	acc.indirectDiffuse *= s.ao;
 	acc.indirectSpecular *= specAO;
 #if STUDIO_LIGHTING

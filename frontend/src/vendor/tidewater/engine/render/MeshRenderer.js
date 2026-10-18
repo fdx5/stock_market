@@ -3,6 +3,7 @@ import { BoundedCache } from '../gpu/BoundedCache.js';
 import { composeShader, composeShaderAsync, createShaderModule, getBindGroupLayout, group0ForBlock, stripUnusedFunctions } from '../gpu/Shader.js';
 import { buildMeshShader } from './MeshShader.js';
 import { compactDepthPositions, opaqueDepthEligible } from './OpaqueDepth.js';
+import { compactFlatLeaves } from './FlatLeaves.js';
 import { blendState } from './Material.js';
 import { SceneLighting } from './wgsl/lighting.js';
 import { FrameUniforms } from './Frame.js';
@@ -238,7 +239,7 @@ export class MeshRenderer {
 		for ( const [ geometry, g ] of this.geometries ) {
 			const attrs = used.get( geometry );
 			if ( ! attrs ) { this.releaseGeometry( geometry ); continue; }
-			for ( const [ src, b ] of g.buffers ) if ( ! attrs.has( src ) && src !== g.compactDepth?.position ) {
+			for ( const [ src, b ] of g.buffers ) if ( ! attrs.has( src ) && src !== g.compactDepth?.position && ! g.flatLeaf?.attributeSet?.has( src ) ) {
 				b.buffer.destroy();
 				g.buffers.delete( src );
 				g.bufferEpoch = ( g.bufferEpoch ?? 0 ) + 1;
@@ -255,6 +256,7 @@ export class MeshRenderer {
 		for ( const b of g.buffers.values() ) b.buffer.destroy();
 		g.index?.buffer.destroy();
 		g.compactDepth?.indexBuffer?.destroy();
+		g.flatLeaf?.indexBuffer?.destroy();
 		this.geometries.delete( geometry );
 		// Clear only retired references. Admitting one new tile must not discard
 		// all static buffer caches and pooled draw items across the active city.
@@ -393,7 +395,7 @@ export class MeshRenderer {
 	}
 
 	// vertex buffer layouts for this (material, geometry, object): only the attributes the shader reads
-	_layout( object, geometry, material, positionOnly = false ) {
+	_layout( object, geometry, material, positionOnly = false, flatNormal = false ) {
 
 		const attrs = [];
 		const want = positionOnly ? [ 'position' ] : [ 'position', 'normal', 'uv', 'color', ...Object.keys( material.attributes ) ];
@@ -455,15 +457,17 @@ export class MeshRenderer {
 
 		const worldInstances = !! ( object.isInstancedMesh && object.worldInstances );
 		layout.worldInstances = worldInstances;
+		layout.flatNormal = flatNormal;
 		const key = layout.map( ( l ) => `${ l.name }:${ l.wgsl }` ).join( ',' ) + '|' + buffers.map( ( b ) => `${ b.layout.arrayStride }/${ b.layout.stepMode }/${ b.layout.attributes.map( ( x ) => x.format + '@' + x.offset ).join( ';' ) }` ).join( ',' ) + ( worldInstances ? '|worldInstances' : '' );
-		return { key, layout, buffers, worldInstances };
+		return { key: key + ( flatNormal ? '|flatNormal' : '' ), layout, buffers, worldInstances };
 
 	}
 
-	// The compact shadow buffers belong to the original geometry, so normal ownership
-	// reconciliation and disposal release them too. Main-pass layouts remain untouched.
+	// Special shadow/flat-leaf buffers belong to the original geometry, so ordinary
+	// ownership reconciliation and disposal release them too. CPU geometry stays intact.
 	_depthBuffers( o, geo, material, pass ) {
 
+		if ( pass.kind !== 'depth' && geo.userData?.flatLeaf && ! this.noFlatLeaves ) return this._flatLeafBuffers( o, geo, material );
 		if ( ! geo.userData?.compactDepth || ! opaqueDepthEligible( material, pass ) ) return null;
 		const state = this._geometryGPU( geo ), p = geo.attributes.position, index = geo.index;
 		let d = state.compactDepth;
@@ -488,6 +492,35 @@ export class MeshRenderer {
 		for ( let i = 0; i < row.vl.buffers.length; i ++ ) row.vbs[ i ] = this._attributeBuffer( geo, row.vl.buffers[ i ].attr );
 		return row;
 
+	}
+
+	// Shared tetrahedral leaves: original normals supplied by each face's first
+	// vertex allow four rather than twelve vertex transforms per closed leaf.
+	_flatLeafBuffers( o, geo, material ) {
+
+		if ( material.vertex.trim() || Object.keys( material.attributes ).length || material.topology !== 'triangle-list' ) return null;
+		const state = this._geometryGPU( geo ), sources = Object.values( geo.attributes ), index = geo.index;
+		let d = state.flatLeaf;
+		const same = d && d.index === index && d.indexArray === index?.array && d.indexVersion === index?.version && sources.length === d.sources.length && sources.every( ( a, i ) => a === d.sources[ i ] && a.array === d.arrays[ i ] && a.version === d.versions[ i ] && a.itemSize === d.sizes[ i ] );
+		if ( ! same ) {
+			if ( d ) { for ( const a of d.attributeSet ?? [] ) { state.buffers.get( a )?.buffer.destroy(); state.buffers.delete( a ); } d.indexBuffer?.destroy(); }
+			const flat = compactFlatLeaves( geo );
+			d = state.flatLeaf = { ...flat, sources, arrays: sources.map( a => a.array ), versions: sources.map( a => a.version ), sizes: sources.map( a => a.itemSize ), index, indexArray: index?.array, indexVersion: index?.version, failed: ! flat, rows: new WeakMap() };
+			if ( flat ) {
+				d.attributeSet = new Set( Object.values( flat.attributes ) );
+				d.indexBuffer = GPU.device.createBuffer( { label: 'exact flat leaf indices', size: Math.max( 16, align4( flat.indices.byteLength ) ), usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST } );
+				writePadded( d.indexBuffer, flat.indices );
+				d.indexBinding = { buffer: d.indexBuffer, format: flat.indices instanceof Uint16Array ? 'uint16' : 'uint32' };
+			}
+		}
+		if ( d.failed ) return null;
+		let row = d.rows.get( o );
+		if ( ! row || row.instanceMatrix !== o.instanceMatrix || row.instanceColor !== o.instanceColor || !! row.vl.worldInstances !== !! o.worldInstances ) {
+			row = { vl: this._layout( o, { attributes: d.attributes }, material, false, true ), vbs: [], index: d.indexBinding, instanceMatrix: o.instanceMatrix, instanceColor: o.instanceColor };
+			row.vl.pipelines = new Map(); d.rows.set( o, row );
+		}
+		for ( let i = 0; i < row.vl.buffers.length; i ++ ) row.vbs[ i ] = this._attributeBuffer( geo, row.vl.buffers[ i ].attr );
+		return row;
 	}
 
 	// ------------------------------------------------------------------------------ pipelines
@@ -613,7 +646,6 @@ export class MeshRenderer {
 		return p;
 	}
 	_finishPipeline( material, vl, pass, c, prepared, hasFragment ) {
-		const module = createShaderModule( c.code, material.name, prepared );
 		this._ensureDrawBuffer();
 		const layout = GPU.device.createPipelineLayout( { bindGroupLayouts: [ c.group0.layout, c.bindings.layout, this.drawLayout ] } );
 
@@ -639,10 +671,10 @@ export class MeshRenderer {
 		const desc = {
 			label: material.name + ' ' + pass.kind,
 			layout,
-			vertex: { module, entryPoint: 'vs', buffers: vl.buffers.map( ( b ) => b.layout ) },
+			vertex: { entryPoint: 'vs', buffers: vl.buffers.map( ( b ) => b.layout ) },
 			primitive: { topology: material.topology, cullMode, frontFace: 'ccw' },
 		};
-		if ( hasFragment ) desc.fragment = { module, entryPoint: 'fs', targets };
+		if ( hasFragment ) desc.fragment = { entryPoint: 'fs', targets };
 		if ( pass.depthFormat ) desc.depthStencil = {
 			format: pass.depthFormat,
 			depthWriteEnabled: material.depthWrite,
@@ -659,6 +691,12 @@ export class MeshRenderer {
 		] );
 		let handle = sharedPipelines.get( sharedKey );
 		if ( ! handle || handle.failed ) {
+			// An already compiled pipeline needs no new shader module. Its module
+			// may have left the bounded text cache during a long flight; recreating
+			// it here still made the browser parse/validate an unused program.
+			const module = createShaderModule( c.code, material.name, prepared );
+			desc.vertex.module = module;
+			if ( desc.fragment ) desc.fragment.module = module;
 			handle = GPU.renderPipeline( desc );
 			sharedPipelines.set( sharedKey, handle );
 			if ( sharedPipelines.size > 128 ) sharedPipelines.delete( sharedPipelines.keys().next().value );
@@ -747,7 +785,7 @@ export class MeshRenderer {
 			pass.__runFrame = GPU.frame;
 
 		}
-		const list = ranges.list, runs = o.__runs ??= [];
+		const list = ranges.list, half = ranges.halfExtents?.length === list.length / 2 ? ranges.halfExtents : null, runs = o.__runs ??= [];
 		runs.length = 0;
 		const m = o.matrixWorld, scale = m.getMaxScaleOnAxis();
 		for ( let i = 0; i < list.length; i += 6 ) {
@@ -756,6 +794,21 @@ export class MeshRenderer {
 			// (a little slack: the jitter of the frame's projection, rounding)
 			_runSphere.radius = list[ i + 5 ] * scale + 1;
 			if ( ! f.intersectsSphere( _runSphere ) ) continue;
+			// A woodland block is broad and shallow. Its circumscribed sphere used to
+			// admit many whole blocks above/below a narrow shadow cascade. Keep the
+			// sphere broad phase, then its exact conservative affine-transformed box.
+			if ( half ) {
+				const j = i / 2, x = half[ j ], y = half[ j + 1 ], z = half[ j + 2 ], e = m.elements;
+				const hx = Math.abs( e[ 0 ] ) * x + Math.abs( e[ 4 ] ) * y + Math.abs( e[ 8 ] ) * z + 1;
+				const hy = Math.abs( e[ 1 ] ) * x + Math.abs( e[ 5 ] ) * y + Math.abs( e[ 9 ] ) * z + 1;
+				const hz = Math.abs( e[ 2 ] ) * x + Math.abs( e[ 6 ] ) * y + Math.abs( e[ 10 ] ) * z + 1;
+				let outside = false;
+				for ( const p of f.planes ) {
+					const n = p.normal;
+					if ( p.distanceToPoint( _runSphere.center ) + Math.abs( n.x ) * hx + Math.abs( n.y ) * hy + Math.abs( n.z ) * hz < 0 ) { outside = true; break; }
+				}
+				if ( outside ) continue;
+			}
 			const start = list[ i ], n = list[ i + 1 ];
 			if ( runs.length && runs[ runs.length - 2 ] + runs[ runs.length - 1 ] === start ) runs[ runs.length - 1 ] += n;
 			else runs.push( start, n );

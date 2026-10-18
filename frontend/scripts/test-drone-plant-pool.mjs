@@ -36,10 +36,12 @@ test('the pool\'s blocks cover every tree, in order, each tree inside its block\
   const spread=(cx,cy,n,tint)=>{const g=grove(cx,cy,n,tint);const m=g.children[0];for(let k=0;k<n;k++)m.setMatrixAt(k,new THREE.Matrix4().makeTranslation((k*37)%300-150,0,(k*53)%300-150));g.updateMatrixWorld(true);return g;};
   pool.adopt('0,0',0,0,spread(170,170,40,.2));pool.adopt('1,0',1,0,spread(510,170,30,.4));pool.adopt('0,1',0,1,spread(170,510,25,.6));
   const check=()=>{pool.root.traverse(o=>{if(!o.isInstancedMesh)return;const r=o.userData.instanceRanges;assert.equal(r.total,o.count);
-    let next=0;const L=r.list;geo.computeBoundingSphere();const gs=geo.boundingSphere;
+    let next=0;const L=r.list,H=r.halfExtents;assert.equal(H.length,L.length/2);geo.computeBoundingSphere();const gs=geo.boundingSphere;
     for(let i=0;i<L.length;i+=6){assert.equal(L[i],next);next+=L[i+1];
       for(let k=L[i];k<L[i]+L[i+1];k++){const m=new THREE.Matrix4();o.getMatrixAt(k,m);const c=gs.center.clone().applyMatrix4(m);
-        assert.ok(c.distanceTo(new THREE.Vector3(L[i+2],L[i+3],L[i+4]))+gs.radius*m.getMaxScaleOnAxis()<=L[i+5]+1e-6);}}
+        const radius=gs.radius*m.getMaxScaleOnAxis();
+        assert.ok(c.distanceTo(new THREE.Vector3(L[i+2],L[i+3],L[i+4]))+radius<=L[i+5]+1e-6);
+        for(let a=0;a<3;a++)assert.ok(Math.abs(c.getComponent(a)-L[i+2+a])+radius<=H[i/2+a]+1e-6);}}
     assert.equal(next,o.count);});};
   check();pool.release('1,0');check();pool.release('0,0');check();
 });

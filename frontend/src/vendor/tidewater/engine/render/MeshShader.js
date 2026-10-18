@@ -106,7 +106,7 @@ ${ layout.filter( a => a.name === 'position' || /^instanceMatrix[0-3]$/.test( a.
 	let loc = 0;
 	let vsout = 'struct VSOut {\n\t@builtin( position ) clip: vec4f,\n';
 	vsout += `\t@location( ${ loc ++ } ) worldPos: vec3f,\n`;
-	vsout += `\t@location( ${ loc ++ } ) normal: vec3f,\n`;
+	vsout += `\t@location( ${ loc ++ } )${ layout.flatNormal ? ' @interpolate( flat )' : '' } normal: vec3f,\n`;
 	vsout += `\t@location( ${ loc ++ } ) uv: vec2f,\n`;
 	vsout += `\t@location( ${ loc ++ } ) color: vec4f,\n`;
 	if ( withMotion ) {

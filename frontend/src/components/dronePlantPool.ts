@@ -14,9 +14,10 @@ const CELL = 2;
  * the pass (the camera's, each shadow cascade's) — the same trees in view, not the cell's whole
  * 680 m of them behind and beside the camera (the trees' vertices were most of the frame's GPU
  * time on a phone). See MeshRenderer instanceRanges. */
+// Four cells across a 340 m tile balance conservative culling and draw submission.
 const BLOCK = 85;
 /** a block of a tile's trees: its offset in the tile's segment, its count and bounding sphere */
-type Block = { off: number; n: number; x: number; y: number; z: number; r: number };
+type Block = { off: number; n: number; x: number; y: number; z: number; r: number; hx: number; hy: number; hz: number };
 type Seg = { start: number; count: number; blocks: Block[] };
 /** a tile's runs in a pool: one for each of its meshes of that model, material and role */
 type Pool = { mesh: THREE.InstancedMesh; segs: Map<string, Seg[]>; total: number };
@@ -122,9 +123,12 @@ export class PlantPool {
     im.needsUpdate = true; ic.needsUpdate = true;
     pool.mesh.computeBoundingSphere();
     // the blocks in the pool's order, for the renderer (instanceRanges: start, count, sphere)
-    const list: number[] = [];
-    for (const seg of [...pool.segs.values()].flat().sort((a, b) => a.start - b.start)) for (const b of seg.blocks) list.push(seg.start + b.off, b.n, b.x, b.y, b.z, b.r);
-    pool.mesh.userData.instanceRanges = { total: pool.total, list: Float64Array.from(list) };
+    const list: number[] = [], halfExtents: number[] = [];
+    for (const seg of [...pool.segs.values()].flat().sort((a, b) => a.start - b.start)) for (const b of seg.blocks) {
+      list.push(seg.start + b.off, b.n, b.x, b.y, b.z, b.r);
+      halfExtents.push(b.hx, b.hy, b.hz);
+    }
+    pool.mesh.userData.instanceRanges = { total: pool.total, list: Float64Array.from(list), halfExtents: Float64Array.from(halfExtents) };
   }
   dispose() {
     for (const p of this.pools.values()) { p.mesh.removeFromParent(); p.mesh.dispose(); }
@@ -150,7 +154,8 @@ function blocks(geometry: THREE.BufferGeometry, placed: THREE.Matrix4[], blockOf
       hi[0] = Math.max(hi[0], c.x + r); hi[1] = Math.max(hi[1], c.y + r); hi[2] = Math.max(hi[2], c.z + r);
       end++;
     }
-    out.push({ off: at, n: end - at, x: (lo[0] + hi[0]) / 2, y: (lo[1] + hi[1]) / 2, z: (lo[2] + hi[2]) / 2, r: Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2 });
+    out.push({ off: at, n: end - at, x: (lo[0] + hi[0]) / 2, y: (lo[1] + hi[1]) / 2, z: (lo[2] + hi[2]) / 2, r: Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2,
+      hx: (hi[0] - lo[0]) / 2, hy: (hi[1] - lo[1]) / 2, hz: (hi[2] - lo[2]) / 2 });
     at = end;
   }
   return out;
