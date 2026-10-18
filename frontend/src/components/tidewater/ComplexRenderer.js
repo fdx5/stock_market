@@ -2053,7 +2053,7 @@ export class ComplexRenderer {
       this.aoPass.render({ colorViews: [this.ao.texture] });
       this.aoBlurX.timestampWrites = timer.pass('aoBlur');
       this.aoBlurX.render({ colorViews: [this.aoTmp.texture] });
-      this.aoBlurY.timestampWrites = undefined;
+      this.aoBlurY.timestampWrites = timer.pass('aoBlur');
       this.aoBlurY.render({ colorViews: [this.ao.texture] });
       this.renderer.render(this.scene, { ...pass, label: 'complex plants', timestampWrites: timer.pass('plants'), items: { opaque: plants, transparent: water ? [] : lists.transparent }, betweenLists: sky });
     } else {
@@ -2081,8 +2081,8 @@ export class ComplexRenderer {
     const bloomNow = this.shown && this.bloomOn && this.quality.name !== 'low' && !!this.bloomDown?.every(p => p.handle.pipeline) && !!this.bloomUp?.every(p => p.handle.pipeline);
     BloomUniforms.set('strength', bloomNow ? this.bloomStrength ?? 0 : 0);
     if (bloomNow) {
-      this.bloomDown.forEach((p, i) => { p.timestampWrites = i === 0 ? timer.pass('bloom') : undefined; p.render({ colorViews: [this.bloomRT[i].texture] }); });
-      for (let i = this.bloomUp.length - 1; i >= 0; i--) this.bloomUp[i].render({ colorViews: [this.bloomRT[i].texture] });
+      this.bloomDown.forEach((p, i) => { p.timestampWrites = timer.pass('bloom'); p.render({ colorViews: [this.bloomRT[i].texture] }); });
+      for (let i = this.bloomUp.length - 1; i >= 0; i--) { this.bloomUp[i].timestampWrites = timer.pass('bloom'); this.bloomUp[i].render({ colorViews: [this.bloomRT[i].texture] }); }
       if (import.meta.env.DEV && lookParams.get('probe')) this.probeBloom();
     }
     if (this.shown) {
@@ -2134,7 +2134,7 @@ export class ComplexRenderer {
     cam.updateProjectionMatrix(); cam.updateMatrixWorld();
     setFrameCamera(cam, ENV_SIZE, ENV_SIZE, { block: e.block });
     this.renderer.render(this.scene, {
-      label: 'complex env ' + e.face, camera: cam, kind: 'color', frameBlock: e.block,
+      label: 'complex env ' + e.face, camera: cam, kind: 'color', frameBlock: e.block, timestampWrites: this.timer.pass('env'),
       colorViews: [e.faceRT.texture.view()], colorFormats: ['rgba16float'],
       depthView: e.depth.depthTexture.view(), depthFormat: 'depth32float', clearColors: [[0, 0, 0, 0]], clearDepth: 0,
     });

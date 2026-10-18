@@ -1,19 +1,24 @@
 // GPU time per render pass from timestamp queries (where the adapter offers them).
-// The complex view uses the total to size its resolution to the GPU it runs on: frame
-// time alone cannot tell a slow GPU from a busy main thread.
+// Diagnostics only: measuring GPU work must not change output resolution or quality.
 import { GPU } from '../../vendor/tidewater/engine/gpu/GPU.js';
 
 // Three cascades, static-cache stores, scene/post passes and future split diagnostics.
-const PAIRS = 24;
+const PAIRS = 32;
 
 export class GpuTimer {
-  constructor() {
+  constructor({ interval = 7 } = {}) {
     this.enabled = !!GPU.hasTimestamp;
     /** Smoothed milliseconds per pass label, and their sum ('total'). */
     this.ms = {};
     /** Last completed GPU frame; total includes copies and untimed work between passes. */
     this.last = {};
     this.samples = 0;
+    // Readbacks are diagnostics, not a dependency of drawing. Avoid resolving and
+    // mapping timestamp buffers every frame when a few samples a second suffice.
+    // Seven rotates across the 2/3/4/6-frame shadow schedules instead of aliasing.
+    this.interval = Math.max(1, Math.floor(interval));
+    this.frame = 0;
+    this.active = true;
     if (!this.enabled) return;
     this.set = GPU.device.createQuerySet({ type: 'timestamp', count: PAIRS * 2 });
     this.resolve = GPU.device.createBuffer({ size: PAIRS * 16, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
@@ -22,10 +27,10 @@ export class GpuTimer {
     this.labels = [];
   }
   /** Start a frame's measurements. */
-  begin() { this.labels = []; }
+  begin() { this.labels = []; this.active = this.frame++ % this.interval === 0; }
   /** timestampWrites for one pass, or undefined (off, or out of slots). */
   pass(label) {
-    if (!this.enabled || this.labels.length >= PAIRS) return undefined;
+    if (!this.enabled || !this.active || this.labels.length >= PAIRS) return undefined;
     const i = this.labels.push(label) - 1;
     return { querySet: this.set, beginningOfPassWriteIndex: i * 2, endOfPassWriteIndex: i * 2 + 1 };
   }
