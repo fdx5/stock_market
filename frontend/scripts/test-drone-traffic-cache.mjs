@@ -7,23 +7,22 @@ import vm from 'node:vm';
 import * as THREE from 'three';
 const helper={module:{exports:{}},exports:{}};
 vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/trafficLaneCurve.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,helper);
-const load=source=>{const scope={module:{exports:{}},exports:{},THREE,...helper.module.exports,CAR_SPECS:{},DIMS:{},loadCarModels:()=>new Promise(()=>{}),carModelMaterial:()=>new THREE.MeshStandardMaterial()};vm.runInNewContext(transformSync(source.replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);return scope.module.exports.DroneTraffic;};
-const Current=load(readFileSync(new URL('../src/components/droneTraffic.ts',import.meta.url),'utf8'));
-const Previous=load(execFileSync('git',['show','0e05c14:frontend/src/components/droneTraffic.ts'],{encoding:'utf8'}));
+const load=source=>{const scope={module:{exports:{}},exports:{},THREE,...helper.module.exports,CAR_SPECS:{},DIMS:{},loadCarModels:()=>new Promise(()=>{}),carModelMaterial:()=>new THREE.MeshStandardMaterial()};vm.runInNewContext(transformSync(source.replace(/^import .*\r?\n/gm,''),{loader:'ts',format:'cjs'}).code,scope);return scope.module.exports;};
+const {DroneTraffic:Current,signalState}=load(readFileSync(new URL('../src/components/droneTraffic.ts',import.meta.url),'utf8'));
 // A continuous road grade. The previous fixture jumped down three metres at every tile seam.
 const packed=(ox,oy)=>Float32Array.from(Array.from({length:12},(_,i)=>[3,16,ox,oy+i*4,ox*.01,ox+45,oy+i*4,(ox+45)*.01,ox+90,oy+i*4,(ox+90)*.01]).flat());
-test('lane choices and complete traffic frames remain deterministic across tile changes',()=>{
- const old=new Previous(341),next=new Current(341);next.farStagger=false;
- for(const t of [old,next]){t.addTile('a',packed(0,0));t.addTile('b',packed(90,0));t.addTile('c',packed(180,0));t.addTile('d',packed(1200,-40));}
+test('lane choices and complete traffic frames are deterministic across tile changes',()=>{
+ const one=new Current(341),two=new Current(341);one.farStagger=false;two.farStagger=false;
+ for(const t of [one,two]){t.addTile('a',packed(0,0));t.addTile('b',packed(90,0));t.addTile('c',packed(180,0));t.addTile('d',packed(1200,-40));}
  const camera=new THREE.Vector3();
  for(let frame=0;frame<900;frame++){
-  if(frame===300)for(const t of [old,next])t.addTile('e',packed(270,0));
-  if(frame===500)for(const t of [old,next])t.removeTile('b');
-  if(frame===600)for(const t of [old,next])t.addTile('b',packed(90,0));
-  camera.set(frame<400?0:1400,160,frame<700?0:-20);old.update(.06,camera);next.update(.06,camera);
-  assert.equal(next.far.count,old.far.count);assert.equal(Buffer.compare(Buffer.from(next.far.instanceMatrix.array.buffer),Buffer.from(old.far.instanceMatrix.array.buffer)),0);assert.equal(Buffer.compare(Buffer.from(next.far.instanceColor.array.buffer),Buffer.from(old.far.instanceColor.array.buffer)),0);
+  if(frame===300)for(const t of [one,two])t.addTile('e',packed(270,0));
+  if(frame===500)for(const t of [one,two])t.removeTile('b');
+  if(frame===600)for(const t of [one,two])t.addTile('b',packed(90,0));
+  camera.set(frame<400?0:1400,160,frame<700?0:-20);one.update(.06,camera);two.update(.06,camera);
+  assert.equal(two.far.count,one.far.count);assert.equal(Buffer.compare(Buffer.from(two.far.instanceMatrix.array.buffer),Buffer.from(one.far.instanceMatrix.array.buffer)),0);assert.equal(Buffer.compare(Buffer.from(two.far.instanceColor.array.buffer),Buffer.from(one.far.instanceColor.array.buffer)),0);
  }
- old.dispose();next.dispose();
+ assert.ok(one.far.count>0);one.dispose();two.dispose();
 });
 
 const one=(a,b)=>Float32Array.from([2,16,...a,...b]);
@@ -108,4 +107,30 @@ test('traffic uploads every live instance and colour without copying unused capa
  const version=t.far.instanceMatrix.version;t.update(.016,new THREE.Vector3(10000,150,0));
  assert.equal(t.far.count,0);assert.equal(t.far.instanceMatrix.version,version);assert.equal(t.far.instanceMatrix.updateRanges.length,0);
  t.update(.016,camera);assert.equal(t.far.count,1);assert.equal(t.far.instanceMatrix.updateRanges[0].count,16);t.dispose();
+});
+
+test('cars on two crossing roads take the crossing in turn and never overlap there',()=>{
+ const t=new Current(11);t.farStagger=false;
+ t.addTile('ew',one([-300,0,0],[300,0,0]));t.addTile('ns',one([0,-300,0],[0,300,0]));
+ const camera=new THREE.Vector3(0,150,0);let crossed=0,minGap=Infinity;
+ for(let i=0;i<1500;i++){
+  t.update(.05,camera);
+  const near=t.cars.filter(c=>{t.pose(c);return Math.hypot(c.x,c.y)<6;});
+  for(const a of near)for(const b of near)if(a.lane!==b.lane)minGap=Math.min(minGap,Math.hypot(a.x-b.x,a.y-b.y));
+  crossed+=near.length;
+ }
+ assert.ok(crossed>0,'traffic passes the crossing');assert.ok(minGap>2.5,`closest cars across the crossing ${minGap}`);t.dispose();
+});
+test('a red light on the next short piece of road stops the car before its line',()=>{
+ const t=new Current(5);t.farStagger=false;
+ t.addTile('a',one([-200,0,0],[-2,0,0]));
+ // (the next piece is short and carries the stop line; phase 0 and 1 are red in turn)
+ t.addTile('b',Float32Array.from([2,16,-2,0,0,40,0,0]),Float32Array.from([1,20,7,1]));
+ const b=t.lanes.get('b')[0];b.cars.length=0;const a=t.lanes.get('a')[0];
+ t.cars=t.cars.filter(c=>c.lane===a);let ran=0,passed=0;
+ for(let i=0;i<2400;i++){
+  const before=new Map(t.cars.map(c=>[c,[c.lane,c.s]]));t.update(.05,new THREE.Vector3(0,150,0));
+  for(const c of t.cars){const [l,s]=before.get(c)??[];if(l===b&&c.lane===b&&s<20&&c.s>=20)passed++;if(l===b&&c.lane===b&&s<20&&c.s>=20&&signalState(t.clock,7,1)==='red'&&signalState(t.clock-3,7,1)==='red')ran++;}
+ }
+ assert.equal(ran,0);assert.ok(passed>0,'cars do pass on green');t.dispose();
 });
