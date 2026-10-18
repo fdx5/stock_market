@@ -217,8 +217,16 @@ export function fieldFrom(d: FieldData, at: (x: number, y: number) => number) {
     const i = Math.floor(fx), j = Math.floor(fy), u = fx - i, v = fy - j;
     const c = j * nx + i;
     let sum = 0, w = 0;
-    const add = (val: number, k: number) => { if (k > 0 && Number.isFinite(val)) { sum += val * k; w += k; } };
-    add(f[c], (1 - u) * (1 - v)); add(f[c + 1], u * (1 - v)); add(f[c + nx], (1 - u) * v); add(f[c + nx + 1], u * v);
+    // Boats, collision queries and draping sample this continuously. Preserve the
+    // accumulation order without allocating a closure for each bilinear lookup.
+    let val = f[c], k = (1 - u) * (1 - v);
+    if (k > 0 && Number.isFinite(val)) { sum += val * k; w += k; }
+    val = f[c + 1]; k = u * (1 - v);
+    if (k > 0 && Number.isFinite(val)) { sum += val * k; w += k; }
+    val = f[c + nx]; k = (1 - u) * v;
+    if (k > 0 && Number.isFinite(val)) { sum += val * k; w += k; }
+    val = f[c + nx + 1]; k = u * v;
+    if (k > 0 && Number.isFinite(val)) { sum += val * k; w += k; }
     return w > 0 ? sum / w : fallback;
   };
   const node = (x: number, y: number) => {
@@ -228,7 +236,12 @@ export function fieldFrom(d: FieldData, at: (x: number, y: number) => number) {
   return {
     data: d,
     coast,
-    level: (x: number, y: number) => coast?.wet(x, y) ? coast.level : sample(lvl, x, y, at(x, y)),
+    level: (x: number, y: number) => {
+      if (coast?.wet(x, y)) return coast.level;
+      const level = sample(lvl, x, y, NaN);
+      // A finite water level needs no terrain fallback (often another costly grid lookup).
+      return Number.isNaN(level) ? at(x, y) : level;
+    },
     /** On the (closed) water. */
     wet: (x: number, y: number) => {
       const c = node(x, y);

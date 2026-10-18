@@ -17,6 +17,17 @@ const {fitTileStreetSurfaces}=load('tileStreetSurfaces.ts',{cutSceneSurface});
 const {anchoredTerrainHeight}=load('terrainGrid.ts');
 const go=async()=>true;
 const rectangle=(x0,y0,x1,y1)=>[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
+
+test('worker surface bounds are reused exactly without another vertex scan on the drawing thread',async()=>{
+ const source=new THREE.BoxGeometry(20,8,12).translate(7,4,-3);source.computeBoundingSphere();
+ const expected=source.boundingSphere.clone(),b=expected;
+ const result={attributes:Object.entries(source.attributes).map(([name,a])=>({name,size:a.itemSize,array:a.array})),index:source.index.array,sphere:[b.center.x,b.center.y,b.center.z,b.radius]};
+ const api=load('surfaceCutClient.ts',{sceneWork:()=>Promise.resolve(result),excludeSurface,seaOutsideBox});
+ const target=new THREE.BufferGeometry();target.computeBoundingSphere=()=>{throw Error('main-thread vertex scan');};
+ await api.cutSceneSurface(target,[rectangle(-1,-1,1,1)],go);
+ assert.ok(target.boundingSphere.equals(expected));assert.equal(target.attributes.position.array,source.attributes.position.array);
+ assert.equal(target.index.array,source.index.array);
+});
 test('paving reuses exact repeated heights within a build, yields on long runs and refreshes the next build',async()=>{
  const text=readFileSync(new URL('../src/components/sceneSidewalk.ts',import.meta.url),'utf8'),code=text.slice(text.indexOf('export async function buildSidewalks'),text.indexOf('/** Street trees:'));
  let clock=0,frames=0,calls=0,base=2;const points=new Set(),module={exports:{}};

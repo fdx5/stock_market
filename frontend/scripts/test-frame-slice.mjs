@@ -11,7 +11,7 @@ function scheduler(hidden=false){
  }
  const scope={module:{exports:{}},exports:{},document:{hidden},performance:{now:()=>now},MessageChannel,requestAnimationFrame:f=>frames.push(f)};
  vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/frameSlice.ts',import.meta.url),'utf8'),{loader:'ts',format:'cjs'}).code,scope);
- return {slice:scope.module.exports.frameSlice,start:scope.module.exports.sceneFrameStarted,frames,tasks,setNow:v=>now=v,spend:v=>now+=v,
+ return {slice:scope.module.exports.frameSlice,map:scope.module.exports.mapInSlices,filter:scope.module.exports.filterInSlices,start:scope.module.exports.sceneFrameStarted,frames,tasks,setNow:v=>now=v,spend:v=>now+=v,
   async task(){tasks.shift()();for(let i=0;i<5;i++)await Promise.resolve();},
   frame(at,cost=0){now=at+cost;frames.shift()(at);}};
 }
@@ -60,4 +60,17 @@ test('multiple views on one tick retain cumulative rendering cost',async()=>{
  const s=scheduler(),order=[];s.slice(9).then(()=>order.push(0));
  s.setNow(4);s.start(0);s.setNow(10);s.start(0);s.frame(0,15);await s.task();
  assert.deepEqual(order,[]);
+});
+
+test('asset maps and junction filters yield during construction while preserving callback order and object identities',async()=>{
+ for(const operation of ['map','filter']){
+  const s=scheduler(),items=Array.from({length:20},(_,i)=>({i})),called=[];
+  let done=false,value;
+  const p=s[operation](items,(item,index)=>{called.push(index);s.spend(1);return operation==='map'?item:index%3===0;}).then(v=>{done=true;value=v;});
+  assert.equal(done,false);assert.equal(called.length,2,'the batch gives drawing a turn after two milliseconds');
+  let at=0,turns=0;
+  while(!done&&turns++<100){if(s.tasks.length)await s.task();else if(s.frames.length){at+=16.7;s.frame(at,2);}else await Promise.resolve();}
+  await p;assert.deepEqual(called,items.map((_,i)=>i));
+  assert.deepEqual(Array.from(value),operation==='map'?items:items.filter((_,i)=>i%3===0));
+ }
 });

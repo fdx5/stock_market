@@ -7,7 +7,11 @@ import {seaOutsideBox} from './coastGeometry';
 export async function cutSceneSurface(geometry:THREE.BufferGeometry,rings:[number,number][][],pace:()=>Promise<boolean>,roads=false,zUp=false){
  const result=await sceneWork('surfaceCut',{attributes:Object.entries(geometry.attributes).map(([name,a])=>({name,size:a.itemSize,array:a.array as Float32Array})),index:geometry.index?.array as Uint16Array|Uint32Array??null,rings,roads,zUp})?.catch(()=>null);
  if(!await pace())return;
- if(result){geometry.setIndex(result.index?new THREE.BufferAttribute(result.index,1):null);for(const a of result.attributes)geometry.setAttribute(a.name,new THREE.BufferAttribute(a.array,a.size));geometry.computeBoundingSphere();}
+ if(result){
+  geometry.setIndex(result.index?new THREE.BufferAttribute(result.index,1):null);for(const a of result.attributes)geometry.setAttribute(a.name,new THREE.BufferAttribute(a.array,a.size));
+  const b=result.sphere;
+  if(b)geometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(b[0],b[1],b[2]),b[3]);else geometry.computeBoundingSphere();
+ }
  else await excludeSurface(geometry,rings,pace,zUp);
 }
 /** The departure streets hand over to streamed tiles at the same square as

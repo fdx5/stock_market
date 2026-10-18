@@ -2,6 +2,7 @@ import { GPU } from '../gpu/GPU.js';
 import { BoundedCache } from '../gpu/BoundedCache.js';
 import { composeShader, composeShaderAsync, createShaderModule, getBindGroupLayout, group0ForBlock, stripUnusedFunctions } from '../gpu/Shader.js';
 import { buildMeshShader } from './MeshShader.js';
+import { compactDepthPositions, opaqueDepthEligible } from './OpaqueDepth.js';
 import { blendState } from './Material.js';
 import { SceneLighting } from './wgsl/lighting.js';
 import { FrameUniforms } from './Frame.js';
@@ -237,7 +238,7 @@ export class MeshRenderer {
 		for ( const [ geometry, g ] of this.geometries ) {
 			const attrs = used.get( geometry );
 			if ( ! attrs ) { this.releaseGeometry( geometry ); continue; }
-			for ( const [ src, b ] of g.buffers ) if ( ! attrs.has( src ) ) {
+			for ( const [ src, b ] of g.buffers ) if ( ! attrs.has( src ) && src !== g.compactDepth?.position ) {
 				b.buffer.destroy();
 				g.buffers.delete( src );
 				g.bufferEpoch = ( g.bufferEpoch ?? 0 ) + 1;
@@ -253,6 +254,7 @@ export class MeshRenderer {
 		geometry.removeEventListener?.( 'dispose', g.onDispose );
 		for ( const b of g.buffers.values() ) b.buffer.destroy();
 		g.index?.buffer.destroy();
+		g.compactDepth?.indexBuffer?.destroy();
 		this.geometries.delete( geometry );
 		// Clear only retired references. Admitting one new tile must not discard
 		// all static buffer caches and pooled draw items across the active city.
@@ -363,7 +365,7 @@ export class MeshRenderer {
 		const inst = object.isInstancedMesh ? ( object.instanceColor ? 2 : 1 ) : 0;
 		const mkey = inst ? material.id + ':' + inst : material.id;
 		let e = byMat.get( mkey );
-		if ( e && e.geometry === geometry && e.version === material.version && e.attrsVersion === geometry.attributesVersion && ( ! inst || ( e.instanceMatrix === object.instanceMatrix && e.instanceColor === object.instanceColor ) ) ) {
+		if ( e && e.worldInstances === !! object.worldInstances && e.geometry === geometry && e.version === material.version && e.attrsVersion === geometry.attributesVersion && ( ! inst || ( e.instanceMatrix === object.instanceMatrix && e.instanceColor === object.instanceColor ) ) ) {
 
 			const refs = e.refs, names = e.names, attrs = geometry.attributes;
 			let ok = true;
@@ -382,7 +384,7 @@ export class MeshRenderer {
 		// Include absent shader attributes too: adding a normal/UV/facade later
 		// must invalidate the layout as reliably as replacing an existing one.
 		const names = [ 'position', 'normal', 'uv', 'color', ...Object.keys( material.attributes ) ];
-		e = { geometry, version: material.version, attrsVersion: geometry.attributesVersion, instanceMatrix: object.instanceMatrix, instanceColor: object.instanceColor, names, refs: names.map( ( n ) => geometry.attributes[ n ] ), vl };
+		e = { geometry, version: material.version, attrsVersion: geometry.attributesVersion, instanceMatrix: object.instanceMatrix, instanceColor: object.instanceColor, worldInstances: !! object.worldInstances, names, refs: names.map( ( n ) => geometry.attributes[ n ] ), vl };
 		vl.sourceNames = names; vl.sourceRefs = e.refs;
 		vl.pipelines = new Map();
 		byMat.set( mkey, e );
@@ -391,10 +393,10 @@ export class MeshRenderer {
 	}
 
 	// vertex buffer layouts for this (material, geometry, object): only the attributes the shader reads
-	_layout( object, geometry, material ) {
+	_layout( object, geometry, material, positionOnly = false ) {
 
 		const attrs = [];
-		const want = [ 'position', 'normal', 'uv', 'color', ...Object.keys( material.attributes ) ];
+		const want = positionOnly ? [ 'position' ] : [ 'position', 'normal', 'uv', 'color', ...Object.keys( material.attributes ) ];
 		for ( const name of want ) {
 
 			const a = geometry.attributes[ name ];
@@ -405,7 +407,7 @@ export class MeshRenderer {
 		if ( object.isInstancedMesh ) {
 
 			for ( let i = 0; i < 4; i ++ ) attrs.push( { name: 'instanceMatrix' + i, attr: object.instanceMatrix, column: i } );
-			if ( object.instanceColor ) attrs.push( { name: 'instanceColor', attr: object.instanceColor } );
+			if ( object.instanceColor && ! positionOnly ) attrs.push( { name: 'instanceColor', attr: object.instanceColor } );
 
 		}
 
@@ -451,8 +453,40 @@ export class MeshRenderer {
 
 		}
 
-		const key = layout.map( ( l ) => `${ l.name }:${ l.wgsl }` ).join( ',' ) + '|' + buffers.map( ( b ) => `${ b.layout.arrayStride }/${ b.layout.stepMode }/${ b.layout.attributes.map( ( x ) => x.format + '@' + x.offset ).join( ';' ) }` ).join( ',' );
-		return { key, layout, buffers };
+		const worldInstances = !! ( object.isInstancedMesh && object.worldInstances );
+		layout.worldInstances = worldInstances;
+		const key = layout.map( ( l ) => `${ l.name }:${ l.wgsl }` ).join( ',' ) + '|' + buffers.map( ( b ) => `${ b.layout.arrayStride }/${ b.layout.stepMode }/${ b.layout.attributes.map( ( x ) => x.format + '@' + x.offset ).join( ';' ) }` ).join( ',' ) + ( worldInstances ? '|worldInstances' : '' );
+		return { key, layout, buffers, worldInstances };
+
+	}
+
+	// The compact shadow buffers belong to the original geometry, so normal ownership
+	// reconciliation and disposal release them too. Main-pass layouts remain untouched.
+	_depthBuffers( o, geo, material, pass ) {
+
+		if ( ! geo.userData?.compactDepth || ! opaqueDepthEligible( material, pass ) ) return null;
+		const state = this._geometryGPU( geo ), p = geo.attributes.position, index = geo.index;
+		let d = state.compactDepth;
+		if ( ! d || d.source !== p || d.array !== p.array || d.version !== p.version || d.index !== index || d.indexArray !== index?.array || d.indexVersion !== index?.version ) {
+			if ( d ) {
+				state.buffers.get( d.position )?.buffer.destroy(); state.buffers.delete( d.position );
+				d.indexBuffer?.destroy();
+			}
+			const compact = compactDepthPositions( geo );
+			if ( ! compact ) { state.compactDepth = null; return null; }
+			d = state.compactDepth = { ...compact, source: p, array: p.array, version: p.version, index, indexArray: index.array, indexVersion: index.version, rows: new WeakMap() };
+			d.indexBuffer = GPU.device.createBuffer( { label: 'compact shadow indices', size: Math.max( 16, align4( d.indices.byteLength ) ), usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST } );
+			writePadded( d.indexBuffer, d.indices );
+			d.indexBinding = { buffer: d.indexBuffer, format: d.indices instanceof Uint16Array ? 'uint16' : 'uint32' };
+		}
+		let row = d.rows.get( o );
+		if ( ! row || row.instanceMatrix !== o.instanceMatrix || !! row.vl.worldInstances !== !! o.worldInstances ) {
+			row = { vl: this._layout( o, { attributes: { position: d.position } }, material, true ), vbs: [], index: d.indexBinding, instanceMatrix: o.instanceMatrix };
+			row.vl.pipelines = new Map();
+			d.rows.set( o, row );
+		}
+		for ( let i = 0; i < row.vl.buffers.length; i ++ ) row.vbs[ i ] = this._attributeBuffer( geo, row.vl.buffers[ i ].attr );
+		return row;
 
 	}
 
@@ -810,7 +844,7 @@ export class MeshRenderer {
 		// the per-material layout lookup. Reuse the last uploaded layout only
 		// after checking its source identities, including absent attributes.
 		let vl;
-		if ( row && row.owner === this && row.geo === geo && row.material === material && row.materialVersion === material.version && row.attrsVersion === geo.attributesVersion && row.instanceMatrix === object.instanceMatrix && row.instanceColor === object.instanceColor && row.vl.sourceNames ) {
+		if ( row && !! row.vl.worldInstances === !! object.worldInstances && row.owner === this && row.geo === geo && row.material === material && row.materialVersion === material.version && row.attrsVersion === geo.attributesVersion && row.instanceMatrix === object.instanceMatrix && row.instanceColor === object.instanceColor && row.vl.sourceNames ) {
 			let same = true;
 			for ( let i = 0; i < row.vl.sourceNames.length; i ++ ) if ( geo.attributes[ row.vl.sourceNames[ i ] ] !== row.vl.sourceRefs[ i ] ) { same = false; break; }
 			if ( same ) vl = row.vl;
@@ -846,7 +880,8 @@ export class MeshRenderer {
 		for ( const descriptor of passes ) {
 			const pass = descriptor.passKey && Object.isFrozen( descriptor ) ? descriptor : { kind: 'main', late: false, colorFormats: [], depthFormat: null, depthCompare: 'greater-equal', ...descriptor };
 			if ( pass !== descriptor ) pass.passKey = `${ pass.kind }.${ pass.late ? 1 : 0 }.${ pass.colorFormats.join( ',' ) }.${ pass.depthFormat }.${ pass.depthCompare }.${ pass.cullOverride || '' }.${ pass.defines ? JSON.stringify( pass.defines ) : '' }`;
-			const p = this._pipeline( material, vl, pass );
+			const depth = this._depthBuffers( object, object.geometry, material, pass );
+			const p = this._pipeline( material, depth?.vl ?? vl, pass );
 			if ( p?.handle.failed ) throw new Error( 'Replacement pipeline failed: ' + p.handle.label );
 			if ( ! p?.handle.pipeline ) ready = false;
 		}
@@ -919,8 +954,9 @@ export class MeshRenderer {
 			if ( instances === 0 ) continue;
 			// (local modification) the layout and buffers a draw resolves are the same in every pass of
 			// a frame (scene, plants, each shadow cascade): worked out by its first pass, then reused
-			let m = o.__frameRow;
-			if ( ! m || m.frame !== GPU.frame || m.material !== material || m.geo !== geo || m.owner !== this || m.epoch !== ( this.geometryEpoch ?? 0 ) || m.gpuState !== this.geometries.get( geo ) || m.bufferEpoch !== ( m.gpuState?.bufferEpoch ?? 0 ) ) {
+			const depth = this._depthBuffers( o, geo, material, pass );
+			let m = depth ?? o.__frameRow;
+			if ( ! depth && ( ! m || !! m.vl.worldInstances !== !! o.worldInstances || m.frame !== GPU.frame || m.material !== material || m.geo !== geo || m.owner !== this || m.epoch !== ( this.geometryEpoch ?? 0 ) || m.gpuState !== this.geometries.get( geo ) || m.bufferEpoch !== ( m.gpuState?.bufferEpoch ?? 0 ) ) ) {
 				m = this._frameBuffers( o, geo, material );
 			}
 			const vl = m.vl, vbs = m.vbs, index = m.index;
@@ -1175,13 +1211,14 @@ export class MeshRenderer {
 
 			const { object: o, geometry: geo, material } = it;
 			if ( ! geo.attributes.position && ! geo.vertexCount && ! geo.indirect ) continue;
+			const depth = this._depthBuffers( o, geo, material, pass );
 			let vl, p;
 			if ( this.precompiling ) {
 
 				// a hidden mesh may not be drawable yet: its pipeline is optional
 				try {
 
-					vl = this._cachedLayout( o, geo, material );
+					vl = depth?.vl ?? this._cachedLayout( o, geo, material );
 					p = this._pipeline( material, vl, pass );
 					if ( ! p ) continue;
 
@@ -1195,7 +1232,7 @@ export class MeshRenderer {
 
 			}
 
-			vl = this._cachedLayout( o, geo, material );
+			vl = depth?.vl ?? this._cachedLayout( o, geo, material );
 			p = this._pipeline( material, vl, pass );
 			if ( ! p ) continue; // over this frame's budget
 			const pipeline = p.handle.pipeline || ( this.syncPipelines ? GPU.ready( p.handle ) : null );
@@ -1216,12 +1253,12 @@ export class MeshRenderer {
 			}
 
 			rp.setBindGroup( 2, this.drawBindGroup, [ this._slot( o ) * DRAW_STRIDE ] );
-			for ( let i = 0; i < vl.buffers.length; i ++ ) rp.setVertexBuffer( i, this._attributeBuffer( geo, vl.buffers[ i ].attr ) );
+			for ( let i = 0; i < vl.buffers.length; i ++ ) rp.setVertexBuffer( i, depth ? depth.vbs[ i ] : this._attributeBuffer( geo, vl.buffers[ i ].attr ) );
 			const instances = o.isInstancedMesh ? o.count : geo.instanceCount ?? 1;
 			if ( instances === 0 ) continue;
 			const runs = o.isInstancedMesh ? this._instanceRuns( o, pass ) : null;
 			if ( runs && ! runs.length ) continue;
-			const index = this._indexBuffer( geo );
+			const index = depth?.index ?? this._indexBuffer( geo );
 			if ( geo.indirect ) {
 
 				const ib = geo.indirect.buffer.getGPU ? geo.indirect.buffer.getGPU() : geo.indirect.buffer;

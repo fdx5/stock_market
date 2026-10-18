@@ -28,7 +28,7 @@ export type GroundData = Pick<RealEstateBuildingsResponse, "site" | "roads" | "p
 
 export type SceneOps = {
   surfaceBox:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array;box:[number,number,number,number]};result:SceneOps['surfaceCut']['result']};
-  surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]|null;ringsId?:number;roads?:boolean;zUp?:boolean};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null}};
+  surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]|null;ringsId?:number;roads?:boolean;zUp?:boolean};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;sphere?:[number,number,number,number]}};
   roads: {args:{roads:RealEstateRoad[];footprints:[number,number][][]};result:RealEstateRoad[]};
   neighbours: { args: { jobs: NeighbourJob[];hybrid?:boolean }; result: {arrays:NeighbourArrays[];mode:string;computeMs:number;memoryBytes:number;inputBytes:number} };
   walkPaths: {args:{paths:WalkPath[];roads:RealEstateRoad[];footprints:[number,number][][];T:number};result:WalkPath[]};
@@ -127,7 +127,9 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       const g=new THREE.BufferGeometry();for(const a of m.args.attributes)g.setAttribute(a.name,new THREE.BufferAttribute(a.array,a.size));if(m.args.index)g.setIndex(new THREE.BufferAttribute(m.args.index,1));
       await excludeSurface(g,rings,go,m.args.zUp);
       const attributes=Object.entries(g.attributes).map(([name,a])=>({name,size:a.itemSize,array:a.array})),index=g.index?.array??null;
-      result={attributes,index};transfer=attributes.map(a=>a.array.buffer);if(index)transfer.push(index.buffer);
+      // The UI otherwise scans the entire returned surface again during flight.
+      if(!g.boundingSphere)g.computeBoundingSphere();const b=g.boundingSphere!;
+      result={attributes,index,sphere:[b.center.x,b.center.y,b.center.z,b.radius]};transfer=attributes.map(a=>a.array.buffer);if(index)transfer.push(index.buffer);
     }
     else if(m.op==='roads')result=constrainRoadCorridors(m.args.roads,m.args.footprints);
     else if (m.op === 'neighbours') {

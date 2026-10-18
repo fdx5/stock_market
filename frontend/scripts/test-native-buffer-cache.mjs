@@ -90,6 +90,16 @@ test('the production layout cache notices an attribute that was absent during th
  assert.equal(f.r.geometries.get(f.geometry).buffers.get(normal).buffer.data[0],1);
 });
 
+test('switching between identity and placed world transforms invalidates an instanced shader layout',()=>{
+ const f=fixture();Object.assign(f.material,{id:1,version:0,attributes:{}});f.o.isInstancedMesh=true;
+ f.r.layouts=new WeakMap();f.r._cachedLayout=vm.runInNewContext('({'+between('_cachedLayout','\n\t// vertex buffer layouts')+'})._cachedLayout');
+ f.r._layout=o=>({buffers:[],worldInstances:!!o.worldInstances});
+ const original=f.r._cachedLayout(f.o,f.geometry,f.material);assert.equal(original.worldInstances,false);
+ f.o.worldInstances=true;const world=f.r._cachedLayout(f.o,f.geometry,f.material);assert.notEqual(world,original);assert.equal(world.worldInstances,true);
+ assert.equal(f.r._cachedLayout(f.o,f.geometry,f.material),world);
+ f.o.worldInstances=false;assert.equal(f.r._cachedLayout(f.o,f.geometry,f.material).worldInstances,false);
+});
+
 test('readiness shares verified static bindings with the same frame draw while animated or external buffers still refresh',()=>{
  const f=fixture();f.o.geometry=f.geometry;f.draw();f.GPU.frame++;
  assert.equal(f.r.geometryReady(f.o,f.material,true),true);assert.equal(f.o.__frameRow.frame,f.GPU.frame);

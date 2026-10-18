@@ -95,15 +95,16 @@ async function acquireBank(texture:THREE.Texture|null,pause:()=>Promise<void>,bo
     // leaf sprays spread across the crown; only the index buffer changes.
     const g=new THREE.BufferGeometry();for(const [name,a]of Object.entries(full.attributes))g.setAttribute(name,a);
     const step=192/count,ids:number[]=[];for(let spray=0;spray<48;spray+=step)for(let j=0;j<4*12;j++)ids.push(full.index!.array[spray*48+j]);
-    g.setIndex(ids);g.boundingBox=full.boundingBox!.clone();g.boundingSphere=full.boundingSphere!.clone();
+    g.setIndex(ids);g.boundingBox=full.boundingBox!.clone();g.boundingSphere=full.boundingSphere!.clone();g.userData.compactDepth=true;
     geometries.push(g);bytes+=g.index!.array.byteLength;baseTriangles+=g.index!.count/3;leaves[i].push(g);continue;
    }
    await pause();const model=treeMeshModel(i,1,count),n=model.userData.treeModel.leafVertices,t=model.userData.treeModel.leafTriangles;
-   full=extract(model,0,n,0,t);leaves[i].push(full);
+   full=extract(model,0,n,0,t);full.userData.compactDepth=true;leaves[i].push(full);
    if(!bark){bark=extract(model,n,n+24,t,t+32);if(!texture){const c=bark.attributes.color as THREE.BufferAttribute;for(let j=0;j<c.count;j++)c.setXYZ(j,.30,.19,.10);}}
    if(count===192)exposed.push(model.userData.treeModel.exposedTrunk);model.dispose();
   }
  }
+  bark!.userData.compactDepth=true;
   const crownMat=new THREE.MeshStandardMaterial({map:texture,vertexColors:true,roughness:.9,side:THREE.FrontSide});crownMat.userData.volumeFoliage=true;crownMat.userData.meshLeaves=true;
   const barkMat=new THREE.MeshStandardMaterial({map:texture,vertexColors:true,roughness:.95,side:THREE.FrontSide});barkMat.userData.bark=true;
   return {key,refs:0,geometries,leaves,bark:bark!,bytes,baseTriangles,exposed,crownMat,barkMat} as TreeBank;

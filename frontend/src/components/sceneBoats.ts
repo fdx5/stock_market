@@ -520,14 +520,21 @@ class Ribbon {
           if (dth > 0) wl = Math.min(wl, radius * 0.7); else wr = Math.min(wr, radius * 0.7);
         }
       }
-      p.set([x - dy * wl, h, -(y + dx * wl), x + dy * wr, h, -(y - dx * wr)], i * 6);
+      const pi = i * 6;
+      p[pi] = x - dy * wl; p[pi + 1] = h; p[pi + 2] = -(y + dx * wl);
+      p[pi + 3] = x + dy * wr; p[pi + 4] = h; p[pi + 5] = -(y - dx * wr);
       const vv = v(age);
-      t.set([0, vv, 1, vv], i * 4);
+      const ti = i * 4;
+      t[ti] = 0; t[ti + 1] = vv; t[ti + 2] = 1; t[ti + 3] = vv;
     }
     // The rest collapse onto the last pair (degenerate triangles): the WebGPU adapter
     // draws the whole index buffer, not the draw range.
-    const lastP = n ? p.slice((n - 1) * 6, n * 6) : new Float32Array(6), lastT = n ? t.slice((n - 1) * 4, n * 4) : new Float32Array(4);
-    for (let i = n; i < this.max; i++) { p.set(lastP, i * 6); t.set(lastT, i * 4); }
+    if (n) {
+      for (let i = n; i < this.max; i++) {
+        p.copyWithin(i * 6, (n - 1) * 6, n * 6);
+        t.copyWithin(i * 4, (n - 1) * 4, n * 4);
+      }
+    } else { p.fill(0); t.fill(0); }
     this.mesh.visible = n > 1;
     this.pos.needsUpdate = true; this.uv.needsUpdate = true;
     this.mesh.geometry.setDrawRange(0, Math.max(0, n - 1) * 6);

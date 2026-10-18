@@ -2,6 +2,7 @@ import { commonModule } from './wgsl/common.js';
 import { surfaceModule, lightingModule, hookModules, shadowModule } from './wgsl/lighting.js';
 import { collectModules } from '../gpu/Shader.js';
 import { GPU } from '../gpu/GPU.js';
+import { opaqueDepthEligible } from './OpaqueDepth.js';
 
 // Builds the WGSL of a mesh pipeline: vertex fetch + material vertex hook + transform, fragment
 // surface hook + lighting + outputs. See Material.js for the snippet contract.
@@ -52,9 +53,43 @@ export function buildMeshShader( material, layout, pass ) {
 	defs.PASS_LATE = pass.late ? 1 : 0;
 	defs.LIT = material.lit ? 1 : 0;
 	defs.INSTANCED = has.has( 'instanceMatrix0' ) ? 1 : 0;
+	defs.WORLD_INSTANCES = layout.worldInstances ? 1 : 0;
 	defs.INSTANCE_COLOR = has.has( 'instanceColor' ) ? 1 : 0;
 	Object.assign( defs, pass.defines || {} );
 	defs.CLIP_DISTANCES = defs.REFRACTION_CLIP && GPU.features.has( 'clip-distances' ) ? 1 : 0;
+
+	// An opaque, undeformed caster needs only clip position. Exporting the colour pass's
+	// normals, UVs, colours and world position still costs vertex work/bandwidth even with
+	// no fragment stage. Keep exactly the same position arithmetic and raster state.
+	if ( has.has( 'position' ) && opaqueDepthEligible( material, pass ) && ! defs.REFRACTION_CLIP ) {
+
+		return {
+			code: `
+struct Draw {
+	model: mat4x4f,
+	prevModel: mat4x4f,
+	params: vec4f,
+	params2: vec4f,
+};
+@group( 2 ) @binding( 0 ) var<uniform> draw: Draw;
+struct VertexIn {
+${ layout.filter( a => a.name === 'position' || /^instanceMatrix[0-3]$/.test( a.name ) ).map( a => `\t@location( ${ a.location } ) ${ a.name }: ${ a.wgsl },` ).join( '\n' ) }
+};
+@vertex fn vs( i: VertexIn ) -> @builtin( position ) vec4f {
+#if WORLD_INSTANCES
+	let model = mat4x4f( i.instanceMatrix0, i.instanceMatrix1, i.instanceMatrix2, i.instanceMatrix3 );
+#elif INSTANCED
+	let model = draw.model * mat4x4f( i.instanceMatrix0, i.instanceMatrix1, i.instanceMatrix2, i.instanceMatrix3 );
+#else
+	let model = draw.model;
+#endif
+	let wp = ( model * vec4f( i.position, 1.0 ) ).xyz;
+	return frame.viewProj * vec4f( wp, 1.0 );
+}`,
+			modules: [], defines: defs, bindings: {}, hasFragment: false,
+		};
+
+	}
 
 	// ---- vertex input
 	let vin = 'struct VertexIn {\n';
@@ -185,7 +220,11 @@ ${ fetch }#if !HAS_POSITION
 	v.vertex = i.vertex;
 #if INSTANCED
 	let im = mat4x4f( i.instanceMatrix0, i.instanceMatrix1, i.instanceMatrix2, i.instanceMatrix3 );
+#if WORLD_INSTANCES
+	v.model = im;
+#else
 	v.model = draw.model * im;
+#endif
 	v.prevModel = draw.prevModel * im;
 #else
 	v.model = draw.model;

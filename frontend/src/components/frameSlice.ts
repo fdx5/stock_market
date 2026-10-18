@@ -59,3 +59,26 @@ export function sliceDeadline(): number {
 export function frameSlice(budgetMs = 9): Promise<void> {
   return new Promise(resolve => { waiting.push({ resolve, budget: budgetMs, since: performance.now() }); schedule(); });
 }
+
+/** Preserve map's order and values while spreading asset construction across frames.
+ * Callbacks remain synchronous: each indivisible model completes before yielding. */
+export async function mapInSlices<T, U>(items: readonly T[], make: (item: T, index: number) => U, sliceMs = 2): Promise<U[]> {
+  const length = items.length, out = new Array<U>(length);
+  let started = performance.now();
+  for (let i = 0; i < length; i++) {
+    if (i in items) out[i] = make(items[i], i);
+    if (i + 1 < length && performance.now() - started >= sliceMs) { await frameSlice(); started = performance.now(); }
+  }
+  return out;
+}
+
+/** Filter with the same ordering and identities, without one long junction scan. */
+export async function filterInSlices<T>(items: readonly T[], keep: (item: T, index: number) => boolean, sliceMs = 2): Promise<T[]> {
+  const length = items.length, out: T[] = [];
+  let started = performance.now();
+  for (let i = 0; i < length; i++) {
+    if (i in items && keep(items[i], i)) out.push(items[i]);
+    if (i + 1 < length && performance.now() - started >= sliceMs) { await frameSlice(); started = performance.now(); }
+  }
+  return out;
+}

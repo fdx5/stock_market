@@ -925,6 +925,11 @@ const NO_STRIPS = typeof location !== 'undefined' && new URLSearchParams(locatio
 // (twin of scenePlants' WebGL fade)
 const FOLIAGE_FADE = '0.14, 0.46, face';
 const FOLIAGE_STEEP = '0.5, 0.78, abs(v.y)';
+function identityMatrix(m) {
+  const e = m.elements;
+  for (let i = 0; i < 16; i++) if (e[i] !== (i % 5 === 0 ? 1 : 0)) return false;
+  return true;
+}
 function sameMatrix(a, b) {
   const x = a.elements, y = b.elements;
   for (let i = 0; i < 16; i++) if (x[i] !== y[i]) return false;
@@ -1627,13 +1632,19 @@ export class ComplexRenderer {
     // dips in the noise); snow settles on it, patchy on slopes. Twin of patchMaterial.
     if (!source.userData.sky) surface += `{
       let up = smoothstep(0.45, 0.9, in.N.y);
-      let puddle = smoothstep(0.55, 0.75, skyFbm(in.P.xz * 0.35));
-      s.albedo *= 1.0 - frame.debug.y * (0.18 + 0.22 * up + 0.12 * puddle * up);
-      s.roughness = mix(s.roughness, 0.12 + 0.2 * (1.0 - puddle), frame.debug.y * up * 0.85);
-      let snow = frame.debug.z * smoothstep(0.35, 0.8, in.N.y * (0.8 + 0.35 * skyFbm(in.P.xz * 0.6)));
-      s.albedo = mix(s.albedo, vec3f(0.86, 0.88, 0.92), snow);
-      s.roughness = mix(s.roughness, 0.9, snow); s.metalness *= 1.0 - snow;
-      s.emissive *= 1.0 - snow * 0.8;
+      // Uniform weather branches: clear skies need neither procedural noise field.
+      // Active rain/snow keep the original samples, arithmetic and order.
+      if (frame.debug.y > 0.0) {
+        let puddle = smoothstep(0.55, 0.75, skyFbm(in.P.xz * 0.35));
+        s.albedo *= 1.0 - frame.debug.y * (0.18 + 0.22 * up + 0.12 * puddle * up);
+        s.roughness = mix(s.roughness, 0.12 + 0.2 * (1.0 - puddle), frame.debug.y * up * 0.85);
+      }
+      if (frame.debug.z > 0.0) {
+        let snow = frame.debug.z * smoothstep(0.35, 0.8, in.N.y * (0.8 + 0.35 * skyFbm(in.P.xz * 0.6)));
+        s.albedo = mix(s.albedo, vec3f(0.86, 0.88, 0.92), snow);
+        s.roughness = mix(s.roughness, 0.9, snow); s.metalness *= 1.0 - snow;
+        s.emissive *= 1.0 - snow * 0.8;
+      }
     }`;
     // Contact darkening and physical glass response (no procedural grain: it aliases).
     surface += `s.roughness = clamp(s.roughness, 0.12, 1.0);
@@ -1825,6 +1836,9 @@ export class ComplexRenderer {
       if(obj.isInstancedMesh){if(obj.frustumCulled&&!obj.boundingSphere)obj.computeBoundingSphere();mesh.boundingSphere=obj.boundingSphere;}
       // (a pooled mesh's instances in blocks, each with its sphere: drawn as the blocks in sight)
       if(obj.isInstancedMesh)mesh.instanceRanges=obj.frustumCulled?obj.userData.instanceRanges:undefined;
+      // Pooled woodland/traffic already place instances in world space. Multiplying
+      // each vertex's instance matrix by an identity model matrix wastes 64 multiplies.
+      mesh.worldInstances = !!obj.isInstancedMesh && identityMatrix(obj.matrixWorld);
       const moved = mesh.count !== (obj.count ?? 1) || mesh.instVersion !== obj.instanceMatrix?.version || !sameMatrix(mesh.matrix, obj.matrixWorld);
       if (moved) {
         if (mesh.castShadow && !mesh.moving) this.castersChanged = true;

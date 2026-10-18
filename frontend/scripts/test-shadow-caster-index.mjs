@@ -7,7 +7,7 @@ const source=readFileSync(new URL('../src/vendor/tidewater/engine/render/MeshRen
 const method=(name,end)=>source.slice(source.indexOf('\t'+name+'( '),source.indexOf(end,source.indexOf('\t'+name+'( ')));
 test('indexed caster collection matches full scene traversal for visibility, layers, materials, groups and filters',()=>{
  const GPU={frame:1},scope={GPU,_v:new THREE.Vector3(),_camPos:new THREE.Vector3(),Object};
- const r=vm.runInNewContext('({'+method('collect','\n\t_inFrustum')+','+method('_addItems','\n\t// ------------------------------------------------------------------------------ render')+'})',scope);
+ const r=vm.runInNewContext('({'+method('collect','\n\t// (local modification) An instanced mesh')+','+method('_addItems','\n\t// ------------------------------------------------------------------------------ render')+'})',scope);
  r.reuseDrawLists=true;
  const scene=new THREE.Group();
  for(let i=0;i<100;i++){

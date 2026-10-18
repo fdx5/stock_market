@@ -1,4 +1,4 @@
-import { frameSlice } from "./frameSlice";
+import { frameSlice, mapInSlices, filterInSlices } from "./frameSlice";
 import { float32Sliced, flatNormalsSliced } from "./slicedGeometry";
 import {trafficPathSampler} from './trafficPathSample';
 import {surfaceGeometry} from './surfaceGeometry';
@@ -915,10 +915,11 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     }
     return best;
   };
-  const layCluster = (c: (typeof clusters)[number], ci: number) => {
+  const layCluster = async (c: (typeof clusters)[number], ci: number) => {
+    let sliceAt = performance.now();
     for (const e of clusterEnds[ci]) {
       const p = paths[e.road], [hx, hy] = headingIn(e.road, !e.atStart);
-      const crossing = paths.filter((o, r) => {
+      const crossing = await filterInSlices(paths, (o, r) => {
         // (a road whose box is farther than that is: its every segment measured, for every arm
         // of every junction, held a frame 0.4 s)
         const bb = pathBox[r], m = c.r + 25;
@@ -939,6 +940,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       for (; d < limit; d += 0.5) {
         const pt = at(p, e.atStart ? d : p.len - d), rx = hy, ry = -hx, w = p.width / 2;
         if (crossing.every(o => [-w, 0, w].every(k => distToRoad(pt.x + rx * k, pt.y + ry * k, o) > o.width / 2 + CLEAR))) break;
+        if (performance.now() - sliceAt >= 2) { await frameSlice(); sliceAt = performance.now(); }
       }
       // From the box's edge outward: the crossing (the mapped one when it crosses this arm within
       // 25 m, else 4 m wide just outside the box), a metre, the 40 cm stop line; the stopping
@@ -963,9 +965,10 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         const gives = ai.minor.has(key) || ai.majors === 0;
         trimAt.set(key, Math.min(gives ? s0 + 0.7 : d + 1.5, limit));
       } else trimAt.set(key, Math.min(d + 1.5, limit));
+      if (performance.now() - sliceAt >= 2) { await frameSlice(); sliceAt = performance.now(); }
     }
   };
-  { let t0 = performance.now(); for (let ci = 0; ci < clusters.length; ci++) { layCluster(clusters[ci], ci); if (performance.now() - t0 > 5) { await frameSlice(); t0 = performance.now(); } } }
+  { let t0 = performance.now(); for (let ci = 0; ci < clusters.length; ci++) { await layCluster(clusters[ci], ci); if (performance.now() - t0 > 2) { await frameSlice(); t0 = performance.now(); } } }
   const trim = (road: number, atStart: boolean) => trimAt.get(`${road}:${atStart}`) ?? 1.5;
   const arms:TrafficArms={roads:paths,at:(road,atStart)=>layout.get(`${road}:${atStart}`)??null,inside:road=>internal[road],crossings:mappedCrossings};
   onArms?.(arms);
@@ -1223,7 +1226,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return im;
   };
   await frameSlice();
-  const meshes = kinds.map((k, i) => instanced(k.geo, k.mat, perKind[i], true));
+  const meshes = await mapInSlices(kinds, (k, i) => instanced(k.geo, k.mat, perKind[i], true));
   const instanceKernel=await prepareInstanceKernel();
   const instanceBatches=instanceKernel?perKind.map(n=>new InstanceBatch(n,instanceKernel)):null;
   let batchPlacement=false;
@@ -1232,7 +1235,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     memory:()=>instanceKernel?.memory.buffer.byteLength??0};
   // The followed vehicles' wheels: their own instanced mesh each, turned as the vehicle rolls
   // (the angle: the distance driven over the rolling radius).
-  const heroWheels = [...heroes].map(([, c]) => {
+  const heroWheels = await mapInSlices([...heroes], ([, c]) => {
     const h = heroShape.get(c.type)!;
     const im = instanced(h.wheel, boxMat, h.wheels.length, true);
     return { c, h, im, spin: 0 };
@@ -1258,14 +1261,14 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // Near the eye (NEAR_M) a car is drawn from its modelled mesh: those instances are packed
   // into a second mesh per kind each frame and hidden in the far one.
   let NEAR_M = 55;   // (wider while driving: setDetail)
-  const wheelRigs=kinds.map((k,i)=>{
+  const wheelRigs=await mapInSlices(kinds,(k,i)=>{
     if(heroShape.has(i))return null;
     const model=nearGeo.get(k.geo)??(k.model?models?.get(k.model):undefined);
     if(model)return modelWheelRig(model);
     const name=[...procedural].find(([,g])=>g===k.geo)?.[0]??Object.keys(CAR_SPECS).find(n=>kit(n)===k.geo)??'';
     return fallbackWheelRig(k.geo,name,k.dims,CAR_SPECS[name]);
   });
-  const near = kinds.map((k, i) => {
+  const near = await mapInSlices(kinds, (k, i) => {
     const g = wheelRigs[i]?.full?wheelRigs[i]!.body:nearGeo.get(k.geo) ?? (k.model ? models?.get(k.model) : undefined);
     if (!g || !modelMat) return null;
     const im = instanced(g, modelMat, perKind[i], true);
@@ -1274,7 +1277,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return im;
   });
   const wheelMat=new THREE.MeshStandardMaterial({vertexColors:true,color:0xffffff,roughness:.48,metalness:.25,side:THREE.DoubleSide,transparent:false,opacity:1,depthWrite:true});
-  const rolling=[true,false].map(full=>{
+  const rolling=await mapInSlices([true,false],full=>{
     const capacity=cars.reduce((s,c)=>s+(wheelRigs[c.type]?.full===full?wheelRigs[c.type]!.wheels.length:0),0);
     const im=instanced(rollingWheelGeometry(!full),wheelMat,capacity,false);im.count=0;
     im.name=full?'rotating tyres and rims':'rotating wheel rims';return im;
@@ -1288,7 +1291,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const plateMat = plateMaterial();
   const commercial = kinds.map((k, i) => k.geo === kit("taxi") || k.geo === kit("delivery") || (k.mat === boxMat && !officials.has(k.geo)) || i === heroKind.get("coupang"));
   await frameSlice();
-  const plateGeos = kinds.map(k => {
+  const plateGeos = await mapInSlices(kinds, k => {
     const spec = Object.entries(CAR_SPECS).find(([n]) => kit(n) === k.geo)?.[1];
     const L = k.dims[0], c = spec?.clearance ?? 0.3;
     // (the modelled trucks' plates: on the bumper, and under the tail lamps — gen-cars.py)
@@ -1300,7 +1303,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     if (hp) return plateGeometry(...hp);
     return plateGeometry(L, spec ? c + 0.2 : 0.55, spec ? c + 0.35 : 0.65);
   });
-  const plates = kinds.map((_, i) => {
+  const plates = await mapInSlices(kinds, (_, i) => {
     const im = instanced(plateGeos[i], plateMat, perKind[i], false);
     im.count = 0;
     im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, perKind[i]) * 3), 3);
@@ -1523,11 +1526,14 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   /** Room (m) to the nearest other vehicle's body on this one's way, and which one. Those in
    * its own lane or on its own connector are left to the car following; two in each other's way
    * (crossing) — the lower id goes first. */
+  const noCars: Car[] = [];
+  // Consumed synchronously by one car before the next lookup; no per-car result allocation.
+  const bodyResult = { room: Infinity, by: null as Car | null };
   const bodyAhead = (c: Car, reach: number) => {
     let room = Infinity, by: Car | null = null;
     const r = Math.ceil((reach + c.length) / NEAR), gx = Math.floor(c.x / NEAR), gy = Math.floor(c.y / NEAR);
     for (let i = gx - r; i <= gx + r; i++) for (let j = gy - r; j <= gy + r; j++) {
-      for (const o of bodies.get(i * 4096 + j) ?? []) {
+      for (const o of bodies.get(i * 4096 + j) ?? noCars) {
         if (o === c || o.manual) continue;
         if (!c.inConn && !o.inConn && o.road === c.road && o.forward === c.forward && o.lane === c.lane) continue;
         if (c.inConn && o.inConn && o.conn === c.conn) continue;
@@ -1537,7 +1543,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         room = Math.max(0, d - 0.5); by = o;
       }
     }
-    return { room, by };
+    bodyResult.room = room; bodyResult.by = by;
+    return bodyResult;
   };
 
   const lanes = new VehicleBuckets<string,Car>(cars.length), onConn = new VehicleBuckets<string,Car>(cars.length), intoLane = new VehicleBuckets<string,Car>(cars.length);
@@ -1546,13 +1553,13 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const connCars: Car[] = [], driven: Car[] = [];
   const giveWayNearby:Car[]=[],travelNearby:Car[]=[];
   const gap = (c:Car,o:Car,d:number) => d-(o.length+c.length)/2;
-  const firstOnTarget = (cn:Conn) => {for(const o of lanes.get(cn.toKey)??[])if(o.s>=cn.startS-o.length)return o;return null;};
+  const firstOnTarget = (cn:Conn) => {for(const o of lanes.get(cn.toKey)??noCars)if(o.s>=cn.startS-o.length)return o;return null;};
 
   /** Space free on a target lane past where a connector joins it. */
   const exitSpace = (cn: Conn, self: Car) => {
     let space = Infinity;
-    for (const o of lanes.get(cn.toKey) ?? []) if (o.s >= cn.startS - o.length) { space = o.s - o.length / 2 - cn.startS; break; }
-    for (const o of intoLane.get(cn.toKey) ?? []) if (o !== self) space -= o.length + 2;
+    for (const o of lanes.get(cn.toKey) ?? noCars) if (o.s >= cn.startS - o.length) { space = o.s - o.length / 2 - cn.startS; break; }
+    for (const o of intoLane.get(cn.toKey) ?? noCars) if (o !== self) space -= o.length + 2;
     return space;
   };
   /** May this vehicle cross its stop line now? */
@@ -1560,13 +1567,13 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const cn = c.conn;
     if(cn.cluster>=0){
       const phase=(key:string)=>key;
-      if(junctionOccupied(boxes.get(cn.cluster)??[],c,cn.approach,o=>o.inConn||o.go?o.conn.approach:o.arrive?.approach,phase)){c.why='box';return false;}
+      if(junctionOccupied(boxes.get(cn.cluster)??noCars,c,cn.approach,o=>o.inConn||o.go?o.conn.approach:o.arrive?.approach,phase)){c.why='box';return false;}
     }
     // Different turns merging onto one lane reserve it before entering the box.
     // Let a queue on the same connector follow; crossing turns wait outside.
-    if((intoLane.get(cn.toKey)??[]).some(o=>o!==c&&o.conn!==cn&&(o.inConn||o.go))){c.why='merge';return false;}
+    if((intoLane.get(cn.toKey)??noCars).some(o=>o!==c&&o.conn!==cn&&(o.inConn||o.go))){c.why='merge';return false;}
     if (cn.node >= 0) {
-      const light = lightAt(cn.node, cn.approach), inBox = boxes.get(cn.node) ?? [];
+      const light = lightAt(cn.node, cn.approach), inBox = boxes.get(cn.node) ?? noCars;
       if (light === "red") {
         // 적신호 우회전: stop first, then only into an empty box.
         if (!(cn.turn === "right" && c.speed < 0.6 && toStop < 1.5 && inBox.every(o => o === c))) { c.why = "red"; return false; }
@@ -1580,7 +1587,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       const cl = clusters[cn.cluster], reach = cl.r + 26;
       const g = Math.ceil(reach / NEAR), gx = Math.floor(cl.x / NEAR), gy = Math.floor(cl.y / NEAR);
       const near=giveWayNearby;near.length=0;near.push(...driven);
-      for (let i = gx - g; i <= gx + g; i++) for (let j = gy - g; j <= gy + g; j++) near.push(...(bodies.get(i * 4096 + j) ?? []));
+      for (let i = gx - g; i <= gx + g; i++) for (let j = gy - g; j <= gy + g; j++) near.push(...(bodies.get(i * 4096 + j) ?? noCars));
       for (const o of near) {
         if (o === c) continue;
         if (o.inConn && o.conn.cluster === cn.cluster) { c.why = "giveway"; return false; }
@@ -1652,7 +1659,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         // Two connectors into one lane (from side-by-side lanes): the one nearer the merge goes
         // first, the other falls in behind it, as if on one lane already.
         const mine = cn.len - c.u;
-        for (const o of intoLane.get(cn.toKey) ?? []) {
+        for (const o of intoLane.get(cn.toKey) ?? noCars) {
           if (o === c || o.conn === cn || !o.inConn) continue;
           const theirs = o.conn.len - o.u;
           if (theirs < mine || (theirs === mine && o.id < c.id)) room = Math.min(room,gap(c,o,mine-theirs));
@@ -1708,7 +1715,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         const nearby=travelNearby;nearby.length=0;nearby.push(...driven);
         const gx=Math.floor(c.x/NEAR),gy=Math.floor(c.y/NEAR);
         const radius=Math.ceil((c.length+proposed+20)/NEAR);
-        for(let i=gx-radius;i<=gx+radius;i++)for(let j=gy-radius;j<=gy+radius;j++)nearby.push(...(bodies.get(i*4096+j)??[]));
+        for(let i=gx-radius;i<=gx+radius;i++)for(let j=gy-radius;j<=gy+radius;j++)nearby.push(...(bodies.get(i*4096+j)??noCars));
         const heightAware=!sameRoadLevel(paths[c.road],paths[c.conn.link.road])||nearby.some(o=>!sameRoadLevel(paths[c.road],paths[o.road]));
         const envelope=continuousBounds(c,proposed,c.length+.06,c.width+.06);
         if(envelope){

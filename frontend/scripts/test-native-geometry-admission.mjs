@@ -15,6 +15,7 @@ function fixture(count=17,materialCost=0){
   }
   const sync=vm.runInNewContext('({'+source.slice(begin,end)+'}).sync',{
     Mesh,performance:{now:()=>clock},sourceMaterialsMatch:()=>true,sameMatrix:()=>true,
+    leanUpdateMatrixWorld:root=>root.updateMatrixWorld(),identityMatrix:()=>false,
     boundTextures:()=>new Set(),updateForestLod:()=>{},READY_COLOUR_PASSES:[],READY_CASTER_PASSES:[],
   });
   const material={userData:{}},nativeMaterial={source:material};

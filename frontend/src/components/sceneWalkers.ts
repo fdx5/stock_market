@@ -1,4 +1,4 @@
-import { frameSlice } from "./frameSlice";
+import { frameSlice, mapInSlices } from "./frameSlice";
 import {flushInstanceAttribute,setInstanceMatrix} from './instanceDirty';
 import { walkerJoint } from "./walkerJoint";
 import * as THREE from "three";
@@ -379,7 +379,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     group.add(im);
     return im;
   };
-  const meshes = entries.map(e => newMesh(e.geo, e.mat, e.colors.length, e.shadow));
+  const meshes = await mapInSlices(entries, e => newMesh(e.geo, e.mat, e.colors.length, e.shadow));
   const box = (w: number, h: number, d: number, y: number) => new THREE.BoxGeometry(w, h, d).translate(0, y, 0);
   const farGeos = [box(0.4, SHOULDER_Y - HIP_Y + 0.1, 0.24, (HIP_Y + SHOULDER_Y) / 2), box(0.3, HIP_Y, 0.2, HIP_Y / 2), box(0.2, 0.24, 0.22, NECK_Y + 0.12)];
   const farMeshes = farGeos.map(g => newMesh(g, cloth, walkers.length, false));
