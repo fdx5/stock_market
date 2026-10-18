@@ -21,6 +21,8 @@
 
 최종 후보 첫 진입 후 짧은 전진 12초: 평균 37.12 / 최저 1초 30fps, p95 50ms / p99 50.1ms / 최대 67.2ms. **전 구간 최소 50fps는 미달이다.** 이번 수정의 로딩 개선을 FPS 목표 달성으로 보고하지 않는다. 출발 장면의 준비 정도에 따른 편차가 있어 FPS 개선율도 주장하지 않는다.
 
+최종 신도6→신세계 경로는 같은 2400×1600 high에서 평균 46.99 / 최저 1초 23fps, p95 33.5ms / p99 50.1ms / 최대 117.2ms였다. 로딩 중 프레임 저하도 남아 있다. 원본 표본 요약은 `drone-first-loading-qa-20261019.json`에 포함했다.
+
 자료: 이 작업 폴더의 `tmp/first-lanes-qa/`에 `production-before.json`, `overlap-entry.json`, `shindo-before.json`, `shindo-without-places.json`, `shindo-final.json` 및 화면을 보존한다. 테스트 스크립트는 `frontend/scripts/check-first-road-paint.py`, `check-shindo-shinsegae.py`다.
 
 DB 자격 증명 열람, DB 변경·삭제·초기화·마이그레이션은 수행하지 않았다. 배포에 수반되는 기존 자동 작업은 AGENTS.md의 지속 허용 범위에 따른다.
