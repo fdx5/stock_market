@@ -169,8 +169,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
     : flight.autopilotStatus === 'altitude' ? `자동 고도 조절 중 · 목표 ${Math.round(flight.autoCruiseAgl)}m`
     : `${Math.round(flight.autoCruiseSpeed * 3.6)}km/h 항속 · 목표 ${Math.round(flight.autoCruiseAgl)}m`;
   const dir = h ? COMPASS[Math.round(h.heading / 45) % 8] : "";
-  // Turning on or off — the button, or a stick input taking over — is called out: the chime and
-  // voice, and a banner across the view for a moment.
+  // Button or stick takeover: a voice and brief banner; only turning ON adds a chime.
   const [banner, setBanner] = useState<{ on: boolean; n: number } | null>(null);
   const lastAuto = useRef(auto);
   useEffect(() => {

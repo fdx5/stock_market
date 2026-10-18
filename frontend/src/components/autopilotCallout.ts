@@ -1,10 +1,11 @@
-/* The drone's autopilot callouts: a cockpit-style chime and an English voice as it engages
- * ("Autopilot engaged": a bright rising two-tone) and disengages ("Autopilot disengaged": the
- * falling warble of an autopilot disconnect). The tones are made here (Web Audio); the voice is
+/* The drone's autopilot callouts: a bright rising two-tone and an English voice as it engages,
+ * and only the voice ("Autopilot disengaged") as it disengages. The ON tones are made here
+ * (Web Audio); the voice is
  * the browser's own speech synthesis, a female English voice where the system has one —
  * no recording of anyone's voice is shipped. */
 
 let ctx: AudioContext | null = null;
+let chimeOutput: GainNode | null = null;
 function audio() {
   const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AC) return null;
@@ -14,12 +15,11 @@ function audio() {
 }
 
 /** One soft bell-like tone: a sine and its octave, a quick attack and a ringing decay. */
-function tone(c: AudioContext, out: AudioNode, at: number, freq: number, length: number, level: number, glide = 0) {
+function tone(c: AudioContext, out: AudioNode, at: number, freq: number, length: number, level: number) {
   for (const [mult, part] of [[1, 1], [2, .28], [3, .08]] as const) {
     const o = c.createOscillator(), g = c.createGain();
     o.type = "sine";
     o.frequency.setValueAtTime(freq * mult, at);
-    if (glide) o.frequency.exponentialRampToValueAtTime(freq * mult * glide, at + length);
     g.gain.setValueAtTime(0, at);
     g.gain.linearRampToValueAtTime(level * part, at + .012);
     g.gain.exponentialRampToValueAtTime(.0001, at + length);
@@ -27,19 +27,15 @@ function tone(c: AudioContext, out: AudioNode, at: number, freq: number, length:
   }
 }
 
-function chime(on: boolean) {
+function chime() {
   const c = audio(); if (!c) return 0;
   const out = c.createGain(); out.gain.value = .5; out.connect(c.destination);
+  chimeOutput = out;
   const t = c.currentTime + .02;
-  if (on) {
-    // engaged: two clear rising notes (E6 → A6), the second held
-    tone(c, out, t, 1318.5, .35, .32);
-    tone(c, out, t + .16, 1760, .7, .3);
-    return 700;
-  }
-  // disengaged: three falling warbles, the disconnect's "wail"
-  for (let k = 0; k < 3; k++) tone(c, out, t + k * .22, 1400 - k * 90, .2, .26, .72);
-  return 760;
+  // engaged: two clear rising notes (E6 → A6), the second held
+  tone(c, out, t, 1318.5, .35, .32);
+  tone(c, out, t + .16, 1760, .7, .3);
+  return 700;
 }
 
 let voice: SpeechSynthesisVoice | null | undefined;
@@ -78,9 +74,11 @@ function say(text: string) {
 }
 
 let timer = 0;
-/** The callout for the autopilot turning on or off: the chime, then the voice over its tail. */
+/** ON has a chime and voice; OFF keeps only the voice at its existing timing. */
 export function autopilotCallout(on: boolean) {
   window.clearTimeout(timer);
-  const lead = chime(on);
+  // A quick OFF also silences the remaining tail of the previous ON chime.
+  chimeOutput?.disconnect(); chimeOutput = null;
+  const lead = on ? chime() : 760;
   timer = window.setTimeout(() => say(on ? "Autopilot engaged." : "Autopilot disengaged."), Math.max(250, lead - 300));
 }
