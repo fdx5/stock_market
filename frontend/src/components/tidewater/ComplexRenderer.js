@@ -15,6 +15,7 @@ import { SceneLighting } from '../../vendor/tidewater/engine/render/wgsl/lightin
 import { Scene, Mesh, PerspectiveCamera } from '../../vendor/tidewater/engine/index.js';
 import { waterMaterial, updateWaveTile } from './ComplexWater.js';
 import { GpuTimer } from './GpuTimer.js';
+import {aoCode, aoBlurCode, taaNeighbourhoodCode} from './PostShaders.js';
 import { packInto, warmPack } from './texturePack.js';
 import { sharedTexturesFor } from './sharedTextures.js';
 import { canEncodeBC7, encodeBC7 } from './bc7Encode.js';
@@ -58,10 +59,11 @@ let shadowSplits = null;
 function useShadows({ shadow: size, pcss: wanted }) {
   // (and plain PCF there: contact-hardening soft shadows are the costliest filter of the frame)
   const pcss = shadowSplits ? 0 : wanted;
-  const splits = shadowSplits ?? [180, 600, 1800], key = size + '/' + pcss + '/' + splits.join(',');
+  const grid = lookParams.get('shadowgrid') === '0' ? 0 : 64;
+  const splits = shadowSplits ?? [180, 600, 1800], key = size + '/' + pcss + '/' + splits.join(',') + '/' + grid;
   if (shadowKey === key) return;
   shadows?.dispose();
-  shadows = new SunShadows({ size, splits, normalBias: splits.length === 2 ? [0.12, 0.45] : [0.12, 0.3, 0.7], pcssCascades: pcss });
+  shadows = new SunShadows({ size, splits, normalBias: splits.length === 2 ? [0.12, 0.45] : [0.12, 0.3, 0.7], pcssCascades: pcss, cacheGrid: grid });
   shadowKey = key;
   shadowOwner = null;
 }
@@ -446,69 +448,12 @@ fn precipitate(c0: vec3f, uv: vec2f) -> vec3f {
 // window reveals and slab undersides, the ground under trees and between blocks. The
 // radius follows the distance (a metre up close, several from the overview), so corners
 // read at every zoom. Normals come from the depth (the forward pass writes none).
-const AO_CODE = /* wgsl */`
-fn aoView(ip: vec2i, size: vec2f) -> vec3f {
-  let q = clamp(ip, vec2i(0), vec2i(size) - 1);
-  // (the sky, at infinite depth: a point far behind instead of a NaN)
-  return viewFromDepth((vec2f(q) + 0.5) / size, max(textureLoad(sceneDepth, q, 0).x, 1e-6));
-}
-fn fragment(in: FSIn) -> vec4f {
-  let size = vec2f(textureDimensions(sceneDepth));
-  let ip = vec2i(in.uv * size);
-  let d = textureLoad(sceneDepth, ip, 0).x;
-  if (d <= 0.0) { return vec4f(1.0, 60000.0, 0.0, 1.0); }
-  let P = aoView(ip, size);
-  // (the flatter side of each pair: no normals bent across silhouettes)
-  let l = aoView(ip - vec2i(1, 0), size); let r = aoView(ip + vec2i(1, 0), size);
-  let u = aoView(ip - vec2i(0, 1), size); let b = aoView(ip + vec2i(0, 1), size);
-  let dx = select(P - l, r - P, abs(r.z - P.z) < abs(P.z - l.z));
-  let dy = select(P - u, b - P, abs(b.z - P.z) < abs(P.z - u.z));
-  var N = normalize(cross(dx, dy));
-  if (dot(N, P) > 0.0) { N = -N; }
-  let dist = -P.z;
-  let R = clamp(dist * 0.035, 0.7, 9.0);
-  // the radius on screen, in pixels of the full-size depth
-  let rPx = R * frame.proj[1][1] * 0.5 * size.y / dist;
-  if (rPx < 1.5) { return vec4f(1.0, dist, 0.0, 1.0); }
-  // interleaved gradient noise: each pixel turns the pattern, the blur averages it out
-  let ign = fract(52.9829189 * fract(dot(in.pos.xy, vec2f(0.06711056, 0.00583715))));
-  var occ = 0.0;
-  let COUNT = 12;
-  for (var i = 0; i < COUNT; i++) {
-    let t = (f32(i) + ign) / f32(COUNT);
-    let a = t * 18.8495559 + ign * 6.2831853;   // three turns of a spiral
-    let o = vec2f(cos(a), sin(a)) * rPx * (0.12 + 0.88 * t * t);
-    let S = aoView(ip + vec2i(o), size);
-    let v = S - P;
-    let vv = dot(v, v);
-    let fall = sat(1.0 - vv / (R * R));
-    occ += sat(dot(v, N) * inverseSqrt(vv + 1e-4) - 0.08) * fall;
-  }
-  let ao = sat(1.0 - occ / f32(COUNT) * 2.2);
-  return vec4f(ao * ao, dist, 0.0, 1.0);
-}`;
-// Depth-aware blur of the AO (one axis per pass): no dark halo spills off an edge.
-const aoBlurCode = axis => /* wgsl */`
-fn fragment(in: FSIn) -> vec4f {
-  let size = vec2f(textureDimensions(aoSrc));
-  let full = vec2f(textureDimensions(sceneDepth));
-  let ip = vec2i(in.uv * size);
-  let z0 = viewDepth(max(textureLoad(sceneDepth, vec2i(in.uv * full), 0).x, 1e-6));
-  var sum = 0.0; var wsum = 0.0;
-  for (var i = -3; i <= 3; i++) {
-    let q = clamp(ip + ${axis === 0 ? 'vec2i(i, 0)' : 'vec2i(0, i)'}, vec2i(0), vec2i(size) - 1);
-    let z = viewDepth(max(textureLoad(sceneDepth, vec2i((vec2f(q) + 0.5) / size * full), 0).x, 1e-6));
-    let dz = (z - z0) / (z0 * 0.03 + 0.05);
-    let w = exp(-f32(i * i) / 8.0) * exp(-dz * dz);
-    sum += textureLoad(aoSrc, q, 0).r * w; wsum += w;
-  }
-  return vec4f(sum / max(wsum, 1e-4), textureLoad(aoSrc, ip, 0).g, 0.0, 1.0);
-}`;
-
 const finishCode = /* wgsl */`
 fn fragment(in: FSIn) -> vec4f {
   let px = 1.0 / vec2f(textureDimensions(src));
-  var c = textureSampleLevel(src, smpLinearClamp, in.uv, 0.0).rgb;
+  let size = vec2i(textureDimensions(src));
+  let ip = vec2i(in.pos.xy);
+  var c = textureLoad(src, ip, 0).rgb;
   c = select(min(c, vec3f(30000.0)), vec3f(0.0), c != c);
 #if AO
   // (before the edge filter: a sampled blur of the occlusion, whole-screen)
@@ -518,10 +463,10 @@ fn fragment(in: FSIn) -> vec4f {
   let occl = select(1.0, aoTexel.r, abs(finalZ - aoTexel.g) < finalZ * 0.03 + 0.3);
 #endif
   // Small edge-aware filter at internal resolution reduces facade shimmer.
-  let a = textureSampleLevel(src, smpLinearClamp, in.uv + vec2f(px.x, 0.0), 0.0).rgb;
-  let b = textureSampleLevel(src, smpLinearClamp, in.uv - vec2f(px.x, 0.0), 0.0).rgb;
-  let d = textureSampleLevel(src, smpLinearClamp, in.uv + vec2f(0.0, px.y), 0.0).rgb;
-  let e = textureSampleLevel(src, smpLinearClamp, in.uv - vec2f(0.0, px.y), 0.0).rgb;
+  let a = textureLoad(src, clamp(ip + vec2i(1, 0), vec2i(0), size - 1), 0).rgb;
+  let b = textureLoad(src, clamp(ip + vec2i(-1, 0), vec2i(0), size - 1), 0).rgb;
+  let d = textureLoad(src, clamp(ip + vec2i(0, 1), vec2i(0), size - 1), 0).rgb;
+  let e = textureLoad(src, clamp(ip + vec2i(0, -1), vec2i(0), size - 1), 0).rgb;
   let edge = length(a - b) + length(d - e);
   c = mix(c, (a + b + d + e + c * 4.0) / 8.0, smoothstep(0.15, 0.8, edge) * 0.65);
 #if AO
@@ -640,19 +585,17 @@ fn fragment(in: FSIn) -> vec4f {
   let pc = frame.prevViewProjNoJitter * vec4f(wp.xyz / wp.w, 1.0);
   let puv = vec2f(pc.x / pc.w * 0.5 + 0.5, 0.5 - pc.y / pc.w * 0.5);
   if (pc.w <= 0.0 || any(puv < vec2f(0.0)) || any(puv > vec2f(1.0))) { return vec4f(cur, 1.0); }
+  let centerY = taaY(taaTm(cur));
   // the neighbours' colour range (mean and spread)
   var m1 = vec3f(0.0); var m2 = vec3f(0.0);
-  for (var dy = -1; dy <= 1; dy++) { for (var dx = -1; dx <= 1; dx++) {
-    let q = taaY(taaTm(textureLoad(src, clamp(p + vec2i(dx, dy), vec2i(0), size - 1), 0).rgb));
-    m1 += q; m2 += q * q;
-  } }
+  ${taaNeighbourhoodCode()}
   m1 /= 9.0; m2 /= 9.0;
   let sigma = sqrt(max(m2 - m1 * m1, vec3f(0.0)));
   let h = clamp(taaY(taaTm(taaHistory(puv))), m1 - sigma * 1.25, m1 + sigma * 1.25);
   // (more of the new frame while the view moves fast: less to reproject wrongly)
   let moved = length((puv - in.uv) * vec2f(size));
   let k = mix(0.1, 0.3, clamp(moved / 6.0, 0.0, 1.0));
-  return vec4f(taaItm(taaRgb(mix(h, taaY(taaTm(cur)), k))), 1.0);
+  return vec4f(taaItm(taaRgb(mix(h, centerY, k))), 1.0);
 }`;
 // The surroundings in the reflections: what glass, car paint and wet paving reflect was the sky
 // alone; a city's windows show the towers across from them. The scene is captured once into a
@@ -1024,7 +967,8 @@ export class ComplexRenderer {
     if (this.aoOn) {
       // (occlusion, and the view depth it was taken at: the finish tells the plants in front)
       this.ao = new RenderTarget(1, 1, { colors: ['rg16float'], label: 'complex ao', usage: ['sample', 'render'] });
-      this.aoTmp = new RenderTarget(1, 1, { colors: ['rg16float'], label: 'complex ao blur', usage: ['sample', 'render'] });
+      this.aoRaw = new RenderTarget(1, 1, { colors: ['rg32float'], label: 'complex ao full depth', usage: ['sample', 'render'] });
+      this.aoTmp = new RenderTarget(1, 1, { colors: ['rg32float'], label: 'complex ao blur', usage: ['sample', 'render'] });
     }
     this.depthBinding = depthBinding;
     // Bloom (not on the low setting): half, quarter … 1/32 size levels.
@@ -1079,10 +1023,10 @@ export class ComplexRenderer {
     this.postMade = true;
     const depthBinding = this.depthBinding;
     if (this.aoOn) {
-      this.aoPass = new FullscreenPass({ label: 'complex ao', code: AO_CODE, colorFormats: ['rg16float'], bindings: { sceneDepth: depthBinding } });
-      this.aoBlurX = new FullscreenPass({ label: 'complex ao blur x', code: aoBlurCode(0), colorFormats: ['rg16float'],
-        bindings: { aoSrc: { texture: () => this.ao.texture, sampleType: 'unfilterable-float' }, sceneDepth: depthBinding } });
-      this.aoBlurY = new FullscreenPass({ label: 'complex ao blur y', code: aoBlurCode(1), colorFormats: ['rg16float'],
+      this.aoPass = new FullscreenPass({ label: 'complex ao', code: aoCode(true), colorFormats: ['rg32float'], bindings: { sceneDepth: depthBinding } });
+      this.aoBlurX = new FullscreenPass({ label: 'complex ao blur x', code: aoBlurCode(0, true), colorFormats: ['rg32float'],
+        bindings: { aoSrc: { texture: () => this.aoRaw.texture, sampleType: 'unfilterable-float' }, sceneDepth: depthBinding } });
+      this.aoBlurY = new FullscreenPass({ label: 'complex ao blur y', code: aoBlurCode(1, true), colorFormats: ['rg16float'],
         bindings: { aoSrc: { texture: () => this.aoTmp.texture, sampleType: 'unfilterable-float' }, sceneDepth: depthBinding } });
     }
     if (this.bloomOn) {
@@ -1127,7 +1071,7 @@ export class ComplexRenderer {
     this.taaHist?.forEach(rt => rt.setSize(this.canvas.width, this.canvas.height));
     this.taaValid = false;
     const hw = Math.max(1, Math.ceil(width / 2)), hh = Math.max(1, Math.ceil(height / 2));
-    this.ao?.setSize(hw, hh); this.aoTmp?.setSize(hw, hh);
+    this.ao?.setSize(hw, hh); this.aoRaw?.setSize(hw, hh); this.aoTmp?.setSize(hw, hh);
     this.bloomRT?.forEach((rt, i) => rt.setSize(Math.max(1, width >> (i + 1)), Math.max(1, height >> (i + 1))));
   }
   /** Release scratch images while a view is covered/off screen. Geometry,
@@ -1136,7 +1080,7 @@ export class ComplexRenderer {
   suspendTargets() {
     if (this.suspended || this.disposed || !this.shown) return;
     this.suspended = true;
-    for (const rt of [this.target, this.copy, this.ao, this.aoTmp, ...(this.taaHist ?? []), ...(this.bloomRT ?? [])]) {
+    for (const rt of [this.target, this.copy, this.ao, this.aoRaw, this.aoTmp, ...(this.taaHist ?? []), ...(this.bloomRT ?? [])]) {
       rt?.textures.forEach(t => t.destroy()); rt?.depthTexture?.destroy();
     }
     this.context.unconfigure();
@@ -2021,6 +1965,7 @@ export class ComplexRenderer {
     shadowOwner = this;
     if (this.castersChanged) { shadows.invalidateCache(); this.castersChanged = false; }
     this.shadowStats = shadows.stats;
+    this.shadowMapSize = shadows.size;
     this.renderer.precompiling = !this.shown;
     // Parallel asynchronous compilation while the first canvas is hidden. Once
     // visible, retain the smaller per-frame CPU budget for changes and extras.
@@ -2069,7 +2014,7 @@ export class ComplexRenderer {
       for (const item of lists.opaque) (item.material.userData.foliage ? plants : solid).push(item);
       this.renderer.render(this.scene, { ...pass, timestampWrites: timer.pass('scene'), items: { opaque: solid, transparent: [] }, clearColors: [[0, 0, 0, 1]], clearDepth: 0 });
       this.aoPass.timestampWrites = timer.pass('ao');
-      this.aoPass.render({ colorViews: [this.ao.texture], clear: POST_CLEAR });
+      this.aoPass.render({ colorViews: [this.aoRaw.texture], clear: POST_CLEAR });
       this.aoBlurX.timestampWrites = timer.pass('aoBlur');
       this.aoBlurX.render({ colorViews: [this.aoTmp.texture], clear: POST_CLEAR });
       this.aoBlurY.timestampWrites = timer.pass('aoBlur');
@@ -2177,7 +2122,7 @@ export class ComplexRenderer {
     this.timer.dispose();
     this.target.textures.forEach(t => t.destroy()); this.target.depthTexture.destroy();
     this.copy?.textures.forEach(t => t.destroy()); this.copy?.depthTexture.destroy();
-    this.ao?.textures.forEach(t => t.destroy()); this.aoTmp?.textures.forEach(t => t.destroy());
+    this.ao?.textures.forEach(t => t.destroy()); this.aoRaw?.textures.forEach(t => t.destroy()); this.aoTmp?.textures.forEach(t => t.destroy());
     this.bloomRT?.forEach(rt => rt.textures.forEach(t => t.destroy()));
     this.taaHist?.forEach(rt => rt.textures.forEach(t => t.destroy()));
     if (this.env) { this.env.tex.destroy(); this.env.back.destroy(); this.env.faceRT.textures.forEach(t => t.destroy()); this.env.depth.depthTexture.destroy(); this.env.block.buffer?.destroy(); if (envView === this) envView = null; }

@@ -713,6 +713,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
 ` +
           `gpu passes ${d.gpuPasses ?? "-"}  canvas ${d.renderSize ?? "-"}
 ` +
+          `post ${d.gpuPost ?? "-"}  shadows ${d.gpuShadows ?? "-"}
+` +
           `cpu render ${d.renderMs ?? "-"}ms (max ${d.renderMaxMs ?? "-"})  tick ${d.tickMs ?? "-"}  drone ${d.droneMs ?? "-"}
 ` +
           `draws ${d.draws ?? "-"}  ${innerWidth}x${innerHeight}  mem ${(performance as Performance & { memory?: { usedJSHeapSize: number } }).memory ? Math.round((performance as Performance & { memory: { usedJSHeapSize: number } }).memory.usedJSHeapSize / 1e6) + "MB" : "-"}  ${d.trial ?? ""}`;
@@ -1260,6 +1262,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           host.dataset.quality = native.quality.name; host.dataset.gpuMs = (native.timer.ms.total ?? 0).toFixed(2); host.dataset.pipelines = String((native as unknown as { renderer: { pipelines: Map<string, unknown> } }).renderer.pipelines.size);
           const ms = native.timer.ms;
           host.dataset.gpuPasses = `shadow ${((ms.shadow0 ?? 0) + (ms.shadow1 ?? 0) + (ms.shadow2 ?? 0)).toFixed(1)} scene ${(ms.scene ?? 0).toFixed(1)} plants ${(ms.plants ?? 0).toFixed(1)} water ${(ms.water ?? 0).toFixed(1)} post ${((ms.ao ?? 0) + (ms.aoBlur ?? 0) + (ms.taa ?? 0) + (ms.bloom ?? 0) + (ms.finish ?? 0)).toFixed(1)} env ${(ms.env ?? 0).toFixed(1)} other ${(ms.other ?? 0).toFixed(1)}`;
+          host.dataset.gpuPost = `AO ${(ms.ao ?? 0).toFixed(1)} blur ${(ms.aoBlur ?? 0).toFixed(1)} TAA ${(ms.taa ?? 0).toFixed(1)} bloom ${(ms.bloom ?? 0).toFixed(1)} finish ${(ms.finish ?? 0).toFixed(1)}`;
+          host.dataset.gpuShadows = [ms.shadow0, ms.shadow1, ms.shadow2].filter(v => v !== undefined).map(v => v.toFixed(1)).join("/");
           host.dataset.renderSize = `${native.canvas.width}x${native.canvas.height}`;
           host.dataset.sceneReady = String(native.ready && !native.pending && !native.compiling && !native.failed);
           host.dataset.nativeDraws = String(native.stats.draws);

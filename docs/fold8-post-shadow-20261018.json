@@ -1,0 +1,242 @@
+{
+  "baselineCommit": "55993d54f0b44be540c68b305aa8c7ff6d3c5e7d",
+  "physicalUserMeasurement": {
+    "fpsRange": [
+      18,
+      30
+    ],
+    "canvas": [
+      1866,
+      1408
+    ],
+    "gpuMs": 35,
+    "shadow": 7,
+    "scene": 9.7,
+    "plants": 6.8,
+    "water": 0.5,
+    "post": 8.4,
+    "other": 1,
+    "env": 0
+  },
+  "scope": "Desktop RTX 3070 graphics locked to 405 MHz, CPU 1x. Simulated mobile adapter limits; no Fold8 performance certification. All Chrome instances muted. No output resolution or quality reduction.",
+  "postComparison": {
+    "cases": 12,
+    "differentBytes": 0,
+    "gpuErrors": [],
+    "errors": [],
+    "medianGpuMs": [
+      {
+        "canvas": [
+          1866,
+          1408
+        ],
+        "ao0": 0.32768,
+        "ao1": 0.32768,
+        "blur0": 0.196608,
+        "blur1": 0.131072,
+        "taa0": 0.65536,
+        "taa1": 0.65536,
+        "finish0": 0.42598400000000003,
+        "finish1": 0.32768
+      },
+      {
+        "canvas": [
+          1920,
+          1080
+        ],
+        "ao0": 0.262144,
+        "ao1": 0.262144,
+        "blur0": 0.196608,
+        "blur1": 0.131072,
+        "taa0": 0.524288,
+        "taa1": 0.524288,
+        "finish0": 0.32768,
+        "finish1": 0.262144
+      },
+      {
+        "canvas": [
+          1867,
+          1409
+        ],
+        "ao0": 0.32768,
+        "ao1": 0.32768,
+        "blur0": 0.262144,
+        "blur1": 0.16383999999999999,
+        "taa0": 0.65536,
+        "taa1": 0.65536,
+        "finish0": 0.393216,
+        "finish1": 0.32768
+      }
+    ]
+  },
+  "shadowComparison": {
+    "cases": 88,
+    "cacheDifferentBytes": 0,
+    "maximumProjectionDifference": 87,
+    "maximumProjectionMeanAbs": 0.014286041259765625,
+    "hits": 58,
+    "gpuErrors": [],
+    "errors": []
+  },
+  "mobileFlight": {
+    "label": "shadowgrid2-mobile",
+    "viewport": [
+      933,
+      704
+    ],
+    "dpr": 2.625,
+    "cpu": 1.0,
+    "seconds": 180.0,
+    "fps": 59.76,
+    "min1s": 52,
+    "p95ms": 19.2,
+    "p99ms": 23.0,
+    "maxms": 100.3999999910593,
+    "over20ms": 330,
+    "errors": [],
+    "crashed": false,
+    "minimumSliding1s": 52,
+    "canvas": [
+      [
+        1866,
+        1408
+      ]
+    ],
+    "quality": [
+      "high"
+    ],
+    "shadowMapSize": [
+      2176
+    ],
+    "lastShadowStats": {
+      "hit": 12959,
+      "store": 2041,
+      "full": 540
+    },
+    "peakTextureBytesEstimate": 431170506,
+    "peakBufferBytesEstimate": 334510144,
+    "sampledGpuMedianMs": {
+      "total": 11.558671421913829,
+      "shadow0": 0.18877292793543018,
+      "shadow1": 0.17477319373861014,
+      "shadow2": 1.5525333097690945e-43,
+      "ao": 0.24541022835087917,
+      "aoBlur": 0.16604108933997624,
+      "taa": 0.6550512904926197,
+      "bloom": 0.39315682274137354,
+      "finish": 0.3636724001906368,
+      "other": 1.2777746549784983
+    }
+  },
+  "pcStressFlight": {
+    "label": "gpu-next-pc",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "dpr": 1,
+    "cpu": 1.0,
+    "seconds": 180.0,
+    "fps": 41.71,
+    "min1s": 17,
+    "p95ms": 41.7,
+    "p99ms": 57.8,
+    "maxms": 104.5,
+    "over20ms": 4446,
+    "errors": [],
+    "crashed": false,
+    "minimumSliding1s": 17,
+    "canvas": [
+      [
+        2400,
+        1350
+      ]
+    ],
+    "quality": [
+      "high"
+    ],
+    "shadowMapSize": [
+      2176
+    ],
+    "lastShadowStats": {
+      "hit": 9256,
+      "store": 2995,
+      "full": 566
+    },
+    "peakTextureBytesEstimate": 832396470,
+    "peakBufferBytesEstimate": 607461936,
+    "sampledGpuMedianMs": {
+      "total": 17.977166948836864,
+      "shadow0": 0.6861573313796152,
+      "shadow1": 0.4628873948670157,
+      "shadow2": 0.34722631808141174,
+      "ao": 0.3105346858642727,
+      "aoBlur": 0.2019775350553544,
+      "taa": 0.8037179928913888,
+      "bloom": 0.4688064520413626,
+      "finish": 0.40580358745577433,
+      "other": 1.4460591427483687
+    }
+  },
+  "pcDefaultClockFlight": {
+    "label": "gpu-next-pc-default",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "dpr": 1,
+    "cpu": 1.0,
+    "seconds": 90.0,
+    "fps": 53.2,
+    "min1s": 38,
+    "p95ms": 27.6,
+    "p99ms": 35.1,
+    "maxms": 106.20000000298023,
+    "over20ms": 1443,
+    "errors": [],
+    "crashed": false,
+    "minimumSliding1s": 37,
+    "canvas": [
+      [
+        2400,
+        1350
+      ]
+    ],
+    "quality": [
+      "high"
+    ],
+    "shadowMapSize": [
+      2176
+    ],
+    "lastShadowStats": {
+      "hit": 6644,
+      "store": 1732,
+      "full": 298
+    },
+    "peakTextureBytesEstimate": 798842046,
+    "peakBufferBytesEstimate": 472253620,
+    "sampledGpuMedianMs": {
+      "total": 5.650273185578229,
+      "shadow0": 0.10380503700716237,
+      "shadow1": 0.06209799193477708,
+      "shadow2": 0.052653826178891805,
+      "ao": 0.09481081619295889,
+      "aoBlur": 0.0832256787736738,
+      "taa": 0.2539574758967812,
+      "bloom": 0.14917902214635007,
+      "finish": 0.13441614340452146,
+      "other": 0.47424182615659455
+    }
+  },
+  "tests": {
+    "newShadowTestsPassed": 2,
+    "selectedRegressionPassed": 88,
+    "selectedRegressionFailed": 2,
+    "baselineReproducesSameFailures": true,
+    "failureReasons": [
+      "Shader worker VM fixture does not provide imported BoundedCache.",
+      "Material lifetime extracted sync fixture does not provide leanUpdateMatrixWorld."
+    ],
+    "typecheckAndBuild": "passed"
+  }
+}

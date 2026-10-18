@@ -89,6 +89,7 @@ export const ShadowUniforms = new UniformBlock( 'SunShadow', {
 	sunAngularDiameter: [ 'f32', 0.00925 ], // rad (tan of the 0.53 deg angular diameter)
 	enabled: [ 'f32', 0 ],
 	pad: [ 'f32', 0 ],
+	depthBiasScale: [ 'vec4f', new Vector4( 1, 1, 1, 1 ) ],
 	// per cascade seam blending (SoftCSMShadowNode): x, y = the cascade's view distance range (m), z / w =
 	// blend band (m) centred on its near / far seam
 	blend: [ 'vec4f[4]', [ new Vector4(), new Vector4(), new Vector4(), new Vector4() ] ],
@@ -151,7 +152,7 @@ fn _sunShadowCascade( P: vec3f, N: vec3f, c: i32, noise: f32, pcfNoise: f32, pcs
 	let sc = shadowParams.matrices[ c ] * vec4f( Pb, 1.0 );
 	let uvz = vec3f( sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z );
 	if ( any( uvz.xy < vec2f( 0.0 ) ) || any( uvz.xy > vec2f( 1.0 ) ) || uvz.z > 1.0 ) { return 1.0; }
-	let z = uvz.z - shadowParams.bias;
+	let z = uvz.z - shadowParams.bias * shadowParams.depthBiasScale[ c ];
 	let texel = 1.0 / shadowParams.mapSize;
 	if ( pcss && u32( c ) < shadowParams.pcssCascades ) {
 		// moved every frame (Jimenez 2014): a noise pattern fixed on screen would never average out
@@ -239,7 +240,7 @@ fn sunShadowCascadeHard( P: vec3f, c: i32 ) -> f32 {
 	let sc = shadowParams.matrices[ c ] * vec4f( P, 1.0 );
 	let uv = vec2f( sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5 );
 	if ( any( uv <= vec2f( 0.0 ) ) || any( uv >= vec2f( 1.0 ) ) || sc.z > 1.0 ) { return 1.0; }
-	return select( 0.0, 1.0, sc.z - 2e-5 <= _shadowDepth( uv, c ) );
+	return select( 0.0, 1.0, sc.z - 2e-5 * shadowParams.depthBiasScale[ c ] <= _shadowDepth( uv, c ) );
 }
 // same in the cascade covering P (by view distance), 1 beyond the last one or with shadows off
 fn sunShadowHard( P: vec3f ) -> f32 {

@@ -22,18 +22,22 @@ const _tmp4 = new Vector4();
 
 export class SunShadows {
 
-	constructor( { size = 2048, splits = [ 10, 60, 400 ], lightMargin = 200, normalBias = [ 0.015, 0.06, 0.3 ], bias = 0.00002, pcssCascades = 1 } = {} ) {
+	constructor( { size = 2048, splits = [ 10, 60, 400 ], lightMargin = 200, normalBias = [ 0.015, 0.06, 0.3 ], bias = 0.00002, pcssCascades = 1, cacheGrid = 0 } = {} ) {
 
-		this.size = size;
+		this.baseSize = size;
+		// Grow the map with the coverage, keeping the original world metres per
+		// texel. Padding also covers the largest displacement of the snapped fit.
+		this.cacheGrid = Math.max( 0, Math.min( Math.floor( cacheGrid ), Math.floor( ( ( GPU.device.limits?.maxTextureDimension2D ?? size ) - size ) / 2 ) ) );
+		this.size = size + this.cacheGrid * 2;
 		this.splits = splits;
 		this.count = splits.length;
 		this.lightMargin = lightMargin;
 		this.normalBias = normalBias;
 		this.periods = splits.map( ( _, i ) => i === 0 ? 1 : i === 1 ? 2 : 4 );
-		this.texture = new Texture( { label: 'sunShadowMap', width: size, height: size, depth: this.count, dimension: '2d-array', format: 'depth32float', usage: [ 'sample', 'render', 'copySrc', 'copyDst' ] } );
+		this.texture = new Texture( { label: 'sunShadowMap', width: this.size, height: this.size, depth: this.count, dimension: '2d-array', format: 'depth32float', usage: [ 'sample', 'render', 'copySrc', 'copyDst' ] } );
 		// (local modification) static casters kept per cascade while the view holds still: see render()
 		this.cache = null;
-		this.cacheLayers = Math.min( 2, this.count );
+		this.cacheLayers = this.cacheGrid ? this.count : Math.min( 2, this.count );
 		setShadowMap( this.texture );
 		this.cascades = splits.map( ( _, i ) => ( {
 			camera: {
@@ -56,7 +60,7 @@ export class SunShadows {
 		this.lastSun = new Vector3( 0, - 2, 0 );
 		const U = ShadowUniforms.fields;
 		U.count.value = this.count;
-		U.mapSize.value = size;
+		U.mapSize.value = this.size;
 		U.bias.value = bias;
 		U.pcssCascades.value = pcssCascades;
 		U.enabled.value = 1;
@@ -100,6 +104,10 @@ export class SunShadows {
 		let r = 0;
 		for ( const p of _corners ) r = Math.max( r, p.distanceTo( _center ) );
 		r = Math.ceil( r * 16 ) / 16; // quantised: the texel size stays fixed while the camera turns
+		const baseRadius = r;
+		const texel = 2 * baseRadius / this.baseSize;
+		const padding = this.cacheGrid * texel;
+		r += padding;
 		c.radius = r;
 
 		// light view looking along -sunDir, snapped to texels
@@ -111,14 +119,14 @@ export class SunShadows {
 		// the last eye as the translation, which made the grid follow the eye
 		cam.matrixWorld.setPosition( 0, 0, 0 );
 		_inv.copy( cam.matrixWorld ).invert();
-		const texel = 2 * r / this.size;
+		const snap = texel * Math.max( 1, this.cacheGrid );
 		const ls = _tmp4.set( _center.x, _center.y, _center.z, 1 ).applyMatrix4( _inv );
-		ls.x = Math.round( ls.x / texel ) * texel;
-		ls.y = Math.round( ls.y / texel ) * texel;
+		ls.x = Math.round( ls.x / snap ) * snap;
+		ls.y = Math.round( ls.y / snap ) * snap;
 		// (local modification) along the light too: an orbit's damping never quite settles, and
 		// sub-texel drift here would change the matrix (and the depths) every frame
-		ls.z = Math.round( ls.z / texel ) * texel;
-		const back = r + this.lightMargin;
+		ls.z = Math.round( ls.z / snap ) * snap;
+		const back = baseRadius + this.lightMargin + padding;
 		// eye = snapped centre moved back toward the sun
 		const eye = new Vector3( ls.x, ls.y, ls.z + back ).applyMatrix4( cam.matrixWorld );
 		cam.matrixWorld.setPosition( eye );
@@ -132,6 +140,8 @@ export class SunShadows {
 		const U = ShadowUniforms.fields;
 		U.matrices.value[ i ] = c.viewProj.clone();
 		U.cascades.value[ i ] = new Vector4( far, texel, this.normalBias[ i ] ?? 0.05, f - n );
+		// Preserve the original world-space reference bias after extending Z.
+		U.depthBiasScale.value.setComponent( i, ( 2 * baseRadius + this.lightMargin - n ) / ( f - n ) );
 
 	}
 
@@ -173,8 +183,8 @@ export class SunShadows {
 	// (local modification) isDynamic: optional ( mesh ) => bool, the casters that move. While a
 	// cascade's fit stays put (camera and sun still), its static casters are drawn once into a
 	// cache layer; each later render copies that back and draws only the moving casters over
-	// it. A moving view renders every caster in one pass, as before (nothing is kept then:
-	// the copy would only add to its cost). Near cascades only (cacheLayers).
+	// it. The padded grid can keep the fit stable during flight too. A changed fit
+	// renders every caster, and invalidation always rebuilds the static cache.
 	render( scene, meshRenderer, indices, timestamps = null, isDynamic = null, casters = null ) {
 
 		for ( const i of indices ) {
@@ -202,8 +212,8 @@ export class SunShadows {
 			c.lastFit.copy( c.viewProj );
 			c.stillFits = still ? c.stillFits + 1 : 0;
 			if ( ! isDynamic || i >= this.cacheLayers ) { pass(); continue; }
-			// The cache (~17 MB a layer) only once the view has held still for a moment
-			// (auto-rotation, a drag: never), and given back after a while of moving.
+			// Allocate the cache only after a fit repeats, then release it after a
+			// prolonged run without reusable fits. Unpadded views retain the old delay.
 			if ( ! this.cascades.some( ( x ) => x.cached ) && ++ this.idleRenders > 900 && this.cache ) { this.cache.destroy(); this.cache = null; }
 			const moving = ( o ) => isDynamic( o );
 			this.stats ??= { hit: 0, store: 0, full: 0 };
@@ -214,7 +224,7 @@ export class SunShadows {
 				this._copy( this.cache, this.texture, i );
 				pass( { filter: moving, clearDepth: null }, casters?.moving );
 
-			} else if ( still && c.stillFits >= 24 ) {
+			} else if ( still && c.stillFits >= ( this.cacheGrid ? 1 : 24 ) ) {
 				this.stats.store ++;
 
 				pass( { filter: ( o ) => ! isDynamic( o ) }, casters?.still );
