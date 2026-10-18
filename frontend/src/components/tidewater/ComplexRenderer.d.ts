@@ -24,6 +24,9 @@ export class ComplexRenderer {
   stats: { draws: number; triangles: number; pipelines: number };
   /** Smoothed GPU ms per pass and their sum (total); empty without timestamp queries. */
   timer: { enabled: boolean; ms: Record<string, number>; samples: number };
+  /** the occlusion (AO) and the glow (bloom) passes, switchable while it runs */
+  aoOn: boolean;
+  bloomOn: boolean;
   render(scene: Scene, camera: PerspectiveCamera, look: Look, time: number): void;
   objectsReady(root: import('three').Object3D): boolean;
   setSize(width: number, height: number, ratio: number): void;
