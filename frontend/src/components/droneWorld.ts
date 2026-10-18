@@ -520,9 +520,9 @@ export class DroneWorld {
     }
     // (higher, more of the city in sight: 1.15 km low down, 1.8 km at 500 m; less on a phone — and
     // scheduled toward its predicted position ten seconds ahead)
-    // (a phone: 540–640 m round it, past which the haze closes in — the tiles, buildings and cars past it
+    // (a phone: 640–740 m round it, past which the haze closes in — the tiles, buildings and cars past it
     // were most of its frame)
-    this.radius = Math.min(this.o.hq ? 1820 : 640, (this.o.hq ? 1155 : 540) + Math.max(0, alt) * (this.o.hq ? 1.4 : 0.6)) * this.memoryScale();
+    this.radius = Math.min(this.o.hq ? 1820 : 740, (this.o.hq ? 1155 : 640) + Math.max(0, alt) * (this.o.hq ? 1.4 : 0.6)) * this.memoryScale();
     // Prepare both travel and viewing corridors, including looking backward
     // while flying forward. Network failure still uses retry/registered fallback.
     const sp = Math.hypot(vx, vy), fx = sp > 1 ? vx / sp : look?.[0] ?? 0, fy = sp > 1 ? vy / sp : look?.[1] ?? 0;
