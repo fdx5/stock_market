@@ -42,6 +42,29 @@ test('hidden views finish FIFO work without animation frames',async()=>{
  assert.deepEqual(order,[0,1,2]);assert.equal(s.frames.length,0);
 });
 
+test('continuous urgent road work cannot starve the buildings ahead of a busy drone',async()=>{
+ const s=scheduler(),ordinary=[],roads=[];
+ for(let i=0;i<4;i++)s.slice(6).then(()=>ordinary.push(i));
+ const road=()=>s.slice(9,true).then(()=>{roads.push(1);if(roads.length<50)road();});road();
+ for(let at=0;at<=500;at+=17){s.frame(at,20);await s.task();}
+ assert.deepEqual(ordinary,[0,1,2,3],'ordinary continuations retain their 100ms starvation bound');
+ assert.ok(roads.length>=8,'roads retain their faster priority admissions');
+});
+
+test('urgent road work still passes ordinary backlog when frame time is available',async()=>{
+ const s=scheduler(),order=[];
+ s.slice(6).then(()=>order.push('tile'));s.slice(9,true).then(()=>order.push('paint'));
+ s.frame(0,2);await s.task();assert.deepEqual(order,['paint']);
+ await s.task();assert.deepEqual(order,['paint','tile']);
+});
+
+test('busy-frame road continuations progress once per display frame without sharing an over-budget tick',async()=>{
+ const s=scheduler(),roads=[];
+ const road=()=>s.slice(12,true).then(()=>{roads.push(1);if(roads.length<20)road();});road();
+ for(let at=0;at<=102;at+=17){s.frame(at,20);await s.task();assert.equal(s.tasks.length,0);}
+ assert.equal(roads.length,7);
+});
+
 test('display delivery delay does not consume the actual view work budget',async()=>{
  const s=scheduler(),order=[];s.slice(9).then(()=>order.push(0));
  s.setNow(10);s.start(0);s.frame(0,15);await s.task();

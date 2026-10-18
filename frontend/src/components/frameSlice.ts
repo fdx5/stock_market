@@ -29,22 +29,31 @@ function schedule(frameAt?: number) {
   const admit = (at: number) => background(() => {
     scheduled = false;
     // This timestamp precedes the view drawing; the task observes its cost too.
-    const now = performance.now(), first = waiting[0],elapsed=now-at;
+    const now = performance.now(), elapsed=now-at;
     // Prefer spare frame time. Under sustained load, admit just one waiting
     // continuation per 100ms instead of postponing all scenery indefinitely.
     // (urgent work — the roads, paint and traffic of the place the view stands on — goes before
     // the rest: behind the drone's tiles, all FIFO, the first area's lane paint waited ~50 s for its
     // ~0.3 s of work, its cars standing still till then)
-    // Under load the urgent head is let in every other frame (33 ms), the rest once per 100 ms.
-    const urgentAt=waiting.findIndex(item=>item.urgent),head=urgentAt>=0?waiting[urgentAt]:first;
-    const forced=head&&elapsed>=head.budget&&(urgentAt>=0?now-head.since>=33&&now-lastUrgentForced>=33:now-head.since>=100&&now-lastForcedAdmission>=100);
+    // Under load admit one short urgent continuation per display frame (16ms).
+    // Ordinary builders retain their independent 100ms admission below.
+    const urgentAt=waiting.findIndex(item=>item.urgent),urgent=waiting[urgentAt];
+    // Road work can remain urgent for tens of seconds. Its presence must not
+    // disable the ordinary queue's starvation bound: those continuations build
+    // the ground/buildings ahead of the flying drone. Reserve one admission per
+    // 100ms for overdue ordinary work even while roads are continuously queued.
+    const ordinaryAt=waiting.findIndex(item=>!item.urgent&&now-item.since>=100);
+    const ordinary=waiting[ordinaryAt];
+    const forceOrdinary=ordinary&&elapsed>=ordinary.budget&&now-lastForcedAdmission>=100;
+    const forceUrgent=urgent&&elapsed>=urgent.budget&&now-urgent.since>=16&&now-lastUrgentForced>=16;
+    const forcedAt=forceOrdinary?ordinaryAt:forceUrgent?urgentAt:-1;
     // A 6ms continuation must not hold up a 9ms continuation while 7ms of the
     // actual frame has been used. Preserve FIFO among eligible work, and still
     // admit an overdue head once per 100ms under continuous pressure.
     const eligibleUrgent=waiting.findIndex(item=>item.urgent&&elapsed<item.budget);
-    const index=forced?(urgentAt>=0?urgentAt:0):eligibleUrgent>=0?eligibleUrgent:waiting.findIndex(item=>elapsed<item.budget);
+    const index=forcedAt>=0?forcedAt:eligibleUrgent>=0?eligibleUrgent:waiting.findIndex(item=>elapsed<item.budget);
     if(index>=0){
-      if(forced){if(urgentAt>=0)lastUrgentForced=now;else lastForcedAdmission=now;}
+      if(forcedAt>=0){if(waiting[index].urgent)lastUrgentForced=now;else lastForcedAdmission=now;}
       waiting.splice(index,1)[0].resolve();
     }
     // A continuation can finish well before this frame's spare time runs out.

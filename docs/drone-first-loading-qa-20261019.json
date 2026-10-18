@@ -1,0 +1,425 @@
+{
+  "baselineCommit": "8addbcc1",
+  "firstEntry": {
+    "baseline": {
+      "base": "https://kospimap.com",
+      "complex": "11290:길음동:1288:래미안길음센터피스",
+      "mobileSimulation": false,
+      "errors": [],
+      "entry": {
+        "seconds": 79.264,
+        "shown": "9000",
+        "asphalt": "44303",
+        "paint": "79009",
+        "laps": "22418/12636/4480/3003/32604/0/2818/1050",
+        "paintGroups": 1,
+        "readyPaintGroups": 1
+      },
+      "entrySeconds": 79.3,
+      "render": {
+        "canvas": [
+          2400,
+          1600
+        ],
+        "quality": "high",
+        "renderer": "tidewater-webgpu",
+        "ratio": "2.00",
+        "groups": 1,
+        "vertices": 319251
+      },
+      "flight": {
+        "frames": 443,
+        "mean": 36.92256286024559,
+        "minOneSecond": 29,
+        "p95": 33.69999999999709,
+        "p99": 50.10000000000582,
+        "max": 83.40000000000873,
+        "canvas": [
+          2400,
+          1600
+        ],
+        "quality": "high"
+      }
+    },
+    "candidate": {
+      "base": "http://127.0.0.1:5493",
+      "complex": "11290:길음동:1288:래미안길음센터피스",
+      "mobileSimulation": false,
+      "errors": [],
+      "entry": {
+        "seconds": 43.077,
+        "shown": "7088",
+        "asphalt": "38722",
+        "paint": "42679",
+        "laps": "18230/13870/3427/1687/1511/401/2597/955",
+        "paintGroups": 1,
+        "readyPaintGroups": 1
+      },
+      "entrySeconds": 43.09,
+      "render": {
+        "canvas": [
+          2400,
+          1600
+        ],
+        "quality": "high",
+        "renderer": "tidewater-webgpu",
+        "ratio": "2.00",
+        "groups": 1,
+        "vertices": 319287
+      },
+      "flight": {
+        "frames": 446,
+        "mean": 37.120453787120454,
+        "minOneSecond": 30,
+        "p95": 50,
+        "p99": 50.10000000000582,
+        "max": 67.20000000000437,
+        "canvas": [
+          2400,
+          1600
+        ],
+        "quality": "high"
+      }
+    }
+  },
+  "route": {
+    "baseline": [
+      {
+        "seconds": 0,
+        "clearAhead": 679.865419498676,
+        "stats": {
+          "tiles": 71,
+          "ready": 20,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 423,
+          "lastMs": 1642.2000000001863,
+          "radius": 1305.2821443772034,
+          "detailReady": 0,
+          "detailRunning": 1,
+          "detailPending": 23,
+          "detailUnavailable": 7,
+          "detailMatched": 236,
+          "detailUnmatched": 1228,
+          "workerPending": 1
+        }
+      },
+      {
+        "seconds": 5,
+        "clearAhead": 526.8810346056622,
+        "stats": {
+          "tiles": 86,
+          "ready": 23,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 1018,
+          "lastMs": 6592.0999999996275,
+          "radius": 1295.0192300842384,
+          "detailReady": 0,
+          "detailRunning": 2,
+          "detailPending": 22,
+          "detailUnavailable": 10,
+          "detailMatched": 499,
+          "detailUnmatched": 1447,
+          "workerPending": 3
+        }
+      },
+      {
+        "seconds": 10,
+        "clearAhead": 373.8905324171331,
+        "stats": {
+          "tiles": 86,
+          "ready": 23,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 1085,
+          "lastMs": 6592.0999999996275,
+          "radius": 1295.0007307302233,
+          "detailReady": 0,
+          "detailRunning": 2,
+          "detailPending": 22,
+          "detailUnavailable": 10,
+          "detailMatched": 872,
+          "detailUnmatched": 1074,
+          "workerPending": 2
+        }
+      },
+      {
+        "seconds": 15,
+        "clearAhead": 220.90003022860407,
+        "stats": {
+          "tiles": 88,
+          "ready": 23,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 1734,
+          "lastMs": 6592.0999999996275,
+          "radius": 1295.00428885431,
+          "detailReady": 0,
+          "detailRunning": 1,
+          "detailPending": 23,
+          "detailUnavailable": 10,
+          "detailMatched": 1224,
+          "detailUnmatched": 722,
+          "workerPending": 1
+        }
+      },
+      {
+        "seconds": 20,
+        "clearAhead": 67.9051001105629,
+        "stats": {
+          "tiles": 87,
+          "ready": 23,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 1734,
+          "lastMs": 6592.0999999996275,
+          "radius": 1294.9264467772057,
+          "detailReady": 0,
+          "detailRunning": 1,
+          "detailPending": 15,
+          "detailUnavailable": 18,
+          "detailMatched": 1493,
+          "detailUnmatched": 453,
+          "workerPending": 1
+        }
+      },
+      {
+        "seconds": 25,
+        "clearAhead": 85.57661815033981,
+        "stats": {
+          "tiles": 86,
+          "ready": 22,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 1734,
+          "lastMs": 6592.0999999996275,
+          "radius": 1294.9903735445134,
+          "detailReady": 0,
+          "detailRunning": 0,
+          "detailPending": 10,
+          "detailUnavailable": 24,
+          "detailMatched": 1537,
+          "detailUnmatched": 409,
+          "workerPending": 0
+        }
+      },
+      {
+        "seconds": 30,
+        "clearAhead": 101.42078813525166,
+        "stats": {
+          "tiles": 86,
+          "ready": 22,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 1734,
+          "lastMs": 24724.89999999944,
+          "radius": 1294.957241163329,
+          "detailReady": 0,
+          "detailRunning": 0,
+          "detailPending": 16,
+          "detailUnavailable": 19,
+          "detailMatched": 1537,
+          "detailUnmatched": 492,
+          "workerPending": 0
+        }
+      },
+      {
+        "seconds": 35,
+        "clearAhead": 0,
+        "stats": {
+          "tiles": 89,
+          "ready": 25,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 1733,
+          "lastMs": 35407.10000000056,
+          "radius": 1294.9693494575126,
+          "detailReady": 0,
+          "detailRunning": 1,
+          "detailPending": 22,
+          "detailUnavailable": 17,
+          "detailMatched": 1724,
+          "detailUnmatched": 1387,
+          "workerPending": 1
+        }
+      }
+    ],
+    "candidate": [
+      {
+        "seconds": 0,
+        "clearAhead": 679.5809652572171,
+        "stats": {
+          "tiles": 85,
+          "ready": 21,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 607,
+          "lastMs": 4605,
+          "radius": 1295.008576508907,
+          "detailReady": 0,
+          "detailRunning": 2,
+          "detailPending": 19,
+          "detailUnavailable": 10,
+          "detailMatched": 257,
+          "detailUnmatched": 1207,
+          "workerPending": 3
+        }
+      },
+      {
+        "seconds": 5,
+        "clearAhead": 524.5503450143538,
+        "stats": {
+          "tiles": 86,
+          "ready": 24,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 1019,
+          "lastMs": 4932.5999999996275,
+          "radius": 1295.029505304187,
+          "detailReady": 0,
+          "detailRunning": 2,
+          "detailPending": 21,
+          "detailUnavailable": 11,
+          "detailMatched": 483,
+          "detailUnmatched": 1463,
+          "workerPending": 2
+        }
+      },
+      {
+        "seconds": 10,
+        "clearAhead": 374.11381370343975,
+        "stats": {
+          "tiles": 88,
+          "ready": 24,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 1086,
+          "lastMs": 4932.5999999996275,
+          "radius": 1295.0008434476358,
+          "detailReady": 0,
+          "detailRunning": 0,
+          "detailPending": 26,
+          "detailUnavailable": 8,
+          "detailMatched": 815,
+          "detailUnmatched": 1131,
+          "workerPending": 1
+        }
+      },
+      {
+        "seconds": 15,
+        "clearAhead": 424.74964633531926,
+        "stats": {
+          "tiles": 88,
+          "ready": 28,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 1735,
+          "lastMs": 21553.5,
+          "radius": 1295.002697127806,
+          "detailReady": 0,
+          "detailRunning": 2,
+          "detailPending": 27,
+          "detailUnavailable": 9,
+          "detailMatched": 1189,
+          "detailUnmatched": 1380,
+          "workerPending": 2
+        }
+      },
+      {
+        "seconds": 20,
+        "clearAhead": 531.4239887623161,
+        "stats": {
+          "tiles": 87,
+          "ready": 32,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 2658,
+          "lastMs": 7176.5,
+          "radius": 1294.9173312387848,
+          "detailReady": 0,
+          "detailRunning": 1,
+          "detailPending": 31,
+          "detailUnavailable": 10,
+          "detailMatched": 1472,
+          "detailUnmatched": 1952,
+          "workerPending": 1
+        }
+      },
+      {
+        "seconds": 25,
+        "clearAhead": 496.09208493705734,
+        "stats": {
+          "tiles": 86,
+          "ready": 30,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 3014,
+          "lastMs": 7176.5,
+          "radius": 1294.9927757820167,
+          "detailReady": 0,
+          "detailRunning": 2,
+          "detailPending": 28,
+          "detailUnavailable": 12,
+          "detailMatched": 1832,
+          "detailUnmatched": 1592,
+          "workerPending": 3
+        }
+      },
+      {
+        "seconds": 30,
+        "clearAhead": 473.50855530978646,
+        "stats": {
+          "tiles": 86,
+          "ready": 32,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 3916,
+          "lastMs": 10066.200000000186,
+          "radius": 1294.9743289045944,
+          "detailReady": 0,
+          "detailRunning": 1,
+          "detailPending": 30,
+          "detailUnavailable": 14,
+          "detailMatched": 2285,
+          "detailUnmatched": 1663,
+          "workerPending": 2
+        }
+      },
+      {
+        "seconds": 35,
+        "clearAhead": 424.34721935958,
+        "stats": {
+          "tiles": 89,
+          "ready": 33,
+          "loading": 6,
+          "failed": 0,
+          "buildings": 4590,
+          "lastMs": 8019.899999999441,
+          "radius": 1294.9713413238014,
+          "detailReady": 0,
+          "detailRunning": 2,
+          "detailPending": 31,
+          "detailUnavailable": 15,
+          "detailMatched": 2709,
+          "detailUnmatched": 1837,
+          "workerPending": 3
+        }
+      }
+    ],
+    "render": {
+      "canvas": [
+        2400,
+        1600
+      ],
+      "quality": "high",
+      "renderer": "tidewater-webgpu",
+      "mean": 46.98909163134209,
+      "minOneSecond": 23,
+      "p95": 33.5,
+      "p99": 50.10000000000218,
+      "max": 117.20000000000073
+    },
+    "errors": []
+  }
+}

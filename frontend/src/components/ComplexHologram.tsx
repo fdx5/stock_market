@@ -3540,6 +3540,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if(moved){P.needsUpdate=true;m.geometry.computeBoundingSphere();}}
       };
       const lap:number[]=[Math.round(performance.now())],mark=()=>{lap.push(Math.round(performance.now()));if(hostRef.current)hostRef.current.dataset.roadsLay=lap.map((t,i)=>i?t-lap[i-1]:t).join('/');};
+      // Paint has the same fixed road/terrain inputs as asphalt. Prepare it while
+      // the ground/surface workers and GPU upload run, instead of starting only
+      // after the first asphalt draw. A departed view disposes even late results.
+      const earlyPaint={cancelled:false,value:null as Awaited<ReturnType<typeof buildRoadMarkings>>|null};
+      const paintJob=buildRoadMarkings(arms.roads,roadTerrain,arms.at,arms.inside,arms.crossings).then(value=>{
+        if(earlyPaint.cancelled){value.dispose();return null;}
+        earlyPaint.value=value;return value;
+      });
+      void paintJob.catch(()=>{}); // the owning await below handles any failure
+      try {
       // (the ground cut to the roads at grade first: the asphalt is then laid smooth on it, nothing
       // of the relief to lift it onto)
       const atGrade=arms.roads.filter(r=>!['bridge','elevated','tunnel','underpass'].includes(r.structure??''));
@@ -3565,36 +3575,39 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }
       roadBvhAbort?.abort();roadBvhAbort=new AbortController();
       const bvhJob=roadBvhEnabled()?buildRoadBvh(f.group.geometry,{signal:roadBvhAbort.signal}):Promise.resolve(null);
-      const m = await buildRoadMarkings(arms.roads, roadTerrain, arms.at, arms.inside, arms.crossings);mark();
+      const m = await paintJob;mark();
+      if(!m)return;
       const bvh=await bvhJob;mark();
-      if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); m.dispose(); return; }
+      if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); return; }
       await Promise.all((m.group.children as THREE.Mesh[]).map(async mesh=>{
         await cutSceneSurface(mesh.geometry,physicalFootprints,roadPace,true);
         if(textureBudgetEnabled())await drapeRoadOffThread(mesh.geometry,groundGeo,roadPace,.05,f.group.geometry,bvh??undefined);
         else{await drapeRoadSurface(mesh.geometry,groundGeo,roadPace,.05);await raiseRoadPaint(mesh.geometry,f.group.geometry,roadPace,.015,bvh?roadBvhIndex(bvh):undefined);}
         await clipSceneStreetBox(mesh.geometry,[-FAR_HALF,-FAR_HALF,FAR_HALF,FAR_HALF],roadPace);
       }));
-      if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); m.dispose(); return; }
+      if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); return; }
       mark();
       const nextLayer = new THREE.Group();
       nextLayer.name = "road surface and markings";
       nextLayer.add(f.group, m.group);
       const lifted=roadWater;if(lifted)await liftBeforeShown([[f.group,0],...(m.group.children as THREE.Mesh[]).map(c=>[c,.05] as [THREE.Mesh,number])],lifted);
-      if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); m.dispose(); return; }
+      if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); return; }
       stage.addWarm(decor, nextLayer);
       while (alive && gen === marksGen && !stage.drawReady(nextLayer)) await frameSlice(9,true);
       if (!alive || gen !== marksGen) {
-        nextLayer.userData.sceneDiscarded = true; nextLayer.removeFromParent(); f.dispose(); m.dispose(); return;
+        nextLayer.userData.sceneDiscarded = true; nextLayer.removeFromParent(); f.dispose(); return;
       }
       mark();
       roadLayer?.removeFromParent(); roadLayer = nextLayer;
       if (surface && surface !== f) { decor.remove(surface.group); surface.dispose(); }
       if (marks) { decor.remove(marks.group); marks.dispose(); }
       surface = f; marks = m;if(roadWater&&roadWater!==lifted)liftRoadsOverWater(roadWater);
+      earlyPaint.value=null;
       asphaltAt=roadSurfaceHeight(f.group.geometry,bvh?roadBvhIndex(bvh):undefined);
       void relayWalks?.();
       if(hostRef.current){const d=hostRef.current.dataset;d.roadIndex=bvh?'rust-wasm-bvh':'js-grid';d.roadIndexBuildMs=bvh?bvh.buildMs.toFixed(1):'0';d.roadIndexWorkers=String(bvh?.workers??0);d.roadIndexBytes=String(bvh?.parts.reduce((n,p)=>n+p.nodes.byteLength+p.ids.byteLength,0)??0);}
       if(hostRef.current){const d=hostRef.current.dataset;d.roadsReadyAt=String(Math.round(performance.now()));d.roadsFirstAt??=d.roadsReadyAt;d.roadsLays=String(+(d.roadsLays??0)+1);}
+      } finally {earlyPaint.cancelled=true;earlyPaint.value?.group.removeFromParent();earlyPaint.value?.dispose();}
     };
     liftRoadsOverWater=field=>{
       roadLayer?.traverse(o=>{const m=o as THREE.Mesh;if(!m.isMesh)return;const P=m.geometry.getAttribute('position') as THREE.BufferAttribute|undefined;if(!P)return;

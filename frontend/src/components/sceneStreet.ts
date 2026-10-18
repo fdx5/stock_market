@@ -60,7 +60,7 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
   let slice = performance.now();
   for (const r of roads) {
     surfaceRoad=r;
-    if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+    if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
     if (r.line.length < 2) continue;
     const pts: [number, number][] = [];
     for (let i = 1; i < r.line.length; i++) {
@@ -73,14 +73,14 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
     const nrm = surfaceGeometry.miters(pts);
     for (let i = 1; i < pts.length; i++) {
       // (a long road's thousands of vertices in one slice held a frame 0.25 s)
-      if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+      if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
       const [ax, ay] = pts[i - 1], [bx, by] = pts[i], [anx, any] = nrm[i - 1], [bnx, bny] = nrm[i];
       // Sample across the carriageway too: one triangle across a wide road
       // bridged over local grade changes and could disappear under the ground.
       const across = Math.max(1, Math.ceil(r.width / STEP));
       for (let lane = 0; lane < across; lane++) {
         // (and across a wide road: its height asked at every vertex, one segment of a boulevard held 20 ms)
-        if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+        if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
         const left = h - r.width * lane / across, right = h - r.width * (lane + 1) / across;
         vtx(ax + anx * left, ay + any * left); vtx(ax + anx * right, ay + any * right); vtx(bx + bnx * right, by + bny * right);
         vtx(ax + anx * left, ay + any * left); vtx(bx + bnx * right, by + bny * right); vtx(bx + bnx * left, by + bny * left);
@@ -97,13 +97,13 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
     // every junction held a frame 0.25 s)
     const near=groupRoads.filter((_,i)=>{const b=groupBoxes[i];return cx>b[0]-60&&cx<b[2]+60&&cy>b[1]-60&&cy<b[3]+60;});
     surfaceRoad=(near.length?near:groupRoads).reduce((a,b)=>nearestRoadPoint(a.line,cx,cy).distance<=nearestRoadPoint(b.line,cx,cy).distance?a:b);
-    if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+    if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
     // (a fan, sampled along each hull edge so it follows the ground)
     for (let k = 0; k < h.length; k++) {
       const a = h[k], b = h[(k + 1) % h.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / STEP));
       for (let s = 0; s < n; s++) {
         // (a large junction's fan, its every ring asked for the road's height, held a frame 40 ms)
-        if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+        if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
         const p0 = [a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n], p1 = [a[0] + (b[0] - a[0]) * (s + 1) / n, a[1] + (b[1] - a[1]) * (s + 1) / n];
         const rings = Math.max(1, Math.ceil(Math.max(Math.hypot(p0[0]-cx,p0[1]-cy),Math.hypot(p1[0]-cx,p1[1]-cy)) / STEP));
         for (let ring = 1; ring <= rings; ring++) {
@@ -123,12 +123,12 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
   // one piece were a frame of 50 ms)
   sampled.clear();
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(await float32Sliced(pos), 3));
-  geo.setAttribute("uv", new THREE.BufferAttribute(await float32Sliced(uv), 2));
-  geo.setAttribute("roadLevel",new THREE.BufferAttribute(await float32Sliced(levels),1));
-  geo.setAttribute("roadProfile",new THREE.BufferAttribute(await float32Sliced(profiles),1));geo.userData.roadProfiles=profileIds;
-  await flatNormalsSliced(geo);
-  await frameSlice(9, true);
+  geo.setAttribute("position", new THREE.BufferAttribute(await float32Sliced(pos, 4, true), 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(await float32Sliced(uv, 4, true), 2));
+  geo.setAttribute("roadLevel",new THREE.BufferAttribute(await float32Sliced(levels, 4, true),1));
+  geo.setAttribute("roadProfile",new THREE.BufferAttribute(await float32Sliced(profiles, 4, true),1));geo.userData.roadProfiles=profileIds;
+  await flatNormalsSliced(geo, 4, true);
+  await frameSlice(12, true);
   geo.computeBoundingSphere();
   const map = await paintedTexture("asphalt", 1024);
   const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.92, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
@@ -174,6 +174,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
   const yellow: number[] = [], white: number[] = [],yellowLevels:number[]=[],whiteLevels:number[]=[],yellowProfiles:number[]=[],whiteProfiles:number[]=[],profileIds=roadProfiles(roads);
   const coverage: {road:number;lanes:number;length:number;spans:number[][]}[]=[];
   const roadBoxes=roads.map(r=>{let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;for(const[x,y]of r.line){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}return[x0,y0,x1,y1];});
+  const crossingBoxes=(crossings??[]).map(c=>{let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;for(const[x,y]of c.line){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}return[x0,y0,x1,y1];});
   // (a little over the road: the ground mesh is coarser than the height samples, and a line
   // 3.5 cm up sank under it in patches — the centre line looked broken)
   const LIFT = 0.115, STEP = 3;
@@ -206,7 +207,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
   };
   let slice = performance.now();
   for (const [ri, r] of roads.entries()) {
-    if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+    if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
     const lanes = roadLaneCount(r);
     if (r.line.length < 2 || inside?.(ri)) continue;
     // resampled every STEP m, with smoothed left normals
@@ -219,6 +220,22 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     const cum = [0];
     for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
     const total = cum[cum.length - 1];
+    // Every dash used to scan the entire road for its knots, then scan it again
+    // for each endpoint. Look up only the interval being painted; interpolation
+    // and the surveyed coordinates remain identical.
+    const indexAt = (s: number) => {
+      let lo = 1, hi = cum.length - 1;
+      while (lo < hi) { const mid = (lo + hi) >>> 1; if (cum[mid] < s) lo = mid + 1; else hi = mid; }
+      return lo;
+    };
+    // Neighbouring ribbons share their corner heights. Keep the cache local to
+    // this road and this build so water/terrain updates get fresh samples.
+    const heights = new Map<string, number>();
+    const heightAt = (x: number, y: number) => {
+      const key = x + ',' + y, cached = heights.get(key);
+      if (cached !== undefined) return cached;
+      const height = roadHeight(r, terrain, x, y); heights.set(key, height); return height;
+    };
     const arm0 = armAt?.(ri, true) ?? null, arm1 = armAt?.(ri, false) ?? null;
     // (an arm without the traffic's layout: cut back at a junction found from the road ends)
     const cut0 = arm0 ? 0 : Math.min(total / 3, cutAt(ri, r.line[0])), cut1 = arm1 ? 0 : Math.min(total / 3, cutAt(ri, r.line[r.line.length - 1]));
@@ -233,7 +250,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
         return {crossA:cut,crossB:cut,stopA:cut,stopB:cut,surveyed:false,zebra:false,stop:false};
       return candidate;
     };
-    if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+    if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
     const L0 = lay(arm0, cut0), L1 = lay(arm1, cut1);
     const s0 = L0 ? L0.stopB + 0.4 : 0, s1 = total - (L1 ? L1.stopB + 0.4 : 0);
     if (total < .001) continue;
@@ -246,7 +263,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     const strip = (out: number[], off: number, w: number, sa: number, sb: number) => {
       sa=Math.max(0,sa);sb=Math.min(total,sb);if(sb-sa<.001)return;
       const at = (sv: number) => {
-        let i = 1; while (i < cum.length - 1 && cum[i] < sv) i++;
+        const i = indexAt(sv);
         const t = (sv - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1);
         const x = pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, y = pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t;
         // Asphalt linearly interpolates its edge normals. Renormalizing here
@@ -258,7 +275,9 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
       let lastSides:number[][]|null=null;
       // Include every asphalt knot, including the last partial segment of a
       // surveyed polyline; otherwise a painted corner cuts across the bend.
-      const knots=[...cum.filter(s=>s>sa&&s<sb),sb];
+      const knots: number[] = [];
+      for (let i = indexAt(sa); i < cum.length && cum[i] < sb; i++) if (cum[i] > sa) knots.push(cum[i]);
+      knots.push(sb);
       for (const sv of knots) {
         const cur = at(sv);
         // An offset lane curve can reverse on a short surveyed bend. Reusing
@@ -266,12 +285,12 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
         // Thin ribbons use their own tangent; wide stop/crosswalk bars keep
         // the asphalt's across-road interpolation.
         const dx=cur[0]-prev[0],dy=cur[1]-prev[1],len=Math.hypot(dx,dy),thin=w<=.2&&len>1e-6;
-        const q = (p: number[], side: number) => { const nx=thin?-dy/len:p[2],ny=thin?dx/len:p[3],x=p[0]+nx*side*w/2,y=p[1]+ny*side*w/2;return [x,roadHeight(r,terrain,x,y)+LIFT,-y]; };
+        const q = (p: number[], side: number) => { const nx=thin?-dy/len:p[2],ny=thin?dx/len:p[3],x=p[0]+nx*side*w/2,y=p[1]+ny*side*w/2;return [x,heightAt(x,y)+LIFT,-y]; };
         const a = q(prev, 1), b = q(prev, -1), c = q(cur, -1), d = q(cur, 1);
         // (wound to face up: world x, up, -y)
         out.push(...a, ...b, ...c, ...a, ...c, ...d);
         if(thin&&lastSides){
-          const center=[prev[0],roadHeight(r,terrain,prev[0],prev[1])+LIFT,-prev[1]];
+          const center=[prev[0],heightAt(prev[0],prev[1])+LIFT,-prev[1]];
           for(const [old,next]of [[lastSides[0],a],[lastSides[1],b]]){
             const up=(next[0]-old[0])*(-center[2]+old[2])-(-next[2]+old[2])*(center[0]-old[0]);
             if(Math.abs(up)<1e-9)continue;
@@ -285,7 +304,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     /** A point at sv along the road, `off` to its left: [x, y]. */
     const ptAt = (sv: number, off: number): [number, number] => {
       sv=Math.max(0,Math.min(total,sv));
-      let i = 1; while (i < cum.length - 1 && cum[i] < sv) i++;
+      const i = indexAt(sv);
       const t = (sv - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1);
       const x = pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, y = pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t;
       const nx = nrm[i - 1][0] + (nrm[i][0] - nrm[i - 1][0]) * t, ny = nrm[i - 1][1] + (nrm[i][1] - nrm[i - 1][1]) * t;
@@ -294,7 +313,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     /** A painted triangle, wound to face up. */
     const tri = (out: number[], a: [number, number], b: [number, number], c: [number, number]) => {
       const up = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) > 0;
-      const P = (p: [number, number]) => [p[0], roadHeight(r,terrain,p[0],p[1]) + LIFT, -p[1]];
+      const P = (p: [number, number]) => [p[0], heightAt(p[0],p[1]) + LIFT, -p[1]];
       // (anticlockwise in x, y faces up once y is flipped to −z: three's winding)
       if (up) out.push(...P(a), ...P(b), ...P(c)); else out.push(...P(a), ...P(c), ...P(b));
     };
@@ -302,7 +321,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     // Remove only the junction envelope, keeping all other short road pieces.
     const blocked:number[][]=[];let along=0;
     for(let i=1;i<r.line.length;i++){
-      if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+      if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
       const [ax,ay]=r.line[i-1],[bx,by]=r.line[i],dx=bx-ax,dy=by-ay,len=Math.hypot(dx,dy);if(len<1e-6)continue;
       for(const [oi,o]of roads.entries())if(oi!==ri&&roadLevel(r)===0&&sameRoadLevel(r,o)){
        const box=roadBoxes[oi];if(Math.max(ax,bx)<box[0]||Math.min(ax,bx)>box[2]||Math.max(ay,by)<box[1]||Math.min(ay,by)>box[3])continue;
@@ -321,7 +340,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     for(const[a,b]of blocked){if(b<=cursor||a>=s1)continue;if(a>cursor)spans.push([cursor,Math.min(a,s1)]);cursor=Math.max(cursor,b);}
     if(cursor<s1)spans.push([cursor,s1]);coverage.push({road:ri,lanes,length:total,spans});
     for(const[a,b]of spans){
-      if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+      if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
       if (r.oneway) continue;
       if (lanes >= 4) { strip(yellow, 0.17, 0.15, a,b); strip(yellow, -0.17, 0.15,a,b); }
       else if (lanes >= 2) strip(yellow, 0, 0.15,a,b);
@@ -341,9 +360,13 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     if (crossings?.length && r.width >= 5) {
       const own: [number, number][] = [];
       for (const [L, atStart] of [[L0, true], [L1, false]] as const) if (L && L.zebra !== false) own.push(atStart ? [L.crossA, L.crossB] : [total - L.crossB, total - L.crossA]);
-      for (const cw of crossings) {
-        if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
-        if ((cw.layer ?? 0) !== roadLevel(r)) continue;
+      for (const [ci,cw] of crossings.entries()) {
+        // Only an overlapping line can intersect this road. Dense city datasets
+        // contain hundreds of unrelated crossings; scanning every sampled road
+        // segment against all of them dominated first-entry paint construction.
+        const b=crossingBoxes[ci],rb=roadBoxes[ri];
+        if((cw.layer??0)!==roadLevel(r)||b[0]>rb[2]||b[2]<rb[0]||b[1]>rb[3]||b[3]<rb[1])continue;
+        if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
         for (let k = 1; k < cw.line.length; k++) {
           const [cx0, cy0] = cw.line[k - 1], [cx1, cy1] = cw.line[k];
           for (let i = 1; i < pts.length; i++) {
@@ -363,7 +386,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     // Lane arrows (노면 방향표시) before each junction, as painted in Seoul: the inner lane turns
     // left, the outer goes straight on and right, the rest straight; a single lane straight and
     // left. Each 5 m long, its tip 3 m behind the stop line.
-    if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+    if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
     const perSideA = Math.max(1,r.oneway?lanes:Math.floor(lanes / 2)), laneWA = r.width / Math.max(r.oneway?1:2, lanes);
     for (const [L, atStart] of [[L0, true], [L1, false]] as const) {
       if (!L || r.width < 5) continue;
@@ -389,7 +412,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     for (const side of r.oneway?[1]:[1, -1]) {
       const count=r.oneway?lanes:side===1?Math.floor(lanes/2):Math.ceil(lanes/2),laneW=(r.oneway?r.width:halfW)/count;
       for(let k=1;k<count;k++)for(const[a,b]of spans){
-        if (performance.now() - slice > 5) { await frameSlice(9, true); slice = performance.now(); }
+        if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
         for (let d = Math.floor(a/8)*8; d < b; d += 8) strip(white, r.oneway?k*laneW-halfW:side*k*laneW, 0.12, Math.max(a,d),Math.min(b,d+3));
       }
     }
@@ -403,11 +426,11 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
   for (const [pos, color] of [[yellow, "#f0b40a"], [white, "#f2f2ee"]] as const) {
     if (!pos.length) continue;
     const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(await float32Sliced(pos), 3));
-    g.setAttribute("roadLevel",new THREE.BufferAttribute(await float32Sliced(pos===yellow?yellowLevels:whiteLevels),1));
-    g.setAttribute("roadProfile",new THREE.BufferAttribute(await float32Sliced(pos===yellow?yellowProfiles:whiteProfiles),1));g.userData.roadProfiles=profileIds;
-    await flatNormalsSliced(g);
-    await frameSlice(9, true);
+    g.setAttribute("position", new THREE.BufferAttribute(await float32Sliced(pos, 4, true), 3));
+    g.setAttribute("roadLevel",new THREE.BufferAttribute(await float32Sliced(pos===yellow?yellowLevels:whiteLevels, 4, true),1));
+    g.setAttribute("roadProfile",new THREE.BufferAttribute(await float32Sliced(pos===yellow?yellowProfiles:whiteProfiles, 4, true),1));g.userData.roadProfiles=profileIds;
+    await flatNormalsSliced(g, 4, true);
+    await frameSlice(12, true);
     g.computeBoundingSphere();
     const m = new THREE.MeshStandardMaterial({ color, roughness: 0.62, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const mesh = new THREE.Mesh(g, m);
