@@ -1020,7 +1020,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // A phone's drone: its own measure for a small screen — the scene drawn at 2x at most while it
     // flies (a 6-inch screen at 2.6–3x showed no more than at 2x, for twice the pixels), the
     // effects all kept; the view's own ratio back on landing.
-    let droneRatioCap = 0;
+    let droneRatioCap = 0, droneStill = 0, droneCapAt = 0;
     stage.setDroneLite = on => {
       (native as unknown as { setDroneLite?: (on: boolean) => void } | null)?.setDroneLite?.(on); stage.railEvery = on ? 2 : 1;
       droneRatioCap = on ? 2 : 0; resize();
@@ -1267,6 +1267,22 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           host.dataset.renderSize = `${native.canvas.width}x${native.canvas.height}`;
           host.dataset.sceneReady = String(native.ready && !native.pending && !native.compiling && !native.failed);
           host.dataset.nativeDraws = String(native.stats.draws);
+          // A phone's drone in flight while its GPU runs past the frame (a Fold's 25-47 ms
+          // where 20 holds 50 a second): the scene a little under its 2x — 1.7x at the least,
+          // 72% of the pixels — and back to 2x once it holds still for two seconds.
+          if (droneRatioCap && stage.drone) {
+            const gpu = native.timer.ms.total ?? 0, fps = Number(host.dataset.fps), v = stage.drone.flight.vel;
+            let cap = droneRatioCap;
+            if (Math.hypot(v.x, v.y, v.z) < 1.5) { if (++droneStill >= 2) cap = 2; }
+            else {
+              droneStill = 0;
+              if (gpu > 17) cap = Math.max(1.7, cap * Math.sqrt(16 / gpu));
+              else if (!gpu && fps < 48) cap = Math.max(1.7, cap - 0.1);
+              else if (gpu && gpu < 12) cap = Math.min(2, cap + 0.1);
+            }
+            cap = Math.round(cap * 20) / 20;
+            if (cap !== droneRatioCap && nowMs - droneCapAt > 1500) { droneCapAt = nowMs; droneRatioCap = cap; resize(); }
+          }
         }
         sampleFrames = 0; sampleStart = nowMs;
       }
