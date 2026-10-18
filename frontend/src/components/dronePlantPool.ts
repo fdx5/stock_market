@@ -46,6 +46,9 @@ export class PlantPool {
         mesh.name = src.name + " (pooled)"; mesh.count = 0; mesh.castShadow = casts; mesh.receiveShadow = src.receiveShadow;
         mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(mesh.instanceMatrix.count * 3), 3);
         mesh.userData.castWas = casts;
+        // Population edits replace stationary instances atomically. Invalidate
+        // their cached shadow once, rather than treating them as moving trees.
+        mesh.userData.staticShadowInstances = true;
         pool = { mesh, segs: new Map(), total: 0 };
         this.pools.set(key, pool);
         this.o.addWarm(this.root, mesh);

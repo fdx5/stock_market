@@ -15,6 +15,7 @@ export function forestCells(source:THREE.InstancedMesh,maxWidth=120,maxCount=128
   const mesh=new THREE.InstancedMesh(source.geometry,source.material,list.length),color=new THREE.Color();
   list.forEach((r,i)=>{source.getMatrixAt(r.i,matrix);mesh.setMatrixAt(i,matrix);if(source.instanceColor){source.getColorAt(r.i,color);mesh.setColorAt(i,color);}});
   mesh.name=source.name;mesh.castShadow=source.castShadow;mesh.receiveShadow=source.receiveShadow;mesh.computeBoundingBox();mesh.computeBoundingSphere();
+  mesh.userData.staticShadowInstances=source.userData.staticShadowInstances;
   if(levels){const box=new THREE.Box3(),part=new THREE.Box3();for(const g of levels){if(!g.boundingBox)g.computeBoundingBox();for(let i=0;i<mesh.count;i++){mesh.getMatrixAt(i,matrix);box.union(part.copy(g.boundingBox!).applyMatrix4(matrix));}}mesh.boundingBox=box;mesh.boundingSphere=box.getBoundingSphere(new THREE.Sphere());mesh.userData.forestLod=levels;mesh.userData.forestLevel=levels.indexOf(mesh.geometry);}
   mesh.boundingSphere!.radius+=1e-4+mesh.boundingSphere!.radius*1e-6;return mesh;
  });

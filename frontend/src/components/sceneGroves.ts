@@ -139,6 +139,7 @@ export async function groveForest(patches:NonNullable<Planting['groves']>,terrai
  try{
  const{crownMat,barkMat}=bank;
  const stems=new THREE.InstancedMesh(bank.bark,barkMat,roots.length);stems.name='woodland trunks';let stemCursor=0,instanceBytes=0,minExposedTrunk=Infinity,minTreeHeight=Infinity,maxTreeHeight=0;
+ stems.userData.staticShadowInstances=true;
  ownedMeshes.add(stems);
  const instanceKernel=await prepareInstanceKernel(),stemBatch=instanceKernel?new InstanceBatch(roots.length,instanceKernel):null;
  if(stemBatch)temporaryBatches.push(stemBatch);
@@ -147,6 +148,7 @@ export async function groveForest(patches:NonNullable<Planting['groves']>,terrai
  for(let i=0;i<5;i++)for(let band=0;band<(bounded?3:2);band++){
   const list=lists[i][band];if(!list.length)continue;await checkpoint();
   const crowns=new THREE.InstancedMesh(bank.leaves[i][bounded?band:0],crownMat,list.length);crowns.name='woodland '+PARK_TREE_STYLES[i].species+' '+(band?'far'+band:'near')+' leaves';
+  crowns.userData.staticShadowInstances=true;
   ownedMeshes.add(crowns);
   const crownBatch=instanceKernel?new InstanceBatch(list.length,instanceKernel):null;
   if(crownBatch)temporaryBatches.push(crownBatch);
