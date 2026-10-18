@@ -1,7 +1,7 @@
 /** Admit builders after drawing, with bounded backoff so scenery cannot starve. */
 const waiting: { resolve: () => void; budget: number; since: number; urgent: boolean }[] = [];
 let scheduled = false;
-let lastForcedAdmission = -Infinity;
+let lastForcedAdmission = -Infinity, lastUrgentForced = -Infinity;
 let sceneStamp=-Infinity,sceneStartedAt=-Infinity;
 /** RAF timestamps name a display tick, not the instant JavaScript began it.
  * Share the first visible view's actual start across views on the same tick. */
@@ -35,15 +35,16 @@ function schedule(frameAt?: number) {
     // (urgent work — the roads, paint and traffic of the place the view stands on — goes before
     // the rest: behind the drone's tiles, all FIFO, the first area's lane paint waited ~50 s for its
     // ~0.3 s of work, its cars standing still till then)
+    // Under load the urgent head is let in every other frame (33 ms), the rest once per 100 ms.
     const urgentAt=waiting.findIndex(item=>item.urgent),head=urgentAt>=0?waiting[urgentAt]:first;
-    const forced=head&&elapsed>=head.budget&&now-head.since>=100&&now-lastForcedAdmission>=100;
+    const forced=head&&elapsed>=head.budget&&(urgentAt>=0?now-head.since>=33&&now-lastUrgentForced>=33:now-head.since>=100&&now-lastForcedAdmission>=100);
     // A 6ms continuation must not hold up a 9ms continuation while 7ms of the
     // actual frame has been used. Preserve FIFO among eligible work, and still
     // admit an overdue head once per 100ms under continuous pressure.
     const eligibleUrgent=waiting.findIndex(item=>item.urgent&&elapsed<item.budget);
     const index=forced?(urgentAt>=0?urgentAt:0):eligibleUrgent>=0?eligibleUrgent:waiting.findIndex(item=>elapsed<item.budget);
     if(index>=0){
-      if(forced)lastForcedAdmission=now;
+      if(forced){if(urgentAt>=0)lastUrgentForced=now;else lastForcedAdmission=now;}
       waiting.splice(index,1)[0].resolve();
     }
     // A continuation can finish well before this frame's spare time runs out.
