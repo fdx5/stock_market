@@ -1,10 +1,16 @@
 /** Self-contained factory: the same geometry rules can run in the scene and its
  * classic JSONP worker without duplicating road normals, clipping or lifts. */
 export function surfaceGeometryRules(){
+  // (the neighbours on each side that are another place: a line repeating a point — the survey's
+  // centre lines often do — had a zero direction on one side there, its miter three times the
+  // width or none at all, and its paint tapered to a point or flared between those vertices)
   const miters=(pts:number[][])=>pts.map((p,i)=>{
-    const a=pts[Math.max(0,i-1)],b=pts[Math.min(pts.length-1,i+1)];
-    let ax=p[0]-a[0],ay=p[1]-a[1],bx=b[0]-p[0],by=b[1]-p[1];
-    if(i===0){ax=bx;ay=by;}if(i===pts.length-1){bx=ax;by=ay;}
+    let j=i-1;while(j>=0&&Math.abs(pts[j][0]-p[0])+Math.abs(pts[j][1]-p[1])<1e-3)j--;
+    let m=i+1;while(m<pts.length&&Math.abs(pts[m][0]-p[0])+Math.abs(pts[m][1]-p[1])<1e-3)m++;
+    if(j<0&&m>=pts.length)return [0,1];
+    const a=j>=0?pts[j]:null,b=m<pts.length?pts[m]:null;
+    let ax=a?p[0]-a[0]:0,ay=a?p[1]-a[1]:0,bx=b?b[0]-p[0]:0,by=b?b[1]-p[1]:0;
+    if(!a){ax=bx;ay=by;}if(!b){bx=ax;by=ay;}
     const al=Math.hypot(ax,ay)||1,bl=Math.hypot(bx,by)||1;
     let nx=-ay/al-by/bl,ny=ax/al+bx/bl,l=Math.hypot(nx,ny);if(l<1e-5){nx=-by/bl;ny=bx/bl;l=1;}
     nx/=l;ny/=l;const scale=Math.min(3,1/Math.max(1/3,nx*(-by/bl)+ny*(bx/bl)));

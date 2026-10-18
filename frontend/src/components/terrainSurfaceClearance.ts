@@ -62,9 +62,20 @@ export function terrainSurfaceClearance(){
     }
    }
    if(!unsafe){for(let i=0;i<3;i++){const old=originals.get(ids[i]);if(old!==undefined)indices.push(old);else{originals.set(ids[i],positions.length/3);emit(triangle[i],heights[i],i===0?[1,0,0]:i===1?[0,1,0]:[0,0,1],ids);}}}
-   else {changed=true;for(const {polygon,surface,h}of parts)for(let i=1;i+1<polygon.length;i++){
-    const t=[polygon[0],polygon[i],polygon[i+1]];if(Math.abs(cross(t[0],t[1],t[2]))<1e-9)continue;
-    for(const q of t){const w=weights(triangle,q),v=weights(surface,q);emit(q,Math.max(w.reduce((s,w,i)=>s+w*heights[i],0),v.reduce((s,w,i)=>s+w*h[i],0)+lift),w,ids);}
+   else {changed=true;for(const {polygon,surface,h}of parts){
+    // Each part is cut where its own plane meets the lifted ground's: on either side one of the
+    // two is the higher everywhere, so each piece is exactly that plane. (The higher of the two
+    // taken at a large part's corners only, and drawn straight between, stood up to decimetres
+    // over both where they crossed — the asphalt over its own paint, a dash showing as a wedge.)
+    const own=(q:P)=>weights(triangle,q).reduce((s,w,i)=>s+w*heights[i],0),ground=(q:P)=>weights(surface,q).reduce((s,w,i)=>s+w*h[i],0)+lift;
+    const d=polygon.map(q=>own(q)-ground(q)),above:P[]=[],below:P[]=[];
+    for(let i=0;i<polygon.length;i++){const j=(i+1)%polygon.length,dp=d[i],dq=d[j];
+     if(dp>=0)above.push(polygon[i]);if(dp<=0)below.push(polygon[i]);
+     if((dp>0&&dq<0)||(dp<0&&dq>0)){const t=dp/(dp-dq),m:P=[polygon[i][0]+(polygon[j][0]-polygon[i][0])*t,polygon[i][1]+(polygon[j][1]-polygon[i][1])*t];above.push(m);below.push(m);}}
+    for(const piece of [above,below])for(let i=1;i+1<piece.length;i++){
+     const t=[piece[0],piece[i],piece[i+1]];if(Math.abs(cross(t[0],t[1],t[2]))<1e-9)continue;
+     for(const q of t)emit(q,Math.max(own(q),ground(q)),weights(triangle,q),ids);
+    }
    }}
    // Road inputs are confined to the tile plus its margin. Preserve an input
    // outside a supplied grid rather than treating an absent overlap as a hole.
@@ -94,14 +105,20 @@ export function terrainSurfaceClearance(){
   };
   return{query,height,trace};
  };
+ // Each piece of paint (its triangles joined by shared corners: a dash's quad) is raised as one, by
+ // the most any of its triangles needs. (Raised triangle by triangle, a corner two triangles share
+ // went up twice: a 15 cm line stood up to 25 cm on one edge, a fin seen from the side as a wedge.)
  const raisePaint=(paint:Surface|null,surface:Surface,lookup:ReturnType<typeof index>,lift=.015)=>{
   if(!paint)return;
-  const p=paint.position,a=surface.position;
+  const p=paint.position,a=surface.position,parent=new Int32Array(p.length/3).map((_,i)=>i),need=new Float32Array(p.length/3);
+  const root=(i:number):number=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
+  for(let k=0;k<paint.index.length;k+=3){const r0=root(paint.index[k]);for(let j=1;j<3;j++){const r=root(paint.index[k+j]);if(r!==r0)parent[r]=r0;}}
   for(let k=0;k<paint.index.length;k+=3){const ids=Array.from(paint.index.subarray(k,k+3)),triangle:P[]=ids.map(id=>[p[id*3],p[id*3+1]]);if(Math.abs(cross(triangle[0],triangle[1],triangle[2]))<1e-9)continue;let raise=0;
    for(const n of lookup.query(triangle)){const ai=Array.from(surface.index.subarray(n,n+3));if(paint.level&&surface.level&&(paint.level[ids[0]]===0)!==(surface.level[ai[0]]===0))continue;const t:P[]=ai.map(id=>[a[id*3],a[id*3+1]]);if(Math.abs(cross(t[0],t[1],t[2]))<1e-9)continue;
     for(const q of clip(triangle,t)){const w=weights(triangle,q),v=weights(t,q),h=w.reduce((s,w,i)=>s+w*p[ids[i]*3+2],0),road=v.reduce((s,w,i)=>s+w*a[ai[i]*3+2],0);if(paint.level?.[ids[0]]&&Math.abs(road-h)>2)continue;raise=Math.max(raise,road+lift-h);}
-   }if(raise>0)for(const id of ids)p[id*3+2]+=raise;
+   }if(raise>0){const r=root(ids[0]);need[r]=Math.max(need[r],raise);}
   }
+  for(let i=0;i<need.length;i++){const r=need[root(i)];if(r>0)p[i*3+2]+=r;}
  };
  return{drape,index,raisePaint,clipBox};
 }

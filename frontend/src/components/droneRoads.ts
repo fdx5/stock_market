@@ -237,6 +237,8 @@ function roadWorkerMain() {
       const pts: number[][] = [];
       for (let i = 1; i < r.line.length; i++) {
         const a = r.line[i - 1], b = r.line[i], L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / rules.step));
+        // (a point the survey repeats: once — see surfaceGeometry.miters)
+        if (L < 0.01 && pts.length) continue;
         for (let k = i === 1 ? 0 : 1; k <= n; k++) pts.push([a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n]);
       }
       const owners=pts.map((p,k)=>{const q=pts[Math.min(pts.length-1,k+1)],o=pts[Math.max(0,k-1)];return ownerAt(p[0],p[1],q[0]-o[0],q[1]-o[1]);});
@@ -511,13 +513,16 @@ function roadWorkerMain() {
         if(r.kind.some(k=>k!==0)){fitted.push(r);continue;}
         for(const fixed of constrain([{line:r.line as [number,number][],width:r.width,lanes:r.lanes,oneway:r.oneway}],e.data.footprints)){
           if(fixed.line===r.line){fitted.push({...r,width:fixed.width});continue;}
-          const heights:number[]=[],normals:number[][]=[];
+          const heights:number[]=[];
           let k=1;
           for(const p of fixed.line){
             while(k<r.line.length-1&&rules.along(r.line,p[0],p[1]).along>rules.along(r.line,r.line[k][0],r.line[k][1]).along+1e-6)k++;
             const a=r.line[k-1],b=r.line[k],dx=b[0]-a[0],dy=b[1]-a[1],t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/(dx*dx+dy*dy||1)));
-            heights.push(r.z[k-1]+(r.z[k]-r.z[k-1])*t);normals.push(r.normals[k-1].map((n,i)=>n+(r.normals[k][i]-n)*t));
+            heights.push(r.z[k-1]+(r.z[k]-r.z[k-1])*t);
           }
+          // (its own line's miters: the original's, carried over to a line moved off a building,
+          // were no longer square to it — its paint narrowed to a point and kinked)
+          const normals=rules.miters(fixed.line as number[][]);
           fitted.push({...r,width:fixed.width,line:fixed.line,z:heights,normals,kind:fixed.line.map(()=>0),owners:fixed.line.map(()=>null),jn:fixed.line.map(()=>false)});
         }
       }
@@ -592,6 +597,25 @@ function roadWorkerMain() {
     const WHITE = [0.95, 0.95, 0.93], YELLOW = [0.98, 0.74, 0.1];
     const normalsByLine=new Map(pieces.map(r=>[r.line,r.normals]));
     const normalAt = (l:number[][],k:number)=>normalsByLine.get(l)![k];
+    // Where paint may go: not inside the carriageway of a road crossing at its level (each road's
+    // lines stop at the other's edge) — a road of two lanes or more, or half this one's width: an
+    // alley meeting a boulevard leaves its lines whole. Roads running side by side are not crossings
+    // (the survey gives a divided road's two centre lines the whole road's width each). (The
+    // junctions were found by vertex: a whole 3 m step and more of the centre line went at each.)
+    const paintFree = (self: Piece, x: number, y: number, z: number, dx: number, dy: number) => {
+      for (const [qi, qk] of segAt.get(Math.floor(x / 15) + "," + Math.floor(y / 15)) ?? []) {
+        const q = pieces[qi];
+        if (q === self || q.id === self.id || q.kind[qk] < 0 || q.kind[qk - 1] < 0) continue;
+        const a = q.line[qk - 1], b = q.line[qk], ex = b[0] - a[0], ey = b[1] - a[1], l2 = ex * ex + ey * ey;
+        if (!l2) continue;
+        const t = Math.max(0, Math.min(1, ((x - a[0]) * ex + (y - a[1]) * ey) / l2));
+        if (Math.hypot(a[0] + ex * t - x, a[1] + ey * t - y) > q.width / 2) continue;
+        if (Math.abs(q.z[qk - 1] + (q.z[qk] - q.z[qk - 1]) * t - z) > 1.5) continue;
+        if (q.width < 8 && q.width < self.width / 2) continue;
+        if (Math.abs(dx * ex + dy * ey) / ((Math.hypot(dx, dy) || 1) * Math.sqrt(l2)) <= 0.9) return false;
+      }
+      return true;
+    };
     // A band along a piece from s0 to s1 m, offset `off` to the left, `w` wide, `lift` over the road.
     const band = (r: Piece, off: number, w: number, lift: number, out: { p: number[]; n: number[]; i: number[]; c?: number[];level?:number[] }, col: number[] | null, dash: number, skip: (k: number) => boolean) => {
       const l = r.line, cum = [0];
@@ -601,24 +625,60 @@ function roadWorkerMain() {
         let k = 0; while (k < l.length - 2 && cum[k + 1] < s) k++;
         const f = Math.min(1, Math.max(0, (s - cum[k]) / ((cum[k + 1] - cum[k]) || 1)));
         const a=r.normals[k],b=r.normals[k+1];
-        return { x: l[k][0] + (l[k + 1][0] - l[k][0]) * f, y: l[k][1] + (l[k + 1][1] - l[k][1]) * f, z: r.z[k] + (r.z[k + 1] - r.z[k]) * f, k,nx:a[0]+(b[0]-a[0])*f,ny:a[1]+(b[1]-a[1])*f };
+        return { x: l[k][0] + (l[k + 1][0] - l[k][0]) * f, y: l[k][1] + (l[k + 1][1] - l[k][1]) * f, z: r.z[k] + (r.z[k + 1] - r.z[k]) * f, k,nx:a[0]+(b[0]-a[0])*f,ny:a[1]+(b[1]-a[1])*f,s };
+      };
+      // The slab's height at a point of the cross-section (`offset` to the left of the line).
+      const heightAt = (P: ReturnType<typeof at>, offset: number) => {
+        const px=P.x+P.nx*offset,py=P.y+P.ny*offset;
+        // Both cross-sections own the slab height, including a structure transition.
+        const next=Math.min(r.kind.length-1,P.k+1),owner=r.owners[P.k];
+        // (a road at grade level across — its centre line's height, smooth along it: never the
+        // relief's every post under its edges)
+        return r.kind[P.k]===0&&r.kind[next]===0?P.z:owner&&r.kind[P.k]>0&&r.kind[next]>0&&r.owners[next]?.id===owner.id?ownerHeight(owner,px,py)+Math.max(0,P.z-ownerHeight(owner,P.x,P.y)):P.z;
+      };
+      // The asphalt's own height under a point of the paint (s along, `offset` across): on the very
+      // triangles band(r, 0, r.width, …, S) lays — the paint asked the deck's profile at its own
+      // corners, a few centimetres off the slab's 3 m samples, and stood twisted through it (a
+      // dash half under the asphalt: a white wedge).
+      const pavedAt = (sAt: number, offset: number) => {
+        let q = 0; while (q < cum.length - 2 && cum[q + 1] < sAt) q++;
+        const A = at(cum[q]), B = at(cum[q + 1]), W = r.width, n = Math.max(1, Math.ceil(W / rules.step));
+        const u0 = ((offset + W / 2) / W) * n, i = Math.max(0, Math.min(n - 1, Math.floor(u0))), u = Math.max(0, Math.min(1, u0 - i));
+        const v = Math.max(0, Math.min(1, (sAt - cum[q]) / ((cum[q + 1] - cum[q]) || 1)));
+        const h0 = heightAt(A, -W / 2 + (W * i) / n), h1 = heightAt(A, -W / 2 + (W * (i + 1)) / n), h2 = heightAt(B, -W / 2 + (W * i) / n), h3 = heightAt(B, -W / 2 + (W * (i + 1)) / n);
+        return u <= v ? h0 + (h3 - h2) * u + (h2 - h0) * v : h0 + (h1 - h0) * u + (h3 - h1) * v;
       };
       const range = (s0: number, s1: number) => {
         const ss = [s0, ...cum.filter(c => c > s0 && c < s1), s1];
         for (let q = 0; q < ss.length - 1; q++) {
-          const A = at(ss[q]), B = at(ss[q + 1]);
-          if (skip(A.k)) continue;
+          const A0 = at(ss[q]);
+          if (skip(A0.k)) continue;
+          // (paint: only where it is not on another road's carriageway — paintFree — in steps of
+          // at most 1.5 m, each run of free steps one quad)
+          if (col) {
+            const len = ss[q + 1] - ss[q], n = Math.max(1, Math.ceil(len / 1.5)), k = A0.k;
+            const dx = l[k + 1][0] - l[k][0], dy = l[k + 1][1] - l[k][1];
+            let from = -1;
+            for (let i = 0; i <= n; i++) {
+              let ok = false;
+              if (i < n) { const P = at(ss[q] + (len * (i + 0.5)) / n); ok = paintFree(r, P.x + P.nx * off, P.y + P.ny * off, P.z, dx, dy); }
+              if (ok && from < 0) from = i;
+              if (!ok && from >= 0) { quadAt(at(ss[q] + (len * from) / n), at(ss[q] + (len * i) / n)); from = -1; }
+            }
+            continue;
+          }
+          quadAt(A0, at(ss[q + 1]));
+        }
+      };
+      const quadAt = (A: ReturnType<typeof at>, B: ReturnType<typeof at>) => {
+        {
           const across=out===S?Math.max(1,Math.ceil(w/rules.step)):1;
           for(let strip=0;strip<across;strip++){
           const base = out.p.length / 3;
           for (const P of [A, B]) {
             for(const side of [strip,strip+1]){
               const offset=off-w/2+w*side/across,px=P.x+P.nx*offset,py=P.y+P.ny*offset;
-              // Both cross-sections own the slab height, including a structure transition.
-              const next=Math.min(r.kind.length-1,P.k+1),owner=r.owners[P.k];
-              // (a road at grade level across — its centre line's height, smooth along it: never the
-              // relief's every post under its edges)
-              const h=r.kind[P.k]===0&&r.kind[next]===0?P.z:owner&&r.kind[P.k]>0&&r.kind[next]>0&&r.owners[next]?.id===owner.id?ownerHeight(owner,px,py)+Math.max(0,P.z-ownerHeight(owner,P.x,P.y)):P.z;
+              const h=col?pavedAt(P.s,offset):heightAt(P,offset);
               out.p.push(px,py,h+lift);
               out.level?.push(r.kind[P.k]>0?1:0);
               out.n.push(0, 0, 1);
@@ -631,7 +691,13 @@ function roadWorkerMain() {
         }
       };
       if (!dash) { if (total > 0.05) range(0, total); return; }
-      for (let s0 = 2; s0 < total - 0.5; s0 += dash) range(s0, Math.min(total, s0 + dash * (dash > 10 ? 0.3 : 0.375)));
+      // (dashes placed along the whole road, from its own start: a road cut by the tiles, or
+      // split where it changes, keeps one rhythm across the cuts)
+      const from = r.id >= 0 && roads[r.id] ? rules.along(roads[r.id].line as unknown as number[][], l[0][0], l[0][1]).along : 0;
+      for (let s0 = 2 + dash * Math.ceil((from - 2) / dash) - from; s0 < total - 0.5; s0 += dash) {
+        const e0 = Math.min(total, s0 + dash * (dash > 10 ? 0.3 : 0.375));
+        if (e0 > Math.max(0, s0) + 0.05) range(Math.max(0, s0), e0);
+      }
     };
     // A box (a pier, a slab edge) between two points of the deck, for the structures.
     const quad = (a: number[], b: number[], c: number[], d: number[]) => {
@@ -667,7 +733,8 @@ function roadWorkerMain() {
       const under = (k: number) => r.kind[k] < 0 || r.kind[Math.min(r.kind.length - 1, k + 1)] < 0 || r.kind[k]===3 || r.kind[Math.min(r.kind.length-1,k+1)]===3;
       const k1 = (k: number) => Math.min(r.kind.length - 1, k + 1);
       // (no lane lines through a junction)
-      const paintSkip = (k: number) => under(k) || r.jn[k] || r.jn[k1(k)];
+      // (and nothing on another road's carriageway: paintFree)
+      const paintSkip = (k: number) => under(k);
       band(r, 0, w, rules.surfaceLift, S, null, 0, under);
       const twoWay = lanesN >= 2 && !r.oneway;
       const perDir = twoWay ? Math.max(1, Math.floor(lanesN / 2)) : lanesN;
