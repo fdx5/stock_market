@@ -711,7 +711,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
 ` +
           `gpu ${d.gpuMs ?? "-"}ms  ratio ${d.pixelRatio ?? "-"} x dpr ${devicePixelRatio}  quality ${d.quality ?? "-"}  ${d.renderer ?? ""}
 ` +
-          `draws ${d.draws ?? "-"}  ${innerWidth}x${innerHeight}  ${d.trial ?? ""}`;
+          `cpu render ${d.renderMs ?? "-"}ms (max ${d.renderMaxMs ?? "-"})  tick ${d.tickMs ?? "-"}  drone ${d.droneMs ?? "-"}
+` +
+          `draws ${d.draws ?? "-"}  ${innerWidth}x${innerHeight}  mem ${(performance as Performance & { memory?: { usedJSHeapSize: number } }).memory ? Math.round((performance as Performance & { memory: { usedJSHeapSize: number } }).memory.usedJSHeapSize / 1e6) + "MB" : "-"}  ${d.trial ?? ""}`;
         n = 0; slow = 0; worst = 0; at = t;
       }
       raf = requestAnimationFrame(tick);
