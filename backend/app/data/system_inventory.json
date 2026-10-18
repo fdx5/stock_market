@@ -69,7 +69,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 667,
+  "source_files": 674,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -212,6 +212,12 @@
       "file": "frontend/src/components/ringBuildings.ts",
       "hosts": [
         "api.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/components/sceneCommercialPlaces.ts",
+      "hosts": [
+        "www.openstreetmap.org"
       ]
     },
     {

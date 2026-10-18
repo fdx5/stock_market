@@ -14,6 +14,7 @@ import { droneBuildingPhotos } from './droneBuildingPhotos';
 const KIND: Record<Sign["kind"], [string, string]> = {
   gov: ["🏛", "공공기관"], major: ["🏢", "주요 건물"], apt: ["🏘", "아파트 단지"], hospital: ["✚", "병원"], school: ["🎓", "학교"],
   station: ["🚉", "전철역"],
+  commercial: ['🛍', '대형 상업시설'], market: ['🏮', '시장'], district: ['📍', '지역 명소·특색 거리'],
   bridge: ["🌉", "교량"],
   cctv: ["📹", "CCTV"],
   subway: ["🚇", "지하철역"], train: ["🚆", "열차"], er: ["🚑", "응급실"], bike: ["🚲", "따릉이"], parking: ["🅿️", "공영주차장"], service: ["🏛", "공공시설"], exit: ["🚇", "지하철 출입구"],
@@ -124,7 +125,7 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
   ] as [string, string | null | undefined][]).filter(([, v]) => v);
   const photos = droneBuildingPhotos(card).filter(p => !broken.has(p.thumb));
   const hero = photos[Math.min(pick, photos.length - 1)];
-  const address = head.address ?? card?.place?.address ?? parcel?.address ?? null;
+  const address = head.address ?? info.place?.address ?? card?.place?.address ?? parcel?.address ?? null;
   const q = encodeURIComponent(`${card?.area ?? ""} ${sign.name}`.trim());
   const links: [string, string][] = [
     ["카카오맵", `https://map.kakao.com/link/map/${encodeURIComponent(sign.name)},${at.lat.toFixed(6)},${at.lon.toFixed(6)}`],
@@ -133,6 +134,8 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
     ["이미지 더보기", `https://search.daum.net/search?w=img&q=${q}`],
   ];
   if (card?.place?.url) links.unshift(["장소 상세", card.place.url]);
+  if(info.place?.website&&/^https?:\/\//i.test(info.place.website))links.unshift(['시설 홈페이지',info.place.website]);
+  if(info.place?.sourceUrl&&/^https?:\/\//i.test(info.place.sourceUrl))links.push(['지도 자료',info.place.sourceUrl]);
   // Below the view's own header, whatever its height (a phone's drone page: search and share
   // buttons, ~270 px): at a fixed top the card's ✕ lay under it, and the card could not be closed.
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -239,13 +242,17 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
           </section>
         )}
 
-        {card?.place && (
+        {(card?.place||info.place) && (
           <section>
             <h4>장소 정보</h4>
             <dl className="re-drone-card-facts">
-              {card.place.category && <div><dt>분류</dt><dd>{card.place.category}</dd></div>}
-              {card.place.phone && <div><dt>전화</dt><dd><a href={`tel:${card.place.phone}`}>{card.place.phone}</a></dd></div>}
+              {card?.place?.category && <div><dt>분류</dt><dd>{card.place.category}</dd></div>}
+              {info.place?.category&&!card?.place?.category&&<div><dt>분류</dt><dd>{info.place.category}</dd></div>}
+              {info.place?.brand&&<div><dt>브랜드</dt><dd>{info.place.brand}</dd></div>}
+              {(card?.place?.phone||info.place?.phone)&&<div><dt>전화</dt><dd>{card?.place?.phone||info.place?.phone}</dd></div>}
+              {info.place?.hours&&<div><dt>등록 영업시간</dt><dd>{info.place.hours}</dd></div>}
             </dl>
+            {info.place&&<p className="re-drone-card-src">지도 출처: © OpenStreetMap contributors · ODbL{info.place.checked?` · 자료 확인일 ${info.place.checked}`:''}{info.place.hours?' · 현재 영업 여부는 시설 홈페이지에서 확인해 주세요.':''}</p>}
           </section>
         )}
 

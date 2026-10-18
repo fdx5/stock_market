@@ -13,6 +13,9 @@ import type { DroneLabel, DroneLabelInfo } from "./ringBuildings";
 const STYLE: Record<DroneLabel["kind"], { bg: string; fg: string; edge: string; icon: string; rank: number; reach: number }> = {
   gov: { bg: "rgba(18,74,140,0.92)", fg: "#ffffff", edge: "#7fb6ff", icon: "🏛", rank: 5, reach: 2600 },
   major: { bg: "rgba(24,28,36,0.88)", fg: "#ffffff", edge: "#c9d3df", icon: "🏢", rank: 4, reach: 2600 },
+  commercial: { bg: 'rgba(78,43,12,0.93)', fg: '#fff5de', edge: '#ffc66e', icon: '🛍', rank: 5, reach: 2400 },
+  market: { bg: 'rgba(120,44,20,0.93)', fg: '#fff5de', edge: '#ffad76', icon: '🏮', rank: 5, reach: 2200 },
+  district: { bg: 'rgba(74,32,88,0.93)', fg: '#ffffff', edge: '#dfadff', icon: '📍', rank: 5, reach: 2400 },
   apt: { bg: "rgba(10,34,58,0.86)", fg: "#ffe7a8", edge: "#ffcf5c", icon: "", rank: 3, reach: 1900 },
   hospital: { bg: "rgba(150,24,36,0.9)", fg: "#ffffff", edge: "#ff9aa5", icon: "✚", rank: 3, reach: 1700 },
   school: { bg: "rgba(20,96,58,0.88)", fg: "#ffffff", edge: "#8fe0b0", icon: "🎓", rank: 2, reach: 1400 },
@@ -80,6 +83,18 @@ export class DroneSigns {
       else { const sign = { key: k, name: l.name, kind: l.kind, x: l.x, y: l.y, top: l.top, n: l.n, w: 0, info: l.info, camera:l.camera, live: l.live, tint: l.tint }, list = groups.get(k); if (list) list.push(sign); else groups.set(k, [sign]); }
     }
     this.merged = [...groups.values()].flat();
+    // A provider building name and a mapped facility describe the same sign.
+    // Keep the mapped place's stable identity and business info, the register's
+    // PNU/height, and never merge two separate mapped branches together.
+    const hidden=new Set<Sign>(),normal=(s:string)=>s.replace(/[\s()（）]/g,'').toLowerCase();
+    for(const p of this.merged.filter(s=>s.info?.place))for(const b of this.merged){
+      if(b.info?.place||hidden.has(b)||p.kind!==b.kind||Math.hypot(p.x-b.x,p.y-b.y)>160)continue;
+      const a=normal(p.name),n=normal(b.name);
+      const brand=(s:string)=>s.match(/스타필드|신세계|홈플러스|코스트코|롯데마트|이마트|트레이더스/)?.[0];
+      if(a!==n&&!(Math.min(a.length,n.length)>=4&&(a.includes(n)||n.includes(a)))&&!(brand(a)&&brand(a)===brand(n)))continue;
+      p.top=Math.max(p.top,b.top);p.info={...b.info,...p.info,pnu:b.info?.pnu??p.info?.pnu};hidden.add(b);
+    }
+    this.merged=this.merged.filter(s=>!hidden.has(s));
     this.dirty = false;
   }
 

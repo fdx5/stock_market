@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import {DronePlaces,PlaceFootprints} from './sceneCommercialPlaces';
 import {observedRoofColour,type BuildingAppearance} from "./buildingAppearance";
 import {bridgeNameLabels} from './bridgeNames';
 import {droneDetailPriority,droneTilePriority} from "./droneLoadPriority";
@@ -218,6 +219,8 @@ export class DroneWorld {
   /** the tiles' woodland, pooled by cell (dronePlantPool) */
   private plantPool!: PlantPool;
   readonly landmarks: Landmarks;
+  private places:DronePlaces;
+  private placeFootprints=new PlaceFootprints();
   private readonly kx: number;
   private readonly ky = 110540;
   private readonly season = seasonGround(undefined, textureBudgetEnabled());
@@ -266,6 +269,11 @@ export class DroneWorld {
       onBridgePlaced: () => { for (const t of this.tiles.values()) if (t.state === 'placed' || t.state === 'ready') this.bridgeTraffic(t); },
     });
     this.root.add(this.landmarks.root);
+    this.placeFootprints.set('initial',[...o.data.buildings,...o.data.context].map(b=>b.rings[0]));
+    this.places=new DronePlaces({lat:o.data.center!.lat,lon:o.data.center!.lon,
+      groundAt:(x,y)=>this.groundAt(x,y),roofAt:(x,y)=>this.registeredRoofAt(x,y),
+      covered:r=>this.placeFootprints.covered(r),addWarm:o.addWarm,forget:o.forget,onLabels:o.onLabels});
+    this.root.add(this.places.root);
   }
 
   /** One millisecond continuations admitted after drawing, with a bounded
@@ -288,6 +296,9 @@ export class DroneWorld {
   }
   /** The highest roof over (x, y) — from the tile's collision grid — or -1e4 where none. */
   roofAt(x: number, y: number): number {
+    return Math.max(this.registeredRoofAt(x,y),this.places.roofAt(x,y));
+  }
+  private registeredRoofAt(x:number,y:number):number {
     const r = this.tileAt(x, y)?.roofs;
     if (!r) return -1e4;
     const i = Math.floor((x - r.x0) / r.cell), j = Math.floor((y - r.y0) / r.cell);
@@ -384,6 +395,7 @@ export class DroneWorld {
     if (!view || view === this.adoptedView || !view.ring.towers || !view.ring.spans || !view.ring.spanRings) return;
     for (const [k,t] of this.viewTiles) if(!t.near){t.stop.abort();this.clear(t);this.viewTiles.delete(k);}
     this.adoptedView = view;
+    this.placeFootprints.set('view',view.ring.footprints,()=>this.o.drawReady(view.group));
     const buckets = new Map<string, { i: number; j: number; towers: number[]; spans: number[]; rings: number[][][]; appearances:(BuildingAppearance|undefined)[]; sources: Map<number,number> }>();
     const towers = view.ring.towers, spans = view.ring.spans, rings = view.ring.spanRings;
     for (let k = 0; k < towers.length; k += TOWER) {
@@ -510,6 +522,7 @@ export class DroneWorld {
     this.adoptNearBuildings();
     if (!OFF.includes("sea") && !this.regionBusy && (!this.region || Math.hypot(x - this.region.x, y - this.region.y) > REGION_SEA * 0.5)) void this.regionSea(x, y);
     if (!OFF.includes("landmarks")) this.landmarks.update(x, y, alt);
+    this.places.update(x,y);
     // The bridges' whole links and decks ahead of the tiles that will need them (bridgeChains: kept
     // by cell for the page) — a tile's roads then find them waiting, not asked for in turn.
     if (!OFF.includes("roads") && this.base !== null && scheduleNow - this.chainsAt > 3000) {
@@ -818,6 +831,7 @@ export class DroneWorld {
       dlog("ring done");
       if (!ring) { fail(); return; }
       t.roofs = ring.roofs ?? null;
+      this.placeFootprints.set(t.key,ring.footprints,()=>!!t.buildingGroup&&this.o.drawReady(t.buildingGroup));
       t.towers = ring.towers ?? null;
       t.spans = ring.spans; t.spanRings = ring.spanRings;t.appearances=ring.appearances;
       this.o.onLabels?.(t.key, ring.labels ?? null);
@@ -1659,6 +1673,7 @@ export class DroneWorld {
     this.unplant(t);
     this.traffic.removeTile(t.key);
     this.o.onLabels?.(t.key, null);
+    this.placeFootprints.remove(t.key);
     this.o.onLabels?.('bridges:'+t.key, null);
     for (const g of [t.zup, t.yup]) if (g) this.root.remove(g);
     if (t.materials.length) this.o.forget?.(new Set(t.materials));
@@ -1683,6 +1698,8 @@ export class DroneWorld {
     this.coastJobs.dispose();
     this.terrainJobs.dispose();
     this.landmarks.dispose();
+    this.places.dispose();
+    this.placeFootprints.clear();
     this.plantPool.dispose();
     this.o.forget?.(new Set([this.plain, this.asphalt, this.paint, this.concrete, this.bore, this.trafficMat, this.paving, ...this.traffic.materials()]));
     this.plain.dispose(); this.asphalt.dispose(); this.paint.dispose(); this.concrete.dispose(); this.bore.dispose(); this.trafficMat.dispose(); this.paving.dispose();

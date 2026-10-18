@@ -3,6 +3,7 @@ import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
 import type { ContextStyle } from "./complexScene";
 import {buildingAppearanceProfile,type BuildingAppearance} from './buildingAppearance';
+import {namedBuildingKind} from './dronePlaceLabels';
 
 /* The neighbourhood out to 1 km, after the first frame. The view's own data reaches ~290 m round
  * the complex; past that, every registered building (국토교통부 GIS건물통합정보, as the near ones)
@@ -18,8 +19,10 @@ import {buildingAppearanceProfile,type BuildingAppearance} from './buildingAppea
 
 /** What the building register (VWorld GIS건물통합정보) says of a sign's largest building: its parcel
  * (PNU, for the 건축물대장 card), 사용승인일, floors, height and floor area. */
-export type DroneLabelInfo = { /** the building's centre (view frame, m) */ bx?: number; by?: number; pnu?: string; approved?: string; floors?: number; basements?: number; height?: number; area?: number; dong?: string };
-export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "school" | "hospital" | "station" | "bridge" | "cctv" | "subway" | "train" | "er" | "bike" | "parking" | "service" | "exit"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera;
+export type DroneLabelInfo = { /** the building's centre (view frame, m) */ bx?: number; by?: number; pnu?: string; approved?: string; floors?: number; basements?: number; height?: number; area?: number; dong?: string;
+  place?:{category:string;address?:string;brand?:string;phone?:string;hours?:string;website?:string;checked?:string;sourceUrl:string};
+};
+export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "commercial" | "market" | "district" | "school" | "hospital" | "station" | "bridge" | "cctv" | "subway" | "train" | "er" | "bike" | "parking" | "service" | "exit"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera;
   /** the live layers (droneLive.ts): what its panel shows, its own edge colour, and a key of its own (never merged with another of the name) */
   live?: import('./publicLive').LiveRef; tint?: string; key?: string };
 /** The styles in the order RingResult.towers names them. */
@@ -65,7 +68,7 @@ type RingJob = {
   heightCell?: number;
 };
 
-function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile) {
+function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile, classify:typeof namedBuildingKind) {
   // The page used to scan these same vertices again while constructing every
   // streamed style. Measure exact culling bounds in this existing worker.
   function sphereOf(position:Float32Array):[number,number,number,number]{
@@ -247,18 +250,10 @@ function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile) {
         floors: num(props.grnd_flr), basements: num(props.ugrnd_flr), height: num(props.height), area: num(props.totalarea),
         dong: String(props.dong_nm ?? "").trim() || undefined };
     };
-    const GOV = /(구청|시청|군청|도청|청사|주민센터|행정복지센터|동사무소|경찰서|지구대|파출소|소방서|안전센터|우체국|법원|검찰청|세무서|교육청|교육지원청|보건소|구의회|시의회|도서관|병무청|출입국|등기소)/;
-    const JUNK = /^(\d+|[가-힣]?동|.*주택|근생.*|다세대.*|연립.*|단독.*|상가|창고|화장실|관리동|경비실|주차장|기계실|부속.*|.*근린생활시설)$/;
     const sign = (props: any, cx: number, cy: number, top: number, floors: number, area: number, tall: number) => {
       const raw = String(props.bld_nm ?? "").trim().replace(/\s+/g, " ");
-      if (raw.length < 2 || JUNK.test(raw)) return;
       const use = String(props.usability ?? "");
-      let kind = "";
-      if (GOV.test(raw)) kind = "gov";
-      else if (use.startsWith("02") && floors >= 7) kind = "apt";
-      else if (use.startsWith("09") || /병원|의료원/.test(raw)) kind = floors >= 4 ? "hospital" : "";
-      else if (use.startsWith("10") && /(대학교|대학|고등학교|중학교|초등학교|학교)/.test(raw)) kind = "school";
-      else if (floors >= 20 || tall >= 60) kind = "major";
+      const kind = classify(raw,use,floors,tall);
       if (!kind) return;
       const name = kind === "apt" ? raw.replace(/\s*아파트$/, "") : raw;
       const k = kind + ":" + name;
@@ -438,7 +433,7 @@ export function ringBuildings(data: RealEstateBuildingsResponse, near: Float32Ar
     key: data.vworld_key!, domain: data.vworld_domain ?? "https://kospimap.com", data: "LT_C_BLDGINFO", geomFilter: box,
     size: "1000", page: String(i + 1), format: "json", callback: "ringCb",
   }));
-  const src = `(${ringWorkerMain.toString()})(${buildingAppearanceProfile.toString()})`;
+  const src = `(${ringWorkerMain.toString()})(${buildingAppearanceProfile.toString()},${namedBuildingKind.toString()})`;
 
   const job: RingJob = {
     urls, lat, lon, inner: opts.inner ?? 0, outer, near, seed: opts.seed, roads: new Float32Array(segs), clearedSite:data.cleared_site,
@@ -464,6 +459,6 @@ export function ringTile(lat: number, lon: number, key: string, domain: string |
     urls, lat, lon, inner: opts.inner, outer: Infinity, near: new Float32Array(0), seed: opts.seed, roads: new Float32Array(0),
     grid, floorM: opts.floorM, box, heightCell: opts.heightCell ?? 2,
   };
-  const src = `(${ringWorkerMain.toString()})(${buildingAppearanceProfile.toString()})`;
+  const src = `(${ringWorkerMain.toString()})(${buildingAppearanceProfile.toString()},${namedBuildingKind.toString()})`;
   return sceneWorkerFresh<RingResult>(ringWorkerUrl(src), () => new Worker(ringWorkerUrl(src)), job, opts.signal);
 }

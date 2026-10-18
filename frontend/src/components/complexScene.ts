@@ -364,7 +364,7 @@ export function landmarkLabel(b: { use: string | null; title?: string | null; na
   if (!title) return null;
   const use = b.use ?? "", code = /^\d{5}$/.test(use) ? use.slice(0, 2) : null;
   const PUBLIC = /(청|센터|주민|우체국|경찰|파출소|지구대|소방|세무서|법원|검찰|공단|공사|도서관|보건소|박물관|미술관|체육관|문화)/;
-  const MART = /(백화점|마트|아울렛|몰|쇼핑|시장)/;
+  const MART = /(백화점|마트|아울렛|아웃렛|몰|쇼핑|시장|스타필드|코스트코|홈플러스|트레이더스|먹자골목|부대찌개거리|특화거리|한옥마을|차이나타운)/;
   // (an apartment: named so, or 6 storeys and up — villas are 4, 5 over pilotis — and never
   // a 빌라 / 빌트 / 하우스 / 타운 by name)
   const villa = /(빌라|빌트|빌$|하우스|타운|주택|원룸)/.test(title);

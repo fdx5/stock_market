@@ -1,0 +1,67 @@
+[
+  {
+    "name": "uijeongbu",
+    "mobileSimulation": true,
+    "canvasBefore": [
+      1868,
+      1408
+    ],
+    "canvasAfter": [
+      1868,
+      1408
+    ],
+    "quality": "high",
+    "seconds": 12,
+    "fps": 58.385041435888894,
+    "minimumSliding1s": 51,
+    "p95ms": 21.799999997019768,
+    "p99ms": 34.400000005960464,
+    "maxms": 96.40000000596046,
+    "gpuMsEnd": 4.7221174445887435,
+    "signs": 12,
+    "fallbackParts": 10,
+    "cardVerified": true,
+    "visibleDistrict": [
+      "의정부부대찌개거리",
+      "중랑천 자전거길 출입로 (의정부 부대찌개거리 방면)"
+    ],
+    "applicationErrors": [],
+    "thirdPartyErrors": [
+      {
+        "message": "C",
+        "stack": "Error: C\n    at _.Ov (https://www.youtube.com/s/_/ytembeds/_/js/k=ytembeds.base.en_US.K_TKV4gF8aQ.2021.O/am=AAAAIIAx/d=1/excm=base,root/br=1/rs=AGKMywEatRuzq-kMRWkHs4tncnZUmQ5nfw/m=root,base:667:409)\n    at https://www.youtube.com/s/_/ytembeds/_/js/k=ytembeds.base.en_US.K_TKV4gF8aQ.2021.O/am=AAAAIIAx/d=1/excm=base,root/br=1/rs=AGKMywEatRuzq-kMRWkHs4tncnZUmQ5nfw/m=root,base:763:166\n    at AHa.d.onload (https://www.youtube.com/s/_/ytembeds/_/js/k=ytembeds.base.en_US.K_TKV4gF8aQ.2021.O/am=AAAAIIAx/d=1/excm=base,root/br=1/rs=AGKMywEatRuzq-kMRWkHs4tncnZUmQ5nfw/m=root,base:901:308)"
+      }
+    ]
+  },
+  {
+    "name": "starfield",
+    "mobileSimulation": false,
+    "canvasBefore": [
+      2400,
+      1350
+    ],
+    "canvasAfter": [
+      2400,
+      1350
+    ],
+    "quality": "high",
+    "seconds": 12,
+    "fps": 59.12866531001227,
+    "minimumSliding1s": 52,
+    "p95ms": 20.900000005960464,
+    "p99ms": 23.400000005960464,
+    "maxms": 31.100000008940697,
+    "gpuMsEnd": 5.147228347927818,
+    "signs": 15,
+    "fallbackParts": 0,
+    "cardVerified": true,
+    "visibleDistrict": [],
+    "applicationErrors": [],
+    "thirdPartyErrors": [
+      {
+        "message": "C",
+        "stack": "Error: C\n    at _.Ov (https://www.youtube.com/s/_/ytembeds/_/js/k=ytembeds.base.en_US.K_TKV4gF8aQ.2021.O/am=AAAAIIAx/d=1/excm=base,root/br=1/rs=AGKMywEatRuzq-kMRWkHs4tncnZUmQ5nfw/m=root,base:667:409)\n    at https://www.youtube.com/s/_/ytembeds/_/js/k=ytembeds.base.en_US.K_TKV4gF8aQ.2021.O/am=AAAAIIAx/d=1/excm=base,root/br=1/rs=AGKMywEatRuzq-kMRWkHs4tncnZUmQ5nfw/m=root,base:763:166\n    at AHa.d.onload (https://www.youtube.com/s/_/ytembeds/_/js/k=ytembeds.base.en_US.K_TKV4gF8aQ.2021.O/am=AAAAIIAx/d=1/excm=base,root/br=1/rs=AGKMywEatRuzq-kMRWkHs4tncnZUmQ5nfw/m=root,base:901:308)"
+      }
+    ]
+  }
+]

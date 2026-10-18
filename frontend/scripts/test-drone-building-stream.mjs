@@ -242,7 +242,7 @@ test('initial neighbourhood targets use the same tile queue and restore coarse g
   vm.runInNewContext(transformSync('class W {'+method('adoptViewBuildings')+method('clear')+'};globalThis.W=W;',{loader:'ts'}).code,scope);
   const geo=new THREE.BufferGeometry().setIndex([0,1,2,3,4,5]);
   const root=new THREE.Group(),view={roadGuard:{key:'initial-ring',roads:[rect(0,30,60,6)],buildings:[rect(0,0,20,20)]},ring:{towers:new Float32Array([10,10,30,0,0,3,0,1,400,400,10,30,0,3,3,0,0,400]),spans:new Float32Array([0,3,1,4,1,0,0,1,1,1]),spanRings:[rect(390,0,20,20),rect(0,0,20,20)]},group:new THREE.Group(),styles:{apt:geo}};
-  const w=new scope.W();Object.assign(w,{o:{viewBuildings:()=>view,addWarm:(p,g)=>p.add(g)},root,viewTiles:new Map(),unplant(){},traffic:{removeTile(){}}});
+  const w=new scope.W();Object.assign(w,{o:{viewBuildings:()=>view,addWarm:(p,g)=>p.add(g)},placeFootprints:{set(){},remove(){}},root,viewTiles:new Map(),unplant(){},traffic:{removeTile(){}}});
   w.adoptViewBuildings();w.adoptViewBuildings();assert.equal(w.viewTiles.size,2);
   const t=w.viewTiles.get('view:0,0');assert.equal(t.towers[7],0);assert.equal(t.spans[1],0);assert.deepEqual(t.spanRings[0],view.ring.spanRings[1]);
   assert.equal(t.nearRoadGuard,view.roadGuard);

@@ -12,9 +12,12 @@ const worker = parsed.statements.find(n => ts.isFunctionDeclaration(n) && n.name
 const appearanceSource=readFileSync(new URL('../src/components/buildingAppearance.ts',import.meta.url),'utf8');
 const ap=ts.createSourceFile('appearance.ts',appearanceSource,ts.ScriptTarget.Latest,true);
 const profile=ap.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='buildingAppearanceProfile').getText(ap).replace(/^export /,'');
+const kindSource=readFileSync(new URL('../src/components/dronePlaceLabels.ts',import.meta.url),'utf8');
+const kp=ts.createSourceFile('kind.ts',kindSource,ts.ScriptTarget.Latest,true);
+const kind=kp.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='namedBuildingKind').getText(kp).replace(/^export /,'');
 // Exercise the same string serialization after production name minification.
 const serialized={};
-vm.runInNewContext(transformSync(profile+'\n'+worker.getText(parsed)+";globalThis.workerCode='('+ringWorkerMain.toString()+')('+buildingAppearanceProfile.toString()+')';",{loader:'ts',minify:true}).code,serialized);
+vm.runInNewContext(transformSync(profile+'\n'+kind+'\n'+worker.getText(parsed)+";globalThis.workerCode='('+ringWorkerMain.toString()+')('+buildingAppearanceProfile.toString()+','+namedBuildingKind.toString()+')';",{loader:'ts',minify:true}).code,serialized);
 const workerCode=serialized.workerCode;
 function renderTile(seed, x, y) {
   let result;
@@ -42,7 +45,7 @@ test('three upstream failures never mark a missing drone tile as rendered',async
   const cls=ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='DroneWorld');
   const method=cls.members.find(n=>ts.isMethodDeclaration(n)&&n.name.getText(ast)==='load');
   const code=transformSync('class Harness{'+method.getText(ast)+'};module.exports=Harness;',{loader:'ts',format:'cjs'}).code;
-  const module={exports:{}};vm.runInNewContext(code,{module,performance,AbortController,console});
+  const module={exports:{}};vm.runInNewContext(code,{module,performance,AbortController,console,DTRACE:false});
   const h=new module.exports();Object.assign(h,{o:{data:{},hq:true},loading:0,disposed:false,tileGrid:async()=>null,clear:()=>{}});
   const tile={state:'queued',tries:0,readyAt:0};
   for(let n=0;n<4;n++){await h.load(tile);assert.equal(tile.state,'failed');assert.ok(tile.retryAt>performance.now());assert.equal(tile.readyAt,0);assert.equal(h.loading,0)}

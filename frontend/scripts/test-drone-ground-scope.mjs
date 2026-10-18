@@ -24,7 +24,7 @@ const fresh=(Class,cut)=>{
  const material=new THREE.MeshBasicMaterial(),ground=new THREE.Mesh(geometry,material);ground.rotation.x=-Math.PI/2;scene.add(ground);
  Object.assign(s,{p:{ground,scene,extent:{farHalf:680},hq:true,setSky(){}},cutStop:new AbortController(),ended:false,
   coastJobs:{cut:cut??(async(g,b,m,inside)=>seaOutsideBox(g,b,m,inside)),dispose(){}},
-  seaStop:new AbortController(),restoreView(){},restoreWater(){},flight:{setAutopilot(){},setAutoRotate(){}},audio:{stop(){}},world:{dispose(){}},model:{materials:()=>[],dispose(){}},trafficFilters:new Map()});
+  seaStop:new AbortController(),restoreView(){},restoreWater(){},flight:{setAutopilot(){},setAutoRotate(){}},audio:{stop(){}},cctv:{materials:()=>[],dispose(){}},live:{materials:()=>[],dispose(){}},world:{dispose(){}},model:{materials:()=>[],dispose(){}},trafficFilters:new Map()});
  return {s,scene,ground,original:geometry};
 };
 
