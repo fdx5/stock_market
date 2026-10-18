@@ -225,13 +225,9 @@ fn skyBase(ray: vec3f) -> vec3f {
   let zenith = mix(vec3f(0.08, 0.27, 0.72), vec3f(0.24, 0.2, 0.34), dusk);
   // (the drone: the sky's horizon in the ground's haze colour, where the faded ground meets it)
   let horizon = mix(mix(vec3f(0.55, 0.71, 0.9), frame.horizonColor, dusk * 0.85), frame.horizonColor, frame.cameraWaterHeight * 0.75 * (1.0 - smoothstep(0.0, 0.25, ray.y)));
-  var daySky = vec3f(0.0); var nightSky = vec3f(0.0);
-  if (day != 0.0) { daySky = mix(horizon, zenith, pow(e, 0.55)); }
-  if (day != 1.0) { nightSky = mix(frame.horizonColor * 0.45, vec3f(0.006, 0.013, 0.04), pow(e, 0.35)); }
-  let clear = mix(nightSky, daySky, day);
-  let cover = frame.debug.x * smoothstep(-0.02, 0.06, ray.y) * 0.95;
-  if (cover == 0.0) { return clear; }
-  return mix(clear, deckColor(ray), cover);
+  let daySky = mix(horizon, zenith, pow(e, 0.55));
+  let nightSky = mix(frame.horizonColor * 0.45, vec3f(0.006, 0.013, 0.04), pow(e, 0.35));
+  return mix(mix(nightSky, daySky, day), deckColor(ray), frame.debug.x * smoothstep(-0.02, 0.06, ray.y) * 0.95);
 }
 // The sky with its clouds, without the sun disc (also what the water reflects).
 fn skyClouds(ray: vec3f) -> vec3f { return skyCloudsOver(ray, skyBase(ray)); }
@@ -338,7 +334,7 @@ fn fragment(in: FSIn) -> vec4f {
   let ray = normalize((frame.invView * vec4f(normalize(p.xyz / p.w), 0.0)).xyz);
   // (a pixel's angular size, for stars one pixel across)
   let pr = length(fwidth(ray));
-  var c = vec3f(0.0); var photoResolved = false;
+  var c = complexSky(ray, pr);
   // The drone's day sky (frame.cameraWaterHeight: how much; frame.windSpeed: its picture is in):
   // photographed clouds (droneSkyTex, the upper hemisphere of a CC0 sky) turned so the picture's
   // sun lies at the view's sun, its elevations stretched to match (the horizon and the zenith
@@ -365,12 +361,6 @@ fn fragment(in: FSIn) -> vec4f {
       let fade = smoothstep(0.0, 0.1, ray.y);
       let dayW = smoothstep(0.05, 0.32, sunE) * (1.0 - frame.night);
       let duskW = (1.0 - smoothstep(0.05, 0.32, sunE)) * smoothstep(-0.16, -0.01, sunE);
-      let dayMix = photoK * dayW * fade;
-      // At full photographic coverage the procedural sky has zero weight.
-      // Preserve the original sky calculation at the horizon, dusk and night.
-      if (dayMix != 1.0) { c = complexSky(ray, pr); }
-      c = mix(c, photo, dayMix);
-      if (duskW != 0.0) {
       // (the clouds in the photograph: its white, bright parts)
       let lum = dot(photo, vec3f(0.2126, 0.7152, 0.0722));
       let mx = max(photo.r, max(photo.g, photo.b));
@@ -380,16 +370,14 @@ fn fragment(in: FSIn) -> vec4f {
       let lit = mix(vec3f(0.42, 0.36, 0.48), mix(vec3f(1.0, 0.55, 0.42), hue * vec3f(1.05, 0.82, 0.55), 0.5) * 1.25, toward) * (0.55 + 0.7 * lum);
       let low = 1.0 - smoothstep(-0.12, 0.0, sunE);
       let duskCloud = mix(lit, lit * vec3f(0.35, 0.3, 0.42), low);
+      c = mix(c, photo, photoK * dayW * fade);
       c = mix(c, duskCloud, photoK * duskW * cloud * fade * 0.9);
-      }
       // (the sun's own disc over it, where the picture's glare now lies)
       let sun = max(dot(ray, frame.sunDir), 0.0);
       let sunHue = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
       c += sunHue * photoK * (1.0 - frame.night) * smoothstep(-0.03, 0.02, sunE) * (smoothstep(0.99975, 0.9999, sun) * 1.6 + pow(sun, 900.0) * 0.4);
-      photoResolved = true;
     }
   }
-  if (!photoResolved) { c = complexSky(ray, pr); }
   return vec4f(c, 1.0);
 }`;
 
@@ -1814,11 +1802,10 @@ export class ComplexRenderer {
       // Pooled woodland/traffic already place instances in world space. Multiplying
       // each vertex's instance matrix by an identity model matrix wastes 64 multiplies.
       mesh.worldInstances = !!obj.isInstancedMesh && identityMatrix(obj.matrixWorld);
-      mesh.staticShadowInstances = !!obj.userData.staticShadowInstances;
       const moved = mesh.count !== (obj.count ?? 1) || mesh.instVersion !== obj.instanceMatrix?.version || !sameMatrix(mesh.matrix, obj.matrixWorld);
       if (moved) {
-        if (mesh.castShadow && (!mesh.moving || mesh.staticShadowInstances)) this.castersChanged = true;
-        mesh.moving = !obj.userData.staticShadowInstances; mesh.movedAt = this.frameNo;
+        if (mesh.castShadow && !mesh.moving) this.castersChanged = true;
+        mesh.moving = true; mesh.movedAt = this.frameNo;
         mesh.count = obj.count ?? 1;
         mesh.instVersion = obj.instanceMatrix?.version;
         mesh.matrix.copy(obj.matrixWorld); mesh.matrixWorldNeedsUpdate = true;
