@@ -19,6 +19,15 @@ const WATER = new Set(["천", "구", "유", "양"]);
 
 /** GLSL: height gradient of four travelling waves at p (metres, x along the flow). */
 export const WAVES_GLSL = /* glsl */`
+float waterHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.x, p.y, p.x) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+float waterNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(waterHash(i), waterHash(i + vec2(1.0, 0.0)), u.x), mix(waterHash(i + vec2(0.0, 1.0)), waterHash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
 vec2 waterGrad(vec2 p, float t) {
   vec2 g = vec2(0.0);
   vec2 k; float a;
@@ -83,23 +92,31 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
       .replace("#include <common>", `#include <common>\nuniform float uTime;\nuniform sampler2D uCoastFoam;\nvarying vec3 vWaterPos;\nvarying float vShore;\nvarying float vSea;\n${WAVES_GLSL}`)
       .replace("#include <color_fragment>", `#include <color_fragment>
   float shoreSea = clamp(vSea, 0.0, 1.0);
+  // how open the sea is to the swell in front of this shore (waterCore.ts; ComplexWater.js: the same)
+  float expo = 1.0 - clamp(vSea - 1.0, 0.0, 1.0) * shoreSea;
   vec3 seaTint = mix(vec3(0.075, 0.24, 0.25), vec3(0.023, 0.095, 0.16), smoothstep(2.0, 160.0, vShore));
   float foam = 0.0;
   float shoreAA = max(fwidth(vShore), 0.08);
   vec2 foamUV = vWaterPos.xz / 8.0 + vec2(-0.6, 0.8) * uTime * 0.012;
   vec2 foamDx = dFdx(foamUV), foamDy = dFdy(foamUV);
-  if (shoreSea > 0.5 && vShore < 36.0) {
+  if (shoreSea > 0.5 && vShore < 42.0) {
     vec2 cells = textureGrad(uCoastFoam, foamUV, foamDx, foamDy).rg;
     float lace = cells.r * mix(0.38, 0.85, cells.g);
     float broken = smoothstep(0.12, 0.62, cells.g);
     float patchiness = 0.7 + 0.15 * sin(vWaterPos.x * 0.4 + vWaterPos.z * 0.6);
-    float phase = fract(vShore / 11.5 + uTime * 0.13 + sin(vWaterPos.x * 0.07 + vWaterPos.z * 0.1) * 0.018);
-    float aaPhase = min(0.06, shoreAA / 11.5);
+    float nA = waterNoise(vWaterPos.xz / 140.0);
+    float nB = waterNoise(vWaterPos.xz / 330.0 + vec2(17.0, 5.0));
+    float spacing = mix(8.5, 15.0, nA);
+    float speed = mix(0.09, 0.16, nB);
+    float sets = 0.45 + 0.55 * smoothstep(-0.4, 0.9, sin(uTime * mix(0.16, 0.27, nA) + nB * 6.2832 + dot(vWaterPos.xz, vec2(-0.6, 0.8)) * 0.002));
+    float width = mix(5.0, 36.0, expo) * mix(0.75, 1.15, nB);
+    float phase = fract(vShore / spacing + uTime * speed + nA * 2.7 + sin(vWaterPos.x * 0.07 + vWaterPos.z * 0.1) * 0.018);
+    float aaPhase = min(0.06, shoreAA / spacing);
     float front = 1.0 - smoothstep(0.018, 0.06 + aaPhase, min(phase, 1.0 - phase));
     float wake = smoothstep(0.015, 0.06 + aaPhase, phase) * (1.0 - smoothstep(0.09, 0.29, phase));
-    float surf = (1.0 - smoothstep(16.0, 36.0, vShore)) * smoothstep(0.0, 0.65, vShore);
-    float reach = 0.9 + 0.85 * (0.5 + 0.5 * sin(uTime * 0.85));
-    float swash = (1.0 - smoothstep(reach, reach + 0.5 + shoreAA, vShore)) * (0.2 + 0.7 * lace);
+    float surf = (1.0 - smoothstep(width * 0.45, width, vShore)) * smoothstep(0.0, 0.65, vShore) * pow(expo, 0.8) * sets;
+    float reach = (0.9 + 0.85 * (0.5 + 0.5 * sin(uTime * mix(0.6, 1.0, nB) + nA * 6.2832))) * mix(0.35, 1.0, expo);
+    float swash = (1.0 - smoothstep(reach, reach + 0.5 + shoreAA, vShore)) * (0.2 + 0.7 * lace) * mix(0.3, 1.0, expo);
     foam = clamp((front * (0.06 + 0.94 * lace) + wake * lace * 0.72) * broken * patchiness * surf + swash, 0.0, 0.94);
   }
   diffuseColor.rgb = mix(diffuseColor.rgb, mix(seaTint, vec3(0.6, 0.66, 0.67), foam), shoreSea);
@@ -117,12 +134,12 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
   vec3 B = cross(q1, N) * s0.y + cross(N, q0) * s1.y;
   float inv = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-8));
   float near = 1.0 - smoothstep(80.0, 600.0, length(vWaterPos - cameraPosition));
-  float calm = mix(1.0, mix(0.85, 1.0, smoothstep(0.0, 12.0, vShore)), clamp(vSea, 0.0, 1.0));
+  float calm = mix(1.0, mix(0.85, 1.0, smoothstep(0.0, 12.0, vShore)) * mix(0.55, 1.0, 1.0 - clamp(vSea - 1.0, 0.0, 1.0)), clamp(vSea, 0.0, 1.0));
   vec3 nW = normalize(N - (T * g.x + B * g.y) * inv * mix(0.16, 0.15, clamp(vSea, 0.0, 1.0)) * calm * near);
   normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
 }`);
   };
-  mat.customProgramCacheKey = () => "complex:water:coast-v4";
+  mat.customProgramCacheKey = () => "complex:water:coast-v5";
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   /** Lower the ground mesh (local x east, y north, z up) under the water below its

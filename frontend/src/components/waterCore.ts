@@ -377,6 +377,33 @@ export function dryTerraces(h: Float32Array, wet: Uint8Array, nx: number, ny: nu
 /** The surface over the open-water parcels' rings, subdivided to follow the channel. */
 export async function waterSurface(rings: [number, number][][], field: WaterField, pace: Pace, holes: [number,number][][] = [], sea: boolean[] = []): Promise<WaterArrays | null> {
   const pos: number[] = [], uv: number[] = [], nor: number[] = [], shore: number[] = [], flow: number[] = [], seaA: number[] = [], index: number[] = [];
+  // How shut in the sea is in front of a shore, 0 (open water) … 1 (enclosed): nine lines out to
+  // sea over ±64° of the way offshore, each as far as it runs on water (up to FETCH; past the
+  // water's known extent it counts as open). The surf breaks where the swell comes in off open
+  // water — the middle of a beach facing the sea — and dies down in a cove behind a headland, at
+  // the ends of a bay and inside a harbour. Carried in aSea (1 + this, on the sea): the shaders
+  // read the sea as clamp(aSea, 0, 1) and this as aSea - 1.
+  const FETCH = 900, shelterMemo = new Map<string, number>(), bounds = (field as Partial<WaterField>).bounds;
+  const shelter = (x: number, y: number, ox: number, oy: number) => {
+    if (!bounds) return 0;
+    const { x0: bx0, y0: by0, x1: bx1, y1: by1 } = bounds;
+    const key = `${Math.round(x / 6)},${Math.round(y / 6)}`, had = shelterMemo.get(key);
+    if (had !== undefined) return had;
+    let open = 0, total = 0;
+    for (let k = -4; k <= 4; k++) {
+      const a = k * 0.28, c = Math.cos(a), sn = Math.sin(a), dx = ox * c - oy * sn, dy = ox * sn + oy * c, w = c;
+      let reach = FETCH;
+      for (let t = 24; t <= FETCH; t += 24) {
+        const px = x + dx * t, py = y + dy * t;
+        if (px < bx0 || px > bx1 || py < by0 || py > by1) break;
+        if (!field.wet(px, py)) { reach = t; break; }
+      }
+      open += w * reach / FETCH; total += w;
+    }
+    const v = Math.max(0, Math.min(1, 1 - open / total));
+    shelterMemo.set(key, v);
+    return v;
+  };
   // (a corner shared by the triangles round it is one vertex: everything at a vertex follows from
   // where it is and which parcel it belongs to. Unshared, each was stored ~6 times — 8 MB of
   // vertices on the Han river, and as many shore and level look-ups.)
@@ -416,8 +443,8 @@ export async function waterSurface(rings: [number, number][][], field: WaterFiel
         let fx = sx, fy = sy;
         if (gl > 1e-3 && k < 1) { fx = -gx / gl * (1 - k) + sx * k; fy = gy / gl * (1 - k) + sy * k; const fl = Math.hypot(fx, fy) || 1; fx /= fl; fy /= fl; }
         flow.push(fx, fy);
-      } else flow.push(ux, -uy);
-      seaA.push(isSea ? 1 : 0);
+        seaA.push(1 + (sh < 80 && gl > 1e-3 ? shelter(x, y, gx / gl, gy / gl) : 0));
+      } else { flow.push(ux, -uy); seaA.push(0); }
     };
     const split = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2, depth: number): void => {
       const ab = a.distanceTo(b), bc = b.distanceTo(c), ca = c.distanceTo(a), m = Math.max(ab, bc, ca);

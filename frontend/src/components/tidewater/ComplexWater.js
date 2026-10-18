@@ -121,6 +121,16 @@ fn waterPhaseHG(cosT: f32, g: f32) -> f32 {
   let g2 = g * g;
   return ((1.0 - g2) / (4.0 * PI)) / pow(max(1.0 + g2 - cosT * 2.0 * g, 1e-4), 1.5);
 }
+// Slow value noise for a coast's character along it (WebGL's sceneWater.ts: the same).
+fn waterHash(p: vec2f) -> f32 {
+  var p3 = fract(vec3f(p.x, p.y, p.x) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+fn waterNoise(p: vec2f) -> f32 {
+  let i = floor(p); let f = fract(p); let u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(waterHash(i), waterHash(i + vec2f(1.0, 0.0)), u.x), mix(waterHash(i + vec2f(0.0, 1.0)), waterHash(i + vec2f(1.0, 1.0)), u.x), u.y);
+}
 fn waterDGGX(NdH: f32, a2: f32) -> f32 { let d = NdH * NdH * (a2 - 1.0) + 1.0; return a2 / (d * d * PI); }
 fn waterVSmith(NdL: f32, NdV: f32, a2: f32) -> f32 {
   let gv = NdL * sqrt(NdV * NdV * (1.0 - a2) + a2);
@@ -225,6 +235,8 @@ const WATER_OUTPUT = /* wgsl */`
   let V = toCam / dist;
   let shore = in.vs.vShore;
   let sea = clamp(in.vs.vSea, 0.0, 1.0);
+  // how open the sea is to the swell in front of this shore (waterCore.ts: aSea - 1 is how shut in)
+  let expo = 1.0 - clamp(in.vs.vSea - 1.0, 0.0, 1.0) * sea;
   // A rotating frame multiplied by world position stretches waves into coastal streaks.
   // All sea patches share one swell frame; shore-distance alone bends the breaking crests.
   let flow = normalize(mix(in.vs.vFlow, vec2f(-0.6, 0.8), sea) + vec2f(1e-5, 0.0));
@@ -245,7 +257,7 @@ const WATER_OUTPUT = /* wgsl */`
   let w2 = textureSample(waterWaves, smpAnisoRepeat, (q2 + vec2f(t * 0.41, t * 0.06)) / 5.3);
   let w3 = textureSample(waterWaves, smpAnisoRepeat, (q3 + vec2f(t * 0.26, -t * 0.05)) / 1.9);
   // calmer against the banks; the finest ripples only where a pixel can show them
-  let calm = mix(mix(0.35, 1.0, smoothstep(0.0, 4.0, shore)), mix(0.85, 1.0, smoothstep(0.0, 12.0, shore)), sea);
+  let calm = mix(mix(0.35, 1.0, smoothstep(0.0, 4.0, shore)), mix(0.85, 1.0, smoothstep(0.0, 12.0, shore)) * mix(0.55, 1.0, expo), sea);
   let near3 = smoothstep(0.09, 0.025, footprint);
   let slopeK = mix(mat.slope, 0.082, sea);
   let a1 = slopeK * calm; let a2 = slopeK * 0.75 * calm; let a3 = slopeK * 0.6 * calm;
@@ -349,26 +361,34 @@ const WATER_OUTPUT = /* wgsl */`
   let transmitted = bed * Tview + inSun + inAmb;
 
   var col = mix(transmitted, refl, F) + glint;
-  // The sea's surf: crests running in (along the flow, toward the shore) break white in the last
-  // ~30 m, torn by the swell; the swash line at the water's edge comes and goes.
+  // The sea's surf: crests running in (along the flow, toward the shore) break white near it, torn
+  // by the swell; the swash line at the water's edge comes and goes. Only as much as the shore is
+  // open to the sea (expo: a beach facing it full, a cove or a harbour hardly), and each stretch of
+  // coast its own — crest spacing, speed, the timing and size of its sets vary slowly along it.
   let foamUV = P.xz / 8.0 + flow * frame.time * 0.012;
   let foamLOD = max(0.0, log2(max(length(fwidth(foamUV)) * 256.0, 1.0)));
   let shoreAA = max(fwidth(shore), 0.08);
   var foam = 0.0;
-  if (sea > 0.5 && shore < 36.0) {
+  if (sea > 0.5 && shore < 42.0) {
     // Explicit LOD keeps this narrow coastal branch legal and antialiased.
     let cells = textureSampleLevel(waterFoam, smpAnisoRepeat, foamUV, foamLOD).rg;
     let patchiness = clamp(0.6 + w1.y * 0.14 + w2.x * 0.12, 0.2, 1.0);
-    let phase = fract(shore / 11.5 + frame.time * 0.13 + w1.x * 0.025);
-    let aaPhase = min(0.06, shoreAA / 11.5);
+    let nA = waterNoise(P.xz / 140.0);
+    let nB = waterNoise(P.xz / 330.0 + vec2f(17.0, 5.0));
+    let spacing = mix(8.5, 15.0, nA);
+    let speed = mix(0.09, 0.16, nB);
+    let sets = 0.45 + 0.55 * smoothstep(-0.4, 0.9, sin(frame.time * mix(0.16, 0.27, nA) + nB * 6.2832 + dot(P.xz, flow) * 0.002));
+    let width = mix(5.0, 36.0, expo) * mix(0.75, 1.15, nB);
+    let phase = fract(shore / spacing + frame.time * speed + nA * 2.7 + w1.x * 0.025);
+    let aaPhase = min(0.06, shoreAA / spacing);
     let front = 1.0 - smoothstep(0.018, 0.06 + aaPhase, min(phase, 1.0 - phase));
     let wake = smoothstep(0.015, 0.06 + aaPhase, phase) * (1.0 - smoothstep(0.09, 0.29, phase));
-    let surf = (1.0 - smoothstep(16.0, 36.0, shore)) * smoothstep(0.0, 0.65, shore);
+    let surf = (1.0 - smoothstep(width * 0.45, width, shore)) * smoothstep(0.0, 0.65, shore) * pow(expo, 0.8) * sets;
     let lace = cells.r * mix(0.38, 0.85, cells.g);
     let broken = smoothstep(0.12, 0.62, cells.g);
     let breaking = (front * (0.06 + 0.94 * lace) + wake * lace * 0.72) * broken * patchiness * surf;
-    let reach = 0.9 + 0.85 * (0.5 + 0.5 * sin(frame.time * 0.85 + w1.x * 0.15));
-    let swash = (1.0 - smoothstep(reach, reach + 0.5 + shoreAA, shore)) * (0.2 + 0.7 * lace);
+    let reach = (0.9 + 0.85 * (0.5 + 0.5 * sin(frame.time * mix(0.6, 1.0, nB) + nA * 6.2832 + w1.x * 0.15))) * mix(0.35, 1.0, expo);
+    let swash = (1.0 - smoothstep(reach, reach + 0.5 + shoreAA, shore)) * (0.2 + 0.7 * lace) * mix(0.3, 1.0, expo);
     foam = clamp(breaking + swash, 0.0, 0.94);
   }
   let foamLit = (sunLight * max(L.y, 0.0) + frame.skyIrradiance) * 0.46;
