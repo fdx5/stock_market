@@ -3525,7 +3525,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       let roadEnd = sliceDeadline();
       const roadPace = async () => {
         if (performance.now() > roadEnd) {
-          if (!await later()) return false;
+          // (ahead of the drone's tiles: the place the view stands on — see frameSlice)
+          await frameSlice(pausedRef.current ? 7 : 12, true); if (!alive) return false;
           roadEnd = sliceDeadline();
         }
         return alive;
@@ -3557,7 +3558,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const lifted=roadWater;if(lifted)await liftBeforeShown([[f.group,0]],lifted);
         if(!alive||gen!==marksGen){f.dispose();return;}
         stage.addWarm(decor,first);
-        while(alive&&gen===marksGen&&!stage.drawReady(first))await frameSlice();
+        while(alive&&gen===marksGen&&!stage.drawReady(first))await frameSlice(9,true);
         if(!alive||gen!==marksGen){first.removeFromParent();f.dispose();return;}
         roadLayer=first;surface=f;if(roadWater&&roadWater!==lifted)liftRoadsOverWater(roadWater);
         if(hostRef.current){const d=hostRef.current.dataset;d.roadsFirstAt??=String(Math.round(performance.now()));}
@@ -3581,7 +3582,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const lifted=roadWater;if(lifted)await liftBeforeShown([[f.group,0],...(m.group.children as THREE.Mesh[]).map(c=>[c,.05] as [THREE.Mesh,number])],lifted);
       if (!alive || gen !== marksGen) { if(surface!==f)f.dispose(); m.dispose(); return; }
       stage.addWarm(decor, nextLayer);
-      while (alive && gen === marksGen && !stage.drawReady(nextLayer)) await frameSlice();
+      while (alive && gen === marksGen && !stage.drawReady(nextLayer)) await frameSlice(9,true);
       if (!alive || gen !== marksGen) {
         nextLayer.userData.sceneDiscarded = true; nextLayer.removeFromParent(); f.dispose(); m.dispose(); return;
       }
@@ -3799,7 +3800,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       let trafficArmed=false, adopted=false;
       tick.push(dt => {
         if(!trafficArmed){
-          trafficArmed=!!surface&&!!marks&&stage.drawReady(surface.group)&&stage.drawReady(marks.group)&&stage.drawReady(traffic.group);
+          // (on the asphalt as soon as it is shown: waiting for the lane paint too held every car of
+          // the first area still for a minute and more after the drone came in)
+          trafficArmed=!!surface&&stage.drawReady(surface.group)&&stage.drawReady(traffic.group);
           if(trafficArmed&&hostRef.current)hostRef.current.dataset.trafficArmedAt=String(Math.round(performance.now()));
         }
         if (trafficArmed && !adopted && !stage.unshown) adopt();

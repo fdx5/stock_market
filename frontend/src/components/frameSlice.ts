@@ -1,5 +1,5 @@
 /** Admit builders after drawing, with bounded backoff so scenery cannot starve. */
-const waiting: { resolve: () => void; budget: number; since: number }[] = [];
+const waiting: { resolve: () => void; budget: number; since: number; urgent: boolean }[] = [];
 let scheduled = false;
 let lastForcedAdmission = -Infinity;
 let sceneStamp=-Infinity,sceneStartedAt=-Infinity;
@@ -32,11 +32,16 @@ function schedule(frameAt?: number) {
     const now = performance.now(), first = waiting[0],elapsed=now-at;
     // Prefer spare frame time. Under sustained load, admit just one waiting
     // continuation per 100ms instead of postponing all scenery indefinitely.
-    const forced=first&&elapsed>=first.budget&&now-first.since>=100&&now-lastForcedAdmission>=100;
+    // (urgent work — the roads, paint and traffic of the place the view stands on — goes before
+    // the rest: behind the drone's tiles, all FIFO, the first area's lane paint waited ~50 s for its
+    // ~0.3 s of work, its cars standing still till then)
+    const urgentAt=waiting.findIndex(item=>item.urgent),head=urgentAt>=0?waiting[urgentAt]:first;
+    const forced=head&&elapsed>=head.budget&&now-head.since>=100&&now-lastForcedAdmission>=100;
     // A 6ms continuation must not hold up a 9ms continuation while 7ms of the
     // actual frame has been used. Preserve FIFO among eligible work, and still
     // admit an overdue head once per 100ms under continuous pressure.
-    const index=forced?0:waiting.findIndex(item=>elapsed<item.budget);
+    const eligibleUrgent=waiting.findIndex(item=>item.urgent&&elapsed<item.budget);
+    const index=forced?(urgentAt>=0?urgentAt:0):eligibleUrgent>=0?eligibleUrgent:waiting.findIndex(item=>elapsed<item.budget);
     if(index>=0){
       if(forced)lastForcedAdmission=now;
       waiting.splice(index,1)[0].resolve();
@@ -56,8 +61,8 @@ export function sliceDeadline(): number {
   const now = performance.now(), into = now - sceneStartedAt;
   return into >= 0 && into < 12 ? sceneStartedAt + 14 : now + 2;
 }
-export function frameSlice(budgetMs = 9): Promise<void> {
-  return new Promise(resolve => { waiting.push({ resolve, budget: budgetMs, since: performance.now() }); schedule(); });
+export function frameSlice(budgetMs = 9, urgent = false): Promise<void> {
+  return new Promise(resolve => { waiting.push({ resolve, budget: budgetMs, since: performance.now(), urgent }); schedule(); });
 }
 
 /** Preserve map's order and values while spreading asset construction across frames.
