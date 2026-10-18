@@ -10,7 +10,13 @@ export default function DronePlaceSearch({mapKey,domain='https://kospimap.com',i
   const [text,setText]=useState(initialPlace?placeDisplayTitle(initialPlace):''),[selected,setSelected]=useState<DronePlace|null>(initialPlace??null);
   const [items,setItems]=useState<DronePlace[]>([]),[open,setOpen]=useState(false),[loading,setLoading]=useState(false);
   const [message,setMessage]=useState(''),[active,setActive]=useState(-1),[composing,setComposing]=useState(false),[retry,setRetry]=useState(0);
-  const choose=(p:DronePlace)=>{setSelected(p);setText(placeDisplayTitle(p));setOpen(false);setActive(-1);input.current?.focus();};
+  const choose=(p:DronePlace)=>{
+    // Finish the input's IME before committing the destination: its final
+    // composition/change events must not clear the place just selected.
+    input.current?.blur();
+    setComposing(false);setSelected(p);setText(placeDisplayTitle(p));setOpen(false);setActive(-1);
+    input.current?.focus({preventScroll:true});
+  };
   useEffect(()=>{
     const q=text.trim(); setItems([]);setActive(-1);setMessage('');
     // Korean IMEs keep the final complete syllable in composition until Space.
@@ -50,6 +56,9 @@ export default function DronePlaceSearch({mapKey,domain='https://kospimap.com',i
     {show&&<div className="re-drone-place-popup">
       <div id={id} role="listbox" aria-label="장소 및 주소 검색 결과" className="re-drone-place-results">
         {items.map((p,i)=><button type="button" role="option" id={`${id}-${i}`} key={p.id} aria-selected={active===i}
+          // Keep focus until click: dismissing the keyboard on mousedown can
+          // move the list before click and consume the first selection.
+          onMouseDown={e=>e.preventDefault()}
           onClick={()=>choose(p)} className={active===i?'is-active':undefined}>
           <span className="re-drone-place-kind">{p.kind}</span><span className="re-drone-place-label"><b>{placeDisplayTitle(p)}</b><small>{p.address||'지역 중심으로 이동'}</small></span>
         </button>)}
