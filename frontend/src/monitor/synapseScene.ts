@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { hash, type SynapseGraph, type SynapseSignal } from "./synapseModel";
+import type { SynapseGeometry } from "./synapseGeometry";
 
 export interface SceneOptions { selected: string | null; domain: string; query: string; isolate: boolean; faultsOnly: boolean; motion: boolean; autoRotate: boolean; paused: boolean; speed: number; quality: "high" | "balanced" | "eco"; faults: Set<string> }
 const lineVertex = `attribute vec3 color; attribute float aAlong; attribute float aStart; attribute float aFault; attribute float aVisible;
@@ -40,7 +41,21 @@ export class SynapseScene {
   private dragStart = { x: 0, y: 0 }; private pointer = new THREE.Vector3();
   private core = new THREE.Group(); private selectRing: THREE.Mesh;
   private celestialFrame=new THREE.Group();private coreEnergy=0;private rotationHoldUntil=0;
-  private divisions: number; private visibleNodes: boolean[] = [];
+  private divisions = 20;
+  private topology = new THREE.Group();
+  private worker: Worker;
+  private revision = 0;
+  private building: SynapseGraph | null = null;
+  private pendingGraph: SynapseGraph | null = null;
+  private pendingSignals: SynapseSignal[] = [];
+  private topologyReady = false;
+  private lineMaterial: THREE.ShaderMaterial;
+  private nodeMaterial: THREE.ShaderMaterial;
+  private packetMaterial: THREE.ShaderMaterial;
+  private width = 0; private height = 0; private schedule = 0;
+  private filterKey = ""; private faultKey = "";
+  onReady: () => void = () => {};
+  private visibleNodes: boolean[] = [];
   private destination: THREE.Vector3 | null = null;
   private narrow: boolean | null = null;
   onSelect: (id: string) => void = () => {};
@@ -48,7 +63,7 @@ export class SynapseScene {
   onStats: (fps: number, draws: number) => void = () => {};
   onFailure: (message: string) => void = () => {};
 
-  constructor(private host: HTMLElement, private labelHost: HTMLElement, readonly graph: SynapseGraph, private seen = new Set<string>()) {
+  constructor(private host: HTMLElement, private labelHost: HTMLElement, public graph: SynapseGraph, private seen = new Set<string>()) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
     this.renderer.setClearColor(0x040a13, 0);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -64,20 +79,23 @@ export class SynapseScene {
     this.controls.addEventListener("start", this.cancelFocus);
     this.divisions = graph.links.length > 12000 ? 10 : 20;
     this.uniforms.uDensity.value=Math.min(1,Math.pow(2200/Math.max(1,graph.links.length),.65));
-    this.buildTopology(); this.buildAtmosphere();
+    this.lineMaterial = this.shader(lineVertex, lineFragment); this.lineMaterial.blending = THREE.NormalBlending;
+    this.nodeMaterial = this.shader(pointVertex, pointFragment);
+    this.packetMaterial = this.shader(packetVertex, pointFragment);
+    this.scene.add(this.topology); this.buildAtmosphere();
+    this.worker = new Worker(new URL("./synapseGeometry.worker.ts", import.meta.url), { type: "module" });
+    this.worker.onmessage = ({ data }) => {
+      if (this.disposed || data.revision !== this.revision || !this.building) return;
+      const graph = this.building; this.building = null;
+      this.installTopology(graph, data.geometry);
+      const pending = this.pendingGraph; this.pendingGraph = null;
+      if (pending && pending !== graph) this.updateGraph(pending);
+    };
+    this.worker.onerror = () => { if (!this.disposed) this.onFailure("연결 구조를 준비하지 못했습니다. 3D 다시 연결을 눌러 주세요."); };
     const ringGeo = new THREE.RingGeometry(10, 10.5, 64);
     const ringMat = new THREE.MeshBasicMaterial({ color: "#e3faff", transparent: true, opacity: .7, side: THREE.DoubleSide, depthWrite: false });
     this.selectRing = new THREE.Mesh(ringGeo, ringMat); this.selectRing.visible = false;
     this.scene.add(this.selectRing); this.geometries.push(ringGeo); this.materials.push(ringMat);
-    graph.nodes.forEach((node, index) => {
-      if (node.parent || node.kind === "module" || node.kind === "api") return;
-      const element = document.createElement("button"); element.className = "sn-space-label";
-      element.style.setProperty("--signal", node.color);
-      const caption = document.createElement("small"); caption.textContent = node.kind === "core" ? "CENTRAL NEXUS" : node.kind.toUpperCase();
-      const title = document.createElement("span"); title.textContent = node.label.split(" · ")[0];
-      element.append(caption, title); element.setAttribute("aria-label", `${node.label} 노드 선택`);
-      element.onclick = () => this.onSelect(node.id); labelHost.appendChild(element); this.labels.push({ element, index });
-    });
     this.observer = new ResizeObserver(() => this.resize()); this.observer.observe(host);
     this.renderer.domElement.addEventListener("pointerdown", this.pointerDown);
     this.renderer.domElement.addEventListener("pointerup", this.pointerUp);
@@ -86,53 +104,71 @@ export class SynapseScene {
     this.renderer.domElement.addEventListener("webglcontextlost", this.contextLost);
     document.addEventListener("visibilitychange", this.visibility);
     this.resize(); this.applyOptions(this.options); this.frame = requestAnimationFrame(this.animate);
-    host.dataset.state = "ready"; host.dataset.nodes = String(graph.nodes.length); host.dataset.links = String(graph.links.length);
+    host.dataset.state = "loading"; this.updateGraph(graph);
   }
   private cancelFocus = () => { this.destination = null;this.rotationHoldUntil=performance.now()+4000; };
   private shader(vertexShader: string, fragmentShader: string) {
     const m = new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms: this.uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
     this.materials.push(m); return m;
   }
-  private attr(geometry: THREE.BufferGeometry, key: string, values: Float32Array, size = 1) { geometry.setAttribute(key, new THREE.BufferAttribute(values, size)); }
-  private buildTopology() {
-    const { nodes, links } = this.graph, count = links.length * this.divisions * 2;
-    const pos = new Float32Array(count * 3), colors = new Float32Array(count * 3), along = new Float32Array(count);
-    const packets = links.length * 4;
-    const pp = [0, 1, 2, 3].map(() => new Float32Array(packets * 3));
-    const pc = new Float32Array(packets * 3), offsets = new Float32Array(packets);
-    const v = new THREE.Vector3();
-    links.forEach((e, i) => {
-      this.linkIndex.set(e.id, i);
-      const a = new THREE.Vector3(...nodes[e.source].position), b = new THREE.Vector3(...nodes[e.target].position);
-      const mid = a.clone().add(b).multiplyScalar(.5), length = a.distanceTo(b);
-      // Twisted axons lift above and below the cluster plane, with stable geometry.
-      const bend = new THREE.Vector3(-mid.y, mid.x, (hash(e.id) - .5) * 260).normalize().multiplyScalar(Math.min(95, length * .27));
-      const c = a.clone().lerp(b, .32).add(bend), d = a.clone().lerp(b, .68).add(bend);
-      const curve = new THREE.CubicBezierCurve3(a, c, d, b);
-      const color = new THREE.Color(nodes[e.target].color);
-      if (e.kind === "structure") color.multiplyScalar(.64);
-      for (let j = 0; j < this.divisions; j++) for (let k = 0; k < 2; k++) {
-        const at = i * this.divisions * 2 + j * 2 + k, t = (j + k) / this.divisions;
-        curve.getPoint(t, v); v.toArray(pos, at * 3); color.toArray(colors, at * 3); along[at] = t;
+  private attr(geometry: THREE.BufferGeometry, key: string, values: Float32Array, size = 1) { geometry.setAttribute(key, new THREE.BufferAttribute(values, size).setUsage(key.startsWith("a") && key !== "aAlong" && key !== "aOffset" || key === "color" ? THREE.DynamicDrawUsage : THREE.StaticDrawUsage)); }
+  updateGraph(graph: SynapseGraph) {
+    if (this.disposed || this.lost || (this.topologyReady && graph === this.graph)) return;
+    if (this.building) { this.pendingGraph = graph; return; }
+    this.building = graph;
+    this.worker.postMessage({ revision: ++this.revision, graph });
+  }
+  private installTopology(graph: SynapseGraph, data: SynapseGeometry) {
+    const active = new Map<string, [number, number]>();
+    if (this.topologyReady) {
+      const starts = this.packetGeometry.getAttribute("aStart"), faults = this.packetGeometry.getAttribute("aFault");
+      this.graph.links.forEach((e,i) => { const start = starts.getX(i*4); if (start > this.elapsed-3) active.set(e.id,[start,faults.getX(i*4)]); });
+    }
+    this.topology.clear();
+    [this.lineGeometry,this.nodeGeometry,this.packetGeometry].forEach(g=>g.dispose());
+    this.lineGeometry=new THREE.BufferGeometry(); this.nodeGeometry=new THREE.BufferGeometry(); this.packetGeometry=new THREE.BufferGeometry();
+    this.graph=graph;
+    this.uniforms.uDensity.value=Math.min(1,Math.pow(2200/Math.max(1,graph.links.length),.65));
+    this.buildTopology(data);
+    active.forEach(([start,fault],id)=>{const index=this.linkIndex.get(id);if(index===undefined)return;
+      for(const [geo,stride] of [[this.lineGeometry,this.divisions*2],[this.packetGeometry,4]] as const){
+        (geo.getAttribute("aStart").array as Float32Array).fill(start,index*stride,(index+1)*stride);
+        (geo.getAttribute("aFault").array as Float32Array).fill(fault,index*stride,(index+1)*stride);
       }
-      for (let k = 0; k < 4; k++) { const at = i * 4 + k; [a,c,d,b].forEach((p,n) => p.toArray(pp[n], at * 3)); color.toArray(pc, at * 3); offsets[at] = k * .025; }
     });
+    this.labels.forEach(l=>l.element.remove()); this.labels=[];
+    graph.nodes.forEach((node, index) => {
+      if (node.parent || node.kind === "module" || node.kind === "api") return;
+      const element = document.createElement("button"); element.className = "sn-space-label";
+      element.style.setProperty("--signal", node.color);
+      const caption = document.createElement("small"); caption.textContent = node.kind === "core" ? "CENTRAL NEXUS" : node.kind.toUpperCase();
+      const title = document.createElement("span"); title.textContent = node.label.split(" · ")[0];
+      element.append(caption, title); element.setAttribute("aria-label", `${node.label} 노드 선택`);
+      element.onclick = () => this.onSelect(node.id); this.labelHost.appendChild(element); this.labels.push({ element, index });
+    });
+    this.topologyReady=true;this.filterKey="";this.faultKey="";this.applyOptions(this.options);
+    this.ingest(this.pendingSignals);this.pendingSignals=[];
+    this.host.dataset.state="ready";this.host.dataset.nodes=String(graph.nodes.length);this.host.dataset.links=String(graph.links.length);
+    this.host.dataset.topologyRevision=String(this.revision);this.onReady();
+  }
+  private buildTopology(data: SynapseGeometry) {
+    const { nodes, links } = this.graph;
+    const { pos, colors, along, pp, pc, offsets, np, nc, ns } = data;
+    const count = along.length, packets = offsets.length;
+    this.divisions = data.divisions;
+    this.linkIndex = new Map(links.map((e, i) => [e.id, i]));
     this.attr(this.lineGeometry, "position", pos, 3); this.attr(this.lineGeometry, "color", colors, 3); this.attr(this.lineGeometry, "aAlong", along);
     this.attr(this.lineGeometry, "aStart", new Float32Array(count).fill(-100)); this.attr(this.lineGeometry, "aFault", new Float32Array(count)); this.attr(this.lineGeometry, "aVisible", new Float32Array(count).fill(1));
     // Alpha composition preserves domain colors even where tens of thousands of
     // axons overlap. Additive light is reserved for measured packets and nodes.
-    const lineMaterial=this.shader(lineVertex,lineFragment);lineMaterial.blending=THREE.NormalBlending;
-    this.scene.add(new THREE.LineSegments(this.lineGeometry,lineMaterial));
+    this.topology.add(new THREE.LineSegments(this.lineGeometry,this.lineMaterial));
     this.attr(this.packetGeometry, "position", new Float32Array(packets * 3), 3);
     pp.forEach((p,i) => this.attr(this.packetGeometry, `p${i}`, p, 3)); this.attr(this.packetGeometry, "color", pc, 3);
     this.attr(this.packetGeometry, "aStart", new Float32Array(packets).fill(-100)); this.attr(this.packetGeometry, "aFault", new Float32Array(packets)); this.attr(this.packetGeometry, "aVisible", new Float32Array(packets).fill(1)); this.attr(this.packetGeometry, "aOffset", offsets);
-    const packetObject = new THREE.Points(this.packetGeometry, this.shader(packetVertex, pointFragment)); packetObject.frustumCulled = false; this.scene.add(packetObject);
-    const np = new Float32Array(nodes.length * 3), nc = new Float32Array(nodes.length * 3), ns = new Float32Array(nodes.length);
-    nodes.forEach((n, i) => { np.set(n.position, i * 3); new THREE.Color(n.color).toArray(nc, i * 3); ns[i] = n.kind === "core" ? 47 : n.kind === "service" ? 27 : n.parent ? n.kind === "api" ? 7 : 4 : 15; });
+    const packetObject = new THREE.Points(this.packetGeometry, this.packetMaterial); packetObject.frustumCulled = false; this.topology.add(packetObject);
     this.attr(this.nodeGeometry, "position", np, 3); this.attr(this.nodeGeometry, "color", nc, 3); this.attr(this.nodeGeometry, "aSize", ns); this.attr(this.nodeGeometry, "aVisible", new Float32Array(nodes.length).fill(1));
     this.attr(this.nodeGeometry,"aImpact",new Float32Array(nodes.length).fill(-100));
-    this.scene.add(new THREE.Points(this.nodeGeometry, this.shader(pointVertex, pointFragment)));
-    this.geometries.push(this.lineGeometry, this.packetGeometry, this.nodeGeometry);
+    this.topology.add(new THREE.Points(this.nodeGeometry, this.nodeMaterial));
   }
   private buildAtmosphere() {
     const stars = new Float32Array(2100 * 3);
@@ -173,6 +209,17 @@ export class SynapseScene {
     const prevQuality = this.options.quality; this.options = options;
     this.uniforms.uMotion.value = options.motion && !options.paused ? 1 : 0; this.uniforms.uSpeed.value = options.speed;
     if (prevQuality !== options.quality) this.resize();
+    this.host.dataset.motion = String(options.motion && !options.paused);
+    if (!this.topologyReady) return;
+    const faultKey = [...options.faults].sort().join("\n");
+    const filterKey = JSON.stringify([options.selected,options.domain,options.query,options.isolate,options.faultsOnly,options.faultsOnly?faultKey:""]);
+    if (faultKey !== this.faultKey) {
+      this.faultKey=faultKey;
+      const nc=this.nodeGeometry.getAttribute("color") as THREE.BufferAttribute,color=new THREE.Color();
+      this.graph.nodes.forEach((n,i)=>{color.set(options.faults.has(n.id)?"#ff668f":n.color);nc.setXYZ(i,color.r,color.g,color.b);});nc.needsUpdate=true;
+    }
+    if (filterKey === this.filterKey) return;
+    this.filterKey=filterKey;
     const selected = options.selected ? this.graph.byId.get(options.selected) : undefined;
     const neighbors = new Set<number>(selected === undefined ? [] : [selected]);
     if (selected !== undefined) this.graph.adjacency.get(selected)?.forEach(i => { neighbors.add(this.graph.links[i].source); neighbors.add(this.graph.links[i].target); });
@@ -180,9 +227,6 @@ export class SynapseScene {
     this.visibleNodes = this.graph.nodes.map((n,i) => (options.domain === "all" || n.group === options.domain || n.id === options.domain) && (!query || `${n.label} ${n.detail}`.toLowerCase().includes(query)) && (!options.isolate || selected === undefined || neighbors.has(i)) && (!options.faultsOnly || options.faults.has(n.id)));
     const nv = this.nodeGeometry.getAttribute("aVisible") as THREE.BufferAttribute;
     this.visibleNodes.forEach((v,i) => nv.setX(i, v ? 1 : .07)); nv.needsUpdate = true;
-    const nc = this.nodeGeometry.getAttribute("color") as THREE.BufferAttribute;
-    const nodeColor = new THREE.Color();
-    this.graph.nodes.forEach((n,i)=>{nodeColor.set(options.faults.has(n.id)?"#ff668f":n.color);nc.setXYZ(i,nodeColor.r,nodeColor.g,nodeColor.b);});nc.needsUpdate=true;
     const lv = this.lineGeometry.getAttribute("aVisible") as THREE.BufferAttribute, pv = this.packetGeometry.getAttribute("aVisible") as THREE.BufferAttribute;
     this.graph.links.forEach((e,i) => { const visible = this.visibleNodes[e.source] && this.visibleNodes[e.target]; const related = selected === e.source || selected === e.target; const value = visible ? related ? 2.8 : 1 : related && !options.faultsOnly && !query ? .65 : .025;
       for (let k = 0; k < this.divisions*2; k++) lv.setX(i*this.divisions*2+k, value);
@@ -194,20 +238,27 @@ export class SynapseScene {
     this.host.dataset.motion = String(options.motion && !options.paused);
   }
   ingest(signals: SynapseSignal[], replay = false) {
-    if (this.options.paused || !this.options.motion) return;
+    if (!this.topologyReady || this.building) this.pendingSignals=signals;
+    if (!this.topologyReady || this.options.paused || !this.options.motion) return;
     let touched = false;
+    const latest = new Map<number, SynapseSignal>();
     for (const signal of signals) {
       if (!replay && this.seen.has(signal.key)) continue;
-      this.seen.add(signal.key);
-      if (!replay && Date.now()/1000 - signal.ts > 8) continue;
+      if (!replay && Date.now()/1000 - signal.ts > 8) { this.seen.add(signal.key); continue; }
       const index = this.linkIndex.get(signal.link); if (index === undefined) continue;
+      this.seen.add(signal.key);
+      const previous=latest.get(index); if(!previous || signal.ts>=previous.ts)latest.set(index,signal);
+    }
+    for (const [index,signal] of latest) {
       const start = this.elapsed + hash(signal.key)*.45;
       const target=this.graph.links[index].target;
-      (this.nodeGeometry.getAttribute("aImpact") as THREE.BufferAttribute).setX(target,start+1/this.options.speed);
+      const impact=this.nodeGeometry.getAttribute("aImpact") as THREE.BufferAttribute;impact.setX(target,start+1/this.options.speed);impact.addUpdateRange(target,1);
       this.coreEnergy=Math.min(1,this.coreEnergy+.12);
       for (const [geometry, stride] of [[this.lineGeometry, this.divisions*2], [this.packetGeometry,4]] as const) {
         const starts = geometry.getAttribute("aStart") as THREE.BufferAttribute, faults = geometry.getAttribute("aFault") as THREE.BufferAttribute;
-        for (let k = 0; k < stride; k++) { starts.setX(index*stride+k, start); faults.setX(index*stride+k, signal.fault ? 1 : 0); }
+        (starts.array as Float32Array).fill(start,index*stride,(index+1)*stride);
+        (faults.array as Float32Array).fill(signal.fault?1:0,index*stride,(index+1)*stride);
+        starts.addUpdateRange(index*stride,stride);faults.addUpdateRange(index*stride,stride);
       }
       touched = true;
     }
@@ -223,6 +274,7 @@ export class SynapseScene {
   private resize() {
     const w = this.host.clientWidth, h = this.host.clientHeight; if (!w || !h) return;
     const ratio = Math.min(window.devicePixelRatio || 1, this.options.quality === "high" ? 2 : this.options.quality === "eco" ? 1 : 1.4);
+    this.width=w;this.height=h;
     this.renderer.setPixelRatio(ratio); this.uniforms.uDpr.value = ratio; this.renderer.setSize(w,h); this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
     const narrow=w/h<.85;if(this.narrow!==narrow){this.narrow=narrow;this.home();}
   }
@@ -238,14 +290,18 @@ export class SynapseScene {
   private pointerMove = (e: PointerEvent) => { if (e.buttons) return; const id=this.pick(e.clientX,e.clientY); this.host.style.cursor=id?"pointer":"grab"; this.onHover(id); };
   private pointerLeave = () => this.onHover(null);
   private contextLost = (event: Event) => { event.preventDefault(); this.lost=true; cancelAnimationFrame(this.frame); this.host.dataset.state="lost"; this.onFailure("그래픽 연결이 중단되었습니다. 노드 목록과 관측 로그는 계속 사용할 수 있습니다."); };
-  private visibility = () => { cancelAnimationFrame(this.frame); this.last=0; this.frameCount=0; this.lastReport=0;
-    if(document.hidden)for(const geo of [this.lineGeometry,this.packetGeometry]){const start=geo.getAttribute("aStart") as THREE.BufferAttribute;(start.array as Float32Array).fill(-100);start.needsUpdate=true;}
+  private visibility = () => { cancelAnimationFrame(this.frame); this.last=0; this.schedule=0; this.frameCount=0; this.lastReport=0;
+    if(document.hidden&&this.topologyReady)for(const geo of [this.lineGeometry,this.packetGeometry]){const start=geo.getAttribute("aStart") as THREE.BufferAttribute;(start.array as Float32Array).fill(-100);start.needsUpdate=true;}
     if(!document.hidden&&!this.disposed&&!this.lost)this.frame=requestAnimationFrame(this.animate); };
   private animate = (now: number) => {
     if (this.disposed || this.lost || document.hidden) return;
     this.frame=requestAnimationFrame(this.animate);
     const budget=this.options.quality==="eco"?1000/30:1000/60;
-    if(now-this.last<budget-.5)return;
+    // Carry the fractional deadline: slightly early RAF callbacks must not
+    // turn a 60Hz stream into alternating 16/33ms frames.
+    const since=now-this.schedule;
+    if(this.schedule && since<budget-.75)return;
+    this.schedule=now-(Math.max(0,since)%budget);
     const dt=this.last?Math.min(.1,(now-this.last)/1000):0; this.last=now;
     if(this.options.motion&&!this.options.paused) {this.elapsed+=dt;this.core.rotation.y+=dt*.16;this.core.rotation.z+=dt*.09;this.celestialFrame.rotation.z+=dt*.008;this.coreEnergy*=Math.exp(-dt*1.5);this.core.scale.setScalar(1+Math.sin(this.elapsed*1.3)*.025+this.coreEnergy*.13);}
     this.uniforms.uTime.value=this.elapsed;
@@ -253,7 +309,7 @@ export class SynapseScene {
     this.controls.autoRotate=this.options.autoRotate&&this.options.motion&&!this.options.paused&&now>this.rotationHoldUntil;
     this.controls.update(dt); this.selectRing.quaternion.copy(this.camera.quaternion);
     this.host.dataset.rotating=String(this.controls.autoRotate);
-    const w=this.host.clientWidth,h=this.host.clientHeight;
+    const w=this.width,h=this.height;
     for(const {element,index} of this.labels){this.pointer.set(...this.graph.nodes[index].position).project(this.camera);const x=(this.pointer.x*.5+.5)*w,y=(-this.pointer.y*.5+.5)*h;
       element.style.visibility=this.pointer.z>1||x<0||x>w||y<0||y>h?"hidden":"visible";
       element.style.transform=`translate(${x.toFixed(1)}px,${(y+19).toFixed(1)}px) translateX(-50%)`;
@@ -263,7 +319,7 @@ export class SynapseScene {
     if(now-this.lastReport>1500){this.onStats(Math.round(this.frameCount*1000/(now-this.lastReport)),this.renderer.info.render.calls);this.frameCount=0;this.lastReport=now;this.host.dataset.frames=String(this.drawn);}
   };
   dispose() {
-    this.disposed=true;cancelAnimationFrame(this.frame);this.observer.disconnect();document.removeEventListener("visibilitychange",this.visibility);
+    this.disposed=true;this.worker.terminate();[this.lineGeometry,this.nodeGeometry,this.packetGeometry].forEach(g=>g.dispose());cancelAnimationFrame(this.frame);this.observer.disconnect();document.removeEventListener("visibilitychange",this.visibility);
     const canvas=this.renderer.domElement;canvas.removeEventListener("pointerdown",this.pointerDown);canvas.removeEventListener("pointerup",this.pointerUp);canvas.removeEventListener("pointermove",this.pointerMove);canvas.removeEventListener("pointerleave",this.pointerLeave);canvas.removeEventListener("webglcontextlost",this.contextLost);
     this.controls.removeEventListener("start",this.cancelFocus);this.controls.dispose();this.geometries.forEach(g=>g.dispose());this.materials.forEach(m=>m.dispose());this.renderer.dispose();canvas.remove();this.labels.forEach(l=>l.element.remove());
   }

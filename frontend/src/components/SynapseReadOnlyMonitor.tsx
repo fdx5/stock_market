@@ -49,9 +49,17 @@ export default function SynapseReadOnlyMonitor({Lock}:{Lock:ComponentType<{onUnl
   },[authed,source,paused,retry]);
   const live=useMemo<AtlasSnapshot|null>(()=>{
     if(!architecture||at===null)return null;
-    const groups:Record<string,AtlasStats>={};architecture.nodes.filter(n=>n.kind==="service").forEach(n=>{const paths=new Set(architecture.endpoints.filter(e=>e.group===n.id).map(e=>e.path));groups[n.id]=stats(events.filter(e=>paths.has(e.route)));});
-    const bins=Array.from({length:12},(_,i)=>{const start=at-60+i*5;return {...stats(events.filter(e=>e.ts>=start&&e.ts<start+5)),at:start};});
-    return {at,active_sessions:sessions,observed_edges:{},api:{...stats(events),window_s:60,window_truncated:events.length>=6000,groups,endpoints:architecture.endpoints.flatMap(e=>e.methods.map(method=>({...stats(events.filter(r=>r.route===e.path&&r.method===method)),path:e.path,method}))),recent:[...events].sort((a,b)=>b.ts-a.ts),breakdown:{status:{},latency:[],timeline:bins}},
+    const grouped=new Map<string,ApiPulseEvent[]>(),byEndpoint=new Map<string,ApiPulseEvent[]>();
+    const pathGroups=new Map(architecture.endpoints.map(e=>[e.path,e.group]));
+    const bucketEvents=Array.from({length:12},()=>[] as ApiPulseEvent[]);
+    for(const event of events){
+      const key=`${event.method} ${event.route}`,bucket=byEndpoint.get(key)||[];bucket.push(event);byEndpoint.set(key,bucket);
+      const group=pathGroups.get(event.route);if(group){const rows=grouped.get(group)||[];rows.push(event);grouped.set(group,rows);}
+      const bin=Math.floor((event.ts-(at-60))/5);if(bin>=0&&bin<12)bucketEvents[bin].push(event);
+    }
+    const groups:Record<string,AtlasStats>={};architecture.nodes.filter(n=>n.kind==="service").forEach(n=>{groups[n.id]=stats(grouped.get(n.id)||[]);});
+    const bins=bucketEvents.map((rows,i)=>({...stats(rows),at:at-60+i*5}));
+    return {at,active_sessions:sessions,observed_edges:{},api:{...stats(events),window_s:60,window_truncated:events.length>=6000,groups,endpoints:architecture.endpoints.flatMap(e=>e.methods.map(method=>({...stats(byEndpoint.get(`${method} ${e.path}`)||[]),path:e.path,method}))),recent:[...events].sort((a,b)=>b.ts-a.ts),breakdown:{status:{},latency:[],timeline:bins}},
       external:{...stats([]),started_at:at,window_s:60,window_truncated:false,groups:{},hosts:[],recent:[],flows:[]},traces:[],cache:{entries:0,fresh:0,stale:0,refreshing:0,capacity:0},database:{mode:"unobserved",separate_realestate:false,realestate_mode:"unobserved"}};
   },[architecture,events,at,sessions]);
   const openView=(next:MonitorView)=>{setView(next);window.setTimeout(()=>detail.current?.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"start"}),0);};

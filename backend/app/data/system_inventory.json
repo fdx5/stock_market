@@ -69,7 +69,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 684,
+  "source_files": 686,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -93,6 +93,7 @@
     "frontend/src/components/wakeWorker.ts",
     "frontend/src/components/workerCpuRaster.ts",
     "frontend/src/drivegame/world/tileWorker.ts",
+    "frontend/src/monitor/synapseGeometry.worker.ts",
     "frontend/src/rail/railClearanceWorker.ts",
     "frontend/src/rail/railWorker.ts",
     "frontend/src/vendor/tidewater/engine/gpu/ShaderTextWorker.js"

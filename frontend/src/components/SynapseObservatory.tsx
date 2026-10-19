@@ -9,7 +9,8 @@ import "./synapseObservatory.css";
 
 const num = (value?: number | null) => value == null ? "—" : value.toLocaleString("ko-KR");
 const ms = (value?: number | null) => value == null ? "—" : value >= 1000 ? `${(value/1000).toFixed(2)}s` : `${Math.round(value)}ms`;
-const time = (ts: number) => new Date(ts*1000).toLocaleTimeString("en-GB", {hour12:false, timeZone:"Asia/Seoul"});
+const clockFormat = new Intl.DateTimeFormat("en-GB", {hour12:false, timeZone:"Asia/Seoul", hour:"2-digit", minute:"2-digit", second:"2-digit"});
+const time = (ts: number) => clockFormat.format(ts*1000);
 const tint = (color: string) => ({"--signal":color} as CSSProperties);
 const kindLabel: Record<string,string> = {core:"게이트웨이",service:"서비스",api:"API",module:"모듈",host:"외부 연동",storage:"저장소",client:"클라이언트"};
 interface Props {
@@ -34,8 +35,10 @@ export default function SynapseObservatory({graph,live,health,onSelect,onView,pa
   // A stable key prevents rebuilding the scene on every metrics refresh.
   const knownFlows=useRef({graph,entries:new Map<string,ObservedFlow>()});
   if(knownFlows.current.graph!==graph)knownFlows.current={graph,entries:new Map()};
+  const flowKey=useMemo(()=>{
   observedFlows(live).forEach(f=>{const key=`${f.route}\n${f.host}`,previous=knownFlows.current.entries.get(key);if(previous||knownFlows.current.entries.size<10000)knownFlows.current.entries.set(key,{...f,target:f.target||previous?.target});});
-  const flowKey=JSON.stringify([...knownFlows.current.entries.values()]);
+    return JSON.stringify([...knownFlows.current.entries.values()]);
+  },[graph,live]);
   const model=useMemo(()=>buildSynapseGraph(graph,JSON.parse(flowKey)),[graph,flowKey]);
   const signals=useMemo(()=>snapshotSignals(live),[live]);
   const events=useMemo(()=>journalEvents(live),[live]);
@@ -62,10 +65,11 @@ export default function SynapseObservatory({graph,live,health,onSelect,onView,pa
   useEffect(()=>{
     if(!host.current||!labels.current)return;
     setReady(false);setFailure(null);let world:SynapseScene|null=null;
-    try{world=new SynapseScene(host.current,labels.current,model,receivedSignals.current);if(cameraView.current)world.restoreView(cameraView.current);world.onSelect=id=>selectRef.current(id);world.onHover=setHover;world.onStats=(fps,draws)=>setPerformance({fps,draws});world.onFailure=setFailure;scene.current=world;setReady(true);}
+    try{world=new SynapseScene(host.current,labels.current,model,receivedSignals.current);if(cameraView.current)world.restoreView(cameraView.current);world.onSelect=id=>selectRef.current(id);world.onHover=setHover;world.onStats=(fps,draws)=>setPerformance({fps,draws});world.onFailure=setFailure;world.onReady=()=>setReady(true);scene.current=world;}
     catch{setFailure("3D 그래픽을 시작하지 못했습니다. 아래 노드 목록과 로그에서 관측을 계속할 수 있습니다.");}
     return()=>{if(world)cameraView.current=world.captureView();world?.dispose();scene.current=null;};
-  },[model,retry]);
+  },[retry]);
+  useEffect(()=>{scene.current?.updateGraph(model);},[model,retry]);
   useEffect(()=>{scene.current?.applyOptions({selected,domain,query,isolate,faultsOnly,motion:motion&&!reduced,autoRotate,paused:paused||stale,speed,quality,faults});},[model,retry,selected,domain,query,isolate,faultsOnly,motion,reduced,autoRotate,paused,stale,speed,quality,faults]);
   useEffect(()=>{scene.current?.ingest(signals);},[signals,model,retry,paused,stale,motion,reduced]);
   useEffect(()=>()=>window.clearTimeout(replayTimer.current),[]);
