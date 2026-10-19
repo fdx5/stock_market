@@ -91,7 +91,7 @@ export default function Flows({ rows, code }: { rows: InvestorTrendRecord[]; cod
       </div>
 
       <figure className="sk-flows-chart">
-        <MarketChart height={180} dates={chrono.map(r=>r.date)} label="Cumulative investor flows" baseline={0}
+        <MarketChart height={180} dates={chrono.map(r=>r.date)} label="Cumulative investor flows" baseline={0} tooltipDecimals={2}
           series={cum.map((values,i)=>({name:L(SIDES[i].ko,SIDES[i].en),values,color:["#438dde","#c28d36","#8570d8"][i]}))} />
         <figcaption>
           ▲ {L(`최근 ${days}거래일 누적 순매수(억원). 가로선은 0.`, `Cumulative net buying over ${days} sessions (KRW 100M). The rule is zero.`)}

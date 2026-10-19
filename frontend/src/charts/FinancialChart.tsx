@@ -43,7 +43,7 @@ export const FinancialChart = forwardRef<FinancialHandle,Props>(({points,currenc
     <div className="market-chart-reading">{at ? <><time>{at.date}</time>{([['O',at.open],['H',at.high],['L',at.low],['C',at.close]] as const).map(([key,v])=><span key={key}>{key} <strong>{fmt(v)}</strong></span>)}<span>{t("거래량")} <strong>{at.volume.toLocaleString()}</strong></span></>:<span>{t("차트 데이터가 없습니다.")}</span>}</div>
     <div className="market-chart-tools" role="group" aria-label={t("보조 지표")}>{overlays.map(([key,name,color])=><button key={key} aria-pressed={shown.has(key)} style={{borderColor:shown.has(key)?color:undefined}}
       onClick={()=>setShown(old=>{const next=new Set(old);next.has(key)?next.delete(key):next.add(key);return next;})}>{name}</button>)}</div>
-    {valid.length ? <MarketChart series={series} dates={dates} height={430} controller={controller} onHover={setHover} label={t("일봉 차트")} /> : <div className="market-chart-empty">{t("차트 데이터가 없습니다.")}</div>}
+    {valid.length ? <MarketChart series={series} dates={dates} height={430} controller={controller} onHover={setHover} tooltipDecimals={2} label={t("일봉 차트")} /> : <div className="market-chart-empty">{t("차트 데이터가 없습니다.")}</div>}
     <figcaption className="market-chart-foot">{t("일봉 차트")} · {t("거래량")} · Ctrl + 휠로 확대 · 아래 구간 선택으로 기간 이동</figcaption>
   </figure>;
 });

@@ -15,6 +15,7 @@ interface Props {
   compact?: boolean; label: string; baseline?: number | null; controller?: SyncChart;
   onHover?: (index: number | null) => void; min?: number; max?: number;
   gauge?: number | null; interactive?: boolean; horizontal?: boolean;
+  tooltipDecimals?: number;
 }
 export default function MarketChart(props: Props) {
   const host = useRef<HTMLDivElement>(null);
@@ -87,6 +88,9 @@ export default function MarketChart(props: Props) {
     const down = token(paper ? "--down" : "--down-color", "#4c8ee9");
     const colors = ["#c28d36", "#1ca6a0", "#8570d8", "#438dde"];
     const compact = props.compact;
+    const tooltipNumbers = props.tooltipDecimals == null ? null : new Intl.NumberFormat("en-US", { maximumFractionDigits: props.tooltipDecimals });
+    const tooltipValue = (value: unknown): string => Array.isArray(value) ? value.map(tooltipValue).join("  ") :
+      typeof value === "number" && tooltipNumbers ? tooltipNumbers.format(value) : String(value ?? "-");
     const dates = props.dates ?? props.series[0]?.values.map((_,i) => String(i+1)) ?? [];
     const hasVolume = props.series.some(s => s.volume);
     const first = host.current.dataset.chartPainted !== "true";
@@ -101,7 +105,8 @@ export default function MarketChart(props: Props) {
       tooltip: props.interactive === false ? { show: false } : {
         trigger: "axis", renderMode: "richText", confine: true, backgroundColor: paper ? token("--p0", "#efeadd") : token("--surface-1", "#151a23"),
         textStyle: { color: token(paper ? "--ink" : "--text-primary", "#eee"), fontSize: 11 },
-        borderColor: "rgba(140,150,165,.25)", axisPointer: { type: "cross", label: { show: !compact } },
+        valueFormatter: tooltipNumbers ? tooltipValue : undefined,
+        borderColor: "rgba(140,150,165,.25)", axisPointer: { type: "cross", label: { show: !compact, precision: props.tooltipDecimals ?? "auto" } },
       },
       grid: hasVolume ? [{ left: 12, right: 66, top: 14, bottom: "29%" }, { left: 12, right: 66, top: "76%", bottom: 52 }] :
         { left: compact ? 2 : 12, right: compact ? 2 : 62, top: compact ? 4 : 12, bottom: compact ? 3 : 30 },
@@ -155,7 +160,7 @@ export default function MarketChart(props: Props) {
     chart.current.setOption(option, { notMerge: first, replaceMerge: ["series"], lazyUpdate: false });
     if (props.series.some(s => s.values.length) || props.gauge !== undefined) host.current.dataset.chartPainted = "true";
     host.current.dataset.chartMotion = reduced.current ? "reduced" : "animated";
-  }, [ready, props.series, props.dates, props.compact, props.baseline, props.gauge, props.min, props.max, props.horizontal, range, revision]);
+  }, [ready, props.series, props.dates, props.compact, props.baseline, props.gauge, props.min, props.max, props.horizontal, props.tooltipDecimals, range, revision]);
   const style: CSSProperties = props.height ? { height: props.height } : {};
   return <div ref={host} className={`market-chart ${props.className || ""}`} style={style}
     role="img" aria-label={props.label} data-chart-library="echarts" />;
