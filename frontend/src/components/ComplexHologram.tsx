@@ -9,6 +9,7 @@ import { captionedShot, saveImage3d, shareLink3d, view3dUrl, type ShareStage } f
 import { OnScreen } from "./mapExport";
 import KakaoIcon from "./KakaoIcon";
 import * as THREE from "three";
+import {prepareInitialRoads,initialRoadLayer} from './initialRoadClient';
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
@@ -1614,6 +1615,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Its facades start painting now, alongside the network.
     if (!pausedRef.current) { prefetchPaint(complexId, complexName); preloadPlants(); }
     if (hostRef.current) {
+      for(const key of ['roadsVisibleAt','roadsFirstAt','roadsInitialWorkerMs','roadsInitialVertices','roadsInitialTimings','roadsInitialError'])delete hostRef.current.dataset[key];
       for(const key of ['shownAt','plantsStartedAt','plantsPhase','plantsReadyAt','plantsTiming','roadsReadyAt','lampsReadyAt','trafficReadyAt','trafficArmedAt','sceneReady','ringAt','ring','ringSurveyed','ringStart','ringGot','photoBuildings','farGround','farPlants','farGroves','farPlantsReadyAt','waterReadyAt','waterDataReadyAt','boatsReadyAt','walkersReadyAt','parcelActorsReadyAt','boats','kids','sharp'])delete hostRef.current.dataset[key];
       hostRef.current.dataset.selectAt = started.toFixed(0);
     }
@@ -1885,6 +1887,20 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       [plan.color, plan.rough, plan.glow].forEach(keep);
       return plan;
     });
+    // Extrusion uses these same float32 footprint bounds and surveyed heights.
+    // Queue the exact ground before facade/tower preparation, so first lanes
+    // can be built alongside those meshes rather than starting after them.
+    let groundTop=10;
+    for(const b of data.buildings)if(!(b.height_source==='estimated'&&footArea(b.rings[0])<300))groundTop=Math.max(groundTop,b.height+terrain.base(b.rings[0]));
+    const groundDist=Math.max(Math.max(maxX-minX,maxY-minY,60),groundTop*1.4)*1.1+40;
+    const groundGridJob = sceneWork('terrainGround', {T, G: groundDist * 12, segs: terrain.source === null ? 64 : stage.hq ? 320 : 200, grid: terrain.grid ?? null})?.catch(() => null);
+    const roads=stitchedRoads(data.roads??[]);
+    const physicalFootprints=[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])];
+    const initialRoadStop=new AbortController();
+    disposables.push({dispose:()=>initialRoadStop.abort()});
+    const initialRoadJob=roads.length&&groundGridJob?groundGridJob.then(grid=>grid&&!initialRoadStop.signal.aborted?prepareInitialRoads({roads,terrain:terrain.grid,
+      ground:grid.position,xs:grid.grid.xs,ys:grid.grid.ys,footprints:physicalFootprints,half:FAR_HALF},initialRoadStop.signal):null):null;
+    void initialRoadJob?.catch(()=>{});
 
     // Two facade variants so neighbouring towers don't light the same windows.
     if (!await pace(true)) return;
@@ -2104,8 +2120,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const cx = (box.max.x + box.min.x) / 2, cy = (box.max.y + box.min.y) / 2;
     const dist = Math.max(span, top * 1.4) * 1.1 + 40;
     // Consume the same two random draws per neighbour, in the original order (nothing between
-    // here and the neighbours' step draws). Sent before the ground's grid: the scene worker takes
-    // its jobs in turn, and this one is waited on first (~30 ms of work behind ~300).
+    // here and the neighbours' step draws).
     // Only typed arrays cross back; abandoned builds own no GPU objects.
     const neighbourJobs = neighbours.map(b => {
       const ground = terrain.base(b.rings[0]);
@@ -2118,7 +2133,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     });
     const neighbourJob = sceneWork('neighbours', { jobs: neighbourJobs,hybrid:hybridSceneEnabled() })?.catch(() => null);
 
-    const groundGridJob = sceneWork('terrainGround', {T, G: dist * 12, segs: terrain.source === null ? 64 : stage.hq ? 320 : 200, grid: terrain.grid ?? null})?.catch(() => null);
     step("towers");
     if (!Number.isFinite(floor)) floor = 0;
     // The neighbourhood: every registered building within the surveyed radius, on its
@@ -2985,7 +2999,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Street furniture on the surveyed roads: raised sidewalks with kerbs, street trees
     // in pits, lamps, traffic and people walking. All of it after the first frame.
     stage.scene.add(decor);
-    const roads = stitchedRoads(data.roads ?? []);
     // Bridges where a road crosses open water (sceneBridges.ts), once the water parcels are known:
     // the traffic, kerbs, people and lamps there stand on the deck (roadTerrain), not on the
     // river's surface.
@@ -3022,7 +3035,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       return surface!==undefined&&Math.abs(surface-reference)<=2?surface:reference;
     }};
     if(hostRef.current){const d=hostRef.current.dataset;d.roadStructureSource=data.road_context?.source??'unavailable';d.roadStructureCoverage=data.road_context?.coverage??'unavailable';d.roadStructureLinks=String(data.road_context?.links??0);d.roadHeightSource='dem-derived-not-surveyed';d.signalStateSource='simulation';d.riverSource=data.road_context?.rivers.length?'VWorld LT_C_WKMSTRM':'parcel/OSM fallback';}
-    const physicalFootprints=[...data.road_building_footprints??[],...[...data.buildings,...data.context].map(b=>b.rings[0])];
     let pavementExclusions=[...roadFootprints(splitRoadJunctions(roads,true)),...physicalFootprints];
     const cutPavements=async(g:THREE.Group)=>{for(const m of g.children as THREE.Mesh[]){
       // Exact terrain planes keep paving above the displayed ground as well as
@@ -3492,6 +3504,32 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let surface: Awaited<ReturnType<typeof buildRoadSurface>> | null = null;
     let roadLayer: THREE.Group | null = null;
     let preparedRoadArms:TrafficArms|null=null;
+    let initialRoads:Awaited<ReturnType<typeof initialRoadLayer>>|null=null;
+    disposables.push({dispose:()=>{initialRoadStop.abort();initialRoads?.dispose();initialRoads=null;}});
+    // The measured lane/centre/edge lines need neither vehicles nor network
+    // crossings. Build the entire departure area in one bounded worker now;
+    // retain it until the traffic-aligned detailed layer is actually GPU-ready.
+    if(roads.length)void (async()=>{
+      try{
+        const grid=groundGeo.userData.grid as {xs:Float64Array;ys:Float64Array}|undefined;
+        if(!grid)return;
+        const result=await initialRoadJob??await prepareInitialRoads({roads,terrain:terrain.grid,water:(roadWater as WaterField|null)?.data,
+          ground:groundGeo.getAttribute('position').array as Float32Array,xs:grid.xs,ys:grid.ys,
+          footprints:physicalFootprints,half:FAR_HALF},initialRoadStop.signal);
+        if(!alive||marks||initialRoadStop.signal.aborted)return;
+        const first=await initialRoadLayer(result);
+        if(!alive||marks||initialRoadStop.signal.aborted){first.dispose();return;}
+        initialRoads=first;
+        stage.addWarm(decor,first.group);
+        if(roadWater)liftRoadsOverWater(roadWater);
+        while(alive&&!initialRoadStop.signal.aborted&&!stage.drawReady(first.group))await frameSlice(12,true);
+        if(!alive||initialRoadStop.signal.aborted){first.dispose();return;}
+        if(hostRef.current&&first.paint.children.length){const d=hostRef.current.dataset;
+          d.roadsVisibleAt=String(Math.round(performance.now()));d.roadsInitialWorkerMs=result.ms.toFixed(1);
+          d.roadsInitialTimings=JSON.stringify(result.timings);
+          d.roadsInitialVertices=String(first.paint.children.reduce((n,o)=>n+(o as THREE.Mesh).geometry.getAttribute('position').count,0));}
+      }catch(error){if(alive&&!initialRoadStop.signal.aborted&&hostRef.current)hostRef.current.dataset.roadsInitialError=error instanceof Error?error.message.slice(0,120):'worker unavailable';}
+    })();
     let roadBvhAbort:AbortController|null=null;
     disposables.push({dispose:()=>roadBvhAbort?.abort()});
     // (one laying at a time: asked again while one runs — the bridges placed, the water in — the
@@ -3602,6 +3640,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (surface && surface !== f) { decor.remove(surface.group); surface.dispose(); }
       if (marks) { decor.remove(marks.group); marks.dispose(); }
       surface = f; marks = m;if(roadWater&&roadWater!==lifted)liftRoadsOverWater(roadWater);
+      initialRoadStop.abort();initialRoads?.dispose();initialRoads=null;
       earlyPaint.value=null;
       asphaltAt=roadSurfaceHeight(f.group.geometry,bvh?roadBvhIndex(bvh):undefined);
       void relayWalks?.();
@@ -3610,8 +3649,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       } finally {earlyPaint.cancelled=true;earlyPaint.value?.group.removeFromParent();earlyPaint.value?.dispose();}
     };
     liftRoadsOverWater=field=>{
-      roadLayer?.traverse(o=>{const m=o as THREE.Mesh;if(!m.isMesh)return;const P=m.geometry.getAttribute('position') as THREE.BufferAttribute|undefined;if(!P)return;
-        const lift=m.parent===surface?.group||m===surface?.group?.0:.05;let moved=false;
+      for(const root of [roadLayer,initialRoads?.group])root?.traverse(o=>{const m=o as THREE.Mesh;if(!m.isMesh)return;const P=m.geometry.getAttribute('position') as THREE.BufferAttribute|undefined;if(!P)return;
+        const lift=m.parent===surface?.group||m===surface?.group?0:.05;let moved=false;
         for(let i=0;i<P.count;i++){const x=P.getX(i),y=-P.getZ(i);if(!field.wet(x,y)||deckAt?.(x,y)!=null)continue;const want=field.level(x,y)+.34+lift;if(P.getY(i)<want){P.setY(i,want);moved=true;}}
         if(moved){P.needsUpdate=true;m.geometry.computeBoundingSphere();}});
     };

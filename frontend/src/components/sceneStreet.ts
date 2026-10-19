@@ -170,7 +170,11 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
   inside?: (road: number) => boolean,
   /** Mapped crossings (TrafficArms.crossings): those across a road away from its junction arms are
    * painted where they are. */
-  crossings?: readonly { line: [number, number][]; layer?: number }[]) {
+  crossings?: readonly { line: [number, number][]; layer?: number }[],
+  /** The first frame needs surveyed lane/centre/edge lines without waiting for
+   * network crosswalks and traffic-arm layout. Those join in the detailed pass. */
+  laneLinesOnly = false,
+  paintOffsets?:ReadonlyMap<RealEstateRoad,number>) {
   const yellow: number[] = [], white: number[] = [],yellowLevels:number[]=[],whiteLevels:number[]=[],yellowProfiles:number[]=[],whiteProfiles:number[]=[],profileIds=roadProfiles(roads);
   const coverage: {road:number;lanes:number;length:number;spans:number[][]}[]=[];
   const roadBoxes=roads.map(r=>{let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;for(const[x,y]of r.line){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}return[x0,y0,x1,y1];});
@@ -345,7 +349,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
       if (lanes >= 4) { strip(yellow, 0.17, 0.15, a,b); strip(yellow, -0.17, 0.15,a,b); }
       else if (lanes >= 2) strip(yellow, 0, 0.15,a,b);
     }
-    for (const [L, atStart] of [[L0, true], [L1, false]] as const) {
+    for (const [L, atStart] of laneLinesOnly?[]:[[L0, true], [L1, false]] as const) {
       if (!L || r.width < 5 || L.zebra === false && L.stop === false) continue;
       // the zebra crossing: stripes along the road, the full width across
       const a = atStart ? L.crossA : total - L.crossB, b = atStart ? L.crossB : total - L.crossA;
@@ -357,7 +361,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     }
     // The mapped crossings along the road between its junctions (mid-block, a school's, a T's far
     // side): 4 m of zebra where the crossing's line meets the centre line.
-    if (crossings?.length && r.width >= 5) {
+    if (!laneLinesOnly && crossings?.length && r.width >= 5) {
       const own: [number, number][] = [];
       for (const [L, atStart] of [[L0, true], [L1, false]] as const) if (L && L.zebra !== false) own.push(atStart ? [L.crossA, L.crossB] : [total - L.crossB, total - L.crossA]);
       for (const [ci,cw] of crossings.entries()) {
@@ -388,7 +392,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     // left. Each 5 m long, its tip 3 m behind the stop line.
     if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
     const perSideA = Math.max(1,r.oneway?lanes:Math.floor(lanes / 2)), laneWA = r.width / Math.max(r.oneway?1:2, lanes);
-    for (const [L, atStart] of [[L0, true], [L1, false]] as const) {
+    for (const [L, atStart] of laneLinesOnly?[]:[[L0, true], [L1, false]] as const) {
       if (!L || r.width < 5) continue;
       if(r.oneway&&atStart)continue;
       const tip = atStart ? L.stopB + 3 : total - L.stopB - 3, back = atStart ? 1 : -1;
@@ -413,7 +417,8 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
       const count=r.oneway?lanes:side===1?Math.floor(lanes/2):Math.ceil(lanes/2),laneW=(r.oneway?r.width:halfW)/count;
       for(let k=1;k<count;k++)for(const[a,b]of spans){
         if (performance.now() - slice > 5) { await frameSlice(12, true); slice = performance.now(); }
-        for (let d = Math.floor(a/8)*8; d < b; d += 8) strip(white, r.oneway?k*laneW-halfW:side*k*laneW, 0.12, Math.max(a,d),Math.min(b,d+3));
+        const offset=paintOffsets?.get(r)??0;
+        for (let d = Math.floor((a+offset)/8)*8-offset; d < b; d += 8) strip(white, r.oneway?k*laneW-halfW:side*k*laneW, 0.12, Math.max(a,d),Math.min(b,d+3));
       }
     }
     while(yellowLevels.length<yellow.length/3){yellowLevels.push(roadLevel(r));yellowProfiles.push(profileIds.get(roadProfileKey(r))!);}

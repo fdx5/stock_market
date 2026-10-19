@@ -72,6 +72,9 @@ export function sliceDeadline(): number {
   return into >= 0 && into < 12 ? sceneStartedAt + 14 : now + 2;
 }
 export function frameSlice(budgetMs = 9, urgent = false): Promise<void> {
+  // Geometry module workers have their own thread and no display tick to yield
+  // to. Waiting on the page's frame scheduler defeats moving the work there.
+  if(typeof document==='undefined'&&typeof self!=='undefined')return Promise.resolve();
   return new Promise(resolve => { waiting.push({ resolve, budget: budgetMs, since: performance.now(), urgent }); schedule(); });
 }
 

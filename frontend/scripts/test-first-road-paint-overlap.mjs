@@ -21,7 +21,8 @@ function fixture(){
   cutGroundToRoads:()=>{calls.push('ground');return ground.promise;},groundGeo:{},buildRoadSurface:async()=>{calls.push('asphalt');return f;},
   buildRoadMarkings:()=>{calls.push('paint');return paint.promise;},roadHeight:()=>0,textureBudgetEnabled:()=>true,
   cutSceneSurface:async()=>{},drapeRoadOffThread:async()=>{},drapeRoadSurface:async()=>{},clipSceneStreetBox:async()=>{},FAR_HALF:680,
-  stage:{addWarm:(p,o)=>p.add(o),drawReady:()=>true},decor:new Group(),roadBvhAbort:null,roadBvhEnabled:()=>false,asphaltAt:null,roadSurfaceHeight:()=>()=>0,relayWalks:null};
+  stage:{addWarm:(p,o)=>p.add(o),drawReady:()=>true},decor:new Group(),roadBvhAbort:null,roadBvhEnabled:()=>false,asphaltAt:null,roadSurfaceHeight:()=>()=>0,relayWalks:null,
+  initialRoadStop:new AbortController(),initialRoads:null};
  vm.runInNewContext(transformSync('module.exports='+method,{loader:'ts',format:'cjs'}).code,scope);
  return{scope,run:scope.module.exports,calls,paint,ground,f,m};
 }
@@ -41,4 +42,21 @@ test('a failed ground job still disposes paint that arrives after its owner has 
 test('a paint failure is observed by the owner and never publishes an incomplete markings layer',async()=>{
  const f=fixture(),job=f.run();f.paint.reject(Error('paint failed'));f.ground.resolve();await assert.rejects(job,/paint failed/);
  assert.equal(f.scope.marks,null);
+});
+
+test('first-visible lane ribbons survive until the full replacement is ready, then release once',async()=>{
+ const f=fixture(),preview={disposed:0,dispose(){this.disposed++;}};f.scope.initialRoads=preview;
+ const job=f.run();assert.equal(preview.disposed,0);assert.equal(f.scope.initialRoadStop.signal.aborted,false);
+ f.paint.resolve(f.m);f.ground.resolve();await job;
+ assert.equal(preview.disposed,1);assert.equal(f.scope.initialRoadStop.signal.aborted,true);assert.equal(f.scope.initialRoads,null);
+});
+
+test('initial lane work starts from the first ground result without waiting for scene/traffic completion',async()=>{
+ let expression;function find(n){if(ts.isVariableDeclaration(n)&&n.name.getText(tree)==='initialRoadJob')expression=n.initializer.getText(tree);ts.forEachChild(n,find);}find(tree);
+ const ground=deferred(),calls=[],stop=new AbortController();
+ const scope={module:{exports:{}},roads:[{line:[[0,0],[20,0]],width:8,lanes:2}],groundGridJob:ground.promise,initialRoadStop:stop,terrain:{grid:{}},physicalFootprints:[],FAR_HALF:680,
+  prepareInitialRoads:(job,signal)=>{calls.push({job,signal});return Promise.resolve({paint:[]});}};
+ vm.runInNewContext(transformSync('module.exports='+expression,{loader:'ts',format:'cjs'}).code,scope);
+ assert.equal(calls.length,0);const grid={position:new Float32Array(12),grid:{xs:new Float64Array(2),ys:new Float64Array(2)}};ground.resolve(grid);
+ await scope.module.exports;assert.equal(calls.length,1);assert.equal(calls[0].job.ground,grid.position);assert.equal(calls[0].signal,stop.signal);
 });
