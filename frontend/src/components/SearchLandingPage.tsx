@@ -3,6 +3,7 @@ import { api, IndicatorPoint, InvestorSummaryItem, MarketMapItem, NewsItem, Stoc
 import { Link } from "../router";
 import Footer from "./Footer";
 import Logo from "./Logo";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import "./searchLanding.css";
 import "./searchLandingLogoFix.css";
 
@@ -60,14 +61,25 @@ export default function SearchLandingPage({ kind, code, slug, codes }: { kind: K
         setEtfs(values as EtfRow[]); setUpdatedAt(new Date().toISOString());
       } else if (kind === "us-etf") {
         const data = await api.etfs("US");
+        if (cancelled) return;
         setEtfs((data.items as EtfRow[]).sort((a, b) => b.turnover - a.turnover)); setUpdatedAt(data.updated_at);
       } else if (kind === "sp500") {
         const data = await api.sp500Map(503);
+        if (cancelled) return;
         setRows([...data.items].sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0)).slice(0, 100)); setUpdatedAt(data.generated_at);
       }
     };
-    run().catch((err: Error) => !cancelled && setError(err.message)).finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
+    let inFlight = false;
+    const load = (initial = false) => {
+      if (inFlight) return;
+      inFlight = true;
+      return run().then(() => { if (!cancelled) setError(""); })
+        .catch((err: Error) => { if (initial && !cancelled) setError(err.message); })
+        .finally(() => { inFlight = false; if (!cancelled) setLoading(false); });
+    };
+    load(true);
+    const stop = kind === "sp500" || kind === "us-etf" ? startVisibilityAwareInterval(() => load(), 10_000) : () => {};
+    return () => { cancelled = true; stop(); };
   }, [kind, code, slug, codes?.join("/")]);
 
   const meta = useMemo(() => {

@@ -320,8 +320,11 @@ def get_top100() -> dict:
         if quote and quote.get("price") is not None:
             merged["price"] = quote["price"]
             merged["currency"] = quote.get("currency")
+            for field in ("session", "regular_close", "regular_change_pct", "extended_change_pct", "quote_time", "quote_source"):
+                merged[field] = quote.get(field)
             if quote.get("change_pct") is not None:
                 merged["change_pct"] = quote["change_pct"]
+                merged["returns"] = {**it.get("returns", {}), "d1": quote["change_pct"]}
             # The USD column is companiesmarketcap's figure, moved by how far the
             # price has gone since that scrape — only where both prices are dollars.
             # Yahoo's own `marketCap` is in the listing currency (SAR for 2222.SR,

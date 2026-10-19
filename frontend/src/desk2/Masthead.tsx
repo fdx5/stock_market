@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import UsFuturesStrip from "../components/UsFuturesStrip";
 import { api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -460,6 +461,7 @@ export default function Masthead({
         <DeskBgm variant="strip" />
         <MobileSessionBar now={now} krStatus={krStatus} />
         {siteNav}
+        <UsFuturesStrip />
       </header>
     );
   }
@@ -518,6 +520,7 @@ export default function Masthead({
       {rail && <SessionRail now={now} krStatus={krStatus} />}
 
       {siteNav}
+      <UsFuturesStrip />
     </header>
   );
 }

@@ -225,6 +225,8 @@ def _nasdaq_roster(limit: int, fresh: bool) -> list[dict]:
             "regular_close": it.get("regular_close"),
             "regular_change_pct": it.get("regular_change_pct"),
             "extended_change_pct": it.get("extended_change_pct"),
+            "quote_time": it.get("quote_time"),
+            "quote_source": it.get("quote_source"),
             # For the US board this is the constituent's index weight (%), not an
             # absolute cap — see `marcap_kind` on the response, and the same note in
             # us_market_map. It is still the right thing to weight sector averages by.

@@ -32,6 +32,8 @@ SYMBOLS = [
     {"symbol": "GBPKRW=X", "label": "GBP/KRW"},
     {"symbol": "^GSPC", "label": "S&P 500"},
     {"symbol": "^NDX", "label": "Nasdaq 100"},
+    {"symbol": "ES=F", "label": "S&P 500 Futures", "currency": "pt"},
+    {"symbol": "NQ=F", "label": "Nasdaq 100 Futures", "currency": "pt"},
     {"symbol": "NVDA", "label": "NVIDIA"},
     # SK Hynix's US ADR migrated off "SKHYV" on 2026-07-10 — that symbol's Yahoo
     # quote froze at its last trade instead of erroring, so the ticker card kept
@@ -118,8 +120,9 @@ def _fetch_one(entry: dict) -> dict | None:
             "change": round(change, 4),
             "change_pct": round(change_pct, 2),
             "points": points,
-            "currency": meta.get("currency") or "USD",
+            "currency": entry.get("currency") or meta.get("currency") or "USD",
             "session": quote["session"],
+            "quote_time": quote.get("quote_time"),
         }
     except Exception:
         return None
@@ -136,6 +139,8 @@ def _fetch_all() -> list[dict]:
 
     # Keep the declared order regardless of which request finished first, so the
     # ticker's left-to-right sequence stays stable across refreshes.
+    if not results:
+        raise RuntimeError("No market ticker quotes received")
     return [results[entry["symbol"]] for entry in SYMBOLS if entry["symbol"] in results]
 
 

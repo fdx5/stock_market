@@ -12,6 +12,8 @@ requires `includePrePost=true` on the request. Both callers therefore share the
 query params here as well as the parsing.
 """
 
+import math
+
 # `includePrePost` is what makes the 04:00-09:30 and 16:00-20:00 ET bars appear in
 # the series at all; without it the arrays stop at the regular close.
 BASE_PARAMS = {"includePrePost": "true"}
@@ -24,9 +26,12 @@ def _last_traded(result: dict) -> tuple[int, float] | None:
     timestamps = result.get("timestamp") or []
     quote = (result.get("indicators", {}).get("quote") or [{}])[0]
     closes = quote.get("close") or []
-    for ts, close in zip(reversed(timestamps), reversed(closes)):
-        if close is not None:
-            return int(ts), float(close)
+    for ts, close in reversed(list(zip(timestamps, closes))):
+        try:
+            if close is not None and math.isfinite(float(close)) and float(close) > 0:
+                return int(ts), float(close)
+        except (TypeError, ValueError, OverflowError):
+            continue
     return None
 
 
@@ -74,6 +79,8 @@ def extract_quote(result: dict) -> dict | None:
 
     regular_price = float(regular_price)
     previous_close = float(previous_close)
+    if not all(math.isfinite(value) and value > 0 for value in (regular_price, previous_close)):
+        return None
     regular_time = meta.get("regularMarketTime")
     latest = _last_traded(result)
 
@@ -82,12 +89,15 @@ def extract_quote(result: dict) -> dict | None:
     # their newest bar is the regular-session bar, so they never take this branch.
     if latest is not None and regular_time is not None and latest[0] > int(regular_time):
         ts, price = latest
-        session = _session_of(ts, meta)
+        if not math.isfinite(price) or price <= 0:
+            return None
+        session = _session_of(ts, meta) if meta.get("instrumentType") in (None, "EQUITY", "ETF") else "regular"
         return {
             "price": price,
             "previous_close": regular_price if session == "pre" else previous_close,
-            "regular_close": regular_price,
+            "regular_close": price if session == "regular" else regular_price,
             "session": session,
+            "quote_time": ts,
         }
 
     return {
@@ -95,4 +105,22 @@ def extract_quote(result: dict) -> dict | None:
         "previous_close": previous_close,
         "regular_close": regular_price,
         "session": "regular",
+        "quote_time": regular_time,
+    }
+
+
+def as_stock_quote(quote: dict) -> dict:
+    """The chart and batch paths use identical price/change/session fields."""
+    price, previous, regular = quote["price"], quote["previous_close"], quote["regular_close"]
+    session = quote["session"]
+    return {
+        "close": round(price, 4),
+        "change": round(price - previous, 4),
+        "change_pct": round((price / previous - 1) * 100, 2),
+        "session": session,
+        "regular_close": round(regular, 4),
+        "regular_change_pct": None if session == "pre" else round((regular / previous - 1) * 100, 2),
+        "extended_change_pct": None if session == "regular" else round((price / regular - 1) * 100, 2),
+        "quote_time": quote.get("quote_time"),
+        "quote_source": "yahoo_chart",
     }

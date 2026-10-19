@@ -16,17 +16,27 @@ const POLL_MS = 5_000;
 let items: MarketTickerItem[] = [];
 const subscribers = new Set<(next: MarketTickerItem[]) => void>();
 let stopPolling: (() => void) | null = null;
+let inFlight = false;
 
 function fetchOnce() {
+  if (inFlight) return;
+  inFlight = true;
   api
     .marketTicker()
     .then((res) => {
-      items = res.items;
+      const bySymbol = new Map(items.map((item) => [item.symbol, item]));
+      for (const item of res.items) {
+        const previous = bySymbol.get(item.symbol);
+        if (previous?.quote_time && item.quote_time && previous.quote_time > item.quote_time) continue;
+        bySymbol.set(item.symbol, item);
+      }
+      items = [...bySymbol.values()];
       subscribers.forEach((notify) => notify(items));
     })
     .catch(() => {
       // A missed refresh just keeps the last known values on screen.
-    });
+    })
+    .finally(() => { inFlight = false; });
 }
 
 function subscribe(notify: (next: MarketTickerItem[]) => void): () => void {

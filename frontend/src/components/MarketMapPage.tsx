@@ -360,6 +360,8 @@ export default function MarketMapPage({
 
   useEffect(() => {
     let cancelled = false;
+    let fullInFlight = false;
+    let hasFullSnapshot = false;
 
     const mergeItems = (prev: MarketMapItem[], fresh: MarketMapItem[]): MarketMapItem[] => {
       const byCode = new Map(prev.map((it) => [it.code, it]));
@@ -398,19 +400,34 @@ export default function MarketMapPage({
     };
 
     const loadFullList = () => {
-      fetchMap(fullLimit, false)
+      if (fullInFlight) return;
+      fullInFlight = true;
+      return fetchMap(fullLimit, false)
         .then((res) => {
           if (cancelled) return;
           // The full snapshot is authoritative (unlike the partial tiers above), so it
           // replaces state outright — that's also what drops names that fell off the tail.
           setItems(res.items);
+          hasFullSnapshot = true;
           setGeneratedAt(res.generated_at);
           setSession(res.session);
+          setError(null);
         })
         .catch(() => {
           // Long-tail refresh failing quietly keeps whatever is already on screen.
-        });
+          if (!cancelled && !hasFullSnapshot && market === "us") setError("데이터를 불러오지 못했습니다.");
+        })
+        .finally(() => { fullInFlight = false; if (!cancelled) setLoading(false); });
     };
+
+    // A US batch already quotes the entire index. Poll that one snapshot so tail
+    // tiles, the table, tooltips and sector averages all move together.
+    if (market === "us") {
+      setLoading(true);
+      loadFullList();
+      const stop = startVisibilityAwareInterval(loadFullList, TIER1_REFRESH_MS);
+      return () => { cancelled = true; stop(); };
+    }
 
     loadPartial(tier1Limit, true);
     loadPartial(tier2Limit, true);
@@ -426,7 +443,7 @@ export default function MarketMapPage({
       stopTier2();
       stopFull();
     };
-  }, [fetchMap, tier1Limit, tier2Limit, fullLimit]);
+  }, [fetchMap, tier1Limit, tier2Limit, fullLimit, market]);
 
   useEffect(() => {
     if (!containerRef.current || view !== "map") return;
@@ -602,7 +619,9 @@ export default function MarketMapPage({
   // tiles/table rows; the full English name only shows in the hover/tap tooltip.
   const tileLabel = (code: string, name: string) => (market === "us" ? code : nameByCode.get(code) ?? name);
 
-  const liveBadgeText = lang === "en" ? "Live (rank-based refresh: 10s–1min)" : "실시간 (순위별 10초 ~ 1분단위 갱신)";
+  const liveBadgeText = market === "us"
+    ? (lang === "en" ? "Auto refresh: all stocks every 10s" : "전체 종목 10초 간격 자동 갱신")
+    : (lang === "en" ? "Live (rank-based refresh: 10s–1min)" : "실시간 (순위별 10초 ~ 1분단위 갱신)");
   const isExtendedSession = session === "pre" || session === "post";
 
   // Redraws the current sector zones/tiles from scratch onto an off-screen canvas
@@ -838,8 +857,8 @@ export default function MarketMapPage({
               {generatedAt && (
                 <span className="kospi-map-updated">
                   {lang === "en"
-                    ? ` · as of ${generatedAt.replace("T", " ")}`
-                    : ` · ${generatedAt.replace("T", " ")} 기준`}
+                    ? ` · fetched ${generatedAt.replace("T", " ")}`
+                    : ` · 조회 ${generatedAt.replace("T", " ")}`}
                 </span>
               )}
             </p>

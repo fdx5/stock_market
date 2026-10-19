@@ -94,13 +94,23 @@ def _read(row: dict) -> dict | None:
     pre_price = row.get("preMarketPrice")
     post_price = row.get("postMarketPrice")
 
-    if state in _PRE_STATES and pre_price is not None:
+    regular_time = row.get("regularMarketTime")
+    pre_time = row.get("preMarketTime")
+    post_time = row.get("postMarketTime")
+    quote_time = regular_time
+    if state in _PRE_STATES and pre_price is not None and (
+        pre_time is None or regular_time is None or pre_time > regular_time
+    ):
         price, session = float(pre_price), "pre"
         previous_close, regular_change_pct = regular_close, None
-    elif state != "REGULAR" and post_price is not None:
+        quote_time = pre_time
+    elif state not in _PRE_STATES | {"REGULAR"} and post_price is not None and (
+        post_time is None or regular_time is None or post_time > regular_time
+    ):
         price, session = float(post_price), "post"
         previous_close = _previous_close(row, regular_close)
         regular_change_pct = _pct(regular_close, previous_close)
+        quote_time = post_time
     else:
         price, session = regular_close, "regular"
         previous_close = _previous_close(row, regular_close)
@@ -119,6 +129,8 @@ def _read(row: dict) -> dict | None:
         "average_volume": int(row.get("averageDailyVolume3Month") or row.get("averageDailyVolume10Day") or 0),
         "currency": row.get("currency") or "USD",
         "session": session,
+        "quote_time": quote_time,
+        "quote_source": "yahoo_quote",
         # The regular session's own close and move, so a surface showing an extended
         # price can still say what the stock did while the exchange was open. Null
         # `regular_change_pct` means "that session hasn't happened yet" (pre-market),

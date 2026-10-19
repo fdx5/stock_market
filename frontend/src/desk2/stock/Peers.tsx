@@ -3,6 +3,7 @@ import { MarketMapItem, api } from "../../api/client";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { navigate } from "../../router";
 import { useMarketSnapshot } from "../../useMarketSnapshot";
+import { startVisibilityAwareInterval } from "../../pollVisibility";
 import StockLogo from "../../components/StockLogo";
 import { Skel } from "../parts";
 import { krwPrice, pct, toneOf, usd, usdPrice, useL, won } from "../lib";
@@ -43,8 +44,12 @@ export default function Peers({ code, market, onSummary }: { code: string; marke
     let cancelled = false;
     setItems(null);
     setGeneratedAt(undefined);
-    const req = market === "KR" ? api.sectorMap(code, 40) : api.usSectorMap(code, 40);
-    req
+    let inFlight = false;
+    const load = () => {
+      if (inFlight) return;
+      inFlight = true;
+      const req = market === "KR" ? api.sectorMap(code, 40) : api.usSectorMap(code, 40);
+      return req
       .then((r) => {
         if (cancelled) return;
         setItems(r.items);
@@ -52,9 +57,14 @@ export default function Peers({ code, market, onSummary }: { code: string; marke
         setAvg(r.avg_change_pct);
         setGeneratedAt(r.generated_at);
       })
-      .catch(() => !cancelled && setItems([]));
+      .catch(() => !cancelled && setItems((previous) => previous ?? []))
+      .finally(() => { inFlight = false; });
+    };
+    load();
+    const stop = market === "US" ? startVisibilityAwareInterval(load, 10_000) : () => {};
     return () => {
       cancelled = true;
+      stop();
     };
   }, [code, market]);
 

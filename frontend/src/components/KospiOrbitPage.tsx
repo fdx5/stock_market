@@ -12,6 +12,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { api, type MarketMapItem, type MarketMapResponse } from "../api/client";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
 import { usCompanyLogoProxyUrl, usCompanyLogoUrl } from "../usLogo";
@@ -315,6 +316,10 @@ function SpaceScene({
   const mount = useRef<HTMLDivElement>(null);
   const colorsRef = useRef(colors);
   const selectedRef = useRef(selected);
+  const updateQuotesRef = useRef<(next: System[]) => void>(() => {});
+  // Price-only refreshes update the existing bodies; rebuilding WebGL on every
+  // quote would reset the camera and interrupt a visitor inspecting a stock.
+  const systemShape = systems.map((system) => `${system.name}:${system.stocks.map((stock) => stock.code).join(",")}`).join("|");
   colorsRef.current = colors;
   selectedRef.current = selected;
   useEffect(() => {
@@ -1598,7 +1603,7 @@ uniform float uDetailLevel;`,
         sphereBrowserActive = true;
         sphereBrowserRequestedAt = performance.now();
         sphereBrowserBody = o;
-        onOpenCompanyBrowser(s);
+        onOpenCompanyBrowser(o.userData.stock as MarketMapItem);
       };
       el.onpointerdown = (event) => {
         if ((event.target as HTMLElement).closest(".orbit-company-browser-trigger")) {
@@ -1629,6 +1634,19 @@ uniform float uDetailLevel;`,
         lastY: Number.NaN,
       };
     });
+    updateQuotesRef.current = (next) => {
+      const byCode = new Map(next.flatMap((system) => system.stocks).map((stock) => [stock.code, stock]));
+      for (const entry of labelEntries) {
+        const stock = byCode.get((entry.o.userData.stock as MarketMapItem).code);
+        if (!stock) continue;
+        entry.o.userData.stock = stock;
+        const change = entry.el.querySelector(".orbit-body-change");
+        if (change) change.textContent = pct(stock.change_pct);
+        entry.el.classList.toggle("up", stock.change_pct >= 0);
+        entry.el.classList.toggle("down", stock.change_pct < 0);
+        entry.el.classList.toggle("orbit-extreme-move", Math.abs(stock.change_pct) >= 5);
+      }
+    };
     const updateLabels = (motionAlpha = 1) => {
       // Hoisted out of the loop: all three are constant across one pass, and the
       // tangent was being recomputed once per label.
@@ -2248,7 +2266,8 @@ uniform float uDetailLevel;`,
       });
       host.replaceChildren();
     };
-  }, [systems, mode.sector, onSelect, onOpenCompanyBrowser, logoUrl, colorUrl, trackingMarket]);
+  }, [systemShape, mode.sector, onSelect, onOpenCompanyBrowser, logoUrl, colorUrl, trackingMarket]);
+  useEffect(() => { updateQuotesRef.current(systems); }, [systems]);
   useEffect(() => {
     if (selected) {
       /* selection is presented by the React inspection deck */
@@ -3186,6 +3205,9 @@ export default function KospiOrbitPage({
     [colors, setColors] = useState<Map<string, number>>(new Map());
   const activeSectorRef = useRef(mode.sector);
   activeSectorRef.current = mode.sector;
+  const tourItemsRef = useRef(items);
+  tourItemsRef.current = items;
+  const hasTourItems = items.length > 0;
   const pendingTourFocusRef = useRef<{
     stock: MarketMapItem;
     viewStyle: number;
@@ -3325,6 +3347,24 @@ export default function KospiOrbitPage({
       .finally(() => setLoading(false));
   }, [config]);
   useEffect(() => {
+    if (market !== "nasdaq100") return;
+    let cancelled = false;
+    let inFlight = false;
+    const load = () => {
+      if (inFlight) return;
+      inFlight = true;
+      return config.fetchMap(config.limit).then((response) => {
+        if (cancelled) return;
+        const fresh = response.items.filter((item) => item.name.trim() !== "N2 KIS CD금리투자 ETN");
+        orbitMarketCache.set(config.key, { at: Date.now(), data: response });
+        setItems(fresh);
+        setSelected((previous) => previous ? fresh.find((item) => item.code === previous.code) ?? previous : null);
+      }).catch(() => {}).finally(() => { inFlight = false; });
+    };
+    const stop = startVisibilityAwareInterval(load, 10_000);
+    return () => { cancelled = true; stop(); };
+  }, [config, market]);
+  useEffect(() => {
     if (loading || ready || loadError) {
       setSceneSlow(false);
       return;
@@ -3437,13 +3477,14 @@ export default function KospiOrbitPage({
     );
   };
   useEffect(() => {
-    if (!autoTour || !items.length) return;
-    const tour = [...items]
-      .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct))
-      .slice(0, 8);
+    if (!autoTour || !hasTourItems) return;
     let cursor = 0,
       focusFrame = 0;
     const visit = () => {
+      const tour = [...tourItemsRef.current]
+        .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct))
+        .slice(0, 8);
+      if (!tour.length) return;
       const viewStyle = cursor % 8,
         stock = tour[cursor++ % tour.length],
         sector = stock.sector || "기타",
@@ -3475,7 +3516,7 @@ export default function KospiOrbitPage({
       window.cancelAnimationFrame(focusFrame);
       pendingTourFocusRef.current = null;
     };
-  }, [autoTour, items, config.route, launchTourFocus]);
+  }, [autoTour, hasTourItems, config.route, launchTourFocus]);
   useEffect(() => {
     if (!autoTour) {
       setTourSectorText("");

@@ -7,7 +7,7 @@ import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import SessionBadge from "./SessionBadge";
 
-const REFRESH_MS = 60_000;
+const REFRESH_MS = 10_000;
 
 // Mounts at every width, same as SectorMapPanel: where a stacked layout leaves no
 // column height to fill, the card's own min-height gives the map a box (see

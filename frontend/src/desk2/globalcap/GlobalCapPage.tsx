@@ -2,6 +2,8 @@ import TrendChart from "../../charts/TrendChart";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GlobalTop100Item, api } from "../../api/client";
 import CompanyLogo from "../../components/CompanyLogo";
+import SessionBadge from "../../components/SessionBadge";
+import SessionSplit from "../../components/SessionSplit";
 import { formatPrice } from "../../components/GlobalTop100Sparkline";
 import { hiResFlagUrl } from "../../data/flagCodes";
 import { useLanguage } from "../../i18n/LanguageContext";
@@ -556,7 +558,9 @@ export default function GlobalCapPage() {
                       </span>
                       <span className="gc-px">
                         <b className="d2-num">{it.price != null ? formatPrice(it.price, it.currency) : "—"}</b>
+                        <SessionBadge session={it.session} compact />
                         <em className={`d2-num is-${toneOf(it.change_pct)}`}>{pct(it.change_pct)}</em>
+                        {it.currency === "USD" && <SessionSplit quote={it} />}
                       </span>
                       <span className="gc-cap">
                         <small>{L("시가총액", "Mkt cap")}</small>
@@ -618,7 +622,7 @@ export default function GlobalCapPage() {
                         </button>
                       </td>
                       <td className="gc-tcountry">{cName(it.country)}</td>
-                      <td>{it.price != null ? formatPrice(it.price, it.currency) : "—"}</td>
+                      <td>{it.price != null ? formatPrice(it.price, it.currency) : "—"} <SessionBadge session={it.session} compact /></td>
                       <td>{trillion(it.market_cap_usd, lang)}</td>
                       {WINDOWS.map((w) => {
                         const v = it.returns[w.key] ?? null;

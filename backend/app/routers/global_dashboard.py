@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Response
 
-from app.data import global_discussion_fetcher, kospi_futures_fetcher, price_fetcher
+from app.data import global_discussion_fetcher, kospi_futures_fetcher, price_fetcher, us_live_quotes, yahoo_bulk_quote
+from app.services.cache import cache
 from app.data.toss_discussion_fetcher import get_toss_discussion
 from app.data.toss_news_fetcher import get_toss_image, get_toss_news, get_toss_news_article
 from app.data.toss_session import resolve_product_code
@@ -115,7 +116,7 @@ def _sanitized(item: dict, empty: dict) -> dict:
     return item
 
 
-def _widget_data(widget: dict) -> dict:
+def _widget_data(widget: dict, live: dict | None = None) -> dict:
     # "source" only steers the fetch below; it isn't part of the wire format.
     meta = {k: v for k, v in widget.items() if k != "source"}
     empty = {**meta, "close": None, "change": None, "change_pct": None, "points": []}
@@ -131,6 +132,8 @@ def _widget_data(widget: dict) -> dict:
         df = price_fetcher.get_history(widget["code"], years=1)
     except Exception:
         logger.exception("global_dashboard: failed to load history for %s", widget["code"])
+        if live:
+            return _sanitized({**meta, **live, "points": []}, empty)
         return empty
 
     tail = df.tail(SPARKLINE_POINTS)
@@ -141,9 +144,11 @@ def _widget_data(widget: dict) -> dict:
     return _sanitized(
         {
             **meta,
-            "close": float(latest["close"]),
-            "change": change,
-            "change_pct": change_pct,
+            "close": live["close"] if live else float(latest["close"]),
+            "change": live["change"] if live else change,
+            "change_pct": live["change_pct"] if live else change_pct,
+            "session": live.get("session") if live else "regular",
+            "quote_time": live.get("quote_time") if live else None,
             "points": dataframe_to_records(tail[["date", "close"]]),
         },
         empty,
@@ -152,11 +157,19 @@ def _widget_data(widget: dict) -> dict:
 
 @router.get("/indices")
 def indices():
-    items = [_widget_data(w) for w in US_WIDGETS]
+    # Daily history remains the sparkline; headline prices use the same live layer
+    # as US maps/detail pages instead of waiting for a daily-history cache refresh.
+    symbols = ["^DJI", "^IXIC", "SOXL", "TQQQ", "KORU"]
+    batch = cache.get_or_set("us_index_widget_quotes", 15, lambda: yahoo_bulk_quote.get_quotes(symbols))
+    us_live_quotes.remember(batch)
+    us_live_quotes.recover_missing([code for code in symbols if code not in batch])
+    live = us_live_quotes.latest(symbols)
+    items = [_widget_data(w, live.get("^" + w["code"] if w["unit"] == "index" else w["code"])) for w in US_WIDGETS]
 
     session = _kospi_session(dt.datetime.now(KST))
     if session:
-        partner = _widget_data(KOSPI_SESSION_WIDGETS[session])
+        partner_widget = KOSPI_SESSION_WIDGETS[session]
+        partner = _widget_data(partner_widget, live.get(partner_widget["code"]))
         # A tile that failed to load has nothing to show, so drop it rather than flipping
         # a dash into the US rotation every few seconds. When it did load, it rides the
         # same bottom-to-top flip as everything else — slotted right after SOXL, the tile

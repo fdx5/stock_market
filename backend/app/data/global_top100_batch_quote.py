@@ -14,7 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from app.data import yahoo_session
+from app.data import yahoo_quote, yahoo_session
+from app.data.yahoo_bulk_quote import _read as read_stock_quote
 from app.data.yahoo_batch_transport import fetch_rows
 
 logger = logging.getLogger(__name__)
@@ -36,15 +37,17 @@ def _fetch_chunk(symbols: list[str]) -> dict[str, dict]:
         symbol = r.get("symbol")
         if not isinstance(symbol, str) or symbol not in symbols:
             continue
-        price = _finite_number(r.get("regularMarketPrice"))
-        if price is None or price <= 0:
-            continue  # A malformed symbol must not discard the other quotes.
-        change = _finite_number(r.get("regularMarketChangePercent"))
+        try:
+            quote = read_stock_quote(r)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not quote or any(_finite_number(quote.get(key)) is None for key in ("close", "change_pct")) or quote["close"] <= 0:
+            continue
         market_cap = _finite_number(r.get("marketCap"))
         out[symbol] = {
-            "price": price,
+            **quote,
+            "price": quote["close"],
             "market_cap": market_cap,
-            "change_pct": change,
             "currency": r.get("currency"),
         }
     return out
@@ -94,16 +97,24 @@ def _chart_quote(symbol: str) -> dict | None:
     try:
         resp = requests.get(
             CHART_URL.format(symbol=symbol),
-            params={"interval": "1d", "range": "1d"},
+            params={"interval": "1m", "range": "1d", **yahoo_quote.BASE_PARAMS},
             headers=yahoo_session.HEADERS,
             timeout=6,
         )
         resp.raise_for_status()
-        meta = (resp.json()["chart"]["result"] or [{}])[0].get("meta") or {}
+        result = (resp.json()["chart"]["result"] or [{}])[0]
+        meta = result.get("meta") or {}
     except Exception:  # noqa: BLE001 - one symbol's miss costs that symbol only
         return None
     if not isinstance(meta, dict):
         return None
+    try:
+        parsed = yahoo_quote.extract_quote(result)
+    except (TypeError, ValueError, OverflowError):
+        parsed = None
+    if parsed:
+        quote = yahoo_quote.as_stock_quote(parsed)
+        return {**quote, "price": quote["close"], "market_cap": None, "currency": meta.get("currency")}
     price = _finite_number(meta.get("regularMarketPrice"))
     if price is None or price <= 0:
         return None
@@ -116,6 +127,9 @@ def _chart_quote(symbol: str) -> dict | None:
         "market_cap": None,
         "change_pct": None if change_pct is None else round(float(change_pct), 4),
         "currency": meta.get("currency"),
+        "session": "regular",
+        "quote_time": meta.get("regularMarketTime"),
+        "quote_source": "yahoo_chart",
     }
 
 

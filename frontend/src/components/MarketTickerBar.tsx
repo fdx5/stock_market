@@ -6,6 +6,8 @@ import SessionBadge from "./SessionBadge";
 const ICONS: Record<string, string> = {
   "^GSPC": "/img/ticker/spx500.webp",
   "^NDX": "/img/ticker/nas100.webp",
+  "ES=F": "/img/ticker/spx500.webp",
+  "NQ=F": "/img/ticker/nas100.webp",
   NVDA: "/img/ticker/nvidia.webp",
   SKHY: "/img/ticker/skhynix.webp",
   MU: "/img/ticker/micron.webp",

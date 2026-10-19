@@ -85,6 +85,7 @@ export interface CompanyOverview {
 export type MarketSession = "pre" | "regular" | "post";
 
 export interface MarketTickerItem {
+  quote_time?: number | null;
   symbol: string;
   label: string;
   price: number;
@@ -106,6 +107,9 @@ export interface MarketTickerItem {
  * All optional: the KR maps and boards never send them (NXT's after-hours trading is
  * folded straight into the price, with no separate session to name). */
 export interface ExtendedHours {
+  /** Unix timestamp of the actual trade, independent of the API fetch time. */
+  quote_time?: number | null;
+  quote_source?: string | null;
   session?: MarketSession;
   /** The regular session's own last print. */
   regular_close?: number | null;
@@ -416,7 +420,7 @@ export interface GlobalTop100Returns {
 
 export type AnalystRecommendation = "strong_buy" | "buy" | "hold" | "sell" | "strong_sell";
 
-export interface GlobalTop100Item {
+export interface GlobalTop100Item extends ExtendedHours {
   rank: number;
   /** Positive = climbed that many ranks since yesterday, negative = fell, null = no
    * prior-day snapshot yet for this symbol (first day after launch, or a new entrant
@@ -1471,11 +1475,11 @@ export const api = {
       `${BASE}/market/nasdaq100-map?limit=${limit}&fresh=${fresh}`
     ),
   stockBoard: (market: "kospi" | "kosdaq" | "nasdaq", fresh = false) =>
-    getJSON<StockBoard>(`${BASE}/market/board?market=${market}&fresh=${fresh}`),
+    getJSONFresh<StockBoard>(`${BASE}/market/board?market=${market}&fresh=${fresh}`),
   /** The same board without its sparkline history — for a page that already has one.
    * Pair with `mergeBoardRefresh`. */
   stockBoardRefresh: (market: "kospi" | "kosdaq" | "nasdaq") =>
-    getJSON<StockBoardRefresh>(`${BASE}/market/board?market=${market}&slim=true`),
+    getJSONFresh<StockBoardRefresh>(`${BASE}/market/board?market=${market}&slim=true`),
   /** One page of a market's cap ranking for the 종목정보 rail. Always re-fetched:
    *  the page polls it every 10s for live prices. */
   stockUniverse: (market: StockUniverseMarket, page = 1, size = 50, sector?: string, q?: string, sort: StockUniverseSort = "default") =>
@@ -1509,8 +1513,8 @@ export const api = {
   dramPriceHistory: (days = 400) =>
     getJSON<DramHistoryResponse>(`${BASE}/market/dram-price/history?days=${days}`),
   usSectorMap: (code: string, limit = 40, signal?: AbortSignal) =>
-    getJSON<UsSectorMap & { generated_at: string }>(
-      `${BASE}/market/us-sector-map?code=${encodeURIComponent(code)}&limit=${limit}`, { signal }
+    getJSONFresh<UsSectorMap & { generated_at: string }>(
+      `${BASE}/market/us-sector-map?code=${encodeURIComponent(code)}&limit=${limit}`, signal
     ),
   marketTicker: () => getJSON<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
   seoulWeather: () =>

@@ -7,6 +7,8 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import NewBadge from "./NewBadge";
+import SessionBadge from "./SessionBadge";
+import SessionSplit from "./SessionSplit";
 import StockListIcon from "./StockListIcon";
 import BattleIcon from "./BattleIcon";
 import CompanyLogo from "./CompanyLogo";
@@ -179,9 +181,11 @@ function Row({
 
         <span className="gt100-price-cell">
           <span className="gt100-price">{item.price != null ? formatPrice(item.price, item.currency) : "-"}</span>
+          <SessionBadge session={item.session} compact />
           <span className="gt100-change" data-dir={dir}>
             {formatPct(item.change_pct)}
           </span>
+          {item.currency === "USD" && <SessionSplit quote={item} />}
         </span>
 
         <span className="gt100-marcap-cell">
@@ -299,7 +303,7 @@ export default function GlobalTop100Page() {
         .then((data) => {
           if (cancelled) return;
           setItems(data.items);
-          setUpdatedAt(data.updated_at);
+          setUpdatedAt(data.live_updated_at ?? data.updated_at);
           setError(null);
         })
         .catch((err: Error) => {

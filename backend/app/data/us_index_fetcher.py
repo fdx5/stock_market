@@ -4,8 +4,8 @@ import FinanceDataReader as fdr
 import pandas as pd
 import requests
 
-from app.data import yahoo_bulk_quote
-from app.data.global_marketcap_fetcher import HEADERS, get_live_quotes_bulk
+from app.data import us_live_quotes, yahoo_bulk_quote
+from app.data.global_marketcap_fetcher import HEADERS
 from app.services.cache import cache
 
 SLICKCHARTS_URLS = {
@@ -130,7 +130,13 @@ def _with_sector(items: list[dict]) -> list[dict]:
 # What a constituent row carries when its live quote is missing — the slickcharts
 # figures are scraped from a regular-hours table, so they are a regular-session quote by
 # construction and must never be labelled pre/post.
-_REGULAR_ONLY = {"session": "regular", "regular_change_pct": None, "extended_change_pct": None}
+_REGULAR_ONLY = {
+    "session": "regular",
+    "regular_change_pct": None,
+    "extended_change_pct": None,
+    "quote_source": "snapshot",
+    "quote_time": None,
+}
 
 
 def _merge_quote(item: dict, quote: dict | None) -> dict:
@@ -167,7 +173,11 @@ def _constituents(index: str, fresh: bool) -> list[dict]:
         lambda: yahoo_bulk_quote.get_quotes([it["code"] for it in roster]),
         allow_stale=not fresh,
     )
-    return [_merge_quote(it, quotes.get(it["code"])) for it in roster]
+    codes = [it["code"] for it in roster]
+    us_live_quotes.remember(quotes)
+    us_live_quotes.recover_missing([code for code in codes if code not in quotes])
+    latest = us_live_quotes.latest(codes)
+    return [_merge_quote(it, latest.get(it["code"])) for it in roster]
 
 
 def get_sp500_constituents(fresh: bool = False) -> list[dict]:
@@ -205,9 +215,8 @@ def get_us_stock_quote(code: str, name: str, snapshot: dict | None = None) -> di
 
     1. the batched v7 quote endpoint the maps and boards run on, so a stock's detail page
        and its tile on /sp500-map can't quote different numbers;
-    2. the v8 chart endpoint (`get_live_quotes_bulk`), which needs no crumb and so still
-       answers if the handshake in (1) is being refused. It is also extended-hours aware,
-       just without the regular/extended split;
+    2. the shared, crumbless v8 recovery layer, also used by the maps. It preserves
+       the regular/extended split, actual trade time and last successful print;
     3. the caller's cached constituent row — up to a day old (us_universe holds that
        snapshot for 24h), so it is a last resort, not a live quote.
 
@@ -217,31 +226,11 @@ def get_us_stock_quote(code: str, name: str, snapshot: dict | None = None) -> di
     """
     quote = yahoo_bulk_quote.get_quotes([code]).get(code)
     if quote:
-        return {"code": code, "name": name, **quote}
+        return {"code": code, "name": name, **us_live_quotes.remember({code: quote})[code]}
 
-    live = get_live_quotes_bulk([code]).get(code)
-    if live and live["previous_close"]:
-        price, regular_close = live["price"], live["regular_close"]
-        session = live["session"]
-        return {
-            "code": code,
-            "name": name,
-            "close": price,
-            "change": price - live["previous_close"],
-            "change_pct": (price / live["previous_close"] - 1) * 100,
-            "session": session,
-            "regular_close": regular_close,
-            # Pre-market has no regular session of its own yet to report — see the same
-            # distinction in yahoo_bulk_quote._read.
-            "regular_change_pct": (
-                None
-                if session == "pre" or not live["previous_close"]
-                else (regular_close / live["previous_close"] - 1) * 100
-            ),
-            "extended_change_pct": (
-                None if session == "regular" or not regular_close else (price / regular_close - 1) * 100
-            ),
-        }
+    recovered = us_live_quotes.chart_quote(code)
+    if recovered:
+        return {"code": code, "name": name, **recovered}
 
     if snapshot:
         return {

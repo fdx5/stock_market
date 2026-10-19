@@ -44,11 +44,12 @@ const EMPTY: UsMarketSnapshot = {
   session: null,
   generatedAt: null,
 };
-const REFRESH_MS = 60_000;
+const REFRESH_MS = 10_000;
 
 let snapshot: UsMarketSnapshot = EMPTY;
 const listeners = new Set<(value: UsMarketSnapshot) => void>();
 let stopPolling: (() => void) | null = null;
+let inFlight = false;
 
 function merge(sp500: MarketMapItem[], nasdaq: MarketMapItem[]): MarketMapItem[] {
   const byCode = new Map<string, MarketMapItem>();
@@ -58,21 +59,29 @@ function merge(sp500: MarketMapItem[], nasdaq: MarketMapItem[]): MarketMapItem[]
 }
 
 function load() {
-  Promise.all([api.sp500Map(503, false), api.nasdaq100Map(103, false)])
-    .then(([sp500, nasdaq]) => {
+  if (inFlight) return;
+  inFlight = true;
+  Promise.allSettled([api.sp500Map(503, false), api.nasdaq100Map(103, false)])
+    .then(([spResult, nqResult]) => {
+      if (spResult.status === "rejected" && nqResult.status === "rejected") return;
+      const sp500 = spResult.status === "fulfilled" ? spResult.value : null;
+      const nasdaq = nqResult.status === "fulfilled" ? nqResult.value : null;
+      const spItems = sp500?.items ?? snapshot.sp500;
+      const nqItems = nasdaq?.items ?? snapshot.nasdaq;
       snapshot = {
-        sp500: sp500.items,
-        nasdaq: nasdaq.items,
-        all: merge(sp500.items, nasdaq.items),
-        session: sp500.session ?? nasdaq.session ?? null,
-        generatedAt: sp500.generated_at ?? null,
+        sp500: spItems,
+        nasdaq: nqItems,
+        all: merge(spItems, nqItems),
+        session: sp500?.session ?? nasdaq?.session ?? snapshot.session,
+        generatedAt: sp500?.generated_at ?? nasdaq?.generated_at ?? snapshot.generatedAt,
       };
       for (const listener of listeners) listener(snapshot);
     })
     .catch(() => {
       // A missed refresh keeps the last snapshot rather than blanking every
       // reader at once.
-    });
+    })
+    .finally(() => { inFlight = false; });
 }
 
 export function useUsMarketSnapshot(): UsMarketSnapshot {
