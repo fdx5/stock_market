@@ -31,7 +31,7 @@ test('engaging while moving captures and maintains the exact horizontal speed, i
 
 test('temporary loading holds preserve the captured speed and resume it when loading completes',()=>{
   const f=new DroneFlight();f.place(0,0,0,175,0);f.vel.z=-157/3.6;f.setAutopilot(true);
-  run(f,{...flat,clearAhead:()=>0},8);assert.ok(f.kmh<.01);assert.ok(Math.abs(f.autoCruiseSpeed*3.6-157)<1e-9);
+  run(f,{...flat,clearAhead:()=>0},8);assert.ok(f.kmh<=40.5,f.kmh);assert.ok(Math.abs(f.autoCruiseSpeed*3.6-157)<1e-9);
   run(f,flat,15);assert.ok(Math.abs(f.kmh-157)<.01,f.kmh);
   f.setAutopilot(false);f.vel.z=-40/3.6;f.setAutopilot(true);run(f,flat,5);
   assert.ok(Math.abs(f.kmh-40)<.01,'re-engagement captures the new speed');
@@ -90,10 +90,12 @@ test('maximum-speed cruise still brakes before an impassable tower and resumes i
   f.look(-Math.PI/2/.0042,0);run(f,world,15);assert.ok(Math.abs(f.kmh-200)<.01,f.kmh);
 });
 
-test('unloaded terrain holds the autopilot stationary; loading lets it resume',()=>{
+test('unloaded terrain holds the autopilot briefly, then lets it crawl; loading lets it resume',()=>{
   const f=new DroneFlight();f.place(0,0,0,175,0);f.setAutopilot(true);
-  run(f,{...flat,clearAhead:()=>0},20);assert.ok(Math.abs(f.pos.z)<.1);assert.equal(f.limit,0);
-  run(f,flat,10);assert.ok(f.pos.z<-100);
+  run(f,{...flat,clearAhead:()=>0},2.5);assert.ok(Math.abs(f.pos.z)<.1);assert.equal(f.limit,0);
+  // (a slow machine: the tiles ahead still loading a minute later must not leave the drone stuck)
+  run(f,{...flat,clearAhead:()=>0},20);assert.ok(f.pos.z<-50,f.pos.z);assert.ok(f.kmh<=40.5,f.kmh);
+  run(f,flat,10);assert.ok(f.kmh>60,f.kmh);
 });
 
 test('manual movement and altitude inputs cancel autopilot; yaw remains available',()=>{
@@ -145,4 +147,10 @@ test('manual keyboard, touch, altitude buttons and wheel can climb beyond 1000m 
     f.keys.clear();f.sticks.left=[0,0];f.wheelClimb(1000);const high=f.agl;f.keys.add('BtnDown');run(f,flat,5);assert.ok(f.agl<high);
   }
   const f=new DroneFlight();f.place(0,0,0,12000,0);const camera=new THREE.PerspectiveCamera();f.apply(camera);assert.ok(camera.far>f.agl);
+});
+
+test('a pilot pushing toward unloaded terrain is held at most a few seconds, then crawls',()=>{
+  const f=new DroneFlight();f.place(0,0,0,175,0);f.keys.add('KeyW');
+  run(f,{...flat,clearAhead:()=>0},2);assert.ok(f.kmh<5,f.kmh);
+  run(f,{...flat,clearAhead:()=>0},10);assert.ok(f.kmh>30&&f.kmh<=40.5,f.kmh);
 });

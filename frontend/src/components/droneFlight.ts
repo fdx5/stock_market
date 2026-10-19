@@ -20,6 +20,9 @@ export const AUTO_MAX_AGL = 1000;
 export const AUTO_SPEED = 100 / 3.6;
 /** Everything within this distance ahead must be on screen (droneWorld.clearAhead). */
 export const READY_AHEAD = 300;
+/** A hold for the world ahead never lasts: after HOLD_MAX seconds the drone may go on at
+ * CRAWL_SPEED, so a slow machine (tiles taking a minute each) is never left unable to fly. */
+export const CRAWL_SPEED = 40 / 3.6, HOLD_MAX = 3;
 /** Gentle clockwise panorama: one revolution in ninety seconds. */
 export const AUTO_ROTATE_RATE = Math.PI * 2 / 90;
 
@@ -56,6 +59,8 @@ export class DroneFlight {
   readonly sticks: DroneSticks = { left: [0, 0], right: [0, 0] };
   /** The fastest the drone may go now (the world still loading ahead), m/s. */
   limit = MAX_SPEED;
+  /** seconds the world ahead has held the drone below CRAWL_SPEED */
+  private held = 0;
   /** How far ahead along the flight everything is on screen (m; checked up to the stopping
    * distance + 300 m). */
   ahead = Infinity;
@@ -255,7 +260,13 @@ export class DroneFlight {
       const clear = world.clearAhead(x, y, dx, dy, look);
       this.ahead = clear;
       this.limit = clear >= look ? MAX_SPEED : Math.sqrt(Math.max(0, 2 * BRAKE * (clear - READY_AHEAD)));
-    } else { this.limit = MAX_SPEED; this.ahead = Infinity; }
+      this.held = this.limit < CRAWL_SPEED ? this.held + dt : 0;
+      if (this.held > HOLD_MAX) this.limit = Math.max(this.limit, CRAWL_SPEED);
+    } else {
+      // (a hover between pushes keeps the hold counted: each push is braked back under 0.5 m/s)
+      this.limit = MAX_SPEED; this.ahead = Infinity;
+      if (this.held > 0 && this.held <= HOLD_MAX) this.held += dt;
+    }
     const cap = Math.min(MAX_SPEED, autoCap, Math.max(this.limit, 0));
     hs = Math.hypot(this.vel.x, this.vel.z);
     if (hs > cap) {
