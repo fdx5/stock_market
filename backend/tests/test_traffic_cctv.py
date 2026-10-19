@@ -1,5 +1,6 @@
 """No app startup, persistence, existing DB, or real provider credentials."""
 import ipaddress
+import json
 import time
 from collections import OrderedDict
 from unittest.mock import Mock
@@ -195,7 +196,7 @@ def test_city_catalogue_is_read_once_and_filtered_nearby_without_exposing_the_ke
     calls = []
     def get(url, params=None, **k):
         calls.append(url)
-        return Mock(status_code=200, json=lambda: CATALOGUE, raise_for_status=lambda: None)
+        return Mock(status_code=200, content=json.dumps(CATALOGUE).encode(), headers={}, raise_for_status=lambda: None)
     city.setattr(c.requests, "get", get)
     first = c.cameras(37.5465, 126.9886)
     again = c.cameras(37.547, 126.989)
@@ -212,7 +213,7 @@ def test_city_rejection_is_reported_and_not_retried_at_once(city):
     calls = []
     def get(url, params=None, **k):
         calls.append(url)
-        return Mock(status_code=200, json=lambda: [{"resultCode": "02", "resultMsg": "유효한 KEY값이 아닙니다."}], raise_for_status=lambda: None)
+        return Mock(status_code=200, content=json.dumps([{"resultCode": "02", "resultMsg": "유효한 KEY값이 아닙니다."}]).encode(), headers={}, raise_for_status=lambda: None)
     city.setattr(c.requests, "get", get)
     assert c.cameras(37.5, 127)["status"] == "not_authorized"
     assert c.cameras(37.5, 127)["status"] == "not_authorized" and len(calls) == 1
@@ -226,7 +227,7 @@ SEOUL_PAGE = """<div id="cctvarea">
 
 
 def test_player_page_resolves_to_a_relayed_stream_once(city):
-    city.setattr(c.requests, "get", lambda url, params=None, **k: Mock(status_code=200, json=lambda: CATALOGUE, raise_for_status=lambda: None))
+    city.setattr(c.requests, "get", lambda url, params=None, **k: Mock(status_code=200, content=json.dumps(CATALOGUE).encode(), headers={}, raise_for_status=lambda: None))
     token = c.cameras(37.5465, 126.9886)["items"][0]["resolve"].rsplit("/", 1)[1]
     pages = []
     def page(url, params=None, **k):

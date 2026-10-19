@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import json
 import ipaddress
 import math
 import os
@@ -202,6 +203,29 @@ def _issue_code(error) -> str:
         else "provider_error")
 
 
+def _catalogue(reply, key: str):
+    """The catalogue JSON, whatever its declared character set; an unreadable reply
+    records its type, size and opening characters (key removed) for diagnosis."""
+    raw = reply.content
+    for encoding in ("utf-8-sig", "cp949"):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        text = raw.decode("utf-8", "replace")
+    text = text.strip()
+    if text.startswith(("(", "callback")) and text.endswith((")", ");")):
+        text = text[text.find("(") + 1:text.rfind(")")]
+    try:
+        return json.loads(text, strict=False)
+    except ValueError:
+        head = re.sub(r"\s+", " ", text[:120]).replace(key, "<key>") if key else text[:120]
+        _utic["sample"] = {"type": reply.headers.get("Content-Type", "")[:60], "bytes": len(raw), "head": head}
+        raise
+
+
 def _utic_rows() -> dict:
     """The camera catalogue by CCTVID; the last good one is kept through failures."""
     now = time.monotonic()
@@ -218,7 +242,7 @@ def _utic_rows() -> dict:
         try:
             reply = _utic_get(UTIC_LIST, {"key": key}, (5, 25))
             reply.raise_for_status()
-            body = reply.json()
+            body = _catalogue(reply, key)
             if isinstance(body, dict):
                 body = next((v for v in body.values() if isinstance(v, list)), [body])
             if not isinstance(body, list):
@@ -389,7 +413,7 @@ def status() -> dict:
     return {"city": {"enabled": CITY_CCTV_ENABLED, "key": name if key else None,
         "env_names": [n for n in os.environ if "UTIC" in n.upper()][:10],
         "cameras": len(_utic["rows"]), "age_s": int(time.monotonic() - _utic["at"]) if _utic["at"] else None,
-        "issue": _utic["issue"], "fields": _utic["fields"],
+        "issue": _utic["issue"], "fields": _utic["fields"], "sample": _utic.get("sample"),
         "kinds": dict(sorted(_utic["kinds"].items(), key=lambda e: -e[1])[:30]),
         "resolves": _resolve_log[-15:]}, "highway": {"enabled": HIGHWAY_CCTV_ENABLED, "key": bool(_key())}}
 
