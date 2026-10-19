@@ -11,6 +11,7 @@ from app.services import traffic_cctv as c
 @pytest.fixture(autouse=True)
 def enable_provider_for_isolated_adapter_checks(monkeypatch):
     monkeypatch.setattr(c, "HIGHWAY_CCTV_ENABLED", True)
+    monkeypatch.setattr(c, "CITY_CCTV_ENABLED", False)
 
 
 def test_paused_provider_never_queries_its_even_with_a_key_and_refresh(monkeypatch):
@@ -161,3 +162,104 @@ def test_expired_or_unknown_reference_does_not_fetch(monkeypatch):
     monkeypatch.setitem(c._media, token, ("https://example.org/expired", time.monotonic() - 1))
     with pytest.raises(LookupError):
         c.media(token)
+
+
+# --- UTIC city CCTV ------------------------------------------------------------
+
+@pytest.fixture
+def city(monkeypatch):
+    monkeypatch.setattr(c, "CITY_CCTV_ENABLED", True)
+    monkeypatch.setattr(c, "HIGHWAY_CCTV_ENABLED", False)
+    for name in c.UTIC_KEY_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("UTIC_API_KEY", "fixture-city-key")
+    monkeypatch.setattr(c, "_utic", {"rows": {}, "at": 0.0, "retry_at": 0.0, "issue": None, "fields": [], "kinds": {}})
+    monkeypatch.setattr(c, "_resolved", OrderedDict())
+    monkeypatch.setattr(c, "_utic_next", [0.0])
+    monkeypatch.setattr(c, "_utic_block", [0.0])
+    return monkeypatch
+
+
+CATALOGUE = [{"CCTVID": "L010001", "CCTVNAME": "남산1호터널", "CENTERNAME": "서울특별시", "XCOORD": "126.9886", "YCOORD": "37.5465",
+    "MOVIE": "Y", "KIND": "Seoul", "CCTVIP": "L010001", "CH": None, "ID": None, "PASSWD": None, "PORT": None},
+    {"CCTVID": "far", "CCTVNAME": "Busan", "XCOORD": "129.07", "YCOORD": "35.17", "KIND": "B", "MOVIE": "Y"}]
+
+
+def test_city_needs_a_key_before_any_request(city):
+    city.delenv("UTIC_API_KEY")
+    city.setattr(c.requests, "get", lambda *a, **k: pytest.fail("no key, no request"))
+    assert c.cameras(37.5465, 126.9886)["status"] == "needs_key"
+
+
+def test_city_catalogue_is_read_once_and_filtered_nearby_without_exposing_the_key(city):
+    calls = []
+    def get(url, params=None, **k):
+        calls.append(url)
+        return Mock(status_code=200, json=lambda: CATALOGUE, raise_for_status=lambda: None)
+    city.setattr(c.requests, "get", get)
+    first = c.cameras(37.5465, 126.9886)
+    again = c.cameras(37.547, 126.989)
+    assert calls == [c.UTIC_LIST]
+    assert [i["id"] for i in first["items"]] == ["utic:L010001"] == [i["id"] for i in again["items"]]
+    item = first["items"][0]
+    assert item["resolve"].startswith("/api/realestate/cctv/open/") and item["media"] is None
+    assert first["items"][0]["resolve"] == again["items"][0]["resolve"], "one camera keeps one reference"
+    assert "fixture-city-key" not in str(first) and "utic.go.kr" not in str(first)
+    assert c.status()["city"]["key"] == "UTIC_API_KEY" and "fixture-city-key" not in str(c.status())
+
+
+def test_city_rejection_is_reported_and_not_retried_at_once(city):
+    calls = []
+    def get(url, params=None, **k):
+        calls.append(url)
+        return Mock(status_code=200, json=lambda: [{"resultCode": "02", "resultMsg": "유효한 KEY값이 아닙니다."}], raise_for_status=lambda: None)
+    city.setattr(c.requests, "get", get)
+    assert c.cameras(37.5, 127)["status"] == "not_authorized"
+    assert c.cameras(37.5, 127)["status"] == "not_authorized" and len(calls) == 1
+    assert c.status()["city"]["issue"]["message"].startswith("유효한")
+
+
+SEOUL_PAGE = """<div id="cctvarea">
+<!-- 2018_10_26 'http://211.236.72.94:1935/live/video.stream/playlist.m3u8-->
+<video id="vid" controls autoplay muted><source src="https://strmu.spatic.go.kr/live/L010001.stream/playlist.m3u8" type="application/x-mpegURL"></video>
+</div><script src="/js/hls.js"></script>"""
+
+
+def test_player_page_resolves_to_a_relayed_stream_once(city):
+    city.setattr(c.requests, "get", lambda url, params=None, **k: Mock(status_code=200, json=lambda: CATALOGUE, raise_for_status=lambda: None))
+    token = c.cameras(37.5465, 126.9886)["items"][0]["resolve"].rsplit("/", 1)[1]
+    pages = []
+    def page(url, params=None, **k):
+        pages.append(params)
+        return Mock(status_code=200, content=SEOUL_PAGE.encode(), raise_for_status=lambda: None)
+    city.setattr(c.requests, "get", page)
+    opened = c.open_city(token)
+    assert opened["format"] == "hls" and opened["media"].startswith("/api/realestate/cctv/media/")
+    assert c.open_city(token) == opened and len(pages) == 1, "a resolved camera is not fetched again"
+    assert pages[0]["kind"] == "Seoul" and pages[0]["cctvip"] == "L010001"
+    target = c._media[opened["media"].rsplit("/", 1)[1]][0]
+    assert target == "https://strmu.spatic.go.kr/live/L010001.stream/playlist.m3u8", "commented old addresses are ignored"
+
+
+def test_page_without_video_is_a_failure_not_a_stream(city):
+    url, frame = c._page_media('<div id="cctvarea"><source src="https://strmu.spatic.go.kr/live/null.stream/playlist.m3u8"></div>', c.UTIC_PAGE)
+    assert url is None and frame is None
+
+
+def test_unknown_city_reference_does_not_fetch(city):
+    city.setattr(c.requests, "get", lambda *a, **k: pytest.fail("unexpected fetch"))
+    with pytest.raises(LookupError):
+        c.open_city("unknown-reference-token-000")
+
+
+def test_provider_errors_are_not_repeated_within_ten_seconds(city):
+    calls = []
+    def fail(url):
+        calls.append(url)
+        raise c.MediaProviderError(502)
+    city.setattr(c, "_public_fetch", fail)
+    token = c._remember("https://strmu.spatic.go.kr/live/x.stream/playlist.m3u8")
+    for _ in range(3):
+        with pytest.raises(c.MediaProviderError):
+            c.media(token)
+    assert len(calls) == 1

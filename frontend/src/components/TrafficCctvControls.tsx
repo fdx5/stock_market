@@ -37,19 +37,19 @@ export default function TrafficCctvControls({cctv,signs,vkey,domain,where,onPick
     return()=>{stop.abort();clearInterval(timer);};
   },[enabled,retry,cctv,signs,vkey,domain]);
   return <div className="re-cctv-controls">
-    <label><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> 고속도로·국도 CCTV</label>
-    {enabled&&result?.status==='needs_key'&&<p className="re-cctv-connection" role="status">고속도로 CCTV 영상 연결 준비 중</p>}
+    <label><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> 도시 교통 CCTV</label>
+    {enabled&&result?.status==='needs_key'&&<p className="re-cctv-connection" role="status">도시 CCTV 영상 연결 준비 중</p>}
     {enabled&&['invalid_key','not_authorized'].includes(result?.status??'')&&<p className="re-cctv-connection" role="status">영상 제공기관의 연결 승인이 필요합니다.</p>}
     {enabled&&result?.status==='unavailable'&&<p className="re-cctv-connection" role="status">{result.connectionFailed?'CCTV 위치 조회 연결이 지연되고 있습니다. 다시 시도 중입니다.':'CCTV 위치를 불러오지 못했습니다. 다시 시도 중입니다.'}</p>}
     {enabled&&result?.stale&&<p className="re-cctv-connection" role="status">최근 확인한 위치 표시 · 영상 연결 재시도 중</p>}
     {enabled&&<details><summary>주변 CCTV {busy?'조회 중…':`${result?.items.length??0}곳`}</summary>
       <div className="re-cctv-list">
         {!!result?.items.length&&<p>가까운 {Math.min(160,result.items.length)}곳 표시 · 영상 연결 여부를 확인하세요.</p>}
-        {result?.items.slice(0,160).map(c=><button key={c.id} type="button" onClick={()=>{const s=signs.all().find(s=>s.camera?.id===c.id);if(s)current.current.onPick(s);}}>{c.name}<small>{c.media?'영상 보기':'위치 정보'}</small></button>)}
-        {!busy&&!result?.items.length&&<p>{result?.locationFailed?'CCTV 위치를 불러오지 못했습니다.':'주변에 제공되는 고속도로·국도 CCTV가 없습니다.'}</p>}
+        {result?.items.slice(0,160).map(c=><button key={c.id} type="button" onClick={()=>{const s=signs.all().find(s=>s.camera?.id===c.id);if(s)current.current.onPick(s);}}>{c.name}<small>{c.media||c.resolve?'영상 보기':'위치 정보'}</small></button>)}
+        {!busy&&!result?.items.length&&<p>{result?.locationFailed?'CCTV 위치를 불러오지 못했습니다.':'주변에 제공되는 교통 CCTV가 없습니다.'}</p>}
         {['partial','unavailable'].includes(result?.status??'')&&<p>일부 CCTV 영상 정보를 불러오지 못했습니다.</p>}
         <button type="button" onClick={()=>setRetry(r=>r+1)}>CCTV 새로고침</button>
-        <small>국토교통부 국가교통정보센터 · 도심 CCTV 준비 중</small>
+        <small>경찰청 도시교통정보센터(UTIC) 교통 CCTV</small>
       </div>
     </details>}
   </div>;

@@ -28,7 +28,11 @@ try{
   globalThis.fetch=async url=>{calls.push(url);return {ok:true,json:async()=>({items:[c,video,{...video,id:'utic:pending'}],status:'ok'})};};
   const loaded=await loadCameras(37.5,127,'fixture','fixture',new AbortController().signal,true);
   assert.ok(calls[0].includes('fresh=true'),'reconnecting video must renew the server link too');
-  assert.deepEqual(loaded.items.map(c=>c.id),[video.id],'only playable ITS cameras are linked while city approval is pending');
+  assert.deepEqual(loaded.items.map(c=>c.id),[video.id],'records without a provider video are not linked');
+  const city={...c,id:'utic:L010001',name:'City camera',lon:127.001,resolve:'/api/realestate/cctv/open/fixture-reference-0001'};
+  globalThis.fetch=async()=>({ok:true,json:async()=>({items:[city,{...city,id:'utic:foreign',name:'Other',lon:127.003,resolve:'https://example.org/x'}],status:'ok'})});
+  const cityLoaded=await loadCameras(37.5,127.001,'fixture','fixture',new AbortController().signal,true);
+  assert.deepEqual(cityLoaded.items.map(c=>c.id),[city.id],'UTIC city cameras open only through this server');
   assert.equal(loaded.locationFailed,false,'disabled city lookup is not a failed provider');
   globalThis.fetch=async()=>({ok:true,json:async()=>({items:[],status:'unavailable',issues:[{road:'ex',code:'connect_timeout'}]})});
   const failed=await loadCameras(37.5,127,'fixture','fixture',new AbortController().signal,true);
@@ -48,4 +52,4 @@ assert.deepEqual(radarCameraPoint(100,0,0,0,10,210,0),{x:115,y:105,visible:true}
 const rotated=radarCameraPoint(100,0,0,0,10,210,-Math.PI/2);
 assert.ok(Math.abs(rotated.x-105)<1e-6&&Math.abs(rotated.y-95)<1e-6,'heading-up map keeps camera hit targets on their icons');
 assert.equal(radarCameraPoint(3000,0,0,0,10,210,0).visible,false,'off-map cameras must not become false on-map locations');
-console.log('CCTV: provider failures, city isolation, coordinates, merge limits, radar fit and rotated hit targets passed');
+console.log('CCTV: provider failures, city cameras, coordinates, merge limits, radar fit and rotated hit targets passed');

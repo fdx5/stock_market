@@ -1,7 +1,10 @@
-"""Public ITS traffic cameras. Process-local metadata/media references only; no database.
+"""Public traffic cameras (UTIC city CCTV, ITS highways). Process-local metadata/media
+references only; no database.
 
-The service key and provider URLs stay on the server. Media references can only be
-created from an ITS reply or one of its HLS manifests, never from a client URL.
+The service keys and provider URLs stay on the server. Media references can only be
+created from a provider reply or one of its HLS manifests, never from a client URL.
+UTIC authenticates by key and the server's registered address range, so every UTIC
+request (catalogue, player page, video) goes through this server.
 """
 from __future__ import annotations
 
@@ -27,11 +30,16 @@ SOURCE = "국토교통부 국가교통정보센터"
 # Paused by the owner while hosting-network access is unresolved. Keep credentials
 # intact; a future approved city provider must remain independent of this gate.
 HIGHWAY_CCTV_ENABLED = False
+UTIC_LIST = "https://www.utic.go.kr/guide/cctvOpenData.do"
+UTIC_PAGE = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
+UTIC_SOURCE = "경찰청 도시교통정보센터(UTIC)"
+UTIC_KEY_NAMES = ("UTIC_CCTV_API_KEY", "UTIC_API_KEY", "UTIC_KEY", "UTIC_CCTV_KEY", "UTIC_OPEN_API_KEY")
+CITY_CCTV_ENABLED = True
 _cache: OrderedDict = OrderedDict()
 _media: OrderedDict = OrderedDict()
 _by_url: dict = {}
 _lock = threading.RLock()
-_slots = threading.BoundedSemaphore(6)
+_slots = threading.BoundedSemaphore(10)
 
 
 class CameraAuthError(ValueError):
@@ -48,10 +56,19 @@ def _key():
     return (os.environ.get("ITS_CCTV_API_KEY") or os.environ.get("ITS_API_KEY") or "").strip()
 
 
+def _utic_key():
+    for name in UTIC_KEY_NAMES:
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return name, value
+    return None, ""
+
+
 def _allowed_port(p) -> bool:
     port = p.port or (443 if p.scheme == "https" else 80)
-    # The official HTTPS HLS entry redirects to this provider's port 8082.
-    return port in (80, 443, 8080, 8081, 8443, 9443) or (
+    # The official HTTPS HLS entry redirects to this provider's port 8082; city
+    # streaming servers (Wowza) publish HLS on 1935.
+    return port in (80, 443, 1935, 8080, 8081, 8443, 9443) or (
         port == 8082 and p.scheme == "https" and p.hostname == "cctvsec.ktict.co.kr")
 
 
@@ -129,9 +146,265 @@ def _fetch_road(road, lat, lon):
     return out
 
 
+# --- UTIC city CCTV -------------------------------------------------------------
+# UTIC blocks clients that call one URL 5+ times a second or cause repeated upstream
+# 50x replies. The catalogue is read at most every six hours, player pages are
+# resolved once per camera and kept, and all UTIC requests share one pace.
+_utic = {"rows": {}, "at": 0.0, "retry_at": 0.0, "issue": None, "fields": [], "kinds": {}}
+_utic_fetch = threading.Lock()
+_utic_pace = threading.Lock()
+_utic_next = [0.0]
+_utic_block = [0.0]
+_pages: OrderedDict = OrderedDict()
+_page_by_id: dict = {}
+_resolved: OrderedDict = OrderedDict()
+_resolve_log: list = []
+_failed_media: dict = {}
+_manifests: OrderedDict = OrderedDict()
+UTIC_HEADERS = {"User-Agent": "Mozilla/5.0 (kospimap.com traffic CCTV)", "Referer": "https://www.utic.go.kr/"}
+
+
+def _utic_get(url, params, timeout):
+    """One paced UTIC request; a provider 50x pauses every UTIC request for 30 s."""
+    with _utic_pace:
+        now = time.monotonic()
+        if now < _utic_block[0]:
+            raise MediaProviderError(503)
+        wait = _utic_next[0] - now
+        if wait > 2:
+            raise MediaProviderError(429)
+        if wait > 0:
+            time.sleep(wait)
+        _utic_next[0] = time.monotonic() + .6
+    reply = requests.get(url, params=params, headers=UTIC_HEADERS, timeout=timeout)
+    if reply.status_code >= 500:
+        _utic_block[0] = time.monotonic() + 30
+    return reply
+
+
+def _field(row: dict, *names):
+    for name in names:
+        for key in (name, name.lower(), name.upper()):
+            value = row.get(key)
+            if value not in (None, ""):
+                return str(value).strip()
+    return ""
+
+
+def _issue_code(error) -> str:
+    return ("connect_timeout" if isinstance(error, requests.exceptions.ConnectTimeout)
+        else "read_timeout" if isinstance(error, requests.exceptions.ReadTimeout)
+        else "tls_error" if isinstance(error, requests.exceptions.SSLError)
+        else "connection_failed" if isinstance(error, requests.exceptions.ConnectionError)
+        else "http_error" if isinstance(error, requests.exceptions.HTTPError)
+        else "busy" if isinstance(error, MediaProviderError)
+        else "invalid_response" if isinstance(error, (ValueError, ET.ParseError))
+        else "provider_error")
+
+
+def _utic_rows() -> dict:
+    """The camera catalogue by CCTVID; the last good one is kept through failures."""
+    now = time.monotonic()
+    if _utic["rows"] and now - _utic["at"] < 6 * 3600:
+        return _utic["rows"]
+    if now < _utic["retry_at"]:
+        return _utic["rows"]
+    if not _utic_fetch.acquire(timeout=15):
+        return _utic["rows"]
+    try:
+        if _utic["rows"] and time.monotonic() - _utic["at"] < 6 * 3600:
+            return _utic["rows"]
+        _, key = _utic_key()
+        try:
+            reply = _utic_get(UTIC_LIST, {"key": key}, (5, 25))
+            reply.raise_for_status()
+            body = reply.json()
+            if isinstance(body, dict):
+                body = next((v for v in body.values() if isinstance(v, list)), [body])
+            if not isinstance(body, list):
+                raise ValueError("Invalid catalogue")
+            if len(body) == 1 and isinstance(body[0], dict) and _field(body[0], "resultCode"):
+                # e.g. 02 "유효한 KEY값이 아닙니다." or an unregistered address
+                _utic["issue"] = {"code": "not_authorized", "provider": _field(body[0], "resultCode")[:8],
+                    "message": _field(body[0], "resultMsg")[:80]}
+                _utic["retry_at"] = time.monotonic() + 600
+                return _utic["rows"]
+            rows, kinds = {}, {}
+            for row in body:
+                if not isinstance(row, dict):
+                    continue
+                cid = _field(row, "CCTVID")
+                try:
+                    x, y = float(_field(row, "XCOORD", "COORDX", "LON")), float(_field(row, "YCOORD", "COORDY", "LAT"))
+                except ValueError:
+                    continue
+                name = " ".join(_field(row, "CCTVNAME").split())[:160]
+                if not cid or not name or not 124 <= x <= 132 or not 33 <= y <= 39:
+                    continue
+                kind = _field(row, "KIND")
+                kinds[kind] = kinds.get(kind, 0) + 1
+                rows[cid] = {"id": cid, "name": name, "lat": y, "lon": x, "kind": kind,
+                    "center": _field(row, "CENTERNAME")[:60], "movie": _field(row, "MOVIE").upper(),
+                    "ip": _field(row, "CCTVIP"), "ch": _field(row, "CH", "CCTVCH"), "user": _field(row, "ID"),
+                    "pw": _field(row, "PASSWD", "CCTVPASSWD"), "port": _field(row, "PORT", "CCTVPORT")}
+            _utic.update(rows=rows, at=time.monotonic(), issue=None, kinds=kinds,
+                fields=sorted({k for r in body[:5] if isinstance(r, dict) for k in r})[:40])
+            if not rows:
+                _utic["issue"] = {"code": "empty_catalogue"}
+                _utic["retry_at"] = time.monotonic() + 600
+            return _utic["rows"]
+        except Exception as error:
+            # Exceptions can contain the credential-bearing request URL.
+            issue = {"code": _issue_code(error)}
+            if isinstance(error, requests.exceptions.HTTPError) and error.response is not None:
+                issue["http"] = error.response.status_code
+            _utic["issue"] = issue
+            _utic["retry_at"] = time.monotonic() + 300
+            return _utic["rows"]
+    finally:
+        _utic_fetch.release()
+
+
+def _page_token(cid: str) -> str:
+    with _lock:
+        token = _page_by_id.get(cid)
+        if token and token in _pages:
+            _pages[token] = (cid, time.monotonic() + 6 * 3600)
+            _pages.move_to_end(token)
+            return token
+        token = secrets.token_urlsafe(24)
+        _pages[token] = (cid, time.monotonic() + 6 * 3600)
+        _page_by_id[cid] = token
+        while len(_pages) > 20000:
+            dropped, (value, _) = _pages.popitem(last=False)
+            if _page_by_id.get(value) == dropped:
+                _page_by_id.pop(value, None)
+        return token
+
+
+def _city_cameras(lat: float, lon: float) -> dict:
+    if not _utic_key()[1]:
+        return {"items": [], "status": "needs_key", "source": UTIC_SOURCE}
+    rows = _utic_rows()
+    if not rows:
+        issue = _utic["issue"] or {"code": "unavailable"}
+        status = "not_authorized" if issue.get("code") == "not_authorized" else "unavailable"
+        return {"items": [], "status": status, "source": UTIC_SOURCE, "issues": [{"road": "city", "code": issue.get("code")}]}
+    kx, ky = 111320 * math.cos(math.radians(lat)), 110540
+    near = []
+    for row in rows.values():
+        if row["movie"] == "N":
+            continue
+        dx, dy = (row["lon"] - lon) * kx, (row["lat"] - lat) * ky
+        if abs(dx) <= 2300 and abs(dy) <= 2300:
+            near.append((dx * dx + dy * dy, row))
+    near.sort(key=lambda e: e[0])
+    items = [{"id": "utic:" + row["id"], "name": row["name"], "lat": row["lat"], "lon": row["lon"],
+        "source": UTIC_SOURCE + (" · " + row["center"] if row["center"] else ""), "address": row["center"],
+        "media": None, "resolve": "/api/realestate/cctv/open/" + _page_token(row["id"]), "format": "hls"}
+        for _, row in near[:300]]
+    return {"items": items, "status": "ok", "source": UTIC_SOURCE}
+
+
+_MEDIA_RE = re.compile(r"""(?:src\s*=\s*["']|["'])((?:https?:)?//[^"'\s<>]+?\.(?:m3u8|mp4|jpe?g|png)(?:\?[^"'\s<>]*)?)["']""", re.I)
+_FRAME_RE = re.compile(r"""<iframe[^>]+src\s*=\s*["']((?:https?:)?//[^"'\s<>]+)["']""", re.I)
+
+
+def _page_media(html: str, base: str):
+    """The video a UTIC player page shows: its <source>/<video> or a quoted HLS/MP4
+    address, outside HTML comments (the page keeps old addresses in them)."""
+    html = re.sub(r"<!--.*?-->", "", html, flags=re.S)
+    start = html.find('id="cctvarea"')
+    area = html[start:] if start >= 0 else html
+    for m in _MEDIA_RE.finditer(area):
+        url = urljoin(base, m.group(1))
+        p = urlsplit(url)
+        if "/null" in p.path or "null." in p.path:
+            continue  # a field the catalogue left empty
+        return url, None
+    frame = _FRAME_RE.search(area)
+    return None, urljoin(base, frame.group(1)) if frame else None
+
+
+def _format(url: str) -> str:
+    path = urlsplit(url).path.lower()
+    return "mp4" if path.endswith(".mp4") else "image" if path.endswith((".jpg", ".jpeg", ".png")) else "hls"
+
+
+def _log_resolve(entry: dict):
+    _resolve_log.append({**entry, "at": int(time.time())})
+    del _resolve_log[:-30]
+
+
+def open_city(token: str) -> dict:
+    """One camera's current video, from its UTIC player page fetched by this server
+    (the registered address). A resolved link is reused for five minutes."""
+    with _lock:
+        entry = _pages.get(token)
+    if not entry or entry[1] < time.monotonic():
+        raise LookupError("Camera link expired")
+    cid = entry[0]
+    with _lock:
+        hit = _resolved.get(cid)
+        if hit and time.monotonic() - hit[0] < 300:
+            return hit[1]
+    row = _utic["rows"].get(cid)
+    _, key = _utic_key()
+    if not row or not key:
+        raise LookupError("Camera unknown")
+    params = {"key": key, "cctvid": cid, "cctvName": row["name"], "kind": row["kind"], "cctvip": row["ip"] or "null",
+        "cctvch": row["ch"] or "null", "id": row["user"] or "null", "cctvpasswd": row["pw"] or "null", "cctvport": row["port"] or "null"}
+    try:
+        reply = _utic_get(UTIC_PAGE, params, (5, 10))
+        reply.raise_for_status()
+        html = reply.content[:600_000].decode("utf-8", "replace")
+    except Exception as error:
+        _log_resolve({"kind": row["kind"], "code": _issue_code(error)})
+        raise ValueError("Player page unavailable") from None
+    url, frame = _page_media(html, UTIC_PAGE)
+    if not url and frame:
+        try:
+            body, _, final = _public_fetch(frame)
+            url, _ = _page_media(body[:600_000].decode("utf-8", "replace"), final)
+        except Exception as error:
+            _log_resolve({"kind": row["kind"], "code": "frame_" + _issue_code(error), "frame": urlsplit(frame).hostname})
+            raise ValueError("Player frame unavailable") from None
+    if not url:
+        visible = re.sub(r"<script.*?</script>|<!--.*?-->", "", html, flags=re.S)
+        code = "maintenance" if "점검중" in visible else "no_media"
+        _log_resolve({"kind": row["kind"], "code": code})
+        raise ValueError("No video on the player page")
+    result = {"media": _path(url), "format": _format(url)}
+    _log_resolve({"kind": row["kind"], "code": "ok", "host": urlsplit(url).hostname, "format": result["format"]})
+    with _lock:
+        _resolved[cid] = (time.monotonic(), result)
+        while len(_resolved) > 2000:
+            _resolved.popitem(last=False)
+    return result
+
+
+def status() -> dict:
+    """Provider state for production checks: names and counts only, never keys or URLs."""
+    name, key = _utic_key()
+    return {"city": {"enabled": CITY_CCTV_ENABLED, "key": name if key else None,
+        "env_names": [n for n in os.environ if "UTIC" in n.upper()][:10],
+        "cameras": len(_utic["rows"]), "age_s": int(time.monotonic() - _utic["at"]) if _utic["at"] else None,
+        "issue": _utic["issue"], "fields": _utic["fields"],
+        "kinds": dict(sorted(_utic["kinds"].items(), key=lambda e: -e[1])[:30]),
+        "resolves": _resolve_log[-15:]}, "highway": {"enabled": HIGHWAY_CCTV_ENABLED, "key": bool(_key())}}
+
+
 def cameras(lat: float, lon: float, refresh: bool = False) -> dict:
+    city = _city_cameras(lat, lon) if CITY_CCTV_ENABLED else None
     if not HIGHWAY_CCTV_ENABLED:
-        return {"items": [], "status": "disabled", "source": SOURCE}
+        return city or {"items": [], "status": "disabled", "source": SOURCE}
+    road = _road_cameras(lat, lon, refresh)
+    if not city:
+        return road
+    return {**city, "items": city["items"] + road["items"], "issues": city.get("issues", []) + road.get("issues", [])}
+
+
+def _road_cameras(lat: float, lon: float, refresh: bool = False) -> dict:
     if not _key():
         return {"items": [], "status": "needs_key", "source": SOURCE}
     if _key().lower() == "test":
@@ -198,7 +471,7 @@ def _public_fetch(url: str):
             assert_hostname=p.hostname, cert_reqs="CERT_REQUIRED") if p.scheme == "https" else urllib3.HTTPConnectionPool(addresses[0], port=port)
         try:
             resp = pool.request("GET", p.path + ("?" + p.query if p.query else ""),
-                headers={"Host": host, "Accept-Encoding": "identity"}, redirect=False,
+                headers={"Host": host, "Accept-Encoding": "identity", **UTIC_HEADERS}, redirect=False,
                 preload_content=False, retries=False, timeout=urllib3.Timeout(connect=4, read=8))
             try:
                 if resp.status in (301, 302, 303, 307, 308):
@@ -224,10 +497,26 @@ def media(token: str):
         raise LookupError("Camera link expired")
     with _lock:
         _media[token] = (entry[0], time.monotonic() + 1800)
-    if not _slots.acquire(timeout=.1):
+        # Viewers of one camera share a playlist fetched within the last second, and
+        # a provider error is not repeated for ten seconds (UTIC blocks clients that
+        # keep producing upstream 50x replies).
+        listed = _manifests.get(entry[0])
+        if listed and time.monotonic() - listed[0] < 1:
+            return listed[1], "application/vnd.apple.mpegurl"
+        failed = _failed_media.get(entry[0])
+        if failed and failed[0] > time.monotonic():
+            raise MediaProviderError(failed[1])
+    if not _slots.acquire(timeout=3):
         raise ValueError("Media busy")
     try:
-        body, content_type, final = _public_fetch(entry[0])
+        try:
+            body, content_type, final = _public_fetch(entry[0])
+        except MediaProviderError as error:
+            with _lock:
+                _failed_media[entry[0]] = (time.monotonic() + 10, error.status)
+                while len(_failed_media) > 2000:
+                    _failed_media.pop(next(iter(_failed_media)))
+            raise
         if body.startswith(b"#EXTM3U"):
             if len(body) > 512000:
                 raise ValueError("Manifest too large")
@@ -238,7 +527,12 @@ def media(token: str):
                 elif line.strip():
                     line = _path(urljoin(final, line.strip()))
                 lines.append(line)
-            return ("\n".join(lines) + "\n").encode(), "application/vnd.apple.mpegurl"
+            out = ("\n".join(lines) + "\n").encode()
+            with _lock:
+                _manifests[entry[0]] = (time.monotonic(), out)
+                while len(_manifests) > 500:
+                    _manifests.popitem(last=False)
+            return out, "application/vnd.apple.mpegurl"
         if not (content_type.startswith(("video/", "image/", "audio/")) or content_type.split(";")[0] in ("application/octet-stream", "binary/octet-stream")):
             raise ValueError("Unsupported media response")
         return body, content_type

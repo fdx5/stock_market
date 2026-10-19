@@ -1,5 +1,21 @@
 # CCTV map and drone integration — verification status
 
+## 2026-10-19 UTIC city CCTV enabled
+
+UTIC opened the key for the Render outbound /24 ranges. The owner set the key as the
+hosting secret `UTIC_CCTV_API_KEY` (also read: `UTIC_API_KEY`, `UTIC_KEY`). Every UTIC
+request comes from the server: the catalogue (`/guide/cctvOpenData.do`) at most every
+six hours, and one camera's player page (`/jsp/map/openDataCctvStream.jsp`) only when
+its popup opens, reused for five minutes. The page's `<source>` (Seoul:
+`strmu.spatic.go.kr/live/<CCTVIP>.stream/playlist.m3u8`) is relayed through the
+existing opaque media references. All UTIC requests share a 0.6 s pace, a provider
+50x pauses UTIC for 30 s and a failing media address for 10 s, and viewers share a
+playlist fetched within the last second (UTIC blocks 5+/s on one URL and repeated 50x).
+`/api/realestate/cctv/status` reports the key's variable name, catalogue size, fields,
+kinds and the last resolve results, never the key or provider URLs. ITS stays paused.
+The drone radar, 3D camera poles/signs and the popup (muted autoplay, reconnecting
+after the provider's 60 s playback limit) use the city cameras.
+
 ## Owner-requested pause after connection investigation
 
 Highway/national-road CCTV is now hidden and disabled. The drone does not mount

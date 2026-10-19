@@ -1,9 +1,12 @@
 export type TrafficCamera = { id:string; name:string; lat:number; lon:number; source:string; address?:string;
-  media?:string|null; format?:'hls'|'mp4'|'image'; updatedAt?:string };
+  media?:string|null; format?:'hls'|'mp4'|'image'; updatedAt?:string;
+  /** City (UTIC) cameras: the server resolves the current video only when opened. */
+  resolve?:string };
 
-// Keep all CCTV entry points hidden until an approved city feed actually plays.
-// Reopening city CCTV must not re-enable the paused ITS highway provider.
-export const TRAFFIC_CCTV_ENABLED=false;
+// City CCTV through UTIC (server address range approved 2026-10-19). The ITS highway
+// provider stays paused on the server; its records are still accepted if it returns.
+export const TRAFFIC_CCTV_ENABLED=true;
+export const playable=(c:TrafficCamera)=>!!(c.media||c.resolve);
 
 export function cameraPoint(camera:TrafficCamera,origin:{lat:number;lon:number}) {
   return {x:(camera.lon-origin.lon)*111320*Math.cos(origin.lat*Math.PI/180),y:(camera.lat-origin.lat)*110540};
@@ -19,11 +22,11 @@ export function cameraFromFeature(f:any):TrafficCamera|null {
 export function mergeCameras(items:TrafficCamera[],origin:{lat:number;lon:number}) {
   const out:TrafficCamera[]=[];
   // Video-bearing provider records win only when the name and position match.
-  for(const c of [...items].sort((a,b)=>Number(!!b.media)-Number(!!a.media))) {
+  for(const c of [...items].sort((a,b)=>Number(playable(b))-Number(playable(a)))) {
     if(out.some(p=>p.id===c.id||(p.name.replace(/\s/g,'')===c.name.replace(/\s/g,'')&&Math.hypot(...Object.values(cameraPoint(c,p)))<60)))continue;
     out.push(c);
   }
-  return out.sort((a,b)=>{const available=Number(!!b.media)-Number(!!a.media);if(available)return available;
+  return out.sort((a,b)=>{const available=Number(playable(b))-Number(playable(a));if(available)return available;
     const p=cameraPoint(a,origin),q=cameraPoint(b,origin);return Math.hypot(p.x,p.y)-Math.hypot(q.x,q.y);}).slice(0,500);
 }
 
@@ -57,7 +60,8 @@ async function locations(lat:number,lon:number,key:string,domain:string,signal:A
   return result;
 }
 export type CameraResult={items:TrafficCamera[];status:string;locationFailed:boolean;connectionFailed?:boolean;stale?:boolean};
-// City CCTV remains disconnected until UTIC approval and a verified city feed.
+// VWorld's registry lists cameras whose video is not public; only provider records
+// that carry a video (UTIC city, ITS highway) are shown.
 const CITY_LOCATION_LINKS_ENABLED=false;
 const cache=new Map<string,{at:number;value:CameraResult}>();
 export async function loadCameras(lat:number,lon:number,key:string,domain:string,signal:AbortSignal,refresh=false):Promise<CameraResult> {
@@ -71,7 +75,7 @@ export async function loadCameras(lat:number,lon:number,key:string,domain:string
   const [map,video]=results;
   const data=video.status==='fulfilled'?video.value:null;
   const feeds:TrafficCamera[]=Array.isArray(data?.items)?data.items:[];
-  const items=mergeCameras([...(map.status==='fulfilled'?map.value:[]),...feeds.filter(c=>!!c.media&&c.id.startsWith('its:'))],{lat,lon});
+  const items=mergeCameras([...(map.status==='fulfilled'?map.value:[]),...feeds.filter(c=>(!!c.media&&c.id.startsWith('its:'))||(!!c.resolve&&c.resolve.startsWith('/api/realestate/cctv/open/')&&c.id.startsWith('utic:')))],{lat,lon});
   const status=data?.status??'unavailable';
   const value={items,status,locationFailed:map.status==='rejected'||video.status==='rejected'||(status==='unavailable'&&!items.length),
     connectionFailed:Array.isArray(data?.issues)&&data.issues.some((i:{code?:string})=>['connect_timeout','read_timeout','connection_failed','tls_error'].includes(i.code??''))};

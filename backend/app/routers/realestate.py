@@ -13,6 +13,27 @@ def traffic_cameras(response: Response, lat: float = Query(..., ge=33, le=39), l
     return traffic_cctv.cameras(lat, lon, refresh=fresh)
 
 
+@router.get("/cctv/status")
+def traffic_camera_status(response: Response):
+    from app.services import traffic_cctv
+    response.headers["Cache-Control"] = "no-store"
+    return traffic_cctv.status()
+
+
+@router.get("/cctv/open/{token}")
+def traffic_camera_open(response: Response, token: str):
+    from app.services import traffic_cctv
+    response.headers["Cache-Control"] = "no-store"
+    if not 20 <= len(token) <= 64 or not all(c.isalnum() or c in "_-" for c in token):
+        raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
+    try:
+        return traffic_cctv.open_city(token)
+    except LookupError:
+        raise HTTPException(status_code=410, detail="영상 연결이 만료되었습니다. CCTV 목록을 새로고침하세요.") from None
+    except Exception:
+        raise HTTPException(status_code=502, detail="제공기관 영상을 현재 재생할 수 없습니다.") from None
+
+
 @router.get("/cctv/media/{token}")
 def traffic_camera_media(token: str):
     from app.services import traffic_cctv
