@@ -150,9 +150,10 @@ def test_official_hls_redirect_port_is_supported_without_opening_arbitrary_ports
     assert body == b"#EXTM3U\n" and ports == [443, 8082]
     assert c._remember(final)
     with pytest.raises(ValueError, match="port"):
-        c._public_fetch("https://example.org:8082/live")
+        c._public_fetch("https://example.org:22/live")
     with pytest.raises(ValueError, match="address"):
-        c._remember("https://example.org:8082/live")
+        c._remember("http://example.org:25/live")
+    assert c._remember("https://tportal.daejeon.go.kr:37084/01/media/x.mp4")
 
 
 def test_expired_or_unknown_reference_does_not_fetch(monkeypatch):
@@ -242,6 +243,20 @@ def test_player_page_resolves_to_a_relayed_stream_once(city):
     assert pages[0]["kind"] == "Seoul" and pages[0]["cctvip"] == "L010001"
     target = c._media[opened["media"].rsplit("/", 1)[1]][0]
     assert target == "https://strmu.spatic.go.kr/live/L010001.stream/playlist.m3u8", "commented old addresses are ignored"
+
+
+def test_plain_http_city_player_is_asked_for_over_http(city):
+    city.setattr(c.requests, "get", lambda url, params=None, **k: Mock(status_code=200, content=json.dumps(CATALOGUE).encode(), headers={}, raise_for_status=lambda: None))
+    token = c.cameras(37.5465, 126.9886)["items"][0]["resolve"].rsplit("/", 1)[1]
+    pages = []
+    def page(url, params=None, **k):
+        pages.append(url)
+        body = "<div id=\"cctvarea\">지원되지 않는 프로토콜입니다.</div>" if url.startswith("https") else '<div id="cctvarea"><video src="http://211.34.147.236:1935/live/cam.stream/playlist.m3u8"></video></div>'
+        return Mock(status_code=200, content=body.encode(), raise_for_status=lambda: None)
+    city.setattr(c.requests, "get", page)
+    opened = c.open_city(token)
+    assert pages == [c.UTIC_PAGE, "http://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"]
+    assert "direct" not in opened, "a plain-HTTP stream goes through the relay (no mixed content)"
 
 
 def test_page_without_video_is_a_failure_not_a_stream(city):

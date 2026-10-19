@@ -68,10 +68,10 @@ def _utic_key():
 
 def _allowed_port(p) -> bool:
     port = p.port or (443 if p.scheme == "https" else 80)
-    # The official HTTPS HLS entry redirects to this provider's port 8082; city
-    # streaming servers (Wowza) publish HLS on 1935.
-    return port in (80, 443, 1935, 8080, 8081, 8443, 9443) or (
-        port == 8082 and p.scheme == "https" and p.hostname == "cctvsec.ktict.co.kr")
+    # City video servers use their own high ports (Wowza 1935, Daejeon 37084, ...);
+    # addresses come only from provider replies and must be public (_public_fetch).
+    # Low service ports other than the web's stay closed.
+    return port in (80, 443) or 1024 <= port <= 65535
 
 
 def _remember(url: str) -> str:
@@ -406,6 +406,11 @@ def open_city(token: str) -> dict:
         reply = _utic_get(UTIC_PAGE, params, (5, 10))
         reply.raise_for_status()
         html = reply.content[:600_000].decode("utf-8", "replace")
+        if "지원되지 않는 프로토콜" in html:
+            # Some cities' (plain-HTTP) players are only given on the http:// page.
+            reply = _utic_get("http://" + UTIC_PAGE.split("://", 1)[1], params, (5, 10))
+            reply.raise_for_status()
+            html = reply.content[:600_000].decode("utf-8", "replace")
     except Exception as error:
         _log_resolve({"kind": row["kind"], "code": _issue_code(error)})
         raise ValueError("Player page unavailable") from None
@@ -420,7 +425,9 @@ def open_city(token: str) -> dict:
     if not url:
         visible = re.sub(r"<script.*?</script>|<!--.*?-->", "", html, flags=re.S)
         code = "maintenance" if "점검중" in visible else "no_media"
-        _log_resolve({"kind": row["kind"], "code": code})
+        start = visible.find('id="cctvarea"')
+        area = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", visible[start:start + 3000] if start >= 0 else visible[:1500]))
+        _log_resolve({"kind": row["kind"], "code": code, "page": area.replace(key, "<key>")[:300]})
         raise ValueError("No video on the player page")
     result = {"media": _path(url), "format": _format(url)}
     # The stream servers are public (UTIC's own map plays them in visitors' browsers);
