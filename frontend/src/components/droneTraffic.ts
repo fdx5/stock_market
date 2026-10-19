@@ -32,7 +32,9 @@ type Claim = {cp:CP;side:number;release:number};
 type Run = {lane:Lane|null;curve:Curve|null;k0:number;k1:number;dx:number;dy:number;minX:number;minY:number;maxX:number;maxY:number};
 /** A crossing on a path: at s along it, the other path (at os along that), its width, and whether
  * a signal governs the junction (then the lights decide, not the roads' sizes). */
-type Cross = {s:number;cp:CP;side:number;other:Lane|Curve;os:number;w:number;sig:boolean};
+type Cross = {s:number;cp:CP;side:number;other:Lane|Curve;os:number;w:number;sig:boolean;
+  /** how far either side of the point the two bodies can touch (m): more the shallower they meet */
+  reach:number};
 type Car = { id:number;lane: Lane; s: number; v: number; vmax: number; kind: number; colour: THREE.Color; k: number; hidden: boolean;
   /** across a junction: from the end of the last lane to the start of this one (s < 0 on it) */
   via: Curve | null;
@@ -371,18 +373,19 @@ export class DroneTraffic {
             if(Math.abs(z-oz)>2.5)continue;
             if(out.some(c=>c.other===o&&Math.abs(c.s-s)<3))continue;
             const key=own.id<o.id?`${own.id}:${k}:${o.id}:${q}`:`${o.id}:${q}:${own.id}:${k}`;
+            const reach=Math.min(8,1.1/Math.max(.2,Math.abs(ex*fy-ey*fx)/(el*fl)));
             let cp=this.conflictPoints.get(key);
             if(!cp){
               cp={x:ax+ex*t,y:ay+ey*t,key,paths:[own,o],n:[0,0],t:[-1e9,-1e9],by:[null,null],want:[-1e9,-1e9],since:[0,0],asker:[null,null]};this.conflictPoints.set(key,cp);
               // (a crossing found late — a curve worked out only now — is held at once by the cars
               // already on it or about to be, as if they had taken it on their way in)
-              this.occupy(cp,own,s);this.occupy(cp,o,os);
+              this.occupy(cp,own,s,reach);this.occupy(cp,o,os,reach);
             }
             let sig=false;
             if(lane?.stops)for(let i=0;i<lane.stops.length;i+=3)if(lane.stops[i]<s&&lane.stops[i]>s-40)sig=true;
-            out.push({s,cp,side:cp.paths[0]===own?0:1,other:o,os,w:e.lane?e.lane.width:e.curve!.from.width,sig});
+            out.push({s,cp,side:cp.paths[0]===own?0:1,other:o,os,w:e.lane?e.lane.width:e.curve!.from.width,sig,reach});
             // (a path that has its crossings already learns of this one)
-            if(o.crosses&&!o.crosses.some(c=>c.cp===cp)){o.crosses.push({s:os,cp,side:cp.paths[0]===o?0:1,other:own,os:s,w:lane?lane.width:curve!.from.width,sig:false});o.crosses.sort((a,b)=>a.s-b.s);}
+            if(o.crosses&&!o.crosses.some(c=>c.cp===cp)){o.crosses.push({s:os,cp,side:cp.paths[0]===o?0:1,other:own,os:s,w:lane?lane.width:curve!.from.width,sig:false,reach});o.crosses.sort((a,b)=>a.s-b.s);}
           }
         }
       }
@@ -500,16 +503,16 @@ export class DroneTraffic {
     if(kept.length!==c.claims.length)c.claims=kept;
   }
 
-  private occupy(cp:CP,path:Lane|Curve,at:number){
+  private occupy(cp:CP,path:Lane|Curve,at:number,reach:number){
     const side=cp.paths[0]===path?0:1,lane='cars' in path?path:path.to,curve='cars' in path?null:path;
     for(const c of lane.cars){
       if(!c.alive)continue;
       const onCurve=!!c.via&&c.s<c.via.endS;
       if(curve?(c.via!==curve||!onCurve):onCurve)continue;
       const here=curve?curve.len+c.s-curve.endS:c.s,d=at-here,half=LEN[c.kind]/2;
-      if(d<-half-1||d>half+3)continue;
+      if(d<-half-reach-1||d>half+reach+3)continue;
       cp.n[side]++;cp.t[side]=this.clock;cp.by[side]=c;
-      c.claims=[...c.claims,{cp,side,release:c.odo+d+half+2.5}];
+      c.claims=[...c.claims,{cp,side,release:c.odo+d+reach+half+1.5}];
     }
   }
   private unclaim(c:Car,cl:Claim){
@@ -758,7 +761,7 @@ export class DroneTraffic {
         if(o===c||o===leader||Math.abs(o.z-c.z)>2.5)continue;
         const rx=o.x-c.x,ry=o.y-c.y,along=rx*c.hx+ry*c.hy,lat=Math.abs(rx*c.hy-ry*c.hx),dot=o.hx*c.hx+o.hy*c.hy;
         // (within 25° of this car's heading: sharper meetings are crossings, held above)
-        if(dot<.9||lat>1.7||along>18||along<-.05||(along<.05&&o.id>c.id)||(o.waitOn===c&&(o.why==='crossing'||o.why==='guard'&&c.id<o.id)))continue;
+        if(dot<.9||lat>1.7||along>18||along<-.05||(along<.05&&o.id>c.id)||(o.waitOn===c&&(o.why!=='guard'||c.id<o.id)))continue;
         obstacle(along-(LEN[o.kind]/2+half),o.v*dot,S0,'guard',o);
       }
     }
@@ -767,9 +770,10 @@ export class DroneTraffic {
     // a red light.
     const H=Math.max(14,v*v/(2*B_COMFORT)+10);
     let first=Infinity,blocked=false,last=-Infinity,holder:Car|null=null,count=0;
-    for(let q=0;q<nC;q++){const d=this.aheadD[q];if(d>=-half-1&&d-half<=H&&d<=stopAt+.5&&!this.holds(c,this.aheadC[q].cp))first=Math.min(first,d);}
+    // (distances to where the bodies could first touch: the shallower the meeting, the sooner)
+    for(let q=0;q<nC;q++){const d=this.aheadD[q]-this.aheadC[q].reach;if(d>=-half-1&&d-half<=H&&d<=stopAt+.5&&!this.holds(c,this.aheadC[q].cp))first=Math.min(first,d);}
     if(first<Infinity)for(let q=0;q<nC;q++){
-      const d=this.aheadD[q],x=this.aheadC[q],cp=x.cp;
+      const x=this.aheadC[q],d=this.aheadD[q]-x.reach,cp=x.cp;
       if(d<first||d>first+30||d>stopAt+.5||this.holds(c,cp))continue;
       count++;last=Math.max(last,d);
       // (a crossing it is already on, it can only clear: never wait there)
@@ -803,7 +807,7 @@ export class DroneTraffic {
         obstacle(first-half-2,0,.5,'crossing',holder);
         // (and says so on the crossings it waits for)
         if(v<1)for(let q=0;q<nC;q++){
-          const d=this.aheadD[q],x=this.aheadC[q],cp=x.cp;
+          const x=this.aheadC[q],d=this.aheadD[q]-x.reach,cp=x.cp;
           if(d<half+.5||d>last||this.holds(c,cp))continue;
           if(clock-cp.want[x.side]>1)cp.since[x.side]=clock;
           cp.want[x.side]=clock;cp.asker[x.side]=c;
@@ -812,10 +816,10 @@ export class DroneTraffic {
       else{
         const add:Claim[]=[];
         for(let q=0;q<nC;q++){
-          const d=this.aheadD[q],x=this.aheadC[q],cp=x.cp;
+          const x=this.aheadC[q],d=this.aheadD[q]-x.reach,cp=x.cp;
           if(d<first||d>last||this.holds(c,cp)||add.some(a=>a.cp===cp))continue;
           cp.n[x.side]++;cp.t[x.side]=clock;cp.by[x.side]=c;
-          add.push({cp,side:x.side,release:c.odo+d+half+2.5});
+          add.push({cp,side:x.side,release:c.odo+d+2*x.reach+half+1.5});
         }
         c.claims=[...c.claims,...add];
       }
