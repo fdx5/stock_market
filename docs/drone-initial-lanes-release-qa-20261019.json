@@ -1,0 +1,46 @@
+{
+  "base": "http://localhost:5490",
+  "complex": "11290:길음동:1288:래미안길음센터피스",
+  "errors": [],
+  "first": {
+    "shownMs": 9418,
+    "lanesMs": 13807,
+    "afterShownMs": 4389,
+    "workerMs": 6957.6,
+    "canvas": [
+      2400,
+      1600
+    ],
+    "quality": "high",
+    "renderer": "tidewater-webgpu",
+    "meshes": 2,
+    "vertices": 350028,
+    "ready": true,
+    "error": null
+  },
+  "timings": {
+    "lines": 3624.800000000745,
+    "paintCut0": 467.19999999925494,
+    "paintDrape0": 130.30000000074506,
+    "paintCut1": 1650,
+    "paintDrape1": 573.0999999996275
+  },
+  "flight": {
+    "frames": 652,
+    "mean": 54.08009835765968,
+    "minOneSecond": 40,
+    "p95": 33.29999999999927,
+    "p99": 50.20000000000073,
+    "max": 133.5,
+    "canvas": [
+      2400,
+      1600
+    ],
+    "quality": "high"
+  },
+  "detailed": {
+    "ms": 75419,
+    "initialGroups": 0,
+    "fullGroups": 1
+  }
+}
