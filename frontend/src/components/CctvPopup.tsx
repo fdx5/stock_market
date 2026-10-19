@@ -30,10 +30,13 @@ export default function CctvPopup({camera,onClose,onRefresh}:{camera:TrafficCame
     const ended=()=>{if(alive&&camera.resolve&&rejoins.current++<20)setAttempt(a=>a+1);};
     el.addEventListener('playing',ready);el.addEventListener('error',fail);el.addEventListener('ended',ended);
     const play=()=>{void el.play().catch(()=>{if(alive)setState('play');});};
-    if(source.format!=='hls'||el.canPlayType('application/vnd.apple.mpegurl')){el.src=source.media;play();}
+    // hls.js wherever it runs: Chrome's own HLS player gave up on the first relayed
+    // city segment. Native playback is the fallback (iPhone Safari has no MSE).
+    const native=()=>{if(el.canPlayType('application/vnd.apple.mpegurl')){el.src=source.media;play();}else fail();};
+    if(source.format!=='hls'){el.src=source.media;play();}
     else void import('hls.js').then(({default:Hls})=>{
       if(!alive)return;
-      if(!Hls.isSupported()){fail();return;}
+      if(!Hls.isSupported()){native();return;}
       hls=new Hls({maxBufferLength:12,maxMaxBufferLength:24,backBufferLength:0});
       hls.on(Hls.Events.MANIFEST_PARSED,play);
       hls.on(Hls.Events.ERROR,(_,data)=>{if(data.fatal){hls?.destroy();hls=null;if(el.currentTime>0)ended();else fail();}});
