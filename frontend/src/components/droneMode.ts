@@ -336,6 +336,9 @@ export class DroneSession {
     const f = this.flight, w = this.world, T = this.timing, t0 = performance.now();
     f.step(dt, w);
     const x = f.pos.x, y = -f.pos.z;
+    // (held back by the world ahead: its tile work a third of the frame's own time — 5 ms at 60 fps,
+    // up to 25 ms on a machine drawing 12 fps. Flying free, the frame rate comes first.)
+    w.holding = f.limit < MAX_SPEED - 0.5 ? Math.max(4, Math.min(25, dt * 1000 / 3)) : 0;
     const t1 = performance.now();
     w.update(x, y, f.vel.x, -f.vel.z, f.agl, [-Math.sin(f.yaw), Math.cos(f.yaw)]);
     const t2 = performance.now();

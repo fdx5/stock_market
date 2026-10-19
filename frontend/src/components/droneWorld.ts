@@ -188,6 +188,11 @@ export class DroneWorld {
   private loading = 0;
   private disposed = false;
   private slice = performance.now();
+  /** While the flight is held back by what is still loading ahead (set every frame by the drone):
+   * the tile work's slice (ms), let in first, once a frame. Otherwise 0: under load the ordinary
+   * queue let in one 1 ms slice per 100 ms — on a slow laptop a tile's road fitting and river took
+   * 20-60 s, the drone standing still for it. */
+  holding = 0;
   private buildings = 0;
   private lastMs = 0;
   private radius = 900;
@@ -279,7 +284,7 @@ export class DroneWorld {
   /** One millisecond continuations admitted after drawing, with a bounded
    * frame budget and starvation protection supplied by frameSlice. */
   private async pace(force = false) {
-    if (force || performance.now() - this.slice > 1) { await frameSlice(6); this.slice = performance.now(); }
+    if (force || performance.now() - this.slice > (this.holding || 1)) { await frameSlice(6, this.holding > 0); this.slice = performance.now(); }
     return !this.disposed;
   }
 
