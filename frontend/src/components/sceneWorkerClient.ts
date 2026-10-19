@@ -13,7 +13,9 @@ const lane = (): Lane => ({ worker: undefined, mine: new Set(), sent: new WeakSe
 // buildings — the view's asphalt waited ~6 s for it)
 // Streamed footprint cuts must not queue ahead of the departure area's asphalt.
 // One lazy worker and the tile loader's bounded concurrency bound this queue.
-const lanes: Record<"paint" | "main" | "water" | "cut" | "streets", Lane> = { paint: lane(), main: lane(), water: lane(), cut: lane(),streets:lane() };
+// (and the drone's streamed tiles their street fits two of their own: one tile's fit is ~1-2 s of
+// worker time; six tiles load at once)
+const lanes: Record<"paint" | "main" | "water" | "cut" | "streets" | "tiles0" | "tiles1", Lane> = { paint: lane(), main: lane(), water: lane(), cut: lane(),streets:lane(),tiles0:lane(),tiles1:lane() };
 /* The surface cut's rings (every footprint and road round a complex: thousands of rings, ~0.2 s
  * to copy) are the same for each mesh cut: sent to a worker once, named by their id after. */
 const sharedIds = new WeakMap<object, number>();
@@ -45,7 +47,7 @@ function get(lane: Lane): Worker | null {
 
 /** The op's result from the worker; rejects when the worker fails (the caller falls back). */
 export function sceneWork<K extends keyof SceneOps>(op: K, args: SceneOps[K]["args"], transfer: Transferable[] = []): Promise<SceneOps[K]["result"]> | null {
-  const lane = op === "ground" ? lanes.paint : op === "water" ? lanes.water : op==='surfaceBox'?lanes.cut : op === "surfaceCut" && (args as SceneOps["surfaceCut"]["args"]).zUp ? lanes.streets : op === "surfaceCut" && (args as SceneOps["surfaceCut"]["args"]).roads ? lanes.cut : lanes.main, w = get(lane);
+  const lane = op === "tileStreets" ? (lanes.tiles1.mine.size < lanes.tiles0.mine.size ? lanes.tiles1 : lanes.tiles0) : op === "ground" ? lanes.paint : op === "water" || op === "riverLower" ? lanes.water : op==='surfaceBox'?lanes.cut : op === "surfaceCut" && (args as SceneOps["surfaceCut"]["args"]).zUp ? lanes.streets : op === "surfaceCut" && (args as SceneOps["surfaceCut"]["args"]).roads ? lanes.cut : lanes.main, w = get(lane);
   if (!w) return null;
   if (op === "surfaceCut") {
     const a = args as SceneOps["surfaceCut"]["args"], rings = a.rings!;

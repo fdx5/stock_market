@@ -3,7 +3,7 @@ import {DronePlaces,PlaceFootprints} from './sceneCommercialPlaces';
 import {observedRoofColour,type BuildingAppearance} from "./buildingAppearance";
 import {bridgeNameLabels} from './bridgeNames';
 import {droneDetailPriority,droneTilePriority} from "./droneLoadPriority";
-import {packedRoadGuard,type NearBuildingSource,type NearBuildingTarget} from './nearBuildingTargets';
+import {packedRoadGuard,packedSourceGuard,type NearBuildingSource,type NearBuildingTarget} from './nearBuildingTargets';
 import { SceneWorkerPool } from "./sceneWorkerPool";
 import type {TerrainGridJob} from './terrainGrid';
 import {anchoredTerrainHeight} from './terrainGrid';
@@ -12,6 +12,7 @@ import { CoastGeometryJobs } from './coastGeometryJobs';
 import {staticSceneTransforms} from './staticSceneTransforms';
 import type { RealEstateBuildingsResponse, RealEstateParcel } from "../api/client";
 import { buildWater, type WaterField } from "./sceneWater";
+import { sceneWork } from "./sceneWorkerClient";
 import { buildSeaWorks } from "./sceneSeaWorks";
 import { Landmarks, LANDMARK_SITES, type LandmarkSite } from "./sceneLandmarks";
 import { ringTile, SURVEY_STYLES, type DroneLabel, type RingResult } from "./ringBuildings";
@@ -19,6 +20,7 @@ import type { ColourJob, ColourResult, SurveyJob, SurveyResult } from "./droneSu
 import {SurveyGeometryStore} from './surveyGeometryStore';
 import { roadTile } from "./droneRoads";
 import {fitTileStreetSurfaces} from './tileStreetSurfaces';
+import {lowerUnderRiver,type RiverLowerArgs,type RiverLowerResult} from './riverLower';
 import { DroneTraffic } from "./droneTraffic";
 import { farGround } from "./farGround";
 import { vworldSampler, type Terrain } from "./sceneTerrain";
@@ -891,7 +893,8 @@ export class DroneWorld {
         const footprints=ring.footprints as [number,number][][];
         const groundRoads=await fitTileStreetSurfaces(roads,footprints,async()=>!stop.signal.aborted&&await this.pace());
         if(stop.signal.aborted||this.disposed)return;
-        t.nearRoadGuard={key:'tile:'+t.key+':'+t.startedAt,roads:groundRoads,buildings:footprints};
+        if(!groundRoads){fail();return;}
+        t.nearRoadGuard=packedSourceGuard('tile:'+t.key+':'+t.startedAt,groundRoads,footprints);
       }
       // (the ground cut to the roads in the road worker: the same grid for the ground mesh, the trees
       // and everything stood on it from now on)
@@ -1280,58 +1283,28 @@ export class DroneWorld {
     if (!made || signal.aborted || this.disposed) { made?.dispose(); return; }
     rt('built');
     rt('cut');
-    // the ground under the water (view frame vertices; the field is about the tile's centre)
+    // The bed under the water, and the streets and lanes kept over it: in the scene worker (riverLower.ts).
     const p = ground.getAttribute('position') as THREE.BufferAttribute, nor = ground.getAttribute('normal') as THREE.BufferAttribute;
     const skirt = ground.userData.skirtGrid as { row: number; cell: number } | undefined;
-    let changed = false;
-    // (in slices: the tile's every ground vertex asked of the river five times held a frame 20 ms)
-    const paced = async () => { if (await this.pace() && !signal.aborted) return true; made.dispose(); return false; };
-    for (let i = 0; i < p.count; i++) {
-      if ((i & 1023) === 1023 && !await paced()) return;
-      // (asked 2 m inside the tile: a vertex on its edge, outside its own raster, stood as a wall
-      // under the water against its neighbour's lowered bed — a line along the tile's edge)
-      const x = Math.max(-H + 2, Math.min(H - 2, p.getX(i) - t.cx)), y = Math.max(-H + 2, Math.min(H - 2, p.getY(i) - t.cy));
-      const f = made.field;
-      if (!f.wet(x, y) && !f.wet(x + 4, y) && !f.wet(x - 4, y) && !f.wet(x, y + 4) && !f.wet(x, y - 4)) continue;
-      // The bed by the ground's own height over the water: at or under the surface, lowered to the
-      // bed (0.35 m deep at the bank, 1.5 m 12 m out — depth, not the land-use picture under a film
-      // of water); 0.4 m and more over it, as it is; between, eased — the water's edge is the
-      // ground's own contour, not the 4 m grid's steps.
-      const below = (skirt && i >= skirt.row * skirt.row) ? 4 : 0, z0 = p.getZ(i) + below, L = f.level(x, y);
-      // (out in the channel — 6 m and more from its bank — always: where the DEM's own surface there
-      // stands over the water's level (a step between its survey sheets), it showed as a strip of
-      // bed across the river)
-      const sh = f.shore(x, y), bed = L - Math.min(3, 0.35 + 0.15 * sh), k = f.wet(x, y) ? 1 : Math.max(0, Math.min(1, (L + 0.4 - z0) / 0.4));
-      if (!k || z0 <= bed) continue;
-      p.setZ(i, z0 + k * (bed - z0) - below); changed = true;
-    }
-    if (changed && skirt) {
-      // (the grid's normals again from its own heights: the skirt never bends them)
-      const { row } = skirt;
-      for (let j = 0; j < row; j++) for (let i = 0; i < row; i++) {
-        if (i === 0 && (j & 15) === 15 && !await paced()) return;
-        const k = j * row + i, l = j * row + Math.max(0, i - 1), r = j * row + Math.min(row - 1, i + 1), d = Math.max(0, j - 1) * row + i, u = Math.min(row - 1, j + 1) * row + i;
-        const nx = (p.getZ(l) - p.getZ(r)) / ((p.getX(r) - p.getX(l)) || 1), ny = (p.getZ(d) - p.getZ(u)) / ((p.getY(u) - p.getY(d)) || 1), L = Math.hypot(nx, ny, 1);
-        nor.setXYZ(k, nx / L, ny / L, 1 / L);
-      }
-      p.needsUpdate = nor.needsUpdate = true; ground.computeBoundingSphere();
+    const streets = (t.zup?.children ?? []).filter(m => { const me = m as THREE.Mesh, mat = me.material; return me.isMesh && (mat === this.asphalt || mat === this.paint || mat === this.paving); }) as THREE.Mesh[];
+    const copy = (): RiverLowerArgs => ({ field: made.field.data, grid: terrain.grid ?? null, H, cx: t.cx, cy: t.cy,
+      ground: (p.array as Float32Array).slice(), normal: (nor.array as Float32Array).slice(), skirtRow: skirt?.row ?? null,
+      surfaces: streets.map(m => ({ position: (m.geometry.getAttribute('position').array as Float32Array).slice(), lift: m.material === this.paint ? 0.08 : m.material === this.paving ? 0.15 : 0 })),
+      lanes: t.baseLanes ? t.baseLanes.slice() : null });
+    // (copies, handed over: the meshes keep theirs till the answer is in)
+    const args = copy(), job = terrain.grid ? sceneWork('riverLower', args, [args.ground.buffer, args.normal.buffer, ...args.surfaces.map(s => s.position.buffer), ...(args.lanes ? [args.lanes.buffer] : [])]) : null;
+    let low: RiverLowerResult | null = null;
+    if (job) try { low = await job; } catch { low = null; }
+    if (!low) low = lowerUnderRiver(copy(), terrain.at);
+    if (signal.aborted || this.disposed || !await this.pace()) { made.dispose(); return; }
+    if (low.ground) {
+      (p.array as Float32Array).set(low.ground); p.needsUpdate = true;
+      if (low.normal) { (nor.array as Float32Array).set(low.normal); nor.needsUpdate = true; }
+      ground.computeBoundingSphere();
     }
     rt('bed');
-    // No road under the water's surface: a road the data lays across the channel at the relief's
-    // height (the water's own, there) is kept over it — its paving, paint, kerbs and lanes.
-    const over = (x: number, y: number) => { const lx = x - t.cx, ly = y - t.cy; return made.field.wet(lx, ly) ? made.field.level(lx, ly) + 0.3 : -Infinity; };
-    for (const m of t.zup?.children ?? []) {
-      const mesh = m as THREE.Mesh, mat = mesh.material as THREE.Material;
-      if (!mesh.isMesh || (mat !== this.asphalt && mat !== this.paint && mat !== this.paving)) continue;
-      const lift = mat === this.paint ? 0.08 : mat === this.paving ? 0.15 : 0;
-      const pp = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
-      let moved = false;
-      for (let i = 0; i < pp.count; i++) { if ((i & 2047) === 2047 && !await paced()) return; const want = over(pp.getX(i), pp.getY(i)) + lift; if (pp.getZ(i) < want) { pp.setZ(i, want); moved = true; } }
-      if (moved) { pp.needsUpdate = true; mesh.geometry.computeBoundingSphere(); }
-    }
-    for (const lanes of [t.baseLanes]) if (lanes) for (let o = 0; o < lanes.length;) {
-      const n = lanes[o]; for (let i = 0; i < n; i++) { const k = o + 2 + i * 3, want = over(lanes[k], lanes[k + 1]) + 0.08; if (lanes[k + 2] < want) lanes[k + 2] = want; } o += 2 + n * 3;
-    }
+    low.surfaces.forEach((q, i) => { if (!q) return; const g = streets[i].geometry, a = g.getAttribute('position') as THREE.BufferAttribute; (a.array as Float32Array).set(q); a.needsUpdate = true; g.computeBoundingSphere(); });
+    if (low.lanes && t.baseLanes && t.baseLanes.length === low.lanes.length) t.baseLanes.set(low.lanes);
     // Waves continuous across the tiles: every river surface's waves in one direction (the sea's)
     // and its uv in world metres — each tile's own channel axis and origin drew its edge as a line.
     {

@@ -13,7 +13,9 @@ const {syncGroundRelief,drapeRoadSurface}=load('roadDrape.ts');
 const {excludeSurface}=load('surfaceExclusion.ts');
 const {seaOutsideBox}=load('coastGeometry.ts');
 const {cutSceneSurface,clipSceneStreetBox}=load('surfaceCutClient.ts',{sceneWork:()=>null,excludeSurface,seaOutsideBox});
-const {fitTileStreetSurfaces}=load('tileStreetSurfaces.ts',{cutSceneSurface});
+const {packRings}=load('nearBuildingTargets.ts');
+const {cutTileStreets,streetTransfer}=load('tileStreetCut.ts',{excludeSurface,packRings});
+const {fitTileStreetSurfaces}=load('tileStreetSurfaces.ts',{sceneWork:()=>null,cutTileStreets,streetTransfer});
 const {anchoredTerrainHeight}=load('terrainGrid.ts');
 const go=async()=>true;
 const rectangle=(x0,y0,x1,y1)=>[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
@@ -104,7 +106,21 @@ test('departure boundary clipping retains the vertical kerb face and its fifteen
 test('streamed asphalt, paint and paving share exact building and carriageway exclusions',async()=>{
  const roads={surface:surface(-20,-4,20,4),marks:{...surface(-20,-.1,20,.1,.03),color:new Float32Array(12).fill(1)},marksFar:null,walks:surface(-20,-8,20,8,.15)};
  const building=rectangle(-2,-2,2,2),guard=await fitTileStreetSurfaces(roads,[building],go);
- assert.ok(guard.length>2);
+ assert.ok(guard.ends.length>2);
  for(const s of [roads.surface,roads.marks,roads.walks]){const p=s.position;for(let k=0;k<s.index.length;k+=3){const ids=Array.from(s.index.subarray(k,k+3)),x=ids.reduce((a,i)=>a+p[i*3]/3,0),y=ids.reduce((a,i)=>a+p[i*3+1]/3,0);assert.ok(!(Math.abs(x)<2-1e-6&&Math.abs(y)<2-1e-6));if(s===roads.walks)assert.ok(Math.abs(y)>=4-1e-6);}}
  assert.equal(roads.marks.color.length,roads.marks.position.length);
+});
+
+test('a streamed tile fits its streets in one worker job, its arrays handed over, not copied',async()=>{
+ const roads={surface:surface(-20,-4,20,4),marks:{...surface(-20,-.1,20,.1,.03),color:new Float32Array(12).fill(1)},marksFar:null,walks:surface(-20,-8,20,8,.15)};
+ const building=rectangle(-2,-2,2,2),jobs=[];
+ const worker=(op,args,transfer)=>{jobs.push({op,transfer});return cutTileStreets(args,go);};
+ const api=load('tileStreetSurfaces.ts',{sceneWork:worker,cutTileStreets,streetTransfer});
+ const guard=await api.fitTileStreetSurfaces(roads,[building],go);
+ assert.equal(jobs.length,1);assert.equal(jobs[0].op,'tileStreets');
+ assert.ok(jobs[0].transfer.length>=8,'every surface array is transferred');
+ assert.ok(guard.ends.length>2);
+ for(const s of [roads.surface,roads.marks,roads.walks]){const p=s.position;for(let k=0;k<s.index.length;k+=3){const ids=Array.from(s.index.subarray(k,k+3)),x=ids.reduce((a,i)=>a+p[i*3]/3,0),y=ids.reduce((a,i)=>a+p[i*3+1]/3,0);assert.ok(!(Math.abs(x)<2-1e-6&&Math.abs(y)<2-1e-6));if(s===roads.walks)assert.ok(Math.abs(y)>=4-1e-6);}}
+ const failed=load('tileStreetSurfaces.ts',{sceneWork:()=>Promise.reject(Error('worker failed')),cutTileStreets,streetTransfer});
+ assert.equal(await failed.fitTileStreetSurfaces({...roads},[building],go),null,'a failed worker fails the tile (it is tried again)');
 });

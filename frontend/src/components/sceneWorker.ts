@@ -15,6 +15,8 @@ import {excludeSurface}from'./surfaceExclusion';
 import {seaOutsideBox}from'./coastGeometry';
 import * as THREE from 'three';
 import { readPaint, writePaint } from "./paintStore";
+import {cutTileStreets,streetTransfer,type TileStreetsArgs,type TileStreetsResult} from './tileStreetCut';
+import {lowerUnderRiver,type RiverLowerArgs,type RiverLowerResult} from './riverLower';
 
 /* The 3D view's scene work that needs no page, done off its thread (sceneWorkerClient.ts):
  * while a complex loads, the page only draws frames and wraps the arrays sent back.
@@ -27,6 +29,8 @@ import { readPaint, writePaint } from "./paintStore";
 export type GroundData = Pick<RealEstateBuildingsResponse, "site" | "roads" | "parcels" | "streets"> & { buildings: { rings: [number, number][][] }[]; context: { rings: [number, number][][] }[] };
 
 export type SceneOps = {
+  tileStreets:{args:TileStreetsArgs;result:TileStreetsResult|null};
+  riverLower:{args:RiverLowerArgs;result:RiverLowerResult};
   surfaceBox:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array;box:[number,number,number,number]};result:SceneOps['surfaceCut']['result']};
   surfaceCut:{args:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;rings:[number,number][][]|null;ringsId?:number;roads?:boolean;zUp?:boolean};result:{attributes:{name:string;size:number;array:Float32Array}[];index:Uint16Array|Uint32Array|null;sphere?:[number,number,number,number]}};
   roads: {args:{roads:RealEstateRoad[];footprints:[number,number][][]};result:RealEstateRoad[]};
@@ -131,6 +135,8 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       if(!g.boundingSphere)g.computeBoundingSphere();const b=g.boundingSphere!;
       result={attributes,index,sphere:[b.center.x,b.center.y,b.center.z,b.radius]};transfer=attributes.map(a=>a.array.buffer);if(index)transfer.push(index.buffer);
     }
+    else if(m.op==='tileStreets'){const fit=await cutTileStreets(m.args,go);result=fit;transfer=fit?[...streetTransfer([fit.surface,fit.marks,fit.marksFar,fit.walks]),fit.ground.xy.buffer,fit.ground.ends.buffer]:[];}
+    else if(m.op==='riverLower'){const low=lowerUnderRiver(m.args);result=low;transfer=[low.ground,low.normal,...low.surfaces,low.lanes].filter(a=>!!a).map(a=>a!.buffer);}
     else if(m.op==='roads')result=constrainRoadCorridors(m.args.roads,m.args.footprints);
     else if (m.op === 'neighbours') {
       const start=performance.now();let mode='javascript';

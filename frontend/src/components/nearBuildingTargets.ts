@@ -22,6 +22,14 @@ const packedGuards=new WeakMap<object,PackedRoadGuard>();
 /** The road guard as typed arrays, packed once per source. Sent with every detail job (either
  * worker may take it), the nested rings (a complex's 30k road footprints) were a 20 ms clone on
  * the page each time; typed arrays copy in well under a millisecond. */
+/** A guard whose roads come packed (a streamed drone tile's, from the scene worker): unpacked only
+ * if something reads them as rings. */
+export function packedSourceGuard(key:string,roads:PackedRings,buildings:[number,number][][]):NonNullable<NearBuildingSource['roadGuard']>{
+  let rings:[number,number][][]|null=null;
+  const g={key,buildings,get roads(){return rings??=unpackRings(roads);}};
+  packedGuards.set(g,{key,roads,buildings:packRings(buildings)});
+  return g;
+}
 export function packedRoadGuard(g:NearBuildingSource['roadGuard']):PackedRoadGuard|undefined{
   if(!g)return undefined;
   let p=packedGuards.get(g);
