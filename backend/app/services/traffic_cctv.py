@@ -221,9 +221,21 @@ def _catalogue(reply, key: str):
     try:
         return json.loads(text, strict=False)
     except ValueError:
-        head = re.sub(r"\s+", " ", text[:120]).replace(key, "<key>") if key else text[:120]
-        _utic["sample"] = {"type": reply.headers.get("Content-Type", "")[:60], "bytes": len(raw), "head": head}
-        raise
+        pass
+    # The approved reply is an HTML page carrying the catalogue as a JSON array.
+    start = text.find("[{")
+    end = text.rfind("}]")
+    if 0 <= start < end:
+        try:
+            return json.loads(text[start:end + 2], strict=False)
+        except ValueError:
+            pass
+    at = text.upper().find("CCTVID")
+    clean = lambda t: re.sub(r"\s+", " ", t).replace(key, "<key>") if key else t
+    _utic["sample"] = {"type": reply.headers.get("Content-Type", "")[:60], "bytes": len(raw), "head": clean(text[:120]),
+        "around": clean(text[max(0, at - 300):at + 500]) if at >= 0 else None,
+        "body": clean(re.sub(r"<script.*?</script>|<style.*?</style>|<!--.*?-->", "", text[text.find("<body"):][:4000], flags=re.S))[:600]}
+    raise ValueError("Unreadable catalogue")
 
 
 def _utic_rows() -> dict:
