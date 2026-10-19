@@ -884,6 +884,9 @@ function roadWorkerMain() {
     // stripes the whole way across the carriageway — kerb to kerb, one stripe a metre — 4 m wide
     // along the road; at a signalled one, the stop lines 3 m back on the lanes coming to it.
     const drawn = new Set<string>();
+    // the stop lines painted (centre, the direction of the traffic they stop, half their length):
+    // the signalled cars stop at these, not somewhere of their own
+    const paintedStops: { x: number; y: number; dx: number; dy: number; half: number }[] = [];
     // (mapped as ways across the road, or as nodes on it — the most of them; an unmarked one, none)
     const marks: { mx: number; my: number; signals: boolean }[] = [];
     for (const c of crossings) {
@@ -963,6 +966,7 @@ function roadWorkerMain() {
           // coming along +dir: the lanes to the right of the centre line, 3 m short of the stripes
           const sx = cx - dx * dir * 5, sy = cy - dy * dir * 5, half = twoWay ? w / 4 : w / 2, o = twoWay ? -dir * w / 4 : 0;
           rect(Mk, sx - dy * o, sy + dx * o, 0, dx, dy, 0.25, half, WHITE, paintZ);
+          paintedStops.push({ x: sx - dy * o, y: sy + dx * o, dx: dx * dir, dy: dy * dir, half });
         }
       }
     }
@@ -1057,6 +1061,36 @@ function roadWorkerMain() {
           if (stop < 3) continue;
           const id = (Math.round(j.x / 10) & 0xffff) * 65536 + (Math.round(j.y / 10) & 0xffff);
           found.push(stop, id, Math.abs(dx * j.ax + dy * j.ay) > 0.707 ? 0 : 1);
+        }
+        s += L;
+      }
+      // A painted stop line across this lane, facing its way: the car stops there. It stands for the
+      // junction just beyond it (its stop, worked out from the junction's disc, gives way to it); a
+      // signalled crossing between junctions is a junction of its own, one phase.
+      s = 0;
+      for (let i = 1; i < n; i++) {
+        const ax = paths[at + i * 3 - 3], ay = paths[at + i * 3 - 2], bx = paths[at + i * 3], by = paths[at + i * 3 + 1], L = Math.hypot(bx - ax, by - ay);
+        if (L < 1e-6) continue;
+        const ux = (bx - ax) / L, uy = (by - ay) / L;
+        for (const P of paintedStops) {
+          if (ux * P.dx + uy * P.dy < 0.7) continue;
+          // where the segment meets the line across the road (P ± its half length, square to its traffic)
+          const qx = -P.dy, qy = P.dx, den = ux * qy - uy * qx;
+          if (Math.abs(den) < 1e-6) continue;
+          const t = ((P.x - ax) * qy - (P.y - ay) * qx) / den, u = ((P.x - ax) * uy - (P.y - ay) * ux) / den;
+          if (t < 0 || t > L || Math.abs(u) > P.half + 0.3) continue;
+          const stop = s + t - 0.2;
+          if (stop < 0.5) continue;
+          let J: (typeof sig)[number] | null = null, best = Infinity;
+          for (const j of sig) {
+            const ox = j.x - P.x, oy = j.y - P.y, d = Math.hypot(ox, oy);
+            if (d < j.R + 35 && ox * ux + oy * uy > -2 && d < best) { best = d; J = j; }
+          }
+          const id = J ? (Math.round(J.x / 10) & 0xffff) * 65536 + (Math.round(J.y / 10) & 0xffff) : (Math.round(P.x / 10) & 0xffff) * 65536 + (Math.round(P.y / 10) & 0xffff) + 0x40000000;
+          const phase = J ? (Math.abs(ux * J.ax + uy * J.ay) > 0.707 ? 0 : 1) : 0;
+          // (the disc's own stop for that junction on this lane gives way to the painted line)
+          for (let q = found.length - 3; q >= 0; q -= 3) if (found[q + 1] === id && found[q] > stop - 5 && found[q] < stop + 45) found.splice(q, 3);
+          if (!found.some((v, q) => q % 3 === 1 && v === id && Math.abs(found[q - 1] - stop) < 3)) found.push(stop, id, phase);
         }
         s += L;
       }
