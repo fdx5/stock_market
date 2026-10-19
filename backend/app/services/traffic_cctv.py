@@ -33,6 +33,7 @@ SOURCE = "국토교통부 국가교통정보센터"
 HIGHWAY_CCTV_ENABLED = False
 UTIC_LIST = "https://www.utic.go.kr/guide/cctvOpenData.do"
 UTIC_PAGE = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
+UTIC_MAP = "https://www.utic.go.kr/map/mapcctv.do"
 UTIC_SOURCE = "경찰청 도시교통정보센터(UTIC)"
 UTIC_KEY_NAMES = ("UTIC_CCTV_API_KEY", "UTIC_API_KEY", "UTIC_KEY", "UTIC_CCTV_KEY", "UTIC_OPEN_API_KEY")
 CITY_CCTV_ENABLED = True
@@ -203,46 +204,47 @@ def _issue_code(error) -> str:
         else "provider_error")
 
 
-def _catalogue(reply, key: str):
-    """The catalogue JSON, whatever its declared character set; an unreadable reply
-    records its type, size and opening characters (key removed) for diagnosis."""
+def _text(reply) -> str:
     raw = reply.content
     for encoding in ("utf-8-sig", "cp949"):
         try:
-            text = raw.decode(encoding)
-            break
+            return raw.decode(encoding).strip()
         except UnicodeDecodeError:
             continue
-    else:
-        text = raw.decode("utf-8", "replace")
-    text = text.strip()
-    if text.startswith(("(", "callback")) and text.endswith((")", ");")):
-        text = text[text.find("(") + 1:text.rfind(")")]
+    return raw.decode("utf-8", "replace").strip()
+
+
+_LISTED = re.compile(r"""test\(\s*['"]([A-Za-z0-9_-]{2,32})['"]\s*\)""")
+
+
+def _catalogue(reply, key: str):
+    """The cameras this key may show: a JSON list of rows, or (the approved reply) an
+    HTML table whose links carry the camera IDs. A provider rejection is one JSON row
+    with a resultCode. An unreadable reply records its type, size and opening
+    characters (key removed) for diagnosis."""
+    text = _text(reply)
     try:
         return json.loads(text, strict=False)
     except ValueError:
         pass
-    # The approved reply is an HTML page carrying the catalogue as a JSON array.
-    start = text.find("[{")
-    end = text.rfind("}]")
-    if 0 <= start < end:
-        try:
-            return json.loads(text[start:end + 2], strict=False)
-        except ValueError:
-            pass
-    at = text.upper().find("CCTVID")
+    ids = _LISTED.findall(text)
+    if ids:
+        return [{"CCTVID": cid} for cid in dict.fromkeys(ids)]
     clean = lambda t: re.sub(r"\s+", " ", t).replace(key, "<key>") if key else t
-    _utic["sample"] = {"type": reply.headers.get("Content-Type", "")[:60], "bytes": len(raw), "head": clean(text[:120]),
-        "around": clean(text[max(0, at - 300):at + 500]) if at >= 0 else None,
-        "body": clean(re.sub(r"<script.*?</script>|<style.*?</style>|<!--.*?-->", "", text[text.find("<body"):][:4000], flags=re.S))[:600],
-        "marks": {m: [clean(text[max(0, i - 150):i + 350]) for i in [x.start() for x in re.finditer(re.escape(m), text)][:2]]
-            for m in ("cctvListDiv", "CCTVNAME", "cctvname", "XCOORD", "<tr", "JSON.parse", "L01")},
-        "tail": clean(text[-700:])}
+    _utic["sample"] = {"type": reply.headers.get("Content-Type", "")[:60], "bytes": len(reply.content), "head": clean(text[:160])}
     raise ValueError("Unreadable catalogue")
 
 
+# The player page needs these per-camera fields (as UTIC's own player derives them).
+_KIND_BY_PREFIX = {"L01": "Seoul", "L02": "N", "L03": "O", "L04": "P", "L08": "d"}
+
+
 def _utic_rows() -> dict:
-    """The camera catalogue by CCTVID; the last good one is kept through failures."""
+    """The camera catalogue by CCTVID; the last good one is kept through failures.
+
+    Two requests every six hours: the open-data list (key and registered address:
+    which cameras may be shown) and the camera list UTIC's public map loads (their
+    positions and stream fields). No per-camera attribute requests."""
     now = time.monotonic()
     if _utic["rows"] and now - _utic["at"] < 6 * 3600:
         return _utic["rows"]
@@ -255,41 +257,48 @@ def _utic_rows() -> dict:
             return _utic["rows"]
         _, key = _utic_key()
         try:
-            reply = _utic_get(UTIC_LIST, {"key": key}, (5, 25))
+            reply = _utic_get(UTIC_LIST, {"key": key}, (5, 40))
             reply.raise_for_status()
-            body = _catalogue(reply, key)
-            if isinstance(body, dict):
-                body = next((v for v in body.values() if isinstance(v, list)), [body])
-            if not isinstance(body, list):
+            listed = _catalogue(reply, key)
+            if isinstance(listed, dict):
+                listed = next((v for v in listed.values() if isinstance(v, list)), [listed])
+            if not isinstance(listed, list):
                 raise ValueError("Invalid catalogue")
-            if len(body) == 1 and isinstance(body[0], dict) and _field(body[0], "resultCode"):
+            if len(listed) == 1 and isinstance(listed[0], dict) and _field(listed[0], "resultCode"):
                 # e.g. 02 "유효한 KEY값이 아닙니다." or an unregistered address
-                _utic["issue"] = {"code": "not_authorized", "provider": _field(body[0], "resultCode")[:8],
-                    "message": _field(body[0], "resultMsg")[:80]}
+                _utic["issue"] = {"code": "not_authorized", "provider": _field(listed[0], "resultCode")[:8],
+                    "message": _field(listed[0], "resultMsg")[:80]}
                 _utic["retry_at"] = time.monotonic() + 600
                 return _utic["rows"]
+            allowed = {_field(r, "CCTVID"): r for r in listed if isinstance(r, dict) and _field(r, "CCTVID")}
+            places = {}
+            if any(not _field(r, "XCOORD", "COORDX") for r in list(allowed.values())[:20]):
+                mapped = _utic_get(UTIC_MAP, None, (5, 40))
+                mapped.raise_for_status()
+                body = json.loads(_text(mapped), strict=False)
+                if not isinstance(body, list):
+                    raise ValueError("Invalid camera map")
+                places = {_field(r, "CCTVID"): r for r in body if isinstance(r, dict)}
             rows, kinds = {}, {}
-            for row in body:
-                if not isinstance(row, dict):
-                    continue
-                cid = _field(row, "CCTVID")
+            for cid, entry in allowed.items():
+                row = {**places.get(cid, {}), **{k: v for k, v in entry.items() if v not in (None, "")}}
                 try:
                     x, y = float(_field(row, "XCOORD", "COORDX", "LON")), float(_field(row, "YCOORD", "COORDY", "LAT"))
                 except ValueError:
                     continue
                 name = " ".join(_field(row, "CCTVNAME").split())[:160]
-                if not cid or not name or not 124 <= x <= 132 or not 33 <= y <= 39:
+                if not name or not 124 <= x <= 132 or not 33 <= y <= 39:
                     continue
-                kind = _field(row, "KIND")
+                kind = _KIND_BY_PREFIX.get(cid[:3]) or _field(row, "KIND")
                 kinds[kind] = kinds.get(kind, 0) + 1
                 rows[cid] = {"id": cid, "name": name, "lat": y, "lon": x, "kind": kind,
                     "center": _field(row, "CENTERNAME")[:60], "movie": _field(row, "MOVIE").upper(),
                     "ip": _field(row, "CCTVIP"), "ch": _field(row, "CH", "CCTVCH"), "user": _field(row, "ID"),
                     "pw": _field(row, "PASSWD", "CCTVPASSWD"), "port": _field(row, "PORT", "CCTVPORT")}
-            _utic.update(rows=rows, at=time.monotonic(), issue=None, kinds=kinds,
-                fields=sorted({k for r in body[:5] if isinstance(r, dict) for k in r})[:40])
+            _utic.update(rows=rows, at=time.monotonic(), issue=None, kinds=kinds, listed=len(allowed),
+                fields=sorted({k for r in list(places.values())[:5] + list(allowed.values())[:5] for k in r})[:40])
             if not rows:
-                _utic["issue"] = {"code": "empty_catalogue"}
+                _utic["issue"] = {"code": "empty_catalogue", "listed": len(allowed), "mapped": len(places)}
                 _utic["retry_at"] = time.monotonic() + 600
             return _utic["rows"]
         except Exception as error:
@@ -428,7 +437,7 @@ def status() -> dict:
     return {"city": {"enabled": CITY_CCTV_ENABLED, "key": name if key else None,
         "env_names": [n for n in os.environ if "UTIC" in n.upper()][:10],
         "cameras": len(_utic["rows"]), "age_s": int(time.monotonic() - _utic["at"]) if _utic["at"] else None,
-        "issue": _utic["issue"], "fields": _utic["fields"], "sample": _utic.get("sample"),
+        "issue": _utic["issue"], "listed": _utic.get("listed"), "fields": _utic["fields"], "sample": _utic.get("sample"),
         "kinds": dict(sorted(_utic["kinds"].items(), key=lambda e: -e[1])[:30]),
         "resolves": _resolve_log[-15:]}, "highway": {"enabled": HIGHWAY_CCTV_ENABLED, "key": bool(_key())}}
 

@@ -264,3 +264,25 @@ def test_provider_errors_are_not_repeated_within_ten_seconds(city):
         with pytest.raises(c.MediaProviderError):
             c.media(token)
     assert len(calls) == 1
+
+
+def test_html_catalogue_takes_positions_from_the_public_camera_map(city):
+    page = ("<table><tr><td><a href=\"javascript:test('L010001')\">12649.남산</a></td></tr>"
+        "<tr><td><a href=\"javascript:test('E970016')\">1.서울광장</a></td></tr></table>").encode()
+    camera_map = [{"CCTVID": "L010001", "CCTVNAME": "남산1호터널", "XCOORD": 126.9886, "YCOORD": 37.5465, "KIND": "X", "MOVIE": "Y", "CCTVIP": "L010001"},
+        {"CCTVID": "E970016", "CCTVNAME": "서울광장", "XCOORD": 126.97887, "YCOORD": 37.56496, "KIND": "EC", "CH": 53, "ID": "274", "MOVIE": "Y"},
+        {"CCTVID": "unlisted", "CCTVNAME": "Not for this key", "XCOORD": 126.98, "YCOORD": 37.55, "MOVIE": "Y"}]
+    calls = []
+    def get(url, params=None, **k):
+        calls.append(url)
+        body = page if url == c.UTIC_LIST else json.dumps(camera_map).encode()
+        return Mock(status_code=200, content=body, headers={}, raise_for_status=lambda: None)
+    city.setattr(c.requests, "get", get)
+    items = c.cameras(37.5465, 126.9886)["items"]
+    assert calls == [c.UTIC_LIST, c.UTIC_MAP]
+    assert sorted(i["id"] for i in items) == ["utic:E970016", "utic:L010001"], "only cameras the key lists"
+    rows = c._utic["rows"]
+    assert rows["L010001"]["kind"] == "Seoul", "kind from the ID prefix, as UTIC's player does"
+    assert rows["E970016"]["ch"] == "53" and rows["E970016"]["user"] == "274"
+    c.cameras(37.5465, 126.9886)
+    assert len(calls) == 2, "both lists are kept for hours"
