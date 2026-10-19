@@ -236,6 +236,8 @@ def test_player_page_resolves_to_a_relayed_stream_once(city):
     city.setattr(c.requests, "get", page)
     opened = c.open_city(token)
     assert opened["format"] == "hls" and opened["media"].startswith("/api/realestate/cctv/media/")
+    assert opened["direct"] == "https://strmu.spatic.go.kr/live/L010001.stream/playlist.m3u8"
+    assert "fixture-city-key" not in str(opened)
     assert c.open_city(token) == opened and len(pages) == 1, "a resolved camera is not fetched again"
     assert pages[0]["kind"] == "Seoul" and pages[0]["cctvip"] == "L010001"
     target = c._media[opened["media"].rsplit("/", 1)[1]][0]

@@ -2,7 +2,8 @@ import {useEffect,useRef,useState} from 'react';
 import type Hls from 'hls.js';
 import type {TrafficCamera} from './trafficCctv';
 
-type Source={media:string;format:NonNullable<TrafficCamera['format']>};
+// direct: the provider's own HTTPS stream (public); media: the same through this server.
+type Source={media:string;format:NonNullable<TrafficCamera['format']>;direct?:string};
 
 export default function CctvPopup({camera,onClose,onRefresh}:{camera:TrafficCamera;onClose:()=>void;onRefresh:()=>void}){
   const video=useRef<HTMLVideoElement>(null),close=useRef<HTMLButtonElement>(null);
@@ -16,7 +17,7 @@ export default function CctvPopup({camera,onClose,onRefresh}:{camera:TrafficCame
     const stop=new AbortController();
     setState('loading');setSource(null);
     fetch(camera.resolve,{signal:stop.signal}).then(async r=>{if(!r.ok)throw new Error(String(r.status));return r.json();})
-      .then((s:Source)=>{if(!stop.signal.aborted&&typeof s?.media==='string')setSource({media:s.media,format:s.format??'hls'});else setState('error');})
+      .then((s:Source)=>{if(!stop.signal.aborted&&typeof s?.media==='string')setSource({media:s.media,format:s.format??'hls',direct:typeof s.direct==='string'&&s.direct.startsWith('https://')?s.direct:undefined});else setState('error');})
       .catch(()=>{if(!stop.signal.aborted)setState('error');});
     return()=>stop.abort();
   },[camera.resolve,camera.media,attempt]);
@@ -24,23 +25,25 @@ export default function CctvPopup({camera,onClose,onRefresh}:{camera:TrafficCame
     const el=video.current;if(!el||!source||source.format==='image')return;
     let alive=true,hls:Hls|null=null;
     setState('loading');
-    const timer=window.setTimeout(()=>{if(alive)setState('error');},18000);
+    const url=source.direct??source.media;
+    // A direct stream that will not start falls back to the relay before reporting an error.
+    const fail=()=>{clearTimeout(timer);if(!alive)return;if(source.direct)setSource({...source,direct:undefined});else setState('error');};
+    const timer=window.setTimeout(fail,source.direct?9000:18000);
     const ready=()=>{clearTimeout(timer);if(alive)setState('ready');};
-    const fail=()=>{clearTimeout(timer);if(alive)setState('error');};
     const ended=()=>{if(alive&&camera.resolve&&rejoins.current++<20)setAttempt(a=>a+1);};
     el.addEventListener('playing',ready);el.addEventListener('error',fail);el.addEventListener('ended',ended);
     const play=()=>{void el.play().catch(()=>{if(alive)setState('play');});};
     // hls.js wherever it runs: Chrome's own HLS player gave up on the first relayed
     // city segment. Native playback is the fallback (iPhone Safari has no MSE).
-    const native=()=>{if(el.canPlayType('application/vnd.apple.mpegurl')){el.src=source.media;play();}else fail();};
-    if(source.format!=='hls'){el.src=source.media;play();}
+    const native=()=>{if(el.canPlayType('application/vnd.apple.mpegurl')){el.src=url;play();}else fail();};
+    if(source.format!=='hls'){el.src=url;play();}
     else void import('hls.js').then(({default:Hls})=>{
       if(!alive)return;
       if(!Hls.isSupported()){native();return;}
       hls=new Hls({maxBufferLength:12,maxMaxBufferLength:24,backBufferLength:0});
       hls.on(Hls.Events.MANIFEST_PARSED,play);
       hls.on(Hls.Events.ERROR,(_,data)=>{if(data.fatal){hls?.destroy();hls=null;if(el.currentTime>0)ended();else fail();}});
-      hls.loadSource(source.media);hls.attachMedia(el);
+      hls.loadSource(url);hls.attachMedia(el);
     }).catch(fail);
     return()=>{alive=false;clearTimeout(timer);hls?.destroy();el.removeEventListener('playing',ready);el.removeEventListener('error',fail);el.removeEventListener('ended',ended);el.pause();el.removeAttribute('src');el.load();};
   },[source,camera.resolve,attempt]);

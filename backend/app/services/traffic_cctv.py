@@ -423,6 +423,12 @@ def open_city(token: str) -> dict:
         _log_resolve({"kind": row["kind"], "code": code})
         raise ValueError("No video on the player page")
     result = {"media": _path(url), "format": _format(url)}
+    # The stream servers are public (UTIC's own map plays them in visitors' browsers);
+    # only the key, catalogue and player page are tied to the registered address.
+    # HTTPS streams play directly (the relay crossed the Pacific slower than real
+    # time); the relay stays for plain-HTTP streams and as the fallback.
+    if urlsplit(url).scheme == "https" and not urlsplit(url).query:
+        result["direct"] = url
     _log_resolve({"kind": row["kind"], "code": "ok", "host": urlsplit(url).hostname, "format": result["format"]})
     with _lock:
         _resolved[cid] = (time.monotonic(), result)
