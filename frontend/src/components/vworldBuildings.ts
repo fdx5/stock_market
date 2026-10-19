@@ -677,7 +677,24 @@ export function withoutStrays(data: RealEstateBuildingsResponse): RealEstateBuil
   if (!data.found || !data.buildings?.length) return data;
   const linked = (b: RealEstateBuilding) => !!b.use || !!b.approved;
   const all = [...data.buildings, ...(data.context ?? [])];
-  const reg = all.filter(linked).map(b => ({ ring: b.rings[0], c: centroid(b.rings[0]) }));
+  // A newer building on an old one's ground (ringBuildings: the same rule): a not-yet-linked record
+  // with a name of its own and other storeys than the linked one under it is its successor — the
+  // old record goes, the new one stands (성수 SK V1 CENTER I·II stood as the buildings of 1985/1989).
+  const nameOf = (b: RealEstateBuilding) => (b.title ?? "").replace(/\s|\(주\)|㈜|주식회사/g, "").toLowerCase();
+  const successors = new Set<RealEstateBuilding>(), replaced = new Set<RealEstateBuilding>();
+  for (const u of all) {
+    const un = nameOf(u);
+    if (linked(u) || !un || u.floors < 1) continue;
+    const uc = centroid(u.rings[0]);
+    for (const l of all) {
+      if (!linked(l)) continue;
+      const lc = centroid(l.rings[0]), ln = nameOf(l);
+      if (Math.abs(lc[0] - uc[0]) > 80 || Math.abs(lc[1] - uc[1]) > 80 || !inside(uc, l.rings[0]) && !inside(lc, u.rings[0])) continue;
+      if (l.floors === u.floors || ln && (ln.includes(un) || un.includes(ln))) continue;
+      successors.add(u); replaced.add(l);
+    }
+  }
+  const reg = all.filter(b => linked(b) && !replaced.has(b)).map(b => ({ ring: b.rings[0], c: centroid(b.rings[0]) }));
   // (the linked ones by 60 m cell: each record looks only at its neighbourhood — against all
   // of them, a thousand-building neighbourhood took ~10 ms of the load)
   const cellOf = (x: number, y: number) => Math.floor(x / 60) * 100003 + Math.floor(y / 60);
@@ -691,9 +708,9 @@ export function withoutStrays(data: RealEstateBuildingsResponse): RealEstateBuil
   let dropped = 0, fixed = 0;
   const keep = (b: RealEstateBuilding) => {
     const ring = b.rings[0], a = Math.abs(area(ring));
-    const stray = (b.floors >= 5 && a < 25)
+    const stray = replaced.has(b) || (b.floors >= 5 && a < 25)
       || (!linked(b) && b.floors >= 8 && a < 10 * b.floors + 40)
-      || (!linked(b) && (() => { const c = centroid(ring); return near(c).some(r => inside(c, r.ring) || inside(r.c, ring)); })());
+      || (!linked(b) && !successors.has(b) && (() => { const c = centroid(ring); return near(c).some(r => inside(c, r.ring) || inside(r.c, ring)); })());
     if (stray) dropped++;
     return !stray;
   };

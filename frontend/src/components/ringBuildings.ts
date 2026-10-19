@@ -209,6 +209,26 @@ function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile, clas
         || (floors<5&&p.usability==='01000');
       if(gone&&job.clearedSite.rings.some(r=>inRing(c.cx,c.cy,r)))cands.splice(i,1);
     }
+    // A newer building on an old one's ground: the data keeps a demolished building's register-linked
+    // record after its successor's (not yet linked: no 용도, no 사용승인일) is added — 성수 SK V1
+    // CENTER II (12 storeys) stood as the 9-storey building of 1985 it replaced, the successor taken
+    // for a stray copy. A copy carries the register building's own storeys and its name; a successor
+    // has a name of its own and other storeys. Then the old record goes and the new one stands.
+    const nameOf = (p: any) => String(p.bld_nm ?? '').replace(/\s|\(주\)|㈜|주식회사/g, '').toLowerCase();
+    const storeys = (p: any) => Math.round(parseFloat(p.grnd_flr) || 0);
+    const successors = new Set<Cand>(), replaced = new Set<Cand>();
+    for (const u of cands) {
+      const un = nameOf(u.props);
+      if (u.linked || !un || storeys(u.props) < 1) continue;
+      for (const l of cands) {
+        if (!l.linked || Math.abs(l.cx - u.cx) > 80 || Math.abs(l.cy - u.cy) > 80) continue;
+        if (!inRing(u.cx, u.cy, l.ring) && !inRing(l.cx, l.cy, u.ring)) continue;
+        const ln = nameOf(l.props);
+        if (storeys(l.props) === storeys(u.props) || ln && (ln.includes(un) || un.includes(ln))) continue;
+        successors.add(u); replaced.add(l);
+      }
+    }
+    if (replaced.size) for (let i = cands.length - 1; i >= 0; i--) if (replaced.has(cands[i])) cands.splice(i, 1);
     const regAt = new Map<string, Cand[]>();
     for (const c of cands) if (c.linked) { const k = cell(c.cx, c.cy); regAt.set(k, [...(regAt.get(k) ?? []), c]); }
     const onLinked = (c: Cand) => {
@@ -292,10 +312,11 @@ function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile, clas
       }
       return ring;
     };
-    for (const { ring, area, cx, cy, d, props, linked, holes } of cands) {
+    for (const cand of cands) {
+      const { ring, area, cx, cy, d, props, linked, holes } = cand;
       const fl = Math.round(parseFloat(props.grnd_flr) || 0);
       if ((fl >= 5 && area < 25) || (!linked && fl >= 8 && area < 10 * fl + 40)) continue;
-      if (!linked && onLinked({ ring, area, cx, cy, d: 0, props, linked, holes: [] })) continue;
+      if (!linked && !successors.has(cand) && onLinked({ ring, area, cx, cy, d: 0, props, linked, holes: [] })) continue;
       // heights as the register gives them (vworldBuildings.fillHeights)
       const hReg = parseFloat(props.height) || 0, fReg = Math.round(parseFloat(props.grnd_flr) || 0);
       let height = hReg, floors = fReg;
