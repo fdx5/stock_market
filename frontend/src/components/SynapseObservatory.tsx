@@ -21,6 +21,7 @@ interface Props {
 export default function SynapseObservatory({graph,live,health,onSelect,onView,paused,stale,healthStale,limited=false}:Props) {
   const [selected,setSelected]=useState("gateway"),[domain,setDomain]=useState("all"),[query,setQuery]=useState("");
   const [isolate,setIsolate]=useState(false),[faultsOnly,setFaultsOnly]=useState(false),[motion,setMotion]=useState(true);
+  const [autoRotate,setAutoRotate]=useState(true),[inspectorOpen,setInspectorOpen]=useState(false);
   const [speed,setSpeed]=useState(1.5),[quality,setQuality]=useState<SceneOptions["quality"]>("balanced");
   const [reduced,setReduced]=useState(()=>matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [failure,setFailure]=useState<string|null>(null),[retry,setRetry]=useState(0),[ready,setReady]=useState(false);
@@ -55,7 +56,7 @@ export default function SynapseObservatory({graph,live,health,onSelect,onView,pa
   const chosenEvent=events.find(e=>e.key===eventKey)||heldEvents.find(e=>e.key===eventKey);
   const trace=chosenEvent&&live?.traces?.find(t=>chosenEvent.type==="API"?t.request.id===chosenEvent.id:t.calls.some(c=>c.id===chosenEvent.id));
   const hovered=hover?model.nodes[model.byId.get(hover)??-1]:null;
-  const select=(id:string,focus=false)=>{setSelected(id);setEventKey(null);const n=model.nodes[model.byId.get(id)??-1];if(n)onSelect(n.parent||n.id);if(focus)scene.current?.focus(id);};
+  const select=(id:string,focus=false)=>{setSelected(id);setInspectorOpen(true);setEventKey(null);const n=model.nodes[model.byId.get(id)??-1];if(n)onSelect(n.parent||n.id);if(focus)scene.current?.focus(id);};
   const selectRef=useRef(select);selectRef.current=select;
   useEffect(()=>{const media=matchMedia("(prefers-reduced-motion: reduce)");const change=()=>setReduced(media.matches);media.addEventListener("change",change);return()=>media.removeEventListener("change",change);},[]);
   useEffect(()=>{
@@ -65,7 +66,7 @@ export default function SynapseObservatory({graph,live,health,onSelect,onView,pa
     catch{setFailure("3D 그래픽을 시작하지 못했습니다. 아래 노드 목록과 로그에서 관측을 계속할 수 있습니다.");}
     return()=>{if(world)cameraView.current=world.captureView();world?.dispose();scene.current=null;};
   },[model,retry]);
-  useEffect(()=>{scene.current?.applyOptions({selected,domain,query,isolate,faultsOnly,motion:motion&&!reduced,paused:paused||stale,speed,quality,faults});},[model,retry,selected,domain,query,isolate,faultsOnly,motion,reduced,paused,stale,speed,quality,faults]);
+  useEffect(()=>{scene.current?.applyOptions({selected,domain,query,isolate,faultsOnly,motion:motion&&!reduced,autoRotate,paused:paused||stale,speed,quality,faults});},[model,retry,selected,domain,query,isolate,faultsOnly,motion,reduced,autoRotate,paused,stale,speed,quality,faults]);
   useEffect(()=>{scene.current?.ingest(signals);},[signals,model,retry,paused,stale,motion,reduced]);
   useEffect(()=>()=>window.clearTimeout(replayTimer.current),[]);
   const replay=()=>{scene.current?.ingest(signals,true);setReplaying(true);window.clearTimeout(replayTimer.current);replayTimer.current=window.setTimeout(()=>setReplaying(false),2500);};
@@ -75,20 +76,20 @@ export default function SynapseObservatory({graph,live,health,onSelect,onView,pa
   const state=paused?"관측 일시 정지":stale?"수신 지연 · 마지막 표본":live?"실제 표본 수신 중":"관측 연결 중";
   const timeline=live?.api.breakdown?.timeline||[];
 
-  return <section className="sn-observatory" ref={root} aria-label="시냅스 통신 관제">
+  return <section className={`sn-observatory sn-cinematic ${!motion||reduced||paused||stale?"is-still":""}`} ref={root} aria-label="시냅스 통신 관제">
     <header className="sn-masthead"><div className="sn-brand"><div className="sn-brand-mark" aria-hidden="true">✳</div><div><div className="sn-overline">K-STOCK HUB <span>/</span> COMMUNICATION OBSERVATORY</div><h1>SYNAPSE<span>연결의 우주</span><sup>01</sup></h1></div></div><div className="sn-mast-status"><span className={`sn-live ${paused||stale?"is-muted":""}`}><i/>{state}</span><small>단일 프로세스 · 최근 60초</small></div></header>
     <div className="sn-metrics">
       <div><span>TOPOLOGY <small>구조 노드 / 연결</small></span><strong>{num(model.nodes.length)}<em>/ {num(model.links.length)}</em></strong><small>API · 소스 모듈 · 외부 호스트</small></div>
       <button onClick={()=>onView("api")}><span>API PULSE <small>완료 요청</small></span><strong>{live?(live.api.count/Math.max(1,live.api.window_s)).toFixed(2):"—"}<em>req/s</em></strong><small>{num(live?.api.count)}건 / {live?.api.window_s||60}초</small></button>
       <button onClick={()=>onView("external")}><span>EXTERNAL <small>외부 통신</small></span><strong>{limited?"—":num(live?.external.hosts.length)}<em>hosts</em></strong><small>{limited?"현재 권한에서 계측 미제공":`${num(live?.external.count)} HTTP 표본`}</small></button>
       <button onClick={()=>onView("api","slow")}><span>LATENCY <small>응답 지연</small></span><strong>{ms(live?.api.p95_ms)}<em>P95</em></strong><small>P50 {ms(live?.api.p50_ms)}</small></button>
-      <button className="sn-metric-alert" onClick={()=>{setFaultsOnly(f=>!f);setDomain("all");}} aria-pressed={faultsOnly}><span>ATTENTION <small>실패 · 응답 오류</small></span><strong>{live?num(live.api.errors+live.external.errors):"—"}<em>5xx / 전송</em></strong><small>4xx {live?num(live.api.client_errors+live.external.client_errors):"—"} · 오류 노드 강조 ↗</small></button>
+      <button className="sn-metric-alert" onClick={()=>{setFaultsOnly(f=>!f);setDomain("all");setInspectorOpen(true);}} aria-pressed={faultsOnly}><span>ATTENTION <small>실패 · 응답 오류</small></span><strong>{live?num(live.api.errors+live.external.errors):"—"}<em>5xx / 전송</em></strong><small>4xx {live?num(live.api.client_errors+live.external.client_errors):"—"} · 오류 노드 강조 ↗</small></button>
     </div>
-    <div className="sn-workspace"><div className="sn-universe-panel">
-      <div className="sn-universe-head"><div><i/><span>NEURAL TOPOLOGY</span><small>입체 통신망</small></div><span className="sn-render-status">{ready&&!failure?`${performance.fps||"—"} FPS` : "GRAPHICS CONNECTING"}<b>WEBGL</b></span></div>
+    <div className={`sn-workspace ${inspectorOpen?"has-inspector":""}`}><div className="sn-universe-panel">
+      <div className="sn-universe-head"><div><i/><span>NEURAL TOPOLOGY</span><small>입체 통신망</small></div><label className="sn-search sn-command-search"><Icon name="search" size={16}/><input aria-label="통신 노드 검색" value={query} onFocus={()=>setInspectorOpen(true)} onChange={e=>{setQuery(e.target.value);setInspectorOpen(true);}} placeholder="API · 모듈 · 호스트 탐색"/>{query&&<button onClick={()=>setQuery("")} aria-label="노드 검색 초기화">×</button>}</label><span className="sn-render-status">{ready&&!failure?`${performance.fps||"—"} FPS` : "GRAPHICS CONNECTING"}<b>WEBGL</b></span><button className="sn-inspector-toggle" aria-expanded={inspectorOpen} onClick={()=>setInspectorOpen(v=>!v)}><Icon name="trace" size={14}/>{inspectorOpen?"패널 접기":"노드 탐색"}</button></div>
       <div className="sn-universe">
         <div className="sn-nebula" aria-hidden="true"/><div className="sn-scene" ref={host}/><div className="sn-labels" ref={labels}/>
-        <div className="sn-universe-caption"><span>LIVE SYSTEM / 001</span><h2>Everything<br/><em>is connected.</em></h2><p>하나의 신호에서 시스템 전체까지.</p></div>
+        <div className="sn-universe-caption"><span>LIVE SYSTEM / 001</span><h2>A living<br/><em>constellation.</em></h2><p>연결이 모여, 하나의 우주가 됩니다.</p><div className="sn-orbit-caption"><i/> SYNAPTIC FIELD <span>01 — ∞</span></div></div>
         <div className="sn-map-meta"><span><i/> 구조 연결</span><span><i/> 실제 요청 재생</span><span><i/> 오류 신호</span></div>
         <div className="sn-coordinate" aria-hidden="true"><span>Y</span><b>╱</b><i>└── X</i><small>3D ORBIT</small></div>
         {(!ready||failure)&&<div className="sn-fallback" role="status"><Icon name="atlas" size={32}/><b>{failure?"목록 관제 사용 가능":"신경망을 구성하고 있습니다"}</b><p>{failure||"실제 서비스와 소스 의존성을 입체 공간에 배치합니다."}</p>{failure&&<button onClick={()=>setRetry(r=>r+1)}>3D 다시 연결</button>}</div>}
@@ -97,11 +98,11 @@ export default function SynapseObservatory({graph,live,health,onSelect,onView,pa
         <div className="sn-space-foot"><span>드래그 회전 <i>·</i> 휠 확대 <i>·</i> 노드 선택</span><b>{replaying?"보존 표본 재생 중":paused?"PAUSED":stale?"STALE DATA":!live?.api.count&&!live?.external.count?"WAITING FOR SIGNAL":"OBSERVED SIGNALS"}</b></div>
       </div>
       <nav className="sn-domains" aria-label="통신 영역 필터"><button onClick={()=>selectDomain("all")} aria-pressed={domain==="all"}><i style={{background:"#bcdae6"}}/>전체 영역<small>{graph.nodes.length}</small></button>{model.domains.map(n=><button key={n.id} style={tint(n.color)} onClick={()=>selectDomain(n.id)} aria-pressed={domain===n.id}><i/>{n.label.split(" · ")[0]}<small>{num(live?.api.groups[n.id]?.count||0)}</small></button>)}</nav>
-      <div className="sn-control-bar"><label>흐름 속도<select aria-label="신호 재생 속도" value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={.7}>차분하게</option><option value={1.5}>빠르게</option><option value={3}>초고속</option></select></label><label>그래픽<select aria-label="신경망 그래픽 품질" value={quality} onChange={e=>setQuality(e.target.value as SceneOptions["quality"])}><option value="high">정밀</option><option value="balanced">균형</option><option value="eco">절전</option></select></label><button aria-pressed={!motion||reduced} disabled={reduced} onClick={()=>setMotion(m=>!m)}><Icon name={motion&&!reduced?"pause":"play"} size={13}/>{reduced?"모션 감소":motion?"모션 정지":"모션 재개"}</button><button onClick={replay} disabled={!signals.length||paused||stale||!motion||reduced||!!failure}><Icon name="play" size={13}/>표본 재생</button></div>
+      <div className="sn-control-bar"><button className="sn-rotation-toggle" aria-pressed={autoRotate&&!reduced} disabled={reduced} onClick={()=>setAutoRotate(v=>!v)}><Icon name="refresh" size={14}/>{autoRotate&&!reduced?"자동 회전 정지":"자동 회전 시작"}</button><label>흐름 속도<select aria-label="신호 재생 속도" value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={.7}>차분하게</option><option value={1.5}>빠르게</option><option value={3}>초고속</option></select></label><label>그래픽<select aria-label="신경망 그래픽 품질" value={quality} onChange={e=>setQuality(e.target.value as SceneOptions["quality"])}><option value="high">정밀</option><option value="balanced">균형</option><option value="eco">절전</option></select></label><button aria-pressed={!motion||reduced} disabled={reduced} onClick={()=>setMotion(m=>!m)}><Icon name={motion&&!reduced?"pause":"play"} size={13}/>{reduced?"모션 감소":motion?"모션 정지":"모션 재개"}</button><button onClick={replay} disabled={!signals.length||paused||stale||!motion||reduced||!!failure}><Icon name="play" size={13}/>표본 재생</button></div>
     </div>
-    <aside className="sn-inspector" aria-label="신경망 노드 상세">
-      <header><span>NODE INTELLIGENCE</span><Icon name="trace" size={15}/></header>
-      <label className="sn-search"><Icon name="search" size={16}/><input aria-label="통신 노드 검색" value={query} onChange={e=>setQuery(e.target.value)} placeholder="API, 모듈, 호스트 검색"/>{query&&<button onClick={()=>setQuery("")} aria-label="노드 검색 초기화">×</button>}</label>
+    <aside className="sn-inspector" aria-label="신경망 노드 상세" hidden={!inspectorOpen}>
+      <header><span>NODE INTELLIGENCE</span><button className="sn-inspector-close" onClick={()=>setInspectorOpen(false)} aria-label="노드 상세 패널 닫기">×</button></header>
+
       {query||faultsOnly?<div className="sn-search-results"><div><b>{num(found.length)}개 노드</b><button onClick={()=>{setQuery("");setFaultsOnly(false);}}>필터 해제</button></div>{found.slice(0,60).map(n=><button key={n.id} onClick={()=>select(n.id,true)} style={tint(n.color)} aria-pressed={node?.id===n.id}><i/><span>{n.label}</span><small>{kindLabel[n.kind]}</small></button>)}{!found.length&&<p>조건에 맞는 노드가 없습니다.</p>}{found.length>60&&<p>상위 60개 표시 · 검색어를 좁혀 주세요.</p>}</div>:null}
       {node&&<><div className="sn-node-identity" style={tint(node.color)}><div className="sn-node-glyph"><Icon name={node.kind==="module"?"code":node.kind==="api"?"gateway":node.kind==="host"?"external":node.id} size={25}/></div><span>{kindLabel[node.kind]} <i>/ {String((model.byId.get(node.id)||0)+1).padStart(3,"0")}</i></span><h2>{node.label}</h2><p>{node.detail}</p><div className="sn-node-state" data-state={stale?"stale":stats?.errors?"error":stats?.client_errors?"warn":stats?.count?"active":"idle"}><i/>{stale?"마지막 수신 표본":stats?.errors?"실패 관측":stats?.client_errors?"4xx 응답 관측":stats?.count?"통신 관측":node.kind==="module"?"정적 의존성 · 실행 계측 없음":"최근 통신 표본 없음"}</div></div>
       <div className="sn-node-metrics"><div><span>호출 / 60s</span><b>{node.kind==="module"?"—":num(stats?.count)}</b></div><div><span>평균 지연</span><b>{ms(stats?.avg_ms)}</b></div><div><span>연결</span><b>{num(connections.length)}</b></div></div>

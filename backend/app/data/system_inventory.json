@@ -69,11 +69,12 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 674,
+  "source_files": 684,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
     "frontend/src/components/droneSurveyWorker.ts",
+    "frontend/src/components/initialRoadWorker.ts",
     "frontend/src/components/moonGlowWorker.ts",
     "frontend/src/components/normalWorker.ts",
     "frontend/src/components/paintRasterWorker.ts",

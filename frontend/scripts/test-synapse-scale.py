@@ -56,7 +56,7 @@ with sync_playwright() as p:
     browser=p.chromium.launch(channel='msedge',headless=True)
     ctx=browser.new_context(viewport={'width':1600,'height':1100})
     ctx.add_init_script("localStorage.setItem('admin_session',JSON.stringify({token:'isolated-fixture',expires_at:Date.now()/1000+3600}));")
-    ctx.route('**/api/**',respond);ctx.route('https://**/*',lambda r:r.abort())
+    ctx.route('**/api/**',respond);ctx.route('https://**/*',lambda r:r.fallback() if r.request.url.startswith(base+'/') else r.abort())
     page=ctx.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
     page.goto(base+'/admin/monitor')
     page.wait_for_timeout(2500)
@@ -87,7 +87,7 @@ with sync_playwright() as p:
     mode['value']='limited'
     limited=browser.new_context(viewport={'width':1440,'height':1100})
     limited.add_init_script("localStorage.setItem('monitor_session',JSON.stringify({token:'monitor-fixture',expires_at:Date.now()/1000+3600}));")
-    limited.route('**/api/**',respond);limited.route('https://**/*',lambda r:r.abort())
+    limited.route('**/api/**',respond);limited.route('https://**/*',lambda r:r.fallback() if r.request.url.startswith(base+'/') else r.abort())
     page=limited.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
     page.goto(base+'/admin/monitor')
     expect(page.locator('.sn-scene')).to_have_attribute('data-state','ready',timeout=60000)
@@ -102,7 +102,7 @@ with sync_playwright() as p:
     report['monitor_only_access']='3D, API journal, activity journal, pause, scope details; no privileged API calls'
     limited.close()
     locked=browser.new_context()
-    locked.route('**/api/**',respond);locked.route('https://**/*',lambda r:r.abort())
+    locked.route('**/api/**',respond);locked.route('https://**/*',lambda r:r.fallback() if r.request.url.startswith(base+'/') else r.abort())
     page=locked.new_page();page.goto(base+'/admin/monitor')
     expect(page.get_by_label('패스코드',exact=True)).to_be_visible()
     report['locked_route']='existing passcode gate preserved'

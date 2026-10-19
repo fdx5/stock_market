@@ -20,7 +20,8 @@ for name in ('TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN', 'REALESTATE_TURSO_DATABAS
 from app.services import system_atlas, system_telemetry
 from playwright.sync_api import sync_playwright, expect
 
-OUT = ROOT / 'tmp/synapse-20261019'
+BASE = os.environ.get('TEST_BASE_URL','http://127.0.0.1:5198').rstrip('/')
+OUT = Path(os.environ.get('SYNAPSE_QA_OUTPUT',str(ROOT / 'tmp/synapse-20261019')))
 OUT.mkdir(parents=True, exist_ok=True)
 routes = []
 for path in (ROOT / 'backend/app/routers').glob('*.py'):
@@ -97,12 +98,12 @@ with sync_playwright() as p:
     context = browser.new_context(viewport={'width':1600,'height':1200},device_scale_factor=1)
     context.add_init_script("localStorage.setItem('admin_session',JSON.stringify({token:'isolated-fixture',expires_at:Date.now()/1000+3600}));")
     context.route('**/api/**',api)
-    context.route('https://**/*',lambda route:route.abort())
+    context.route('https://**/*',lambda route:route.fallback() if route.request.url.startswith(BASE+'/') else route.abort())
     page = context.new_page(); errors=[]; shader_errors=[]
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.on('console',lambda m:shader_errors.append(m.text) if m.type=='error' and ('THREE' in m.text or 'Shader' in m.text) else None)
     try:
-        page.goto(os.environ.get('TEST_BASE_URL','http://127.0.0.1:5198')+'/admin/system-atlas')
+        page.goto(BASE+'/admin/system-atlas')
         expect(page.locator('.sn-scene')).to_have_attribute('data-state','ready',timeout=60000)
         page.wait_for_function("Number(document.querySelector('.sn-scene').dataset.frames)>5",timeout=60000)
         page.screenshot(path=str(OUT/'synapse-desktop.png'),full_page=True)
@@ -110,6 +111,15 @@ with sync_playwright() as p:
         report['links']=int(page.locator('.sn-scene').get_attribute('data-links'))
         report['fps']=page.locator('.sn-render-status').inner_text()
         report['checks'].append('source inventory, WebGL shaders, actual-sample journal')
+        expect(page.locator('.sn-scene')).to_have_attribute('data-rotating','true')
+        assert page.locator('.sn-universe').bounding_box()['height']>=800
+        assert page.locator('.sn-universe').bounding_box()['width']>1200
+        expect(page.locator('.sn-inspector')).not_to_be_visible()
+        page.get_by_role('button',name='자동 회전 정지',exact=True).click()
+        expect(page.locator('.sn-scene')).to_have_attribute('data-rotating','false')
+        page.get_by_role('button',name='자동 회전 시작',exact=True).click()
+        expect(page.locator('.sn-scene')).to_have_attribute('data-rotating','true')
+        report['checks'].append('full-width tall field, default auto rotation and stop/restart button')
         page.get_by_label('통신 노드 검색').fill('/api/')
         expect(page.locator('.sn-search-results>button').first).to_be_visible()
         page.locator('.sn-search-results>button').first.click()
