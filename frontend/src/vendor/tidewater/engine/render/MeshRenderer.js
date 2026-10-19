@@ -788,9 +788,21 @@ export class MeshRenderer {
 		const list = ranges.list, half = ranges.halfExtents?.length === list.length / 2 ? ranges.halfExtents : null, runs = o.__runs ??= [];
 		runs.length = 0;
 		const m = o.matrixWorld, scale = m.getMaxScaleOnAxis();
+		// (local modification) `instanceLod` { min, max } (m): of the blocks in sight, only those whose
+		// centre lies that far from the view's eye (lodCamera) — one model of a tree for the near
+		// blocks, a lighter one sharing the same instances for the far. Other passes (shadows,
+		// reflections) draw the full model's mesh whole and none of its lighter twins.
+		const lod = o.instanceLod, eye = lod && pass.camera === this.lodCamera ? this.lodCamera.matrixWorld.elements : null;
+		if ( lod && ! eye && lod.min > 0 ) return runs;
 		for ( let i = 0; i < list.length; i += 6 ) {
 
 			_runSphere.center.set( list[ i + 2 ], list[ i + 3 ], list[ i + 4 ] ).applyMatrix4( m );
+			if ( eye ) {
+
+				const d = Math.hypot( _runSphere.center.x - eye[ 12 ], _runSphere.center.y - eye[ 13 ], _runSphere.center.z - eye[ 14 ] );
+				if ( d < lod.min || d >= lod.max ) continue;
+
+			}
 			// (a little slack: the jitter of the frame's projection, rounding)
 			_runSphere.radius = list[ i + 5 ] * scale + 1;
 			if ( ! f.intersectsSphere( _runSphere ) ) continue;

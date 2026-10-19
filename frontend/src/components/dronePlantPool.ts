@@ -20,13 +20,17 @@ const BLOCK = 85;
 type Block = { off: number; n: number; x: number; y: number; z: number; r: number; hx: number; hy: number; hz: number };
 type Seg = { start: number; count: number; blocks: Block[] };
 /** a tile's runs in a pool: one for each of its meshes of that model, material and role */
-type Pool = { mesh: THREE.InstancedMesh; segs: Map<string, Seg[]>; total: number };
+type Pool = { mesh: THREE.InstancedMesh; segs: Map<string, Seg[]>; total: number; twins: THREE.InstancedMesh[] };
+/** A phone's far woodland (`lod`): the blocks whose centre lies past these distances (m) from the
+ * eye are drawn with the tree's far models (sceneGroves: a half and a quarter of the sprays, larger
+ * leaves — the same crown, trunk and tint) — the same instances; shadows stay the full model's. */
+const LOD_M = [350, 550];
 
 export class PlantPool {
   readonly root = new THREE.Group();
   private pools = new Map<string, Pool>();
   private byTile = new Map<string, Set<string>>();
-  constructor(private readonly o: { addWarm: (parent: THREE.Object3D, obj: THREE.Object3D) => void }) { this.root.name = "drone pooled woodland"; this.root.matrixAutoUpdate = false; }
+  constructor(private readonly o: { addWarm: (parent: THREE.Object3D, obj: THREE.Object3D) => void; lod?: boolean }) { this.root.name = "drone pooled woodland"; this.root.matrixAutoUpdate = false; }
 
   /** Moves a tile's woodland meshes (under `group`, placed at the tile) into the pools. */
   adopt(tile: string, i: number, j: number, group: THREE.Object3D) {
@@ -46,9 +50,21 @@ export class PlantPool {
         mesh.name = src.name + " (pooled)"; mesh.count = 0; mesh.castShadow = casts; mesh.receiveShadow = src.receiveShadow;
         mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(mesh.instanceMatrix.count * 3), 3);
         mesh.userData.castWas = casts;
-        pool = { mesh, segs: new Map(), total: 0 };
+        pool = { mesh, segs: new Map(), total: 0, twins: [] };
+        const lods = this.o.lod ? src.geometry.userData.lods as THREE.BufferGeometry[] | undefined : undefined;
+        if (lods?.length) {
+          mesh.userData.instanceLod = { min: 0, max: LOD_M[0] };
+          lods.forEach((g, k) => {
+            const twin = new THREE.InstancedMesh(g, mat, 1);
+            twin.name = src.name + ` (pooled, level ${k + 1})`; twin.instanceMatrix = mesh.instanceMatrix; twin.instanceColor = mesh.instanceColor; twin.count = 0;
+            twin.castShadow = false; twin.userData.castWas = false; twin.receiveShadow = src.receiveShadow;
+            twin.userData.instanceLod = { min: LOD_M[k], max: LOD_M[k + 1] ?? Infinity };
+            pool!.twins.push(twin);
+          });
+        }
         this.pools.set(key, pool);
         this.o.addWarm(this.root, mesh);
+        for (const twin of pool.twins) this.o.addWarm(this.root, twin);
       }
       // (the instances moved into the cell's frame: the tile's own placement folded in)
       const e = src.matrixWorld.elements, n = src.count, need = pool.total + n;
@@ -94,7 +110,7 @@ export class PlantPool {
         pool.total -= seg.count; from = seg.start;
       }
       pool.mesh.count = pool.total;
-      if (!pool.total) { pool.mesh.removeFromParent(); pool.mesh.dispose(); this.pools.delete(key); continue; }
+      if (!pool.total) { for (const m of [pool.mesh, ...pool.twins]) { m.removeFromParent(); m.dispose(); } this.pools.delete(key); continue; }
       this.touched(pool, from, pool.total - from);
     }
   }
@@ -116,6 +132,7 @@ export class PlantPool {
     c.set((pool.mesh.instanceColor!.array as Float32Array).subarray(0, pool.total * 3));
     pool.mesh.instanceMatrix = new THREE.InstancedBufferAttribute(m, 16);
     pool.mesh.instanceColor = new THREE.InstancedBufferAttribute(c, 3);
+    for (const twin of pool.twins) { twin.instanceMatrix = pool.mesh.instanceMatrix; twin.instanceColor = pool.mesh.instanceColor; }
   }
   private touched(pool: Pool, start: number, count: number) {
     const im = pool.mesh.instanceMatrix, ic = pool.mesh.instanceColor!;
@@ -129,9 +146,12 @@ export class PlantPool {
       halfExtents.push(b.hx, b.hy, b.hz);
     }
     pool.mesh.userData.instanceRanges = { total: pool.total, list: Float64Array.from(list), halfExtents: Float64Array.from(halfExtents) };
+    for (const twin of pool.twins) {
+      twin.count = pool.total; twin.boundingSphere = pool.mesh.boundingSphere; twin.userData.instanceRanges = pool.mesh.userData.instanceRanges;
+    }
   }
   dispose() {
-    for (const p of this.pools.values()) { p.mesh.removeFromParent(); p.mesh.dispose(); }
+    for (const p of this.pools.values()) for (const m of [p.mesh, ...p.twins]) { m.removeFromParent(); m.dispose(); }
     this.pools.clear(); this.byTile.clear(); this.root.removeFromParent();
   }
 }

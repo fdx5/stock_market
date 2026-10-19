@@ -263,7 +263,8 @@ export class DroneWorld {
     void paintedTexture('asphalt',1024).then(map=>{if(this.disposed){map.dispose();return;}this.asphaltMap=map;this.asphalt.map=map;this.asphalt.color.set('#ffffff');this.asphalt.needsUpdate=true;});
     this.traffic = new DroneTraffic(o.seed + 31, !o.hq);
     this.root.add(this.traffic.group);
-    this.plantPool = new PlantPool({ addWarm: o.addWarm });
+    // (a phone: its far woodland in the lighter leaf levels; ?treelod=0 the comparison path)
+    this.plantPool = new PlantPool({ addWarm: o.addWarm, lod: !o.hq && !/[?&]treelod=0/.test(location.search) });
     this.root.add(this.plantPool.root);
     // The landmarks: the palaces and stadiums in VWorld's photo-textured models, 광안대교 built.
     this.landmarks = new Landmarks({

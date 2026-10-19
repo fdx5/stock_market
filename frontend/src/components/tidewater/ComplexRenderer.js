@@ -1798,7 +1798,7 @@ export class ComplexRenderer {
       // the updated structure. The same rule applies to other static batches.
       if(obj.isInstancedMesh){if(obj.frustumCulled&&!obj.boundingSphere)obj.computeBoundingSphere();mesh.boundingSphere=obj.boundingSphere;}
       // (a pooled mesh's instances in blocks, each with its sphere: drawn as the blocks in sight)
-      if(obj.isInstancedMesh)mesh.instanceRanges=obj.frustumCulled?obj.userData.instanceRanges:undefined;
+      if(obj.isInstancedMesh){mesh.instanceRanges=obj.frustumCulled?obj.userData.instanceRanges:undefined;mesh.instanceLod=mesh.instanceRanges?obj.userData.instanceLod:undefined;}
       // Pooled woodland/traffic already place instances in world space. Multiplying
       // each vertex's instance matrix by an identity model matrix wastes 64 multiplies.
       mesh.worldInstances = !!obj.isInstancedMesh && identityMatrix(obj.matrixWorld);
@@ -1930,6 +1930,7 @@ export class ComplexRenderer {
     this.refreshTextures();
     const c = this.camera;
     c.position.copy(camera.position); c.quaternion.copy(camera.quaternion);
+    this.renderer.lodCamera = this.noTreeLod ? null : c;   // the eye of the woodland's near/far models (instanceLod); noTreeLod: all full models
     if (c.fov !== camera.fov || c.aspect !== camera.aspect || c.near !== camera.near || c.far !== camera.far) {
       c.fov = camera.fov; c.aspect = camera.aspect; c.near = camera.near; c.far = camera.far;
       c.updateProjectionMatrix();

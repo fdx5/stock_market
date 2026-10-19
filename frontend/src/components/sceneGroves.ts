@@ -54,10 +54,10 @@ function leaf(out:Buffers,center:THREE.Vector3,width:number,length:number,q:THRE
  }
 }
 /** 48 branch sprays of four leaf shapes, plus trunk and three limbs. */
-export function treeMeshModel(styleIndex:number,seed=1,leafCount=TREE_LEAVES){
+export function treeMeshModel(styleIndex:number,seed=1,leafCount=TREE_LEAVES,maxLeafScale=1.5){
  const style=PARK_TREE_STYLES[styleIndex],random=rng(seed+71),shape=styleIndex===2?[17,4,6.4]:styleIndex===4?[22,7.3,3.8]:styleIndex===1?[20,6.1,4.9]:styleIndex===3?[15,4.5,5.4]:[19,5.4,6.5];
  const[height,ry,radius]=shape,cy=height-ry,out:Buffers={position:[],normal:[],uv:[],color:[],index:[]};
- const leafScale=Math.min(1.5,Math.sqrt(TREE_LEAVES/leafCount));
+ const leafScale=Math.min(maxLeafScale,Math.sqrt(TREE_LEAVES/leafCount));
  for(let n=0;n<leafCount/4;n++){
   const level=1-2*(n+.5)/(leafCount/4),a=n*2.3999632297,spread=Math.sqrt(1-level*level)*(styleIndex===4?(.75-level*.25):1),rad=radius*spread*(.80+random()*.2);
   const branch=new THREE.Vector3(Math.cos(a)*rad,cy+level*ry,Math.sin(a)*rad);
@@ -103,6 +103,12 @@ async function acquireBank(texture:THREE.Texture|null,pause:()=>Promise<void>,bo
    if(!bark){bark=extract(model,n,n+24,t,t+32);if(!texture){const c=bark.attributes.color as THREE.BufferAttribute;for(let j=0;j<c.count;j++)c.setXYZ(j,.30,.19,.10);}}
    if(count===192)exposed.push(model.userData.treeModel.exposedTrunk);model.dispose();
   }
+  // Far models for the drone's pooled woodland on a phone (dronePlantPool): the tree made with a
+  // half and a quarter of its sprays, each leaf √2 and 2× the size (treeMeshModel) — the crown's
+  // cover kept, not thinned.
+  full!.userData.lods=[];
+  for(const part of [2,4]){await pause();const model=treeMeshModel(i,1,TREE_LEAVES/part,2),n=model.userData.treeModel.leafVertices,t=model.userData.treeModel.leafTriangles;
+   const far=extract(model,0,n,0,t);far.userData.compactDepth=true;far.userData.flatLeaf=true;full!.userData.lods.push(far);model.dispose();}
  }
   bark!.userData.compactDepth=true;
   const crownMat=new THREE.MeshStandardMaterial({map:texture,vertexColors:true,roughness:.9,side:THREE.FrontSide});crownMat.userData.volumeFoliage=true;crownMat.userData.meshLeaves=true;
