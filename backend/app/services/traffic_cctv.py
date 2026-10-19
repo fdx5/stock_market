@@ -234,7 +234,10 @@ def _catalogue(reply, key: str):
     clean = lambda t: re.sub(r"\s+", " ", t).replace(key, "<key>") if key else t
     _utic["sample"] = {"type": reply.headers.get("Content-Type", "")[:60], "bytes": len(raw), "head": clean(text[:120]),
         "around": clean(text[max(0, at - 300):at + 500]) if at >= 0 else None,
-        "body": clean(re.sub(r"<script.*?</script>|<style.*?</style>|<!--.*?-->", "", text[text.find("<body"):][:4000], flags=re.S))[:600]}
+        "body": clean(re.sub(r"<script.*?</script>|<style.*?</style>|<!--.*?-->", "", text[text.find("<body"):][:4000], flags=re.S))[:600],
+        "marks": {m: [clean(text[max(0, i - 150):i + 350]) for i in [x.start() for x in re.finditer(re.escape(m), text)][:2]]
+            for m in ("cctvListDiv", "CCTVNAME", "cctvname", "XCOORD", "<tr", "JSON.parse", "L01")},
+        "tail": clean(text[-700:])}
     raise ValueError("Unreadable catalogue")
 
 
