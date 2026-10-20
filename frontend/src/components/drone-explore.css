@@ -56,6 +56,9 @@
   33% { background-position: 0 0, 50% 50%; box-shadow: 0 0 7px #57d8e677; }
   66% { background-position: 0 0, 100% 50%; box-shadow: 0 0 7px #e788f477; }
 }
+/* (a phone's drone in flight: the page's decorative animations held — each restyled and repainted
+   the page on the main thread at every frame, the drone's frame waiting on it; on again at rest) */
+html[data-drone-flight] .re-drone-view-icon, html[data-drone-flight] .d2-bgm-title.is-overflow span, html[data-drone-flight] .d2-bgm-state::before { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) { .drone-explore-page .re-drone-view-icon { animation: none; box-shadow: 0 0 7px #57d8e677; } }
 @media (max-width: 760px) {
   .drone-explore-page .re-holo-bottom { max-height: 32%; }

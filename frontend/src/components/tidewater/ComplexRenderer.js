@@ -27,7 +27,7 @@ import { frameSlice } from '../frameSlice';
 import { retireUnusedMaterials,sourceMaterialsMatch,boundTextures } from './materialLifetime';
 import { prepareCanvasResize,sceneDeviceBudget } from '../sceneDeviceBudget';
 import {updateForestLod} from '../spatialForest';
-import {leanUpdateMatrixWorld} from '../leanMatrixWorld';
+import {leanUpdateMatrixWorld, leanUpdateOne} from '../leanMatrixWorld';
 import {BUILDING_APPEARANCE_WGSL} from './buildingAppearanceShader.js';
 
 // Readiness uses the same pipeline descriptors for every building. Reuse the
@@ -1094,6 +1094,7 @@ export class ComplexRenderer {
   }
   /** A phone's drone: PCF shadows in two cascades while it flies, and back after. */
   setDroneLite(on) {
+    this.halfSync = on && !/[?&]halfsync=0/.test(location.search);
     if (on) {
       shadowSplits = [200, 900];
       useShadows(this.quality);
@@ -1672,12 +1673,49 @@ export class ComplexRenderer {
     });
     return ready && !this.failed;
   }
+  /** A source's draw count, instances or place changed since the native mesh last took them: taken. */
+  _moved(obj, mesh) {
+    const moved = mesh.count !== (obj.count ?? 1) || mesh.instVersion !== obj.instanceMatrix?.version || !sameMatrix(mesh.matrix, obj.matrixWorld);
+    if (moved) {
+      if (mesh.castShadow && !mesh.moving) this.castersChanged = true;
+      mesh.moving = true; mesh.movedAt = this.frameNo;
+      mesh.count = obj.count ?? 1;
+      mesh.instVersion = obj.instanceMatrix?.version;
+      mesh.matrix.copy(obj.matrixWorld); mesh.matrixWorldNeedsUpdate = true;
+      mesh.worldTransformVersion++;
+    } else if (mesh.moving && this.frameNo - mesh.movedAt > 90) {
+      mesh.moving = false;
+      if (mesh.castShadow) this.castersChanged = true;
+    }
+  }
   sync(source, camera) {
     if (this.detailReady === false) { this.pending = true; this.ready = false; return; }
     // Let Three propagate dirty transforms. Forcing the root dirty recalculated every
     // static building, tree and street mesh on every displayed frame.
     // (three's rule, minus composing again the matrices of objects that did not move: see leanMatrixWorld)
+    // (`halfSync`, a phone's drone in flight: the whole tree every other frame — what came, went or
+    // changed shows a frame later — and between, only what moved lately (cars, people, the woodland
+    // by distance) brought up to date: the walk over a thousand still objects was a third of the frame)
+    const movers = this.movers ??= [];
+    // (the short walk on the frames the view's own traffic steps — syncShort, set by the caller —
+    // or every other one)
+    const short = this.syncShort ?? ((this.syncFrame = (this.syncFrame ?? 0) + 1) % 2 === 0);
+    if (this.halfSync && this.shown && short && this.longAt === this.frameNo - 1) {
+      // (their world matrices too, each on its own: the parents of what moves stand still)
+      const base = Object.getPrototypeOf(source).updateMatrixWorld;
+      for (let i = 0; i < movers.length; i += 2) {
+        const obj = movers[i], mesh = movers[i + 1];
+        if (this.meshes.get(obj) !== mesh || mesh.geometry !== obj.geometry) continue;
+        leanUpdateOne(obj, base);
+        if (camera && obj.userData.forestLod) updateForestLod(obj, camera);
+        if (obj.isInstancedMesh && (mesh.instanceMatrix !== obj.instanceMatrix || mesh.instanceColor !== obj.instanceColor)) continue;
+        this._moved(obj, mesh);
+      }
+      return;
+    }
     leanUpdateMatrixWorld(source);
+    movers.length = 0;
+    this.longAt = this.frameNo;
     // A visible tree visits each source once. A reusable list and native mesh
     // stamps avoid rebuilding/probing a large hash set on every flight frame.
     const active = this.active ??= [];
@@ -1801,19 +1839,10 @@ export class ComplexRenderer {
       if(obj.isInstancedMesh){mesh.instanceRanges=obj.frustumCulled?obj.userData.instanceRanges:undefined;mesh.instanceLod=mesh.instanceRanges?obj.userData.instanceLod:undefined;}
       // Pooled woodland/traffic already place instances in world space. Multiplying
       // each vertex's instance matrix by an identity model matrix wastes 64 multiplies.
-      mesh.worldInstances = !!obj.isInstancedMesh && identityMatrix(obj.matrixWorld);
-      const moved = mesh.count !== (obj.count ?? 1) || mesh.instVersion !== obj.instanceMatrix?.version || !sameMatrix(mesh.matrix, obj.matrixWorld);
-      if (moved) {
-        if (mesh.castShadow && !mesh.moving) this.castersChanged = true;
-        mesh.moving = true; mesh.movedAt = this.frameNo;
-        mesh.count = obj.count ?? 1;
-        mesh.instVersion = obj.instanceMatrix?.version;
-        mesh.matrix.copy(obj.matrixWorld); mesh.matrixWorldNeedsUpdate = true;
-        mesh.worldTransformVersion++;
-      } else if (mesh.moving && this.frameNo - mesh.movedAt > 90) {
-        mesh.moving = false;
-        if (mesh.castShadow) this.castersChanged = true;
-      }
+      this._moved(obj, mesh);
+      // (worked out again only when the place changed: _moved compares the whole matrix anyway)
+      if (mesh.worldInstances === undefined || mesh.worldAt !== mesh.worldTransformVersion) { mesh.worldInstances = !!obj.isInstancedMesh && identityMatrix(obj.matrixWorld); mesh.worldAt = mesh.worldTransformVersion; }
+      if (mesh.moving || obj.userData.forestLod) movers.push(obj, mesh);
       // Prepare buffers even outside the current frustum. The same byte/time
       // admission limit covers new models and appended ranges; readiness then
       // means the exact current geometry is queued on the GPU, not just that a
@@ -1824,7 +1853,7 @@ export class ComplexRenderer {
       // draws and objectsReady still check/upload exact versions every frame.
       // Per-mesh deadlines stagger naturally as tiles enter, limiting the
       // additional off-screen wait to 80 ms without changing model quality.
-      if(this.renderer.geometryReady&&(admitted||prepareNow-(mesh.buffersCheckedAt??-Infinity)>=80)){
+      if(this.renderer.geometryReady&&(admitted||prepareNow-(mesh.buffersCheckedAt??-Infinity)>=(this.halfSync?250:80))){
         mesh.buffersCheckedAt=prepareNow;
         const mats=mesh.material;
         const dirty=Array.isArray(mats)?mats.some(mat=>!this.renderer.geometryReady(mesh,mat,true)):!this.renderer.geometryReady(mesh,mats,true);

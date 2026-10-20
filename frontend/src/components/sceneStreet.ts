@@ -1420,12 +1420,30 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
 
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), v = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
   const qp = new THREE.Quaternion(), across = new THREE.Vector3(1, 0, 0), zero = new THREE.Vector3(0, 0, 0);
+  // (a moving car's wheels ask at points never asked before — each a walk along the whole road for
+  // its nearest point and the asphalt's lookups, most of the traffic's step: asked instead at the
+  // corners of the half-metre grid round it, kept — per road, until the surface's heights change —
+  // and shared by every car after it, and blended)
+  let gridRevision:unknown=null,gridMemo=new WeakMap<RealEstateRoad,Map<number,number>>(),gridCount=0;
+  const corner=(r:RealEstateRoad,memo:Map<number,number>,gx:number,gy:number)=>{
+    const k=(gx+1e6)*4e6+(gy+1e6);let h=memo.get(k);
+    if(h===undefined){h=roadHeight(r,terrain,gx/2,gy/2);memo.set(k,h);gridCount++;}
+    return h;
+  };
+  const gridHeight=(r:RealEstateRoad,x:number,y:number)=>{
+    const rev=terrain.heightRevision?.()??null;
+    if(rev!==gridRevision||gridCount>300000){gridRevision=rev;gridMemo=new WeakMap();gridCount=0;}
+    let memo=gridMemo.get(r);if(!memo)gridMemo.set(r,memo=new Map());
+    const gx=Math.floor(x*2),gy=Math.floor(y*2),fx=x*2-gx,fy=y*2-gy;
+    const a=corner(r,memo,gx,gy),b=corner(r,memo,gx+1,gy),c=corner(r,memo,gx,gy+1),d=corner(r,memo,gx+1,gy+1);
+    return (a+(b-a)*fx)*(1-fy)+(c+(d-c)*fx)*fy;
+  };
   const heightAhead=(c:Car,d:number,x:number,y:number)=>{
     if(c.manual)return roadHeight(paths[c.road],terrain,x,y);
     const cn=c.conn,u=c.inConn?c.u+d:c.s+d-cn.endS;
-    if(u<=0)return roadHeight(paths[c.road],terrain,x,y);
-    if(u>=cn.len)return roadHeight(paths[cn.link.road],terrain,x,y);
-    const a=roadHeight(paths[c.road],terrain,x,y),b=roadHeight(paths[cn.link.road],terrain,x,y);
+    if(u<=0)return gridHeight(paths[c.road],x,y);
+    if(u>=cn.len)return gridHeight(paths[cn.link.road],x,y);
+    const a=gridHeight(paths[c.road],x,y),b=gridHeight(paths[cn.link.road],x,y);
     return a+(b-a)*u/(cn.len||1);
   };
   const wheelbaseHeights = new VehicleHeightCache<Car>();

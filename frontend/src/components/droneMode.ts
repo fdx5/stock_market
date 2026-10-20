@@ -195,7 +195,9 @@ export class DroneSession {
   /** Run the view's own moving things (traffic, people, within `r` of `at`): every frame close by
    * and low; 60 m up every 2nd frame; from 400 m off, or 200 m up, every 3rd; from 800 m every
    * 4th (a car there moves about a pixel a step) — staggered, so no frame carries them all; past the haze not at all. */
-  runViewTicks(ticks: ((dt: number) => void)[], at: THREE.Vector3, r: number, dt: number) {
+  /** `half` (a phone in flight, 40 m up or more): the near ones too every 2nd frame — the frames
+   * `half` is true on, those the renderer's walk over the whole scene leaves out (see halfSync). */
+  runViewTicks(ticks: ((dt: number) => void)[], at: THREE.Vector3, r: number, dt: number, half?: boolean) {
     const f = this.flight.pos;
     const d = Math.hypot(f.x - at.x, f.z - at.z) - r;
     if (d > this.world.reach) { this.tickDue.clear(); return; }
@@ -203,11 +205,12 @@ export class DroneSession {
     // into one long display frame merely because the drone is higher than 60m.
     const every = d > 800 ? 4 : d > 400 ? 3 : 1;
     const n = ++this.tickN;
+    const paired = every === 1 && half !== undefined && !this.p.hq && this.flight.agl >= 40 && !/[?&]halfsync=0/.test(location.search);
     ticks.forEach((fn, i) => {
       const due = (this.tickDue.get(fn) ?? 0) + dt;
-      if ((n + i) % every !== 0) { this.tickDue.set(fn, due); return; }
+      if (paired ? !half : (n + i) % every !== 0) { this.tickDue.set(fn, due); return; }
       this.tickDue.set(fn, 0);
-      fn(Math.min(due, 0.1 * every));
+      fn(Math.min(due, paired ? 0.2 : 0.1 * every));
     });
   }
 

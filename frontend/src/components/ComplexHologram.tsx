@@ -1023,18 +1023,31 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // flies (a 6-inch screen at 2.6–3x showed no more than at 2x, for twice the pixels), the
     // effects all kept; the view's own ratio back on landing.
     let droneRatioCap = 0, droneStill = 0, droneCapAt = 0, droneFx: { ao: boolean; bloom: boolean } | null = null;
-    // ?hud=1&gx=1 (a reader's phone, to tell what its GPU spends the scene on): the drone's frame at
-    // 1.6x with the scene's parts left out in turn, four seconds each (the first not counted), the
-    // pass times of each written to the HUD. Nothing of it without the flag.
-    const gx = new URLSearchParams(location.search).get("gx") === "1" ? { k: 0, s: 0, hidden: [] as THREE.Object3D[], acc: new Map<string, number[]>(), ratio: 0 } : null;
-    const GX: [string, ((m: THREE.Material) => boolean) | null, number][] = [
-      ["all", null, 1.6], ["no trees", m => !!(m.userData.meshLeaves || m.userData.volumeFoliage || m.userData.bark), 1.6],
-      ["no shrubs", m => !!m.userData.leafCluster, 1.6], ["no buildings", m => !!(m.userData.contextBuilding || m.userData.constructedBuilding), 1.6],
-      ["no ground", m => !!(m.userData.groundDetail || m.userData.naturalGround), 1.6], ["no water", m => !!m.userData.water, 1.6], ["ratio 1.0", null, 1.0]];
+    // ?hud=1&gx=1 (a reader's phone, to tell what holds its frame back): the drone's frame at 1.6x
+    // with the scene's parts left out in turn, or 6 ms of the main thread's time used up (the CPU's
+    // share alone), or at 1.0x (the GPU's pixels), three seconds each (the first not counted) and
+    // round again; each row's frame rate, GPU, and the main thread's frame — the view's loop, the
+    // rest of the page's work, and the time left idle — written to the HUD. Nothing without the flag.
+    const gx = new URLSearchParams(location.search).get("gx") === "1" ? { k: 0, s: 0, hidden: [] as THREE.Object3D[], acc: new Map<string, number[]>(), ratio: 0, burn: 0, loop: 0, n: 0, idle: 0, idleEnd: 0, at: performance.now() } : null;
+    const GX: [string, ((m: THREE.Material) => boolean) | null, number, number][] = [
+      ["all", null, 1.6, 0], ["cpu +6ms", null, 1.6, 6], ["ratio 1.0", null, 1.0, 0],
+      ["no trees", m => !!(m.userData.meshLeaves || m.userData.volumeFoliage || m.userData.bark), 1.6, 0],
+      ["no shrubs", m => !!m.userData.leafCluster, 1.6, 0], ["no buildings", m => !!(m.userData.contextBuilding || m.userData.constructedBuilding), 1.6, 0],
+      ["no ground", m => !!(m.userData.groundDetail || m.userData.naturalGround), 1.6, 0], ["no water", m => !!m.userData.water, 1.6, 0]];
+    if (gx && typeof requestIdleCallback === "function") {
+      // (idle: the main thread's idle periods, each counted once however many callbacks it runs)
+      const idle = (d: IdleDeadline) => {
+        const now = performance.now(), end = now + d.timeRemaining();
+        if (end > gx.idleEnd) { gx.idle += end - Math.max(now, gx.idleEnd); gx.idleEnd = end; }
+        if (!disposed) requestIdleCallback(idle);
+      };
+      requestIdleCallback(idle);
+    }
     stage.setDroneLite = on => {
       if (!on && droneFx && native) { native.aoOn = droneFx.ao; native.bloomOn = droneFx.bloom; droneFx = null; }
       (native as unknown as { setDroneLite?: (on: boolean) => void } | null)?.setDroneLite?.(on); stage.railEvery = on ? 2 : 1;
       droneRatioCap = on ? 2 : 0; resize();
+      if (!on) document.documentElement.toggleAttribute("data-drone-flight", false);
       if (stage.rail) stage.rail.clearanceGap = on ? 3 : .75;
     };
     stage.forgetMaterials = mats => native?.forget(mats);
@@ -1110,7 +1123,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // including animated traffic and pedestrians.
     let renderMax = 0, renderSum = 0, tickMax = 0, tickSum = 0, frameNo = 0;
     const pace = createFramePace();
-    const loop = (stamp:number) => {
+    const loop = (stamp: number) => {
+      if (!gx) return frame(stamp);
+      const a = performance.now();
+      frame(stamp);
+      const b = performance.now();
+      while (gx.burn && performance.now() - b < gx.burn) { /* the CPU-only row: its share used up */ }
+      gx.loop += performance.now() - a; gx.n++;
+      ((window as unknown as { __gxFrames?: number[] }).__gxFrames ??= []).push(stamp, a, b, performance.now());
+    };
+    const frame = (stamp:number) => {
       raf = 0;
       if (document.hidden || !inView || pausedRef.current) { native?.suspendTargets(); return; }
       raf = requestAnimationFrame(loop);
@@ -1159,8 +1181,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // (the drone far off: the complex's traffic and people stepped less often, past its haze not at all)
       const tk0 = performance.now();
       // (a phone's drone: the trains placed every other frame)
-      if (!stage.railEvery || stage.railEvery < 2 || (frameNo++ & 1) === 0) stage.rail?.update(performance.now()/1000,stage.camera.position);
-      if (stage.drone) stage.drone.runViewTicks(stage.tick, stage.center, RING_M + 120, dt / 1000);
+      // (and the complex's traffic on the other frames, with the renderer's short walk: see halfSync)
+      const odd = (frameNo++ & 1) === 1;
+      if (!stage.railEvery || stage.railEvery < 2 || !odd) stage.rail?.update(performance.now()/1000,stage.camera.position);
+      if (native) (native as unknown as { syncShort: boolean }).syncShort = odd;
+      if (stage.drone) stage.drone.runViewTicks(stage.tick, stage.center, RING_M + 120, dt / 1000, odd);
       else for (const f of stage.tick) f(dt / 1000);
       tickMax = Math.max(tickMax, performance.now() - tk0); tickSum += performance.now() - tk0;
       if (balloon?.group.visible) balloon.update(dt / 1000);
@@ -1284,27 +1309,32 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           // at the least — and the occlusion (AO) and the glow (bloom) off while it moves; all
           // back once it holds still for two seconds.
           if (gx && stage.drone) {
-            const [name, hide, r] = GX[gx.k];
+            const [name, hide, r, burn] = GX[gx.k];
+            const span = nowMs - gx.at, frames = Math.max(1, gx.n);
             if (gx.s === 0) {
               for (const o of gx.hidden) o.visible = true;
               gx.hidden = [];
               if (hide) scene.traverse(o => { const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined; const m0 = Array.isArray(m) ? m[0] : m; if ((o as THREE.Mesh).isMesh && o.visible && m0 && hide(m0)) { o.visible = false; gx.hidden.push(o); } });
+              gx.burn = burn;
               if (gx.ratio !== r) { gx.ratio = r; resize(); }
             } else {
-              const a = gx.acc.get(name) ?? [0, 0, 0, 0];
+              const a = gx.acc.get(name) ?? [0, 0, 0, 0, 0, 0, 0];
               a[0] += (ms.scene ?? 0) + (ms.plants ?? 0); a[1] += ms.total ?? 0; a[2] += Number(host.dataset.fps); a[3]++;
+              a[4] += gx.loop / frames; a[5] += (span - gx.loop - gx.idle) / frames; a[6] += gx.idle / frames;
               gx.acc.set(name, a);
             }
-            if (++gx.s >= 4) { gx.s = 0; gx.k = (gx.k + 1) % GX.length; }
-            host.dataset.trial = "\n" + GX.map(([n]) => { const a = gx.acc.get(n); return a ? `${n.padEnd(12)} scene ${(a[0] / a[3]).toFixed(1)} gpu ${(a[1] / a[3]).toFixed(1)} fps ${(a[2] / a[3]).toFixed(0)} (${a[3]}s)` : `${n.padEnd(12)} -`; }).join("\n");
+            gx.loop = gx.idle = gx.n = 0; gx.at = nowMs;
+            if (++gx.s >= 3) { gx.s = 0; gx.k = (gx.k + 1) % GX.length; }
+            host.dataset.trial = "\n" + `${"".padEnd(12)}  fps   gpu scene | loop other idle (ms/frame)\n` + GX.map(([n]) => { const a = gx.acc.get(n); const f = (i: number, w = 5) => (a![i] / a![3]).toFixed(1).padStart(w); return a ? `${n.padEnd(12)} ${(a[2] / a[3]).toFixed(0).padStart(4)} ${f(1)} ${f(0)} | ${f(4)} ${f(5)} ${f(6)} (${a[3]}s)` : `${n.padEnd(12)} -`; }).join("\n");
           }
           if (droneRatioCap && stage.drone) {
             const gpu = native.timer.ms.total ?? 0, fps = Number(host.dataset.fps), v = stage.drone.flight.vel;
             const fx = droneFx ??= { ao: native.aoOn, bloom: native.bloomOn };
             let cap = droneRatioCap;
-            if (Math.hypot(v.x, v.y, v.z) < 1.5) { if (++droneStill >= 2) { cap = 2; native.aoOn = fx.ao; native.bloomOn = fx.bloom; } }
+            if (Math.hypot(v.x, v.y, v.z) < 1.5) { if (++droneStill >= 2) { cap = 2; native.aoOn = fx.ao; native.bloomOn = fx.bloom; document.documentElement.toggleAttribute("data-drone-flight", false); } }
             else {
               droneStill = 0; native.aoOn = false; native.bloomOn = false;
+              document.documentElement.toggleAttribute("data-drone-flight", true);   // (the page's animations held: see drone-explore.css; an attribute — a class written again each second woke the page's theme watchers)
               if (gpu > 19) cap = Math.max(1.6, cap * Math.sqrt(16 / gpu));
               else if (!gpu && fps < 48) cap = Math.max(1.6, cap - 0.1);
               else if (gpu && gpu < 13) cap = Math.min(2, cap + 0.1);
@@ -1438,7 +1468,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     renderer.domElement.addEventListener('webglcontextrestored', contextRestored);
 
     return () => {
-      disposed = true;
+      disposed = true; document.documentElement.toggleAttribute("data-drone-flight", false);
       renderer.domElement.removeEventListener('webglcontextlost', contextLost);
       renderer.domElement.removeEventListener('webglcontextrestored', contextRestored);
       document.removeEventListener("visibilitychange", visibility);

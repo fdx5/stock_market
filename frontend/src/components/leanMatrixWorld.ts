@@ -37,3 +37,35 @@ export function leanUpdateMatrixWorld(root: THREE.Object3D) {
   };
   visit(root, false);
 }
+
+/** One object's world matrix brought up to date without the walk over the whole tree (the
+ * renderer's short frames — see ComplexRenderer's halfSync): its chain of parents from the root
+ * down, by the same rule as leanUpdateMatrixWorld (composed again where moved, world matrices
+ * where a matrix or a parent changed). */
+const chain: Lean[] = [];
+export function leanUpdateOne(o: Lean, base: THREE.Object3D["updateMatrixWorld"]) {
+  chain.length = 0;
+  for (let p: Lean | null = o; p; p = p.parent as Lean | null) chain.push(p);
+  let force = false;
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const n = chain[i];
+    if (n.updateMatrixWorld !== base) { n.updateWorldMatrix(false, false); force = true; continue; }
+    if (n.matrixAutoUpdate) {
+      const p = n.position, q = n.quaternion, s = n.scale, k = n.__trs;
+      if (n.pivot || !k || k[0] !== p.x || k[1] !== p.y || k[2] !== p.z || k[3] !== q.x || k[4] !== q.y || k[5] !== q.z || k[6] !== q.w
+        || k[7] !== s.x || k[8] !== s.y || k[9] !== s.z) {
+        n.updateMatrix();
+        const t = n.__trs ??= new Float64Array(10);
+        t[0] = p.x; t[1] = p.y; t[2] = p.z; t[3] = q.x; t[4] = q.y; t[5] = q.z; t[6] = q.w; t[7] = s.x; t[8] = s.y; t[9] = s.z;
+      }
+    }
+    if (n.matrixWorldNeedsUpdate || force) {
+      if (n.matrixWorldAutoUpdate === true) {
+        if (n.parent === null) n.matrixWorld.copy(n.matrix);
+        else n.matrixWorld.multiplyMatrices(n.parent.matrixWorld, n.matrix);
+      }
+      n.matrixWorldNeedsUpdate = false;
+      force = true;
+    }
+  }
+}
