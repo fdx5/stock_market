@@ -26,8 +26,11 @@ export function useVisitorCount(enabled = true): VisitorCounts {
         headers: { "Cache-Control": "no-cache" },
       })
         .then((res) => res.json())
-        .then((data: { count: number; total: number }) => {
-          if (!cancelled) setCounts({ current: data.count, total: data.total });
+        .then((data: unknown) => {
+          if (!data || typeof data !== "object") return;
+          const value = data as { count?: unknown; total?: unknown };
+          const count = (input: unknown) => typeof input === "number" && Number.isFinite(input) && input >= 0 ? input : null;
+          if (!cancelled) setCounts(previous => ({ current: count(value.count) ?? previous.current, total: count(value.total) ?? previous.total }));
         })
         .catch(() => {
           // A missed heartbeat isn't worth surfacing as an error — just keep the last counts.
