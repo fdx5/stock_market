@@ -1023,6 +1023,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // flies (a 6-inch screen at 2.6–3x showed no more than at 2x, for twice the pixels), the
     // effects all kept; the view's own ratio back on landing.
     let droneRatioCap = 0, droneStill = 0, droneCapAt = 0, droneFx: { ao: boolean; bloom: boolean } | null = null;
+    // ?hud=1&gx=1 (a reader's phone, to tell what its GPU spends the scene on): the drone's frame at
+    // 1.6x with the scene's parts left out in turn, four seconds each (the first not counted), the
+    // pass times of each written to the HUD. Nothing of it without the flag.
+    const gx = new URLSearchParams(location.search).get("gx") === "1" ? { k: 0, s: 0, hidden: [] as THREE.Object3D[], acc: new Map<string, number[]>(), ratio: 0 } : null;
+    const GX: [string, ((m: THREE.Material) => boolean) | null, number][] = [
+      ["all", null, 1.6], ["no trees", m => !!(m.userData.meshLeaves || m.userData.volumeFoliage || m.userData.bark), 1.6],
+      ["no shrubs", m => !!m.userData.leafCluster, 1.6], ["no buildings", m => !!(m.userData.contextBuilding || m.userData.constructedBuilding), 1.6],
+      ["no ground", m => !!(m.userData.groundDetail || m.userData.naturalGround), 1.6], ["no water", m => !!m.userData.water, 1.6], ["ratio 1.0", null, 1.0]];
     stage.setDroneLite = on => {
       if (!on && droneFx && native) { native.aoOn = droneFx.ao; native.bloomOn = droneFx.bloom; droneFx = null; }
       (native as unknown as { setDroneLite?: (on: boolean) => void } | null)?.setDroneLite?.(on); stage.railEvery = on ? 2 : 1;
@@ -1053,6 +1061,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       stage.viewH = H;
       ratio = resolution.forSize(W, H);
       if (droneRatioCap) ratio = Math.min(ratio, droneRatioCap);
+      if (gx?.ratio) ratio = gx.ratio;
       camera.aspect = W / H;
       camera.updateProjectionMatrix();
       native?.setSize(W, H, ratio);
@@ -1274,6 +1283,21 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           // where 20 holds 50 a second): the scene under its 2x as far as the GPU needs — 1.6x
           // at the least — and the occlusion (AO) and the glow (bloom) off while it moves; all
           // back once it holds still for two seconds.
+          if (gx && stage.drone) {
+            const [name, hide, r] = GX[gx.k];
+            if (gx.s === 0) {
+              for (const o of gx.hidden) o.visible = true;
+              gx.hidden = [];
+              if (hide) scene.traverse(o => { const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined; const m0 = Array.isArray(m) ? m[0] : m; if ((o as THREE.Mesh).isMesh && o.visible && m0 && hide(m0)) { o.visible = false; gx.hidden.push(o); } });
+              if (gx.ratio !== r) { gx.ratio = r; resize(); }
+            } else {
+              const a = gx.acc.get(name) ?? [0, 0, 0, 0];
+              a[0] += (ms.scene ?? 0) + (ms.plants ?? 0); a[1] += ms.total ?? 0; a[2] += Number(host.dataset.fps); a[3]++;
+              gx.acc.set(name, a);
+            }
+            if (++gx.s >= 4) { gx.s = 0; gx.k = (gx.k + 1) % GX.length; }
+            host.dataset.trial = "\n" + GX.map(([n]) => { const a = gx.acc.get(n); return a ? `${n.padEnd(12)} scene ${(a[0] / a[3]).toFixed(1)} gpu ${(a[1] / a[3]).toFixed(1)} fps ${(a[2] / a[3]).toFixed(0)} (${a[3]}s)` : `${n.padEnd(12)} -`; }).join("\n");
+          }
           if (droneRatioCap && stage.drone) {
             const gpu = native.timer.ms.total ?? 0, fps = Number(host.dataset.fps), v = stage.drone.flight.vel;
             const fx = droneFx ??= { ao: native.aoOn, bloom: native.bloomOn };
