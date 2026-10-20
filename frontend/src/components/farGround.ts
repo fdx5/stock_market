@@ -427,6 +427,15 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
   water?: FarJob["osmBody"] }): Promise<{ bitmap: ImageBitmap; parcels: number; planting:import('./complexScene').Planting; gardens: PalaceGardenPlanting[];
   /** the open water (parcels 천·구·유·양, stream network areas): outlines about the centre, cut to the picture */
   water: { ring: [number, number][]; holes: [number, number][][] }[]; ms: number } | null> {
+  // (a browser without OffscreenCanvas — a WebKit without it, an older Safari — can't paint the
+  // picture in the worker: plain lawn instead. A null failed the drone's tiles over and over, and
+  // the flight was held for a world that never came — the signs afloat over nothing)
+  if (data.center && typeof OffscreenCanvas === "undefined" && typeof document !== "undefined") {
+    const c = document.createElement("canvas"); c.width = c.height = 4;
+    const g = c.getContext("2d");
+    if (g) { g.fillStyle = opts.landscape ? "#4c7846" : opts.lawn; g.fillRect(0, 0, 4, 4); }
+    return createImageBitmap(c).then(bitmap => ({ bitmap, parcels: 0, planting: { trees: [], shrubs: [], flowers: [], street: [] }, gardens: [], water: [], ms: 0 }), () => null);
+  }
   if (!data.center || !data.vworld_key || typeof OffscreenCanvas === "undefined") return Promise.resolve(null);
   const { lat, lon } = data.center, H = opts.half;
   const stadiumTreeMask = jamsilTreeMask(lat,lon,H);
