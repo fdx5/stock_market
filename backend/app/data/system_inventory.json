@@ -41,6 +41,8 @@
     "/global",
     "/global-top100",
     "/hub",
+    "/investment-videos",
+    "/investors",
     "/kosdaq-100",
     "/kosdaq-map",
     "/kosdaq-orbit",
@@ -69,7 +71,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 686,
+  "source_files": 693,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -292,6 +294,20 @@
       "file": "frontend/src/desk2/deskBgmStore.ts",
       "hosts": [
         "www.youtube.com"
+      ]
+    },
+    {
+      "file": "frontend/src/desk2/discover/DiscoveryPages.tsx",
+      "hosts": [
+        "finance.yahoo.com",
+        "www.dataroma.com",
+        "www.sec.gov"
+      ]
+    },
+    {
+      "file": "frontend/src/desk2/discover/DiscoverySections.tsx",
+      "hosts": [
+        "www.youtube-nocookie.com"
       ]
     },
     {

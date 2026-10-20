@@ -7,13 +7,15 @@ import { Link, navigate } from "../../router";
 import { useDocumentTitle } from "../../useDocumentTitle";
 import { usePopularStocks } from "../../usePopularStocks";
 import { useUsMarketSnapshot } from "../../useUsMarketSnapshot";
+import { useMarketTicker } from "../../useMarketTicker";
 import Colophon from "../Colophon";
 import CommandBar, { DeskSection } from "../CommandBar";
 import CommodityDesk from "../CommodityDesk";
 import Finder from "../Finder";
 import GlobalDesk from "../GlobalDesk";
 import Masthead from "../Masthead";
-import Tape from "../Tape";
+import MarketOverview from "../discover/MarketOverview";
+import { InvestorShowcase, VideoShowcase } from "../discover/DiscoverySections";
 import { Marker, SectionHead, Skel, Spark } from "../parts";
 import { Lang } from "../../i18n/LanguageContext";
 import { pct, sentimentLabel, toneOf, usd, usdPrice, useGlobalIndices, useL, useSentiment } from "../lib";
@@ -45,9 +47,9 @@ import "./world.css";
 type Lens = "usd" | "krw";
 
 const SECTIONS: DeskSection[] = [
-  { id: "w-front", no: "00", ko: "1면", en: "Front" },
-  { id: "w-sectors", no: "01", ko: "섹터", en: "Sectors" },
-  { id: "w-bigtech", no: "02", ko: "빅테크", en: "Big Tech" },
+  { id: "w-front", no: "00", ko: "시장 요약", en: "Market" },
+  { id: "w-investors", no: "01", ko: "거물 포트폴리오", en: "Investors" },
+  { id: "w-videos", no: "02", ko: "미국 투자 영상", en: "US videos" },
   { id: "w-ext", no: "03", ko: "시간외", en: "Extended" },
   { id: "w-rank", no: "04", ko: "순위", en: "Rankings" },
   { id: "w-picks", no: "05", ko: "서학개미", en: "KR picks" },
@@ -84,25 +86,6 @@ const capOf = (it: MarketMapItem) => it.market_cap ?? 0;
 /** What a Korean holder actually earns: the stock's move compounded with the won's. */
 const inKrw = (r: number | null | undefined, fx: number) => (r == null ? null : ((1 + r / 100) * (1 + fx / 100) - 1) * 100);
 
-function useTicker(): MarketTickerItem[] {
-  const [items, setItems] = useState<MarketTickerItem[]>([]);
-  useEffect(() => {
-    let alive = true;
-    const load = () =>
-      api
-        .marketTicker()
-        .then((r) => alive && setItems(r.items))
-        .catch(() => {});
-    load();
-    const stop = startVisibilityAwareInterval(load, 30_000);
-    return () => {
-      alive = false;
-      stop();
-    };
-  }, []);
-  return items;
-}
-
 function sessionLabel(s: string | null | undefined, L: (ko: string, en: string) => string) {
   if (s === "pre") return L("프리마켓", "Pre-market");
   if (s === "post") return L("애프터마켓", "After-hours");
@@ -122,6 +105,7 @@ export default function WorldPage() {
     if (code) navigate(`/stock/${encodeURIComponent(code.toUpperCase())}`);
   }, []);
 
+  const [marketDetailsOpen, setMarketDetailsOpen] = useState(false);
   const [finderOpen, setFinderOpen] = useState(false);
   const [active, setActive] = useState(SECTIONS[0].id);
   const [lens, setLens] = useState<Lens>(() => {
@@ -149,9 +133,7 @@ export default function WorldPage() {
   }, []);
 
   const snap = useUsMarketSnapshot();
-  const ticker = useTicker();
-  const indices = useGlobalIndices();
-  const sentiment = useSentiment();
+  const ticker = useMarketTicker();
   const tk = (sym: string) => ticker.find((t) => t.symbol === sym) ?? null;
   const fx = tk("KRW=X");
   const fxPct = fx?.change_pct ?? 0;
@@ -192,8 +174,6 @@ export default function WorldPage() {
   const session = snap.session;
   const sp = tk("^GSPC");
   const ndx = tk("^NDX");
-  const dow = indices?.find((i) => i.key === "dow") ?? null;
-  const fg = sentiment.find((s) => s.key === "sp500")?.score ?? null;
   const asOf = snap.generatedAt
     ? new Intl.DateTimeFormat(lang === "ko" ? "ko-KR" : "en-US", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(snap.generatedAt))
     : null;
@@ -201,23 +181,15 @@ export default function WorldPage() {
   const lensPct = (r: number | null | undefined) => (lens === "krw" ? inKrw(r, fxPct) : r ?? null);
   const lensPrice = (usdValue: number) => (lens === "krw" && fxRate ? `${Math.round(usdValue * fxRate).toLocaleString()}${lang === "ko" ? "원" : " KRW"}` : usdPrice(usdValue));
 
-  const headline = pulse
-    ? L(
-        `뉴욕 대형주 ${all.length}종목 시총가중 ${pct(pulse.weighted)}, 선두 섹터 ${secName(pulse.best.sector, "ko")} ${pct(pulse.best.move, 1)}`,
-        `New York's large caps ${pct(pulse.weighted)} cap-weighted; ${secName(pulse.best.sector, "en")} leads at ${pct(pulse.best.move, 1)}`
-      )
-    : "";
-
   return (
-    <div className="d2 wd" lang={lang}>
+    <div className="d2 wd ed-home" lang={lang}>
       <a className="d2-skip" href="#w-front">
         {L("본문 바로가기", "Skip to content")}
       </a>
-      <Masthead
+      <Masthead rail={false}
         onPrint={() => window.print()}
         section={{ ko: "해외 증시", en: "World Markets", taglineKo: "서울에서 읽는 뉴욕 — 미국 대형주를 원화의 눈으로", taglineEn: "New York, read from Seoul — US large caps through a won lens" }}
       />
-      <Tape />
       <CommandBar
         sections={SECTIONS}
         active={active}
@@ -235,121 +207,19 @@ export default function WorldPage() {
       />
 
       <main className="d2-main">
-        {/* ── 1면 ── */}
-        <section id="w-front" className="d2-sec wd-front" aria-label={L("1면", "Front")}>
-          <p className="d2-lead-kicker">
-            <span className={`d2-lead-status ${session === "regular" ? "is-live" : ""}`}>{sessionLabel(session, L)}</span>
-            {asOf && <span>{L(`${asOf} 기준`, `As of ${asOf} KST`)}</span>}
-            <span>{L("S&P 500 · 나스닥 100 구성 종목", "S&P 500 and NASDAQ 100 constituents")}</span>
-          </p>
-          {pulse ? <h2 className="wd-head">{headline}</h2> : <Skel h={48} w="70%" />}
-          <div className="wd-lens">
-            <Marker
-              options={[
-                { id: "usd" as Lens, label: L("달러 기준", "In dollars") },
-                { id: "krw" as Lens, label: L("원화 기준", "In won") },
-              ]}
-              value={lens}
-              onChange={setLens}
-              label={L("통화 렌즈", "Currency lens")}
-            />
-            <p>
-              {fx
-                ? L(
-                    `원/달러 ${fx.price.toLocaleString(undefined, { maximumFractionDigits: 1 })}원 (${pct(fx.change_pct)}). 원화 기준은 주가 변화에 환율 변화를 더한, 한국 계좌에 실제로 찍히는 수익률입니다.`,
-                    `USD/KRW ${fx.price.toLocaleString(undefined, { maximumFractionDigits: 1 })} (${pct(fx.change_pct)}). The won view compounds each move with the dollar's, i.e. what lands in a Korean account.`
-                  )
-                : L("환율을 불러오는 중…", "Loading FX…")}
-            </p>
-          </div>
-
-          <div className="wd-figs">
-            {[
-              { k: "S&P 500", v: sp?.price, r: sp?.change_pct, pts: sp?.points },
-              { k: L("나스닥 100", "NASDAQ 100"), v: ndx?.price, r: ndx?.change_pct, pts: ndx?.points },
-              { k: L("다우존스", "Dow Jones"), v: dow?.close, r: dow?.change_pct, pts: dow?.points?.map((p) => p.close) },
-            ].map((f) => (
-              <div key={f.k} className="wd-fig">
-                <span>{f.k}</span>
-                <b className="d2-num">{f.v != null ? f.v.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—"}</b>
-                <em className={`d2-num is-${toneOf(lensPct(f.r))}`}>{pct(lensPct(f.r))}</em>
-                {lens === "krw" && f.r != null && <small>{L(`달러 기준 ${pct(f.r)}`, `${pct(f.r)} in USD`)}</small>}
-                {f.pts && f.pts.length > 1 && <Spark points={f.pts} tone={toneOf(f.r)} className="wd-fig-spark" />}
-              </div>
-            ))}
-            <div className="wd-fig">
-              <span>{L("원/달러", "USD/KRW")}</span>
-              <b className="d2-num">{fx ? fx.price.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"}</b>
-              <em className={`d2-num is-${toneOf(fx?.change_pct)}`}>{pct(fx?.change_pct)}</em>
-              <small>{fx ? (fx.change_pct > 0 ? L("달러 강세 — 원화 기준 수익에 유리", "Strong dollar — helps won returns") : fx.change_pct < 0 ? L("달러 약세 — 원화 기준 수익을 깎음", "Weak dollar — trims won returns") : L("보합", "Flat")) : ""}</small>
-              {fx && fx.points.length > 1 && <Spark points={fx.points} tone={toneOf(fx.change_pct)} className="wd-fig-spark" />}
-            </div>
-            <div className="wd-fig wd-fig--fg">
-              <span>{L("공포·탐욕 (미국)", "Fear & Greed (US)")}</span>
-              <b className="d2-num">{fg ?? "—"}</b>
-              <em>{fg != null ? sentimentLabel(fg, lang) : ""}</em>
-              <span className="wd-fg-bar" aria-hidden="true">
-                <i style={{ left: `${fg ?? 50}%` }} />
-              </span>
-            </div>
-          </div>
-
-          {pulse && (
-            <div className="wd-front-grid">
-              <div className="wd-deck">
-                <p>
-                  {L(
-                    `${all.length}종목 가운데 ${pulse.up}종목이 오르고 ${pulse.down}종목이 내렸습니다. 시가총액으로 가중하면 ${pct(pulse.weighted)}, 원화로 환산한 한국 투자자 기준으로는 ${pct(inKrw(pulse.weighted, fxPct))}입니다.`,
-                    `Of ${all.length} names, ${pulse.up} rose and ${pulse.down} fell. Cap-weighted that is ${pct(pulse.weighted)}; for a holder in won, ${pct(inKrw(pulse.weighted, fxPct))}.`
-                  )}
-                </p>
-                <p>
-                  {L(
-                    `섹터 가운데 가장 강한 곳은 ${secName(pulse.best.sector, "ko")}(${pct(pulse.best.move, 1)}), 가장 약한 곳은 ${secName(pulse.worst.sector, "ko")}(${pct(pulse.worst.move, 1)})입니다. 빅테크 7종목은 S&P 500 시가총액의 ${(pulse.techShare * 100).toFixed(0)}%를 차지하며 오늘 ${pct(pulse.techMove)} 움직였습니다.`,
-                    `${secName(pulse.best.sector, "en")} is the strongest sector (${pct(pulse.best.move, 1)}), ${secName(pulse.worst.sector, "en")} the weakest (${pct(pulse.worst.move, 1)}). The Big Tech seven are ${(pulse.techShare * 100).toFixed(0)}% of the S&P 500 and moved ${pct(pulse.techMove)}.`
-                  )}
-                </p>
-              </div>
-              <div>
-                <div className="d2-adbar" role="img" aria-label={`${pulse.up} / ${pulse.flat} / ${pulse.down}`}>
-                  <span className="is-up" style={{ flexGrow: pulse.up }}>
-                    {pulse.up}
-                  </span>
-                  <span className="is-flat" style={{ flexGrow: Math.max(pulse.flat, 2) }}>
-                    {pulse.flat}
-                  </span>
-                  <span className="is-down" style={{ flexGrow: pulse.down }}>
-                    {pulse.down}
-                  </span>
-                </div>
-                <p className="wd-note">{L("상승 · 보합 · 하락 (S&P 500 ∪ 나스닥 100)", "Up · flat · down (S&P 500 ∪ NASDAQ 100)")}</p>
-              </div>
-            </div>
-          )}
+        <section id="w-front" className="ed-summary-section" aria-label={L("미국 시장 요약", "US market overview")}>
+          <MarketOverview market="us" items={all} asOf={asOf} leadingSector={pulse?.best ? secName(pulse.best.sector, lang) : undefined} bigTechMove={pulse?.techMove} bigTechShare={pulse?.techShare} />
+          <details className="ed-market-details" onToggle={event => setMarketDetailsOpen(event.currentTarget.open)}>
+            <summary>{L("섹터·빅테크 자세히", "Explore sectors and Big Tech")} <span>＋</span></summary>
+            {marketDetailsOpen && <div className="ed-market-details-body">
+              <h2>{L("섹터별 흐름", "Sector moves")}</h2><Sectors pulse={pulse} lensPct={lensPct} lensPrice={lensPrice} lang={lang} />
+              <h2>{L("빅테크 7 보유 비중과 등락", "Big Tech seven: weight and move")}</h2><BigTech items={pulse?.tech ?? []} lensPct={lensPct} lensPrice={lensPrice} />
+            </div>}
+          </details>
         </section>
-
-        <section id="w-sectors" className="d2-sec" aria-labelledby="w-sectors-h">
-          <SectionHead id="w-sectors-h" no="01" kicker={L("섹터 지도", "Sector map")} title={L("S&P 500의 열한 섹터", "The S&P 500's eleven sectors")} note={L("폭은 섹터 시가총액, 색은 시총가중 등락. 누르면 그 섹터의 대장주가 펼쳐집니다.", "Width is the sector's value, shade its weighted move. Click to open its leaders.")} />
-          <Sectors pulse={pulse} lensPct={lensPct} lensPrice={lensPrice} lang={lang} />
-        </section>
-
-        <section id="w-bigtech" className="d2-sec" aria-labelledby="w-bigtech-h">
-          <SectionHead
-            id="w-bigtech-h"
-            no="02"
-            kicker={L("빅테크 7", "Big Tech seven")}
-            title={L("지수를 움직이는 일곱 종목", "Seven names that move the index")}
-            note={
-              pulse
-                ? L(
-                    `합계 시가총액 ${usd(pulse.techCap)} · S&P 500의 ${(pulse.techShare * 100).toFixed(1)}%${pulse.techContribution != null ? ` · 오늘 S&P 500 기여 ${pulse.techContribution >= 0 ? "+" : "−"}${Math.abs(pulse.techContribution).toFixed(2)}%p` : ""}`,
-                    `${usd(pulse.techCap)} combined · ${(pulse.techShare * 100).toFixed(1)}% of the S&P 500${pulse.techContribution != null ? ` · ${pulse.techContribution >= 0 ? "+" : "−"}${Math.abs(pulse.techContribution).toFixed(2)} pts of today's S&P move` : ""}`
-                  )
-                : undefined
-            }
-          />
-          <BigTech items={pulse?.tech ?? []} lensPct={lensPct} lensPrice={lensPrice} />
-        </section>
+        <InvestorShowcase id="w-investors" />
+        <VideoShowcase id="w-videos" market="us" />
+        <div className="ed-lens-toolbar"><span>{L("아래 종목표 통화", "Currency for stock tables below")}</span><Marker options={[{ id: "usd" as Lens, label: L("달러", "USD") }, { id: "krw" as Lens, label: L("원화", "KRW") }]} value={lens} onChange={setLens} label={L("통화 선택", "Currency")} /></div>
 
         <section id="w-ext" className="d2-sec" aria-labelledby="w-ext-h">
           <SectionHead

@@ -1,0 +1,58 @@
+{
+    "buffett":  {
+                    "photo_url":  "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d4/Warren_Buffett_at_the_2015_SelectUSA_Investment_Summit_%28cropped%29.jpg/330px-Warren_Buffett_at_the_2015_SelectUSA_Investment_Summit_%28cropped%29.jpg",
+                    "photo_source":  "https://commons.wikimedia.org/wiki/File:Warren_Buffett_at_the_2015_SelectUSA_Investment_Summit_(cropped).jpg",
+                    "photo_credit":  "USA International Trade Administration",
+                    "photo_license":  "Public domain",
+                    "photo_license_url":  ""
+                },
+    "ackman":  {
+                   "photo_url":  "https://upload.wikimedia.org/wikipedia/commons/0/07/Valeant_Pharmaceuticals%27_Business_Model_%28headshot%29.jpg",
+                   "photo_source":  "https://commons.wikimedia.org/wiki/File:Valeant_Pharmaceuticals%27_Business_Model_(headshot).jpg",
+                   "photo_credit":  "Senate Democrats",
+                   "photo_license":  "CC BY 2.0",
+                   "photo_license_url":  "https://creativecommons.org/licenses/by/2.0"
+               },
+    "tepper":  {
+                   "photo_url":  "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3d/David_Tepper_01.jpg/330px-David_Tepper_01.jpg",
+                   "photo_source":  "https://commons.wikimedia.org/wiki/File:David_Tepper_01.jpg",
+                   "photo_credit":  "Appaloosa Management",
+                   "photo_license":  "CC BY-SA 3.0",
+                   "photo_license_url":  "https://creativecommons.org/licenses/by-sa/3.0"
+               },
+    "klarman":  {
+                    "photo_url":  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b8/Seth_Klarman_at_147th_Preakness_Stakes.jpg/330px-Seth_Klarman_at_147th_Preakness_Stakes.jpg",
+                    "photo_source":  "https://commons.wikimedia.org/wiki/File:Seth_Klarman_at_147th_Preakness_Stakes.jpg",
+                    "photo_credit":  "Maryland GovPics",
+                    "photo_license":  "CC BY 2.0",
+                    "photo_license_url":  "https://creativecommons.org/licenses/by/2.0"
+                },
+    "marks":  {
+                  "photo_url":  "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8b/Howard_Marks_2.17.12_%28cropped%29.jpg/330px-Howard_Marks_2.17.12_%28cropped%29.jpg",
+                  "photo_source":  "https://commons.wikimedia.org/wiki/File:Howard_Marks_2.17.12_(cropped).jpg",
+                  "photo_credit":  "kellywritershouse",
+                  "photo_license":  "CC BY 2.0",
+                  "photo_license_url":  "https://creativecommons.org/licenses/by/2.0"
+              },
+    "hohn":  {
+                 "photo_url":  "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/31/Chris_Hohn_GFSS_2023.jpg/330px-Chris_Hohn_GFSS_2023.jpg",
+                 "photo_source":  "https://commons.wikimedia.org/wiki/File:Chris_Hohn_GFSS_2023.jpg",
+                 "photo_credit":  "Foreign, Commonwealth \u0026 Development Office",
+                 "photo_license":  "CC BY 2.0",
+                 "photo_license_url":  "https://creativecommons.org/licenses/by/2.0"
+             },
+    "loeb":  {
+                 "photo_url":  "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/14/Daniel_Loeb%2C_Third_Point.jpg/330px-Daniel_Loeb%2C_Third_Point.jpg",
+                 "photo_source":  "https://commons.wikimedia.org/wiki/File:Daniel_Loeb,_Third_Point.jpg",
+                 "photo_credit":  "Hedge Funds",
+                 "photo_license":  "CC BY 3.0",
+                 "photo_license_url":  "https://creativecommons.org/licenses/by/3.0"
+             },
+    "lilu":  {
+                 "photo_url":  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/ba/LiLuJI1.jpg/330px-LiLuJI1.jpg",
+                 "photo_source":  "https://commons.wikimedia.org/wiki/File:LiLuJI1.jpg",
+                 "photo_credit":  "Joi",
+                 "photo_license":  "CC BY 3.0",
+                 "photo_license_url":  "https://creativecommons.org/licenses/by/3.0"
+             }
+}

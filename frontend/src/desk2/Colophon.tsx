@@ -42,6 +42,8 @@ const DIRECTORY: { ko: string; en: string; links: { to: string; ko: string; en: 
     en: "Analysis",
     links: [
       { to: "/market-brief", ko: "오늘 브리핑", en: "Daily brief" },
+      { to: "/investors", ko: "거물 포트폴리오", en: "Investor portfolios" },
+      { to: "/investment-videos", ko: "오늘의 투자 영상", en: "Investment videos" },
       { to: "/ai-prediction", ko: "AI 예측", en: "AI forecast" },
       { to: "/fight", ko: "시총 대결", en: "Market-cap fight" },
       { to: "/dram-price", ko: "D램 가격 이력", en: "DRAM prices" },

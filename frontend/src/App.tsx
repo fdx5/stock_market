@@ -47,6 +47,9 @@ const BroadsheetGradingPage = lazy(() => import("./desk2/forecast/GradingPage"))
 const BroadsheetGlobalCapPage = lazy(() => import("./desk2/globalcap/GlobalCapPage"));
 const BroadsheetNewsPage = lazy(() => import("./desk2/news/NewsPage"));
 const BroadsheetCapFightPage = lazy(() => import("./desk2/capfight/CapFightPage"));
+const InvestmentVideosPage = lazy(() => import("./desk2/discover/DiscoveryPages").then(m => ({ default: m.InvestmentVideosPage })));
+const InvestorsPage = lazy(() => import("./desk2/discover/DiscoveryPages").then(m => ({ default: m.InvestorsPage })));
+const InvestorPortfolioPage = lazy(() => import("./desk2/discover/DiscoveryPages").then(m => ({ default: m.InvestorPortfolioPage })));
 const BroadsheetWorldPage = lazy(() => import("./desk2/world/WorldPage"));
 /* The entrance. "/" is a gateway rather than a dashboard — the stock desk it
    used to be is reached from the star at the centre of the page, and anything
@@ -138,6 +141,8 @@ function DashboardRedirect() {
 }
 
 const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = {
+  "/investors": { title: "거물 포트폴리오 | K-Stock Hub", description: "해외 투자 거물과 연관 운용사의 공개 주식 보유 비중, 신규 편입, 공통 보유 종목을 확인하세요." },
+  "/investment-videos": { title: "오늘의 투자 영상 | K-Stock Hub", description: "국내 주식과 나스닥·미국 주식 한국어 영상. 전일부터 오늘 오전 8시까지 공개된 영상 중 수집 후보를 조회수로 정렬합니다." },
   "/support": {
     title: "커피 한 잔 후원하기 | K-Stock Hub",
     description: "커피 한 잔으로 마켓데스크의 꾸준한 업데이트와 안정적인 서버 운영을 응원해 주세요. Buy Me a Coffee와 카카오페이로 간편하게 후원하실 수 있습니다.",
@@ -349,9 +354,16 @@ export default function App() {
   }, [path]);
 
   let page;
+  const portfolioMatch = path.match(/^\/investors\/([a-z]+)\/?$/);
   const investorMatch = path.match(/^\/investor\/([^/]+)\/?$/);
   const indexMatch = path.match(/^\/index\/(kospi|kosdaq)\/?$/i);
-  if (investorMatch) {
+  if (portfolioMatch) {
+    page = <InvestorPortfolioPage investorId={portfolioMatch[1]} />;
+  } else if (path === "/investors") {
+    page = <InvestorsPage />;
+  } else if (path === "/investment-videos") {
+    page = <InvestmentVideosPage />;
+  } else if (investorMatch) {
     page = <InvestorTrendPage code={investorMatch[1]} />;
   } else if (stockLandingMatch?.[2] === "investor") {
     page = <InvestorTrendPage code={stockLandingMatch[1]} />;

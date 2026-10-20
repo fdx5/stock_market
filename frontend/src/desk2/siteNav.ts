@@ -3,6 +3,8 @@
 export const SITE_NAV: { to: string; ko: string; en: string; tag?: string }[] = [
   { to: "/desk", ko: "1면", en: "Front page" },
   { to: "/global", ko: "해외증시", en: "World" },
+  { to: "/investors", ko: "거물 포트폴리오", en: "Investors" },
+  { to: "/investment-videos", ko: "투자 영상", en: "Investment videos" },
   { to: "/stocks", ko: "종목정보", en: "Stocks" },
   { to: "/stock/005930", ko: "종목상세", en: "Stock detail" },
   { to: "/map", ko: "코스피 지도", en: "KOSPI map" },

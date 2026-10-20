@@ -18,6 +18,8 @@ from starlette.staticfiles import NotModifiedResponse
 from app.services.libsql_gate import StoreUnavailable
 from app.services.turso import TursoError
 from app.site import LEGACY_RENDER_HOST, PRIMARY_SITE_URL
+from app.routers import editorial as editorial_router
+from app.services import editorial as editorial_service
 
 from app.data.global_discussion_fetcher import warm_nasdaq_symbols
 from app.data.universe import get_top_market_cap, get_top_market_cap_all, warm_english_names
@@ -245,6 +247,18 @@ async def _record_api_pulse(request: Request, call_next):
     return response
 
 app.include_router(search.router, prefix="/api")
+app.include_router(editorial_router.router, prefix="/api/editorial")
+
+
+@app.on_event("startup")
+def _start_editorial_editions():
+    editorial_service.start_scheduler()
+
+
+@app.on_event("shutdown")
+def _stop_editorial_editions():
+    editorial_service.stop_scheduler()
+
 app.include_router(stock.router, prefix="/api/stock")
 app.include_router(us_stock.router, prefix="/api/us-stock")
 app.include_router(market_map.router, prefix="/api/market")

@@ -5,23 +5,21 @@ import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { useMarketSnapshot } from "../useMarketSnapshot";
 import { recordRecent } from "../watchlist";
-import BreadthDesk from "./BreadthDesk";
+import MarketOverview from "./discover/MarketOverview";
+import { InvestorShowcase, VideoShowcase } from "./discover/DiscoverySections";
 import Colophon from "./Colophon";
 import CommandBar, { DeskSection } from "./CommandBar";
 import CommodityDesk from "./CommodityDesk";
 import Finder from "./Finder";
 import FlowDesk from "./FlowDesk";
-import FrontPage from "./FrontPage";
 import GlobalDesk from "./GlobalDesk";
-import IndexDesk from "./IndexDesk";
 import Masthead from "./Masthead";
 import MobileDock from "./MobileDock";
 import RankingDesk from "./RankingDesk";
 import { Radar, Talk } from "./RoomDesk";
 import SpotlightDesk from "./SpotlightDesk";
-import Tape from "./Tape";
 import { SectionHead } from "./parts";
-import { measureBreadth, useL } from "./lib";
+import { useL } from "./lib";
 import { jumpTo, useBroadsheet, useFinderHotkey, useScrollSpy } from "./shell";
 
 /* /desk — the market desk, reset as a live broadsheet. (The widget desk it
@@ -42,9 +40,9 @@ import { jumpTo, useBroadsheet, useFinderHotkey, useScrollSpy } from "./shell";
  * here can leak into the classic desk or any other page. */
 
 const SECTIONS: DeskSection[] = [
-  { id: "d2-front", no: "00", ko: "1면", en: "Front" },
-  { id: "d2-index", no: "01", ko: "지수", en: "Indices" },
-  { id: "d2-breadth", no: "02", ko: "시장 폭", en: "Breadth" },
+  { id: "d2-front", no: "00", ko: "시장 요약", en: "Market" },
+  { id: "d2-investors", no: "01", ko: "거물 포트폴리오", en: "Investors" },
+  { id: "d2-videos", no: "02", ko: "국내 투자 영상", en: "KR videos" },
   { id: "d2-global", no: "03", ko: "해외", en: "Global" },
   { id: "d2-rank", no: "04", ko: "순위", en: "Rankings" },
   { id: "d2-flow", no: "05", ko: "수급", en: "Flows" },
@@ -95,50 +93,25 @@ export default function Desk2Page() {
   }, []);
 
   const snapshot = useMarketSnapshot();
-  const breadth = useMemo(() => measureBreadth([...snapshot.kospi, ...snapshot.kosdaq]), [snapshot.kospi, snapshot.kosdaq]);
+  const marketItems = useMemo(() => [...snapshot.kospi, ...snapshot.kosdaq], [snapshot.kospi, snapshot.kosdaq]);
   const asOf = snapshot.generatedAt
     ? new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(snapshot.generatedAt))
     : null;
 
   return (
-    <div className="d2" lang={lang}>
+    <div className="d2 ed-home" lang={lang}>
       <a className="d2-skip" href="#d2-front">
         {L("본문 바로가기", "Skip to content")}
       </a>
-      <Masthead onPrint={() => window.print()} />
-      <Tape />
+      <Masthead rail={false} onPrint={() => window.print()} />
       <CommandBar sections={SECTIONS} active={active} onJump={jump} onFind={() => setFinderOpen(true)} />
 
       <main className="d2-main">
-        <section id="d2-front" className="d2-sec d2-sec--front" aria-label={L("1면", "Front page")}>
-          <FrontPage breadth={breadth} asOf={asOf} />
+        <section id="d2-front" className="ed-summary-section" aria-label={L("시장 요약", "Market overview")}>
+          <MarketOverview market="kr" items={marketItems} asOf={asOf} />
         </section>
-
-        <section id="d2-index" className="d2-sec" aria-labelledby="d2-index-h">
-          <SectionHead
-            id="d2-index-h"
-            no="01"
-            kicker={L("지수 · 수급 · 환율", "Indices · flows · FX")}
-            title={L("오늘의 두 지수와 그 뒤의 돈", "Two indices, and the money behind them")}
-            note={L("지수 아래 막대는 시장 전체의 투자자별 누적 순매수(억원). 두 시장이 같은 눈금을 씁니다.", "Bars show cumulative net buying by investor type (KRW 100M), on one scale for both markets.")}
-          />
-          <IndexDesk />
-        </section>
-
-        <section id="d2-breadth" className="d2-sec" aria-labelledby="d2-breadth-h">
-          <SectionHead
-            id="d2-breadth-h"
-            no="02"
-            kicker={L("시장 폭", "Market breadth")}
-            title={L("지수가 말하지 않는 것", "What the index doesn't say")}
-            note={
-              breadth
-                ? L(`코스피 500 · 코스닥 200, 모두 ${breadth.total.toLocaleString()}종목의 오늘`, `Today across all ${breadth.total.toLocaleString()} KOSPI 500 and KOSDAQ 200 names`)
-                : L("코스피 500 · 코스닥 200 전 종목 기준", "Across the KOSPI 500 and KOSDAQ 200")
-            }
-          />
-          <BreadthDesk breadth={breadth} />
-        </section>
+        <InvestorShowcase id="d2-investors" />
+        <VideoShowcase id="d2-videos" market="kr" />
 
         <section id="d2-global" className="d2-sec" aria-labelledby="d2-global-h">
           <SectionHead
