@@ -1,0 +1,27 @@
+.d2 .ed-market-overview .ed-rolling-number{position:relative;display:inline-block;white-space:nowrap;font:inherit;color:inherit;font-variant-numeric:tabular-nums}
+.d2 .ed-rolling-number span{font:inherit;color:inherit}
+.d2 .ed-rolling-number .ed-number-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.d2 .ed-rolling-number .ed-reel-visual{display:inline-flex;align-items:baseline;vertical-align:-.17em;line-height:1.2;letter-spacing:0}
+.d2 .ed-rolling-number .ed-reel-digit{display:inline-block;overflow:hidden;width:.62em;height:1.2em;line-height:1.2em;text-align:center}
+.d2 .ed-rolling-number .ed-reel-strip{display:block;line-height:1.2em;white-space:pre;transform:translateY(-12em)}
+.d2 .ed-rolling-number .ed-reel-strip.is-rolling{animation:ed-number-roll 960ms cubic-bezier(.16,.68,.18,1) var(--reel-delay,0ms) both}
+.d2 .ed-rolling-number .ed-reel-punctuation{white-space:pre}
+.d2 .ed-market-overview[data-motion=on] .ed-overview-trace{stroke-dasharray:1;animation:ed-line-redraw 1200ms cubic-bezier(.25,.1,.25,1) both}
+.d2 .ed-market-overview[data-motion=on] .ed-breadth-line>i{transform-origin:left;animation:ed-breadth-redraw 900ms cubic-bezier(.16,.68,.18,1) both}
+.d2 .ed-market-overview[data-motion=on] .ed-breadth-line>i:nth-child(2){animation-delay:80ms}
+.d2 .ed-market-overview[data-motion=on] .ed-breadth-line>i:nth-child(3){animation-delay:160ms}
+.d2 .ed-overview-assets .ed-asset-quote{display:flex;flex-direction:column}
+.d2 .ed-overview-assets .ed-asset-quote>div{margin-bottom:8px}
+.d2 .ed-asset-quote>.ed-mini-line{display:block;width:100%;height:22px;margin-top:auto;flex-shrink:0;opacity:.58}
+@keyframes ed-number-roll{from{transform:translateY(0)}to{transform:translateY(-12em)}}
+@keyframes ed-line-redraw{from{stroke-dashoffset:1;opacity:.3}to{stroke-dashoffset:0;opacity:1}}
+@keyframes ed-breadth-redraw{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media(prefers-reduced-motion:reduce){
+  .d2 .ed-market-overview .ed-reel-strip.is-rolling,.d2 .ed-market-overview .ed-overview-trace,.d2 .ed-market-overview .ed-breadth-line>i{animation:none!important}
+  .d2 .ed-market-overview .ed-overview-trace{stroke-dashoffset:0}
+}
+@media print{
+  .d2 .ed-market-overview .ed-reel-visual{display:none}
+  .d2 .ed-market-overview .ed-number-label{position:static;width:auto;height:auto;margin:0;clip-path:none;overflow:visible}
+  .d2 .ed-market-overview .ed-overview-trace,.d2 .ed-market-overview .ed-breadth-line>i{animation:none!important;stroke-dashoffset:0;transform:none}
+}

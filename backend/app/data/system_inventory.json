@@ -71,7 +71,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 695,
+  "source_files": 697,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -430,6 +430,13 @@
         "/api/health",
         "/api/market/dram-price/refresh"
       ]
+    },
+    {
+      "file": "editorial-refresh.yml",
+      "cron": [
+        "0 23 * * *"
+      ],
+      "endpoints": []
     },
     {
       "file": "global-top100-refresh.yml",
