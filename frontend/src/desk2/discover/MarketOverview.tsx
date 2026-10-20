@@ -51,7 +51,7 @@ export default function MarketOverview({ market, items, asOf, leadingSector, big
   const ticker = useMarketTicker();
   const motion = useOverviewMotion();
   const lines = useDomesticLines(market);
-  const number = (text: string) => <RollingNumber text={text} cycle={motion.cycle} active={motion.active} />;
+  const number = (text: string) => <RollingNumber text={text} active={motion.active} />;
   const breadth = measureBreadth(items);
   const fx = ticker.find(item => item.symbol === "KRW=X");
   const quotes = market === "kr" ? [

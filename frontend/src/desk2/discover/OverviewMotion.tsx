@@ -35,15 +35,32 @@ export function useOverviewMotion() {
   return { ref, active, cycle };
 }
 
-/** Accessible text stays exact; decorative reels make one turn back to each digit. */
-export function RollingNumber({ text, cycle, active }: { text: string; cycle: number; active: boolean }) {
+/** Only a changed displayed value starts a turn; chart beats never replay it. */
+export function RollingNumber({ text, active }: { text: string; active: boolean }) {
+  const [motion, setMotion] = useState({ text, revision: 0, rolling: false });
+  if (motion.text !== text) {
+    setMotion({ text, revision: motion.revision + 1,
+      rolling: active && /\d/.test(motion.text) && /\d/.test(text) });
+  } else if (!active && motion.rolling) {
+    // A hidden/reduced-motion change is settled, never queued for a later replay.
+    setMotion({ ...motion, rolling: false });
+  }
+  useEffect(() => {
+    if (!motion.rolling) return;
+    // CSS lasts 960ms with up to 144ms digit staggering.
+    const revision = motion.revision;
+    const timer = window.setTimeout(() => setMotion(current => current.revision === revision
+      ? { ...current, rolling: false } : current), 1200);
+    return () => window.clearTimeout(timer);
+  }, [motion.revision, motion.rolling]);
+
   return <span className="ed-rolling-number" data-value={text}>
     <span className="ed-number-label">{text}</span>
     <span className="ed-reel-visual" aria-hidden="true">{Array.from(text).map((char, index) => {
       if (!/\d/.test(char)) return <span className="ed-reel-punctuation" key={index}>{char}</span>;
       const digit = Number(char);
       const reel = Array.from({ length: 11 }, (_, offset) => (digit + offset) % 10).join("\n");
-      return <span className="ed-reel-digit" key={index}><span key={`${cycle}:${char}`} className={`ed-reel-strip${active && cycle > 0 ? " is-rolling" : ""}`}
+      return <span className="ed-reel-digit" key={index}><span key={`${motion.revision}:${char}`} className={`ed-reel-strip${active && motion.rolling ? " is-rolling" : ""}`}
         style={{ "--reel-delay": `${index % 7 * 24}ms` } as CSSProperties}>{reel}</span></span>;
     })}</span>
   </span>;

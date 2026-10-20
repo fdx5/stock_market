@@ -11,6 +11,7 @@ BASE = os.environ.get("OVERVIEW_TEST_URL", "http://127.0.0.1:5191")
 OUT = Path(__file__).resolve().parents[2] / "qa" / "overview-motion"
 OUT.mkdir(parents=True, exist_ok=True)
 counts = Counter()
+fixture = {"bitcoin_price": 95000.25}
 symbols = ["^GSPC", "^NDX", "KRW=X", "CL=F", "GC=F", "SI=F", "BTC-USD", "XRP-USD"]
 prices = [6123.45, 21456.78, 1375.4, 75.12, 2700.5, 32.4, 95000.25, 2.1234]
 quotes = [{"symbol": symbol, "label": symbol, "price": price, "change_pct": 1.25,
@@ -25,7 +26,7 @@ def serve(route):
     assert route.request.method == "GET"
     counts[url.path] += 1
     if url.path == "/api/market/ticker":
-        return route.fulfill(json={"items": quotes})
+        return route.fulfill(json={"items": [{**quote, "price": fixture["bitcoin_price"]} if quote["symbol"] == "BTC-USD" else quote for quote in quotes]})
     if url.path == "/api/investor/indices":
         return route.fulfill(json={"kospi": {"close": 2745.67, "change_pct": 1.23}, "kosdaq": {"close": 812.34, "change_pct": -.56},
                                    "kospi_investor": {"foreign_amount": 1234, "institution_amount": -567, "individual_amount": -667}})
@@ -38,6 +39,7 @@ report = {"checks": [], "frames": [], "errors": []}
 with sync_playwright() as p:
     browser = p.chromium.launch(channel="chrome", headless=True, args=["--mute-audio"])
     for width, market, theme in [(1440, "kr", "light"), (1440, "us", "dark"), (390, "kr", "light"), (390, "us", "dark")]:
+        fixture["bitcoin_price"] = 95000.25
         context = browser.new_context(viewport={"width": width, "height": 960}, device_scale_factor=1)
         context.route("**/*", serve)
         page = context.new_page()
@@ -54,12 +56,23 @@ with sync_playwright() as p:
         links.first.focus()
         page.clock.fast_forward(5000)
         assert page.locator(".ed-market-overview").get_attribute("data-motion-cycle") == "1"
-        assert page.locator(".ed-reel-strip.is-rolling").count() > 50
+        assert page.locator(".ed-reel-strip.is-rolling").count() == 0
         assert links.first.evaluate("el => el === document.activeElement")
         assert page.locator(".ed-rolling-number").evaluate_all("els => els.map(el => el.dataset.value)") == values
         assert page.locator(".ed-overview-trace").evaluate_all("els => els.map(el => el.getAttribute('d'))") == paths
+        # The graph beat and an unchanged quote response cannot restart any reel.
+        page.clock.fast_forward(5000)
+        assert page.locator(".ed-reel-strip.is-rolling").count() == 0
+        fixture["bitcoin_price"] = 95001.75
+        page.clock.fast_forward(5000)
+        changed = page.locator('.ed-rolling-number[data-value="$95,001.75"]')
+        changed.wait_for()
+        assert changed.locator(".ed-reel-strip.is-rolling").count() > 0
+        assert page.locator(".ed-rolling-number").filter(has=page.locator(".ed-reel-strip.is-rolling")).count() == 1
+        assert links.first.evaluate("el => el === document.activeElement")
         page.clock.fast_forward(1500)
         page.wait_for_timeout(1400)
+        assert page.locator(".ed-reel-strip.is-rolling").count() == 0
         assert page.locator(".ed-reel-strip.is-rolling").evaluate_all("els => els.every(el => el.getAnimations().every(a => a.playState === 'finished'))")
         page.screenshot(path=str(OUT / f"{market}-{width}-{theme}.png"), full_page=False)
         # Offscreen summaries stop the visual timer without remounting links/data.
@@ -70,20 +83,25 @@ with sync_playwright() as p:
         assert page.locator(".ed-market-overview").get_attribute("data-motion-cycle") == before
         page.evaluate("scrollTo(0, 0)")
         page.locator(".ed-market-overview[data-motion=on]").wait_for()
+        assert page.locator(".ed-reel-strip.is-rolling").count() == 0
         page.emulate_media(reduced_motion="reduce")
         page.locator(".ed-market-overview[data-motion=off]").wait_for()
         page.clock.fast_forward(10000)
+        fixture["bitcoin_price"] = 95002.25
+        page.clock.fast_forward(5000)
+        page.locator('.ed-rolling-number[data-value="$95,002.25"]').wait_for()
         assert page.locator(".ed-market-overview").get_attribute("data-motion-cycle") == before
         assert page.locator(".ed-reel-strip.is-rolling").count() == 0
         assert page.locator(".ed-overview-trace").evaluate_all("els=>els.every(el=>getComputedStyle(el).animationName==='none')")
         page.emulate_media(reduced_motion="no-preference")
         page.locator(".ed-market-overview[data-motion=on]").wait_for()
+        assert page.locator(".ed-reel-strip.is-rolling").count() == 0
         page.evaluate("Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'});document.dispatchEvent(new Event('visibilitychange'))")
         page.locator(".ed-market-overview[data-motion=off]").wait_for()
         page.clock.fast_forward(10000)
         assert page.locator(".ed-market-overview").get_attribute("data-motion-cycle") == before
         report["checks"].append({"width": width, "market": market, "theme": theme, "values": len(values), "graphs": 7,
-                                 "five_second_replay": True, "real_values_preserved": True, "offscreen_paused": True,
+                                 "graph_replay": True, "unchanged_values_stationary": True, "changed_value_only_rolls": True, "offscreen_paused": True,
                                  "background_paused": True, "reduced_motion": True})
         print(json.dumps(report["checks"][-1]), flush=True)
         context.close()
