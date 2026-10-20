@@ -71,7 +71,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 693,
+  "source_files": 695,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -331,7 +331,7 @@
       ]
     },
     {
-      "file": "frontend/src/desk2/Masthead.tsx",
+      "file": "frontend/src/desk2/MastheadNav.tsx",
       "hosts": [
         "voltaris-nyyo.onrender.com"
       ]

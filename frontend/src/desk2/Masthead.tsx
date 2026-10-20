@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import UsFuturesStrip from "../components/UsFuturesStrip";
 import { api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { toggleThemeMode, useThemeMode } from "../theme";
-import { reportVoltarisIngress } from "../useActivityTracking";
 import { useMarketIndices } from "../useMarketIndices";
 import { useMediaQuery } from "../useMediaQuery";
 import { useVisitorCount } from "../useVisitorCount";
@@ -13,7 +12,7 @@ import BookmarkButton from "../components/BookmarkButton";
 import Logo from "../components/Logo";
 import DeskBgm from "./DeskBgm";
 import CoffeeSupportLink from "./CoffeeSupportLink";
-import { SITE_NAV } from "./siteNav";
+import SiteNav from "./MastheadNav";
 import { NEW_YORK, SEOUL, clockText, useL, useNow, zoneParts } from "./lib";
 
 /* The masthead.
@@ -336,28 +335,6 @@ export default function Masthead({
      masthead. */
   const compact = useMediaQuery("(max-width: 760px)");
 
-  // The site index scrolls sideways; bring the page the reader is on into view
-  // rather than leaving it past the edge (부동산 지도 is ninth), and mark which
-  // edges have more behind them.
-  const navRef = useRef<HTMLElement>(null);
-  const syncNavEdges = () => {
-    const nav = navRef.current;
-    const ul = nav?.querySelector("ul");
-    if (!nav || !ul) return;
-    nav.classList.toggle("has-before", ul.scrollLeft > 4);
-    nav.classList.toggle("has-after", ul.scrollLeft + ul.clientWidth < ul.scrollWidth - 4);
-  };
-  useEffect(() => {
-    const ul = navRef.current?.querySelector("ul");
-    const here = ul?.querySelector<HTMLElement>("a.is-here");
-    if (ul && here && ul.scrollWidth > ul.clientWidth) {
-      ul.scrollLeft = Math.max(0, here.offsetLeft - (ul.clientWidth - here.offsetWidth) / 2);
-    }
-    syncNavEdges();
-    window.addEventListener("resize", syncNavEdges);
-    return () => window.removeEventListener("resize", syncNavEdges);
-  }, [path, compact]);
-
   const langSwitch = (
     <span className="d2-mast-lang" role="group" aria-label="Language">
       <button type="button" className={lang === "ko" ? "is-on" : ""} aria-pressed={lang === "ko"} onClick={() => setLang("ko")}>
@@ -402,30 +379,7 @@ export default function Masthead({
     </div>
   );
 
-  const siteNav = (
-    <nav className="d2-mast-nav" aria-label={L("사이트 메뉴", "Site sections")} ref={navRef}>
-      <ul onScroll={syncNavEdges}>
-        {SITE_NAV.map((entry) => {
-          const item = entry;
-          const base = item.to.split("?")[0];
-          const here =
-            path === base || (base === '/drone-explore' && path === `${base}/`) || (base === "/stock/005930" && path.startsWith("/stock/")) || (base === "/ai-prediction" && path.startsWith("/ai-prediction/"));
-          return (
-            <li key={entry.to}>
-              <Link to={item.to} className={here ? 'is-here' : undefined} aria-current={here ? "page" : undefined}>
-                {lang === "ko" ? item.ko : item.en}
-              </Link>
-            </li>
-          );
-        })}
-        <li>
-          <a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer" onClick={() => reportVoltarisIngress(path)} className="is-ext">
-            VOLTARIS ↗
-          </a>
-        </li>
-      </ul>
-    </nav>
-  );
+  const siteNav = <SiteNav lang={lang} compact={compact} path={path} />;
 
   if (compact) {
     return (
