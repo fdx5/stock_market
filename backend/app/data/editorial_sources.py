@@ -199,7 +199,35 @@ def _api_videos(market: str, start: dt.datetime, cutoff: dt.datetime, key: str) 
     return rows
 
 
-def fetch_videos(market: str, now: dt.datetime | None = None) -> dict:
+def archived_videos(market: str, now: dt.datetime | None = None) -> dict | None:
+    """Immutable public recovery copy, independent of the web host's disk lifetime."""
+    start, cutoff = edition_window(now)
+    url = f"https://raw.githubusercontent.com/fdx5/stock_market/editorial-editions/editions/{cutoff.date().isoformat()}/videos-{market}.json"
+    try:
+        payload = _request(url).json()
+        items = rank_videos(payload.get("items", []), market, start, cutoff)
+        collected = _iso(payload.get("collected_at", ""))
+        if (payload.get("market") != market or payload.get("edition") != cutoff.date().isoformat()
+                or not 1 <= len(items) <= 20 or len(items) != len(payload.get("items", []))
+                or collected is None or collected < cutoff
+                or collected > (now or dt.datetime.now(UTC)) + dt.timedelta(minutes=5)):
+            return None
+        for row in items:
+            row.update(thumbnail=f'https://i.ytimg.com/vi/{row["id"]}/hqdefault.jpg',
+                       url=f'https://www.youtube.com/watch?v={row["id"]}')
+        return {"market": market, "edition": cutoff.date().isoformat(), "window_start": start.isoformat(),
+                "window_end": cutoff.isoformat(), "collected_at": collected.isoformat(), "source": "youtube_collector_archive",
+                "candidate_count": max(len(items), int(payload.get("candidate_count", len(items)))),
+                "ranking_basis": "views_among_discovered_candidates", "items": items}
+    except (requests.RequestException, ValueError, TypeError, AttributeError):
+        return None
+
+
+def fetch_videos(market: str, now: dt.datetime | None = None, *, use_archive: bool = True) -> dict:
+    if use_archive:
+        archived = archived_videos(market, now)
+        if archived:
+            return archived
     start, cutoff = edition_window(now)
     source = "youtube_public"
     rows = []

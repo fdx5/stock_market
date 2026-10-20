@@ -2,6 +2,7 @@
 
 No database access, dotenv loading, stored credentials or replacement of old editions.
 """
+import base64
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,40 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from app.data import editorial_sources as source
+
+
+def archive(payload: dict) -> dict:
+    """Create one public file per market/day on a data branch, never overwrite it."""
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        raise RuntimeError("Archive credential is missing")
+    base = "https://api.github.com/repos/fdx5/stock_market"
+    headers = {"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json"}
+    branch = "editorial-editions"
+    response = requests.get(base + "/git/ref/heads/" + branch, headers=headers, timeout=30)
+    if response.status_code == 404:
+        response = requests.post(base + "/git/refs", headers=headers, timeout=30,
+                                 json={"ref": "refs/heads/" + branch, "sha": os.environ["GITHUB_SHA"]})
+        if response.status_code != 422:  # The other market may have just created it.
+            response.raise_for_status()
+    else:
+        response.raise_for_status()
+    path = f'/contents/editions/{payload["edition"]}/videos-{payload["market"]}.json'
+    for attempt in range(4):
+        existing = requests.get(base + path, params={"ref": branch}, headers=headers, timeout=30)
+        if existing.status_code == 200:
+            return json.loads(base64.b64decode(existing.json()["content"]))
+        if existing.status_code != 404:
+            existing.raise_for_status()
+        response = requests.put(base + path, headers=headers, timeout=30, json={
+            "branch": branch, "message": f'Archive {payload["market"]} videos for {payload["edition"]}',
+            "content": base64.b64encode(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()).decode()})
+        if response.status_code == 201:
+            return payload
+        if response.status_code not in (409, 422):
+            response.raise_for_status()
+        time.sleep(2)
+    raise RuntimeError("Archive append did not complete")
 
 
 def main():
@@ -25,7 +60,7 @@ def main():
     headers = {"Authorization": "Bearer " + token}
     for attempt in range(3):
         try:
-            payload = source.fetch_videos(market)
+            payload = archive(source.fetch_videos(market, use_archive=False))
             # Retry only the handoff while a deployment is still starting.
             for handoff in range(20):
                 response = requests.post(base + "/videos/edition", json=payload, headers=headers, timeout=30)

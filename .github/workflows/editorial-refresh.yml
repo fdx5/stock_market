@@ -11,7 +11,7 @@ on:
       - scripts/refresh_editorial.py
 
 permissions:
-  contents: read
+  contents: write # Append immutable public editions on the separate data branch.
 
 concurrency:
   group: editorial-daily
@@ -36,4 +36,5 @@ jobs:
         env:
           EDITORIAL_REFRESH_TOKEN: ${{ secrets.EDITORIAL_REFRESH_TOKEN || secrets.PREDICTION_BATCH_TOKEN }}
           YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/refresh_editorial.py ${{ matrix.market }}

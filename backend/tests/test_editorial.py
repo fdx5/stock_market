@@ -307,3 +307,17 @@ def test_collector_rejects_old_edition_and_wrong_publication_window():
     payload["items"][0]["published_at"] = "2020-01-01T00:00:00Z"
     with pytest.raises(ValueError): service.accept_video_edition("us", payload)
     assert not service.DATA_DIR.exists()
+
+
+def test_archive_recovery_validates_window_and_canonicalizes_video_urls(monkeypatch):
+    payload = collector_payload()
+    payload["items"][0]["url"] = "https://untrusted.invalid/"
+    class Response:
+        def json(self): return payload
+    monkeypatch.setattr(source, "_request", lambda _url: Response())
+    result = source.archived_videos("us")
+    assert result["items"][0]["url"] == "https://www.youtube.com/watch?v=abcdefghijk"
+    assert result["source"] == "youtube_collector_archive"
+    assert source.fetch_videos("us") == result
+    payload["edition"] = "2020-01-01"
+    assert source.archived_videos("us") is None
