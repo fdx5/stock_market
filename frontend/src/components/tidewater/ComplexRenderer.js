@@ -2023,8 +2023,10 @@ export class ComplexRenderer {
       this.renderer.render(this.scene, { ...pass, label: 'complex plants', timestampWrites: timer.pass('plants'), items: { opaque: plants, transparent: water ? [] : lists.transparent }, betweenLists: sky });
     } else {
       this.renderer.render(this.scene, { ...pass, timestampWrites: timer.pass('scene'), items: { opaque: lists.opaque, transparent: water ? [] : lists.transparent }, clearColors: [[0, 0, 0, 1]], clearDepth: 0, betweenLists: sky });
-      // (no occlusion this frame: the finish reads a white one, never an empty — black — texture)
-      if (this.shown && this.aoOn) GPU.getEncoder().beginRenderPass({ label: 'complex ao off', colorAttachments: [{ view: this.ao.texture.view(), loadOp: 'clear', storeOp: 'store', clearValue: [1, 0, 0, 1] }] }).end();
+      // (no occlusion this frame: the finish reads a white one, never an empty — black — texture,
+      // nor the last one taken: with the AO switched off in flight that was the still view's,
+      // and its contact shading stayed on screen as dark outlines the moving scene slid past)
+      if (this.shown && this.ao) GPU.getEncoder().beginRenderPass({ label: 'complex ao off', colorAttachments: [{ view: this.ao.texture.view(), loadOp: 'clear', storeOp: 'store', clearValue: [1, 0, 0, 1] }] }).end();
     }
     if (water) {
       updateWaveTile();

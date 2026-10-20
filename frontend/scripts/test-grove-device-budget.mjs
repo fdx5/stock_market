@@ -10,13 +10,14 @@ function load(file,extra={}){
  vm.runInNewContext(transformSync(source,{loader:'ts',format:'cjs'}).code,scope);return scope.module.exports;
 }
 const landscape=load('landscapeDiversity.ts'),{PARK_TREE_STYLES}=landscape,{treeFoliageTone}=load('foliageTone.ts');
+const pool=load('dronePlantPool.ts');
 const rng=seed=>()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
-const grove=bounded=>load('sceneGroves.ts',{...landscape,treeFoliageTone,rng,performance,hybridSceneEnabled:()=>false,prepareInstanceKernel:async()=>undefined,frameSlice:async()=>{},sceneDeviceBudget:()=>({constrained:bounded})});
+const grove=bounded=>load('sceneGroves.ts',{...landscape,...pool,treeFoliageTone,rng,performance,hybridSceneEnabled:()=>false,prepareInstanceKernel:async()=>undefined,frameSlice:async()=>{},sceneDeviceBudget:()=>({constrained:bounded})});
 
 test('cancelled forest construction frees every temporary WASM batch',async()=>{
  let tick=0,batches=[];
  class Batch{constructor(){batches.push(this);}dispose(){this.closed=true;}}
- const api=load('sceneGroves.ts',{...landscape,treeFoliageTone,rng,performance:{now:()=>tick+=4},hybridSceneEnabled:()=>true,prepareInstanceKernel:async()=>({}),InstanceBatch:Batch,frameSlice:async()=>{},sceneDeviceBudget:()=>({constrained:true})});
+ const api=load('sceneGroves.ts',{...landscape,...pool,treeFoliageTone,rng,performance:{now:()=>tick+=4},hybridSceneEnabled:()=>true,prepareInstanceKernel:async()=>({}),InstanceBatch:Batch,frameSlice:async()=>{},sceneDeviceBudget:()=>({constrained:true})});
  await assert.rejects(api.groveForest([{pattern:0,points:[[10,20],[300,20]]}],{at:()=>4},91,null,true,1,async()=>{if(batches.length>=2)throw Error('cancelled');}),/cancelled/);
  assert.ok(batches.length>0);assert.ok(batches.every(b=>b.closed));
 });

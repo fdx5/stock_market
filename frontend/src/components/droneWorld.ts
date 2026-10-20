@@ -33,7 +33,7 @@ import { textureBudgetEnabled } from "./textureBudget";
 import {paintedTexture} from './paintedTexture';
 import { SeaCoverage, seaOutsideBox } from './coastGeometry';
 import { bridgeTileLanes } from './bridgeDeck';
-import { PlantPool } from './dronePlantPool';
+import { PlantPool, groveLeavesLod } from './dronePlantPool';
 import { structureChains } from './bridgeChains';
 
 /* The drone's world past the view's own neighbourhood (ComplexHologram: the complex, its 600 m
@@ -225,6 +225,7 @@ export class DroneWorld {
   readonly traffic: DroneTraffic;
   /** the tiles' woodland, pooled by cell (dronePlantPool) */
   private plantPool!: PlantPool;
+  private treeLod = false;
   readonly landmarks: Landmarks;
   private places:DronePlaces;
   private placeFootprints=new PlaceFootprints();
@@ -264,7 +265,8 @@ export class DroneWorld {
     this.traffic = new DroneTraffic(o.seed + 31, !o.hq);
     this.root.add(this.traffic.group);
     // (a phone: its far woodland in the lighter leaf levels; ?treelod=0 the comparison path)
-    this.plantPool = new PlantPool({ addWarm: o.addWarm, lod: !o.hq && !/[?&]treelod=0/.test(location.search) });
+    this.treeLod = !o.hq && !/[?&]treelod=0/.test(location.search);
+    this.plantPool = new PlantPool({ addWarm: o.addWarm, lod: this.treeLod });
     this.root.add(this.plantPool.root);
     // The landmarks: the palaces and stadiums in VWorld's photo-textured models, 광안대교 built.
     this.landmarks = new Landmarks({
@@ -607,6 +609,9 @@ export class DroneWorld {
     // Shadows from the near tiles only (with 80 m of slack: not switched back and forth); the lane
     // paint true to size within ~260 m of the camera (its height counted), broad past it.
     if (this.shadowCheck % 15 === 14) this.plantPool.shadows(x, y, TREE_SHADOW, TILE_M);
+    // (a phone: the view's own woodland and its neighbours' in the pool's far models too — the
+    // forests round the start were all drawn at full detail out to a kilometre)
+    if (this.treeLod && this.shadowCheck % 60 === 37) groveLeavesLod(true);
     if (++this.shadowCheck % 15 === 0) for (const t of this.tiles.values()) {
       const d = distToBox(x, y, t.box);
       // (the lane paint, true to size, drawn within ~700 m of the camera: past it, under a pixel)
@@ -1680,6 +1685,7 @@ export class DroneWorld {
     this.places.dispose();
     this.placeFootprints.clear();
     this.plantPool.dispose();
+    if (this.treeLod) groveLeavesLod(false);
     this.o.forget?.(new Set([this.plain, this.asphalt, this.paint, this.concrete, this.bore, this.trafficMat, this.paving, ...this.traffic.materials()]));
     this.plain.dispose(); this.asphalt.dispose(); this.paint.dispose(); this.concrete.dispose(); this.bore.dispose(); this.trafficMat.dispose(); this.paving.dispose();
     this.asphaltMap?.dispose();this.asphaltMap=null;
