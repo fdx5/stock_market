@@ -60,7 +60,10 @@ def main():
     headers = {"Authorization": "Bearer " + token}
     for attempt in range(3):
         try:
-            payload = archive(source.fetch_videos(market, use_archive=False))
+            collected = source.fetch_videos(market, use_archive=False)
+            print(json.dumps({"market": market, "source": collected["source"],
+                              "verified_items": len(collected["items"])}), flush=True)
+            payload = archive(collected)
             # Retry only the handoff while a deployment is still starting.
             for handoff in range(20):
                 response = requests.post(base + "/videos/edition", json=payload, headers=headers, timeout=30)

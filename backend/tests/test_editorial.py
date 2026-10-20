@@ -321,3 +321,15 @@ def test_archive_recovery_validates_window_and_canonicalizes_video_urls(monkeypa
     assert source.fetch_videos("us") == result
     payload["edition"] = "2020-01-01"
     assert source.archived_videos("us") is None
+
+
+def test_public_rss_recovers_exact_metadata_without_relative_date_guesses():
+    document = '''<feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/">
+    <entry><yt:videoId>abcdefghijk</yt:videoId><title>나스닥 미국주식 시황</title><author><name>Public channel</name></author>
+    <published>2026-10-20T12:30:00Z</published><media:group><media:community><media:statistics views="123456"/></media:community></media:group></entry></feed>'''
+    candidates = {"abcdefghijk": {"rss_eligible": True, "duration_seconds": 610}}
+    rows = source.parse_video_feed(document, candidates)
+    assert len(rows) == 1 and rows[0]["views"] == 123456
+    assert rows[0]["published_at"] == "2026-10-20T12:30:00Z"
+    candidates["abcdefghijk"]["rss_eligible"] = False
+    assert source.parse_video_feed(document, candidates) == []

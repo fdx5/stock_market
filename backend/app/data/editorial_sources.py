@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path
 import re
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qs, urlparse
 
@@ -128,7 +129,7 @@ def rank_videos(rows: list[dict], market: str, start: dt.datetime, cutoff: dt.da
     return [dict(row, rank=i + 1) for i, row in enumerate(sorted(by_id.values(), key=lambda r: (-r["views"], r["id"]))[:20])]
 
 
-def _public_candidates(query: str) -> list[str]:
+def _public_candidates(query: str, metadata: bool = False) -> list:
     result = []
     # A weekly popularity page alone misses new videos. Follow the visible Today
     # and This week filters, retaining fresh results before the popularity sort.
@@ -148,10 +149,47 @@ def _public_candidates(query: str) -> list[str]:
                 for node in _walk(page):
                     row = node.get("videoRenderer")
                     if row and VIDEO_ID.fullmatch(row.get("videoId", "")) and relevant_video(_text(row.get("title", {})), "us" if query in QUERIES["us"] else "kr"):
-                        result.append(row["videoId"])
+                        owner = row.get("ownerText") or row.get("longBylineText") or {}
+                        channels = [run.get("navigationEndpoint", {}).get("browseEndpoint", {}).get("browseId", "") for run in owner.get("runs", [])]
+                        duration_text = _text(row.get("lengthText", {}))
+                        duration = 0
+                        if re.fullmatch(r"\d+(?::\d{2}){1,2}", duration_text):
+                            for part in duration_text.split(":"): duration = duration * 60 + int(part)
+                        live = bool(row.get("upcomingEventData")) or any(
+                            node.get("style") in ("LIVE", "UPCOMING", "BADGE_STYLE_TYPE_LIVE_NOW") for node in _walk(row))
+                        result.append({"id": row["videoId"], "channel_id": next((c for c in channels if re.fullmatch(r"UC[A-Za-z0-9_-]{22}", c)), ""),
+                                       "duration_seconds": duration or None, "rss_eligible": bool(duration and not live)})
         except (requests.RequestException, ValueError, TypeError):
             continue
-    return list(dict.fromkeys(result))[:80]
+    unique = {row["id"]: row for row in result}
+    return list(unique.values())[:80] if metadata else list(unique)[:80]
+
+
+def parse_video_feed(document: str, candidates: dict[str, dict]) -> list[dict]:
+    """RSS exposes exact public timestamps/view counts even when playback is gated."""
+    ns = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015",
+          "media": "http://search.yahoo.com/mrss/"}
+    rows = []
+    for entry in ET.fromstring(document).findall("a:entry", ns):
+        identifier = entry.findtext("yt:videoId", "", ns)
+        candidate = candidates.get(identifier, {})
+        if not candidate.get("rss_eligible"): continue
+        stats = entry.find("media:group/media:community/media:statistics", ns)
+        count = stats.get("views", "") if stats is not None else ""
+        published = entry.findtext("a:published", "", ns)
+        if not count.isdigit() or not _iso(published): continue
+        rows.append({"id": identifier, "title": entry.findtext("a:title", "", ns),
+                     "channel": entry.findtext("a:author/a:name", "", ns), "views": int(count), "published_at": published,
+                     "duration_seconds": candidate.get("duration_seconds"), "thumbnail": f"https://i.ytimg.com/vi/{identifier}/hqdefault.jpg",
+                     "url": f"https://www.youtube.com/watch?v={identifier}"})
+    return rows
+
+
+def _channel_videos(channel_id: str, candidates: dict[str, dict]) -> list[dict]:
+    try:
+        return parse_video_feed(_request("https://www.youtube.com/feeds/videos.xml", params={"channel_id": channel_id}).text, candidates)
+    except (requests.RequestException, ValueError, TypeError, ET.ParseError):
+        return []
 
 
 def parse_watch_page(document: str, video_id: str) -> dict | None:
@@ -231,7 +269,7 @@ def fetch_videos(market: str, now: dt.datetime | None = None, *, use_archive: bo
     start, cutoff = edition_window(now)
     source = "youtube_public"
     rows = []
-    candidates = set()
+    candidates = {}
     key = os.environ.get("YOUTUBE_DATA_API_KEY")
     if key:
         try:
@@ -241,11 +279,16 @@ def fetch_videos(market: str, now: dt.datetime | None = None, *, use_archive: bo
             pass  # Never log an exception URL: it could contain the server API key.
     if not rows:
         with ThreadPoolExecutor(max_workers=2) as pool:
-            for future in as_completed([pool.submit(_public_candidates, query) for query in QUERIES[market]]):
-                try: candidates.update(future.result())
+            for future in as_completed([pool.submit(_public_candidates, query, True) for query in QUERIES[market]]):
+                try: candidates.update({row["id"]: row for row in future.result()})
                 except (requests.RequestException, ValueError, TypeError): pass
         with ThreadPoolExecutor(max_workers=3) as pool:
             rows = [row for row in pool.map(_watch, sorted(candidates)[:240]) if row]
+        if len(rank_videos(rows, market, start, cutoff)) < 20:
+            channels = sorted({row["channel_id"] for row in candidates.values() if row.get("channel_id") and row.get("rss_eligible")})
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                for batch in pool.map(lambda channel: _channel_videos(channel, candidates), channels): rows.extend(batch)
+            source = "youtube_public_with_rss"
     items = rank_videos(rows, market, start, cutoff)
     if not items:
         error = RuntimeError("No verified videos in the edition window")
