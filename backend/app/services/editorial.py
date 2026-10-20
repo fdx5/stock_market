@@ -6,6 +6,7 @@ Only server-side public market data is saved; requests cannot choose file paths.
 import datetime as dt
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import threading
@@ -56,7 +57,8 @@ def _collect_investors(previous: dict | None) -> dict:
     healthy = 0
     _, cutoff = source.edition_window()
     edition = cutoff.date().isoformat()
-    pending = [profile for profile in source.INVESTORS if by_id.get(profile["id"], {}).get("edition") != edition]
+    pending = [profile for profile in source.INVESTORS if by_id.get(profile["id"], {}).get("edition") != edition
+               or profile.get("coverage_version") and by_id.get(profile["id"], {}).get("coverage_version") != profile["coverage_version"]]
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {pool.submit(source.fetch_portfolio, profile): profile for profile in pending}
         for future in as_completed(futures):
@@ -93,7 +95,10 @@ def ensure(kind: str) -> None:
     _, cutoff = source.edition_window()
     with _lock:
         current = _snapshots.get(kind, {})
-        roster_complete = kind != "investors" or {profile["id"] for profile in source.INVESTORS}.issubset({row["id"] for row in current.get("items", [])})
+        by_id = {row["id"]: row for row in current.get("items", [])}
+        roster_complete = kind != "investors" or all(profile["id"] in by_id and (
+            not profile.get("coverage_version") or by_id[profile["id"]].get("coverage_version") == profile["coverage_version"]
+        ) for profile in source.INVESTORS)
         if (current.get("edition") == cutoff.date().isoformat() and current.get("complete", True) and roster_complete) or kind in _running:
             return
         now = time.monotonic()
@@ -120,12 +125,14 @@ def get_videos(market: str) -> dict:
 
 
 def _profile(data: dict, profile: dict) -> dict:
+    if profile.get("coverage_version") and data.get("coverage_version") != profile["coverage_version"]:
+        data = {}  # Preserve the saved snapshot, but never present the old narrower scope as complete.
     holdings = data.get("holdings", [])
     total = sum(row.get("weight_pct", 0) for row in holdings)
-    return {**profile, **{key: value for key, value in data.items() if key != "holdings"}, **source.fetch_portrait(profile),
+    return {**profile, **{key: value for key, value in data.items() if key not in ("holdings", "exited_holdings")}, **source.fetch_portrait(profile),
             "holding_count": len(holdings), "top3_weight": round(sum(row["weight_pct"] for row in holdings[:3]), 2),
             "new_count": sum(row["activity"] == "new" for row in holdings), "add_count": sum(row["activity"] == "add" for row in holdings),
-            "equity_coverage_pct": round(total, 2), "top_holdings": holdings[:3], "available": bool(holdings)}
+            "exit_count": len(data.get("exited_holdings", [])), "equity_coverage_pct": round(total, 2), "top_holdings": holdings[:3], "available": bool(holdings)}
 
 
 def get_investors() -> dict:
@@ -141,7 +148,11 @@ def get_investors() -> dict:
         if disclosed.get("report_date") != latest_report or disclosed.get("data_basis") == "daily_fund":
             continue
         for row in disclosed.get("holdings", []):
+            if not row.get("code") or row.get("asset_type", "equity") not in ("equity", "preferred"):
+                continue
             bucket = shared.setdefault(row["code"], {"code": row["code"], "name": row["name"], "investors": [], "max_weight": 0})
+            if profile["id"] in bucket["investors"]:
+                continue
             bucket["investors"].append(profile["id"])
             bucket["max_weight"] = max(bucket["max_weight"], row["weight_pct"])
     consensus = sorted((dict(row, count=len(row["investors"])) for row in shared.values() if len(row["investors"]) >= 2), key=lambda row: (-row["count"], -row["max_weight"], row["code"]))[:12]
@@ -155,20 +166,27 @@ def get_portfolio(investor_id: str) -> dict | None:
     ensure("investors")
     with _lock: payload = _snapshots.get("investors")
     data = next((row for row in (payload or {}).get("items", []) if row["id"] == investor_id), {})
+    if profile.get("coverage_version") and data.get("coverage_version") != profile["coverage_version"]:
+        data = {}
     holdings = data.get("holdings", [])
-    codes = [row["code"] for row in holdings]
+    exited = data.get("exited_holdings", [])
+    codes = list({row["code"] for row in holdings + exited if row.get("code")})
     # Existing public quote recovery is shared across maps, investors and detail views.
     us_live_quotes.recover_missing(codes)
     quotes = us_live_quotes.latest(codes)
-    enriched = []
-    for row in holdings:
+    def enrich(row):
         quote = quotes.get(row["code"], {})
-        price = quote.get("close") or row.get("snapshot_price")
-        reference = row["reference_price"]
-        enriched.append({**row, "current_price": price, "quote_time": quote.get("quote_time"),
+        def valid(value):
+            return value if isinstance(value, (int, float)) and math.isfinite(value) and value > 0 else None
+        price = valid(quote.get("close")) or valid(row.get("snapshot_price"))
+        derivative = row.get("asset_type") in ("put", "call", "bond")
+        reference = valid(row.get("reference_price"))
+        return {**row, "current_price": None if derivative else price, "underlying_price": price if derivative else None, "quote_time": quote.get("quote_time"),
                          "price_source": quote.get("quote_source") or "daily_snapshot", "session": quote.get("session"),
-                         "reference_return_pct": round((price / reference - 1) * 100, 2) if price else None,
-                         "current_value": price * row["shares"] if price else None})
+                         "daily_change_pct": quote.get("change_pct") if price and not derivative else None,
+                         "reference_return_pct": round((price / reference - 1) * 100, 2) if price and reference and not derivative else None,
+                         "current_value": price * row["shares"] if price and not derivative else None}
+    enriched = [enrich(row) for row in holdings]
     total = sum(row["current_value"] or 0 for row in enriched)
     complete = bool(enriched) and all(row["current_value"] is not None for row in enriched)
     # Daily funds can include private/no-ticker assets. A partial public-stock
@@ -176,7 +194,7 @@ def get_portfolio(investor_id: str) -> dict | None:
     complete = complete and sum(row.get("weight_pct", 0) for row in enriched) >= 99
     for row in enriched:
         row["current_weight_pct"] = round(row["current_value"] / total * 100, 2) if complete and total else None
-    return {"investor": _profile(data, profile), "holdings": enriched, "estimated_equity_value": total if complete else None, "valuation_complete": complete,
+    return {"investor": _profile(data, profile), "holdings": enriched, "exited_holdings": [enrich(row) for row in exited], "estimated_equity_value": total if complete else None, "valuation_complete": complete,
             "purchase_price_disclosed": False, "return_basis": "quarter_end_reference_excluding_dividends_and_subsequent_trades",
             "edition": data.get("edition", (payload or {}).get("edition")), "collected_at": data.get("collected_at"),
             **_status("investors", {**data, "edition": data.get("edition", (payload or {}).get("edition"))} if holdings else None)}

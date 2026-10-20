@@ -31,8 +31,8 @@ QUERIES = {
 INVESTORS = [
     {"id": "buffett", "name": "워런 버핏", "name_en": "Warren Buffett", "firm": "Berkshire Hathaway", "provider_id": "BRK", "wiki": "Warren_Buffett", "style": "가치·장기", "cik": "1067983", "color": "#487b70"},
     {"id": "ackman", "name": "빌 애크먼", "name_en": "Bill Ackman", "firm": "Pershing Square", "provider_id": "psc", "wiki": "Bill_Ackman", "style": "집중·행동주의", "cik": "1336528", "color": "#546b9c"},
-    {"id": "burry", "name": "마이클 버리", "name_en": "Michael Burry", "firm": "Scion Asset Management · 과거 공개 보유", "provider_id": "SAM", "style": "가치·역발상", "cik": "1649339", "color": "#9b725a", "scope_note": "운용 종료 전 마지막으로 확인된 공시의 주식 보유분입니다. 현재 보유 내역을 의미하지 않습니다.", "scope_url": "https://www.scionasset.com/"},
-    {"id": "wood", "name": "캐시 우드", "name_en": "Cathie Wood", "firm": "ARK Invest · ARKK", "provider_id": "ARKK", "provider": "ark_fund", "style": "혁신·성장", "color": "#7670aa", "scope_note": "대표 펀드 ARKK의 일일 공개 보유 내역입니다. ARK 전체 운용자산이나 개인 계좌가 아닙니다.", "source_url": "https://www.ark-funds.com/funds/arkk"},
+    {"id": "burry", "name": "마이클 버리", "name_en": "Michael Burry", "firm": "Scion Asset Management · 최종 공개 공시", "provider": "sec_13f", "coverage_version": "sec-full-positions-v1", "style": "가치·역발상", "cik": "1649339", "color": "#9b725a", "scope_note": "운용 종료 전 마지막 SEC 공시와 이전 분기를 비교합니다. 현재 실제 보유 내역을 의미하지 않습니다. 옵션은 기초자산 명목금액으로 신고되며 실제 투자금·옵션 가격과 다릅니다.", "scope_url": "https://www.scionasset.com/"},
+    {"id": "wood", "name": "캐시 우드", "name_en": "Cathie Wood", "firm": "ARK Investment Management", "provider": "sec_13f", "coverage_version": "sec-full-positions-v1", "cik": "1697748", "style": "혁신·성장", "color": "#7670aa", "scope_note": "ARK Investment Management의 분기 SEC 13F 공시 전체와 이전 분기를 비교합니다. 개인 계좌가 아니며 실제 매입단가·투자자 수익률은 공개되지 않습니다."},
     {"id": "tepper", "name": "데이비드 테퍼", "name_en": "David Tepper", "firm": "Appaloosa Management", "provider_id": "AM", "wiki": "David_Tepper", "style": "기회·매크로", "color": "#a4764e"},
     {"id": "loeb", "name": "댄 로브", "name_en": "Daniel Loeb", "firm": "Third Point", "provider_id": "TP", "wiki": "Daniel_S._Loeb", "style": "이벤트·행동주의", "color": "#8a658b"},
     {"id": "klarman", "name": "세스 클라먼", "name_en": "Seth Klarman", "firm": "Baupost Group", "provider_id": "BAUPOST", "wiki": "Seth_Klarman", "style": "가치·안전마진", "color": "#72775a"},
@@ -303,6 +303,9 @@ def parse_ark_holdings(document: str, investor: dict) -> dict:
 
 
 def fetch_portfolio(investor: dict) -> dict:
+    if investor.get("provider") == "sec_13f":
+        from app.data import sec_portfolios
+        return {**sec_portfolios.fetch_portfolio(investor), **fetch_portrait(investor)}
     if investor.get("provider") == "ark_fund":
         return {**parse_ark_holdings(_request(ARKK_HOLDINGS_URL).text, investor), **fetch_portrait(investor)}
     url = f'https://www.dataroma.com/m/holdings.php?m={investor["provider_id"]}'

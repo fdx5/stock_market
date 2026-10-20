@@ -26,7 +26,7 @@ export function InvestorCard({ investor }: { investor: Investor }) {
     <div className="ed-person-top"><Portrait investor={investor} /><span className="ed-person-arrow" aria-hidden="true">↗</span></div>
     <span className="ed-person-style">{investor.style}</span>
     <h3 className="d2-title">{investor.name}</h3><p className="ed-person-en">{investor.name_en}</p><p className="ed-person-firm">{investor.firm}</p>
-    <div className="ed-person-holdings">{investor.available ? investor.top_holdings.map((holding, i) => <span key={holding.code}><b>{holding.code}</b><i style={{ width: `${Math.min(100, holding.weight_pct)}%`, opacity: 1 - i * .2 }} /><em>{holding.weight_pct.toFixed(1)}%</em></span>) : <span className="ed-person-wait">공시 보유 내역 확인 중</span>}</div>
+    <div className="ed-person-holdings">{investor.available ? investor.top_holdings.map((holding, i) => <span key={holding.position_id ?? holding.code}><b>{holding.code || holding.cusip}{holding.asset_type === "put" ? " PUT" : holding.asset_type === "call" ? " CALL" : ""}</b><i style={{ width: `${Math.min(100, holding.weight_pct)}%`, opacity: 1 - i * .2 }} /><em>{holding.weight_pct.toFixed(1)}%</em></span>) : <span className="ed-person-wait">공시 보유 내역 확인 중</span>}</div>
     <div className="ed-person-foot"><span>{investor.period ?? "공시 확인 중"}</span><b>{investor.available ? `${investor.holding_count}종목` : "살펴보기"}</b></div>
   </Link>;
 }
