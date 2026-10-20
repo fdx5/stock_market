@@ -1022,7 +1022,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // A phone's drone: its own measure for a small screen — the scene drawn at 2x at most while it
     // flies (a 6-inch screen at 2.6–3x showed no more than at 2x, for twice the pixels), the
     // effects all kept; the view's own ratio back on landing.
-    let droneRatioCap = 0, droneStill = 0, droneCapAt = 0, droneFx: { ao: boolean; bloom: boolean } | null = null;
+    let droneRatioCap = 0, droneStill = 0, droneCapAt = 0, droneFlightCap = 1.4, droneFlying = false, droneFx: { ao: boolean; bloom: boolean } | null = null;
     // ?hud=1&gx=1 (a reader's phone, to tell what holds its frame back): the drone's frame at 1.4x
     // with the scene's parts left out in turn, or 6 ms of the main thread's time used up (the CPU's
     // share alone), or at 1.0x (the GPU's pixels), three seconds each (the first not counted) and
@@ -1331,13 +1331,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             const gpu = native.timer.ms.total ?? 0, fps = Number(host.dataset.fps), v = stage.drone.flight.vel;
             const fx = droneFx ??= { ao: native.aoOn, bloom: native.bloomOn };
             let cap = droneRatioCap;
-            if (Math.hypot(v.x, v.y, v.z) < 1.5) { if (++droneStill >= 2) { cap = 2; native.aoOn = fx.ao; native.bloomOn = fx.bloom; document.documentElement.toggleAttribute("data-drone-flight", false); } }
+            if (Math.hypot(v.x, v.y, v.z) < 1.5) { if (++droneStill >= 2) { cap = 2; droneFlying = false; native.aoOn = fx.ao; native.bloomOn = fx.bloom; document.documentElement.toggleAttribute("data-drone-flight", false); } }
             else {
               droneStill = 0; native.aoOn = false; native.bloomOn = false;
               document.documentElement.toggleAttribute("data-drone-flight", true);   // (the page's animations held: see drone-explore.css; an attribute — a class written again each second woke the page's theme watchers)
-              if (gpu > 19) cap = Math.max(1.4, cap * Math.sqrt(16 / gpu));
-              else if (!gpu && fps < 48) cap = Math.max(1.4, cap - 0.1);
-              else if (gpu && gpu < 13) cap = Math.min(2, cap + 0.1);
+              // (by the frame rate, not the GPU's timer: a phone's GPU clocks up and down with its load,
+              // so its timer read 13-14 ms at 25-40 fps and the ratio sat at 2x; the flight starts at
+              // the ratio its last flight settled at — 1.4x the first time — and climbs only with frames
+              // to spare)
+              if (!droneFlying) { cap = droneFlightCap; droneFlying = true; droneCapAt = 0; }   // (the second's frame rate was the still view's)
+              else if (fps < 50) cap = Math.max(1.4, cap * Math.sqrt(fps / 55));
+              else if (fps >= 57 && !(gpu > 16)) cap = Math.min(2, cap + 0.05);
+              droneFlightCap = cap;
             }
             cap = Math.round(cap * 20) / 20;
             if (cap !== droneRatioCap && nowMs - droneCapAt > 1500) { droneCapAt = nowMs; droneRatioCap = cap; resize(); }
