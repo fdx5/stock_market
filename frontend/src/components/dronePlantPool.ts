@@ -16,15 +16,29 @@ const CELL = 2;
  * time on a phone). See MeshRenderer instanceRanges. */
 // Four cells across a 340 m tile balance conservative culling and draw submission.
 const BLOCK = 85;
+export const WOODLAND_BLOCK_M = BLOCK;
 /** a block of a tile's trees: its offset in the tile's segment, its count and bounding sphere */
 type Block = { off: number; n: number; x: number; y: number; z: number; r: number; hx: number; hy: number; hz: number };
 type Seg = { start: number; count: number; blocks: Block[] };
 /** a tile's runs in a pool: one for each of its meshes of that model, material and role */
 type Pool = { mesh: THREE.InstancedMesh; segs: Map<string, Seg[]>; total: number; twins: THREE.InstancedMesh[] };
 /** A phone's far woodland (`lod`): the blocks whose centre lies past these distances (m) from the
- * eye are drawn with the tree's far models (sceneGroves: a half and a quarter of the sprays, larger
- * leaves — the same crown, trunk and tint) — the same instances; shadows stay the full model's. */
-const LOD_M = [350, 550];
+ * eye are drawn with the tree's far models (sceneGroves: a half, a quarter and an eighth of the
+ * sprays, larger leaves — the same crown, trunk and tint) — the same instances; shadows stay the
+ * full model's. */
+const LOD_M = [350, 550, 800];
+
+/** Every far-model twin (pool and groves): drawn only by the WebGPU renderer, which gives each its
+ * blocks by distance (MeshRenderer instanceLod). WebGL draws an instanced mesh whole — the twins
+ * there would be the same trees three and four times over. */
+const twinsAll = new Set<THREE.InstancedMesh>();
+let farModels = false;
+export function drawFarTreeModels(on: boolean) {
+  if (on === farModels) return;
+  farModels = on;
+  for (const t of twinsAll) t.visible = on;
+}
+function addTwin(t: THREE.InstancedMesh) { t.visible = farModels; twinsAll.add(t); return t; }
 
 export class PlantPool {
   readonly root = new THREE.Group();
@@ -59,7 +73,7 @@ export class PlantPool {
             twin.name = src.name + ` (pooled, level ${k + 1})`; twin.instanceMatrix = mesh.instanceMatrix; twin.instanceColor = mesh.instanceColor; twin.count = 0;
             twin.castShadow = false; twin.userData.castWas = false; twin.receiveShadow = src.receiveShadow;
             twin.userData.instanceLod = { min: LOD_M[k], max: LOD_M[k + 1] ?? Infinity };
-            pool!.twins.push(twin);
+            pool!.twins.push(addTwin(twin));
           });
         }
         this.pools.set(key, pool);
@@ -110,7 +124,7 @@ export class PlantPool {
         pool.total -= seg.count; from = seg.start;
       }
       pool.mesh.count = pool.total;
-      if (!pool.total) { for (const m of [pool.mesh, ...pool.twins]) { m.removeFromParent(); m.dispose(); } this.pools.delete(key); continue; }
+      if (!pool.total) { for (const m of [pool.mesh, ...pool.twins]) { m.removeFromParent(); m.dispose(); twinsAll.delete(m); } this.pools.delete(key); continue; }
       this.touched(pool, from, pool.total - from);
     }
   }
@@ -151,7 +165,7 @@ export class PlantPool {
     }
   }
   dispose() {
-    for (const p of this.pools.values()) for (const m of [p.mesh, ...p.twins]) { m.removeFromParent(); m.dispose(); }
+    for (const p of this.pools.values()) for (const m of [p.mesh, ...p.twins]) { m.removeFromParent(); m.dispose(); twinsAll.delete(m); }
     this.pools.clear(); this.byTile.clear(); this.root.removeFromParent();
   }
 }
@@ -179,4 +193,66 @@ function blocks(geometry: THREE.BufferGeometry, placed: THREE.Matrix4[], blockOf
     at = end;
   }
   return out;
+}
+
+/** Block runs for an instanced mesh whose instances already lie block by block (`block` m cells of
+ * their x/z): the renderer's instanceRanges — each run's start, count and a sphere (and box) round
+ * its trees whole — so that only the blocks in a pass's sight are drawn (see PlantPool). */
+export function instanceRanges(geometry: THREE.BufferGeometry, matrices: Float32Array, count: number, block = BLOCK) {
+  if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+  const gs = geometry.boundingSphere!, m = new THREE.Matrix4(), c = new THREE.Vector3(), list: number[] = [], halfExtents: number[] = [];
+  const keyOf = (k: number) => `${Math.floor(matrices[k * 16 + 12] / block)},${Math.floor(matrices[k * 16 + 14] / block)}`;
+  let at = 0;
+  while (at < count) {
+    const key = keyOf(at);
+    let end = at;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    while (end < count && keyOf(end) === key) {
+      m.fromArray(matrices, end * 16);
+      c.copy(gs.center).applyMatrix4(m);
+      const r = gs.radius * m.getMaxScaleOnAxis();
+      lo[0] = Math.min(lo[0], c.x - r); lo[1] = Math.min(lo[1], c.y - r); lo[2] = Math.min(lo[2], c.z - r);
+      hi[0] = Math.max(hi[0], c.x + r); hi[1] = Math.max(hi[1], c.y + r); hi[2] = Math.max(hi[2], c.z + r);
+      end++;
+    }
+    list.push(at, end - at, (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2, Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2);
+    halfExtents.push((hi[0] - lo[0]) / 2, (hi[1] - lo[1]) / 2, (hi[2] - lo[2]) / 2);
+    at = end;
+  }
+  return { total: count, list: Float64Array.from(list), halfExtents: Float64Array.from(halfExtents) };
+}
+
+/** The groves' leaf meshes (sceneGroves) — the view's own woodland and its neighbours', outside the
+ * pool — for a phone's drone: drawn with the same far models as the pool's (groveLeavesLod). */
+const groveLeaves = new Set<THREE.InstancedMesh>();
+export function registerGroveLeaves(m: THREE.InstancedMesh) { groveLeaves.add(m); }
+export function forgetGroveLeaves(m: THREE.InstancedMesh) { groveLeaves.delete(m); dropTwins(m); }
+function dropTwins(m: THREE.InstancedMesh) {
+  const twins = m.userData.lodTwins as THREE.InstancedMesh[] | undefined;
+  if (!twins) return;
+  // (not disposed: they share the mesh's instance buffers)
+  for (const t of twins) { t.removeFromParent(); twinsAll.delete(t); }
+  delete m.userData.lodTwins; delete m.userData.instanceLod;
+}
+/** A phone's drone (`on`): each grove leaf mesh in a scene, its trees in blocks, gets the far models
+ * as twins beside it (the pool's distances from the eye, the same instances); off: its one model. */
+export function groveLeavesLod(on: boolean) {
+  for (const m of groveLeaves) {
+    let top: THREE.Object3D = m;
+    while (top.parent) top = top.parent;
+    const lods = m.geometry.userData.lods as THREE.BufferGeometry[] | undefined, ranges = m.userData.instanceRanges;
+    if (!on || !(top as THREE.Scene).isScene || !lods?.length || !ranges || ranges.total !== m.count) { dropTwins(m); continue; }
+    if (m.userData.lodTwins) continue;
+    m.userData.instanceLod = { min: 0, max: LOD_M[0] };
+    m.userData.lodTwins = lods.map((g, k) => {
+      const t = new THREE.InstancedMesh(g, m.material, 1);
+      // (not named "woodland …": the pool takes those from a tile)
+      t.name = `far model ${k + 1} of ${m.name}`; t.instanceMatrix = m.instanceMatrix; t.instanceColor = m.instanceColor; t.count = m.count;
+      t.castShadow = false; t.receiveShadow = m.receiveShadow; t.frustumCulled = m.frustumCulled; t.boundingSphere = m.boundingSphere;
+      t.userData.instanceRanges = ranges; t.userData.instanceLod = { min: LOD_M[k], max: LOD_M[k + 1] ?? Infinity };
+      t.matrixAutoUpdate = false; t.matrix.copy(m.matrix); t.matrixWorld.copy(m.matrixWorld);
+      m.parent!.add(t);
+      return addTwin(t);
+    });
+  }
 }

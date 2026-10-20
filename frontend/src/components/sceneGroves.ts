@@ -9,6 +9,7 @@ import {sceneDeviceBudget}from'./sceneDeviceBudget';
 import {hybridSceneEnabled} from './hybridScene';
 import {forestCells} from './spatialForest';
 import {InstanceBatch,prepareInstanceKernel} from './instanceWasm';
+import {instanceRanges,WOODLAND_BLOCK_M,registerGroveLeaves,forgetGroveLeaves} from './dronePlantPool';
 
 const FOREST_CELL_M=10.5;
 export function woodlandDensity(x:number,y:number){
@@ -103,11 +104,11 @@ async function acquireBank(texture:THREE.Texture|null,pause:()=>Promise<void>,bo
    if(!bark){bark=extract(model,n,n+24,t,t+32);if(!texture){const c=bark.attributes.color as THREE.BufferAttribute;for(let j=0;j<c.count;j++)c.setXYZ(j,.30,.19,.10);}}
    if(count===192)exposed.push(model.userData.treeModel.exposedTrunk);model.dispose();
   }
-  // Far models for the drone's pooled woodland on a phone (dronePlantPool): the tree made with a
-  // half and a quarter of its sprays, each leaf √2 and 2× the size (treeMeshModel) — the crown's
-  // cover kept, not thinned.
+  // Far models for the drone's woodland on a phone (dronePlantPool): the tree made with a half, a
+  // quarter and an eighth of its sprays, each leaf √2, 2 and 2.8× the size (treeMeshModel) — the
+  // crown's cover kept, not thinned.
   full!.userData.lods=[];
-  for(const part of [2,4]){await pause();const model=treeMeshModel(i,1,TREE_LEAVES/part,2),n=model.userData.treeModel.leafVertices,t=model.userData.treeModel.leafTriangles;
+  for(const part of [2,4,8]){await pause();const model=treeMeshModel(i,1,TREE_LEAVES/part,3),n=model.userData.treeModel.leafVertices,t=model.userData.treeModel.leafTriangles;
    const far=extract(model,0,n,0,t);far.userData.compactDepth=true;far.userData.flatLeaf=true;full!.userData.lods.push(far);model.dispose();}
  }
   bark!.userData.compactDepth=true;
@@ -152,6 +153,10 @@ export async function groveForest(patches:NonNullable<Planting['groves']>,terrai
  const heights=[19,20,17,15,22],radii=[6.5,4.9,6.4,5.4,3.8],exposed=bank.exposed;
  for(let i=0;i<5;i++)for(let band=0;band<(bounded?3:2);band++){
   const list=lists[i][band];if(!list.length)continue;await checkpoint();
+  // (in 85 m blocks: the order of the trees is free, and the renderer draws only the blocks in
+  // sight — the whole forest round the view was drawn for every pass, behind the camera too)
+  const blockOf=(r:Root)=>[Math.floor(r.x/WOODLAND_BLOCK_M),Math.floor(-r.y/WOODLAND_BLOCK_M)];
+  list.sort((a,b)=>{const p=blockOf(a),q=blockOf(b);return p[0]-q[0]||p[1]-q[1]||a.x-b.x||a.y-b.y;});
   const crowns=new THREE.InstancedMesh(bank.leaves[i][bounded?band:0],crownMat,list.length);crowns.name='woodland '+PARK_TREE_STYLES[i].species+' '+(band?'far'+band:'near')+' leaves';
   ownedMeshes.add(crowns);
   const crownBatch=instanceKernel?new InstanceBatch(list.length,instanceKernel):null;
@@ -173,14 +178,16 @@ export async function groveForest(patches:NonNullable<Planting['groves']>,terrai
   }
   if(crownBatch){crownBatch.compose(crowns.instanceMatrix.array as Float32Array);crownBatch.dispose();}
   crowns.instanceMatrix.needsUpdate=true;crowns.castShadow=band===0;crowns.receiveShadow=true;crowns.computeBoundingBox();crowns.computeBoundingSphere();
-  if(hybridSceneEnabled()&&band){group.add(...forestCells(crowns,480,1024,bank.leaves[i]));crowns.dispose();ownedMeshes.delete(crowns);}else group.add(crowns);
+  crowns.userData.instanceRanges=instanceRanges(crowns.geometry,crowns.instanceMatrix.array as Float32Array,crowns.count);
+  if(hybridSceneEnabled()&&band){group.add(...forestCells(crowns,480,1024,bank.leaves[i]));crowns.dispose();ownedMeshes.delete(crowns);}else{group.add(crowns);registerGroveLeaves(crowns);}
   instanceBytes+=crowns.instanceMatrix.array.byteLength+crowns.instanceColor!.array.byteLength;
  }
  if(stemBatch){stemBatch.compose(stems.instanceMatrix.array as Float32Array);stemBatch.dispose();}
  stems.instanceMatrix.needsUpdate=true;stems.receiveShadow=true;stems.computeBoundingBox();stems.computeBoundingSphere();
+ stems.userData.instanceRanges=instanceRanges(stems.geometry,stems.instanceMatrix.array as Float32Array,stems.count);
  if(hybridSceneEnabled()){group.add(...forestCells(stems,1024,4096));stems.dispose();ownedMeshes.delete(stems);}else group.add(stems);instanceBytes+=stems.instanceMatrix.array.byteLength;
  group.userData.forestBudget={sourceCanopies,clusterCanopies:roots.length,preserveRoots,heightScale,cardClusters:legacy.size,cardTriangleBudget:legacy.size*6,triangles,treeTriangles:TREE_TRIANGLES,leafGroups:TREE_LEAVES/4,meshLeaves:TREE_LEAVES,leafLevels:bounded?[192,96,48]:[192],baseTriangles:bank.baseTriangles,sharedGeometryKey:bank.key,geometryBytes:bank.bytes,instanceBytes,totalBufferBytes:bank.bytes+instanceBytes,cardBufferBytes:legacy.size*600,shadowTrees,mode:'shared leaf-shaped 3D models',toneCounts,speciesCounts,standCounts,minExposedTrunk,minTreeHeight,maxTreeHeight,treeCellM:preserveRoots?null:FOREST_CELL_M,clusterCellM:preserveRoots?null:64,roots:roots.map(r=>[r.x,r.y,r.floor])};
- let disposed=false;return {group,dispose:()=>{if(disposed)return;disposed=true;group.children.forEach(o=>{if(o instanceof THREE.InstancedMesh)o.dispose();});releaseBank(bank);}};
+ let disposed=false;return {group,dispose:()=>{if(disposed)return;disposed=true;[...group.children].forEach(o=>{if(o instanceof THREE.InstancedMesh){forgetGroveLeaves(o);o.dispose();}});releaseBank(bank);}};
  }catch(error){for(const o of group.children)if(o instanceof THREE.InstancedMesh)ownedMeshes.add(o);ownedMeshes.forEach(o=>o.dispose());releaseBank(bank);throw error;}
  finally{temporaryBatches.forEach(batch=>batch.dispose());}
 }

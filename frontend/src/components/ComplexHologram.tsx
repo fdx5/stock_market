@@ -101,6 +101,7 @@ import { farGround } from "./farGround";
 import { coverPage } from "./pageCover";
 import { bridgeHeight, buildBridges, findBridges } from "./sceneBridges";
 import { groundPlan } from "./groundClient";
+import { drawFarTreeModels } from "./dronePlantPool";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
  * real ones (backend app/services/realestate_buildings.py: 국토부 GIS건물통합정보 via
@@ -1230,7 +1231,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         (deviceBudget.constrained && (stage.building || stage.unshown));
       if (wasPreparing !== isPreparing) { setPreparing(isPreparing); wasPreparing = isPreparing; }
       const rendererName = native?.shown ? "tidewater-webgpu" : isPreparing ? "preparing" : "webgl";
-      if (host.dataset.renderer !== rendererName) host.dataset.renderer = rendererName;   // (a write each frame dirtied the page's style)
+      if (host.dataset.renderer !== rendererName) { host.dataset.renderer = rendererName; drawFarTreeModels(rendererName === "tidewater-webgpu"); }   // (a write each frame dirtied the page's style)
       // WebGL: a new model's programs compile in parallel (KHR_parallel_shader_compile)
       // before it is drawn; a first draw would wait on each link in turn (seconds).
       const gl = !native && !nativePending;
@@ -1270,7 +1271,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           host.dataset.sceneReady = String(native.ready && !native.pending && !native.compiling && !native.failed);
           host.dataset.nativeDraws = String(native.stats.draws);
           // A phone's drone in flight while its GPU runs past the frame (a Fold's 25-47 ms
-          // where 20 holds 50 a second): the scene under its 2x as far as the GPU needs — 1.3x
+          // where 20 holds 50 a second): the scene under its 2x as far as the GPU needs — 1.6x
           // at the least — and the occlusion (AO) and the glow (bloom) off while it moves; all
           // back once it holds still for two seconds.
           if (droneRatioCap && stage.drone) {
@@ -1280,8 +1281,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             if (Math.hypot(v.x, v.y, v.z) < 1.5) { if (++droneStill >= 2) { cap = 2; native.aoOn = fx.ao; native.bloomOn = fx.bloom; } }
             else {
               droneStill = 0; native.aoOn = false; native.bloomOn = false;
-              if (gpu > 19) cap = Math.max(1.3, cap * Math.sqrt(16 / gpu));
-              else if (!gpu && fps < 48) cap = Math.max(1.3, cap - 0.1);
+              if (gpu > 19) cap = Math.max(1.6, cap * Math.sqrt(16 / gpu));
+              else if (!gpu && fps < 48) cap = Math.max(1.6, cap - 0.1);
               else if (gpu && gpu < 13) cap = Math.min(2, cap + 0.1);
             }
             cap = Math.round(cap * 20) / 20;
