@@ -93,7 +93,8 @@ def ensure(kind: str) -> None:
     _, cutoff = source.edition_window()
     with _lock:
         current = _snapshots.get(kind, {})
-        if (current.get("edition") == cutoff.date().isoformat() and current.get("complete", True)) or kind in _running:
+        roster_complete = kind != "investors" or {profile["id"] for profile in source.INVESTORS}.issubset({row["id"] for row in current.get("items", [])})
+        if (current.get("edition") == cutoff.date().isoformat() and current.get("complete", True) and roster_complete) or kind in _running:
             return
         now = time.monotonic()
         if kind in _attempted and now - _attempted[kind] < 15 * 60: return
@@ -121,7 +122,7 @@ def get_videos(market: str) -> dict:
 def _profile(data: dict, profile: dict) -> dict:
     holdings = data.get("holdings", [])
     total = sum(row.get("weight_pct", 0) for row in holdings)
-    return {**profile, **{key: value for key, value in data.items() if key != "holdings"},
+    return {**profile, **{key: value for key, value in data.items() if key != "holdings"}, **source.fetch_portrait(profile),
             "holding_count": len(holdings), "top3_weight": round(sum(row["weight_pct"] for row in holdings[:3]), 2),
             "new_count": sum(row["activity"] == "new" for row in holdings), "add_count": sum(row["activity"] == "add" for row in holdings),
             "equity_coverage_pct": round(total, 2), "top_holdings": holdings[:3], "available": bool(holdings)}
@@ -132,12 +133,12 @@ def get_investors() -> dict:
     with _lock: payload = _snapshots.get("investors")
     data = {row["id"]: row for row in (payload or {}).get("items", [])}
     items = [_profile(data.get(profile["id"], {}), profile) for profile in source.INVESTORS]
-    latest_report = max((row.get("report_date", "") for row in data.values()), default="")
+    latest_report = max((row.get("report_date", "") for row in data.values() if row.get("data_basis") != "daily_fund"), default="")
     consensus_period = next((row.get("period") for row in data.values() if row.get("report_date") == latest_report), None)
     shared: dict[str, dict] = {}
     for profile in source.INVESTORS:
         disclosed = data.get(profile["id"], {})
-        if disclosed.get("report_date") != latest_report:
+        if disclosed.get("report_date") != latest_report or disclosed.get("data_basis") == "daily_fund":
             continue
         for row in disclosed.get("holdings", []):
             bucket = shared.setdefault(row["code"], {"code": row["code"], "name": row["name"], "investors": [], "max_weight": 0})
@@ -170,6 +171,9 @@ def get_portfolio(investor_id: str) -> dict | None:
                          "current_value": price * row["shares"] if price else None})
     total = sum(row["current_value"] or 0 for row in enriched)
     complete = bool(enriched) and all(row["current_value"] is not None for row in enriched)
+    # Daily funds can include private/no-ticker assets. A partial public-stock
+    # subset must never be normalized to look like the entire fund.
+    complete = complete and sum(row.get("weight_pct", 0) for row in enriched) >= 99
     for row in enriched:
         row["current_weight_pct"] = round(row["current_value"] / total * 100, 2) if complete and total else None
     return {"investor": _profile(data, profile), "holdings": enriched, "estimated_equity_value": total if complete else None, "valuation_complete": complete,

@@ -14,6 +14,7 @@ import CommodityDesk from "../CommodityDesk";
 import Finder from "../Finder";
 import GlobalDesk from "../GlobalDesk";
 import Masthead from "../Masthead";
+import Tape from "../Tape";
 import MarketOverview from "../discover/MarketOverview";
 import { InvestorShowcase, VideoShowcase } from "../discover/DiscoverySections";
 import { Marker, SectionHead, Skel, Spark } from "../parts";
@@ -190,6 +191,7 @@ export default function WorldPage() {
         onPrint={() => window.print()}
         section={{ ko: "해외 증시", en: "World Markets", taglineKo: "서울에서 읽는 뉴욕 — 미국 대형주를 원화의 눈으로", taglineEn: "New York, read from Seoul — US large caps through a won lens" }}
       />
+      <Tape />
       <CommandBar
         sections={SECTIONS}
         active={active}

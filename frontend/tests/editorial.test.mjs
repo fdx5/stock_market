@@ -34,7 +34,7 @@ async function components(entry) {
         useMarketSnapshot: `export const useMarketSnapshot=()=>({kospi:[],kosdaq:[],generatedAt:null});`,
         useUsMarketSnapshot: `export const useUsMarketSnapshot=()=>({all:[],sp500:[],nasdaq:[],generatedAt:null,session:'post'});`,
         useMarketIndices: `export const useMarketIndices=()=>({kospi:{close:3000,change_pct:1},kosdaq:{close:1000,change_pct:-1}});`,
-        useMarketTicker: `export const useMarketTicker=()=>[{symbol:'^GSPC',price:6000,change_pct:1,points:[]},{symbol:'^NDX',price:20000,change_pct:2,points:[]}];`,
+        useMarketTicker: `export const useMarketTicker=()=>[{symbol:'^GSPC',price:6000},{symbol:'^NDX',price:20000},{symbol:'CL=F',price:75.12},{symbol:'GC=F',price:2700.5},{symbol:'SI=F',price:32.4},{symbol:'BTC-USD',price:95000.25},{symbol:'XRP-USD',price:2.1234}].map(q=>({...q,label:q.symbol,change:1,change_pct:1.25,points:[]}));`,
         usePopularStocks: `export const usePopularStocks=()=>[];`, client: `export const api=new Proxy({},{get:()=>async()=>({items:[]})});`,
         shell: `export const useBroadsheet=()=>{}; export const useFinderHotkey=()=>{}; export const useScrollSpy=()=>{}; export const jumpTo=()=>{};`,
         RoomDesk: `export const Radar=()=>null; export const Talk=()=>null;`,
@@ -59,6 +59,7 @@ test('domestic desk combines old front/1/2 panels and puts investors above Korea
   assert(!html.includes('id="d2-index"') && !html.includes('id="d2-breadth"'));
   assert(html.includes('/investment-videos?market=kr'));
   assert.equal((html.match(/class="ed-video-card"/g) ?? []).length, 4);
+  assertOverviewAssetsAndTape(html);
 });
 
 test('global uses its own US feed and keeps detailed sector panels collapsed', async () => {
@@ -70,7 +71,16 @@ test('global uses its own US feed and keeps detailed sector panels collapsed', a
   assert(html.includes('/investment-videos?market=us'));
   assert(!html.includes('id="w-sectors"') && !html.includes('id="w-bigtech"'));
   assert(!html.includes('<details class="ed-market-details" open'));
+  assertOverviewAssetsAndTape(html);
 });
+
+function assertOverviewAssetsAndTape(html) {
+  const overview = html.slice(html.indexOf('class="ed-market-overview"'), html.indexOf('class="ed-discovery-section'));
+  for (const label of ['WTI 유가', '금 선물', '은 선물', '비트코인', '리플 XRP']) assert(overview.includes(label));
+  for (const value of ['$75.12', '$2,700.50', '$32.40', '$95,000.25', '$2.1234']) assert(overview.includes(value));
+  assert(html.includes('role="marquee"'));
+  assert(!html.includes('NaN'));
+}
 
 test('independent video page renders twenty cards and correct market navigation', async () => {
   window.location.search = '?market=us';

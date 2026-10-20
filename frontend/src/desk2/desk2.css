@@ -1087,7 +1087,8 @@ html.is-desk2 body {
   color: var(--brass);
   margin-bottom: 6px;
 }
-.d2-sec-titles h2 {
+.d2-sec-titles h2,
+.d2 .d2-title {
   text-wrap: balance;
   font-family: var(--f-serif);
   font-weight: 800;
@@ -3561,7 +3562,8 @@ tr.is-alert-cool .d2-macro-alert {
   .d2-sec-no {
     font-size: 42px;
   }
-  .d2-sec-titles h2 {
+  .d2-sec-titles h2,
+.d2 .d2-title {
   text-wrap: balance;
     font-size: 22px;
   }
@@ -4053,7 +4055,8 @@ tr.is-alert-cool .d2-macro-alert {
   letter-spacing: -0.035em;
   line-height: 1.1;
 }
-.d2 .d2-sec-titles h2 {
+.d2 .d2-sec-titles h2,
+.d2 .d2-title {
   font-family: var(--f-display);
   font-weight: 700;
   letter-spacing: -0.03em;

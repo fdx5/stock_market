@@ -4,7 +4,9 @@ Reported equity prices are quarter-end reference prices, never purchase costs.
 YouTube rankings cover discovered candidates, never claim to exhaust YouTube.
 """
 import datetime as dt
+import csv
 import html
+import io
 import json
 import math
 import os
@@ -29,6 +31,8 @@ QUERIES = {
 INVESTORS = [
     {"id": "buffett", "name": "워런 버핏", "name_en": "Warren Buffett", "firm": "Berkshire Hathaway", "provider_id": "BRK", "wiki": "Warren_Buffett", "style": "가치·장기", "cik": "1067983", "color": "#487b70"},
     {"id": "ackman", "name": "빌 애크먼", "name_en": "Bill Ackman", "firm": "Pershing Square", "provider_id": "psc", "wiki": "Bill_Ackman", "style": "집중·행동주의", "cik": "1336528", "color": "#546b9c"},
+    {"id": "burry", "name": "마이클 버리", "name_en": "Michael Burry", "firm": "Scion Asset Management · 과거 공개 보유", "provider_id": "SAM", "style": "가치·역발상", "cik": "1649339", "color": "#9b725a", "scope_note": "운용 종료 전 마지막으로 확인된 공시의 주식 보유분입니다. 현재 보유 내역을 의미하지 않습니다.", "scope_url": "https://www.scionasset.com/"},
+    {"id": "wood", "name": "캐시 우드", "name_en": "Cathie Wood", "firm": "ARK Invest · ARKK", "provider_id": "ARKK", "provider": "ark_fund", "style": "혁신·성장", "color": "#7670aa", "scope_note": "대표 펀드 ARKK의 일일 공개 보유 내역입니다. ARK 전체 운용자산이나 개인 계좌가 아닙니다.", "source_url": "https://www.ark-funds.com/funds/arkk"},
     {"id": "tepper", "name": "데이비드 테퍼", "name_en": "David Tepper", "firm": "Appaloosa Management", "provider_id": "AM", "wiki": "David_Tepper", "style": "기회·매크로", "color": "#a4764e"},
     {"id": "loeb", "name": "댄 로브", "name_en": "Daniel Loeb", "firm": "Third Point", "provider_id": "TP", "wiki": "Daniel_S._Loeb", "style": "이벤트·행동주의", "color": "#8a658b"},
     {"id": "klarman", "name": "세스 클라먼", "name_en": "Seth Klarman", "firm": "Baupost Group", "provider_id": "BAUPOST", "wiki": "Seth_Klarman", "style": "가치·안전마진", "color": "#72775a"},
@@ -266,7 +270,41 @@ def fetch_portrait(investor: dict) -> dict:
     return dict(PORTRAITS.get(investor["id"], {}))
 
 
+ARKK_HOLDINGS_URL = "https://assets.ark-funds.com/fund-documents/funds-etf-csv/ARK_INNOVATION_ETF_ARKK_HOLDINGS.csv"
+
+
+def parse_ark_holdings(document: str, investor: dict) -> dict:
+    rows, dates = [], set()
+    total_value = 0
+    for raw in csv.DictReader(io.StringIO(document.lstrip("\ufeff"))):
+        if raw.get("fund") != "ARKK":
+            continue
+        try:
+            report_date = dt.datetime.strptime(raw.get("date", ""), "%m/%d/%Y").date().isoformat()
+        except ValueError:
+            continue
+        value, shares, weight = [number(raw.get(key, "")) for key in ("market value ($)", "shares", "weight (%)")]
+        if value is None or shares is None or shares <= 0 or value <= 0 or weight is None or not 0 <= weight <= 100:
+            continue
+        dates.add(report_date)
+        total_value += value
+        code = raw.get("ticker", "").strip()
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,15}", code):
+            continue  # Private/no-ticker assets stay in the denominator, never get fake stock quotes.
+        rows.append({"code": code, "name": raw.get("company", code), "weight_pct": weight, "shares": int(shares),
+                     "reference_price": value / shares, "purchase_price": None, "reported_value": value,
+                     "snapshot_price": value / shares, "activity": "unavailable", "shares_change_pct": None})
+    if len(dates) != 1 or not rows:
+        raise ValueError("Missing or mixed ARKK holdings dates")
+    rows.sort(key=lambda row: (-row["weight_pct"], row["code"]))
+    return {"id": investor["id"], "period": "ARKK 일일 공개", "report_date": dates.pop(), "data_basis": "daily_fund",
+            "reported_value": total_value, "reported_count": len(rows), "holdings": rows,
+            "source_url": ARKK_HOLDINGS_URL, "collected_at": dt.datetime.now(UTC).isoformat()}
+
+
 def fetch_portfolio(investor: dict) -> dict:
+    if investor.get("provider") == "ark_fund":
+        return {**parse_ark_holdings(_request(ARKK_HOLDINGS_URL).text, investor), **fetch_portrait(investor)}
     url = f'https://www.dataroma.com/m/holdings.php?m={investor["provider_id"]}'
     result = parse_portfolio(_request(url).text, investor)
     return {**result, **fetch_portrait(investor)}

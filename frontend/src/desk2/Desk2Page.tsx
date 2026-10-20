@@ -18,6 +18,7 @@ import MobileDock from "./MobileDock";
 import RankingDesk from "./RankingDesk";
 import { Radar, Talk } from "./RoomDesk";
 import SpotlightDesk from "./SpotlightDesk";
+import Tape from "./Tape";
 import { SectionHead } from "./parts";
 import { useL } from "./lib";
 import { jumpTo, useBroadsheet, useFinderHotkey, useScrollSpy } from "./shell";
@@ -104,6 +105,7 @@ export default function Desk2Page() {
         {L("본문 바로가기", "Skip to content")}
       </a>
       <Masthead rail={false} onPrint={() => window.print()} />
+      <Tape />
       <CommandBar sections={SECTIONS} active={active} onJump={jump} onFind={() => setFinderOpen(true)} />
 
       <main className="d2-main">

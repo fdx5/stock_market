@@ -89,6 +89,19 @@ def test_portfolio_reports_reference_price_never_invents_purchase_cost():
     assert row["snapshot_price"] == 120
 
 
+def test_ark_daily_holdings_keep_fund_weights_and_exclude_private_tickers():
+    csv = ('date,fund,company,ticker,cusip,shares,market value ($),weight (%)\n'
+           '10/19/2026,ARKK,Tesla,TSLA,88160R101,10,$1200,60%\n'
+           '10/19/2026,ARKK,Private Company,,PRIVATE,8,$800,40%\n')
+    result = source.parse_ark_holdings(csv, {"id": "wood"})
+    assert result["data_basis"] == "daily_fund" and result["report_date"] == "2026-10-19"
+    assert result["reported_value"] == 2000
+    assert len(result["holdings"]) == 1
+    row = result["holdings"][0]
+    assert row["weight_pct"] == 60 and row["reference_price"] == 120
+    assert row["activity"] == "unavailable" and row["purchase_price"] is None
+
+
 def test_immutable_snapshots_preserve_every_saved_edition():
     first = {"edition": "2026-10-19", "items": [video()]}
     service._save("videos-us", first)
@@ -134,6 +147,14 @@ def test_consensus_never_mixes_different_quarters():
     assert result["consensus_period"] == "Q2 2026"
     assert result["consensus"][0]["investors"] == ["buffett", "ackman"]
     assert result["available_count"] == 3
+
+
+def test_daily_fund_never_displaces_quarterly_consensus(monkeypatch):
+    seed_portfolios()
+    service._snapshots["investors"]["items"].append({"id": "wood", "data_basis": "daily_fund", "period": "ARKK", "report_date": "2026-10-19", "holdings": [holding("AAPL")]})
+    result = service.get_investors()
+    assert result["consensus_period"] == "Q2 2026"
+    assert result["consensus"][0]["investors"] == ["buffett", "ackman"]
 
 
 def test_partial_source_failure_preserves_old_holdings_and_retries_only_missing_profiles(monkeypatch):
