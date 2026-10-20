@@ -203,6 +203,7 @@ def fetch_videos(market: str, now: dt.datetime | None = None) -> dict:
     start, cutoff = edition_window(now)
     source = "youtube_public"
     rows = []
+    candidates = set()
     key = os.environ.get("YOUTUBE_DATA_API_KEY")
     if key:
         try:
@@ -211,7 +212,6 @@ def fetch_videos(market: str, now: dt.datetime | None = None) -> dict:
         except (requests.RequestException, ValueError, TypeError):
             pass  # Never log an exception URL: it could contain the server API key.
     if not rows:
-        candidates = set()
         with ThreadPoolExecutor(max_workers=2) as pool:
             for future in as_completed([pool.submit(_public_candidates, query) for query in QUERIES[market]]):
                 try: candidates.update(future.result())
@@ -220,7 +220,9 @@ def fetch_videos(market: str, now: dt.datetime | None = None) -> dict:
             rows = [row for row in pool.map(_watch, sorted(candidates)[:240]) if row]
     items = rank_videos(rows, market, start, cutoff)
     if not items:
-        raise RuntimeError("No verified videos in the edition window")
+        error = RuntimeError("No verified videos in the edition window")
+        error.diagnostics = {"candidate_count": len(candidates), "verified_count": len(rows)}
+        raise error
     return {"market": market, "edition": cutoff.date().isoformat(), "window_start": start.isoformat(), "window_end": cutoff.isoformat(),
             "collected_at": dt.datetime.now(UTC).isoformat(), "source": source, "candidate_count": len(rows),
             "ranking_basis": "views_among_discovered_candidates", "items": items}

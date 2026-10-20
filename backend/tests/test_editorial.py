@@ -18,7 +18,9 @@ real_ensure = service.ensure
 def isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(service, "DATA_DIR", tmp_path / "new-editorial-store")
     monkeypatch.setattr(service, "SEED_DIR", tmp_path / "new-seed-store")
-    for name, value in (("_snapshots", {}), ("_running", set()), ("_attempted", {}), ("_loaded", set())):
+    monkeypatch.setattr(service, "BUNDLED_DIR", tmp_path / "new-bundled-store")
+    for name, value in (("_snapshots", {}), ("_running", set()), ("_attempted", {}), ("_loaded", set()),
+                        ("_attempted_editions", {}), ("_failures", {})):
         monkeypatch.setattr(service, name, value)
     monkeypatch.setattr(service, "ensure", lambda _kind: None)
     monkeypatch.setattr(service.us_live_quotes, "recover_missing", lambda _codes: None)
@@ -236,6 +238,72 @@ def test_scheduling_is_single_flight_and_retries_after_failure(monkeypatch):
     service._running.clear()
     real_ensure("videos-us")
     assert len(calls) == 1
-    service._attempted["videos-us"] -= 901
+    service._attempted["videos-us"] -= 61
     real_ensure("videos-us")
     assert len(calls) == 2
+
+
+def test_eight_am_edition_is_not_throttled_by_previous_edition_attempt(monkeypatch):
+    clock = [dt.datetime(2026, 10, 21, 7, 59, tzinfo=source.KST)]
+    window = source.edition_window
+    monkeypatch.setattr(source, "edition_window", lambda: window(clock[0]))
+    calls = []
+    class FakeThread:
+        def __init__(self, **kwargs): calls.append(kwargs)
+        def start(self): pass
+    monkeypatch.setattr(threading, "Thread", FakeThread)
+    real_ensure("videos-kr")
+    service._running.clear()
+    clock[0] = clock[0].replace(hour=8, minute=0)
+    real_ensure("videos-kr")
+    assert len(calls) == 2
+
+
+def test_newer_bundle_wins_over_older_runtime_without_changing_files():
+    service._save("videos-kr", {"edition": "2026-10-19", "items": [video()]})
+    old_file = next(service.DATA_DIR.glob("*.json"))
+    before = old_file.read_bytes()
+    service.BUNDLED_DIR.mkdir()
+    (service.BUNDLED_DIR / "videos-kr-2026-10-21.json").write_text(
+        json.dumps({"edition": "2026-10-21", "items": [video(views=200)]}), encoding="utf-8")
+    service._load("videos-kr")
+    assert service._snapshots["videos-kr"]["edition"] == "2026-10-21"
+    assert old_file.read_bytes() == before
+
+
+def collector_payload():
+    start, cutoff = source.edition_window()
+    return {"market": "us", "edition": cutoff.date().isoformat(),
+            "collected_at": dt.datetime.now(source.UTC).isoformat(), "candidate_count": 1,
+            "items": [video(channel="Public channel", published_at=(start + dt.timedelta(hours=1)).isoformat())]}
+
+
+def test_collector_requires_auth_and_saves_only_append_only_public_rows(monkeypatch):
+    monkeypatch.setenv("EDITORIAL_REFRESH_TOKEN", "test-only-collector-token")
+    app = FastAPI()
+    app.include_router(router, prefix="/api/editorial")
+    client = TestClient(app)
+    payload = collector_payload()
+    url = "/api/editorial/videos/edition"
+    assert client.post(url, json=payload).status_code == 401
+    headers = {"Authorization": "Bearer test-only-collector-token"}
+    result = client.post(url, json=payload, headers=headers)
+    assert result.status_code == 200 and result.json()["status"] == "saved"
+    files = list(service.DATA_DIR.glob("*.json"))
+    before = files[0].read_bytes()
+    assert client.post(url, json=payload, headers=headers).json()["status"] == "already_current"
+    assert len(list(service.DATA_DIR.glob("*.json"))) == 1
+    assert files[0].read_bytes() == before
+    saved = json.loads(before)
+    assert saved["items"][0]["url"] == "https://www.youtube.com/watch?v=abcdefghijk"
+    assert saved["items"][0]["rank"] == 1
+
+
+def test_collector_rejects_old_edition_and_wrong_publication_window():
+    payload = collector_payload()
+    payload["edition"] = "2020-01-01"
+    with pytest.raises(ValueError): service.accept_video_edition("us", payload)
+    payload = collector_payload()
+    payload["items"][0]["published_at"] = "2020-01-01T00:00:00Z"
+    with pytest.raises(ValueError): service.accept_video_edition("us", payload)
+    assert not service.DATA_DIR.exists()

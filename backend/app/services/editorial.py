@@ -19,10 +19,13 @@ logger = logging.getLogger(__name__)
 KINDS = ("videos-kr", "videos-us", "investors")
 DATA_DIR = Path(os.environ.get("EDITORIAL_DATA_DIR") or Path(__file__).resolve().parents[1] / "data" / "store" / "editorial")
 SEED_DIR = Path(__file__).resolve().parents[1] / "data" / "editorial_seed"
+BUNDLED_DIR = Path(__file__).resolve().parents[1] / "data" / "editorial_editions"
 _lock = threading.Lock()
 _snapshots: dict[str, dict] = {}
 _running: set[str] = set()
 _attempted: dict[str, float] = {}
+_attempted_editions: dict[str, str] = {}
+_failures: dict[str, dict] = {}
 _loaded: set[str] = set()
 _stop = threading.Event()
 _started = False
@@ -31,15 +34,22 @@ _started = False
 def _load(kind: str) -> None:
     with _lock:
         if kind in _loaded: return
+        candidates = []
+        groups = (sorted(DATA_DIR.glob(kind + "-*.json"), reverse=True),
+                  sorted(BUNDLED_DIR.glob(kind + "-*.json"), reverse=True), [SEED_DIR / (kind + ".json")])
+        for paths in groups:
+            for path in paths:
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    if payload.get("items") and payload.get("edition"):
+                        candidates.append(payload)
+                        break
+                except (OSError, ValueError, TypeError):
+                    continue
+        if candidates:
+            latest = max(candidates, key=lambda row: (row["edition"], row.get("collected_at", "")))
+            _snapshots.setdefault(kind, latest)
         _loaded.add(kind)
-    for path in [*sorted(DATA_DIR.glob(kind + "-*.json"), reverse=True), SEED_DIR / (kind + ".json")]:
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            if payload.get("items") and payload.get("edition"):
-                with _lock: _snapshots.setdefault(kind, payload)
-                return
-        except (OSError, ValueError, TypeError):
-            continue
 
 
 def _save(kind: str, payload: dict) -> None:
@@ -83,8 +93,15 @@ def _refresh(kind: str) -> None:
         with _lock: previous = _snapshots.get(kind)
         payload = _collect_investors(previous) if kind == "investors" else source.fetch_videos(kind.split("-")[1])
         _save(kind, payload)
-        with _lock: _snapshots[kind] = payload
+        with _lock:
+            current = _snapshots.get(kind, {})
+            if (payload["edition"], payload.get("collected_at", "")) >= (current.get("edition", ""), current.get("collected_at", "")):
+                _snapshots[kind] = payload
+                _failures.pop(kind, None)
     except Exception as exc:
+        with _lock:
+            _failures[kind] = {"code": "source_unavailable", "failed_at": dt.datetime.now(source.UTC).isoformat(),
+                               **getattr(exc, "diagnostics", {})}
         logger.info("Editorial refresh retained prior snapshot: kind=%s type=%s", kind, type(exc).__name__)
     finally:
         with _lock: _running.discard(kind)
@@ -103,17 +120,53 @@ def ensure(kind: str) -> None:
         if (current.get("edition") == cutoff.date().isoformat() and current.get("complete", True) and roster_complete) or kind in _running:
             return
         now = time.monotonic()
-        if kind in _attempted and now - _attempted[kind] < 15 * 60: return
+        edition = cutoff.date().isoformat()
+        if (_attempted_editions.get(kind) == edition and kind in _attempted
+                and now - _attempted[kind] < 60): return
         _attempted[kind] = now
+        _attempted_editions[kind] = edition
         _running.add(kind)
     threading.Thread(target=_refresh, args=(kind,), name="editorial-" + kind, daemon=True).start()
 
 
 def _status(kind: str, payload: dict | None) -> dict:
     _, cutoff = source.edition_window()
-    with _lock: refreshing = kind in _running
+    with _lock:
+        refreshing = kind in _running
+        failure = _failures.get(kind)
     return {"status": "ready" if payload else "loading" if refreshing else "unavailable", "refreshing": refreshing,
-            "stale": bool(payload and payload.get("edition") != cutoff.date().isoformat()), "next_update_at": (cutoff + dt.timedelta(days=1)).isoformat()}
+            "stale": bool(payload and payload.get("edition") != cutoff.date().isoformat()),
+            "last_refresh_error": failure, "next_update_at": (cutoff + dt.timedelta(days=1)).isoformat()}
+
+
+def accept_video_edition(market: str, payload: dict) -> dict:
+    """Authenticated collector handoff; only append verified public video editions."""
+    start, cutoff = source.edition_window()
+    if market not in ("kr", "us") or payload.get("market") != market or payload.get("edition") != cutoff.date().isoformat():
+        raise ValueError("Collector edition does not match the current 08:00 KST window")
+    rows = payload.get("items", [])
+    items = source.rank_videos(rows, market, start, cutoff)
+    if not items or len(items) != len(rows):
+        raise ValueError("Collector videos failed publication, market or ranking validation")
+    collected = source._iso(payload.get("collected_at", ""))
+    now = dt.datetime.now(source.UTC)
+    if collected is None or not cutoff <= collected <= now + dt.timedelta(minutes=5):
+        raise ValueError("Invalid collection timestamp")
+    kind = "videos-" + market
+    _load(kind)
+    clean = {"market": market, "edition": cutoff.date().isoformat(), "window_start": start.isoformat(),
+             "window_end": cutoff.isoformat(), "collected_at": collected.isoformat(), "source": "youtube_external_collector",
+             "candidate_count": max(len(items), int(payload.get("candidate_count", len(items)))),
+             "ranking_basis": "views_among_discovered_candidates", "items": items}
+    with _lock:
+        current = _snapshots.get(kind, {})
+        # A delayed CI job must not displace a newer successful collection.
+        if (current.get("edition", ""), current.get("collected_at", "")) >= (clean["edition"], clean["collected_at"]):
+            return {"status": "already_current", "edition": current["edition"]}
+        _save(kind, clean)
+        _snapshots[kind] = clean
+        _failures.pop(kind, None)
+    return {"status": "saved", "edition": clean["edition"], "count": len(items)}
 
 
 def get_videos(market: str) -> dict:
