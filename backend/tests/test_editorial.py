@@ -17,6 +17,7 @@ real_ensure = service.ensure
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(service, "DATA_DIR", tmp_path / "new-editorial-store")
+    monkeypatch.setattr(service, "SEED_DIR", tmp_path / "new-seed-store")
     for name, value in (("_snapshots", {}), ("_running", set()), ("_attempted", {}), ("_loaded", set())):
         monkeypatch.setattr(service, name, value)
     monkeypatch.setattr(service, "ensure", lambda _kind: None)
@@ -113,6 +114,15 @@ def test_immutable_snapshots_preserve_every_saved_edition():
     assert old_file.read_bytes() == old_bytes
     service._load("videos-us")
     assert service._snapshots["videos-us"] == second
+
+
+def test_first_deployment_loads_verified_public_seed_without_creating_saved_files():
+    service.SEED_DIR.mkdir()
+    seed = {"edition": "2026-10-20", "items": [video()]}
+    (service.SEED_DIR / "videos-us.json").write_text(json.dumps(seed), encoding="utf-8")
+    service._load("videos-us")
+    assert service._snapshots["videos-us"] == seed
+    assert not service.DATA_DIR.exists()
 
 
 def test_failed_refresh_keeps_previous_saved_and_memory_edition(monkeypatch):

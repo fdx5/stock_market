@@ -18,6 +18,7 @@ from app.data import editorial_sources as source, us_live_quotes
 logger = logging.getLogger(__name__)
 KINDS = ("videos-kr", "videos-us", "investors")
 DATA_DIR = Path(os.environ.get("EDITORIAL_DATA_DIR") or Path(__file__).resolve().parents[1] / "data" / "store" / "editorial")
+SEED_DIR = Path(__file__).resolve().parents[1] / "data" / "editorial_seed"
 _lock = threading.Lock()
 _snapshots: dict[str, dict] = {}
 _running: set[str] = set()
@@ -31,7 +32,7 @@ def _load(kind: str) -> None:
     with _lock:
         if kind in _loaded: return
         _loaded.add(kind)
-    for path in sorted(DATA_DIR.glob(kind + "-*.json"), reverse=True):
+    for path in [*sorted(DATA_DIR.glob(kind + "-*.json"), reverse=True), SEED_DIR / (kind + ".json")]:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             if payload.get("items") and payload.get("edition"):

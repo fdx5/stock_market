@@ -67,7 +67,7 @@ test('global uses its own US feed and keeps detailed sector panels collapsed', a
   const html = render(Page);
   assert(html.indexOf('id="w-front"') < html.indexOf('id="w-investors"'));
   assert(html.indexOf('id="w-investors"') < html.indexOf('id="w-videos"'));
-  assert(html.includes('한국어로 읽는 나스닥의 밤'));
+  assert(html.includes('오늘, 함께 보는 미국 증시'));
   assert(html.includes('/investment-videos?market=us'));
   assert(!html.includes('id="w-sectors"') && !html.includes('id="w-bigtech"'));
   assert(!html.includes('<details class="ed-market-details" open'));
