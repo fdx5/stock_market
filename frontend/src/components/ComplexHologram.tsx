@@ -1028,9 +1028,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // share alone), or at 1.0x (the GPU's pixels), three seconds each (the first not counted) and
     // round again; each row's frame rate, GPU, and the main thread's frame — the view's loop, the
     // rest of the page's work, and the time left idle — written to the HUD. Nothing without the flag.
-    const gx = new URLSearchParams(location.search).get("gx") === "1" ? { k: 0, s: 0, hidden: [] as THREE.Object3D[], acc: new Map<string, number[]>(), ratio: 0, burn: 0, loop: 0, n: 0, idle: 0, idleEnd: 0, at: performance.now() } : null;
+    const gx = new URLSearchParams(location.search).get("gx") === "1" ? { k: 0, s: 0, hidden: [] as THREE.Object3D[], acc: new Map<string, number[]>(), ratio: 0, burn: 0, full: false, loop: 0, n: 0, idle: 0, idleEnd: 0, at: performance.now() } : null;
+    // ("bld full": the buildings' full shaders in flight, not their lighter twins — setFlightLite)
     const GX: [string, ((m: THREE.Material) => boolean) | null, number, number][] = [
-      ["all", null, 1.6, 0], ["cpu +6ms", null, 1.6, 6], ["ratio 1.0", null, 1.0, 0],
+      ["all", null, 1.6, 0], ["bld full", null, 1.6, 0], ["cpu +6ms", null, 1.6, 6], ["ratio 1.0", null, 1.0, 0],
       ["no trees", m => !!(m.userData.meshLeaves || m.userData.volumeFoliage || m.userData.bark), 1.6, 0],
       ["no shrubs", m => !!m.userData.leafCluster, 1.6, 0], ["no buildings", m => !!(m.userData.contextBuilding || m.userData.constructedBuilding), 1.6, 0],
       ["no ground", m => !!(m.userData.groundDetail || m.userData.naturalGround), 1.6, 0], ["no water", m => !!m.userData.water, 1.6, 0]];
@@ -1046,6 +1047,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     stage.setDroneLite = on => {
       if (!on && droneFx && native) { native.aoOn = droneFx.ao; native.bloomOn = droneFx.bloom; droneFx = null; }
       (native as unknown as { setDroneLite?: (on: boolean) => void } | null)?.setDroneLite?.(on); stage.railEvery = on ? 2 : 1;
+      (native as unknown as { setFlightLite?: (on: boolean, warm?: boolean) => void } | null)?.setFlightLite?.(false, on);
       droneRatioCap = on ? 2 : 0; resize();
       if (!on) document.documentElement.toggleAttribute("data-drone-flight", false);
       if (stage.rail) stage.rail.clearanceGap = on ? 3 : .75;
@@ -1315,7 +1317,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
               for (const o of gx.hidden) o.visible = true;
               gx.hidden = [];
               if (hide) scene.traverse(o => { const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined; const m0 = Array.isArray(m) ? m[0] : m; if ((o as THREE.Mesh).isMesh && o.visible && m0 && hide(m0)) { o.visible = false; gx.hidden.push(o); } });
-              gx.burn = burn;
+              gx.burn = burn; gx.full = name === "bld full";
               if (gx.ratio !== r) { gx.ratio = r; resize(); }
             } else {
               const a = gx.acc.get(name) ?? [0, 0, 0, 0, 0, 0, 0];
@@ -1331,9 +1333,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             const gpu = native.timer.ms.total ?? 0, fps = Number(host.dataset.fps), v = stage.drone.flight.vel;
             const fx = droneFx ??= { ao: native.aoOn, bloom: native.bloomOn };
             let cap = droneRatioCap;
-            if (Math.hypot(v.x, v.y, v.z) < 1.5) { if (++droneStill >= 2) { cap = 2; native.aoOn = fx.ao; native.bloomOn = fx.bloom; document.documentElement.toggleAttribute("data-drone-flight", false); } }
+            const lite = native as unknown as { setFlightLite?: (on: boolean, warm?: boolean) => void };
+            if (Math.hypot(v.x, v.y, v.z) < 1.5) { if (++droneStill >= 2) { cap = 2; native.aoOn = fx.ao; native.bloomOn = fx.bloom; lite.setFlightLite?.(false, true); document.documentElement.toggleAttribute("data-drone-flight", false); } }
             else {
-              droneStill = 0; native.aoOn = false; native.bloomOn = false;
+              // (and the buildings drawn with their lighter twins: a phone's GPU spent half its frame on
+              // their fine work — the room behind the glass, relief, weathering — at 1.6x)
+              droneStill = 0; native.aoOn = false; native.bloomOn = false; lite.setFlightLite?.(!gx?.full, true);
               document.documentElement.toggleAttribute("data-drone-flight", true);   // (the page's animations held: see drone-explore.css; an attribute — a class written again each second woke the page's theme watchers)
               if (gpu > 19) cap = Math.max(1.6, cap * Math.sqrt(16 / gpu));
               else if (!gpu && fps < 48) cap = Math.max(1.6, cap - 0.1);

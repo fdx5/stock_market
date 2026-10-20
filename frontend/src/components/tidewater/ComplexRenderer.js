@@ -36,6 +36,7 @@ const READY_COLOUR=Object.freeze({kind:'color',late:false,colorFormats:['rgba16f
 const READY_SHADOW=Object.freeze({kind:'depth',late:false,colorFormats:[],depthFormat:'depth32float',depthCompare:'less-equal',depthBias:2,depthBiasSlopeScale:1.5,passKey:'depth.0..depth32float.less-equal..'});
 const READY_COLOUR_PASSES=Object.freeze([READY_COLOUR]);
 const READY_CASTER_PASSES=Object.freeze([READY_COLOUR,READY_SHADOW]);
+const isBuilding = source => !!(source.userData.constructedBuilding || source.userData.contextBuilding);
 
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
  * software / fallback adapters. Visible views keep their selected quality. */
@@ -1003,6 +1004,8 @@ export class ComplexRenderer {
         ...(this.bloomOn ? { bloomTex: { texture: () => this.bloomRT[0].texture }, bloom: { uniform: BloomUniforms } } : {}) } });
     this.meshes = new Map();
     this.materials = new Map();
+    // (the buildings' lighter twins for a phone's drone in flight: liteMaterial, setFlightLite)
+    this.liteMaterials = new Map();
     this.textures = new Map();
     this.ready = false;
     // After the first complete frame the view never blanks again: meshes added later
@@ -1101,6 +1104,34 @@ export class ComplexRenderer {
     } else {
       shadowSplits = null;
       useShadows(this.quality);
+    }
+  }
+  /** A phone's drone: the buildings drawn with their lighter twins (liteMaterial) while it flies —
+   * a phone's GPU spent half its frame on the buildings' fine work in flight. warm: the twins
+   * compiled ahead (from the drone's start), so the first flight swaps at once. */
+  setFlightLite(on, warm = on) {
+    this.flightLite = !!on;
+    this.flightLiteWarm = !!(warm || on);
+  }
+  /** Each frame: the building meshes onto the twins (each once it can draw) or back, all of them
+   * when the flight starts or ends, the newcomers every 15 frames between. */
+  applyFlightLite() {
+    const on = !!this.flightLite, changed = on !== this.flightLiteShown;
+    if (!changed && !(this.flightLiteWarm && this.frameNo % 15 === 0)) return;
+    this.flightLiteShown = on;
+    for (const mesh of this.meshes.values()) {
+      const m = mesh.material;
+      if (Array.isArray(m) || !m.source || !isBuilding(m.source)) continue;
+      const full = this.materials.get(m.source);
+      if (!full || full.srcVersion !== m.srcVersion) continue;   // (a replacement on its way: sync's)
+      if (m.lite && on) continue;
+      if (!on && m !== full) mesh.material = full;
+      if (!on && (!this.flightLiteWarm || full.liteBuilt)) continue;
+      const lite = this.liteMaterial(full);
+      // (materialReady starts its pipelines; until they are built the mesh keeps the full one)
+      if (!this.renderer.materialReady(mesh, lite, mesh.castShadow ? READY_CASTER_PASSES : READY_COLOUR_PASSES)) continue;
+      full.liteBuilt = true;
+      if (on) mesh.material = lite;
     }
   }
   setQuality(quality) {
@@ -1406,7 +1437,19 @@ export class ComplexRenderer {
     mat.srcVersion = source.version;
     return mat;
   }
-  makeMaterial(source) {
+  /** A phone's drone in flight: a building material's lighter twin (made, and compiled, once;
+   * freed with it). */
+  liteMaterial(full) {
+    if (!isBuilding(full.source)) return full;
+    let lite = this.liteMaterials.get(full.source);
+    if (lite && lite.srcVersion === full.srcVersion) return lite;
+    if (lite) (this.retired ??= []).push(lite);
+    lite = this.makeMaterial(full.source, true);
+    lite.source = full.source; lite.srcVersion = full.srcVersion;
+    this.liteMaterials.set(full.source, lite);
+    return lite;
+  }
+  makeMaterial(source, lite = false) {
     if (source.userData.water) {
       this.copy ??= new RenderTarget(this.target.width, this.target.height, { colors: ['rgba16float'], depth: 'depth32float', label: 'complex scene copy', usage: ['sample', 'copyDst'], depthUsage: ['sample', 'copyDst'] });
       const mat = waterMaterial({ atmosphere, scene: this.copy, quality: this.quality });
@@ -1420,7 +1463,11 @@ export class ComplexRenderer {
     // differing only in such numbers.
     const extra = {};
     // Facades with a glass mask (the lit-window map's alpha): a room behind the clear glass.
-    const interior = INTERIOR_ALLOWED && !!(source.userData.interior && source.emissiveMap);
+    // (lite: a building drawn by a phone in flight — no room behind the glass, no window recess, no
+    // relief, no photographic detail, no weathering, no clear coat: the same paint, windows and
+    // lighting, the fine work a moving phone-sized picture hides left out)
+    const bld = lite && !!(source.userData.constructedBuilding || source.userData.contextBuilding);
+    const interior = !bld && INTERIOR_ALLOWED && !!(source.userData.interior && source.emissiveMap);
     const car = !!(source.userData.carPaint && source.map);
     const recess = RECESS_ALLOWED && interior && (source.userData.interior === true || source.userData.interior.recess === true);
     let surface = '#if !PASS_DEPTH\nenvP = in.P;\n#endif\nvar puv = in.uv;\nvar reveal = 0.0;\nvar revealUV = in.uv;\n' + (recess ? RECESS_WGSL : '') + (interior ? 'var roomOpen = 0.0;\n' : '') + (car ? 'var carTex = vec3f(0.5);\n' : '');
@@ -1459,7 +1506,15 @@ export class ComplexRenderer {
       const sample = car && key === 'map' ? `textureSampleLevel(${key}, smpLinearClamp, uv, 0.0)` : `textureSample(${key}, ${sampler}, uv)`;
       surface += `{ let uv = puv * mat.uv${key}.xy + mat.uv${key}.zw; let texel = ${sample}; ${statement} }\n`;
     }
-    if (source.normalMap) {
+    if (source.normalMap && bld) {
+      // (the packed texture's roughness and metalness kept; its relief left out)
+      if (surfaceTex) {
+        textures.normalMap = surfaceTex;
+        const t = source.normalMap;
+        extra.uvNormal = ['vec4f', [t.repeat.x, t.repeat.y, t.offset.x, t.offset.y]];
+        surface += `{ let packed = textureSample(normalMap, smpAnisoRepeat, puv * mat.uvNormal.xy + mat.uvNormal.zw); s.roughness *= packed.z;${source.metalnessMap === source.roughnessMap ? ' s.metalness *= packed.w;' : ''} }\n`;
+      }
+    } else if (source.normalMap) {
       textures.normalMap = surfaceTex ?? this.texture(source.normalMap);
       const t = source.normalMap;
       extra.uvNormal = ['vec4f', [t.repeat.x, t.repeat.y, t.offset.x, t.offset.y]];
@@ -1533,15 +1588,15 @@ export class ComplexRenderer {
       }\n`;
     }
     if (DETAIL_ALLOWED && source.userData.groundDetail) surface += (source.userData.naturalGround ? GROUND_DETAIL.replace('vec3f(0.95, 1.12, 0.62)','vec3f(0.8, 1.2, 0.8)').replace('dry * grass * 0.7 * mid','dry * grass * 0.2 * mid') : GROUND_DETAIL) + '\n';
-    const scan = DETAIL_ALLOWED && details?.[source.userData.detail];
+    const scan = !bld && DETAIL_ALLOWED && details?.[source.userData.detail];
     if (scan) {
       textures.detailMap = scan.tex;
       const [albedo, relief] = DETAIL_LOOK[source.userData.detail] ?? [0.5, 0.4];
       // (not on the clear glass of the windows)
       surface += (interior ? DETAIL_WGSL(scan.metres, albedo, relief, scan.avgRough).replace('let dNear = (', 'let dNear = (1.0 - roomOpen) * (') : DETAIL_WGSL(scan.metres, albedo, relief, scan.avgRough)) + '\n';
     }
-    if (source.userData.roofDetail) surface += ROOF_DETAIL + '\n';
-    if (interior || source.userData.weathered) surface += WALL_WEATHER + '\n';
+    if (source.userData.roofDetail && !bld) surface += ROOF_DETAIL + '\n';
+    if (!bld && (interior || source.userData.weathered)) surface += WALL_WEATHER + '\n';
     // Leaves let light through: a little transmitted sun on the shaded side.
     if (source.userData.foliage) extra.atlasGrid = ['vec4f', [Number(source.userData.atlasCells ?? 8), Number(source.userData.atlasRows ?? source.userData.atlasCells ?? 8), 0, 0]];
     if (source.userData.foliage) surface += `s.translucency = s.albedo * 0.32;
@@ -1590,7 +1645,7 @@ export class ComplexRenderer {
         let texel = in.uv * vec2f(textureDimensions(map));
         let mip = max(0.0, log2(max(length(dpdx(texel)), length(dpdy(texel)))));
         s.alpha *= 1.0 + min(mip, 4.0) * 0.28; }`;
-    if (source.userData.contextBuilding) surface += WALL_WEATHER + 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.245, 0.255); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9;\n' + ROOF_DETAIL + ' }';
+    if (source.userData.contextBuilding) surface += (bld ? '' : WALL_WEATHER) + 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.245, 0.255); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9;\n' + (bld ? '' : ROOF_DETAIL) + ' }';
     if(constructed)surface+='} else '+BUILDING_APPEARANCE_WGSL+'\n';
     // Weather: rain darkens what faces up and makes it glossy (puddles where the ground
     // dips in the noise); snow settles on it, patchy on slopes. Twin of patchMaterial.
@@ -1612,10 +1667,10 @@ export class ComplexRenderer {
     }`;
     // Contact darkening and physical glass response (no procedural grain: it aliases).
     surface += `s.roughness = clamp(s.roughness, 0.12, 1.0);
-      s.clearcoat = ${source.clearcoat ? '0.16' : '0.0'}; s.clearcoatRoughness = 0.22;`;
+      s.clearcoat = ${source.clearcoat && !bld ? '0.16' : '0.0'}; s.clearcoatRoughness = 0.22;`;
     if (car) surface += CAR_PAINT;
     if (source.userData.carModel) surface += CAR_MODEL;
-    const mat = new Material({ name: 'complex ' + source.id, color: source.color, roughness: source.roughness ?? 0.8,
+    const mat = new Material({ name: (bld ? 'complex lite ' : 'complex ') + source.id, color: source.color, roughness: source.roughness ?? 0.8,
       metalness: source.metalness ?? 0, vertexColors: source.vertexColors,
       side: source.side === 2 ? 'double' : source.side === 1 ? 'back' : 'front',
       alphaTest: source.alphaTest || 0, transparent: source.transparent, opacity: source.opacity,
@@ -1638,10 +1693,11 @@ export class ComplexRenderer {
         let past = select(pastNear, (max(fq.x, fq.y) - 1.0) * 0.5, mat.farT.y > 0.5);` : `
         let past = pastNear;`}
         r.color = vec4f(mix(r.color.rgb, frame.horizonColor * 0.92, smoothstep(${source.userData.naturalGround?'1.0, 3.0':'-0.05, 0.9'}, past)), r.color.a);` : ''}`,
-      uniforms: { haze: ['f32', 0.0005], hazeScale: ['f32', source.userData.hazeScale ?? 1], ...extra }, defines: { CLEARCOAT: source.clearcoat || car || source.userData.carModel ? 1 : 0, FOLIAGE: source.userData.leafCluster ? 2 : source.userData.foliage ? 1 : 0 },
+      uniforms: { haze: ['f32', 0.0005], hazeScale: ['f32', source.userData.hazeScale ?? 1], ...extra }, defines: { CLEARCOAT: (source.clearcoat && !bld) || car || source.userData.carModel ? 1 : 0, FOLIAGE: source.userData.leafCluster ? 2 : source.userData.foliage ? 1 : 0 },
       userData: { foliage: !!(source.userData.foliage || source.userData.leafCluster || source.userData.volumeFoliage) },
     });
-    this.materials.set(source, mat);
+    if (bld) mat.lite = true;
+    else this.materials.set(source, mat);
     return mat;
   }
   /** (checks) why a mesh is not drawn yet */
@@ -1908,6 +1964,8 @@ export class ComplexRenderer {
       if (now - since < 20000 && !gone) continue;
       this.renderer.forgetMaterial(mat);
       mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); unusedAt.delete(src);
+      const lite = this.liteMaterials.get(src);
+      if (lite) { this.renderer.forgetMaterial(lite); lite.dispose(); lite.uniformBlock.buffer?.destroy(); this.liteMaterials.delete(src); }
       if (!gone) dropped = true;
     }
     this.forgetSoon?.clear();
@@ -1983,7 +2041,7 @@ export class ComplexRenderer {
     this.bloomStrength = (look.bloom ?? 0.2) * 0.5;
     BloomUniforms.set('threshold', Math.max(0.6, (look.bloomAt ?? 4) * 0.35));
     BloomUniforms.set('exposure', f.exposure.value);
-    for (const [src, mat] of this.materials) {
+    for (const mats of [this.materials, this.liteMaterials]) for (const [src, mat] of mats) {
       mat.emissive.copy(src.emissive ?? { r: 0, g: 0, b: 0 }).multiplyScalar(src.emissiveIntensity ?? 0);
       mat.set('haze', (source.fog?.density ?? 0.0005) * 0.5);
       // These per-material values are set above and stay unchanged across this
@@ -2003,6 +2061,7 @@ export class ComplexRenderer {
     this.renderer.pipelineGapMs = this.shown ? 5 : 0;
     GPU.deferCompiles = !this.shown;
     this.renderer.starved = false;
+    if (this.flightLiteWarm || this.flightLiteShown) this.applyFlightLite();
     const timer = this.timer;
     timer.begin();
     // (the drone: its view always moving, every caster is drawn again at each refit — the far
@@ -2145,6 +2204,8 @@ export class ComplexRenderer {
     this.context.unconfigure();
     this.canvas.remove();
     for (const mat of this.materials.values()) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); }
+    for (const mat of this.liteMaterials.values()) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); }
+    this.liteMaterials.clear();
     for (const mat of this.retired ?? []) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); }
     this.retired = [];
     for (const tex of this.textures.values()) if (!this.sharedTextures?.has(tex)) tex.destroy();
