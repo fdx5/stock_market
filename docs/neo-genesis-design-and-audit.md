@@ -117,13 +117,22 @@ preview. The public URLs, metadata handling and backend jobs remain as before.
   follows the track tempo/playback clock; it does not claim live audio analysis.
   No autoplay is introduced. Native solar-page music is hidden in NEO to prevent
   concurrent playback. Reduced motion/Minimal FX keeps the meter static.
-* Frame lights add a colored blade, white core, bright head and a wider illuminated
-  section of the neighboring rule. Motion follows the panel perimeter; the user
+* Frame lights trace only the border sides that already exist, aligned to their
+  actual position. They pulse slowly from completely off to lit and back off in
+  12–18 seconds. Peak opacity is 1 with a 35% white mix for a more visible neon
+  highlight; the stroke stays 1px. There are no travelling strokes, heads, tails
+  or added box edges.
+  The user
   can toggle it in Display settings. Only visible frames animate. Reduced motion,
   Minimal FX and immersive 3D routes disable these overlays. Render resolution and
   data/chart calculations are unchanged. SVG decorations ignore pointer input.
 * The page-local finder now uses a bounded SVG magnifier and explicit flex
   alignment, correcting the old font glyph's left overhang.
+* Phone investor cards explicitly reset the old horizontal carousel's auto-flow
+  and implicit column sizing before applying the two-column grid. This prevents
+  the first cards collapsing to 24px and later cards overflowing horizontally.
+  Holdings and footers remain bounded inside each card. Showcase and catalogue
+  cards are verified in portrait at 360/390/430px on both browser engines.
 
 ## Verification record
 
@@ -140,7 +149,8 @@ preview. The public URLs, metadata handling and backend jobs remain as before.
 * A separate actual YouTube iframe playback check in muted Chrome confirmed the
   player clock advanced from 4.70 to 6.90 seconds. Provider availability remains
   external; fixture results alone are not presented as actual audio playback.
-* Frame tests in Chrome and Windows WebKit verify changing stroke offsets, on/off,
+* Frame tests in Chrome and Windows WebKit verify changing opacity, absence of
+  travelling strokes, on/off,
   portal cleanup/navigation, reduced motion, asset-grid preservation and magnifier
   containment. A production-build Chrome sweep covered 20 core route/width cases
   without application errors or overflow before the final beam addition.
@@ -154,6 +164,10 @@ They showed faster first content for the new home, but stock-page CLS increased
 and entry CSS/JS grew. These are not final performance improvement claims. That
 headless environment sampled near 32 FPS for both old and new designs; a universal
 50/60 FPS target, real device performance and actual Mac/iOS flight are not claimed.
+The final pulse build was also sampled in muted headless Chrome at 1440x1000,
+DPR 1: 180 frames, 32.05 average FPS, 31.99 minimum one-second FPS, p95 31.6ms,
+p99 31.8ms, maximum 80.6ms. This remains below 50 FPS in that environment;
+no rendering resolution was reduced and no universal performance pass is claimed.
 Release receipts and final production checks belong in local `qa/`, avoiding a
 documentation-only second server rebuild.
 

@@ -174,20 +174,16 @@ html[data-design="neo"][data-fx="minimal"] .ng-audio-toolbar .d2-bgm-title.is-ov
 @media print{.ng-top-rail{display:none}}
 html[data-design="neo"] .ng-legacy-bgm{display:none!important}
 
-/* A colored blade with a white core travels along the existing frame perimeter. */
+/* One aligned outline with a slow, natural change in luminosity. No light travels. */
 .ng-frame-layer{position:absolute;inset:0;display:block;width:100%;height:100%;overflow:hidden;pointer-events:none!important;z-index:3;color:var(--workspace-accent,var(--accent-neon));contain:layout style}
-.ng-frame-layer rect{width:calc(100% - 2px);height:calc(100% - 2px);fill:none;stroke:currentColor;stroke-linecap:round;stroke-dasharray:12 88;animation:ng-frame-travel var(--beam-duration,13s) linear var(--beam-delay,0s) infinite;animation-play-state:paused}
-.ng-frame-layer.is-visible rect{animation-play-state:running}
-.ng-frame-halo{stroke-width:10;opacity:.17}.ng-frame-color{stroke-width:3.2;opacity:.95}.ng-frame-layer .ng-frame-core{--beam-offset:-3.5px;stroke:#fff3ce;stroke-width:1.1;stroke-dasharray:5 95;opacity:1}
-.ng-frame-layer .ng-frame-head{--beam-offset:-11.4px;stroke:#fff8e6;stroke-width:4.5;stroke-dasharray:.7 99.3;opacity:1;filter:drop-shadow(0 0 3px currentColor)}
-.ng-frame-layer .ng-frame-nearline{--beam-offset:8px;stroke-width:1.5;stroke-dasharray:28 72;opacity:.6;filter:drop-shadow(0 0 4px currentColor)}
+.ng-frame-layer .ng-frame-glow{fill:none;stroke:color-mix(in srgb,currentColor 65%,white);stroke-width:1;stroke-dasharray:none;filter:drop-shadow(0 0 3px currentColor);animation:ng-frame-breathe var(--glow-duration,15s) ease-in-out var(--glow-delay,0s) infinite;animation-play-state:paused}
+.ng-frame-layer.is-visible .ng-frame-glow{animation-play-state:running}
 .ng-header>.ng-frame-layer,.ng-top-rail>.ng-frame-layer{color:var(--mustard)}
 .ng-sidebar>.ng-frame-layer{color:var(--accent-neon)}
 .ng-region-board>.ng-frame-layer,.ng-sector-digest>.ng-frame-layer{color:var(--vermilion)}
 .ng-asset-belt>.ng-frame-layer{color:var(--mustard)}
-@keyframes ng-frame-travel{from{stroke-dashoffset:var(--beam-offset,0px)}to{stroke-dashoffset:calc(var(--beam-offset,0px) - 100px)}}
-html[data-design="neo"][data-fx="full"] .ng-frame-halo{stroke-width:12;opacity:.16}
-html[data-design="neo"][data-fx="full"] .ng-frame-color{filter:drop-shadow(0 0 3px currentColor)}
+@keyframes ng-frame-breathe{0%,18%,90%,100%{opacity:0}52%{opacity:1}78%{opacity:.24}}
+html[data-design="neo"][data-fx="full"] .ng-frame-glow{filter:drop-shadow(0 0 4px currentColor);stroke-width:1}
 html[data-frame-light="off"] .ng-frame-layer,html[data-fx="minimal"] .ng-frame-layer{display:none}
 .ng-beam-toggle{width:100%;display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid #80658c;background:#bf85ff0b;color:var(--text-primary);border-radius:2px;text-align:left;cursor:pointer;margin-bottom:15px}
 .ng-beam-toggle>.ng-icon{color:var(--mustard)}.ng-beam-toggle>span{display:grid;gap:4px;font:600 12px var(--f-sans)}.ng-beam-toggle small{font:10px/1.6 var(--f-sans);color:var(--text-muted)}.ng-beam-toggle>b{margin-left:auto;padding:5px 8px;border:1px solid #80658c;color:var(--text-muted);font:10px var(--f-type)}.ng-beam-toggle[aria-pressed=true]>b{color:#1a141c;background:var(--mustard);border-color:var(--mustard)}
