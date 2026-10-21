@@ -264,3 +264,23 @@ and verified a deliberately failed preview recovered through the full image. At 
 1440x1000 viewport, DPR 1, the orbit drawing buffer stayed 1232x833. Post-drag samples
 of 180 frames had minimum one-second rates near 59.98 FPS; these are local orbit
 checks, not a universal-device or actual Mac/drone-flight claim.
+
+### Synapse spherical topology — 2026-10-22
+
+The flattened side view came from compressed Y/Z coordinates in service anchors,
+satellite placement and decorative ellipses. Six service anchors now occupy the
+six directions of an octahedron; other inventory anchors use a Fibonacci sphere.
+Satellites use isotropic spherical offsets. Three circular, orthogonal outer rings
+wrap the volume, and the home camera fits its bounding sphere using the limiting
+horizontal/vertical field of view. Camera distance limits accommodate portrait
+screens. Inventory identities, measured traffic and rendering quality are unchanged.
+
+Model checks cover stable positions, finite coordinates, balanced XYZ spans,
+24 viewing azimuths and spherical bounds alongside existing graph/signal checks.
+The production frontend build passed. Isolated Chrome browser fixtures verified
+front/side rotation, API-node selection and a 390px mobile viewport without writes
+to stored data. At 1600x1200, DPR 1, balanced quality, the canvas CSS and drawing
+buffer both remained 1228x1056 (427 nodes / 5949 links). Sustained manual rotation
+recorded minimum one-second 59.96 FPS, p95 17.0ms, p99 17.4ms and maximum 28.1ms.
+This steady-rotation fixture does not establish a universal FPS floor or actual
+Mac performance; startup and different inventories/devices can differ.

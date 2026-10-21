@@ -29,3 +29,24 @@ assert.equal(statsFor(model.nodes[model.byId.get('unscoped-http')],live).count,1
 assert.deepEqual(snapshotSignals(null),[],'No fabricated traffic during loading');
 assert.deepEqual(observedFlows(null),[]);
 console.log('Synapse model: route aggregation, graph integrity, causal HTTP mapping, unscoped calls, signal deduplication, weighted latency, empty state passed.');
+
+const services=['market','community','realestate','prediction','operations','support'];
+const sphereGraph={...graph,nodes:[node('gateway','gateway'),...services.map(id=>node(id,'service')),...Array.from({length:12},(_,i)=>node(`external-${i}`,'external'))],
+  endpoints:Array.from({length:600},(_,i)=>({path:`/api/sphere/${i}`,methods:['GET'],group:services[i%6],module:'app.quote',function:'quote',dependencies:[]})),modules:[],edges:[]};
+const sphere=buildSynapseGraph(sphereGraph),again=buildSynapseGraph(sphereGraph);
+assert.deepEqual(sphere.nodes.map(n=>n.position),again.nodes.map(n=>n.position),'Inventory refreshes retain stable positions');
+assert.ok(sphere.nodes.every(n=>n.position.every(Number.isFinite)));
+const clouds=[sphere.domains,sphere.nodes.filter(n=>n.kind==='api')];
+for(const cloud of clouds){
+  const spans=[0,1,2].map(axis=>Math.max(...cloud.map(n=>n.position[axis]))-Math.min(...cloud.map(n=>n.position[axis])));
+  assert.ok(Math.min(...spans)/Math.max(...spans)>.75,`Depth must match the other axes: ${spans}`);
+  // Sweep every viewing azimuth: the topology must not collapse to a narrow side view.
+  for(let i=0;i<24;i++){
+    const angle=i/24*Math.PI*2;
+    const horizontal=cloud.map(n=>n.position[0]*Math.cos(angle)+n.position[2]*Math.sin(angle));
+    const width=Math.max(...horizontal)-Math.min(...horizontal);
+    assert.ok(width/Math.max(...spans)>.7,`Thin side view at azimuth ${i}: ${width}`);
+  }
+}
+assert.ok(sphere.nodes.every(n=>Math.hypot(...n.position)<=405),'All inventory items stay inside the spherical field');
+console.log('Synapse sphere: stable inventory positions, XYZ depth, 24 side-view azimuths and field bounds passed.');

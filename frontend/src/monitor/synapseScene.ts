@@ -24,7 +24,7 @@ const packetVertex = `attribute vec3 p0;attribute vec3 p1;attribute vec3 p2;attr
 export class SynapseScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(47, 1, 1, 3000);
+  private camera = new THREE.PerspectiveCamera(47, 1, 1, 6000);
   private controls: OrbitControls;
   private geometries: THREE.BufferGeometry[] = [];
   private materials: THREE.Material[] = [];
@@ -73,7 +73,7 @@ export class SynapseScene {
     this.camera.position.set(0, -90, 780);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true; this.controls.dampingFactor = .065;
-    this.controls.minDistance = 65; this.controls.maxDistance = 2600;
+    this.controls.minDistance = 65; this.controls.maxDistance = 5000;
     this.controls.rotateSpeed = .45; this.controls.zoomSpeed = .75;
     this.controls.autoRotateSpeed=.65;
     this.controls.addEventListener("start", this.cancelFocus);
@@ -178,9 +178,9 @@ export class SynapseScene {
     this.scene.add(new THREE.Points(starGeo, starMat)); this.geometries.push(starGeo); this.materials.push(starMat);
     for (const node of this.graph.domains) {
       const points: THREE.Vector3[] = [];
-      for (let i = 0; i <= 120; i++) { const a = i / 120 * Math.PI*2; points.push(new THREE.Vector3(Math.cos(a)*90, Math.sin(a)*62, Math.sin(a*2)*18)); }
+      for (let i = 0; i <= 120; i++) { const a = i / 120 * Math.PI*2; points.push(new THREE.Vector3(Math.cos(a)*90, Math.sin(a)*90, 0)); }
       const geo = new THREE.BufferGeometry().setFromPoints(points), mat = new THREE.LineBasicMaterial({ color: node.color, transparent: true, opacity: .10, depthWrite: false });
-      const ring = new THREE.Line(geo, mat); ring.position.set(...node.position); this.scene.add(ring); this.geometries.push(geo); this.materials.push(mat);
+      const ring = new THREE.Line(geo, mat); ring.position.set(...node.position); ring.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),new THREE.Vector3(...node.position).normalize()); this.scene.add(ring); this.geometries.push(geo); this.materials.push(mat);
     }
     for (let i = 0; i < 3; i++) {
       const geo = new THREE.TorusGeometry(22 + i*6, .22, 5, 120), mat = new THREE.MeshBasicMaterial({ color: i === 1 ? "#b596ff" : "#79e4ee", transparent: true, opacity: .48, blending: THREE.AdditiveBlending });
@@ -195,15 +195,15 @@ export class SynapseScene {
       `uniform float uTime;uniform float uMotion;varying vec3 n;varying vec3 eye;void main(){float rim=pow(1.-abs(dot(normalize(n),normalize(eye))),2.3);float wave=.6+.4*sin(n.y*22.+uTime*uMotion*1.8);vec3 c=mix(vec3(.18,.55,1.),vec3(.35,1.,.88),n.y*.5+.5);gl_FragColor=vec4(c,rim*(.4+wave*.32));}`);
     this.core.add(new THREE.Mesh(membraneGeo,membrane));this.geometries.push(membraneGeo);
     for(let ring=0;ring<3;ring++){
-      const points:THREE.Vector3[]=[],ticks:THREE.Vector3[]=[];const radius=365+ring*20;
-      for(let i=0;i<=240;i++){const a=i/240*Math.PI*2;points.push(new THREE.Vector3(Math.cos(a)*radius,Math.sin(a)*radius*.68,0));}
-      for(let i=0;i<120;i++){const a=i/120*Math.PI*2,len=i%10===0?8:3;ticks.push(new THREE.Vector3(Math.cos(a)*radius,Math.sin(a)*radius*.68,0),new THREE.Vector3(Math.cos(a)*(radius+len),Math.sin(a)*(radius+len)*.68,0));}
+      const points:THREE.Vector3[]=[],ticks:THREE.Vector3[]=[];const radius=397;
+      for(let i=0;i<=240;i++){const a=i/240*Math.PI*2;points.push(new THREE.Vector3(Math.cos(a)*radius,Math.sin(a)*radius,0));}
+      for(let i=0;i<120;i++){const a=i/120*Math.PI*2,len=i%10===0?8:3;ticks.push(new THREE.Vector3(Math.cos(a)*radius,Math.sin(a)*radius,0),new THREE.Vector3(Math.cos(a)*(radius+len),Math.sin(a)*(radius+len),0));}
       const ringGeo=new THREE.BufferGeometry().setFromPoints(points),tickGeo=new THREE.BufferGeometry().setFromPoints(ticks);
       const ringMat=new THREE.LineBasicMaterial({color:ring===1?"#9e85de":"#539fb5",transparent:true,opacity:ring===0?.16:.07,depthWrite:false});
-      const group=new THREE.Group();group.add(new THREE.Line(ringGeo,ringMat),new THREE.LineSegments(tickGeo,ringMat));group.rotation.set(ring*.42,.2+ring*.2,ring*.32);this.celestialFrame.add(group);
+      const group=new THREE.Group();group.add(new THREE.Line(ringGeo,ringMat),new THREE.LineSegments(tickGeo,ringMat));group.rotation.set(ring===1?Math.PI/2:0,ring===2?Math.PI/2:0,0);this.celestialFrame.add(group);
       this.geometries.push(ringGeo,tickGeo);this.materials.push(ringMat);
     }
-    this.scene.add(this.celestialFrame);
+    this.celestialFrame.rotation.set(.12,.2,.1);this.scene.add(this.celestialFrame);
   }
   applyOptions(options: SceneOptions) {
     const prevQuality = this.options.quality; this.options = options;
@@ -269,7 +269,14 @@ export class SynapseScene {
   focus(id: string) { const at = this.graph.byId.get(id); if (at !== undefined) this.destination = new THREE.Vector3(...this.graph.nodes[at].position); }
   captureView() { return {position:this.camera.position.toArray(),target:this.controls.target.toArray()}; }
   restoreView(view: {position:number[];target:number[]}) { this.camera.position.fromArray(view.position);this.controls.target.fromArray(view.target);this.controls.update(); }
-  home() { this.destination = null; this.controls.target.set(0,0,0); this.camera.position.set(0,-100,Math.max(660,370/(this.camera.aspect*Math.tan(THREE.MathUtils.degToRad(this.camera.fov/2))))); this.controls.update(); }
+  home() {
+    this.destination = null; this.controls.target.set(0,0,0);
+    const vertical = THREE.MathUtils.degToRad(this.camera.fov/2);
+    const halfFov = Math.min(vertical,Math.atan(Math.tan(vertical)*this.camera.aspect));
+    const radius = Math.max(405,...this.graph.nodes.map(node=>Math.hypot(...node.position))) * 1.07;
+    this.camera.position.set(.45,-.2,1).normalize().multiplyScalar(radius/Math.sin(halfFov));
+    this.controls.update();
+  }
   zoom(factor: number) { this.camera.position.sub(this.controls.target).multiplyScalar(factor).add(this.controls.target); this.controls.update(); }
   private resize() {
     const w = this.host.clientWidth, h = this.host.clientHeight; if (!w || !h) return;

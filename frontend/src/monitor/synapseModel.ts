@@ -22,6 +22,19 @@ export const requestLink = (path: string) => `request:${path}`;
 export const httpLink = (route: string, host: string) => `http:${route}:${host}`;
 export function hash(s: string): number { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); h = Math.imul(h ^ h >>> 16, 0x85ebca6b); h = Math.imul(h ^ h >>> 13, 0xc2b2ae35); return ((h ^ h >>> 16) >>> 0) / 4294967296; }
 
+/** Equal spacing on a sphere keeps the topology's depth when viewed from the side. */
+function spherePosition(index: number, total: number, radius: number): [number, number, number] {
+  // The six service domains form an octahedron, with equal reach on all three axes.
+  if (total === 6) {
+    const axes: [number, number, number][] = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+    return axes[index].map(value => value * radius) as [number, number, number];
+  }
+  const y = 1 - 2 * (index + .5) / Math.max(1, total);
+  const ring = Math.sqrt(Math.max(0, 1 - y * y));
+  const angle = index * Math.PI * (3 - Math.sqrt(5)) + .18;
+  return [Math.cos(angle) * ring * radius, y * radius, Math.sin(angle) * ring * radius];
+}
+
 /** Stable, bounded geometry. Every vertex is an inventory item; decorative stars are
  * rendered separately and never counted as systems or measured connections. */
 export function buildSynapseGraph(graph: AtlasArchitecture, flows: ObservedFlow[] = []): SynapseGraph {
@@ -37,22 +50,21 @@ export function buildSynapseGraph(graph: AtlasArchitecture, flows: ObservedFlow[
   const domains = graph.nodes.filter(n => n.kind === "service");
   const centers = new Map<string, [number, number, number]>();
   domains.forEach((n, i) => {
-    const angle = i / Math.max(1, domains.length) * Math.PI * 2 + .18;
-    centers.set(n.id, [Math.cos(angle) * 185, Math.sin(angle) * 120, Math.sin(angle * 2) * 55]);
+    centers.set(n.id, spherePosition(i, domains.length, 185));
   });
   const other = graph.nodes.filter(n => n.kind !== "service" && n.id !== "gateway");
   graph.nodes.forEach(n => {
-    const i = other.indexOf(n), a = i / Math.max(1, other.length) * Math.PI * 2 + .3;
-    const position: [number, number, number] = centers.get(n.id) || (n.id === "gateway" ? [0, 0, 0] : [Math.cos(a) * 320, Math.sin(a) * 220, Math.sin(a * 3) * 65 - 25]);
+    const position: [number, number, number] = centers.get(n.id) || (n.id === "gateway" ? [0, 0, 0] : spherePosition(other.indexOf(n), other.length, 320));
     add({ id: n.id, label: n.label, detail: n.description, kind: n.kind === "gateway" ? "core" : n.kind === "external" ? "host" : n.kind,
       group: n.id, color: DOMAIN_COLORS[n.id] || n.color, position });
   });
   if(flows.some(f=>!f.route))add({id:"unscoped-http",label:"요청 문맥 없는 HTTP",detail:"요청 경로가 제공되지 않은 HTTP 표본의 집계점. 배치 여부 또는 API 인과관계를 추정하지 않습니다.",kind:"core",group:"operations",color:"#d3a8ea",position:[-90,-215,-45]});
   const satellite = (id: string, group: string, tier: number): [number, number, number] => {
     const center = centers.get(group) || nodes[byId.get(group) ?? 0]?.position || [0, 0, 0];
-    const a = hash(id) * Math.PI * 2, b = hash(id + "elevation") * 2 - 1;
+    const a = hash(id) * Math.PI * 2, y = hash(id + "elevation") * 2 - 1;
+    const ring = Math.sqrt(1 - y * y);
     const r = tier + hash(id + "radius") * 44;
-    return [center[0] + Math.cos(a) * r, center[1] + Math.sin(a) * r * .67, center[2] + b * r * .9];
+    return [center[0] + Math.cos(a) * ring * r, center[1] + y * r, center[2] + Math.sin(a) * ring * r];
   };
   graph.endpoints.forEach(e => add({ id: apiId(e.path), label: e.path, detail: `${e.methods.join(" / ")} · ${e.function} · ${e.module}`,
     kind: "api", group: e.group, parent: e.group, path: e.path, color: DOMAIN_COLORS[e.group] || "#8eabbf", position: satellite(e.path, e.group, 25) }));
