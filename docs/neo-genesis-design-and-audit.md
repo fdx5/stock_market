@@ -125,16 +125,22 @@ preview. The public URLs, metadata handling and backend jobs remain as before.
   boundary instead carries a yellow electrical packet from left to right in
   eight seconds, with a small crackling tip and a thin fading trail. The header
   is excluded from the general frame glow to avoid overlapping effects.
-  The refined discharge occupies 84x19px with three irregular arc shapes that
-  crossfade, fine amber branches, two tiny motes and a graduated warm trail.
+  The refined discharge occupies 84x19px with ten irregular arc shapes that
+  morph continuously, fine amber branches, two tiny motes and a graduated warm trail.
   A pale filament has a soft local bloom; the underlying line remains 1px.
-  SVG/CSS animations use no JavaScript frame loop. Chrome and Windows WebKit
-  checks cover three distinct rendered shapes, left-to-right movement, boundary
+  All ten cores are normalized to 43 points; four branches have matching point
+  counts. Native SVG spline interpolation generates intermediate geometry on the
+  browser's rendering clock, rather than replacing completed shapes. SVG/CSS
+  animations use no JavaScript frame loop. Shape cycling takes 4.7s,
+  separate from the 8s travel; fine branches brighten on a third 2.17s cycle.
+  Chrome and Windows WebKit checks cover ten distinct rendered shapes, left-to-right movement, boundary
   alignment, pointer pass-through and reduced motion at 320/390/768/1440px.
   The user
   can toggle it in Display settings. Only visible frames animate. Reduced motion,
   Minimal FX and immersive 3D routes disable these overlays. Render resolution and
   data/chart calculations are unchanged. SVG decorations ignore pointer input.
+* Current online counts use a separate bold, bright green number and matching
+  presence icon/dot; cumulative visit totals retain their secondary styling.
 * The page-local finder now uses a bounded SVG magnifier and explicit flex
   alignment, correcting the old font glyph's left overhang.
 * Phone investor cards explicitly reset the old horizontal carousel's auto-flow
@@ -191,9 +197,9 @@ The final pulse build was also sampled in muted headless Chrome at 1440x1000,
 DPR 1: 180 frames, 32.05 average FPS, 31.99 minimum one-second FPS, p95 31.6ms,
 p99 31.8ms, maximum 80.6ms. This remains below 50 FPS in that environment;
 no rendering resolution was reduced and no universal performance pass is claimed.
-The October 22 electrical refinement was sampled separately in muted headless
-Chrome at 1440x1000, DPR 1: 180 frames, 60.30 average FPS, 59.97 minimum
-one-second FPS, p95 16.8ms, p99 16.9ms and maximum 20.0ms. This is a local header
+The October 22 ten-shape morph was sampled separately in muted headless
+Chrome at 1440x1000, DPR 1: 180 frames, 60.08 average FPS, 59.98 minimum
+one-second FPS, p95/p99 16.8ms and maximum 19.7ms. This is a local header
 effect check, not a claim about 3D flight or every device.
 Release receipts and final production checks belong in local `qa/`, avoiding a
 documentation-only second server rebuild.

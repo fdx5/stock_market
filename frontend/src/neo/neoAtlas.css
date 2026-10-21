@@ -2,7 +2,9 @@
 html:root[data-design="neo"][data-theme]{--bg-root:#100d13;--bg-elevated:#19151d;--bg-panel:#1e1922;--bg-glass:#211a25f5;--text-primary:#f3ecdc;--text-secondary:#c3b5c5;--text-muted:#a99aaa;--line-soft:#bca0c12e;--line-active:#bf85ff99;--accent-neon:#bf85ff;--mustard:#d6b54e;--vermilion:#f27560;--mint:#a8bca0;--gridline:#3d3042;--baseline:#77637c;--brass:var(--mustard);--radius-sm:2px;--radius-md:3px;--radius-lg:4px;--radius-xl:4px;--glow-soft:none;--glow-focus:0 0 0 1px #bf85ff99;--focus-ring:0 0 0 3px #bf85ff55;--p2:#29212e;--live:#a8bca0;--positive:#a8bca0;--warning:#d6b54e;--warn:#d6b54e}
 .ng-shell{--workspace-accent:var(--accent-neon);background:var(--bg-root)}
 .ng-shell{--status-good:var(--mint);--series-aqua:var(--mint);--status-warning:var(--mustard)}
-.ng-audience-slot .visitor-badge-dot{background:var(--mint);box-shadow:none}.ng-audience-slot :is(.visitor-badge-person,.visitor-badge-eye){color:var(--text-secondary)}
+.ng-audience-slot .visitor-badge-dot{background:#4ae985;box-shadow:0 0 4px #4ae98559}.ng-audience-slot .visitor-badge-person{color:#5ff296}.ng-audience-slot .visitor-badge-eye{color:var(--text-secondary)}
+html[data-design="neo"] .visitor-badge-current{color:#5ff296;font-weight:800;font-variant-numeric:tabular-nums;text-shadow:0 0 6px #4ae98524}
+.ng-audience-slot .visitor-badge-current{font-size:12px;line-height:1.2}
 .ng-shell[data-workspace="kr"]{--workspace-accent:var(--mustard)}
 .ng-shell[data-workspace="us"]{--workspace-accent:var(--vermilion)}
 .ng-header{background:#141017;border-bottom:1px solid #59405f;box-shadow:none}
@@ -182,16 +184,11 @@ html[data-design="neo"] .ng-legacy-bgm{display:none!important}
 .ng-header-current>i:after{content:"";position:absolute;right:12px;top:6px;width:30px;height:7px;background:radial-gradient(ellipse,#fff8d475,#ffd34f24 42%,transparent 74%);animation:ng-current-lustre 3.4s ease-in-out infinite}
 .ng-current-discharge{position:absolute;right:0;top:0;display:block;width:84px;height:19px;overflow:visible;filter:drop-shadow(0 0 1.8px #ffd052)}
 .ng-current-filament{fill:none;stroke:url(#ng-current-filament);stroke-width:1.05;stroke-linejoin:round;stroke-linecap:round}
-.ng-current-forks{fill:none;stroke:#eabf57;stroke-width:.65;stroke-linecap:round;opacity:.62}
-.ng-current-arc{animation:ng-current-arc-a 3.4s linear infinite}
-.ng-current-arc-1{animation-name:ng-current-arc-b;opacity:0}
-.ng-current-arc-2{animation-name:ng-current-arc-c;opacity:0}
+.ng-current-forks{fill:none;stroke:#eabf57;stroke-width:.65;stroke-linecap:round;opacity:.62;animation:ng-current-corona 2.17s ease-in-out infinite}
 .ng-current-mote{fill:#ffe7a0;opacity:0;animation:ng-current-mote 3.4s ease-out infinite;transform-box:fill-box;transform-origin:center}
 .ng-current-mote-b{animation-delay:-1.43s}
 @keyframes ng-header-current-run{from{transform:translateX(0)}to{transform:translateX(500%)}}
-@keyframes ng-current-arc-a{0%,27%,67%,100%{opacity:1}30%,64%{opacity:0}}
-@keyframes ng-current-arc-b{0%,27%,50%,100%{opacity:0}30%,47%{opacity:1}}
-@keyframes ng-current-arc-c{0%,47%,67%,100%{opacity:0}50%,64%{opacity:1}}
+@keyframes ng-current-corona{0%,100%{opacity:.42}36%{opacity:.85}63%{opacity:.56}}
 @keyframes ng-current-lustre{0%,100%{opacity:.45}29%,65%{opacity:.9}49%{opacity:.65}}
 @keyframes ng-current-mote{0%,25%,45%,100%{opacity:0;transform:translate(0,0)}30%{opacity:.8;transform:translate(-1px,0)}42%{opacity:0;transform:translate(-5px,-1.5px)}}
 html[data-frame-light="off"] .ng-header-current,html[data-fx="minimal"] .ng-header-current{display:none}

@@ -12,10 +12,10 @@ export default function VisitorBadge({ compact = false, counts }: { compact?: bo
     <span className={`visitor-badge${compact ? " visitor-badge--compact" : ""}`} aria-label={label} title={label}>
       <span className="visitor-badge-dot" />
       {compact && <span className="visitor-badge-person" aria-hidden="true">♟</span>}
-      {compact ? currentText : lang === "en" ? `${currentText} online` : `접속 ${currentText}명`}
+      <strong className="visitor-badge-current">{compact ? currentText : lang === "en" ? `${currentText} online` : `접속 ${currentText}명`}</strong>
       <span className="visitor-badge-sep">·</span>
       {compact && <span className="visitor-badge-eye" aria-hidden="true">◉</span>}
-      {compact ? totalText : lang === "en" ? `${totalText} visits` : `방문 ${totalText}명`}
+      <span className="visitor-badge-total">{compact ? totalText : lang === "en" ? `${totalText} visits` : `방문 ${totalText}명`}</span>
     </span>
   );
 }
