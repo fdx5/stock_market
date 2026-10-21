@@ -110,7 +110,7 @@ export default function Desk2Page() {
 
       <main className="d2-main">
         <section id="d2-front" className="ed-summary-section" aria-label={L("시장 요약", "Market overview")}>
-          <MarketOverview market="kr" items={marketItems} asOf={asOf} />
+          <MarketOverview market="kr" items={marketItems} asOf={asOf} generatedAt={snapshot.generatedAt} />
         </section>
         <InvestorShowcase id="d2-investors" />
         <VideoShowcase id="d2-videos" market="kr" />

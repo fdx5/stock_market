@@ -163,7 +163,7 @@ export default function WorldPage() {
       // a sector, so it is neither drawn nor named as leading or trailing the day.
       .filter((x) => x.sector && x.sector !== "Other")
       .sort((a, b) => b.cap - a.cap);
-    const byMove = sectors.filter((x) => x.n >= 3).sort((a, b) => b.move - a.move);
+    const byMove = sectors.filter((x) => x.n >= 3 && x.cap > 0).sort((a, b) => b.move - a.move);
     const tech = BIG_TECH.map((c) => all.find((i) => i.code === c)).filter((i): i is MarketMapItem => !!i);
     const techCap = tech.reduce((s, i) => s + capOf(i), 0);
     const techMove = techCap ? tech.reduce((s, i) => s + capOf(i) * i.change_pct, 0) / techCap : 0;
@@ -210,9 +210,9 @@ export default function WorldPage() {
 
       <main className="d2-main">
         <section id="w-front" className="ed-summary-section" aria-label={L("미국 시장 요약", "US market overview")}>
-          <MarketOverview market="us" items={all} asOf={asOf} leadingSector={pulse?.best ? secName(pulse.best.sector, lang) : undefined} bigTechMove={pulse?.techMove} bigTechShare={pulse?.techShare} />
+          <MarketOverview market="us" items={all} asOf={asOf} generatedAt={snap.generatedAt} session={session} leadingSector={pulse?.best ? secName(pulse.best.sector, lang) : undefined} bigTechMove={pulse?.techCap ? pulse.techMove : undefined} bigTechShare={pulse?.techShare || undefined} />
           <details className="ed-market-details" onToggle={event => setMarketDetailsOpen(event.currentTarget.open)}>
-            <summary>{L("섹터·빅테크 자세히", "Explore sectors and Big Tech")} <span>＋</span></summary>
+            <summary>{L("섹터·빅테크 자세히", "Explore sectors and Big Tech")} <span aria-hidden="true">{marketDetailsOpen ? "−" : "＋"}</span></summary>
             {marketDetailsOpen && <div className="ed-market-details-body">
               <h2>{L("섹터별 흐름", "Sector moves")}</h2><Sectors pulse={pulse} lensPct={lensPct} lensPrice={lensPrice} lang={lang} />
               <h2>{L("빅테크 7 보유 비중과 등락", "Big Tech seven: weight and move")}</h2><BigTech items={pulse?.tech ?? []} lensPct={lensPct} lensPrice={lensPrice} />
