@@ -10,6 +10,7 @@ import { setDesignMode, setFxLevel, useDesignMode, useFxLevel, setFrameLight, us
 import NeoIcon from "./NeoIcon";
 import NeoLogo from "./NeoLogo";
 import NeoHeaderClocks from "./NeoHeaderClocks";
+import NeoHeaderCurrent from "./NeoHeaderCurrent";
 import NeoFrameLights from "./NeoFrameLights";
 import { useBroadsheetFonts } from "../desk2/fonts";
 import DeskBgm from "../desk2/DeskBgm";
@@ -107,7 +108,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
       <button type="button" className="ng-search-trigger" onClick={event => open("search", event.currentTarget)} aria-label={L("종목 및 페이지 검색", "Search stocks and pages")}><NeoIcon name="search" /><span>{L("종목 · 코드 · 페이지 검색", "Search stocks, symbols, pages")}</span><kbd>⌘ K</kbd></button>
       <div className="ng-header-tools"><button type="button" className="ng-language" onClick={() => setLang(lang === "ko" ? "en" : "ko")} aria-label={L("영어로 전환", "Switch to Korean")}>{lang === "ko" ? "EN" : "KO"}</button><button type="button" onClick={event => open("settings", event.currentTarget)} aria-label={L("화면 설정", "Display settings")}><NeoIcon name="settings" /></button><button type="button" className="ng-menu-trigger" onClick={event => open("menu", event.currentTarget)} aria-label={L("전체 메뉴", "All destinations")}><NeoIcon name="menu" /></button></div>
       <NeoHeaderClocks />
-      {family !== "immersive" && <span className="ng-header-current" aria-hidden="true"><i /></span>}
+      {family !== "immersive" && <NeoHeaderCurrent />}
     </header>
     <div className="ng-top-rail"><NeoPulse /><div className="d2 ng-audio-toolbar"><DeskBgm variant="header" /></div></div>
     <aside className="ng-sidebar" aria-label={L("워크스페이스 탐색", "Workspace navigation")}>
