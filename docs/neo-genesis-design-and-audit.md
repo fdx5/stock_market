@@ -120,8 +120,14 @@ preview. The public URLs, metadata handling and backend jobs remain as before.
 * Frame lights trace only the border sides that already exist, aligned to their
   actual position. They pulse slowly from completely off to lit and back off in
   12–18 seconds. Peak opacity is 1 with a 35% white mix for a more visible neon
-  highlight; the stroke stays 1px. There are no travelling strokes, heads, tails
-  or added box edges.
+  highlight; the stroke stays 1px. These frames have no travelling strokes or
+  added box edges. At the user's later request, the single header/Market Pulse
+  boundary instead carries a yellow electrical packet from left to right in
+  eight seconds, with a small crackling tip and a thin fading trail. The header
+  is excluded from the general frame glow to avoid overlapping effects.
+  The enlarged spark is 64x17px with brighter branches; the underlying line
+  remains 1px. Chrome and Windows WebKit checks cover left-to-right movement,
+  boundary alignment, pointer pass-through and reduced motion at 390/1440px.
   The user
   can toggle it in Display settings. Only visible frames animate. Reduced motion,
   Minimal FX and immersive 3D routes disable these overlays. Render resolution and

@@ -175,6 +175,16 @@ html[data-design="neo"][data-fx="minimal"] .ng-audio-toolbar .d2-bgm-title.is-ov
 html[data-design="neo"] .ng-legacy-bgm{display:none!important}
 
 /* One aligned outline with a slow, natural change in luminosity. No light travels. */
+.ng-header{border-bottom-color:#d6b54e42}
+.ng-header-current{position:absolute;left:0;right:0;bottom:-9px;height:17px;overflow:hidden;pointer-events:none!important;z-index:4}
+.ng-header-current>i{position:absolute;top:0;bottom:0;left:-25%;width:25%;animation:ng-header-current-run 8s linear infinite;will-change:transform}
+.ng-header-current>i:before{content:"";position:absolute;left:0;right:0;top:8px;height:1px;background:linear-gradient(90deg,transparent,#bc90202b 15%,#e4b738 48%,#ffe66e 82%,#fff9c9 96%,transparent);box-shadow:0 0 5px #ffe56fe6}
+.ng-header-current>i:after{content:"";position:absolute;right:0;top:0;width:64px;height:17px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 17'%3E%3Cpath d='M0 8.5H10L15 5L21 12L28 2L34 15L40 5L45 10L50 8.5H64' fill='none' stroke='%23fff5b5' stroke-width='1.3'/%3E%3Cpath d='M21 12L17 15M28 2L34 4M40 5L43 1M45 10L49 14' fill='none' stroke='%23ffd548' stroke-width='.8'/%3E%3C/svg%3E") center/100% 100% no-repeat;filter:drop-shadow(0 0 3px #ffd548);animation:ng-header-current-crackle 2.4s steps(1,end) infinite}
+@keyframes ng-header-current-run{from{transform:translateX(0)}to{transform:translateX(500%)}}
+@keyframes ng-header-current-crackle{0%,35%,70%,100%{opacity:.85;transform:scaleY(.5)}14%,48%,82%{opacity:.45;transform:scaleY(.85)}18%,53%,86%{opacity:1;transform:scaleY(1)}}
+html[data-frame-light="off"] .ng-header-current,html[data-fx="minimal"] .ng-header-current{display:none}
+@media(prefers-reduced-motion:reduce){.ng-header-current{display:none!important}.ng-header-current>i,.ng-header-current>i:after{animation:none!important;will-change:auto}}
+@media print{.ng-header-current{display:none!important}}
 .ng-frame-layer{position:absolute;inset:0;display:block;width:100%;height:100%;overflow:hidden;pointer-events:none!important;z-index:3;color:var(--workspace-accent,var(--accent-neon));contain:layout style}
 .ng-frame-layer .ng-frame-glow{fill:none;stroke:color-mix(in srgb,currentColor 65%,white);stroke-width:1;stroke-dasharray:none;filter:drop-shadow(0 0 3px currentColor);animation:ng-frame-breathe var(--glow-duration,15s) ease-in-out var(--glow-delay,0s) infinite;animation-play-state:paused}
 .ng-frame-layer.is-visible .ng-frame-glow{animation-play-state:running}

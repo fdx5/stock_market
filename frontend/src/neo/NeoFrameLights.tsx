@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useFrameLight, useFxLevel } from "./settings";
 
-const FRAMES = ".ng-header,.ng-top-rail,.ng-sidebar,.ng-context,.ng-atlas-heading,.ng-region-board,.ng-region-us,.ng-asset-belt,.ng-panel,.ng-dialog,.ed-market-overview,.ed-discovery-section,.d2-flow-panel,.d2-rank-panel,.sk-hero,.ng-stock-top-grid>#sk-chart,.ef-front,.bd-front,.gc-front,.bf-sheet,.nw-company,.st-pane,.sl-summary,.ng-sector-digest";
+const FRAMES = ".ng-top-rail,.ng-sidebar,.ng-context,.ng-atlas-heading,.ng-region-board,.ng-region-us,.ng-asset-belt,.ng-panel,.ng-dialog,.ed-market-overview,.ed-discovery-section,.d2-flow-panel,.d2-rank-panel,.sk-hero,.ng-stock-top-grid>#sk-chart,.ef-front,.bd-front,.gc-front,.bf-sheet,.nw-company,.st-pane,.sl-summary,.ng-sector-digest";
 const keys = new WeakMap<Element, number>(); let nextKey = 0;
 function frameKey(element: Element) { if (!keys.has(element)) keys.set(element, ++nextKey); return keys.get(element)!; }
 
