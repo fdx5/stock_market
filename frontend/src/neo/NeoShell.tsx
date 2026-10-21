@@ -31,10 +31,11 @@ const MAP_DESTINATIONS = [
 function NeoPulse() {
   const { kospi, kosdaq } = useMarketIndices();
   const ticker = useMarketTicker();
+  const pulseAssets = ["usd-krw", "wti", "gold", "bitcoin"].map(key => MARKET_ASSETS.find(asset => asset.key === key)!);
   const values = [
     { name: "KOSPI", price: kospi?.close, change: kospi?.change_pct, to: "/index/kospi" },
     { name: "KOSDAQ", price: kosdaq?.close, change: kosdaq?.change_pct, to: "/index/kosdaq" },
-    ...["^GSPC", "^NDX", ...MARKET_ASSETS.map(asset => asset.symbol)].map((symbol, i) => { const value = ticker.find(item => item.symbol === symbol); return { name: i < 2 ? ["S&P 500", "NASDAQ 100"][i] : MARKET_ASSETS[i - 2].code.replace(/ /g, ""), price: value?.price, change: value?.change_pct, to: marketAssetPath(symbol) ?? (i ? "/nasdaq100-map" : "/sp500-map") }; }),
+    ...["^GSPC", "^NDX", ...pulseAssets.map(asset => asset.symbol)].map((symbol, i) => { const value = ticker.find(item => item.symbol === symbol); return { name: i < 2 ? ["S&P 500", "NASDAQ 100"][i] : pulseAssets[i - 2].code.replace(/ /g, ""), price: value?.price, change: value?.change_pct, to: marketAssetPath(symbol) ?? (i ? "/nasdaq100-map" : "/sp500-map") }; }),
   ];
   return <div className="ng-pulse"><span className="ng-pulse-label"><i /> MARKET PULSE</span><div className="ng-pulse-values">{values.map(value => <Link key={value.name} to={value.to}><span>{value.name}</span><b>{value.price != null && Number.isFinite(value.price) && value.price > 0 ? value.price.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—"}</b><em className={value.change == null ? "" : value.change > 0 ? "is-up" : value.change < 0 ? "is-down" : "is-flat"}>{pct(value.change)}</em></Link>)}</div></div>;
 }
