@@ -133,6 +133,20 @@ preview. The public URLs, metadata handling and backend jobs remain as before.
   the first cards collapsing to 24px and later cards overflowing horizontally.
   Holdings and footers remain bounded inside each card. Showcase and catalogue
   cards are verified in portrait at 360/390/430px on both browser engines.
+* Opening the mobile destination menu focuses its close button instead of the
+  search field, preventing the virtual keyboard from opening automatically.
+  Search still accepts focus on tap; desktop search focus and modal focus return
+  are preserved.
+* Map tiles, sector blocks, loading blocks and outer map corners are square.
+  A general button radius previously rounded the button-based market tiles;
+  the map-specific rule now takes precedence.
+* Mobile map pages share five always-visible destination buttons (KOSPI, KOSDAQ,
+  S&P 500, NASDAQ 100 and property), pinned below the global header while scrolling.
+  All destinations remain visible without horizontal swiping, with 44px touch
+  targets and a highlighted current map. Desktop keeps its existing sidebar.
+  Fixture checks cover 40 map/width/browser combinations at 320–899px in Chrome
+  and Windows WebKit, route changes, sticky positioning, square corners, and
+  English labels. Separate menu checks preserve manual search and focus return.
 
 ## Verification record
 

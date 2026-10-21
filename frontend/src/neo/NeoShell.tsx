@@ -21,6 +21,11 @@ import "./neoCommand.css";
 import "./neoAtlas.css";
 
 const Finder = lazy(() => import("../desk2/Finder"));
+const MAP_DESTINATIONS = [
+  ["/map", "코스피", "KOSPI"], ["/kosdaq-map", "코스닥", "KOSDAQ"],
+  ["/sp500-map", "S&P 500", "S&P 500"], ["/nasdaq100-map", "나스닥100", "NASDAQ 100"],
+  ["/realestate-map", "부동산", "Property"],
+] as const;
 function NeoPulse() {
   const { kospi, kosdaq } = useMarketIndices();
   const ticker = useMarketTicker();
@@ -72,7 +77,9 @@ export default function NeoShell({ path, children }: { path: string; children: R
     if (!panel) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const initial = panelRef.current?.querySelector<HTMLElement>("input") ?? panelRef.current?.querySelector<HTMLElement>("button,a");
+    // Keep mobile navigation from opening the virtual keyboard on entry.
+    const mobileMenu = panel === "menu" && matchMedia("(max-width: 899px)").matches;
+    const initial = (mobileMenu ? null : panelRef.current?.querySelector<HTMLElement>("input")) ?? panelRef.current?.querySelector<HTMLElement>("button,a");
     initial?.focus();
     const trap = (event: KeyboardEvent) => {
       if (event.key !== "Tab") return;
@@ -110,7 +117,13 @@ export default function NeoShell({ path, children }: { path: string; children: R
     </aside>
     <div className="ng-workspace">
       <div className="ng-context"><span><Link to="/">KOSPIMAP</Link><i>/</i>{routeLabel(path, lang)}</span><span className="ng-audience-slot" /><span className="ng-context-meta"><i />{L("데이터 기반 마켓 인텔리전스", "DATA-DRIVEN MARKET INTELLIGENCE")}</span><button type="button" onClick={event => open("menu", event.currentTarget)} aria-label={L("다른 워크스페이스", "Change workspace")}><NeoIcon name="layers" /></button></div>
-      <div className="ng-content" id="neo-content" tabIndex={-1}>{children}</div>
+      <div className="ng-content" id="neo-content" tabIndex={-1}>
+        {family === "map" && <nav className="ng-map-switcher" aria-label={L("시장 지도 전환", "Switch market map")}>
+          <div><span>{L("시장 지도", "MARKET MAPS")}</span><small>{L("다른 시장으로 바로 이동", "Go directly to another market")}</small></div>
+          <div>{MAP_DESTINATIONS.map(([to, ko, en]) => <Link key={to} to={to} aria-current={path === to ? "page" : undefined}>{L(ko, en)}</Link>)}</div>
+        </nav>}
+        {children}
+      </div>
       {family !== "immersive" && <div className="ng-footer d2"><Colophon home="/" /><div className="ng-footer-extras"><a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer">VOLTARIS ↗</a><Link to="/support">{L("커피 한 잔 후원", "Support this project")} ↗</Link><button type="button" onClick={() => window.print()}>{L("인쇄 / PDF", "Print / PDF")}</button></div></div>}
     </div>
     <nav className="ng-mobile-nav" aria-label={L("하단 탐색", "Bottom navigation")}>
