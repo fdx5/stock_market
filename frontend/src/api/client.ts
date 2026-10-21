@@ -1,5 +1,14 @@
 const BASE = "/api";
 
+export interface AssetDailyPoint {
+  date: string; open: number | null; high: number | null; low: number | null;
+  close: number; volume: number | null; change: number | null; change_pct: number | null;
+}
+export interface AssetHistoryResponse {
+  asset: string; symbol: string; unit: string; source: string; timezone: string;
+  start_date: string; end_date: string; latest_date: string; fetched_at: string; points: AssetDailyPoint[];
+}
+
 export interface StockSearchResult {
   code: string;
   name: string;
@@ -1517,6 +1526,7 @@ export const api = {
       `${BASE}/market/us-sector-map?code=${encodeURIComponent(code)}&limit=${limit}`, signal
     ),
   marketTicker: () => getJSONFresh<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
+  assetHistory: (asset: string) => getJSONFresh<AssetHistoryResponse>(`${BASE}/market/assets/${encodeURIComponent(asset)}/history`),
   seoulWeather: () =>
     getJSON<{ temperature: number; code: number; is_day: boolean }>(`${BASE}/market/weather`),
   indexHistory: (symbol: "KOSPI" | "KOSDAQ", years = 3) =>

@@ -40,6 +40,7 @@ from app.routers import (
     global_top100,
     investor,
     market_map,
+    asset_prices,
     market_brief,
     monitor,
     notify,
@@ -262,6 +263,7 @@ def _stop_editorial_editions():
 app.include_router(stock.router, prefix="/api/stock")
 app.include_router(us_stock.router, prefix="/api/us-stock")
 app.include_router(market_map.router, prefix="/api/market")
+app.include_router(asset_prices.router, prefix="/api/market/assets")
 app.include_router(market_brief.router, prefix="/api/market-brief")
 app.include_router(visitors.router, prefix="/api/visitors")
 app.include_router(investor.router, prefix="/api/investor")

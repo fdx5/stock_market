@@ -6,6 +6,7 @@ import { useMarketTicker } from "../useMarketTicker";
 import { useFlashOnChange } from "./FrontPage";
 import { Skel, Spark } from "./parts";
 import { eok, pct, signed, useL } from "./lib";
+import { marketAssetPath } from "../marketAssets";
 
 /* 01 지수 · 수급 · 환율.
  *
@@ -134,7 +135,7 @@ function MacroTable() {
                 <tr key={row.symbol}>
                   <th scope="row">
                     <img src={row.icon} alt="" loading="lazy" />
-                    {lang === "ko" ? row.ko : row.en}
+                    {marketAssetPath(row.symbol) ? <Link to={marketAssetPath(row.symbol)!}>{lang === "ko" ? row.ko : row.en} ↗</Link> : lang === "ko" ? row.ko : row.en}
                   </th>
                   <td colSpan={3}>
                     <Skel h={12} />
@@ -159,7 +160,7 @@ function MacroTable() {
                     )}
                   </span>
                 </th>
-                <td className="d2-macro-val">{item.currency === "KRW" ? value : `$${value}`}</td>
+                <td className="d2-macro-val">{marketAssetPath(row.symbol) ? <Link to={marketAssetPath(row.symbol)!}>{item.currency === "KRW" ? value : `$${value}`}</Link> : item.currency === "KRW" ? value : `$${value}`}</td>
                 <td className={`d2-macro-ch is-${tone}`}>
                   {signed(item.change, 2)}
                   <small>{pct(item.change_pct)}</small>

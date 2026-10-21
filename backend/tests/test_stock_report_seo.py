@@ -19,7 +19,7 @@ def renderer():
     class FixtureCache:
         def get_or_set(self, _key, _ttl, build):
             return build()
-    env = dict(re=re, html=html, json=json, urlencode=urlencode, SITE='https://kospimap.com', IMAGE='fixture.png', PAGES={'/':('Home','Home description')}, INVESTOR_HUB='/market/kospi/foreign-buying',
+    env = dict(re=re, html=html, json=json, urlencode=urlencode, SITE='https://kospimap.com', IMAGE='fixture.png', SOCIAL_CARDS={}, PAGES={'/':('Home','Home description')}, INVESTOR_HUB='/market/kospi/foreign-buying',
                STOCK_LANDING_ROUTE=re.compile(r'/stock/(\d{6})/(investor|outlook|news)'), STOCK_ROUTE=re.compile(r'/stock/([A-Za-z0-9.-]{1,16})'), INVESTOR_ROUTE=re.compile(r'/investor/([A-Za-z0-9.-]{1,16})'), KRX_CODE=re.compile(r'\d[0-9A-Z]{5}'),
                _stock_entry=stock_entry, _market_brief=lambda _path:(None,'',''), _investor_identity=lambda _path:('',''), _detail_neighbours=lambda *_args:[], _kr_etf_names=lambda:{'069500':'KODEX 200'}, kr_universe=lambda:[{'code':'005930'}], cache=FixtureCache())
     funcs = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in {'_replace_meta','render_spa_shell','is_unknown_kr_code'}]

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 const DISCHARGES = [
   { core: "M0 9H17L25 8L31 11L39 4L44 13L51 7L57 10L65 9H84", forks: "M39 4L44 2L48 4M51 7L55 3L60 4M57 10L63 15L68 14" },
@@ -50,8 +50,9 @@ function Morph({ values }: { values: string[] }) {
     calcMode="spline" keyTimes={KEY_TIMES} keySplines={KEY_SPLINES} repeatCount="indefinite" />;
 }
 
-/** A single decorative electrical filament on the header's existing lower rule. */
-export default function NeoHeaderCurrent() {
+/** Decorative current along the shell's existing horizontal or vertical rules. */
+export default function NeoHeaderCurrent({ tone = "gold", placement = "header" }: { tone?: "gold" | "violet"; placement?: "header" | "pulse" | "sidebar" }) {
+  const gradientId = `ng-current-${useId().replace(/:/g, "")}`;
   const svg = useRef<SVGSVGElement>(null);
   const [reduced, setReduced] = useState(() => matchMedia("(prefers-reduced-motion: reduce)").matches);
   useEffect(() => {
@@ -66,21 +67,22 @@ export default function NeoHeaderCurrent() {
     return () => document.removeEventListener("visibilitychange", sync);
   }, [reduced]);
   if (reduced) return null;
-  return <span className="ng-header-current" aria-hidden="true"><i>
+  const filament = <span className={`ng-header-current ng-current-${placement}`} data-tone={tone} data-placement={placement} aria-hidden="true"><i>
     <svg ref={svg} className="ng-current-discharge" viewBox="0 0 84 19" focusable="false" data-shape-count={DISCHARGES.length}>
       <defs>
-        <linearGradient id="ng-current-filament" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#e4b738" stopOpacity="0" />
-          <stop offset=".3" stopColor="#f5d767" stopOpacity=".7" />
-          <stop offset=".65" stopColor="#fff9d9" />
-          <stop offset=".84" stopColor="#fff1a3" />
-          <stop offset="1" stopColor="#ffd35b" stopOpacity="0" />
+        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="var(--current-color)" stopOpacity="0" />
+          <stop offset=".3" stopColor="var(--current-bright)" stopOpacity=".7" />
+          <stop offset=".65" stopColor="var(--current-core)" />
+          <stop offset=".84" stopColor="var(--current-tip)" />
+          <stop offset="1" stopColor="var(--current-glow)" stopOpacity="0" />
         </linearGradient>
       </defs>
       {FORKS.map((values, branch) => <polyline key={branch} className="ng-current-forks" points={values[0]}><Morph values={values} /></polyline>)}
-      <polyline className="ng-current-filament" points={CORES[0]}><Morph values={CORES} /></polyline>
+      <polyline className="ng-current-filament" style={{ stroke: `url(#${gradientId})` }} points={CORES[0]}><Morph values={CORES} /></polyline>
       <circle className="ng-current-mote ng-current-mote-a" cx="64" cy="3.5" r=".65" />
       <circle className="ng-current-mote ng-current-mote-b" cx="71" cy="14.5" r=".55" />
     </svg>
   </i></span>;
+  return placement === "sidebar" ? <span className="ng-sidebar-current" aria-hidden="true">{filament}</span> : filament;
 }

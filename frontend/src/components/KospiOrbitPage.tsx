@@ -1173,7 +1173,6 @@ uniform float uDetailLevel;`,
     const designCandidates = pendingDesignBodies.splice(0);
     let designTimer = 0,
       designLoading = false,
-      automaticDesignLoads = 0,
       loadedPlanetDesigns = 0;
     let requestPlanetDesign = (
       _body: THREE.Object3D,
@@ -1221,8 +1220,7 @@ uniform float uDetailLevel;`,
         } catch {
           body.userData.designQueued = false;
           designLoading = false;
-          if (!body.userData.designLoaded && automaticDesignLoads > 0)
-            automaticDesignLoads -= 1;
+          body.userData.designRetryAt = performance.now() + 5000;
           if (pendingDesignBodies.length)
             designTimer = window.setTimeout(applyNextDesign, 250);
           return;
@@ -1230,6 +1228,7 @@ uniform float uDetailLevel;`,
         if (designDisposed) return;
         if (!body.userData.designLoaded) loadedPlanetDesigns += 1;
         body.userData.designLoaded = true;
+        body.userData.designRetryAt = 0;
         body.userData.designLevel = fullDesign ? 2 : 1;
         body.userData.designQueued = false;
         body.userData.kind = maps.kindLabel;
@@ -1910,14 +1909,10 @@ uniform float uDetailLevel;`,
           );
         }
       }
-      // Establish the ten most visible bodies on entry. Every remaining material set
-      // is fetched when that stock is focused/clicked/searched, never as a full
-      // background download of the system.
-      const automaticDesignLimit = 10;
-      if (
-        automaticDesignLoads < automaticDesignLimit &&
-        nowMs - lastDesignScan >= 500
-      ) {
+      // Bound queued work, not the lifetime number of textured planets. Newly visible
+      // bodies must keep receiving their surfaces as the camera moves through a system.
+      const automaticDesignQueueLimit = 3;
+      if (nowMs - lastDesignScan >= 500) {
         const focalPixels =
             viewHeight /
             (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5)),
@@ -1925,6 +1920,7 @@ uniform float uDetailLevel;`,
         for (const mover of movers) {
           const body = mover.mesh;
           if (body.userData.designLoaded || body.userData.designQueued) continue;
+          if (Number(body.userData.designRetryAt ?? 0) > nowMs) continue;
           designProjection.copy(body.position).project(camera);
           if (
             designProjection.z < -1 ||
@@ -1940,10 +1936,9 @@ uniform float uDetailLevel;`,
           visibleCandidates.push({ body, pixels });
         }
         visibleCandidates.sort((a, b) => b.pixels - a.pixels);
-        const available = automaticDesignLimit - automaticDesignLoads;
+        const available = Math.max(0, automaticDesignQueueLimit - pendingDesignBodies.length - Number(designLoading));
         for (const candidate of visibleCandidates.slice(0, available)) {
           requestPlanetDesign(candidate.body);
-          automaticDesignLoads += 1;
         }
         lastDesignScan = nowMs;
       }

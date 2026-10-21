@@ -2,6 +2,8 @@ import { MarketTickerItem } from "../api/client";
 import { wonSuffix } from "../i18n/format";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useMarketTicker } from "../useMarketTicker";
+import { Link } from "../router";
+import { marketAssetPath } from "../marketAssets";
 
 interface Row {
   symbol: string;
@@ -141,7 +143,7 @@ function MacroTile({ row, item }: { row: Row; item: MarketTickerItem | null }) {
 
   const up = item.change >= 0;
   const alert = alertLevel(row, item);
-  return (
+  const tile = (
     <div className={`macro-rate-tile${alert ? ` macro-rate-tile--${alert}` : ""}`}>
       <MacroIcon row={row} alert={alert} />
       <div className="macro-rate-body">
@@ -167,6 +169,8 @@ function MacroTile({ row, item }: { row: Row; item: MarketTickerItem | null }) {
       <Sparkline points={item.points} up={up} />
     </div>
   );
+  const to = marketAssetPath(row.symbol);
+  return to ? <Link to={to} className="macro-rate-link">{tile}</Link> : tile;
 }
 
 // The strip splits into two independent vertical flip-tiles: the FX crosses cycle in

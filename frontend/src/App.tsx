@@ -13,6 +13,10 @@ import ReadingTools from "./components/ReadingTools";
 import "./components/marketBriefPrint.css";
 import NeoShell from "./neo/NeoShell";
 import { useDesignMode } from "./neo/settings";
+import { MARKET_ASSETS } from "./marketAssets";
+import socialCards from "./neo/socialCards.json";
+const SOCIAL_CARDS: Record<string, { title: string; description: string; image: string; alt: string }> = socialCards;
+const AssetPricePage = lazy(() => import("./neo/AssetPricePage"));
 
 // Route-level code splitting: each page only ships the JS it actually needs (e.g. the
 // map pages never pull in lightweight-charts, which only Dashboard/IndexChart/
@@ -144,6 +148,7 @@ function DashboardRedirect() {
 }
 
 const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = {
+  ...Object.fromEntries(MARKET_ASSETS.map(asset => [`/prices/${asset.key}`, { title: `${asset.ko} 시세·1년 차트·일별 가격 | K-Stock Hub`, description: `${asset.ko}의 최근 1년 가격 차트와 일자별 시가, 고가, 저가, 종가 및 등락률을 확인하세요.` }])),
   "/investors": { title: "거물 포트폴리오 | K-Stock Hub", description: "해외 투자 거물과 연관 운용사의 공개 주식 보유 비중, 신규 편입, 공통 보유 종목을 확인하세요." },
   "/investment-videos": { title: "오늘의 투자 영상 | K-Stock Hub", description: "국내 주식과 나스닥·미국 주식 한국어 영상. 전일부터 오늘 오전 8시까지 공개된 영상 중 수집 후보를 조회수로 정렬합니다." },
   "/support": {
@@ -318,7 +323,8 @@ export default function App() {
     // the title themselves once the name has loaded.
     if (/^\/(stock|investor)\//.test(canonicalPath)) return;
 
-    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"] : PUBLIC_PAGE_SEO[canonicalPath];
+    const social = SOCIAL_CARDS[canonicalPath.replace(/\/$/, "") || "/"];
+    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"] : social ?? PUBLIC_PAGE_SEO[canonicalPath];
     if (!seo) return;
     const name = canonicalName || code;
     const briefRaw = briefMatch ? briefMatch[2].toUpperCase() : "";
@@ -346,13 +352,13 @@ export default function App() {
     document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.setAttribute("content", description);
     const image = briefMatch
       ? `https://kospimap.com/market-brief/og/${briefMatch[1]}/${briefMatch[2].toLowerCase()}.png`
-      : "https://kospimap.com/img/kospi-map-preview.png";
+      : social ? `https://kospimap.com${social.image}` : "https://kospimap.com/img/kospi-map-preview.png";
     document.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.setAttribute("content", image);
     document.querySelector<HTMLMetaElement>('meta[property="og:image:secure_url"]')?.setAttribute("content", image);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:image"]')?.setAttribute("content", image);
     const imageAlt = briefMatch
       ? `${briefMatch[1]} ${displayMarketName} 오늘 브리핑 핵심 지표`
-      : "K-Stock Hub 시장 데이터";
+      : social?.alt ?? "K-Stock Hub 시장 데이터";
     document.querySelector<HTMLMetaElement>('meta[property="og:image:alt"]')?.setAttribute("content", imageAlt);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:image:alt"]')?.setAttribute("content", imageAlt);
   }, [path]);
@@ -361,7 +367,10 @@ export default function App() {
   const portfolioMatch = path.match(/^\/investors\/([a-z]+)\/?$/);
   const investorMatch = path.match(/^\/investor\/([^/]+)\/?$/);
   const indexMatch = path.match(/^\/index\/(kospi|kosdaq)\/?$/i);
-  if (portfolioMatch) {
+  const marketAsset = MARKET_ASSETS.find(asset => path.replace(/\/$/, "") === `/prices/${asset.key}`);
+  if (marketAsset) {
+    page = <AssetPricePage key={marketAsset.key} asset={marketAsset} />;
+  } else if (portfolioMatch) {
     page = <InvestorPortfolioPage investorId={portfolioMatch[1]} />;
   } else if (path === "/investors") {
     page = <InvestorsPage />;

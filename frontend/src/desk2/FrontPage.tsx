@@ -1,4 +1,5 @@
 import MarketChart from "../charts/MarketChart";
+import { Link } from "../router";
 import { useEffect, useRef, useState } from "react";
 import { GlobalIndexWidget, IndexQuote, MarketInvestorSummary } from "../api/client";
 import { Lang, useLanguage } from "../i18n/LanguageContext";
@@ -377,10 +378,10 @@ export default function FrontPage({ breadth, asOf }: { breadth: Breadth | null; 
             <li>
               <span>{L("환율", "FX")}</span>
               {usdkrw ? (
-                <p>
-                  {L("원/달러", "USD/KRW")} <b>{usdkrw.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>{" "}
+                  <p><Link to="/prices/usd-krw">
+                    {L("원/달러", "USD/KRW")} <b>{usdkrw.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>{" "}
                   <em className={usdkrw.change >= 0 ? "is-up" : "is-down"}>{signed(usdkrw.change, 2)}</em>
-                </p>
+                  </Link></p>
               ) : (
                 <Skel h={13} w="70%" />
               )}

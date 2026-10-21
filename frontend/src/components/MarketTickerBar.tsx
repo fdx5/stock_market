@@ -2,6 +2,8 @@ import { memo } from "react";
 import { MarketTickerItem } from "../api/client";
 import { useMarketTicker } from "../useMarketTicker";
 import SessionBadge from "./SessionBadge";
+import { Link } from "../router";
+import { marketAssetPath } from "../marketAssets";
 
 const ICONS: Record<string, string> = {
   "^GSPC": "/img/ticker/spx500.webp",
@@ -74,7 +76,7 @@ function Sparkline({ points, up }: { points: number[]; up: boolean }) {
 const TickerCard = memo(
   function TickerCard({ item }: { item: MarketTickerItem }) {
     const up = item.change >= 0;
-    return (
+    const card = (
       <div className="ticker-card">
         <TickerIcon symbol={item.symbol} label={item.label} />
         <div className="ticker-card-label">{item.label}</div>
@@ -90,6 +92,8 @@ const TickerCard = memo(
         </div>
       </div>
     );
+    const to = marketAssetPath(item.symbol);
+    return to ? <Link to={to} className="ticker-card-link">{card}</Link> : card;
   },
   (prev, next) =>
     prev.item.symbol === next.item.symbol &&

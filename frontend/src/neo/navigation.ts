@@ -11,8 +11,11 @@ export const NEO_GROUPS = [
   { id: "rankings", ko: "순위 · 비교", en: "Rankings", icon: "layers", links: [
     ["/kospi-100", "코스피 TOP 100", "KOSPI TOP 100"], ["/kosdaq-100", "코스닥 TOP 100", "KOSDAQ TOP 100"], ["/nasdaq-100", "나스닥 TOP 100", "NASDAQ TOP 100"], ["/global-top100", "글로벌 시가총액", "Global market caps"], ["/fight", "시가총액 대결", "Market-cap battle"], ["/battle", "시장 줄다리기", "Market tug of war"], ["/index/kospi", "코스피 지수", "KOSPI chart"], ["/index/kosdaq", "코스닥 지수", "KOSDAQ chart"],
   ] },
+  { id: "assets", ko: "환율 · 가상자산 · 원자재", en: "FX · crypto · commodities", icon: "chart", links: [
+    ["/prices/usd-krw", "원/달러 환율", "USD/KRW"], ["/prices/bitcoin", "비트코인", "Bitcoin"], ["/prices/ethereum", "이더리움", "Ethereum"], ["/prices/xrp", "리플 XRP", "XRP"], ["/prices/wti", "WTI 유가 선물", "WTI futures"], ["/prices/gold", "금 선물", "Gold futures"], ["/prices/silver", "은 선물", "Silver futures"],
+  ] },
   { id: "explore", ko: "탐험 · 커뮤니티", en: "Explore", icon: "orbit", links: [
-    ["/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", "종목 토론", "Discussions"], ["/kospi-orbit", "코스피 궤도", "KOSPI orbit"], ["/kosdaq-orbit", "코스닥 궤도", "KOSDAQ orbit"], ["/nasdaq100-orbit", "나스닥 궤도", "NASDAQ orbit"], ["/market-bubbles", "증시 버블", "Market bubbles"], ["/market-bubbles2", "증시 버블 NEO", "Market bubbles NEO"], ["/drone-explore", "3D 드론 탐험", "Drone explorer"], ["/hub", "태양계 입구", "Solar entrance"], ["/support", "커피 한 잔 후원", "Support KOSPIMAP"], ["/desk2", "클래식 데스크", "Classic desk"],
+    ["/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", "종목 토론", "Discussions"], ["/kospi-orbit", "코스피 궤도", "KOSPI orbit"], ["/kosdaq-orbit", "코스닥 궤도", "KOSDAQ orbit"], ["/nasdaq100-orbit", "나스닥 궤도", "NASDAQ orbit"], ["/drone-explore", "드론 탐험", "Drone explorer"], ["/market-bubbles", "증시 버블", "Market bubbles"], ["/market-bubbles2", "증시 버블 NEO", "Market bubbles NEO"], ["/hub", "태양계 입구", "Solar entrance"], ["/support", "커피 한 잔 후원", "Support KOSPIMAP"], ["/desk2", "클래식 데스크", "Classic desk"],
   ] },
 ] as const;
 export function routeLabel(path: string, lang: "ko" | "en") {
@@ -30,4 +33,11 @@ export function neoRouteFamily(path: string) {
   if (/^\/stock\//.test(path)) return "stock";
   if (/^\/(news|market-brief|investment-videos|investors)(\/|$)/.test(path)) return "editorial";
   return "workspace";
+}
+
+export function neoHeaderCurrentTone(path: string, search = ""): "gold" | "violet" {
+  const intelligence = NEO_GROUPS.find(group => group.id === "intelligence")!;
+  const inIntelligence = intelligence.links.some(([to]) => path === to || path.startsWith(`${to}/`)) || path.startsWith("/investor/");
+  const inEtf = path === "/etf" || path.startsWith("/etf/") || (path.startsWith("/stock/") && new URLSearchParams(search).get("asset")?.toUpperCase() === "ETF");
+  return neoRouteFamily(path) === "map" || inEtf || inIntelligence ? "violet" : "gold";
 }

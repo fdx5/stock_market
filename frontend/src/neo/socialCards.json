@@ -1,0 +1,254 @@
+{
+  "/": {
+    "title": "관제 홈 | K Stock Hub",
+    "description": "한국과 미국 증시, 환율과 가상자산의 흐름을 하나의 관제 홈에서 연결해 살펴보세요.",
+    "image": "/img/social/home-66e7f386d0.png",
+    "alt": "K Stock Hub 관제 홈 — Command home"
+  },
+  "/desk": {
+    "title": "국내 증시 | K Stock Hub",
+    "description": "코스피·코스닥 지수, 시장 등락 분포와 외국인·기관 수급, 주요 종목을 함께 확인하세요.",
+    "image": "/img/social/desk-9a6e90e29a.png",
+    "alt": "K Stock Hub 국내 증시 — Korea desk"
+  },
+  "/global": {
+    "title": "미국 증시 | K Stock Hub",
+    "description": "S&P 500·나스닥 흐름, 미국 주요 종목과 섹터, 시간외 시세를 살펴보세요.",
+    "image": "/img/social/global-284a2d6ec0.png",
+    "alt": "K Stock Hub 미국 증시 — US desk"
+  },
+  "/stocks": {
+    "title": "종목 탐색 | K Stock Hub",
+    "description": "국내외 종목을 검색하고 시세·등락률·거래대금으로 원하는 기업을 찾아보세요.",
+    "image": "/img/social/stocks-f52b761db2.png",
+    "alt": "K Stock Hub 종목 탐색 — Stock explorer"
+  },
+  "/etf": {
+    "title": "ETF 마켓 | K Stock Hub",
+    "description": "국내와 미국 ETF의 시세, 수익률과 거래 흐름을 비교하고 투자 대상을 탐색하세요.",
+    "image": "/img/social/etf-7d367dc006.png",
+    "alt": "K Stock Hub ETF 마켓 — ETF market"
+  },
+  "/map": {
+    "title": "코스피 맵 | K Stock Hub",
+    "description": "코스피 종목의 시가총액과 등락을 면적과 색으로 한눈에 읽는 시장 지도입니다.",
+    "image": "/img/social/map-9a99b64ed4.png",
+    "alt": "K Stock Hub 코스피 맵 — KOSPI map"
+  },
+  "/kosdaq-map": {
+    "title": "코스닥 맵 | K Stock Hub",
+    "description": "코스닥 기업의 규모와 가격 변화를 업종별 면적과 색으로 살펴보세요.",
+    "image": "/img/social/kosdaq-map-711d6df948.png",
+    "alt": "K Stock Hub 코스닥 맵 — KOSDAQ map"
+  },
+  "/sp500-map": {
+    "title": "S&P 500 맵 | K Stock Hub",
+    "description": "S&P 500 주요 기업의 구성과 등락을 섹터별 히트맵에서 확인하세요.",
+    "image": "/img/social/sp500-map-2bb0882db7.png",
+    "alt": "K Stock Hub S&P 500 맵 — S&P 500 map"
+  },
+  "/nasdaq100-map": {
+    "title": "나스닥 100 맵 | K Stock Hub",
+    "description": "나스닥 100 기업의 비중과 가격 움직임을 한 장의 시장 지도에서 비교하세요.",
+    "image": "/img/social/nasdaq100-map-b729457ca6.png",
+    "alt": "K Stock Hub 나스닥 100 맵 — NASDAQ 100 map"
+  },
+  "/realestate-map": {
+    "title": "부동산 실거래 | K Stock Hub",
+    "description": "지도 위에서 지역과 단지의 부동산 실거래를 찾고 3D 단지 공간을 탐색하세요.",
+    "image": "/img/social/realestate-map-c37759d63e.png",
+    "alt": "K Stock Hub 부동산 실거래 — Real estate"
+  },
+  "/market-brief": {
+    "title": "오늘 브리핑 | K Stock Hub",
+    "description": "오늘 시장의 종가, 수급과 거래 흐름을 데이터 기반 브리핑으로 읽어보세요.",
+    "image": "/img/social/market-brief-33b3915c63.png",
+    "alt": "K Stock Hub 오늘 브리핑 — Daily briefing"
+  },
+  "/news": {
+    "title": "마켓 뉴스 | K Stock Hub",
+    "description": "세계 주요 기업의 최신 뉴스를 기업과 출처별로 선택해 확인하세요.",
+    "image": "/img/social/news-9e61b985d6.png",
+    "alt": "K Stock Hub 마켓 뉴스 — Market news"
+  },
+  "/ai-prediction": {
+    "title": "AI 예측 | K Stock Hub",
+    "description": "주가와 기술적 지표를 바탕으로 제공하는 AI 예측과 분석 근거를 확인하세요.",
+    "image": "/img/social/ai-prediction-623cc5e230.png",
+    "alt": "K Stock Hub AI 예측 — AI forecast"
+  },
+  "/ai-prediction/grading": {
+    "title": "예측 채점표 | K Stock Hub",
+    "description": "지난 예측이 실제 결과와 어떻게 달랐는지 날짜별 채점 내역을 검토하세요.",
+    "image": "/img/social/ai-prediction-grading-2ee2264ee8.png",
+    "alt": "K Stock Hub 예측 채점표 — Forecast results"
+  },
+  "/investors": {
+    "title": "거물 포트폴리오 | K Stock Hub",
+    "description": "투자 거물과 연관 운용사의 공개 포트폴리오, 보유 비중과 변화를 살펴보세요.",
+    "image": "/img/social/investors-38a028805f.png",
+    "alt": "K Stock Hub 거물 포트폴리오 — Investor portfolios"
+  },
+  "/investment-videos": {
+    "title": "투자 영상 | K Stock Hub",
+    "description": "한국과 미국 증시를 다루는 한국어 유튜브 영상을 모아 확인하세요.",
+    "image": "/img/social/investment-videos-e3e784ab7c.png",
+    "alt": "K Stock Hub 투자 영상 — Video briefing"
+  },
+  "/dram-price": {
+    "title": "D램 가격 | K Stock Hub",
+    "description": "D램 현물가격과 메모리 반도체 가격 흐름을 기간별로 살펴보세요.",
+    "image": "/img/social/dram-price-6ad52220fe.png",
+    "alt": "K Stock Hub D램 가격 — DRAM prices"
+  },
+  "/kospi-100": {
+    "title": "코스피 TOP 100 | K Stock Hub",
+    "description": "코스피 주요 100개 종목의 시세와 등락을 순위별로 확인하세요.",
+    "image": "/img/social/kospi-100-b1bc236dae.png",
+    "alt": "K Stock Hub 코스피 TOP 100 — KOSPI TOP 100"
+  },
+  "/kosdaq-100": {
+    "title": "코스닥 TOP 100 | K Stock Hub",
+    "description": "코스닥 주요 100개 기업의 시세, 등락과 시장 비중을 비교하세요.",
+    "image": "/img/social/kosdaq-100-ee2aaa2640.png",
+    "alt": "K Stock Hub 코스닥 TOP 100 — KOSDAQ TOP 100"
+  },
+  "/nasdaq-100": {
+    "title": "나스닥 TOP 100 | K Stock Hub",
+    "description": "나스닥 주요 100개 종목의 가격 흐름과 순위를 확인하세요.",
+    "image": "/img/social/nasdaq-100-b78ed34d92.png",
+    "alt": "K Stock Hub 나스닥 TOP 100 — NASDAQ TOP 100"
+  },
+  "/global-top100": {
+    "title": "글로벌 시가총액 | K Stock Hub",
+    "description": "전 세계 주요 기업의 시가총액과 국가·업종별 구성을 비교하세요.",
+    "image": "/img/social/global-top100-e7471bf998.png",
+    "alt": "K Stock Hub 글로벌 시가총액 — Global market caps"
+  },
+  "/fight": {
+    "title": "시가총액 대결 | K Stock Hub",
+    "description": "세계 주요 기업의 시가총액 규모와 순위를 대결 구도로 비교하세요.",
+    "image": "/img/social/fight-4bf7012d44.png",
+    "alt": "K Stock Hub 시가총액 대결 — Market-cap battle"
+  },
+  "/battle": {
+    "title": "시장 줄다리기 | K Stock Hub",
+    "description": "주요 종목의 상승·하락 흐름이 맞서는 시장 줄다리기를 살펴보세요.",
+    "image": "/img/social/battle-b32fa3bcfe.png",
+    "alt": "K Stock Hub 시장 줄다리기 — Market tug of war"
+  },
+  "/index/kospi": {
+    "title": "코스피 지수 | K Stock Hub",
+    "description": "코스피 지수의 가격 차트와 이동평균, RSI 등 기술적 지표를 확인하세요.",
+    "image": "/img/social/index-kospi-4f612c95ea.png",
+    "alt": "K Stock Hub 코스피 지수 — KOSPI chart"
+  },
+  "/index/kosdaq": {
+    "title": "코스닥 지수 | K Stock Hub",
+    "description": "코스닥 지수의 과거 가격 흐름과 기술적 보조지표를 함께 살펴보세요.",
+    "image": "/img/social/index-kosdaq-757a8e83eb.png",
+    "alt": "K Stock Hub 코스닥 지수 — KOSDAQ chart"
+  },
+  "/prices/usd-krw": {
+    "title": "원/달러 환율 | K Stock Hub",
+    "description": "원/달러 환율의 최근 1년 차트와 날짜별 시가·고가·저가·종가, 등락 내역을 확인하세요.",
+    "image": "/img/social/prices-usd-krw-e23d469dd3.png",
+    "alt": "K Stock Hub 원/달러 환율 — USD/KRW"
+  },
+  "/prices/bitcoin": {
+    "title": "비트코인 | K Stock Hub",
+    "description": "비트코인의 최근 1년 차트와 날짜별 시가·고가·저가·종가, 등락 내역을 확인하세요.",
+    "image": "/img/social/prices-bitcoin-451e9f6791.png",
+    "alt": "K Stock Hub 비트코인 — Bitcoin"
+  },
+  "/prices/ethereum": {
+    "title": "이더리움 | K Stock Hub",
+    "description": "이더리움의 최근 1년 차트와 날짜별 시가·고가·저가·종가, 등락 내역을 확인하세요.",
+    "image": "/img/social/prices-ethereum-f59d2ccb1b.png",
+    "alt": "K Stock Hub 이더리움 — Ethereum"
+  },
+  "/prices/xrp": {
+    "title": "리플 XRP | K Stock Hub",
+    "description": "리플 XRP의 최근 1년 차트와 날짜별 시가·고가·저가·종가, 등락 내역을 확인하세요.",
+    "image": "/img/social/prices-xrp-c60e6e8a6f.png",
+    "alt": "K Stock Hub 리플 XRP — XRP"
+  },
+  "/prices/wti": {
+    "title": "WTI 유가 선물 | K Stock Hub",
+    "description": "WTI 유가 선물의 최근 1년 차트와 날짜별 시가·고가·저가·종가, 등락 내역을 확인하세요.",
+    "image": "/img/social/prices-wti-2e8e2f0a66.png",
+    "alt": "K Stock Hub WTI 유가 선물 — WTI futures"
+  },
+  "/prices/gold": {
+    "title": "금 선물 | K Stock Hub",
+    "description": "금 선물의 최근 1년 차트와 날짜별 시가·고가·저가·종가, 등락 내역을 확인하세요.",
+    "image": "/img/social/prices-gold-575941f958.png",
+    "alt": "K Stock Hub 금 선물 — Gold futures"
+  },
+  "/prices/silver": {
+    "title": "은 선물 | K Stock Hub",
+    "description": "은 선물의 최근 1년 차트와 날짜별 시가·고가·저가·종가, 등락 내역을 확인하세요.",
+    "image": "/img/social/prices-silver-9c5c566d59.png",
+    "alt": "K Stock Hub 은 선물 — Silver futures"
+  },
+  "/discussion-explorer": {
+    "title": "종목 토론 | K Stock Hub",
+    "description": "국내외 주식과 ETF의 종목 토론을 공간 속에서 탐색하고 게시글을 읽어보세요.",
+    "image": "/img/social/discussion-explorer-00f7ae4ade.png",
+    "alt": "K Stock Hub 종목 토론 — Discussions"
+  },
+  "/kospi-orbit": {
+    "title": "코스피 궤도 | K Stock Hub",
+    "description": "코스피 기업을 항성과 행성으로 만나는 3D 시장 궤도를 탐험하세요.",
+    "image": "/img/social/kospi-orbit-85c8ad57e1.png",
+    "alt": "K Stock Hub 코스피 궤도 — KOSPI orbit"
+  },
+  "/kosdaq-orbit": {
+    "title": "코스닥 궤도 | K Stock Hub",
+    "description": "코스닥 기업의 규모와 등락이 펼쳐지는 독자적인 3D 행성계를 둘러보세요.",
+    "image": "/img/social/kosdaq-orbit-428ff114eb.png",
+    "alt": "K Stock Hub 코스닥 궤도 — KOSDAQ orbit"
+  },
+  "/nasdaq100-orbit": {
+    "title": "나스닥 궤도 | K Stock Hub",
+    "description": "나스닥 주요 기업이 구성하는 3D 우주에서 섹터와 종목을 탐색하세요.",
+    "image": "/img/social/nasdaq100-orbit-2608785a8b.png",
+    "alt": "K Stock Hub 나스닥 궤도 — NASDAQ orbit"
+  },
+  "/drone-explore": {
+    "title": "드론 탐험 | K Stock Hub",
+    "description": "실제 지형과 건물로 구성한 3D 도시 위를 드론 시점으로 이동하며 탐험하세요.",
+    "image": "/img/social/drone-explore-f0d468efc4.png",
+    "alt": "K Stock Hub 드론 탐험 — Drone explorer"
+  },
+  "/market-bubbles": {
+    "title": "증시 버블 | K Stock Hub",
+    "description": "기업의 규모와 가격 움직임을 버블의 크기와 색으로 비교하세요.",
+    "image": "/img/social/market-bubbles-672e0d68fa.png",
+    "alt": "K Stock Hub 증시 버블 — Market bubbles"
+  },
+  "/market-bubbles2": {
+    "title": "증시 버블 NEO | K Stock Hub",
+    "description": "네오 스타일의 시장 버블 공간에서 종목 간 규모와 움직임을 살펴보세요.",
+    "image": "/img/social/market-bubbles2-7171250393.png",
+    "alt": "K Stock Hub 증시 버블 NEO — Market bubbles NEO"
+  },
+  "/hub": {
+    "title": "태양계 입구 | K Stock Hub",
+    "description": "행성과 궤도가 펼쳐지는 태양계 입구에서 다양한 시장 탐험으로 진입하세요.",
+    "image": "/img/social/hub-0f7a2ee955.png",
+    "alt": "K Stock Hub 태양계 입구 — Solar entrance"
+  },
+  "/support": {
+    "title": "커피 한 잔 후원 | K Stock Hub",
+    "description": "커피 한 잔으로 K Stock Hub의 업데이트와 서비스 운영을 응원해 주세요.",
+    "image": "/img/social/support-02dc095d8e.png",
+    "alt": "K Stock Hub 커피 한 잔 후원 — Support KOSPIMAP"
+  },
+  "/desk2": {
+    "title": "클래식 데스크 | K Stock Hub",
+    "description": "지수, 종목과 시장 정보를 기존 위젯 데스크 구성으로 확인하세요.",
+    "image": "/img/social/desk2-0627747d39.png",
+    "alt": "K Stock Hub 클래식 데스크 — Classic desk"
+  }
+}

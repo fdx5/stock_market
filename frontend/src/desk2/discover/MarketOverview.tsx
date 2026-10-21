@@ -11,6 +11,7 @@ import { RollingNumber, useOverviewMotion } from "./OverviewMotion";
 import "./discovery.css";
 import "./overviewMotion.css";
 import "./marketOverview.css";
+import { marketAssetPath } from "../../marketAssets";
 
 type Props = { market: "kr" | "us"; items: MarketMapItem[]; asOf?: string | null; generatedAt?: string | null; session?: MarketSession | null; leadingSector?: string; bigTechMove?: number; bigTechShare?: number };
 
@@ -25,6 +26,7 @@ const CROSS_ASSETS = [
   { symbol: "GC=F", name: "금 선물", en: "Gold futures", unit: "USD/트로이온스", unitEn: "USD/troy oz", digits: 2 },
   { symbol: "SI=F", name: "은 선물", en: "Silver futures", unit: "USD/트로이온스", unitEn: "USD/troy oz", digits: 2 },
   { symbol: "BTC-USD", name: "비트코인", en: "Bitcoin", unit: "USD", unitEn: "USD", digits: 2 },
+  { symbol: "ETH-USD", name: "이더리움", en: "Ethereum", unit: "USD", unitEn: "USD", digits: 2 },
   { symbol: "XRP-USD", name: "리플 XRP", en: "XRP", unit: "USD", unitEn: "USD", digits: 4 },
 ];
 
@@ -82,7 +84,7 @@ export default function MarketOverview({ market, items, asOf, generatedAt, sessi
       <span>{quote.name}<i aria-hidden="true">↗</i></span><strong>{number(quote.price != null && Number.isFinite(quote.price) && quote.price > 0 ? quote.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—")}</strong><b className={`is-${toneOf(quote.change)}`}>{number(pct(quote.change))}</b><MiniLine points={quote.points} up={(quote.change ?? 0) >= 0} cycle={motion.cycle} /><small className="ed-quote-basis">{stamp(quote.time) ? `${stamp(quote.time)} KST` : L("최근 지수 시세", "Latest index quote")}</small>
     </Link>)}</div>
       {design === "neo" && <NeoIndexChart quotes={quotes} />}
-      <div className="ed-overview-context"><div><span>{L("원/달러", "USD/KRW")}</span><b>{number(fx && Number.isFinite(fx.price) && fx.price > 0 ? `${fx.price.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}${L("원", " KRW")}` : "—")}</b></div>{market === "kr" ? <><div><span>{L("코스피 외국인 순매수", "KOSPI foreign net buying")}</span><b className={`is-${toneOf(indices.kospiInvestor?.foreign_amount)}`}>{number(flow(indices.kospiInvestor?.foreign_amount))}</b></div><div><span>{L("코스피 기관 순매수", "KOSPI institutional net buying")}</span><b className={`is-${toneOf(indices.kospiInvestor?.institution_amount)}`}>{number(flow(indices.kospiInvestor?.institution_amount))}</b></div></> : <><div><span>{L("주도 섹터", "Leading sector")}</span><b>{leadingSector ?? "—"}</b></div><div><span>{L("빅테크 7 등락", "Big Tech 7 move")}</span><b className={`is-${toneOf(bigTechMove)}`}>{number(pct(bigTechMove))}{bigTechShare != null && <small>{L("비중", "Weight")} {number(`${(bigTechShare * 100).toFixed(0)}%`)}</small>}</b></div></>}</div>
+      <div className="ed-overview-context"><div><Link to="/prices/usd-krw" className="ed-fx-link"><span>{L("원/달러", "USD/KRW")} ↗</span><b>{number(fx && Number.isFinite(fx.price) && fx.price > 0 ? `${fx.price.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}${L("원", " KRW")}` : "—")}</b></Link></div>{market === "kr" ? <><div><span>{L("코스피 외국인 순매수", "KOSPI foreign net buying")}</span><b className={`is-${toneOf(indices.kospiInvestor?.foreign_amount)}`}>{number(flow(indices.kospiInvestor?.foreign_amount))}</b></div><div><span>{L("코스피 기관 순매수", "KOSPI institutional net buying")}</span><b className={`is-${toneOf(indices.kospiInvestor?.institution_amount)}`}>{number(flow(indices.kospiInvestor?.institution_amount))}</b></div></> : <><div><span>{L("주도 섹터", "Leading sector")}</span><b>{leadingSector ?? "—"}</b></div><div><span>{L("빅테크 7 등락", "Big Tech 7 move")}</span><b className={`is-${toneOf(bigTechMove)}`}>{number(pct(bigTechMove))}{bigTechShare != null && <small>{L("비중", "Weight")} {number(`${(bigTechShare * 100).toFixed(0)}%`)}</small>}</b></div></>}</div>
       <p className="ed-overview-basis">{market === "kr" ? L("지수 전일 대비 · 수급 단위 억원", "Indices vs. previous close · flows in KRW 100M") : <>{L("종목 시세", "Stock quotes")} {sessionText ?? L("세션 확인 중", "Session pending")} · {L("지수와 종목의 기준 시각은 다를 수 있습니다", "Index and stock quote times may differ")}</>}</p>
     </div><MarketBreadth market={market} items={items} active={motion.active} cycle={motion.cycle} /></div>
     <div className="ed-assets-heading"><span>{L("함께 보는 자산", "Across assets")}</span><small>{L("유가 · 귀금속 · 가상자산", "Energy · metals · crypto")}</small></div>
@@ -91,11 +93,11 @@ export default function MarketOverview({ market, items, asOf, generatedAt, sessi
         const quote = ticker.find(item => item.symbol === asset.symbol);
         const price = quote && Number.isFinite(quote.price) && quote.price > 0 ? quote.price : null;
         const updated = quote?.quote_time ? new Date(quote.quote_time * 1000).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : null;
-        return <div key={asset.symbol} className="ed-asset-quote" title={`${L(asset.name, asset.en)} · ${L(asset.unit, asset.unitEn)}${updated ? ` · ${updated}` : ""}`}>
+        return <Link to={marketAssetPath(asset.symbol)!} key={asset.symbol} className="ed-asset-quote" title={`${L(asset.name, asset.en)} · ${L(asset.unit, asset.unitEn)}${updated ? ` · ${updated}` : ""}`}>
           <span>{L(asset.name, asset.en)}<small>{L(asset.unit, asset.unitEn)}</small></span>
           <div><strong>{number(price == null ? "—" : `$${price.toLocaleString("en-US", { minimumFractionDigits: asset.digits, maximumFractionDigits: asset.digits })}`)}</strong><b className={`is-${toneOf(quote?.change_pct)}`}>{number(price == null ? "—" : pct(quote?.change_pct))}</b></div>
           <MiniLine points={quote?.points ?? []} up={(quote?.change_pct ?? 0) >= 0} cycle={motion.cycle} />
-        </div>;
+        </Link>;
       })}
     </div>
   </div>;

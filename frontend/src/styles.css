@@ -5100,6 +5100,8 @@ thead .weekly-foreign-amount-col {
   flex-shrink: 0;
   border-right: 1px solid var(--border);
 }
+.ticker-card-link{display:block;flex-shrink:0;color:inherit;text-decoration:none}
+.ticker-card-link:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 .ticker-icon {
   width: 28px;

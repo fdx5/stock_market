@@ -2,6 +2,8 @@ import { memo } from "react";
 import { MarketTickerItem } from "../api/client";
 import { useMarketTicker } from "../useMarketTicker";
 import { useL } from "./lib";
+import { marketAssetPath } from "../marketAssets";
+import { Link } from "../router";
 
 /* The tape. The classic belt drew a card per symbol with a sparkline in each;
    this is set the way a stock tape actually reads — symbol, last, move, a thin
@@ -19,8 +21,7 @@ function priceText(item: MarketTickerItem): string {
 const Cell = memo(
   function Cell({ item }: { item: MarketTickerItem }) {
     const tone = item.change > 0 ? "up" : item.change < 0 ? "down" : "flat";
-    return (
-      <span className={`d2-tape-cell is-${tone}`}>
+    const content = <>
         <b>{item.label}</b>
         <span className="d2-tape-px">{priceText(item)}</span>
         <span className="d2-tape-ch">
@@ -28,8 +29,9 @@ const Cell = memo(
           {Math.abs(item.change_pct).toFixed(2)}%
         </span>
         {(item.session === "pre" || item.session === "post") && <em>{item.session === "pre" ? "PRE" : "AFT"}</em>}
-      </span>
-    );
+      </>;
+    const to = marketAssetPath(item.symbol);
+    return to ? <Link to={to} className={`d2-tape-cell is-${tone}`}>{content}</Link> : <span className={`d2-tape-cell is-${tone}`}>{content}</span>;
   },
   (a, b) => a.item.price === b.item.price && a.item.change_pct === b.item.change_pct && a.item.session === b.item.session
 );

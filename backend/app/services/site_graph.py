@@ -32,8 +32,11 @@ from typing import Iterable
 # ─────────────────────────────── layer 1: pages ───────────────────────────────
 # `path` is the client-side route, which is also the key activity_log reports events
 # under — that join is what lets a real visitor's page view light the right node.
+from app.services.asset_prices import ASSETS
+from app.services.social_cards import SOCIAL_CARDS
+
 PAGES: list[dict] = [
-    {"id": "page:/", "label": "허브 (태양계)", "path": "/", "group": "entry"},
+    {"id": "page:/", "label": "관제 홈", "path": "/", "group": "entry"},
     {"id": "page:/desk", "label": "마켓 데스크 1면", "path": "/desk", "group": "stock"},
     # Still routed, and deliberately: nothing links to it any more, but bookmarks and
     # anything already indexed keep resolving here. See App.tsx.
@@ -88,6 +91,9 @@ PAGES: list[dict] = [
     {"id": "page:/admin/growth", "label": "성장 통계", "path": "/admin/growth", "group": "admin"},
     {"id": "page:/admin/live", "label": "실시간 접속", "path": "/admin/live", "group": "admin"},
 ]
+
+PAGES.extend({"id": f"page:/prices/{asset}", "path": f"/prices/{asset}",
+              "label": SOCIAL_CARDS[f"/prices/{asset}"]["title"].split(" | ")[0], "group": "market"} for asset in ASSETS)
 
 # ─────────────────────── layer 3/4: stores and upstreams ───────────────────────
 DEPOTS: list[dict] = [
@@ -646,6 +652,7 @@ PAGE_CALLS: dict[str, list[str]] = {
 # session, and the activity tracker reports a page view on every route change. Listing
 # them per page would have added an edge from all 24 nodes twice over and taught a
 # reader nothing they can't read here, so `build_graph` attaches them instead.
+PAGE_CALLS.update({f"page:/prices/{asset}": [f"/api/market/assets/{asset}/history", "/api/market/ticker", "/api/investor/indices"] for asset in ASSETS})
 SHELL_CALLS: list[str] = ["/api/geo/country"]
 # ...and this one from every route except the admin ones, which never report themselves
 # — admin usage would otherwise pollute the very statistics it is looking at (see the
@@ -667,6 +674,7 @@ API_DEPENDS: list[tuple[str, list[str]]] = [
     ("/api/market/us-sector-map", ["store:cache", "up:slickcharts", "up:yahoo"]),
     ("/api/market/board", ["store:cache", "up:naver", "up:yahoo", "up:slickcharts"]),
     ("/api/market/ticker", ["store:cache", "up:yahoo"]),
+    ("/api/market/assets/", ["store:cache", "up:yahoo"]),
     ("/api/market/weather", ["store:cache", "up:openmeteo"]),
     # Scraped once a day and kept in Turso, so a read serves the stored snapshot and
     # only the batch route goes out to TrendForce.

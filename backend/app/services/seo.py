@@ -17,6 +17,7 @@ from app.data import investor_fetcher
 from app.data.universe import get_stock_name, get_top_market_cap_all
 from app.services import market_brief_store
 from app.services.cache import cache
+from app.services.social_cards import SOCIAL_CARDS
 
 from app.site import PRIMARY_SITE_URL
 
@@ -353,6 +354,8 @@ def _investor_faq(name: str, code: str, digest: dict) -> list[tuple[str, str]]:
     ]
 
 PAGES: dict[str, tuple[str, str]] = {
+    **{f"/prices/{key}": (f"{name} 시세·1년 차트·일별 가격 | K-Stock Hub", f"{name}의 최근 1년 가격 차트와 일자별 시가, 고가, 저가, 종가 및 등락률을 확인하세요.")
+       for key, name in (("usd-krw", "원/달러 환율"), ("bitcoin", "비트코인"), ("ethereum", "이더리움"), ("xrp", "리플 XRP"), ("wti", "WTI 유가 선물"), ("gold", "금 선물"), ("silver", "은 선물"))},
     "/sector/semiconductor": ("반도체 관련주·등락률 | K-Stock Hub", "코스피·코스닥 반도체 관련주의 현재가, 등락률과 거래대금을 비교합니다."),
     "/ranking/trading-value": ("오늘 거래대금 순위 | K-Stock Hub", "코스피·코스닥 종목을 오늘 거래대금 기준으로 비교합니다."),
     "/market/kospi/foreign-buying": ("종목별 외국인·기관 수급 전체보기 | K-Stock Hub", "코스피·코스닥 상장 종목의 외국인·기관·개인 순매수 금액을 비교하고 종목별 투자자 매매동향 페이지로 이동하세요."),
@@ -409,8 +412,11 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     investor_code, investor_name = _investor_identity(canonical_path)
     page_lookup = "/market-brief" if brief_day else canonical_path
     title, description = PAGES.get(page_lookup, PAGES["/"])
-    page_image = IMAGE
-    image_alt = ""
+    social = SOCIAL_CARDS.get(page_lookup)
+    if social:
+        title, description = social["title"], social["description"]
+    page_image = f'{SITE}{social["image"]}' if social else IMAGE
+    image_alt = social["alt"] if social else ""
     if brief:
         title = f"{brief_day} {brief_market.upper()} 오늘 브리핑 | K-Stock Hub"
         description = _brief_description(brief, brief_day, brief_market)

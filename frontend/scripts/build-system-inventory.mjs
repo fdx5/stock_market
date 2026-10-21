@@ -19,6 +19,9 @@ for (const file of files) {
   const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
   const hosts = new Set();
   function visit(node) {
+    // Navigation includes bounded asset routes rendered from a shared page registry.
+    if (path.basename(file) === 'navigation.ts' && ts.isArrayLiteralExpression(node) && node.elements.length === 3 &&
+        node.elements.every(ts.isStringLiteral) && node.elements[0].text.startsWith('/')) routes.add(node.elements[0].text.split('?')[0]);
     if (path.basename(file) === 'App.tsx' && ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
         ts.isIdentifier(node.left) && node.left.text === 'path' && ts.isStringLiteral(node.right)) routes.add(node.right.text);
     if (ts.isStringLiteralLike(node) || node.kind === ts.SyntaxKind.TemplateHead || node.kind === ts.SyntaxKind.TemplateMiddle) {

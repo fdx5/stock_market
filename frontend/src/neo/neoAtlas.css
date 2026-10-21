@@ -151,8 +151,12 @@ html[data-design="neo"][data-fx="minimal"] .ng-header-clock time{text-shadow:non
 
 html:root[data-design="neo"][data-theme]{--ng-pulse:50px}
 .ng-top-rail{height:var(--ng-pulse);position:sticky;top:var(--ng-header);z-index:90;display:grid;grid-template-columns:minmax(0,1fr) 380px;background:#1c1621;border-bottom:1px solid var(--line-soft)}
-.ng-top-rail>.ng-pulse{position:static;height:100%;min-width:0;border:0}
+.ng-top-rail>.ng-pulse{position:static;z-index:auto;height:100%;min-width:0;border:0}
 .ng-audio-toolbar{min-width:0;min-height:0!important;height:100%;padding:0 14px 0 10px;border-left:1px solid #d6b54e50;background:#231b29;display:flex;align-items:center;font-family:var(--f-sans)}
+.ng-audio-support{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:0 0 auto;min-height:44px;padding-right:9px;margin-right:9px;border-right:1px solid #bf85ff30;color:var(--text-primary);font:600 10px var(--f-sans);text-decoration:none;white-space:nowrap}
+.ng-audio-support>.ng-icon{width:17px;height:17px;color:#d3a5ff;filter:drop-shadow(0 0 2px #b57bff88)}
+.ng-audio-support:hover{color:#e1c4ff}.ng-audio-support:focus-visible{outline:2px solid var(--accent-neon);outline-offset:2px}
+html[data-design="neo"] .ng-audio-toolbar>.d2-bgm--header{flex:1 1 0;min-width:0}
 html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header{--eq-w:55px;--eq-h:23px;width:100%;display:grid;grid-template-columns:var(--eq-w) minmax(0,1fr) auto auto;grid-template-areas:"eq meta transport power";gap:8px;padding:0;margin:0;border:0;border-radius:0;background:none;min-height:44px;color:var(--text-primary)}
 html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-deck{display:contents}
 html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-eq{grid-area:eq;gap:2px}
@@ -175,25 +179,37 @@ html[data-design="neo"][data-fx="minimal"] .ng-audio-toolbar .d2-bgm-title.is-ov
 @media(prefers-reduced-motion:reduce){.ng-audio-toolbar .d2-bgm-title.is-overflow span{animation:none!important;transform:none!important}}
 @media print{.ng-top-rail{display:none}}
 html[data-design="neo"] .ng-legacy-bgm{display:none!important}
+.ng-asset-belt>div:last-of-type{gap:1px;background:#d6b54e38}
+.ng-asset-link{display:block;min-width:0;height:100%;background:var(--bg-root);color:inherit;text-decoration:none}
+.ng-asset-belt .ng-asset-link article{border:0;height:100%}
+.ng-asset-link:hover{background:#d6b54e0c}.ng-asset-link:focus-visible{outline:2px solid var(--mustard);outline-offset:-2px}
+.macro-rate-link{display:block;color:inherit;text-decoration:none}
 
-/* One electrical filament at the header boundary; other frame rules breathe in place. */
+/* Electrical currents on the shell boundaries; panel borders breathe in place. */
 .ng-header{border-bottom-color:#d6b54e42}
-.ng-header-current{position:absolute;left:0;right:0;bottom:-10px;height:19px;overflow:hidden;pointer-events:none!important;z-index:4}
+.ng-header[data-current-tone="violet"]{border-bottom-color:#b57bff42}
+.ng-header-current{--current-dim:#a56c17;--current-color:#e4b738;--current-bright:#f5d767;--current-core:#fff9d9;--current-tip:#fff1a3;--current-forks:#eabf57;--current-glow:#ffd052;position:absolute;left:0;right:0;bottom:-10px;height:19px;overflow:hidden;pointer-events:none!important;z-index:4}
+.ng-header-current[data-tone="violet"]{--current-dim:#683a9b;--current-color:#a16aef;--current-bright:#cd9cff;--current-core:#f9eeff;--current-tip:#e9ceff;--current-forks:#b77cf1;--current-glow:#b57bff}
 .ng-header-current>i{position:absolute;top:0;bottom:0;left:-25%;width:25%;animation:ng-header-current-run 8s linear infinite;will-change:transform}
-.ng-header-current>i:before{content:"";position:absolute;left:0;right:0;top:9px;height:1px;background:linear-gradient(90deg,transparent,#a56c1712 8%,#d49d343d 32%,#efc954a6 65%,#fff1a4 86%,transparent);box-shadow:0 0 3px #f2c54e9c}
-.ng-header-current>i:after{content:"";position:absolute;right:12px;top:6px;width:30px;height:7px;background:radial-gradient(ellipse,#fff8d475,#ffd34f24 42%,transparent 74%);animation:ng-current-lustre 3.4s ease-in-out infinite}
-.ng-current-discharge{position:absolute;right:0;top:0;display:block;width:84px;height:19px;overflow:visible;filter:drop-shadow(0 0 1.8px #ffd052)}
-.ng-current-filament{fill:none;stroke:url(#ng-current-filament);stroke-width:1.05;stroke-linejoin:round;stroke-linecap:round}
-.ng-current-forks{fill:none;stroke:#eabf57;stroke-width:.65;stroke-linecap:round;opacity:.62;animation:ng-current-corona 2.17s ease-in-out infinite}
-.ng-current-mote{fill:#ffe7a0;opacity:0;animation:ng-current-mote 3.4s ease-out infinite;transform-box:fill-box;transform-origin:center}
+.ng-header-current>i:before{content:"";position:absolute;left:0;right:0;top:9px;height:1px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--current-dim) 7%,transparent) 8%,color-mix(in srgb,var(--current-color) 24%,transparent) 32%,color-mix(in srgb,var(--current-bright) 65%,transparent) 65%,var(--current-tip) 86%,transparent);box-shadow:0 0 3px color-mix(in srgb,var(--current-glow) 62%,transparent)}
+.ng-header-current>i:after{content:"";position:absolute;right:12px;top:6px;width:30px;height:7px;background:radial-gradient(ellipse,color-mix(in srgb,var(--current-core) 46%,transparent),color-mix(in srgb,var(--current-glow) 14%,transparent) 42%,transparent 74%);animation:ng-current-lustre 3.4s ease-in-out infinite}
+.ng-current-discharge{position:absolute;right:0;top:0;display:block;width:84px;height:19px;overflow:visible;filter:drop-shadow(0 0 1.8px var(--current-glow))}
+.ng-current-filament{fill:none;stroke-width:1.05;stroke-linejoin:round;stroke-linecap:round}
+.ng-current-forks{fill:none;stroke:var(--current-forks);stroke-width:.65;stroke-linecap:round;opacity:.62;animation:ng-current-corona 2.17s ease-in-out infinite}
+.ng-current-mote{fill:var(--current-tip);opacity:0;animation:ng-current-mote 3.4s ease-out infinite;transform-box:fill-box;transform-origin:center}
 .ng-current-mote-b{animation-delay:-1.43s}
+.ng-current-pulse>i{animation-delay:-4s}
+.ng-sidebar-current{position:fixed;left:calc(var(--ng-rail) - 10px);top:calc(var(--ng-header) + var(--ng-pulse));bottom:0;width:19px;overflow:hidden;z-index:45;pointer-events:none!important}
+.ng-sidebar-current>.ng-header-current{left:19px;right:auto;top:0;bottom:auto;width:calc(100dvh - var(--ng-header) - var(--ng-pulse));transform:rotate(90deg);transform-origin:0 0}
+.ng-current-sidebar>i{animation-duration:11s;animation-delay:-2s}
+@media(max-width:899px){.ng-sidebar-current{display:none}}
 @keyframes ng-header-current-run{from{transform:translateX(0)}to{transform:translateX(500%)}}
 @keyframes ng-current-corona{0%,100%{opacity:.42}36%{opacity:.85}63%{opacity:.56}}
 @keyframes ng-current-lustre{0%,100%{opacity:.45}29%,65%{opacity:.9}49%{opacity:.65}}
 @keyframes ng-current-mote{0%,25%,45%,100%{opacity:0;transform:translate(0,0)}30%{opacity:.8;transform:translate(-1px,0)}42%{opacity:0;transform:translate(-5px,-1.5px)}}
 html[data-frame-light="off"] .ng-header-current,html[data-fx="minimal"] .ng-header-current{display:none}
 @media(prefers-reduced-motion:reduce){.ng-header-current{display:none!important}.ng-header-current *,.ng-header-current>i:after{animation:none!important;will-change:auto}}
-@media print{.ng-header-current{display:none!important}}
+@media print{.ng-header-current,.ng-sidebar-current{display:none!important}}
 .ng-frame-layer{position:absolute;inset:0;display:block;width:100%;height:100%;overflow:hidden;pointer-events:none!important;z-index:3;color:var(--workspace-accent,var(--accent-neon));contain:layout style}
 .ng-frame-layer .ng-frame-glow{fill:none;stroke:color-mix(in srgb,currentColor 65%,white);stroke-width:1;stroke-dasharray:none;filter:drop-shadow(0 0 3px currentColor);animation:ng-frame-breathe var(--glow-duration,15s) ease-in-out var(--glow-delay,0s) infinite;animation-play-state:paused}
 .ng-frame-layer.is-visible .ng-frame-glow{animation-play-state:running}

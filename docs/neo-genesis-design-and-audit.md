@@ -208,3 +208,59 @@ The drone explorer intentionally retains its existing full-screen body portal an
 close control. Its control palette inherits the new theme; its renderer, resolution,
 camera movement and browser fallback are outside this design change. No actual Mac
 hardware verification is claimed.
+
+## October 22 cross-market pages and share previews
+
+Seven public `/prices/` pages cover USD/KRW, Bitcoin, Ethereum, XRP, WTI crude
+futures, gold futures and silver futures. Each has a calendar-year daily close chart,
+keyboard/pointer date inspection, 1/3/6-month and 1-year ranges, annual high/low and
+change, and paginated daily OHLC/change records. Crypto and commodity families have
+three-way destination buttons. Home, Market Pulse, both market overviews and legacy
+quote surfaces link into the detail pages; Ethereum joins the overview asset strip.
+
+The new read-only daily-history service requests Yahoo's daily bars with bounded
+timeouts and host fallback, uses the provider's daily timezone and a five-minute
+single-flight memory cache, and preserves a preceding close for the first displayed
+day's change. Missing values remain missing. Quote and daily-history timestamps and
+FX/futures units are explicit. There are no database or persistent-store operations
+in this service. Seven concrete API routes deliberately keep request latency/error
+series separate per asset. Page labels, graph nodes and page-to-API/Yahoo edges,
+and the source-derived System Atlas route inventory include all seven pages.
+
+All 42 destinations in the complete left-menu directory have newly rendered,
+distinct 1200x630 PNG share cards, titles and descriptions. The generator creates
+original decorative route graphics rather than simulated market screenshots.
+Matching static manifests drive server HTML Open Graph/Twitter/structured-data
+images and client-side navigation. Hashes in image filenames avoid reusing an old
+image URL. Existing dated-brief and detailed-stock SEO handling remains in place.
+The small favicon uses a large dark K on a bright yellow tile, with SVG and
+16/32/180/192px raster variants and versioned icon URLs.
+
+Map-family content removes the 1800px maximum measure and fills the available
+workspace width. Chrome and Windows WebKit checks cover all five maps at 390,
+1920, 2560, 3440 and 3840px (50 cases), including the actual equity-map canvas.
+The seven price pages passed 56 browser/viewport cases using real provider-history
+snapshots, plus chart keyboard inspection, ranges, daily pagination, cross-navigation
+and unavailable-provider retry. Independent backend tests cover calendar/leap-year
+boundaries, timezones, incomplete bars, finite JSON, fallback, seven route identities,
+monitor graph dependencies and all 42 raw-HTML metadata/image contracts. No existing
+database is used for testing; browser telemetry is intercepted in local UI fixtures.
+
+Additional shell fixes: news company selection exposes the full roster in a wrapping
+grid; the support coffee link precedes the single BGM player; drone explorer is
+destination 05 in Explore. Market routes use gold electrical currents and map/ETF/
+intelligence routes use violet. Independent SVG gradients serve the header and
+Market Pulse boundaries and the downward violet sidebar current. The Pulse grid
+item's inherited z-index is reset so it cannot obscure the upper half of the lower
+current. Hidden-sidebar/mobile, reduced-motion and effects-off behavior are retained.
+The audio meter and marquee defer ResizeObserver writes to animation frames.
+
+Orbit textures were not universally missing from the CDN: a lifetime automatic
+loading cap stopped after ten planets, leaving later visible bodies on placeholders.
+Visible loading now continues with a three-item pending-work budget, retries and a
+full-surface fallback for a failed preview. Resolution and material quality are
+unchanged. Real-feed Chrome checks loaded 16 KOSDAQ, 16 NASDAQ and 19 KOSPI surfaces,
+and verified a deliberately failed preview recovered through the full image. At a
+1440x1000 viewport, DPR 1, the orbit drawing buffer stayed 1232x833. Post-drag samples
+of 180 frames had minimum one-second rates near 59.98 FPS; these are local orbit
+checks, not a universal-device or actual Mac/drone-flight claim.

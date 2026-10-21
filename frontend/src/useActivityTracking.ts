@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getSessionId } from "./session";
 import { deviceInfo, resolveDeviceInfo } from "./deviceInfo";
+import { MARKET_ASSETS } from "./marketAssets";
 
 const EVENT_ENDPOINT = "/api/activity/event";
 const CLICK_DEBOUNCE_MS = 500;
@@ -56,6 +57,8 @@ export function pageLabel(path: string): string {
   // trailing slash. Classify the canonical route instead of falling through to 기타.
   const cleanPath = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
   path = cleanPath;
+  const asset = MARKET_ASSETS.find(asset => path === `/prices/${asset.key}`);
+  if (asset) return `${asset.ko} 시세 상세`;
   if (path === "/admin/system-atlas") return "시스템 아틀라스";
   // The admin dashboard groups per-code paths with routeTemplate before labelling, so
   // the templates themselves have to resolve to the page they stand for.
@@ -68,7 +71,8 @@ export function pageLabel(path: string): string {
   if (path === "/index/{symbol}") return "지수 차트";
   if (path === "/market-brief/{day}") return "날짜별 오늘 브리핑";
   if (path === "/etf/compare/{codes}") return "ETF 비교";
-  if (path === "/" || path === "/hub" || path === "/type2") return "메인 (태양계)";
+  if (path === "/") return "관제 홈";
+  if (path === "/hub" || path === "/type2") return "태양계 입구";
   if (path === "/desk") return "마켓 데스크";
   if (path === "/desk2") return "마켓 데스크 (위젯판)";
   if (path === "/dram-price") return "D램 현물가격";

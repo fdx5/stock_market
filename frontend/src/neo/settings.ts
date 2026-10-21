@@ -24,7 +24,7 @@ function apply() {
   document.documentElement.dataset.frameLight = frameLight ? "on" : "off";
   if (design === "neo" && !document.getElementById("neo-brand-icon")) {
     const icon = document.createElement("link");
-    icon.id = "neo-brand-icon"; icon.rel = "icon"; icon.type = "image/svg+xml"; icon.href = "/neo/kstock-symbol.svg";
+    icon.id = "neo-brand-icon"; icon.rel = "icon"; icon.type = "image/svg+xml"; icon.href = "/neo/kstock-favicon.svg?v=20261022";
     document.head.appendChild(icon);
   } else if (design !== "neo") document.getElementById("neo-brand-icon")?.remove();
 }

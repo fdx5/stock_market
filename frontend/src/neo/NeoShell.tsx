@@ -5,7 +5,7 @@ import { useMarketIndices } from "../useMarketIndices";
 import { useMarketTicker } from "../useMarketTicker";
 import { pct } from "../desk2/lib";
 import Colophon from "../desk2/Colophon";
-import { NEO_GROUPS, neoRouteFamily, routeLabel } from "./navigation";
+import { NEO_GROUPS, neoRouteFamily, neoHeaderCurrentTone, routeLabel } from "./navigation";
 import { setDesignMode, setFxLevel, useDesignMode, useFxLevel, setFrameLight, useFrameLight } from "./settings";
 import NeoIcon from "./NeoIcon";
 import NeoLogo from "./NeoLogo";
@@ -15,6 +15,7 @@ import NeoFrameLights from "./NeoFrameLights";
 import { useBroadsheetFonts } from "../desk2/fonts";
 import DeskBgm from "../desk2/DeskBgm";
 import BookmarkButton from "../components/BookmarkButton";
+import { MARKET_ASSETS, marketAssetPath } from "../marketAssets";
 import "../desk2/desk2.css";
 import "./neo.css";
 import "./neoPages.css";
@@ -33,7 +34,7 @@ function NeoPulse() {
   const values = [
     { name: "KOSPI", price: kospi?.close, change: kospi?.change_pct, to: "/index/kospi" },
     { name: "KOSDAQ", price: kosdaq?.close, change: kosdaq?.change_pct, to: "/index/kosdaq" },
-    ...["^GSPC", "^NDX", "KRW=X", "BTC-USD"].map((symbol, i) => { const value = ticker.find(item => item.symbol === symbol); return { name: ["S&P 500", "NASDAQ 100", "USD/KRW", "BTC/USD"][i], price: value?.price, change: value?.change_pct, to: ["/sp500-map", "/nasdaq100-map", "/global", "/global"][i] }; }),
+    ...["^GSPC", "^NDX", ...MARKET_ASSETS.map(asset => asset.symbol)].map((symbol, i) => { const value = ticker.find(item => item.symbol === symbol); return { name: i < 2 ? ["S&P 500", "NASDAQ 100"][i] : MARKET_ASSETS[i - 2].code.replace(/ /g, ""), price: value?.price, change: value?.change_pct, to: marketAssetPath(symbol) ?? (i ? "/nasdaq100-map" : "/sp500-map") }; }),
   ];
   return <div className="ng-pulse"><span className="ng-pulse-label"><i /> MARKET PULSE</span><div className="ng-pulse-values">{values.map(value => <Link key={value.name} to={value.to}><span>{value.name}</span><b>{value.price != null && Number.isFinite(value.price) && value.price > 0 ? value.price.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—"}</b><em className={value.change == null ? "" : value.change > 0 ? "is-up" : value.change < 0 ? "is-down" : "is-flat"}>{pct(value.change)}</em></Link>)}</div></div>;
 }
@@ -95,12 +96,14 @@ export default function NeoShell({ path, children }: { path: string; children: R
 
   if (design !== "neo") return <>{children}<button type="button" className="ng-preview-switch" onClick={() => setDesignMode("neo")}>K STOCK HUB {L("새 디자인", "New design")} ↗</button></>;
   const family = neoRouteFamily(path);
+  const currentTone = neoHeaderCurrentTone(path, window.location.search);
+  const showCurrent = family !== "immersive" && frameLight && fx !== "minimal";
   const current = (to: string) => to.split("?")[0] === path;
   const navLink = (link: readonly [string, string, string]) => <Link key={link[0]} to={link[0]} aria-current={current(link[0]) ? "page" : undefined}><span>{link[lang === "ko" ? 1 : 2]}</span><NeoIcon name="chevron" /></Link>;
   return <div className={`ng-shell ng-family-${family}`} data-workspace={path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
     <NeoFrameLights disabled={family === "immersive"} />
     <a className="ng-skip" href="#neo-content">{L("본문 바로가기", "Skip to content")}</a>
-    <header className="ng-header">
+    <header className="ng-header" data-current-tone={currentTone}>
       <Link to="/" className="ng-brand" aria-label="K Stock Hub home"><NeoLogo className="ng-brand-logo" /></Link>
       <nav className="ng-primary-nav" aria-label={L("주요 메뉴", "Primary navigation")}>
         {[["/desk", "마켓", "Markets"], ["/map", "맵", "Maps"], ["/etf", "ETF", "ETF"], ["/market-brief", "인텔리전스", "Intelligence"]].map(([to, ko, en]) => <Link key={to} to={to} aria-current={path === to ? "page" : undefined}>{L(ko, en)}</Link>)}
@@ -108,15 +111,16 @@ export default function NeoShell({ path, children }: { path: string; children: R
       <button type="button" className="ng-search-trigger" onClick={event => open("search", event.currentTarget)} aria-label={L("종목 및 페이지 검색", "Search stocks and pages")}><NeoIcon name="search" /><span>{L("종목 · 코드 · 페이지 검색", "Search stocks, symbols, pages")}</span><kbd>⌘ K</kbd></button>
       <div className="ng-header-tools"><button type="button" className="ng-language" onClick={() => setLang(lang === "ko" ? "en" : "ko")} aria-label={L("영어로 전환", "Switch to Korean")}>{lang === "ko" ? "EN" : "KO"}</button><button type="button" onClick={event => open("settings", event.currentTarget)} aria-label={L("화면 설정", "Display settings")}><NeoIcon name="settings" /></button><button type="button" className="ng-menu-trigger" onClick={event => open("menu", event.currentTarget)} aria-label={L("전체 메뉴", "All destinations")}><NeoIcon name="menu" /></button></div>
       <NeoHeaderClocks />
-      {family !== "immersive" && frameLight && fx !== "minimal" && <NeoHeaderCurrent />}
+      {showCurrent && <NeoHeaderCurrent tone={currentTone} />}
     </header>
-    <div className="ng-top-rail"><NeoPulse /><div className="d2 ng-audio-toolbar"><DeskBgm variant="header" /></div></div>
+    <div className="ng-top-rail"><NeoPulse /><div className="d2 ng-audio-toolbar"><Link to="/support" className="ng-audio-support" aria-label={L("커피 한 잔 후원", "Support with a coffee")}><NeoIcon name="coffee" /><span>{L("후원", "Support")}</span></Link><DeskBgm variant="header" /></div>{showCurrent && <NeoHeaderCurrent tone={currentTone} placement="pulse" />}</div>
     <aside className="ng-sidebar" aria-label={L("워크스페이스 탐색", "Workspace navigation")}>
       <div className="ng-sidebar-cap"><span>WORKSPACE</span><b>01 / KOSPIMAP</b></div>
-      {NEO_GROUPS.map(group => <div className="ng-nav-group" key={group.id}><h2><NeoIcon name={group.icon} />{L(group.ko, group.en)}</h2><nav>{group.links.slice(0, group.id === "markets" || group.id === "maps" ? 5 : 4).map(navLink)}</nav></div>)}
+      {NEO_GROUPS.map(group => <div className="ng-nav-group" key={group.id}><h2><NeoIcon name={group.icon} />{L(group.ko, group.en)}</h2><nav>{group.links.slice(0, group.id === "markets" || group.id === "maps" || group.id === "explore" ? 5 : 4).map(navLink)}</nav></div>)}
       <button type="button" className="ng-directory-button" onClick={event => open("menu", event.currentTarget)}><NeoIcon name="layers" />{L("전체 서비스", "All destinations")}<span>↗</span></button>
       <div className="ng-sidebar-foot"><span className="ng-status-dot" /> NEO GENESIS <small>MARKET INTELLIGENCE SYSTEM</small></div>
     </aside>
+    {showCurrent && <NeoHeaderCurrent tone="violet" placement="sidebar" />}
     <div className="ng-workspace">
       <div className="ng-context"><span><Link to="/">KOSPIMAP</Link><i>/</i>{routeLabel(path, lang)}</span><span className="ng-audience-slot" /><span className="ng-context-meta"><i />{L("데이터 기반 마켓 인텔리전스", "DATA-DRIVEN MARKET INTELLIGENCE")}</span><button type="button" onClick={event => open("menu", event.currentTarget)} aria-label={L("다른 워크스페이스", "Change workspace")}><NeoIcon name="layers" /></button></div>
       <div className="ng-content" id="neo-content" tabIndex={-1}>

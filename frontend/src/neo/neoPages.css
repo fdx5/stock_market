@@ -3,6 +3,7 @@ html[data-design="neo"] .ng-content :is(.d2,.app,.search-landing){min-height:0;b
 html[data-design="neo"] .ng-content :is(h1,h2,h3,h4,h5,p,button,input,select,textarea){font-family:var(--f-sans)}
 html[data-design="neo"] .ng-content :is(.d2-title,.d2-lead-title,.sk-name,.nw-lead-head,.nw-second-head,.bf-lede,.app-title){font-family:var(--f-sans);letter-spacing:-.035em;font-weight:650}
 html[data-design="neo"] .ng-content :is(.d2-main,.mm-main,.sl-main){max-width:none;padding:0;margin:0;min-width:0;width:100%}
+html[data-design="neo"] .ng-family-map .ng-content{width:100%;max-width:none}
 html[data-design="neo"] .ng-content :is(.d2-colophon,.d2-tape,.d2-dock-wrap,.sk-dock,.st-dock,.d2-mast,.app-nav-row,.sl-header,.app-footer){display:none!important}
 html[data-design="neo"] .ng-content .d2-skip{display:none}
 html[data-design="neo"] .ng-content .ng-page-heading{padding:14px 0 13px;border-bottom:1px solid var(--line-soft);margin:0 0 13px}
@@ -88,6 +89,16 @@ html[data-design="neo"] .ng-content .nw-meta{font:10px/1.6 var(--f-sans)}
 html[data-design="neo"] .ng-content .nw-company{gap:15px;padding:13px}
 html[data-design="neo"] .ng-content .nw-company-logo{width:52px;height:52px}
 html[data-design="neo"] .ng-content .nw-flag{font:650 23px/1.4 var(--f-sans)}
+/* Company navigation exposes the full roster instead of hiding a horizontal tail. */
+html[data-design="neo"] .ng-content .nw-bar{position:static;top:auto;z-index:auto;border-radius:2px}
+html[data-design="neo"] .ng-content .nw-bar-inner{display:block;padding:8px;min-height:0}
+html[data-design="neo"] .ng-content .nw-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;padding:0;overflow:visible;border-radius:0}
+html[data-design="neo"] .ng-content .nw-tabs>button{min-width:0;width:100%;min-height:44px;justify-content:flex-start;gap:6px;padding:7px 8px;border:1px solid var(--line-soft);border-radius:2px;text-align:left;white-space:normal}
+html[data-design="neo"] .ng-content .nw-tabs>button>span{min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.4}
+html[data-design="neo"] .ng-content .nw-tabs>button.is-on{border-color:var(--accent-neon);background:#bf85ff19;color:var(--accent-neon)}
+html[data-design="neo"] .ng-content .nw-tab-logo{width:20px;height:20px;flex:0 0 20px}
+@media(max-width:1199px){html[data-design="neo"] .ng-content .nw-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:599px){html[data-design="neo"] .ng-content .nw-bar-inner{padding:6px}html[data-design="neo"] .ng-content .nw-tabs{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}html[data-design="neo"] .ng-content .nw-tabs>button{padding:6px 5px;gap:5px}}
 html[data-design="neo"] .ng-content .bf-sheet{max-width:1100px;margin-inline:auto;padding:24px}
 html[data-design="neo"] .ng-content .bf-head{border-bottom:1px solid #685473;padding-bottom:18px}
 html[data-design="neo"] .ng-content .bf-head h1{font:650 clamp(24px,3vw,38px)/1.4 var(--f-sans)}

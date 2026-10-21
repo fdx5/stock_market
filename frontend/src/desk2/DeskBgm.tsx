@@ -300,12 +300,14 @@ function canvasMeter(eq: HTMLElement, bars: HTMLElement[], on: boolean) {
     }));
     draw(s.levels, s.peaks);
   };
-  const ro = new ResizeObserver(measure);
+  let measureRaf = 0;
+  const scheduleMeasure = () => { cancelAnimationFrame(measureRaf); measureRaf = requestAnimationFrame(measure); };
+  const ro = new ResizeObserver(scheduleMeasure);
   ro.observe(eq);
-  const themes = new MutationObserver(measure);
+  const themes = new MutationObserver(scheduleMeasure);
   themes.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
   measure();
-  return { draw, dispose: () => { ro.disconnect(); themes.disconnect(); cancelAnimationFrame(fadeRaf); fadeRaf = 0; } };
+  return { draw, dispose: () => { ro.disconnect(); themes.disconnect(); cancelAnimationFrame(measureRaf); cancelAnimationFrame(fadeRaf); fadeRaf = 0; } };
 }
 
 /** Scrolls a name too long for its line, back and forth, holding at each end. */
@@ -322,9 +324,10 @@ function useMarquee(ref: React.RefObject<HTMLElement>, text: string) {
     };
     // The observer's first callback measures (after layout), so nothing here forces a
     // synchronous layout of the page while React commits.
-    const ro = new ResizeObserver(measure);
+    let measureRaf = 0;
+    const ro = new ResizeObserver(() => { cancelAnimationFrame(measureRaf); measureRaf = requestAnimationFrame(measure); });
     ro.observe(box);
-    return () => ro.disconnect();
+    return () => { ro.disconnect(); cancelAnimationFrame(measureRaf); };
   }, [ref, text]);
 }
 

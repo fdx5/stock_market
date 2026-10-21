@@ -87,7 +87,7 @@ export default function NewsPage() {
   useEffect(() => {
     const strip = tabsRef.current;
     const tab = strip?.querySelector<HTMLElement>(".is-on");
-    if (strip && tab) strip.scrollLeft = tab.offsetLeft - strip.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2;
+    if (strip && tab && strip.scrollWidth > strip.clientWidth) strip.scrollLeft = tab.offsetLeft - strip.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2;
   }, [activeCode, roster.length]);
 
   useEffect(() => {

@@ -6,6 +6,7 @@ import { startVisibilityAwareInterval } from "../../pollVisibility";
 import { Link, navigate } from "../../router";
 import { useDocumentTitle } from "../../useDocumentTitle";
 import { usePopularStocks } from "../../usePopularStocks";
+import { marketAssetPath } from "../../marketAssets";
 import { useUsMarketSnapshot } from "../../useUsMarketSnapshot";
 import { useMarketTicker } from "../../useMarketTicker";
 import Colophon from "../Colophon";
@@ -642,9 +643,9 @@ function Cross({ ticker }: { ticker: MarketTickerItem[] }) {
               if (!t) return null;
               return (
                 <li key={sym}>
-                  <span className="wd-cross-name">{t.label}</span>
+                  <span className="wd-cross-name">{marketAssetPath(sym) ? <Link to={marketAssetPath(sym)!}>{t.label} ↗</Link> : t.label}</span>
                   <Spark points={t.points} tone={toneOf(t.change_pct)} className="wd-cross-spark" />
-                  <b className="d2-num">{t.price.toLocaleString("en-US", { maximumFractionDigits: t.price < 10 ? 4 : 2 })}</b>
+                  <b className="d2-num">{marketAssetPath(sym) ? <Link to={marketAssetPath(sym)!}>{t.price.toLocaleString("en-US", { maximumFractionDigits: t.price < 10 ? 4 : 2 })}</Link> : t.price.toLocaleString("en-US", { maximumFractionDigits: t.price < 10 ? 4 : 2 })}</b>
                   <em className={`d2-num is-${toneOf(t.change_pct)}`}>{pct(t.change_pct)}</em>
                 </li>
               );
