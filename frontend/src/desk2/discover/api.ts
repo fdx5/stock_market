@@ -36,6 +36,10 @@ export function useEditorial<T>(path: string) {
 }
 
 export const formatViews = (value: number) => value >= 10000 ? `${(value / 10000).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}만` : value.toLocaleString("ko-KR");
+export const editionTime = (end?: string) => end ? new Date(end).toLocaleTimeString("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit" }) : "08:00";
+export const videoWindowText = (data: VideoEdition | null) => data?.window_start && data.window_end
+  ? `${dateText(data.window_start, true)} ~ ${dateText(data.window_end, true)}(KST) 공개`
+  : "매일 08:00 · 16:00 KST 갱신";
 export const dollars = (value: number | null | undefined) => value == null ? "—" : `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const percent = (value: number | null | undefined, signed = false) => value == null ? "—" : `${signed && value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 export const compactDollars = (value: number | null | undefined) => value == null ? "—" : value >= 1e9 ? `$${(value / 1e9).toLocaleString("en-US", { maximumFractionDigits: 1 })}B` : `$${(value / 1e6).toLocaleString("en-US", { maximumFractionDigits: 1 })}M`;

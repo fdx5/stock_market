@@ -1,4 +1,4 @@
-"""08:00 KST editorial editions, with additive immutable snapshot files.
+"""08:00/16:00 KST videos and daily portfolios, with immutable snapshot files.
 
 No SQL, replacement, retention or deletion. Failed providers retain prior editions.
 Only server-side public market data is saved; requests cannot choose file paths.
@@ -31,6 +31,18 @@ _stop = threading.Event()
 _started = False
 
 
+def _window(kind: str) -> tuple[dt.datetime, dt.datetime]:
+    return source.edition_window() if kind == "investors" else source.video_edition_window()
+
+
+def _snapshot_key(payload: dict) -> tuple[str, dt.datetime, str]:
+    # Old daily snapshots are morning editions, even if collected after 16:00.
+    end = source._iso(payload.get("window_end", ""))
+    if end is None:
+        end = dt.datetime.fromisoformat(payload.get("edition") or "0001-01-01").replace(hour=8, tzinfo=source.KST)
+    return payload.get("edition", ""), end, payload.get("collected_at", "")
+
+
 def _load(kind: str) -> None:
     with _lock:
         if kind in _loaded: return
@@ -43,11 +55,10 @@ def _load(kind: str) -> None:
                     payload = json.loads(path.read_text(encoding="utf-8"))
                     if payload.get("items") and payload.get("edition"):
                         candidates.append(payload)
-                        break
                 except (OSError, ValueError, TypeError):
                     continue
         if candidates:
-            latest = max(candidates, key=lambda row: (row["edition"], row.get("collected_at", "")))
+            latest = max(candidates, key=_snapshot_key)
             _snapshots.setdefault(kind, latest)
         _loaded.add(kind)
 
@@ -95,7 +106,7 @@ def _refresh(kind: str) -> None:
         _save(kind, payload)
         with _lock:
             current = _snapshots.get(kind, {})
-            if (payload["edition"], payload.get("collected_at", "")) >= (current.get("edition", ""), current.get("collected_at", "")):
+            if _snapshot_key(payload) >= _snapshot_key(current):
                 _snapshots[kind] = payload
                 _failures.pop(kind, None)
     except Exception as exc:
@@ -110,17 +121,18 @@ def _refresh(kind: str) -> None:
 def ensure(kind: str) -> None:
     if kind not in KINDS: raise ValueError("Unknown editorial kind")
     _load(kind)
-    _, cutoff = source.edition_window()
+    _, cutoff = _window(kind)
     with _lock:
         current = _snapshots.get(kind, {})
         by_id = {row["id"]: row for row in current.get("items", [])}
         roster_complete = kind != "investors" or all(profile["id"] in by_id and (
             not profile.get("coverage_version") or by_id[profile["id"]].get("coverage_version") == profile["coverage_version"]
         ) for profile in source.INVESTORS)
-        if (current.get("edition") == cutoff.date().isoformat() and current.get("complete", True) and roster_complete) or kind in _running:
+        current_slot = kind == "investors" or _snapshot_key(current)[1] == cutoff
+        if (current.get("edition") == cutoff.date().isoformat() and current_slot and current.get("complete", True) and roster_complete) or kind in _running:
             return
         now = time.monotonic()
-        edition = cutoff.date().isoformat()
+        edition = cutoff.isoformat()
         if (_attempted_editions.get(kind) == edition and kind in _attempted
                 and now - _attempted[kind] < 60): return
         _attempted[kind] = now
@@ -130,20 +142,25 @@ def ensure(kind: str) -> None:
 
 
 def _status(kind: str, payload: dict | None) -> dict:
-    _, cutoff = source.edition_window()
+    _, cutoff = _window(kind)
+    next_update = ((cutoff + dt.timedelta(days=1)).replace(hour=8)
+                   if kind == "investors" or cutoff.hour == 16 else cutoff.replace(hour=16))
     with _lock:
         refreshing = kind in _running
         failure = _failures.get(kind)
     return {"status": "ready" if payload else "loading" if refreshing else "unavailable", "refreshing": refreshing,
-            "stale": bool(payload and payload.get("edition") != cutoff.date().isoformat()),
-            "last_refresh_error": failure, "next_update_at": (cutoff + dt.timedelta(days=1)).isoformat()}
+            "stale": bool(payload and (payload.get("edition") != cutoff.date().isoformat()
+                                       or kind != "investors" and _snapshot_key(payload)[1] != cutoff)),
+            "last_refresh_error": failure, "next_update_at": next_update.isoformat()}
 
 
 def accept_video_edition(market: str, payload: dict) -> dict:
     """Authenticated collector handoff; only append verified public video editions."""
-    start, cutoff = source.edition_window()
+    start, cutoff = source.video_edition_window()
     if market not in ("kr", "us") or payload.get("market") != market or payload.get("edition") != cutoff.date().isoformat():
-        raise ValueError("Collector edition does not match the current 08:00 KST window")
+        raise ValueError("Collector edition does not match the current KST video window")
+    if source._iso(payload.get("window_start", "")) != start or source._iso(payload.get("window_end", "")) != cutoff:
+        raise ValueError("Collector publication window does not match the current 08:00/16:00 KST slot")
     rows = payload.get("items", [])
     items = source.rank_videos(rows, market, start, cutoff)
     if not items or len(items) != len(rows):
@@ -161,7 +178,7 @@ def accept_video_edition(market: str, payload: dict) -> dict:
     with _lock:
         current = _snapshots.get(kind, {})
         # A delayed CI job must not displace a newer successful collection.
-        if (current.get("edition", ""), current.get("collected_at", "")) >= (clean["edition"], clean["collected_at"]):
+        if _snapshot_key(current) >= _snapshot_key(clean):
             return {"status": "already_current", "edition": current["edition"]}
         _save(kind, clean)
         _snapshots[kind] = clean
@@ -173,7 +190,7 @@ def get_videos(market: str) -> dict:
     kind = "videos-" + market
     ensure(kind)
     with _lock: payload = _snapshots.get(kind)
-    start, cutoff = source.edition_window()
+    start, cutoff = source.video_edition_window()
     return {"market": market, "items": [], "edition": None, "window_start": start.isoformat(), "window_end": cutoff.isoformat(),
             **(payload or {}), **_status(kind, payload)}
 
@@ -266,7 +283,7 @@ def start_scheduler() -> None:
                 try: ensure(kind)
                 except Exception as exc: logger.info("Editorial scheduling failed: type=%s", type(exc).__name__)
             _stop.wait(30)
-    threading.Thread(target=loop, name="editorial-08-kst", daemon=True).start()
+    threading.Thread(target=loop, name="editorial-kst", daemon=True).start()
 
 
 def stop_scheduler() -> None:

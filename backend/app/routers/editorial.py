@@ -22,6 +22,8 @@ class CollectorVideo(BaseModel):
 class CollectorEdition(BaseModel):
     market: str = Field(pattern="^(kr|us)$")
     edition: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    window_start: str = Field(max_length=50)
+    window_end: str = Field(max_length=50)
     collected_at: str = Field(max_length=50)
     candidate_count: int = Field(ge=1, le=10000)
     items: list[CollectorVideo] = Field(min_length=1, max_length=20)

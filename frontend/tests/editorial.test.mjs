@@ -127,3 +127,17 @@ test('empty source renders recovery state without fabricated recommendations', a
   assert(html.includes('이번 회차를 확인하고 있습니다'));
   __editorialRender.data['videos?market=us'] = previous;
 });
+
+test('afternoon videos show their actual cutoff and both daily collection rules', async () => {
+  const previous = __editorialRender.data['videos?market=us'];
+  __editorialRender.data['videos?market=us'] = { ...previous, window_start:'2026-10-20T00:00:00+09:00', window_end:'2026-10-20T16:00:00+09:00' };
+  try {
+    window.location.search = '?market=us';
+    const {InvestmentVideosPage} = await components('desk2/discover/DiscoveryPages.tsx');
+    const html = render(InvestmentVideosPage);
+    assert(html.includes('16:00 선정'));
+    assert(html.includes('16:00 KST에는 당일 00:00부터 16:00 이전까지'));
+    assert(html.includes('시점의 누적값'));
+    assert(!html.includes('08:00 선정'));
+  } finally { __editorialRender.data['videos?market=us'] = previous; }
+});

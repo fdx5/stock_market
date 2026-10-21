@@ -6,7 +6,7 @@ import Colophon from "../Colophon";
 import Masthead from "../Masthead";
 import { useBroadsheet } from "../shell";
 import { EditionNote, InvestorCard, PhotoCredit, Portrait, VideoCard, VideoPlayer } from "./DiscoverySections";
-import { compactDollars, dateText, dollars, percent, useEditorial, type Holding, type InvestmentVideo, type InvestorEdition, type PortfolioEdition, type VideoEdition } from "./api";
+import { compactDollars, dateText, videoWindowText, dollars, percent, useEditorial, type Holding, type InvestmentVideo, type InvestorEdition, type PortfolioEdition, type VideoEdition } from "./api";
 import "./discovery.css";
 
 function PageHeading({ label, title, description, back = "/desk" }: { label: string; title: string; description: string; back?: string }) {
@@ -25,14 +25,14 @@ export function InvestmentVideosPage() {
   const all = data?.items ?? [];
   const topics = ["전체", ...new Set(all.map(video => video.topic))];
   const videos = all.filter(video => (topic === "전체" || video.topic === topic) && `${video.title} ${video.channel}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => sort === "views" ? b.views - a.views : new Date(b.published_at).valueOf() - new Date(a.published_at).valueOf());
-  return <div className="d2 ed-page ed-videos-page"><Masthead onPrint={() => window.print()} rail={false} section={{ ko: "투자 영상", en: "The Watchlist", taglineKo: "어제부터 오늘 아침까지, 많이 본 투자 이야기", taglineEn: "An 08:00 KST edition of investment videos" }} /><main className="d2-main">
-    <PageHeading label="THE WATCHLIST / DAILY 08:00" title={market === "us" ? "오늘, 함께 보는 미국 증시" : "오늘, 함께 보는 국내 증시"} description="어제부터 오늘 오전 8시까지 공개된 영상. 수집 후보에서 조회수로 정렬한 스무 가지 이야기." back={market === "us" ? "/global" : "/desk"} />
+  return <div className="d2 ed-page ed-videos-page"><Masthead onPrint={() => window.print()} rail={false} section={{ ko: "투자 영상", en: "The Watchlist", taglineKo: "아침과 오후, 많이 본 투자 이야기", taglineEn: "Investment videos at 08:00 and 16:00 KST" }} /><main className="d2-main">
+    <PageHeading label="THE WATCHLIST / DAILY 08:00 & 16:00" title={market === "us" ? "오늘, 함께 보는 미국 증시" : "오늘, 함께 보는 국내 증시"} description={`${videoWindowText(data)}. 수집 후보에서 누적 조회수로 정렬한 스무 가지 이야기.`} back={market === "us" ? "/global" : "/desk"} />
     <div className="ed-video-market-tabs" role="group" aria-label="영상 시장 선택"><Link to="/investment-videos?market=kr" aria-current={market === "kr" ? "page" : undefined}>국내 주식 <span>SEOUL</span></Link><Link to="/investment-videos?market=us" aria-current={market === "us" ? "page" : undefined}>나스닥·미국 주식 <span>NEW YORK</span></Link></div>
     <div className="ed-page-toolbar"><div className="ed-filter-chips" role="group" aria-label="영상 주제">{topics.map(value => <button key={value} type="button" className={topic === value ? "is-on" : ""} aria-pressed={topic === value} onClick={() => setTopic(value)}>{value}</button>)}</div><label className="ed-search"><span>검색</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="제목 또는 채널" aria-label="영상 제목 또는 채널 검색" /></label><label className="ed-select"><span className="sr-only">영상 정렬</span><select value={sort} onChange={event => setSort(event.target.value as "views" | "recent")}><option value="views">많이 본 순</option><option value="recent">최근 공개 순</option></select></label></div>
-    <div className="ed-list-context"><span>{all.length ? `${all.length}개 선정 · ${videos.length}개 표시` : "이번 회차 영상을 확인하고 있습니다"}</span><EditionNote edition={data?.edition} stale={data?.stale} noun="선정" /></div>
+    <div className="ed-list-context"><span>{all.length ? `${all.length}개 선정 · ${videos.length}개 표시` : "이번 회차 영상을 확인하고 있습니다"}</span><EditionNote edition={data?.edition} stale={data?.stale} windowEnd={data?.window_end} noun="선정" /></div>
     <div className="ed-video-grid">{videos.map(video => <VideoCard video={video} key={video.id} onPlay={setPlaying} />)}</div>
     {!videos.length && <div className="ed-empty"><span aria-hidden="true">▷</span><h2 className="d2-title">{all.length ? "검색 결과가 없습니다" : error || data?.status === "unavailable" ? "이번 회차를 확인하고 있습니다" : "오늘 아침의 이야기를 모으는 중"}</h2><p>{all.length ? "다른 제목이나 채널로 검색해 보세요." : "공개 시각과 조회수가 확인된 영상만 표시합니다. 이전 회차가 있으면 그대로 보존합니다."}</p>{all.length > 0 && <button type="button" onClick={() => { setTopic("전체"); setQuery(""); }}>필터 초기화</button>}</div>}
-    <aside className="ed-source-note"><b>이 목록의 기준</b><p>매일 08:00 KST에 전일 00:00부터 당일 08:00 이전까지 공개된 한국어 투자 영상을 수집합니다. 주제별로 발견한 후보의 조회수 상위 20개이며 YouTube 전체의 공식 순위는 아닙니다. 조회수는 {data?.collected_at ? dateText(data.collected_at, true) : "수집"} 시점 기준입니다. 수집 가능한 영상이 20개보다 적으면 확인된 영상만 표시합니다.</p></aside>
+    <aside className="ed-source-note"><b>이 목록의 기준</b><p>매일 08:00 KST에는 전일 00:00부터 당일 08:00 이전까지, 16:00 KST에는 당일 00:00부터 16:00 이전까지 공개된 한국어 투자 영상을 수집합니다. 주제별로 발견한 후보의 누적 조회수 상위 20개이며 YouTube 전체의 공식 순위는 아닙니다. 조회수는 {data?.collected_at ? dateText(data.collected_at, true) : "수집"} 시점의 누적값입니다. 수집 가능한 영상이 20개보다 적으면 확인된 영상만 표시합니다.</p></aside>
   </main><Colophon />{playing && <VideoPlayer video={playing} onClose={() => setPlaying(null)} />}</div>;
 }
 

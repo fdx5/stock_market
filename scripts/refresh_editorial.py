@@ -16,7 +16,7 @@ from app.data import editorial_sources as source
 
 
 def archive(payload: dict) -> dict:
-    """Create one public file per market/day on a data branch, never overwrite it."""
+    """Create one public file per market/slot on a data branch, never overwrite it."""
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
         raise RuntimeError("Archive credential is missing")
@@ -31,7 +31,8 @@ def archive(payload: dict) -> dict:
             response.raise_for_status()
     else:
         response.raise_for_status()
-    path = f'/contents/editions/{payload["edition"]}/videos-{payload["market"]}.json'
+    cutoff = source._iso(payload["window_end"])
+    path = "/contents/" + source.video_archive_path(payload["market"], cutoff)
     for attempt in range(4):
         existing = requests.get(base + path, params={"ref": branch}, headers=headers, timeout=30)
         if existing.status_code == 200:
@@ -75,9 +76,10 @@ def main():
             result = requests.get(base + "/videos", params={"market": market}, timeout=30)
             result.raise_for_status()
             current = result.json()
-            if current.get("edition") != payload["edition"] or current.get("stale") or not current.get("items"):
+            if (current.get("edition") != payload["edition"] or current.get("window_end") != payload["window_end"]
+                    or current.get("stale") or not current.get("items")):
                 raise RuntimeError("Server edition has not become current")
-            print(json.dumps({"market": market, "edition": current["edition"], "count": len(current["items"]),
+            print(json.dumps({"market": market, "edition": current["edition"], "window_end": current["window_end"], "count": len(current["items"]),
                               "handoff": response.json().get("status")}))
             return
         except Exception as exc:

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "../../router";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { toggleDeskBgmPlay, useDeskBgm } from "../deskBgmStore";
-import { useEditorial, dateText, formatViews, percent, compactDollars, type InvestmentVideo, type Investor, type InvestorEdition, type VideoEdition } from "./api";
+import { useEditorial, dateText, editionTime, videoWindowText, formatViews, percent, compactDollars, type InvestmentVideo, type Investor, type InvestorEdition, type VideoEdition } from "./api";
 import "./discovery.css";
 
 export function Portrait({ investor, large = false }: { investor: Investor; large?: boolean }) {
@@ -13,8 +13,8 @@ export function Portrait({ investor, large = false }: { investor: Investor; larg
   </span>;
 }
 
-export function EditionNote({ edition, stale, noun }: { edition?: string | null; stale?: boolean; noun: string }) {
-  return <span className={`ed-edition-note${stale ? " is-stale" : ""}`}><i aria-hidden="true" />{edition ? `${edition.slice(5).replace("-", ".")} · 08:00 ${noun}` : `${noun} 확인 중`}{stale && " · 이전 회차"}</span>;
+export function EditionNote({ edition, stale, noun, windowEnd }: { edition?: string | null; stale?: boolean; noun: string; windowEnd?: string }) {
+  return <span className={`ed-edition-note${stale ? " is-stale" : ""}`}><i aria-hidden="true" />{edition ? `${edition.slice(5).replace("-", ".")} · ${editionTime(windowEnd)} ${noun}` : `${noun} 확인 중`}{stale && " · 이전 회차"}</span>;
 }
 
 export function PhotoCredit({ investor }: { investor: Investor }) {
@@ -72,9 +72,9 @@ export function VideoShowcase({ market, id = "ed-videos" }: { market: "kr" | "us
   const [playing, setPlaying] = useState<InvestmentVideo | null>(null);
   const ready = !!data?.items.length;
   return <section id={id} className="ed-discovery-section ed-video-section" aria-labelledby={`${id}-title`}>
-    <div className="ed-section-heading"><div><p className="ed-eyebrow">THE WATCHLIST <span>02</span></p><h2 className="d2-title" id={`${id}-title`}>{market === "kr" ? "오늘, 함께 보는 국내 증시" : "오늘, 함께 보는 미국 증시"}</h2><p>{market === "kr" ? "어제부터 오늘 아침까지, 국내 주식 영상 중 많이 본 이야기." : "나스닥·미국 주식 영상에서 많이 본 이야기. 한국어 콘텐츠로 골랐습니다."}</p></div><Link to={`/investment-videos?market=${market}`} className="ed-more">영상 20개 더보기 <span>↗</span></Link></div>
+    <div className="ed-section-heading"><div><p className="ed-eyebrow">THE WATCHLIST <span>02</span></p><h2 className="d2-title" id={`${id}-title`}>{market === "kr" ? "오늘, 함께 보는 국내 증시" : "오늘, 함께 보는 미국 증시"}</h2><p>{market === "kr" ? "국내 주식 영상 중 많이 본 이야기. 매일 오전 8시와 오후 4시에 새로 고릅니다." : "나스닥·미국 주식 영상에서 많이 본 이야기. 한국어 콘텐츠로 골랐습니다."}</p></div><Link to={`/investment-videos?market=${market}`} className="ed-more">영상 20개 더보기 <span>↗</span></Link></div>
     <div className="ed-video-grid">{data?.items.slice(0, 4).map(video => <VideoCard key={video.id} video={video} onPlay={setPlaying} />)}{!ready && Array.from({ length: 4 }, (_, i) => <div className="ed-video-skeleton" key={i}><i /><span /><span /></div>)}</div>
-    <div className="ed-section-foot"><span>전일 00:00 ~ 당일 08:00(KST) 공개 · 수집 후보 내 조회수 순{data?.collected_at ? ` · ${dateText(data.collected_at, true)} 집계` : ""}</span><EditionNote edition={data?.edition} stale={data?.stale} noun="선정" /></div>
+    <div className="ed-section-foot"><span>{videoWindowText(data)} · 수집 후보 내 누적 조회수 순{data?.collected_at ? ` · ${dateText(data.collected_at, true)} 집계` : ""}</span><EditionNote edition={data?.edition} stale={data?.stale} windowEnd={data?.window_end} noun="선정" /></div>
     {(!ready && (error || data?.status === "unavailable")) && <p className="ed-state">이번 회차의 확인된 영상을 아직 가져오지 못했습니다. 임의 영상으로 채우지 않고 다시 확인합니다.</p>}
     {playing && <VideoPlayer video={playing} onClose={() => setPlaying(null)} />}
   </section>;

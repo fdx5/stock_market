@@ -245,8 +245,8 @@ def test_scheduling_is_single_flight_and_retries_after_failure(monkeypatch):
 
 def test_eight_am_edition_is_not_throttled_by_previous_edition_attempt(monkeypatch):
     clock = [dt.datetime(2026, 10, 21, 7, 59, tzinfo=source.KST)]
-    window = source.edition_window
-    monkeypatch.setattr(source, "edition_window", lambda: window(clock[0]))
+    video_window = source.video_edition_window
+    monkeypatch.setattr(source, "video_edition_window", lambda: video_window(clock[0]))
     calls = []
     class FakeThread:
         def __init__(self, **kwargs): calls.append(kwargs)
@@ -272,8 +272,9 @@ def test_newer_bundle_wins_over_older_runtime_without_changing_files():
 
 
 def collector_payload():
-    start, cutoff = source.edition_window()
+    start, cutoff = source.video_edition_window()
     return {"market": "us", "edition": cutoff.date().isoformat(),
+            "window_start": start.isoformat(), "window_end": cutoff.isoformat(),
             "collected_at": dt.datetime.now(source.UTC).isoformat(), "candidate_count": 1,
             "items": [video(channel="Public channel", published_at=(start + dt.timedelta(hours=1)).isoformat())]}
 
@@ -333,3 +334,98 @@ def test_public_rss_recovers_exact_metadata_without_relative_date_guesses():
     assert rows[0]["published_at"] == "2026-10-20T12:30:00Z"
     candidates["abcdefghijk"]["rss_eligible"] = False
     assert source.parse_video_feed(document, candidates) == []
+
+
+@pytest.mark.parametrize("moment,start,end", [
+    ("2026-10-21T07:59:59+09:00", "2026-10-20T00:00:00+09:00", "2026-10-20T16:00:00+09:00"),
+    ("2026-10-21T08:00:00+09:00", "2026-10-20T00:00:00+09:00", "2026-10-21T08:00:00+09:00"),
+    ("2026-10-21T15:59:59+09:00", "2026-10-20T00:00:00+09:00", "2026-10-21T08:00:00+09:00"),
+    ("2026-10-21T16:00:00+09:00", "2026-10-21T00:00:00+09:00", "2026-10-21T16:00:00+09:00"),
+    ("2026-11-01T00:00:00+09:00", "2026-10-31T00:00:00+09:00", "2026-10-31T16:00:00+09:00"),
+    ("2027-01-01T07:00:00Z", "2027-01-01T00:00:00+09:00", "2027-01-01T16:00:00+09:00"),
+])
+def test_video_slots_include_weekends_and_month_year_boundaries(moment, start, end):
+    actual = source.video_edition_window(dt.datetime.fromisoformat(moment))
+    assert tuple(t.isoformat() for t in actual) == (start, end)
+
+
+@pytest.mark.parametrize("market,title", [("kr", "코스피 국내주식 시황"), ("us", "나스닥 미국주식 시황")])
+def test_afternoon_ranking_excludes_yesterday_and_cutoff_and_orders_by_cumulative_views(market, title):
+    start, end = source.video_edition_window(dt.datetime(2026, 10, 21, 16, tzinfo=source.KST))
+    rows = [video("00000000001", title=title, published_at="2026-10-20T23:59:59+09:00", views=99999),
+            video("00000000002", title=title, published_at=start.isoformat(), views=200),
+            video("00000000003", title=title, published_at="2026-10-21T15:59:59+09:00", views=500),
+            video("00000000004", title=title, published_at=end.isoformat(), views=88888)]
+    assert [r["id"] for r in source.rank_videos(rows, market, start, end)] == ["00000000003", "00000000002"]
+
+
+def test_afternoon_triggers_despite_successful_morning_and_recent_failed_attempt(monkeypatch):
+    clock = [dt.datetime(2026, 10, 21, 15, 59, 59, tzinfo=source.KST)]
+    window = source.video_edition_window
+    monkeypatch.setattr(source, "video_edition_window", lambda: window(clock[0]))
+    calls = []
+    class FakeThread:
+        def __init__(self, **kwargs): calls.append(kwargs)
+        def start(self): pass
+    monkeypatch.setattr(threading, "Thread", FakeThread)
+    monkeypatch.setattr(service, "_loaded", set(service.KINDS))
+    morning_end = window(clock[0])[1].isoformat()
+    service._snapshots["videos-kr"] = {"edition": "2026-10-21", "window_end": morning_end, "items": [video()]}
+    real_ensure("videos-kr")
+    assert not calls
+    service._attempted["videos-kr"] = service.time.monotonic()
+    service._attempted_editions["videos-kr"] = morning_end
+    clock[0] = clock[0].replace(hour=16, minute=0, second=0)
+    assert service._status("videos-kr", service._snapshots["videos-kr"])["stale"]
+    real_ensure("videos-kr"); real_ensure("videos-kr")
+    assert len(calls) == 1
+    assert service._status("videos-kr", None)["next_update_at"] == "2026-10-22T08:00:00+09:00"
+
+
+def test_morning_next_update_is_afternoon_but_investors_stay_daily(monkeypatch):
+    morning = dt.datetime(2026, 10, 21, 8, tzinfo=source.KST)
+    monkeypatch.setattr(source, "video_edition_window", lambda: (morning - dt.timedelta(hours=32), morning))
+    monkeypatch.setattr(source, "edition_window", lambda: (morning - dt.timedelta(hours=32), morning))
+    assert service._status("videos-us", None)["next_update_at"] == "2026-10-21T16:00:00+09:00"
+    assert service._status("investors", None)["next_update_at"] == "2026-10-22T08:00:00+09:00"
+
+
+def test_afternoon_archive_cannot_restore_morning_and_uses_separate_path(monkeypatch):
+    now = dt.datetime(2026, 10, 21, 17, tzinfo=source.KST)
+    start, end = source.video_edition_window(now)
+    payload = {"market": "us", "edition": "2026-10-21", "window_start": start.isoformat(),
+               "window_end": end.isoformat(), "collected_at": now.isoformat(),
+               "items": [video(published_at=start.isoformat())]}
+    urls = []
+    class Response:
+        def json(self): return payload
+    def request(url):
+        urls.append(url)
+        return Response()
+    monkeypatch.setattr(source, "_request", request)
+    assert source.archived_videos("us", now)["window_end"] == end.isoformat()
+    assert urls[-1].endswith("editions/2026-10-21/16/videos-us.json")
+    assert source.video_archive_path("us", end.replace(hour=8)) == "editions/2026-10-21/videos-us.json"
+    payload["window_end"] = end.replace(hour=8).isoformat()
+    assert source.archived_videos("us", now) is None
+
+
+def test_restart_prefers_afternoon_over_late_morning_file_without_changing_history():
+    afternoon = {"edition": "2026-10-21", "window_end": "2026-10-21T16:00:00+09:00",
+                 "collected_at": "2026-10-21T16:01:00+09:00", "items": [video()]}
+    morning = {"edition": "2026-10-21", "window_end": "2026-10-21T08:00:00+09:00",
+               "collected_at": "2026-10-21T18:00:00+09:00", "items": [video(views=10)]}
+    service._save("videos-us", afternoon)
+    service._save("videos-us", morning)
+    before = {p.name: p.read_bytes() for p in service.DATA_DIR.glob("*.json")}
+    service._load("videos-us")
+    assert service._snapshots["videos-us"] == afternoon
+    assert {p.name: p.read_bytes() for p in service.DATA_DIR.glob("*.json")} == before
+
+
+def test_collector_rejects_wrong_slot_even_when_today_videos_match():
+    payload = collector_payload()
+    payload["window_end"] = "2020-01-01T08:00:00+09:00"
+    with pytest.raises(ValueError, match="slot"):
+        service.accept_video_edition("us", payload)
+    assert not service.DATA_DIR.exists()

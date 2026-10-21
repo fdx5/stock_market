@@ -1,8 +1,9 @@
-name: Daily 08 KST investment videos
+name: Daily 08 and 16 KST investment videos
 
 on:
   schedule:
     - cron: "0 23 * * *" # Every day at 08:00 Asia/Seoul, including weekends.
+    - cron: "0 7 * * *" # Every day at 16:00 Asia/Seoul, including weekends.
   workflow_dispatch: {}
   push:
     branches: [main]

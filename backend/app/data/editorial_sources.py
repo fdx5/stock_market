@@ -58,6 +58,24 @@ def edition_window(now: dt.datetime | None = None) -> tuple[dt.datetime, dt.date
     return start, cutoff
 
 
+def video_edition_window(now: dt.datetime | None = None) -> tuple[dt.datetime, dt.datetime]:
+    """08:00: yesterday midnight onward; 16:00: today's publications only (KST)."""
+    local = (now or dt.datetime.now(UTC)).astimezone(KST)
+    if local.hour >= 16:
+        cutoff = local.replace(hour=16, minute=0, second=0, microsecond=0)
+    elif local.hour >= 8:
+        return edition_window(local)
+    else:
+        cutoff = (local - dt.timedelta(days=1)).replace(hour=16, minute=0, second=0, microsecond=0)
+    return cutoff.replace(hour=0), cutoff
+
+
+def video_archive_path(market: str, cutoff: dt.datetime) -> str:
+    # Preserve the existing immutable morning files; append afternoon separately.
+    slot = "16/" if cutoff.astimezone(KST).hour == 16 else ""
+    return f"editions/{cutoff.astimezone(KST).date().isoformat()}/{slot}videos-{market}.json"
+
+
 def _text(value) -> str:
     if not isinstance(value, dict):
         return ""
@@ -239,13 +257,14 @@ def _api_videos(market: str, start: dt.datetime, cutoff: dt.datetime, key: str) 
 
 def archived_videos(market: str, now: dt.datetime | None = None) -> dict | None:
     """Immutable public recovery copy, independent of the web host's disk lifetime."""
-    start, cutoff = edition_window(now)
-    url = f"https://raw.githubusercontent.com/fdx5/stock_market/editorial-editions/editions/{cutoff.date().isoformat()}/videos-{market}.json"
+    start, cutoff = video_edition_window(now)
+    url = "https://raw.githubusercontent.com/fdx5/stock_market/editorial-editions/" + video_archive_path(market, cutoff)
     try:
         payload = _request(url).json()
         items = rank_videos(payload.get("items", []), market, start, cutoff)
         collected = _iso(payload.get("collected_at", ""))
         if (payload.get("market") != market or payload.get("edition") != cutoff.date().isoformat()
+                or _iso(payload.get("window_start", "")) != start or _iso(payload.get("window_end", "")) != cutoff
                 or not 1 <= len(items) <= 20 or len(items) != len(payload.get("items", []))
                 or collected is None or collected < cutoff
                 or collected > (now or dt.datetime.now(UTC)) + dt.timedelta(minutes=5)):
@@ -266,7 +285,7 @@ def fetch_videos(market: str, now: dt.datetime | None = None, *, use_archive: bo
         archived = archived_videos(market, now)
         if archived:
             return archived
-    start, cutoff = edition_window(now)
+    start, cutoff = video_edition_window(now)
     source = "youtube_public"
     rows = []
     candidates = {}
