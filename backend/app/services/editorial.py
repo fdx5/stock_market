@@ -35,12 +35,15 @@ def _window(kind: str) -> tuple[dt.datetime, dt.datetime]:
     return source.edition_window() if kind == "investors" else source.video_edition_window()
 
 
-def _snapshot_key(payload: dict) -> tuple[str, dt.datetime, str]:
+def _snapshot_key(payload: dict) -> tuple[str, dt.datetime, int, str]:
     # Old daily snapshots are morning editions, even if collected after 16:00.
     end = source._iso(payload.get("window_end", ""))
     if end is None:
         end = dt.datetime.fromisoformat(payload.get("edition") or "0001-01-01").replace(hour=8, tzinfo=source.KST)
-    return payload.get("edition", ""), end, payload.get("collected_at", "")
+    # Collector networks can see different candidate subsets. A partial retry
+    # must not displace a fuller verified list from the very same slot.
+    coverage = min(20, len(payload.get("items", []))) if payload.get("market") in ("kr", "us") else 0
+    return payload.get("edition", ""), end, coverage, payload.get("collected_at", "")
 
 
 def _load(kind: str) -> None:

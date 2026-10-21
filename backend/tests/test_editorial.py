@@ -429,3 +429,18 @@ def test_collector_rejects_wrong_slot_even_when_today_videos_match():
     with pytest.raises(ValueError, match="slot"):
         service.accept_video_edition("us", payload)
     assert not service.DATA_DIR.exists()
+
+
+def test_partial_collector_retry_cannot_displace_fuller_verified_list_or_restart_recovery():
+    payload = collector_payload()
+    fuller = {**payload, "items": [video(f"{i:011d}", published_at=payload["window_start"]) for i in range(20)]}
+    service._save("videos-us", fuller)
+    service._snapshots["videos-us"] = fuller
+    # The incomplete copy was collected later by another network.
+    payload["collected_at"] = (dt.datetime.now(source.UTC) + dt.timedelta(seconds=1)).isoformat()
+    assert service.accept_video_edition("us", payload)["status"] == "already_current"
+    assert service._snapshots["videos-us"] == fuller
+    service._save("videos-us", payload)
+    service._snapshots.clear(); service._loaded.clear()
+    service._load("videos-us")
+    assert service._snapshots["videos-us"] == fuller
