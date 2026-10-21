@@ -3,8 +3,7 @@ html:root[data-design="neo"][data-theme]{--bg-root:#100d13;--bg-elevated:#19151d
 .ng-shell{--workspace-accent:var(--accent-neon);background:var(--bg-root)}
 .ng-shell{--status-good:var(--mint);--series-aqua:var(--mint);--status-warning:var(--mustard)}
 .ng-audience-slot .visitor-badge-dot{background:#4ae985;box-shadow:0 0 4px #4ae98559}.ng-audience-slot .visitor-badge-person{color:#5ff296}.ng-audience-slot .visitor-badge-eye{color:var(--text-secondary)}
-html[data-design="neo"] .visitor-badge-current{color:#5ff296;font-weight:800;font-variant-numeric:tabular-nums;text-shadow:0 0 6px #4ae98524}
-.ng-audience-slot .visitor-badge-current{font-size:12px;line-height:1.2}
+html[data-design="neo"] .visitor-badge-current{color:#5ff296;font-variant-numeric:tabular-nums;text-shadow:0 0 6px #4ae98524}
 .ng-shell[data-workspace="kr"]{--workspace-accent:var(--mustard)}
 .ng-shell[data-workspace="us"]{--workspace-accent:var(--vermilion)}
 .ng-header{background:#141017;border-bottom:1px solid #59405f;box-shadow:none}
