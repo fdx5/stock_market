@@ -4,9 +4,11 @@ import { Link } from "../../router";
 import { pct, useL } from "../lib";
 import { RollingNumber } from "./OverviewMotion";
 import { MOVE_BINS, overviewDistribution } from "./marketOverviewModel";
+import { useDesignMode } from "../../neo/settings";
 
 export default function MarketBreadth({ market, items, active, cycle }: { market: "kr" | "us"; items: MarketMapItem[]; active: boolean; cycle: number }) {
   const L = useL();
+  const design = useDesignMode();
   const data = useMemo(() => overviewDistribution(items), [items]);
   const [selected, setSelected] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -35,5 +37,6 @@ export default function MarketBreadth({ market, items, active, cycle }: { market
     </div>}
     <p className="ed-distribution-foot">{L("등락률 단위 % · 중복 종목 제외", "Returns in % · duplicate symbols excluded")}{data.received > data.total && ` · ${L(`시세 미확인 ${data.received - data.total}종목 제외`, `${data.received - data.total} unquoted stocks excluded`)}`}</p>
     </div>
+    {design === "neo" && data.total > 0 && <div className="ng-breadth-leaders"><span>{L("등락 폭 상위 종목", "Largest absolute moves")}</span>{data.bins.flat().sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct)).slice(0, 4).map(item => <Link key={item.code} to={`/stock/${encodeURIComponent(item.code)}`}><span>{item.name || item.code}</span><b className={item.change_pct > 0 ? "is-up" : item.change_pct < 0 ? "is-down" : "is-flat"}>{pct(item.change_pct)}</b></Link>)}</div>}
   </section>;
 }

@@ -55,7 +55,12 @@ const DESTINATIONS: Destination[] = [
   { key: "global", ko: "해외 주식 데스크", en: "Global desk", group: "분석", to: "/global" },
   { key: "discussion", ko: "종목 토론", en: "Discussions", group: "커뮤니티", to: "/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK" },
   { key: "news", ko: "글로벌 뉴스", en: "Global news", group: "커뮤니티", to: "/news" },
-  { key: "hub", ko: "태양계 입구", en: "Solar-system entrance", group: "홈", to: "/" },
+  { key: "home", ko: "관제 홈", en: "Command home", group: "홈", to: "/" },
+  { key: "hub", ko: "태양계 입구", en: "Solar-system entrance", group: "홈", to: "/hub" },
+  { key: "investors", ko: "거물 포트폴리오", en: "Investor portfolios", group: "분석", to: "/investors" },
+  { key: "videos", ko: "오늘의 투자 영상", en: "Video briefing", group: "분석", to: "/investment-videos" },
+  { key: "drone", ko: "3D 드론 탐험", en: "Drone explorer", group: "지도", to: "/drone-explore" },
+  { key: "support", ko: "커피 한 잔 후원", en: "Support", group: "홈", to: "/support" },
 ];
 
 type Row =
@@ -148,13 +153,18 @@ export default function Finder({ open, onClose }: { open: boolean; onClose: () =
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "ArrowDown") {
+    if (event.key === "Tab") {
+      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>("input,button:not(:disabled),a[href],[tabindex='0']")].filter(el => el.getClientRects().length > 0);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    } else if (event.key === "ArrowDown") {
       event.preventDefault();
       setCursor((c) => Math.min(rows.length - 1, c + 1));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       setCursor((c) => Math.max(0, c - 1));
-    } else if (event.key === "Enter") {
+    } else if (event.key === "Enter" && event.target === inputRef.current) {
       event.preventDefault();
       const row = rows[cursor];
       if (row) choose(row);

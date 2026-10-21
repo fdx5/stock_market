@@ -23,6 +23,8 @@ import { pct, sentimentLabel, toneOf, usd, usdPrice, useGlobalIndices, useL, use
 import { jumpTo, useBroadsheet, useFinderHotkey, useScrollSpy } from "../shell";
 import "../pages.css";
 import "./world.css";
+import { useDesignMode } from "../../neo/settings";
+import NeoSectorDigest from "../../neo/NeoSectorDigest";
 
 /* /global — 해외판: the US market as the paper's world edition.
  *
@@ -95,6 +97,7 @@ function sessionLabel(s: string | null | undefined, L: (ko: string, en: string) 
 }
 
 export default function WorldPage() {
+  const design = useDesignMode();
   const L = useL();
   const { lang } = useLanguage();
   useBroadsheet();
@@ -189,7 +192,7 @@ export default function WorldPage() {
       </a>
       <Masthead rail={false}
         onPrint={() => window.print()}
-        section={{ ko: "해외 증시", en: "World Markets", taglineKo: "서울에서 읽는 뉴욕 — 미국 대형주를 원화의 눈으로", taglineEn: "New York, read from Seoul — US large caps through a won lens" }}
+        section={design === "neo" ? undefined : { ko: "해외 증시", en: "World Markets", taglineKo: "서울에서 읽는 뉴욕 — 미국 대형주를 원화의 눈으로", taglineEn: "New York, read from Seoul — US large caps through a won lens" }}
       />
       <Tape />
       <CommandBar
@@ -211,6 +214,7 @@ export default function WorldPage() {
       <main className="d2-main">
         <section id="w-front" className="ed-summary-section" aria-label={L("미국 시장 요약", "US market overview")}>
           <MarketOverview market="us" items={all} asOf={asOf} generatedAt={snap.generatedAt} session={session} leadingSector={pulse?.best ? secName(pulse.best.sector, lang) : undefined} bigTechMove={pulse?.techCap ? pulse.techMove : undefined} bigTechShare={pulse?.techShare || undefined} />
+          {design === "neo" && <NeoSectorDigest items={snap.sp500} />}
           <details className="ed-market-details" onToggle={event => setMarketDetailsOpen(event.currentTarget.open)}>
             <summary>{L("섹터·빅테크 자세히", "Explore sectors and Big Tech")} <span aria-hidden="true">{marketDetailsOpen ? "−" : "＋"}</span></summary>
             {marketDetailsOpen && <div className="ed-market-details-body">

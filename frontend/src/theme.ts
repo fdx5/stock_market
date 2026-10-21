@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { isNeoDesign, subscribeDesignSettings } from "./neo/settings";
 
 export type ThemeMode = "dark" | "light";
 
@@ -17,178 +18,35 @@ export interface ThemeColors {
   violet: string;
   good: string;
   critical: string;
-  /** Categorical series slots, assigned by fixed index and never cycled — a chart with
-   * several same-kind lines (the DRAM history page's seven spot-price items) needs more
-   * distinguishable hues than the four accent tokens above provide.
-   *
-   * These are a separate set rather than an extension of `blue`/`aqua`/`yellow`/
-   * `violet` because the light mode's accents are deliberately dusty, and a palette
-   * built from them fails on its own terms at this width: run through the CVD checker
-   * against this surface, seven muted hues come back below the chroma floor (aqua and
-   * yellow read as gray) with a worst adjacent separation of ΔE 5.8, meaning two of the
-   * seven lines are indistinguishable to a deuteranope and nearly so to anyone else.
-   * The steps below clear the lightness band, chroma floor, CVD separation and
-   * normal-vision floor in both modes.
-   *
-   * Four of the dark steps are the accent tokens above, so the dark chart still reads
-   * as part of this app. On the light surface four of the seven sit below 3:1 contrast,
-   * which obliges the relief the history page ships: a labelled legend and a table of
-   * the same numbers, so identity never rests on the color alone. */
+  /** Stable categorical colors; chart legends and source tables carry identity as well. */
   series: string[];
 }
 
-// Slot order is the colorblind-safety mechanism, not decoration — neighbouring slots
-// are the pairs a reader compares, so the ordering is what the separation checks are
-// run against. Reordering these requires re-validating, not taste.
-const DARK_SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9"];
-const LIGHT_SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7"];
-
 const DARK: ThemeColors = {
-  surface: "#1a1a19",
-  textPrimary: "#ffffff",
-  textSecondary: "#c3c2b7",
-  textMuted: "#898781",
-  gridline: "#2c2c2a",
-  baseline: "#383835",
-  up: "#e66767",
-  down: "#3987e5",
-  blue: "#3987e5",
-  aqua: "#199e70",
-  yellow: "#c98500",
-  violet: "#9085e9",
-  good: "#0ca30c",
-  critical: "#d03b3b",
-  series: DARK_SERIES,
+  surface: "#1a1a19", textPrimary: "#ffffff", textSecondary: "#c3c2b7", textMuted: "#898781",
+  gridline: "#2c2c2a", baseline: "#383835", up: "#e66767", down: "#3987e5",
+  blue: "#3987e5", aqua: "#199e70", yellow: "#c98500", violet: "#9085e9", good: "#0ca30c", critical: "#d03b3b",
+  series: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9"],
 };
-
-// A toned-down, dusty/pastel palette rather than a straight light-mode inversion —
-// warm off-white surfaces instead of stark white, and every accent hue pulled a
-// notch toward muted/desaturated while still clearing ~3.5:1+ contrast against both
-// surfaces (checked with a WCAG calculator, not just eyeballed).
-const LIGHT: ThemeColors = {
-  surface: "#f8f6f1",
-  textPrimary: "#2e2c26",
-  textSecondary: "#5c584e",
-  textMuted: "#837e72",
-  gridline: "#ddd7c8",
-  baseline: "#66707d",
-  up: "#bd5c66",
-  down: "#3f66b8",
-  blue: "#3f66b8",
-  aqua: "#2f8468",
-  yellow: "#9c6a2f",
-  violet: "#7367bd",
-  good: "#3f8656",
-  critical: "#bb5252",
-  series: LIGHT_SERIES,
+const NEO: ThemeColors = {
+  surface: "#1e1922", textPrimary: "#f3ecdc", textSecondary: "#c3b5c5", textMuted: "#a99aaa",
+  gridline: "#3d3042", baseline: "#77637c", up: "#ff6c83", down: "#64aaff",
+  blue: "#64aaff", aqua: "#a8bca0", yellow: "#d6b54e", violet: "#bf85ff", good: "#a8bca0", critical: "#ff6c83",
+  series: ["#64aaff", "#f27560", "#a8bca0", "#d6b54e", "#ed8dd4", "#f1e4c4", "#bf85ff"],
 };
-
-const STORAGE_KEY = "site_theme";
+// A single dark appearance. Stored former light-mode preferences are left intact,
+// but no longer control the UI. Presentation never mutates saved user data.
 const listeners = new Set<() => void>();
-// Keep an explicit choice in this tab if storage is blocked or full.
-let unsavedChoice: ThemeMode | null = null;
-
-function getStoredMode(): ThemeMode | null {
-  if (typeof window === "undefined") return null;
-  if (unsavedChoice) return unsavedChoice;
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    return stored === "light" || stored === "dark" ? stored : null;
-  } catch {
-    return null;
-  }
-}
-
-/* A page may ask for a different default than the site's dark one — the market
- * desk and the real-estate map open in the light "주간판". It is only a default: a visitor who has ever
- * picked a theme keeps theirs everywhere, and the page's wish is never written to
- * storage, so leaving the page returns every other route to dark.
- *
- * The desk's path is also read here at load, not only when the page mounts, so
- * the first render already agrees with the attribute index.html's inline script
- * put on <html> before paint — otherwise the page would paint dark and flip. */
-const PAGE_DEFAULTS: Record<string, ThemeMode> = {
-  "/desk": "light", "/realestate-map": "light", "/support": "light", "/support-success": "light",
-};
-let pageDefault: ThemeMode | null =
-  typeof window === "undefined" ? null : PAGE_DEFAULTS[window.location.pathname.replace(/\/$/, "")] ?? null;
-
-let currentMode: ThemeMode = getStoredMode() ?? pageDefault ?? "dark";
-
-function applyDomAttribute(mode: ThemeMode) {
+function applyDomAttribute() {
   if (typeof document === "undefined") return;
-  document.documentElement.setAttribute("data-theme", mode);
-  document
-    .querySelector('meta[name="theme-color"]')
-    ?.setAttribute("content", mode === "light" ? "#eae7df" : "#0d0d0d");
+  document.documentElement.setAttribute("data-theme", "dark");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", isNeoDesign() ? "#100d13" : "#0d0d0d");
 }
-applyDomAttribute(currentMode);
-
-export function getThemeMode(): ThemeMode {
-  return currentMode;
-}
-
-export function setThemeMode(mode: ThemeMode): void {
-  // Choosing the already-visible default is still a preference to persist.
-  try {
-    window.localStorage.setItem(STORAGE_KEY, mode);
-    unsavedChoice = null;
-  } catch {
-    unsavedChoice = mode;
-  }
-  applyMode(mode);
-}
-
-function applyMode(mode: ThemeMode): void {
-  const changed = mode !== currentMode;
-  currentMode = mode;
-  applyDomAttribute(mode);
-  if (changed) listeners.forEach((listener) => listener());
-}
-
-/** The router owns defaults; lazy page mount/unmount cannot reset a saved choice. */
-export function syncThemeForPath(path: string): void {
-  pageDefault = PAGE_DEFAULTS[path.replace(/\/$/, "")] ?? null;
-  applyMode(getStoredMode() ?? pageDefault ?? "dark");
-}
-
-if (typeof window !== "undefined") {
-  const sync = () => syncThemeForPath(window.location.pathname);
-  window.addEventListener("storage", (event) => {
-    if (event.key !== STORAGE_KEY && event.key !== null) return;
-    try {
-      if (event.storageArea !== window.localStorage) return;
-    } catch {
-      return;
-    }
-    unsavedChoice = null;
-    sync();
-  });
-  window.addEventListener("pageshow", sync);
-  window.addEventListener("focus", sync);
-}
-
-export function toggleThemeMode(): void {
-  setThemeMode(currentMode === "dark" ? "light" : "dark");
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
-/** React binding for the current theme mode — re-renders on toggle, in sync with
- * the DOM `data-theme` attribute the plain-CSS parts of the app key off of. */
-export function useThemeMode(): ThemeMode {
-  return useSyncExternalStore(subscribe, getThemeMode, getThemeMode);
-}
-
-export function getThemeColors(): ThemeColors {
-  return currentMode === "light" ? LIGHT : DARK;
-}
-
-/** Lets canvas-based charts (lightweight-charts draws to <canvas>, so CSS variables
- * and `transition` don't reach it) re-apply colors imperatively when the theme flips. */
-export function watchTheme(callback: (colors: ThemeColors) => void): () => void {
-  return subscribe(() => callback(getThemeColors()));
-}
+applyDomAttribute();
+export function getThemeMode(): ThemeMode { return "dark"; }
+export function syncThemeForPath(_path: string): void { applyDomAttribute(); }
+function subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener); }; }
+export function useThemeMode(): ThemeMode { return useSyncExternalStore(subscribe, getThemeMode, getThemeMode); }
+export function getThemeColors(): ThemeColors { return isNeoDesign() ? NEO : DARK; }
+export function watchTheme(callback: (colors: ThemeColors) => void): () => void { return subscribe(() => callback(getThemeColors())); }
+subscribeDesignSettings(() => { applyDomAttribute(); listeners.forEach(listener => listener()); });

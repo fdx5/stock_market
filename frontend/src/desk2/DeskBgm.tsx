@@ -12,6 +12,7 @@ import {
   warmDeskBgm,
 } from "./deskBgmStore";
 import "./deskBgm.css";
+import { useDesignMode, useFxLevel } from "../neo/settings";
 
 /* The masthead's NOW PLAYING ear: an equaliser with the transport under it, the
    track's name and channel beside, and the power switch in the corner.
@@ -63,23 +64,20 @@ function level(track: DeskTrack, seed: number, t: number, i: number): number {
  * ear reads as an equaliser before it has ever moved. */
 const IDLE = Array.from({ length: BARS }, (_, i) => 0.22 + 0.4 * Math.sin((i / (BARS - 1)) * Math.PI * 0.9 + 0.25) * (i % 3 === 1 ? 0.72 : 1));
 
-function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, running: boolean, on: boolean) {
+function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, running: boolean, on: boolean, still: boolean) {
   const trackRef = useRef(track);
   trackRef.current = track;
   useEffect(() => {
     const el = eqRef.current;
     if (!el) return;
-    const bars = Array.from(el.children) as HTMLElement[];
+    const bars = Array.from(el.querySelectorAll(":scope > i")) as HTMLElement[];
     const levels = bars.map((_, i) => (on ? REST : IDLE[i]));
     const peaks = [...levels];
     const holds = levels.map(() => 0);
     const meter = canvasMeter(el, bars, on);
     const paint = () => meter.draw(levels, peaks);
-    /* Not gated on prefers-reduced-motion: the meter only moves once the reader
-       has switched the music on themselves, and a player whose meter stands
-       still reads as broken — which is exactly how it was reported. */
-    if (!running && !on) {
-      if (!on) IDLE.forEach((v, i) => { levels[i] = v; peaks[i] = v; });
+    if (still || (!running && !on)) {
+      IDLE.forEach((v, i) => { levels[i] = v; peaks[i] = v; });
       paint();
       return meter.dispose;
     }
@@ -133,7 +131,7 @@ function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, runn
       document.removeEventListener("visibilitychange", restart);
       window.removeEventListener("pageshow", restart);
     };
-  }, [eqRef, running, on, track.id]);
+  }, [eqRef, running, on, track.id, still]);
 }
 
 /* The meter drawn on one canvas over the bars. Set as style on the bars (a level and a peak
@@ -351,7 +349,10 @@ const Icon = {
 /** `ear` is the boxed player beside the clocks (desktop and tablet); `strip` is
  * the phone's one-line version under the nameplate — same parts, laid in a row
  * with thumb-sized buttons. */
-export default function DeskBgm({ variant = "ear" }: { variant?: "ear" | "strip" }) {
+export default function DeskBgm({ variant = "ear" }: { variant?: "ear" | "strip" | "header" }) {
+  const design = useDesignMode(), fx = useFxLevel();
+  const [reducedMotion, setReducedMotion] = useState(() => matchMedia("(prefers-reduced-motion: reduce)").matches);
+  useEffect(() => { const media = matchMedia("(prefers-reduced-motion: reduce)"); const update = () => setReducedMotion(media.matches); media.addEventListener("change", update); return () => media.removeEventListener("change", update); }, []);
   const L = useL();
   const bgm = useDeskBgm();
   const eqRef = useRef<HTMLDivElement>(null);
@@ -359,7 +360,7 @@ export default function DeskBgm({ variant = "ear" }: { variant?: "ear" | "strip"
   const [pressed, setPressed] = useState<string | null>(null);
   useEffect(() => attachDeskBgm(), []);
   const running = bgm.on && bgm.playing && !bgm.loading;
-  useMeter(eqRef, bgm.track, running, bgm.on);
+  useMeter(eqRef, bgm.track, running, bgm.on, design === "neo" && (fx === "minimal" || reducedMotion));
   useMarquee(titleRef, bgm.track.title);
 
   // A brief pulse on the button that was pressed, so a skip is felt at once even
@@ -384,13 +385,13 @@ export default function DeskBgm({ variant = "ear" }: { variant?: "ear" | "strip"
 
   return (
     <div
-      className={`d2-bgm${variant === "strip" ? " d2-bgm--strip" : ""}${bgm.blocked ? " is-blocked" : ""}${bgm.on ? " is-on" : ""}${running ? " is-playing" : ""}${bgm.loading && bgm.on ? " is-loading" : ""}`}
+      className={`d2-bgm${variant !== "ear" ? " d2-bgm--strip" : ""}${variant === "header" ? " d2-bgm--header" : ""}${bgm.blocked ? " is-blocked" : ""}${bgm.on ? " is-on" : ""}${running ? " is-playing" : ""}${bgm.loading && bgm.on ? " is-loading" : ""}`}
       data-ear={bgm.on ? "NOW PLAYING" : "BGM"}
       role="group"
       aria-label={L("배경 음악", "Background music")}
     >
       <div className="d2-bgm-deck">
-        <div className="d2-bgm-eq" ref={eqRef} aria-hidden="true">
+        <div className="d2-bgm-eq" ref={eqRef} aria-hidden="true" title={L("재생 상태와 곡의 리듬에 맞춘 시각 효과", "Playback-synchronized visualizer")}>
           {Array.from({ length: BARS }, (_, i) => (
             // Each band its own hue, low to high: blue through violet and magenta
             // to red, orange and amber — a spectrum you can read at a glance.
@@ -401,7 +402,7 @@ export default function DeskBgm({ variant = "ear" }: { variant?: "ear" | "strip"
           ))}
         </div>
         <div className="d2-bgm-transport">
-          <button type="button" className={pressed === "prev" ? "is-pressed" : ""} onClick={tap("prev", prev)} disabled={!bgm.on} aria-label={L("이전 곡", "Previous track")} title={L("이전 곡", "Previous")}>
+          <button type="button" className={pressed === "prev" ? "is-pressed" : ""} onClick={tap("prev", prev)} disabled={!bgm.on && variant !== "header"} aria-label={L("이전 곡", "Previous track")} title={L("이전 곡", "Previous")}>
             {Icon.prev}
           </button>
           <button
@@ -414,7 +415,7 @@ export default function DeskBgm({ variant = "ear" }: { variant?: "ear" | "strip"
           >
             {bgm.on && bgm.playing ? Icon.pause : Icon.play}
           </button>
-          <button type="button" className={pressed === "next" ? "is-pressed" : ""} onClick={tap("next", next)} disabled={!bgm.on} aria-label={L("다음 곡", "Next track")} title={L("다음 곡", "Next")}>
+          <button type="button" className={pressed === "next" ? "is-pressed" : ""} onClick={tap("next", next)} disabled={!bgm.on && variant !== "header"} aria-label={L("다음 곡", "Next track")} title={L("다음 곡", "Next")}>
             {Icon.next}
           </button>
         </div>

@@ -21,6 +21,8 @@ import { useYouTubeBgm } from "../useYouTubeBgm";
 import FrameMeter, { type FrameMeterHandle } from "./FrameMeter";
 import LanguageToggle from "./LanguageToggle";
 import ThemeToggle from "./ThemeToggle";
+import NeoLogo from "../neo/NeoLogo";
+import { useDesignMode } from "../neo/settings";
 import "./hub2.css";
 
 /* ============================================================================
@@ -148,6 +150,7 @@ function toneOf(value: number | null | undefined): "up" | "down" | "flat" {
 /* ───────────────────────────── the page ───────────────────────────── */
 
 export default function HubType2() {
+  const design = useDesignMode();
   const { lang } = useLanguage();
   const en = lang === "en";
   // Plain, now that this is the site's front door rather than a second one.
@@ -182,6 +185,7 @@ export default function HubType2() {
   /* Background music, and nothing to do with the scene: it is off by default,
      it fetches nothing until pressed, and the camera does not care about it. */
   const bgm = useYouTubeBgm();
+  useEffect(() => { if (design === "neo" && bgm.playing) bgm.toggle(); }, [design, bgm.playing, bgm.toggle]);
   /* The equaliser, driven off the track's own pre-computed envelope and the
      player's clock — see useBgmEqualizer for why the analysis is not live. If
      a track has no envelope file the bars keep their decorative animation and
@@ -493,8 +497,7 @@ export default function HubType2() {
         </span>
         <h1 className="h2-wordmark">
           <Link to="/desk" className="h2-wordmark-link">
-            <span className="h2-wordmark-main">K-STOCK</span>
-            <span className="h2-wordmark-sub">HUB</span>
+            {design === "neo" ? <NeoLogo className="ng-solar-logo" /> : <><span className="h2-wordmark-main">K-STOCK</span><span className="h2-wordmark-sub">HUB</span></>}
           </Link>
         </h1>
         <p className="h2-tagline">
@@ -736,7 +739,7 @@ export default function HubType2() {
             exists, and starting it is then immediate. */}
         <button
           type="button"
-          className={`h2-cam-btn${bgm.playing ? " is-on" : ""}`}
+          className={`h2-cam-btn${bgm.playing ? " is-on" : ""}${design === "neo" ? " ng-legacy-bgm" : ""}`}
           aria-pressed={bgm.playing}
           onPointerDown={bgm.warm}
           onFocus={bgm.warm}

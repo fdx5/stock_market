@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useDesignMode } from "../../neo/settings";
 
 export const OVERVIEW_MOTION_MS = 5_000;
 
@@ -37,6 +38,7 @@ export function useOverviewMotion() {
 
 /** Only a changed displayed value starts a turn; chart beats never replay it. */
 export function RollingNumber({ text, active }: { text: string; active: boolean }) {
+  const design = useDesignMode();
   const [motion, setMotion] = useState({ text, revision: 0, rolling: false });
   if (motion.text !== text) {
     setMotion({ text, revision: motion.revision + 1,
@@ -54,6 +56,7 @@ export function RollingNumber({ text, active }: { text: string; active: boolean 
     return () => window.clearTimeout(timer);
   }, [motion.revision, motion.rolling]);
 
+  if (design === "neo") return <span className="ed-rolling-number" data-value={text}><span className="ed-number-label">{text}</span><span key={motion.revision} className={`ng-number-value${active && motion.rolling ? " is-changed" : ""}`} aria-hidden="true">{text}</span></span>;
   return <span className="ed-rolling-number" data-value={text}>
     <span className="ed-number-label">{text}</span>
     <span className="ed-reel-visual" aria-hidden="true">{Array.from(text).map((char, index) => {

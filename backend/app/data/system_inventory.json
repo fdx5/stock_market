@@ -71,7 +71,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 701,
+  "source_files": 717,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -365,6 +365,13 @@
       "file": "frontend/src/etfLogo.ts",
       "hosts": [
         "ssl.pstatic.net"
+      ]
+    },
+    {
+      "file": "frontend/src/neo/NeoShell.tsx",
+      "hosts": [
+        "chs2147.github.io",
+        "voltaris-nyyo.onrender.com"
       ]
     },
     {

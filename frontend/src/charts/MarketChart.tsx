@@ -2,6 +2,7 @@ import { CSSProperties, useEffect, useRef, useState } from "react";
 import type { EChartsType } from "echarts/core";
 import type { EChartsOption } from "echarts";
 import { watchTheme } from "../theme";
+import { isNeoDesign } from "../neo/settings";
 import type { SyncChart, DateRange } from "./sync";
 import "./marketCharts.css";
 
@@ -86,7 +87,8 @@ export default function MarketChart(props: Props) {
     const text = token(paper ? "--ink-3" : "--text-secondary", "#858d9e");
     const up = token(paper ? "--up" : "--up-color", "#e65d68");
     const down = token(paper ? "--down" : "--down-color", "#4c8ee9");
-    const colors = ["#c28d36", "#1ca6a0", "#8570d8", "#438dde"];
+    const neo = isNeoDesign();
+    const colors = neo ? ["#d6b54e", "#bf85ff", "#f27560", "#a8bca0"] : ["#c28d36", "#1ca6a0", "#8570d8", "#438dde"];
     const compact = props.compact;
     const tooltipNumbers = props.tooltipDecimals == null ? null : new Intl.NumberFormat("en-US", { maximumFractionDigits: props.tooltipDecimals });
     const tooltipValue = (value: unknown): string => Array.isArray(value) ? value.map(tooltipValue).join("  ") :
@@ -99,8 +101,8 @@ export default function MarketChart(props: Props) {
     if (range) { while (endIndex > startIndex && dates[endIndex] > range.to) endIndex--; }
     const option: EChartsOption = {
       backgroundColor: "transparent", color: colors, textStyle: { fontFamily: "Pretendard, sans-serif", color: text },
-      animation: !reduced.current, animationDuration: first ? 1100 : 300,
-      animationDurationUpdate: reduced.current ? 0 : 280, animationEasing: "cubicOut", animationThreshold: 3000,
+      animation: !reduced.current && document.documentElement.dataset.fx !== "minimal", animationDuration: neo ? 220 : first ? 1100 : 300,
+      animationDurationUpdate: reduced.current ? 0 : neo ? 180 : 280, animationEasing: "cubicOut", animationThreshold: 3000,
       aria: { enabled: true, description: props.label },
       tooltip: props.interactive === false ? { show: false } : {
         trigger: "axis", renderMode: "richText", confine: true, backgroundColor: paper ? token("--p0", "#efeadd") : token("--surface-1", "#151a23"),
@@ -133,7 +135,7 @@ export default function MarketChart(props: Props) {
           id: s.name, name: s.name, type: s.type || "line", data: s.values.map(v => typeof v === "number" && !Number.isFinite(v) ? null : v),
           xAxisIndex: s.volume ? 1 : 0, yAxisIndex: s.volume ? 1 : 0,
           showSymbol: false, connectNulls: false, smooth: false, clip: true,
-          lineStyle: { color, width: compact ? 1.8 : 2.2, type: s.dashed ? "dashed" : "solid", shadowColor: color, shadowBlur: compact ? 0 : 3 },
+          lineStyle: { color, width: compact ? 1.8 : 2.2, type: s.dashed ? "dashed" : "solid", shadowColor: color, shadowBlur: compact || neo ? 0 : 3 },
           itemStyle: s.type === "candlestick" ? { color: up, color0: down, borderColor: up, borderColor0: down, borderWidth: 1 } :
             { color: s.colors ? (p: { dataIndex: number }) => s.colors![p.dataIndex] : s.diverging ? (p: { value: unknown }) => Number(p.value) >=0 ? up : down : color, opacity: s.volume ? .48 : 1, borderRadius: s.type === "bar" ? [2,2,0,0] : 0 },
           areaStyle: s.fill ? { color: new engine.current!.graphic.LinearGradient(0,0,0,1,[{offset:0,color},{offset:1,color:"transparent"}]), opacity: .16 } : undefined,

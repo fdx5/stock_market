@@ -5,8 +5,10 @@ import "../../src/desk2/desk2.css";
 import MarketOverview from "../../src/desk2/discover/MarketOverview";
 import type { MarketMapItem } from "../../src/api/client";
 import { LanguageProvider } from "../../src/i18n/LanguageContext";
+import { setDesignMode } from "../../src/neo/settings";
 
 const params = new URLSearchParams(location.search);
+setDesignMode(params.get("design") === "neo" ? "neo" : "classic");
 const market = params.get("market") === "us" ? "us" : "kr";
 localStorage.setItem("site_lang", params.get("lang") === "en" ? "en" : "ko");
 document.documentElement.dataset.theme = params.get("theme") ?? "light";

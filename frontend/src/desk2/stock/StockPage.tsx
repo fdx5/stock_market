@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CompanyOverview, GlobalEnrichment, IndicatorPoint, InvestorTrendRecord, StockBoard, StockSummary } from "../../api/client";
 import { api } from "../../api/client";
 import { useLanguage } from "../../i18n/LanguageContext";
+import { useDesignMode } from "../../neo/settings";
 import { startVisibilityAwareInterval } from "../../pollVisibility";
 import { Link, navigate } from "../../router";
 import { reportStockView } from "../../useActivityTracking";
@@ -114,6 +115,7 @@ function TalkTape({ code, us, asset }: { code: string; us: boolean; asset: "STOC
 }
 
 export default function StockPage({ code: rawCode, isEtf = false }: { code: string; isEtf?: boolean }) {
+  const design = useDesignMode();
   const { lang } = useLanguage();
   const L = useL();
   const code = rawCode.toUpperCase();
@@ -291,6 +293,17 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
   const others = recents.filter((r) => r.code.toUpperCase() !== code).slice(0, 8);
   const description = us ? enrich?.description?.split(/(?<=[.!?])\s+/).slice(0, 6) ?? [] : overview?.overview ?? [];
 
+  const chartPanel = (<section id="sk-chart" className="d2-sec" aria-labelledby="sk-chart-h">
+              <SectionHead
+                id="sk-chart-h"
+                no="01"
+                kicker={L("주가 차트", "Price chart")}
+                title={L("3년의 가격, 한 장의 그림", "Three years of price on one page")}
+                note={L("5·20·60·120일 이동평균과 볼린저 밴드를 켜고 끌 수 있습니다.", "Toggle the 5/20/60/120-day averages and the Bollinger band.")}
+              />
+              <StockChart points={points} currency={currency} />
+            </section>);
+
   return (
     <div className="d2 sk" lang={lang}>
       <a className="d2-skip" href="#sk-top">
@@ -321,7 +334,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
           </nav>
           <button type="button" className="d2-cmd-find" onClick={() => setFinderOpen(true)} aria-label={L("종목·메뉴 찾기", "Find")}>
             <span className="d2-cmd-find-glyph" aria-hidden="true">
-              ⌕
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
             </span>
             <span className="d2-cmd-find-text">{L("다른 종목 찾기", "Find another stock")}</span>
             <kbd>/</kbd>
@@ -349,6 +362,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
         {name && (
           <>
             <section id="sk-top" className="d2-sec sk-top" aria-label={name}>
+              <div className={design === "neo" ? "ng-stock-top-grid" : undefined}>
               <div className="sk-hero">
                 <div className="sk-hero-main">
                   <p className="sk-kicker">
@@ -416,12 +430,17 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
                     )}
                   </dl>
                   {hi52 != null && lo52 != null && close > 0 && <RangeBar low={lo52} high={hi52} now={close} fmt={price} />}
+                  {design === "neo" && !isEtf && description.length > 0 && <div className="ng-stock-profile"><span className="ng-kicker">COMPANY / IN BRIEF</span><p>{description.join(" ").slice(0, 230)}{description.join(" ").length > 230 ? "…" : ""}</p><button type="button" onClick={() => jump("sk-company")}>{L("기업 정보 더 보기", "More about the company")} ↗</button></div>}
                 </div>
-                <Forecast code={code} />
+                {design !== "neo" && <Forecast code={code} />}
+              </div>
+
+              {design === "neo" && chartPanel}
               </div>
 
               <StockInsights model={brief} code={code} isEtf={isEtf} receivedAt={receivedAt} quoteUnavailable={quoteUnavailable} />
               <TalkTape code={code} us={us} asset={asset} />
+              {design === "neo" && <details className="ng-stock-forecast"><summary>{L("AI 예측 자세히", "AI forecast details")} <span>＋</span></summary><Forecast code={code} /></details>}
 
               {story && (
                 <article className="sk-story">
@@ -457,16 +476,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
               )}
             </section>
 
-            <section id="sk-chart" className="d2-sec" aria-labelledby="sk-chart-h">
-              <SectionHead
-                id="sk-chart-h"
-                no="01"
-                kicker={L("주가 차트", "Price chart")}
-                title={L("3년의 가격, 한 장의 그림", "Three years of price on one page")}
-                note={L("5·20·60·120일 이동평균과 볼린저 밴드를 켜고 끌 수 있습니다.", "Toggle the 5/20/60/120-day averages and the Bollinger band.")}
-              />
-              <StockChart points={points} currency={currency} />
-            </section>
+            {design !== "neo" && chartPanel}
 
             <section id="sk-tech" className="d2-sec" aria-labelledby="sk-tech-h">
               <SectionHead
@@ -603,7 +613,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
           </button>
         ))}
         <button type="button" onClick={() => setFinderOpen(true)}>
-          <i>⌕</i>
+          <i><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg></i>
           <span>{L("찾기", "Find")}</span>
         </button>
       </nav>

@@ -95,7 +95,7 @@ export default function CommandBar({
         </div>
         <button type="button" className="d2-cmd-find" onClick={onFind} aria-label={L("종목·메뉴 찾기", "Find a stock or page")}>
           <span className="d2-cmd-find-glyph" aria-hidden="true">
-            ⌕
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
           </span>
           <span className="d2-cmd-find-text">{L("종목·메뉴 찾기", "Find stock or page")}</span>
           <kbd>{isMac ? "⌘K" : "Ctrl K"}</kbd>

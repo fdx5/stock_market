@@ -5,6 +5,8 @@ import { useMarketTicker } from "../../useMarketTicker";
 import { Link } from "../../router";
 import { pct, toneOf, useL } from "../lib";
 import MarketBreadth from "./MarketBreadth";
+import NeoIndexChart from "../../neo/NeoIndexChart";
+import { useDesignMode } from "../../neo/settings";
 import { RollingNumber, useOverviewMotion } from "./OverviewMotion";
 import "./discovery.css";
 import "./overviewMotion.css";
@@ -55,6 +57,7 @@ function useDomesticLines(market: "kr" | "us") {
 }
 
 export default function MarketOverview({ market, items, asOf, generatedAt, session, leadingSector, bigTechMove, bigTechShare }: Props) {
+  const design = useDesignMode();
   const L = useL();
   const indices = useMarketIndices();
   const ticker = useMarketTicker();
@@ -72,12 +75,13 @@ export default function MarketOverview({ market, items, asOf, generatedAt, sessi
   const collected = stamp(generatedAt) ?? asOf;
   const sessionText = session === "pre" ? L("프리마켓", "Pre-market") : session === "post" ? L("애프터마켓", "After-hours") : session === "regular" ? L("정규장", "Regular session") : null;
   const flow = (value?: number) => value != null && Number.isFinite(value) ? `${value > 0 ? "+" : ""}${Math.round(value).toLocaleString()}${L("억", "")}` : "—";
-  return <div className="ed-market-overview" ref={motion.ref} data-motion={motion.active ? "on" : "off"} data-motion-cycle={motion.cycle}>
+  return <div className="ed-market-overview" ref={motion.ref} data-market={market} data-motion={motion.active ? "on" : "off"} data-motion-cycle={motion.cycle}>
     <div className="ed-overview-topline"><nav className="ed-market-switch" aria-label={L("시장 선택", "Choose a market")}><Link to="/desk" aria-current={market === "kr" ? "page" : undefined}>{L("한국 시장", "Korea")}<span>KR</span></Link><Link to="/global" aria-current={market === "us" ? "page" : undefined}>{L("미국 시장", "United States")}<span>US</span></Link></nav><span className="ed-overview-time">{collected ? <>{L("종목 집계", "Stocks as of")} <time dateTime={generatedAt ?? undefined}>{collected}</time> KST</> : L("시장 데이터 확인 중", "Waiting for market data")}</span></div>
     <div className="ed-overview-title"><div><span className="ed-eyebrow">MARKET / {market === "kr" ? "SEOUL" : "NEW YORK"}</span><h1 className="d2-title">{market === "kr" ? L("오늘의 국내 시장", "Korea at a glance") : L("지금의 미국 시장", "The US at a glance")}</h1></div><Link className="ed-market-map-link" to={market === "kr" ? "/kospi-map" : "/sp500-map"}>{L("시장 지도", "Market map")} <span aria-hidden="true">↗</span></Link></div>
     <div className="ed-market-reading"><div className="ed-market-primary"><div className="ed-overview-quotes">{quotes.map(quote => <Link key={quote.name} to={quote.url} className={`ed-overview-quote is-${toneOf(quote.change)}`}>
       <span>{quote.name}<i aria-hidden="true">↗</i></span><strong>{number(quote.price != null && Number.isFinite(quote.price) && quote.price > 0 ? quote.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—")}</strong><b className={`is-${toneOf(quote.change)}`}>{number(pct(quote.change))}</b><MiniLine points={quote.points} up={(quote.change ?? 0) >= 0} cycle={motion.cycle} /><small className="ed-quote-basis">{stamp(quote.time) ? `${stamp(quote.time)} KST` : L("최근 지수 시세", "Latest index quote")}</small>
     </Link>)}</div>
+      {design === "neo" && <NeoIndexChart quotes={quotes} />}
       <div className="ed-overview-context"><div><span>{L("원/달러", "USD/KRW")}</span><b>{number(fx && Number.isFinite(fx.price) && fx.price > 0 ? `${fx.price.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}${L("원", " KRW")}` : "—")}</b></div>{market === "kr" ? <><div><span>{L("코스피 외국인 순매수", "KOSPI foreign net buying")}</span><b className={`is-${toneOf(indices.kospiInvestor?.foreign_amount)}`}>{number(flow(indices.kospiInvestor?.foreign_amount))}</b></div><div><span>{L("코스피 기관 순매수", "KOSPI institutional net buying")}</span><b className={`is-${toneOf(indices.kospiInvestor?.institution_amount)}`}>{number(flow(indices.kospiInvestor?.institution_amount))}</b></div></> : <><div><span>{L("주도 섹터", "Leading sector")}</span><b>{leadingSector ?? "—"}</b></div><div><span>{L("빅테크 7 등락", "Big Tech 7 move")}</span><b className={`is-${toneOf(bigTechMove)}`}>{number(pct(bigTechMove))}{bigTechShare != null && <small>{L("비중", "Weight")} {number(`${(bigTechShare * 100).toFixed(0)}%`)}</small>}</b></div></>}</div>
       <p className="ed-overview-basis">{market === "kr" ? L("지수 전일 대비 · 수급 단위 억원", "Indices vs. previous close · flows in KRW 100M") : <>{L("종목 시세", "Stock quotes")} {sessionText ?? L("세션 확인 중", "Session pending")} · {L("지수와 종목의 기준 시각은 다를 수 있습니다", "Index and stock quote times may differ")}</>}</p>
     </div><MarketBreadth market={market} items={items} active={motion.active} cycle={motion.cycle} /></div>

@@ -1,0 +1,114 @@
+/* NEO GENESIS: opt-in, shared tokens for the terminal and existing data engines. */
+html:root[data-design="neo"][data-theme]{color-scheme:dark;--bg-root:#0b070e;--bg-elevated:#160e1a;--bg-panel:#19111e;--bg-glass:rgba(12,24,46,.94);--text-primary:#f8f6f1;--text-secondary:#b6a5c0;--text-muted:#a594af;--line-soft:rgba(84,204,237,.18);--line-active:rgba(0,245,255,.56);--accent-neon:#bf85ff;--neon-violet:#a855f7;--neon-magenta:#ff3cac;--neon-blue:#3b82f6;--market-up:#ff6c83;--market-down:#64aaff;--market-flat:#baafc1;--positive:#35e6ad;--warning:#ffcb63;--radius-sm:8px;--radius-md:12px;--radius-lg:18px;--radius-xl:24px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-6:24px;--space-8:32px;--glow-soft:0 0 14px #bf85ff0b;--glow-focus:0 0 0 1px #bf85ffa6,0 0 20px #bf85ff24;--focus-ring:0 0 0 3px #bf85ff66;--motion-micro:120ms;--motion-standard:220ms;--motion-layout:320ms;
+--surface-1:var(--bg-panel);--page-plane:var(--bg-root);--gridline:#312339;--baseline:#675372;--border:var(--line-soft);--series-blue:var(--market-down);--series-red:var(--market-up);--series-aqua:#35d7b5;--series-yellow:#e8be64;--series-violet:#b18cf5;--series-pink:#ed8dd4;--series-orange:#f5ad6d;--up-color:var(--market-up);--down-color:var(--market-down);--status-good:#35d7b5;--status-critical:#ff6c83;--status-warning:#ffcb63;--status-neutral:#b6a5c0;--map-gap:#130c17;
+--p0:var(--bg-root);--p1:var(--bg-elevated);--p2:#221729;--ink:var(--text-primary);--ink-2:var(--text-secondary);--ink-3:var(--text-muted);--rule:var(--line-soft);--rule-2:#bf85ff45;--rule-ink:#bf85ffb0;--brass:var(--accent-neon);--mark:#bf85ff20;--up:var(--market-up);--down:var(--market-down);--flat:var(--market-flat);--up-wash:#ff556e18;--down-wash:#4598ff19;--live:#35e6ad;--warn:#ffcb63;--danger:#ff6c83;--scrim:#0a060cdb;
+--f-sans:"Pretendard Variable",Pretendard,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;--f-display:var(--f-sans);--f-text:var(--f-sans);--f-fig:var(--f-sans);--f-num:"IBM Plex Sans Condensed",var(--f-sans);--f-type:"IBM Plex Mono",ui-monospace,SFMono-Regular,Consolas,monospace;--f-serif:var(--f-sans);--f-mono:var(--f-num);--gutter:20px;--measure:1600px;--ng-header:68px;--ng-pulse:34px;--ng-rail:208px;--ng-bottom:0px}
+html[data-design="neo"],html[data-design="neo"] body{background:var(--bg-root)!important;color:var(--text-primary);font-family:var(--f-sans)}
+html[data-design="neo"]{scroll-padding-top:154px}
+html[data-design="neo"] body{margin:0}
+html[data-design="neo"] *{box-sizing:border-box}
+html[data-design="neo"] :is(button,input,select,textarea){font-family:inherit}
+html[data-design="neo"] :is(a,button,input,select,textarea,[tabindex]):focus-visible{outline:2px solid var(--accent-neon);outline-offset:3px}
+html[data-design="neo"] ::selection{background:#bf85ff33;color:#fff}
+html[data-design="neo"] :is(.is-up,.positive,.up){color:var(--market-up)}
+html[data-design="neo"] :is(.is-down,.negative,.down){color:var(--market-down)}
+.ng-shell{min-height:100dvh;background:radial-gradient(ellipse at 80% 0%,#36263f1f,transparent 48%),var(--bg-root);font-family:var(--f-sans);font-size:13px;color:var(--text-primary)}
+.ng-icon{width:20px;height:20px;flex-shrink:0;display:inline-block;vertical-align:middle}
+.ng-header{height:var(--ng-header);position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:20px;padding:0 24px;background:#120c16f7;border-bottom:1px solid var(--line-soft);box-shadow:0 1px 0 #bf85ff08}
+.ng-brand{display:flex;align-items:center;gap:10px;width:184px;flex-shrink:0;text-decoration:none;color:var(--accent-neon)}
+.ng-brand>svg{width:184px;height:40px}
+.ng-brand>span{font:750 20px/1.05 var(--f-sans);letter-spacing:-.05em;color:#f8f6f1}
+.ng-brand>span>span{color:var(--accent-neon)}
+.ng-brand small{display:block;font:8px/1.6 var(--f-type);letter-spacing:.28em;color:#a895b3;margin-top:4px}
+.ng-primary-nav{display:flex;align-items:center;gap:22px;height:100%;flex-shrink:0}
+.ng-primary-nav>a{display:flex;align-items:center;height:100%;border-bottom:2px solid transparent;text-decoration:none;color:var(--text-secondary);font-size:12px;white-space:nowrap}
+.ng-primary-nav>a:hover,.ng-primary-nav>a[aria-current]{color:var(--accent-neon);border-bottom-color:var(--accent-neon)}
+.ng-search-trigger{margin-left:auto;max-width:360px;min-width:160px;width:30%;display:flex;align-items:center;gap:10px;color:var(--text-muted);background:#1d1322;border:1px solid #543f6170;border-radius:8px;min-height:38px;padding:0 12px;cursor:pointer;text-align:left}
+.ng-search-trigger .ng-icon{width:16px;height:16px;color:var(--accent-neon)}
+.ng-search-trigger>span{font-size:11px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ng-search-trigger kbd{font:10px var(--f-type);margin-left:auto;border:1px solid #6e5c7970;border-radius:4px;padding:3px 4px;color:#c1b1cb;white-space:nowrap}
+.ng-header-tools{display:flex;gap:4px;align-items:center}
+.ng-header-tools>button,.ng-icon-button{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;padding:8px;border:1px solid transparent;background:none;color:var(--text-secondary);border-radius:7px;cursor:pointer}
+.ng-header-tools>button:hover,.ng-icon-button:hover{background:#bf85ff0c;border-color:var(--line-soft);color:var(--accent-neon)}
+.ng-header-tools .ng-language{font:600 11px var(--f-type)}
+.ng-pulse{position:sticky;top:var(--ng-header);z-index:90;display:flex;align-items:center;height:var(--ng-pulse);background:#150d19;border-bottom:1px solid #46325270;overflow:hidden}
+.ng-pulse-label{display:flex;align-items:center;gap:7px;width:var(--ng-rail);padding-left:24px;flex-shrink:0;font:9px var(--f-type);letter-spacing:.09em;color:#c1afcc;white-space:nowrap}
+.ng-pulse-label>i,.ng-status-dot{width:5px;height:5px;background:var(--accent-neon);display:inline-block;box-shadow:0 0 8px #bf85ff55}
+.ng-pulse-values{display:flex;align-items:center;gap:0;overflow-x:auto;scrollbar-width:none;flex:1;height:100%}
+.ng-pulse-values::-webkit-scrollbar{display:none}
+.ng-pulse-values>a{height:100%;display:flex;align-items:center;gap:9px;padding:0 18px;border-left:1px solid var(--line-soft);text-decoration:none;white-space:nowrap;font:10px var(--f-num);color:var(--text-secondary)}
+.ng-pulse-values>a>b{color:var(--text-primary);font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+.ng-pulse-values>a>em{font-size:10px;font-style:normal}
+.ng-sidebar{position:fixed;left:0;top:calc(var(--ng-header) + var(--ng-pulse));bottom:0;width:var(--ng-rail);z-index:40;background:#120b16;border-right:1px solid #422e4e70;padding:23px 14px 18px;overflow:auto;scrollbar-width:thin;scrollbar-color:#4a3953 transparent}
+.ng-sidebar-cap{padding:0 10px 17px;border-bottom:1px solid var(--line-soft);margin-bottom:18px}
+.ng-sidebar-cap>span{font:8px var(--f-type);color:#a792b3;letter-spacing:.16em}
+.ng-sidebar-cap>b{display:block;margin-top:7px;font:500 10px var(--f-type);color:#e2daca}
+.ng-nav-group{margin-bottom:17px}
+.ng-nav-group h2{display:flex;align-items:center;gap:7px;font:500 10px var(--f-sans);color:#a18dad;margin:0 9px 6px}
+.ng-nav-group h2>.ng-icon{width:13px;height:13px;color:#8d83bf}
+.ng-nav-group nav{display:flex;flex-direction:column;gap:2px}
+.ng-nav-group a,.ng-directory-grid a{min-height:32px;display:flex;align-items:center;justify-content:space-between;gap:8px;color:#d2c5d9;text-decoration:none;border-radius:5px;font-size:11px;padding:6px 10px;border-left:2px solid transparent}
+.ng-nav-group a>.ng-icon{width:12px;height:12px;opacity:0}
+.ng-nav-group a:hover,.ng-directory-grid a:hover{background:#291a32;color:#f8f6f1}
+.ng-nav-group a:hover>.ng-icon{opacity:.8}
+.ng-nav-group a[aria-current]{background:linear-gradient(90deg,#bf85ff18,#bf85ff04);color:var(--accent-neon);border-left-color:var(--accent-neon)}
+.ng-nav-group a[aria-current]>.ng-icon{opacity:1}
+.ng-directory-button{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid #604e6a70;border-radius:7px;background:#231829;color:#e0d7c6;font-size:11px;cursor:pointer}
+.ng-directory-button>.ng-icon{width:15px;height:15px}.ng-directory-button>span{margin-left:auto}
+.ng-sidebar-foot{font:8px/1.8 var(--f-type);color:#ae9bb9;padding:22px 10px 0;letter-spacing:.05em}.ng-sidebar-foot small{display:block;font-size:7px;letter-spacing:.04em}.ng-sidebar-foot .ng-status-dot{width:4px;height:4px;margin-right:5px}
+.ng-workspace{margin-left:var(--ng-rail);min-width:0;padding-bottom:var(--ng-bottom)}
+.ng-context{display:flex;align-items:center;gap:16px;min-height:49px;padding:9px 24px;color:var(--text-secondary);font-size:11px;border-bottom:1px solid #2f203780}
+.ng-context>span:first-child{display:flex;align-items:center;gap:10px;min-width:0}.ng-context a{font:9px var(--f-type);color:#9882a5;text-decoration:none;letter-spacing:.05em}.ng-context i{font-style:normal;color:#644f71}
+.ng-context .ng-context-meta{margin-left:auto;display:flex;align-items:center;gap:6px;font:8px var(--f-type);color:#9b89a5;letter-spacing:.05em}.ng-context-meta>i{display:block;width:4px;height:4px;border-radius:50%;background:#af8be3}
+.ng-context>button{display:none;padding:5px;border:0;color:var(--text-secondary);background:none}
+.ng-content{min-height:calc(100dvh - 220px);outline:none;padding:0 24px;max-width:1800px;margin:auto}
+.ng-kicker{font:9px/1.5 var(--f-type);letter-spacing:.13em;color:var(--accent-neon)}
+.ng-panel{position:relative;isolation:isolate;color:var(--text-primary);border:1px solid var(--line-soft);border-radius:var(--radius-md);background:linear-gradient(145deg,#23172a,#160e1a);box-shadow:var(--glow-soft);padding:20px;min-width:0}
+.ng-panel:before{content:"";position:absolute;top:-1px;left:17px;width:40px;height:1px;background:var(--accent-neon);opacity:.65;pointer-events:none}
+.ng-panel:focus-within{border-color:var(--line-active)}
+.ng-section-head{display:flex;justify-content:space-between;align-items:end;gap:16px;margin:27px 0 15px}.ng-section-head h2{font:650 21px/1.4 var(--f-sans);letter-spacing:-.03em;color:var(--text-primary);margin:6px 0 0}.ng-section-head p{color:var(--text-secondary);font-size:12px;margin:7px 0 0}
+.ng-empty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:32px 18px;text-align:center;color:var(--text-muted);border:1px dashed var(--line-soft);border-radius:10px}.ng-empty strong{font-size:14px;color:var(--text-secondary)}.ng-empty p{font-size:12px;line-height:1.7;margin:0}.ng-empty.is-error{border-color:#ff6c8340}
+.ng-skeleton{display:grid;gap:12px;padding:16px}.ng-skeleton>span{height:12px;background:#3c2c45;border-radius:4px;max-width:100%}.ng-skeleton>span:last-child{width:60%}
+.ng-footer{padding:20px 24px 32px;max-width:1800px;margin:auto;min-height:0!important;background:transparent!important}.ng-footer .d2-colophon{display:block;padding:24px 0 0;margin:0;max-width:none;border-color:var(--line-soft)}.ng-footer .d2-colophon-logo{max-width:130px}.ng-footer .d2-colophon-brand{max-width:250px}.ng-footer .d2-colophon h3{font-size:12px;color:#ccbbd6}.ng-footer .d2-colophon a{color:var(--text-secondary)}.ng-footer .d2-colophon p{line-height:1.8}.ng-footer-extras{display:flex;flex-wrap:wrap;gap:18px;font-size:10px;border-top:1px solid var(--line-soft);padding-top:12px}.ng-footer-extras a{color:var(--text-secondary);text-decoration:none}.ng-footer-extras button{border:0;background:none;color:var(--text-secondary);cursor:pointer;font-size:10px}
+.ng-mobile-nav{display:none}
+.ng-skip{position:fixed;top:-100px;left:20px;background:var(--accent-neon);color:#110b14;padding:12px 18px;border-radius:6px;z-index:1000}.ng-skip:focus{top:12px}
+.ng-modal-scrim{position:fixed;inset:0;z-index:500;background:#0a060cd9;display:flex;align-items:center;justify-content:center;padding:24px;overscroll-behavior:contain}
+.ng-dialog{width:min(100%,1060px);max-height:calc(100dvh - 48px);overflow-y:auto;overscroll-behavior:contain;background:#1a101f;border:1px solid #73568366;border-radius:16px;box-shadow:0 20px 90px #000b;padding:25px;scrollbar-width:thin}
+.ng-dialog-settings{width:min(100%,680px)}
+.ng-dialog-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:20px}.ng-dialog-head h2{font-size:24px;line-height:1.4;letter-spacing:-.04em;margin:7px 0 0}.ng-dialog-head .ng-icon-button{border:1px solid var(--line-soft);flex-shrink:0}
+.ng-directory-search{display:flex;align-items:center;gap:12px;background:#120b16;border:1px solid #594267;border-radius:8px;padding:0 14px;min-height:48px;margin-bottom:24px;color:var(--accent-neon)}.ng-directory-search input{width:100%;min-width:0;background:none;color:var(--text-primary);border:0;outline:none;font-size:13px;min-height:44px}.ng-directory-search:focus-within{box-shadow:var(--focus-ring)}
+.ng-directory-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}.ng-directory-grid h3{display:flex;align-items:center;gap:8px;font-size:12px;color:#c4b0d0;margin:0 0 8px}.ng-directory-grid h3>.ng-icon{width:15px;height:15px}.ng-directory-grid a{min-height:38px;font-size:12px;padding:8px}.ng-directory-grid a>.ng-icon{width:12px;height:12px;color:#90789d}.ng-directory-grid a[aria-current]{color:var(--accent-neon);background:#bf85ff0b}
+.ng-directory-extras{display:flex;flex-wrap:wrap;gap:24px;border-top:1px solid var(--line-soft);padding-top:18px;margin-top:22px}.ng-directory-extras a{color:var(--text-secondary);font-size:12px;text-decoration:none}
+.ng-setting-section{padding:18px 0;border-top:1px solid var(--line-soft)}.ng-setting-section h3{font-size:14px;margin:0 0 9px}.ng-setting-section p{font-size:12px;line-height:1.7;color:var(--text-secondary);margin:0 0 16px}.ng-fx-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ng-fx-options>button{padding:18px 12px;background:#160e1a;border:1px solid #4b3c54;border-radius:10px;color:var(--text-secondary);text-align:left;cursor:pointer}.ng-fx-options>button[aria-pressed=true]{border-color:var(--accent-neon);background:#bf85ff0b;box-shadow:inset 0 2px #bf85ff}.ng-fx-options>button>.ng-icon{color:#9b8bda;margin-bottom:18px}.ng-fx-options strong{display:block;font-size:13px;color:var(--text-primary)}.ng-fx-options small{display:block;font-size:11px;line-height:1.7;margin-top:7px}.ng-setting-section .ng-setting-note{font-size:11px;color:var(--text-muted);margin-top:14px}.ng-setting-actions{display:flex;gap:10px;flex-wrap:wrap}.ng-setting-actions button{background:#2a1d32;color:var(--text-primary);border:1px solid #554161;border-radius:6px;min-height:40px;padding:8px 14px;cursor:pointer}
+.ng-finder-host{display:contents!important}.ng-finder-host .d2-finder-scrim{background:#0a060ce8}.ng-finder-host .d2-finder{background:#1a101f;border:1px solid #735683;border-radius:14px;color:var(--text-primary)}
+.ng-preview-switch{position:fixed;left:16px;bottom:16px;z-index:200;padding:12px 16px;background:#1b1121;color:#bf85ff;border:1px solid #bf85ff66;border-radius:8px;font:12px system-ui;cursor:pointer}
+html[data-design="neo"][data-fx="full"] .ng-panel{box-shadow:0 0 20px #bf85ff0e,0 12px 30px #0003}
+html[data-design="neo"][data-fx="minimal"]{--glow-soft:none;--glow-focus:0 0 0 1px #bf85ffa6}
+html[data-design="neo"][data-fx="minimal"] :is(.ng-shell,.ng-panel){background-image:none}
+html[data-design="neo"][data-fx="minimal"] .ng-panel:before{display:none}
+html[data-design="neo"][data-fx="minimal"] :is(.ed-overview-trace,.ed-reel-strip,.ng-chart-trace){animation:none!important;transition:none!important}
+@media(min-width:1800px){html:root[data-design="neo"][data-theme]{--ng-rail:224px}.ng-content{padding:0 32px}.ng-sidebar{padding-inline:20px}}
+@media(max-width:1250px){.ng-primary-nav{gap:16px}.ng-header{gap:16px}.ng-brand{width:166px}.ng-search-trigger kbd{display:none}.ng-search-trigger{min-width:130px}.ng-header-tools{gap:0}.ng-content{padding:0 18px}.ng-context{padding-inline:18px}}
+@media(max-width:1050px){html:root[data-design="neo"][data-theme]{--ng-rail:176px}.ng-brand{width:152px}.ng-header{padding-inline:18px;gap:14px}.ng-primary-nav{gap:15px}.ng-primary-nav>a{font-size:11px}.ng-search-trigger{width:25%;min-width:100px}.ng-header-tools>button{min-width:35px}.ng-nav-group a{font-size:10px}.ng-pulse-label{padding-left:18px;font-size:8px}.ng-content{padding:0 15px}.ng-context-meta{display:none!important}}
+@media(max-width:899px){html:root[data-design="neo"][data-theme]{--ng-rail:0px;--ng-header:60px;--ng-bottom:calc(62px + env(safe-area-inset-bottom,0px))}.ng-sidebar{display:none}.ng-header{padding-inline:18px;gap:16px}.ng-brand{width:155px}.ng-primary-nav{gap:17px}.ng-search-trigger{min-width:44px;width:44px;margin-left:auto;padding:0;justify-content:center;border-color:transparent;background:none;min-height:44px}.ng-search-trigger>.ng-icon{width:19px;height:19px}.ng-search-trigger>span{display:none}.ng-header-tools>button{min-width:40px;min-height:44px}.ng-header-tools .ng-menu-trigger{display:none}.ng-pulse-label{width:118px;font-size:8px;flex-shrink:0}.ng-pulse-values>a{padding:0 13px}.ng-workspace{margin-left:0}.ng-content{padding:0 18px}.ng-context{padding-inline:18px;min-height:44px}.ng-context>button{display:block;margin-left:auto}.ng-mobile-nav{position:fixed;bottom:0;left:0;right:0;z-index:110;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));height:var(--ng-bottom);padding-bottom:env(safe-area-inset-bottom,0px);background:#150d19fa;border-top:1px solid #5f446f90;box-shadow:0 -6px 26px #0004}.ng-mobile-nav>a,.ng-mobile-nav>button{min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:#b6a4c1;background:none;border:0;text-decoration:none;font:10px var(--f-sans);cursor:pointer}.ng-mobile-nav .ng-icon{width:19px;height:19px}.ng-mobile-nav>a[aria-current]{color:var(--accent-neon);background:linear-gradient(0deg,#bf85ff08,transparent);border-top:2px solid var(--accent-neon)}.ng-footer{padding:20px 18px 30px}.ng-directory-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ng-dialog{padding:21px}.ng-dialog-head h2{font-size:22px}}
+@media(max-width:599px){html:root[data-design="neo"][data-theme]{--ng-header:56px;--ng-pulse:31px;--gutter:12px}.ng-header{padding-inline:14px;gap:8px}.ng-brand{width:145px;gap:8px}.ng-brand>svg{width:30px;height:30px}.ng-brand>span{font-size:18px}.ng-brand small{font-size:7px;letter-spacing:.24em}.ng-primary-nav{display:none}.ng-header-tools{gap:0}.ng-header-tools>button{min-width:38px}.ng-header-tools .ng-language{font-size:10px}.ng-search-trigger{margin-left:auto}.ng-pulse-label{width:101px;font-size:7px;padding-left:14px;gap:5px}.ng-pulse-values>a{gap:7px;padding-inline:11px;font-size:9px}.ng-pulse-values>a>b{font-size:10px}.ng-pulse-values>a>em{font-size:9px}.ng-content{padding:0 12px}.ng-context{padding:8px 13px;min-height:39px;font-size:10px;gap:10px}.ng-context a{font-size:8px}.ng-context>span:first-child{gap:7px}.ng-context .ng-icon{width:17px;height:17px}.ng-footer{padding-inline:12px}.ng-footer .d2-colophon-dir{grid-template-columns:repeat(2,minmax(0,1fr));gap:22px 12px}.ng-footer .d2-colophon-top{display:block}.ng-footer .d2-colophon-brand{margin-bottom:20px}.ng-section-head h2{font-size:20px}.ng-section-head{margin-top:22px}.ng-dialog-head h2{font-size:20px}.ng-modal-scrim{padding:12px}.ng-dialog{max-height:calc(100dvh - 24px);padding:18px 15px;border-radius:12px}.ng-directory-grid{gap:22px 12px}.ng-directory-grid a{min-height:44px;font-size:11px;padding:7px 3px}.ng-directory-grid h3{font-size:11px}.ng-directory-grid h3 .ng-icon{width:14px;height:14px}.ng-dialog-head{gap:10px}.ng-fx-options{gap:7px}.ng-fx-options>button{padding:14px 8px}.ng-fx-options strong{font-size:11px}.ng-fx-options small{font-size:10px}.ng-fx-options>button>.ng-icon{margin-bottom:12px}.ng-directory-extras{gap:15px}.ng-setting-section p{font-size:11px}}
+@media(prefers-reduced-motion:reduce){html[data-design="neo"]{scroll-behavior:auto!important}html[data-design="neo"] *,html[data-design="neo"] *:before,html[data-design="neo"] *:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+@media(max-width:1250px){.ng-brand>.ng-brand-logo{width:166px;height:36px}}
+@media(max-width:899px){.ng-brand>.ng-brand-logo{width:155px;height:34px}}
+@media(max-width:599px){.ng-brand>.ng-brand-logo{width:145px;height:32px}}
+@media print{html[data-design="neo"],html[data-design="neo"] body{background:#fff!important;color:#281e2d!important}.ng-header,.ng-sidebar,.ng-pulse,.ng-context,.ng-mobile-nav,.ng-modal-scrim,.ng-footer,.ng-preview-switch{display:none!important}.ng-workspace{margin:0;padding:0}.ng-content{padding:0;max-width:none}.ng-shell{background:#fff;color:#281e2d}.ng-panel{background:#fff;box-shadow:none;border-color:#e1dacb}html:root[data-design="neo"][data-theme]{--ink:#281e2d;--ink-2:#473a4e;--ink-3:#5b4e62;--text-primary:#281e2d;--text-secondary:#473a4e;--p0:#fff;--p1:#fff;--p2:#f8f6f2;--rule:#e1dacb;--bg-root:#fff;--bg-panel:#fff;--market-up:#c52e48;--market-down:#79558e}}
+
+html[data-design="neo"][data-fx="minimal"] .ng-number-value.is-changed{animation:none!important}
+
+.ng-dialog .d2-bgm-strip{background:#1c1222;border:1px solid #543f6170;border-radius:7px;margin:14px 0;padding:8px}
+
+.ng-directory-empty{padding:18px;border:1px dashed #5a4169;border-radius:8px;color:#c2b1cb;font-size:12px;text-align:center}
+html[data-design="neo"][data-fx="minimal"] .ed-breadth-line>i{animation:none!important}
+html[data-design="neo"][data-fx="minimal"] .ed-investor-card:hover{transform:none!important}
+
+.ng-audience-slot{margin-left:auto;flex-shrink:0}
+.ng-audience-slot .visitor-badge{background:none;border:0;padding:0;color:#ad9bb7;font:9px var(--f-type);box-shadow:none;gap:5px;white-space:nowrap}
+.ng-context:has(.ng-audience-slot) .ng-context-meta{margin-left:10px}
+.ng-setting-actions .bm-wrap{display:inline-flex}
+.ng-bookmark-control{background:#2a1d32!important;color:#ece7dd!important;border:1px solid #554161!important;border-radius:6px!important;min-height:40px!important;padding:8px 14px!important;font:12px var(--f-sans)!important}
+@media(max-width:599px){.ng-audience-slot .visitor-badge{font-size:8px;gap:4px}.ng-context{gap:9px}}

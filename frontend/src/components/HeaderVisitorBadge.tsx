@@ -11,7 +11,7 @@ export default function HeaderVisitorBadge({ path }: { path: string }) {
   const [target, setTarget] = useState<Element | null>(null);
   useEffect(() => {
     if (isAdmin) { setTarget(null); return; }
-    const find = () => setTarget(document.querySelector(".app-header-meta"));
+    const find = () => setTarget(document.querySelector(".ng-audience-slot, .app-header-meta"));
     find();
     const observer = new MutationObserver(find);
     observer.observe(document.body, { childList: true, subtree: true });

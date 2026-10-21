@@ -59,13 +59,13 @@ const DIRECTORY: { ko: string; en: string; links: { to: string; ko: string; en: 
       { to: "/news", ko: "글로벌 뉴스", en: "Global news" },
       { to: "/support", ko: "커피 한 잔 후원하기", en: "Buy us a coffee" },
       { to: "/desk2", ko: "클래식 마켓 데스크", en: "Classic desk" },
-      { to: "/", ko: "태양계 입구", en: "Entrance" },
+      { to: "/hub", ko: "태양계 입구", en: "Entrance" },
       { to: "https://chs2147.github.io/mini-apps", ko: "Mini Apps ↗", en: "Mini Apps ↗", ext: true },
     ],
   },
 ];
 
-export default function Colophon() {
+export default function Colophon({ home = "/hub" }: { home?: string } = {}) {
   const { lang } = useLanguage();
   const L = useL();
   const year = new Date().getFullYear();
@@ -73,7 +73,7 @@ export default function Colophon() {
     <footer className="d2-colophon">
       <div className="d2-colophon-top">
         <div className="d2-colophon-brand">
-          <Link to="/hub" aria-label="K-Stock Hub">
+          <Link to={home} aria-label="K-Stock Hub">
             <Logo className="d2-colophon-logo" />
           </Link>
           <p>{L("실시간 시세, 시가총액 맵, 시총 대결까지 한눈에 보는 국내 증시 허브.", "Live quotes, market maps and market-cap battles — Korea's market, at a glance.")}</p>

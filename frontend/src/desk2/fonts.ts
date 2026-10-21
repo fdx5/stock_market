@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useDesignMode } from "../neo/settings";
 
 /* The broadsheet's type families, loaded once. Kept apart from shell.ts, which brings
    the desk's whole stylesheet with it, so a page outside the desk can use the type
@@ -12,13 +13,15 @@ const FONT_LINKS = [
 /** Just the type families, for a page outside the broadsheet that sets its headings
  * in them (the admin monitor's masthead) without taking on the desk's scope. */
 export function useBroadsheetFonts(): void {
+  const design = useDesignMode();
   useEffect(() => {
-    for (const href of FONT_LINKS) {
+    const links = design === "neo" ? [FONT_LINKS[0], "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=optional"] : FONT_LINKS;
+    for (const href of links) {
       if (document.querySelector(`link[href="${href}"]`)) continue;
       const link = document.createElement("link");
       link.rel = "stylesheet";
       link.href = href;
       document.head.appendChild(link);
     }
-  }, []);
+  }, [design]);
 }

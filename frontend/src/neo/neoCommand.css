@@ -1,0 +1,99 @@
+/* Dense command layout: prices and the real chart own the first viewport. */
+html[data-design="neo"] .ng-content .ed-market-overview{padding:16px;border-radius:11px;margin-top:12px;background:linear-gradient(120deg,#1f1426,#170f1c 70%);border:1px solid #6e517e55;position:relative;overflow:visible}
+html[data-design="neo"] .ng-content .ed-market-overview:before{content:"";position:absolute;left:18px;right:65%;top:-1px;height:1px;background:linear-gradient(90deg,#bf85ff,#a855f7,transparent);pointer-events:none}
+html[data-design="neo"] .ng-content .ed-overview-topline{margin-bottom:11px;gap:10px}
+html[data-design="neo"] .ng-content .ed-market-switch{background:#140c18;border-color:#51395f;border-radius:6px;padding:2px}
+html[data-design="neo"] .ng-content .ed-market-switch a{font-size:10px;padding:6px 10px;min-height:29px;gap:14px;border-radius:4px;color:#b9a7c4}
+html[data-design="neo"] .ng-content .ed-market-switch a[aria-current]{color:#bf85ff;background:#bf85ff14;box-shadow:inset 0 0 0 1px #bf85ff3d}
+html[data-design="neo"] .ng-content .ed-overview-time{font-size:9px;color:#ad9bb8}
+html[data-design="neo"] .ng-content .ed-overview-title{margin-bottom:13px;align-items:center}
+html[data-design="neo"] .ng-content .ed-overview-title .d2-title{font:650 25px/1.25 var(--f-sans);letter-spacing:-.04em;color:#f8f6f1}
+html[data-design="neo"] .ng-content .ed-overview-title .ed-eyebrow{font:8px var(--f-type);color:#b298c1;letter-spacing:.1em}
+html[data-design="neo"] .ng-content .ed-market-map-link{font:11px var(--f-sans);color:#bf85ff;padding:7px 10px;border:1px solid #bf85ff33;border-radius:5px;min-height:34px;background:#bf85ff08}
+html[data-design="neo"] .ng-content .ed-market-reading{grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);gap:18px;align-items:stretch}
+html[data-design="neo"] .ng-content .ed-overview-quotes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+html[data-design="neo"] .ng-content .ed-overview-quote{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:10px 12px;border:1px solid #533b6180;border-radius:7px;background:#201527;min-width:0}
+html[data-design="neo"] .ng-content .ed-overview-quote:hover{border-color:#bf85ff66;background:#281931}
+html[data-design="neo"] .ng-content .ed-overview-quote>span{grid-column:1/-1;font:500 10px var(--f-type);color:#e0d7c6;display:flex;justify-content:space-between}
+html[data-design="neo"] .ng-content .ed-overview-quote strong{grid-column:1;grid-row:2;font:600 clamp(23px,2.5vw,34px)/1.25 var(--f-num);margin:2px 0 0;letter-spacing:-.025em;color:#faf8f5;font-variant-numeric:tabular-nums}
+html[data-design="neo"] .ng-content .ed-overview-quote>b{grid-column:2;grid-row:2;align-self:center;justify-self:end;font:550 12px/1.4 var(--f-num);padding:3px 5px;border-radius:4px}
+html[data-design="neo"] .ng-content .ed-overview-quote>.ed-mini-line{display:none}
+html[data-design="neo"] .ng-content .ed-overview-quote>.ed-quote-basis{font:9px var(--f-sans);color:#ab99b6;margin-top:2px;grid-column:1/-1}
+html[data-design="neo"] .ng-content .ed-overview-context{margin-top:11px;gap:10px}
+html[data-design="neo"] .ng-content .ed-overview-context>div{gap:5px;padding-right:10px}
+html[data-design="neo"] .ng-content .ed-overview-context>div>span{font-size:10px;color:#b39ebf;min-height:0}
+html[data-design="neo"] .ng-content .ed-overview-context b{font:600 15px/1.4 var(--f-num);letter-spacing:0}
+html[data-design="neo"] .ng-content .ed-overview-basis{font-size:9px;margin-top:8px;color:#ac99b7}
+html[data-design="neo"] .ng-content .ed-market-breadth{padding-left:18px;border-left:1px solid #59426770;display:flex;flex-direction:column;min-width:0}
+html[data-design="neo"] .ng-content .ed-breadth-heading{align-items:center;position:relative;min-height:59px}
+html[data-design="neo"] .ng-content .ed-breadth-heading>div>span{font-size:10px;color:#c7b5d1}
+html[data-design="neo"] .ng-content .ed-breadth-heading strong{font:550 39px/1 var(--f-num);color:#f8f6f1}
+html[data-design="neo"] .ng-content .ed-breadth-heading strong>small{font-size:17px;color:#bf85ff}
+html[data-design="neo"] .ng-content .ed-breadth-heading p{font-size:8px;color:#a593af}
+html[data-design="neo"] .ng-content .ed-breadth-heading p>span{font-size:10px;color:#c8b8d2}
+html[data-design="neo"] .ng-content .ed-breadth-line{height:5px;margin-top:10px;border-radius:3px}
+html[data-design="neo"] .ng-content .ed-breadth-counts{font-size:10px;margin-top:2px}
+html[data-design="neo"] .ng-content .ed-distribution-heading{margin-top:14px;font-size:10px}
+html[data-design="neo"] .ng-content .ed-distribution-heading small{font-size:9px}
+html[data-design="neo"] .ng-content .ed-distribution-label{font-size:9px}
+html[data-design="neo"] .ng-content .ed-distribution>button{border-radius:4px}
+html[data-design="neo"] .ng-content .ed-distribution>button:hover{background:#3e2c48}
+html[data-design="neo"] .ng-content .ed-distribution-plot>i{border-radius:2px 2px 0 0}
+html[data-design="neo"] .ng-content .ed-distribution-foot{font-size:9px;color:#ab97b6}
+html[data-design="neo"] .ng-content .ed-distribution-detail{padding:8px 10px;background:#170f1c;border-radius:6px;font-size:10px;border-color:#5c436a}
+html[data-design="neo"] .ng-content .ng-breadth-leaders{border-top:1px solid #4b375780;margin-top:12px;padding-top:9px}
+html[data-design="neo"] .ng-breadth-leaders>span{font:9px var(--f-sans);color:#baaac3}
+html[data-design="neo"] .ng-breadth-leaders>a{display:flex;justify-content:space-between;gap:10px;align-items:center;min-height:27px;color:#ebe5da;text-decoration:none;font:11px var(--f-sans);border-bottom:1px solid #37274180}
+html[data-design="neo"] .ng-breadth-leaders>a>span{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+html[data-design="neo"] .ng-breadth-leaders>a>b{font:500 11px var(--f-num);white-space:nowrap}
+html[data-design="neo"] .ng-content .ed-assets-heading{font:500 10px var(--f-sans);margin-top:14px;padding-top:11px;border-top-color:#533b6170;gap:10px;color:#d4c5dc}
+html[data-design="neo"] .ng-content .ed-assets-heading small{font-size:9px;color:#aa96b6}
+html[data-design="neo"] .ng-content .ed-overview-assets{gap:14px;margin-top:9px}
+html[data-design="neo"] .ng-content .ed-asset-quote>span{font-size:10px}
+html[data-design="neo"] .ng-content .ed-asset-quote small{font-size:8px;color:#a995b5}
+html[data-design="neo"] .ng-content .ed-asset-quote strong{font:550 18px/1.4 var(--f-num)}
+html[data-design="neo"] .ng-content .ed-asset-quote b{font-size:10px}
+html[data-design="neo"] .ng-content .ed-asset-quote .ed-mini-line{height:19px}
+.ng-index-chart{border:1px solid #4c36586b;border-radius:7px;background:#130c17;margin-top:10px;overflow:hidden;min-height:185px}
+.ng-chart-toolbar{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #3b2b4577}
+.ng-chart-tabs{display:flex;gap:4px}
+.ng-chart-tabs button{font:10px var(--f-type);padding:5px 8px;min-height:28px;border:1px solid transparent;border-radius:4px;background:none;color:#ab95b8;cursor:pointer;white-space:nowrap}
+.ng-chart-tabs button[aria-pressed=true]{border-color:#bf85ff40;background:#bf85ff0e;color:#bf85ff}
+.ng-chart-toolbar>span{font:9px var(--f-sans);color:#aa97b5;white-space:nowrap}.ng-chart-toolbar>span>b{font:500 10px var(--f-num);padding-left:6px}
+.ng-chart-interaction{position:relative;padding:8px 10px 0;outline-offset:-3px!important}
+.ng-chart-plot{position:relative;padding-right:58px}
+.ng-chart-axis{position:absolute;right:0;top:13%;bottom:13%;width:53px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;font:9px/1 var(--f-num);color:#ad9bb8;pointer-events:none}
+.ng-chart-tabs{display:flex!important;gap:5px!important}
+.ng-chart-tabs>button{display:block!important;min-width:0}
+.ng-number-value.is-changed{animation:ng-number-refresh 220ms ease-out both}
+@keyframes ng-number-refresh{from{opacity:.55}to{opacity:1}}
+.ng-chart-interaction svg{display:block;width:100%;height:142px;touch-action:pan-y}
+.ng-chart-interaction svg text{fill:#a591b0;font:11px var(--f-num)}
+.ng-chart-foot{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:3px 0 7px;font:8px/1.5 var(--f-sans);color:#a896b3;min-height:24px}
+.ng-chart-foot>output{font:9px var(--f-num);color:#cbb9d5;white-space:nowrap}
+.ng-index-chart .ng-empty{min-height:167px;border:0;border-radius:0;padding:20px}
+.ng-home-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0 1px}.ng-home-toolbar>div{display:flex;align-items:center;gap:16px}.ng-home-toolbar>div>span:last-child{font-size:11px;color:var(--text-secondary)}.ng-home-toolbar>button{display:flex;align-items:center;gap:9px;min-height:34px;padding:6px 12px;background:#bf85ff0e;color:#bf85ff;border:1px solid #bf85ff40;border-radius:5px;font-size:11px;cursor:pointer}.ng-home-toolbar>button .ng-icon{width:14px;height:14px}.ng-home-toolbar kbd{margin-left:15px;color:#b6a5c0;font:10px var(--f-type)}
+.ng-home-shortcuts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:13px 0}
+.ng-home-shortcuts>a{display:flex;align-items:center;gap:12px;background:linear-gradient(120deg,#211528,#18101d);border:1px solid #5e4a6966;border-radius:8px;padding:12px;text-decoration:none;color:#a89ad9;min-width:0}
+.ng-home-shortcuts>a:hover{border-color:#a987ed99;background:#291d30}
+.ng-home-shortcuts>a>.ng-icon:last-child{width:14px;height:14px;margin-left:auto;color:#a18dad}
+.ng-home-shortcuts b{display:block;font:550 12px var(--f-sans);color:#eee9df}.ng-home-shortcuts small{display:block;font:10px/1.5 var(--f-sans);color:#ad99b8;margin-top:4px}.ng-home-shortcuts>a>span{min-width:0}
+.ng-home-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:13px;margin-top:13px}
+.ng-home-grid .ng-panel{padding:14px}.ng-home-grid .ng-section-head{margin:0 0 12px;align-items:center}.ng-home-grid .ng-section-head h2{font-size:19px;margin-top:4px}.ng-text-link{font:11px var(--f-sans);text-decoration:none;color:#bf85ff;white-space:nowrap}
+.ng-home-heatmap{position:relative;height:270px;min-width:0;background:#0b070e;border-radius:6px;overflow:hidden}
+.ng-home-map-cell{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:1px solid #0b070e;border-radius:1px;text-decoration:none;overflow:hidden;padding:3px;min-width:0}
+.ng-home-map-cell>b{font:550 clamp(9px,1vw,13px)/1.3 var(--f-sans);text-align:center;max-width:100%;word-break:keep-all;overflow:hidden}.ng-home-map-cell>span{font:11px var(--f-num);white-space:nowrap}.ng-home-map-cell:hover{outline:1px solid #fff;outline-offset:-2px;z-index:1}
+.ng-data-note{font:9px/1.7 var(--f-sans);color:#ac9ab7;margin:9px 0 0}
+.ng-compact-tabs{display:flex;gap:5px;margin-bottom:8px}.ng-compact-tabs>button{min-height:29px;padding:5px 10px;border-radius:5px;border:1px solid #54405f77;background:none;color:#baaac4;font-size:10px;cursor:pointer}.ng-compact-tabs>button[aria-pressed=true]{border-color:#a77be670;color:#d6bbff;background:#a855f713}
+.ng-mover-list>a{display:grid;grid-template-columns:20px minmax(0,1fr) auto 51px;align-items:center;gap:9px;min-height:33px;padding:4px 0;border-top:1px solid #45335066;text-decoration:none;color:#ece6db}
+.ng-mover-list>a>span{font:9px var(--f-type);color:#947da1}.ng-mover-list>a>div{min-width:0}.ng-mover-list b{display:block;font:500 11px var(--f-sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ng-mover-list div>small{font:8px var(--f-type);color:#a490b0}.ng-mover-list strong{font:500 12px var(--f-num);white-space:nowrap}.ng-mover-list strong>small{font:9px var(--f-sans);color:#b09eba;padding-left:3px}.ng-mover-list em{font:500 11px var(--f-num);font-style:normal;text-align:right;white-space:nowrap}.ng-mover-list>a:hover{background:#25172e}
+@media(max-width:1199px){html[data-design="neo"] .ng-content .ed-market-reading{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:14px}html[data-design="neo"] .ng-content .ed-market-breadth{padding-left:14px}html[data-design="neo"] .ng-content .ed-overview-quote strong{font-size:25px}html[data-design="neo"] .ng-content .ed-overview-quote>b{font-size:10px}html[data-design="neo"] .ng-content .ed-overview-quote{padding:9px}html[data-design="neo"] .ng-content .ed-breadth-heading{flex-wrap:wrap}.ng-chart-toolbar>span{font-size:8px}.ng-chart-toolbar>span>b{display:none}.ng-home-shortcuts>a{gap:9px;padding:10px}.ng-home-shortcuts small{font-size:9px}.ng-home-toolbar>div>span:last-child{display:none}}
+@media(max-width:767px){html[data-design="neo"] .ng-content .ed-market-reading{grid-template-columns:1fr;gap:13px}html[data-design="neo"] .ng-content .ed-market-breadth{padding:12px 0 0;border-left:0;border-top:1px solid #59426770}html[data-design="neo"] .ng-content .ed-breadth-heading{flex-wrap:nowrap;min-height:44px}html[data-design="neo"] .ng-content .ed-breadth-heading strong{font-size:32px}html[data-design="neo"] .ng-content .ng-breadth-leaders{display:none}html[data-design="neo"] .ng-content .ed-distribution-heading{margin-top:5px}html[data-design="neo"] .ng-content .ed-overview-title .d2-title{font-size:23px}.ng-home-grid{grid-template-columns:1fr}.ng-home-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ng-home-heatmap{height:260px}.ng-home-toolbar{padding-top:9px}.ng-home-toolbar .ng-kicker{font-size:8px}.ng-home-toolbar>button{font-size:10px}.ng-home-grid .ng-section-head h2{font-size:18px}}
+@media(max-width:599px){html[data-design="neo"] .ng-content .ed-market-overview{margin-top:10px;padding:11px}html[data-design="neo"] .ng-content .ed-overview-topline{gap:7px;margin-bottom:10px}html[data-design="neo"] .ng-content .ed-market-switch{width:auto}html[data-design="neo"] .ng-content .ed-market-switch a{font-size:10px;padding:6px 9px;gap:10px;min-height:32px}html[data-design="neo"] .ng-content .ed-market-switch a>span{font-size:8px}html[data-design="neo"] .ng-content .ed-overview-time{font-size:8px;gap:4px}html[data-design="neo"] .ng-content .ed-overview-title{margin-bottom:11px;gap:8px}html[data-design="neo"] .ng-content .ed-overview-title>div{display:block}html[data-design="neo"] .ng-content .ed-overview-title .d2-title{font-size:21px}html[data-design="neo"] .ng-content .ed-overview-title .ed-eyebrow{font-size:7px;margin-bottom:4px}html[data-design="neo"] .ng-content .ed-market-map-link{font-size:10px;min-height:37px;padding:7px 8px;gap:9px}html[data-design="neo"] .ng-content .ed-overview-quotes{gap:8px}html[data-design="neo"] .ng-content .ed-overview-quote{grid-template-columns:1fr auto;padding:9px 8px;gap:4px 5px}html[data-design="neo"] .ng-content .ed-overview-quote>span{font-size:9px}html[data-design="neo"] .ng-content .ed-overview-quote strong{font-size:23px;grid-column:1/-1;grid-row:2;margin:0}html[data-design="neo"] .ng-content .ed-overview-quote>b{grid-column:1;grid-row:3;justify-self:start;font-size:10px;padding:1px 4px}html[data-design="neo"] .ng-content .ed-overview-quote>.ed-quote-basis{grid-column:1/-1;font-size:8px;grid-row:4;margin-top:1px}html[data-design="neo"] .ng-content .ed-overview-context{gap:8px;margin-top:10px}html[data-design="neo"] .ng-content .ed-overview-context>div{padding-right:7px;gap:4px}html[data-design="neo"] .ng-content .ed-overview-context>div>span{font-size:9px;min-height:2.8em}html[data-design="neo"] .ng-content .ed-overview-context b{font-size:13px}html[data-design="neo"] .ng-content .ed-overview-basis{font-size:8px;margin-top:7px}html[data-design="neo"] .ng-content .ed-market-breadth{padding-top:10px}html[data-design="neo"] .ng-content .ed-breadth-heading p{font-size:7px}html[data-design="neo"] .ng-content .ed-breadth-heading p>span{font-size:9px}html[data-design="neo"] .ng-content .ed-breadth-counts{font-size:10px}html[data-design="neo"] .ng-content .ed-distribution-toggle{min-height:35px;font-size:10px}html[data-design="neo"] .ng-content .ed-assets-heading{margin-top:9px;padding-top:10px;font-size:10px}html[data-design="neo"] .ng-content .ed-overview-assets{gap:9px;margin-top:8px}html[data-design="neo"] .ng-content .ed-asset-quote>span{font-size:10px}html[data-design="neo"] .ng-content .ed-asset-quote small{font-size:7px}html[data-design="neo"] .ng-content .ed-asset-quote strong{font-size:14px}html[data-design="neo"] .ng-content .ed-asset-quote b{font-size:9px}.ng-index-chart{min-height:162px;margin-top:9px}.ng-chart-toolbar{padding:6px}.ng-chart-tabs button{font-size:9px;padding:4px 6px;min-height:30px}.ng-chart-toolbar>span{font-size:8px}.ng-chart-interaction{padding:3px 6px 0}.ng-chart-interaction svg{height:113px}.ng-chart-interaction svg text{font-size:14px}.ng-chart-foot{font-size:7px;gap:5px;min-height:23px;padding-bottom:5px}.ng-chart-foot>span{max-width:70%}.ng-chart-foot output{font-size:8px}.ng-home-toolbar>button kbd{display:none}.ng-home-shortcuts{margin:10px 0}.ng-home-shortcuts>a>.ng-icon{width:17px;height:17px}.ng-home-shortcuts>a>.ng-icon:last-child{width:12px;height:12px}.ng-home-shortcuts b{font-size:11px}.ng-home-shortcuts small{font-size:9px}.ng-home-grid .ng-panel{padding:12px}.ng-home-map-cell>b{font-size:9px}.ng-home-map-cell>span{font-size:9px}.ng-home-heatmap{height:230px}.ng-compact-tabs>button{min-height:38px;font-size:11px}.ng-mover-list>a{min-height:42px}.ng-home-toolbar>button{min-height:36px}}
+
+html[data-design="neo"] .ng-chart-tabs button{font:10px var(--f-type);padding:5px 8px;min-height:28px;border:1px solid transparent;border-radius:4px;background:none;color:#ab95b8;cursor:pointer;white-space:nowrap}
+html[data-design="neo"] .ng-chart-tabs button[aria-pressed=true]{border-color:#bf85ff40;background:#bf85ff0e;color:#bf85ff}
+html[data-design="neo"] .ng-compact-tabs>button{min-height:32px;padding:5px 10px;border-radius:5px;border:1px solid #54405f77;background:none;color:#baaac4;font:10px var(--f-sans);cursor:pointer}
+html[data-design="neo"] .ng-compact-tabs>button[aria-pressed=true]{border-color:#a77be670;color:#d6bbff;background:#a855f713}
+@media(max-width:599px){html[data-design="neo"] .ng-chart-tabs button{font-size:9px;padding:5px 7px;min-height:32px}.ng-chart-plot{padding-right:47px}.ng-chart-axis{width:43px;font-size:8px}html[data-design="neo"] .ng-compact-tabs>button{min-height:40px;font-size:11px}html[data-design="neo"] .ng-content .ed-home>.d2-cmd{display:none}html[data-design="neo"] .ng-content .d2-cmd-index{display:flex}html[data-design="neo"] .ng-content .d2-cmd-find{display:none}html[data-design="neo"] .ng-content .d2-cmd-index>button{min-height:40px}}
+@media print{html[data-design="neo"] .ng-number-value{display:none}}

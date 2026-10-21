@@ -1,0 +1,201 @@
+/* Market atlas: printed planes, signal colors and open rules instead of glow cards. */
+html:root[data-design="neo"][data-theme]{--bg-root:#100d13;--bg-elevated:#19151d;--bg-panel:#1e1922;--bg-glass:#211a25f5;--text-primary:#f3ecdc;--text-secondary:#c3b5c5;--text-muted:#a99aaa;--line-soft:#bca0c12e;--line-active:#bf85ff99;--accent-neon:#bf85ff;--mustard:#d6b54e;--vermilion:#f27560;--mint:#a8bca0;--gridline:#3d3042;--baseline:#77637c;--brass:var(--mustard);--radius-sm:2px;--radius-md:3px;--radius-lg:4px;--radius-xl:4px;--glow-soft:none;--glow-focus:0 0 0 1px #bf85ff99;--focus-ring:0 0 0 3px #bf85ff55;--p2:#29212e;--live:#a8bca0;--positive:#a8bca0;--warning:#d6b54e;--warn:#d6b54e}
+.ng-shell{--workspace-accent:var(--accent-neon);background:var(--bg-root)}
+.ng-shell{--status-good:var(--mint);--series-aqua:var(--mint);--status-warning:var(--mustard)}
+.ng-audience-slot .visitor-badge-dot{background:var(--mint);box-shadow:none}.ng-audience-slot :is(.visitor-badge-person,.visitor-badge-eye){color:var(--text-secondary)}
+.ng-shell[data-workspace="kr"]{--workspace-accent:var(--mustard)}
+.ng-shell[data-workspace="us"]{--workspace-accent:var(--vermilion)}
+.ng-header{background:#141017;border-bottom:1px solid #59405f;box-shadow:none}
+.ng-primary-nav{gap:8px}.ng-primary-nav>a{position:relative;padding:0 13px;font-weight:650;letter-spacing:-.02em}
+.ng-primary-nav>a[aria-current]{color:var(--workspace-accent);border-bottom-color:var(--workspace-accent)}
+.ng-primary-nav>a[aria-current]:before{content:"";position:absolute;left:13px;top:13px;width:4px;height:4px;background:var(--workspace-accent)}
+.ng-pulse{background:#1e1723;border-bottom:1px solid var(--line-soft)}.ng-pulse-label{color:var(--mustard)}.ng-pulse-label>i{background:var(--mustard);box-shadow:none}
+.ng-sidebar{background:#141017;border-color:var(--line-soft);padding-top:16px}.ng-sidebar-cap{border-bottom:3px double #64506b;padding-bottom:12px;margin-bottom:15px}.ng-sidebar-cap>b{color:var(--mustard);letter-spacing:.12em}
+.ng-nav-group nav{counter-reset:destinations}.ng-nav-group a{counter-increment:destinations;justify-content:flex-start;gap:10px;border-radius:0;min-height:33px;color:#c3b5c5}.ng-nav-group a:before{content:counter(destinations,decimal-leading-zero);font:8px var(--f-type);color:#88738d}.ng-nav-group a>.ng-icon{margin-left:auto}
+.ng-nav-group h2{color:#a99aaa;margin-bottom:7px}.ng-nav-group h2>.ng-icon{color:var(--mustard)}
+.ng-nav-group a[aria-current]{color:#f3ecdc;background:#bf85ff16;border-left-color:var(--workspace-accent)}.ng-nav-group a[aria-current]:before{color:var(--workspace-accent)}
+.ng-nav-group a:hover{background:#2b2230}.ng-directory-button{border-radius:2px;background:#d6b54e;color:#211a17;border:0;font-weight:750}.ng-sidebar-foot .ng-status-dot{background:var(--vermilion);box-shadow:none}
+.ng-search-trigger{border-radius:2px;background:#211a26;border-color:#6c55745c}.ng-search-trigger .ng-icon{color:var(--mustard)}
+.ng-context{border-bottom:1px solid var(--line-soft);min-height:43px}.ng-context>span:first-child{color:var(--workspace-accent)}.ng-context a{color:#b9a5bd}.ng-context-meta>i{background:var(--vermilion);border-radius:0}
+.ng-panel,.ng-dialog,.ng-fx-options>button{border-radius:3px}.ng-panel{background:var(--bg-panel);box-shadow:none}.ng-panel:before{display:none}
+html[data-design="neo"] .ng-content :is(.market-financial,#sk-chart){border-radius:2px;background:#19141d}
+html[data-design="neo"] .ng-content .market-chart-tools button{border-radius:1px}
+html[data-design="neo"] .ng-content .market-chart-tools button[aria-pressed=true]{background:#d6b54e12;border-color:#d6b54e88}
+html[data-design="neo"] .ng-content .market-chart-tools button:focus-visible{outline-color:var(--accent-neon)}
+.ng-stock-profile{margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft)}.ng-stock-profile p{font:11px/1.85 var(--f-sans);color:var(--text-secondary);margin:8px 0}.ng-stock-profile button{font:10px var(--f-sans);color:var(--mustard);background:none;border:0;padding:7px 0;min-height:32px;cursor:pointer}
+.ng-fx-options>button[aria-pressed=true]{border-color:var(--mustard);background:#d6b54e12;box-shadow:inset 0 2px var(--mustard)}
+.ng-dialog{border-color:#80658c;background:#1a141f;box-shadow:12px 12px 0 #0005}.ng-dialog-head{padding-bottom:14px;border-bottom:1px solid var(--line-soft)}
+.ng-dialog-head .ng-kicker{color:var(--mustard)}.ng-directory-grid h3{color:var(--mustard)}.ng-dialog .ng-directory-search{background:#110d15;border-radius:2px}
+html[data-design="neo"] .ng-content :is(.ed-market-overview,.ed-discovery-section,.d2-flow-panel,.d2-rank-panel,.d2-global-card,.d2-spot-card,.ef-front,.bd-front,.gc-front,.nw-company,.bf-sheet,.sk-hero,.st-pane,.cf-ring,.sl-summary,.sl-related){background:#1b161f;border-radius:2px;box-shadow:none;border-color:var(--line-soft)}
+html[data-design="neo"] .ng-content :is(.ed-investor-card,.ed-video-card,.ef-card,.bd-card,.fc-card){border-radius:2px;background:#211a26;box-shadow:none}
+html[data-design="neo"] .ng-content :is(.d2-sec-head,.ed-section-heading){position:relative;border-bottom:1px solid #715378;padding-bottom:12px}
+html[data-design="neo"] .ng-content .d2-sec-no{padding:7px 8px;background:var(--workspace-accent);color:#1a141c;font-weight:750}
+html[data-design="neo"] .ng-content :is(.ed-eyebrow,.d2-lead-kicker,.sk-kicker){color:var(--workspace-accent)}
+html[data-design="neo"] .ng-content :is(.ed-section-heading h2,.d2-sec-head h2){font-weight:780;letter-spacing:-.055em}
+html[data-design="neo"] .ng-content .d2-cmd{background:#19131df7;border-radius:0;border-inline:0;border-bottom:1px solid var(--workspace-accent);box-shadow:none}
+html[data-design="neo"] .ng-content .d2-cmd-index>button{border-radius:0}
+html[data-design="neo"] .ng-content .d2-cmd-index>button.is-on{background:var(--workspace-accent);color:#1a141c;font-weight:750}
+html[data-design="neo"] .ng-content .d2-cmd-index>button.is-on i{color:#47354e}
+html[data-design="neo"] .ng-content .ed-market-overview{padding:17px 18px;border:1px solid var(--line-soft);border-top:3px solid var(--workspace-accent);background:#19141d}
+html[data-design="neo"] .ng-content .ed-market-overview:before{display:none}
+html[data-design="neo"] .ng-content .ed-market-switch{border:0;background:none;border-radius:0;padding:0}
+html[data-design="neo"] .ng-content .ed-market-switch a{border-radius:0;border-bottom:1px solid #67536f;background:none}
+html[data-design="neo"] .ng-content .ed-market-switch a[aria-current]{box-shadow:none;color:var(--workspace-accent);border-color:var(--workspace-accent);background:none}
+html[data-design="neo"] .ng-content .ed-overview-title .d2-title{font-weight:820;font-size:30px;letter-spacing:-.055em;color:var(--text-primary)}
+html[data-design="neo"] .ng-content .ed-overview-title .ed-eyebrow{color:var(--workspace-accent)}
+html[data-design="neo"] .ng-content .ed-overview-title>div{display:block}
+html[data-design="neo"] .ng-content .ed-overview-title .ed-eyebrow{display:block;margin-bottom:5px!important}
+html[data-design="neo"] .ng-content .ed-market-map-link{color:#1c161b;background:var(--workspace-accent);border:0;border-radius:0;font-weight:750}
+html[data-design="neo"] .ng-content .ed-overview-quote{border:0;border-radius:0;border-top:1px solid #594360;background:none;padding:11px 0}
+html[data-design="neo"] .ng-content .ed-overview-quote+ .ed-overview-quote{padding-left:12px;border-left:1px solid var(--line-soft)}
+html[data-design="neo"] .ng-content .ed-overview-quote:hover{background:#bf85ff08;border-color:#8d699f}
+html[data-design="neo"] .ng-content .ed-overview-quote strong{color:var(--text-primary)}
+html[data-design="neo"] .ng-content .ed-overview-context{padding:10px 12px;background:#d6b54e0d;border-block:1px solid #d6b54e45;margin-top:0}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="kr"] .ed-market-primary{display:flex;flex-direction:column}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="kr"] .ed-overview-context{order:-2;margin-bottom:11px}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="kr"] .ed-overview-basis{order:-1;margin:0 0 10px}
+html[data-design="neo"] .ng-content .ed-market-breadth{border-color:var(--line-soft)}
+html[data-design="neo"] .ng-content .ed-breadth-heading strong{color:var(--text-primary)}
+html[data-design="neo"] .ng-content .ed-breadth-heading strong>small{color:var(--workspace-accent)}
+html[data-design="neo"] .ng-content .ng-index-chart{border-radius:0;border-color:var(--line-soft);background:#130f18}
+html[data-design="neo"] .ng-chart-tabs button{border-radius:0;color:#c3b5c5}
+html[data-design="neo"] .ng-chart-tabs button[aria-pressed=true]{background:var(--workspace-accent);color:#1a141c;border-color:transparent}
+html[data-design="neo"] .ng-content .ed-assets-heading{color:var(--mustard);border-top-color:var(--line-soft)}
+html[data-design="neo"] .ng-content .ed-asset-quote strong{color:var(--text-primary)}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"] .ed-overview-context{background:#f275600c;border-color:#f2756040;margin-top:11px}
+.ng-sector-digest{border-block:1px solid #f2756066;display:grid;grid-template-columns:150px minmax(0,1fr);margin:13px 0 0;background:#f2756008}
+.ng-sector-digest>div:first-child{padding:13px;border-right:1px solid var(--line-soft)}.ng-sector-digest h2{font-size:14px;margin:7px 0 0;font-weight:780;letter-spacing:-.035em}.ng-sector-digest .ng-kicker{font-size:8px;color:var(--vermilion)}
+.ng-sector-digest>div:first-child>small{display:block;font:8px/1.7 var(--f-sans);color:var(--text-muted);margin-top:6px}
+.ng-sector-digest>div:last-of-type{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:center}
+.ng-sector-digest article{padding:10px 12px;min-width:0;border-right:1px solid var(--line-soft)}.ng-sector-digest article:last-child{border-right:0}.ng-sector-digest article>span{font-size:10px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ng-sector-digest article>b{font:600 20px var(--f-num);display:block;margin-top:5px}.ng-sector-digest article>small{font-size:9px;color:var(--text-muted)}
+/* The US desk is an index workspace with a dedicated vertical cross-asset rail. */
+@media(min-width:1250px){
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"]{display:grid;grid-template-columns:minmax(0,1fr) 170px;column-gap:20px}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"]>:is(.ed-overview-topline,.ed-overview-title,.ed-market-reading){grid-column:1}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"] .ed-assets-heading{grid-column:2;grid-row:1;margin:0;padding:0 0 9px;border-top:0;display:block;color:var(--mustard)}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"] .ed-assets-heading>small{display:block;margin-top:5px}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"] .ed-overview-assets{grid-column:2;grid-row:2/4;display:flex;flex-direction:column;margin:0;padding-left:15px;border-left:1px solid var(--line-soft);gap:11px}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"] .ed-asset-quote{padding-bottom:7px;border-bottom:1px solid var(--line-soft)}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"] .ed-asset-quote>.ed-mini-line{display:none}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"] .ed-market-reading{grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:15px}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"] .ed-overview-quote strong{font-size:28px}
+}
+/* Home is an open atlas spread, not another domestic market desk. */
+.ng-atlas{padding-top:0!important}
+.ng-atlas-heading{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:36px;align-items:center;padding:22px 0 23px;border-bottom:1px solid #81648c}
+.ng-atlas-heading h1{font:840 clamp(35px,3.8vw,58px)/1.09 var(--f-sans);letter-spacing:-.075em;margin:13px 0 0;color:var(--text-primary)}.ng-atlas-heading h1 em{font-style:normal;color:var(--accent-neon)}
+.ng-atlas-intro{display:grid;grid-template-columns:74px minmax(0,1fr);gap:8px 20px;align-items:center}.ng-edition-mark{grid-row:1/3;display:block;color:var(--mustard);font:800 91px/.8 var(--f-num);letter-spacing:-.12em;position:relative;padding-right:16px}.ng-edition-mark>span{font:500 45px var(--f-num);position:absolute;right:-2px;top:-15px;color:var(--vermilion)}
+.ng-atlas-intro p{margin:0;font-size:12px;line-height:1.85;max-width:31ch;color:var(--text-secondary)}.ng-atlas-intro>a{font-size:11px;display:flex;gap:8px;align-items:center;color:var(--mustard);text-decoration:none;min-height:36px}.ng-atlas-intro>a>.ng-icon{width:16px}
+.ng-region-board{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid #81648c}
+.ng-region{--region-color:var(--mustard);padding:16px 22px 14px 0;min-width:0;position:relative}.ng-region-us{--region-color:var(--vermilion);padding:16px 0 14px 22px;border-left:1px solid #81648c}
+.ng-region>header{display:flex;align-items:center;justify-content:space-between;color:var(--region-color);font:10px var(--f-type);letter-spacing:.08em}.ng-region-cross{font-size:20px;line-height:1}
+.ng-region-title{display:flex;align-items:center;justify-content:space-between;color:var(--text-primary);text-decoration:none;margin:8px 0 0}.ng-region-title h2{font:800 29px/1.35 var(--f-sans);letter-spacing:-.055em;margin:0}.ng-region-title>span{display:flex;align-items:center;justify-content:center;width:35px;height:35px;background:var(--region-color);color:#21191b;font-size:25px}
+.ng-region>p{font-size:11px;color:var(--text-secondary);margin:7px 0 13px}.ng-region-quotes{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.ng-region-quotes>a{display:grid;grid-template-columns:1fr auto;gap:3px 4px;border-top:1px solid var(--line-soft);padding:10px 0;color:var(--text-primary);text-decoration:none;min-width:0}.ng-region-quotes>a:hover{border-color:var(--region-color)}
+.ng-region-quotes>a>span{font:500 10px var(--f-type);grid-column:1/-1;color:#c3b5c5}.ng-region-quotes strong{font:550 clamp(23px,2.2vw,32px)/1.4 var(--f-num);letter-spacing:-.025em;grid-column:1/-1}.ng-region-quotes b{font:550 12px var(--f-num);grid-column:1}.ng-region-quotes small{font:8px/1.5 var(--f-num);color:var(--text-muted);grid-column:1/-1}
+.ng-region>footer{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--line-soft);padding-top:10px;font-size:9px;color:var(--text-muted)}.ng-region>footer>a{color:var(--region-color);font-size:10px;text-decoration:none;white-space:nowrap;padding:4px 0}
+.ng-asset-belt{display:grid;grid-template-columns:185px minmax(0,1fr);margin-top:16px;border:1px solid #8d7530;background:#d6b54e08}
+.ng-asset-belt>div:first-child{padding:15px;background:var(--mustard);color:#231d13;display:flex;flex-direction:column;justify-content:center}.ng-asset-belt>div>span{font:8px/1.5 var(--f-type);letter-spacing:.05em}.ng-asset-belt h2{font:800 17px/1.4 var(--f-sans);letter-spacing:-.055em;margin:7px 0 0}
+.ng-asset-belt>div:last-of-type{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.ng-asset-belt article{display:grid;align-content:center;gap:3px;padding:12px 14px;border-left:1px solid #d6b54e38;min-width:0}.ng-asset-belt article>span{font-size:10px;color:#e7d8b3}.ng-asset-belt article>span>small{font:8px var(--f-type);margin-left:5px;color:var(--text-muted)}.ng-asset-belt article>strong{font:550 22px/1.4 var(--f-num);color:var(--text-primary);white-space:nowrap}.ng-asset-belt article>b{font:550 11px var(--f-num)}.ng-asset-belt article>small{font:8px/1.6 var(--f-num);color:var(--text-muted)}
+.ng-atlas-basis{font:9px/1.8 var(--f-sans);color:var(--text-muted);margin:7px 0 0}
+.ng-atlas-destinations{margin-top:22px}.ng-atlas-destinations>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid #81648c}.ng-atlas-destinations h2{font:750 16px/1.5 var(--f-sans);letter-spacing:-.045em;margin:0}
+.ng-atlas-destinations>div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.ng-atlas-destinations>div>a{position:relative;min-width:0;min-height:136px;padding:17px 16px 16px;border-right:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft);color:var(--text-primary);text-decoration:none}.ng-atlas-destinations>div>a:first-child{padding-left:0}.ng-atlas-destinations>div>a:last-child{border-right:0}.ng-atlas-destinations>div>a>span{display:flex;gap:10px;align-items:center;justify-content:space-between;font:9px var(--f-type);color:var(--accent-neon)}.ng-atlas-destinations>div>a:nth-child(2)>span{color:var(--mustard)}.ng-atlas-destinations>div>a:nth-child(3)>span{color:var(--vermilion)}.ng-atlas-destinations>div>a:nth-child(4)>span{color:var(--mint)}.ng-atlas-destinations h3{font:750 16px/1.5 var(--f-sans);letter-spacing:-.04em;margin:12px 0 4px}.ng-atlas-destinations p{font:10px/1.7 var(--f-sans);margin:0;padding-right:12px;color:var(--text-muted)}.ng-atlas-destinations>div>a>b{position:absolute;right:15px;bottom:13px;color:var(--mustard);font-size:15px;font-weight:400}.ng-atlas-destinations>div>a:hover{background:#bf85ff0b}
+.ng-mobile-nav{background:#17111cfb;border-color:#81648c;box-shadow:none}.ng-mobile-nav>a[aria-current]{background:#bf85ff0a;color:var(--workspace-accent);border-top-color:var(--workspace-accent)}
+html[data-design="neo"][data-fx="full"] .ng-panel{box-shadow:none}
+@media(max-width:1249px){.ng-atlas-heading{gap:22px}.ng-atlas-intro{grid-template-columns:55px 1fr;gap:7px 16px}.ng-edition-mark{font-size:70px}.ng-edition-mark>span{font-size:35px}.ng-asset-belt{grid-template-columns:150px 1fr}.ng-asset-belt article{padding:10px}.ng-asset-belt article>strong{font-size:19px}.ng-sector-digest{grid-template-columns:130px 1fr}.ng-sector-digest article{padding:10px 8px}}
+@media(max-width:767px){.ng-atlas-heading{grid-template-columns:1fr;gap:16px;padding:19px 0}.ng-atlas-heading h1{font-size:40px;line-height:1.1;margin-top:10px}.ng-atlas-intro{grid-template-columns:45px 1fr;gap:0 17px}.ng-edition-mark{font-size:59px}.ng-edition-mark>span{font-size:28px;top:-7px}.ng-atlas-intro p{font-size:11px;max-width:none}.ng-atlas-intro>a{font-size:10px;min-height:32px}.ng-region-title h2{font-size:25px}.ng-region{padding-right:15px}.ng-region-us{padding-left:15px;padding-right:0}.ng-region-quotes{gap:7px}.ng-region-quotes strong{font-size:24px}.ng-region>footer{align-items:start;flex-direction:column}.ng-asset-belt{grid-template-columns:1fr}.ng-asset-belt>div:first-child{flex-direction:row;gap:15px;justify-content:flex-start;align-items:center;padding:10px 12px}.ng-asset-belt h2{font-size:15px;margin:0}.ng-asset-belt article:first-child{border-left:0}.ng-asset-belt article>strong{font-size:21px}.ng-atlas-destinations>div{grid-template-columns:repeat(2,minmax(0,1fr))}.ng-atlas-destinations>header{display:block}.ng-atlas-destinations h2{margin-top:6px}.ng-atlas-destinations>div>a:nth-child(2){border-right:0}.ng-atlas-destinations>div>a:nth-child(3){padding-left:0}.ng-sector-digest{grid-template-columns:1fr}.ng-sector-digest>div:first-child{display:flex;align-items:center;gap:13px;border-right:0;padding:10px 12px;border-bottom:1px solid var(--line-soft)}.ng-sector-digest h2{margin:0;font-size:13px}.ng-sector-digest article>b{font-size:18px}html[data-design="neo"] .ng-content .ed-overview-title .d2-title{font-size:25px}}
+@media(max-width:599px){.ng-primary-nav>a[aria-current]:before{display:none}.ng-region-board{grid-template-columns:1fr}.ng-region{padding:14px 0}.ng-region-us{border-left:0;border-top:1px solid #81648c}.ng-region>header{font-size:9px}.ng-region-title h2{font-size:27px}.ng-region>p{margin:5px 0 8px}.ng-region-quotes{gap:15px}.ng-region-quotes strong{font-size:29px}.ng-region>footer{flex-direction:row;align-items:center;font-size:8px}.ng-region>footer>a{font-size:9px}.ng-asset-belt>div:last-of-type{grid-template-columns:repeat(2,minmax(0,1fr))}.ng-asset-belt article{padding:10px 12px;border-bottom:1px solid #d6b54e38}.ng-asset-belt article:nth-child(3){border-left:0}.ng-asset-belt article:nth-last-child(-n+2){border-bottom:0}.ng-atlas-basis{font-size:8px}.ng-atlas-destinations{margin-top:18px}.ng-atlas-destinations h3{font-size:14px}.ng-atlas-destinations>div>a{min-height:132px;padding:13px 12px}.ng-atlas-destinations p{font-size:9px}.ng-atlas-heading .ng-kicker{font-size:8px}.ng-atlas-heading h1{font-size:37px}.ng-sector-digest>div:last-of-type{grid-template-columns:repeat(2,minmax(0,1fr))}.ng-sector-digest article:nth-child(2){border-right:0}.ng-sector-digest article:nth-child(-n+2){border-bottom:1px solid var(--line-soft)}html[data-design="neo"] .ng-content .ed-market-overview{padding:12px}html[data-design="neo"] .ng-content .ed-overview-title .d2-title{font-size:24px}html[data-design="neo"] .ng-content .ed-overview-context{padding:9px}.ng-region-title{min-height:44px}.ng-region-quotes>a{min-height:108px}.ng-atlas-intro>a{min-height:40px}.ng-region>footer>a{min-height:36px;display:flex;align-items:center}}
+@media print{.ng-shell{--workspace-accent:#5f3775}.ng-atlas-heading h1 em,.ng-region-title h2{color:#211a29}.ng-region-title>span,.ng-asset-belt>div:first-child{background:#eee6ca;color:#211a29}.ng-atlas,.ng-region-quotes>a,.ng-asset-belt article>strong,.ng-atlas-destinations>div>a{color:#211a29}.ng-asset-belt{background:#fff}}
+
+/* Localized motion belongs to the atlas illustration, away from prices and text. */
+.ng-atlas-heading{position:relative;isolation:isolate;overflow:hidden}
+.ng-atlas-heading:before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,transparent 35%,#bf85ff07);border-top:1px solid #bf85ff19}
+.ng-atlas-deck{font:11px/1.7 var(--f-sans);color:var(--text-secondary);margin:10px 0 0}
+.ng-atlas-intro{display:block;min-width:0}.ng-atlas-intro>div:last-child:not(.ng-signal-network){display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:6px}
+.ng-atlas-intro p{max-width:none;font-size:10px;margin:0}.ng-atlas-intro a{display:flex;align-items:center;gap:7px;min-height:36px;font:10px var(--f-sans);color:var(--mustard);text-decoration:none;white-space:nowrap}.ng-atlas-intro a>.ng-icon{width:15px;height:15px}
+.ng-signal-network{position:relative;overflow:hidden;width:100%;max-width:510px;margin:auto;contain:layout paint}
+.ng-signal-network svg{display:block;width:100%;height:154px;font-family:var(--f-type);overflow:visible}
+.ng-signal-flow{animation:ng-circuit-flow 7s linear infinite;will-change:stroke-dashoffset}
+.ng-signal-flow-b{animation-duration:9s;animation-delay:-3s}
+.ng-signal-rotor{animation:ng-node-rotate 32s linear infinite;transform-box:view-box}
+.ng-signal-core{animation:ng-core-breathe 5s ease-in-out infinite}
+.ng-signal-scan{position:absolute;top:0;bottom:0;left:-15%;width:10%;background:linear-gradient(90deg,transparent,#bf85ff12,transparent);border-right:1px solid #bf85ff45;animation:ng-network-scan 9s linear infinite;pointer-events:none}
+@keyframes ng-circuit-flow{to{stroke-dashoffset:-478}}
+@keyframes ng-node-rotate{to{transform:rotate(360deg)}}
+@keyframes ng-core-breathe{0%,100%{fill-opacity:.12;stroke-opacity:.55}50%{fill-opacity:.42;stroke-opacity:1}}
+@keyframes ng-network-scan{0%{transform:translateX(0);opacity:0}10%,85%{opacity:1}100%{transform:translateX(1200%);opacity:0}}
+html[data-design="neo"][data-fx="full"] .ng-signal-ping{transform-box:fill-box;transform-origin:center;animation:ng-node-ping 5s ease-out infinite}
+html[data-design="neo"][data-fx="full"] .ng-signal-orbits{transform-origin:210px 77px;animation:ng-node-rotate 90s linear infinite}
+@keyframes ng-node-ping{0%{transform:scale(.85);opacity:.7}75%,100%{transform:scale(1.5);opacity:0}}
+html[data-design="neo"][data-fx="minimal"] .ng-signal-network *{animation:none!important;will-change:auto}
+html[data-design="neo"][data-fx="minimal"] .ng-signal-scan{display:none}
+@media(max-width:767px){.ng-signal-network svg{height:120px}.ng-atlas-intro>div:last-child:not(.ng-signal-network){margin-top:0}.ng-atlas-deck{font-size:10px;margin-top:7px}}
+@media(max-width:599px){.ng-atlas-heading{gap:10px;padding:17px 0 12px}.ng-atlas-intro{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:10px;align-items:center}.ng-signal-network svg{height:82px}.ng-atlas-intro>div:last-child:not(.ng-signal-network){display:block}.ng-atlas-intro p{font-size:9px;line-height:1.7}.ng-atlas-intro a{font-size:9px;min-height:35px;white-space:normal}.ng-atlas-intro a>.ng-icon{flex-shrink:0}.ng-atlas-deck{margin-top:7px;font-size:10px}}
+@media(prefers-reduced-motion:reduce){.ng-signal-network *{animation:none!important;will-change:auto!important}.ng-signal-scan{display:none}}
+@media print{.ng-signal-network{display:none}.ng-atlas-heading:before{display:none}}
+
+.ng-header-clocks{display:flex;gap:16px;align-items:center;flex-shrink:0;padding-left:16px;border-left:1px solid #d6b54e38}
+.ng-header-clock{display:grid;grid-template-columns:1fr auto;gap:4px 6px;min-width:89px}
+.ng-header-clock>span:first-child{color:#c3b5c5;font:8px/1.3 var(--f-sans);letter-spacing:.04em;white-space:nowrap}.ng-header-clock>span>small{font:7px var(--f-type);color:#a99aaa;margin-left:5px}
+.ng-header-clock time{grid-row:2;grid-column:1/-1;display:block;font:600 21px/1.1 var(--f-num);letter-spacing:.025em;color:#efd16b;text-shadow:0 0 6px #d6b54e58,0 0 16px #d6b54e24;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ng-header-clock time>i{font-style:normal;color:#b79a42;padding:0 1px}.ng-header-clock .ng-clock-date{font:7px/1.3 var(--f-type);color:#a99aaa;grid-column:2;grid-row:1;text-align:right}
+html[data-design="neo"]{scroll-padding-top:calc(var(--ng-header) + var(--ng-pulse) + 65px)}
+html[data-design="neo"][data-fx="minimal"] .ng-header-clock time{text-shadow:none}
+@media(max-width:1399px){.ng-header-clocks{gap:12px;padding-left:12px}.ng-header-clock{min-width:80px}.ng-header-clock time{font-size:19px}.ng-search-trigger{max-width:260px}}
+@media(max-width:1199px){.ng-primary-nav{display:none}.ng-search-trigger{max-width:none;width:auto;flex:1}}
+@media(max-width:899px){html:root[data-design="neo"][data-theme]{--ng-header:90px}.ng-header{display:grid;grid-template-columns:155px minmax(0,1fr) auto;grid-template-rows:50px 34px;column-gap:10px;row-gap:0;align-content:center;padding:0 16px}.ng-brand{grid-column:1;grid-row:1}.ng-search-trigger{grid-column:2;grid-row:1;justify-self:end;flex:none;width:42px;min-width:42px;margin:0;padding:0}.ng-header-tools{grid-column:3;grid-row:1}.ng-header-clocks{grid-column:1/-1;grid-row:2;justify-content:flex-end;gap:25px;border-left:0;border-top:1px solid #d6b54e20;padding:5px 0 0;align-self:stretch}.ng-header-clock{display:flex;align-items:center;gap:8px;min-width:0}.ng-header-clock>span:first-child{font-size:8px}.ng-header-clock time{font-size:17px}.ng-header-clock .ng-clock-date{font-size:8px}}
+@media(max-width:599px){.ng-header{grid-template-columns:145px minmax(0,1fr) auto;column-gap:8px;padding-inline:12px}.ng-header-clocks{justify-content:space-between;gap:12px}.ng-header-clock{gap:6px}.ng-header-clock time{font-size:17px}.ng-header-clock>span:first-child{font-size:8px}.ng-header-clock>span>small{font-size:7px;margin-left:3px}.ng-header-clock .ng-clock-date{font-size:7px}}
+@media(max-width:374px){.ng-header-clock{gap:5px}.ng-header-clock time{font-size:16px}.ng-header-clock .ng-clock-date{display:none}}
+
+html:root[data-design="neo"][data-theme]{--ng-pulse:50px}
+.ng-top-rail{height:var(--ng-pulse);position:sticky;top:var(--ng-header);z-index:90;display:grid;grid-template-columns:minmax(0,1fr) 380px;background:#1c1621;border-bottom:1px solid var(--line-soft)}
+.ng-top-rail>.ng-pulse{position:static;height:100%;min-width:0;border:0}
+.ng-audio-toolbar{min-width:0;min-height:0!important;height:100%;padding:0 14px 0 10px;border-left:1px solid #d6b54e50;background:#231b29;display:flex;align-items:center;font-family:var(--f-sans)}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header{--eq-w:55px;--eq-h:23px;width:100%;display:grid;grid-template-columns:var(--eq-w) minmax(0,1fr) auto auto;grid-template-areas:"eq meta transport power";gap:8px;padding:0;margin:0;border:0;border-radius:0;background:none;min-height:44px;color:var(--text-primary)}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-deck{display:contents}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-eq{grid-area:eq;gap:2px}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-meta{grid-area:meta;gap:4px;min-width:0}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-title{font:600 10px/1.3 var(--f-sans);letter-spacing:0;color:#f3ecdc}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-sub{font:8px/1.3 var(--f-sans);color:#a99aaa;gap:6px}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-state:before{width:3px;height:3px;background:var(--mustard);box-shadow:none;animation:none}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-transport{grid-area:transport;display:flex;gap:2px}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-transport>button{width:28px;height:34px;border-radius:2px;color:#c3b5c5}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-transport>.d2-bgm-play{width:32px;height:32px;background:var(--mustard);color:#20191c;box-shadow:none}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-power{grid-area:power;width:28px;height:32px;min-height:32px;border:1px solid #bf85ff40!important;border-radius:2px;background:none;color:#a99aaa;box-shadow:none}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-power[aria-pressed=true]{color:var(--accent-neon);border-color:var(--accent-neon)!important;background:#bf85ff12;box-shadow:none}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-eq b{background:linear-gradient(to top,#7148a0 0%,#bf85ff 50%,#d6b54e 80%,#f27560 100%)}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-eq s{background:#efd16b;box-shadow:0 0 4px #d6b54e80}
+html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header :is(.d2-bgm-channel,.d2-bgm-count){display:none}
+@media(max-width:1099px){.ng-top-rail{grid-template-columns:minmax(0,1fr) 350px}.ng-audio-toolbar{padding-inline:10px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header{--eq-w:42px;gap:7px}}
+@media(max-width:899px){html:root[data-design="neo"][data-theme]{--ng-pulse:76px}.ng-top-rail{grid-template-columns:1fr;grid-template-rows:31px 45px}.ng-top-rail>.ng-pulse{height:31px;border-bottom:1px solid var(--line-soft)}.ng-audio-toolbar{border-left:0;padding-inline:16px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header{--eq-w:55px;min-height:44px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-transport>button{width:34px;height:40px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-transport>.d2-bgm-play{width:36px;height:36px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-power{height:36px;min-height:36px;width:32px}}
+@media(max-width:599px){.ng-audio-toolbar{padding-inline:12px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header{--eq-w:42px;--eq-h:21px;gap:8px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-transport>button{width:30px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-title{font-size:10px}}
+html[data-design="neo"][data-fx="minimal"] .ng-audio-toolbar .d2-bgm-title.is-overflow span{animation:none!important;transform:none!important}
+@media(prefers-reduced-motion:reduce){.ng-audio-toolbar .d2-bgm-title.is-overflow span{animation:none!important;transform:none!important}}
+@media print{.ng-top-rail{display:none}}
+html[data-design="neo"] .ng-legacy-bgm{display:none!important}
+
+/* A colored blade with a white core travels along the existing frame perimeter. */
+.ng-frame-layer{position:absolute;inset:0;display:block;width:100%;height:100%;overflow:hidden;pointer-events:none!important;z-index:3;color:var(--workspace-accent,var(--accent-neon));contain:layout style}
+.ng-frame-layer rect{width:calc(100% - 2px);height:calc(100% - 2px);fill:none;stroke:currentColor;stroke-linecap:round;stroke-dasharray:12 88;animation:ng-frame-travel var(--beam-duration,13s) linear var(--beam-delay,0s) infinite;animation-play-state:paused}
+.ng-frame-layer.is-visible rect{animation-play-state:running}
+.ng-frame-halo{stroke-width:10;opacity:.17}.ng-frame-color{stroke-width:3.2;opacity:.95}.ng-frame-layer .ng-frame-core{--beam-offset:-3.5px;stroke:#fff3ce;stroke-width:1.1;stroke-dasharray:5 95;opacity:1}
+.ng-frame-layer .ng-frame-head{--beam-offset:-11.4px;stroke:#fff8e6;stroke-width:4.5;stroke-dasharray:.7 99.3;opacity:1;filter:drop-shadow(0 0 3px currentColor)}
+.ng-frame-layer .ng-frame-nearline{--beam-offset:8px;stroke-width:1.5;stroke-dasharray:28 72;opacity:.6;filter:drop-shadow(0 0 4px currentColor)}
+.ng-header>.ng-frame-layer,.ng-top-rail>.ng-frame-layer{color:var(--mustard)}
+.ng-sidebar>.ng-frame-layer{color:var(--accent-neon)}
+.ng-region-board>.ng-frame-layer,.ng-sector-digest>.ng-frame-layer{color:var(--vermilion)}
+.ng-asset-belt>.ng-frame-layer{color:var(--mustard)}
+@keyframes ng-frame-travel{from{stroke-dashoffset:var(--beam-offset,0px)}to{stroke-dashoffset:calc(var(--beam-offset,0px) - 100px)}}
+html[data-design="neo"][data-fx="full"] .ng-frame-halo{stroke-width:12;opacity:.16}
+html[data-design="neo"][data-fx="full"] .ng-frame-color{filter:drop-shadow(0 0 3px currentColor)}
+html[data-frame-light="off"] .ng-frame-layer,html[data-fx="minimal"] .ng-frame-layer{display:none}
+.ng-beam-toggle{width:100%;display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid #80658c;background:#bf85ff0b;color:var(--text-primary);border-radius:2px;text-align:left;cursor:pointer;margin-bottom:15px}
+.ng-beam-toggle>.ng-icon{color:var(--mustard)}.ng-beam-toggle>span{display:grid;gap:4px;font:600 12px var(--f-sans)}.ng-beam-toggle small{font:10px/1.6 var(--f-sans);color:var(--text-muted)}.ng-beam-toggle>b{margin-left:auto;padding:5px 8px;border:1px solid #80658c;color:var(--text-muted);font:10px var(--f-type)}.ng-beam-toggle[aria-pressed=true]>b{color:#1a141c;background:var(--mustard);border-color:var(--mustard)}
+@media(prefers-reduced-motion:reduce){.ng-frame-layer{display:none!important}}
+@media print{.ng-frame-layer{display:none!important}}
+/* The page-local finder uses an actual icon box rather than a font glyph bearing. */
+html[data-design="neo"] .ng-content .d2-cmd-find{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex:0 0 auto;min-width:0;padding:6px 11px;position:relative;overflow:hidden}
+html[data-design="neo"] .ng-content .d2-cmd-find-glyph{position:static;display:flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:16px;margin:0;padding:0;line-height:1;transform:none}
+.d2-cmd-find-glyph svg{display:block;width:16px;height:16px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.7}
+html[data-design="neo"] .ng-content .d2-cmd-find kbd{margin-left:0;flex:0 0 auto}
+@media(max-width:599px){html[data-design="neo"] .ng-content .d2-cmd-find{width:36px;min-width:36px;padding:6px;gap:0}}

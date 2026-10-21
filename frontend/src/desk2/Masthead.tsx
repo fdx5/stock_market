@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import UsFuturesStrip from "../components/UsFuturesStrip";
 import { api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
-import { toggleThemeMode, useThemeMode } from "../theme";
+import { useDesignMode } from "../neo/settings";
 import { useMarketIndices } from "../useMarketIndices";
 import { useMediaQuery } from "../useMediaQuery";
 import { useVisitorCount } from "../useVisitorCount";
@@ -251,23 +251,6 @@ function MobileSessionBar({ now, krStatus }: { now: Date; krStatus: string | nul
   );
 }
 
-function SunIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-      <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M5.3 18.7 7 17M17 7l1.7-1.7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function MoonIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-      <path d="M20 14.6A8.2 8.2 0 0 1 9.4 4a8.2 8.2 0 1 0 10.6 10.6Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 
 export interface MastSection {
   ko: string;
@@ -280,7 +263,7 @@ export interface MastSection {
  * paper's name set small above, the section's name set large — the way a newspaper
  * heads its 경제면 or 증권면 — with the same dateline, rail and site index above and
  * below it, so a reader moving between pages never loses the furniture. */
-export default function Masthead({
+function ClassicMasthead({
   onPrint,
   section,
   rail = true,
@@ -295,7 +278,6 @@ export default function Masthead({
   const { lang, setLang } = useLanguage();
   const L = useL();
   const now = useNow(1000);
-  const mode = useThemeMode();
   const { kospi, kosdaq } = useMarketIndices();
   const visitors = useVisitorCount(true);
   const [weather, setWeather] = useState<Weather | null>(null);
@@ -391,15 +373,6 @@ export default function Masthead({
           <span className="d2-mast-actions">
             <BookmarkButton className="d2-mast-fav" />
             {langSwitch}
-            <button
-              type="button"
-              className="d2-mast-theme"
-              onClick={toggleThemeMode}
-              aria-label={mode === "dark" ? L("주간판(라이트)으로 전환", "Switch to day edition") : L("야간판(다크)으로 전환", "Switch to night edition")}
-              title={mode === "dark" ? L("주간판으로", "Day edition") : L("야간판으로", "Night edition")}
-            >
-              {mode === "dark" ? <SunIcon /> : <MoonIcon />}
-            </button>
           </span>
         </div>
         <div className="d2-mast-dateline">
@@ -439,15 +412,6 @@ export default function Masthead({
           {L("지면 인쇄", "Print")}
         </button>
         {langSwitch}
-        <button
-          type="button"
-          className="d2-mast-edition"
-          onClick={toggleThemeMode}
-          aria-label={mode === "dark" ? L("주간판(라이트)으로 전환", "Switch to day edition") : L("야간판(다크)으로 전환", "Switch to night edition")}
-        >
-          <span className={mode === "light" ? "is-on" : ""}>{L("주간판", "Day")}</span>
-          <span className={mode === "dark" ? "is-on" : ""}>{L("야간판", "Night")}</span>
-        </button>
       </div>
 
       <div className="d2-mast-title">
@@ -477,4 +441,13 @@ export default function Masthead({
       <UsFuturesStrip />
     </header>
   );
+}
+
+/** The global NEO shell owns navigation; inner pages only contribute their identity. */
+export default function Masthead(props: ComponentProps<typeof ClassicMasthead>) {
+  const design = useDesignMode();
+  const { lang } = useLanguage();
+  if (design !== "neo") return <ClassicMasthead {...props} />;
+  if (!props.section) return null;
+  return <div className="ng-page-heading"><span className="ng-kicker">KOSPIMAP / MARKET INTELLIGENCE</span><h1>{lang === "ko" ? props.section.ko : props.section.en}</h1><p>{lang === "ko" ? props.section.taglineKo : props.section.taglineEn}</p></div>;
 }

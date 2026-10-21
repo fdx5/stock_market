@@ -11,6 +11,8 @@ import { navigate, navigationSnapshot, useRoute } from "./router";
 import { isBrowsingPage, useReadingRestoration } from "./browsingMemory";
 import ReadingTools from "./components/ReadingTools";
 import "./components/marketBriefPrint.css";
+import NeoShell from "./neo/NeoShell";
+import { useDesignMode } from "./neo/settings";
 
 // Route-level code splitting: each page only ships the JS it actually needs (e.g. the
 // map pages never pull in lightweight-charts, which only Dashboard/IndexChart/
@@ -76,6 +78,7 @@ const BroadsheetWorldPage = lazy(() => import("./desk2/world/WorldPage"));
    Lazy like every other route and, unlike the CSS one, genuinely worth it:
    this chunk pulls in three.js and its post-processing stack. */
 const HubType2 = lazy(() => import("./components/HubType2"));
+const NeoHome = lazy(() => import("./neo/NeoAtlasHome"));
 const InvestorTrendPage = lazy(() => import("./components/InvestorTrendPage"));
 const SearchLandingPage = lazy(() => import("./components/SearchLandingPage"));
 const IndexChartPage = lazy(() => import("./components/IndexChartPage"));
@@ -278,6 +281,7 @@ function useNoindexOn(path: string, target: string) {
 }
 
 export default function App() {
+  const design = useDesignMode();
   const path = useRoute();
   const location = navigationSnapshot();
   useReadingRestoration(location.url, location.entry, location.returning);
@@ -490,7 +494,7 @@ export default function App() {
   } else {
     // "/" is the entrance; "/hub" and legacy "/type2" land here too. Unknown
     // paths keep the market desk fallback rather than masquerading as the home page.
-    page = path === "/" || path === "/hub" || path === "/type2" ? <HubType2 /> : <Desk2Page />;
+    page = path === "/" && design === "neo" ? <NeoHome /> : path === "/" || path === "/hub" || path === "/type2" ? <HubType2 /> : <Desk2Page />;
   }
 
   // Keep the floating recent-stocks rail on browsing/ranking workspaces only.
@@ -508,7 +512,7 @@ export default function App() {
   return (
     <>
       {/* Keep the explorer's warp alive while its keyed 3D destination rebuilds. */}
-      <Suspense key={path==='/drone-explore'||path==='/drone-explore/'?'/drone-explore':location.url} fallback={<LoadingState />}>{page}</Suspense>
+      <NeoShell path={path}><Suspense key={path==='/drone-explore'||path==='/drone-explore/'?'/drone-explore':location.url} fallback={<LoadingState />}>{page}</Suspense></NeoShell>
       {(showRecentDock || isBrowsingPage(path) || stockMatch || stockReportMatch || path === "/stocks") && <ReadingTools route={location.url} />}
       <VoltarisIngressLink path={path} />
       <HeaderVisitorBadge path={path} />

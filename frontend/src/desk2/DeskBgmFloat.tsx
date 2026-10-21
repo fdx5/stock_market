@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import DeskBgm from "./DeskBgm";
 import { attachDeskBgm, useDeskBgm } from "./deskBgmStore";
+import { useDesignMode } from "../neo/settings";
 
 /* The desk's music on the pages that are not broadsheets — 종목토론, 증시버블,
    증시궤도. They have no masthead to carry the NOW PLAYING ear, so without this
@@ -10,9 +11,11 @@ import { attachDeskBgm, useDeskBgm } from "./deskBgmStore";
    is off: these pages are full-screen scenes and a player nobody started is only
    in the way. */
 export default function DeskBgmFloat() {
+  const design = useDesignMode();
   const bgm = useDeskBgm();
   useEffect(() => attachDeskBgm(), []);
   if (!bgm.on) return null;
+  if (design === "neo" && window.location.pathname !== "/drone-explore") return null;
   return (
     <div className="d2 d2-bgm-float">
       <DeskBgm variant="strip" />
