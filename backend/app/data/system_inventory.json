@@ -71,7 +71,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 697,
+  "source_files": 698,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -434,7 +434,8 @@
     {
       "file": "editorial-refresh.yml",
       "cron": [
-        "0 23 * * *"
+        "0 23 * * *",
+        "0 7 * * *"
       ],
       "endpoints": []
     },

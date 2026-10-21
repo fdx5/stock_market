@@ -14,6 +14,7 @@ import { UniformBlock } from '../../vendor/tidewater/engine/gpu/Uniforms.js';
 import { SceneLighting } from '../../vendor/tidewater/engine/render/wgsl/lighting.js';
 import { Scene, Mesh, PerspectiveCamera } from '../../vendor/tidewater/engine/index.js';
 import { waterMaterial, updateWaveTile } from './ComplexWater.js';
+import { GpuFrameHealth } from './GpuFrameHealth.js';
 import { GpuTimer } from './GpuTimer.js';
 import {aoCode, aoBlurCode, taaNeighbourhoodCode} from './PostShaders.js';
 import { packInto, warmPack } from './texturePack.js';
@@ -904,6 +905,7 @@ export class ComplexRenderer {
     // a software adapter (no usable GPU): the lightest setting from the start
     if (GPU.adapter.info?.isFallbackAdapter || GPU.adapter.isFallbackAdapter) quality = QUALITY.low;
     const view = new ComplexRenderer(host, quality);
+    view.health = new GpuFrameHealth(GPU.device);
     // Compile sky/resolve and allocate the view alongside detail downloads. Scene
     // materials wait for those details, keeping the first building's full quality.
     view.detailReady = false;
@@ -1937,6 +1939,7 @@ export class ComplexRenderer {
     // out of sight, the map page's rail, draws nothing and compiles nothing)
     stopPipelineWarm();
     if (this.disposed || this.failed) return;
+    this.health.check();
     if (this.detailReady === false) { this.pending = true; this.ready = false; GPU.submit(); return; }
     // A rejected shader is a view failure, not a lost shared GPU device. Take
     // the compatibility path immediately rather than wait for the watchdog.
@@ -2089,6 +2092,7 @@ export class ComplexRenderer {
     this.starved = this.renderer.starved;
     const readTimes = this.renderer.precompiling ? null : timer.end(GPU.getEncoder());
     GPU.submit();
+    this.health.submitted();
     readTimes?.();
     if (!this.ready && !this.compiling) {
       this.compiling = true;
@@ -2139,6 +2143,7 @@ export class ComplexRenderer {
   }
   dispose() {
     this.disposed = true;
+    this.health.dispose();
     this.snaps = null;
     this.stagings?.forEach(st => st.tex.destroy()); this.stagings = null;
     if (shadowOwner === this) shadowOwner = null;

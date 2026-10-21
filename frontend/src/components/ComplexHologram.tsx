@@ -66,7 +66,7 @@ import {sceneWorkerOnce} from './sceneWorkerPool';
 import type {FacadeResult} from './droneSurveyWorker';
 import { aerialColours } from "./aerial";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
-import { DroneSession, type DroneHud } from "./droneMode";
+import { DroneSession, type DroneHud, type DroneResume } from "./droneMode";
 import type { DroneViewBuildings } from './droneWorld';
 import DroneOverlay from "./DroneOverlay";
 import DronePlaceSearch from './DronePlaceSearch';
@@ -680,6 +680,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // ~250 ms of the main thread at start and a share of the GPU): the view is built again in
   // "webgl" mode only if WebGPU fails.
   const [renderMode, setRenderMode] = useState<"auto" | "webgl">("auto");
+  const rendererRecovery = useRef<DroneResume | null>(null);
   const [terrainSource, setTerrainSource] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
   // ?hud=1: the view's own numbers on screen (frame rate, frames dropped, GPU time, resolution,
@@ -1051,7 +1052,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (stage.rail) stage.rail.clearanceGap = on ? 3 : .75;
     };
     stage.forgetMaterials = mats => native?.forget(mats);
-    if (import.meta.env.DEV) Object.assign(window, { __holoStage: stage });
+    if (import.meta.env.DEV || location.search.includes("dronedebug=1")) Object.assign(window, { __holoStage: stage, __holoStageAny: stageRef, __holoGL: renderer });
     const idleBuild = (f: () => void) => { if (typeof requestIdleCallback === "function") requestIdleCallback(f, { timeout: 2500 }); else window.setTimeout(f, 300); };
     idleBuild(() => void buildBalloon(() => frameSlice()).then(b => {
       if (disposed) { b.dispose(); return; }
@@ -1253,10 +1254,17 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         } else nativeWaitSince = 0;
         if (native.failed) {
           const released = native.released ?? 0;
+          const debug = window as unknown as { __holoNative?: ComplexRenderer };
+          if (debug.__holoNative === native) delete debug.__holoNative;
           native.dispose(); native = null;
           // The view is set up again with WebGL (and its model built again: canvases emptied
           // after upload can't feed it); with no WebGL there either, it says so.
-          if (glMissing) { console.info("[3D] WebGPU lost, using WebGL"); setRenderMode("webgl"); return; }
+          if (glMissing) {
+            const d = stage.drone;
+            if (d) rendererRecovery.current = { flight: d.flight, view: d.view, autopilot: d.flight.autopilot, autoRotate: d.flight.autoRotate };
+            setDroneOn(false);
+            console.info("[3D] WebGPU lost, using WebGL"); setRenderMode("webgl"); return;
+          }
           if (released) rebuildRef.current?.();
           refreshEnv(); resize();
         }
@@ -4114,7 +4122,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (st.balloonView) leaveBalloon();
     let seed = 0;
     for (const ch of data.id) seed = (seed * 33 + ch.charCodeAt(0)) % 2147483647;
+    const resume = rendererRecovery.current;
     const drone = new DroneSession({
+      resume: resume ?? undefined,
       scene: st.scene, camera: st.camera, ground: st.ground, terrain: terrainRef.current, data, seed, hq: st.hq,
       extent: { ring: DRONE_RING_M, farHalf: DRONE_FAR_HALF },
       addWarm: st.addWarm, drawReady: st.drawReady, forget: st.forgetMaterials, viewTrees: () => [...st.viewTrees.near, ...st.viewTrees.far],
@@ -4135,13 +4145,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     drone.start();
     // (the music on with the flight, from this press's own gesture: a browser plays it only then)
     if (!bgm.on) setDeskBgmOn(true); else if (!bgm.playing) toggleDeskBgmPlay();
-    if(explorePlace&&!hop){
+    if(explorePlace&&!hop&&!resume){
       drone.flight.place(0,0,drone.world.groundAt(0,0),220,drone.flight.yaw);
       drone.flight.apply(st.camera);st.camera.updateMatrixWorld();
     }
     st.drone = drone;
     st.exploreReady=()=>exploreReady.current?.();
-    if (droneView === "chase") drone.toggleView();
+    if (!resume && droneView === "chase") drone.toggleView();
+    rendererRecovery.current = null;
     // (the button pressed keeps no focus: a Space for climbing must not press it again)
     const focused=document.activeElement as HTMLElement|null;
     if(!focused?.closest('.drone-warp'))focused?.blur?.();
@@ -4156,15 +4167,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   };
   const autoDroneStarted = useRef<string | null>(null);
   useEffect(() => {
-    if (!autoDrone || !data?.found || autoDroneStarted.current === complexId) return;
+    if ((!autoDrone && !rendererRecovery.current) || !data?.found || (autoDroneStarted.current === complexId && !rendererRecovery.current)) return;
     const timer = window.setInterval(() => {
       if (!stageRef.current?.model || !hostRef.current?.dataset.shownAt) return;
-      autoDroneStarted.current = complexId;
       enterDrone();
+      if (!stageRef.current?.drone) return;
+      autoDroneStarted.current = complexId;
       window.clearInterval(timer);
     }, 100);
     return () => window.clearInterval(timer);
-  }, [autoDrone, complexId, data]);
+  }, [autoDrone, complexId, data, renderMode]);
   // Full screen for the drone (a phone's whole screen to fly on): the browser's own where it has
   // it (not an iPhone's Safari), and the page's bars folded away either way.
   const [droneFull, setDroneFull] = useState(false);
@@ -4189,7 +4201,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     document.addEventListener("webkitfullscreenchange", change);
     return () => { document.removeEventListener("fullscreenchange", change); document.removeEventListener("webkitfullscreenchange", change); };
   }, []);
-  useEffect(() => { if (!droneOn && droneFull) { setDroneFull(false); if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); } }, [droneOn, droneFull]);
+  useEffect(() => { if (!droneOn && droneFull && !rendererRecovery.current) { setDroneFull(false); if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); } }, [droneOn, droneFull]);
   const leaveDrone = () => {
     const st = stageRef.current;
     if (!st?.drone) { setDroneOn(false); return; }

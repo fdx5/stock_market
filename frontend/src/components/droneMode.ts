@@ -36,9 +36,11 @@ export type DroneHud = {
   unreadyFront: number;
 };
 
+export type DroneResume = { flight: DroneFlight; view: "fpv" | "chase"; autopilot: boolean; autoRotate: boolean };
+
 export class DroneSession {
   private lookDir = new THREE.Vector3();
-  readonly flight = new DroneFlight();
+  readonly flight: DroneFlight;
   readonly world: DroneWorld;
   readonly audio = new DroneAudio();
   readonly signs = new DroneSigns();
@@ -64,6 +66,7 @@ export class DroneSession {
   private bridgeLabels:readonly DroneLabel[]|undefined;
 
   constructor(private readonly p: {
+    resume?: DroneResume;
     scene: THREE.Scene; camera: THREE.PerspectiveCamera; ground: THREE.Mesh | null; terrain: Terrain;
     data: RealEstateBuildingsResponse; seed: number; hq: boolean; extent: ViewExtent;
     addWarm: (parent: THREE.Object3D, obj: THREE.Object3D) => void;
@@ -84,6 +87,7 @@ export class DroneSession {
     setLite?: (on: boolean) => void;
     onHud: (h: DroneHud) => void;
   }) {
+    this.flight = p.resume?.flight ?? new DroneFlight();
     this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees, viewBuildings:p.viewBuildings,nearBuildings:p.nearBuildings,
       viewWater: () => this.viewWater(),
       onSeaReady: field => { void this.sinkSeaGround(field); p.onSeaReady?.(field); },
@@ -114,8 +118,16 @@ export class DroneSession {
     const x = camera.position.x, y = -camera.position.z;
     const ground = this.world.groundAt(x, y);
     const alt = THREE.MathUtils.clamp(camera.position.y - ground, 40, Math.min(MAX_AGL, 220));
-    this.flight.place(x, y, ground, alt, yaw);
-    this.flight.tilt = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1)), -0.9, 0.1);
+    if (!this.p.resume) {
+      this.flight.place(x, y, ground, alt, yaw);
+      this.flight.tilt = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1)), -0.9, 0.1);
+    } else {
+      this.flight.keys.clear();
+      this.flight.sticks.left = [0, 0]; this.flight.sticks.right = [0, 0];
+      this.flight.setAutopilot(this.p.resume.autopilot);
+      this.flight.setAutoRotate(this.p.resume.autoRotate);
+      this.view = this.p.resume.view;
+    }
     this.saved = { fov: camera.fov, near: camera.near, far: camera.far };
     camera.fov = 74; camera.near = 0.15; camera.far = 9000;
     camera.updateProjectionMatrix();

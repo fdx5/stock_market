@@ -12,8 +12,14 @@ export function safeCompileAsync(renderer: THREE.WebGLRenderer, scene: THREE.Obj
     const started = performance.now();
     const check = () => {
       for (const m of materials) {
-        const program = (renderer.properties.get(m) as { currentProgram?: { isReady(): boolean } }).currentProgram;
-        if (!program || program.isReady()) materials.delete(m);
+        try {
+          const program = (renderer.properties.get(m) as { currentProgram?: { program?: unknown; isReady(): boolean } }).currentProgram;
+          if (!program || !program.program || program.isReady()) materials.delete(m);
+        } catch {
+          // A disposed program/context can throw from a timer, leaving its promise
+          // pending forever and stopping all subsequent WebGL scene frames.
+          materials.delete(m);
+        }
       }
       // (a stuck driver: give up after 20 s rather than hold the view back for ever)
       if (!materials.size || performance.now() - started > 20000) resolve();
