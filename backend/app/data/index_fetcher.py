@@ -2,8 +2,10 @@ import requests
 
 from app.services.cache import cache
 
-TTL_INDEX_SECONDS = 10
-TTL_MARKET_INVESTOR_SECONDS = 20
+# Expire before the next 5s browser poll; a TTL of exactly 5s plus request
+# latency would otherwise make alternate polls reuse the previous quote.
+TTL_INDEX_SECONDS = 4
+TTL_MARKET_INVESTOR_SECONDS = 4
 
 HEADERS = {
     "User-Agent": (

@@ -5,10 +5,9 @@ import requests
 from app.data import yahoo_quote
 from app.services.cache import cache
 
-# A 3s-polled ticker still needs to be cheap on the upstream (unauthenticated,
-# rate-limit-sensitive) API — this TTL is what actually bounds how often Yahoo
-# gets hit, regardless of how often the frontend polls our own endpoint.
-TTL_TICKER_SECONDS = 10
+# Shared single-flight cache bounds upstream requests across all visitors.
+# Expire just before the 5s browser poll, accounting for request latency.
+TTL_TICKER_SECONDS = 4
 
 HEADERS = {
     "User-Agent": (
@@ -145,4 +144,7 @@ def _fetch_all() -> list[dict]:
 
 
 def get_market_ticker() -> list[dict]:
-    return cache.get_or_set("market_ticker", TTL_TICKER_SECONDS, _fetch_all)
+    # Deliver the refresh in this response instead of returning an expired value
+    # and making the browser wait for another poll. Clients retain last good
+    # per-symbol quotes if the upstream fails or returns a partial response.
+    return cache.get_or_set("market_ticker", TTL_TICKER_SECONDS, _fetch_all, allow_stale=False)

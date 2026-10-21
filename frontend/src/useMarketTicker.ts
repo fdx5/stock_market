@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { MarketTickerItem, api } from "./api/client";
 import { startVisibilityAwareInterval } from "./pollVisibility";
 
-// Backend TTL_TICKER_SECONDS is 10s, so anything faster than that just re-fetches
-// the same cached snapshot from our own API.
+// Shared server cache expires before the next five-second poll.
 const POLL_MS = 5_000;
 
 /** One poller for /api/market/ticker, shared by every component that reads it.

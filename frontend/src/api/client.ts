@@ -1516,7 +1516,7 @@ export const api = {
     getJSONFresh<UsSectorMap & { generated_at: string }>(
       `${BASE}/market/us-sector-map?code=${encodeURIComponent(code)}&limit=${limit}`, signal
     ),
-  marketTicker: () => getJSON<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
+  marketTicker: () => getJSONFresh<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
   seoulWeather: () =>
     getJSON<{ temperature: number; code: number; is_day: boolean }>(`${BASE}/market/weather`),
   indexHistory: (symbol: "KOSPI" | "KOSDAQ", years = 3) =>
@@ -1544,7 +1544,7 @@ export const api = {
       `${BASE}/market/sparklines?codes=${codes.join(",")}&market=${market}`
     ),
   indices: (fresh = false) =>
-    getJSON<{
+    getJSONFresh<{
       kospi: IndexQuote | null;
       kosdaq: IndexQuote | null;
       kospi_investor: MarketInvestorSummary | null;

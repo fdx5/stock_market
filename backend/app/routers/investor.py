@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi import APIRouter, HTTPException, Query
 
 from app.data import index_fetcher, investor_fetcher
@@ -5,16 +7,20 @@ from app.data.universe import get_stock_name
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 
 router = APIRouter()
+_index_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="overview-index")
 
 
 @router.get("/indices")
 def indices(fresh: bool = Query(False)):
-    return {
-        "kospi": index_fetcher.get_index("KOSPI", fresh=fresh),
-        "kosdaq": index_fetcher.get_index("KOSDAQ", fresh=fresh),
-        "kospi_investor": index_fetcher.get_market_investor_summary("KOSPI", fresh=fresh),
-        "kosdaq_investor": index_fetcher.get_market_investor_summary("KOSDAQ", fresh=fresh),
+    # Four independent upstream reads run together, rather than adding four
+    # request timeouts. Each source cache still deduplicates concurrent visitors.
+    pending = {
+        "kospi": _index_pool.submit(index_fetcher.get_index, "KOSPI", fresh=fresh),
+        "kosdaq": _index_pool.submit(index_fetcher.get_index, "KOSDAQ", fresh=fresh),
+        "kospi_investor": _index_pool.submit(index_fetcher.get_market_investor_summary, "KOSPI", fresh=fresh),
+        "kosdaq_investor": _index_pool.submit(index_fetcher.get_market_investor_summary, "KOSDAQ", fresh=fresh),
     }
+    return {key: future.result() for key, future in pending.items()}
 
 
 @router.get("/summary")

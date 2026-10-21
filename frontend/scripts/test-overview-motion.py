@@ -11,7 +11,7 @@ BASE = os.environ.get("OVERVIEW_TEST_URL", "http://127.0.0.1:5191")
 OUT = Path(__file__).resolve().parents[2] / "qa" / "overview-motion"
 OUT.mkdir(parents=True, exist_ok=True)
 counts = Counter()
-fixture = {"bitcoin_price": 95000.25}
+fixture = {"bitcoin_price": 95000.25, "kospi_close": 2745.67, "index_failure": False}
 symbols = ["^GSPC", "^NDX", "KRW=X", "CL=F", "GC=F", "SI=F", "BTC-USD", "XRP-USD"]
 prices = [6123.45, 21456.78, 1375.4, 75.12, 2700.5, 32.4, 95000.25, 2.1234]
 quotes = [{"symbol": symbol, "label": symbol, "price": price, "change_pct": 1.25,
@@ -28,7 +28,10 @@ def serve(route):
     if url.path == "/api/market/ticker":
         return route.fulfill(json={"items": [{**quote, "price": fixture["bitcoin_price"]} if quote["symbol"] == "BTC-USD" else quote for quote in quotes]})
     if url.path == "/api/investor/indices":
-        return route.fulfill(json={"kospi": {"close": 2745.67, "change_pct": 1.23}, "kosdaq": {"close": 812.34, "change_pct": -.56},
+        assert "fresh=true" in url.query
+        if fixture["index_failure"]:
+            return route.fulfill(json={"kospi": None, "kosdaq": None, "kospi_investor": None, "kosdaq_investor": None})
+        return route.fulfill(json={"kospi": {"close": fixture["kospi_close"], "change_pct": 1.23}, "kosdaq": {"close": 812.34, "change_pct": -.56},
                                    "kospi_investor": {"foreign_amount": 1234, "institution_amount": -567, "individual_amount": -667}})
     if url.path.endswith("/history"):
         return route.fulfill(json={"points": [{"close": 2700 + i + (i % 7) * 6} for i in range(65)]})
@@ -40,6 +43,8 @@ with sync_playwright() as p:
     browser = p.chromium.launch(channel="chrome", headless=True, args=["--mute-audio"])
     for width, market, theme in [(1440, "kr", "light"), (1440, "us", "dark"), (390, "kr", "light"), (390, "us", "dark")]:
         fixture["bitcoin_price"] = 95000.25
+        fixture["kospi_close"] = 2745.67
+        fixture["index_failure"] = False
         context = browser.new_context(viewport={"width": width, "height": 960}, device_scale_factor=1)
         context.route("**/*", serve)
         page = context.new_page()
@@ -75,6 +80,22 @@ with sync_playwright() as p:
         assert page.locator(".ed-reel-strip.is-rolling").count() == 0
         assert page.locator(".ed-reel-strip.is-rolling").evaluate_all("els => els.every(el => el.getAnimations().every(a => a.playState === 'finished'))")
         page.screenshot(path=str(OUT / f"{market}-{width}-{theme}.png"), full_page=False)
+        if market == "kr":
+            fixture["kospi_close"] = 2746.12
+            # A changed domestic index reaches the very next 5s polling cycle.
+            page.clock.fast_forward(5000)
+            changed_index = page.locator('.ed-rolling-number[data-value="2,746.12"]')
+            changed_index.wait_for()
+            assert changed_index.locator(".ed-reel-strip.is-rolling").count() > 0
+            assert page.locator(".ed-rolling-number").filter(has=page.locator(".ed-reel-strip.is-rolling")).count() == 1
+            page.clock.fast_forward(1500)
+            page.wait_for_timeout(1400)
+            fixture["index_failure"] = True
+            page.clock.fast_forward(5000)
+            page.wait_for_timeout(200)
+            assert changed_index.count() == 1
+            assert page.locator(".ed-reel-strip.is-rolling").count() == 0
+            fixture["index_failure"] = False
         # Offscreen summaries stop the visual timer without remounting links/data.
         page.evaluate("scrollTo(0, 1400)")
         page.locator(".ed-market-overview[data-motion=off]").wait_for()
@@ -103,6 +124,8 @@ with sync_playwright() as p:
         report["checks"].append({"width": width, "market": market, "theme": theme, "values": len(values), "graphs": 7,
                                  "graph_replay": True, "unchanged_values_stationary": True, "changed_value_only_rolls": True, "offscreen_paused": True,
                                  "background_paused": True, "reduced_motion": True})
+        if market == "kr":
+            report["checks"][-1].update(index_updated_next_poll=True, partial_failure_keeps_last_quote=True)
         print(json.dumps(report["checks"][-1]), flush=True)
         context.close()
     # Measure the actual visible animation at the original device scale.

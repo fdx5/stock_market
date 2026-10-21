@@ -16,9 +16,8 @@ import { startVisibilityAwareInterval } from "./pollVisibility";
  * singleton shape as useMarketIndices: first subscriber starts the poll, last
  * one stops it, everyone shares the snapshot.
  *
- * A minute is the right cadence. These are cap-ranking snapshots rather than a
- * tape — the whole board does not reorder in fifteen seconds, and both panels
- * are read as context rather than watched for a tick. */
+ * Poll alongside the overview's live quotes. The server still shares its source
+ * caches, and HTTP revalidation avoids transferring unchanged maps. */
 
 export interface MarketSnapshot {
   kospi: MarketMapItem[];
@@ -28,13 +27,16 @@ export interface MarketSnapshot {
 }
 
 const EMPTY: MarketSnapshot = { kospi: [], kosdaq: [], generatedAt: null };
-const REFRESH_MS = 60_000;
+const REFRESH_MS = 5_000;
 
 let snapshot: MarketSnapshot = EMPTY;
 const listeners = new Set<(value: MarketSnapshot) => void>();
 let stopPolling: (() => void) | null = null;
+let inFlight = false;
 
 function load() {
+  if (inFlight) return;
+  inFlight = true;
   Promise.all([api.marketMap(500, false), api.kosdaqMap(200, false)])
     .then(([kospi, kosdaq]) => {
       snapshot = {
@@ -47,7 +49,8 @@ function load() {
     .catch(() => {
       // A missed refresh keeps the last snapshot rather than blanking every
       // reader at once.
-    });
+    })
+    .finally(() => { inFlight = false; });
 }
 
 /** Null-ish state is `generatedAt === null`, which is what callers test to know

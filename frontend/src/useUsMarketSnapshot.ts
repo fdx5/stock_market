@@ -44,7 +44,7 @@ const EMPTY: UsMarketSnapshot = {
   session: null,
   generatedAt: null,
 };
-const REFRESH_MS = 10_000;
+const REFRESH_MS = 5_000;
 
 let snapshot: UsMarketSnapshot = EMPTY;
 const listeners = new Set<(value: UsMarketSnapshot) => void>();

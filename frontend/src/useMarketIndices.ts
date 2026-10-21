@@ -5,7 +5,7 @@ import { startVisibilityAwareInterval } from "./pollVisibility";
 /* One poll of /investor/indices, however many things are reading it.
  *
  * The API client has no request dedupe — every call is a bare fetch — so two
- * components that both want the index are two requests every fifteen seconds,
+ * components that both want the index would issue duplicate requests,
  * from every open tab, forever. That was fine while exactly one component
  * wanted it. The market desk wants it twice: the pulse row draws the full index
  * board, and the sticky command bar draws a compact strip of the same numbers,
@@ -35,33 +35,34 @@ const EMPTY: MarketIndices = {
   kosdaqInvestor: null,
 };
 
-const REFRESH_MS = 15_000;
+const REFRESH_MS = 5_000;
 
 let snapshot: MarketIndices = EMPTY;
 const listeners = new Set<(value: MarketIndices) => void>();
 let stopPolling: (() => void) | null = null;
+let inFlight = false;
 
 function load() {
-  /* fresh=false on purpose: this reuses the backend's stale-while-revalidate
-     cache rather than forcing a synchronous re-scrape on every page entry. With
-     a 10-20s TTL the worst case is a few seconds of staleness, which is far
-     cheaper than blocking a request thread on Naver for every visitor's first
-     paint. Same reasoning the component version carried. */
+  if (inFlight) return;
+  inFlight = true;
+  // Wait for an expired shared cache to refresh, so a new quote does not need
+  // another polling cycle to reach the screen. Unexpired entries remain shared.
   api
-    .indices(false)
+    .indices(true)
     .then((res) => {
       snapshot = {
-        kospi: res.kospi,
-        kosdaq: res.kosdaq,
-        kospiInvestor: res.kospi_investor,
-        kosdaqInvestor: res.kosdaq_investor,
+        kospi: res.kospi ?? snapshot.kospi,
+        kosdaq: res.kosdaq ?? snapshot.kosdaq,
+        kospiInvestor: res.kospi_investor ?? snapshot.kospiInvestor,
+        kosdaqInvestor: res.kosdaq_investor ?? snapshot.kosdaqInvestor,
       };
       for (const listener of listeners) listener(snapshot);
     })
     .catch(() => {
       // A missed refresh keeps the last snapshot rather than blanking every
       // reader at once.
-    });
+    })
+    .finally(() => { inFlight = false; });
 }
 
 export function useMarketIndices(): MarketIndices {
