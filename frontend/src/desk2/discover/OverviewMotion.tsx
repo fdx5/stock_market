@@ -59,9 +59,9 @@ export function RollingNumber({ text, active }: { text: string; active: boolean 
     <span className="ed-reel-visual" aria-hidden="true">{Array.from(text).map((char, index) => {
       if (!/\d/.test(char)) return <span className="ed-reel-punctuation" key={index}>{char}</span>;
       const digit = Number(char);
-      const reel = Array.from({ length: 11 }, (_, offset) => (digit + offset) % 10).join("\n");
+      const reel = Array.from({ length: 11 }, (_, offset) => (digit + offset) % 10);
       return <span className="ed-reel-digit" key={index}><span key={`${motion.revision}:${char}`} className={`ed-reel-strip${active && motion.rolling ? " is-rolling" : ""}`}
-        style={{ "--reel-delay": `${index % 7 * 24}ms` } as CSSProperties}>{reel}</span></span>;
+        style={{ "--reel-delay": `${index % 7 * 24}ms` } as CSSProperties}>{reel.map((value, row) => <span className="ed-reel-cell" key={row}>{value}</span>)}</span></span>;
     })}</span>
   </span>;
 }
