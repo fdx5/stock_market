@@ -10,6 +10,8 @@ on:
     paths:
       - .github/workflows/editorial-refresh.yml
       - scripts/refresh_editorial.py
+      - backend/app/data/editorial_sources.py
+      - backend/app/services/editorial.py
 
 permissions:
   contents: write # Append immutable public editions on the separate data branch.

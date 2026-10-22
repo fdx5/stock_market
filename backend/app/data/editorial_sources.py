@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path
 import re
+import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qs, urlparse
@@ -23,6 +24,7 @@ UTC = dt.timezone.utc
 KST = dt.timezone(dt.timedelta(hours=9))
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; KStockHub/1.0; +https://kospimap.com)"}
 VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+VIDEO_TARGET = 20
 QUERIES = {
     "kr": ("코스피 증시", "코스닥 주식", "국내 주식 시황", "삼성전자 하이닉스", "한국 증시 전망", "국내주식 투자"),
     "us": ("나스닥 미국주식", "미국증시 시황", "나스닥 빅테크", "엔비디아 테슬라 미국주식", "S&P500 미국주식", "미국주식 실적"),
@@ -74,6 +76,11 @@ def video_archive_path(market: str, cutoff: dt.datetime) -> str:
     # Preserve the existing immutable morning files; append afternoon separately.
     slot = "16/" if cutoff.astimezone(KST).hour == 16 else ""
     return f"editions/{cutoff.astimezone(KST).date().isoformat()}/{slot}videos-{market}.json"
+
+
+def video_complete_archive_path(market: str, cutoff: dt.datetime) -> str:
+    # Add a recovery file beside the immutable original, including a partial original.
+    return video_archive_path(market, cutoff).removesuffix(".json") + "-complete.json"
 
 
 def _text(value) -> str:
@@ -204,10 +211,12 @@ def parse_video_feed(document: str, candidates: dict[str, dict]) -> list[dict]:
 
 
 def _channel_videos(channel_id: str, candidates: dict[str, dict]) -> list[dict]:
-    try:
-        return parse_video_feed(_request("https://www.youtube.com/feeds/videos.xml", params={"channel_id": channel_id}).text, candidates)
-    except (requests.RequestException, ValueError, TypeError, ET.ParseError):
-        return []
+    for attempt in range(3):
+        try:
+            return parse_video_feed(_request("https://www.youtube.com/feeds/videos.xml", params={"channel_id": channel_id}).text, candidates)
+        except (requests.RequestException, ValueError, TypeError, ET.ParseError):
+            if attempt < 2: time.sleep(.5 * (attempt + 1))
+    return []
 
 
 def parse_watch_page(document: str, video_id: str) -> dict | None:
@@ -258,7 +267,16 @@ def _api_videos(market: str, start: dt.datetime, cutoff: dt.datetime, key: str) 
 def archived_videos(market: str, now: dt.datetime | None = None) -> dict | None:
     """Immutable public recovery copy, independent of the web host's disk lifetime."""
     start, cutoff = video_edition_window(now)
-    url = "https://raw.githubusercontent.com/fdx5/stock_market/editorial-editions/" + video_archive_path(market, cutoff)
+    # A one-item original must not hide a later complete, append-only recovery.
+    for path in (video_complete_archive_path(market, cutoff), video_archive_path(market, cutoff)):
+        result = _archived_video_file(market, start, cutoff, path, now)
+        if result and (not path.endswith("-complete.json") or len(result["items"]) >= VIDEO_TARGET):
+            return result
+    return None
+
+
+def _archived_video_file(market: str, start: dt.datetime, cutoff: dt.datetime, path: str, now: dt.datetime | None) -> dict | None:
+    url = "https://raw.githubusercontent.com/fdx5/stock_market/editorial-editions/" + path
     try:
         payload = _request(url).json()
         items = rank_videos(payload.get("items", []), market, start, cutoff)
@@ -275,39 +293,42 @@ def archived_videos(market: str, now: dt.datetime | None = None) -> dict | None:
         return {"market": market, "edition": cutoff.date().isoformat(), "window_start": start.isoformat(),
                 "window_end": cutoff.isoformat(), "collected_at": collected.isoformat(), "source": "youtube_collector_archive",
                 "candidate_count": max(len(items), int(payload.get("candidate_count", len(items)))),
-                "ranking_basis": "views_among_discovered_candidates", "items": items}
+                "ranking_basis": "views_among_discovered_candidates", "complete": len(items) >= VIDEO_TARGET, "items": items}
     except (requests.RequestException, ValueError, TypeError, AttributeError):
         return None
 
 
 def fetch_videos(market: str, now: dt.datetime | None = None, *, use_archive: bool = True) -> dict:
-    if use_archive:
-        archived = archived_videos(market, now)
-        if archived:
-            return archived
+    archived = archived_videos(market, now) if use_archive else None
+    if archived and len(archived["items"]) >= VIDEO_TARGET:
+        return archived
     start, cutoff = video_edition_window(now)
     source = "youtube_public"
-    rows = []
+    rows = list((archived or {}).get("items", []))
     candidates = {}
     key = os.environ.get("YOUTUBE_DATA_API_KEY")
     if key:
         try:
-            rows = _api_videos(market, start, cutoff, key)
+            rows.extend(_api_videos(market, start, cutoff, key))
             source = "youtube_data_api"
         except (requests.RequestException, ValueError, TypeError):
             pass  # Never log an exception URL: it could contain the server API key.
-    if not rows:
+    if len(rank_videos(rows, market, start, cutoff)) < VIDEO_TARGET:
         with ThreadPoolExecutor(max_workers=2) as pool:
             for future in as_completed([pool.submit(_public_candidates, query, True) for query in QUERIES[market]]):
                 try: candidates.update({row["id"]: row for row in future.result()})
                 except (requests.RequestException, ValueError, TypeError): pass
+        # RSS has exact publication timestamps even when playback pages are gated.
+        # Try this before hundreds of watch-page requests can exhaust a collector run.
+        channels = sorted({row["channel_id"] for row in candidates.values() if row.get("channel_id") and row.get("rss_eligible")})
         with ThreadPoolExecutor(max_workers=3) as pool:
-            rows = [row for row in pool.map(_watch, sorted(candidates)[:240]) if row]
-        if len(rank_videos(rows, market, start, cutoff)) < 20:
-            channels = sorted({row["channel_id"] for row in candidates.values() if row.get("channel_id") and row.get("rss_eligible")})
+            for batch in pool.map(lambda channel: _channel_videos(channel, candidates), channels): rows.extend(batch)
+        source = "youtube_public_with_rss"
+        if len(rank_videos(rows, market, start, cutoff)) < VIDEO_TARGET:
+            verified = {row["id"] for row in rows}
+            missing = [identifier for identifier in sorted(candidates) if identifier not in verified][:120]
             with ThreadPoolExecutor(max_workers=3) as pool:
-                for batch in pool.map(lambda channel: _channel_videos(channel, candidates), channels): rows.extend(batch)
-            source = "youtube_public_with_rss"
+                rows.extend(row for row in pool.map(_watch, missing) if row)
     items = rank_videos(rows, market, start, cutoff)
     if not items:
         error = RuntimeError("No verified videos in the edition window")
@@ -315,7 +336,7 @@ def fetch_videos(market: str, now: dt.datetime | None = None, *, use_archive: bo
         raise error
     return {"market": market, "edition": cutoff.date().isoformat(), "window_start": start.isoformat(), "window_end": cutoff.isoformat(),
             "collected_at": dt.datetime.now(UTC).isoformat(), "source": source, "candidate_count": len(rows),
-            "ranking_basis": "views_among_discovered_candidates", "items": items}
+            "ranking_basis": "views_among_discovered_candidates", "complete": len(items) >= VIDEO_TARGET, "items": items}
 
 
 def number(value: str) -> float | None:

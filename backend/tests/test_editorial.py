@@ -312,12 +312,13 @@ def test_collector_rejects_old_edition_and_wrong_publication_window():
 
 def test_archive_recovery_validates_window_and_canonicalizes_video_urls(monkeypatch):
     payload = collector_payload()
+    payload["items"] = [video(f"{i:011d}", published_at=payload["window_start"]) for i in range(20)]
     payload["items"][0]["url"] = "https://untrusted.invalid/"
     class Response:
         def json(self): return payload
     monkeypatch.setattr(source, "_request", lambda _url: Response())
     result = source.archived_videos("us")
-    assert result["items"][0]["url"] == "https://www.youtube.com/watch?v=abcdefghijk"
+    assert result["items"][0]["url"] == "https://www.youtube.com/watch?v=00000000000"
     assert result["source"] == "youtube_collector_archive"
     assert source.fetch_videos("us") == result
     payload["edition"] = "2020-01-01"
@@ -370,7 +371,7 @@ def test_afternoon_triggers_despite_successful_morning_and_recent_failed_attempt
     monkeypatch.setattr(threading, "Thread", FakeThread)
     monkeypatch.setattr(service, "_loaded", set(service.KINDS))
     morning_end = window(clock[0])[1].isoformat()
-    service._snapshots["videos-kr"] = {"edition": "2026-10-21", "window_end": morning_end, "items": [video()]}
+    service._snapshots["videos-kr"] = {"edition": "2026-10-21", "window_end": morning_end, "items": [video(f"{i:011d}") for i in range(20)]}
     real_ensure("videos-kr")
     assert not calls
     service._attempted["videos-kr"] = service.time.monotonic()
@@ -444,3 +445,81 @@ def test_partial_collector_retry_cannot_displace_fuller_verified_list_or_restart
     service._snapshots.clear(); service._loaded.clear()
     service._load("videos-us")
     assert service._snapshots["videos-us"] == fuller
+
+
+@pytest.mark.parametrize("market", ["kr", "us"])
+def test_current_one_item_edition_retries_instead_of_being_locked_until_next_slot(monkeypatch, market):
+    _, end = source.video_edition_window()
+    key = "videos-" + market
+    service._loaded.add(key)
+    service._snapshots[key] = {"edition": end.date().isoformat(), "window_end": end.isoformat(),
+                               "complete": True, "items": [video()]}
+    calls = []
+    class FakeThread:
+        def __init__(self, **kwargs): calls.append(kwargs)
+        def start(self): pass
+    monkeypatch.setattr(threading, "Thread", FakeThread)
+    real_ensure(key); real_ensure(key)
+    assert len(calls) == 1
+    service._running.clear()
+    service._snapshots[key]["items"] = [video(f"{i:011d}") for i in range(20)]
+    real_ensure(key)
+    assert len(calls) == 1
+
+
+def test_partial_refresh_unions_same_slot_and_appends_without_changing_prior_file(monkeypatch):
+    old = collector_payload()
+    old["items"] = [video("00000000001", published_at=old["window_start"])]
+    service._save("videos-us", old)
+    before = {p.name:p.read_bytes() for p in service.DATA_DIR.glob("*.json")}
+    service._snapshots["videos-us"] = old
+    incoming = {**old, "items": [video("00000000002", published_at=old["window_start"])]}
+    monkeypatch.setattr(source, "fetch_videos", lambda _market: incoming)
+    service._refresh("videos-us")
+    current = service._snapshots["videos-us"]
+    assert {row["id"] for row in current["items"]} == {"00000000001", "00000000002"}
+    assert not current["complete"]
+    assert all((service.DATA_DIR/name).read_bytes() == data for name,data in before.items())
+    assert len(list(service.DATA_DIR.glob("*.json"))) == 2
+    assert service.get_videos("us")["verified_count"] == 2
+
+
+def test_partial_archive_does_not_prevent_live_rss_recovery_and_rss_precedes_watch(monkeypatch):
+    payload = collector_payload()
+    rows = [video(f"{i:011d}", published_at=payload["window_start"]) for i in range(20)]
+    monkeypatch.delenv("YOUTUBE_DATA_API_KEY", raising=False)
+    monkeypatch.setattr(source, "archived_videos", lambda *_: payload)
+    monkeypatch.setattr(source, "_public_candidates", lambda *_: [{"id":"00000000000","channel_id":"UC"+"x"*22,"rss_eligible":True}])
+    monkeypatch.setattr(source, "_channel_videos", lambda *_: rows)
+    monkeypatch.setattr(source, "_watch", lambda *_: pytest.fail("RSS already proved 20 rows; playback requests are unnecessary"))
+    result = source.fetch_videos("us")
+    assert len(result["items"]) == 20 and result["complete"]
+
+
+def test_rss_transient_failure_retries_exact_metadata(monkeypatch):
+    document = '''<feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/">
+    <entry><yt:videoId>abcdefghijk</yt:videoId><title>나스닥 미국주식 시황</title><author><name>Public channel</name></author>
+    <published>2026-10-21T12:30:00Z</published><media:group><media:community><media:statistics views="123456"/></media:community></media:group></entry></feed>'''
+    calls = []
+    class Response: text = document
+    def request(*_args, **_kwargs):
+        calls.append(1)
+        if len(calls) == 1: raise source.requests.HTTPError("temporary fixture failure")
+        return Response()
+    monkeypatch.setattr(source, "_request", request)
+    monkeypatch.setattr(source.time, "sleep", lambda _: None)
+    result=source._channel_videos("UC"+"x"*22,{"abcdefghijk":{"rss_eligible":True,"duration_seconds":100}})
+    assert len(calls)==2 and result[0]["views"]==123456
+
+
+def test_complete_archive_can_recover_beside_immutable_partial_original(monkeypatch):
+    payload=collector_payload()
+    payload["items"]=[video(f"{i:011d}",published_at=payload["window_start"]) for i in range(20)]
+    urls=[]
+    class Response:
+        def json(self): return payload
+    def request(url): urls.append(url);return Response()
+    monkeypatch.setattr(source,"_request",request)
+    result=source.archived_videos("us")
+    assert len(result["items"])==20
+    assert len(urls)==1 and urls[0].endswith("videos-us-complete.json")

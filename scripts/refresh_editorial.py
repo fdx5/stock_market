@@ -32,7 +32,8 @@ def archive(payload: dict) -> dict:
     else:
         response.raise_for_status()
     cutoff = source._iso(payload["window_end"])
-    path = "/contents/" + source.video_archive_path(payload["market"], cutoff)
+    path = "/contents/" + (source.video_complete_archive_path(payload["market"], cutoff)
+                           if len(payload.get("items", [])) >= source.VIDEO_TARGET else source.video_archive_path(payload["market"], cutoff))
     for attempt in range(4):
         existing = requests.get(base + path, params={"ref": branch}, headers=headers, timeout=30)
         if existing.status_code == 200:
@@ -64,7 +65,8 @@ def main():
             collected = source.fetch_videos(market, use_archive=False)
             print(json.dumps({"market": market, "source": collected["source"],
                               "verified_items": len(collected["items"])}), flush=True)
-            payload = archive(collected)
+            archived = archive(collected)
+            payload = collected if len(collected["items"]) >= len(archived.get("items", [])) else archived
             # Retry only the handoff while a deployment is still starting.
             for handoff in range(20):
                 response = requests.post(base + "/videos/edition", json=payload, headers=headers, timeout=30)
@@ -81,7 +83,9 @@ def main():
                 raise RuntimeError("Server edition has not become current")
             print(json.dumps({"market": market, "edition": current["edition"], "window_end": current["window_end"], "count": len(current["items"]),
                               "handoff": response.json().get("status")}))
-            return
+            if len(current["items"]) >= source.VIDEO_TARGET:
+                return
+            raise RuntimeError("Only a partial video edition was collected; retry required")
         except Exception as exc:
             # Never print requests exceptions: their URL may contain a provider API key.
             print(json.dumps({"market": market, "attempt": attempt + 1, "error": type(exc).__name__,

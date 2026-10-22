@@ -76,6 +76,23 @@ def _save(kind: str, payload: dict) -> None:
         json.dump(payload, handle, ensure_ascii=False, allow_nan=False)
 
 
+def _merge_video_edition(previous: dict, incoming: dict) -> dict:
+    """Union verified same-slot rows; persist only a new file, never edit history."""
+    if not incoming.get("market") in ("kr", "us"):
+        return incoming
+    start, cutoff = source._iso(incoming.get("window_start", "")), source._iso(incoming.get("window_end", ""))
+    if start is None or cutoff is None:
+        return incoming
+    same = (previous.get("market") == incoming["market"] and
+            source._iso(previous.get("window_start", "")) == start and
+            source._iso(previous.get("window_end", "")) == cutoff)
+    rows = [*previous.get("items", []), *incoming.get("items", [])] if same else incoming.get("items", [])
+    items = source.rank_videos(rows, incoming["market"], start, cutoff)
+    return {**incoming, "items": items, "complete": len(items) >= source.VIDEO_TARGET,
+            "collected_at": max(previous.get("collected_at", ""), incoming.get("collected_at", "")) if same else incoming.get("collected_at"),
+            "candidate_count": max(len(items), incoming.get("candidate_count", 0), previous.get("candidate_count", 0) if same else 0)}
+
+
 def _collect_investors(previous: dict | None) -> dict:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     by_id = {item["id"]: item for item in (previous or {}).get("items", [])}
@@ -106,6 +123,7 @@ def _refresh(kind: str) -> None:
     try:
         with _lock: previous = _snapshots.get(kind)
         payload = _collect_investors(previous) if kind == "investors" else source.fetch_videos(kind.split("-")[1])
+        if kind != "investors": payload = _merge_video_edition(previous or {}, payload)
         _save(kind, payload)
         with _lock:
             current = _snapshots.get(kind, {})
@@ -132,7 +150,8 @@ def ensure(kind: str) -> None:
             not profile.get("coverage_version") or by_id[profile["id"]].get("coverage_version") == profile["coverage_version"]
         ) for profile in source.INVESTORS)
         current_slot = kind == "investors" or _snapshot_key(current)[1] == cutoff
-        if (current.get("edition") == cutoff.date().isoformat() and current_slot and current.get("complete", True) and roster_complete) or kind in _running:
+        coverage_complete = kind == "investors" or len(current.get("items", [])) >= source.VIDEO_TARGET
+        if (current.get("edition") == cutoff.date().isoformat() and current_slot and current.get("complete", True) and roster_complete and coverage_complete) or kind in _running:
             return
         now = time.monotonic()
         edition = cutoff.isoformat()
@@ -180,6 +199,10 @@ def accept_video_edition(market: str, payload: dict) -> dict:
              "ranking_basis": "views_among_discovered_candidates", "items": items}
     with _lock:
         current = _snapshots.get(kind, {})
+        clean = _merge_video_edition(current, clean)
+        if (source._iso(current.get("window_end", "")) == cutoff and len(rows) < len(current.get("items", []))
+                and source.rank_videos(current.get("items", []), market, start, cutoff) == clean["items"]):
+            return {"status": "already_current", "edition": current["edition"]}
         # A delayed CI job must not displace a newer successful collection.
         if _snapshot_key(current) >= _snapshot_key(clean):
             return {"status": "already_current", "edition": current["edition"]}
@@ -195,7 +218,8 @@ def get_videos(market: str) -> dict:
     with _lock: payload = _snapshots.get(kind)
     start, cutoff = source.video_edition_window()
     return {"market": market, "items": [], "edition": None, "window_start": start.isoformat(), "window_end": cutoff.isoformat(),
-            **(payload or {}), **_status(kind, payload)}
+            **(payload or {}), "complete": bool(payload and len(payload.get("items", [])) >= source.VIDEO_TARGET),
+            "verified_count": len((payload or {}).get("items", [])), "target_count": source.VIDEO_TARGET, **_status(kind, payload)}
 
 
 def _profile(data: dict, profile: dict) -> dict:
