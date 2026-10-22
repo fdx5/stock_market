@@ -241,3 +241,7 @@ html[data-design="neo"] .ng-content .d2-cmd-find-glyph{position:static;display:f
 .d2-cmd-find-glyph svg{display:block;width:16px;height:16px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.7}
 html[data-design="neo"] .ng-content .d2-cmd-find kbd{margin-left:0;flex:0 0 auto}
 @media(max-width:599px){html[data-design="neo"] .ng-content .d2-cmd-find{width:36px;min-width:36px;padding:6px;gap:0}}
+
+/* The command home fills the available workspace, including ultra-wide screens. */
+.ng-content.ng-content--atlas{width:100%;max-width:none;box-sizing:border-box}
+.ng-content--atlas>.ng-atlas{width:100%;max-width:none;box-sizing:border-box}

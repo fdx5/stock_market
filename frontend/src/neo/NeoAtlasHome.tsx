@@ -7,6 +7,7 @@ import { useBroadsheet } from "../desk2/shell";
 import NeoIcon from "./NeoIcon";
 import NeoSignalNetwork from "./NeoSignalNetwork";
 import { MARKET_ASSETS } from "../marketAssets";
+import AtlasMiniMaps from "./AtlasMiniMaps";
 
 function quoteTime(value?: string | number | null) {
   if (!value) return "—";
@@ -36,6 +37,11 @@ export default function NeoAtlasHome() {
     <div className="ng-region-board">{regions.map(region => <section key={region.id} className={`ng-region ng-region-${region.id}`} aria-labelledby={`ng-region-${region.id}`}><header><span>{region.number} / {region.label}</span><span className="ng-region-cross" aria-hidden="true">＋</span></header><Link className="ng-region-title" to={region.to}><h2 id={`ng-region-${region.id}`}>{region.title}</h2><span aria-hidden="true">↗</span></Link><p>{region.detail}</p><div className="ng-region-quotes">{region.quotes.map(quote => <Link key={quote.name} to={quote.to}><span>{quote.name}</span><strong>{price(quote.price)}</strong><b className={`is-${toneOf(quote.change)}`}>{pct(quote.change)}</b><small>{quoteTime(quote.time)}</small></Link>)}</div><footer><span>{region.tags}</span><Link to={region.to}>{L("분석 데스크", "Open desk")} ↗</Link></footer></section>)}</div>
     <section className="ng-asset-belt" aria-labelledby="ng-assets-h"><div><span>03 / ACROSS ASSETS</span><h2 id="ng-assets-h">{L("시장을 잇는 가격", "Prices in between")}</h2></div><div>{assets.map(asset => { const quote = tick(asset.symbol); return <Link key={asset.key} to={`/prices/${asset.key}`} className="ng-asset-link"><article><span>{L(asset.ko, asset.en)}<small>{asset.unit}</small></span><strong>{quote ? quote.price.toLocaleString("en-US", { maximumFractionDigits: asset.digits }) : "—"}</strong><b className={`is-${toneOf(quote?.change_pct)}`}>{pct(quote?.change_pct)}</b><small>{quoteTime(quote?.quote_time)} ↗</small></article></Link>; })}</div></section>
     <p className="ng-atlas-basis">{L("각 지수·자산의 최근 제공 시세 · 등락은 전일 대비 · 시장별 기준 시각과 거래 세션이 다를 수 있습니다.", "Latest supplied quotes · changes vs. previous close · quote times and sessions may differ across markets.")}</p>
+    <AtlasMiniMaps quotes={{
+      kospi: { price: indices.kospi?.close, change: indices.kospi?.change_pct },
+      kosdaq: { price: indices.kosdaq?.close, change: indices.kosdaq?.change_pct },
+      nasdaq100: { price: tick("^NDX")?.price, change: tick("^NDX")?.change_pct },
+    }} />
     <section className="ng-atlas-destinations" aria-labelledby="ng-explore-h"><header><span className="ng-kicker">04 / CHOOSE YOUR PERSPECTIVE</span><h2 id="ng-explore-h">{L("다른 시선으로 시장 읽기", "Change your perspective")}</h2></header><div>{[
       ["/map", "map", "MAP", L("면적으로 읽는 증시", "The market, in area"), L("시가총액과 등락을 한 장의 지도로", "Capitalization and returns on one map")],
       ["/etf", "layers", "ETF", L("종목 너머의 투자", "Invest beyond a stock"), L("국내·미국 ETF를 비교하고 탐색", "Explore and compare Korean & US ETFs")],

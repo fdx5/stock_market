@@ -124,7 +124,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     {showCurrent && <NeoHeaderCurrent tone="violet" placement="sidebar" />}
     <div className="ng-workspace">
       <div className="ng-context"><span><Link to="/">KOSPIMAP</Link><i>/</i>{routeLabel(path, lang)}</span><span className="ng-audience-slot" /><span className="ng-context-meta"><i />{L("데이터 기반 마켓 인텔리전스", "DATA-DRIVEN MARKET INTELLIGENCE")}</span><button type="button" onClick={event => open("menu", event.currentTarget)} aria-label={L("다른 워크스페이스", "Change workspace")}><NeoIcon name="layers" /></button></div>
-      <div className="ng-content" id="neo-content" tabIndex={-1}>
+      <div className={`ng-content${path === "/" ? " ng-content--atlas" : ""}`} id="neo-content" tabIndex={-1}>
         {family === "map" && <nav className="ng-map-switcher" aria-label={L("시장 지도 전환", "Switch market map")}>
           <div><span>{L("시장 지도", "MARKET MAPS")}</span><small>{L("다른 시장으로 바로 이동", "Go directly to another market")}</small></div>
           <div>{MAP_DESTINATIONS.map(([to, ko, en]) => <Link key={to} to={to} aria-current={path === to ? "page" : undefined}>{L(ko, en)}</Link>)}</div>
