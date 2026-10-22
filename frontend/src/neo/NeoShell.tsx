@@ -11,7 +11,6 @@ import NeoIcon from "./NeoIcon";
 import NeoLogo from "./NeoLogo";
 import NeoHeaderClocks from "./NeoHeaderClocks";
 import NeoHeaderCurrent from "./NeoHeaderCurrent";
-import NeoFrameLights from "./NeoFrameLights";
 import { useBroadsheetFonts } from "../desk2/fonts";
 import DeskBgm from "../desk2/DeskBgm";
 import BookmarkButton from "../components/BookmarkButton";
@@ -21,6 +20,7 @@ import "./neo.css";
 import "./neoPages.css";
 import "./neoCommand.css";
 import "./neoAtlas.css";
+import "./cyberEffects.css";
 
 const Finder = lazy(() => import("../desk2/Finder"));
 const MAP_DESTINATIONS = [
@@ -102,7 +102,6 @@ export default function NeoShell({ path, children }: { path: string; children: R
   const current = (to: string) => to.split("?")[0] === path;
   const navLink = (link: readonly [string, string, string]) => <Link key={link[0]} to={link[0]} aria-current={current(link[0]) ? "page" : undefined}><span>{link[lang === "ko" ? 1 : 2]}</span><NeoIcon name="chevron" /></Link>;
   return <div className={`ng-shell ng-family-${family}`} data-workspace={path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
-    <NeoFrameLights disabled={family === "immersive"} />
     <a className="ng-skip" href="#neo-content">{L("본문 바로가기", "Skip to content")}</a>
     <header className="ng-header" data-current-tone={currentTone}>
       <Link to="/" className="ng-brand" aria-label="K Stock Hub home"><NeoLogo className="ng-brand-logo" /></Link>

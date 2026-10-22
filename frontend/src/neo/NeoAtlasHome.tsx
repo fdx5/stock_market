@@ -5,10 +5,9 @@ import { useMarketTicker } from "../useMarketTicker";
 import { pct, toneOf } from "../desk2/lib";
 import { useBroadsheet } from "../desk2/shell";
 import NeoIcon from "./NeoIcon";
-import NeoSignalNetwork from "./NeoSignalNetwork";
+import MarketScanner from "./MarketScanner";
 import { MARKET_ASSETS } from "../marketAssets";
 import AtlasMiniMaps from "./AtlasMiniMaps";
-import CyberBackdrop from "./CyberBackdrop";
 import CyberQuote from "./CyberQuote";
 import "./cyberEffects.css";
 
@@ -27,18 +26,9 @@ export default function NeoAtlasHome() {
   const indices = useMarketIndices();
   const ticker = useMarketTicker();
   const tick = (symbol: string) => ticker.find(item => item.symbol === symbol);
-  const regions = [
-    { id: "kr", number: "01", label: "SEOUL", title: L("국내 증시", "Korea desk"), to: "/desk", detail: L("누가 사고, 어떤 종목이 움직였나", "Follow the flows. Find the moving stocks."), tags: L("외국인 · 기관 수급 / 종목 순위", "Foreign & institutional flows / rankings"), quotes: [
-      { name: "KOSPI", price: indices.kospi?.close, change: indices.kospi?.change_pct, time: indices.kospi?.updated_at, to: "/index/kospi" },
-      { name: "KOSDAQ", price: indices.kosdaq?.close, change: indices.kosdaq?.change_pct, time: indices.kosdaq?.updated_at, to: "/index/kosdaq" },
-    ] },
-    { id: "us", number: "02", label: "NEW YORK", title: L("미국 증시", "US desk"), to: "/global", detail: L("어느 섹터가 뉴욕을 이끌고 있나", "Which sectors are leading New York?"), tags: L("섹터 · 빅테크 / 시간외 · 원화 환산", "Sectors & Big Tech / extended hours & FX"), quotes: ["^GSPC", "^NDX"].map((symbol, i) => ({ name: i ? "NASDAQ 100" : "S&P 500", price: tick(symbol)?.price, change: tick(symbol)?.change_pct, time: tick(symbol)?.quote_time, to: i ? "/nasdaq100-map" : "/sp500-map" })) },
-  ];
   const assets = MARKET_ASSETS;
   return <main className="d2 ng-home ng-atlas" lang={lang}>
-    <CyberBackdrop />
-    <header className="ng-atlas-heading"><div><span className="ng-kicker">K STOCK HUB / MARKET ATLAS</span><h1>{L("시장의 흐름을,", "Read the market.")}<br /><em>{L("경계 너머로.", "Beyond borders.")}</em></h1><p className="ng-atlas-deck">{L("서울과 뉴욕, 그리고 자산 사이.", "Seoul, New York, and the assets in between.")}</p></div><div className="ng-atlas-intro"><NeoSignalNetwork /><div><p>{L("전체 흐름을 살피고 나의 시장으로 들어가세요.", "Take the wider view, then enter your market.")}</p><Link to="/market-brief">{L("오늘 브리핑 읽기", "Read the daily briefing")} <NeoIcon name="arrow" /></Link></div></div></header>
-    <div className="ng-region-board">{regions.map(region => <section key={region.id} className={`ng-region ng-region-${region.id}`} aria-labelledby={`ng-region-${region.id}`}><header><span>{region.number} / {region.label}</span><span className="ng-region-cross" aria-hidden="true">＋</span></header><Link className="ng-region-title" to={region.to}><h2 id={`ng-region-${region.id}`}>{region.title}</h2><span aria-hidden="true">↗</span></Link><p>{region.detail}</p><div className="ng-region-quotes">{region.quotes.map(quote => <Link key={quote.name} to={quote.to}><span>{quote.name}</span><CyberQuote value={quote.price}>{price(quote.price)}</CyberQuote><b className={`is-${toneOf(quote.change)}`}>{pct(quote.change)}</b><small>{quoteTime(quote.time)}</small></Link>)}</div><footer><span>{region.tags}</span><Link to={region.to}>{L("분석 데스크", "Open desk")} ↗</Link></footer></section>)}</div>
+    <MarketScanner />
     <section className="ng-asset-belt" aria-labelledby="ng-assets-h"><div><span>03 / ACROSS ASSETS</span><h2 id="ng-assets-h">{L("시장을 잇는 가격", "Prices in between")}</h2></div><div>{assets.map(asset => { const quote = tick(asset.symbol); return <Link key={asset.key} to={`/prices/${asset.key}`} className="ng-asset-link"><article><span>{L(asset.ko, asset.en)}<small>{asset.unit}</small></span><CyberQuote value={quote?.price}>{quote ? quote.price.toLocaleString("en-US", { maximumFractionDigits: asset.digits }) : "—"}</CyberQuote><b className={`is-${toneOf(quote?.change_pct)}`}>{pct(quote?.change_pct)}</b><small>{quoteTime(quote?.quote_time)} ↗</small></article></Link>; })}</div></section>
     <p className="ng-atlas-basis">{L("각 지수·자산의 최근 제공 시세 · 등락은 전일 대비 · 시장별 기준 시각과 거래 세션이 다를 수 있습니다.", "Latest supplied quotes · changes vs. previous close · quote times and sessions may differ across markets.")}</p>
     <AtlasMiniMaps quotes={{

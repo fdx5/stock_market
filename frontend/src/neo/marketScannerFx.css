@@ -1,0 +1,24 @@
+/* Light lives on the existing data surfaces; this layer adds no layout area. */
+.sc-scanner .sc-markets{border-color:#b99bd35c;background:#17101e;box-shadow:0 8px 32px #05030c66}
+.sc-scanner .sc-markets>button{background:radial-gradient(ellipse at 94% 0,#9972d219,transparent 70%),#17121d}
+.sc-scanner .sc-markets>button[aria-pressed=true]{background:radial-gradient(ellipse at 78% -10%,#d394ff3d,transparent 78%),linear-gradient(115deg,#37233f,#201729);box-shadow:inset 0 2px #e0baff,inset 0 10px 22px #e0a7ff09}
+.sc-scanner .sc-markets>button[aria-pressed=true]:before{content:"";position:absolute;inset:0 12% auto;height:1px;background:linear-gradient(90deg,transparent,#f4d9ff,transparent);box-shadow:0 0 16px 2px #c679ff65;pointer-events:none}
+.sc-scanner .sc-markets strong{text-shadow:0 0 22px #dcc2fc18}.sc-scanner .sc-trend{color:#c29fe8;opacity:.85}.sc-scanner .sc-markets>button[aria-pressed=true] .sc-trend{color:#e3bdff;opacity:1}
+.sc-scanner .sc-breadth-track{height:5px;box-shadow:0 0 14px #69548c13;background:#281f31}.sc-scanner .sc-breadth-track>.sc-up{box-shadow:0 0 9px #ff718b38}.sc-scanner .sc-breadth-track>.sc-down{box-shadow:0 0 9px #51baff38}
+.sc-scanner .sc-grid{border-top-color:#b18acb85;box-shadow:0 -1px 18px #ac73d012;overflow:hidden;contain:paint}
+.sc-scanner .sc-stock{background:linear-gradient(118deg,color-mix(in srgb,var(--sc-color) calc(var(--sc-strength)*28% + 5%),#15111d),#15111d 92%);box-shadow:inset 0 1px #e9d4ff04}
+.sc-scanner .sc-stock:before{background:linear-gradient(180deg,transparent,var(--sc-color) 28%,var(--sc-color) 72%,transparent);box-shadow:0 0 9px color-mix(in srgb,var(--sc-color) 38%,transparent)}
+.sc-scanner .sc-stock:after{content:"";position:absolute;inset:0;z-index:2;opacity:0;pointer-events:none;background:radial-gradient(ellipse at 14% 20%,color-mix(in srgb,var(--sc-color) 34%,transparent),transparent 85%),linear-gradient(115deg,#f1e3ff08,transparent 75%);box-shadow:inset 0 1px color-mix(in srgb,var(--sc-color) 70%,transparent),inset 0 0 15px color-mix(in srgb,var(--sc-color) 8%,transparent)}
+.sc-scanner .sc-stock:after{transition:none!important;animation:none!important}
+.sc-scanner .sc-stock.is-selected{background:radial-gradient(ellipse at 0 15%,color-mix(in srgb,var(--sc-color) 24%,transparent),transparent 85%),#221a2e;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--sc-color) 75%,transparent),inset 0 0 18px color-mix(in srgb,var(--sc-color) 9%,transparent)}
+.sc-scanner .sc-stock:hover{background:linear-gradient(115deg,color-mix(in srgb,var(--sc-color) 26%,#211829),#211829)}
+.sc-scanner .sc-stock-meter>i{opacity:.65;box-shadow:0 0 6px var(--sc-color)}.sc-scanner .sc-stock-return{text-shadow:0 0 9px color-mix(in srgb,var(--sc-color) 15%,transparent)}
+.sc-data-lens{--lens-color:#ba9fe8;position:absolute;top:0;left:0;width:360px;height:240px;z-index:4;opacity:0;pointer-events:none;background:radial-gradient(ellipse at center,color-mix(in srgb,var(--lens-color) 15%,transparent),transparent 67%),linear-gradient(128deg,transparent 39%,#e7dbff03 44%,#f2eaff0d 49%,#e7dbff03 54%,transparent 59%);border-radius:50%;mix-blend-mode:screen;transition:opacity .25s ease;transform:translate3d(-500px,-500px,0)}
+.sc-scan-field{position:absolute;top:0;left:0;width:100%;height:110px;opacity:0;pointer-events:none;z-index:3;background:linear-gradient(180deg,transparent,#c1a1ff08 24%,#d8bcff26 64%,#f1d9ff4d 72%,#c2a7ff12 75%,transparent);transform:translate3d(0,-110px,0);mix-blend-mode:screen}
+@media(hover:hover) and (pointer:fine){.sc-grid[data-lens=on] .sc-data-lens{opacity:1;will-change:transform}}
+.sc-scanner .sc-selected{box-shadow:inset 0 1px #e2c8f208;background:linear-gradient(100deg,color-mix(in srgb,var(--sc-color) 10%,#17111e),#17111e 70%)}
+@media(prefers-reduced-motion:no-preference){.sc-trend-line{stroke-dasharray:1;animation:sc-optical-chart .85s cubic-bezier(.2,.7,.25,1) both}}
+@keyframes sc-optical-chart{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@media(prefers-reduced-motion:reduce){.sc-data-lens,.sc-scan-field{display:none}.sc-trend-line{animation:none}}
+html[data-fx=minimal] :is(.sc-data-lens,.sc-scan-field){display:none}html[data-fx=minimal] .sc-trend-line{animation:none}html[data-fx=minimal] .sc-stock:after{display:none}
+@media(max-width:767px){.sc-data-lens{display:none}.sc-scanner .sc-markets>button:before{opacity:.7}.sc-scanner .sc-trend{opacity:.35!important}}

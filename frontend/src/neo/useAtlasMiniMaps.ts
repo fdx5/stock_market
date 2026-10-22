@@ -8,6 +8,8 @@ export interface AtlasMapSnapshot {
   generatedAt: string | null;
   settled: boolean;
   delayed: boolean;
+  /** Successful response count, distinct from the upstream quote timestamp. */
+  refreshVersion?: number;
 }
 const empty = (): AtlasMapSnapshot => ({ items: [], generatedAt: null, settled: false, delayed: false });
 const EMPTY = { kospi: empty(), kosdaq: empty(), nasdaq100: empty() };
@@ -31,7 +33,7 @@ async function load() {
       const newTime = Date.parse(response?.generated_at ?? "");
       if (response && Array.isArray(response.items) && response.items.length &&
           !(Number.isFinite(oldTime) && Number.isFinite(newTime) && newTime < oldTime)) {
-        next[key] = { items: response.items, generatedAt: response.generated_at ?? null, settled: true, delayed: false };
+        next[key] = { items: response.items, generatedAt: response.generated_at ?? null, settled: true, delayed: false, refreshVersion:(snapshot[key].refreshVersion ?? 0)+1 };
       } else {
         // A failure of one market must not blank the other two or its last good map.
         next[key] = { ...snapshot[key], settled: true, delayed: true };
