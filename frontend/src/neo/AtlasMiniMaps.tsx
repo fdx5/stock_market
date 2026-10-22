@@ -6,6 +6,7 @@ import { changeToRgb, rgbToCss, textColorForRgb } from "../treemap";
 import { atlasMiniMap, MINI_MAP_WIDTH, MINI_MAP_HEIGHT } from "./atlasMiniMapModel";
 import { useAtlasMiniMaps, type AtlasMapSnapshot, type AtlasMarket } from "./useAtlasMiniMaps";
 import NeoIcon from "./NeoIcon";
+import CyberQuote from "./CyberQuote";
 import "./atlasMiniMaps.css";
 
 export interface AtlasMapQuote { price?: number; change?: number }
@@ -32,7 +33,7 @@ export function AtlasMiniMapCard({ market, snapshot, quote, lang }: {
     ? quote.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
   return <Link to={config.to} className="ng-mini-map-card" style={{ "--map-accent": config.accent } as CSSProperties} aria-label={L(`${title} 전체 맵 보기`, `View the full ${title} map`)}>
     <header><span>{config.region}</span><NeoIcon name="map" /></header>
-    <div className="ng-mini-map-heading"><div><h3>{title}</h3><span>{config.en}</span></div><div><strong>{price}</strong><b className={`is-${toneOf(quote.change)}`}>{pct(quote.change)}</b></div></div>
+    <div className="ng-mini-map-heading"><div><h3>{title}</h3><span>{config.en}</span></div><div><CyberQuote value={quote.price}>{price}</CyberQuote><b className={`is-${toneOf(quote.change)}`}>{pct(quote.change)}</b></div></div>
     <div className="ng-mini-map-stage" data-state={data.count ? "ready" : snapshot.settled ? "unavailable" : "loading"}>
       {data.count ? <svg viewBox={`0 0 ${MINI_MAP_WIDTH} ${MINI_MAP_HEIGHT}`} role="img" aria-label={L(`${title} 주요 ${data.count}종목의 크기와 등락 미리보기`, `${title}: size and returns of ${data.count} leading stocks`)}>
         {data.tiles.map(tile => {
