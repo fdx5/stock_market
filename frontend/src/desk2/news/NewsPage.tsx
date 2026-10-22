@@ -12,7 +12,8 @@ import Finder from "../Finder";
 import Masthead from "../Masthead";
 import { Skel } from "../parts";
 import { pct, toneOf, useL } from "../lib";
-import { jumpTo, useBroadsheet, useFinderHotkey } from "../shell";
+import { useBroadsheet, useFinderHotkey } from "../shell";
+import { useContentScroll } from "../../useContentScroll";
 import { Article, newsDate, useCompanyNews } from "./shared";
 import "../pages.css";
 import "./news.css";
@@ -67,6 +68,8 @@ export default function NewsPage() {
   const [finderOpen, setFinderOpen] = useState(false);
   useFinderHotkey(setFinderOpen);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const storiesRef = useRef<HTMLElement>(null);
+  const requestScroll = useContentScroll(storiesRef);
 
   useEffect(() => {
     api
@@ -121,15 +124,15 @@ export default function NewsPage() {
     setQuery("");
   };
   const open = (i: number) => {
+    requestScroll();
     setOpenAt(i);
-    window.setTimeout(() => jumpTo("nw-stories"), 0);
   };
   const reading = openAt !== null && items[openAt] ? items[openAt] : null;
   const order = shown.map((s) => s.i);
   const pos = openAt !== null ? order.indexOf(openAt) : -1;
   const step = (d: -1 | 1) => {
     const next = order[pos + d];
-    if (next !== undefined) setOpenAt(next);
+    if (next !== undefined) { requestScroll(); setOpenAt(next); }
   };
 
   useEffect(() => {
@@ -142,6 +145,7 @@ export default function NewsPage() {
         const next = order[pos + (e.key === "ArrowLeft" ? -1 : 1)];
         if (next !== undefined) {
           e.preventDefault();
+          requestScroll();
           setOpenAt(next);
         }
       }
@@ -212,7 +216,7 @@ export default function NewsPage() {
           </section>
         )}
 
-        <section id="nw-stories" className="d2-sec nw-stories" aria-label={L("기사", "Stories")}>
+        <section id="nw-stories" ref={storiesRef} className="d2-sec nw-stories" aria-label={L("기사", "Stories")}>
           {reading && active ? (
             <Article item={reading} code={active.code} onBack={() => setOpenAt(null)} onStep={step} position={{ at: Math.max(0, pos), of: order.length }} />
           ) : (

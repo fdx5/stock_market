@@ -8,7 +8,7 @@ import HeaderBookmark from "./components/HeaderBookmark";
 import HeaderVisitorBadge from "./components/HeaderVisitorBadge";
 import { useActivityTracking } from "./useActivityTracking";
 import { navigate, navigationSnapshot, useRoute } from "./router";
-import { isBrowsingPage, useReadingRestoration } from "./browsingMemory";
+import { isBrowsingPage, ReadingRestoration } from "./browsingMemory";
 import ReadingTools from "./components/ReadingTools";
 import "./components/marketBriefPrint.css";
 import NeoShell from "./neo/NeoShell";
@@ -289,7 +289,6 @@ export default function App() {
   const design = useDesignMode();
   const path = useRoute();
   const location = navigationSnapshot();
-  useReadingRestoration(location.url, location.entry, location.returning);
   useLayoutEffect(() => syncThemeForPath(path), [path]);
   const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})\/?$/i);
   const briefLatestMatch = path.match(/^\/market-brief\/latest\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco)\/?$/i);
@@ -521,7 +520,7 @@ export default function App() {
   return (
     <>
       {/* Keep the explorer's warp alive while its keyed 3D destination rebuilds. */}
-      <NeoShell path={path}><Suspense key={path==='/drone-explore'||path==='/drone-explore/'?'/drone-explore':location.url} fallback={<LoadingState />}>{page}</Suspense></NeoShell>
+      <NeoShell path={path}><Suspense key={path==='/drone-explore'||path==='/drone-explore/'?'/drone-explore':location.url} fallback={<LoadingState />}>{page}<ReadingRestoration key={location.entry} {...location} /></Suspense></NeoShell>
       {(showRecentDock || isBrowsingPage(path) || stockMatch || stockReportMatch || path === "/stocks") && <ReadingTools route={location.url} />}
       <VoltarisIngressLink path={path} />
       <HeaderVisitorBadge path={path} />

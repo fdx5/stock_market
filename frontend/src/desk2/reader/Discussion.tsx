@@ -7,6 +7,7 @@ import { reportStocksEvent } from "../../useActivityTracking";
 import { useBodyScrollLock } from "../../useBodyScrollLock";
 import { Skel } from "../parts";
 import { useL } from "../lib";
+import { useContentScroll } from "../../useContentScroll";
 
 /* 종목토론 on the broadsheet pages — the 독자투고란.
  *
@@ -89,6 +90,9 @@ export default function Discussion({
   const [comments, setComments] = useState<BoardComment[] | null>(null);
   const [pendingOpen, setPendingOpen] = useState<"first" | "last" | null>(null);
   const [wantId, setWantId] = useState<string | null>(initialId ?? null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const requestScroll = useContentScroll(contentRef, loading || detailLoading);
+  const changePage = (next: number) => { requestScroll(); setLoading(true); setPage(next); };
 
   useEffect(() => {
     setPage(1);
@@ -102,6 +106,7 @@ export default function Discussion({
   const openFrom = (list: Post[], index: number) => {
     const post = list[index];
     if (!post) return;
+    if (!sheet) requestScroll();
     if (track) reportStocksEvent({ action: "discussion_post", market: track, code, name, detail: post.title });
     setOpenIndex(index);
     setDetail(null);
@@ -173,9 +178,11 @@ export default function Discussion({
     const next = openIndex + direction;
     if (next >= 0 && next < posts.length) return openFrom(posts, next);
     if (direction === 1 && hasNext) {
+      if (!sheet) requestScroll();
       setPendingOpen("first");
       setPage((p) => p + 1);
     } else if (direction === -1 && page > 1) {
+      if (!sheet) requestScroll();
       setPendingOpen("last");
       setPage((p) => p - 1);
     }
@@ -269,8 +276,8 @@ export default function Discussion({
     const atFirst = openIndex === 0 && page === 1;
     const atLast = openIndex === posts.length - 1 && !hasNext;
     return (
-      <div className="rd">
-        <button type="button" className="rd-back" onClick={() => setOpenIndex(null)}>
+      <div className="rd" ref={contentRef}>
+        <button type="button" className="rd-back" onClick={() => { requestScroll(); setOpenIndex(null); }}>
           ← {L("목록으로", "Back to list")}
         </button>
         {renderArticle(current)}
@@ -288,7 +295,7 @@ export default function Discussion({
   }
 
   return (
-    <div className="rd" ref={hostRef}>
+    <div className="rd" ref={(element) => { hostRef.current = element; contentRef.current = element; }}>
       {loading ? (
         <ol className="rd-list" aria-hidden="true">
           {Array.from({ length: 6 }, (_, i) => (
@@ -327,13 +334,13 @@ export default function Discussion({
         </ol>
       )}
       <nav className="rd-pager" aria-label={L("토론 페이지", "Board pages")}>
-        <button type="button" disabled={page === 1 || loading} onClick={() => setPage((p) => p - 1)}>
+        <button type="button" disabled={page === 1 || loading} onClick={() => changePage(page - 1)}>
           ← {L("이전", "Prev")}
         </button>
         <span>
           <b>{page}</b> {L("쪽", "page")}
         </span>
-        <button type="button" disabled={!hasNext || loading} onClick={() => setPage((p) => p + 1)}>
+        <button type="button" disabled={!hasNext || loading} onClick={() => changePage(page + 1)}>
           {L("다음", "Next")} →
         </button>
         {explorerHref && (

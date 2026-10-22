@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect } from "react";
 import { useBroadsheetFonts } from "./fonts";
 import "./desk2.css";
+import { pinnedScrollOffset, stopScrollRestoration } from "../scrollNavigation";
 
 /* What every broadsheet page (the desk, 종목정보, 종목상세) needs from outside its
  * own tree: the type families, the <html> class the design tokens hang off, and the
@@ -42,17 +43,15 @@ export function useFinderHotkey(setOpen: (update: (open: boolean) => boolean) =>
 
 /** Height of whatever broadsheet bar is pinned to the top, for scroll targets. */
 export function stickyOffset(): number {
-  const bar = document.querySelector<HTMLElement>("[data-d2-sticky]");
-  if (!bar) return 12;
-  const pos = window.getComputedStyle(bar).position;
-  return (pos === "sticky" || pos === "fixed" ? bar.getBoundingClientRect().height : 0) + 12;
+  return pinnedScrollOffset();
 }
 
 export function jumpTo(id: string): void {
   const el = document.getElementById(id);
   if (!el) return;
+  stopScrollRestoration();
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  window.scrollTo({ top: window.scrollY + el.getBoundingClientRect().top - stickyOffset(), behavior: reduce ? "auto" : "smooth" });
+  window.scrollTo({ top: Math.max(0, window.scrollY + el.getBoundingClientRect().top - stickyOffset()), behavior: reduce ? "instant" as ScrollBehavior : "smooth" });
 }
 
 /** Scrollspy on a band a third of the way down the screen. */

@@ -11,6 +11,7 @@
 
 /** Breathing room left between the header and whatever is scrolled to. */
 export const HEADER_CLEARANCE = 12;
+import { pinnedScrollOffset, stopScrollRestoration } from "./scrollNavigation";
 
 /* Everything that can be pinned over the top of the page, in stacking order.
  *
@@ -34,15 +35,7 @@ const STICKY_SELECTORS = [".app-header", ".desk-command"];
  * Reading the computed style is what keeps this correct across that breakpoint
  * without either file knowing the other's media query. */
 export function stickyHeaderOffset(gap = HEADER_CLEARANCE): number {
-  let covered = 0;
-  for (const selector of STICKY_SELECTORS) {
-    const el = document.querySelector<HTMLElement>(selector);
-    if (!el) continue;
-    const position = window.getComputedStyle(el).position;
-    if (position !== "sticky" && position !== "fixed") continue;
-    covered += el.getBoundingClientRect().height;
-  }
-  return covered + gap;
+  return pinnedScrollOffset(gap);
 }
 
 /** Scrolls the page so a given viewport-relative y lands just below the header.
@@ -50,7 +43,8 @@ export function stickyHeaderOffset(gap = HEADER_CLEARANCE): number {
  * Takes a coordinate rather than an element for callers that have already moved an
  * inner scroller and know where the target *will* be, not where it currently is. */
 export function scrollViewportTopTo(viewportTop: number, gap?: number): void {
-  window.scrollTo({ top: window.scrollY + viewportTop - stickyHeaderOffset(gap), behavior: "smooth" });
+  stopScrollRestoration();
+  window.scrollTo({ top: Math.max(0, window.scrollY + viewportTop - stickyHeaderOffset(gap)), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" as ScrollBehavior : "smooth" });
 }
 
 /** The common case: put this element just below the header. */

@@ -6,7 +6,7 @@ import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { TILE_FONT_FAMILY, pct, tileDisplayInfo } from "../mapTile";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
-import { hasReadingPosition, useBrowsingChoice } from "../browsingMemory";
+import { useBrowsingChoice } from "../browsingMemory";
 import { loadStockIconUrl } from "../stockIcon";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
@@ -285,7 +285,6 @@ export default function MarketMapPage({
   const [selectedSector, setSelectedSector] = useBrowsingChoice<string>("sector", ALL_SECTORS, (v): v is string => typeof v === "string" && v.length < 100);
   const [period, setPeriod] = useBrowsingChoice<MapPeriod>("period", "d1", (v): v is MapPeriod => MAP_PERIODS.some((p) => p.key === v));
   const [selectedCode, setSelectedCode] = useBrowsingChoice<string>("stock", "", (v): v is string => typeof v === "string" && /^[A-Za-z0-9.-]{0,16}$/.test(v));
-  const [resumeScroll] = useState(hasReadingPosition);
   const [periodReturns, setPeriodReturns] = useState<Record<string, MarketReturns>>({});
   const [periodLoading, setPeriodLoading] = useState(false);
   const [periodError, setPeriodError] = useState<string | null>(null);
@@ -309,50 +308,9 @@ export default function MarketMapPage({
     return () => query.removeEventListener("change", syncDesktopHover);
   }, []);
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapSectorFilterRef = useRef<HTMLLabelElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
-  useEffect(() => {
-    if (!enhancedSectorView || loading || resumeScroll) return;
-    const mobileOrFold = window.matchMedia(
-      "(max-width: 700px), (max-width: 1400px) and (pointer: coarse)"
-    );
-    const orientation = window.matchMedia("(orientation: portrait)");
-    let timer: number | undefined;
-
-    const scrollToMap = (delay: number) => {
-      if (!mobileOrFold.matches) return;
-      if (timer !== undefined) window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        const filter = mapSectorFilterRef.current;
-        if (!filter) return;
-        // Align to the top of the actually usable viewport instead of applying a
-        // device-specific pixel correction. Foldable orientation, browser chrome,
-        // and the sticky header can all change that boundary at runtime.
-        const visualTop = window.visualViewport?.offsetTop ?? 0;
-        const headerBottom = document.querySelector<HTMLElement>("[data-d2-sticky]")?.getBoundingClientRect().bottom ?? 0;
-        const usableTop = Math.max(visualTop, headerBottom, 0);
-        const filterTop = filter.getBoundingClientRect().top;
-        if (Math.abs(filterTop - usableTop) < 8) return;
-        const targetTop = Math.max(0, window.scrollY + filterTop - usableTop);
-        window.scrollTo({ top: targetTop, behavior: "smooth" });
-      }, delay);
-    };
-    const handleOrientationChange = () => scrollToMap(260);
-
-    // Run only after the map has loaded and its final layout exists. Entry navigation
-    // still gets a short delay so router scroll restoration settles first.
-    // Foldable orientation changes need longer for the inner viewport and treemap to
-    // finish resizing before the target position is measured.
-    scrollToMap(120);
-    orientation.addEventListener("change", handleOrientationChange);
-    window.addEventListener("orientationchange", handleOrientationChange);
-    return () => {
-      if (timer !== undefined) window.clearTimeout(timer);
-      orientation.removeEventListener("change", handleOrientationChange);
-      window.removeEventListener("orientationchange", handleOrientationChange);
-    };
-  }, [enhancedSectorView, filePrefix, loading, resumeScroll]);
+  // Route restoration owns entry alignment to the map canvas on every screen size.
 
   const TIER1_REFRESH_MS = 10_000;
   const TIER2_REFRESH_MS = 30_000;
@@ -920,7 +878,7 @@ export default function MarketMapPage({
               <span className="kospi-map-legend-label">{t("상승")}</span>
               <span className="kospi-map-legend-scale">{t("-5% ~ +5% 기준 포화")}</span>
             </div>
-            <label className="kospi-map-sector-filter" ref={mapSectorFilterRef}>
+            <label className="kospi-map-sector-filter">
               <span className="kospi-map-sector-filter-label">{t("업종")}</span>
               <select
                 value={selectedSector}
@@ -938,7 +896,7 @@ export default function MarketMapPage({
             </div>
 
           {view === "map" && (
-            <div className="card kospi-map-canvas map-canvas-night" ref={containerRef}>
+            <div className="card kospi-map-canvas map-canvas-night" ref={containerRef} data-scroll-start="map" data-scroll-ready={!loading}>
               {loading &&
                 skeletonRects.map((rect, i) => (
                   <div
@@ -1069,7 +1027,7 @@ export default function MarketMapPage({
           )}
 
             {view === "table" && (
-            <div className="card kospi-map-table-wrap">
+            <div className="card kospi-map-table-wrap" data-scroll-start="map" data-scroll-ready={!loading}>
               <table className="kospi-map-table">
                 <thead>
                   <tr>

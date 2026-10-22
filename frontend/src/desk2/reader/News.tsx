@@ -4,6 +4,7 @@ import { shortDateTime } from "../../stocks/market";
 import { reportStocksEvent } from "../../useActivityTracking";
 import { Skel } from "../parts";
 import { useL } from "../lib";
+import { useContentScroll } from "../../useContentScroll";
 
 /* 관련 기사 on the broadsheet pages.
  *
@@ -58,6 +59,9 @@ export default function News({
   const [articleLink, setArticleLink] = useState("");
   const [bodyLoading, setBodyLoading] = useState(false);
   const bodyRequest = useRef<AbortController | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const requestScroll = useContentScroll(contentRef, loading || bodyLoading);
+  const changePage = (next: number) => { requestScroll(); setPage(next); };
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +119,7 @@ export default function News({
   const open = (index: number) => {
     const item = items[index];
     if (!item) return;
+    requestScroll();
     if (track) reportStocksEvent({ action: "news_article", market: track, code, name, detail: item.title });
     bodyRequest.current?.abort();
     const controller = new AbortController();
@@ -160,8 +165,8 @@ export default function News({
 
   if (current) {
     return (
-      <div className="rd">
-        <button type="button" className="rd-back" onClick={() => setOpenIndex(null)}>
+      <div className="rd" ref={contentRef}>
+        <button type="button" className="rd-back" onClick={() => { requestScroll(); setOpenIndex(null); }}>
           ← {L("목록으로", "Back to list")}
         </button>
         <article className="rd-article">
@@ -219,7 +224,7 @@ export default function News({
   }
 
   return (
-    <div className="rd">
+    <div className="rd" ref={contentRef}>
       {loading ? (
         <ol className="rd-list" aria-hidden="true">
           {Array.from({ length: 5 }, (_, i) => (
@@ -257,14 +262,14 @@ export default function News({
         </ol>
       )}
       <nav className="rd-pager" aria-label={L("뉴스 페이지", "News pages")}>
-        <button type="button" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
+        <button type="button" disabled={page === 1} onClick={() => changePage(page - 1)}>
           ← {L("이전", "Prev")}
         </button>
         <span>
           <b>{page}</b>
           {source === "toss" ? ` ${L("쪽", "page")}` : ` / ${totalPages} ${L("쪽", "pages")}`}
         </span>
-        <button type="button" disabled={page >= totalPages && !(hasMore || loadingMore)} onClick={() => setPage((p) => p + 1)}>
+        <button type="button" disabled={page >= totalPages} onClick={() => changePage(page + 1)}>
           {L("다음", "Next")} →
         </button>
       </nav>

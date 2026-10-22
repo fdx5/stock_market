@@ -21,6 +21,7 @@ import { useStockDetail, useStockRoster, withLiveClose } from "../../stocks/useS
 import { reportStockView, reportStocksEvent } from "../../useActivityTracking";
 import { useDocumentTitle } from "../../useDocumentTitle";
 import { useBodyScrollLock } from "../../useBodyScrollLock";
+import { useContentScroll } from "../../useContentScroll";
 import { useMediaQuery } from "../../useMediaQuery";
 import { useWatchlist } from "../../useWatchlist";
 import StockLogo from "../../components/StockLogo";
@@ -99,6 +100,7 @@ export default function StocksPage() {
 
   const spec: MarketSpec = useMemo(() => marketSpec(market), [market]);
   const roster = useStockRoster(market, page, PAGE_SIZE, sector, query, sort);
+  const requestTableScroll = useContentScroll(tableRef, roster.loading);
   const detail = useStockDetail(selected, spec.currency === "USD");
   useDocumentTitle(selected ? `${displayName(selected)} 종목정보 | K-Stock Hub` : "종목정보 | K-Stock Hub");
 
@@ -163,9 +165,11 @@ export default function StocksPage() {
     setPage(1);
   };
   const changePage = (next: number) => {
+    if (next === page) return;
+    requestTableScroll();
     reportStocksEvent({ action: "page_change", market, detail: `${next}페이지` });
     setPage(next);
-    tableRef.current?.scrollTo({ top: 0 });
+    tableRef.current?.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
   };
   const cycleSort = () => {
     setSort((s) => (s === "default" ? "change_desc" : s === "change_desc" ? "change_asc" : "default"));

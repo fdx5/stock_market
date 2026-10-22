@@ -1,5 +1,6 @@
 import { CSSProperties, MouseEvent, ReactNode, useEffect, useState } from "react";
 import { readingUrl, resolvedBrowsingUrl, saveReadingPosition } from "./browsingMemory";
+import { stopScrollRestoration } from "./scrollNavigation";
 
 const makeEntry = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 let activeUrl = readingUrl();
@@ -10,6 +11,7 @@ let returning = true;
 let pushing = false;
 window.addEventListener("popstate", () => {
   if (pushing) return;
+  stopScrollRestoration();
   saveReadingPosition(activeUrl, activeEntry);
   activeUrl = readingUrl();
   activeEntry = window.history.state?.kstockEntry ?? makeEntry();
@@ -21,6 +23,9 @@ window.addEventListener("pagehide", () => saveReadingPosition(readingUrl(), acti
 export function navigationSnapshot() { return { url: activeUrl, entry: activeEntry, returning }; }
 
 export function navigate(path: string): void {
+  stopScrollRestoration();
+  // Cancel an in-flight smooth scroll before saving the outgoing entry.
+  window.scrollTo({ top: window.scrollY, left: window.scrollX, behavior: "instant" as ScrollBehavior });
   activeUrl = readingUrl();
   saveReadingPosition(activeUrl, activeEntry);
   path = resolvedBrowsingUrl(path);

@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useState } from "react";
+import { ownScrollRestoration, pinnedScrollOffset } from "./scrollNavigation";
 
 const PREFIX = "kstock_browse_v1:";
 const memory = new Map<string, unknown>();
@@ -35,6 +36,8 @@ export function saveReadingPosition(url: string, entry: string) {
   const anchor = sections.reverse().find((el) => el.getBoundingClientRect().top <= 160);
   const position: Position = { y: window.scrollY, anchor: anchor?.id ?? null, offset: anchor?.getBoundingClientRect().top ?? 0 };
   write(`entry:${entry}:${url}`, position);
+  // replaceState changes view parameters without creating a new history entry.
+  write(`entry:${entry}`, position);
   if (isBrowsingPage(url)) {
     write(`position:${url.split("#")[0]}`, position);
     write(`last-url:${url.split(/[?#]/)[0]}`, url.split("#")[0]);
@@ -62,37 +65,60 @@ export function resolvedBrowsingUrl(url: string): string {
   return typeof saved === "string" && saved.length < 500 && saved.split(/[?#]/)[0] === url ? restoredBrowsingUrl(saved) : url;
 }
 
-/** Retry during lazy/async layout, then yield immediately to reader interaction. */
+/** Runs inside Suspense after the route has committed. Fresh links always start at the top. */
 export function useReadingRestoration(url: string, entry: string, returning: boolean) {
   useLayoutEffect(() => {
-    const saved = read<Position>(`entry:${entry}:${url}`) ?? (isBrowsingPage(url) ? read<Position>(`position:${url.split("#")[0]}`) : null);
+    const saved = returning ? read<Position>(`entry:${entry}`) ?? read<Position>(`entry:${entry}:${url}`) : null;
     const position = saved && Number.isFinite(saved.y) && saved.y >= 0 && Number.isFinite(saved.offset) ? saved : null;
-    const hash = window.location.hash.slice(1);
-    if (!hash && !position) { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); return; }
+    let hash = returning && position ? "" : window.location.hash.slice(1);
+    try { hash = decodeURIComponent(hash); } catch { /* Malformed fragment is simply unmatched. */ }
+    const mapStart = !hash && !position && MAPS.has(url.split(/[?#]/)[0]);
+    if (!hash && !position && !mapStart) { window.scrollTo({ top: 0, left: 0, behavior: "instant" as ScrollBehavior }); return; }
     let stopped = false;
     let frame = 0;
+    let settled = 0;
+    let timeout = 0;
+    let release = () => {};
     const apply = () => {
       if (stopped) return;
-      const anchor = document.getElementById(hash || position?.anchor || "");
-      const top = anchor ? window.scrollY + anchor.getBoundingClientRect().top - (hash ? 90 : position!.offset) : position?.y ?? 0;
-      window.scrollTo({ top: Math.max(0, top), behavior: "instant" as ScrollBehavior });
+      const anchor = mapStart ? document.querySelector<HTMLElement>('[data-scroll-start="map"]') : document.getElementById(hash || position?.anchor || "");
+      const top = Math.max(0, anchor ? window.scrollY + anchor.getBoundingClientRect().top - (hash || mapStart ? pinnedScrollOffset() : position!.offset) : position?.y ?? 0);
+      if (Math.abs(window.scrollY - top) > 1) {
+        window.clearTimeout(settled); settled = 0;
+        window.scrollTo({ top, behavior: "instant" as ScrollBehavior });
+      }
+      // Stop after a short quiet layout, rather than following live DOM updates for ten seconds.
+      const ready = (!hash && !mapStart || anchor) && anchor?.getAttribute("data-scroll-ready") !== "false" && document.fonts?.status !== "loading";
+      if (ready && Math.abs(window.scrollY - top) <= 1) {
+        if (!settled) settled = window.setTimeout(stop, 350);
+      } else if (settled) { window.clearTimeout(settled); settled = 0; }
     };
     const schedule = () => { if (!frame && !stopped) frame = requestAnimationFrame(() => { frame = 0; apply(); }); };
-    const stop = () => { stopped = true; observer.disconnect(); if (frame) cancelAnimationFrame(frame); };
+    const stop = () => {
+      stopped = true; observer.disconnect(); mutation.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+      window.clearTimeout(settled); window.clearTimeout(timeout);
+      for (const type of ["wheel", "touchstart", "pointerdown", "keydown", "click"]) window.removeEventListener(type, cancel);
+      release();
+    };
     const observer = new ResizeObserver(schedule);
     observer.observe(document.body);
     const mutation = new MutationObserver(schedule);
-    mutation.observe(document.body, { childList: true, subtree: true });
+    mutation.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-scroll-ready"] });
+    void document.fonts?.ready.then(schedule);
     const cancel = (event: Event) => {
       if (event instanceof KeyboardEvent && !["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " ", "Tab"].includes(event.key)) return;
-      stop(); mutation.disconnect();
+      stop();
     };
-    for (const type of ["wheel", "touchstart", "pointerdown", "keydown"]) window.addEventListener(type, cancel, { passive: true });
+    release = ownScrollRestoration(stop);
+    for (const type of ["wheel", "touchstart", "pointerdown", "keydown", "click"]) window.addEventListener(type, cancel, { passive: true });
     apply();
-    const timeout = window.setTimeout(() => { stop(); mutation.disconnect(); }, 10_000);
-    return () => {
-      stop(); mutation.disconnect(); window.clearTimeout(timeout);
-      for (const type of ["wheel", "touchstart", "pointerdown", "keydown"]) window.removeEventListener(type, cancel);
-    };
+    timeout = window.setTimeout(stop, mapStart ? 8_000 : 4_000);
+    return stop;
   }, [url, entry, returning]);
+}
+
+export function ReadingRestoration({ url, entry, returning }: { url: string; entry: string; returning: boolean }) {
+  useReadingRestoration(url, entry, returning);
+  return null;
 }

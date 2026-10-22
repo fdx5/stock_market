@@ -13,6 +13,8 @@ import "../desk2/realestate-region.css";
 import FloatingTip from "./FloatingTip";
 import RealEstateSheet from "./RealEstateSheet";
 import { useMediaQuery } from "../useMediaQuery";
+import { scrollContentStart } from "../scrollNavigation";
+import { useContentScroll } from "../useContentScroll";
 import RealEstatePopup, { PopupContext, fullPrice, shortPrice } from "./RealEstatePopup";
 import AptBrandIcon, { APT_BRANDS, brandIconWidth, brandImage } from "./AptBrandIcon";
 import RankCrown, { CROWN_VIEW_H, CROWN_VIEW_W, CrownRank, crownLabel, crownWidth, drawCrown } from "./RankCrown";
@@ -500,24 +502,17 @@ export default function RealEstateMapPage() {
   };
   const mainRef = useRef<HTMLDivElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
+  const requestTreemapScroll = useContentScroll(containerRef, loading);
   /** The phone's breadcrumb bar sends the reader back up to the three selectors. */
   const revealFilters = () => {
     const el = filtersRef.current;
     if (!el) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 12, behavior: reduce ? "auto" : "smooth" });
+    scrollContentStart(el);
   };
   /** On a stacked layout a region picked on the region map scrolls down to the
    * treemap it just changed, clear of the sticky command bar. */
   const revealTreemap = () => {
-    requestAnimationFrame(() => {
-      const el = mainRef.current;
-      if (!el) return;
-      const bar = document.querySelector<HTMLElement>(".d2-cmd");
-      const offset = (bar && getComputedStyle(bar).position === "sticky" ? bar.offsetHeight : 0) + 8;
-      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - offset, behavior: reduce ? "auto" : "smooth" });
-    });
+    requestTreemapScroll();
   };
   // The region map folds away on a phone, where it sits above the treemap; the choice
   // is remembered. A phone that has never chosen starts with it folded, so the
@@ -1100,7 +1095,7 @@ export default function RealEstateMapPage() {
             )}
 
             {view === "map" && (loading || items.length > 0) && (
-              <div className="card kospi-map-canvas map-canvas-night" ref={containerRef}>
+              <div className="card kospi-map-canvas map-canvas-night" ref={containerRef} data-scroll-start="map" data-scroll-ready={!loading}>
                 {loading &&
                   skeleton.map((rect, i) => (
                     <div
@@ -1212,7 +1207,7 @@ export default function RealEstateMapPage() {
               </div>
             )}
 
-            {view === "table" && !loading && items.length > 0 && <RealEstateResults items={items} saved={saved} compared={compare} onOpen={openItem} onSave={toggleSaved} onCompare={toggleCompare} />}
+            {view === "table" && !loading && items.length > 0 && <div data-scroll-start="map" data-scroll-ready={!loading}><RealEstateResults items={items} saved={saved} compared={compare} onOpen={openItem} onSave={toggleSaved} onCompare={toggleCompare} /></div>}
             <p className="re-map-source">
               자료: 국토교통부 아파트 매매 실거래가. 타일 크기는 선택 평형의 실거래 기준가이며 단지 전체 자산가치가 아닙니다. 그룹 등락은 현재 표시 단지의 가격 가중 평균으로 전체 지역 집계와 다를 수 있습니다. 최근 계약은 신고 지연으로 누락될 수 있습니다. 브랜드는 단지명 기준 자동 분류이며 로고 출처는 Wikimedia Commons(힐스테이트·우미린 CC BY-SA) 및 각 사 공식 사이트입니다.
             </p>
