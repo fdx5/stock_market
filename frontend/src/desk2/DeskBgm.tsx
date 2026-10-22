@@ -13,18 +13,14 @@ import {
 } from "./deskBgmStore";
 import "./deskBgm.css";
 import { useDesignMode, useFxLevel } from "../neo/settings";
+import { BgmEnvelope, envelopeLevel, loadBgmEnvelope } from "../bgmEnvelope";
 
 /* The masthead's NOW PLAYING ear: an equaliser with the transport under it, the
    track's name and channel beside, and the power switch in the corner.
 
-   The equaliser is not an analysis of the sound. The audio plays inside YouTube's
-   cross-origin frame, which nothing on the page can listen to, and the tracks are
-   other people's uploads that are not ours to download and measure. So it is a
-   meter DRIVEN BY the music rather than MEASURING it: each track carries a tempo
-   and a shape (bass, brightness, energy), the bars move on the player's own clock
-   — a kick on every beat at that track's bpm, the hats between, slow swells over
-   the bars — and they fall when it pauses, buffers or stops. Deterministic in the
-   playback time, so a moment of a song always looks the same. */
+   The equaliser reads offline spectrum envelopes at the YouTube playback time.
+   The iframe's audio is cross-origin, so browser-side analysis is unavailable.
+   Track-specific decorative motion is only a fallback while an envelope loads. */
 
 const BARS = 12;
 const REST = 0.05;
@@ -74,6 +70,8 @@ function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, runn
     const levels = bars.map((_, i) => (on ? REST : IDLE[i]));
     const peaks = [...levels];
     const holds = levels.map(() => 0);
+    let envelope: BgmEnvelope | null = null;
+    let disposed = false;
     const meter = canvasMeter(el, bars, on);
     const paint = () => meter.draw(levels, peaks);
     if (still || (!running && !on)) {
@@ -81,6 +79,7 @@ function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, runn
       paint();
       return meter.dispose;
     }
+    if (running) void loadBgmEnvelope(track.id).then(doc => { if (!disposed) envelope = doc; });
     let raf = 0;
     let last = performance.now();
     let clock = getDeskBgmTime() ?? 0;
@@ -104,7 +103,10 @@ function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, runn
       }
       let settled = true;
       for (let i = 0; i < bars.length; i++) {
-        const target = running ? level(trackRef.current, seed, clock, i) : REST;
+        const target = running
+          ? envelope ? REST + (1 - REST) * envelopeLevel(envelope, clock, i, bars.length)
+            : level(trackRef.current, seed, clock, i)
+          : REST;
         const k = 1 - Math.exp(-dt * (target > levels[i] ? 30 : 8));
         levels[i] += (target - levels[i]) * k;
         if (levels[i] >= peaks[i]) { peaks[i] = levels[i]; holds[i] = 0.35; }
@@ -126,6 +128,7 @@ function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, runn
     window.addEventListener("pageshow", restart);
     restart();
     return () => {
+      disposed = true;
       cancelAnimationFrame(raf);
       meter.dispose();
       document.removeEventListener("visibilitychange", restart);
@@ -430,7 +433,7 @@ export default function DeskBgm({ variant = "ear" }: { variant?: "ear" | "strip"
         </div>
         <div className="d2-bgm-sub">
           <span className="d2-bgm-state" aria-live="polite">{state}</span>
-          <span className="d2-bgm-channel">{bgm.track.channel}</span>
+          <a className="d2-bgm-channel" href={`/bgm/credits.html#${bgm.track.id}`} target="_blank" rel="noopener noreferrer" title={L("음악 출처 및 크레딧", "Music sources and credits")}>{bgm.track.channel}</a>
           <span className="d2-bgm-count">
             {bgm.position}/{bgm.total}
           </span>

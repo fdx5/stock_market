@@ -290,15 +290,22 @@
 
 /* the power switch: a small rounded key, lit brass when on */
 .d2 .d2-bgm.d2-bgm .d2-bgm-power {
+  display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 2px;
   align-self: stretch;
   width: 38px;
+  padding: 0;
+  text-align: center;
+  line-height: 1;
   border: 1px solid var(--rule-2) !important;
   border-radius: 10px;
   color: var(--ink-3);
 }
 .d2 .d2-bgm.d2-bgm .d2-bgm-power svg {
+  flex-shrink: 0;
   width: 15px;
   height: 15px;
   fill: none;
@@ -310,7 +317,8 @@
   font-family: var(--f-mono);
   font-size: 9.5px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  line-height: 1;
+  letter-spacing: 0;
 }
 .d2 .d2-bgm.d2-bgm .d2-bgm-power:hover {
   color: var(--ink);

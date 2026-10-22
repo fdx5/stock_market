@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { loadApi, YtPlayer } from "../useYouTubeBgm";
+import { loadApi, YtPlayer } from "../youtubePlayer";
+import { BGM_TRACKS, BgmTrack, bgmSession } from "../bgmPlaylist";
 
 /* ============================================================================
    The market desk's background music (the masthead's NOW PLAYING ear).
@@ -12,42 +13,15 @@ import { loadApi, YtPlayer } from "../useYouTubeBgm";
 
    Nothing plays until the reader switches it on, and nothing is even fetched:
    the YouTube API script is loaded on the first ON (or on the pointer arriving
-   at the button, as a head start). The order is shuffled once per page load —
-   so the track waiting behind the button is already a random one — and stepping
-   through it with ◀◀ / ▶▶ never lands on the song that is playing.
+   at the button, as a head start). One random order is shared with the entrance
+   for the whole tab session, including reloads and repeat laps.
 
    The player is YouTube's own IFrame player, off-screen, as on the entrance
-   page — see useYouTubeBgm for why nothing else can play a YouTube link.
+   page. Both controls drive this single iframe.
    ========================================================================= */
 
-export interface DeskTrack {
-  id: string;
-  /** What the ear shows. The videos' own titles are search-engine sentences
-   * ("Deep Work Music for the CEO MODE - Early Morning Before…"), so these are
-   * written for a 200px line; the channel is credited underneath. */
-  title: string;
-  channel: string;
-  /** How the decorative equaliser moves for this track — see deskEqualizer. */
-  bpm: number;
-  energy: number;
-  bass: number;
-  bright: number;
-}
-
-export const DESK_TRACKS: DeskTrack[] = [
-  { id: "6pUPGG7LLEc", title: "CEO Mode · Early Morning Deep Work", channel: "Power Hour Focus", bpm: 76, energy: 0.62, bass: 0.45, bright: 0.35 },
-  { id: "GZBPveuGaT8", title: "Zen Mode · Deep Focus", channel: "Power Hour Focus", bpm: 64, energy: 0.5, bass: 0.3, bright: 0.25 },
-  { id: "RhZLTbsDzqo", title: "Intense Coding · Deep House", channel: "deep archive", bpm: 122, energy: 0.85, bass: 0.9, bright: 0.7 },
-  { id: "PuVO9fow2iI", title: "새벽 도서관 무드 · 집중 로파이", channel: "onia music", bpm: 82, energy: 0.58, bass: 0.55, bright: 0.4 },
-  { id: "Uhmq6gmLpGQ", title: "Discipline · Deep Work Music", channel: "Deep Idle Room", bpm: 70, energy: 0.55, bass: 0.4, bright: 0.3 },
-  { id: "hydk9hHO1Ko", title: "Focus Like a CEO · Penthouse Mix", channel: "FOCUS ZONE", bpm: 110, energy: 0.75, bass: 0.7, bright: 0.55 },
-  { id: "ahawPLh4epk", title: "Focus Like a CEO · Zero Distraction Mix", channel: "Grind & Groove", bpm: 118, energy: 0.74, bass: 0.75, bright: 0.55 },
-  { id: "wBgVMR8ATHU", title: "Still · Deep Work Music", channel: "MERSO", bpm: 60, energy: 0.42, bass: 0.3, bright: 0.22 },
-  { id: "qXQ6wEipSug", title: "Calm Work Music · High Concentration", channel: "Calm Work Studio", bpm: 72, energy: 0.5, bass: 0.38, bright: 0.32 },
-  { id: "UXwJ9RwdyHs", title: "Hyperfocus · Lock In (Pomodoro 50/10)", channel: "Work With Paul", bpm: 84, energy: 0.6, bass: 0.5, bright: 0.4 },
-  { id: "czMO-L42nnc", title: "Midnight City Ambience · Deep Work", channel: "Focus Room", bpm: 68, energy: 0.48, bass: 0.52, bright: 0.3 },
-  { id: "eo1gKGt6h9M", title: "Hyper Focus Mode · Deep Flow", channel: "Deep Productivity", bpm: 92, energy: 0.66, bass: 0.56, bright: 0.45 },
-];
+export type DeskTrack = BgmTrack;
+export const DESK_TRACKS = BGM_TRACKS;
 
 export interface DeskBgmState {
   /** The reader's switch. Off is the default and nothing sounds until it is on. */
@@ -72,26 +46,12 @@ const YT_ENDED = 0;
 const YT_PLAYING = 1;
 const YT_PAUSED = 2;
 
-/** A shuffle of every track, whose first is not `avoid` — so a new lap of the
- * playlist never opens with the song the last lap closed on. */
-function shuffled(avoid: string | null): number[] {
-  const order = DESK_TRACKS.map((_, i) => i);
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [order[i], order[j]] = [order[j], order[i]];
-  }
-  if (avoid && order.length > 1 && DESK_TRACKS[order[0]].id === avoid) order.push(order.shift()!);
-  return order;
-}
-
-let order = shuffled(null);
-let cursor = 0;
 let state: DeskBgmState = {
   on: false,
   playing: false,
   loading: false,
-  track: DESK_TRACKS[order[0]],
-  position: 1,
+  track: bgmSession.track,
+  position: bgmSession.position,
   total: DESK_TRACKS.length,
   failed: false,
   blocked: false,
@@ -105,6 +65,7 @@ function set(patch: Partial<DeskBgmState>) {
 
 let player: YtPlayer | null = null;
 let ready = false;
+let loadedId: string | null = null;
 let building = false;
 /** Tracks that refused to play in a row; when it reaches the whole list, stop. */
 let refusals = 0;
@@ -157,15 +118,16 @@ function hostEl(): HTMLDivElement {
   return host;
 }
 
-function select(nextCursor: number) {
-  cursor = nextCursor;
-  set({ track: DESK_TRACKS[order[cursor]], position: cursor + 1 });
+function select(step: number) {
+  bgmSession.advance(step);
+  set({ track: bgmSession.track, position: bgmSession.position });
 }
 
 function load() {
   if (!player || !ready) return;
   set({ loading: true, blocked: false });
   armWatchdog();
+  loadedId = state.track.id;
   player.loadVideoById(state.track.id);
 }
 
@@ -183,6 +145,7 @@ function build() {
         origin: window.location.origin,
       });
       const frame = document.createElement("iframe");
+      loadedId = state.track.id;
       frame.src = `https://www.youtube.com/embed/${state.track.id}?${params.toString()}`;
       frame.allow = "autoplay; encrypted-media";
       frame.title = "market desk background music";
@@ -201,6 +164,7 @@ function build() {
             // loaded in between), so iOS may refuse this; the watchdog notices.
             if (state.on && wantsPlayback) {
               armWatchdog();
+              loadedId = state.track.id;
               event.target.loadVideoById(state.track.id);
             } else set({ loading: false });
           },
@@ -265,7 +229,8 @@ export function setDeskBgmOn(on: boolean) {
   else if (ready) {
     // Straight from the tap's own call stack — the only play iOS allows.
     armWatchdog();
-    player.playVideo();
+    if (loadedId !== state.track.id) load();
+    else player.playVideo();
     reconcilePlayback();
   }
 }
@@ -286,14 +251,9 @@ export function toggleDeskBgmPlay() {
   }
 }
 
-/** The next track in this visit's shuffle; past the end, a fresh shuffle that
- * does not open on the song just heard. Never the same song twice running. */
+/** Advance in the session's fixed order, wrapping without reshuffling. */
 export function next() {
-  if (cursor + 1 < order.length) select(cursor + 1);
-  else {
-    order = shuffled(state.track.id);
-    select(0);
-  }
+  select(1);
   if (state.on) {
     wantsPlayback = true;
     set({ playing: true });
@@ -305,7 +265,7 @@ export function next() {
  * once there is one. From the first track it steps to the last of the order,
  * which is a different song, not a restart of this one. */
 export function prev() {
-  select(cursor > 0 ? cursor - 1 : order.length - 1);
+  select(-1);
   if (state.on) {
     wantsPlayback = true;
     set({ playing: true });
@@ -321,8 +281,8 @@ export function getDeskBgmTime(): number | null {
   } catch { return null; }
 }
 
-/* Mounted mastheads. When the reader leaves the desk entirely (the entrance
-   page has music of its own), the desk's stops rather than playing under it.
+/* Mounted music controls, including the entrance. When no music-enabled page
+   remains, stop playback.
    The delay covers the page switch itself, where one masthead unmounts a moment
    before the next mounts. */
 let mounted = 0;
@@ -384,3 +344,6 @@ function subscribe(listener: () => void) {
 export function useDeskBgm(): DeskBgmState {
   return useSyncExternalStore(subscribe, () => state, () => state);
 }
+
+/** Read current state from event handlers without stale React closures. */
+export function getDeskBgmState(): DeskBgmState { return state; }
