@@ -34,7 +34,7 @@ export default function UsStockIcon({
 
   return (
     <img
-      className={className}
+      className={[className, "stock-logo--us"].filter(Boolean).join(" ")}
       style={style}
       src={usCompanyLogoUrl(code)}
       alt=""

@@ -22,7 +22,7 @@ export default function EtfStockLogo({
   if (!src || failed) return <>{fallback}</>;
   return (
     <img
-      className={className}
+      className={[className, "stock-logo--etf"].filter(Boolean).join(" ")}
       style={style}
       src={src}
       alt=""

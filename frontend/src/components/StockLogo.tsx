@@ -64,17 +64,14 @@ export default function StockLogo({
       <EtfStockLogo
         code={code}
         name={name}
-        className={`${className} stock-logo--etf`}
+        className={className}
         fallback={mark}
       />
     );
   }
 
   if (isKrxCode(code)) return <StockIcon code={code} className={className} fallback={mark} />;
-  // One shared modifier rather than one derived per caller: every US logo needs the same
-  // two corrections to whatever sizing class it was given — `contain` instead of the
-  // `cover` the KR icons are styled with (these are wide wordmarks as often as square
-  // marks, and cover crops them to a stripe), and a light plate so the dark-on-
-  // transparent ones don't vanish on a dark theme.
-  return <UsStockIcon code={code} className={`${className} stock-logo--us`} fallback={mark} />;
+  // The image components own their contrast modifier so direct users receive the
+  // same uncropped logo and light plate as callers of this market-aware wrapper.
+  return <UsStockIcon code={code} className={className} fallback={mark} />;
 }
