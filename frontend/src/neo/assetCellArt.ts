@@ -59,14 +59,17 @@ function portrait(g:CanvasRenderingContext2D, cx:number, cy:number, rw:number, r
   g.restore();
   g.strokeStyle = "#3f5a40"; g.lineWidth = Math.max(.5, rh * .05); g.beginPath(); g.ellipse(cx, cy, rw, rh, 0, 0, TAU); g.stroke();
 }
-// The public-domain obverse of the series 2009 $100 note (US government work, via Wikimedia Commons).
-let billImage:HTMLImageElement | null = null;
-function bill():HTMLImageElement | null {
-  if (!billImage && typeof Image !== "undefined") { billImage = new Image(); billImage.src = "/img/ticker/usd100-obverse.webp"; }
-  return billImage?.complete && billImage.naturalWidth ? billImage : null;
+// Note photographs (Wikimedia Commons): the series 2009 $100 obverse (US government work,
+// public domain) and the Bank of Korea's ₩50,000 specimen ("보기") under its currency-image terms.
+const NOTE_SRC = ["/img/ticker/usd100-obverse.webp", "/img/ticker/krw50000-obverse.webp"];
+const noteImages:(HTMLImageElement | null)[] = [null, null];
+function bill(kind = 0):HTMLImageElement | null {
+  if (!noteImages[kind] && typeof Image !== "undefined") { const image = new Image(); image.src = NOTE_SRC[kind]; noteImages[kind] = image; }
+  const image = noteImages[kind];
+  return image?.complete && image.naturalWidth ? image : null;
 }
-function noteFace(g:CanvasRenderingContext2D, w:number, h:number, back:boolean) {
-  const photo = back ? null : bill();
+function noteFace(g:CanvasRenderingContext2D, w:number, h:number, back:boolean, kind = 0) {
+  const photo = back ? null : bill(kind);
   if (photo) {
     g.save(); roundRect(g, 0, 0, w, h, h * .04); g.clip(); g.drawImage(photo, 0, 0, w, h); g.restore();
     g.strokeStyle = "rgba(60,80,60,.6)"; g.lineWidth = .5; roundRect(g, 0, 0, w, h, h * .04); g.stroke();
@@ -108,9 +111,12 @@ const drawBills:Draw = (g, w, h, t) => {
   g.translate(w * .5, h * .5); g.rotate(-tilt); // the strap lies on the diagonal
   glow(g, 0, bh * .2, bw * .6, "rgba(140,220,150,.16)");
   g.fillStyle = "rgba(0,0,0,.35)"; g.beginPath(); g.ellipse(bw * .03, bh * .62, bw * .5, bh * .16, 0, 0, TAU); g.fill();
-  for (let i = layers; i >= 1; i--) { g.fillStyle = i % 2 ? "#b9c4ac" : "#dbe1cf"; roundRect(g, -bw / 2 + i * .25, -bh / 2 + i * .7, bw, bh, bh * .05); g.fill(); }
+  for (let i = layers; i >= 1; i--) { g.fillStyle = i % 2 ? "#e6c27a" : "#d3dcc8"; roundRect(g, -bw / 2 + i * .25, -bh / 2 + i * .7, bw, bh, bh * .05); g.fill(); }
+  // Notes alternate: $100, ₩50,000, $100 … — the one revealed is always the other kind.
+  // (Until the ₩50,000 photo has loaded, the $100 face stands in.)
+  const face = (n:number) => noteFace(g, bw, bh, false, bill(n % 2) ? n % 2 : 0);
   // The note underneath, fully visible once the counted one has gone.
-  g.save(); g.translate(-bw / 2, -bh / 2); noteFace(g, bw, bh, false); g.restore();
+  g.save(); g.translate(-bw / 2, -bh / 2); face(counted + 1); g.restore();
   // Paper band at the far end, clear of the portrait.
   const band = g.createLinearGradient(0, -bh / 2, 0, bh / 2);
   band.addColorStop(0, "#e9c873"); band.addColorStop(1, "#b58a32");
@@ -124,7 +130,7 @@ const drawBills:Draw = (g, w, h, t) => {
     g.translate(-bw / 2 + push * bw * 1.6, -bh / 2 - lift - push * bh * .25);
     g.rotate(push * -.06);
     g.fillStyle = "rgba(0,0,0,.28)"; roundRect(g, 1.5, 2.5, bw, bh, bh * .05); g.fill();
-    noteFace(g, bw, bh, false);
+    face(counted);
     g.restore();
   }
   g.restore();
