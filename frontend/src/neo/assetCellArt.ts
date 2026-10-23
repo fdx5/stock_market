@@ -2,6 +2,8 @@
  *  time `t` (seconds) into a context already scaled to CSS pixels (w × h). */
 export type CellArtKind = "usd-krw" | "bitcoin" | "ethereum" | "xrp" | "wti" | "gold" | "silver";
 type Draw = (g:CanvasRenderingContext2D, w:number, h:number, t:number) => void;
+/** Live inputs a cell's art reads every frame (kept current by the component). */
+export type CellOpts = { up:boolean };
 
 const TAU = Math.PI * 2;
 const clamp = (v:number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
@@ -301,35 +303,71 @@ function blackDrum(g:CanvasRenderingContext2D, dw:number, dh:number) {
   g.bezierCurveTo(ex - er * .55, ey + er * .6, ex - er * .55, ey - er * .05, ex, ey - er * .72); g.fill();
   g.fillStyle = "rgba(255,255,255,.7)"; g.beginPath(); g.ellipse(ex - er * .15, ey + er * .15, er * .08, er * .16, -.4, 0, TAU); g.fill();
 }
-function createOil():Draw {
+type Flame = { x:number; y:number; vx:number; vy:number; age:number; life:number; r:number };
+/** A lit match: wooden stick, red head, flame always streaming upward. */
+function drawMatch(g:CanvasRenderingContext2D, x:number, y:number, len:number, angle:number, t:number) {
+  g.save(); g.translate(x, y); g.rotate(angle);
+  const wood = g.createLinearGradient(0, -len * .05, 0, len * .05);
+  wood.addColorStop(0, "#f3d9a4"); wood.addColorStop(1, "#b98a4a");
+  g.fillStyle = wood; g.fillRect(-len / 2, -len * .045, len, len * .09);
+  g.fillStyle = "#3a1d12"; g.beginPath(); g.ellipse(len / 2, 0, len * .09, len * .07, 0, 0, TAU); g.fill();
+  g.restore();
+  const hx = x + Math.cos(angle) * len / 2, hy = y + Math.sin(angle) * len / 2, f = len * (.32 + .05 * Math.sin(t * 31) + .03 * Math.sin(t * 17));
+  glow(g, hx, hy - f * .3, f * 1.3, "rgba(255,180,60,.35)");
+  flameTongue(g, hx, hy, f * .42, f, "rgba(255,120,30,.9)");
+  flameTongue(g, hx, hy, f * .24, f * .62, "rgba(255,236,150,.95)");
+}
+/** A flame tongue standing on (x, y): round at the foot, pointed at the tip. */
+function flameTongue(g:CanvasRenderingContext2D, x:number, y:number, r:number, height:number, color:string) {
+  g.fillStyle = color; g.beginPath();
+  g.moveTo(x, y - height);
+  g.bezierCurveTo(x + r * .5, y - height * .55, x + r * 1.1, y - r * .4, x, y + r * .35);
+  g.bezierCurveTo(x - r * 1.1, y - r * .4, x - r * .5, y - height * .55, x, y - height);
+  g.fill();
+}
+function createOil(opts:CellOpts):Draw {
   // Seconds: tip 0–1.1, fill 1.3–9.2, hold full 5 s, drain and right the drum 14.2–17.
-  const CYCLE = 17, FULL = 9.24, DRAIN = FULL + 5;
-  let surface:Surface | null = null;
+  // When crude is up the scene carries on instead: a lit match drops in, the slick burns for
+  // 4 s under rising smoke, then fire and smoke die away as the pool is consumed.
+  const FULL = 9.24, HOLD = FULL + 5, THROW = HOLD, IGNITE = THROW + 1.4, OUT = IGNITE + 4;
+  let surface:Surface | null = null, last = 0;
+  const flames:Flame[] = [], smoke:Flame[] = [];
   return (g, w, h, t) => {
+    const dt = clamp(t - last, 0, .05); last = t;
+    const fire = opts.up, cycle = fire ? OUT + 2.4 : HOLD + 2.76, drain = fire ? OUT : HOLD;
     const n = Math.max(14, Math.round(w / 5));
     if (!surface || surface.n !== n) surface = new Surface(n, .016, .05, .1);
-    const s = t % CYCLE;
+    const s = t % cycle;
+    const burn = !fire || s < IGNITE ? 0 : s < OUT ? clamp((s - IGNITE) / .35) : 1 - clamp((s - OUT) / 1.2);
     const bg = g.createLinearGradient(0, 0, 0, h);
     bg.addColorStop(0, "#fdfcf8"); bg.addColorStop(1, "#ece6d8");
     g.fillStyle = bg; g.fillRect(0, 0, w, h);
-    const tip = s < 1.12 ? easeOut(s / 1.12) : s < DRAIN ? 1 : 1 - ease((s - DRAIN) / (CYCLE - DRAIN));
-    const level = s < 1.26 ? 0 : s < FULL ? ease((s - 1.26) / (FULL - 1.26)) : s < DRAIN ? 1 : 1 - ease((s - DRAIN) / (CYCLE - DRAIN));
+    if (burn > 0) {
+      // The fire warms the whole cell.
+      const warm = g.createLinearGradient(0, 0, 0, h);
+      warm.addColorStop(0, `rgba(255,190,120,${.12 * burn})`); warm.addColorStop(1, `rgba(255,120,40,${.3 * burn})`);
+      g.fillStyle = warm; g.fillRect(0, 0, w, h);
+    }
+    const tip = s < 1.12 ? easeOut(s / 1.12) : s < drain ? 1 : 1 - ease((s - drain) / (cycle - drain));
+    const level = s < 1.26 ? 0 : s < FULL ? ease((s - 1.26) / (FULL - 1.26)) : s < drain ? 1 : 1 - ease((s - drain) / (cycle - drain));
     const base = h - level * h * .6;
     // Standing at the upper right; tipping past horizontal turns its mouth down onto the pool.
     const dh = Math.min(h * .5, w * .32), dw = dh * .68, px = w - 4, py = h * .56, angle = -tip * Math.PI * .6;
     const lx = -dw / 2, ly = -dh, mouth = { x:px + Math.cos(angle) * lx - Math.sin(angle) * ly, y:py + Math.sin(angle) * lx + Math.cos(angle) * ly };
     const flow = s > .98 && s < 9.8 ? (s < 1.4 ? (s - .98) / .42 : s > 8.96 ? (9.8 - s) / .84 : 1) : 0;
     const glug = 1 + .35 * Math.sin(t * 13) + .15 * Math.sin(t * 29);
-    const landX = Math.max(6, mouth.x - dh * .25);
+    const landX = Math.max(6, mouth.x - dh * .25), fireX = w * .64;
     if (flow > 0) {
       surface.poke(landX / w, 2.4 * flow * glug, 2);
     }
     if (Math.abs(s - 9.8) < .042) surface.poke(.35, -3, 7);
+    if (fire && Math.abs(s - IGNITE) < .03) surface.poke(fireX / w, 3, 3);
     surface.step(t);
     // Pool
+    let pts:readonly (readonly [number, number])[] = [];
     if (level > 0) {
       g.save(); g.beginPath();
-      const pts = surface.path(g, w, base, x => Math.sin(x * .05 + t * 1.5) * .8);
+      pts = surface.path(g, w, base, x => Math.sin(x * .05 + t * 1.5) * .8);
       g.lineTo(w, h); g.lineTo(0, h); g.closePath();
       const oil = g.createLinearGradient(0, base - 4, 0, h);
       oil.addColorStop(0, "#4b3720"); oil.addColorStop(.08, "#1f150a"); oil.addColorStop(.5, "#0b0703"); oil.addColorStop(1, "#030201");
@@ -337,12 +375,56 @@ function createOil():Draw {
       const drift = (t * 16) % (w * 2) - w, slick = g.createLinearGradient(drift, 0, drift + w, 0);
       slick.addColorStop(0, "rgba(90,50,200,0)"); slick.addColorStop(.3, "rgba(110,70,230,.22)"); slick.addColorStop(.5, "rgba(30,190,170,.18)"); slick.addColorStop(.7, "rgba(230,170,40,.16)"); slick.addColorStop(1, "rgba(230,170,40,0)");
       g.fillStyle = slick; g.fillRect(0, base - 6, w, 16);
-      // Broad, slow highlights rolling under the glossy surface.
+      // Broad, slow highlights rolling under the glossy surface; firelight when it burns.
       g.globalCompositeOperation = "lighter";
       for (let i = 0; i < 3; i++) { const x = ((t * (9 + i * 4) + i * 70) % (w + 60)) - 30; glow(g, x, base + 8 + i * 7, 18, "rgba(255,230,190,.07)"); }
+      if (burn > 0) { const shine = g.createLinearGradient(0, base, 0, base + h * .2); shine.addColorStop(0, `rgba(255,140,40,${.45 * burn})`); shine.addColorStop(1, "rgba(255,120,30,0)"); g.fillStyle = shine; g.fillRect(0, base - 4, w, h * .2 + 4); }
       g.restore();
       g.lineCap = "round";
       surfaceLight(g, pts, slope => `rgba(255,248,232,${clamp(.2 - slope * 1, .04, .8)})`, 1.5);
+    }
+    const surfaceY = (x:number) => pts.length ? pts[Math.round(clamp(x / w) * (pts.length - 1))][1] : base;
+    // Fire spreads out from where the match lands.
+    const spread = clamp((s - IGNITE) / .7), left = fireX - spread * w, right = fireX + spread * w * .8;
+    if (burn > 0 && pts.length) {
+      const reach = (x:number) => clamp(Math.min(x - left, right - x) / (w * .1));
+      for (const [tall, stops, phase] of [[h * .55, ["rgba(240,90,20,.85)", "rgba(220,60,15,.65)", "rgba(160,30,10,0)"], 0], [h * .4, ["rgba(255,200,90,.95)", "rgba(255,130,30,.85)", "rgba(230,70,15,0)"], 1.7], [h * .2, ["rgba(255,252,225,1)", "rgba(255,215,100,.9)", "rgba(255,150,40,0)"], 3.1]] as const) {
+        g.beginPath();
+        const top:[number, number][] = [];
+        for (const [x, y] of pts) {
+          if (x < left || x > right) continue;
+          const tongue = Math.max(0, Math.sin(x * .19 + t * 9 + phase + Math.sin(x * .05 + t * 3 + phase) * 2)) ** 1.4, sway = Math.sin(t * 6 + x * .07 + phase) * 2;
+          top.push([x + sway, y - tall * burn * reach(x) * (.3 + .7 * tongue)]);
+          if (top.length === 1) g.moveTo(x, y + 1); else g.lineTo(x, y + 1);
+        }
+        for (let i = top.length - 1; i >= 0; i--) g.lineTo(top[i][0], top[i][1]);
+        g.closePath();
+        const fill = g.createLinearGradient(0, base, 0, base - tall);
+        fill.addColorStop(0, stops[0]); fill.addColorStop(.45, stops[1]); fill.addColorStop(1, stops[2]);
+        g.fillStyle = fill; g.fill();
+      }
+      // Loose tongues of flame leaping off the sheet, and smoke from their tips.
+      for (let k = 0; k < 4 * burn; k++) {
+        const x = left + Math.random() * (right - left);
+        flames.push({ x, y:surfaceY(x) - Math.random() * h * .06, vx:(Math.random() - .5) * 12, vy:-(.35 + Math.random() * .45) * h, age:0, life:.4 + Math.random() * .4, r:h * (.03 + Math.random() * .035) });
+      }
+      if (s < OUT && Math.random() < dt * 9 && smoke.length < 30) {
+        const x = left + Math.random() * (right - left);
+        smoke.push({ x, y:surfaceY(x) - h * .3, vx:(Math.random() - .3) * 14, vy:-(.09 + Math.random() * .07) * h, age:0, life:2.6 + Math.random() * 1, r:h * (.08 + Math.random() * .05) });
+      }
+    }
+    for (let i = flames.length - 1; i >= 0; i--) {
+      const f = flames[i]; f.age += dt; f.x += f.vx * dt; f.y += f.vy * dt;
+      if (f.age > f.life) { flames.splice(i, 1); continue; }
+      const a = f.age / f.life, size = f.r * (1 - a * .6);
+      const color = a < .3 ? `rgba(255,226,140,${.6 * (1 - a)})` : a < .65 ? `rgba(255,140,40,${.55 * (1 - a)})` : `rgba(200,55,20,${.45 * (1 - a)})`;
+      flameTongue(g, f.x, f.y, size * 1.3, size * (1.8 + (f.r * 37 % 1)), color);
+    }
+    if (flames.length > 220) flames.splice(0, flames.length - 220);
+    // Ignition flash where the match lands.
+    if (fire && s >= IGNITE && s < IGNITE + .35) {
+      const p = (s - IGNITE) / .35;
+      glow(g, fireX, surfaceY(fireX) - h * .05, h * (.25 + p * .4), `rgba(255,220,130,${.9 * (1 - p)})`);
     }
     // Drum in front of the pool.
     g.save(); g.translate(px, py); g.rotate(angle); blackDrum(g, dw, dh); g.restore();
@@ -351,6 +433,22 @@ function createOil():Draw {
       const thick = (3.2 * glug + 1) * flow;
       pourStream(g, mouth.x, mouth.y, landX, base, t, thick, "#0d0804", "rgba(255,236,200,.5)");
       g.fillStyle = "#0d0804"; g.beginPath(); g.ellipse(mouth.x, mouth.y, thick * 1.1, thick * .8, 0, 0, TAU); g.fill();
+    }
+    // The match, tossed in from above, tumbling as it falls.
+    if (fire && s >= THROW && s < IGNITE) {
+      const p = (s - THROW) / (IGNITE - THROW), x0 = w * .82, y0 = -h * .1, y1 = surfaceY(fireX);
+      const mx = x0 + (fireX - x0) * p, my = y0 + (y1 - y0) * p * p - Math.sin(p * Math.PI) * h * .08;
+      drawMatch(g, mx, my, h * .3, .5 - p * 2.6, t);
+    }
+    // Smoke rolls up over everything and thins out; it all clears once the fire is out.
+    const clear = !fire || s < OUT ? 1 : 1 - clamp((s - OUT) / 1.6);
+    for (let i = smoke.length - 1; i >= 0; i--) {
+      const p = smoke[i]; p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx += Math.sin(p.age * 2 + i) * 4 * dt;
+      if (p.age > p.life || clear <= 0) { smoke.splice(i, 1); continue; }
+      const a = p.age / p.life, r = p.r * (1 + a * 3.2), alpha = Math.sin(Math.PI * Math.min(1, a * 1.3 + .05)) * .55 * clear;
+      const puff = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      puff.addColorStop(0, `rgba(38,34,33,${alpha})`); puff.addColorStop(.55, `rgba(60,55,52,${alpha * .6})`); puff.addColorStop(1, "rgba(80,74,70,0)");
+      g.fillStyle = puff; g.fillRect(p.x - r, p.y - r, r * 2, r * 2);
     }
   };
 }
@@ -681,7 +779,7 @@ const drawSilver:Draw = (g, w, h, t) => {
 };
 
 /** One animation instance per cell: liquids keep their own surface state. */
-export const CELL_ART:Record<CellArtKind, { create:() => Draw; fill:boolean }> = {
+export const CELL_ART:Record<CellArtKind, { create:(opts:CellOpts) => Draw; fill:boolean }> = {
   "usd-krw":{ create:() => drawBills, fill:false },
   bitcoin:{ create:() => drawBitcoin, fill:false },
   ethereum:{ create:() => drawEthereum, fill:false },

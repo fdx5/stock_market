@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { CELL_ART, type CellArtKind } from "./assetCellArt";
+import { CELL_ART, type CellArtKind, type CellOpts } from "./assetCellArt";
 import { useFxLevel } from "./settings";
 
 type Instance = { canvas:HTMLCanvasElement; draw:(g:CanvasRenderingContext2D, w:number, h:number, t:number) => void; visible:boolean };
@@ -32,13 +32,16 @@ const wake = () => { if (!frame && !document.hidden) frame = requestAnimationFra
 if (typeof document !== "undefined") document.addEventListener("visibilitychange", wake);
 
 /** Decorative animation inside a "Prices in between" cell. Not data: hidden from assistive tech. */
-export default function AssetCellFx({ kind }:{ kind:CellArtKind }) {
+export default function AssetCellFx({ kind, up = false }:{ kind:CellArtKind; up?:boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  // One object for the life of the canvas, updated in place so the scene need not restart.
+  const opts = useRef<CellOpts>({ up }).current;
+  opts.up = up;
   const fx = useFxLevel();
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const item:Instance = { canvas, draw:CELL_ART[kind].create(), visible:false };
+    const item:Instance = { canvas, draw:CELL_ART[kind].create(opts), visible:false };
     const still = fx === "minimal" || matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (still) {
       // A composed still frame instead of motion.
