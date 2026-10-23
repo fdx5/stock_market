@@ -5,7 +5,7 @@ export const SURGE_THRESHOLD = 5;
 
 type Target = { x:number; y:number; nameW:number; left:number; right:number; top:number; bottom:number; radius:number; nextBurst:number; burst:number; dust:number; dustUntil:number; carry:number };
 type Particle = { x:number; y:number; vx:number; vy:number; life:number; decay:number; size:number; sprite:number; gravity:number; drag:number;
-  kind:number; age:number; ox:number; spin:number; floor:number; split:number; trail:boolean; pop?:() => void };
+  kind:number; age:number; ox:number; spin:number; floor:number; split:number; trail:boolean; shed:boolean; pop?:() => void };
 
 // Firework cases, rotated per tile so neighbouring bursts never look alike.
 const BURSTS = ["peony", "chrysanthemum", "willow", "crossette", "double-ring", "crackle", "spiral", "palm",
@@ -80,7 +80,7 @@ export default function MapSurgeFx({ containerRef, layoutKey }:{ containerRef:Re
 
     const add = (p:Partial<Particle> & { x:number; y:number }) => {
       if (particles.length >= MAX_PARTICLES) return;
-      particles.push({ vx:0, vy:0, life:1, decay:1, size:1, sprite:2, gravity:90, drag:2.2, kind:KIND.spark, age:0, ox:p.x, spin:Math.random() * 6.28, floor:height, split:0, trail:false, ...p });
+      particles.push({ vx:0, vy:0, life:1, decay:1, size:1, sprite:2, gravity:90, drag:2.2, kind:KIND.spark, age:0, ox:p.x, spin:Math.random() * 6.28, floor:height, split:0, trail:false, shed:false, ...p });
     };
     const color = () => GOLD[Math.floor(Math.random() * GOLD.length)];
 
@@ -98,7 +98,7 @@ export default function MapSurgeFx({ containerRef, layoutKey }:{ containerRef:Re
     const explode = (cx:number, cy:number, r:number, kind:typeof BURSTS[number], paint:ReturnType<typeof fireworkColors>) => {
       const speed = r * 3.4, second = fireworkColors();
       const shoot = (dx:number, dy:number, v:number, i:number, n:number, extra:Partial<Particle> = {}, colors = paint) =>
-        add({ x:cx, y:cy, vx:dx * v, vy:dy * v, sprite:colors(i, n), decay:1.2, size:.85, ...extra });
+        add({ x:cx, y:cy, vx:dx * v, vy:dy * v, sprite:colors(i, n), decay:1.2, size:.85, shed:true, ...extra });
       // Points on a sphere seen from the side: dense rim, filled centre, so bursts look round.
       const sphere = (n:number, scale:number, extra:Partial<Particle> = {}, colors = paint) => {
         for (let i = 0; i < n; i++) { const u = Math.random() * 2 - 1, a = Math.random() * 6.28, k = Math.sqrt(1 - u * u); shoot(Math.cos(a) * k, Math.sin(a) * k, speed * scale * (.92 + Math.random() * .16), i, n, extra, colors); }
@@ -195,6 +195,13 @@ export default function MapSurgeFx({ containerRef, layoutKey }:{ containerRef:Re
         }
         if (p.trail && p.life > .15 && Math.random() < .7)
           add({ x:p.x + (Math.random() - .5) * 2, y:p.y + (Math.random() - .5) * 2, vx:p.vx * .05, vy:p.vy * .05, sprite:p.kind === KIND.rocket ? 2 : p.sprite, decay:2.6, gravity:30, drag:3, size:.42, floor:p.floor });
+        // Firework stars drop dust in their own colour, which falls to the map floor.
+        if (p.shed && (p.life <= 0 || Math.random() < .05)) {
+          const reach = Math.sqrt(Math.max(60, height - p.y) / 400);
+          for (let i = p.life <= 0 ? 2 : 1; i > 0; i--)
+            add({ x:p.x + (Math.random() - .5) * 3, y:p.y, vx:p.vx * .15 + (Math.random() - .5) * 10, vy:10 + Math.random() * 20, sprite:p.sprite,
+              kind:Math.random() < .35 ? KIND.flutter : KIND.dust, gravity:260 + Math.random() * 120, drag:.4, decay:.55 / reach, size:.3 + Math.random() * .4 });
+        }
         if (p.life <= 0 || p.y > p.floor - 1) continue;
         particles[alive++] = p;
         let alpha = Math.min(1, p.life * 1.8);
