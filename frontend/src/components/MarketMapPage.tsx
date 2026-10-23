@@ -9,6 +9,7 @@ import { Link, navigate } from "../router";
 import { useBrowsingChoice } from "../browsingMemory";
 import { loadStockIconUrl } from "../stockIcon";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
+import MapSurgeFx, { SURGE_THRESHOLD } from "./MapSurgeFx";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { usCompanyLogoProxyUrl } from "../usLogo";
 import Colophon from "../desk2/Colophon";
@@ -958,6 +959,7 @@ export default function MarketMapPage({
                         key={tile.id}
                         type="button"
                         className={`kospi-map-tile${selectedCode === tile.item.code ? " is-last-selected" : ""}`}
+                        data-surge={tile.item.change_pct >= SURGE_THRESHOLD && (showName || showPctOnly) ? "" : undefined}
                         aria-label={`${tile.item.name} ${tile.item.code}${selectedCode === tile.item.code ? " · 최근 선택" : ""}`}
                         style={{
                           left: localX,
@@ -981,6 +983,20 @@ export default function MarketMapPage({
                         {showName && (
                           <>
                             <span className="kospi-map-tile-name-row">
+                              {tile.item.change_pct >= SURGE_THRESHOLD && (
+                                <svg
+                                  className="kospi-map-tile-crown"
+                                  viewBox="0 0 24 18"
+                                  aria-hidden="true"
+                                  style={{ width: fontSizes.name * 1.25, height: fontSizes.name * 0.95 }}
+                                >
+                                  <path d="M2 15 L1 4 L7.5 9 L12 1.5 L16.5 9 L23 4 L22 15 Z" />
+                                  <rect x="2" y="15.2" width="20" height="2.3" rx="0.6" />
+                                  <circle cx="12" cy="1.8" r="1.6" />
+                                  <circle cx="1.2" cy="4" r="1.3" />
+                                  <circle cx="22.8" cy="4" r="1.3" />
+                                </svg>
+                              )}
                               {showIcon &&
                                 (market === "us" ? (
                                   <UsStockIcon
@@ -1023,6 +1039,13 @@ export default function MarketMapPage({
                   })}
                 </div>
               ))}
+              {!loading && (
+                <MapSurgeFx
+                  containerRef={containerRef}
+                  layoutKey={sectorZones.map((zone) => zone.tiles.filter((tile) => tile.item.change_pct >= SURGE_THRESHOLD)
+                    .map((tile) => `${tile.item.code}@${Math.round(tile.x)},${Math.round(tile.y)},${Math.round(tile.w)}`).join(";")).join("|")}
+                />
+              )}
             </div>
           )}
 

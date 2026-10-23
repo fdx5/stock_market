@@ -1,0 +1,82 @@
+/* Digital-punk neon layer. Light only: no layout area, data colours keep their meaning
+   (up = red, down = blue). Ambient motion runs while the board is on screen. */
+.sc-scanner{--sc-neon:#c58cff;--sc-cyan:#5ff0ff;--sc-up-neon:#ff4f6d;--sc-down-neon:#3fa9ff;position:relative;isolation:isolate}
+.sc-scanner:before{content:"";position:absolute;inset:-6px -10px -10px;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 55% 38% at 18% 0,#a35dff1f,transparent 70%),radial-gradient(ellipse 45% 30% at 92% 8%,#2fd8ff14,transparent 72%),linear-gradient(#c49aff07 1px,transparent 1px) 0 0/100% 4px;-webkit-mask:linear-gradient(180deg,#000,#000 60%,transparent);mask:linear-gradient(180deg,#000,#000 60%,transparent)}
+
+/* HUD corner brackets */
+.sc-hud-corner{position:absolute;width:14px;height:14px;pointer-events:none;z-index:6;border:0 solid var(--sc-cyan);filter:drop-shadow(0 0 4px #5ff0ffaa);opacity:.75}
+.sc-hud-corner.is-tl{top:4px;left:-6px;border-width:1px 0 0 1px}.sc-hud-corner.is-tr{top:4px;right:-6px;border-width:1px 1px 0 0}
+.sc-hud-corner.is-bl{bottom:-6px;left:-6px;border-width:0 0 1px 1px}.sc-hud-corner.is-br{bottom:-6px;right:-6px;border-width:0 1px 1px 0}
+
+/* Heading: chromatic split title, live beacon and HUD tag */
+.ng-atlas .sc-heading h1{position:relative;display:flex;align-items:center;gap:9px;color:#fbf4ff;text-shadow:-.6px 0 #ff3d8b88,.6px 0 #3de6ff88,0 0 18px #c58cff66}
+.sc-live-dot{width:6px;height:6px;border-radius:50%;background:var(--sc-cyan);box-shadow:0 0 0 2px #5ff0ff22,0 0 10px var(--sc-cyan);flex:none}
+.sc-hud-tag{font:500 8px/1 var(--f-num);letter-spacing:.14em;color:#8ff4ff;padding:3px 6px 3px 7px;border:1px solid #5ff0ff44;background:linear-gradient(90deg,#5ff0ff14,transparent);text-shadow:0 0 8px #5ff0ff88;clip-path:polygon(0 0,100% 0,100% 62%,calc(100% - 5px) 100%,0 100%)}
+
+/* Index panels: neon rail, tone-coloured trends */
+.sc-scanner .sc-markets{position:relative;border-color:#c58cff55;box-shadow:0 0 0 1px #0b0612,0 10px 40px #05030c88,0 0 26px #a35dff1a}
+.sc-scanner .sc-markets:after{content:"";position:absolute;left:0;right:0;top:-1px;height:1px;pointer-events:none;z-index:3;background:linear-gradient(90deg,transparent,#5ff0ff 20%,#e7b8ff 50%,#ff5fa8 80%,transparent);background-size:200% 100%;box-shadow:0 0 10px #c58cffaa;opacity:.85}
+.sc-scanner .sc-markets>button{background:linear-gradient(#ffffff03 1px,transparent 1px) 0 0/100% 3px,radial-gradient(ellipse at 94% 0,#9972d21c,transparent 70%),#140f1b}
+.sc-scanner .sc-markets>button[aria-pressed=true]{background:linear-gradient(#ffffff05 1px,transparent 1px) 0 0/100% 3px,radial-gradient(ellipse at 78% -10%,#d394ff40,transparent 78%),linear-gradient(115deg,#34203e,#1c1426)}
+.sc-scanner .sc-markets>button[aria-pressed=true] strong{text-shadow:0 0 14px #f0d8ff55,0 0 2px #fff}
+.sc-scanner .sc-markets b.is-up{color:var(--sc-up-neon);text-shadow:0 0 10px #ff4f6d88}.sc-scanner .sc-markets b.is-down{color:var(--sc-down-neon);text-shadow:0 0 10px #3fa9ff88}
+.sc-scanner .sc-trend.is-up,.sc-scanner .sc-markets>button[aria-pressed=true] .sc-trend.is-up{color:var(--sc-up-neon)}
+.sc-scanner .sc-trend.is-down,.sc-scanner .sc-markets>button[aria-pressed=true] .sc-trend.is-down{color:var(--sc-down-neon)}
+.sc-scanner .sc-trend.is-flat,.sc-scanner .sc-markets>button[aria-pressed=true] .sc-trend.is-flat{color:#b9b0c9}
+.sc-scanner .sc-trend{filter:drop-shadow(0 0 5px color-mix(in srgb,currentColor 55%,transparent))}
+.sc-trend-head{filter:drop-shadow(0 0 3px currentColor)}
+.sc-scanner .sc-trend.is-up .sc-trend-head{fill:#ffd6de}.sc-scanner .sc-trend.is-down .sc-trend-head{fill:#d6ecff}
+
+/* Breadth: charged track */
+.sc-scanner .sc-breadth{background:linear-gradient(90deg,#1a1222,#120d19)}
+.sc-scanner .sc-breadth .sc-up{text-shadow:0 0 9px #ff4f6d77}.sc-scanner .sc-breadth .sc-down{text-shadow:0 0 9px #3fa9ff77}
+.sc-scanner .sc-breadth-track{position:relative;overflow:hidden}
+.sc-scanner .sc-breadth-track>.sc-up{background:linear-gradient(90deg,#ff2f5a,#ff7c91);box-shadow:0 0 10px #ff4f6d66}
+.sc-scanner .sc-breadth-track>.sc-down{background:linear-gradient(90deg,#7cc4ff,#2f8fff);box-shadow:0 0 10px #3fa9ff66}
+.sc-scanner .sc-breadth-track:after{content:"";position:absolute;inset:0;width:30%;pointer-events:none;background:linear-gradient(90deg,transparent,#ffffffb0,transparent);mix-blend-mode:overlay;transform:translateX(-120%);opacity:0}
+
+/* Controls: neon selected tab */
+.sc-scanner .sc-controls button[aria-pressed=true]{color:#fff;border-color:var(--sc-cyan);background:linear-gradient(0deg,#5ff0ff1f,transparent 80%);text-shadow:0 0 8px #5ff0ffaa;box-shadow:0 1px 8px -2px #5ff0ff}
+
+/* Quote grid: neon edges, ambient scan */
+.sc-scanner .sc-grid{border-color:#c58cff40;box-shadow:0 0 22px #a35dff14,inset 0 0 0 1px #0b0612}
+.sc-scanner .sc-stock{background:linear-gradient(118deg,color-mix(in srgb,var(--sc-color) calc(var(--sc-strength)*30% + 5%),#14101c),#130f1a 92%)}
+.sc-scanner .sc-stock-return{text-shadow:0 0 calc(4px + var(--sc-strength)*14px) color-mix(in srgb,var(--sc-color) calc(var(--sc-strength)*80% + 15%),transparent)}
+.sc-scanner .sc-stock:hover{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--sc-color) 75%,transparent),inset 0 0 16px color-mix(in srgb,var(--sc-color) 18%,transparent),0 0 14px color-mix(in srgb,var(--sc-color) 30%,transparent)}
+.sc-scanner .sc-stock.is-selected{box-shadow:inset 0 0 0 1px var(--sc-color),inset 0 0 22px color-mix(in srgb,var(--sc-color) 16%,transparent),0 0 16px color-mix(in srgb,var(--sc-color) 35%,transparent)}
+/* Full grid height, band at its bottom edge: translating by -100%..0 sweeps the whole board. */
+.sc-ambient-scan{position:absolute;inset:0;pointer-events:none;z-index:3;opacity:0;mix-blend-mode:screen;background:linear-gradient(180deg,transparent,#5ff0ff06 40%,#b8f7ff1c 88%,#e9fdff3a 96%,transparent) bottom/100% 46px no-repeat;transform:translate3d(0,-100%,0)}
+
+/* Selected stock strip */
+.sc-scanner .sc-selected{border-bottom-color:#c58cff40;background:linear-gradient(100deg,color-mix(in srgb,var(--sc-color) 14%,#16101d),#140f1a 70%)}
+.sc-scanner .sc-selected>div:first-child>strong{text-shadow:0 0 10px color-mix(in srgb,var(--sc-color) 50%,transparent)}
+
+/* Motion: only on screen, never under minimal effects or reduced motion */
+@media(prefers-reduced-motion:no-preference){
+  html:not([data-fx=minimal]) .sc-scanner[data-live=on] .sc-live-dot{animation:sc-beacon 1.8s ease-in-out infinite}
+  html:not([data-fx=minimal]) .sc-scanner[data-live=on] .sc-markets:after{animation:sc-rail 5s linear infinite}
+  html:not([data-fx=minimal]) .sc-scanner[data-live=on] .sc-breadth-track:after{animation:sc-charge 4.2s cubic-bezier(.45,0,.2,1) infinite}
+  html:not([data-fx=minimal]) .sc-scanner[data-live=on] .sc-ambient-scan{animation:sc-sweep 7s cubic-bezier(.4,0,.3,1) 1.2s infinite}
+  html:not([data-fx=minimal]) .sc-scanner[data-live=on] .sc-hud-corner{animation:sc-corner 3.6s ease-in-out infinite}
+  html:not([data-fx=minimal]) .sc-heading h1{animation:sc-glitch .5s steps(2,end) 1}
+}
+@keyframes sc-beacon{0%,100%{opacity:1;box-shadow:0 0 0 2px #5ff0ff22,0 0 10px var(--sc-cyan)}50%{opacity:.45;box-shadow:0 0 0 5px #5ff0ff00,0 0 4px var(--sc-cyan)}}
+@keyframes sc-rail{to{background-position:-200% 0}}
+@keyframes sc-charge{0%{transform:translateX(-120%);opacity:0}15%{opacity:1}55%,100%{transform:translateX(420%);opacity:0}}
+@keyframes sc-sweep{0%{transform:translate3d(0,-100%,0);opacity:0}6%{opacity:1}55%{opacity:.9}62%,100%{transform:translate3d(0,0,0);opacity:0}}
+@keyframes sc-corner{0%,100%{opacity:.75}50%{opacity:.35}}
+@keyframes sc-glitch{0%{text-shadow:-3px 0 #ff3d8bcc,3px 0 #3de6ffcc;transform:translateX(1px);clip-path:inset(0 0 45% 0)}50%{text-shadow:2px 0 #ff3d8bcc,-2px 0 #3de6ffcc;transform:translateX(-1px);clip-path:inset(40% 0 0 0)}100%{clip-path:none;transform:none}}
+
+html[data-fx=minimal] .sc-scanner:before,html[data-fx=minimal] :is(.sc-ambient-scan,.sc-hud-corner){display:none}
+html[data-fx=minimal] .sc-scanner :is(.sc-trend,.sc-trend-head){filter:none}
+@media(prefers-reduced-motion:reduce){.sc-ambient-scan{display:none}}
+@media(max-width:767px){.sc-hud-corner{display:none}.sc-scanner:before{inset:-6px 0 -10px}.sc-hud-tag{font-size:7px;padding:2px 5px}.sc-scanner .sc-trend{filter:none}.sc-ambient-scan{background-size:100% 34px}}
+/* Selected index panel takes its day's tone: red rising, blue falling */
+.sc-scanner .sc-markets>button[aria-pressed=true]:has(.sc-trend.is-up){box-shadow:inset 0 2px #ffb3c2,inset 0 -1px #ff4f6d,inset 0 -14px 22px -14px #ff4f6d88}
+.sc-scanner .sc-markets>button[aria-pressed=true]:has(.sc-trend.is-down){box-shadow:inset 0 2px #b9dcff,inset 0 -1px #3fa9ff,inset 0 -14px 22px -14px #3fa9ff88}
+.sc-scanner .sc-markets>button:has(.sc-trend.is-up):after,.sc-scanner .sc-markets>button:has(.sc-trend.is-down):after{content:"";position:absolute;right:-20px;top:-10px;width:200px;height:110px;z-index:-1;pointer-events:none;opacity:.5;background:radial-gradient(ellipse at 60% 45%,var(--sc-tone-glow),transparent 68%)}
+.sc-scanner .sc-markets>button:has(.sc-trend.is-up){--sc-tone-glow:#ff4f6d26}.sc-scanner .sc-markets>button:has(.sc-trend.is-down){--sc-tone-glow:#3fa9ff26}
+.sc-scanner .sc-markets>button[aria-pressed=true]:after{opacity:1}
+html[data-fx=minimal] .sc-scanner .sc-markets>button:after{display:none}
+/* Gold dust canvas: whole viewport, above content, never intercepts input */
+.sc-gold-dust{position:fixed;inset:0;width:100vw;height:100vh;z-index:60;pointer-events:none}

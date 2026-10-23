@@ -11,8 +11,10 @@ import { marketScanner, type ScannerOrder } from "./marketScannerModel";
 import { useFxLevel } from "./settings";
 import { useContentScroll } from "../useContentScroll";
 import { pinnedScrollOffset } from "../scrollNavigation";
+import { createGoldDust } from "./goldDust";
 import "./marketScanner.css";
 import "./marketScannerFx.css";
+import "./marketScannerNeon.css";
 
 const MARKETS=[{key:"kospi",label:"KOSPI",to:"/map"},{key:"kosdaq",label:"KOSDAQ",to:"/kosdaq-map"},{key:"nasdaq100",label:"NASDAQ 100",to:"/nasdaq100-map"}] as const;
 const histories=new Map<string,Promise<IndicatorPoint[]>>();
@@ -22,18 +24,18 @@ function quoteTime(value?:string|number|null) {
   const date=new Date(typeof value==="number"?value*1000:value);
   return Number.isFinite(+date)?date.toLocaleString("ko-KR",{timeZone:"Asia/Seoul",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false})+" KST":"—";
 }
-function MiniTrend({values,label}:{values:number[];label:string}) {
+function MiniTrend({values,label,tone}:{values:number[];label:string;tone:string}) {
   const id=useId().replace(/:/g,"");
   const points=values.filter(value=>Number.isFinite(value)&&value>0);
   if(points.length<2)return <span className="sc-trend-pending">—</span>;
   const low=Math.min(...points),high=Math.max(...points),spread=high-low||Math.abs(low)*.01||1;
   const path=points.map((value,i)=>`${i?"L":"M"}${(2+i/(points.length-1)*126).toFixed(2)},${(31-(value-low)/spread*26).toFixed(2)}`).join(" ");
-  return <svg className="sc-trend" viewBox="0 0 130 36" role="img" aria-label={label}>
+  return <svg className={`sc-trend is-${tone}`} viewBox="0 0 130 36" role="img" aria-label={label}>
     <defs><linearGradient id={`${id}-field`} x1="0" y1="0" x2="0" y2="1"><stop stopColor="currentColor" stopOpacity=".32"/><stop offset="1" stopColor="currentColor" stopOpacity="0"/></linearGradient><filter id={`${id}-light`} x="-15%" y="-50%" width="130%" height="200%"><feGaussianBlur stdDeviation="1.6"/></filter></defs>
     <path d={`${path}L128 36L2 36Z`} fill={`url(#${id}-field)`}/>
     <path d={path} fill="none" stroke="currentColor" strokeWidth="3.5" opacity=".65" filter={`url(#${id}-light)`}/>
     <path key={path} className="sc-trend-line" pathLength="1" d={path} fill="none" stroke="currentColor" strokeWidth="1.45" vectorEffect="non-scaling-stroke"/>
-    <circle cx="128" cy={31-(points[points.length-1]-low)/spread*26} r="1.6" fill="#f5e8ff"/>
+    <circle className="sc-trend-head" cx="128" cy={31-(points[points.length-1]-low)/spread*26} r="1.6" fill="#fff4f6"/>
   </svg>;
 }
 
@@ -45,8 +47,8 @@ export default function MarketScanner() {
   const [history,setHistory]=useState<Record<string,IndicatorPoint[]>>({});
   const [reducedMotion,setReducedMotion]=useState(()=>matchMedia("(prefers-reduced-motion: reduce)").matches);
   const gridRef=useRef<HTMLDivElement>(null),positions=useRef(new Map<string,{x:number;y:number}>());
-  const lensRef=useRef<HTMLDivElement>(null),pointerFrame=useRef(0);
-  const fieldRef=useRef<HTMLDivElement>(null);
+  const dust=useRef<ReturnType<typeof createGoldDust>|null>(null),lastPointer=useRef<{x:number;y:number}|null>(null);
+  const fieldRef=useRef<HTMLDivElement>(null),sectionRef=useRef<HTMLElement>(null);
   const quoteLedger=useRef(new Map<string,string>());
   const lastRefresh=useRef<{market:AtlasMarket;stamp:string|null;version:number;count:number}|null>(null);
   const lastLit=useRef(new Set<string>());
@@ -71,7 +73,13 @@ export default function MarketScanner() {
     }
     return()=>{live=false;};
   },[]);
-  useEffect(()=>()=>{cancelAnimationFrame(pointerFrame.current);},[]);
+  useEffect(()=>()=>{dust.current?.dispose();dust.current=null;},[]);
+  useEffect(()=>{
+    // Ambient neon runs only while the board is on screen.
+    const section=sectionRef.current;if(!section)return;
+    const observer=new IntersectionObserver(([entry])=>{section.dataset.live=entry.isIntersecting?"on":"off";});
+    observer.observe(section);return()=>observer.disconnect();
+  },[]);
   useEffect(()=>{
     const media=matchMedia("(prefers-reduced-motion: reduce)");
     const update=()=>setReducedMotion(media.matches);media.addEventListener("change",update);
@@ -135,30 +143,33 @@ export default function MarketScanner() {
     document.addEventListener("visibilitychange",stopHidden);
     quoteLedger.current=next;return()=>{document.removeEventListener("visibilitychange",stopHidden);effects.forEach(effect=>effect.cancel());};
   },[quoteKey,fx,reducedMotion]);
-  const moveLens=(event:ReactPointerEvent<HTMLDivElement>)=>{
+  // Gold dust pours from the mouse tip while it moves over the index and quote panels.
+  const pourDust=(event:ReactPointerEvent<HTMLDivElement>)=>{
     if(event.pointerType!=="mouse"||fx==="minimal"||reducedMotion)return;
-    const grid=event.currentTarget,rect=grid.getBoundingClientRect(),x=event.clientX-rect.left,y=event.clientY-rect.top;
-    const color=(event.target as HTMLElement).closest<HTMLButtonElement>(".sc-stock")?.style.getPropertyValue("--sc-color")||"#ba9fe8";
-    cancelAnimationFrame(pointerFrame.current);
-    pointerFrame.current=requestAnimationFrame(()=>{if(lensRef.current){lensRef.current.style.transform=`translate3d(${x-180}px,${y-120}px,0)`;lensRef.current.style.setProperty("--lens-color",color);grid.dataset.lens="on";}});
+    const previous=lastPointer.current,speed=previous?Math.hypot(event.clientX-previous.x,event.clientY-previous.y):0;
+    lastPointer.current={x:event.clientX,y:event.clientY};
+    const source=(dust.current??=createGoldDust());
+    if(!previous)source.shuffle();
+    source.pour(event.clientX,event.clientY,speed);
   };
-  const hideLens=()=>{cancelAnimationFrame(pointerFrame.current);if(gridRef.current)gridRef.current.dataset.lens="off";};
+  const endDust=()=>{lastPointer.current=null;};
   const switchMarket=(key:AtlasMarket)=>{setMarket(key);setSector(null);setSelected(null);setExpanded(false);positions.current.clear();};
   const toggleExpanded=()=>{
     if(expanded&&controlsRef.current&&controlsRef.current.getBoundingClientRect().top<pinnedScrollOffset())alignControls();
     setExpanded(value=>!value);
   };
   const filters:[ScannerOrder,string][]=[["cap",L("시총순","Size")],["return",L("등락순","Return")],["activity",L("거래대금순","Turnover")],["sector",L("업종별","Sector")]];
-  return <section className="sc-scanner" aria-labelledby="sc-title" data-market={market}>
-    <header className="sc-heading"><h1 id="sc-title">{L("시장 스캐너","Market scanner")}</h1><p>{L("최근 제공 시세 · 전일 대비","Latest supplied quotes · vs. previous close")}<span>{quoteTime(snapshot.generatedAt)}</span>{snapshot.delayed&&<b>{L("갱신 지연","Delayed")}</b>}</p></header>
-    <div className="sc-markets" role="group" aria-label={L("시장 선택","Select market")}>{MARKETS.map(config=>{
+  return <section ref={sectionRef} className="sc-scanner" aria-labelledby="sc-title" data-market={market} data-live="off">
+    <i className="sc-hud-corner is-tl" aria-hidden="true"/><i className="sc-hud-corner is-tr" aria-hidden="true"/><i className="sc-hud-corner is-bl" aria-hidden="true"/><i className="sc-hud-corner is-br" aria-hidden="true"/>
+    <header className="sc-heading"><h1 id="sc-title" key={market} data-text={L("시장 스캐너","Market scanner")}><i className="sc-live-dot" aria-hidden="true"/>{L("시장 스캐너","Market scanner")}<span className="sc-hud-tag" aria-hidden="true">SCAN//{market==="nasdaq100"?"US-NDX":market==="kospi"?"KR-KOSPI":"KR-KOSDAQ"}</span></h1><p>{L("최근 제공 시세 · 전일 대비","Latest supplied quotes · vs. previous close")}<span>{quoteTime(snapshot.generatedAt)}</span>{snapshot.delayed&&<b>{L("갱신 지연","Delayed")}</b>}</p></header>
+    <div className="sc-markets" role="group" aria-label={L("시장 선택","Select market")} onPointerMove={pourDust} onPointerLeave={endDust}>{MARKETS.map(config=>{
       const quote=quotes[config.key],points=config.key==="nasdaq100"?ndx?.points??[]:(history[config.key]??[]).map(point=>point.close);
       const description=config.key==="nasdaq100"?L("제공 추세. 시간 간격 미제공.","Supplied trend; time intervals unavailable."):L("최근 30거래일 종가","Last 30 daily closes");
-      return <button type="button" key={config.key} aria-pressed={market===config.key} onClick={()=>switchMarket(config.key)} title={`${description} · ${quoteTime(quote.at)}`}><span>{config.label}<small>{config.key==="nasdaq100"?"US":"KR"}</small></span><div><strong>{price(quote.price)}</strong><b className={`is-${toneOf(quote.change)}`}>{pct(quote.change)}</b></div><MiniTrend values={points} label={`${config.label} · ${description}`}/></button>;
+      return <button type="button" key={config.key} aria-pressed={market===config.key} onClick={()=>switchMarket(config.key)} title={`${description} · ${quoteTime(quote.at)}`}><span>{config.label}<small>{config.key==="nasdaq100"?"US":"KR"}</small></span><div><strong>{price(quote.price)}</strong><b className={`is-${toneOf(quote.change)}`}>{pct(quote.change)}</b></div><MiniTrend values={points} tone={toneOf(quote.change)} label={`${config.label} · ${description}`}/></button>;
     })}</div>
     <div className="sc-breadth"><div><span>{L("등락 분포","Breadth")}</span><b className="sc-up">↑ {model.up}</b><b className="sc-down">↓ {model.down}</b><small>{L("보합","Flat")} {model.flat}</small>{model.unknown>0&&<small>{L("미확인","Unknown")} {model.unknown}</small>}</div><div className="sc-breadth-track" role="img" aria-label={`${model.up} up, ${model.down} down, ${model.flat} flat, ${model.unknown} unknown`}>{[[model.up,"up"],[model.flat,"flat"],[model.down,"down"],[model.unknown,"unknown"]].map(([count,tone])=><i key={tone} className={`sc-${tone}`} style={{flex:Number(count)}}/>)}</div><Link to={config.to}>{L("전체 맵","Full map")} ↗</Link></div>
     <div ref={controlsRef} className="sc-controls"><div className="sc-count"><strong>{L("주요 종목","Leading stocks")}</strong><span>{visible.length}<small> / {model.stocks.length}</small></span></div><div role="group" aria-label={L("종목 정렬","Sort stocks")}>{filters.map(([key,label])=><button key={key} aria-pressed={order===key} onClick={()=>setOrder(key)}>{label}</button>)}</div><label className="sc-sector-filter"><span className="sc-sr-only">{L("업종 선택","Select sector")}</span><select aria-label={L("업종 선택","Select sector")} value={sector??""} onChange={event=>{setSector(event.target.value||null);setSelected(null);setExpanded(false);}}><option value="">{L("전체 업종","All sectors")}</option>{model.sectors.map(group=><option key={group.name} value={group.name}>{group.name} ({group.count})</option>)}</select></label></div>
-    <div ref={gridRef} className="sc-grid" style={{"--sc-columns":columns} as CSSProperties} role="group" aria-label={L("종목 시세","Stock quotes")} onPointerMove={moveLens} onPointerLeave={hideLens}>
+    <div ref={gridRef} className="sc-grid" style={{"--sc-columns":columns} as CSSProperties} role="group" aria-label={L("종목 시세","Stock quotes")} onPointerMove={pourDust} onPointerLeave={endDust}>
       {visible.map(item=>{
         const known=hasReturn(item),color=quoteColor(item),turnover=tradingValue(item);
         const meter=order==="activity"?turnover.value/model.maxTrade:item.marcap/model.maxCap;
@@ -167,8 +178,8 @@ export default function MarketScanner() {
         </button>;
       })}
       {!model.stocks.length&&<div className="sc-empty">{snapshot.settled?L("시장 데이터를 확인하고 있습니다.","Market data is unavailable."):L("시장 데이터를 불러오는 중입니다.","Loading market data.")}</div>}
-      <div ref={lensRef} className="sc-data-lens" aria-hidden="true"/>
       <div ref={fieldRef} className="sc-scan-field" aria-hidden="true"/>
+      <div className="sc-ambient-scan" aria-hidden="true"/>
     </div>
     <div className="sc-board-footer"><span>{order==="activity"?L("막대: 상대 거래대금 · * 종가×거래량 추정","Bar: relative turnover · * estimated close × volume"):market==="nasdaq100"?L("막대: 상대 지수 비중","Bar: relative index weight"):L("막대: 상대 시가총액","Bar: relative market cap")}</span>{model.stocks.length>limit&&<button className="sc-expand" onClick={toggleExpanded} aria-expanded={expanded}>{expanded?L("접기","Show less"):L(`${model.stocks.length}종목 모두 보기`, `Show all ${model.stocks.length}`)}<b>{expanded?"−":"+"}</b></button>}</div>
     {active&&<div className="sc-selected" style={{"--sc-color":quoteColor(active)} as CSSProperties}><div><i/><strong>{active.name}</strong><span>{active.code}</span><span>{active.sector||"—"}</span></div><div><strong>{price(active.close)}</strong><b className={`is-${toneOf(hasReturn(active)?active.change_pct:undefined)}`}>{hasReturn(active)?pct(active.change_pct):"—"}</b><Link to={`/stock/${encodeURIComponent(active.code)}`}>{L("상세","Details")} ↗</Link></div></div>}

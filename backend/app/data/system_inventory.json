@@ -80,7 +80,7 @@
     "/support/",
     "/type2"
   ],
-  "source_files": 739,
+  "source_files": 742,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -451,7 +451,15 @@
       "file": "editorial-refresh.yml",
       "cron": [
         "0 23 * * *",
-        "0 7 * * *"
+        "0 7 * * *",
+        "25 23 * * *",
+        "10 0 * * *",
+        "10 1 * * *",
+        "10 2 * * *",
+        "25 7 * * *",
+        "10 8 * * *",
+        "10 9 * * *",
+        "10 10 * * *"
       ],
       "endpoints": []
     },
