@@ -53,9 +53,10 @@ with sync_playwright() as p:
         page.locator('.sc-controls div[role=group] button').nth(1).click()
         page.wait_for_timeout(500)
         assert page.locator('.sc-controls div[role=group] button').nth(1).get_attribute('aria-pressed')=='true'
-        page.locator('.sc-stock').nth(2).click()
+        # Hover/focus picks the strip below; a click opens the stock's detail page.
+        page.locator('.sc-stock').nth(2).focus()
         selected=page.locator('.sc-stock').nth(2).get_attribute('data-code')
-        assert page.locator(f'.sc-stock[data-code="{selected}"]').get_attribute('aria-pressed')=='true'
+        assert page.locator(f'.sc-stock[data-code="{selected}"]').get_attribute('aria-current')=='true'
         assert page.locator('.sc-selected>div:first-child>strong').inner_text()==page.locator(f'.sc-stock[data-code="{selected}"] .sc-stock-name').inner_text()
         sector=page.locator('.sc-sector-filter option').nth(1).get_attribute('value')
         page.locator('.sc-sector-filter select').select_option(sector)
@@ -82,6 +83,9 @@ with sync_playwright() as p:
         page.locator('.sc-controls div[role=group] button').nth(1).click()
         assert page.locator('.sc-stock').count()>0
         page.wait_for_function('document.querySelector(".sc-grid").getAnimations({subtree:true}).filter(a=>a.playState==="running").length===0')
+        code=page.locator('.sc-stock').first.get_attribute('data-code')
+        page.locator('.sc-stock').first.click()
+        page.wait_for_function('c=>location.pathname==="/stock/"+encodeURIComponent(c)',arg=code)
         results.append({'width':width,'height':height,'dpr':dpr,'scannerHeight':scanner_height,'defaultStocks':default_count,'expandedStocks':full_count,'frames':frames,'maps':maps,'errors':errors})
         print(json.dumps(results[-1]),flush=True)
         context.close()

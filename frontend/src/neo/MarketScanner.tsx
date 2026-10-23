@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { api, type IndicatorPoint } from "../api/client";
-import { Link } from "../router";
+import { Link, navigate } from "../router";
 import { useLanguage } from "../i18n/LanguageContext";
 import { useMarketIndices } from "../useMarketIndices";
 import { useMarketTicker } from "../useMarketTicker";
@@ -173,7 +173,7 @@ export default function MarketScanner() {
       {visible.map(item=>{
         const known=hasReturn(item),color=quoteColor(item),turnover=tradingValue(item);
         const meter=order==="activity"?turnover.value/model.maxTrade:item.marcap/model.maxCap;
-        return <button className={`sc-stock${item.code===active?.code?" is-selected":""}`} key={item.code} data-code={item.code} aria-pressed={item.code===active?.code} onClick={()=>setSelected(item.code)} title={`${item.name} · ${item.sector||"—"} · ${price(item.close)} · ${known?pct(item.change_pct):L("등락 미확인","Return unavailable")}`} style={{"--sc-color":color,"--sc-strength":known?Math.min(Math.abs(item.change_pct)/8,.75):0} as CSSProperties}>
+        return <button className={`sc-stock${item.code===active?.code?" is-selected":""}`} key={item.code} data-code={item.code} aria-current={item.code===active?.code?"true":undefined} onClick={()=>navigate(`/stock/${encodeURIComponent(item.code)}`)} onPointerEnter={event=>{if(event.pointerType==="mouse")setSelected(item.code);}} onFocus={()=>setSelected(item.code)} title={`${L("상세 보기","Open details")} · ${item.name} · ${item.sector||"—"} · ${price(item.close)} · ${known?pct(item.change_pct):L("등락 미확인","Return unavailable")}`} style={{"--sc-color":color,"--sc-strength":known?Math.min(Math.abs(item.change_pct)/8,.75):0} as CSSProperties}>
           <span className="sc-stock-name">{market==="nasdaq100"?item.code:item.name}</span><b className="sc-stock-return">{known?pct(item.change_pct):"—"}</b><span className="sc-stock-price">{price(item.close)}</span><small>{order==="activity"?(turnover.value?money(turnover.value)+(turnover.estimated?"*":""):"—"):market==="nasdaq100"?`${item.marcap.toFixed(2)}%`:money(item.marcap)}</small><i className="sc-stock-meter" aria-hidden="true"><i style={{width:`${meter*100}%`}}/></i>
         </button>;
       })}
