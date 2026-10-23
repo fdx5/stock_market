@@ -16,7 +16,7 @@ router = APIRouter()
 POPULAR_WINDOW = timedelta(hours=24)
 # A visitor-facing ranking doesn't need to move on every single view, and this is a
 # GROUP BY over the whole retention window — one query per minute, shared by everyone.
-TTL_POPULAR_SECONDS = 60
+TTL_POPULAR_SECONDS = 600  # GROUP BY over 24h of searches on Turso; a 10-minute ranking is fresh enough
 
 
 @router.get("/search", response_model=list[StockSearchResult])

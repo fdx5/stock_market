@@ -36,6 +36,7 @@ from app.services import (
     prediction_store,
 )
 from app.services import trading_calendar as cal
+from app.services.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,8 @@ def get_status() -> dict:
     return {
         "running": running,
         "last_runs": last_runs,
-        "markets": prediction_store.latest_run_by_market(),
+        # Full-table GROUP BY on Turso; the admin panel polls every few seconds.
+        "markets": cache.get_or_set("prediction:latest_run_by_market", 60, prediction_store.latest_run_by_market),
         "regions": {region: list(markets) for region, markets in REGION_MARKETS.items()},
     }
 

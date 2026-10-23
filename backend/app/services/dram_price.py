@@ -15,6 +15,7 @@ import time
 from app.data.dram_price_fetcher import fetch_dram_spot_prices
 from app.services import dram_price_store as store
 from app.services import kakao_notify
+from app.services.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,8 @@ def get_status() -> dict:
     with _status_lock:
         running = _running
         last_run = dict(_last_run) if _last_run else None
-    snapshot = store.latest_snapshot()
+    # Cached: the admin panel polls this every few seconds.
+    snapshot = get_latest()
     return {
         "running": running,
         "last_run": last_run,
@@ -134,8 +136,9 @@ def run_batch(triggered_by: str = "system") -> dict:
 def get_latest() -> dict:
     """The most recently recorded day's items — what the dashboard's DRAM price panel
     renders. Always reads whatever the daily batch last stored; never scrapes inline,
-    so a stock-detail page view never pays for (or waits on) a live TrendForce fetch."""
-    return store.latest_snapshot()
+    so a stock-detail page view never pays for (or waits on) a live TrendForce fetch.
+    Cached for a few minutes: every semiconductor stock page asks, the data is daily."""
+    return cache.get_or_set("dram_price:latest_snapshot", 300, store.latest_snapshot)
 
 
 def get_history(item_name: str, limit_days: int = 90) -> list[dict]:
