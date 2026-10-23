@@ -74,7 +74,7 @@ import {dronePlaceId,type DronePlace} from './dronePlaces';
 import {moveFromBuildingView} from './droneTravel';
 import {loadDroneExplorePage} from './droneExploreLoader';
 import DeskBgm from "../desk2/DeskBgm";
-import { useDeskBgm, setDeskBgmOn, toggleDeskBgmPlay, warmDeskBgm } from "../desk2/deskBgmStore";
+import { useDeskBgm, startDroneBgm, toggleDeskBgmPlay, warmDeskBgm } from "../desk2/deskBgmStore";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice,sceneFrameStarted,sliceDeadline } from "./frameSlice";
 import { createFramePace } from "./framePace";
@@ -4143,8 +4143,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     droneShadow.current = { left: sc.left, right: sc.right, top: sc.top, bottom: sc.bottom, far: sc.far };
     sc.left = sc.bottom = -320; sc.right = sc.top = 320; sc.far = 2400; sc.updateProjectionMatrix();
     drone.start();
-    // (the music on with the flight, from this press's own gesture: a browser plays it only then)
-    if (!bgm.on) setDeskBgmOn(true); else if (!bgm.playing) toggleDeskBgmPlay();
+    // (the music on with the flight, from this press's own gesture: a browser plays it only then;
+    // a flight opens with its own track twice before the session order)
+    startDroneBgm();
     if(explorePlace&&!hop&&!resume){
       drone.flight.place(0,0,drone.world.groundAt(0,0),220,drone.flight.yaw);
       drone.flight.apply(st.camera);st.camera.updateMatrixWorld();

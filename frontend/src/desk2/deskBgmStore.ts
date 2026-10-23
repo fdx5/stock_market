@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { loadApi, YtPlayer } from "../youtubePlayer";
-import { BGM_TRACKS, BgmTrack, bgmSession } from "../bgmPlaylist";
+import { BGM_TRACKS, BgmTrack, DRONE_OPENING_ID, DRONE_OPENING_PLAYS, bgmSession } from "../bgmPlaylist";
 
 /* ============================================================================
    The market desk's background music (the masthead's NOW PLAYING ear).
@@ -118,8 +118,16 @@ function hostEl(): HTMLDivElement {
   return host;
 }
 
+// Plays of the drone's opening track still to come; 0 = the session order plays.
+let opening = 0;
+
 function select(step: number) {
-  bgmSession.advance(step);
+  if (opening) {
+    // Leaving the drone opening (a skip, an ending or a refusal) resumes the session
+    // where it was rather than skipping one of its tracks, unless that is the opening song.
+    opening = 0;
+    if (bgmSession.track.id === DRONE_OPENING_ID) bgmSession.advance(step);
+  } else bgmSession.advance(step);
   set({ track: bgmSession.track, position: bgmSession.position });
 }
 
@@ -185,7 +193,9 @@ function build() {
               window.clearTimeout(watchdog);
               set({ playing: false });
             } else if (event.data === YT_ENDED) {
-              if (state.on && wantsPlayback) next();
+              if (!state.on || !wantsPlayback) return;
+              if (opening > 1) { opening -= 1; load(); } // the opening track again
+              else next();
             }
           },
           // Embedding refused, removed, or region-locked: move on rather than
@@ -249,6 +259,25 @@ export function toggleDeskBgmPlay() {
     window.clearTimeout(watchdog);
     player?.pauseVideo();
   }
+}
+
+/** Music started by a drone flight: the opening track twice, then the session order.
+ * Music that is already playing is left alone. Call from the flight's own press. */
+export function startDroneBgm() {
+  if (state.on && state.playing) return;
+  const track = BGM_TRACKS.find((item) => item.id === DRONE_OPENING_ID);
+  if (track) {
+    opening = DRONE_OPENING_PLAYS;
+    set({ track });
+  }
+  if (!state.on) return setDeskBgmOn(true);
+  wantsPlayback = true;
+  set({ playing: true, blocked: false, loading: ready });
+  if (!ready) return;
+  armWatchdog();
+  if (loadedId !== state.track.id) load();
+  else player?.playVideo();
+  reconcilePlayback();
 }
 
 /** Advance in the session's fixed order, wrapping without reshuffling. */

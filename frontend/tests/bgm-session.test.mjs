@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 
-const ids = ['-lbbHQbZNKg','pF2tXC1pXNo','DUWRbl3eVi0','6WQjgHuUDWU','vP4jqXzphvc','uYjUI_zeeJk','TrNDRrDXQdo','8PqN8kexaT0','TMXlHacZSh0','7dn32JVyB6s','DzYp5uqixz0','DHNZeIy4kjs'];
+const ids = ['-lbbHQbZNKg','pF2tXC1pXNo','DUWRbl3eVi0','6WQjgHuUDWU','vP4jqXzphvc','uYjUI_zeeJk','TrNDRrDXQdo','8PqN8kexaT0','TMXlHacZSh0','7dn32JVyB6s','DzYp5uqixz0','DHNZeIy4kjs','twTHMnVM9L4'];
 const source = name => ts.transpileModule(readFileSync(new URL(`../src/${name}.ts`, import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
@@ -24,21 +24,21 @@ function lap(session) {
   return result;
 }
 
-test('catalogue contains exactly the twelve supplied uploads, including both Lost Within URLs', () => {
+test('catalogue contains exactly the thirteen supplied uploads, including both Lost Within URLs', () => {
   assert.deepEqual(Array.from(playlist.BGM_TRACKS, track => track.id), ids);
 });
 test('shuffle is made once per tab session; full laps, previous and reload retain order and cursor', () => {
   const storage = memoryStorage();
   const session = playlist.createBgmSession(storage, () => 0.25);
   const order = lap(session);
-  assert.equal(new Set(order).size, 12);
+  assert.equal(new Set(order).size, ids.length);
   assert.deepEqual(lap(session), order);
   session.advance(4);
   const restored = playlist.createBgmSession(storage, () => { throw new Error('must not reshuffle'); });
   assert.equal(restored.position, 5);
   assert.equal(restored.track.id, order[4]);
   restored.advance(-1); assert.equal(restored.track.id, order[3]);
-  restored.advance(-4); assert.equal(restored.track.id, order[11]);
+  restored.advance(-4); assert.equal(restored.track.id, order[ids.length - 1]);
 });
 test('independent sessions can have different orders and malformed/old state cannot restore retired music', () => {
   assert.notDeepEqual(lap(playlist.createBgmSession(undefined, () => 0)), lap(playlist.createBgmSession(undefined, () => 0.99)));
@@ -157,9 +157,9 @@ test('natural endings follow the saved order across laps, with reversible skips 
   const r = await playerRuntime();
   const order = lap(playlist.createBgmSession(r.storage));
   r.store.setDeskBgmOn(true); await r.flush(); r.ready(); r.emit(1);
-  for (let i=1;i<=24;i++) {
+  for (let i=1;i<=ids.length*2;i++) {
     r.emit(0);
-    assert.equal(r.store.getDeskBgmState().track.id, order[i % 12]);
+    assert.equal(r.store.getDeskBgmState().track.id, order[i % ids.length]);
     r.emit(1);
   }
   r.store.next(); r.store.prev(); assert.equal(r.store.getDeskBgmState().track.id, order[0]);
@@ -169,16 +169,16 @@ test('natural endings follow the saved order across laps, with reversible skips 
   assert.equal(reloaded.store.getDeskBgmState().on, false);
   assert.equal(r.frames.length, 1);
 });
-test('unavailable tracks are skipped in order; twelve failures stop without looping forever', async () => {
+test('unavailable tracks are skipped in order; a full lap of failures stops without looping forever', async () => {
   const r = await playerRuntime();
   const order = lap(playlist.createBgmSession(r.storage));
   r.store.setDeskBgmOn(true); await r.flush(); r.ready();
-  for(let i=0;i<12;i++) {
+  for(let i=0;i<ids.length;i++) {
     assert.equal(r.store.getDeskBgmState().track.id, order[i]); r.error();
   }
   assert.equal(r.store.getDeskBgmState().failed, true);
   assert.equal(r.store.getDeskBgmState().on, false);
-  assert.equal(r.calls.filter(([name])=>name==='load').length, 12);
+  assert.equal(r.calls.filter(([name])=>name==='load').length, ids.length);
 });
 
 test('leaving during API warm-up and stale end events cannot start music or advance the session', async () => {
@@ -197,4 +197,27 @@ test('background return resumes the same track; a deliberate pause remains pause
   r.document.visibilityState='hidden';r.events.get('visibilitychange')();
   r.document.visibilityState='visible';r.events.get('visibilitychange')();
   assert.equal(r.calls.length,count);
+});
+
+test('a drone-started session opens with the drone track twice, then resumes the saved order', async () => {
+  const r = await playerRuntime();
+  const order = lap(playlist.createBgmSession(r.storage));
+  r.store.startDroneBgm(); await r.flush(); r.ready(); r.emit(1);
+  assert.equal(r.store.getDeskBgmState().track.id, playlist.DRONE_OPENING_ID);
+  r.emit(0);
+  assert.equal(r.store.getDeskBgmState().track.id, playlist.DRONE_OPENING_ID);
+  assert.deepEqual(r.calls.at(-1), ['load', playlist.DRONE_OPENING_ID]);
+  r.emit(1); r.emit(0);
+  const resumed = order[0] === playlist.DRONE_OPENING_ID ? order[1] : order[0];
+  assert.equal(r.store.getDeskBgmState().track.id, resumed);
+  r.emit(1);
+  r.store.startDroneBgm();
+  assert.equal(r.store.getDeskBgmState().track.id, resumed, 'music already playing is not interrupted');
+});
+test('skipping during the drone opening returns to the session order', async () => {
+  const r = await playerRuntime();
+  const order = lap(playlist.createBgmSession(r.storage));
+  r.store.startDroneBgm(); await r.flush(); r.ready(); r.emit(1);
+  r.store.next();
+  assert.equal(r.store.getDeskBgmState().track.id, order[0] === playlist.DRONE_OPENING_ID ? order[1] : order[0]);
 });

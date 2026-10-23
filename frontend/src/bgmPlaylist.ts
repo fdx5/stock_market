@@ -23,7 +23,12 @@ export const BGM_TRACKS: readonly BgmTrack[] = [
   { id: "7dn32JVyB6s", title: "Map in Grey", channel: "TJ World", bpm: 68, energy: 0.38, bass: 0.35, bright: 0.5 },
   { id: "DzYp5uqixz0", title: "Embrace · Sappheiros", channel: "BreakingCopyright", bpm: 90, energy: 0.58, bass: 0.65, bright: 0.52 },
   { id: "DHNZeIy4kjs", title: "Lost Within · A Himitsu", channel: "Audio Library", bpm: 100, energy: 0.7, bass: 0.78, bright: 0.6 },
+  { id: "twTHMnVM9L4", title: "Inception · Angel Lover", channel: "Angel Lover", bpm: 90, energy: 0.6, bass: 0.62, bright: 0.55 },
 ];
+
+/** A drone flight that starts the music opens with this track, twice, then the session order resumes. */
+export const DRONE_OPENING_ID = "twTHMnVM9L4";
+export const DRONE_OPENING_PLAYS = 2;
 
 export const BGM_SESSION_KEY = "kospimap.bgm.session.v2";
 const CATALOGUE = BGM_TRACKS.map(track => track.id).join(",");
