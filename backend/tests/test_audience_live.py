@@ -47,7 +47,8 @@ def test_precise_coordinates_encrypted_and_current_only(store):
     assert result["sessions"][0]["source"] == "browser_location"
     assert result["sessions"][0]["latitude"] == position["latitude"]
     assert result["sessions"][0]["seen_at"] == 1050
-    assert live.overview(now=1200)["sessions"] == []
+    assert len(live.overview(now=1200)["sessions"]) == 1
+    assert live.overview(now=1050 + 86401)["sessions"] == []
     assert store.execute("SELECT COUNT(*) FROM audience_location_observations").fetchone()[0] == 2
     assert not any(s.lstrip().upper().startswith(("DELETE", "UPDATE", "DROP", "REPLACE", "TRUNCATE")) for s in statements)
 
@@ -61,6 +62,32 @@ def test_unknown_locations_remain_visible_and_ip_is_estimate(store):
     assert result["unlocated"] == result["located"] == 1
     point = next(x for x in result["sessions"] if x["source"] == "ip_estimate")
     assert point["accuracy_m"] == 50000
+
+
+def test_24_hour_window_and_historical_regions_do_not_invent_presence(store):
+    obs = observation()
+    obs["_map_location"] = {"latitude": 37.3, "longitude": 127.0, "accuracy_m": 50000}
+    assert live.record(obs, now=1000)
+    assert len(live.overview(now=1000 + 23 * 3600)["sessions"]) == 1
+    assert live.overview(now=1000 + 24 * 3600 + 1)["sessions"] == []
+    obs.update(day="2026-10-23", network="test-hmac", location_source="dbip_city_lite")
+    assert audience.record(obs)
+    # A historical city centre is an aggregate, not an active session or a
+    # precise original device position. Stored observations stay untouched.
+    from datetime import datetime, timezone
+    result = audience.overview(90, datetime(2026,10,23,tzinfo=timezone.utc))
+    assert result["browsers"] == 1
+
+
+@pytest.mark.parametrize("agent", ["Googlebot", "Mozilla/5.0 HeadlessChrome", "Mozilla/5.0 selenium", "GoogleOther", "AmazonAdBot"])
+def test_known_crawlers_cannot_enter_audience_or_map(store, agent):
+    from app.routers import activity
+    app = FastAPI(); app.include_router(activity.router)
+    client = TestClient(app)
+    body = {"browser_id": str(uuid4()), "session_id": str(uuid4())}
+    assert client.post("/audience-presence", json=body, headers={"user-agent": agent}).json() == {"accepted": False}
+    assert store.execute("SELECT COUNT(*) FROM audience_observations").fetchone()[0] == 0
+    assert store.execute("SELECT COUNT(*) FROM audience_location_observations").fetchone()[0] == 0
 
 
 def test_precise_permission_expires_without_changing_saved_history(store):

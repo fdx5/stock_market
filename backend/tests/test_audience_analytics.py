@@ -61,6 +61,11 @@ def test_spoofed_proxy_headers_are_not_trusted(store):
     assert observation["location_source"] == "unknown"
 
 
+def test_cloudflare_proxy_itself_is_not_counted_as_visitor_location(store):
+    observation = audience.context(request(x_audience_edge_key="test-edge-key-" * 4, cf_connecting_ip="104.16.0.1", cf_ipcountry="US"), str(uuid4()), str(uuid4()), False, NOW)
+    assert observation["network"] == observation["country"] == ""
+
+
 @pytest.mark.parametrize("headers", [{"dnt": "1"}, {"sec_gpc": "1"}])
 def test_privacy_signals(store, headers):
     assert audience.context(edge(**headers), str(uuid4()), str(uuid4()), False, NOW) is None

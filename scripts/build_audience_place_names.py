@@ -13,7 +13,7 @@ def normalize(value):
     return "".join(c for c in unicodedata.normalize("NFKD", value).lower() if c.isascii() and c.isalnum())
 
 
-regions, cities, ranks = {}, {}, {}
+regions, cities, ranks, centres = {}, {}, {}, {}
 for name, member in [("cities15000", "cities15000.txt"), ("KR", "KR.txt")]:
     response = requests.get(f"https://download.geonames.org/export/dump/{name}.zip", timeout=60)
     response.raise_for_status()
@@ -45,9 +45,13 @@ for name, member in [("cities15000", "cities15000.txt"), ("KR", "KR.txt")]:
                 if rank >= ranks.get((id(target), key), -1):
                     target[key] = preferred
                     ranks[(id(target), key)] = rank
+                    if target is cities:
+                        centres[key] = [float(row[4]), float(row[5])]
 output = {"source": "GeoNames cities15000 and KR, 2026-10-23; CC BY 4.0, https://www.geonames.org/",
           "regions": regions, "cities": cities}
 path = Path(__file__).resolve().parents[1] / "frontend/src/data/audiencePlaces.ko.json"
 path.parent.mkdir(exist_ok=True)
 path.write_text(json.dumps(output, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 print("Korean display aliases:", len(regions), "regions,", len(cities), "cities")
+centre_path = Path(__file__).resolve().parents[1] / "backend/app/data/audience_place_centres.json"
+centre_path.write_text(json.dumps({"source": output["source"], "centres": centres}, separators=(",", ":")), encoding="utf-8")

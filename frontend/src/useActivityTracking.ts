@@ -154,6 +154,7 @@ function isAdminPath(path: string): boolean {
 }
 
 function sendEvent(body: Record<string, unknown>) {
+  if (navigator.webdriver === true) return;
   const payload = { session_id: getSessionId(), occurred_at: Date.now() / 1000, ...body };
   const send = (info: ReturnType<typeof deviceInfo>) => fetch(EVENT_ENDPOINT, {
     method: "POST",

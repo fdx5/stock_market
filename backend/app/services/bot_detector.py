@@ -55,7 +55,8 @@ _BOT_TOKENS = (
     "uptimerobot", "pingdom", "statuscake", "site24x7", "newrelicpinger",
     "curl/", "wget/", "python-requests", "python-urllib", "httpx/", "aiohttp",
     "go-http-client", "java/", "okhttp", "axios/", "node-fetch", "got (",
-    "headlesschrome", "phantomjs", "scrapy", "puppeteer", "playwright",
+    "headlesschrome", "headlessshell", "phantomjs", "scrapy", "puppeteer", "playwright", "selenium", "cypress/",
+    "googleother", "google-safety", "amazonadbot", "facebookcatalog",
     "lighthouse", "chrome-lighthouse", "pagespeed", "gtmetrix",
     "spider", "crawler", "crawling",
 )

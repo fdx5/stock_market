@@ -10,6 +10,9 @@ import os
 import secrets
 import threading
 import time
+import unicodedata
+from functools import lru_cache
+from pathlib import Path
 from uuid import uuid4
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -21,7 +24,7 @@ _gate = libsql_gate.Gate("audience_live", lock_timeout=1.5)
 _recent = {}
 _recent_lock = threading.Lock()
 _counts = {"received": 0, "stored": 0, "failed": 0}
-ONLINE_SECONDS = 120
+ONLINE_SECONDS = 24 * 60 * 60
 PRECISE_SECONDS = 900
 
 
@@ -138,3 +141,25 @@ def overview(now=None):
         result["sessions"].append(item)
         result["located" if "latitude" in payload else "unlocated"] += 1
     return result
+
+
+@lru_cache(maxsize=1)
+def _place_centres():
+    return json.loads((Path(__file__).resolve().parents[1] / "data/audience_place_centres.json").read_text(encoding="utf-8"))["centres"]
+
+
+def region_history(days=30):
+    """Display old regional aggregates at public city centres; no invented visits."""
+    data = audience.overview(days)
+    items = []
+    for index, row in enumerate(data["regions"]):
+        normalized = "".join(c for c in unicodedata.normalize("NFKD", row["city"]).lower() if c.isascii() and c.isalnum())
+        point = _place_centres().get(row["country"] + "|" + normalized)
+        item = {"id": f"region-{index}", "source": "historical_region", "seen_at": 0, "captured_at": 0,
+                "country": row["country"], "region": row["region"], "city": row["city"], "browser_days": row["browser_days"]}
+        if point:
+            item.update(latitude=point[0], longitude=point[1], accuracy_m=50000)
+        items.append(item)
+    return {"enabled": data["enabled"], "updated_at": time.time(), "sessions": items,
+            "located": sum("latitude" in item for item in items), "unlocated": sum("latitude" not in item for item in items),
+            "diagnostics": {"received": 0, "stored": 0, "failed": 0}}

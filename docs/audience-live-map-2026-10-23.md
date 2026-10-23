@@ -16,7 +16,7 @@ map and Korean display labels. Existing audience records remain unchanged.
   make existing encrypted history unreadable.
 - Active public pages send a presence observation approximately every 30 seconds.
   Admin pages, bots, DNT/GPC and unavailable browser storage are excluded. The
-  live map reads the latest observations within 120 seconds; it does not delete
+  live map reads the latest observations within 24 hours; it does not delete
   older history. At most 500 active sessions are returned per map response.
 - IP markers represent estimated city centres with a conservative uncertainty
   circle of at least 25 km, rather than actual device positions.
@@ -57,7 +57,16 @@ browser caching and normal referrers. It does not prefetch or bulk-download maps
 Tiles are requested by the administrator's browser, not by visitors sharing their
 positions. Map tiles depend on network availability.
 
-Validation: 30 isolated backend tests; TypeScript and production build; synthetic
+The operator requested a 24-hour map window. The UI explicitly describes recent
+access history, not the number of people currently online. A second view shows
+existing regional aggregates at public GeoNames city centres and never invents
+individual historical timestamps or device coordinates. Known crawlers and
+WebDriver browsers are excluded on ingestion. Cloudflare proxy network addresses
+are rejected as visitor addresses; geography is never used to identify bots.
+Undisclosed automation that impersonates an ordinary browser cannot be reliably
+identified from these signals alone. Existing records are preserved.
+
+Validation: 37 isolated backend tests; TypeScript and production build; synthetic
 admin map at 1440/1024/390/320 widths; precise/IP/unknown markers, focus/zoom, Korean
 labels, no horizontal overflow; separate real-tile display inspection. Tests use
 only new temporary databases and intercepted APIs, never existing DB files.

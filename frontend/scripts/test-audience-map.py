@@ -31,7 +31,7 @@ with sync_playwright() as p:
             return route.fulfill(json={"enabled": True, "edge_configured": True, "days":30,"start_date":"2026-09-24","end_date":"2026-10-23",
                 "available_from":"2026-10-23","browsers":2,"sessions":3,"repeat_browsers":0,"regular_browsers":0,"network_days":2,
                 "located_browser_days":2,"browser_days":2,"regions":[{"country":"KR","region":"Gyeonggi-do","city":"Suwon","source":"dbip_city_lite","browser_days":2}]})
-        if url.path.endswith("/traffic/audience/live"):
+        if url.path.endswith("/traffic/audience/live") or url.path.endswith("/traffic/audience/regions"):
             return route.fulfill(json={"enabled":True,"updated_at":NOW,"located":2,"unlocated":1,"diagnostics":{"received":3,"stored":3,"failed":0},
                 "sessions":[{"id":"precise123456","source":"browser_location","seen_at":NOW,"captured_at":NOW,"country":"KR","region":"Gyeonggi-do","city":"Suwon","latitude":37.264123,"longitude":127.029456,"accuracy_m":12},
                     {"id":"estimate123456","source":"ip_estimate","seen_at":NOW,"captured_at":NOW,"country":"US","region":"California","city":"San Francisco","latitude":37.77,"longitude":-122.41,"accuracy_m":50000},
@@ -64,7 +64,12 @@ with sync_playwright() as p:
             page.wait_for_function("!!document.fullscreenElement")
             page.get_by_role("button",name="지도 크게 보기").click()
             page.wait_for_function("!document.fullscreenElement")
-    page.add_init_script("window.__positionRequests=0;navigator.geolocation.getCurrentPosition=(ok)=>{window.__positionRequests++;ok({coords:{latitude:37.264123,longitude:127.029456,accuracy:12}});};")
+            page.get_by_role("button",name="선택 기간 방문 지역",exact=True).click()
+            expect(page.locator(".aa-live h3")).to_contain_text("방문 지역 지도")
+            expect(page.locator(".aa-live-list>button")).to_have_count(3)
+            page.get_by_role("button",name="최근 24시간 접속",exact=True).click()
+            expect(page.locator(".aa-live h3")).to_contain_text("24시간")
+    page.add_init_script("Object.defineProperty(navigator,'webdriver',{get:()=>false});window.__positionRequests=0;navigator.geolocation.getCurrentPosition=(ok)=>{window.__positionRequests++;ok({coords:{latitude:37.264123,longitude:127.029456,accuracy:12}});};")
     page.goto(BASE+"/global/treasuries/10")
     expect(page.locator(".audience-privacy")).to_be_visible()
     assert page.evaluate("window.__positionRequests") == 0

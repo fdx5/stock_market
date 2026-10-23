@@ -18,6 +18,7 @@ export function loadAudienceConfig(): Promise<AudienceConfig> {
 
 export function audienceBrowserId(): string | null {
   if (!config?.enabled) return null;
+  if (navigator.webdriver === true) return null;
   if (navigator.doNotTrack === "1" || (navigator as Navigator & { globalPrivacyControl?: boolean }).globalPrivacyControl) return null;
   try {
     const stored = localStorage.getItem(KEY);

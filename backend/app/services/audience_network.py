@@ -20,6 +20,10 @@ _reader = None
 _lock = threading.Lock()
 
 
+def is_cloudflare_proxy(ip):
+    return any(ip.version == net.version and ip in net for net in CF_NETWORKS)
+
+
 def render_proxy_trusted(request) -> bool:
     if os.environ.get("RENDER", "").lower() != "true":
         return False
@@ -33,7 +37,7 @@ def render_proxy_trusted(request) -> bool:
             return False
         if not ip.is_global:
             continue
-        return any(ip.version == net.version and ip in net for net in CF_NETWORKS)
+        return is_cloudflare_proxy(ip)
     return False
 
 

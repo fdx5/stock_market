@@ -21,6 +21,7 @@ KST = timezone(timedelta(hours=9))
 _gate = libsql_gate.Gate("audience_analytics", lock_timeout=0.25)
 _conn = None
 _schema_ready = False
+_ip_source_counts = {"trusted_client_ip": 0, "proxy_ip_rejected": 0, "untrusted_proxy": 0}
 
 
 def _settings():
@@ -102,8 +103,11 @@ def context(request, browser_id: str | None, session_id: str, is_bot: bool,
     if trusted:
         try:
             ip = ipaddress.ip_address(request.headers.get("cf-connecting-ip", ""))
-            if ip.is_global:
+            if ip.is_global and not audience_network.is_cloudflare_proxy(ip):
                 network = _digest(f"network:{day}", ip.compressed)
+                _ip_source_counts["trusted_client_ip"] += 1
+            elif ip.is_global:
+                _ip_source_counts["proxy_ip_rejected"] += 1
         except ValueError:
             pass
         geo = audience_network.lookup(ip.compressed) if network else {}
@@ -115,6 +119,8 @@ def context(request, browser_id: str | None, session_id: str, is_bot: bool,
             if secret_trusted and not geo:
                 region = _text(request.headers.get("cf-region"))
                 city = _text(request.headers.get("cf-ipcity"))
+    if not trusted:
+        _ip_source_counts["untrusted_proxy"] += 1
     observation = {"day": day, "browser": _digest("browser", browser_id),
             "session": _digest("session", session_id), "network": network,
             "country": country, "region": region, "city": city,
