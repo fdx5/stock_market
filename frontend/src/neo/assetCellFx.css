@@ -1,0 +1,22 @@
+/* "Prices in between" cell animations (AssetCellFx). Side art sits in the blank space
+   right of the figures; liquid art fills the cell beneath the text. */
+.ng-asset-belt article.ng-asset-cell{position:relative;overflow:hidden;isolation:isolate}
+.ng-asset-belt article.ng-asset-cell>:not(canvas){position:relative;z-index:1}
+.ng-asset-fx{position:absolute;pointer-events:none;z-index:0}
+.ng-asset-fx--side{right:6px;top:50%;width:clamp(44px,31%,74px);height:min(74%,70px);transform:translateY(-50%);-webkit-mask:radial-gradient(farthest-side,#000 72%,transparent);mask:radial-gradient(farthest-side,#000 72%,transparent)}
+/* The note strap and the necklace need the cell's full height. */
+.ng-asset-cell--usd-krw .ng-asset-fx--side,.ng-asset-cell--silver .ng-asset-fx--side{right:2px;width:clamp(50px,36%,84px);height:94%;-webkit-mask:none;mask:none}
+/* The $100 strap is drawn 35% larger and may run under the figures (text stays on top). */
+.ng-asset-cell--usd-krw .ng-asset-fx--side{right:0;width:clamp(64px,50%,118px);height:100%}
+.ng-asset-fx--fill{inset:0;width:100%;height:100%}
+/* Liquid cells: every line of text rides on a chip, so it reads over any level of the pool. */
+.ng-asset-belt article.ng-asset-cell:is(.ng-asset-cell--wti,.ng-asset-cell--gold)>:not(canvas){justify-self:start;padding:1px 6px;border-radius:4px;text-shadow:none;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.ng-asset-belt article.ng-asset-cell--wti>:not(canvas){background:#fffdf7eb;box-shadow:0 1px 4px #0000002e}
+.ng-asset-belt article.ng-asset-cell--wti>span{color:#2c2417}
+.ng-asset-belt article.ng-asset-cell--wti>span>small{color:#5d5240}
+.ng-asset-belt article.ng-asset-cell--wti>strong{color:#100c06}
+.ng-asset-belt article.ng-asset-cell--wti>small{color:#3e3628}
+.ng-asset-belt article.ng-asset-cell--wti>b.is-up{color:#c8192f}.ng-asset-belt article.ng-asset-cell--wti>b.is-down{color:#1459b8}
+.ng-asset-belt article.ng-asset-cell--gold>:not(canvas){background:#160c03c4;box-shadow:0 1px 4px #0000004d}
+/* Two-column phone grid: keep the strap right of the rate instead of under it. */
+@media(max-width:599px){.ng-asset-cell--usd-krw .ng-asset-fx--side{width:40%;height:62%;top:58%}}
