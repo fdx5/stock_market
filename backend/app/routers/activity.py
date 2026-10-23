@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Request, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Literal
 
-from app.services import activity_log, audience_analytics, audience_location, bot_detector
+from app.services import activity_log, audience_analytics, audience_location, audience_live, bot_detector
 from app.utils import SESSION_ID_PATTERN
 
 router = APIRouter()
@@ -36,7 +36,8 @@ MAX_DWELL_VALUE = 3600.0
 @router.get("/audience-config")
 def audience_config(response: Response):
     response.headers["Cache-Control"] = "no-store"
-    return {"enabled": audience_analytics.ready(), "location_enabled": audience_analytics.ready() and audience_location.enabled()}
+    return {"enabled": audience_analytics.ready(),
+            "location_enabled": audience_live.ready(), "presence_enabled": audience_live.ready()}
 
 
 class LocationObservation(BaseModel):
@@ -52,9 +53,28 @@ class LocationObservation(BaseModel):
 def audience_location_observation(payload: LocationObservation, request: Request):
     observation = audience_analytics.context(request, payload.browser_id, payload.session_id,
                                             bot_detector.is_bot(request.headers.get("user-agent")))
-    accepted = bool(observation and audience_location.resolve(
-        observation, payload.latitude, payload.longitude, payload.accuracy_m))
+    accepted = bool(observation and audience_live.record(observation, {
+        "latitude": payload.latitude, "longitude": payload.longitude, "accuracy_m": payload.accuracy_m}))
+    if accepted and audience_location.enabled():
+        audience_location.resolve(observation, payload.latitude, payload.longitude, payload.accuracy_m)
     return {"accepted": accepted}
+
+
+class PresenceObservation(BaseModel):
+    browser_id: str = Field(pattern=SESSION_ID_PATTERN)
+    session_id: str = Field(pattern=SESSION_ID_PATTERN)
+
+
+@router.post("/audience-presence")
+def audience_presence(payload: PresenceObservation, request: Request):
+    observation = audience_analytics.context(request, payload.browser_id, payload.session_id,
+                                            bot_detector.is_bot(request.headers.get("user-agent")))
+    if not observation:
+        return {"accepted": False}
+    stored = audience_analytics.record(observation)
+    if stored:
+        audience_live.record(observation)
+    return {"accepted": stored}
 
 
 class DeviceInfo(BaseModel):

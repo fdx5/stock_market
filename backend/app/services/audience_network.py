@@ -55,7 +55,12 @@ def lookup(ip: str) -> dict:
         subdivisions = result.get("subdivisions", [])
         region = subdivisions[0].get("names", {}) if subdivisions else {}
         city = result.get("city", {}).get("names", {})
+        location = result.get("location", {})
         return {"country": country, "region": region.get("ko") or region.get("en") or "",
-                "city": city.get("ko") or city.get("en") or ""}
+                "city": city.get("ko") or city.get("en") or "",
+                "latitude": location.get("latitude"), "longitude": location.get("longitude"),
+                # City Lite commonly supplies a city centre with no accuracy
+                # radius. Never present it as a device's precise position.
+                "accuracy_m": max(25000, float(location.get("accuracy_radius", 50)) * 1000)}
     except Exception:
         return {}

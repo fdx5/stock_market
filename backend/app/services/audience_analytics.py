@@ -94,6 +94,7 @@ def context(request, browser_id: str | None, session_id: str, is_bot: bool,
         return None
     day = (now or datetime.now(timezone.utc)).astimezone(KST).date().isoformat()
     country = region = city = network = ""
+    geo = {}
     edge_key = os.environ.get("AUDIENCE_EDGE_SECRET", "")
     supplied = request.headers.get("x-audience-edge-key", "")
     secret_trusted = len(edge_key) >= 32 and hmac.compare_digest(edge_key.encode(), supplied.encode())
@@ -114,10 +115,13 @@ def context(request, browser_id: str | None, session_id: str, is_bot: bool,
             if secret_trusted and not geo:
                 region = _text(request.headers.get("cf-region"))
                 city = _text(request.headers.get("cf-ipcity"))
-    return {"day": day, "browser": _digest("browser", browser_id),
+    observation = {"day": day, "browser": _digest("browser", browser_id),
             "session": _digest("session", session_id), "network": network,
             "country": country, "region": region, "city": city,
             "location_source": ("dbip_city_lite" if country and (region or city) and geo else "cloudflare_ip") if country else "unknown"}
+    if geo.get("latitude") is not None and geo.get("longitude") is not None:
+        observation["_map_location"] = {k: geo[k] for k in ("latitude", "longitude", "accuracy_m")}
+    return observation
 
 
 def _connection():

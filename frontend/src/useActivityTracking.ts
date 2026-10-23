@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getSessionId } from "./session";
 import { audienceBrowserId, loadAudienceConfig } from "./audienceIdentity";
+import { startVisibilityAwareInterval } from "./pollVisibility";
 import { deviceInfo, resolveDeviceInfo } from "./deviceInfo";
 import { MARKET_ASSETS } from "./marketAssets";
 
@@ -419,6 +420,27 @@ const SELF_REPORTING = "[data-track='self']";
 
 export function useActivityTracking(path: string): void {
   const lastClickRef = useRef<{ key: string; ts: number } | null>(null);
+
+  useEffect(() => {
+    if (isAdminPath(path)) return;
+    let gone = false, pending = false;
+    const presence = async () => {
+      if (gone || pending || document.visibilityState !== "visible") return;
+      pending = true;
+      try {
+        const config = await loadAudienceConfig();
+        const browser = audienceBrowserId();
+        if (!gone && config.enabled && config.presence_enabled && browser) {
+          await fetch("/api/activity/audience-presence", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ browser_id: browser, session_id: getSessionId() }), signal: AbortSignal.timeout(8000) });
+        }
+      } catch { /* Analytics must never interrupt the page. */ }
+      finally { pending = false; }
+    };
+    void presence();
+    const stop = startVisibilityAwareInterval(() => void presence(), 30_000);
+    return () => { gone = true; stop(); };
+  }, [path]);
 
   useEffect(() => {
     if (isAdminPath(path)) return;

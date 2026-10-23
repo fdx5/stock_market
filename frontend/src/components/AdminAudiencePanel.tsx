@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { AdminAuthError, authedGet } from "../adminApi";
 import { navigate } from "../router";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import "./adminAudience.css";
+import { audienceRegionLabel } from "../audiencePlaceNames";
+const AdminAudienceMap = lazy(() => import("./AdminAudienceMap"));
 
 type Audience = {
   enabled: boolean; edge_configured: boolean; days: number; start_date: string; end_date: string;
@@ -11,10 +13,6 @@ type Audience = {
   regions: Array<{ country: string; region: string; city: string; source: string; browser_days: number }>;
 };
 const nf = new Intl.NumberFormat("ko-KR");
-const countries = new Intl.DisplayNames(["ko"], { type: "region" });
-function regionName(row: Audience["regions"][number]) {
-  return row.country ? [countries.of(row.country) || row.country, row.region, row.city].filter(Boolean).join(" · ") : "지역 미확인";
-}
 
 export default function AdminAudiencePanel() {
   const [days, setDays] = useState(30);
@@ -36,7 +34,7 @@ export default function AdminAudiencePanel() {
       } finally { pending = false; }
     };
     void load();
-    const stop = startVisibilityAwareInterval(() => void load(), 60_000);
+    const stop = startVisibilityAwareInterval(() => void load(), 30_000);
     return () => { cancelled = true; stop(); };
   }, [days, reload]);
   const data = result?.days === days ? result : null;
@@ -52,6 +50,7 @@ export default function AdminAudiencePanel() {
     {!data && !error && <p role="status">방문 통계를 불러오는 중…</p>}
     {data && !data.enabled && <p className="aa-notice" role="status">수집 준비 중입니다. 서버의 전용 통계 저장소와 가명화 키를 설정한 뒤부터 통계가 쌓입니다.</p>}
     {data?.enabled && <>
+      <Suspense fallback={<p>접속 지도 불러오는 중…</p>}><AdminAudienceMap /></Suspense>
       <div className="aa-metrics">{[
         ["방문 브라우저", data.browsers, "선택 기간 중복 제외"],
         ["재방문 브라우저", data.repeat_browsers, "서로 다른 2일 이상 방문"],
@@ -62,10 +61,11 @@ export default function AdminAudiencePanel() {
       {!data.edge_configured && <p className="aa-notice">접속망·지역 확인을 위한 신뢰 프록시 연결이 설정되지 않았습니다. 브라우저 집계만 진행하며 IP·지역은 미확인으로 처리합니다.</p>}
       <div className="aa-table-wrap"><table className="aa-table"><caption>추정 접속 지역 · 일별 브라우저 수 합계 상위 100개</caption>
         <thead><tr><th scope="col">지역</th><th scope="col">확인 방식</th><th scope="col">방문일 합계</th></tr></thead>
-        <tbody>{data.regions.map((r, i) => <tr key={i}><td>{regionName(r)}</td><td>{r.source === "browser_location" ? "허용한 브라우저 위치" : ["cloudflare_ip", "dbip_city_lite"].includes(r.source) ? "IP 기반 추정" : "미확인"}</td><td>{nf.format(r.browser_days)}</td></tr>)}</tbody>
+        <tbody>{data.regions.map((r, i) => <tr key={i}><td>{audienceRegionLabel(r)}</td><td>{r.source === "browser_location" ? "허용한 브라우저 위치" : ["cloudflare_ip", "dbip_city_lite"].includes(r.source) ? "IP 기반 추정" : "미확인"}</td><td>{nf.format(r.browser_days)}</td></tr>)}</tbody>
       </table>{!data.regions.length && <p>새 통계 수집 이후의 방문 기록이 없습니다.</p>}</div>
       <p className="aa-note">IP 지역은 실제 위치와 다를 수 있으며 통신사망·VPN의 영향을 받습니다. 같은 브라우저가 하루에 여러 지역을 이용하면 각 지역에 집계됩니다. 원문 IP는 새 통계에 저장하지 않습니다.</p>
       <p className="aa-note">IP 지역 자료: <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a> · City Lite, CC BY 4.0</p>
+      <p className="aa-note">한글 지명 자료: <a href="https://www.geonames.org" target="_blank" rel="noreferrer">GeoNames</a> · CC BY 4.0 · 한글 이름이 확인되지 않은 지명은 원문을 표시합니다.</p>
     </>}
   </section>;
 }

@@ -27,10 +27,10 @@ export default function AudiencePrivacy() {
       try {
         const response = await fetch("/api/activity/audience-location", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ browser_id: browser, session_id: getSessionId(), consent: true,
-            latitude: Math.round(position.coords.latitude * 1000) / 1000, longitude: Math.round(position.coords.longitude * 1000) / 1000,
+            latitude: position.coords.latitude, longitude: position.coords.longitude,
             accuracy_m: Math.max(1, position.coords.accuracy) }), signal: AbortSignal.timeout(10000) });
         const result = response.ok ? await response.json() as { accepted: boolean } : null;
-        setStatus(result?.accepted ? (en ? "Thank you. Your region was included in the statistics." : "지역 통계에 반영했습니다. 참여해 주셔서 감사합니다.")
+        setStatus(result?.accepted ? (en ? "Your shared position is available on the administrator's online map for up to 15 minutes while this session is active." : "공유한 위치를 관리자 접속 지도에 반영했습니다. 접속 중인 동안 최대 15분간 표시합니다.")
           : (en ? "Your region could not be confirmed. Try again later." : "지역을 확인하지 못했습니다. 잠시 후 다시 시도할 수 있습니다."));
       } catch { setStatus(en ? "Your region could not be confirmed." : "지역을 확인하지 못했습니다."); }
       finally { setBusy(false); }
@@ -43,9 +43,9 @@ export default function AudiencePrivacy() {
       : "재방문과 대략적인 접속 지역을 파악하기 위해 무작위 브라우저 ID와 가명화한 IP 값을 사용합니다. 새 통계에 원문 IP는 저장하지 않으며, DNT·GPC 설정 시 추가 방문자 통계 수집을 중단합니다."}</p>
     <p><a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a> · City Lite · CC BY 4.0</p>
     {locationEnabled && <>
-      <p>{en ? "Optional: press the button and allow browser location to improve city/region statistics. Your rounded position is sent to our server and its regional lookup service. Only the country and region/city are stored; coordinates and street addresses are not stored in these statistics."
-        : "선택 참여: 아래 버튼을 누르고 브라우저 위치 권한을 허용하면 지역 통계의 정확도를 높일 수 있습니다. 약 100m 단위로 반올림한 좌표를 서버와 지역 조회 서비스에 전달하며, 통계에는 국가·시도·도시만 저장합니다. 좌표와 상세 주소는 통계에 저장하지 않습니다."}</p>
-      <button type="button" onClick={shareLocation} disabled={busy}>{busy ? (en ? "Checking…" : "확인 중…") : (en ? "Contribute my region" : "정확한 지역 통계에 참여하기")}</button>
+      <p>{en ? "Optional: share your current position once with the site administrator. The server stores the coordinates and browser-reported uncertainty encrypted, separately from regional totals. The administrator can zoom to this shared position. It is shown for up to 15 minutes while your session is active; encrypted history remains stored. Location is requested only when you press this button and allow your browser's permission. You can use the site without sharing."
+        : "선택 참여: 현재 위치를 사이트 관리자에게 한 번 공유합니다. 서버는 좌표와 브라우저가 알려 준 오차 범위를 암호화하여 지역 합계와 별도로 보관하며, 관리자는 지도에서 공유 위치를 확대할 수 있습니다. 접속 중 최대 15분 동안 지도에 표시하고 암호화된 이력은 보관합니다. 아래 버튼을 누르고 브라우저 위치 권한을 허용한 경우에만 요청합니다. 공유하지 않아도 사이트를 이용할 수 있습니다."}</p>
+      <button type="button" onClick={shareLocation} disabled={busy}>{busy ? (en ? "Checking…" : "확인 중…") : (en ? "Share my position once with the administrator" : "관리자에게 현재 위치 한 번 공유하기")}</button>
     </>}
     {status && <p role="status">{status}</p>}
   </details>;

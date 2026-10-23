@@ -167,7 +167,7 @@ def test_opt_in_geocoder_does_not_store_coordinates_or_addresses(store, monkeypa
 def test_location_requires_consent_and_obeys_privacy_signals(store, monkeypatch):
     from app.routers import activity
     calls = []
-    monkeypatch.setattr(activity.audience_location, "resolve", lambda *args: calls.append(args) or True)
+    monkeypatch.setattr(activity.audience_live, "record", lambda *args: calls.append(args) or True)
     app = FastAPI()
     app.include_router(activity.router)
     client = TestClient(app)

@@ -277,12 +277,15 @@ app.include_router(treasuries.router, prefix="/api/global")
 
 @app.on_event("startup")
 def initialize_audience_collection():
-    from app.services import audience_analytics
+    from app.services import audience_analytics, audience_live
     audience_analytics.initialize()
+    audience_live.initialize()
 app.include_router(prediction.router, prefix="/api/prediction")
 app.include_router(translate.router, prefix="/api")
 app.include_router(geo.router, prefix="/api")
 app.include_router(activity.router, prefix="/api/activity")
+from app.routers import audience_diagnostics
+app.include_router(audience_diagnostics.router, prefix="/api/activity")
 app.include_router(admin.router, prefix="/api/admin")
 app.include_router(admin_comments.router, prefix="/api/admin")
 app.include_router(support_analytics.router, prefix="/api/admin")
