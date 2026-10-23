@@ -3851,7 +3851,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
                 const revision=++farRevision;
                 const planting=filterPlanting(fg.planting,dryPlant);
                 // No stale roots may remain visible while their replacement builds.
-                farPlants?.mesh.removeFromParent();farPlants?.dispose();farPlants=null;
+                if(farPlants){farPlants.mesh.userData.sceneDiscarded=true;farPlants.mesh.removeFromParent();farPlants.dispose();farPlants=null;}
                 stage.viewTrees.far=[];
                 const plants=await buildPlants(planting,seed+887,terrain,stage.hq);
                 if(!alive||ringStop.signal.aborted||revision!==farRevision){plants?.dispose();return;}
@@ -3861,7 +3861,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
                   if(hostRef.current){hostRef.current.dataset.farPlants=String(planting.trees.length);hostRef.current.dataset.farGroves=String(planting.groves?.length??0);hostRef.current.dataset.farPlantsReadyAt=String(Math.round(performance.now()));}}
               };
               refreshFarPlants=()=>{void showFar().catch(err=>console.info('[3D] Coastal far plants unavailable:',err));};
-              disposables.push({dispose:()=>{++farRevision;refreshFarPlants=()=>{};farPlants?.mesh.removeFromParent();farPlants?.dispose();farPlants=null;}});
+              disposables.push({dispose:()=>{++farRevision;refreshFarPlants=()=>{};if(farPlants){farPlants.mesh.userData.sceneDiscarded=true;farPlants.mesh.removeFromParent();farPlants.dispose();farPlants=null;}}});
               await showFar();
             }
             if(textureBudgetEnabled()&&alive&&hostRef.current){hostRef.current.dataset.farPlants=String(fg.planting.trees.length);hostRef.current.dataset.farGroves=String(fg.planting.groves?.length??0);hostRef.current.dataset.farPlantsReadyAt=String(Math.round(performance.now()));}

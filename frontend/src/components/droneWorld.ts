@@ -1662,7 +1662,7 @@ export class DroneWorld {
     if (!p) return;
     t.plants = null;
     this.plantPool.release(t.key);
-    if (p.group) this.root.remove(p.group);
+    if (p.group) { p.group.userData.sceneDiscarded=true; this.root.remove(p.group); }
     if (p.materials.length) this.o.forget?.(new Set(p.materials));
     p.dispose();
   }
