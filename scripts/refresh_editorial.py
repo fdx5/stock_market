@@ -60,6 +60,15 @@ def main():
         raise SystemExit("Editorial batch secret is missing")
     base = "https://kospimap.com/api/editorial"
     headers = {"Authorization": "Bearer " + token}
+    # Backup schedules cover delayed or skipped GitHub cron runs; skip a slot already full.
+    _, cutoff = source.video_edition_window()
+    try:
+        current = requests.get(base + "/videos", params={"market": market}, timeout=30).json()
+        if source._iso(current.get("window_end", "")) == cutoff and len(current.get("items", [])) >= source.VIDEO_TARGET:
+            print(json.dumps({"market": market, "edition": current.get("edition"), "count": len(current["items"]), "skipped": "complete"}))
+            return
+    except (requests.RequestException, ValueError, TypeError, AttributeError):
+        pass
     for attempt in range(3):
         try:
             collected = source.fetch_videos(market, use_archive=False)
