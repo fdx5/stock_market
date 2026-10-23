@@ -1,3 +1,4 @@
+import {filterPlanting,plantingWaterMask} from './plantingWater';
 import * as THREE from "three";
 import {DronePlaces,PlaceFootprints} from './sceneCommercialPlaces';
 import {observedRoofColour,type BuildingAppearance} from "./buildingAppearance";
@@ -120,6 +121,8 @@ type Tile = {
   surveyGroup: THREE.Group | null;
   /** its water as the server had it (asked before the rest; undefined: not yet asked) */
   seaBody?: SeaBody | null;
+  plantWater?:((x:number,y:number)=>boolean);
+  riverField?:WaterField;
 };
 type SeaBody = { rings?: { ring: [number, number][]; kind: string; islands?: [number, number][][] }[]; beaches?: { ring: [number, number][] }[]; works?: { kind: string; closed: boolean; pts: [number, number][] }[] };
 /** A ring cut to an axis-aligned box (Sutherland–Hodgman; a concave ring leaving and coming back
@@ -1012,9 +1015,9 @@ export class DroneWorld {
         const gardenBeds = fg.gardens.flatMap(g => g.beds).map(b => ({ ...b, points: b.points.filter(free) })).filter(b => b.points.length);
         const gardenGrass = fg.gardens.flatMap(g => g.grass).filter(free);
         mesh.userData.palaceGardens = fg.gardens.map(g => ({ id: g.id, earthM2: g.earthM2, lawnM2: g.lawnM2, flowerM2: g.flowerM2 }));
-        const p = withoutStadiumTrees({ ...fg.planting, trees: fg.planting.trees.filter(free), groves: (fg.planting.groves ?? []).map(g => ({ ...g, points: g.points.filter(free) })),
-          shrubs: [], flowers: [], grass: gardenGrass, street, woodlandFlowers: gardenBeds },jamsilTreeMask(tileLat,tileLon,TILE_M/2));
-        if (textureBudgetEnabled() && (p.trees.length || p.groves?.length || p.street.length || p.grass.length || p.woodlandFlowers.length)) {
+        const p = this.dryPlanting(t,withoutStadiumTrees({ ...fg.planting, trees: fg.planting.trees.filter(free), groves: (fg.planting.groves ?? []).map(g => ({ ...g, points: g.points.filter(free) })),
+          shrubs: [], flowers: [], grass: gardenGrass, street, woodlandFlowers: gardenBeds },jamsilTreeMask(tileLat,tileLon,TILE_M/2)));
+        if (textureBudgetEnabled() && (p.trees.length || p.groves?.length || p.street.length || p.grass?.length || p.woodlandFlowers?.length)) {
           t.planting = p; t.local = localTerrain;
           // (and the drone flies round them)
           if (t.roofs) this.treesOnGrid(t.roofs, [...p.trees, ...p.street.map(([lx, ly]) => [lx, ly] as [number, number]), ...(p.groves ?? []).flatMap(g => g.points)].map(([lx, ly]) => [lx + t.cx, ly + t.cy] as [number, number]), (x, y) => local(x - t.cx, y - t.cy));
@@ -1088,6 +1091,12 @@ export class DroneWorld {
       this.dropRegion();
       this.region = { x, y, mesh: water.mesh, field: water.field, dispose: () => water.dispose() };
       this.o.onSeaReady?.(water.field);
+      // Tile requests can finish before regional coastline. Invalidate both pooled
+      // meshes and worker builds; the ordinary bounded planting queue rebuilds them.
+      for(const t of this.tiles.values())if(t.planting){
+        const safe=this.dryPlanting(t,t.planting);
+        if(safe!==t.planting){this.unplant(t);t.planting=safe;}
+      }
       // Tiles may have finished first. Give every sea patch the same regional shore/depth field.
       for (const t of this.tiles.values()) for (const mesh of t.yup?.children ?? []) {
         const material = (mesh as THREE.Mesh).material as THREE.Material | undefined;
@@ -1230,6 +1239,7 @@ export class DroneWorld {
     if(signal.aborted||this.disposed)return;
     const body = answer !== undefined ? answer : t.seaBody !== undefined ? t.seaBody : await this.seaAnswer(t);
     const seas = (body?.rings ?? []).filter(w => w.kind === "sea");
+    t.plantWater=plantingWaterMask(body?.rings ?? []);
     if (!seas.length || signal.aborted || this.disposed) return;
     const parcels: RealEstateParcel[] = seas.map(w => ({ kind: "유", sea: true, ring: w.ring, holes: w.islands, open: [-H, -H, H, H] }));
     const water = await buildWater(parcels, parcels.map(() => false), terrain, () => this.pace());
@@ -1287,6 +1297,7 @@ export class DroneWorld {
     // them, no two surfaces over one another)
     const made = await buildWater(parcels, parcels.map(() => false), terrain, () => this.pace(), { clip: H });
     if (!made || signal.aborted || this.disposed) { made?.dispose(); return; }
+    t.riverField=made.field;
     rt('built');
     rt('cut');
     // The bed under the water, and the streets and lanes kept over it: in the scene worker (riverLower.ts).
@@ -1614,16 +1625,22 @@ export class DroneWorld {
   /** Plant a tile's trees (scenePlants, as the view's own: the same kit, its workers). */
   /** The last trees' build times (ms), for the checks. */
   plantMs: number[] = [];
+  private dryPlanting(t:Tile,p:Planting){
+    return filterPlanting(p,(x,y)=>!t.plantWater?.(x,y)&&!t.riverField?.wet(x,y)&&!this.region?.field?.wet(x+t.cx,y+t.cy));
+  }
   private async plant(t: Tile) {
     if (!t.planting || !t.local || t.plants) return;
+    t.planting=this.dryPlanting(t,t.planting);
+    const planting=t.planting;
     const entry: NonNullable<Tile["plants"]> = { state: "building", group: null, materials: [], dispose: () => {} };
     t.plants = entry;
     this.planting++;
     try {
       const pt0 = performance.now();
-      const plants = await buildPlants(t.planting, this.o.seed + 887 + t.i * 31 + t.j * 17, t.local, this.o.hq).catch(() => null);
+      const plants = await buildPlants(planting, this.o.seed + 887 + t.i * 31 + t.j * 17, t.local, this.o.hq).catch(() => null);
       this.plantMs.push(Math.round(performance.now() - pt0)); if (this.plantMs.length > 50) this.plantMs.shift();
       if (this.disposed || t.plants !== entry || !this.tiles.has(t.key)) { plants?.dispose(); return; }
+      if(this.dryPlanting(t,planting)!==planting){plants?.dispose();t.planting=this.dryPlanting(t,planting);t.plants=null;return;}
       if (!plants) { t.planting = null; t.plants = null; return; }
       const yup = new THREE.Group();
       yup.name = `drone tile ${t.key} plants`;
@@ -1665,6 +1682,7 @@ export class DroneWorld {
     t.zup = t.yup = null; t.materials = []; t.dispose = []; t.roofs = null; t.surveyGroup = null; t.styleGeo = {}; t.lanes = t.baseLanes = t.stops = undefined;
     t.survey = "none"; t.colour = undefined; t.towers = null; t.spans = undefined; t.spanRings = undefined;t.appearances=undefined;
     t.buildingGroup = undefined; t.surveyHidden = undefined; t.surveyPaint = undefined;t.surveyDeferred=undefined;t.surveyGeos=undefined;t.surveyStore=undefined;
+    t.plantWater=undefined;t.riverField=undefined;t.seaBody=undefined;
     t.planting = null; t.local = null; t.marks = undefined; t.fine = undefined; t.walkPaths = undefined;
   }
   private drop(t: Tile) {

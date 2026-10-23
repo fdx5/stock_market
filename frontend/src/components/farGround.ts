@@ -6,6 +6,7 @@ import {woodedTerrain}from'./woodlandTerrain';
 import { palaceGardens, palaceParcelGarden, palaceGardenCover, paintPalaceGarden, type PalaceGarden, type PalaceGardenPlanting } from './palaceGardens';
 import {jamsilTreeMask,withoutStadiumTrees} from './stadiumPlanting';
 import {dryTerraces, levelWater, floorField} from './waterCore';
+import {filterPlanting,plantingWaterMask} from './plantingWater';
 
 /* The ground out to 1 km in its land use (연속지적도 지목), under the 1 km ring of buildings: past
  * the view's own painted square the ground was one plain colour fading into the haze. Each parcel
@@ -39,7 +40,7 @@ type FarJob = {
    * rounded point it was asked at, (ox, oy) from this picture's centre. */
   osmWater?: { url: string; ox: number; oy: number };
   /** the same, already answered (the drone's tile asks it first): rings about this picture's centre */
-  osmBody?: { rings?: { ring: [number, number][] }[]; beaches?: { ring: [number, number][] }[]; works?: SeaWork[] } | null;
+  osmBody?: { rings?: { ring: [number, number][]; islands?: [number, number][][] }[]; beaches?: { ring: [number, number][] }[]; works?: SeaWork[] } | null;
 };
 
 /** A sea work (OpenStreetMap man_made=breakwater, groyne, pier; the site's bundled copy). */
@@ -50,7 +51,7 @@ function farWorkerMain() {
     const t0 = performance.now();
     const job = e.data, { lat, lon, half, size: S } = job;
     // (two seconds at most: the drone asked ahead, when the tile was queued)
-    const osm: { rings?: { ring: [number, number][] }[]; beaches?: { ring: [number, number][] }[]; works?: { kind: string; closed: boolean; pts: [number, number][] }[] } | null = job.osmBody ? job.osmBody
+    const osm: FarJob['osmBody'] = job.osmBody ? job.osmBody
       : job.osmWater ? await fetch(job.osmWater.url, { signal: AbortSignal.timeout(2000) }).then(r => (r.ok ? r.json() : null)).catch(() => null) : null;
     const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540;
     const g = job.grid;
@@ -416,7 +417,12 @@ function farWorkerMain() {
       ctx.putImageData(img, 0, 0);
     }
     const bitmap = canvas.transferToImageBitmap();
-    (self as unknown as Worker).postMessage({ bitmap, parcels, planting, gardens: gardenPlanting, water: waterOut, ms: performance.now() - t0 }, [bitmap]);
+    const helpers = self as unknown as {filterPlanting:typeof filterPlanting;plantingWaterMask:typeof plantingWaterMask};
+    const ox = job.osmWater?.ox ?? 0, oy = job.osmWater?.oy ?? 0;
+    const wet = helpers.plantingWaterMask(osm?.rings ?? []);
+    // An unanswered water request is unknown, never evidence that lawn is land.
+    const safePlanting = helpers.filterPlanting(planting, (x,y) => !(job.osmWater && !osm) && !wet(x-ox,y-oy));
+    (self as unknown as Worker).postMessage({ bitmap, parcels, planting:safePlanting, gardens: gardenPlanting, water: waterOut, ms: performance.now() - t0 }, [bitmap]);
   };
 }
 
@@ -448,7 +454,7 @@ export function farGround(data: RealEstateBuildingsResponse, terrain: Terrain, o
     size: "1000", page: String(i + 1), format: "json", callback: "farCb",
   }));
   // (one Blob URL for the page's lifetime: the drone makes these tile after tile)
-  farUrl ??= URL.createObjectURL(new Blob([`self.dryTerraces=(${dryTerraces.toString()});self.levelWater=(${levelWater.toString()});self.floorField=(${floorField.toString()});self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});self.woodlandPatchPattern=(${woodlandPatchPattern.toString()});self.palaceParcelGarden=(${palaceParcelGarden.toString()});self.palaceGardenCover=(${palaceGardenCover.toString()});self.paintPalaceGarden=(${paintPalaceGarden.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
+  farUrl ??= URL.createObjectURL(new Blob([`self.filterPlanting=(${filterPlanting.toString()});self.plantingWaterMask=(${plantingWaterMask.toString()});self.dryTerraces=(${dryTerraces.toString()});self.levelWater=(${levelWater.toString()});self.floorField=(${floorField.toString()});self.woodedTerrain=(${woodedTerrain.toString()});self.woodlandBeds=(${woodlandBeds.toString()});self.woodlandPatchPattern=(${woodlandPatchPattern.toString()});self.palaceParcelGarden=(${palaceParcelGarden.toString()});self.palaceGardenCover=(${palaceGardenCover.toString()});self.paintPalaceGarden=(${paintPalaceGarden.toString()});(${farWorkerMain.toString()})()`], { type: "text/javascript" }));
 
   const job: FarJob = { urls, lat, lon, half: H, size: opts.size, grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, lawn: opts.lawn, paddy: opts.paddy, landscape:opts.landscape,nearHalf:opts.nearHalf??H,footprints:opts.footprints??[],roads:data.roads??[],flowers:WOODLAND_FLOWERS,gardens:palaceGardens(lat,lon,H),waterSurface:opts.waterSurface,
     riverUrls: opts.rivers ? Array.from({ length: 3 }, (_, i) => "https://api.vworld.kr/req/data?" + new URLSearchParams({

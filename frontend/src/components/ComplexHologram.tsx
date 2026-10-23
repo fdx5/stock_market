@@ -1,3 +1,4 @@
+import {filterPlanting,plantingWaterMask} from './plantingWater';
 import { Link, navigate } from "../router";
 import { developmentDriveEnabled, driveEntryUrl } from './driveEntry';
 import CoffeeIcon from "../desk2/CoffeeIcon";
@@ -1123,6 +1124,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Render every visible display frame (a fast display: every Nth, near 60 a second — framePace),
     // including animated traffic and pedestrians.
     let renderMax = 0, renderSum = 0, tickMax = 0, tickSum = 0, frameNo = 0;
+    const flightFrameTimes:number[]=[];
+    let flightFrameLast=0,flightSecondAt=0,flightSecondFrames=0,flightMinFps=Infinity;
     const pace = createFramePace();
     const loop = (stamp: number) => {
       if (!gx) return frame(stamp);
@@ -1290,12 +1293,22 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         stage.ground.visible = true;
       }
       if (gl && !glWait && composer) {composer.render();droneFrame=true;}
+      if(fpsOn&&stage.drone&&droneFrame){
+        if(flightFrameLast&&nowMs-flightFrameLast<10000)flightFrameTimes.push(nowMs-flightFrameLast);
+        flightFrameLast=nowMs;if(flightFrameTimes.length>3600)flightFrameTimes.shift();
+        if(!flightSecondAt)flightSecondAt=nowMs;
+        ++flightSecondFrames;
+        if(nowMs-flightSecondAt>=1000){flightMinFps=Math.min(flightMinFps,flightSecondFrames*1000/(nowMs-flightSecondAt));flightSecondAt=nowMs;flightSecondFrames=0;}
+      }
       const drewFrame = !!native?.shown || (!!composer && gl && !glWait);
       if(droneFrame&&stage.drone&&stage.exploreReady){const ready=stage.exploreReady;stage.exploreReady=undefined;ready();}
       if (!drewFrame) { sampleFrames = 0; sampleStart = nowMs; }
       else if (++sampleFrames >= 60 || (sampleFrames >= 2 && nowMs - sampleStart > 1000)) {
         host.dataset.fps = (sampleFrames * 1000 / (nowMs - sampleStart)).toFixed(1);
         host.dataset.fpsAt = String(nowMs);
+        if(fpsOn&&flightFrameTimes.length){const sorted=flightFrameTimes.slice().sort((a,b)=>a-b);
+          host.dataset.flightFrames=JSON.stringify({samples:sorted.length,minSecondFps:Number.isFinite(flightMinFps)?+flightMinFps.toFixed(1):null,p95:sorted[Math.ceil(sorted.length*.95)-1],p99:sorted[Math.ceil(sorted.length*.99)-1],max:sorted[sorted.length-1]});}
+
         host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
         host.dataset.pixelRatio = ratio.toFixed(2);
         host.dataset.paceEvery = String(pace.every);
@@ -3119,6 +3132,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Keep the actual answer: timing out this promise used to discard lakes that
     // arrived late. Registered planting is shown independently below.
     const beginGeography=textureBudgetEnabled()?(f:()=>void)=>f():afterShown;
+    let plantingWaterKnown=false;
+    let mappedPlantWater:(x:number,y:number)=>boolean=()=>false;
     const lakesFetched: Promise<void> = new Promise<void>(resolve => beginGeography(() => {
       if (!data.center) { resolve(); return; }
       // (where the national stream network has the rivers, OpenStreetMap's lakes and rivers would be
@@ -3135,6 +3150,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             ...r.rings.filter(w => !rivers || w.kind === "sea").map(w => ({ kind: "유", sea: w.kind === "sea", open: [ox - FAR_HALF, oy - FAR_HALF, ox + FAR_HALF, oy + FAR_HALF] as [number, number, number, number], ring: w.ring.map(([x, y]) => [x + ox, y + oy] as [number, number]),
               ...(w.islands?.length ? { holes: w.islands.filter(h => Math.abs(h.reduce((a, [x, y], i) => { const q = h[(i + 1) % h.length]; return a + x * q[1] - q[0] * y; }, 0) / 2) >= 2500).map(h => h.map(([x, y]) => [x + ox, y + oy] as [number, number])) } : {}) })),
           ];
+          mappedPlantWater=plantingWaterMask(lakes.filter(p=>p.kind==='유'));
+          plantingWaterKnown=true;
           seaWorks = (r.works ?? []).map(w => ({ ...w, pts: w.pts.map(([x, y]) => [x + ox, y + oy] as [number, number]) }));
           if (hostRef.current) hostRef.current.dataset.lakes = r.rings.map(w => w.name ?? w.kind).join(",");
         }).catch(() => {}).then(() => resolve());
@@ -3266,9 +3283,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         ...(p.grass?{grass:p.grass.filter(dry)}:{}),...(p.border?{border:p.border.filter(dry)}:{}),
         ...(p.groves?{groves:p.groves.map(g=>({...g,points:g.points.filter(dry)}))}:{}),
         ...(p.woodlandFlowers?{woodlandFlowers:p.woodlandFlowers.map(b=>({...b,points:b.points.filter(dry)}))}:{})};};
+    let latestPlanting:Planting|null=null;
+    let refreshFarPlants:()=>void=()=>{};
+    const dryPlant=(x:number,y:number)=>!mappedPlantWater(x,y)&&!inRiver(x,y)&&!roadSea?.wet(x,y)&&!roadWater?.wet(x,y);
     const showPlants = async (planting: Planting, phase: "initial" | "surveyed" | "complete") => {
-      planting = offRivers(withoutStadiumTrees(planting,stadiumTreeMask));
+      latestPlanting=plantingSnapshot(planting);
       const revision = ++plantsRevision;
+      await lakesFetched;
+      if(!alive||revision!==plantsRevision||(!plantingWaterKnown&&!roadSea))return;
+      planting = filterPlanting(offRivers(withoutStadiumTrees(planting,stadiumTreeMask)),dryPlant);
       const timing={phase,start:Math.round(performance.now()),ready:undefined as number|undefined,reused:false};plantTimings.push(timing);
       if(visiblePlants&&visiblePlanting&&samePlanting(visiblePlanting,planting)){
         timing.ready=Math.round(performance.now());timing.reused=true;
@@ -3278,6 +3301,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
       if (!plants) return;
       if (!alive || revision !== plantsRevision) { plants.dispose(); return; }
+      if(filterPlanting(planting,dryPlant)!==planting){plants.dispose();if(latestPlanting)void showPlants(latestPlanting,phase);return;}
       stage.viewTrees.near = [...planting.trees, ...planting.street.map(([x, y]) => [x, y] as [number, number]), ...(planting.groves ?? []).flatMap(g => g.points)];
       plants.update?.();
       // A detached wrapper also prevents a late WebGL compile from reattaching
@@ -3737,7 +3761,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     function relayLamps() { void placeLamps(); }
     const roadSeaReady=(field:WaterField)=>{
       if(!alive||roadSea===field)return;
-      roadSea=field;waterRevision={};approachTerrain=roadApproachTerrain(roads,waterTerrain);asphaltAt=null;bridgesTried=false;
+      roadSea=field;
+      // Retire affected meshes immediately; pending builds cannot attach an old forest.
+      if(visiblePlanting&&filterPlanting(visiblePlanting,dryPlant)!==visiblePlanting){
+        visiblePlants?.root.removeFromParent();visiblePlants?.plants.dispose();visiblePlants=null;visiblePlanting=null;
+        stage.viewTrees.near=[];
+      }
+      if(latestPlanting)void showPlants(latestPlanting,"complete").catch(err=>console.info('[3D] Coastal plants unavailable:',err));
+      refreshFarPlants();
+      waterRevision={};approachTerrain=roadApproachTerrain(roads,waterTerrain);asphaltAt=null;bridgesTried=false;
       void (async()=>{if(await placeBridges()){await relayWalks?.();void layMarks();relayLamps();}})().catch(err=>console.info('[3D] Coastal roads unavailable:',err));
     };
     stage.roadSeaReady=roadSeaReady;
@@ -3813,10 +3845,24 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             groundMat.needsUpdate = true;
             if (hostRef.current) hostRef.current.dataset.farGround = `${fg.parcels} parcels in ${Math.round(fg.ms)} ms`;
             if(textureBudgetEnabled() && (fg.planting.trees.length || fg.planting.groves?.length || fg.planting.grass?.length || fg.planting.flowers.length || fg.planting.woodlandFlowers?.length)){
-              stage.viewTrees.far = [...fg.planting.trees, ...(fg.planting.groves ?? []).flatMap(g => g.points)];
-              const plants=await buildPlants(fg.planting,seed+887,terrain,stage.hq);
-              if(!alive||ringStop.signal.aborted){plants?.dispose();return;}
-              if(plants){stage.addWarm(decor,plants.mesh);disposables.push(plants);if(hostRef.current){hostRef.current.dataset.farPlants=String(fg.planting.trees.length);hostRef.current.dataset.farGroves=String(fg.planting.groves?.length??0);hostRef.current.dataset.farPlantsReadyAt=String(Math.round(performance.now()));}}
+              let farPlants:Awaited<ReturnType<typeof buildPlants>>=null;
+              let farRevision=0;
+              const showFar=async()=>{
+                const revision=++farRevision;
+                const planting=filterPlanting(fg.planting,dryPlant);
+                // No stale roots may remain visible while their replacement builds.
+                farPlants?.mesh.removeFromParent();farPlants?.dispose();farPlants=null;
+                stage.viewTrees.far=[];
+                const plants=await buildPlants(planting,seed+887,terrain,stage.hq);
+                if(!alive||ringStop.signal.aborted||revision!==farRevision){plants?.dispose();return;}
+                // Water can arrive during a worker build, even before its refresh callback.
+                if(filterPlanting(planting,dryPlant)!==planting){plants?.dispose();void showFar();return;}
+                if(plants){farPlants=plants;stage.viewTrees.far=[...planting.trees,...(planting.groves??[]).flatMap(g=>g.points)];stage.addWarm(decor,plants.mesh);
+                  if(hostRef.current){hostRef.current.dataset.farPlants=String(planting.trees.length);hostRef.current.dataset.farGroves=String(planting.groves?.length??0);hostRef.current.dataset.farPlantsReadyAt=String(Math.round(performance.now()));}}
+              };
+              refreshFarPlants=()=>{void showFar().catch(err=>console.info('[3D] Coastal far plants unavailable:',err));};
+              disposables.push({dispose:()=>{++farRevision;refreshFarPlants=()=>{};farPlants?.mesh.removeFromParent();farPlants?.dispose();farPlants=null;}});
+              await showFar();
             }
             if(textureBudgetEnabled()&&alive&&hostRef.current){hostRef.current.dataset.farPlants=String(fg.planting.trees.length);hostRef.current.dataset.farGroves=String(fg.planting.groves?.length??0);hostRef.current.dataset.farPlantsReadyAt=String(Math.round(performance.now()));}
           }).catch(err=>console.info('[3D] Far landscaping unavailable:',err));
