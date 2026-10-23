@@ -302,28 +302,29 @@ function blackDrum(g:CanvasRenderingContext2D, dw:number, dh:number) {
   g.fillStyle = "rgba(255,255,255,.7)"; g.beginPath(); g.ellipse(ex - er * .15, ey + er * .15, er * .08, er * .16, -.4, 0, TAU); g.fill();
 }
 function createOil():Draw {
-  const CYCLE = 14;
+  // Seconds: tip 0–1.1, fill 1.3–9.2, hold full 5 s, drain and right the drum 14.2–17.
+  const CYCLE = 17, FULL = 9.24, DRAIN = FULL + 5;
   let surface:Surface | null = null;
   return (g, w, h, t) => {
     const n = Math.max(14, Math.round(w / 5));
     if (!surface || surface.n !== n) surface = new Surface(n, .016, .05, .1);
-    const p = (t % CYCLE) / CYCLE;
+    const s = t % CYCLE;
     const bg = g.createLinearGradient(0, 0, 0, h);
     bg.addColorStop(0, "#fdfcf8"); bg.addColorStop(1, "#ece6d8");
     g.fillStyle = bg; g.fillRect(0, 0, w, h);
-    const tip = p < .08 ? easeOut(p / .08) : p < .8 ? 1 : 1 - ease((p - .8) / .2);
-    const level = p < .09 ? 0 : p < .66 ? ease((p - .09) / .57) : p < .8 ? 1 : 1 - ease((p - .8) / .2);
+    const tip = s < 1.12 ? easeOut(s / 1.12) : s < DRAIN ? 1 : 1 - ease((s - DRAIN) / (CYCLE - DRAIN));
+    const level = s < 1.26 ? 0 : s < FULL ? ease((s - 1.26) / (FULL - 1.26)) : s < DRAIN ? 1 : 1 - ease((s - DRAIN) / (CYCLE - DRAIN));
     const base = h - level * h * .6;
     // Standing at the upper right; tipping past horizontal turns its mouth down onto the pool.
     const dh = Math.min(h * .5, w * .32), dw = dh * .68, px = w - 4, py = h * .56, angle = -tip * Math.PI * .6;
     const lx = -dw / 2, ly = -dh, mouth = { x:px + Math.cos(angle) * lx - Math.sin(angle) * ly, y:py + Math.sin(angle) * lx + Math.cos(angle) * ly };
-    const flow = p > .07 && p < .7 ? (p < .1 ? (p - .07) / .03 : p > .64 ? (.7 - p) / .06 : 1) : 0;
+    const flow = s > .98 && s < 9.8 ? (s < 1.4 ? (s - .98) / .42 : s > 8.96 ? (9.8 - s) / .84 : 1) : 0;
     const glug = 1 + .35 * Math.sin(t * 13) + .15 * Math.sin(t * 29);
     const landX = Math.max(6, mouth.x - dh * .25);
     if (flow > 0) {
       surface.poke(landX / w, 2.4 * flow * glug, 2);
     }
-    if (Math.abs(p - .7) < .003) surface.poke(.35, -3, 7);
+    if (Math.abs(s - 9.8) < .042) surface.poke(.35, -3, 7);
     surface.step(t);
     // Pool
     if (level > 0) {
@@ -354,60 +355,225 @@ function createOil():Draw {
   };
 }
 
-/* Gold: a large ingot glitters, melts away completely and fills the cell to 70%. */
-function ingot(g:CanvasRenderingContext2D, x:number, y:number, iw:number, ih:number, t:number, heat:number) {
-  // Trapezoid ingot seen from slightly above: top face, front face, side.
-  const inset = iw * .14, topH = ih * .32;
-  const front = g.createLinearGradient(x, y + topH, x, y + ih);
-  front.addColorStop(0, "#ffe27a"); front.addColorStop(.5, `rgb(${235 + heat * 20},${170 - heat * 30},${40})`); front.addColorStop(1, "#a8650c");
-  g.fillStyle = front; g.beginPath(); g.moveTo(x, y + ih); g.lineTo(x + inset * .6, y + topH); g.lineTo(x + iw - inset * .6, y + topH); g.lineTo(x + iw, y + ih); g.closePath(); g.fill();
-  const top = g.createLinearGradient(x, y, x + iw, y + topH);
-  top.addColorStop(0, "#fff8d2"); top.addColorStop(.5, "#ffd659"); top.addColorStop(1, "#e3a52a");
-  g.fillStyle = top; g.beginPath(); g.moveTo(x + inset * .6, y + topH); g.lineTo(x + inset, y); g.lineTo(x + iw - inset, y); g.lineTo(x + iw - inset * .6, y + topH); g.closePath(); g.fill();
-  g.fillStyle = "rgba(120,70,0,.55)"; g.font = `700 ${ih * .26}px Georgia`; g.textAlign = "center"; g.textBaseline = "middle";
-  g.fillText("999.9", x + iw / 2, y + topH + (ih - topH) * .5); g.textAlign = "left";
-  // Bling: a sweep of light across the bar.
-  g.save(); g.beginPath(); g.moveTo(x, y + ih); g.lineTo(x + inset, y); g.lineTo(x + iw - inset, y); g.lineTo(x + iw, y + ih); g.closePath(); g.clip();
-  const sweep = x - iw + ((t * .55) % 1) * iw * 3, band = g.createLinearGradient(sweep - iw * .2, 0, sweep + iw * .2, 0);
-  band.addColorStop(0, "rgba(255,255,255,0)"); band.addColorStop(.5, "rgba(255,255,255,.75)"); band.addColorStop(1, "rgba(255,255,255,0)");
-  g.globalCompositeOperation = "lighter"; g.fillStyle = band; g.fillRect(x, y, iw, ih); g.restore();
+/* Gold: a minted bar, ray-traced once under studio lights and cached; it melts away from
+ * one end into a pool that fills the cell to 70%. */
+type V3 = [number, number, number];
+const dot = (a:V3, b:V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const norm = (a:V3):V3 => { const l = Math.hypot(...a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+// The bar (x length, y up, z toward the viewer): a wide foot tapering to a smaller top.
+const BAR:V3[] = [[-1, 0, -.48], [1, 0, -.48], [1, 0, .48], [-1, 0, .48], [-.8, .32, -.3], [.8, .32, -.3], [.8, .32, .3], [-.8, .32, .3]];
+const BAR_PLANES:[V3, number][] = [[[0, -1, 0], 0], [[0, 1, 0], .32], [[0, .5625, 1], .48], [[0, .5625, -1], .48], [[1, .625, 0], 1], [[-1, .625, 0], 1]];
+const BAR_UNIT = BAR_PLANES.map(([n]) => norm(n));
+// Seen three-quarters on from above, so the right end (where it melts) faces the viewer.
+const YAW_C = Math.cos(-.42), YAW_S = Math.sin(-.42), TILT_C = Math.cos(.74), TILT_S = Math.sin(.74);
+const toView = ([x, y, z]:V3):V3 => [x * YAW_C + z * YAW_S, y, -x * YAW_S + z * YAW_C];
+const toBar = ([x, y, z]:V3):V3 => [x * YAW_C - z * YAW_S, y, x * YAW_S + z * YAW_C];
+const VIEW:V3 = [0, TILT_S, TILT_C], SCREEN_UP:V3 = [0, -TILT_C, TILT_S];
+const flatOf = (p:V3) => { const r = toView(p); return [r[0], -r[1] * TILT_C + r[2] * TILT_S]; };
+const BAR_FLAT = BAR.map(flatOf);
+const FLAT_CX = (Math.min(...BAR_FLAT.map(p => p[0])) + Math.max(...BAR_FLAT.map(p => p[0]))) / 2, FLAT_MAXY = Math.max(...BAR_FLAT.map(p => p[1]));
+/** Bar coordinates → canvas, for a bar fitted into the box (x, y, iw, ih). */
+function barLayout(x:number, y:number, iw:number, ih:number) {
+  const k = Math.min(iw / 2.3, ih / 1.15);
+  return { k, at:(p:V3) => { const [a, b] = flatOf(p); return [x + iw / 2 + (a - FLAT_CX) * k, y + ih - (FLAT_MAXY - b) * k] as [number, number]; } };
+}
+const KEY = norm([-.5, .75, .45]);
+/** One ray against the bar: [r, g, b] in 0…1, or null on a miss. Edges are rounded by bending the normal. */
+function traceBar(u:number, v:number, hot:boolean):V3 | null {
+  const o = toBar([u, v * SCREEN_UP[1] + 5 * VIEW[1], v * SCREEN_UP[2] + 5 * VIEW[2]]), d = toBar([0, -VIEW[1], -VIEW[2]]);
+  let near = -Infinity, far = Infinity, hit = -1;
+  for (let i = 0; i < BAR_PLANES.length; i++) {
+    const [n, c] = BAR_PLANES[i], den = dot(n, d), num = c - dot(n, o);
+    if (Math.abs(den) < 1e-9) { if (num < 0) return null; continue; }
+    const t = num / den;
+    if (den < 0) { if (t > near) { near = t; hit = i; } } else if (t < far) far = t;
+  }
+  if (hit < 0 || near > far) return null;
+  const p:V3 = [o[0] + d[0] * near, o[1] + d[1] * near, o[2] + d[2] * near];
+  let n:V3 = [...BAR_UNIT[hit]];
+  for (let i = 0; i < BAR_PLANES.length; i++) {
+    if (i === hit) continue;
+    const [m, c] = BAR_PLANES[i], gap = (c - dot(m, p)) / Math.hypot(...m);
+    if (gap < .045) { const w = (1 - gap / .045) ** 2 * 1.4; n = [n[0] + BAR_UNIT[i][0] * w, n[1] + BAR_UNIT[i][1] * w, n[2] + BAR_UNIT[i][2] * w]; }
+  }
+  n = norm(toView(n));
+  const nv = Math.max(0, dot(n, VIEW)), r:V3 = [2 * nv * n[0] - VIEW[0], 2 * nv * n[1] - VIEW[1], 2 * nv * n[2] - VIEW[2]];
+  // Studio: a big softbox overhead, a tall strip light on the right, a dark horizon, a warm floor.
+  const env = .05 + ease(clamp((r[1] - .1) / .55)) + ease(clamp((r[0] - .5) / .3)) * .75 * (r[1] > -.15 ? 1 : .3)
+    + clamp((r[2] - .75) / .25) * .3 + (r[1] < -.25 ? .2 : 0);
+  const spec = Math.max(0, dot(r, KEY)) ** 90 * 2.2, fres = (1 - nv) ** 5 * .5;
+  const gold:V3 = [Math.min(1, env * 1.02 + spec + fres * env), Math.min(1, env * .76 + spec + fres * env), Math.min(1, env * .31 + spec * .9 + fres * env * .8)];
+  return hot ? [Math.min(1, .95 + gold[0] * .05), Math.min(1, .38 + env * .3 + spec), Math.min(1, .05 + env * .08 + spec * .7)] : gold;
+}
+/** The engraved refinery stamp pressed into the top face, drawn in that face's own plane. */
+function barStamp(g:CanvasRenderingContext2D, at:(p:V3) => [number, number], hot:boolean) {
+  const o = at(BAR[4]), a = at(BAR[5]), b = at(BAR[7]);
+  g.save(); g.transform((a[0] - o[0]) / 100, (a[1] - o[1]) / 100, (b[0] - o[0]) / 40, (b[1] - o[1]) / 40, o[0], o[1]);
+  const ink = hot ? "rgba(150,40,0," : "rgba(96,52,0,", shine = hot ? "rgba(255,226,150," : "rgba(255,246,210,";
+  const well = g.createLinearGradient(0, 5, 0, 35);
+  well.addColorStop(0, `${ink}.30)`); well.addColorStop(1, `${ink}.10)`);
+  g.fillStyle = well; roundRect(g, 12, 5, 76, 30, 4); g.fill();
+  // Sunk well: shadowed on the far edges, lit on the near ones.
+  g.lineWidth = 1.4; g.strokeStyle = `${ink}.65)`; g.beginPath(); g.moveTo(12.5, 33); g.lineTo(12.5, 9); g.arcTo(12.5, 5.5, 16, 5.5, 3.5); g.lineTo(87.5, 5.5); g.stroke();
+  g.strokeStyle = `${shine}.9)`; g.beginPath(); g.moveTo(87.5, 8); g.lineTo(87.5, 31); g.arcTo(87.5, 34.5, 84, 34.5, 3.5); g.lineTo(13, 34.5); g.stroke();
+  g.textAlign = "center"; g.textBaseline = "middle";
+  const engrave = (text:string, ty:number, size:number, weight = 700) => {
+    g.font = `${weight} ${size}px Georgia, "Times New Roman", serif`;
+    g.fillStyle = `${shine}.85)`; g.fillText(text, 50.5, ty + .8);
+    g.fillStyle = `${ink}.9)`; g.fillText(text, 50, ty);
+  };
+  engrave("FINE GOLD", 11.5, 6.4); engrave("999.9", 21, 13); engrave("1 KILO", 30, 5.6, 600);
+  g.restore();
+}
+type BarArt = { key:string; cold:HTMLCanvasElement; hot:HTMLCanvasElement; mask:HTMLCanvasElement };
+let barArt:BarArt | null = null;
+/** Renders the bar (cold and white-hot) once per size; edges get 4× supersampling. */
+function barImages(iw:number, ih:number, dpr:number):BarArt {
+  const pw = Math.max(1, Math.round(iw * dpr)), ph = Math.max(1, Math.round(ih * dpr)), key = `${pw}x${ph}`;
+  if (barArt?.key === key) return barArt;
+  const { k } = barLayout(0, 0, iw, ih);
+  const toU = (px:number) => (px / dpr - iw / 2) / k + FLAT_CX, toV = (py:number) => FLAT_MAXY - (ih - py / dpr) / k;
+  const make = () => { const c = document.createElement("canvas"); c.width = pw; c.height = ph; return c; };
+  const out:BarArt = { key, cold:make(), hot:make(), mask:make() };
+  for (const hot of [false, true]) {
+    const ctx = (hot ? out.hot : out.cold).getContext("2d")!, img = ctx.createImageData(pw, ph), px = img.data;
+    const centre = new Uint8Array(pw * ph);
+    for (let j = 0; j < ph; j++) for (let i = 0; i < pw; i++) centre[j * pw + i] = traceBar(toU(i + .5), toV(j + .5), hot) ? 1 : 0;
+    for (let j = 0; j < ph; j++) for (let i = 0; i < pw; i++) {
+      const at = j * pw + i, c = centre[at];
+      const edge = i > 0 && i < pw - 1 && j > 0 && j < ph - 1 ? centre[at - 1] !== c || centre[at + 1] !== c || centre[at - pw] !== c || centre[at + pw] !== c : c === 1;
+      const offs = edge ? [[.25, .25], [.75, .25], [.25, .75], [.75, .75]] : [[.5, .5]];
+      let r = 0, gg = 0, b = 0, n = 0;
+      for (const [dx, dy] of offs) { const s = traceBar(toU(i + dx), toV(j + dy), hot); if (s) { r += s[0]; gg += s[1]; b += s[2]; n++; } }
+      if (!n) continue;
+      // A whisper of grain so the metal does not look airbrushed.
+      const grain = 1 + (((i * 73856093 ^ j * 19349663) >>> 0) % 1000 / 1000 - .5) * .035;
+      px[at * 4] = Math.min(255, r / n * 255 * grain); px[at * 4 + 1] = Math.min(255, gg / n * 255 * grain); px[at * 4 + 2] = Math.min(255, b / n * 255 * grain); px[at * 4 + 3] = n / offs.length * 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Keep the stamp on the bar's silhouette.
+    ctx.globalCompositeOperation = "source-atop"; barStamp(ctx, barLayout(0, 0, iw, ih).at, hot);
+  }
+  return (barArt = out);
+}
+/** Cross-section of the bar at length position c (the face a melt front exposes). */
+function barSection(c:number):V3[] {
+  const yh = Math.min(.32, .32 * (1 - Math.abs(c)) / .2), zt = .48 - .5625 * yh;
+  return [[c, 0, .48], [c, 0, -.48], [c, yh, -zt], [c, yh, zt]];
+}
+function hull(pts:[number, number][]) {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]), cross = (o:number[], a:number[], b:number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo:[number, number][] = [], hi:[number, number][] = [];
+  for (const q of p) { while (lo.length > 1 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (const q of p.reverse()) { while (hi.length > 1 && cross(hi[hi.length - 2], hi[hi.length - 1], q) <= 0) hi.pop(); hi.push(q); }
+  return lo.slice(0, -1).concat(hi.slice(0, -1));
+}
+/** The bar with everything right of `cut` (−1…1) melted away; the region near the front glows hot. */
+function drawIngot(g:CanvasRenderingContext2D, x:number, y:number, iw:number, ih:number, cut:number, heat:number, alpha:number) {
+  const dpr = g.getTransform().a || 1, art = barImages(iw, ih, dpr), { k, at } = barLayout(x, y, iw, ih);
+  const poly = (pts:[number, number][]) => { g.beginPath(); pts.forEach(([px, py], i) => i ? g.lineTo(px, py) : g.moveTo(px, py)); g.closePath(); };
+  g.save(); g.globalAlpha = alpha;
+  // Contact shadow under what is left of the bar.
+  const [sx, sy] = at([(cut - 1) / 2, 0, 0]);
+  g.save(); g.translate(sx, sy + k * .02); g.scale((cut + 1.3) / 2.3, .2);
+  const shade = g.createRadialGradient(0, 0, 0, 0, 0, k * 1.3);
+  shade.addColorStop(0, "rgba(30,14,0,.6)"); shade.addColorStop(1, "rgba(30,14,0,0)");
+  g.fillStyle = shade; g.fillRect(-k * 1.3, -k * 1.3, k * 2.6, k * 2.6); g.restore();
+  const section = barSection(cut).map(at);
+  g.save();
+  if (cut < .999) { poly(hull([...BAR.filter(p => p[0] <= cut).map(at), ...section])); g.clip(); }
+  g.drawImage(art.cold, x, y, iw, ih);
+  if (heat > 0) {
+    // White-hot near the melt front, fading back along the bar.
+    const m = art.mask.getContext("2d")!;
+    m.setTransform(1, 0, 0, 1, 0, 0); m.globalCompositeOperation = "copy";
+    m.drawImage(art.hot, 0, 0);
+    const local = barLayout(0, 0, iw, ih).at, a = local([cut - .55, .16, 0]), b = local([cut, .16, 0]);
+    const fade = m.createLinearGradient(a[0] * dpr, a[1] * dpr, b[0] * dpr, b[1] * dpr);
+    fade.addColorStop(0, "rgba(0,0,0,0)"); fade.addColorStop(1, `rgba(0,0,0,${heat})`);
+    m.globalCompositeOperation = "destination-in"; m.fillStyle = fade; m.fillRect(0, 0, art.mask.width, art.mask.height);
+    g.drawImage(art.mask, x, y, iw, ih);
+  }
+  g.restore();
+  if (cut < .999) {
+    // The exposed molten face.
+    const [b0, b1, t1, t0] = section, top = [(t0[0] + t1[0]) / 2, (t0[1] + t1[1]) / 2], bot = [(b0[0] + b1[0]) / 2, (b0[1] + b1[1]) / 2];
+    const face = g.createLinearGradient(top[0], top[1], bot[0], bot[1]);
+    face.addColorStop(0, "#fff0b0"); face.addColorStop(.35, "#ffbe4a"); face.addColorStop(1, "#d2560c");
+    g.fillStyle = face; poly(section); g.fill();
+    g.strokeStyle = "rgba(255,250,225,.9)"; g.lineWidth = Math.max(.6, k * .02); g.beginPath(); g.moveTo(t0[0], t0[1]); g.lineTo(t1[0], t1[1]); g.stroke();
+  }
+  g.restore();
+  return { at, section };
 }
 function createGold():Draw {
-  const CYCLE = 13;
+  // Seconds: melt 1.8–8.1, fill 2.1–8.6, hold full 5 s, drain 13.6–16 while the next bar forms.
+  const CYCLE = 16, FULL = 8.58, DRAIN = FULL + 5, REFORM = 13.92;
   let surface:Surface | null = null;
-  const drips:Drop[] = [], splashes:Drop[] = [];
+  // Sticky strands hang from the melt front, stretch, neck and let go as falling drops.
+  const strands:{ f:number; len:number; v:number; r:number; max:number; x:number; y:number }[] = [];
+  const drips:(Drop & { tail:number })[] = [], splashes:Drop[] = [];
   return (g, w, h, t) => {
     const n = Math.max(14, Math.round(w / 5));
     if (!surface || surface.n !== n) surface = new Surface(n, .022, .03, .11);
-    const p = (t % CYCLE) / CYCLE;
-    const melt = p < .14 ? 0 : p < .62 ? ease((p - .14) / .48) : 1;     // 0 solid → 1 gone
-    const reform = p < .84 ? 0 : ease((p - .84) / .16);                  // the next bar appears
-    const level = p < .16 ? 0 : p < .66 ? ease((p - .16) / .5) : p < .82 ? 1 : 1 - ease((p - .82) / .18);
+    const s = t % CYCLE;
+    const melt = s < 1.82 ? 0 : s < 8.06 ? ease((s - 1.82) / 6.24) : 1;   // 0 solid → 1 gone
+    const reform = s < REFORM ? 0 : ease((s - REFORM) / (CYCLE - REFORM)); // the next bar appears
+    const level = s < 2.08 ? 0 : s < FULL ? ease((s - 2.08) / (FULL - 2.08)) : s < DRAIN ? 1 : 1 - ease((s - DRAIN) / (CYCLE - DRAIN));
     const base = h - level * h * .7;
-    const iw = Math.min(w * .42, h * 1.05), ih = iw * .42, ix = w - iw - 6, floor = h * .5;
-    // Heat glow behind the bar while it melts.
-    g.save(); g.globalCompositeOperation = "lighter"; glow(g, ix + iw / 2, floor, iw * 1.1, `rgba(255,150,40,${.08 + melt * .3})`); g.restore();
-    const solid = p < .84 ? 1 - melt : reform;
-    if (solid > .01) {
-      // The bar slumps from the top down and spreads at its foot as it goes.
-      const height = ih * solid, spread = (1 - solid) * iw * .25 * (p < .84 ? 1 : 0);
-      g.save(); g.globalAlpha = p < .84 ? 1 : reform;
-      g.translate(ix - spread / 2, floor - height); g.scale((iw + spread) / iw, Math.max(.05, solid));
-      ingot(g, 0, 0, iw, ih, t, melt);
-      g.restore();
-      // Glints on the corners while it is still a bar.
-      if (melt < .3) {
-        const s = .5 + .5 * Math.sin(t * 5);
-        star(g, ix + iw * .2, floor - height, ih * .55, s * (1 - melt * 3));
-        star(g, ix + iw * .85, floor - height * .3, ih * .45, (1 - s) * (1 - melt * 3));
+    const iw = Math.min(w * .42, h * 1.05), ih = iw * .5, ix = w - iw - 6, floor = h * .5;
+    const melting = s < REFORM, cut = melting ? 1 - melt * 2 : 1, shown = melting ? melt < .995 : reform > .01;
+    if (shown) {
+      // It melts away from the right end, a sliver at a time; the next bar rises in place.
+      const lift = melting ? 0 : (1 - reform) * ih * .25;
+      const { at, section } = drawIngot(g, ix, floor - ih + lift, iw, ih, cut, melting ? clamp(melt * 10) : 0, melting ? 1 : reform);
+      // One glint only, on the top's far edge, staying on what is left of the bar.
+      const [gx, gy] = at([Math.min(.4, cut - .25), .32, -.3]), pulse = .5 + .5 * Math.sin(t * 2.4);
+      star(g, gx, gy, ih * .32, pulse * pulse * (melting ? 1 - melt : reform));
+      if (melting && melt > .01) {
+        const [a, b] = section, anchor = (f:number) => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+        if (strands.length < 6 && Math.random() < .09) strands.push({ f:Math.random() * .8, len:0, v:3 + Math.random() * 4, r:1.3 + Math.random() * .8, max:ih * (.28 + Math.random() * .4), x:0, y:0 });
+        // Small beads also roll off the edge between the strands.
+        if (Math.random() < .14) { const [x0, y0] = anchor(Math.random()); drips.push({ x:x0, y:y0, vx:0, vy:10, r:1 + Math.random() * .9, tail:4 }); }
+        for (let i = strands.length - 1; i >= 0; i--) {
+          const st = strands[i], [x0, y0] = anchor(st.f);
+          st.x = x0; st.y = y0;
+          // Slow at first, then the weight of the bead pulls it out faster.
+          st.v += (6 + st.len * .9) / 60; st.len += st.v / 60; st.r = Math.min(3.2, st.r + .012);
+          if (st.len > st.max) {
+            drips.push({ x:x0, y:y0 + st.len, vx:0, vy:st.v * 2, r:st.r, tail:st.len * .7 });
+            // The thread snaps back up into a short stub, which starts a new strand.
+            Object.assign(st, { len:st.len * .18, v:1 + Math.random() * 2, r:1.2 + Math.random() * .6, max:ih * (.28 + Math.random() * .4) });
+          }
+          const r = st.r, len = st.len, neck = Math.max(.35, r * (.9 - Math.min(.6, len / st.max * .7)));
+          const body = g.createLinearGradient(x0, y0, x0, y0 + len + r);
+          body.addColorStop(0, "#e9871a"); body.addColorStop(.6, "#ffb83a"); body.addColorStop(1, "#ffd76a");
+          g.fillStyle = body; g.beginPath();
+          g.moveTo(x0 - r * 1.3, y0);
+          g.bezierCurveTo(x0 - r * .5, y0 + len * .25, x0 - neck, y0 + len * .55, x0 - neck, y0 + len - r * .9);
+          g.arc(x0, y0 + len, r, Math.PI + .35, -.35 + TAU, true);
+          g.bezierCurveTo(x0 + neck, y0 + len * .55, x0 + r * .5, y0 + len * .25, x0 + r * 1.3, y0);
+          g.closePath(); g.fill();
+          g.fillStyle = "rgba(255,250,225,.85)"; g.beginPath(); g.arc(x0 - r * .35, y0 + len - r * .3, r * .32, 0, TAU); g.fill();
+          g.strokeStyle = "rgba(255,240,190,.55)"; g.lineWidth = Math.max(.4, neck * .35); g.beginPath(); g.moveTo(x0 - r * .5, y0 + 1); g.quadraticCurveTo(x0 - neck * .6, y0 + len * .5, x0 - neck * .4, y0 + len - r); g.stroke();
+        }
       }
-      if (melt > .02 && melt < .98 && Math.random() < .2) drips.push({ x:ix + iw * (.15 + Math.random() * .7), y:floor, vx:0, vy:12, r:1.6 + Math.random() });
     }
+    // Once the bar has gone the last strands let go.
+    if (!melting || melt >= .995) { for (const st of strands) drips.push({ x:st.x, y:st.y + st.len, vx:0, vy:st.v, r:st.r, tail:st.len * .5 }); strands.length = 0; }
     for (let i = drips.length - 1; i >= 0; i--) {
       const d = drips[i]; d.vy += 8; d.y += d.vy / 60;
       if (d.y >= base) { surface.poke(d.x / w, 2.6, 1); splash(splashes, d.x, base, 2, 45); drips.splice(i, 1); continue; }
-      g.fillStyle = "#ffbf3c"; g.beginPath(); g.ellipse(d.x, d.y, d.r, d.r * (1 + Math.min(2, d.vy / 110)), 0, 0, TAU); g.fill();
-      g.save(); g.globalCompositeOperation = "lighter"; glow(g, d.x, d.y, 6, "rgba(255,180,60,.5)"); g.restore();
+      // A falling bead trails a thinning thread of molten gold.
+      d.tail = Math.max(0, d.tail - .25);
+      if (d.tail > .5) {
+        const tail = g.createLinearGradient(d.x, d.y - d.tail, d.x, d.y);
+        tail.addColorStop(0, "rgba(255,190,60,0)"); tail.addColorStop(1, "#ffbf3c");
+        g.strokeStyle = tail; g.lineWidth = Math.max(.5, d.r * .45); g.beginPath(); g.moveTo(d.x, d.y - d.tail - d.r); g.lineTo(d.x, d.y); g.stroke();
+      }
+      g.fillStyle = "#ffbf3c"; g.beginPath(); g.ellipse(d.x, d.y, d.r, d.r * (1 + Math.min(1.6, d.vy / 120)), 0, 0, TAU); g.fill();
+      g.fillStyle = "rgba(255,248,220,.8)"; g.beginPath(); g.arc(d.x - d.r * .3, d.y - d.r * .3, d.r * .35, 0, TAU); g.fill();
     }
     surface.step(t);
     if (level > 0) {
