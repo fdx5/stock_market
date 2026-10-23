@@ -12,6 +12,8 @@ import { isBrowsingPage, ReadingRestoration } from "./browsingMemory";
 import ReadingTools from "./components/ReadingTools";
 import "./components/marketBriefPrint.css";
 import NeoShell from "./neo/NeoShell";
+import AdminWorkspace from "./components/AdminWorkspace";
+const TreasuryDetailPage = lazy(() => import("./desk2/world/TreasuryDesk").then(module => ({ default: module.TreasuryDetailPage })));
 import { useDesignMode } from "./neo/settings";
 import { MARKET_ASSETS } from "./marketAssets";
 import socialCards from "./neo/socialCards.json";
@@ -435,6 +437,8 @@ export default function App() {
     page = <DroneExplorePage />;
   } else if (path === "/drive") {
     page = <DriveGamePage />;
+  } else if (/^\/global\/treasuries\/(2|5|10)\/?$/.test(path)) {
+    page = <TreasuryDetailPage tenor={path.split("/")[3] as "2" | "5" | "10"} />;
   } else if (path === "/global") {
     page = <BroadsheetWorldPage />;
   } else if (path === "/battle") {
@@ -520,7 +524,7 @@ export default function App() {
   return (
     <>
       {/* Keep the explorer's warp alive while its keyed 3D destination rebuilds. */}
-      <NeoShell path={path}><Suspense key={path==='/drone-explore'||path==='/drone-explore/'?'/drone-explore':location.url} fallback={<LoadingState />}>{page}<ReadingRestoration key={location.entry} {...location} /></Suspense></NeoShell>
+      <NeoShell path={path}><Suspense key={path==='/drone-explore'||path==='/drone-explore/'?'/drone-explore':location.url} fallback={<LoadingState />}>{path === "/admin" || path.startsWith("/admin/") ? <AdminWorkspace path={path}>{page}</AdminWorkspace> : page}<ReadingRestoration key={location.entry} {...location} /></Suspense></NeoShell>
       {(showRecentDock || isBrowsingPage(path) || stockMatch || stockReportMatch || path === "/stocks") && <ReadingTools route={location.url} />}
       <VoltarisIngressLink path={path} />
       <HeaderVisitorBadge path={path} />

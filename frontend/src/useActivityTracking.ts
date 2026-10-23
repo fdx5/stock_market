@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { getSessionId } from "./session";
+import { audienceBrowserId, loadAudienceConfig } from "./audienceIdentity";
 import { deviceInfo, resolveDeviceInfo } from "./deviceInfo";
 import { MARKET_ASSETS } from "./marketAssets";
 
@@ -156,7 +157,7 @@ function sendEvent(body: Record<string, unknown>) {
   const send = (info: ReturnType<typeof deviceInfo>) => fetch(EVENT_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, device_info: info }),
+    body: JSON.stringify({ ...payload, browser_id: body.type === "page_view" ? audienceBrowserId() : null, device_info: info }),
     keepalive: true,
   }).catch(() => {
     // Best-effort telemetry — a dropped event isn't worth surfacing to the visitor.
@@ -178,7 +179,7 @@ function sendEvent(body: Record<string, unknown>) {
     const onVisibility = () => { if (document.visibilityState === "hidden") flush(); };
     window.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", onVisibility);
-    void resolveDeviceInfo().then(deliver).catch(flush);
+    void Promise.all([resolveDeviceInfo(), loadAudienceConfig()]).then(([info]) => deliver(info)).catch(flush);
   } else send(deviceInfo());
 }
 

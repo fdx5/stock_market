@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.services import (
     activity_log,
+    audience_analytics,
     device_analytics,
     dram_price,
     hub_event_store,
@@ -140,6 +141,12 @@ _RANKING_WINDOW = timedelta(days=7)
 @ttl_cache(55)
 def traffic_devices(days: int = Query(30, ge=1, le=730)):
     return device_analytics.overview(days)
+
+
+@router.get("/traffic/audience", dependencies=[Depends(require_admin)])
+@ttl_cache(55)
+def traffic_audience(days: int = Query(30, ge=1, le=90)):
+    return audience_analytics.overview(days)
 
 
 # The admin ranking lists scroll past their top ten now, so these ceilings are

@@ -13,6 +13,9 @@ WORKDIR /app
 
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/scripts/fetch_audience_geoip.py /tmp/fetch_audience_geoip.py
+RUN python /tmp/fetch_audience_geoip.py /app/geoip/dbip-city-lite-2026-10.mmdb
+ENV AUDIENCE_GEOIP_PATH=/app/geoip/dbip-city-lite-2026-10.mmdb
 
 # Claude Code CLI, so the prediction batch's 60% analysis can run on a Claude
 # subscription (PREDICTION_AI_BACKEND=subscription + CLAUDE_CODE_OAUTH_TOKEN) instead

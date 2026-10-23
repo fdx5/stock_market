@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, BackgroundTasks, Request, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Literal
 
-from app.services import activity_log, bot_detector
+from app.services import activity_log, audience_analytics, audience_location, bot_detector
 from app.utils import SESSION_ID_PATTERN
 
 router = APIRouter()
@@ -32,6 +33,30 @@ _VALID_HUB_ACTIONS = {
 MAX_DWELL_VALUE = 3600.0
 
 
+@router.get("/audience-config")
+def audience_config(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return {"enabled": audience_analytics.ready(), "location_enabled": audience_analytics.ready() and audience_location.enabled()}
+
+
+class LocationObservation(BaseModel):
+    browser_id: str = Field(pattern=SESSION_ID_PATTERN)
+    session_id: str = Field(pattern=SESSION_ID_PATTERN)
+    consent: Literal[True]
+    latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    accuracy_m: float = Field(gt=0, le=5000, allow_inf_nan=False)
+
+
+@router.post("/audience-location")
+def audience_location_observation(payload: LocationObservation, request: Request):
+    observation = audience_analytics.context(request, payload.browser_id, payload.session_id,
+                                            bot_detector.is_bot(request.headers.get("user-agent")))
+    accepted = bool(observation and audience_location.resolve(
+        observation, payload.latitude, payload.longitude, payload.accuracy_m))
+    return {"accepted": accepted}
+
+
 class DeviceInfo(BaseModel):
     model: str | None = Field(default=None, max_length=80)
     platform: str | None = Field(default=None, max_length=40)
@@ -41,6 +66,7 @@ class DeviceInfo(BaseModel):
 
 class ActivityEvent(BaseModel):
     session_id: str = Field(pattern=SESSION_ID_PATTERN)
+    browser_id: str | None = Field(default=None, pattern=SESSION_ID_PATTERN)
     type: str
     path: str = Field(min_length=1, max_length=200)
     label: str | None = Field(default=None, max_length=100)
@@ -84,7 +110,7 @@ class ActivityEvent(BaseModel):
 
 
 @router.post("/event")
-def post_event(payload: ActivityEvent, request: Request):
+def post_event(payload: ActivityEvent, request: Request, background_tasks: BackgroundTasks):
     # This is where a JS-rendering crawler enters the analytics: it executes
     # useActivityTracking.ts exactly as a browser does, so the payload alone is
     # indistinguishable from a person's. The one thing that does distinguish them is a
@@ -113,4 +139,9 @@ def post_event(payload: ActivityEvent, request: Request):
         device_info=payload.device_info.model_dump() if payload.device_info else None,
         occurred_at=payload.occurred_at,
     )
+    if payload.type == "page_view" and not payload.path.split("?", 1)[0].startswith("/admin"):
+        observation = audience_analytics.context(request, payload.browser_id, payload.session_id,
+                                                 bot_detector.is_bot(user_agent))
+        if observation:
+            background_tasks.add_task(audience_analytics.record, observation)
     return {"ok": True}

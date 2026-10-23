@@ -16,6 +16,7 @@ import AdminCommentsPanel from "./AdminCommentsPanel";
 import AdminOpsPanel from "./AdminOpsPanel";
 import AdminTrafficSection from "./AdminTrafficSection";
 import AdminDevicesPanel from "./AdminDevicesPanel";
+import AdminAudiencePanel from "./AdminAudiencePanel";
 import LiveSessionsAndLog, { LiveStatus } from "./LiveSessionsAndLog";
 import "./adminLive.css";
 import "./adminDashboard.css";
@@ -261,6 +262,7 @@ function Overview({
       </div>
 
       <AdminDevicesPanel />
+      <AdminAudiencePanel />
 
       <div className="ac-grid ac-grid--2">
         <Card title="최근 경고·오류" foot={<button type="button" onClick={() => go("system")}>전체 로그 →</button>}>
@@ -473,42 +475,14 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="ac-page">
-      <aside className="ac-side">
-        <Link to="/" className="ac-brand">
-          K-Stock Hub
-          <small>관리자 콘솔</small>
-        </Link>
-        <nav className="ac-nav" aria-label="관리자 메뉴">
-          {SECTIONS.map((s) => (
-            <button key={s.key} type="button" className={section === s.key ? "is-on" : ""} onClick={() => go(s.key)}>
-              <span>{s.label}</span>
-              <small>{s.hint}</small>
-              {s.key === "system" && health.data && health.data.errors_last_hour > 0 && <b className="ac-badge">{health.data.errors_last_hour}</b>}
-            </button>
-          ))}
-          <button type="button" onClick={() => navigate("/admin/system-atlas")}>
-            <span>시스템 아틀라스</span>
-            <small>전체 구조·실시간 연동</small>
-          </button>
+      <div className="ac-section-menu">
+        <nav className="ac-nav" aria-label="??? ?? ??">
+          {SECTIONS.map((s) => <button key={s.key} type="button" className={section === s.key ? "is-on" : ""} aria-pressed={section === s.key} onClick={() => go(s.key)}>
+            <span>{s.label}</span><small>{s.hint}</small>
+            {s.key === "system" && health.data && health.data.errors_last_hour > 0 && <b className="ac-badge">{health.data.errors_last_hour}</b>}
+          </button>)}
         </nav>
-        <div className="ac-side-foot">
-          <Link to="/admin/growth">성장 통계</Link>
-          <Link to="/admin/support-log">후원 접속 로그</Link>
-          <Link to="/admin/db">DB 조회</Link>
-          <Link to="/admin/monitor">모니터링</Link>
-          <Link to="/admin/system-atlas">시스템 아틀라스</Link>
-          <button
-            type="button"
-            className="ac-logout"
-            onClick={() => {
-              clearStoredSession();
-              navigate("/admin");
-            }}
-          >
-            로그아웃
-          </button>
-        </div>
-      </aside>
+      </div>
 
       <main className="ac-main">
         <header className="ac-top">

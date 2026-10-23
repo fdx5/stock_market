@@ -238,10 +238,6 @@ export default function AdminSystemAtlasPage() {
     const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `kstock-system-atlas-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
   };
   return <div className={`sa-page an-cyber ${view === "nexus" ? "is-nexus" : ""}`} ref={root}>
-    <aside className="sa-rail"><Link to="/admin/dashboard" className="sa-logo" title="관리자 콘솔"><Icon name="atlas" size={28}/></Link><div className="sa-rail-divider"/>
-      <Link to="/admin/dashboard" title="관리자 콘솔"><Icon name="gateway"/></Link><button className="is-active" title="시스템 아틀라스"><Icon name="atlas"/></button><Link to="/admin/monitor" title="뉴런 모니터"><Icon name="operations"/></Link><Link to="/admin/db" title="DB 콘솔"><Icon name="database"/></Link><Link to="/admin/live" title="실시간 접속"><Icon name="client"/></Link>
-      <span className="sa-rail-bottom"><Link to="/desk" title="사이트로 돌아가기"><Icon name="back"/></Link><span>KH</span></span>
-    </aside>
     <div className="sa-body">
       <header className="sa-header"><div className="sa-breadcrumb"><Link to="/admin/dashboard">관리자</Link><span>/</span><b>시스템 아틀라스</b><span className="sa-environment">{health?.commit && health.commit !== "dev" ? health.commit : "CURRENT INSTANCE"}</span></div><div className="sa-header-right"><span className={`sa-live-badge ${stale || healthStale ? "is-stale" : paused ? "is-paused" : ""}`}><i/>{paused ? "일시 정지" : stale ? "갱신 지연" : healthStale ? "점검 지연" : live ? "LIVE OBSERVATION" : "연결 중"}</span><span className="sa-time">{time(now)} KST</span>{view === "nexus" && <button className="an-header-pause" aria-pressed={paused} onClick={() => setPaused(p => !p)}><Icon name={paused ? "play" : "pause"} size={12}/>{paused ? "관측 재개" : "관측 정지"}</button>}</div></header>
       <main className="sa-main">

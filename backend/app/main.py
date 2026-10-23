@@ -26,6 +26,7 @@ from app.data.universe import get_top_market_cap, get_top_market_cap_all, warm_e
 from app.data.us_universe import warm_us_korean_names
 from app.routers import (
     activity,
+    treasuries,
     admin,
     admin_comments,
     support_analytics,
@@ -271,6 +272,13 @@ app.include_router(battle.router, prefix="/api/battle")
 app.include_router(etf.router, prefix="/api/etfs")
 app.include_router(fight.router, prefix="/api/fight")
 app.include_router(global_dashboard.router, prefix="/api/global")
+app.include_router(treasuries.router, prefix="/api/global")
+
+
+@app.on_event("startup")
+def initialize_audience_collection():
+    from app.services import audience_analytics
+    audience_analytics.initialize()
 app.include_router(prediction.router, prefix="/api/prediction")
 app.include_router(translate.router, prefix="/api")
 app.include_router(geo.router, prefix="/api")

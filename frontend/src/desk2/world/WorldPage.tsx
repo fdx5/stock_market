@@ -24,6 +24,7 @@ import { pct, sentimentLabel, toneOf, usd, usdPrice, useGlobalIndices, useL, use
 import { jumpTo, useBroadsheet, useFinderHotkey, useScrollSpy } from "../shell";
 import "../pages.css";
 import "./world.css";
+import TreasuryDesk from "./TreasuryDesk";
 import { useDesignMode } from "../../neo/settings";
 import NeoSectorDigest from "../../neo/NeoSectorDigest";
 
@@ -51,6 +52,7 @@ import NeoSectorDigest from "../../neo/NeoSectorDigest";
 type Lens = "usd" | "krw";
 
 const SECTIONS: DeskSection[] = [
+  { id: "w-treasuries", no: "T", ko: "미국 국채", en: "Treasuries" },
   { id: "w-front", no: "00", ko: "시장 요약", en: "Market" },
   { id: "w-investors", no: "01", ko: "거물 포트폴리오", en: "Investors" },
   { id: "w-videos", no: "02", ko: "미국 투자 영상", en: "US videos" },
@@ -224,6 +226,7 @@ export default function WorldPage() {
             </div>}
           </details>
         </section>
+        <TreasuryDesk />
         <InvestorShowcase id="w-investors" />
         <VideoShowcase id="w-videos" market="us" />
         <div className="ed-lens-toolbar"><span>{L("아래 종목표 통화", "Currency for stock tables below")}</span><Marker options={[{ id: "usd" as Lens, label: L("달러", "USD") }, { id: "krw" as Lens, label: L("원화", "KRW") }]} value={lens} onChange={setLens} label={L("통화 선택", "Currency")} /></div>
