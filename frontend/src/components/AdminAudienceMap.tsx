@@ -20,7 +20,8 @@ export default function AdminAudienceMap() {
   const [zoom, setZoom] = useState(6);
   useEffect(() => {
     if (!host.current) return;
-    const view = L.map(host.current, { minZoom: 2, maxZoom: 19, scrollWheelZoom: true }).setView([36.3, 127.8], 6);
+    const view = L.map(host.current, { minZoom: 2, maxZoom: 19, scrollWheelZoom: true,
+      zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false }).setView([36.3, 127.8], 6);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(view);
     L.control.scale({ imperial: false }).addTo(view);
@@ -62,14 +63,14 @@ export default function AdminAudienceMap() {
         .bindPopup(popup).addTo(group);
       marker.on("click", () => setSelected(s.id));
     }
-    if (points.length && !initialFit.current) { view.fitBounds(L.latLngBounds(points), { maxZoom: 9, padding: [40, 40] }); initialFit.current = true; }
+    if (points.length && !initialFit.current) { view.fitBounds(L.latLngBounds(points), { maxZoom: 9, padding: [40, 40], animate: false }); initialFit.current = true; }
   }, [data]);
   const focus = (s: Session) => {
     setSelected(s.id);
     if (s.latitude != null && s.longitude != null) {
       initialFit.current = true;
       map.current?.stop();
-      map.current?.setView([s.latitude, s.longitude], s.source === "browser_location" ? 17 : 11, { animate: false });
+      map.current?.setView([s.latitude, s.longitude], s.source === "browser_location" ? 17 : 11, { animate: false, reset: true });
     }
   };
   const fit = () => {

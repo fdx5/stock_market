@@ -7,7 +7,7 @@ const normalize = (value: string) => value.normalize("NFKD").toLowerCase().repla
 const koreanRegions: Record<string, string> = {
   seoul: "서울특별시", busan: "부산광역시", pusan: "부산광역시", daegu: "대구광역시", taegu: "대구광역시",
   incheon: "인천광역시", inchon: "인천광역시", gwangju: "광주광역시", kwangju: "광주광역시",
-  daejeon: "대전광역시", taejŏn: "대전광역시", ulsan: "울산광역시", sejong: "세종특별자치시",
+  daejeon: "대전광역시", taejon: "대전광역시", ulsan: "울산광역시", sejong: "세종특별자치시",
   gyeonggi: "경기도", kyonggi: "경기도", gangwon: "강원특별자치도", kangwon: "강원특별자치도",
   chungcheongbuk: "충청북도", northchungcheong: "충청북도", chungbuk: "충청북도",
   chungcheongnam: "충청남도", southchungcheong: "충청남도", chungnam: "충청남도",
