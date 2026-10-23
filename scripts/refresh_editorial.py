@@ -51,10 +51,41 @@ def archive(payload: dict) -> dict:
     raise RuntimeError("Archive append did not complete")
 
 
+def archive_only(market: str) -> None:
+    """Collect from a residential host; the server reads a 20-video archive within a minute.
+
+    YouTube rejects RSS and watch pages from cloud hosts (Render, GitHub Actions),
+    so no server credential is needed here: the append-only archive is the handoff.
+    """
+    start, cutoff = source.video_edition_window()
+    current = requests.get("https://kospimap.com/api/editorial/videos", params={"market": market}, timeout=30).json()
+    if source._iso(current.get("window_end", "")) == cutoff and len(current.get("items", [])) >= source.VIDEO_TARGET:
+        print(json.dumps({"market": market, "count": len(current["items"]), "skipped": "complete"}))
+        return
+    best = None
+    for attempt in range(3):
+        try:
+            collected = source.fetch_videos(market, use_archive=False)
+        except Exception as exc:
+            print(json.dumps({"market": market, "attempt": attempt + 1, "error": type(exc).__name__,
+                              **getattr(exc, "diagnostics", {})}), flush=True)
+            continue
+        if best is None or len(collected["items"]) > len(best["items"]):
+            best = collected
+        if len(best["items"]) >= source.VIDEO_TARGET:
+            break
+    if best is None:
+        raise SystemExit("Editorial collection failed")
+    archived = archive(best)
+    print(json.dumps({"market": market, "verified_items": len(best["items"]), "archived_items": len(archived.get("items", []))}))
+
+
 def main():
     market = sys.argv[1]
     if market not in ("kr", "us"):
         raise SystemExit("Expected kr or us")
+    if "--archive-only" in sys.argv[2:]:
+        return archive_only(market)
     token = os.environ.get("EDITORIAL_REFRESH_TOKEN")
     if not token:
         raise SystemExit("Editorial batch secret is missing")
