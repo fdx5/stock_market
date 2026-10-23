@@ -1,0 +1,328 @@
+{
+  "id": "haeundae-zenith",
+  "video": {
+    "width": 3840,
+    "height": 2160,
+    "fps": 60,
+    "seconds": 162
+  },
+  "center": {
+    "id": "zenith-film",
+    "lat": 35.156636,
+    "lon": 129.145076,
+    "title": "Haeundae Doosan Weve the Zenith",
+    "address": "Busan Marine City 2-ro 33",
+    "parcel": "Busan U-dong 1407",
+    "kind": "\uc544\ud30c\ud2b8"
+  },
+  "radius": 800,
+  "minAltitude": 120,
+  "maxAltitude": 350,
+  "minSpeed": 100,
+  "maxSpeed": 200,
+  "shotScale": 0.76,
+  "hour": 15.8,
+  "music": {
+    "file": "I:/ai_root/stock_market/output/haeundae-cinematic-20261024/inception.webm",
+    "title": "Inception - Angel Lover",
+    "url": "https://www.youtube.com/watch?v=twTHMnVM9L4",
+    "bpm": 90,
+    "rights": "Requester confirmed permitted use on 2026-10-24"
+  },
+  "title": "THE ZENITH",
+  "subtitle": "BUSAN / MARINE CITY",
+  "ending": "HAEUNDAE",
+  "port": 5200,
+  "apiOrigin": "https://kospimap.com",
+  "shots": [
+    {
+      "name": "SEA TO SKY",
+      "points": [
+        [
+          -630,
+          170,
+          420
+        ],
+        [
+          -430,
+          190,
+          470
+        ],
+        [
+          -120,
+          220,
+          560
+        ],
+        [
+          210,
+          260,
+          570
+        ],
+        [
+          500,
+          300,
+          400
+        ]
+      ],
+      "target": [
+        0,
+        160,
+        0
+      ],
+      "fov": 63,
+      "endFov": 54
+    },
+    {
+      "name": "THE CANYON",
+      "points": [
+        [
+          580,
+          150,
+          80
+        ],
+        [
+          390,
+          135,
+          30
+        ],
+        [
+          180,
+          125,
+          -60
+        ],
+        [
+          -70,
+          120,
+          -115
+        ],
+        [
+          -330,
+          145,
+          -180
+        ],
+        [
+          -590,
+          190,
+          -200
+        ]
+      ],
+      "target": [
+        -750,
+        170,
+        -200
+      ],
+      "fov": 74,
+      "endFov": 65
+    },
+    {
+      "name": "VERTICAL REVEAL",
+      "points": [
+        [
+          -620,
+          150,
+          210
+        ],
+        [
+          -430,
+          180,
+          380
+        ],
+        [
+          -170,
+          240,
+          430
+        ],
+        [
+          120,
+          310,
+          380
+        ],
+        [
+          340,
+          350,
+          190
+        ],
+        [
+          390,
+          350,
+          -60
+        ]
+      ],
+      "target": [
+        0,
+        210,
+        0
+      ],
+      "fov": 62,
+      "endFov": 52
+    },
+    {
+      "name": "MARINE CITY",
+      "points": [
+        [
+          300,
+          245,
+          -560
+        ],
+        [
+          80,
+          230,
+          -620
+        ],
+        [
+          -210,
+          220,
+          -570
+        ],
+        [
+          -450,
+          200,
+          -380
+        ],
+        [
+          -570,
+          180,
+          -100
+        ],
+        [
+          -570,
+          170,
+          150
+        ]
+      ],
+      "target": [
+        100,
+        175,
+        100
+      ],
+      "fov": 60,
+      "endFov": 67
+    },
+    {
+      "name": "TOWER RUN",
+      "points": [
+        [
+          -590,
+          140,
+          -210
+        ],
+        [
+          -370,
+          130,
+          -170
+        ],
+        [
+          -130,
+          135,
+          -60
+        ],
+        [
+          80,
+          155,
+          80
+        ],
+        [
+          290,
+          175,
+          160
+        ],
+        [
+          530,
+          190,
+          230
+        ]
+      ],
+      "target": [
+        730,
+        210,
+        320
+      ],
+      "fov": 76,
+      "endFov": 65
+    },
+    {
+      "name": "OCEAN UNFOLD",
+      "points": [
+        [
+          590,
+          250,
+          300
+        ],
+        [
+          350,
+          285,
+          520
+        ],
+        [
+          60,
+          310,
+          640
+        ],
+        [
+          -260,
+          335,
+          600
+        ],
+        [
+          -520,
+          350,
+          380
+        ]
+      ],
+      "target": [
+        0,
+        160,
+        0
+      ],
+      "endTarget": [
+        300,
+        50,
+        1000
+      ],
+      "fov": 58,
+      "endFov": 69
+    },
+    {
+      "name": "THE HORIZON",
+      "points": [
+        [
+          -630,
+          320,
+          230
+        ],
+        [
+          -550,
+          310,
+          460
+        ],
+        [
+          -290,
+          300,
+          650
+        ],
+        [
+          10,
+          310,
+          710
+        ],
+        [
+          310,
+          330,
+          620
+        ],
+        [
+          540,
+          350,
+          400
+        ]
+      ],
+      "target": [
+        0,
+        170,
+        0
+      ],
+      "fov": 58,
+      "endFov": 61
+    }
+  ]
+}
