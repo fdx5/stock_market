@@ -1,7 +1,12 @@
 /** Procedural animations for the "Prices in between" cells. Each draws one frame at
  *  time `t` (seconds) into a context already scaled to CSS pixels (w × h). */
 export type CellArtKind = "usd-krw" | "bitcoin" | "ethereum" | "xrp" | "wti" | "gold" | "silver";
-type Draw = (g:CanvasRenderingContext2D, w:number, h:number, t:number) => void;
+/** Draws one frame. `sky`, when the art asks for one, is an overlay reaching past the cell
+ *  (origin at the cell's top-left: above it is negative y, below it y > h); return true if used. */
+type Draw = (g:CanvasRenderingContext2D, w:number, h:number, t:number, sky?:CanvasRenderingContext2D | null) => boolean | void;
+/** How far an overlay reaches above and below the cell (px), and beyond each side (share of the cell width). */
+export type Overlay = { above:number; below:number; side:number };
+const SKY_ABOVE = 400, SKY_SIDE = .8, GOLD_FALL = 300, SILVER_FALL = 260;
 /** Live inputs a cell's art reads every frame (kept current by the component). */
 export type CellOpts = { up:boolean };
 
@@ -325,14 +330,59 @@ function flameTongue(g:CanvasRenderingContext2D, x:number, y:number, r:number, h
   g.bezierCurveTo(x - r * 1.1, y - r * .4, x - r * .5, y - height * .55, x, y - height);
   g.fill();
 }
+/* Fire: a noise field carried upward, coloured on a black-body ramp and added as light,
+ * with heavy black smoke curling off the flame tips. Computed on a coarse grid, scaled up. */
+const NOISE_P = (() => {
+  const a = Array.from({ length:256 }, (_, i) => i);
+  let seed = 7;
+  for (let i = 255; i > 0; i--) { seed = seed * 16807 % 2147483647; const j = seed % (i + 1); [a[i], a[j]] = [a[j], a[i]]; }
+  return Uint8Array.from([...a, ...a]);
+})();
+function vnoise(x:number, y:number) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, X = xi & 255, Y = yi & 255;
+  const h00 = NOISE_P[NOISE_P[X] + Y], h10 = NOISE_P[NOISE_P[(X + 1) & 255] + Y], h01 = NOISE_P[NOISE_P[X] + ((Y + 1) & 255)], h11 = NOISE_P[NOISE_P[(X + 1) & 255] + ((Y + 1) & 255)];
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), a = h00 + (h10 - h00) * u, b = h01 + (h11 - h01) * u;
+  return (a + (b - a) * v) / 255;
+}
+function fbm(x:number, y:number) {
+  let sum = 0, amp = .5;
+  for (let i = 0; i < 4; i++) { sum += amp * vnoise(x, y); x *= 2.03; y *= 2.03; amp *= .5; }
+  return sum / .9375;
+}
+const fbm3 = (x:number, y:number) => (vnoise(x, y) * .5 + vnoise(x * 2.03, y * 2.03) * .25 + vnoise(x * 4.12, y * 4.12) * .125) / .875;
+type Grid = { cols:number; rows:number; cv:HTMLCanvasElement; img:ImageData };
+function grid(cols:number, rows:number, old:Grid | null):Grid {
+  if (old && old.cols === cols && old.rows === rows) return old;
+  const cv = document.createElement("canvas"); cv.width = cols; cv.height = rows;
+  return { cols, rows, cv, img:cv.getContext("2d")!.createImageData(cols, rows) };
+}
+// Black body: nothing → ember red → orange → yellow → near-white at the hottest roots.
+const FIRE_RAMP = (() => {
+  const stops:[number, number, number, number][] = [[0, 0, 0, 0], [.18, 70, 6, 0], [.38, 190, 36, 0], [.55, 255, 100, 8], [.72, 255, 175, 40], [.88, 255, 230, 130], [1, 255, 252, 225]];
+  const out = new Uint8ClampedArray(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const f = i / 255, k = stops.findIndex(st => st[0] >= f), [a, b] = [stops[Math.max(0, k - 1)], stops[Math.max(0, k)]], m = b[0] > a[0] ? (f - a[0]) / (b[0] - a[0]) : 0;
+    for (let c = 0; c < 3; c++) out[i * 3 + c] = a[c + 1] + (b[c + 1] - a[c + 1]) * m;
+  }
+  return out;
+})();
+type FireBuf = { cols:number; rows:number; fire:HTMLCanvasElement; bloom:HTMLCanvasElement; fireImg:ImageData };
+function fireBuf(cols:number, rows:number, old:FireBuf | null):FireBuf {
+  if (old && old.cols === cols && old.rows === rows) return old;
+  const make = (cw:number, ch:number) => { const c = document.createElement("canvas"); c.width = cw; c.height = ch; return c; };
+  const fire = make(cols, rows);
+  return { cols, rows, fire, bloom:make(Math.max(1, Math.ceil(cols / 6)), Math.max(1, Math.ceil(rows / 6))), fireImg:fire.getContext("2d")!.createImageData(cols, rows) };
+}
 function createOil(opts:CellOpts):Draw {
   // Seconds: tip 0–1.1, fill 1.3–9.2, hold full 5 s, drain and right the drum 14.2–17.
   // When crude is up the scene carries on instead: a lit match drops in, the slick burns for
-  // 4 s under rising smoke, then fire and smoke die away as the pool is consumed.
-  const FULL = 9.24, HOLD = FULL + 5, THROW = HOLD, IGNITE = THROW + 1.4, OUT = IGNITE + 4;
-  let surface:Surface | null = null, last = 0;
-  const flames:Flame[] = [], smoke:Flame[] = [];
-  return (g, w, h, t) => {
+  // 6 s while a plume of smoke climbs 400 px above the cell, black at the fire, greying and
+  // whitening as it rises and spreads; then fire and smoke die away as the pool is consumed.
+  const FULL = 9.24, HOLD = FULL + 5, THROW = HOLD, IGNITE = THROW + 1.4, OUT = IGNITE + 6, SMOKE_SPEED = 70;
+  let surface:Surface | null = null, last = 0, buf:FireBuf | null = null, haze:Grid | null = null, skyHaze:Grid | null = null;
+  const embers:Flame[] = [];
+  return (g, w, h, t, sky) => {
+    let skyUsed = false;
     const dt = clamp(t - last, 0, .05); last = t;
     const fire = opts.up, cycle = fire ? OUT + 2.4 : HOLD + 2.76, drain = fire ? OUT : HOLD;
     const n = Math.max(14, Math.round(w / 5));
@@ -343,10 +393,10 @@ function createOil(opts:CellOpts):Draw {
     bg.addColorStop(0, "#fdfcf8"); bg.addColorStop(1, "#ece6d8");
     g.fillStyle = bg; g.fillRect(0, 0, w, h);
     if (burn > 0) {
-      // The fire warms the whole cell.
-      const warm = g.createLinearGradient(0, 0, 0, h);
-      warm.addColorStop(0, `rgba(255,190,120,${.12 * burn})`); warm.addColorStop(1, `rgba(255,120,40,${.3 * burn})`);
-      g.fillStyle = warm; g.fillRect(0, 0, w, h);
+      // The blaze darkens the room to a smoky dusk and lights it orange from below.
+      const dusk = g.createLinearGradient(0, 0, 0, h);
+      dusk.addColorStop(0, `rgba(26,16,12,${.62 * burn})`); dusk.addColorStop(1, `rgba(90,34,8,${.55 * burn})`);
+      g.fillStyle = dusk; g.fillRect(0, 0, w, h);
     }
     const tip = s < 1.12 ? easeOut(s / 1.12) : s < drain ? 1 : 1 - ease((s - drain) / (cycle - drain));
     const level = s < 1.26 ? 0 : s < FULL ? ease((s - 1.26) / (FULL - 1.26)) : s < drain ? 1 : 1 - ease((s - drain) / (cycle - drain));
@@ -386,48 +436,111 @@ function createOil(opts:CellOpts):Draw {
     const surfaceY = (x:number) => pts.length ? pts[Math.round(clamp(x / w) * (pts.length - 1))][1] : base;
     // Fire spreads out from where the match lands.
     const spread = clamp((s - IGNITE) / .7), left = fireX - spread * w, right = fireX + spread * w * .8;
+    const reach = (x:number) => clamp(Math.min(x - left, right - x) / (w * .1));
+    // The smoke plume: its head climbs at SMOKE_SPEED; once the fire is out its foot lifts off too.
+    const smoking = fire && s >= IGNITE && pts.length > 0;
+    const plumeX = (left + right) / 2, plumeHalf = (right - left) * .4, head = (s - IGNITE - .1) * SMOKE_SPEED + h * .15;
+    const foot = s > OUT ? (s - OUT) * SMOKE_SPEED * 1.8 : 0, thin = s < OUT ? clamp((s - IGNITE - .1) / .6) : 1 - clamp((s - OUT) / 2.2);
+    const reachTop = base + SKY_ABOVE;
+    let shade = 0;
+    /** Smoke density at (x, y), cell coordinates; also sets `shade` (black at the fire → white high up). */
+    const smokeAt = (x:number, y:number) => {
+      const rise = base - y;
+      if (rise < h * .1) return 0;
+      const edge = clamp((head - rise) / 50) * clamp((rise - foot) / 50);
+      if (edge <= 0) return 0;
+      const half = plumeHalf + rise * .36, cx = plumeX + rise * .12 + Math.sin(t * .5 + rise * .012) * rise * .08;
+      let mx = clamp(1 - Math.abs(x - cx) / half);
+      if (mx <= 0) return 0;
+      mx = mx * mx * (3 - 2 * mx);
+      const warp = fbm3(x * .012, y * .012 + t * .5) * 2.2, n = fbm3(x * .028 + warp, y * .028 + t * 2.6 + warp * .5);
+      const up = clamp(rise / reachTop);
+      shade = (up < .35 ? 10 + up / .35 * 110 : 120 + (up - .35) / .65 * 120) + (n - .5) * 60;
+      return clamp((n - .3) * 2.3) * mx * edge * thin * (1 - up * .5) * clamp((1 - up) * 4);
+    };
+    // Kept see-through (the page behind stays readable) and feathered to nothing at the overlay's edges.
+    const paintHaze = (gr:Grid, x0:number, y0:number, cell:number, opacity:number, feather:number) => {
+      const px = gr.img.data, x1 = x0 + gr.cols * cell;
+      for (let j = 0; j < gr.rows; j++) for (let i = 0; i < gr.cols; i++) {
+        const x = x0 + (i + .5) * cell, y = y0 + (j + .5) * cell, at = (j * gr.cols + i) * 4;
+        const fade = feather ? clamp(Math.min(x - x0, x1 - x) / feather) * clamp((y - y0) / (feather * 1.4)) : 1;
+        const d = fade > 0 ? smokeAt(x, y) * fade : 0, c = clamp(shade, 0, 255);
+        px[at] = c; px[at + 1] = c * .97; px[at + 2] = c * .95; px[at + 3] = d * opacity * 255;
+      }
+      gr.cv.getContext("2d")!.putImageData(gr.img, 0, 0);
+    };
+    if (smoking && thin > 0) {
+      // Inside the cell, behind the flames.
+      const cell = 2.5;
+      haze = grid(Math.ceil(w / cell), Math.max(1, Math.ceil(base / cell)), haze);
+      paintHaze(haze, 0, 0, cell, .55, 0);
+      g.save(); g.imageSmoothingEnabled = true; g.drawImage(haze.cv, 0, 0, haze.cols * cell, haze.rows * cell); g.restore();
+      // And above it, rolling out over the page.
+      if (sky) {
+        const cell2 = 4, side = w * SKY_SIDE;
+        skyHaze = grid(Math.ceil((w + side * 2) / cell2), Math.ceil(SKY_ABOVE / cell2), skyHaze);
+        paintHaze(skyHaze, -side, -skyHaze.rows * cell2, cell2, .55, side * .7);
+        sky.imageSmoothingEnabled = true;
+        sky.drawImage(skyHaze.cv, -side, -skyHaze.rows * cell2, skyHaze.cols * cell2, skyHaze.rows * cell2);
+        skyUsed = true;
+      }
+    }
     if (burn > 0 && pts.length) {
-      const reach = (x:number) => clamp(Math.min(x - left, right - x) / (w * .1));
-      for (const [tall, stops, phase] of [[h * .55, ["rgba(240,90,20,.85)", "rgba(220,60,15,.65)", "rgba(160,30,10,0)"], 0], [h * .4, ["rgba(255,200,90,.95)", "rgba(255,130,30,.85)", "rgba(230,70,15,0)"], 1.7], [h * .2, ["rgba(255,252,225,1)", "rgba(255,215,100,.9)", "rgba(255,150,40,0)"], 3.1]] as const) {
-        g.beginPath();
-        const top:[number, number][] = [];
-        for (const [x, y] of pts) {
-          if (x < left || x > right) continue;
-          const tongue = Math.max(0, Math.sin(x * .19 + t * 9 + phase + Math.sin(x * .05 + t * 3 + phase) * 2)) ** 1.4, sway = Math.sin(t * 6 + x * .07 + phase) * 2;
-          top.push([x + sway, y - tall * burn * reach(x) * (.3 + .7 * tongue)]);
-          if (top.length === 1) g.moveTo(x, y + 1); else g.lineTo(x, y + 1);
+      const CELL = 1, fireH = h * .55, top = Math.max(...pts.map(q => q[1])) + 3;
+      const cols = Math.ceil(w / CELL), rows = Math.max(1, Math.ceil(top / CELL));
+      buf = fireBuf(cols, rows, buf);
+      const fp = buf.fireImg.data;
+      for (let i = 0; i < cols; i++) {
+        const x = (i + .5) * CELL, sy = surfaceY(x), tall = (.6 + .7 * fbm(x * .02 + 9, t * .6)) * reach(x) * burn;
+        for (let j = 0; j < rows; j++) {
+          const y = (j + .5) * CELL, v = (sy - y) / fireH, at = (j * cols + i) * 4;
+          let f = 0;
+          if (v > -.06 && tall > .02) {
+            const vv = Math.max(0, v) / tall;
+            if (vv < 1) {
+              const wx = x * .085, wy = y * .045 + t * 2.6, warp = fbm(wx * .6 + 3.1, wy * .6 - t * .5);
+              f = clamp(((1 - vv) ** 1.6 * (fbm(wx + warp * 1.6, wy) * 1.9 - .25) - vv * .3 - .12) * 1.5);
+              if (v < 0) f *= 1 + v / .06;
+            }
+          }
+          const k = Math.round(f * 255) * 3;
+          fp[at] = FIRE_RAMP[k]; fp[at + 1] = FIRE_RAMP[k + 1]; fp[at + 2] = FIRE_RAMP[k + 2]; fp[at + 3] = 255;
         }
-        for (let i = top.length - 1; i >= 0; i--) g.lineTo(top[i][0], top[i][1]);
-        g.closePath();
-        const fill = g.createLinearGradient(0, base, 0, base - tall);
-        fill.addColorStop(0, stops[0]); fill.addColorStop(.45, stops[1]); fill.addColorStop(1, stops[2]);
-        g.fillStyle = fill; g.fill();
       }
-      // Loose tongues of flame leaping off the sheet, and smoke from their tips.
-      for (let k = 0; k < 4 * burn; k++) {
+      buf.fire.getContext("2d")!.putImageData(buf.fireImg, 0, 0);
+      const bw = cols * CELL, bh = rows * CELL;
+      g.save(); g.imageSmoothingEnabled = true;
+      // The flames as light, then their bloom.
+      g.globalCompositeOperation = "lighter";
+      g.drawImage(buf.fire, 0, 0, bw, bh);
+      const bc = buf.bloom.getContext("2d")!;
+      bc.clearRect(0, 0, buf.bloom.width, buf.bloom.height); bc.drawImage(buf.fire, 0, 0, buf.bloom.width, buf.bloom.height);
+      g.globalAlpha = .6; g.drawImage(buf.bloom, -CELL * 3, -CELL * 3, bw + CELL * 6, bh + CELL * 6);
+      g.restore();
+      // Sparks: bright embers riding the updraft, zig-zagging as they cool.
+      for (let k = 0; k < dt * 40 * burn; k++) {
         const x = left + Math.random() * (right - left);
-        flames.push({ x, y:surfaceY(x) - Math.random() * h * .06, vx:(Math.random() - .5) * 12, vy:-(.35 + Math.random() * .45) * h, age:0, life:.4 + Math.random() * .4, r:h * (.03 + Math.random() * .035) });
-      }
-      if (s < OUT && Math.random() < dt * 9 && smoke.length < 30) {
-        const x = left + Math.random() * (right - left);
-        smoke.push({ x, y:surfaceY(x) - h * .3, vx:(Math.random() - .3) * 14, vy:-(.09 + Math.random() * .07) * h, age:0, life:2.6 + Math.random() * 1, r:h * (.08 + Math.random() * .05) });
+        embers.push({ x, y:surfaceY(x) - Math.random() * h * .2, vx:(Math.random() - .5) * 20, vy:-(.3 + Math.random() * .45) * h, age:0, life:.7 + Math.random() * .9, r:.5 + Math.random() * .8 });
       }
     }
-    for (let i = flames.length - 1; i >= 0; i--) {
-      const f = flames[i]; f.age += dt; f.x += f.vx * dt; f.y += f.vy * dt;
-      if (f.age > f.life) { flames.splice(i, 1); continue; }
-      const a = f.age / f.life, size = f.r * (1 - a * .6);
-      const color = a < .3 ? `rgba(255,226,140,${.6 * (1 - a)})` : a < .65 ? `rgba(255,140,40,${.55 * (1 - a)})` : `rgba(200,55,20,${.45 * (1 - a)})`;
-      flameTongue(g, f.x, f.y, size * 1.3, size * (1.8 + (f.r * 37 % 1)), color);
+    g.save(); g.globalCompositeOperation = "lighter";
+    for (let i = embers.length - 1; i >= 0; i--) {
+      const e = embers[i]; e.age += dt; e.vx += Math.sin(e.age * 9 + i) * 60 * dt; e.x += e.vx * dt; e.y += e.vy * dt;
+      if (e.age > e.life) { embers.splice(i, 1); continue; }
+      const a = 1 - e.age / e.life, flick = .6 + .4 * Math.sin(e.age * 40 + i);
+      g.fillStyle = `rgba(255,${Math.round(150 + 90 * a)},${Math.round(60 * a)},${a * flick})`;
+      g.beginPath(); g.arc(e.x, e.y, e.r * (.6 + a * .6), 0, TAU); g.fill();
     }
-    if (flames.length > 220) flames.splice(0, flames.length - 220);
+    if (embers.length > 160) embers.splice(0, embers.length - 160);
     // Ignition flash where the match lands.
     if (fire && s >= IGNITE && s < IGNITE + .35) {
       const p = (s - IGNITE) / .35;
-      glow(g, fireX, surfaceY(fireX) - h * .05, h * (.25 + p * .4), `rgba(255,220,130,${.9 * (1 - p)})`);
+      glow(g, fireX, surfaceY(fireX) - h * .05, h * (.25 + p * .5), `rgba(255,200,110,${.9 * (1 - p)})`);
     }
+    g.restore();
     // Drum in front of the pool.
     g.save(); g.translate(px, py); g.rotate(angle); blackDrum(g, dw, dh); g.restore();
+    if (burn > 0) { g.save(); g.globalCompositeOperation = "lighter"; glow(g, fireX, base - h * .12, w * .5, `rgba(255,110,30,${.25 * burn * (.85 + .15 * Math.sin(t * 23))})`); g.restore(); }
     // Crude only ever falls: once the pool reaches the mouth the stream simply enters it there.
     if (flow > 0 && base > mouth.y + 2) {
       const thick = (3.2 * glug + 1) * flow;
@@ -440,16 +553,7 @@ function createOil(opts:CellOpts):Draw {
       const mx = x0 + (fireX - x0) * p, my = y0 + (y1 - y0) * p * p - Math.sin(p * Math.PI) * h * .08;
       drawMatch(g, mx, my, h * .3, .5 - p * 2.6, t);
     }
-    // Smoke rolls up over everything and thins out; it all clears once the fire is out.
-    const clear = !fire || s < OUT ? 1 : 1 - clamp((s - OUT) / 1.6);
-    for (let i = smoke.length - 1; i >= 0; i--) {
-      const p = smoke[i]; p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx += Math.sin(p.age * 2 + i) * 4 * dt;
-      if (p.age > p.life || clear <= 0) { smoke.splice(i, 1); continue; }
-      const a = p.age / p.life, r = p.r * (1 + a * 3.2), alpha = Math.sin(Math.PI * Math.min(1, a * 1.3 + .05)) * .55 * clear;
-      const puff = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
-      puff.addColorStop(0, `rgba(38,34,33,${alpha})`); puff.addColorStop(.55, `rgba(60,55,52,${alpha * .6})`); puff.addColorStop(1, "rgba(80,74,70,0)");
-      g.fillStyle = puff; g.fillRect(p.x - r, p.y - r, r * 2, r * 2);
-    }
+    return skyUsed;
   };
 }
 
@@ -612,7 +716,11 @@ function createGold():Draw {
   // Sticky strands hang from the melt front, stretch, neck and let go as falling drops.
   const strands:{ f:number; len:number; v:number; r:number; max:number; x:number; y:number }[] = [];
   const drips:(Drop & { tail:number })[] = [], splashes:Drop[] = [];
-  return (g, w, h, t) => {
+  // Glittering gold dust spilling over the cell's lower edge while the pool is high.
+  const dust:Flame[] = [];
+  let last = 0;
+  return (g, w, h, t, sky) => {
+    const dt = clamp(t - last, 0, .05); last = t;
     const n = Math.max(14, Math.round(w / 5));
     if (!surface || surface.n !== n) surface = new Surface(n, .022, .03, .11);
     const s = t % CYCLE;
@@ -713,6 +821,42 @@ function createGold():Draw {
       g.restore();
     }
     stepDrops(g, splashes, () => base, "#ffc84a");
+    // Overflow: as the melt nears the brim, glowing dust pours over the bottom edge like a falls,
+    // in a few drifting sheets, and keeps falling while it is full.
+    const pour = s < DRAIN ? clamp((level - .3) / .5) : 0;
+    if (!sky) return;
+    // Mostly fine dust, some larger flakes of leaf; spilling anywhere along the edge, thickest in
+    // a few wandering sheets. Fine dust meets more air drag, so it drifts down slower.
+    for (let k = 0; k < dt * 700 * pour; k++) {
+      const sheet = Math.floor(Math.random() * 6), cx = w * (.08 + sheet * .17) + Math.sin(t * (.5 + sheet * .13) + sheet * 2.1) * w * .07;
+      const x = Math.random() < .55 ? cx + (Math.random() - .5) * (Math.random() * w * .18) : Math.random() * w;
+      const r = Math.random() < .85 ? .35 + Math.random() * .7 : 1.1 + Math.random() * 1.6;
+      dust.push({ x, y:h - 1 - Math.random() * 2, vx:(Math.random() - .5) * 26, vy:8 + Math.random() * 50, age:0, life:Math.random() * TAU, r });
+    }
+    if (dust.length > 1600) dust.splice(0, dust.length - 1600);
+    if (!dust.length && !pour) return;
+    sky.save(); sky.globalCompositeOperation = "lighter";
+    for (let i = dust.length - 1; i >= 0; i--) {
+      const d = dust[i], drag = 1.6 / d.r;
+      d.age += dt; d.vy += (330 - d.vy * drag) * dt; d.vx += (Math.sin(d.age * 5 + d.life) * 40 - d.vx * drag) * dt;
+      d.x += d.vx * dt; d.y += d.vy * dt;
+      const fall = (d.y - h) / GOLD_FALL;
+      if (fall > 1) { dust.splice(i, 1); continue; }
+      // Each grain tumbles: it flashes when a face turns to the light, and fades out before the bottom.
+      const turn = Math.cos(d.age * (6 + (i % 7)) + d.life), flash = turn * turn, a = clamp((1 - fall) * 1.5) * (.35 + .65 * flash);
+      const gg = 170 + Math.round(flash * 70), bb = 50 + Math.round(flash * 120);
+      if (d.r > 1.1) {
+        // A flake of leaf: an edge-on sliver that widens as it turns.
+        sky.fillStyle = `rgba(255,${gg},${bb},${a})`;
+        sky.fillRect(d.x - d.r * (.25 + Math.abs(turn) * .75), d.y - d.r * .6, d.r * 2 * (.25 + Math.abs(turn) * .75), d.r * 1.2);
+        if (flash > .97) star(sky, d.x, d.y, 4 + d.r * 2.5, a);
+      } else {
+        sky.fillStyle = `rgba(255,${gg},${bb},${a * .9})`;
+        sky.fillRect(d.x - d.r, d.y - d.r - Math.min(4, d.vy * .012), d.r * 2, d.r * 2 + Math.min(4, d.vy * .012));
+      }
+    }
+    sky.restore();
+    return true;
   };
 }
 
@@ -779,12 +923,48 @@ const drawSilver:Draw = (g, w, h, t) => {
 };
 
 /** One animation instance per cell: liquids keep their own surface state. */
-export const CELL_ART:Record<CellArtKind, { create:(opts:CellOpts) => Draw; fill:boolean }> = {
+/** The swinging necklace sheds a little silver dust, flung the way it swings, then sifting down
+ *  out of the cell (on the overlay, so it can leave the cell). */
+function createSilver():Draw {
+  const dust:Flame[] = [];
+  let last = 0, owed = 0;
+  return (g, w, h, t, sky) => {
+    const dt = clamp(t - last, 0, .05); last = t;
+    drawSilver(g, w, h, t);
+    // Same geometry as drawSilver: the chain's front hangs below a pivot and swings ±30°.
+    const cx = w / 2, cy = h * .24, R = Math.min(w * .34, h * .4), tilt = .58, sag = h * .18, pivotY = cy - R * tilt;
+    const swing = Math.sin(t * 1.9) * 30 * Math.PI / 180, spin = Math.cos(t * 1.9) * 1.9 * 30 * Math.PI / 180;
+    // About fourteen grains a second.
+    for (owed += dt * 14; owed >= 1; owed--) {
+      // A point on the lower, front part of the chain or the pendant, carried by the swing.
+      const u = (Math.random() - .5) * 1.6, lx = Math.sin(u) * R, ly = cy + Math.cos(u) * R * tilt + sag * (Math.cos(u) * .5 + .5) ** 1.6 + Math.random() * h * .12 - pivotY;
+      const c = Math.cos(swing), s = Math.sin(swing), x = cx + lx * c - ly * s, y = pivotY + lx * s + ly * c;
+      // Tangential velocity of that point: ω × r.
+      dust.push({ x, y, vx:-spin * (y - pivotY) * .9 + (Math.random() - .5) * 6, vy:spin * (x - cx) * .9, age:0, life:1.6 + Math.random() * 1.2, r:.35 + Math.random() * .6 });
+    }
+    if (dust.length > 160) dust.splice(0, dust.length - 160);
+    const o = sky ?? g, floor = sky ? h + SILVER_FALL : h;
+    o.save(); o.globalCompositeOperation = "lighter";
+    for (let i = dust.length - 1; i >= 0; i--) {
+      const d = dust[i]; d.age += dt;
+      if (d.y > floor) { dust.splice(i, 1); continue; }
+      // Light dust: air soon takes the fling out of it and it sifts down, fading towards the end.
+      d.vx -= d.vx * 2.2 * dt; d.vy += (90 - d.vy) * dt; d.x += d.vx * dt; d.y += d.vy * dt;
+      const flash = Math.cos(d.age * (7 + (i % 5)) + i) ** 2, a = clamp((floor - d.y) / (sky ? SILVER_FALL * .6 : 8)) * (.3 + .7 * flash);
+      o.fillStyle = `rgba(${215 + flash * 40},${225 + flash * 30},255,${a})`;
+      o.fillRect(d.x - d.r, d.y - d.r, d.r * 2, d.r * 2);
+      if (flash > .985 && i % 3 === 0) star(o, d.x, d.y, 3.5, a * .8, "#eef4ff");
+    }
+    o.restore();
+    return !!sky && dust.length > 0;
+  };
+}
+export const CELL_ART:Record<CellArtKind, { create:(opts:CellOpts) => Draw; fill:boolean; overlay?:Overlay }> = {
   "usd-krw":{ create:() => drawBills, fill:false },
   bitcoin:{ create:() => drawBitcoin, fill:false },
   ethereum:{ create:() => drawEthereum, fill:false },
   xrp:{ create:() => drawXrp, fill:false },
-  wti:{ create:createOil, fill:true },
-  gold:{ create:createGold, fill:true },
-  silver:{ create:() => drawSilver, fill:false },
+  wti:{ create:createOil, fill:true, overlay:{ above:SKY_ABOVE, below:0, side:SKY_SIDE } },
+  gold:{ create:createGold, fill:true, overlay:{ above:0, below:GOLD_FALL, side:.1 } },
+  silver:{ create:createSilver, fill:false, overlay:{ above:0, below:SILVER_FALL, side:.3 } },
 };

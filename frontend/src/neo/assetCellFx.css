@@ -20,3 +20,5 @@
 .ng-asset-belt article.ng-asset-cell--gold>:not(canvas){background:#160c03c4;box-shadow:0 1px 4px #0000004d}
 /* Two-column phone grid: keep the strap right of the rate instead of under it. */
 @media(max-width:599px){.ng-asset-cell--usd-krw .ng-asset-fx--side{width:40%;height:62%;top:58%}}
+/* Smoke that rises out of a cell over the page: purely visual, never in the way. */
+.ng-asset-sky{position:fixed;left:0;top:0;z-index:3;pointer-events:none}
