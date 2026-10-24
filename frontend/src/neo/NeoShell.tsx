@@ -1,3 +1,6 @@
+import { serviceForPath, serviceLink } from "../markets/catalog";
+import "../markets/neoResearch.css";
+import "../markets/researchControls.css";
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "../router";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -6,7 +9,7 @@ import { useMarketTicker } from "../useMarketTicker";
 import { pct } from "../desk2/lib";
 import Colophon from "../desk2/Colophon";
 import { NEO_GROUPS, neoRouteFamily, neoHeaderCurrentTone, routeLabel } from "./navigation";
-import { setDesignMode, setFxLevel, useDesignMode, useFxLevel, setFrameLight, useFrameLight } from "./settings";
+import { setFxLevel, useDesignMode, useFxLevel, setFrameLight, useFrameLight } from "./settings";
 import NeoIcon from "./NeoIcon";
 import NeoLogo from "./NeoLogo";
 import NeoHeaderClocks from "./NeoHeaderClocks";
@@ -50,6 +53,8 @@ export default function NeoShell({ path, children }: { path: string; children: R
   const [panel, setPanel] = useState<"menu" | "settings" | null>(null);
   const [finder, setFinder] = useState(false);
   const [filter, setFilter] = useState("");
+  const [, refreshContext] = useState(0);
+  useEffect(() => { const refresh = () => refreshContext(n => n + 1); window.addEventListener("research:context", refresh); return () => window.removeEventListener("research:context", refresh); }, []);
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const close = () => { setPanel(null); setFinder(false); returnFocus.current?.focus(); };
@@ -95,12 +100,17 @@ export default function NeoShell({ path, children }: { path: string; children: R
     return () => { document.body.style.overflow = previous; document.removeEventListener("keydown", trap); };
   }, [panel]);
 
-  if (design !== "neo") return <>{children}<button type="button" className="ng-preview-switch" onClick={() => setDesignMode("neo")}>K STOCK HUB {L("새 디자인", "New design")} ↗</button></>;
   const family = neoRouteFamily(path);
   const currentTone = neoHeaderCurrentTone(path, window.location.search);
   const showCurrent = family !== "immersive" && frameLight && fx !== "minimal";
   const current = (to: string) => to.split("?")[0] === path;
-  const navLink = (link: readonly [string, string, string]) => <Link key={link[0]} to={link[0]} aria-current={current(link[0]) ? "page" : undefined}><span>{link[lang === "ko" ? 1 : 2]}</span><NeoIcon name="chevron" /></Link>;
+  const navLink = (link: readonly [string, string, string]) => {
+    const service = serviceForPath(link[0]), params = new URLSearchParams(window.location.search);
+    const code = path.match(/^\/stock\/([A-Za-z0-9.-]+)/)?.[1] ?? params.get("code") ?? undefined;
+    const market = params.get("market") ?? (code && /^[A-Za-z]/.test(code) ? "nasdaq" : "kospi");
+    const to = service ? serviceLink(link[0], {code, market, region: params.get("region") ?? undefined}) : link[0];
+    return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined}><span>{link[lang === "ko" ? 1 : 2]}</span>{service && <span className="ng-research-new" aria-label="??">N</span>}<NeoIcon name="chevron" /></Link>;
+  };
   return <div className={`ng-shell ng-family-${family}`} data-workspace={path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
     <a className="ng-skip" href="#neo-content">{L("본문 바로가기", "Skip to content")}</a>
     <header className="ng-header" data-current-tone={currentTone}>
@@ -116,7 +126,13 @@ export default function NeoShell({ path, children }: { path: string; children: R
     <div className="ng-top-rail"><NeoPulse /><div className="d2 ng-audio-toolbar"><Link to="/support" className="ng-audio-support" aria-label={L("커피 한 잔 후원", "Support with a coffee")}><NeoIcon name="coffee" /><span>{L("후원", "Support")}</span></Link><DeskBgm variant="header" /></div>{showCurrent && <NeoHeaderCurrent tone={currentTone} placement="pulse" />}</div>
     <aside className="ng-sidebar" aria-label={L("워크스페이스 탐색", "Workspace navigation")}>
       <div className="ng-sidebar-cap"><span>WORKSPACE</span><b>01 / KOSPIMAP</b></div>
-      {NEO_GROUPS.map(group => <div className="ng-nav-group" key={group.id}><h2><NeoIcon name={group.icon} />{L(group.ko, group.en)}</h2><nav>{group.links.slice(0, group.id === "markets" || group.id === "maps" || group.id === "explore" ? 5 : 4).map(navLink)}</nav></div>)}
+      {NEO_GROUPS.map(group => {
+        const limit = group.id === "markets" || group.id === "maps" || group.id === "explore" ? 5 : 4;
+        const primary = group.links.slice(0, limit), extra = group.links.slice(limit);
+        const active = extra.find(link => current(link[0]));
+        const remaining = extra.filter(link => link !== active);
+        return <div className="ng-nav-group" key={group.id}><h2><NeoIcon name={group.icon} />{L(group.ko, group.en)}</h2><nav>{primary.map(navLink)}{active && navLink(active)}</nav>{remaining.length > 0 && <details className="ng-nav-more"><summary><span>{L("더 보기", "More")}</span><small>{remaining.length}</small><NeoIcon name="chevron" /></summary><nav>{remaining.map(navLink)}</nav></details>}</div>;
+      })}
       <button type="button" className="ng-directory-button" onClick={event => open("menu", event.currentTarget)}><NeoIcon name="layers" />{L("전체 서비스", "All destinations")}<span>↗</span></button>
       <div className="ng-sidebar-foot"><span className="ng-status-dot" /> NEO GENESIS <small>MARKET INTELLIGENCE SYSTEM</small></div>
     </aside>
@@ -136,7 +152,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
       {[["/", "home", "홈", "Home"], ["/map", "map", "맵", "Maps"], ["/desk", "chart", "시장", "Markets"], ["/news", "news", "뉴스", "News"]].map(([to, icon, ko, en]) => <Link key={to} to={to} aria-current={path === to ? "page" : undefined}><NeoIcon name={icon} /><span>{L(ko, en)}</span></Link>)}<button type="button" onClick={event => open("menu", event.currentTarget)} aria-label={L("전체 메뉴", "All destinations")}><NeoIcon name="menu" /><span>{L("더보기", "More")}</span></button>
     </nav>
     {panel && <div className="ng-modal-scrim" onClick={close}><div className={`ng-dialog ng-dialog-${panel}`} ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="ng-dialog-title" onClick={event => event.stopPropagation()}><div className="ng-dialog-head"><div><span className="ng-kicker">KOSPIMAP / CONTROL CENTER</span><h2 id="ng-dialog-title">{panel === "menu" ? L("모든 시장, 하나의 관제석", "Your market command center") : L("나의 관제 환경", "Your command environment")}</h2></div><button type="button" className="ng-icon-button" onClick={close} aria-label={L("닫기", "Close")}><NeoIcon name="close" /></button></div>
-      {panel === "menu" ? <><label className="ng-directory-search"><NeoIcon name="search" /><input value={filter} onChange={event => setFilter(event.target.value)} placeholder={L("서비스 이름 검색", "Find a destination")} aria-label={L("전체 서비스 검색", "Search all destinations")} /></label>{filter && !NEO_GROUPS.some(group => group.links.some(link => `${link[1]} ${link[2]}`.toLowerCase().includes(filter.toLowerCase()))) && <p className="ng-directory-empty" role="status">{L("검색 결과가 없습니다.", "No matching destinations.")}</p>}<div className="ng-directory-grid">{NEO_GROUPS.map(group => <section key={group.id}><h3><NeoIcon name={group.icon} />{L(group.ko, group.en)}</h3>{group.links.filter(link => `${link[1]} ${link[2]}`.toLowerCase().includes(filter.toLowerCase())).map(navLink)}</section>)}</div><div className="ng-directory-extras"><a href="https://chs2147.github.io/mini-apps" target="_blank" rel="noopener noreferrer">Mini Apps ↗</a><a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer">VOLTARIS ↗</a><Link to="/support">{L("커피 한 잔 후원", "Support")} ↗</Link></div></> : <><section className="ng-setting-section"><h3>{L("비주얼 효과", "Visual effects")}</h3><p>{L("화면 장식과 움직임만 조절합니다. 시세·차트·3D 출력 해상도는 유지됩니다.", "Controls visual decoration and motion. Data, charts and 3D output resolution stay intact.")}</p><button type="button" className="ng-beam-toggle" aria-pressed={frameLight} onClick={() => setFrameLight(!frameLight)}><NeoIcon name="bolt" /><span>{L("프레임 발광", "Frame glow")}<small>{L("선에 은은하게 번지는 네온 빛", "Soft neon light along frame edges")}</small></span><b>{frameLight ? "ON" : "OFF"}</b></button><div className="ng-fx-options" role="group" aria-label={L("효과 단계", "Effects level")}>{(["full", "balanced", "minimal"] as const).map(level => <button type="button" key={level} aria-pressed={fx === level} onClick={() => setFxLevel(level)}><NeoIcon name={level === "full" ? "spark" : level === "balanced" ? "layers" : "chart"} /><strong>{level === "full" ? "Full FX" : level === "balanced" ? "Balanced" : "Minimal FX"}</strong><small>{level === "full" ? L("국소 조명 · 미세 모션", "Accent light and micro motion") : level === "balanced" ? L("균형 잡힌 기본 효과", "Balanced by default") : L("정보 중심 · 장식 최소화", "Information first")}</small></button>)}</div><p className="ng-setting-note">{L("시스템의 ‘동작 줄이기’ 설정을 항상 우선합니다.", "Your system reduced-motion preference always takes priority.")}</p></section><section className="ng-setting-section"><h3>{L("도구", "Tools")}</h3><div className="ng-setting-actions"><BookmarkButton className="ng-bookmark-control" /><button type="button" onClick={() => { close(); window.print(); }}>{L("인쇄 / PDF 저장", "Print / save PDF")}</button><button type="button" onClick={() => { close(); setDesignMode("classic"); }}>{L("이전 디자인 보기", "View previous design")}</button></div></section></>}
+      {panel === "menu" ? <><label className="ng-directory-search"><NeoIcon name="search" /><input value={filter} onChange={event => setFilter(event.target.value)} placeholder={L("서비스 이름 검색", "Find a destination")} aria-label={L("전체 서비스 검색", "Search all destinations")} /></label>{filter && !NEO_GROUPS.some(group => group.links.some(link => `${link[1]} ${link[2]}`.toLowerCase().includes(filter.toLowerCase()))) && <p className="ng-directory-empty" role="status">{L("검색 결과가 없습니다.", "No matching destinations.")}</p>}<div className="ng-directory-grid">{NEO_GROUPS.map(group => <section key={group.id}><h3><NeoIcon name={group.icon} />{L(group.ko, group.en)}</h3>{group.links.filter(link => `${link[1]} ${link[2]}`.toLowerCase().includes(filter.toLowerCase())).map(navLink)}</section>)}</div><div className="ng-directory-extras"><a href="https://chs2147.github.io/mini-apps" target="_blank" rel="noopener noreferrer">Mini Apps ↗</a><a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer">VOLTARIS ↗</a><Link to="/support">{L("커피 한 잔 후원", "Support")} ↗</Link></div></> : <><section className="ng-setting-section"><h3>{L("비주얼 효과", "Visual effects")}</h3><p>{L("화면 장식과 움직임만 조절합니다. 시세·차트·3D 출력 해상도는 유지됩니다.", "Controls visual decoration and motion. Data, charts and 3D output resolution stay intact.")}</p><button type="button" className="ng-beam-toggle" aria-pressed={frameLight} onClick={() => setFrameLight(!frameLight)}><NeoIcon name="bolt" /><span>{L("프레임 발광", "Frame glow")}<small>{L("선에 은은하게 번지는 네온 빛", "Soft neon light along frame edges")}</small></span><b>{frameLight ? "ON" : "OFF"}</b></button><div className="ng-fx-options" role="group" aria-label={L("효과 단계", "Effects level")}>{(["full", "balanced", "minimal"] as const).map(level => <button type="button" key={level} aria-pressed={fx === level} onClick={() => setFxLevel(level)}><NeoIcon name={level === "full" ? "spark" : level === "balanced" ? "layers" : "chart"} /><strong>{level === "full" ? "Full FX" : level === "balanced" ? "Balanced" : "Minimal FX"}</strong><small>{level === "full" ? L("국소 조명 · 미세 모션", "Accent light and micro motion") : level === "balanced" ? L("균형 잡힌 기본 효과", "Balanced by default") : L("정보 중심 · 장식 최소화", "Information first")}</small></button>)}</div><p className="ng-setting-note">{L("시스템의 ‘동작 줄이기’ 설정을 항상 우선합니다.", "Your system reduced-motion preference always takes priority.")}</p></section><section className="ng-setting-section"><h3>{L("도구", "Tools")}</h3><div className="ng-setting-actions"><BookmarkButton className="ng-bookmark-control" /><button type="button" onClick={() => { close(); window.print(); }}>{L("인쇄 / PDF 저장", "Print / save PDF")}</button></div></section></>}
     </div></div>}
     {finder && <Suspense fallback={null}><div className="d2 ng-finder-host"><Finder open={finder} onClose={close} /></div></Suspense>}
   </div>;

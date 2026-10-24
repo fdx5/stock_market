@@ -1,4 +1,5 @@
-export const NEO_GROUPS = [
+import { SERVICES } from "../markets/catalog";
+const BASE_NEO_GROUPS = [
   { id: "markets", ko: "마켓 워크스페이스", en: "Markets", icon: "chart", links: [
     ["/", "관제 홈", "Command home"], ["/desk", "국내 증시", "Korea desk"], ["/global", "미국 증시", "US desk"], ["/stocks", "종목 탐색", "Stock explorer"], ["/etf", "ETF 마켓", "ETF market"],
   ] },
@@ -17,7 +18,13 @@ export const NEO_GROUPS = [
   { id: "explore", ko: "탐험 · 커뮤니티", en: "Explore", icon: "orbit", links: [
     ["/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", "종목 토론", "Discussions"], ["/kospi-orbit", "코스피 궤도", "KOSPI orbit"], ["/kosdaq-orbit", "코스닥 궤도", "KOSDAQ orbit"], ["/nasdaq100-orbit", "나스닥 궤도", "NASDAQ orbit"], ["/drone-explore", "드론 탐험", "Drone explorer"], ["/market-bubbles", "증시 버블", "Market bubbles"], ["/market-bubbles2", "증시 버블 NEO", "Market bubbles NEO"], ["/hub", "태양계 입구", "Solar entrance"], ["/support", "커피 한 잔 후원", "Support KOSPIMAP"], ["/desk2", "클래식 데스크", "Classic desk"],
   ] },
-] as const;
+ ] as const;
+const RESEARCH_SECTION: Record<string,string> = {
+  "/markets":"markets", "/market-inside":"markets", "/stock-context":"markets", "/etf-overlap":"markets", "/etf-tradeoffs":"markets", "/dividend-reality":"markets",
+  "/stock-tradeoffs":"rankings", "/recovery-lab":"rankings", "/market-radar":"rankings", "/stock-screener":"rankings", "/stock-compare":"rankings", "/sector-strength":"rankings", "/global-peers":"rankings", "/sector-replay":"rankings",
+  "/currency-lens":"assets", "/rate-paths":"assets", "/commodity-impact":"assets", "/macro-context":"assets", "/yield-curve-lab":"assets", "/bond-tradeoffs":"assets", "/crypto-inside":"assets", "/crypto-liquidity":"assets", "/derivatives-context":"assets",
+};
+export const NEO_GROUPS = BASE_NEO_GROUPS.map(group => ({...group, links:[...group.links, ...SERVICES.filter(s => (RESEARCH_SECTION[s.path] ?? "intelligence") === group.id).map(s => [s.path,s.name,s.name] as const)]}));
 export function routeLabel(path: string, lang: "ko" | "en") {
   const link = NEO_GROUPS.flatMap(group => [...group.links]).find(link => link[0].split("?")[0] === path);
   if (link) return link[lang === "ko" ? 1 : 2];

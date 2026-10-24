@@ -1,0 +1,407 @@
+"""Build the Korean development plan, audit index and matching PDF without any DB access."""
+from __future__ import annotations
+
+import collections
+import html
+import json
+import re
+from pathlib import Path
+
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
+
+ROOT = Path(__file__).resolve().parents[1]
+DOC = ROOT / "docs" / "tradingview-new-services-plan-2026-10-25.md"
+PDF = ROOT / "output" / "pdf" / "market-discovery-development-plan-2026-10-25.pdf"
+RESEARCH = ROOT / "docs" / "research" / "tradingview-markets-2026-10-25.json"
+INDEX = ROOT / "docs" / "research" / "tradingview-markets-page-index-2026-10-25.md"
+
+# name, route, phase, question, selection, expression, data, acceptance
+PAGES = [
+ ("시장 탐색", "/markets", "기반·구현", "처음 방문해서 무엇부터 봐야 하나?", "자산 종류보다 사용자의 질문을 먼저 고른다.", "시장 속사정·선택의 대가·회복 실험의 세 질문을 첫 화면에 배치하고 일반 도구는 보조로 연결한다.", "A: 기존 시장별 TOP 100 보드", "30초 안에 자기 질문에 맞는 도구로 이동"),
+ ("시장 속사정", "/market-inside", "핵심·구현", "평균은 올랐는데 왜 내가 보는 종목은 다를까?", "시총과 등락률이 모두 있는 동일 표본으로 가중·단순 평균과 상승 비율을 계산한다.", "덩치대로 반영 / 한 종목 한 표 / 상위 3종목 제외라는 세 시선으로 평균의 차이를 설명한다.", "A: 시총·당일 등락률·시장 구분", "누락 표본을 공개하며 상위 3종목 제외 결과를 재현"),
+ ("종목 선택의 대가", "/stock-tradeoffs", "핵심·구현", "이 종목 대신 같은 업종 종목을 보면 무엇이 달라질까?", "같은 시장·같은 업종의 TOP 100 후보만 묶고 모든 차이를 후보−기준 종목으로 통일한다.", "추천 순위 대신 PER·ROE·1개월·고점 거리의 차이와 각각의 해석 한계를 제시한다. 누락은 비교 불가로 표시한다.", "A: 업종·PER·ROE·가격 수익률", "다른 업종 후보가 섞이지 않고 차이의 방향·단위를 이해"),
+ ("회복 거리 실험실", "/recovery-lab", "핵심·구현", "30% 손실은 몇 % 상승해야 회복될까?", "가상의 100과 사용자가 입력한 하락률만으로 회복 산술을 계산한다.", "잔여값 막대·회복 상승률·선택 종목의 목표 가격 거리로 같은 손실의 비대칭을 보여준다. 입력은 비저장이다.", "A: 브라우저 계산 + 선택 종목 현재가·52주 고가", "50% 손실→100% 회복을 설명하고 100% 손실·누락 시세 처리"),
+ ("주도주 레이더", "/market-radar", "기반·구현", "오늘 움직이는 후보는 누구인가?", "시장별 표본에서 상승·하락·유동성·고점 접근 기준을 구분한다.", "거래량 절대 순위에 그치지 않고 같은 후보를 비교·선택의 대가 도구로 연결한다. 거래규모 근사임을 표시한다.", "A: 현재가·거래량·52주 고가", "표본 밖 전체시장 순위로 오인하지 않고 다음 비교로 이동"),
+ ("종목 스크리너", "/stock-screener", "기반·구현", "나의 조건을 만족하는 후보는 무엇인가?", "업종·최소 등락률·최대 양수 PER·프리셋을 공개된 조건으로 교집합 처리한다.", "검색 결과 수·제외 기준·원본 숫자를 함께 보여주고 조건 URL·CSV로 이어간다.", "A: 현재 TOP 100 표본", "필터의 결과를 재현하고 누락 PER을 0으로 오인하지 않음"),
+ ("종목 비교", "/stock-compare", "기반·구현", "후보 간 차이를 같은 자리에서 확인할 수 있나?", "최대 4종목, 시장·통화·기간을 구분해 원표로 비교한다.", "총점·최고종목 배지 없이 누락을 드러내고 선택의 대가에서 원표를 확인하는 근거 화면으로 사용한다.", "A: 기존 보드 1주·1개월·3개월·YTD", "통화가 다른 시총을 섞어 우열을 만들지 않고 선택 제한 동작"),
+ ("업종 강도판", "/sector-strength", "기반·구현", "한 종목만 오르나 업종 전체가 오르나?", "같은 시장 표본의 업종별 시총가중 움직임과 상승·보합·하락·미제공 개수를 계산한다.", "순위 옆에 계산 참여 종목 수와 확산 폭을 함께 표시하고 업종 조건검색으로 연결한다.", "A: 시총·업종·등락률", "업종 공식지수나 과거 순환매로 오해하지 않고 원종목을 확인"),
+ ("사건·종목 영향 지도", "/event-impact", "P1", "오늘 발표가 내 관심 종목과 어떤 경로로 연결되나?", "공식 발표 일정과 매출 지역·원재료·차입 구조가 확인된 연결만 사용한다.", "사건→경제 변수→업종→기업의 연결선을 그리고 사실·가능 경로·미확인을 다른 문장으로 구분한다.", "C: 공식 캘린더·DART/SEC 노출 자료", "출처 없는 영향선 0건, 상관관계를 인과로 쓰지 않음"),
+ ("거래 집중의 질", "/liquidity-quality", "P1", "거래량이 많다는 이유만으로 의미 있는 움직임일까?", "절대 거래량과 동일 시각 기준 상대 거래량·거래대금·스프레드를 분리한다.", "많이 거래된 이유를 규모·평소 대비·호가 비용 세 축으로 비교하고 측정이 없는 축은 비워 둔다.", "B/C: 시간 정렬 거래 이력·스프레드", "장중과 전일 전체 거래량을 직접 나누지 않음"),
+ ("내 종목의 체감선", "/stock-context", "P1", "이 종목은 시장과 업종 중 어디와 더 다르게 움직이나?", "동일 거래일·통화·수익률 정의가 일치하는 기준선만 나란히 계산한다.", "시장 대비 / 동종업종 표본 대비 / 자기 과거 대비를 각각 표시하고 비교 불가능 이유를 설명한다.", "B: 종목·벤치마크 일별 OHLCV", "기준선이 바뀌면 상대수익률도 다시 계산되고 기준일 표시"),
+ ("ETF 속 중복 노출", "/etf-overlap", "P1", "ETF를 여러 개 사도 사실상 같은 기업에 집중되는가?", "동일 기준일의 구성 종목과 비중을 식별자 기준으로 통합한다.", "ETF 개수보다 합산 기업·업종·통화 노출을 먼저 보여주고 공통 보유 상위 기업을 펼친다.", "C: 운용사 구성 종목·보유 비중·기준일", "합산 비중 검산, 파생·현금·미공개 보유분 별도 표시"),
+ ("ETF 선택의 대가", "/etf-tradeoffs", "P1", "비슷한 지수를 추종하는 ETF 사이에서 무엇을 포기하나?", "동일 추종지수·환헤지·분배정책·레버리지 조건을 먼저 맞춘다.", "총보수만이 아니라 거래비용·추적차이·괴리·세금 확인 항목을 비용 사다리로 표시한다.", "C: 운용사 문서·공식 NAV·가격·비용", "가격수익률과 분배금 재투자 수익률을 분리"),
+ ("배당의 실제 달력", "/dividend-reality", "P1", "배당률이 높아 보여도 언제 무엇을 받는가?", "발표·배당락·기준·지급일과 확정/예상 분배금을 분리한다.", "수익률 순위 대신 받을 조건→가격 조정→지급까지 타임라인으로 설명한다.", "C: 거래소·기업·운용사 공식 배당 일정", "예정치를 확정 배당금으로 표시하지 않음"),
+ ("환율이 바꾼 수익", "/currency-lens", "P1", "달러로 올랐는데 원화로 보면 왜 다를까?", "같은 시작·종료일의 자산 가격과 환율로 원화 효과를 복리 결합한다.", "자산 효과 / 환율 효과 / 결합 효과를 나누고 날짜가 겹치지 않으면 보간을 알린다.", "B/C: 기존 환율 스트립 + 기간별 자산·환율 이력", "(1+자산수익률)×(1+환율변동률)−1 검산"),
+ ("금리 변화의 경로", "/rate-paths", "P1", "금리 변화가 내 투자 대상에 어떻게 전달될 수 있나?", "정책금리·국채금리·기업 차입금리·평가배수를 같은 수치로 취급하지 않는다.", "변수의 전달 경로와 실제 관측값을 병치하고 아직 확인 안 된 경로를 표시한다.", "C: ECOS/FRED + 기업 공시", "금리 변화만으로 종목 상승·하락을 확정하지 않음"),
+ ("원자재 비용 지도", "/commodity-impact", "P1", "유가·금속 가격 변화가 누구에게 비용 또는 매출이 되나?", "선물과 현물, 매출 기업과 원재료 소비 기업, 환헤지 여부를 구분한다.", "수혜/피해 단정 대신 비용 노출·매출 노출·근거 확인의 세 영역으로 표시한다.", "C: 원자재 시계열·기업 원재료 공시", "미확인 노출을 연결하지 않고 단위·계약월 공개"),
+ ("일정 충돌 보드", "/event-collision", "P1", "실적·경제발표·휴장이 같은 날 겹치면 무엇부터 봐야 하나?", "한국시간으로 정렬하되 원시장 시간·DST·미확정 발표 시간을 보존한다.", "단일 캘린더보다 같은 시점에 겹치는 사건 묶음과 영향 가능 자산을 함께 보여준다.", "C: 공식 경제·실적 일정과 거래소 캘린더", "DST·휴장·시간 미정 테스트 통과, 알림 가입 없이 조회"),
+ ("실적 기대와 확인", "/earnings-gap", "P1", "실적이 좋은 것과 기대를 넘은 것은 어떻게 다른가?", "전년 대비 성장·컨센서스 대비 차이·가이던스를 각각 분리한다.", "발표 전 기대 / 확인된 수치 / 발표 후 가격을 시간 순으로 놓고 수정치를 표시한다.", "C: DART/SEC + 사용권 확보 컨센서스", "실제·예상·수정값과 발표시각을 혼동하지 않음"),
+ ("신호 교차 검증", "/signal-crosscheck", "P2", "지표가 엇갈릴 때 어떤 근거를 더 봐야 하나?", "동일 날짜 OHLCV로 추세·모멘텀·거래량 지표를 계산하고 중복 신호를 묶는다.", "매수/매도 한 점수 대신 동의 근거·충돌 근거·자료 부족을 세 열로 표현한다.", "B: 기존 지표 API와 계산 이력", "지표 산식·기간·동일 원천의 중복 근거를 공개"),
+ ("뉴스 사실 타임라인", "/news-evidence", "P2", "주가 움직임과 관련 뉴스의 선후관계는?", "원문 발표시각·수정시각·최초 공시를 구분하고 동일 사건 재전송을 묶는다.", "헤드라인 수보다 확인된 사건 단위로 배치하고 공시 원문과 의견을 구분한다.", "B/C: 기존 뉴스·공시 메타데이터", "기사 본문 무단 전재 없이 출처 이동, 원인 단정 금지"),
+ ("테마의 연결 근거", "/theme-evidence", "P2", "이 종목이 그 테마에 묶이는 이유는 확인 가능한가?", "매출·수주·제품·투자계약의 공개 근거와 유효 날짜가 있는 연결만 만든다.", "테마 인기 순위 대신 연결 강도 근거와 반대 근거를 함께 펼친다.", "C: DART/SEC·기업 IR과 제품 자료", "근거 없는 이름 유사성·소문으로 편입하지 않음"),
+ ("갭 이후 관찰실", "/gap-context", "P2", "장전 급등과 정규장 움직임은 어떻게 다른가?", "전일 정규 종가·장전 현재가·정규 시가·이후 가격을 분리한다.", "한 등락률 대신 거래 세션을 잇는 계단과 거래량을 표시한다.", "B/C: 세션 구분 시세·시간대별 이력", "장전·장후 가격을 정규장 확정 종가로 표기하지 않음"),
+ ("주가와 기업 체력", "/fundamental-gap", "P2", "주가는 올랐는데 매출·이익도 같은 속도로 좋아졌나?", "분할조정 가격과 연결/별도·TTM/연간 재무를 구별한다.", "가격·매출·이익의 출발점을 100으로 맞추되 단위가 다른 축임을 설명한다.", "C: 재무 공시 이력 + 조정주가", "적자·결산월 변경·공시 수정값 처리"),
+ ("국가경제 비교의 기준", "/macro-context", "P2", "국가 순위가 높아도 같은 기준으로 비교한 것인가?", "명목/실질·총량/1인당·전년비/전기비·발표연도를 먼저 맞춘다.", "서열보다 단위·기준·빈티지 차이를 앞에 보여주고 비교 가능한 국가만 묶는다.", "C: ECOS/FRED/OECD 등 공식 통계", "서로 다른 연도·단위를 한 순위로 합치지 않음"),
+ ("금리곡선 변화 실험실", "/yield-curve-lab", "P2", "금리가 올랐다는 말이 어느 만기의 변화인가?", "국가·통화·만기·가격시각을 맞춘 이전/현재 곡선과 스프레드를 계산한다.", "곡선 한 장 대신 만기별 변화량과 2년−10년 역전의 차이를 나눠 보여준다.", "C: 공식 국채 만기별 시계열", "금리 차이는 %p/bp, 변화율 %와 분리"),
+ ("높은 채권금리의 대가", "/bond-tradeoffs", "P2", "높은 이자율 대신 어떤 위험을 떠안는가?", "쿠폰·만기수익률·신용등급·듀레이션·콜옵션·통화를 별도 비교한다.", "최고금리 순위 대신 만기·신용·유동성·환율의 대가를 설명한다.", "C: 사용권 있는 회사채 호가·발행조건·신용자료", "수익률을 확정 이자나 보장수익으로 표기하지 않음"),
+ ("크립토 속사정", "/crypto-inside", "P2", "비트코인이 올라 시장 전체가 좋아 보이는가?", "거래소·기준통화·상장 범위·24시간 기준을 통일한 표본을 고정한다.", "전체 / BTC·ETH 제외 / 상승 코인 비율로 집중과 확산을 나눈다.", "C: 승인된 코인 시총·거래소 시세", "중복 거래쌍·스테이블코인 포함 여부와 시가총액 출처 공개"),
+ ("크립토 유동성의 실체", "/crypto-liquidity", "P2", "거래대금은 커도 실제로 거래하기 쉬운가?", "거래대금·스프레드·호가 깊이·거래소 편중을 분리한다.", "거래량 한 숫자 대신 측정된 유동성 항목별 증거와 자료 공백을 표시한다.", "C: 거래소 공개 호가·체결 API", "예시 체결비용을 보장하지 않고 시점·수량 공개"),
+ ("현물과 파생의 온도차", "/derivatives-context", "P2", "가격 상승과 레버리지 포지션 증가는 같은 신호인가?", "거래소별 펀딩 주기·미결제약정 단위·청산 집계 범위를 맞춘다.", "상승/하락 확정 대신 현물 가격·OI·펀딩·청산의 동행과 충돌을 설명한다.", "C: 파생거래소 허용 API 및 이력", "펀딩 주기 혼합·중복 합산·청산 누락을 공개"),
+ ("글로벌 동종기업 기준표", "/global-peers", "P2", "한국 기업과 글로벌 경쟁사를 공정하게 비교하려면?", "같은 산업·회계기간·통화·TTM 여부·ADR 중복을 먼저 맞춘다.", "기업 크기 순위보다 동일 기준의 비교 가능 범위와 사업 차이를 제시한다.", "C: 글로벌 공시·환율·식별자", "국가별 업종 분류·회계기준 차이와 미비교 항목 명시"),
+ ("업종 순환의 기록", "/sector-replay", "P2", "오늘 강한 업종이 며칠째 강한가?", "날짜별 동일 분류·당시 구성 종목의 시점 일치 자료를 사용한다.", "현재 강도판과 별도로 강세 순서·확산 변화·표본 교체를 재생한다.", "B/C: 새로 추가하는 비파괴 일별 시장 스냅샷", "현재 구성으로 과거를 덮는 생존편향을 방지"),
+ ("거래일 일정 지도", "/session-planner", "P2", "서울 기준 언제 어떤 시장이 열리고 중요한 발표가 있나?", "거래소 공식 휴일·반장·DST·장전·장후를 구분한다.", "다음 개장 카운트다운보다 한국시간의 겹치는 거래 창과 이벤트를 보여준다.", "C: 거래소 공식 캘린더·경제 일정", "미국 DST 전환·한국 임시휴장·반장 검증"),
+ ("지난 확인 이후 바뀐 것", "/change-digest", "P2", "숫자를 모두 다시 읽지 않고 달라진 사실만 볼 수 있나?", "서버의 공개된 두 스냅샷 기준시각을 선택해 차이를 계산한다.", "개인 추적 기록 없이 두 시점의 신규 진입·업종 강도·누락 개선만 요약한다.", "B: 추가 보존형 공개 스냅샷 두 개", "과거 값을 삭제·수정하지 않고 비교 기간 표시"),
+ ("판단 근거 한 장", "/decision-brief", "P2", "내가 본 근거를 어떻게 다시 검토하고 공유하나?", "공개 종목·조건·원천 시각·포함/제외 근거를 함께 묶는다.", "매수 결론 보고서보다 확인한 사실 / 남은 질문 / 자료 공백의 세 칸으로 내보낸다.", "B: 공개 분석 결과, 다운로드는 사용자 명시 동작", "서버 회원 저장 없이 생성, 민감 입력 제외, 재현 기준 포함"),
+ ("데이터 신뢰 지도", "/data-confidence", "P1", "이 화면의 어떤 수치는 믿고 비교할 수 있나?", "소스·체결시각·수신시각·집계시각·유효 종목 수를 서로 구분한다.", "신뢰 점수 하나 대신 지연·누락·비교 가능성·근사치 여부를 항목별 공개한다.", "B: 기존 수집기 메타데이터의 추가 전달", "신선도를 실제 체결시각 없이 정상이라고 단정하지 않음"),
+]
+
+INTRO = """# K-Stock Hub 신규 서비스 개발 계획
+
+작성일: 2026-10-25 / 기준: TradingView 시장 하위 기능 조사 + 현재 저장소 코드 대조 + 차별적 설명 방식
+
+## 1. 결정과 제품 원칙
+
+기능 중복은 허용한다. 다만 각 신규 페이지는 답하는 질문, 정보를 고르는 기준, 결과를 설명하는 표현 방식 중 적어도 하나에서 현재 서비스와 구별되어야 한다. 단순 시세·랭킹·차트 복제만으로 신규 페이지를 늘리지 않는다.
+
+최우선 제안은 시장 속사정, 종목 선택의 대가, 회복 거리 실험실이다. 시장 탐색 허브를 이 세 질문 중심으로 만들고 레이더·스크리너·비교·업종판은 판단 근거를 확인하는 기반 도구로 연결한다. 로그인 없이 핵심 탐색이 끝나야 한다.
+
+여기서 차별화는 세계 최초 기능이라는 뜻이 아니다. 기존 지표를 한국어 질문형 흐름, 동일 표본 비교, 제외 실험, 누락 이유, 비저장 계산으로 묶어 읽는 비용을 줄이려는 제품 가설이다. 경쟁사의 모든 계정·유료 조합에 해당 기능이 없다고 단정하지 않는다.
+
+사용자 만족도가 높다는 실측 근거는 아직 없다. 기능별 이용률·전환율·CSAT의 비공개 자료를 확인한 것처럼 쓰지 않는다. 반복되는 탐색 과제, 핵심 메뉴의 노출, 기존 데이터 재사용 가능성을 우선순위 가설로 삼고 아래 사용자 실험으로 검증한다.
+
+## 2. 조사 방법과 범위
+
+시작 URL은 https://kr.tradingview.com/markets/ 이다. 로그인·계정·원문 개인 정보 없이 공개 HTML을 읽어 제목, 헤딩, 표 열, 내비게이션 링크를 조사했다. 실제 시세 행이나 기사 본문을 새 서비스 데이터로 수집하지 않았다. 조사 JSON과 전체 URL 색인을 별도 보관한다.
+
+직접 읽은 시장 페이지는 **953개**다. 범위 내 링크 탐색의 남은 큐는 0개다. 인접 도구 **11개**를 추가 확인했으며 10개는 HTTP 200, 직접 추정한 한국 IPO 주소 1개는 404였다. 404 주소를 확인된 서비스 경로로 채택하지 않는다.
+
+국가별로 같은 기능을 반복하는 **326개 추가 URL**은 링크와 기능 계열을 색인했으나 개별 본문을 읽지 않았다. 개별 종목 /symbols/, 커뮤니티 글, 뉴스 기사 본문, 외부 브로커, 페이지네이션·쿼리 조합 전체는 무한 확대될 수 있어 별도 범위다. 따라서 “모든 하위 URL을 로그인 없이 실제 조작까지 전수 검증했다”고 주장하지 않는다. 본 계획은 직접 조사한 시장 메뉴의 기능 계열 전체를 분류한 것이다. 추가 변형 326개와 미검증 상태는 색인에서 숨기지 않는다.
+
+HTTP 200은 HTML을 읽었다는 의미다. JavaScript 표 로딩, 차트 상호작용, 저장·다운로드·알림이 모두 익명 무료라는 뜻은 아니다. 데이터 잠금 해제 문구, 동적 내용 미노출, 로그인/구독 가능 항목은 부분 확인으로 취급한다. 조사 시점 이후 페이지 구성은 바뀔 수 있다.
+
+### 2.1 계열별 직접 읽은 페이지
+
+{COUNTS}
+
+### 2.2 기능 계열을 빠짐없이 나누는 기준
+
+| 계열 | 확인한 기능 묶음 | 익명 이용 관찰 | 우리 서비스에 가져올 관점 |
+| --- | --- | --- | --- |
+| 한국·미국 주식 | 전체/대형/소형, 상승·하락, 활동량·상대량·변동성·베타, PER 등 재무, 배당, 고용·직원당 실적, 고점·저점, 과매수·과매도, 장전·장후, 섹터·산업·뉴스·아이디어 | 공개 순위 표는 관찰됨. 저장·개인 알림은 확인 범위 밖 | 같은 수치를 추천 순위 대신 비교 기준·제외 이유·반례로 설명 |
+| 세계 주식 | 글로벌 규모·매출·이익·배당·고용·직원 생산성, 업종별 글로벌 기업, 미국 제외 | 공개 기업 목록 관찰 | 통화·회계기간·ADR 중복을 맞춘 글로벌 동종기업 비교 |
+| 지수 | 주요·국가·대륙·통화·미국 산업 지수, 참여 폭·평균선 위 비중·고저점 | 요약과 표 관찰. 일부 차트는 동적 | 지수 숫자와 같은 표본 체감의 괴리를 설명 |
+| ETF | AUM·유출입·성장, 수익률·배당·월분배, 자산군·국가·테마, 액티브·인버스·레버리지, NAV 괴리·할인, 베타·비용·분산·고저점 | 메뉴·공개 표 관찰 | 구성 중복, 비용의 층, 배당 일정의 실제 의미 |
+| 암호화폐 | 시총·도미넌스·TVL, 상승·하락·유동성·변동성, 공급·온체인 활동, OI·펀딩·청산, 고저점·DeFi·뉴스·아이디어 | 공개 목록과 메뉴 관찰. 심화 데이터 완전성은 별도 | BTC 제외 체감, 거래소 분절·유동성 증거·단위 일치 |
+| 선물·원자재 | 전체·에너지·금속·농산물·통화·금리·주가지수, 기간 성과 | 일부 숫자는 정적 HTML 미노출 | 현물/선물·단위·계약월과 기업 비용 노출 경로 |
+| 외환 | 주요·전체·대륙 통화쌍, 통화 지수, 크로스 환율·히트맵 | 표·메뉴 관찰. 실시간성은 검증 안 함 | 원화 투자자의 기간 수익에 미친 환율 효과 |
+| 국채 | 국가·대륙·만기별 채권, 10년물 비교, 수익률 히트맵, 국가별 곡선 | 공개 설명·차트 틀. 세부 조작은 별도 | 만기별 변화량과 %p/bp를 구분한 금리곡선 실험 |
+| 회사채 | 고수익·단기·장기·변동금리·고정쿠폰·제로쿠폰 | 공개 목록·설명 관찰, 호가 숫자 누락 가능 | 높은 수익률과 교환되는 신용·만기·유동성 위험 |
+| 세계경제 | 국가·지표별 비교, 성장·물가·고용·생산·소비·주택·무역·재정·금융 차트와 히트맵 | 잠금 문구 또는 동적 미노출이 섞임. 전부 무료로 단정 불가 | 지표 값보다 단위·연도·개정·기준 차이를 먼저 설명 |
+| 인접 도구 | 주식·ETF·코인·FX 스크리너, 주식·코인·ETF 히트맵, 경제·실적 캘린더 | 도구 셸 접근 가능. CSV·개인 저장 등의 무료 범위 미검증 | 질문형 검색, 일정 충돌, 비교 재현, 입력 비저장 |
+
+순위의 세부 슬러그, 국가·업종·산업 변형, 직접 확인 여부는 별첨 URL 색인에 전부 열거한다. 특정 지표의 존재와 실제 이용률은 다른 사실이다.
+
+## 3. 기존 서비스와 경쟁 서비스 대조
+
+현재 저장소에는 /desk, /stocks, /stock/:code, /global, /etf, /market-brief, /news, 시장별 지도, TOP 100, 글로벌 시총, AI 예측·채점, 수급, 버블·궤도 페이지가 있다. 종목 상세에는 지표·뉴스·토론·수급·보고서가 이미 있다. 새 가격표·3D 지도·일반 뉴스 목록을 다시 만드는 것은 우선하지 않는다.
+
+| 항목 | 이미 확인한 유사 기능 | 새 페이지가 달리하는 기준·표현 |
+| --- | --- | --- |
+| 스크리너 | TradingView·Finviz 필터 검색 | 조건을 판단의 출발점으로 쓰고 누락·표본·근사치를 노출, 차이 설명 도구로 연결 |
+| 비교 차트 | TradingView의 비교와 Koyfin의 상대 성과 기능 | 최고 종목 총점 대신 같은 업종 후보를 바꿀 때 달라지는 조건을 문장으로 설명 |
+| 시장 폭 | TradingView가 고저점·참여 폭을 제공 | 같은 완전 표본의 가중/단순 평균과 상위 3종목 제외 결과를 한 질문으로 묶음 |
+| ETF 탐색 | 기존 /etf, 경쟁 서비스의 자산별 ETF 순위 | ETF 개수보다 실제 중복 기업, 총비용의 층, 분배금 일정 조건을 먼저 제시 |
+| 경제·금리 | TradingView의 국가 비교·수익률 곡선·캘린더 | 변수의 전달 경로와 비교 불가능 조건을 설명하고 한국시간 일정 충돌을 강조 |
+| 계산기 | 손실 회복 계산은 일반적인 금융 산술 | 별도 앱·로그인 없이 선택 종목 가격 거리와 연결하고 개인 입력을 저장하지 않음 |
+
+Finviz 공식 문서는 조건 검색과 다양한 결과 뷰를 설명한다. TradingView 공식 도움말에는 종목 비교와 시장 폭 지표가 있다. Koyfin 공식 기능 목록에도 상대 성과 분석이 있다. 이 기능 자체를 독점적 신규 발명으로 포장하지 않는다. 출처는 13절 참조.
+
+## 4. 이용 수요와 만족도 우선순위
+
+빈번한 과제라는 가설의 우선순위는 (1) 오늘의 체감 설명, (2) 후보 간 차이 이해, (3) 손실·회복 오해 해소, (4) 일정과 기대치 확인, (5) ETF 비용·중복, (6) 원화 환산, (7) 금리·원자재 경로, (8) 전문 채권·파생 분석 순이다. 실제 이용률 순위가 아니다.
+
+페이지 채택 기준: 사용자 질문이 구체적이고, 기존 화면에서 답을 얻기까지 여러 표를 오가야 하며, 선택 기준과 설명을 투명하게 제시할 수 있어야 한다. 숫자 수·카드 수·체류시간만 늘리는 기능은 채택하지 않는다.
+
+| 검증 항목 | 출시 전 목표 가설 | 측정 방법 |
+| --- | --- | --- |
+| 과제 성공 | 핵심 과제 독립 수행 85% 이상 | 초기 12~20명 대상 질문별 관찰, 실패 이유 기록 |
+| 첫 유용한 답 | 중앙값 30초 이내 | 지시문 제시부터 올바른 설명까지 측정 |
+| 해석 정확도 | 표본/실제지수, %/%p 구분 90% 이상 | 숫자 두 개의 의미를 사용자 말로 설명 |
+| 만족도 | 과제 직후 평균 4.3/5 이상 | 선택형 단문 조사. 실제 달성 전에는 만족도 높음 표기 금지 |
+| 재방문 가치 | 첫 2주 기준선 대비 재이용률 개선 | 기존 가명화·동의된 집계에서 페이지 단위 비교 |
+| 성능·접근성 | 모바일 LCP p75 2.5초 이하, 키보드 핵심 과제 수행 | 배포 환경 RUM/측정과 접근성 수동 검토. 로컬 수치와 구분 |
+
+낮은 만족도는 카드 수를 늘려 해결하지 않는다. 답을 못 얻은 질문, 비교 기준의 혼동, 누락 데이터, 긴 로딩 중 원인을 찾고 개선한다. 기능별 공개 이용률을 대신할 임의 숫자를 만들지 않는다.
+
+## 5. 신규 페이지 전체 목록
+
+아래 36개는 모두 별도의 사용자 질문을 갖는 제안이다. 핵심·구현 3개, 기반·구현 5개는 현재 로컬 코드에 연결했다. 나머지 P1/P2는 데이터·기능 구현이 남아 있다. 로컬 구현과 운영 배포, 사용자 만족도 검증은 별개의 상태다.
+
+{CATALOG}
+
+## 6. 페이지별 기능과 작업 목록
+
+상태 A는 기존 응답 재사용, B는 기존 원천의 추가 계산·메타데이터·보존형 시계열 개발, C는 외부 원천·이용 조건·정규화 확인이 필요한 경우다. C를 “연결 완료”라고 보지 않는다. 각 페이지의 수용 기준은 기능 동작 기준이며, 만족도는 4절에서 별도 검증한다.
+
+{DETAILS}
+
+## 7. 정보 구조와 화면 규칙
+
+탐색의 중심은 /markets다. 시장 속사정→원종목/업종 근거, 종목 선택의 대가→원표 비교, 회복 실험→목표 거리 확인으로 연결한다. 레이더·스크리너·업종판은 후보를 발견하거나 원표로 돌아가는 도구다. ETF·뉴스·브리핑·지도는 기존 페이지를 재사용한다.
+
+모든 화면의 순서는 질문→짧은 관측 설명→근거 숫자→비교/제외 실험→데이터 한계→다음 확인이다. 강한 단정, 임의 확률, 검증되지 않은 매수 신호, 설명 없는 종합점수는 쓰지 않는다. 결과가 비어도 이유와 조건 변경 방법을 제공한다.
+
+같은 기능을 다시 만들더라도 선택 기준은 명시한다. 같은 시장/업종/기간인지, 표본에 무엇이 들어갔는지, 누락이 몇 개인지, 실제 체결값인지 근사값인지 항상 보인다. 표·문장·막대의 세 표현은 같은 계산 결과를 공유한다.
+
+모바일은 세로 질문 흐름을 유지한다. 비교표만 자체 가로 스크롤을 허용하고 페이지 전체가 가로로 밀리지 않도록 한다. 상승·하락은 색상 외에 부호와 숫자로 구분한다. 밝은/어두운 테마, 키보드 포커스, 입력 라벨, 오류·로딩·빈 상태를 제공한다.
+
+## 8. 데이터·산식·구현 계약
+
+첫 구현은 기존 GET /api/market/board?market=kospi|kosdaq|nasdaq 응답을 이용한다. 시장별 현재 TOP 100이며 전체 상장 주식 순위가 아니다. 별도 로그인·회원 DB·신규 저장 API·새 자동 정리 작업을 추가하지 않았다. 폴링은 보이는 탭에서 60초 간격이고 요청이 겹치면 공유한다. 마지막 구독자가 사라지면 반복 조회를 멈춘다. 일부 시장 갱신 실패 시 이전 정상 표본을 보존하고 실패 사실을 표시한다.
+
+| 계산 | 정의 | 빠뜨리면 안 되는 조건 |
+| --- | --- | --- |
+| 시총가중 평균 | Σ(시총×등락률)/Σ시총 | 동일 시장, 유효한 시총과 등락률이 있는 종목만 |
+| 단순평균 | Σ등락률/표본 수 | 가중평균과 같은 완전 표본 |
+| 상위 3종목 제외 | 유효 표본을 시총순 정렬 후 3개를 뺀 나머지를 재가중 | 3개 이하이면 미제공, 실제 지수 재계산이라고 표현하지 않음 |
+| 상위 3종목 기여 | Σ(상위3 시총×등락률)/전체 유효 시총 | 단위 %p, 기여율 %와 혼동 금지 |
+| 52주 고점 대비 | (현재가/52주 고가−1)×100 | 고가 미제공 제외, 과거 고가 재도달 보장 없음 |
+| 고점 근접 프리셋 | 고점 대비 −5% 이상 0% 이하 | 실제 신고가 돌파나 장중 고가 판정이 아님 |
+| 거래규모 근사 | 수신 현재가×수신 거래량 | 실제 체결대금이 아니며 거래소·세션 차이 가능 |
+| 회복 상승률 | 손실률/(100−손실률)×100 | 0≤손실률<100, 수수료·세금·배당·환율 제외 |
+| 후보 차이 | 같은 시장·업종의 후보값−기준값 | PER은 배, ROE·수익률 차이는 %p, 한쪽 누락이면 미비교 |
+
+나스닥 보드의 marcap은 지수 비중일 수 있다. 달러 시총으로 쓰지 않으며 market_cap만 사용한다. 현재 응답의 generated_at은 집계시각이므로 체결시각이나 실시간 보증으로 표시하지 않는다. 미국 장전·정규·장후를 표시하고 시장 간 통화·시간 차이를 알린다.
+
+기간 등락률은 배당 재투자 총수익률과 구분한다. 음수/0 PER은 유효한 저PER로 채택하지 않는다. 결산 기준일은 현재 보드 응답에 충분하지 않아 선택의 대가 화면에서 서로 다를 수 있음을 알린다. 재무 비교의 정밀화는 후속 작업이다.
+
+## 9. 저장 데이터 보호와 최소 정보 원칙
+
+기존 DB·테이블·파일·백업 삭제, 파괴적 마이그레이션, 정리 스크립트 실행을 수행하지 않는다. 테스트는 메모리 합성 응답으로 진행하고 운영·개발 저장 DB를 테스트 대상으로 사용하지 않는다. 신규 코드에 쓰기 SQL·소프트 삭제·삭제 예약을 넣지 않는다.
+
+신규 핵심 이용 흐름은 가입 정보를 요구하지 않는다. 이름·이메일·전화번호·프로필과 소셜 로그인 권한을 추가하지 않는다. 공개 종목·검색 조건의 공유 URL과 개인 보유단가·금액을 구분한다. 회복 실험의 자유 입력은 URL·스토리지·API·로그에 보내지 않으며, 해당 하위 영역은 기존 일반 클릭 수집도 제외한다.
+
+향후 회원과 연결된 관심종목·설정·보고서를 저장한다면 서버에서 인증된 내부 난수 ID로 범위를 제한하고 AES-GCM 암호화·별도 비밀키·제한 API를 적용한다. 제공자 식별값은 별도 서버키 HMAC으로 가명화하고 토큰은 브라우저 localStorage에 저장하지 않는다. 이 단계는 현재 개발에 포함되지 않는다.
+
+AI 자격 증명의 읽기 전용 권한과 DB 소유권 분리가 기술적으로 검증된 것은 아니다. 이번 작업은 DB 도구나 소유자 자격 증명을 사용하지 않았으며 “AI의 삭제가 기술적으로 불가능하다”고 보고하지 않는다.
+
+## 10. 개발 순서와 완료 조건
+
+1. S0 조사·설계: URL 기능 계열 분류, 기존 코드 대조, 36페이지 목록·작업 정의. 현재 문서로 수행.
+2. S1 차별화 MVP: 질문형 허브 + 시장 속사정 + 선택의 대가 + 회복 실험, 이를 지원하는 레이더·스크리너·비교·업종판 연결. 현재 로컬 구현.
+3. S2 신뢰·비교 보강: 실제 체결시각·결산 기준일·표본 편향 보강, 데이터 신뢰 지도, 기간 기준선 정렬. 한 개발자 기준 3~5 개발일의 계획 가정이며 확약 일정이 아니다.
+4. S3 반복 수요 확장: 환율 효과·내 종목 체감선·거래 집중의 질·일정 충돌. 데이터 준비 후 1~2주 가정.
+5. S4 ETF·사건 맥락: 구성 중복·비용·배당·사건 영향·실적 기대. 공급자 조건 확인 후 각 주제별 별도 작업.
+6. S5 전문 영역: 글로벌·거시·국채·회사채·크립토·파생. 데이터 사용권과 품질을 확보한 영역부터 독립 출시.
+
+각 후속 페이지는 사용자 질문 1개, 확인 가능한 원천, 재현 가능한 산식, 빈 상태, 모바일 흐름, 사용성 검증이 모두 준비되어야 출시 후보가 된다. 데이터가 없다는 이유로 합성 시세·고정 수익률·임의 신뢰 점수를 운영 화면에 넣지 않는다.
+
+## 11. 공통 작업 백로그
+
+- [x] 공개 페이지 953개와 인접 도구 11개 조사 결과를 색인한다.
+- [x] 직접 읽지 않은 국가 변형 326개와 404·동적 미검증 범위를 구분한다.
+- [x] 36개 신규 페이지의 질문·선별 기준·표현·데이터·수용 기준을 정의한다.
+- [x] 차별적 핵심 3개와 기반 5개를 라우터·내비게이션에 연결한다.
+- [x] 서버·클라이언트 SEO 메타데이터에 신규 경로를 추가한다.
+- [x] 신규 경로가 관리자 통계에서 기타로 섞이지 않게 이름을 등록한다.
+- [x] 누락값·표본·가중평균·지수비중/시총 혼동 방지 산식을 구현한다.
+- [x] 회복 계산의 자유 입력을 저장·전송하지 않도록 구성한다.
+- [ ] 실제 체결시각과 원천별 지연 상태를 응답에 전달한다.
+- [ ] PER·ROE의 결산 기준일·TTM/연결 여부를 추가 전달한다.
+- [ ] 전체 종목 확장 시 스냅샷 응답 API와 서버 측 필터를 비파괴 방식으로 설계한다.
+- [ ] 동일 시각 상대 거래량, 분배금 재투자, 조정주가 계산을 검증한다.
+- [ ] 기업·ETF·채권·코인의 식별자와 원천 출처 사전을 구축한다.
+- [ ] ECOS·DART·FRED·운용사·거래소 데이터의 필드·호출 제한·사용 조건을 확인한다.
+- [ ] 한국 거래일·미국 DST·반장 캘린더를 기준선에 적용한다.
+- [ ] 사내 또는 익명 참여자 12~20명으로 핵심 과제 사용성 테스트를 진행한다.
+- [ ] 오해가 잦은 표현과 단계 수를 실제 관찰 결과로 수정한다.
+- [ ] 모바일 실기기·보조기술·키보드 접근성 검토를 진행한다.
+- [ ] 영어 모드의 신규 페이지 본문 번역을 기존 국제화 체계에 연결한다.
+- [ ] 배포 환경에서 지연·요청 수·오류율·LCP를 측정한다.
+- [ ] 공개 페이지 비교 조건별 색인 정책과 중복 canonical 전략을 점검한다.
+- [ ] 릴리스 메모·운영 배포·실데이터 검증을 수행한다.
+- [ ] 실제 재방문·과제 성공·만족도 결과에 따라 P1/P2 순서를 조정한다.
+
+## 12. 이번 구현과 검증 기록
+
+{VALIDATION}
+
+신규 시장 데이터 API 계약을 기존 보드 API에 맞춰 연결했다. 운영 원천의 정확도·재배포 권한·실시간성 전체를 새로 인증한 것은 아니다. 브라우저 검증은 합성 응답을 사용하며 결과의 서비스 로직·반응형·오류 보존·비저장 입력 처리를 확인한다. 운영 서버를 실행하거나 DB를 읽어 테스트하지 않는다. 운영 배포는 아직 하지 않았다.
+
+## 13. 출처와 재현 파일
+
+시장 조사 원본: docs/research/tradingview-markets-2026-10-25.json. 전체 직접 조사 URL·기능 템플릿·미방문 국가 변형 색인: docs/research/tradingview-markets-page-index-2026-10-25.md. 조사 재현 스크립트: scripts/research_tradingview_markets.py. PDF·문서 생성: scripts/build_market_discovery_report.py.
+
+아래 링크는 조사한 기능 또는 공식 데이터 후보의 근거다. 외부 데이터 API가 존재한다는 사실은 해당 데이터를 무료로 재배포할 권리가 확보됐다는 뜻이 아니다. TradingView는 기능 조사 참고이며 신규 서비스의 시세 공급자로 연결하지 않는다.
+
+- TradingView 시장 홈: https://kr.tradingview.com/markets/
+- 한국 활동 종목: https://kr.tradingview.com/markets/stocks-korea/market-movers-active/
+- 한국 상대 거래량: https://kr.tradingview.com/markets/stocks-korea/market-movers-unusual-volume/
+- 미국 주식: https://kr.tradingview.com/markets/stocks-usa/
+- 지수: https://kr.tradingview.com/markets/indices/
+- ETF: https://kr.tradingview.com/markets/etfs/
+- 암호화폐: https://kr.tradingview.com/markets/cryptocurrencies/
+- 선물·원자재: https://kr.tradingview.com/markets/futures/
+- 외환: https://kr.tradingview.com/markets/currencies/
+- 국채 수익률 곡선: https://kr.tradingview.com/markets/bonds/yield-curve-all/
+- 회사채: https://kr.tradingview.com/markets/corporate-bonds/
+- 세계경제: https://kr.tradingview.com/markets/world-economy/
+- 경제 캘린더: https://kr.tradingview.com/economic-calendar/
+- TradingView 종목 비교 도움말: https://www.tradingview.com/support/solutions/43000543053-compare-see-how-symbols-perform-side-by-side/
+- TradingView 시장 폭 도움말: https://www.tradingview.com/support/solutions/43000794826-market-breadth-new-highs-and-lows/
+- Finviz 스크리너 공식 설명: https://finviz.com/help/screener
+- Koyfin 기능 목록: https://www.koyfin.com/help/topic/functionality/
+- 한국은행 ECOS API: https://ecos.bok.or.kr/api/
+- OpenDART: https://opendart.fss.or.kr/
+- FRED API: https://fred.stlouisfed.org/docs/api/fred/
+- 업비트 공개 현재가 API 문서: https://docs.upbit.com/kr/reference/list-tickers
+- TradingView 이용 조건: https://www.tradingview.com/policies/
+"""
+
+
+def build_markdown():
+    audit = json.loads(RESEARCH.read_text(encoding="utf-8"))
+    counts = collections.Counter(x["path"].split("/")[2] if x["path"] != "/markets/" else "markets-home" for x in audit["pages"])
+    count_table = "| 기능 계열 | 직접 읽은 URL 수 |\n| --- | --- |\n" + "\n".join(f"| {key} | {value} |" for key, value in counts.items())
+    catalog = "| ID | 페이지 / 경로 | 역할·단계 |\n| --- | --- | --- |\n" + "\n".join(f"| N{i:02} | {p[0]} / {p[1]} | {p[2]} |" for i, p in enumerate(PAGES, 1))
+    details = []
+    for i, (name, route, phase, question, selection, expression, data, acceptance) in enumerate(PAGES, 1):
+        implemented = "구현" in phase
+        mark = "x" if implemented else " "
+        details.append(f"""### N{i:02}. {name}
+
+경로: {route} / 단계: {phase}
+
+사용자 질문: {question}
+
+정보 선별 기준: {selection}
+
+차별적 표현과 주요 기능: {expression}
+
+데이터 준비: {data}
+
+수용 기준: {acceptance}
+
+- [{mark}] N{i:02}-01: 필요한 데이터 필드·누락·기간·단위 계약을 정의한다.
+- [{mark}] N{i:02}-02: 위 선별 기준과 설명을 실제 계산·화면 흐름으로 구현한다.
+- [{mark}] N{i:02}-03: 기존 허브·종목 원표·근거 출처로 이어지는 동선을 연결한다.
+- [ ] N{i:02}-04: {acceptance} 과제를 실제 사용자에게 검증한다.
+""")
+    qa = ROOT / "tmp" / "market-discovery-qa" / "result.json"
+    validation = "- TypeScript 검사: 통과.\n- 계산·필터·경계·CSV 단위 테스트: 11개 통과."
+    if qa.exists():
+        result = json.loads(qa.read_text(encoding="utf-8"))
+        validation += f"\n- 합성 API 브라우저 검증: {len(result['checks'])}개 통과, JavaScript 예외 {len(result['javascript_errors'])}개.\n- 8개 경로의 데스크톱 1440px·모바일 390px 캡처와 밝은 테마를 검토했다."
+    else:
+        validation += "\n- 브라우저 검증: 진행 중. 완료 기록은 PDF 생성 전에 갱신한다."
+    build_record = ROOT / "tmp" / "market-discovery-build-result.json"
+    validation += "\n- 프로덕션 번들: " + ("통과." if build_record.exists() else "최종 확인 대기.")
+    text = INTRO.replace("{COUNTS}", count_table).replace("{CATALOG}", catalog).replace("{DETAILS}", "\n".join(details)).replace("{VALIDATION}", validation)
+    DOC.write_text(text, encoding="utf-8")
+    return audit, text
+
+
+def build_index(audit):
+    lines = ["# TradingView 시장 조사 URL 색인", "", "조사일: 2026-10-25. 공개 HTML 제목·헤딩·표 열·링크만 조사. 가격·기사 본문을 신규 데이터로 사용하지 않는다.", "", f"직접 읽음 {len(audit['pages'])}개 / 미방문 국가 변형 {len(audit['unvisited_country_variants'])}개 / 인접 도구 {len(audit['adjacent_tools'])}개.", "", "## 직접 읽은 시장 URL", "", "| URL | 페이지 이름 | 상태 |", "| --- | --- | --- |"]
+    for page in sorted(audit["pages"], key=lambda x: x["path"]):
+        title = (page.get("headings") or [page.get("title", "")])[0].replace("|", " / ")
+        lines.append(f"| {page['url']} | {title} | {page.get('status', page.get('error'))} |")
+    lines += ["", "## 계열별 기능 슬러그", "", "같은 템플릿의 국가·산업 변형은 기능의 중복으로 분류한다.", ""]
+    for family in audit["scope_families"]:
+        family_pages = [p for p in audit["pages"] if p["path"].startswith(f"/markets/{family}/")]
+        slugs = sorted({p["path"].strip("/").split("/")[2] for p in family_pages if len(p["path"].strip("/").split("/")) > 2})
+        lines += [f"### {family}", ""] + [f"- {slug}" for slug in slugs] + [""]
+    lines += ["## 미방문 국가 변형", "", "아래는 링크에서 발견했으나 본문을 직접 읽지 않은 URL이다. 익명 기능·표 열·상호작용 검증 완료로 계산하지 않는다.", ""]
+    lines += [f"- https://kr.tradingview.com{path}" for path in audit["unvisited_country_variants"]]
+    lines += ["", "## 인접 도구 확인", "", "| URL | HTTP | 관찰 범위 |", "| --- | --- | --- |"]
+    for page in audit["adjacent_tools"]:
+        lines.append(f"| {page['url']} | {page.get('status', page.get('error'))} | {'도구 셸·메뉴만, 동적 조작 미검증' if page.get('status') == 200 else '경로 불가, 기능 근거로 채택하지 않음'} |")
+    INDEX.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def pdf_inline(text):
+    text = html.escape(text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = text.replace("[x]", "[완료]").replace("[ ]", "[예정]")
+    # Break long URL/path runs at semantic separators for readable wrapping.
+    text = re.sub(r"https?://[^\s<]+", lambda m: m[0].replace("/", "/\u200b").replace("-", "-\u200b"), text)
+    return text
+
+
+def build_pdf(markdown):
+    PDF.parent.mkdir(parents=True, exist_ok=True)
+    pdfmetrics.registerFont(TTFont("Malgun", "C:/Windows/Fonts/malgun.ttf"))
+    pdfmetrics.registerFont(TTFont("Malgun-Bold", "C:/Windows/Fonts/malgunbd.ttf"))
+    pdfmetrics.registerFontFamily("Malgun", normal="Malgun", bold="Malgun-Bold", italic="Malgun", boldItalic="Malgun-Bold")
+    ink = colors.HexColor("#1b2738"); muted = colors.HexColor("#566678"); gold = colors.HexColor("#9b6b27")
+    body = ParagraphStyle("KBody", fontName="Malgun", fontSize=9.2, leading=15.3, textColor=ink, spaceAfter=8, wordWrap="CJK", splitLongWords=True)
+    styles = {1: ParagraphStyle("KTitle", parent=body, fontName="Malgun-Bold", fontSize=24, leading=34, spaceAfter=20, textColor=ink),
+              2: ParagraphStyle("KSection", parent=body, fontName="Malgun-Bold", fontSize=15, leading=23, spaceBefore=22, spaceAfter=12, keepWithNext=True),
+              3: ParagraphStyle("KSub", parent=body, fontName="Malgun-Bold", fontSize=11, leading=18, spaceBefore=16, spaceAfter=8, textColor=gold, keepWithNext=True)}
+    table_style = ParagraphStyle("KCell", parent=body, fontSize=7.5, leading=12, spaceAfter=0)
+    header_style = ParagraphStyle("KHead", parent=table_style, fontName="Malgun-Bold", textColor=colors.white)
+    story = []
+    lines = markdown.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if not line:
+            i += 1; continue
+        if line.startswith("|"):
+            rows = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                cells = [cell.strip() for cell in lines[i].strip().strip("|").split("|")]
+                if not all(re.fullmatch(r"[:\- ]+", cell) for cell in cells): rows.append(cells)
+                i += 1
+            width = A4[0] - 90
+            n = len(rows[0])
+            fractions = {2: [.72, .28], 3: [.24, .4, .36], 4: [.13, .36, .23, .28]}.get(n, [1 / n] * n)
+            # The catalog has a compact ID column.
+            if rows[0][0] == "ID": fractions = [.1, .65, .25]
+            data = [[Paragraph(pdf_inline(cell), header_style if j == 0 else table_style) for cell in row] for j, row in enumerate(rows)]
+            table = Table(data, colWidths=[width * v for v in fractions], repeatRows=1, hAlign="LEFT")
+            table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), ink), ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f2f5f8"), colors.white]), ("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOX", (0, 0), (-1, -1), .4, colors.HexColor("#d4dce5")), ("LINEBELOW", (0, 0), (-1, -1), .3, colors.HexColor("#d4dce5")), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
+            story += [table, Spacer(1, 10)]
+            continue
+        heading = re.match(r"^(#{1,3}) (.*)$", line)
+        if heading:
+            story.append(Paragraph(pdf_inline(heading[2]), styles[len(heading[1])]))
+            i += 1; continue
+        if line.startswith("- "):
+            story.append(Paragraph(pdf_inline(line[2:]), ParagraphStyle("Bullet", parent=body, leftIndent=10, firstLineIndent=0, spaceAfter=5)))
+            i += 1; continue
+        para = [line]
+        i += 1
+        while i < len(lines) and lines[i].strip() and not lines[i].startswith(("#", "|", "- ")):
+            para.append(lines[i].strip()); i += 1
+        story.append(Paragraph(pdf_inline(" ".join(para)), body))
+    def furniture(canvas, doc):
+        canvas.saveState()
+        width, height = A4
+        canvas.setStrokeColor(colors.HexColor("#d4dce5")); canvas.line(45, height - 35, width - 45, height - 35)
+        canvas.setFont("Malgun", 7); canvas.setFillColor(muted)
+        canvas.drawString(45, height - 26, "K-STOCK HUB  /  MARKET DISCOVERY & DECISION TOOLS")
+        canvas.line(45, 36, width - 45, 36)
+        canvas.drawString(45, 23, "2026-10-25  |  개발 계획 · 데이터 기준 · 전체 작업 목록")
+        canvas.drawRightString(width - 45, 23, str(doc.page))
+        canvas.restoreState()
+    doc = SimpleDocTemplate(str(PDF), pagesize=A4, rightMargin=45, leftMargin=45, topMargin=51, bottomMargin=50, title="K-Stock Hub 신규 서비스 개발 계획", author="K-Stock Hub", subject="TradingView 시장 분석과 차별적 신규 서비스 36개 개발 작업 목록")
+    doc.build(story, onFirstPage=furniture, onLaterPages=furniture)
+    return PDF
+
+
+def main():
+    audit, markdown = build_markdown()
+    build_index(audit)
+    path = build_pdf(markdown)
+    print(json.dumps({"markdown": str(DOC), "pdf": str(path), "index": str(INDEX), "proposals": len(PAGES)}, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

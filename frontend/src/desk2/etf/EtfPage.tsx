@@ -1,3 +1,5 @@
+import ServiceConnections from "../../markets/ServiceConnections";
+import "../../markets/researchServices.css";
 import { useEffect, useMemo, useState } from "react";
 import { BoardPost, EtfItem, GlobalDiscussionPost, api } from "../../api/client";
 import { useLanguage } from "../../i18n/LanguageContext";
@@ -302,6 +304,7 @@ export default function EtfPage() {
       </div>
 
       <main className="d2-main">
+        <ServiceConnections compact path="/etf" region={region} />
         <section className="d2-sec ef-front" aria-label={L("ETF 1면", "ETF front")}>
           {stats ? (
             <>

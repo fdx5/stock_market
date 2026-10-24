@@ -4,6 +4,8 @@ import { audienceBrowserId, loadAudienceConfig } from "./audienceIdentity";
 import { startVisibilityAwareInterval } from "./pollVisibility";
 import { deviceInfo, resolveDeviceInfo } from "./deviceInfo";
 import { MARKET_ASSETS } from "./marketAssets";
+import { serviceForPath } from "./markets/catalog";
+import { RESEARCH_ACTIONS, ResearchAction } from "./markets/researchActions";
 
 const EVENT_ENDPOINT = "/api/activity/event";
 const CLICK_DEBOUNCE_MS = 500;
@@ -59,6 +61,8 @@ export function pageLabel(path: string): string {
   // trailing slash. Classify the canonical route instead of falling through to 기타.
   const cleanPath = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
   path = cleanPath;
+  const research = serviceForPath(path);
+  if (research) return research.name;
   const asset = MARKET_ASSETS.find(asset => path === `/prices/${asset.key}`);
   if (asset) return `${asset.ko} 시세 상세`;
   if (path === "/admin/system-atlas") return "시스템 아틀라스";
@@ -420,6 +424,14 @@ export function reportStocksEvent(options: {
  *  interaction, so the action produces exactly one event instead of two. */
 const SELF_REPORTING = "[data-track='self']";
 
+export function reportResearchEvent(action: ResearchAction, stock?: { code: string; name?: string }) {
+  const service = serviceForPath(window.location.pathname);
+  if (!service || !RESEARCH_ACTIONS[action]) return;
+  const code = stock?.code && /^[A-Za-z0-9.-]{1,16}$/.test(stock.code) ? stock.code : undefined;
+  sendEvent({ type: "click", path: service.path, label: `${service.name} · ${RESEARCH_ACTIONS[action]}`,
+    object_key: `research:${action}`, stock_code: code, stock_name: code ? stock?.name?.slice(0, 100) : undefined });
+}
+
 export function useActivityTracking(path: string): void {
   const lastClickRef = useRef<{ key: string; ts: number } | null>(null);
 
@@ -473,6 +485,14 @@ export function useActivityTracking(path: string): void {
       if (!target) return;
       const interactive = target.closest("a, button, [role='button'], .search-option");
       if (!interactive) return;
+      if (serviceForPath(currentPath) && interactive.closest(".ng-research")) {
+        const named = interactive.getAttribute("data-research-action") as ResearchAction | null;
+        if (named && RESEARCH_ACTIONS[named]) { reportResearchEvent(named); return; }
+        if (interactive.closest(SELF_REPORTING)) return;
+        if (interactive.matches("a")) reportResearchEvent(interactive.getAttribute("target") === "_blank" ? "source_open" : "related_open");
+        else if (!interactive.matches("button[type=submit]")) reportResearchEvent("control_use");
+        return;
+      }
       // Opted out: this element's own component reports the click with a stable key.
       // Without it both fire, and the generic one is the worse of the two — it reads
       // the element's rendered text, so a stock row comes back as
@@ -495,7 +515,9 @@ export function useActivityTracking(path: string): void {
       const currentPath = window.location.pathname;
       if (isAdminPath(currentPath)) return;
       const select = event.target instanceof HTMLSelectElement ? event.target : null;
+      if (serviceForPath(currentPath) && event.target instanceof HTMLInputElement && event.target.type === "number" && event.target.closest(".ng-research")) { reportResearchEvent("assumption_change"); return; }
       if (!select) return;
+      if (serviceForPath(currentPath) && select.closest(".ng-research")) { reportResearchEvent("filter_change"); return; }
       if (select.closest(SELF_REPORTING)) return;
       const name = select.getAttribute("aria-label") || select.name || "선택 항목";
       sendEvent({

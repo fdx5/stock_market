@@ -307,6 +307,37 @@ def bubble_stats(since_iso: str) -> dict:
     }
 
 
+def research_stats(since_iso: str, selected_path: str = "") -> dict:
+    """SELECT-only analytics over existing events; no new schema or cleanup."""
+    from app.services.discovery_catalog import SERVICES
+    catalog = {path: name for path, name, _ in SERVICES}
+    paths = [selected_path] if selected_path in catalog else list(catalog)
+    where = f"created_at >= ? AND {HUMAN} AND path IN ({','.join('?' for _ in paths)})"
+    params = (since_iso, *paths)
+    def read(conn):
+        pages = conn.execute(
+            "SELECT path, SUM(CASE WHEN event_type='page_view' THEN 1 ELSE 0 END), "
+            "COUNT(DISTINCT CASE WHEN event_type='page_view' THEN session_id END), "
+            "SUM(CASE WHEN event_type='click' AND object_key LIKE 'research:%' THEN 1 ELSE 0 END) "
+            f"FROM page_views WHERE {where} GROUP BY path", params).fetchall()
+        actions = conn.execute(f"SELECT path,object_key,COUNT(*),COUNT(DISTINCT session_id) FROM page_views WHERE {where} "
+            "AND event_type='click' AND object_key LIKE 'research:%' GROUP BY path,object_key ORDER BY COUNT(*) DESC LIMIT 600", params).fetchall()
+        trend = conn.execute("SELECT strftime('%Y-%m-%d',created_at,'+9 hours'), "
+            "SUM(CASE WHEN event_type='page_view' THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN event_type='click' AND object_key LIKE 'research:%' THEN 1 ELSE 0 END) "
+            f"FROM page_views WHERE {where} GROUP BY 1 ORDER BY 1", params).fetchall()
+        recent = conn.execute(f"SELECT created_at,path,object_key,stock_code,stock_name FROM page_views WHERE {where} "
+            "AND event_type='click' AND object_key LIKE 'research:%' ORDER BY created_at DESC LIMIT 80", params).fetchall()
+        return pages, actions, trend, recent
+    rows, actions, trend, recent = _with_connection(read)
+    known = {path: {"path": path, "name": catalog[path], "views": int(views or 0), "sessions": sessions, "actions": int(actions or 0)} for path, views, sessions, actions in rows}
+    pages = [known.get(path, {"path": path, "name": catalog[path], "views": 0, "sessions": 0, "actions": 0}) for path in paths]
+    return {"since": since_iso, "pages": sorted(pages, key=lambda row: (-row['views'], row['name'])),
+        "actions": [{"path": path, "action": key.removeprefix('research:'), "count": count, "sessions": sessions} for path, key, count, sessions in actions],
+        "trend": [{"day": day, "views": int(views or 0), "actions": int(actions or 0)} for day, views, actions in trend],
+        "recent": [{"at": at, "path": path, "action": key.removeprefix('research:'), "code": code, "name": name} for at, path, key, code, name in recent]}
+
+
 # Routes that carry a code in the path. Grouping them is what makes the admin's page
 # ranking readable: /stock/005930 and /stock/000660 are one page with a few thousand
 # possible URLs, and counted apart the 종목 상세 page never appears in a top-5 at all —

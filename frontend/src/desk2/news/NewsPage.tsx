@@ -1,3 +1,5 @@
+import ServiceConnections from "../../markets/ServiceConnections";
+import "../../markets/researchServices.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GlobalTop20Item, api } from "../../api/client";
 import CompanyLogo from "../../components/CompanyLogo";
@@ -183,6 +185,7 @@ export default function NewsPage() {
       </div>
 
       <main className="d2-main">
+        <ServiceConnections compact path="/news" />
         {rosterError && <p className="d2-empty">{rosterError}</p>}
         {active && (
           <section className="d2-sec nw-company" aria-label={L("기업 정보", "Company")}>

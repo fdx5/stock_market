@@ -12,6 +12,9 @@ import { isBrowsingPage, ReadingRestoration } from "./browsingMemory";
 import ReadingTools from "./components/ReadingTools";
 import "./components/marketBriefPrint.css";
 import NeoShell from "./neo/NeoShell";
+import { SERVICES, serviceForPath } from "./markets/catalog";
+const MarketDiscoveryPage = lazy(() => import("./markets/MarketDiscoveryPage"));
+const ServiceWorkspacePage = lazy(() => import("./markets/ServiceWorkspacePage"));
 import AdminWorkspace from "./components/AdminWorkspace";
 const TreasuryDetailPage = lazy(() => import("./desk2/world/TreasuryDesk").then(module => ({ default: module.TreasuryDetailPage })));
 import { useDesignMode } from "./neo/settings";
@@ -150,6 +153,7 @@ function DashboardRedirect() {
 }
 
 const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = {
+  ...Object.fromEntries(SERVICES.map(s => [s.path, { title: `${s.name} | K-Stock Hub`, description: s.question + " " + s.criteria }])),
   ...Object.fromEntries(MARKET_ASSETS.map(asset => [`/prices/${asset.key}`, { title: `${asset.ko} 시세·1년 차트·일별 가격 | K-Stock Hub`, description: `${asset.ko}의 최근 1년 가격 차트와 일자별 시가, 고가, 저가, 종가 및 등락률을 확인하세요.` }])),
   "/investors": { title: "거물 포트폴리오 | K-Stock Hub", description: "해외 투자 거물과 연관 운용사의 공개 주식 보유 비중, 신규 편입, 공통 보유 종목을 확인하세요." },
   "/investment-videos": { title: "오늘의 투자 영상 | K-Stock Hub", description: "국내 주식과 나스닥·미국 주식 한국어 영상. 전일부터 오늘 오전 8시까지 공개된 영상 중 수집 후보를 조회수로 정렬합니다." },
@@ -369,7 +373,13 @@ export default function App() {
   const investorMatch = path.match(/^\/investor\/([^/]+)\/?$/);
   const indexMatch = path.match(/^\/index\/(kospi|kosdaq)\/?$/i);
   const marketAsset = MARKET_ASSETS.find(asset => path.replace(/\/$/, "") === `/prices/${asset.key}`);
-  if (marketAsset) {
+  const discoveryModes = {"/markets":"hub", "/market-inside":"inside", "/stock-tradeoffs":"tradeoffs", "/recovery-lab":"recovery", "/market-radar":"radar", "/stock-screener":"screener", "/stock-compare":"compare", "/sector-strength":"sectors"} as const;
+  const discoveryMode = discoveryModes[path as keyof typeof discoveryModes];
+  if (discoveryMode) {
+    page = <MarketDiscoveryPage key={path} mode={discoveryMode} />;
+  } else if (serviceForPath(path)) {
+    page = <ServiceWorkspacePage key={path} path={path} />;
+  } else if (marketAsset) {
     page = <AssetPricePage key={marketAsset.key} asset={marketAsset} />;
   } else if (portfolioMatch) {
     page = <InvestorPortfolioPage investorId={portfolioMatch[1]} />;

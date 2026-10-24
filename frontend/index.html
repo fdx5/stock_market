@@ -11,13 +11,7 @@
       (function () {
         document.documentElement.classList.add("js");
         document.documentElement.setAttribute("data-theme", "dark");
-        try {
-          var requested = new URLSearchParams(location.search).get("design");
-          var saved = sessionStorage.getItem("kospimap_design_preview");
-          var design = requested === "neo" || requested === "classic" ? requested : saved === "neo" || saved === "classic" ? saved : "neo";
-          document.documentElement.setAttribute("data-design", design);
-          if (requested === "neo" || requested === "classic") sessionStorage.setItem("kospimap_design_preview", requested);
-        } catch (e) { document.documentElement.setAttribute("data-design", "neo"); }
+        document.documentElement.setAttribute("data-design", "neo");
         document.querySelector('meta[name="theme-color"]').setAttribute("content", document.documentElement.dataset.design === "neo" ? "#100d13" : "#0d0d0d");
       })();
     </script>

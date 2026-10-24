@@ -18,6 +18,7 @@ from starlette.staticfiles import NotModifiedResponse
 from app.services.libsql_gate import StoreUnavailable
 from app.services.turso import TursoError
 from app.site import LEGACY_RENDER_HOST, PRIMARY_SITE_URL
+from app.routers import discovery
 from app.routers import editorial as editorial_router
 from app.services import editorial as editorial_service
 
@@ -250,6 +251,7 @@ async def _record_api_pulse(request: Request, call_next):
 
 app.include_router(search.router, prefix="/api")
 app.include_router(editorial_router.router, prefix="/api/editorial")
+app.include_router(discovery.router, prefix="/api/discovery")
 
 
 @app.on_event("startup")

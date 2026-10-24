@@ -1,3 +1,4 @@
+import { SERVICES } from "../markets/catalog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StockSearchResult, api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -31,6 +32,7 @@ interface Destination {
 }
 
 const DESTINATIONS: Destination[] = [
+  ...SERVICES.map(s => ({key:s.id,ko:s.name,en:s.name,group:"?? ??",to:s.path})),
   { key: "desk2", ko: "클래식 마켓 데스크", en: "Classic market desk", group: "메인", to: "/desk2" },
   { key: "stocks", ko: "종목정보", en: "Stocks", group: "메인", to: "/stocks" },
   { key: "brief", ko: "오늘 브리핑", en: "Daily brief", group: "메인", to: "/market-brief" },

@@ -8,10 +8,6 @@ let fx: FxLevel = "balanced";
 let frameLight = true;
 if (typeof window !== "undefined") {
   try {
-    const query = new URLSearchParams(window.location.search).get("design");
-    const saved = window.sessionStorage.getItem("kospimap_design_preview");
-    design = query === "classic" || query === "neo" ? query : saved === "classic" || saved === "neo" ? saved : "neo";
-    if (query === "classic" || query === "neo") window.sessionStorage.setItem("kospimap_design_preview", query);
     const level = window.localStorage.getItem("kospimap_fx");
     if (level === "full" || level === "minimal") fx = level;
     frameLight = window.localStorage.getItem("kospimap_frame_light") !== "off";
@@ -31,9 +27,9 @@ function apply() {
 apply();
 export function isNeoDesign() { return design === "neo"; }
 export function subscribeDesignSettings(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }
-export function setDesignMode(mode: DesignMode) {
-  design = mode;
-  try { window.sessionStorage.setItem("kospimap_design_preview", mode); } catch { /* in-memory preference */ }
+export function setDesignMode(_mode: DesignMode) {
+  design = "neo";
+  try { window.sessionStorage.setItem("kospimap_design_preview", "neo"); } catch { /* in-memory preference */ }
   apply(); listeners.forEach(listener => listener());
 }
 export function setFxLevel(level: FxLevel) {
@@ -41,7 +37,7 @@ export function setFxLevel(level: FxLevel) {
   try { window.localStorage.setItem("kospimap_fx", level); } catch { /* in-memory preference */ }
   apply(); listeners.forEach(listener => listener());
 }
-export function useDesignMode() { return useSyncExternalStore(subscribeDesignSettings, () => design, () => "classic" as DesignMode); }
+export function useDesignMode() { return useSyncExternalStore(subscribeDesignSettings, () => design, () => "neo" as DesignMode); }
 export function useFxLevel() { return useSyncExternalStore(subscribeDesignSettings, () => fx, () => "balanced" as FxLevel); }
 export function setFrameLight(value: boolean) { frameLight = value; try { window.localStorage.setItem("kospimap_frame_light", value ? "on" : "off"); } catch { /* in-memory preference */ } apply(); listeners.forEach(listener => listener()); }
 export function useFrameLight() { return useSyncExternalStore(subscribeDesignSettings, () => frameLight, () => true); }

@@ -1,0 +1,30 @@
+/* One label row, one 44px control row, then optional supporting text. */
+.ng-research { --rs-control-height:44px; --rs-label-height:18px; --rs-label-gap:8px; }
+.ng-research :is(.rs-field,.mdis-filters > label,.mdis-recovery-controls > label) { line-height:var(--rs-label-height); gap:var(--rs-label-gap); }
+.ng-research .rs-symbol-picker > label { line-height:var(--rs-label-height); min-height:var(--rs-label-height); }
+.ng-research :is(input:not([type=checkbox]):not([type=file]),select) { box-sizing:border-box; height:var(--rs-control-height); min-height:var(--rs-control-height); padding:10px 12px; font:13px/20px var(--f-sans); }
+.ng-research .rs-symbol-input { display:grid; grid-template-columns:36px minmax(0,1fr); height:var(--rs-control-height); border:1px solid var(--rule-2); border-radius:3px; background:var(--p0); box-sizing:border-box; }
+.ng-shell .ng-research .rs-symbol-picker .rs-symbol-input > input { grid-column:2; width:100%; min-width:0; height:calc(var(--rs-control-height) - 2px); min-height:0; padding:10px 12px 10px 0; margin:0; border:0; border-radius:0; background:transparent; }
+.ng-shell .ng-research .rs-symbol-picker .rs-symbol-input > span { position:static; inset:auto; grid-column:1; grid-row:1; display:flex; align-items:center; justify-content:center; line-height:1; width:36px; height:calc(var(--rs-control-height) - 2px); }
+.ng-research .rs-symbol-input:focus-within { border-color:var(--accent-neon); outline:2px solid var(--accent-neon); outline-offset:2px; }
+.ng-shell .ng-research .rs-symbol-picker .rs-symbol-input > input:focus-visible { outline:0; }
+.ng-research :is(.rs-context,.rs-control-grid,.mdis-recovery-controls) { align-items:flex-start; }
+.ng-research :is(.rs-context,.rs-control-grid) > .rs-field { align-self:flex-start; }
+.ng-research .rs-context { display:grid; grid-template-columns:minmax(90px,.7fr) minmax(220px,1.7fr) minmax(110px,.8fr) auto auto; gap:16px; }
+.ng-research .rs-context > .rs-field { min-width:0; max-width:none; }
+.ng-research .rs-context > :is(button,a) { margin-top:calc(var(--rs-label-height) + var(--rs-label-gap)); align-self:start; }
+.ng-research .rs-context > a { display:flex; align-items:center; justify-content:center; padding:0 8px; font-size:11px; white-space:nowrap; }
+.ng-research :is(.rs-context,.rs-control-grid,.mdis-filters) > button,.ng-research .rs-context > a { box-sizing:border-box; height:var(--rs-control-height); min-height:var(--rs-control-height); }
+.ng-research .rs-control-grid:has(> .rs-field) > button { margin-top:calc(var(--rs-label-height) + var(--rs-label-gap)); }
+.ng-research .rs-control-grid > [role=status] { flex-basis:100%; min-height:0; font-size:12px; }
+.ng-research .rs-control-grid > [role=status]:empty { display:none; }
+.ng-research .mdis-recovery-controls > .mdis-presets { margin-top:calc(var(--rs-label-height) + var(--rs-label-gap)); }
+.ng-research .mdis-recovery-controls > .mdis-presets button { height:var(--rs-control-height); min-height:var(--rs-control-height); }
+.ng-research .mdis-filters { align-items:start; }
+.ng-research .mdis-filters > label { font-size:12px; }
+.ng-research .mdis-filters > button { margin-top:calc(var(--rs-label-height) + var(--rs-label-gap)); }
+.ng-research .rs-symbol-help { line-height:17px; }
+.ng-research .rs-symbol-picker .rs-symbol-popup { top:calc(var(--rs-label-height) + var(--rs-label-gap) + var(--rs-control-height) + 3px); }
+.ng-research :is(input,select,button):disabled { opacity:.5; cursor:default; }
+@media(max-width:1100px) { .ng-research .rs-context { grid-template-columns:minmax(100px,1fr) minmax(200px,2fr) minmax(110px,1fr); }.ng-research .rs-context > button { grid-column:2; grid-row:2; margin-top:0; }.ng-research .rs-context > a { grid-column:3; grid-row:2; margin-top:0; } }
+@media(max-width:600px) { .ng-research .rs-context { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px 12px; }.ng-research .rs-context > .rs-symbol-picker { grid-column:1 / -1; grid-row:1; }.ng-research .rs-context > label { grid-row:2; }.ng-research .rs-context > button { grid-column:1; grid-row:3; margin-top:0; }.ng-research .rs-context > a { grid-column:2; grid-row:3; margin-top:0; white-space:normal; }.ng-research .rs-control-grid > .rs-field { max-width:none; }.ng-research .rs-control-grid:has(> .rs-field) > button { margin-top:0; flex-basis:100%; }.ng-research .mdis-recovery-controls > .mdis-presets { margin-top:0; }.ng-research .mdis-filters > button { margin-top:0; align-self:end; } }

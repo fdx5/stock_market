@@ -171,6 +171,16 @@ def pages_top(limit: int = Query(7, ge=1, le=200)):
     return {"items": items}
 
 
+@router.get("/research/stats", dependencies=[Depends(require_admin)])
+@ttl_cache(30)
+def research_stats(days: int = Query(7, ge=1, le=30), path: str = Query("", max_length=100)):
+    from app.services.discovery_catalog import SERVICES
+    if path and path not in {item[0] for item in SERVICES}:
+        raise HTTPException(422, "알 수 없는 신규 서비스 경로입니다.")
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    return {"days": days, "path": path, **page_view_store.research_stats(since, path)}
+
+
 @router.get("/growth/overview", dependencies=[Depends(require_admin)])
 @ttl_cache(285)
 def growth_overview(

@@ -1,0 +1,22 @@
+.ng-research .rs-symbol-picker { position:relative; min-width:0; max-width:460px; align-self:end; }
+.ng-research .rs-symbol-picker > label { font-size:12px; color:var(--ink-2); }
+.ng-research .rs-symbol-input { position:relative; }
+.ng-research .rs-symbol-input > span { position:absolute; inset:0 auto 0 12px; display:flex; align-items:center; color:var(--accent-neon); font-size:24px; pointer-events:none; }
+.ng-research .rs-symbol-input > input { padding-left:36px; }
+.ng-research .rs-symbol-help { display:block; min-height:18px; color:var(--text-muted); font:10px/1.7 var(--f-sans); overflow-wrap:anywhere; }
+.ng-research .rs-symbol-help b { color:var(--text-secondary); font-weight:600; }
+.ng-research .rs-symbol-popup { position:absolute; inset:auto 0 auto; top:calc(100% + 3px); z-index:45; min-width:100%; background:var(--bg-panel); border:1px solid var(--accent-neon); box-shadow:0 10px 28px #0007; border-radius:3px; }
+.ng-research .rs-symbol-popup ul { list-style:none; padding:4px; margin:0; max-height:280px; overflow-y:auto; overscroll-behavior:contain; }
+.ng-research .rs-symbol-popup li { display:flex; align-items:center; gap:12px; justify-content:space-between; min-height:48px; padding:9px 10px; border-bottom:1px solid var(--line-soft); cursor:pointer; color:var(--text-primary); }
+.ng-research .rs-symbol-popup li:last-child { border:0; }
+.ng-research .rs-symbol-popup li:hover,.ng-research .rs-symbol-popup li.is-active { background:#bf85ff13; box-shadow:inset 2px 0 var(--accent-neon); }
+.ng-research .rs-symbol-popup strong { min-width:0; font:600 12px/1.6 var(--f-sans); }
+.ng-research .rs-symbol-popup li > span { flex:none; text-align:right; color:var(--accent-neon); font:12px/1.6 var(--f-type); }
+.ng-research .rs-symbol-popup li small { display:block; color:var(--text-muted); font:9px/1.6 var(--f-sans); }
+.ng-research .rs-symbol-status { padding:9px 12px; color:var(--text-muted); background:var(--bg-elevated); font:10px/1.8 var(--f-sans); border-top:1px solid var(--line-soft); }
+.ng-research .rs-symbol-status button { padding:3px 6px; min-height:28px; font-size:10px; color:var(--accent-neon); }
+.ng-research .mdis-base-picker .rs-symbol-picker { max-width:none; }
+.ng-research .mdis-recovery-controls .rs-symbol-picker { flex:1; min-width:180px; }
+.ng-research .mdis-recovery-controls .rs-symbol-picker label { display:block; }
+@media(max-width:600px) { .ng-research .rs-context .rs-symbol-picker { flex-basis:100%; max-width:none; }.ng-research .rs-symbol-popup li { min-height:52px; }.ng-research .rs-symbol-popup ul { max-height:230px; } }
+@media print { .rs-symbol-popup { display:none!important; } }

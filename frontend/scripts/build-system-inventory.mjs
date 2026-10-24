@@ -12,6 +12,9 @@ const manifest = JSON.parse(fs.readFileSync(path.join(frontend, 'package.json'),
 const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]);
 const files = walk(path.join(frontend, 'src'));
 const routes = new Set(), external = [], workers = [];
+// Research routes are rendered from the shared catalog, rather than literal if branches.
+const researchCatalog = JSON.parse(fs.readFileSync(path.join(frontend, 'src/markets/serviceCatalog.json'), 'utf8'));
+for (const service of researchCatalog) routes.add(service.path);
 for (const file of files) {
   const relative = path.relative(root, file).replaceAll('\\', '/');
   if (/worker|\.wgsl$/i.test(path.basename(file))) workers.push(relative);

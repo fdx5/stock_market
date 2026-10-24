@@ -66,7 +66,7 @@ export default function AdminAudiencePanel() {
       <p className="aa-note">조회 국가: {audienceCountryName(country)} · 국가 선택은 지도와 아래 지역 목록에 적용됩니다. 위 방문 지표는 전체 국가 기준입니다.</p>
       <div className="aa-table-wrap"><table className="aa-table"><caption>추정 접속 지역 · {audienceCountryName(country)} · 일별 브라우저 수 합계 상위 100개</caption>
         <thead><tr><th scope="col">지역</th><th scope="col">확인 방식</th><th scope="col">방문일 합계</th></tr></thead>
-        <tbody>{data.regions.map((r, i) => <tr key={i}><td><span className="aa-country-place"><AudienceCountryFlag country={r.country}/>{audienceRegionLabel(r)}</span></td><td>{r.source === "browser_location" ? "허용한 브라우저 위치" : ["cloudflare_ip", "dbip_city_lite"].includes(r.source) ? "IP 기반 추정" : "미확인"}</td><td>{nf.format(r.browser_days)}</td></tr>)}</tbody>
+        <tbody>{data.regions.slice().sort((a, b) => audienceRegionLabel(a).localeCompare(audienceRegionLabel(b), "ko-KR")).map((r, i) => <tr key={i}><td><span className="aa-country-place"><AudienceCountryFlag country={r.country}/>{audienceRegionLabel(r)}</span></td><td>{r.source === "browser_location" ? "허용한 브라우저 위치" : ["cloudflare_ip", "dbip_city_lite"].includes(r.source) ? "IP 기반 추정" : "미확인"}</td><td>{nf.format(r.browser_days)}</td></tr>)}</tbody>
       </table>{!data.regions.length && <p>선택한 기간과 국가에 해당하는 방문 기록이 없습니다.</p>}</div>
       <p className="aa-note">IP 지역은 실제 위치와 다를 수 있으며 통신사망·VPN의 영향을 받습니다. 같은 브라우저가 하루에 여러 지역을 이용하면 각 지역에 집계됩니다. 원문 IP는 새 통계에 저장하지 않습니다.</p>
       <p className="aa-note">IP 지역 자료: <a href="https://db-ip.com" target="_blank" rel="noreferrer">IP Geolocation by DB-IP</a> · City Lite, CC BY 4.0</p>

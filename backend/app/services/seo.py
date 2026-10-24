@@ -387,6 +387,9 @@ PAGES: dict[str, tuple[str, str]] = {
     "/index/kosdaq": ("코스닥 지수 차트와 기술적 지표 | K-Stock Hub", "코스닥 지수의 기간별 차트와 이동평균, RSI 등 보조지표를 확인하세요."),
 }
 
+from app.services.discovery_catalog import SERVICES as DISCOVERY_PAGES
+PAGES.update({path: (name + " | K-Stock Hub", description) for path, name, description in DISCOVERY_PAGES})
+
 
 def _replace_meta(document: str, selector: str, value: str) -> str:
     escaped = html.escape(value, quote=True)

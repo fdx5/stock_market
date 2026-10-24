@@ -1,3 +1,5 @@
+import ServiceConnections from "../../markets/ServiceConnections";
+import "../../markets/researchServices.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CompanyOverview, GlobalEnrichment, IndicatorPoint, InvestorTrendRecord, StockBoard, StockSummary } from "../../api/client";
 import { api } from "../../api/client";
@@ -343,6 +345,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
       </div>
 
       <main className="d2-main">
+        <ServiceConnections compact path={`/stock/${code}`} code={code} market={us ? "nasdaq" : boardMarket === "KOSDAQ" ? "kosdaq" : "kospi"} region={isEtf ? market : undefined} />
         {loading && !name && (
           <div className="sk-loading">
             <Skel h={60} w="45%" />
