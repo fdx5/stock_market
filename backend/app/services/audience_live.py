@@ -140,6 +140,7 @@ def overview(now=None, country=""):
               "updated_at": now, "sessions": [], "located": 0, "unlocated": 0,
               "total": 0, "all_total": 0, "truncated": False, "unreadable": 0, "country": country,
               "collection_status": collection_status(),
+              "ingestion": audience.ingestion_diagnostics(),
               "geoip_available": audience.audience_network.geoip_available(),
               "diagnostics": {**_counts, **_last_write}}
     if not ready():

@@ -27,4 +27,5 @@ def audience_diagnostics(x_audience_diagnostics_key: str = Header(default="")):
             "online": {"located": live["located"], "unlocated": live["unlocated"]},
             "map_collection_status": live["collection_status"],
             "map_total": live["total"],
+            "ingestion": live["ingestion"],
             "write_counts": live["diagnostics"]}

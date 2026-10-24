@@ -46,12 +46,14 @@ with sync_playwright() as p:
         if url.path.endswith(("/traffic/audience/live", "/traffic/audience/regions")):
             if scenario == "read_failure":
                 return route.fulfill(status=503, json={"detail": "Synthetic read failure"})
-            if scenario in {"not_ready", "write_failure", "no_observations", "filtered_empty"}:
+            if scenario in {"not_ready", "write_failure", "no_observations", "filtered_empty", "privacy_excluded"}:
                 return route.fulfill(json={"enabled": scenario != "not_ready", "updated_at": NOW,
                     "collection_status": "location_store_not_ready" if scenario == "not_ready" else "ready",
                     "country": country, "sessions": [], "total": 0, "all_total": 3 if scenario == "filtered_empty" else 0,
                     "located": 0, "unlocated": 0, "diagnostics": {"received": 2 if scenario == "write_failure" else 0,
-                    "stored": 0, "failed": 2 if scenario == "write_failure" else 0}})
+                    "stored": 0, "failed": 2 if scenario == "write_failure" else 0},
+                    "ingestion": {"received": 3, "eligible": 0, "privacy_excluded": 3 if scenario == "privacy_excluded" else 0,
+                                  "bot_excluded": 0}})
             rows = [row for row in SESSIONS if keep(row)]
             return route.fulfill(json={"enabled": True, "updated_at": NOW, "country": country, "sessions": rows,
                 "total": len(rows), "located": sum("latitude" in row for row in rows),
@@ -101,6 +103,7 @@ with sync_playwright() as p:
         ("write_failure", "접속 요청은 수신했지만 지도 저장에 실패"),
         ("no_observations", "실제 방문이 없었다고 판단할 수 없습니다"),
         ("filtered_empty", "전체 국가에는 3개 접속 세션"),
+        ("privacy_excluded", "DNT·GPC 등 개인정보 보호 설정으로 수집하지 않은 접속"),
     ]:
         scenario = case
         page.get_by_role("button", name="지도 새로고침", exact=True).click()

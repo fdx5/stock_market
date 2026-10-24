@@ -10,6 +10,7 @@ type Session = { id: string; source: string; seen_at: number; captured_at: numbe
   latitude?: number; longitude?: number; accuracy_m?: number };
 type Live = { enabled: boolean; updated_at: number; located: number; unlocated: number; sessions: Session[]; total?: number; all_total?: number; truncated?: boolean; unreadable?: number;
   collection_status?: string; geoip_available?: boolean;
+  ingestion?: { received: number; eligible: number; privacy_excluded: number; bot_excluded: number };
   diagnostics: { received: number; stored: number; failed: number; received_at?: number | null; stored_at?: number | null } };
 const COLLECTION_MESSAGES: Record<string, string> = {
   audience_not_configured: "방문 통계 저장소 또는 가명화 키가 설정되지 않았습니다.",
@@ -107,6 +108,8 @@ export default function AdminAudienceMap({ days = 30, country = "", reloadKey = 
     <div className="aa-live-summary"><span>{mode === "live" ? "24시간 접속 세션" : "누적 방문 지역"} <b>{countAvailable && data ? data.total ?? data.sessions.length : "—"}</b></span><span>위치 확인 <b>{countAvailable ? data?.located : "—"}</b></span>
       <span>위치 미확인 <b>{countAvailable ? data?.unlocated : "—"}</b></span><small>{data ? `조회 시각 ${clock(data.updated_at)}` : "접속 확인 중…"}</small></div>
     {mode === "live" && data?.enabled && <p className="aa-note">현재 서버 시작 이후 · 수집 요청 {data.diagnostics.received.toLocaleString()}회 · 저장 성공 {data.diagnostics.stored.toLocaleString()}회 · 저장 실패 {data.diagnostics.failed.toLocaleString()}회{data.diagnostics.stored_at ? ` · 마지막 저장 ${clock(data.diagnostics.stored_at)}` : ""}. 요청 횟수는 중복 요청을 포함하며 세션 수와 다릅니다.</p>}
+    {mode === "live" && data?.ingestion && <p className="aa-note">서버 접속 신호 {data.ingestion.received.toLocaleString()}회 · 수집 대상 {data.ingestion.eligible.toLocaleString()}회 · 개인정보 보호 설정으로 제외 {data.ingestion.privacy_excluded.toLocaleString()}회 · 봇 제외 {data.ingestion.bot_excluded.toLocaleString()}회</p>}
+    {mode === "live" && data?.enabled && !data.total && !!data.ingestion?.privacy_excluded && <p className="aa-notice">DNT·GPC 등 개인정보 보호 설정으로 수집하지 않은 접속이 있습니다. 일반 접속 인원과 지도 수집 대상은 다를 수 있습니다.</p>}
     {mode === "live" && data?.enabled && !data.total && !!data.all_total && <p className="aa-notice">전체 국가에는 {data.all_total.toLocaleString()}개 접속 세션이 있습니다. 선택한 국가에 해당하는 접속 기록이 없습니다.</p>}
     {mode === "live" && data?.enabled && !(data.all_total ?? data.total ?? data.sessions.length) && <p className="aa-notice" role="status">{data.diagnostics.failed > 0 && !data.diagnostics.stored
       ? "접속 요청은 수신했지만 지도 저장에 실패했습니다. 접속 0건으로 판단할 수 없습니다."

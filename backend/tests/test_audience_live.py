@@ -23,6 +23,7 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setattr(live, "_recent", {})
     monkeypatch.setattr(live, "_counts", {"received": 0, "stored": 0, "failed": 0})
     monkeypatch.setattr(live, "_last_write", {"received_at": None, "stored_at": None, "failed_at": None, "failure": None})
+    monkeypatch.setattr(audience, "_ingestion", {key: 0 for key in audience._ingestion})
     assert audience.initialize()
     assert live.initialize()
     yield conn
@@ -271,3 +272,52 @@ def test_country_filter_reports_global_session_count(store):
     report = live.overview(now=1010, country="US")
     assert report["total"] == 0
     assert report["all_total"] == 1
+
+
+def test_existing_public_heartbeat_records_encrypted_map_presence(store, monkeypatch):
+    from app.routers import visitors
+    monkeypatch.setattr(visitors.tracker, "heartbeat", lambda *args, **kwargs: (4, 100))
+    monkeypatch.setenv("AUDIENCE_EDGE_SECRET", "test-edge-secret-" * 3)
+    monkeypatch.setattr(audience.audience_network, "lookup", lambda ip: {
+        "country": "KR", "region": "Seoul", "city": "Seoul",
+        "latitude": 37.5, "longitude": 127.0, "accuracy_m": 50000})
+    app = FastAPI(); app.include_router(visitors.router)
+    session = str(uuid4())
+    response = TestClient(app).get("/count", params={"session_id": session}, headers={
+        "user-agent": "Mozilla/5.0", "referer": f"https://{visitors.PRIMARY_SITE_HOST}/global",
+        "x-audience-edge-key": "test-edge-secret-" * 3, "cf-connecting-ip": "8.8.8.8"})
+    assert response.json() == {"count": 4, "total": 100}
+    report = live.overview()
+    assert report["total"] == report["located"] == 1
+    assert report["sessions"][0]["source"] == "ip_estimate"
+    assert report["ingestion"]["eligible"] == 1
+    assert report["ingestion"]["heartbeat_public"] == 1
+    assert session not in json.dumps(report)
+    assert store.execute("SELECT COUNT(*) FROM audience_observations").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("extra,referer,reason", [
+    ({"dnt": "1"}, "/global", "privacy_excluded"),
+    ({"sec-gpc": "1"}, "/global", "privacy_excluded"),
+    ({"user-agent": "Googlebot"}, "/global", "bot_excluded"),
+    ({}, "/admin/dashboard", None),
+    ({}, "/admin", None),
+    ({}, None, None),
+    ({}, "https://unrelated.invalid/global", None),
+])
+def test_heartbeat_collection_preserves_exclusions_and_counts_reasons(store, monkeypatch, extra, referer, reason):
+    from app.routers import visitors
+    monkeypatch.setattr(visitors.tracker, "heartbeat", lambda *args, **kwargs: (4, 100))
+    app = FastAPI(); app.include_router(visitors.router)
+    headers = {"user-agent": "Mozilla/5.0", **extra}
+    if referer:
+        headers["referer"] = f"https://{visitors.PRIMARY_SITE_HOST}{referer}" if referer.startswith("/") else referer
+    assert TestClient(app).get("/count", params={"session_id": str(uuid4())}, headers=headers).status_code == 200
+    report = live.overview()
+    assert report["total"] == 0
+    assert report["ingestion"]["eligible"] == 0
+    if reason:
+        assert report["ingestion"][reason] == 1
+    else:
+        assert report["ingestion"]["received"] == 0
+        assert report["ingestion"]["heartbeat_excluded"] == 1

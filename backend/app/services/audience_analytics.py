@@ -11,6 +11,7 @@ import hmac
 import ipaddress
 import os
 import re
+import threading
 from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote
 from uuid import UUID
@@ -22,6 +23,27 @@ _gate = libsql_gate.Gate("audience_analytics", lock_timeout=0.25)
 _conn = None
 _schema_ready = False
 _ip_source_counts = {"trusted_client_ip": 0, "proxy_ip_rejected": 0, "untrusted_proxy": 0}
+_ingestion_lock = threading.Lock()
+_ingestion = {"received": 0, "eligible": 0, "privacy_excluded": 0, "bot_excluded": 0,
+              "not_configured": 0, "missing_browser": 0, "invalid_identity": 0,
+              "heartbeat_received": 0, "heartbeat_public": 0, "heartbeat_excluded": 0}
+
+
+def ingestion_diagnostics():
+    """Aggregate counters only: no headers, user agents, IDs or locations."""
+    with _ingestion_lock:
+        return dict(_ingestion)
+
+
+def _note_ingestion(reason):
+    with _ingestion_lock:
+        _ingestion[reason] += 1
+
+
+def note_heartbeat(public_page):
+    with _ingestion_lock:
+        _ingestion["heartbeat_received"] += 1
+        _ingestion["heartbeat_public" if public_page else "heartbeat_excluded"] += 1
 
 
 def _settings():
@@ -88,14 +110,26 @@ def context(request, browser_id: str | None, session_id: str, is_bot: bool,
     enter the encrypted map without inventing a persistent browser identity.
     The per-day network HMAC is a network count, never a substitute person ID.
     """
-    if (not configured() or (not browser_id and not allow_session_only) or is_bot
-            or request.headers.get("dnt") == "1" or request.headers.get("sec-gpc") == "1"):
+    _note_ingestion("received")
+    if request.headers.get("dnt") == "1" or request.headers.get("sec-gpc") == "1":
+        _note_ingestion("privacy_excluded")
+        return None
+    if is_bot:
+        _note_ingestion("bot_excluded")
+        return None
+    if not configured():
+        _note_ingestion("not_configured")
+        return None
+    if not browser_id and not allow_session_only:
+        _note_ingestion("missing_browser")
         return None
     try:
         session_id = _uuid(session_id)
         browser_id = _uuid(browser_id) if browser_id else None
     except (ValueError, AttributeError):
+        _note_ingestion("invalid_identity")
         return None
+    _note_ingestion("eligible")
     day = (now or datetime.now(timezone.utc)).astimezone(KST).date().isoformat()
     country = region = city = network = ""
     geo = {}
