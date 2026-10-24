@@ -9,6 +9,7 @@ import { useAtlasMiniMaps, type AtlasMarket } from "./useAtlasMiniMaps";
 import { hasReturn, quoteColor, tradingValue } from "./marketQuote";
 import { marketScanner, type ScannerOrder } from "./marketScannerModel";
 import { useFxLevel } from "./settings";
+import StockLogo from "../components/StockLogo";
 import { useContentScroll } from "../useContentScroll";
 import { pinnedScrollOffset } from "../scrollNavigation";
 import { createGoldDust } from "./goldDust";
@@ -40,9 +41,9 @@ function MiniTrend({values,label,tone}:{values:number[];label:string;tone:string
 }
 
 /** A compact quote board. Equal reading space; size differences use an explicit bar. */
-export default function MarketScanner() {
+export default function MarketScanner({market,onMarketChange}:{market:AtlasMarket;onMarketChange:(market:AtlasMarket)=>void}) {
   const {lang}=useLanguage(),L=(ko:string,en:string)=>lang==="ko"?ko:en;
-  const [market,setMarket]=useState<AtlasMarket>("kospi"),[order,setOrder]=useState<ScannerOrder>("cap"),[sector,setSector]=useState<string|null>(null);
+  const [order,setOrder]=useState<ScannerOrder>("cap"),[sector,setSector]=useState<string|null>(null);
   const [selected,setSelected]=useState<string|null>(null),[expanded,setExpanded]=useState(false),[columns,setColumns]=useState(8);
   const [history,setHistory]=useState<Record<string,IndicatorPoint[]>>({});
   const [reducedMotion,setReducedMotion]=useState(()=>matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -153,7 +154,7 @@ export default function MarketScanner() {
     source.pour(event.clientX,event.clientY,speed);
   };
   const endDust=()=>{lastPointer.current=null;};
-  const switchMarket=(key:AtlasMarket)=>{setMarket(key);setSector(null);setSelected(null);setExpanded(false);positions.current.clear();};
+  const switchMarket=(key:AtlasMarket)=>{onMarketChange(key);setSector(null);setSelected(null);setExpanded(false);positions.current.clear();};
   const toggleExpanded=()=>{
     if(expanded&&controlsRef.current&&controlsRef.current.getBoundingClientRect().top<pinnedScrollOffset())alignControls();
     setExpanded(value=>!value);
@@ -174,7 +175,7 @@ export default function MarketScanner() {
         const known=hasReturn(item),color=quoteColor(item),turnover=tradingValue(item);
         const meter=order==="activity"?turnover.value/model.maxTrade:item.marcap/model.maxCap;
         return <button className={`sc-stock${item.code===active?.code?" is-selected":""}`} key={item.code} data-code={item.code} aria-current={item.code===active?.code?"true":undefined} onClick={()=>navigate(`/stock/${encodeURIComponent(item.code)}`)} onPointerEnter={event=>{if(event.pointerType==="mouse")setSelected(item.code);}} onFocus={()=>setSelected(item.code)} title={`${L("상세 보기","Open details")} · ${item.name} · ${item.sector||"—"} · ${price(item.close)} · ${known?pct(item.change_pct):L("등락 미확인","Return unavailable")}`} style={{"--sc-color":color,"--sc-strength":known?Math.min(Math.abs(item.change_pct)/8,.75):0} as CSSProperties}>
-          <span className="sc-stock-name">{market==="nasdaq100"?item.code:item.name}</span><b className="sc-stock-return">{known?pct(item.change_pct):"—"}</b><span className="sc-stock-price">{price(item.close)}</span><small>{order==="activity"?(turnover.value?money(turnover.value)+(turnover.estimated?"*":""):"—"):market==="nasdaq100"?`${item.marcap.toFixed(2)}%`:money(item.marcap)}</small><i className="sc-stock-meter" aria-hidden="true"><i style={{width:`${meter*100}%`}}/></i>
+          <span className="sc-stock-name"><StockLogo code={item.code} name={item.name} className="sc-stock-logo"/><span>{market==="nasdaq100"?item.code:item.name}</span></span><b className="sc-stock-return">{known?pct(item.change_pct):"—"}</b><span className="sc-stock-price">{price(item.close)}</span><small>{order==="activity"?(turnover.value?money(turnover.value)+(turnover.estimated?"*":""):"—"):market==="nasdaq100"?`${item.marcap.toFixed(2)}%`:money(item.marcap)}</small><i className="sc-stock-meter" aria-hidden="true"><i style={{width:`${meter*100}%`}}/></i>
         </button>;
       })}
       {!model.stocks.length&&<div className="sc-empty">{snapshot.settled?L("시장 데이터를 확인하고 있습니다.","Market data is unavailable."):L("시장 데이터를 불러오는 중입니다.","Loading market data.")}</div>}

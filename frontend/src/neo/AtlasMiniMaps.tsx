@@ -69,12 +69,13 @@ export function AtlasMiniMapCard({ market, snapshot, quote, lang }: {
   </Link>;
 }
 
-function PopulatedMaps({ quotes, lang }: { quotes: Record<AtlasMarket, AtlasMapQuote>; lang: "ko" | "en" }) {
+function PopulatedMaps({ quotes, lang, markets }: { quotes: Record<AtlasMarket, AtlasMapQuote>; lang: "ko" | "en"; markets: readonly (typeof MARKETS)[number][] }) {
   const snapshots = useAtlasMiniMaps();
-  return <>{MARKETS.map(market => <AtlasMiniMapCard key={market.key} market={market.key} snapshot={snapshots[market.key]} quote={quotes[market.key]} lang={lang} />)}</>;
+  return <>{markets.map(market => <AtlasMiniMapCard key={market.key} market={market.key} snapshot={snapshots[market.key]} quote={quotes[market.key]} lang={lang} />)}</>;
 }
 
-export default function AtlasMiniMaps({ quotes }: { quotes: Record<AtlasMarket, AtlasMapQuote> }) {
+/** `lead` is the index chosen in the scanner above; its map comes first, the rest keep their order. */
+export default function AtlasMiniMaps({ quotes, lead }: { quotes: Record<AtlasMarket, AtlasMapQuote>; lead?: AtlasMarket }) {
   const { lang } = useLanguage();
   const L = (ko: string, en: string) => lang === "ko" ? ko : en;
   const sectionRef = useRef<HTMLElement>(null);
@@ -88,10 +89,11 @@ export default function AtlasMiniMaps({ quotes }: { quotes: Record<AtlasMarket, 
     observer.observe(section);
     return () => observer.disconnect();
   }, []);
+  const markets = useMemo(() => [...MARKETS].sort((a, b) => Number(b.key === lead) - Number(a.key === lead)), [lead]);
   const placeholder: AtlasMapSnapshot = { items: [], generatedAt: null, settled: false, delayed: false };
   return <section ref={sectionRef} className="ng-atlas-mini-maps" aria-labelledby="ng-mini-maps-h">
     <header><div><span className="ng-kicker">MARKET MAPS</span><h2 id="ng-mini-maps-h">{L("시장별 종목 지도", "Market maps")}</h2><p>{L("코스피 · 코스닥 · 나스닥100 주요 종목", "Leading KOSPI, KOSDAQ and NASDAQ 100 constituents")}</p></div><div className="ng-mini-map-legend"><span><i className="is-up" />{L("상승", "Up")}</span><span><i className="is-flat" />{L("보합", "Flat")}</span><span><i className="is-down" />{L("하락", "Down")}</span></div></header>
-    <div className="ng-mini-map-grid">{active ? <PopulatedMaps quotes={quotes} lang={lang} /> : MARKETS.map(market => <AtlasMiniMapCard key={market.key} market={market.key} snapshot={placeholder} quote={quotes[market.key]} lang={lang} />)}</div>
+    <div className="ng-mini-map-grid">{active ? <PopulatedMaps quotes={quotes} lang={lang} markets={markets} /> : markets.map(market => <AtlasMiniMapCard key={market.key} market={market.key} snapshot={placeholder} quote={quotes[market.key]} lang={lang} />)}</div>
     <p className="ng-mini-map-basis">{L("면적은 국내 시가총액·미국 지수 편입 비중, 색은 전일 대비 등락입니다. 주요 종목을 축약한 미리보기입니다.", "Area: Korean market cap / US index weight. Color: change vs. previous close. A preview of leading constituents.")}</p>
   </section>;
 }
