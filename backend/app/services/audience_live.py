@@ -5,6 +5,7 @@ or mutation of stored observations is performed here.
 """
 import base64
 import json
+import logging
 import math
 import os
 import secrets
@@ -27,6 +28,7 @@ _counts = {"received": 0, "stored": 0, "failed": 0}
 _last_write = {"received_at": None, "stored_at": None, "failed_at": None, "failure": None}
 ONLINE_SECONDS = 24 * 60 * 60
 PRECISE_SECONDS = 900
+logger = logging.getLogger(__name__)
 
 
 def _cipher():
@@ -129,6 +131,11 @@ def record(observation, coordinates=None, now=None):
             _recent[key] = now
             _counts["stored"] += 1
             _last_write["stored_at"] = now
+            first_stored = _counts["stored"] == 1
+        if first_stored:
+            # Aggregate readiness evidence only; never log IDs, IPs, coordinates,
+            # encrypted payloads or exception text while verifying collection.
+            logger.info("audience map storage active: stored=1, located=%d", int("latitude" in payload))
         return True
     except Exception:
         return _failed(now, "location_write_failed")

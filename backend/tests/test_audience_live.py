@@ -274,7 +274,7 @@ def test_country_filter_reports_global_session_count(store):
     assert report["all_total"] == 1
 
 
-def test_existing_public_heartbeat_records_encrypted_map_presence(store, monkeypatch):
+def test_existing_public_heartbeat_records_encrypted_map_presence(store, monkeypatch, caplog):
     from app.routers import visitors
     monkeypatch.setattr(visitors.tracker, "heartbeat", lambda *args, **kwargs: (4, 100))
     monkeypatch.setenv("AUDIENCE_EDGE_SECRET", "test-edge-secret-" * 3)
@@ -283,9 +283,10 @@ def test_existing_public_heartbeat_records_encrypted_map_presence(store, monkeyp
         "latitude": 37.5, "longitude": 127.0, "accuracy_m": 50000})
     app = FastAPI(); app.include_router(visitors.router)
     session = str(uuid4())
-    response = TestClient(app).get("/count", params={"session_id": session}, headers={
-        "user-agent": "Mozilla/5.0", "referer": f"https://{visitors.PRIMARY_SITE_HOST}/global",
-        "x-audience-edge-key": "test-edge-secret-" * 3, "cf-connecting-ip": "8.8.8.8"})
+    with caplog.at_level("INFO", logger="app.services.audience_live"):
+        response = TestClient(app).get("/count", params={"session_id": session}, headers={
+            "user-agent": "Mozilla/5.0", "referer": f"https://{visitors.PRIMARY_SITE_HOST}/global",
+            "x-audience-edge-key": "test-edge-secret-" * 3, "cf-connecting-ip": "8.8.8.8"})
     assert response.json() == {"count": 4, "total": 100}
     report = live.overview()
     assert report["total"] == report["located"] == 1
@@ -294,6 +295,8 @@ def test_existing_public_heartbeat_records_encrypted_map_presence(store, monkeyp
     assert report["ingestion"]["heartbeat_public"] == 1
     assert session not in json.dumps(report)
     assert store.execute("SELECT COUNT(*) FROM audience_observations").fetchone()[0] == 0
+    messages = [record.message for record in caplog.records if record.name == "app.services.audience_live"]
+    assert messages == ["audience map storage active: stored=1, located=1"]
 
 
 @pytest.mark.parametrize("extra,referer,reason", [
