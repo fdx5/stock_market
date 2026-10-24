@@ -1,4 +1,16 @@
-import type { MarketMapItem } from "../api/client";
+import type { MarketMapItem, MarketTickerItem } from "../api/client";
+import { pct } from "../desk2/lib";
+
+/** The ticker rounds change_pct to two places, so a −1.16pt move on NASDAQ 100 arrives
+ *  as −0.0 and read as flat. Recover the unrounded figure from price and change. */
+export function tickerChangePct(item?:MarketTickerItem) {
+  if(!item)return undefined;
+  const base=item.price-item.change;
+  return Number.isFinite(item.change)&&Number.isFinite(base)&&base>0?item.change/base*100:item.change_pct;
+}
+
+/** A move too small for two places keeps its sign and shows a third digit. */
+export const quotePct=(value?:number|null)=>value!=null&&value!==0&&Math.abs(value)<.005?pct(value,3):pct(value);
 
 /** Upstream fallback zeroes are unverified, rather than a confirmed flat quote. */
 export const hasReturn = (item:MarketMapItem) => Number.isFinite(item.change_pct) &&

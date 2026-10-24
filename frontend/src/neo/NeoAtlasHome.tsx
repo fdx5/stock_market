@@ -10,6 +10,7 @@ import MarketScanner from "./MarketScanner";
 import { MARKET_ASSETS } from "../marketAssets";
 import AtlasMiniMaps from "./AtlasMiniMaps";
 import type { AtlasMarket } from "./useAtlasMiniMaps";
+import { tickerChangePct } from "./marketQuote";
 import CyberQuote from "./CyberQuote";
 import AssetCellFx from "./AssetCellFx";
 import "./assetCellFx.css";
@@ -50,7 +51,7 @@ export default function NeoAtlasHome() {
     <AtlasMiniMaps quotes={{
       kospi: { price: indices.kospi?.close, change: indices.kospi?.change_pct },
       kosdaq: { price: indices.kosdaq?.close, change: indices.kosdaq?.change_pct },
-      nasdaq100: { price: tick("^NDX")?.price, change: tick("^NDX")?.change_pct },
+      nasdaq100: { price: tick("^NDX")?.price, change: tickerChangePct(tick("^NDX")) },
     }} lead={market} />
     <section className="ng-atlas-destinations" aria-labelledby="ng-explore-h"><header><span className="ng-kicker">04 / CHOOSE YOUR PERSPECTIVE</span><h2 id="ng-explore-h">{L("다른 시선으로 시장 읽기", "Change your perspective")}</h2></header><div>{[
       ["/map", "map", "MAP", L("면적으로 읽는 증시", "The market, in area"), L("시가총액과 등락을 한 장의 지도로", "Capitalization and returns on one map")],
