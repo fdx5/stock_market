@@ -24,6 +24,7 @@ _gate = libsql_gate.Gate("audience_live", lock_timeout=1.5)
 _recent = {}
 _recent_lock = threading.Lock()
 _counts = {"received": 0, "stored": 0, "failed": 0}
+_last_write = {"received_at": None, "stored_at": None, "failed_at": None, "failure": None}
 ONLINE_SECONDS = 24 * 60 * 60
 PRECISE_SECONDS = 900
 
@@ -66,31 +67,59 @@ def ready():
     return _ready and configured()
 
 
+def collection_status():
+    if not audience.configured():
+        return "audience_not_configured"
+    if not audience.ready():
+        return "audience_store_not_ready"
+    if not configured():
+        return "location_key_unavailable"
+    if not _ready:
+        return "location_store_not_ready"
+    return "ready"
+
+
+def _failed(now, reason):
+    with _recent_lock:
+        _counts["failed"] += 1
+        _last_write.update(failed_at=now, failure=reason)
+    return False
+
+
 def record(observation, coordinates=None, now=None):
-    if not ready():
-        return False
     now = time.time() if now is None else now
     source = "browser_location" if coordinates is not None else "ip_estimate"
     key = (observation["session"], source)
     with _recent_lock:
         _counts["received"] += 1
+        _last_write["received_at"] = now
+        if not ready():
+            _counts["failed"] += 1
+            _last_write.update(failed_at=now, failure=collection_status())
+            return False
         if now - _recent.get(key, 0) < (10 if coordinates is not None else 25):
             return True
     location = coordinates or observation.get("_map_location")
     payload = {k: observation.get(k, "") for k in ("country", "region", "city")}
     if location:
         lat, lon, accuracy = (location.get(k) for k in ("latitude", "longitude", "accuracy_m"))
-        if not all(isinstance(n, (int, float)) and math.isfinite(n) for n in (lat, lon, accuracy)):
-            return False
-        if not (-90 <= lat <= 90 and -180 <= lon <= 180 and accuracy > 0):
-            return False
-        payload.update(latitude=lat, longitude=lon, accuracy_m=accuracy)
+        valid = (all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n)
+                     for n in (lat, lon, accuracy))
+                 and -90 <= lat <= 90 and -180 <= lon <= 180 and accuracy > 0)
+        if not valid and coordinates is not None:
+            return _failed(now, "invalid_coordinates")
+        # A bad GeoIP entry must not discard a valid visit. Keep its presence,
+        # with no coordinates, rather than silently losing the entire session.
+        if valid:
+            payload.update(latitude=lat, longitude=lon, accuracy_m=accuracy)
+        else:
+            source = "unknown"
     else:
         source = "unknown"
     identifier, nonce = uuid4().hex, secrets.token_bytes(12)
     associated = f"audience-location-v1:{identifier}:{observation['session']}:{source}".encode()
-    ciphertext = _cipher().encrypt(nonce, json.dumps(payload, ensure_ascii=False).encode(), associated)
     try:
+        ciphertext = _cipher().encrypt(nonce, json.dumps(payload, ensure_ascii=False).encode(), associated)
         with _gate.hold():
             conn = audience._connection()
             conn.execute("INSERT INTO audience_location_observations (id,session,seen_at,source,nonce,ciphertext) VALUES (?,?,?,?,?,?)",
@@ -99,19 +128,20 @@ def record(observation, coordinates=None, now=None):
         with _recent_lock:
             _recent[key] = now
             _counts["stored"] += 1
+            _last_write["stored_at"] = now
         return True
     except Exception:
-        with _recent_lock:
-            _counts["failed"] += 1
-        return False
+        return _failed(now, "location_write_failed")
 
 
 def overview(now=None, country=""):
     now = time.time() if now is None else now
     result = {"enabled": ready(), "online_window_seconds": ONLINE_SECONDS,
               "updated_at": now, "sessions": [], "located": 0, "unlocated": 0,
-              "total": 0, "truncated": False, "unreadable": 0, "country": country,
-              "diagnostics": dict(_counts)}
+              "total": 0, "all_total": 0, "truncated": False, "unreadable": 0, "country": country,
+              "collection_status": collection_status(),
+              "geoip_available": audience.audience_network.geoip_available(),
+              "diagnostics": {**_counts, **_last_write}}
     if not ready():
         return result
     # All reads: online filtering does not delete expired observations. Last
@@ -128,6 +158,7 @@ def overview(now=None, country=""):
             SELECT id,session,seen_at,source,nonce,ciphertext FROM ranked WHERE n=1""",
             (now - PRECISE_SECONDS, now)).fetchall()
     shared = {row[1]: row for row in precise}
+    result["all_total"] = len(rows)
     cipher = _cipher()
     for current in rows:
         row = shared.get(current[1], current)

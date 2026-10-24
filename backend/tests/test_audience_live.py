@@ -22,6 +22,7 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setattr(live, "_ready", False)
     monkeypatch.setattr(live, "_recent", {})
     monkeypatch.setattr(live, "_counts", {"received": 0, "stored": 0, "failed": 0})
+    monkeypatch.setattr(live, "_last_write", {"received_at": None, "stored_at": None, "failed_at": None, "failure": None})
     assert audience.initialize()
     assert live.initialize()
     yield conn
@@ -178,3 +179,95 @@ def test_presence_reports_location_failure_and_still_attempts_each_store(store, 
     monkeypatch.setattr(live, "record", lambda *args: calls.append(args) or True)
     assert client.post("/audience-presence", json=body, headers={"user-agent": "Mozilla/5.0"}).json() == {"accepted": False}
     assert len(calls) == 1
+
+
+def test_page_view_without_browser_identity_still_counts_session(store, monkeypatch):
+    """A slow config request/blocked localStorage must not erase a public visit."""
+    from app.routers import activity
+    monkeypatch.setattr(activity.activity_log, "record_event", lambda **kwargs: None)
+    app = FastAPI(); app.include_router(activity.router)
+    client = TestClient(app)
+    session = str(uuid4())
+    body = {"session_id": session, "type": "page_view", "path": "/desk"}
+    assert client.post("/event", json=body, headers={"user-agent": "Mozilla/5.0"}).status_code == 200
+    report = live.overview()
+    assert report["total"] == report["unlocated"] == 1
+    assert report["located"] == 0
+    assert report["sessions"][0]["id"] == audience._digest("session", session)[:16]
+    # A per-tab fallback is not a made-up persistent browser/revisit identity.
+    assert store.execute("SELECT COUNT(*) FROM audience_observations").fetchone()[0] == 0
+    assert session not in json.dumps(report)
+
+
+def test_session_only_visit_with_trusted_ip_becomes_map_marker(store, monkeypatch):
+    from app.routers import activity
+    monkeypatch.setattr(activity.activity_log, "record_event", lambda **kwargs: None)
+    monkeypatch.setenv("AUDIENCE_EDGE_SECRET", "synthetic-edge-secret-" * 3)
+    monkeypatch.setattr(audience.audience_network, "lookup", lambda ip: {
+        "country": "KR", "region": "Gyeonggi-do", "city": "Suwon",
+        "latitude": 37.3, "longitude": 127.0, "accuracy_m": 50000})
+    app = FastAPI(); app.include_router(activity.router)
+    response = TestClient(app).post("/event", json={"session_id": str(uuid4()), "type": "page_view", "path": "/desk"},
+        headers={"user-agent": "Mozilla/5.0", "x-audience-edge-key": "synthetic-edge-secret-" * 3,
+                 "cf-connecting-ip": "8.8.8.8"})
+    assert response.status_code == 200
+    report = live.overview(country="KR")
+    assert report["total"] == report["located"] == 1
+    assert report["unlocated"] == 0
+    assert report["sessions"][0]["latitude"] == 37.3
+    assert report["sessions"][0]["source"] == "ip_estimate"
+
+
+@pytest.mark.parametrize("extra,headers,path", [
+    ({}, {"dnt": "1"}, "/desk"),
+    ({}, {"sec-gpc": "1"}, "/desk"),
+    ({"automated": True}, {}, "/desk"),
+    ({}, {"user-agent": "Googlebot"}, "/desk"),
+    ({}, {}, "/admin/dashboard"),
+])
+def test_session_only_fallback_preserves_collection_exclusions(store, monkeypatch, extra, headers, path):
+    from app.routers import activity
+    monkeypatch.setattr(activity.activity_log, "record_event", lambda **kwargs: None)
+    app = FastAPI(); app.include_router(activity.router)
+    response = TestClient(app).post("/event", json={"session_id": str(uuid4()), "type": "page_view", "path": path, **extra},
+                                    headers={"user-agent": "Mozilla/5.0", **headers})
+    assert response.status_code == 200
+    assert live.overview()["total"] == 0
+
+
+def test_bad_geoip_coordinates_preserve_unlocated_visit(store):
+    obs = observation()
+    obs["_map_location"] = {"latitude": float("nan"), "longitude": 127, "accuracy_m": 50000}
+    assert live.record(obs, now=1000)
+    report = live.overview(now=1010)
+    assert report["total"] == report["unlocated"] == 1
+    assert "latitude" not in report["sessions"][0]
+
+
+def test_unready_store_reports_failure_instead_of_healthy_zero(store, monkeypatch):
+    monkeypatch.setattr(live, "_ready", False)
+    assert not live.record(observation(), now=1000)
+    report = live.overview(now=1010)
+    assert report["enabled"] is False
+    assert report["collection_status"] == "location_store_not_ready"
+    assert report["diagnostics"]["received"] == report["diagnostics"]["failed"] == 1
+    assert report["diagnostics"]["failure"] == "location_store_not_ready"
+
+
+def test_encryption_failure_is_counted_and_does_not_raise(store, monkeypatch):
+    class FailingCipher:
+        def encrypt(self, *args):
+            raise ValueError("sensitive exception text must never be returned")
+    monkeypatch.setattr(live, "_cipher", lambda: FailingCipher())
+    assert not live.record(observation(), now=1000)
+    report = live.overview(now=1010)
+    assert report["diagnostics"]["failed"] == 1
+    assert report["diagnostics"]["failure"] == "location_write_failed"
+    assert "sensitive" not in json.dumps(report)
+
+
+def test_country_filter_reports_global_session_count(store):
+    assert live.record(observation(), now=1000)
+    report = live.overview(now=1010, country="US")
+    assert report["total"] == 0
+    assert report["all_total"] == 1

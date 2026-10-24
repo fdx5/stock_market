@@ -88,6 +88,7 @@ class DeviceInfo(BaseModel):
 class ActivityEvent(BaseModel):
     session_id: str = Field(pattern=SESSION_ID_PATTERN)
     browser_id: str | None = Field(default=None, pattern=SESSION_ID_PATTERN)
+    automated: bool = False
     type: str
     path: str = Field(min_length=1, max_length=200)
     label: str | None = Field(default=None, max_length=100)
@@ -139,6 +140,7 @@ def post_event(payload: ActivityEvent, request: Request, background_tasks: Backg
     # User-Agent - so it is read here, at the only point where the header still exists,
     # and carried down with the event rather than guessed at afterwards.
     user_agent = bot_detector.normalize_user_agent(request.headers.get("user-agent"))
+    is_bot = payload.automated or bot_detector.is_bot(user_agent)
     activity_log.record_event(
         session_id=payload.session_id,
         event_type=payload.type,
@@ -156,14 +158,15 @@ def post_event(payload: ActivityEvent, request: Request, background_tasks: Backg
         utm_medium=payload.utm_medium,
         utm_campaign=payload.utm_campaign,
         user_agent=user_agent,
-        is_bot=bot_detector.is_bot(user_agent),
+        is_bot=is_bot,
         device_info=payload.device_info.model_dump() if payload.device_info else None,
         occurred_at=payload.occurred_at,
     )
     if payload.type == "page_view" and not payload.path.split("?", 1)[0].startswith("/admin"):
         observation = audience_analytics.context(request, payload.browser_id, payload.session_id,
-                                                 bot_detector.is_bot(user_agent))
+                                                 is_bot, allow_session_only=True)
         if observation:
-            background_tasks.add_task(audience_analytics.record, observation)
+            if observation["browser"]:
+                background_tasks.add_task(audience_analytics.record, observation)
             background_tasks.add_task(audience_live.record, observation)
     return {"ok": True}

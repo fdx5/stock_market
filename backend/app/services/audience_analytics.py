@@ -80,17 +80,20 @@ def _text(value: str | None) -> str:
 
 
 def context(request, browser_id: str | None, session_id: str, is_bot: bool,
-            now: datetime | None = None) -> dict | None:
+            now: datetime | None = None, *, allow_session_only: bool = False) -> dict | None:
     """Read IP/location only through an authenticated edge, never arbitrary XFF.
 
-    DNT/GPC and old clients deliberately produce no new audience observation.
+    DNT/GPC requests produce no observation. A page-view beacon may arrive before
+    browser configuration/storage is available; its valid tab session can still
+    enter the encrypted map without inventing a persistent browser identity.
     The per-day network HMAC is a network count, never a substitute person ID.
     """
-    if (not configured() or not browser_id or is_bot
+    if (not configured() or (not browser_id and not allow_session_only) or is_bot
             or request.headers.get("dnt") == "1" or request.headers.get("sec-gpc") == "1"):
         return None
     try:
-        browser_id, session_id = _uuid(browser_id), _uuid(session_id)
+        session_id = _uuid(session_id)
+        browser_id = _uuid(browser_id) if browser_id else None
     except (ValueError, AttributeError):
         return None
     day = (now or datetime.now(timezone.utc)).astimezone(KST).date().isoformat()
@@ -121,7 +124,7 @@ def context(request, browser_id: str | None, session_id: str, is_bot: bool,
                 city = _text(request.headers.get("cf-ipcity"))
     if not trusted:
         _ip_source_counts["untrusted_proxy"] += 1
-    observation = {"day": day, "browser": _digest("browser", browser_id),
+    observation = {"day": day, "browser": _digest("browser", browser_id) if browser_id else "",
             "session": _digest("session", session_id), "network": network,
             "country": country, "region": region, "city": city,
             "location_source": ("dbip_city_lite" if country and (region or city) and geo else "cloudflare_ip") if country else "unknown"}

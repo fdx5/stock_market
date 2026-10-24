@@ -25,4 +25,6 @@ def audience_diagnostics(x_audience_diagnostics_key: str = Header(default="")):
             "country_browser_days": countries,
             "ip_source_counts": dict(audience_analytics._ip_source_counts),
             "online": {"located": live["located"], "unlocated": live["unlocated"]},
+            "map_collection_status": live["collection_status"],
+            "map_total": live["total"],
             "write_counts": live["diagnostics"]}

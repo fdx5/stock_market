@@ -159,7 +159,8 @@ function sendEvent(body: Record<string, unknown>) {
   const send = (info: ReturnType<typeof deviceInfo>) => fetch(EVENT_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, browser_id: body.type === "page_view" ? audienceBrowserId() : null, device_info: info }),
+    body: JSON.stringify({ ...payload, automated: navigator.webdriver === true,
+      browser_id: body.type === "page_view" ? audienceBrowserId() : null, device_info: info }),
     keepalive: true,
   }).catch(() => {
     // Best-effort telemetry — a dropped event isn't worth surfacing to the visitor.

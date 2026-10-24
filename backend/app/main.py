@@ -280,6 +280,19 @@ def initialize_audience_collection():
     from app.services import audience_analytics, audience_live
     audience_analytics.initialize()
     audience_live.initialize()
+    # One transient startup DB failure used to disable collection until the next
+    # deployment. Retry only additive initialization in a bounded startup worker.
+    if audience_analytics.configured() and not (audience_analytics.ready() and audience_live.ready()):
+        def retry_audience_startup():
+            for delay in (5, 15, 30, 60, 120):
+                time.sleep(delay)
+                if not audience_analytics.ready():
+                    audience_analytics.initialize()
+                if not audience_live.ready():
+                    audience_live.initialize()
+                if audience_analytics.ready() and audience_live.ready():
+                    return
+        threading.Thread(target=retry_audience_startup, name="audience-startup-retry", daemon=True).start()
 app.include_router(prediction.router, prefix="/api/prediction")
 app.include_router(translate.router, prefix="/api")
 app.include_router(geo.router, prefix="/api")

@@ -53,7 +53,7 @@ export default function AdminAudiencePanel() {
     {error && <p role="alert" className="aa-notice">{error} <button type="button" onClick={() => setReload(n => n + 1)}>다시 시도</button></p>}
     {!data && !error && <p role="status">방문 통계를 불러오는 중…</p>}
     {data && !data.enabled && <p className="aa-notice" role="status">수집 준비 중입니다. 서버의 전용 통계 저장소와 가명화 키를 설정한 뒤부터 통계가 쌓입니다.</p>}
-    {result?.enabled && <Suspense fallback={<p>접속 지도 불러오는 중…</p>}><AdminAudienceMap days={days} country={country} reloadKey={reload}/></Suspense>}
+    <Suspense fallback={<p>접속 지도 불러오는 중…</p>}><AdminAudienceMap days={days} country={country} reloadKey={reload}/></Suspense>
     {data?.enabled && <>
       <div className="aa-metrics">{[
         ["방문 브라우저", data.browsers, "선택 기간 중복 제외"],
