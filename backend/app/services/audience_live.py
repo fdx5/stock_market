@@ -106,10 +106,11 @@ def record(observation, coordinates=None, now=None):
         return False
 
 
-def overview(now=None):
+def overview(now=None, country=""):
     now = time.time() if now is None else now
     result = {"enabled": ready(), "online_window_seconds": ONLINE_SECONDS,
               "updated_at": now, "sessions": [], "located": 0, "unlocated": 0,
+              "total": 0, "truncated": False, "unreadable": 0, "country": country,
               "diagnostics": dict(_counts)}
     if not ready():
         return result
@@ -120,26 +121,38 @@ def overview(now=None):
             SELECT *, ROW_NUMBER() OVER(PARTITION BY session ORDER BY seen_at DESC,id DESC) AS n
             FROM audience_location_observations WHERE seen_at BETWEEN ? AND ?)
             SELECT id,session,seen_at,source,nonce,ciphertext FROM ranked WHERE n=1
-            ORDER BY seen_at DESC LIMIT 500""", (now - ONLINE_SECONDS, now)).fetchall()
+            ORDER BY seen_at DESC""", (now - ONLINE_SECONDS, now)).fetchall()
         precise = audience._connection().execute("""WITH ranked AS (
             SELECT *, ROW_NUMBER() OVER(PARTITION BY session ORDER BY seen_at DESC,id DESC) AS n
             FROM audience_location_observations WHERE source='browser_location' AND seen_at BETWEEN ? AND ?)
-            SELECT id,session,seen_at,source,nonce,ciphertext FROM ranked WHERE n=1 LIMIT 500""",
+            SELECT id,session,seen_at,source,nonce,ciphertext FROM ranked WHERE n=1""",
             (now - PRECISE_SECONDS, now)).fetchall()
     shared = {row[1]: row for row in precise}
+    cipher = _cipher()
     for current in rows:
         row = shared.get(current[1], current)
         identifier, session, captured, source, nonce, ciphertext = row
         try:
             associated = f"audience-location-v1:{identifier}:{session}:{source}".encode()
-            payload = json.loads(_cipher().decrypt(nonce, ciphertext, associated))
+            payload = json.loads(cipher.decrypt(nonce, ciphertext, associated))
         except Exception:
-            result["unlocated"] += 1
+            # A failed location decode must not erase an observed visit from the
+            # session list. Preserve the presence, without exposing old ciphertext.
+            result["unreadable"] += 1
+            payload = {"country": "", "region": "", "city": ""}
+            source = "unknown"
+        if source == "browser_location" and captured < now - PRECISE_SECONDS:
+            payload = {k: payload.get(k, "") for k in ("country", "region", "city")}
+            source = "unknown"
+        if country and payload.get("country", "") != ("" if country == "unknown" else country):
             continue
         item = {"id": session[:16], "seen_at": current[2], "captured_at": captured,
                 "source": source, **payload}
         result["sessions"].append(item)
         result["located" if "latitude" in payload else "unlocated"] += 1
+    result["total"] = len(result["sessions"])
+    result["truncated"] = result["total"] > 500
+    result["sessions"] = result["sessions"][:500]
     return result
 
 
@@ -148,9 +161,9 @@ def _place_centres():
     return json.loads((Path(__file__).resolve().parents[1] / "data/audience_place_centres.json").read_text(encoding="utf-8"))["centres"]
 
 
-def region_history(days=30):
+def region_history(days=30, country=""):
     """Display old regional aggregates at public city centres; no invented visits."""
-    data = audience.overview(days)
+    data = audience.overview(days, country=country)
     items = []
     for index, row in enumerate(data["regions"]):
         normalized = "".join(c for c in unicodedata.normalize("NFKD", row["city"]).lower() if c.isascii() and c.isalnum())
@@ -160,6 +173,6 @@ def region_history(days=30):
         if point:
             item.update(latitude=point[0], longitude=point[1], accuracy_m=50000)
         items.append(item)
-    return {"enabled": data["enabled"], "updated_at": time.time(), "sessions": items,
+    return {"enabled": data["enabled"], "updated_at": time.time(), "sessions": items, "country": country, "total": len(items),
             "located": sum("latitude" in item for item in items), "unlocated": sum("latitude" not in item for item in items),
             "diagnostics": {"received": 0, "stored": 0, "failed": 0}}

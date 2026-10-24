@@ -72,9 +72,10 @@ def audience_presence(payload: PresenceObservation, request: Request):
     if not observation:
         return {"accepted": False}
     stored = audience_analytics.record(observation)
-    if stored:
-        audience_live.record(observation)
-    return {"accepted": stored}
+    # These are separate observations: a busy aggregate store must not prevent
+    # the encrypted session store from recording the visit (or vice versa).
+    presence_stored = audience_live.record(observation)
+    return {"accepted": stored and presence_stored}
 
 
 class DeviceInfo(BaseModel):
@@ -164,4 +165,5 @@ def post_event(payload: ActivityEvent, request: Request, background_tasks: Backg
                                                  bot_detector.is_bot(user_agent))
         if observation:
             background_tasks.add_task(audience_analytics.record, observation)
+            background_tasks.add_task(audience_live.record, observation)
     return {"ok": True}

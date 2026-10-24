@@ -145,18 +145,18 @@ def traffic_devices(days: int = Query(30, ge=1, le=730)):
 
 
 @router.get("/traffic/audience", dependencies=[Depends(require_admin)])
-def traffic_audience(days: int = Query(30, ge=1, le=90)):
-    return audience_analytics.overview(days)
+def traffic_audience(days: int = Query(30, ge=1, le=90), country: str = Query("", pattern="^([A-Z]{2}|unknown)?$")):
+    return audience_analytics.overview(days, country=country)
 
 
 @router.get("/traffic/audience/live", dependencies=[Depends(require_admin)])
-def traffic_audience_live():
-    return audience_live.overview()
+def traffic_audience_live(country: str = Query("", pattern="^([A-Z]{2}|unknown)?$")):
+    return audience_live.overview(country=country)
 
 
 @router.get("/traffic/audience/regions", dependencies=[Depends(require_admin)])
-def traffic_audience_regions(days: int = Query(30, ge=1, le=90)):
-    return audience_live.region_history(days)
+def traffic_audience_regions(days: int = Query(30, ge=1, le=90), country: str = Query("", pattern="^([A-Z]{2}|unknown)?$")):
+    return audience_live.region_history(days, country=country)
 
 
 # The admin ranking lists scroll past their top ten now, so these ceilings are

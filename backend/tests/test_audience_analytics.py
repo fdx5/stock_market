@@ -211,3 +211,20 @@ def test_activation_only_adds_new_schema_and_requires_key(store, monkeypatch):
     before = store.execute("SELECT COUNT(*) FROM audience_observations").fetchone()[0]
     assert audience.initialize() and audience.ready()
     assert store.execute("SELECT COUNT(*) FROM audience_observations").fetchone()[0] == before
+
+
+def test_country_filter_runs_before_top_100_and_options_use_all_regions(store):
+    for i in range(105):
+        obs = audience.context(edge(), str(uuid4()), str(uuid4()), False, NOW)
+        assert audience.record({**obs, "city": f"City {i}"})
+    obs = audience.context(request(), str(uuid4()), str(uuid4()), False, NOW)
+    assert audience.record({**obs, "country": "US", "city": "Boston"})
+    assert audience.record({**obs, "session": "unknown-session"})
+    before = store.execute("SELECT * FROM audience_observations ORDER BY session, city").fetchall()
+    report = audience.overview(7, NOW, country="US")
+    assert report["country"] == "US"
+    assert len(report["regions"]) == 1 and report["regions"][0]["city"] == "Boston"
+    assert {r["country"] for r in report["countries"]} == {"", "KR", "US"}
+    assert audience.overview(7, NOW, country="unknown")["regions"][0]["country"] == ""
+    assert audience.overview(7, NOW, country="JP")["regions"] == []
+    assert store.execute("SELECT * FROM audience_observations ORDER BY session, city").fetchall() == before

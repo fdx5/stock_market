@@ -157,7 +157,7 @@ def record(observation: dict) -> bool:
         return False
 
 
-def overview(days: int = 30, now: datetime | None = None) -> dict:
+def overview(days: int = 30, now: datetime | None = None, country: str = "") -> dict:
     now = now or datetime.now(timezone.utc)
     end = now.astimezone(KST).date()
     start = (end - timedelta(days=days - 1)).isoformat()
@@ -168,7 +168,7 @@ def overview(days: int = 30, now: datetime | None = None) -> dict:
               "schema_ready": _schema_ready,
               "available_from": None, "browsers": 0, "sessions": 0, "repeat_browsers": 0,
               "regular_browsers": 0, "network_days": 0, "located_browser_days": 0,
-              "browser_days": 0, "daily": [], "regions": []}
+              "browser_days": 0, "daily": [], "regions": [], "country": country, "countries": []}
     if not result["enabled"]:
         return result
     with _gate.hold():
@@ -189,13 +189,19 @@ def overview(days: int = 30, now: datetime | None = None) -> dict:
         result["daily"] = [dict(zip(("date", "browsers", "sessions", "located_browsers"), row)) for row in daily]
         result["browser_days"] = sum(row[1] for row in daily)
         result["located_browser_days"] = sum(row[3] for row in daily)
-        regions = conn.execute("""SELECT country, region, city, location_source,
-            COUNT(DISTINCT day || ':' || browser) AS n
-            FROM audience_observations AS current WHERE day BETWEEN ? AND ?
+        preferred = """FROM audience_observations AS current WHERE day BETWEEN ? AND ?
             AND (location_source='browser_location' OR NOT EXISTS (
                 SELECT 1 FROM audience_observations AS precise
                 WHERE precise.browser=current.browser AND precise.day=current.day
-                AND precise.location_source='browser_location'))
-            GROUP BY country, region, city, location_source ORDER BY n DESC, country, region, city LIMIT 100""", params).fetchall()
+                AND precise.location_source='browser_location'))"""
+        countries = conn.execute("""SELECT country, COUNT(DISTINCT day || ':' || browser) """ + preferred +
+            " GROUP BY country ORDER BY country", params).fetchall()
+        result["countries"] = [{"country": row[0], "browser_days": row[1]} for row in countries]
+        country_clause = " AND country=?" if country else ""
+        region_params = (*params, "" if country == "unknown" else country) if country else params
+        regions = conn.execute("""SELECT country, region, city, location_source,
+            COUNT(DISTINCT day || ':' || browser) AS n
+            """ + preferred + country_clause + """
+            GROUP BY country, region, city, location_source ORDER BY n DESC, country, region, city LIMIT 100""", region_params).fetchall()
         result["regions"] = [dict(zip(("country", "region", "city", "source", "browser_days"), row)) for row in regions]
     return result

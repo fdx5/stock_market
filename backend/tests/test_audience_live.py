@@ -121,3 +121,60 @@ def test_diagnostics_scoped_to_aggregate_reads(store, monkeypatch):
     assert response.status_code == 200
     assert response.json()["map_ready"] is True
     assert not any(s in response.text for s in ["latitude", "longitude", "ciphertext", "nonce", "password"])
+
+
+def test_location_key_change_preserves_session_counts_without_exposing_location(store, monkeypatch):
+    assert live.record(observation(), {"latitude": 37.2, "longitude": 127.1, "accuracy_m": 20}, now=1000)
+    monkeypatch.setenv("AUDIENCE_LOCATION_KEY", base64.urlsafe_b64encode(b"different-test-key-only-123456789"[:32]).decode())
+    report = live.overview(now=1010)
+    assert report["total"] == report["unlocated"] == report["unreadable"] == 1
+    assert report["sessions"][0]["source"] == "unknown"
+    assert "latitude" not in report["sessions"][0]
+
+
+def test_precise_only_record_expires_at_15_minutes_without_losing_presence(store):
+    assert live.record(observation(), {"latitude": 37.2, "longitude": 127.1, "accuracy_m": 20}, now=1000)
+    report = live.overview(now=1901)
+    assert report["total"] == report["unlocated"] == 1
+    assert "latitude" not in report["sessions"][0]
+
+
+def test_country_filter_precedes_session_limit_and_total_includes_unlocated(store):
+    for i in range(501):
+        assert live.record(observation(), now=2000 + i)
+    obs = {**observation(), "country": "US"}
+    assert live.record(obs, now=1000)
+    report = live.overview(now=3000)
+    assert report["total"] == report["unlocated"] == 502
+    assert len(report["sessions"]) == 500 and report["truncated"]
+    filtered = live.overview(now=3000, country="US")
+    assert filtered["total"] == 1 and filtered["sessions"][0]["country"] == "US"
+    assert not filtered["truncated"]
+
+
+def test_page_view_also_records_encrypted_presence(store, monkeypatch):
+    from app.routers import activity
+    monkeypatch.setattr(activity.activity_log, "record_event", lambda **kwargs: None)
+    app = FastAPI(); app.include_router(activity.router)
+    client = TestClient(app)
+    body = {"browser_id": str(uuid4()), "session_id": str(uuid4()), "type": "page_view", "path": "/desk"}
+    headers = {"user-agent": "Mozilla/5.0"}
+    assert client.post("/event", json=body, headers=headers).status_code == 200
+    assert len(live.overview()["sessions"]) == 1
+    for path, agent in (("/admin/dashboard", "Mozilla/5.0"), ("/desk", "Googlebot")):
+        assert client.post("/event", json={**body, "session_id": str(uuid4()), "path": path}, headers={"user-agent": agent}).status_code == 200
+    assert len(live.overview()["sessions"]) == 1
+
+
+def test_presence_reports_location_failure_and_still_attempts_each_store(store, monkeypatch):
+    from app.routers import activity
+    app = FastAPI(); app.include_router(activity.router)
+    client = TestClient(app)
+    body = {"browser_id": str(uuid4()), "session_id": str(uuid4())}
+    monkeypatch.setattr(live, "record", lambda *args: False)
+    assert client.post("/audience-presence", json=body, headers={"user-agent": "Mozilla/5.0"}).json() == {"accepted": False}
+    calls = []
+    monkeypatch.setattr(audience, "record", lambda *args: False)
+    monkeypatch.setattr(live, "record", lambda *args: calls.append(args) or True)
+    assert client.post("/audience-presence", json=body, headers={"user-agent": "Mozilla/5.0"}).json() == {"accepted": False}
+    assert len(calls) == 1
