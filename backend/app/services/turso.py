@@ -81,7 +81,8 @@ def _encode(value: Any) -> dict:
     if isinstance(value, float):
         return {"type": "float", "value": value}
     if isinstance(value, (bytes, bytearray, memoryview)):
-        return {"type": "blob", "value": base64.b64encode(bytes(value)).decode("ascii")}
+        # Hrana BLOBs use `base64`, unlike scalar types' `value` field.
+        return {"type": "blob", "base64": base64.b64encode(bytes(value)).decode("ascii")}
     return {"type": "text", "value": str(value)}
 
 
@@ -97,7 +98,7 @@ def _decode(value: dict) -> Any:
         return value["value"]
     if kind == "blob":
         # Hrana omits padding from its base64.
-        raw = value["value"]
+        raw = value["base64"]
         return base64.b64decode(raw + "=" * (-len(raw) % 4))
     raise TursoError(f"unknown value type from Turso: {kind!r}")
 

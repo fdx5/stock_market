@@ -5,6 +5,12 @@
 
 ## 확인한 결함과 변경
 
+- 운영의 직접 원인은 Turso HTTP 전송 계층의 BLOB 형식 오류였다. 관리자 시스템
+  화면의 `audience_live` 오류는 `JSON parse error: missing field base64`였으며,
+  일별 지역 집계는 쌓이는 반면 지도용 암호화 저장은 실패가 누적되고 있었다.
+  바이너리 nonce/암호문을 보낼 때 잘못 쓰던 `value` 필드를 `base64`로 고치고,
+  DB가 돌려주는 BLOB도 `base64`에서 복원하도록 송수신을 모두 수정했다.
+  [공식 Hrana Value 규격](https://github.com/tursodatabase/libsql/blob/main/docs/HRANA_3_SPEC.md#values)과 대조했다.
 - 페이지 접속 이벤트의 세션 ID가 유효해도 `browser_id`가 없으면 지도 수집까지
   생략했다. 설정 조회 지연·실패, 브라우저 저장소 제한, 이전 클라이언트에 해당한다.
   이제 이런 공개 페이지 접속도 세션 ID를 HMAC으로 가명화해 암호화 지도 저장소에
@@ -31,15 +37,19 @@
 
 ## 검증 및 운영 확인의 한계
 
-- `backend/tests/test_audience_live.py`와 `test_audience_analytics.py`: 새 임시
+- `backend/tests/test_audience_live.py`, `test_audience_analytics.py`, `test_turso_blobs.py`: 새 임시
   SQLite DB만 사용한다. 브라우저 ID 없는 접속의 미확인 집계와 실제 IP 마커 생성,
-  개인정보 신호·봇 제외, 암호화 실패, 잘못된 좌표, 국가 필터를 포함해 44개 검사.
+  개인정보 신호·봇 제외, 암호화 실패, 잘못된 좌표, 국가 필터를 포함해 53개 검사 통과.
+  추가한 HTTP 규격 검사 9개는 수정 전 모두 실패하고, 송수신 수정 후 모두 통과했다.
+  가짜 Hrana 서버와 새 임시 SQLite를 연결해 실제 전송 계층을 통한 암호화 저장,
+  BLOB 조회, 복호화, 지도 세션 생성까지 검증한다. 운영 자격 증명은 사용하지 않는다.
 - `frontend/scripts/test-audience-country.py`: 합성 API만 사용한다. 1440/1024/390/320px,
   실제 Leaflet 마커 개수, 전체/국가/미확인 필터, 준비/저장/조회 실패 안내를 검증한다.
 - TypeScript 및 전체 Vite 운영 빌드. 운영 API/DB에 합성 접속을 넣지 않는다.
 - 공개 `/api/health`에서 운영 커밋, `/api/activity/audience-config`에서
   `enabled`, `location_enabled`, `presence_enabled`가 모두 true인 것을 확인했다.
-  이것만으로 운영에서 저장에 성공했다거나 보고된 모든 0건의 원인이 위 결함이라고
-  단정할 수 없다. 실제 수신·저장 횟수 확인에는 인증된 운영 진단/로그가 필요하다.
-- Render MCP에 선택된 워크스페이스가 없어 워크스페이스 확인을 요청했다.
-  아직 운영 인증 로그/통계 조회 및 운영 배포는 수행하지 않았다.
+- 사용자가 확인한 `stock_market` 워크스페이스에서 운영 요청 로그를 조회했다.
+  별도 접속 수집 POST는 도착하고 있었으며 지도 조회에는 503도 반복됐다.
+  사용자가 로그인한 관리자 시스템 화면에서 위 BLOB 오류를 직접 확인했다.
+- DB 쓰기 자격 증명을 AI 환경으로 가져오지 않았고, 운영에 합성 접속을 넣지 않는다.
+  저장 실패로 원래 생성되지 않은 과거 위치를 임의로 복원하지 않는다.
