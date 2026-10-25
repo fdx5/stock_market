@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect } from "react";
+import { GUIDE_SEO } from "./guides/catalog";
 import { syncThemeForPath } from "./theme";
 import { attachDeskBgm } from "./desk2/deskBgmStore";
 import LoadingState from "./components/LoadingState";
@@ -40,6 +41,7 @@ const MarketDeskPage = lazy(() => import("./components/MarketDeskPage"));
 const Desk2Page = lazy(() => import("./desk2/Desk2Page"));
 const SupportPage = lazy(() => import("./desk2/SupportPage"));
 const SupportSuccessPage = lazy(() => import("./desk2/SupportSuccessPage"));
+const GuidesPage = lazy(() => import("./guides/GuidesPage"));
 /* 종목면 and 종목정보 in the same broadsheet as the desk. The classic
    StockIntelligencePage / UsStockIntelligencePage / StocksPage stay in the tree,
    unrouted, so either can be put back with one line here. */
@@ -307,7 +309,7 @@ export default function App() {
   useNoindexOn(path.replace(/\/$/, ""), "/support-success");
 
   useEffect(() => {
-    let canonicalPath = path === "/type2" ? "/hub" : path;
+    let canonicalPath = path === "/type2" ? "/hub" : path.replace(/\/$/, "") || "/";
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code")?.replace(/[^A-Za-z0-9.-]/g, "").slice(0, 16) || "";
     const keepsStockCode = code && ["/desk", "/global", "/discussion-explorer"].includes(canonicalPath);
@@ -329,7 +331,7 @@ export default function App() {
     if (/^\/(stock|investor)\//.test(canonicalPath)) return;
 
     const social = SOCIAL_CARDS[canonicalPath.replace(/\/$/, "") || "/"];
-    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"] : social ?? PUBLIC_PAGE_SEO[canonicalPath];
+    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"] : GUIDE_SEO[canonicalPath] ?? social ?? PUBLIC_PAGE_SEO[canonicalPath];
     if (!seo) return;
     const name = canonicalName || code;
     const briefRaw = briefMatch ? briefMatch[2].toUpperCase() : "";
@@ -352,7 +354,7 @@ export default function App() {
     document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", description);
     document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.setAttribute("content", title);
     document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.setAttribute("content", description);
-    document.querySelector<HTMLMetaElement>('meta[property="og:type"]')?.setAttribute("content", briefMatch ? "article" : "website");
+    document.querySelector<HTMLMetaElement>('meta[property="og:type"]')?.setAttribute("content", briefMatch || (GUIDE_SEO[canonicalPath] && canonicalPath !== "/guides") ? "article" : "website");
     document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')?.setAttribute("content", title);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.setAttribute("content", description);
     const image = briefMatch
@@ -375,7 +377,10 @@ export default function App() {
   const marketAsset = MARKET_ASSETS.find(asset => path.replace(/\/$/, "") === `/prices/${asset.key}`);
   const discoveryModes = {"/markets":"hub", "/market-inside":"inside", "/stock-tradeoffs":"tradeoffs", "/recovery-lab":"recovery", "/market-radar":"radar", "/stock-screener":"screener", "/stock-compare":"compare", "/sector-strength":"sectors"} as const;
   const discoveryMode = discoveryModes[path as keyof typeof discoveryModes];
-  if (discoveryMode) {
+  const guideRoute = path.replace(/\/$/, "");
+  if (GUIDE_SEO[guideRoute]) {
+    page = <GuidesPage key={guideRoute} path={guideRoute} />;
+  } else if (discoveryMode) {
     page = <MarketDiscoveryPage key={path} mode={discoveryMode} />;
   } else if (serviceForPath(path)) {
     page = <ServiceWorkspacePage key={path} path={path} />;

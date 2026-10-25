@@ -1,4 +1,5 @@
 import { SERVICES } from "../markets/catalog";
+import { GUIDE_SEO } from "../guides/catalog";
 const BASE_NEO_GROUPS = [
   { id: "markets", ko: "마켓 워크스페이스", en: "Markets", icon: "chart", links: [
     ["/", "관제 홈", "Command home"], ["/desk", "국내 증시", "Korea desk"], ["/global", "미국 증시", "US desk"], ["/stocks", "종목 탐색", "Stock explorer"], ["/etf", "ETF 마켓", "ETF market"],
@@ -8,6 +9,7 @@ const BASE_NEO_GROUPS = [
   ] },
   { id: "intelligence", ko: "인텔리전스", en: "Intelligence", icon: "spark", links: [
     ["/market-brief", "오늘 브리핑", "Daily briefing"], ["/news", "마켓 뉴스", "Market news"], ["/ai-prediction", "AI 예측", "AI forecast"], ["/ai-prediction/grading", "예측 채점표", "Forecast results"], ["/investors", "거물 포트폴리오", "Investor portfolios"], ["/investment-videos", "투자 영상", "Video briefing"], ["/dram-price", "D램 가격", "DRAM prices"],
+    ["/guides", "주식 시장 읽는 법", "Market reading guides"],
   ] },
   { id: "rankings", ko: "순위 · 비교", en: "Rankings", icon: "layers", links: [
     ["/kospi-100", "코스피 TOP 100", "KOSPI TOP 100"], ["/kosdaq-100", "코스닥 TOP 100", "KOSDAQ TOP 100"], ["/nasdaq-100", "나스닥 TOP 100", "NASDAQ TOP 100"], ["/global-top100", "글로벌 시가총액", "Global market caps"], ["/fight", "시가총액 대결", "Market-cap battle"], ["/battle", "시장 줄다리기", "Market tug of war"], ["/index/kospi", "코스피 지수", "KOSPI chart"], ["/index/kosdaq", "코스닥 지수", "KOSDAQ chart"],
@@ -26,6 +28,7 @@ const RESEARCH_SECTION: Record<string,string> = {
 };
 export const NEO_GROUPS = BASE_NEO_GROUPS.map(group => ({...group, links:[...group.links, ...SERVICES.filter(s => (RESEARCH_SECTION[s.path] ?? "intelligence") === group.id).map(s => [s.path,s.name,s.name] as const)]}));
 export function routeLabel(path: string, lang: "ko" | "en") {
+  if (GUIDE_SEO[path]) return lang === "ko" ? GUIDE_SEO[path].title.replace(/ \| K-Stock Hub$/, "") : "Market reading guides";
   const link = NEO_GROUPS.flatMap(group => [...group.links]).find(link => link[0].split("?")[0] === path);
   if (link) return link[lang === "ko" ? 1 : 2];
   if (path.startsWith("/stock/")) return lang === "ko" ? "종목 분석" : "Stock intelligence";

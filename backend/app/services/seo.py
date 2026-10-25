@@ -17,6 +17,7 @@ from app.data import investor_fetcher
 from app.data.universe import get_stock_name, get_top_market_cap_all
 from app.services import market_brief_store
 from app.services.cache import cache
+from app.services import market_guides
 from app.services.social_cards import SOCIAL_CARDS
 
 from app.site import PRIMARY_SITE_URL
@@ -389,6 +390,7 @@ PAGES: dict[str, tuple[str, str]] = {
 
 from app.services.discovery_catalog import SERVICES as DISCOVERY_PAGES
 PAGES.update({path: (name + " | K-Stock Hub", description) for path, name, description in DISCOVERY_PAGES})
+PAGES.update(market_guides.PAGES)
 
 
 def _replace_meta(document: str, selector: str, value: str) -> str:
@@ -532,7 +534,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     document = _replace_meta(document, 'property="og:title"', title)
     document = _replace_meta(document, 'property="og:description"', description)
     document = _replace_meta(document, 'property="og:url"', share_url)
-    document = _replace_meta(document, 'property="og:type"', "article" if brief else "website")
+    document = _replace_meta(document, 'property="og:type"', "article" if brief or canonical_path in market_guides.GUIDES else "website")
     document = _replace_meta(document, 'property="og:image"', page_image)
     document = _replace_meta(document, 'property="og:image:secure_url"', page_image)
     document = _replace_meta(document, 'property="og:image:type"', "image/jpeg" if page_image.lower().endswith((".jpg", ".jpeg")) else "image/png")
@@ -655,7 +657,9 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
                 },
             ],
         }
-    script = '<script type="application/ld+json">' + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/") + "</script>"
+    if canonical_path in market_guides.PAGES:
+        structured = market_guides.structured_data(canonical_path, SITE)
+    script = '<script id="route-structured-data" type="application/ld+json">' + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/") + "</script>"
     document = document.replace("</head>", f"{script}\n  </head>", 1)
 
     # Naver's Yeti can render JavaScript, but its official SPA guidance still
@@ -668,6 +672,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
         ("/realestate-map", "부동산 맵"),
         ("/news", "증시 뉴스"), ("/market-brief", "오늘 브리핑"),
+        ("/guides", "주식 시장 읽는 법"),
         ("/discussion-explorer", "종목토론"),
         (INVESTOR_HUB, "외국인·기관 수급 종목"),
         ("/stock/005930", "삼성전자 주가"), ("/stock/000660", "SK하이닉스 주가"),
@@ -866,6 +871,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             '<nav aria-label="종목별 투자자 매매동향" style="display:flex;flex-wrap:wrap;gap:10px 16px;'
             f'max-width:1100px;line-height:2">{entries}</nav>'
         )
+    if canonical_path in market_guides.PAGES:
+        report_content = market_guides.render_content(canonical_path)
     # The <h1> repeated the site name on every page ("… | K-Stock Hub"), which is
     # boilerplate in the one place Google most wants the page's own subject.
     heading = title.removesuffix(" | K-Stock Hub")
@@ -964,7 +971,9 @@ def build_pages_sitemap() -> str:
     urls: list[tuple[str, str, str, str]] = []
     priorities = {"/": "1.0", "/desk": "0.9", "/map": "0.9", "/market-brief": "0.9", "/etf": "0.8"}
     for path in PAGES:
-        urls.append((f"{SITE}{path}", priorities.get(path, "0.7"), "daily", today))
+        is_guide = path in market_guides.PAGES
+        urls.append((f"{SITE}{path}", priorities.get(path, "0.7"), "monthly" if is_guide else "daily",
+                     market_guides.CATALOG["updated"] if is_guide else today))
 
     try:
         brief_dates = market_brief_store.dates(1000)

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { GUIDE_SEO } from "./guides/catalog";
 import { getSessionId } from "./session";
 import { audienceBrowserId, loadAudienceConfig } from "./audienceIdentity";
 import { startVisibilityAwareInterval } from "./pollVisibility";
@@ -61,6 +62,7 @@ export function pageLabel(path: string): string {
   // trailing slash. Classify the canonical route instead of falling through to 기타.
   const cleanPath = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
   path = cleanPath;
+  if (GUIDE_SEO[path]) return GUIDE_SEO[path].title.replace(/ \| K-Stock Hub$/, "");
   const research = serviceForPath(path);
   if (research) return research.name;
   const asset = MARKET_ASSETS.find(asset => path === `/prices/${asset.key}`);

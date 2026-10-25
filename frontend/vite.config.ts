@@ -1,6 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
-import { createReadStream, statSync } from "node:fs";
+import { createReadStream, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import paintAssetsPlugin from "./paintAssetsPlugin.mjs";
@@ -16,6 +16,13 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     paintAssetsPlugin(),
+    {
+      name: "market-guide-content",
+      generateBundle() {
+        this.emitFile({ type: "asset", fileName: "content/market-guides.json",
+          source: readFileSync(new URL("./src/guides/market-guides.json", import.meta.url), "utf8") });
+      },
+    },
     {
       name: "local-planet-assets",
       configureServer(server) {
