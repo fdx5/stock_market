@@ -2,7 +2,6 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { Link } from "../router";
 import Logo from "../components/Logo";
 import { useL } from "./lib";
-import AudiencePrivacy from "../components/AudiencePrivacy";
 
 /* The colophon.
  *
@@ -110,7 +109,6 @@ export default function Colophon({ home = "/hub" }: { home?: string } = {}) {
           )}
         </p>
       </div>
-      <AudiencePrivacy />
       <div className="d2-colophon-bottom">
         <p className="d2-colophon-disclaimer">
           {L(
