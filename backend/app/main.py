@@ -249,6 +249,8 @@ async def _record_api_pulse(request: Request, call_next):
         system_telemetry.end_request(observation_token)
     return response
 
+from app.routers import public_markets
+app.include_router(public_markets.router)
 app.include_router(search.router, prefix="/api")
 app.include_router(editorial_router.router, prefix="/api/editorial")
 app.include_router(discovery.router, prefix="/api/discovery")

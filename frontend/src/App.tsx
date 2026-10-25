@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect } from "react";
 import { GUIDE_SEO } from "./guides/catalog";
+import { GROWTH_SEO, publicMarket } from "./growth/publicLinks";
 import { syncThemeForPath } from "./theme";
 import { attachDeskBgm } from "./desk2/deskBgmStore";
 import LoadingState from "./components/LoadingState";
@@ -42,6 +43,7 @@ const Desk2Page = lazy(() => import("./desk2/Desk2Page"));
 const SupportPage = lazy(() => import("./desk2/SupportPage"));
 const SupportSuccessPage = lazy(() => import("./desk2/SupportSuccessPage"));
 const GuidesPage = lazy(() => import("./guides/GuidesPage"));
+const MarketPulsePage = lazy(() => import("./growth/MarketPulsePage"));
 /* 종목면 and 종목정보 in the same broadsheet as the desk. The classic
    StockIntelligencePage / UsStockIntelligencePage / StocksPage stay in the tree,
    unrouted, so either can be put back with one line here. */
@@ -315,7 +317,8 @@ export default function App() {
     const keepsStockCode = code && ["/desk", "/global", "/discussion-explorer"].includes(canonicalPath);
     const canonicalName = params.get("name")?.replace(/[<>\r\n]/g, "").trim().slice(0, 80) || "";
     if (canonicalPath === "/desk" && /^\d{6}$/.test(code)) canonicalPath = `/stock/${code}`;
-    const canonicalQuery = keepsStockCode && !canonicalPath.startsWith("/stock/")
+    const market = publicMarket(window.location.search);
+    const canonicalQuery = ["/today", "/share-market"].includes(canonicalPath) && market !== "kospi" ? `?market=${market}` : keepsStockCode && !canonicalPath.startsWith("/stock/")
       ? `?code=${encodeURIComponent(code)}${canonicalName ? `&name=${encodeURIComponent(canonicalName)}` : ""}`
       : "";
     const canonicalUrl = `https://kospimap.com${canonicalPath}${canonicalQuery}`;
@@ -331,7 +334,7 @@ export default function App() {
     if (/^\/(stock|investor)\//.test(canonicalPath)) return;
 
     const social = SOCIAL_CARDS[canonicalPath.replace(/\/$/, "") || "/"];
-    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"] : GUIDE_SEO[canonicalPath] ?? social ?? PUBLIC_PAGE_SEO[canonicalPath];
+    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"] : GROWTH_SEO[canonicalPath] ?? GUIDE_SEO[canonicalPath] ?? social ?? PUBLIC_PAGE_SEO[canonicalPath];
     if (!seo) return;
     const name = canonicalName || code;
     const briefRaw = briefMatch ? briefMatch[2].toUpperCase() : "";
@@ -357,7 +360,7 @@ export default function App() {
     document.querySelector<HTMLMetaElement>('meta[property="og:type"]')?.setAttribute("content", briefMatch || (GUIDE_SEO[canonicalPath] && canonicalPath !== "/guides") ? "article" : "website");
     document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')?.setAttribute("content", title);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.setAttribute("content", description);
-    const image = briefMatch
+    const image = GROWTH_SEO[canonicalPath] ? `https://kospimap.com/market-card/${market}.png` : briefMatch
       ? `https://kospimap.com/market-brief/og/${briefMatch[1]}/${briefMatch[2].toLowerCase()}.png`
       : social ? `https://kospimap.com${social.image}` : "https://kospimap.com/img/kospi-map-preview.png";
     document.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.setAttribute("content", image);
@@ -368,7 +371,7 @@ export default function App() {
       : social?.alt ?? "K-Stock Hub 시장 데이터";
     document.querySelector<HTMLMetaElement>('meta[property="og:image:alt"]')?.setAttribute("content", imageAlt);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:image:alt"]')?.setAttribute("content", imageAlt);
-  }, [path]);
+  }, [path, window.location.search]);
 
   let page;
   const portfolioMatch = path.match(/^\/investors\/([a-z]+)\/?$/);
@@ -378,7 +381,9 @@ export default function App() {
   const discoveryModes = {"/markets":"hub", "/market-inside":"inside", "/stock-tradeoffs":"tradeoffs", "/recovery-lab":"recovery", "/market-radar":"radar", "/stock-screener":"screener", "/stock-compare":"compare", "/sector-strength":"sectors"} as const;
   const discoveryMode = discoveryModes[path as keyof typeof discoveryModes];
   const guideRoute = path.replace(/\/$/, "");
-  if (GUIDE_SEO[guideRoute]) {
+  if (GROWTH_SEO[guideRoute]) {
+    page = <MarketPulsePage key={guideRoute} sharing={guideRoute === "/share-market"} />;
+  } else if (GUIDE_SEO[guideRoute]) {
     page = <GuidesPage key={guideRoute} path={guideRoute} />;
   } else if (discoveryMode) {
     page = <MarketDiscoveryPage key={path} mode={discoveryMode} />;

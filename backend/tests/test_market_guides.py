@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 import pytest
 from app.services import market_guides
+from app.services import public_markets
 
 
 @pytest.fixture
@@ -20,7 +21,7 @@ def renderer():
     class FixtureCache:
         def get_or_set(self, _key, _ttl, build):
             return build()
-    env = dict(re=re, html=html, json=json, urlencode=urlencode, market_guides=market_guides, SOCIAL_CARDS={}, SITE='https://kospimap.com', IMAGE='fixture.png', PAGES={'/':('Home','Home description'), **market_guides.PAGES}, INVESTOR_HUB='/market/kospi/foreign-buying',
+    env = dict(re=re, html=html, json=json, urlencode=urlencode, market_guides=market_guides, public_markets=public_markets, SOCIAL_CARDS={}, SITE='https://kospimap.com', IMAGE='fixture.png', PAGES={'/':('Home','Home description'), **market_guides.PAGES}, INVESTOR_HUB='/market/kospi/foreign-buying',
                STOCK_LANDING_ROUTE=re.compile(r'/stock/(\d{6})/(investor|outlook|news)'), STOCK_ROUTE=re.compile(r'/stock/([A-Za-z0-9.-]{1,16})'), INVESTOR_ROUTE=re.compile(r'/investor/([A-Za-z0-9.-]{1,16})'), KRX_CODE=re.compile(r'\d[0-9A-Z]{5}'),
                _stock_entry=stock_entry, _market_brief=lambda _path:(None,'',''), _investor_identity=lambda _path:('',''), _detail_neighbours=lambda *_args:[], _kr_etf_names=lambda:{'069500':'KODEX 200'}, kr_universe=lambda:[{'code':'005930'}], cache=FixtureCache())
     funcs = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in {'_replace_meta','render_spa_shell','is_unknown_kr_code'}]
@@ -69,6 +70,20 @@ def test_editorial_sitemap_uses_publication_date_and_has_no_duplicate_urls(rende
     for path in market_guides.PAGES:
         item = entries['https://kospimap.com' + path]
         assert item.find('s:lastmod', ns).text == market_guides.CATALOG['updated']
+
+
+@pytest.mark.parametrize('market', ['kospi', 'kosdaq', 'nasdaq100'])
+def test_public_market_pages_have_matching_canonical_card_and_real_html(renderer, monkeypatch, market):
+    renderer['PAGES'].update(public_markets.PAGES)
+    value = public_markets.summarize(market, [{'code': '005930', 'name': '삼성전자', 'close': 12345, 'change_pct': 2}], '2026-10-23T16:30:00+09:00')
+    monkeypatch.setattr(public_markets, 'snapshot', lambda selected: value if selected == market else None)
+    template = (Path(__file__).parents[2] / 'frontend/index.html').read_text(encoding='utf-8')
+    result = renderer['render_spa_shell'](template, '/today', {'market': market, 'token': 'must-not-leak', 'utm_source': 'test'})
+    suffix = '' if market == 'kospi' else f'?market={market}'
+    assert f'href="https://kospimap.com/today{suffix}"' in result
+    assert f'content="https://kospimap.com/market-card/{market}.png"' in result
+    assert '12,345.00' in result and '상승 1' in result
+    assert 'must-not-leak' not in result and 'utm_source=test' not in result
 
 
 def test_guide_html_escapes_editorial_text(monkeypatch):

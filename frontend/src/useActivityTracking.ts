@@ -37,6 +37,8 @@ function acquisitionAttribution(): Attribution {
   let source_channel: Attribution["source_channel"] = "direct";
   let source_name = utmSource || (host ? host.replace(/^www\./, "") : "direct");
   if (/email|newsletter|mail/.test(text)) source_channel = "email";
+  else if (/^(social|share)$/.test(utmMedium.toLowerCase())) source_channel = "social";
+  else if (/^(referral|embed)$/.test(utmMedium.toLowerCase())) source_channel = "referral";
   else if (query.has("gclid") || /google\.|search\.naver\.|bing\.|search\.daum\./.test(host)) {
     source_channel = "search";
     source_name = query.has("gclid") || host.includes("google") ? "google" : host.includes("naver") ? "naver" : host.includes("daum") ? "daum" : "bing";
@@ -63,6 +65,8 @@ export function pageLabel(path: string): string {
   const cleanPath = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
   path = cleanPath;
   if (GUIDE_SEO[path]) return GUIDE_SEO[path].title.replace(/ \| K-Stock Hub$/, "");
+  if (path === "/today") return "오늘 증시 한눈에";
+  if (path === "/share-market") return "시장 카드·퍼가기";
   const research = serviceForPath(path);
   if (research) return research.name;
   const asset = MARKET_ASSETS.find(asset => path === `/prices/${asset.key}`);
@@ -190,6 +194,10 @@ function sendEvent(body: Record<string, unknown>) {
     document.addEventListener("visibilitychange", onVisibility);
     void Promise.all([resolveDeviceInfo(), loadAudienceConfig()]).then(([info]) => deliver(info)).catch(flush);
   } else send(deviceInfo());
+}
+
+export function reportGrowthAction(action: "share_success" | "link_copy" | "card_download" | "embed_copy" | "rss_open" | "reminder_download"): void {
+  sendEvent({ type: "click", path: window.location.pathname, label: `무료 검색·공유 · ${action}`, object_key: `growth:${action}` });
 }
 
 /** Records both the deliberate CTA click and the external game's virtual entrance.

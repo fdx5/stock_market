@@ -18,6 +18,7 @@ from app.data.universe import get_stock_name, get_top_market_cap_all
 from app.services import market_brief_store
 from app.services.cache import cache
 from app.services import market_guides
+from app.services import public_markets
 from app.services.social_cards import SOCIAL_CARDS
 
 from app.site import PRIMARY_SITE_URL
@@ -391,6 +392,7 @@ PAGES: dict[str, tuple[str, str]] = {
 from app.services.discovery_catalog import SERVICES as DISCOVERY_PAGES
 PAGES.update({path: (name + " | K-Stock Hub", description) for path, name, description in DISCOVERY_PAGES})
 PAGES.update(market_guides.PAGES)
+PAGES.update(public_markets.PAGES)
 
 
 def _replace_meta(document: str, selector: str, value: str) -> str:
@@ -475,6 +477,14 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     supplied_name = re.sub(r"[<>\r\n]", "", query.get("name", "")).strip()[:80]
     display_name = supplied_name or code
     canonical_query: dict[str, str] = {}
+    public_market = query.get("market", "kospi")
+    if public_market not in public_markets.MARKETS:
+        public_market = "kospi"
+    if canonical_path in public_markets.PAGES:
+        if public_market != "kospi":
+            canonical_query["market"] = public_market
+        page_image = f"{SITE}/market-card/{public_market}.png"
+        image_alt = f"{public_markets.MARKETS[public_market]['name']} 시장 표본 분포와 집계 시각"
     if code and canonical_path in {"/desk", "/global", "/discussion-explorer"}:
         canonical_query["code"] = code
         if display_name:
@@ -672,7 +682,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
         ("/realestate-map", "부동산 맵"),
         ("/news", "증시 뉴스"), ("/market-brief", "오늘 브리핑"),
-        ("/guides", "주식 시장 읽는 법"),
+        ("/guides", "주식 시장 읽는 법"), ("/today", "오늘 증시 한눈에"), ("/share-market", "시장 카드·퍼가기"),
         ("/discussion-explorer", "종목토론"),
         (INVESTOR_HUB, "외국인·기관 수급 종목"),
         ("/stock/005930", "삼성전자 주가"), ("/stock/000660", "SK하이닉스 주가"),
@@ -873,12 +883,15 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         )
     if canonical_path in market_guides.PAGES:
         report_content = market_guides.render_content(canonical_path)
+    if canonical_path == "/share-market":
+        report_content = '<p>실제 시장의 상승·하락 분포 카드를 내려받아 링크와 함께 공유하세요. iframe을 허용하는 사이트에는 시장 위젯을 넣을 수 있습니다.</p><p><a href="/today">오늘 증시 한눈에</a> · <a href="/market-feed.xml">장마감 브리핑 RSS 구독</a> · <a href="/market-check.ics">평일 16:30 확인 알림</a></p>'
+    report_content += public_markets.seo_content(canonical_path, stock_code if not stock_report else "", public_market)
     # The <h1> repeated the site name on every page ("… | K-Stock Hub"), which is
     # boilerplate in the one place Google most wants the page's own subject.
     heading = title.removesuffix(" | K-Stock Hub")
     shell = (
         '<section data-seo-shell="true" style="min-height:100vh;padding:48px 6%;'
-        'background:#08111f;color:#eef6ff;font-family:sans-serif">'
+        'background:#0b070e;color:#f8f6f1;font-family:sans-serif">'
         f'<h1 style="font-size:32px">{html.escape(heading)}</h1>'
         f'<p style="max-width:760px;line-height:1.8;color:#b9c9da">{html.escape(description)}</p>'
         f'{report_content}'

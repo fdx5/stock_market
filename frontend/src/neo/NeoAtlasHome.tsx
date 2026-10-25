@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { TodayEntry } from "../growth/MarketPulsePage";
 import { useLanguage } from "../i18n/LanguageContext";
 import { Link } from "../router";
 import { useMarketIndices } from "../useMarketIndices";
@@ -46,6 +47,7 @@ export default function NeoAtlasHome() {
   };
   return <main className="d2 ng-home ng-atlas" lang={lang}>
     <MarketScanner market={market} onMarketChange={chooseMarket} />
+    <TodayEntry />
     <section className="ng-asset-belt" aria-labelledby="ng-assets-h"><div><span>03 / ACROSS ASSETS</span><h2 id="ng-assets-h">{L("시장을 잇는 가격", "Prices in between")}</h2></div><div>{assets.map(asset => { const quote = tick(asset.symbol); return <Link key={asset.key} to={`/prices/${asset.key}`} className="ng-asset-link"><article className={`ng-asset-cell ng-asset-cell--${asset.key}`}><AssetCellFx kind={asset.key} up={(quote?.change_pct ?? 0) > 0}/><span>{L(asset.ko, asset.en)}<small>{asset.unit}</small></span><CyberQuote value={quote?.price}>{quote ? quote.price.toLocaleString("en-US", { maximumFractionDigits: asset.digits }) : "—"}</CyberQuote><b className={`is-${toneOf(quote?.change_pct)}`}>{pct(quote?.change_pct)}</b><small>{quoteTime(quote?.quote_time)} ↗</small></article></Link>; })}</div></section>
     <p className="ng-atlas-basis">{L("각 지수·자산의 최근 제공 시세 · 등락은 전일 대비 · 시장별 기준 시각과 거래 세션이 다를 수 있습니다.", "Latest supplied quotes · changes vs. previous close · quote times and sessions may differ across markets.")}</p>
     <AtlasMiniMaps quotes={{

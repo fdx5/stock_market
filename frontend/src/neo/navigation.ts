@@ -10,6 +10,7 @@ const BASE_NEO_GROUPS = [
   { id: "intelligence", ko: "인텔리전스", en: "Intelligence", icon: "spark", links: [
     ["/market-brief", "오늘 브리핑", "Daily briefing"], ["/news", "마켓 뉴스", "Market news"], ["/ai-prediction", "AI 예측", "AI forecast"], ["/ai-prediction/grading", "예측 채점표", "Forecast results"], ["/investors", "거물 포트폴리오", "Investor portfolios"], ["/investment-videos", "투자 영상", "Video briefing"], ["/dram-price", "D램 가격", "DRAM prices"],
     ["/guides", "주식 시장 읽는 법", "Market reading guides"],
+    ["/today", "오늘 증시 한눈에", "Market snapshot"], ["/share-market", "시장 카드·퍼가기", "Share market"],
   ] },
   { id: "rankings", ko: "순위 · 비교", en: "Rankings", icon: "layers", links: [
     ["/kospi-100", "코스피 TOP 100", "KOSPI TOP 100"], ["/kosdaq-100", "코스닥 TOP 100", "KOSDAQ TOP 100"], ["/nasdaq-100", "나스닥 TOP 100", "NASDAQ TOP 100"], ["/global-top100", "글로벌 시가총액", "Global market caps"], ["/fight", "시가총액 대결", "Market-cap battle"], ["/battle", "시장 줄다리기", "Market tug of war"], ["/index/kospi", "코스피 지수", "KOSPI chart"], ["/index/kosdaq", "코스닥 지수", "KOSDAQ chart"],

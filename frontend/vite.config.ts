@@ -17,6 +17,15 @@ export default defineConfig(({ mode }) => ({
     react(),
     paintAssetsPlugin(),
     {
+      name: "public-market-widget-style",
+      generateBundle() {
+        this.emitFile({ type: "asset", fileName: "public-market-widget.css", source: readFileSync(new URL("./src/neo/neo.css", import.meta.url), "utf8") + "\n" + readFileSync(new URL("./src/growth/widget.css", import.meta.url), "utf8") });
+      },
+      configureServer(server) {
+        server.middlewares.use("/public-market-widget.css", (_req, res) => { res.setHeader("Content-Type", "text/css"); res.end(readFileSync(new URL("./src/neo/neo.css", import.meta.url), "utf8") + "\n" + readFileSync(new URL("./src/growth/widget.css", import.meta.url), "utf8")); });
+      },
+    },
+    {
       name: "market-guide-content",
       generateBundle() {
         this.emitFile({ type: "asset", fileName: "content/market-guides.json",
@@ -44,6 +53,7 @@ export default defineConfig(({ mode }) => ({
   ],
   server: {
     proxy: {
+      ...Object.fromEntries(["/market-snapshot", "/market-card", "/embed/market", "/market-check.ics", "/market-feed.xml"].map(prefix => [prefix, process.env.PUBLIC_MARKETS_API_TARGET || "http://127.0.0.1:8000"])),
       "/api/realestate": process.env.REALESTATE_API_TARGET || loadEnv(mode, process.cwd(), "REALESTATE_").REALESTATE_API_TARGET || "http://127.0.0.1:8000",
       "/api": "http://127.0.0.1:8000",
     },
