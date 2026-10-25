@@ -86,6 +86,7 @@ def test_closing_feed_uses_real_publications_stable_guids_and_no_fake_freshness(
     assert entries[0].findtext('pubDate') == 'Fri, 23 Oct 2026 08:30:00 +0000'
     assert entries[1].find('pubDate') is None
     assert entries[0].findtext('guid') == 'https://kospimap.com/market-brief/2026-10-23/kospi'
+    assert 'utm_source=market_feed&utm_medium=referral&utm_campaign=repeat_visit' in entries[0].findtext('link')
     assert root.findtext('./channel/lastBuildDate') == entries[0].findtext('pubDate')
 
 

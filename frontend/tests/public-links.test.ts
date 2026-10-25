@@ -22,4 +22,7 @@ test("market state is validated and cannot pollute the output query", () => {
   assert.equal(publicSharePath("/today", "?market=kospi"), "/today");
   assert.equal(publicSharePath("/today", "?market=nasdaq100"), "/today?market=nasdaq100");
   assert.equal(new URL(publicShareUrl("/today", "", "native")!).searchParams.get("utm_source"), "native_share");
+  assert.equal(publicSharePath("/desk", "?code=005930&name=private&token=secret"), "/stock/005930");
+  assert.equal(publicSharePath("/global", "?code=aapl&token=secret"), "/stock/AAPL");
+  assert.equal(publicSharePath("/etf", "?region=US&email=private"), "/etf?region=US");
 });

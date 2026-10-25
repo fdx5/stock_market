@@ -11,6 +11,10 @@ export function publicSharePath(path: string, search = ""): string | null {
   if (!PUBLIC_PATHS.has(clean) && !/^\/stock\/[A-Za-z0-9.-]{1,16}(\/(report|investor|outlook|news))?$/.test(clean)
     && !/^\/guides\/(stock-heatmap|trading-value|etf-comparison)$/.test(clean)
     && !/^\/market-brief\/\d{4}-\d{2}-\d{2}\/(kospi|kosdaq)$/.test(clean)) return null;
+  const params = new URLSearchParams(search);
+  const code = params.get("code")?.toUpperCase() || "";
+  if ((clean === "/desk" && /^\d{6}$/.test(code)) || (clean === "/global" && /^[A-Z][A-Z0-9.-]{0,15}$/.test(code))) return `/stock/${code}`;
+  if (clean === "/etf" && params.get("region") === "US") return "/etf?region=US";
   return ["/today", "/share-market"].includes(clean) && publicMarket(search) !== "kospi" ? `${clean}?market=${publicMarket(search)}` : clean;
 }
 export function publicShareUrl(path: string, search = "", source: "copy" | "native" = "copy"): string | null {

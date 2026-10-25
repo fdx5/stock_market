@@ -215,8 +215,9 @@ def brief_feed(records: list[dict]) -> str:
         except ValueError:
             pass
         url = f"{SITE}/market-brief/{day}/{market}"
+        link = url + "?utm_source=market_feed&amp;utm_medium=referral&amp;utm_campaign=repeat_visit"
         title = f"{day} {MARKETS[market]['name']} 장마감 브리핑"
-        items.append(f'<item><title>{html.escape(title)}</title><link>{url}</link><guid isPermaLink="true">{url}</guid><description>종가, 수급과 거래 흐름을 날짜별 브리핑에서 확인하세요.</description>{published}</item>')
+        items.append(f'<item><title>{html.escape(title)}</title><link>{link}</link><guid isPermaLink="true">{url}</guid><description>종가, 수급과 거래 흐름을 날짜별 브리핑에서 확인하세요.</description>{published}</item>')
     built = f"<lastBuildDate>{format_datetime(max(dates))}</lastBuildDate>" if dates else ""
     return ('<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>'
             f'<title>KOSPIMAP 장마감 브리핑</title><link>{SITE}/market-brief</link>'
