@@ -134,15 +134,17 @@ export default function MarketScanner({market,onMarketChange}:{market:AtlasMarke
       const lit=candidates.slice(0,Math.min(fx==="full"?8:6,Math.max(2,Math.ceil(visible.length*.13))));
       lastLit.current=new Set(lit.map(element=>element.dataset.code!));
       lit.forEach(element=>{
-        const glow=element.animate([{opacity:0},{opacity:.58+Math.random()*.2,offset:.25},{opacity:.18,offset:.64},{opacity:0}],{pseudoElement:"::after",duration:1050+Math.random()*400,delay:Math.random()*850,easing:"cubic-bezier(.25,.1,.25,1)"});
+        const glow=element.animate([{opacity:0},{opacity:.95,offset:.1},{opacity:.85,offset:.28},{opacity:.12,offset:.43},{opacity:1,offset:.58},{opacity:.8,offset:.72},{opacity:0}],{pseudoElement:"::after",duration:1400+Math.random()*200,delay:Math.random()*350,easing:"ease-out"});
         glow.id="scanner-refresh-glow";effects.push(glow);
       });
     }
     if(allowed&&changed.length){
       // Every actual quote change gets a distinct, immediate two-beat flash.
       changed.forEach(element=>{
-        const glow=element.animate([{opacity:0},{opacity:.9,offset:.12},{opacity:.12,offset:.4},{opacity:.75,offset:.56},{opacity:0}],{pseudoElement:"::after",duration:900,easing:"ease-out"});
+        const glow=element.animate([{opacity:0},{opacity:1,offset:.08},{opacity:1,offset:.25},{opacity:.08,offset:.4},{opacity:1,offset:.55},{opacity:.95,offset:.72},{opacity:0}],{pseudoElement:"::after",duration:1400,easing:"ease-out"});
         glow.id="scanner-change-flash";effects.push(glow);
+        const light=element.animate([{filter:"brightness(1)"},{filter:"brightness(1.65)",offset:.08},{filter:"brightness(1.4)",offset:.25},{filter:"brightness(1)",offset:.4},{filter:"brightness(1.6)",offset:.55},{filter:"brightness(1.35)",offset:.72},{filter:"brightness(1)"}],{duration:1400,easing:"ease-out"});
+        light.id="scanner-change-light";effects.push(light);
       });
     }
     lastRefresh.current={market,version:snapshot.refreshVersion??0,count:visible.length};
