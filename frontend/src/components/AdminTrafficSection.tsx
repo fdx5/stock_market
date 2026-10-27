@@ -719,7 +719,6 @@ export default function AdminTrafficSection() {
           </div>
 
           <AdminDevicesPanel />
-      <AdminAudiencePanel />
       <AdminResearchPanel />
 
           <div className="admin-stats-row admin-stats-row--hub">
@@ -1159,6 +1158,7 @@ export default function AdminTrafficSection() {
               </div>
             </div>
           </section>
+          <AdminAudiencePanel />
         </div>
     </div>
   );

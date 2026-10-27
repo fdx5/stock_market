@@ -109,6 +109,7 @@ html[data-design="neo"][data-fx="minimal"] .ed-investor-card:hover{transform:non
 .ng-audience-slot{margin-left:auto;flex-shrink:0}
 .ng-audience-slot .visitor-badge{background:none;border:0;padding:0;color:#ad9bb7;font:9px var(--f-type);box-shadow:none;gap:5px;white-space:nowrap}
 .ng-context:has(.ng-audience-slot) .ng-context-meta{margin-left:10px}
+.ng-context:has(.ng-audience-slot) .market-share-control,.ng-context:has(.ng-audience-slot)>button{margin-left:0}
 .ng-setting-actions .bm-wrap{display:inline-flex}
 .ng-bookmark-control{background:#2a1d32!important;color:#ece7dd!important;border:1px solid #554161!important;border-radius:6px!important;min-height:40px!important;padding:8px 14px!important;font:12px var(--f-sans)!important}
 @media(max-width:599px){.ng-audience-slot .visitor-badge{font-size:8px;gap:4px}.ng-context{gap:9px}}
