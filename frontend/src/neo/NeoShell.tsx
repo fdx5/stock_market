@@ -118,7 +118,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     <header className="ng-header" data-current-tone={currentTone}>
       <Link to="/" className="ng-brand" aria-label="K Stock Hub home"><NeoLogo className="ng-brand-logo" /></Link>
       <nav className="ng-primary-nav" aria-label={L("주요 메뉴", "Primary navigation")}>
-        {[["/desk", "마켓", "Markets"], ["/map", "맵", "Maps"], ["/etf", "ETF", "ETF"], ["/market-brief", "인텔리전스", "Intelligence"]].map(([to, ko, en]) => <Link key={to} to={to} aria-current={path === to ? "page" : undefined}>{L(ko, en)}</Link>)}
+        {[["/desk", "마켓", "Markets"], ["/map", "맵", "Maps"], ["/etf/kr", "ETF", "ETF"], ["/market-brief", "인텔리전스", "Intelligence"]].map(([to, ko, en]) => <Link key={to} to={to} aria-current={path === to || to === "/etf/kr" && path.startsWith("/etf/") ? "page" : undefined}>{L(ko, en)}</Link>)}
       </nav>
       <button type="button" className="ng-search-trigger" onClick={event => open("search", event.currentTarget)} aria-label={L("종목 및 페이지 검색", "Search stocks and pages")}><NeoIcon name="search" /><span>{L("종목 · 코드 · 페이지 검색", "Search stocks, symbols, pages")}</span><kbd>⌘ K</kbd></button>
       <div className="ng-header-tools"><button type="button" className="ng-language" onClick={() => setLang(lang === "ko" ? "en" : "ko")} aria-label={L("영어로 전환", "Switch to Korean")}>{lang === "ko" ? "EN" : "KO"}</button><button type="button" onClick={event => open("settings", event.currentTarget)} aria-label={L("화면 설정", "Display settings")}><NeoIcon name="settings" /></button><button type="button" className="ng-menu-trigger" onClick={event => open("menu", event.currentTarget)} aria-label={L("전체 메뉴", "All destinations")}><NeoIcon name="menu" /></button></div>

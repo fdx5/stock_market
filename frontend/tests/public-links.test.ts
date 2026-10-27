@@ -25,4 +25,7 @@ test("market state is validated and cannot pollute the output query", () => {
   assert.equal(publicSharePath("/desk", "?code=005930&name=private&token=secret"), "/stock/005930");
   assert.equal(publicSharePath("/global", "?code=aapl&token=secret"), "/stock/AAPL");
   assert.equal(publicSharePath("/etf", "?region=US&email=private"), "/etf?region=US");
+  assert.equal(publicSharePath("/etf/kr", "?q=반도체&email=private"), "/etf/kr");
+  assert.equal(publicSharePath("/etf/us", "?compare=SPY,QQQ&token=secret"), "/etf/us");
+  assert.equal(publicSharePath("/etf/private"), null);
 });

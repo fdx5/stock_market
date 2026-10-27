@@ -374,6 +374,8 @@ PAGES: dict[str, tuple[str, str]] = {
     "/nasdaq100-map": ("나스닥 100 시가총액 맵 | K-Stock Hub", "나스닥 100 기술주의 시가총액 비중과 등락률을 실시간 주식 히트맵으로 확인하세요."),
     "/realestate-map": ("부동산 맵 · 아파트 실거래가 히트맵 | K-Stock Hub", "국토교통부 아파트 실거래가로 시·도, 시·군·구, 읍·면·동별 가격 상위 아파트의 시세와 기간별 등락을 히트맵으로 확인하세요."),
     "/etf": ("국내·미국 ETF 순위와 거래대금 | K-Stock Hub", "국내 ETF와 미국 ETF의 현재가, 등락률, 수익률과 거래대금 순위를 검색하고 비교하세요."),
+    "/etf/kr": ("국내 ETF 마켓 · 인기 순위·수익률 비교 | K-Stock Hub", "국내 상장 ETF의 거래대금 인기 순위, 현재가, 기간별 수익률과 테마별 거래 흐름을 확인하고 최대 4개 상품을 비교하세요."),
+    "/etf/us": ("해외 ETF 마켓 · 미국 ETF 인기 순위·수익률 비교 | K-Stock Hub", "미국 상장 해외 ETF의 거래대금 인기 순위, 달러 시세, 기간별 수익률과 테마별 흐름을 확인하고 최대 4개 상품을 비교하세요."),
     "/kospi-100": ("코스피 시가총액·거래대금 순위 TOP 100 | K-Stock Hub", "코스피 종목의 시가총액, 거래대금, 등락률과 기간 수익률 순위를 비교하세요."),
     "/kosdaq-100": ("코스닥 시가총액·거래대금 순위 TOP 100 | K-Stock Hub", "코스닥 종목의 시가총액, 거래대금과 상승·하락률 순위를 확인하세요."),
     "/nasdaq-100": ("나스닥 종목 시세와 순위 TOP 100 | K-Stock Hub", "나스닥 주요 종목의 주가, 시가총액, 거래량과 기간별 수익률을 비교하세요."),
@@ -403,6 +405,8 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
 
 def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
+    if canonical_path == "/etf":
+        canonical_path = "/etf/us" if query.get("region") == "US" else "/etf/kr"
     brief, brief_day, brief_market = _market_brief(canonical_path)
     stock_report = re.fullmatch(r"/stock/([A-Za-z0-9.-]{1,16})/report", canonical_path)
     stock_code, stock_name, stock_kind = _stock_entry(f"/stock/{stock_report.group(1)}" if stock_report else canonical_path)
@@ -610,7 +614,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
                             "@type": "ListItem",
                             "position": 2,
                             "name": {"kr_etf": "국내 ETF", "us_etf": "미국 ETF", "us_stock": "해외 주식"}.get(stock_kind, "국내 주식"),
-                            "item": f"{SITE}{ {'kr_etf': '/etf', 'us_etf': '/etf?region=US', 'us_stock': '/global'}.get(stock_kind, '/desk') }",
+                            "item": f"{SITE}{ {'kr_etf': '/etf/kr', 'us_etf': '/etf/us', 'us_stock': '/global'}.get(stock_kind, '/desk') }",
                         },
                         {"@type": "ListItem", "position": 3, "name": stock_name, "item": canonical},
                     ],
@@ -678,7 +682,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     # a meaningful heading, summary, and crawlable internal links immediately.
     links = [
         ("/desk", "국내 주식 시세"), ("/map", "코스피 시가총액 맵"),
-        ("/kosdaq-map", "코스닥 시가총액 맵"), ("/etf", "국내·해외 ETF"),
+        ("/kosdaq-map", "코스닥 시가총액 맵"), ("/etf/kr", "국내 ETF"), ("/etf/us", "해외 ETF"),
         ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
         ("/realestate-map", "부동산 맵"),
         ("/news", "증시 뉴스"), ("/market-brief", "오늘 브리핑"),
@@ -726,7 +730,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             f'<a href="/stock/{html.escape(other)}">{html.escape(other_name)} 시세</a>'
             for other, other_name in _detail_neighbours(stock_code, stock_kind)
         )
-        hub = {"kr_etf": ("/etf", "국내 ETF 순위"), "us_etf": ("/etf?region=US", "미국 ETF 순위"), "us_stock": ("/global", "해외 증시")}[stock_kind]
+        hub = {"kr_etf": ("/etf/kr", "국내 ETF 순위"), "us_etf": ("/etf/us", "미국 ETF 순위"), "us_stock": ("/global", "해외 증시")}[stock_kind]
         report_content = (
             f'{intro}'
             '<nav aria-label="종목 관련 정보" style="display:flex;flex-wrap:wrap;gap:12px">'

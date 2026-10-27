@@ -34,7 +34,8 @@ const DIRECTORY: { ko: string; en: string; links: { to: string; ko: string; en: 
       { to: "/kosdaq-100", ko: "코스닥 TOP 100", en: "KOSDAQ TOP 100" },
       { to: "/nasdaq-100", ko: "나스닥 TOP 100", en: "NASDAQ TOP 100" },
       { to: "/global-top100", ko: "글로벌 시총 TOP 100", en: "Global TOP 100" },
-      { to: "/etf", ko: "ETF 마켓", en: "ETF market" },
+      { to: "/etf/kr", ko: "국내 ETF", en: "Korea ETFs" },
+      { to: "/etf/us", ko: "해외 ETF", en: "Overseas ETFs" },
     ],
   },
   {

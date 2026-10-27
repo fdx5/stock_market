@@ -50,9 +50,7 @@ const MarketPulsePage = lazy(() => import("./growth/MarketPulsePage"));
 const BroadsheetStockPage = lazy(() => import("./desk2/stock/StockPage"));
 const StockReportPage = lazy(() => import("./desk2/stock/StockReportPage"));
 const BroadsheetStocksPage = lazy(() => import("./desk2/stocks/StocksPage"));
-/* ETF and 오늘 브리핑 in the same broadsheet; the classic EtfPage and
-   MarketBriefPage stay in the tree, unrouted. */
-const BroadsheetEtfPage = lazy(() => import("./desk2/etf/EtfPage"));
+const EtfMarketPage = lazy(() => import("./neo/etf/EtfMarketPage"));
 const BroadsheetBriefPage = lazy(() => import("./desk2/brief/BriefPage"));
 /* The three TOP 100 boards; one component, so switching boards keeps it mounted.
    The classic StockBoardPage stays in the tree, unrouted. */
@@ -193,6 +191,14 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
     title: "국내·미국 ETF 순위와 거래대금 | K-Stock Hub",
     description: "국내 ETF와 미국 ETF의 시세, 등락률, 수익률과 거래대금 순위를 검색하고 비교하세요.",
   },
+  "/etf/kr": {
+    title: "국내 ETF 마켓 · 인기 순위·수익률 비교 | K-Stock Hub",
+    description: "국내 상장 ETF의 거래대금 인기 순위, 현재가, 기간별 수익률과 테마별 거래 흐름을 확인하고 최대 4개 상품을 비교하세요.",
+  },
+  "/etf/us": {
+    title: "해외 ETF 마켓 · 미국 ETF 인기 순위·수익률 비교 | K-Stock Hub",
+    description: "미국 상장 해외 ETF의 거래대금 인기 순위, 달러 시세, 기간별 수익률과 테마별 흐름을 확인하고 최대 4개 상품을 비교하세요.",
+  },
   "/kospi-100": {
     title: "코스피 시가총액·거래대금 순위 TOP 100 | K-Stock Hub",
     description: "코스피 종목의 시가총액, 거래대금, 상승률과 하락률 순위를 빠르게 비교하세요.",
@@ -313,6 +319,7 @@ export default function App() {
   useEffect(() => {
     let canonicalPath = path === "/type2" ? "/hub" : path.replace(/\/$/, "") || "/";
     const params = new URLSearchParams(window.location.search);
+    if (canonicalPath === "/etf") canonicalPath = params.get("region") === "US" ? "/etf/us" : "/etf/kr";
     const code = params.get("code")?.replace(/[^A-Za-z0-9.-]/g, "").slice(0, 16) || "";
     const keepsStockCode = code && ["/desk", "/global", "/discussion-explorer"].includes(canonicalPath);
     const canonicalName = params.get("name")?.replace(/[<>\r\n]/g, "").trim().slice(0, 80) || "";
@@ -467,8 +474,9 @@ export default function App() {
     page = <BroadsheetCapFightPage />;
   } else if (path === "/global-top100") {
     page = <BroadsheetGlobalCapPage />;
-  } else if (path === "/etf") {
-    page = <BroadsheetEtfPage />;
+  } else if (path === "/etf" || path === "/etf/kr" || path === "/etf/us") {
+    const region = path === "/etf/us" || path === "/etf" && new URLSearchParams(window.location.search).get("region") === "US" ? "US" : "KR";
+    page = <EtfMarketPage key={region} region={region} />;
   } else if (path === "/news") {
     page = <BroadsheetNewsPage />;
   } else if (path === "/market-brief") {

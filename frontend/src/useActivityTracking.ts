@@ -117,6 +117,8 @@ export function pageLabel(path: string): string {
   if (path === "/global") return "해외 종목";
   if (path === "/global-top100") return "글로벌 시총 TOP100";
   if (path === "/etf") return "ETF 마켓";
+  if (path === "/etf/kr") return "국내 ETF 마켓";
+  if (path === "/etf/us") return "해외 ETF 마켓";
   if (path === "/discussion-explorer") return "종목토론";
   if (path === "/market-bubbles") return "증시버블";
   if (path === "/market-bubbles2") return "증시버블 NEO";

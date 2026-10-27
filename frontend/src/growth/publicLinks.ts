@@ -8,7 +8,7 @@ const PUBLIC_PATHS = new Set(["/", "/today", "/share-market", "/map", "/kosdaq-m
 /** Share only public routes and enumerated market choices, never the current raw URL. */
 export function publicSharePath(path: string, search = ""): string | null {
   const clean = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
-  if (!PUBLIC_PATHS.has(clean) && !/^\/stock\/[A-Za-z0-9.-]{1,16}(\/(report|investor|outlook|news))?$/.test(clean)
+  if (!PUBLIC_PATHS.has(clean) && !/^\/etf\/(kr|us)$/.test(clean) && !/^\/stock\/[A-Za-z0-9.-]{1,16}(\/(report|investor|outlook|news))?$/.test(clean)
     && !/^\/guides\/(stock-heatmap|trading-value|etf-comparison)$/.test(clean)
     && !/^\/market-brief\/\d{4}-\d{2}-\d{2}\/(kospi|kosdaq)$/.test(clean)) return null;
   const params = new URLSearchParams(search);
