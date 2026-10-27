@@ -18,13 +18,14 @@ const listeners = new Set<() => void>();
 let inFlight = false;
 let stopPolling: (() => void) | null = null;
 const markets: AtlasMarket[] = ["kospi", "kosdaq", "nasdaq100"];
+const REFRESH_MS = 5_000;
 
 async function load() {
   if (inFlight || document.visibilityState === "hidden") return;
   inFlight = true;
   try {
-    // Read existing warmed map endpoints; no force refresh or S&P 500 download.
-    const results = await Promise.allSettled([api.marketMap(60, false), api.kosdaqMap(60, false), api.nasdaq100Map(60, false)]);
+    // Wait for expired shared quote caches so each poll receives the refreshed data.
+    const results = await Promise.allSettled([api.marketMap(60, true), api.kosdaqMap(60, true), api.nasdaq100Map(60, true)]);
     const next = { ...snapshot };
     results.forEach((result, i) => {
       const key = markets[i];
@@ -48,7 +49,7 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   if (listeners.size === 1) {
     void load();
-    stopPolling = startVisibilityAwareInterval(() => { void load(); }, 30_000);
+    stopPolling = startVisibilityAwareInterval(() => { void load(); }, REFRESH_MS);
   }
   return () => {
     listeners.delete(listener);

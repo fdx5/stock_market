@@ -51,7 +51,7 @@ export default function MarketScanner({market,onMarketChange}:{market:AtlasMarke
   const dust=useRef<ReturnType<typeof createGoldDust>|null>(null),lastPointer=useRef<{x:number;y:number}|null>(null);
   const fieldRef=useRef<HTMLDivElement>(null),sectionRef=useRef<HTMLElement>(null);
   const quoteLedger=useRef(new Map<string,string>());
-  const lastRefresh=useRef<{market:AtlasMarket;stamp:string|null;version:number;count:number}|null>(null);
+  const lastRefresh=useRef<{market:AtlasMarket;version:number;count:number}|null>(null);
   const lastLit=useRef(new Set<string>());
   const controlsRef=useRef<HTMLDivElement>(null);
   const alignControls=useContentScroll(controlsRef);
@@ -125,21 +125,27 @@ export default function MarketScanner({market,onMarketChange}:{market:AtlasMarke
       }
     }
     const previous=lastRefresh.current;
-    const refreshed=previous?.market===market&&previous.count>0&&(previous.version!==(snapshot.refreshVersion??0)||previous.stamp!==snapshot.generatedAt||changed.length>0);
+    const refreshed=previous?.market===market&&previous.count>0&&previous.version!==(snapshot.refreshVersion??0);
     if(allowed&&refreshed&&grid){
-      const candidates=changed.length?changed:[...grid.querySelectorAll<HTMLButtonElement>(".sc-stock")];
-      // Prefer a different set each refresh. The data order and text never move.
-      const shuffled=[...candidates];
-      for(let i=shuffled.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[shuffled[i],shuffled[j]]=[shuffled[j],shuffled[i]];}
-      shuffled.sort((a,b)=>Number(lastLit.current.has(a.dataset.code!))-Number(lastLit.current.has(b.dataset.code!)));
-      const count=Math.min(candidates.length,fx==="full"?8:6,Math.max(2,Math.ceil(visible.length*.13)));
-      const lit=shuffled.slice(0,count);lastLit.current=new Set(lit.map(element=>element.dataset.code!));
+      // Keep the random refresh heartbeat alongside all actual quote changes.
+      const candidates=[...grid.querySelectorAll<HTMLButtonElement>(".sc-stock")].filter(element=>!changed.includes(element));
+      for(let i=candidates.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[candidates[i],candidates[j]]=[candidates[j],candidates[i]];}
+      candidates.sort((a,b)=>Number(lastLit.current.has(a.dataset.code!))-Number(lastLit.current.has(b.dataset.code!)));
+      const lit=candidates.slice(0,Math.min(fx==="full"?8:6,Math.max(2,Math.ceil(visible.length*.13))));
+      lastLit.current=new Set(lit.map(element=>element.dataset.code!));
       lit.forEach(element=>{
         const glow=element.animate([{opacity:0},{opacity:.58+Math.random()*.2,offset:.25},{opacity:.18,offset:.64},{opacity:0}],{pseudoElement:"::after",duration:1050+Math.random()*400,delay:Math.random()*850,easing:"cubic-bezier(.25,.1,.25,1)"});
         glow.id="scanner-refresh-glow";effects.push(glow);
       });
     }
-    lastRefresh.current={market,stamp:snapshot.generatedAt,version:snapshot.refreshVersion??0,count:visible.length};
+    if(allowed&&changed.length){
+      // Every actual quote change gets a distinct, immediate two-beat flash.
+      changed.forEach(element=>{
+        const glow=element.animate([{opacity:0},{opacity:.9,offset:.12},{opacity:.12,offset:.4},{opacity:.75,offset:.56},{opacity:0}],{pseudoElement:"::after",duration:900,easing:"ease-out"});
+        glow.id="scanner-change-flash";effects.push(glow);
+      });
+    }
+    lastRefresh.current={market,version:snapshot.refreshVersion??0,count:visible.length};
     const stopHidden=()=>{if(document.hidden)effects.forEach(effect=>effect.cancel());};
     document.addEventListener("visibilitychange",stopHidden);
     quoteLedger.current=next;return()=>{document.removeEventListener("visibilitychange",stopHidden);effects.forEach(effect=>effect.cancel());};

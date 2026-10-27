@@ -19,11 +19,11 @@ SLICKCHARTS_URLS = {
 # is what this key exists for, and a short TTL keeps a mid-session index change from
 # taking minutes to appear.
 TTL_CONSTITUENTS_SECONDS = 15
-# The extended-hours overlay rides its own key on the same cadence: three Yahoo requests
+# The extended-hours overlay expires before the next five-second poll: three Yahoo requests
 # for the S&P, one for the Nasdaq-100. Separate from the roster above because the two
 # have nothing to do with each other — the roster's composition and weights change a few
 # times a year, the prices change all evening.
-TTL_QUOTES_SECONDS = 15
+TTL_QUOTES_SECONDS = 4
 TTL_SECTOR_SECONDS = 24 * 3600
 
 

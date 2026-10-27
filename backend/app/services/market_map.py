@@ -26,6 +26,8 @@ FIRST_TIER_TTL_SECONDS = 10
 SECOND_TIER_PAGES = 3
 SECOND_TIER_TTL_SECONDS = 30
 LONG_TAIL_TTL_SECONDS = 60
+# Expire before the next five-second poll, allowing for network latency.
+LEADING_QUOTES_TTL_SECONDS = 4
 TTL_INDUSTRY_SECONDS = 24 * 3600
 
 # 20일/120일 등락률 come off a year of daily bars per code (see sparkline_fetcher), the
@@ -154,16 +156,13 @@ def _naver_page_ttl(page: int) -> int:
     return LONG_TAIL_TTL_SECONDS
 
 
-# Live-quote overlay TTL, keyed by the same `limit` values the callers request
-# (20 / 50 / fullLimit). The top 50 is the tier the dashboard's headline "시총 50위"
-# table and the map's tier-2 both draw, and it's exactly where an NXT after-hours move
-# is worth noticing, so it refreshes on the fast 10s cadence — one bulk Naver poll of
-# 50 codes, the same cheap request the top-20 already makes. Only the long tail (the
-# full 500/200 list, whose lower ranks barely move moment-to-moment) stays on the slow
-# cadence to avoid re-fetching hundreds of codes every few seconds.
+# Live-quote overlay TTL is keyed by the requested limit. Leading-stock views
+# (including the scanner's top 60) share a five-second cadence; full maps keep
+# the long-tail cadence to avoid fetching hundreds of codes every few seconds.
 def _realtime_quotes_ttl(limit: int) -> int:
-    if limit <= 50:
-        return FIRST_TIER_TTL_SECONDS
+    # The command home's scanner reads 60 leading stocks every five seconds.
+    if limit <= 60:
+        return LEADING_QUOTES_TTL_SECONDS
     return LONG_TAIL_TTL_SECONDS
 
 
