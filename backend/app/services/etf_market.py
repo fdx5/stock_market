@@ -90,7 +90,16 @@ def _fetch_us_chart_quote(code: str) -> tuple[str, dict | None]:
         price = float(parsed["price"])
         previous = float(parsed["previous_close"])
         quote_rows = (result.get("indicators", {}).get("quote") or [{}])[0]
-        volume = sum(int(value or 0) for value in quote_rows.get("volume") or [])
+        intraday_volume = sum(int(value or 0) for value in quote_rows.get("volume") or [])
+        # Match the batch quote's regularMarketVolume basis. Before the open,
+        # Yahoo can return only zero-volume pre-market bars while its metadata
+        # still contains the last regular session's actual trading volume.
+        try:
+            volume = int((result.get("meta") or {}).get("regularMarketVolume"))
+            if volume < 0:
+                volume = intraday_volume
+        except (TypeError, ValueError, OverflowError):
+            volume = intraday_volume
         return code, {
             "close": round(price, 4),
             "change": round(price - previous, 4),
