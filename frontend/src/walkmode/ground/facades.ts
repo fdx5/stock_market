@@ -6,9 +6,14 @@ import type { Materials, Style } from "../../drivegame/world/materials";
  * metres along it and up it, floors scaled to a standard height) —
  *   apt     painted concrete, a full-width glazed balcony a floor (the Korean 확장형 front), aluminium
  *           frames, a glass balustrade, a stair-core bay of wall, rain streaks under the sills
- *   villa   red-brown brick in stretcher bond, smaller windows with stone sills
- *   shop    a glazed shopfront on the ground floor, tiled upper floors with windows
- *   office  a curtain wall: glass between mullions, a spandrel at each floor
+ *   villa   brick in stretcher bond — red, dark brown, buff or grey — or white render on a granite
+ *           plinth; smaller windows with stone sills
+ *   shop    (근린생활시설) a glazed shopfront on the ground floor, each tenant its own lit sign with
+ *           lettering, some shuttered (more at night); the upper floors in porcelain tile, red brick,
+ *           granite slabs, white render with ribbon windows, or aluminium composite panels
+ *   office  a curtain wall (clear, blue-green or bronze glass) between mullions with a spandrel at each
+ *           floor, or punched windows in a stone grid
+ * Each building its own case of these (from its place and its colour), so a street is not one wall.
  * Behind every window a room (interior mapping: the eye's ray followed into a box behind the
  * glass — back wall, side walls, floor, ceiling, a curtain, furniture, its light at night), the
  * window recessed in the wall (its reveal shows with the angle), the glass reflecting the sky by
@@ -30,6 +35,14 @@ vec3 fTilt; float fAO;
 /* edges softened over the pixel's footprint w (m): no stair-steps and no shimmer far off */
 float sedge(float e, float x, float w) { return smoothstep(e - w, e + w, x); }
 float sbox(vec2 p, vec2 a, vec2 b, float w) { return sedge(a.x, p.x, w) * sedge(a.y, p.y, w) * (1.0 - sedge(b.x, p.x, w)) * (1.0 - sedge(b.y, p.y, w)); }
+/* brick in stretcher bond: 0.19 × 0.057 m units, 10 mm mortar; the two ends of its colour, the mortar's */
+vec3 brickWall(vec2 uh, vec3 a, vec3 b, vec3 mortarC) {
+  vec2 bp = vec2(uh.x / 0.2, uh.y / 0.067); bp.x += 0.5 * mod(floor(bp.y), 2.0);
+  vec2 bf = fract(bp), bi = floor(bp);
+  float mortar = step(bf.x, 0.05) + step(bf.y, 0.15);
+  vec3 brick = mix(a, b, fh1(bi)) * (0.85 + 0.3 * fn2(bp * 0.7));
+  return mix(brick, mortarC, clamp(mortar, 0.0, 1.0));
+}
 
 /* A room behind a window: ro (m) on the glass, rd the ray in the room's frame (x along the wall, y up,
  * z into the room), the room w × h × d; seed picks its finish, light and curtain. */
@@ -84,6 +97,8 @@ const GLSL_FACADE = /* glsl */`
     vec3 rd = vec3(dot(V, T) * su, V.y, -dot(V, N));
     vec3 tint = vColor.rgb;
     float bld = fh1(floor(vFW.xz / 37.0) + vec2(STYLE_SEED));
+    // the building's case of finish and windows (its place and its colour between them)
+    int fcase = int(floor(fract(bld * 7.13 + dot(tint, vec3(3.1, 5.7, 9.3))) * 5.0));
     // the pixel's footprint on the wall (m), for the soft edges and for fading fine lines far off
     float px = max(length(vec2(dFdx(u), dFdy(u))), length(vec2(dFdx(h), dFdy(h)))) * 0.75 + 1e-4;
     float fine = 1.0 - smoothstep(0.025, 0.09, px);
@@ -102,28 +117,66 @@ const GLSL_FACADE = /* glsl */`
     else if (STYLE == 1) { w0 = vec2(0.7, 0.95); w1 = vec2(BW - 0.7, FH - 0.55); }
     else if (STYLE == 2) { w0 = vec2(0.4, 0.9); w1 = vec2(BW - 0.4, FH - 0.6); }
     else { w0 = vec2(0.06, 1.05); w1 = vec2(BW - 0.06, FH - 0.08); }
+    // (the cases' windows: a shop block's ribbon windows or tall narrow ones, a villa's wider ones,
+    // an office's punched openings in stone)
+    if (STYLE == 2 && fcase == 3) { w0 = vec2(0.0, 0.85); w1 = vec2(BW, FH - 0.5); }
+    if (STYLE == 2 && fcase == 4) { w0 = vec2(0.6, 0.45); w1 = vec2(BW - 0.6, FH - 0.35); }
+    if (STYLE == 1 && fcase == 2) { w0.x = 0.45; w1.x = BW - 0.45; }
+    if (STYLE == 3 && fcase == 3) { w0 = vec2(0.28, 0.9); w1 = vec2(BW - 0.28, FH - 0.55); }
     bool solidBay = STYLE == 0 && mod(bay + floor(bld * 5.0), 6.0) < 1.0;   // the stair core
     bool open = h > base && !solidBay;
     // shopfront: the ground floor all glass between piers
     bool shopfront = STYLE == 2 && h < base && h > 0.15;
     if (shopfront) { fx = fract(u / 3.2) * 3.2; fy = h; w0 = vec2(0.18, 0.15); w1 = vec2(3.02, 3.4); open = true; cellSeed = fh1(vec2(floor(u / 3.2), -1.0) + bld); }
+    // (each tenant two bays; some shuttered — more of them at night)
+    float tenant = fh1(vec2(floor(u / 6.4), bld * 9.0));
+    bool shut = shopfront && fh1(vec2(floor(u / 6.4), bld * 4.0 + 2.0)) < 0.1 + 0.5 * fNight;
     // the wall's finish
+    vec2 uh = vec2(u, h);
     if (STYLE == 1) {
-      // brick, stretcher bond: 0.19 × 0.057 m units, 10 mm mortar
-      vec2 bp = vec2(u / 0.2, h / 0.067); bp.x += 0.5 * mod(floor(bp.y), 2.0);
-      vec2 bf = fract(bp), bi = floor(bp);
-      float mortar = step(bf.x, 0.05) + step(bf.y, 0.15);
-      vec3 brick = mix(vec3(0.42, 0.22, 0.16), vec3(0.55, 0.33, 0.24), fh1(bi)) * (0.85 + 0.3 * fn2(bp * 0.7));
-      albedo = mix(brick, vec3(0.62, 0.6, 0.56), clamp(mortar, 0.0, 1.0));
+      // brick: red, dark brown, buff, grey; or white render over a granite plinth
       fRough = 0.92;
+      if (fcase == 0) albedo = brickWall(uh, vec3(0.42, 0.22, 0.16), vec3(0.55, 0.33, 0.24), vec3(0.62, 0.6, 0.56));
+      else if (fcase == 1) albedo = brickWall(uh, vec3(0.26, 0.16, 0.12), vec3(0.37, 0.23, 0.17), vec3(0.5, 0.48, 0.45));
+      else if (fcase == 2) albedo = brickWall(uh, vec3(0.6, 0.5, 0.36), vec3(0.7, 0.6, 0.45), vec3(0.72, 0.7, 0.66));
+      else if (fcase == 3) albedo = brickWall(uh, vec3(0.38, 0.38, 0.37), vec3(0.5, 0.49, 0.47), vec3(0.66, 0.65, 0.62));
+      else {
+        albedo = vec3(0.6, 0.59, 0.56) * (0.9 + 0.16 * fbm(uh * 0.15)); fRough = 0.86;
+        if (h < 1.25) { vec2 sp = vec2(u / 0.9, h / 0.45); float j = step(fract(sp.x), 0.015) + step(fract(sp.y), 0.03); albedo = mix(vec3(0.3, 0.3, 0.31) * (0.8 + 0.4 * fh1(floor(uh * 70.0))), vec3(0.2), clamp(j, 0.0, 1.0)); fRough = 0.5; }
+      }
     } else if (STYLE == 2) {
-      // porcelain tile 0.6 × 0.3 on the upper floors
-      vec2 tp = vec2(u / 0.6, h / 0.3), tf = fract(tp);
-      float joint = step(tf.x, 0.02) + step(tf.y, 0.04);
-      albedo = mix(tint * vec3(0.5, 0.49, 0.46), vec3(0.3), clamp(joint, 0.0, 1.0)) * (0.92 + 0.12 * fh1(floor(tp)));
-      fRough = 0.55;
+      if (fcase == 1) { albedo = brickWall(uh, vec3(0.45, 0.23, 0.17), vec3(0.56, 0.32, 0.23), vec3(0.64, 0.62, 0.58)); fRough = 0.9; }
+      else if (fcase == 2) {
+        // granite slabs 1.2 × 0.6, speckled, 5 mm joints
+        vec2 sp = vec2(u / 1.2, h / 0.6), sf = fract(sp);
+        float joint = step(sf.x, 0.006) + step(sf.y, 0.012);
+        float grain = fh1(floor(uh * 90.0)), slab = fh1(floor(sp) + bld);
+        albedo = mix(vec3(0.36, 0.35, 0.34) * (0.86 + 0.18 * slab) * (0.75 + 0.5 * grain * grain), vec3(0.2), clamp(joint, 0.0, 1.0));
+        fRough = 0.4;
+      } else if (fcase == 3) {
+        // white render, a dark band under each ribbon of windows
+        albedo = vec3(0.64, 0.63, 0.6) * (0.9 + 0.14 * fbm(uh * 0.12)); fRough = 0.85;
+      } else if (fcase == 4) {
+        // aluminium composite panels a floor high, 1 m wide, dark joints; one colour a building
+        float pc = fh1(vec2(bld * 3.3, 1.0));
+        vec3 panel = pc < 0.3 ? vec3(0.72, 0.73, 0.72) : pc < 0.5 ? vec3(0.45, 0.46, 0.47) : pc < 0.68 ? vec3(0.13, 0.17, 0.27) : pc < 0.84 ? vec3(0.2, 0.2, 0.21) : vec3(0.55, 0.5, 0.42);
+        vec2 ap = vec2(u / 1.0, (h - base) / FH), af = fract(ap);
+        float joint = step(af.x, 0.012) + step(af.y, 0.006);
+        albedo = mix(panel * (0.96 + 0.06 * fh1(floor(ap))), vec3(0.08), clamp(joint, 0.0, 1.0)); fRough = 0.32; fMetal = 0.35;
+      } else {
+        // porcelain tile 0.6 × 0.3 on the upper floors
+        vec2 tp = vec2(u / 0.6, h / 0.3), tf = fract(tp);
+        float joint = step(tf.x, 0.02) + step(tf.y, 0.04);
+        albedo = mix(tint * vec3(0.5, 0.49, 0.46), vec3(0.3), clamp(joint, 0.0, 1.0)) * (0.92 + 0.12 * fh1(floor(tp)));
+        fRough = 0.55;
+      }
     } else if (STYLE == 3) {
-      albedo = vec3(0.32, 0.34, 0.36); fRough = 0.45; fMetal = 0.6;   // spandrel panels, aluminium
+      if (fcase == 3) {
+        // a stone grid: light limestone-like panels, punched windows
+        vec2 sp = vec2(u / BW, h / 1.27), sf = fract(sp);
+        albedo = mix(vec3(0.55, 0.53, 0.49) * (0.92 + 0.12 * fh1(floor(sp) + bld)), vec3(0.32), clamp(step(sf.x, 0.008) + step(sf.y, 0.012), 0.0, 1.0)) * (0.92 + 0.12 * fbm(uh * 0.4));
+        fRough = 0.62;
+      } else { albedo = vec3(0.32, 0.34, 0.36); fRough = 0.45; fMetal = 0.6; }   // spandrel panels, aluminium
     } else {
       // painted concrete: a mid tone of the building's colour, large soft variation
       // (a real painted wall reflects ~40%: the drive game's lifted near-white glared in the sun)
@@ -206,6 +259,10 @@ const GLSL_FACADE = /* glsl */`
           float film = fh1(vec2(cellSeed, 11.0));
           vec3 glassT = film < 0.12 ? vec3(0.42, 0.48, 0.5) : film < 0.3 ? vec3(0.8, 0.86, 0.95) : vec3(0.86, 0.92, 0.9);
           fEmit = rcol * glassT * (balustrade ? 0.6 : 1.0);
+          // a shop's floor lit bright behind its glass, day and night; an office's glass tinted by its case
+          if (shopfront) fEmit = mix(rcol, vec3(0.92, 0.9, 0.84) * (0.32 + 0.75 * fNight) * (0.8 + 0.4 * tenant), 0.55);
+          if (STYLE == 3 && fcase == 1) { fEmit *= vec3(0.55, 0.78, 0.78); fMetal = 0.35; fRough = 0.03; }
+          if (STYLE == 3 && fcase == 2) { fEmit *= vec3(0.62, 0.52, 0.42); fMetal = 0.4; fRough = 0.03; }
           if (film < 0.12) { fMetal = 0.35; fRough = 0.03; } else fRough += film * 0.04;
           // an air-conditioner's outdoor unit on the balcony, behind the balustrade's glass (실외기)
           if (balustrade && fh1(vec2(cellSeed, 9.0)) < 0.38 && gw.x > gs.x - 1.05 && gw.x < gs.x - 0.2 && g.y < w0.y + 0.72) {
@@ -217,8 +274,28 @@ const GLSL_FACADE = /* glsl */`
     }
     // (the window's edge blended over the pixel: soft, not stepped)
     albedo = mix(wallAlbedo, albedo, wm); fRough = mix(wallRough, fRough, wm); fMetal = mix(wallMetal, fMetal, wm); fEmit *= wm; fGlass *= wm;
-    // the shop's fascia board and its sign band over the shopfront
-    if (STYLE == 2 && h > 3.45 && h < base) { albedo = mix(vec3(0.15, 0.17, 0.2), vec3(0.75, 0.2, 0.15), step(0.6, fh1(vec2(floor(u / 6.4), bld)))); fRough = 0.5; fEmit = albedo * 0.6 * fNight; }
+    // a shuttered shop: the roller shutter's corrugated steel down over the glass
+    if (shut && h < 3.4) {
+      albedo = vec3(0.5, 0.51, 0.52) * (0.86 + 0.14 * step(0.5, fract(h * 11.0))) * (0.9 + 0.1 * fbm(uh * 2.0));
+      fEmit = vec3(0.0); fGlass = 0.0; fRough = 0.5; fMetal = 0.45; fTilt += up * 0.25 * (step(0.5, fract(h * 11.0)) - 0.5);
+    }
+    // each tenant's sign over its shopfront: its colour, a row of lettering, a thin frame; lit at night
+    if (STYLE == 2 && h > 3.45 && h < base) {
+      float ts = tenant, tw = 6.4, lx = fract(u / tw) * tw, ly = h - 3.45;
+      vec3 signC = ts < 0.14 ? vec3(0.72, 0.1, 0.09) : ts < 0.28 ? vec3(0.07, 0.22, 0.55) : ts < 0.4 ? vec3(0.08, 0.4, 0.22) : ts < 0.52 ? vec3(0.9, 0.7, 0.08)
+        : ts < 0.62 ? vec3(0.9, 0.42, 0.08) : ts < 0.74 ? vec3(0.9, 0.9, 0.88) : ts < 0.86 ? vec3(0.07, 0.07, 0.08) : vec3(0.42, 0.18, 0.5);
+      vec3 textC = ts >= 0.62 && ts < 0.74 ? vec3(0.08) : ts >= 0.74 && ts < 0.86 ? vec3(0.85, 0.68, 0.32) : vec3(0.97);
+      float nch = 3.0 + floor(fh1(vec2(floor(u / tw), bld + 3.0)) * 4.0), cw = 0.44, start = (tw - nch * cw) * (0.2 + 0.6 * fh1(vec2(ts, 5.0)));
+      float inText = step(start, lx) * step(lx, start + nch * cw) * step(0.17, ly) * step(ly, 0.58);
+      vec2 cp = vec2(fract((lx - start) / cw), (ly - 0.17) / 0.41);
+      // (glyph-like blocks: each letter a 3 × 3 of strokes, a gap between letters)
+      float glyph = inText * step(0.1, cp.x) * step(cp.x, 0.9) * step(fh1(vec2(floor((lx - start) / cw), ts * 31.0) + floor(cp * 3.0)), 0.55);
+      albedo = mix(signC, textC, glyph * fine + glyph * (1.0 - fine) * 0.5); fRough = 0.45; fMetal = 0.0;
+      fEmit = albedo * (0.12 + 0.85 * fNight) * (glyph > 0.5 ? 1.2 : 0.55);
+      float edge = 1.0 - sbox(vec2(lx, ly), vec2(0.06, 0.05), vec2(tw - 0.06, 0.7), px);
+      albedo = mix(albedo, vec3(0.62, 0.63, 0.64), edge); fEmit *= 1.0 - edge;
+      if (shut) fEmit *= 0.15;
+    }
     diffuseColor.rgb = albedo;
   } else {
     fRough = 0.92;
@@ -287,7 +364,7 @@ export function realFacades(mats: Materials, night: number) {
         .replace("#include <normal_fragment_maps>", "#include <normal_fragment_maps>\nnormal = normalize(normal + (viewMatrix * vec4(fTilt, 0.0)).xyz);")
         .replace("#include <aomap_fragment>", "#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= fAO; reflectedLight.indirectSpecular *= fAO; reflectedLight.directDiffuse *= mix(1.0, fAO, 0.6);");
     };
-    m.customProgramCacheKey = () => `walkFacade3-${style}`;
+    m.customProgramCacheKey = () => `walkFacade4-${style}`;
     cutOpenings(m);
   }
   return {

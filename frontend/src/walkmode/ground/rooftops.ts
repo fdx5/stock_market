@@ -3,7 +3,9 @@ import type { World } from "../../drivegame/world/World";
 
 /* The roofs of the town's buildings as the walk sees them. The drive world closes each building
  * with a flat lid in its ground's colour (and its own ear clipping gave up on some outlines, leaving
- * holes): from the street and from a block's balcony they read as walls cut off. Here each building
+ * holes): from the street and from a block's balcony they read as walls cut off. (And at street
+ * level, by the building's use: a shop block's awnings over some of its tenants and a projecting
+ * sign at a corner, an office's entrance canopy.) Here each building
  * within reach gets what a Korean roof has: a parapet (its outer face, inner face and a metal cap),
  * the deck in green urethane waterproofing (most low blocks) or grey concrete, a stair house (옥탑)
  * with its door, a water tank, outdoor AC units, and on the tall blocks a lift machine room. Built in
@@ -55,6 +57,51 @@ function inRing(x: number, y: number, r: ArrayLike<number>) {
   let hit = false;
   for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) if ((r[i + 1] > y) !== (r[j + 1] > y) && x < ((r[j] - r[i]) * (y - r[i + 1])) / (r[j + 1] - r[i + 1]) + r[i]) hit = !hit;
   return hit;
+}
+
+/** at street level, by the building's use (2 shop, 3 office): awnings and a projecting sign, a canopy */
+function streetOf(B: Buf, ring: Float32Array, style: number, top: number, groundAt: (x: number, y: number) => number) {
+  if (style !== 2 && style !== 3) return;
+  const m = ring.length / 2;
+  let area = 0; for (let k = 0; k < m; k++) area += ring[k * 2] * ring[((k + 1) % m) * 2 + 1] - ring[((k + 1) % m) * 2] * ring[k * 2 + 1];
+  const ccw = area > 0, R = rngOf(hash(ring[2] ?? 0, ring[3] ?? 0));
+  // the edges, longest first (the street fronts, most likely)
+  const edges: { ax: number; ay: number; bx: number; by: number; l: number }[] = [];
+  for (let k = 0; k < m; k++) {
+    const a = ccw ? k : (k + 1) % m, b = ccw ? (k + 1) % m : k;
+    const ax = ring[a * 2], ay = ring[a * 2 + 1], bx = ring[b * 2], by = ring[b * 2 + 1], l = Math.hypot(bx - ax, by - ay);
+    if (l > 5) edges.push({ ax, ay, bx, by, l });
+  }
+  edges.sort((p, q) => q.l - p.l);
+  const AWN = [[0.62, 0.12, 0.1], [0.1, 0.3, 0.52], [0.12, 0.38, 0.22], [0.82, 0.62, 0.1], [0.3, 0.3, 0.32], [0.88, 0.88, 0.86], [0.52, 0.2, 0.15]];
+  for (const [n, e] of edges.slice(0, 2).entries()) {
+    const tx = (e.bx - e.ax) / e.l, ty = (e.by - e.ay) / e.l, ox = ty, oy = -tx, g = groundAt((e.ax + e.bx) / 2, (e.ay + e.by) / 2);
+    if (!Number.isFinite(g)) continue;
+    if (style === 2) {
+      // an awning over some of the tenants (6.4 m each, as the facade's shopfronts), each its colour
+      for (let t = 0; t + 6.4 <= e.l + 0.1; t += 6.4) {
+        if (R() > 0.45) continue;
+        const col = AWN[Math.floor(R() * AWN.length)], u0 = t + 0.4, u1 = t + 6.0, d = 0.9 + R() * 0.4, z0 = g + 3.42, z1 = g + 3.0;
+        const P = (u: number, out: number, z: number) => [e.ax + tx * u + ox * out, e.ay + ty * u + oy * out, z];
+        const nz = d / Math.hypot(d, z0 - z1), nh = (z0 - z1) / Math.hypot(d, z0 - z1);
+        B.quad(P(u0, 0.02, z0), P(u1, 0.02, z0), P(u1, d, z1), P(u0, d, z1), [ox * nh, oy * nh, nz], col);
+        B.quad(P(u0, d, z1), P(u1, d, z1), P(u1, d, z1 - 0.25), P(u0, d, z1 - 0.25), [ox, oy, 0], col.map(c => c * 0.85));
+        B.quad(P(u0, d, z1 - 0.25), P(u1, d, z1 - 0.25), P(u1, 0.02, z0 - 0.06), P(u0, 0.02, z0 - 0.06), [0, 0, -1], col.map(c => c * 0.45));
+      }
+      // a projecting sign (돌출간판) near the first edge's end, up the upper floors
+      // (only up a wall tall enough for it: on a one-storey shop it stood over the roof)
+      if (n === 0 && R() < 0.8 && top - g > 7.2) {
+        const col = AWN[Math.floor(R() * AWN.length)], u = Math.min(e.l - 0.6, 0.8 + R() * 1.5), x = e.ax + tx * u + ox * 0.45, y = e.ay + ty * u + oy * 0.45;
+        const h = Math.min(2.2 + R() * 3.5, top - g - 5.0);
+        B.box(x, y, g + 4.4, 0.2, 0.62, h, Math.atan2(ty, tx), col, col);
+        B.box(x - ox * 0.12, y - oy * 0.12, g + 4.4 + h * 0.5, 0.05, 0.3, 0.06, Math.atan2(ty, tx), [0.4, 0.4, 0.42]);
+      }
+    } else if (n === 0) {
+      // an office's entrance canopy: a thin steel slab off the middle of its longest front, on two rods
+      const u = e.l / 2, w = Math.min(5, e.l * 0.4), cx = e.ax + tx * u + ox * 0.85, cy = e.ay + ty * u + oy * 0.85;
+      B.box(cx, cy, g + 3.3, w, 1.7, 0.14, Math.atan2(ty, tx), [0.32, 0.33, 0.35], [0.4, 0.41, 0.43]);
+    }
+  }
 }
 
 /** one building's roof */
@@ -182,6 +229,7 @@ export class Rooftops {
       if (f.ring[0] < x0 || f.ring[0] >= x0 + CHUNK || f.ring[1] < y0 || f.ring[1] >= y0 + CHUNK) continue;
       const g = this.world.heightAt(f.ring[0], f.ring[1]);
       roofOf(B, f.ring, f.top, Number.isFinite(g) ? g : f.top - 10);
+      if (f.style !== undefined && f.top - (Number.isFinite(g) ? g : f.top) < 40) streetOf(B, f.ring, f.style, f.top, (x, y) => this.world.heightAt(x, y));
     }
     let mesh: THREE.Mesh | null = null;
     if (B.i.length) {

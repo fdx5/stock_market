@@ -292,7 +292,7 @@ export class WalkGame {
     progress("항공사진으로 동네를 만드는 중", 0.9);
     try {
       // (in 400 m patches: this one now, the rest within 500 m streamed in as the walk goes — GroundStream)
-      this.ground = new GroundStream({ world: this.world, origin: this.origin, key: o.key, scene: this.scene, carModels: this.carModels, carWindows: cars.windows, carGlass: this.carGlass, carBatches: this.carBatches!, parkedCars:this.parkedCars, parkingBlocked:(x,y,hx,hy,hl,hw)=>!!this.nightLighting?.blocks(x,y,hx,hy,hl,hw),prepare:g=>this.prepareGround(g), onProgress: t => progress(t, 0.92) });
+      this.ground = new GroundStream({ world: this.world, origin: this.origin, key: o.key, scene: this.scene, carModels: this.carModels, carWindows: cars.windows, carGlass: this.carGlass, carBatches: this.carBatches!, parkedCars:this.parkedCars, parkingBlocked:(x,y,hx,hy,hl,hw)=>!!this.nightLighting?.blocks(x,y,hx,hy,hl,hw)||this.inApproach(x,y,hw+0.3),keepClear:(x,y)=>this.inApproach(x,y,0.6),prepare:g=>this.prepareGround(g), onProgress: t => progress(t, 0.92) });
       await this.ground.prime(this.pos.x, this.pos.y);
     } catch (e) { console.warn("walk: aerial ground failed", e); this.ground?.dispose(); this.ground = null; }
     if (this.disposed) return;
@@ -509,6 +509,17 @@ export class WalkGame {
   }
 
   /** Building, pole, vehicle and parked-bicycle checks for both movement and safe dismounts. */
+  /** within a 동's approach: the strip before its door, from the wall to 8 m out, the door's width
+   * and `pad` either side — kept clear of parked cars and trees so a bike reaches the door */
+  private inApproach(x: number, y: number, pad = 0) {
+    for (const e of this.entrances) {
+      const dx = x - e.x, dy = y - e.y;
+      if (dx > 12 || dx < -12 || dy > 12 || dy < -12) continue;
+      const hx = Math.cos(e.heading), hy = Math.sin(e.heading), out = dx * hx + dy * hy, side = -dx * hy + dy * hx;
+      if (out > -2 && out < 8 && Math.abs(side) < 1.2 + pad) return true;
+    }
+    return false;
+  }
   private blocked(x: number, y: number, hx: number, hy: number, bicycle = false, ignoreId?: string) {
     const body = this.collisionBody;
     Object.assign(body, { x, y, hx, hy, length: bicycle ? BICYCLE_LENGTH : 0.6, width: bicycle ? BICYCLE_WIDTH : 0.6 });

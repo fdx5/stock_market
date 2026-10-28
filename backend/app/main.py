@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from starlette.staticfiles import NotModifiedResponse
 
+from app.services import asset_cdn
 from app.services.libsql_gate import StoreUnavailable
 from app.services.turso import TursoError
 from app.site import LEGACY_RENDER_HOST, PRIMARY_SITE_URL
@@ -746,7 +747,11 @@ if STATIC_DIR.exists():
             response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
         if path.rstrip('/') == '/support-success':
             response.headers['X-Robots-Tag'] = 'noindex, follow'
-        if path.startswith("/assets/"):
+        if response.status_code == 302 and response.headers.get("location", "").startswith("https://fdx5.github.io/"):
+            # (a redirect to the published copy: kept an hour, so a changed file's own copy is
+            # served again soon after its next deploy)
+            pass
+        elif path.startswith("/assets/"):
             response.headers["Cache-Control"] = ASSETS_CACHE_CONTROL
         elif path.startswith("/img/discussion-pillars-") or (
             path.startswith("/img/sky/") and path.endswith("-jwst-4k.webp")
@@ -779,6 +784,9 @@ if STATIC_DIR.exists():
     # semantics identical to the mounted half of the site rather than reimplementing
     # them slightly differently here.
     _conditional = StaticFiles(directory=STATIC_DIR)
+    # the large media served from GitHub Pages (outbound bandwidth): checked against the
+    # published copies in the background; until then, and for any file that differs, served here
+    asset_cdn.start(STATIC_DIR)
     _build_id = re.sub(r"[^A-Za-z0-9._-]", "", os.environ.get("RENDER_GIT_COMMIT", "dev"))[:16] or "dev"
     _spa_template = (STATIC_DIR / "index.html").read_text(encoding="utf-8").replace("__KSTOCK_BUILD_ID__", _build_id)
 
@@ -861,6 +869,9 @@ if STATIC_DIR.exists():
         # files from the container's filesystem (source code, dependency list, etc.).
         candidate = (STATIC_DIR / full_path).resolve()
         if full_path and candidate.is_relative_to(STATIC_DIR) and candidate.is_file():
+            cdn = asset_cdn.redirect_for(candidate.relative_to(STATIC_DIR).as_posix())
+            if cdn:
+                return RedirectResponse(cdn, status_code=302, headers={"Cache-Control": asset_cdn.REDIRECT_CACHE_CONTROL})
             target = candidate
         else:
             query = {key: value for key, value in request.query_params.items()}

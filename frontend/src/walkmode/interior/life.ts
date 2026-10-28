@@ -261,12 +261,24 @@ export class Cat {
 
   private mat(c: string, r: number, sheen: number) { const m = new THREE.MeshPhysicalMaterial({ color: c, roughness: r, sheen, sheenColor: new THREE.Color("#ffffff"), sheenRoughness: 0.5 }); this.mats.push(m); return m; }
 
+  /** stroked, what it does: a dog wags hard (sitting), then may lie down with its chin on its paws or
+   * roll onto its back for its belly; a cat purrs sitting, rolls onto its side, or stretches */
+  private petMode: "wag" | "down" | "belly" | "roll" | "stretch" = "wag";
+  /** the pose eased toward each frame (0 → 1 over ~0.6 s) */
+  private petK = 0;
   label() {
     const dog = this.species === "dog";
-    return this.state === "pet" ? `${this.name} ${dog ? "꼬리 흔드는 중…" : "골골송 중…"}` : this.state === "sleep" ? `자는 ${this.name} 쓰다듬기` : `${this.name} 쓰다듬기`;
+    const doing = dog ? { wag: "꼬리 흔드는 중…", down: "엎드려서 꼬리 흔드는 중…", belly: "배 보여주는 중…", roll: "", stretch: "" }[this.petMode]
+      : { wag: "골골송 중…", roll: "뒹굴며 배 보여주는 중…", stretch: "기지개 켜는 중…", down: "", belly: "" }[this.petMode];
+    return this.state === "pet" ? `${this.name} ${doing || "좋아하는 중…"}` : this.state === "sleep" ? `자는 ${this.name} 쓰다듬기` : `${this.name} 쓰다듬기`;
   }
   pet() {
-    this.state = "pet"; this.timer = 4; this.path = [];
+    // (stroked again while already happy: on to the next thing — down, then the belly)
+    const again = this.state === "pet";
+    this.state = "pet"; this.timer = 7; this.path = [];
+    if (this.species === "dog") this.petMode = again ? (this.petMode === "wag" ? "down" : "belly") : (["wag", "wag", "down", "belly"] as const)[Math.floor(rnd() * 4)];
+    else this.petMode = again ? (this.petMode === "wag" ? "roll" : "stretch") : (["wag", "roll", "stretch"] as const)[Math.floor(rnd() * 3)];
+    if (!again) this.petK = 0;
     if (this.species === "dog") this.quietUntil = performance.now() / 1000 + 300;
     else if (rnd() < 0.5) this.voice();
     return null;
@@ -398,9 +410,31 @@ export class Cat {
   private pose(dt: number, moving: boolean) {
     if (this.species === "dog") { this.poseDog(dt, moving); return; }
     const j = this.j, s = this.state;
-    this.phase += dt * (moving ? 4 + this.speed * 5 : 1.5);
+    // (a step cycle is 2 of phase: its rate is the speed over the stride — a cat's ~0.38 m walking,
+    // longer as it runs — so the paws keep their place on the floor)
+    this.phase += dt * (moving ? (2 * this.speed) / (0.38 + 0.14 * this.speed) : 1.5);
     const w = Math.sin(this.phase * Math.PI), sw = moving ? 0.55 : 0;
     const body = j.body;
+    this.petK = s === "pet" ? Math.min(1, this.petK + dt * 1.7) : 0;
+    if (s === "pet" && !moving && this.petMode !== "wag") {
+      const k = this.petK * this.petK * (3 - 2 * this.petK), wig = Math.sin(this.phase * 2.4);
+      if (this.petMode === "roll") {
+        // over onto its side and back, belly up, the paws curled; a wriggle
+        body.position.set(0, 0.2 - 0.1 * k, 0); body.rotation.set(0, 0, 1.9 * k + wig * 0.12 * k);
+        for (const n of ["fl", "fr"]) j[n].rotation.set(-0.9 * k, 0, 0);
+        for (const n of ["bl", "br"]) j[n].rotation.set(0.6 * k, 0, 0);
+        j.neck.rotation.set(0.2, 0, 0); j.head.rotation.set(0, 0, -0.6 * k);
+      } else {
+        // the stretch: front paws out along the floor, chest down, rear up, tail high
+        body.position.set(0, 0.2 - 0.03 * k, 0); body.rotation.set(0.45 * k, 0, 0);
+        for (const n of ["fl", "fr"]) j[n].rotation.set(-1.25 * k, 0, 0);
+        for (const n of ["bl", "br"]) j[n].rotation.set(-0.35 * k, 0, 0);
+        j.neck.rotation.set(-0.3 * k, 0, 0); j.head.rotation.set(-0.25 * k, 0, 0);
+      }
+      j.tail0.rotation.set(-0.9, Math.sin(this.phase * 0.9) * 0.4, 0);
+      for (let i = 1; i <= 5; i++) j[`tail${i}`].rotation.set(0.1, Math.sin(this.phase * 1.2 + i) * 0.15, 0);
+      return;
+    }
     if (s === "sleep") {
       body.position.set(0, 0.09, 0); body.rotation.set(0, 0, 0.9);
       for (const n of ["fl", "fr", "bl", "br"]) j[n].rotation.set(-1.4, 0, 0);
@@ -434,11 +468,14 @@ export class Cat {
    * over the back, wagging fast when it is with you; the tongue out when it is happy */
   private poseDog(dt: number, moving: boolean) {
     const j = this.j, s = this.state;
-    this.phase += dt * (moving ? 6 + this.speed * 7 : 1.5);
+    // (a Shiba's stride ~0.45 m at a walk, ~0.6 m at a trot: the legs' cycle paced to it — it once
+    // swung them two to three times too fast for the ground it covered)
+    this.phase += dt * (moving ? (2 * this.speed) / (0.42 + 0.12 * this.speed) : 1.5);
     const w = Math.sin(this.phase * Math.PI), sw = moving ? 0.6 : 0;
     const near = s === "come" || s === "pet" || (s === "sit" && this.lastDist < 2.5);
-    this.wag += dt * (near ? 22 : 5);
-    const wag = Math.sin(this.wag) * (near ? 0.55 : 0.12);
+    this.petK = s === "pet" ? Math.min(1, this.petK + dt * 1.7) : 0;
+    this.wag += dt * (s === "pet" ? 30 : near ? 22 : 5);
+    const wag = Math.sin(this.wag) * (s === "pet" ? 0.8 : near ? 0.55 : 0.12);
     j.tongue.visible = false; // (no tongue out: as asked)
     // (up from the croup, then curled forward in a ring over the back)
     j.tail0.rotation.set(-0.15, wag * 0.6, 0);
@@ -455,6 +492,28 @@ export class Cat {
       return;
     }
     body.rotation.set(0, 0, 0);
+    if (s === "pet" && !moving && this.petMode !== "wag") {
+      const k = this.petK * this.petK * (3 - 2 * this.petK);
+      if (this.petMode === "down") {
+        // down (엎드려): the chest on the floor, forelegs out ahead, hind legs tucked, chin on the paws
+        // between looks up; the tail sweeping the floor
+        body.position.set(0, 0.29 - 0.16 * k, 0); body.rotation.set(0, 0, 0);
+        for (const n of ["fl", "fr"]) { j[n].rotation.set(-1.45 * k, 0, 0); j[`${n}k`].rotation.set(0, 0, 0); }
+        for (const n of ["bl", "br"]) { j[n].rotation.set(1.2 * k, 0, 0); j[`${n}k`].rotation.set(0.3 + 1.6 * k, 0, 0); }
+        const look = Math.max(0, Math.sin(this.phase * 0.5));
+        j.neck.rotation.set(0.1 + 0.55 * k * (1 - look), 0, 0); j.head.rotation.set(-0.15 * k, 0, Math.sin(this.phase * 1.3) * 0.08);
+        j.tail0.rotation.set(-0.15 - 0.9 * k, wag * 0.9, 0);
+      } else {
+        // the belly: rolled onto its back (a little to one side), legs folded up in the air, wriggling
+        const wig = Math.sin(this.phase * 2.6) * 0.14 * k;
+        body.position.set(0, 0.29 - 0.12 * k, 0); body.rotation.set(0, 0, 2.55 * k + wig);
+        for (const n of ["fl", "fr"]) { j[n].rotation.set(-0.5 * k + Math.sin(this.phase * 3 + (n === "fl" ? 0 : 1.6)) * 0.15 * k, 0, 0); j[`${n}k`].rotation.set(-1.3 * k, 0, 0); }
+        for (const n of ["bl", "br"]) { j[n].rotation.set(0.7 * k, 0, 0); j[`${n}k`].rotation.set(1.1 * k, 0, 0); }
+        j.neck.rotation.set(0.1, 0, 0); j.head.rotation.set(0.2 * k, 0, -0.5 * k);
+        j.tail0.rotation.set(-0.15 - 0.6 * k, wag * 0.7, 0);
+      }
+      return;
+    }
     if ((s === "sit" || s === "pet") && !moving) {
       body.position.set(0, 0.25, -0.06); body.rotation.x = -0.55;
       // (front legs straight and upright under the raised chest; the hind legs folded: thigh

@@ -26,7 +26,7 @@ interface Tile {
   /** its surfaces in the material batches (detail: shown near the eye only) */
   items?: BatchItem[]; detailItems?: BatchItem[]; detailOn?: boolean;
 }
-type Foot = { pts: Float32Array; start: number; end: number; top: number; x0: number; y0: number; x1: number; y1: number };
+type Foot = { pts: Float32Array; start: number; end: number; top: number; x0: number; y0: number; x1: number; y1: number; style?: number };
 
 const CELL = 16;
 const cellKey = (i: number, j: number) => (i + 40000) * 80000 + (j + 40000);
@@ -284,12 +284,12 @@ export class World {
     const t0 = performance.now();
     const own: number[] = [];
     if (r.feet) {
-      const { pts, starts, tops } = r.feet;
+      const { pts, starts, tops, styles } = r.feet;
       for (let b = 0; b < starts.length; b++) {
         const s = starts[b] * 2, e = b + 1 < starts.length ? starts[b + 1] * 2 : pts.length;
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
         for (let k = s; k < e; k += 2) { x0 = Math.min(x0, pts[k]); x1 = Math.max(x1, pts[k]); y0 = Math.min(y0, pts[k + 1]); y1 = Math.max(y1, pts[k + 1]); }
-        const f: Foot = { pts, start: s, end: e, top: tops[b], x0, y0, x1, y1 };
+        const f: Foot = { pts, start: s, end: e, top: tops[b], x0, y0, x1, y1, style: styles?.[b] };
         for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) for (let j = Math.floor(y0 / CELL); j <= Math.floor(y1 / CELL); j++) {
           const k = cellKey(i, j), l = this.feet.get(k); if (l) l.push(f); else this.feet.set(k, [f]); own.push(k);
         }
@@ -471,6 +471,9 @@ export class World {
       const l = this.poles.get(cellKey(i, j));
       if (!l) continue;
       for (let k = 0; k < l.length; k += 3) {
+        // (a street tree left out where another layer plants its own — hideTrees — is not there to
+        // run into either: it stood as an invisible post)
+        if (this.treeHide && l[k + 2] === 0.3 && this.treeHide(l[k], l[k + 1])) continue;
         const dx = l[k] - x, dy = l[k + 1] - y, al = dx * hx + dy * hy, la = dx * hy - dy * hx;
         if (Math.abs(al) <= hl + l[k + 2] && Math.abs(la) <= hw + l[k + 2]) return true;
       }
@@ -479,12 +482,13 @@ export class World {
   }
 
   /** Building footprints (closed rings, x y pairs) touching a rectangle, each once, with its roof height. */
-  footprintsIn(x0: number, y0: number, x1: number, y1: number): { ring: Float32Array; top: number }[] {
-    const seen = new Set<Foot>(), out: { ring: Float32Array; top: number }[] = [];
+  /** the footprints over a rectangle: ring, roof height, facade style (0 apt, 1 villa, 2 shop, 3 office) */
+  footprintsIn(x0: number, y0: number, x1: number, y1: number): { ring: Float32Array; top: number; style?: number }[] {
+    const seen = new Set<Foot>(), out: { ring: Float32Array; top: number; style?: number }[] = [];
     for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) for (let j = Math.floor(y0 / CELL); j <= Math.floor(y1 / CELL); j++) {
       for (const f of this.feet.get(cellKey(i, j)) ?? []) {
         if (seen.has(f) || f.x1 < x0 || f.x0 > x1 || f.y1 < y0 || f.y0 > y1) continue;
-        seen.add(f); out.push({ ring: f.pts.slice(f.start, f.end), top: f.top });
+        seen.add(f); out.push({ ring: f.pts.slice(f.start, f.end), top: f.top, style: f.style });
       }
     }
     return out;

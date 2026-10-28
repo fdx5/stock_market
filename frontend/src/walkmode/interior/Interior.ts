@@ -630,6 +630,15 @@ export class Interior {
       this.o.sound.step(t === "bathroom" || t === "ensuite" || t === "utility" || t === "entrance" ? "tile" : (t === "living" || t === "kitchen" || t === "hall") && this.o.plan.style !== "wood_natural" ? "stone" : "wood", run);
     }
   }
+  /** where the camera may stand on the way from the body to (x, z): short of the first wall, door or
+   * jamb crossed (by 0.1 m), and at least 0.1 m off every face — so the near plane stays in the room */
+  private clearOf(x: number, z: number): THREE.Vector2 {
+    const segs = this.segs.concat(this.doorSegs()), px = this.pos.x, pz = this.pos.y;
+    const len = Math.hypot(x - px, z - pz) || 1e-6;
+    let t = 1;
+    for (const [ax, az, bx, bz] of segs) { const h = segHit(px, pz, x, z, ax, az, bx, bz); if (h !== null) t = Math.min(t, Math.max(0, h - 0.1 / len)); }
+    return this.collide(px + (x - px) * t, pz + (z - pz) * t, 0.1);
+  }
   /** a circle against the wall and furniture segments (and the doors where they stand now) */
   private collide(x: number, z: number, radius = RADIUS): THREE.Vector2 {
     const RADIUS = radius;
@@ -734,8 +743,10 @@ export class Interior {
       ar.rotation.set(0, this.yaw + Math.PI, 0, "YXZ"); ar.position.set(this.pos.x, floor, this.pos.y);
       const bob = this.view === "first" ? Math.sin(this.bob) * 0.012 * Math.min(1, this.vel.length() / 1.4) : 0;
       if (this.view === "first") {
-        // the eye a little in front of the face
-        cam.position.set(this.pos.x - Math.sin(this.yaw) * 0.13, this.eyeY + bob, this.pos.y - Math.cos(this.yaw) * 0.13);
+        // the eye a little in front of the face (never through a wall or a door's jamb: inside the
+        // wall's thickness its faces are not drawn, and the frame flashed through it)
+        const e = this.clearOf(this.pos.x - Math.sin(this.yaw) * 0.13, this.pos.y - Math.cos(this.yaw) * 0.13);
+        cam.position.set(e.x, this.eyeY + bob, e.y);
       } else {
         // over the shoulder, pulled in before a wall
         const back = 1.5, bx = Math.sin(this.yaw), bz = Math.cos(this.yaw);
@@ -749,7 +760,10 @@ export class Interior {
         const sb = this.shown;
         sb.boom = dt > 0 ? sb.boom + (d - sb.boom) * (1 - Math.exp(-dt * (d < sb.boom ? 18 : 3))) : d;
         d = Math.min(d + 0.05, sb.boom);
-        cam.position.set(this.pos.x + bx * d + Math.cos(this.yaw) * 0.25, this.eyeY + 0.12, this.pos.y + bz * d - Math.sin(this.yaw) * 0.25);
+        // (the shoulder's offset too kept on this side of the walls: in a narrow hall it put the
+        // camera inside one)
+        const e = this.clearOf(this.pos.x + bx * d + Math.cos(this.yaw) * 0.25, this.pos.y + bz * d - Math.sin(this.yaw) * 0.25);
+        cam.position.set(e.x, this.eyeY + 0.12, e.y);
       }
     }
     // eased toward what was set (dt 0: the warm-up renders, at once)

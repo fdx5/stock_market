@@ -94,6 +94,8 @@ export interface GroundOptions {
   carBatches?: CarBatches;
   parkedCars?: ParkedCars;
   parkingBlocked?(x:number,y:number,hx:number,hy:number,hl:number,hw:number):boolean;
+  /** kept clear (an entrance's approach): no tree planted there */
+  keepClear?(x: number, y: number): boolean;
   prepare?(group:THREE.Group):Promise<void>;
   /** people on this patch's paths, at most (default 150) */
   peopleCap?: number;
@@ -450,6 +452,7 @@ export class Ground {
       const x = T[t], y = T[t + 1], r = T[t + 2];
       const i = Math.floor((x - x0) / CELL), j = Math.floor((y - y0) / CELL), b = block[j * nx + i];
       if (b === 1 || b === 2) continue;                                         // on a roof, in the carriageway
+      if (o.keepClear?.(x, y)) continue;                                        // before a 동's door
       inArea++;
       // (a street tree in the pavement stands in an iron grate: 가로수 보호판)
       if (b === 3) grates.push(new THREE.Matrix4().compose(new THREE.Vector3(x, height(x, y) + 0.083, -y), q.setFromAxisAngle(up, Math.round(R() * 4) * Math.PI / 2), new THREE.Vector3(1, 1, 1)));

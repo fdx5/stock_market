@@ -27,7 +27,7 @@ export type TileResult = {
   asphalt?: MeshArrays | null; walks?: MeshArrays | null; marks?: MeshArrays | null; concrete?: MeshArrays | null;
   styles?: Record<string, MeshArrays>; roofs?: MeshArrays | null;
   lamps?: Float32Array; trees?: Float32Array;
-  feet?: { pts: Float32Array; starts: Uint32Array; tops: Float32Array };
+  feet?: { pts: Float32Array; starts: Uint32Array; tops: Float32Array; styles?: Uint8Array };
   decks?: Float32Array; lines?: RoadLine[]; dests?: Dest[];
   stats?: Record<string, number>;
 };
@@ -662,7 +662,7 @@ export function tileWorkerMain() {
 
     // ---- buildings, by facade style; roofs apart ----
     const styles: Record<string, Buf> = {}, roofs = newBuf();
-    const feetPts: number[] = [], feetStarts: number[] = [], feetTops: number[] = [];
+    const feetPts: number[] = [], feetStarts: number[] = [], feetTops: number[] = [], feetStyles: number[] = [];
     // records not linked to the register lying on a linked one (a second copy), needles
     const linkedAt = new Map<string, any[]>();
     for (const f of feetAll) if (f.b.L) { const kk = Math.floor(f.cx / 40) + "," + Math.floor(f.cy / 40); const l = linkedAt.get(kk); if (l) l.push(f); else linkedAt.set(kk, [f]); }
@@ -737,7 +737,7 @@ export function tileWorkerMain() {
         if (!cut) break;
       }
       if (idx.length === 3) roofs.i.push(rb + idx[0], rb + idx[1], rb + idx[2]);
-      feetStarts.push(feetPts.length / 2); feetPts.push(...f.r); feetTops.push(top);
+      feetStarts.push(feetPts.length / 2); feetPts.push(...f.r); feetTops.push(top); feetStyles.push(["apt", "villa", "shop", "office"].indexOf(style));
       nb++;
       // apartment complexes to deliver to: 공동주택 of five storeys and up, by name
       const name = String(b.n || "");
@@ -764,7 +764,7 @@ export function tileWorkerMain() {
       asphalt: arrays(asphalt, true, false), walks: arrays(walks, true, false), marks: arrays(marks, false, true), concrete: arrays(concrete, true, false),
       styles: Object.fromEntries(Object.entries(styles).map(([k, b]) => [k, arrays(b)])), roofs: arrays(roofs, false, true),
       lamps: new Float32Array(lamps), trees: new Float32Array(trees),
-      feet: { pts: new Float32Array(feetPts), starts: new Uint32Array(feetStarts), tops: new Float32Array(feetTops) },
+      feet: { pts: new Float32Array(feetPts), starts: new Uint32Array(feetStarts), tops: new Float32Array(feetTops), styles: new Uint8Array(feetStyles) },
       decks: new Float32Array(decks),
       lines: lines.map(L => { const pts = new Float32Array(L.xs.length * 3); for (let k = 0; k < L.xs.length; k++) { pts[k * 3] = L.xs[k]; pts[k * 3 + 1] = L.ys[k]; pts[k * 3 + 2] = L.h[k]; } return { id: L.id, pts, w: L.w, lanes: L.lanes, major: L.major }; }),
       dests: [...dests.entries()].map(([name, d]) => ({ name, x: d.x / d.n, y: d.y / d.n, floors: d.floors, n: d.n })),
