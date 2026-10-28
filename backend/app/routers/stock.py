@@ -2,7 +2,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.data import (
     balance_fetcher,
@@ -19,6 +19,7 @@ from app.services.cache import cache
 from app.services.daily_prices import build_daily_rows
 from app.services.indicators import compute_indicators
 from app.services.predictor import predict_next_day
+from app.services.stock_valuation import get_stock_valuation
 from app.utils import dataframe_to_records
 
 router = APIRouter()
@@ -97,6 +98,13 @@ def quote(code: str):
     if not data:
         raise HTTPException(status_code=502, detail="시세 데이터를 가져오지 못했습니다.")
     return data
+
+
+@router.get("/{code}/valuation")
+def valuation(code: str, response: Response):
+    _resolve_name(code)
+    response.headers["Cache-Control"] = "no-store"
+    return get_stock_valuation(code)
 
 
 @router.get("/{code}/orderbook")

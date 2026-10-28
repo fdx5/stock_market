@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, CompanyOverview, GlobalEnrichment, IndicatorPoint, StockSummary, SectorMap, UsSectorMap } from "../../api/client";
 import { startVisibilityAwareInterval } from "../../pollVisibility";
 import { BriefQuote, peerComparison, PeerComparison } from "./stockBriefModel";
+import { useStockValuation } from "./useStockValuation";
 
 type Status = "loading" | "ready" | "unavailable";
 type Feed = "quote" | "history" | "profile" | "peers";
@@ -16,6 +17,7 @@ export function useStockReport(code: string, isEtf: boolean) {
   const [receivedAt, setReceivedAt] = useState<string | null>(null);
   const [status, setStatus] = useState<Partial<Record<Feed, Status>>>({ quote: "loading", history: "loading" });
   const [revision, setRevision] = useState(0);
+  const valuation = useStockValuation(code, isEtf, revision);
   useEffect(() => {
     let alive = true;
     let quoting = false;
@@ -57,5 +59,5 @@ export function useStockReport(code: string, isEtf: boolean) {
     const stop = startVisibilityAwareInterval(() => loadQuote(), 10_000);
     return () => { alive = false; stop(); for (const controller of controllers) controller.abort(); };
   }, [code, us, isEtf, revision]);
-  return { us, quote, summary, points, overview, enrich, peers, receivedAt, status, reload: () => setRevision((r) => r + 1) };
+  return { us, quote, summary, points, overview, enrich, peers, receivedAt, status, valuation, reload: () => setRevision((r) => r + 1) };
 }

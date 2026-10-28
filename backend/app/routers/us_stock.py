@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.data import naver_news_search_fetcher, price_fetcher, us_company_korean_names
 from app.data.us_index_fetcher import get_us_stock_quote
@@ -7,6 +7,7 @@ from app.services import fight_comment_store
 from app.services.cache import cache
 from app.services.daily_prices import build_daily_rows
 from app.services.indicators import compute_indicators
+from app.services.stock_valuation import get_stock_valuation
 from app.utils import dataframe_to_records
 
 router = APIRouter()
@@ -50,6 +51,13 @@ def quote(code: str):
     return cache.get_or_set(
         f"us_stock_quote:{code}", TTL_QUOTE_SECONDS, lambda: get_us_stock_quote(code, item["name"], snapshot=item)
     )
+
+
+@router.get("/{code}/valuation")
+def valuation(code: str, response: Response):
+    _resolve_item(code)
+    response.headers["Cache-Control"] = "no-store"
+    return get_stock_valuation(code, us=True)
 
 
 @router.get("/{code}/history")

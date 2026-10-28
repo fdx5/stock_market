@@ -18,7 +18,7 @@ export default function StockReportPage({ code, isEtf = false }: { code: string;
   const L = (ko: string, en: string) => lang === "ko" ? ko : en;
   const data = useStockReport(code, isEtf);
   const name = data.summary?.name ?? data.quote?.name ?? "";
-  const m = useMemo(() => stockBrief(data), [data.points, data.quote, data.summary, data.peers]);
+  const m = useMemo(() => stockBrief(data), [data.points, data.quote, data.summary, data.peers, data.valuation]);
   const market = data.us ? "US" : "KR";
   useStockDetailSeo({ code, name: name || undefined, market, price: m.price ?? undefined, report: true });
   useEffect(() => {

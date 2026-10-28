@@ -52,3 +52,13 @@ test("invalid indicator values cannot be rendered as NaN or Infinity", () => {
   const brief = model.stockBrief({ points: [{ ...days[0], rsi14: Infinity, volume_ma20: 0, sma20: NaN }], quote: { close: 150, change_pct: NaN } });
   assert.equal(brief.rsi, null); assert.equal(brief.volumeRatio, null); assert.equal(brief.distance20, null); assert.equal(brief.day, null);
 });
+
+test("PBR keeps the provider ratio and financial period separate from the live price", () => {
+  const valuation = { pbr: 2.58, bps: 86052, period: "2026.06.", source: "Naver Finance" };
+  const brief = model.stockBrief({ points: days, quote: { close: 500000 }, valuation });
+  assert.equal(brief.pbr, 2.58);
+  assert.equal(brief.valuation.period, "2026.06.");
+  for (const pbr of [null, undefined, 0, -1, NaN, Infinity]) {
+    assert.equal(model.stockBrief({ points: [], quote: null, valuation: { pbr } }).pbr, null);
+  }
+});

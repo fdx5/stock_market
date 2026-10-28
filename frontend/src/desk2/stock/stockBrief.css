@@ -7,11 +7,14 @@
 .brief-basis { display: flex; gap: 8px 20px; flex-wrap: wrap; padding: 0 24px 16px; color: var(--ink-2); font-size: 11px; line-height: 1.6; }
 .brief-pending { color: var(--warn); }
 .brief-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-block: 1px solid var(--rule-2); }
+.brief-metrics.has-valuation { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .brief-metrics > div { min-width: 0; padding: 20px 24px; border-right: 1px solid var(--rule); }
 .brief-metrics > div:last-child { border: 0; }
 .brief-metrics dt { font-size: 12px; color: var(--ink-2); line-height: 1.4; }
 .brief-metrics dd { margin: 8px 0 6px; font: 600 30px var(--f-num); }
 .brief-metrics small { font-size: 10px; color: var(--ink-3); }
+@media (max-width: 760px) { .brief-metrics.has-valuation { grid-template-columns: 1fr 1fr; } .brief-metrics.has-valuation > div:nth-child(even) { border-right: 0; } .brief-metrics.has-valuation > div:last-child { grid-column: 1 / -1; } }
+@media print { .brief-metrics.has-valuation { grid-template-columns: repeat(5, minmax(0, 1fr)); } .brief-metrics.has-valuation > div:last-child { grid-column: auto; } }
 .stock-insights .is-up, .report-page .is-up { color: var(--up); fill: var(--up); }
 .stock-insights .is-down, .report-page .is-down { color: var(--down); fill: var(--down); }
 .stock-insights .is-flat { color: var(--ink-2); fill: var(--ink-2); }

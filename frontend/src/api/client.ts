@@ -81,6 +81,16 @@ export interface StockQuote {
   marcap: number;
 }
 
+export interface StockValuation {
+  code: string;
+  pbr: number | null;
+  bps: number | null;
+  period: string | null;
+  source: "Naver Finance" | "Yahoo Finance" | null;
+  basis: "provider" | "regular_price_to_book" | null;
+  fetched_at: string | null;
+}
+
 export interface CompanyOverview {
   code: string;
   name: string;
@@ -1445,6 +1455,8 @@ export const api = {
     ),
   summary: (code: string, signal?: AbortSignal) => getJSON<StockSummary>(`${BASE}/stock/${code}/summary`, { signal }),
   quote: (code: string, signal?: AbortSignal) => getJSONFresh<StockQuote>(`${BASE}/stock/${code}/quote`, signal),
+  stockValuation: (code: string, us: boolean, signal?: AbortSignal) =>
+    getJSONFresh<StockValuation>(`${BASE}/${us ? "us-stock" : "stock"}/${encodeURIComponent(code)}/valuation`, signal),
   overview: (code: string, signal?: AbortSignal) => getJSON<CompanyOverview>(`${BASE}/stock/${code}/overview`, { signal }),
   history: (code: string, years = 3) =>
     getJSON<{ code: string; name: string; points: OhlcvPoint[] }>(

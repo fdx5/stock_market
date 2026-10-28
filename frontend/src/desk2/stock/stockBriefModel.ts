@@ -1,4 +1,4 @@
-import type { IndicatorPoint, MarketMapItem, SectorMap, UsSectorMap } from "../../api/client";
+import type { IndicatorPoint, MarketMapItem, SectorMap, UsSectorMap, StockValuation } from "../../api/client";
 import { dailyPoints, finite, periodReturns } from "./stockReturns";
 
 export interface BriefQuote { close: number; change?: number; change_pct?: number; name?: string; session?: "pre" | "regular" | "post" }
@@ -13,7 +13,7 @@ export function peerComparison(code: string, map: Pick<SectorMap | UsSectorMap, 
   return { sector: map.sector, count: others.length, own: target.change_pct, average, relative: target.change_pct - average, session, asOf: map.generated_at && Number.isFinite(Date.parse(map.generated_at)) ? map.generated_at : null, names: [...others].sort((a: MarketMapItem, b: MarketMapItem) => (b.market_cap ?? b.marcap) - (a.market_cap ?? a.marcap)).slice(0, 3).map((p) => ({ code: p.code, name: p.name, change: p.change_pct })) };
 }
 
-export interface BriefInput { points: IndicatorPoint[]; quote: BriefQuote | null; summary?: { date: string; close: number; change_pct: number } | null; peers?: PeerComparison | null; bench?: IndicatorPoint[] | null }
+export interface BriefInput { points: IndicatorPoint[]; quote: BriefQuote | null; summary?: { date: string; close: number; change_pct: number } | null; peers?: PeerComparison | null; bench?: IndicatorPoint[] | null; valuation?: StockValuation | null }
 export function stockBrief(input: BriefInput) {
   const points = dailyPoints(input.points);
   const latest = points[points.length - 1];
@@ -28,5 +28,7 @@ export function stockBrief(input: BriefInput) {
   const recent = points.slice(-20);
   const low = recent.length ? Math.min(...recent.map((p) => p.close)) : null;
   const high = recent.length ? Math.max(...recent.map((p) => p.close)) : null;
-  return { points, latest, price, day, returns, month, volumeRatio, rsi, distance20, recent, low, high, peers: input.peers ?? null, priceKind: validQuote ? "quote" : "daily" };
+  const suppliedPbr = input.valuation?.pbr;
+  const pbr = finite(suppliedPbr) && suppliedPbr > 0 ? suppliedPbr : null;
+  return { points, latest, price, day, returns, month, volumeRatio, rsi, distance20, recent, low, high, pbr, valuation: input.valuation ?? null, peers: input.peers ?? null, priceKind: validQuote ? "quote" : "daily" };
 }

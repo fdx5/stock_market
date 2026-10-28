@@ -32,6 +32,7 @@ import Technicals, { RangeBar, Returns, periodReturns } from "./Technicals";
 import { writeStory } from "./story";
 import StockInsights from "./StockInsights";
 import { stockBrief } from "./stockBriefModel";
+import { useStockValuation } from "./useStockValuation";
 import "../pages.css";
 
 /* 종목면 — one company, set as a newspaper's company page.
@@ -121,6 +122,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
   const { lang } = useLanguage();
   const L = useL();
   const code = rawCode.toUpperCase();
+  const valuation = useStockValuation(code, isEtf);
   const us = !/^\d[0-9A-Z]{5}$/.test(code);
   const market: "KR" | "US" = us ? "US" : "KR";
   const currency = us ? "USD" : "KRW";
@@ -237,7 +239,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
   const changePct = quote?.change_pct ?? summary?.change_pct ?? 0;
   const tone = toneOf(changePct);
   const latest = points[points.length - 1];
-  const brief = useMemo(() => stockBrief({ points, quote, summary, peers: peers?.comparison, bench: bench?.points }), [points, quote, summary, peers, bench]);
+  const brief = useMemo(() => stockBrief({ points, quote, summary, peers: peers?.comparison, bench: bench?.points, valuation }), [points, quote, summary, peers, bench, valuation]);
   const year = points.slice(-252);
   const hi52 = year.length ? Math.max(...year.map((p) => p.high)) : null;
   const lo52 = year.length ? Math.min(...year.map((p) => p.low)) : null;
