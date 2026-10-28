@@ -51,3 +51,24 @@ def test_search_failure_is_reported_not_raised_raw(monkeypatch):
     with pytest.raises(ys.SearchError) as e:
         ys.search("abc")
     assert "SECRET" not in str(e.value)
+
+
+def test_home_mixes_front_page_and_topics_twenty_unique(monkeypatch):
+    monkeypatch.delenv("YOUTUBE_DATA_API_KEY", raising=False)
+    ys._memo.clear()
+    monkeypatch.setattr(ys, "_front_page", lambda: [{"id": f"front{i:06d}"} for i in range(8)])
+    monkeypatch.setattr(ys, "_public", lambda q: [{"id": f"t{abs(hash(q)) % 999:03d}{i:07d}"} for i in range(9)] + [{"id": "front000000"}])
+    items = ys.home()["items"]
+    assert len(items) == 20
+    assert len({v["id"] for v in items}) == 20
+
+
+def test_home_survives_front_page_failure(monkeypatch):
+    import requests
+    monkeypatch.delenv("YOUTUBE_DATA_API_KEY", raising=False)
+    ys._memo.clear()
+    def boom():
+        raise requests.ConnectionError("down")
+    monkeypatch.setattr(ys, "_front_page", boom)
+    monkeypatch.setattr(ys, "_public", lambda q: [{"id": f"{q[:2]}x{i:08d}"[:11]} for i in range(6)])
+    assert ys.home()["items"]

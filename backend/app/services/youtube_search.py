@@ -10,6 +10,7 @@ from __future__ import annotations
 import html
 import logging
 import os
+import random
 import re
 import threading
 import time
@@ -84,6 +85,52 @@ def _api(q: str, key: str) -> list[dict]:
 def _public(q: str) -> list[dict]:
     page = _request("https://www.youtube.com/results", params={"search_query": q, "hl": "ko", "gl": "KR"}).text
     return parse_results_page(page)
+
+
+# The TV's first page: what youtube.com shows a signed-out viewer in Korea, and (since that page is
+# often empty signed out) the results of a few of these, a different few each time.
+HOME_TOPICS = ["인기 급상승 동영상", "오늘의 뉴스", "주식 시장 전망", "부동산 시장", "경제 뉴스", "라이브 음악", "여행 브이로그",
+               "요리 레시피", "스포츠 하이라이트", "게임 실황", "다큐멘터리", "과학 이야기", "IT 리뷰", "자동차 리뷰", "예능 클립",
+               "영화 리뷰", "건강 정보", "인테리어", "캠핑", "반려동물", "운동 루틴", "역사 이야기", "드라마 클립", "클래식 음악"]
+HOME_LIMIT = 20
+
+
+def _front_page() -> list[dict]:
+    page = _request("https://www.youtube.com/", params={"hl": "ko", "gl": "KR"}).text
+    return parse_results_page(page)
+
+
+def home() -> dict:
+    """Twenty videos for the TV's first page, drawn afresh on every call: youtube.com's front page
+    (kept five minutes) and the results of four topics picked at random (each kept ten minutes),
+    mixed. Failures of one source are skipped; only all failing is an error."""
+    now = time.time()
+    pool: list[dict] = []
+    with _lock:
+        hit = _memo.get("\0home")
+    if hit and now - hit[0] < hit[1]:
+        pool += hit[2] or []
+    else:
+        try:
+            front = _front_page()
+            ttl = 300
+        except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
+            log.info("youtube home failed (%s)", type(exc).__name__)
+            front, ttl = None, FAIL_TTL
+        with _lock:
+            _memo["\0home"] = (now, ttl, front)
+        pool += front or []
+    for topic in random.sample(HOME_TOPICS, 4):
+        try:
+            pool += search(topic)["items"]
+        except SearchError:
+            continue
+    seen: set[str] = set()
+    unique = [v for v in pool if not (v["id"] in seen or seen.add(v["id"]))]
+    if not unique:
+        raise SearchError("유튜브 영상을 불러오지 못했습니다.")
+    random.shuffle(unique)
+    return {"items": unique[:HOME_LIMIT]}
 
 
 def search(q: str | None) -> dict:

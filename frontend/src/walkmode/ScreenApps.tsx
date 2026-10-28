@@ -23,7 +23,10 @@ export function TvBrowser({ corners, onOff, onPicture, zoom }: { corners: () => 
   useEffect(() => {
     let live = true;
     setItems(null); setErr("");
-    fetch(`/api/editorial/videos?market=${market}`).then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+    // (YouTube's own first page, twenty drawn afresh each time the TV is opened; the site's archive
+    // of investment videos if YouTube cannot be reached)
+    fetch("/api/editorial/youtube/home", { cache: "no-store" }).then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+      .catch(() => fetch(`/api/editorial/videos?market=${market}`).then(r => (r.ok ? r.json() : Promise.reject(r.status))))
       .then((d: { items?: Video[] }) => { if (live) setItems(d.items ?? []); })
       .catch(() => { if (live) { setItems([]); setErr("영상 목록을 불러오지 못했습니다. 유튜브 링크를 붙여 넣어 보세요."); } });
     return () => { live = false; };

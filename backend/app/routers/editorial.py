@@ -55,6 +55,17 @@ def videos(response: Response, market: str = Query("kr", pattern="^(kr|us)$")):
     return editorial.get_videos(market)
 
 
+@router.get("/youtube/home")
+def youtube_home(response: Response):
+    """The walk mode TV's first page: twenty videos drawn afresh from YouTube on every visit."""
+    try:
+        result = youtube_search.home()
+    except youtube_search.SearchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    response.headers["Cache-Control"] = "no-store"
+    return result
+
+
 @router.get("/youtube/search")
 def youtube_videos(response: Response, q: str = Query("", max_length=200)):
     """The walk mode TV's YouTube search (results only: the videos play in YouTube's own embed)."""
