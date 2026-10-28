@@ -1,7 +1,7 @@
 import {filterPlanting,plantingWaterMask} from './plantingWater';
 import { Link, navigate } from "../router";
 import { developmentDriveEnabled, driveEntryUrl } from './driveEntry';
-import { developmentWalkEnabled, walkEntryUrl } from './walkEntry';
+import { walkEntryUrl } from './walkEntry';
 import CoffeeIcon from "../desk2/CoffeeIcon";
 import { safeCompileAsync } from "./safeCompile";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -4093,9 +4093,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     navigate(driveEntryUrl(complexId, at, hour, location.pathname + location.search + location.hash));
   };
   // 직접 걷기: its own page too (/walk); only the entry is here.
-  const walkEnabled = developmentWalkEnabled(location.search);
   const openWalk = () => {
-    if (!developmentWalkEnabled(location.search) || !complexId) return;
+    if (!sceneReady || !complexId) return;
     const at = stageRef.current?.drone?.where() ?? data?.center;
     navigate(walkEntryUrl(complexId, at, hour, weather, location.pathname + location.search + location.hash));
   };
@@ -4724,11 +4723,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             aria-label="드라이브" title="현재 지역에서 드라이브 게임 열기">
             <i aria-hidden="true">🚗</i><span>드라이브</span>
           </button>}
-          {walkEnabled && <button type="button" className="re-holo-balloon-btn re-holo-walk-btn" onClick={openWalk}
+          <button type="button" className="re-holo-balloon-btn re-holo-walk-btn" onClick={openWalk}
+            aria-label="직접 걷기"
             disabled={!sceneReady} aria-busy={!sceneReady}
             title={sceneReady ? "이 단지 주변을 직접 걷고, 아파트 동에 들어가 실내 보기" : "직접 걷기 준비 중 · 단지 장면을 만드는 중입니다"}>
             <i aria-hidden="true">🚶</i><span>{sceneReady ? "직접 걷기" : "준비 중"}</span>
-          </button>}
+          </button>
         </div>}
       </div>}
       {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label={droneOn ? '드론 비행 조작' : "3D 화면 조작"}>
