@@ -27,7 +27,8 @@ test('third-person avatar survives repeated riding/walking camera changes beside
     game.bicycles.active = i % 2 ? null : {};
     game.placeCamera(1/60, i === 0); game.camera.updateMatrixWorld();
     assert.equal(game.avatar.root.visible, true);
-    assert.equal(game.world.buildingAt([game.camera.position.x, -game.camera.position.z]), 0);
+    assert.ok(game.camera.position.z > 3.5);
+    assert.ok(game.camera.position.y < 2.4);
     const torso = new THREE.Vector3(0, 1.05, 0).project(game.camera);
     assert.ok(Math.abs(torso.x) < 1 && Math.abs(torso.y) < 1 && torso.z < 1);
   }
@@ -35,14 +36,23 @@ test('third-person avatar survives repeated riding/walking camera changes beside
   game.view = 'third'; game.placeCamera(1/60, true); assert.equal(game.avatar.root.visible, true);
 });
 
-test('a narrow corner finds an overhead third-person camera without hiding the rider', () => {
+test('a narrow corner keeps the low rear camera without hiding the rider', () => {
   const game = Object.create(WalkGame.prototype);
   Object.assign(game, { camera: new THREE.PerspectiveCamera(62, 1.6, .1, 2600), pos: new THREE.Vector2(), z: 0, yaw: 0, pitch: -.12,
     view: 'third', avatar: { root: new THREE.Group() }, bicycles: { active: {} }, camEye: new THREE.Vector3(), camInit: false,
     world: { buildingAt: ([x, y]) => Math.abs(x) > .6 || Math.abs(y) > .6 ? 20 : 0, surfaceAt: () => 0 } });
   game.placeCamera(1/60, true);
-  assert.equal(game.avatar.root.visible, true); assert.ok(game.camera.position.y > 4);
-  assert.ok(Math.abs(game.camera.position.x) < .6 && Math.abs(game.camera.position.z) < .6);
+  assert.equal(game.avatar.root.visible, true); assert.ok(game.camera.position.y < 2.4);
+  assert.ok(Math.abs(game.camera.position.x) < .01 && game.camera.position.z > 4.5);
+  game.camera.updateMatrixWorld();
+  const torso=new THREE.Vector3(0,1.05,0).project(game.camera);
+  assert.ok(Math.abs(torso.x)<1&&Math.abs(torso.y)<1&&torso.z<1);
+});
+
+test('entry and third-person restoration face the character away from a low rear camera at every heading',()=>{
+  const game=Object.create(WalkGame.prototype);
+  Object.assign(game,{camera:new THREE.PerspectiveCamera(62,1.6,.1,2600),pos:new THREE.Vector2(),z:0,yaw:0,pitch:-1.2,view:'third',avatar:{root:new THREE.Group()},body:{},vel:new THREE.Vector2(),bicycles:{active:null},camEye:new THREE.Vector3(),camInit:false,world:{surfaceAt:()=>0}});
+  for(let i=0;i<24;i++){const heading=i/24*Math.PI*2;game.placeAt({x:0,y:0,heading},4);game.placeCamera(0,true);const forward=new THREE.Vector3(0,0,1).applyQuaternion(game.avatar.root.quaternion),rear=game.camera.position.clone().sub(new THREE.Vector3(game.pos.x,game.z,-game.pos.y));assert.ok(forward.x*rear.x+forward.z*rear.z<-3.5);assert.ok(Math.abs(rear.y-2.05)<1e-8);game.view='first';game.pitch=-1.2;game.toggleView();game.placeCamera(0,true);assert.ok(game.camera.position.y<2.4);assert.equal(game.pitch,-.12);}
 });
 
 test('holds a true 60 km/h limit without overspeed, even during a long acceleration', () => {

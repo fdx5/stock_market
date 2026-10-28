@@ -125,6 +125,7 @@ export class WalkGame {
 
   constructor(readonly renderer: THREE.WebGLRenderer, private o: WalkOptions) {
     this.origin = originAt(o.lat, o.lon);
+    this.avatar.root.rotation.y = this.yaw + Math.PI;
     this.scene.add(this.avatar.root, this.markers, this.bicycles.group);
     this.setupSky();
   }
@@ -191,7 +192,7 @@ export class WalkGame {
     // (homes with a light on, by the hour: most in the evening, a few in the small hours)
     { const h = ((o.hour % 24) + 24) % 24, lit = [0.22, 0.14, 0.09, 0.08, 0.1, 0.18, 0.35, 0.42, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.35, 0.55, 0.7, 0.74, 0.72, 0.66, 0.55, 0.38]; this.apartmentSurface.setLit(lit[Math.floor(h)]); }
     this.apartmentDetails = new ApartmentDetails(points => this.world?.buildingAt(points) ?? 0); this.scene.add(this.apartmentDetails.group);
-    for (const m of this.apartmentDetails.materials()) cutOpenings(m);
+    for (const m of this.apartmentDetails.materials()) { cutOpenings(m); this.rearCameraOcclusion.apply(m); }
     setOpenings([]);
     // (the walk's own copy of the drive materials: roads and sidewalks in the scanned textures the
     // aerial ground uses — the drive game's tile every 4 m, these ~3 m and 2 m)
@@ -458,6 +459,9 @@ export class WalkGame {
     }
     // facing the door
     this.yaw = Math.atan2(Math.cos(e.heading), -Math.sin(e.heading));
+    this.pitch = -0.12;
+    this.avatar.root.rotation.set(0, this.yaw + Math.PI, 0);
+    Object.assign(this.body, { hx: -Math.sin(this.yaw), hy: Math.cos(this.yaw) });
     this.camInit = false;
     this.vel.set(0, 0);
   }
@@ -652,6 +656,7 @@ export class WalkGame {
   toggleView() { this.view = this.view === "first" ? "third" : "first";if(this.driving&&this.view==="first"){const b=this.drivenCars!.active!.vehicle.body;this.yaw=Math.atan2(-b.hx,b.hy);this.pitch=-.025;}
     // (into first person on foot or on the bike: looking straight ahead, the way the body faces)
     else if(this.view==="first"){const h=this.cycling?this.bicycleMotion.heading:Math.atan2(this.body.hy,this.body.hx);if(Number.isFinite(h)){this.yaw=Math.atan2(-Math.cos(h),Math.sin(h));this.pitch=this.cycling?-.06:-.04;}}
+    else if(this.view==="third"&&!this.driving){this.yaw=this.cycling?Math.atan2(-Math.cos(this.bicycleMotion.heading),Math.sin(this.bicycleMotion.heading)):this.avatar.root.rotation.y-Math.PI;this.pitch=-.12;}
     this.camInit=false; }
 
   pause() { this.window(false); cancelAnimationFrame(this.raf); this.running = false; this.clearControls(); }
@@ -786,44 +791,28 @@ export class WalkGame {
 
   private placeCamera(dt: number, snap: boolean) {
     if(this.driving){this.avatar.root.visible=this.view==="third";this.drivenCars!.camera(this.camera,this.view==="first",this.yaw,this.pitch,dt,(x,y)=>this.world.buildingAt([x,y]));const a=this.drivenCars!.active!,b=a.vehicle.body;this.rearCameraOcclusion.update(this.camera,this.view==="third"?{x:b.x,y:b.y,z:a.record.z,height:a.record.height,width:a.record.width}:null);return;}
-    this.rearCameraOcclusion?.update(this.camera,null);
     const cam = this.camera;
     const look = new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
     const head = new THREE.Vector3(this.pos.x, this.z + (this.cycling ? 1.78 : 1.6), -this.pos.y);
     this.avatar.root.visible = this.view === "third";
-    if (this.view === "first") { cam.position.copy(head); cam.lookAt(head.clone().add(look)); return; }
-    const want = head.clone().addScaledVector(look, this.cycling ? -4.6 : -3.6).add(new THREE.Vector3(0, 0.5, 0));
-    // A wall used to shrink the boom below 1.1 m and hide the whole avatar. After
-    // repeated dismounts that state could persist. Keep third person visible and
-    // find a clear side/overhead view instead of changing avatar visibility.
-    const probe = new THREE.Vector3();
-    const shorten = (target: THREE.Vector3) => {
-      const samples = Math.ceil(target.distanceTo(head) / 0.15);
-      for (let i = 1; i <= samples; i++) {
-        probe.copy(head).lerp(target, i / samples);
-        if (this.world?.buildingAt([probe.x, -probe.z]) > probe.y - 0.2 || (this.nightLighting?.cameraHeight(probe.x,-probe.z)??0)>probe.y-.2 || this.parkedCars?.cameraBlocked(probe.x,-probe.z,probe.y)) {
-          target.lerpVectors(head, target, Math.max(0, (i - 2) / samples)); break;
-        }
-      }
-      return target.distanceTo(head);
-    };
-    let clearance = shorten(want), fallback = clearance < 2.4;
-    if (fallback) {
-      const boom = new THREE.Vector3(-look.x, 0, -look.z).normalize().multiplyScalar(this.cycling ? 4.6 : 3.6);
-      for (const angle of [Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * 0.75, -Math.PI * 0.75, Math.PI]) {
-        const candidate = boom.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, angle).add(head); candidate.y += 0.8;
-        const distance = shorten(candidate);
-        if (distance > clearance) { clearance = distance; want.copy(candidate); }
-        if (clearance >= 3) break;
-      }
-      if (clearance < 2.4) { const overhead = head.clone().add(new THREE.Vector3(0.1, 3.2, 0.1)); if (shorten(overhead) > clearance) want.copy(overhead); }
+    if (this.view === "first") { cam.position.copy(head); cam.lookAt(head.clone().add(look)); this.rearCameraOcclusion?.update(cam,null); return; }
+    // Keep a low rear camera even beside a tall wall or inside a tight corner.
+    // Occluding walls use the existing camera-only cutaway; never orbit or rise.
+    const distance = this.cycling ? 4.6 : 3.6;
+    const want = new THREE.Vector3(this.pos.x + Math.sin(this.yaw) * distance, this.z + (this.cycling ? 2.18 : 2.05), -this.pos.y + Math.cos(this.yaw) * distance);
+    // A parked vehicle may shorten the rear distance, but never changes its side
+    // or height. Keep walls out of this calculation: they use the cutaway below.
+    for (let d = distance; d >= 1.2; d -= .15) {
+      want.x = this.pos.x + Math.sin(this.yaw) * d; want.z = -this.pos.y + Math.cos(this.yaw) * d;
+      if (!this.parkedCars?.cameraBlocked(want.x, -want.z, want.y)) break;
     }
     const g = this.world?.surfaceAt(want.x, -want.z, this.z);
-    if (Number.isFinite(g)) want.y = Math.max(want.y, g + 0.4);
-    if (snap || fallback || !this.camInit || this.parkedCars?.cameraBlocked(this.camEye.x,-this.camEye.z,this.camEye.y) || want.distanceTo(head) < this.camEye.distanceTo(head)) { this.camEye.copy(want); this.camInit = true; } else this.camEye.lerp(want, 1 - Math.exp(-dt * 10));
+    if (Number.isFinite(g)) want.y = Math.max(want.y, Math.min(g + 0.4, this.z + 2.4));
+    if (snap || !this.camInit || this.parkedCars?.cameraBlocked(this.camEye.x,-this.camEye.z,this.camEye.y) || want.distanceTo(head) < this.camEye.distanceTo(head)) { this.camEye.copy(want); this.camInit = true; } else this.camEye.lerp(want, 1 - Math.exp(-dt * 10));
     this.avatar.root.visible = true;
     cam.position.copy(this.camEye);
-    cam.lookAt(fallback ? new THREE.Vector3(this.pos.x, this.z + 1.05, -this.pos.y) : head.clone().add(new THREE.Vector3(0, 0.1, 0)).addScaledVector(look, 2));
+    cam.lookAt(head.clone().add(new THREE.Vector3(0, 0.1, 0)).addScaledVector(look, 2));
+    this.rearCameraOcclusion?.update(cam,{ x:this.pos.x,y:this.pos.y,z:this.z,height:this.cycling?1.9:1.8,width:.7 });
   }
   private preparedTextures=new WeakSet<THREE.Texture>();
   /** Compile new streamed surfaces and upload shared textures before revealing
