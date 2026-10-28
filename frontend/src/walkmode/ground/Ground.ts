@@ -5,6 +5,7 @@ import type { World } from "../../drivegame/world/World";
 import type { Origin } from "../../drivegame/world/geo";
 import { carGeometry } from "../../drivegame/vehicle/cars";
 import { realCarMaterial } from "./carMaterial";
+import { parkedCarPaint } from "./carPaint";
 import { attachCarWindows } from "./carModels";
 import { roadsideParking } from "./parkingPlacement";
 import type { CarBatches } from "./CarBatches";
@@ -525,11 +526,6 @@ export class Ground {
     {
       const C = res.cars, by = new Map<string, { m: THREE.Matrix4; c: THREE.Color; record?:ParkedCar }[]>();
       const passengerKinds = [...(o.carModels?.keys() ?? [])].filter(name => !["bus", "container", "garbage", "mixer", "taxi"].includes(name));
-      const paint = (r: number, g: number, b: number) => {
-        const l = 0.3 * r + 0.59 * g + 0.11 * b, sat = Math.max(r, g, b) - Math.min(r, g, b);
-        if (sat > 0.18) return new THREE.Color(r, g, b).convertSRGBToLinear().multiplyScalar(1.4);
-        return new THREE.Color(l > 0.62 ? "#f2f2f0" : l > 0.42 ? "#b8bcc0" : l > 0.25 ? "#5a5e63" : "#16171a");
-      };
       for (let k = 0; k < C.length; k += 8) {
         if(!(k%128))await breathe();
         let x = C[k], y = C[k + 1], ang = C[k + 2];const len = C[k + 3];
@@ -561,7 +557,7 @@ export class Ground {
         let gz = -Infinity;
         for (const [a, b] of [[wl, ww], [wl, -ww], [-wl, ww], [-wl, -ww]]) gz = Math.max(gz, height(x + hx * a - hy * b, y + hy * a + hx * b));
         const m = new THREE.Matrix4().compose(new THREE.Vector3(x, gz + 0.05, -y), q.setFromAxisAngle(up, Math.atan2(hx, -hy)), new THREE.Vector3(1, 1, 1));
-        const c=paint(C[k+5],C[k+6],C[k+7]),record=o.parkedCars?.provide(kind,m,c,geo);
+        const c=parkedCarPaint(C[k+5],C[k+6],C[k+7],o.origin.lon+C[k]/o.origin.kx,o.origin.lat+C[k+1]/o.origin.ky),record=o.parkedCars?.provide(kind,m,c,geo);
         const l = by.get(kind) ?? []; l.push({ m, c, record }); by.set(kind, l);
       }
       const mat = sharedMat("car", realCarMaterial);
