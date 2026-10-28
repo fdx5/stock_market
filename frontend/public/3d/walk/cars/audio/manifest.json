@@ -1,0 +1,299 @@
+{
+  "sampleRate": 48000,
+  "clips": {
+    "small-idle": {
+      "source": "small",
+      "start": 9,
+      "duration": 3.3,
+      "loop": true
+    },
+    "small-load": {
+      "source": "rev",
+      "start": 1.0,
+      "duration": 2.5,
+      "loop": true
+    },
+    "sedan-idle": {
+      "source": "small",
+      "start": 22,
+      "duration": 3.7,
+      "loop": true
+    },
+    "sedan-load": {
+      "source": "rev",
+      "start": 3.5,
+      "duration": 2.0,
+      "loop": true
+    },
+    "v8-idle": {
+      "source": "cobra",
+      "start": 7,
+      "duration": 3.5,
+      "loop": true
+    },
+    "v8-load": {
+      "source": "performance-001",
+      "start": 0.35,
+      "duration": 2.5,
+      "loop": true
+    },
+    "sport-idle": {
+      "source": "cobra",
+      "start": 13,
+      "duration": 3.1,
+      "loop": true
+    },
+    "sport-load": {
+      "source": "performance-009",
+      "start": 0.5,
+      "duration": 3.2,
+      "loop": true
+    },
+    "race-idle": {
+      "source": "cobra",
+      "start": 17,
+      "duration": 3.1,
+      "loop": true
+    },
+    "race-load": {
+      "source": "performance-007",
+      "start": 4,
+      "duration": 3.2,
+      "loop": true
+    },
+    "van-idle": {
+      "source": "van",
+      "start": 12,
+      "duration": 3.5,
+      "loop": true
+    },
+    "van-load": {
+      "source": "diesel-rev",
+      "start": 6,
+      "duration": 2.9,
+      "loop": true
+    },
+    "truck-idle": {
+      "source": "iveco",
+      "start": 9,
+      "duration": 3.5,
+      "loop": true
+    },
+    "truck-load": {
+      "source": "diesel-rev",
+      "start": 12,
+      "duration": 3.4,
+      "loop": true
+    },
+    "heavy-idle": {
+      "source": "heavy",
+      "start": 2,
+      "duration": 3.9,
+      "loop": true
+    },
+    "heavy-load": {
+      "source": "diesel-rev",
+      "start": 15,
+      "duration": 3.1,
+      "loop": true
+    },
+    "ev-idle": {
+      "source": "ev",
+      "start": 35,
+      "duration": 2.9,
+      "loop": true
+    },
+    "ev-load": {
+      "source": "ev",
+      "start": 46,
+      "duration": 3.9,
+      "loop": true
+    },
+    "road": {
+      "source": "road",
+      "start": 28,
+      "duration": 3.9,
+      "loop": true
+    },
+    "skid": {
+      "source": "skid",
+      "start": 0.3,
+      "duration": 1.6,
+      "loop": true
+    },
+    "door": {
+      "source": "ev",
+      "start": 0.3,
+      "duration": 1.3,
+      "loop": false
+    },
+    "ignition": {
+      "source": "small",
+      "start": 1.5,
+      "duration": 1.1,
+      "loop": false
+    },
+    "small-load-steady": {
+      "source": "rev",
+      "start": 1.0,
+      "duration": 0.4,
+      "loop": true,
+      "derivedFrom": "small-load",
+      "stableSourceOffset": 1.6,
+      "processing": "Stationary 480ms grain, 80ms seam blend, cyclic envelope stabilization; no recorded rev-up loop."
+    },
+    "sedan-load-steady": {
+      "source": "rev",
+      "start": 3.5,
+      "duration": 0.4,
+      "loop": true,
+      "derivedFrom": "sedan-load",
+      "stableSourceOffset": 0.98,
+      "processing": "Stationary 480ms grain, 80ms seam blend, cyclic envelope stabilization; no recorded rev-up loop."
+    },
+    "v8-load-steady": {
+      "source": "performance-001",
+      "start": 0.35,
+      "duration": 0.4,
+      "loop": true,
+      "derivedFrom": "v8-load",
+      "stableSourceOffset": 1.64,
+      "processing": "Stationary 480ms grain, 80ms seam blend, cyclic envelope stabilization; no recorded rev-up loop."
+    },
+    "sport-load-steady": {
+      "source": "performance-009",
+      "start": 0.5,
+      "duration": 0.4,
+      "loop": true,
+      "derivedFrom": "sport-load",
+      "stableSourceOffset": 0.46,
+      "processing": "Stationary 480ms grain, 80ms seam blend, cyclic envelope stabilization; no recorded rev-up loop."
+    },
+    "race-load-steady": {
+      "source": "performance-007",
+      "start": 4,
+      "duration": 0.4,
+      "loop": true,
+      "derivedFrom": "race-load",
+      "stableSourceOffset": 0.22,
+      "processing": "Stationary 480ms grain, 80ms seam blend, cyclic envelope stabilization; no recorded rev-up loop."
+    },
+    "van-load-steady": {
+      "source": "diesel-rev",
+      "start": 6,
+      "duration": 0.4,
+      "loop": true,
+      "derivedFrom": "van-load",
+      "stableSourceOffset": 0.02,
+      "processing": "Stationary 480ms grain, 80ms seam blend, cyclic envelope stabilization; no recorded rev-up loop."
+    },
+    "truck-load-steady": {
+      "source": "diesel-rev",
+      "start": 12,
+      "duration": 0.4,
+      "loop": true,
+      "derivedFrom": "truck-load",
+      "stableSourceOffset": 0.12,
+      "processing": "Stationary 480ms grain, 80ms seam blend, cyclic envelope stabilization; no recorded rev-up loop."
+    },
+    "heavy-load-steady": {
+      "source": "diesel-rev",
+      "start": 15,
+      "duration": 0.4,
+      "loop": true,
+      "derivedFrom": "heavy-load",
+      "stableSourceOffset": 1.24,
+      "processing": "Stationary 480ms grain, 80ms seam blend, cyclic envelope stabilization; no recorded rev-up loop."
+    },
+    "ev-load-steady": {
+      "source": "ev",
+      "start": 46,
+      "duration": 0.4,
+      "loop": true,
+      "derivedFrom": "ev-load",
+      "stableSourceOffset": 0.92,
+      "processing": "Stationary 480ms grain, 80ms seam blend, cyclic envelope stabilization; no recorded rev-up loop."
+    }
+  },
+  "sources": {
+    "petrol-small": {
+      "page": "https://bigsoundbank.com/small-gasoline-engine-s0966.html",
+      "license": "CC0-1.0",
+      "author": "Joseph SARDIN",
+      "source_id": "0966"
+    },
+    "diesel-van": {
+      "page": "https://bigsoundbank.com/big-diesel-engine-s0967.html",
+      "license": "CC0-1.0",
+      "author": "Joseph SARDIN",
+      "source_id": "0967"
+    },
+    "truck-iveco": {
+      "page": "https://bigsoundbank.com/truck-engine-s1145.html",
+      "license": "CC0-1.0",
+      "author": "Joseph SARDIN",
+      "source_id": "1145"
+    },
+    "truck-heavy": {
+      "page": "https://bigsoundbank.com/truck-engine-1-s1442.html",
+      "license": "CC0-1.0",
+      "author": "Joseph SARDIN",
+      "source_id": "1442"
+    },
+    "petrol-rev": {
+      "page": "https://bigsoundbank.com/car-engine-2-s0291.html",
+      "license": "CC0-1.0",
+      "author": "Joseph SARDIN",
+      "source_id": "0291"
+    },
+    "sport-cobra": {
+      "page": "https://bigsoundbank.com/ac-cobra-engine-s0534.html",
+      "license": "CC0-1.0",
+      "author": "Joseph SARDIN",
+      "source_id": "0534"
+    },
+    "diesel-rev": {
+      "page": "https://bigsoundbank.com/truck-engine-big-accelerations-s1147.html",
+      "license": "CC0-1.0",
+      "author": "Joseph SARDIN",
+      "source_id": "1147"
+    },
+    "road": {
+      "page": "https://bigsoundbank.com/voiture-sur-route-s1286.html",
+      "license": "CC0-1.0",
+      "author": "Joseph SARDIN",
+      "source_id": "1286"
+    },
+    "skid": {
+      "page": "https://bigsoundbank.com/screeching-tires-2-s2369.html",
+      "license": "CC0-1.0",
+      "author": "Dorian CLAIR",
+      "source_id": "2369"
+    },
+    "ev": {
+      "page": "https://freesound.org/people/evsecrets/sounds/324119/",
+      "license": "CC0-1.0",
+      "author": "evsecrets",
+      "recording": "2011 Peugeot iOn, onboard start and driving"
+    },
+    "performance-001": {
+      "page": "https://muted.io/performance-cars/",
+      "license": "CC0-1.0",
+      "author": "muted.io",
+      "recording": "Performance Cars field recordings, 001"
+    },
+    "performance-007": {
+      "page": "https://muted.io/performance-cars/",
+      "license": "CC0-1.0",
+      "author": "muted.io",
+      "recording": "Performance Cars field recordings, 007"
+    },
+    "performance-009": {
+      "page": "https://muted.io/performance-cars/",
+      "license": "CC0-1.0",
+      "author": "muted.io",
+      "recording": "Performance Cars field recordings, 009"
+    }
+  },
+  "processing": "Trimmed recorded audio, DC removal, conservative RMS/peak normalization, 100ms loop crossfades. No oscillator or synthesized engine layers. Loaded engine playback uses separately stabilized stationary-RPM recording grains; dynamic RPM supplies the pitch curve."
+}

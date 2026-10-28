@@ -1,0 +1,64 @@
+{
+  "beige_wall_001": {
+    "source": "https://polyhaven.com/a/beige_wall_001",
+    "license": "CC0-1.0",
+    "authors": {
+      "Dimitrios Savva": "Photography",
+      "Rico Cilliers": "Processing"
+    },
+    "dimensions_mm": [
+      3000,
+      3000.000238418579
+    ],
+    "files": {
+      "Diffuse": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/beige_wall_001/beige_wall_001_diff_2k.jpg",
+      "nor_gl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/beige_wall_001/beige_wall_001_nor_gl_2k.jpg",
+      "Rough": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/beige_wall_001/beige_wall_001_rough_2k.jpg"
+    }
+  },
+  "japanese_zelkova_bark": {
+    "source": "https://polyhaven.com/a/japanese_zelkova_bark",
+    "license": "CC0-1.0",
+    "authors": {
+      "Charlotte Baglioni": "All"
+    },
+    "dimensions_mm": [
+      1799.999713897705,
+      1799.999713897705
+    ],
+    "files": {
+      "Diffuse": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/japanese_zelkova_bark/japanese_zelkova_bark_diff_2k.jpg",
+      "nor_gl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/japanese_zelkova_bark/japanese_zelkova_bark_nor_gl_2k.jpg",
+      "Rough": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/japanese_zelkova_bark/japanese_zelkova_bark_rough_2k.jpg"
+    }
+  },
+  "island_tree_02": {
+    "source": "https://polyhaven.com/a/island_tree_02",
+    "license": "CC0-1.0",
+    "authors": {
+      "Rob Tuytel": "scanning, processing",
+      "Rico Cilliers": "cleanup, processing"
+    },
+    "dimensions_mm": [
+      8485.51321029663,
+      4078.6155462265015,
+      3408.9039135724306
+    ],
+    "files": {
+      "leaves_diff": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/island_tree_02/island_tree_02_leaves_diff_2k.jpg",
+      "leaves_alpha": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/island_tree_02/island_tree_02_leaves_alpha_2k.jpg"
+    }
+  },
+  "coast_sand_01": {
+    "source": "https://polyhaven.com/a/coast_sand_01",
+    "license": "CC0-1.0",
+    "authors": {
+      "Rob Tuytel": ""
+    },
+    "dimensions_mm": [
+      15000,
+      15000
+    ],
+    "note": "2k jpg → webp (diff, nor_gl, arm); walk-mode beaches, 2026-10-29"
+  }
+}

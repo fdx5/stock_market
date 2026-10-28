@@ -105,6 +105,7 @@ const Nasdaq100MapPage = lazy(() => import("./components/Nasdaq100MapPage"));
 const RealEstateMapPage = lazy(() => import("./components/RealEstateMapPage"));
 const DroneExplorePage = lazy(loadDroneExplorePage);
 const DriveGamePage = lazy(() => import("./drivegame/DriveGamePage"));
+const WalkPage = lazy(() => import("./walkmode/WalkPage"));
 const TugOfWarPage = lazy(() => import("./components/TugOfWarPage"));
 const GlobalStockPage = lazy(() => import("./components/GlobalStockPage"));
 const UsStockIntelligencePage = lazy(() => import("./components/UsStockIntelligencePage"));
@@ -464,6 +465,8 @@ export default function App() {
     page = <DroneExplorePage />;
   } else if (path === "/drive") {
     page = <DriveGamePage />;
+  } else if (path === "/walk") {
+    page = <WalkPage />;
   } else if (/^\/global\/treasuries\/(2|5|10)\/?$/.test(path)) {
     page = <TreasuryDetailPage tenor={path.split("/")[3] as "2" | "5" | "10"} />;
   } else if (path === "/global") {
@@ -540,7 +543,7 @@ export default function App() {
   // Keep the floating recent-stocks rail on browsing/ranking workspaces only.
   // A stock detail page records the visit for use elsewhere, but must not render
   // the desk's rail itself (regardless of viewport size or navigation history).
-  const keepBgm = !["/", "/hub", "/type2", "/drive"].includes(path) && !path.startsWith("/admin");
+  const keepBgm = !["/", "/hub", "/type2", "/drive", "/walk"].includes(path) && !path.startsWith("/admin");
   useEffect(() => keepBgm ? attachDeskBgm() : undefined, [keepBgm]);
   const showRecentDock = RECENT_DOCK_PATHS.has(path);
   // The desk's music carries on into these full-screen pages (see DeskBgmFloat).

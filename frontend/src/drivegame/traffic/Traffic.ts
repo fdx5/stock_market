@@ -18,6 +18,8 @@ interface Car extends Body {
   cruise: number; conn: Conn | null; u: number;
   next: { edge: number; fwd: boolean; lane: number; startS: number; conn: Conn } | null;
   go: boolean; why: string; stunned: number; inBox: number;
+  /** seconds stood still (for unstick) */
+  still?: number;
   px: number; py: number; pz: number; phx: number; phy: number;   // last step's pose (interpolation)
   alive: boolean; version: number;
 }
@@ -38,6 +40,12 @@ export class Traffic {
   private rnd: () => number;
   private player: Body & { z?: number } | null = null;
   target = 70; radius = 380;
+  /** off (0) in the drive game; the walk sets it: a car held this many seconds for anything but a
+   * red light (a full exit, the car ahead, the box) is taken away where it is not seen, and another
+   * made — a locked junction never spreads through the town */
+  unstick = 0;
+  /** drawn this much over the lanes' heights (0 in the drive game; the walk's asphalt sits higher) */
+  lift = 0;
   stats = { cars: 0, spawned: 0, despawned: 0, stepMs: 0 };
   private connCache = new Map<string, Conn>();
   private graphVersion = -1;
@@ -343,6 +351,10 @@ export class Traffic {
     while (this.acc >= STEP) { this.stepOnce(STEP); this.acc -= STEP; }
     // population: away well behind, made out of sight ahead (a few a frame)
     for (const c of this.cars) if (Math.hypot(c.x - px, c.y - py) > this.radius + 60) this.remove(c);
+    if (this.unstick > 0) for (const c of this.cars) {
+      c.still = c.speed < 0.3 ? (c.still ?? 0) + dt : 0;
+      if (c.still > this.unstick && c.why !== "red" && c.alive && !view(c.x, c.y)) this.remove(c);
+    }
     this.cars = this.cars.filter(c => c.alive);
     if (this.cars.length < this.target) this.spawnOne(px, py, view);
     // draw: interpolated between the last two steps
@@ -355,7 +367,7 @@ export class Traffic {
       const x = c.px + (c.x - c.px) * a, y = c.py + (c.y - c.py) * a, z = c.pz + (c.z - c.pz) * a;
       let hx = c.phx + (c.hx - c.phx) * a, hy = c.phy + (c.hy - c.phy) * a; const l = Math.hypot(hx, hy) || 1; hx /= l; hy /= l;
       q.setFromAxisAngle(up, Math.atan2(hx, -hy)).multiply(qp.setFromAxisAngle(across, -c.pitch));
-      m.compose(p.set(x, z + 0.02, -y), q, one);
+      m.compose(p.set(x, z + 0.02 + this.lift, -y), q, one);
       this.meshes[c.kind].setMatrixAt(c.slot, m);
     }
     this.meshes.forEach((im, k) => { im.count = counts[k]; im.instanceMatrix.needsUpdate = true; });

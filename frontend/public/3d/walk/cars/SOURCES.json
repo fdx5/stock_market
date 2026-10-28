@@ -1,0 +1,30 @@
+{
+  "rubber": {
+    "asset": "rubber_tiles",
+    "source": "https://polyhaven.com/a/rubber_tiles",
+    "license": "CC0-1.0",
+    "authors": {
+      "Amal Kumar": "All"
+    },
+    "urls": {
+      "Diffuse": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rubber_tiles/rubber_tiles_diff_2k.jpg",
+      "nor_gl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rubber_tiles/rubber_tiles_nor_gl_2k.jpg",
+      "Rough": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rubber_tiles/rubber_tiles_rough_2k.jpg"
+    },
+    "processing": "RGBA=OpenGL normal XY, roughness, relative photographed luminance; understated micro-detail, no source colour transfer"
+  },
+  "alloy": {
+    "asset": "metal_plate_02",
+    "source": "https://polyhaven.com/a/metal_plate_02",
+    "license": "CC0-1.0",
+    "authors": {
+      "Rob Tuytel": "All"
+    },
+    "urls": {
+      "Diffuse": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/metal_plate_02/metal_plate_02_diff_2k.jpg",
+      "nor_gl": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/metal_plate_02/metal_plate_02_nor_gl_2k.jpg",
+      "Rough": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/metal_plate_02/metal_plate_02_rough_2k.jpg"
+    },
+    "processing": "RGBA=OpenGL normal XY, roughness, relative photographed luminance; understated micro-detail, no source colour transfer"
+  }
+}

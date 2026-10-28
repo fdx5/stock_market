@@ -1,0 +1,115 @@
+{
+ "note": "Interior floor and tile textures (diff/nor_gl/arm, 2k jpg → webp). Source: Poly Haven (https://polyhaven.com), license CC0.",
+ "sets": {
+  "laminate_floor_03": {
+   "url": "https://polyhaven.com/a/laminate_floor_03",
+   "license": "CC0",
+   "authors": [
+    "Dario Barresi",
+    "Charlotte Baglioni"
+   ],
+   "size_m": 2.08
+  },
+  "diagonal_parquet": {
+   "url": "https://polyhaven.com/a/diagonal_parquet",
+   "license": "CC0",
+   "authors": [
+    "Jenelle van Heerden",
+    "Sergej Majboroda"
+   ],
+   "size_m": 2.36
+  },
+  "rectangular_parquet": {
+   "url": "https://polyhaven.com/a/rectangular_parquet",
+   "license": "CC0",
+   "authors": [
+    "Jenelle van Heerden",
+    "Sergej Majboroda"
+   ],
+   "size_m": 2.25
+  },
+  "wood_floor": {
+   "url": "https://polyhaven.com/a/wood_floor",
+   "license": "CC0",
+   "authors": [
+    "Dimitrios Savva"
+   ],
+   "size_m": 1.7
+  },
+  "plank_flooring_02": {
+   "url": "https://polyhaven.com/a/plank_flooring_02",
+   "license": "CC0",
+   "authors": [
+    "Dario Barresi",
+    "Dimitrios Savva"
+   ],
+   "size_m": 1.98
+  },
+  "wooden_floor_02": {
+   "url": "https://polyhaven.com/a/wooden_floor_02",
+   "license": "CC0",
+   "authors": [
+    "Charlotte Baglioni",
+    "Rico Cilliers"
+   ],
+   "size_m": 1.94
+  },
+  "marble_tiles": {
+   "url": "https://polyhaven.com/a/marble_tiles",
+   "license": "CC0",
+   "authors": [
+    "Charlotte Baglioni"
+   ],
+   "size_m": 2.0
+  },
+  "large_grey_tiles": {
+   "url": "https://polyhaven.com/a/large_grey_tiles",
+   "license": "CC0",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "size_m": 3.0
+  },
+  "long_white_tiles": {
+   "url": "https://polyhaven.com/a/long_white_tiles",
+   "license": "CC0",
+   "authors": [
+    "Jenelle van Heerden",
+    "Sergej Majboroda"
+   ],
+   "size_m": 1.27
+  },
+  "square_tiles_02": {
+   "url": "https://polyhaven.com/a/square_tiles_02",
+   "license": "CC0",
+   "authors": [
+    "Charlotte Baglioni"
+   ],
+   "size_m": 2.4
+  },
+  "floor_tiles_06": {
+   "url": "https://polyhaven.com/a/floor_tiles_06",
+   "license": "CC0",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "size_m": 3.0
+  },
+  "marble_mosaic_tiles": {
+   "url": "https://polyhaven.com/a/marble_mosaic_tiles",
+   "license": "CC0",
+   "authors": [
+    "Amal Kumar"
+   ],
+   "size_m": 2.0
+  },
+  "large_floor_tiles_02": {
+   "url": "https://polyhaven.com/a/large_floor_tiles_02",
+   "license": "CC0",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "size_m": 3.0
+  }
+ }
+}

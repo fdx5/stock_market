@@ -52,6 +52,8 @@
     "/etf",
     "/etf-overlap",
     "/etf-tradeoffs",
+    "/etf/kr",
+    "/etf/us",
     "/event-collision",
     "/event-impact",
     "/fight",
@@ -60,6 +62,7 @@
     "/global",
     "/global-peers",
     "/global-top100",
+    "/guides",
     "/hub",
     "/index/kosdaq",
     "/index/kospi",
@@ -102,6 +105,7 @@
     "/sector-strength",
     "/sector/semiconductor",
     "/session-planner",
+    "/share-market",
     "/signal-crosscheck",
     "/sp500-map",
     "/sp500-orbit",
@@ -115,10 +119,12 @@
     "/support-success/",
     "/support/",
     "/theme-evidence",
+    "/today",
     "/type2",
+    "/walk",
     "/yield-curve-lab"
   ],
-  "source_files": 787,
+  "source_files": 859,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -145,7 +151,8 @@
     "frontend/src/monitor/synapseGeometry.worker.ts",
     "frontend/src/rail/railClearanceWorker.ts",
     "frontend/src/rail/railWorker.ts",
-    "frontend/src/vendor/tidewater/engine/gpu/ShaderTextWorker.js"
+    "frontend/src/vendor/tidewater/engine/gpu/ShaderTextWorker.js",
+    "frontend/src/walkmode/ground/aerialWorker.ts"
   ],
   "external": [
     {
@@ -441,6 +448,12 @@
       ]
     },
     {
+      "file": "frontend/src/guides/catalog.ts",
+      "hosts": [
+        "schema.org"
+      ]
+    },
+    {
       "file": "frontend/src/neo/NeoShell.tsx",
       "hosts": [
         "chs2147.github.io",
@@ -475,6 +488,26 @@
       "file": "frontend/src/usLogo.ts",
       "hosts": [
         "companiesmarketcap.com"
+      ]
+    },
+    {
+      "file": "frontend/src/walkmode/game/pnu.ts",
+      "hosts": [
+        "api.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/walkmode/ground/aerial.ts",
+      "hosts": [
+        "api.vworld.kr"
+      ]
+    },
+    {
+      "file": "frontend/src/walkmode/ScreenApps.tsx",
+      "hosts": [
+        "cattower.code404.app",
+        "i.ytimg.com",
+        "www.youtube-nocookie.com"
       ]
     },
     {

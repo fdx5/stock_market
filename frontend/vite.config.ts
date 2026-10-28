@@ -55,6 +55,7 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       ...Object.fromEntries(["/market-snapshot", "/market-card", "/embed/market", "/market-check.ics", "/market-feed.xml"].map(prefix => [prefix, process.env.PUBLIC_MARKETS_API_TARGET || "http://127.0.0.1:8000"])),
       "/api/realestate": process.env.REALESTATE_API_TARGET || loadEnv(mode, process.cwd(), "REALESTATE_").REALESTATE_API_TARGET || "http://127.0.0.1:8000",
+      "/api/editorial": process.env.EDITORIAL_API_TARGET || "http://127.0.0.1:8000",
       "/api": "http://127.0.0.1:8000",
     },
   },

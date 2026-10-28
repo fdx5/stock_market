@@ -5,6 +5,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.services import editorial
+from app.services import youtube_search
 
 router = APIRouter()
 
@@ -52,6 +53,19 @@ def collect_videos(payload: CollectorEdition, authorization: str | None = Header
 def videos(response: Response, market: str = Query("kr", pattern="^(kr|us)$")):
     response.headers["Cache-Control"] = "no-store"
     return editorial.get_videos(market)
+
+
+@router.get("/youtube/search")
+def youtube_videos(response: Response, q: str = Query("", max_length=200)):
+    """The walk mode TV's YouTube search (results only: the videos play in YouTube's own embed)."""
+    try:
+        result = youtube_search.search(q)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except youtube_search.SearchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return result
 
 
 @router.get("/investors")

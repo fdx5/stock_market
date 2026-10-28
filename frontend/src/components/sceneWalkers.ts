@@ -18,7 +18,7 @@ import { rng, type Ring } from "./complexScene";
 type Top = "shirt" | "tee" | "jacket" | "coat" | "puffer" | "hoodie" | "blouse" | "dress" | "vest";
 type Bottom = "pants" | "shorts" | "skirt" | "none";
 type Hair = "short" | "long" | "bob" | "pony" | "cap" | "sunhat" | "helmet" | "perm" | "buzz";
-type Acc = "none" | "backpack" | "schoolbag" | "briefcase" | "handbag" | "shopping" | "parcel" | "crossbody" | "tote";
+type Acc = "none" | "backpack" | "schoolbag" | "briefcase" | "handbag" | "shopping" | "parcel" | "crossbody" | "tote" | "balloon" | "ball" | "parcel2";
 type Gait = "walk" | "slow" | "run" | "carry" | "stroll";
 
 interface Kind {
@@ -26,6 +26,10 @@ interface Kind {
   longSleeve: boolean; tops: string[]; bottoms: string[]; shoes: string[]; hairs: string[]; accs: string[];
   /** Legs under a skirt or dress: skin, or tights. */
   legs?: string; detail?: "tie" | "ribbon" | "hivis" | "collar"; weight: number;
+  /** walks faster or slower than its gait's pace (a commuter late for the train) */
+  pace?: number;
+  /** a child walked by the hand: comes with a grown-up (PARENT) beside it */
+  hand?: boolean;
 }
 
 const SKIN = ["#e9c4a4", "#e2b793", "#d8a881", "#f0cfb2", "#c99672"];
@@ -74,6 +78,45 @@ const KINDS: Kind[] = [
   { name: "레깅스 운동복 여성", h: 1.64, build: 0.86, top: "tee", bottom: "pants", hair: "pony", acc: "none", gait: "walk", longSleeve: false,
     tops: ["#e8e4df", "#f2b8c6", "#9ad0c8", "#2a2a2c"], bottoms: ["#1c1c1e", "#3a3f4a", "#5a4a5a"], shoes: ["#f5f5f5", "#b8c8e8"], hairs: DARK_HAIR, accs: [], weight: 4 },
 ];
+
+/* The walk's town has more people about (buildWalkers(…, extras)): children of every age — off to
+ * kindergarten in a yellow cap, to school under a big satchel, one with a balloon, one with a ball,
+ * one walked by the hand — a commuter hurrying to the station, a woman out jogging, a courier with
+ * two boxes. (The 3D view's crowds keep the twenty above.) */
+const KID_TOPS = ["#f2c230", "#3f8fd6", "#e5533c", "#57b36a", "#f08aa8", "#9a7ad6", "#f4f2ee", "#2b3d63"];
+const KID_BOTTOMS = ["#2b3d63", "#4b4b4b", "#c9b79a", "#3f5373", "#e7d7c0"];
+const KID_SHOES = ["#f5f5f5", "#d33", "#2f6fd1", "#f2c230", "#e889b0"];
+const EXTRA_KINDS: Kind[] = [
+  { name: "유치원생", h: 1.08, build: 0.86, top: "tee", bottom: "shorts", hair: "cap", acc: "schoolbag", gait: "walk", longSleeve: false,
+    tops: KID_TOPS, bottoms: KID_BOTTOMS, shoes: KID_SHOES, hairs: ["#f2c230"], accs: ["#e34b4b", "#2f6fd1", "#f2a33a", "#57b36a"], weight: 3 },
+  { name: "책가방 초등 남", h: 1.32, build: 0.82, top: "hoodie", bottom: "pants", hair: "short", acc: "schoolbag", gait: "walk", longSleeve: true,
+    tops: KID_TOPS, bottoms: KID_BOTTOMS, shoes: KID_SHOES, hairs: DARK_HAIR, accs: ["#2f6fd1", "#1d2229", "#e34b4b"], weight: 3 },
+  { name: "책가방 초등 여", h: 1.3, build: 0.8, top: "dress", bottom: "none", hair: "pony", acc: "schoolbag", gait: "walk", longSleeve: false, legs: "#f4f0ec",
+    tops: ["#f08aa8", "#9bb7d4", "#f4e2a8", "#c9a7e0", "#f4f1ea"], bottoms: [], shoes: KID_SHOES, hairs: DARK_HAIR, accs: ["#f08aa8", "#9a7ad6", "#e34b4b"], weight: 3 },
+  { name: "풍선 든 아이", h: 1.12, build: 0.85, top: "tee", bottom: "shorts", hair: "bob", acc: "balloon", gait: "stroll", longSleeve: false,
+    tops: KID_TOPS, bottoms: KID_BOTTOMS, shoes: KID_SHOES, hairs: DARK_HAIR, accs: ["#e8323a", "#2f8ff0", "#f2c230", "#e85fb0", "#5bd06a"], weight: 2 },
+  { name: "공 든 아이", h: 1.25, build: 0.84, top: "tee", bottom: "shorts", hair: "buzz", acc: "ball", gait: "walk", longSleeve: false,
+    tops: ["#e5533c", "#2f6fd1", "#f4f4f2", "#57b36a"], bottoms: ["#1c1c1c", "#2b3d63"], shoes: KID_SHOES, hairs: DARK_HAIR, accs: ["#f4f4f2", "#e88a2a"], weight: 2 },
+  { name: "우비 입은 아이", h: 1.1, build: 0.88, top: "coat", bottom: "pants", hair: "cap", acc: "none", gait: "stroll", longSleeve: true,
+    tops: ["#f2d23a", "#e8574a", "#5ab0e8"], bottoms: ["#2b3d63", "#4b4b4b"], shoes: ["#f2d23a", "#e8574a", "#2f6fd1"], hairs: ["#f2d23a", "#e8574a", "#5ab0e8"], accs: [], weight: 1 },
+  { name: "체육복 중학생", h: 1.58, build: 0.86, top: "jacket", bottom: "pants", hair: "short", acc: "backpack", gait: "walk", longSleeve: true,
+    tops: ["#1f3a7a", "#2a5a3a", "#7a1f2a"], bottoms: ["#1f3a7a", "#2a5a3a", "#7a1f2a"], shoes: ["#f5f5f5"], hairs: DARK_HAIR, accs: ["#1c1c1c", "#2c3d58"], weight: 2 },
+  { name: "축구복 어린이", h: 1.35, build: 0.84, top: "tee", bottom: "shorts", hair: "short", acc: "ball", gait: "run", longSleeve: false, legs: "#f4f4f2",
+    tops: ["#d8232a", "#1f4fa0", "#f2c230"], bottoms: ["#f4f4f2", "#1c1c1c"], shoes: ["#1c1c1c", "#f2f2f2"], hairs: DARK_HAIR, accs: ["#f4f4f2"], weight: 1 },
+  { name: "롱패딩 아이", h: 1.28, build: 0.9, top: "puffer", bottom: "pants", hair: "short", acc: "schoolbag", gait: "walk", longSleeve: true,
+    tops: ["#161618", "#2e3a52", "#e9e7e2", "#c94a4a"], bottoms: ["#1c1c1c"], shoes: KID_SHOES, hairs: DARK_HAIR, accs: ["#e34b4b", "#2f6fd1"], weight: 1 },
+  { name: "엄마 손잡은 아이", h: 1.02, build: 0.86, top: "tee", bottom: "pants", hair: "pony", acc: "none", gait: "stroll", longSleeve: true, hand: true,
+    tops: KID_TOPS, bottoms: KID_BOTTOMS, shoes: KID_SHOES, hairs: DARK_HAIR, accs: [], weight: 3 },
+  { name: "출근길 직장인", h: 1.74, build: 1.02, top: "jacket", bottom: "pants", hair: "short", acc: "briefcase", gait: "walk", longSleeve: true, pace: 1.3,
+    tops: ["#1f2a3d", "#2b2e33", "#4a4f57"], bottoms: [], shoes: ["#141414", "#3b2618"], hairs: DARK_HAIR, accs: ["#1a1a1a", "#4a2e1c"], detail: "tie", weight: 3 },
+  { name: "조깅하는 여성", h: 1.63, build: 0.86, top: "tee", bottom: "pants", hair: "pony", acc: "none", gait: "run", longSleeve: false,
+    tops: ["#f2b8c6", "#9ad0c8", "#e84b3c", "#f4f4f2"], bottoms: ["#1c1c1e", "#3a3f4a"], shoes: ["#f5f5f5", "#ff6a2a"], hairs: DARK_HAIR, accs: [], weight: 2 },
+  { name: "택배원(상자 둘)", h: 1.75, build: 1.06, top: "vest", bottom: "pants", hair: "cap", acc: "parcel2", gait: "carry", longSleeve: true,
+    tops: ["#2d5a9c", "#e0632a", "#3a3a3a"], bottoms: ["#2a2d33"], shoes: ["#1c1c1c"], hairs: ["#2d5a9c", "#e0632a"], accs: ["#b88a55"], weight: 2 },
+];
+/** the grown-up who walks a child by the hand */
+const PARENT: Kind = { name: "아이 손잡은 엄마", h: 1.62, build: 0.92, top: "shirt", bottom: "pants", hair: "bob", acc: "crossbody", gait: "stroll", longSleeve: true,
+  tops: ["#e8dcc8", "#c9d4dc", "#d9b9a9", "#f4f1ea"], bottoms: ["#2f3b54", "#4a4a4a", "#d8d0c0"], shoes: ["#ecebe8", "#3a2e28"], hairs: DARK_HAIR, accs: ["#6b3f2a", "#1c1c1c"], weight: 0 };
 
 const HELD = new Set<Acc>(["briefcase", "handbag", "shopping", "tote"]);
 
@@ -174,6 +217,10 @@ function partGeometries() {
     shopping: merge([new RoundedBoxGeometry(0.1, 0.34, 0.3, 1, 0.01).translate(0, -FORE - 0.26, 0.02)]),
     tote: merge([new RoundedBoxGeometry(0.08, 0.34, 0.34, 1, 0.01).translate(0.02, -FORE - 0.1, 0.02)]),
     parcel: merge([new RoundedBoxGeometry(0.42, 0.3, 0.32, 1, 0.01).translate(0, 1.08, 0.3)]),
+    parcel2: merge([new RoundedBoxGeometry(0.44, 0.28, 0.34, 1, 0.01).translate(0, 1.04, 0.3), new RoundedBoxGeometry(0.36, 0.22, 0.28, 1, 0.01).translate(0.02, 1.29, 0.3)]),
+    // a balloon on its string above the right hand (in the body frame; a child's arm raised to it)
+    balloon: merge([ellipsoid(0.17, 0.2, 0.17, -0.3, 2.05, 0.12, 14), new THREE.CylinderGeometry(0.004, 0.004, 0.86, 4).translate(-0.29, 1.52, 0.12)]),
+    ball: merge([ellipsoid(0.11, 0.11, 0.11, 0.24, 0.98, 0.03, 12)]),
   };
   // Baked details (vertex colours, drawn with a white instance colour).
   const detail = {
@@ -280,6 +327,10 @@ interface Walker {
   far: [THREE.Color, THREE.Color, THREE.Color];
   /** The slot of a bag carried in the right hand (follows that forearm), or -1. */
   held: number;
+  /** keeps this far to the right of its path's line besides the path's own (a child beside its parent) */
+  side?: number;
+  /** holding hands: "parent" reaches its right hand down, "child" its left hand up */
+  holding?: "parent" | "child";
   /** Collapsed (out of view or far off). */
   hidden: boolean;
   x: number; y: number; hx: number; hy: number;
@@ -288,7 +339,7 @@ interface Walker {
 }
 
 /** People on `paths`, about one per `spacing` metres of path, at most `cap`. */
-export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, spacing: number, cap: number) {
+export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, spacing: number, cap: number, extras = false) {
   const usable = paths.filter(r => r.cum[r.cum.length - 1] > 6);
   if (!usable.length) return null;
   const rnd = rng(seed + 97);
@@ -303,8 +354,9 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
 
   const total = usable.reduce((s, r) => s + r.cum[r.cum.length - 1], 0);
   const count = Math.min(cap, Math.round(total / spacing));
-  const totalW = KINDS.reduce((s, k) => s + k.weight, 0);
-  const pickKind = () => { let r = rnd() * totalW; for (const k of KINDS) { r -= k.weight; if (r <= 0) return k; } return KINDS[0]; };
+  const pool = extras ? [...KINDS, ...EXTRA_KINDS] : KINDS;
+  const totalW = pool.reduce((s, k) => s + k.weight, 0);
+  const pickKind = () => { let r = rnd() * totalW; for (const k of pool) { r -= k.weight; if (r <= 0) return k; } return pool[0]; };
   const pick = (list: string[]) => list[Math.floor(rnd() * list.length)];
 
   // Mesh registry: one InstancedMesh per (geometry, material); filled after counting.
@@ -326,38 +378,44 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     // Longer runs get proportionally more people.
     let r = rnd() * total, path = usable[0];
     for (const u of usable) { r -= u.cum[u.cum.length - 1]; if (r <= 0) { path = u; break; } }
-    const kind = pickKind(), dir = rnd() < 0.5 ? 1 : -1;
-    const skinC = pick(SKIN), top = pick(kind.tops), bottom = kind.bottoms.length ? pick(kind.bottoms) : top;
-    const legC = kind.bottom === "skirt" || kind.bottom === "none" ? (kind.legs ?? skinC) : kind.bottom === "shorts" ? skinC : bottom;
-    const thighC = kind.bottom === "shorts" ? bottom : legC;
-    const shoe = pick(kind.shoes), hairC = pick(kind.hairs), accC = kind.accs.length ? pick(kind.accs) : "#333";
-    const sleeve = kind.top === "vest" ? pick(["#e8e4dc", "#5a6470"]) : top;
-    const slots: [number, number][] = [
-      slot("torso:" + kind.top, parts.torso[kind.top], cloth, top, true),
-      slot("head", parts.head, skin, skinC, true),
-      slot("hair:" + kind.hair, parts.hair[kind.hair], kind.hair === "cap" || kind.hair === "helmet" || kind.hair === "sunhat" ? cloth : hairMat, hairC),
-      slot("thigh", parts.thigh, cloth, thighC, true), slot("thigh", parts.thigh, cloth, thighC, true),
-      slot(legC === skinC ? "shin:skin" : "shin", parts.shin, legC === skinC ? skin : cloth, legC, true),
-      slot(legC === skinC ? "shin:skin" : "shin", parts.shin, legC === skinC ? skin : cloth, legC, true),
-      slot("shoe", parts.shoe, gloss, shoe), slot("shoe", parts.shoe, gloss, shoe),
-      slot("upper", parts.upper, cloth, sleeve), slot("upper", parts.upper, cloth, sleeve),
-      slot(kind.longSleeve ? "fore" : "fore:skin", parts.fore, kind.longSleeve ? cloth : skin, kind.longSleeve ? sleeve : skinC),
-      slot(kind.longSleeve ? "fore" : "fore:skin", parts.fore, kind.longSleeve ? cloth : skin, kind.longSleeve ? sleeve : skinC),
-      slot("hand", parts.hand, skin, skinC), slot("hand", parts.hand, skin, skinC),
-    ];
-    if (kind.bottom === "pants" || kind.bottom === "shorts") slots.push(slot("hips", parts.hips, cloth, bottom, true));
-    if (kind.bottom === "skirt") slots.push(slot("skirt", parts.skirt, cloth, bottom, true));
-    let held = -1;
-    if (kind.acc !== "none") {
-      if (HELD.has(kind.acc)) held = slots.length;
-      slots.push(slot("acc:" + kind.acc, parts.acc[kind.acc], gloss, accC, true));
-    }
-    if (kind.detail) slots.push(slot("detail:" + kind.detail, parts.detail[kind.detail], baked, "#ffffff"));
-    const len = path.cum[path.cum.length - 1];
-    const speed = (kind.gait === "run" ? 2.7 : kind.gait === "slow" ? 0.85 : kind.gait === "stroll" ? 1.05 : 1.3) * (0.9 + rnd() * 0.2);
-    walkers.push({ kind, path, s: rnd() * len, dir, speed, phase: rnd() * Math.PI * 2,
-      scale: (kind.h / 1.7) * (0.96 + rnd() * 0.08), width: kind.build * (0.95 + rnd() * 0.1), slots, held, hidden: false, x: 0, y: 0, hx: 1, hy: 0,
-      far: [new THREE.Color(top), new THREE.Color(thighC), new THREE.Color(skinC)] });
+    const kind0 = pickKind(), dir = rnd() < 0.5 ? 1 : -1;
+    // (a child walked by the hand comes with its parent: the parent first, the child at its right)
+    const make = (kind: Kind, pair: { s: number; speed: number } | null) => {
+      const skinC = pick(SKIN), top = pick(kind.tops), bottom = kind.bottoms.length ? pick(kind.bottoms) : top;
+      const legC = kind.bottom === "skirt" || kind.bottom === "none" ? (kind.legs ?? skinC) : kind.bottom === "shorts" ? skinC : bottom;
+      const thighC = kind.bottom === "shorts" ? bottom : legC;
+      const shoe = pick(kind.shoes), hairC = pick(kind.hairs), accC = kind.accs.length ? pick(kind.accs) : "#333";
+      const sleeve = kind.top === "vest" ? pick(["#e8e4dc", "#5a6470"]) : top;
+      const slots: [number, number][] = [
+        slot("torso:" + kind.top, parts.torso[kind.top], cloth, top, true),
+        slot("head", parts.head, skin, skinC, true),
+        slot("hair:" + kind.hair, parts.hair[kind.hair], kind.hair === "cap" || kind.hair === "helmet" || kind.hair === "sunhat" ? cloth : hairMat, hairC),
+        slot("thigh", parts.thigh, cloth, thighC, true), slot("thigh", parts.thigh, cloth, thighC, true),
+        slot(legC === skinC ? "shin:skin" : "shin", parts.shin, legC === skinC ? skin : cloth, legC, true),
+        slot(legC === skinC ? "shin:skin" : "shin", parts.shin, legC === skinC ? skin : cloth, legC, true),
+        slot("shoe", parts.shoe, gloss, shoe), slot("shoe", parts.shoe, gloss, shoe),
+        slot("upper", parts.upper, cloth, sleeve), slot("upper", parts.upper, cloth, sleeve),
+        slot(kind.longSleeve ? "fore" : "fore:skin", parts.fore, kind.longSleeve ? cloth : skin, kind.longSleeve ? sleeve : skinC),
+        slot(kind.longSleeve ? "fore" : "fore:skin", parts.fore, kind.longSleeve ? cloth : skin, kind.longSleeve ? sleeve : skinC),
+        slot("hand", parts.hand, skin, skinC), slot("hand", parts.hand, skin, skinC),
+      ];
+      if (kind.bottom === "pants" || kind.bottom === "shorts") slots.push(slot("hips", parts.hips, cloth, bottom, true));
+      if (kind.bottom === "skirt") slots.push(slot("skirt", parts.skirt, cloth, bottom, true));
+      let held = -1;
+      if (kind.acc !== "none") {
+        if (HELD.has(kind.acc)) held = slots.length;
+        slots.push(slot("acc:" + kind.acc, parts.acc[kind.acc], gloss, accC, true));
+      }
+      if (kind.detail) slots.push(slot("detail:" + kind.detail, parts.detail[kind.detail], baked, "#ffffff"));
+      const len = path.cum[path.cum.length - 1];
+      const speed = pair ? pair.speed : (kind.gait === "run" ? 2.7 : kind.gait === "slow" ? 0.85 : kind.gait === "stroll" ? 1.05 : 1.3) * (kind.pace ?? 1) * (0.9 + rnd() * 0.2);
+      walkers.push({ kind, path, s: pair ? pair.s : rnd() * len, dir, speed, phase: rnd() * Math.PI * 2, side: pair ? 0.5 : 0, holding: pair ? "child" : kind === PARENT ? "parent" : undefined,
+        scale: (kind.h / 1.7) * (0.96 + rnd() * 0.08), width: kind.build * (0.95 + rnd() * 0.1), slots, held, hidden: false, x: 0, y: 0, hx: 1, hy: 0,
+        far: [new THREE.Color(top), new THREE.Color(thighC), new THREE.Color(skinC)] });
+      return walkers[walkers.length - 1];
+    };
+    if (kind0.hand) { const parent = make(PARENT, null); make(kind0, { s: parent.s, speed: parent.speed }); n++; }
+    else make(kind0, null);
   }
 
   // (the meshes in a slice of their own: after the last walker, with the crowd's own handover, a frame)
@@ -392,7 +450,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
   // Pose: per walker a base matrix, then joints down each limb.
   const base = new THREE.Matrix4(), joint = new THREE.Matrix4(), tmp = new THREE.Matrix4(), tmp2 = new THREE.Matrix4();
   const q = new THREE.Quaternion(), yAxis = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), scl = new THREE.Vector3();
-  const rotX = new THREE.Matrix4();
+  const rotX = new THREE.Matrix4(), rotY = new THREE.Matrix4(), lift = new THREE.Matrix4(), tmp3 = new THREE.Matrix4(), torsoM = new THREE.Matrix4();
   const set = (w: Walker, k: number, m: THREE.Matrix4) => {
     const [mi, ci] = w.slots[k];
     const at = cursor[mi]++;
@@ -423,7 +481,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     const ax = r.xs[i], ay = r.ys[i], bx = r.xs[i + 1], by = r.ys[i + 1];
     const sx = bx - ax, sy = by - ay, sl = Math.hypot(sx, sy) || 1;
     // Keep to the right of the line in the direction of walking.
-    const off = r.lateral * w.dir;
+    const off = (r.lateral + (w.side ?? 0)) * w.dir;
     w.x = ax + sx * t + (sy / sl) * off; w.y = ay + sy * t - (sx / sl) * off;
     const dx = sx * w.dir, dy = sy * w.dir, l = sl;
     // Turn smoothly rather than snapping at each sample.
@@ -456,7 +514,9 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     // (knocked down: tipped over backwards from the feet, lying a while, then up again)
     if (w.fall) { const f = w.fall.t, k = f < 0.35 ? f / 0.35 : f > 4.4 ? Math.max(0, 1 - (f - 4.4) / 0.6) : 1; base.multiply(rotX.makeRotationX(-1.45 * k)); }
     if (run || g === "slow") base.multiply(rotX.makeRotationX(run ? 0.14 : 0.07));
-    set(w, 0, base);
+    // (the chest turns back against the swinging legs; the body sways over the standing foot)
+    base.multiply(rotX.makeRotationZ(Math.sin(φ) * (run ? 0.015 : 0.03)));
+    set(w, 0, torsoM.copy(base).multiply(rotY.makeRotationY(Math.sin(φ) * (run ? 0.13 : 0.07))));
     // Head (hair shares its frame).
     chain(joint, base, 0, NECK_Y, 0, g === "slow" ? 0.12 : 0);
     set(w, 1, joint); set(w, 2, joint);
@@ -468,7 +528,10 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
       set(w, 3 + k, tmp);
       const knee = (run ? 0.25 : 0.06) + (run ? 1.3 : 0.62) * Math.max(0, da) * (0.6 + 0.4 * Math.max(0, a + 0.3));
       chain(tmp2, tmp, 0, -THIGH, 0, knee);
-      set(w, 5 + k, tmp2); set(w, 7 + k, tmp2);
+      set(w, 5 + k, tmp2);
+      const ankle = (run ? 0.32 : 0.22) * Math.sin(φ + (k ? Math.PI : 0) + 2.2) - 0.04;
+      chain(tmp3, tmp2, 0, -SHIN, 0, ankle); tmp3.multiply(lift.makeTranslation(0, SHIN, 0));
+      set(w, 7 + k, tmp3);
     }
     // Arms: opposite the legs; carrying holds both forward, hand-held bags swing less.
     const carry = g === "carry", held = w.held >= 0;
@@ -476,11 +539,18 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
       const side = k === 0 ? 1 : -1;
       const a = Math.sin(φ + (k ? 0 : Math.PI));
       const loaded = held && k === 1;
-      const sh = carry ? -0.75 : -(run ? 0.55 : loaded ? swing * 0.25 : swing * 0.85) * a;
+      let sh = carry ? -0.75 : -(run ? 0.55 : loaded ? swing * 0.25 : swing * 0.85) * a;
+      let out = carry ? 0.05 : 0.09, el = carry ? -1.05 : run ? -1.45 : loaded ? -0.05 : -(0.18 + 0.2 * Math.max(0, -a));
+      // (hand in hand: the parent's right reaching down and out to the child at its right, the
+      // child's left raised to it; a balloon's string held up in the right; a ball under the left)
+      const acc = w.kind.acc;
+      if (w.holding === "parent" && k === 1) { sh = -0.1 + 0.05 * a; out = 0.32; el = -0.12; }
+      else if (w.holding === "child" && k === 0) { sh = -0.35 + 0.04 * a; out = 0.95; el = -0.15; }
+      else if (acc === "balloon" && k === 1) { sh = -1.25; out = 0.22; el = -0.35; }
+      else if (acc === "ball" && k === 0) { sh = -0.15; out = 0.28; el = -0.95; }
       chain(tmp, base, side * SHOULDER_X, SHOULDER_Y, 0, sh);
-      tmp.multiply(rotX.makeRotationZ(side * (carry ? 0.05 : 0.09)));
+      tmp.multiply(rotX.makeRotationZ(side * out));
       set(w, 9 + k, tmp);
-      const el = carry ? -1.05 : run ? -1.45 : loaded ? -0.05 : -(0.18 + 0.2 * Math.max(0, -a));
       chain(tmp2, tmp, 0, -UPPER, 0, el);
       set(w, 11 + k, tmp2); set(w, 13 + k, tmp2);
       if (loaded) set(w, w.held, tmp2);

@@ -22,7 +22,7 @@ export type Dest = { name: string; x: number; y: number; floors: number; n: numb
 export type RoadLine = { id: string; pts: Float32Array; w: number; lanes: number; major: boolean };
 export type TileResult = {
   type: "tile"; key: string; i: number; j: number; ok: boolean; error?: string; ms: number; net: number;
-  ground?: { pos: Float32Array; nor: Float32Array; col: Float32Array; index: Uint32Array; nx: number; ny: number; heights: Float32Array; wet: Uint8Array };
+  ground?: { pos: Float32Array; nor: Float32Array; col: Float32Array; index: Uint32Array; nx: number; ny: number; heights: Float32Array; wet: Uint8Array; sand?: Uint8Array };
   water?: MeshArrays | null;
   asphalt?: MeshArrays | null; walks?: MeshArrays | null; marks?: MeshArrays | null; concrete?: MeshArrays | null;
   styles?: Record<string, MeshArrays>; roofs?: MeshArrays | null;
@@ -215,14 +215,14 @@ export function tileWorkerMain() {
     void dbPut(key, raw);
     return { raw, net: performance.now() - t0 };
   };
-  const waterJobs = new Map<string, Promise<number[][] | null>>();
+  const waterJobs = new Map<string, Promise<{ rings: number[][]; beaches: number[][] } | null>>();
   const waterBlock = (bi: number, bj: number) => {
     const k = bi + "_" + bj;
     let hit = waterJobs.get(k);
     if (!hit) {
       hit = (async () => {
-        const kept = await dbGet("water:" + k);
-        if (kept) return kept as number[][];
+        const kept = await dbGet("water2:" + k);
+        if (kept) return kept as { rings: number[][]; beaches: number[][] };
         const lat = (bj * 3 + 1.5) * 0.0025, lon = (bi * 3 + 1.5) * 0.003;
         const la = +lat.toFixed(4), lo = +lon.toFixed(4), kx = Math.cos((la * Math.PI) / 180) * 111320, ky = 110540;
         try {
@@ -231,9 +231,10 @@ export function tileWorkerMain() {
           clearTimeout(timer);
           if (!r.ok) return null;
           const body = await r.json();
-          const rings = (body.rings ?? []).map((w: any) => (w.ring as number[][]).flatMap(([x, y]) => [lo + x / kx, la + y / ky]));
-          void dbPut("water:" + k, rings);
-          return rings;
+          const toLL = (ring: number[][]) => ring.flatMap(([x, y]) => [lo + x / kx, la + y / ky]);
+          const out = { rings: (body.rings ?? []).map((w: any) => toLL(w.ring as number[][])), beaches: (body.beaches ?? []).map((b: any) => toLL(b.ring as number[][])) };
+          void dbPut("water2:" + k, out);
+          return out;
         } catch { return null; }
       })();
       waterJobs.set(k, hit);
@@ -260,8 +261,16 @@ export function tileWorkerMain() {
     const stats: Record<string, number> = {};
 
     // ---- water (frame rings) ----
+    // (the cadastral water parcels, and OpenStreetMap's water and coastline from our server: the sea
+    // was not drawn at all before — its blocks were fetched by nothing)
+    const osm: number[][] = [], beachLL: number[][] = [];
+    {
+      const bi0 = Math.floor(job.lon0 / 0.009), bi1 = Math.floor(job.lon1 / 0.009), bj0 = Math.floor(job.lat0 / 0.0075), bj1 = Math.floor(job.lat1 / 0.0075);
+      const got = await Promise.all([...Array((bi1 - bi0 + 1) * (bj1 - bj0 + 1)).keys()].map(n => waterBlock(bi0 + (n % (bi1 - bi0 + 1)), bj0 + Math.floor(n / (bi1 - bi0 + 1)))));
+      for (const g of got) if (g) { osm.push(...g.rings); beachLL.push(...g.beaches); }
+    }
     const water: { r: number[]; b: [number, number, number, number]; lv: number }[] = [];
-    for (const wr of raw.water as number[][]) {
+    for (const wr of [...(raw.water as number[][]), ...osm]) {
       const r: number[] = [];
       let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
       for (let k = 0; k < wr.length; k += 2) { const [x, y] = P(wr[k], wr[k + 1]); r.push(x, y); bx0 = Math.min(bx0, x); by0 = Math.min(by0, y); bx1 = Math.max(bx1, x); by1 = Math.max(by1, y); }
@@ -282,6 +291,19 @@ export function tileWorkerMain() {
     const wet = (x: number, y: number) => {
       for (const w of water) if (x >= w.b[0] && x <= w.b[2] && y >= w.b[1] && y <= w.b[3] && Number.isFinite(w.lv) && inRing(x, y, w.r) && ground(x, y) < w.lv + 1.5) return true;
       return false;
+    };
+    const beaches: { r: number[]; b: [number, number, number, number] }[] = [];
+    for (const wr of beachLL) {
+      const r: number[] = []; let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+      for (let k = 0; k < wr.length; k += 2) { const [x, y] = P(wr[k], wr[k + 1]); r.push(x, y); bx0 = Math.min(bx0, x); by0 = Math.min(by0, y); bx1 = Math.max(bx1, x); by1 = Math.max(by1, y); }
+      if (bx1 < X0 - 50 || bx0 > X1 + 50 || by1 < Y0 - 50 || by0 > Y1 + 50) continue;
+      beaches.push({ r, b: [bx0, by0, bx1, by1] });
+    }
+    const onBeach = (x: number, y: number) => beaches.some(w => x >= w.b[0] && x <= w.b[2] && y >= w.b[1] && y <= w.b[3] && inRing(x, y, w.r));
+    /** the surface's height of the water at (x, y) (its parcel's lowest ground, a little over), or NaN */
+    const waterLevel = (x: number, y: number) => {
+      for (const w of water) if (x >= w.b[0] && x <= w.b[2] && y >= w.b[1] && y <= w.b[3] && Number.isFinite(w.lv) && inRing(x, y, w.r) && ground(x, y) < w.lv + 1.5) return w.lv + 0.35;
+      return NaN;
     };
 
     // ---- roads: full lines in the frame, resampled every STEP m ----
@@ -463,17 +485,34 @@ export function tileWorkerMain() {
             quad(concrete, E(p, o, 1.0), E(q, o, 1.0), E(q, o, -1.6), E(p, o, -1.6), [p.nx * side, 0, -p.ny * side], [[sa / 3, 0], [sb / 3, 0], [sb / 3, 0.9], [sa / 3, 0.9]]);
           }
           quad(concrete, E(p, -hw - 0.4, -1.6), E(p, hw + 0.4, -1.6), E(q, hw + 0.4, -1.6), E(q, -hw - 0.4, -1.6), [0, -1, 0], [[0, 0], [1, 0], [1, 1], [0, 1]]);
-          // piers every 48 m
+          // two box girders under the slab, their sides and soffits
+          for (const gOff of [-hw * 0.5, hw * 0.5]) {
+            for (const side of [1, -1]) { const o = gOff + side * 0.9; quad(concrete, E(p, o, -1.6), E(q, o, -1.6), E(q, o, -3.0), E(p, o, -3.0), [p.nx * side, 0, -p.ny * side], [[sa / 3, 0], [sb / 3, 0], [sb / 3, 0.5], [sa / 3, 0.5]]); }
+            quad(concrete, E(p, gOff - 0.9, -3.0), E(p, gOff + 0.9, -3.0), E(q, gOff + 0.9, -3.0), E(q, gOff - 0.9, -3.0), [0, -1, 0], [[0, 0], [1, 0], [1, 1], [0, 1]]);
+          }
+          // the parapet's steel railing: posts every 2.5 m and a top rail (grey, in the markings' batch)
+          for (const side of [1, -1]) {
+            const o = side * (hw + 0.4), RAIL = [0.55, 0.57, 0.6];
+            strip(o, 0.08, sa, sb, RAIL, 1.35);
+            for (let d = Math.ceil(sa / 2.5) * 2.5; d < sb; d += 2.5) strip(o, 0.08, d, Math.min(sb, d + 0.08), RAIL, 1.32);
+          }
+          // piers every 48 m: round (eight-sided) columns under a cap beam across both girders
           if (Math.floor(sb / 48) !== Math.floor(sa / 48)) {
-            const g = ground(p.x, p.y) - 4, top = p.h - 1.6;
-            for (const off of [-hw * 0.55, hw * 0.55]) {
-              const cx = p.x + p.nx * off, cy = p.y + p.ny * off, r = 1.1;
-              const c = [[cx - r, cy - r], [cx + r, cy - r], [cx + r, cy + r], [cx - r, cy + r]];
-              for (let e = 0; e < 4; e++) {
-                const a = c[e], b = c[(e + 1) % 4], ex = b[0] - a[0], ey = b[1] - a[1], el = Math.hypot(ex, ey);
-                quad(concrete, W3(a[0], a[1], g), W3(b[0], b[1], g), W3(b[0], b[1], top), W3(a[0], a[1], top), [ey / el, 0, ex / el], [[0, 0], [1, 0], [1, 4], [0, 4]]);
+            const g = ground(p.x, p.y) - 4, top = p.h - 4.2;
+            for (const off of [-hw * 0.5, hw * 0.5]) {
+              const cx = p.x + p.nx * off, cy = p.y + p.ny * off, r = 1.25;
+              for (let e = 0; e < 8; e++) {
+                const a0 = (e / 8) * Math.PI * 2, a1 = ((e + 1) / 8) * Math.PI * 2, am = (a0 + a1) / 2;
+                const ax = cx + Math.cos(a0) * r, ay = cy + Math.sin(a0) * r, bx = cx + Math.cos(a1) * r, by = cy + Math.sin(a1) * r;
+                quad(concrete, W3(ax, ay, g), W3(bx, by, g), W3(bx, by, top), W3(ax, ay, top), [Math.cos(am), 0, -Math.sin(am)], [[0, 0], [1, 0], [1, 4], [0, 4]]);
               }
             }
+            // the cap beam: a box across, 1.2 m deep, under the girders
+            const cw = hw * 0.5 + 1.8, ch0 = p.h - 4.2, ch1 = p.h - 3.0, tx = q.x - p.x, ty = q.y - p.y, tl = Math.hypot(tx, ty) || 1, ux = tx / tl * 1.0, uy = ty / tl * 1.0;
+            const C = (s1: number, s2: number, z: number) => W3(p.x + p.nx * s1 + ux * s2, p.y + p.ny * s1 + uy * s2, z);
+            for (const s2 of [1, -1]) quad(concrete, C(-cw, s2, ch0), C(cw, s2, ch0), C(cw, s2, ch1), C(-cw, s2, ch1), [ux * s2, 0, -uy * s2], [[0, 0], [2, 0], [2, 0.4], [0, 0.4]]);
+            for (const s1 of [cw, -cw]) quad(concrete, C(s1, -1, ch0), C(s1, 1, ch0), C(s1, 1, ch1), C(s1, -1, ch1), [p.nx * Math.sign(s1), 0, -p.ny * Math.sign(s1)], [[0, 0], [0.7, 0], [0.7, 0.4], [0, 0.4]]);
+            quad(concrete, C(-cw, -1, ch0), C(cw, -1, ch0), C(cw, 1, ch0), C(-cw, 1, ch0), [0, -1, 0], [[0, 0], [1, 0], [1, 1], [0, 1]]);
           }
         }
         // sidewalks: a kerb face and the paving, both sides, cut back at junctions and side roads
@@ -516,6 +555,16 @@ export function tileWorkerMain() {
             for (let off = -hw + 0.8; off <= hw - 0.8; off += 1.0) strip(off, 0.5, Math.max(sa, z0), Math.min(sb, z1), WHITE);
             const st = atStart ? c + 5 : total - c - 5.4;
             strip((atStart ? 1 : -1) * hw / 2, hw - 0.3, Math.max(sa, st), Math.min(sb, st + 0.4), WHITE);
+          }
+        }
+        // a lesser road two cars wide: its yellow centre line (중앙선), and a stop line at a junction
+        else if (L.w >= 7 || (L.w >= 6 && L.lanes >= 2)) {
+          const a = Math.max(sa, c0 > 0 ? c0 + 4 : 0), b = Math.min(sb, total - (c1 > 0 ? c1 + 4 : 0));
+          if (b > a) strip(0, 0.15, a, b, YELLOW);
+          for (const [c, atStart] of [[c0, true], [c1, false]] as const) {
+            if (c <= 0) continue;
+            const st = atStart ? c + 2.5 : total - c - 2.9;
+            strip((atStart ? 1 : -1) * hw / 2, hw - 0.3, Math.max(sa, st), Math.min(sb, st + 0.3), WHITE);
           }
         }
       }
@@ -569,11 +618,11 @@ export function tileWorkerMain() {
     // ---- the ground and the water, on a ~4 m grid over the tile ----
     const nx = Math.max(2, Math.round((X1 - X0) / 4)), ny = Math.max(2, Math.round((Y1 - Y0) / 4));
     const gp: number[] = [], gn: number[] = [], gc: number[] = [], heights = new Float32Array((nx + 1) * (ny + 1));
-    const wetV = new Uint8Array((nx + 1) * (ny + 1));
+    const wetV = new Uint8Array((nx + 1) * (ny + 1)), lvV = new Float32Array((nx + 1) * (ny + 1)).fill(NaN), sandV = new Uint8Array((nx + 1) * (ny + 1));
     for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
       const x = X0 + (X1 - X0) * i / nx, y = Y0 + (Y1 - Y0) * j / ny, k = j * (nx + 1) + i;
-      const w = water.length ? wet(x, y) : false;
-      wetV[k] = w ? 1 : 0;
+      const lv = water.length ? waterLevel(x, y) : NaN, w = Number.isFinite(lv);
+      wetV[k] = w ? 1 : 0; lvV[k] = lv;
       let h = ground(x, y);
       // under a road: the ground kept just below the road's own profile (a 4 m grid otherwise
       // rises through a 3 m-sampled road on a slope), easing back to the relief over 4 m
@@ -586,7 +635,8 @@ export function tileWorkerMain() {
       const n1 = noise(x / 37, y / 37), n2 = noise(x / 9 + 50, y / 9 + 50), green = Math.min(1, Math.max(0, noise(x / 70 + 13, y / 70 - 7) - 0.5) * 2.6);
       const v = 0.105 + n1 * 0.045 + n2 * 0.02;
       // paving grey, and here and there grass (a lawn's green, darker)
-      gc.push(v * (1 - green * 0.5), v * (1 - green * 0.08), v * (1 - green * 0.62));
+      if (beaches.length && !w && onBeach(x, y)) { const sv = 0.42 + n1 * 0.08 + n2 * 0.04; gc.push(sv, sv * 0.9, sv * 0.72); sandV[k] = 1; }
+      else gc.push(v * (1 - green * 0.5), v * (1 - green * 0.08), v * (1 - green * 0.62));
     }
     for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
       const k = j * (nx + 1) + i, dx = (X1 - X0) / nx, dy = (Y1 - Y0) / ny;
@@ -597,12 +647,17 @@ export function tileWorkerMain() {
     }
     const gi: number[] = [], wi: number[] = [];
     const wp: number[] = [], wn: number[] = [], wuv: number[] = [], wmap = new Map<number, number>();
-    const wv = (k: number) => { let m = wmap.get(k); if (m === undefined) { m = wp.length / 3; wmap.set(k, m); wp.push(gp[k * 3], gp[k * 3 + 1] + 2.35, gp[k * 3 + 2]); wn.push(0, 1, 0); wuv.push(gp[k * 3] / 20, -gp[k * 3 + 2] / 20); } return m; };
+    // (the water a level sheet at its surface: where it meets a bank's slope is the shore — it once
+    // followed the ground, and stood 2.35 m over the dry corners of the edge cells)
+    const wv = (k: number, lv: number) => { let m = wmap.get(k); if (m === undefined) { m = wp.length / 3; wmap.set(k, m); wp.push(gp[k * 3], lv, gp[k * 3 + 2]); wn.push(0, 1, 0); wuv.push(gp[k * 3] / 20, -gp[k * 3 + 2] / 20); } return m; };
     for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
       const a = j * (nx + 1) + i, b = a + 1, c = a + nx + 1, d = c + 1;
       // (x east, y north; seen from above with y as −z, a→b→d→c is anticlockwise)
       gi.push(a, b, d, a, d, c);
-      if (wetV[a] + wetV[b] + wetV[c] + wetV[d] >= 2) wi.push(wv(a), wv(b), wv(d), wv(a), wv(d), wv(c));
+      if (wetV[a] + wetV[b] + wetV[c] + wetV[d] >= 1) {
+        let lv = Infinity; for (const q of [a, b, c, d]) if (Number.isFinite(lvV[q])) lv = Math.min(lv, lvV[q]);
+        wi.push(wv(a, lv), wv(b, lv), wv(d, lv), wv(a, lv), wv(d, lv), wv(c, lv));
+      }
     }
 
     // ---- buildings, by facade style; roofs apart ----
@@ -704,7 +759,7 @@ export function tileWorkerMain() {
     }
     const out: any = {
       type: "tile", key: job.i + "_" + job.j, i: job.i, j: job.j, ok: true, net, ms: 0,
-      ground: { pos: new Float32Array(gp), nor: new Float32Array(gn), col: new Float32Array(gc), index: new Uint32Array(gi), nx, ny, heights, wet: wetV },
+      ground: { pos: new Float32Array(gp), nor: new Float32Array(gn), col: new Float32Array(gc), index: new Uint32Array(gi), nx, ny, heights, wet: wetV, sand: sandV },
       water: wi.length ? { pos: new Float32Array(wp), nor: new Float32Array(wn), uv: new Float32Array(wuv), index: new Uint32Array(wi) } : null,
       asphalt: arrays(asphalt, true, false), walks: arrays(walks, true, false), marks: arrays(marks, false, true), concrete: arrays(concrete, true, false),
       styles: Object.fromEntries(Object.entries(styles).map(([k, b]) => [k, arrays(b)])), roofs: arrays(roofs, false, true),

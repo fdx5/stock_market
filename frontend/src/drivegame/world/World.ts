@@ -18,7 +18,11 @@ interface Tile {
   result?: TileResult; group?: THREE.Group; detail?: THREE.Object3D[];
   pending?: (() => void)[]; disposables: { dispose(): void }[];
   heights?: Float32Array; nx?: number; ny?: number; wet?: Uint8Array;
+  /** the drawn ground's own height at each grid point (lowered under the roads; the water's bed) */
+  groundY?: Float32Array;
   lines?: string[]; casters?: boolean;
+  /** its trees (kept to hide some later: see hideTrees) */
+  crown?: THREE.InstancedMesh; treeData?: Float32Array;
   /** its surfaces in the material batches (detail: shown near the eye only) */
   items?: BatchItem[]; detailItems?: BatchItem[]; detailOn?: boolean;
 }
@@ -32,6 +36,8 @@ export interface WorldOptions {
   scene: THREE.Scene; mats: Materials;
   onRoads?(added: RoadLine[], removed: string[]): void;
   onDests?(d: Dest[]): void;
+  /** The walk supplies its own globally instanced five-style lighting layer. */
+  customLamps?: boolean;
 }
 
 export class World {
@@ -212,6 +218,7 @@ export class World {
     const steps: (() => void)[] = [];
     if (r.ground) {
       const gr = r.ground;
+      if (gr.nx && gr.pos) { const n = (gr.nx + 1) * (gr.ny + 1), y = new Float32Array(n); for (let k = 0; k < n; k++) y[k] = gr.pos[k * 3 + 1]; t.groundY = y; }
       steps.push(() => { batch(geo({ pos: gr.pos, nor: gr.nor, col: gr.col, index: gr.index }), m.ground); gr.pos = gr.nor = gr.col = gr.index = undefined as never; });
     }
     if (r.water) steps.push(() => { batch(geo(r.water!), m.water, false, [false, false]); r.water = undefined; });
@@ -223,7 +230,7 @@ export class World {
     }
     if (r.walks) steps.push(() => { batch(geo(r.walks!, true, false), m.walks, true); r.walks = undefined; });
     if (r.marks) steps.push(() => { batch(geo(r.marks!, false, true), m.marks, true); r.marks = undefined; });
-    if (r.lamps?.length) steps.push(() => {
+    if (r.lamps?.length && !this.o.customLamps) steps.push(() => {
       const n = r.lamps!.length / 4, post = new THREE.InstancedMesh(this.lampGeo, m.lampPost, n);
       const mm = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
       for (let k = 0; k < n; k++) {
@@ -252,9 +259,10 @@ export class World {
     if (r.trees?.length) steps.push(() => {
       const n = r.trees!.length / 5, crown = new THREE.InstancedMesh(this.treeGeo, m.crown, n);
       const mm = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(), p = new THREE.Vector3();
+      t.crown = crown; t.treeData = r.trees!;
       for (let k = 0; k < n; k++) {
         const T = r.trees!;
-        q.setFromAxisAngle(up, T[k * 5 + 4]); sc.setScalar(T[k * 5 + 3]);
+        q.setFromAxisAngle(up, T[k * 5 + 4]); sc.setScalar(this.treeHide?.(T[k * 5], T[k * 5 + 1]) ? 0 : T[k * 5 + 3]);
         mm.compose(p.set(T[k * 5], T[k * 5 + 2], -T[k * 5 + 1]), q, sc);
         crown.setMatrixAt(k, mm);
       }
@@ -267,7 +275,7 @@ export class World {
     if (!steps.length) steps.push(() => { this.o.scene.add(group); });
     steps.push(() => { t.state = "shown"; this.stats.shown++; });
     // collision, heights, roads, destinations: at once (cheap, and the vehicle may be near)
-    t.heights = r.ground?.heights; t.nx = r.ground?.nx; t.ny = r.ground?.ny; t.wet = r.ground?.wet;
+    t.heights = r.ground?.heights; t.nx = r.ground?.nx; t.ny = r.ground?.ny; t.wet = r.ground?.wet; (t as { sand?: Uint8Array }).sand = r.ground?.sand;
     this.indexTile(t, r);
     this.uploads.push(...steps);
   }
@@ -288,7 +296,7 @@ export class World {
       }
     }
     const pole = (x: number, y: number, rr: number) => { const k = cellKey(Math.floor(x / CELL), Math.floor(y / CELL)), l = this.poles.get(k); if (l) l.push(x, y, rr); else this.poles.set(k, [x, y, rr]); own.push(k); };
-    if (r.lamps) for (let k = 0; k < r.lamps.length; k += 4) pole(r.lamps[k], r.lamps[k + 1], 0.2);
+    if (r.lamps && !this.o.customLamps) for (let k = 0; k < r.lamps.length; k += 4) pole(r.lamps[k], r.lamps[k + 1], 0.2);
     if (r.trees) for (let k = 0; k < r.trees.length; k += 5) pole(r.trees[k], r.trees[k + 1], 0.3);
     if (r.decks) for (let k = 0; k < r.decks.length; k += 7) {
       const d = r.decks, mx = (d[k] + d[k + 3]) / 2, my = (d[k + 1] + d[k + 4]) / 2, hw = d[k + 6];
@@ -347,7 +355,7 @@ export class World {
   private reindexPoles(t: Tile, cells: Set<number>) {
     const r = t.result!;
     const pole = (x: number, y: number, rr: number) => { const k = cellKey(Math.floor(x / CELL), Math.floor(y / CELL)); if (!cells.has(k)) return; const l = this.poles.get(k); if (l) l.push(x, y, rr); else this.poles.set(k, [x, y, rr]); };
-    if (r.lamps) for (let k = 0; k < r.lamps.length; k += 4) pole(r.lamps[k], r.lamps[k + 1], 0.2);
+    if (r.lamps && !this.o.customLamps) for (let k = 0; k < r.lamps.length; k += 4) pole(r.lamps[k], r.lamps[k + 1], 0.2);
     if (r.trees) for (let k = 0; k < r.trees.length; k += 5) pole(r.trees[k], r.trees[k + 1], 0.3);
     if (r.decks) for (let k = 0; k < r.decks.length; k += 7) {
       const d = r.decks, mx = (d[k] + d[k + 3]) / 2, my = (d[k + 1] + d[k + 4]) / 2, hw = d[k + 6];
@@ -378,6 +386,17 @@ export class World {
     const a = Math.floor(gx), b = Math.floor(gy), fx = gx - a, fy = gy - b, w = t.nx + 1, h = t.heights;
     return (h[b * w + a] * (1 - fx) + h[b * w + a + 1] * fx) * (1 - fy) + (h[(b + 1) * w + a] * (1 - fx) + h[(b + 1) * w + a + 1] * fx) * fy;
   }
+  /** The drawn ground mesh's height at (x, y) (on its grid's triangles), NaN off the
+   * tiles shown: what another surface laid over it (the walk's paving) must not sink under. */
+  groundMeshAt(x: number, y: number): number {
+    const [i, j] = tileOf(this.o.origin, x, y), t = this.tiles.get(tileKey(i, j));
+    if (!t?.groundY || !t.nx || !t.ny) return NaN;
+    const [X0, Y0, X1, Y1] = t.rect, gx = Math.min(t.nx - 1e-6, Math.max(0, (x - X0) / (X1 - X0) * t.nx)), gy = Math.min(t.ny - 1e-6, Math.max(0, (y - Y0) / (Y1 - Y0) * t.ny));
+    const a = Math.floor(gx), b = Math.floor(gy), fx = gx - a, fy = gy - b, w = t.nx + 1, h = t.groundY;
+    // (on the cell's own two triangles, split on its a–d diagonal as the tile worker lays them)
+    const ha = h[b * w + a], hb = h[b * w + a + 1], hc = h[(b + 1) * w + a], hd = h[(b + 1) * w + a + 1];
+    return fx >= fy ? ha + (hb - ha) * fx + (hd - hb) * fy : ha + (hc - ha) * fy + (hd - hc) * fx;
+  }
   /** The surface a vehicle stands on: a bridge's deck where there is one, else the ground. */
   surfaceAt(x: number, y: number, near?: number): number {
     const l = this.decks.get(cellKey(Math.floor(x / CELL), Math.floor(y / CELL)));
@@ -404,6 +423,13 @@ export class World {
     if (!t?.wet || !t.nx || !t.ny) return false;
     const [X0, Y0, X1, Y1] = t.rect;
     return !!t.wet[Math.round((y - Y0) / (Y1 - Y0) * t.ny) * (t.nx + 1) + Math.round((x - X0) / (X1 - X0) * t.nx)];
+  }
+  /** On a sand beach (the coast's, from OpenStreetMap)? */
+  beachAt(x: number, y: number): boolean {
+    const [i, j] = tileOf(this.o.origin, x, y), t = this.tiles.get(tileKey(i, j)) as { sand?: Uint8Array; nx?: number; ny?: number; rect: number[] } | undefined;
+    if (!t?.sand || !t.nx || !t.ny) return false;
+    const [X0, Y0, X1, Y1] = t.rect;
+    return !!t.sand[Math.round((y - Y0) / (Y1 - Y0) * t.ny) * (t.nx + 1) + Math.round((x - X0) / (X1 - X0) * t.nx)];
   }
   /** Over open water and off any deck (a vehicle there sinks)? */
   wetAt(x: number, y: number): boolean {
@@ -450,6 +476,33 @@ export class World {
       }
     }
     return false;
+  }
+
+  /** Building footprints (closed rings, x y pairs) touching a rectangle, each once, with its roof height. */
+  footprintsIn(x0: number, y0: number, x1: number, y1: number): { ring: Float32Array; top: number }[] {
+    const seen = new Set<Foot>(), out: { ring: Float32Array; top: number }[] = [];
+    for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) for (let j = Math.floor(y0 / CELL); j <= Math.floor(y1 / CELL); j++) {
+      for (const f of this.feet.get(cellKey(i, j)) ?? []) {
+        if (seen.has(f) || f.x1 < x0 || f.x0 > x1 || f.y1 < y0 || f.y0 > y1) continue;
+        seen.add(f); out.push({ ring: f.pts.slice(f.start, f.end), top: f.top });
+      }
+    }
+    return out;
+  }
+  private treeHide: ((x: number, y: number) => boolean) | null = null;
+  /** Leave out the street trees standing where `test` says (another layer plants its own there);
+   * applied to the tiles on screen now and to those that come. (Not used by the drive game.) */
+  hideTrees(test: ((x: number, y: number) => boolean) | null) {
+    this.treeHide = test;
+    const mm = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(), p = new THREE.Vector3();
+    for (const t of this.tiles.values()) {
+      const c = t.crown, T = t.treeData; if (!c || !T) continue;
+      for (let k = 0; k < c.count; k++) {
+        q.setFromAxisAngle(up, T[k * 5 + 4]); sc.setScalar(test?.(T[k * 5], T[k * 5 + 1]) ? 0 : T[k * 5 + 3]);
+        c.setMatrixAt(k, mm.compose(p.set(T[k * 5], T[k * 5 + 2], -T[k * 5 + 1]), q, sc));
+      }
+      c.instanceMatrix.needsUpdate = true;
+    }
   }
 
   /** Tiles round a point that are on screen / wanted (for the loading screen). */
