@@ -31,3 +31,26 @@ DB를 테스트하거나 저장 데이터 삭제 명령을 실행하지 않았�
 
 기존 Render 서비스 `srv-d95okvtckfvc73bjfu3g`의 main 자동 배포 경로를 사용한다.
 배포 완료는 `/api/health`의 커밋 일치와 실제 운영 장면 검증 후 별도로 기록한다.
+
+## 운영 배포 결과
+
+- 운영 코드 커밋: `a1730186c29d836bd2197fd5a1931a718b6fce92`.
+- Render 배포: `dep-dbh78e0ae00c73c1c7q0`, GitHub 연결 배포 상태 `success`.
+- 운영 `/api/health`: `status=ok`, 위 커밋과 일치.
+- 배포 커밋의 파일과 운영 파일을 SHA-256으로 비교: 159개 모두 일치
+  (Git의 Windows/Linux 줄바꿈 정규화를 반영한 총 92,014,230 bytes).
+- 홈·허브·삼성전자·ETF·부동산 맵·걷기 페이지 HTTP 200.
+- 평형 및 TV 검색 API가 운영 OpenAPI에 등록됨을 확인.
+- 운영 은마 Chrome 주행: 후방 높이1.658m, 후방 거리6.937m, 마우스 시점 이동0,
+  주행·바퀴 회전·정면 전환·반복 승하차5회·사운드 running, 실행 오류0.
+- 같은 검사 성능: RTX3070/ANGLE, 1440×900, DPR1, 평균54.16FPS, 최저1초46FPS,
+  p95 16.9ms, p99 66.8ms, 최대199.9ms. 최소50FPS 목표는 계속 미달.
+- 운영 실내 진입·복귀 및 동 앞 자전거 탑승, 반복 승하차8회, 효과음5채널 running,
+  주행12.77km/h, 캐릭터 표시 유지, 실행 오류0.
+- 자동 검증 Chrome만 `--mute-audio`. 사용자의 브라우저·OS 음량은 변경하지 않음.
+- 운영 페이지를 별도 Chrome 탭에 열고 로딩 완료 및 동 앞 자전거 표시 확인.
+
+검증 산출물: `tmp/walk-production-20261029/release-checks.json`,
+`driving/result.json`, `interior-flow/result.json` 및 같은 폴더의 실제 운영 화면 PNG.
+일반 드론 화면에서 걷기 버튼을 표시하려면 기존대로 `devwalk=1`이 필요하다.
+운영 실행: <https://kospimap.com/walk?id=11680%3A%EB%8C%80%EC%B9%98%EB%8F%99%3A316%3A%EC%9D%80%EB%A7%88&hour=15&weather=clear>.
