@@ -24,6 +24,7 @@ import { NightLighting } from "../ground/NightLighting";
 import { boxesOverlap, type Body } from "../../drivegame/vehicle/physics";
 import { Bicycles, type ParkedBicycle } from "./Bicycles";
 import { Rooftops } from "../ground/rooftops";
+import { ShopSigns } from "../ground/signs";
 import { BicycleMotion, BICYCLE_LENGTH, BICYCLE_WIDTH } from "./bicycleMotion";
 import { bicycleGates } from "./bicycleGates";
 import { ApartmentDetails } from "../ground/apartmentFacades";
@@ -41,7 +42,10 @@ import { cutOpenings, setOpenings, type Opening } from "../ground/facades";
 
 export interface Entrance { name: string; dong: string; x: number; y: number; floors: number; heading: number; cx?: number; cy?: number; span?: number;
   /** the building's surveyed footprint (frame metres): the floor plate its flats share */
-  foot?: [number, number][] }
+  foot?: [number, number][];
+  /** a block of flats (the default), or another building — an office, a hospital, a store — gone into
+   * by its floors (building/BuildingInterior.ts); its register use code */
+  kind?: "apartment" | "building"; use?: string }
 export interface BicycleHud { riding: boolean; speedKmh: number; nearby: string | null; message: string }
 export interface CarHud { driving:boolean; nearby:string|null; label:string; speedKmh:number; topKmh:number; gear:string; message:string;view:"front"|"third" }
 export interface WalkOptions {
@@ -97,6 +101,8 @@ export class WalkGame {
   private entranceParts: { dispose(): void }[] = [];
   /** the roofs: parapets, decks and what stands on them (ground/rooftops.ts) */
   private rooftops: Rooftops | null = null;
+  /** the shops' own signs, by their trading names (ground/signs.ts) */
+  private signs: ShopSigns | null = null;
   /** the signs over the doors (the nearest eight within 160 m shown) */
   private beacons: { e: Entrance; sprite: THREE.Sprite }[] = [];
   private waterTime = { value: 0 };
@@ -267,6 +273,7 @@ export class WalkGame {
     if (this.disposed) return;
     this.nightLighting=new NightLighting(this.world,this.scene,s.night,carMat.emissiveMap!,this.parkedCars);
     this.rooftops = new Rooftops(this.world); this.scene.add(this.rooftops.group);
+    this.signs = new ShopSigns(this.world, this.origin, o.apiBase); this.signs.setNight(sunAt(o.hour).night); this.scene.add(this.signs.group);
     this.traffic.setPlayer(this.body);
     this.signals = new SignalHeads(this.traffic, (x, y) => this.world.surfaceAt(x, y)); this.scene.add(this.signals.group);
     // the streets already running when the walk is shown: ~25 s of traffic run behind the loading
@@ -285,7 +292,7 @@ export class WalkGame {
       if ((k >= 0.999 && this.world.backlog === 0) || performance.now() - t0 > 40000) break;
     }
     progress("공동현관을 찾는 중", 0.88);
-    await this.scanEntrances();
+    await this.scanEntrances(); this.placeDoors();
     // start before the nearest entrance of the complex (or on the nearest pavement)
     const mine = this.entrances.filter(e => e.name && (o.complexName.includes(e.name) || e.name.includes(o.complexName)));
     const first = (mine.length ? mine : this.entrances).sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))[0];
@@ -318,6 +325,21 @@ export class WalkGame {
   /** Apartment 동 with a name, from the tiles' raw data (cached by the world's workers). */
   private scanning: Promise<void> | null = null;
   private seenIds = new Set<string>();
+  /** doors found whose ground is not in yet (their tiles still coming): placed by placeDoors */
+  private waitingDoors: { door: Entrance; detail: { id: string; pts: [number, number][]; height: number; floors: number } | null }[] = [];
+  /** the doors (and their blocks' trim) whose terrain is in, at its height */
+  private placeDoors() {
+    if (!this.waitingDoors.length) return;
+    const left: typeof this.waitingDoors = [];
+    for (const w of this.waitingDoors) {
+      const e = w.door, pts = w.detail?.pts ?? e.foot ?? [];
+      const ready = this.world.ready(e.x, e.y) && Number.isFinite(this.world.surfaceAt(e.x, e.y)) && pts.every(([x, y]) => this.world.ready(x, y) && Number.isFinite(this.world.heightAt(x, y)));
+      if (!ready) { left.push(w); continue; }
+      this.entrances.push(e); this.addMarker(e);
+      if (w.detail) this.apartmentDetails?.add(w.detail.id, w.detail.pts, w.detail.height, Math.min(...w.detail.pts.map(([x, y]) => this.world.heightAt(x, y))), w.detail.floors);
+    }
+    this.waitingDoors = left;
+  }
   /** the blocks of each name with no numbered 동, counted (theirs given in order) */
   private unnumbered = new Map<string, number>();
   /** (one scan at a time: the frame loop and the start both ask) */
@@ -345,6 +367,22 @@ export class WalkGame {
           const name = b.n.replace(/\(.*?\)/g, "").trim();
           if (name.length >= 2 && (area > 900 || (b.f || 0) >= 8) && !/^(주건축물|부속|창고|주차|관리|경비|기계|전기|화장실)|필지|근린생활|생활시설|\d{2,}\s*[-번]|^[가-힣]+동\s*\d/.test(name)
             && !this.landmarks.some(l => l.name === name && Math.hypot(l.x - lx, l.y - ly) < 250)) this.landmarks.push({ name, x: lx, y: ly, area });
+          // a building to go into: named, not housing, of some size (four storeys, or 400 ㎡ a floor); its
+          // door on the middle of its longest side, facing out
+          const bid = `${name}|@${b.r[0].toFixed(5)},${b.r[1].toFixed(5)}`;
+          if (name.length >= 2 && !/아파트|빌라|주택/.test(b.n) && ((b.f || 0) >= 4 || area >= 400) && !/^(주건축물|부속|창고|주차|관리|경비|기계|전기|화장실)/.test(name) && !seen.has(bid)) {
+            let cx = 0, cy = 0; for (const p of fp) { cx += p[0]; cy += p[1]; } cx /= fp.length; cy /= fp.length;
+            let best = -Infinity, door: Entrance | null = null;
+            for (let i = 0; i < fp.length; i++) {
+              const [ax, ay] = fp[i], [bx, by] = fp[(i + 1) % fp.length], len = Math.hypot(bx - ax, by - ay);
+              if (len < 5) continue;
+              let nx = (by - ay) / len, ny = -(bx - ax) / len;
+              const mx = (ax + bx) / 2, my = (ay + by) / 2;
+              if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
+              if (len > best) { best = len; door = { name, dong: "", x: mx + nx * 1.6, y: my + ny * 1.6, floors: b.f || Math.max(1, Math.round((b.h || 4) / 3.6)), heading: Math.atan2(ny, nx), cx, cy, span: len / 2, foot: fp, kind: "building", use: b.u }; }
+            }
+            if (door) { seen.add(bid); this.waitingDoors.push({ door, detail: null }); }
+          }
         }
         // apartment blocks only: 공동주택 of six storeys and up (five and under are villas and
         // 연립), with a numbered 동 ("제101동", "101동", "A동"); the register's generic names skipped
@@ -376,10 +414,11 @@ export class WalkGame {
           if (score > best) { best = score; door = { name: (b.n || this.o.complexName).replace(/\(.*?\)|\s*(제\s*)?[0-9A-Z]{1,4}\s*동$/g, "").trim() || this.o.complexName, dong, x: mx + nx * 1.6, y: my + ny * 1.6, floors, heading: Math.atan2(ny, nx), cx, cy, span: len / 2, foot: pts }; }
         }
         if (door) {
-          seen.add(id); this.entrances.push(door); this.addMarker(door);
-          const ground = Math.min(...pts.map(([x, y]) => this.world.heightAt(x, y)).filter(Number.isFinite));
+          // (placed once the terrain under it is in — placeDoors: read from the cached tile data, a door
+          // came before its tile's heights and stood at 0 m, in the middle of a wall on a hillside)
+          seen.add(id);
           const height = b.h > 2 && b.h <= floors * 4.5 + 12 ? b.h : floors * 2.9 + 1.5;
-          this.apartmentDetails?.add(id, pts, height, ground, floors);
+          this.waitingDoors.push({ door, detail: { id, pts, height, floors } });
         }
       }
     }
@@ -394,7 +433,7 @@ export class WalkGame {
     // (old blocks: black numerals painted on cream; then a dark plate; now a lit stone-set plate)
     x2.fillStyle = era === "old" ? "#e9e3d4" : era === "mid" ? "#23282d" : "#15171a"; x2.fillRect(0, 0, 512, 160);
     x2.fillStyle = era === "old" ? "#1c1d1f" : era === "mid" ? "#f4f4f2" : "#ffe9c4";
-    x2.font = `${era === "new" ? 500 : 800} 96px Pretendard, 'Noto Sans KR', sans-serif`; x2.textAlign = "center"; x2.textBaseline = "middle"; x2.fillText(e.dong, 256, 86);
+    x2.font = `${era === "new" ? 500 : 800} 96px Pretendard, 'Noto Sans KR', sans-serif`; x2.textAlign = "center"; x2.textBaseline = "middle"; x2.fillText(e.kind === "building" ? (e.name.length > 7 ? e.name.slice(0, 7) + "…" : e.name) : e.dong, 256, 86);
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
     const built = buildEntrance(era, variant, tex, night);
     const g = built.group;
@@ -410,7 +449,7 @@ export class WalkGame {
       b2.beginPath(); b2.roundRect(4, 4, 312, 76, 18); b2.fill(); b2.stroke();
       b2.fillStyle = "#ffc857"; b2.beginPath(); b2.moveTo(140, 80); b2.lineTo(180, 80); b2.lineTo(160, 108); b2.closePath(); b2.fill();
       b2.fillStyle = "#ffffff"; b2.font = "800 44px Pretendard, 'Noto Sans KR', sans-serif"; b2.textAlign = "center"; b2.textBaseline = "middle";
-      b2.fillText(`${e.dong} 입구`, 160, 44);
+      b2.fillText(e.kind === "building" ? `${e.name.length > 6 ? e.name.slice(0, 6) + "…" : e.name}` : `${e.dong} 입구`, 160, 44);
       const bt = new THREE.CanvasTexture(bc); bt.colorSpace = THREE.SRGBColorSpace;
       const bm = new THREE.SpriteMaterial({ map: bt, transparent: true, depthWrite: false, sizeAttenuation: false, fog: false });
       const beacon = new THREE.Sprite(bm); beacon.center.set(0.5, 0); beacon.scale.set(0.105, 0.037, 1); beacon.position.set(0, 4.4, 1.5); beacon.renderOrder = 5; beacon.visible = false;
@@ -709,6 +748,7 @@ export class WalkGame {
       this.bicycles.sync(this.pos.x, this.pos.y);
       this.apartmentDetails?.update(this.pos.x, this.pos.y, this.camera);
       this.rooftops?.update(this.pos.x, this.pos.y);
+      this.signs?.update(this.pos.x, this.pos.y);
       // (the entrances drawn within 170 m: their small parts are lost further off)
       for (const m of this.markers.children) m.visible = Math.hypot(m.position.x - this.pos.x, -m.position.z - this.pos.y) < 170;
       { const near = this.beacons.map(b => ({ b, d: Math.hypot(b.e.x - this.pos.x, b.e.y - this.pos.y) })).sort((a, b) => a.d - b.d);
@@ -717,6 +757,7 @@ export class WalkGame {
       for (const op of this.openings) op.d = Math.hypot(op.wx - this.pos.x, op.wy - this.pos.y);
       this.openings.sort((a, b) => a.d - b.d); setOpenings(this.openings.slice(0, 16).filter(op => op.d < 170));
       this.provideGateBicycles();
+      this.placeDoors();
       const [i, j] = tileOf(this.origin, this.pos.x, this.pos.y);
       if (!this.scanned.has(`${i}_${j}`)) void this.scanEntrances();
       for (const entrance of this.entrances) if (Math.hypot(entrance.x - this.pos.x, entrance.y - this.pos.y) < 180) this.provideBicycle(entrance, false);
@@ -889,7 +930,7 @@ export class WalkGame {
     this.disposed = true; this.running = false;
     this.o.sound.stopBicycle();
     cancelAnimationFrame(this.raf); this.window(false);
-    this.rooftops?.dispose(); this.ground?.dispose(); this.world?.dispose(); this.traffic?.dispose(); this.signals?.dispose(); this.mats?.dispose();
+    this.rooftops?.dispose(); this.signs?.dispose(); this.ground?.dispose(); this.world?.dispose(); this.traffic?.dispose(); this.signals?.dispose(); this.mats?.dispose();
     this.carMaterial?.emissiveMap?.dispose(); this.carMaterial?.dispose(); this.carReflectionRT?.dispose();
     this.carBatches?.dispose();this.nightLighting?.dispose();
     this.drivenCars?.dispose();this.parkedCars.dispose();

@@ -59,6 +59,8 @@ interface Frame { m: THREE.Matrix4; rect: Rect }
 
 class Placer {
   occupied: Rect[] = [];
+  /** the doorways' clear areas (walked through; where a way in starts) */
+  doors: Rect[] = [];
   X0: number; X1: number; Z0: number; Z1: number; fy: number;
   constructor(public room: Room, private plan: FloorPlan) {
     const e = HALF_WALL;
@@ -71,9 +73,39 @@ class Placer {
       const s = this.sideOf(o.axis, o.at);
       if (!s) continue;
       const reach = o.type === "door" && o.swingInto === room.id ? o.width + 0.1 : 0.75;
-      this.occupied.push(this.rectAt(s, o.center, o.width + 0.12, reach));
+      const r = this.rectAt(s, o.center, o.width + 0.12, reach);
+      this.occupied.push(r); this.doors.push(r);
     }
   }
+  /** a way on foot (0.1 m grid, a walker's 0.22 m half-width kept off everything placed) from a door to
+   * (x, z); its cells, or null — so a desk is not put where the bed shuts it off */
+  way(x: number, z: number): [number, number][] | null {
+    const C = 0.1, nx = Math.max(1, Math.round((this.X1 - this.X0) / C)), nz = Math.max(1, Math.round((this.Z1 - this.Z0) / C)), R = 0.22;
+    const block = new Uint8Array(nx * nz);
+    const solid = this.occupied.filter(o => !this.doors.includes(o));
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+      const px = this.X0 + (i + 0.5) * C, pz = this.Z0 + (j + 0.5) * C;
+      if (px < this.X0 + R - 0.05 || px > this.X1 - R + 0.05 || pz < this.Z0 + R - 0.05 || pz > this.Z1 - R + 0.05) { block[j * nx + i] = 1; continue; }
+      if (solid.some(o => px > o[0] - R && px < o[2] + R && pz > o[1] - R && pz < o[3] + R)) block[j * nx + i] = 1;
+    }
+    const from = new Int32Array(nx * nz).fill(-2), q: number[] = [];
+    for (const d of this.doors) for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+      const px = this.X0 + (i + 0.5) * C, pz = this.Z0 + (j + 0.5) * C, k = j * nx + i;
+      if (px > d[0] && px < d[2] && pz > d[1] && pz < d[3] && from[k] === -2) { from[k] = -1; block[k] = 0; q.push(k); }
+    }
+    const ti = Math.min(nx - 1, Math.max(0, Math.floor((x - this.X0) / C))), tj = Math.min(nz - 1, Math.max(0, Math.floor((z - this.Z0) / C))), t = tj * nx + ti;
+    for (let h = 0; h < q.length; h++) {
+      const c = q[h]; if (c === t) break;
+      const i = c % nx;
+      for (const n of [i > 0 ? c - 1 : -1, i < nx - 1 ? c + 1 : -1, c - nx, c + nx]) if (n >= 0 && n < nx * nz && from[n] === -2 && !block[n]) { from[n] = c; q.push(n); }
+    }
+    if (from[t] === -2) return null;
+    const out: [number, number][] = [];
+    for (let c = t; c >= 0; c = from[c]) out.push([this.X0 + ((c % nx) + 0.5) * C, this.Z0 + (Math.floor(c / nx) + 0.5) * C]);
+    return out;
+  }
+  /** keep a way clear: the cells along it reserved (0.6 m wide) for nothing else to stand on */
+  keep(way: [number, number][]) { for (let k = 0; k < way.length; k += 3) { const [x, z] = way[k]; this.occupied.push([x - 0.3, z - 0.3, x + 0.3, z + 0.3]); } }
   sideOf(axis: "x" | "z", at: number): SideName | null {
     const [x0, z0, x1, z1] = this.room.rect;
     if (axis === "z") return Math.abs(at - z0) < 1e-6 ? "n" : Math.abs(at - z1) < 1e-6 ? "s" : null;
@@ -530,9 +562,23 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       } else {
         // a desk under the window, a wardrobe and a bookcase where they fit
         // (a small room: a 1 m desk, on any wall that takes it)
+        // (with room to pull the chair out — 0.8 m clear before it — and a way to it from the door: the
+        // bed once shut a desk off; the way kept clear of what comes after)
         let deskW = 1.2;
-        let dk = pl.against(windowSide, 1.2, 0.6, null, 0.7);
-        if (!dk) { deskW = 1.0; for (const sd of [windowSide, ...(["n", "s", "e", "w"] as SideName[]).filter(x => x !== windowSide)]) { dk = pl.against(sd, 1.0, 0.55, null, 0.6); if (dk) break; } }
+        const got: { f: Frame | null; way: [number, number][] | null } = { f: null, way: null };
+        const tryDesk = (sd: SideName, w: number, d: number) => {
+          const [lo, hi] = pl.span(sd);
+          for (let u = lo + w / 2 + 0.05; u <= hi - w / 2 - 0.05; u += 0.2) {
+            const f = pl.against(sd, w, d, u, 0.7, 0.8);
+            if (!f) continue;
+            const seat = local(f, 0, 0, 0.95), wy = pl.way(seat.x, seat.z);
+            if (wy) { got.f = f; got.way = wy; deskW = w; return true; }
+          }
+          return false;
+        };
+        for (const sd of [windowSide, ...(["n", "s", "e", "w"] as SideName[]).filter(x => x !== windowSide)]) if (tryDesk(sd, 1.2, 0.6) || tryDesk(sd, 1.0, 0.55)) break;
+        const dk = got.f;
+        if (dk && got.way) pl.keep(got.way);
         if (dk) { put(M.desk(P, deskW), dk, zone); pl.take(dk.rect); put((v => (v < 5 ? chairV(P, v) : chairMore(P, v)))([0, 2, 3, 6, 9][variantOf(VS + room.id, "deskchair", 5)]), new THREE.Matrix4().multiplyMatrices(dk.m, new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0, 0, 0.95)), zone, false); if (!furnishedLaptop.corners) laptop(dk, zone, room); }
         for (const s of sides.filter(s => s !== windowSide)) {
           const wd = Math.min(1.8, pl.len(s) - 0.4);

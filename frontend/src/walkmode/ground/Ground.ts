@@ -31,6 +31,9 @@ interface Surf { name: string; size: number; tint?: THREE.ColorRepresentation; r
 const PAVERS = 6;
 /** (and sand: a beach, from the coastline data — the photograph read it as paving) */
 const SAND = 7;
+/** (and the land that is not paved: bare earth, the leaf litter of a wooded slope, rock on the
+ * steepest — the photograph's dark ground read as asphalt on every hillside) */
+const SOIL = 8, FOREST = 9, ROCK = 10;
 const SURF: Record<number, Surf> = {
   [K.ASPHALT]: { name: "asphalt_02", size: 3.0, tint: "#8c8c8a", lift: 0.035 },
   // (Korean block paving: grey concrete blocks; the red brick is the same laid in red)
@@ -38,6 +41,9 @@ const SURF: Record<number, Surf> = {
   [K.RED]: { name: "brick_pavement_02", size: 2.0, tint: "#d0907a", lift: 0.075 },
   [PAVERS]: { name: "interlocking_concrete_pavers", size: 1.6, tint: "#cdc8bf", lift: 0.075 },
   [SAND]: { name: "coast_sand_01", size: 7.5, tint: "#fbe9c6", lift: 0.05 },
+  [SOIL]: { name: "dry_ground_01", size: 4.0, tint: "#d9cbb4", lift: 0.06 },
+  [FOREST]: { name: "forest_ground_06", size: 3.0, tint: "#c8c0a8", lift: 0.07 },
+  [ROCK]: { name: "rocky_terrain_02", size: 5.0, tint: "#c9c4bb", lift: 0.08 },
   [K.GRASS]: { name: "grass_ground", size: 2.5, tint: "#b8cc90", lift: 0.07 },
   // (under the trees: planted beds, ground cover over soil)
   [K.TREE]: { name: "grass_ground", size: 1.6, tint: "#93a676", lift: 0.11 },
@@ -193,6 +199,52 @@ export class Ground {
       }
       for (let c = 0; c < block.length; c++) if (cls[c] === K.PAVE && dist[c] <= 20 && block[c] !== 3) cls[c] = PAVERS;
     }
+    // ---- the land: asphalt only where a road or a complex's own drive or car park can be — by a
+    // road, or near the buildings on level ground; elsewhere the photograph's dark ground is earth,
+    // a wooded slope's leaf litter (near the canopy, or in shade), rock where it is steepest. Paving
+    // never on a steep slope; nothing left bare (the drive world's flat grey showed through).
+    {
+      const N = nx * ny, roadD = new Uint8Array(N).fill(255), bldD = new Uint8Array(N).fill(255), treeD = new Uint8Array(N).fill(255);
+      const bfs = (d: Uint8Array, seed: (c: number) => boolean, cap: number) => {
+        const q: number[] = [];
+        for (let c = 0; c < N; c++) if (seed(c)) { d[c] = 0; q.push(c); }
+        for (let h = 0; h < q.length; h++) {
+          const c = q[h], v = d[c]; if (v >= cap) continue;
+          const i = c % nx;
+          for (const n of [i > 0 ? c - 1 : -1, i < nx - 1 ? c + 1 : -1, c - nx, c + nx]) if (n >= 0 && n < N && d[n] > v + 1) { d[n] = v + 1; q.push(n); }
+        }
+      };
+      bfs(roadD, c => block[c] === 2 || block[c] === 3, 14);
+      bfs(bldD, c => block[c] === 1 && !W.wetAt(cx0(c % nx), cy0((c - (c % nx)) / nx)), 60);
+      bfs(treeD, c => cls[c] === K.TREE, 16);
+      await breathe();
+      // the slope (rise over run) on a 2 m grid from the terrain
+      const S = 4, sx = Math.ceil(nx / S) + 1, sy = Math.ceil(ny / S) + 1, hs = new Float32Array(sx * sy);
+      for (let j = 0; j < sy; j++) for (let i = 0; i < sx; i++) { const h = W.heightAt(x0 + i * S * CELL, y0 + j * S * CELL); hs[j * sx + i] = Number.isFinite(h) ? h : NaN; }
+      const slopeAt = (i: number, j: number) => {
+        const a = Math.min(sx - 2, Math.floor(i / S)), b = Math.min(sy - 2, Math.floor(j / S));
+        const h00 = hs[b * sx + a], h10 = hs[b * sx + a + 1], h01 = hs[(b + 1) * sx + a];
+        return Number.isFinite(h00 + h10 + h01) ? Math.hypot(h10 - h00, h01 - h00) / (S * CELL) : 0;
+      };
+      const rgbAt = res.rgb;
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const c = j * nx + i, b = block[c];
+        if (b === 1 || b === 2) continue;
+        const k = cls[c], slope = slopeAt(i, j), nearRoad = roadD[c] <= 12, nearBld = bldD[c] <= 50;
+        // (the pavement band along a road: paved where it is level; where it climbs a bank, that bank)
+        if (b === 3) { if (slope > 0.3 && k !== K.TREE) cls[c] = K.GRASS; continue; }
+        const wooded = treeD[c] <= 12 || bldD[c] > 50;
+        const l = rgbAt ? (rgbAt[c * 3] + rgbAt[c * 3 + 1] + rgbAt[c * 3 + 2]) / 765 : 0.3;
+        // (a bank by a road or a block is a planted slope — 법면, in grass; leaf litter only in a wood
+        // away from the buildings; bare earth on level open ground; rock only off in the hills)
+        const land = slope > 0.65 && !nearBld ? ROCK : (nearRoad || bldD[c] <= 30) && slope > 0.15 ? K.GRASS : wooded && bldD[c] > 30 ? FOREST : l < 0.18 ? FOREST : SOIL;
+        if (k === K.ASPHALT) { if (!((nearRoad && slope < 0.2) || (nearBld && slope < 0.12))) cls[c] = land; }
+        else if ((k === K.PAVE || k === K.RED || k === PAVERS) && slope > 0.25 && !nearRoad) cls[c] = land;
+        else if (k === K.NONE) cls[c] = wooded ? FOREST : K.GRASS;
+        else if (k === K.TREE && bldD[c] > 60) cls[c] = FOREST;
+        else if (k === K.GRASS && slope > 0.65) cls[c] = ROCK;
+      }
+    }
     lap("masks"); await breathe();
     const terrainH = (x: number, y: number) => { const h = W.heightAt(x, y); return Number.isFinite(h) ? h : W.h0; };
     // The pavement beside a road at the road's own level (a kerb above it), easing back to the
@@ -253,6 +305,15 @@ export class Ground {
     // ---- surfaces: each class's area traced through the cell centres by marching squares (edges
     // cut on the diagonal, no stair-steps), whole squares merged into rectangles (≤ 4 m, to follow the
     // terrain); world-space uv
+    // (where the ground slopes, its surfaces in half-metre squares that follow it: merged into 4 m
+    // rectangles, the drive world's ground poked through their middles in jagged teeth on a bank)
+    const SB = 4, sbx = Math.ceil(nx / SB) + 1, sby = Math.ceil(ny / SB) + 1, hv = new Float32Array(sbx * sby);
+    for (let j = 0; j < sby; j++) for (let i = 0; i < sbx; i++) hv[j * sbx + i] = height(cx0(Math.min(nx - 1, i * SB)), cy0(Math.min(ny - 1, j * SB)));
+    const steepAt = (i: number, j: number) => {
+      const a = Math.min(sbx - 2, Math.floor(i / SB)), b = Math.min(sby - 2, Math.floor(j / SB));
+      const v = [hv[b * sbx + a], hv[b * sbx + a + 1], hv[(b + 1) * sbx + a], hv[(b + 1) * sbx + a + 1]];
+      return Math.max(...v) - Math.min(...v) > 0.18;
+    };
     const loadT = sharedTex;
     for (const [ks, sf] of Object.entries(SURF) as [string, Surf][]) {
       const k = +ks;
@@ -265,8 +326,9 @@ export class Ground {
       // whole squares: rectangles
       for (let j = 0; j < sqy; j++) for (let i = 0; i < sq; i++) {
         const c = j * sq + i; if (!full[c] || done[c]) continue;
-        let w = 1; while (i + w < sq && w < 8 && full[c + w] && !done[c + w]) w++;
-        let h = 1; grow: while (j + h < sqy && h < 8) { for (let q = 0; q < w; q++) { const d = (j + h) * sq + i + q; if (!full[d] || done[d]) break grow; } h++; }
+        const lim = steepAt(i, j) ? 1 : 8;
+        let w = 1; while (i + w < sq && w < lim && full[c + w] && !done[c + w] && !steepAt(i + w, j)) w++;
+        let h = 1; grow: while (j + h < sqy && h < lim) { for (let q = 0; q < w; q++) { const d = (j + h) * sq + i + q; if (!full[d] || done[d] || steepAt(i + q, j + h)) break grow; } h++; }
         for (let bb = 0; bb < h; bb++) for (let q = 0; q < w; q++) done[(j + bb) * sq + i + q] = 1;
         const xa = cx0(i), xb = cx0(i + w), ya = cy0(j), yb = cy0(j + h);
         const v0 = vert(xa, ya), v1 = vert(xb, ya), v2 = vert(xb, yb), v3 = vert(xa, yb);

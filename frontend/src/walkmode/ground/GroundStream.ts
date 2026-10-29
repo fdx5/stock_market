@@ -35,6 +35,8 @@ interface Patch { i: number; j: number; ground: Ground | null; state: "building"
 
 export class GroundStream {
   private patches = new Map<string, Patch>();
+  /** when each patch was first wanted (its tiles awaited from then) */
+  private asked = new Map<string, number>();
   private busy = false;
   private hx = 1; private hy = 0;
 
@@ -81,7 +83,11 @@ export class GroundStream {
     const [cx, cy] = this.centre(i, j);
     // (the drive world's tiles there must be in: terrain heights, roads and footprints)
     // (the world streams ~680 m round the walker, so the patches wanted come in on their own)
-    if (!force && this.o.world.readiness(cx, cy, PATCH * 0.6) < 0.9) return;
+    // (all of them, over the whole patch: with a tenth missing, the paving, the parked cars and the
+    // trees there were laid on a default height — floating, or sunk, on a hillside)
+    // (a tile that will not come — failed — does not hold the patch back for good: after 6 s, 97 % will do)
+    const ready = this.o.world.readiness(cx, cy, PATCH * 0.75), since = this.asked.get(k) ?? (this.asked.set(k, performance.now()), performance.now());
+    if (!force && ready < 1 && !(ready >= 0.97 && performance.now() - since > 6000)) return;
     const p: Patch = { i, j, ground: null, state: "building", rect: [i * PATCH, j * PATCH, (i + 1) * PATCH, (j + 1) * PATCH] };
     this.patches.set(k, p);
     this.busy = true;

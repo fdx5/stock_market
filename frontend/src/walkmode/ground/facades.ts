@@ -289,7 +289,9 @@ const GLSL_FACADE = /* glsl */`
       float inText = step(start, lx) * step(lx, start + nch * cw) * step(0.17, ly) * step(ly, 0.58);
       vec2 cp = vec2(fract((lx - start) / cw), (ly - 0.17) / 0.41);
       // (glyph-like blocks: each letter a 3 × 3 of strokes, a gap between letters)
-      float glyph = inText * step(0.1, cp.x) * step(cp.x, 0.9) * step(fh1(vec2(floor((lx - start) / cw), ts * 31.0) + floor(cp * 3.0)), 0.55);
+      // (no made-up lettering — it read as smudged blocks: the shops' own names are real signs, signs.ts;
+      // the band here a plain fascia in the tenant's colour, a thin light line along it)
+      float glyph = 0.0 * inText * cp.x + inText * 0.0;
       albedo = mix(signC, textC, glyph * fine + glyph * (1.0 - fine) * 0.5); fRough = 0.45; fMetal = 0.0;
       fEmit = albedo * (0.12 + 0.85 * fNight) * (glyph > 0.5 ? 1.2 : 0.55);
       float edge = 1.0 - sbox(vec2(lx, ly), vec2(0.06, 0.05), vec2(tw - 0.06, 0.7), px);

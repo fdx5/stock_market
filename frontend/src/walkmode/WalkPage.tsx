@@ -5,6 +5,8 @@ import { Interior, prewarmInterior, type HudState } from "./interior/Interior";
 import { generatePlan } from "./interior/plan/generate";
 import { fetchUnits } from "./interior/plan/fetchUnits";
 import { complexOf } from "./complexOf";
+import { BuildingInterior, type BuildingHud } from "./building/BuildingInterior";
+import { planBuilding, plateOf, type RegBuilding, type RegFloor } from "./building/plan";
 import { envelopeOf } from "./interior/plan/envelope";
 import { seeded } from "./interior/plan/generate";
 import type { FloorPlan, StyleName, UnitsResponse } from "./interior/plan/types";
@@ -31,7 +33,7 @@ import "./walkmode.css";
  * ?id=<complex>&lat=&lon=&hour=&weather=&back=… from the building view; ?interior=demo[&area=84]
  * opens a flat directly. One WebGL renderer for both, its resolution fixed on entry. */
 
-type Phase = "boot" | "outdoor-loading" | "outdoor" | "choose" | "interior-loading" | "interior" | "error";
+type Phase = "boot" | "outdoor-loading" | "outdoor" | "choose" | "interior-loading" | "interior" | "building-loading" | "building" | "error";
 // WebGL scenes own effects and resources outside React. Fast Refresh reused a
 // disposed game and left the loading overlay at 100%; a full dev reload rebuilds it.
 if (import.meta.hot) import.meta.hot.accept(() => window.location.reload());
@@ -63,6 +65,11 @@ export default function WalkPage() {
   const [near, setNear] = useState<Entrance | null>(null);
   const [bicycle, setBicycle] = useState<BicycleHud>({ riding: false, speedKmh: 0, nearby: null, message: "" });
   const [entering, setEntering] = useState<Entrance | null>(null);
+  // a building other than flats, gone into by its floors (building/)
+  const building = useRef<BuildingInterior | null>(null);
+  const [bhud, setBhud] = useState<BuildingHud | null>(null);
+  const [liftPanel, setLiftPanel] = useState<{ levels: { level: number; label: string; uses: string }[]; current: number } | null>(null);
+  const [bsource, setBsource] = useState("");
   /** the complex of the building being entered, when it is not the one the walk started at */
   const [visit, setVisit] = useState<{ id: string; name: string; built?: number } | null>(null);
   const [units, setUnits] = useState<UnitsResponse | null>(null);
@@ -90,9 +97,9 @@ export default function WalkPage() {
     r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     r.setSize(cv.clientWidth, cv.clientHeight, false);
     renderer.current = r;
-    const fit = () => { const w = cv.clientWidth, h = cv.clientHeight; if (interior.current) interior.current.resize(w, h); else if (game.current) game.current.resize(w, h); else r.setSize(w, h, false); };
+    const fit = () => { const w = cv.clientWidth, h = cv.clientHeight; if (building.current) building.current.resize(w, h); else if (interior.current) interior.current.resize(w, h); else if (game.current) game.current.resize(w, h); else r.setSize(w, h, false); };
     const ro = new ResizeObserver(fit); ro.observe(cv);
-    if (debug) Object.assign(window, { __walk: { renderer: r, get interior() { return interior.current; }, get game() { return game.current; } } });
+    if (debug) Object.assign(window, { __walk: { renderer: r, get interior() { return interior.current; }, get game() { return game.current; }, get building() { return building.current; } } });
     return () => { ro.disconnect(); interior.current?.dispose(); game.current?.dispose(); r.dispose(); sound.dispose(); renderer.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -147,6 +154,7 @@ export default function WalkPage() {
   // the flat types of the building being entered: fetched now, from the register and the trades
   const enter = (e: Entrance) => {
     if (!start || game.current?.cycling||game.current?.driving) return;
+    if (e.kind === "building") { enterBuilding(e); return; }
     sound.resume();
     game.current?.pause();
     document.exitPointerLock?.();
@@ -217,6 +225,40 @@ export default function WalkPage() {
       else leave();
     }, 500);
   };
+  // into a building: its register floors (표제부 + 층별개요) for its pnu, then its floors built live
+  const enterBuilding = (e: Entrance) => {
+    if (!renderer.current) return;
+    sound.resume(); game.current?.pause(); document.exitPointerLock?.();
+    setEntering(e); setBhud(null); setLiftPanel(null); setPhase("building-loading"); setProgress({ k: 0.05, text: "건축물대장에서 층별 정보를 찾는 중" });
+    (game.current ? game.current.pnuOf(e) : Promise.resolve(null)).then(async pnu => {
+      let info: RegBuilding = { name: e.name, floors: e.floors }, floors: RegFloor[] = [], src = "건축물대장 정보 없음 · 추정 구성";
+      if (pnu) {
+        // (its footprint's area picks the right block of a campus: a hospital's main block, not its labs)
+        const fa = e.foot && e.foot.length > 2 ? Math.abs(e.foot.reduce((t, [x1, y1], i) => { const [x2, y2] = e.foot![(i + 1) % e.foot!.length]; return t + x1 * y2 - x2 * y1; }, 0)) / 2 : 0;
+        const r = await fetch(`/api/realestate/building-floors?${new URLSearchParams({ pnu, name: e.name, ...(fa ? { area: fa.toFixed(0) } : {}) })}`).catch(() => null);
+        if (r?.ok) { const d = await r.json(); info = { ...d.building, name: d.building?.name || e.name }; floors = d.floors ?? []; src = `건축물대장 표제부·층별개요 · 지상 ${info.floors ?? "?"}층 / 지하 ${info.basements ?? 0}층 · 승강기 ${(info.rideLifts ?? 0) + (info.emergencyLifts ?? 0)}대`; }
+      }
+      setBsource(src);
+      const { W, D } = plateOf(e.foot, e.heading, info.buildingArea);
+      const plan = planBuilding(info, floors, W, D);
+      const bi = new BuildingInterior(renderer.current!, {
+        plan, seed: Math.abs([...e.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)), hour,
+        onHud: setBhud, onLiftPanel: p => { setLiftPanel(p); if (p) document.exitPointerLock?.(); }, onProgress: (k, text) => setProgress({ k, text }), onExit: () => exitBuilding(),
+      });
+      building.current = bi;
+      bi.resize(canvas.current!.clientWidth, canvas.current!.clientHeight);
+      await bi.load();
+      if (building.current !== bi) return;
+      bi.start(); setPhase("building");
+    }).catch(err => { console.error(err); setError("건물 내부를 만들지 못했습니다: " + String(err)); setPhase("error"); });
+  };
+  const exitBuilding = () => {
+    document.exitPointerLock?.();
+    building.current?.dispose(); building.current = null; setBhud(null); setLiftPanel(null);
+    if (game.current && entering) { game.current.returnFromInterior(entering); setPhase("outdoor"); setNear(null); }
+    else leave();
+  };
+
   const leave = () => { const b = q.get("back"); if (b && b.startsWith("/")) location.href = b; else if (history.length > 1) history.back(); else location.href = "/realestate-map"; };
 
   // keys the page owns: Esc leaves (back to the street, then the map), E enters a building
@@ -225,7 +267,7 @@ export default function WalkPage() {
       const target = e.target as HTMLElement | null;
       if (target?.isContentEditable || target?.matches("input, textarea, select")) return;
       sound.resume();
-      if (e.code === "Escape") { if (document.pointerLockElement) return; if (phase === "interior") exitFlat(); else if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); } else if (phase === "outdoor") leave(); }
+      if (e.code === "Escape") { if (document.pointerLockElement) return; if (phase === "building") { if (liftPanel) building.current?.closeLiftPanel(); else exitBuilding(); return; } if (phase === "interior") exitFlat(); else if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); } else if (phase === "outdoor") leave(); }
       if (e.code === "KeyH") setShowHelp(s => !s);
       if(e.code==="KeyF"&&phase==="outdoor"&&!e.repeat){if(game.current?.interactCar())e.preventDefault();return;}
       if ((e.code === "KeyE" || e.code === "Enter") && phase === "outdoor" && !e.repeat) {
@@ -245,7 +287,7 @@ export default function WalkPage() {
   const stick = useRef<{ id: number; x: number; y: number } | null>(null);
   const [stickAt, setStickAt] = useState<{ x: number; y: number; dx: number; dy: number } | null>(null);
   const phaseRef = useRef(phase); phaseRef.current = phase;
-  const active = () => (phaseRef.current === "interior" ? interior.current : phaseRef.current === "outdoor" ? game.current : null);
+  const active = () => (phaseRef.current === "interior" ? interior.current : phaseRef.current === "building" ? building.current : phaseRef.current === "outdoor" ? game.current : null);
   useEffect(() => {
     const clear = () => { stick.current = null; drag.current = null; setStickAt(null); active()?.setStick(0, 0, false); };
     window.addEventListener("blur", clear);
@@ -281,7 +323,7 @@ export default function WalkPage() {
       else if (!drag.current) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
       return;
     }
-    if (phase === "interior" || phase === "outdoor") canvas.current?.requestPointerLock?.();
+    if ((phase === "interior" || phase === "outdoor" || phase === "building") && !liftPanel) canvas.current?.requestPointerLock?.();
   };
   const onMove = (e: React.PointerEvent) => {
     if (stick.current?.id === e.pointerId) {
@@ -306,11 +348,11 @@ export default function WalkPage() {
       <canvas ref={canvas} className="wk-canvas" />
       <div className="wk-fade" />
 
-      {(phase === "boot" || phase === "outdoor-loading" || phase === "interior-loading") && (
+      {(phase === "boot" || phase === "outdoor-loading" || phase === "interior-loading" || phase === "building-loading") && (
         <div className="wk-loading">
           <div className="wk-load-card">
             <span className="wk-kicker">{phase === "interior-loading" ? `${plan?.complexName ?? ""} ${plan?.dong ?? ""} · ${plan?.floor ?? ""}층` : "직접 걷기"}</span>
-            <h1>{phase === "interior-loading" ? "세대 실내를 만드는 중" : start?.name ?? "단지를 찾는 중"}</h1>
+            <h1>{phase === "interior-loading" ? "세대 실내를 만드는 중" : phase === "building-loading" ? `${entering?.name ?? "건물"} 내부를 만드는 중` : start?.name ?? "단지를 찾는 중"}</h1>
             <div className="wk-bar"><i style={{ transform: `scaleX(${Math.max(0.02, progress.k)})` }} /></div>
             <p className="wk-progress-text">{progress.text}<b>{Math.round(progress.k * 100)}%</b></p>
             {phase === "interior-loading" && plan && <p className="wk-sub">{plan.template} · 전용 {plan.areaExclusiveM2.toFixed(2)}㎡ · {STYLE_LABEL[plan.style]} · 고품질 자재 약 9MB (첫 방문만)</p>}
@@ -418,11 +460,43 @@ export default function WalkPage() {
         </>
       )}
 
-      {(phase === "interior" || phase === "outdoor") && touch && (
+      {phase === "building" && (
+        <>
+          <div className="wk-topbar">
+            <div className="wk-where"><b>{bhud?.building ?? entering?.name} · {bhud?.floor}</b><span>{bhud?.uses || "층별 용도 정보 없음"} · 사람 {bhud?.people ?? 0}명</span></div>
+            <div className="wk-meta"><span className="wk-badge">건축물대장</span>{bsource} · 층 구성·용도는 대장 기준, 실내 배치는 추정</div>
+            <div className="wk-actions">
+              <button className="wk-btn" onClick={() => building.current?.toggleView()}>{bhud?.view === "third" ? "1인칭" : "3인칭"} <kbd>V</kbd></button>
+              <button className="wk-btn" onClick={exitBuilding}>나가기 <kbd>Esc</kbd></button>
+            </div>
+          </div>
+          <div className="wk-cross" />
+          {bhud?.prompt && !liftPanel && <div className="wk-hint"><kbd>E</kbd> {bhud.prompt}</div>}
+          {bhud?.riding && <div className="wk-hint is-seat">에스컬레이터 이동 중…</div>}
+          {liftPanel && (
+            <div className="wk-prompt wk-lift" onPointerDown={e => e.stopPropagation()}>
+              <p><b>엘리베이터</b> · 현재 {liftPanel.levels.find(l => l.level === liftPanel.current)?.label}</p>
+              <div className="wk-lift-grid">
+                {[...liftPanel.levels].reverse().map(l => (
+                  <button key={l.level} className={`wk-btn${l.level === liftPanel.current ? " on" : ""}`} disabled={l.level === liftPanel.current} onClick={() => building.current?.ride_to(l.level)} title={l.uses}>
+                    <b>{l.label}</b>{l.uses && <small>{l.uses}</small>}
+                  </button>
+                ))}
+              </div>
+              <div className="wk-row"><button className="wk-btn" onClick={() => building.current?.closeLiftPanel()}>닫기 <kbd>Esc</kbd></button></div>
+            </div>
+          )}
+          {showHelp && !touch && <div className="wk-help" onClick={() => setShowHelp(false)}>WASD 이동 · Shift 달리기 · E 엘리베이터/계단/출입문 · Shift+E 계단 아래층 · 에스컬레이터는 올라서면 이동 · V 시점 · Esc 나가기</div>}
+        </>
+      )}
+
+      {(phase === "interior" || phase === "outdoor" || phase === "building") && touch && (
         <div className="wk-touch">
           {stickAt && <div className="wk-stick" style={{ left: stickAt.x - 60, top: stickAt.y - 60 }}><i style={{ transform: `translate(${stickAt.dx}px, ${stickAt.dy}px)` }} /></div>}
           {phase === "interior" && <button className={`wk-act${hud?.target ? " on" : ""}`} onPointerDown={e => { e.stopPropagation(); interior.current?.interact(); }}>{hud?.target ?? "상호작용"}</button>}
           {phase === "interior" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>시점</button>}
+          {phase === "building" && <button className={`wk-act${bhud?.prompt ? " on" : ""}`} onPointerDown={e => { e.stopPropagation(); building.current?.interact(); }}>{bhud?.prompt ?? "상호작용"}</button>}
+          {phase === "building" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>시점</button>}
         </div>
       )}
 
