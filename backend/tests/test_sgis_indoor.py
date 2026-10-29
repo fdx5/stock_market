@@ -44,5 +44,13 @@ class SgisIndoorTests(unittest.TestCase):
     def test_epsg_round_trip(self):
         x,y=s._to_grid.transform(127.085151,37.488298);lon,lat=s._to_geo.transform(x,y)
         self.assertAlmostEqual(lon,127.085151,places=7);self.assertAlmostEqual(lat,37.488298,places=7)
+    def test_no_result_is_not_an_authentication_failure(self):
+        class Response:
+            ok=True
+            def raise_for_status(self):pass
+            def json(self):return {"errCd":-100,"errMsg":"검색결과 없음"}
+        with patch.object(s,"_access_token",return_value="fixture-token") as auth,patch.object(s.requests,"get",return_value=Response()):
+            got=s._request("floorcompany.geojson",sufid="201009627135471957239550",flr_no=1)
+        self.assertEqual(got['errCd'],-100);self.assertEqual(auth.call_count,1)
 
 if __name__=='__main__':unittest.main()

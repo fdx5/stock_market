@@ -77,14 +77,14 @@ def _request(path, **params):
         except (requests.RequestException, ValueError):
             raise ProviderError() from None
         code = str(body.get("errCd", 0))
-        if code in ("-401", "-100") and attempt == 0:
+        if code == "-200" and attempt == 0:
             with _lock:
                 if _token[0] == token:
                     _token = ("", 0)
             continue
-        if code == "-100":
-            raise ProviderError("auth_error")
-        if code not in ("0", "-1000"):
+        if code == "-200":
+            raise ProviderError("auth_error", code)
+        if code not in ("0", "-100", "-1000"):
             raise ProviderError("provider_error",code)
         return body
     raise ProviderError("auth_error")
@@ -194,7 +194,7 @@ def floor(sufid, level):
                 except ProviderError as exc:
                     return {"_layer_status":exc.state,"_layer_code":exc.code}
             responses = list(_pool.map(optional, paths))
-            layers = {path:{"status":body.get("_layer_status") or ("empty" if str(body.get("errCd",0))=="-1000" else "responded"),
+            layers = {path:{"status":body.get("_layer_status") or ("empty" if str(body.get("errCd",0)) in ("-100","-1000") else "responded"),
                            "code":body.get("_layer_code") or str(body.get("errCd",0))} for path,body in zip(paths,responses)}
             companies, facility, info = responses
             info = info.get("result") or {}
