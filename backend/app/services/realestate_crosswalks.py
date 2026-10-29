@@ -63,11 +63,21 @@ def _page(key: str, page: int) -> tuple[list[dict], int, str]:
             res = requests.get(url, params={"serviceKey": key, "pageNo": str(page), "numOfRows": str(ROWS), "type": "json"}, timeout=(5, 30))
             if res.status_code != 200:
                 last = f"http {res.status_code}"; continue
-            body = res.json().get("response") or {}
+            try:
+                raw = res.json()
+            except ValueError:
+                # (an XML answer: the portal's error envelope — its code and message only)
+                txt = res.text[:600]
+                code = (txt.split("<returnReasonCode>")[1].split("<")[0] if "<returnReasonCode>" in txt else txt.split("<resultCode>")[1].split("<")[0] if "<resultCode>" in txt else "")
+                msg = (txt.split("<returnAuthMsg>")[1].split("<")[0] if "<returnAuthMsg>" in txt else txt.split("<resultMsg>")[1].split("<")[0] if "<resultMsg>" in txt else "")
+                last = f"xml {code} {msg}"[:80]; continue
+            body = raw.get("response") or {}
             head, data = body.get("header") or {}, body.get("body") or {}
             code = str(head.get("resultCode", ""))
             if code not in ("00", "0", "NORMAL_SERVICE", ""):
-                last = f"result {code}"; continue
+                last = f"result {code} {str(head.get('resultMsg', ''))[:40]}"; continue
+            if not data:
+                last = "shape " + ",".join(sorted(raw.keys()))[:60]; continue
             items = data.get("items") or []
             if isinstance(items, dict):
                 items = items.get("item") or []
@@ -111,6 +121,8 @@ def _fetch_all():
         if items:
             _state["fields"] = sorted(items[0].keys())[:40]
         rows = [r for r in (_row(it) for it in items) if r]
+        if not rows:
+            _state.update(error=f"no rows (total {total}, items {len(items)})"); return
         pages = max(1, math.ceil(total / ROWS))
         _state.update(total=total, progress=1)
         for page in range(2, pages + 1):
