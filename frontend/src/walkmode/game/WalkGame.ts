@@ -39,7 +39,9 @@ import { cutOpenings, setOpenings, type Opening } from "../ground/facades";
  * walker in the road as it does for a car — with a person walking in it. Apartment buildings with a
  * registered name and 동 have their 공동현관 marked; standing at one asks to go in. */
 
-export interface Entrance { name: string; dong: string; x: number; y: number; floors: number; heading: number; cx?: number; cy?: number; span?: number }
+export interface Entrance { name: string; dong: string; x: number; y: number; floors: number; heading: number; cx?: number; cy?: number; span?: number;
+  /** the building's surveyed footprint (frame metres): the floor plate its flats share */
+  foot?: [number, number][] }
 export interface BicycleHud { riding: boolean; speedKmh: number; nearby: string | null; message: string }
 export interface CarHud { driving:boolean; nearby:string|null; label:string; speedKmh:number; topKmh:number; gear:string; message:string;view:"front"|"third" }
 export interface WalkOptions {
@@ -371,7 +373,7 @@ export class WalkGame {
           if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
           // (Korean slabs face south: their entrances are on the north side, toward the parking)
           const score = len * 0.3 + (-ny) * 6;
-          if (score > best) { best = score; door = { name: (b.n || this.o.complexName).replace(/\(.*?\)|\s*(제\s*)?[0-9A-Z]{1,4}\s*동$/g, "").trim() || this.o.complexName, dong, x: mx + nx * 1.6, y: my + ny * 1.6, floors, heading: Math.atan2(ny, nx), cx, cy, span: len / 2 }; }
+          if (score > best) { best = score; door = { name: (b.n || this.o.complexName).replace(/\(.*?\)|\s*(제\s*)?[0-9A-Z]{1,4}\s*동$/g, "").trim() || this.o.complexName, dong, x: mx + nx * 1.6, y: my + ny * 1.6, floors, heading: Math.atan2(ny, nx), cx, cy, span: len / 2, foot: pts }; }
         }
         if (door) {
           seen.add(id); this.entrances.push(door); this.addMarker(door);

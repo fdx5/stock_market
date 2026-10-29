@@ -53,10 +53,12 @@ export interface FloorPlan {
 export type StyleName = "modern_white" | "wood_natural" | "gray_minimal" | "classic_walnut" | "nordic_bright" | "hotel_dark" | "vintage_warm";
 
 /** Unit types as the server sends them (the trade records' 전용면적, the register's own rows). */
-export interface UnitType { key: string; areaM2: number; trades: number; label: string; rooms?: number; baths?: number; source: string; households?: number; floors?: [number | null, number | null] }
+export interface UnitType { key: string; areaM2: number; trades: number; label: string; rooms?: number; baths?: number; source: string; households?: number; floors?: [number | null, number | null];
+  /** the register's lines (호 numbers' last two digits) of this type in the 동 */
+  lines?: number[] }
 export interface UnitsResponse {
   complexId: string; name: string; built: number | null; households: number | null;
   types: UnitType[];
-  dong?: { name: string; floors: number | null; areaRows: number } | null;
+  dong?: { name: string; floors: number | null; areaRows: number; lines?: { line: number; area: number }[] } | null;
   sources: string[];
 }

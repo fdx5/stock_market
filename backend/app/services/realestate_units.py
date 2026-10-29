@@ -126,22 +126,33 @@ def summarize_flats(rows: list[dict]) -> list[dict]:
         if not re.search(r"아파트|공동주택|주택", r.get("use") or "아파트"):
             continue
         k = (r.get("dong"), r.get("floor"), r.get("ho"))
-        h = per_ho.setdefault(k, {"area": 0.0, "floor": r.get("floor")})
+        h = per_ho.setdefault(k, {"area": 0.0, "floor": r.get("floor"), "line": ho_line(r.get("ho"))})
         h["area"] += r["area"]
     groups: dict[float, dict] = {}
     for h in per_ho.values():
         a = round(h["area"], 2)
         if not 15 <= a <= 300:
             continue
-        g = groups.setdefault(a, {"area": a, "count": 0, "floors": []})
+        g = groups.setdefault(a, {"area": a, "count": 0, "floors": [], "lines": set()})
         g["count"] += 1
+        if h["line"] is not None:
+            g["lines"].add(h["line"])
         if h["floor"] is not None:
             g["floors"].append(int(h["floor"]))
     out = []
     for g in sorted(groups.values(), key=lambda g: g["area"]):
         fl = g.pop("floors")
-        out.append({**g, "floor_min": min(fl) if fl else None, "floor_max": max(fl) if fl else None})
+        out.append({**g, "lines": sorted(g.pop("lines")), "floor_min": min(fl) if fl else None, "floor_max": max(fl) if fl else None})
     return out
+
+
+def ho_line(ho) -> int | None:
+    """The line of a 호 (its number's last two digits: 1502호 → 2), None if it has no number."""
+    m = re.search(r"(\d{3,4})", str(ho or ""))
+    if not m:
+        return None
+    line = int(m.group(1)) % 100
+    return line if 1 <= line <= 40 else None
 
 
 def _rooms(area: float) -> tuple[int, int]:
@@ -168,7 +179,7 @@ def units(complex_id: str, dong: str | None = None, pnu: str | None = None) -> d
             n = near[1] if near and abs(near[0] - f["area"]) < 1.0 else 0
             rooms, baths = _rooms(f["area"])
             types.append({"key": f"{f['area']:.2f}", "areaM2": f["area"], "trades": n, "households": f["count"],
-                          "floors": [f["floor_min"], f["floor_max"]], "rooms": rooms, "baths": baths,
+                          "floors": [f["floor_min"], f["floor_max"]], "rooms": rooms, "baths": baths, "lines": f["lines"],
                           "label": f"{f['area']:.2f}㎡ ({round(f['area'] / 3.3058 * 1.33)}평형)",
                           "source": "건축물대장 전유부 전용면적"})
     elif trades:
@@ -185,6 +196,8 @@ def units(complex_id: str, dong: str | None = None, pnu: str | None = None) -> d
     return {
         "complexId": complex_id, "name": detail.get("name") or "", "built": (detail.get("item") or {}).get("built"),
         "households": facts.get("households"), "types": types,
-        "dong": {"name": dong, "floors": max(floors) if floors else None, "areaRows": sum(f["count"] for f in flats)} if dong else None,
+        # (and the 동's lines: each line of the floor plate with its flat's area — the plate's layout)
+        "dong": {"name": dong, "floors": max(floors) if floors else None, "areaRows": sum(f["count"] for f in flats),
+                 "lines": [{"line": ln, "area": f["area"]} for f in flats for ln in f["lines"]]} if dong else None,
         "sources": sources,
     }

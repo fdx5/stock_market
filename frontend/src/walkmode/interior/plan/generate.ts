@@ -1,4 +1,5 @@
 import type { FloorPlan, Opening, Room, RoomType, StyleName, Fixture } from "./types";
+import type { Envelope } from "./envelope";
 
 /* An estimated floor plan for a unit of a given 전용면적: a Korean 판상형 layout made for the
  * complex's type (makeLayout: its bays, rooms and their sizes from the area, the era and a seed),
@@ -148,14 +149,21 @@ function touch(a: number[], b: number[]): { axis: "x" | "z"; at: number; lo: num
   return null;
 }
 
-export function makeLayout(area: number, built: number | null | undefined, rnd: () => number): Template {
+export function makeLayout(area: number, built: number | null | undefined, rnd: () => number, env?: Envelope | null): Template {
   const year = built ?? 2005, old = year < 1993, recent = year >= 2010;
   const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)];
   const vary = (v: number, k = 0.1) => v * (1 - k + rnd() * 2 * k);
-  const bays = area < 52 ? 2 : area < 70 ? (old ? 2 : pick([2, 3, 3])) : area < 95 ? (old ? 3 : pick([3, 3, 4, 4])) : 4;
+  // (the bays: from the flat's measured width when its building is known — a bay ~2.7–4.2 m; else
+  // the usual ones for its size and era)
+  const fromWidth = env ? (env.width >= 10.4 ? 4 : env.width >= 7.6 ? 3 : 2) : 0;
+  const bays = env ? Math.min(fromWidth, area < 52 || (old && area < 62) ? 2 : area < 70 ? 3 : 4, env.kind === "tower" ? 3 : 4) || 2
+    : area < 52 ? 2 : area < 70 ? (old ? 2 : pick([2, 3, 3])) : area < 95 ? (old ? 3 : pick([3, 3, 4, 4])) : 4;
   const big = area >= 125;
-  const L = vary(area < 52 ? 3.6 : area < 100 ? 4.0 : 4.6), M = vary(area < 66 ? 3.0 : 3.35), B = () => vary(area < 70 ? 2.6 : 2.8);
-  const Df = vary(area < 66 ? 3.7 : 4.0, 0.08), Db = vary(area < 66 ? 2.75 : 3.15, 0.08), hh = vary(1.15, 0.08);
+  const L = vary(area < 52 ? 3.6 : area < 100 ? 4.0 : 4.6), M = vary(area < 66 ? 3.0 : 3.35), B = () => vary(area < 70 ? 2.75 : 2.9);
+  // (the old blocks' corridor across the whole width: the rooms behind it a room's depth, ~2.4 m)
+  const fullHall = old || env?.kind === "corridor" || rnd() < 0.18, hh = vary(1.25, 0.06);
+  // (and behind a partial corridor, a bathroom's ~1.8 m depth at least)
+  const Df = vary(area < 66 ? 3.7 : 4.0, 0.08), Db = fullHall ? hh + vary(2.5, 0.06) : Math.max(hh + 1.8, vary(area < 66 ? 2.75 : 3.15, 0.08));
   const rooms: R[] = [], openings: O[] = [];
   // the front, left to right
   const front: [string, RoomType, string, number][] =
@@ -167,17 +175,21 @@ export function makeLayout(area: number, built: number | null | undefined, rnd: 
   { let x = 0; for (const [id, type, label, w] of front) { rooms.push([id, type, label, x, Db, x + w, D, type === "living" ? "lk" : undefined]); fx[id] = [x, x + w]; x += w; } }
   const lv = fx.living, ms = fx.master;
   // the service band (z 0..Db); the corridor along its front edge
-  const fullHall = old || rnd() < 0.18, zb = Db - hh;
+  const zb = Db - hh;
   const ensuite = bays > 2 && (!old || area >= 100), dress = ensuite && area >= 72 && rnd() < (recent ? 0.95 : 0.7);
   const kitchenOpen = fullHall || rnd() < (recent ? 0.75 : 0.45);
-  const hall: [number, number] = fullHall ? [0, W] : [0, bays === 2 ? ms[1] : lv[0]];
+  // (the door and the bathroom need ~1.5 m and ~1.9 m: under a narrow bedroom they take part of the
+  // kitchen's width, which stays under the living room's)
+  const span0 = bays === 2 ? ms[1] : lv[0], sSpan = Math.max(span0, Math.min(span0 + (lv[1] - lv[0]) * 0.4, 3.5));
+  const hall: [number, number] = fullHall ? [0, W] : [0, sSpan];
   // under the bedrooms (or the 2-bay's master): the door, the bathroom, maybe a room more
   {
-    const span = bays === 2 ? ms[1] : lv[0], bw = Math.min(vary(2.3), span * 0.5), ew = Math.min(vary(area < 85 ? 1.8 : 2.2), span - bw);
+    const span = sSpan, bw = Math.max(Math.min(1.9, span * 0.55), Math.min(vary(2.3), span * 0.55)), ew = Math.min(vary(area < 85 ? 1.8 : 2.2), span - bw);
     const parts: [string, RoomType, string, number][] = [];
     const extra = span - bw - ew;
     if (extra > 2.4 && big) parts.push(["bed4", "bedroom", "침실4", extra]);
-    else if (extra > 1.5 && recent) parts.push(rnd() < 0.5 ? ["alpha", "bedroom", "알파룸", extra] : ["pantry", "dressroom", "팬트리", extra]);
+    // (an 알파룸 only as deep as a room: shallower, a pantry)
+    else if (extra > 1.5 && recent) parts.push(rnd() < 0.5 && zb >= 2.3 && extra >= 2.2 ? ["alpha", "bedroom", "알파룸", extra] : ["pantry", "dressroom", "팬트리", extra]);
     const ew2 = span - bw - parts.reduce((s, p) => s + p[3], 0);
     const pair: [string, RoomType, string, number][] = [["entry", "entrance", "현관", ew2], ["bath2", "bathroom", bays === 2 || !ensuite ? "욕실" : "공용 욕실", bw]];
     if (rnd() < 0.5) pair.reverse();
@@ -185,12 +197,12 @@ export function makeLayout(area: number, built: number | null | undefined, rnd: 
     let x = 0; for (const [id, type, label, w] of all) { rooms.push([id, type, label, x, 0, x + w, zb]); x += w; }
   }
   // the kitchen under the living room
-  rooms.push(["kitchen", "kitchen", "주방·식당", lv[0], 0, lv[1], fullHall ? zb : Db, "lk"]);
+  rooms.push(["kitchen", "kitchen", "주방·식당", bays === 2 ? Math.max(lv[0], sSpan) : sSpan, 0, lv[1], fullHall ? zb : Db, "lk"]);
   // under the master
   if (bays > 2) {
     const zt = fullHall ? zb : Db;
     if (!ensuite) rooms.push(["bedB", "bedroom", bays === 3 ? "침실3" : "침실4", ms[0], 0, ms[1], zt]);
-    else if (dress) { const ez = zt * vary(0.55, 0.08); rooms.push(["ensuite", "ensuite", "안방 욕실", ms[0], 0, ms[1], ez], ["dress", "dressroom", "드레스룸", ms[0], ez, ms[1], zt]); }
+    else if (dress && zt >= 2.9) { const ez = Math.max(1.6, zt * vary(0.55, 0.08)); rooms.push(["ensuite", "ensuite", "안방 욕실", ms[0], 0, ms[1], ez], ["dress", "dressroom", "드레스룸", ms[0], ez, ms[1], zt]); }
     else { const ew = Math.min(vary(2.0), ms[1] - ms[0] - 0.9); rooms.push(["ensuite", "ensuite", "안방 욕실", ms[0], 0, ms[0] + ew, zt], ["dress", "dressroom", "붙박이장", ms[0] + ew, 0, ms[1], zt]); }
   }
   rooms.push(["hall", "hall", "복도", hall[0], zb, hall[1], Db]);
@@ -219,7 +231,8 @@ export function makeLayout(area: number, built: number | null | undefined, rnd: 
   const middleDoor = rnd() < (old ? 0.25 : recent ? 0.8 : 0.55) * (area < 60 ? 0.5 : 1);
   if (!link("entry", "hall", middleDoor ? "glass" : "open", 1.2)) link("entry", "kitchen", "open", 1.0);
   if (!link("living", "kitchen", "wide")) link("hall", "living", "wide");
-  if (kitchenOpen || !meets("hall", "living")) link("hall", "kitchen", "open", 1.1);
+  // (the corridor reaches the living side one way or another: into the kitchen, or the living room)
+  if (!(kitchenOpen && link("hall", "kitchen", "open", 1.1)) && !link("hall", "living", "open", 1.0)) link("hall", "kitchen", "open", 1.1);
   if (fullHall && !openings.some(o => (o.a === "hall" && o.b === "living") || (o.a === "living" && o.b === "hall"))) link("hall", "living", "open", 1.6);
   for (const r of rooms) {
     const [id, type] = r;
@@ -234,7 +247,9 @@ export function makeLayout(area: number, built: number | null | undefined, rnd: 
   if (get("ensuite") && !link("ensuite", "master", "door", 0.75)) link("ensuite", "dress", "door", 0.75);
   link("util", "kitchen", "glass");
   // windows: the front, the back, the end walls (an end flat's)
-  const endFlat = rnd() < 0.35;
+  const endFlat = env ? env.end !== null || env.kind === "tower" : rnd() < 0.35;
+  const sideOK = (x0: number, x1: number) => !env || env.kind === "tower" ? true : env.end === "left" ? x0 < 0.01 : x1 > W - 0.01;
+  const corridor = env?.kind === "corridor";
   for (const r of rooms) {
     const [id, type] = r, w = r[5] - r[3], d = r[6] - r[4];
     if (Math.abs(r[6] - D) < 0.01) {
@@ -242,11 +257,13 @@ export function makeLayout(area: number, built: number | null | undefined, rnd: 
       else openings.push(win(id, "z", D, (r[3] + r[5]) / 2, Math.min(w - 0.6, type === "master" ? 2.2 : 1.8), type === "master" ? 1.6 : 1.5, type === "master" ? 0.5 : 0.6));
     }
     if (Math.abs(r[4]) < 0.01 && (type === "bedroom" || type === "kitchen") && !(type === "kitchen" && r[3] >= ux - 0.01 && r[5] <= ux + uw + 0.01))
-      openings.push(win(id, "z", 0, type === "kitchen" ? (ux - r[3] > r[5] - ux - uw ? (r[3] + ux) / 2 : (ux + uw + r[5]) / 2) : (r[3] + r[5]) / 2, Math.min(type === "kitchen" ? Math.max(0.7, Math.max(ux - r[3], r[5] - ux - uw) - 0.5) : w - 0.6, type === "kitchen" ? 1.2 : 1.4), type === "kitchen" ? 1.0 : 1.2, type === "kitchen" ? 1.1 : 0.9));
+      openings.push(win(id, "z", 0, type === "kitchen" ? (ux - r[3] > r[5] - ux - uw ? (r[3] + ux) / 2 : (ux + uw + r[5]) / 2) : (r[3] + r[5]) / 2, Math.min(type === "kitchen" ? Math.max(0.7, Math.max(ux - r[3], r[5] - ux - uw) - 0.5) : w - 0.6, type === "kitchen" ? 1.2 : 1.4),
+        corridor ? 0.7 : type === "kitchen" ? 1.0 : 1.2, corridor ? 1.45 : type === "kitchen" ? 1.1 : 0.9));
     if (id === "util") openings.push(win(id, "z", r[4], (r[3] + r[5]) / 2, Math.min(w - 0.4, 1.3), 1.1, 1.0));
-    if (endFlat && (type === "bedroom" || type === "master") && d > 2.2 && (r[3] < 0.01 || Math.abs(r[5] - W) < 0.01)) openings.push(win(id, "x", r[3] < 0.01 ? 0 : W, (r[4] + r[6]) / 2, 1.0, 1.2, 0.9));
+    if (endFlat && (type === "bedroom" || type === "master" || (env?.kind === "tower" && type === "living")) && d > 2.2 && (r[3] < 0.01 || Math.abs(r[5] - W) < 0.01) && sideOK(r[3], r[5]))
+      openings.push(type === "living" ? win(id, "x", r[3] < 0.01 ? 0 : W, (r[4] + r[6]) / 2, Math.min(d - 0.8, 2.2), 2.1, 0.15) : win(id, "x", r[3] < 0.01 ? 0 : W, (r[4] + r[6]) / 2, 1.0, 1.2, 0.9));
   }
-  const label = `${bays}Bay 판상형${old ? " · 구축 복도형" : fullHall ? " · 중앙 복도" : ""}${get("alpha") ? " · 알파룸" : get("pantry") ? " · 팬트리" : get("bed4") ? " · 침실4" : ""}`;
+  const label = `${bays}Bay ${env?.kind === "tower" ? "타워형" : env?.kind === "corridor" ? "복도식" : "판상형"}${env?.end ? " · 측세대" : ""}${old && !corridor ? " · 구축" : fullHall && !corridor ? " · 중앙 복도" : ""}${get("alpha") ? " · 알파룸" : get("pantry") ? " · 팬트리" : get("bed4") ? " · 침실4" : ""}`;
   const t: Template = { name: `bay${bays}`, label, rooms, openings, ref: 0 };
   t.ref = rooms.filter(r => !SERVICE.includes(r[1])).reduce((s, r) => s + (r[5] - r[3]) * (r[6] - r[4]), 0);
   return t;
@@ -276,24 +293,35 @@ export interface PlanInput {
   complexId: string; complexName: string; dong: string; unitType: string; area: number;
   areaBasis: string; roomsBasis?: string; households?: number | null; built?: number | null;
   style?: StyleName; floor?: number;
+  /** the flat's measured frame (its building's footprint and the register's lines): plan/envelope.ts */
+  envelope?: Envelope | null;
 }
 
 export function generatePlan(p: PlanInput): FloorPlan {
   // (the layout the complex's type has: its size, its era, its own seed)
-  const t = makeLayout(p.area, p.built, seeded(`${p.complexId}|${p.unitType}|layout`));
-  // one scale for both axes (the layout's proportions kept); the doors and windows keep their
-  // sizes — a bigger flat has bigger rooms, not bigger doors
-  const s = Math.sqrt(p.area / t.ref);
+  const env = p.envelope ?? null;
+  const t = makeLayout(p.area, p.built, seeded(`${p.complexId}|${p.unitType}|layout`), env);
+  // scaled to the area; with a measured frame, to its proportions too (width over depth, kept within
+  // reason: the rooms' own shapes stretched at most ~12% each way) — the doors and windows keep their sizes
+  let sx = Math.sqrt(p.area / t.ref), sz = sx;
+  if (env) {
+    let W0 = 0, D0 = 0;
+    for (const r of t.rooms) if (r[1] !== "utility") { W0 = Math.max(W0, r[5]); D0 = Math.max(D0, r[6]); }
+    const want = env.width / env.depth, now = W0 / D0, k = Math.min(1.25, Math.max(1 / 1.25, want / now));
+    sx = Math.sqrt(p.area / t.ref) * Math.sqrt(k); sz = Math.sqrt(p.area / t.ref) / Math.sqrt(k);
+  }
   const rooms: Room[] = t.rooms.map(([id, type, label, x0, z0, x1, z1, zone]) => ({
-    id, type, label, rect: [x0 * s, z0 * s, x1 * s, z1 * s], zone: zone ?? id,
+    id, type, label, rect: [x0 * sx, z0 * sz, x1 * sx, z1 * sz], zone: zone ?? id,
     floorDrop: type === "entrance" ? 0.12 : type === "bathroom" || type === "ensuite" || type === "utility" ? 0.03 : 0,
   }));
   const byId = new Map(rooms.map(r => [r.id, r]));
   const openings: Opening[] = t.openings.map(o => {
-    const cen = o.center * s, at = o.at * s;
+    const cen = o.center * (o.axis === "z" ? sx : sz), at = o.at * (o.axis === "z" ? sz : sx);
     // (an opening as wide as the shared wall stays as wide as it, scaled)
     const shared = sharedSpan(byId.get(o.a)!, o.b === "out" ? null : byId.get(o.b)!, o.axis, at);
-    const width = o.type === "open" && o.width > 2 ? o.width * s : o.width;
+    // (and never wider than its wall, less a little either side: a frame narrowed to the building's
+    // own width has narrower walls)
+    const width = Math.min(o.type === "open" && o.width > 2 ? o.width * (o.axis === "z" ? sx : sz) : o.width, Math.max(0.6, shared[1] - shared[0] - 0.24));
     const half = width / 2, lo = shared[0] + 0.12 + half, hi = shared[1] - 0.12 - half;
     return { ...o, at, width, center: lo <= hi ? Math.min(hi, Math.max(lo, cen)) : (shared[0] + shared[1]) / 2 };
   });
@@ -305,7 +333,7 @@ export function generatePlan(p: PlanInput): FloorPlan {
     complexId: p.complexId, complexName: p.complexName, dong: p.dong, unitType: p.unitType,
     areaExclusiveM2: p.area, ceilingHeightM: p.built && p.built >= 2015 ? 2.4 : 2.32,
     source: "estimated_template", template: t.label,
-    basis: { area: p.areaBasis, rooms: p.roomsBasis ?? "template", households: p.households ?? null, built: p.built ?? null },
+    basis: { area: p.areaBasis, rooms: env ? `${env.basis} · 방 배치는 추정` : p.roomsBasis ?? "template", households: p.households ?? null, built: p.built ?? null },
     bounds: [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)],
     rooms, openings, fixtures: [],
     check: { areaM2: Math.round(counted * 100) / 100, error: Math.round((counted / p.area - 1) * 10000) / 10000 },
@@ -314,7 +342,8 @@ export function generatePlan(p: PlanInput): FloorPlan {
   };
   plan.fixtures = fixturesFor(plan);
   // (the two lines of a stair hall are mirror images: which one, by the 동)
-  if (seeded(`${p.complexId}|${p.dong}|line`)() < 0.5) mirrorPlan(plan);
+  // (an end line's side windows are already on its outside wall: not mirrored away from it)
+  if (!env?.end && seeded(`${p.complexId}|${p.dong}|${env?.line ?? "line"}`)() < 0.5) mirrorPlan(plan);
   return plan;
 }
 

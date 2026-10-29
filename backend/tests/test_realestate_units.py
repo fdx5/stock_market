@@ -42,3 +42,11 @@ def test_units_prefers_register_and_falls_back_to_trades(monkeypatch):
     body = ru.units("11680:x:1:테스트", "101동", None)
     assert [t["areaM2"] for t in body["types"]] == [59.9, 84.97]
     assert body["types"][0]["source"] == "국토교통부 실거래 전용면적"
+
+
+def test_flats_carry_their_lines():
+    from app.services.realestate_units import ho_line, summarize_flats
+    assert [ho_line(x) for x in ["1502", "1502호", "101", "B101", "지하1층"]] == [2, 2, 1, 1, None]
+    rows = [{"dong": "101", "floor": f, "ho": f"{f}{l:02d}", "area": a, "use": "아파트"} for f in range(1, 4) for l, a in [(1, 84.9), (2, 84.9), (3, 59.9), (4, 59.9)]]
+    got = {g["area"]: g["lines"] for g in summarize_flats(rows)}
+    assert got == {84.9: [1, 2], 59.9: [3, 4]}

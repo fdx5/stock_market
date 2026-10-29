@@ -5,6 +5,8 @@ import { Interior, prewarmInterior, type HudState } from "./interior/Interior";
 import { generatePlan } from "./interior/plan/generate";
 import { fetchUnits } from "./interior/plan/fetchUnits";
 import { complexOf } from "./complexOf";
+import { envelopeOf } from "./interior/plan/envelope";
+import { seeded } from "./interior/plan/generate";
 import type { FloorPlan, StyleName, UnitsResponse } from "./interior/plan/types";
 import { STYLE_LABEL } from "./interior/materials";
 import { Sound } from "./game/sound";
@@ -173,10 +175,13 @@ export default function WalkPage() {
     sound.resume();
     const t = units?.types.find(x => x.key === pick.type);
     const area = t?.areaM2 ?? 84.97;
+    // (the flat's frame from its building: the footprint, the register's lines; its line by the floor)
+    const envelope = envelopeOf(entering.foot, entering.heading, units?.built ?? visit?.built ?? start.built, area, units?.dong?.lines, t?.lines,
+      seeded(`${visit?.id ?? start.id}|${entering.dong}|${pick.floor}|line`));
     const p = generatePlan({
       complexId: visit?.id ?? start.id, complexName: visit?.name ?? start.name, dong: entering.dong, unitType: t?.label ?? `${area}㎡`, area,
       areaBasis: t?.source ?? "표준 84㎡ (자료 없음)", roomsBasis: "면적대별 표준 평면", households: units?.households, built: units?.built ?? visit?.built ?? start.built,
-      style: pick.style === "auto" ? undefined : pick.style, floor: pick.floor || undefined,
+      style: pick.style === "auto" ? undefined : pick.style, floor: pick.floor || undefined, envelope,
     });
     setPlan(p);
     setFade(true);
