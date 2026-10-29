@@ -3,6 +3,7 @@ from fastapi.responses import Response
 
 from app.services import realestate_floors
 from app.services import realestate_places as realestate_places_service
+from app.services import sgis_indoor
 from app.services import realestate_building_info, realestate_buildings, realestate_facts, realestate_map, realestate_nearby, realestate_rent, realestate_summary, realestate_water
 from app.services import realestate_units as realestate_units_service
 
@@ -259,6 +260,27 @@ def realestate_places(response: Response, lat: float = Query(..., ge=33, le=39),
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     response.headers["Cache-Control"] = "public, max-age=3600"
     return result
+
+
+@router.get("/indoor-building")
+def indoor_building(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132),
+                   name: str = Query("", max_length=120)):
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return sgis_indoor.building(lat, lon, name)
+
+
+@router.get("/walk-config")
+def walk_config():
+    # VWorld's existing public, domain-bound browser key. SGIS credentials are never returned.
+    import os
+    return {"vworld_key": realestate_buildings._vworld_key(),
+            "vworld_domain": os.environ.get("VWORLD_DOMAIN", "https://kospimap.com")}
+
+
+@router.get("/indoor-floor")
+def indoor_floor(response: Response, id: str = Query(..., pattern=r"^\d{15,40}$"), level: int = Query(1, ge=-20, le=160)):
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return sgis_indoor.floor(id, level)
 
 
 @router.get("/building-floors")

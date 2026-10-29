@@ -5,6 +5,7 @@ pandas==2.2.2
 numpy==1.26.4
 finance-datareader==0.9.202
 requests==2.32.3
+pyproj==3.7.2
 beautifulsoup4==4.12.3
 lxml==5.2.2
 pydantic==2.9.2
