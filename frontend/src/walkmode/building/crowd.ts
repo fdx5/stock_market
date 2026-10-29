@@ -80,6 +80,7 @@ export class Crowd {
   private pick<T>(a: T[]) { return a[Math.floor(this.rnd() * a.length)]; }
   private roleFor(kind: ZoneKind, spot: Spot | null): Role {
     if (kind === "parking") return "driver";
+    if (spot?.kind === "clerk") return "staff";
     if (spot?.kind === "counter") return kind === "clinic" || kind === "ward" ? "nurse" : "staff";
     if (kind === "clinic") return spot?.kind === "desk" ? "doctor" : spot?.kind === "exam" || spot?.kind === "seat" || spot?.kind === "wait" ? "patient" : this.rnd() < 0.5 ? "nurse" : "patient";
     if (kind === "ward") return spot?.kind === "bed" ? "patient" : spot?.kind === "seat" ? "visitor" : this.rnd() < 0.6 ? "nurse" : "doctor";
@@ -104,8 +105,8 @@ export class Crowd {
     const zoneKind = (s: Spot | null) => (s && s.zone >= 0 ? this.plan.zones[s.zone]?.kind : this.plan.kinds[0]) ?? "office";
     // seats and beds filled first (most people are at something), the rest walking
     const order = [...sp].sort(() => this.rnd() - 0.5).sort((a, b) => rank(a) - rank(b));
-    function rank(s: Spot) { return s.kind === "counter" ? 0 : s.kind === "bed" ? 1 : s.kind === "desk" || s.kind === "exam" ? 2 : s.kind === "class" ? 3 : 4; }
-    const occupancy: Partial<Record<Spot["kind"], number>> = { desk: 0.78, counter: 0.9, bed: 0.72, seat: 0.55, table: 0.5, class: 0.7, exam: 0.5, wait: 0.6, shelf: 0.18, stand: 0.4, lift: 0.3, treadmill: 0.45, car: 0.04, toilet: 0 };
+    function rank(s: Spot) { return s.kind === "counter" || s.kind === "clerk" ? 0 : s.kind === "bed" ? 1 : s.kind === "desk" || s.kind === "exam" ? 2 : s.kind === "class" ? 3 : 4; }
+    const occupancy: Partial<Record<Spot["kind"], number>> = { clerk: 0.92, desk: 0.78, counter: 0.9, bed: 0.72, seat: 0.55, table: 0.5, class: 0.7, exam: 0.5, wait: 0.6, shelf: 0.18, stand: 0.4, lift: 0.3, treadmill: 0.45, car: 0.04, toilet: 0 };
     for (const s of order) {
       if (this.people.length >= n * 0.82) break;
       if (this.rnd() > (occupancy[s.kind] ?? 0.2)) continue;
@@ -134,7 +135,7 @@ export class Crowd {
     this.people.push(p);
     return p;
   }
-  private actAt(s: Spot): Act { return s.kind === "bed" ? "lie" : s.kind === "desk" ? "type" : s.y > 0.3 ? "sit" : "stand"; }
+  private actAt(s: Spot): Act { return s.kind === "bed" ? "lie" : s.kind === "desk" || s.kind === "clerk" ? "type" : s.y > 0.3 ? "sit" : "stand"; }
   /** the next thing to do: somewhere free of the kinds this person goes to */
   private next(p: Person) {
     const want: Spot["kind"][] = p.role === "worker" ? ["desk", "stand", "seat", "lift", "toilet"] : p.role === "shopper" ? ["shelf", "shelf", "shelf", "wait", "lift"]

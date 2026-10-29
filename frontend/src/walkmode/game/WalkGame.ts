@@ -479,6 +479,9 @@ export class WalkGame {
   }
 
   /** the entrance's building's PNU (for its register rows) */
+  /** a frame point's longitude and latitude, and back (the building interiors' tenants by place) */
+  lonLatOf(x: number, y: number): [number, number] { return toLonLat(this.origin, x, y); }
+  frameOf(lon: number, lat: number): [number, number] { return toFrame(this.origin, lon, lat); }
   pnuOf(e: Entrance): Promise<string | null> {
     const [lon, lat] = toLonLat(this.origin, e.cx ?? e.x, e.cy ?? e.y);
     return pnuAt(lon, lat, this.o.key, this.o.domain);

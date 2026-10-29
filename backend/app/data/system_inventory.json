@@ -124,7 +124,7 @@
     "/walk",
     "/yield-curve-lab"
   ],
-  "source_files": 859,
+  "source_files": 866,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",

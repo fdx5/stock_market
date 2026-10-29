@@ -239,8 +239,9 @@ export default function WalkPage() {
         if (r?.ok) { const d = await r.json(); info = { ...d.building, name: d.building?.name || e.name }; floors = d.floors ?? []; src = `건축물대장 표제부·층별개요 · 지상 ${info.floors ?? "?"}층 / 지하 ${info.basements ?? 0}층 · 승강기 ${(info.rideLifts ?? 0) + (info.emergencyLifts ?? 0)}대`; }
       }
       setBsource(src);
-      const { W, D } = plateOf(e.foot, e.heading, info.buildingArea);
-      const plan = planBuilding(info, floors, W, D);
+      // (the shell: the building's surveyed outline, the door where it was gone into)
+      const { W, D, poly, doorX } = plateOf(e.foot, e.heading, info.buildingArea, [e.x, e.y]);
+      const plan = planBuilding(info, floors, W, D, poly, doorX);
       const bi = new BuildingInterior(renderer.current!, {
         plan, seed: Math.abs([...e.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)), hour,
         onHud: setBhud, onLiftPanel: p => { setLiftPanel(p); if (p) document.exitPointerLock?.(); }, onProgress: (k, text) => setProgress({ k, text }), onExit: () => exitBuilding(),

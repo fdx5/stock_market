@@ -41,6 +41,8 @@ export class BuildingInterior {
   view: "first" | "third" = "third";
   private running = false; private disposed = false; private raf = 0; private last = 0;
   private solids: { x0: number; z0: number; x1: number; z1: number }[] = [];
+  /** the outline's walls, for walking into */
+  private walls: [number, number, number, number][] = [];
   private mats = new Map<Mat, THREE.Material>();
   private textures: THREE.Texture[] = [];
   private owned: { dispose(): void }[] = [];
@@ -108,7 +110,8 @@ export class BuildingInterior {
     this.goTo(1, null);
     // the street door: start just inside it, facing in
     const door = this.plan.door;
-    this.pos.set(door ? door.x : this.o.plan.W / 2, 1.6); this.yaw = Math.PI;
+    // (past the vestibule's inner doors, facing in)
+    this.pos.set(door ? door.x : this.o.plan.W / 2, (door?.z ?? 0) + 4.2); this.yaw = Math.PI;
     this.o.onProgress?.(0.85, "셰이더를 준비하는 중");
     await this.renderer.compileAsync(this.scene, this.camera);
     this.o.onProgress?.(1, "입장합니다");
@@ -165,7 +168,7 @@ export class BuildingInterior {
   private clearFloor() {
     this.crowd?.dispose(); this.crowd = null;
     for (const c of [...this.floorGroup.children]) { this.floorGroup.remove(c); const m = c as THREE.Mesh; if (m.geometry) m.geometry.dispose(); }
-    this.liftDoors = []; this.escal = []; this.solids = [];
+    this.liftDoors = []; this.escal = []; this.solids = []; this.walls = [];
     this.floorTex.forEach(t => t.dispose()); this.floorMats.forEach(m => m.dispose()); this.floorTex = []; this.floorMats = [];
   }
   private buildFloor(fp: FloorPlan) {
@@ -183,19 +186,34 @@ export class BuildingInterior {
       push(q.m, g);
       if (q.solid && q.y0 < 1.5 && q.y1 > 0.3) this.solids.push({ x0: q.x0, z0: q.z0, x1: q.x1, z1: q.z1 });
     }
-    // the floor: each zone in its finish; the lift lobby and corridors in stone
-    const floorOf: Record<string, Mat> = { office: "carpet", lobby: "floor", clinic: "floor", ward: "floor", retail: "floor", food: "wood", class: "tile", gym: "dark", hotel: "carpet", parking: "concrete", rooms: "wood", plant: "concrete" };
-    const base = new THREE.PlaneGeometry(W, D).rotateX(-Math.PI / 2).translate(W / 2, 0, D / 2);
-    scaleUv(base, W / 2, D / 2); push(fp.kinds[0] === "parking" ? "concrete" : "floor", base);
-    for (const z of fp.zones) {
-      const [x0, z0, x1, z1] = z.rect, g = new THREE.PlaneGeometry(x1 - x0, z1 - z0).rotateX(-Math.PI / 2).translate((x0 + x1) / 2, 0.004, (z0 + z1) / 2);
-      scaleUv(g, (x1 - x0) / 2, (z1 - z0) / 2); push(floorOf[z.kind] ?? "floor", g);
+    // the outer walls along the surveyed outline
+    for (const s of fp.segs) {
+      const len = Math.hypot(s.bx - s.ax, s.bz - s.az), g = new THREE.BoxGeometry(len, s.y1 - s.y0, s.t);
+      const uv = g.getAttribute("uv") as THREE.BufferAttribute; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * len / 1.6, uv.getY(i) * (s.y1 - s.y0) / 1.6);
+      g.rotateY(-Math.atan2(s.bz - s.az, s.bx - s.ax)).translate((s.ax + s.bx) / 2, (s.y0 + s.y1) / 2, (s.az + s.bz) / 2);
+      push(s.m, g);
+      if (s.solid && s.y0 < 1.5 && s.y1 > 0.3) this.walls.push([s.ax, s.az, s.bx, s.bz]);
     }
-    // the ceiling: a plane, its LED panels on a 2.4 m grid (one emissive material)
-    const ceil = new THREE.PlaneGeometry(W, D).rotateX(Math.PI / 2).translate(W / 2, H, D / 2); scaleUv(ceil, W / 3, D / 3);
-    push(fp.kinds[0] === "parking" ? "concrete" : "white", ceil);
+    // the floor: the outline's shape (each zone in its finish within it); the ceiling the same
+    const floorOf: Record<string, Mat> = { office: "carpet", lobby: "floor", clinic: "floor", ward: "floor", retail: "floor", food: "wood", class: "tile", gym: "dark", hotel: "carpet", parking: "concrete", rooms: "wood", plant: "concrete" };
+    const poly = this.o.plan.poly ?? [[0, 0], [W, 0], [W, D], [0, D]] as [number, number][];
+    const shapeGeo = (pts: [number, number][], y: number, up: boolean, su: number) => {
+      const sh = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, z)));
+      const g = new THREE.ShapeGeometry(sh); g.rotateX(Math.PI / 2); g.translate(0, y, 0);
+      if (up) { const idx = g.getIndex()!; for (let i = 0; i < idx.count; i += 3) { const a = idx.getX(i + 1); idx.setX(i + 1, idx.getX(i + 2)); idx.setX(i + 2, a); } g.computeVertexNormals(); }
+      const pos = g.getAttribute("position") as THREE.BufferAttribute, uv = g.getAttribute("uv") as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) / su, pos.getZ(i) / su);
+      return g;
+    };
+    push(fp.kinds[0] === "parking" ? "concrete" : "floor", shapeGeo(poly, 0, true, 2));
+    for (const z of fp.zones) {
+      const [x0, z0, x1, z1] = z.rect, part = clip(poly, x0, z0, x1, z1);
+      if (part.length >= 3) push(floorOf[z.kind] ?? "floor", shapeGeo(part, 0.004, true, 2));
+    }
+    // the ceiling: the outline's shape, its LED panels on a 2.4 m grid inside it (one emissive material)
+    push(fp.kinds[0] === "parking" ? "concrete" : "white", shapeGeo(poly, H, false, 3));
     const panels: THREE.BufferGeometry[] = [];
-    for (let x = 1.2; x < W - 1; x += 2.4) for (let z = 1.2; z < D - 1; z += 2.4) panels.push(new THREE.PlaneGeometry(fp.kinds[0] === "parking" ? 1.2 : 0.6, fp.kinds[0] === "parking" ? 0.15 : 0.6).rotateX(Math.PI / 2).translate(x, H - 0.01, z));
+    for (let x = 1.2; x < W - 1; x += 2.4) for (let z = 1.2; z < D - 1; z += 2.4) if (inside(x, z, poly)) panels.push(new THREE.PlaneGeometry(fp.kinds[0] === "parking" ? 1.2 : 0.6, fp.kinds[0] === "parking" ? 0.15 : 0.6).rotateX(Math.PI / 2).translate(x, H - 0.01, z));
     for (const [m, list] of byMat) {
       const g = mergeGeometries(list, false); list.forEach(x => x.dispose());
       if (!g) continue;
@@ -257,7 +275,11 @@ export class BuildingInterior {
       g.fillStyle = "#f4f4f2"; g.fillRect(0, 0, W, H); g.fillStyle = "#1d2733"; g.font = font(900, H * 0.5); g.textAlign = "center"; g.fillText(d.text ?? "", W / 2, H * 0.58);
       g.font = font(600, H * 0.15); g.fillText(this.usesOf(this.level).slice(0, 18), W / 2, H * 0.86);
     } else if (d.kind === "sign") {
-      g.fillStyle = "#24476b"; g.fillRect(0, 0, W, H); g.fillStyle = "#ffffff"; g.font = font(800, H * 0.6); g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(d.text ?? "", W / 2, H * 0.54);
+      // (the lettering as large as the sign allows: measured, never cut off)
+      g.fillStyle = "#1f4f7a"; g.fillRect(0, 0, W, H); g.fillStyle = "#ffffff"; g.textAlign = "center"; g.textBaseline = "middle";
+      let sz = H * 0.62; g.font = font(800, sz); const tw = g.measureText(d.text ?? "").width; if (tw > W * 0.9) { sz *= W * 0.9 / tw; g.font = font(800, sz); }
+      g.fillText(d.text ?? "", W / 2, H * 0.54);
+      g.fillStyle = "rgba(255,255,255,0.25)"; g.fillRect(0, H - H * 0.06, W, H * 0.06);
       emissive = 0.6;
     } else if (d.kind === "tv") {
       const grd = g.createLinearGradient(0, 0, W, H); grd.addColorStop(0, "#0e5a8a"); grd.addColorStop(1, "#0b2236"); g.fillStyle = grd; g.fillRect(0, 0, W, H);
@@ -302,9 +324,14 @@ export class BuildingInterior {
           pushed = true;
         }
       }
+      for (const [ax, az, bx, bz] of this.walls) {
+        const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1, t = Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - az) * dz) / l2));
+        const cx = ax + dx * t, cz = az + dz * t, ex = p.x - cx, ez = p.y - cz, d = Math.hypot(ex, ez);
+        if (d < r + 0.1 && d > 1e-6) { p.x = cx + ex / d * (r + 0.1); p.y = cz + ez / d * (r + 0.1); pushed = true; }
+      }
       if (!pushed) break;
     }
-    const { W, D } = this.o.plan; p.x = Math.max(0.3, Math.min(W - 0.3, p.x)); p.y = Math.max(0.3, Math.min(D - 0.3, p.y));
+    const { W, D } = this.o.plan; p.x = Math.max(0.3, Math.min(W - 0.3, p.x)); p.y = Math.max(-1, Math.min(D - 0.3, p.y));
     return p;
   }
   private move(dt: number) {
@@ -373,7 +400,7 @@ export class BuildingInterior {
   }
   closeLiftPanel() { this.o.onLiftPanel?.(null); for (const d of this.liftDoors) d.want = 0; }
   private stairAt() { return this.plan.stairs.find(s => { const doorX = s.x < this.o.plan.W / 2 ? s.x + s.w : s.x; return Math.abs(this.pos.x - doorX) < 1.6 && this.pos.y > s.z + 1.0 && this.pos.y < s.z + 3.2; }); }
-  private atDoor() { const d = this.plan.door; return !!d && Math.abs(this.pos.x - d.x) < d.w && this.pos.y < 2.2; }
+  private atDoor() { const d = this.plan.door; return !!d && Math.abs(this.pos.x - d.x) < d.w && this.pos.y < d.z + 2.6; }
   private labelOf(l: number) { return this.o.plan.regFloors.find(f => f.level === l)?.label ?? (l < 0 ? `B${-l}` : `${l}F`); }
   private usesOf(l: number) { const r = this.o.plan.regFloors.find(f => f.level === l); return r ? [...new Set(r.uses.map(u => u.detail || u.use))].slice(0, 3).join(" · ") : l < 0 ? "주차장" : ""; }
 
@@ -449,6 +476,20 @@ export class BuildingInterior {
   }
 }
 
+function inside(x: number, z: number, p: [number, number][]) {
+  let hit = false;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) if ((p[i][1] > z) !== (p[j][1] > z) && x < ((p[j][0] - p[i][0]) * (z - p[i][1])) / (p[j][1] - p[i][1]) + p[i][0]) hit = !hit;
+  return hit;
+}
+/** a ring clipped to a rectangle */
+function clip(p: [number, number][], x0: number, z0: number, x1: number, z1: number): [number, number][] {
+  const edge = (pts: [number, number][], ins: (q: [number, number]) => boolean, cut: (a: [number, number], b: [number, number]) => [number, number]) => { const out: [number, number][] = []; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length], ia = ins(a), ib = ins(b); if (ia) out.push(a); if (ia !== ib) out.push(cut(a, b)); } return out; };
+  const lx = (a: [number, number], b: [number, number], x: number): [number, number] => [x, a[1] + (b[1] - a[1]) * (x - a[0]) / ((b[0] - a[0]) || 1e-9)];
+  const lz = (a: [number, number], b: [number, number], z: number): [number, number] => [a[0] + (b[0] - a[0]) * (z - a[1]) / ((b[1] - a[1]) || 1e-9), z];
+  let q = edge(p, a => a[0] >= x0, (a, b) => lx(a, b, x0)); q = edge(q, a => a[0] <= x1, (a, b) => lx(a, b, x1));
+  q = edge(q, a => a[1] >= z0, (a, b) => lz(a, b, z0)); q = edge(q, a => a[1] <= z1, (a, b) => lz(a, b, z1));
+  return q;
+}
 function scaleUv(g: THREE.BufferGeometry, su: number, sv: number) {
   const uv = g.getAttribute("uv") as THREE.BufferAttribute;
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
