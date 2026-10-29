@@ -116,6 +116,15 @@ def building_floors(pnu: str, name: str | None = None, area: float | None = None
             by[(r.get("dongNm") or "").strip()] = by.get((r.get("dongNm") or "").strip(), 0) + (_num(r.get("area")) or 0)
         named = [d for d in by if want and _norm(d) and (_norm(d) in want or want in _norm(d))]
         dong = (named or sorted(by, key=lambda d: -by[d]))[0]
+    # (the title's 동 name is not always the floor rows' — "의료시설" over "본관": then the 동 whose floors
+    # reach as high and as deep as the title says)
+    names = {(r.get("dongNm") or "").strip() for r in rows}
+    if dong and dong not in names and names - {""}:
+        def reach(d: str) -> tuple:
+            lv = [floor_level(r.get("flrGbCdNm"), r.get("flrNo")) or 0 for r in rows if (r.get("dongNm") or "").strip() == d]
+            top, deep = max(lv, default=0), -min(lv, default=0)
+            return (-abs(top - (info.get("floors") or top)) - abs(deep - (info.get("basements") or deep)), sum(_num(r.get("area")) or 0 for r in rows if (r.get("dongNm") or "").strip() == d))
+        dong = max(names - {""}, key=reach)
     for r in rows:
         if dong and (r.get("dongNm") or "").strip() not in ("", dong):
             continue
