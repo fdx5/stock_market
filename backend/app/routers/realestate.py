@@ -2,6 +2,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import Response
 
 from app.services import realestate_floors
+from app.services import realestate_hospital
 from app.services import realestate_places as realestate_places_service
 from app.services import sgis_indoor
 from app.services import realestate_building_info, realestate_buildings, realestate_facts, realestate_map, realestate_nearby, realestate_rent, realestate_summary, realestate_water
@@ -281,6 +282,29 @@ def walk_config():
 def indoor_floor(response: Response, id: str = Query(..., pattern=r"^\d{15,40}$"), level: int = Query(1, ge=-20, le=160)):
     response.headers["Cache-Control"] = "public, max-age=60"
     return sgis_indoor.floor(id, level)
+
+
+@router.get("/indoor-stack")
+def indoor_stack(response: Response, id: str = Query(..., pattern=r"^\d{15,40}$"), levels: str = Query("-1,1,2", max_length=400)):
+    """The vertical cores (lifts, stairs, toilets, shafts) from the building's nearest charted floor."""
+    try:
+        wanted = [int(v) for v in levels.split(",") if v.strip()][:80]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="levels") from exc
+    response.headers["Cache-Control"] = "public, max-age=600"
+    return sgis_indoor.stack(id, wanted)
+
+
+@router.get("/hospital-departments")
+def hospital_departments(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132),
+                         name: str = Query("", max_length=80)):
+    """A hospital's departments (HIRA register) for the walk mode's outpatient floors."""
+    try:
+        result = realestate_hospital.departments(lat, lon, name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return result
 
 
 @router.get("/building-floors")

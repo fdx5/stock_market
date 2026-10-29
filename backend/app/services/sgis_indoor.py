@@ -224,3 +224,22 @@ def floor(sufid, level):
         except ProviderError as exc:
             return {"status": exc.state, "year": 2019, "level": level}
     return _cached(("floor", sufid, level), fetch)
+
+
+# The building's vertical cores: lifts, stairs, escalators, toilets and shafts are stacked through
+# its floors. A floor whose chart has only its boundary takes them from the nearest charted floor.
+CORE_TYPES = {"32", "33", "34", "35", "40"}
+
+
+def stack(sufid, levels):
+    def fetch():
+        order = sorted({int(l) for l in levels if -20 <= int(l) <= 160 and int(l) != 0}, key=lambda l: (abs(l - 0.5), l))[:10]
+        for i in range(0, len(order), 2):
+            for got in _pool.map(lambda l: floor(sufid, l), order[i:i + 2]):
+                if got.get("status") == "available" and got.get("rooms"):
+                    cores = [r for r in got["rooms"] if r.get("type") in CORE_TYPES]
+                    if cores:
+                        return {"status": "available", "year": 2019, "level": got["level"], "cores": cores,
+                                "facilities": [f for f in got.get("facilities", []) if f.get("type") in ("0002", "0003", "0004", "0005")]}
+        return {"status": "not_covered", "year": 2019}
+    return _cached(("stack", sufid, tuple(sorted(levels))), fetch)
