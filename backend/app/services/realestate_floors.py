@@ -139,4 +139,9 @@ def building_floors(pnu: str, name: str | None = None, area: float | None = None
     for f in out:
         f["area"] = round(f["area"], 2)
         f["uses"].sort(key=lambda u: -u["area"])
-    return {"pnu": pnu, "building": info, "floors": out, "sources": ["국토교통부 건축물대장 (표제부·층별개요)"]}
+    # (the parcel's 동 in the floor rows and how many rows each: which one was taken, and from what)
+    by_dong: dict[str, int] = {}
+    for r in rows:
+        k = (r.get("dongNm") or "").strip() or "-"
+        by_dong[k] = by_dong.get(k, 0) + 1
+    return {"pnu": pnu, "building": info, "floors": out, "dongs": by_dong, "taken": dong or None, "sources": ["국토교통부 건축물대장 (표제부·층별개요)"]}
