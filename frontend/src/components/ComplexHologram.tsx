@@ -4092,11 +4092,22 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const at = stageRef.current?.drone?.where() ?? data?.center;
     navigate(driveEntryUrl(complexId, at, hour, location.pathname + location.search + location.hash));
   };
-  // 직접 걷기: its own page too (/walk); only the entry is here.
+  // 직접 걷기: on foot in the drone view's own world (its buildings, roads and trees) — the drone
+  // started if it is not up, then down to the street once the sidewalks round it are in (6 s at most).
+  // (The old street world on /walk is kept for the interiors only: walkEntryUrl stays for links.)
+  void walkEntryUrl;
   const openWalk = () => {
     if (!sceneReady || !complexId) return;
-    const at = stageRef.current?.drone?.where() ?? data?.center;
-    navigate(walkEntryUrl(complexId, at, hour, weather, location.pathname + location.search + location.hash));
+    if (!stageRef.current?.drone) enterDrone();
+    const started = performance.now();
+    const down = () => {
+      const d = stageRef.current?.drone; if (!d) return;
+      if (d.flight.walking) return;
+      const f = d.flight, near = d.world.walkPathsNear(f.pos.x, -f.pos.z, 250).length;
+      if (near || performance.now() - started > 6000) { d.toggleWalk(); setDroneView(d.view); return; }
+      window.setTimeout(down, 200);
+    };
+    down();
   };
   const signsRef = useRef<{ id: string; name: string; x: number; y: number; here: boolean }[]>([]);
   const enterBalloon = () => {
