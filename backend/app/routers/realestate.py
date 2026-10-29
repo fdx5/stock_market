@@ -2,6 +2,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import Response
 
 from app.services import realestate_floors
+from app.services import realestate_places as realestate_places_service
 from app.services import realestate_building_info, realestate_buildings, realestate_facts, realestate_map, realestate_nearby, realestate_rent, realestate_summary, realestate_water
 from app.services import realestate_units as realestate_units_service
 
@@ -247,6 +248,17 @@ def realestate_units(response: Response, id: str = Query(..., min_length=7, max_
         raise HTTPException(status_code=404, detail="단지를 찾을 수 없습니다.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/places")
+def realestate_places(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132), r: int = Query(300, ge=50, le=500)):
+    """The shops and offices round a point (trading name, kind, place) for the walk mode's signs."""
+    try:
+        result = realestate_places_service.places(lat, lon, r)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return result
 
 
 @router.get("/building-floors")
