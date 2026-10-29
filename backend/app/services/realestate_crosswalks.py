@@ -71,7 +71,8 @@ def _page(key: str, page: int) -> tuple[list[dict], int, str]:
                 code = (txt.split("<returnReasonCode>")[1].split("<")[0] if "<returnReasonCode>" in txt else txt.split("<resultCode>")[1].split("<")[0] if "<resultCode>" in txt else "")
                 msg = (txt.split("<returnAuthMsg>")[1].split("<")[0] if "<returnAuthMsg>" in txt else txt.split("<resultMsg>")[1].split("<")[0] if "<resultMsg>" in txt else "")
                 last = f"xml {code} {msg}"[:80]; continue
-            body = raw.get("response") or {}
+            # (the standard-data API answers {header, body}; the other portal APIs wrap it in response)
+            body = raw.get("response") or raw
             head, data = body.get("header") or {}, body.get("body") or {}
             code = str(head.get("resultCode", ""))
             if code not in ("00", "0", "NORMAL_SERVICE", ""):
@@ -141,12 +142,14 @@ def _fetch_all():
         log.info("crosswalks: %d registered crossings", len(rows))
     finally:
         _state["loading"] = False
+        if _state["rows"] is None:
+            _state["retry_at"] = time.time() + 120
 
 
 def _ensure():
     with _lock:
         fresh = _state["rows"] is not None and time.time() - _state["at"] < KEEP_S
-        if fresh or _state["loading"]:
+        if fresh or _state["loading"] or time.time() < _state.get("retry_at", 0):
             return
         _state["loading"] = True
     if _load_file():
