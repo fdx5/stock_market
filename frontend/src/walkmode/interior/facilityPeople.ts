@@ -3,6 +3,7 @@ import { Avatar } from "../player/avatar";
 import type { Spot } from "./facilityFurnish";
 import type { Interactable } from "./furnish";
 import type { FacilityRole, FloorPlan, Opening, Room } from "./plan/types";
+import { talk } from "./npcTalk";
 
 /* The people of a building's floor: those at their places (the team at its desks, the doctor at the
  * consulting desk, the clerks behind the counters, patients in the beds, visitors on the benches)
@@ -51,7 +52,7 @@ export class People {
   private nodes: { p: THREE.Vector2; room: string }[] = [];
   private corridorY: number; private corridor: Room | undefined;
 
-  constructor(private plan: FloorPlan, spots: Spot[], private speak: () => void) {
+  constructor(private plan: FloorPlan, spots: Spot[], private speak: () => void, private hour = 12) {
     const fac = plan.facility!, used = new Set<Spot>();
     let seed = Math.abs([...`${plan.complexId}|${fac.level}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7));
     const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
@@ -124,7 +125,10 @@ export class People {
   }
   private visitor = new THREE.Vector2();
   private talk(p: Person) {
-    const lines = LINES[p.role], text = lines[(p.seed + p.line++) % lines.length];
+    // (their own words, put together for them, going on from what they said before — npcTalk.ts;
+    // the few stock lines only for a plan without its building)
+    const text = this.plan.facility ? talk({ role: p.role, kind: this.plan.facility.kind, plan: this.plan, room: p.room.label, seed: p.seed * 31 + this.people.indexOf(p), turn: p.line++, hour: this.hour })
+      : LINES[p.role][(p.seed + p.line++) % LINES[p.role].length];
     p.turnTo = Math.atan2(this.visitor.x - p.pos.x, this.visitor.y - p.pos.y);
     p.wait = Math.max(p.wait, 4);
     this.say(p, text);
@@ -132,17 +136,24 @@ export class People {
   }
   private say(p: Person, text: string) {
     if (p.bubble) { p.av.root.remove(p.bubble); (p.bubble.material as THREE.SpriteMaterial).map?.dispose(); (p.bubble.material as THREE.SpriteMaterial).dispose(); }
-    const c = document.createElement("canvas"); c.width = 512; c.height = 128;
-    const g = c.getContext("2d")!;
-    g.font = `600 34px Pretendard, "Noto Sans KR", sans-serif`;
-    const w = Math.min(500, g.measureText(text).width + 48);
-    g.fillStyle = "rgba(255,255,255,0.94)"; g.beginPath(); g.roundRect((512 - w) / 2, 10, w, 86, 26); g.fill();
-    g.beginPath(); g.moveTo(240, 94); g.lineTo(256, 118); g.lineTo(272, 94); g.fill();
-    g.fillStyle = "#1d2126"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, 256, 54, 470);
+    // (a longer answer wrapped over up to four lines, word by word)
+    const W = 768, font = `600 34px Pretendard, "Noto Sans KR", sans-serif`, meas = document.createElement("canvas").getContext("2d")!;
+    meas.font = font;
+    const lines: string[] = []; let cur = "";
+    for (const word of text.split(" ")) { const t = cur ? `${cur} ${word}` : word; if (meas.measureText(t).width > W - 80 && cur) { lines.push(cur); cur = word; } else cur = t; }
+    if (cur) lines.push(cur);
+    const shown = lines.slice(0, 4), LH = 44, H = shown.length * LH + 70;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d")!; g.font = font;
+    const w = Math.min(W - 12, Math.max(...shown.map(l => g.measureText(l).width)) + 56);
+    g.fillStyle = "rgba(255,255,255,0.95)"; g.beginPath(); g.roundRect((W - w) / 2, 8, w, H - 40, 26); g.fill();
+    g.beginPath(); g.moveTo(W / 2 - 16, H - 33); g.lineTo(W / 2, H - 8); g.lineTo(W / 2 + 16, H - 33); g.fill();
+    g.fillStyle = "#1d2126"; g.textAlign = "center"; g.textBaseline = "middle";
+    shown.forEach((l, i) => g.fillText(l, W / 2, 8 + 22 + i * LH + 6, W - 70));
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true }));
-    s.scale.set(1.6, 0.4, 1); s.position.y = p.pose === "sit" ? 1.6 : 2.15; s.renderOrder = 10;
-    p.av.root.add(s); p.bubble = s; p.bubbleT = 4.5;
+    s.scale.set(2.2, 2.2 * H / W, 1); s.center.set(0.5, 0); s.position.y = p.pose === "sit" ? 1.45 : 1.95; s.renderOrder = 10;
+    p.av.root.add(s); p.bubble = s; p.bubbleT = 3 + text.length * 0.09;
   }
 
   update(dt: number, visitor: { x: number; z: number }) {

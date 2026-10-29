@@ -309,7 +309,7 @@ export class Interior {
     const collide = (x: number, z: number, r: number) => this.collide(x, z, r);
     if (plan.facility) {
       // a building: its people instead of a pet
-      this.people = new People(plan, spots, () => this.o.sound.play("click"));
+      this.people = new People(plan, spots, () => this.o.sound.play("click"), this.o.hour);
       this.people.root.traverse(o => { o.castShadow = false; });
       this.dynamic.add(this.people.root);
       this.interactables.push(...this.people.interactables((x, z) => this.shell.roomAt(x, z)));
