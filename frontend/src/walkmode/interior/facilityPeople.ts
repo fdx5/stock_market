@@ -55,12 +55,15 @@ export class People {
     const fac = plan.facility!, used = new Set<Spot>();
     let seed = Math.abs([...`${plan.complexId}|${fac.level}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7));
     const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
-    this.corridor = plan.rooms.find(r => r.id === "corridor");
+    // (the walkers keep to the floor's main corridor or hall: its biggest)
+    const ar = (r: Room) => (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]);
+    this.corridor = plan.rooms.filter(r => r.type === "corridor" || r.type === "lobby").sort((a, b) => ar(b) - ar(a))[0];
+    const cid = this.corridor?.id ?? "";
     const cr = this.corridor?.rect ?? plan.bounds; this.corridorY = (cr[1] + cr[3]) / 2;
     // the doors off the corridor: just outside each, a place walkers go to
     for (const o of plan.openings) {
-      if (o.type === "window" || (o.a !== "corridor" && o.b !== "corridor")) continue;
-      const other = o.a === "corridor" ? o.b : o.a;
+      if (o.type === "window" || (o.a !== cid && o.b !== cid)) continue;
+      const other = o.a === cid ? o.b : o.a;
       if (other === "out") continue;
       this.nodes.push({ p: this.doorPoint(o), room: other });
     }
@@ -73,7 +76,7 @@ export class People {
       const room = plan.rooms.find(r => r.id === want.room); if (!room) continue;
       const free = (atSpot.get(room.id) ?? []).filter(s => !used.has(s));
       const s = PLACES[want.role].map(k => free.find(f => f.kind === k)).find(Boolean);
-      const walker = !s && (room.id === "corridor" || room.type === "lobby" || room.type === "liftHall" || room.type === "waiting" || room.type === "gallery" || room.type === "shop" || room.type === "parking");
+      const walker = !s && (room.type === "corridor" || room.type === "lobby" || room.type === "liftHall" || room.type === "waiting" || room.type === "gallery" || room.type === "shop" || room.type === "parking");
       if (!s && !walker) continue;
       if (s) used.add(s);
       const av = new Avatar(1 + Math.floor(rnd() * 9999), OUTFIT[want.role]);

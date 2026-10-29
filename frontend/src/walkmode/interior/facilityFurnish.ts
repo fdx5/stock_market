@@ -22,6 +22,8 @@ export interface FacilityHooks {
   lift?(): void;
   /** the floors for the directory: label and what is on it */
   levels?: { level: number; label: string; uses: string }[];
+  /** (the directory is put once a floor) */
+  directoryPut?: boolean;
 }
 export interface FacCtx {
   plan: FloorPlan; P: Palette; X: Extra; signs: SignAtlas; B: Batcher; dynamic: THREE.Group; H: number;
@@ -43,7 +45,11 @@ const dirOf = (a: number) => [Math.sin(a), Math.cos(a)] as const;
 export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
   const { P, X, H } = c, zone = c.zoneOf(room);
   const sides: SideName[] = ["n", "s", "w", "e"];
-  const corridorOp = c.plan.openings.find(o => (o.a === room.id && o.b === "corridor") || (o.b === room.id && o.a === "corridor"));
+  // (its way in from a public space — a corridor, a hall, the lobby — not the open walls joining a
+  // room's own parts)
+  const pub = (id: string) => { const r = c.plan.rooms.find(q => q.id === id); return !!r && (r.type === "corridor" || r.type === "lobby" || r.type === "liftHall") && !(r.type === room.type && r.label === room.label); };
+  const ways = c.plan.openings.filter(o => o.type !== "window" && o.b !== "out" && ((o.a === room.id && pub(o.b)) || (o.b === room.id && pub(o.a))));
+  const corridorOp = ways.find(o => o.type !== "open") ?? ways[0];
   const doorSide: SideName = (corridorOp && pl.sideOf(corridorOp.axis, corridorOp.at)) || "s";
   const winSide = sides.find(s => pl.windowsOn(s).length) ?? opposite[doorSide];
   const solidSides = sides.filter(s => pl.openingsOn(s).length === 0);
@@ -107,23 +113,27 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     return f;
   };
 
+  // -------------------------------------------- lift doors on this room's walls, their call buttons; the floor directory by them
+  const myLifts = (c.plan.facility?.lifts ?? []).filter(L => L.room === room.id);
+  for (const L of myLifts) {
+    const f = pl.frameAt(L.side, L.u, 1.5, 0.15);
+    c.put(F.liftDoor(P), f, zone, false);
+    const hit = c.hitIn(f, 1.2, 2.2, 0.4, 0, 1.1, 0.2);
+    c.interactables.push({ id: `lift-${room.id}-${L.u}`, zone, room, hit, label: () => "엘리베이터 타기 · 층 선택", act: () => { c.hooks.lift?.(); return "beep"; } });
+    signOn(L.side, "lift", [`${c.plan.facility?.levelLabel ?? ""}`], 0.46, 0.12, L.u, 2.45);
+    pl.take(f.rect);
+  }
+  if (myLifts.length && !c.hooks.directoryPut) {
+    const lv = c.hooks.levels ?? [], s = (["e", "w", "n", "s"] as SideName[]).find(q => q !== myLifts[0].side && pl.openingsOn(q).length === 0 && pl.len(q) > 1.4);
+    if (lv.length && s) {
+      const rows = [...lv].reverse().slice(0, 14);
+      signOn(s, "directory", [`${c.plan.facility?.name ?? ""} 층별 안내`, ...rows.map(l => `${l.label}\t${l.uses || "—"}`)], 1.0, 0.25 + rows.length * 0.09, s === "w" || s === "e" ? cz : cx, 1.55);
+      c.hooks.directoryPut = true;
+    }
+  }
+
   switch (room.type) {
-    // -------------------------------------------- the lift hall: two cars, their call buttons, the directory
     case "liftHall": {
-      for (const L of c.plan.facility?.lifts ?? []) {
-        const f = pl.frameAt("s", L.x, 1.5, 0.15);
-        c.put(F.liftDoor(P), f, zone, false);
-        const hit = c.hitIn(f, 1.2, 2.2, 0.4, 0, 1.1, 0.2);
-        c.interactables.push({ id: `lift-${L.x}`, zone, room, hit, label: () => "엘리베이터 타기 · 층 선택", act: () => { c.hooks.lift?.(); return "beep"; } });
-        signOn("s", "lift", [`${c.plan.facility?.levelLabel ?? ""}`], 0.46, 0.12, L.x, 2.45);
-        pl.take(f.rect);
-      }
-      const lv = c.hooks.levels ?? [];
-      if (lv.length) {
-        const s: SideName = solidSides.includes("e") ? "e" : "w";
-        const rows = [...lv].reverse().slice(0, 14);
-        signOn(s, "directory", [`${c.plan.facility?.name ?? ""} 층별 안내`, ...rows.map(l => `${l.label}\t${l.uses || "—"}`)], 1.0, 0.25 + rows.length * 0.09, cz, 1.55);
-      }
       plant(null, 1.2);
       break;
     }
@@ -186,6 +196,20 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     }
     // -------------------------------------------- corridors: the exit signs, a hydrant cabinet, a water purifier
     case "corridor": {
+      // (a hall's open floor: islands every ~7 m — benches round planters, an information kiosk, a
+      // column, a seating group — kept off the ways along it)
+      if (W * D > 60 && Math.min(W, D) > 5.5) {
+        let n = room.id.length + Math.round(cx * 3 + cz * 7);
+        for (let x = X0 + 3.2; x < X1 - 3; x += 7) for (let z = Z0 + 3.2; z < Z1 - 3; z += 7) {
+          const kind = (n++) % 4;
+          if (kind === 0) { const f = freeAt(x, z, 2.4, 2.4); if (f) { c.put([M.rb(P.woodLight, 2.4, 0.45, 2.4, 0.04, 0, 0.225, 0), M.rb(P.counter, 1.4, 0.5, 1.4, 0.03, 0, 0.25, 0), ...M.plant(P, 1.7, n)], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); seat("벤치에 앉기", new THREE.Vector3(x, 0, z + 1.0), 0, 0.8); spot(new THREE.Vector3(x - 0.9, 0, z - 1.0), Math.PI, "sit", "seat"); } }
+          else if (kind === 1) { const f = freeAt(x, z, 0.8, 0.5); if (f) { c.put([M.rb(X.accentDark, 0.7, 1.9, 0.4, 0.05, 0, 0.95, 0), M.bx(X.monitor, 0.56, 0.9, 0.01, 0, 1.25, 0.205)], f.m, zone, true); const g = c.signs.sign("plate", ["층별 안내", c.plan.facility?.levelLabel ?? ""], 0.56, 0.2); c.B.add(c.signs.material, zone, g, new THREE.Matrix4().makeTranslation(x, pl.fy + 1.82, z + 0.206), false); g.dispose(); } }
+          else if (kind === 2) { const f = freeAt(x, z, 0.8, 0.8); if (f) c.put([M.cy(P.trim, 0.38, 0.38, H, 0, H / 2, 0, 32), M.cy(P.steel, 0.4, 0.4, 0.12, 0, 0.06, 0, 32)], f.m, zone, true); }
+          else { const f = freeAt(x, z, 3.0, 2.2); if (f) { c.put([...F.moved(M.sofa(P, 2.0), 0, -1.0), ...F.moved(M.coffeeTable(P), 0, 0.2)], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); spot(new THREE.Vector3(x + 0.5, 0, z - 0.5), 0, "sit", "seat"); } }
+        }
+      }
+      // (a short piece of a hall: nothing on its walls)
+      if (Math.max(W, D) < 7) break;
       const along: SideName[] = W > D ? ["n", "s"] : ["w", "e"];
       // (ceiling-hung exit signs at the ends)
       // (they face down the corridor, both ways)
@@ -577,21 +601,26 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
 
 /** a room's name by its door on the corridor side; a shop's or a gallery's over its front */
 function roomSign(c: FacCtx, room: Room, o: Opening | undefined) {
-  if (!o || o.axis !== "z") return;
-  const corridor = c.plan.rooms.find(r => r.id === "corridor"); if (!corridor) return;
-  const zone = c.zoneOf(corridor), [x0, , x1] = room.rect;
-  // (which way the corridor face looks: away from the room)
-  const roomBelow = room.rect[3] <= o.at + 1e-6, face = roomBelow ? 0 : Math.PI, off = roomBelow ? HALF_WALL + 0.012 : -(HALF_WALL + 0.012);
+  if (!o) return;
+  const otherId = o.a === room.id ? o.b : o.a, other = c.plan.rooms.find(r => r.id === otherId); if (!other) return;
+  const zone = c.zoneOf(other);
+  // (the face toward the public side, a little off the wall; along the wall: u)
+  const zAxis = o.axis === "z";
+  const roomBefore = zAxis ? room.rect[3] <= o.at + 1e-6 : room.rect[2] <= o.at + 1e-6;
+  const off = (roomBefore ? 1 : -1) * (HALF_WALL + 0.012);
+  const face = zAxis ? (roomBefore ? 0 : Math.PI) : (roomBefore ? Math.PI / 2 : -Math.PI / 2);
+  const lo = zAxis ? room.rect[0] : room.rect[1], hi = zAxis ? room.rect[2] : room.rect[3];
+  const place = (u: number, y: number) => zAxis ? new THREE.Matrix4().makeRotationY(face).setPosition(u, y, o.at + off) : new THREE.Matrix4().makeRotationY(face).setPosition(o.at + off, y, u);
   const big = o.type === "glass_door" || o.type === "open";
   if (big) {
-    const w = Math.min(o.width + 1.2, x1 - x0 - 0.3), top = o.sill + o.height, h = Math.min(0.42, c.H - top - 0.06);
-    if (h > 0.14) { const g = c.signs.sign("fascia", [room.label], w, h); c.B.add(c.signs.material, zone, g, new THREE.Matrix4().makeRotationY(face).setPosition(o.center, top + 0.03 + h / 2, o.at + off), false); g.dispose(); return; }
+    const w = Math.min(o.width + 1.2, hi - lo - 0.3), top = o.sill + o.height, h = Math.min(0.42, c.H - top - 0.06);
+    if (h > 0.14 && w > 0.8) { const g = c.signs.sign("fascia", [room.label], w, h); c.B.add(c.signs.material, zone, g, place(o.center, top + 0.03 + h / 2), false); g.dispose(); return; }
   }
   let u = o.center + o.width / 2 + 0.42;
-  if (u + 0.2 > x1) u = o.center - o.width / 2 - 0.42;
-  const sub = room.type === "consult" ? "진료 중" : room.type === "ward" ? "4인실" : room.type === "restroom" ? "" : "";
+  if (u + 0.2 > hi) u = o.center - o.width / 2 - 0.42;
+  const sub = room.type === "consult" ? "진료 중" : room.type === "ward" ? "4인실" : "";
   const g = c.signs.sign("plate", sub ? [room.label, sub] : [room.label], 0.5, 0.17);
-  c.B.add(c.signs.material, zone, g, new THREE.Matrix4().makeRotationY(face).setPosition(u, 1.55, o.at + off), false); g.dispose();
+  c.B.add(c.signs.material, zone, g, place(u, 1.55), false); g.dispose();
 }
 
 function hitBoxAt(c: FacCtx, w: number, h: number, d: number, p: THREE.Vector3) {

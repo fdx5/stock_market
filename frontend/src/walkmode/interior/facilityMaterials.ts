@@ -20,7 +20,7 @@ export function facilityLook(P: Palette, kind: FacilityKind, name: string): { P:
   const dark = new THREE.Color(accent).multiplyScalar(0.45).getStyle();
   const Q: Palette = { ...P };
   // floors: a building's rooms by its use
-  if (kind === "office" || kind === "civic" || kind === "hotel") Q.floorRoom = re(P.rug, { color: kind === "hotel" ? "#6a5547" : "#5a6068" });
+  if (kind === "office" || kind === "civic" || kind === "hotel") Q.floorRoom = re(P.rug, { color: kind === "hotel" ? ["#6a5547", "#4c5a6b", "#7a4a4a"][h % 3] : ["#5a6068", "#4f5c6b", "#6b6458", "#3f4a44"][h % 4] });
   else if (kind === "clinic" || kind === "ward") Q.floorRoom = pm({ color: "#d6d9d2", roughness: 0.32, clearcoat: 0.4, clearcoatRoughness: 0.2 });
   else if (kind === "gym") Q.floorRoom = pm({ color: "#2b2e32", roughness: 0.92 });
   else if (kind === "parking" || kind === "plant") {
@@ -34,10 +34,10 @@ export function facilityLook(P: Palette, kind: FacilityKind, name: string): { P:
   const X: Extra = {
     accent: pm({ color: accent, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.1 }),
     accentDark: pm({ color: dark, roughness: 0.45, clearcoat: 0.4 }),
-    seat: re(P.linen, { color: kind === "clinic" || kind === "ward" ? "#4f8f95" : kind === "school" ? "#3d5a80" : "#3b4350" }),
+    seat: re(P.linen, { color: kind === "clinic" || kind === "ward" ? ["#4f8f95", "#6f9fb8", "#8aa36a"][h % 3] : ["#3b4350", "#3d5a80", "#7a4b3a", "#4d6b55", "#5b4f6e", "#8a7a5c"][h % 6] }),
     mesh: pm({ color: "#232529", roughness: 0.75, sheen: 0.4, sheenColor: new THREE.Color("#666a70") }),
     vinyl: re(P.leather, { color: kind === "gym" ? "#202225" : "#5d8f96" }),
-    laminate: pm({ color: kind === "school" ? "#d8c7a9" : "#eeebe5", roughness: 0.38, clearcoat: 0.2 }),
+    laminate: kind === "school" || h % 2 ? re(P.woodLight, { color: ["#ffffff", "#e8dccb", "#d9c3a5"][h % 3] }) : pm({ color: ["#eeebe5", "#f4f4f2", "#d9d6d0"][h % 3], roughness: 0.38, clearcoat: 0.2 }),
     partition: pm({ color: kind === "office" || kind === "civic" ? "#c9ced3" : "#e3ddd2", roughness: 0.32, clearcoat: 0.5 }),
     whiteboard: pm({ color: "#fbfbf9", roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.03 }),
     monitor: pm({ color: "#050506", emissive: new THREE.Color("#ffffff"), emissiveMap: monTex, emissiveIntensity: 0.9, roughness: 0.25, clearcoat: 1 }),

@@ -59,8 +59,10 @@ export interface FloorPlan {
     kind: FacilityKind; name: string; level: number; levelLabel: string; use: string;
     /** where a visitor starts (by the front door on the ground floor, before the lifts above it): x, z, yaw */
     start: [number, number, number];
-    /** the lifts' doors: their centres on the wall, the wall's facing (into the hall) */
-    lifts: { x: number; z: number; yaw: number }[];
+    /** the lifts' doors: the room they open into, the wall of it they are in, their middle along it */
+    lifts: { room: string; side: Side; u: number }[];
+    /** laid out from the floor's charted partitions (SGIS), not from rules */
+    drawn?: boolean;
     /** who works here: a room's id and what its people do there */
     people: { room: string; role: FacilityRole }[];
   };

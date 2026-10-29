@@ -82,6 +82,8 @@ export class DroneFlight {
   load = 0;
   /** hit a wall this frame (for the sound) */
   bumped = 0;
+  /** how long the walker has pushed against something without moving */
+  private pushT = 0;
   autopilot = false;
   autoRotate = false;
   /** 걷기: on foot in the drone's world — on the ground, at a walker's pace, buildings solid */
@@ -216,25 +218,31 @@ export class DroneFlight {
     // raster alone ran a metre or two past the walls — invisible walls — and held things that are
     // not drawn), or anything over 6 m with no outline. On foot a cliff of more than 1.5 m at once;
     // slopes, kerbs and the ground's tile seams are walked over. A car rides decks and ramps.
-    const blocked = (qx: number, qy: number, g: number) => {
+    // (a road is never a wall — under an overpass, a skywalk or a canopy the way goes on)
+    const blocked = (qx: number, qy: number, g: number, wallsOnly = false) => {
       const roof = world.roofAt(qx, qy) - g;
       if (roof <= (this.car ? 2.0 : 0.8)) return false;
-      if (this.car && world.roadZ?.(qx, qy) != null) return false;
-      return roof > 6 || !world.buildingRingAt || !!world.buildingRingAt(qx, qy);
+      if (world.roadZ?.(qx, qy) != null) return false;
+      const ring = !!world.buildingRingAt?.(qx, qy);
+      return wallsOnly ? ring : ring || roof > 6 || !world.buildingRingAt;
     };
-    const solid = (px: number, pz: number) => {
+    const solid = (px: number, pz: number, wallsOnly = false) => {
       for (const [ox, oz] of probes) {
         const qx = px + ox, qy = -(pz + oz), g = world.groundAt(qx, qy);
-        if (blocked(qx, qy, g) || (!this.car && g - here > 1.5)) return true;
+        if (blocked(qx, qy, g, wallsOnly) || (!wallsOnly && !this.car && g - here > 1.5)) return true;
       }
       return false;
     };
     // (a body already caught inside something — set down there, or the data changed under it — may
-    // always move, so it can walk out: it is never held where it stands)
-    const caught = solid(this.pos.x, this.pos.z);
+    // always move, so it can walk out: it is never held where it stands. And a walker pushing on for
+    // 0.8 s against anything but a surveyed building's wall — a roof raster over the pavement, a
+    // terrain step, a block with no outline — goes on through: never stuck walking in place.)
+    if (!this.car && Math.hypot(ix, iz) > 0.1 && this.bumped) this.pushT += dt; else if (!this.bumped) this.pushT = 0;
+    const through = !this.car && this.pushT > 0.8;
+    const caught = solid(this.pos.x, this.pos.z, through);
     this.bumped = 0;
-    const nx = this.pos.x + this.vel.x * dt; if (caught || !solid(nx, this.pos.z)) this.pos.x = nx; else { this.vel.x = 0; this.bumped = 1; }
-    const nz = this.pos.z + this.vel.z * dt; if (caught || !solid(this.pos.x, nz)) this.pos.z = nz; else { this.vel.z = 0; this.bumped = 1; }
+    const nx = this.pos.x + this.vel.x * dt; if (caught || !solid(nx, this.pos.z, through)) this.pos.x = nx; else { this.vel.x = 0; this.bumped = 1; }
+    const nz = this.pos.z + this.vel.z * dt; if (caught || !solid(this.pos.x, nz, through)) this.pos.z = nz; else { this.vel.z = 0; this.bumped = 1; }
     // (a bike into a wall stops)
     if (this.cycling && this.bumped) this.bikeSpeed = Math.min(this.bikeSpeed, 1);
     // (a car into a wall: it stops dead, bouncing back a little — the impact for the sound)

@@ -14,6 +14,7 @@ import { fitOut, type FitSource } from "./building/fitout";
 import BuildingMap from "./building/BuildingMap";
 import { kindOf, planBuilding, plateOf, type RegBuilding, type RegFloor } from "./building/plan";
 import { FACILITY_LABEL, facilityKindOf, facilityLevels, generateFacility } from "./interior/plan/facility";
+import { generateSurveyed } from "./interior/plan/surveyed";
 import { envelopeOf } from "./interior/plan/envelope";
 import { seeded } from "./interior/plan/generate";
 import type { FloorPlan, StyleName, UnitsResponse } from "./interior/plan/types";
@@ -84,7 +85,9 @@ export default function WalkPage() {
   const [bsource, setBsource] = useState("");
   const [talk,setTalk]=useState<BuildingTalk|null>(null);
   /** a building other than flats, walked floor by floor in the interior engine: what is known of it */
-  const fac = useRef<{ info: RegBuilding; floors: RegFloor[]; W: number; D: number; levels: { level: number; label: string; uses: string }[]; tenants: { name: string; level: number }[]; departments: string[]; key: string } | null>(null);
+  const fac = useRef<{ info: RegBuilding; floors: RegFloor[]; W: number; D: number; levels: { level: number; label: string; uses: string }[]; tenants: { name: string; level: number }[]; departments: string[]; key: string;
+    /** the building's survey (SGIS): its frame, its floors' drawings fetched as walked; the way in in plan coords */
+    survey?: { id: string; frame: { x: number; y: number; width: number; depth: number }; outline: [number, number][][][] | null; entry: [number, number] | null; stack?: Promise<{ status: string; cores?: { type: string; polygons: [number, number][][][] }[] } | null> } } | null>(null);
   /** the complex of the building being entered, when it is not the one the walk started at */
   const [visit, setVisit] = useState<{ id: string; name: string; built?: number } | null>(null);
   const [units, setUnits] = useState<UnitsResponse | null>(null);
@@ -329,7 +332,8 @@ export default function WalkPage() {
         const W0 = frame?.width ?? shape.W, D0 = frame?.depth ?? shape.D;
         const depts = hospital ? await fetch(`/api/realestate/hospital-departments?${new URLSearchParams({ lat: String(lat), lon: String(lon), name: info.name ?? e.name })}`).then(r => r.ok ? r.json() : null).catch(() => null) : null;
         fac.current = { info, floors, W: Math.max(W0, D0), D: Math.min(W0, D0), levels: facilityLevels(plan.levels, floors), tenants: plan.tenants,
-          departments: ((depts?.departments ?? []) as { name: string; doctors: number }[]).sort((a, c) => c.doctors - a.doctors).map(d => d.name), key: `${pnu ?? ""}|${info.name ?? e.name}` };
+          departments: ((depts?.departments ?? []) as { name: string; doctors: number }[]).sort((a, c) => c.doctors - a.doctors).map(d => d.name), key: `${pnu ?? ""}|${info.name ?? e.name}`,
+          survey: frame && survey?.id ? { id: survey.id, frame, outline: survey.outlines?.map(p => p.map(r => r.map(([x, y]) => [x - frame.x, frame.depth - (y - frame.y)] as [number, number]))) ?? null, entry: [e.x - origin[0], frame.depth - (e.y - origin[1])] } : undefined };
         openFacility(plan.levels.includes(1) ? 1 : plan.levels[0] ?? 1);
         return;
       }
@@ -367,13 +371,33 @@ export default function WalkPage() {
   };
   /** One floor of the building: its plan from the register's use for it, its businesses, built and
    * lit by the flats' engine; the lift's panel brings another */
-  const openFacility = (level: number) => {
+  const openFacility = async (level: number) => {
     const f = fac.current; if (!f || !renderer.current) return;
     const reg = f.floors.find(x => x.level === level), main = reg?.uses.slice().sort((a, b) => b.area - a.area)[0];
     const kind = facilityKindOf(kindOf(main?.use ?? f.info.use ?? "", main?.detail ?? f.info.useDetail ?? "", level, f.info));
     const lv = f.levels.find(l => l.level === level);
-    const p = generateFacility({ id: f.key, name: f.info.name || entering?.name || "건물", kind, level, levelLabel: lv?.label ?? (level < 0 ? `지하 ${-level}층` : `${level}층`), use: lv?.uses ?? "",
-      width: f.W, depth: f.D, tenants: f.tenants.filter(t => t.level === level).map(t => t.name), departments: f.departments, built: f.info.approved ? Number(String(f.info.approved).slice(0, 4)) || null : null });
+    const base = { id: f.key, name: f.info.name || entering?.name || "건물", kind, level, levelLabel: lv?.label ?? (level < 0 ? `지하 ${-level}층` : `${level}층`), use: lv?.uses ?? "",
+      width: f.W, depth: f.D, tenants: f.tenants.filter(t => t.level === level).map(t => t.name), departments: f.departments, built: f.info.approved ? Number(String(f.info.approved).slice(0, 4)) || null : null };
+    setPhase("interior-loading"); setProgress({ k: 0, text: "이 층의 도면을 찾는 중" });
+    // (the floor's drawing, where the survey has one: its outline and partitions; the cores of the
+    // nearest charted floor; else its outline as the building's; else the rules on the footprint)
+    let p: FloorPlan | null = null;
+    const sv = f.survey;
+    if (sv) {
+      const P = (q: [number, number]): [number, number] => [q[0] - sv.frame.x, sv.frame.depth - (q[1] - sv.frame.y)];
+      const data = await getSurvey<SurveyFloor>(`/api/realestate/indoor-floor?id=${encodeURIComponent(sv.id)}&level=${level}`);
+      const own = data?.status === "available" && data.outlines?.length ? data : null;
+      const charted = (own?.rooms ?? []).length > 0;
+      const stack = !charted ? await (sv.stack ??= getSurvey(`/api/realestate/indoor-stack?id=${encodeURIComponent(sv.id)}&levels=${f.levels.map(l => l.level).join(",")}`)) : null;
+      const outline = own ? own.outlines!.map(q => q.map(r => r.map(P))) : sv.outline;
+      if (outline?.length) {
+        const company = (ring: [number, number][]) => own?.companies?.find(c => { const q = P([c.x, c.y]); let h = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, zi] = ring[i], [xj, zj] = ring[j]; if ((zi > q[1]) !== (zj > q[1]) && q[0] < (xj - xi) * (q[1] - zi) / (zj - zi) + xi) h = !h; } return h; });
+        p = generateSurveyed({ ...base, outline, entry: sv.entry, seed: Math.abs([...`${f.key}|${level}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 5)),
+          partitions: (own?.rooms ?? []).flatMap(r => r.polygons.map(q => { const poly = q.map(rr => rr.map(P)); const c = r.type === "10" || r.type === "20" ? company(poly[0]) : undefined; return { type: r.type, poly, name: c?.name, category: c?.category }; })),
+          cores: stack?.status === "available" ? (stack.cores ?? []).flatMap(c => c.polygons.map(q => ({ type: c.type, ring: q[0].map(P) }))) : [] });
+      }
+    }
+    if (!p) p = generateFacility(base);
     sound.resume(); document.exitPointerLock?.();
     setLiftPanel(null); setHud(null);
     interior.current?.dispose(); interior.current = null;

@@ -87,8 +87,20 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
   const accentSide = living ? sidesOf(living).filter(s => s.axis === "x").find(s => !plan.openings.some(o => (o.a === living.id || o.b === living.id) && o.axis === "x" && Math.abs(o.at - s.line) < 1e-6))?.name : undefined;
   // (a building's lift hall in stone round its lift doors, its lobby's side walls likewise)
   const wallMat = (r: Room, s: Side) => wet(r) ? P.wallWet : r === living && s.name === accentSide ? P.wallAccent
-    : (r.type === "liftHall" && s.name === "s") || (r.type === "lobby" && (s.name === "w" || s.name === "e")) ? P.wallAccent : P.wall;
+    : (r.type === "liftHall" && s.name === "s") || (r.type === "lobby" && (s.name === "w" || s.name === "e")) || featureWall(r, s) ? P.wallAccent : P.wall;
+  // (a building's rooms: some with one wall in the feature finish — which, by the room)
+  function featureWall(r: Room, s: Side) {
+    if (!plan.facility || !["office", "meeting", "cafe", "shop", "classroom", "consult", "waiting", "guest", "openOffice", "staffroom"].includes(r.type)) return false;
+    const h = [...`${plan.complexId}|${plan.floor}|${r.id}`].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 7) >>> 0;
+    return h % 3 !== 0 && ["n", "s", "w", "e"][h % 4] === s.name;
+  }
   const facility = !!plan.facility;
+  /** a zone of several rooms: its one light (from its lead room), or none from the others */
+  let lightOnce: { x: number; z: number; w: number; h: number } | null | undefined;
+  const pushLight = (l: CeilingLight) => {
+    if (lightOnce === undefined) { ceilingLights.push(l); return; }
+    if (lightOnce) { ceilingLights.push({ ...l, kind: "panel", pos: new THREE.Vector3(lightOnce.x, H - 0.05, lightOnce.z), w: Math.max(0.5, lightOnce.w), h: Math.max(0.5, lightOnce.h) }); lightOnce = null; }
+  };
 
   for (const r of plan.rooms) {
     const zone = zoneOf(r), fy = -(r.floorDrop ?? 0);
@@ -191,13 +203,25 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
       return;
     }
     ceilQuads([], H);
+    // (a drawn floor's many rooms: one lamp's light a zone — the scene's area lights are few — over
+    // the whole of the zone, from its biggest room)
+    const zoneRooms = facility ? plan.rooms.filter(q => q.zone === r.zone) : [r];
+    const big = zoneRooms.length > 1;
+    if (big) {
+      const ar = (q: Room) => (q.rect[2] - q.rect[0]) * (q.rect[3] - q.rect[1]);
+      const lead = zoneRooms.reduce((a, b) => ar(b) > ar(a) ? b : a);
+      const zx0 = Math.min(...zoneRooms.map(q => q.rect[0])), zz0 = Math.min(...zoneRooms.map(q => q.rect[1])), zx1 = Math.max(...zoneRooms.map(q => q.rect[2])), zz1 = Math.max(...zoneRooms.map(q => q.rect[3]));
+      const pushed = ceilingLights.length;
+      lightOnce = lead === r ? { x: (zx0 + zx1) / 2, z: (zz0 + zz1) / 2, w: (zx1 - zx0) * 0.4, h: (zz1 - zz0) * 0.4 } : null;
+      void pushed;
+    } else lightOnce = undefined;
     if (facility && r.type !== "restroom") {
       // a building's ceilings: 600 mm LED panels in a grid (a corridor's a line of downlights, a
       // gallery's and a shop's track spots, a car park's batten tubes)
       if (r.type === "corridor" || r.type === "liftHall" || r.type === "stair") {
         const n = Math.max(1, Math.round(Math.max(W, D) / 2.4));
         for (let i = 0; i < n; i++) W > D ? downlight(X0 + (W / n) * (i + 0.5), cz, zone) : downlight(cx, Z0 + (D / n) * (i + 0.5), zone);
-        ceilingLights.push({ room: r, zone, kind: "down", pos: new THREE.Vector3(cx, H - 0.01, cz), w: Math.max(0.4, W * 0.45), h: Math.max(0.4, D * 0.45) });
+        pushLight({ room: r, zone, kind: "down", pos: new THREE.Vector3(cx, H - 0.01, cz), w: Math.max(0.4, W * 0.45), h: Math.max(0.4, D * 0.45) });
         return;
       }
       if (r.type === "parking" || r.type === "plant" || r.type === "storage") {
@@ -206,7 +230,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
         // (a car park's deck: lit in parts — one lamp for all of it would leave it dim)
         const gx = r.type === "parking" ? Math.min(4, Math.max(1, Math.round(W / 8))) : 1, gz = r.type === "parking" ? 2 : 1;
         for (let i = 0; i < gx; i++) for (let j = 0; j < gz; j++)
-          ceilingLights.push({ room: r, zone, kind: "panel", pos: new THREE.Vector3(X0 + (W / gx) * (i + 0.5), H - 0.05, Z0 + (D / gz) * (j + 0.5)), w: W * 0.4 / gx, h: D * 0.4 / gz });
+          pushLight({ room: r, zone, kind: "panel", pos: new THREE.Vector3(X0 + (W / gx) * (i + 0.5), H - 0.05, Z0 + (D / gz) * (j + 0.5)), w: W * 0.4 / gx, h: D * 0.4 / gz });
         return;
       }
       const step = r.type === "gallery" || r.type === "shop" || r.type === "cafe" ? 2.0 : 2.4;
@@ -215,7 +239,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
         const x = X0 + (W / nx) * (i + 0.5), z = Z0 + (D / nz) * (j + 0.5);
         if (r.type === "gallery" || r.type === "cafe") downlight(x, z, zone); else panel(x, z, 0.58, 0.58, zone);
       }
-      ceilingLights.push({ room: r, zone, kind: "panel", pos: new THREE.Vector3(cx, H - 0.05, cz), w: Math.max(0.5, W * 0.4), h: Math.max(0.5, D * 0.4) });
+      pushLight({ room: r, zone, kind: "panel", pos: new THREE.Vector3(cx, H - 0.05, cz), w: Math.max(0.5, W * 0.4), h: Math.max(0.5, D * 0.4) });
       return;
     }
     if (r.type === "hall" || r.type === "entrance" || r.type === "dressroom" || r.type === "utility") {
@@ -230,7 +254,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
       const g = boxUV(new RoundedBoxGeometry(0.24, 0.02, 0.24, 2, 0.008));
       B.add(P.plastic, zone, g, new THREE.Matrix4().makeTranslation(X1 - 0.35, H - 0.01, Z0 + 0.35));
       g.dispose();
-      ceilingLights.push({ room: r, zone, kind: "bath", pos: new THREE.Vector3(cx, H - 0.03, cz), w: 0.32, h: 0.32 });
+      (facility ? pushLight : (l: CeilingLight) => ceilingLights.push(l))({ room: r, zone, kind: "bath", pos: new THREE.Vector3(cx, H - 0.03, cz), w: 0.32, h: 0.32 });
       return;
     }
     if (r.type === "kitchen") {

@@ -62,6 +62,13 @@ export default function MiniMap({ plan, subject }: { plan: FloorPlan; subject: (
   }, [shown, subject]);
   if (!shown) return <button className="wk-map-show wk-btn" onClick={() => setShown(true)}>평면도 <kbd>M</kbd></button>;
   const span = Math.max(x1 - x0, z1 - z0), fs = span * 0.052;
+  // (a building's room drawn in several rectangles: its name once, in its biggest; sized to fit)
+  const labelled = new Set<string>();
+  if (plan.facility) {
+    const best = new Map<string, FloorPlan["rooms"][number]>(), ar = (q: FloorPlan["rooms"][number]) => (q.rect[2] - q.rect[0]) * (q.rect[3] - q.rect[1]);
+    for (const r of plan.rooms) { const k = `${r.zone}|${names.get(r.id)}`, b = best.get(k); if (!b || ar(r) > ar(b)) best.set(k, r); }
+    for (const r of best.values()) labelled.add(r.id);
+  }
   return (
     <div className={`wk-map${big ? " is-big" : ""}`} onClick={() => setBig(b => !b)} title="클릭: 크게/작게 · M: 숨기기">
       <svg viewBox={vb} preserveAspectRatio="xMidYMid meet">
@@ -71,7 +78,12 @@ export default function MiniMap({ plan, subject }: { plan: FloorPlan; subject: (
           return (
             <g key={r.id}>
               <rect x={a} y={b} width={c - a} height={d - b} fill={FILL[r.type] ?? "rgba(255,255,255,.06)"} stroke="rgba(223,246,255,.55)" strokeWidth={span * 0.005} />
-              <text x={(a + c) / 2} y={(b + d) / 2} fontSize={Math.min(fs, (c - a) / 2.5)} textAnchor="middle" dominantBaseline="middle" fill="#e8fbff">{names.get(r.id)}</text>
+              {(() => {
+                const t = names.get(r.id) ?? "";
+                if (plan.facility && !labelled.has(r.id)) return null;
+                const size = plan.facility ? Math.min(fs * 0.8, (c - a) / Math.max(1, t.length * 0.95), (d - b) / 1.4) : Math.min(fs, (c - a) / 2.5);
+                return size < span * 0.011 ? null : <text x={(a + c) / 2} y={(b + d) / 2} fontSize={size} textAnchor="middle" dominantBaseline="middle" fill="#e8fbff">{t}</text>;
+              })()}
             </g>
           );
         })}

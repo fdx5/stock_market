@@ -481,8 +481,17 @@ export class DroneSession {
       if (this.sound()) playCarEffect("door", this.sound() as unknown as Parameters<typeof playCarEffect>[1]);
       return null;
     }
-    const t = this.world.traffic.nearestCar(f.pos.x, -f.pos.z, 6);
-    if (!t) return null;
+    let t = this.world.traffic.nearestCar(f.pos.x, -f.pos.z, 6);
+    if (!t) {
+      // (none at hand: one of the traffic's cars brought to the kerb of the nearest lane — within
+      // 60 m — stopped there, heading the lane's way; with no road near, to where the walker stands)
+      const any = this.world.traffic.nearestCar(f.pos.x, -f.pos.z, Infinity);
+      if (!any) return null;
+      const l = this.world.lanePointNear(f.pos.x, -f.pos.z, 60);
+      const at = l ? { x: l.x, y: l.y, z: l.z, hx: l.dx, hy: l.dy } : { x: f.pos.x, y: -f.pos.z, z: this.world.groundAt(f.pos.x, -f.pos.z), hx: -Math.sin(f.yaw), hy: Math.cos(f.yaw) };
+      const hl = Math.hypot(at.hx, at.hy) || 1;
+      t = { ...any, x: at.x, y: at.y, z: at.z, hx: at.hx / hl, hy: at.hy / hl, v: 0 };
+    }
     this.world.traffic.takeCar(t.id);
     const sp = CAR_SPECS[t.kind] ?? CAR_SPECS.sedan, label = t.emergency ? (t.kind === "van" ? "구급차" : "소방차") : t.kind;
     const prof = carProfile({ kind: t.kind, label, length: sp.length, width: sp.width, height: sp.height });
@@ -682,6 +691,7 @@ export class DroneSession {
     const back = new URLSearchParams(location.search);
     // (out again in front of this building: where the door was, facing it)
     const fx = ring.reduce((t, p) => t + p[0], 0) / ring.length - doorX, fy = ring.reduce((t, p) => t + p[1], 0) / ring.length - doorY, fl = Math.hypot(fx, fy) || 1;
+    // (out of the door facing away from the building — the walk's forward is (−sin, cos) of the yaw)
     back.set("walkat", `${doorX.toFixed(2)},${doorY.toFixed(2)},${Math.atan2(fx / fl, -fy / fl).toFixed(3)}`);
     const q = new URLSearchParams({ enter: "1", lat, lon, heading: String(heading),
       foot: ring.slice(0, 60).map(([x, y]) => ll(x, y)).join(";"), back: location.pathname + "?" + back.toString() + location.hash });

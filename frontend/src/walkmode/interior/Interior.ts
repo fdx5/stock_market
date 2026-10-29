@@ -308,7 +308,10 @@ export class Interior {
     P(0.95, "방마다 미리 그려보는 중");
     const keep = { p: this.pos.clone(), yaw: this.yaw, pitch: this.pitch };
     const looks: [number, number, number][] = [];
-    for (const r of this.o.plan.rooms) { const [x0, z0, x1, z1] = r.rect; looks.push([(x0 + x1) / 2, (z0 + z1) / 2, 0], [(x0 + x1) / 2, (z0 + z1) / 2, Math.PI]); }
+    // (a drawn floor's many rooms: one look a zone, from its biggest room)
+    const lead = new Map<string, FloorPlan["rooms"][number]>();
+    for (const r of this.o.plan.rooms) { const l = lead.get(r.zone), a = (q: typeof r) => (q.rect[2] - q.rect[0]) * (q.rect[3] - q.rect[1]); if (!l || a(r) > a(l)) lead.set(r.zone, r); }
+    for (const r of lead.values()) { const [x0, z0, x1, z1] = r.rect; looks.push([(x0 + x1) / 2, (z0 + z1) / 2, 0], [(x0 + x1) / 2, (z0 + z1) / 2, Math.PI]); }
     for (const [x, z, yaw] of looks) { this.pos.set(x, z); this.yaw = yaw; this.applyCamera(0); this.renderFrame(); }
     for (const m of this.mirrors) {
       const n = new THREE.Vector3(0, 0, 1).applyQuaternion(m.quaternion);

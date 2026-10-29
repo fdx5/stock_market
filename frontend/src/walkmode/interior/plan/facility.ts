@@ -1,4 +1,4 @@
-import type { FacilityKind, FacilityRole, Fixture, FloorPlan, Opening, Room, RoomType, StyleName } from "./types";
+import type { FacilityKind, FacilityRole, Fixture, Side, FloorPlan, Opening, Room, RoomType, StyleName } from "./types";
 import type { RegBuilding, ZoneKind } from "../../building/plan";
 
 /* A floor of a building other than flats — an office, a clinic, a ward, shops, a school, a museum —
@@ -40,10 +40,14 @@ export function facilityKindOf(z: ZoneKind): FacilityKind {
 /** a building's own name for what it is (the HUD's line) */
 export const FACILITY_LABEL: Record<FacilityKind, string> = { office: "업무시설", clinic: "의원·진료", ward: "병동", retail: "판매·근린생활", food: "음식점", school: "교육시설", gym: "운동시설", hotel: "숙박·호실", parking: "주차장", plant: "기계·전기실", civic: "공공·민원", museum: "전시시설" };
 
-const STYLE: Record<FacilityKind, StyleName> = { office: "gray_minimal", clinic: "modern_white", ward: "modern_white", retail: "modern_white", food: "wood_natural", school: "nordic_bright", gym: "gray_minimal", hotel: "hotel_dark", parking: "gray_minimal", plant: "gray_minimal", civic: "modern_white", museum: "hotel_dark" };
+/** each kind's fitting styles: one picked per building and floor (the same each visit) */
+const STYLES: Record<FacilityKind, StyleName[]> = { office: ["gray_minimal", "modern_white", "classic_walnut", "nordic_bright"], clinic: ["modern_white", "nordic_bright", "wood_natural"], ward: ["modern_white", "nordic_bright"], retail: ["modern_white", "gray_minimal", "vintage_warm"],
+  food: ["wood_natural", "vintage_warm", "classic_walnut", "hotel_dark"], school: ["nordic_bright", "wood_natural", "modern_white"], gym: ["gray_minimal", "hotel_dark"], hotel: ["hotel_dark", "classic_walnut", "modern_white"], parking: ["gray_minimal"], plant: ["gray_minimal"],
+  civic: ["modern_white", "gray_minimal", "wood_natural"], museum: ["hotel_dark", "gray_minimal", "modern_white"] };
+export const facilityStyle = (k: FacilityKind, seed: number): StyleName => STYLES[k][Math.abs(seed) % STYLES[k].length];
 
 type Front = "door" | "glass" | "open";
-interface Want { type: RoomType; label: string; w: number; front: Front; grow?: boolean; people?: FacilityRole[] }
+export interface Want { type: RoomType; label: string; w: number; front: Front; grow?: boolean; people?: FacilityRole[] }
 
 function rng(seed: string) {
   let h = 2166136261;
@@ -54,7 +58,7 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 /** the rooms a floor of this kind has, in the order they line the corridor */
-function program(f: FacilityInput, rnd: () => number): Want[] {
+export function programOf(f: FacilityInput, rnd: () => number): Want[] {
   const t = f.tenants.filter(Boolean), at = (i: number, d: string) => t[i] ?? d;
   const L = f.level, no = (i: number) => `${Math.abs(L)}${String(i + 1).padStart(2, "0")}`;
   switch (f.kind) {
@@ -178,7 +182,7 @@ export function generateFacility(f: FacilityInput): FloorPlan {
   const lifts: NonNullable<FloorPlan["facility"]>["lifts"] = [];
   // (two cars side by side on the hall's back wall, facing the corridor)
   const lw = C - stairW;
-  for (const k of lw > 3.2 ? [0.27, 0.73] : [0.5]) lifts.push({ x: r1(stairW + lw * k), z: D, yaw: Math.PI });
+  for (const k of lw > 3.2 ? [0.27, 0.73] : [0.5]) lifts.push({ room: "lifthall", side: "s" as Side, u: r1(stairW + lw * k) });
   if (parking) {
     add("wc_m", "storage", "전기실", [0, 0, C, a]);
     openings.push(door("wc_m", "corridor", "z", a, half, 0.95, "end", "wc_m"));
@@ -218,7 +222,7 @@ export function generateFacility(f: FacilityInput): FloorPlan {
     openings.push(open("park", "corridor", "x", C, (a + b) / 2, cw - 0.3));
     people.push({ room: "park", role: "visitor" }, { room: "park", role: "guard" });
   } else {
-    const want = program(f, rnd);
+    const want = programOf(f, rnd);
     // north band from northFrom to W, south band from C to W: the program dealt out in turn, the
     // biggest rooms first on the longer band
     const bands = [{ side: "n" as const, x0: northFrom, x1: W, list: [] as Want[] }, { side: "s" as const, x0: C, x1: W, list: [] as Want[] }];
@@ -294,7 +298,7 @@ export function generateFacility(f: FacilityInput): FloorPlan {
     basis: { area: "건물 외곽 실측", rooms: f.use ? `건축물대장 층별 용도: ${f.use}` : "건축물대장 용도", built: f.built ?? null },
     bounds: [0, 0, W, D], rooms, openings, fixtures,
     check: { areaM2: Math.round(area), error: 0 },
-    style: STYLE[f.kind], floor: Math.max(1, f.level),
+    style: facilityStyle(f.kind, Math.abs([...`${f.id}|${f.level}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 3))), floor: Math.max(1, f.level),
     facility: { kind: f.kind, name: f.name, level: f.level, levelLabel: f.levelLabel, use: f.use, start: startAt, lifts, people },
   };
 }
