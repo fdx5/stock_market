@@ -42,6 +42,11 @@ export type DroneSticks = {
   right: [number, number];
 };
 
+/** On foot (걷기): the eye's height over the street, walking and running pace (m/s), the body's radius. */
+export const EYE = 1.6, WALK = 1.5, RUN = 12.6, FOOT_R = 0.3;
+/** On a bicycle: the eye over the street, the top speed (100 km/h), pedalling and braking (m/s²). */
+export const BIKE_EYE = 1.75, BIKE_TOP = 100 / 3.6, BIKE_ACCEL = 3.2, BIKE_BRAKE = 7;
+
 export class DroneFlight {
   /** scene coordinates */
   readonly pos = new THREE.Vector3();
@@ -73,6 +78,17 @@ export class DroneFlight {
   bumped = 0;
   autopilot = false;
   autoRotate = false;
+  /** 걷기: on foot in the drone's world — on the ground, at a walker's pace, buildings solid */
+  walking = false;
+  private walkY = 0;
+  /** on a bicycle (while walking): its speed along the heading and the bars' turn (−1…1) */
+  cycling = false; bikeSpeed = 0; steer = 0;
+  /** metres covered this frame (for the wheels and the pedals) */
+  moved = 0;
+  /** on foot facing a building within 3 m: its outline (view frame) and the point of the wall —
+   * where E goes in (droneMode) */
+  door: { ring: [number, number][]; x: number; y: number } | null = null;
+  setCycling(on: boolean) { if (!this.walking) return false; this.cycling = on; this.bikeSpeed = 0; this.steer = 0; this.vel.set(0, 0, 0); return on; }
   autopilotStatus: 'off' | 'cruise' | 'altitude' | 'obstacle' = 'off';
   autoTargetAgl = 175;
   /** Horizontal speed captured at engagement (m/s), retained through temporary holds. */
@@ -122,6 +138,69 @@ export class DroneFlight {
     return on;
   }
   toggleAutoRotate(){return this.setAutoRotate(!this.autoRotate);}
+
+  /** Down to the street (the nearest open ground, out of any building, within 80 m) on foot, or
+   * back up into the air. */
+  setWalking(on: boolean, world: DroneWorldQuery) {
+    this.setAutopilot(false); this.setAutoRotate(false);
+    this.vel.set(0, 0, 0); this.wheel = 0; this.yawRate = 0; this.pitchBody = this.roll = 0;
+    this.walking = on; if (!on) this.cycling = false;
+    if (on) {
+      let x = this.pos.x, y = -this.pos.z;
+      const free = (px: number, py: number) => world.roofAt(px, py) < world.groundAt(px, py) + 0.5;
+      if (!free(x, y)) search: for (let r = 2; r <= 80; r += 2) for (let k = 0; k < 24; k++) {
+        const a = k / 24 * Math.PI * 2, px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+        if (free(px, py)) { x = px; y = py; break search; }
+      }
+      const g = world.groundAt(x, y);
+      this.pos.set(x, g + EYE, -y); this.walkY = this.pos.y; this.tilt = -0.04;
+      this.agl = this.clearance = EYE;
+    } else { this.pos.y += 25; this.tilt = -0.25; }
+    return on;
+  }
+
+  /** A step on foot: the sticks walk (Shift runs), Q/E turn, the drag looks; walls and buildings
+   * stop the walker (sliding along them), a rise of more than 0.6 m at once is a wall too; the eye
+   * follows the ground's height smoothly (a kerb, a slope). */
+  private walk(dt: number, world: DroneWorldQuery, fwd: number, side: number, turn: number) {
+    const x0 = this.pos.x, z0 = this.pos.z;
+    if (this.cycling) {
+      // (pedal and brake; the bars turn the bike, less sharply the faster it goes; it rolls to a stop)
+      const want = THREE.MathUtils.clamp(side + turn, -1, 1);
+      this.steer += (want - this.steer) * Math.min(1, dt * 6);
+      if (fwd > 0) this.bikeSpeed += BIKE_ACCEL * fwd * (1 - this.bikeSpeed / BIKE_TOP) * dt * 1.6;
+      else if (fwd < 0) this.bikeSpeed = Math.max(0, this.bikeSpeed - BIKE_BRAKE * -fwd * dt);
+      else this.bikeSpeed = Math.max(0, this.bikeSpeed - 0.25 * dt - this.bikeSpeed * this.bikeSpeed * 0.0006 * dt);
+      this.bikeSpeed = Math.min(BIKE_TOP, this.bikeSpeed);
+      this.yaw -= this.steer * Math.min(1.6, 5 / (this.bikeSpeed + 2.5)) * dt * (this.bikeSpeed > 0.3 ? 1 : 0.4);
+      this.vel.x = -Math.sin(this.yaw) * this.bikeSpeed; this.vel.z = -Math.cos(this.yaw) * this.bikeSpeed;
+      fwd = 0; side = 0;
+    } else this.yaw -= turn * 1.8 * dt;
+    const run = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"), speed = run ? RUN : WALK;
+    const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw), rx = -fz, rz = fx;
+    let ix = fx * fwd + rx * side, iz = fz * fwd + rz * side;
+    const il = Math.hypot(ix, iz); if (il > 1) { ix /= il; iz /= il; }
+    const k = Math.min(1, dt * 8);
+    if (!this.cycling) { this.vel.x += (ix * speed - this.vel.x) * k; this.vel.z += (iz * speed - this.vel.z) * k; }
+    this.vel.y = 0;
+    const here = world.groundAt(this.pos.x, -this.pos.z);
+    const solid = (px: number, pz: number) => {
+      for (const [ox, oz] of [[FOOT_R, 0], [-FOOT_R, 0], [0, FOOT_R], [0, -FOOT_R]]) {
+        const g = world.groundAt(px + ox, -(pz + oz));
+        if (world.roofAt(px + ox, -(pz + oz)) > g + 0.8 || g - here > 0.6) return true;
+      }
+      return false;
+    };
+    this.bumped = 0;
+    const nx = this.pos.x + this.vel.x * dt; if (!solid(nx, this.pos.z)) this.pos.x = nx; else { this.vel.x = 0; this.bumped = 1; }
+    const nz = this.pos.z + this.vel.z * dt; if (!solid(this.pos.x, nz)) this.pos.z = nz; else { this.vel.z = 0; this.bumped = 1; }
+    // (a bike into a wall stops)
+    if (this.cycling && this.bumped) this.bikeSpeed = Math.min(this.bikeSpeed, 1);
+    this.moved = Math.hypot(this.pos.x - x0, this.pos.z - z0);
+    const g = world.groundAt(this.pos.x, -this.pos.z);
+    this.walkY += (g + (this.cycling ? BIKE_EYE : EYE) - this.walkY) * Math.min(1, dt * 12); this.pos.y = this.walkY;
+    this.agl = this.clearance = EYE; this.limit = MAX_SPEED; this.ahead = Infinity; this.load = 0;
+  }
 
   /** Start hovering at (x, y) of the view frame, `alt` over the ground, facing `yaw`. */
   place(x: number, y: number, ground: number, alt: number, yaw: number) {
@@ -202,6 +281,7 @@ export class DroneFlight {
     this.wheel *= Math.exp(-dt * 2.5);
     if (Math.abs(this.wheel) < 0.02) this.wheel = 0;
     let { fwd, side, climb, turn } = this.input();
+    if (this.walking) { this.walk(dt, world, fwd, side, turn); return; }
     if(this.autoRotate){
       if(Math.max(Math.abs(fwd),Math.abs(side),Math.abs(climb),Math.abs(turn))>.08)this.setAutoRotate(false);
       else{

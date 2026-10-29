@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { findPath, type FloorPlan, type Spot, type ZoneKind } from "./plan";
 
 /* The people of a building's floor: tens to a few hundred, by what the floor is (plan.ts). Drawn as
@@ -13,6 +14,7 @@ import { findPath, type FloorPlan, type Spot, type ZoneKind } from "./plan";
  * Each does something for a while, then gets up and walks to something else (most stay seated). */
 
 type Act = "sit" | "lie" | "stand" | "walk" | "type";
+const SEATED = new Set<string>(["seat", "table", "class", "exam", "desk", "clerk"]);
 interface Person {
   x: number; z: number; yaw: number; y: number; act: Act; timer: number; phase: number; speed: number;
   /** the gait's phase (radians), moved on by the distance walked; the shoes' colour */
@@ -21,8 +23,10 @@ interface Person {
   colors: [THREE.Color, THREE.Color, THREE.Color, THREE.Color, THREE.Color];
   hidden: boolean;
 }
-type Role = "worker" | "staff" | "nurse" | "doctor" | "patient" | "visitor" | "shopper" | "diner" | "student" | "driver";
-const PARTS = ["torso", "head", "hair", "upperL", "upperR", "foreL", "foreR", "thighL", "thighR", "shinL", "shinR", "hips", "shoeL", "shoeR"] as const;
+export type Role = "worker" | "staff" | "nurse" | "doctor" | "patient" | "visitor" | "shopper" | "diner" | "student" | "driver";
+export interface NearbyPerson { id: number; role: Role; label: string; x: number; z: number; zone: number }
+const ROLE_NAME: Record<Role,string> = { worker:"직원",staff:"안내 직원",nurse:"간호사",doctor:"의사",patient:"환자",visitor:"방문객",shopper:"손님",diner:"손님",student:"학생",driver:"방문객" };
+const PARTS = ["torso", "head", "hair", "upperL", "upperR", "foreL", "foreR", "thighL", "thighR", "shinL", "shinR", "hips", "shoeL", "shoeR","eyes","nose","handL","handR","badge"] as const;
 /** a walking stride (two steps) in metres: the legs' cycle advances with the ground covered */
 const STRIDE = 1.36;
 const SHOES = ["#1b1c1f", "#3a2a20", "#f2f2f0", "#2d3a52", "#5a5f66"].map(c => new THREE.Color(c));
@@ -33,14 +37,20 @@ const HAIR = ["#1d1a17", "#2a211b", "#3b2b21", "#5a4636", "#8a8a88"].map(c => ne
 const SUIT = ["#2b2f38", "#3d4350", "#1f2329", "#4a4f57", "#6b6f78", "#e9e6df", "#5d6b7e"].map(c => new THREE.Color(c));
 const CASUAL = ["#c94f4f", "#3f6fb0", "#e0c050", "#4f9a6a", "#d8d2c5", "#8a5ca8", "#2f2f33", "#e88c3c", "#f0f0f0", "#6b8fa8"].map(c => new THREE.Color(c));
 const PANTS = ["#23262c", "#3a3f4a", "#4a5568", "#5c4b3b", "#2e3b55", "#d6cfbf"].map(c => new THREE.Color(c));
+const NURSE_CAP=new THREE.Color("#b9e6df"),EYES=new THREE.Color("#161a20"),DEFAULT_BADGE=new THREE.Color("#d6dfeb");
+const BADGE:Partial<Record<Role,THREE.Color>>={doctor:new THREE.Color("#6eaaf5"),nurse:new THREE.Color("#5bd6a7"),patient:new THREE.Color("#e2edf6"),staff:new THREE.Color("#ffca62")};
 
 function geos(): Record<Part, THREE.BufferGeometry> {
   const cap = (r: number, l: number) => new THREE.CapsuleGeometry(r, l, 3, 8).translate(0, -(l / 2 + r), 0);
+  const eyes=[new THREE.SphereGeometry(.013,6,4).translate(-.037,.14,.098),new THREE.SphereGeometry(.013,6,4).translate(.037,.14,.098)],eye=mergeGeometries(eyes,false)!;eyes.forEach(g=>g.dispose());
   return {
     torso: new THREE.CapsuleGeometry(0.15, 0.3, 4, 10).scale(1.15, 1, 0.7).translate(0, 0.3, 0),
     hips: new THREE.CapsuleGeometry(0.14, 0.06, 3, 10).scale(1.15, 1, 0.75).translate(0, 0.02, 0),
     head: new THREE.SphereGeometry(0.105, 14, 10).scale(0.95, 1.12, 1).translate(0, 0.12, 0),
     hair: new THREE.SphereGeometry(0.112, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55).scale(0.97, 1.08, 1.03).translate(0, 0.14, -0.01),
+    eyes:eye,nose:new THREE.SphereGeometry(.02,6,4).scale(.7,1,1.3).translate(0,.11,.105),
+    handL:new THREE.SphereGeometry(.047,8,6).scale(.8,1.2,.7).translate(0,-.3,0),handR:new THREE.SphereGeometry(.047,8,6).scale(.8,1.2,.7).translate(0,-.3,0),
+    badge:new THREE.BoxGeometry(.065,.09,.008).translate(.1,.4,.12),
     upperL: cap(0.045, 0.2), upperR: cap(0.045, 0.2), foreL: cap(0.04, 0.19), foreR: cap(0.04, 0.19),
     thighL: cap(0.065, 0.3), thighR: cap(0.065, 0.3), shinL: cap(0.05, 0.33), shinR: cap(0.05, 0.33),
     // (a shoe: its heel under the ankle, the toe forward, a rounded box)
@@ -60,30 +70,51 @@ export class Crowd {
   private pathBudget = 0;
   private taken = new Set<Spot>();
   private rnd: () => number;
+  private talking = -1;
+  nearest(x: number, z: number, visible: (x: number, z: number) => boolean): NearbyPerson | null {
+    let best: NearbyPerson | null = null, distance = 2.8;
+    this.people.forEach((p,id)=>{ const d=Math.hypot(p.x-x,p.z-z); if(!p.hidden && p.act!=="lie" && d<distance && visible(p.x,p.z)){distance=d;best={id,role:p.role,label:ROLE_NAME[p.role],x:p.x,z:p.z,zone:p.home?.zone??-1};} });
+    return best;
+  }
+  talkTo(id: number | null) { this.talking=id??-1; }
 
   constructor(private plan: FloorPlan, seed: number) {
     let s = (seed * 2654435761) >>> 0 || 1;
     this.rnd = () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
     const cloth = new THREE.MeshStandardMaterial({ roughness: 0.82 }), skin = new THREE.MeshStandardMaterial({ roughness: 0.55 }), hair = new THREE.MeshStandardMaterial({ roughness: 0.5 });
     this.mats.push(cloth, skin, hair);
-    const n = Math.max(1, plan.crowd);
+    // (a small floor holds one or two people, never a crowd: by its walkable area)
+    let walkable = 0; for (let k = 0; k < plan.grid.free.length; k++) walkable += plan.grid.free[k];
+    walkable *= plan.grid.cell * plan.grid.cell;
+    const n = Math.max(1, walkable < 120 ? 1 : walkable < 320 ? 2 : walkable < 700 ? Math.min(plan.crowd, 5) : plan.crowd);
     for (const p of PARTS) {
-      const mat = p === "head" ? skin : p === "hair" ? hair : p.startsWith("fore") ? skin : p.startsWith("shoe") ? hair : cloth;
+      const mat = p === "head"||p==="nose"||p.startsWith("hand") ? skin : p === "hair"||p==="eyes" ? hair : p.startsWith("fore") ? skin : p.startsWith("shoe") ? hair : cloth;
       const im = new THREE.InstancedMesh(this.geos[p], mat, n);
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.frustumCulled = false; im.castShadow = false; im.receiveShadow = false;
       im.setColorAt(0, new THREE.Color()); im.count = 0;
       this.meshes.set(p, im); this.group.add(im);
     }
     this.populate(n);
+    if(plan.kinds.some(k=>k==="clinic"||k==="ward")){
+      const wants:[Role,Spot["kind"][]][]=[["doctor",["desk","exam"]],["nurse",["counter","stand"]],["patient",["wait","seat","bed"]],["staff",["clerk"]]];
+      for(const [role,kinds] of wants){
+        if(this.people.some(p=>p.role===role))continue;
+        const home=plan.spots.find(s=>kinds.includes(s.kind)&&!this.taken.has(s));
+        if(!home)continue;
+        if(this.people.length>=n){const old=this.people.pop();if(old?.target)this.taken.delete(old.target);}
+        const person=this.spawn(home,"clinic");person.role=role;person.colors=this.dress(role);if(role==="doctor"||role==="nurse")person.shoe=new THREE.Color("#f4f4f2");
+      }
+    }
   }
 
   private pick<T>(a: T[]) { return a[Math.floor(this.rnd() * a.length)]; }
   private roleFor(kind: ZoneKind, spot: Spot | null): Role {
     if (kind === "parking") return "driver";
+    if (kind === "civic"||kind==="museum"||kind==="station")return spot?.kind==="clerk"||spot?.kind==="counter"?"staff":"visitor";
     if (spot?.kind === "clerk") return "staff";
     if (spot?.kind === "counter") return kind === "clinic" || kind === "ward" ? "nurse" : "staff";
     if (kind === "clinic") return spot?.kind === "desk" ? "doctor" : spot?.kind === "exam" || spot?.kind === "seat" || spot?.kind === "wait" ? "patient" : this.rnd() < 0.5 ? "nurse" : "patient";
-    if (kind === "ward") return spot?.kind === "bed" ? "patient" : spot?.kind === "seat" ? "visitor" : this.rnd() < 0.6 ? "nurse" : "doctor";
+    if (kind === "ward") return spot?.kind === "bed" ? "patient" : spot?.kind === "desk" ? "doctor" : spot?.kind === "seat" ? "visitor" : this.rnd() < 0.6 ? "nurse" : "doctor";
     if (kind === "retail") return "shopper";
     if (kind === "food") return spot?.kind === "table" ? "diner" : "staff";
     if (kind === "class") return "student";
@@ -94,8 +125,8 @@ export class Crowd {
     switch (role) {
       case "nurse": return [new THREE.Color(this.pick(["#7fb6d6", "#9cc7b4", "#b9a6d3"])), new THREE.Color("#7fb6d6"), skin, hair, new THREE.Color("#f2f2f2")];
       case "doctor": return [new THREE.Color("#f4f4f2"), this.pick(PANTS), skin, hair, new THREE.Color("#f4f4f2")];
-      case "patient": return this.rnd() < 0.55 || this.gown ? [new THREE.Color("#a9c4dd"), new THREE.Color("#a9c4dd"), skin, hair, new THREE.Color("#a9c4dd")] : [this.pick(CASUAL), this.pick(PANTS), skin, hair, this.pick(CASUAL)];
-      case "staff": return [new THREE.Color(this.pick(["#20242b", "#f2f2f2", "#7a1e24"])), this.pick(PANTS), skin, hair, new THREE.Color("#20242b")];
+      case "patient": return [new THREE.Color("#a9c4dd"), new THREE.Color("#a9c4dd"), skin, hair, new THREE.Color("#a9c4dd")];
+      case "staff": return [new THREE.Color("#203651"),new THREE.Color("#203651"),skin,hair,new THREE.Color("#203651")];
       case "worker": { const c = this.rnd() < 0.6 ? this.pick(SUIT) : this.pick(CASUAL); return [c, this.pick(PANTS), skin, hair, c]; }
       default: { const c = this.pick(CASUAL); return [c, this.pick(PANTS), skin, hair, c]; }
     }
@@ -109,7 +140,7 @@ export class Crowd {
     const occupancy: Partial<Record<Spot["kind"], number>> = { clerk: 0.92, desk: 0.78, counter: 0.9, bed: 0.72, seat: 0.55, table: 0.5, class: 0.7, exam: 0.5, wait: 0.6, shelf: 0.18, stand: 0.4, lift: 0.3, treadmill: 0.45, car: 0.04, toilet: 0 };
     for (const s of order) {
       if (this.people.length >= n * 0.82) break;
-      if (this.rnd() > (occupancy[s.kind] ?? 0.2)) continue;
+      if (s.kind !== "clerk" && this.rnd() > (occupancy[s.kind] ?? 0.2)) continue;
       this.spawn(s, zoneKind(s));
     }
     // walkers
@@ -131,11 +162,12 @@ export class Crowd {
       speed: role === "nurse" || role === "staff" ? 1.25 : 1.05 + this.rnd() * 0.25, path: null, gait: this.rnd() * 6.28,
       shoe: role === "nurse" || role === "doctor" ? new THREE.Color("#f4f4f2") : role === "patient" && s?.kind === "bed" ? new THREE.Color("#c9d6e2") : this.pick(SHOES), target: s, home: s, role, h: 0.92 + this.rnd() * 0.16, colors: this.dress(role), hidden: false };
     this.gown = false;
-    if (s) { this.taken.add(s); p.act = this.actAt(s); if (s.kind === "desk" || s.kind === "counter" || s.kind === "bed") p.timer = 30 + this.rnd() * 120; }
+    if (s) { this.taken.add(s); p.act = this.actAt(s); if (p.act === "stand") p.y = 0; if (s.kind === "desk" || s.kind === "counter" || s.kind === "bed") p.timer = 30 + this.rnd() * 120; }
     this.people.push(p);
     return p;
   }
-  private actAt(s: Spot): Act { return s.kind === "bed" ? "lie" : s.kind === "desk" || s.kind === "clerk" ? "type" : s.y > 0.3 ? "sit" : "stand"; }
+  /** sitting only where a seat is drawn (chairs come with these spots; couches and beds with theirs) */
+  private actAt(s: Spot): Act { return s.kind === "bed" ? "lie" : (s.kind === "desk" || s.kind === "clerk") && s.y > 0.3 ? "type" : s.y > 0.3 && SEATED.has(s.kind) ? "sit" : "stand"; }
   /** the next thing to do: somewhere free of the kinds this person goes to */
   private next(p: Person) {
     const want: Spot["kind"][] = p.role === "worker" ? ["desk", "stand", "seat", "lift", "toilet"] : p.role === "shopper" ? ["shelf", "shelf", "shelf", "wait", "lift"]
@@ -143,7 +175,14 @@ export class Crowd {
       : p.role === "diner" ? ["table", "lift"] : p.role === "student" ? ["class", "toilet", "lift"] : p.role === "driver" ? ["lift", "car"] : ["stand", "seat", "lift"];
     const k = this.pick(want);
     const cand = this.plan.spots.filter(s => s.kind === k && !this.taken.has(s));
-    const s = cand.length ? cand[Math.floor(this.rnd() * Math.min(cand.length, 40))] : null;
+    let s: Spot | null = cand.length ? cand[Math.floor(this.rnd() * Math.min(cand.length, 40))] : null;
+    if (!s || this.rnd() < 0.25) {
+      const g = this.plan.grid;
+      for (let t = 0; t < 30; t++) {
+        const x = p.x + (this.rnd() - 0.5) * 30, z = p.z + (this.rnd() - 0.5) * 30, i = Math.floor(x / g.cell), j = Math.floor(z / g.cell);
+        if (i >= 0 && j >= 0 && i < g.nx && j < g.nz && g.free[j * g.nx + i]) { s = { x, z, yaw: this.rnd() * 6.28, kind: "stand", y: 0, zone: -1 }; break; }
+      }
+    }
     if (p.target) this.taken.delete(p.target);
     p.target = s;
     if (s) this.taken.add(s);
@@ -152,7 +191,8 @@ export class Crowd {
 
   update(dt: number, eye: THREE.Vector3) {
     this.pathBudget = 6;
-    for (const p of this.people) {
+    for (const [id,p] of this.people.entries()) {
+      if (id === this.talking) { p.yaw=Math.atan2(eye.x-p.x,eye.z-p.z); continue; }
       p.phase += dt;
       if (p.act === "walk") {
         if (!p.target) { p.timer -= dt; if (p.timer < 0) { this.next(p); p.timer = 2; } continue; }
@@ -162,7 +202,7 @@ export class Crowd {
           if (!p.path.length) { this.next(p); continue; }
         }
         const [tx, tz] = p.path[0], dx = tx - p.x, dz = tz - p.z, l = Math.hypot(dx, dz);
-        if (l < 0.15) { p.path.shift(); if (!p.path.length) { p.x = p.target.x; p.z = p.target.z; p.yaw = p.target.yaw; p.y = p.target.y; p.act = this.actAt(p.target); p.timer = p.act === "stand" ? 6 + this.rnd() * 20 : 20 + this.rnd() * 90; if (p.target.kind === "lift" || p.target.kind === "car") p.timer = 3 + this.rnd() * 6; } continue; }
+        if (l < 0.15) { p.path.shift(); if (!p.path.length) { p.x = p.target.x; p.z = p.target.z; p.yaw = p.target.yaw; p.act = this.actAt(p.target); p.y = p.act === "stand" ? 0 : p.target.y; p.timer = p.act === "stand" ? 3 + this.rnd() * 9 : 12 + this.rnd() * 40; if (p.target.kind === "lift" || p.target.kind === "car") p.timer = 3 + this.rnd() * 6; } continue; }
         const want = Math.atan2(dx, dz); let dy = want - p.yaw; dy -= Math.round(dy / (Math.PI * 2)) * Math.PI * 2;
         p.yaw += dy * Math.min(1, dt * 8); p.y = 0;
         const step = Math.min(l, p.speed * dt); p.x += dx / l * step; p.z += dz / l * step;
@@ -201,7 +241,9 @@ export class Crowd {
       this.part(p, "hips", n, B, p.colors[1]);
       const head = new THREE.Matrix4().copy(torso).multiply(T1.makeTranslation(0, 0.62, 0)).multiply(R(p.act === "type" ? 0.25 : 0, Math.sin(p.phase * 0.3) * 0.25, 0));
       this.part(p, "head", n, head, p.colors[2]);
-      this.part(p, "hair", n, head, p.colors[3]);
+      this.part(p, "hair", n, head,p.role==="nurse"?NURSE_CAP:p.colors[3]);
+      this.part(p,"eyes",n,head,EYES);this.part(p,"nose",n,head,p.colors[2]);
+      this.part(p,"badge",n,torso,BADGE[p.role]??DEFAULT_BADGE);
       // arms: swing walking, forward on a desk typing, at the sides otherwise
       for (const side of [-1, 1]) {
         const sh = new THREE.Matrix4().copy(torso).multiply(T1.makeTranslation(side * 0.2, 0.52, 0));
@@ -210,6 +252,7 @@ export class Crowd {
         this.part(p, side < 0 ? "upperL" : "upperR", n, up, p.colors[4]);
         const fore = new THREE.Matrix4().copy(up).multiply(T1.makeTranslation(0, -0.29, 0)).multiply(R(p.act === "type" ? -0.9 + Math.sin(p.phase * 9 + side) * 0.06 : walk ? -0.25 - 0.2 * Math.max(0, -side * sg) : sit ? -0.9 : -0.1, 0, 0));
         this.part(p, side < 0 ? "foreL" : "foreR", n, fore, p.colors[2]);
+        this.part(p,side<0?"handL":"handR",n,fore,p.colors[2]);
       }
       // legs: a walk's stride, a sitter's right angles, straight lying or standing
       for (const side of [-1, 1]) {
@@ -229,12 +272,6 @@ export class Crowd {
       n++;
     }
     for (const im of this.meshes.values()) { im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
-  }
-  /** someone near (x, z) to talk to (the nearest within 1.6 m), for the HUD */
-  nearest(x: number, z: number): { role: Role; act: Act } | null {
-    let best: Person | null = null, bd = 1.6;
-    for (const p of this.people) { const d = Math.hypot(p.x - x, p.z - z); if (d < bd) { bd = d; best = p; } }
-    return best ? { role: best.role, act: best.act } : null;
   }
   get count() { return this.people.length; }
   /** circles to keep the player out of people (standing and seated ones) */

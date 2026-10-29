@@ -1,5 +1,7 @@
 # 방문자 유입 개선 — 기존 운영 테마 사용
 
+> 2026-10-25 16:34 KST 운영 배포를 완료했다. 최종 상태와 검증 결과는 [배포 결과](visitor-guides-deployment-2026-10-25.md)를 따른다. 아래 배포 전 검토 기록은 당시 상태다.
+
 운영 소스 작업트리: `I:/ai_root/sm-deploy`.
 
 운영 사이트의 NEO GENESIS를 그대로 재사용했다. `neo/NeoShell.tsx`, `neo/neo.css`, `neo/NeoComponents.tsx`, `neo/settings.ts`, 전역 테마와 팔레트는 수정하지 않았다. 새 테마·폰트·헤더·하단 메뉴는 만들지 않았다.

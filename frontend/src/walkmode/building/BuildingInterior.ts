@@ -1,9 +1,11 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { Avatar } from "../player/avatar";
-import { Crowd } from "./crowd";
-import { planFloor, type BuildingPlan, type FloorPlan, type Mat } from "./plan";
+import { Crowd, type NearbyPerson } from "./crowd";
+import { findPath, planFloor, type BuildingPlan, type FloorPlan, type Mat } from "./plan";
+import { dialogFor } from "./npcDialog";
 
 /* Inside a building that is not a block of flats (an office, a hospital, a store…): its floors from
  * the register (plan.ts), one built and drawn at a time, rendered live — floors in their finish by
@@ -15,7 +17,9 @@ import { planFloor, type BuildingPlan, type FloorPlan, type Mat } from "./plan";
 
 export interface BuildingHud {
   building: string; floor: string; uses: string; people: number; prompt: string | null; riding: boolean; view: "first" | "third";
+  source: string; loading: boolean;lifts:number;notice:string;coverage:"layout"|"boundary"|"reconstructed";
 }
+export interface BuildingTalk { name: string; text: string; destinations: { label: string; x: number; z: number }[]; directory: { label: string; uses: string }[]; questions?: string[] }
 export interface BuildingOptions {
   plan: BuildingPlan; seed: number; hour: number;
   onHud?(h: BuildingHud): void;
@@ -23,9 +27,14 @@ export interface BuildingOptions {
   onLiftPanel?(p: { levels: { level: number; label: string; uses: string }[]; current: number } | null): void;
   onProgress?(k: number, text: string): void;
   onExit?(): void;
+  loadFloor?(level: number): Promise<FloorPlan | null>;
+  onTalk?(talk: BuildingTalk | null): void;
 }
 
 const EYE = 1.6, RADIUS = 0.28;
+/** a floor's tiles: built within REACH of the visitor, let go beyond it */
+const TILE = 32, REACH = 64;
+interface Tile { cx: number; cz: number; boxes: FloorPlan["boxes"]; segs: FloorPlan["segs"]; spots: FloorPlan["spots"]; decor: FloorPlan["decor"]; panels: [number, number][]; group: THREE.Group | null; tex: THREE.Texture[]; mats: THREE.Material[] }
 const TEX = "/3d/walk/tex/";
 
 export class BuildingInterior {
@@ -46,11 +55,59 @@ export class BuildingInterior {
   private mats = new Map<Mat, THREE.Material>();
   private textures: THREE.Texture[] = [];
   private owned: { dispose(): void }[] = [];
-  private liftDoors: { leaves: THREE.Mesh[]; x: number; z: number; open: number; want: number }[] = [];
+  private liftDoors: { leaves: THREE.Mesh[]; x: number; z: number; open: number; want: number;half:number }[] = [];
   private escal: { mesh: THREE.Mesh; steps: THREE.InstancedMesh; x: number; z0: number; z1: number; up: boolean; w: number; offset: number; H: number }[] = [];
   private riding: { esc: BuildingInterior["escal"][number]; t: number } | null = null;
   private fade = 0; private pending: (() => void) | null = null;
   private hud: BuildingHud | null = null;
+  private loadingFloor = false; private talking = false; private nextHud = 0;
+  private panelOpen=false;
+  private notice="";
+  /** the visitor's errand on this floor: a place to find (no route shown), timed, for points */
+  private mission:{label:string;x:number;z:number;start:number}|null=null;private score=0;private missionHud=0;
+  private newMission(){
+    if(this.disposed)return;
+    const doors=(this.plan.points??[]).filter(p=>p.kind==="room").map(p=>({label:p.label,x:p.x,z:p.z}));
+    const zones=this.plan.zones.filter(z=>z.label&&z.kind!=="lobby"&&z.label.length>1&&!/공실|창고|설비/.test(z.label)).map(z=>({label:z.label,x:(z.rect[0]+z.rect[2])/2,z:(z.rect[1]+z.rect[3])/2}));
+    const all=[...doors,...zones].filter(c=>{const d=Math.hypot(c.x-this.pos.x,c.z-this.pos.y);return d>12&&d<90;});
+    if(!all.length){this.mission=null;return;}
+    const c=all[Math.floor(Math.random()*all.length)];this.mission={...c,start:performance.now()};this.missionHud=0;
+  }
+  private tickMission(){
+    const m=this.mission;if(!m||this.ticket||this.talking||this.route.length)return;
+    const now=performance.now(),sec=Math.floor((now-m.start)/1000),d=Math.hypot(m.x-this.pos.x,m.z-this.pos.y);
+    if(d<2.4){
+      const pts=Math.max(50,300-sec*2);this.score+=pts;
+      let best="";try{const key=`walk-mission:${this.o.plan.info.name??""}`,prev=Number(localStorage.getItem(key)||0);if(this.score>prev){localStorage.setItem(key,String(this.score));best=" · 이 건물 최고 기록";}}catch{/* storage unavailable */}
+      this.notice=`미션 완료! ${m.label} 도착 · ${sec}초 · +${pts}점 (총 ${this.score}점${best})`;this.chime();this.emitHud(true);
+      this.mission=null;setTimeout(()=>this.newMission(),5000);return;
+    }
+    if(now<this.missionHud)return;this.missionHud=now+1000;
+    const hint=d>40?"멀리":d>15?"가까이":"바로 근처";
+    this.notice=`미션: '${m.label}' 찾아가기 · ${this.where(m.x,m.z)} (${hint}) · ${sec}초 · 총 ${this.score}점 — 막히면 직원에게 물어보세요`;this.emitHud(true);
+  }
+  /** the visitor's queue ticket: its number, when it is called, the window it is called to */
+  private ticket:{no:number;due:number;called:boolean;window:[number,number,number]|null;windows:[number,number,number][]}|null=null;
+  private pointAt(){return this.plan.points?.find(p=>Math.hypot(this.pos.x-p.x,this.pos.y-p.z)<(p.kind==="ticket"?1.4:1.2))??null;}
+  private chime(){try{const a=new AudioContext(),t=a.currentTime;[[659,0],[523,0.45]].forEach(([f,d])=>{const o=a.createOscillator(),g=a.createGain();o.frequency.value=f;g.gain.setValueAtTime(0.0001,t+d);g.gain.exponentialRampToValueAtTime(0.18,t+d+0.03);g.gain.exponentialRampToValueAtTime(0.0001,t+d+0.9);o.connect(g).connect(a.destination);o.start(t+d);o.stop(t+d+1);});setTimeout(()=>void a.close(),2000);}catch{/* no audio */}}
+  private tickTicket(){
+    const tk=this.ticket;if(!tk)return;const now=performance.now();
+    if(!tk.called&&now>tk.due){
+      tk.called=true;const w=tk.windows[Math.floor(Math.random()*tk.windows.length)];tk.window=w;this.chime();
+      if(w){this.guideTo(w[0],w[1]);this.notice=`딩동 — ${tk.no}번 고객님, ${w[2]}번 창구로 오세요. 청록색 경로를 따라가세요.`;}else this.notice=`딩동 — ${tk.no}번 고객님, 창구로 오세요.`;
+      this.emitHud(true);
+    } else if(tk.called&&tk.window&&Math.hypot(this.pos.x-tk.window[0],this.pos.y-tk.window[1])<1.6){
+      // (at the window: registered; on to a consulting room's door)
+      const doors=(this.plan.points??[]).filter(p=>p.kind==="room"&&p.label.includes("진료실"));
+      const d=doors.sort((a,b)=>Math.hypot(a.x-this.pos.x,a.z-this.pos.y)-Math.hypot(b.x-this.pos.x,b.z-this.pos.y))[Math.min(doors.length-1,2)];
+      this.ticket=null;
+      this.score+=150;
+      if(d){this.guideTo(d.x,d.z);this.notice=`접수 완료 +150점 (총 ${this.score}점) — ${d.label} 앞 대기석으로 안내합니다.`;}else this.notice=`접수가 완료되었습니다. +150점 (총 ${this.score}점)`;
+      this.emitHud(true);
+    }
+  }
+  private route: [number,number][] = []; private routeMesh: THREE.Line | null = null;
+  get mapState() { return { plan:this.plan,pos:this.pos,yaw:this.yaw,route:this.route }; }
   private skyline: THREE.Mesh | null = null; private ground: THREE.Mesh | null = null;
   private hemi = new THREE.HemisphereLight("#f4f6ff", "#8a8578", 0.7);
   private sun = new THREE.DirectionalLight("#fff2dc", 1.4);
@@ -94,6 +151,11 @@ export class BuildingInterior {
       ["dark", std({ color: "#25282c", roughness: 0.5 })],
       ["screen", std({ color: "#101418", roughness: 0.2, emissive: new THREE.Color("#3a5a7a"), emissiveIntensity: 0.35 })],
       ["white", std({ color: "#f3f3f1", roughness: 0.5 })],
+      // (interiors: a department's accent band, the corridors' wood wainscot, waiting seats' vinyl)
+      ["accent", std({ color: "#2e8c9a", roughness: 0.45 })],
+      ["wainscot", tiled("white_oak_veneer", "#d8c3a5", 0.5)],
+      ["cushion", std({ color: "#3d6f9f", roughness: 0.55 })],
+      ["water", new THREE.MeshPhysicalMaterial({ color: "#2f86b8", transparent: true, opacity: 0.55, roughness: 0.05, emissive: new THREE.Color("#0d4f78"), emissiveIntensity: 0.6, depthWrite: false })],
     ];
     for (const [k, m] of M) { this.mats.set(k, m); this.owned.push(m); }
   }
@@ -102,19 +164,21 @@ export class BuildingInterior {
     this.o.onProgress?.(0.1, "건물 정보를 읽는 중");
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.0;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; this.renderer.shadowMap.enabled = false;
-    const pm = new THREE.PMREMGenerator(this.renderer), env = pm.fromScene(new RoomEnvironment(), 0.04);
+    const pm = new THREE.PMREMGenerator(this.renderer), roomEnvironment=new RoomEnvironment(),env = pm.fromScene(roomEnvironment, 0.04);roomEnvironment.dispose();
     this.scene.environment = env.texture; this.scene.environmentIntensity = 0.55; this.owned.push(env, pm);
     this.makeMaterials();
     this.sky();
     this.o.onProgress?.(0.5, "층을 짓는 중");
+    await this.prepareFloor(1); if(this.disposed) return;
     this.goTo(1, null);
     // the street door: start just inside it, facing in
     const door = this.plan.door;
     // (past the vestibule's inner doors, facing in)
-    this.pos.set(door ? door.x : this.o.plan.W / 2, (door?.z ?? 0) + 4.2); this.yaw = Math.PI;
+    this.safeSpawn(this.plan.spawn ?? [door ? door.x : this.o.plan.W / 2, (door?.z ?? 0) + 4.2]);
     this.o.onProgress?.(0.85, "셰이더를 준비하는 중");
     await this.renderer.compileAsync(this.scene, this.camera);
     this.o.onProgress?.(1, "입장합니다");
+    setTimeout(()=>this.newMission(),4000);
   }
 
   // the city outside: a far ring painted with a skyline and a ground plane, at the floor's height below
@@ -145,12 +209,41 @@ export class BuildingInterior {
   }
 
   // ------------------------------------------------------------------ a floor
+  private async prepareFloor(level: number) {
+    if(this.o.plan.floors.get(level) || !this.o.loadFloor) return;
+    const fp=await this.o.loadFloor(level);
+    if(fp && !this.disposed) this.o.plan.floors.set(level,fp);
+  }
+  private safeSpawn(target: [number,number]) {
+    const g=this.plan.grid; let best=Infinity, at=target;
+    for(let j=0;j<g.nz;j++) for(let i=0;i<g.nx;i++) if(g.free[j*g.nx+i]) {const x=(i+.5)*g.cell,z=(j+.5)*g.cell,d=Math.hypot(x-target[0],z-target[1]);if(d<best){best=d;at=[x,z];}}
+    this.pos.set(...at); this.vel.set(0,0); this.updateTiles(true);
+    // Face the clearest direction, so entry never starts by walking straight into a core wall.
+    let longest=-1;
+    for(let k=0;k<16;k++){const yaw=k*Math.PI/8;let distance=0;for(let d=.4;d<6;d+=.4){const x=at[0]-Math.sin(yaw)*d,z=at[1]-Math.cos(yaw)*d,i=Math.floor(x/g.cell),j=Math.floor(z/g.cell);if(i<0||j<0||i>=g.nx||j>=g.nz||!g.free[j*g.nx+i])break;distance=d;}if(distance>longest){longest=distance;this.yaw=yaw;}}
+    this.shownInit=false;
+  }
+  private async travel(level: number, place: {x:number;z:number;yaw:number}|null) {
+    if(this.loadingFloor || this.disposed || !this.o.plan.levels.includes(level)) return;
+    this.loadingFloor=true;this.keys.clear();this.closeTalk();this.emitHud(true);
+    try {await this.prepareFloor(level);if(this.disposed)return;this.goTo(level,place);this.safeSpawn(this.plan.spawn??[this.pos.x,this.pos.y]);
+      this.newMission();
+      // (the new floor's materials compiled before it is walked: no stall on its first frames)
+      await this.renderer.compileAsync(this.scene,this.camera).catch(()=>undefined);}
+    finally {this.loadingFloor=false;if(!this.disposed)this.emitHud(true);}
+  }
   private goTo(level: number, place: { x: number; z: number; yaw: number } | null) {
     // (the floor laid out the first time it is visited)
     const b = this.o.plan;
     let fp = b.floors.get(level);
     if (!fp) { fp = planFloor(b, level, this.o.seed); b.floors.set(level, fp); }
-    this.plan = fp; this.level = level;
+    this.plan = fp; this.level = level;this.notice="";
+    const entry=fp.spawn??[fp.door?.x??b.W/2,(fp.door?.z??0)+4.2];
+    if(!fp.spots.some(s=>s.kind==="clerk"&&Math.hypot(s.x-entry[0],s.z-entry[1])<8)){
+      const g=fp.grid;let best=Infinity,at:[number,number]|null=null;
+      for(let j=0;j<g.nz;j++)for(let i=0;i<g.nx;i++)if(g.free[j*g.nx+i]){const x=(i+.5)*g.cell,z=(j+.5)*g.cell,d=Math.hypot(x-entry[0],z-entry[1]);if(d>1.6&&d<7){const score=Math.hypot(x-entry[0]-2,z-entry[1]-1);if(score<best){best=score;at=[x,z];}}}
+      if(at)fp.spots.unshift({x:at[0],z:at[1],y:0,yaw:Math.PI,kind:"clerk",zone:-1});
+    }
     this.clearFloor();
     this.buildFloor(fp);
     this.crowd = new Crowd(fp, this.o.seed * 31 + level);
@@ -166,78 +259,77 @@ export class BuildingInterior {
     this.emitHud(true);
   }
   private clearFloor() {
+    this.route=[];this.routeMesh=null;
     this.crowd?.dispose(); this.crowd = null;
-    for (const c of [...this.floorGroup.children]) { this.floorGroup.remove(c); const m = c as THREE.Mesh; if (m.geometry) m.geometry.dispose(); }
+    for (const c of [...this.floorGroup.children]) { this.floorGroup.remove(c);c.traverse(o=>{const m=o as THREE.Mesh;if(m.geometry)m.geometry.dispose();}); }
     this.liftDoors = []; this.escal = []; this.solids = []; this.walls = [];
+    for (const t of this.tiles.values()) { t.tex.forEach(x => x.dispose()); t.mats.forEach(x => x.dispose()); t.tex = []; t.mats = []; t.group = null; }
+    this.tiles = new Map();
     this.floorTex.forEach(t => t.dispose()); this.floorMats.forEach(m => m.dispose()); this.floorTex = []; this.floorMats = [];
   }
   private buildFloor(fp: FloorPlan) {
     const { W, D } = this.o.plan, H = fp.height;
-    // boxes merged by material (uv in metres)
+    // What does not move with the visitor is made once: the collisions of the whole floor, its floor
+    // and ceiling, its lifts, its long outer walls. The rest (walls, furniture, chairs, signs, ceiling
+    // lights) is kept in 32 m tiles, built round the visitor as they walk and let go behind them:
+    // a 300 m mall is never built, or held in memory, at once.
     const byMat = new Map<Mat, THREE.BufferGeometry[]>();
     const push = (m: Mat, g: THREE.BufferGeometry) => { const l = byMat.get(m); if (l) l.push(g); else byMat.set(m, [g]); };
-    for (const q of fp.boxes) {
-      const w = Math.max(0.01, q.x1 - q.x0), h = Math.max(0.005, q.y1 - q.y0), d = Math.max(0.01, q.z1 - q.z0);
-      const g = new THREE.BoxGeometry(w, h, d);
-      // (uv in metres: the box's faces scaled to their own size)
-      const uv = g.getAttribute("uv") as THREE.BufferAttribute, nrm = g.getAttribute("normal") as THREE.BufferAttribute;
-      for (let i = 0; i < uv.count; i++) { const ax = Math.abs(nrm.getX(i)), ay = Math.abs(nrm.getY(i)); const su = ax > 0.5 ? d : w, sv = ay > 0.5 ? d : h; uv.setXY(i, uv.getX(i) * su / 1.6, uv.getY(i) * sv / 1.6); }
-      g.translate((q.x0 + q.x1) / 2, (q.y0 + q.y1) / 2, (q.z0 + q.z1) / 2);
-      push(q.m, g);
-      if (q.solid && q.y0 < 1.5 && q.y1 > 0.3) this.solids.push({ x0: q.x0, z0: q.z0, x1: q.x1, z1: q.z1 });
-    }
-    // the outer walls along the surveyed outline
-    for (const s of fp.segs) {
-      const len = Math.hypot(s.bx - s.ax, s.bz - s.az), g = new THREE.BoxGeometry(len, s.y1 - s.y0, s.t);
-      const uv = g.getAttribute("uv") as THREE.BufferAttribute; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * len / 1.6, uv.getY(i) * (s.y1 - s.y0) / 1.6);
-      g.rotateY(-Math.atan2(s.bz - s.az, s.bx - s.ax)).translate((s.ax + s.bx) / 2, (s.y0 + s.y1) / 2, (s.az + s.bz) / 2);
-      push(s.m, g);
-      if (s.solid && s.y0 < 1.5 && s.y1 > 0.3) this.walls.push([s.ax, s.az, s.bx, s.bz]);
-    }
+    for (const q of fp.boxes) if (q.solid && q.y0 < 1.5 && q.y1 > 0.3) this.solids.push({ x0: q.x0, z0: q.z0, x1: q.x1, z1: q.z1 });
+    for (const s of fp.segs) if (s.solid && s.y0 < 1.5 && s.y1 > 0.3) this.walls.push([s.ax, s.az, s.bx, s.bz]);
+    this.tiles = new Map();
+    const tile = (x: number, z: number) => {
+      const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE), k = tx * 100003 + tz;
+      let t = this.tiles.get(k);
+      if (!t) { t = { cx: (tx + 0.5) * TILE, cz: (tz + 0.5) * TILE, boxes: [], segs: [], spots: [], decor: [], panels: [], group: null, tex: [], mats: [] }; this.tiles.set(k, t); }
+      return t;
+    };
+    for (const q of fp.boxes) tile((q.x0 + q.x1) / 2, (q.z0 + q.z1) / 2).boxes.push(q);
+    const longSegs: FloorPlan["segs"] = [];
+    for (const s of fp.segs) { if (Math.hypot(s.bx - s.ax, s.bz - s.az) > TILE * 0.75) longSegs.push(s); else tile((s.ax + s.bx) / 2, (s.az + s.bz) / 2).segs.push(s); }
+    for (const sp of fp.spots) if (sp.y >= .3 && ["desk", "clerk", "class", "table", "seat"].includes(sp.kind)) tile(sp.x, sp.z).spots.push(sp);
+    for (const d of fp.decor) tile(d.x, d.z).decor.push(d);
+    this.segGeos(longSegs, push);
     // the floor: the outline's shape (each zone in its finish within it); the ceiling the same
     const floorOf: Record<string, Mat> = { office: "carpet", lobby: "floor", clinic: "floor", ward: "floor", retail: "floor", food: "wood", class: "tile", gym: "dark", hotel: "carpet", parking: "concrete", rooms: "wood", plant: "concrete" };
-    const poly = this.o.plan.poly ?? [[0, 0], [W, 0], [W, D], [0, D]] as [number, number][];
-    const shapeGeo = (pts: [number, number][], y: number, up: boolean, su: number) => {
+    const polygons = fp.polygons ?? [[this.o.plan.poly ?? [[0,0],[W,0],[W,D],[0,D]]]] as [number,number][][][];
+    const poly = polygons[0][0];
+    const shapeGeo = (pts: [number, number][], y: number, up: boolean, su: number, holes: [number,number][][]=[]) => {
       const sh = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, z)));
+      sh.holes=holes.map(r=>new THREE.Path(r.map(([x,z])=>new THREE.Vector2(x,z))));
       const g = new THREE.ShapeGeometry(sh); g.rotateX(Math.PI / 2); g.translate(0, y, 0);
       if (up) { const idx = g.getIndex()!; for (let i = 0; i < idx.count; i += 3) { const a = idx.getX(i + 1); idx.setX(i + 1, idx.getX(i + 2)); idx.setX(i + 2, a); } g.computeVertexNormals(); }
       const pos = g.getAttribute("position") as THREE.BufferAttribute, uv = g.getAttribute("uv") as THREE.BufferAttribute;
       for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) / su, pos.getZ(i) / su);
       return g;
     };
-    push(fp.kinds[0] === "parking" ? "concrete" : "floor", shapeGeo(poly, 0, true, 2));
+    for(const p of polygons) push(fp.kinds[0] === "parking" ? "concrete" : "floor", shapeGeo(p[0], 0, true, 2,p.slice(1)));
     for (const z of fp.zones) {
-      const [x0, z0, x1, z1] = z.rect, part = clip(poly, x0, z0, x1, z1);
-      if (part.length >= 3) push(floorOf[z.kind] ?? "floor", shapeGeo(part, 0.004, true, 2));
+      const [x0, z0, x1, z1] = z.rect, part = z.polygon?.[0] ?? clip(poly, x0, z0, x1, z1);
+      if (part.length >= 3) push(floorOf[z.kind] ?? "floor", shapeGeo(part, 0.004, true, 2,z.polygon?.slice(1)));
     }
     // the ceiling: the outline's shape, its LED panels on a 2.4 m grid inside it (one emissive material)
-    push(fp.kinds[0] === "parking" ? "concrete" : "white", shapeGeo(poly, H, false, 3));
-    const panels: THREE.BufferGeometry[] = [];
-    for (let x = 1.2; x < W - 1; x += 2.4) for (let z = 1.2; z < D - 1; z += 2.4) if (inside(x, z, poly)) panels.push(new THREE.PlaneGeometry(fp.kinds[0] === "parking" ? 1.2 : 0.6, fp.kinds[0] === "parking" ? 0.15 : 0.6).rotateX(Math.PI / 2).translate(x, H - 0.01, z));
-    for (const [m, list] of byMat) {
-      const g = mergeGeometries(list, false); list.forEach(x => x.dispose());
-      if (!g) continue;
-      const mesh = new THREE.Mesh(g, this.mats.get(m)!); mesh.matrixAutoUpdate = false;
-      if (m === "glass") mesh.renderOrder = 2;
-      this.floorGroup.add(mesh);
-    }
-    if (panels.length) {
-      const pg = mergeGeometries(panels, false); panels.forEach(x => x.dispose());
-      const pm = new THREE.MeshBasicMaterial({ color: fp.kinds[0] === "parking" ? "#e6f0ff" : "#fffdf6" }); this.owned.push(pm);
-      this.floorGroup.add(new THREE.Mesh(pg!, pm));
-    }
+    for(const p of polygons) push(fp.kinds[0] === "parking" ? "concrete" : "white", shapeGeo(p[0], H, false, 3,p.slice(1)));
+    for (let x = 1.2; x < W - 1; x += 2.4) for (let z = 1.2; z < D - 1; z += 2.4) if (polygons.some(p=>inside(x,z,p[0])&&!p.slice(1).some(h=>inside(x,z,h)))) tile(x, z).panels.push([x, z]);
+    this.panelMat = new THREE.MeshBasicMaterial({ color: fp.kinds[0] === "parking" ? "#e6f0ff" : "#fffdf6" }); this.floorMats.push(this.panelMat);
+    this.tileH = H; this.tileParking = fp.kinds[0] === "parking";
+    this.flush(byMat, this.floorGroup);
     // the floor's light: a few broad lights under the ceiling (no shadows: the panels light it evenly)
     for (let i = 0; i < 4; i++) { const l = new THREE.PointLight("#fff6ea", fp.kinds[0] === "parking" ? 18 : 26, 30, 1.6); l.position.set(W * (0.2 + 0.2 * i), H - 0.4, D / 2); this.floorGroup.add(l); }
     // the lift doors: two leaves each, sliding apart
     const doorM = this.mats.get("lift")!;
     for (const l of fp.lifts) {
+      const root=new THREE.Group();root.position.set(l.x,0,l.z);root.rotation.y=Math.atan2(l.nx??0,l.nz??-1);this.floorGroup.add(root);
       const leaves: THREE.Mesh[] = [];
-      for (const side of [-1, 1]) { const m = new THREE.Mesh(new THREE.BoxGeometry(l.w / 2, 2.25, 0.05), doorM); m.position.set(l.x + side * l.w / 4, 1.125, l.z - 0.05); this.floorGroup.add(m); leaves.push(m); }
+      for (const side of [-1, 1]) { const m = new THREE.Mesh(new THREE.BoxGeometry(l.w / 2, 2.25, 0.05), doorM); m.position.set(side * l.w / 4, 1.125, .02);root.add(m); leaves.push(m); }
+      const frames=[new THREE.BoxGeometry(.14,2.55,.2).translate(-l.w/2-.07,1.275,0),new THREE.BoxGeometry(.14,2.55,.2).translate(l.w/2+.07,1.275,0),new THREE.BoxGeometry(l.w+.28,.15,.2).translate(0,2.55,0)];
+      const frame=mergeGeometries(frames,false);frames.forEach(g=>g.dispose());if(frame)root.add(new THREE.Mesh(frame,this.mats.get("metal")!));
+      const call=new THREE.Mesh(new THREE.BoxGeometry(.18,.4,.07),this.mats.get("screen")!);call.position.set(l.w/2+.3,1.25,.1);root.add(call);
       // (the car beyond: a lit box)
       const car = new THREE.Mesh(new THREE.BoxGeometry(l.w, 2.4, 1.8), new THREE.MeshStandardMaterial({ color: "#d9dcdd", roughness: 0.3, metalness: 0.6, side: THREE.BackSide }));
-      car.position.set(l.x, 1.2, l.z + 1.0); this.floorGroup.add(car); this.owned.push(car.material as THREE.Material);
-      this.liftDoors.push({ leaves, x: l.x, z: l.z, open: 0, want: 0 });
-      this.solids.push({ x0: l.x - l.w / 2, z0: l.z - 0.06, x1: l.x + l.w / 2, z1: l.z + 0.1 });
+      car.position.set(0, 1.2, -1.0);root.add(car);this.floorMats.push(car.material as THREE.Material);
+      this.liftDoors.push({ leaves, x: l.x, z: l.z, open: 0, want: 0,half:l.w/4 });
+      const nx=l.nx??0,nz=l.nz??-1;this.walls.push([l.x-nz*l.w/2,l.z+nx*l.w/2,l.x+nz*l.w/2,l.z-nx*l.w/2]);
     }
     // escalators: a sloped body, moving steps, glass balustrades
     for (const e of fp.escalators) {
@@ -252,13 +344,87 @@ export class BuildingInterior {
       for (const sx of [e.x - 0.05, e.x + e.w + 0.05]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.9, Math.hypot(len, rise)), this.mats.get("glass")!); rail.position.copy(body.position).setX(sx); rail.position.y += 0.75; rail.rotation.x = body.rotation.x; this.floorGroup.add(rail); }
       this.escal.push({ mesh: body, steps, x: e.x, z0: e.z0, z1: e.z1, up: e.up, w: e.w, offset: 0, H: rise });
     }
-    // what the floor shows: painted on canvases (the directory from the register's floors)
-    for (const d of fp.decor) this.decorate(d);
+    // (what the floor shows, its signs, comes with its tiles)
     this.renderer.setClearColor(this.scene.background as THREE.Color);
   }
 
-  private decorate(d: FloorPlan["decor"][number]) {
-    const px = 512, c = document.createElement("canvas"); c.width = Math.round(px * Math.max(1, d.w / d.h)); c.height = Math.round(px * Math.max(1, d.h / d.w));
+  private tiles = new Map<number, Tile>(); private tileH = 3; private tileParking = false; private panelMat: THREE.Material | null = null;
+  private flush(byMat: Map<Mat, THREE.BufferGeometry[]>, into: THREE.Object3D) {
+    for (const [m, list] of byMat) {
+      // (indexed boxes and the chairs' rounded parts are merged alike: mixed, all made non-indexed)
+      const mixed = list.some(x => x.index) && list.some(x => !x.index), parts = mixed ? list.map(x => x.index ? x.toNonIndexed() : x) : list;
+      const g = mergeGeometries(parts, false); list.forEach(x => x.dispose()); if (mixed) parts.forEach(x => x.dispose());
+      if (!g) continue;
+      const mesh = new THREE.Mesh(g, this.mats.get(m)!); mesh.matrixAutoUpdate = false;
+      if (m === "glass") mesh.renderOrder = 2;
+      into.add(mesh);
+    }
+  }
+  private segGeos(segs: FloorPlan["segs"], push: (m: Mat, g: THREE.BufferGeometry) => void) {
+    for (const s of segs) {
+      const len = Math.hypot(s.bx - s.ax, s.bz - s.az), g = new THREE.BoxGeometry(len, s.y1 - s.y0, s.t);
+      const uv = g.getAttribute("uv") as THREE.BufferAttribute; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * len / 1.6, uv.getY(i) * (s.y1 - s.y0) / 1.6);
+      g.rotateY(-Math.atan2(s.bz - s.az, s.bx - s.ax)).translate((s.ax + s.bx) / 2, (s.y0 + s.y1) / 2, (s.az + s.bz) / 2);
+      push(s.m, g);
+    }
+  }
+  /** one tile's walls, furniture, chairs, ceiling lights and signs */
+  private buildTile(t: Tile) {
+    const byMat = new Map<Mat, THREE.BufferGeometry[]>();
+    const push = (m: Mat, g: THREE.BufferGeometry) => { const l = byMat.get(m); if (l) l.push(g); else byMat.set(m, [g]); };
+    const furnishing=(m:Mat,x:number,y:number,z:number,w:number,h:number,d:number,yaw=0,r=.025)=>push(m,new RoundedBoxGeometry(w,h,d,1,Math.min(r,w/4,h/4,d/4)).rotateY(yaw).translate(x,y,z));
+    for (const q of t.boxes) {
+      const w = Math.max(0.01, q.x1 - q.x0), h = Math.max(0.005, q.y1 - q.y0), d = Math.max(0.01, q.z1 - q.z0);
+      const g = new THREE.BoxGeometry(w, h, d);
+      // (uv in metres: the box's faces scaled to their own size)
+      const uv = g.getAttribute("uv") as THREE.BufferAttribute, nrm = g.getAttribute("normal") as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) { const ax = Math.abs(nrm.getX(i)), ay = Math.abs(nrm.getY(i)); const su = ax > 0.5 ? d : w, sv = ay > 0.5 ? d : h; uv.setXY(i, uv.getX(i) * su / 1.6, uv.getY(i) * sv / 1.6); }
+      const seat=q.m==="fabric"&&q.y0===0&&h<=.5&&w<.8&&d<.9;
+      const table=(q.m==="desk"||q.m==="wood")&&q.y0===0&&q.y1>=.65&&q.y1<=.95&&d<=2&&w>=.6;
+      if(seat||table){
+        g.scale(1,.07/h,1);g.translate((q.x0+q.x1)/2,q.y1-.035,(q.z0+q.z1)/2);
+        for(const x of [q.x0+.07,q.x1-.07])for(const z of [q.z0+.07,q.z1-.07])furnishing("metal",x,(q.y1-.07)/2,z,.035,q.y1-.07,.035);
+      }else g.translate((q.x0 + q.x1) / 2, (q.y0 + q.y1) / 2, (q.z0 + q.z1) / 2);
+      push(q.m, g);
+    }
+    // Occupied workstations need actual chairs, rather than an NPC sitting on an invisible spot.
+    for(const s of t.spots){
+      if(t.boxes.some(q=>(q.m==="fabric"||q.m==="chair")&&q.y0<.5&&s.x>=q.x0&&s.x<=q.x1&&s.z>=q.z0&&s.z<=q.z1))continue;
+      const transform=(dx:number,dz:number):[number,number]=>[s.x+dx*Math.cos(s.yaw)+dz*Math.sin(s.yaw),s.z-dx*Math.sin(s.yaw)+dz*Math.cos(s.yaw)];
+      const cm:Mat=s.kind==="seat"?"cushion":"fabric";
+      furnishing(cm,s.x,s.y-.035,s.z,.48,.09,.46,s.yaw,.035);
+      const [bx,bz]=transform(0,-.2);furnishing(cm,bx,s.y+.22,bz,.47,.44,.07,s.yaw,.035);
+      for(const dx of [-.19,.19])for(const dz of [-.17,.17]){const [x,z]=transform(dx,dz);furnishing("metal",x,(s.y-.08)/2,z,.032,s.y-.08,.032,s.yaw);}
+      for(const dx of [-.27,.27]){const [x,z]=transform(dx,0);furnishing("chair",x,s.y+.16,z,.045,.045,.38,s.yaw);}
+    }
+    this.segGeos(t.segs, push);
+    const group = new THREE.Group();
+    this.flush(byMat, group);
+    if (t.panels.length && this.panelMat) {
+      const panels = t.panels.map(([x, z]) => new THREE.PlaneGeometry(this.tileParking ? 1.2 : 0.6, this.tileParking ? 0.15 : 0.6).rotateX(Math.PI / 2).translate(x, this.tileH - 0.01, z));
+      const pg = mergeGeometries(panels, false); panels.forEach(x => x.dispose());
+      if (pg) group.add(new THREE.Mesh(pg, this.panelMat));
+    }
+    for (const d of t.decor) this.decorate(d, group, t);
+    t.group = group; this.floorGroup.add(group);
+  }
+  private unloadTile(t: Tile) {
+    if (!t.group) return;
+    this.floorGroup.remove(t.group); t.group.traverse(o => { const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose(); });
+    t.tex.forEach(x => x.dispose()); t.mats.forEach(x => x.dispose()); t.tex = []; t.mats = []; t.group = null;
+  }
+  /** tiles within reach built (all at once on arrival, else one a frame, nearest first); far ones let go */
+  private updateTiles(sync = false) {
+    if (!this.tiles.size) return;
+    const near = [...this.tiles.values()].map(t => ({ t, d: Math.hypot(t.cx - this.pos.x, t.cz - this.pos.y) })).sort((a, b) => a.d - b.d);
+    let built = 0;
+    for (const { t, d } of near) { if (d < REACH && !t.group) { if (!sync && built >= 1) break; this.buildTile(t); built++; } }
+    for (const { t, d } of near) if (d > REACH + 28 && t.group) this.unloadTile(t);
+  }
+  private decorate(d: FloorPlan["decor"][number], into: THREE.Object3D = this.floorGroup, own: { tex: THREE.Texture[]; mats: THREE.Material[] } = { tex: this.floorTex, mats: this.floorMats }) {
+    // (the canvas as fine as the sign is large: ~260 px a metre, 1024 at most a side)
+    const ppm = 260, cw = Math.max(64, Math.min(1024, Math.round(d.w * ppm))), ch = Math.max(48, Math.min(1024, Math.round(d.h * ppm)));
+    const c = document.createElement("canvas"); c.width = cw; c.height = ch;
     const g = c.getContext("2d")!, W = c.width, H = c.height, font = (wt: number, sz: number) => `${wt} ${sz}px Pretendard, 'Noto Sans KR', 'Malgun Gothic', sans-serif`;
     let emissive = 0.25;
     if (d.kind === "directory") {
@@ -291,10 +457,10 @@ export class BuildingInterior {
       const t = new Date(), hr = (this.o.hour % 12) + t.getMinutes() / 60, mn = t.getMinutes();
       for (const [a, l] of [[hr / 12, 0.25], [mn / 60, 0.36]] as [number, number][]) { g.beginPath(); g.moveTo(W / 2, H / 2); g.lineTo(W / 2 + Math.sin(a * Math.PI * 2) * W * l, H / 2 - Math.cos(a * Math.PI * 2) * H * l); g.stroke(); }
     }
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; this.floorTex.push(tex);
-    const m = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: new THREE.Color("#ffffff"), emissiveIntensity: emissive, roughness: 0.5 }); this.floorMats.push(m);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; own.tex.push(tex);
+    const m = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: new THREE.Color("#ffffff"), emissiveIntensity: emissive, roughness: 0.5 }); own.mats.push(m);
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(d.w, d.h), m);
-    mesh.position.set(d.x, d.y, d.z); mesh.rotation.y = d.yaw; this.floorGroup.add(mesh);
+    mesh.position.set(d.x, d.y, d.z); mesh.rotation.y = d.yaw; into.add(mesh);
   }
   private floorTex: THREE.Texture[] = []; private floorMats: THREE.Material[] = [];
 
@@ -335,6 +501,7 @@ export class BuildingInterior {
     return p;
   }
   private move(dt: number) {
+    if(this.loadingFloor || this.talking||this.panelOpen) {this.vel.set(0,0);return;}
     if (this.riding) { this.ride(dt); return; }
     const k = this.keys;
     let fx = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) + this.stick.x;
@@ -362,18 +529,19 @@ export class BuildingInterior {
       const to = this.level + (e.up ? 1 : -1) === 0 ? (e.up ? 1 : -1) : this.level + (e.up ? 1 : -1);
       this.riding = null;
       // off at the top (or the bottom) of the floor reached: by the matching escalator's other end
-      this.fadeTo(() => { const x = this.pos.x, z = e.z1 + dir * 1.2; this.goTo(to, { x, z, yaw: dir > 0 ? Math.PI : 0 }); });
+      this.fadeTo(() => { const x = this.pos.x, z = e.z1 + dir * 1.2; void this.travel(to, { x, z, yaw: dir > 0 ? Math.PI : 0 }); });
     }
   }
   private fadeTo(fn: () => void) { this.pending = fn; this.fade = 0.0001; }
 
   /** E: the lift (its panel), the stairs (up a floor, or down when there is none above), the street door */
   interact() {
+    if(this.loadingFloor||this.talking||this.panelOpen) return;
     const p = this.pos;
-    const lift = this.plan.lifts.find(l => Math.abs(p.x - l.x) < l.w * 0.8 && p.y < l.z && l.z - p.y < 2.0);
+    const lift = this.liftAt();
     if (lift) {
       const d = this.liftDoors.find(d => d.x === lift.x); if (d) d.want = 1;
-      this.o.onLiftPanel?.({ levels: this.o.plan.levels.map(l => ({ level: l, label: this.labelOf(l), uses: this.usesOf(l) })), current: this.level });
+      this.panelOpen=true;this.keys.clear();this.o.onLiftPanel?.({ levels: this.o.plan.levels.map(l => ({ level: l, label: this.labelOf(l), uses: this.usesOf(l) })), current: this.level });
       return;
     }
     const st = this.stairAt();
@@ -381,34 +549,111 @@ export class BuildingInterior {
       const lv = this.o.plan.levels, i = lv.indexOf(this.level);
       const to = this.keys.has("ShiftLeft") || i === lv.length - 1 ? lv[i - 1] : lv[i + 1];
       if (to === undefined) return;
-      this.fadeTo(() => this.goTo(to, { x: this.pos.x, z: this.pos.y, yaw: this.yaw }));
+      this.fadeTo(() => {void this.travel(to, { x: this.pos.x, z: this.pos.y, yaw: this.yaw });});
       return;
     }
+    const pt=this.pointAt();
+    if(pt?.kind==="ticket"){
+      if(this.ticket){this.notice=`이미 번호표가 있습니다 — 대기번호 ${this.ticket.no}번`;this.emitHud(true);return;}
+      const waiting=3+Math.floor(Math.random()*6),no=100+Math.floor(Math.random()*800);
+      this.ticket={no,due:performance.now()+(6+waiting*2)*1000,called:false,window:null,windows:pt.windows??[]};
+      this.notice=`번호표 발급 — 대기번호 ${no}번 · 앞 대기 ${waiting}명. 호출되면 창구로 안내합니다.`;this.emitHud(true);return;
+    }
+    if(pt?.kind==="room"){const wait=Math.floor(Math.random()*7);this.notice=`${pt.label} · ${wait?`진료중 · 대기 ${wait}명`:"대기 없음"} — 문 옆 화면에 호출 순서가 표시됩니다.`;this.emitHud(true);return;}
+    const person=this.nearbyPerson();
+    if(person){this.openTalk(person);return;}
     if (this.atDoor()) this.o.onExit?.();
   }
   /** the panel's choice: the doors close, the car goes, they open on the floor chosen */
   ride_to(level: number) {
+    if(this.disposed||this.loadingFloor||!this.o.plan.levels.includes(level))return;
+    this.panelOpen=false;
     this.o.onLiftPanel?.(null);
     for (const d of this.liftDoors) d.want = 0;
     const near = this.plan.lifts.reduce((a, l) => (Math.abs(l.x - this.pos.x) < Math.abs(a.x - this.pos.x) ? l : a), this.plan.lifts[0]);
-    setTimeout(() => this.fadeTo(() => {
-      this.goTo(level, null);
+    setTimeout(() => {if(this.disposed)return;this.fadeTo(() => {void this.travel(level,null).then(()=>{
+      if(this.disposed)return;
       const l = this.plan.lifts.find(x => x.index === near?.index) ?? this.plan.lifts[0];
       // (out of the car, its back to the lifts, facing the floor)
-      if (l) { this.pos.set(l.x, l.z - 1.3); this.yaw = 0; const d = this.liftDoors.find(d => d.x === l.x); if (d) { d.open = 1; d.want = 1; setTimeout(() => (d.want = 0), 3500); } }
-    }), 700);
+      if (l) { this.safeSpawn([l.x+(l.nx??0)*1.3,l.z+(l.nz??-1)*1.3]); const d = this.liftDoors.find(d => d.x === l.x); if (d) { d.open = 1; d.want = 1; setTimeout(() => (d.want = 0), 3500); } }
+    });});}, 700);
   }
-  closeLiftPanel() { this.o.onLiftPanel?.(null); for (const d of this.liftDoors) d.want = 0; }
-  private stairAt() { return this.plan.stairs.find(s => { const doorX = s.x < this.o.plan.W / 2 ? s.x + s.w : s.x; return Math.abs(this.pos.x - doorX) < 1.6 && this.pos.y > s.z + 1.0 && this.pos.y < s.z + 3.2; }); }
-  private atDoor() { const d = this.plan.door; return !!d && Math.abs(this.pos.x - d.x) < d.w && this.pos.y < d.z + 2.6; }
+  closeLiftPanel() {this.panelOpen=false; this.o.onLiftPanel?.(null); for (const d of this.liftDoors) d.want = 0; }
+  private liftAt(){return this.plan.lifts.find(l=>Math.hypot(this.pos.x-l.x-(l.nx??0)*1.1,this.pos.y-l.z-(l.nz??-1)*1.1)<2);}
+  guideToLift(){const lifts=this.plan.lifts.map(l=>({l,d:Math.hypot(this.pos.x-l.x,this.pos.y-l.z)})).sort((a,b)=>a.d-b.d);for(const {l} of lifts){if(findPath(this.plan.grid,this.pos.x,this.pos.y,l.x+(l.nx??0)*1.3,l.z+(l.nz??-1)*1.3,25000)){this.guideTo(l.x+(l.nx??0)*1.3,l.z+(l.nz??-1)*1.3);this.notice="청록색 경로를 따라 승강기 앞에서 E를 누르면 층을 선택할 수 있습니다.";this.emitHud(true);return true;}}this.notice="현재 위치에서 승강기까지 통행 가능한 경로를 찾지 못했습니다.";this.emitHud(true);return false;}
+  private stairAt() { return this.plan.stairs.find(s => {if(s.entry)return Math.hypot(this.pos.x-s.entry[0],this.pos.y-s.entry[1])<2.2; const doorX = s.x < this.o.plan.W / 2 ? s.x + s.w : s.x; return Math.abs(this.pos.x - doorX) < 1.6 && this.pos.y > s.z + 1.0 && this.pos.y < s.z + 3.2; }); }
+  private atDoor() { const d = this.plan.door; return !!d && Math.hypot(this.pos.x-d.x,this.pos.y-d.z)<2.6; }
   private labelOf(l: number) { return this.o.plan.regFloors.find(f => f.level === l)?.label ?? (l < 0 ? `B${-l}` : `${l}F`); }
   private usesOf(l: number) { const r = this.o.plan.regFloors.find(f => f.level === l); return r ? [...new Set(r.uses.map(u => u.detail || u.use))].slice(0, 3).join(" · ") : l < 0 ? "주차장" : ""; }
 
+  private nearbyPerson() {
+    const x=this.pos.x,z=this.pos.y;
+    return this.crowd?.nearest(x,z,(px,pz)=>!this.walls.some(([ax,az,bx,bz])=>{
+      const dx=px-x,dz=pz-z,ex=bx-ax,ez=bz-az,den=dx*ez-dz*ex;
+      if(Math.abs(den)<1e-6)return false;
+      const t=((ax-x)*ez-(az-z)*ex)/den,u=((ax-x)*dz-(az-z)*dx)/den;
+      return t>.03&&t<.97&&u>=0&&u<=1;
+    }))??null;
+  }
+  /** the questions a person can be asked here, each answered from the floor itself (and a route) */
+  private talkQs:{q:string;a:string;to?:[number,number]}[]=[];private talkHead:Omit<BuildingTalk,"text">|null=null;
+  private where(x:number,z:number){
+    const dx=x-this.pos.x,dz=z-this.pos.y,d=Math.hypot(dx,dz),f=-Math.sin(this.yaw)*dx-Math.cos(this.yaw)*dz,r=Math.cos(this.yaw)*dx-Math.sin(this.yaw)*dz;
+    const dir=Math.abs(f)>=Math.abs(r)?(f>0?"앞쪽":"뒤쪽"):(r>0?"오른쪽":"왼쪽");
+    return d<6?"바로 근처":`${dir}으로 약 ${Math.round(d/5)*5||5}m`;
+  }
+  private openTalk(person: NearbyPerson) {
+    this.talking=true;this.keys.clear();this.crowd?.talkTo(person.id);
+    const zone=this.plan.zones[person.zone],medical=this.plan.kinds.some(k=>k==="clinic"||k==="ward");
+    const near=<T extends {x:number;z:number}>(l:T[])=>l.slice().sort((a,b)=>Math.hypot(a.x-this.pos.x,a.z-this.pos.y)-Math.hypot(b.x-this.pos.x,b.z-this.pos.y))[0];
+    const doors=(this.plan.points??[]).filter(p=>p.kind==="room");
+    const depts=[...new Set(doors.filter(p=>p.label.includes("진료실")).map(p=>p.label.split(" ")[0]))];
+    const shops=this.plan.zones.filter(z=>(z.kind==="retail"||z.kind==="food")&&z.label&&!/공실/.test(z.label)).map(z=>({x:(z.rect[0]+z.rect[2])/2,z:(z.rect[1]+z.rect[3])/2,label:z.label}));
+    const waiting=4+(person.id*7+this.level)%9;
+    const dialog=dialogFor(person.role,medical,{id:person.id,hour:this.o.hour,medical,zone:zone?.label??"",floor:this.labelOf(this.level),depts,shops:shops.map(s=>s.label),waiting});
+    const qs:{q:string;a:string;to?:[number,number]}[]=[];
+    // (은/는 by the name's last syllable)
+    const topic=(w:string)=>{const c=w.charCodeAt(w.length-1);return c>=0xac00&&c<=0xd7a3?((c-0xac00)%28?`${w}은`:`${w}는`):`${w}은(는)`;};
+    const add=(q:string,name:string,x:number,z:number,extra="")=>qs.push({q,a:`${topic(name)} ${this.where(x,z)}에 있어요.${extra} 바닥의 청록색 경로를 따라가세요.`,to:[x,z]});
+    const toilet=near(this.plan.decor.filter(d=>d.text==="화장실"));if(toilet)add("화장실 어디예요?","화장실",toilet.x-Math.sin(toilet.yaw)*-1.2,toilet.z-Math.cos(toilet.yaw)*-1.2);
+    const tk=near((this.plan.points??[]).filter(p=>p.kind==="ticket"));if(medical&&tk)add("접수·수납은 어디서 해요?","원무과 번호표 발급기",tk.x,tk.z,` 번호표를 뽑으면 호출 순서대로 창구에서 접수해요. 지금 대기 약 ${waiting}명이에요.`);
+    for(const d of depts.slice(0,4)){const door=near(doors.filter(p=>p.label.startsWith(d+" ")));if(door)add(`${d}는 어디예요?`,d,door.x,door.z,` 진료실 앞 대기석에 앉아 계시면 문 옆 화면에 순서가 표시돼요.`);}
+    for(const s of shops.filter(s=>/카페|편의점|약|은행|푸드|식당/.test(s.label)).slice(0,3))add(`${s.label} 어디예요?`,s.label,s.x,s.z);
+    const lift=near(this.plan.lifts.map(l=>({x:l.x+(l.nx??0)*1.3,z:l.z+(l.nz??-1)*1.3})));if(lift)add("엘리베이터는요?","가장 가까운 엘리베이터",lift.x,lift.z," 앞에서 E를 누르면 층을 고를 수 있어요.");
+    if(this.plan.door)add("나가는 문은요?","정문 출입구",this.plan.door.x,this.plan.door.z);
+    const others=this.o.plan.levels.filter(l=>l!==this.level).map(l=>`${this.labelOf(l)} ${this.usesOf(l)||"-"}`).slice(0,8).join(" / ");
+    qs.push({q:"다른 층에는 뭐가 있어요?",a:`층별로 보면 ${others}. 엘리베이터로 이동하시면 돼요.`});
+    this.talkQs=qs;
+    this.talkHead={name:zone?.label?`${zone.label} · ${person.label}`:person.label,destinations:[],questions:qs.map(q=>q.q),
+      directory:person.role==="staff"?this.o.plan.levels.map(l=>({label:this.labelOf(l),uses:this.usesOf(l)||this.o.plan.tenants.filter(t=>t.level===l).map(t=>t.name).slice(0,3).join(" · ")||"층별 용도 미제공"})):[]};
+    this.o.onTalk?.({...this.talkHead,text:dialog.text});
+  }
+  /** a question chosen: the answer, and a route when it is a place */
+  ask(i:number){
+    const q=this.talkQs[i];if(!q||!this.talkHead)return;
+    if(q.to){this.guideTo(q.to[0],q.to[1]);this.notice=this.route.length?q.a:`${q.a.split(".")[0]}. 다만 지금 위치에서 이어지는 통로를 찾지 못했어요.`;this.emitHud(true);return;}
+    this.o.onTalk?.({...this.talkHead,text:q.a});
+  }
+  closeTalk(){this.talking=false;this.crowd?.talkTo(null);this.o.onTalk?.(null);this.keys.clear();}
+  guideTo(x:number,z:number){
+    // (a target inside a wall or a counter: the nearest open cell to it, within 4 m)
+    const g=this.plan.grid,open=(px:number,pz:number)=>{const i=Math.floor(px/g.cell),j=Math.floor(pz/g.cell);return i>=0&&j>=0&&i<g.nx&&j<g.nz&&!!g.free[j*g.nx+i];};
+    if(!open(x,z)){let best=Infinity,bx=x,bz=z;for(let dz=-4;dz<=4;dz+=g.cell/2)for(let dx=-4;dx<=4;dx+=g.cell/2){const d=Math.hypot(dx,dz);if(d<best&&open(x+dx,z+dz)){best=d;bx=x+dx;bz=z+dz;}}x=bx;z=bz;}
+    const path=findPath(this.plan.grid,this.pos.x,this.pos.y,x,z,60000);this.closeTalk();
+    this.route=path??[];
+    this.notice=path?.length?"청록색 경로를 따라 이동하세요.":"해당 목적지의 통행 경로를 확인하지 못했습니다.";this.emitHud(true);
+    if(this.routeMesh){this.floorGroup.remove(this.routeMesh);this.routeMesh.geometry.dispose();const mat=this.routeMesh.material as THREE.Material;this.floorMats=this.floorMats.filter(m=>m!==mat);mat.dispose();this.routeMesh=null;}
+    if(path?.length){const geo=new THREE.BufferGeometry().setFromPoints(path.map(([a,c])=>new THREE.Vector3(a,.045,c))),mat=new THREE.LineBasicMaterial({color:0x32ffe5,depthTest:false});this.routeMesh=new THREE.Line(geo,mat);this.routeMesh.renderOrder=20;this.floorGroup.add(this.routeMesh);this.floorMats.push(mat);}
+  }
+
   private emitHud(force = false) {
-    const prompt = this.riding ? null : this.plan.lifts.some(l => Math.abs(this.pos.x - l.x) < l.w * 0.8 && this.pos.y < l.z && l.z - this.pos.y < 2.0) ? "엘리베이터 타기"
-      : this.stairAt() ? "계단으로 이동 (Shift+E 아래층)" : this.atDoor() ? "건물 밖으로 나가기" : null;
-    const h: BuildingHud = { building: this.o.plan.info.name ?? "건물", floor: this.labelOf(this.level), uses: this.usesOf(this.level), people: this.crowd?.count ?? 0, prompt, riding: !!this.riding, view: this.view };
-    if (force || !this.hud || h.prompt !== this.hud.prompt || h.floor !== this.hud.floor || h.people !== this.hud.people || h.riding !== this.hud.riding || h.view !== this.hud.view) { this.hud = h; this.o.onHud?.(h); }
+    if(!force&&performance.now()<this.nextHud)return;this.nextHud=performance.now()+100;
+    const prompt = this.riding ? null : this.liftAt() ? "엘리베이터 타기 · 층 선택"
+      : this.stairAt() ? "계단으로 이동 (Shift+E 아래층)" : this.pointAt()?.kind==="ticket" ? "번호표 뽑기" : this.pointAt()?.kind==="room" ? `${this.pointAt()!.label} 안내 보기` : this.nearbyPerson()?`${this.nearbyPerson()!.label}에게 말 걸기`:this.atDoor() ? "건물 밖으로 나가기":null;
+    const s=this.plan.survey;
+    const source=this.plan.basis?`${this.plan.basis}`:s?`SGIS ${s.year} · 층 경계${s.partitions?"·공간 구획":""}${s.facilities?"·시설 위치":""} 실측 / ${s.partitions?"가구·출입문 재구성":"내부구조 자료 없음 · 추정 배치"}`:"건축물대장·건물 외곽 기반 / 실내 배치 추정";
+    const h: BuildingHud = { building: this.o.plan.info.name ?? "건물", floor: this.labelOf(this.level), uses: this.usesOf(this.level), people: this.crowd?.count ?? 0, prompt, riding: !!this.riding, view: this.view,source,loading:this.loadingFloor,lifts:this.plan.lifts.length,notice:this.notice,coverage:s?.partitions?"layout":s?"boundary":"reconstructed" };
+    if (force || !this.hud || h.prompt !== this.hud.prompt || h.floor !== this.hud.floor || h.people !== this.hud.people || h.riding !== this.hud.riding || h.view !== this.hud.view ||h.loading!==this.hud.loading) { this.hud = h; this.o.onHud?.(h); }
   }
 
   // ------------------------------------------------------------------ the frame
@@ -423,8 +668,11 @@ export class BuildingInterior {
     this.raf = requestAnimationFrame(this.loop);
     const dt = Math.min(0.1, (now - this.last) / 1000); this.last = now;
     this.move(dt);
+    this.tickTicket();
+    this.tickMission();
+    this.updateTiles();
     // lift doors
-    for (const d of this.liftDoors) { d.open += Math.sign(d.want - d.open) * Math.min(Math.abs(d.want - d.open), dt * 1.4); const k = d.open * d.open * (3 - 2 * d.open); d.leaves.forEach((m, i) => (m.position.x = d.x + (i ? 1 : -1) * (0.52 + k * 0.98))); }
+    for (const d of this.liftDoors) { d.open += Math.sign(d.want - d.open) * Math.min(Math.abs(d.want - d.open), dt * 1.4); const k = d.open * d.open * (3 - 2 * d.open); d.leaves.forEach((m, i) => (m.position.x = (i ? 1 : -1) * (d.half + k * .98))); }
     // escalator steps flow
     for (const e of this.escal) {
       e.offset = (e.offset + dt * 0.5) % 0.4;
@@ -459,7 +707,7 @@ export class BuildingInterior {
     if (this.view === "third") {
       // behind the shoulder, pulled in before a wall
       let d = 2.6;
-      for (let t = 0.3; t <= 2.6; t += 0.15) { const px = head.x - look.x * t, pz = head.z - look.z * t; if (this.solids.some(b => px > b.x0 - 0.15 && px < b.x1 + 0.15 && pz > b.z0 - 0.15 && pz < b.z1 + 0.15)) { d = Math.max(0.35, t - 0.2); break; } }
+      for (let t = 0.3; t <= 2.6; t += 0.15) { const px = head.x - look.x * t, pz = head.z - look.z * t;const wall=this.walls.some(([ax,az,bx,bz])=>{const dx=bx-ax,dz=bz-az,k=Math.max(0,Math.min(1,((px-ax)*dx+(pz-az)*dz)/(dx*dx+dz*dz||1)));return Math.hypot(px-ax-dx*k,pz-az-dz*k)<.23;});if (wall||this.solids.some(b => px > b.x0 - 0.15 && px < b.x1 + 0.15 && pz > b.z0 - 0.15 && pz < b.z1 + 0.15)) { d = Math.max(0.35, t - 0.2); break; } }
       want = head.clone().addScaledVector(look, -d).add(new THREE.Vector3(0, 0.35, 0));
     }
     if (!this.shownInit) { this.shownPos.copy(want); this.shownInit = true; } else this.shownPos.lerp(want, 1 - Math.exp(-dt * 14));

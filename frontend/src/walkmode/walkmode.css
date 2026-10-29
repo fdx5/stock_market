@@ -165,3 +165,8 @@
 .wk-omap { position: absolute; right: 16px; top: 84px; padding: 6px; border-radius: 12px; border: 1px solid rgba(94, 240, 255, .3); background: rgba(6, 12, 18, .72); box-shadow: 0 0 24px rgba(94, 240, 255, .1); cursor: pointer; z-index: 2; }
 .wk-omap canvas { display: block; border-radius: 8px; }
 @media (max-width: 640px) { .wk-omap { top: 72px; right: 12px; transform: scale(0.72); transform-origin: top right; } }
+.wk-talk{max-height:75vh;overflow:auto;max-width:min(600px,90vw);border:1px solid #50eadc;background:#081822f5;color:#e8fbff;box-shadow:0 0 30px #22dfb82b}
+.wk-talk h3{color:#71ffe4}.wk-talk-destinations{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}.wk-talk-directory{max-height:220px;overflow:auto}.wk-talk summary{cursor:pointer;color:#9bdbff;padding:12px 0}.wk-talk-directory p{margin:6px 0}.wk-hint kbd{background:#ffe16b;color:#10141b;font-weight:900}
+.wk-review-entry{position:absolute;top:115px;left:50%;transform:translateX(-50%);z-index:4;background:#0d393c!important;color:#9affec!important;border:2px solid #56efd4!important;padding:14px 22px!important;font-size:17px!important;box-shadow:0 0 24px #2dffd642}
+.wk-nav-notice{position:absolute;left:50%;bottom:115px;transform:translateX(-50%);padding:10px 18px;border:1px solid #43cdb5;border-radius:10px;background:#071c28e8;color:#b6ffeb;font-size:14px;max-width:70vw;text-align:center;pointer-events:none}
+.wk-coverage-note{position:absolute;top:88px;left:22px;padding:7px 11px;background:#172330ec;border:1px solid #8c78904a;border-radius:7px;color:#ffd7a4;font-size:13px;max-width:min(570px,70vw);pointer-events:none}

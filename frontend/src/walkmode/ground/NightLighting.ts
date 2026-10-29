@@ -81,19 +81,26 @@ export class NightLighting {
   }
   prepare(group:THREE.Object3D){group.traverse(o=>{const mesh=o as THREE.Mesh;if(!mesh.isMesh||o.parent===this.group)return;for(const m of Array.isArray(mesh.material)?mesh.material:[mesh.material]){this.surface(m);if(m.userData.carModel&&!m.userData.carGlass){const physical=m as THREE.MeshStandardMaterial;physical.emissiveMap=this.lampMap;physical.emissive.set(0xffffff);physical.emissiveIntensity=this.night*2.4;}}});}
   private scanMaterials(){this.prepare(this.scene);}
-  private rebuild(x:number,y:number,entrances:Entrance[]){
+  private lastX=Infinity;private lastY=Infinity;
+  /** on a carriageway: no lamp or bollard stands there (ground/streetTruth.ts) */
+  onRoad:((x:number,y:number)=>boolean)|null=null;
+  /** the roads changed: laid out again at the next update */
+  invalidate(){this.lastX=Infinity;this.next=0;}
+  private rebuild(x:number,y:number,all:Entrance[]){
+    // (only the entrances within reach weighed against each lamp: a town has a thousand of them)
+    const entrances=all.filter(e=>Math.hypot(e.x-x,e.y-y)<305);
     const sites:Site[]=[],keys=new Set<string>();
     const add=(site:Site)=>{
       if(Math.hypot(site.x-x,site.y-y)>300)return;
       for(const shift of [0,1.5,-1.5,3,-3]){const s={...site,x:site.x+Math.cos(site.yaw)*shift,y:site.y-Math.sin(site.yaw)*shift};
         const key=`${Math.round(s.x/3)}:${Math.round(s.y/3)}`;
-        if(keys.has(key)||this.parked.cameraBlocked(s.x,s.y,s.z+.4,.6)||this.world.buildingAt([s.x,s.y])>0||this.world.wetAt(s.x,s.y)||entrances.some(e=>Math.hypot(e.x-s.x,e.y-s.y)<2.8))continue;
+        if(keys.has(key)||this.onRoad?.(s.x,s.y)||this.parked.cameraBlocked(s.x,s.y,s.z+.4,.6)||this.world.buildingAt([s.x,s.y])>0||this.world.wetAt(s.x,s.y)||entrances.some(e=>Math.hypot(e.x-s.x,e.y-s.y)<2.8))continue;
         s.z=this.world.surfaceAt(s.x,s.y);if(!Number.isFinite(s.z))continue;keys.add(key);sites.push(s);break;
       }
     };
     for(const tile of this.world.tiles.values()){const L=tile.result?.lamps;if(!L)continue;for(let i=0;i<L.length;i+=4){const hash=Math.abs(Math.round(L[i]/45)+Math.round(L[i+1]/45));add({x:L[i],y:L[i+1],z:L[i+2],yaw:L[i+3],type:hash%3});}}
     for(const e of entrances){if(Math.hypot(e.x-x,e.y-y)>300)continue;const hx=Math.cos(e.heading),hy=Math.sin(e.heading);
-      for(const [along,out,type]of [[-4,3.2,3],[4,3.2,3],[-7,6,4],[7,6,4]]){const sx=e.x+hx*out-hy*along,sy=e.y+hy*out+hx*along;if(this.world.buildingAt([sx,sy])>0||this.world.wetAt(sx,sy))continue;add({x:sx,y:sy,z:this.world.surfaceAt(sx,sy),yaw:0,type});}
+      for(const [along,out,type]of [[-4,3.2,3],[4,3.2,3],[-7,6,4],[7,6,4]]){const sx=e.x+hx*out-hy*along,sy=e.y+hy*out+hx*along;if(this.world.buildingAt([sx,sy])>0||this.world.wetAt(sx,sy)||this.onRoad?.(sx,sy))continue;add({x:sx,y:sy,z:this.world.surfaceAt(sx,sy),yaw:0,type});}
     }
     sites.sort((a,b)=>(a.x-x)**2+(a.y-y)**2-((b.x-x)**2+(b.y-y)**2));this.sites=sites.slice(0,CAP);this.stats.types.fill(0);this.pool.count=0;
     for(const s of this.sites){const k=this.stats.types[s.type]++;this.q.setFromAxisAngle(this.up,s.yaw);this.matrix.compose(this.p.set(s.x,s.z,-s.y),this.q,this.scale.setScalar(1));this.fixtures[s.type].setMatrixAt(k,this.matrix);this.lenses[s.type].setMatrixAt(k,this.matrix);
@@ -107,7 +114,8 @@ export class NightLighting {
   }
   update(now:number,camera:THREE.Camera,entrances:Entrance[],traffic:Traffic,driving:DrivingCars|null){
     const x=camera.position.x,y=-camera.position.z;
-    if(now>this.next){this.next=now+650;this.rebuild(x,y,entrances);}
+    // (laid out again when the eye has moved 12 m, or every 4 s: each pass weighs every lamp)
+    if(now>this.next&&(Math.hypot(x-this.lastX,y-this.lastY)>12||now>this.next+3350)){this.next=now+650;this.lastX=x;this.lastY=y;this.rebuild(x,y,entrances);}
     if(now>this.materialScan){this.materialScan=now+1800;this.scanMaterials();}
     this.beams.count=this.halos.count=0;this.spots.forEach(s=>s.intensity=0);if(this.night<.02)return;
     const active=driving?.active;

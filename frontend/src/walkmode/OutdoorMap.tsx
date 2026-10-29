@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { WalkGame } from "./game/WalkGame";
+import { CATEGORY, categoryOf } from "./building/categories";
+/** what the map marks: public offices, museums, large marts and department stores, hospitals, schools */
+const MAJOR = new Set<string>(["public", "museum", "mart", "department", "hospital", "school"]);
 
 /* The street map in the corner while walking: north up, 500 m round the walker — the roads, the
  * buildings (apartment blocks darker), the 공동현관 to go in by, the names (법정동, 단지, named
@@ -108,7 +111,9 @@ export default function OutdoorMap({ game }: { game: () => WalkGame | null }) {
       lg.setLineDash([]);
       // the 공동현관
       // (a door mark: an amber tab on the wall, its notch facing out — every 동's way in)
+      // (only the major places' doors: every 동's tab and every shop's dot made the map unreadable)
       for (const e of g.entrances) {
+        if (!(e.kind === "building" && MAJOR.has(e.category ?? ""))) continue;
         const x = X(e.x), y = Y(e.y); if (x < -8 || y < -8 || x > px + 8 || y > px + 8) continue;
         const s = (near ? 3.6 : 2.8) * dpr;
         lg.save(); lg.translate(x, y); lg.rotate(-e.heading);
@@ -133,9 +138,16 @@ export default function OutdoorMap({ game }: { game: () => WalkGame | null }) {
       lg.textAlign = "center"; lg.textBaseline = "alphabetic";
       const big = !near ? 1 : 1.12;
       for (const d of dongs) if (Math.abs(d.x - ox) < R && Math.abs(d.y - oy) < R) label(d.name, X(d.x), Y(d.y), 13 * big, 700, "rgba(255,214,120,0.92)");
-      for (const c of complexes(W.dests)) if (Math.abs(c.x - ox) < R && Math.abs(c.y - oy) < R) label(c.name, X(c.x), Y(c.y), 11 * big, 700, "#e8f6ff");
-      for (const l of [...g.landmarks].sort((a, b) => b.area - a.area)) if (Math.abs(l.x - ox) < R && Math.abs(l.y - oy) < R) label(l.name, X(l.x), Y(l.y), 9.5 * big, 500, "#c8d6e0", true);
-      for (const e of g.entrances) label(e.dong.replace(/동$/, ""), X(e.cx ?? e.x), Y(e.cy ?? e.y) + 4 * dpr, near ? 9.5 : 8, 600, "#7ff5ff");
+      // (complex and villa names left off: only the 법정동 and the major places are named)
+      void complexes;
+      for (const l of [...g.landmarks].sort((a, b) => b.area - a.area)) if (MAJOR.has(categoryOf(l.name)) && Math.abs(l.x - ox) < R && Math.abs(l.y - oy) < R) label(l.name, X(l.x), Y(l.y), 9.5 * big, 500, "#c8d6e0", true);
+      for (const e of [...g.entrances].sort((a,b)=>Math.hypot(a.x-ox,a.y-oy)-Math.hypot(b.x-ox,b.y-oy))) {
+        const cat=e.kind==="building"?CATEGORY[e.category??"office"]:null;
+        if(!cat||!MAJOR.has(e.category??""))continue;
+        if(Math.abs(e.x-ox)>R||Math.abs(e.y-oy)>R)continue;
+        lg.fillStyle=cat?.color??"#7ff5ff";lg.fillRect(X(e.x)-2*dpr,Y(e.y)-2*dpr,4*dpr,4*dpr);
+        label(cat?`${cat.label} ↪ ${e.name}`:e.dong.replace(/동$/,""),X(e.x),Y(e.y)-5*dpr,near?10:9,700,cat?.color??"#7ff5ff");
+      }
       at = { x: ox, y: oy }; drawnAt = performance.now();
     };
     const tick = () => {
@@ -166,7 +178,7 @@ export default function OutdoorMap({ game }: { game: () => WalkGame | null }) {
           ctx.strokeStyle = "rgba(255,200,87,0.85)"; ctx.lineWidth = 1.6 * dpr; ctx.setLineDash([4 * dpr, 3 * dpr]);
           ctx.beginPath(); ctx.moveTo(px / 2, px / 2); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
           ctx.fillStyle = "#ffc857"; ctx.beginPath(); ctx.arc(ex, ey, 4 * dpr, 0, 7); ctx.fill();
-          const text = `${best.dong} 입구 ${Math.round(bd)}m`;
+          const text = `${best.kind==="building"?`${CATEGORY[best.category??"office"].label} 입장`:`${best.dong} 입구`} ${Math.round(bd)}m`;
           ctx.font = `700 ${10.5 * dpr}px "Pretendard", "Noto Sans KR", sans-serif`; ctx.textAlign = "center";
           const tx = Math.min(px - 40 * dpr, Math.max(40 * dpr, ex)), ty = Math.min(px - 6 * dpr, Math.max(16 * dpr, ey - 8 * dpr));
           ctx.lineWidth = 3 * dpr; ctx.strokeStyle = "rgba(6,12,17,0.9)"; ctx.strokeText(text, tx, ty); ctx.fillText(text, tx, ty);
@@ -182,7 +194,7 @@ export default function OutdoorMap({ game }: { game: () => WalkGame | null }) {
   return (
     <div className="wk-omap" onClick={() => setNear(n => !n)} title="클릭: 500 m / 250 m · M: 숨기기">
       <canvas ref={cv} style={{ width: SIZE, height: SIZE }} />
-      <div className="wk-map-cap">반경 {near ? 250 : 500} m · 북쪽 위 <kbd>M</kbd></div>
+      <div className="wk-map-cap">↪ 상가·병원·공공기관·지하철 입장 · {near ? 250 : 500}m <kbd>M</kbd></div>
     </div>
   );
 }

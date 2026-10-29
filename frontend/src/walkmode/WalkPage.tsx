@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { originAt, toFrame, toLonLat } from "../drivegame/world/geo";
+import { pnuAt } from "./game/pnu";
+import { inPoly } from "./building/plan";
 import * as THREE from "three";
 import { api } from "../api/client";
 import { Interior, prewarmInterior, type HudState } from "./interior/Interior";
 import { generatePlan } from "./interior/plan/generate";
 import { fetchUnits } from "./interior/plan/fetchUnits";
 import { complexOf } from "./complexOf";
-import { BuildingInterior, type BuildingHud } from "./building/BuildingInterior";
+import { BuildingInterior, type BuildingHud, type BuildingTalk } from "./building/BuildingInterior";
+import { getSurvey, type SurveyBuilding, type SurveyFloor } from "./building/survey";
+import { fitOut, type FitSource } from "./building/fitout";
+import BuildingMap from "./building/BuildingMap";
 import { planBuilding, plateOf, type RegBuilding, type RegFloor } from "./building/plan";
 import { envelopeOf } from "./interior/plan/envelope";
 import { seeded } from "./interior/plan/generate";
@@ -53,6 +59,10 @@ export default function WalkPage() {
   const zoomTo = (w: "tv" | "laptop" | null) => { interior.current?.zoomScreen(w); setZoomed(w); if (w) document.exitPointerLock?.(); };
   const laptopCorners = useMemo(() => () => interior.current?.laptopScreen() ?? null, []);
   const outdoorGame = useMemo(() => () => game.current, []);
+  /** where a building's frame points are on the map and its parcel: the street game's, or — entered
+   * straight from the drone view (?enter=1) — the same sums about the door the walker stood at */
+  const direct = useRef<{ pnuOf(e: Entrance): Promise<string | null>; lonLatOf(x: number, y: number): [number, number]; frameOf(lon: number, lat: number): [number, number] } | null>(null);
+  const geo = () => game.current ?? direct.current;
   const tvCorners = useMemo(() => () => interior.current?.tvScreen() ?? null, []);
   const [pet, setPetState] = useState<PetKind>(() => savedPet(new URLSearchParams(location.search)));
   const setPet = (k: PetKind) => { setPetState(k); try { localStorage.setItem(PET_KEY, k); } catch { /* this visit only */ } };
@@ -63,6 +73,7 @@ export default function WalkPage() {
   const [progress, setProgress] = useState({ k: 0, text: "단지 정보를 불러오는 중" });
   const [start, setStart] = useState<Start | null>(null);
   const [near, setNear] = useState<Entrance | null>(null);
+  const [reviewEntrance,setReviewEntrance]=useState<Entrance|null>(null);
   const [bicycle, setBicycle] = useState<BicycleHud>({ riding: false, speedKmh: 0, nearby: null, message: "" });
   const [entering, setEntering] = useState<Entrance | null>(null);
   // a building other than flats, gone into by its floors (building/)
@@ -70,6 +81,7 @@ export default function WalkPage() {
   const [bhud, setBhud] = useState<BuildingHud | null>(null);
   const [liftPanel, setLiftPanel] = useState<{ levels: { level: number; label: string; uses: string }[]; current: number } | null>(null);
   const [bsource, setBsource] = useState("");
+  const [talk,setTalk]=useState<BuildingTalk|null>(null);
   /** the complex of the building being entered, when it is not the one the walk started at */
   const [visit, setVisit] = useState<{ id: string; name: string; built?: number } | null>(null);
   const [units, setUnits] = useState<UnitsResponse | null>(null);
@@ -119,6 +131,15 @@ export default function WalkPage() {
       if (q.get("auto") === "1") { const go = () => document.querySelector<HTMLButtonElement>(".wk-go")?.click(); const wait = () => (warm.current ? void warm.current.then(() => setTimeout(go, 30)) : setTimeout(wait, 30)); setTimeout(wait, 30); }
       return;
     }
+    // (from the drone view, on foot: straight into the building at the door, ?enter=1&lat&lon&foot)
+    if (q.get("enter") === "1") { void enterDirect(); return; }
+    const place=q.get("place"),plat=Number(q.get("lat")),plon=Number(q.get("lon"));
+    if(place&&plat>=33&&plat<=39&&plon>=124&&plon<=132){
+      fetch("/api/realestate/walk-config").then(r=>{if(!r.ok)throw Error("config");return r.json();}).then(r=>{
+        if(!r.vworld_key)throw Error("map key unavailable");
+        setStart({lat:plat,lon:plon,name:place,key:r.vworld_key,domain:r.vworld_domain??"https://kospimap.com",id:`place:${place}`,built:null});setPhase("outdoor-loading");
+      }).catch(()=>{setError("지도 연결 설정을 불러오지 못했습니다.");setPhase("error");});return;
+    }
     const id = q.get("id");
     if (!id) { setError("시작할 단지가 지정되지 않았습니다."); setPhase("error"); return; }
     api.realEstateBuildings(id, undefined, true).then(async r => {
@@ -147,11 +168,45 @@ export default function WalkPage() {
     });
     game.current = g;
     g.resize(canvas.current!.clientWidth, canvas.current!.clientHeight);
-    g.start().then(() => { if (game.current === g) setPhase("outdoor"); }).catch(err => { console.error(err); setError("거리를 불러오지 못했습니다: " + String(err)); setPhase("error"); });
+    g.start().then(() => { if (game.current === g) {setPhase("outdoor");if(q.get("review")==="1"){const candidates=g.entrances.filter(e=>e.kind==="building"&&(e.name.includes(start.name)||start.name.includes(e.name))).sort((a,b)=>Math.hypot(a.x,a.y)-Math.hypot(b.x,b.y));setReviewEntrance(candidates[0]??null);}} }).catch(err => { console.error(err); setError("거리를 불러오지 못했습니다: " + String(err)); setPhase("error"); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, start]);
 
   // the flat types of the building being entered: fetched now, from the register and the trades
+  /** The building the drone view's walker stood at: its outline (lon,lat pairs), the door point and
+   * the way in; its parcel from VWorld, its register (use, name, floors), then in — a block of flats
+   * by its flats, any other building by its floors. */
+  const enterDirect = async () => {
+    const lat = Number(q.get("lat")), lon = Number(q.get("lon"));
+    if (!(lat >= 33 && lat <= 39 && lon >= 124 && lon <= 132)) { setError("건물 위치가 올바르지 않습니다."); setPhase("error"); return; }
+    try {
+      const cfg = await fetch("/api/realestate/walk-config").then(r => r.ok ? r.json() : Promise.reject(Error("config")));
+      const key: string = cfg.vworld_key, domain: string = cfg.vworld_domain ?? "https://kospimap.com";
+      const o = originAt(lat, lon);
+      direct.current = { pnuOf: en => { const [lo, la] = toLonLat(o, en.cx ?? en.x, en.cy ?? en.y); return pnuAt(lo, la, key, domain); }, lonLatOf: (x, y) => toLonLat(o, x, y), frameOf: (lo, la) => toFrame(o, lo, la) };
+      const foot = (q.get("foot") ?? "").split(";").map(p => p.split(",").map(Number)).filter(p => p.length === 2 && p.every(Number.isFinite)).map(([lo, la]) => toFrame(o, lo, la));
+      const cx = foot.length ? foot.reduce((t, p) => t + p[0], 0) / foot.length : 0, cy = foot.length ? foot.reduce((t, p) => t + p[1], 0) / foot.length : 0;
+      const heading = Number(q.get("heading") ?? 0);
+      const e: Entrance = { name: q.get("name") ?? "", dong: "", x: 0, y: 0, floors: Number(q.get("floors") ?? 0) || 5, heading, cx, cy, foot: foot.length >= 3 ? foot : undefined, kind: "building" };
+      // (the register first: a block of flats goes by its flats, the rest by their floors)
+      const pnu = await direct.current.pnuOf(e);
+      const area = foot.length >= 3 ? Math.abs(foot.reduce((t, [x1, y1], i) => { const [x2, y2] = foot[(i + 1) % foot.length]; return t + x1 * y2 - x2 * y1; }, 0)) / 2 : 0;
+      const reg = pnu ? await fetch(`/api/realestate/building-floors?${new URLSearchParams({ pnu, ...(area ? { area: area.toFixed(0) } : {}) })}`).then(r => r.ok ? r.json() : null).catch(() => null) : null;
+      const b = reg?.building ?? {};
+      e.name = b.name || e.name || "건물"; e.floors = b.floors || e.floors; e.useLabel = b.use ?? undefined;
+      // (its businesses as registered, on their floors, inside its outline)
+      const places = await fetch(`/api/realestate/places?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}&r=150`).then(r => r.ok ? r.json() : null).catch(() => null);
+      if (places?.items && e.foot) e.tenants = (places.items as { lat: number; lon: number; name: string; kind: string; category: string | null; floor?: number | null }[])
+        .filter(p => { const [px, py] = toFrame(o, p.lon, p.lat); return inPoly(px, py, e.foot!); }).map(p => ({ name: p.name, kind: p.kind, category: p.category, lat: p.lat, lon: p.lon, floor: p.floor ?? null }));
+      setStart({ lat, lon, name: e.name, key, domain, id: q.get("id") ?? `place:${e.name}`, built: null });
+      const flats = /공동주택|아파트|연립|다세대/.test(`${b.use ?? ""} ${b.useDetail ?? ""}`) && (b.floors ?? 0) >= 4;
+      if (flats) { e.kind = "apartment"; e.dong = (b.name ?? "").match(/(\d+|[가-힣A-Z])동$/)?.[0] ?? b.name ?? ""; e.name = (b.name ?? e.name).replace(/\s*(제\s*)?[0-9A-Z]{1,4}\s*동$/, "").trim() || e.name; pendingEnter.current = e; }
+      else pendingEnter.current = e;
+    } catch { setError("건물 정보를 불러오지 못했습니다."); setPhase("error"); }
+  };
+  const pendingEnter = useRef<Entrance | null>(null);
+  // (the start set, the renderer up: in)
+  useEffect(() => { const e = pendingEnter.current; if (!e || !start || !renderer.current) return; pendingEnter.current = null; enter(e); });
   const enter = (e: Entrance) => {
     if (!start || game.current?.cycling||game.current?.driving) return;
     if (e.kind === "building") { enterBuilding(e); return; }
@@ -161,7 +216,7 @@ export default function WalkPage() {
     setEntering(e); setVisit(null); setUnits(null); setUnitsErr(""); setPhase("choose");
     const ctrl = new AbortController();
     // (the building's PNU first, for its register rows; the trades without it)
-    (game.current ? game.current.pnuOf(e) : Promise.resolve(null)).then(async pnu => {
+    (geo() ? geo()!.pnuOf(e) : Promise.resolve(null)).then(async pnu => {
       // (a building of another complex walked or driven to: that complex's flats, not the start's)
       const own = !e.name || e.name === start.name || start.name.includes(e.name) || e.name.includes(start.name);
       // (one not among the collected complexes: its own name, its flats from the register by PNU)
@@ -230,8 +285,10 @@ export default function WalkPage() {
     if (!renderer.current) return;
     sound.resume(); game.current?.pause(); document.exitPointerLock?.();
     setEntering(e); setBhud(null); setLiftPanel(null); setPhase("building-loading"); setProgress({ k: 0.05, text: "건축물대장에서 층별 정보를 찾는 중" });
-    (game.current ? game.current.pnuOf(e) : Promise.resolve(null)).then(async pnu => {
-      let info: RegBuilding = { name: e.name, floors: e.floors }, floors: RegFloor[] = [], src = "건축물대장 정보 없음 · 추정 구성";
+    (geo() ? geo()!.pnuOf(e) : Promise.resolve(null)).then(async pnu => {
+      let info: RegBuilding = { name: e.name, floors: e.floors, use:e.useLabel }, floors: RegFloor[] = [], src = "건축물대장 정보 없음 · 추정 구성";
+      const g=geo()!, [lon,lat]=g.lonLatOf(e.cx??e.x,e.cy??e.y);
+      const surveyRequest=getSurvey<SurveyBuilding>(`/api/realestate/indoor-building?${new URLSearchParams({lat:String(lat),lon:String(lon),name:e.name})}`);
       if (pnu) {
         // (its footprint's area picks the right block of a campus: a hospital's main block, not its labs)
         const fa = e.foot && e.foot.length > 2 ? Math.abs(e.foot.reduce((t, [x1, y1], i) => { const [x2, y2] = e.foot![(i + 1) % e.foot!.length]; return t + x1 * y2 - x2 * y1; }, 0)) / 2 : 0;
@@ -240,11 +297,40 @@ export default function WalkPage() {
       }
       setBsource(src);
       // (the shell: the building's surveyed outline, the door where it was gone into)
-      const { W, D, poly, doorX } = plateOf(e.foot, e.heading, info.buildingArea, [e.x, e.y]);
-      const plan = planBuilding(info, floors, W, D, poly, doorX);
+      const shape = plateOf(e.foot, e.heading, info.buildingArea, [e.x, e.y]);
+      const survey=await surveyRequest;
+      const tenants=(e.tenants??[]).filter(t=>t.floor!=null).map(t=>({name:t.name,kind:t.kind,category:t.category,level:t.floor!}));
+      const frame=survey?.status==="available"?survey.frame:null;
+      const surveyOutline=frame&&survey?.outlines?.[0]?.[0]?.map(([x,y])=>[x-frame.x,frame.depth-(y-frame.y)] as [number,number]);
+      const plan = planBuilding(info, floors, frame?.width??shape.W, frame?.depth??shape.D, surveyOutline??shape.poly, frame?frame.width/2:shape.doorX,tenants);
+      const origin=frame?g.frameOf(frame.lon,frame.lat):[0,0];
+      const entry:[number,number]=frame?[e.x-origin[0],frame.depth-(e.y-origin[1])]:[shape.doorX,0];
+      const surveyState=survey?.status??"unavailable";
+      const hospital=/의료|병원|의원/.test(`${info.use??""} ${info.useDetail??""} ${info.name??""}`);
+      let stackReq:Promise<{status:string;level?:number;cores?:{type:string;polygons:[number,number][][][]}[]}|null>|null=null,deptReq:Promise<{departments?:{name:string;doctors:number}[]}|null>|null=null;
+      setBsource(`${src} · ${surveyState==="available"?"SGIS 건물 매칭":surveyState==="unconfigured"?"SGIS 키가 서버에 설정되지 않음":surveyState==="auth_error"?"SGIS 인증 확인 필요":surveyState==="not_covered"?"SGIS 도면 미제공 건물":"SGIS 응답 지연·연결 실패"}`);
       const bi = new BuildingInterior(renderer.current!, {
         plan, seed: Math.abs([...e.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)), hour,
         onHud: setBhud, onLiftPanel: p => { setLiftPanel(p); if (p) document.exitPointerLock?.(); }, onProgress: (k, text) => setProgress({ k, text }), onExit: () => exitBuilding(),
+        onTalk:t=>{setTalk(t);if(t)document.exitPointerLock?.();},
+        loadFloor:async level=>{
+          // every floor fitted out by the common generator: this floor's chart (SGIS), the cores from
+          // the nearest charted floor, the register's use, the businesses here, a hospital's departments
+          const P=(p:[number,number]):[number,number]=>frame?[p[0]-frame.x,frame.depth-(p[1]-frame.y)]:p;
+          const data=frame&&survey?.id?await getSurvey<SurveyFloor>(`/api/realestate/indoor-floor?id=${encodeURIComponent(survey.id)}&level=${level}`):null;
+          const own=data?.status==="available"&&data.outlines?.length?data:null;
+          const stackP=frame&&survey?.id&&!(own?.rooms??[]).some(r=>r.type==="32"||r.type==="34")?(stackReq??=getSurvey<{status:string;level?:number;cores?:{type:string;polygons:[number,number][][][]}[]}>(`/api/realestate/indoor-stack?id=${encodeURIComponent(survey.id)}&levels=${plan.levels.join(",")}`)):null;
+          const stack=stackP?await stackP:null;
+          const outline=own?own.outlines!.map(p=>p.map(r=>r.map(P))):[[plan.poly??[[0,0],[plan.W,0],[plan.W,plan.D],[0,plan.D]]]];
+          const coreRooms=(own?.rooms??[]).some(r=>r.type==="32"||r.type==="34")?own!.rooms!.filter(r=>/^(32|33|34|35|40)$/.test(r.type)):stack?.status==="available"?stack.cores??[]:[];
+          const company=(ring:[number,number][])=>own?.companies?.find(c=>{const q=P([c.x,c.y]);let h=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const [xi,zi]=ring[i],[xj,zj]=ring[j];if((zi>q[1])!==(zj>q[1])&&q[0]<(xj-xi)*(q[1]-zi)/(zj-zi)+xi)h=!h;}return h;});
+          const src:FitSource={outline,
+            rooms:(own?.rooms??[]).flatMap(r=>r.polygons.map(p=>{const poly=p.map(q=>q.map(P));const c=r.type==="10"?company(poly[0]):undefined;return {type:r.type,poly,name:c?.name,category:c?.category};})),
+            cores:coreRooms.flatMap(r=>r.polygons.map(p=>({type:r.type,ring:p[0].map(P)}))),
+            coresFrom:(own?.rooms??[]).some(r=>r.type==="32"||r.type==="34")?level:stack?.status==="available"?stack.level??null:null};
+          const depts=hospital?await (deptReq??=fetch(`/api/realestate/hospital-departments?${new URLSearchParams({lat:String(lat),lon:String(lon),name:info.name??e.name})}`).then(r=>r.ok?r.json():null).catch(()=>null)):null;
+          return fitOut({b:plan,level,src,entry:frame?entry:[shape.doorX,0.2],departments:(depts?.departments??[]).sort((a:{doctors:number},c:{doctors:number})=>c.doctors-a.doctors).map((d:{name:string})=>d.name),tenants:plan.tenants.filter(t=>t.level===level),seed:7,year:2019});
+        },
       });
       building.current = bi;
       bi.resize(canvas.current!.clientWidth, canvas.current!.clientHeight);
@@ -255,7 +341,7 @@ export default function WalkPage() {
   };
   const exitBuilding = () => {
     document.exitPointerLock?.();
-    building.current?.dispose(); building.current = null; setBhud(null); setLiftPanel(null);
+    building.current?.dispose(); building.current = null; setBhud(null); setLiftPanel(null);setTalk(null);
     if (game.current && entering) { game.current.returnFromInterior(entering); setPhase("outdoor"); setNear(null); }
     else leave();
   };
@@ -268,7 +354,7 @@ export default function WalkPage() {
       const target = e.target as HTMLElement | null;
       if (target?.isContentEditable || target?.matches("input, textarea, select")) return;
       sound.resume();
-      if (e.code === "Escape") { if (document.pointerLockElement) return; if (phase === "building") { if (liftPanel) building.current?.closeLiftPanel(); else exitBuilding(); return; } if (phase === "interior") exitFlat(); else if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); } else if (phase === "outdoor") leave(); }
+      if (e.code === "Escape") { if (document.pointerLockElement) return; if (phase === "building") { if(talk)building.current?.closeTalk();else if (liftPanel) building.current?.closeLiftPanel(); else exitBuilding(); return; } if (phase === "interior") exitFlat(); else if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); } else if (phase === "outdoor") leave(); }
       if (e.code === "KeyH") setShowHelp(s => !s);
       if(e.code==="KeyF"&&phase==="outdoor"&&!e.repeat){if(game.current?.interactCar())e.preventDefault();return;}
       if ((e.code === "KeyE" || e.code === "Enter") && phase === "outdoor" && !e.repeat) {
@@ -324,7 +410,7 @@ export default function WalkPage() {
       else if (!drag.current) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
       return;
     }
-    if ((phase === "interior" || phase === "outdoor" || phase === "building") && !liftPanel) canvas.current?.requestPointerLock?.();
+    if ((phase === "interior" || phase === "outdoor" || phase === "building") && !liftPanel&&!talk) canvas.current?.requestPointerLock?.();
   };
   const onMove = (e: React.PointerEvent) => {
     if (stick.current?.id === e.pointerId) {
@@ -465,14 +551,25 @@ export default function WalkPage() {
         <>
           <div className="wk-topbar">
             <div className="wk-where"><b>{bhud?.building ?? entering?.name} · {bhud?.floor}</b><span>{bhud?.uses || "층별 용도 정보 없음"} · 사람 {bhud?.people ?? 0}명</span></div>
-            <div className="wk-meta"><span className="wk-badge">건축물대장</span>{bsource} · 층 구성·용도는 대장 기준, 실내 배치는 추정</div>
+            <div className="wk-meta" title={bsource}><span className="wk-badge">{bhud?.source?.includes("공간 구획")?"구획 데이터":bhud?.source?.startsWith("SGIS")?"외곽만 실측":"추정 공간"}</span>{bhud?.source} · {bsource}</div>
             <div className="wk-actions">
+              <button className="wk-btn" disabled={!bhud?.lifts} onClick={()=>building.current?.guideToLift()}>엘리베이터 길 안내 ({bhud?.lifts??0})</button>
               <button className="wk-btn" onClick={() => building.current?.toggleView()}>{bhud?.view === "third" ? "1인칭" : "3인칭"} <kbd>V</kbd></button>
               <button className="wk-btn" onClick={exitBuilding}>나가기 <kbd>Esc</kbd></button>
             </div>
           </div>
           <div className="wk-cross" />
-          {bhud?.prompt && !liftPanel && <div className="wk-hint"><kbd>E</kbd> {bhud.prompt}</div>}
+          <BuildingMap building={()=>building.current}/>
+          {bhud?.coverage!=="layout"&&<div className="wk-coverage-note">이 층은 실내 도면이 제공되지 않아 자동 재구성한 공간입니다.</div>}
+          {bhud?.notice&&!talk&&!liftPanel&&<div className="wk-nav-notice">{bhud.notice}</div>}
+          {bhud?.loading&&<div className="wk-hint">층별 공간 데이터를 불러오는 중…</div>}
+          {bhud?.prompt && !liftPanel&&!talk && <button className="wk-hint" onClick={()=>building.current?.interact()}><kbd>E</kbd> {bhud.prompt}</button>}
+          {talk&&<div className="wk-prompt wk-talk" role="dialog" aria-label="NPC 안내" onPointerDown={e=>e.stopPropagation()}>
+            <h3>{talk.name}</h3><p>{talk.text}</p>
+            <div className="wk-talk-destinations">{talk.questions?.map((q,i)=><button className="wk-btn" key={`q${i}`} onClick={()=>building.current?.ask(i)}>{q}</button>)}{talk.destinations.map((d,i)=><button className="wk-btn" key={i} onClick={()=>building.current?.guideTo(d.x,d.z)}>{d.label} 길 안내</button>)}</div>
+            {talk.directory.length>0&&<details><summary>층별 안내 보기</summary><div className="wk-talk-directory">{talk.directory.map((f,i)=><p key={i}><b>{f.label}</b> {f.uses}</p>)}</div></details>}
+            <button className="wk-btn" onClick={()=>building.current?.closeTalk()}>대화 마치기</button>
+          </div>}
           {bhud?.riding && <div className="wk-hint is-seat">에스컬레이터 이동 중…</div>}
           {liftPanel && (
             <div className="wk-prompt wk-lift" onPointerDown={e => e.stopPropagation()}>
@@ -501,6 +598,7 @@ export default function WalkPage() {
         </div>
       )}
 
+      {phase==="outdoor"&&reviewEntrance&&<button className="wk-review-entry wk-btn" onClick={()=>{game.current?.placeAt(reviewEntrance,2.2);enterBuilding(reviewEntrance);}}>{reviewEntrance.name} · 실내 검토 시작</button>}
       {phase === "outdoor" && (
         <div className="wk-topbar">
           <div className="wk-where"><b>{start?.name}</b><span>{car.driving?`${car.label} 운전 · 최고 ${car.topKmh}km/h`:bicycle.riding ? "자전거로 실외 탐험 · 최고 60km/h" : "각 동 자전거 E · 길가의 주차 차량 F"}</span></div>

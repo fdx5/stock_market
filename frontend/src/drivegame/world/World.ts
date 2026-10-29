@@ -26,7 +26,7 @@ interface Tile {
   /** its surfaces in the material batches (detail: shown near the eye only) */
   items?: BatchItem[]; detailItems?: BatchItem[]; detailOn?: boolean;
 }
-type Foot = { pts: Float32Array; start: number; end: number; top: number; x0: number; y0: number; x1: number; y1: number; style?: number };
+type Foot = { pts: Float32Array; start: number; end: number; top: number; x0: number; y0: number; x1: number; y1: number; style?: number; base?: number; kv?: number };
 
 const CELL = 16;
 const cellKey = (i: number, j: number) => (i + 40000) * 80000 + (j + 40000);
@@ -38,6 +38,15 @@ export interface WorldOptions {
   onDests?(d: Dest[]): void;
   /** The walk supplies its own globally instanced five-style lighting layer. */
   customLamps?: boolean;
+  /** The walk's streaming: tiles within `reach` of an anchor only, the anchor moved to the walker
+   * when they come within `edge` of its rim (the next `reach` then loaded round them). The drive
+   * game leaves it unset: its reach grows with speed, round the car. */
+  streaming?: { reach: number; edge: number };
+  /** false: no zebra crossings drawn at every junction end (the walk lays the mapped ones itself) */
+  synthZebras?: boolean;
+  /** true: a building with neither a surveyed height nor a floor count is left out, not drawn as a
+   * guessed two-storey block */
+  dropGuessed?: boolean;
 }
 
 export class World {
@@ -104,7 +113,7 @@ export class World {
           if (m.type === "tile") { slot.busy = null; this.onResult(m as TileResult); }
         };
       });
-      w.postMessage({ type: "init", lat: origin.lat, lon: origin.lon, kx: origin.kx, ky: origin.ky, key, domain, apiBase, version: 1 });
+      w.postMessage({ type: "init", lat: origin.lat, lon: origin.lon, kx: origin.kx, ky: origin.ky, key, domain, apiBase, version: 1, zebras: this.o.synthZebras !== false, dropGuessed: !!this.o.dropGuessed });
       if (k === 0) first = ready;
       this.workers.push(slot);
     }
@@ -113,8 +122,12 @@ export class World {
 
   /** Decide which tiles are wanted round (x, y), heading (hx, hy) at `speed`, the way ahead
    * (`route`, flat x, y pairs) first; ask the free workers for the most urgent. */
-  update(x: number, y: number, hx: number, hy: number, speed: number, route?: Float32Array | null) {
-    const reach = 680 + Math.min(320, speed * 7);
+  private anchor: [number, number] | null = null;
+  update(px: number, py: number, hx: number, hy: number, speed: number, route?: Float32Array | null) {
+    const st = this.o.streaming;
+    if (st && (!this.anchor || Math.hypot(px - this.anchor[0], py - this.anchor[1]) > st.reach - st.edge)) this.anchor = [px, py];
+    const [x, y] = st ? this.anchor! : [px, py];
+    const reach = st ? st.reach : 680 + Math.min(320, speed * 7);
     const [ci, cj] = tileOf(this.o.origin, x, y);
     const span = Math.ceil(reach / 260) + 1;
     const wanted: { t: Tile; score: number }[] = [];
@@ -149,12 +162,12 @@ export class World {
       this.stats.asked++;
     }
     // Far behind: dropped (their data stays in the browser's store for coming back).
-    const drop = reach + 380;
+    const drop = reach + (st ? 120 : 380);
     for (const t of this.tiles.values()) if (rectDist(t.rect, x, y) > drop && t.state !== "loading") this.unload(t);
     // Detail (markings, kerbs, lamps, trees) only near the eye; shadows cast only inside the
     // sun's shadow box (a caster outside it costs a draw in the shadow pass for nothing).
     for (const t of this.tiles.values()) {
-      const d = rectDist(t.rect, x, y);
+      const d = rectDist(t.rect, px, py);
       const on = d < 420;
       if (t.detail) for (const o of t.detail) o.visible = on;
       if (t.detailItems && t.detailOn !== on) { t.detailOn = on; for (const it of t.detailItems) it.pool.visible(it, on); }
@@ -167,7 +180,7 @@ export class World {
     slot.w.terminate();
     const w = startTileWorker(), { origin, key, domain, apiBase } = this.o;
     w.onmessage = (e: MessageEvent) => { const m = e.data; if (m.type === "tile") { slot.busy = null; this.onResult(m as TileResult); } };
-    w.postMessage({ type: "init", lat: origin.lat, lon: origin.lon, kx: origin.kx, ky: origin.ky, key, domain, apiBase, version: 1 });
+    w.postMessage({ type: "init", lat: origin.lat, lon: origin.lon, kx: origin.kx, ky: origin.ky, key, domain, apiBase, version: 1, zebras: this.o.synthZebras !== false, dropGuessed: !!this.o.dropGuessed });
     slot.w = w; slot.busy = null;
   }
 
@@ -284,12 +297,12 @@ export class World {
     const t0 = performance.now();
     const own: number[] = [];
     if (r.feet) {
-      const { pts, starts, tops, styles } = r.feet;
+      const { pts, starts, tops, styles, bases, kvs } = r.feet;
       for (let b = 0; b < starts.length; b++) {
         const s = starts[b] * 2, e = b + 1 < starts.length ? starts[b + 1] * 2 : pts.length;
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
         for (let k = s; k < e; k += 2) { x0 = Math.min(x0, pts[k]); x1 = Math.max(x1, pts[k]); y0 = Math.min(y0, pts[k + 1]); y1 = Math.max(y1, pts[k + 1]); }
-        const f: Foot = { pts, start: s, end: e, top: tops[b], x0, y0, x1, y1, style: styles?.[b] };
+        const f: Foot = { pts, start: s, end: e, top: tops[b], x0, y0, x1, y1, style: styles?.[b], base: bases?.[b], kv: kvs?.[b] };
         for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) for (let j = Math.floor(y0 / CELL); j <= Math.floor(y1 / CELL); j++) {
           const k = cellKey(i, j), l = this.feet.get(k); if (l) l.push(f); else this.feet.set(k, [f]); own.push(k);
         }
@@ -483,12 +496,12 @@ export class World {
 
   /** Building footprints (closed rings, x y pairs) touching a rectangle, each once, with its roof height. */
   /** the footprints over a rectangle: ring, roof height, facade style (0 apt, 1 villa, 2 shop, 3 office) */
-  footprintsIn(x0: number, y0: number, x1: number, y1: number): { ring: Float32Array; top: number; style?: number }[] {
-    const seen = new Set<Foot>(), out: { ring: Float32Array; top: number; style?: number }[] = [];
+  footprintsIn(x0: number, y0: number, x1: number, y1: number): { ring: Float32Array; top: number; style?: number; base?: number; kv?: number }[] {
+    const seen = new Set<Foot>(), out: { ring: Float32Array; top: number; style?: number; base?: number; kv?: number }[] = [];
     for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) for (let j = Math.floor(y0 / CELL); j <= Math.floor(y1 / CELL); j++) {
       for (const f of this.feet.get(cellKey(i, j)) ?? []) {
         if (seen.has(f) || f.x1 < x0 || f.x0 > x1 || f.y1 < y0 || f.y0 > y1) continue;
-        seen.add(f); out.push({ ring: f.pts.slice(f.start, f.end), top: f.top, style: f.style });
+        seen.add(f); out.push({ ring: f.pts.slice(f.start, f.end), top: f.top, style: f.style, base: f.base, kv: f.kv });
       }
     }
     return out;

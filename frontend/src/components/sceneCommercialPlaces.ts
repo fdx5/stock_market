@@ -31,6 +31,12 @@ export class PlaceFootprints {
     this.owners.set(key,{buckets,ready});
   }
   remove(key:string){this.owners.delete(key);}
+  /** the building outline holding (x, y), if any (the drone's walker at a wall: the building it is) */
+  ringAt(x:number,y:number):[number,number][]|null{
+    const key=Math.floor(x/340)+','+Math.floor(y/340);
+    for(const owner of this.owners.values()){const r=owner.buckets.get(key)?.find(r=>inPlaceRing(x,y,r));if(r)return r;}
+    return null;
+  }
   clear(){this.owners.clear();}
   covered(ring:[number,number][]){
     const cx=ring.reduce((s,p)=>s+p[0],0)/ring.length,cy=ring.reduce((s,p)=>s+p[1],0)/ring.length;

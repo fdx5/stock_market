@@ -10,7 +10,7 @@ import { toLonLat, toFrame, type Origin } from "../../drivegame/world/geo";
  * a neon glow round it. Shops and offices' walls only (not on the flats' slabs). Rebuilt when the
  * walker has gone 150 m; at most 90 at a time, the nearest. */
 
-interface Place { name: string; kind: string; category: string | null; lat: number; lon: number; floor?: number | null }
+export interface Place { name: string; kind: string; category: string | null; lat: number; lon: number; floor?: number | null }
 const STYLE: Record<string, { bg: string; fg: string; neon: string }> = {
   food: { bg: "#b3261e", fg: "#fff6e0", neon: "#ff5a3c" }, cafe: { bg: "#2f241c", fg: "#f3e2c4", neon: "#ffb36b" },
   store: { bg: "#0b6e4f", fg: "#ffffff", neon: "#38ffb0" }, pharmacy: { bg: "#ffffff", fg: "#1b8a3a", neon: "#4dff7a" },
@@ -44,13 +44,14 @@ function glowTexture() {
 }
 
 export class ShopSigns {
+  private disposed=false;
   readonly group = new THREE.Group();
   private at: [number, number] | null = null;
   private busy = false;
   private signs: { mesh: THREE.Group; tex: THREE.Texture; mats: THREE.Material[]; geos: THREE.BufferGeometry[]; x: number; y: number }[] = [];
   private night = 0;
 
-  constructor(private world: World, private origin: Origin, private apiBase: string) {}
+  constructor(private world: World, private origin: Origin, private apiBase: string,private onPlaces?:(items:Place[])=>void) {}
   setNight(k: number) { this.night = k; for (const s of this.signs) this.light(s); }
 
   update(x: number, y: number) {
@@ -59,7 +60,7 @@ export class ShopSigns {
     this.busy = true; this.at = [x, y];
     const [lon, lat] = toLonLat(this.origin, x, y);
     fetch(`${this.apiBase}/realestate/places?${new URLSearchParams({ lat: lat.toFixed(5), lon: lon.toFixed(5), r: "350" })}`)
-      .then(r => (r.ok ? r.json() : { items: [] })).then((d: { items?: Place[] }) => this.build(d.items ?? [], x, y)).catch(() => {}).finally(() => { this.busy = false; });
+      .then(r => (r.ok ? r.json() : { items: [] })).then((d: { items?: Place[] }) => {if(this.disposed)return;this.onPlaces?.(d.items??[]);this.build(d.items ?? [], x, y);}).catch(() => {}).finally(() => { this.busy = false; });
   }
 
   private build(items: Place[], x: number, y: number) {
@@ -157,5 +158,5 @@ export class ShopSigns {
     this.signs = [];
   }
   get count() { return this.signs.length; }
-  dispose() { this.clear(); this.group.removeFromParent(); }
+  dispose() { this.disposed=true;this.clear(); this.group.removeFromParent(); }
 }

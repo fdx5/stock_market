@@ -4292,6 +4292,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }
       if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.code === "KeyV" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); return; }
+      // (G: down to the street on foot, or back into the air — the same world either way)
+      if (e.code === "KeyG" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current?.drone?.toggleWalk(); return; }
+      // (E on foot at a building: in through its door; elsewhere E still turns)
+      if (e.code === "KeyE" && !e.repeat && stageRef.current?.drone?.flight.walking && stageRef.current.drone.flight.door) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current.drone.enterDoor(); return; }
+      // (B: onto a bicycle or off it, on foot only)
+      if (e.code === "KeyB" && !e.repeat && stageRef.current?.drone?.flight.walking) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current?.drone?.toggleBike(); return; }
       if (!FLY.has(e.code)) return;
       e.preventDefault(); e.stopImmediatePropagation();
       flight()?.keys.add(e.code);
@@ -4305,10 +4311,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     window.addEventListener("keydown", down, true);
     window.addEventListener("keyup", up, true);
     window.addEventListener("blur", blur);
+    const walkToggle = () => stageRef.current?.drone?.toggleWalk();
+    const bikeToggle = () => stageRef.current?.drone?.toggleBike();
+    const enterDoor = () => stageRef.current?.drone?.enterDoor();
+    window.addEventListener("drone-walk-toggle", walkToggle); window.addEventListener("drone-bike-toggle", bikeToggle); window.addEventListener("drone-enter-door", enterDoor);
     document.addEventListener("visibilitychange", vis);
     host?.addEventListener("wheel", wheel, { passive: false });
     return () => {
-      window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true);
+      window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); window.removeEventListener("drone-walk-toggle", walkToggle); window.removeEventListener("drone-bike-toggle", bikeToggle); window.removeEventListener("drone-enter-door", enterDoor);
       window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", vis);
       host?.removeEventListener("wheel", wheel);
     };

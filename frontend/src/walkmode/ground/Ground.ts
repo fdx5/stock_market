@@ -35,7 +35,8 @@ const SAND = 7;
  * steepest — the photograph's dark ground read as asphalt on every hillside) */
 const SOIL = 8, FOREST = 9, ROCK = 10;
 const SURF: Record<number, Surf> = {
-  [K.ASPHALT]: { name: "asphalt_02", size: 3.0, tint: "#8c8c8a", lift: 0.035 },
+  // (a sunlit street's asphalt reads mid-grey, not near-black: lifted from #8c8c8a)
+  [K.ASPHALT]: { name: "asphalt_02", size: 3.0, tint: "#b2b0ab", lift: 0.035 },
   // (Korean block paving: grey concrete blocks; the red brick is the same laid in red)
   [K.PAVE]: { name: "brick_pavement_02", size: 2.0, tint: "#d6d4ce", lift: 0.075 },
   [K.RED]: { name: "brick_pavement_02", size: 2.0, tint: "#d0907a", lift: 0.075 },
@@ -353,8 +354,11 @@ export class Ground {
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
       g.computeVertexNormals();
       const [map, normalMap, arm] = loadT(sf.name);   // (shared textures; each class its own material and tint)
-      const m = sharedMat(`surf-${k}`, () => new THREE.MeshStandardMaterial({ map, normalMap, roughnessMap: arm, metalnessMap: arm, aoMap: arm, color: sf.tint ?? "#ffffff", roughness: 1, metalness: 1, normalScale: new THREE.Vector2(0.8, 0.8) }));
-      // (the arm map's metal channel is 0: metalness 1 × 0)
+      const m = sharedMat(`surf-${k}`, () => new THREE.MeshStandardMaterial({ map, normalMap, roughnessMap: arm, aoMap: arm, color: sf.tint ?? "#ffffff", roughness: 1, metalness: 0, envMapIntensity: 0.4, normalScale: new THREE.Vector2(0.8, 0.8) }));
+      // (the asphalt texture is near-black: its tint lifted past white so a street reads mid-grey)
+      if (k === K.ASPHALT) m.color.setRGB(1.75, 1.72, 1.66);
+      // (no ground is metal: metalness 0 outright, not 1 × the packed map's empty metal channel; the
+      // sky's light on it at 0.4, so shade is not washed sky-blue)
       const mesh = new THREE.Mesh(g, m); mesh.receiveShadow = true; mesh.name = `ground-${sf.name}`;
       this.group.add(mesh); this.disposables.push(g, m);
       this.stats.cells += idx.length / 3;

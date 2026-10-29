@@ -24,7 +24,12 @@ import { NightLighting } from "../ground/NightLighting";
 import { boxesOverlap, type Body } from "../../drivegame/vehicle/physics";
 import { Bicycles, type ParkedBicycle } from "./Bicycles";
 import { Rooftops } from "../ground/rooftops";
+import { FacadeRelief } from "../ground/facadeRelief";
+import { PostFX } from "./postfx";
+import { MappedCrossings, RoadIndex } from "../ground/streetTruth";
 import { ShopSigns } from "../ground/signs";
+import { CATEGORY, categoryOf, type BuildingCategory, type BuildingPlace } from "../building/categories";
+import { buildBuildingEntrance, disposeBuildingEntranceShared } from "../ground/buildingEntrances";
 import { BicycleMotion, BICYCLE_LENGTH, BICYCLE_WIDTH } from "./bicycleMotion";
 import { bicycleGates } from "./bicycleGates";
 import { ApartmentDetails } from "../ground/apartmentFacades";
@@ -41,6 +46,7 @@ import { cutOpenings, setOpenings, type Opening } from "../ground/facades";
  * registered name and 동 have their 공동현관 marked; standing at one asks to go in. */
 
 export interface Entrance { name: string; dong: string; x: number; y: number; floors: number; heading: number; cx?: number; cy?: number; span?: number;
+  category?:BuildingCategory;useLabel?:string;tenants?:BuildingPlace[];
   /** the building's surveyed footprint (frame metres): the floor plate its flats share */
   foot?: [number, number][];
   /** a block of flats (the default), or another building — an office, a hospital, a store — gone into
@@ -98,9 +104,18 @@ export class WalkGame {
   private sun = new THREE.DirectionalLight(); private hemi = new THREE.HemisphereLight();
   private sky = new Sky();
   private markers = new THREE.Group();
+  private markerList: THREE.Object3D[] = []; private markerAt = 0;
   private entranceParts: { dispose(): void }[] = [];
+  /** the planted beds by the entrances: built within 90 m of the visitor, let go beyond 130 m */
+  private lazyBeds: { g: THREE.Group; x: number; y: number; built: { mesh: THREE.Object3D; dispose(): void } | null; make(): { mesh: THREE.Object3D; dispose(): void } }[] = [];
   /** the roofs: parapets, decks and what stands on them (ground/rooftops.ts) */
   private rooftops: Rooftops | null = null;
+  /** the walls' relief near the walker: sills, balconies, fins, piers (ground/facadeRelief.ts) */
+  private relief: FacadeRelief | null = null;
+  /** the picture's finish: occlusion, bloom, tone, SMAA (game/postfx.ts); ?fx=0 for the plain render */
+  postfx: PostFX | null = null;
+  /** the carriageways, to keep things off them; the mapped zebra crossings (ground/streetTruth.ts) */
+  readonly roadIndex = new RoadIndex(); private roadsDirty = true; private roadsAt = 0; private crossings: MappedCrossings | null = null;
   /** the shops' own signs, by their trading names (ground/signs.ts) */
   private signs: ShopSigns | null = null;
   /** the signs over the doors (the nearest eight within 160 m shown) */
@@ -136,6 +151,9 @@ export class WalkGame {
     this.origin = originAt(o.lat, o.lon);
     this.avatar.root.rotation.y = this.yaw + Math.PI;
     this.scene.add(this.avatar.root, this.markers, this.bicycles.group);
+    // (the entrances' group never moves: left to update its own matrix every frame it forced the
+    // world matrices of every entrance part — 13,000 objects — to be multiplied again each frame)
+    this.markers.matrixAutoUpdate = false; this.markers.updateMatrix();
     this.setupSky();
   }
 
@@ -158,13 +176,16 @@ export class WalkGame {
     u.sunPosition.value.copy(s.elevation > -4 ? dir : new THREE.Vector3(0.2, -0.3, 0.5));
     this.scene.add(this.sky);
     const fog = s.sky.clone().lerp(new THREE.Color("#ffffff"), 0.25 * (1 - s.night));
-    this.scene.fog = new THREE.Fog(fog, 380, 1300);
+    // (the haze closes the view where the 300 m of loaded town ends)
+    this.scene.fog = new THREE.Fog(fog, 170, 430);
     this.sun.color.copy(s.color); this.sun.intensity = Math.max(0.12, s.intensity);   // (sun to shade about 4:1, as outdoors: faces read by their light)
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(4096, 4096);
     const sc = this.sun.shadow.camera; sc.left = -70; sc.right = 70; sc.top = 70; sc.bottom = -70; sc.near = 10; sc.far = 700;
     this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.5;
-    this.hemi.color.set(s.night > 0.5 ? "#5f74a0" : "#dde6f0"); this.hemi.groundColor.set("#5b5348"); this.hemi.intensity = 0.3 + 0.22 * (1 - s.night) + 1.1 * s.night;
+    // (by day the shade a street lies in takes more light, nearer white than sky blue: with 0.52 the
+    // alleys in a building's shadow came out a near-black navy)
+    this.hemi.color.set(s.night > 0.5 ? "#5f74a0" : "#eceff2"); this.hemi.groundColor.set("#6a6258"); this.hemi.intensity = 0.3 + 0.5 * (1 - s.night) + 1.1 * s.night;
     this.scene.add(this.sun, this.sun.target, this.hemi);
     this.sunDir.copy(s.elevation > 2 ? dir : new THREE.Vector3(-0.3, 0.6, 0.4).normalize());
     // reflections from the sky
@@ -207,7 +228,7 @@ export class WalkGame {
     // aerial ground uses — the drive game's tile every 4 m, these ~3 m and 2 m)
     {
       const tl = new THREE.TextureLoader(), load = (n: string, rep: number, srgb: boolean) => { const t = tl.load(`/3d/walk/out/${n}.webp`); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, rep); t.anisotropy = 8; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
-      mats.asphalt.map = load("asphalt_02_diff", 4 / 3, true); mats.asphalt.normalMap = load("asphalt_02_nor", 4 / 3, false); mats.asphalt.color.set("#8a8a88"); mats.asphalt.roughness = 0.92; mats.asphalt.needsUpdate = true;
+      mats.asphalt.map = load("asphalt_02_diff", 4 / 3, true); mats.asphalt.normalMap = load("asphalt_02_nor", 4 / 3, false); mats.asphalt.color.setRGB(1.75, 1.72, 1.66) /* (the texture's asphalt is near-black: lifted past white to read a sunlit mid-grey; was #8a8a88) */; mats.asphalt.roughness = 0.92; mats.asphalt.envMapIntensity = 0.4; mats.asphalt.needsUpdate = true;
       mats.walks.map = load("brick_pavement_02_diff", 2, true); mats.walks.normalMap = load("brick_pavement_02_nor", 2, false); mats.walks.color.set("#d6d4ce"); mats.walks.needsUpdate = true;
       maskInPatches(mats.walks);
       // water (rivers, lakes, the sea): two ripple layers drifting across each other in world space,
@@ -266,14 +287,21 @@ export class WalkGame {
     this.scene.add(this.traffic.group);
     this.world = new World({
       origin: this.origin, key: o.key, domain: o.domain, apiBase: o.apiBase, scene: this.scene, mats, customLamps:true,
-      onRoads: (added, removed) => { if (removed.length) this.traffic.graph.remove(removed); if (added.length) this.traffic.graph.add(added); },
+      // (300 m round the walker at a time; the next 300 m when they come within 100 m of its rim)
+      streaming: { reach: 300, edge: 100 },
+      onRoads: (added, removed) => { if (removed.length) this.traffic.graph.remove(removed); if (added.length) this.traffic.graph.add(added); this.roadsDirty = true; },
+      // (the junctions' zebras were guesses at every junction end: the walk lays the mapped ones)
+      synthZebras: false, dropGuessed: true,
     });
     progress("지형과 도로를 불러오는 중", 0.12);
     await this.world.init();
     if (this.disposed) return;
     this.nightLighting=new NightLighting(this.world,this.scene,s.night,carMat.emissiveMap!,this.parkedCars);
     this.rooftops = new Rooftops(this.world); this.scene.add(this.rooftops.group);
-    this.signs = new ShopSigns(this.world, this.origin, o.apiBase); this.signs.setNight(sunAt(o.hour).night); this.scene.add(this.signs.group);
+    this.relief = new FacadeRelief(this.world); this.scene.add(this.relief.group);
+    this.crossings = new MappedCrossings(this.world, this.roadIndex, o.lat, o.lon, o.apiBase); this.scene.add(this.crossings.group);
+    if (new URLSearchParams(location.search).get("fx") !== "0") { this.postfx = new PostFX(this.renderer, this.scene, this.camera, sunAt(this.o.hour).night); const sz = this.renderer.getSize(new THREE.Vector2()); this.postfx.setSize(sz.x, sz.y); }
+    this.signs = new ShopSigns(this.world, this.origin, o.apiBase,items=>this.addPlaces(items)); this.signs.setNight(sunAt(o.hour).night); this.scene.add(this.signs.group);
     this.traffic.setPlayer(this.body);
     this.signals = new SignalHeads(this.traffic, (x, y) => this.world.surfaceAt(x, y)); this.scene.add(this.signals.group);
     // the streets already running when the walk is shown: ~25 s of traffic run behind the loading
@@ -344,6 +372,29 @@ export class WalkGame {
   private unnumbered = new Map<string, number>();
   /** (one scan at a time: the frame loop and the start both ask) */
   private scanEntrances() { return this.scanning ??= this.scan().finally(() => { this.scanning = null; }); }
+  private addPlaces(items:BuildingPlace[]) {
+    const inside=(x:number,y:number,p:[number,number][])=>{let hit=false;for(let i=0,j=p.length-1;i<p.length;j=i++)if((p[i][1]>y)!==(p[j][1]>y)&&x<(p[j][0]-p[i][0])*(y-p[i][1])/(p[j][1]-p[i][1])+p[i][0])hit=!hit;return hit;};
+    for(const p of items){
+      const [px,py]=toFrame(this.origin,p.lon,p.lat),category=categoryOf(p.name,p.category??"",p.kind);
+      const all=[...this.entrances,...this.waitingDoors.map(w=>w.door)];
+      let e=all.find(e=>e.kind==="building"&&e.foot&&inside(px,py,e.foot));
+      if(!e){
+        const id=`place:${p.name}:${p.lat}:${p.lon}`;if(this.seenIds.has(id))continue;
+        const feet=this.world.footprintsIn(px-20,py-20,px+20,py+20).filter(f=>f.style!==0);
+        let foot:[number,number][]|null=null;
+        for(const f of feet){const pts:[number,number][]=[];for(let i=0;i<f.ring.length;i+=2)pts.push([f.ring[i],f.ring[i+1]]);if(inside(px,py,pts)){foot=pts;break;}}
+        if(!foot&&category!=="station")continue;
+        if(foot){
+          const cx=foot.reduce((s,p)=>s+p[0],0)/foot.length,cy=foot.reduce((s,p)=>s+p[1],0)/foot.length;let best=-Infinity;
+          for(let i=0;i<foot.length;i++){const a=foot[i],b=foot[(i+1)%foot.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]);if(len<3)continue;const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2;let nx=(b[1]-a[1])/len,ny=-(b[0]-a[0])/len;if((mx-cx)*nx+(my-cy)*ny<0){nx=-nx;ny=-ny;}const score=len*.1-Math.hypot(mx-px,my-py);if(score>best){best=score;e={name:p.name,dong:"",kind:"building",x:mx+nx*1.6,y:my+ny*1.6,cx,cy,heading:Math.atan2(ny,nx),floors:Math.max(1,p.floor??1),foot,span:len/2,category,useLabel:CATEGORY[category].use};}}
+        }else e={name:p.name,dong:"",kind:"building",x:px,y:py,cx:px,cy:py,heading:0,floors:1,category,useLabel:"지하철 대합실",span:4};
+        if(!e)continue;this.seenIds.add(id);this.waitingDoors.push({door:e,detail:null});
+      }
+      e.tenants??=[];if(!e.tenants.some(t=>t.name===p.name&&t.floor===p.floor))e.tenants.push(p);
+      if(category==="hospital"||category==="public"||category==="department"||category==="station"){e.category=category;e.useLabel=CATEGORY[category].use;}
+    }
+    this.placeDoors();
+  }
   private async scan() {
     const db: IDBDatabase | null = await new Promise(res => { try { const rq = indexedDB.open("drivegame", 1); rq.onsuccess = () => res(rq.result); rq.onerror = () => res(null); rq.onupgradeneeded = () => { rq.transaction?.abort(); res(null); }; } catch { res(null); } });
     if (!db) return;
@@ -358,19 +409,19 @@ export class WalkGame {
       this.scanned.add(k);
       for (const b of raw.buildings) {
         // named landmarks for the map: big or tall non-housing buildings (schools, offices, stations)
-        if (b.n && !/^02/.test(b.u) && b.r.length >= 6) {
+        if ((!/^0[12]/.test(b.u)||/병원|의료|백화점|박물관|미술관|시청|구청/.test(b.n)) && b.r.length >= 6) {
           let lx = 0, ly = 0, area = 0;
           const fp: [number, number][] = [];
           for (let i = 0; i < b.r.length; i += 2) fp.push(toFrame(this.origin, b.r[i], b.r[i + 1]));
           for (let i = 0; i < fp.length; i++) { const [ax, ay] = fp[i], [bx, by] = fp[(i + 1) % fp.length]; area += ax * by - bx * ay; lx += ax; ly += ay; }
           area = Math.abs(area) / 2; lx /= fp.length; ly /= fp.length;
-          const name = b.n.replace(/\(.*?\)/g, "").trim();
+          const name = (b.n||b.d||CATEGORY[categoryOf("",b.u)].label).replace(/\(.*?\)/g, "").trim();
           if (name.length >= 2 && (area > 900 || (b.f || 0) >= 8) && !/^(주건축물|부속|창고|주차|관리|경비|기계|전기|화장실)|필지|근린생활|생활시설|\d{2,}\s*[-번]|^[가-힣]+동\s*\d/.test(name)
             && !this.landmarks.some(l => l.name === name && Math.hypot(l.x - lx, l.y - ly) < 250)) this.landmarks.push({ name, x: lx, y: ly, area });
           // a building to go into: named, not housing, of some size (four storeys, or 400 ㎡ a floor); its
           // door on the middle of its longest side, facing out
           const bid = `${name}|@${b.r[0].toFixed(5)},${b.r[1].toFixed(5)}`;
-          if (name.length >= 2 && !/아파트|빌라|주택/.test(b.n) && ((b.f || 0) >= 4 || area >= 400) && !/^(주건축물|부속|창고|주차|관리|경비|기계|전기|화장실)/.test(name) && !seen.has(bid)) {
+          if (name.length >= 2 && !/아파트|빌라|주택|프레지던스/.test(b.n) && area >= 45 && !/^(부속|창고|주차|경비|기계|전기|화장실)/.test(name) && !seen.has(bid)) {
             let cx = 0, cy = 0; for (const p of fp) { cx += p[0]; cy += p[1]; } cx /= fp.length; cy /= fp.length;
             let best = -Infinity, door: Entrance | null = null;
             for (let i = 0; i < fp.length; i++) {
@@ -381,7 +432,7 @@ export class WalkGame {
               if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
               if (len > best) { best = len; door = { name, dong: "", x: mx + nx * 1.6, y: my + ny * 1.6, floors: b.f || Math.max(1, Math.round((b.h || 4) / 3.6)), heading: Math.atan2(ny, nx), cx, cy, span: len / 2, foot: fp, kind: "building", use: b.u }; }
             }
-            if (door) { seen.add(bid); this.waitingDoors.push({ door, detail: null }); }
+            if (door) { door.category=categoryOf(name,b.u);door.useLabel=CATEGORY[door.category].use;seen.add(bid); this.waitingDoors.push({ door, detail: null }); }
           }
         }
         // apartment blocks only: 공동주택 of six storeys and up (five and under are villas and
@@ -427,7 +478,7 @@ export class WalkGame {
     // the 공동현관 as built in the block's era (ground/entrances.ts), the 동 number on its plate;
     // a ring on the ground to stand in
     const night = sunAt(this.o.hour).night, era = eraOf(this.o.built, e.floors);
-    const num = parseInt(e.dong, 10), variant = Number.isFinite(num) ? num % 2 : e.dong.charCodeAt(0) % 2;
+    const num = parseInt(e.dong, 10), variant = Number.isFinite(num) ? num % 2 : (e.dong.charCodeAt(0)||0) % 2;
     const c = document.createElement("canvas"); c.width = 512; c.height = 160;
     const x2 = c.getContext("2d")!;
     // (old blocks: black numerals painted on cream; then a dark plate; now a lit stone-set plate)
@@ -435,7 +486,8 @@ export class WalkGame {
     x2.fillStyle = era === "old" ? "#1c1d1f" : era === "mid" ? "#f4f4f2" : "#ffe9c4";
     x2.font = `${era === "new" ? 500 : 800} 96px Pretendard, 'Noto Sans KR', sans-serif`; x2.textAlign = "center"; x2.textBaseline = "middle"; x2.fillText(e.kind === "building" ? (e.name.length > 7 ? e.name.slice(0, 7) + "…" : e.name) : e.dong, 256, 86);
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
-    const built = buildEntrance(era, variant, tex, night);
+    const fa=e.foot?Math.abs(e.foot.reduce((s,a,i)=>{const b=e.foot![(i+1)%e.foot!.length];return s+a[0]*b[1]-b[0]*a[1];},0))/2:120;
+    const built = e.kind==="building"?buildBuildingEntrance(e.category??"office",e.span??8,e.floors,fa,tex,night):buildEntrance(era, variant, tex, night);
     const g = built.group;
     this.entranceParts.push(built);
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.05, 48).rotateX(-Math.PI / 2), this.markerMat);
@@ -449,7 +501,8 @@ export class WalkGame {
       b2.beginPath(); b2.roundRect(4, 4, 312, 76, 18); b2.fill(); b2.stroke();
       b2.fillStyle = "#ffc857"; b2.beginPath(); b2.moveTo(140, 80); b2.lineTo(180, 80); b2.lineTo(160, 108); b2.closePath(); b2.fill();
       b2.fillStyle = "#ffffff"; b2.font = "800 44px Pretendard, 'Noto Sans KR', sans-serif"; b2.textAlign = "center"; b2.textBaseline = "middle";
-      b2.fillText(e.kind === "building" ? `${e.name.length > 6 ? e.name.slice(0, 6) + "…" : e.name}` : `${e.dong} 입구`, 160, 44);
+      if(e.kind==="building"){const cat=CATEGORY[e.category??"office"];b2.fillStyle=cat.color;b2.font="800 32px Pretendard, 'Noto Sans KR', sans-serif";b2.fillText(`${cat.label} · 입장 가능`,160,27);b2.fillStyle="#fff";b2.font="700 28px Pretendard, 'Noto Sans KR', sans-serif";b2.fillText(e.name.length>10?e.name.slice(0,10)+"…":e.name,160,59);}
+      else b2.fillText(`${e.dong} 입구`, 160, 44);
       const bt = new THREE.CanvasTexture(bc); bt.colorSpace = THREE.SRGBColorSpace;
       const bm = new THREE.SpriteMaterial({ map: bt, transparent: true, depthWrite: false, sizeAttenuation: false, fog: false });
       const beacon = new THREE.Sprite(bm); beacon.center.set(0.5, 0); beacon.scale.set(0.105, 0.037, 1); beacon.position.set(0, 4.4, 1.5); beacon.renderOrder = 5; beacon.visible = false;
@@ -469,13 +522,17 @@ export class WalkGame {
     const reach = Math.min(built.extent + 0.5 + 7.5, (e.span ?? 12) - 0.6);
     if (reach > built.extent + 1.6) {
       const cs = Math.cos(e.heading), sn = Math.sin(e.heading);
-      const beds = buildBeds([{ x0: built.extent + 0.5, x1: reach }], 1.35, Math.round(wx * 7 + wy * 13), new Date().getMonth() + 1,
-        x => { const h = this.world.surfaceAt(wx - sn * x + cs * 0.7, wy + cs * x + sn * 0.7); return Number.isFinite(h) ? THREE.MathUtils.clamp(h - gy, -0.4, 0.4) : 0; });
-      beds.mesh.material.userData.entranceShared = true;
-      g.add(beds.mesh); this.entranceParts.push(beds);
+      // (made only near the visitor: each bed is ~100k vertices of flowers, a city's worth is gigabytes)
+      this.lazyBeds.push({ g, x: wx, y: wy, built: null, make: () => {
+        const beds = buildBeds([{ x0: built.extent + 0.5, x1: reach }], 1.35, Math.round(wx * 7 + wy * 13), new Date().getMonth() + 1,
+          x => { const h = this.world.surfaceAt(wx - sn * x + cs * 0.7, wy + cs * x + sn * 0.7); return Number.isFinite(h) ? THREE.MathUtils.clamp(h - gy, -0.4, 0.4) : 0; });
+        beds.mesh.material.userData.entranceShared = true; beds.mesh.matrixAutoUpdate = false; beds.mesh.updateMatrix();
+        return beds;
+      } });
     }
     g.traverse(o => { o.matrixAutoUpdate = false; o.updateMatrix(); });
-    this.markers.add(g);
+    // (in the scene graph only within 170 m: further off it is taken out, not just hidden)
+    this.markerList.push(g); if (Math.hypot(g.position.x - this.pos.x, -g.position.z - this.pos.y) < 170) this.markers.add(g);
   }
 
   /** the entrance's building's PNU (for its register rows) */
@@ -534,8 +591,12 @@ export class WalkGame {
     if (notify) this.bicycleMessage = "출입구 앞에 자전거를 놓을 공간을 찾고 있습니다.";
   }
 
+  private gateBikesTry = 0; private gateBikesAt = 0;
   private provideGateBicycles() {
-    if (this.gateBikesPlaced) return;
+    // (tried every two seconds, ten times at most: a place with no gates gave up on, not searched
+    // every frame — it was 7 % of the frame's time)
+    if (this.gateBikesPlaced || this.gateBikesTry >= 10 || performance.now() < this.gateBikesAt) return;
+    this.gateBikesTry++; this.gateBikesAt = performance.now() + 2000;
     const mine = this.entrances.filter(e => e.name && (this.o.complexName.includes(e.name) || e.name.includes(this.o.complexName)));
     const gates = bicycleGates(mine.length ? mine : this.entrances, this.world.roads.values());
     let placed = 0;
@@ -751,9 +812,16 @@ export class WalkGame {
       this.bicycles.sync(this.pos.x, this.pos.y);
       this.apartmentDetails?.update(this.pos.x, this.pos.y, this.camera);
       this.rooftops?.update(this.pos.x, this.pos.y);
+      this.relief?.update(this.pos.x, this.pos.y);
       this.signs?.update(this.pos.x, this.pos.y);
       // (the entrances drawn within 170 m: their small parts are lost further off)
-      for (const m of this.markers.children) m.visible = Math.hypot(m.position.x - this.pos.x, -m.position.z - this.pos.y) < 170;
+      if (now > this.markerAt) { this.markerAt = now + 400; for (const m of this.markerList) { const nearM = Math.hypot(m.position.x - this.pos.x, -m.position.z - this.pos.y) < 170; if (nearM && !m.parent) this.markers.add(m); else if (!nearM && m.parent) this.markers.remove(m); } }
+      { let made = 0;
+        for (const b of this.lazyBeds) {
+          const d = Math.hypot(b.x - this.pos.x, b.y - this.pos.y);
+          if (!b.built && d < 90 && made < 1) { b.built = b.make(); b.g.add(b.built.mesh); made++; }
+          else if (b.built && d > 130) { b.g.remove(b.built.mesh); b.built.dispose(); b.built = null; }
+        } }
       { const near = this.beacons.map(b => ({ b, d: Math.hypot(b.e.x - this.pos.x, b.e.y - this.pos.y) })).sort((a, b) => a.d - b.d);
         near.forEach(({ b, d }, n) => { b.sprite.visible = n < 8 && d < 160 && d > 3.5; }); }
       // (the 16 nearest entrances' openings cut through their walls)
@@ -774,6 +842,10 @@ export class WalkGame {
     this.publishBicycle();
     this.publishCar();this.drivenCars?.visibleFrom(this.pos.x,this.pos.y);
     this.carBatches?.update(this.camera);
+    // (the road index again when roads came or went, at most once a second; the lamps and the
+    // crossings laid out against it)
+    if (this.roadsDirty && now > this.roadsAt) { this.roadsDirty = false; this.roadsAt = now + 1000; this.roadIndex.rebuild(this.world.roads.values()); if (this.nightLighting) { this.nightLighting.onRoad = (x, y) => this.roadIndex.on(x, y, 0.3); this.nightLighting.invalidate(); } }
+    this.crossings?.update(this.pos.x, this.pos.y, this.world.roads.size);
     this.nightLighting?.update(now,this.camera,this.entrances,this.traffic,this.drivenCars);
     // the nearest entrance within 3 m
     let near: Entrance | null = null, nd = 3;
@@ -785,7 +857,7 @@ export class WalkGame {
       if (Math.abs(along) < op.hw && out < 0.5 && out > -op.depth) { near = op.e; break; }
     }
     if (near !== this.near) { this.near = near; this.o.onNear?.(near); }
-    this.renderer.render(this.scene, this.camera);
+    if (this.postfx) this.postfx.render(dt, this.scene, this.camera); else this.renderer.render(this.scene, this.camera);
   };
 
   private move(dt: number) {
@@ -927,19 +999,20 @@ export class WalkGame {
     return rt.texture;
   }
 
-  resize(w: number, h: number) { this.renderer.setSize(w, h, false); this.camera.aspect = w / Math.max(1, h); this.camera.updateProjectionMatrix(); }
+  resize(w: number, h: number) { this.renderer.setSize(w, h, false); this.postfx?.setSize(w, h); this.camera.aspect = w / Math.max(1, h); this.camera.updateProjectionMatrix(); }
 
   dispose() {
     this.disposed = true; this.running = false;
     this.o.sound.stopBicycle();
     cancelAnimationFrame(this.raf); this.window(false);
-    this.rooftops?.dispose(); this.signs?.dispose(); this.ground?.dispose(); this.world?.dispose(); this.traffic?.dispose(); this.signals?.dispose(); this.mats?.dispose();
+    this.rooftops?.dispose(); this.relief?.dispose(); this.crossings?.dispose(); this.postfx?.dispose(); this.postfx = null; this.signs?.dispose(); this.ground?.dispose(); this.world?.dispose(); this.traffic?.dispose(); this.signals?.dispose(); this.mats?.dispose();
     this.carMaterial?.emissiveMap?.dispose(); this.carMaterial?.dispose(); this.carReflectionRT?.dispose();
     this.carBatches?.dispose();this.nightLighting?.dispose();
     this.drivenCars?.dispose();this.parkedCars.dispose();
     this.carGlazingMeshes.forEach(m => m.dispose()); this.carGlass?.dispose(); this.loadedCars?.dispose();
+    for (const g of this.markerList) if (!g.parent) this.markers.add(g);
     this.markers.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); const mt = m.material as THREE.Material; if (mt !== this.markerMat && !mt.userData.entranceShared) mt.dispose(); } });
-    this.entranceParts.forEach(p => p.dispose()); this.entranceParts = []; disposeEntranceShared(); this.openings = []; setOpenings([]);
+    this.entranceParts.forEach(p => p.dispose()); this.entranceParts = []; this.lazyBeds.forEach(b => b.built?.dispose()); this.lazyBeds = []; disposeEntranceShared();disposeBuildingEntranceShared(); this.openings = []; setOpenings([]);
     this.markerMat.dispose(); this.viewRT?.dispose();
     this.envRT?.dispose();
     this.sky.geometry.dispose(); this.sky.material.dispose(); this.avatar.dispose(); this.bicycles.dispose();

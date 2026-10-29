@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import type { RealEstateBuildingsResponse } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
-import { DroneFlight, MAX_AGL, MAX_SPEED, MIN_AGL } from "./droneFlight";
+import { BIKE_EYE, DroneFlight, EYE, MAX_AGL, MAX_SPEED, MIN_AGL } from "./droneFlight";
+import { Avatar } from "../walkmode/player/avatar";
+import { Bicycles } from "../walkmode/game/Bicycles";
 import { DroneWorld, type ViewExtent, type DroneViewBuildings } from "./droneWorld";
 import type {NearBuildingSource} from './nearBuildingTargets';
 import { DroneAudio } from "./droneAudio";
@@ -369,11 +371,12 @@ export class DroneSession {
     this.matchViewWater();
     this.layViewBed();
     const t4 = performance.now();
+    if (performance.now() > this.doorAt) { this.doorAt = performance.now() + 200; this.findDoor(); }
     this.clock += dt;
     if (this.view === "chase") this.chase(dt);
-    else { this.model.group.visible = false; f.apply(this.p.camera); }
+    else { this.model.group.visible = false; if (this.walker) this.walker.root.visible = false; if (f.cycling) this.placeRider(dt); f.apply(this.p.camera); }
     const speed = Math.hypot(f.vel.x, f.vel.z) / MAX_SPEED;
-    this.audio.update(f.load, speed, f.bumped);
+    if (!f.walking) this.audio.update(f.load, speed, f.bumped);
     // The sky eases in over a second; the haze closes in toward the edge of the loaded world
     // (its last quarter: the tiles still coming in out there are behind it).
     this.sky = Math.min(1, this.sky + dt);
@@ -444,6 +447,82 @@ export class DroneSession {
   }
   private ended = false;
 
+  /** 걷기 ↔ 비행: on foot in this same world (its buildings, roads and trees), or flying again. */
+  private walker: Avatar | null = null;
+  private bikes: Bicycles | null = null;
+  /** 자전거 ↔ 걷기 (on foot only): a bicycle under the walker, up to 100 km/h */
+  toggleBike() {
+    const f = this.flight; if (!f.walking) return false;
+    if (!this.bikes) { this.bikes = new Bicycles(); this.p.scene.add(this.bikes.group); }
+    const on = f.setCycling(!f.cycling);
+    if (on) { const rec = this.bikes.provide({ id: "drone-walker", name: "", dong: "", x: f.pos.x, y: -f.pos.z, z: f.pos.y - BIKE_EYE, heading: Math.atan2(Math.cos(f.yaw), -Math.sin(f.yaw)) }); this.bikes.ride(rec); }
+    else { this.bikes.ride(null); this.bikes.records.delete("drone-walker"); this.bikes.sync(f.pos.x, -f.pos.z); }
+    if (this.walker && !on) this.walker.pose = "stand";
+    return on;
+  }
+  /** the bicycle and the rider placed where the flight is (both views) */
+  private placeRider(dt: number) {
+    const f = this.flight, b = this.bikes?.active; if (!b || !this.walker) return;
+    b.x = f.pos.x; b.y = -f.pos.z; b.z = f.pos.y - BIKE_EYE; b.heading = Math.atan2(Math.cos(f.yaw), -Math.sin(f.yaw));
+    this.bikes!.update(f.moved, f.steer, f.bikeSpeed);
+    this.walker.pedal(f.moved, f.steer);
+    this.walker.root.position.set(b.x, b.z, -b.y); this.walker.root.rotation.set(0, f.yaw + Math.PI, -f.steer * Math.min(f.bikeSpeed / 10, 1) * 0.45);
+    this.walker.update(dt, f.bikeSpeed);
+  }
+  toggleWalk() {
+    const f = this.flight;
+    if (!f.walking) {
+      // (down onto the nearest sidewalk within 250 m — not into a wood or a courtyard's middle)
+      const x = f.pos.x, y = -f.pos.z; let best: [number, number] | null = null, bd = Infinity;
+      for (const pk of this.world.walkPathsNear(x, y, 250)) for (let o = 0; o < pk.length;) {
+        const n = pk[o++];
+        for (let k = 0; k < n; k++) { const px = pk[o + k * 2], py = pk[o + k * 2 + 1], d = Math.hypot(px - x, py - y); if (d < bd) { bd = d; best = [px, py]; } }
+        o += n * 2;
+      }
+      if (best && bd < 250) { f.pos.x = best[0]; f.pos.z = -best[1]; }
+      else {
+        // (no sidewalk line near: beside the nearest road, just past its lane's edge)
+        const l = this.world.lanePointNear(x, y, 400);
+        if (l) for (const side of [1, -1]) {
+          const px = l.x - l.dy * side * (l.w / 2 + 1.6), py = l.y + l.dx * side * (l.w / 2 + 1.6);
+          if (this.world.roofAt(px, py) < this.world.groundAt(px, py) + 0.5) { f.pos.x = px; f.pos.z = -py; break; }
+        }
+      }
+    }
+    const on = f.setWalking(!f.walking, this.world);
+    if (on && !this.walker) { this.walker = new Avatar(7); this.p.scene.add(this.walker.root); }
+    if (this.walker) this.walker.root.visible = false;
+    this.audio.pause(on);
+    return on;
+  }
+  /** On foot, a building ahead within 3 m (or beside, within 1.5 m): which, and where its wall is. */
+  private findDoor() {
+    const f = this.flight; if (!f.walking || f.cycling) { f.door = null; return; }
+    const x = f.pos.x, y = -f.pos.z, fx = -Math.sin(f.yaw), fy = Math.cos(f.yaw);
+    for (const [dx, dy, reach] of [[fx, fy, 3], [-fy, fx, 1.5], [fy, -fx, 1.5]] as [number, number, number][]) for (let d = 0.4; d <= reach; d += 0.3) {
+      const px = x + dx * d, py = y + dy * d;
+      if (this.world.roofAt(px, py) > this.world.groundAt(px, py) + 0.8) {
+        // (the roof raster runs a little past the outline: the outline looked for up to 3 m further in)
+        let ring: [number, number][] | null = null;
+        for (let e = 0; e <= 3 && !ring; e += 0.5) ring = this.world.buildingRingAt(px + dx * e, py + dy * e);
+        f.door = ring && ring.length >= 3 ? { ring, x: px, y: py } : null; return;
+      }
+    }
+    f.door = null;
+  }
+  private doorAt = 0;
+  /** In through the door: the building's interior (평면도 기반: its register, its floors, its
+   * businesses; a block of flats by its flats) on the walk page, back here on leaving. */
+  enterDoor(): boolean {
+    const d = this.flight.door, c = this.p.data.center; if (!d || !c) return false;
+    const kx = Math.cos(c.lat * Math.PI / 180) * 111_320, ky = 110_540;
+    const ll = (x: number, y: number) => `${(c.lon + x / kx).toFixed(7)},${(c.lat + y / ky).toFixed(7)}`;
+    const [lon, lat] = ll(this.flight.pos.x, -this.flight.pos.z).split(",");
+    const q = new URLSearchParams({ enter: "1", lat, lon, heading: String(Math.atan2(Math.cos(this.flight.yaw), -Math.sin(this.flight.yaw)) + Math.PI),
+      foot: d.ring.slice(0, 60).map(([x, y]) => ll(x, y)).join(";"), back: location.pathname + location.search + location.hash });
+    location.href = `/walk?${q}`;
+    return true;
+  }
   /** 1인칭 ↔ 3인칭. */
   toggleView() {
     this.view = this.view === "fpv" ? "chase" : "fpv";
@@ -462,7 +541,7 @@ export class DroneSession {
     this.chaseYaw += d * Math.min(1, dt * 5);
     const el = THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, -0.15, 1.35);
     const bx = Math.sin(this.chaseYaw), bz = Math.cos(this.chaseYaw);   // behind: opposite the heading
-    const want = 3.6;
+    const want = f.cycling ? 5.0 : f.walking ? 4.2 : 3.6;
     // (the line from the drone back to the camera, in half-metre steps: stop short of anything solid)
     let dist = want;
     for (let s = 0.5; s <= want; s += 0.5) {
@@ -474,6 +553,18 @@ export class DroneSession {
     const r = this.chaseDist;
     c.position.set(f.pos.x + bx * Math.cos(el) * r, f.pos.y + Math.sin(el) * r + 0.35, f.pos.z + bz * Math.cos(el) * r);
     c.lookAt(f.pos.x - bx * 6, f.pos.y + 0.25 - Math.sin(el) * 2.2, f.pos.z - bz * 6);
+    if (f.walking && this.walker) {
+      // (on foot or on the bike: the walker in view, not the drone — the camera higher and looking
+      // down past them, so they stand in the middle of the picture, clear of the bar along the
+      // bottom of the screen)
+      this.model.group.visible = false; this.walker.root.visible = true;
+      if (f.cycling) this.placeRider(dt);
+      else { this.walker.pose = "stand"; this.walker.root.position.set(f.pos.x, f.pos.y - EYE, f.pos.z); this.walker.root.rotation.set(0, f.yaw + Math.PI, 0); this.walker.update(dt, Math.hypot(f.vel.x, f.vel.z)); }
+      const fx = -Math.sin(this.chaseYaw), fz = -Math.cos(this.chaseYaw);
+      c.position.set(f.pos.x - fx * Math.cos(el) * r, f.pos.y + 0.9 + Math.sin(el) * r, f.pos.z - fz * Math.cos(el) * r);
+      c.lookAt(f.pos.x + fx * 5, f.pos.y - 1.9, f.pos.z + fz * 5);
+      return;
+    }
     this.model.group.visible = true;
     this.model.update(dt, f.pos, f.yaw, f.pitchBody, f.roll, f.load, this.clock);
   }
@@ -497,6 +588,8 @@ export class DroneSession {
     this.world.dispose();
     this.p.forget?.(new Set(this.model.materials()));
     this.model.dispose();
+    if (this.walker) { this.walker.root.removeFromParent(); this.walker.dispose(); this.walker = null; }
+    if (this.bikes) { this.bikes.dispose(); this.bikes = null; }
     this.cutStop.abort();
     if (ground && this.groundBackup) {
       if (ground.geometry !== this.groundBackup) ground.geometry.dispose();

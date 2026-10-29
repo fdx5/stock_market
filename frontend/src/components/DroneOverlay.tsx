@@ -195,7 +195,16 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
           {h ? (h.limited ? `앞쪽 렌더링 대기 · 최고 ${Math.round(h.limit)}km/h` : `주변 ${(h.radius / 1000).toFixed(1)}km 렌더링 ${h.ready}/${h.tiles}`) : "준비 중"}
         </span>
       </div>
+      {flight.walking && !flight.cycling && flight.door && <button type="button" className="re-drone-door" onClick={() => window.dispatchEvent(new Event('drone-enter-door'))}><kbd>E</kbd> 건물 안으로 들어가기</button>}
+      {flight.walking && <button type="button" className="re-drone-bike" onClick={() => window.dispatchEvent(new Event('drone-bike-toggle'))}><kbd>B</kbd> {flight.cycling ? '자전거에서 내리기' : '자전거 타기 (최고 100km/h)'}</button>}
       <div className="re-drone-auto-controls">
+      <button type="button" className={`re-drone-autopilot${flight.walking ? ' is-on' : ''}`} aria-pressed={flight.walking}
+        title="드론에서 내려 이 지도 그대로 걷기 (G) · WASD 이동 · Shift 달리기 · 드래그로 둘러보기"
+        onClick={() => { window.dispatchEvent(new Event('drone-walk-toggle')); setHud(h => h ? { ...h } : h); }}>
+        <span className="re-drone-autopilot-head"><b>{flight.walking ? '걷는 중' : '걷기'}</b>
+          <span className="re-drone-autopilot-switch" aria-hidden="true"><i /><em>{flight.walking ? 'ON' : 'OFF'}</em></span></span>
+        <small>{flight.walking ? '눌러서 다시 비행 · G' : '지면으로 내려 걷기 · G'}</small>
+      </button>
       <button type="button" className={`re-drone-autopilot${auto ? ' is-on' : ''}`} aria-pressed={auto}
         title="설정한 속도와 고도로 시선 방향 자동 전진 · 10~1,000m 지형·건물 회피 · 이동/고도 조작 시 수동 전환"
         onClick={() => { flight.toggleAutopilot(); setHud(h => h ? { ...h, autopilot: flight.autopilot, autopilotStatus: flight.autopilotStatus } : h); }}>

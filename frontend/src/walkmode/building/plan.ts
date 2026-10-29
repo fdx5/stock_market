@@ -15,23 +15,30 @@ export interface RegBuilding {
   name?: string | null; use?: string | null; useDetail?: string | null; floors?: number | null; basements?: number | null;
   rideLifts?: number; emergencyLifts?: number; totalArea?: number | null; buildingArea?: number | null; approved?: string | null;
 }
-export type ZoneKind = "office" | "lobby" | "clinic" | "ward" | "retail" | "food" | "class" | "gym" | "hotel" | "parking" | "rooms" | "plant";
+export type ZoneKind = "office" | "lobby" | "clinic" | "ward" | "retail" | "food" | "class" | "gym" | "hotel" | "parking" | "rooms" | "plant" | "civic" | "museum" | "station";
 
-export type Mat = "floor" | "carpet" | "concrete" | "wall" | "glass" | "desk" | "chair" | "fabric" | "metal" | "shelf" | "bed" | "sheet" | "counter" | "car" | "line" | "plant" | "tile" | "lift" | "dark" | "screen" | "wood" | "white";
+export type Mat = "floor" | "carpet" | "concrete" | "wall" | "glass" | "desk" | "chair" | "fabric" | "metal" | "shelf" | "bed" | "sheet" | "counter" | "car" | "line" | "plant" | "tile" | "lift" | "dark" | "screen" | "wood" | "white" | "accent" | "wainscot" | "cushion" | "water";
 /** a box: x0 z0 x1 z1 (plan), y0 y1 (height), its material, solid (blocks walking) */
 export interface Box { x0: number; z0: number; x1: number; z1: number; y0: number; y1: number; m: Mat; solid: boolean; yaw?: number }
 export type SpotKind = "desk" | "seat" | "wait" | "bed" | "stand" | "counter" | "shelf" | "lift" | "toilet" | "table" | "exam" | "class" | "treadmill" | "car" | "clerk";
 /** a place a person uses: where they stand or sit, facing yaw (radians, 0 = +z), at seat height y */
 export interface Spot { x: number; z: number; yaw: number; kind: SpotKind; y: number; zone: number }
-export interface Lift { x: number; z: number; w: number; yaw: number; index: number }
+export interface Lift { x: number; z: number; w: number; yaw: number; index: number; nx?:number;nz?:number }
 export interface Escalator { x: number; z0: number; z1: number; up: boolean; w: number }
-export interface Zone { kind: ZoneKind; label: string; rect: [number, number, number, number] }
+export interface Zone { kind: ZoneKind; label: string; rect: [number, number, number, number]; polygon?: [number, number][][] }
 /** what a floor shows on its walls and hangs from its ceiling: the floor directory by the lifts, the
  * floor's own number, the counters' signs, the toilets', a waiting room's TV, a clock */
 export interface Decor { kind: "directory" | "floor" | "sign" | "tv" | "clock"; x: number; z: number; y: number; yaw: number; w: number; h: number; text?: string }
 export interface FloorPlan {
+  polygons?: [number, number][][][];
+  spawn?: [number, number];
+  survey?: { year: number; partitions: boolean; facilities: boolean };
+  /** what the floor was made from (measured / estimated), for the HUD */
+  basis?: string;
+  /** things to use with E: a ticket machine (its counter's windows), a room's door (its name) */
+  points?: { x: number; z: number; kind: "ticket" | "room"; label: string; windows?: [number, number, number][] }[];
   level: number; label: string; height: number; kinds: ZoneKind[];
-  zones: Zone[]; boxes: Box[]; spots: Spot[]; lifts: Lift[]; stairs: { x: number; z: number; w: number; d: number }[];
+  zones: Zone[]; boxes: Box[]; spots: Spot[]; lifts: Lift[]; stairs: { x: number; z: number; w: number; d: number;entry?:[number,number] }[];
   escalators: Escalator[];
   decor: Decor[];
   /** the outer walls along the outline */
@@ -69,6 +76,9 @@ export function kindOf(use: string, detail: string, level: number, building: Reg
   }
   if (/음식|카페|휴게|제과|식당|주점/.test(s)) return "food";
   if (/판매|소매|상점|마트|백화|쇼핑|시장|매장/.test(s)) return "retail";
+  if (/박물관|미술관|전시관|과학관|기념관|전시실/.test(s)) return "museum";
+  if (/지하철|철도|역사|운수시설|대합실/.test(s)) return "station";
+  if (/공공|관공|민원|주민센터|행정복지|시청|구청|우체국|경찰|소방/.test(s)) return "civic";
   if (/학원|교육|교습|독서|학교|강의/.test(s)) return "class";
   if (/체력|운동|헬스|체육|골프|요가|당구|볼링/.test(s)) return "gym";
   if (/숙박|호텔|모텔|여관|게스트/.test(s)) return "hotel";
@@ -77,8 +87,8 @@ export function kindOf(use: string, detail: string, level: number, building: Reg
   if (/근린/.test(s)) return level === 1 ? "retail" : "office";
   return level === 1 ? "lobby" : "office";
 }
-const LABEL: Record<ZoneKind, string> = { office: "사무실", lobby: "로비", clinic: "진료·대기", ward: "병동", retail: "매장", food: "식당", class: "강의실", gym: "체육시설", hotel: "객실", parking: "주차장", rooms: "호실", plant: "기계실" };
-const DENSITY: Record<ZoneKind, number> = { office: 9, lobby: 22, clinic: 6, ward: 10, retail: 11, food: 5, class: 4, gym: 12, hotel: 30, parking: 120, rooms: 40, plant: 400 };
+const LABEL: Record<ZoneKind, string> = { office: "사무실", lobby: "로비", clinic: "진료·대기", ward: "병동", retail: "매장", food: "식당", class: "강의실", gym: "체육시설", hotel: "객실", parking: "주차장", rooms: "호실", plant: "기계실",civic:"민원·안내",museum:"전시 공간",station:"대합실" };
+const DENSITY: Record<ZoneKind, number> = { office: 9, lobby: 22, clinic: 6, ward: 10, retail: 11, food: 5, class: 4, gym: 12, hotel: 30, parking: 120, rooms: 40, plant: 400,civic:12,museum:25,station:20 };
 
 function rng(seed: number) { let s = (seed * 2654435761) >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; }
 
@@ -133,7 +143,7 @@ function edgeDist(x: number, z: number, p: [number, number][]) {
 export function planBuilding(info: RegBuilding, regFloors: RegFloor[], W: number, D: number, poly: [number, number][] | null = null, doorX = W / 2, tenants: Tenant[] = []): BuildingPlan {
   const above = Math.max(1, info.floors ?? Math.max(1, ...regFloors.map(f => f.level))), below = Math.max(0, info.basements ?? 0, ...regFloors.map(f => -f.level));
   const levels: number[] = [];
-  for (let l = -Math.min(below, 6); l <= Math.min(above, 60); l++) if (l !== 0) levels.push(l);
+  for (let l = -Math.min(below, 20); l <= Math.min(above, 160); l++) if (l !== 0) levels.push(l);
   const lifts = Math.max(levels.length > 3 || W * D > 600 ? 1 : 0, Math.min(8, (info.rideLifts ?? 0) + (info.emergencyLifts ? 1 : 0)));
   return { W, D, floors: new Map(levels.map(l => [l, null])), levels, info, regFloors, lifts, poly, doorX, tenants };
 }
@@ -466,6 +476,12 @@ export function planFloor(b: BuildingPlan, level: number, seed: number): FloorPl
           add(gx + dx - 0.2, gz + dz - 0.2, gx + dx + 0.2, gz + dz + 0.2, 0, 0.45, "chair", false);
         }
       });
+    } else if(k==="civic"){
+      grid(3,4.2,(gx,gz)=>{add(gx,gz+1,gx+2.2,gz+1.65,0,1.05,"counter");spots.push({x:gx+1.1,z:gz+2.2,y:.46,yaw:Math.PI,kind:"clerk",zone:zi},{x:gx+1.1,z:gz+.4,y:0,yaw:0,kind:"wait",zone:zi});decor.push({kind:"sign",x:gx+1.1,z:gz+1,y:2.4,yaw:Math.PI,w:1.8,h:.4,text:"민원 안내"});});
+    }else if(k==="museum"){
+      grid(5,5,(gx,gz)=>{add(gx+1,gz+1,gx+2.6,gz+2.6,0,.8,"white");add(gx+.95,gz+.95,gx+2.65,gz+2.65,.8,1.7,"glass",false);spots.push({x:gx+1.8,z:gz+.3,y:0,yaw:0,kind:"stand",zone:zi});});
+    }else if(k==="station"){
+      grid(4.8,5,(gx,gz)=>{add(gx,gz,gx+.65,gz+.55,0,1.5,"metal");add(gx+.05,gz-.02,gx+.6,gz,1,1.4,"screen",false);spots.push({x:gx+.3,z:gz-.7,y:0,yaw:0,kind:"stand",zone:zi});add(gx+1.8,gz+1.8,gx+4,gz+2.3,0,.45,"fabric");for(let i=0;i<3;i++)spots.push({x:gx+2.2+i*.6,z:gz+2,y:.45,yaw:0,kind:"seat",zone:zi});});
     } else if (k === "class") {
       rooms(z, zi, z0, z0 + Math.min(8, cz0 - z0 - 2.5), "class");
       rooms(z, zi, z1 - Math.min(8, z1 - cz1 - 2), z1, "class");
@@ -626,7 +642,7 @@ export function planFloor(b: BuildingPlan, level: number, seed: number): FloorPl
   let crowd = 0;
   const share = poly ? Math.abs(poly.reduce((t, [x1, z1], i) => { const [x2, z2] = poly[(i + 1) % poly.length]; return t + x1 * z2 - x2 * z1; }, 0)) / 2 / (W * D) : 1;
   for (const z of zones) crowd += ((z.rect[2] - z.rect[0]) * (z.rect[3] - z.rect[1])) * share / DENSITY[z.kind];
-  crowd = Math.round(Math.min(380, Math.max(level < 0 ? 2 : 6, crowd)) * (0.75 + R() * 0.4));
+  crowd = Math.min(160,Math.round(Math.min(160, Math.max(level < 0 ? 2 : 6, crowd)) * (0.75 + R() * 0.4)));
   return { level, label: reg?.label ?? (level < 0 ? `지하${-level}층` : `${level}층`), height, kinds, zones, boxes, spots, lifts, stairs, escalators, decor, segs, grid: { nx, nz, cell: CELL, free }, door, crowd };
 }
 
