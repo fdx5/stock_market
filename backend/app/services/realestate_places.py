@@ -9,6 +9,7 @@ from __future__ import annotations
 import concurrent.futures as cf
 import logging
 import math
+import re
 
 import requests
 
@@ -22,7 +23,7 @@ KAKAO_CATEGORY = "https://dapi.kakao.com/v2/local/search/category.json"
 SBIZ_RADIUS = "https://apis.data.go.kr/B553077/api/open/sdsc2/storeListInRadius"
 # (Kakao's category groups that put up a sign on a street front)
 GROUPS = {"FD6": "food", "CE7": "cafe", "CS2": "store", "PM9": "pharmacy", "HP8": "clinic", "AC5": "academy",
-          "BK9": "bank", "MT1": "mart", "AG2": "agent", "PS3": "kids", "SW8": "station", "OL7": "fuel", "CT1": "culture", "AD5": "lodging"}
+          "BK9": "bank", "MT1": "mart", "AG2": "agent", "PS3": "kids", "SW8": "station", "PO3":"public", "OL7": "fuel", "CT1": "culture", "AD5": "lodging"}
 DAY = 86400
 CELL = 0.0025  # ~250 m
 _pool = cf.ThreadPoolExecutor(max_workers=6, thread_name_prefix="places")
@@ -64,6 +65,15 @@ def _kind_of(l: str, m: str, s: str) -> str:
     return "store"
 
 
+def _floor(v) -> float | None:
+    """A shop's floor as registered: "1", "B1", "지1", "지하2" (below ground: negative)."""
+    t = str(v or "").strip()
+    m = re.match(r"^(?:B|b|지하|지)\s*(\d{1,2})", t)
+    if m:
+        return -float(m.group(1))
+    return _num(t)
+
+
 def _sbiz(lat: float, lon: float, radius: int) -> list[dict]:
     key = rm._service_key()
     if not key:
@@ -79,7 +89,7 @@ def _sbiz(lat: float, lon: float, radius: int) -> list[dict]:
             if x is None or y is None or not name:
                 continue
             branch = (it.get("brchNm") or "").strip()
-            fl = _num(it.get("flrNo"))
+            fl = _floor(it.get("flrNo"))
             out.append({"name": f"{name} {branch}".strip() if branch and len(name) < 8 else name,
                         "kind": _kind_of(it.get("indsLclsNm") or "", it.get("indsMclsNm") or "", it.get("indsSclsNm") or ""),
                         "category": (it.get("indsSclsNm") or it.get("indsMclsNm") or None), "lat": round(y, 6), "lon": round(x, 6),
@@ -103,10 +113,11 @@ def places(lat: float, lon: float, radius: int = 300) -> dict:
         except (requests.RequestException, ValueError) as exc:
             log.info("places: shop register failed (%s)", type(exc).__name__)
             out = []
-        if out:
-            return {"items": out, "source": "소상공인시장진흥공단 상가(상권)정보"}
-        futs = [_pool.submit(_group, code, clat, clon, radius) for code in GROUPS]
-        out, seen = [], set()
+        register = bool(out)
+        # Hospitals, public offices and stations are not reliably listed in the shop register.
+        codes=("HP8","PO3","SW8") if register else GROUPS
+        futs = [_pool.submit(_group, code, clat, clon, radius) for code in codes]
+        seen = {(p["name"],p["lat"],p["lon"]) for p in out}
         for f in futs:
             try:
                 for p in f.result():
@@ -118,7 +129,7 @@ def places(lat: float, lon: float, radius: int = 300) -> dict:
         if not out:
             # (nothing from either: not kept a day — tried again in ten minutes)
             raise RuntimeError("no places")
-        return {"items": out, "source": "카카오 로컬 (업소명·업종·위치)"}
+        return {"items": out, "source": "소상공인시장진흥공단 상가정보·카카오 공공시설 위치" if register else "카카오 로컬 (업소명·업종·위치)"}
 
-    got = _cached(f"places2:{clat:.4f}:{clon:.4f}:{radius}", DAY, fetch) or {"items": [], "source": None}
+    got = _cached(f"places3:{clat:.4f}:{clon:.4f}:{radius}", DAY, fetch) or {"items": [], "source": None}
     return got
