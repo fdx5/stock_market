@@ -25,9 +25,9 @@ WEEK = 7 * 86400
 MAX_PAGES = 5
 
 
-def _params(pnu: str) -> dict:
+def _params(pnu: str, rows: int) -> dict:
     return {"sigunguCd": pnu[:5], "bjdongCd": pnu[5:10], "platGbCd": "1" if pnu[10] == "2" else "0",
-            "bun": pnu[11:15], "ji": pnu[15:19], "numOfRows": "1000"}
+            "bun": pnu[11:15], "ji": pnu[15:19], "numOfRows": str(rows)}
 
 
 def _fetch(op: str, pnu: str) -> list[dict] | None:
@@ -41,7 +41,8 @@ def _fetch(op: str, pnu: str) -> list[dict] | None:
             for page in range(1, MAX_PAGES + 1):
                 if not rm._count_call("bldrgst"):
                     return None
-                res = requests.get(base + op, params={"serviceKey": key, "_type": "json", **_params(pnu), "pageNo": str(page)}, timeout=12)
+                # (the title rows a hundred a page — a thousand timed out — the floor rows five hundred)
+                res = requests.get(base + op, params={"serviceKey": key, "_type": "json", **_params(pnu, 100 if op == "getBrTitleInfo" else 500), "pageNo": str(page)}, timeout=20)
                 items, total = _items(res)
                 rows.extend(items)
                 if len(rows) >= total or not items:
@@ -72,19 +73,21 @@ def floor_level(gb: str | None, no) -> int | None:
     return -abs(n) if (gb or "").startswith("지하") else n
 
 
-def building_floors(pnu: str, name: str | None = None) -> dict:
+def building_floors(pnu: str, name: str | None = None, area: float | None = None) -> dict:
     if not re.fullmatch(r"\d{19}", pnu or ""):
         raise ValueError("pnu는 19자리 숫자여야 합니다.")
     titles = _cached(f"floors-title:{pnu}", WEEK, lambda: _fetch("getBrTitleInfo", pnu)) or []
     rows = _cached(f"floors-flr:{pnu}", WEEK, lambda: _fetch("getBrFlrOulnInfo", pnu)) or []
     if not titles and not rows:
         raise LookupError("건축물대장에서 이 건물을 찾지 못했습니다.")
-    # the building: the one named so, else the largest main building on the parcel
+    # the building: on a campus of several (a hospital's main block, its cancer centre, its labs…),
+    # the one whose footprint is nearest the one gone into (`area`, its plan area), named so; else the largest
     want = _norm(name)
     def score(t: dict) -> tuple:
         nm = _norm(t.get("bldNm")) + _norm(t.get("dongNm"))
         hit = bool(want) and (want in nm or (nm and nm in want))
-        return (hit, (t.get("mainAtchGbCdNm") or "주") .startswith("주"), _num(t.get("totArea")) or 0)
+        fit = -abs((_num(t.get("archArea")) or 0) - area) / max(area, 1) if area else 0
+        return (hit, (t.get("mainAtchGbCdNm") or "주").startswith("주"), round(fit, 1), _num(t.get("totArea")) or 0)
     title = max(titles, key=score) if titles else {}
     dong = (title.get("dongNm") or "").strip()
     g = title.get
@@ -106,6 +109,13 @@ def building_floors(pnu: str, name: str | None = None) -> dict:
     } if title else {"name": name}
     # its floors: every use on each floor with its area (the rows of other buildings on the parcel left out)
     floors: dict[int, dict] = {}
+    # (with no title, the floors of the 동 named most like the building, or the largest)
+    if not dong and rows:
+        by: dict[str, float] = {}
+        for r in rows:
+            by[(r.get("dongNm") or "").strip()] = by.get((r.get("dongNm") or "").strip(), 0) + (_num(r.get("area")) or 0)
+        named = [d for d in by if want and _norm(d) and (_norm(d) in want or want in _norm(d))]
+        dong = (named or sorted(by, key=lambda d: -by[d]))[0]
     for r in rows:
         if dong and (r.get("dongNm") or "").strip() not in ("", dong):
             continue

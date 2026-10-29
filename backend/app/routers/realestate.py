@@ -250,11 +250,12 @@ def realestate_units(response: Response, id: str = Query(..., min_length=7, max_
 
 
 @router.get("/building-floors")
-def realestate_building_floors(response: Response, pnu: str = Query(..., pattern=r"^\d{19}$"), name: str | None = Query(None, max_length=80)):
+def realestate_building_floors(response: Response, pnu: str = Query(..., pattern=r"^\d{19}$"), name: str | None = Query(None, max_length=80),
+                               area: float | None = Query(None, ge=0, le=1e6)):
     """A building's floors for the walk mode's building interiors: the register's 표제부 (floors,
     lifts, areas, use) and 층별개요 (each floor's uses and areas)."""
     try:
-        result = realestate_floors.building_floors(pnu, name)
+        result = realestate_floors.building_floors(pnu, name, area)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
