@@ -10,14 +10,21 @@ import type { FloorPlan, Room } from "./plan/types";
 import type { WaterKind } from "../game/sound";
 import { poolMaterial, splashMaterial, streamMaterial, washMaterial } from "./water";
 import { ITEM_NAME, Pantry } from "./pantry";
+import { FACILITY_ROOMS } from "./plan/types";
+import { furnishFacilityRoom, type FacilityHooks, type Spot } from "./facilityFurnish";
+import type { Extra } from "./facilityModels";
+import type { SignAtlas } from "./facilitySigns";
+
+/** a building other than flats: its extra materials, its signs, what its lifts do, where its people go */
+export interface FacilityKit { X: Extra; signs: SignAtlas; hooks: FacilityHooks; spots: Spot[] }
 
 /* Furnishing by rules: each room type gets its furniture against the walls that suit it (the TV on
  * the 아트월, the sofa facing it, the bed's head on a wall without a door…), slid along the wall to
  * the nearest free place; door swings and the ways through doorways stay clear. Then the moving
  * and working things: switches, taps, the toilet, the TV, curtains, the cooktop. */
 
-type SideName = "n" | "s" | "w" | "e";
-type Rect = [number, number, number, number];
+export type SideName = "n" | "s" | "w" | "e";
+export type Rect = [number, number, number, number];
 export type Sound = "click" | "water" | "flush" | "door" | "curtain" | "beep" | "fridge" | "meow" | "bark";
 
 export interface Interactable {
@@ -55,9 +62,9 @@ export interface Furnished {
   dispose(): void;
 }
 
-interface Frame { m: THREE.Matrix4; rect: Rect }
+export interface Frame { m: THREE.Matrix4; rect: Rect }
 
-class Placer {
+export class Placer {
   occupied: Rect[] = [];
   /** the doorways' clear areas (walked through; where a way in starts) */
   doors: Rect[] = [];
@@ -166,7 +173,7 @@ const opposite: Record<SideName, SideName> = { n: "s", s: "n", w: "e", e: "w" };
 /** shadowMoved(): something that casts a sun shadow moved (a curtain, the fridge door) */
 export const shadowMoved = { at: 0 };
 
-export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, dynamic: THREE.Group, hits: THREE.Group): Furnished {
+export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, dynamic: THREE.Group, hits: THREE.Group, fac?: FacilityKit): Furnished {
   const zoneOf = (r: Room) => shell.zones.get(r.zone)!;
   const interactables: Interactable[] = [], colliders: Seg[] = [], pendants: CeilingLight[] = [], disposables: { dispose(): void }[] = [];
   const curtainOpen = new Map<number, () => number>();
@@ -284,6 +291,20 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     const sides: SideName[] = ["n", "s", "w", "e"];
     const solidSides = sides.filter(s => pl.openingsOn(s).length === 0);
     const windowSide = sides.find(s => pl.windowsOn(s).some(w => w.b - w.a > 1.2)) ?? sides.find(s => pl.windowsOn(s).length) ?? "s";
+
+    // ------------------------------------------------ a building's rooms (facilityFurnish.ts)
+    if (fac && FACILITY_ROOMS.has(room.type)) {
+      furnishFacilityRoom({ plan, P, X: fac.X, signs: fac.signs, B, dynamic, H, put, hitIn, local, interactables, seats, colliders, mirrors, faucet, spots: fac.spots, hooks: fac.hooks,
+        zoneOf, own: x => { disposables.push(x); return x; } }, room, pl);
+      // roller blinds, a third down, at its windows
+      for (const w of shell.windows.filter(w => w.room === room)) {
+        const wi = shell.windows.indexOf(w), top = H - 0.04, yaw = Math.atan2(w.inward.x, w.inward.z), drop = (top - (w.bottom + pl.fy)) * 0.32;
+        const base = new THREE.Matrix4().makeRotationY(yaw).setPosition(w.center.x + w.inward.x * (HALF_WALL + 0.06), 0, w.center.z + w.inward.z * (HALF_WALL + 0.06));
+        put([M.rb(P.trim, w.width + 0.08, 0.07, 0.08, 0.02, 0, top - 0.035, 0), M.bx(P.linen, w.width + 0.02, drop, 0.006, 0, top - 0.07 - drop / 2, 0), M.bx(P.blackMetal, w.width + 0.02, 0.025, 0.02, 0, top - 0.07 - drop, 0)], base, zone, false);
+        curtainOpen.set(wi, () => 0.8);
+      }
+      continue;
+    }
 
     // ------------------------------------------------ living room
     if (room.type === "living") {

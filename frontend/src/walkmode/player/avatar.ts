@@ -8,6 +8,7 @@ import { mergeMeshChildren } from "../interior/geom";
 export type Pose = "stand" | "sit" | "lie" | "cycle";
 
 export class Avatar {
+  private static fabric: THREE.Texture | null = null;
   readonly root = new THREE.Group();
   private parts: Record<string, THREE.Object3D> = {};
   private mats: THREE.Material[] = [];
@@ -20,7 +21,8 @@ export class Avatar {
   private shoeM!: THREE.MeshPhysicalMaterial; private soleM!: THREE.Material;
   private sway = 0; private runK = 0;
 
-  constructor(seed = 1) {
+  /** `outfit`: clothes for a part (a doctor's white coat, a nurse's scrubs) instead of the seed's casual ones */
+  constructor(seed = 1, outfit?: { top?: string; bottom?: string; hair?: string; shoe?: string }) {
     let s = seed * 48271 + 11;
     const rnd = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
     const skinTones = ["#e9c4a6", "#dcb08f", "#c99a78", "#f0cfb5"];
@@ -28,8 +30,8 @@ export class Avatar {
     const bottoms = ["#2a2c33", "#5a5f6a", "#c7bba8", "#1e2a3c"];
     const mat = (c: string, r = 0.8, sheen = 0) => { const m = new THREE.MeshPhysicalMaterial({ color: c, roughness: r, sheen, sheenColor: new THREE.Color("#ffffff") }); this.mats.push(m); return m; };
     const skin = mat(skinTones[Math.floor(rnd() * skinTones.length)], 0.55); (skin as THREE.MeshPhysicalMaterial).sheen = 0.3;
-    const top = mat(tops[Math.floor(rnd() * tops.length)], 0.9, 0.5), bottom = mat(bottoms[Math.floor(rnd() * bottoms.length)], 0.85, 0.3);
-    const hair = mat("#1c1612", 0.6, 0.6), shoe = mat("#f2f2f0", 0.5), sole = mat("#3a3a3a", 0.9);
+    const top = mat(outfit?.top ?? tops[Math.floor(rnd() * tops.length)], 0.9, 0.5), bottom = mat(outfit?.bottom ?? bottoms[Math.floor(rnd() * bottoms.length)], 0.85, 0.3);
+    const hair = mat(outfit?.hair ?? "#1c1612", 0.6, 0.6), shoe = mat(outfit?.shoe ?? "#f2f2f0", 0.5), sole = mat("#3a3a3a", 0.9);
     this.shoeM = shoe as THREE.MeshPhysicalMaterial; this.soleM = sole;
     // A fine woven normal map stays shared by the garments, rather than adding fabric geometry.
     const weaveSize = 128, weave = new Uint8Array(weaveSize * weaveSize * 4);
@@ -39,8 +41,8 @@ export class Avatar {
     }
     const cloth = new THREE.DataTexture(weave, weaveSize, weaveSize); cloth.wrapS = cloth.wrapT = THREE.RepeatWrapping; cloth.repeat.set(5, 5); cloth.generateMipmaps = true; cloth.minFilter = THREE.LinearMipmapLinearFilter; cloth.needsUpdate = true; this.textures.push(cloth);
     for (const garment of [top, bottom]) { garment.normalMap = cloth; garment.normalScale.set(0.35, 0.35); garment.sheen = 0.2; garment.sheenColor.copy(garment.color); garment.sheenRoughness = 0.82; garment.specularIntensity = 0.25; }
-    const fabric = new THREE.TextureLoader().load("/3d/walk/tex/rough_linen_nor.webp");
-    fabric.wrapS = fabric.wrapT = THREE.RepeatWrapping; fabric.repeat.set(2, 2); fabric.anisotropy = 8; this.textures.push(fabric);
+    // (one fabric for everyone: a building's people share the walker's, loaded once)
+    const fabric = Avatar.fabric ??= (() => { const t = new THREE.TextureLoader().load("/3d/walk/tex/rough_linen_nor.webp"); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2); t.anisotropy = 8; return t; })();
     for (const garment of [top, bottom]) { garment.normalMap = fabric; garment.normalScale.set(0.18, 0.18); }
     hair.sheen = 0.06; hair.roughness = 0.82; hair.specularIntensity = 0.28;
     skin.roughness = 0.57; skin.sheen = 0.12; skin.sheenRoughness = 0.85; skin.clearcoat = 0.025; skin.specularIntensity = 0.35;

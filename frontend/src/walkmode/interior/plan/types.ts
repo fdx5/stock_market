@@ -2,7 +2,13 @@
  * interior's own frame: x to the right looking at the plan with the front (the balcony side, usually
  * south) at the bottom, z toward the front — the same axes the scene uses (y up). */
 
-export type RoomType = "living" | "kitchen" | "bedroom" | "master" | "bathroom" | "ensuite" | "dressroom" | "entrance" | "utility" | "balcony" | "hall" | "alpha";
+export type RoomType = "living" | "kitchen" | "bedroom" | "master" | "bathroom" | "ensuite" | "dressroom" | "entrance" | "utility" | "balcony" | "hall" | "alpha"
+  // a building other than a flat (plan/facility.ts): its public rooms, its work rooms, its services
+  | "lobby" | "corridor" | "liftHall" | "office" | "openOffice" | "meeting" | "pantry" | "restroom" | "storage"
+  | "consult" | "treatment" | "waiting" | "pharmacy" | "service" | "shop" | "cafe" | "classroom" | "staffroom" | "gallery"
+  | "ward" | "gym" | "guest" | "parking" | "stair" | "plant";
+export const FACILITY_ROOMS = new Set<RoomType>(["lobby", "corridor", "liftHall", "office", "openOffice", "meeting", "pantry", "restroom", "storage",
+  "consult", "treatment", "waiting", "pharmacy", "service", "shop", "cafe", "classroom", "staffroom", "gallery", "ward", "gym", "guest", "parking", "stair", "plant"]);
 export type Side = "n" | "s" | "e" | "w";
 
 export interface Room {
@@ -48,7 +54,20 @@ export interface FloorPlan {
   check: { areaM2: number; error: number };
   style: StyleName;
   floor: number;
+  /** a building other than a flat: what it is, its floors, this one's, and what the plan rests on */
+  facility?: {
+    kind: FacilityKind; name: string; level: number; levelLabel: string; use: string;
+    /** where a visitor starts (by the front door on the ground floor, before the lifts above it): x, z, yaw */
+    start: [number, number, number];
+    /** the lifts' doors: their centres on the wall, the wall's facing (into the hall) */
+    lifts: { x: number; z: number; yaw: number }[];
+    /** who works here: a room's id and what its people do there */
+    people: { room: string; role: FacilityRole }[];
+  };
 }
+export type FacilityRole = "desk" | "clerk" | "doctor" | "nurse" | "patient" | "visitor" | "student" | "teacher" | "shopper" | "guard" | "cook" | "guest";
+/** what a floor of a building other than flats is given over to */
+export type FacilityKind = "office" | "clinic" | "ward" | "retail" | "food" | "school" | "gym" | "hotel" | "parking" | "plant" | "civic" | "museum";
 
 export type StyleName = "modern_white" | "wood_natural" | "gray_minimal" | "classic_walnut" | "nordic_bright" | "hotel_dark" | "vintage_warm";
 

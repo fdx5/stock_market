@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FloorPlan, RoomType } from "./interior/plan/types";
+import { FACILITY_ROOMS, type FloorPlan, type RoomType } from "./interior/plan/types";
 
 /* The flat's plan in a corner: its rooms named as people call them (마스터룸, 서브룸, 화장실 1·2…),
  * its doors and windows, where the walker is and which way they look, and the pet. The marker
@@ -20,12 +20,14 @@ export function roomNames(plan: FloorPlan): Map<string, string> {
   const baths = plan.rooms.filter(r => r.type === "bathroom" || r.type === "ensuite");
   for (const r of plan.rooms) {
     const i = (n[r.type] = (n[r.type] ?? 0) + 1), many = (total[r.type] ?? 0) > 1;
-    const name: Record<RoomType, string> = {
+    // (a building's rooms carry their own names — 원장실, 회의실 2, 약국)
+    if (FACILITY_ROOMS.has(r.type)) { out.set(r.id, r.label); continue; }
+    const name: Partial<Record<RoomType, string>> = {
       living: "거실", kitchen: "주방", master: "마스터룸", bedroom: many ? `서브룸${i}` : "서브룸", alpha: "알파룸",
       bathroom: "", ensuite: "", dressroom: "드레스룸", entrance: "현관", utility: "다용도실", balcony: "베란다", hall: "복도",
     };
     // (the shared bathroom is 화장실1, the master's own 화장실2)
-    out.set(r.id, r.type === "bathroom" || r.type === "ensuite" ? (baths.length > 1 ? `화장실${r.type === "ensuite" ? 2 : 1}` : "화장실") : name[r.type]);
+    out.set(r.id, r.type === "bathroom" || r.type === "ensuite" ? (baths.length > 1 ? `화장실${r.type === "ensuite" ? 2 : 1}` : "화장실") : name[r.type] ?? r.label);
   }
   return out;
 }

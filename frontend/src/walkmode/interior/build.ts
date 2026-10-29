@@ -76,13 +76,19 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
   // (one material for every room's lamps: the shader dims each by its vertices' zone — lightZones.ts)
   const lampMat = (_zone: number, base: THREE.MeshPhysicalMaterial) => base;
   void lampMats;
-  const wet = (r: Room) => r.type === "bathroom" || r.type === "ensuite";
+  const wet = (r: Room) => r.type === "bathroom" || r.type === "ensuite" || r.type === "restroom";
+  // (a building's public floors — its lobby, corridors, waiting areas, galleries, its shops — in the
+  // stone of the main floor; its work rooms in the rooms' floor)
+  const PUBLIC = new Set<string>(["lobby", "corridor", "liftHall", "waiting", "service", "gallery", "shop", "cafe", "pharmacy"]);
   const floorMat = (r: Room) => wet(r) || r.type === "utility" ? P.floorWet : r.type === "entrance" ? P.floorEntry
-    : r.type === "living" || r.type === "kitchen" || r.type === "hall" ? P.floorMain : P.floorRoom;
+    : r.type === "living" || r.type === "kitchen" || r.type === "hall" || PUBLIC.has(r.type) ? P.floorMain : P.floorRoom;
   // the living room's 아트월: its side wall without openings (the TV goes there)
   const living = plan.rooms.find(r => r.type === "living");
   const accentSide = living ? sidesOf(living).filter(s => s.axis === "x").find(s => !plan.openings.some(o => (o.a === living.id || o.b === living.id) && o.axis === "x" && Math.abs(o.at - s.line) < 1e-6))?.name : undefined;
-  const wallMat = (r: Room, s: Side) => wet(r) ? P.wallWet : r === living && s.name === accentSide ? P.wallAccent : P.wall;
+  // (a building's lift hall in stone round its lift doors, its lobby's side walls likewise)
+  const wallMat = (r: Room, s: Side) => wet(r) ? P.wallWet : r === living && s.name === accentSide ? P.wallAccent
+    : (r.type === "liftHall" && s.name === "s") || (r.type === "lobby" && (s.name === "w" || s.name === "e")) ? P.wallAccent : P.wall;
+  const facility = !!plan.facility;
 
   for (const r of plan.rooms) {
     const zone = zoneOf(r), fy = -(r.floorDrop ?? 0);
@@ -185,6 +191,33 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
       return;
     }
     ceilQuads([], H);
+    if (facility && r.type !== "restroom") {
+      // a building's ceilings: 600 mm LED panels in a grid (a corridor's a line of downlights, a
+      // gallery's and a shop's track spots, a car park's batten tubes)
+      if (r.type === "corridor" || r.type === "liftHall" || r.type === "stair") {
+        const n = Math.max(1, Math.round(Math.max(W, D) / 2.4));
+        for (let i = 0; i < n; i++) W > D ? downlight(X0 + (W / n) * (i + 0.5), cz, zone) : downlight(cx, Z0 + (D / n) * (i + 0.5), zone);
+        ceilingLights.push({ room: r, zone, kind: "down", pos: new THREE.Vector3(cx, H - 0.01, cz), w: Math.max(0.4, W * 0.45), h: Math.max(0.4, D * 0.45) });
+        return;
+      }
+      if (r.type === "parking" || r.type === "plant" || r.type === "storage") {
+        const nx = Math.max(1, Math.round(W / 4)), nz = Math.max(1, Math.round(D / 3));
+        for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) panel(X0 + (W / nx) * (i + 0.5), Z0 + (D / nz) * (j + 0.5), 1.2, 0.08, zone);
+        // (a car park's deck: lit in parts — one lamp for all of it would leave it dim)
+        const gx = r.type === "parking" ? Math.min(4, Math.max(1, Math.round(W / 8))) : 1, gz = r.type === "parking" ? 2 : 1;
+        for (let i = 0; i < gx; i++) for (let j = 0; j < gz; j++)
+          ceilingLights.push({ room: r, zone, kind: "panel", pos: new THREE.Vector3(X0 + (W / gx) * (i + 0.5), H - 0.05, Z0 + (D / gz) * (j + 0.5)), w: W * 0.4 / gx, h: D * 0.4 / gz });
+        return;
+      }
+      const step = r.type === "gallery" || r.type === "shop" || r.type === "cafe" ? 2.0 : 2.4;
+      const nx = Math.max(1, Math.round(W / step)), nz = Math.max(1, Math.round(D / step));
+      for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+        const x = X0 + (W / nx) * (i + 0.5), z = Z0 + (D / nz) * (j + 0.5);
+        if (r.type === "gallery" || r.type === "cafe") downlight(x, z, zone); else panel(x, z, 0.58, 0.58, zone);
+      }
+      ceilingLights.push({ room: r, zone, kind: "panel", pos: new THREE.Vector3(cx, H - 0.05, cz), w: Math.max(0.5, W * 0.4), h: Math.max(0.5, D * 0.4) });
+      return;
+    }
     if (r.type === "hall" || r.type === "entrance" || r.type === "dressroom" || r.type === "utility") {
       const n = Math.max(1, Math.round(Math.max(W, D) / 1.6));
       for (let i = 0; i < n; i++) W > D ? downlight(X0 + (W / n) * (i + 0.5), cz, zone) : downlight(cx, Z0 + (D / n) * (i + 0.5), zone);
@@ -273,7 +306,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
       box(P.doorFrame, a1 + cw / 2, (bot + top) / 2 + cw / 2 - 0.0, d, cw, top - bot + cw, ct);
       box(P.doorFrame, mid, top + cw / 2, d, w + 2 * cw, cw, ct);
     }
-    const label = o.type === "front_door" ? "현관문" : o.type === "glass_door" ? "중문" : `${(byId.get(o.a === "out" ? o.b : o.a) ?? r).label} 문`;
+    const label = o.type === "front_door" ? (facility ? "출입문" : "현관문") : o.type === "glass_door" ? "중문" : `${(byId.get(o.a === "out" ? o.b : o.a) ?? r).label} 문`;
     if (o.type === "glass_door") {
       // 중문: a fixed and a sliding panel — slim black aluminium, an oak frame with frosted glass, a
       // bronze grid or a white full-height frame (the flat's own: variants.ts)
@@ -305,10 +338,29 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
     const front = o.type === "front_door";
     const lw = w - 0.012, lh = top - bot - 0.008, th = front ? 0.06 : 0.038;
     const pivot = new THREE.Group(), leaf = new THREE.Group();
-    const slab = new THREE.Mesh(boxUV(new RoundedBoxGeometry(lw, lh, th, 2, 0.004)), front ? P.frontDoor : P.door);
-    slab.castShadow = slab.receiveShadow = true; slab.position.set(lw / 2, lh / 2, 0); leaf.add(slab);
+    const glassy = facility && (front || byId.get(o.a)?.type === "shop");
+    if (glassy) {
+      // a building's way in: a pair of framed glass doors, one standing, one that swings
+      const half = lw / 2, f = 0.07;
+      const glassLeaf = (into: THREE.Group, x0: number) => {
+        const g = new THREE.Group(), add = (m: THREE.Material, x: number, y: number, sx: number, sy: number, sz: number) => { const me = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); me.position.set(x, y, 0); me.castShadow = true; g.add(me); };
+        add(P.blackMetal, x0 + half / 2, f / 2, half, f, 0.05); add(P.blackMetal, x0 + half / 2, lh - f / 2, half, f, 0.05);
+        add(P.blackMetal, x0 + f / 2, lh / 2, f, lh, 0.05); add(P.blackMetal, x0 + half - f / 2, lh / 2, f, lh, 0.05);
+        add(P.chrome, x0 + half - 0.12, 1.05, 0.03, 0.9, 0.08);
+        mergeMeshChildren(g); into.add(g);
+        const gl = new THREE.Mesh(new THREE.PlaneGeometry(half - 2 * f, lh - 2 * f), P.glass); gl.position.set(x0 + half / 2, lh / 2, 0); into.add(gl);
+      };
+      glassLeaf(leaf, 0);
+      // (the standing leaf: in the batches, beside the hinged one)
+      const still = new THREE.Group(); glassLeaf(still, 0);
+      const sp = s.at(o.hinge === "end" ? a0 + 0.006 : a1 - 0.006 - half, bot + 0.004, 0);
+      still.position.copy(sp); still.rotation.y = yaw; dynamic.add(still);
+    } else {
+      const slab = new THREE.Mesh(boxUV(new RoundedBoxGeometry(lw, lh, th, 2, 0.004)), front ? P.frontDoor : P.door);
+      slab.castShadow = slab.receiveShadow = true; slab.position.set(lw / 2, lh / 2, 0); leaf.add(slab);
+    }
     // lever handles both sides (a digital lock inside the front door)
-    for (const side of [1, -1]) {
+    for (const side of glassy ? [] : [1, -1]) {
       const rose = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.012, 24).rotateX(Math.PI / 2), P.handle); rose.position.set(lw - 0.065, 1.0 - bot, side * (th / 2 + 0.006));
       const lever = new THREE.Mesh(boxUV(new RoundedBoxGeometry(0.13, 0.018, 0.018, 2, 0.008)), P.handle); lever.position.set(lw - 0.115, 1.0 - bot, side * (th / 2 + 0.05));
       const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.045, 12).rotateX(Math.PI / 2), P.handle); neck.position.set(lw - 0.065, 1.0 - bot, side * (th / 2 + 0.03));
@@ -333,8 +385,10 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
     openYaw = closedYaw + dy * 0.98;
     // the leaf faces: its local z must point across the wall
     leaf.rotation.y = 0;
-    const startOpen = !front && (r.type === "bedroom" || r.type === "master" || o.b === "hall" || r.type === "utility");
-    const rig: DoorRig = { opening: o, kind: front ? "front" : "swing", pivot, leaf, t: startOpen ? 1 : 0, want: startOpen ? 1 : 0, closedYaw, openYaw, hinge: [hp.x, hp.z], length: lw, label, zone };
+    // (in a building the rooms off the corridor stand open — not the toilets, stores, plant or stair)
+    const startOpen = !front && (r.type === "bedroom" || r.type === "master" || o.b === "hall" || r.type === "utility"
+      || (facility && !["restroom", "storage", "plant", "stair", "guest"].includes(r.type)));
+    const rig: DoorRig = { opening: o, kind: front ? "front" : "swing", pivot, leaf, t: startOpen ? 1 : 0, want: startOpen ? 1 : 0, closedYaw, openYaw, hinge: [hp.x, hp.z], length: glassy ? lw / 2 : lw, label, zone };
     pivot.rotation.y = startOpen ? openYaw : closedYaw;
     doors.push(rig);
   }

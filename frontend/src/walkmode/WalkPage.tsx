@@ -12,7 +12,8 @@ import { BuildingInterior, type BuildingHud, type BuildingTalk } from "./buildin
 import { getSurvey, type SurveyBuilding, type SurveyFloor } from "./building/survey";
 import { fitOut, type FitSource } from "./building/fitout";
 import BuildingMap from "./building/BuildingMap";
-import { planBuilding, plateOf, type RegBuilding, type RegFloor } from "./building/plan";
+import { kindOf, planBuilding, plateOf, type RegBuilding, type RegFloor } from "./building/plan";
+import { FACILITY_LABEL, facilityKindOf, facilityLevels, generateFacility } from "./interior/plan/facility";
 import { envelopeOf } from "./interior/plan/envelope";
 import { seeded } from "./interior/plan/generate";
 import type { FloorPlan, StyleName, UnitsResponse } from "./interior/plan/types";
@@ -82,6 +83,8 @@ export default function WalkPage() {
   const [liftPanel, setLiftPanel] = useState<{ levels: { level: number; label: string; uses: string }[]; current: number } | null>(null);
   const [bsource, setBsource] = useState("");
   const [talk,setTalk]=useState<BuildingTalk|null>(null);
+  /** a building other than flats, walked floor by floor in the interior engine: what is known of it */
+  const fac = useRef<{ info: RegBuilding; floors: RegFloor[]; W: number; D: number; levels: { level: number; label: string; uses: string }[]; tenants: { name: string; level: number }[]; departments: string[]; key: string } | null>(null);
   /** the complex of the building being entered, when it is not the one the walk started at */
   const [visit, setVisit] = useState<{ id: string; name: string; built?: number } | null>(null);
   const [units, setUnits] = useState<UnitsResponse | null>(null);
@@ -118,6 +121,18 @@ export default function WalkPage() {
 
   // where to start
   useEffect(() => {
+    // (a building's floor without a building: ?interior=facility&kind=clinic&level=2&w=30&d=18 — for checks)
+    if (q.get("interior") === "facility") {
+      const kind = q.get("kind") ?? "office", W = Number(q.get("w") ?? 30), D = Number(q.get("d") ?? 18), top = Number(q.get("floors") ?? 8);
+      const use: Record<string, string> = { office: "업무시설", clinic: "의원", ward: "병원 병실", retail: "제1종근린생활시설 소매점", food: "휴게음식점", school: "학원", gym: "체력단련장", hotel: "숙박시설", parking: "주차장", plant: "기계실", civic: "공공업무시설", museum: "전시관" };
+      const info: RegBuilding = { name: q.get("name") ?? "검토용 빌딩", floors: top, basements: 2, use: use[kind] ?? "업무시설" };
+      const floors: RegFloor[] = [-2, -1, ...Array.from({ length: top }, (_, i) => i + 1)].map(l => ({ level: l, label: l < 0 ? `지하 ${-l}층` : `${l}층`, area: W * D, uses: [{ use: l < 0 ? "주차장" : use[kind] ?? "업무시설", detail: "", area: W * D }] }));
+      const levels = floors.map(f => f.level);
+      fac.current = { info, floors, W, D, levels: facilityLevels(levels, floors), tenants: [], departments: [], key: `demo|${kind}` };
+      setEntering({ name: info.name!, dong: "", x: 0, y: 0, floors: top, heading: 0, kind: "building" });
+      pendingFacility.current = Number(q.get("level") ?? 1);
+      return;
+    }
     if (demo) {
       const area = Number(q.get("area") ?? 84);
       // (cid, built: a demo of another complex's layout)
@@ -205,6 +220,8 @@ export default function WalkPage() {
     } catch { setError("건물 정보를 불러오지 못했습니다."); setPhase("error"); }
   };
   const pendingEnter = useRef<Entrance | null>(null);
+  const pendingFacility = useRef<number | null>(null);
+  useEffect(() => { const l = pendingFacility.current; if (l === null || !renderer.current) return; pendingFacility.current = null; openFacility(l); });
   // (the start set, the renderer up: in)
   useEffect(() => { const e = pendingEnter.current; if (!e || !start || !renderer.current) return; pendingEnter.current = null; enter(e); });
   const enter = (e: Entrance) => {
@@ -307,6 +324,15 @@ export default function WalkPage() {
       const entry:[number,number]=frame?[e.x-origin[0],frame.depth-(e.y-origin[1])]:[shape.doorX,0];
       const surveyState=survey?.status??"unavailable";
       const hospital=/의료|병원|의원/.test(`${info.use??""} ${info.useDetail??""} ${info.name??""}`);
+      if (q.get("legacy") !== "1") {
+        // (the plate along the street its longer side; a hospital's departments for its clinic rooms)
+        const W0 = frame?.width ?? shape.W, D0 = frame?.depth ?? shape.D;
+        const depts = hospital ? await fetch(`/api/realestate/hospital-departments?${new URLSearchParams({ lat: String(lat), lon: String(lon), name: info.name ?? e.name })}`).then(r => r.ok ? r.json() : null).catch(() => null) : null;
+        fac.current = { info, floors, W: Math.max(W0, D0), D: Math.min(W0, D0), levels: facilityLevels(plan.levels, floors), tenants: plan.tenants,
+          departments: ((depts?.departments ?? []) as { name: string; doctors: number }[]).sort((a, c) => c.doctors - a.doctors).map(d => d.name), key: `${pnu ?? ""}|${info.name ?? e.name}` };
+        openFacility(plan.levels.includes(1) ? 1 : plan.levels[0] ?? 1);
+        return;
+      }
       let stackReq:Promise<{status:string;level?:number;cores?:{type:string;polygons:[number,number][][][]}[]}|null>|null=null,deptReq:Promise<{departments?:{name:string;doctors:number}[]}|null>|null=null;
       setBsource(`${src} · ${surveyState==="available"?"SGIS 건물 매칭":surveyState==="unconfigured"?"SGIS 키가 서버에 설정되지 않음":surveyState==="auth_error"?"SGIS 인증 확인 필요":surveyState==="not_covered"?"SGIS 도면 미제공 건물":"SGIS 응답 지연·연결 실패"}`);
       const bi = new BuildingInterior(renderer.current!, {
@@ -339,6 +365,32 @@ export default function WalkPage() {
       bi.start(); setPhase("building");
     }).catch(err => { console.error(err); setError("건물 내부를 만들지 못했습니다: " + String(err)); setPhase("error"); });
   };
+  /** One floor of the building: its plan from the register's use for it, its businesses, built and
+   * lit by the flats' engine; the lift's panel brings another */
+  const openFacility = (level: number) => {
+    const f = fac.current; if (!f || !renderer.current) return;
+    const reg = f.floors.find(x => x.level === level), main = reg?.uses.slice().sort((a, b) => b.area - a.area)[0];
+    const kind = facilityKindOf(kindOf(main?.use ?? f.info.use ?? "", main?.detail ?? f.info.useDetail ?? "", level, f.info));
+    const lv = f.levels.find(l => l.level === level);
+    const p = generateFacility({ id: f.key, name: f.info.name || entering?.name || "건물", kind, level, levelLabel: lv?.label ?? (level < 0 ? `지하 ${-level}층` : `${level}층`), use: lv?.uses ?? "",
+      width: f.W, depth: f.D, tenants: f.tenants.filter(t => t.level === level).map(t => t.name), departments: f.departments, built: f.info.approved ? Number(String(f.info.approved).slice(0, 4)) || null : null });
+    sound.resume(); document.exitPointerLock?.();
+    setLiftPanel(null); setHud(null);
+    interior.current?.dispose(); interior.current = null;
+    setPlan(p); setFade(true); setPhase("interior-loading"); setProgress({ k: 0, text: level === 1 ? "출입문으로 들어가는 중" : "엘리베이터로 이동하는 중" });
+    const it = new Interior(renderer.current, {
+      plan: p, hour, view: null, sound, levels: f.levels,
+      onProgress: (k, text) => setProgress({ k, text }), onHud: h => setHud(h), onExit: () => exitFlat(),
+      onLift: () => { setLiftPanel({ levels: f.levels, current: level }); document.exitPointerLock?.(); },
+    });
+    interior.current = it;
+    it.resize(canvas.current!.clientWidth, canvas.current!.clientHeight);
+    it.load().then(() => {
+      if (interior.current !== it) return;
+      it.start(); setPhase("interior");
+      setTimeout(() => setFade(false), 120);
+    }).catch(err => { console.error(err); setError("건물 내부를 만들지 못했습니다: " + String(err)); setPhase("error"); });
+  };
   const exitBuilding = () => {
     document.exitPointerLock?.();
     building.current?.dispose(); building.current = null; setBhud(null); setLiftPanel(null);setTalk(null);
@@ -354,7 +406,7 @@ export default function WalkPage() {
       const target = e.target as HTMLElement | null;
       if (target?.isContentEditable || target?.matches("input, textarea, select")) return;
       sound.resume();
-      if (e.code === "Escape") { if (document.pointerLockElement) return; if (phase === "building") { if(talk)building.current?.closeTalk();else if (liftPanel) building.current?.closeLiftPanel(); else exitBuilding(); return; } if (phase === "interior") exitFlat(); else if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); } else if (phase === "outdoor") leave(); }
+      if (e.code === "Escape") { if (document.pointerLockElement) return; if (phase === "building") { if(talk)building.current?.closeTalk();else if (liftPanel) building.current?.closeLiftPanel(); else exitBuilding(); return; } if (phase === "interior") { if (liftPanel) setLiftPanel(null); else exitFlat(); } else if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); } else if (phase === "outdoor") leave(); }
       if (e.code === "KeyH") setShowHelp(s => !s);
       if(e.code==="KeyF"&&phase==="outdoor"&&!e.repeat){if(game.current?.interactCar())e.preventDefault();return;}
       if ((e.code === "KeyE" || e.code === "Enter") && phase === "outdoor" && !e.repeat) {
@@ -438,11 +490,11 @@ export default function WalkPage() {
       {(phase === "boot" || phase === "outdoor-loading" || phase === "interior-loading" || phase === "building-loading") && (
         <div className="wk-loading">
           <div className="wk-load-card">
-            <span className="wk-kicker">{phase === "interior-loading" ? `${plan?.complexName ?? ""} ${plan?.dong ?? ""} · ${plan?.floor ?? ""}층` : "직접 걷기"}</span>
-            <h1>{phase === "interior-loading" ? "세대 실내를 만드는 중" : phase === "building-loading" ? `${entering?.name ?? "건물"} 내부를 만드는 중` : start?.name ?? "단지를 찾는 중"}</h1>
+            <span className="wk-kicker">{phase === "interior-loading" ? (plan?.facility ? `${plan.facility.name} · ${plan.facility.levelLabel}` : `${plan?.complexName ?? ""} ${plan?.dong ?? ""} · ${plan?.floor ?? ""}층`) : "직접 걷기"}</span>
+            <h1>{phase === "interior-loading" ? (plan?.facility ? `${FACILITY_LABEL[plan.facility.kind]} 내부를 만드는 중` : "세대 실내를 만드는 중") : phase === "building-loading" ? `${entering?.name ?? "건물"} 내부를 만드는 중` : start?.name ?? "단지를 찾는 중"}</h1>
             <div className="wk-bar"><i style={{ transform: `scaleX(${Math.max(0.02, progress.k)})` }} /></div>
             <p className="wk-progress-text">{progress.text}<b>{Math.round(progress.k * 100)}%</b></p>
-            {phase === "interior-loading" && plan && <p className="wk-sub">{plan.template} · 전용 {plan.areaExclusiveM2.toFixed(2)}㎡ · {STYLE_LABEL[plan.style]} · 고품질 자재 약 9MB (첫 방문만)</p>}
+            {phase === "interior-loading" && plan && (plan.facility ? <p className="wk-sub">{plan.template} · 바닥 {plan.areaExclusiveM2}㎡ · {plan.basis.rooms}</p> : <p className="wk-sub">{plan.template} · 전용 {plan.areaExclusiveM2.toFixed(2)}㎡ · {STYLE_LABEL[plan.style]} · 고품질 자재 약 9MB (첫 방문만)</p>)}
             {phase !== "interior-loading" && <p className="wk-sub">WASD·방향키 이동 · Shift 달리기 · 마우스로 둘러보기 · E 상호작용 · V 시점 · Esc 나가기{touch ? " · 왼쪽 스틱 이동, 오른쪽 끌어서 시점" : ""}</p>}
           </div>
         </div>
@@ -527,6 +579,17 @@ export default function WalkPage() {
 
       {phase === "interior" && plan && (
         <>
+          {plan.facility ? (
+            <div className="wk-topbar">
+              <div className="wk-where"><b>{plan.facility.name} · {plan.facility.levelLabel}</b><span>{hud?.room} · {FACILITY_LABEL[plan.facility.kind]} · 사람 {interior.current?.people?.count ?? 0}명</span></div>
+              <div className="wk-meta" title={bsource}><span className="wk-badge">추정 공간</span>{plan.template} · {plan.facility.use ? `층 용도: ${plan.facility.use}` : plan.basis.rooms} · 실내 배치는 추정 · {bsource}</div>
+              <div className="wk-actions">
+                <button className="wk-btn" onClick={() => { setLiftPanel({ levels: fac.current?.levels ?? [], current: plan.facility!.level }); document.exitPointerLock?.(); }}>🛗 층 이동</button>
+                <button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭" : "3인칭"} <kbd>V</kbd></button>
+                <button className="wk-btn" onClick={exitFlat}>나가기 <kbd>Esc</kbd></button>
+              </div>
+            </div>
+          ) : (
           <div className="wk-topbar">
             <div className="wk-where"><b>{plan.complexName} {plan.dong} {plan.floor}층</b><span>{hud?.room}</span></div>
             <div className="wk-meta"><span className="wk-badge">추정 평면</span>{plan.template} · 전용 {plan.areaExclusiveM2.toFixed(2)}㎡ (방 합계 {plan.check.areaM2}㎡, {(plan.check.error * 100).toFixed(1)}%) · {STYLE_LABEL[plan.style]} · 연출용 가상 인테리어</div>
@@ -534,7 +597,20 @@ export default function WalkPage() {
               <button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭" : "3인칭"} <kbd>V</kbd></button>
               <button className="wk-btn" onClick={exitFlat}>나가기 <kbd>Esc</kbd></button>
             </div>
-          </div>
+          </div>)}
+          {plan.facility && liftPanel && (
+            <div className="wk-prompt wk-lift" onPointerDown={e => e.stopPropagation()}>
+              <p><b>엘리베이터</b> · 현재 {liftPanel.levels.find(l => l.level === liftPanel.current)?.label}</p>
+              <div className="wk-lift-grid">
+                {[...liftPanel.levels].reverse().map(l => (
+                  <button key={l.level} className={`wk-btn${l.level === liftPanel.current ? " on" : ""}`} disabled={l.level === liftPanel.current} onClick={() => openFacility(l.level)} title={l.uses}>
+                    <b>{l.label}</b>{l.uses && <small>{l.uses}</small>}
+                  </button>
+                ))}
+              </div>
+              <div className="wk-row"><button className="wk-btn" onClick={() => setLiftPanel(null)}>닫기 <kbd>Esc</kbd></button></div>
+            </div>
+          )}
           {hud?.seated !== "화면" && hud?.seated !== "반려동물" && <MiniMap plan={plan} subject={mapSubject} />}
           {tvOpen && <TvBrowser corners={tvCorners} zoom={{ on: zoomed === "tv", set: on => zoomTo(on ? "tv" : null) }} onOff={() => { interior.current?.tvPower(false); setTvOpen(false); if (zoomed === "tv") zoomTo(null); }} onPicture={img => interior.current?.tvPicture(img)} />}
           {laptopOpen && <LaptopScreen corners={laptopCorners} zoom={{ on: zoomed === "laptop", set: on => zoomTo(on ? "laptop" : null) }} onClose={() => { interior.current?.closeLaptop(); setLaptopOpen(false); setZoomed(null); }} />}
@@ -543,7 +619,7 @@ export default function WalkPage() {
           {hud?.pet && touch && <button className="wk-btn wk-pet-zoom" onPointerDown={e => { e.stopPropagation(); interior.current?.zoomPet(true); }}>🔍 확대해서 보기</button>}
           {hud?.seated === "반려동물" && <div className="wk-laptop-bar" onPointerDown={e => e.stopPropagation()}><span>가까이서 보는 중</span><button className="wk-btn" onClick={() => interior.current?.zoomPet(false)}>축소 <kbd>Z</kbd></button></div>}
           {hud?.seated && hud.seated !== "화면" && hud.seated !== "반려동물" && <div className="wk-hint is-seat">{hud.seated} · 이동키를 누르면 일어납니다</div>}
-          {showHelp && !touch && <div className="wk-help" onClick={() => setShowHelp(false)}>클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (스위치·수전·변기·커튼·문·TV·소파·침대) · V 3인칭 · H 도움말 · Esc 나가기</div>}
+          {showHelp && !touch && <div className="wk-help" onClick={() => setShowHelp(false)}>{plan.facility ? "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (문·엘리베이터·사람과 대화·의자·수전·스위치) · V 3인칭 · M 지도 · Esc 나가기" : "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (스위치·수전·변기·커튼·문·TV·소파·침대) · V 3인칭 · H 도움말 · Esc 나가기"}</div>}
         </>
       )}
 

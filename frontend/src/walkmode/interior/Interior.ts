@@ -18,6 +18,9 @@ import { Avatar } from "../player/avatar";
 import { Cat, Robot, type PetKind } from "./life";
 import type { Sound, WaterKind } from "../game/sound";
 import type { FloorPlan } from "./plan/types";
+import { facilityLook } from "./facilityMaterials";
+import { People } from "./facilityPeople";
+import type { Spot } from "./facilityFurnish";
 
 /* The interior: a flat built from its plan, furnished, lit and walked through. One renderer (the
  * page's); its output resolution is set once on entry and kept. Everything that could cost a frame
@@ -40,6 +43,10 @@ export interface InteriorOptions {
   onTvMenu?(): void;
   /** the laptop opened (the page lays the game over its screen) or shut */
   onLaptop?(on: boolean): void;
+  /** a building other than flats (plan.facility): its lift called (the page shows the floor panel),
+   * and its floors for the directory in the lift hall */
+  onLift?(): void;
+  levels?: { level: number; label: string; uses: string }[];
 }
 
 const EYE = 1.6, RADIUS = 0.24;
@@ -138,6 +145,9 @@ export class Interior {
   // (the same person as outside — Avatar(7) in WalkGame — in socks: shoes are left at the door)
   avatar = (() => { const a = new Avatar(7); a.shoes(false); return a; })();
   cat: Cat | null = null;
+  /** a building's people (facilityPeople.ts) */
+  people: People | null = null;
+  private facDispose: (() => void) | null = null;
   /** the flat's pet (for the map) */
   get pet(): { pos: THREE.Vector2 } | null { return this.cat; }
   robot: Robot | null = null;
@@ -185,6 +195,10 @@ export class Interior {
     t = mark("textures", t);
     this.lib = new Library(sets);
     this.P = makePalette(this.lib, plan.style);
+    // (a building: its own floors and things over the style's — facilityMaterials.ts)
+    const look = plan.facility ? facilityLook(this.P, plan.facility.kind, plan.facility.name) : null;
+    const spots: Spot[] = [];
+    if (look) { this.P = look.P; this.facDispose = look.dispose; }
     P(0.54, "벽·바닥·천장을 세우는 중");
     await nextFrame();
     const B = new Batcher();
@@ -192,7 +206,8 @@ export class Interior {
     await nextFrame();
     P(0.6, "가구와 설비를 배치하는 중");
     switchState.clear();
-    this.furn = furnish(plan, this.shell, this.P, B, this.dynamic, this.hits);
+    this.furn = furnish(plan, this.shell, this.P, B, this.dynamic, this.hits,
+      look ? { X: look.X, signs: look.signs, spots, hooks: { lift: () => this.o.onLift?.(), levels: this.o.levels } } : undefined);
     await nextFrame();
     for (const m of B.build()) this.static.add(m);
     t = mark("build", t);
@@ -222,9 +237,16 @@ export class Interior {
     }
     this.interactables = [...this.furn.interactables, ...this.doorInteractables()];
     // places to sit or lie down
-    for (const s of this.furn.seats) this.interactables.push({ id: `seat-${s.label}`, zone: s.zone, room: s.room, hit: s.hit, label: () => s.label, act: () => { this.sit(s.label === "소파에 앉기" ? "소파에 앉아 있음" : "침대에 누워 있음", s.eye, s.yaw, s.pose); return null; } });
-    // the cat, and a robot vacuum by the sofa
+    for (const s of this.furn.seats) this.interactables.push({ id: `seat-${s.label}`, zone: s.zone, room: s.room, hit: s.hit, label: () => s.label, act: () => { this.sit(s.pose === "lie" ? "침대에 누워 있음" : s.label === "소파에 앉기" ? "소파에 앉아 있음" : s.label === "벤치에 앉기" ? "벤치에 앉아 있음" : "의자에 앉아 있음", s.eye, s.yaw, s.pose); return null; } });
     const collide = (x: number, z: number, r: number) => this.collide(x, z, r);
+    if (plan.facility) {
+      // a building: its people instead of a pet
+      this.people = new People(plan, spots, () => this.o.sound.play("click"));
+      this.people.root.traverse(o => { o.castShadow = false; });
+      this.dynamic.add(this.people.root);
+      this.interactables.push(...this.people.interactables((x, z) => this.shell.roomAt(x, z)));
+    } else {
+    // the cat, and a robot vacuum by the sofa
     this.cat = new Cat(plan, this.shell, collide, this.o.sound, this.o.pet ?? "dog");
     this.dynamic.add(this.cat.root);
     const cat = this.cat, living = plan.rooms.find(r => r.type === "living") ?? plan.rooms[0];
@@ -234,11 +256,12 @@ export class Interior {
       this.dynamic.add(robot.root, robot.dockMesh);
       this.interactables.push({ id: "robot", zone: 0, room: living, hit: robot.hit, label: () => robot.label(), act: () => robot.toggle() });
     }
+    }
     // every lit material the rolled, zoned light loop (furniture extras, the cat, the walker too)
     this.scene.traverse(o => { const m = (o as THREE.Mesh).material; for (const x of (Array.isArray(m) ? m : m ? [m] : [])) if ((x as THREE.MeshStandardMaterial).isMeshStandardMaterial && !x.customProgramCacheKey().startsWith("zone")) zoneLit(x, this.zoneU); });
     // the living room's polished floor reflects the room where it is (the probe is taken there)
     {
-      const living = plan.rooms.find(r => r.type === "living") ?? plan.rooms[0];
+      const living = this.probeRoom();
       const box = new THREE.Box3();
       for (const r of plan.rooms) if (r.zone === living.zone) box.union(new THREE.Box3(new THREE.Vector3(r.rect[0], -0.05, r.rect[1]), new THREE.Vector3(r.rect[2], this.shell.H + 0.2, r.rect[3])));
       probeBox.min.value.copy(box.min); probeBox.max.value.copy(box.max);
@@ -342,7 +365,7 @@ export class Interior {
     for (const r of this.o.plan.rooms) {
       const z = this.shell.zones.get(r.zone)!, [x0, z0, x1, z1] = r.rect, w = x1 - x0, d = z1 - z0;
       this.zoneArea.set(z, (this.zoneArea.get(z) ?? 0) + 2 * w * d + 2 * (w + d) * H);
-      if (r.type === "bathroom" || r.type === "ensuite") this.wetZones.add(z);
+      if (r.type === "bathroom" || r.type === "ensuite" || r.type === "restroom") this.wetZones.add(z);
     }
     // the sun through the glass, with soft shadows
     this.sun.color.copy(s.color); this.sun.intensity = s.intensity;
@@ -360,7 +383,8 @@ export class Interior {
 
   private setupPost() {
     const r = this.renderer;
-    r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFShadowMap;
+    // (on: a previous interior on this renderer left it off, and its loading renders need the sun's shadow)
+    r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFShadowMap; r.shadowMap.autoUpdate = true; r.shadowMap.needsUpdate = true;
     r.toneMapping = THREE.NeutralToneMapping; r.toneMappingExposure = 1.0;
     r.outputColorSpace = THREE.SRGBColorSpace;
     const size = r.getDrawingBufferSize(new THREE.Vector2());
@@ -402,7 +426,7 @@ export class Interior {
   /** The flat as seen from the living room, as the light every surface takes from round it. */
   private captureProbe(at?: THREE.Vector3) {
     const p = this.probe; if (!p) return;
-    const living = this.o.plan.rooms.find(r => r.type === "living") ?? this.o.plan.rooms[0];
+    const living = this.probeRoom();
     const [x0, z0, x1, z1] = living.rect;
     p.cam.position.copy(at ?? new THREE.Vector3((x0 + x1) / 2, PROBE_Y, (z0 + z1) / 2));
     const vis = this.avatar.root.visible; this.avatar.root.visible = false;
@@ -414,10 +438,15 @@ export class Interior {
     p.env?.dispose(); p.env = env;
     this.scene.environment = env.texture; this.scene.environmentIntensity = 0.85;
   }
+  /** where the light round the flat is taken: its living room; a building's largest room off the corridor */
+  private probeRoom() {
+    const rooms = this.o.plan.rooms, area = (r: (typeof rooms)[number]) => (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]);
+    return rooms.find(r => r.type === "living") ?? (this.o.plan.facility ? rooms.filter(r => r.type !== "corridor" && r.type !== "stair").sort((a, b) => area(b) - area(a))[0] : undefined) ?? rooms[0];
+  }
   /** Bathrooms reflect a bathroom (their tiles and chrome), not the living room. */
   private captureWet() {
     const p = this.probe; if (!p) return;
-    const bath = this.o.plan.rooms.find(r => r.type === "bathroom");
+    const bath = this.o.plan.rooms.find(r => r.type === "bathroom" || r.type === "restroom");
     if (!bath) return;
     const [x0, z0, x1, z1] = bath.rect;
     const keep = this.scene.environment;
@@ -436,7 +465,7 @@ export class Interior {
       const room = this.o.plan.rooms.find(r => r.id === d.opening.a)!;
       return {
         id: `door-${i}`, zone: d.zone, room, hit: d.kind === "slide" ? d.pivot : d.leaf,
-        label: () => d.kind === "front" ? "현관문 열고 밖으로 나가기" : `${d.label} ${d.want > 0.5 ? "닫기" : "열기"}`,
+        label: () => d.kind === "front" ? (this.o.plan.facility ? "출입문으로 나가기" : "현관문 열고 밖으로 나가기") : `${d.label} ${d.want > 0.5 ? "닫기" : "열기"}`,
         act: () => {
           if (d.kind === "front") { d.want = 0.35; this.o.sound.play("doorlock"); setTimeout(() => this.o.onExit?.(), 700); return null; }
           d.want = d.want > 0.5 ? 0 : 1; return "door";
@@ -446,6 +475,8 @@ export class Interior {
   }
 
   private placeAtEntrance() {
+    const st = this.o.plan.facility?.start;
+    if (st) { this.pos.set(st[0], st[1]); this.yaw = st[2]; return; }
     const entry = this.o.plan.rooms.find(r => r.type === "entrance") ?? this.o.plan.rooms[0];
     const hall = this.o.plan.openings.find(o => o.a === entry.id && o.b !== "out") ?? this.o.plan.openings.find(o => o.b === entry.id);
     const [x0, z0, x1, z1] = entry.rect;
@@ -577,6 +608,7 @@ export class Interior {
     const walker = { x: this.pos.x, z: this.pos.y, speed: this.seated ? 0 : this.vel.length(), seated: !!this.seated };
     if (this.seated) { const f = new THREE.Vector3(-Math.sin(this.seated.yaw), 0, -Math.cos(this.seated.yaw)); walker.x = this.seated.eye.x + f.x * 0.6; walker.z = this.seated.eye.z + f.z * 0.6; }
     this.cat?.update(dt, walker);
+    this.people?.update(dt, walker);
     this.robot?.update(dt, [{ x: walker.x, z: walker.z, r: 0.25 }, ...(this.cat ? [{ x: this.cat.pos.x, z: this.cat.pos.y, r: 0.2 }] : [])]);
     this.lap("life");
     this.lightsFrame(dt);
@@ -627,7 +659,8 @@ export class Interior {
     if (this.stepAcc > (run ? 0.95 : 0.68)) {
       this.stepAcc = 0;
       const r = this.shell.roomAt(p.x, p.y), t = r?.type;
-      this.o.sound.step(t === "bathroom" || t === "ensuite" || t === "utility" || t === "entrance" ? "tile" : (t === "living" || t === "kitchen" || t === "hall") && this.o.plan.style !== "wood_natural" ? "stone" : "wood", run);
+      const hard = t === "lobby" || t === "corridor" || t === "liftHall" || t === "stair" || t === "parking" || t === "plant" || t === "waiting" || t === "gallery" || t === "shop" || t === "service";
+      this.o.sound.step(t === "bathroom" || t === "ensuite" || t === "utility" || t === "entrance" || t === "restroom" ? "tile" : hard || ((t === "living" || t === "kitchen" || t === "hall") && this.o.plan.style !== "wood_natural") ? "stone" : "wood", run);
     }
   }
   /** where the camera may stand on the way from the body to (x, z): short of the first wall, door or
@@ -640,7 +673,7 @@ export class Interior {
     return this.collide(px + (x - px) * t, pz + (z - pz) * t, 0.1);
   }
   /** a circle against the wall and furniture segments (and the doors where they stand now) */
-  private collide(x: number, z: number, radius = RADIUS): THREE.Vector2 {
+  private collide(x: number, z: number, radius = RADIUS, people = true): THREE.Vector2 {
     const RADIUS = radius;
     const segs = this.segs.concat(this.doorSegs());
     const p = new THREE.Vector2(x, z);
@@ -653,6 +686,11 @@ export class Interior {
         if (d < RADIUS && d > 1e-6) { p.x = cx + (ex / d) * RADIUS; p.y = cz + (ez / d) * RADIUS; pushed = true; }
       }
       if (!pushed) break;
+    }
+    // (a building's people: stepped round, the walls still kept)
+    if (this.people && people && radius > 0.15) for (const c of this.people.circles()) {
+      const ex = p.x - c.x, ez = p.y - c.z, d = Math.hypot(ex, ez), r = c.r + radius;
+      if (d < r && d > 1e-6) p.copy(this.collide(c.x + (ex / d) * r, c.z + (ez / d) * r, radius, false));
     }
     return p;
   }
@@ -855,6 +893,7 @@ export class Interior {
     this.composer?.renderTarget1.dispose(); this.composer?.renderTarget2.dispose(); this.gtao?.dispose(); this.bloom?.dispose();
     this.renderer.setOpaqueSort(null);
     this.sun.shadow.map?.dispose();
+    this.people?.dispose(); this.facDispose?.();
     this.avatar.dispose(); this.cat?.dispose(); this.robot?.dispose(); this.o.sound.purr(0); this.o.sound.whirr(0);
     this.scene.clear();
   }
