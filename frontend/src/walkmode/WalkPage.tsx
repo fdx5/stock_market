@@ -255,7 +255,7 @@ export default function WalkPage() {
       plan: p, hour, view, sound, pet,
       // (a screen in use takes the mouse back from the walk)
       onTv: on => { setTvOpen(on); if (on) document.exitPointerLock?.(); else setZoomed(z => (z === "tv" ? null : z)); },
-      onTvMenu: () => { setTvOpen(true); document.exitPointerLock?.(); },
+      onTvMenu: () => { setTvOpen(true); zoomTo("tv"); document.exitPointerLock?.(); },
       onLaptop: on => { setLaptopOpen(on); if (on) document.exitPointerLock?.(); else setZoomed(z => (z === "laptop" ? null : z)); },
       onProgress: (k, text) => setProgress({ k, text }),
       onHud: h => setHud(h),

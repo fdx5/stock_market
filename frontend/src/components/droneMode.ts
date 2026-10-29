@@ -556,11 +556,17 @@ export class DroneSession {
     this.walker.root.position.set(b.x, b.z, -b.y); this.walker.root.rotation.set(0, f.yaw + Math.PI, -f.steer * Math.min(f.bikeSpeed / 10, 1) * 0.45);
     this.walker.update(dt, f.bikeSpeed);
   }
-  toggleWalk() {
+  /** On foot at (x, y) facing `yaw` — back out of a building's door: there, in third person. */
+  walkAt(x: number, y: number, yaw: number) {
+    const f = this.flight; if (f.walking) f.setWalking(false, this.world);
+    f.pos.x = x; f.pos.z = -y; f.yaw = yaw;
+    return this.toggleWalk(false);
+  }
+  toggleWalk(nearSidewalk = true) {
     const f = this.flight;
     // (whatever had the keyboard — a search field, a button — lets it go: W must walk)
     (document.activeElement as HTMLElement | null)?.blur?.();
-    if (!f.walking) {
+    if (!f.walking && nearSidewalk) {
       // (down onto the nearest sidewalk within 250 m — not into a wood or a courtyard's middle)
       const x = f.pos.x, y = -f.pos.z; let best: [number, number] | null = null, bd = Infinity;
       for (const pk of this.world.walkPathsNear(x, y, 250)) for (let o = 0; o < pk.length;) {
@@ -580,6 +586,8 @@ export class DroneSession {
     }
     const on = f.setWalking(!f.walking, this.world);
     if (on) this.landedAt = performance.now();
+    // (on foot the walker is seen: third person to start with — V still changes it)
+    if (on && this.view === "fpv") this.toggleView();
     if (on && !this.walker) { this.walker = new Avatar(7); this.p.scene.add(this.walker.root); }
     if (this.walker) this.walker.root.visible = false;
     this.audio.pause(on);
@@ -671,8 +679,12 @@ export class DroneSession {
     const kx = Math.cos(c.lat * Math.PI / 180) * 111_320, ky = 110_540;
     const ll = (x: number, y: number) => `${(c.lon + x / kx).toFixed(7)},${(c.lat + y / ky).toFixed(7)}`;
     const [lon, lat] = ll(doorX, doorY).split(",");
+    const back = new URLSearchParams(location.search);
+    // (out again in front of this building: where the door was, facing it)
+    const fx = ring.reduce((t, p) => t + p[0], 0) / ring.length - doorX, fy = ring.reduce((t, p) => t + p[1], 0) / ring.length - doorY, fl = Math.hypot(fx, fy) || 1;
+    back.set("walkat", `${doorX.toFixed(2)},${doorY.toFixed(2)},${Math.atan2(fx / fl, -fy / fl).toFixed(3)}`);
     const q = new URLSearchParams({ enter: "1", lat, lon, heading: String(heading),
-      foot: ring.slice(0, 60).map(([x, y]) => ll(x, y)).join(";"), back: location.pathname + location.search + location.hash });
+      foot: ring.slice(0, 60).map(([x, y]) => ll(x, y)).join(";"), back: location.pathname + "?" + back.toString() + location.hash });
     location.href = `/walk?${q}`;
     return true;
   }

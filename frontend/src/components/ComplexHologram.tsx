@@ -4230,6 +4230,25 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     setDroneOn(true); st.resume();
   };
   const autoDroneStarted = useRef<string | null>(null);
+  // (back from indoors: ?walkat=x,y,yaw — the drone up and the walker set down at that building's
+  // door, in third person; the mark then taken off the address so a reload starts as usual)
+  const walkAtDone = useRef(false);
+  useEffect(() => {
+    const q = new URLSearchParams(location.search), at = q.get("walkat");
+    if (!at || walkAtDone.current || !data?.found) return;
+    const [x, y, yaw] = at.split(",").map(Number);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const timer = window.setInterval(() => {
+      if (!stageRef.current?.model || !hostRef.current?.dataset.shownAt) return;
+      if (!stageRef.current.drone) enterDrone();
+      const d = stageRef.current?.drone; if (!d) return;
+      walkAtDone.current = true; window.clearInterval(timer);
+      d.walkAt(x, y, Number.isFinite(yaw) ? yaw : d.flight.yaw); setDroneView(d.view);
+      q.delete("walkat"); history.replaceState(history.state, "", location.pathname + (q.toString() ? "?" + q.toString() : "") + location.hash);
+    }, 150);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.found]);
   useEffect(() => {
     if ((!autoDrone && !rendererRecovery.current) || !data?.found || (autoDroneStarted.current === complexId && !rendererRecovery.current)) return;
     const timer = window.setInterval(() => {
@@ -4303,7 +4322,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.code === "KeyV" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); return; }
       // (G: down to the street on foot, or back into the air — the same world either way)
-      if (e.code === "KeyG" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current?.drone?.toggleWalk(); return; }
+      if (e.code === "KeyG" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); const d = stageRef.current?.drone; d?.toggleWalk(); if (d) setDroneView(d.view); return; }
       // (E on foot at a building: in through its door; elsewhere E still turns)
       if (e.code === "KeyE" && !e.repeat && stageRef.current?.drone?.flight.walking && stageRef.current.drone.flight.door) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current.drone.enterDoor(); return; }
       // (B: onto a bicycle or off it, on foot only)
@@ -4323,7 +4342,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     window.addEventListener("keydown", down, true);
     window.addEventListener("keyup", up, true);
     window.addEventListener("blur", blur);
-    const walkToggle = () => stageRef.current?.drone?.toggleWalk();
+    const walkToggle = () => { const d = stageRef.current?.drone; d?.toggleWalk(); if (d) setDroneView(d.view); };
     const bikeToggle = () => stageRef.current?.drone?.rideNearest();
     const carToggle = () => stageRef.current?.drone?.toggleCar();
     const inside = (e: Event) => { const d = (e as CustomEvent<{ x: number; y: number }>).detail; if (d) stageRef.current?.drone?.enterBuildingAt(d.x, d.y); };
