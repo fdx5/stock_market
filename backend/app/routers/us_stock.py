@@ -12,8 +12,8 @@ from app.utils import dataframe_to_records
 
 router = APIRouter()
 
-# Matches stock.py's own /quote poll cadence.
-TTL_QUOTE_SECONDS = 5
+# Expire before the detail page's five-second poll, including normal timer jitter.
+TTL_QUOTE_SECONDS = 4
 
 
 def _resolve_item(code: str) -> dict:
@@ -49,7 +49,7 @@ def quote(code: str):
     with a slickcharts-snapshot fallback (see get_us_stock_quote)."""
     item = _resolve_item(code)
     return cache.get_or_set(
-        f"us_stock_quote:{code}", TTL_QUOTE_SECONDS, lambda: get_us_stock_quote(code, item["name"], snapshot=item)
+        f"us_stock_quote:{code}", TTL_QUOTE_SECONDS, lambda: get_us_stock_quote(code, item["name"], snapshot=item), allow_stale=False
     )
 
 

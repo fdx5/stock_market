@@ -45,7 +45,7 @@ import "../pages.css";
  * the company, its peers, what is being said and written, and the raw sessions.
  *
  * Everything the classic KR and US pages carried is here, on the same endpoints and
- * cadences (the quote still polls every ten seconds); what is new is the story, the
+ * cadences (the quote polls every five seconds); what is new is the story, the
  * AI forecast with its track record, period returns against the stock's own index,
  * streak-aware investor flows, a peer table with this stock's rank, comments on
  * board posts, sharing, and a strip of recently opened names.
@@ -63,7 +63,7 @@ interface Quote {
   name?: string;
 }
 
-const QUOTE_POLL_MS = 10_000;
+const QUOTE_POLL_MS = 5_000;
 
 function useBubbleMarket(code: string, us: boolean): string | null {
   const [m, setM] = useState<string | null>(null);
@@ -216,11 +216,16 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
   /* The live price. */
   useEffect(() => {
     let cancelled = false;
-    const poll = () => (us ? api.usStockQuote(code) : api.quote(code)).then((q) => {
+    let pending = false;
+    const poll = () => {
+      if (cancelled || pending) return;
+      pending = true;
+      return (us ? api.usStockQuote(code) : api.quote(code)).then((q) => {
       if (cancelled) return;
       if (!Number.isFinite(q.close) || q.close <= 0) { setQuoteUnavailable(true); return; }
       setQuote(q); setReceivedAt(new Date().toISOString()); setQuoteUnavailable(false);
-    }).catch(() => { if (!cancelled) setQuoteUnavailable(true); });
+      }).catch(() => { if (!cancelled) setQuoteUnavailable(true); }).finally(() => { pending = false; });
+    };
     const stop = startVisibilityAwareInterval(poll, QUOTE_POLL_MS);
     return () => {
       cancelled = true;

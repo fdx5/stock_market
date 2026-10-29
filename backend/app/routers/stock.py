@@ -24,8 +24,8 @@ from app.utils import dataframe_to_records
 
 router = APIRouter()
 
-# Matches the cadence the battle page already polls Samsung/SK Hynix quotes at.
-TTL_QUOTE_SECONDS = 5
+# Expire before the detail page's five-second poll, including normal timer jitter.
+TTL_QUOTE_SECONDS = 4
 # The underlying Naver page is itself 20-minutes delayed, so there's no benefit to
 # polling our own cache faster than this - it just re-fetches the same ladder.
 TTL_ORDERBOOK_SECONDS = 15
@@ -94,7 +94,7 @@ def quote(code: str):
     built from the daily OHLCV history and only moves once that history's 6h cache
     rolls over) — meant for a short-interval poll on an already-loaded detail view."""
     _resolve_name(code)
-    data = cache.get_or_set(f"stock_quote:{code}", TTL_QUOTE_SECONDS, lambda: get_stock_quote(code))
+    data = cache.get_or_set(f"stock_quote:{code}", TTL_QUOTE_SECONDS, lambda: get_stock_quote(code), allow_stale=False)
     if not data:
         raise HTTPException(status_code=502, detail="시세 데이터를 가져오지 못했습니다.")
     return data

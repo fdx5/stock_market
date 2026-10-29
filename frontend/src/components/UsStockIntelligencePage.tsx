@@ -30,7 +30,7 @@ const cap = (value: number | null | undefined) => !value ? "—" : value >= 1e12
 // (0.0214 = 2.14% a day), not a percentage — printed straight it read "0.0%" on every
 // ticker. Same scale as IndicatorPanel's 20일 변동성 tile further down this page.
 const dailyVolPct = (value: number | null | undefined) => value == null ? null : value * 100;
-const QUOTE_POLL_MS = 10_000;
+const QUOTE_POLL_MS = 5_000;
 
 export default function UsStockIntelligencePage({ code, isEtf = false }: { code: string; isEtf?: boolean }) {
   const ticker = code.toUpperCase();
@@ -63,10 +63,14 @@ export default function UsStockIntelligencePage({ code, isEtf = false }: { code:
 
   useEffect(() => {
     let cancelled = false;
+    let pending = false;
     const poll = () => {
+      if (cancelled || pending) return;
+      pending = true;
       api.usStockQuote(ticker)
         .then(value => { if (!cancelled) setQuote(value); })
-        .catch(() => { /* Keep the last successful quote on a transient failure. */ });
+        .catch(() => { /* Keep the last successful quote on a transient failure. */ })
+        .finally(() => { pending = false; });
     };
     const stopPolling = startVisibilityAwareInterval(poll, QUOTE_POLL_MS);
     return () => { cancelled = true; stopPolling(); };
