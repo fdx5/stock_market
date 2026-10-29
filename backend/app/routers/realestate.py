@@ -3,6 +3,7 @@ from fastapi.responses import Response
 
 from app.services import realestate_floors
 from app.services import realestate_hospital
+from app.services import realestate_crosswalks as realestate_crosswalks_service
 from app.services import realestate_places as realestate_places_service
 from app.services import sgis_indoor
 from app.services import realestate_building_info, realestate_buildings, realestate_facts, realestate_map, realestate_nearby, realestate_rent, realestate_summary, realestate_water
@@ -282,6 +283,18 @@ def walk_config():
 def indoor_floor(response: Response, id: str = Query(..., pattern=r"^\d{15,40}$"), level: int = Query(1, ge=-20, le=160)):
     response.headers["Cache-Control"] = "public, max-age=60"
     return sgis_indoor.floor(id, level)
+
+
+@router.get("/crosswalks")
+def realestate_crosswalks(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132),
+                          r: float = Query(1500, ge=100, le=3000), debug: bool = False):
+    """Registered crosswalks round a point (전국횡단보도표준데이터): place, width, length, lanes, signals."""
+    try:
+        result = realestate_crosswalks_service.crosswalks(lat, lon, r, debug)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response.headers["Cache-Control"] = "public, max-age=3600" if result.get("status") == "available" else "no-store"
+    return result
 
 
 @router.get("/indoor-stack")
