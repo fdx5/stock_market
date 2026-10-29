@@ -374,7 +374,7 @@ export class DroneSession {
     this.matchViewWater();
     this.layViewBed();
     const t4 = performance.now();
-    if (performance.now() > this.doorAt) { this.doorAt = performance.now() + 200; this.findDoor(); }
+    if (performance.now() > this.doorAt) { this.doorAt = performance.now() + 200; this.findDoor(); this.settle(); }
     if (f.walking && performance.now() > this.bikeAt) { this.bikeAt = performance.now() + 3000; this.parkBikes(); }
     this.clock += dt;
     if (this.view === "chase") this.chase(dt);
@@ -579,6 +579,7 @@ export class DroneSession {
       }
     }
     const on = f.setWalking(!f.walking, this.world);
+    if (on) this.landedAt = performance.now();
     if (on && !this.walker) { this.walker = new Avatar(7); this.p.scene.add(this.walker.root); }
     if (this.walker) this.walker.root.visible = false;
     this.audio.pause(on);
@@ -607,6 +608,19 @@ export class DroneSession {
     f.door = null;
   }
   private doorAt = 0;
+  /** set down at once, before the buildings round were in: for 15 s after, a walker found inside a
+   * building (its outline, its roof over them) is moved to the nearest open ground outside it */
+  private landedAt = 0;
+  private settle() {
+    const f = this.flight; if (!f.walking || f.car || performance.now() - this.landedAt > 15000) return;
+    const w = this.world, x = f.pos.x, y = -f.pos.z;
+    const inside = (px: number, py: number) => w.roofAt(px, py) > w.groundAt(px, py) + 0.8 && (w.roofAt(px, py) - w.groundAt(px, py) > 6 || !!w.buildingRingAt(px, py));
+    if (!inside(x, y)) return;
+    for (let r = 1; r <= 60; r += 1) for (let k = 0; k < 24; k++) {
+      const a = k / 24 * Math.PI * 2, px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+      if (!inside(px, py) && !inside(px + Math.cos(a) * 0.8, py + Math.sin(a) * 0.8)) { f.pos.x = px + Math.cos(a) * 0.8; f.pos.z = -(py + Math.sin(a) * 0.8); return; }
+    }
+  }
   private traced: { x: number; y: number; ring: [number, number][] } | null = null;
   private traceRoof(x: number, y: number): [number, number][] | null {
     if (this.traced && Math.hypot(this.traced.x - x, this.traced.y - y) < 4) return this.traced.ring;
