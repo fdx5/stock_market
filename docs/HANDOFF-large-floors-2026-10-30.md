@@ -1,5 +1,9 @@
 # 인수인계: 대형 건물 실내 (2026-10-30, Claude → Codex)
 
+> Codex 후속 구현 및 사용자 추가 요청 반영 상태는
+> [`walk-facility-features-2026-10-30.md`](walk-facility-features-2026-10-30.md)를 먼저 본다.
+> 최종 컴퓨터 홈페이지는 사용자가 지정한 `https://kospimap.com/map`이다. 아래 원래 명세는 이력으로 보존한다.
+
 먼저 `AGENTS.md`를 따른다. 데이터 삭제 금지 규칙과 네온 디자인 규칙이 적용된다.
 배포는 사용자가 "배포해"라고 할 때만 한다. 작업 위치는 `I:/ai_root/sm-deploy`이고 `origin/main` 기준이다.
 

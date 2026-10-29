@@ -1,0 +1,16 @@
+.wk-camera-control { position: absolute; left: 16px; bottom: 54px; z-index: 20; font: 13px Pretendard, sans-serif; color: #d8faff; }
+.re-drone .wk-camera-control { pointer-events: auto; bottom: calc(var(--drone-footer-height,0px) + 16px); }
+.wk-camera-trigger,.wk-camera-panel button { border: 1px solid #3c8794; border-radius: 7px; background: #071c2bed; color: #c8f7ff; padding: 9px 12px; font: inherit; cursor: pointer; }
+.wk-camera-panel { position: fixed; inset: 0; margin: auto; color: #d8faff; width: min(440px,calc(100vw - 32px)); max-height: 88dvh; overflow: auto; background: #081923; border: 1px solid #328797; border-radius: 14px; padding: 22px; box-shadow: 0 0 40px #2bd4eb22; pointer-events: auto; }
+.wk-camera-panel::backdrop { background: #020a13aa; }
+.wk-camera-panel header { display: flex; gap: 12px; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.wk-camera-panel h2 { font-size: 18px; margin: 0; }
+.wk-camera-panel label { display: block; margin: 18px 0 7px; }
+.wk-camera-panel output { float: right; color: #72eeff; font-variant-numeric: tabular-nums; }
+.wk-camera-panel input[type=range] { display: block; width: 100%; margin-top: 10px; accent-color: #65eaff; }
+.wk-camera-panel small { color: #8cafbb; }
+.wk-camera-panel .wk-camera-check { display: flex; align-items: center; gap: 8px; }
+.wk-camera-panel input[type=checkbox] { accent-color: #60e6ef; }
+.wk-camera-panel footer { display: flex; gap: 10px; justify-content: space-between; margin-top: 22px; }
+@media (pointer:coarse) { .wk-camera-control { left: 12px; bottom: 150px; } .wk-camera-trigger { padding: 11px; font-size: 11px; } }
+@media (pointer:coarse) { .re-drone .wk-camera-control { bottom: calc(var(--drone-footer-height,0px) + 170px); } }

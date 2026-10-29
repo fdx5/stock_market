@@ -9,7 +9,8 @@ import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Batcher } from "./geom";
 import { buildShell, type Seg, type Shell } from "./build";
-import { furnish, shadowMoved, switchState, type Furnished, type Interactable } from "./furnish";
+import { furnish, shadowMoved, switchState, type Furnished, type Interactable, type MonitorScreen } from "./furnish";
+import type { VendingSession } from "./vending";
 import { BASE_SETS, loadSets, Library, makePalette, SETS, STYLE_SETS, type Palette, type SetName } from "./materials";
 import { boxProjected, probeBox, zones as zoneTable, zoneLit, type ZoneUniform } from "./lightZones";
 import { paintedView, sunAt } from "./view";
@@ -21,6 +22,8 @@ import type { FloorPlan } from "./plan/types";
 import { facilityLook } from "./facilityMaterials";
 import { People } from "./facilityPeople";
 import type { Spot } from "./facilityFurnish";
+import { withKitGeometryCache } from "./models";
+import { applyViewFov, viewPreferences } from "../viewPreferences";
 
 /* The interior: a flat built from its plan, furnished, lit and walked through. One renderer (the
  * page's); its output resolution is set once on entry and kept. Everything that could cost a frame
@@ -46,10 +49,16 @@ export interface InteriorOptions {
   /** a building other than flats (plan.facility): its lift called (the page shows the floor panel),
    * and its floors for the directory in the lift hall */
   onLift?(): void;
+  onMonitor?(): void;
+  onVending?(session: VendingSession): void;
   levels?: { level: number; label: string; uses: string }[];
 }
 
 const EYE = 1.6, RADIUS = 0.24;
+// Three's init replaces global LTC tables with new textures. Repeating it on every floor left
+// the previous two GPU tables alive. The same immutable tables serve all interior instances.
+let areaLightsReady = false;
+function ensureAreaLights() { if (!areaLightsReady) { RectAreaLightUniformsLib.init(); areaLightsReady = true; } }
 /** a plan this big across (m) is a large floor — a hospital's, a mall's: its batches cut into
  * squares, its lamps sharing the area lights, its far parts not drawn */
 const LARGE = 48;
@@ -97,7 +106,7 @@ const nextFrame = () => new Promise<void>(r => requestAnimationFrame(() => r()))
  * same materials with 1×1 stand-in textures, the same light rig, environment and target. The
  * returned handle keeps the programs alive until the real interior has its own. */
 export async function prewarmInterior(renderer: THREE.WebGLRenderer): Promise<{ release(): void }> {
-  RectAreaLightUniformsLib.init();
+  ensureAreaLights();
   const px = (c: number[]) => { const t = new THREE.DataTexture(new Uint8Array(c), 1, 1); t.needsUpdate = true; return t; };
   const sets = new Map<SetName, import("./materials").TexSet>();
   for (const n of Object.keys(SETS) as SetName[]) {
@@ -219,7 +228,7 @@ export class Interior {
   private lap(name: string) { const t = performance.now(), s = this.perf.seg; s[name] = (s[name] ?? 0) * 0.98 + (t - this.segT) * 0.02; this.segT = t; }
 
   constructor(readonly renderer: THREE.WebGLRenderer, private o: InteriorOptions) {
-    RectAreaLightUniformsLib.init();
+    ensureAreaLights();
     this.scene.add(this.static, this.dynamic, this.avatar.root);
     // (the sun's shadow map is drawn only when the flat's own things move: the walker casts none)
     this.avatar.root.traverse(o => { o.castShadow = false; });
@@ -256,8 +265,11 @@ export class Interior {
     await nextFrame();
     P(0.6, "가구와 설비를 배치하는 중");
     switchState.clear();
-    this.furn = furnish(plan, this.shell, this.P, B, this.dynamic, this.hits,
-      look ? { X: look.X, signs: look.signs, spots, hooks: { lift: () => this.o.onLift?.(), levels: this.o.levels } } : undefined);
+    this.furn = withKitGeometryCache(() => furnish(plan, this.shell, this.P, B, this.dynamic, this.hits,
+      look ? { X: look.X, signs: look.signs, spots, hooks: { lift: () => this.o.onLift?.(), levels: this.o.levels,
+        monitor: screen => { this.monitor = screen; this.zoomScreen("monitor"); this.o.onMonitor?.(); },
+        vending: session => this.o.onVending?.(session), vendSound: kind => { this.o.sound.resume(); this.o.sound.play(kind === "motor" ? "fridge" : "thud"); },
+      } } : undefined));
     await nextFrame();
     const furnMeshes = B.build();
     for (const m of furnMeshes) this.static.add(m);
@@ -592,8 +604,16 @@ export class Interior {
   }
 
   // ---------------------------------------------------------------- input
+  private overlay = false;
+  private monitor: MonitorScreen | null = null;
+  private screenLook: { yaw: number; pitch: number } | null = null;
+  setOverlay(on: boolean) { this.overlay = on; this.keys.clear(); this.stick.set(0, 0); this.runStick = false; if (on) this.vel.set(0, 0); }
+  monitorScreen() { return this.monitor ? this.project(this.monitor.corners) : null; }
+  closeMonitor() { this.zoomScreen(null); this.monitor = null; }
+  resetLook() { if (!this.seated) { this.pitch = -.04; this.shown.ease = .15; } }
   keyDown = (e: KeyboardEvent) => {
-    const t = e.target as HTMLElement | null;
+    if (this.overlay) return;
+    const t = e.target instanceof HTMLElement ? e.target : null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
     if (e.code === "KeyE" || e.code === "Enter") { e.preventDefault(); if (!e.repeat) this.interact(); return; }
     if (e.code === "KeyV") { if (!e.repeat) this.toggleView(); return; }
@@ -602,8 +622,8 @@ export class Interior {
   };
   keyUp = (e: KeyboardEvent) => { this.keys.delete(e.code); };
   blur = () => { this.keys.clear(); };
-  setStick(x: number, y: number, run: boolean) { this.stick.set(x, y); this.runStick = run; if (this.seated && (Math.abs(x) > 0.3 || Math.abs(y) > 0.3)) this.standUp(); }
-  look(dx: number, dy: number) { this.yaw -= dx; this.pitch = Math.max(-1.35, Math.min(1.3, this.pitch - dy)); }
+  setStick(x: number, y: number, run: boolean) { if (this.overlay) return; this.stick.set(x, y); this.runStick = run; if (this.seated && (Math.abs(x) > 0.3 || Math.abs(y) > 0.3)) this.standUp(); }
+  look(dx: number, dy: number) { if (this.overlay) return; this.yaw -= dx; this.pitch = Math.max(-1.35, Math.min(1.3, this.pitch - dy)); }
   /** shut the laptop (from the page's button too), stepping back if zoomed in on it */
   closeLaptop() {
     if (this.furn.laptop.on) this.furn.laptop.on = false;
@@ -633,15 +653,16 @@ export class Interior {
   }
   /** Zoom in on a screen (the TV, the laptop): the eye square in front of it, at the distance where it
    * fills nine tenths of the view; null steps back to where the walker stood. */
-  zoomScreen(which: "tv" | "laptop" | null) {
+  zoomScreen(which: "tv" | "laptop" | "monitor" | null) {
     if (!which) { if (this.seated?.label === "화면") this.standUp(); return; }
-    const c = which === "tv" ? this.furn.tv?.corners : this.furn.laptop.cornersNow?.();
+    const c = which === "tv" ? this.furn.tv?.corners : which === "monitor" ? this.monitor?.corners : this.furn.laptop.cornersNow?.();
     if (!c) return;
     const mid = c[0].clone().add(c[2]).multiplyScalar(0.5), n = screenNormal(c);
     const w = c[0].distanceTo(c[1]), h = c[0].distanceTo(c[3]);
     const vf = THREE.MathUtils.degToRad(this.camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * this.camera.aspect);
     const d = Math.max((w / 2) / Math.tan(hf / 2), (h / 2) / Math.tan(vf / 2)) / 0.9;
     const back = this.seated?.label === "화면" ? this.seated.back : this.pos.clone();
+    if (this.seated?.label !== "화면") this.screenLook = { yaw: this.yaw, pitch: this.pitch };
     this.seated = { label: "화면", eye: mid.clone().addScaledVector(n, d), yaw: Math.atan2(n.x, n.z), pose: "sit", back };
     this.yaw = this.seated.yaw; this.pitch = Math.asin(Math.max(-1, Math.min(1, -n.y))); this.shown.ease = 0.9;
     this.avatar.root.visible = false; this.emitHud(true);
@@ -669,7 +690,7 @@ export class Interior {
   tvPower(on: boolean) { this.furn.tv?.power?.(on); this.probeDirty = Math.max(this.probeDirty, 8); }
   tvPicture(img: HTMLImageElement | null) { this.furn.tv?.picture?.(img); }
   // (into first person: eyes level, ahead the way the body faces)
-  toggleView() { this.view = this.view === "first" ? "third" : "first"; if (this.view === "first" && !this.seated) this.pitch = -0.04; this.shown.ease = 0.6; this.emitHud(); }
+  toggleView() { this.view = this.view === "first" ? "third" : "first"; this.shown.ease = viewPreferences().reduceMotion ? .15 : .3; this.emitHud(); }
   interact() {
     this.o.sound.resume();
     const t = this.target; if (!t) return;
@@ -686,7 +707,14 @@ export class Interior {
     this.seated = { label, eye, yaw, pose, back: this.pos.clone() };
     this.yaw = yaw; this.pitch = pose === "lie" ? 0.75 : -0.08; this.avatar.pose = pose; this.shown.ease = 0.9; this.emitHud(true);
   }
-  standUp() { if (!this.seated) return; if (this.cat) this.cat.hold = null; this.pos.copy(this.seated.back); this.seated = null; this.avatar.pose = "stand"; this.pitch = -0.05; this.shown.ease = 0.8; this.emitHud(true); }
+  standUp() {
+    if (!this.seated) return;
+    const restore = this.seated.label === "화면" ? this.screenLook : null;
+    if (this.cat) this.cat.hold = null;
+    this.pos.copy(this.seated.back); this.seated = null; this.avatar.pose = "stand";
+    this.pitch = restore?.pitch ?? -.05; if (restore) this.yaw = restore.yaw;
+    this.screenLook = null; this.shown.ease = restore ? .2 : .8; this.emitHud(true);
+  }
 
   // ---------------------------------------------------------------- the frame
   start() {
@@ -777,7 +805,7 @@ export class Interior {
     const len = Math.hypot(x - px, z - pz) || 1e-6;
     let t = 1;
     for (const [ax, az, bx, bz] of segs) { const h = segHit(px, pz, x, z, ax, az, bx, bz); if (h !== null) t = Math.min(t, Math.max(0, h - 0.1 / len)); }
-    return this.collide(px + (x - px) * t, pz + (z - pz) * t, 0.1);
+    return this.collide(px + (x - px) * t, pz + (z - pz) * t, 0.1, false);
   }
   /** a circle against the wall and furniture segments (and the doors where they stand now) */
   private collide(x: number, z: number, radius = RADIUS, people = true): THREE.Vector2 {
@@ -924,6 +952,7 @@ export class Interior {
   }
   private applyCamera(dt: number) {
     const cam = this.camera;
+    const prefs = viewPreferences(); applyViewFov(cam);
     const floor = this.shell.floorAt(this.pos.x, this.pos.y);
     this.eyeY += (floor + EYE - this.eyeY) * Math.min(1, dt * 10 || 1);
     const ar = this.avatar.root;
@@ -941,7 +970,7 @@ export class Interior {
       }
     } else {
       ar.rotation.set(0, this.yaw + Math.PI, 0, "YXZ"); ar.position.set(this.pos.x, floor, this.pos.y);
-      const bob = this.view === "first" ? Math.sin(this.bob) * 0.012 * Math.min(1, this.vel.length() / 1.4) : 0;
+      const bob = this.view === "first" && !prefs.reduceMotion ? Math.sin(this.bob) * 0.012 * Math.min(1, this.vel.length() / 1.4) : 0;
       if (this.view === "first") {
         // the eye a little in front of the face (never through a wall or a door's jamb: inside the
         // wall's thickness its faces are not drawn, and the frame flashed through it)
@@ -949,7 +978,7 @@ export class Interior {
         cam.position.set(e.x, this.eyeY + bob, e.y);
       } else {
         // over the shoulder, pulled in before a wall
-        const back = 1.5, bx = Math.sin(this.yaw), bz = Math.cos(this.yaw);
+        const back = 2.8 * prefs.distance, bx = Math.sin(this.yaw), bz = Math.cos(this.yaw);
         let d = back;
         for (const [ax, az, cx, cz] of this.grid.query(this.pos.x, this.pos.y, this.pos.x + bx * back, this.pos.y + bz * back)) {
           const hit = segHit(this.pos.x, this.pos.y, this.pos.x + bx * back, this.pos.y + bz * back, ax, az, cx, cz);
@@ -962,8 +991,8 @@ export class Interior {
         d = Math.min(d + 0.05, sb.boom);
         // (the shoulder's offset too kept on this side of the walls: in a narrow hall it put the
         // camera inside one)
-        const e = this.clearOf(this.pos.x + bx * d + Math.cos(this.yaw) * 0.25, this.pos.y + bz * d - Math.sin(this.yaw) * 0.25);
-        cam.position.set(e.x, this.eyeY + 0.12, e.y);
+        const e = this.clearOf(this.pos.x + bx * d + Math.cos(this.yaw) * 0.32, this.pos.y + bz * d - Math.sin(this.yaw) * 0.32);
+        cam.position.set(e.x, this.eyeY + 0.22, e.y);
       }
     }
     // eased toward what was set (dt 0: the warm-up renders, at once)
@@ -976,6 +1005,8 @@ export class Interior {
       sh.yaw += dy * k; sh.pitch += (this.pitch - sh.pitch) * k;
       sh.pos.lerp(cam.position, kp); cam.position.copy(sh.pos);
     }
+    // Recheck the interpolated path: turning a corner must not lerp through its wall.
+    if (!this.seated) { const safe = this.clearOf(cam.position.x, cam.position.z); cam.position.x = safe.x; cam.position.z = safe.y; sh.pos.copy(cam.position); }
     cam.rotation.set(sh.pitch, sh.yaw, 0, "YXZ");
     // what the hand holds: low and to the right of the eye, or before the body seen from behind
     if (this.furn.pantry.hand) {
@@ -985,14 +1016,14 @@ export class Interior {
       this.furn.pantry.holdAt(m);
     }
     // the head hidden from its own eye (the body stays: look down and it's there)
-    ar.visible = this.seated?.label !== "화면" && this.seated?.label !== "반려동물" && (this.view === "third" || (!(this.seated?.pose === "lie") && (this.pitch < -0.55 || this.mirrors.some(m => m.position.distanceTo(cam.position) < 4.5))));
+    ar.visible = this.seated?.label !== "화면" && this.seated?.label !== "반려동물" && (this.view === "third" ? Math.hypot(cam.position.x - this.pos.x, cam.position.z - this.pos.y) > .65 : (!(this.seated?.pose === "lie") && (this.pitch < -0.55 || this.mirrors.some(m => m.position.distanceTo(cam.position) < 4.5))));
     cam.updateMatrixWorld();
   }
   private pick() {
     // (zoomed in on a screen, the screen is the whole world: nothing else to point at)
     if (this.seated?.label === "화면" || this.seated?.label === "반려동물") { this.target = null; this.emitHud(); return; }
     this.ray.setFromCamera(new THREE.Vector2(0, 0), this.camera);
-    this.ray.far = this.view === "third" ? 3.6 : 2.3;
+    this.ray.far = this.view === "third" ? Math.hypot(this.camera.position.x - this.pos.x, this.camera.position.z - this.pos.y) + 2.4 : 2.3;
     let best: Interactable | null = null, bd = Infinity;
     const cp = this.camera.position, reach = this.ray.far + 2.5;
     for (const it of this.interactables) {
@@ -1000,7 +1031,7 @@ export class Interior {
       // (a large floor's thousands: only those within reach — where each is, taken once)
       if (this.large) { const at = it.id.startsWith("person-") ? it.hit.getWorldPosition(this.tmpV) : this.hitAt.get(it) ?? this.hitAt.set(it, it.hit.getWorldPosition(new THREE.Vector3())).get(it)!; if (Math.abs(at.x - cp.x) > reach || Math.abs(at.z - cp.z) > reach) continue; }
       const hits = this.ray.intersectObject(it.hit, true);
-      if (hits.length && hits[0].distance < bd) { bd = hits[0].distance; best = it; }
+      if (hits.length && hits[0].distance < bd && Math.hypot(hits[0].point.x - this.pos.x, hits[0].point.z - this.pos.y) <= 2.7) { bd = hits[0].distance; best = it; }
     }
     // (only what isn't behind a wall: the walls cut the ray)
     if (best) {
@@ -1039,7 +1070,7 @@ export class Interior {
     // the lowest fps over any one second
     let worst1s = Infinity, acc = 0, cnt = 0;
     const seq = this.perf.intervals;
-    for (let i = 0, j = 0; i < seq.length; i++) { acc += seq[i]; cnt++; while (acc > 1000 && j < i) { acc -= seq[j++]; cnt--; } if (acc >= 990) worst1s = Math.min(worst1s, (cnt * 1000) / acc); }
+    for (let i = 0, j = 0; i < seq.length; i++) { acc += seq[i]; cnt++; while (j < i && acc - seq[j] >= 1000) { acc -= seq[j++]; cnt--; } if (acc >= 1000) worst1s = Math.min(worst1s, (cnt * 1000) / acc); }
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     return { frames: n, avgFps: n ? 1000 / (seq.reduce((a, b) => a + b, 0) / n) : 0, min1sFps: Number.isFinite(worst1s) ? worst1s : null, p95: q(0.95), p99: q(0.99), maxMs: this.perf.worst, cpuMs: this.perf.cpuMs, loadMs: this.perf.loadMs, phases: this.perf.phases, seg: Object.fromEntries(Object.entries(this.perf.seg).map(([k, v]) => [k, +v.toFixed(2)])), long: this.perf.long.map(l => `${l.at}ms ${l.ms}ms ${l.room}`),
       drawingBuffer: [size.x, size.y], pixelRatio: this.renderer.getPixelRatio(), calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures };

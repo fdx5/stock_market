@@ -124,6 +124,7 @@ export function reception(P: Palette, X: Extra, w: number): Kit {
     rb(P.counter, w, 0.03, 0.62, 0.006, 0, 0.755, 0.31),
     bx(P.ledWarm, w - 0.1, 0.012, 0.01, 0, 0.06, d + 0.185),               // a light line at the toe
     rb(P.applianceDark, 0.5, 0.32, 0.03, 0.006, -w / 4, 0.95, 0.38), rb(P.applianceDark, 0.5, 0.32, 0.03, 0.006, w / 4, 0.95, 0.38),
+    ...[-1, 1].map(s => part(X.monitor, T(new THREE.PlaneGeometry(.465, .285), s * w / 4, .95, .3965), false)),
   ];
 }
 /** a free counter facing +z (a café's bar, a pharmacy's): a back bar against the wall behind is separate */

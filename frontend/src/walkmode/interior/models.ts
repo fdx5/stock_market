@@ -12,12 +12,26 @@ export interface Part { m: THREE.Material; g: THREE.BufferGeometry; cast?: boole
 export type Kit = Part[];
 
 const T = (g: THREE.BufferGeometry, x: number, y: number, z: number) => g.translate(x, y, z);
+// Repeated chairs/desks have identical parts. Keep a bounded, construction-only cache of their
+// untranslated geometry; callers still own independent clones, at exactly the original detail.
+let shapeCache: Map<string, THREE.BufferGeometry> | null = null;
+export function withKitGeometryCache<T>(make: () => T): T {
+  const previous = shapeCache, cache = new Map<string, THREE.BufferGeometry>(); shapeCache = cache;
+  try { return make(); } finally { shapeCache = previous; for (const g of cache.values()) g.dispose(); }
+}
+function shape(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+  if (!shapeCache) return make();
+  const had = shapeCache.get(key); if (had) return had.clone();
+  const g = make();
+  if (shapeCache.size >= 96) { const first = shapeCache.keys().next().value!; shapeCache.get(first)!.dispose(); shapeCache.delete(first); }
+  shapeCache.set(key, g); return g.clone();
+}
 export const rb = (P: THREE.Material, w: number, h: number, d: number, r: number, x: number, y: number, z: number, seg = 3): Part =>
-  ({ m: P, g: T(boxUV(new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3))), x, y, z) });
+  ({ m: P, g: T(shape(`r|${w}|${h}|${d}|${r}|${seg}`, () => boxUV(new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3)))), x, y, z) });
 export const bx = (P: THREE.Material, w: number, h: number, d: number, x: number, y: number, z: number): Part =>
-  ({ m: P, g: T(boxUV(new THREE.BoxGeometry(w, h, d)), x, y, z) });
+  ({ m: P, g: T(shape(`b|${w}|${h}|${d}`, () => boxUV(new THREE.BoxGeometry(w, h, d))), x, y, z) });
 export const cy = (P: THREE.Material, r0: number, r1: number, h: number, x: number, y: number, z: number, seg = 24): Part =>
-  ({ m: P, g: T(boxUV(new THREE.CylinderGeometry(r0, r1, h, seg)), x, y, z) });
+  ({ m: P, g: T(shape(`c|${r0}|${r1}|${h}|${seg}`, () => boxUV(new THREE.CylinderGeometry(r0, r1, h, seg))), x, y, z) });
 const lathe = (_m: THREE.Material, pts: [number, number][], seg = 40): THREE.BufferGeometry => boxUV(new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg));
 const part = (m: THREE.Material, g: THREE.BufferGeometry, cast = true): Part => ({ m, g, cast });
 

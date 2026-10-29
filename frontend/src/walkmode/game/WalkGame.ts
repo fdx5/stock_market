@@ -39,6 +39,7 @@ import { buildBeds } from "../ground/flowerBeds";
 import { SignalHeads } from "../ground/signals";
 import { maskInPatches } from "../ground/GroundStream";
 import { cutOpenings, setOpenings, type Opening } from "../ground/facades";
+import { applyViewFov, viewPreferences } from "../viewPreferences";
 
 /* The street round a complex, on foot: the drive game's streamed world (VWorld buildings, roads,
  * terrain, trees and lamps in fixed tiles, cached in IndexedDB) and its traffic — which stops for a
@@ -66,6 +67,7 @@ export interface WalkOptions {
   onBicycle?(hud: BicycleHud): void;
   onCar?(hud:CarHud):void;
   onExit?(): void;
+  onView?(view: "first" | "third"): void;
 }
 
 const PAINT = ["#f7f7f5", "#ecebe6", "#6b6e72", "#4a4d51", "#141518", "#141518", "#b9bcc0", "#223a5e", "#7a1c22", "#c8bca6"];
@@ -762,6 +764,7 @@ export class WalkGame {
 
   // ---------------------------------------------------------------- input
   private down = (e: KeyboardEvent) => {
+    if (this.overlay) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
     if (e.code === "KeyV") { if (!e.repeat) this.toggleView(); return; }
@@ -770,13 +773,12 @@ export class WalkGame {
   private up = (e: KeyboardEvent) => { this.keys.delete(e.code); };
   private blur = () => { this.clearControls(); this.publishBicycle(true); };
   private visibility = () => { if (document.hidden) this.blur(); };
-  setStick(x: number, y: number, run: boolean) { this.stick.set(x, y); this.runStick = run; }
-  look(dx: number, dy: number) { if(this.driving)return;this.yaw -= dx; this.pitch = Math.max(-1.2, Math.min(.9, this.pitch - dy)); }
-  toggleView() { this.view = this.view === "first" ? "third" : "first";if(this.driving&&this.view==="first"){const b=this.drivenCars!.active!.vehicle.body;this.yaw=Math.atan2(-b.hx,b.hy);this.pitch=-.025;}
-    // (into first person on foot or on the bike: looking straight ahead, the way the body faces)
-    else if(this.view==="first"){const h=this.cycling?this.bicycleMotion.heading:Math.atan2(this.body.hy,this.body.hx);if(Number.isFinite(h)){this.yaw=Math.atan2(-Math.cos(h),Math.sin(h));this.pitch=this.cycling?-.06:-.04;}}
-    else if(this.view==="third"&&!this.driving){this.yaw=this.cycling?Math.atan2(-Math.cos(this.bicycleMotion.heading),Math.sin(this.bicycleMotion.heading)):this.avatar.root.rotation.y-Math.PI;this.pitch=-.12;}
-    this.camInit=false; }
+  private overlay = false;
+  setOverlay(on: boolean) { this.overlay = on; this.clearControls(); if (on) this.vel.set(0, 0); }
+  resetLook() { this.pitch = -.04; }
+  setStick(x: number, y: number, run: boolean) { if (this.overlay) return; this.stick.set(x, y); this.runStick = run; }
+  look(dx: number, dy: number) { if(this.driving||this.overlay)return;this.yaw -= dx; this.pitch = Math.max(-1.2, Math.min(.9, this.pitch - dy)); }
+  toggleView() { this.view = this.view === "first" ? "third" : "first"; if(this.driving&&this.view==="first"){const b=this.drivenCars!.active!.vehicle.body;this.yaw=Math.atan2(-b.hx,b.hy);this.pitch=-.025;} this.o.onView?.(this.view); }
 
   pause() { this.window(false); cancelAnimationFrame(this.raf); this.running = false; this.clearControls(); }
   resume(at?: Entrance) {
@@ -863,13 +865,14 @@ export class WalkGame {
   };
 
   private move(dt: number) {
+    if (this.overlay) return;
     const k = this.keys;
     let fx = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) + this.stick.x;
     let fz = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0) + this.stick.y;
     const l = Math.hypot(fx, fz); if (l > 1) { fx /= l; fz /= l; }
     if(this.driving){this.moveCar(dt,fx,fz);return;}
     if (this.cycling) { this.moveBicycle(dt, fx, fz); return; }
-    const run = k.has("ShiftLeft") || k.has("ShiftRight") || this.runStick, speed = run ? 10.5 : 1.4;
+    const run = k.has("ShiftLeft") || k.has("ShiftRight") || this.runStick, speed = run ? 3.6 : 1.4;
     // the frame: x east, y north; the camera's forward is −z in three = +y in the frame
     const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
     const wx = (fx * cy - fz * sy) * speed, wy = (fx * sy + fz * cy) * speed;
@@ -891,7 +894,7 @@ export class WalkGame {
     this.avatar.root.position.set(nx, this.z, -ny);
     if (moved > 1e-4) this.avatar.root.rotation.y = Math.atan2(this.vel.x, -this.vel.y);
     this.stepAcc += moved;
-    if (this.stepAcc > (run ? 3.4 : 0.7)) { this.stepAcc = 0; this.o.sound.step("stone", run); }
+    if (this.stepAcc > (run ? 1.05 : 0.7)) { this.stepAcc = 0; this.o.sound.step("stone", run); }
   }
 
   private moveBicycle(dt: number, steer: number, pedal: number) {
@@ -922,15 +925,16 @@ export class WalkGame {
   }
 
   private placeCamera(dt: number, snap: boolean) {
+    applyViewFov(this.camera);
     if(this.driving){this.avatar.root.visible=this.view==="third";this.drivenCars!.camera(this.camera,this.view==="first",this.yaw,this.pitch,dt,(x,y)=>this.world.buildingAt([x,y]));const a=this.drivenCars!.active!,b=a.vehicle.body;this.rearCameraOcclusion.update(this.camera,this.view==="third"?{x:b.x,y:b.y,z:a.record.z,height:a.record.height,width:a.record.width}:null);return;}
     const cam = this.camera;
     const look = new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
     const head = new THREE.Vector3(this.pos.x, this.z + (this.cycling ? 1.78 : 1.6), -this.pos.y);
     this.avatar.root.visible = this.view === "third";
-    if (this.view === "first") { cam.position.copy(head); cam.lookAt(head.clone().add(look)); this.rearCameraOcclusion?.update(cam,null); return; }
+    if (this.view === "first") { cam.position.copy(head); this.camEye.copy(head); this.camInit = true; cam.lookAt(head.clone().add(look)); this.rearCameraOcclusion?.update(cam,null); return; }
     // Keep a low rear camera even beside a tall wall or inside a tight corner.
     // Occluding walls use the existing camera-only cutaway; never orbit or rise.
-    const distance = this.cycling ? 4.6 : 3.6;
+    const distance = (this.cycling ? 4.6 : 3.6) * viewPreferences().distance;
     const want = new THREE.Vector3(this.pos.x + Math.sin(this.yaw) * distance, this.z + (this.cycling ? 2.18 : 2.05), -this.pos.y + Math.cos(this.yaw) * distance);
     // A parked vehicle may shorten the rear distance, but never changes its side
     // or height. Keep walls out of this calculation: they use the cutaway below.

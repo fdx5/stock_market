@@ -303,9 +303,18 @@ function useNoindexOn(path: string, target: string) {
 }
 
 export default function App() {
+  useEffect(() => {
+    if (window.self === window.top || window.name !== "facility-browser") return;
+    const escape = (e: KeyboardEvent) => { if (e.code === "Escape") window.parent.postMessage({ type: "facility-close" }, "*"); };
+    window.addEventListener("keydown", escape, true); return () => window.removeEventListener("keydown", escape, true);
+  }, []);
   const design = useDesignMode();
   const path = useRoute();
   const location = navigationSnapshot();
+  const facilityFrame = window.self !== window.top && (window.name === "facility-browser" || new URLSearchParams(window.location.search).get("inframe") === "1");
+  useEffect(() => {
+    if (facilityFrame) window.parent.postMessage({ type: "facility-navigation", url: window.location.href }, "*");
+  }, [facilityFrame, location.url]);
   useLayoutEffect(() => syncThemeForPath(path), [path]);
   const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})\/?$/i);
   const briefLatestMatch = path.match(/^\/market-brief\/latest\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco)\/?$/i);
@@ -389,7 +398,9 @@ export default function App() {
   const discoveryModes = {"/markets":"hub", "/market-inside":"inside", "/stock-tradeoffs":"tradeoffs", "/recovery-lab":"recovery", "/market-radar":"radar", "/stock-screener":"screener", "/stock-compare":"compare", "/sector-strength":"sectors"} as const;
   const discoveryMode = discoveryModes[path as keyof typeof discoveryModes];
   const guideRoute = path.replace(/\/$/, "");
-  if (GROWTH_SEO[guideRoute]) {
+  if (facilityFrame && ["/walk", "/drive", "/drone-explore", "/realestate-map"].includes(guideRoute)) {
+    page = <div style={{ padding: "12vh 8vw", color: "#b6f8ff", background: "#07141f", minHeight: "70vh" }}><h1>3D 화면은 새 탭에서 이용해 주세요</h1><p>컴퓨터 화면과 3D 장면이 함께 실행되지 않도록 새 탭으로 엽니다.</p><a href={window.location.href.replace(/([?&])inframe=1&?/, "$1")} target="_blank" rel="noopener noreferrer">새 탭에서 열기 ↗</a></div>;
+  } else if (GROWTH_SEO[guideRoute]) {
     page = <MarketPulsePage key={guideRoute} sharing={guideRoute === "/share-market"} />;
   } else if (GUIDE_SEO[guideRoute]) {
     page = <GuidesPage key={guideRoute} path={guideRoute} />;

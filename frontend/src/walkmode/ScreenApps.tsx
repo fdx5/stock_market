@@ -133,7 +133,7 @@ export const LAPTOP_URL = "https://cattower.code404.app/?debug=1&playShopKey=1";
 const PW = 1240, PH = 802; // the page's size (the screen's 297×192 mm aspect)
 
 /** the CSS matrix3d taking a w×h box to four points (top-left, top-right, bottom-right, bottom-left) */
-function homography(w: number, h: number, p: { x: number; y: number }[]): string {
+export function homography(w: number, h: number, p: { x: number; y: number }[]): string {
   const [a, b, c, d] = p;
   // the square → quad projective map (Heckbert), then pre-scaled by the box's size
   const dx1 = b.x - c.x, dx2 = d.x - c.x, dx3 = a.x - b.x + c.x - d.x;

@@ -6,6 +6,7 @@ import { Avatar } from "../player/avatar";
 import { Crowd, type NearbyPerson } from "./crowd";
 import { findPath, planFloor, type BuildingPlan, type FloorPlan, type Mat } from "./plan";
 import { dialogFor } from "./npcDialog";
+import { applyViewFov, viewPreferences } from "../viewPreferences";
 
 /* Inside a building that is not a block of flats (an office, a hospital, a store…): its floors from
  * the register (plan.ts), one built and drawn at a time, rendered live — floors in their finish by
@@ -466,6 +467,7 @@ export class BuildingInterior {
 
   // ------------------------------------------------------------------ moving about
   keyDown = (e: KeyboardEvent) => {
+    if (this.overlay) return;
     if ((e.target as HTMLElement | null)?.matches?.("input, textarea")) return;
     if (e.code === "KeyE" && !e.repeat) { this.interact(); return; }
     if (e.code === "KeyV" && !e.repeat) { this.toggleView(); return; }
@@ -473,9 +475,12 @@ export class BuildingInterior {
   };
   keyUp = (e: KeyboardEvent) => { this.keys.delete(e.code); };
   private blur = () => this.keys.clear();
-  setStick(x: number, y: number, run: boolean) { this.stick.set(x, y); this.runStick = run; }
-  look(dx: number, dy: number) { this.yaw -= dx; this.pitch = Math.max(-1.3, Math.min(1.2, this.pitch - dy)); }
-  toggleView() { this.view = this.view === "first" ? "third" : "first"; if (this.view === "first") this.pitch = -0.04; this.emitHud(true); }
+  private overlay = false;
+  setOverlay(on: boolean) { this.overlay = on; this.keys.clear(); this.stick.set(0, 0); this.runStick = false; if (on) this.vel.set(0, 0); }
+  resetLook() { this.pitch = -.04; }
+  setStick(x: number, y: number, run: boolean) { if (this.overlay) return; this.stick.set(x, y); this.runStick = run; }
+  look(dx: number, dy: number) { if (this.overlay) return; this.yaw -= dx; this.pitch = Math.max(-1.3, Math.min(1.2, this.pitch - dy)); }
+  toggleView() { this.view = this.view === "first" ? "third" : "first"; this.emitHud(true); }
 
   private collide(x: number, z: number): THREE.Vector2 {
     const p = new THREE.Vector2(x, z), r = RADIUS;
@@ -501,6 +506,7 @@ export class BuildingInterior {
     return p;
   }
   private move(dt: number) {
+    if (this.overlay) return;
     if(this.loadingFloor || this.talking||this.panelOpen) {this.vel.set(0,0);return;}
     if (this.riding) { this.ride(dt); return; }
     const k = this.keys;
@@ -697,17 +703,18 @@ export class BuildingInterior {
     this.renderer.render(this.scene, this.camera);
   };
   private placeCamera(dt: number) {
+    const prefs = viewPreferences(); applyViewFov(this.camera);
     const y = this.riding ? (this.riding.esc.up ? this.riding.t : 1 - this.riding.t) * this.riding.esc.H : 0;
     const ar = this.avatar.root;
     ar.position.set(this.pos.x, y, this.pos.y); ar.rotation.set(0, this.yaw + Math.PI, 0);
     ar.visible = this.view === "third";
     const look = new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
-    const head = new THREE.Vector3(this.pos.x, y + EYE + (this.view === "first" ? Math.sin(this.bob) * 0.012 : 0), this.pos.y);
+    const head = new THREE.Vector3(this.pos.x, y + EYE + (this.view === "first" && !prefs.reduceMotion ? Math.sin(this.bob) * 0.012 : 0), this.pos.y);
     let want = head.clone();
     if (this.view === "third") {
       // behind the shoulder, pulled in before a wall
-      let d = 2.6;
-      for (let t = 0.3; t <= 2.6; t += 0.15) { const px = head.x - look.x * t, pz = head.z - look.z * t;const wall=this.walls.some(([ax,az,bx,bz])=>{const dx=bx-ax,dz=bz-az,k=Math.max(0,Math.min(1,((px-ax)*dx+(pz-az)*dz)/(dx*dx+dz*dz||1)));return Math.hypot(px-ax-dx*k,pz-az-dz*k)<.23;});if (wall||this.solids.some(b => px > b.x0 - 0.15 && px < b.x1 + 0.15 && pz > b.z0 - 0.15 && pz < b.z1 + 0.15)) { d = Math.max(0.35, t - 0.2); break; } }
+      let d = 2.6 * prefs.distance;
+      for (let t = 0.3; t <= 2.6 * prefs.distance; t += 0.15) { const px = head.x - look.x * t, pz = head.z - look.z * t;const wall=this.walls.some(([ax,az,bx,bz])=>{const dx=bx-ax,dz=bz-az,k=Math.max(0,Math.min(1,((px-ax)*dx+(pz-az)*dz)/(dx*dx+dz*dz||1)));return Math.hypot(px-ax-dx*k,pz-az-dz*k)<.23;});if (wall||this.solids.some(b => px > b.x0 - 0.15 && px < b.x1 + 0.15 && pz > b.z0 - 0.15 && pz < b.z1 + 0.15)) { d = Math.max(0.35, t - 0.2); break; } }
       want = head.clone().addScaledVector(look, -d).add(new THREE.Vector3(0, 0.35, 0));
     }
     if (!this.shownInit) { this.shownPos.copy(want); this.shownInit = true; } else this.shownPos.lerp(want, 1 - Math.exp(-dt * 14));

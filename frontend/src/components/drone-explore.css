@@ -44,7 +44,7 @@
 .drone-explore-page .re-holo .re-drone-help { top: auto; bottom: calc(var(--drone-footer-height) + 14px); }
 .drone-explore-page .re-holo .re-drone-stick { bottom: calc(var(--drone-footer-height) + 22px); }
 .drone-explore-page .re-drone-card { top: calc(var(--drone-header-height) + 58px); max-height: calc(100% - var(--drone-header-height) - var(--drone-footer-height) - 76px); }
-.drone-explore-page .re-drone-exit { display: none; }
+.drone-explore-page .re-drone-exit:not(.is-takeoff) { display: none; }
 .drone-explore-page .drone-explore-close { position: absolute; top: calc(8px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); z-index: 6; width: 40px; height: 40px; border: 1px solid #7fd8ff66; border-radius: 50%; background: #07131ce6; color: #eaf6ff; font: 400 26px/1 sans-serif; text-align: center; cursor: pointer; touch-action: manipulation; }
 .drone-explore-close:focus-visible { outline: 2px solid #ffd27a; outline-offset: 2px; }
 .drone-explore-page .loading-state { align-self: center; width: 100%; text-align: center; color: #eaf6ff; }

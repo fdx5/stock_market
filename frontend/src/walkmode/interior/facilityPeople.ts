@@ -180,8 +180,9 @@ export class People {
           }
         }
       }
-      if (p.turnTo !== null) p.face += angle(p.turnTo - p.face) * Math.min(1, dt * 6);
+      if (p.turnTo !== null && p.pose === "stand") p.face += angle(p.turnTo - p.face) * Math.min(1, dt * 6);
       p.av.update(dt, speed);
+      if (p.turnTo !== null && p.pose === "sit") p.av.lookSide(angle(p.turnTo - p.face));
       this.place(p, dt);
     }
   }

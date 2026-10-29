@@ -17,6 +17,7 @@ import type { SignAtlas } from "./facilitySigns";
 
 /** a building other than flats: its extra materials, its signs, what its lifts do, where its people go */
 export interface FacilityKit { X: Extra; signs: SignAtlas; hooks: FacilityHooks; spots: Spot[] }
+export interface MonitorScreen { id: string; corners: THREE.Vector3[] }
 
 /* Furnishing by rules: each room type gets its furniture against the walls that suit it (the TV on
  * the 아트월, the sofa facing it, the bed's head on a wall without a door…), slid along the wall to
@@ -43,6 +44,7 @@ export interface Interactable {
 }
 
 export interface Furnished {
+  roomTimings: { room: string; label: string; type: string; ms: number }[];
   interactables: Interactable[];
   colliders: Seg[];
   pendants: CeilingLight[];
@@ -174,6 +176,7 @@ const opposite: Record<SideName, SideName> = { n: "s", s: "n", w: "e", e: "w" };
 export const shadowMoved = { at: 0 };
 
 export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, dynamic: THREE.Group, hits: THREE.Group, fac?: FacilityKit): Furnished {
+  const roomTimings: Furnished["roomTimings"] = [];
   const zoneOf = (r: Room) => shell.zones.get(r.zone)!;
   const interactables: Interactable[] = [], colliders: Seg[] = [], pendants: CeilingLight[] = [], disposables: { dispose(): void }[] = [];
   const curtainOpen = new Map<number, () => number>();
@@ -294,8 +297,21 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
 
     // ------------------------------------------------ a building's rooms (facilityFurnish.ts)
     if (fac && FACILITY_ROOMS.has(room.type)) {
-      furnishFacilityRoom({ plan, P, X: fac.X, signs: fac.signs, B, dynamic, H, put, hitIn, local, interactables, seats, colliders, mirrors, faucet, spots: fac.spots, hooks: fac.hooks,
+      const began = performance.now();
+      const facilityPut: typeof put = (kit, f, zone, solid, swap) => {
+        for (const p of kit) if (p.m === fac.X.monitor && p.g.getAttribute("position").count === 4) {
+          const m = f instanceof THREE.Matrix4 ? f : f.m, a = p.g.getAttribute("position");
+          const corners = [0, 1, 3, 2].map(i => new THREE.Vector3().fromBufferAttribute(a, i).applyMatrix4(m));
+          const screen: MonitorScreen = { id: `monitor-${interactables.length}`, corners };
+          const hit = new THREE.Mesh(p.g.clone(), new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }));
+          hit.applyMatrix4(m); hit.updateMatrixWorld(); hits.add(hit); disposables.push(hit.geometry, hit.material as THREE.Material);
+          interactables.push({ id: screen.id, zone, room, hit, label: () => "컴퓨터 사용하기", act: () => { fac.hooks.monitor?.(screen); return "beep"; } });
+        }
+        put(kit, f, zone, solid, swap);
+      };
+      furnishFacilityRoom({ plan, P, X: fac.X, signs: fac.signs, B, dynamic, H, put: facilityPut, hitIn, local, interactables, seats, colliders, mirrors, faucet, spots: fac.spots, hooks: fac.hooks,
         zoneOf, own: x => { disposables.push(x); return x; } }, room, pl);
+      roomTimings.push({ room: room.id, label: room.label, type: room.type, ms: +(performance.now() - began).toFixed(2) });
       // roller blinds, a third down, at its windows
       for (const w of shell.windows.filter(w => w.room === room)) {
         const wi = shell.windows.indexOf(w), top = H - 0.04, yaw = Math.atan2(w.inward.x, w.inward.z), drop = (top - (w.bottom + pl.fy)) * 0.32;
@@ -962,7 +978,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
 
   pantry.stock();
   return {
-    interactables, colliders, pendants, curtainOpen, tv: furnishedTv, laptop: furnishedLaptop, mirrors, seats, dock, pantry,
+    interactables, colliders, pendants, curtainOpen, tv: furnishedTv, laptop: furnishedLaptop, mirrors, seats, dock, pantry, roomTimings,
     dispose: () => disposables.forEach(d => d.dispose()),
   };
 }

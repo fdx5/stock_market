@@ -22,6 +22,7 @@ import { bridgeContains } from './bridgeDeck';
 import {frameSlice} from './frameSlice';
 import {CoastGeometryJobs} from './coastGeometryJobs';
 import {syncGroundRelief} from './roadDrape';
+import { applyViewFov, cameraControlsPaused, viewPreferences } from "../walkmode/viewPreferences";
 
 /* 드론 mode of the 3D view (ComplexHologram): the flight, the world streamed round it and the
  * sound, set up over the view's own scene and taken down again. While it lasts:
@@ -356,7 +357,8 @@ export class DroneSession {
   /** One frame (dt in seconds; the view w × h CSS pixels). */
   tick(dt: number, viewW: number, viewH: number) {
     const f = this.flight, w = this.world, T = this.timing, t0 = performance.now();
-    f.step(dt, w);
+    applyViewFov(this.p.camera);
+    if (!cameraControlsPaused()) f.step(dt, w);
     const x = f.pos.x, y = -f.pos.z;
     // (held back by the world ahead: its tile work a third of the frame's own time — 5 ms at 60 fps,
     // up to 25 ms on a machine drawing 12 fps. Flying free, the frame rate comes first.)
@@ -759,7 +761,7 @@ export class DroneSession {
    * with the street round them. */
   private chaseWant() {
     const f = this.flight;
-    return f.car ? f.car.length + 4 : f.cycling ? 6.5 : f.walking ? 6.0 : 3.6;
+    return (f.car ? f.car.length + 4 : f.cycling ? 6.5 : f.walking ? 6.0 : 3.6) * viewPreferences().distance;
   }
   /** The line from (x, y, z) back to the camera at height angle `el`, in half-metre steps: how far
    * it goes before anything solid (the ground, a roof) — measured from the camera's own base height
@@ -778,7 +780,7 @@ export class DroneSession {
   private chase(dt: number) {
     const f = this.flight, c = this.p.camera;
     const d = Math.atan2(Math.sin(f.yaw - this.chaseYaw), Math.cos(f.yaw - this.chaseYaw));
-    this.chaseYaw += d * Math.min(1, dt * 5);
+    this.chaseYaw += d * Math.min(1, dt * (viewPreferences().reduceMotion ? 14 : 5));
     const el0 = THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, -0.15, 1.35);
     const bx = Math.sin(this.chaseYaw), bz = Math.cos(this.chaseYaw);   // behind: opposite the heading
     const want = this.chaseWant(), base = f.walking ? 0.9 : 0.35;
@@ -799,16 +801,18 @@ export class DroneSession {
       // (on foot or on the bike: the walker in view, not the drone — the camera higher and looking
       // down past them, so they stand in the middle of the picture, clear of the bar along the
       // bottom of the screen)
-      this.model.group.visible = false; this.walker.root.visible = !f.car;
+      const room = f.car ? 1 : THREE.MathUtils.smoothstep(r, .8, 1.8);
+      this.model.group.visible = false; this.walker.root.visible = !f.car && room > .35;
       if (f.car) this.placeCar();
       else if (f.cycling) this.placeRider(dt);
       else { this.walker.pose = "stand"; this.walker.root.position.set(f.pos.x, f.pos.y - EYE, f.pos.z); this.walker.root.rotation.set(0, f.yaw + Math.PI, 0); this.walker.update(dt, Math.hypot(f.vel.x, f.vel.z)); }
       const fx = -Math.sin(this.chaseYaw), fz = -Math.cos(this.chaseYaw);
-      c.position.set(f.pos.x - fx * Math.cos(el) * r, f.pos.y + 0.9 + Math.sin(el) * r, f.pos.z - fz * Math.cos(el) * r);
+      // A tight wall folds the camera gently to eye level; the avatar's head never fills the view.
+      c.position.set(f.pos.x - fx * Math.cos(el) * r * room, f.pos.y + .04 + (.86 + Math.sin(el) * r) * room, f.pos.z - fz * Math.cos(el) * r * room);
       // (on foot or on the bike: looking at the walker's waist a step ahead — the whole figure, feet
       // and all, a little below the middle of the picture; in a car, at the road beyond the bonnet)
       if (f.car) c.lookAt(f.pos.x + fx * 9, f.pos.y - 1.2, f.pos.z + fz * 9);
-      else c.lookAt(f.pos.x + fx * 1.6, f.pos.y - (f.cycling ? 0.9 : 0.75), f.pos.z + fz * 1.6);
+      else { const ahead = 4 - 2.4 * room; c.lookAt(f.pos.x + fx * ahead, f.pos.y + Math.sin(f.tilt) * 4 * (1 - room) - (f.cycling ? .9 : .75) * room, f.pos.z + fz * ahead); }
       return;
     }
     this.model.group.visible = true;

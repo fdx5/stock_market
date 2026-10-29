@@ -1,0 +1,423 @@
+{
+    "date":  "2026-10-30",
+    "scope":  "Local Vite/Chrome, RTX 3070 ANGLE D3D11; no resolution reduction; mobile emulation is not a physical handset",
+    "floor":  {
+                  "load":  10559,
+                  "phases":  {
+                                 "textures":  1727,
+                                 "shell":  521,
+                                 "furnish":  2451,
+                                 "lights":  897,
+                                 "upload":  243,
+                                 "compile":  2436,
+                                 "probe":  677,
+                                 "looks":  1558
+                             },
+                  "bounds":  [
+                                 0,
+                                 0,
+                                 191.5,
+                                 154.5
+                             ],
+                  "rooms":  139,
+                  "vending":  3,
+                  "monitors":  48,
+                  "timings":  [
+                                  {
+                                      "room":  "r55_53",
+                                      "label":  "복도",
+                                      "type":  "corridor",
+                                      "ms":  285.6
+                                  },
+                                  {
+                                      "room":  "r55_55",
+                                      "label":  "복도",
+                                      "type":  "corridor",
+                                      "ms":  151.2
+                                  },
+                                  {
+                                      "room":  "r55_54",
+                                      "label":  "복도",
+                                      "type":  "corridor",
+                                      "ms":  132.8
+                                  },
+                                  {
+                                      "room":  "r53_49",
+                                      "label":  "중앙 홀",
+                                      "type":  "corridor",
+                                      "ms":  83
+                                  },
+                                  {
+                                      "room":  "r78_124",
+                                      "label":  "카페",
+                                      "type":  "cafe",
+                                      "ms":  72.9
+                                  },
+                                  {
+                                      "room":  "r81_128",
+                                      "label":  "채혈실 대기",
+                                      "type":  "waiting",
+                                      "ms":  35
+                                  },
+                                  {
+                                      "room":  "r89_141",
+                                      "label":  "내과 외래 접수·대기",
+                                      "type":  "waiting",
+                                      "ms":  30
+                                  },
+                                  {
+                                      "room":  "r134_178",
+                                      "label":  "안과 외래 접수·대기",
+                                      "type":  "waiting",
+                                      "ms":  30
+                                  },
+                                  {
+                                      "room":  "r37_36",
+                                      "label":  "화장실",
+                                      "type":  "restroom",
+                                      "ms":  27.4
+                                  },
+                                  {
+                                      "room":  "r76_122",
+                                      "label":  "외래약국",
+                                      "type":  "pharmacy",
+                                      "ms":  27.3
+                                  },
+                                  {
+                                      "room":  "r125_170",
+                                      "label":  "피부과 외래 접수·대기",
+                                      "type":  "waiting",
+                                      "ms":  27.1
+                                  },
+                                  {
+                                      "room":  "r131_175",
+                                      "label":  "피부과 의국",
+                                      "type":  "staffroom",
+                                      "ms":  26.2
+                                  }
+                              ],
+                  "buffer":  [
+                                 2514,
+                                 1277
+                             ]
+              },
+    "desktop":  {
+                    "frames":  362,
+                    "avgFps":  59.97846077375533,
+                    "min1sFps":  59.96402158704774,
+                    "p95":  16.8,
+                    "p99":  16.8,
+                    "maxMs":  16.89999999999418,
+                    "cpuMs":  3.439480264272597,
+                    "loadMs":  10559,
+                    "phases":  {
+                                   "textures":  1727,
+                                   "shell":  521,
+                                   "furnish":  2451,
+                                   "lights":  897,
+                                   "upload":  243,
+                                   "compile":  2436,
+                                   "probe":  677,
+                                   "looks":  1558
+                               },
+                    "seg":  {
+                                "move":  0.08,
+                                "things":  0.14,
+                                "life":  0.13,
+                                "lights+cam":  0.1,
+                                "pick":  0.12,
+                                "sound+probe":  0.02,
+                                "render":  2.89
+                            },
+                    "long":  [
+
+                             ],
+                    "drawingBuffer":  [
+                                          2514,
+                                          1277
+                                      ],
+                    "pixelRatio":  1,
+                    "calls":  1,
+                    "triangles":  1,
+                    "geometries":  2766,
+                    "textures":  108
+                },
+    "cpu4":  {
+                 "frames":  170,
+                 "avgFps":  33.539833484591384,
+                 "min1sFps":  31.980811513092164,
+                 "p95":  33.5,
+                 "p99":  33.5,
+                 "maxMs":  33.60000000000582,
+                 "cpuMs":  15.144767401375503,
+                 "loadMs":  10559,
+                 "phases":  {
+                                "textures":  1727,
+                                "shell":  521,
+                                "furnish":  2451,
+                                "lights":  897,
+                                "upload":  243,
+                                "compile":  2436,
+                                "probe":  677,
+                                "looks":  1558
+                            },
+                 "seg":  {
+                             "move":  0.34,
+                             "things":  0.46,
+                             "life":  0.42,
+                             "lights+cam":  0.38,
+                             "pick":  0.39,
+                             "sound+probe":  0.08,
+                             "render":  12.86
+                         },
+                 "long":  [
+                              "22406ms 33ms r54_50",
+                              "22439ms 33ms r54_50",
+                              "22472ms 33ms r54_50",
+                              "22506ms 33ms r54_50",
+                              "22539ms 33ms r54_50",
+                              "22589ms 33ms r54_50",
+                              "22623ms 33ms r54_50",
+                              "22673ms 33ms r54_50",
+                              "22706ms 33ms r54_50",
+                              "22739ms 33ms r54_50",
+                              "22789ms 33ms r54_50",
+                              "22823ms 33ms r54_50",
+                              "22856ms 33ms r54_50",
+                              "22889ms 33ms r54_50",
+                              "22923ms 33ms r54_50",
+                              "22956ms 33ms r54_50",
+                              "22989ms 33ms r54_50",
+                              "23023ms 33ms r54_50",
+                              "23056ms 33ms r54_50",
+                              "23089ms 33ms r54_50",
+                              "23123ms 33ms r54_50",
+                              "23156ms 33ms r54_50",
+                              "23189ms 33ms r54_50",
+                              "23223ms 33ms r54_50",
+                              "23256ms 33ms r54_50",
+                              "23290ms 33ms r54_50",
+                              "23323ms 33ms r54_50",
+                              "23356ms 33ms r54_50",
+                              "23406ms 33ms r54_50",
+                              "23440ms 34ms r54_50",
+                              "23473ms 33ms r54_50",
+                              "23506ms 33ms r54_50",
+                              "23540ms 34ms r54_50",
+                              "23590ms 33ms r54_50",
+                              "23623ms 33ms r54_50",
+                              "23673ms 33ms r54_50",
+                              "23706ms 33ms r54_50",
+                              "23740ms 33ms r54_50",
+                              "23790ms 33ms r54_50",
+                              "23823ms 33ms r54_50",
+                              "23856ms 33ms r54_50",
+                              "23906ms 33ms r54_50",
+                              "23940ms 33ms r54_50",
+                              "23973ms 33ms r54_50",
+                              "24023ms 33ms r54_50",
+                              "24056ms 33ms r54_50",
+                              "24090ms 33ms r54_50",
+                              "24123ms 33ms r54_50",
+                              "24156ms 33ms r54_50",
+                              "24190ms 34ms r54_50",
+                              "24223ms 33ms r54_50",
+                              "24257ms 33ms r54_50",
+                              "24307ms 33ms r54_50",
+                              "24340ms 33ms r54_50",
+                              "24373ms 33ms r54_50",
+                              "24407ms 33ms r54_50",
+                              "24440ms 33ms r54_50",
+                              "24490ms 33ms r54_50",
+                              "24523ms 33ms r54_50",
+                              "24557ms 33ms r54_50",
+                              "24590ms 33ms r54_50",
+                              "24623ms 33ms r54_50",
+                              "24673ms 33ms r54_50",
+                              "24707ms 33ms r54_50",
+                              "24740ms 33ms r54_50",
+                              "24773ms 33ms r54_50",
+                              "24807ms 33ms r54_50",
+                              "24840ms 33ms r54_50",
+                              "24890ms 34ms r54_50",
+                              "24923ms 33ms r54_50",
+                              "24957ms 33ms r54_50",
+                              "24990ms 34ms r54_50",
+                              "25024ms 33ms r54_50",
+                              "25057ms 33ms r54_50",
+                              "25090ms 33ms r54_50",
+                              "25124ms 33ms r54_50",
+                              "25157ms 33ms r54_50",
+                              "25207ms 33ms r54_50",
+                              "25240ms 33ms r54_50",
+                              "25274ms 33ms r54_50",
+                              "25307ms 33ms r54_50",
+                              "25340ms 33ms r54_50",
+                              "25374ms 33ms r54_50",
+                              "25424ms 33ms r54_50",
+                              "25457ms 33ms r54_50",
+                              "25490ms 33ms r54_50",
+                              "25540ms 33ms r54_50",
+                              "25574ms 34ms r54_50",
+                              "25624ms 33ms r54_50",
+                              "25657ms 33ms r54_50",
+                              "25707ms 33ms r54_50",
+                              "25740ms 33ms r54_50",
+                              "25774ms 33ms r54_50",
+                              "25824ms 33ms r54_50",
+                              "25857ms 33ms r54_50",
+                              "25907ms 33ms r54_50",
+                              "25940ms 33ms r54_50",
+                              "25990ms 33ms r54_50",
+                              "26024ms 33ms r54_50",
+                              "26074ms 33ms r54_50"
+                          ],
+                 "drawingBuffer":  [
+                                       2514,
+                                       1277
+                                   ],
+                 "pixelRatio":  1,
+                 "calls":  1,
+                 "triangles":  1,
+                 "geometries":  2766,
+                 "textures":  108
+             },
+    "mobile":  {
+                   "device":  "Chrome mobile emulation on RTX 3070; not physical handset",
+                   "viewport":  [
+                                    412,
+                                    915
+                                ],
+                   "dpr":  2,
+                   "mapWidths":  [
+                                     190,
+                                     380
+                                 ],
+                   "stats":  {
+                                 "frames":  361,
+                                 "avgFps":  59.97773679576005,
+                                 "min1sFps":  59.97001499250369,
+                                 "p95":  16.8,
+                                 "p99":  16.8,
+                                 "maxMs":  16.899999999997817,
+                                 "cpuMs":  7.414221274246582,
+                                 "loadMs":  12043,
+                                 "phases":  {
+                                                "textures":  686,
+                                                "shell":  921,
+                                                "furnish":  3723,
+                                                "lights":  952,
+                                                "upload":  330,
+                                                "compile":  2533,
+                                                "probe":  992,
+                                                "looks":  1884
+                                            },
+                                 "seg":  {
+                                             "move":  0.1,
+                                             "things":  0.26,
+                                             "life":  0.34,
+                                             "lights+cam":  0.14,
+                                             "pick":  0.11,
+                                             "sound+probe":  0.03,
+                                             "render":  6.35
+                                         },
+                                 "long":  [
+
+                                          ],
+                                 "drawingBuffer":  [
+                                                       824,
+                                                       1830
+                                                   ],
+                                 "pixelRatio":  2,
+                                 "calls":  1,
+                                 "triangles":  1,
+                                 "geometries":  3674,
+                                 "textures":  107
+                             },
+                   "errors":  [
+
+                              ]
+               },
+    "drone":  {
+                  "walking":  {
+                                  "view":  "chase",
+                                  "want":  6,
+                                  "distance":  0.8,
+                                  "fov":  70,
+                                  "pos":  [
+                                              -0.5176380902050417,
+                                              1.775510825116477,
+                                              -1.9318516525781366
+                                          ]
+                              },
+                  "takeOffButton":  {
+                                        "from":  [
+                                                     -0.5176380902050417,
+                                                     1.775510825116477,
+                                                     -1.9318516525781366
+                                                 ],
+                                        "to":  [
+                                                   -0.5176380902050417,
+                                                   26.775510825116477,
+                                                   -1.9318516525781366
+                                               ]
+                                    },
+                  "takeOffEscape":  {
+                                        "from":  [
+                                                     -0.5176380902050417,
+                                                     1.775510825116477,
+                                                     -1.9318516525781366
+                                                 ],
+                                        "to":  [
+                                                   -0.5176380902050417,
+                                                   26.775510825116477,
+                                                   -1.9318516525781366
+                                               ]
+                                    },
+                  "returnFromDoor":  {
+                                         "walking":  true,
+                                         "distance":  6,
+                                         "want":  6,
+                                         "yaw":  0.7584597538055484
+                                     },
+                  "errors":  [
+
+                             ]
+              },
+    "assertions":  {
+                       "cameraAndAim":  true,
+                       "map2x":  [
+                                     300,
+                                     600
+                                 ],
+                       "vending":  true,
+                       "monitor":  true,
+                       "pointerLockedEsc":  true,
+                       "pageErrors":  [
+
+                                      ]
+                   },
+    "repeatedFloorGpuResources":  {
+                                      "value":  [
+                                                    {
+                                                        "geometries":  2743,
+                                                        "textures":  107,
+                                                        "loadMs":  9718,
+                                                        "rooms":  139
+                                                    },
+                                                    {
+                                                        "geometries":  2743,
+                                                        "textures":  107,
+                                                        "loadMs":  6090,
+                                                        "rooms":  139
+                                                    },
+                                                    {
+                                                        "geometries":  2743,
+                                                        "textures":  107,
+                                                        "loadMs":  5904,
+                                                        "rooms":  139
+                                                    }
+                                                ],
+                                      "Count":  3
+                                  }
+}

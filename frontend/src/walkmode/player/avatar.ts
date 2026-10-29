@@ -139,6 +139,8 @@ export class Avatar {
 
   /** Pedals follow actual distance, so a stopped or blocked bicycle never pedals in place. */
   pedal(distance: number, steer: number) { this.pose = "cycle"; this.pedalPhase += distance / (0.34 * 2.8); this.cycleSteer = steer; }
+  /** A seated speaker turns their head while their body stays aligned with the chair. */
+  lookSide(yaw: number) { this.parts.neck.rotation.y = THREE.MathUtils.clamp(yaw, -.7, .7); }
 
   /** speed: m/s along the ground; dt: s */
   update(dt: number, speed: number) {

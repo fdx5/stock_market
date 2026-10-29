@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { cameraControlsPaused, viewPreferences } from "../walkmode/viewPreferences";
 
 /* The drone's flight (the 3D view's 드론 mode): a quadcopter flown in the usual "mode 2" way —
  * one stick climbs and turns, the other flies forward / back and sideways — from the keyboard,
@@ -269,9 +270,11 @@ export class DroneFlight {
 
   /** Mouse or finger drag on the view: turn and tilt the camera. */
   look(dx: number, dy: number) {
+    if (cameraControlsPaused()) return;
+    const p = viewPreferences(), gain = .0032 * p.sensitivity;
     if(dx||dy)this.setAutoRotate(false);
-    this.yaw -= dx * 0.0042;
-    this.tilt = THREE.MathUtils.clamp(this.tilt - dy * 0.0035, -1.45, 0.6);
+    this.yaw -= dx * gain;
+    this.tilt = THREE.MathUtils.clamp(this.tilt - dy * gain * (p.invertY ? -1 : 1), -1.45, 0.6);
   }
 
   private axis(neg: string[], pos: string[]) {

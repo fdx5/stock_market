@@ -1,0 +1,44 @@
+import assert from "node:assert/strict";
+import * as THREE from "three";
+import { bx, cy, rb, withKitGeometryCache } from "../src/walkmode/interior/models";
+import { browserUrl, FACILITY_HOME } from "../src/walkmode/FacilityApps";
+import { DRINKS } from "../src/walkmode/interior/vending";
+import { labelHash } from "../src/walkmode/interior/signArtwork";
+import { comfortableFov, setViewPreferences, viewPreferences, DEFAULT_VIEW } from "../src/walkmode/viewPreferences";
+
+Object.assign(globalThis, { location: { origin: "https://www.kospimap.com" } });
+assert.equal(FACILITY_HOME, "https://kospimap.com/map");
+assert.equal(browserUrl("kospimap.com/walk")?.searchParams.get("inframe"), "1");
+assert.equal(browserUrl("https://www.kospimap.com/drone-explore?x=1")?.searchParams.get("x"), "1");
+assert.equal(browserUrl("https://example.com")?.hostname, "example.com");
+assert.equal(browserUrl("example.com:8080/test")?.port, "8080");
+assert.equal(browserUrl("127.0.0.1:5321/walk")?.hostname, "127.0.0.1");
+assert.equal(browserUrl("삼성전자 실적")?.searchParams.get("q"), "삼성전자 실적");
+for (const value of ["javascript:alert(1)", "data:text/html,hello", "file:///private", "https://user:secret@example.com"]) assert.equal(browserUrl(value), null);
+assert.equal(DRINKS.length, 36); assert.equal(new Set(DRINKS.map(d => d.id)).size, 36);
+for (const brand of ["cider", "mccol", "pepsi", "coke", "fanta"]) assert.ok(DRINKS.some(d => d.brand === brand));
+assert.equal(comfortableFov(70, 16 / 9), 70);
+assert.ok(comfortableFov(70, 412 / 915) > 70);
+assert.ok(comfortableFov(90, 412 / 915) > comfortableFov(60, 412 / 915));
+setViewPreferences({ fov: 999, sensitivity: -2, distance: NaN });
+assert.equal(viewPreferences().fov, 90); assert.equal(viewPreferences().sensitivity, .4); assert.equal(viewPreferences().distance, 1);
+setViewPreferences(DEFAULT_VIEW);
+assert.equal(new Set(Array.from({ length: 40 }, (_, i) => labelHash(`진료실 ${i}`) % 4)).size, 4);
+assert.equal(new Set(Array.from({ length: 40 }, (_, i) => labelHash(`매장 ${i}`) % 5)).size, 5);
+
+const mat = new THREE.MeshBasicMaterial();
+const build = () => [rb(mat, .5, .07, .46, .03, -.28, .43, .02), bx(mat, .4, .2, .15, 1, 2, 3), cy(mat, .2, .25, .5, -1, .5, 1, 20)];
+const original = build(), cached = withKitGeometryCache(build);
+for (let i = 0; i < original.length; i++) {
+  for (const attr of ["position", "normal", "uv"]) assert.deepEqual(cached[i].g.getAttribute(attr).array, original[i].g.getAttribute(attr).array);
+  assert.deepEqual(cached[i].g.index?.array, original[i].g.index?.array);
+}
+withKitGeometryCache(() => {
+  const a = build(), b = build();
+  a[0].g.translate(100, 0, 0);
+  assert.deepEqual(b[0].g.getAttribute("position").array, original[0].g.getAttribute("position").array);
+  for (let i = 0; i < 130; i++) bx(mat, .1 + i * .01, .2, .3, 0, 0, 0).g.dispose();
+  for (const p of [...a, ...b]) p.g.dispose();
+});
+for (const p of [...original, ...cached]) p.g.dispose(); mat.dispose();
+console.log("Facility features: 36 drinks with brand labels, URL rules, camera bounds, sign variants, exact geometry and independent cached copies passed.");

@@ -24,6 +24,10 @@ import { WalkGame, type Entrance, type BicycleHud, type CarHud } from "./game/Wa
 import MiniMap, { type MapSubject } from "./MiniMap";
 import OutdoorMap from "./OutdoorMap";
 import { LaptopScreen, TvBrowser } from "./ScreenApps";
+import { FacilityBrowser, VendingMenu } from "./FacilityApps";
+import type { VendingSession } from "./interior/vending";
+import CameraSettings from "./CameraSettings";
+import { viewPreferences } from "./viewPreferences";
 import type { PetKind } from "./interior/life";
 
 /** the pet chosen last time in this browser (a convenience: a Shiba Inu unless a cat was chosen) */
@@ -51,6 +55,7 @@ export default function WalkPage() {
   const q = useMemo(() => new URLSearchParams(location.search), []);
   const demo = q.get("interior") === "demo";
   const canvas = useRef<HTMLCanvasElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const renderer = useRef<THREE.WebGLRenderer | null>(null);
   const sound = useMemo(() => new Sound(), []);
   const [car,setCar]=useState<CarHud>({driving:false,nearby:null,label:"",speedKmh:0,topKmh:0,gear:"P",message:"",view:"third"});
@@ -82,6 +87,17 @@ export default function WalkPage() {
   const building = useRef<BuildingInterior | null>(null);
   const [bhud, setBhud] = useState<BuildingHud | null>(null);
   const [liftPanel, setLiftPanel] = useState<{ levels: { level: number; label: string; uses: string }[]; current: number } | null>(null);
+  const [vending, setVending] = useState<VendingSession | null>(null);
+  const [monitorOpen, setMonitorOpen] = useState(false);
+  const [cameraPanel, setCameraPanel] = useState(false), [outdoorView, setOutdoorView] = useState<"first" | "third">("third");
+  const monitorCorners = useMemo(() => () => interior.current?.monitorScreen() ?? null, []);
+  const closeMonitor = () => { interior.current?.closeMonitor(); setMonitorOpen(false); };
+  useEffect(() => { const on = !!(liftPanel || vending || monitorOpen || cameraPanel); interior.current?.setOverlay(on); building.current?.setOverlay(on); game.current?.setOverlay(on); }, [liftPanel, vending, monitorOpen, cameraPanel, phase]);
+  useEffect(() => {
+    const header = root.current?.querySelector(".wk-topbar"); if (!header) return;
+    const ro = new ResizeObserver(() => root.current?.style.setProperty("--wk-header-clearance", `${Math.ceil(header.getBoundingClientRect().height) + 16}px`));
+    ro.observe(header); return () => ro.disconnect();
+  }, [phase]);
   const [bsource, setBsource] = useState("");
   const [talk,setTalk]=useState<BuildingTalk|null>(null);
   /** a building other than flats, walked floor by floor in the interior engine: what is known of it */
@@ -185,6 +201,7 @@ export default function WalkPage() {
       onNear: e => setNear(e),
       onBicycle: setBicycle,
       onCar:setCar,
+      onView: setOutdoorView,
       onExit: () => leave(),
     });
     game.current = g;
@@ -298,10 +315,14 @@ export default function WalkPage() {
   };
 
   const exitFlat = () => {
+    if (exiting.current) return;
+    exiting.current = true;
+    setVending(null); setMonitorOpen(false); setLiftPanel(null); setCameraPanel(false);
     document.exitPointerLock?.();
     setFade(true);
     setTimeout(() => {
       interior.current?.dispose(); interior.current = null; setHud(null);
+      exiting.current = false;
       if (game.current && entering) { game.current.returnFromInterior(entering); setPhase("outdoor"); setNear(null); setFade(false); }
       else leave();
     }, 500);
@@ -417,13 +438,15 @@ export default function WalkPage() {
     }
     if (!p) p = generateFacility(base);
     sound.resume(); document.exitPointerLock?.();
-    setLiftPanel(null); setHud(null);
+    setLiftPanel(null); setVending(null); setMonitorOpen(false); setHud(null);
     interior.current?.dispose(); interior.current = null;
     setPlan(p); setFade(true); setPhase("interior-loading"); setProgress({ k: 0, text: level === 1 ? "출입문으로 들어가는 중" : "엘리베이터로 이동하는 중" });
     const it = new Interior(renderer.current, {
       plan: p, hour, view: null, sound, levels: f.levels,
       onProgress: (k, text) => setProgress({ k, text }), onHud: h => setHud(h), onExit: () => exitFlat(),
       onLift: () => { setLiftPanel({ levels: f.levels, current: level }); document.exitPointerLock?.(); },
+      onVending: session => { setVending(session); document.exitPointerLock?.(); },
+      onMonitor: () => { setMonitorOpen(true); document.exitPointerLock?.(); },
     });
     interior.current = it;
     it.resize(canvas.current!.clientWidth, canvas.current!.clientHeight);
@@ -445,12 +468,27 @@ export default function WalkPage() {
   const leave = () => { const b = q.get("back"); if (b && b.startsWith("/")) location.href = b; else if (history.length > 1) history.back(); else location.href = "/realestate-map"; };
 
   // keys the page owns: Esc leaves (back to the street, then the map), E enters a building
+  const exiting = useRef(false), lastEscape = useRef(-Infinity), unlockedAt = useRef(-Infinity), escapeHandled = useRef(false);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (e.code === "Escape") {
+        if (e.type === "keydown") escapeHandled.current = true;
+        if (e.repeat || performance.now() - lastEscape.current < 350) return;
+        lastEscape.current = performance.now(); e.preventDefault();
+        if (cameraPanel) { setCameraPanel(false); return; }
+        if (monitorOpen) { closeMonitor(); return; }
+        if (vending) { setVending(null); return; }
+        if (phase === "interior") { if (liftPanel) setLiftPanel(null); else exitFlat(); return; }
+        if (phase === "building") { if (talk) building.current?.closeTalk(); else if (liftPanel) building.current?.closeLiftPanel(); else exitBuilding(); return; }
+        if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); }
+        else if (phase === "outdoor") leave();
+        return;
+      }
+      if (monitorOpen || vending || liftPanel || cameraPanel) return;
       if (target?.isContentEditable || target?.matches("input, textarea, select")) return;
       sound.resume();
-      if (e.code === "Escape") { if (document.pointerLockElement) return; if (phase === "building") { if(talk)building.current?.closeTalk();else if (liftPanel) building.current?.closeLiftPanel(); else exitBuilding(); return; } if (phase === "interior") { if (liftPanel) setLiftPanel(null); else exitFlat(); } else if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); } else if (phase === "outdoor") leave(); }
+      if (e.code === "KeyC" && !e.repeat) { active()?.resetLook(); return; }
       if (e.code === "KeyH") setShowHelp(s => !s);
       if(e.code==="KeyF"&&phase==="outdoor"&&!e.repeat){if(game.current?.interactCar())e.preventDefault();return;}
       if ((e.code === "KeyE" || e.code === "Enter") && phase === "outdoor" && !e.repeat) {
@@ -459,8 +497,12 @@ export default function WalkPage() {
         if (game.current?.interactBicycle()) { e.preventDefault(); return; }
       }
     };
-    window.addEventListener("keydown", down);
-    return () => window.removeEventListener("keydown", down);
+    // Chrome consumes Escape's keydown when it releases pointer lock, but delivers keyup.
+    const lock = () => { if (!document.pointerLockElement) unlockedAt.current = performance.now(); };
+    const up = (e: KeyboardEvent) => { if (e.code !== "Escape") return; const handled = escapeHandled.current; escapeHandled.current = false; if (!handled && performance.now() - unlockedAt.current < 900) down(e); };
+    document.addEventListener("pointerlockchange", lock);
+    window.addEventListener("keydown", down, true); window.addEventListener("keyup", up, true);
+    return () => { document.removeEventListener("pointerlockchange", lock); window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); };
   });
 
   // (stepping away — a move key — ends the zoom)
@@ -490,7 +532,7 @@ export default function WalkPage() {
       if (document.pointerLockElement !== canvas.current) return;
       if (skip > 0) { skip--; return; }
       if (Math.abs(e.movementX) > 280 || Math.abs(e.movementY) > 180) return;
-      active()?.look(e.movementX * 0.0022, e.movementY * 0.0022);
+      const p = viewPreferences(); active()?.look(e.movementX * 0.0022 * p.sensitivity, e.movementY * 0.0022 * p.sensitivity * (p.invertY ? -1 : 1));
     };
     window.addEventListener("mousemove", mm);
     document.addEventListener("pointerlockchange", lc);
@@ -499,22 +541,25 @@ export default function WalkPage() {
   }, []);
   const onDown = (e: React.PointerEvent) => {
     sound.resume();
+    if (vending || monitorOpen || liftPanel || cameraPanel || talk) return;
     if ((e.target as HTMLElement).closest("button, a, input, select, textarea, iframe")) return;
     if (e.pointerType === "touch") {
       if (!touch) setTouch(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
       if (e.clientX < window.innerWidth * 0.42 && !stick.current) { stick.current = { id: e.pointerId, x: e.clientX, y: e.clientY }; setStickAt({ x: e.clientX, y: e.clientY, dx: 0, dy: 0 }); }
       else if (!drag.current) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
       return;
     }
-    if ((phase === "interior" || phase === "outdoor" || phase === "building") && !liftPanel&&!talk) canvas.current?.requestPointerLock?.();
+    if ((phase === "interior" || phase === "outdoor" || phase === "building") && !liftPanel&&!talk&&!vending&&!monitorOpen&&!cameraPanel) canvas.current?.requestPointerLock?.();
   };
   const onMove = (e: React.PointerEvent) => {
     if (stick.current?.id === e.pointerId) {
       const dx = e.clientX - stick.current.x, dy = e.clientY - stick.current.y, r = 56, l = Math.hypot(dx, dy), k = l > r ? r / l : 1;
       setStickAt({ x: stick.current.x, y: stick.current.y, dx: dx * k, dy: dy * k });
-      active()?.setStick((dx * k) / r, -(dy * k) / r, l > r * 1.25);
+      const gain = l < r * .12 ? 0 : (Math.min(l / r, 1) - .12) / .88;
+      active()?.setStick(l ? dx / l * gain : 0, l ? -dy / l * gain : 0, l > r * 1.35);
     } else if (drag.current?.id === e.pointerId) {
-      active()?.look((e.clientX - drag.current.x) * 0.005, (e.clientY - drag.current.y) * 0.005);
+      const p = viewPreferences(); active()?.look((e.clientX - drag.current.x) * 0.0032 * p.sensitivity, (e.clientY - drag.current.y) * 0.0032 * p.sensitivity * (p.invertY ? -1 : 1));
       drag.current.x = e.clientX; drag.current.y = e.clientY;
     }
   };
@@ -527,7 +572,7 @@ export default function WalkPage() {
   const floors = Math.max(entering?.floors || 25, 5);
 
   return (
-    <div className={`wk-root${fade ? " is-fading" : ""}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+    <div ref={root} className={`wk-root${fade ? " is-fading" : ""}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onLostPointerCapture={onUp}>
       <canvas ref={canvas} className="wk-canvas" />
       <div className="wk-fade" />
 
@@ -629,7 +674,7 @@ export default function WalkPage() {
               <div className="wk-meta" title={bsource}><span className="wk-badge">추정 공간</span>{plan.template} · {plan.facility.use ? `층 용도: ${plan.facility.use}` : plan.basis.rooms} · 실내 배치는 추정 · {bsource}</div>
               <div className="wk-actions">
                 <button className="wk-btn" onClick={() => { setLiftPanel({ levels: fac.current?.levels ?? [], current: plan.facility!.level }); document.exitPointerLock?.(); }}>🛗 층 이동</button>
-                <button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭" : "3인칭"} <kbd>V</kbd></button>
+                <button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>
                 <button className="wk-btn" onClick={exitFlat}>나가기 <kbd>Esc</kbd></button>
               </div>
             </div>
@@ -638,7 +683,7 @@ export default function WalkPage() {
             <div className="wk-where"><b>{plan.complexName} {plan.dong} {plan.floor}층</b><span>{hud?.room}</span></div>
             <div className="wk-meta"><span className="wk-badge">추정 평면</span>{plan.template} · 전용 {plan.areaExclusiveM2.toFixed(2)}㎡ (방 합계 {plan.check.areaM2}㎡, {(plan.check.error * 100).toFixed(1)}%) · {STYLE_LABEL[plan.style]} · 연출용 가상 인테리어</div>
             <div className="wk-actions">
-              <button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭" : "3인칭"} <kbd>V</kbd></button>
+              <button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>
               <button className="wk-btn" onClick={exitFlat}>나가기 <kbd>Esc</kbd></button>
             </div>
           </div>)}
@@ -655,11 +700,13 @@ export default function WalkPage() {
               <div className="wk-row"><button className="wk-btn" onClick={() => setLiftPanel(null)}>닫기 <kbd>Esc</kbd></button></div>
             </div>
           )}
-          {hud?.seated !== "화면" && hud?.seated !== "반려동물" && <MiniMap plan={plan} subject={mapSubject} />}
+          {!vending && hud?.seated !== "화면" && hud?.seated !== "반려동물" && <MiniMap plan={plan} subject={mapSubject} />}
+          {vending && <VendingMenu key={vending.id} session={vending} onClose={() => setVending(null)} />}
+          {monitorOpen && <FacilityBrowser corners={monitorCorners} onClose={closeMonitor} onZoom={on => interior.current?.zoomScreen(on ? "monitor" : null)} />}
           {tvOpen && <TvBrowser corners={tvCorners} zoom={{ on: zoomed === "tv", set: on => zoomTo(on ? "tv" : null) }} onOff={() => { interior.current?.tvPower(false); setTvOpen(false); if (zoomed === "tv") zoomTo(null); }} onPicture={img => interior.current?.tvPicture(img)} />}
           {laptopOpen && <LaptopScreen corners={laptopCorners} zoom={{ on: zoomed === "laptop", set: on => zoomTo(on ? "laptop" : null) }} onClose={() => { interior.current?.closeLaptop(); setLaptopOpen(false); setZoomed(null); }} />}
           <div className="wk-cross" />
-          {hud?.target && !touch && <div className="wk-hint"><kbd>E</kbd> {hud.target}{hud.pet && <> · <kbd>Z</kbd> 확대해서 보기</>}</div>}
+          {hud?.target && !touch && !vending && !monitorOpen && !liftPanel && <div className="wk-hint"><kbd>E</kbd> {hud.target}{hud.pet && <> · <kbd>Z</kbd> 확대해서 보기</>}</div>}
           {hud?.pet && touch && <button className="wk-btn wk-pet-zoom" onPointerDown={e => { e.stopPropagation(); interior.current?.zoomPet(true); }}>🔍 확대해서 보기</button>}
           {hud?.seated === "반려동물" && <div className="wk-laptop-bar" onPointerDown={e => e.stopPropagation()}><span>가까이서 보는 중</span><button className="wk-btn" onClick={() => interior.current?.zoomPet(false)}>축소 <kbd>Z</kbd></button></div>}
           {hud?.seated && hud.seated !== "화면" && hud.seated !== "반려동물" && <div className="wk-hint is-seat">{hud.seated} · 이동키를 누르면 일어납니다</div>}
@@ -674,7 +721,7 @@ export default function WalkPage() {
             <div className="wk-meta" title={bsource}><span className="wk-badge">{bhud?.source?.includes("공간 구획")?"구획 데이터":bhud?.source?.startsWith("SGIS")?"외곽만 실측":"추정 공간"}</span>{bhud?.source} · {bsource}</div>
             <div className="wk-actions">
               <button className="wk-btn" disabled={!bhud?.lifts} onClick={()=>building.current?.guideToLift()}>엘리베이터 길 안내 ({bhud?.lifts??0})</button>
-              <button className="wk-btn" onClick={() => building.current?.toggleView()}>{bhud?.view === "third" ? "1인칭" : "3인칭"} <kbd>V</kbd></button>
+              <button className="wk-btn" onClick={() => building.current?.toggleView()}>{bhud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>
               <button className="wk-btn" onClick={exitBuilding}>나가기 <kbd>Esc</kbd></button>
             </div>
           </div>
@@ -708,13 +755,15 @@ export default function WalkPage() {
         </>
       )}
 
-      {(phase === "interior" || phase === "outdoor" || phase === "building") && touch && (
+      {(phase === "interior" || phase === "outdoor" || phase === "building") && !vending && !monitorOpen && !liftPanel && <CameraSettings open={cameraPanel} setOpen={setCameraPanel} onCenter={() => active()?.resetLook()} />}
+      {(phase === "interior" || phase === "outdoor" || phase === "building") && touch && !vending && !monitorOpen && !liftPanel && !cameraPanel && (
         <div className="wk-touch">
+          {!stickAt && <div className="wk-touch-guide">✥<small>이동 · 바깥으로 밀면 달리기</small></div>}
           {stickAt && <div className="wk-stick" style={{ left: stickAt.x - 60, top: stickAt.y - 60 }}><i style={{ transform: `translate(${stickAt.dx}px, ${stickAt.dy}px)` }} /></div>}
           {phase === "interior" && <button className={`wk-act${hud?.target ? " on" : ""}`} onPointerDown={e => { e.stopPropagation(); interior.current?.interact(); }}>{hud?.target ?? "상호작용"}</button>}
-          {phase === "interior" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>시점</button>}
+          {phase === "interior" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>{hud?.view === "third" ? "1인칭" : "3인칭"}</button>}
           {phase === "building" && <button className={`wk-act${bhud?.prompt ? " on" : ""}`} onPointerDown={e => { e.stopPropagation(); building.current?.interact(); }}>{bhud?.prompt ?? "상호작용"}</button>}
-          {phase === "building" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>시점</button>}
+          {phase === "building" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>{bhud?.view === "third" ? "1인칭" : "3인칭"}</button>}
         </div>
       )}
 
@@ -722,7 +771,7 @@ export default function WalkPage() {
       {phase === "outdoor" && (
         <div className="wk-topbar">
           <div className="wk-where"><b>{start?.name}</b><span>{car.driving?`${car.label} 운전 · 최고 ${car.topKmh}km/h`:bicycle.riding ? "자전거로 실외 탐험 · 최고 60km/h" : "각 동 자전거 E · 길가의 주차 차량 F"}</span></div>
-          <div className="wk-actions"><button className="wk-btn" aria-label={soundMuted ? "효과음 켜기" : "효과음 끄기"} aria-pressed={soundMuted} onClick={() => { sound.resume(); sound.setMuted(!soundMuted); setSoundMuted(!soundMuted); }}>{soundMuted ? "🔇" : "🔊"} 효과음</button><button className="wk-btn" onClick={() => game.current?.toggleView()}>{car.driving?(car.view==="third"?"3인칭 → 정면":"정면 → 3인칭"):"시점"} <kbd>V</kbd></button><button className="wk-btn" onClick={leave}>지도로 <kbd>Esc</kbd></button></div>
+          <div className="wk-actions"><button className="wk-btn" aria-label={soundMuted ? "효과음 켜기" : "효과음 끄기"} aria-pressed={soundMuted} onClick={() => { sound.resume(); sound.setMuted(!soundMuted); setSoundMuted(!soundMuted); }}>{soundMuted ? "🔇" : "🔊"} 효과음</button><button className="wk-btn" aria-label={`현재 ${outdoorView === "first" ? "1인칭" : "3인칭"}, 시점 전환`} onClick={() => game.current?.toggleView()}>{car.driving?(car.view==="third"?"정면으로":"3인칭으로"):outdoorView === "first" ? "3인칭으로" : "1인칭으로"} <kbd>V</kbd></button><button className="wk-btn" onClick={leave}>지도로 <kbd>Esc</kbd></button></div>
         </div>
       )}
       {phase === "outdoor" && <OutdoorMap game={outdoorGame} />}

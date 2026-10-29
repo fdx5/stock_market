@@ -6,9 +6,11 @@ import type { Palette } from "./materials";
 import * as M from "./models";
 import * as F from "./facilityModels";
 import type { Extra } from "./facilityModels";
-import type { Frame, Furnished, Interactable, Placer, Rect, SideName } from "./furnish";
+import type { Frame, Furnished, Interactable, MonitorScreen, Placer, Rect, SideName } from "./furnish";
 import type { FloorPlan, Opening, Room } from "./plan/types";
 import type { SignAtlas, SignStyle } from "./facilitySigns";
+import { placeVending, type VendingSession } from "./vending";
+import type { DrinkAtlas } from "./drinkArtwork";
 
 /* Furnishing a building's rooms by their use (plan/facility.ts): a desk pod for a team, a doctor's
  * desk and couch, cubicles and basins in the toilets, shelving in a shop, a counter and waiting seats
@@ -18,6 +20,11 @@ import type { SignAtlas, SignStyle } from "./facilitySigns";
 
 export interface Spot { room: Room; x: number; z: number; /** the way the person faces (radians, as Object3D.rotation.y) */ face: number; pose: "sit" | "stand" | "lie"; y?: number; kind: "desk" | "counter" | "seat" | "bed" | "stand" | "doctor" }
 export interface FacilityHooks {
+  drinks?: DrinkAtlas;
+  monitor?(screen: MonitorScreen): void;
+  vending?(session: VendingSession): void;
+  vendSound?(kind: "motor" | "drop"): void;
+  vendingPut?: number;
   /** the lift called: the floor panel opened */
   lift?(): void;
   /** the floors for the directory: label and what is on it */
@@ -98,6 +105,35 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     const g = c.signs.sign(style, lines, w, h);
     c.B.add(c.signs.material, zone, g, new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(0, y, 0.012)), false); g.dispose();
   };
+  const large = Math.max(c.plan.bounds[2] - c.plan.bounds[0], c.plan.bounds[3] - c.plan.bounds[1]) > 48;
+  if (large && ["lobby", "waiting", "liftHall", "corridor"].includes(room.type) && (c.hooks.vendingPut ?? 0) < 3 && Math.min(W, D) > 2.8) {
+    for (const s of sides) {
+      const f = pl.against(s, 1.02, .88, pl.span(s)[0] + .65, 1.9, .85);
+      if (!f) continue;
+      placeVending(c, room, f); pl.take(f.rect); c.hooks.vendingPut = (c.hooks.vendingPut ?? 0) + 1; break;
+    }
+  }
+  if (["corridor", "lobby", "waiting"].includes(room.type) && Math.max(W, D) > 7) {
+    const clinic = c.plan.facility?.kind === "clinic" || c.plan.facility?.kind === "ward";
+    const retail = c.plan.facility?.kind === "retail" || c.plan.facility?.kind === "food";
+    const notices = clinic ? [["손씻기 안내", "흐르는 물에 30초", "비누로 꼼꼼하게 씻어 주세요"], ["진료시간 안내", "진료과별 시간을 확인해 주세요", "접수처에서 안내합니다"], ["금연 구역", "모두의 건강을 지켜 주세요"]] : retail ? [["SALE", "매장별 행사 안내", "자세한 내용은 매장에서 확인"], ["NEW COLLECTION", "새로운 상품을 만나 보세요"], ["이벤트 안내", "참여 방법은 매장에 문의"]] : [["시설 이용 안내", "통로를 비워 주세요", "도움이 필요하면 안내 데스크로"]];
+    for (let i = 0; i < Math.min(2, notices.length); i++) {
+      const s = sides[(i + room.id.length) % 4], f = pl.against(s, .5, .04, null, 2.1);
+      if (!f) continue;
+      signOn(s, "notice", notices[(room.id.length + i) % notices.length], .5, .72, uOf(f, s), 1.62); pl.take(f.rect);
+    }
+  }
+  if (large && room.type === "corridor" && Math.max(W, D) > 12 && H > 2.65) {
+    const lng = W > D, targets = c.plan.rooms.filter(r => !["corridor", "lobby", "stair"].includes(r.type));
+    const unique = new Set<string>();
+    const rows = targets.sort((a, b) => Math.hypot((a.rect[0] + a.rect[2]) / 2 - cx, (a.rect[1] + a.rect[3]) / 2 - cz) - Math.hypot((b.rect[0] + b.rect[2]) / 2 - cx, (b.rect[1] + b.rect[3]) / 2 - cz)).filter(r => { if (unique.has(r.label)) return false; unique.add(r.label); return true; }).slice(0, 3);
+    for (const flip of [0, 1]) {
+      const yaw = (lng ? Math.PI / 2 : 0) + flip * Math.PI;
+      const lines = rows.map(r => { const d = lng ? (r.rect[0] + r.rect[2]) / 2 - cx : (r.rect[1] + r.rect[3]) / 2 - cz; return `${d * (flip ? -1 : 1) >= 0 ? "↑" : "↓"}  ${r.label}`; });
+      if (lines.length) { const g = c.signs.sign("wayfinding", lines, 1.65, .44); c.B.add(c.signs.material, zone, g, new THREE.Matrix4().makeRotationY(yaw).setPosition(cx + Math.sin(yaw) * .022, H - .35, cz + Math.cos(yaw) * .022), false); g.dispose(); }
+    }
+    c.put([M.bx(P.steel, .025, .13, .025, -.55, H - .065, 0), M.bx(P.steel, .025, .13, .025, .55, H - .065, 0)], new THREE.Matrix4().makeRotationY(lng ? Math.PI / 2 : 0).setPosition(cx, 0, cz), zone, false);
+  }
   /** desk + chair against a wall, the sitter's spot (facing the wall) */
   const deskOn = (s: SideName, w = 1.4, monitors = 1, sitLabel?: string) => {
     const f = pl.against(s, w, 1.45, null, 0.8);
@@ -205,7 +241,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
           const mx = x + G / 2, mz = z + G / 2; if (mx > X1 - 2 || mz > Z1 - 2) continue;
           const kind = (n++) % 4;
           // (two rows back to back)
-          if (kind < 2) for (const [dz, yaw] of [[-0.45, Math.PI], [0.45, 0]]) { const g = freeAt(mx, mz + dz, 2.4, 0.7, yaw); if (g) { c.put(F.beamSeats(P, X, 4), g, zone, false); c.colliders.push(...rectSegs(g.rect)); spot(at(g, -0.28, 0, 0.08), yawOf(g), "sit", "seat"); if (yaw === 0) seat("의자에 앉기", at(g, 0.84, 0, 0.05), yawOf(g)); } }
+          if (kind < 2) for (const [dz, yaw] of [[-0.45, Math.PI], [0.45, 0]]) { const g = freeAt(mx, mz + dz, 2.4, 0.7, yaw); if (g) { c.put(F.beamSeats(P, X, 4), g, zone, false); c.colliders.push(...rectSegs(g.rect)); spot(at(g, -0.28, 0, 0.02), yawOf(g), "sit", "seat", pl.fy + .1); if (yaw === 0) seat("의자에 앉기", at(g, 0.84, 0, 0.05), yawOf(g)); } }
           else if (kind === 2) { const g = freeAt(mx, mz, 1.8, 1.8); if (g) { c.put([M.rb(P.counter, 1.6, 0.55, 1.6, 0.04, 0, 0.275, 0), ...M.plant(P, 1.9, n)], g.m, zone, true); c.colliders.push(...rectSegs(g.rect)); } }
           else { const g = freeAt(mx, mz, 0.8, 0.5); if (g) { c.put([M.rb(X.accentDark, 0.7, 1.9, 0.4, 0.05, 0, 0.95, 0), M.bx(X.monitor, 0.56, 0.9, 0.01, 0, 1.25, 0.205)], g.m, zone, true); c.colliders.push(...rectSegs(g.rect)); const s2 = c.signs.sign("plate", ["무인 수납·발급", "카드 결제"], 0.56, 0.2); c.B.add(c.signs.material, zone, s2, new THREE.Matrix4().makeTranslation(mx, pl.fy + 1.82, mz + 0.206), false); s2.dispose(); } }
         }
@@ -438,7 +474,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
         for (let r = 0; r < 2; r++) {
           const off = 3.4 + r * 1.3, p = s === "w" ? [X0 + off, cz] : s === "e" ? [X1 - off, cz] : s === "n" ? [cx, Z0 + off] : [cx, Z1 - off];
           const g = freeAt(p[0], p[1], 4 * 0.56, 0.6, face);
-          if (g) { c.put(F.beamSeats(P, X, 4), g, zone, false); c.colliders.push(...rectSegs(g.rect)); spot(at(g, -0.28, 0, 0.08), face, "sit", "seat"); if (r === 0) seat("의자에 앉기", at(g, 0.84, 0, 0.05), face); }
+          if (g) { c.put(F.beamSeats(P, X, 4), g, zone, false); c.colliders.push(...rectSegs(g.rect)); spot(at(g, -0.28, 0, 0.02), face, "sit", "seat", pl.fy + .1); if (r === 0) seat("의자에 앉기", at(g, 0.84, 0, 0.05), face); }
         }
       }
       if (room.type === "pharmacy" && sideW[1]) wallPut(sideW[1], F.wallShelves(P, X, Math.min(3.6, pl.len(sideW[1]) - 1), 1.9, 0.4, 5, 9), Math.min(3.6, pl.len(sideW[1]) - 1), 0.42, null, 3);

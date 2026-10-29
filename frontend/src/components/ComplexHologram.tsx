@@ -69,6 +69,7 @@ import type {FacadeResult} from './droneSurveyWorker';
 import { aerialColours } from "./aerial";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { DroneSession, type DroneHud, type DroneResume } from "./droneMode";
+import { cameraControlsPaused } from "../walkmode/viewPreferences";
 import type { DroneViewBuildings } from './droneWorld';
 import DroneOverlay from "./DroneOverlay";
 import DronePlaceSearch from './DronePlaceSearch';
@@ -4310,6 +4311,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const FLY = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "KeyR", "KeyF", "KeyC", "Space", "ShiftLeft", "ShiftRight", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"]);
     // (on the window, capturing: ahead of the view's own keys and the full-screen layer's Esc)
     const down = (e: KeyboardEvent) => {
+      if (cameraControlsPaused()) { if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); window.dispatchEvent(new Event("camera-settings-close")); } return; }
       // The destination keeps rendering under the warp, but flight input waits.
       if(document.querySelector('.drone-warp'))return;
       if(e.key==='Escape'&&(e.target as HTMLElement|null)?.closest('.re-drone-place-search'))return;
@@ -4324,6 +4326,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         return;
       }
       if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.code === "KeyC" && !e.repeat) { const f = flight(); if (f) f.tilt = -.04; e.preventDefault(); e.stopImmediatePropagation(); return; }
       if (e.code === "KeyV" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); return; }
       // (G: down to the street on foot, or back into the air — the same world either way)
       if (e.code === "KeyG" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); window.dispatchEvent(new Event("drone-walk-toggle")); return; }

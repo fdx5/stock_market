@@ -17,6 +17,7 @@ import type {LiveRef} from './publicLive';
 import './drone-live.css';
 import './traffic-cctv.css';
 import './drone-flight-settings.css';
+import CameraSettings from "../walkmode/CameraSettings";
 
 /* 드론 mode's screen: speed, height, heading, how much of the world round it is drawn (and when
  * the drone is held back for it), sound on/off, leave; on touch screens two sticks (mode 2: the
@@ -94,6 +95,8 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
   // (a phone held sideways has no room to spare: the help waits for its button there)
   const [help, setHelp] = useState(() => !window.matchMedia?.('(orientation: landscape) and (max-height: 540px)').matches);
   const [autoSettings, setAutoSettings] = useState(false);
+  const [cameraPanel, setCameraPanel] = useState(false);
+  useEffect(() => { if (cameraPanel) { flight.keys.clear(); flight.sticks.left = [0, 0]; flight.sticks.right = [0, 0]; } }, [cameraPanel, flight]);
   const [speedDraft, setSpeedDraft] = useState<string | null>(null);
   const [altitudeDraft, setAltitudeDraft] = useState<string | null>(null);
   const settingsDialog=useRef<HTMLDialogElement>(null);
@@ -203,6 +206,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
   }, [auto]);
   return (
     <div ref={root} className="re-drone" aria-live="off">
+      <CameraSettings open={cameraPanel} setOpen={setCameraPanel} onCenter={() => { flight.tilt = -.04; }} />
       <canvas className="re-drone-signs" aria-hidden="true" ref={el => { signs.canvas = el; }} />
       {banner && <div key={banner.n} className={`re-drone-autopilot-banner${banner.on ? ' is-on' : ''}`} role="status">
         <b>{banner.on ? 'AUTOPILOT ENGAGED' : 'AUTOPILOT DISENGAGED'}</b><small>{banner.on ? '오토파일럿 켜짐' : '오토파일럿 꺼짐 · 수동 조종'}</small>
@@ -274,12 +278,12 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
       </dialog>, document.body)}
       </div>
       <div className="re-drone-tools">
-        <button type="button" className="re-drone-view" onClick={onView} title="1인칭 ↔ 3인칭 (V)"><i className="re-drone-view-icon" aria-hidden="true">🚁</i><span>{view === "fpv" ? "1인칭" : "3인칭"}</span></button>
+        <button type="button" className="re-drone-view" onClick={onView} title={`현재 ${view === "fpv" ? "1인칭" : "3인칭"} · V로 전환`}><i className="re-drone-view-icon" aria-hidden="true">🚁</i><span>{view === "fpv" ? "3인칭으로" : "1인칭으로"}</span></button>
         <button type="button" onClick={() => { const m = !muted; setMuted(m); onMute(m); }} aria-pressed={muted} title={muted ? "드론 소리 켜기 (배경음과 함께)" : "드론 소리 끄기"} aria-label={muted ? "드론 소리 켜기" : "드론 소리 끄기"} className="re-drone-mute"><i aria-hidden="true">{muted ? "🔇" : "🔊"}</i> <span>드론소리</span></button>
         {onFull && <button type="button" className="re-drone-full" onClick={onFull} aria-pressed={!!full} title={full ? "전체화면 끄기" : "전체화면으로 비행 (화면 전체 사용)"} aria-label={full ? "전체화면 끄기" : "전체화면"}><i aria-hidden="true">{full ? "⤡" : "⛶"}</i> <span>{full ? "해제" : "전체화면"}</span></button>}
         <button type="button" onClick={() => setHelp(v => !v)} aria-pressed={help} title="조작법">?</button>
         {flight.walking
-          ? <button type="button" className="re-drone-exit" onClick={() => { window.dispatchEvent(new Event("drone-take-off")); setHud(h => h ? { ...h } : h); }} title="이 자리 상공으로 드론 이륙 (Esc)">드론</button>
+          ? <button type="button" className="re-drone-exit is-takeoff" onClick={() => { window.dispatchEvent(new Event("drone-take-off")); setHud(h => h ? { ...h } : h); }} title="이 자리 상공으로 드론 이륙 (Esc)">드론 이륙</button>
           : <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>}
       </div>
       <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} onPick={pickSign}>

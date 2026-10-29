@@ -1,10 +1,11 @@
 import * as THREE from "three";
+import { paintSpecial } from "./signArtwork";
 
 /* Every sign of a floor — room plates, shop fascias, the exit signs, the floor directory — painted on
  * one canvas, so they are one material and draw in the room batches like the walls. Korean type in
  * the system's sans (Pretendard / Noto Sans KR where present). */
 
-export type SignStyle = "plate" | "fascia" | "exit" | "directory" | "lift" | "brand" | "label" | "number" | "notice";
+export type SignStyle = "plate" | "fascia" | "exit" | "directory" | "lift" | "brand" | "label" | "number" | "notice" | "wayfinding";
 const FONT = `Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
 
 export class SignAtlas {
@@ -62,7 +63,9 @@ export class SignAtlas {
     if (style === "fascia") { const gr = g.createLinearGradient(0, 0, 0, ph); gr.addColorStop(0, "rgba(255,255,255,.12)"); gr.addColorStop(1, "rgba(0,0,0,.18)"); g.fillStyle = gr; g.fillRect(0, 0, pw, ph); }
     g.fillStyle = fg; g.textBaseline = "middle";
     const fit = (t: string, size: number, maxW: number, weight = 700) => { let s = size; g.font = `${weight} ${s}px ${FONT}`; while (g.measureText(t).width > maxW && s > 8) { s -= 2; g.font = `${weight} ${s}px ${FONT}`; } return s; };
-    if (style === "exit") {
+    if (paintSpecial(g, style, lines, pw, ph, this.accent)) {
+      // painted in the shared atlas; no additional textures or draw calls
+    } else if (style === "exit") {
       // the running figure and the door, and 비상구
       const s = ph * 0.8, ox = ph * 0.15, oy = ph * 0.1;
       g.strokeStyle = "#ffffff"; g.lineWidth = s * 0.08; g.lineCap = "round";
@@ -95,18 +98,18 @@ export class SignAtlas {
   dispose() { this.texture.dispose(); this.material.dispose(); }
 }
 
-/** what a monitor shows: a working screen (a sheet, a chart, a mail list), painted once */
+/** The site's home preview, shared by idle screens; E opens the actual website. */
 export function monitorTexture(accent: string): THREE.CanvasTexture {
   const c = document.createElement("canvas"); c.width = 512; c.height = 300;
   const g = c.getContext("2d")!;
-  g.fillStyle = "#f3f5f8"; g.fillRect(0, 0, 512, 300);
-  g.fillStyle = accent; g.fillRect(0, 0, 512, 22);
-  g.fillStyle = "#e1e6ec"; g.fillRect(0, 22, 92, 278);
-  for (let i = 0; i < 9; i++) { g.fillStyle = i === 2 ? "#c9d6e6" : "#d3d9e0"; g.fillRect(10, 36 + i * 26, 70, 12); }
-  g.strokeStyle = "#d5dae0"; for (let r = 0; r < 12; r++) { g.beginPath(); g.moveTo(100, 40 + r * 20); g.lineTo(505, 40 + r * 20); g.stroke(); }
-  for (let col = 0; col < 5; col++) { g.beginPath(); g.moveTo(100 + col * 81, 30); g.lineTo(100 + col * 81, 280); g.stroke(); }
-  g.fillStyle = "#8a96a3"; for (let r = 0; r < 11; r++) for (let col = 0; col < 5; col++) g.fillRect(106 + col * 81, 46 + r * 20, 20 + ((r * 7 + col * 13) % 45), 7);
-  g.strokeStyle = accent; g.lineWidth = 3; g.beginPath(); for (let i = 0; i < 12; i++) g.lineTo(330 + i * 14, 250 - Math.sin(i * 0.8) * 20 - i * 4); g.stroke();
+  g.fillStyle = "#06111e"; g.fillRect(0, 0, 512, 300);
+  g.fillStyle = "#182b40"; g.fillRect(0, 0, 512, 24);
+  g.fillStyle = "#9cecff"; g.font = `12px ${FONT}`; g.fillText("kospimap.com/map", 20, 17);
+  g.fillStyle = "#5ef0ff"; g.font = `800 26px ${FONT}`; g.fillText("KOSPI MAP", 22, 66);
+  g.fillStyle = "#cbe9ef"; g.font = `14px ${FONT}`; g.fillText("금융 시장을 한눈에", 23, 91);
+  const colors = [accent, "#26d7b5", "#dd9960", "#a48ce5"];
+  for (let i = 0; i < 4; i++) { const x = 22 + (i % 2) * 238, y = 111 + Math.floor(i / 2) * 72; g.fillStyle = "#12273a"; g.fillRect(x, y, 226, 61); g.fillStyle = colors[i]; g.fillRect(x, y, 4, 61); g.font = `700 15px ${FONT}`; g.fillText(["KOSPI", "KOSDAQ", "GLOBAL", "MARKET MAP"][i], x + 14, y + 24); g.strokeStyle = colors[i]; g.lineWidth = 2; g.beginPath(); for (let k = 0; k < 12; k++) g.lineTo(x + 15 + k * 17, y + 49 - k * 1.4 - Math.sin(k * .9 + i) * 5); g.stroke(); }
+  g.fillStyle = "#93b8c9"; g.font = `12px ${FONT}`; g.fillText("E · 컴퓨터 사용하기", 22, 283);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
