@@ -21,10 +21,14 @@ def test_places_rejects_outside_korea():
 
 def test_places_prefers_the_shop_register(monkeypatch):
     monkeypatch.setattr(rp, "_sbiz", lambda lat, lon, r: [{"name": "OO약국", "kind": "pharmacy", "category": "약국", "lat": 37.5, "lon": 127.0, "floor": 1}])
-    monkeypatch.setattr(rp, "_group", lambda *a: (_ for _ in ()).throw(AssertionError("kakao not asked")))
+    # (with the register answering, Kakao is asked only for what the register does not list:
+    # hospitals, public offices, stations)
+    asked = []
+    monkeypatch.setattr(rp, "_group", lambda code, *a: asked.append(code) or [])
     __import__("app.services.realestate_building_info", fromlist=["_memo"])._memo.clear()
     d = rp.places(37.51, 127.06, 300)
     assert d["items"][0]["floor"] == 1 and "소상공인" in d["source"]
+    assert set(asked) == {"HP8", "PO3", "SW8"}
 
 
 def test_kind_of():
