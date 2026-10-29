@@ -558,6 +558,8 @@ export class DroneSession {
   }
   toggleWalk() {
     const f = this.flight;
+    // (whatever had the keyboard — a search field, a button — lets it go: W must walk)
+    (document.activeElement as HTMLElement | null)?.blur?.();
     if (!f.walking) {
       // (down onto the nearest sidewalk within 250 m — not into a wood or a courtyard's middle)
       const x = f.pos.x, y = -f.pos.z; let best: [number, number] | null = null, bd = Infinity;

@@ -60,6 +60,26 @@ function Stick({ side, flight, label }: { side: "left" | "right"; flight: DroneF
   );
 }
 
+/** On foot, on the bike or in a car without a keyboard: a pad on the left edge — held down, ▲ goes
+ * (pedals, throttle), ▼ backs (brakes), ◀ ▶ turn; 달리기 holds the run. Mouse and touch alike. */
+function WalkPad({ flight }: { flight: DroneFlight }) {
+  const hold = (key: string) => ({
+    onPointerDown: (e: React.PointerEvent) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); flight.keys.add(key); },
+    onPointerUp: () => flight.keys.delete(key), onPointerCancel: () => flight.keys.delete(key), onLostPointerCapture: () => flight.keys.delete(key),
+  });
+  useEffect(() => () => { for (const k of ["KeyW", "KeyS", "KeyQ", "KeyE", "ShiftLeft"]) flight.keys.delete(k); }, [flight]);
+  return (
+    <div className="re-walk-pad" role="group" aria-label="걷기 조작 (누르고 있기)" onPointerDown={e => e.stopPropagation()}>
+      <button type="button" className="re-walk-pad-up" aria-label="앞으로" {...hold("KeyW")}>▲</button>
+      <button type="button" className="re-walk-pad-left" aria-label="왼쪽으로 돌기" {...hold("KeyQ")}>◀</button>
+      <button type="button" className="re-walk-pad-right" aria-label="오른쪽으로 돌기" {...hold("KeyE")}>▶</button>
+      <button type="button" className="re-walk-pad-down" aria-label="뒤로 · 브레이크" {...hold("KeyS")}>▼</button>
+      {!flight.cycling && !flight.car && <button type="button" className="re-walk-pad-run" aria-label="달리기" {...hold("ShiftLeft")}>달리기</button>}
+      <small>W·↑ 걷기 · Shift 달리기</small>
+    </div>
+  );
+}
+
 export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, touch, onExit, onMute, view, onView, full, onFull }: {
   cctv:DroneCctv; live:DroneLive;
   full?: boolean; onFull?: () => void;
@@ -195,6 +215,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
           {h ? (h.limited ? `앞쪽 렌더링 대기 · 최고 ${Math.round(h.limit)}km/h` : `주변 ${(h.radius / 1000).toFixed(1)}km 렌더링 ${h.ready}/${h.tiles}`) : "준비 중"}
         </span>
       </div>
+      {flight.walking && <WalkPad flight={flight} />}
       {flight.walking && !flight.cycling && flight.door && <button type="button" className="re-drone-door" onClick={() => window.dispatchEvent(new Event('drone-enter-door'))}><kbd>E</kbd> 건물 안으로 들어가기</button>}
       {flight.walking && <button type="button" className="re-drone-car" onClick={() => window.dispatchEvent(new Event('drone-car-toggle'))}><kbd>F</kbd> {flight.car ? `차에서 내리기 · ${Math.round(Math.abs(flight.carSpeed) * 3.6)}/${Math.round(flight.car.top * 3.6)}km/h` : '가까운 차 운전하기 (6m 안)'}</button>}
       {flight.walking && !flight.car && <button type="button" className="re-drone-bike" onClick={() => window.dispatchEvent(new Event('drone-bike-toggle'))}><kbd>B</kbd> {flight.cycling ? '자전거에서 내리기' : '자전거 타기 (최고 100km/h)'}</button>}

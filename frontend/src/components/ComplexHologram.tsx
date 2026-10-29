@@ -4099,6 +4099,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const openWalk = () => {
     if (!sceneReady || !complexId) return;
     if (!stageRef.current?.drone) enterDrone();
+    (document.activeElement as HTMLElement | null)?.blur?.();
     const started = performance.now();
     const down = () => {
       const d = stageRef.current?.drone; if (!d) return;
