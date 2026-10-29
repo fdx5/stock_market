@@ -11,6 +11,7 @@ import { sunAt } from "../interior/view";
 import type { Sound } from "./sound";
 import { GroundStream } from "../ground/GroundStream";
 import { realCarMaterial, carGlassMaterial } from "../ground/carMaterial";
+import { finiteCarReflection } from "../ground/carSurfaceSafety";
 import { loadWalkCarModels, attachCarWindows } from "../ground/carModels";
 import { CarBatches } from "../ground/CarBatches";
 import { ParkedCars } from "./ParkedCars";
@@ -852,12 +853,15 @@ export class WalkGame {
     const pm = new THREE.PMREMGenerator(this.renderer);
     try {
       camera.update(this.renderer, this.scene);
-      this.carReflectionRT?.dispose(); this.carReflectionRT = pm.fromCubemap(cube.texture);
+      const candidate=pm.fromCubemap(cube.texture),valid=finiteCarReflection(this.renderer,candidate);
+      this.carReflectionRT?.dispose();this.carReflectionRT=valid?candidate:null;
+      if(!valid)candidate.dispose();
+      this.scene.userData.walkCarReflection=valid?"local-finite":"sky-fallback-invalid-local";
       this.scene.traverse(object => {
         const material = (object as THREE.Mesh).material;
         if (!material) return;
         for (const m of Array.isArray(material) ? material : [material]) if (m.userData.carModel) {
-          (m as THREE.MeshStandardMaterial).envMap = this.carReflectionRT!.texture; m.needsUpdate = true;
+          (m as THREE.MeshStandardMaterial).envMap = this.carReflectionRT?.texture??null; m.needsUpdate = true;
         }
       });
     } finally { this.avatar.root.visible = avatarVisible; this.markers.visible = markersVisible; cube.dispose(); pm.dispose(); }
