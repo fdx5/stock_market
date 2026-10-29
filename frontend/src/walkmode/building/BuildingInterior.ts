@@ -83,7 +83,8 @@ export class BuildingInterior {
       ["shelf", std({ color: "#e9e9e6", roughness: 0.5, metalness: 0.2 })],
       ["bed", std({ color: "#dfe7ee", roughness: 0.7 })],
       ["sheet", tiled("rough_linen", "#eef2f4", 0.85)],
-      ["counter", tiled("marble_tiles", "#ffffff", 0.25)],
+      // (a counter's solid surface: off-white, satin — the marble tile texture read as gravel)
+      ["counter", std({ color: "#eeece6", roughness: 0.32, metalness: 0.02 })],
       ["car", std({ color: "#5d6670", roughness: 0.35, metalness: 0.6 })],
       ["line", std({ color: "#f2d24a", roughness: 0.6 })],
       ["plant", std({ color: "#3f6b3a", roughness: 0.8 })],
@@ -165,6 +166,7 @@ export class BuildingInterior {
     this.crowd?.dispose(); this.crowd = null;
     for (const c of [...this.floorGroup.children]) { this.floorGroup.remove(c); const m = c as THREE.Mesh; if (m.geometry) m.geometry.dispose(); }
     this.liftDoors = []; this.escal = []; this.solids = [];
+    this.floorTex.forEach(t => t.dispose()); this.floorMats.forEach(m => m.dispose()); this.floorTex = []; this.floorMats = [];
   }
   private buildFloor(fp: FloorPlan) {
     const { W, D } = this.o.plan, H = fp.height;
@@ -232,9 +234,47 @@ export class BuildingInterior {
       for (const sx of [e.x - 0.05, e.x + e.w + 0.05]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.9, Math.hypot(len, rise)), this.mats.get("glass")!); rail.position.copy(body.position).setX(sx); rail.position.y += 0.75; rail.rotation.x = body.rotation.x; this.floorGroup.add(rail); }
       this.escal.push({ mesh: body, steps, x: e.x, z0: e.z0, z1: e.z1, up: e.up, w: e.w, offset: 0, H: rise });
     }
-    // the stairs' landings (for the E prompt) and the people
+    // what the floor shows: painted on canvases (the directory from the register's floors)
+    for (const d of fp.decor) this.decorate(d);
     this.renderer.setClearColor(this.scene.background as THREE.Color);
   }
+
+  private decorate(d: FloorPlan["decor"][number]) {
+    const px = 512, c = document.createElement("canvas"); c.width = Math.round(px * Math.max(1, d.w / d.h)); c.height = Math.round(px * Math.max(1, d.h / d.w));
+    const g = c.getContext("2d")!, W = c.width, H = c.height, font = (wt: number, sz: number) => `${wt} ${sz}px Pretendard, 'Noto Sans KR', 'Malgun Gothic', sans-serif`;
+    let emissive = 0.25;
+    if (d.kind === "directory") {
+      // the floors, top down: each its label and its uses (the register's)
+      g.fillStyle = "#1d2733"; g.fillRect(0, 0, W, H); g.fillStyle = "#e9f1f8"; g.font = font(800, W * 0.09); g.fillText("층별 안내", W * 0.07, H * 0.07);
+      const levels = [...this.o.plan.levels].reverse(), row = Math.min(H * 0.06, (H * 0.86) / levels.length);
+      levels.forEach((l, i) => {
+        const y = H * 0.12 + i * row; if (l === this.level) { g.fillStyle = "rgba(94,180,255,0.35)"; g.fillRect(0, y - row * 0.1, W, row); }
+        g.fillStyle = "#ffd36b"; g.font = font(800, row * 0.62); g.fillText(this.labelOf(l), W * 0.05, y + row * 0.62);
+        g.fillStyle = "#dfe7ee"; g.font = font(500, row * 0.5); g.fillText((this.usesOf(l) || "-").slice(0, 22), W * 0.32, y + row * 0.6);
+      });
+      emissive = 0.5;
+    } else if (d.kind === "floor") {
+      g.fillStyle = "#f4f4f2"; g.fillRect(0, 0, W, H); g.fillStyle = "#1d2733"; g.font = font(900, H * 0.5); g.textAlign = "center"; g.fillText(d.text ?? "", W / 2, H * 0.58);
+      g.font = font(600, H * 0.15); g.fillText(this.usesOf(this.level).slice(0, 18), W / 2, H * 0.86);
+    } else if (d.kind === "sign") {
+      g.fillStyle = "#24476b"; g.fillRect(0, 0, W, H); g.fillStyle = "#ffffff"; g.font = font(800, H * 0.6); g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(d.text ?? "", W / 2, H * 0.54);
+      emissive = 0.6;
+    } else if (d.kind === "tv") {
+      const grd = g.createLinearGradient(0, 0, W, H); grd.addColorStop(0, "#0e5a8a"); grd.addColorStop(1, "#0b2236"); g.fillStyle = grd; g.fillRect(0, 0, W, H);
+      g.fillStyle = "#ffffff"; g.font = font(800, H * 0.13); g.fillText("진료 대기 현황", W * 0.06, H * 0.2);
+      g.font = font(600, H * 0.1); for (let i = 0; i < 4; i++) g.fillText(`${["내과", "정형외과", "소아청소년과", "영상의학과"][i]}  대기 ${3 + ((i * 7 + this.level) % 9)}명`, W * 0.08, H * (0.42 + i * 0.15));
+      emissive = 1.0;
+    } else {
+      g.fillStyle = "#ffffff"; g.beginPath(); g.arc(W / 2, H / 2, W * 0.46, 0, Math.PI * 2); g.fill(); g.strokeStyle = "#222"; g.lineWidth = W * 0.04; g.stroke();
+      const t = new Date(), hr = (this.o.hour % 12) + t.getMinutes() / 60, mn = t.getMinutes();
+      for (const [a, l] of [[hr / 12, 0.25], [mn / 60, 0.36]] as [number, number][]) { g.beginPath(); g.moveTo(W / 2, H / 2); g.lineTo(W / 2 + Math.sin(a * Math.PI * 2) * W * l, H / 2 - Math.cos(a * Math.PI * 2) * H * l); g.stroke(); }
+    }
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; this.floorTex.push(tex);
+    const m = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: new THREE.Color("#ffffff"), emissiveIntensity: emissive, roughness: 0.5 }); this.floorMats.push(m);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(d.w, d.h), m);
+    mesh.position.set(d.x, d.y, d.z); mesh.rotation.y = d.yaw; this.floorGroup.add(mesh);
+  }
+  private floorTex: THREE.Texture[] = []; private floorMats: THREE.Material[] = [];
 
   // ------------------------------------------------------------------ moving about
   keyDown = (e: KeyboardEvent) => {

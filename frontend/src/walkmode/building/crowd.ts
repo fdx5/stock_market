@@ -15,12 +15,17 @@ import { findPath, type FloorPlan, type Spot, type ZoneKind } from "./plan";
 type Act = "sit" | "lie" | "stand" | "walk" | "type";
 interface Person {
   x: number; z: number; yaw: number; y: number; act: Act; timer: number; phase: number; speed: number;
+  /** the gait's phase (radians), moved on by the distance walked; the shoes' colour */
+  gait: number; shoe: THREE.Color;
   path: [number, number][] | null; target: Spot | null; home: Spot | null; role: Role; h: number;
   colors: [THREE.Color, THREE.Color, THREE.Color, THREE.Color, THREE.Color];
   hidden: boolean;
 }
 type Role = "worker" | "staff" | "nurse" | "doctor" | "patient" | "visitor" | "shopper" | "diner" | "student" | "driver";
-const PARTS = ["torso", "head", "hair", "upperL", "upperR", "foreL", "foreR", "thighL", "thighR", "shinL", "shinR", "hips"] as const;
+const PARTS = ["torso", "head", "hair", "upperL", "upperR", "foreL", "foreR", "thighL", "thighR", "shinL", "shinR", "hips", "shoeL", "shoeR"] as const;
+/** a walking stride (two steps) in metres: the legs' cycle advances with the ground covered */
+const STRIDE = 1.36;
+const SHOES = ["#1b1c1f", "#3a2a20", "#f2f2f0", "#2d3a52", "#5a5f66"].map(c => new THREE.Color(c));
 type Part = typeof PARTS[number];
 
 const SKIN = ["#f1c9a5", "#e5b48f", "#d29c76", "#c48a63", "#f6d5b8"].map(c => new THREE.Color(c));
@@ -38,6 +43,9 @@ function geos(): Record<Part, THREE.BufferGeometry> {
     hair: new THREE.SphereGeometry(0.112, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55).scale(0.97, 1.08, 1.03).translate(0, 0.14, -0.01),
     upperL: cap(0.045, 0.2), upperR: cap(0.045, 0.2), foreL: cap(0.04, 0.19), foreR: cap(0.04, 0.19),
     thighL: cap(0.065, 0.3), thighR: cap(0.065, 0.3), shinL: cap(0.05, 0.33), shinR: cap(0.05, 0.33),
+    // (a shoe: its heel under the ankle, the toe forward, a rounded box)
+    shoeL: new THREE.CapsuleGeometry(0.048, 0.16, 3, 8).rotateX(Math.PI / 2).scale(1.05, 0.75, 1).translate(0, -0.035, 0.06),
+    shoeR: new THREE.CapsuleGeometry(0.048, 0.16, 3, 8).rotateX(Math.PI / 2).scale(1.05, 0.75, 1).translate(0, -0.035, 0.06),
   };
 }
 
@@ -60,7 +68,7 @@ export class Crowd {
     this.mats.push(cloth, skin, hair);
     const n = Math.max(1, plan.crowd);
     for (const p of PARTS) {
-      const mat = p === "head" ? skin : p === "hair" ? hair : p.startsWith("fore") ? skin : cloth;
+      const mat = p === "head" ? skin : p === "hair" ? hair : p.startsWith("fore") ? skin : p.startsWith("shoe") ? hair : cloth;
       const im = new THREE.InstancedMesh(this.geos[p], mat, n);
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.frustumCulled = false; im.castShadow = false; im.receiveShadow = false;
       im.setColorAt(0, new THREE.Color()); im.count = 0;
@@ -119,7 +127,8 @@ export class Crowd {
     const role = this.roleFor(kind, s);
     this.gown = s?.kind === "bed";
     const p: Person = { x: s?.x ?? 0, z: s?.z ?? 0, yaw: s?.yaw ?? 0, y: s?.y ?? 0, act: "stand", timer: 4 + this.rnd() * 40, phase: this.rnd() * 6.28,
-      speed: role === "nurse" || role === "staff" ? 1.25 : 1.05 + this.rnd() * 0.25, path: null, target: s, home: s, role, h: 0.92 + this.rnd() * 0.16, colors: this.dress(role), hidden: false };
+      speed: role === "nurse" || role === "staff" ? 1.25 : 1.05 + this.rnd() * 0.25, path: null, gait: this.rnd() * 6.28,
+      shoe: role === "nurse" || role === "doctor" ? new THREE.Color("#f4f4f2") : role === "patient" && s?.kind === "bed" ? new THREE.Color("#c9d6e2") : this.pick(SHOES), target: s, home: s, role, h: 0.92 + this.rnd() * 0.16, colors: this.dress(role), hidden: false };
     this.gown = false;
     if (s) { this.taken.add(s); p.act = this.actAt(s); if (s.kind === "desk" || s.kind === "counter" || s.kind === "bed") p.timer = 30 + this.rnd() * 120; }
     this.people.push(p);
@@ -156,6 +165,7 @@ export class Crowd {
         const want = Math.atan2(dx, dz); let dy = want - p.yaw; dy -= Math.round(dy / (Math.PI * 2)) * Math.PI * 2;
         p.yaw += dy * Math.min(1, dt * 8); p.y = 0;
         const step = Math.min(l, p.speed * dt); p.x += dx / l * step; p.z += dz / l * step;
+        p.gait += step / STRIDE * Math.PI * 2;
       } else {
         p.timer -= dt;
         if (p.timer < 0) {
@@ -179,8 +189,8 @@ export class Crowd {
     for (const p of this.people) {
       // (beyond 60 m, not drawn)
       if (Math.hypot(p.x - eye.x, p.z - eye.z) > 60) continue;
-      const k = p.h, walk = p.act === "walk", w = Math.sin(p.phase * 2 * p.speed * 2.6), sit = p.act === "sit" || p.act === "type", lie = p.act === "lie";
-      const hipY = lie ? p.y + 0.12 : sit ? p.y + 0.08 : 0.9 * k + (walk ? Math.abs(w) * 0.025 : 0);
+      const k = p.h, walk = p.act === "walk", sg = Math.sin(p.gait), cg = Math.cos(p.gait), sit = p.act === "sit" || p.act === "type", lie = p.act === "lie";
+      const hipY = lie ? p.y + 0.12 : sit ? p.y + 0.08 : 0.9 * k - (walk ? 0.012 + 0.014 * Math.cos(2 * p.gait) : 0);
       B.makeRotationY(p.yaw).setPosition(p.x, hipY, p.z);
       if (lie) B.multiply(R(-Math.PI / 2, 0, 0));
       B.multiply(T1.makeScale(k, k, k));
@@ -194,21 +204,26 @@ export class Crowd {
       // arms: swing walking, forward on a desk typing, at the sides otherwise
       for (const side of [-1, 1]) {
         const sh = new THREE.Matrix4().copy(torso).multiply(T1.makeTranslation(side * 0.2, 0.52, 0));
-        const swing = walk ? -w * side * 0.45 : p.act === "type" ? -0.9 : sit ? -0.35 : 0.05;
+        const swing = walk ? 0.36 * (side < 0 ? sg : -sg) : p.act === "type" ? -0.9 : sit ? -0.35 : 0.05;
         const up = sh.multiply(R(swing, 0, side * 0.08));
         this.part(p, side < 0 ? "upperL" : "upperR", n, up, p.colors[4]);
-        const fore = new THREE.Matrix4().copy(up).multiply(T1.makeTranslation(0, -0.29, 0)).multiply(R(p.act === "type" ? -0.9 + Math.sin(p.phase * 9 + side) * 0.06 : walk ? -0.3 : sit ? -0.9 : -0.1, 0, 0));
+        const fore = new THREE.Matrix4().copy(up).multiply(T1.makeTranslation(0, -0.29, 0)).multiply(R(p.act === "type" ? -0.9 + Math.sin(p.phase * 9 + side) * 0.06 : walk ? -0.25 - 0.2 * Math.max(0, -side * sg) : sit ? -0.9 : -0.1, 0, 0));
         this.part(p, side < 0 ? "foreL" : "foreR", n, fore, p.colors[2]);
       }
       // legs: a walk's stride, a sitter's right angles, straight lying or standing
       for (const side of [-1, 1]) {
         const hip = new THREE.Matrix4().copy(B).multiply(T1.makeTranslation(side * 0.09, 0, 0));
-        const th = walk ? w * side * 0.5 : sit ? -Math.PI / 2 : 0;
+        // (left leg forward as sin > 0, the right half a stride after; forward is −x rotation here)
+        const ls = side < 0 ? sg : -sg, lc = side < 0 ? cg : -cg;
+        const th = walk ? -0.42 * ls : sit ? -Math.PI / 2 : 0;
         const thigh = hip.multiply(R(th, 0, 0));
         this.part(p, side < 0 ? "thighL" : "thighR", n, thigh, p.colors[1]);
-        const knee = walk ? Math.max(0, -w * side) * 0.8 : sit ? Math.PI / 2 : 0;
+        const knee = walk ? 0.08 + 0.85 * Math.max(0, lc) * (0.6 + 0.4 * Math.max(0, -ls)) : sit ? Math.PI / 2 : 0;
         const shin = new THREE.Matrix4().copy(thigh).multiply(T1.makeTranslation(0, -0.43, 0)).multiply(R(knee, 0, 0));
         this.part(p, side < 0 ? "shinL" : "shinR", n, shin, p.colors[1]);
+        // (the foot kept level: the shin's turn and the thigh's undone, the toe lifting in the swing)
+        const foot = new THREE.Matrix4().copy(shin).multiply(T1.makeTranslation(0, -0.45, 0)).multiply(R(-(th + knee) + (walk ? -0.25 * Math.max(0, lc) : 0), 0, 0));
+        this.part(p, side < 0 ? "shoeL" : "shoeR", n, foot, p.shoe);
       }
       n++;
     }

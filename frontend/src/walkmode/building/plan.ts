@@ -26,10 +26,14 @@ export interface Spot { x: number; z: number; yaw: number; kind: SpotKind; y: nu
 export interface Lift { x: number; z: number; w: number; yaw: number; index: number }
 export interface Escalator { x: number; z0: number; z1: number; up: boolean; w: number }
 export interface Zone { kind: ZoneKind; label: string; rect: [number, number, number, number] }
+/** what a floor shows on its walls and hangs from its ceiling: the floor directory by the lifts, the
+ * floor's own number, the counters' signs, the toilets', a waiting room's TV, a clock */
+export interface Decor { kind: "directory" | "floor" | "sign" | "tv" | "clock"; x: number; z: number; y: number; yaw: number; w: number; h: number; text?: string }
 export interface FloorPlan {
   level: number; label: string; height: number; kinds: ZoneKind[];
   zones: Zone[]; boxes: Box[]; spots: Spot[]; lifts: Lift[]; stairs: { x: number; z: number; w: number; d: number }[];
   escalators: Escalator[];
+  decor: Decor[];
   /** walkable grid: 0.5 m cells, 1 = free */
   grid: { nx: number; nz: number; cell: number; free: Uint8Array };
   /** the street door (ground floor) */
@@ -99,7 +103,7 @@ export function planFloor(b: BuildingPlan, level: number, seed: number): FloorPl
   if (level === 1 && !uses.has("lobby") && W * D > 300 && [...uses.keys()].some(k => k === "office" || k === "clinic" || k === "ward")) uses.set("lobby", [...uses.values()].reduce((a, b) => a + b, 0) * 0.3);
   const kinds = [...uses.entries()].sort((a, b) => (a[0] === "lobby" ? -1 : b[0] === "lobby" ? 1 : b[1] - a[1])).map(e => e[0]);
   const height = level < 0 ? 3.3 : level === 1 ? 4.5 : kinds[0] === "retail" || kinds[0] === "food" ? 4.2 : kinds[0] === "ward" || kinds[0] === "clinic" ? 3.9 : 3.6;
-  const boxes: Box[] = [], spots: Spot[] = [], zones: Zone[] = [], lifts: Lift[] = [], stairs: FloorPlan["stairs"] = [];
+  const boxes: Box[] = [], spots: Spot[] = [], zones: Zone[] = [], lifts: Lift[] = [], stairs: FloorPlan["stairs"] = [], decor: Decor[] = [];
   const add = (x0: number, z0: number, x1: number, z1: number, y0: number, y1: number, m: Mat, solid = true) => boxes.push({ x0: Math.min(x0, x1), z0: Math.min(z0, z1), x1: Math.max(x0, x1), z1: Math.max(z0, z1), y0, y1, m, solid });
   const T = 0.2, H = height;
 
@@ -321,6 +325,31 @@ export function planFloor(b: BuildingPlan, level: number, seed: number): FloorPl
     }
   }
 
+  // ---- what the floor shows: by the lifts its directory and its number (the core's front wall, facing
+  // the lobby), the toilets' sign, a sign over each counter, a clock; in a waiting room a TV; plants by
+  // the windows, a water cooler and bins by the core
+  {
+    const faceLobby = Math.PI;
+    if (!small) {
+      decor.push({ kind: "directory", x: cx0 + 0.55, z: cz0 - 0.03, y: 1.55, yaw: faceLobby, w: 0.9, h: 1.5 });
+      decor.push({ kind: "floor", x: cx1 - 0.75, z: cz0 - 0.03, y: 2.05, yaw: faceLobby, w: 1.1, h: 0.75, text: reg?.label ?? (level < 0 ? `B${-level}` : `${level}F`) });
+      decor.push({ kind: "sign", x: (cx0 + cx1) / 2, z: cz1 + 0.03, y: 2.35, yaw: 0, w: 1.2, h: 0.32, text: "화장실 ▲" });
+      decor.push({ kind: "clock", x: (cx0 + cx1) / 2, z: cz0 - 0.03, y: 2.9, yaw: faceLobby, w: 0.4, h: 0.4 });
+      add(cx1 + 0.4, cz0 - 1.0, cx1 + 0.75, cz0 - 0.6, 0, 1.15, "white"); add(cx1 + 0.42, cz0 - 0.98, cx1 + 0.73, cz0 - 0.62, 1.15, 1.45, "glass", false);
+      add(cx0 - 0.75, cz0 - 1.0, cx0 - 0.4, cz0 - 0.6, 0, 0.75, "metal");
+    }
+    for (const sp of spots) if (sp.kind === "counter") {
+      const z = zones[sp.zone]?.kind;
+      const text = z === "clinic" ? "접수 · 수납" : z === "ward" ? "간호사실" : z === "lobby" ? "안내" : z === "retail" ? "계산대" : z === "food" ? "주문 · 픽업" : null;
+      if (text && !decor.some(d => d.kind === "sign" && d.text === text && Math.hypot(d.x - sp.x, d.z - sp.z) < 6)) decor.push({ kind: "sign", x: sp.x, z: sp.z + 0.6, y: 2.55, yaw: Math.PI, w: 1.6, h: 0.4, text });
+    }
+    for (const z of zones) {
+      const [x0, z0, x1, z1] = z.rect;
+      if (z.kind === "clinic" && x1 - x0 > 6) decor.push({ kind: "tv", x: (x0 + x1) / 2, z: T + 0.04, y: 2.2, yaw: 0, w: 1.6, h: 0.9 });
+      if (!parking && level >= 0) for (const [px, pz] of [[x0 + 0.6, z0 + 0.6], [x1 - 1.2, z0 + 0.6], [x0 + 0.6, z1 - 1.2], [x1 - 1.2, z1 - 1.2]]) if (!blocked(px, pz, px + 0.6, pz + 0.6, 0)) add(px, pz, px + 0.6, pz + 0.6, 0, 1.3 + R() * 0.5, "plant");
+    }
+  }
+
   // ---- escalators: in a store of two or more shop floors, beside the core
   const escalators: Escalator[] = [];
   const shopFloors = b.levels.filter(l => { const r = b.regFloors.find(f => f.level === l); return !!r && r.uses.some(u => kindOf(u.use, u.detail, l, b.info) === "retail") && r.area > 900; });
@@ -346,7 +375,7 @@ export function planFloor(b: BuildingPlan, level: number, seed: number): FloorPl
   let crowd = 0;
   for (const z of zones) crowd += ((z.rect[2] - z.rect[0]) * (z.rect[3] - z.rect[1])) / DENSITY[z.kind];
   crowd = Math.round(Math.min(320, Math.max(level < 0 ? 2 : 6, crowd)) * (0.75 + R() * 0.4));
-  return { level, label: reg?.label ?? (level < 0 ? `지하${-level}층` : `${level}층`), height, kinds, zones, boxes, spots, lifts, stairs, escalators, grid: { nx, nz, cell: CELL, free }, door, crowd };
+  return { level, label: reg?.label ?? (level < 0 ? `지하${-level}층` : `${level}층`), height, kinds, zones, boxes, spots, lifts, stairs, escalators, decor, grid: { nx, nz, cell: CELL, free }, door, crowd };
 }
 
 /** A path on the grid between two points (A*, 8 neighbours), as points; null if none. */
