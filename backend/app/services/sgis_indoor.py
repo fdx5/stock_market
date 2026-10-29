@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -25,8 +26,9 @@ _pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="sgis-floor")
 
 
 class ProviderError(Exception):
-    def __init__(self, state="unavailable"):
+    def __init__(self, state="unavailable", code=None):
         self.state = state
+        self.code = str(code) if code is not None and re.fullmatch(r"-?\d{1,8}",str(code)) else None
 
 
 def configured():
@@ -68,6 +70,8 @@ def _request(path, **params):
         token = _access_token()
         try:
             r = requests.get(BASE + "figure/" + path, params={**params, "accessToken": token}, timeout=(2, 5))
+            if not r.ok:
+                raise ProviderError("http_error", r.status_code)
             r.raise_for_status()
             body = r.json()
         except (requests.RequestException, ValueError):
@@ -81,7 +85,7 @@ def _request(path, **params):
         if code == "-100":
             raise ProviderError("auth_error")
         if code not in ("0", "-1000"):
-            raise ProviderError()
+            raise ProviderError("provider_error",code)
         return body
     raise ProviderError("auth_error")
 
@@ -93,7 +97,7 @@ def _cached(key, fetch):
             _cache.move_to_end(key)
             return hit[1]
     value = fetch()
-    ttl = 21600 if value.get("status") == "available" else 60
+    ttl = 21600 if value.get("status") == "available" and not value.get("partial") else 60
     with _lock:
         _cache[key] = (time.time() + ttl, value)
         while len(_cache) > 256:
@@ -163,8 +167,13 @@ def building(lat, lon, name=""):
             x0, y0 = min(q[0] for q in pts), min(q[1] for q in pts)
             w, d = max(q[0] for q in pts)-x0, max(q[1] for q in pts)-y0
             olon, olat = _to_geo.transform(x0, y0)
+            try:
+                attr = _request("buildingattribute.json", sufid=str(p["sufid"])).get("result") or {}
+            except ProviderError:
+                attr = {}
             return {"status": "available", "source": "SGIS 사업체 전개도", "year": 2019,
                     "id": str(p["sufid"]), "name": str(p.get("bd_nm") or name)[:120], "outlines": polys,
+                    "address": str(attr.get("bd_naddr") or "")[:180],
                     "frame": {"x": x0, "y": y0, "lon": olon, "lat": olat, "width": w, "depth": d}}
         except ProviderError as exc:
             return {"status": exc.state, "source": "SGIS", "year": 2019}
@@ -182,9 +191,11 @@ def floor(sufid, level):
             def optional(path):
                 try:
                     return _request(path, sufid=sufid, flr_no=level)
-                except ProviderError:
-                    return {}
+                except ProviderError as exc:
+                    return {"_layer_status":exc.state,"_layer_code":exc.code}
             responses = list(_pool.map(optional, paths))
+            layers = {path:{"status":body.get("_layer_status") or ("empty" if str(body.get("errCd",0))=="-1000" else "responded"),
+                           "code":body.get("_layer_code") or str(body.get("errCd",0))} for path,body in zip(paths,responses)}
             companies, facility, info = responses
             info = info.get("result") or {}
             themes = {str(t.get("theme_cd")): str(t.get("theme_cd_nm") or "") for t in info.get("theme_cd_list", [])}
@@ -208,7 +219,8 @@ def floor(sufid, level):
             return {"status": "available", "source": "SGIS 사업체 전개도", "year": 2019, "level": level,
                     "outlines": outlines, "rooms": rooms,
                     "companies": points(info.get("companylist") or [], True), "facilities": points(facilities),
-                    "partitionsAvailable": bool(rooms), "facilitiesAvailable": bool(facilities)}
+                    "partitionsAvailable": bool(rooms), "facilitiesAvailable": bool(facilities), "layers":layers,
+                    "partial":any(v["status"] not in ("responded","empty") for v in layers.values())}
         except ProviderError as exc:
             return {"status": exc.state, "year": 2019, "level": level}
     return _cached(("floor", sufid, level), fetch)
