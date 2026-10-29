@@ -37,6 +37,8 @@ UA = {"User-Agent": "kospimap.com apartment 3D viewer (https://kospimap.com)"}
 OVERPASS = (
     "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
+    # (VK's public instance: answered when both above gave 502 and timeouts, 2026-10-29)
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 )
 # kumi.systems is the former name of private.coffee, not an independent fallback.
 # The foreground tile requests and background surveys share this process-wide limit.
