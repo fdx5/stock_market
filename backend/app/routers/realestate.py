@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import Response
 
+from app.services import realestate_floors
 from app.services import realestate_building_info, realestate_buildings, realestate_facts, realestate_map, realestate_nearby, realestate_rent, realestate_summary, realestate_water
 from app.services import realestate_units as realestate_units_service
 
@@ -246,6 +247,20 @@ def realestate_units(response: Response, id: str = Query(..., min_length=7, max_
         raise HTTPException(status_code=404, detail="단지를 찾을 수 없습니다.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/building-floors")
+def realestate_building_floors(response: Response, pnu: str = Query(..., pattern=r"^\d{19}$"), name: str | None = Query(None, max_length=80)):
+    """A building's floors for the walk mode's building interiors: the register's 표제부 (floors,
+    lifts, areas, use) and 층별개요 (each floor's uses and areas)."""
+    try:
+        result = realestate_floors.building_floors(pnu, name)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return result
 
 
 @router.get("/buildings")
