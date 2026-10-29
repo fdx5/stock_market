@@ -8,23 +8,28 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 interface Bucket { pos: number[]; nor: number[]; uv: number[]; zone: number[]; idx: number[]; cast: boolean; receive: boolean }
 
 export class Batcher {
-  private buckets = new Map<THREE.Material, Bucket>();
-  private bucket(m: THREE.Material, cast = true) {
-    let b = this.buckets.get(m);
-    if (!b) { b = { pos: [], nor: [], uv: [], zone: [], idx: [], cast, receive: true }; this.buckets.set(m, b); }
+  private buckets = new Map<string, Bucket & { m: THREE.Material }>();
+  /** `chunk` (m): a big floor's batches cut into squares this size, each a mesh of its own, so the
+   * parts out of view or far away are not drawn (0: one mesh a material, a flat's whole) */
+  constructor(private chunk = 0) {}
+  private bucket(m: THREE.Material, cast = true, x = 0, z = 0) {
+    const key = this.chunk > 0 ? `${m.uuid}|${Math.floor(x / this.chunk)}|${Math.floor(z / this.chunk)}` : m.uuid;
+    let b = this.buckets.get(key);
+    if (!b) { b = { m, pos: [], nor: [], uv: [], zone: [], idx: [], cast, receive: true }; this.buckets.set(key, b); }
     if (!cast) b.cast = false;
     return b;
   }
   /** a flat quad: corners in order (counter-clockwise seen from the side the normal points to) */
   quad(m: THREE.Material, zone: number, p: THREE.Vector3[], n: THREE.Vector3, uv: [number, number][]) {
-    const b = this.bucket(m), base = b.pos.length / 3;
+    const b = this.bucket(m, true, (p[0].x + p[2].x) / 2, (p[0].z + p[2].z) / 2), base = b.pos.length / 3;
     for (let i = 0; i < 4; i++) { b.pos.push(p[i].x, p[i].y, p[i].z); b.nor.push(n.x, n.y, n.z); b.uv.push(uv[i][0], uv[i][1]); b.zone.push(zone); }
     b.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
   /** any geometry, transformed (its UVs as they are — call boxUV first for metre UVs) */
   add(m: THREE.Material, zone: number, g: THREE.BufferGeometry, mat?: THREE.Matrix4, cast = true) {
-    const b = this.bucket(m, cast), base = b.pos.length / 3;
     const pos = g.getAttribute("position"), nor = g.getAttribute("normal"), uv = g.getAttribute("uv");
+    const at = new THREE.Vector3(); if (this.chunk > 0) { if (pos.count) at.fromBufferAttribute(pos, 0); if (mat) at.applyMatrix4(mat); }
+    const b = this.bucket(m, cast, at.x, at.z), base = b.pos.length / 3;
     const v = new THREE.Vector3(), nm = mat ? new THREE.Matrix3().getNormalMatrix(mat) : null;
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i); if (mat) v.applyMatrix4(mat); b.pos.push(v.x, v.y, v.z);
@@ -40,7 +45,8 @@ export class Batcher {
   }
   build(): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];
-    for (const [m, b] of this.buckets) {
+    for (const b of this.buckets.values()) {
+      const m = b.m;
       if (!b.idx.length) continue;
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(b.pos, 3));

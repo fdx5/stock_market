@@ -49,6 +49,8 @@ export interface Entrance { name: string; dong: string; x: number; y: number; fl
   category?:BuildingCategory;useLabel?:string;tenants?:BuildingPlace[];
   /** the building's surveyed footprint (frame metres): the floor plate its flats share */
   foot?: [number, number][];
+  /** the buildings standing with it (frame metres): a hospital's other blocks, its ground floor one with them */
+  campus?: [number, number][][];
   /** a block of flats (the default), or another building — an office, a hospital, a store — gone into
    * by its floors (building/BuildingInterior.ts); its register use code */
   kind?: "apartment" | "building"; use?: string }

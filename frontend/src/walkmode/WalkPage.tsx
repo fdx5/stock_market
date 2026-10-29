@@ -87,7 +87,10 @@ export default function WalkPage() {
   /** a building other than flats, walked floor by floor in the interior engine: what is known of it */
   const fac = useRef<{ info: RegBuilding; floors: RegFloor[]; W: number; D: number; levels: { level: number; label: string; uses: string }[]; tenants: { name: string; level: number }[]; departments: string[]; key: string;
     /** the building's survey (SGIS): its frame, its floors' drawings fetched as walked; the way in in plan coords */
-    survey?: { id: string; frame: { x: number; y: number; width: number; depth: number }; outline: [number, number][][][] | null; entry: [number, number] | null; stack?: Promise<{ status: string; cores?: { type: string; polygons: [number, number][][][] }[] } | null> } } | null>(null);
+    survey?: { id: string; frame: { x: number; y: number; width: number; depth: number }; outline: [number, number][][][] | null; entry: [number, number] | null; stack?: Promise<{ status: string; cores?: { type: string; polygons: [number, number][][][] }[] } | null> };
+    /** the way into the plan's frame (the survey's, else the footprint's), its footprint and the way in
+     * there, and a hospital's other blocks (its ground floor laid out with them) */
+    toPlan?: (x: number, y: number) => [number, number]; foot?: [number, number][]; entry?: [number, number]; campus?: [number, number][][] } | null>(null);
   /** the complex of the building being entered, when it is not the one the walk started at */
   const [visit, setVisit] = useState<{ id: string; name: string; built?: number } | null>(null);
   const [units, setUnits] = useState<UnitsResponse | null>(null);
@@ -206,6 +209,9 @@ export default function WalkPage() {
       const cx = foot.length ? foot.reduce((t, p) => t + p[0], 0) / foot.length : 0, cy = foot.length ? foot.reduce((t, p) => t + p[1], 0) / foot.length : 0;
       const heading = Number(q.get("heading") ?? 0);
       const e: Entrance = { name: q.get("name") ?? "", dong: "", x: 0, y: 0, floors: Number(q.get("floors") ?? 0) || 5, heading, cx, cy, foot: foot.length >= 3 ? foot : undefined, kind: "building" };
+      // (the blocks standing with it, as the drone view saw them)
+      const campus = (q.get("campus") ?? "").split("|").map(r => r.split(";").map(p => p.split(",").map(Number)).filter(p => p.length === 2 && p.every(Number.isFinite)).map(([lo, la]) => toFrame(o, lo, la))).filter(r => r.length >= 3);
+      if (campus.length) e.campus = campus;
       // (the register first: a block of flats goes by its flats, the rest by their floors)
       const pnu = await direct.current.pnuOf(e);
       const area = foot.length >= 3 ? Math.abs(foot.reduce((t, [x1, y1], i) => { const [x2, y2] = foot[(i + 1) % foot.length]; return t + x1 * y2 - x2 * y1; }, 0)) / 2 : 0;
@@ -331,7 +337,11 @@ export default function WalkPage() {
         // (the plate along the street its longer side; a hospital's departments for its clinic rooms)
         const W0 = frame?.width ?? shape.W, D0 = frame?.depth ?? shape.D;
         const depts = hospital ? await fetch(`/api/realestate/hospital-departments?${new URLSearchParams({ lat: String(lat), lon: String(lon), name: info.name ?? e.name })}`).then(r => r.ok ? r.json() : null).catch(() => null) : null;
+        // (the plan's frame: the survey's — x east from its corner, z south — else the footprint's own)
+        const fx0 = Math.min(...(e.foot ?? [[0, 0]]).map(p => p[0])), fy1 = Math.max(...(e.foot ?? [[0, 0]]).map(p => p[1]));
+        const toPlan = frame ? (x: number, y: number): [number, number] => [x - origin[0], frame.depth - (y - origin[1])] : (x: number, y: number): [number, number] => [x - fx0, fy1 - y];
         fac.current = { info, floors, W: Math.max(W0, D0), D: Math.min(W0, D0), levels: facilityLevels(plan.levels, floors), tenants: plan.tenants,
+          toPlan, foot: e.foot, entry: toPlan(e.x, e.y), campus: hospital && e.campus?.length ? e.campus : undefined,
           departments: ((depts?.departments ?? []) as { name: string; doctors: number }[]).sort((a, c) => c.doctors - a.doctors).map(d => d.name), key: `${pnu ?? ""}|${info.name ?? e.name}`,
           survey: frame && survey?.id ? { id: survey.id, frame, outline: survey.outlines?.map(p => p.map(r => r.map(([x, y]) => [x - frame.x, frame.depth - (y - frame.y)] as [number, number]))) ?? null, entry: [e.x - origin[0], frame.depth - (e.y - origin[1])] } : undefined };
         openFacility(plan.levels.includes(1) ? 1 : plan.levels[0] ?? 1);
@@ -383,19 +393,27 @@ export default function WalkPage() {
     // nearest charted floor; else its outline as the building's; else the rules on the footprint)
     let p: FloorPlan | null = null;
     const sv = f.survey;
+    // (a hospital's ground floor: its other blocks with it, joined by passages — campusFloor)
+    const campus = level === 1 && f.campus && f.toPlan ? f.campus.map(r => r.map(([x, y]) => f.toPlan!(x, y))) : [];
     if (sv) {
       const P = (q: [number, number]): [number, number] => [q[0] - sv.frame.x, sv.frame.depth - (q[1] - sv.frame.y)];
       const data = await getSurvey<SurveyFloor>(`/api/realestate/indoor-floor?id=${encodeURIComponent(sv.id)}&level=${level}`);
       const own = data?.status === "available" && data.outlines?.length ? data : null;
       const charted = (own?.rooms ?? []).length > 0;
       const stack = !charted ? await (sv.stack ??= getSurvey(`/api/realestate/indoor-stack?id=${encodeURIComponent(sv.id)}&levels=${f.levels.map(l => l.level).join(",")}`)) : null;
-      const outline = own ? own.outlines!.map(q => q.map(r => r.map(P))) : sv.outline;
+      const outline0 = own ? own.outlines!.map(q => q.map(r => r.map(P))) : sv.outline;
+      const joined = outline0?.length ? campusFloor(outline0, campus) : null, outline = joined?.outline ?? outline0;
       if (outline?.length) {
         const company = (ring: [number, number][]) => own?.companies?.find(c => { const q = P([c.x, c.y]); let h = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, zi] = ring[i], [xj, zj] = ring[j]; if ((zi > q[1]) !== (zj > q[1]) && q[0] < (xj - xi) * (q[1] - zi) / (zj - zi) + xi) h = !h; } return h; });
         p = generateSurveyed({ ...base, outline, entry: sv.entry, seed: Math.abs([...`${f.key}|${level}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 5)),
-          partitions: (own?.rooms ?? []).flatMap(r => r.polygons.map(q => { const poly = q.map(rr => rr.map(P)); const c = r.type === "10" || r.type === "20" ? company(poly[0]) : undefined; return { type: r.type, poly, name: c?.name, category: c?.category }; })),
+          partitions: [...(own?.rooms ?? []).flatMap(r => r.polygons.map(q => { const poly = q.map(rr => rr.map(P)); const c = r.type === "10" || r.type === "20" ? company(poly[0]) : undefined; return { type: r.type, poly, name: c?.name, category: c?.category }; })), ...(joined?.links ?? [])],
           cores: stack?.status === "available" ? (stack.cores ?? []).flatMap(c => c.polygons.map(q => ({ type: c.type, ring: q[0].map(P) }))) : [] });
       }
+    }
+    // (no survey: the footprint as the drone view drew it — the whole of it, and a hospital's blocks with it)
+    if (!p && f.foot && f.foot.length >= 3 && f.toPlan) {
+      const joined = campusFloor([[f.foot.map(([x, y]) => f.toPlan!(x, y))]], campus);
+      p = generateSurveyed({ ...base, outline: joined.outline, entry: f.entry ?? null, seed: Math.abs([...`${f.key}|${level}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 5)), partitions: joined.links, cores: [] });
     }
     if (!p) p = generateFacility(base);
     sound.resume(); document.exitPointerLock?.();
@@ -415,6 +433,8 @@ export default function WalkPage() {
       setTimeout(() => setFade(false), 120);
     }).catch(err => { console.error(err); setError("건물 내부를 만들지 못했습니다: " + String(err)); setPhase("error"); });
   };
+  // (the checks in scripts/: any floor of the building gone into, as its lift's panel would)
+  useEffect(() => { if (debug) Object.assign(window, { __walkFloor: openFacility }); });
   const exitBuilding = () => {
     document.exitPointerLock?.();
     building.current?.dispose(); building.current = null; setBhud(null); setLiftPanel(null);setTalk(null);
@@ -709,4 +729,43 @@ export default function WalkPage() {
       {phase === "outdoor" && showHelp && <div className="wk-help" onClick={() => setShowHelp(false)}>{car.driving?(touch?"왼쪽 스틱: 가속·감속·조향 · 브레이크: 정지 · 시점 버튼: 3인칭/정면":"W 가속 · S 제동/후진 · A/D 조향 · Space 핸드브레이크 · F/E 내리기 · V 3인칭/정면"):bicycle.riding ? touch ? "왼쪽 스틱: 가속·조향 · 뒤로: 감속 · 브레이크 버튼: 정지 · 오른쪽 끌기: 시점" : "W·↑ 가속 · A/D·←/→ 조향 · S·↓ 또는 Space 브레이크 · E 내리기 · V 시점 · 마우스로 둘러보기" : touch ? "왼쪽 스틱으로 걷기 · 근처 자전거/차량 타기 버튼" : "WASD 걷기 · Shift 달리기 · E 건물/자전거 · F 주차 차량 운전 · V 시점"}</div>}
     </div>
   );
+}
+
+/** A ground floor with the blocks standing with it: their footprints (plan frame) added to its
+ * outline — those not already inside it — each joined to the nearest one already joined by a 4 m
+ * passage between their closest points, a metre and a half into each. The passages are charted as
+ * open floor named 연결통로 (reconstructed: the survey has no drawing of them). */
+function campusFloor(outline: [number, number][][][], campus: [number, number][][]): { outline: [number, number][][][]; links: { type: string; poly: [number, number][][]; name: string }[] } {
+  const inside = (x: number, y: number, r: [number, number][]) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+  const centre = (r: [number, number][]) => [r.reduce((t, p) => t + p[0], 0) / r.length, r.reduce((t, p) => t + p[1], 0) / r.length] as [number, number];
+  const joined: [number, number][][] = outline.map(p => p[0]);
+  const more = campus.filter(r => { const [x, y] = centre(r); return !joined.some(j => inside(x, y, j)); });
+  const links: { type: string; poly: [number, number][][]; name: string }[] = [];
+  const out = outline.slice();
+  const closest = (a: [number, number][], b: [number, number][]) => {
+    let best = { d: Infinity, p: a[0], q: b[0] };
+    for (const p of a) for (let i = 0; i < b.length; i++) {
+      const q0 = b[i], q1 = b[(i + 1) % b.length], dx = q1[0] - q0[0], dy = q1[1] - q0[1], l2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((p[0] - q0[0]) * dx + (p[1] - q0[1]) * dy) / l2)), q: [number, number] = [q0[0] + dx * t, q0[1] + dy * t], d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+      if (d < best.d) best = { d, p, q };
+    }
+    return best;
+  };
+  const left = more.slice();
+  while (left.length) {
+    // the block nearest any joined one, joined to it
+    let pick = { i: 0, c: { d: Infinity, p: [0, 0] as [number, number], q: [0, 0] as [number, number] } };
+    left.forEach((r, i) => { for (const j of joined) { const a = closest(r, j), b = closest(j, r), c = a.d < b.d ? { d: a.d, p: a.q, q: a.p } : b; if (c.d < pick.c.d) pick = { i, c }; } });
+    const r = left.splice(pick.i, 1)[0];
+    if (pick.c.d > 60) continue;
+    out.push([r]); joined.push(r);
+    if (pick.c.d > 0.5) {
+      // (from the joined block's point to the new block's, overlapping both by 1.5 m, 4 m wide)
+      const [ax, ay] = pick.c.p, [bx, by] = pick.c.q, L = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / L, uy = (by - ay) / L, nx = -uy * 2, ny = ux * 2;
+      const a: [number, number] = [ax - ux * 1.5, ay - uy * 1.5], b: [number, number] = [bx + ux * 1.5, by + uy * 1.5];
+      const ring: [number, number][] = [[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]];
+      out.push([ring]); links.push({ type: "20", poly: [ring], name: "연결통로 (재구성)" });
+    }
+  }
+  return { outline: out, links };
 }

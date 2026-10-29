@@ -11,7 +11,7 @@ import { Batcher } from "./geom";
 import { buildShell, type Seg, type Shell } from "./build";
 import { furnish, shadowMoved, switchState, type Furnished, type Interactable } from "./furnish";
 import { BASE_SETS, loadSets, Library, makePalette, SETS, STYLE_SETS, type Palette, type SetName } from "./materials";
-import { boxProjected, probeBox, zoneBounce, zoneLevels, zoneLit, type ZoneUniform } from "./lightZones";
+import { boxProjected, probeBox, zones as zoneTable, zoneLit, type ZoneUniform } from "./lightZones";
 import { paintedView, sunAt } from "./view";
 import { waterTime } from "./water";
 import { Avatar } from "../player/avatar";
@@ -50,8 +50,41 @@ export interface InteriorOptions {
 }
 
 const EYE = 1.6, RADIUS = 0.24;
-/** the bounce light's share (1: as computed) */
-const BOUNCE = 1;
+/** a plan this big across (m) is a large floor — a hospital's, a mall's: its batches cut into
+ * squares, its lamps sharing the area lights, its far parts not drawn */
+const LARGE = 48;
+/** how far a large floor's walls, floors and ceilings are drawn, and its furniture and fittings (m) */
+const SHELL_FAR = 95, FURN_FAR = 48;
+/** the share of a lamp's light that falls evenly on its zone when no area light is lighting it */
+const FILL = 0.55;
+
+/** One lamp of the plan (a ceiling light, a window's daylight, the TV): where and how bright. A
+ * large floor has far more of them than the scene's RECT_LIGHTS area lights, which are handed to
+ * the ones nearest the walker and faded across; the rest light their zone as an even fill. */
+interface Lamp { zone: number; pos: THREE.Vector3; look: THREE.Vector3; w: number; h: number; color: THREE.Color; base: number; window?: number; tv?: boolean; now: number; k: number }
+
+/** The wall and furniture segments in 4 m cells: walking, the camera and the look ray test only
+ * those near them (a large floor has tens of thousands). */
+class SegGrid {
+  private cells = new Map<number, number[]>();
+  private mark: Uint32Array; private stamp = 0;
+  constructor(private segs: Seg[], private C = 4) {
+    this.mark = new Uint32Array(segs.length);
+    segs.forEach(([ax, az, bx, bz], i) => {
+      const i0 = Math.floor(Math.min(ax, bx) / C), i1 = Math.floor(Math.max(ax, bx) / C), j0 = Math.floor(Math.min(az, bz) / C), j1 = Math.floor(Math.max(az, bz) / C);
+      for (let a = i0; a <= i1; a++) for (let b = j0; b <= j1; b++) { const k = (a + 2048) * 4096 + (b + 2048); const l = this.cells.get(k); if (l) l.push(i); else this.cells.set(k, [i]); }
+    });
+  }
+  /** the segments in the cells a box touches, each once */
+  query(x0: number, z0: number, x1: number, z1: number, out: Seg[] = []): Seg[] {
+    const C = this.C; if (++this.stamp === 0xffffffff) { this.mark.fill(0); this.stamp = 1; }
+    for (let a = Math.floor(Math.min(x0, x1) / C); a <= Math.floor(Math.max(x0, x1) / C); a++) for (let b = Math.floor(Math.min(z0, z1) / C); b <= Math.floor(Math.max(z0, z1) / C); b++) {
+      const l = this.cells.get((a + 2048) * 4096 + (b + 2048)); if (!l) continue;
+      for (const i of l) if (this.mark[i] !== this.stamp) { this.mark[i] = this.stamp; out.push(this.segs[i]); }
+    }
+    return out;
+  }
+}
 /** the living-room probe's height */
 const PROBE_Y = 1.3;
 /** area lights in every interior (padded with dark ones) */
@@ -127,12 +160,24 @@ export class Interior {
   /** what the look ray hits that isn't drawn: kept out of the scene */
   private hits = new THREE.Group();
   private zoneU: ZoneUniform = { value: [] };
-  private rect: { light: THREE.RectAreaLight; zone: number; base: number; window?: number }[] = [];
+  /** every lamp of the plan, and the scene's area lights each lighting one of them (null: free) */
+  private lamps: Lamp[] = [];
+  private pool: { light: THREE.RectAreaLight; lamp: Lamp | null }[] = [];
+  private poolAt = new THREE.Vector3(1e9, 0, 0); private poolT = 0;
+  /** the floor area of each zone (for its fill) */
+  private zoneFloor = new Map<number, number>();
+  private large = false;
+  private grid!: SegGrid;
+  /** a large floor's meshes and how far each is drawn: its bounds' middle and radius */
+  private culled: { o: THREE.Object3D; c: THREE.Vector3; r: number; far: number }[] = [];
+  private cullAt = new THREE.Vector3(1e9, 0, 0);
+  private shadowAt = new THREE.Vector3(1e9, 0, 0);
+  private hitAt = new WeakMap<Interactable, THREE.Vector3>();
   private zoneLevel = new Map<number, number>();
   /** each zone's surface area (floor, ceiling, walls), for its bounce light */
   private zoneArea = new Map<number, number>();
   private wetZones = new Set<number>();
-  private tvLight: THREE.RectAreaLight | null = null;
+  private tvLamp: Lamp | null = null;
   private doorsMoving = false; private shadowFrames = 2;
   private sun = new THREE.DirectionalLight();
   private hemi = new THREE.HemisphereLight("#dfe8f5", "#8a7a66", 0.05);
@@ -183,6 +228,7 @@ export class Interior {
   // ---------------------------------------------------------------- loading
   async load(signal?: AbortSignal) {
     const t0 = performance.now(), plan = this.o.plan, P = (k: number, s: string) => this.o.onProgress?.(k, s);
+    this.large = Math.max(plan.bounds[2] - plan.bounds[0], plan.bounds[3] - plan.bounds[1]) > LARGE;
     // (the recorded sounds come down alongside, without holding the flat up)
     void this.o.sound.loadRecordings();
     const mark = (n: string, t: number) => { this.perf.phases[n] = Math.round(performance.now() - t); return performance.now(); };
@@ -196,28 +242,50 @@ export class Interior {
     this.lib = new Library(sets);
     this.P = makePalette(this.lib, plan.style);
     // (a building: its own floors and things over the style's — facilityMaterials.ts)
-    const look = plan.facility ? facilityLook(this.P, plan.facility.kind, plan.facility.name) : null;
+    const look = plan.facility ? facilityLook(this.P, plan.facility.kind, plan.facility.name, this.lib) : null;
     const spots: Spot[] = [];
     if (look) { this.P = look.P; this.facDispose = look.dispose; }
     P(0.54, "벽·바닥·천장을 세우는 중");
     await nextFrame();
-    const B = new Batcher();
-    this.shell = buildShell(plan, this.P, B, this.dynamic);
+    const B = new Batcher(this.large ? 16 : 0);
+    this.shell = buildShell(plan, this.P, B, this.dynamic, look?.finishes);
+    // (the walls, floors and ceilings drawn further than the things in the rooms)
+    const shellMeshes = B.build();
+    for (const m of shellMeshes) this.static.add(m);
+    t = mark("shell", t);
     await nextFrame();
     P(0.6, "가구와 설비를 배치하는 중");
     switchState.clear();
     this.furn = furnish(plan, this.shell, this.P, B, this.dynamic, this.hits,
       look ? { X: look.X, signs: look.signs, spots, hooks: { lift: () => this.o.onLift?.(), levels: this.o.levels } } : undefined);
     await nextFrame();
-    for (const m of B.build()) this.static.add(m);
-    t = mark("build", t);
+    const furnMeshes = B.build();
+    for (const m of furnMeshes) this.static.add(m);
+    t = mark("furnish", t);
     this.segs = [...this.shell.segments, ...this.furn.colliders];
+    this.grid = new SegGrid(this.segs);
+    if (this.large) {
+      const add = (o: THREE.Object3D, far: number) => {
+        const b = new THREE.Box3().setFromObject(o); if (b.isEmpty()) return;
+        this.culled.push({ o, c: b.getCenter(new THREE.Vector3()), r: b.getSize(new THREE.Vector3()).length() / 2, far });
+      };
+      for (const m of shellMeshes) add(m, SHELL_FAR);
+      for (const m of furnMeshes) add(m, FURN_FAR);
+      for (const o of this.dynamic.children) add(o, FURN_FAR);
+    }
+    // (a large floor's polished floors: the reflection probe is taken in one room, so a sharp
+    // reflection elsewhere shows lamps where there are none — streaks sliding over the floor as the
+    // eye moves; there a soft sheen instead, the area lights' own highlights kept)
+    if (this.large) {
+      const floors = new Set<THREE.Material>([this.P.floorMain, this.P.floorRoom, this.P.floorEntry, ...Object.entries(look?.finishes ?? {}).filter(([k]) => k.startsWith("floor:")).map(([, m]) => m)]);
+      for (const m of floors) { const f = m as THREE.MeshPhysicalMaterial; f.clearcoatRoughness = Math.max(f.clearcoatRoughness ?? 0, 0.45); f.roughness = Math.max(f.roughness, 0.4); f.envMapIntensity = Math.min(f.envMapIntensity ?? 1, 0.35); }
+    }
     // the zones' lights
     P(0.66, "조명을 설치하는 중");
+    zoneTable.reset();
     this.setupLights();
     for (const m of this.lib.all) zoneLit(m, this.zoneU);
     for (const m of [this.P.ledPanel, this.P.ledWarm, this.P.lampShade]) zoneLit(m, this.zoneU, true);
-    zoneLevels.value.fill(1); zoneBounce.value.fill(0);
     // the view out of the windows
     const sunS = sunAt(this.o.hour);
     if (this.o.view) this.scene.background = this.o.view;
@@ -297,6 +365,7 @@ export class Interior {
     P(0.9, "빛 반사를 계산하는 중");
     // the direct light first, then once more with that as the light round (two bounces)
     // (daylight at the windows and the bounce light set before: the probes see the lit flat)
+    this.nearFrame(0, true);
     this.lightsFrame(0);
     this.scene.environmentIntensity = 0;
     this.captureProbe(); await nextFrame();
@@ -311,14 +380,29 @@ export class Interior {
     // (a drawn floor's many rooms: one look a zone, from its biggest room)
     const lead = new Map<string, FloorPlan["rooms"][number]>();
     for (const r of this.o.plan.rooms) { const l = lead.get(r.zone), a = (q: typeof r) => (q.rect[2] - q.rect[0]) * (q.rect[3] - q.rect[1]); if (!l || a(r) > a(l)) lead.set(r.zone, r); }
-    for (const r of lead.values()) { const [x0, z0, x1, z1] = r.rect; looks.push([(x0 + x1) / 2, (z0 + z1) / 2, 0], [(x0 + x1) / 2, (z0 + z1) / 2, Math.PI]); }
-    for (const [x, z, yaw] of looks) { this.pos.set(x, z); this.yaw = yaw; this.applyCamera(0); this.renderFrame(); }
-    for (const m of this.mirrors) {
+    // (a large floor: the zones round the way in — the programs and targets are the same everywhere,
+    // the rest come as walked to)
+    const leads = [...lead.values()].map(r => ({ r, d: Math.hypot((r.rect[0] + r.rect[2]) / 2 - this.pos.x, (r.rect[1] + r.rect[3]) / 2 - this.pos.y) })).sort((a, b) => a.d - b.d).slice(0, this.large ? 4 : Infinity).map(x => x.r);
+    if (this.large) {
+      // (a large floor: every part of it drawn once, all at once, culling off — each mesh's buffers
+      // on the GPU now, none uploaded later on the walk; then a few looks round the way in)
+      const shown: THREE.Object3D[] = [];
+      this.scene.traverse(o => { if ((o as THREE.Mesh).isMesh && o.frustumCulled) { o.frustumCulled = false; shown.push(o); } });
+      for (const m of this.culled) m.o.visible = true;
+      this.renderFrame();
+      for (const o of shown) o.frustumCulled = true;
+    }
+    for (const r of leads) { const [x0, z0, x1, z1] = r.rect; looks.push([(x0 + x1) / 2, (z0 + z1) / 2, 0], [(x0 + x1) / 2, (z0 + z1) / 2, Math.PI]); }
+    for (const [x, z, yaw] of looks) { this.pos.set(x, z); this.yaw = yaw; this.applyCamera(0); this.nearFrame(0, true); this.lightsFrame(0); this.renderFrame(); }
+    // (a large floor's many washrooms: their mirrors' first frames as walked by — one would be enough)
+    for (const m of this.large ? this.mirrors.slice(0, 1) : this.mirrors) {
       const n = new THREE.Vector3(0, 0, 1).applyQuaternion(m.quaternion);
       this.camera.position.copy(m.position).addScaledVector(n, 1.2).setY(1.6); this.camera.lookAt(m.position); this.camera.updateMatrixWorld();
       this.renderFrame();
     }
+    t = mark("looks", t);
     this.pos.copy(keep.p); this.yaw = keep.yaw; this.pitch = keep.pitch; this.applyCamera(0);
+    this.nearFrame(0, true); this.lightsFrame(0);
     this.renderFrame();
     await nextFrame();
     this.perf.loadMs = Math.round(performance.now() - t0);
@@ -329,11 +413,17 @@ export class Interior {
     const H = this.shell.H;
     // ceiling lights: a few area lights a zone (they light only their zone)
     const add = (zone: number, pos: THREE.Vector3, w: number, h: number, color: THREE.ColorRepresentation, intensity: number, down = true, windowIdx?: number, inward?: THREE.Vector3) => {
-      const l = new THREE.RectAreaLight(color, intensity, w, h);
-      l.position.copy(pos);
-      if (down) l.lookAt(pos.x, pos.y - 1, pos.z); else l.lookAt(pos.clone().add(inward!));
-      this.scene.add(l);
-      this.rect.push({ light: l, zone, base: intensity, window: windowIdx });
+      // (a large floor's zone lamps are big — a lobby's is tens of metres across — where lum's
+      // small-source sum, L·A/h², overstates what reaches the floor many times: corrected by the
+      // exact view factor of the rectangle from the floor below its middle)
+      if (this.large && down && intensity > 0) {
+        const c = Math.max(0.3, pos.y), X = w / 2 / c, Y = h / 2 / c;
+        const F = (2 / Math.PI) * (X / Math.sqrt(1 + X * X) * Math.atan(Y / Math.sqrt(1 + X * X)) + Y / Math.sqrt(1 + Y * Y) * Math.atan(X / Math.sqrt(1 + Y * Y)));
+        intensity *= Math.max(1, (w * h / (Math.PI * c * c)) / Math.max(1e-4, F));
+      }
+      const lamp: Lamp = { zone, pos: pos.clone(), look: down ? new THREE.Vector3(pos.x, pos.y - 1, pos.z) : pos.clone().add(inward!), w, h, color: new THREE.Color(color), base: intensity, window: windowIdx, now: intensity, k: 0 };
+      this.lamps.push(lamp);
+      return lamp;
     };
     // Each lamp's luminance from the light it should put on the floor below (in the scene's
     // units, where the noon sun is ~3.4): illuminance ≈ L·A / (π·h²) for an area A at height h.
@@ -358,16 +448,22 @@ export class Interior {
     });
     // the TV's own light on the room, while it is on
     const tv = this.furn.tv;
-    if (tv?.pos && tv.normal) { add(tv.zone ?? 0, tv.pos, tv.w ?? 1.5, tv.h ?? 0.85, "#c9d6ff", 0, false, undefined, tv.normal); this.tvLight = this.rect[this.rect.length - 1].light; }
+    if (tv?.pos && tv.normal) { this.tvLamp = add(tv.zone ?? 0, tv.pos, tv.w ?? 1.5, tv.h ?? 0.85, "#c9d6ff", 0, false, undefined, tv.normal); this.tvLamp.tv = true; }
     // (always the same number of area lights: the programs don't depend on the plan, so they
-    // can be compiled before it exists — see prewarmInterior)
-    while (this.rect.length < RECT_LIGHTS) add(-1, new THREE.Vector3(0, -50, 0), 0.1, 0.1, "#000000", 0);
-    if (this.rect.length > RECT_LIGHTS) console.warn(`walk: ${this.rect.length} area lights (> ${RECT_LIGHTS}): programs recompile`);
-    this.zoneU.value = this.rect.map(r => r.zone);
+    // can be compiled before it exists — see prewarmInterior; a flat's lamps each have one, a large
+    // floor's share them — nearFrame)
+    for (let i = 0; i < RECT_LIGHTS; i++) {
+      const l = new THREE.RectAreaLight("#000000", 0, 0.1, 0.1); l.position.set(0, -50, 0); this.scene.add(l);
+      this.pool.push({ light: l, lamp: null });
+    }
+    this.zoneU.value = new Array(RECT_LIGHTS).fill(-1);
+    if (this.lamps.length > RECT_LIGHTS && !this.large) console.warn(`walk: ${this.lamps.length} lamps (> ${RECT_LIGHTS}) on a small plan`);
+    if (!this.large) this.lamps.slice(0, RECT_LIGHTS).forEach((l, i) => { l.k = 1; this.seat(i, l); });
     for (const z of this.shell.zones.values()) this.zoneLevel.set(z, 1);
     for (const r of this.o.plan.rooms) {
       const z = this.shell.zones.get(r.zone)!, [x0, z0, x1, z1] = r.rect, w = x1 - x0, d = z1 - z0;
       this.zoneArea.set(z, (this.zoneArea.get(z) ?? 0) + 2 * w * d + 2 * (w + d) * H);
+      this.zoneFloor.set(z, (this.zoneFloor.get(z) ?? 0) + w * d);
       if (r.type === "bathroom" || r.type === "ensuite" || r.type === "restroom") this.wetZones.add(z);
     }
     // the sun through the glass, with soft shadows
@@ -377,7 +473,8 @@ export class Interior {
     this.sun.castShadow = s.intensity > 0;
     const big = this.renderer.capabilities.maxTextureSize >= 8192;
     this.sun.shadow.mapSize.set(big ? 4096 : 2048, big ? 4096 : 2048);
-    const sc = this.sun.shadow.camera, r = Math.hypot(x1 - x0, z1 - z0) / 2 + 2;
+    // (a large floor: the shadow round the walker only, moved with them — nearFrame)
+    const sc = this.sun.shadow.camera, r = this.large ? 34 : Math.hypot(x1 - x0, z1 - z0) / 2 + 2;
     sc.left = -r; sc.right = r; sc.top = r; sc.bottom = -r; sc.near = 5; sc.far = 70;
     this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.025; this.sun.shadow.radius = 4;
     this.scene.add(this.sun, this.sun.target, this.hemi);
@@ -444,6 +541,10 @@ export class Interior {
   /** where the light round the flat is taken: its living room; a building's largest room off the corridor */
   private probeRoom() {
     const rooms = this.o.plan.rooms, area = (r: (typeof rooms)[number]) => (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]);
+    // (a large floor: the room the walker comes into — its biggest room may be a store 200 m away,
+    // dark then, its lamps not among the lit, and every surface would take that darkness round)
+    const st = this.o.plan.facility?.start;
+    if (this.large && st) return rooms.find(r => st[0] >= r.rect[0] && st[0] <= r.rect[2] && st[1] >= r.rect[1] && st[1] <= r.rect[3]) ?? rooms.slice().sort((a, b) => Math.hypot((a.rect[0] + a.rect[2]) / 2 - st[0], (a.rect[1] + a.rect[3]) / 2 - st[1]) - Math.hypot((b.rect[0] + b.rect[2]) / 2 - st[0], (b.rect[1] + b.rect[3]) / 2 - st[1]))[0];
     return rooms.find(r => r.type === "living") ?? (this.o.plan.facility ? rooms.filter(r => r.type !== "corridor" && r.type !== "stair").sort((a, b) => area(b) - area(a))[0] : undefined) ?? rooms[0];
   }
   /** Bathrooms reflect a bathroom (their tiles and chrome), not the living room. */
@@ -520,8 +621,10 @@ export class Interior {
     if (n.dot(this.tmpV.subVectors(this.camera.position, mid)) <= 0.02) return null;
     // (and not through a wall: the walls between the eye and the screen hide it)
     const e = this.camera.position, L = Math.hypot(mid.x - e.x, mid.z - e.z);
-    for (const [a, b, cc, d] of this.segs.slice(0, this.shell.segments.length)) {
-      const h = segHit(e.x, e.z, mid.x, mid.z, a, b, cc, d);
+    const walls = new Set(this.shell.segments);
+    for (const sg of this.grid.query(e.x, e.z, mid.x, mid.z)) {
+      if (!walls.has(sg)) continue;
+      const [a, b, cc, d] = sg, h = segHit(e.x, e.z, mid.x, mid.z, a, b, cc, d);
       if (h !== null && h * L < L - 0.25) return null;
     }
     const r = this.renderer.domElement.getBoundingClientRect(), out: { x: number; y: number }[] = [];
@@ -614,6 +717,7 @@ export class Interior {
     this.people?.update(dt, walker);
     this.robot?.update(dt, [{ x: walker.x, z: walker.z, r: 0.25 }, ...(this.cat ? [{ x: this.cat.pos.x, z: this.cat.pos.y, r: 0.2 }] : [])]);
     this.lap("life");
+    this.nearFrame(dt);
     this.lightsFrame(dt);
     this.applyCamera(dt);
     this.lap("lights+cam");
@@ -669,7 +773,7 @@ export class Interior {
   /** where the camera may stand on the way from the body to (x, z): short of the first wall, door or
    * jamb crossed (by 0.1 m), and at least 0.1 m off every face — so the near plane stays in the room */
   private clearOf(x: number, z: number): THREE.Vector2 {
-    const segs = this.segs.concat(this.doorSegs()), px = this.pos.x, pz = this.pos.y;
+    const px = this.pos.x, pz = this.pos.y, segs = this.segsIn(px, pz, x, z);
     const len = Math.hypot(x - px, z - pz) || 1e-6;
     let t = 1;
     for (const [ax, az, bx, bz] of segs) { const h = segHit(px, pz, x, z, ax, az, bx, bz); if (h !== null) t = Math.min(t, Math.max(0, h - 0.1 / len)); }
@@ -678,7 +782,7 @@ export class Interior {
   /** a circle against the wall and furniture segments (and the doors where they stand now) */
   private collide(x: number, z: number, radius = RADIUS, people = true): THREE.Vector2 {
     const RADIUS = radius;
-    const segs = this.segs.concat(this.doorSegs());
+    const segs = this.segsIn(x - radius - 0.5, z - radius - 0.5, x + radius + 0.5, z + radius + 0.5);
     const p = new THREE.Vector2(x, z);
     for (let it = 0; it < 4; it++) {
       let pushed = false;
@@ -697,9 +801,15 @@ export class Interior {
     }
     return p;
   }
-  private doorSegs(): Seg[] {
+  /** the walls' and furniture's segments, and the doors' as they stand, within a box */
+  private segsIn(x0: number, z0: number, x1: number, z1: number): Seg[] {
+    const out = this.grid.query(x0, z0, x1, z1);
+    return out.concat(this.doorSegs(Math.min(x0, x1) - 1.2, Math.min(z0, z1) - 1.2, Math.max(x0, x1) + 1.2, Math.max(z0, z1) + 1.2));
+  }
+  private doorSegs(x0 = -Infinity, z0 = -Infinity, x1 = Infinity, z1 = Infinity): Seg[] {
     const out: Seg[] = [];
     for (const d of this.shell.doors) {
+      if (d.hinge[0] < x0 || d.hinge[0] > x1 || d.hinge[1] < z0 || d.hinge[1] > z1) { if (d.kind !== "slide") continue; const p = d.leaf.position; if (p.x < x0 || p.x > x1 || p.z < z0 || p.z > z1) continue; }
       if (d.kind === "slide") {
         if (d.fixedSeg) out.push(d.fixedSeg);
         const p = d.leaf.position, a = d.leaf.rotation.y, h = d.length / 2, ux = Math.cos(a), uz = -Math.sin(a);
@@ -723,6 +833,57 @@ export class Interior {
       if (d.t === d.want && d.kind === "swing" && d.want === 0) this.o.sound.play("thud");
     }
   }
+  /** an area light given to a lamp (null: none) */
+  private seat(i: number, lamp: Lamp | null) {
+    const slot = this.pool[i]; slot.lamp = lamp;
+    const l = slot.light;
+    if (!lamp) { l.intensity = 0; l.position.set(0, -50, 0); l.width = l.height = 0.1; this.zoneU.value[i] = -1; return; }
+    l.position.copy(lamp.pos); l.lookAt(lamp.look); l.width = lamp.w; l.height = lamp.h; l.color.copy(lamp.color);
+    l.intensity = lamp.now * lamp.k; this.zoneU.value[i] = lamp.zone;
+  }
+  private wanted: Set<Lamp> | null = null;
+  /** A large floor: the area lights to the lamps nearest the walker (their own room's first), faded
+   * across as they change hands; the meshes beyond their distance hidden; the sun's shadow brought
+   * round the walker. */
+  private nearFrame(dt: number, force = false) {
+    if (!this.large) return;
+    const c = this.camera.position;
+    // the lamps' hands: every metre walked, or a fifth of a second
+    this.poolT -= dt;
+    if (force || this.poolT <= 0 || this.poolAt.distanceToSquared(c) > 1) {
+      this.poolT = 0.2; this.poolAt.copy(c);
+      const here = this.shell.zones.get(this.shell.roomAt(this.pos.x, this.pos.y)?.zone ?? "") ?? -1;
+      const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+      const score = (l: Lamp) => {
+        const ox = l.pos.x - c.x, oz = l.pos.z - c.z;
+        const d = Math.hypot(Math.max(Math.abs(ox) - l.w / 2, 0), Math.max(Math.abs(oz) - l.h / 2, 0));
+        // (its own room's first; those behind the walker after those ahead; a dark one last)
+        return (l.zone === here ? -100 : 0) + d + (d > 5 && ox * fx + oz * fz < 0 ? 10 : 0) + (l.now <= 0 ? 1000 : 0);
+      };
+      const want = new Set(this.lamps.filter(l => !l.tv).map(l => ({ l, s: score(l) })).sort((a, b) => a.s - b.s).slice(0, RECT_LIGHTS - (this.tvLamp ? 1 : 0)).map(x => x.l));
+      if (this.tvLamp) want.add(this.tvLamp);
+      const held = new Set(this.pool.map(p => p.lamp).filter(Boolean) as Lamp[]);
+      const waiting = [...want].filter(l => !held.has(l));
+      this.pool.forEach((p, i) => {
+        // (a slot whose lamp is no longer wanted gives it up once faded out; a free one takes the next)
+        if (p.lamp && !want.has(p.lamp) && p.lamp.k <= 0) this.seat(i, null);
+        if (!p.lamp && waiting.length) this.seat(i, waiting.shift()!);
+      });
+      this.wanted = want;
+    }
+    // what is drawn: every two metres
+    if (force || this.cullAt.distanceToSquared(c) > 4) {
+      this.cullAt.copy(c);
+      for (const m of this.culled) m.o.visible = m.c.distanceTo(c) - m.r < m.far;
+    }
+    // the sun's shadow round the walker
+    if (this.sun.castShadow && (force || Math.hypot(this.shadowAt.x - this.pos.x, this.shadowAt.z - this.pos.y) > 8)) {
+      this.shadowAt.set(this.pos.x, 0, this.pos.y);
+      const s = sunAt(this.o.hour);
+      this.sun.position.set(this.pos.x + s.dir.x * 30, s.dir.y * 30, this.pos.y + s.dir.z * 30); this.sun.target.position.set(this.pos.x, 0, this.pos.y);
+      this.sun.target.updateMatrixWorld(); this.shadowFrames = Math.max(this.shadowFrames, 1);
+    }
+  }
   private lightsFrame(dt: number) {
     const s = sunAt(this.o.hour);
     let changed = false;
@@ -732,36 +893,34 @@ export class Interior {
       // (LEDs: on at once, off with a short fade)
       const next = want > cur ? want : Math.max(want, cur - dt * 9);
       this.zoneLevel.set(z, next); changed = true;
-      zoneLevels.value[z] = next;
+      zoneTable.level(z, next);
     }
-    for (const r of this.rect) {
-      if (r.window !== undefined) {
-        const open = this.furn.curtainOpen.get(r.window)?.() ?? 1;
-        const w = this.shell.windows[r.window];
+    // each lamp's brightness now: its switch, the daylight and curtains at a window, the TV
+    for (const l of this.lamps) {
+      if (l.window !== undefined) {
+        const open = this.furn.curtainOpen.get(l.window)?.() ?? 1;
+        const w = this.shell.windows[l.window];
         const facing = Math.max(0.35, 0.65 + 0.35 * -w.inward.dot(s.dir));
-        r.light.intensity = 1.2 * s.skyIntensity * open * facing;
-      } else if (changed) r.light.intensity = r.base * (this.zoneLevel.get(r.zone) ?? 1);
+        l.now = 1.2 * s.skyIntensity * open * facing;
+      } else if (l.tv) l.now += ((this.furn.tv?.on ? 1.3 : 0) - l.now) * Math.min(1, dt * 6);
+      else l.now = l.base * (this.zoneLevel.get(l.zone) ?? 1);
     }
-    if (this.tvLight) this.tvLight.intensity += ((this.furn.tv?.on ? 1.3 : 0) - this.tvLight.intensity) * Math.min(1, dt * 6);
+    // (a large floor: each lamp faded in as an area light, or out into its zone's even fill)
+    if (this.large) {
+      const want = this.wanted, k = dt > 0 ? Math.min(1, dt * 3.5) : 1;
+      const fill = new Map<number, number>();
+      for (const l of this.lamps) {
+        const lit = !!want?.has(l) && this.pool.some(p => p.lamp === l);
+        l.k = lit ? Math.min(1, l.k + k) : Math.max(0, l.k - k);
+        if (l.zone < 0 || l.tv) continue;
+        // (its flux, π·L·A, a share of it spread over its zone's floor)
+        const e = Math.PI * l.now * l.w * l.h * FILL / Math.max(4, this.zoneFloor.get(l.zone) ?? 4);
+        fill.set(l.zone, (fill.get(l.zone) ?? 0) + e * (1 - l.k));
+      }
+      for (const z of this.zoneFloor.keys()) zoneTable.fill(z, fill.get(z) ?? 0);
+    }
+    for (const p of this.pool) if (p.lamp) p.light.intensity = p.lamp.now * p.lamp.k;
     if (changed && this.probeDirty === 0) this.probeDirty = 3;
-    this.bounceFrame();
-  }
-  /** The light each room's lamps and windows put in, interreflected: a room with reflectance ρ
-   * holds Φ/S·ρ/(1−ρ) of indirect light on its surfaces. What the probe can't give per room. */
-  private bounceFrame() {
-    const flux = new Map<number, number>();
-    for (const r of this.rect) {
-      if (r.zone < 0 || r.light.intensity <= 0) continue;
-      flux.set(r.zone, (flux.get(r.zone) ?? 0) + Math.PI * r.light.intensity * r.light.width * r.light.height);
-    }
-    // (white paper and paint ≈ 0.5 over the room with its floor; tiled bathrooms ≈ 0.65)
-    const k = (rho: number) => rho / (1 - rho) * BOUNCE;
-    let fAll = 0, sAll = 0;
-    for (const [z, S] of this.zoneArea) {
-      const f = flux.get(z) ?? 0; fAll += f; sAll += S;
-      zoneBounce.value[z] = (f / S) * k(this.wetZones.has(z) ? 0.65 : 0.5);
-    }
-    zoneBounce.value[0] = sAll ? (fAll / sAll) * k(0.5) : 0;
   }
   private applyCamera(dt: number) {
     const cam = this.camera;
@@ -792,7 +951,7 @@ export class Interior {
         // over the shoulder, pulled in before a wall
         const back = 1.5, bx = Math.sin(this.yaw), bz = Math.cos(this.yaw);
         let d = back;
-        for (const [ax, az, cx, cz] of this.segs) {
+        for (const [ax, az, cx, cz] of this.grid.query(this.pos.x, this.pos.y, this.pos.x + bx * back, this.pos.y + bz * back)) {
           const hit = segHit(this.pos.x, this.pos.y, this.pos.x + bx * back, this.pos.y + bz * back, ax, az, cx, cz);
           if (hit !== null) d = Math.min(d, hit * back - 0.15);
         }
@@ -835,15 +994,19 @@ export class Interior {
     this.ray.setFromCamera(new THREE.Vector2(0, 0), this.camera);
     this.ray.far = this.view === "third" ? 3.6 : 2.3;
     let best: Interactable | null = null, bd = Infinity;
+    const cp = this.camera.position, reach = this.ray.far + 2.5;
     for (const it of this.interactables) {
       if (it.enabled && !it.enabled()) continue;
+      // (a large floor's thousands: only those within reach — where each is, taken once)
+      if (this.large) { const at = it.id.startsWith("person-") ? it.hit.getWorldPosition(this.tmpV) : this.hitAt.get(it) ?? this.hitAt.set(it, it.hit.getWorldPosition(new THREE.Vector3())).get(it)!; if (Math.abs(at.x - cp.x) > reach || Math.abs(at.z - cp.z) > reach) continue; }
       const hits = this.ray.intersectObject(it.hit, true);
       if (hits.length && hits[0].distance < bd) { bd = hits[0].distance; best = it; }
     }
     // (only what isn't behind a wall: the walls cut the ray)
     if (best) {
       const p = this.camera.position, q = p.clone().addScaledVector(this.ray.ray.direction, bd);
-      if (this.segs.slice(0, this.shell.segments.length).some(([a, b, c, d]) => segHit(p.x, p.z, q.x, q.z, a, b, c, d) !== null && Math.hypot(q.x - p.x, q.z - p.z) > 0.3)) best = null;
+      const walls = new Set(this.shell.segments);
+      if (this.grid.query(p.x, p.z, q.x, q.z).some(sg => walls.has(sg) && segHit(p.x, p.z, q.x, q.z, sg[0], sg[1], sg[2], sg[3]) !== null && Math.hypot(q.x - p.x, q.z - p.z) > 0.3)) best = null;
     }
     this.target = best;
     this.emitHud();

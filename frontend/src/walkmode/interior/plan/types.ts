@@ -21,6 +21,8 @@ export interface Room {
   zone: string;
   /** a floor a little lower (the entrance, bathrooms, the balcony) */
   floorDrop?: number;
+  /** a building's room's own finishes ("floor:terrazzo|wall:tone3"): facilityMaterials.ts' finishes */
+  finish?: string;
 }
 
 export interface Opening {

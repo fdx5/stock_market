@@ -16,11 +16,24 @@ const PATCHED = chunk.slice(0, a) + chunk.slice(a, b)
   .replace("#pragma unroll_loop_start", "").replace("#pragma unroll_loop_end", "")
   .replace("RE_Direct_RectArea( rectAreaLight,", "if ( vZone < 0.5 || abs( rectZone[ i ] - vZone ) < 0.5 ) RE_Direct_RectArea( rectAreaLight,") + chunk.slice(b);
 
-/** each zone's lamps' level (0 off … 1 on), indexed by zone id: one shared array */
-export const zoneLevels = { value: new Array(32).fill(1) as number[] };
-/** each zone's interreflected light (irradiance, the scene's units): what its lamps and windows put
- * in, spread over the room's surfaces and bounced — Φ/S · ρ/(1−ρ). Index 0: the flat's average. */
-export const zoneBounce = { value: new Array(32).fill(0) as number[] };
+/* Every zone's own values in one small float texture, not a uniform array: a whole hospital floor
+ * has hundreds of zones, and a uniform array that long overruns what a phone's fragment shader may
+ * hold. R: its lamps' level (0 off … 1 on); G: its fill — the light its lamps put in, as an even
+ * irradiance (the scene's units), while none of the area lights is lighting it (a zone far from the
+ * walker: the scene has only RECT_LIGHTS area lights, handed to the zones nearest). */
+const ZW = 256, ZH = 16;
+export const MAX_ZONES = ZW * ZH;
+const zoneArr = new Float32Array(ZW * ZH * 4);
+const zoneTex = new THREE.DataTexture(zoneArr, ZW, ZH, THREE.RGBAFormat, THREE.FloatType);
+zoneTex.minFilter = zoneTex.magFilter = THREE.NearestFilter; zoneTex.generateMipmaps = false;
+const zoneData = { value: zoneTex };
+export const zones = {
+  reset() { zoneArr.fill(0); for (let i = 0; i < ZW * ZH; i++) zoneArr[i * 4] = 1; zoneTex.needsUpdate = true; },
+  level(z: number, v: number) { if (z >= 0 && z < MAX_ZONES && zoneArr[z * 4] !== v) { zoneArr[z * 4] = v; zoneTex.needsUpdate = true; } },
+  fill(z: number, v: number) { if (z >= 0 && z < MAX_ZONES && Math.abs(zoneArr[z * 4 + 1] - v) > 1e-4) { zoneArr[z * 4 + 1] = v; zoneTex.needsUpdate = true; } },
+};
+zones.reset();
+const ZONE_AT = `uniform highp sampler2D zoneData;\nvec4 zoneAt( float z ) { int i = int( z + 0.5 ); return texelFetch( zoneData, ivec2( i % ${ZW}, i / ${ZW} ), 0 ); }`;
 
 export function zoneLit(m: THREE.Material, zones: ZoneUniform, lamp = false) {
   const mat = m as THREE.MeshStandardMaterial;
@@ -30,22 +43,22 @@ export function zoneLit(m: THREE.Material, zones: ZoneUniform, lamp = false) {
   mat.onBeforeCompile = (sh, r) => {
     prev?.call(mat, sh, r);
     sh.uniforms.rectZone = zones;
-    sh.uniforms.zoneBounce = zoneBounce;
+    sh.uniforms.zoneData = zoneData;
     sh.vertexShader = sh.vertexShader
       .replace("#include <common>", "#include <common>\nattribute float zone;\nvarying float vZone;")
       .replace("#include <begin_vertex>", "#include <begin_vertex>\nvZone = zone;");
     sh.fragmentShader = sh.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vZone;\n#if NUM_RECT_AREA_LIGHTS > 0\nuniform float rectZone[ NUM_RECT_AREA_LIGHTS ];\n#endif")
-      .replace("#include <lights_fragment_begin>", PATCHED);
+      .replace("#include <common>", `#include <common>\nvarying float vZone;\n${ZONE_AT}\n#if NUM_RECT_AREA_LIGHTS > 0\nuniform float rectZone[ NUM_RECT_AREA_LIGHTS ];\n#endif`)
+      .replace("#include <lights_fragment_begin>", PATCHED)
+      // (a zone no area light is on: its lamps' light as an even fill)
+      .replace("#include <lights_fragment_end>", "#include <lights_fragment_end>\nif ( vZone > 0.5 ) reflectedLight.indirectDiffuse += zoneAt( vZone ).g * BRDF_Lambert( material.diffuseColor );");
     if (lamp) {
       // a lamp's glow follows its room's switch (one material for every room's lamps)
-      sh.uniforms.zoneLevel = zoneLevels;
       sh.fragmentShader = sh.fragmentShader
-        .replace("varying float vZone;", "varying float vZone;\nuniform float zoneLevel[ 32 ];")
-        .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance *= zoneLevel[ int( vZone + 0.5 ) ];");
+        .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\nif ( vZone > 0.5 ) totalEmissiveRadiance *= zoneAt( vZone ).r;");
     }
   };
-  mat.customProgramCacheKey = () => (lamp ? "zoneLamp2" : "zoneLit2") + (own ? `+${own}` : "");
+  mat.customProgramCacheKey = () => (lamp ? "zoneLamp3" : "zoneLit3") + (own ? `+${own}` : "");
   mat.needsUpdate = true;
 }
 

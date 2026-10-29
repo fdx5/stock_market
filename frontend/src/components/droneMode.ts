@@ -57,6 +57,8 @@ export class DroneSession {
   private model = new DroneModel();
   private chaseYaw = 0;
   private chaseDist = 3.6;
+  /** the third-person camera's height angle raised over a low obstacle behind the walker (rad) */
+  private chaseLift = 0;
   private clock = 0;
   /** The people on the sidewalks round the drone (the view's own walkers, sceneWalkers): made
    * again when the drone has gone 350 m, only while it is low enough to see them. */
@@ -568,8 +570,30 @@ export class DroneSession {
   /** On foot at (x, y) facing `yaw` — back out of a building's door: there, in third person. */
   walkAt(x: number, y: number, yaw: number) {
     const f = this.flight; if (f.walking) f.setWalking(false, this.world);
+    // (the door is right at the wall and the walker faces away from it, so the camera behind them
+    // would be inside the building and pulled in to arm's length: stepped out from the door along
+    // the way they face until the camera's whole line behind them is clear, on open ground)
+    const w = this.world, fx = -Math.sin(yaw), fy = Math.cos(yaw), bx = Math.sin(yaw), bz = Math.cos(yaw);
+    const el = 0.28 + 0.04 * 0.8, want = f.cycling ? 6.5 : 6.0;   // (setWalking's tilt, chase's angle)
+    for (let s = 0; s <= 10; s += 0.5) {
+      const px = x + fx * s, py = y + fy * s, g = w.groundAt(px, py);
+      if (w.roofAt(px, py) >= g + 0.5) continue;
+      if (this.clearBehind(px, g + EYE + 0.9, -py, bx, bz, el, want) >= want) { x = px; y = py; break; }
+    }
     f.pos.x = x; f.pos.z = -y; f.yaw = yaw;
-    return this.toggleWalk(false);
+    const on = this.toggleWalk(false);
+    // (the camera straight behind at its full distance — not swinging round from wherever it was)
+    this.chaseYaw = yaw; this.chaseLift = 0; this.chaseDist = this.chaseWant();
+    return on;
+  }
+  /** On foot (or in a car, on a bike): up again into the air right here — out of the car or off the
+   * bike first — not back to where the flight began. */
+  takeOff() {
+    const f = this.flight; if (!f.walking) return false;
+    if (f.car) this.toggleCar();
+    if (f.cycling) this.toggleBike();
+    this.toggleWalk(false);
+    return true;
   }
   toggleWalk(nearSidewalk = true) {
     const f = this.flight;
@@ -683,6 +707,25 @@ export class DroneSession {
     const ox = best[0] - cx, oy = best[1] - cy, ol = Math.hypot(ox, oy) || 1;
     return this.openInside(ring, best[0] + ox / ol * 1.5, best[1] + oy / ol * 1.5, Math.atan2(oy, ox));
   }
+  private campusOf(ring: [number, number][], x: number, y: number): [number, number][][] {
+    const all = this.world.buildingRingsNear(x, y, 300).filter(r => r !== ring && r.length >= 3);
+    const gap = (a: [number, number][], b: [number, number][]) => {
+      let d = Infinity;
+      for (const p of a) for (let i = 0; i < b.length; i++) {
+        const q = b[i], s = b[(i + 1) % b.length], dx = s[0] - q[0], dy = s[1] - q[1], l2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((p[0] - q[0]) * dx + (p[1] - q[1]) * dy) / l2));
+        d = Math.min(d, Math.hypot(p[0] - q[0] - dx * t, p[1] - q[1] - dy * t));
+      }
+      return d;
+    };
+    const area = (r: [number, number][]) => Math.abs(r.reduce((t, p, i) => { const q = r[(i + 1) % r.length]; return t + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+    const got: [number, number][][] = [ring], left = all.filter(r => area(r) > 150);
+    for (let grew = true; grew && got.length < 16;) {
+      grew = false;
+      for (let i = 0; i < left.length; i++) if (got.some(g => Math.min(gap(g, left[i]), gap(left[i], g)) < 30)) { got.push(left[i]); left.splice(i--, 1); grew = true; if (got.length >= 16) break; }
+    }
+    return got.slice(1);
+  }
   private openInside(ring: [number, number][], doorX: number, doorY: number, heading: number): boolean {
     const c = this.p.data.center; if (!c) return false;
     const kx = Math.cos(c.lat * Math.PI / 180) * 111_320, ky = 110_540;
@@ -693,8 +736,13 @@ export class DroneSession {
     const fx = ring.reduce((t, p) => t + p[0], 0) / ring.length - doorX, fy = ring.reduce((t, p) => t + p[1], 0) / ring.length - doorY, fl = Math.hypot(fx, fy) || 1;
     // (out of the door facing away from the building — the walk's forward is (−sin, cos) of the yaw)
     back.set("walkat", `${doorX.toFixed(2)},${doorY.toFixed(2)},${Math.atan2(fx / fl, -fy / fl).toFixed(3)}`);
+    // (the buildings standing with it — within 30 m of it or of each other, 300 m round at most: a
+    // hospital's or a campus's other blocks, for its ground floor as one — WalkPage keeps them only
+    // for such a building)
+    const campus = this.campusOf(ring, doorX, doorY);
     const q = new URLSearchParams({ enter: "1", lat, lon, heading: String(heading),
       foot: ring.slice(0, 60).map(([x, y]) => ll(x, y)).join(";"), back: location.pathname + "?" + back.toString() + location.hash });
+    if (campus.length) q.set("campus", campus.map(r => r.slice(0, 40).map(([x, y]) => ll(x, y)).join(";")).join("|"));
     location.href = `/walk?${q}`;
     return true;
   }
@@ -707,23 +755,42 @@ export class DroneSession {
     return this.view;
   }
 
+  /** How far behind the third-person camera sits: on foot far enough back to see the walker whole
+   * with the street round them. */
+  private chaseWant() {
+    const f = this.flight;
+    return f.car ? f.car.length + 4 : f.cycling ? 6.5 : f.walking ? 6.0 : 3.6;
+  }
+  /** The line from (x, y, z) back to the camera at height angle `el`, in half-metre steps: how far
+   * it goes before anything solid (the ground, a roof) — measured from the camera's own base height
+   * (on foot 0.9 m over the eye), not the eye's. */
+  private clearBehind(x: number, y: number, z: number, bx: number, bz: number, el: number, want: number) {
+    const w = this.world;
+    for (let s = 0.5; s <= want; s += 0.5) {
+      const px = x + bx * Math.cos(el) * s, pz = z + bz * Math.cos(el) * s, py = y + Math.sin(el) * s;
+      if (py < Math.max(w.groundAt(px, -pz), w.roofAt(px, -pz)) + 0.6) return Math.max(0.8, s - 0.5);
+    }
+    return want;
+  }
   /** The third-person camera: behind the drone and a little above, its heading following the
    * drone's with a short lag (turns read as turns), its height angle from the camera tilt (a drag
    * looks down on it or up past it); pulled in where a wall or a tree is between them. */
   private chase(dt: number) {
-    const f = this.flight, c = this.p.camera, w = this.world;
+    const f = this.flight, c = this.p.camera;
     const d = Math.atan2(Math.sin(f.yaw - this.chaseYaw), Math.cos(f.yaw - this.chaseYaw));
     this.chaseYaw += d * Math.min(1, dt * 5);
-    const el = THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, -0.15, 1.35);
+    const el0 = THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, -0.15, 1.35);
     const bx = Math.sin(this.chaseYaw), bz = Math.cos(this.chaseYaw);   // behind: opposite the heading
-    const want = f.car ? f.car.length + 4 : f.cycling ? 5.0 : f.walking ? 4.2 : 3.6;
-    // (the line from the drone back to the camera, in half-metre steps: stop short of anything solid)
-    let dist = want;
-    for (let s = 0.5; s <= want; s += 0.5) {
-      const x = f.pos.x + bx * Math.cos(el) * s, z = f.pos.z + bz * Math.cos(el) * s, y = f.pos.y + Math.sin(el) * s;
-      const under = Math.max(w.groundAt(x, -z), w.roofAt(x, -z));
-      if (y < under + 0.6) { dist = Math.max(0.8, s - 0.5); break; }
+    const want = this.chaseWant(), base = f.walking ? 0.9 : 0.35;
+    let dist = this.clearBehind(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0, want), lift = 0;
+    // (on foot: a low wall, a fence or a canopy behind — the camera up over it, looking down on the
+    // walker, before it is pulled in)
+    if (f.walking && dist < want) for (let e = 0.15; e <= 0.75 && el0 + e <= 1.35; e += 0.15) {
+      const d2 = this.clearBehind(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0 + e, want);
+      if (d2 >= want) { dist = d2; lift = e; break; }
     }
+    this.chaseLift += (lift - this.chaseLift) * Math.min(1, dt * 4);
+    const el = el0 + this.chaseLift;
     this.chaseDist += (dist - this.chaseDist) * Math.min(1, dt * (dist < this.chaseDist ? 20 : 3));
     const r = this.chaseDist;
     c.position.set(f.pos.x + bx * Math.cos(el) * r, f.pos.y + Math.sin(el) * r + 0.35, f.pos.z + bz * Math.cos(el) * r);

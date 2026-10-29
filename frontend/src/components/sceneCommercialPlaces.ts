@@ -37,6 +37,13 @@ export class PlaceFootprints {
     for(const owner of this.owners.values()){const r=owner.buckets.get(key)?.find(r=>inPlaceRing(x,y,r));if(r)return r;}
     return null;
   }
+  /** every outline with a corner within r of (x, y), each once */
+  ringsNear(x:number,y:number,r:number):[number,number][][]{
+    const out=new Set<[number,number][]>();
+    for(let i=Math.floor((x-r)/340);i<=Math.floor((x+r)/340);i++)for(let j=Math.floor((y-r)/340);j<=Math.floor((y+r)/340);j++)
+      for(const owner of this.owners.values())for(const ring of owner.buckets.get(i+','+j)??[])if(ring.some(p=>Math.hypot(p[0]-x,p[1]-y)<r))out.add(ring);
+    return [...out];
+  }
   clear(){this.owners.clear();}
   covered(ring:[number,number][]){
     const cx=ring.reduce((s,p)=>s+p[0],0)/ring.length,cy=ring.reduce((s,p)=>s+p[1],0)/ring.length;

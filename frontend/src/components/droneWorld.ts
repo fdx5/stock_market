@@ -312,6 +312,8 @@ export class DroneWorld {
   roadZ(x: number, y: number): number | null { const l = this.lanePointNear(x, y, 8); return l && l.d < l.w / 2 + 1.2 ? l.z : null; }
   /** the surveyed outline of the building at (x, y) (view frame), if one stands there */
   buildingRingAt(x: number, y: number): [number, number][] | null { return this.placeFootprints.ringAt(x, y); }
+  /** the building outlines with a corner within r of (x, y) */
+  buildingRingsNear(x: number, y: number, r: number): [number, number][][] { return this.placeFootprints.ringsNear(x, y, r); }
   roofAt(x: number, y: number): number {
     return Math.max(this.registeredRoofAt(x,y),this.places.roofAt(x,y));
   }

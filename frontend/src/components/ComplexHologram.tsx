@@ -4104,7 +4104,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const down = (tries = 0) => {
       const d = stageRef.current?.drone;
       if (!d) { if (tries < 50) window.setTimeout(() => down(tries + 1), 100); return; }
-      if (!d.flight.walking) { d.toggleWalk(); setDroneView(d.view); }
+      if (!d.flight.walking) { d.toggleWalk(); setDroneView(d.view); setDroneWalking(d.flight.walking); }
     };
     down();
   };
@@ -4163,6 +4163,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (droneOn && !autoDrone) void loadDroneExplorePage().catch(() => {});
   }, [droneOn, autoDrone]);
   const [droneView, setDroneView] = useState<"fpv" | "chase">("fpv");
+  /** on foot in the drone's world: the 착륙 button reads 드론 and takes off right there */
+  const [droneWalking, setDroneWalking] = useState(false);
   // The site's music (deskBgmStore): its player in the full-screen view, started with the flight;
   // the drone's own sound plays along with it only when the visitor turns it on.
   const bgm = useDeskBgm();
@@ -4243,7 +4245,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!stageRef.current.drone) enterDrone();
       const d = stageRef.current?.drone; if (!d) return;
       walkAtDone.current = true; window.clearInterval(timer);
-      d.walkAt(x, y, Number.isFinite(yaw) ? yaw : d.flight.yaw); setDroneView(d.view);
+      d.walkAt(x, y, Number.isFinite(yaw) ? yaw : d.flight.yaw); setDroneView(d.view); setDroneWalking(d.flight.walking);
       q.delete("walkat"); history.replaceState(history.state, "", location.pathname + (q.toString() ? "?" + q.toString() : "") + location.hash);
     }, 150);
     return () => window.clearInterval(timer);
@@ -4295,7 +4297,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     st.controls.enabled = true;
     st.atmos.dirty = true;
     st.frame();
-    setDroneOn(false); st.resume();
+    setDroneOn(false); setDroneWalking(false); st.resume();
   };
   const leaveDroneRef = useRef(leaveDrone);
   const exitDrone = () => { leaveDrone(); onDroneExit?.(); };
@@ -4316,13 +4318,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if(document.querySelector('.re-drone-auto-settings')) { window.dispatchEvent(new Event('drone-auto-settings-close'));return; }
         // (a building's card open: Esc closes it, not the flight)
         if (stageRef.current?.drone?.signs.selected) window.dispatchEvent(new Event("drone-card-close"));
+        // (on foot: up into the air here, not out of the flight back to where it began)
+        else if (stageRef.current?.drone?.flight.walking) window.dispatchEvent(new Event("drone-take-off"));
         else leaveDroneRef.current();
         return;
       }
       if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.code === "KeyV" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); return; }
       // (G: down to the street on foot, or back into the air — the same world either way)
-      if (e.code === "KeyG" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); const d = stageRef.current?.drone; d?.toggleWalk(); if (d) setDroneView(d.view); return; }
+      if (e.code === "KeyG" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); window.dispatchEvent(new Event("drone-walk-toggle")); return; }
       // (E on foot at a building: in through its door; elsewhere E still turns)
       if (e.code === "KeyE" && !e.repeat && stageRef.current?.drone?.flight.walking && stageRef.current.drone.flight.door) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current.drone.enterDoor(); return; }
       // (B: onto a bicycle or off it, on foot only)
@@ -4342,7 +4346,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     window.addEventListener("keydown", down, true);
     window.addEventListener("keyup", up, true);
     window.addEventListener("blur", blur);
-    const walkToggle = () => { const d = stageRef.current?.drone; d?.toggleWalk(); if (d) setDroneView(d.view); };
+    const walkToggle = () => { const d = stageRef.current?.drone; if (!d) return; if (d.flight.walking) d.takeOff(); else d.toggleWalk(); setDroneView(d.view); setDroneWalking(d.flight.walking); };
+    const takeOff = () => { const d = stageRef.current?.drone; if (!d) return; d.takeOff(); setDroneView(d.view); setDroneWalking(d.flight.walking); };
+    window.addEventListener("drone-take-off", takeOff);
     const bikeToggle = () => stageRef.current?.drone?.rideNearest();
     const carToggle = () => stageRef.current?.drone?.toggleCar();
     const inside = (e: Event) => { const d = (e as CustomEvent<{ x: number; y: number }>).detail; if (d) stageRef.current?.drone?.enterBuildingAt(d.x, d.y); };
@@ -4353,7 +4359,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     document.addEventListener("visibilitychange", vis);
     host?.addEventListener("wheel", wheel, { passive: false });
     return () => {
-      window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); window.removeEventListener("drone-walk-toggle", walkToggle); window.removeEventListener("drone-car-toggle", carToggle); window.removeEventListener("drone-explore-inside", inside); window.removeEventListener("drone-bike-toggle", bikeToggle); window.removeEventListener("drone-enter-door", enterDoor);
+      window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); window.removeEventListener("drone-walk-toggle", walkToggle); window.removeEventListener("drone-take-off", takeOff); window.removeEventListener("drone-car-toggle", carToggle); window.removeEventListener("drone-explore-inside", inside); window.removeEventListener("drone-bike-toggle", bikeToggle); window.removeEventListener("drone-enter-door", enterDoor);
       window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", vis);
       host?.removeEventListener("wheel", wheel);
     };
@@ -4758,11 +4764,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         </button>
         {(big || autoDrone) && <div className="d2 d2-bgm-float re-holo-bgm"><DeskBgm variant="strip" /></div>}
         {data.vworld_key && data.center && <div className="re-holo-flight-buttons">
-          <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn} onClick={() => (droneOn ? exitDrone() : enterDrone())}
+          <button type="button" className="re-holo-balloon-btn re-holo-drone-btn" aria-pressed={droneOn && !droneWalking} onClick={() => (droneOn && droneWalking ? window.dispatchEvent(new Event("drone-take-off")) : droneOn ? exitDrone() : enterDrone())}
             disabled={!droneOn && !sceneReady} aria-busy={!droneOn && !sceneReady}
             onPointerEnter={warmDeskBgm} onFocus={warmDeskBgm} onTouchStart={warmDeskBgm}
-            title={droneOn ? "드론 착륙 (원래 시점으로)" : !sceneReady ? "드론 준비 중 · 단지 장면을 만드는 중입니다" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 수동 고도 상한 없음)"}>
-            <i aria-hidden="true">🚁</i><span>{droneOn ? "착륙" : sceneReady ? "드론" : "준비 중"}</span>
+            title={droneOn && droneWalking ? "이 자리 상공으로 드론 이륙 (Esc)" : droneOn ? "드론 착륙 (원래 시점으로)" : !sceneReady ? "드론 준비 중 · 단지 장면을 만드는 중입니다" : "드론으로 이 지역을 날아다니기 (키보드·터치, 최고 200km/h, 수동 고도 상한 없음)"}>
+            <i aria-hidden="true">🚁</i><span>{droneOn && !droneWalking ? "착륙" : droneOn || sceneReady ? "드론" : "준비 중"}</span>
           </button>
           {driveEnabled && <button type="button" className="re-holo-balloon-btn re-holo-drive-btn" onClick={openDrive}
             aria-label="드라이브" title="현재 지역에서 드라이브 게임 열기">

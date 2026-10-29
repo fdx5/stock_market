@@ -278,7 +278,9 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
         <button type="button" onClick={() => { const m = !muted; setMuted(m); onMute(m); }} aria-pressed={muted} title={muted ? "드론 소리 켜기 (배경음과 함께)" : "드론 소리 끄기"} aria-label={muted ? "드론 소리 켜기" : "드론 소리 끄기"} className="re-drone-mute"><i aria-hidden="true">{muted ? "🔇" : "🔊"}</i> <span>드론소리</span></button>
         {onFull && <button type="button" className="re-drone-full" onClick={onFull} aria-pressed={!!full} title={full ? "전체화면 끄기" : "전체화면으로 비행 (화면 전체 사용)"} aria-label={full ? "전체화면 끄기" : "전체화면"}><i aria-hidden="true">{full ? "⤡" : "⛶"}</i> <span>{full ? "해제" : "전체화면"}</span></button>}
         <button type="button" onClick={() => setHelp(v => !v)} aria-pressed={help} title="조작법">?</button>
-        <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>
+        {flight.walking
+          ? <button type="button" className="re-drone-exit" onClick={() => { window.dispatchEvent(new Event("drone-take-off")); setHud(h => h ? { ...h } : h); }} title="이 자리 상공으로 드론 이륙 (Esc)">드론</button>
+          : <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>}
       </div>
       <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} onPick={pickSign}>
         <LiveLayerControls live={live} where={radar.where} />

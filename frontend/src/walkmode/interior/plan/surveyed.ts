@@ -1,5 +1,5 @@
 import type { FacilityKind, FacilityRole, Fixture, FloorPlan, Opening, Room, RoomType, Side } from "./types";
-import { FACILITY_LABEL, facilityStyle, programOf, type FacilityInput } from "./facility";
+import { FACILITY_LABEL, facilityStyle, programOf, type FacilityInput, type Want } from "./facility";
 
 /* A floor laid out from its drawing (도면 기반): the surveyed outline of the floor (SGIS), its charted
  * partitions where it has them — rooms, open floor and corridors, lifts, stairs, escalators, toilets,
@@ -7,15 +7,20 @@ import { FACILITY_LABEL, facilityStyle, programOf, type FacilityInput } from "./
  * the programme of their register use laid out inside that outline: a corridor spine, the core by the
  * way in, rooms out to the walls. Everything on a 0.5 m raster in the building's own axes (the
  * outline's main direction), then cut into the rectangles the interior engine builds walls from: a
- * room of the drawing may be several rectangles joined by open walls, one light zone. Very large
- * floors (a hospital, an exhibition hall) are walked as the part round the way in — at most 46 × 34 m —
- * the cut sides closed. */
+ * room of the drawing may be several rectangles joined by open walls, one light zone. The whole
+ * floor, however large — a hospital's, a mall's: the engine shares its lights and draws its near
+ * part (Interior.ts nearFrame). A large floor with no partitions charted is laid out as such floors
+ * are: a lobby at the way in, a wide main street through the plate, cross streets, the floor's
+ * services round the lobby and its departments along the streets, each in its own colour. */
 
 type P2 = [number, number];
 export interface SurveyedInput extends FacilityInput {
   /** the floor's outline polygons (outer ring, holes), metres, plan frame (x, z) */
   outline: P2[][][];
-  /** charted partitions: "10" business, "20" open/corridor, "31" void, "32" lift, "33" escalator, "34" stair, "35" toilet, "40" shaft */
+  /** charted partitions (SGIS 사업체 전개도: 10 사업체, 20 빈 공간, 3x 기타 시설물, 40 덕트 공간): "10" business,
+   * "20" open floor or corridor, the 3x by their facility points' order (0001…0007) — "31" a way-in
+   * area, "32" lift, "33" escalator, "34" stair, "35" toilet, "36" emergency exit, "37" car-park way
+   * in — and "40" a shaft */
   partitions: { type: string; poly: P2[][]; name?: string; category?: string }[];
   /** cores from the nearest charted floor (same codes) when this floor has none */
   cores: { type: string; ring: P2[] }[];
@@ -24,7 +29,9 @@ export interface SurveyedInput extends FacilityInput {
   seed: number;
 }
 
-const CELL = 0.5, MAXW = 46, MAXD = 34;
+const CELL = 0.5, MAXW = 400, MAXD = 400;
+/** a floor this big (m²) is laid out as a large one */
+const LARGE_AREA = 2500;
 const VOID = -1, FREE = 0;
 const inRing = (x: number, z: number, p: P2[]) => { let c = false; for (let i = 0, j = p.length - 1; i < p.length; j = i++) { const [xi, zi] = p[i], [xj, zj] = p[j]; if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c; } return c; };
 const inPoly = (x: number, z: number, p: P2[][]) => !!p[0] && inRing(x, z, p[0]) && !p.slice(1).some(h => inRing(x, z, h));
@@ -33,7 +40,7 @@ const ringArea = (p: P2[]) => Math.abs(p.reduce((t, a, i) => { const b = p[(i + 
 /** a long thin shape (a corridor's): its bounding box much longer than wide, or mostly empty */
 const elongated = (p: P2[]) => { const xs = p.map(q => q[0]), zs = p.map(q => q[1]), w = Math.max(...xs) - Math.min(...xs), d = Math.max(...zs) - Math.min(...zs); return Math.max(w, d) / Math.max(0.1, Math.min(w, d)) > 4 || ringArea(p) < w * d * 0.45; };
 
-interface Region { id: number; type: RoomType; label: string; core?: "lift" | "stair" | "escalator" | "toilet"; people: FacilityRole[]; front: "door" | "glass" | "open"; name?: string }
+interface Region { id: number; type: RoomType; label: string; core?: "lift" | "stair" | "escalator" | "toilet"; people: FacilityRole[]; front: "door" | "glass" | "open"; name?: string; finish?: string }
 
 /** the outline's main direction: the angle (mod 90°) its edges' lengths favour */
 function mainAngle(rings: P2[][]): number {
@@ -86,8 +93,20 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   const regions: Region[] = [];
   const region = (r: Omit<Region, "id">) => { const id = regions.length + 1; regions.push({ ...r, id }); return id; };
   const kind = f.kind, prog = programOf(f, rnd);
-  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) { const k = j * nx + i; if (insideAny(cx(i), cz(j))) g[k] = FREE; else out[k] = 1; }
-  const charted = parts.filter(p => p.type !== "31" && p.type !== "40");
+  // (each polygon over the cells of its own bounds only: a large floor has a hundred thousand cells)
+  const cellsOf = (poly: P2[][], each: (k: number) => void) => {
+    const r = poly[0]; if (!r || r.length < 3) return;
+    let a0 = Infinity, b0 = Infinity, a1 = -Infinity, b1 = -Infinity;
+    for (const [x, z] of r) { a0 = Math.min(a0, x); a1 = Math.max(a1, x); b0 = Math.min(b0, z); b1 = Math.max(b1, z); }
+    const i0 = Math.max(0, Math.floor((a0 - wx0) / CELL)), i1 = Math.min(nx - 1, Math.ceil((a1 - wx0) / CELL)), j0 = Math.max(0, Math.floor((b0 - wz0) / CELL)), j1 = Math.min(nz - 1, Math.ceil((b1 - wz0) / CELL));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (inPoly(cx(i), cz(j), poly)) each(j * nx + i);
+  };
+  out.fill(1);
+  for (const p of O) cellsOf(p, k => { g[k] = FREE; out[k] = 0; });
+  // (the way-in, exit and car-park areas last: drawn large round the others, they take only what
+  // nothing else charted takes)
+  const wide = (t: string) => t === "31" || t === "36" || t === "37";
+  const charted = [...parts.filter(p => p.type !== "40" && !wide(p.type)), ...parts.filter(p => wide(p.type))];
   let chartedCells = 0;
   const regionOfPart = new Map<number, number>();
   let shopNo = 0, hall: number | undefined;
@@ -97,6 +116,10 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
     if (t === "32") r = region({ type: "storage", label: "엘리베이터", core: "lift", people: [], front: "door" });
     else if (t === "34") r = region({ type: "stair", label: "계단실", core: "stair", people: [], front: "door" });
     else if (t === "33") r = region({ type: "corridor", label: "에스컬레이터", core: "escalator", people: ["visitor"], front: "open" });
+    else if (p.name?.startsWith("연결통로")) r = region({ type: "corridor", label: p.name, people: ["visitor"], front: "open", finish: "floor:terrazzo" });
+    else if (t === "31") r = hall ??= region({ type: "corridor", label: "복도", people: ["visitor", "visitor"], front: "open" });
+    else if (t === "36") r = region({ type: "corridor", label: "비상구 통로", people: [], front: "open" });
+    else if (t === "37") r = region({ type: f.level < 0 ? "parking" : "corridor", label: f.level < 0 ? "주차장" : "주차장 입구", people: f.level < 0 ? ["visitor"] : [], front: "open" });
     else if (t === "35") r = region({ type: "restroom", label: rnd() < 0.5 ? "남자 화장실" : "여자 화장실", core: "toilet", people: [], front: "door" });
     else if (t === "20" && (ringArea(p.poly[0]) > 400 || !!p.name === false && ringArea(p.poly[0]) > 250 && elongated(p.poly[0]))) {
       // (a big open partition: the mall's or the building's halls and corridors — one region)
@@ -112,13 +135,9 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
     }
     regionOfPart.set(pi, r); return r;
   };
-  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
-    const k = j * nx + i; if (g[k] !== FREE) continue;
-    const x = cx(i), z = cz(j);
-    if (parts.some(p => (p.type === "40" || p.type === "31") && inPoly(x, z, p.poly))) { g[k] = VOID; continue; }
-    const pi = charted.findIndex(p => inPoly(x, z, p.poly));
-    if (pi >= 0) { g[k] = partRegion(pi); chartedCells++; }
-  }
+  for (const p of parts) if (p.type === "40") cellsOf(p.poly, k => { if (g[k] === FREE) g[k] = VOID; });
+  // (the first charted partition a cell is in, as before: each in turn takes the cells still free)
+  charted.forEach((p, pi) => cellsOf(p.poly, k => { if (g[k] === FREE) { g[k] = partRegion(pi); chartedCells++; } }));
   const insideCells = g.reduce((t, v) => t + (v !== VOID ? 1 : 0), 0);
   if (insideCells < 40) return null;
   const drawn = chartedCells / insideCells > 0.25;
@@ -126,14 +145,133 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   if (!drawn) for (const q of cores) {
     if (q.type !== "32" && q.type !== "34" && q.type !== "35") continue;
     const id = region(q.type === "32" ? { type: "storage", label: "엘리베이터", core: "lift", people: [], front: "door" } : q.type === "34" ? { type: "stair", label: "계단실", core: "stair", people: [], front: "door" } : { type: "restroom", label: "화장실", core: "toilet", people: [], front: "door" });
-    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) { const k = j * nx + i; if (g[k] === FREE && inRing(cx(i), cz(j), q.ring)) g[k] = id; }
+    cellsOf([q.ring], k => { if (g[k] === FREE) g[k] = id; });
   }
   // ------------------------------------------------ an outline only: the programme laid out in it
-  if (!drawn) synthesize();
+  const named = new Map<string, number>();
+  const floorArea = insideCells * CELL * CELL, large = floorArea > LARGE_AREA;
+  if (!drawn) { if (large) synthesizeLarge(); else synthesize(); }
   else {
     // (what the drawing leaves uncharted inside the walls is open floor)
     const open = region({ type: "corridor", label: "복도", people: ["visitor", "visitor"], front: "open" });
     for (let k = 0; k < g.length; k++) if (g[k] === FREE) g[k] = open;
+  }
+
+  /** A large floor with only its outline: the lobby at the way in, a main street through the plate
+   * from it (6 m), cross streets every ~30 m (3.2 m) and side corridors between them; the cores along
+   * the main street; the services first round the lobby, the departments outward, each department a
+   * waiting area on the street with its rooms behind, in its own colour. */
+  function synthesizeLarge() {
+    const along = W >= D, L = along ? nx : nz, A = along ? nz : nx;
+    const at = (u: number, v: number) => along ? v * nx + u : u * nx + v;
+    const U = (x: number, z: number) => Math.round((along ? x - wx0 : z - wz0) / CELL), V = (x: number, z: number) => Math.round((along ? z - wz0 : x - wx0) / CELL);
+    const f0: P2 = entry ?? focus, fu = Math.max(0, Math.min(L - 1, U(f0[0], f0[1]))), fv = Math.max(0, Math.min(A - 1, V(f0[0], f0[1])));
+    const set = (u0: number, u1: number, v0: number, v1: number, id: number, over = false) => {
+      for (let u = Math.max(0, u0); u < Math.min(L, u1); u++) for (let v = Math.max(0, v0); v < Math.min(A, v1); v++) { const k = at(u, v); if (g[k] === FREE || (over && g[k] > 0 && regions[g[k] - 1]?.type === "corridor")) g[k] = id; }
+    };
+    const hospital = kind === "clinic" || kind === "ward";
+    // the main street: through the way in, along the plate; its v the entry's, kept off the walls
+    const mainW = Math.round(6 / CELL), sideW = Math.round(3.2 / CELL), mv = Math.max(mainW + 16, Math.min(A - mainW - 16, fv < A / 2 ? Math.max(fv, Math.round(A * 0.3)) : Math.min(fv, Math.round(A * 0.7))));
+    const street = region({ type: "corridor", label: hospital ? "중앙 홀" : "중앙 통로", people: ["visitor", "visitor", "visitor"], front: "open", finish: "floor:terrazzo" });
+    // the lobby: the plate's depth from the way in, up to 34 × 26 m round it
+    const lob = region({ type: "lobby", label: `${f.name} ${hospital ? "본관 로비" : "로비"}`, people: ["guard", "clerk", "visitor", "visitor", "visitor", "visitor"], front: "open", finish: "floor:stone|wall:stone" });
+    const lu = Math.round(17 / CELL), lv = Math.round(13 / CELL);
+    set(fu - lu, fu + lu, Math.min(fv, mv) - (fv < mv ? 0 : lv), Math.max(fv, mv) + (fv > mv ? 0 : lv), lob);
+    set(0, L, mv - mainW / 2, mv + mainW / 2, street);
+    // cross streets every ~30 m, from the lobby out; side corridors half way between the main street
+    // and the walls, along
+    const cross = region({ type: "corridor", label: "복도", people: ["visitor", "visitor"], front: "open", finish: "floor:vinyl" });
+    const step = Math.round(30 / CELL);
+    for (let u = fu + step; u < L - 8; u += step) set(u - sideW / 2, u + sideW / 2, 0, A, cross);
+    for (let u = fu - step; u > 8; u -= step) set(u - sideW / 2, u + sideW / 2, 0, A, cross);
+    const sideV = [Math.round(mv / 2), Math.round((mv + A) / 2)].filter(v => Math.abs(v - mv) > mainW + 18 && v > 14 && v < A - 14);
+    for (const v of sideV) set(0, L, v - sideW / 2, v + sideW / 2, cross);
+    // the cores on the main street, every ~45 m: lifts, a stair, toilets
+    const coreStep = Math.round(45 / CELL);
+    let cores = 0;
+    for (let u = fu + Math.round(22 / CELL); u < L - 24; u += coreStep) { core(u, cores++ % 2 ? 1 : -1); }
+    for (let u = fu - Math.round(22 / CELL) - 20; u > 4; u -= coreStep) { core(u, cores++ % 2 ? 1 : -1); }
+    function core(u: number, side: number) {
+      if (regions.some(r => r.core === "lift") && cores > 6) return;
+      const v0 = side < 0 ? mv - mainW / 2 - 1 : mv + mainW / 2, dv = (a: number, b: number): [number, number] => side < 0 ? [v0 - b + 1, v0 - a + 1] : [v0 + a, v0 + b];
+      const lift = region({ type: "storage", label: "엘리베이터", core: "lift", people: [], front: "door" });
+      const [a0, a1] = dv(0, 5); set(u, u + 14, a0, a1, lift);
+      const stair = region({ type: "stair", label: "계단실", core: "stair", people: [], front: "door" });
+      const [b0, b1] = dv(0, 14); set(u + 14, u + 21, b0, b1, stair);
+      const men = region({ type: "restroom", label: "남자 화장실", core: "toilet", people: [], front: "door" }), women = region({ type: "restroom", label: "여자 화장실", core: "toilet", people: [], front: "door" });
+      const [c0, c1] = dv(5, 14); set(u, u + 7, c0, c1, men); set(u + 7, u + 14, c0, c1, women);
+    }
+    // the rooms: what is left between the streets, cut into blocks — each block a want of the
+    // programme, nearest the lobby first
+    const services: Want[] = hospital ? [
+      { type: "service", label: "종합안내", w: 8, front: "open", people: ["clerk", "clerk", "visitor"] },
+      { type: "service", label: "원무과 접수·수납", w: 16, front: "open", people: ["clerk", "clerk", "clerk", "clerk", "patient", "patient", "patient"] },
+      { type: "pharmacy", label: "외래약국", w: 10, front: "glass", people: ["clerk", "clerk", "patient"] },
+      { type: "cafe", label: "카페", w: 12, front: "open", people: ["clerk", "shopper", "shopper", "shopper"] },
+      { type: "shop", label: "편의점", w: 9, front: "glass", people: ["clerk", "shopper"] },
+      { type: "waiting", label: "채혈실 대기", w: 12, front: "open", people: ["nurse", "nurse", "patient", "patient", "patient"] },
+      { type: "treatment", label: "영상의학과 (X-ray)", w: 12, front: "door", people: ["nurse", "patient"] },
+      { type: "shop", label: "의료기기·편의용품", w: 8, front: "glass", people: ["clerk"] },
+      { type: "service", label: "보험·서류 발급", w: 8, front: "open", people: ["clerk", "patient"] },
+    ] : prog.slice(0, 4);
+    const depts = hospital ? (f.departments.length ? f.departments : ["내과", "소아청소년과", "정형외과", "신경과", "이비인후과", "피부과", "안과", "산부인과", "비뇨의학과", "재활의학과"]) : [];
+    const wants: (Want & { tone?: number })[] = [...services];
+    depts.slice(0, 16).forEach((d, i) => {
+      wants.push({ type: "waiting", label: `${d} 외래 접수·대기`, w: 14, front: "open", people: ["clerk", "patient", "patient", "patient", "patient"], tone: i });
+      for (let n = 0; n < 3; n++) wants.push({ type: "consult", label: `${d} 제${n + 1}진료실`, w: 4.2, front: "door", people: ["doctor", "patient"], tone: i });
+      wants.push({ type: "treatment", label: `${d} 처치·검사실`, w: 6, front: "door", people: ["nurse"], tone: i });
+    });
+    if (!hospital) for (let i = 0; i < 40; i++) wants.push(prog[i % Math.max(1, prog.length)] ?? { type: "office", label: "사무실", w: 8, front: "door", people: ["desk"] });
+    // (blocks: the free cells between streets in strips of a room's depth from each street, cut
+    // along it by the wants' widths; strips taken nearest the lobby first)
+    const strips: { u0: number; u1: number; v0: number; v1: number; d: number }[] = [];
+    const streetsV = [mv - mainW / 2, mv + mainW / 2, ...sideV.flatMap(v => [v - sideW / 2, v + sideW / 2])].sort((a, b) => a - b);
+    const crossU = [0, L, ...Array.from({ length: Math.ceil(L / step) + 2 }, (_, n) => fu + (n - Math.ceil(L / step) - 1) * step).filter(u => u > 8 && u < L - 8 && u !== fu).flatMap(u => [u - sideW / 2, u + sideW / 2])].sort((a, b) => a - b);
+    const depth = Math.round(8 / CELL);
+    const freeShare = (u0: number, u1: number, v0: number, v1: number) => { let f = 0, n = 0; for (let u = u0; u < u1; u += 2) for (let v = v0; v < v1; v += 2) { n++; if (g[at(u, v)] === FREE) f++; } return n ? f / n : 0; };
+    for (let a = 0; a + 1 < crossU.length; a += 1) {
+      const u0 = crossU[a], u1 = crossU[a + 1]; if (u1 - u0 < 10) continue;
+      for (const sv of streetsV) for (const side of [-1, 1]) {
+        const v0 = Math.max(0, side < 0 ? sv - depth : sv), v1 = Math.min(A, side < 0 ? sv : sv + depth);
+        // (the side of the edge the street is on has no free cells: only the rooms' side)
+        if (v1 - v0 < 6 || freeShare(u0, u1, v0, v1) < 0.4) continue;
+        strips.push({ u0, u1, v0, v1, d: Math.hypot((u0 + u1) / 2 - fu, (v0 + v1) / 2 - fv) });
+      }
+    }
+    strips.sort((p, q) => p.d - q.d);
+    let w = 0;
+    const toneOf = new Map<number, string>();
+    for (const st of strips) {
+      // (cut from the end nearer the lobby)
+      const fromLow = Math.abs(st.u0 - fu) < Math.abs(st.u1 - fu);
+      let u = fromLow ? st.u0 : st.u1;
+      while (fromLow ? u < st.u1 - 4 : u > st.u0 + 4) {
+        const want = wants[w++ % wants.length];
+        const len = Math.max(6, Math.round(want.w / CELL));
+        const a0 = fromLow ? u : Math.max(st.u0, u - len), a1 = fromLow ? Math.min(st.u1, u + len) : u;
+        const n = (named.get(want.label) ?? 0) + 1; named.set(want.label, n);
+        const tone = (want as { tone?: number }).tone;
+        if (tone !== undefined && !toneOf.has(tone)) toneOf.set(tone, `wall:tone${tone % 8}`);
+        const id = region({ type: want.type, label: n === 1 ? want.label : `${want.label} ${n}`, people: want.people ?? [], front: want.front,
+          finish: want.type === "waiting" || want.type === "service" ? `floor:vinylWood|${tone !== undefined ? toneOf.get(tone) : "wall:wood"}` : want.type === "cafe" ? "floor:vinylWood|wall:wood" : want.type === "consult" || want.type === "treatment" ? `floor:sheet${tone !== undefined ? `|${toneOf.get(tone)}` : ""}` : undefined });
+        set(a0, a1, st.v0, st.v1, id);
+        // behind it, a room depth further from the street where the floor is still free: its back
+        // rooms (a department's examination and staff rooms, a shop's store), reached through it
+        const back = st.v0 > 0 && g[at(Math.round((a0 + a1) / 2), st.v0 - 1)] === FREE ? -1 : st.v1 < A && g[at(Math.round((a0 + a1) / 2), st.v1)] === FREE ? 1 : 0;
+        if (back) {
+          const bv0 = back < 0 ? Math.max(0, st.v0 - depth) : st.v1, bv1 = back < 0 ? st.v0 : Math.min(A, st.v1 + depth);
+          if (freeShare(a0, a1, bv0, bv1) > 0.5) {
+            const inner = want.type === "waiting" || want.type === "consult" || want.type === "treatment" ? (hospital ? ["검사실", "상담실", "의국", "준비실"] : ["준비실"]) : want.type === "cafe" || want.type === "shop" || want.type === "pharmacy" ? ["창고"] : ["사무실", "직원실"];
+            const lbl = `${want.label.replace(/ (외래 접수·대기|제\d+진료실|처치·검사실)$/, "")} ${inner[(w + a0) % inner.length]}`;
+            const bid = region({ type: inner[0] === "창고" ? "storage" : /검사|준비/.test(lbl) ? "treatment" : "staffroom", label: lbl, people: /검사/.test(lbl) ? ["nurse"] : [], front: "door", finish: tone !== undefined ? `floor:sheet|${toneOf.get(tone)}` : undefined });
+            set(a0, a1, bv0, bv1, bid);
+          }
+        }
+        u = fromLow ? a1 : a0;
+      }
+    }
+    // (the rest — the deep middles between strips, the corners — open floor of the nearest street)
+    for (let k = 0; k < g.length; k++) if (g[k] === FREE) g[k] = cross;
   }
 
   function synthesize() {
@@ -183,7 +321,7 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
     // rooms: each free cell belongs to the corridor nearest it (across), on that side; along the
     // corridor cut by the programme's widths
     let p = 0;
-    const ids = new Map<string, number>(), named = new Map<string, number>();
+    const ids = new Map<string, number>();
     let consultNo = 0;
     const chunkOf = new Map<string, number[]>();
     for (const sv of spines) for (const side of [-1, 1]) {
@@ -225,18 +363,26 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   interface R { region: number; i0: number; j0: number; i1: number; j1: number }
   const rects: R[] = [];
   const used = new Uint8Array(nx * nz);
+  // (each region's cells' bounds: its rectangles are looked for there only)
+  const bb = new Int32Array((regions.length + 1) * 4).fill(-1);
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+    const v = g[j * nx + i]; if (v <= 0) continue; const o = v * 4;
+    if (bb[o] < 0) { bb[o] = i; bb[o + 1] = j; bb[o + 2] = i; bb[o + 3] = j; } else { bb[o] = Math.min(bb[o], i); bb[o + 1] = Math.min(bb[o + 1], j); bb[o + 2] = Math.max(bb[o + 2], i); bb[o + 3] = Math.max(bb[o + 3], j); }
+  }
   for (const rg of regions) {
-    const maxRects = rg.type === "corridor" || rg.type === "lobby" ? 60 : 6;
+    const o = rg.id * 4; if (bb[o] < 0) continue;
+    const I0 = bb[o], J0 = bb[o + 1], I1 = bb[o + 2] + 1, J1 = bb[o + 3] + 1;
+    const maxRects = rg.type === "corridor" || rg.type === "lobby" ? (large ? 600 : 60) : large ? 10 : 6;
     for (let n = 0; n < maxRects; n++) {
       // the largest all-free rectangle of this region's unused cells (histogram method)
       const h = new Int32Array(nx); let best = { a: 0, i0: 0, j0: 0, i1: 0, j1: 0 };
-      for (let j = 0; j < nz; j++) {
-        for (let i = 0; i < nx; i++) { const k = j * nx + i; h[i] = g[k] === rg.id && !used[k] ? h[i] + 1 : 0; }
+      for (let j = J0; j < J1; j++) {
+        for (let i = I0; i < I1; i++) { const k = j * nx + i; h[i] = g[k] === rg.id && !used[k] ? h[i] + 1 : 0; }
         const st: number[] = [];
-        for (let i = 0; i <= nx; i++) {
-          const hi = i < nx ? h[i] : 0;
+        for (let i = I0; i <= I1; i++) {
+          const hi = i < I1 ? h[i] : 0;
           while (st.length && h[st[st.length - 1]] >= hi) {
-            const top = st.pop()!, height = h[top], left = st.length ? st[st.length - 1] + 1 : 0, wdt = i - left;
+            const top = st.pop()!, height = h[top], left = st.length ? st[st.length - 1] + 1 : I0, wdt = i - left;
             if (height >= 3 && wdt >= 3 && height * wdt > best.a) best = { a: height * wdt, i0: left, j0: j - height + 1, i1: i, j1: j + 1 };
           }
           st.push(i);
@@ -254,7 +400,10 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   rects.forEach((q, n) => {
     const rg = regions[q.region - 1];
     const id = `r${q.region}_${n}`;
-    rooms.push({ id, type: rg.type, label: rg.label, rect: [r1(q.i0 * CELL), r1(q.j0 * CELL), r1(q.i1 * CELL), r1(q.j1 * CELL)], zone: `z${q.region}` });
+    // (a large floor's halls and corridors: each rectangle its own light zone — one lamp for a
+    // hundred metres of corridor would light none of it)
+    const own = large && (rg.type === "corridor" || rg.type === "lobby");
+    rooms.push({ id, type: rg.type, label: rg.label, rect: [r1(q.i0 * CELL), r1(q.j0 * CELL), r1(q.i1 * CELL), r1(q.j1 * CELL)], zone: own ? `z${q.region}_${n}` : `z${q.region}`, ...(rg.finish ? { finish: rg.finish } : {}) });
     rr.set(id, q); regionOfRoom.set(id, rg);
     const l = byRegion.get(q.region) ?? []; l.push(id); byRegion.set(q.region, l);
   });
@@ -273,7 +422,13 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   const pairKey = (a: string, b: string) => a < b ? `${a}|${b}` : `${b}|${a}`;
   const H = 2.75;
   // same region: open walls between its rectangles (one room); public spaces open into each other
-  for (let a = 0; a < rooms.length; a++) for (let b = a + 1; b < rooms.length; b++) {
+  // (neighbours by a coarse grid of the rooms' bounds: a large floor has thousands of rectangles)
+  const RG = 8, rgrid = new Map<number, number[]>();
+  rooms.forEach((r, n) => { for (let a = Math.floor(r.rect[0] / RG); a <= Math.floor(r.rect[2] / RG); a++) for (let b = Math.floor(r.rect[1] / RG); b <= Math.floor(r.rect[3] / RG); b++) { const k = a * 4096 + b; const l = rgrid.get(k); if (l) l.push(n); else rgrid.set(k, [n]); } });
+  const near = (r: Room) => { const out = new Set<number>(); for (let a = Math.floor(r.rect[0] / RG); a <= Math.floor(r.rect[2] / RG); a++) for (let b = Math.floor(r.rect[1] / RG); b <= Math.floor(r.rect[3] / RG); b++) for (const n of rgrid.get(a * 4096 + b) ?? []) out.add(n); return out; };
+  const roomIndex = new Map(rooms.map((r, n) => [r.id, n]));
+  for (let a = 0; a < rooms.length; a++) for (const b of near(rooms[a])) {
+    if (b <= a) continue;
     const A = rooms[a], B = rooms[b], sh = shared(A, B); if (!sh) continue;
     const ra = regionOfRoom.get(A.id)!, rb = regionOfRoom.get(B.id)!;
     if (ra === rb || (isPublic(A) && isPublic(B))) {
@@ -286,9 +441,10 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
     const rg = regions[rid - 1];
     if (rg.type === "corridor" || rg.type === "lobby") continue;
     let best: { A: Room; B: Room; sh: NonNullable<ReturnType<typeof shared>> } | null = null;
-    for (const id of ids) for (const B of rooms) {
+    for (const id of ids) for (const bn of near(rooms[roomIndex.get(id)!])) {
+      const B = rooms[bn];
       if (!isPublic(B)) continue;
-      const A = rooms.find(r => r.id === id)!, sh = shared(A, B);
+      const A = rooms[roomIndex.get(id)!], sh = shared(A, B);
       if (sh && (!best || sh.hi - sh.lo > best.sh.hi - best.sh.lo)) best = { A, B, sh };
     }
     if (rg.core === "lift") {
@@ -357,8 +513,10 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   if (!start) { const r = startRoom ?? rooms[0]; start = [(r.rect[0] + r.rect[2]) / 2, (r.rect[1] + r.rect[3]) / 2, 0]; }
   // ------------------------------------------------ every room reachable: a door to a reachable neighbour where none
   const reach = () => {
-    const seen = new Set<string>([startRoom?.id ?? rooms[0].id]); let grew = true;
-    while (grew) { grew = false; for (const o of openings) { if (o.b === "out" || o.type === "window") continue; if (seen.has(o.a) !== seen.has(o.b)) { seen.add(o.a); seen.add(o.b); grew = true; } } }
+    const adj = new Map<string, string[]>();
+    for (const o of openings) { if (o.b === "out" || o.type === "window") continue; (adj.get(o.a) ?? adj.set(o.a, []).get(o.a)!).push(o.b); (adj.get(o.b) ?? adj.set(o.b, []).get(o.b)!).push(o.a); }
+    const s0 = startRoom?.id ?? rooms[0].id, seen = new Set<string>([s0]), todo = [s0];
+    while (todo.length) for (const n of adj.get(todo.pop()!) ?? []) if (!seen.has(n)) { seen.add(n); todo.push(n); }
     return seen;
   };
   for (let pass = 0; pass < 6; pass++) {
@@ -366,7 +524,7 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
     for (const A of rooms) {
       if (seen.has(A.id) || regionOfRoom.get(A.id)?.core === "lift") continue;
       let best: { B: Room; sh: NonNullable<ReturnType<typeof shared>> } | null = null;
-      for (const B of rooms) { if (!seen.has(B.id) || regionOfRoom.get(B.id)?.core === "lift") continue; const sh = shared(A, B); if (sh && (!best || sh.hi - sh.lo > best.sh.hi - best.sh.lo)) best = { B, sh }; }
+      for (const bn of near(A)) { const B = rooms[bn]; if (!seen.has(B.id) || regionOfRoom.get(B.id)?.core === "lift") continue; const sh = shared(A, B); if (sh && (!best || sh.hi - sh.lo > best.sh.hi - best.sh.lo)) best = { B, sh }; }
       if (!best) continue;
       openings.push({ type: "door", a: A.id, b: best.B.id, axis: best.sh.axis, at: best.sh.at, center: r1((best.sh.lo + best.sh.hi) / 2), width: 0.95, height: 2.1, sill: 0, hinge: "start", swingInto: A.id });
       added = true; seen.add(A.id);
@@ -384,7 +542,7 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   for (const r of keep) zoneArea.set(r.zone, (zoneArea.get(r.zone) ?? 0) + (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]));
   const merged = new Map<string, string>();
   const zoneOf = (z: string) => { while (merged.has(z)) z = merged.get(z)!; return z; };
-  for (;;) {
+  for (; !large;) {
     const zs = [...new Set(keep.map(r => zoneOf(r.zone)))];
     if (zs.length <= 22) break;
     // the smallest zone into the neighbour it opens to (else any neighbour)
@@ -414,7 +572,9 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
     }
   }
   wins.sort((a, b) => b.width - a.width);
-  ops.push(...wins.slice(0, Math.max(0, 27 - zones)));
+  // (a large floor's windows share the area lights as its lamps do: each room's widest, at most 2 a room)
+  if (large) { const per = new Map<string, number>(); ops.push(...wins.filter(o => { const n = per.get(o.a) ?? 0; per.set(o.a, n + 1); return n < 2; }).slice(0, 900)); }
+  else ops.push(...wins.slice(0, Math.max(0, 27 - zones)));
   // ------------------------------------------------ switches by the doors
   const fixtures: Fixture[] = [];
   for (const r of keep) {

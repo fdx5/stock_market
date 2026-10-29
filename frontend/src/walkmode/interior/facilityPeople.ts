@@ -69,9 +69,14 @@ export class People {
     }
     const atSpot = new Map<string, Spot[]>();
     for (const s of spots) { const l = atSpot.get(s.room.id) ?? []; l.push(s); atSpot.set(s.room.id, l); }
-    // (a busy floor but not a crowd: ~12 at most, the rest of the parts left out)
-    const cap = 12;
-    for (const want of fac.people) {
+    // (a busy floor but not a crowd: ~12 at most, the rest of the parts left out; a large floor —
+    // a hospital's — more, those nearest the way in first: far ones are not drawn — update)
+    const B = plan.bounds; this.large = Math.max(B[2] - B[0], B[3] - B[1]) > 48;
+    const cap = this.large ? 36 : 12;
+    const st = fac.start, roomById = new Map(plan.rooms.map(r => [r.id, r]));
+    const dist = (id: string) => { const r = roomById.get(id); return r ? Math.hypot((r.rect[0] + r.rect[2]) / 2 - st[0], (r.rect[1] + r.rect[3]) / 2 - st[1]) : Infinity; };
+    const order = this.large ? fac.people.slice().sort((a, b) => dist(a.room) - dist(b.room)) : fac.people;
+    for (const want of order) {
       if (this.people.length >= cap) break;
       const room = plan.rooms.find(r => r.id === want.room); if (!room) continue;
       const free = (atSpot.get(room.id) ?? []).filter(s => !used.has(s));
@@ -99,6 +104,7 @@ export class People {
   }
 
   get count() { return this.people.length; }
+  private large = false;
   /** for the visitor's collisions: who stands where */
   circles(): { x: number; z: number; r: number }[] { return this.people.filter(p => p.pose !== "lie").map(p => ({ x: p.pos.x, z: p.pos.y, r: p.pose === "sit" ? 0.2 : 0.28 })); }
 
@@ -142,6 +148,8 @@ export class People {
   update(dt: number, visitor: { x: number; z: number }) {
     this.visitor.set(visitor.x, visitor.z);
     for (const p of this.people) {
+      // (a large floor's people far off: not drawn, not walked — they wait where they are)
+      if (this.large) { const far = Math.hypot(p.pos.x - visitor.x, p.pos.y - visitor.z) > 42; p.av.root.visible = !far; if (far) continue; }
       if (p.bubble && (p.bubbleT -= dt) <= 0) { p.av.root.remove(p.bubble); (p.bubble.material as THREE.SpriteMaterial).map?.dispose(); (p.bubble.material as THREE.SpriteMaterial).dispose(); p.bubble = null; p.turnTo = null; }
       let speed = 0;
       if (!p.spot) {

@@ -192,13 +192,47 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
         if (t) c.put(M.coffeeTable(P), t, zone, true);
       }
       plant(null, 1.6); plant(null, 1.3);
+      // (a big lobby — a hospital's, a station's: the structure's round columns every 8.4 m, clad in
+      // the lobby's stone; between them rows of waiting seats facing the desk, planters, kiosks)
+      if (W * D > 200 && Math.min(W, D) > 9) {
+        const G = 8.4, ox = X0 + ((W % G) / 2 || G / 2), oz = Z0 + ((D % G) / 2 || G / 2);
+        let n = Math.round(cx * 5 + cz * 3);
+        for (let x = ox; x < X1 - 1.5; x += G) for (let z = oz; z < Z1 - 1.5; z += G) {
+          if (x < X0 + 1.5 || z < Z0 + 1.5) continue;
+          const f = freeAt(x, z, 0.95, 0.95);
+          if (f) { c.put([M.cy(P.wallAccent, 0.42, 0.42, H, 0, H / 2, 0, 32), M.cy(P.steel, 0.45, 0.45, 0.1, 0, 0.05, 0, 32), M.cy(P.steel, 0.45, 0.45, 0.06, 0, H - 0.03, 0, 32)], f.m, zone, true); pl.take(f.rect); c.colliders.push(...rectSegs(f.rect)); }
+          // (half way to the next column: a seat row, a planter, a kiosk in turn)
+          const mx = x + G / 2, mz = z + G / 2; if (mx > X1 - 2 || mz > Z1 - 2) continue;
+          const kind = (n++) % 4;
+          // (two rows back to back)
+          if (kind < 2) for (const [dz, yaw] of [[-0.45, Math.PI], [0.45, 0]]) { const g = freeAt(mx, mz + dz, 2.4, 0.7, yaw); if (g) { c.put(F.beamSeats(P, X, 4), g, zone, false); c.colliders.push(...rectSegs(g.rect)); spot(at(g, -0.28, 0, 0.08), yawOf(g), "sit", "seat"); if (yaw === 0) seat("의자에 앉기", at(g, 0.84, 0, 0.05), yawOf(g)); } }
+          else if (kind === 2) { const g = freeAt(mx, mz, 1.8, 1.8); if (g) { c.put([M.rb(P.counter, 1.6, 0.55, 1.6, 0.04, 0, 0.275, 0), ...M.plant(P, 1.9, n)], g.m, zone, true); c.colliders.push(...rectSegs(g.rect)); } }
+          else { const g = freeAt(mx, mz, 0.8, 0.5); if (g) { c.put([M.rb(X.accentDark, 0.7, 1.9, 0.4, 0.05, 0, 0.95, 0), M.bx(X.monitor, 0.56, 0.9, 0.01, 0, 1.25, 0.205)], g.m, zone, true); c.colliders.push(...rectSegs(g.rect)); const s2 = c.signs.sign("plate", ["무인 수납·발급", "카드 결제"], 0.56, 0.2); c.B.add(c.signs.material, zone, s2, new THREE.Matrix4().makeTranslation(mx, pl.fy + 1.82, mz + 0.206), false); s2.dispose(); } }
+        }
+      }
       break;
     }
     // -------------------------------------------- corridors: the exit signs, a hydrant cabinet, a water purifier
     case "corridor": {
       // (a hall's open floor: islands every ~7 m — benches round planters, an information kiosk, a
       // column, a seating group — kept off the ways along it)
-      if (W * D > 60 && Math.min(W, D) > 5.5) {
+      // (a store's open selling floor — a department store's, a mall's: display islands in rows with
+      // aisles between — tables of goods, garment rails, mannequins, gondolas — not a hall's benches)
+      const selling = (c.plan.facility?.kind === "retail" || c.plan.facility?.kind === "food") && W * D > 120 && Math.min(W, D) > 6;
+      if (selling) {
+        let n = room.id.length + Math.round(cx * 3 + cz * 7);
+        const tone = (k: number) => X.products[(n * 3 + k) % X.products.length];
+        for (let x = X0 + 3.0; x < X1 - 2.6; x += 5.2) for (let z = Z0 + 3.0; z < Z1 - 2.6; z += 4.6) {
+          const kind = (n++) % 5;
+          if (kind === 0) { const f = freeAt(x, z, 1.8, 1.0); if (f) { c.put([M.rb(P.woodLight, 1.8, 0.08, 1.0, 0.02, 0, 0.78, 0), M.rb(X.accentDark, 1.6, 0.74, 0.8, 0.02, 0, 0.37, 0), ...Array.from({ length: 6 }, (_, i) => M.rb(tone(i), 0.32, 0.06 + (i % 3) * 0.03, 0.24, 0.01, -0.6 + (i % 3) * 0.6, 0.86, i < 3 ? -0.22 : 0.22))], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
+          else if (kind === 1) { const f = freeAt(x, z, 1.6, 0.6); if (f) { c.put([M.cy(P.chrome, 0.015, 0.015, 1.5, -0.75, 0.75, 0, 8), M.cy(P.chrome, 0.015, 0.015, 1.5, 0.75, 0.75, 0, 8), { ...M.cy(P.chrome, 0.012, 0.012, 1.5, 0, 0, 0, 8), g: M.cy(P.chrome, 0.012, 0.012, 1.5, 0, 0, 0, 8).g.rotateZ(Math.PI / 2).translate(0, 1.48, 0) }, M.bx(P.chrome, 1.6, 0.02, 0.5, 0, 0.01, 0), ...Array.from({ length: 9 }, (_, i) => M.rb(tone(i), 0.04, 0.85 + (i % 2) * 0.12, 0.46, 0.01, -0.64 + i * 0.16, 1.02 - (i % 2) * 0.06, 0))], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
+          else if (kind === 2) { const f = freeAt(x, z, 1.4, 0.7); if (f) { for (const dx of [-0.38, 0.38]) c.put([M.cy(P.plastic, 0.18, 0.18, 0.02, dx, 0.01, 0, 20), M.cy(P.chrome, 0.012, 0.012, 0.9, dx, 0.45, 0, 8), M.rb(tone(dx > 0 ? 1 : 2), 0.36, 0.6, 0.22, 0.08, dx, 1.2, 0), M.rb(P.plastic, 0.3, 0.42, 0.18, 0.06, dx, 0.72, 0), M.cy(P.plastic, 0.05, 0.05, 0.1, dx, 1.55, 0, 12), M.rb(P.plastic, 0.16, 0.2, 0.18, 0.08, dx, 1.7, 0)], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
+          else if (kind === 3) { const f = freeAt(x, z, 2.4, 0.9); if (f) { c.put(F.gondola(P, X, 2.4, n), f, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
+          else { const f = freeAt(x, z, 1.2, 1.2); if (f) { c.put([M.cy(P.woodLight, 0.55, 0.55, 0.06, 0, 0.72, 0, 32), M.cy(X.accentDark, 0.12, 0.3, 0.7, 0, 0.35, 0, 20), ...Array.from({ length: 5 }, (_, i) => M.rb(tone(i + 4), 0.2, 0.12 + (i % 2) * 0.1, 0.2, 0.02, Math.cos(i * 1.26) * 0.3, 0.8 + (i % 2) * 0.05, Math.sin(i * 1.26) * 0.3))], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
+          if (kind !== 3 && n % 3 === 0) spot(new THREE.Vector3(x + 1.2, 0, z + 0.9), Math.PI, "stand", "counter");
+        }
+      }
+      if (!selling && W * D > 60 && Math.min(W, D) > 5.5) {
         let n = room.id.length + Math.round(cx * 3 + cz * 7);
         for (let x = X0 + 3.2; x < X1 - 3; x += 7) for (let z = Z0 + 3.2; z < Z1 - 3; z += 7) {
           const kind = (n++) % 4;
@@ -613,7 +647,9 @@ function roomSign(c: FacCtx, room: Room, o: Opening | undefined) {
   const place = (u: number, y: number) => zAxis ? new THREE.Matrix4().makeRotationY(face).setPosition(u, y, o.at + off) : new THREE.Matrix4().makeRotationY(face).setPosition(o.at + off, y, u);
   const big = o.type === "glass_door" || o.type === "open";
   if (big) {
-    const w = Math.min(o.width + 1.2, hi - lo - 0.3), top = o.sill + o.height, h = Math.min(0.42, c.H - top - 0.06);
+    // (a store's sign over its front, at most 6 m of it: a whole open frontage tens of metres long
+    // would squash the name to a line of pixels)
+    const w = Math.min(o.width + 1.2, hi - lo - 0.3, 6), top = o.sill + o.height, h = Math.min(0.42, c.H - top - 0.06);
     if (h > 0.14 && w > 0.8) { const g = c.signs.sign("fascia", [room.label], w, h); c.B.add(c.signs.material, zone, g, place(o.center, top + 0.03 + h / 2), false); g.dispose(); return; }
   }
   let u = o.center + o.width / 2 + 0.42;

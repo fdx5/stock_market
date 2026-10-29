@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Palette } from "./materials";
+import type { Library, Palette } from "./materials";
 import type { Extra } from "./facilityModels";
 import { monitorTexture, SignAtlas } from "./facilitySigns";
 import type { FacilityKind } from "./plan/types";
@@ -11,7 +11,10 @@ import type { FacilityKind } from "./plan/types";
 
 const ACCENTS = ["#1f6fd1", "#0f8f7a", "#c8462c", "#5b4fc4", "#c48a1c", "#1f8fb0", "#2f8f4a"];
 
-export function facilityLook(P: Palette, kind: FacilityKind, name: string): { P: Palette; X: Extra; signs: SignAtlas; dispose(): void } {
+/** a department's colour (a large hospital's floors are found by them): muted, paint-like */
+const TONES = ["#7fa3c4", "#86b597", "#d9b47a", "#c597a5", "#9a98cb", "#79b5b3", "#cf9d7a", "#a3b97c"];
+
+export function facilityLook(P: Palette, kind: FacilityKind, name: string, lib?: Library): { P: Palette; X: Extra; signs: SignAtlas; finishes: Record<string, THREE.Material>; dispose(): void } {
   const own: { dispose(): void }[] = [];
   const pm = (o: THREE.MeshPhysicalMaterialParameters) => { const m = new THREE.MeshPhysicalMaterial(o); own.push(m); return m; };
   const re = (m: THREE.Material, o: Partial<THREE.MeshPhysicalMaterialParameters>) => { const c = (m as THREE.MeshPhysicalMaterial).clone(); c.setValues(o); own.push(c); return c; };
@@ -53,5 +56,19 @@ export function facilityLook(P: Palette, kind: FacilityKind, name: string): { P:
     hazard: pm({ color: "#f0c22e", roughness: 0.5 }),
     tail: pm({ color: "#b3261e", roughness: 0.35, clearcoat: 0.6 }),
   };
-  return { P: Q, X, signs, dispose: () => own.forEach(o => o.dispose()) };
+  // a room's own finishes (Room.finish, a large floor's: plan/surveyed.ts) — the lobby's stone, the
+  // main hall's terrazzo, the waiting areas' wood-look vinyl, the clinic rooms' sheet flooring, the
+  // departments' colours — from the palette's textures, nothing more downloaded
+  const finishes: Record<string, THREE.Material> = {
+    // (the stones from the white marble set — the granite one reads dark across a lobby)
+    "floor:terrazzo": lib ? lib.textured("marble_white", { color: "#efe8dc", roughnessScale: 0.6, normalScale: 0.5, clearcoat: 0.5, clearcoatRoughness: 0.2, ao: 0.4 }) : re(P.floorWet, { color: "#f4efe6", clearcoat: 0.55 }),
+    "floor:stone": lib ? lib.textured("marble_white", { color: "#ffffff", roughnessScale: 0.5, clearcoat: 0.6, clearcoatRoughness: 0.15, ao: 0.4 }) : re(P.floorWet, { color: "#e9e3d8", clearcoat: 0.75 }),
+    "floor:vinyl": pm({ color: "#d3d0c8", roughness: 0.38, clearcoat: 0.3, clearcoatRoughness: 0.25 }),
+    "floor:vinylWood": re(P.floorRoom, { color: "#e6d3b8", clearcoat: 0.3, clearcoatRoughness: 0.22 }),
+    "floor:sheet": pm({ color: "#c9d5cf", roughness: 0.42, clearcoat: 0.35, clearcoatRoughness: 0.2 }),
+    "wall:stone": lib ? lib.textured("marble_white", { color: "#f3eee6", roughnessScale: 0.5, clearcoat: 0.4, clearcoatRoughness: 0.15, ao: 0.4 }) : re(P.floorEntry, { color: "#ece6dc", clearcoat: 0.35 }),
+    "wall:wood": re(P.woodLight, { color: "#f0e2cc" }),
+    ...Object.fromEntries(TONES.map((c, i) => [`wall:tone${i}`, pm({ color: c, roughness: 0.82 })])),
+  };
+  return { P: Q, X, signs, finishes, dispose: () => own.forEach(o => o.dispose()) };
 }

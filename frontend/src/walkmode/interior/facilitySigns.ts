@@ -13,6 +13,8 @@ export class SignAtlas {
   readonly material: THREE.MeshPhysicalMaterial;
   private g: CanvasRenderingContext2D;
   private x = 0; private y = 0; private rowH = 0;
+  /** signs painted already (a large floor repeats 비상구, 화장실, the lift numbers): their places */
+  private made = new Map<string, [number, number, number, number]>();
   constructor(readonly accent: string, size = 2048) {
     this.canvas.width = this.canvas.height = size;
     this.g = this.canvas.getContext("2d")!;
@@ -25,19 +27,31 @@ export class SignAtlas {
   private alloc(w: number, h: number): [number, number] | null {
     const S = this.canvas.width;
     if (this.x + w > S) { this.x = 0; this.y += this.rowH + 4; this.rowH = 0; }
-    if (this.y + h > S) return null;
+    if (this.y + h > S - 6) return null;
     const at: [number, number] = [this.x, this.y];
     this.x += w + 4; this.rowH = Math.max(this.rowH, h);
     return at;
   }
   /** paint a sign (`lines`: its text, the first the main one) of the given aspect; its plane, w × h m, UV-mapped to it */
   sign(style: SignStyle, lines: string[], w: number, h: number): THREE.PlaneGeometry {
-    const ppm = style === "directory" ? 300 : 360;
+    // (the atlas two thirds full — a large floor's hundreds of rooms — the rest at half the detail,
+    // still read from a few metres)
+    const S0 = this.canvas.width, ppm = (style === "directory" ? 300 : 360) * (this.y > S0 * 0.66 ? 0.5 : 1);
     let pw = Math.min(1024, Math.round(w * ppm)), ph = Math.round(pw * h / w);
     if (ph > 1024) { ph = 1024; pw = Math.round(ph * w / h); }
     const geo = new THREE.PlaneGeometry(w, h);
+    const mapTo = (x: number, y: number, pw: number, ph: number) => {
+      const S = this.canvas.width, u0 = x / S, u1 = (x + pw) / S, v1 = 1 - y / S, v0 = 1 - (y + ph) / S;
+      const uv = geo.getAttribute("uv") as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) ? u1 : u0, uv.getY(i) ? v1 : v0);
+      return geo;
+    };
+    const key = `${style}|${lines.join("|")}|${(w / h).toFixed(2)}`, had = this.made.get(key);
+    if (had) return mapTo(...had);
     const at = this.alloc(pw, ph);
-    if (!at) return geo;
+    // (full: a plain plate of the accent's grey, never the whole atlas squeezed onto it)
+    if (!at) return mapTo(this.canvas.width - 3, this.canvas.height - 3, 2, 2);
+    this.made.set(key, [at[0], at[1], pw, ph]);
     const [x, y] = at, g = this.g;
     g.save(); g.translate(x, y);
     const dark = "#1d2126", light = "#f4f5f3";
@@ -75,11 +89,8 @@ export class SignAtlas {
       else { fit(main, ph * (style === "number" || style === "lift" ? 0.7 : 0.55), pw - 2 * pad, style === "brand" ? 900 : 800); g.fillText(main, pw / 2 + (style === "plate" ? pw * 0.02 : 0), ph / 2); }
     }
     g.restore();
-    const S = this.canvas.width, u0 = x / S, u1 = (x + pw) / S, v1 = 1 - y / S, v0 = 1 - (y + ph) / S;
-    const uv = geo.getAttribute("uv") as THREE.BufferAttribute;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) ? u1 : u0, uv.getY(i) ? v1 : v0);
     this.texture.needsUpdate = true;
-    return geo;
+    return mapTo(x, y, pw, ph);
   }
   dispose() { this.texture.dispose(); this.material.dispose(); }
 }
