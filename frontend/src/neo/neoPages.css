@@ -118,6 +118,15 @@ html[data-design="neo"] .ng-content :is(.kospi-map-canvas,.kospi-map-grid,.kospi
 html[data-design="neo"] .ng-content .app-header{display:flex;align-items:center;gap:14px;padding:16px 0;margin-bottom:14px;border-bottom:1px solid var(--line-soft);background:none}
 html[data-design="neo"] .ng-content .app-title{font-size:25px;color:var(--text-primary)}
 html[data-design="neo"] .ng-content .app-subtitle{font-size:12px;color:var(--text-secondary)}
+/* Maps use one heading for the title, quote status, metadata and view actions. */
+html[data-design="neo"] .ng-content .ng-map-heading{margin-bottom:12px;padding:0 0 12px;border-bottom:1px solid var(--line-soft)}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-titlebar{align-items:center;gap:10px 16px}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-titlebar>div:first-child{flex:1;min-width:0}
+html[data-design="neo"] .ng-content .ng-map-heading .app-title{margin:0;font:650 clamp(21px,2.2vw,27px)/1.35 var(--f-sans);letter-spacing:-.035em}
+html[data-design="neo"] .ng-content .ng-map-heading .app-title-row{gap:6px 12px}
+html[data-design="neo"] .ng-content .ng-map-heading .app-subtitle{margin:5px 0 0;font:12px/1.6 var(--f-sans);overflow-wrap:anywhere}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-updated{font-size:11px}
+@media(max-width:760px){html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-titlebar>div:first-child{flex-basis:100%}html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-view-toggle{margin-top:0;max-width:100%;flex-wrap:wrap}html[data-design="neo"] .ng-content .ng-map-heading .app-subtitle{font-size:11px}}
 html[data-design="neo"] .ng-content :is(.sl-header,.app-header .back-link,.app-header-meta .language-toggle,.app-header .theme-toggle-btn){display:none}
 html[data-design="neo"] .ng-content :is(.panel,.card,.market-chart-shell,.chart-container){border-color:var(--line-soft);border-radius:10px;background-color:var(--bg-panel)}
 html[data-design="neo"] .ng-content .sl-main{padding-top:16px}.ng-content .sl-table-wrap{margin-top:14px}

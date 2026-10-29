@@ -6,7 +6,6 @@ import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from ".
 import { useDocumentTitle } from "../useDocumentTitle";
 import Colophon from "../desk2/Colophon";
 import Finder from "../desk2/Finder";
-import Masthead from "../desk2/Masthead";
 import { useBroadsheet, useFinderHotkey } from "../desk2/shell";
 import "../desk2/maps.css";
 import "../desk2/realestate-region.css";
@@ -838,23 +837,12 @@ export default function RealEstateMapPage() {
 
   return (
     <div className="d2 mm app kospi-map-page kospi-map-page--expanded re-map-page" lang={lang}>
-      <Masthead
-        rail={false}
-        onPrint={() => window.print()}
-        section={{
-          ko: "부동산 지도",
-          en: "Real estate map",
-          taglineKo: "아파트 실거래 탐색 — 타일 크기는 기준가, 색은 등락",
-          taglineEn: "Apartment trades — area is price, colour is the move",
-        }}
-      />
-
       <main className="d2-main mm-main">
-        <div className="app-header-trailing">
+        <header className="app-header-trailing ng-map-heading">
           <div className="kospi-map-titlebar">
             <div>
               <div className="app-title-row">
-                <h2 className="app-title">부동산 MAP</h2>
+                <h1 className="app-title">{lang === "ko" ? "부동산 지도" : "Real estate map"}</h1>
                 <span className="kospi-map-live-badge">
                   <span className="kospi-map-live-dot" />
                   국토교통부 실거래가
@@ -883,7 +871,7 @@ export default function RealEstateMapPage() {
               <button type="button" disabled={!items.length || loading} onClick={() => csvDownload(items, levelLabel, periodInfo.label, data?.generated_at ?? "")}>CSV 저장</button>
             </div>
           </div>
-        </div>
+        </header>
 
         {(error || regionsError) && <div className="error-state" role="alert">{regionsError ? "지역 목록을 불러오지 못했습니다." : error}<button type="button" onClick={() => setRetry(x => x + 1)}>다시 시도</button></div>}
         {status && !status.configured && (

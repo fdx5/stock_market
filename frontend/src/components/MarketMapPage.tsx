@@ -14,7 +14,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import { usCompanyLogoProxyUrl } from "../usLogo";
 import Colophon from "../desk2/Colophon";
 import Finder from "../desk2/Finder";
-import Masthead, { MastSection } from "../desk2/Masthead";
+import type { MastSection } from "../desk2/Masthead";
 import { useBroadsheet, useFinderHotkey } from "../desk2/shell";
 import "../desk2/maps.css";
 import Tape from "../desk2/Tape";
@@ -768,21 +768,14 @@ export default function MarketMapPage({
 
   return (
     <div className={`d2 mm app kospi-map-page${enhancedSectorView ? " kospi-map-page--expanded" : ""}`} lang={lang}>
-      {/* No session rail here: the site index sits straight under the nameplate, and
-          maps.css runs the masthead, tape and colophon the full width of the map. */}
-      <Masthead
-        rail={false}
-        onPrint={() => window.print()}
-        section={section ?? { ko: pageTitle, en: pageTitle, taglineKo: subtitlePrefix, taglineEn: pageTitle }}
-      />
       <Tape />
 
       <main className="d2-main mm-main">
-      <div className="app-header-trailing">
+      <header className="app-header-trailing ng-map-heading">
         <div className="kospi-map-titlebar">
           <div>
             <div className="app-title-row">
-              <h2 className="app-title">{pageTitle}</h2>
+              <h1 className="app-title">{section ? (lang === "ko" ? section.ko : section.en) : pageTitle}</h1>
               <span className="kospi-map-live-badge">
                 <span className="kospi-map-live-dot" />
                 {liveBadgeText}
@@ -812,7 +805,7 @@ export default function MarketMapPage({
               </span>
             </div>
             <p className="app-subtitle">
-              {t(subtitlePrefix)} {t("종목 MAP")}
+              {section ? (lang === "ko" ? section.taglineKo : section.taglineEn) : `${t(subtitlePrefix)} ${t("종목 MAP")}`}
               {generatedAt && (
                 <span className="kospi-map-updated">
                   {lang === "en"
@@ -832,7 +825,7 @@ export default function MarketMapPage({
             <MapExportButtons exp={mapExport} disabled={sectorZones.length === 0} />
           </div>
         </div>
-      </div>
+      </header>
 
 
       {error && <div className="error-state">{t(error)}</div>}
