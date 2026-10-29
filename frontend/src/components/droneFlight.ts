@@ -35,6 +35,8 @@ export interface DroneWorldQuery {
   clearAhead(x: number, y: number, dx: number, dy: number, max: number): number;
   /** the road deck under a point, where a lane is (a car on a bridge rides the deck) */
   roadZ?(x: number, y: number): number | null;
+  /** the surveyed outline of a building standing at a point (none: open ground) */
+  buildingRingAt?(x: number, y: number): [number, number][] | null;
 }
 
 export type DroneSticks = {
@@ -210,18 +212,29 @@ export class DroneFlight {
     const fxh = -Math.sin(this.yaw), fzh = -Math.cos(this.yaw), lx = -fzh, lz = fxh;
     const probes: [number, number][] = this.car ? [[0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].map(([s, f]) => [lx * s * this.car!.width / 2 + fxh * f * this.car!.length / 2, lz * s * this.car!.width / 2 + fzh * f * this.car!.length / 2]) as [number, number][]
       : [[FOOT_R, 0], [-FOOT_R, 0], [0, FOOT_R], [0, -FOOT_R]];
+    // What stops a body is a building: inside a surveyed outline, its roof over the street (the roof
+    // raster alone ran a metre or two past the walls — invisible walls — and held things that are
+    // not drawn), or anything over 6 m with no outline. On foot a cliff of more than 1.5 m at once;
+    // slopes, kerbs and the ground's tile seams are walked over. A car rides decks and ramps.
+    const blocked = (qx: number, qy: number, g: number) => {
+      const roof = world.roofAt(qx, qy) - g;
+      if (roof <= (this.car ? 2.0 : 0.8)) return false;
+      if (this.car && world.roadZ?.(qx, qy) != null) return false;
+      return roof > 6 || !world.buildingRingAt || !!world.buildingRingAt(qx, qy);
+    };
     const solid = (px: number, pz: number) => {
       for (const [ox, oz] of probes) {
-        const g = world.groundAt(px + ox, -(pz + oz));
-        // (a car: only a building stops it — it rides decks and ramps; on foot a rise of 0.6 m is a wall)
-        if (this.car) { if (world.roofAt(px + ox, -(pz + oz)) > g + 2.0 && world.roadZ?.(px + ox, -(pz + oz)) == null) return true; continue; }
-        if (world.roofAt(px + ox, -(pz + oz)) > g + 0.8 || g - here > 0.6) return true;
+        const qx = px + ox, qy = -(pz + oz), g = world.groundAt(qx, qy);
+        if (blocked(qx, qy, g) || (!this.car && g - here > 1.5)) return true;
       }
       return false;
     };
+    // (a body already caught inside something — set down there, or the data changed under it — may
+    // always move, so it can walk out: it is never held where it stands)
+    const caught = solid(this.pos.x, this.pos.z);
     this.bumped = 0;
-    const nx = this.pos.x + this.vel.x * dt; if (!solid(nx, this.pos.z)) this.pos.x = nx; else { this.vel.x = 0; this.bumped = 1; }
-    const nz = this.pos.z + this.vel.z * dt; if (!solid(this.pos.x, nz)) this.pos.z = nz; else { this.vel.z = 0; this.bumped = 1; }
+    const nx = this.pos.x + this.vel.x * dt; if (caught || !solid(nx, this.pos.z)) this.pos.x = nx; else { this.vel.x = 0; this.bumped = 1; }
+    const nz = this.pos.z + this.vel.z * dt; if (caught || !solid(this.pos.x, nz)) this.pos.z = nz; else { this.vel.z = 0; this.bumped = 1; }
     // (a bike into a wall stops)
     if (this.cycling && this.bumped) this.bikeSpeed = Math.min(this.bikeSpeed, 1);
     // (a car into a wall: it stops dead, bouncing back a little — the impact for the sound)

@@ -588,27 +588,77 @@ export class DroneSession {
   private findDoor() {
     const f = this.flight; if (!f.walking || f.cycling) { f.door = null; return; }
     const x = f.pos.x, y = -f.pos.z, fx = -Math.sin(f.yaw), fy = Math.cos(f.yaw);
-    for (const [dx, dy, reach] of [[fx, fy, 3], [-fy, fx, 1.5], [fy, -fx, 1.5]] as [number, number, number][]) for (let d = 0.4; d <= reach; d += 0.3) {
+    // (ahead first, then every way round: a wall within 4 m whichever way the walker faces)
+    const dirs: [number, number, number][] = [[fx, fy, 4]];
+    for (let k = 1; k < 8; k++) { const a = Math.atan2(fy, fx) + k * Math.PI / 4; dirs.push([Math.cos(a), Math.sin(a), 4]); }
+    for (const [dx, dy, reach] of dirs) for (let d = 0.4; d <= reach; d += 0.3) {
       const px = x + dx * d, py = y + dy * d;
       if (this.world.roofAt(px, py) > this.world.groundAt(px, py) + 0.8) {
         // (the roof raster runs a little past the outline: the outline looked for up to 3 m further in)
         let ring: [number, number][] | null = null;
         for (let e = 0; e <= 3 && !ring; e += 0.5) ring = this.world.buildingRingAt(px + dx * e, py + dy * e);
+        // (a building with no surveyed outline here — a neighbouring complex's block drawn by the
+        // view itself: its outline traced from the roofs, the cells over the street joined from the
+        // point hit, wrapped in their hull)
+        if (!ring) ring = this.traceRoof(px + dx * 0.5, py + dy * 0.5);
         f.door = ring && ring.length >= 3 ? { ring, x: px, y: py } : null; return;
       }
     }
     f.door = null;
   }
   private doorAt = 0;
+  private traced: { x: number; y: number; ring: [number, number][] } | null = null;
+  private traceRoof(x: number, y: number): [number, number][] | null {
+    if (this.traced && Math.hypot(this.traced.x - x, this.traced.y - y) < 4) return this.traced.ring;
+    const w = this.world, up = (qx: number, qy: number) => w.roofAt(qx, qy) > w.groundAt(qx, qy) + 0.8;
+    if (!up(x, y)) return null;
+    const seen = new Set<number>(), q: [number, number][] = [[0, 0]], pts: [number, number][] = [];
+    seen.add(0);
+    for (let h = 0; h < q.length && q.length < 6000; h++) {
+      const [i, j] = q[h]; pts.push([x + i, y + j]);
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const a = i + di, b = j + dj; if (Math.abs(a) > 90 || Math.abs(b) > 90) continue;
+        const k = (a + 100) * 1000 + (b + 100); if (seen.has(k)) continue; seen.add(k);
+        if (up(x + a, y + b)) q.push([a, b]);
+      }
+    }
+    if (pts.length < 6) return null;
+    // (the hull of the cells' corners)
+    const c = pts.flatMap(([px, py]) => [[px - 0.5, py - 0.5], [px + 0.5, py - 0.5], [px + 0.5, py + 0.5], [px - 0.5, py + 0.5]] as [number, number][]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cr = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const lo: [number, number][] = [], hi: [number, number][] = [];
+    for (const p of c) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+    for (let k = c.length - 1; k >= 0; k--) { const p = c[k]; while (hi.length >= 2 && cr(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); }
+    const ring = lo.slice(0, -1).concat(hi.slice(0, -1));
+    this.traced = { x, y, ring };
+    return ring;
+  }
   /** In through the door: the building's interior (평면도 기반: its register, its floors, its
    * businesses; a block of flats by its flats) on the walk page, back here on leaving. */
   enterDoor(): boolean {
-    const d = this.flight.door, c = this.p.data.center; if (!d || !c) return false;
+    const d = this.flight.door; if (!d) return false;
+    return this.openInside(d.ring, this.flight.pos.x, -this.flight.pos.z, Math.atan2(Math.cos(this.flight.yaw), -Math.sin(this.flight.yaw)) + Math.PI);
+  }
+  /** 내부 탐험 from a building's card (its sign): straight in, wherever the drone or the walker is —
+   * its outline surveyed or traced from the roofs, the door on its side nearest the viewer */
+  enterBuildingAt(x: number, y: number): boolean {
+    const ring = this.world.buildingRingAt(x, y) ?? this.traceRoof(x, y);
+    if (!ring || ring.length < 3) return false;
+    const vx = this.flight.pos.x, vy = -this.flight.pos.z;
+    let best: [number, number] = ring[0], bd = Infinity;
+    for (let i = 0; i < ring.length; i++) { const a = ring[i], b = ring[(i + 1) % ring.length], dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((vx - a[0]) * dx + (vy - a[1]) * dy) / l2)), p: [number, number] = [a[0] + dx * t, a[1] + dy * t], d = Math.hypot(p[0] - vx, p[1] - vy); if (d < bd) { bd = d; best = p; } }
+    const cx = ring.reduce((t, p) => t + p[0], 0) / ring.length, cy = ring.reduce((t, p) => t + p[1], 0) / ring.length;
+    // (the door a step outside the wall, facing in)
+    const ox = best[0] - cx, oy = best[1] - cy, ol = Math.hypot(ox, oy) || 1;
+    return this.openInside(ring, best[0] + ox / ol * 1.5, best[1] + oy / ol * 1.5, Math.atan2(oy, ox));
+  }
+  private openInside(ring: [number, number][], doorX: number, doorY: number, heading: number): boolean {
+    const c = this.p.data.center; if (!c) return false;
     const kx = Math.cos(c.lat * Math.PI / 180) * 111_320, ky = 110_540;
     const ll = (x: number, y: number) => `${(c.lon + x / kx).toFixed(7)},${(c.lat + y / ky).toFixed(7)}`;
-    const [lon, lat] = ll(this.flight.pos.x, -this.flight.pos.z).split(",");
-    const q = new URLSearchParams({ enter: "1", lat, lon, heading: String(Math.atan2(Math.cos(this.flight.yaw), -Math.sin(this.flight.yaw)) + Math.PI),
-      foot: d.ring.slice(0, 60).map(([x, y]) => ll(x, y)).join(";"), back: location.pathname + location.search + location.hash });
+    const [lon, lat] = ll(doorX, doorY).split(",");
+    const q = new URLSearchParams({ enter: "1", lat, lon, heading: String(heading),
+      foot: ring.slice(0, 60).map(([x, y]) => ll(x, y)).join(";"), back: location.pathname + location.search + location.hash });
     location.href = `/walk?${q}`;
     return true;
   }

@@ -256,6 +256,9 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
           </section>
         )}
 
+        {/* (내부 탐험: straight into this building — a block of flats by its flats, any other by its floors) */}
+        {sign.kind !== "district" && sign.kind !== "bridge" && sign.kind !== "cctv" && sign.kind !== "subway" && sign.kind !== "train" &&
+          <button type="button" className="re-drone-card-inside" onClick={() => window.dispatchEvent(new CustomEvent("drone-explore-inside", { detail: { x: sign.info?.bx ?? sign.x, y: sign.info?.by ?? sign.y } }))}>🏠 내부 탐험 — 바로 들어가기</button>}
         <nav className="re-drone-card-links" aria-label="외부에서 보기">
           {links.map(([k, href]) => <a key={k} href={href} target="_blank" rel="noopener noreferrer">{k} ↗</a>)}
         </nav>
