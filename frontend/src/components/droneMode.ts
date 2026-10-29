@@ -4,6 +4,9 @@ import type { Terrain } from "./sceneTerrain";
 import { BIKE_EYE, DroneFlight, EYE, MAX_AGL, MAX_SPEED, MIN_AGL } from "./droneFlight";
 import { Avatar } from "../walkmode/player/avatar";
 import { Bicycles } from "../walkmode/game/Bicycles";
+import { CarAudio, loadCarRecordings, playCarEffect } from "../walkmode/game/CarAudio";
+import { carProfile } from "../walkmode/game/carProfiles";
+import { CAR_SPECS, carGeometry, carModelMaterial } from "./sceneCars";
 import { DroneWorld, type ViewExtent, type DroneViewBuildings } from "./droneWorld";
 import type {NearBuildingSource} from './nearBuildingTargets';
 import { DroneAudio } from "./droneAudio";
@@ -372,9 +375,10 @@ export class DroneSession {
     this.layViewBed();
     const t4 = performance.now();
     if (performance.now() > this.doorAt) { this.doorAt = performance.now() + 200; this.findDoor(); }
+    if (f.walking && performance.now() > this.bikeAt) { this.bikeAt = performance.now() + 3000; this.parkBikes(); }
     this.clock += dt;
     if (this.view === "chase") this.chase(dt);
-    else { this.model.group.visible = false; if (this.walker) this.walker.root.visible = false; if (f.cycling) this.placeRider(dt); f.apply(this.p.camera); }
+    else { this.model.group.visible = false; if (this.walker) this.walker.root.visible = false; if (f.car) this.placeCar(); else if (f.cycling) this.placeRider(dt); f.apply(this.p.camera); }
     const speed = Math.hypot(f.vel.x, f.vel.z) / MAX_SPEED;
     if (!f.walking) this.audio.update(f.load, speed, f.bumped);
     // The sky eases in over a second; the haze closes in toward the edge of the loaded world
@@ -460,6 +464,89 @@ export class DroneSession {
     if (this.walker && !on) this.walker.pose = "stand";
     return on;
   }
+  /** the car being driven: its body (one instance of the traffic's model), its paint, its sound */
+  private car: { mesh: THREE.InstancedMesh; kind: string; top: number; audio: CarAudio | null; eyeY: number; label: string } | null = null;
+  private parkedCars: THREE.InstancedMesh[] = [];
+  private carCtx: AudioContext | null = null;
+  /** F on foot: into the nearest car (moving or not) within 4 m — out of the traffic, its driver
+   * gone, its own top speed and engine; F again: out of it, the car left parked where it stands. */
+  toggleCar(): string | null {
+    const f = this.flight; if (!f.walking) return null;
+    if (this.car) {
+      const c = this.car, mesh = c.mesh; c.audio?.stop(); window.setTimeout(() => c.audio?.dispose(), 300);
+      this.parkedCars.push(mesh); this.car = null;
+      // (out by the driver's door: to the car's left)
+      const lx = Math.cos(f.yaw), lz = -Math.sin(f.yaw), half = (f.car?.width ?? 1.9) / 2 + 0.6;
+      f.setDriving(null); f.pos.x -= lx * half; f.pos.z -= lz * half;
+      if (this.sound()) playCarEffect("door", this.sound() as unknown as Parameters<typeof playCarEffect>[1]);
+      return null;
+    }
+    const t = this.world.traffic.nearestCar(f.pos.x, -f.pos.z, 6);
+    if (!t) return null;
+    this.world.traffic.takeCar(t.id);
+    const sp = CAR_SPECS[t.kind] ?? CAR_SPECS.sedan, label = t.emergency ? (t.kind === "van" ? "구급차" : "소방차") : t.kind;
+    const prof = carProfile({ kind: t.kind, label, length: sp.length, width: sp.width, height: sp.height });
+    // (each car its own top speed: the kind's, a little either way by the car; the 119s quicker)
+    const top = prof.topKmh * (t.emergency ? 1.15 : 1) * (0.94 + ((t.id * 7919) % 13) / 100);
+    const m = this.world.traffic.model(t.k) ?? { geometry: carGeometry(t.kind)!, material: carModelMaterial() };
+    const mesh = new THREE.InstancedMesh(m.geometry, m.material, 1); mesh.frustumCulled = false; mesh.castShadow = true;
+    mesh.setColorAt(0, t.colour); if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.p.scene.add(mesh);
+    const eyeY = Math.max(1.15, Math.min(2.6, prof.eye[1] + 0.25));
+    this.car = { mesh, kind: t.kind, top, audio: null, eyeY, label };
+    f.pos.x = t.x; f.pos.z = -t.y; f.yaw = Math.atan2(-t.hx, t.hy);
+    f.setDriving({ top: top / 3.6, accel: prof.spec.accel * 1.25, brake: prof.spec.brake, wheelbase: prof.spec.wheelbase, lock: prof.spec.lock, length: sp.length, width: sp.width, eyeY }, Math.max(0, t.v));
+    if (this.walker) this.walker.root.visible = false;
+    // (the engine: the recordings of its kind's bank — small, saloon, V8, sports, van, truck, heavy, electric)
+    const snd = this.sound();
+    if (snd) void loadCarRecordings().then(() => { if (this.car?.mesh !== mesh) return; try { this.car.audio = new CarAudio(snd.ctx, snd.output, snd.noise, prof); playCarEffect("ignition", snd as unknown as Parameters<typeof playCarEffect>[1]); } catch { /* no recordings */ } });
+    return `${label} · 최고 ${Math.round(top)}km/h`;
+  }
+  /** a small sound graph for the car (the drone's own audio is quiet on foot) */
+  private sound(): { ctx: AudioContext; output: AudioNode; noise: AudioBuffer; audioGraph: { ctx: AudioContext; output: AudioNode } } | null {
+    try {
+      if (!this.carCtx) this.carCtx = new AudioContext();
+      if (this.carCtx.state === "suspended") void this.carCtx.resume();
+      const ctx = this.carCtx, noise = ctx.createBuffer(1, 1, ctx.sampleRate);
+      return { ctx, output: ctx.destination, noise, audioGraph: { ctx, output: ctx.destination } };
+    } catch { return null; }
+  }
+  /** the car's body where the flight is; its engine to the speed and the pedals */
+  private placeCar() {
+    const f = this.flight, c = this.car; if (!c || !f.car) return;
+    const fx = -Math.sin(f.yaw), fy = Math.cos(f.yaw);
+    this.world.traffic.place(c.mesh, 0, f.pos.x, -f.pos.z, f.pos.y - c.eyeY, fx, fy);
+    const v = Math.abs(f.carSpeed), gears = [0.12, 0.24, 0.40, 0.59, 0.79, 1].map(x => x * f.car!.top);
+    let lo = 0; for (const g of gears) { if (v <= g) { const r = (v - lo) / Math.max(0.1, g - lo); c.audio?.update(0.15 + r * 0.85, f.throttle, f.carSpeed, f.braking, 0, this.view === "fpv"); break; } lo = g; }
+    if (v > gears[gears.length - 1]) c.audio?.update(1, f.throttle, f.carSpeed, f.braking, 0, this.view === "fpv");
+    if (f.bumped > 4 && this.sound()) playCarEffect("impact", this.sound() as unknown as Parameters<typeof playCarEffect>[1], f.bumped / 15);
+  }
+  /** 각 단지 앞 자전거: a bicycle parked by the nearest sidewalk to each complex's name within 600 m */
+  private bikeAt = 0;
+  private parkBikes() {
+    if (!this.bikes) { this.bikes = new Bicycles(); this.p.scene.add(this.bikes.group); }
+    const f = this.flight, x = f.pos.x, y = -f.pos.z;
+    for (const l of this.signs.labelsOfKind("apt")) {
+      if (Math.hypot(l.x - x, l.y - y) > 600) continue;
+      const id = `complex:${l.name}`; if (this.bikes.records.has(id)) continue;
+      let best: [number, number] | null = null, bd = 60;
+      for (const pk of this.world.walkPathsNear(l.x, l.y, 80)) for (let o = 0; o < pk.length;) { const n = pk[o++]; for (let k = 0; k < n; k++) { const px = pk[o + k * 2], py = pk[o + k * 2 + 1], d = Math.hypot(px - l.x, py - l.y); if (d < bd) { bd = d; best = [px, py]; } } o += n * 2; }
+      if (!best) {
+        // (no sidewalk line by it: at the roadside nearest the complex, past the lane's edge)
+        const ln = this.world.lanePointNear(l.x, l.y, 150);
+        if (ln) for (const side of [1, -1]) { const px = ln.x - ln.dy * side * (ln.w / 2 + 1.4), py = ln.y + ln.dx * side * (ln.w / 2 + 1.4); if (this.world.roofAt(px, py) < this.world.groundAt(px, py) + 0.5) { best = [px, py]; break; } }
+      }
+      if (best) this.bikes.provide({ id, name: l.name, dong: "단지 앞", x: best[0], y: best[1], z: this.world.groundAt(best[0], best[1]), heading: 0 });
+    }
+    this.bikes.sync(x, y);
+  }
+  /** B on foot by a parked bicycle (within 3 m): that one ridden; elsewhere a bicycle of one's own */
+  rideNearest() {
+    const f = this.flight; if (!f.walking || this.car) return false;
+    const near = this.bikes?.nearest(f.pos.x, -f.pos.z, 3);
+    if (near && !f.cycling) { this.bikes!.records.delete(near.id); f.pos.x = near.x; f.pos.z = -near.y; }
+    return this.toggleBike();
+  }
   /** the bicycle and the rider placed where the flight is (both views) */
   private placeRider(dt: number) {
     const f = this.flight, b = this.bikes?.active; if (!b || !this.walker) return;
@@ -541,7 +628,7 @@ export class DroneSession {
     this.chaseYaw += d * Math.min(1, dt * 5);
     const el = THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, -0.15, 1.35);
     const bx = Math.sin(this.chaseYaw), bz = Math.cos(this.chaseYaw);   // behind: opposite the heading
-    const want = f.cycling ? 5.0 : f.walking ? 4.2 : 3.6;
+    const want = f.car ? f.car.length + 4 : f.cycling ? 5.0 : f.walking ? 4.2 : 3.6;
     // (the line from the drone back to the camera, in half-metre steps: stop short of anything solid)
     let dist = want;
     for (let s = 0.5; s <= want; s += 0.5) {
@@ -557,12 +644,16 @@ export class DroneSession {
       // (on foot or on the bike: the walker in view, not the drone — the camera higher and looking
       // down past them, so they stand in the middle of the picture, clear of the bar along the
       // bottom of the screen)
-      this.model.group.visible = false; this.walker.root.visible = true;
-      if (f.cycling) this.placeRider(dt);
+      this.model.group.visible = false; this.walker.root.visible = !f.car;
+      if (f.car) this.placeCar();
+      else if (f.cycling) this.placeRider(dt);
       else { this.walker.pose = "stand"; this.walker.root.position.set(f.pos.x, f.pos.y - EYE, f.pos.z); this.walker.root.rotation.set(0, f.yaw + Math.PI, 0); this.walker.update(dt, Math.hypot(f.vel.x, f.vel.z)); }
       const fx = -Math.sin(this.chaseYaw), fz = -Math.cos(this.chaseYaw);
       c.position.set(f.pos.x - fx * Math.cos(el) * r, f.pos.y + 0.9 + Math.sin(el) * r, f.pos.z - fz * Math.cos(el) * r);
-      c.lookAt(f.pos.x + fx * 5, f.pos.y - 1.9, f.pos.z + fz * 5);
+      // (on foot or on the bike: looking at the walker's waist a step ahead — the whole figure, feet
+      // and all, a little below the middle of the picture; in a car, at the road beyond the bonnet)
+      if (f.car) c.lookAt(f.pos.x + fx * 9, f.pos.y - 1.2, f.pos.z + fz * 9);
+      else c.lookAt(f.pos.x + fx * 1.6, f.pos.y - (f.cycling ? 0.9 : 0.75), f.pos.z + fz * 1.6);
       return;
     }
     this.model.group.visible = true;
@@ -590,6 +681,9 @@ export class DroneSession {
     this.model.dispose();
     if (this.walker) { this.walker.root.removeFromParent(); this.walker.dispose(); this.walker = null; }
     if (this.bikes) { this.bikes.dispose(); this.bikes = null; }
+    if (this.car) { this.car.audio?.dispose(); this.car.mesh.removeFromParent(); this.car = null; }
+    for (const m of this.parkedCars) m.removeFromParent(); this.parkedCars = [];
+    void this.carCtx?.close(); this.carCtx = null;
     this.cutStop.abort();
     if (ground && this.groundBackup) {
       if (ground.geometry !== this.groundBackup) ground.geometry.dispose();

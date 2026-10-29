@@ -308,6 +308,8 @@ export class DroneWorld {
     return t?.at ? t.at(x, y) : this.o.terrain.at(x, y);
   }
   /** The highest roof over (x, y) — from the tile's collision grid — or -1e4 where none. */
+  /** the road deck under (x, y), if a lane is there (a bridge, a ramp, an overpass: not the ground under it) */
+  roadZ(x: number, y: number): number | null { const l = this.lanePointNear(x, y, 8); return l && l.d < l.w / 2 + 1.2 ? l.z : null; }
   /** the surveyed outline of the building at (x, y) (view frame), if one stands there */
   buildingRingAt(x: number, y: number): [number, number][] | null { return this.placeFootprints.ringAt(x, y); }
   roofAt(x: number, y: number): number {
@@ -352,8 +354,8 @@ export class DroneWorld {
   }
   /** The nearest point on a lane's centre line within `r` of (x, y) (view frame), its direction
    * and the lane's width — where a walker set down by the road stands beside it. */
-  lanePointNear(x: number, y: number, r: number): { x: number; y: number; dx: number; dy: number; w: number } | null {
-    let best: { x: number; y: number; dx: number; dy: number; w: number } | null = null, bd = r;
+  lanePointNear(x: number, y: number, r: number): { x: number; y: number; z: number; dx: number; dy: number; w: number; d: number } | null {
+    let best: { x: number; y: number; z: number; dx: number; dy: number; w: number; d: number } | null = null, bd = r;
     for (const t of this.tiles.values()) {
       const lanes = t.baseLanes; if (!lanes || distToBox(x, y, t.box) > r) continue;
       for (let o = 0; o < lanes.length;) {
@@ -362,7 +364,7 @@ export class DroneWorld {
           const ax = lanes[at + i * 3 - 3], ay = lanes[at + i * 3 - 2], bx = lanes[at + i * 3], by = lanes[at + i * 3 + 1];
           const ex = bx - ax, ey = by - ay, L2 = ex * ex + ey * ey; if (L2 < .01) continue;
           const u = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / L2)), px = ax + ex * u, py = ay + ey * u, d = Math.hypot(px - x, py - y);
-          if (d < bd) { bd = d; const L = Math.sqrt(L2); best = { x: px, y: py, dx: ex / L, dy: ey / L, w }; }
+          if (d < bd) { bd = d; const L = Math.sqrt(L2), az = lanes[at + i * 3 - 1], bz = lanes[at + i * 3 + 2]; best = { x: px, y: py, z: az + (bz - az) * u, dx: ex / L, dy: ey / L, w, d }; }
         }
         o = at + n * 3;
       }

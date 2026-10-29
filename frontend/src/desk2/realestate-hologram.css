@@ -779,12 +779,13 @@
 
 /* 드론뷰 걷기: going in at a door, the bicycle — on the left edge under the flight controls (the
  * middle of the view stays clear) */
-.re-holo .re-drone-door, .re-holo .re-drone-bike {
+.re-holo .re-drone-door, .re-holo .re-drone-bike, .re-holo .re-drone-car {
   position: absolute; left: calc(12px + env(safe-area-inset-left)); z-index: 6;
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px;
   border: 1px solid rgba(80, 230, 255, .55); background: rgba(6, 18, 26, .82); color: #dff8ff;
   font: 600 12px/1.2 Pretendard, "Noto Sans KR", sans-serif; cursor: pointer;
 }
-.re-holo .re-drone-door { top: 330px; border-color: #ffc857; color: #ffe6a8; }
-.re-holo .re-drone-bike { top: 294px; }
-.re-holo .re-drone-door kbd, .re-holo .re-drone-bike kbd { padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,.14); font: 700 11px/1.2 inherit; }
+.re-holo .re-drone-door { top: 548px; border-color: #ffc857; color: #ffe6a8; }
+.re-holo .re-drone-bike { top: 476px; }
+.re-holo .re-drone-car { top: 512px; border-color: #7cf29a; color: #d6ffe1; }
+.re-holo .re-drone-door kbd, .re-holo .re-drone-bike kbd, .re-holo .re-drone-car kbd { padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,.14); font: 700 11px/1.2 inherit; }

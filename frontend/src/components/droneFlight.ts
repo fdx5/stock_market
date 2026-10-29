@@ -33,6 +33,8 @@ export interface DroneWorldQuery {
   groundAt(x: number, y: number): number;
   roofAt(x: number, y: number): number;
   clearAhead(x: number, y: number, dx: number, dy: number, max: number): number;
+  /** the road deck under a point, where a lane is (a car on a bridge rides the deck) */
+  roadZ?(x: number, y: number): number | null;
 }
 
 export type DroneSticks = {
@@ -45,6 +47,8 @@ export type DroneSticks = {
 /** On foot (걷기): the eye's height over the street, walking and running pace (m/s), the body's radius. */
 export const EYE = 1.6, WALK = 1.5, RUN = 12.6, FOOT_R = 0.3;
 /** On a bicycle: the eye over the street, the top speed (100 km/h), pedalling and braking (m/s²). */
+/** how far a sidewalk's paving stands over the terrain the ground query returns (m) */
+export const SURFACE_LIFT = 0.17;
 export const BIKE_EYE = 1.75, BIKE_TOP = 100 / 3.6, BIKE_ACCEL = 3.2, BIKE_BRAKE = 7;
 
 export class DroneFlight {
@@ -88,6 +92,10 @@ export class DroneFlight {
   /** on foot facing a building within 3 m: its outline (view frame) and the point of the wall —
    * where E goes in (droneMode) */
   door: { ring: [number, number][]; x: number; y: number } | null = null;
+  /** behind the wheel (while walking): the car's numbers and its speed along the heading (m/s) */
+  car: { top: number; accel: number; brake: number; wheelbase: number; lock: number; length: number; width: number; eyeY: number } | null = null;
+  carSpeed = 0; throttle = 0; braking = false;
+  setDriving(car: DroneFlight["car"], speed = 0) { if (!this.walking) return false; this.cycling = false; this.car = car; this.carSpeed = speed; this.steer = 0; this.vel.set(0, 0, 0); return !!car; }
   setCycling(on: boolean) { if (!this.walking) return false; this.cycling = on; this.bikeSpeed = 0; this.steer = 0; this.vel.set(0, 0, 0); return on; }
   autopilotStatus: 'off' | 'cruise' | 'altitude' | 'obstacle' = 'off';
   autoTargetAgl = 175;
@@ -152,7 +160,7 @@ export class DroneFlight {
         const a = k / 24 * Math.PI * 2, px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
         if (free(px, py)) { x = px; y = py; break search; }
       }
-      const g = world.groundAt(x, y);
+      const g = Math.max(world.groundAt(x, y), world.roadZ?.(x, y) ?? -Infinity) + SURFACE_LIFT;
       this.pos.set(x, g + EYE, -y); this.walkY = this.pos.y; this.tilt = -0.04;
       this.agl = this.clearance = EYE;
     } else { this.pos.y += 25; this.tilt = -0.25; }
@@ -164,7 +172,21 @@ export class DroneFlight {
    * follows the ground's height smoothly (a kerb, a slope). */
   private walk(dt: number, world: DroneWorldQuery, fwd: number, side: number, turn: number) {
     const x0 = this.pos.x, z0 = this.pos.z;
-    if (this.cycling) {
+    if (this.car) {
+      // (a car: the throttle pulls to its top speed, the brake stops it and then backs it up; the
+      // steering turns it about its rear axle, less lock at speed)
+      const c = this.car, v = this.carSpeed;
+      this.throttle = Math.max(0, fwd); this.braking = fwd < 0 && v > 0.3;
+      if (fwd > 0) this.carSpeed += c.accel * fwd * Math.max(0, 1 - (v / c.top) ** 2) * dt;
+      else if (fwd < 0) this.carSpeed = v > 0.3 ? Math.max(0, v - c.brake * -fwd * dt) : Math.max(-5, v - 2.5 * -fwd * dt);
+      else this.carSpeed = v > 0 ? Math.max(0, v - (0.6 + v * 0.012) * dt) : Math.min(0, v + 1.5 * dt);
+      const want = THREE.MathUtils.clamp(side + turn, -1, 1);
+      this.steer += (want - this.steer) * Math.min(1, dt * 5);
+      const angle = this.steer * c.lock * (1 - 0.65 * Math.min(1, Math.abs(this.carSpeed) / 35));
+      this.yaw -= this.carSpeed * Math.tan(angle) / c.wheelbase * dt;
+      this.vel.x = -Math.sin(this.yaw) * this.carSpeed; this.vel.z = -Math.cos(this.yaw) * this.carSpeed;
+      fwd = 0; side = 0;
+    } else if (this.cycling) {
       // (pedal and brake; the bars turn the bike, less sharply the faster it goes; it rolls to a stop)
       const want = THREE.MathUtils.clamp(side + turn, -1, 1);
       this.steer += (want - this.steer) * Math.min(1, dt * 6);
@@ -184,9 +206,15 @@ export class DroneFlight {
     if (!this.cycling) { this.vel.x += (ix * speed - this.vel.x) * k; this.vel.z += (iz * speed - this.vel.z) * k; }
     this.vel.y = 0;
     const here = world.groundAt(this.pos.x, -this.pos.z);
+    // (a car: its corners and the middle of its nose and tail; a walker or a bike: a small circle)
+    const fxh = -Math.sin(this.yaw), fzh = -Math.cos(this.yaw), lx = -fzh, lz = fxh;
+    const probes: [number, number][] = this.car ? [[0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].map(([s, f]) => [lx * s * this.car!.width / 2 + fxh * f * this.car!.length / 2, lz * s * this.car!.width / 2 + fzh * f * this.car!.length / 2]) as [number, number][]
+      : [[FOOT_R, 0], [-FOOT_R, 0], [0, FOOT_R], [0, -FOOT_R]];
     const solid = (px: number, pz: number) => {
-      for (const [ox, oz] of [[FOOT_R, 0], [-FOOT_R, 0], [0, FOOT_R], [0, -FOOT_R]]) {
+      for (const [ox, oz] of probes) {
         const g = world.groundAt(px + ox, -(pz + oz));
+        // (a car: only a building stops it — it rides decks and ramps; on foot a rise of 0.6 m is a wall)
+        if (this.car) { if (world.roofAt(px + ox, -(pz + oz)) > g + 2.0 && world.roadZ?.(px + ox, -(pz + oz)) == null) return true; continue; }
         if (world.roofAt(px + ox, -(pz + oz)) > g + 0.8 || g - here > 0.6) return true;
       }
       return false;
@@ -196,9 +224,14 @@ export class DroneFlight {
     const nz = this.pos.z + this.vel.z * dt; if (!solid(this.pos.x, nz)) this.pos.z = nz; else { this.vel.z = 0; this.bumped = 1; }
     // (a bike into a wall stops)
     if (this.cycling && this.bumped) this.bikeSpeed = Math.min(this.bikeSpeed, 1);
+    // (a car into a wall: it stops dead, bouncing back a little — the impact for the sound)
+    if (this.car && this.bumped) { this.bumped = Math.abs(this.carSpeed); this.carSpeed *= -0.15; }
     this.moved = Math.hypot(this.pos.x - x0, this.pos.z - z0);
-    const g = world.groundAt(this.pos.x, -this.pos.z);
-    this.walkY += (g + (this.cycling ? BIKE_EYE : EYE) - this.walkY) * Math.min(1, dt * 12); this.pos.y = this.walkY;
+    // (the surface stood on: the road deck where a lane is, else the ground — and on foot or on the
+    // bike the paving's thickness over the terrain, so the feet stand on it, not sunk into it)
+    const g0 = world.groundAt(this.pos.x, -this.pos.z), deck = world.roadZ?.(this.pos.x, -this.pos.z) ?? null;
+    const g = (deck != null ? Math.max(g0, deck) : g0) + (this.car ? 0 : SURFACE_LIFT);
+    this.walkY += (g + (this.car ? this.car.eyeY : this.cycling ? BIKE_EYE : EYE) - this.walkY) * Math.min(1, dt * 12); this.pos.y = this.walkY;
     this.agl = this.clearance = EYE; this.limit = MAX_SPEED; this.ahead = Infinity; this.load = 0;
   }
 

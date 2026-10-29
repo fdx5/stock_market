@@ -668,6 +668,23 @@ export class DroneTraffic {
       this.uploadPrefix(im,counts[i]);
     }
   }
+  /** The car nearest (x, y) within r (view frame): what a walker can get into. */
+  nearestCar(x:number,y:number,r:number){
+    let best:Car|null=null,bd=r;
+    // (each placed where it is now: only the cars near the camera are placed every frame)
+    for(const c of this.cars){if(!c.alive||c.hidden)continue;this.pose(c);const d=Math.hypot(c.x-x,c.y-y);if(d<bd){bd=d;best=c;}}
+    if(!best)return null;
+    return {id:best.id,k:best.kind,kind:KINDS[best.kind][0],colour:best.colour.clone(),x:best.x,y:best.y,z:best.z,hx:best.hx,hy:best.hy,v:best.v,emergency:best.kind>=EMERGENCY_FROM,length:LEN[best.kind]};
+  }
+  /** Out of the traffic for good (the walker drives it now). */
+  takeCar(id:number){
+    const c=this.cars.find(x=>x.id===id);if(!c)return false;
+    c.alive=false;this.release(c,Infinity);const i=c.lane.cars.indexOf(c);if(i>=0)c.lane.cars.splice(i,1);this.cars=this.cars.filter(x=>x!==c);return true;
+  }
+  /** the modelled body of kind k (its shared geometry and material), when loaded */
+  model(k:number){const im=this.near[k];return im?{geometry:im.geometry,material:im.material as THREE.Material}:null;}
+  /** one instance placed as the traffic places its cars: (x, y) view frame, z its level, (hx, hy) its heading */
+  place(im:THREE.InstancedMesh,i:number,x:number,y:number,z:number,hx:number,hy:number){writeMatrix(im.instanceMatrix.array as Float32Array,i,x,z,-y,-hy,hx,1,0,1,1,1);im.instanceMatrix.needsUpdate=true;}
   private driven:(Lane|number)[]=[];
   private moved:Car[]=[];
   /** the conflict points ahead of the car being driven: distance, point, its crossing */

@@ -196,7 +196,8 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
         </span>
       </div>
       {flight.walking && !flight.cycling && flight.door && <button type="button" className="re-drone-door" onClick={() => window.dispatchEvent(new Event('drone-enter-door'))}><kbd>E</kbd> 건물 안으로 들어가기</button>}
-      {flight.walking && <button type="button" className="re-drone-bike" onClick={() => window.dispatchEvent(new Event('drone-bike-toggle'))}><kbd>B</kbd> {flight.cycling ? '자전거에서 내리기' : '자전거 타기 (최고 100km/h)'}</button>}
+      {flight.walking && <button type="button" className="re-drone-car" onClick={() => window.dispatchEvent(new Event('drone-car-toggle'))}><kbd>F</kbd> {flight.car ? `차에서 내리기 · ${Math.round(Math.abs(flight.carSpeed) * 3.6)}/${Math.round(flight.car.top * 3.6)}km/h` : '가까운 차 운전하기 (6m 안)'}</button>}
+      {flight.walking && !flight.car && <button type="button" className="re-drone-bike" onClick={() => window.dispatchEvent(new Event('drone-bike-toggle'))}><kbd>B</kbd> {flight.cycling ? '자전거에서 내리기' : '자전거 타기 (최고 100km/h)'}</button>}
       <div className="re-drone-auto-controls">
       <button type="button" className={`re-drone-autopilot${flight.walking ? ' is-on' : ''}`} aria-pressed={flight.walking}
         title="드론에서 내려 이 지도 그대로 걷기 (G) · WASD 이동 · Shift 달리기 · 드래그로 둘러보기"
