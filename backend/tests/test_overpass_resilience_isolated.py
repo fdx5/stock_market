@@ -61,21 +61,23 @@ class OverpassResilience(unittest.TestCase):
         load_nodes("realestate_water.py", {"_crossings_lookup", "_parse_crossings"}, self.ns)
 
     def test_independent_mirrors_only(self):
-        self.assertEqual(len(self.ns["OVERPASS"]), 2)
+        # (three independent instances: kumi.systems is private.coffee's former name, not a fourth)
+        self.assertEqual(len(self.ns["OVERPASS"]), 3)
         self.assertTrue(all("kumi.systems" not in url for url in self.ns["OVERPASS"]))
 
     def test_external_500_becomes_unavailable_and_pauses_both_mirrors(self):
         self.respond = lambda url: Response(status=500)
         result = self.ns["_crossings_lookup"](37.5, 127)
+        mirrors = len(self.ns["OVERPASS"])
         self.assertIsNone(result["source"])
-        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(len(self.calls), mirrors)
         self.ns["_crossings_lookup"](37.5, 127)
-        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(len(self.calls), mirrors)
         resume_at = max(self.ns["_overpass_retry_at"].values()) + 1
         self.ns["time"] = SimpleNamespace(monotonic=lambda: resume_at)
         self.respond = lambda url: Response({"elements": []})
         self.assertEqual(self.ns["_crossings_lookup"](37.5, 127)["source"], "OpenStreetMap")
-        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(len(self.calls), mirrors + 1)
 
     def test_fallback_preserves_valid_elements_and_query(self):
         elements = [{"type": "way", "id": 10, "tags": {"name": "bridge"}}]
@@ -110,7 +112,7 @@ class OverpassResilience(unittest.TestCase):
                 self.respond = lambda url: Response(body)
                 result = self.ns["_crossings_lookup"](37.5, 127)
                 self.assertIsNone(result["source"])
-                self.assertEqual(len(self.calls), 2)
+                self.assertEqual(len(self.calls), len(self.ns["OVERPASS"]))
 
     def test_missing_node_coordinates_cannot_raise_internal_500(self):
         self.respond = lambda url: Response({"elements": [{"type": "node", "id": 1, "tags": {"highway": "crossing"}}]})
