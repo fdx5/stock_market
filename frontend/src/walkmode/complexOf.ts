@@ -3,6 +3,13 @@
  * complexes of that 시군구 asked by name, the one on the same 본번 first. */
 export interface VisitedComplex { id: string; name: string; built?: number }
 
+/** A location label is not a trade/register complex ID, even when its name matches exactly. */
+export async function walkComplex(start: { id: string; name: string; built: number | null }, name: string, pnu: string | null, signal?: AbortSignal): Promise<VisitedComplex | null> {
+  const collected = /^\d{5}:[^:]+:[^:]+:.+/.test(start.id) && !start.id.includes(":?:");
+  const own = collected && (!name || name === start.name || start.name.includes(name) || name.includes(start.name));
+  return own ? { id: start.id, name: start.name, built: start.built ?? undefined } : complexOf(name, pnu, signal);
+}
+
 const norm = (s: string) => s.replace(/\(.*?\)|\s|아파트|APT/gi, "");
 
 export async function complexOf(name: string, pnu: string | null, signal?: AbortSignal): Promise<VisitedComplex | null> {

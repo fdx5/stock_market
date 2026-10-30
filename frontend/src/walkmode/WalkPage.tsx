@@ -7,7 +7,7 @@ import { api } from "../api/client";
 import { Interior, prewarmInterior, type HudState } from "./interior/Interior";
 import { generatePlan } from "./interior/plan/generate";
 import { fetchUnits } from "./interior/plan/fetchUnits";
-import { complexOf } from "./complexOf";
+import { walkComplex } from "./complexOf";
 import { BuildingInterior, type BuildingHud, type BuildingTalk } from "./building/BuildingInterior";
 import { getSurvey, type SurveyBuilding, type SurveyFloor } from "./building/survey";
 import { fitOut, type FitSource } from "./building/fitout";
@@ -300,12 +300,11 @@ export default function WalkPage() {
     const ctrl = new AbortController();
     // (the building's PNU first, for its register rows; the trades without it)
     (geo() ? geo()!.pnuOf(e) : Promise.resolve(null)).then(async pnu => {
-      // (a building of another complex walked or driven to: that complex's flats, not the start's)
-      const own = !e.name || e.name === start.name || start.name.includes(e.name) || e.name.includes(start.name);
-      // (one not among the collected complexes: its own name, its flats from the register by PNU)
-      const visit = own ? null : (await complexOf(e.name, pnu, ctrl.signal)) ?? { id: `${pnu?.slice(0, 5) ?? "00000"}:?:0:${e.name}`, name: e.name };
-      setVisit(visit);
-      return fetchUnits(visit?.id ?? start.id, e.dong, ctrl.signal, pnu);
+      // Direct/short links have place: labels. Resolve the real complex before any units API call.
+      const resolved = await walkComplex(start, e.name, pnu, ctrl.signal);
+      if (!resolved) throw Error("단지를 찾지 못했습니다.");
+      setVisit(resolved.id === start.id ? null : resolved);
+      return fetchUnits(resolved.id, e.dong, ctrl.signal, pnu);
     }).then(u => {
       setUnits(u);
       const best = [...u.types].sort((a, b) => b.trades - a.trades)[0];
