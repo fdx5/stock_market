@@ -16,7 +16,9 @@ export interface ImageAnalysis {
 export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis):FloorPlan|null {
   if(analysis.status!=="ready"||!analysis.rooms?.length||!analysis.openings||!analysis.scale||Math.abs(analysis.drawing.exclusiveArea-p.area)>.005)return null;
   const rooms=analysis.rooms.map(r=>{const surfaceType=analysis.rooms!.find(q=>q.zone===r.zone&&q.type!=="hall")?.type??r.type;return {...r,surfaceType,rect:[...r.rect] as Room["rect"],floorDrop:surfaceType==="bathroom"?.03:0};});
-  if(rooms.length>120||rooms.some(r=>r.rect.some(v=>!Number.isFinite(v))||r.rect[2]-r.rect[0]<.15||r.rect[3]-r.rect[1]<.15))return null;
+  // Small unfurnished perimeter strips preserve stepped walls. They are not rooms
+  // to stand in; the lead-room dimensions and body-sized navigation are checked separately.
+  if(rooms.length>120||rooms.some(r=>r.rect.some(v=>!Number.isFinite(v))||r.rect[2]-r.rect[0]<.10||r.rect[3]-r.rect[1]<.10))return null;
   const ids=new Map(rooms.map(r=>[r.id,r]));
   const openings:Opening[]=[];
   for(const source of analysis.openings){

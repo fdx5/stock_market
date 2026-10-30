@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image
 
 cv2.setNumThreads(1)
-VERSION = "orthogonal-ocr-5"
+VERSION = "orthogonal-ocr-6"
 
 
 def _ocr(image: np.ndarray, rotation: int = 0, mode: str = "mixed") -> list[dict]:
@@ -150,7 +150,7 @@ def _axis_calibration(dimensions: list[dict], gray: np.ndarray, axis: str, bound
     frame_start=x0 if axis=="x" else y0;frame_end=x1 if axis=="x" else y1
     ink=(image<225).astype(np.uint8)*255
     lines=cv2.morphologyEx(ink,cv2.MORPH_CLOSE,np.ones((1,5),np.uint8))
-    lines=cv2.morphologyEx(lines,cv2.MORPH_OPEN,np.ones((1,max(40,round((frame_end-frame_start)*.4))),np.uint8))
+    lines=cv2.morphologyEx(lines,cv2.MORPH_OPEN,np.ones((1,max(40,round((frame_end-frame_start)*.2))),np.uint8))
     constraints=[]
     for d in dimensions:
         if d.get("rotation",0)!=(0 if axis=="x" else 90):continue
@@ -175,7 +175,7 @@ def _axis_calibration(dimensions: list[dict], gray: np.ndarray, axis: str, bound
             plausible.append((abs(row-across)+45*abs(math.log(ratio/fallback)),{"axis":axis,"startPixel":left,"endPixel":right,"metres":metres,"confidence":d["confidence"]}))
         if plausible:constraints.append(min(plausible,key=lambda p:p[0])[1])
     def linear(v):return float((v-frame_start)*fallback)
-    if len(constraints)<3:return linear,[]
+    if len(constraints)<2:return linear,[]
     nodes=_clusters([p for c in constraints for p in (c["startPixel"],c["endPixel"])],3)
     if len(nodes)>64 or nodes[-1]-nodes[0]<(frame_end-frame_start)*.6:return linear,[]
     A=[];b=[]
@@ -216,7 +216,7 @@ def _phrases(words: list[dict]) -> list[dict]:
     return result
 
 
-def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | None = None) -> dict:
+def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | None = None, expanded:bool=False,supply_area:float|None=None) -> dict:
     started = time.perf_counter()
     # Inspect dimensions before allocating/decompressing the image. No on-disk source files.
     with Image.open(io.BytesIO(data)) as source:
@@ -664,11 +664,16 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             if b in reachable:reachable.add(a)
         if len(reachable)==before:break
     connected=all(r["zone"] in reachable for r in rooms if r["type"] in ("living","kitchen","master","bedroom","bathroom","ensuite"))
-    status="ready" if abs(error)<.18 and len(bedrooms)>=1 and usable_beds and connected else "needs_review"
+    # A source marked GA3 contains converted balcony/service floor. Its measured
+    # interior is legitimately larger than the registered exclusive area. Validate
+    # it against its own documented supply envelope, retaining the actual geometry.
+    expanded_area=bool(expanded and dimension_scale and supply_area and exclusive_area*.82<=counted<=min(exclusive_area*1.45,supply_area*1.05))
+    status="ready" if (abs(error)<.18 or expanded_area) and len(bedrooms)>=1 and usable_beds and connected else "needs_review"
     elapsed=round((time.perf_counter()-started)*1000)
     return {"status":status,"reason":None if status=="ready" else "area_or_room_consistency","version":VERSION,
             "imageSize":[W,H],"pixelBounds":[int(x0),int(y0),int(x1),int(y1)],"scale":{"xMetresPerPixel":sx,"zMetresPerPixel":sy,"basis":"dimension_chains" if chain_applied else "single_axis_dimensions" if single_axis else "recognized_dimensions" if dimension_scale else "area_calibration"},
             "dimensionConstraints":x_constraints+z_constraints,"dimensionChainsApplied":chain_applied,
             "recognizedDimensions":[{k:d[k] for k in ("text","millimetres","x","y","rotation","confidence")} for d in numeric],
             "rooms":rooms,"openings":openings,"areaM2":round(counted,2),"areaError":round(error,4),"elapsedMs":elapsed,
-            "note":"원본 이미지의 벽·방 위치를 인식한 모델입니다. 도면 치수 인식과 공간 구분에 오차가 있을 수 있으며 가구·마감은 연출입니다."}
+            "areaBasis":"expanded_drawing" if expanded_area else "exclusive_area",
+            "note":"원본 이미지의 벽·방 위치를 인식한 모델입니다. 도면 치수 인식과 공간 구분에 오차가 있을 수 있으며 가구·마감은 연출입니다."+(" 확장형의 발코니 확장 면적이 포함되어 계산된 실내 면적은 전용면적과 다릅니다." if expanded_area else "")}

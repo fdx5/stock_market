@@ -15,4 +15,5 @@ assert.deepEqual(plan.bounds,[0,0,10,8]);assert.equal(plan.imageAnalysis!.scaleB
 assert.equal(floorPlanFromImage({...input,area:80.02},analysis),null); // nearby but distinct type is not substituted
 assert.equal(floorPlanFromImage(input,{...analysis,status:"needs_review"}),null);
 assert.equal(floorPlanFromImage(input,{...analysis,openings:[{...analysis.openings![0],width:NaN}]}),null);
+assert.ok(floorPlanFromImage(input,{...analysis,rooms:[...analysis.rooms!,{id:"edge",type:"hall",label:"외곽",zone:"lk",rect:[10,0,10.12,4]}]}),"preserve a small unfurnished perimeter strip without rejecting the whole drawing");
 console.log("image-plan: source geometry, identity, exact area, invalid-result checks passed");

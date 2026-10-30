@@ -24,7 +24,7 @@ export type DroneLabelInfo = { /** Real collected apartment identity, distinct f
 };
 export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "commercial" | "market" | "district" | "school" | "hospital" | "station" | "bridge" | "cctv" | "subway" | "train" | "er" | "bike" | "parking" | "service" | "exit"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera;
   /** the live layers (droneLive.ts): what its panel shows, its own edge colour, and a key of its own (never merged with another of the name) */
-  live?: import('./publicLive').LiveRef; tint?: string; key?: string };
+  live?: import('./publicLive').LiveRef; tint?: string; key?: string; focused?:boolean };
 /** The styles in the order RingResult.towers names them. */
 export const SURVEY_STYLES: ContextStyle[] = ["apt", "villa", "shop", "office"];
 export type RingStyleArrays = { position: Float32Array; normal: Float32Array; uv: Float32Array; color: Float32Array; facade?:Float32Array; index: Uint32Array; sphere?:[number,number,number,number] };

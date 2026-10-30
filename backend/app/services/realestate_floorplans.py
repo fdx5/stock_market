@@ -257,7 +257,7 @@ def _analyze(naver_id: str, key: str) -> dict:
         with _lock:
             if cache_key in _analyses:
                 return _analyses[cache_key]
-        result = {**analyze_image(data, plan["exclusiveArea"]), "drawing": plan}
+        result = {**analyze_image(data, plan["exclusiveArea"],expanded=plan["variant"]=="평면도 확장형",supply_area=plan["supplyArea"]), "drawing": plan}
         with _lock:
             _analyses[cache_key] = result
             while len(_analyses) > 48:

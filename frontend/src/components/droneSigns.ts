@@ -33,7 +33,7 @@ const STYLE: Record<DroneLabel["kind"], { bg: string; fg: string; edge: string; 
   service: { bg: 'rgba(30,30,44,0.92)', fg: '#ffffff', edge: '#c9d3df', icon: '', rank: 3, reach: 1500 },
 };
 
-export type Sign = { key: string; name: string; kind: DroneLabel["kind"]; x: number; y: number; top: number; n: number; w: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera; live?: DroneLabel["live"]; tint?: string };
+export type Sign = { key: string; name: string; kind: DroneLabel["kind"]; x: number; y: number; top: number; n: number; w: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera; live?: DroneLabel["live"]; tint?: string;focused?:boolean };
 
 export class DroneSigns {
   private byTile = new Map<string, DroneLabel[]>();
@@ -81,8 +81,8 @@ export class DroneSigns {
     const groups = new Map<string, Sign[]>();
     for (const list of this.byTile.values()) for (const l of list) {
       const k = l.key ?? (l.kind + ":" + (l.camera?.id??l.name)), near = l.key ? undefined : groups.get(k)?.find(s => Math.hypot(s.x - l.x, s.y - l.y) < 600);
-      if (near) { near.x = (near.x * near.n + l.x * l.n) / (near.n + l.n); near.y = (near.y * near.n + l.y * l.n) / (near.n + l.n); near.top = Math.max(near.top, l.top); near.info = { ...near.info, ...l.info, complexId: near.info?.complexId ?? l.info?.complexId, pnu: near.info?.pnu ?? l.info?.pnu }; near.n += l.n; }
-      else { const sign = { key: k, name: l.name, kind: l.kind, x: l.x, y: l.y, top: l.top, n: l.n, w: 0, info: l.info, camera:l.camera, live: l.live, tint: l.tint }, list = groups.get(k); if (list) list.push(sign); else groups.set(k, [sign]); }
+      if (near) { near.x = (near.x * near.n + l.x * l.n) / (near.n + l.n); near.y = (near.y * near.n + l.y * l.n) / (near.n + l.n); near.top = Math.max(near.top, l.top); near.info = { ...near.info, ...l.info, complexId: near.info?.complexId ?? l.info?.complexId, pnu: near.info?.pnu ?? l.info?.pnu }; near.n += l.n;near.focused ||= l.focused; }
+      else { const sign = { key: k, name: l.name, kind: l.kind, x: l.x, y: l.y, top: l.top, n: l.n, w: 0, info: l.info, camera:l.camera, live: l.live, tint: l.tint,focused:l.focused }, list = groups.get(k); if (list) list.push(sign); else groups.set(k, [sign]); }
     }
     this.merged = [...groups.values()].flat();
     // A provider building name and a mapped facility describe the same sign.
@@ -121,7 +121,7 @@ export class DroneSigns {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     // (gathered again at most twice a second: tiles arrive in bursts)
-    if (this.dirty && performance.now() - this.mergedAt > 500) { this.merge(); this.mergedAt = performance.now(); }
+    if (this.dirty && (!this.merged.length||performance.now() - this.mergedAt > 500)) { this.merge(); this.mergedAt = performance.now(); }
     const cam = camera.position;
     const seen: [number, Sign, number, number, number][] = [];
     for (const s of this.merged) {
@@ -133,7 +133,7 @@ export class DroneSigns {
       seen.push([d, s, (this.v.x * 0.5 + 0.5) * w, (0.5 - this.v.y * 0.5) * h, d]);
     }
     // the most important and nearest first
-    seen.sort((a, b) => STYLE[b[1].kind].rank - STYLE[a[1].kind].rank || a[0] - b[0]);
+    seen.sort((a, b) => Number(!!b[1].focused)-Number(!!a[1].focused)||STYLE[b[1].kind].rank - STYLE[a[1].kind].rank || a[0] - b[0]);
     const placed: [number, number, number, number][] = [];
     this.boxes.length = 0;
     const t = performance.now() / 1000;

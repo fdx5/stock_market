@@ -123,3 +123,21 @@ def test_dimension_uses_its_tick_span_and_combines_chain_lengths():
     assert len(evidence)>=3
     assert abs(measure(300)-measure(100)-4)<.05
     assert abs(measure(650)-measure(300)-7)<.05
+
+    # A real drawing may show only these two adjacent segments, with no total.
+    measure,evidence=_axis_calibration(words[1:],gray,"x",(80,100,700,600),.02)
+    assert len(evidence)==2
+    assert abs(measure(300)-measure(100)-4)<.05
+    assert abs(measure(650)-measure(300)-7)<.05
+
+
+def test_expanded_source_retains_service_area_without_stretching_to_exclusive():
+    data,words=drawn_flat()
+    ordinary=analyze_image(data,50,words=words)
+    expanded=analyze_image(data,50,words=words,expanded=True,supply_area=68)
+    assert ordinary["status"]=="needs_review"
+    assert expanded["status"]=="ready",expanded.get("reason")
+    assert expanded["areaBasis"]=="expanded_drawing"
+    assert expanded["areaM2"]>50*1.18
+    assert expanded["rooms"]==ordinary["rooms"]
+    assert analyze_image(data,50,words=words,expanded=True,supply_area=51)["status"]=="needs_review"

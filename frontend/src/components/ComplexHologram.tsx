@@ -29,6 +29,7 @@ import {roadHeight,roadLevel,roadProfileKey,nearestRoadPoint} from './roadLevels
 import {roadApproachTerrain} from './roadApproaches';
 import {bridgeNameLabels} from './bridgeNames';
 import {DroneSigns} from './droneSigns';
+import {apartmentDroneLabels} from './droneFocusSigns';
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
@@ -4109,7 +4110,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     };
     down();
   };
-  const signsRef = useRef<{ id: string; name: string; x: number; y: number; here: boolean }[]>([]);
+  const signsRef = useRef<{ id: string; name: string; x: number; y: number; z:number;here: boolean }[]>([]);
   const enterBalloon = () => {
     const st = stageRef.current;
     if (!st?.balloon || !st.balloon.group.visible || st.balloonView) return;
@@ -4208,6 +4209,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const sc = st.sun.shadow.camera;
     droneShadow.current = { left: sc.left, right: sc.right, top: sc.top, bottom: sc.bottom, far: sc.far };
     sc.left = sc.bottom = -320; sc.right = sc.top = 320; sc.far = 2400; sc.updateProjectionMatrix();
+    drone.signs.set("collected-complexes",apartmentDroneLabels(signsRef.current,data,homeId,explorePlace?.kind));
     drone.start();
     // (the music on with the flight, from this press's own gesture: a browser plays it only then;
     // a flight opens with its own track twice before the session order)
@@ -4548,11 +4550,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   useEffect(() => {
     const drone = stageRef.current?.drone;
     if (!drone || !data) return;
-    drone.signs.set("collected-complexes", signs.filter(s => /^\d{5}:/.test(s.id) && (!s.here || data.id === s.id)).map(s => ({
-      name: s.name, kind: "apt", x: s.x, y: s.y, top: s.z, n: 1,
-      info: { complexId: s.id, bx: s.x, by: s.y },
-    })));
-  }, [signs, droneOn, data]);
+    drone.signs.set("collected-complexes",apartmentDroneLabels(signs,data,homeId,explorePlace?.kind));
+  }, [signs, droneOn, data,homeId,explorePlace?.kind]);
   // 단지 팻말 drawn on one canvas over the view (the signs moved as buttons each frame cost the page a
   // restyle, repaint, re-composite and accessibility update every frame — ~6 fps of a slow machine's
   // 35 while the camera turned). Hit-tested here for hover and click; a static list of buttons
