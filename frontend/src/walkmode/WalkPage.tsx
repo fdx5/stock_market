@@ -28,6 +28,8 @@ import { FacilityBrowser, VendingMenu } from "./FacilityApps";
 import type { VendingSession } from "./interior/vending";
 import CameraSettings from "./CameraSettings";
 import { viewPreferences } from "./viewPreferences";
+import { parseWalkAt, walkLink, walkAnchor, rememberWalkEntry, recalledWalkEntry, resolveWalkEntry, safeWalkBack, type WalkEntry } from "./walkLink";
+import { vworldWalkFootprints } from "../components/vworldBuildings";
 import type { PetKind } from "./interior/life";
 
 /** the pet chosen last time in this browser (a convenience: a Shiba Inu unless a cat was chosen) */
@@ -60,6 +62,14 @@ export default function WalkPage() {
   const sound = useMemo(() => new Sound(), []);
   const [car,setCar]=useState<CarHud>({driving:false,nearby:null,label:"",speedKmh:0,topKmh:0,gear:"P",message:"",view:"third"});
   const [soundMuted, setSoundMuted] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  const shareBase = useRef<string | null>(null), returnTo = useRef<string | null>(null);
+  const outdoorUrl = useRef(location.pathname + location.search);
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(location.href); setCopyStatus("복사됨"); }
+    catch { setCopyStatus("주소창에서 복사"); }
+    setTimeout(() => setCopyStatus(""), 2500);
+  };
   const [tvOpen, setTvOpen] = useState(false);
   const [laptopOpen, setLaptopOpen] = useState(false);
   const [zoomed, setZoomed] = useState<"tv" | "laptop" | null>(null);
@@ -169,7 +179,7 @@ export default function WalkPage() {
       return;
     }
     // (from the drone view, on foot: straight into the building at the door, ?enter=1&lat&lon&foot)
-    if (q.get("enter") === "1") { void enterDirect(); return; }
+    if (q.get("enter") === "1" || q.has("at")) { void enterDirect(); return; }
     const place=q.get("place"),plat=Number(q.get("lat")),plon=Number(q.get("lon"));
     if(place&&plat>=33&&plat<=39&&plon>=124&&plon<=132){
       fetch("/api/realestate/walk-config").then(r=>{if(!r.ok)throw Error("config");return r.json();}).then(r=>{
@@ -215,35 +225,55 @@ export default function WalkPage() {
    * the way in; its parcel from VWorld, its register (use, name, floors), then in — a block of flats
    * by its flats, any other building by its floors. */
   const enterDirect = async () => {
-    const lat = Number(q.get("lat")), lon = Number(q.get("lon"));
+    const at = parseWalkAt(q.get("at"));
+    if (q.has("at") && !at) { setError("건물 공유 주소의 위치가 올바르지 않습니다."); setPhase("error"); return; }
+    const lat = at?.[0] ?? Number(q.get("lat")), lon = at?.[1] ?? Number(q.get("lon"));
     if (!(lat >= 33 && lat <= 39 && lon >= 124 && lon <= 132)) { setError("건물 위치가 올바르지 않습니다."); setPhase("error"); return; }
     try {
-      const cfg = await fetch("/api/realestate/walk-config").then(r => r.ok ? r.json() : Promise.reject(Error("config")));
+      const cfg = await fetch("/api/realestate/walk-config", { signal: AbortSignal.timeout(18000) }).then(r => r.ok ? r.json() : Promise.reject(Error("config")));
       const key: string = cfg.vworld_key, domain: string = cfg.vworld_domain ?? "https://kospimap.com";
+      let restored = at ? recalledWalkEntry(lat, lon) : null;
+      if (at && !restored) {
+        const footprints = await vworldWalkFootprints(lat, lon, key, domain).catch(() => []);
+        try { restored = resolveWalkEntry(lat, lon, footprints); }
+        catch {
+          // Some stations and public buildings only have an SGIS outline. Use its full
+          // surveyed polygons rather than opening an unrelated neighbour or a small box.
+          const survey = await getSurvey<SurveyBuilding>(`/api/realestate/indoor-building?${new URLSearchParams({ lat: String(lat), lon: String(lon) })}`);
+          if (survey?.status !== "available" || !survey.frame || !survey.outlines?.length) throw Error("outline unavailable");
+          const frame = survey.frame, origin = originAt(frame.lat, frame.lon);
+          restored = resolveWalkEntry(lat, lon, survey.outlines.map((p, i) => ({ id: `${survey.id}:${i}`, pnu: "", name: survey.name ?? "건물", floors: 0, use: "",
+            ring: p[0].map(([x, y]) => toLonLat(origin, x - frame.x, y - frame.y)) })));
+        }
+      }
       const o = originAt(lat, lon);
       direct.current = { pnuOf: en => { const [lo, la] = toLonLat(o, en.cx ?? en.x, en.cy ?? en.y); return pnuAt(lo, la, key, domain); }, lonLatOf: (x, y) => toLonLat(o, x, y), frameOf: (lo, la) => toFrame(o, lo, la) };
-      const foot = (q.get("foot") ?? "").split(";").map(p => p.split(",").map(Number)).filter(p => p.length === 2 && p.every(Number.isFinite)).map(([lo, la]) => toFrame(o, lo, la));
+      const footLL = restored?.foot ?? (q.get("foot") ?? "").split(";").map(p => p.split(",").map(Number)).filter(p => p.length === 2 && p.every(Number.isFinite)) as [number, number][];
+      const foot = footLL.map(([lo, la]) => toFrame(o, lo, la));
       const cx = foot.length ? foot.reduce((t, p) => t + p[0], 0) / foot.length : 0, cy = foot.length ? foot.reduce((t, p) => t + p[1], 0) / foot.length : 0;
-      const heading = Number(q.get("heading") ?? 0);
-      const e: Entrance = { name: q.get("name") ?? "", dong: "", x: 0, y: 0, floors: Number(q.get("floors") ?? 0) || 5, heading, cx, cy, foot: foot.length >= 3 ? foot : undefined, kind: "building" };
+      const heading = restored?.heading ?? Number(q.get("heading") ?? 0);
+      const [doorX, doorY] = restored ? toFrame(o, ...restored.door) : [0, 0];
+      const e: Entrance = { name: restored?.name ?? q.get("name") ?? "", dong: "", x: doorX, y: doorY, floors: restored?.floors ?? (Number(q.get("floors") ?? 0) || 5), heading, cx, cy, foot: foot.length >= 3 ? foot : undefined, kind: "building" };
       // (the blocks standing with it, as the drone view saw them)
-      const campus = (q.get("campus") ?? "").split("|").map(r => r.split(";").map(p => p.split(",").map(Number)).filter(p => p.length === 2 && p.every(Number.isFinite)).map(([lo, la]) => toFrame(o, lo, la))).filter(r => r.length >= 3);
+      const campusLL = restored?.campus ?? (q.get("campus") ?? "").split("|").map(r => r.split(";").map(p => p.split(",").map(Number)).filter(p => p.length === 2 && p.every(Number.isFinite))) as [number, number][][];
+      const campus = campusLL.map(r => r.map(([lo, la]) => toFrame(o, lo, la))).filter(r => r.length >= 3);
       if (campus.length) e.campus = campus;
+      returnTo.current = safeWalkBack(q.get("back")) ?? safeWalkBack(restored?.back);
       // (the register first: a block of flats goes by its flats, the rest by their floors)
       const pnu = await direct.current.pnuOf(e);
       const area = foot.length >= 3 ? Math.abs(foot.reduce((t, [x1, y1], i) => { const [x2, y2] = foot[(i + 1) % foot.length]; return t + x1 * y2 - x2 * y1; }, 0)) / 2 : 0;
-      const reg = pnu ? await fetch(`/api/realestate/building-floors?${new URLSearchParams({ pnu, ...(area ? { area: area.toFixed(0) } : {}) })}`).then(r => r.ok ? r.json() : null).catch(() => null) : null;
+      const reg = pnu ? await fetch(`/api/realestate/building-floors?${new URLSearchParams({ pnu, ...(area ? { area: area.toFixed(0) } : {}) })}`, { signal: AbortSignal.timeout(18000) }).then(r => r.ok ? r.json() : null).catch(() => null) : null;
       const b = reg?.building ?? {};
       e.name = b.name || e.name || "건물"; e.floors = b.floors || e.floors; e.useLabel = b.use ?? undefined;
       // (its businesses as registered, on their floors, inside its outline)
-      const places = await fetch(`/api/realestate/places?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}&r=150`).then(r => r.ok ? r.json() : null).catch(() => null);
+      const places = await fetch(`/api/realestate/places?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}&r=150`, { signal: AbortSignal.timeout(18000) }).then(r => r.ok ? r.json() : null).catch(() => null);
       if (places?.items && e.foot) e.tenants = (places.items as { lat: number; lon: number; name: string; kind: string; category: string | null; floor?: number | null }[])
         .filter(p => { const [px, py] = toFrame(o, p.lon, p.lat); return inPoly(px, py, e.foot!); }).map(p => ({ name: p.name, kind: p.kind, category: p.category, lat: p.lat, lon: p.lon, floor: p.floor ?? null }));
       setStart({ lat, lon, name: e.name, key, domain, id: q.get("id") ?? `place:${e.name}`, built: null });
       const flats = /공동주택|아파트|연립|다세대/.test(`${b.use ?? ""} ${b.useDetail ?? ""}`) && (b.floors ?? 0) >= 4;
       if (flats) { e.kind = "apartment"; e.dong = (b.name ?? "").match(/(\d+|[가-힣A-Z])동$/)?.[0] ?? b.name ?? ""; e.name = (b.name ?? e.name).replace(/\s*(제\s*)?[0-9A-Z]{1,4}\s*동$/, "").trim() || e.name; pendingEnter.current = e; }
       else pendingEnter.current = e;
-    } catch { setError("건물 정보를 불러오지 못했습니다."); setPhase("error"); }
+    } catch { setError("건물 외곽 정보를 불러오지 못했습니다. 잠시 후 이 주소를 다시 열어 주세요."); setPhase("error"); }
   };
   const pendingEnter = useRef<Entrance | null>(null);
   const pendingFacility = useRef<number | null>(null);
@@ -252,6 +282,16 @@ export default function WalkPage() {
   useEffect(() => { const e = pendingEnter.current; if (!e || !start || !renderer.current) return; pendingEnter.current = null; enter(e); });
   const enter = (e: Entrance) => {
     if (!start || game.current?.cycling||game.current?.driving) return;
+    const g = geo();
+    if (g && e.foot && e.foot.length >= 3) {
+      const foot = e.foot.map(([x, y]) => g.lonLatOf(x, y)), [lat, lon] = walkAnchor(foot);
+      const back = returnTo.current ?? safeWalkBack(q.get("back")) ?? (game.current ? outdoorUrl.current : null);
+      const entry: WalkEntry = { lat, lon, name: e.name, floors: e.floors, heading: e.heading, foot,
+        campus: (e.campus ?? []).map(r => r.map(([x, y]) => g.lonLatOf(x, y))), door: g.lonLatOf(e.x, e.y), back: back ?? undefined };
+      rememberWalkEntry(entry); shareBase.current = walkLink(lat, lon);
+      returnTo.current = back ?? `/drone-explore?lat=${start.lat.toFixed(6)}&lon=${start.lon.toFixed(6)}&walkat=${e.x.toFixed(2)},${e.y.toFixed(2)},${Math.atan2((e.cx ?? 0) - e.x, -((e.cy ?? 0) - e.y)).toFixed(3)}`;
+      history.replaceState(history.state, "", shareBase.current);
+    }
     if (e.kind === "building") { enterBuilding(e); return; }
     sound.resume();
     game.current?.pause();
@@ -323,7 +363,7 @@ export default function WalkPage() {
     setTimeout(() => {
       interior.current?.dispose(); interior.current = null; setHud(null);
       exiting.current = false;
-      if (game.current && entering) { game.current.returnFromInterior(entering); setPhase("outdoor"); setNear(null); setFade(false); }
+      if (game.current && entering) { game.current.returnFromInterior(entering); history.replaceState(history.state, "", outdoorUrl.current); shareBase.current = null; setPhase("outdoor"); setNear(null); setFade(false); }
       else leave();
     }, 500);
   };
@@ -339,7 +379,7 @@ export default function WalkPage() {
       if (pnu) {
         // (its footprint's area picks the right block of a campus: a hospital's main block, not its labs)
         const fa = e.foot && e.foot.length > 2 ? Math.abs(e.foot.reduce((t, [x1, y1], i) => { const [x2, y2] = e.foot![(i + 1) % e.foot!.length]; return t + x1 * y2 - x2 * y1; }, 0)) / 2 : 0;
-        const r = await fetch(`/api/realestate/building-floors?${new URLSearchParams({ pnu, name: e.name, ...(fa ? { area: fa.toFixed(0) } : {}) })}`).catch(() => null);
+        const r = await fetch(`/api/realestate/building-floors?${new URLSearchParams({ pnu, name: e.name, ...(fa ? { area: fa.toFixed(0) } : {}) })}`, { signal: AbortSignal.timeout(18000) }).catch(() => null);
         if (r?.ok) { const d = await r.json(); info = { ...d.building, name: d.building?.name || e.name }; floors = d.floors ?? []; src = `건축물대장 표제부·층별개요 · 지상 ${info.floors ?? "?"}층 / 지하 ${info.basements ?? 0}층 · 승강기 ${(info.rideLifts ?? 0) + (info.emergencyLifts ?? 0)}대`; }
       }
       setBsource(src);
@@ -357,7 +397,7 @@ export default function WalkPage() {
       if (q.get("legacy") !== "1") {
         // (the plate along the street its longer side; a hospital's departments for its clinic rooms)
         const W0 = frame?.width ?? shape.W, D0 = frame?.depth ?? shape.D;
-        const depts = hospital ? await fetch(`/api/realestate/hospital-departments?${new URLSearchParams({ lat: String(lat), lon: String(lon), name: info.name ?? e.name })}`).then(r => r.ok ? r.json() : null).catch(() => null) : null;
+        const depts = hospital ? await fetch(`/api/realestate/hospital-departments?${new URLSearchParams({ lat: String(lat), lon: String(lon), name: info.name ?? e.name })}`, { signal: AbortSignal.timeout(18000) }).then(r => r.ok ? r.json() : null).catch(() => null) : null;
         // (the plan's frame: the survey's — x east from its corner, z south — else the footprint's own)
         const fx0 = Math.min(...(e.foot ?? [[0, 0]]).map(p => p[0])), fy1 = Math.max(...(e.foot ?? [[0, 0]]).map(p => p[1]));
         const toPlan = frame ? (x: number, y: number): [number, number] => [x - origin[0], frame.depth - (y - origin[1])] : (x: number, y: number): [number, number] => [x - fx0, fy1 - y];
@@ -365,7 +405,8 @@ export default function WalkPage() {
           toPlan, foot: e.foot, entry: toPlan(e.x, e.y), campus: hospital && e.campus?.length ? e.campus : undefined,
           departments: ((depts?.departments ?? []) as { name: string; doctors: number }[]).sort((a, c) => c.doctors - a.doctors).map(d => d.name), key: `${pnu ?? ""}|${info.name ?? e.name}`,
           survey: frame && survey?.id ? { id: survey.id, frame, outline: survey.outlines?.map(p => p.map(r => r.map(([x, y]) => [x - frame.x, frame.depth - (y - frame.y)] as [number, number]))) ?? null, entry: [e.x - origin[0], frame.depth - (e.y - origin[1])] } : undefined };
-        openFacility(plan.levels.includes(1) ? 1 : plan.levels[0] ?? 1);
+        const requested = Number(q.get("f") ?? 1);
+        openFacility(plan.levels.includes(requested) ? requested : plan.levels.includes(1) ? 1 : plan.levels[0] ?? 1);
         return;
       }
       let stackReq:Promise<{status:string;level?:number;cores?:{type:string;polygons:[number,number][][][]}[]}|null>|null=null,deptReq:Promise<{departments?:{name:string;doctors:number}[]}|null>|null=null;
@@ -453,6 +494,7 @@ export default function WalkPage() {
     it.load().then(() => {
       if (interior.current !== it) return;
       it.start(); setPhase("interior");
+      if (shareBase.current) history.replaceState(history.state, "", shareBase.current + (level === 1 ? "" : `&f=${level}`));
       setTimeout(() => setFade(false), 120);
     }).catch(err => { console.error(err); setError("건물 내부를 만들지 못했습니다: " + String(err)); setPhase("error"); });
   };
@@ -461,11 +503,11 @@ export default function WalkPage() {
   const exitBuilding = () => {
     document.exitPointerLock?.();
     building.current?.dispose(); building.current = null; setBhud(null); setLiftPanel(null);setTalk(null);
-    if (game.current && entering) { game.current.returnFromInterior(entering); setPhase("outdoor"); setNear(null); }
+    if (game.current && entering) { game.current.returnFromInterior(entering); history.replaceState(history.state, "", outdoorUrl.current); shareBase.current = null; setPhase("outdoor"); setNear(null); }
     else leave();
   };
 
-  const leave = () => { const b = q.get("back"); if (b && b.startsWith("/")) location.href = b; else if (history.length > 1) history.back(); else location.href = "/realestate-map"; };
+  const leave = () => { const b = returnTo.current ?? safeWalkBack(q.get("back")); if (b) location.href = b; else if (history.length > 1) history.back(); else location.href = "/realestate-map"; };
 
   // keys the page owns: Esc leaves (back to the street, then the map), E enters a building
   const exiting = useRef(false), lastEscape = useRef(-Infinity), unlockedAt = useRef(-Infinity), escapeHandled = useRef(false);
@@ -677,6 +719,7 @@ export default function WalkPage() {
               <div className="wk-where"><b>{plan.facility.name} · {plan.facility.levelLabel}</b><span>{hud?.room} · {FACILITY_LABEL[plan.facility.kind]} · 사람 {interior.current?.people?.count ?? 0}명</span></div>
               <div className="wk-meta" title={bsource}><span className="wk-badge">추정 공간</span>{plan.template} · {plan.facility.use ? `층 용도: ${plan.facility.use}` : plan.basis.rooms} · 실내 배치는 추정 · {bsource}</div>
               <div className="wk-actions">
+                <button className="wk-btn" onClick={copyLink}>{copyStatus || "링크 복사"}</button>
                 <button className="wk-btn" onClick={() => { setLiftPanel({ levels: fac.current?.levels ?? [], current: plan.facility!.level }); document.exitPointerLock?.(); }}>🛗 층 이동</button>
                 <button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>
                 <button className="wk-btn" onClick={exitFlat}>나가기 <kbd>Esc</kbd></button>
@@ -724,6 +767,7 @@ export default function WalkPage() {
             <div className="wk-where"><b>{bhud?.building ?? entering?.name} · {bhud?.floor}</b><span>{bhud?.uses || "층별 용도 정보 없음"} · 사람 {bhud?.people ?? 0}명</span></div>
             <div className="wk-meta" title={bsource}><span className="wk-badge">{bhud?.source?.includes("공간 구획")?"구획 데이터":bhud?.source?.startsWith("SGIS")?"외곽만 실측":"추정 공간"}</span>{bhud?.source} · {bsource}</div>
             <div className="wk-actions">
+              <button className="wk-btn" onClick={copyLink}>{copyStatus || "링크 복사"}</button>
               <button className="wk-btn" disabled={!bhud?.lifts} onClick={()=>building.current?.guideToLift()}>엘리베이터 길 안내 ({bhud?.lifts??0})</button>
               <button className="wk-btn" onClick={() => building.current?.toggleView()}>{bhud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>
               <button className="wk-btn" onClick={exitBuilding}>나가기 <kbd>Esc</kbd></button>

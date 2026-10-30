@@ -120,6 +120,17 @@ async function pagedFeatures(page:(n:number)=>Promise<Feature[]>):Promise<Featur
 }
 const polygons = (g: Feature["geometry"]): number[][][][] =>
   g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : [];
+/** Building-only lookup for short walk links: no terrain, road or 3D scene download. */
+export async function vworldWalkFootprints(lat: number, lon: number, key: string, domain = "https://kospimap.com"): Promise<import("../walkmode/walkLink").WalkFootprint[]> {
+  const kx = Math.cos(lat * Math.PI / 180) * 111320, r = 350;
+  const box = `BOX(${lon - r / kx},${lat - r / 110540},${lon + r / kx},${lat + r / 110540})`;
+  const list = await pagedFeatures(page => call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true", key, domain, data: "LT_C_BLDGINFO", geomFilter: box, size: 1000, page }).then(features));
+  return list.filter(f => hasAboveGroundEvidence(f.properties)).flatMap(f => polygons(f.geometry).map((p, i) => ({
+    id: `${f.id ?? JSON.stringify(p[0])}:${i}`, pnu: String(f.properties.pnu ?? ""),
+    name: String(f.properties.bld_nm || f.properties.dong_nm || "건물").trim(), floors: Number(f.properties.grnd_flr) || 1,
+    use: String(f.properties.usability ?? ""), ring: p[0].map(([x, y]) => [x, y] as [number, number]),
+  })));
+}
 const area = (r: Ring) => r.reduce((s, [x1, y1], i) => { const [x2, y2] = r[(i + 1) % r.length]; return s + x1 * y2 - x2 * y1; }, 0) / 2;
 const centroid = (r: Ring): [number, number] => [r.reduce((s, p) => s + p[0], 0) / r.length, r.reduce((s, p) => s + p[1], 0) / r.length];
 function inside([x, y]: [number, number], r: Ring) {

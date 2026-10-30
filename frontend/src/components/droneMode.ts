@@ -23,6 +23,7 @@ import {frameSlice} from './frameSlice';
 import {CoastGeometryJobs} from './coastGeometryJobs';
 import {syncGroundRelief} from './roadDrape';
 import { applyViewFov, cameraControlsPaused, viewPreferences } from "../walkmode/viewPreferences";
+import { rememberWalkEntry, walkAnchor, walkLink } from "../walkmode/walkLink";
 
 /* 드론 mode of the 3D view (ComplexHologram): the flight, the world streamed round it and the
  * sound, set up over the view's own scene and taken down again. While it lasts:
@@ -735,8 +736,7 @@ export class DroneSession {
   private openInside(ring: [number, number][], doorX: number, doorY: number, heading: number): boolean {
     const c = this.p.data.center; if (!c) return false;
     const kx = Math.cos(c.lat * Math.PI / 180) * 111_320, ky = 110_540;
-    const ll = (x: number, y: number) => `${(c.lon + x / kx).toFixed(7)},${(c.lat + y / ky).toFixed(7)}`;
-    const [lon, lat] = ll(doorX, doorY).split(",");
+    const ll = (x: number, y: number): [number, number] => [c.lon + x / kx, c.lat + y / ky];
     const back = new URLSearchParams(location.search);
     // (out again in front of this building: where the door was, facing it)
     const fx = ring.reduce((t, p) => t + p[0], 0) / ring.length - doorX, fy = ring.reduce((t, p) => t + p[1], 0) / ring.length - doorY, fl = Math.hypot(fx, fy) || 1;
@@ -746,10 +746,10 @@ export class DroneSession {
     // hospital's or a campus's other blocks, for its ground floor as one — WalkPage keeps them only
     // for such a building)
     const campus = this.campusOf(ring, doorX, doorY);
-    const q = new URLSearchParams({ enter: "1", lat, lon, heading: String(heading),
-      foot: ring.slice(0, 60).map(([x, y]) => ll(x, y)).join(";"), back: location.pathname + "?" + back.toString() + location.hash });
-    if (campus.length) q.set("campus", campus.map(r => r.slice(0, 40).map(([x, y]) => ll(x, y)).join(";")).join("|"));
-    location.href = `/walk?${q}`;
+    const foot = ring.map(([x, y]) => ll(x, y)), [lat, lon] = walkAnchor(foot);
+    rememberWalkEntry({ lat, lon, foot, campus: campus.map(r => r.map(([x, y]) => ll(x, y))),
+      door: ll(doorX, doorY), heading, name: "", floors: 0, back: location.pathname + "?" + back.toString() + location.hash });
+    location.href = walkLink(lat, lon);
     return true;
   }
   /** 1인칭 ↔ 3인칭. */
