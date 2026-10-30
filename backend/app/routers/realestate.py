@@ -253,6 +253,39 @@ def realestate_units(response: Response, id: str = Query(..., min_length=7, max_
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/floor-plans")
+def apartment_floor_plans(response: Response, name: str = Query(..., min_length=2, max_length=100),
+                          lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132),
+                          town: str = Query("", max_length=40), region: str = Query("", pattern=r"^\d{0,10}$")):
+    from app.services import realestate_floorplans
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return realestate_floorplans.catalogue(name, lat, lon, town, region)
+
+
+@router.get("/floor-plan-image")
+def apartment_floor_plan_image(naver_id: str = Query(..., pattern=r"^\d{1,10}$"), key: str = Query(..., pattern=r"^[a-f0-9]{24}$")):
+    from app.services import realestate_floorplans
+    try:
+        data, mime = realestate_floorplans.image(naver_id, key)
+    except (LookupError, ValueError):
+        raise HTTPException(404, "원본 도면을 찾을 수 없습니다.") from None
+    except Exception:
+        raise HTTPException(502, "원본 도면을 현재 불러올 수 없습니다.") from None
+    return Response(data, media_type=mime, headers={"Cache-Control":"public, max-age=86400", "X-Content-Type-Options":"nosniff"})
+
+
+@router.get("/floor-plan-analysis")
+def apartment_floor_plan_analysis(response: Response, naver_id: str = Query(..., pattern=r"^\d{1,10}$"), key: str = Query(..., pattern=r"^[a-f0-9]{24}$")):
+    from app.services import realestate_floorplans
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return realestate_floorplans.analyze(naver_id, key)
+    except (LookupError, ValueError):
+        raise HTTPException(404, "원본 도면을 찾을 수 없습니다.") from None
+    except Exception:
+        raise HTTPException(502, "도면을 분석하지 못했습니다. 원본 이미지를 확인해 주세요.") from None
+
+
 @router.get("/places")
 def realestate_places(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132), r: int = Query(300, ge=50, le=500)):
     """The shops and offices round a point (trading name, kind, place) for the walk mode's signs."""

@@ -78,17 +78,18 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
   const byId = new Map(plan.rooms.map(r => [r.id, r]));
   const segments: Seg[] = [], doors: DoorRig[] = [], windows: WindowInfo[] = [], ceilingLights: CeilingLight[] = [];
   const lampMeshes = new Map<number, THREE.MeshPhysicalMaterial[]>();
+  const imageWalls:{axis:"x"|"z";at:number;lo:number;hi:number;bottom:number;top:number;mat:THREE.Material;zone:number}[]=[];
   // each zone's lamps their own material (a switch dims only its room's)
   const lampMats = new Map<string, THREE.MeshPhysicalMaterial>();
   // (one material for every room's lamps: the shader dims each by its vertices' zone — lightZones.ts)
   const lampMat = (_zone: number, base: THREE.MeshPhysicalMaterial) => base;
   void lampMats;
-  const wet = (r: Room) => r.type === "bathroom" || r.type === "ensuite" || r.type === "restroom";
+  const wet = (r: Room) => ["bathroom","ensuite","restroom"].includes(r.surfaceType??r.type);
   // (a building's public floors — its lobby, corridors, waiting areas, galleries, its shops — in the
   // stone of the main floor; its work rooms in the rooms' floor)
   const PUBLIC = new Set<string>(["lobby", "corridor", "liftHall", "waiting", "service", "gallery", "shop", "cafe", "pharmacy"]);
   const floorMat = (r: Room) => wet(r) || r.type === "utility" ? P.floorWet : finishOf(r, "floor", finishes) ?? (r.type === "entrance" ? P.floorEntry
-    : r.type === "living" || r.type === "kitchen" || r.type === "hall" || PUBLIC.has(r.type) ? P.floorMain : P.floorRoom);
+    : ["living","kitchen","hall"].includes(r.surfaceType??r.type) || PUBLIC.has(r.type) ? P.floorMain : P.floorRoom);
   // the living room's 아트월: its side wall without openings (the TV goes there)
   const living = plan.rooms.find(r => r.type === "living");
   const accentSide = living ? sidesOf(living).filter(s => s.axis === "x").find(s => !plan.openings.some(o => (o.a === living.id || o.b === living.id) && o.axis === "x" && Math.abs(o.at - s.line) < 1e-6))?.name : undefined;
@@ -118,16 +119,19 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
     const zone = zoneOf(r), fy = -(r.floorDrop ?? 0);
     const [x0, z0, x1, z1] = r.rect;
     for (const s of sidesOf(r)) {
-      const ops = plan.openings.filter(o => (o.a === r.id || o.b === r.id) && o.axis === s.axis && Math.abs(o.at - s.line) < 1e-6);
-      const lo = s.lo + e, hi = s.hi - e;
+      const ops = plan.openings.filter(o => (o.a === r.id || o.b === r.id || (plan.imageAnalysis&&(byId.get(o.a)?.zone===r.zone||byId.get(o.b)?.zone===r.zone))) && o.axis === s.axis && Math.abs(o.at - s.line) < 1e-6 && o.center+o.width/2>s.lo+.001 && o.center-o.width/2<s.hi-.001);
+      const lo = s.lo + (plan.imageAnalysis?0:e), hi = s.hi - (plan.imageAnalysis?0:e);
       const holes: [number, number, number, number][] = [];
       const mat = wallMat(r, s);
       for (const o of ops) {
-        const a0 = Math.max(lo, o.center - o.width / 2), a1 = Math.min(hi, o.center + o.width / 2);
-        if (a1 - a0 < 0.05) continue;
+        const clipped0=Math.max(lo,o.center-o.width/2),clipped1=Math.min(hi,o.center+o.width/2);
+        if (clipped1 - clipped0 < 0.001) continue;
+        const a0=plan.imageAnalysis?o.center-o.width/2:clipped0,a1=plan.imageAnalysis?o.center+o.width/2:clipped1;
         const bottom = o.type === "open" ? Math.max(fy, 0) : o.sill, top = Math.min(H, o.sill + o.height);
         const bot = o.type === "open" || o.type === "glass_door" ? (r.floorDrop ? 0 : fy) : bottom;
         holes.push([a0, a1, bot, top >= H - 0.01 ? H + 1 : top]);
+        // Image decomposition seams are continuous floor, not structural jambs/posts.
+        if(plan.imageAnalysis&&o.type==="open")continue;
         // reveals: drawn once, from the opening's first room
         if (o.a !== r.id) continue;
         const out = o.b === "out";
@@ -142,7 +146,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
         if (top < H - 0.01) quadAuto(B, revealMat, zone, [s.at(a0, top, dIn), s.at(a1, top, dIn), s.at(a1, top, dOut), s.at(a0, top, dOut)], new THREE.Vector3(0, -1, 0), [[a0, dIn], [a1, dIn], [a1, dOut], [a0, dOut]]);
         // sill / threshold
         const sillMat = out ? P.sill : (byId.get(o.b)?.type === "bathroom" || byId.get(o.b)?.type === "ensuite" || wet(r) || o.type === "glass_door") ? P.threshold : floorMat(r);
-        const sy = out ? o.sill : Math.max(bot, 0) > 0 ? bot : 0;
+        const sy = (out ? o.sill : Math.max(bot, 0) > 0 ? bot : 0)+(plan.imageAnalysis?.004:0);
         if (out && o.sill > 0.05) {
           // a marble sill a little proud of the wall
           const g = boxUV(new THREE.BoxGeometry(a1 - a0 + 0.06, 0.025, e - dOut + 0.04));
@@ -154,7 +158,8 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
       }
       // the wall face
       for (const [a0, a1, y0, y1] of rectMinusHoles(lo, hi, fy, H, holes)) {
-        quadAuto(B, mat, zone, [s.at(a0, y0, e), s.at(a1, y0, e), s.at(a1, y1, e), s.at(a0, y1, e)], s.inward, [[a0, y0], [a1, y0], [a1, y1], [a0, y1]]);
+        if(plan.imageAnalysis)imageWalls.push({axis:s.axis,at:s.line,lo:a0,hi:a1,bottom:y0,top:y1,mat,zone});
+        else quadAuto(B, mat, zone, [s.at(a0, y0, e), s.at(a1, y0, e), s.at(a1, y1, e), s.at(a0, y1, e)], s.inward, [[a0, y0], [a1, y0], [a1, y1], [a0, y1]]);
       }
       // 걸레받이 along the floor (not across doorways), none on tiled walls
       if (!wet(r)) {
@@ -174,24 +179,50 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
       const pass = ops.filter(o => isDoorish(o) && o.type !== "front_door").map(o => [Math.max(lo, o.center - o.width / 2), Math.min(hi, o.center + o.width / 2)] as [number, number]).sort((p, q) => p[0] - q[0]);
       let a = lo - 0.0;
       const solid: [number, number][] = [];
-      for (const [g0, g1] of pass) { if (g0 > a) solid.push([a, g0]); a = Math.max(a, g1); }
-      if (hi > a) solid.push([a, hi]);
-      for (const [b0, b1] of solid) { const p = s.at(b0, 0, e), q = s.at(b1, 0, e); segments.push([p.x, p.z, q.x, q.z]); }
+      for (const [g0, g1] of pass) { if (g0 > a+.002) solid.push([a, g0]); a = Math.max(a, g1); }
+      if (hi > a+.002) solid.push([a, hi]);
+      // Rounded OCR coordinates can leave a 0.05 mm remnant. A zero-length wall
+      // segment still acts as a body-radius collision post and seals a doorway.
+      for (const [b0, b1] of solid) { if(b1-b0<.002)continue;const p = s.at(b0, 0, e), q = s.at(b1, 0, e); segments.push([p.x, p.z, q.x, q.z]); }
     }
     // floor
-    quadAuto(B, floorMat(r), zone, [new THREE.Vector3(x0 + e, fy, z0 + e), new THREE.Vector3(x1 - e, fy, z0 + e), new THREE.Vector3(x1 - e, fy, z1 - e), new THREE.Vector3(x0 + e, fy, z1 - e)], new THREE.Vector3(0, 1, 0),
+    const floorInset=plan.imageAnalysis?0:e;
+    quadAuto(B, floorMat(r), zone, [new THREE.Vector3(x0 + floorInset, fy, z0 + floorInset), new THREE.Vector3(x1 - floorInset, fy, z0 + floorInset), new THREE.Vector3(x1 - floorInset, fy, z1 - floorInset), new THREE.Vector3(x0 + floorInset, fy, z1 - floorInset)], new THREE.Vector3(0, 1, 0),
       [[x0 + e, -(z0 + e)], [x1 - e, -(z0 + e)], [x1 - e, -(z1 - e)], [x0 + e, -(z1 - e)]]);
     ceiling(r, zone);
   }
 
+  // Image rooms share one wall topology. Solid thickness and end caps meet at the
+  // same centre-line vertices, including T junctions; per-rectangle face insets left
+  // cracks and unsupported posts. Union the two observations before building once.
+  const lines=new Map<string,typeof imageWalls>();
+  for(const p of imageWalls){const key=`${p.axis}:${p.at.toFixed(4)}`,group=lines.get(key)??[];group.push(p);lines.set(key,group);}
+  for(const group of lines.values()){
+    const cuts=[...new Set(group.flatMap(p=>[p.lo,p.hi]))].sort((a,b)=>a-b);
+    const levels=[...new Set(group.flatMap(p=>[p.bottom,p.top]))].sort((a,b)=>a-b);
+    for(let i=1;i<cuts.length;i++)for(let j=1;j<levels.length;j++){
+      const a=cuts[i-1],b=cuts[i],bottom=levels[j-1],top=levels[j];
+      if(b-a<.001||top-bottom<.001)continue;
+      const p=group.find(p=>p.lo<=(a+b)/2&&p.hi>=(a+b)/2&&p.bottom<=(bottom+top)/2&&p.top>=(bottom+top)/2);if(!p)continue;
+      const g=boxUV(new THREE.BoxGeometry(p.axis==="x"?2*e:b-a,top-bottom,p.axis==="x"?b-a:2*e));
+      B.add(p.mat,p.zone,g,new THREE.Matrix4().makeTranslation(p.axis==="x"?p.at:(a+b)/2,(bottom+top)/2,p.axis==="x"?(a+b)/2:p.at));g.dispose();
+    }
+  }
+
   // ---------------------------------------------------------------- ceilings and their lamps
   function ceiling(r: Room, zone: number) {
-    const [x0, z0, x1, z1] = r.rect, X0 = x0 + e, X1 = x1 - e, Z0 = z0 + e, Z1 = z1 - e, W = X1 - X0, D = Z1 - Z0;
+    const inset=plan.imageAnalysis?0:e;
+    const [x0, z0, x1, z1] = r.rect, X0 = x0 + inset, X1 = x1 - inset, Z0 = z0 + inset, Z1 = z1 - inset, W = X1 - X0, D = Z1 - Z0;
     const down = new THREE.Vector3(0, -1, 0), cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
     const ceilQuads = (holes: [number, number, number, number][], y: number) => {
       for (const [a0, a1, b0, b1] of rectMinusHoles(X0, X1, Z0, Z1, holes))
         quadAuto(B, P.ceiling, zone, [new THREE.Vector3(a0, y, b0), new THREE.Vector3(a1, y, b0), new THREE.Vector3(a1, y, b1), new THREE.Vector3(a0, y, b1)], down, [[a0, b0], [a1, b0], [a1, b1], [a0, b1]]);
     };
+    if (plan.imageAnalysis) {
+      const area=(q:Room)=>(q.rect[2]-q.rect[0])*(q.rect[3]-q.rect[1]);
+      const lead=plan.rooms.filter(q=>q.zone===r.zone).reduce((a,b)=>area(b)>area(a)?b:a,r);
+      if(lead!==r){ceilQuads([],H);return;}
+    }
     if (r.type === "living" && W > 2.6 && D > 2.6) {
       // 우물천장: a recess with hidden cove light round its lip, and 매입등 round the room
       const m = 0.5, R0 = X0 + m, R1 = X1 - m, S0 = Z0 + m, S1 = Z1 - m, up = 0.14;
@@ -432,7 +463,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
     // the leaf faces: its local z must point across the wall
     leaf.rotation.y = 0;
     // (in a building the rooms off the corridor stand open — not the toilets, stores, plant or stair)
-    const startOpen = !front && (r.type === "bedroom" || r.type === "master" || o.b === "hall" || r.type === "utility"
+    const startOpen = !front && (r.type === "bedroom" || r.type === "master" || (plan.imageAnalysis&&["bedroom","master"].includes(byId.get(o.b)?.type??"")) || o.b === "hall" || r.type === "utility"
       || (facility && !["restroom", "storage", "plant", "stair", "guest"].includes(r.type)));
     const rig: DoorRig = { opening: o, kind: front ? "front" : "swing", pivot, leaf, t: startOpen ? 1 : 0, want: startOpen ? 1 : 0, closedYaw, openYaw, hinge: [hp.x, hp.z], length: glassy ? lw / 2 : lw, label, zone };
     pivot.rotation.y = startOpen ? openYaw : closedYaw;

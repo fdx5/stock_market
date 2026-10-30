@@ -24,7 +24,7 @@ ENV AUDIENCE_GEOIP_PATH=/app/geoip/dbip-city-lite-2026-10.mmdb
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs fonts-noto-cjk \
+    && apt-get install -y --no-install-recommends nodejs fonts-noto-cjk tesseract-ocr tesseract-ocr-eng tesseract-ocr-kor \
     && npm install -g @anthropic-ai/claude-code \
     && npm cache clean --force \
     && apt-get clean && rm -rf /var/lib/apt/lists/*

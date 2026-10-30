@@ -41,3 +41,5 @@ cryptography==46.0.1
 # prediction batch anchors both market calendars to Asia/Seoul and America/New_York,
 # so the lookup has to succeed in the container, not just on a dev machine.
 tzdata==2025.2
+# Free local interpretation of the one selected apartment drawing.
+opencv-python-headless==4.10.0.84

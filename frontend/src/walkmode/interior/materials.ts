@@ -14,6 +14,7 @@ export const SETS = {
   laminate_floor_02: 1.7, herringbone_parquet: 3.4, marble_white: 1.5, granite_tile: 2.3, plastered_wall_02: 2.23,
   poly_wool_herringbone: 0.27, rough_linen: 0.27, leather_white: 0.3, white_oak_veneer: 0.5, walnut_veneer: 1.8,
   velour_velvet: 0.28,
+  wool_boucle: .315, terrazzo_tiles: 2, beige_wall_001: 3, brown_leather: .4, concrete_floor_02: 2,
   // (Poly Haven, CC0: floors and tiles for the further styles — each style downloads only its own)
   laminate_floor_03: 2.08, diagonal_parquet: 2.36, rectangular_parquet: 2.25, wood_floor: 1.7, plank_flooring_02: 1.98, wooden_floor_02: 1.94,
   marble_tiles: 2.0, large_grey_tiles: 3.0, long_white_tiles: 1.27, square_tiles_02: 2.4, floor_tiles_06: 3.0, marble_mosaic_tiles: 2.0, large_floor_tiles_02: 3.0,
@@ -145,7 +146,7 @@ export interface Palette {
   threshold: THREE.Material; grout: THREE.Material;
 }
 
-export const STYLE_LABEL: Record<StyleName, string> = { modern_white: "모던 화이트", wood_natural: "우드 내추럴", gray_minimal: "그레이 미니멀", classic_walnut: "클래식 월넛", nordic_bright: "북유럽 화이트우드", hotel_dark: "호텔 다크", vintage_warm: "빈티지 웜" };
+export const STYLE_LABEL: Record<StyleName, string> = { modern_white: "모던 화이트", wood_natural: "우드 내추럴", gray_minimal: "그레이 미니멀", classic_walnut: "클래식 월넛", nordic_bright: "북유럽 화이트우드", hotel_dark: "호텔 다크", vintage_warm: "빈티지 웜", japandi: "재팬디 오크", sage_terrazzo: "세이지 테라조", urban_loft: "어반 로프트", cream_boucle: "크림 부클레", coastal_blue: "코스탈 블루" };
 export const STYLE_SETS: Record<StyleName, SetName[]> = {
   modern_white: ["long_white_tiles", "large_floor_tiles_02"],
   wood_natural: ["square_tiles_02"],
@@ -154,6 +155,11 @@ export const STYLE_SETS: Record<StyleName, SetName[]> = {
   nordic_bright: ["laminate_floor_03", "plank_flooring_02", "square_tiles_02", "long_white_tiles"],
   hotel_dark: ["large_grey_tiles", "wooden_floor_02", "marble_tiles", "large_floor_tiles_02"],
   vintage_warm: ["diagonal_parquet", "laminate_floor_03", "floor_tiles_06", "marble_mosaic_tiles"],
+  japandi: ["laminate_floor_03", "beige_wall_001", "wool_boucle", "square_tiles_02"],
+  sage_terrazzo: ["terrazzo_tiles", "beige_wall_001", "laminate_floor_03"],
+  urban_loft: ["concrete_floor_02", "brown_leather", "large_grey_tiles"],
+  cream_boucle: ["wool_boucle", "beige_wall_001", "marble_tiles", "laminate_floor_03"],
+  coastal_blue: ["plank_flooring_02", "terrazzo_tiles", "beige_wall_001"],
 };
 
 export function makePalette(lib: Library, style0: StyleName): Palette {
@@ -224,6 +230,48 @@ export function makePalette(lib: Library, style0: StyleName): Palette {
   };
   // (made for the flat's style only: the others' textures are not downloaded)
   const O: Partial<Record<StyleName, () => Partial<Palette>>> = {
+    japandi: () => ({
+      floorMain: L.textured("laminate_floor_03", {color:"#d7c2a2",roughnessScale:.95,clearcoat:.08}),
+      floorRoom: L.textured("laminate_floor_03", {color:"#e3cfb0",roughnessScale:.95}),
+      wall: L.textured("beige_wall_001", {color:"#e7dcc8",normalScale:.22,roughnessScale:1}),
+      wallAccent: L.textured("white_oak_veneer", {color:"#cdb28c",normalScale:.4,roughnessScale:.9}),
+      cabinet: L.textured("white_oak_veneer", {color:"#d2b58e",roughnessScale:.85}), cabinetUpper:paint("#d4c8b5"),
+      fabricSofa:L.textured("wool_boucle",{color:"#ded3bf",sheen:.65,normalScale:.65}),
+      rug:L.textured("wool_boucle",{color:"#baaa8d",sheen:.5,normalScale:.8}),
+      floorWet:L.textured("square_tiles_02",{color:"#c9bda8",roughnessScale:.95}),
+      door:L.textured("white_oak_veneer",{color:"#c9ae89",roughnessScale:.9}),handle:L.plain({color:"#3a3732",metalness:.8,roughness:.38}),
+    }),
+    sage_terrazzo: () => ({
+      floorMain:L.textured("laminate_floor_03",{color:"#d8cab3",roughnessScale:.85}),
+      floorWet:L.textured("terrazzo_tiles",{color:"#e5dcd0",roughnessScale:.8,normalScale:.4}),
+      floorEntry:L.textured("terrazzo_tiles",{color:"#d5c8b6",roughnessScale:.85}),
+      wall:L.textured("beige_wall_001",{color:"#dfded0",normalScale:.15}),wallAccent:paint("#a0b09b"),
+      cabinet:paint("#7f9781",.65),cabinetUpper:paint("#e3ddcf",.7),counter:L.textured("terrazzo_tiles",{color:"#ebe4d8",normalScale:.3,roughnessScale:.65}),
+      fabricSofa:L.textured("rough_linen",{color:"#b6b79d",sheen:.55}),appliance:L.plain({color:"#c6c7bb",roughness:.4,clearcoat:.25}),
+    }),
+    urban_loft: () => ({
+      floorMain:L.textured("concrete_floor_02",{color:"#b7b4ad",useMap:false,roughnessScale:.92,normalScale:.35}),
+      floorRoom:L.textured("walnut_veneer",{color:"#8e7460",roughnessScale:.8}),
+      wall:L.textured("concrete_floor_02",{color:"#ccc8bd",useMap:false,normalScale:.16,roughnessScale:1}),wallAccent:paint("#666b6b"),
+      floorWet:L.textured("large_grey_tiles",{color:"#8a8983",roughnessScale:.9}),
+      fabricSofa:L.textured("brown_leather",{color:"#d4b89c",roughnessScale:.8,clearcoat:.12}),leather:L.textured("brown_leather",{roughnessScale:.85}),
+      cabinet:paint("#414745",.7),cabinetUpper:L.textured("walnut_veneer",{color:"#ae8f72",roughnessScale:.85}),
+      appliance:L.plain({color:"#606568",roughness:.4,metalness:.65}),door:paint("#5c625f",.7),winFrame:paint("#353a38",.5),
+    }),
+    cream_boucle: () => ({
+      floorMain:L.textured("laminate_floor_03",{color:"#e7d8bf",roughnessScale:.9}),floorRoom:L.textured("laminate_floor_03",{color:"#e2cfaf",roughnessScale:.9}),
+      wall:L.textured("beige_wall_001",{color:"#e6d9c6",normalScale:.18}),wallAccent:paint("#c4ad94"),
+      fabricSofa:L.textured("wool_boucle",{color:"#e3d9c9",sheen:.65,normalScale:.7}),fabricBed:L.textured("wool_boucle",{color:"#f1e6d5",sheen:.6,normalScale:.5}),
+      rug:L.textured("wool_boucle",{color:"#c9b99f",sheen:.6,normalScale:1}),
+      floorWet:L.textured("marble_tiles",{color:"#d4c8b4",roughnessScale:.7}),cabinet:paint("#d7c6ad",.6),cabinetUpper:paint("#e8dece",.7),
+      appliance:L.plain({color:"#d6c9b5",roughness:.4,clearcoat:.35}),handle:L.plain({color:"#b49b74",metalness:.8,roughness:.3}),
+    }),
+    coastal_blue: () => ({
+      floorMain:L.textured("plank_flooring_02",{color:"#e0d7c4",roughnessScale:.9}),floorRoom:L.textured("plank_flooring_02",{color:"#d8c9ad",roughnessScale:.9}),
+      wall:L.textured("beige_wall_001",{color:"#dedfd7",normalScale:.15}),wallAccent:paint("#8ea9af"),cabinet:paint("#668793",.65),cabinetUpper:paint("#deded4",.65),
+      floorWet:L.textured("terrazzo_tiles",{color:"#c7d3d0",roughnessScale:.8}),fabricSofa:L.textured("rough_linen",{color:"#829da8",sheen:.5}),
+      drape:L.textured("rough_linen",{color:"#c6d1ce",side:THREE.DoubleSide,sheen:.5}),appliance:L.plain({color:"#bac8c9",roughness:.45,clearcoat:.2}),
+    }),
     // the first three: their bathrooms and appliances
     modern_white: () => ({
       wallWet: L.textured("long_white_tiles", { color: "#ffffff", roughnessScale: 0.4, clearcoat: 0.8, clearcoatRoughness: 0.05, ao: 0.6 }),

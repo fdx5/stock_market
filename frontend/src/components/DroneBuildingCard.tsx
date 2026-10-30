@@ -52,6 +52,12 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
     setParcel(null);
     setMarket(null); setMarketState('loading'); setMarketType(null);
     let marketStarted = false;
+    // A user opened this complex's card: warm only its drawing catalogue. No image or
+    // analysis is requested until a dwelling type is selected for the interior.
+    if(sign.kind==="apt"&&sign.info?.complexId&&/^\d{5}:/.test(sign.info.complexId)){
+      const parts=sign.info.complexId.split(":");
+      void fetch(`/api/realestate/floor-plans?${new URLSearchParams({name:parts.slice(3).join(":"),town:parts[1],region:parts[0],lat:String(at.lat),lon:String(at.lon)})}`,{signal:stop.signal}).catch(()=>undefined);
+    }
     // A collected complex already has an exact identity. Apartment details must not depend on
     // a reverse-geocoder finding a parcel beneath a label between its apartment towers.
     if (sign.info?.complexId) {

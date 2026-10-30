@@ -24,6 +24,8 @@ import { People } from "./facilityPeople";
 import type { Spot } from "./facilityFurnish";
 import { withKitGeometryCache } from "./models";
 import { applyViewFov, viewPreferences } from "../viewPreferences";
+import { furnitureFootprints, walkingSpawn } from "./spawn";
+import { InteriorSafetyError, interiorReachability } from "./navigation";
 
 /* The interior: a flat built from its plan, furnished, lit and walked through. One renderer (the
  * page's); its output resolution is set once on entry and kept. Everything that could cost a frame
@@ -275,6 +277,7 @@ export class Interior {
     for (const m of furnMeshes) this.static.add(m);
     t = mark("furnish", t);
     this.segs = [...this.shell.segments, ...this.furn.colliders];
+    this.furnitureBounds=furnitureFootprints(this.furn.colliders);
     this.grid = new SegGrid(this.segs);
     if (this.large) {
       const add = (o: THREE.Object3D, far: number) => {
@@ -302,7 +305,7 @@ export class Interior {
     const sunS = sunAt(this.o.hour);
     if (this.o.view) this.scene.background = this.o.view;
     else { this.viewRT = paintedView(this.renderer, this.o.hour, plan.floor * 2.9 + 1.5, plan.complexId.length + plan.floor); this.scene.background = this.viewRT.texture; }
-    this.scene.backgroundIntensity = plan.facility ? .9 + (1 - sunS.night) * .35 : 1.25 + (1 - sunS.night) * .9;
+    this.scene.backgroundIntensity = plan.facility ? .9 + (1 - sunS.night) * .35 : 1.05 + (1 - sunS.night) * .45;
     // mirrors that reflect (the bathroom cabinets)
     for (const mr of this.furn.mirrors) {
       const r = new Reflector(new THREE.PlaneGeometry(mr.w, mr.h), { textureWidth: 1024, textureHeight: Math.round(1024 * mr.h / mr.w), color: 0xc9cdd0, clipBias: 0.002, multisample: 4 });
@@ -353,6 +356,14 @@ export class Interior {
     P(0.72, "셰이더를 준비하는 중");
     this.setupPost();
     this.placeAtEntrance();
+    if(!plan.facility){
+      const saved=this.shell.doors.map(d=>({d,rotation:d.pivot.rotation.y,position:d.leaf.position.clone()}));
+      for(const {d} of saved)if(d.kind!=="front"){if(d.kind==="slide")d.leaf.position.copy(d.slideTo!);else d.pivot.rotation.y=d.openYaw;}
+      const openDoors=this.doorSegs();
+      for(const {d,rotation,position} of saved){d.pivot.rotation.y=rotation;d.leaf.position.copy(position);}
+      const blocked=interiorReachability(plan,[...this.segs,...openDoors],this.furn.colliders,[this.pos.x,this.pos.y]);
+      if(blocked.length)throw new InteriorSafetyError(`가구·문 배치 후 통행을 확보하지 못한 공간: ${[...new Set(blocked)].join(", ")}`);
+    }
     this.applyCamera(0);
     await nextFrame();
     // every texture to the GPU, every program compiled, now
@@ -433,7 +444,7 @@ export class Interior {
         const F = (2 / Math.PI) * (X / Math.sqrt(1 + X * X) * Math.atan(Y / Math.sqrt(1 + X * X)) + Y / Math.sqrt(1 + Y * Y) * Math.atan(X / Math.sqrt(1 + Y * Y)));
         intensity *= Math.max(1, (w * h / (Math.PI * c * c)) / Math.max(1e-4, F));
       }
-      if (this.o.plan.facility && down) intensity *= .75;
+      if (down) intensity *= this.o.plan.facility ? .75 : .85;
       const lamp: Lamp = { zone, pos: pos.clone(), look: down ? new THREE.Vector3(pos.x, pos.y - 1, pos.z) : pos.clone().add(inward!), w, h, color: new THREE.Color(color), base: intensity, window: windowIdx, now: intensity, k: 0 };
       this.lamps.push(lamp);
       return lamp;
@@ -480,7 +491,7 @@ export class Interior {
       if (r.type === "bathroom" || r.type === "ensuite" || r.type === "restroom") this.wetZones.add(z);
     }
     // the sun through the glass, with soft shadows
-    this.sun.color.copy(s.color); this.sun.intensity = s.intensity * (this.o.plan.facility ? .65 : 1);
+    this.sun.color.copy(s.color); this.sun.intensity = s.intensity * (this.o.plan.facility ? .65 : .75);
     const [x0, z0, x1, z1] = this.o.plan.bounds, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
     this.sun.position.set(cx + s.dir.x * 30, s.dir.y * 30, cz + s.dir.z * 30); this.sun.target.position.set(cx, 0, cz);
     this.sun.castShadow = s.intensity > 0;
@@ -499,7 +510,7 @@ export class Interior {
     const r = this.renderer;
     // (on: a previous interior on this renderer left it off, and its loading renders need the sun's shadow)
     r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFShadowMap; r.shadowMap.autoUpdate = true; r.shadowMap.needsUpdate = true;
-    r.toneMapping = THREE.NeutralToneMapping; r.toneMappingExposure = this.o.plan.facility ? .9 : 1;
+    r.toneMapping = THREE.NeutralToneMapping; r.toneMappingExposure = .9;
     r.outputColorSpace = THREE.SRGBColorSpace;
     const size = r.getDrawingBufferSize(new THREE.Vector2());
     // (the frame's own depth feeds the AO, its normals rebuilt from it: no second scene pass)
@@ -593,7 +604,15 @@ export class Interior {
   }
 
   private placeAtEntrance() {
-    const st = this.o.plan.facility?.start;
+    const plan=this.o.plan;
+    if(!plan.facility){
+      const room=plan.rooms.find(r=>r.type===(plan.imageAnalysis?"living":"entrance"))??plan.rooms[0];
+      const preferred:[number,number]=plan.imageAnalysis?.start.slice(0,2) as [number,number]??[(room.rect[0]+room.rect[2])/2,room.rect[1]+.65];
+      const safe=walkingSpawn(plan,this.shell.segments,this.furn.colliders,this.doorSegs(),preferred);
+      if(!safe)throw new InteriorSafetyError("가구와 벽을 피한 입장 공간을 확보하지 못했습니다. 다른 인테리어를 선택해 주세요.");
+      this.pos.set(safe[0],safe[1]);this.yaw=safe[2];this.vel.set(0,0);return;
+    }
+    const st = plan.facility?.start;
     if (st) { this.pos.set(st[0], st[1]); this.yaw = st[2]; return; }
     const entry = this.o.plan.rooms.find(r => r.type === "entrance") ?? this.o.plan.rooms[0];
     const hall = this.o.plan.openings.find(o => o.a === entry.id && o.b !== "out") ?? this.o.plan.openings.find(o => o.b === entry.id);
@@ -714,6 +733,7 @@ export class Interior {
     const restore = this.seated.label === "화면" ? this.screenLook : null;
     if (this.cat) this.cat.hold = null;
     this.pos.copy(this.seated.back); this.seated = null; this.avatar.pose = "stand";
+    this.recoverFurnitureOverlap();
     this.pitch = restore?.pitch ?? -.05; if (restore) this.yaw = restore.yaw;
     this.screenLook = null; this.shown.ease = restore ? .2 : .8; this.emitHud(true);
   }
@@ -772,8 +792,15 @@ export class Interior {
     this.perf.cpuMs = this.perf.cpuMs * 0.95 + (performance.now() - c0) * 0.05;
   };
 
+  private furnitureBounds:[number,number,number,number][]=[];
+  private recoverFurnitureOverlap(){
+    if(this.o.plan.facility||!this.furnitureBounds.some(([a,b,c,d])=>this.pos.x>a+.001&&this.pos.x<c-.001&&this.pos.y>b+.001&&this.pos.y<d-.001))return;
+    const safe=walkingSpawn(this.o.plan,this.shell.segments,this.furn.colliders,this.doorSegs(),[this.pos.x,this.pos.y]);
+    if(safe){this.pos.set(safe[0],safe[1]);this.vel.set(0,0);}
+  }
   private move(dt: number) {
     if (this.seated) { this.avatar.update(dt, 0); return; }
+    this.recoverFurnitureOverlap();
     const k = this.keys;
     let fx = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) + this.stick.x;
     let fz = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0) + this.stick.y;
@@ -931,7 +958,7 @@ export class Interior {
         const open = this.furn.curtainOpen.get(l.window)?.() ?? 1;
         const w = this.shell.windows[l.window];
         const facing = Math.max(0.35, 0.65 + 0.35 * -w.inward.dot(s.dir));
-        l.now = (this.o.plan.facility ? .75 : 1.2) * s.skyIntensity * open * facing;
+        l.now = (this.o.plan.facility ? .75 : .9) * s.skyIntensity * open * facing;
       } else if (l.tv) l.now += ((this.furn.tv?.on ? 1.3 : 0) - l.now) * Math.min(1, dt * 6);
       else l.now = l.base * (this.zoneLevel.get(l.zone) ?? 1);
     }

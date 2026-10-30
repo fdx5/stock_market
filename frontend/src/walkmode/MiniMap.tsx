@@ -19,6 +19,11 @@ export function roomNames(plan: FloorPlan): Map<string, string> {
   for (const r of plan.rooms) total[r.type] = (total[r.type] ?? 0) + 1;
   const baths = plan.rooms.filter(r => r.type === "bathroom" || r.type === "ensuite");
   for (const r of plan.rooms) {
+    if(plan.imageAnalysis){
+      const area=(q:typeof r)=>(q.rect[2]-q.rect[0])*(q.rect[3]-q.rect[1]);
+      const lead=plan.rooms.filter(q=>q.zone===r.zone).reduce((a,b)=>area(b)>area(a)?b:a,r);
+      if(lead!==r){out.set(r.id,"");continue;}
+    }
     const i = (n[r.type] = (n[r.type] ?? 0) + 1), many = (total[r.type] ?? 0) > 1;
     // (a building's rooms carry their own names — 원장실, 회의실 2, 약국)
     if (FACILITY_ROOMS.has(r.type)) { out.set(r.id, r.label); continue; }
@@ -99,7 +104,7 @@ export default function MiniMap({ plan, subject }: { plan: FloorPlan; subject: (
           <circle r={span * 0.018} fill="#5ef0ff" stroke="#fff" strokeWidth={span * 0.006} />
         </g>
       </svg>
-      <div className="wk-map-cap">평면도 · 추정 <kbd>M</kbd></div>
+      <div className="wk-map-cap">평면도 · {plan.source==="image_analysis"?"원본 이미지 분석":"추정"} <kbd>M</kbd></div>
     </div>
   );
 }

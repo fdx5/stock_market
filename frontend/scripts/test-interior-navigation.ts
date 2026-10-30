@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import { interiorReachability } from "../src/walkmode/interior/navigation";
+import { generatePlan } from "../src/walkmode/interior/plan/generate";
+import type { Seg } from "../src/walkmode/interior/build";
+const plan=generatePlan({complexId:"nav-test",complexName:"검사",dong:"101",unitType:"59",area:59.9});
+plan.bounds=[0,0,6,4];plan.rooms=[{id:"living",type:"living",label:"거실",zone:"a",rect:[0,0,3,4]},{id:"bed",type:"bedroom",label:"침실",zone:"b",rect:[3,0,6,4]}];
+const outside:Seg[]=[[0,0,6,0],[6,0,6,4],[6,4,0,4],[0,4,0,0]];
+assert.deepEqual(interiorReachability(plan,outside,[],[1,2]),[]);
+const sealed:Seg[]=[...outside,[3,0,3,4]];
+assert.deepEqual(interiorReachability(plan,sealed,[],[1,2]),["침실"]);
+const doorway:Seg[]=[...outside,[3,0,3,1.55],[3,2.45,3,4]];
+assert.deepEqual(interiorReachability(plan,doorway,[],[1,2]),[]);
+const cabinet:Seg[]=[[2.6,1.4,3.4,1.4],[3.4,1.4,3.4,2.6],[3.4,2.6,2.6,2.6],[2.6,2.6,2.6,1.4]];
+assert.deepEqual(interiorReachability(plan,[...doorway,...cabinet],cabinet,[1,2]),["침실"]);
+console.log("interior navigation: sealed wall and cabinet blockage rejected; open walking route PASS");

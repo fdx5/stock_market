@@ -14,6 +14,8 @@ export type Side = "n" | "s" | "e" | "w";
 export interface Room {
   id: string;
   type: RoomType;
+  /** Surface use for an image room's unfurnished decomposition pieces. */
+  surfaceType?: RoomType;
   label: string;
   /** an axis-aligned rectangle: [x0, z0, x1, z1] */
   rect: [number, number, number, number];
@@ -45,7 +47,9 @@ export interface Fixture {
 export interface FloorPlan {
   complexId: string; complexName: string; dong: string; unitType: string;
   areaExclusiveM2: number; ceilingHeightM: number;
-  source: "estimated_template" | "licensed_plan";
+  source: "estimated_template" | "licensed_plan" | "image_analysis";
+  imageAnalysis?: { key: string; typeName: string; sourceUrl: string; scaleBasis: string; elapsedMs: number; start: [number,number,number] };
+  averageFallback?: { bays:2|3|4; built:number|null; reason:string };
   template: string;
   basis: { area: string; rooms: string; households?: number | null; built?: number | null };
   bounds: [number, number, number, number];
@@ -56,6 +60,8 @@ export interface FloorPlan {
   check: { areaM2: number; error: number };
   style: StyleName;
   floor: number;
+  layoutCase?: number;
+  furnishingCase?: number;
   /** a building other than a flat: what it is, its floors, this one's, and what the plan rests on */
   facility?: {
     kind: FacilityKind; name: string; level: number; levelLabel: string; use: string;
@@ -73,7 +79,8 @@ export type FacilityRole = "desk" | "clerk" | "doctor" | "nurse" | "patient" | "
 /** what a floor of a building other than flats is given over to */
 export type FacilityKind = "office" | "clinic" | "ward" | "retail" | "food" | "school" | "gym" | "hotel" | "parking" | "plant" | "civic" | "museum";
 
-export type StyleName = "modern_white" | "wood_natural" | "gray_minimal" | "classic_walnut" | "nordic_bright" | "hotel_dark" | "vintage_warm";
+export const STYLE_NAMES = ["modern_white", "wood_natural", "gray_minimal", "classic_walnut", "nordic_bright", "hotel_dark", "vintage_warm", "japandi", "sage_terrazzo", "urban_loft", "cream_boucle", "coastal_blue"] as const;
+export type StyleName = typeof STYLE_NAMES[number];
 
 /** Unit types as the server sends them (the trade records' 전용면적, the register's own rows). */
 export interface UnitType { key: string; areaM2: number; trades: number; label: string; rooms?: number; baths?: number; source: string; households?: number; floors?: [number | null, number | null];

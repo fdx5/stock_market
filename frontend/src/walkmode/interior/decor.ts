@@ -98,12 +98,31 @@ export function bedV(P: Palette, w: number, l: number, v: number, C: BedCover): 
     k.push(rb(P.trim, w + 0.1, 0.32, l, 0.01, 0, 0.16, l / 2), rb(C.frame, w + 0.14, 0.7, 0.1, 0.04, 0, 0.75, 0.05, 4));
     for (const s of [-1, 1]) for (const z of [l * 0.3, l * 0.72]) k.push(bx(P.rubber, 0.004, 0.22, 0.6, s * (w / 2 + 0.051), 0.16, z), cy(P.handle, 0.008, 0.008, 0.12, s * (w / 2 + 0.06), 0.24, z, 8));
     top = 0.48;
-  } else {
+  } else if (v === 7) {
     // a cane-panel headboard in a wooden frame
     k.push(rb(wood, w + 0.1, 0.22, l, 0.01, 0, 0.22, l / 2), rb(wood, w + 0.16, 0.06, 0.06, 0.01, 0, 1.1, 0.03), rb(wood, 0.06, 1.1, 0.06, 0.01, -w / 2 - 0.05, 0.55, 0.03), rb(wood, 0.06, 1.1, 0.06, 0.01, w / 2 + 0.05, 0.55, 0.03));
     k.push(rb(C.frame, w + 0.04, 0.62, 0.012, 0.004, 0, 0.74, 0.03));
     for (let i = 0; i < 14; i++) k.push(bx(wood, w + 0.04, 0.004, 0.016, 0, 0.45 + i * 0.044, 0.035));
     top = 0.46;
+  } else if (v === 8) {
+    // arched upholstered headboard and rounded storage base
+    const shape=new THREE.Shape();shape.moveTo(-w/2,0);shape.lineTo(w/2,0);shape.lineTo(w/2,.7);shape.quadraticCurveTo(w/2,1.13,0,1.13);shape.quadraticCurveTo(-w/2,1.13,-w/2,.7);shape.closePath();
+    const g=boxUV(new THREE.ExtrudeGeometry(shape,{depth:.075,bevelEnabled:true,bevelSize:.018,bevelThickness:.018,bevelSegments:2,steps:1}));g.translate(0,.04,.015);k.push({m:C.frame,g});
+    k.push(rb(C.frame,w+.03,.3,l,.055,0,.19,l/2,4));top=.48;
+  } else if (v === 9) {
+    // Japanese slatted oak platform, separate two-panel linen head cushions
+    k.push(rb(wood,w+.04,.18,l,.015,0,.12,l/2));
+    for(let i=0;i<14;i++)k.push(bx(P.woodDark,w,.012,.018,0,.218,.1+i*(l-.2)/13));
+    for(const s of [-1,1])k.push(rb(C.frame,w/2-.025,.62,.08,.05,s*w/4,.59,.05,4));top=.37;
+  } else if (v === 10) {
+    // tailored leather sleigh with stitched vertical head panels and metal feet
+    k.push(rb(P.leather,w+.02,.24,l,.035,0,.23,l/2));
+    for(let i=0;i<4;i++)k.push(rb(C.frame,w/4-.009,.85,.1,.035,-w/2+(i+.5)*w/4,.68,.06,4));
+    for(const s of [-1,1])for(const z of [.12,l-.12])k.push(cy(P.handle,.015,.012,.14,s*(w/2-.07),.07,z,10));top=.48;
+  } else {
+    // low upholstered daybed: horizontal bolster, quilted foot and a tucked linen spread
+    k.push(rb(C.frame,w+.03,.3,l,.08,0,.18,l/2,4),rb(wood,w,.055,.045,.01,0,.74,.04));
+    const bolster=boxUV(new THREE.CylinderGeometry(.14,.14,w-.04,24));bolster.rotateZ(Math.PI/2);bolster.translate(0,.59,.14);k.push({m:C.runner,g:bolster});top=.4;
   }
   // the mattress, the duvet (folded back at the top), the pillows, a runner across the foot
   k.push(rb(C.sheet, w, 0.24, l - 0.12, 0.06, 0, top, l / 2 + 0.04, 4));

@@ -48,4 +48,20 @@ BigSoundBank(https://bigsoundbank.com, Joseph Sardin)의 CC0 녹음이다. 원�
 - 평형(전용면적): 국토교통부 아파트 매매 실거래가, 건축물대장 전유공용면적(`/api/realestate/units`)
 - 세대수: 공동주택관리정보(K-apt)
 - 공동현관·동 번호: VWorld GIS건물통합정보(LT_C_BLDGINFO). PNU는 연속지적도(LP_PA_CBND_BUBUN)에서 얻는다.
-- 평면: 공개 자료에 평면도가 없다. 전용면적에 맞춘 국내 표준 평면(판상형 2Bay·3Bay·4Bay)을 추정해 만들며, 화면에 항상 "추정 평면"으로 표시한다. 타사 평면도 이미지는 쓰지 않는다.
+- 원본 평면도: 사용자가 선택한 아파트·주택형의 네이버 부동산 공개 갤러리 메타데이터와 원본 이미지를 요청 시 확인한다. 이미지를 저장소에 일괄 수집하지 않는다. 타입 ID·전용면적·기본형/확장형을 보존하며 이미지 벽·방·치수 인식 결과를 별도로 표시한다. 구조 인식 검증 실패 시 실제 도면으로 대체하지 않는다.
+- LH 공개 원본 도면 자료실: 공공데이터포털 `15037046`, 한국토지주택공사_평면도, 2021-09-15 PART-2. 무료 공개 자료에서 사업지구·블록·주택형이 유일하게 일치한 252건, 52개 사업지구를 수록했다. 현재 아파트 주소와 자동 연결하지 않으며 원본 참고 자료로 제공한다. 공식 출처: https://www.data.go.kr/data/15037046/fileData.do
+- 가상 평면: 별도의 시뮬레이션 선택으로 제공하는 8개 구조 계열·512개 케이스. 면적 자료만으로 실제 벽 위치를 안다고 표시하지 않는다.
+
+## 추가 실내 재질 (2026-10-30)
+
+Poly Haven CC0 원본 1k 디퓨즈·OpenGL 노멀·ARM을 동일 크기 WebP로 변환했다. 기존 텍스처와 렌더링 출력 해상도는 낮추지 않았다.
+
+| 재질 | 공식 출처 | 실물 반복 크기 |
+|---|---|---|
+| 부클레 울 | https://polyhaven.com/a/wool_boucle | 0.315 m |
+| 테라조 타일 | https://polyhaven.com/a/terrazzo_tiles | 2 m |
+| 베이지 벽 | https://polyhaven.com/a/beige_wall_001 | 3 m |
+| 브라운 가죽 | https://polyhaven.com/a/brown_leather | 0.4 m |
+| 콘크리트 | https://polyhaven.com/a/concrete_floor_02 | 2 m |
+
+라이선스: https://polyhaven.com/license (CC0). 가구·가전의 추가 형상은 코드로 제작하며, 다운로드한 실내 사진을 재질로 사용하지 않는다.

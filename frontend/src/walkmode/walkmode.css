@@ -34,6 +34,37 @@
 .wk-btn { background: rgba(8, 14, 20, .72); color: #dff6ff; backdrop-filter: blur(8px); }
 .wk-go:hover { filter: brightness(1.08); } .wk-btn:hover { border-color: #5ef0ff; }
 .wk-go:disabled { cursor: default; opacity: .55; box-shadow: none; filter: none; }
+.wk-choose-card { max-height:calc(100dvh - 32px); overflow:auto; overscroll-behavior:contain; }
+.wk-original-plan { padding:14px; margin:12px 0; border:1px solid #44cbb5; border-radius:10px; background:#0c252c; font-size:12px; line-height:1.6; }
+.wk-original-plan>label { display:flex; justify-content:space-between; gap:10px; color:#9effe4; }
+.wk-original-plan p { margin:8px 0; color:#afcbd2; }
+.wk-original-plan summary,.wk-simulation-options>summary { cursor:pointer; padding:10px 0; color:#8de6ec; }
+.wk-original-plan a { color:#76dbff; }
+.wk-simulation-options { margin-top:14px; border-top:1px solid #294650; }
+.wk-average-note { padding:12px;margin:14px 0;border:1px solid #a57f47;border-radius:10px;background:#2b2416;color:#f2d5a1;font-size:12px;line-height:1.6; }
+.wk-average-result { position:absolute;left:18px;top:86px;max-width:min(600px,68vw);padding:8px 12px;border:1px solid #af8b51;border-radius:8px;background:#271f12e8;color:#ffdfac;font-size:12px;z-index:2;pointer-events:none; }
+.wk-preview-search { display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px;border:1px solid #3d6d74;border-radius:9px; }
+.wk-preview-search label { display:flex;flex-direction:column;font-size:12px;gap:5px; }.wk-preview-search input { min-width:0;width:100%;background:#0b2029;color:#d9ffff;border:1px solid #466874;border-radius:5px;padding:8px; }.wk-preview-search p { grid-column:1/-1;font-size:11px;color:#97b9bd;margin:0; }
+.wk-simulation-options>.wk-btn { margin-top:8px; }
+.wk-choose { touch-action:pan-y; }
+.wk-root.is-selecting,.wk-choose-card { touch-action:pan-y; }
+.wk-original-plan>.wk-chips { max-height:180px; overflow:auto; padding:3px; }
+.wk-layout-families button { min-width:0; padding:7px 10px; font-size:12px; }
+.wk-layout-preview { display:grid; grid-template-columns:minmax(140px,1fr) 1fr; align-items:center; gap:14px; margin:12px 0 0; padding:12px; background:#102028; border:1px solid #36525d; border-radius:10px; }
+.wk-layout-preview svg { width:100%; height:190px; }
+.wk-layout-preview figcaption { font-size:13px; line-height:1.7; color:#d6e6e8; }
+.wk-layout-preview figcaption span { display:block; margin-top:8px; color:#91aab0; font-size:11px; }
+.wk-choose .wk-row { margin-top:10px; flex-wrap:wrap; }
+.wk-public-plans { margin-top:18px; border:1px solid #365660; border-radius:10px; padding:12px; color:#bfe1e5; }
+.wk-public-plans summary { cursor:pointer; font-weight:700; font-size:13px; }
+.wk-public-library p { font-size:12px; line-height:1.65; color:#9db3bc; }
+.wk-public-library label { display:grid; gap:6px; margin:10px 0; color:#b9cfd5; font-size:12px; }
+.wk-public-library input:not([type=checkbox]), .wk-public-library select { width:100%; min-width:0; box-sizing:border-box; border:1px solid #3c626b; background:#11232b; color:#d8ebed; padding:9px; border-radius:6px; }
+.wk-public-library label.wk-public-area { display:flex; align-items:center; gap:8px; }
+.wk-public-image { max-height:420px; overflow:auto; margin-top:10px; background:#1a2e36; border-radius:8px; }
+.wk-public-image img { display:block; width:100%; height:auto; }
+.wk-public-image.is-zoom img { width:200%; max-width:none; }
+.wk-public-library a { color:#65dce9; }
 .wk-board { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 58px; padding: 10px 22px; border: 2px solid #fff5c2; background: #ffe382; color: #101923; font-family: inherit; font-size: 18px; font-weight: 850; line-height: 1.25; box-shadow: 0 0 0 3px #080f19, 0 5px 22px #ffe38266; text-shadow: none; }
 .wk-board--bike { background: #8df3ff; border-color: #e0fcff; box-shadow: 0 0 0 3px #080f19, 0 5px 22px #5ef0ff66; }
 .wk-root .wk-board kbd { display: inline-grid; place-items: center; min-width: 34px; min-height: 34px; margin: 0; padding: 0 5px; color: #0c1721; background: #fff; border: 2px solid #263c4e; border-radius: 6px; font: 900 23px/1 ui-monospace, monospace; box-shadow: 0 2px 0 #263c4e; }

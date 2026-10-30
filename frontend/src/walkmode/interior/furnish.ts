@@ -14,6 +14,8 @@ import { FACILITY_ROOMS } from "./plan/types";
 import { furnishFacilityRoom, type FacilityHooks, type Spot } from "./facilityFurnish";
 import type { Extra } from "./facilityModels";
 import type { SignAtlas } from "./facilitySigns";
+import { airPurifier, countertopAppliance, deskCollection, diningCollection, laundryCollection, sofaCollection, tvCabinetCollection, wardrobeCollection } from "./furnitureCollection";
+import { InteriorSafetyError } from "./navigation";
 
 /** a building other than flats: its extra materials, its signs, what its lifts do, where its people go */
 export interface FacilityKit { X: Extra; signs: SignAtlas; hooks: FacilityHooks; spots: Spot[] }
@@ -44,6 +46,7 @@ export interface Interactable {
 }
 
 export interface Furnished {
+  kitchens:{room:string;run:Rect;fridge:Rect}[];
   roomTimings: { room: string; label: string; type: string; ms: number }[];
   interactables: Interactable[];
   colliders: Seg[];
@@ -68,6 +71,8 @@ export interface Frame { m: THREE.Matrix4; rect: Rect }
 
 export class Placer {
   occupied: Rect[] = [];
+  /** Reserved walking routes are constraints for furniture, not physical obstacles. */
+  routes: Rect[] = [];
   /** the doorways' clear areas (walked through; where a way in starts) */
   doors: Rect[] = [];
   X0: number; X1: number; Z0: number; Z1: number; fy: number;
@@ -77,13 +82,23 @@ export class Placer {
     this.fy = -(room.floorDrop ?? 0);
     // doorways: the swing of a door into this room, and a way through every opening
     for (const o of plan.openings) {
-      if (o.a !== room.id && o.b !== room.id) continue;
+      if (o.a !== room.id && o.b !== room.id && !(plan.imageAnalysis&&plan.rooms.some(r=>(r.id===o.a||r.id===o.b)&&r.zone===room.zone))) continue;
       if (o.type === "window" || o.type === "balcony_window") continue;
       const s = this.sideOf(o.axis, o.at);
       if (!s) continue;
-      const reach = o.type === "door" && o.swingInto === room.id ? o.width + 0.1 : 0.75;
-      const r = this.rectAt(s, o.center, o.width + 0.12, reach);
+      const span=this.span(s),a=Math.max(span[0],o.center-o.width/2),b=Math.min(span[1],o.center+o.width/2);
+      if(b-a<.01)continue;
+      const reach = o.type === "door" && o.swingInto === room.id ? o.width + 0.1 : 0.60;
+      const r = this.rectAt(s, (a+b)/2, (o.type==="open"?Math.min(.60,b-a):b-a) + 0.12, reach);
       this.occupied.push(r); this.doors.push(r);
+    }
+    if(!plan.facility&&this.doors.length>1){
+      const points=this.doors.map(([a,b,c,d])=>[(a+c)/2,(b+d)/2]);
+      const cx=points.reduce((s,p)=>s+p[0],0)/points.length,cz=points.reduce((s,p)=>s+p[1],0)/points.length;
+      for(const [x,z] of points){
+        const n=Math.max(1,Math.ceil(Math.hypot(x-cx,z-cz)/.12));
+        for(let k=0;k<=n;k++){const px=x+(cx-x)*k/n,pz=z+(cz-z)*k/n;this.routes.push([px-.27,pz-.27,px+.27,pz+.27]);}
+      }
     }
   }
   /** a way on foot (0.1 m grid, a walker's 0.22 m half-width kept off everything placed) from a door to
@@ -146,11 +161,11 @@ export class Placer {
   windowsOn(s: SideName) {
     return this.plan.openings.filter(o => (o.a === this.room.id) && (o.type === "window" || o.type === "balcony_window") && this.sideOf(o.axis, o.at) === s).map(o => ({ a: o.center - o.width / 2, b: o.center + o.width / 2, sill: o.sill }));
   }
-  openingsOn(s: SideName) { return this.plan.openings.filter(o => (o.a === this.room.id || o.b === this.room.id) && this.sideOf(o.axis, o.at) === s); }
+  openingsOn(s: SideName) { return this.plan.openings.filter(o => (o.a === this.room.id || o.b === this.room.id || (this.plan.imageAnalysis&&this.plan.rooms.some(r=>(r.id===o.a||r.id===o.b)&&r.zone===this.room.zone))) && this.sideOf(o.axis, o.at) === s && o.center+o.width/2>this.span(s)[0]&&o.center-o.width/2<this.span(s)[1]); }
   free(r: Rect) {
     const eps = 0.005;
     if (r[0] < this.X0 - eps || r[2] > this.X1 + eps || r[1] < this.Z0 - eps || r[3] > this.Z1 + eps) return false;
-    return !this.occupied.some(o => r[0] < o[2] - eps && r[2] > o[0] + eps && r[1] < o[3] - eps && r[3] > o[1] + eps);
+    return ![...this.occupied,...this.routes].some(o => r[0] < o[2] - eps && r[2] > o[0] + eps && r[1] < o[3] - eps && r[3] > o[1] + eps);
   }
   /** against a wall, as near `prefer` along it as fits; tall things keep off the windows */
   against(s: SideName, w: number, d: number, prefer: number | null, height = 0.8, clear = 0): Frame | null {
@@ -172,10 +187,25 @@ export class Placer {
 
 const opposite: Record<SideName, SideName> = { n: "s", s: "n", w: "e", e: "w" };
 
+export function packKitchen(pl:Placer):{side:SideName;width:number;run:Frame;fridge:Frame;fridgeWidth:number}|null {
+  const sides=(["n","e","w","s"] as SideName[]).sort((a,b)=>pl.openingsOn(a).length-pl.openingsOn(b).length);
+  for(const [fw,fd] of [[.72,.72],[.62,.65],[.55,.60]])for(const side of sides)for(const end of [0,1,.5]){
+    const [lo,hi]=pl.span(side),fr=pl.against(side,fw,fd,lo+fw/2+(hi-lo-fw)*end,2);if(!fr)continue;
+    const count=pl.occupied.length;pl.take(fr.rect);
+    for(const width of [2.4,2.1,1.8,1.6,1.4,1.2])for(const back of sides){
+      const run=pl.against(back,width,.60,null,.85);
+      if(run){pl.occupied.length=count;return {side:back,width,run,fridge:{...fr,m:fr.m.clone().scale(new THREE.Vector3(1,1,fd/.72))},fridgeWidth:fw};}
+    }
+    pl.occupied.length=count;
+  }
+  return null;
+}
+
 /** shadowMoved(): something that casts a sun shadow moved (a curtain, the fridge door) */
 export const shadowMoved = { at: 0 };
 
 export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, dynamic: THREE.Group, hits: THREE.Group, fac?: FacilityKit): Furnished {
+  const kitchens:Furnished["kitchens"]=[];
   const roomTimings: Furnished["roomTimings"] = [];
   const zoneOf = (r: Room) => shell.zones.get(r.zone)!;
   const interactables: Interactable[] = [], colliders: Seg[] = [], pendants: CeilingLight[] = [], disposables: { dispose(): void }[] = [];
@@ -195,7 +225,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
   const furnishedLaptop: Furnished["laptop"] = { on: false };
   const H = plan.ceilingHeightM;
   // (which of each thing's kinds this flat has: by the complex, the 동 and the floor — variants.ts)
-  const VS = `${plan.complexId}|${plan.dong}|${plan.floor}|${plan.style}`, built = plan.basis.built ?? 2005;
+  const VS = `${plan.complexId}|${plan.dong}|${plan.floor}|${plan.style}|${plan.layoutCase??0}|f${plan.furnishingCase??0}`, built = plan.basis.built ?? 2005;
   // (the dining chairs: one of nine — not the low lounge chair — in this flat's wood and fabric)
   const dcv = [0, 1, 2, 3, 4, 5, 6, 7, 9][variantOf(VS, "chair", 9)], diningChair = () => (dcv < 5 ? chairV(P, dcv) : chairMore(P, dcv));
   const chairSwap = chairCover(P, VS, disposables);
@@ -293,7 +323,8 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     const zone = zoneOf(room), pl = new Placer(room, plan);
     const sides: SideName[] = ["n", "s", "w", "e"];
     const solidSides = sides.filter(s => pl.openingsOn(s).length === 0);
-    const windowSide = sides.find(s => pl.windowsOn(s).some(w => w.b - w.a > 1.2)) ?? sides.find(s => pl.windowsOn(s).length) ?? "s";
+    const windowWall = sides.find(s => pl.windowsOn(s).some(w => w.b - w.a > 1.2)) ?? sides.find(s => pl.windowsOn(s).length);
+    const windowSide = windowWall ?? "s";
 
     // ------------------------------------------------ a building's rooms (facilityFurnish.ts)
     if (fac && FACILITY_ROOMS.has(room.type)) {
@@ -324,7 +355,12 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
 
     // ------------------------------------------------ living room
     if (room.type === "living") {
-      const tvSide = solidSides.find(s => s === "w" || s === "e") ?? solidSides[0] ?? "w";
+      const fittedPair=(["w","e","n","s"] as SideName[]).find(side=>{
+        if(pl.depth(side)<2.3)return false;
+        return !!pl.against(side,Math.min(1.5,pl.len(side)-.25),.35,null,1.5)
+          &&[2.0,1.8,1.6,1.4].some(w=>!!pl.against(opposite[side],w,.98,null,.8));
+      });
+      const tvSide = fittedPair ?? solidSides.find(s => s === "w" || s === "e") ?? solidSides[0] ?? "w";
       const sofaSide = opposite[tvSide];
       const span = pl.len(tvSide), across = pl.depth(tvSide);
       // centred a little toward the window (the dining side stays open)
@@ -332,7 +368,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       const cabW = Math.min(2.4, span - 0.6);
       const cab = pl.against(tvSide, cabW, 0.42, mid);
       if (cab) {
-        put(M.tvCabinet(P, cabW), cab, zone); pl.take(cab.rect);
+        put(tvCabinetCollection(P, cabW,variantOf(VS,"media-console",4)), cab, zone); pl.take(cab.rect);
         if (cabW > 1.5) for (const s of [-1, 1]) put(propsV(P, variantOf(VS, `propsCab${s}`, 12), disposables), new THREE.Matrix4().multiplyMatrices(cab.m, new THREE.Matrix4().makeTranslation(s * (cabW / 2 - 0.2), 0.48, 0.2)), zone, false);
       }
       const tvW = Math.min(1.68, cabW * 0.78), tvH = tvW * 0.5625;
@@ -364,11 +400,11 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       let sofaW = 0, so: Frame | null = null;
       for (const w of [2.9, 2.6, 2.3, 2.0]) { if (w > pl.len(sofaSide) - 0.3) continue; so = pl.against(sofaSide, w, 0.98, mid); if (so) { sofaW = w; break; } }
       // (a door in the middle of that wall: the sofa slid along it, clear of the door)
-      if (!so) for (const w of [2.6, 2.3, 2.0, 1.8]) { if (w > pl.len(sofaSide) - 0.3) continue; so = pl.against(sofaSide, w, 0.98, null); if (so) { sofaW = w; break; } }
+      if (!so) for (const w of [2.6, 2.3, 2.0, 1.8,1.6,1.4]) { if (w > pl.len(sofaSide) - 0.3) continue; so = pl.against(sofaSide, w, 0.98, null); if (so) { sofaW = w; break; } }
       if (so) {
         // (the L-shaped corner one only where the room is deep enough for its chaise)
-        let sv = variantOf(VS, "sofa", 5); if (sv === 3 && across < 4.4) sv = 0;
-        put(sofaV(P, sofaW, sv), so, zone, true, sofaCover(P, VS, disposables)); pl.take(so.rect);
+        let sv = variantOf(VS, "sofa", 10); if (sv === 3 && across < 4.4) sv = 0;
+        put(sofaCollection(P, sofaW, sv), so, zone, true, sofaCover(P, VS, disposables)); pl.take(so.rect);
         if (sv === 3) { const ch0 = local(so, sofaW / 2 - 0.9, 0, 0.98), ch1 = local(so, sofaW / 2, 0, 1.6); colliders.push(...boxSegs((ch0.x + ch1.x) / 2, (ch0.z + ch1.z) / 2, Math.abs(ch1.x - ch0.x) || 0.9, Math.abs(ch1.z - ch0.z) || 0.9)); }
         seats.push({ label: "소파에 앉기", eye: local(so, 0.15, 1.12, 0.6), yaw: yawOut(so), pose: "sit", hit: hitIn(so, sofaW * 0.85, 0.5, 0.7, 0, 0.45, 0.55), zone, room });
 
@@ -380,9 +416,15 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         put(M.rug(P, rw, rd), new THREE.Matrix4().makeRotationY(rot).setPosition(mx, pl.fy, mz), zone, false);
         const ctx = mx + (alongX ? 0 : (c[0] - t[0]) * 0.12), ctz = mz + (alongX ? (c[1] - t[1]) * 0.12 : 0);
         const cv = variantOf(VS, "coffee", 3);
-        put(coffeeTableV(P, cv), new THREE.Matrix4().makeRotationY(rot).setPosition(ctx, pl.fy, ctz), zone, false);
-        put(propsV(P, variantOf(VS, "propsTable", 12), disposables), new THREE.Matrix4().makeRotationY(rot + 0.4).setPosition(ctx + (cv === 2 ? (alongX ? -0.18 : 0) : 0), pl.fy + [0.385, 0.38, 0.415][cv], ctz + (cv === 2 ? (alongX ? 0 : -0.18) : 0)), zone, false);
-        colliders.push(...boxSegs(ctx, ctz, alongX ? 1.3 : 0.74, alongX ? 0.74 : 1.3));
+        table:for(const size of [1,.8,.65])for(const offset of [0,-.35,.35,-.65,.65]){
+          const x=ctx+(alongX?offset:0),z=ctz+(alongX?0:offset),w=(alongX?1.3:.74)*size,d=(alongX?.74:1.3)*size;
+          const rect:Rect=[x-w/2,z-d/2,x+w/2,z+d/2];
+          if(!pl.free([rect[0]-.15,rect[1]-.15,rect[2]+.15,rect[3]+.15]))continue;
+          const kit=coffeeTableV(P,cv);for(const part of kit)part.g.scale(size,1,size);
+          put(kit,new THREE.Matrix4().makeRotationY(rot).setPosition(x,pl.fy,z),zone,false);
+          put(propsV(P,variantOf(VS,"propsTable",12),disposables),new THREE.Matrix4().makeRotationY(rot+.4).setPosition(x,pl.fy+[.385,.38,.415][cv],z),zone,false);
+          colliders.push(...rectSegs(rect));pl.take(rect);break table;
+        }
         // the art over the sofa
         // (one of ten kinds of picture, painted for this flat, in one of six frames; its shape varies too)
         const art = new THREE.MeshPhysicalMaterial({ map: paintingTexture(variantOf(VS, "art", 9973)), roughness: 0.92 }); disposables.push(art, art.map!);
@@ -427,24 +469,36 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       void acU;
       const pf = pl.against(sofaSide, 0.45, 0.45, windowSide === "s" || windowSide === "e" ? pl.span(sofaSide)[1] - 0.3 : pl.span(sofaSide)[0] + 0.3, 0.3);
       if (pf) { put(M.plant(P, 1.6, 3), new THREE.Matrix4().multiplyMatrices(pf.m, new THREE.Matrix4().makeTranslation(0, 0, 0.24)), zone); pl.take(pf.rect); }
+      const purifier=(["n","w","e","s"] as SideName[]).map(s=>pl.against(s,.38,.38,null,.7)).find(Boolean);
+      if(purifier){put(airPurifier(P,variantOf(VS,"purifier",2)),purifier,zone);pl.take(purifier.rect);}
     }
 
     // ------------------------------------------------ kitchen and dining
     if (room.type === "kitchen") {
-      const sink = plan.fixtures.find(f => f.type === "sink" && f.room === room.id);
-      const back: SideName = "n";
-      const [lo, hi] = pl.span(back);
-      // the back run: from the first free point to the corner
-      const ops = pl.openingsOn(back).filter(o => o.type !== "window");
-      const start = Math.max(lo, ...ops.map(o => o.center + o.width / 2 + 0.08));
-      const runA = hi - start;
-      const sideRun: SideName = pl.openingsOn("e").length === 0 ? "e" : "w";
-      const runBLen = Math.min(pl.len(sideRun) * 0.55, 2.4);
-      if (runA > 1.2) {
-        const u = start + runA / 2;
-        const sinkLocal = sink ? Math.min(runA / 2 - 0.5, Math.max(-runA / 2 + 0.5, sink.pos[0] - u)) : undefined;
-        const fA = pl.frameAt(back, u, runA, 0.62);
-        put(M.lowerRun(P, runA, { sinkAt: sinkLocal }), fA, zone); pl.take(fA.rect);
+      // Essentials take precedence over dining/decor. Pack the refrigerator and
+      // combined sink/cooktop run together, keeping the same protected walking routes.
+      const essential=packKitchen(pl);
+      if(!essential)throw new InteriorSafetyError("주방 필수 설비와 이동 통로를 함께 확보하지 못했습니다. 다른 인테리어를 선택해 주세요.");
+      const back=essential.side,runA=essential.width,fA=essential.run;
+      const start=centreAlong(fA.rect,back)-runA/2,hi=start+runA;
+      fridge(essential.fridge,essential.fridgeWidth,Math.min(1.86,H-.4),zone,room);pl.take(essential.fridge.rect);
+      if (runA >= 1.2) {
+        const sinkLocal=-runA*.25,cookLocal=runA*.25;
+        put(M.lowerRun(P, runA, { sinkAt: sinkLocal,cookAt:cookLocal,holeW:Math.min(.70,runA*.44) }), fA, zone); pl.take(fA.rect);
+        kitchens.push({room:room.id,run:fA.rect,fridge:essential.fridge.rect});
+        const cookFrame=new THREE.Matrix4().multiplyMatrices(fA.m,new THREE.Matrix4().makeTranslation(cookLocal,0,0));
+        put(M.hood(P,.62,.85+.65,H-.02),cookFrame,zone,false);
+        const heat=new THREE.MeshBasicMaterial({color:0xff4928,transparent:true,opacity:0,depthWrite:false});disposables.push(heat);
+        const rings=new THREE.Group();
+        for(const [x,z,r] of [[-.13,.18,.08],[.13,.18,.07],[-.13,.42,.09],[.13,.42,.08]]){
+          const g=new THREE.RingGeometry(r-.006,r,32).rotateX(-Math.PI/2);disposables.push(g);
+          const m=new THREE.Mesh(g,heat);m.position.set(x,.862,z);rings.add(m);
+        }
+        rings.applyMatrix4(cookFrame);dynamic.add(rings);let cooking=false;
+        interactables.push({id:"cooktop",zone,room,hit:hitIn(cookFrame,.55,.06,.52,0,.87,.30),label:()=>`인덕션 ${cooking?"끄기":"켜기"}`,act:()=>{cooking=!cooking;return "beep";},update:dt=>{heat.opacity+=((cooking?.9:0)-heat.opacity)*Math.min(1,dt*3);rings.visible=heat.opacity>.01;}});
+        for(const [i,x] of [-runA/2+.26,runA/2-.26].entries())if((i===0||runA>2.4)&&(sinkLocal===undefined||Math.abs(x-sinkLocal)>.55)){
+          put(countertopAppliance(P,(variantOf(VS,"counter-appliance",4)+i)%4),new THREE.Matrix4().multiplyMatrices(fA.m,new THREE.Matrix4().makeTranslation(x,.87,.24)),zone,false);
+        }
         // 상부장 where there is no window, and the backsplash
         const wins = pl.windowsOn(back);
         const top = H - 0.02, bottom = 0.85 + 0.62;
@@ -466,37 +520,6 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
           const spout = local(fA, sinkLocal, 1.15, 0.28);
           faucet(room, zone, spout, pl.fy + 0.85 - 0.03 - 0.22 + 0.004, "주방 수전", "sink", 0.16, 0.02);
         }
-      }
-      // the side run with the cooktop and hood
-      const fB = pl.against(sideRun, runBLen, 0.62, pl.span(sideRun)[0] + 0.62 + runBLen / 2);
-      if (fB) {
-        put(M.lowerRun(P, runBLen, { cookAt: 0 }), fB, zone); pl.take(fB.rect);
-        put(M.hood(P, 0.75, 0.85 + 0.65, H - 0.02), fB, zone, false);
-        for (const [p0, p1] of [[-runBLen / 2, -0.4], [0.4, runBLen / 2]] as [number, number][]) if (p1 - p0 > 0.3) put(M.upperRun(P, p1 - p0, 0.85 + 0.62, H - 0.02), new THREE.Matrix4().multiplyMatrices(fB.m, new THREE.Matrix4().makeTranslation((p0 + p1) / 2, 0, 0)), zone, false);
-        const bs = new THREE.PlaneGeometry(runBLen, 0.62); bs.translate(0, 0.85 + 0.31, 0.002); B.add(P.counter, zone, boxUV(bs), fB.m);
-        // the induction rings: glow when on
-        const ringM = new THREE.MeshBasicMaterial({ color: "#ff3b1f", transparent: true, opacity: 0, depthWrite: false }); disposables.push(ringM);
-        const rings = new THREE.Group();
-        for (const [x, z, r] of [[-0.14, 0.42, 0.1], [0.14, 0.42, 0.08], [-0.14, 0.2, 0.08], [0.14, 0.2, 0.1]]) {
-          const g = new THREE.RingGeometry(r - 0.006, r, 48).rotateX(-Math.PI / 2); disposables.push(g);
-          const me = new THREE.Mesh(g, ringM); me.position.set(x, 0.85 + 0.0085, z); rings.add(me);
-        }
-        rings.applyMatrix4(fB.m); dynamic.add(rings);
-        let cook = false;
-        interactables.push({ id: "cooktop", zone, room, hit: hitBox(0.58, 0.04, 0.5, local(fB, 0, 0.87, 0.31)), label: () => `인덕션 ${cook ? "끄기" : "켜기"}`, act: () => { cook = !cook; return "beep"; },
-          update: dt => { ringM.opacity += ((cook ? 0.9 : 0) - ringM.opacity) * Math.min(1, dt * 3); rings.visible = ringM.opacity > 0.01; } });
-      }
-      // the fridge and the 김치냉장고 as one tall built-in run: on the wall across from the side
-      // run if it is free at the back, else after the side run
-      const fh = Math.min(1.86, H - 0.4);
-      for (const [s, prefer] of [[opposite[sideRun], pl.span(opposite[sideRun])[0] + 0.5], [sideRun, pl.span(sideRun)[0] + 0.62 + runBLen + 0.48]] as [SideName, number][]) {
-        const fr = pl.against(s, 0.92, 0.74, prefer, 2);
-        if (!fr) continue;
-        fridge(fr, 0.91, fh, zone, room); pl.take(fr.rect);
-        const u = centreAlong(fr.rect, s), dir = u < (pl.span(s)[0] + pl.span(s)[1]) / 2 ? 1 : -1;
-        const kf = pl.against(s, 0.7, 0.74, u + dir * 0.82, 2);
-        if (kf && Math.abs(centreAlong(kf.rect, s) - (u + dir * 0.82)) < 0.05) { put(M.kimchiFridge(P, 0.69, fh), kf, zone); pl.take(kf.rect); }
-        break;
       }
       // the dining table in what's left, toward the living room, pendants over it
       // (the table and its chairs need ~0.6 m round it: tried from the middle of the free floor out)
@@ -533,7 +556,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         }
       }
       if (tw) {
-        put(M.diningTable(P, tw, td), new THREE.Matrix4().setPosition(cx, pl.fy, cz), zone, false);
+        put(diningCollection(P, tw, td,variantOf(VS,"dining-table",4)), new THREE.Matrix4().setPosition(cx, pl.fy, cz), zone, false);
         // a shopping basket at the table's end: groceries to put away, or taken out of the fridge
         basket(cx - tw / 2 + 0.36, pl.fy + 0.7525, cz);
         colliders.push(...boxSegs(cx, cz, tw, td));
@@ -549,9 +572,9 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     // ------------------------------------------------ bedrooms
     if (room.type === "master" || room.type === "bedroom") {
       const big = room.type === "master";
-      const bw = big ? 1.6 : 1.1, bl = 2.08;
+      const bw = big ? [1.4,1.6,1.6,1.8][variantOf(VS+room.id,"bed-size",4)] : [1.0,1.1,1.2][variantOf(VS+room.id,"bed-size",3)], bl = 2.08;
       // the head on a wall without a door, along which the room is long enough
-      const order = (["w", "e", "n", "s"] as SideName[]).filter(s => s !== windowSide);
+      const order = (["w", "e", "n", "s"] as SideName[]).filter(s => s !== windowWall);
       let bedF: Frame | null = null, bedSide: SideName = "w";
       // a double bed's head against a wall (45 cm to pass at its foot), nightstands if they fit
       if (big) for (const s of [...order.filter(s => pl.openingsOn(s).length === 0), ...order]) {
@@ -569,14 +592,14 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
           // the model (head at its z = 0, length along +z) turned to run along the wall
           const turn = new THREE.Matrix4().makeRotationY(atLo ? Math.PI / 2 : -Math.PI / 2);
           const m = new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(atLo ? -bl / 2 : bl / 2, 0, bw / 2)).multiply(turn);
-          put(bedV(P, bw, bl, variantOf(VS + room.id, "bed", 8), bedCover(P, VS + room.id, disposables)), m, zone, false);
+          put(bedV(P, bw, bl, variantOf(VS + room.id, "bed", 12), bedCover(P, VS + room.id, disposables)), m, zone, false);
           colliders.push(...rectSegs(f.rect)); pl.take(f.rect); bedSide = s;
           const fwd = new THREE.Vector3(0, 0, 1).transformDirection(m);
           seats.push({ label: "침대에 눕기", eye: new THREE.Vector3(0, 0.78, 0.4).applyMatrix4(m), yaw: Math.atan2(-fwd.x, -fwd.z), pose: "lie", hit: hitIn(m, bw, 0.6, bl * 0.9, 0, 0.4, bl / 2), zone, room });
           break;
         }
       } else if (bedF) {
-        put(bedV(P, bw, bl, variantOf(VS + room.id, "bed", 8), bedCover(P, VS + room.id, disposables)), bedF, zone); pl.take(bedF.rect);
+        put(bedV(P, bw, bl, variantOf(VS + room.id, "bed", 12), bedCover(P, VS + room.id, disposables)), bedF, zone); pl.take(bedF.rect);
         seats.push({ label: "침대에 눕기", eye: local(bedF, bw * 0.22, 0.78, 0.42), yaw: yawOut(bedF), pose: "lie", hit: hitIn(bedF, bw, 0.6, bl * 0.9, 0, 0.4, bl / 2), zone, room });
         const u = centreAlong(bedF.rect, bedSide);
         for (const s of [-1, 1]) {
@@ -616,17 +639,23 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         for (const sd of [windowSide, ...(["n", "s", "e", "w"] as SideName[]).filter(x => x !== windowSide)]) if (tryDesk(sd, 1.2, 0.6) || tryDesk(sd, 1.0, 0.55)) break;
         const dk = got.f;
         if (dk && got.way) pl.keep(got.way);
-        if (dk) { put(M.desk(P, deskW), dk, zone); pl.take(dk.rect); put((v => (v < 5 ? chairV(P, v) : chairMore(P, v)))([0, 2, 3, 6, 9][variantOf(VS + room.id, "deskchair", 5)]), new THREE.Matrix4().multiplyMatrices(dk.m, new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0, 0, 0.95)), zone, false); if (!furnishedLaptop.corners) laptop(dk, zone, room); }
+        if (dk) { put(deskCollection(P, deskW,variantOf(VS+room.id,"desk",4)), dk, zone); pl.take(dk.rect); put((v => (v < 5 ? chairV(P, v) : chairMore(P, v)))([0, 2, 3, 6, 9][variantOf(VS + room.id, "deskchair", 5)]), new THREE.Matrix4().multiplyMatrices(dk.m, new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0, 0, 0.95)), zone, false); if (!furnishedLaptop.corners) laptop(dk, zone, room); }
         for (const s of sides.filter(s => s !== windowSide)) {
           const wd = Math.min(1.8, pl.len(s) - 0.4);
           const w = wd > 0.9 ? pl.against(s, wd, 0.6, null, 2.5) : null;
-          if (w) { put(M.wardrobe(P, wd, Math.min(2.2, H - 0.12)), w, zone); pl.take(w.rect); break; }
+          if (w) { put(wardrobeCollection(P, wd, Math.min(2.2, H - 0.12),variantOf(VS+room.id,"wardrobe",6)), w, zone); pl.take(w.rect); break; }
         }
         const bk = sides.map(s => pl.against(s, 0.8, 0.32, null, 2.5)).find(Boolean);
         if (bk) { put(M.bookshelf(P, 0.8, 1.8), bk, zone); pl.take(bk.rect); }
       }
     }
 
+    if(room.type==="alpha"){
+      const deskSide=sides.find(s=>pl.windowsOn(s).length)??"n";
+      const w=Math.min(1.6,pl.len(deskSide)-.2),f=w>.8?pl.against(deskSide,w,.6,null,.75,.8):null;
+      if(f){put(deskCollection(P,w,variantOf(VS+room.id,"office-desk",4)),f,zone);pl.take(f.rect);put(chairMore(P,8),new THREE.Matrix4().multiplyMatrices(f.m,new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0,0,1.0)),zone,false);if(!furnishedLaptop.corners)laptop(f,zone,room);}
+      for(const side of sides.filter(s=>s!==deskSide)){const f=pl.against(side,.9,.32,null,2);if(f){put(M.bookshelf(P,.9,1.9),f,zone);pl.take(f.rect);break;}}
+    }
     // ------------------------------------------------ dressroom, entrance, utility
     if (room.type === "dressroom") {
       const colours = [P.linen, P.drape, P.velvet, P.fabricBed, P.leather];
@@ -642,7 +671,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     }
     if (room.type === "utility") {
       const w = plan.fixtures.find(f => f.type === "washer" && f.room === room.id);
-      if (w) { const f = pl.against("n", 0.62, 0.68, w.pos[0], 2) ?? pl.against("w", 0.62, 0.68, null, 2); if (f) { put(M.washerDryer(P), f, zone); pl.take(f.rect); } }
+      if (w) { const f = pl.against("n", 0.62, 0.68, w.pos[0], 2) ?? pl.against("w", 0.62, 0.68, null, 2); if (f) { put(laundryCollection(P,variantOf(VS,"laundry",4)), f, zone); pl.take(f.rect); } }
       const b = pl.against("n", 0.46, 0.27, pl.X1 - 0.35, 0.5) ?? pl.against("e", 0.46, 0.27, null, 0.5);
       if (b) put(M.boiler(P), b, zone, false);
     }
@@ -651,7 +680,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     if (room.type === "bathroom" || room.type === "ensuite") {
       const fx = plan.fixtures.filter(f => f.room === room.id);
       const tub = fx.find(f => f.type === "bathtub"), sh = fx.find(f => f.type === "shower"), wc = fx.find(f => f.type === "toilet"), wb = fx.find(f => f.type === "washbasin");
-      if (tub) {
+      if (tub && pl.free([pl.X0,pl.Z0,pl.X0+.75,pl.Z0+Math.min(1.6,pl.depth("w")-.05)])) {
         const l = Math.min(1.6, pl.depth("w") - 0.05), wd = 0.75;
         const f: Frame = { m: new THREE.Matrix4().setPosition(pl.X0, pl.fy, pl.Z0), rect: [pl.X0, pl.Z0, pl.X0 + wd, pl.Z0 + l] };
         put(M.bathtub(P, l, wd), f, zone); pl.take(f.rect);
@@ -667,7 +696,8 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       if (sh) {
         const w = Math.min(1.0, pl.len("n") * 0.45), d = 0.95;
         const f: Frame = { m: new THREE.Matrix4().setPosition(pl.X1 - w / 2, pl.fy, pl.Z0), rect: [pl.X1 - w, pl.Z0, pl.X1, pl.Z0 + d] };
-        pl.take(f.rect);
+        const enclosureFits=pl.free(f.rect);
+        if(enclosureFits)pl.take(f.rect);
         put(M.showerSet(P, H - pl.fy), f.m, zone, false);
         // glass panels: the front, and the side toward the room
         const glass: M.Kit = [
@@ -676,8 +706,10 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
           M.bx(P.blackMetal, 0.02, 1.97, 0.02, -w / 2, 0.985, d), M.bx(P.blackMetal, w * 0.6, 0.02, 0.02, -w * 0.2, 1.97, d),
           M.bx(P.blackMetal, 0.02, 0.02, d, -w / 2, 1.97, d / 2), M.bx(P.threshold, w, 0.04, 0.04, 0, 0.02, d),
         ];
-        put(glass, f.m, zone, false);
-        colliders.push([pl.X1 - w, pl.Z0 + d, pl.X1 - w * 0.25, pl.Z0 + d], [pl.X1 - w, pl.Z0, pl.X1 - w, pl.Z0 + d]);
+        if(enclosureFits){
+          put(glass, f.m, zone, false);
+          colliders.push([pl.X1 - w, pl.Z0 + d, pl.X1 - w * 0.25, pl.Z0 + d], [pl.X1 - w, pl.Z0, pl.X1 - w, pl.Z0 + d]);
+        }else for(const part of glass)part.g.dispose();
         const head = new THREE.Vector3(pl.X1 - w / 2, pl.fy + Math.min(2.13, H - pl.fy - 0.12), pl.Z0 + 0.3);
         faucet(room, zone, head, pl.fy + 0.005, "샤워기", "shower", 0.3, 0.003);
       }
@@ -978,7 +1010,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
 
   pantry.stock();
   return {
-    interactables, colliders, pendants, curtainOpen, tv: furnishedTv, laptop: furnishedLaptop, mirrors, seats, dock, pantry, roomTimings,
+    kitchens,interactables, colliders, pendants, curtainOpen, tv: furnishedTv, laptop: furnishedLaptop, mirrors, seats, dock, pantry, roomTimings,
     dispose: () => disposables.forEach(d => d.dispose()),
   };
 }

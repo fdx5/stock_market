@@ -1,17 +1,20 @@
 import type { FloorPlan, Opening, Room, RoomType, StyleName, Fixture } from "./types";
 import type { Envelope } from "./envelope";
+import { caseNumber, makeCaseLayout } from "./layoutCases";
+import { STYLE_NAMES } from "./types";
 
 /* An estimated floor plan for a unit of a given 전용면적: a Korean 판상형 layout made for the
  * complex's type (makeLayout: its bays, rooms and their sizes from the area, the era and a seed),
- * scaled to the area. (T2–T4 below are the original three drawings, kept for reference.) Public data has no floor plans
- * (the building register gives areas, not rooms), so the result is always marked 추정 평면.
+ * scaled to the area. (T2–T4 below are the original three drawings, kept for reference.)
+ * Register/trade areas do not describe internal walls. This generator is the explicitly
+ * estimated fallback; a separately verified image-derived plan takes priority.
  *
  * Templates are drawn on wall centre lines, so the rooms' areas add up to the 전용면적 the way
  * the register measures it. Front (z max) is the balcony side; the front door is on the back. */
 
-type R = [string, RoomType, string, number, number, number, number, string?];
-type O = Omit<Opening, "center" | "at"> & { center: number; at: number };
-interface Template { name: string; label: string; rooms: R[]; openings: O[]; ref: number }
+export type R = [string, RoomType, string, number, number, number, number, string?];
+export type O = Omit<Opening, "center" | "at"> & { center: number; at: number };
+export interface Template { name: string; label: string; rooms: R[]; openings: O[]; ref: number }
 
 const door = (a: string, b: string, axis: "x" | "z", at: number, center: number, width = 0.9, hinge: "start" | "end" = "start", swingInto = a): O =>
   ({ type: "door", a, b, axis, at, center, width, height: 2.1, sill: 0, hinge, swingInto });
@@ -149,15 +152,15 @@ function touch(a: number[], b: number[]): { axis: "x" | "z"; at: number; lo: num
   return null;
 }
 
-export function makeLayout(area: number, built: number | null | undefined, rnd: () => number, env?: Envelope | null): Template {
+export function makeLayout(area: number, built: number | null | undefined, rnd: () => number, env?: Envelope | null, baysOverride?:2|3|4): Template {
   const year = built ?? 2005, old = year < 1993, recent = year >= 2010;
   const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)];
   const vary = (v: number, k = 0.1) => v * (1 - k + rnd() * 2 * k);
   // (the bays: from the flat's measured width when its building is known — a bay ~2.7–4.2 m; else
   // the usual ones for its size and era)
   const fromWidth = env ? (env.width >= 10.4 ? 4 : env.width >= 7.6 ? 3 : 2) : 0;
-  const bays = env ? Math.min(fromWidth, area < 52 || (old && area < 62) ? 2 : area < 70 ? 3 : 4, env.kind === "tower" ? 3 : 4) || 2
-    : area < 52 ? 2 : area < 70 ? (old ? 2 : pick([2, 3, 3])) : area < 95 ? (old ? 3 : pick([3, 3, 4, 4])) : 4;
+  const bays = baysOverride ?? (env ? Math.min(fromWidth, area < 52 || (old && area < 62) ? 2 : area < 70 ? 3 : 4, env.kind === "tower" ? 3 : 4) || 2
+    : area < 52 ? 2 : area < 70 ? (old ? 2 : pick([2, 3, 3])) : area < 95 ? (old ? 3 : pick([3, 3, 4, 4])) : 4);
   const big = area >= 125;
   const L = vary(area < 52 ? 3.6 : area < 100 ? 4.0 : 4.6), M = vary(area < 66 ? 3.0 : 3.35), B = () => vary(area < 70 ? 2.75 : 2.9);
   // (the old blocks' corridor across the whole width: the rooms behind it a room's depth, ~2.4 m)
@@ -295,12 +298,18 @@ export interface PlanInput {
   style?: StyleName; floor?: number;
   /** the flat's measured frame (its building's footprint and the register's lines): plan/envelope.ts */
   envelope?: Envelope | null;
+  layoutCase?: number;
+  furnishingCase?: number;
+  bays?:2|3|4;
 }
 
 export function generatePlan(p: PlanInput): FloorPlan {
   // (the layout the complex's type has: its size, its era, its own seed)
   const env = p.envelope ?? null;
-  const t = makeLayout(p.area, p.built, seeded(`${p.complexId}|${p.unitType}|layout`), env);
+  const index = caseNumber(p.layoutCase ?? Math.floor(seeded(`${p.complexId}|${p.dong}|${p.unitType}|structure`)()*512));
+  const layoutRandom = seeded(`${p.complexId}|${p.unitType}|case:${index}`);
+  const t = makeCaseLayout(p.area, index, layoutRandom) ?? makeLayout(p.area, p.built, layoutRandom, env, p.bays);
+  if (index % 8 === 0) t.label += ` · CASE ${String(index+1).padStart(3,"0")}`;
   // scaled to the area; with a measured frame, to its proportions too (width over depth, kept within
   // reason: the rooms' own shapes stretched at most ~12% each way) — the doors and windows keep their sizes
   let sx = Math.sqrt(p.area / t.ref), sz = sx;
@@ -315,20 +324,24 @@ export function generatePlan(p: PlanInput): FloorPlan {
     floorDrop: type === "entrance" ? 0.12 : type === "bathroom" || type === "ensuite" || type === "utility" ? 0.03 : 0,
   }));
   const byId = new Map(rooms.map(r => [r.id, r]));
-  const openings: Opening[] = t.openings.map(o => {
+  let kitchenWindowSeen=false;
+  const openings: Opening[] = t.openings.filter(o=>{
+    if(!["window","balcony_window"].includes(o.type)||byId.get(o.a)?.type!=="kitchen")return true;
+    if(kitchenWindowSeen)return false;kitchenWindowSeen=true;return true;
+  }).map(o => {
     const cen = o.center * (o.axis === "z" ? sx : sz), at = o.at * (o.axis === "z" ? sz : sx);
     // (an opening as wide as the shared wall stays as wide as it, scaled)
     const shared = sharedSpan(byId.get(o.a)!, o.b === "out" ? null : byId.get(o.b)!, o.axis, at);
     // (and never wider than its wall, less a little either side: a frame narrowed to the building's
     // own width has narrower walls)
-    const width = Math.min(o.type === "open" && o.width > 2 ? o.width * (o.axis === "z" ? sx : sz) : o.width, Math.max(0.6, shared[1] - shared[0] - 0.24));
+    const width = Math.min(o.type === "open" && o.width > 2 ? o.width * (o.axis === "z" ? sx : sz) : o.width, Math.max(0.6, shared[1] - shared[0] - 0.24),o.type==="window"&&byId.get(o.a)?.type==="kitchen"?.95:Infinity);
     const half = width / 2, lo = shared[0] + 0.12 + half, hi = shared[1] - 0.12 - half;
-    return { ...o, at, width, center: lo <= hi ? Math.min(hi, Math.max(lo, cen)) : (shared[0] + shared[1]) / 2 };
+    const kitchenWindow=["window","balcony_window"].includes(o.type)&&(byId.get(o.a)?.type==="kitchen"||byId.get(o.b)?.type==="kitchen");
+    return { ...o, at, width, center: lo <= hi ? Math.min(hi, Math.max(lo, cen)) : (shared[0] + shared[1]) / 2,...(kitchenWindow&&o.sill<.95?{sill:.95,height:Math.max(.8,o.sill+o.height-.95)}:{}) };
   });
   const xs = rooms.flatMap(r => [r.rect[0], r.rect[2]]), zs = rooms.flatMap(r => [r.rect[1], r.rect[3]]);
   const counted = rooms.filter(r => !SERVICE.includes(r.type)).reduce((a, r) => a + areaOf(r.rect), 0);
   const rnd = seeded(`${p.complexId}|${p.dong}|${p.unitType}`);
-  const styles: StyleName[] = ["modern_white", "wood_natural", "gray_minimal", "classic_walnut", "nordic_bright", "hotel_dark", "vintage_warm"];
   const plan: FloorPlan = {
     complexId: p.complexId, complexName: p.complexName, dong: p.dong, unitType: p.unitType,
     areaExclusiveM2: p.area, ceilingHeightM: p.built && p.built >= 2015 ? 2.4 : 2.32,
@@ -337,8 +350,8 @@ export function generatePlan(p: PlanInput): FloorPlan {
     bounds: [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)],
     rooms, openings, fixtures: [],
     check: { areaM2: Math.round(counted * 100) / 100, error: Math.round((counted / p.area - 1) * 10000) / 10000 },
-    style: p.style ?? styles[Math.floor(rnd() * styles.length)],
-    floor: p.floor ?? 3 + Math.floor(rnd() * 12),
+    style: p.style ?? STYLE_NAMES[Math.floor(rnd() * STYLE_NAMES.length)],
+    floor: p.floor ?? 3 + Math.floor(rnd() * 12), layoutCase: index, furnishingCase: p.furnishingCase ?? 0,
   };
   plan.fixtures = fixturesFor(plan);
   // (the two lines of a stair hall are mirror images: which one, by the 동)
@@ -358,7 +371,7 @@ export function sharedSpan(a: Room, b: Room | null, axis: "x" | "z", at: number)
 }
 
 /** The plumbing and the light switches, placed by rules from the rooms (scaled plans move them). */
-function fixturesFor(plan: FloorPlan): Fixture[] {
+export function fixturesFor(plan: FloorPlan): Fixture[] {
   const out: Fixture[] = [];
   const room = (id: string) => plan.rooms.find(r => r.id === id);
   const bath = room("bath2"), ens = room("ensuite"), kit = room("kitchen"), util = room("util");
