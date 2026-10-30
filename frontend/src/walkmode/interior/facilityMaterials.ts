@@ -70,5 +70,19 @@ export function facilityLook(P: Palette, kind: FacilityKind, name: string, lib?:
     "wall:wood": re(P.woodLight, { color: "#f0e2cc" }),
     ...Object.fromEntries(TONES.map((c, i) => [`wall:tone${i}`, pm({ color: c, roughness: 0.82 })])),
   };
+  // Public interiors use a satin finish. Glossy apartment marble and the probe's bright
+  // ceiling panels otherwise produce white streaks on floors and wash out stone walls.
+  for (const material of new Set([Q.floorMain, Q.floorRoom, Q.floorEntry, Q.floorWet,
+    ...Object.entries(finishes).filter(([key]) => key.startsWith("floor:")).map(([, m]) => m)])) {
+    const m = material as THREE.MeshPhysicalMaterial;
+    m.roughness = Math.max(m.roughness, .76); m.roughnessMap = null;
+    m.clearcoat = .05; m.clearcoatRoughness = .8; m.envMapIntensity = .18;
+  }
+  for (const material of new Set([Q.wall, Q.wallAccent, Q.wallWet,
+    ...Object.entries(finishes).filter(([key]) => key.startsWith("wall:")).map(([, m]) => m)])) {
+    const m = material as THREE.MeshPhysicalMaterial;
+    m.roughness = Math.max(m.roughness, .9); m.roughnessMap = null; m.clearcoat = 0; m.sheen = 0; m.envMapIntensity = .3;
+  }
+  Q.ledPanel.emissiveIntensity = 2.4; Q.ledWarm.emissiveIntensity = 2;
   return { P: Q, X, signs, finishes, dispose: () => own.forEach(o => o.dispose()) };
 }

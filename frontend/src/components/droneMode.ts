@@ -58,8 +58,9 @@ export class DroneSession {
   private model = new DroneModel();
   private chaseYaw = 0;
   private chaseDist = 3.6;
-  /** the third-person camera's height angle raised over a low obstacle behind the walker (rad) */
+  /** Kept level when the rear boom meets an obstacle. */
   private chaseLift = 0;
+  private landedMoved = 0;
   private clock = 0;
   /** The people on the sidewalks round the drone (the view's own walkers, sceneWalkers): made
    * again when the drone has gone 350 m, only while it is low enough to see them. */
@@ -359,6 +360,7 @@ export class DroneSession {
     const f = this.flight, w = this.world, T = this.timing, t0 = performance.now();
     applyViewFov(this.p.camera);
     if (!cameraControlsPaused()) f.step(dt, w);
+    if (f.walking) this.landedMoved += f.moved;
     const x = f.pos.x, y = -f.pos.z;
     // (held back by the world ahead: its tile work a third of the frame's own time — 5 ms at 60 fps,
     // up to 25 ms on a machine drawing 12 fps. Flying free, the frame rate comes first.)
@@ -620,7 +622,7 @@ export class DroneSession {
       }
     }
     const on = f.setWalking(!f.walking, this.world);
-    if (on) this.landedAt = performance.now();
+    if (on) { this.landedAt = performance.now(); this.landedMoved = 0; }
     // (on foot the walker is seen: third person to start with — V still changes it)
     if (on && this.view === "fpv") this.toggleView();
     if (on && !this.walker) { this.walker = new Avatar(7); this.p.scene.add(this.walker.root); }
@@ -655,7 +657,9 @@ export class DroneSession {
    * building (its outline, its roof over them) is moved to the nearest open ground outside it */
   private landedAt = 0;
   private settle() {
-    const f = this.flight; if (!f.walking || f.car || performance.now() - this.landedAt > 15000) return;
+    // Only recover a bad landing while the user has not started walking. Late roof tiles must
+    // never teleport a running player back out of a building every 200 ms.
+    const f = this.flight; if (!f.walking || f.car || this.landedMoved > .15 || performance.now() - this.landedAt > 15000) return;
     const w = this.world, x = f.pos.x, y = -f.pos.z;
     const inside = (px: number, py: number) => w.roofAt(px, py) > w.groundAt(px, py) + 0.8 && (w.roofAt(px, py) - w.groundAt(px, py) > 6 || !!w.buildingRingAt(px, py));
     if (!inside(x, y)) return;
@@ -764,13 +768,13 @@ export class DroneSession {
     return (f.car ? f.car.length + 4 : f.cycling ? 6.5 : f.walking ? 6.0 : 3.6) * viewPreferences().distance;
   }
   /** The line from (x, y, z) back to the camera at height angle `el`, in half-metre steps: how far
-   * it goes before anything solid (the ground, a roof) — measured from the camera's own base height
-   * (on foot 0.9 m over the eye), not the eye's. */
+   * it goes before anything solid (the ground, a roof), at the camera's own pivot height. */
   private clearBehind(x: number, y: number, z: number, bx: number, bz: number, el: number, want: number) {
     const w = this.world;
-    for (let s = 0.5; s <= want; s += 0.5) {
+    const step = this.flight.walking ? .1 : .5;
+    for (let s = step; s <= want; s += step) {
       const px = x + bx * Math.cos(el) * s, pz = z + bz * Math.cos(el) * s, py = y + Math.sin(el) * s;
-      if (py < Math.max(w.groundAt(px, -pz), w.roofAt(px, -pz)) + 0.6) return Math.max(0.8, s - 0.5);
+      if (py < Math.max(w.groundAt(px, -pz), w.roofAt(px, -pz)) + 0.6) return Math.max(0.8, s - step);
     }
     return want;
   }
@@ -780,20 +784,16 @@ export class DroneSession {
   private chase(dt: number) {
     const f = this.flight, c = this.p.camera;
     const d = Math.atan2(Math.sin(f.yaw - this.chaseYaw), Math.cos(f.yaw - this.chaseYaw));
-    this.chaseYaw += d * Math.min(1, dt * (viewPreferences().reduceMotion ? 14 : 5));
+    const turn = d * (1 - Math.exp(-dt * (viewPreferences().reduceMotion ? 14 : 5)));
+    this.chaseYaw += f.walking && !f.car ? THREE.MathUtils.clamp(turn, -dt * 3.6, dt * 3.6) : turn;
     const el0 = THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, -0.15, 1.35);
     const bx = Math.sin(this.chaseYaw), bz = Math.cos(this.chaseYaw);   // behind: opposite the heading
-    const want = this.chaseWant(), base = f.walking ? 0.9 : 0.35;
-    let dist = this.clearBehind(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0, want), lift = 0;
-    // (on foot: a low wall, a fence or a canopy behind — the camera up over it, looking down on the
-    // walker, before it is pulled in)
-    if (f.walking && dist < want) for (let e = 0.15; e <= 0.75 && el0 + e <= 1.35; e += 0.15) {
-      const d2 = this.clearBehind(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0 + e, want);
-      if (d2 >= want) { dist = d2; lift = e; break; }
-    }
-    this.chaseLift += (lift - this.chaseLift) * Math.min(1, dt * 4);
+    const want = this.chaseWant(), base = f.walking ? (f.car ? .9 : .65) : .35;
+    const dist = this.clearBehind(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0, want);
+    // Obstacles retract the boom without automatically pitching the user's view up and down.
+    this.chaseLift = 0;
     const el = el0 + this.chaseLift;
-    this.chaseDist += (dist - this.chaseDist) * Math.min(1, dt * (dist < this.chaseDist ? 20 : 3));
+    this.chaseDist += (dist - this.chaseDist) * (1 - Math.exp(-dt * (dist < this.chaseDist ? 20 : 3)));
     const r = this.chaseDist;
     c.position.set(f.pos.x + bx * Math.cos(el) * r, f.pos.y + Math.sin(el) * r + 0.35, f.pos.z + bz * Math.cos(el) * r);
     c.lookAt(f.pos.x - bx * 6, f.pos.y + 0.25 - Math.sin(el) * 2.2, f.pos.z - bz * 6);
@@ -801,18 +801,18 @@ export class DroneSession {
       // (on foot or on the bike: the walker in view, not the drone — the camera higher and looking
       // down past them, so they stand in the middle of the picture, clear of the bar along the
       // bottom of the screen)
-      const room = f.car ? 1 : THREE.MathUtils.smoothstep(r, .8, 1.8);
-      this.model.group.visible = false; this.walker.root.visible = !f.car && room > .35;
+      this.model.group.visible = false; this.walker.root.visible = !f.car && r > 1.15;
       if (f.car) this.placeCar();
       else if (f.cycling) this.placeRider(dt);
       else { this.walker.pose = "stand"; this.walker.root.position.set(f.pos.x, f.pos.y - EYE, f.pos.z); this.walker.root.rotation.set(0, f.yaw + Math.PI, 0); this.walker.update(dt, Math.hypot(f.vel.x, f.vel.z)); }
       const fx = -Math.sin(this.chaseYaw), fz = -Math.cos(this.chaseYaw);
-      // A tight wall folds the camera gently to eye level; the avatar's head never fills the view.
-      c.position.set(f.pos.x - fx * Math.cos(el) * r * room, f.pos.y + .04 + (.86 + Math.sin(el) * r) * room, f.pos.z - fz * Math.cos(el) * r * room);
+      // Keep one pivot and one pitch as the boom retracts. Scaling the whole offset by a
+      // near-wall blend, then aiming at another moving point, caused 20-degree frame jumps.
+      c.position.set(f.pos.x - fx * Math.cos(el0) * r, f.pos.y + base + Math.sin(el0) * r, f.pos.z - fz * Math.cos(el0) * r);
       // (on foot or on the bike: looking at the walker's waist a step ahead — the whole figure, feet
       // and all, a little below the middle of the picture; in a car, at the road beyond the bonnet)
       if (f.car) c.lookAt(f.pos.x + fx * 9, f.pos.y - 1.2, f.pos.z + fz * 9);
-      else { const ahead = 4 - 2.4 * room; c.lookAt(f.pos.x + fx * ahead, f.pos.y + Math.sin(f.tilt) * 4 * (1 - room) - (f.cycling ? .9 : .75) * room, f.pos.z + fz * ahead); }
+      else c.rotation.set(-el0, this.chaseYaw, 0, "YXZ");
       return;
     }
     this.model.group.visible = true;

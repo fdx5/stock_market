@@ -112,7 +112,7 @@ export class BuildingInterior {
   private skyline: THREE.Mesh | null = null; private ground: THREE.Mesh | null = null;
   private hemi = new THREE.HemisphereLight("#f4f6ff", "#8a8578", 0.7);
   private sun = new THREE.DirectionalLight("#fff2dc", 1.4);
-  private bob = 0; private shownPos = new THREE.Vector3(); private shownInit = false;
+  private bob = 0; private shownPos = new THREE.Vector3(); private shownAnchor = new THREE.Vector3(); private shownYaw = 0; private shownPitch = 0; private shownInit = false;
 
   constructor(readonly renderer: THREE.WebGLRenderer, private o: BuildingOptions) {
     this.scene.add(this.floorGroup, this.avatar.root, this.hemi, this.sun);
@@ -129,11 +129,11 @@ export class BuildingInterior {
     const std = (o: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial(o);
     const tiled = (set: string, color: string, rough: number) => std({ map: this.tex(`${set}_diff`, 1), normalMap: this.tex(`${set}_nor`, 1, false), color, roughness: rough });
     const M: [Mat, THREE.Material][] = [
-      ["floor", tiled("large_floor_tiles_02", "#ffffff", 0.35)],
-      ["tile", tiled("square_tiles_02", "#f2f2f0", 0.4)],
+      ["floor", tiled("large_floor_tiles_02", "#e3e2dd", 0.76)],
+      ["tile", tiled("square_tiles_02", "#e3e3df", 0.78)],
       ["carpet", tiled("poly_wool_herringbone", "#8a8f97", 0.95)],
       ["concrete", tiled("plastered_wall_02", "#9a9a98", 0.9)],
-      ["wall", tiled("plastered_wall_02", "#ecebe7", 0.85)],
+      ["wall", tiled("plastered_wall_02", "#d9d8d3", 0.93)],
       ["glass", new THREE.MeshPhysicalMaterial({ color: "#cfe1e8", transparent: true, opacity: 0.18, roughness: 0.05, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide })],
       ["desk", tiled("white_oak_veneer", "#f4efe6", 0.55)],
       ["wood", tiled("walnut_veneer", "#c9a27c", 0.5)],
@@ -206,7 +206,7 @@ export class BuildingInterior {
     this.skyline = cyl; this.scene.add(cyl); this.owned.push(cyl.geometry, cyl.material as THREE.Material);
     const gr = new THREE.Mesh(new THREE.CircleGeometry(430, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: night ? "#151a20" : "#6f7a72" }));
     this.ground = gr; this.scene.add(gr); this.owned.push(gr.geometry, gr.material as THREE.Material);
-    this.sun.position.set(-30, 60, -20); this.sun.intensity = night ? 0.15 : 1.4; this.hemi.intensity = night ? 0.45 : 0.75;
+    this.sun.position.set(-30, 60, -20); this.sun.intensity = night ? 0.12 : 1; this.hemi.intensity = night ? 0.4 : 0.65;
   }
 
   // ------------------------------------------------------------------ a floor
@@ -699,16 +699,23 @@ export class BuildingInterior {
     }
     this.placeCamera(dt);
     this.emitHud();
-    this.renderer.toneMappingExposure = this.fade > 0 ? Math.max(0.02, Math.abs(1 - this.fade)) : 1.0;
+      this.renderer.toneMappingExposure = .88 * (this.fade > 0 ? Math.max(0.02, Math.abs(1 - this.fade)) : 1);
     this.renderer.render(this.scene, this.camera);
   };
   private placeCamera(dt: number) {
     const prefs = viewPreferences(); applyViewFov(this.camera);
+    if (!this.shownInit) { this.shownYaw = this.yaw; this.shownPitch = this.pitch; }
+    else {
+      const k = 1 - Math.exp(-dt * (this.view === "third" ? 18 : 40));
+      const limit = this.view === "third" ? dt * 3.6 : Infinity;
+      this.shownYaw += THREE.MathUtils.clamp(Math.atan2(Math.sin(this.yaw - this.shownYaw), Math.cos(this.yaw - this.shownYaw)) * k, -limit, limit);
+      this.shownPitch += THREE.MathUtils.clamp((this.pitch - this.shownPitch) * k, -limit, limit);
+    }
     const y = this.riding ? (this.riding.esc.up ? this.riding.t : 1 - this.riding.t) * this.riding.esc.H : 0;
     const ar = this.avatar.root;
     ar.position.set(this.pos.x, y, this.pos.y); ar.rotation.set(0, this.yaw + Math.PI, 0);
     ar.visible = this.view === "third";
-    const look = new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
+    const look = new THREE.Vector3(-Math.sin(this.shownYaw) * Math.cos(this.shownPitch), Math.sin(this.shownPitch), -Math.cos(this.shownYaw) * Math.cos(this.shownPitch));
     const head = new THREE.Vector3(this.pos.x, y + EYE + (this.view === "first" && !prefs.reduceMotion ? Math.sin(this.bob) * 0.012 : 0), this.pos.y);
     let want = head.clone();
     if (this.view === "third") {
@@ -717,9 +724,11 @@ export class BuildingInterior {
       for (let t = 0.3; t <= 2.6 * prefs.distance; t += 0.15) { const px = head.x - look.x * t, pz = head.z - look.z * t;const wall=this.walls.some(([ax,az,bx,bz])=>{const dx=bx-ax,dz=bz-az,k=Math.max(0,Math.min(1,((px-ax)*dx+(pz-az)*dz)/(dx*dx+dz*dz||1)));return Math.hypot(px-ax-dx*k,pz-az-dz*k)<.23;});if (wall||this.solids.some(b => px > b.x0 - 0.15 && px < b.x1 + 0.15 && pz > b.z0 - 0.15 && pz < b.z1 + 0.15)) { d = Math.max(0.35, t - 0.2); break; } }
       want = head.clone().addScaledVector(look, -d).add(new THREE.Vector3(0, 0.35, 0));
     }
-    if (!this.shownInit) { this.shownPos.copy(want); this.shownInit = true; } else this.shownPos.lerp(want, 1 - Math.exp(-dt * 14));
+    if (!this.shownInit) { this.shownPos.copy(want); this.shownInit = true; }
+    else { this.shownPos.add(head.clone().sub(this.shownAnchor)); this.shownPos.lerp(want, 1 - Math.exp(-dt * 14)); }
+    this.shownAnchor.copy(head);
     this.camera.position.copy(this.shownPos);
-    this.camera.lookAt(head.clone().add(look.multiplyScalar(3)));
+    this.camera.rotation.set(this.shownPitch, this.shownYaw, 0, "YXZ");
   }
 
   resize(w: number, h: number) { this.renderer.setSize(w, h, false); this.camera.aspect = w / Math.max(1, h); this.camera.updateProjectionMatrix(); }

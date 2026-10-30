@@ -5,6 +5,7 @@ import { browserUrl, FACILITY_HOME } from "../src/walkmode/FacilityApps";
 import { DRINKS } from "../src/walkmode/interior/vending";
 import { labelHash } from "../src/walkmode/interior/signArtwork";
 import { comfortableFov, setViewPreferences, viewPreferences, DEFAULT_VIEW } from "../src/walkmode/viewPreferences";
+import { DroneFlight, type DroneWorldQuery } from "../src/components/droneFlight";
 
 Object.assign(globalThis, { location: { origin: "https://www.kospimap.com" } });
 assert.equal(FACILITY_HOME, "https://kospimap.com/map");
@@ -23,6 +24,15 @@ assert.ok(comfortableFov(90, 412 / 915) > comfortableFov(60, 412 / 915));
 setViewPreferences({ fov: 999, sensitivity: -2, distance: NaN });
 assert.equal(viewPreferences().fov, 90); assert.equal(viewPreferences().sensitivity, .4); assert.equal(viewPreferences().distance, 1);
 setViewPreferences(DEFAULT_VIEW);
+const flat: DroneWorldQuery = { groundAt: () => 0, roofAt: () => 0, clearAhead: () => Infinity, buildingRingAt: () => null };
+const runner = new DroneFlight(); runner.setWalking(true, flat);
+runner.keys.add("KeyW"); runner.keys.add("ShiftLeft");
+for (let i = 0; i < 300; i++) runner.step(1 / 60, flat);
+assert.ok(-runner.pos.z > 16 && -runner.pos.z < 18, "five seconds running covers a human running distance");
+assert.ok(runner.kmh <= 13, "walking mode cannot accelerate to vehicle speed");
+const walled: DroneWorldQuery = { ...flat, roofAt: (_x, y) => y > 22 ? 50 : 0, buildingRingAt: (_x, y) => y > 22 ? [[-10, 22], [10, 22], [10, 40], [-10, 40]] : null };
+for (let i = 0; i < 300; i++) runner.step(1 / 60, walled);
+assert.ok(-runner.pos.z <= 21.71, "running stays outside a surveyed building wall");
 assert.equal(new Set(Array.from({ length: 40 }, (_, i) => labelHash(`진료실 ${i}`) % 4)).size, 4);
 assert.equal(new Set(Array.from({ length: 40 }, (_, i) => labelHash(`매장 ${i}`) % 5)).size, 5);
 

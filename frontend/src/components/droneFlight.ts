@@ -48,7 +48,7 @@ export type DroneSticks = {
 };
 
 /** On foot (걷기): the eye's height over the street, walking and running pace (m/s), the body's radius. */
-export const EYE = 1.6, WALK = 1.5, RUN = 12.6, FOOT_R = 0.3;
+export const EYE = 1.6, WALK = 1.5, RUN = 3.6, FOOT_R = 0.3;
 /** On a bicycle: the eye over the street, the top speed (100 km/h), pedalling and braking (m/s²). */
 /** how far a sidewalk's paving stands over the terrain the ground query returns (m) */
 export const SURFACE_LIFT = 0.17;

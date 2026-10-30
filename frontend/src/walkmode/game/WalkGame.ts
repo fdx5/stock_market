@@ -134,7 +134,7 @@ export class WalkGame {
   private markerMat = new THREE.MeshBasicMaterial({ color: "#5ef0ff", transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true });
   private raf = 0; private last = 0; private worldAt = 0; private running = false; private disposed = false;
   private near: Entrance | null = null; private stepAcc = 0;
-  private camEye = new THREE.Vector3(); private camInit = false;
+  private camEye = new THREE.Vector3(); private camAnchor = new THREE.Vector3(); private camYaw = 0; private camPitch = 0; private camInit = false;
   private viewRT: THREE.WebGLCubeRenderTarget | null = null;
   private envRT: THREE.WebGLRenderTarget | null = null;
   private carReflectionRT: THREE.WebGLRenderTarget | null = null;
@@ -928,23 +928,37 @@ export class WalkGame {
     applyViewFov(this.camera);
     if(this.driving){this.avatar.root.visible=this.view==="third";this.drivenCars!.camera(this.camera,this.view==="first",this.yaw,this.pitch,dt,(x,y)=>this.world.buildingAt([x,y]));const a=this.drivenCars!.active!,b=a.vehicle.body;this.rearCameraOcclusion.update(this.camera,this.view==="third"?{x:b.x,y:b.y,z:a.record.z,height:a.record.height,width:a.record.width}:null);return;}
     const cam = this.camera;
-    const look = new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
+    if (snap || !this.camInit || this.view === "first") { this.camYaw = this.yaw; this.camPitch = this.pitch; }
+    else {
+      const k = 1 - Math.exp(-dt * 18), limit = dt * 3.6;
+      this.camYaw += THREE.MathUtils.clamp(Math.atan2(Math.sin(this.yaw - this.camYaw), Math.cos(this.yaw - this.camYaw)) * k, -limit, limit);
+      this.camPitch += THREE.MathUtils.clamp((this.pitch - this.camPitch) * k, -limit, limit);
+    }
+    const look = new THREE.Vector3(-Math.sin(this.camYaw) * Math.cos(this.camPitch), Math.sin(this.camPitch), -Math.cos(this.camYaw) * Math.cos(this.camPitch));
     const head = new THREE.Vector3(this.pos.x, this.z + (this.cycling ? 1.78 : 1.6), -this.pos.y);
     this.avatar.root.visible = this.view === "third";
-    if (this.view === "first") { cam.position.copy(head); this.camEye.copy(head); this.camInit = true; cam.lookAt(head.clone().add(look)); this.rearCameraOcclusion?.update(cam,null); return; }
+    if (this.view === "first") { cam.position.copy(head); this.camEye.copy(head); this.camAnchor.copy(head); this.camInit = true; cam.lookAt(head.clone().add(look)); this.rearCameraOcclusion?.update(cam,null); return; }
     // Keep a low rear camera even beside a tall wall or inside a tight corner.
     // Occluding walls use the existing camera-only cutaway; never orbit or rise.
     const distance = (this.cycling ? 4.6 : 3.6) * viewPreferences().distance;
-    const want = new THREE.Vector3(this.pos.x + Math.sin(this.yaw) * distance, this.z + (this.cycling ? 2.18 : 2.05), -this.pos.y + Math.cos(this.yaw) * distance);
+    const want = new THREE.Vector3(this.pos.x + Math.sin(this.camYaw) * distance, this.z + (this.cycling ? 2.18 : 2.05), -this.pos.y + Math.cos(this.camYaw) * distance);
     // A parked vehicle may shorten the rear distance, but never changes its side
     // or height. Keep walls out of this calculation: they use the cutaway below.
     for (let d = distance; d >= 1.2; d -= .15) {
-      want.x = this.pos.x + Math.sin(this.yaw) * d; want.z = -this.pos.y + Math.cos(this.yaw) * d;
+      want.x = this.pos.x + Math.sin(this.camYaw) * d; want.z = -this.pos.y + Math.cos(this.camYaw) * d;
       if (!this.parkedCars?.cameraBlocked(want.x, -want.z, want.y)) break;
     }
     const g = this.world?.surfaceAt(want.x, -want.z, this.z);
     if (Number.isFinite(g)) want.y = Math.max(want.y, Math.min(g + 0.4, this.z + 2.4));
-    if (snap || !this.camInit || this.parkedCars?.cameraBlocked(this.camEye.x,-this.camEye.z,this.camEye.y) || want.distanceTo(head) < this.camEye.distanceTo(head)) { this.camEye.copy(want); this.camInit = true; } else this.camEye.lerp(want, 1 - Math.exp(-dt * 10));
+    if (snap || !this.camInit) { this.camEye.copy(want); this.camInit = true; }
+    else {
+      // Transport with the runner before damping the orbit. Comparing a world-space previous
+      // camera to the new head alternated between snapping and easing on strafes and turns.
+      this.camEye.add(head.clone().sub(this.camAnchor));
+      if (this.parkedCars?.cameraBlocked(this.camEye.x,-this.camEye.z,this.camEye.y)) this.camEye.copy(want);
+      else this.camEye.lerp(want, 1 - Math.exp(-dt * 14));
+    }
+    this.camAnchor.copy(head);
     this.avatar.root.visible = true;
     cam.position.copy(this.camEye);
     cam.lookAt(head.clone().add(new THREE.Vector3(0, 0.1, 0)).addScaledVector(look, 2));

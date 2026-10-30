@@ -211,7 +211,7 @@ export class Interior {
   view: "first" | "third" = "first";
   /** the camera as shown: it follows pos/yaw/pitch — at once while walking and looking, eased over
    * a moment when they jump (sitting, lying, standing, changing view), never a sudden turn */
-  private shown = { yaw: 0, pitch: -0.05, pos: new THREE.Vector3(), boom: 1.5, ease: 0, init: false };
+  private shown = { yaw: 0, pitch: -0.05, pos: new THREE.Vector3(), anchor: new THREE.Vector2(), boom: 1.5, ease: 0, init: false };
   seated: { label: string; eye: THREE.Vector3; yaw: number; pose: "sit" | "lie"; back: THREE.Vector2 } | null = null;
   private keys = new Set<string>(); private stick = new THREE.Vector2(); private runStick = false;
   private ray = new THREE.Raycaster(); private target: Interactable | null = null;
@@ -302,7 +302,7 @@ export class Interior {
     const sunS = sunAt(this.o.hour);
     if (this.o.view) this.scene.background = this.o.view;
     else { this.viewRT = paintedView(this.renderer, this.o.hour, plan.floor * 2.9 + 1.5, plan.complexId.length + plan.floor); this.scene.background = this.viewRT.texture; }
-    this.scene.backgroundIntensity = 1.25 + (1 - sunS.night) * 0.9;
+    this.scene.backgroundIntensity = plan.facility ? .9 + (1 - sunS.night) * .35 : 1.25 + (1 - sunS.night) * .9;
     // mirrors that reflect (the bathroom cabinets)
     for (const mr of this.furn.mirrors) {
       const r = new Reflector(new THREE.PlaneGeometry(mr.w, mr.h), { textureWidth: 1024, textureHeight: Math.round(1024 * mr.h / mr.w), color: 0xc9cdd0, clipBias: 0.002, multisample: 4 });
@@ -433,6 +433,7 @@ export class Interior {
         const F = (2 / Math.PI) * (X / Math.sqrt(1 + X * X) * Math.atan(Y / Math.sqrt(1 + X * X)) + Y / Math.sqrt(1 + Y * Y) * Math.atan(X / Math.sqrt(1 + Y * Y)));
         intensity *= Math.max(1, (w * h / (Math.PI * c * c)) / Math.max(1e-4, F));
       }
+      if (this.o.plan.facility && down) intensity *= .75;
       const lamp: Lamp = { zone, pos: pos.clone(), look: down ? new THREE.Vector3(pos.x, pos.y - 1, pos.z) : pos.clone().add(inward!), w, h, color: new THREE.Color(color), base: intensity, window: windowIdx, now: intensity, k: 0 };
       this.lamps.push(lamp);
       return lamp;
@@ -479,7 +480,7 @@ export class Interior {
       if (r.type === "bathroom" || r.type === "ensuite" || r.type === "restroom") this.wetZones.add(z);
     }
     // the sun through the glass, with soft shadows
-    this.sun.color.copy(s.color); this.sun.intensity = s.intensity;
+    this.sun.color.copy(s.color); this.sun.intensity = s.intensity * (this.o.plan.facility ? .65 : 1);
     const [x0, z0, x1, z1] = this.o.plan.bounds, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
     this.sun.position.set(cx + s.dir.x * 30, s.dir.y * 30, cz + s.dir.z * 30); this.sun.target.position.set(cx, 0, cz);
     this.sun.castShadow = s.intensity > 0;
@@ -490,14 +491,15 @@ export class Interior {
     sc.left = -r; sc.right = r; sc.top = r; sc.bottom = -r; sc.near = 5; sc.far = 70;
     this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.025; this.sun.shadow.radius = 4;
     this.scene.add(this.sun, this.sun.target, this.hemi);
-    this.hemi.intensity = 0.04 + 0.08 * (1 - s.night);
+    // Soft fill keeps matte walls legible at night without restoring sharp specular glare.
+    this.hemi.intensity = this.o.plan.facility ? .22 + .06 * (1 - s.night) : .04 + .08 * (1 - s.night);
   }
 
   private setupPost() {
     const r = this.renderer;
     // (on: a previous interior on this renderer left it off, and its loading renders need the sun's shadow)
     r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFShadowMap; r.shadowMap.autoUpdate = true; r.shadowMap.needsUpdate = true;
-    r.toneMapping = THREE.NeutralToneMapping; r.toneMappingExposure = 1.0;
+    r.toneMapping = THREE.NeutralToneMapping; r.toneMappingExposure = this.o.plan.facility ? .9 : 1;
     r.outputColorSpace = THREE.SRGBColorSpace;
     const size = r.getDrawingBufferSize(new THREE.Vector2());
     // (the frame's own depth feeds the AO, its normals rebuilt from it: no second scene pass)
@@ -513,7 +515,7 @@ export class Interior {
     this.gtao.updateGtaoMaterial({ radius: 0.35, distanceExponent: 1.4, thickness: 1.2, scale: 1.0, samples: 16, distanceFallOff: 1, screenSpaceRadius: false });
     this.gtao.blendIntensity = 0.85;
     this.composer.addPass(this.gtao);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.12, 0.45, 1.2);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), this.o.plan.facility ? .035 : .12, .45, this.o.plan.facility ? 2 : 1.2);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.composer.setSize(size.x, size.y);
@@ -548,7 +550,7 @@ export class Interior {
     this.avatar.root.visible = vis;
     const env = p.pmrem.fromCubemap(p.rt.texture);
     p.env?.dispose(); p.env = env;
-    this.scene.environment = env.texture; this.scene.environmentIntensity = 0.85;
+    this.scene.environment = env.texture; this.scene.environmentIntensity = this.o.plan.facility ? .55 : .85;
   }
   /** where the light round the flat is taken: its living room; a building's largest room off the corridor */
   private probeRoom() {
@@ -929,7 +931,7 @@ export class Interior {
         const open = this.furn.curtainOpen.get(l.window)?.() ?? 1;
         const w = this.shell.windows[l.window];
         const facing = Math.max(0.35, 0.65 + 0.35 * -w.inward.dot(s.dir));
-        l.now = 1.2 * s.skyIntensity * open * facing;
+        l.now = (this.o.plan.facility ? .75 : 1.2) * s.skyIntensity * open * facing;
       } else if (l.tv) l.now += ((this.furn.tv?.on ? 1.3 : 0) - l.now) * Math.min(1, dt * 6);
       else l.now = l.base * (this.zoneLevel.get(l.zone) ?? 1);
     }
@@ -953,6 +955,19 @@ export class Interior {
   private applyCamera(dt: number) {
     const cam = this.camera;
     const prefs = viewPreferences(); applyViewFov(cam);
+    const sh = this.shown;
+    if (!sh.init || dt <= 0) { sh.yaw = this.yaw; sh.pitch = this.pitch; sh.anchor.copy(this.pos); }
+    else {
+      sh.ease = Math.max(0, sh.ease - dt);
+      const k = 1 - Math.exp(-dt * (sh.ease > 0 ? 6 : this.view === "third" ? 18 : 40));
+      const dy = Math.atan2(Math.sin(this.yaw - sh.yaw), Math.cos(this.yaw - sh.yaw));
+      const turnLimit = this.view === "third" ? dt * 3.6 : Infinity;
+      sh.yaw += THREE.MathUtils.clamp(dy * k, -turnLimit, turnLimit);
+      sh.pitch += THREE.MathUtils.clamp((this.pitch - sh.pitch) * k, -turnLimit, turnLimit);
+      // Carry the camera with the body; damp its orbit, not the runner's world translation.
+      sh.pos.x += this.pos.x - sh.anchor.x; sh.pos.z += this.pos.y - sh.anchor.y;
+      sh.anchor.copy(this.pos);
+    }
     const floor = this.shell.floorAt(this.pos.x, this.pos.y);
     this.eyeY += (floor + EYE - this.eyeY) * Math.min(1, dt * 10 || 1);
     const ar = this.avatar.root;
@@ -978,31 +993,25 @@ export class Interior {
         cam.position.set(e.x, this.eyeY + bob, e.y);
       } else {
         // over the shoulder, pulled in before a wall
-        const back = 2.8 * prefs.distance, bx = Math.sin(this.yaw), bz = Math.cos(this.yaw);
-        let d = back;
-        for (const [ax, az, cx, cz] of this.grid.query(this.pos.x, this.pos.y, this.pos.x + bx * back, this.pos.y + bz * back)) {
-          const hit = segHit(this.pos.x, this.pos.y, this.pos.x + bx * back, this.pos.y + bz * back, ax, az, cx, cz);
-          if (hit !== null) d = Math.min(d, hit * back - 0.15);
-        }
-        d = Math.max(0.25, d);
+        const back = 2.8 * prefs.distance, bx = Math.sin(sh.yaw), bz = Math.cos(sh.yaw);
+        // Use the displayed heading for both orbit and aim. Test the actual boom, including
+        // moving doors, instead of testing its centre then snapping a shoulder into a jamb.
+        const safe = this.clearOf(this.pos.x + bx * back, this.pos.y + bz * back);
+        let d = Math.max(.1, Math.hypot(safe.x - this.pos.x, safe.y - this.pos.y));
         // (pulled in quickly before a wall, let out slowly)
-        const sb = this.shown;
+        const sb = sh;
         sb.boom = dt > 0 ? sb.boom + (d - sb.boom) * (1 - Math.exp(-dt * (d < sb.boom ? 18 : 3))) : d;
         d = Math.min(d + 0.05, sb.boom);
         // (the shoulder's offset too kept on this side of the walls: in a narrow hall it put the
         // camera inside one)
-        const e = this.clearOf(this.pos.x + bx * d + Math.cos(this.yaw) * 0.32, this.pos.y + bz * d - Math.sin(this.yaw) * 0.32);
+        const e = this.clearOf(this.pos.x + bx * d, this.pos.y + bz * d);
         cam.position.set(e.x, this.eyeY + 0.22, e.y);
       }
     }
     // eased toward what was set (dt 0: the warm-up renders, at once)
-    const sh = this.shown;
     if (!sh.init || dt <= 0) { sh.yaw = this.yaw; sh.pitch = this.pitch; sh.pos.copy(cam.position); sh.init = true; }
     else {
-      sh.ease = Math.max(0, sh.ease - dt);
-      const k = 1 - Math.exp(-dt * (sh.ease > 0 ? 6 : 40)), kp = sh.ease > 0 ? 1 - Math.exp(-dt * 6) : 1;
-      let dy = this.yaw - sh.yaw; dy -= Math.round(dy / (Math.PI * 2)) * Math.PI * 2;
-      sh.yaw += dy * k; sh.pitch += (this.pitch - sh.pitch) * k;
+      const kp = 1 - Math.exp(-dt * (sh.ease > 0 ? 6 : this.view === "third" ? 18 : 1000));
       sh.pos.lerp(cam.position, kp); cam.position.copy(sh.pos);
     }
     // Recheck the interpolated path: turning a corner must not lerp through its wall.
