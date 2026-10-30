@@ -26,10 +26,6 @@ export const BGM_TRACKS: readonly BgmTrack[] = [
   { id: "twTHMnVM9L4", title: "Inception · Angel Lover", channel: "Angel Lover", bpm: 90, energy: 0.6, bass: 0.62, bright: 0.55 },
 ];
 
-/** A drone flight that starts the music opens with this track, twice, then the session order resumes. */
-export const DRONE_OPENING_ID = "twTHMnVM9L4";
-export const DRONE_OPENING_PLAYS = 2;
-
 export const BGM_SESSION_KEY = "kospimap.bgm.session.v2";
 const CATALOGUE = BGM_TRACKS.map(track => track.id).join(",");
 type StorageAccess = Pick<Storage, "getItem" | "setItem">;

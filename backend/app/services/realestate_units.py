@@ -8,8 +8,9 @@ Sources
                              with how many trades each had.
     공동주택 기본정보(K-apt)   세대수 (realestate_facts.complex_facts).
 
-There are no floor plans in public data: the walk builds an estimated plan from the area. Nothing
-is written to the database; register answers are kept in memory for a week, failures ten minutes.
+These register/trade sources provide areas, not internal wall/door geometry. They cannot identify
+an actual unit floor plan; that needs a separate verified drawing source. Nothing is written to
+the database; register answers are kept in memory for a week, failures ten minutes.
 """
 
 from __future__ import annotations

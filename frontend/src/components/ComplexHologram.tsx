@@ -4543,6 +4543,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, near, complexId, homeId, loading]);
   signsRef.current = signs;
+  // The current complex is intentionally omitted from streamed neighbourhood tiles. Register
+  // its actual apartment sign (and nearby collected complexes) in the drone's clickable layer.
+  useEffect(() => {
+    const drone = stageRef.current?.drone;
+    if (!drone || !data) return;
+    drone.signs.set("collected-complexes", signs.filter(s => /^\d{5}:/.test(s.id) && (!s.here || data.id === s.id)).map(s => ({
+      name: s.name, kind: "apt", x: s.x, y: s.y, top: s.z, n: 1,
+      info: { complexId: s.id, bx: s.x, by: s.y },
+    })));
+  }, [signs, droneOn, data]);
   // 단지 팻말 drawn on one canvas over the view (the signs moved as buttons each frame cost the page a
   // restyle, repaint, re-composite and accessibility update every frame — ~6 fps of a slow machine's
   // 35 while the camera turned). Hit-tested here for hover and click; a static list of buttons

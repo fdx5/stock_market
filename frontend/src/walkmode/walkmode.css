@@ -33,6 +33,7 @@
 .wk-go { background: linear-gradient(180deg, #31d9ff, #13a9cf); color: #03131a; border-color: transparent; box-shadow: 0 0 18px rgba(49, 217, 255, .45); }
 .wk-btn { background: rgba(8, 14, 20, .72); color: #dff6ff; backdrop-filter: blur(8px); }
 .wk-go:hover { filter: brightness(1.08); } .wk-btn:hover { border-color: #5ef0ff; }
+.wk-go:disabled { cursor: default; opacity: .55; box-shadow: none; filter: none; }
 .wk-board { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 58px; padding: 10px 22px; border: 2px solid #fff5c2; background: #ffe382; color: #101923; font-family: inherit; font-size: 18px; font-weight: 850; line-height: 1.25; box-shadow: 0 0 0 3px #080f19, 0 5px 22px #ffe38266; text-shadow: none; }
 .wk-board--bike { background: #8df3ff; border-color: #e0fcff; box-shadow: 0 0 0 3px #080f19, 0 5px 22px #5ef0ff66; }
 .wk-root .wk-board kbd { display: inline-grid; place-items: center; min-width: 34px; min-height: 34px; margin: 0; padding: 0 5px; color: #0c1721; background: #fff; border: 2px solid #263c4e; border-radius: 6px; font: 900 23px/1 ui-monospace, monospace; box-shadow: 0 2px 0 #263c4e; }

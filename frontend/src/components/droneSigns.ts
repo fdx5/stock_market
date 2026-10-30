@@ -81,7 +81,7 @@ export class DroneSigns {
     const groups = new Map<string, Sign[]>();
     for (const list of this.byTile.values()) for (const l of list) {
       const k = l.key ?? (l.kind + ":" + (l.camera?.id??l.name)), near = l.key ? undefined : groups.get(k)?.find(s => Math.hypot(s.x - l.x, s.y - l.y) < 600);
-      if (near) { near.x = (near.x * near.n + l.x * l.n) / (near.n + l.n); near.y = (near.y * near.n + l.y * l.n) / (near.n + l.n); near.top = Math.max(near.top, l.top); if (!near.info?.pnu && l.info?.pnu) near.info = l.info; near.n += l.n; }
+      if (near) { near.x = (near.x * near.n + l.x * l.n) / (near.n + l.n); near.y = (near.y * near.n + l.y * l.n) / (near.n + l.n); near.top = Math.max(near.top, l.top); near.info = { ...near.info, ...l.info, complexId: near.info?.complexId ?? l.info?.complexId, pnu: near.info?.pnu ?? l.info?.pnu }; near.n += l.n; }
       else { const sign = { key: k, name: l.name, kind: l.kind, x: l.x, y: l.y, top: l.top, n: l.n, w: 0, info: l.info, camera:l.camera, live: l.live, tint: l.tint }, list = groups.get(k); if (list) list.push(sign); else groups.set(k, [sign]); }
     }
     this.merged = [...groups.values()].flat();

@@ -19,7 +19,7 @@ import {namedBuildingKind} from './dronePlaceLabels';
 
 /** What the building register (VWorld GIS건물통합정보) says of a sign's largest building: its parcel
  * (PNU, for the 건축물대장 card), 사용승인일, floors, height and floor area. */
-export type DroneLabelInfo = { /** the building's centre (view frame, m) */ bx?: number; by?: number; pnu?: string; approved?: string; floors?: number; basements?: number; height?: number; area?: number; dong?: string;
+export type DroneLabelInfo = { /** Real collected apartment identity, distinct from public-facility labels. */ complexId?: string; /** the building's centre (view frame, m) */ bx?: number; by?: number; pnu?: string; approved?: string; floors?: number; basements?: number; height?: number; area?: number; dong?: string;
   place?:{category:string;address?:string;brand?:string;phone?:string;hours?:string;website?:string;checked?:string;sourceUrl:string};
 };
 export type DroneLabel = { name: string; kind: "apt" | "gov" | "major" | "commercial" | "market" | "district" | "school" | "hospital" | "station" | "bridge" | "cctv" | "subway" | "train" | "er" | "bike" | "parking" | "service" | "exit"; x: number; y: number; top: number; n: number; info?: DroneLabelInfo; camera?:import('./trafficCctv').TrafficCamera;

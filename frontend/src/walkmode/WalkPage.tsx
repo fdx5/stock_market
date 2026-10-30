@@ -55,7 +55,7 @@ interface Start { lat: number; lon: number; name: string; key: string; domain: s
 
 export default function WalkPage() {
   const q = useMemo(() => new URLSearchParams(location.search), []);
-  const demo = q.get("interior") === "demo";
+  const demo = import.meta.env.DEV && q.get("interior") === "demo";
   const canvas = useRef<HTMLCanvasElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const renderer = useRef<THREE.WebGLRenderer | null>(null);
@@ -311,11 +311,14 @@ export default function WalkPage() {
       const top = u.dong?.floors || e.floors || 15;
       if (u.dong?.floors) setEntering({ ...e, floors: u.dong.floors });
       setPick({ type: best?.key ?? "", floor: Math.min(top, 3 + Math.floor(Math.random() * Math.max(1, top - 3))), style: "auto" });
-      if (!u.types.length) setUnitsErr("이 단지의 평형 자료가 없어 표준 84㎡ 평면으로 보여드립니다.");
-    }).catch(() => { if (ctrl.signal.aborted) return; setUnits({ complexId: start.id, name: e.name || start.name, built: start.built, households: null, types: [], sources: [] }); setUnitsErr("평형 자료를 불러오지 못해 표준 84㎡ 평면으로 보여드립니다."); });
+      if (!u.types.length) setUnitsErr("이 단지의 전용면적 자료를 확인하지 못했습니다.");
+    }).catch(() => { if (ctrl.signal.aborted) return; setUnits({ complexId: start.id, name: e.name || start.name, built: start.built, households: null, types: [], sources: [] }); setUnitsErr("평형 자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."); });
   };
 
   const goIn = () => {
+    // Area/register rows cannot identify internal walls or a unit's A/B layout.
+    // Keep the generator in local demos only until a verified plan is integrated.
+    if (!demo) { setUnitsErr("실제 평면도가 확보되지 않아 세대 내부 탐험을 제공하지 않습니다."); return; }
     if (!start || !entering || !renderer.current) return;
     sound.resume();
     const t = units?.types.find(x => x.key === pick.type);
@@ -380,6 +383,12 @@ export default function WalkPage() {
         const fa = e.foot && e.foot.length > 2 ? Math.abs(e.foot.reduce((t, [x1, y1], i) => { const [x2, y2] = e.foot![(i + 1) % e.foot!.length]; return t + x1 * y2 - x2 * y1; }, 0)) / 2 : 0;
         const r = await fetch(`/api/realestate/building-floors?${new URLSearchParams({ pnu, name: e.name, ...(fa ? { area: fa.toFixed(0) } : {}) })}`, { signal: AbortSignal.timeout(18000) }).catch(() => null);
         if (r?.ok) { const d = await r.json(); info = { ...d.building, name: d.building?.name || e.name }; floors = d.floors ?? []; src = `건축물대장 표제부·층별개요 · 지상 ${info.floors ?? "?"}층 / 지하 ${info.basements ?? 0}층 · 승강기 ${(info.rideLifts ?? 0) + (info.emergencyLifts ?? 0)}대`; }
+      }
+      // A direct link or outdoor fallback may initially classify an apartment as a general
+      // building. Its register use must still route through the verified apartment-plan gate.
+      if (/공동주택|아파트|연립|다세대/.test(`${info.use ?? ""} ${info.useDetail ?? ""}`)) {
+        enter({ ...e, name: info.name ?? e.name, kind: "apartment", useLabel: info.use ?? undefined });
+        return;
       }
       setBsource(src);
       // (the shell: the building's surveyed outline, the door where it was gone into)
@@ -687,11 +696,12 @@ export default function WalkPage() {
         <div className="wk-choose">
           <div className="wk-choose-card">
             <span className="wk-kicker">{visit?.name ?? entering.name ?? start?.name} {entering.dong}</span>
-            <h2>어느 세대로 갈까요?</h2>
+            <h2>{demo ? "어느 세대로 갈까요?" : "세대 평면도 안내"}</h2>
             {!units ? <div className="wk-units-loading"><div className="wk-bar"><i className="is-indeterminate" /></div><p className="wk-sub">건축물대장·실거래 자료에서 이 동의 평형을 받아오는 중…</p></div> : <>
               <div className="wk-field"><label>평형 (전용면적)</label>
-                <div className="wk-chips">{units.types.map(t => <button key={t.key} className={pick.type === t.key ? "on" : ""} onClick={() => setPick(p => ({ ...p, type: t.key }))}>{t.areaM2.toFixed(0)}㎡<small>{t.households ? `${t.households}세대` : ""}{t.households && t.trades ? " · " : ""}{t.trades ? `거래 ${t.trades}건` : ""}</small></button>)}</div>
+                <div className="wk-chips">{units.types.map(t => <button key={t.key} className={pick.type === t.key ? "on" : ""} onClick={() => setPick(p => ({ ...p, type: t.key }))}>{t.areaM2.toFixed(2)}㎡<small>{t.households ? `${t.households}세대` : ""}{t.households && t.trades ? " · " : ""}{t.trades ? `거래 ${t.trades}건` : ""}</small></button>)}</div>
               </div>
+              {demo && <>
               <div className="wk-field"><label>층 <b>{pick.floor}층</b></label><input type="range" min={2} max={floors} value={pick.floor} onChange={e => setPick(p => ({ ...p, floor: +e.target.value }))} /></div>
               <div className="wk-field"><label>인테리어</label>
                 <div className="wk-chips">{(["auto", "modern_white", "wood_natural", "gray_minimal", "classic_walnut", "nordic_bright", "hotel_dark", "vintage_warm"] as const).map(s => <button key={s} className={pick.style === s ? "on" : ""} onClick={() => setPick(p => ({ ...p, style: s }))}>{s === "auto" ? "자동" : STYLE_LABEL[s]}</button>)}</div>
@@ -699,13 +709,14 @@ export default function WalkPage() {
               <div className="wk-field"><label>반려동물</label>
                 <div className="wk-chips">{([["dog", "🐶 시바견"], ["cat", "🐱 고양이"]] as const).map(([k, l]) => <button key={k} className={pet === k ? "on" : ""} onClick={() => setPet(k)}>{l}</button>)}</div>
               </div>
+              </>}
               {unitsErr && <p className="wk-warn">{unitsErr}</p>}
               <p className="wk-basis">
-                <span className="wk-badge">추정 평면</span>
-                {chosen ? `${chosen.label} · 근거: ${chosen.source}` : "표준 평면"}{units.households ? ` · ${units.households.toLocaleString()}세대` : ""}<br />
-                공개 자료에는 평면도가 없어 면적에 맞춘 국내 표준 평면(판상형)으로 실내를 만들고, 인테리어는 연출용 가상 인테리어입니다.
+                <span className="wk-badge">{demo ? "개발용 추정 평면" : "실제 도면 미확보"}</span>
+                {chosen ? `${chosen.label} · 면적 출처: ${chosen.source}` : "평형 자료 없음"}{units.households ? ` · ${units.households.toLocaleString()}세대` : ""}<br />
+                {demo ? "개발용 가상 인테리어입니다." : "면적만으로는 내부 구조를 확인할 수 없습니다. 해당 단지·주택형의 실제 도면이 확보될 때까지 세대 내부 탐험을 제공하지 않습니다."}
               </p>
-              <div className="wk-row"><button className="wk-go" onClick={goIn}>🛗 올라가기</button><button className="wk-btn" onClick={() => { if (game.current) { game.current.resume(); setPhase("outdoor"); } else leave(); }}>취소</button></div>
+              <div className="wk-row"><button className="wk-go" disabled={!demo} onClick={goIn}>{demo ? "🛗 올라가기" : "실제 도면 준비 중"}</button><button className="wk-btn" onClick={() => { if (game.current) { game.current.resume(); setPhase("outdoor"); } else leave(); }}>돌아가기</button></div>
             </>}
           </div>
         </div>

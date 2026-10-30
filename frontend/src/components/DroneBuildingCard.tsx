@@ -52,6 +52,14 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
     setParcel(null);
     setMarket(null); setMarketState('loading'); setMarketType(null);
     let marketStarted = false;
+    // A collected complex already has an exact identity. Apartment details must not depend on
+    // a reverse-geocoder finding a parcel beneath a label between its apartment towers.
+    if (sign.info?.complexId) {
+      marketStarted = true;
+      void api.realEstateComplex(sign.info.complexId, '1y', stop.signal).then(result => {
+        if (!stop.signal.aborted) { setMarket(result); setMarketState('done'); }
+      }).catch(() => { if (!stop.signal.aborted) setMarketState('failed'); });
+    }
     const loadMarket = async (pc: { pnu: string; address: string | null } | null, address?: string | null) => {
       if (marketStarted || stop.signal.aborted || !pc?.pnu || !address) return;
       marketStarted = true;
@@ -86,7 +94,7 @@ export default function DroneBuildingCard({ sign, at, distance, vkey, domain, on
       })
       .catch(() => { if (!stop.signal.aborted) { setState("failed"); if (!marketStarted) setMarketState('failed'); } });
     return () => stop.abort();
-  }, [sign.key, sign.name, sign.info?.pnu, at.lat, at.lon, vkey, domain]);
+  }, [sign.key, sign.name, sign.info?.pnu, sign.info?.complexId, at.lat, at.lon, vkey, domain]);
 
   const [icon, kindName] = KIND[sign.kind];
   const rows = card?.register ?? [];
