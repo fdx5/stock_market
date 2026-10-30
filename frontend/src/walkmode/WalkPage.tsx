@@ -550,7 +550,11 @@ export default function WalkPage() {
       else if (!drag.current) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
       return;
     }
-    if ((phase === "interior" || phase === "outdoor" || phase === "building") && !liftPanel&&!talk&&!vending&&!monitorOpen&&!cameraPanel) canvas.current?.requestPointerLock?.();
+    const c = canvas.current;
+    if ((phase === "interior" || phase === "outdoor" || phase === "building") && c?.isConnected && !exiting.current && document.visibilityState === "visible") {
+      // Escape/navigation can detach the document before the browser resolves this request.
+      try { const pending = c.requestPointerLock?.(); if (pending) void pending.catch(() => undefined); } catch { /* The browser may cancel the request synchronously too. */ }
+    }
   };
   const onMove = (e: React.PointerEvent) => {
     if (stick.current?.id === e.pointerId) {

@@ -768,5 +768,43 @@
       ]
     },
     "errors": []
+  },
+  "production84f0da32": {
+    "glareSettings": {
+      "exposure": 0.9,
+      "environment": 0.55,
+      "bloom": 0.035,
+      "floorRoughness": 0.76,
+      "floorCoat": 0.05
+    },
+    "map2x": [
+      300,
+      600
+    ],
+    "vending": true,
+    "monitor": true,
+    "escapeExit": true,
+    "desktop": {
+      "avgFps": 43.74047319239181,
+      "min1sFps": 38.34431226034804,
+      "p95": 33.4,
+      "p99": 33.5,
+      "maxMs": 33.5,
+      "drawingBuffer": [
+        2514,
+        1277
+      ],
+      "pixelRatio": 1
+    },
+    "errors": [
+      "The root document of this element is not valid for pointer lock."
+    ]
+  },
+  "pointerLockFixLocal": {
+    "origin": "http://127.0.0.1:5321",
+    "canceledRequestHandled": true,
+    "actualPointerLock": true,
+    "oneEscapeExit": true,
+    "errors": []
   }
 }
