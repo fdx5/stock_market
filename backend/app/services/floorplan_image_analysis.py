@@ -10,6 +10,7 @@ import csv
 import heapq
 import io
 import math
+import os
 import shutil
 import subprocess
 import time
@@ -20,7 +21,7 @@ import numpy as np
 from PIL import Image
 
 cv2.setNumThreads(1)
-VERSION = "orthogonal-ocr-4"
+VERSION = "orthogonal-ocr-5"
 
 
 def _ocr(image: np.ndarray, rotation: int = 0, mode: str = "mixed") -> list[dict]:
@@ -38,7 +39,8 @@ def _ocr(image: np.ndarray, rotation: int = 0, mode: str = "mixed") -> list[dict
         # Select TSV through parameters: a custom model directory need not contain
         # the operating system's `configs/tsv` file.
         result = subprocess.run(args+["-c","tessedit_create_tsv=1","-c","tessedit_create_txt=0"],
-                                input=encoded, capture_output=True, timeout=12, check=True)
+                                input=encoded, capture_output=True, timeout=12, check=True,
+                                env={**os.environ,"OMP_THREAD_LIMIT":"1"})
     except (subprocess.SubprocessError, OSError):
         return []
     out = []
@@ -310,6 +312,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
     X,x_constraints=_axis_calibration(numeric,gray,"x",(x0,y0,x1,y1),default_scale)
     Z,z_constraints=_axis_calibration(numeric,gray,"z",(x0,y0,x1,y1),default_scale)
     chain_applied=bool(x_constraints and z_constraints)
+    single_axis=False
     if chain_applied:
         sx,sy=(X(x1)-X(x0))/(x1-x0),(Z(y1)-Z(y0))/(y1-y0)
         dimension_scale=True
@@ -320,7 +323,18 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
         if z_constraints:sy=(Z(y1)-Z(y0))/(y1-y0)
         dimension_scale=sx is not None and sy is not None
         if sx and sy and not .65<sx/sy<1.55:
-            return {"status":"needs_review","reason":"dimension_conflict","version":VERSION}
+            # OCR engines can omit one chain's ticks or join adjacent digits. With
+            # several real dimension observations, retain the plausible measured
+            # axis and the original image aspect ratio instead of stretching to the
+            # conflicting value. Geometry/area/walking validation still applies.
+            if len(xdim)+len(ydim)>=4:
+                candidates=[value for value,observations in [(sx,xdim),(sy,ydim)] if len(observations)>=2 and .7*default_scale<value<1.4*default_scale]
+                if candidates:
+                    sx=sy=min(candidates,key=lambda value:abs(math.log(value/default_scale)));single_axis=True
+                else:
+                    sx=sy=default_scale;dimension_scale=False
+            else:
+                return {"status":"needs_review","reason":"dimension_conflict","version":VERSION,"recognizedDimensions":numeric}
         sx,sy=sx or sy or default_scale,sy or sx or default_scale
         X=lambda v:float((v-x0)*sx)
         Z=lambda v:float((v-y0)*sy)
@@ -653,7 +667,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
     status="ready" if abs(error)<.18 and len(bedrooms)>=1 and usable_beds and connected else "needs_review"
     elapsed=round((time.perf_counter()-started)*1000)
     return {"status":status,"reason":None if status=="ready" else "area_or_room_consistency","version":VERSION,
-            "imageSize":[W,H],"pixelBounds":[int(x0),int(y0),int(x1),int(y1)],"scale":{"xMetresPerPixel":sx,"zMetresPerPixel":sy,"basis":"dimension_chains" if chain_applied else "recognized_dimensions" if dimension_scale else "area_calibration"},
+            "imageSize":[W,H],"pixelBounds":[int(x0),int(y0),int(x1),int(y1)],"scale":{"xMetresPerPixel":sx,"zMetresPerPixel":sy,"basis":"dimension_chains" if chain_applied else "single_axis_dimensions" if single_axis else "recognized_dimensions" if dimension_scale else "area_calibration"},
             "dimensionConstraints":x_constraints+z_constraints,"dimensionChainsApplied":chain_applied,
             "recognizedDimensions":[{k:d[k] for k in ("text","millimetres","x","y","rotation","confidence")} for d in numeric],
             "rooms":rooms,"openings":openings,"areaM2":round(counted,2),"areaError":round(error,4),"elapsedMs":elapsed,

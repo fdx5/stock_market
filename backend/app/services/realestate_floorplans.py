@@ -115,7 +115,7 @@ def parse_gallery(text: str, naver_id: str) -> dict:
             token = hashlib.sha256(f"{naver_id}|{type_id}|{path}".encode()).hexdigest()[:24]
             plans.append({"key": token, "naverId": str(naver_id), "typeId": type_id,
                           "typeName": str(row.get("ptp_nm", "")), "exclusiveArea": area,
-                          "supplyArea": supply, "variant": image.get("imageTypeName", "평면도"),
+                          "supplyArea": supply, "variant": {"GA1":"평면도 기본형","GA3":"평면도 확장형"}.get(code,image.get("imageTypeName", "평면도")),
                           "imageId": image.get("imageId", ""), "imageUrl": CDN + path,
                           "sourceUrl": LAND + "/info/groundPlanGallery.naver?" + urlencode({"rletNo": naver_id, "ptpId": type_id, "newComplex": "Y"})})
     types=list({p["typeId"]:p for p in types}.values())
