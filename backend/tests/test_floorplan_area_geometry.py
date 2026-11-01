@@ -54,7 +54,11 @@ def test_room_area_labels_calibrate_scale_without_stretching_rooms():
     assert abs(result['areaM2']/63-1)<.05
     assert result['scale']['xMetresPerPixel']==result['scale']['zMetresPerPixel']
     conflict=analyze_image(data,63,words=words[:-1]+[word('26.56m²',550,230)])
-    assert conflict['status']=='needs_review' and conflict['reason']=='room_area_conflict'
+    assert conflict['status']=='ready'
+    assert conflict['application']['areaAnnotationAdjusted']
+    assert conflict['scale']['basis']=='exclusive_area_ratio'
+    assert conflict['pixelRooms']==result['pixelRooms'],'annotation corrections cannot alter source room positions'
+    assert abs(conflict['areaM2']-63)<.02
 
 
 def test_only_unit_bearing_areas_are_used_and_fragmented_units_are_joined():

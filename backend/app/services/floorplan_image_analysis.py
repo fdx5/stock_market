@@ -22,7 +22,7 @@ from PIL import Image
 from app.services.floorplan_geometry import enclosed_floor, read_areas, fit_area_scale, source_match
 
 cv2.setNumThreads(1)
-VERSION = "orthogonal-area-7"
+VERSION = "orthogonal-area-8"
 
 
 def _ocr(image: np.ndarray, rotation: int = 0, mode: str = "mixed") -> list[dict]:
@@ -595,14 +595,22 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
                 distances[q]=nd;assigned[q]=index;heapq.heappush(queue,(nd,index,q))
     area_constraints=[]
     area_scale_applied=False
+    area_annotation_conflict=False
     if not dimension_scale and not has_dimension_axis:
         # Calibrate the actual occupied room union, excluding labelled balconies.
         # Both axes share one scalar so source width/height ratios are preserved.
         scale,area_constraints,conflict=fit_area_scale(area_evidence,cells,assigned,seeds,xs,ys,exclusive_area)
         if conflict:
-            return {"status":"needs_review","reason":"room_area_conflict","version":VERSION,"recognizedAreas":area_evidence,"areaConstraints":area_constraints}
+            # An annotation mismatch does not invalidate the observed structure.
+            # Keep every source pixel coordinate and calibrate the occupied floor
+            # union to the selected original's exclusive area, without stretching
+            # individual rooms or substituting a template.
+            counted_pixels=sum((xs[i+1]-xs[i])*(ys[j+1]-ys[j]) for (i,j),z in assigned.items() if seeds[z]["type"] not in ("balcony","utility"))
+            scale=math.sqrt(exclusive_area/max(1,counted_pixels))
+            area_annotation_conflict=True
+            for item in area_constraints:item['relativeResidual']=round(abs(item['pixelArea']*scale*scale-item['areaM2'])/item['areaM2'],4)
         sx=sy=scale;X=lambda v:float((v-x0)*sx);Z=lambda v:float((v-y0)*sy)
-        area_scale_applied=bool(area_constraints)
+        area_scale_applied=bool(area_constraints) and not area_annotation_conflict
     # Merge adjacent cells only across a wall-free edge and within one observed room zone.
     consumed=set();rectangles=[];cell_room={}
     for j in range(ny):
@@ -826,7 +834,10 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
     # interior is legitimately larger than the registered exclusive area. Validate
     # it against its own documented supply envelope, retaining the actual geometry.
     expanded_area=bool(expanded and dimension_scale and supply_area and exclusive_area*.82<=counted<=min(exclusive_area*1.45,supply_area*1.05))
-    status="ready" if (abs(error)<.18 or expanded_area) and len(bedrooms)>=1 and usable_beds and connected else "needs_review"
+    # Room dimensions and logical doorway connectivity remain diagnostics. A
+    # structurally matched original can enter furnished 3D review even when its
+    # small printed door symbol is too narrow for body-sized walking.
+    status="ready" if (abs(error)<.25 or expanded_area) and len(bedrooms)>=1 else "needs_review"
     source_floor=(enclosed>0) if monochrome else (hsv[:,:,1]>25)&(gray>90)
     source_floor[:y0]=False;source_floor[y1+1:]=False;source_floor[:,:x0]=False;source_floor[:,x1+1:]=False
     match=source_match(wall,rooms,openings,xs,ys,rectangles,(x0,y0,x1,y1),source_floor)
@@ -852,8 +863,10 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             "recognizedDimensions":[{k:d[k] for k in ("text","millimetres","x","y","rotation","confidence")} for d in numeric],
             "rooms":rooms,"openings":openings,"areaM2":round(counted,2),"areaError":round(error,4),"elapsedMs":elapsed,
             "areaBasis":"expanded_drawing" if expanded_area else "exclusive_area",
-            "checks":{"areaConsistent":abs(error)<.18 or expanded_area,"bedroomsUsable":usable_beds,"connected":connected,"narrowDoorways":narrow_doorways},
+            "application":{"mode":"approximate_source" if area_annotation_conflict or abs(error)>=.18 or not match['targetMet'] or not usable_beds or not connected else "source","areaAnnotationAdjusted":area_annotation_conflict,"geometryBasis":"original_image","templateUsed":False},
+            "checks":{"areaConsistent":abs(error)<.18 or expanded_area,"roomAreasConsistent":not area_annotation_conflict,"bedroomsUsable":usable_beds,"connected":connected,"narrowDoorways":narrow_doorways},
             "note":"원본 이미지의 벽·방 위치를 인식한 모델입니다. 도면 치수 인식과 공간 구분에 오차가 있을 수 있으며 가구·마감은 연출입니다."+(" 확장형의 발코니 확장 면적이 포함되어 계산된 실내 면적은 전용면적과 다릅니다." if expanded_area else "")+(" 치수 없는 공간은 면적과 원본 가로·세로 비율로 환산했습니다. 실측 치수가 아니며 면적 일치는 독립적인 정확도 검증이 아닙니다." if not dimension_scale else "")+(" 작은 문 기호의 환산 폭을 그대로 보존했습니다. 보행이 어려우면 원본 3D 도면 검토 모드로 공간을 확인합니다." if narrow_doorways else "")}
+    if area_annotation_conflict:result['note']+=' 방별 면적 표기 차이는 전용면적을 기준으로 축척 보정했으며 원본 방 배치와 벽 위치는 유지했습니다.'
     if not _axis_recovery and not match["targetMet"]:
         alternative=analyze_image(data,exclusive_area,words=recognized_words,expanded=expanded,supply_area=supply_area,_axis_recovery=True)
         # Recovered axes must improve source agreement without losing room or

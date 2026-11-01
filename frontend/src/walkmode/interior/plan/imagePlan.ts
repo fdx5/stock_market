@@ -9,6 +9,7 @@ export interface Drawing {
 export interface ImageAnalysis {
   status:"ready"|"needs_review";reason?:string;version:string;drawing:Drawing;
   rooms?:Room[];openings?:Opening[];areaM2?:number;areaError?:number;elapsedMs?:number;
+  application?:{mode:string;areaAnnotationAdjusted:boolean;geometryBasis:string;templateUsed:boolean};
   scale?:{basis:string;xMetresPerPixel:number;zMetresPerPixel:number;estimated?:boolean;sourceAspectRatio?:number;wallThicknessMetres?:number};
   pixelRooms?:{id:string;rect:[number,number,number,number]}[];
   recognizedAreas?:{text:string;areaM2:number;scope:string}[];

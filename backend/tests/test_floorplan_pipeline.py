@@ -12,12 +12,37 @@ from app.services import realestate_floorplans as source
 from app.services.floorplan_image_analysis import analyze_image, _dimension_scale, _axis_calibration
 
 
-def gallery(cid="2127", name="신도6차", region="4115010200"):
+def gallery(cid="2127", name="신도6차", region="4115010200",town="호원동"):
     rows=[]
     for tid,label,area,supply in [(6,"81B",59.9,81.19),(1,"81A",59.99,81.28)]:
         rows.append({"hscp_no":int(cid),"ptp_no":tid,"ptp_nm":label,"excls_spc":area,"sply_spc":supply,
                      "imgList":[{"ptpNo":str(tid),"imageTypeCode":"GA1","imageTypeName":"평면도 기본형","imageUrl":f"/20200528_225/test_{tid}.jpg"}]})
-    return "var imgInfoData = '"+json.dumps({"rletNo":cid,"rletNm":name,"secNm":"호원동","cortar_no":region,"allComplexGrdPlanList":rows})+"';"
+    return "var imgInfoData = '"+json.dumps({"rletNo":cid,"rletNm":name,"secNm":town,"cortar_no":region,"allComplexGrdPlanList":rows})+"';"
+
+
+@pytest.mark.parametrize('name',['삼익 403동','삼익아파트403동','삼익 아파트 제 403 동','수서동 삼익 403동','삼익(403동)'])
+def test_block_names_resolve_to_the_parent_complex(name):
+    assert source.complex_name(name,'수서동')=='삼익'
+    assert source.complex_name('삼익2단지 403동')=='삼익2단지'
+    assert source.complex_name('목동')=='목동'
+    assert source.complex_name('403동')==''
+
+
+def test_same_complex_shares_catalogue_across_blocks_and_coordinates(monkeypatch):
+    source._catalogues.clear();calls=[]
+    def get(url,*args):
+        calls.append(url);time.sleep(.01)
+        if '/search/' in url:
+            assert '403' not in url and '404' not in url
+            return '<a href="?rletNo=668">삼익</a>'.encode(),'text/html'
+        return gallery('668','삼익','1168011500','수서동').encode(),'text/html'
+    monkeypatch.setattr(source,'_get',get)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results=list(pool.map(lambda row:source.catalogue(row[0],row[1],127.1,'수서동','11680'),[('삼익 403동',37.488),('삼익 404동',37.489),('삼익아파트',37.487)]))
+    assert all(r['naverId']=='668' for r in results)
+    assert len(calls)==2,'one public search and one original catalogue per complex'
+    other=source.catalogue('삼익 403동',37.488,127.1,'도곡동','11680')
+    assert other['status']=='not_found','same-name complexes in other towns must stay separate'
 
 
 def test_type_id_is_not_gallery_index_and_supply_is_not_exclusive():
@@ -135,9 +160,14 @@ def test_expanded_source_retains_service_area_without_stretching_to_exclusive():
     data,words=drawn_flat()
     ordinary=analyze_image(data,50,words=words)
     expanded=analyze_image(data,50,words=words,expanded=True,supply_area=68)
-    assert ordinary["status"]=="needs_review"
+    assert ordinary["status"]=="ready",'a moderate area difference does not block a matched source structure'
+    assert not ordinary['checks']['areaConsistent']
+    assert ordinary['scale']['estimated'] is False,'observed dimensions must not be stretched to force area equality'
     assert expanded["status"]=="ready",expanded.get("reason")
     assert expanded["areaBasis"]=="expanded_drawing"
     assert expanded["areaM2"]>50*1.18
     assert expanded["rooms"]==ordinary["rooms"]
-    assert analyze_image(data,50,words=words,expanded=True,supply_area=51)["status"]=="needs_review"
+    bounded=analyze_image(data,50,words=words,expanded=True,supply_area=51)
+    assert bounded['status']=='ready'
+    assert bounded['areaBasis']!='expanded_drawing','an inconsistent supply envelope must not be presented as validated expansion'
+    assert bounded['application']['mode']=='approximate_source'

@@ -1,0 +1,1396 @@
+{
+  "recognitionVersion": "orthogonal-area-8",
+  "totalSourcePlans": 17,
+  "ready": 17,
+  "samickBefore": {
+    "68": "room_area_conflict",
+    "86": "room_area_conflict",
+    "115": "room_area_conflict"
+  },
+  "samickAfter": [
+    {
+      "case": "samick-115",
+      "sourceSha256": "f690191f11b157002b02e20e229eb71b950a4b197f6768c75148c87a8cc8fef9",
+      "drawing": {
+        "key": "7dee105f3d3594f3c3ab540a",
+        "naverId": "668",
+        "typeId": "3",
+        "typeName": "115",
+        "exclusiveArea": 84.48,
+        "supplyArea": 115.17,
+        "variant": "평면도 기본형",
+        "imageId": "668@20110421002939049013",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20120125_107/land_system_1327420243593oiOfq_JPEG/116_668_3_112_GA1_1302850955142.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=668&ptpId=3&newComplex=Y"
+      },
+      "baseline": {
+        "status": "needs_review",
+        "reason": "room_labels",
+        "scale": null,
+        "areaM2": null,
+        "areaError": null,
+        "sourceMatch": null,
+        "elapsedMs": 2290
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.014654221163803834,
+          "zMetresPerPixel": 0.014654221163803834,
+          "basis": "exclusive_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 1.311037,
+          "wallThicknessMetres": 0.0879
+        },
+        "areaM2": 84.48,
+        "areaError": 0.0,
+        "sourceMatch": {
+          "wallRecall": 0.9908,
+          "wallPrecision": 0.9829,
+          "wallF1": 0.9868,
+          "tolerancePixels": 5,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        },
+        "elapsedMs": 723
+      }
+    },
+    {
+      "case": "samick-68",
+      "sourceSha256": "a567821fe5af39d88533ac65062d38fed1538e6e5dad1d929ebb845e6d148c0c",
+      "drawing": {
+        "key": "cc263aeeafb90336b72d8220",
+        "naverId": "668",
+        "typeId": "1",
+        "typeName": "68",
+        "exclusiveArea": 49.2,
+        "supplyArea": 68.72,
+        "variant": "평면도 기본형",
+        "imageId": "668@20110421002938461643",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20120125_172/land_system_13274202421457zgLn_JPEG/116_668_1_72_GA1_1302850940752.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=668&ptpId=1&newComplex=Y"
+      },
+      "baseline": {
+        "status": "needs_review",
+        "reason": "room_labels",
+        "scale": null,
+        "areaM2": null,
+        "areaError": null,
+        "sourceMatch": null,
+        "elapsedMs": 2335
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.011498874722476198,
+          "zMetresPerPixel": 0.011498874722476198,
+          "basis": "exclusive_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 1.553672,
+          "wallThicknessMetres": 0.069
+        },
+        "areaM2": 49.2,
+        "areaError": 0.0,
+        "sourceMatch": {
+          "wallRecall": 0.9014,
+          "wallPrecision": 0.9169,
+          "wallF1": 0.9091,
+          "tolerancePixels": 4,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": false,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        },
+        "elapsedMs": 1427
+      }
+    },
+    {
+      "case": "samick-86",
+      "sourceSha256": "18fa765da84249c055530e8b9e3ffbca33f090179323cb17510b839afc1bc9aa",
+      "drawing": {
+        "key": "9d61884ea067fb2a5feb1a79",
+        "naverId": "668",
+        "typeId": "2",
+        "typeName": "86",
+        "exclusiveArea": 60.0,
+        "supplyArea": 86.06,
+        "variant": "평면도 기본형",
+        "imageId": "668@20110421002938801450",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20120125_245/land_system_1327420242873AP2sl_JPEG/116_668_2_85_GA1_1302850947722.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=668&ptpId=2&newComplex=Y"
+      },
+      "baseline": {
+        "status": "needs_review",
+        "reason": "room_labels",
+        "scale": null,
+        "areaM2": null,
+        "areaError": null,
+        "sourceMatch": null,
+        "elapsedMs": 2460
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.012136767330624833,
+          "zMetresPerPixel": 0.012136767330624833,
+          "basis": "exclusive_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 1.328881,
+          "wallThicknessMetres": 0.0728
+        },
+        "areaM2": 60.0,
+        "areaError": -0.0,
+        "sourceMatch": {
+          "wallRecall": 0.9966,
+          "wallPrecision": 0.9979,
+          "wallF1": 0.9973,
+          "tolerancePixels": 5,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        },
+        "elapsedMs": 794
+      }
+    }
+  ],
+  "browser": {
+    "lookups": [
+      {
+        "name": [
+          "삼익"
+        ],
+        "lat": [
+          "37.488"
+        ],
+        "lon": [
+          "127.1"
+        ],
+        "town": [
+          "수서동"
+        ],
+        "region": [
+          "11680"
+        ]
+      },
+      {
+        "name": [
+          "삼익"
+        ],
+        "lat": [
+          "37.488"
+        ],
+        "lon": [
+          "127.1"
+        ],
+        "town": [
+          "수서동"
+        ],
+        "region": [
+          "11680"
+        ]
+      },
+      {
+        "name": [
+          "삼익"
+        ],
+        "lat": [
+          "37.488"
+        ],
+        "lon": [
+          "127.1"
+        ],
+        "town": [
+          "수서동"
+        ],
+        "region": [
+          "11680"
+        ]
+      },
+      {
+        "name": [
+          "삼익"
+        ],
+        "lat": [
+          "37.488"
+        ],
+        "lon": [
+          "127.1"
+        ],
+        "town": [
+          "수서동"
+        ],
+        "region": [
+          "11680"
+        ]
+      },
+      {
+        "name": [
+          "삼익"
+        ],
+        "lat": [
+          "37.488"
+        ],
+        "lon": [
+          "127.1"
+        ],
+        "town": [
+          "수서동"
+        ],
+        "region": [
+          "11680"
+        ]
+      }
+    ],
+    "exploreQueries": [
+      {
+        "sido": [
+          "11"
+        ],
+        "sgg": [
+          "11680"
+        ],
+        "q": [
+          "삼익"
+        ],
+        "period": [
+          "1y"
+        ],
+        "limit": [
+          "50"
+        ],
+        "sort": [
+          "name"
+        ],
+        "dong": [
+          "수서동"
+        ]
+      },
+      {
+        "sido": [
+          "11"
+        ],
+        "sgg": [
+          "11680"
+        ],
+        "q": [
+          "삼익"
+        ],
+        "period": [
+          "1y"
+        ],
+        "limit": [
+          "50"
+        ],
+        "sort": [
+          "name"
+        ],
+        "dong": [
+          "수서동"
+        ]
+      },
+      {
+        "sido": [
+          "11"
+        ],
+        "sgg": [
+          "11680"
+        ],
+        "q": [
+          "삼익"
+        ],
+        "period": [
+          "1y"
+        ],
+        "limit": [
+          "50"
+        ],
+        "sort": [
+          "name"
+        ],
+        "dong": [
+          "수서동"
+        ]
+      },
+      {
+        "sido": [
+          "11"
+        ],
+        "sgg": [
+          "11680"
+        ],
+        "q": [
+          "삼익"
+        ],
+        "period": [
+          "1y"
+        ],
+        "limit": [
+          "50"
+        ],
+        "sort": [
+          "name"
+        ],
+        "dong": [
+          "수서동"
+        ]
+      },
+      {
+        "sido": [
+          "11"
+        ],
+        "sgg": [
+          "11680"
+        ],
+        "q": [
+          "삼익"
+        ],
+        "period": [
+          "1y"
+        ],
+        "limit": [
+          "50"
+        ],
+        "sort": [
+          "name"
+        ],
+        "dong": [
+          "수서동"
+        ]
+      }
+    ],
+    "cases": [
+      {
+        "source": "image_analysis",
+        "name": "삼익",
+        "complexId": "11680:수서동:708:삼익",
+        "dong": "403동",
+        "type": "68",
+        "rooms": [
+          {
+            "id": "image-0",
+            "type": "balcony",
+            "label": "발코니",
+            "rect": [
+              0.0115,
+              0.0115,
+              1.3051,
+              4.5191
+            ],
+            "zone": "image-zone-2",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "balcony",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-1",
+            "type": "living",
+            "label": "거실·침실 겸용",
+            "rect": [
+              1.3051,
+              0.0115,
+              4.8065,
+              3.1321
+            ],
+            "zone": "image-zone-0",
+            "labelObserved": true,
+            "combinedUses": [
+              "living",
+              "bedroom"
+            ],
+            "surfaceType": "living",
+            "floorDrop": 0
+          },
+          {
+            "id": "kitchen",
+            "type": "kitchen",
+            "label": "주방·식당",
+            "rect": [
+              4.8065,
+              0.0115,
+              6.2381,
+              4.5191
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "kitchen",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-3",
+            "type": "hall",
+            "label": "주방·식당",
+            "rect": [
+              6.2381,
+              0.0115,
+              7.7732,
+              1.6903
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "kitchen",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-4",
+            "type": "hall",
+            "label": "현관",
+            "rect": [
+              7.7732,
+              0.0115,
+              9.4693,
+              0.5117
+            ],
+            "zone": "image-zone-1",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "entrance",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-5",
+            "type": "hall",
+            "label": "현관",
+            "rect": [
+              7.7732,
+              0.5117,
+              9.4693,
+              1.6903
+            ],
+            "zone": "image-zone-1",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "entrance",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-6",
+            "type": "hall",
+            "label": "주방·식당",
+            "rect": [
+              6.2381,
+              1.6903,
+              6.6463,
+              3.1321
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "kitchen",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-7",
+            "type": "entrance",
+            "label": "현관",
+            "rect": [
+              6.6463,
+              1.6903,
+              9.4693,
+              3.1321
+            ],
+            "zone": "image-zone-1",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "entrance",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-8",
+            "type": "master",
+            "label": "침실",
+            "rect": [
+              1.3051,
+              3.1321,
+              4.8065,
+              6.0887
+            ],
+            "zone": "image-zone-3",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "master",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-9",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              6.2381,
+              3.1321,
+              6.9108,
+              3.9441
+            ],
+            "zone": "image-zone-4",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-10",
+            "type": "bedroom",
+            "label": "침실",
+            "rect": [
+              6.9108,
+              3.1321,
+              9.4693,
+              6.0887
+            ],
+            "zone": "image-zone-4",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-11",
+            "type": "hall",
+            "label": "주방·식당",
+            "rect": [
+              6.2381,
+              3.9441,
+              6.6463,
+              4.5191
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "kitchen",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-12",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              6.6463,
+              3.9441,
+              6.9108,
+              4.5191
+            ],
+            "zone": "image-zone-4",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-13",
+            "type": "balcony",
+            "label": "발코니",
+            "rect": [
+              0.0115,
+              4.5191,
+              0.2875,
+              6.0887
+            ],
+            "zone": "image-zone-2",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "balcony",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-14",
+            "type": "balcony",
+            "label": "발코니",
+            "rect": [
+              0.2875,
+              4.5191,
+              1.3051,
+              6.0887
+            ],
+            "zone": "image-zone-2",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "balcony",
+            "floorDrop": 0
+          },
+          {
+            "id": "bath2",
+            "type": "bathroom",
+            "label": "욕실",
+            "rect": [
+              4.8065,
+              4.5191,
+              6.6463,
+              6.0887
+            ],
+            "zone": "image-zone-6",
+            "labelObserved": false,
+            "combinedUses": [],
+            "surfaceType": "bathroom",
+            "floorDrop": 0.03
+          }
+        ],
+        "inspectionMode": false,
+        "kitchens": [
+          {
+            "room": "kitchen",
+            "run": [
+              5.6036,
+              3.1153,
+              6.2036,
+              4.3153
+            ],
+            "fridge": [
+              4.841,
+              0.046,
+              5.561000000000001,
+              0.766
+            ]
+          }
+        ],
+        "removedPosts": 10,
+        "position": [
+          2.9682649999999997,
+          1.1383833333333333
+        ],
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "frameStats": {
+          "frames": 301,
+          "avgFps": 59.97808109993037,
+          "min1sFps": 59.92808629644419,
+          "p95": 16.8,
+          "p99": 16.8,
+          "maxMs": 17.5,
+          "cpuMs": 1.430097412762415,
+          "loadMs": 3577,
+          "phases": {
+            "textures": 644,
+            "shell": 48,
+            "furnish": 254,
+            "lights": 308,
+            "upload": 279,
+            "compile": 736,
+            "probe": 168,
+            "looks": 1135
+          },
+          "seg": {
+            "move": 0.09,
+            "things": 0.03,
+            "life": 0.08,
+            "lights+cam": 0.07,
+            "pick": 0.04,
+            "sound+probe": 0.01,
+            "render": 1.15
+          },
+          "long": [],
+          "drawingBuffer": [
+            1425,
+            1000
+          ],
+          "pixelRatio": 1,
+          "calls": 1,
+          "triangles": 1,
+          "geometries": 139,
+          "textures": 69
+        },
+        "errors": []
+      },
+      {
+        "source": "image_analysis",
+        "name": "삼익",
+        "complexId": "11680:수서동:708:삼익",
+        "dong": "404동",
+        "type": "86",
+        "rooms": [
+          {
+            "id": "image-0",
+            "type": "balcony",
+            "label": "발코니",
+            "rect": [
+              0.0152,
+              0.0152,
+              1.4807,
+              6.4446
+            ],
+            "zone": "image-zone-2",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "balcony",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-1",
+            "type": "living",
+            "label": "거실·침실 겸용",
+            "rect": [
+              1.4807,
+              0.0152,
+              5.2674,
+              3.4301
+            ],
+            "zone": "image-zone-0",
+            "labelObserved": true,
+            "combinedUses": [
+              "living",
+              "bedroom"
+            ],
+            "surfaceType": "living",
+            "floorDrop": 0
+          },
+          {
+            "id": "kitchen",
+            "type": "kitchen",
+            "label": "주방·식당",
+            "rect": [
+              5.2674,
+              0.0152,
+              8.3501,
+              1.8933
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "kitchen",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-3",
+            "type": "hall",
+            "label": "주방·식당",
+            "rect": [
+              8.3501,
+              0.0152,
+              9.6427,
+              0.6736
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "kitchen",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-4",
+            "type": "hall",
+            "label": "현관",
+            "rect": [
+              8.3501,
+              0.6736,
+              9.6427,
+              1.8933
+            ],
+            "zone": "image-zone-1",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "entrance",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-5",
+            "type": "hall",
+            "label": "주방·식당",
+            "rect": [
+              5.2674,
+              1.8933,
+              6.2383,
+              4.9397
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "kitchen",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-6",
+            "type": "hall",
+            "label": "주방·식당",
+            "rect": [
+              6.2383,
+              1.8933,
+              6.9604,
+              3.4301
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "kitchen",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-7",
+            "type": "entrance",
+            "label": "현관",
+            "rect": [
+              6.9604,
+              1.8933,
+              9.6427,
+              3.4301
+            ],
+            "zone": "image-zone-1",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "entrance",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-8",
+            "type": "bedroom",
+            "label": "침실",
+            "rect": [
+              1.4807,
+              3.4301,
+              5.2674,
+              4.9397
+            ],
+            "zone": "image-zone-3",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-9",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              6.2383,
+              3.4301,
+              6.9604,
+              4.527
+            ],
+            "zone": "image-zone-4",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "master",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-10",
+            "type": "master",
+            "label": "침실",
+            "rect": [
+              6.9604,
+              3.4301,
+              9.6427,
+              7.2517
+            ],
+            "zone": "image-zone-4",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "master",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-11",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              6.2383,
+              4.527,
+              6.9604,
+              4.9397
+            ],
+            "zone": "image-zone-4",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "master",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-12",
+            "type": "bedroom",
+            "label": "침실",
+            "rect": [
+              1.4807,
+              4.9397,
+              5.2674,
+              7.2517
+            ],
+            "zone": "image-zone-6",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "bath2",
+            "type": "bathroom",
+            "label": "욕실",
+            "rect": [
+              5.2674,
+              4.9397,
+              6.9604,
+              6.4446
+            ],
+            "zone": "image-zone-7",
+            "labelObserved": false,
+            "combinedUses": [],
+            "surfaceType": "bathroom",
+            "floorDrop": 0.03
+          },
+          {
+            "id": "image-14",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              0.3216,
+              6.4446,
+              1.4807,
+              7.2517
+            ],
+            "zone": "image-zone-6",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-15",
+            "type": "hall",
+            "label": "욕실",
+            "rect": [
+              5.2674,
+              6.4446,
+              6.2383,
+              7.2517
+            ],
+            "zone": "image-zone-7",
+            "labelObserved": false,
+            "combinedUses": [],
+            "surfaceType": "bathroom",
+            "floorDrop": 0.03
+          },
+          {
+            "id": "image-16",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              6.2383,
+              6.4446,
+              6.9604,
+              7.2517
+            ],
+            "zone": "image-zone-4",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "master",
+            "floorDrop": 0
+          }
+        ],
+        "inspectionMode": true,
+        "kitchens": [
+          {
+            "room": "kitchen",
+            "run": [
+              6.03375,
+              0.0516,
+              8.133750000000001,
+              0.6516
+            ],
+            "fridge": [
+              5.303800000000001,
+              0.0516,
+              6.023800000000001,
+              0.7716
+            ]
+          }
+        ],
+        "removedPosts": 2,
+        "position": [
+          3.287988636363637,
+          1.72265
+        ],
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "frameStats": {
+          "frames": 299,
+          "avgFps": 59.57955564411689,
+          "min1sFps": 58.97051474262864,
+          "p95": 16.8,
+          "p99": 16.9,
+          "maxMs": 33.399999999999636,
+          "cpuMs": 2.5696010153843543,
+          "loadMs": 1755,
+          "phases": {
+            "textures": 615,
+            "shell": 41,
+            "furnish": 194,
+            "lights": 122,
+            "upload": 477,
+            "compile": 67,
+            "probe": 161,
+            "looks": 59
+          },
+          "seg": {
+            "move": 0.01,
+            "things": 0.02,
+            "life": 0.07,
+            "lights+cam": 0.07,
+            "pick": 0.11,
+            "sound+probe": 0,
+            "render": 2.28
+          },
+          "long": [
+            "146ms 50ms image-1",
+            "930ms 33ms image-12",
+            "4832ms 33ms bath2",
+            "5865ms 33ms bath2"
+          ],
+          "drawingBuffer": [
+            1425,
+            1000
+          ],
+          "pixelRatio": 1,
+          "calls": 1,
+          "triangles": 1,
+          "geometries": 137,
+          "textures": 70
+        },
+        "errors": []
+      },
+      {
+        "source": "image_analysis",
+        "name": "삼익",
+        "complexId": "11680:수서동:708:삼익",
+        "dong": "405동",
+        "type": "115",
+        "rooms": [
+          {
+            "id": "image-0",
+            "type": "balcony",
+            "label": "발코니",
+            "rect": [
+              0.0183,
+              0.022,
+              1.6559,
+              7.8254
+            ],
+            "zone": "image-zone-2",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "balcony",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-1",
+            "type": "living",
+            "label": "거실",
+            "rect": [
+              1.6559,
+              0.022,
+              5.6272,
+              4.3768
+            ],
+            "zone": "image-zone-0",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "living",
+            "floorDrop": 0
+          },
+          {
+            "id": "kitchen",
+            "type": "kitchen",
+            "label": "주방·식당",
+            "rect": [
+              5.6272,
+              0.022,
+              8.3969,
+              4.3768
+            ],
+            "zone": "image-zone-6",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "kitchen",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-3",
+            "type": "hall",
+            "label": "주방·식당",
+            "rect": [
+              8.3969,
+              0.022,
+              9.5399,
+              1.7145
+            ],
+            "zone": "image-zone-6",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "kitchen",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-4",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              9.5399,
+              0.022,
+              11.4706,
+              0.5862
+            ],
+            "zone": "image-zone-1",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-5",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              9.5399,
+              0.5862,
+              11.4706,
+              1.7145
+            ],
+            "zone": "image-zone-1",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-6",
+            "type": "bedroom",
+            "label": "침실",
+            "rect": [
+              8.3969,
+              1.7145,
+              11.4706,
+              4.3768
+            ],
+            "zone": "image-zone-1",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-7",
+            "type": "master",
+            "label": "침실",
+            "rect": [
+              1.6559,
+              4.3768,
+              5.6272,
+              8.7486
+            ],
+            "zone": "image-zone-4",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "master",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-8",
+            "type": "entrance",
+            "label": "현관",
+            "rect": [
+              5.6272,
+              4.3768,
+              11.4706,
+              5.8275
+            ],
+            "zone": "image-zone-3",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "entrance",
+            "floorDrop": 0
+          },
+          {
+            "id": "bath2",
+            "type": "bathroom",
+            "label": "욕실",
+            "rect": [
+              5.6272,
+              5.8275,
+              7.3857,
+              7.4224
+            ],
+            "zone": "image-zone-7",
+            "labelObserved": false,
+            "combinedUses": [],
+            "surfaceType": "bathroom",
+            "floorDrop": 0.03
+          },
+          {
+            "id": "image-10",
+            "type": "bedroom",
+            "label": "침실",
+            "rect": [
+              8.1184,
+              5.8275,
+              11.4706,
+              8.7486
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "ensuite",
+            "type": "ensuite",
+            "label": "욕실",
+            "rect": [
+              5.6272,
+              7.4224,
+              7.3857,
+              8.7486
+            ],
+            "zone": "image-zone-8",
+            "labelObserved": false,
+            "combinedUses": [],
+            "surfaceType": "ensuite",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-12",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              7.3857,
+              7.4224,
+              8.1184,
+              7.8254
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-13",
+            "type": "balcony",
+            "label": "발코니",
+            "rect": [
+              0.4103,
+              7.8254,
+              1.6559,
+              8.7486
+            ],
+            "zone": "image-zone-2",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "balcony",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-14",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              7.3857,
+              7.8254,
+              8.1184,
+              8.1331
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          },
+          {
+            "id": "image-15",
+            "type": "hall",
+            "label": "침실",
+            "rect": [
+              7.3857,
+              8.1331,
+              8.1184,
+              8.7486
+            ],
+            "zone": "image-zone-5",
+            "labelObserved": true,
+            "combinedUses": [],
+            "surfaceType": "bedroom",
+            "floorDrop": 0
+          }
+        ],
+        "inspectionMode": true,
+        "kitchens": [
+          {
+            "room": "kitchen",
+            "run": [
+              7.75295,
+              1.9494000000000005,
+              8.35295,
+              4.0494
+            ],
+            "fridge": [
+              5.67115,
+              0.06595000000000001,
+              6.3911500000000006,
+              0.7859499999999999
+            ]
+          }
+        ],
+        "removedPosts": 0,
+        "position": [
+          3.6415499999999996,
+          1.676824
+        ],
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "frameStats": {
+          "frames": 300,
+          "avgFps": 59.977208660709024,
+          "min1sFps": 59.96402158704774,
+          "p95": 16.8,
+          "p99": 16.8,
+          "maxMs": 16.80000000000109,
+          "cpuMs": 1.7521015765149974,
+          "loadMs": 2150,
+          "phases": {
+            "textures": 762,
+            "shell": 50,
+            "furnish": 272,
+            "lights": 105,
+            "upload": 571,
+            "compile": 71,
+            "probe": 210,
+            "looks": 87
+          },
+          "seg": {
+            "move": 0.01,
+            "things": 0.03,
+            "life": 0.06,
+            "lights+cam": 0.12,
+            "pick": 0.08,
+            "sound+probe": 0.01,
+            "render": 1.41
+          },
+          "long": [
+            "185ms 117ms image-1",
+            "218ms 33ms image-1",
+            "451ms 117ms kitchen",
+            "868ms 100ms image-7",
+            "1085ms 83ms image-8"
+          ],
+          "drawingBuffer": [
+            1425,
+            1000
+          ],
+          "pixelRatio": 1,
+          "calls": 1,
+          "triangles": 1,
+          "geometries": 150,
+          "textures": 70
+        },
+        "errors": []
+      }
+    ]
+  }
+}

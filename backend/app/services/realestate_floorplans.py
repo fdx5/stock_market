@@ -14,6 +14,7 @@ import math
 import re
 import threading
 import time
+import unicodedata
 from urllib.parse import quote, urlencode, urlparse
 
 import requests
@@ -27,7 +28,7 @@ _catalogues: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 _images: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
 _analyses: OrderedDict[str, dict] = OrderedDict()
 _MAX_IMAGES = 24 * 1024 * 1024
-_flights = {kind:[threading.RLock() for _ in range(32)] for kind in ("image","analysis")}
+_flights = {kind:[threading.RLock() for _ in range(32)] for kind in ("catalogue","image","analysis")}
 _network = threading.BoundedSemaphore(2)
 
 
@@ -72,6 +73,17 @@ def _text(body: bytes) -> str:
 
 def _name(s: str) -> str:
     return re.sub(r"[\W_]|아파트|APT", "", s.upper())
+
+
+def complex_name(value: str, town: str = "") -> str:
+    """Strip a building identifier, retaining phase and complex names."""
+    name=unicodedata.normalize("NFKC",value).strip()
+    name=re.sub(r"\(\s*(?:제\s*)?(?:\d{1,4}|[A-Z가-힣])\s*동\s*\)\s*$","",name,flags=re.I)
+    name=re.sub(r"\s*(?:제\s*)?(?:\d{1,4}|[A-Z])\s*동(?:\s*\d{1,4}\s*호)?\s*$","",name,flags=re.I)
+    name=re.sub(r"\s+[가-힣]\s*동\s*$","",name)
+    name=re.sub(r"아파트|\bAPT\b","",name,flags=re.I).strip()
+    if town and name.startswith(town):name=name[len(town):].strip()
+    return re.sub(r"\s+"," ",name)
 
 
 def parse_gallery(text: str, naver_id: str) -> dict:
@@ -150,7 +162,15 @@ def _near(x: float, y: float, lat: float, lon: float) -> bool:
 
 def catalogue(name: str, lat: float, lon: float, town: str = "", region: str = "", naver_id: str = "") -> dict:
     """The same matching path for every complex. Ambiguous names fail closed."""
-    key = f"lookup:{_name(name)}:{town}:{region}:{lat:.4f}:{lon:.4f}:{naver_id}"
+    name=complex_name(name,town)
+    if not name:return {"status":"not_found","plans":[],"reason":"complex_name_required"}
+    location=f"{town}:{region}" if town and region else f"{town}:{region}:{lat:.4f}:{lon:.4f}"
+    key = f"complex-lookup:{_name(name)}:{location}:{naver_id}"
+    with _singleflight("catalogue:"+key):
+        return _catalogue(name,lat,lon,town,region,naver_id,key)
+
+
+def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_id: str,key:str) -> dict:
     with _lock:
         hit = _catalogues.get(key)
         if hit and time.monotonic() - hit[0] < (86400 if hit[1].get("status") == "available" else 300):
