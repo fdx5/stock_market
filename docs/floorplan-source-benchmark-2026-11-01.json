@@ -763,7 +763,7 @@
     "sourceObservationsPreserved": true
   },
   "nativeProduction": {
-    "commit": "61648c162dcb972cf12b5c0dd227e34ceeddc3b5",
+    "commit": "5057137635b2d9ad42646fcd5e6853ced3312491",
     "cases": [
       {
         "type": "49",
@@ -791,7 +791,7 @@
           "certifiedAccuracy": false
         },
         "areaM2": 30.3,
-        "seconds": 3.108,
+        "seconds": 8.675,
         "sourceImageMatches": true
       },
       {
@@ -820,7 +820,7 @@
           "certifiedAccuracy": false
         },
         "areaM2": 33.66,
-        "seconds": 2.527,
+        "seconds": 5.118,
         "sourceImageMatches": true
       },
       {
@@ -849,7 +849,7 @@
           "certifiedAccuracy": false
         },
         "areaM2": 36.0,
-        "seconds": 1.913,
+        "seconds": 2.162,
         "sourceImageMatches": true
       },
       {
@@ -878,10 +878,119 @@
           "certifiedAccuracy": false
         },
         "areaM2": 50.84,
-        "seconds": 2.347,
+        "seconds": 5.975,
         "sourceImageMatches": true
       }
     ],
     "walkPageStatus": 200
+  },
+  "deployment": {
+    "id": "dep-dbja21vavr4c73bsi42g",
+    "status": "live",
+    "finishedAt": "2026-11-01T02:18:52.776136Z"
+  },
+  "productionBrowser": {
+    "viewport": [
+      1440,
+      1000
+    ],
+    "fixtureScope": "Map and unit catalogue isolated; actual production JS and native analysis used",
+    "cases": [
+      {
+        "type": "49",
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "removedPostVolumes": 0,
+        "inspectionMode": true,
+        "errors": [],
+        "frameStats": {
+          "avgFps": 59.97927626335102,
+          "min1sFps": 59.97001499250365,
+          "p95": 16.8,
+          "p99": 16.8,
+          "maxMs": 16.900000000001455,
+          "drawingBuffer": [
+            1425,
+            1000
+          ],
+          "pixelRatio": 1,
+          "long": [
+            "1163ms 217ms image-1",
+            "1263ms 50ms image-1"
+          ]
+        }
+      },
+      {
+        "type": "55",
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "removedPostVolumes": 2,
+        "inspectionMode": true,
+        "errors": [],
+        "frameStats": {
+          "avgFps": 59.37624950020004,
+          "min1sFps": 56.971514242878506,
+          "p95": 16.8,
+          "p99": 17.5,
+          "maxMs": 50,
+          "drawingBuffer": [
+            1425,
+            1000
+          ],
+          "pixelRatio": 1,
+          "long": [
+            "1062ms 183ms image-3",
+            "1128ms 50ms image-1",
+            "6831ms 33ms image-3",
+            "6881ms 50ms image-3"
+          ]
+        }
+      },
+      {
+        "type": "60",
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "removedPostVolumes": 0,
+        "inspectionMode": false,
+        "errors": [],
+        "frameStats": {
+          "avgFps": 59.978407773201845,
+          "min1sFps": 59.970014992503664,
+          "p95": 16.8,
+          "p99": 16.8,
+          "maxMs": 16.80000000000109,
+          "drawingBuffer": [
+            1425,
+            1000
+          ],
+          "pixelRatio": 1,
+          "long": [
+            "1091ms 233ms image-1"
+          ]
+        }
+      },
+      {
+        "type": "69",
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "removedPostVolumes": 4,
+        "inspectionMode": true,
+        "errors": [],
+        "frameStats": {
+          "avgFps": 59.97840777320177,
+          "min1sFps": 59.964021587047725,
+          "p95": 16.8,
+          "p99": 16.8,
+          "maxMs": 17,
+          "drawingBuffer": [
+            1425,
+            1000
+          ],
+          "pixelRatio": 1,
+          "long": [
+            "1185ms 300ms image-4",
+            "1785ms 33ms image-4",
+            "2152ms 33ms image-6",
+            "2386ms 67ms image-8"
+          ]
+        }
+      }
+    ]
   }
 }
