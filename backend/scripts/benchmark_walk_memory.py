@@ -33,5 +33,5 @@ gc.collect();retained=process.memory_info().rss
 # Actual rows and values remain unchanged after storage compression.
 value=rm._districts[codes[-1]];assert len(value['202610'])==4000 and value['202610'][37][2]=='단지37'
 assert cache.peek('sample:199')==bytes([199])*786432
-stop.set();t.join();result={'mode':mode,'initialRss':initial,'rawCacheRss':raw_rss,'retainedRss':retained,'peakRss':peak,'seconds':time.perf_counter()-started,'districts':len(rm._districts),'largestReadBatch':max(sizes),'commonEntries':len(cache._store),'commonBytes':getattr(cache,'byte_size',None),'districtCompressedBytes':getattr(rm._districts,'byte_size',None),'rowsVerified':4000}
+stop.set();t.join();peak=max(peak,raw_rss,retained,process.memory_info().rss);result={'mode':mode,'initialRss':initial,'rawCacheRss':raw_rss,'retainedRss':retained,'peakRss':peak,'seconds':time.perf_counter()-started,'districts':len(rm._districts),'largestReadBatch':max(sizes),'commonEntries':len(cache._store),'commonBytes':getattr(cache,'byte_size',None),'districtCompressedBytes':getattr(rm._districts,'byte_size',None),'rowsVerified':4000}
 (base/('memory-'+mode+'.json')).write_text(json.dumps(result,indent=2),encoding='utf8');print(result)

@@ -6,7 +6,7 @@ ROOT=Path(__file__).resolve().parents[2];BASE=ROOT/'tmp/ho-won-floorplans-202611
 origin=next((a for a in sys.argv[1:] if a.startswith('http')),'http://127.0.0.1:5407');production=origin.startswith('https:')
 out=BASE/('production-live-entry' if production and '--live' in sys.argv else 'production-entry' if production else 'local-entry');out.mkdir(exist_ok=True)
 if '--dongtan' in sys.argv:
- out=ROOT/'tmp/source-lookup-20261101'/('dongtan-production' if production else 'dongtan-local');out.mkdir(exist_ok=True)
+ out=ROOT/'tmp/source-lookup-20261101'/('dongtan-production-live' if production and '--live' in sys.argv else 'dongtan-production' if production else 'dongtan-local');out.mkdir(exist_ok=True)
 studio=json.loads((BASE/'sample-14794-catalogue.json').read_text(encoding='utf8'))['plans'][0]
 raw=(BASE/'search-신일엘리시움.html').read_text(encoding='utf8');info=json.loads(re.search(r'baseQueryResult\s*=\s*({[^\r\n]+});',raw)[1])
 cases=[dict(name='신도6',id='41150:호원동:401-1:신도6',lat=37.726955,lon=127.038392,town='호원동',region='41150',area=59.9,typ='81B',naver='2127'),

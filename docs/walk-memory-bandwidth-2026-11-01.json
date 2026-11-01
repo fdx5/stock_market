@@ -1,0 +1,486 @@
+{
+  "runtimeCommit": "9116665b1a5a2cd4d7c14e8dd7e63725bd09e7bd",
+  "memoryReplayWindows": {
+    "before": {
+      "mode": "before",
+      "initialRss": 38719488,
+      "rawCacheRss": 196415488,
+      "retainedRss": 353816576,
+      "peakRss": 353816576,
+      "seconds": 0.5343386000022292,
+      "districts": 90,
+      "largestReadBatch": 90,
+      "commonEntries": 200,
+      "commonBytes": null,
+      "districtCompressedBytes": null,
+      "rowsVerified": 4000
+    },
+    "after": {
+      "mode": "after",
+      "initialRss": 38817792,
+      "rawCacheRss": 51728384,
+      "retainedRss": 186032128,
+      "peakRss": 187011072,
+      "seconds": 0.8713050999940606,
+      "districts": 90,
+      "largestReadBatch": 4,
+      "commonEntries": 170,
+      "commonBytes": 133699050,
+      "districtCompressedBytes": 2239680,
+      "rowsVerified": 4000
+    }
+  },
+  "ocrReplayWindows": {
+    "before": {
+      "mode": "before",
+      "initialParentRss": 42037248,
+      "peakParentRss": 140980224,
+      "retainedParentRss": 66392064,
+      "peakTreeRss": 211476480,
+      "maxChildren": 2,
+      "seconds": 2.798242600001686
+    },
+    "after": {
+      "mode": "after",
+      "initialParentRss": 42356736,
+      "peakParentRss": 42889216,
+      "retainedParentRss": 42741760,
+      "peakTreeRss": 159895552,
+      "maxChildren": 2,
+      "seconds": 3.623563599998306
+    }
+  },
+  "productionMemory": {
+    "instance": "45gpq",
+    "samples": [
+      {
+        "timestamp": "2026-11-01T12:41:00Z",
+        "value": 3706880
+      },
+      {
+        "timestamp": "2026-11-01T12:41:30Z",
+        "value": 311889920
+      },
+      {
+        "timestamp": "2026-11-01T12:42:00Z",
+        "value": 453451780
+      },
+      {
+        "timestamp": "2026-11-01T12:42:30Z",
+        "value": 498151420
+      },
+      {
+        "timestamp": "2026-11-01T12:43:00Z",
+        "value": 498941950
+      },
+      {
+        "timestamp": "2026-11-01T12:43:30Z",
+        "value": 499789820
+      },
+      {
+        "timestamp": "2026-11-01T12:44:00Z",
+        "value": 498442240
+      },
+      {
+        "timestamp": "2026-11-01T12:44:30Z",
+        "value": 505876480
+      },
+      {
+        "timestamp": "2026-11-01T12:45:00Z",
+        "value": 506159100
+      },
+      {
+        "timestamp": "2026-11-01T12:45:30Z",
+        "value": 506298370
+      },
+      {
+        "timestamp": "2026-11-01T12:46:00Z",
+        "value": 507011070
+      },
+      {
+        "timestamp": "2026-11-01T12:46:30Z",
+        "value": 507363330
+      },
+      {
+        "timestamp": "2026-11-01T12:47:00Z",
+        "value": 507174900
+      },
+      {
+        "timestamp": "2026-11-01T12:47:30Z",
+        "value": 507531260
+      },
+      {
+        "timestamp": "2026-11-01T12:48:00Z",
+        "value": 508661760
+      },
+      {
+        "timestamp": "2026-11-01T12:48:30Z",
+        "value": 507785200
+      },
+      {
+        "timestamp": "2026-11-01T12:49:00Z",
+        "value": 508022800
+      },
+      {
+        "timestamp": "2026-11-01T12:49:30Z",
+        "value": 508637200
+      },
+      {
+        "timestamp": "2026-11-01T12:50:00Z",
+        "value": 507871230
+      },
+      {
+        "timestamp": "2026-11-01T12:50:30Z",
+        "value": 507838460
+      },
+      {
+        "timestamp": "2026-11-01T12:51:00Z",
+        "value": 512725000
+      },
+      {
+        "timestamp": "2026-11-01T12:51:30Z",
+        "value": 511873020
+      },
+      {
+        "timestamp": "2026-11-01T12:52:00Z",
+        "value": 512286720
+      },
+      {
+        "timestamp": "2026-11-01T12:52:30Z",
+        "value": 512602100
+      },
+      {
+        "timestamp": "2026-11-01T12:53:00Z",
+        "value": 512286720
+      },
+      {
+        "timestamp": "2026-11-01T12:53:30Z",
+        "value": 512286720
+      }
+    ],
+    "maxBytes": 512725000,
+    "beforeImmediate20minMaxBytes": 2011316200,
+    "caution": "Different production traffic windows; not a controlled reduction percentage."
+  },
+  "healthObservation": {
+    "first": "2026-11-01T12:42:50.750765+00:00",
+    "last": "2026-11-01T12:52:50.712406+00:00",
+    "checks": 59,
+    "failures": 0
+  },
+  "transfersActualBrowser": {
+    "before": [
+      {
+        "stage": "cold",
+        "seconds": 15.888360400000238,
+        "bytesByHost": {
+          "kospimap.com": 1324475,
+          "cdn.jsdelivr.net": 434185,
+          "fonts.googleapis.com": 1282,
+          "fonts.gstatic.com": 69320,
+          "api.vworld.kr": 945,
+          "fdx5.github.io": 12757149
+        }
+      },
+      {
+        "stage": "warm",
+        "seconds": 8.475870399997802,
+        "bytesByHost": {
+          "kospimap.com": 137641,
+          "cdn.jsdelivr.net": 0,
+          "fonts.googleapis.com": 0,
+          "fonts.gstatic.com": 0,
+          "api.vworld.kr": 945,
+          "fdx5.github.io": 0
+        }
+      }
+    ],
+    "after": [
+      {
+        "stage": "cold",
+        "seconds": 25.750250199998845,
+        "bytesByHost": {
+          "kospimap.com": 1169512,
+          "cdn.jsdelivr.net": 434119,
+          "fonts.googleapis.com": 1282,
+          "fonts.gstatic.com": 69320,
+          "api.vworld.kr": 945,
+          "fdx5.github.io": 12929963
+        }
+      },
+      {
+        "stage": "warm",
+        "seconds": 15.367396999994526,
+        "bytesByHost": {
+          "kospimap.com": 144408,
+          "cdn.jsdelivr.net": 0,
+          "fonts.googleapis.com": 0,
+          "fonts.gstatic.com": 0,
+          "api.vworld.kr": 945,
+          "fdx5.github.io": 0
+        }
+      }
+    ]
+  },
+  "largeFiles": {
+    "before": [
+      {
+        "path": "3d/walk/plans/lh-77f2a6106e7e6100.webp",
+        "finalUrl": "https://kospimap.com/3d/walk/plans/lh-77f2a6106e7e6100.webp",
+        "bytes": 1298780,
+        "sha256": "813491fb80eeab4b4a718bf164deaed24a03136a232dee83647b27ea3a00a24f",
+        "redirects": []
+      },
+      {
+        "path": "3d/walk/plans/lh-cc5b47cf9ba93d9e.webp",
+        "finalUrl": "https://kospimap.com/3d/walk/plans/lh-cc5b47cf9ba93d9e.webp",
+        "bytes": 1252694,
+        "sha256": "3894d56f778a45fbf75865db3804d9e0433949c04fb4f6bf0a14e650bcd43a27",
+        "redirects": []
+      },
+      {
+        "path": "3d/walk/plans/lh-9c25f529d4a1ae28.webp",
+        "finalUrl": "https://kospimap.com/3d/walk/plans/lh-9c25f529d4a1ae28.webp",
+        "bytes": 1237418,
+        "sha256": "f78c7708942dc88b4760a43c347788534a1f30dbc6076251dd50a578d80932fb",
+        "redirects": []
+      }
+    ],
+    "after": [
+      {
+        "path": "3d/walk/plans/lh-77f2a6106e7e6100.webp",
+        "finalUrl": "https://fdx5.github.io/kospimap-assets/objects/813491fb80eeab4b4a718bf164deaed24a03136a232dee83647b27ea3a00a24f.webp",
+        "bytes": 1298780,
+        "originBodyBytes": 0,
+        "sha256": "813491fb80eeab4b4a718bf164deaed24a03136a232dee83647b27ea3a00a24f",
+        "redirects": [
+          302
+        ]
+      },
+      {
+        "path": "3d/walk/plans/lh-cc5b47cf9ba93d9e.webp",
+        "finalUrl": "https://fdx5.github.io/kospimap-assets/objects/3894d56f778a45fbf75865db3804d9e0433949c04fb4f6bf0a14e650bcd43a27.webp",
+        "bytes": 1252694,
+        "originBodyBytes": 0,
+        "sha256": "3894d56f778a45fbf75865db3804d9e0433949c04fb4f6bf0a14e650bcd43a27",
+        "redirects": [
+          302
+        ]
+      },
+      {
+        "path": "3d/walk/plans/lh-9c25f529d4a1ae28.webp",
+        "finalUrl": "https://fdx5.github.io/kospimap-assets/objects/f78c7708942dc88b4760a43c347788534a1f30dbc6076251dd50a578d80932fb.webp",
+        "bytes": 1237418,
+        "originBodyBytes": 0,
+        "sha256": "f78c7708942dc88b4760a43c347788534a1f30dbc6076251dd50a578d80932fb",
+        "redirects": [
+          302
+        ]
+      }
+    ]
+  },
+  "productionRoomTours": {
+    "sourceApisReal": [
+      {
+        "name": "동탄역포레너스",
+        "chosenType": "110B",
+        "renderedType": "110B",
+        "source": "image_analysis",
+        "inspection": false,
+        "bathrooms": 2,
+        "allToiletsAndShowers": true,
+        "errors": []
+      },
+      {
+        "name": "동탄역경남아너스빌",
+        "chosenType": "108C",
+        "renderedType": "108C",
+        "source": "image_analysis",
+        "inspection": false,
+        "bathrooms": 2,
+        "allToiletsAndShowers": true,
+        "errors": []
+      },
+      {
+        "name": "동탄역대방디엠시티더센텀",
+        "chosenType": "81B",
+        "renderedType": "81B",
+        "source": "image_analysis",
+        "inspection": false,
+        "bathrooms": 2,
+        "allToiletsAndShowers": true,
+        "errors": []
+      },
+      {
+        "name": "동탄역포레너스",
+        "chosenType": "83",
+        "renderedType": "83",
+        "source": "image_analysis",
+        "inspection": false,
+        "bathrooms": 2,
+        "allToiletsAndShowers": true,
+        "errors": []
+      },
+      {
+        "name": "동탄역포레너스",
+        "chosenType": "110C",
+        "renderedType": "110C",
+        "source": "image_analysis",
+        "inspection": false,
+        "bathrooms": 2,
+        "allToiletsAndShowers": true,
+        "errors": []
+      },
+      {
+        "name": "동탄역대방디엠시티더센텀",
+        "chosenType": "76A",
+        "renderedType": "76A",
+        "source": "image_analysis",
+        "inspection": false,
+        "bathrooms": 2,
+        "allToiletsAndShowers": true,
+        "errors": []
+      }
+    ],
+    "allApisReal": [
+      {
+        "name": "동탄역포레너스",
+        "chosenType": "110B",
+        "renderedType": "110B",
+        "source": "image_analysis",
+        "inspection": false,
+        "bathrooms": 2,
+        "allToiletsAndShowers": true,
+        "errors": []
+      },
+      {
+        "name": "동탄역경남아너스빌",
+        "chosenType": "108C",
+        "renderedType": "108C",
+        "source": "image_analysis",
+        "inspection": false,
+        "bathrooms": 2,
+        "allToiletsAndShowers": true,
+        "errors": []
+      },
+      {
+        "name": "동탄역대방디엠시티더센텀",
+        "chosenType": "81B",
+        "renderedType": "81B",
+        "source": "image_analysis",
+        "inspection": false,
+        "bathrooms": 2,
+        "allToiletsAndShowers": true,
+        "errors": []
+      }
+    ]
+  },
+  "shareHydration": [
+    {
+      "title": "강남데시앙포레 | 룸투어(임장) | KOSPIMAP",
+      "ogTitle": "강남데시앙포레 | 룸투어(임장) | KOSPIMAP",
+      "image": "https://kospimap.com/img/social/walk-roomtour-v1.png",
+      "ogUrl": "https://kospimap.com/walk?id=11680%3A%EC%88%98%EC%84%9C%EB%8F%99%3A795%3A%EA%B0%95%EB%82%A8%EB%8D%B0%EC%8B%9C%EC%95%99%ED%8F%AC%EB%A0%88&name=%EA%B0%95%EB%82%A8%EB%8D%B0%EC%8B%9C%EC%95%99%ED%8F%AC%EB%A0%88&tour=1",
+      "dpr": 1
+    },
+    {
+      "title": "삼익 | 룸투어(임장) | KOSPIMAP",
+      "ogTitle": "삼익 | 룸투어(임장) | KOSPIMAP",
+      "image": "https://kospimap.com/img/social/walk-roomtour-v1.png",
+      "ogUrl": "https://kospimap.com/walk?id=11680%3A%EC%88%98%EC%84%9C%EB%8F%99%3A708%3A%EC%82%BC%EC%9D%B5&tour=1",
+      "dpr": 1
+    },
+    {
+      "title": "룸투어(임장) | KOSPIMAP",
+      "ogTitle": "룸투어(임장) | KOSPIMAP",
+      "image": "https://kospimap.com/img/social/walk-roomtour-v1.png",
+      "ogUrl": "https://kospimap.com/walk",
+      "dpr": 1
+    }
+  ],
+  "sharingProduction": {
+    "health": {
+      "status": "ok",
+      "commit": "636885736dc4f2777de8da59143f1df2860bbfe4"
+    },
+    "pages": [
+      {
+        "requestUrl": "https://kospimap.com/walk?name=%EA%B0%95%EB%82%A8%EB%8D%B0%EC%8B%9C%EC%95%99%ED%8F%AC%EB%A0%88&id=11680%3A%EC%88%98%EC%84%9C%EB%8F%99%3A795%3A%EA%B0%95%EB%82%A8%EB%8D%B0%EC%8B%9C%EC%95%99%ED%8F%AC%EB%A0%88&tour=1",
+        "status": 200,
+        "og": {
+          "og:type": "website",
+          "og:site_name": "K-Stock Hub",
+          "og:url": "https://kospimap.com/walk?id=11680%3A%EC%88%98%EC%84%9C%EB%8F%99%3A795%3A%EA%B0%95%EB%82%A8%EB%8D%B0%EC%8B%9C%EC%95%99%ED%8F%AC%EB%A0%88&name=%EA%B0%95%EB%82%A8%EB%8D%B0%EC%8B%9C%EC%95%99%ED%8F%AC%EB%A0%88&tour=1",
+          "og:locale": "ko_KR",
+          "og:title": "강남데시앙포레 | 룸투어(임장) | KOSPIMAP",
+          "og:description": "강남데시앙포레의 평형과 원본 도면을 확인하고, 가구가 배치된 실내를 3D로 둘러보세요.",
+          "og:image": "https://kospimap.com/img/social/walk-roomtour-v1.png",
+          "og:image:secure_url": "https://kospimap.com/img/social/walk-roomtour-v1.png",
+          "og:image:type": "image/png",
+          "og:image:alt": "KOSPIMAP 룸투어(임장) 안내용 아파트 거실 이미지",
+          "og:image:width": "1729",
+          "og:image:height": "910"
+        }
+      },
+      {
+        "requestUrl": "https://kospimap.com/walk?name=%EC%82%BC%EC%9D%B5&id=11680%3A%EC%88%98%EC%84%9C%EB%8F%99%3A708%3A%EC%82%BC%EC%9D%B5&tour=1",
+        "status": 200,
+        "og": {
+          "og:type": "website",
+          "og:site_name": "K-Stock Hub",
+          "og:url": "https://kospimap.com/walk?id=11680%3A%EC%88%98%EC%84%9C%EB%8F%99%3A708%3A%EC%82%BC%EC%9D%B5&name=%EC%82%BC%EC%9D%B5&tour=1",
+          "og:locale": "ko_KR",
+          "og:title": "삼익 | 룸투어(임장) | KOSPIMAP",
+          "og:description": "삼익의 평형과 원본 도면을 확인하고, 가구가 배치된 실내를 3D로 둘러보세요.",
+          "og:image": "https://kospimap.com/img/social/walk-roomtour-v1.png",
+          "og:image:secure_url": "https://kospimap.com/img/social/walk-roomtour-v1.png",
+          "og:image:type": "image/png",
+          "og:image:alt": "KOSPIMAP 룸투어(임장) 안내용 아파트 거실 이미지",
+          "og:image:width": "1729",
+          "og:image:height": "910"
+        }
+      },
+      {
+        "requestUrl": "https://kospimap.com/walk",
+        "status": 200,
+        "og": {
+          "og:type": "website",
+          "og:site_name": "K-Stock Hub",
+          "og:url": "https://kospimap.com/walk",
+          "og:locale": "ko_KR",
+          "og:title": "룸투어(임장) | KOSPIMAP",
+          "og:description": "아파트 평형과 원본 도면을 확인하고, 가구가 배치된 실내를 3D로 둘러보세요.",
+          "og:image": "https://kospimap.com/img/social/walk-roomtour-v1.png",
+          "og:image:secure_url": "https://kospimap.com/img/social/walk-roomtour-v1.png",
+          "og:image:type": "image/png",
+          "og:image:alt": "KOSPIMAP 룸투어(임장) 안내용 아파트 거실 이미지",
+          "og:image:width": "1729",
+          "og:image:height": "910"
+        }
+      }
+    ],
+    "image": {
+      "finalUrl": "https://fdx5.github.io/kospimap-assets/objects/03ae6fa66e85ff450424e4b3b03ed1a8c7a3575e066c7c4885ad1c9345aec879.png",
+      "status": 200,
+      "headStatus": 200,
+      "bytes": 1917237,
+      "sha256": "03ae6fa66e85ff450424e4b3b03ed1a8c7a3575e066c7c4885ad1c9345aec879",
+      "redirects": [
+        302
+      ]
+    },
+    "browserEntry": {
+      "url": "https://kospimap.com/walk?id=11680%3A%EC%88%98%EC%84%9C%EB%8F%99%3A795%3A%EA%B0%95%EB%82%A8%EB%8D%B0%EC%8B%9C%EC%95%99%ED%8F%AC%EB%A0%88&name=%EA%B0%95%EB%82%A8%EB%8D%B0%EC%8B%9C%EC%95%99%ED%8F%AC%EB%A0%88&tour=1",
+      "title": "강남데시앙포레 | 룸투어(임장) | KOSPIMAP",
+      "chooser": "구조와 인테리어 고르기",
+      "label": "강남데시앙포레",
+      "errors": [],
+      "viewport": [
+        1440,
+        1000
+      ],
+      "pixelRatio": 1
+    }
+  },
+  "finalRuntimeCommit": "636885736dc4f2777de8da59143f1df2860bbfe4"
+}
