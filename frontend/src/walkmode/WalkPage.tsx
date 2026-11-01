@@ -594,9 +594,9 @@ export default function WalkPage() {
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       const target = e.target instanceof HTMLElement ? e.target : null;
-      if(e.code==='Escape'&&performance.now()-laptopFullscreenExit.current<350){escapeHandled.current=true;return;}
       const laptop=document.querySelector<HTMLButtonElement>('.wk-laptop-layer.is-fullscreen [data-laptop-shrink]');
       if(laptop){if(e.code==='Escape'){escapeHandled.current=true;e.preventDefault();if(!e.repeat)laptop.click();}return;}
+      if(e.code==='Escape'&&performance.now()-laptopFullscreenExit.current<350){escapeHandled.current=true;return;}
       if(target?.closest('.wk-laptop-layer'))return;
       if (e.code === "Escape") {
         if (e.type === "keydown") escapeHandled.current = true;
