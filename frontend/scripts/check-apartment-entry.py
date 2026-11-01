@@ -85,8 +85,11 @@ with sync_playwright() as p:
   try:page.wait_for_function('()=>window.__walk?.interior?.perf.loadMs>0&&!document.querySelector(".wk-loading")',timeout=90000)
   except Exception:
    page.screenshot(path=str(OUT/(case['label']+'-failed.png')));(OUT/(case['label']+'-failed.txt')).write_text(page.locator('body').inner_text(),encoding='utf8');raise
-  state=page.evaluate('''()=>{const i=window.__walk.interior;return {source:i.o.plan.source,facility:!!i.o.plan.facility,name:i.o.plan.complexName,dong:i.o.plan.dong,type:i.o.plan.unitType,kitchens:i.furn.kitchens,inspection:i.inspectionMode,rooms:i.o.plan.rooms,sourceUrl:i.o.plan.imageAnalysis?.sourceUrl};}''')
+  state=page.evaluate('''()=>{const i=window.__walk.interior;return {source:i.o.plan.source,facility:!!i.o.plan.facility,name:i.o.plan.complexName,dong:i.o.plan.dong,type:i.o.plan.unitType,kitchens:i.furn.kitchens,bathrooms:i.furn.bathrooms,fixtures:i.furn.interactables.map(f=>({id:f.id,room:f.room.id,channel:f.channel})),inspection:i.inspectionMode,rooms:i.o.plan.rooms,sourceUrl:i.o.plan.imageAnalysis?.sourceUrl};}''')
   assert state['source']=='image_analysis' and not state['facility'] and len(state['kitchens'])==1,state
+  baths=[r for r in state['rooms'] if r['type'] in ('bathroom','ensuite')]
+  assert len(state['bathrooms'])==len(baths),state
+  assert all(any(f['id']=='wc-'+r['id'] for f in state['fixtures']) and any(f['room']==r['id'] and f.get('channel')=='shower' for f in state['fixtures']) for r in baths),state
   if case['source']=='sh':assert state['dong']=='114동' and '공개도면' in state['type'],state
   page.screenshot(path=str(OUT/(case['label']+'-interior.png')))
   state['frameStats']=page.evaluate('''async()=>{const i=window.__walk.interior;i.perf.intervals=[];i.perf.worst=0;await new Promise(r=>setTimeout(r,5000));return i.stats();}''')

@@ -75,6 +75,9 @@ const finishOf = (r: Room, kind: string, F?: Record<string, THREE.Material>) => 
 };
 
 export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THREE.Group, finishes?: Record<string, THREE.Material>): Shell {
+  // Door casings can meet a perpendicular wall at exactly the same plane.
+  // Keep the finish stable there as well as separating the opening liners below.
+  P.doorFrame.polygonOffset=true;P.doorFrame.polygonOffsetFactor=-1;P.doorFrame.polygonOffsetUnits=-1;
   plan={...plan,openings:resolveWallOpenings(plan.rooms,plan.openings,!!plan.imageAnalysis)};
   /** the 중문's frosted glass, when its style has it */
   let frosted: THREE.MeshBasicMaterial | null = null;
@@ -160,9 +163,13 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
         for (const [a, sign] of [[a0, 1], [a1, -1]] as [number, number][]) {
           if(plan.imageAnalysis&&!backed(s,a-sign*.03))continue;
           const n = s.along.clone().multiplyScalar(sign);
-          quadAuto(B, revealMat, zone, [s.at(a, yBot, dIn), s.at(a, yBot, dOut), s.at(a, yTop, dOut), s.at(a, yTop, dIn)], n, [[dIn, yBot], [dOut, yBot], [dOut, yTop], [dIn, yTop]]);
+          // The solid source-wall mesh already caps the opening. A thin liner
+          // sits in front of that cap, rather than competing at identical depth.
+          const face=a+(plan.imageAnalysis?sign*.003:0);
+          quadAuto(B, revealMat, zone, [s.at(face, yBot, dIn), s.at(face, yBot, dOut), s.at(face, yTop, dOut), s.at(face, yTop, dIn)], n, [[dIn, yBot], [dOut, yBot], [dOut, yTop], [dIn, yTop]]);
         }
-        if (top < H - 0.01) quadAuto(B, revealMat, zone, [s.at(a0, top, dIn), s.at(a1, top, dIn), s.at(a1, top, dOut), s.at(a0, top, dOut)], new THREE.Vector3(0, -1, 0), [[a0, dIn], [a1, dIn], [a1, dOut], [a0, dOut]]);
+        const headerY=top-(plan.imageAnalysis?.003:0);
+        if (top < H - 0.01) quadAuto(B, revealMat, zone, [s.at(a0, headerY, dIn), s.at(a1, headerY, dIn), s.at(a1, headerY, dOut), s.at(a0, headerY, dOut)], new THREE.Vector3(0, -1, 0), [[a0, dIn], [a1, dIn], [a1, dOut], [a0, dOut]]);
         // sill / threshold
         const sillMat = out ? P.sill : (byId.get(o.b)?.type === "bathroom" || byId.get(o.b)?.type === "ensuite" || wet(r) || o.type === "glass_door") ? P.threshold : floorMat(r);
         const sy = (out ? o.sill : Math.max(bot, 0) > 0 ? bot : 0)+(plan.imageAnalysis?.004:0);
@@ -403,8 +410,8 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
     for (const d of [e + ct / 2, -e - ct / 2]) {
       const ext = o.b === "out" && d < 0;
       if (ext) continue;
-      if(!plan.imageAnalysis||backed(s,a0-cw/2))box(P.doorFrame, a0 - cw / 2, (bot + top) / 2 + cw / 2 - 0.0, d, cw, top - bot + cw, ct);
-      if(!plan.imageAnalysis||backed(s,a1+cw/2))box(P.doorFrame, a1 + cw / 2, (bot + top) / 2 + cw / 2 - 0.0, d, cw, top - bot + cw, ct);
+      if(!plan.imageAnalysis||backed(s,a0-cw/2))box(P.doorFrame, a0 - cw / 2, (bot + top) / 2, d, cw, top - bot, ct);
+      if(!plan.imageAnalysis||backed(s,a1+cw/2))box(P.doorFrame, a1 + cw / 2, (bot + top) / 2, d, cw, top - bot, ct);
       box(P.doorFrame, mid, top + cw / 2, d, w + 2 * cw, cw, ct);
     }
     const label = o.type === "front_door" ? (facility ? "출입문" : "현관문") : o.type === "glass_door" ? "중문" : `${(byId.get(o.a === "out" ? o.b : o.a) ?? r).label} 문`;

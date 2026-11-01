@@ -323,6 +323,34 @@
   color: #bfe6ff;
 }
 
+.re-tour-tools { display: inline-flex; align-items: stretch; gap: 6px; }
+.d2.mm.re-map-page .re-detail-tools button.re-roomtour-open {
+  position: relative;
+  overflow: hidden;
+  border-color: var(--positive, #35e6ad);
+  background: color-mix(in srgb, var(--positive, #35e6ad) 14%, var(--bg-panel, #19111e));
+  color: var(--positive, #35e6ad);
+  font-weight: 750;
+  box-shadow: 0 0 12px #43e3c84d, inset 0 0 10px #43e3c81a;
+}
+.re-roomtour-open::after {
+  content: "";
+  position: absolute;
+  inset: -60% -50%;
+  background: linear-gradient(110deg, transparent 40%, #c9fff352 50%, transparent 60%);
+  transform: translateX(-80%);
+  animation: re-roomtour-shine 3s ease-in-out infinite;
+  pointer-events: none;
+}
+.re-roomtour-open span { display: inline-block; animation: re-roomtour-sparkle 1.8s ease-in-out infinite; }
+.d2.mm .re-detail-tools .re-roomtour-open:focus-visible { outline: 2px solid #baffef; outline-offset: 3px; }
+@keyframes re-roomtour-shine { 55%,100% { transform: translateX(80%); } }
+@keyframes re-roomtour-sparkle { 50% { opacity: .45; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) {
+  .re-roomtour-open::after, .re-roomtour-open span { animation: none; }
+  .re-roomtour-open::after { display: none; }
+}
+
 /* Full-screen layer above the card (and everything else). */
 .re-holo-layer {
   position: fixed;

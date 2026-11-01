@@ -26,6 +26,7 @@ import { withKitGeometryCache } from "./models";
 import { applyViewFov, viewPreferences } from "../viewPreferences";
 import { furnitureFootprints, walkingSpawn } from "./spawn";
 import { InteriorSafetyError, interiorReachability } from "./navigation";
+import {moveThroughGaps,passageNear} from './movement';
 
 /* The interior: a flat built from its plan, furnished, lit and walked through. One renderer (the
  * page's); its output resolution is set once on entry and kept. Everything that could cost a frame
@@ -308,15 +309,29 @@ export class Interior {
     if (this.o.view) this.scene.background = this.o.view;
     else { this.viewRT = paintedView(this.renderer, this.o.hour, plan.floor * 2.9 + 1.5, plan.complexId.length + plan.floor); this.scene.background = this.viewRT.texture; }
     this.scene.backgroundIntensity = plan.facility ? .9 + (1 - sunS.night) * .35 : 1.05 + (1 - sunS.night) * .45;
-    // mirrors that reflect (the bathroom cabinets)
+    // Every mirror uses its own physical plane, including bedroom dressing tables.
     for (const mr of this.furn.mirrors) {
-      const r = new Reflector(new THREE.PlaneGeometry(mr.w, mr.h), { textureWidth: 1024, textureHeight: Math.round(1024 * mr.h / mr.w), color: 0xc9cdd0, clipBias: 0.002, multisample: 4 });
+      let geometry:THREE.BufferGeometry=new THREE.PlaneGeometry(mr.w,mr.h);
+      if(mr.radius){
+        geometry.dispose();const w=mr.w/2,h=mr.h/2,k=mr.radius,s=new THREE.Shape();
+        s.moveTo(-w+k,-h);s.lineTo(w-k,-h);s.quadraticCurveTo(w,-h,w,-h+k);s.lineTo(w,h-k);s.quadraticCurveTo(w,h,w-k,h);s.lineTo(-w+k,h);s.quadraticCurveTo(-w,h,-w,h-k);s.lineTo(-w,-h+k);s.quadraticCurveTo(-w,-h,-w+k,-h);
+        geometry=new THREE.ShapeGeometry(s,16);
+      }
+      const r = new Reflector(geometry, { textureWidth: 1024, textureHeight: Math.round(1024 * mr.h / mr.w), color: 0xc9cdd0, clipBias: 0.002, multisample: 4 });
+      r.userData.room=mr.room;r.userData.reflection='local-plane';
       r.position.copy(mr.pos).addScaledVector(mr.normal, 0.0015); r.lookAt(r.position.clone().add(mr.normal));
       const draw = r.onBeforeRender;
       r.onBeforeRender = (renderer, scene, camera, ...rest) => {
         // (not in the AO pass's own render, nor from across the flat)
         if ((scene as THREE.Scene).overrideMaterial || camera.position.distanceTo(r.position) > 4.5) return;
-        draw.call(r, renderer, scene, camera, ...rest);
+        // Mirrors behind opaque walls do not need an extra scene render.
+        if([...this.shell.segments,...this.doorSegs()].some(s=>{
+          const t=segHit(camera.position.x,camera.position.z,r.position.x,r.position.z,...s);return t!==null&&t>1e-5&&t<.995;
+        }))return;
+        const others=this.mirrors.filter(m=>m!==r).map(m=>({m,visible:m.visible}));
+        for(const {m} of others)m.visible=false;
+        try{draw.call(r, renderer, scene, camera, ...rest);}
+        finally{for(const {m,visible} of others)m.visible=visible;}
       };
       this.mirrors.push(r); this.dynamic.add(r);
     }
@@ -358,15 +373,14 @@ export class Interior {
     P(0.72, "셰이더를 준비하는 중");
     this.setupPost();
     this.placeAtEntrance();
-    if(!plan.facility){
+    if(!plan.facility&&!plan.imageAnalysis){
       const saved=this.shell.doors.map(d=>({d,rotation:d.pivot.rotation.y,position:d.leaf.position.clone()}));
       for(const {d} of saved)if(d.kind!=="front"){if(d.kind==="slide")d.leaf.position.copy(d.slideTo!);else d.pivot.rotation.y=d.openYaw;}
       const openDoors=this.doorSegs();
       for(const {d,rotation,position} of saved){d.pivot.rotation.y=rotation;d.leaf.position.copy(position);}
       const blocked=interiorReachability(plan,[...this.segs,...openDoors],this.furn.colliders,[this.pos.x,this.pos.y]);
       if(blocked.length){
-        if(plan.imageAnalysis){this.inspectionMode=true;this.inspectionIssues=[...new Set(blocked)];}
-        else throw new InteriorSafetyError(`가구·문 배치 후 통행을 확보하지 못한 공간: ${[...new Set(blocked)].join(", ")}`);
+        throw new InteriorSafetyError(`가구·문 배치 후 통행을 확보하지 못한 공간: ${[...new Set(blocked)].join(", ")}`);
       }
     }
     this.applyCamera(0);
@@ -613,9 +627,9 @@ export class Interior {
     if(!plan.facility){
       const room=plan.rooms.find(r=>r.type===(plan.imageAnalysis?"living":"entrance"))??plan.rooms[0];
       const preferred:[number,number]=plan.imageAnalysis?.start.slice(0,2) as [number,number]??[(room.rect[0]+room.rect[2])/2,room.rect[1]+.65];
-      const safe=walkingSpawn(plan,this.shell.segments,this.furn.colliders,this.doorSegs(),preferred);
+      const safe=walkingSpawn(plan,this.shell.segments,this.furn.colliders,this.doorSegs(),preferred)
+        ??(plan.imageAnalysis?walkingSpawn(plan,this.shell.segments,this.furn.colliders,this.doorSegs(),preferred,.001,.09):null);
       if(!safe){
-        if(plan.imageAnalysis){this.inspectionMode=true;this.inspectRoom(room.id);return;}
         throw new InteriorSafetyError("가구와 벽을 피한 입장 공간을 확보하지 못했습니다. 다른 인테리어를 선택해 주세요.");
       }
       this.pos.set(safe[0],safe[1]);this.yaw=safe[2];this.vel.set(0,0);return;
@@ -639,7 +653,8 @@ export class Interior {
     const plan=this.o.plan,room=plan.rooms.find(r=>r.id===id);if(!room||!plan.imageAnalysis)return;
     const [x0,z0,x1,z1]=room.rect,preferred:[number,number]=[(x0+x1)/2,(z0+z1)/2];
     const local={...plan,rooms:plan.rooms.filter(r=>r.zone===room.zone)};
-    const safe=walkingSpawn(local,this.shell.segments,this.furn.colliders,this.doorSegs(),preferred);
+    const safe=walkingSpawn(local,this.shell.segments,this.furn.colliders,this.doorSegs(),preferred)
+      ??walkingSpawn(local,this.shell.segments,this.furn.colliders,this.doorSegs(),preferred,.001,.09);
     this.pos.set(safe?.[0]??preferred[0],safe?.[1]??preferred[1]);
     this.yaw=safe?.[2]??Math.PI;this.pitch=-.06;this.view="first";this.seated=null;this.vel.set(0,0);this.keys.clear();this.shown.ease=.15;this.emitHud(true);
   }
@@ -729,7 +744,7 @@ export class Interior {
   tvPower(on: boolean) { this.furn.tv?.power?.(on); this.probeDirty = Math.max(this.probeDirty, 8); }
   tvPicture(img: HTMLImageElement | null) { this.furn.tv?.picture?.(img); }
   // (into first person: eyes level, ahead the way the body faces)
-  toggleView() { if(this.inspectionMode)return;this.view = this.view === "first" ? "third" : "first"; this.shown.ease = viewPreferences().reduceMotion ? .15 : .3; this.emitHud(); }
+  toggleView() { this.view = this.view === "first" ? "third" : "first"; this.shown.ease = viewPreferences().reduceMotion ? .15 : .3; this.emitHud(); }
   interact() {
     this.o.sound.resume();
     const t = this.target; if (!t) return;
@@ -817,7 +832,6 @@ export class Interior {
     if(safe){this.pos.set(safe[0],safe[1]);this.vel.set(0,0);}
   }
   private move(dt: number) {
-    if(this.inspectionMode){this.vel.set(0,0);return;}
     if (this.seated) { this.avatar.update(dt, 0); return; }
     this.recoverFurnitureOverlap();
     const k = this.keys;
@@ -832,7 +846,9 @@ export class Interior {
     const a = 1 - Math.exp(-dt * (len > 0.05 ? 9 : 12));
     this.vel.x += (wx - this.vel.x) * a; this.vel.y += (wz - this.vel.y) * a;
     const nx = this.pos.x + this.vel.x * dt, nz = this.pos.y + this.vel.y * dt;
-    const p = this.collide(nx, nz);
+    const segments=this.segsIn(Math.min(this.pos.x,nx)-.3,Math.min(this.pos.y,nz)-.3,Math.max(this.pos.x,nx)+.3,Math.max(this.pos.y,nz)+.3);
+    const [px,pz]=moveThroughGaps([this.pos.x,this.pos.y],[nx,nz],segments);
+    const p=new THREE.Vector2(px,pz);
     const moved = Math.hypot(p.x - this.pos.x, p.y - this.pos.y);
     this.pos.copy(p);
     const sp = moved / Math.max(1e-4, dt);
@@ -846,14 +862,12 @@ export class Interior {
       this.o.sound.step(t === "bathroom" || t === "ensuite" || t === "utility" || t === "entrance" || t === "restroom" ? "tile" : hard || ((t === "living" || t === "kitchen" || t === "hall") && this.o.plan.style !== "wood_natural") ? "stone" : "wood", run);
     }
   }
-  /** where the camera may stand on the way from the body to (x, z): short of the first wall, door or
-   * jamb crossed (by 0.1 m), and at least 0.1 m off every face — so the near plane stays in the room */
+  /** Keep the camera on this side of walls/jambs, including in passages smaller
+   * than the former fixed camera radius. The near plane adapts to actual clearance. */
   private clearOf(x: number, z: number): THREE.Vector2 {
     const px = this.pos.x, pz = this.pos.y, segs = this.segsIn(px, pz, x, z);
-    const len = Math.hypot(x - px, z - pz) || 1e-6;
-    let t = 1;
-    for (const [ax, az, bx, bz] of segs) { const h = segHit(px, pz, x, z, ax, az, bx, bz); if (h !== null) t = Math.min(t, Math.max(0, h - 0.1 / len)); }
-    return this.collide(px + (x - px) * t, pz + (z - pz) * t, 0.1, false);
+    const [cx,cz]=moveThroughGaps([px,pz],[x,z],segs);
+    return new THREE.Vector2(cx,cz);
   }
   /** a circle against the wall and furniture segments (and the doors where they stand now) */
   private collide(x: number, z: number, radius = RADIUS, people = true): THREE.Vector2 {
@@ -1062,6 +1076,8 @@ export class Interior {
     }
     // Recheck the interpolated path: turning a corner must not lerp through its wall.
     if (!this.seated) { const safe = this.clearOf(cam.position.x, cam.position.z); cam.position.x = safe.x; cam.position.z = safe.y; sh.pos.copy(cam.position); }
+    const near=passageNear(cam.position.x,cam.position.z,this.segsIn(cam.position.x-.2,cam.position.z-.2,cam.position.x+.2,cam.position.z+.2));
+    if(Math.abs(cam.near-near)>.00001){cam.near=near;cam.updateProjectionMatrix();}
     cam.rotation.set(sh.pitch, sh.yaw, 0, "YXZ");
     // what the hand holds: low and to the right of the eye, or before the body seen from behind
     if (this.furn.pantry.hand) {

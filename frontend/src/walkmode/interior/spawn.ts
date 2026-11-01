@@ -20,8 +20,8 @@ export function furnitureFootprints(segments:Seg[]):[number,number,number,number
 }
 
 /** Choose a floor location after furnishing, with a body-sized clearance and a real walking exit. */
-export function walkingSpawn(plan:FloorPlan,walls:Seg[],furniture:Seg[],doors:Seg[],preferred:Point):[number,number,number]|null {
-  const segments=[...walls,...furniture,...doors],footprints=furnitureFootprints(furniture),radius=.30;
+export function walkingSpawn(plan:FloorPlan,walls:Seg[],furniture:Seg[],doors:Seg[],preferred:Point,radius=.30,minExit=.79):[number,number,number]|null {
+  const segments=[...walls,...furniture,...doors],footprints=furnitureFootprints(furniture);
   const free=(x:number,z:number)=>plan.rooms.some(r=>x>=r.rect[0]&&x<=r.rect[2]&&z>=r.rect[1]&&z<=r.rect[3])
     &&!footprints.some(([a,b,c,d])=>x>a-radius&&x<c+radius&&z>b-radius&&z<d+radius)
     &&segments.every(s=>distance(x,z,s)>=radius);
@@ -36,7 +36,7 @@ export function walkingSpawn(plan:FloorPlan,walls:Seg[],furniture:Seg[],doors:Se
       for(let k=0;k<8;k++){
         const yaw=k*Math.PI/4,dx=-Math.sin(yaw),dz=-Math.cos(yaw);let reach=0;
         for(let t=.1;t<=1.21;t+=.1){if(!free(x+dx*t,z+dz*t))break;reach=t;}
-        if(reach<.79)continue;
+        if(reach<minExit)continue;
         const score=reach*2-Math.hypot(x-preferred[0],z-preferred[1])*.3;
         if(!best||score>best.score)best={p:[x,z],yaw,score};
       }

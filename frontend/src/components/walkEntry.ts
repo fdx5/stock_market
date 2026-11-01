@@ -7,3 +7,10 @@ export function walkEntryUrl(complexId: string, at: { lat: number; lon: number }
   }
   return `/walk?${q}`;
 }
+
+/** Open this complex's original-plan chooser without loading the outdoor world. */
+export function roomTourUrl(complexId: string, area: number, back: string): string {
+  const q = new URLSearchParams({ id: complexId, tour: '1', back });
+  if (Number.isFinite(area) && area > 0) q.set('area', String(area));
+  return `/walk?${q}`;
+}

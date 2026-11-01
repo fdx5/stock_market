@@ -374,20 +374,14 @@ export function sharedSpan(a: Room, b: Room | null, axis: "x" | "z", at: number)
 export function fixturesFor(plan: FloorPlan): Fixture[] {
   const out: Fixture[] = [];
   const room = (id: string) => plan.rooms.find(r => r.id === id);
-  const bath = room("bath2"), ens = room("ensuite"), kit = room("kitchen"), util = room("util");
-  if (bath) {
+  const kit = room("kitchen"), util = room("util");
+  for (const bath of plan.rooms.filter(r=>r.type==='bathroom'||r.type==='ensuite')) {
     const [x0, z0, x1] = bath.rect;
     const big = x1 - x0 > 2.3;
     if (big) out.push({ type: "bathtub", pos: [x0 + 0.42, z0 + 0.82], rot: 0, room: bath.id });
-    else out.push({ type: "shower", pos: [x1 - 0.5, z0 + 0.5], rot: 0, room: bath.id });
+    out.push({ type: "shower", pos: [x1 - 0.5, z0 + 0.5], rot: 0, room: bath.id });
     out.push({ type: "toilet", pos: [big ? x0 + 1.25 : x0 + 0.45, z0 + 0.36], rot: 0, room: bath.id });
     out.push({ type: "washbasin", pos: [big ? x1 - 0.55 : x0 + 1.05, z0 + 0.27], rot: 0, room: bath.id });
-  }
-  if (ens) {
-    const [x0, z0, x1] = ens.rect;
-    out.push({ type: "shower", pos: [x1 - 0.55, z0 + 0.55], rot: 0, room: ens.id });
-    out.push({ type: "toilet", pos: [x0 + 0.5, z0 + 0.36], rot: 0, room: ens.id });
-    out.push({ type: "washbasin", pos: [x0 + 1.35, z0 + 0.27], rot: 0, room: ens.id });
   }
   if (kit) {
     const [, z0, x1] = kit.rect;

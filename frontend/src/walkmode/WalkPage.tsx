@@ -220,8 +220,23 @@ export default function WalkPage() {
       let at = r.center ?? (Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null);
       // (a complex the server has no coordinates for yet: its parcel address, geocoded here)
       if (!at && r.query?.parcel && r.vworld_key) at = await geocodeParcel(r.query.parcel, r.vworld_key, r.vworld_domain ?? "https://kospimap.com");
-      if (!r.vworld_key || !at) { setError("지도 자료를 불러올 수 없습니다."); setPhase("error"); return; }
-      setStart({ lat: at.lat, lon: at.lon, name: r.name, key: r.vworld_key, domain: r.vworld_domain ?? "https://kospimap.com", id, built: r.built });
+      const tour=q.get('tour')==='1';
+      if ((!tour&&!r.vworld_key) || !at) { setError("지도 자료를 불러올 수 없습니다."); setPhase("error"); return; }
+      setStart({ lat: at.lat, lon: at.lon, name: r.name, key: r.vworld_key??'', domain: r.vworld_domain ?? "https://kospimap.com", id, built: r.built });
+      if(tour){
+        const parts=id.split(':'),name=apartmentName(parts.slice(3).join(':')||r.name,parts[1]??''),area=Number(q.get('area')),known=Number.isFinite(area)&&area>0;
+        const floors=Math.max(3,...r.buildings.map(b=>b.floors||0));
+        setEntering({name,complexId:id,kind:'apartment',dong:'',x:0,y:0,floors,heading:0});
+        setDrawingTarget({id,name,town:parts[1]??'',region:parts[0]??'',lat:at.lat,lon:at.lon});
+        setUnits({complexId:id,name,built:r.built,households:null,sources:[],types:known?[{key:String(area),areaM2:area,label:`${area}㎡`,trades:0,source:'상세 팝업 선택 평형'}]:[]});
+        setPick({type:known?String(area):'',floor:Math.min(3,floors),style:'auto'});
+        returnTo.current=safeWalkBack(q.get('back'));setPhase('choose');
+        fetchUnits(id,'',AbortSignal.timeout(10000)).then(u=>{
+          setUnits(previous=>({...u,types:[...u.types,...(previous?.types.filter(t=>!u.types.some(v=>v.key===t.key))??[])]}));
+          setPick(previous=>{if(previous.type.startsWith('naver:'))return previous;const selected=known?u.types.find(t=>Math.abs(t.areaM2-area)<.1):[...u.types].sort((a,b)=>b.trades-a.trades)[0];return selected?{...previous,type:selected.key}:previous;});
+        }).catch(()=>{/* Public source plans remain selectable when register rows are unavailable. */});
+        return;
+      }
       setPhase("outdoor-loading");
     }).catch(() => { setError("단지 정보를 불러오지 못했습니다."); setPhase("error"); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -833,11 +848,10 @@ export default function WalkPage() {
             <div className="wk-meta"><span className="wk-badge">{plan.source==="image_analysis"?"원본 도면 이미지 분석":"추정 평면"}</span>{plan.template} · 전용 {plan.areaExclusiveM2.toFixed(2)}㎡ (방 합계 {plan.check.areaM2}㎡, {(plan.check.error * 100).toFixed(1)}%) · {STYLE_LABEL[plan.style]} · 연출용 가상 인테리어</div>
             <div className="wk-actions">
               <button className="wk-btn" onClick={()=>{document.exitPointerLock?.();interior.current?.dispose();interior.current=null;setHud(null);setTvOpen(false);setLaptopOpen(false);setZoomed(null);setPhase("choose");setFade(false);}}>구조·인테리어 바꾸기</button>
-              {!interior.current?.inspectionMode&&<button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>}
+              {<button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>}
               <button className="wk-btn" onClick={exitFlat}>나가기 <kbd>Esc</kbd></button>
             </div>
           </div>)}
-          {interior.current?.inspectionMode&&<div className="wk-source-inspection" role="status" onPointerDown={e=>e.stopPropagation()}><b>원본 3D 도면 검토</b><span>원본의 좁은 문·통행 제한을 보존했습니다. 공간을 골라 둘러보세요.</span><select aria-label="도면 공간 둘러보기" defaultValue="" onChange={e=>{document.exitPointerLock?.();interior.current?.inspectRoom(e.target.value);}}><option value="" disabled>공간 선택</option>{plan.rooms.filter(r=>r.type!=="hall").map((r,i)=><option value={r.id} key={r.id}>{r.label} {i+1}</option>)}</select></div>}
           {plan.facility && liftPanel && (
             <div className="wk-prompt wk-lift" onPointerDown={e => e.stopPropagation()}>
               <p><b>엘리베이터</b> · 현재 {liftPanel.levels.find(l => l.level === liftPanel.current)?.label}</p>
@@ -861,7 +875,7 @@ export default function WalkPage() {
           {hud?.pet && touch && <button className="wk-btn wk-pet-zoom" onPointerDown={e => { e.stopPropagation(); interior.current?.zoomPet(true); }}>🔍 확대해서 보기</button>}
           {hud?.seated === "반려동물" && <div className="wk-laptop-bar" onPointerDown={e => e.stopPropagation()}><span>가까이서 보는 중</span><button className="wk-btn" onClick={() => interior.current?.zoomPet(false)}>축소 <kbd>Z</kbd></button></div>}
           {hud?.seated && hud.seated !== "화면" && hud.seated !== "반려동물" && <div className="wk-hint is-seat">{hud.seated} · 이동키를 누르면 일어납니다</div>}
-          {showHelp && !touch && <div className="wk-help" onClick={() => setShowHelp(false)}>{interior.current?.inspectionMode?"원본 도면 검토 · 공간 선택으로 방 이동 · 마우스로 둘러보기 · E 설비 확인 · Esc 나가기":plan.facility ? "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (문·엘리베이터·사람과 대화·의자·수전·스위치) · V 3인칭 · M 지도 · Esc 나가기" : "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (스위치·수전·변기·커튼·문·TV·소파·침대) · V 3인칭 · H 도움말 · Esc 나가기"}</div>}
+          {showHelp && !touch && <div className="wk-help" onClick={() => setShowHelp(false)}>{plan.facility ? "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (문·엘리베이터·사람과 대화·의자·수전·스위치) · V 3인칭 · M 지도 · Esc 나가기" : "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (스위치·수전·변기·커튼·문·TV·소파·침대) · V 3인칭 · H 도움말 · Esc 나가기"}</div>}
         </>
       )}
 
