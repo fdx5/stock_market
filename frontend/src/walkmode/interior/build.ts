@@ -4,7 +4,7 @@ import type { Palette } from "./materials";
 import { middleDoorBars, variantOf } from "./variants";
 import type { FloorPlan, Opening, Room } from "./plan/types";
 import {openingsOnWall,resolveWallOpenings} from './plan/wallOpenings';
-import {solidWallUnion,type WallVolume} from './solidWalls';
+import {removeDetachedPosts,solidWallUnion,wallBacksPoint,type WallVolume} from './solidWalls';
 
 /* The shell of a flat from its plan: each room's own four wall faces (set in by half a wall from the
  * plan's centre lines), floor and ceiling, holes cut for the openings with their reveals, sills and
@@ -43,6 +43,9 @@ export interface Shell {
   floorAt(x: number, z: number): number;
   roomAt(x: number, z: number): Room | null;
   H: number;
+  /** Unsupported source fragments removed from transient mesh and collisions. */
+  removedPostVolumes: number;
+  removedPosts: Pick<WallVolume,'axis'|'at'|'lo'|'hi'|'bottom'|'top'>[];
 }
 
 function sidesOf(r: Room): Side[] {
@@ -83,6 +86,11 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
   const segments: Seg[] = [], doors: DoorRig[] = [], windows: WindowInfo[] = [], ceilingLights: CeilingLight[] = [];
   const lampMeshes = new Map<number, THREE.MeshPhysicalMaterial[]>();
   const imageWalls:WallVolume[]=[];
+  let supportedWalls:WallVolume[]=imageWalls,removedPostVolumes=0;
+  let removedPosts:Shell['removedPosts']=[];
+  const sourceDetails:(()=>void)[]=[];
+  const detail=(job:()=>void)=>plan.imageAnalysis?sourceDetails.push(job):job();
+  const backed=(s:Side,a:number,y=.4)=>{const p=s.at(a,y,0);return wallBacksPoint(supportedWalls,e,p.x,p.z,y);};
   const joined=new Set<Opening>();
   // each zone's lamps their own material (a switch dims only its room's)
   const lampMats = new Map<string, THREE.MeshPhysicalMaterial>();
@@ -142,12 +150,15 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
         if (physical.a !== r.id||joined.has(physical)) continue;
         joined.add(physical);
         a0=physical.center-physical.width/2;a1=physical.center+physical.width/2;
+        detail(()=>{
+        if(plan.imageAnalysis&&!supportedWalls.some(w=>w.axis===s.axis&&Math.abs(w.at-s.line)<.001&&w.hi>=a0-.001&&w.lo<=a1+.001))return;
         const out = o.b === "out";
         const dIn = e, dOut = out ? -(e + EXT_DEPTH) : -e;
         const revealMat = isDoorish(o) && o.type !== "open" ? P.doorFrame : mat;
         const yTop = Math.min(H, top), yBot = bot;
         // jambs (facing into the hole)
         for (const [a, sign] of [[a0, 1], [a1, -1]] as [number, number][]) {
+          if(plan.imageAnalysis&&!backed(s,a-sign*.03))continue;
           const n = s.along.clone().multiplyScalar(sign);
           quadAuto(B, revealMat, zone, [s.at(a, yBot, dIn), s.at(a, yBot, dOut), s.at(a, yTop, dOut), s.at(a, yTop, dIn)], n, [[dIn, yBot], [dOut, yBot], [dOut, yTop], [dIn, yTop]]);
         }
@@ -163,6 +174,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
           g.dispose();
         } else quadAuto(B, sillMat, zone, [s.at(a0, sy, dIn), s.at(a1, sy, dIn), s.at(a1, sy, dOut), s.at(a0, sy, dOut)], new THREE.Vector3(0, 1, 0), [[a0, dIn], [a1, dIn], [a1, dOut], [a0, dOut]]);
         joinery(physical, s, r, a0, a1, bot, top, zone);
+        });
       }
       // the wall face
       for (const [a0, a1, y0, y1] of rectMinusHoles(lo, hi, fy, H, holes)) {
@@ -178,9 +190,12 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
         if (hi > a) runs.push([a, hi]);
         for (const [b0, b1] of runs) {
           if (b1 - b0 < 0.02) continue;
+          detail(()=>{
+          if(plan.imageAnalysis&&!backed(s,(b0+b1)/2,.04))return;
           const t = 0.012, h = 0.07;
           quadAuto(B, P.trim, zone, [s.at(b0, fy, e + t), s.at(b1, fy, e + t), s.at(b1, fy + h, e + t), s.at(b0, fy + h, e + t)], s.inward, [[b0, 0], [b1, 0], [b1, h], [b0, h]]);
           quadAuto(B, P.trim, zone, [s.at(b0, fy + h, e + t), s.at(b1, fy + h, e + t), s.at(b1, fy + h, e), s.at(b0, fy + h, e)], new THREE.Vector3(0, 1, 0), [[b0, 0], [b1, 0], [b1, t], [b0, t]]);
+          });
         }
       }
       // collision: the face's solid runs at walking height (doorways passable; doors added live)
@@ -203,7 +218,20 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
   // Image rooms share one wall topology. Solid thickness and end caps meet at the
   // same centre-line vertices, including T junctions; per-rectangle face insets left
   // cracks and unsupported posts. Union the two observations before building once.
-  solidWallUnion(B,imageWalls,e);
+  if(plan.imageAnalysis){
+    const contains=(x:number,z:number)=>plan.rooms.some(r=>x>=r.rect[0]-.001&&x<=r.rect[2]+.001&&z>=r.rect[1]-.001&&z<=r.rect[3]+.001);
+    const clean=removeDetachedPosts(imageWalls,e,contains);supportedWalls=clean.walls;removedPostVolumes=clean.removed.length;
+    removedPosts=clean.removed.map(({axis,at,lo,hi,bottom,top})=>({axis,at,lo,hi,bottom,top}));
+    // Rebuild collisions from retained wall volumes, including window sills.
+    // Removed posts must not survive as invisible walking obstacles.
+    segments.length=0;
+    for(const w of supportedWalls)if(w.hi-w.lo>=.002&&w.bottom<.7&&w.top>.15){
+      const offset=w.at+w.inward*e;
+      segments.push(w.axis==='x'?[offset,w.lo,offset,w.hi]:[w.lo,offset,w.hi,offset]);
+    }
+  }
+  solidWallUnion(B,supportedWalls,e);
+  sourceDetails.forEach(job=>job());
 
   // ---------------------------------------------------------------- ceilings and their lamps
   function ceiling(r: Room, zone: number) {
@@ -375,8 +403,8 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
     for (const d of [e + ct / 2, -e - ct / 2]) {
       const ext = o.b === "out" && d < 0;
       if (ext) continue;
-      box(P.doorFrame, a0 - cw / 2, (bot + top) / 2 + cw / 2 - 0.0, d, cw, top - bot + cw, ct);
-      box(P.doorFrame, a1 + cw / 2, (bot + top) / 2 + cw / 2 - 0.0, d, cw, top - bot + cw, ct);
+      if(!plan.imageAnalysis||backed(s,a0-cw/2))box(P.doorFrame, a0 - cw / 2, (bot + top) / 2 + cw / 2 - 0.0, d, cw, top - bot + cw, ct);
+      if(!plan.imageAnalysis||backed(s,a1+cw/2))box(P.doorFrame, a1 + cw / 2, (bot + top) / 2 + cw / 2 - 0.0, d, cw, top - bot + cw, ct);
       box(P.doorFrame, mid, top + cw / 2, d, w + 2 * cw, cw, ct);
     }
     const label = o.type === "front_door" ? (facility ? "출입문" : "현관문") : o.type === "glass_door" ? "중문" : `${(byId.get(o.a === "out" ? o.b : o.a) ?? r).label} 문`;
@@ -476,7 +504,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
 
   const roomAt = (x: number, z: number) => plan.rooms.find(r => x >= r.rect[0] && x <= r.rect[2] && z >= r.rect[1] && z <= r.rect[3]) ?? null;
   return {
-    zones, segments, doors, windows, ceilingLights, lampMeshes, H,
+    zones, segments, doors, windows, ceilingLights, lampMeshes, H, removedPostVolumes, removedPosts,
     roomAt,
     floorAt: (x, z) => { const r = roomAt(x, z); return r ? -(r.floorDrop ?? 0) : 0; },
   };

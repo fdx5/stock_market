@@ -2,12 +2,12 @@
   "date": "2026-11-01",
   "baselineCommit": "6f8f687d",
   "recognitionVersion": "orthogonal-area-7",
-  "ocr": "Local Tesseract.js WASM; native production validation pending",
+  "ocr": "Local Tesseract.js WASM; four Suseo original plans also verified with native production Tesseract",
   "originalImages": 14,
   "baselineReady": 10,
   "candidateReady": 14,
   "meaning": "Automatic validation rate is not ground-truth recognition accuracy",
-  "opaqueWallRaysPassed": 2278,
+  "opaqueWallRaysPassed": 2262,
   "cases": [
     {
       "case": "naver-108",
@@ -753,5 +753,135 @@
         }
       }
     }
-  ]
+  ],
+  "opaqueWallRaysPassedBeforePostCleanup": 2278,
+  "postCleanup": {
+    "plans": 14,
+    "removedPostCollisionsAbsent": true,
+    "floorsAroundRemovedPostsClosed": true,
+    "exteriorBoundaryProtected": true,
+    "sourceObservationsPreserved": true
+  },
+  "nativeProduction": {
+    "commit": "61648c162dcb972cf12b5c0dd227e34ceeddc3b5",
+    "cases": [
+      {
+        "type": "49",
+        "status": "ready",
+        "reason": null,
+        "version": "orthogonal-area-7",
+        "scale": {
+          "xMetresPerPixel": 0.01059402226018892,
+          "zMetresPerPixel": 0.01059402226018892,
+          "basis": "room_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 2.122137,
+          "wallThicknessMetres": 0.0636
+        },
+        "sourceMatch": {
+          "wallRecall": 0.9352,
+          "wallPrecision": 0.971,
+          "wallF1": 0.9527,
+          "tolerancePixels": 3,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        },
+        "areaM2": 30.3,
+        "seconds": 3.108,
+        "sourceImageMatches": true
+      },
+      {
+        "type": "55",
+        "status": "ready",
+        "reason": null,
+        "version": "orthogonal-area-7",
+        "scale": {
+          "xMetresPerPixel": 0.00952130962001647,
+          "zMetresPerPixel": 0.00952130962001647,
+          "basis": "room_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 1.28363,
+          "wallThicknessMetres": 0.0571
+        },
+        "sourceMatch": {
+          "wallRecall": 0.9773,
+          "wallPrecision": 0.945,
+          "wallF1": 0.9609,
+          "tolerancePixels": 5,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        },
+        "areaM2": 33.66,
+        "seconds": 2.527,
+        "sourceImageMatches": true
+      },
+      {
+        "type": "60",
+        "status": "ready",
+        "reason": null,
+        "version": "orthogonal-area-7",
+        "scale": {
+          "xMetresPerPixel": 0.009289003988889195,
+          "zMetresPerPixel": 0.009289003988889195,
+          "basis": "room_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 1.323052,
+          "wallThicknessMetres": 0.0557
+        },
+        "sourceMatch": {
+          "wallRecall": 1.0,
+          "wallPrecision": 0.9124,
+          "wallF1": 0.9542,
+          "tolerancePixels": 5,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        },
+        "areaM2": 36.0,
+        "seconds": 1.913,
+        "sourceImageMatches": true
+      },
+      {
+        "type": "69",
+        "status": "ready",
+        "reason": null,
+        "version": "orthogonal-area-7",
+        "scale": {
+          "xMetresPerPixel": 0.013383407984950616,
+          "zMetresPerPixel": 0.013383407984950616,
+          "basis": "room_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 1.248366,
+          "wallThicknessMetres": 0.0803
+        },
+        "sourceMatch": {
+          "wallRecall": 1.0,
+          "wallPrecision": 0.9656,
+          "wallF1": 0.9825,
+          "tolerancePixels": 5,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        },
+        "areaM2": 50.84,
+        "seconds": 2.347,
+        "sourceImageMatches": true
+      }
+    ],
+    "walkPageStatus": 200
+  }
 }

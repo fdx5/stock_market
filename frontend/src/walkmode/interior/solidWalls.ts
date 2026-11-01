@@ -11,6 +11,54 @@ const coordinates=(values:number[])=>{
 };
 const nearest=(values:number[],v:number)=>{let best=0;for(let i=1;i<values.length;i++)if(Math.abs(values[i]-v)<Math.abs(values[best]-v))best=i;return best;};
 
+const bounds=(w:WallVolume,half:number)=>({
+ x0:w.axis==='x'?w.at-half:w.lo,x1:w.axis==='x'?w.at+half:w.hi,
+ z0:w.axis==='z'?w.at-half:w.lo,z1:w.axis==='z'?w.at+half:w.hi,
+});
+const touches=(a:WallVolume,b:WallVolume,half:number)=>{
+ const A=bounds(a,half),B=bounds(b,half);
+ return A.x0<=B.x1+EPS&&B.x0<=A.x1+EPS&&A.z0<=B.z1+EPS&&B.z0<=A.z1+EPS;
+};
+
+/** A lintel is not a wall connection for a freestanding post. Establish wall
+ * support below door-head height first, then retain supported upper volumes.
+ * This changes transient geometry only; source observations remain intact. */
+export function removeDetachedPosts(walls:WallVolume[],half:number,floorContains?:(x:number,z:number)=>boolean){
+ const active=walls.filter(w=>w.bottom<1.7-EPS&&w.top>.15+EPS);
+ const kept=new Set<WallVolume>(),seen=new Set<WallVolume>();
+ for(const start of active){
+  if(seen.has(start))continue;
+  const component=[start];seen.add(start);
+  for(let i=0;i<component.length;i++)for(const w of active){
+   const a=component[i];
+   if(!seen.has(w)&&touches(a,w,half)&&Math.min(a.top,w.top,1.7)-Math.max(a.bottom,w.bottom,.15)>EPS){seen.add(w);component.push(w);}
+  }
+  // Merge collinear observations before measuring a wall panel: rectangle and
+  // opening subdivisions must not turn a long real wall into multiple posts.
+  const panel=component.some(w=>{
+   if(Math.min(w.top,1.7)-Math.max(w.bottom,.15)<.8)return false;
+   const intervals=component.filter(q=>q.axis===w.axis&&Math.abs(q.at-w.at)<EPS&&Math.min(q.top,w.top,1.7)-Math.max(q.bottom,w.bottom,.15)>=.8).map(q=>[q.lo,q.hi]).sort((a,b)=>a[0]-b[0]);
+   let lo=intervals[0][0],hi=intervals[0][1];
+   for(const [a,b] of intervals){if(a>hi+EPS){if(hi-lo>=1.1)return true;lo=a;}hi=Math.max(a>hi+EPS?a:hi,b);}
+   return hi-lo>=1.1;
+  });
+  // Low sill/parapet islands are not full-height pillars.
+  const boundary=floorContains&&component.some(w=>[.05,.5,.95].some(f=>{
+   const a=w.lo+(w.hi-w.lo)*f,d=half+.025;
+   return w.axis==='x'?(!floorContains(w.at-d,a)||!floorContains(w.at+d,a)):(!floorContains(a,w.at-d)||!floorContains(a,w.at+d));
+  }));
+  if(panel||boundary||Math.max(...component.map(w=>w.top))<1.7)component.forEach(w=>kept.add(w));
+ }
+ const upper=walls.filter(w=>!active.includes(w));
+ let changed=true;
+ while(changed){changed=false;for(const w of upper)if(!kept.has(w)&&[...kept].some(q=>touches(w,q,half)&&Math.min(w.top,q.top)-Math.max(w.bottom,q.bottom)>=-EPS)){kept.add(w);changed=true;}}
+ return {walls:walls.filter(w=>kept.has(w)),removed:walls.filter(w=>!kept.has(w))};
+}
+
+export function wallBacksPoint(walls:WallVolume[],half:number,x:number,z:number,y=.4){
+ return walls.some(w=>{const b=bounds(w,half);return y>=w.bottom-EPS&&y<=w.top+EPS&&x>=b.x0-EPS&&x<=b.x1+EPS&&z>=b.z0-EPS&&z<=b.z1+EPS;});
+}
+
 /** Emit only the outer surfaces of the union of solid wall volumes. Overlapping
  * observations, T junctions, corners and decomposition pieces have no internal
  * coplanar faces, cracks or frame-only structural strips. */

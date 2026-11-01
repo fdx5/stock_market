@@ -22,13 +22,27 @@ for(const file of readdirSync(directory).filter(n=>n.endsWith('-candidate.json')
  }
  const materials=new Map<string,THREE.MeshPhysicalMaterial>();
  const palette=new Proxy({}, {get:(_,key)=>{const name=String(key);if(!materials.has(name))materials.set(name,new THREE.MeshPhysicalMaterial({side:THREE.DoubleSide}));return materials.get(name);}}) as Palette;
- const B=new Batcher();buildShell(plan,palette,B,new THREE.Group());const meshes=B.build();meshes.forEach(m=>m.updateMatrixWorld(true));
+ const B=new Batcher();const shell=buildShell(plan,palette,B,new THREE.Group());const meshes=B.build();meshes.forEach(m=>m.updateMatrixWorld(true));
+ if(shell.removedPosts.length)console.log(file,'removed unsupported fragments',JSON.stringify(shell.removedPosts));
  const structural=meshes.filter(m=>['wall','wallWet','wallAccent'].some(key=>materials.get(key)===m.material));
  const ray=new THREE.Raycaster(),half=wallHalfThickness(plan),Y=1.2;
+ for(const w of shell.removedPosts){
+  if(w.hi-w.lo<.002||w.bottom>Y||w.top<Y)continue;
+  const mid=(w.lo+w.hi)/2;
+  for(const offset of [-half,half])assert.ok(!shell.segments.some(s=>w.axis==='x'
+   ?Math.abs(s[0]-w.at-offset)<.001&&Math.abs(s[2]-w.at-offset)<.001&&mid>Math.min(s[1],s[3])+.001&&mid<Math.max(s[1],s[3])-.001
+   :Math.abs(s[1]-w.at-offset)<.001&&Math.abs(s[3]-w.at-offset)<.001&&mid>Math.min(s[0],s[2])+.001&&mid<Math.max(s[0],s[2])-.001),`${file}: removed post collision survived`);
+  for(const side of [-1,1]){
+   const p=w.axis==='x'?new THREE.Vector3(w.at+side*(half+.025),.2,mid):new THREE.Vector3(mid,.2,w.at+side*(half+.025));
+   ray.set(p,new THREE.Vector3(0,-1,0));ray.far=.5;
+   assert.ok(ray.intersectObjects(meshes).length,`${file}: removing an interior post must not leave a floor hole`);
+  }
+ }
  for(const room of plan.rooms)for(const axis of ['x','z'] as const){
   const j=axis==='x'?0:1,k=1-j;if(room.rect[j+2]-room.rect[j]<2*half+.16)continue;
   for(const side of [0,1])for(const fraction of [.18,.5,.82]){
    const at=room.rect[j+side*2],along=room.rect[k]+(room.rect[k+2]-room.rect[k])*fraction;
+   if(shell.removedPosts.some(w=>w.axis===axis&&Math.abs(w.at-at)<.002&&along>=w.lo-.001&&along<=w.hi+.001&&Y>=w.bottom&&Y<=w.top))continue;
    // Start in open floor, outside the perpendicular corner volumes. Corners
    // themselves are covered by the manifold and radial junction regression.
    if(Math.min(along-room.rect[k],room.rect[k+2]-along)<half+.025)continue;
