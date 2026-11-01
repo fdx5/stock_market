@@ -7,7 +7,7 @@ from app.services import sgis_indoor as s
 class SgisIndoorTests(unittest.TestCase):
     def setUp(self):
         self.env=patch.dict(os.environ,{"SGIS_CONSUMER_KEY":"fixture-key","SGIS_CONSUMER_SECRET":"fixture-secret"});self.env.start()
-        self.cache=patch.object(s,"_cache",s.OrderedDict());self.cache.start()
+        self.cache=patch.object(s,"_cache",s.CompressedLRU(max_entries=256,max_bytes=16*1024*1024));self.cache.start()
         self.token=patch.object(s,"_token",("",0));self.token.start()
     def tearDown(self):
         self.token.stop();self.cache.stop();self.env.stop()

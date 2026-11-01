@@ -186,8 +186,13 @@ class TestVisitorTracker:
         monkeypatch.setattr(visitor_tracker.visitor_store, "total_count", lambda: len(recorded))
         tracker = visitor_tracker.VisitorTracker()
 
-        current, total = tracker.heartbeat("11111111-1111-1111-1111-111111111111", "1.2.3.4")
-        assert (current, total) == (1, 1)
+        tracker.heartbeat("11111111-1111-1111-1111-111111111111", "1.2.3.4")
+        # The store is written by a background thread; the next response carries it.
+        import time
+        deadline = time.monotonic() + 2
+        while not recorded and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.05)
         assert recorded == ["11111111-1111-1111-1111-111111111111"]
 
         # A crawl of 50 URLs = 50 fresh session ids, which is exactly what the per-IP

@@ -38,6 +38,7 @@ import math
 import os
 import re
 import threading
+import zlib
 import time
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -1074,14 +1075,16 @@ def _prefetch(lawd_codes: list[str]) -> None:
             _districts.pop(oldest)
 
 
-_build_gate=threading.BoundedSemaphore(1)
+# Two builds at once: a cold 시·군·구 build takes 7-13 s, and one gate made other
+# regions' readers queue behind it; unbounded builds once pushed memory past 2 GB.
+_build_gate=threading.BoundedSemaphore(2)
 
 
 def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None, *, filters: dict | None = None) -> dict:
     # Region refreshes must not each retain a full decoded trade graph at once.
     # Already-built map responses continue through the existing fast caches.
     # Bounded wait: queued builds must not hold every request thread forever.
-    if not _build_gate.acquire(timeout=25):
+    if not _build_gate.acquire(timeout=40):
         raise StoreUnavailable("map build busy")
     try:
         return _build_map(sido,sgg,dong,period,top,filters=filters)
@@ -1236,7 +1239,18 @@ def _build_map(sido: str | None, sgg: str | None, dong: str | None, period: str,
 
 
 
-_explore_cache: OrderedDict[tuple, tuple[float, str]] = OrderedDict()
+_explore_cache: OrderedDict[tuple, tuple[float, bytes]] = OrderedDict()
+
+
+def _pack(body: str) -> bytes:
+    """Remembered map JSON is kept compressed: 400 maps of up to ~1.7 MB of text
+    (Korean as two-byte str) held a couple of hundred MB; JSON packs ~8x and
+    unpacking a 시·도 map costs a few milliseconds per request."""
+    return zlib.compress(body.encode("utf-8"), 1)
+
+
+def _unpack(data: bytes) -> str:
+    return zlib.decompress(data).decode("utf-8")
 _explore_lock = threading.Lock()
 
 
@@ -1248,10 +1262,10 @@ def explore(sido: str, sgg: str | None, dong: str | None, period: str, filters: 
         if hit and time.monotonic() - hit[0] < 30:
             _explore_cache.move_to_end(key)
     if hit and time.monotonic() - hit[0] < 30:
-        return _served(hit[1], _lawd_codes(sido, sgg))
+        return _served(_unpack(hit[1]), _lawd_codes(sido, sgg))
     body = _body(build_map(sido, sgg, dong, period, filters=filters))
     with _explore_lock:
-        _explore_cache[key] = (time.monotonic(), body)
+        _explore_cache[key] = (time.monotonic(), _pack(body))
         while len(_explore_cache) > 48:
             _explore_cache.popitem(last=False)
     return _served(body, _lawd_codes(sido, sgg))
@@ -1396,7 +1410,7 @@ def _older_trades(lawd: str, complex_id: str) -> dict[int, list[tuple]]:
 
 _map_cache_lock = threading.Lock()
 # key -> (built at, data version, JSON without status, administrative scope signature)
-_map_cache: OrderedDict[tuple, tuple[float, int, str, tuple[str, ...]]] = OrderedDict()
+_map_cache: OrderedDict[tuple, tuple[float, int, bytes, tuple[str, ...]]] = OrderedDict()
 MAP_CACHE_SECONDS = 120
 # A 시·도 map is answered from the last one built — in memory, else as stored — and
 # rebuilt behind the reader once it is this old. Building one means reading every
@@ -1429,7 +1443,7 @@ def _remember(key: tuple, body: str, built: float, persist: bool) -> None:
     persist = persist and realestate_store.migrated.is_set()
     signature = _scope_signature(key[0], key[1])
     with _map_cache_lock:
-        _map_cache[key] = (built, _version, body, signature)
+        _map_cache[key] = (built, _version, _pack(body), signature)
         _map_cache.move_to_end(key)
         while len(_map_cache) > 400:
             _map_cache.popitem(last=False)
@@ -1485,7 +1499,7 @@ def _cached(key: tuple) -> tuple[float, str] | None:
     with _map_cache_lock:
         hit = _map_cache.get(key)
     if hit and _scope_cache_matches(hit, key):
-        return (hit[0] if hit[1] == _version else 0), hit[2]
+        return (hit[0] if hit[1] == _version else 0), _unpack(hit[2])
     try:
         row = realestate_store.load_map(_store_key(key))
     except Exception as exc:  # noqa: BLE001
@@ -1559,5 +1573,5 @@ def get_map(sido: str | None, sgg: str | None, dong: str | None, period: str, to
     with _map_cache_lock:
         hit = _map_cache.get(key)
     if hit and _scope_cache_matches(hit, key) and hit[1] == _version and time.time() - hit[0] < MAP_CACHE_SECONDS:
-        return _served(hit[2], lawd_codes)
+        return _served(_unpack(hit[2]), lawd_codes)
     return _served(_build_and_remember(key, persist=False), lawd_codes)

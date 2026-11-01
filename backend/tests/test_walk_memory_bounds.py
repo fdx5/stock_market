@@ -27,10 +27,10 @@ def test_stale_refreshes_are_bounded_and_failures_keep_good_values():
   release.wait(2);raise RuntimeError('source offline')
  for _ in range(3):
   for i in range(12):assert c.get_or_set(str(i),60,slow)=='last good'
- assert len(c._refreshing)<=12
+ assert len(c._refreshing)==c.max_refreshes
  release.set();deadline=time.monotonic()+3
  while c._refreshing and time.monotonic()<deadline:time.sleep(.01)
- assert not c._refreshing and len(started)<=12
+ assert not c._refreshing and len(started)==c.max_refreshes
 
 def test_slow_key_never_blocks_other_keys():
  # Striped shared locks once queued unrelated keys behind one slow upstream until
@@ -78,3 +78,15 @@ def test_room_tour_types_do_not_load_or_schedule_district_history(monkeypatch):
  body=rm.complex_detail('41597:T','1y',include_history=False)
  assert body['types'][0]['area']==84.52 and body['types'][0]['trades_total']==1
  assert 'deals' not in body['types'][0]
+
+
+def test_remembered_maps_are_compressed_and_round_trip():
+ from app.services import realestate_map as rm
+ body='{"items":['+','.join('{"name":"동탄역포레너스","price":%d}'%i for i in range(5000))+']}'
+ packed=rm._pack(body)
+ assert rm._unpack(packed)==body and len(packed)*5<len(body.encode())
+
+
+def test_indoor_floor_cache_has_a_byte_budget():
+ from app.services import sgis_indoor
+ assert sgis_indoor._cache.max_bytes<=16*1024*1024

@@ -45,6 +45,10 @@ class TTLCache:
         self._key_locks: dict[str, threading.Lock] = {}
         self.max_bytes=max_bytes;self.byte_size=0;self._sizes={}
         self._refreshing: set[str] = set()
+        # Concurrent background refreshes are capped to bound their memory, but a
+        # full cap never blocks: the reader gets the stale value and the next
+        # read retries the refresh.
+        self.max_refreshes = 8
 
     def _key_lock(self, key: str) -> threading.Lock:
         with self._lock:
@@ -78,6 +82,8 @@ class TTLCache:
         if cached is not None and allow_stale:
             with self._lock:
                 already_refreshing = key in self._refreshing
+                if not already_refreshing and len(self._refreshing) >= self.max_refreshes:
+                    already_refreshing = True
                 if not already_refreshing:
                     self._refreshing.add(key)
             if not already_refreshing:

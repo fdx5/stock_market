@@ -10,18 +10,21 @@ import os
 import re
 import threading
 import time
-from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from pyproj import Transformer
+
+from app.services.memory_cache import CompressedLRU
 
 BASE = "https://sgisapi.mods.go.kr/OpenAPI3/"
 _to_grid = Transformer.from_crs(4326, 5179, always_xy=True)
 _to_geo = Transformer.from_crs(5179, 4326, always_xy=True)
 _lock = threading.RLock()
 _token = ("", 0.0)
-_cache: OrderedDict = OrderedDict()
+# Floor charts of large buildings are ~0.5-0.8 MB each as Python objects; 256 of
+# them held ~200 MB. Kept as compressed JSON with a byte budget instead.
+_cache = CompressedLRU(max_entries=256, max_bytes=16*1024*1024)
 _pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="sgis-floor")
 
 

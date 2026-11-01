@@ -30,6 +30,7 @@ import requests
 
 from app.services import realestate_map as rm
 from app.services import realestate_store
+from app.services.memory_cache import CompressedLRU
 
 log = logging.getLogger(__name__)
 
@@ -41,8 +42,10 @@ INFO_FRESH = dt.timedelta(days=90)
 FAILURE_RETRY_SECONDS = 600
 
 _lock = threading.Lock()
-_memo: dict[str, tuple[float, object]] = {}
+# Bounded, compressed: keys grow with every complex and region ever asked for.
+_memo = CompressedLRU(max_entries=1024, max_bytes=16*1024*1024)
 _failures: dict[str, tuple[float, str]] = {}
+_FAILURES_MAX = 2000
 _last_raw = ""  # the latest response's head, quoted when a list comes back empty
 
 
@@ -115,8 +118,9 @@ def _stored(key: str, fresh: dt.timedelta, fetch):
     ten minutes so a key without this API does not spend a call per card."""
     now = time.time()
     with _lock:
-        if key in _memo and now - _memo[key][0] < fresh.total_seconds():
-            return _memo[key][1]
+        hit = _memo.get(key)
+        if hit and now - hit[0] < fresh.total_seconds():
+            return hit[1]
         failed = _failures.get(key)
         if failed and now - failed[0] < FAILURE_RETRY_SECONDS:
             raise FactsError(failed[1])
@@ -139,6 +143,8 @@ def _stored(key: str, fresh: dt.timedelta, fetch):
         if row:  # stale beats nothing
             return row[1]
         with _lock:
+            if len(_failures) >= _FAILURES_MAX:
+                _failures.clear()  # memory only: just retried sooner
             _failures[key] = (now, str(exc))
         raise FactsError(str(exc)) from exc
     realestate_store.save_facts(key, payload, dt.datetime.now(rm.KST).isoformat(timespec="seconds"))
