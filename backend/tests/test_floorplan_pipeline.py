@@ -219,3 +219,63 @@ def test_expanded_source_retains_service_area_without_stretching_to_exclusive():
     assert bounded['status']=='ready'
     assert bounded['areaBasis']!='expanded_drawing','an inconsistent supply envelope must not be presented as validated expansion'
     assert bounded['application']['mode']=='approximate_source'
+
+
+
+def test_homonymous_town_falls_back_to_name_then_verifies_the_actual_town(monkeypatch):
+    from urllib.parse import parse_qs,urlparse
+    source._catalogues.clear();queries=[]
+    def get(url,*args):
+        if '/search/' not in url:return gallery('110837','동탄역포레너스','4159710600','영천동').encode(),'text/html'
+        q=parse_qs(urlparse(url).query)['query'][0];queries.append(q)
+        if q.startswith('영천동'):return b'baseQueryResult = {};','text/html'
+        d={'complexCode':'110837','complexName':'동탄역포레너스','complexMapXCrdn':'127.116928','complexMapYCrdn':'37.205961','cortarInfo':{'secNm':'영천동','cortarNo':'4159710600'}}
+        return ('baseQueryResult = '+json.dumps(d)+';').encode(),'text/html'
+    monkeypatch.setattr(source,'_get',get)
+    r=source.catalogue('동탄역포레너스',37.205961,127.116928,'영천동','41590')
+    assert r['naverId']=='110837' and r['locationMatchedBy']=='source_coordinates'
+    assert queries==['영천동 동탄역포레너스','동탄역포레너스']
+    # A cache admitted using source coordinates must not match a distant namesake.
+    assert source.catalogue('동탄역포레너스',37.57,126.96,'영천동','41590')['status']=='not_found'
+    assert source.catalogue('동탄역포레너스',37.205961,127.116928,'영천동','41590')['naverId']=='110837'
+
+
+def test_apartment_and_officetel_catalogues_at_the_same_address_stay_separate(monkeypatch):
+    source._catalogues.clear()
+    monkeypatch.setattr(source,'_get',lambda *a:('<a href="?rletNo=119632">대방(주상복합)</a><a href="?rletNo=119633">대방</a>'.encode(),'text/html'))
+    def lookup(cid):
+        g=source.parse_gallery(gallery(cid,'대방(주상복합)' if cid=='119632' else '대방','4159710600','영천동'),cid)
+        return {**g,'propertyType':'A01' if cid=='119632' else 'A02'}
+    monkeypatch.setattr(source,'_gallery',lookup)
+    r=source.catalogue('대방',37.2,127.1,'영천동','41597')
+    assert r['naverId']=='119632' and r['propertyType']=='A01'
+
+
+def test_a_failed_town_query_does_not_cancel_the_name_retry(monkeypatch):
+    source._catalogues.clear();calls=[]
+    def get(url,*a):
+        calls.append(url)
+        if len(calls)==1:raise LookupError('source temporarily unavailable')
+        return '<a href="?rletNo=668">삼익</a>'.encode(),'text/html'
+    monkeypatch.setattr(source,'_get',get)
+    monkeypatch.setattr(source,'_gallery',lambda cid:source.parse_gallery(gallery('668','삼익','1168011500','수서동'),'668'))
+    assert source.catalogue('삼익',37.488,127.1,'수서동','11680')['naverId']=='668'
+
+
+
+def test_dimension_area_conflict_uses_original_pixel_ratios_without_replacing_walls():
+    data,words=drawn_flat()
+    a=analyze_image(data,35,words=words)
+    assert a['status']=='ready' and a['application']['dimensionScaleAdjusted']
+    assert a['scale']['estimated'] and a['scale']['basis']=='exclusive_area_ratio'
+    assert a['application']['geometryBasis']=='original_image' and not a['application']['templateUsed']
+    assert abs(a['areaM2']-35)<.01
+    ratio=a['scale']['xMetresPerPixel'];assert ratio==a['scale']['zMetresPerPixel']
+    for room,pixel in zip(a['rooms'],a['pixelRooms']):
+        width=room['rect'][2]-room['rect'][0];height=room['rect'][3]-room['rect'][1]
+        assert abs(width-(pixel['rect'][2]-pixel['rect'][0])*ratio)<.0002
+        assert abs(height-(pixel['rect'][3]-pixel['rect'][1])*ratio)<.0002
+    ids={r['id']:r for r in a['rooms']}
+    for opening in a['openings']:
+        r=ids[opening['a']];j=0 if opening['axis']=='x' else 1
+        assert min(abs(opening['at']-r['rect'][j]),abs(opening['at']-r['rect'][j+2]))<.002

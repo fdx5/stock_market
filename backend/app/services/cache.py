@@ -2,6 +2,7 @@ import threading
 import time
 from collections import OrderedDict
 from typing import Any, Callable
+from app.services.memory_cache import retained_size
 
 # Safety net against unbounded memory growth: this cache has no expiry sweep (an
 # entry that's never accessed again after going stale just sits there forever), and
@@ -30,29 +31,26 @@ class TTLCache:
       failing upstream just leaves the last-known-good value in place.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_bytes: int = 128*1024*1024) -> None:
         # OrderedDict (not dict) so a read/write can cheaply move a key to the
         # most-recently-used end — that ordering is what MAX_ENTRIES eviction below
         # uses to drop the least-recently-used entry first, not just an arbitrary one.
         self._store: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._lock = threading.Lock()
-        self._key_locks: dict[str, threading.Lock] = {}
+        self._key_locks = tuple(threading.RLock() for _ in range(64))
+        self.max_bytes=max_bytes;self.byte_size=0;self._sizes={}
+        self._refresh_slots=threading.BoundedSemaphore(2)
         self._refreshing: set[str] = set()
 
     def _key_lock(self, key: str) -> threading.Lock:
-        with self._lock:
-            lock = self._key_locks.setdefault(key, threading.Lock())
-        return lock
+        return self._key_locks[hash(key)%len(self._key_locks)]
 
     def _evict_if_needed_locked(self) -> None:
-        """Caller must already hold self._lock. Evicting a lock object currently held
-        by an in-flight refresh would let a concurrent caller create a second "fresh"
-        lock for the same key and defeat single-flight, so only _store (the actual
-        cached payloads, and the real memory risk) is capped here — _key_locks stays
-        unbounded, but each entry is a bare Lock object, negligible next to the
-        dataframe/JSON-sized values _store holds."""
-        while len(self._store) > MAX_ENTRIES:
-            self._store.popitem(last=False)
+        """Caller holds self._lock. Payload bytes and entry counts are bounded;
+        a fixed set of reentrant locks preserves single-flight during eviction."""
+        while len(self._store) > MAX_ENTRIES or self.byte_size>self.max_bytes:
+            key,_=self._store.popitem(last=False)
+            self.byte_size-=self._sizes.pop(key,0)
 
     def get_or_set(
         self, key: str, ttl_seconds: float, factory: Callable[[], Any], allow_stale: bool = True
@@ -74,8 +72,9 @@ class TTLCache:
         if cached is not None and allow_stale:
             with self._lock:
                 already_refreshing = key in self._refreshing
-                if not already_refreshing:
+                if not already_refreshing and self._refresh_slots.acquire(blocking=False):
                     self._refreshing.add(key)
+                else:already_refreshing=True
             if not already_refreshing:
                 threading.Thread(
                     target=self._background_refresh, args=(key, ttl_seconds, factory), daemon=True
@@ -98,6 +97,7 @@ class TTLCache:
         finally:
             with self._lock:
                 self._refreshing.discard(key)
+            self._refresh_slots.release()
 
     def _refresh_locked(self, key: str, ttl_seconds: float, factory: Callable[[], Any]) -> Any:
         lock = self._key_lock(key)
@@ -110,9 +110,14 @@ class TTLCache:
 
     def _refresh(self, key: str, ttl_seconds: float, factory: Callable[[], Any]) -> Any:
         value = factory()
+        size=retained_size(value,self.max_bytes)
         with self._lock:
-            self._store[key] = (time.time() + ttl_seconds, value)
-            self._store.move_to_end(key)
+            self.byte_size-=self._sizes.pop(key,0)
+            self._store.pop(key,None)
+            if size<=self.max_bytes:
+                self._store[key] = (time.time() + ttl_seconds, value)
+                self._sizes[key]=size;self.byte_size+=size
+                self._store.move_to_end(key)
             self._evict_if_needed_locked()
         return value
 
@@ -124,6 +129,7 @@ class TTLCache:
         the same bad value for the rest of its TTL window."""
         with self._lock:
             self._store.pop(key, None)
+            self.byte_size-=self._sizes.pop(key,0)
 
     def peek(self, key: str) -> Any | None:
         """Non-blocking read: returns the cached value if present and unexpired,

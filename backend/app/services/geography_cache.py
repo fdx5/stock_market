@@ -10,9 +10,10 @@ import threading
 import time
 from collections.abc import Callable
 from app.services import realestate_store as store
+from app.services.memory_cache import CompressedLRU
 
-_memory: dict[str, tuple[float, dict]] = {}
-_locks: dict[str, threading.Lock] = {}
+_memory = CompressedLRU(max_entries=256,max_bytes=16*1024*1024)
+_locks = tuple(threading.RLock() for _ in range(64))
 _guard = threading.Lock()
 KEEP_S = 30 * 86400
 EMPTY_S = 86400
@@ -43,7 +44,7 @@ def cached_geography(kind: str, lat: float, lon: float, radius: float, load: Cal
     if hit and now < hit[0]:
         return hit[1]
     with _guard:
-        lock = _locks.setdefault(key, threading.Lock())
+        lock = _locks[hash(key)%len(_locks)]
     with lock:
         now = time.time()
         hit = _memory.get(key)
@@ -74,10 +75,4 @@ def cached_geography(kind: str, lat: float, lon: float, radius: float, load: Cal
         else:
             body = stale or body
             _memory[key] = (now + (60 if stale else 5), body)
-        if len(_memory) > 2000:
-            old = next(iter(_memory))
-            _memory.pop(old, None)
-            with _guard:
-                if old != key and old in _locks and not _locks[old].locked():
-                    _locks.pop(old, None)
         return body

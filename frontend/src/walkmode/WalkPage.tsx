@@ -723,8 +723,9 @@ export default function WalkPage() {
   const selectionPlan=useMemo(()=>{
     if(!usesOriginal)return estimatedSelectionPlan;
     if(!imageInput||drawing?.complexId!==imageInput.complexId||drawing.analysis.drawing.key===rejectedDrawing)return null;
+    if(chosen?.key.startsWith('naver:')&&chosen.key!==`naver:${drawing.analysis.drawing.typeId}`)return null;
     return floorPlanFromImage(imageInput,drawing.analysis);
-  },[estimatedSelectionPlan,drawing,imageInput,usesOriginal,rejectedDrawing]);
+  },[estimatedSelectionPlan,drawing,imageInput,usesOriginal,rejectedDrawing,chosen?.key]);
   const floors = Math.max(entering?.floors || 25, 5);
   const drawingStateLabel:Record<DrawingStatus,string>={loading:drawingTarget?'단지 원본 검색·구조 분석 중':'아파트 단지 확인 중',ready:selectionPlan?'원본 구조·인테리어 준비 완료':'원본 구조 연결 확인 필요',type_selection:'단지 원본 주택형 선택',not_found:'단지 원본 검색 결과 없음',unavailable:'단지·도면 연결을 다시 확인해 주세요',analysis_failed:'원본 분석 응답 재시도 필요',needs_review:'원본 공간 구획 재확인 필요'};
 
@@ -819,6 +820,7 @@ export default function WalkPage() {
               <div className="wk-field"><label>인테리어</label>
                 <div className="wk-chips">{(["auto", ...STYLE_NAMES] as const).map(s => <button key={s} className={pick.style === s ? "on" : ""} onClick={() => {setPick(p => ({ ...p, style: s }));setRejectedDrawing(null);}}>{s === "auto" ? "자동" : STYLE_LABEL[s]}</button>)}</div>
                 <button className="wk-btn" onClick={()=>{setFurnishingCase(n=>(n+1)%64);setRejectedDrawing(null);}}>가구·가전 구성 바꾸기 · {furnishingCase+1} / 64</button>
+                <button className="wk-btn" onClick={()=>{const random=crypto.getRandomValues(new Uint32Array(1))[0];setFurnishingCase(n=>(n+1+random%63)%64);setRejectedDrawing(null);}}>가구·가전 랜덤 변경</button>
               </div>
               <div className="wk-field"><label>반려동물</label>
                 <div className="wk-chips">{([["dog", "🐶 시바견"], ["cat", "🐱 고양이"]] as const).map(([k, l]) => <button key={k} className={pet === k ? "on" : ""} onClick={() => setPet(k)}>{l}</button>)}</div>

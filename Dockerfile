@@ -56,6 +56,9 @@ ENV PORT=8000
 # raising this multiplies upstream-scraper traffic by the same factor. Only raise
 # it once the host has more than one usable CPU to actually take advantage of it.
 ENV WEB_CONCURRENCY=1
+ENV MALLOC_ARENA_MAX=2
+ENV OMP_THREAD_LIMIT=1
+ENV OPENBLAS_NUM_THREADS=1
 EXPOSE 8000
 
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers ${WEB_CONCURRENCY}"]

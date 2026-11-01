@@ -23,11 +23,11 @@ BASE = "https://fdx5.github.io/kospimap-assets"
 FOLDERS = ["3d", "making/video", "video", "img", "bgm", "geo", "rail", "live"]
 # (drawn into canvases without crossOrigin: kept same-origin)
 EXCLUDE = ["img/ticker/"]
-MIN_BYTES = 32 * 1024
+MIN_BYTES = 8 * 1024
 
 
-def sha1(path: Path) -> str:
-    h = hashlib.sha1()
+def sha1(path: Path, algorithm='sha1') -> str:
+    h = hashlib.new(algorithm)
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
@@ -37,6 +37,7 @@ def sha1(path: Path) -> str:
 def main() -> None:
     out = Path(sys.argv[1]).resolve()
     files: dict[str, str] = {}
+    routes: dict[str,str] = {}
     total = 0
     for folder in FOLDERS:
         for p in sorted((PUBLIC / folder).rglob("*")):
@@ -47,12 +48,17 @@ def main() -> None:
                 continue
             files[rel] = sha1(p)
             total += p.stat().st_size
-            dest = out / rel
+            legacy=out/rel
+            # Keep already published identical copies. New versions use immutable
+            # object URLs, so old cached scenes and new scenes can coexist.
+            published=rel if legacy.is_file() and sha1(legacy)==files[rel] else 'objects/'+sha1(p,'sha256')+p.suffix.lower()
+            routes[rel]=published
+            dest = out / published
             dest.parent.mkdir(parents=True, exist_ok=True)
             if not dest.exists() or dest.stat().st_size != p.stat().st_size or sha1(dest) != files[rel]:
                 shutil.copy2(p, dest)
     (out / ".nojekyll").write_text("")
-    MANIFEST.write_text(json.dumps({"base": BASE, "files": files}, indent=0, sort_keys=True) + "\n", encoding="utf-8")
+    MANIFEST.write_text(json.dumps({"base": BASE, "files": files,"routes":routes}, indent=0, sort_keys=True) + "\n", encoding="utf-8")
     print(f"{len(files)} files, {total / 1048576:.1f} MB -> {out}; manifest {MANIFEST}")
 
 

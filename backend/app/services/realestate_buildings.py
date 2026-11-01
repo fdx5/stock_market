@@ -30,6 +30,7 @@ import requests
 
 from app.services import realestate_map as rm
 from app.services import realestate_store as store
+from app.services.memory_cache import CompressedLRU
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ KEEP_DAYS = 30
 KEEP_MISS_DAYS = 1
 STORE_VERSION = "bldg-v5"  # zero-area one-storey placeholders cannot become buildings
 
-_cache: dict[str, tuple[float, dict]] = {}
+_cache = CompressedLRU(max_entries=256,max_bytes=8*1024*1024)
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 _areas: dict[str, int | None] = {}

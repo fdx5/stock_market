@@ -1,17 +1,29 @@
 """Source-backed entry for Sindo6/studio and mobile laptop controls. No DB tooling."""
-import json,re,sys,urllib.parse
+import json,os,re,sys,urllib.parse
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 ROOT=Path(__file__).resolve().parents[2];BASE=ROOT/'tmp/ho-won-floorplans-20261101'
 origin=next((a for a in sys.argv[1:] if a.startswith('http')),'http://127.0.0.1:5407');production=origin.startswith('https:')
 out=BASE/('production-live-entry' if production and '--live' in sys.argv else 'production-entry' if production else 'local-entry');out.mkdir(exist_ok=True)
+if '--dongtan' in sys.argv:
+ out=ROOT/'tmp/source-lookup-20261101'/('dongtan-production' if production else 'dongtan-local');out.mkdir(exist_ok=True)
 studio=json.loads((BASE/'sample-14794-catalogue.json').read_text(encoding='utf8'))['plans'][0]
 raw=(BASE/'search-신일엘리시움.html').read_text(encoding='utf8');info=json.loads(re.search(r'baseQueryResult\s*=\s*({[^\r\n]+});',raw)[1])
 cases=[dict(name='신도6',id='41150:호원동:401-1:신도6',lat=37.726955,lon=127.038392,town='호원동',region='41150',area=59.9,typ='81B',naver='2127'),
  dict(name='신일엘리시움',id='41150:호원동:459:신일엘리시움',lat=float(info['complexMapYCrdn']),lon=float(info['complexMapXCrdn']),town='호원동',region='41150',area=studio['exclusiveArea'],typ=studio['typeName'],naver='14794',studio=True),
  dict(name='삼익',id='11680:수서동:708:삼익',lat=37.488,lon=127.1,town='수서동',region='11680',area=84.48,typ='115',naver='668',laptop=True)]
+if '--dongtan' in sys.argv:
+ cases=[dict(name=name,id=f'41597:영천동:{parcel}:{name}',lat=lat,lon=lon,town='영천동',region='41597',area=area,typ=typ,naver=naver,built=2017)
+        for name,parcel,lat,lon,area,typ,naver in [
+         ('동탄역포레너스','720',37.205961,127.116928,84.54,'110B','110837'),
+         ('동탄역경남아너스빌','677',37.204872,127.110769,84.02,'108C','108407'),
+         ('동탄역대방디엠시티더센텀','874',37.208,127.098,59.46,'81B','119632'),
+         ('동탄역포레너스','720',37.205961,127.116928,60.37,'83','110837'),
+         ('동탄역포레너스','720',37.205961,127.116928,84.54,'110C','110837'),
+         ('동탄역대방디엠시티더센텀','874',37.208,127.098,56.36,'76A','119632')]]
 if '--laptop-only' in sys.argv:cases=[c for c in cases if c.get('laptop')]
 if '--sindo-only' in sys.argv:cases=cases[:1]
+if '--three' in sys.argv:cases=cases[:3]
 results=[]
 with sync_playwright() as p:
  b=p.chromium.launch(channel='chrome',headless=False,args=['--mute-audio','--ignore-gpu-blocklist','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding'])
@@ -27,22 +39,29 @@ with sync_playwright() as p:
    if path.endswith('/floor-plans') or path.endswith('/floor-plan-analysis') or path.endswith('/floor-plan-image'):
     if path.endswith('/floor-plans'):lookups.append(urllib.parse.parse_qs(u.query))
     if production:return route.continue_()
-    response=ctx.request.get('http://127.0.0.1:8021'+path+'?'+u.query,timeout=80000);return route.fulfill(response=response)
+    response=ctx.request.get(os.environ.get('QA_SOURCE_API','http://127.0.0.1:8021')+path+'?'+u.query,timeout=80000);return route.fulfill(response=response)
    if path.endswith('/buildings'):return route.fulfill(json={'id':c['id'],'name':c['name'],'built':1997,'center':{'lat':c['lat'],'lon':c['lon']},'buildings':[{'floors':15}],'vworld_key':None})
    return route.fulfill(status=503,json={})
   page.route('**/api/**',api)
   page.goto(origin+'/walk?'+urllib.parse.urlencode({'tour':'1','id':c['id'],'area':c['area'],'debug':'1','hour':'14'}),wait_until='domcontentloaded')
   page.locator('.wk-choose').wait_for(timeout=45000)
   page.locator('.wk-original-plan .wk-chips').first.get_by_role('button',name=re.compile('^'+re.escape(c['typ']))).click(timeout=60000)
-  page.wait_for_function('()=>document.querySelector(".wk-go")&&!document.querySelector(".wk-go").disabled',timeout=80000)
+  page.wait_for_function('(type)=>document.querySelector(".wk-original-plan label b")?.textContent===type&&document.querySelector(".wk-go")&&!document.querySelector(".wk-go").disabled',arg=c['typ'],timeout=80000)
   assert '원본 공간 구획 재확인 필요' not in page.locator('body').inner_text()
+  if '--random' in sys.argv:
+   before=page.get_by_role('button',name=re.compile('^가구·가전 구성 바꾸기')).inner_text()
+   page.get_by_role('button',name='가구·가전 랜덤 변경',exact=True).click()
+   assert page.get_by_role('button',name=re.compile('^가구·가전 구성 바꾸기')).inner_text()!=before
   page.locator('.wk-go').click()
   try:page.wait_for_function('()=>window.__walk?.interior?.perf.loadMs>0&&!document.querySelector(".wk-loading")',timeout=90000)
   except Exception:
    page.screenshot(path=str(out/(c['naver']+'-failed.png')))
    print('ENTRY_FAILURE',c['name'],page.locator('body').inner_text(),errors,flush=True)
    raise
-  state=page.evaluate('''()=>{const i=window.__walk.interior;return {source:i.o.plan.source,url:i.o.plan.imageAnalysis.sourceUrl,rooms:i.o.plan.rooms,bathrooms:i.furn.bathrooms,circulation:i.furn.circulation.map(c=>({room:c.room,kind:c.kind,size:c.size})),inspection:i.inspectionMode};}''')
+  state=page.evaluate('''()=>{const i=window.__walk.interior;return {source:i.o.plan.source,unitType:i.o.plan.unitType,furnishingCase:i.o.plan.furnishingCase,aircons:i.furn.aircons,url:i.o.plan.imageAnalysis.sourceUrl,rooms:i.o.plan.rooms,bathrooms:i.furn.bathrooms,circulation:i.furn.circulation.map(c=>({room:c.room,kind:c.kind,size:c.size})),inspection:i.inspectionMode};}''')
+  assert state['aircons'] and all(0<=a['kind']<=2 and 0<=a['variant']<4 for a in state['aircons']),state
+  if '--random' in sys.argv:assert state['furnishingCase']!=0,state
+  assert state['unitType']==c['typ'],state
   assert state['source']=='image_analysis' and not state['inspection'] and 'rletNo='+c['naver'] in state['url'],state
   assert len(state['bathrooms'])==len([r for r in state['rooms'] if r['type'] in ['bathroom','ensuite']]),state
   if c.get('studio'):

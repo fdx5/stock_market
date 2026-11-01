@@ -28,6 +28,8 @@ export interface TexSet { map: THREE.Texture; normalMap: THREE.Texture; arm: THR
 
 /** Download and decode the sets (progress 0..1 by bytes). */
 export async function loadSets(names: SetName[], onProgress: (k: number, label: string) => void, signal?: AbortSignal): Promise<Map<SetName, TexSet>> {
+  const controller=new AbortController(),abort=()=>controller.abort(signal?.reason);
+  signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
   const files = names.flatMap(n => (["diff", "nor", "arm"] as Kind[]).map(k => ({ n, k, url: `${BASE}${n}_${k}.webp` })));
   const total = new Array(files.length).fill(0), got = new Array(files.length).fill(0);
   const report = () => {
@@ -38,7 +40,7 @@ export async function loadSets(names: SetName[], onProgress: (k: number, label: 
     const f = files[i];
     for (let attempt = 0; ; attempt++) {
       try {
-        const res = await fetch(f.url, { signal });
+        const res = await fetch(f.url, { signal:controller.signal });
         if (!res.ok || !res.body) throw new Error(`${res.status} ${f.url}`);
         total[i] = Number(res.headers.get("content-length")) || 0;
         const reader = res.body.getReader(), chunks: Uint8Array[] = [];
@@ -52,7 +54,7 @@ export async function loadSets(names: SetName[], onProgress: (k: number, label: 
         // (normal and packed maps are data: no colour conversion; all flipped here, not on upload)
         return await createImageBitmap(blob, { imageOrientation: "flipY", colorSpaceConversion: f.k === "diff" ? "default" : "none", premultiplyAlpha: "none" });
       } catch (e) {
-        if (signal?.aborted || attempt >= 2) throw e;
+        if (controller.signal.aborted || attempt >= 2) throw e;
         got[i] = 0;
         await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
       }
@@ -61,7 +63,10 @@ export async function loadSets(names: SetName[], onProgress: (k: number, label: 
   // a few at a time (a phone on mobile data shouldn't open 36 requests at once)
   const bitmaps: ImageBitmap[] = new Array(files.length);
   let next = 0;
-  await Promise.all(Array.from({ length: 6 }, async () => { while (next < files.length) { const i = next++; bitmaps[i] = await fetchOne(i); } }));
+  const jobs=Array.from({ length: 6 }, async () => { while (next < files.length) { const i = next++; bitmaps[i] = await fetchOne(i); } });
+  try {await Promise.all(jobs);controller.signal.throwIfAborted();}
+  catch(error){controller.abort(error);await Promise.allSettled(jobs);for(const bitmap of bitmaps)bitmap?.close();throw error;}
+  finally{signal?.removeEventListener('abort',abort);}
   const out = new Map<SetName, TexSet>();
   for (const n of names) {
     const tex = (k: Kind) => {
@@ -75,6 +80,15 @@ export async function loadSets(names: SetName[], onProgress: (k: number, label: 
     out.set(n, { map: tex("diff"), normalMap: tex("nor"), arm: tex("arm"), size: SETS[n] });
   }
   return out;
+}
+
+export function disposeSets(sets:Map<SetName,TexSet>){
+  const closed=new Set<ImageBitmap>();
+  for(const set of sets.values())for(const texture of [set.map,set.normalMap,set.arm]){
+    texture.dispose();const image=texture.image as ImageBitmap|undefined;
+    if(image&&typeof image.close==='function'&&!closed.has(image)){closed.add(image);image.close();}
+  }
+  sets.clear();
 }
 
 export interface MatOpts { color?: THREE.ColorRepresentation; roughness?: number; roughnessScale?: number; normalScale?: number; metalness?: number; clearcoat?: number; clearcoatRoughness?: number; sheen?: number; sheenColor?: THREE.ColorRepresentation; ao?: number; useMap?: boolean; side?: THREE.Side }
@@ -125,9 +139,8 @@ export class Library {
       for (const k of ["map", "normalMap", "roughnessMap", "aoMap", "emissiveMap"] as const) { const t = (m as THREE.MeshPhysicalMaterial)[k]; if (t && !seen.has(t)) { seen.add(t); t.dispose(); } }
       m.dispose();
     }
-    // (the decoded pictures are let go with the textures; closing them here while a clone is still
-    // queued for upload would hand WebGL a detached image)
-    for (const s of this.sets.values()) for (const t of [s.map, s.normalMap, s.arm]) t.dispose();
+    // All owned clones have been released above and the scene has stopped.
+    disposeSets(this.sets);
   }
 }
 

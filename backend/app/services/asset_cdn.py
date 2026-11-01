@@ -23,6 +23,7 @@ REDIRECT_CACHE_CONTROL = "public, max-age=3600"
 
 _base = ""
 _allowed: frozenset[str] = frozenset()
+_routes: dict[str,str] = {}
 _lock = threading.Lock()
 
 
@@ -36,8 +37,9 @@ def _sha1(path: Path) -> str:
 
 def verify(static_dir: Path, manifest: Path = MANIFEST) -> int:
     """Check the static files against the manifest; the identical ones become redirectable."""
-    global _base, _allowed
+    global _base, _allowed, _routes
     if os.environ.get("ASSET_CDN", "").lower() in {"0", "off", "false", "no"} or not manifest.exists():
+        with _lock:_base='';_allowed=frozenset();_routes={}
         return 0
     data = json.loads(manifest.read_text(encoding="utf-8"))
     ok = set()
@@ -51,6 +53,8 @@ def verify(static_dir: Path, manifest: Path = MANIFEST) -> int:
     with _lock:
         _base = str(data.get("base", "")).rstrip("/")
         _allowed = frozenset(ok) if _base.startswith("https://") else frozenset()
+        routes=data.get('routes',{})
+        _routes={rel:routes.get(rel,rel) for rel in _allowed if not routes.get(rel,rel).startswith(('/', 'http')) and '..' not in routes.get(rel,rel).split('/')}
     log.info("asset cdn: %d of %d files redirected", len(_allowed), len(data.get("files", {})))
     return len(_allowed)
 
@@ -69,4 +73,4 @@ def _safe_verify(static_dir: Path) -> None:
 def redirect_for(rel_path: str) -> str | None:
     """The published URL of a static file (path relative to the static root), or None."""
     with _lock:
-        return f"{_base}/{rel_path}" if rel_path in _allowed else None
+        return f"{_base}/{_routes[rel_path]}" if rel_path in _routes else None

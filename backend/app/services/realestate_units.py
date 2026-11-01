@@ -24,6 +24,7 @@ import requests
 
 from app.services import realestate_facts
 from app.services import realestate_map as rm
+from app.services.memory_cache import CompressedLRU
 from app.services.realestate_facts import FactsError, _items
 
 log = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ WEEK = 7 * 86400
 MAX_PAGES = 6
 
 _lock = threading.Lock()
-_memo: dict[str, tuple[float, float, object]] = {}
+_memo = CompressedLRU(max_entries=128,max_bytes=8*1024*1024)
 _MEMO_MAX = 2000
 
 
@@ -162,7 +163,8 @@ def _rooms(area: float) -> tuple[int, int]:
 
 def units(complex_id: str, dong: str | None = None, pnu: str | None = None) -> dict:
     """The flat types to choose from when entering `dong` of a complex (the map item's id)."""
-    detail = rm.complex_detail(complex_id, "1y")  # LookupError / ValueError pass through
+    # A floor-plan chooser needs areas/counts, not twenty years of district trades.
+    detail = rm.complex_detail(complex_id, "1y",include_history=False)
     trades = [(float(t["area"]), int(t.get("trades_total") or 0), t.get("price_source") or "sale")
               for t in detail.get("types", []) if _num(t.get("area"))]
     try:

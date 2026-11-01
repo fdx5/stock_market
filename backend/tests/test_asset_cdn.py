@@ -27,3 +27,13 @@ def test_switched_off(tmp_path, monkeypatch):
     manifest = tmp_path / "m.json"
     manifest.write_text(json.dumps({"base": "https://example.github.io/a", "files": {}}))
     assert asset_cdn.verify(tmp_path, manifest) == 0
+
+
+
+def test_content_objects_keep_the_original_source_path_and_reset_when_disabled(tmp_path,monkeypatch):
+    static=tmp_path/'static';(static/'3d').mkdir(parents=True);(static/'3d'/'a.bin').write_bytes(b'original pixels')
+    manifest=tmp_path/'m.json';manifest.write_text(json.dumps({'base':'https://example.github.io/assets','files':{'3d/a.bin':hashlib.sha1(b'original pixels').hexdigest()},'routes':{'3d/a.bin':'objects/content-hash.bin'}}))
+    assert asset_cdn.verify(static,manifest)==1
+    assert asset_cdn.redirect_for('3d/a.bin')=='https://example.github.io/assets/objects/content-hash.bin'
+    monkeypatch.setenv('ASSET_CDN','off');assert asset_cdn.verify(static,manifest)==0
+    assert asset_cdn.redirect_for('3d/a.bin') is None

@@ -149,7 +149,14 @@ export function coffeeTableV(P: Palette, v: number): Kit {
 // ------------------------------------------------------------------ aircons
 export { standAircon };
 /** a wall-mounted split unit, its underside 2.0 m up (frame: on the wall, facing out) */
-export function wallAircon(P: Palette): Kit {
+export function wallAircon(P: Palette,variant=0): Kit {
+  if(variant===1)return [rb(P.appliance,.94,.29,.24,.11,0,2.15,.12,6),rb(P.applianceDark,.78,.045,.012,.012,0,2.04,.233),rb(P.ledPanel,.025,.01,.004,.003,.31,2.17,.242)];
+  if(variant===2)return [rb(P.applianceDark,.95,.3,.23,.035,0,2.15,.115),rb(P.glass,.86,.19,.009,.025,0,2.18,.233),rb(P.handle,.79,.025,.015,.006,0,2.025,.223),rb(P.ledPanel,.035,.008,.004,.003,.33,2.15,.242)];
+  if(variant===3){
+    const k:Kit=[rb(P.appliance,.95,.31,.23,.035,0,2.15,.115),rb(P.applianceDark,.81,.035,.01,.006,0,2.025,.232)];
+    for(let row=0;row<3;row++)for(let col=0;col<12;col++)k.push(part(P.applianceDark,new THREE.CircleGeometry(.004,6).translate(-.34+col*.062,2.105+row*.047,.232)));
+    return k;
+  }
   const k: Kit = [rb(P.appliance, 0.95, 0.3, 0.23, 0.04, 0, 2.15, 0.115, 4)];
   k.push(rb(P.applianceDark, 0.82, 0.05, 0.02, 0.01, 0, 2.03, 0.22));                // the louvre
   k.push(rb(P.applianceDark, 0.06, 0.02, 0.004, 0.004, 0.36, 2.24, 0.231));
@@ -158,7 +165,10 @@ export function wallAircon(P: Palette): Kit {
   return k;
 }
 /** a ceiling cassette (a new flat's 시스템 에어컨): the square panel flush with the ceiling at y = 0 (frame: the ceiling) */
-export function ceilingCassette(P: Palette): Kit {
+export function ceilingCassette(P: Palette,variant=0): Kit {
+  if(variant===1)return [rb(P.appliance,1.05,.045,.43,.015,0,-.0225,0),rb(P.applianceDark,.83,.008,.075,.008,0,-.049,.13),rb(P.trim,.83,.008,.20,.008,0,-.049,-.055)];
+  if(variant===2)return [cy(P.appliance,.46,.46,.045,0,-.0225,0,48),cy(P.applianceDark,.38,.38,.006,0,-.048,0,48),cy(P.appliance,.29,.29,.008,0,-.054,0,48)];
+  if(variant===3)return [rb(P.appliance,.95,.045,.72,.025,0,-.0225,0),rb(P.trim,.65,.008,.32,.01,0,-.049,0),rb(P.applianceDark,.66,.008,.065,.008,0,-.049,.24),rb(P.applianceDark,.66,.008,.065,.008,0,-.049,-.24)];
   const k: Kit = [rb(P.appliance, 0.95, 0.04, 0.95, 0.01, 0, -0.02, 0)];
   k.push(rb(P.trim, 0.56, 0.006, 0.56, 0.004, 0, -0.043, 0));
   for (const [x, z, w, d] of [[0, 0.36, 0.6, 0.07], [0, -0.36, 0.6, 0.07], [0.36, 0, 0.07, 0.6], [-0.36, 0, 0.07, 0.6]]) k.push(bx(P.applianceDark, w, 0.006, d, x, -0.043, z));

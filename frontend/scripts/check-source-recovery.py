@@ -8,11 +8,12 @@ base=json.loads((ROOT/'tmp/floorplan-complex-20261101/samick-115-candidate.json'
 results=[]
 with sync_playwright() as p:
  b=p.chromium.launch(channel='chrome',headless=False,args=['--mute-audio'])
- for case in ['same_unit_alternative','other_unit_blocked','both_fail','catalogue_retry','analysis_retry']:
+ for case in ['same_unit_alternative','other_unit_blocked','both_fail','catalogue_retry','analysis_retry','manual_close_area']:
   ctx=b.new_context();page=ctx.new_page();requests=[];catalogues=[];errors=[]
   page.on('pageerror',lambda e:errors.append(str(e)))
   first={**base['drawing'],'key':'a'*24};second={**first,'key':'b'*24,'variant':'평면도 확장형'}
   if case=='other_unit_blocked':second={**second,'typeId':'different-type','typeName':'115B'}
+  if case=='manual_close_area':second={**second,'typeId':'different-type','typeName':'115C','exclusiveArea':84.50}
   def api(route):
    u=urllib.parse.urlparse(route.request.url);q=urllib.parse.parse_qs(u.query)
    if not u.path.startswith('/api/'):return route.continue_()
@@ -23,11 +24,17 @@ with sync_playwright() as p:
     return route.fulfill(json={'status':'available','name':'QA','plans':plans})
    if u.path.endswith('/floor-plan-analysis'):
     key=q['key'][0];requests.append(key)
-    fail=case=='both_fail' or key==first['key'] and case not in ['catalogue_retry'] and not(case=='analysis_retry' and len(requests)>1)
+    fail=case=='both_fail' or key==first['key'] and case not in ['catalogue_retry','manual_close_area'] and not(case=='analysis_retry' and len(requests)>1)
     return route.fulfill(json={'status':'needs_review','reason':'room_labels'} if fail else {**base,'drawing':first if key==first['key'] else second})
    return route.fulfill(status=503,json={})
   page.route('**/api/**',api);page.goto(origin+'/scripts/fixtures/source-recovery.html')
   if case=='other_unit_blocked':page.locator('.wk-chips button').first.click()
+  if case=='manual_close_area':
+   page.wait_for_function('JSON.parse(document.querySelector("#state").textContent).status==="ready"')
+   page.locator('.wk-chips').first.get_by_role('button',name='115C',exact=False).click()
+   page.wait_for_function('JSON.parse(document.querySelector("#state").textContent).typeId==="different-type"')
+   page.wait_for_timeout(300)
+   chosen=json.loads(page.locator('#state').inner_text());assert chosen['area']==84.50 and chosen['key']==second['key'],chosen
   if case=='catalogue_retry':
    page.wait_for_function('document.querySelector("#state").textContent.includes("unavailable")');page.get_by_role('button',name='재진입',exact=True).click()
   if case=='analysis_retry':

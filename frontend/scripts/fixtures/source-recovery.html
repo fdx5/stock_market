@@ -2,7 +2,7 @@
 <script type="module">
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
 import NaverFloorPlans from '/src/walkmode/NaverFloorPlans.tsx';
-function Test(){const[status,setStatus]=useState(''),[drawing,setDrawing]=useState(null),[epoch,setEpoch]=useState(0);
-return React.createElement(React.Fragment,null,React.createElement('button',{onClick:()=>setEpoch(v=>v+1)},'재진입'),React.createElement('output',{id:'state'},JSON.stringify({status,key:drawing?.drawing.key})),React.createElement(NaverFloorPlans,{key:epoch,name:'QA',town:'수서동',region:'11680',lat:37.488,lon:127.1,area:84.48,onAnalysis:setDrawing,onStatus:setStatus,onAreaChoice:()=>{}}));}
+function Test(){const[status,setStatus]=useState(''),[drawing,setDrawing]=useState(null),[epoch,setEpoch]=useState(0),[area,setArea]=useState(84.48);
+return React.createElement(React.Fragment,null,React.createElement('button',{onClick:()=>setEpoch(v=>v+1)},'재진입'),React.createElement('output',{id:'state'},JSON.stringify({status,key:drawing?.drawing.key,area,typeId:drawing?.drawing.typeId})),React.createElement(NaverFloorPlans,{key:epoch,name:'QA',town:'수서동',region:'11680',lat:37.488,lon:127.1,area,onAnalysis:setDrawing,onStatus:setStatus,onAreaChoice:d=>setArea(d.exclusiveArea)}));}
 createRoot(document.getElementById('root')).render(React.createElement(Test));
 </script></body></html>

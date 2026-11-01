@@ -49,6 +49,7 @@ import requests
 from dotenv import load_dotenv
 
 from app.services import realestate_store, realestate_leaders, realestate_rights
+from app.services.memory_cache import CompressedLRU
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -498,13 +499,13 @@ def _needs_fetch(lawd_cd: str, deal_ym: str, index: dict, months: list[str]) -> 
 
 
 _district_lock = threading.Lock()
-_districts: OrderedDict[str, dict[str, list]] = OrderedDict()
+_districts = CompressedLRU(max_entries=90,max_bytes=24*1024*1024)
 MAX_DISTRICTS_IN_MEMORY = 90
 _index: dict[tuple[str, str], str] = {}
 _index_loaded = False
 _version = 0  # bumped whenever stored data changes, to invalidate computed maps
 # lawd_cd -> {deal_ym: deals} of the months before the maps' window, for cards.
-_deep_cache: OrderedDict[str, dict[str, list]] = OrderedDict()
+_deep_cache = CompressedLRU(max_entries=12,max_bytes=16*1024*1024)
 DEEP_CACHE_DISTRICTS = 12
 DEEP_LOAD_YEARS = 3  # years of a district's history read per query
 # Districts whose history loaded only in part, and when: read again after a while.
@@ -561,12 +562,12 @@ def _store_month(lawd_cd: str, deal_ym: str, deals: list) -> None:
         with _district_lock:
             _index[(lawd_cd, deal_ym)] = now
             if lawd_cd in _deep_cache:
-                _deep_cache[lawd_cd][deal_ym] = deals
+                snapshot=_deep_cache[lawd_cd];snapshot[deal_ym]=deals;_deep_cache[lawd_cd]=snapshot
         return
     with _district_lock:
         _index[(lawd_cd, deal_ym)] = now
         if lawd_cd in _districts:
-            _districts[lawd_cd][deal_ym] = deals
+            snapshot=_districts[lawd_cd];snapshot[deal_ym]=deals;_districts[lawd_cd]=snapshot
         _version += 1
         _lawd_versions[lawd_cd] = _lawd_versions.get(lawd_cd, 0) + 1
 
@@ -1050,15 +1051,19 @@ def _prefetch(lawd_codes: list[str]) -> None:
         missing = [c for c in lawd_codes if c not in _districts]
     if not missing:
         return
-    try:
-        loaded = realestate_store.load_districts(missing, since=_recent_since())
-    except Exception as exc:  # noqa: BLE001 — _district retries one by one
-        log.warning("realestate: batch load of %d districts failed (%s)", len(missing), exc)
-        return
+    for offset in range(0,len(missing),4):
+        batch=missing[offset:offset+4]
+        try:
+            loaded = realestate_store.load_districts(batch, since=_recent_since())
+        except Exception as exc:  # _district retries one by one; other batches remain usable
+            log.warning("realestate: batch load of %d districts failed (%s)", len(batch), type(exc).__name__)
+            continue
+        with _district_lock:
+            for code, months in loaded.items():
+                _districts[code] = {ym: deals for ym, (_, deals) in months.items()}
+                if code in _districts:_districts.move_to_end(code)
+        del loaded
     with _district_lock:
-        for code, months in loaded.items():
-            _districts[code] = {ym: deals for ym, (_, deals) in months.items()}
-            _districts.move_to_end(code)
         # Never evict the districts this map is about to read.
         keep = set(lawd_codes)
         while len(_districts) > max(MAX_DISTRICTS_IN_MEMORY, len(keep)):
@@ -1068,7 +1073,16 @@ def _prefetch(lawd_codes: list[str]) -> None:
             _districts.pop(oldest)
 
 
+_build_gate=threading.BoundedSemaphore(1)
+
+
 def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None, *, filters: dict | None = None) -> dict:
+    # Region refreshes must not each retain a full decoded trade graph at once.
+    # Already-built map responses continue through the existing fast caches.
+    with _build_gate:return _build_map(sido,sgg,dong,period,top,filters=filters)
+
+
+def _build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None, *, filters: dict | None = None) -> dict:
     if period not in PERIODS:
         raise ValueError("unknown period")
     index = _sgg_index()
@@ -1262,7 +1276,7 @@ def complex_label(complex_id: str) -> tuple[str, str] | None:
     return (c["name"], c.get("dong") or "") if c else None
 
 
-def complex_detail(complex_id: str, period: str) -> dict:
+def complex_detail(complex_id: str, period: str, *, include_history:bool=True) -> dict:
     """Every 평형 of one complex, each laid out the way the map lays out its 대표 평형
     — what the popup's 평형 selector switches between. The id is the map item's."""
     if period not in PERIODS:
@@ -1279,7 +1293,7 @@ def complex_detail(complex_id: str, period: str) -> dict:
     # Period windows are the same ones the map used: its "오늘" is the region's latest
     # contract day, which a single complex does not know, so it falls back to its own.
     has_sales = any(c.get("type_sources", {}).get(t, "sale") == "sale" for t in c["types"])
-    older = _older_trades(lawd, c["id"]) if has_sales else {}
+    older = _older_trades(lawd, c["id"]) if has_sales and include_history else {}
     views = []
     for key, rows in c["types"].items():
         view = _type_view(rows, window_start, year_ago)
@@ -1288,15 +1302,16 @@ def complex_detail(complex_id: str, period: str) -> dict:
         view["trades_1y"] = sum(1 for x in rows if x[0] >= year_ago)
         view["trades_total"] = len(rows)
         # Every trade of this 평형 we hold, newest first: [day, price, floor, 직거래].
-        every = sorted(rows + (older.get(key, []) if view["price_source"] == "sale" else []), reverse=True)
-        view["deals"] = [[x[0], x[1], x[2], x[4]] for x in every]
+        if include_history:
+            every = sorted(rows + (older.get(key, []) if view["price_source"] == "sale" else []), reverse=True)
+            view["deals"] = [[x[0], x[1], x[2], x[4]] for x in every]
         views.append(view)
     views.sort(key=lambda v: (v["trades_1y"], v["trades_total"], v["key"]), reverse=True)
     deep = _deep_months()
     have = [ym for ym in deep if (lawd, ym) in _index]
     earliest = min(have) if have else _recent_since()
     rights_from = _months_back(realestate_rights.MONTHS)[-1]
-    if has_sales and len(have) < len(deep):
+    if include_history and has_sales and len(have) < len(deep):
         want_history(lawd)
     return {
         "id": c["id"],

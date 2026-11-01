@@ -46,6 +46,7 @@ export interface Interactable {
 }
 
 export interface Furnished {
+  aircons:{room:string;kind:number;variant:number}[];
   circulation:{room:string;kind:string;footprint:Rect;path:[number,number][];size:number[]}[];
   bathrooms:{room:string;toilet:Rect;shower:Rect}[];
   kitchens:{room:string;run:Rect;fridge:Rect}[];
@@ -328,6 +329,7 @@ export const shadowMoved = { at: 0 };
 
 export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, dynamic: THREE.Group, hits: THREE.Group, fac?: FacilityKit): Furnished {
   const kitchens:Furnished["kitchens"]=[];
+  const aircons:Furnished['aircons']=[];
   const circulation:Furnished["circulation"]=[];
   const bathrooms:Furnished["bathrooms"]=[];
   const roomTimings: Furnished["roomTimings"] = [];
@@ -592,21 +594,27 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       // 스탠드 에어컨 in the window corner on the TV side, a big plant in the other
       const winSpan = pl.span(windowSide);
       const acU = tvSide === "w" || tvSide === "n" ? winSpan[0] + 0.25 : winSpan[1] - 0.25;
-      const ac = pl.against(tvSide, 0.36, 0.36, windowSide === "s" || windowSide === "e" ? pl.span(tvSide)[1] - 0.25 : pl.span(tvSide)[0] + 0.25, 2);
+      const floorAc = pl.against(tvSide, 0.36, 0.36, windowSide === "s" || windowSide === "e" ? pl.span(tvSide)[1] - 0.25 : pl.span(tvSide)[0] + 0.25, 2);
+      const wallAc=([tvSide,sofaSide,'n','s','w','e'] as SideName[]).map(side=>pl.against(side,.98,.25,null,2.32)).find(Boolean);
       // which aircon: a newer flat often has ceiling cassettes (시스템 에어컨), an older a wall unit or a stand
-      const acKind = built >= 2015 ? [2, 2, 0][variantOf(VS, "aircon", 3)] : [0, 1, 1][variantOf(VS, "aircon", 3)];
-      if (ac && acKind !== 0) {
+      let acKind = built >= 2015 ? [2, 1, 0][variantOf(VS, "aircon", 3)] : [0, 1, 2][variantOf(VS, "aircon", 3)];
+      if(acKind===0&&!floorAc)acKind=wallAc?1:2;if(acKind===1&&!wallAc)acKind=2;
+      const acVariant=variantOf(VS,'aircon-design',4),ac=acKind===1?wallAc:floorAc;
+      aircons.push({room:room.id,kind:acKind,variant:acVariant});
+      if (acKind !== 0) {
         let on = false, k = 0;
-        if (acKind === 1) put(wallAircon(P), ac, zone, false);
-        else { const c = local(ac, 0, 0, 0), sofaC = so ? local(so, 0, 0, 1.6) : c; put(ceilingCassette(P), new THREE.Matrix4().setPosition((c.x + sofaC.x) / 2, H, (c.z + sofaC.z) / 2), zone, false); }
-        interactables.push({ id: "aircon", zone, room, hit: acKind === 1 ? hitIn(ac, 0.95, 0.35, 0.3, 0, 2.15, 0.12) : hitIn(ac, 0.5, 1.8, 0.4, 0, 0.9, 0.2), label: () => `에어컨 ${on ? "끄기" : "켜기"}`, act: () => { on = !on; return "beep"; },
+        const ceilingFrame=new THREE.Matrix4().setPosition((room.rect[0]+room.rect[2])/2,H,(room.rect[1]+room.rect[3])/2);
+        if (acKind === 1) put(wallAircon(P,acVariant), ac!, zone, false);
+        else put(ceilingCassette(P,acVariant),ceilingFrame,zone,false);
+        interactables.push({ id: "aircon", zone, room, hit: acKind === 1 ? hitIn(ac!, 0.98, 0.35, 0.3, 0, 2.15, 0.12) : hitIn(ceilingFrame,1.05,.12,1.05,0,-.05,0), label: () => `${acKind===1?'벽걸이형':'천장형'} 에어컨 ${on ? "끄기" : "켜기"}`, act: () => { on = !on; return "beep"; },
           update: dt => { k += ((on ? 1 : 0) - k) * Math.min(1, dt * 2); }, loud: () => k * 0.1, channel: "air" });
       } else if (ac) {
-        put(M.standAircon(P), ac, zone); pl.take(ac.rect);
+        put(M.standAircon(P,acVariant), ac, zone); pl.take(ac.rect);
         // 무풍 에어컨: the outlets' rings light when on, and it hums
         const glowM = new THREE.MeshBasicMaterial({ color: "#7fd8ff", transparent: true, opacity: 0, depthWrite: false }); disposables.push(glowM);
         const glow = new THREE.Group();
-        for (const y of [1.48, 1.2, 0.92]) { const g = new THREE.RingGeometry(0.105, 0.112, 40); disposables.push(g); const me = new THREE.Mesh(g, glowM); me.position.set(0, y, 0.3612); glow.add(me); }
+        for (const y of acVariant===1?[1.43,1.02]:acVariant===0?[1.48,1.2,.92]:[]){const radius=acVariant===1?.12:.105;const g=new THREE.RingGeometry(radius,radius+.007,40);disposables.push(g);const me=new THREE.Mesh(g,glowM);me.position.set(0,y,.3612);glow.add(me);}
+        if(acVariant>=2){const g=new THREE.BoxGeometry(.035,.01,.004);disposables.push(g);const me=new THREE.Mesh(g,glowM);me.position.set(0,1.65,.365);glow.add(me);}
         glow.applyMatrix4(ac.m); dynamic.add(glow);
         let on = false, k = 0;
         interactables.push({ id: "aircon", zone, room, hit: hitIn(ac, 0.36, 1.8, 0.36, 0, 0.9, 0.18), label: () => `에어컨 ${on ? "끄기" : "켜기"}`, act: () => { on = !on; return "beep"; },
@@ -1135,7 +1143,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
 
   pantry.stock();
   return {
-    kitchens,bathrooms,circulation,interactables, colliders, pendants, curtainOpen, tv: furnishedTv, laptop: furnishedLaptop, mirrors, seats, dock, pantry, roomTimings,
+    aircons,kitchens,bathrooms,circulation,interactables, colliders, pendants, curtainOpen, tv: furnishedTv, laptop: furnishedLaptop, mirrors, seats, dock, pantry, roomTimings,
     dispose: () => disposables.forEach(d => d.dispose()),
   };
 }

@@ -208,7 +208,8 @@ def live_snapshot(routes) -> dict:
     with cache._lock:
         expiry = [v[0] for v in cache._store.values()]
         cache_state = {"entries": len(expiry), "fresh": sum(t > now for t in expiry), "stale": sum(t <= now for t in expiry),
-                       "refreshing": len(cache._refreshing), "capacity": MAX_ENTRIES}
+                       "refreshing": len(cache._refreshing), "capacity": MAX_ENTRIES,
+                       "retained_bytes":cache.byte_size,"max_bytes":cache.max_bytes}
     from app.services import realestate_store, atlas_behavior
     behavior = atlas_behavior.snapshot(now)
     db_mode = "turso" if os.environ.get("TURSO_DATABASE_URL") else "sqlite"

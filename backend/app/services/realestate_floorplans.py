@@ -30,6 +30,7 @@ _analyses: OrderedDict[str, dict] = OrderedDict()
 _MAX_IMAGES = 24 * 1024 * 1024
 _flights = {kind:[threading.RLock() for _ in range(32)] for kind in ("catalogue","image","analysis")}
 _network = threading.BoundedSemaphore(2)
+_analysis_gate = threading.BoundedSemaphore(1)
 
 
 def _singleflight(key: str):
@@ -141,6 +142,21 @@ def _search_ids(text: str, name: str, town: str, lat: float, lon: float) -> list
     return ids
 
 
+def _located_candidate(text: str, name: str, town: str, lat: float, lon: float) -> dict:
+    """Independent source coordinates can verify an administrative-code change."""
+    match=re.search(r"baseQueryResult\s*=\s*({[^\r\n]+});",text)
+    info=json.loads(match.group(1)) if match else {}
+    place=info.get('cortarInfo') or {}
+    try:
+        if (str(info.get('complexCode','')).isdigit() and _same_name(str(info.get('complexName','')),name,town)
+                and town and _name(str(place.get('secNm','')))==_name(town)
+                and _near(float(info['complexMapXCrdn']),float(info['complexMapYCrdn']),lat,lon)):
+            return {'naverId':str(info['complexCode']),'regionCode':str(place.get('cortarNo') or info.get('regionCode','')),
+                    'lat':float(info['complexMapYCrdn']),'lon':float(info['complexMapXCrdn'])}
+    except (KeyError,TypeError,ValueError):pass
+    return {}
+
+
 def parse_gallery(text: str, naver_id: str) -> dict:
     # Parse JSON as data, never eval the upstream page's JavaScript.
     match = re.search(r"\bvar\s+imgInfoData\s*=\s*'([^\r\n]+)'\s*;", text)
@@ -190,6 +206,7 @@ def parse_gallery(text: str, naver_id: str) -> dict:
     covered=len({p["typeId"] for p in plans})
     return {"status": "available" if plans else "no_drawings", "naverId": str(naver_id),
             "name": data.get("rletNm", ""), "town": data.get("secNm", ""),
+            "propertyType":str(data.get('hscpTypeCd','')),"propertyTypeName":str(data.get('hscpTypeNm','')),
             "regionCode": str(data.get("cortar_no", "")), "plans": plans,"types":choices,
             "typeCount":len(types),"typesWithImages":covered,"typesWithoutImages":len(types)-covered,
             "source": "네이버 부동산 공개 원본 평면도"}
@@ -226,33 +243,58 @@ def catalogue(name: str, lat: float, lon: float, town: str = "", region: str = "
     reference=floorplan_references.lookup(name,lat,lon,town,region,pnu)
     if reference:return reference
     location=f"{town}:{region}" if town and region else f"{town}:{region}:{lat:.4f}:{lon:.4f}"
-    key = f"complex-lookup:v2:{_identity_name(name,town)}:{location}:{naver_id}"
+    key = f"complex-lookup:v3:{_identity_name(name,town)}:{location}:{naver_id}"
     with _singleflight("catalogue:"+key):
         return _catalogue(name,lat,lon,town,region,naver_id,key)
 
 
 def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_id: str,key:str) -> dict:
+    failure_key=f'{key}:at:{lat:.4f}:{lon:.4f}'
     with _lock:
         hit = _catalogues.get(key)
+        verified=hit[1].get('locationVerification') if hit else None
+        nearby=not verified or _near(verified['lon'],verified['lat'],lat,lon)
+        if not hit or not nearby:hit=_catalogues.get(failure_key)
         if hit and time.monotonic() - hit[0] < (86400 if hit[1].get("status") == "available" else 15):
             return hit[1]
     with _work:
         try:
-            found=[];seen=set();source_failed=False;location_mismatch=False
-            for variant in ([name] if naver_id else _search_names(name)):
+            found=[];seen=set();source_failed=False;location_mismatch=False;located={}
+            variants=_search_names(name)
+            primary=list(dict.fromkeys(f'{town} {variant}'.strip() for variant in variants))
+            queries=primary+[variant for variant in variants if variant not in primary]
+            deadline=time.monotonic()+24
+            for index,query in enumerate([name] if naver_id else queries):
+                # A legal-town name can resolve to the wrong city upstream.
+                # Retry the complex name itself, then verify its town/location.
+                if index>=len(primary) and found:break
+                if time.monotonic()>deadline:source_failed=True;break
                 ids=[naver_id] if naver_id else []
                 if not ids:
-                    raw,_=_get(LAND+"/search/search.naver?"+urlencode({"query":f"{town} {variant}".strip()}))
-                    ids=_search_ids(_text(raw),name,town,lat,lon)
+                    try:
+                        raw,_=_get(LAND+"/search/search.naver?"+urlencode({"query":query}))
+                        text=_text(raw);ids=_search_ids(text,name,town,lat,lon)
+                        evidence=_located_candidate(text,name,town,lat,lon)
+                        if evidence:located[evidence['naverId']]=evidence
+                    except (requests.RequestException,LookupError,ValueError,json.JSONDecodeError):
+                        source_failed=True;continue
                 for cid in ids[:4]:
                     if cid in seen:continue
                     seen.add(cid)
                     try:g=_gallery(cid)
                     except (requests.RequestException,LookupError,ValueError,json.JSONDecodeError):
                         source_failed=True;continue
+                    # Mixed developments expose separate apartment/officetel
+                    # catalogues at one address, often under the same name.
+                    if g.get('propertyType')=='A02':continue
                     if not _same_name(str(g.get("name", "")),name,town):continue
-                    if town and _name(g.get("town", ""))!=_name(town) or region and not g.get("regionCode", "").startswith(region):
+                    if town and _name(g.get("town", ""))!=_name(town):
                         location_mismatch=True;continue
+                    if region and not g.get('regionCode','').startswith(region):
+                        evidence=located.get(cid)
+                        if not (evidence and evidence['regionCode']==g.get('regionCode') and evidence['regionCode'].startswith(region[:2])):
+                            location_mismatch=True;continue
+                        g={**g,'locationVerification':evidence,'locationMatchedBy':'source_coordinates'}
                     found.append(g)
                 phase=_phase_name(name)
                 if found and (not phase or phase[2] or naver_id):break
@@ -261,7 +303,7 @@ def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_
         except (requests.RequestException, LookupError, ValueError, json.JSONDecodeError):
             result = {"status": "unavailable", "plans": []}
     with _lock:
-        _catalogues[key] = (time.monotonic(), result)
+        _catalogues[key if result.get('status')=='available' else failure_key] = (time.monotonic(), result)
         while len(_catalogues) > 96:
             _catalogues.popitem(last=False)
     return result
@@ -312,7 +354,7 @@ def _analyze(naver_id: str, key: str) -> dict:
     if naver_id.startswith('ref-'):
         from app.services import floorplan_references
         return floorplan_references.analyze(naver_id,key)
-    from app.services.floorplan_image_analysis import VERSION, analyze_image
+    from app.services.floorplan_analysis_runtime import VERSION, analyze_isolated
     plan = selected(naver_id, key)
     cache_key = "image-plan:" + VERSION + ":" + key
     with _lock:
@@ -320,12 +362,12 @@ def _analyze(naver_id: str, key: str) -> dict:
         if hit:
             _analyses.move_to_end(cache_key)
             return hit
-    data, _ = image(naver_id, key)
-    with _work:
+    with _analysis_gate:
         with _lock:
             if cache_key in _analyses:
                 return _analyses[cache_key]
-        result = {**analyze_image(data, plan["exclusiveArea"],expanded=plan["variant"]=="평면도 확장형",supply_area=plan["supplyArea"]), "drawing": plan}
+        data, _ = image(naver_id, key)
+        result = {**analyze_isolated(data, plan["exclusiveArea"],expanded=plan["variant"]=="평면도 확장형",supply_area=plan["supplyArea"]), "drawing": plan}
         with _lock:
             _analyses[cache_key] = result
             while len(_analyses) > 48:

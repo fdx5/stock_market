@@ -172,3 +172,21 @@ def test_source_metric_rejects_moved_partition_instead_of_reporting_95():
 def test_invalid_area_cannot_generate_a_scaled_flat(area):
     data,words=drawn_flat()
     assert analyze_image(data,area,words=words)['reason']=='exclusive_area'
+
+
+
+def test_neutral_bathtub_floor_stays_in_the_observed_bathroom():
+    image=Image.new('RGB',(800,640),'white');d=ImageDraw.Draw(image)
+    d.rectangle((100,100,700,540),fill='#c99852',outline='black',width=6)
+    d.rectangle((100,100,250,270),fill='#c6e1e8',outline='black',width=6)
+    d.rectangle((105,105,245,150),fill='#e2e2e2')
+    d.ellipse((125,112,232,145),outline='black',width=1)
+    d.rectangle((450,100,700,300),fill='#f2e3b4',outline='black',width=6)
+    d.rectangle((100,320,320,540),fill='#f2e3b4',outline='black',width=6)
+    for box in [(246,210,254,260),(446,220,454,275),(316,395,324,455)]:d.rectangle(box,fill='#c99852')
+    data=io.BytesIO();image.save(data,format='PNG')
+    words=[word('주방',380,170),word('거실',390,410),word('침실',190,425),word('침실',570,210),word('욕실',170,215)]
+    a=analyze_image(data.getvalue(),60,words=words)
+    assert a['status']=='ready',a.get('reason')
+    zones={r['zone'] for r in a['rooms'] if r['type'] in ('bathroom','ensuite')}
+    assert any(r['zone'] in zones and p['rect'][0]<=170<=p['rect'][2] and p['rect'][1]<=125<=p['rect'][3] for r,p in zip(a['rooms'],a['pixelRooms']))

@@ -1,0 +1,12 @@
+﻿import assert from 'node:assert/strict';
+import {loadSets,Library} from '../src/walkmode/interior/materials';
+let images:{closed:number;close():void}[]=[];
+(globalThis as any).createImageBitmap=async()=>{const image={closed:0,close(){this.closed++;}};images.push(image);return image;};
+(globalThis as any).fetch=async()=>new Response(new Uint8Array(12),{status:200,headers:{'content-length':'12'}});
+const sets=await loadSets(['laminate_floor_02'],()=>{});assert.equal(images.length,3);const lib=new Library(sets);lib.textured('laminate_floor_02');lib.dispose();lib.dispose();assert.ok(images.every(i=>i.closed===1));
+images=[];(globalThis as any).fetch=async(url:string)=>new Response(new Uint8Array(12),{status:url.endsWith('_diff.webp')?404:200});
+await assert.rejects(loadSets(['laminate_floor_02'],()=>{}));
+assert.ok(images.every(i=>i.closed===1),'a failed set must close already decoded maps after remaining jobs settle');
+images=[];const ctrl=new AbortController();(globalThis as any).fetch=async()=>{ctrl.abort();return new Response(new Uint8Array(12),{status:200});};
+await assert.rejects(loadSets(['laminate_floor_02'],()=>{},ctrl.signal));assert.ok(images.every(i=>i.closed===1));
+console.log('interior texture lifetime: disposal, repeated disposal, failed partial set, aborted load passed');

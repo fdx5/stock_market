@@ -114,10 +114,16 @@ export function tvFrame(P: Palette, w: number, h: number): Kit {
   return [rb(P.applianceDark, w + 0.012, h + 0.012, 0.028, 0.004, 0, 0, 0.014)];
 }
 
-export function standAircon(P: Palette): Kit {
+export function standAircon(P: Palette,variant=0): Kit {
+  if(variant===3)return [cy(P.appliance,.17,.17,1.76,0,.91,.18,40),cy(P.handle,.18,.18,.03,0,.025,.18,40),rb(P.applianceDark,.17,1.24,.012,.035,0,1.04,.351),rb(P.ledPanel,.045,.012,.004,.004,0,1.64,.361)];
+  if(variant===2){
+    const k:Kit=[rb(P.applianceDark,.36,1.82,.36,.035,0,.91,.18,4),rb(P.appliance,.25,1.38,.012,.016,0,1.04,.356)];
+    for(let i=0;i<14;i++)k.push(rb(P.applianceDark,.23,.017,.008,.003,0,.43+i*.085,.365));
+    return k;
+  }
   const k: Kit = [rb(P.appliance, 0.36, 1.82, 0.36, 0.05, 0, 0.91, 0.18, 4)];
   // the round outlets of a 무풍 aircon (dark discs) and a small display
-  for (const y of [1.48, 1.2, 0.92]) { const c = new THREE.CircleGeometry(0.105, 32); k.push(part(P.applianceDark, T(c, 0, y, 0.3605), false)); }
+  for (const y of variant===1?[1.43,1.02]:[1.48, 1.2, 0.92]) { const c = new THREE.CircleGeometry(variant===1?.12:.105, 32); k.push(part(P.applianceDark, T(c, 0, y, 0.3605), false)); }
   k.push(rb(P.applianceDark, 0.07, 0.03, 0.006, 0.01, 0, 1.68, 0.362));
   return k;
 }

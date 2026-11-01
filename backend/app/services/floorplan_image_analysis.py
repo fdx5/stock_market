@@ -23,7 +23,7 @@ from PIL import Image
 from app.services.floorplan_geometry import enclosed_floor, read_areas, fit_area_scale, source_match
 
 cv2.setNumThreads(1)
-VERSION = "orthogonal-area-9"
+from app.services.floorplan_analysis_runtime import VERSION
 
 _ROOM_TERMS={
     "kitchen":("주방","식당","키친","다이닝","KITCHEN","DINING"),
@@ -236,7 +236,7 @@ def _phrases(words: list[dict]) -> list[dict]:
     return result
 
 
-def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | None = None, expanded:bool=False,supply_area:float|None=None, _axis_recovery:bool=False) -> dict:
+def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | None = None, expanded:bool=False,supply_area:float|None=None, _axis_recovery:bool=False) -> dict:
     started = time.perf_counter()
     if not isinstance(exclusive_area, (int, float)) or not math.isfinite(exclusive_area) or not 5 <= exclusive_area <= 1000:
         return {"status":"needs_review", "reason":"exclusive_area", "version":VERSION}
@@ -615,7 +615,10 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             continue
         for q,cost in neighbours[c]:
             feature=cells[q];kind=seeds[index]["type"]
-            mismatch=500 if kind=="bathroom" and feature["blue"]<.05 else 200 if kind=="balcony" and feature["wood"]>.4 else 150 if kind in ("living","kitchen") and feature["pale"]>.5 else 150 if kind=="bedroom" and (feature["wood"]>.45 or feature["blue"]>.25) else 0
+            # White bathtubs/sanitary surfaces belong to the wet room too. A
+            # blanket penalty for every non-blue cell assigned their strips to a
+            # neighbouring balcony/bedroom and invented full-width bathroom doors.
+            mismatch=500 if kind=="bathroom" and feature["blue"]<.05 and (feature["wood"]>.25 or feature["pale"]>.5) else 200 if kind=="balcony" and feature["wood"]>.4 else 150 if kind in ("living","kitchen") and feature["pale"]>.5 else 150 if kind=="bedroom" and (feature["wood"]>.45 or feature["blue"]>.25) else 0
             nd=distance+cost+mismatch
             if nd<distances.get(q,float("inf")):
                 distances[q]=nd;assigned[q]=index;heapq.heappush(queue,(nd,index,q))
@@ -893,11 +896,44 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             "checks":{"areaConsistent":abs(error)<.18 or expanded_area,"roomAreasConsistent":not area_annotation_conflict,"bedroomsUsable":usable_beds,"connected":connected,"narrowDoorways":narrow_doorways},
             "note":"원본 이미지의 벽·방 위치를 인식한 모델입니다. 도면 치수 인식과 공간 구분에 오차가 있을 수 있으며 가구·마감은 연출입니다."+(" 확장형의 발코니 확장 면적이 포함되어 계산된 실내 면적은 전용면적과 다릅니다." if expanded_area else "")+(" 치수 없는 공간은 면적과 원본 가로·세로 비율로 환산했습니다. 실측 치수가 아니며 면적 일치는 독립적인 정확도 검증이 아닙니다." if not dimension_scale else "")+(" 작은 문 기호의 환산 폭을 보존했으며 좁은 통로도 이동할 수 있습니다." if narrow_doorways else "")}
     if area_annotation_conflict:result['note']+=' 방별 면적 표기 차이는 전용면적을 기준으로 축척 보정했으며 원본 방 배치와 벽 위치는 유지했습니다.'
-    if not _axis_recovery and not match["targetMet"]:
-        alternative=analyze_image(data,exclusive_area,words=recognized_words,expanded=expanded,supply_area=supply_area,_axis_recovery=True)
-        # Recovered axes must improve source agreement without losing room or
-        # navigation validation. A failed retry cannot replace a usable first pass.
-        if alternative.get("status")=="ready" and alternative.get("sourceMatch",{}).get("wallF1",0)>match["wallF1"]:
-            result=alternative
-        result["elapsedMs"]=round((time.perf_counter()-started)*1000)
+    if (status=='needs_review' and result['reason']=='area_or_room_consistency' and .25<=error<=1
+            and match['wallF1']>=.80 and match['floorCoverage']>=.95 and (bedrooms or combined_sleep)):
+        # Some basic-labelled sources actually include expanded floor, or their
+        # dimension chains are OCR-scaled inconsistently. Preserve original pixel
+        # geometry and use ONE explicitly estimated exclusive-area scale instead.
+        # Never repair an unreadable source or invent missing rooms/walls here.
+        outside={r['zone'] for r in rooms if r['type'] in ('balcony','utility')}
+        pixel_area=sum((p['rect'][2]-p['rect'][0])*(p['rect'][3]-p['rect'][1]) for p,r in zip(result['pixelRooms'],rooms) if r['zone'] not in outside)
+        calibrated=math.sqrt(exclusive_area/pixel_area)
+        wx=[X(v) for v in xs];wz=[Z(v) for v in ys]
+        px=lambda v:float(np.interp(v,wx,xs))
+        pz=lambda v:float(np.interp(v,wz,ys))
+        for room,pixel in zip(rooms,result['pixelRooms']):
+            a,b,c,d=pixel['rect'];room['rect']=[round((a-x0)*calibrated,4),round((b-y0)*calibrated,4),round((c-x0)*calibrated,4),round((d-y0)*calibrated,4)]
+        for opening in openings:
+            along=pz if opening['axis']=='x' else px;across=px if opening['axis']=='x' else pz
+            origin=y0 if opening['axis']=='x' else x0
+            a=along(opening['center']-opening['width']/2);b=along(opening['center']+opening['width']/2)
+            opening.update(at=round((across(opening['at'])-(x0 if opening['axis']=='x' else y0))*calibrated,4),center=round(((a+b)/2-origin)*calibrated,4),width=round((b-a)*calibrated,4))
+        result.update(status='ready',reason=None,areaM2=round(exclusive_area,2),areaError=0,areaBasis='exclusive_area',dimensionChainsApplied=False)
+        result['scale'].update(xMetresPerPixel=calibrated,zMetresPerPixel=calibrated,basis='exclusive_area_ratio',estimated=True,wallThicknessMetres=round(max(.02,min(.4,wall_thickness*calibrated/math.sqrt(sx*sy))),4))
+        result['application'].update(mode='approximate_source',areaAnnotationAdjusted=True,dimensionScaleAdjusted=True)
+        result['checks'].update(areaConsistent=True,roomAreasConsistent=False)
+        result['note']+=' 도면 치수 판독과 구성 면적의 차이로 원본 픽셀 배치를 유지한 전용면적·가로세로 비율 축척을 적용했습니다. 적용 치수는 실측값이 아닙니다.'
+    result['_recoveryWords']=recognized_words
+    return result
+
+
+def analyze_image(data:bytes,exclusive_area:float,*,words:list[dict]|None=None,expanded:bool=False,supply_area:float|None=None,_axis_recovery:bool=False)->dict:
+    started=time.perf_counter()
+    result=_analyze_image(data,exclusive_area,words=words,expanded=expanded,supply_area=supply_area,_axis_recovery=_axis_recovery)
+    recovered_words=result.pop('_recoveryWords',None)
+    match=result.get('sourceMatch')
+    # Return from the first pass before allocating another full image graph.
+    # Its native masks/labels can be reclaimed/reused rather than coexisting.
+    if not _axis_recovery and match and not match['targetMet']:
+        alternative=_analyze_image(data,exclusive_area,words=recovered_words,expanded=expanded,supply_area=supply_area,_axis_recovery=True)
+        alternative.pop('_recoveryWords',None)
+        if alternative.get('status')=='ready' and alternative.get('sourceMatch',{}).get('wallF1',0)>match['wallF1']:result=alternative
+    result['elapsedMs']=round((time.perf_counter()-started)*1000)
     return result

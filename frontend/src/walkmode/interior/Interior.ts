@@ -11,7 +11,7 @@ import { Batcher } from "./geom";
 import { buildShell, type Seg, type Shell } from "./build";
 import { furnish, shadowMoved, switchState, type Furnished, type Interactable, type MonitorScreen } from "./furnish";
 import type { VendingSession } from "./vending";
-import { BASE_SETS, loadSets, Library, makePalette, SETS, STYLE_SETS, type Palette, type SetName } from "./materials";
+import { BASE_SETS, loadSets, disposeSets, Library, makePalette, SETS, STYLE_SETS, type Palette, type SetName } from "./materials";
 import { boxProjected, probeBox, zones as zoneTable, zoneLit, type ZoneUniform } from "./lightZones";
 import { paintedView, sunAt } from "./view";
 import { waterTime } from "./water";
@@ -251,7 +251,7 @@ export class Interior {
     // (the common sets, and the style's own floors and tiles only)
     const names: SetName[] = [...new Set<SetName>([...BASE_SETS, ...STYLE_SETS[plan.style]])];
     const sets = await loadSets(names, (k, label) => P(0.02 + k * 0.5, label), signal);
-    if (this.disposed) return;
+    if (this.disposed) {disposeSets(sets);return;}
     t = mark("textures", t);
     this.lib = new Library(sets);
     this.P = makePalette(this.lib, plan.style);

@@ -29,7 +29,7 @@ def test_summarize_groups_flats_by_area_and_sums_split_rows():
 
 
 def test_units_prefers_register_and_falls_back_to_trades(monkeypatch):
-    monkeypatch.setattr(ru.rm, "complex_detail", lambda cid, period: {"name": "테스트", "item": {"built": 2018},
+    monkeypatch.setattr(ru.rm, "complex_detail", lambda cid, period, **kw: {"name": "테스트", "item": {"built": 2018},
                         "types": [{"area": 84.97, "trades_total": 12, "price_source": "sale"}, {"area": 59.9, "trades_total": 3, "price_source": "sale"}]})
     monkeypatch.setattr(ru.realestate_facts, "complex_facts", lambda cid: {"matched": True, "households": 900})
     ru._memo.clear()
