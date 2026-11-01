@@ -482,5 +482,42 @@
       "pixelRatio": 1
     }
   },
-  "finalRuntimeCommit": "636885736dc4f2777de8da59143f1df2860bbfe4"
+  "finalRuntimeCommit": "e7bf64c5e94c29843b446b2cdcf7015ccaa274a1",
+  "shortSharingProduction": {
+    "runtimeCommit": "e7bf64c5e94c29843b446b2cdcf7015ccaa274a1",
+    "crawler": [
+      {
+        "requestLength": 91,
+        "seconds": 0.256,
+        "ogTitle": "강남데시앙포레 | 룸투어(임장) | KOSPIMAP",
+        "ogUrl": "https://kospimap.com/walk?c=MTE2ODA67IiY7ISc64-ZOjc5NTrqsJXrgqjrjbDsi5zslZntj6zroIg&a=84.86"
+      },
+      {
+        "requestLength": 260,
+        "seconds": 0.254,
+        "ogTitle": "강남데시앙포레 | 룸투어(임장) | KOSPIMAP",
+        "ogUrl": "https://kospimap.com/walk?c=MTE2ODA67IiY7ISc64-ZOjc5NTrqsJXrgqjrjbDsi5zslZntj6zroIg&a=84.86"
+      },
+      {
+        "requestLength": 91,
+        "seconds": 0.255,
+        "ogTitle": "강남데시앙포레 | 룸투어(임장) | KOSPIMAP",
+        "ogUrl": "https://kospimap.com/walk?c=MTE2ODA67IiY7ISc64-ZOjc5NTrqsJXrgqjrjbDsi5zslZntj6zroIg&a=84.86"
+      }
+    ],
+    "browser": {
+      "copiedUrl": "https://kospimap.com/walk?c=MTE2ODA67IiY7ISc64-ZOjc5NTrqsJXrgqjrjbDsi5zslZntj6zroIg&a=84.86",
+      "length": 91,
+      "title": "강남데시앙포레 | 룸투어(임장) | KOSPIMAP",
+      "sourceType": "114C",
+      "label": "강남데시앙포레 3층\n거실",
+      "errors": [],
+      "viewport": [
+        1440,
+        1000
+      ],
+      "pixelRatio": 1
+    },
+    "legacyBrowserNormalizesToShort": true
+  }
 }
