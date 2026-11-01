@@ -4,7 +4,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 ROOT=Path(__file__).resolve().parents[2];BASE=ROOT/'tmp/ho-won-floorplans-20261101'
 origin=next((a for a in sys.argv[1:] if a.startswith('http')),'http://127.0.0.1:5407');production=origin.startswith('https:')
-out=BASE/('production-entry' if production else 'local-entry');out.mkdir(exist_ok=True)
+out=BASE/('production-live-entry' if production and '--live' in sys.argv else 'production-entry' if production else 'local-entry');out.mkdir(exist_ok=True)
 studio=json.loads((BASE/'sample-14794-catalogue.json').read_text(encoding='utf8'))['plans'][0]
 raw=(BASE/'search-신일엘리시움.html').read_text(encoding='utf8');info=json.loads(re.search(r'baseQueryResult\s*=\s*({[^\r\n]+});',raw)[1])
 cases=[dict(name='신도6',id='41150:호원동:401-1:신도6',lat=37.726955,lon=127.038392,town='호원동',region='41150',area=59.9,typ='81B',naver='2127'),
@@ -68,14 +68,14 @@ with sync_playwright() as p:
    open_laptop();bar.get_by_role('button',name='전체화면 ⛶',exact=True).tap();page.wait_for_function('!!document.fullscreenElement')
    # CDP keys sent into a cross-origin iframe do not invoke Chrome's own UI
    # Escape shortcut. Exercise the parent key handler, then native exit event.
-   page.evaluate("window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape',key:'Escape',bubbles:true}))")
+   page.evaluate("document.body.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape',key:'Escape',bubbles:true}))")
    page.wait_for_function('!document.fullscreenElement&&!document.querySelector(".wk-laptop-layer.is-fullscreen")')
    assert page.locator('.wk-laptop-layer').count()==1 and page.locator('.wk-choose').count()==0
    open_laptop();bar.get_by_role('button',name='전체화면 ⛶',exact=True).tap();page.wait_for_function('!!document.fullscreenElement')
-   page.evaluate('document.exitFullscreen()');page.evaluate("window.dispatchEvent(new KeyboardEvent('keyup',{code:'Escape',key:'Escape',bubbles:true}))")
+   page.evaluate('document.exitFullscreen()');page.evaluate("document.body.dispatchEvent(new KeyboardEvent('keyup',{code:'Escape',key:'Escape',bubbles:true}))")
    page.wait_for_function('!document.fullscreenElement&&!document.querySelector(".wk-laptop-layer.is-fullscreen")')
    assert page.locator('.wk-choose').count()==0
-   page.evaluate("Element.prototype.requestFullscreen=()=>Promise.reject(new Error('unsupported'))")
+   page.evaluate("()=>{Element.prototype.requestFullscreen=()=>Promise.reject(new Error('unsupported'));}")
    open_laptop();bar.get_by_role('button',name='전체화면 ⛶',exact=True).tap();page.wait_for_selector('.wk-laptop-layer.is-fullscreen')
    page.screenshot(path=str(out/'laptop-fallback.png'))
    pos=page.evaluate('()=>window.__walk.interior.pos.toArray()');bar.get_by_role('button',name='닫기',exact=True).focus();page.keyboard.press('KeyW');assert page.evaluate('()=>window.__walk.interior.pos.toArray()')==pos
