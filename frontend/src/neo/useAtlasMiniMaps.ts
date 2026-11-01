@@ -18,7 +18,7 @@ const listeners = new Set<() => void>();
 let inFlight = false;
 let stopPolling: (() => void) | null = null;
 const markets: AtlasMarket[] = ["kospi", "kosdaq", "nasdaq100"];
-const REFRESH_MS = 5_000;
+const REFRESH_MS = 20_000;
 
 async function load() {
   if (inFlight || document.visibilityState === "hidden") return;

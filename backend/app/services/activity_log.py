@@ -1,7 +1,10 @@
 import itertools
+import logging
+import queue
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from app.services import hub_event_store, page_view_store, stock_search_store
@@ -30,6 +33,44 @@ _sessions: dict[str, dict] = {}
 # This is a bounded, process-local view; existing persisted analytics are untouched.
 BEHAVIOR_MAXLEN = 2000
 _behavior: deque[dict] = deque(maxlen=BEHAVIOR_MAXLEN)
+
+
+# Isolate analytics persistence from request handling. Bound both the number
+# of threads and queued tasks; reject excess analytics instead of exhausting
+# resources needed for serving pages and market APIs.
+_QUEUE_CAPACITY = 512
+_write_queues = {
+    "page_view": queue.Queue(maxsize=_QUEUE_CAPACITY),
+    "hub": queue.Queue(maxsize=_QUEUE_CAPACITY),
+    "stock_view": queue.Queue(maxsize=_QUEUE_CAPACITY),
+}
+_logger = logging.getLogger(__name__)
+_drop_counts = {name: 0 for name in _write_queues}
+
+
+def _writer(name: str, work: queue.Queue) -> None:
+    while True:
+        callback, args = work.get()
+        try:
+            callback(*args)
+        except Exception:
+            _logger.exception("activity %s write failed", name)
+        finally:
+            work.task_done()
+
+
+def _queue_write(name: str, callback: Callable, *args) -> None:
+    try:
+        _write_queues[name].put_nowait((callback, args))
+    except queue.Full:
+        _drop_counts[name] += 1
+        if _drop_counts[name] == 1 or _drop_counts[name] % 100 == 0:
+            _logger.warning("activity %s queue full: dropped %d events", name, _drop_counts[name])
+
+
+for _writer_name, _queue in _write_queues.items():
+    threading.Thread(target=_writer, args=(_writer_name, _queue),
+                     name=f"activity-writer-{_writer_name}", daemon=True).start()
 
 
 def _now_iso() -> str:
@@ -120,13 +161,12 @@ def record_event(
                     state["hub_actions"] = state.get("hub_actions", 0) + 1
 
     if event_type in ("page_view", "click"):
-        threading.Thread(
-            target=page_view_store.record_page_view,
-            args=(session_id, path, created_at, event_type, referrer, source_channel,
-                  source_name, utm_source, utm_medium, utm_campaign, label,
-                  stock_code, stock_name, object_key, user_agent, is_bot, device_info),
-            daemon=True,
-        ).start()
+        _queue_write(
+            "page_view", page_view_store.record_page_view,
+            session_id, path, created_at, event_type, referrer, source_channel,
+            source_name, utm_source, utm_medium, utm_campaign, label,
+            stock_code, stock_name, object_key, user_agent, is_bot, device_info,
+        )
     elif is_bot:
         # hub_events and stock_search_store have no bot column of their own, because
         # they are read only as behaviour rankings — what visitors touched on the
@@ -137,21 +177,19 @@ def record_event(
         from app.services import support_analytics_store
         support_analytics_store.record(session_id, object_key, value, created_at)
     elif event_type == "hub" and action:
-        threading.Thread(
-            target=hub_event_store.record,
-            args=(session_id, action, created_at, object_key, label, value),
-            daemon=True,
-        ).start()
+        _queue_write(
+            "hub", hub_event_store.record,
+            session_id, action, created_at, object_key, label, value,
+        )
     elif event_type == "stock_view" and stock_code and stock_name:
         # The frontend only ever calls reportStockView() for a real search
         # selection or a code carried in via a link (e.g. a market-map tile) —
         # the default Samsung Electronics landing on a bare "/" is deliberately
         # never reported (see Dashboard.tsx), so nothing extra to filter here.
-        threading.Thread(
-            target=stock_search_store.record_search,
-            args=(session_id, stock_code, stock_name, created_at),
-            daemon=True,
-        ).start()
+        _queue_write(
+            "stock_view", stock_search_store.record_search,
+            session_id, stock_code, stock_name, created_at,
+        )
 
 
 def recent_events(limit: int = 100) -> list[dict]:

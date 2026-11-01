@@ -35,7 +35,7 @@ const EMPTY: MarketIndices = {
   kosdaqInvestor: null,
 };
 
-const REFRESH_MS = 5_000;
+const REFRESH_MS = 20_000;
 
 let snapshot: MarketIndices = EMPTY;
 const listeners = new Set<(value: MarketIndices) => void>();

@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { MarketTickerItem, api } from "./api/client";
 import { startVisibilityAwareInterval } from "./pollVisibility";
 
-// Shared server cache expires before the next five-second poll.
-const POLL_MS = 5_000;
+// Shared server cache expires before the next 20-second poll.
+const POLL_MS = 20_000;
 
 /** One poller for /api/market/ticker, shared by every component that reads it.
  *

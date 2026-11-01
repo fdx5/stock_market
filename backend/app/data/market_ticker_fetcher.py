@@ -6,8 +6,8 @@ from app.data import yahoo_quote
 from app.services.cache import cache
 
 # Shared single-flight cache bounds upstream requests across all visitors.
-# Expire just before the 5s browser poll, accounting for request latency.
-TTL_TICKER_SECONDS = 4
+# Match the 20-second browser poll; serve stale quotes during refresh.
+TTL_TICKER_SECONDS = 20
 
 HEADERS = {
     "User-Agent": (
@@ -144,7 +144,6 @@ def _fetch_all() -> list[dict]:
 
 
 def get_market_ticker() -> list[dict]:
-    # Deliver the refresh in this response instead of returning an expired value
-    # and making the browser wait for another poll. Clients retain last good
-    # per-symbol quotes if the upstream fails or returns a partial response.
-    return cache.get_or_set("market_ticker", TTL_TICKER_SECONDS, _fetch_all, allow_stale=False)
+    # Return the last known prices immediately while a background thread refreshes
+    # a stale snapshot. A cold cache miss still fetches synchronously once.
+    return cache.get_or_set("market_ticker", TTL_TICKER_SECONDS, _fetch_all, allow_stale=True)

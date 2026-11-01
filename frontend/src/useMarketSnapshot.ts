@@ -27,7 +27,7 @@ export interface MarketSnapshot {
 }
 
 const EMPTY: MarketSnapshot = { kospi: [], kosdaq: [], generatedAt: null };
-const REFRESH_MS = 5_000;
+const REFRESH_MS = 20_000;
 
 let snapshot: MarketSnapshot = EMPTY;
 const listeners = new Set<(value: MarketSnapshot) => void>();
