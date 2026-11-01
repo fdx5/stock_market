@@ -22,6 +22,7 @@ const TreasuryDetailPage = lazy(() => import("./desk2/world/TreasuryDesk").then(
 import { useDesignMode } from "./neo/settings";
 import { MARKET_ASSETS } from "./marketAssets";
 import socialCards from "./neo/socialCards.json";
+import { updateWalkShare } from './walkmode/shareMeta';
 const SOCIAL_CARDS: Record<string, { title: string; description: string; image: string; alt: string }> = socialCards;
 const AssetPricePage = lazy(() => import("./neo/AssetPricePage"));
 
@@ -329,6 +330,7 @@ export default function App() {
   useEffect(() => {
     let canonicalPath = path === "/type2" ? "/hub" : path.replace(/\/$/, "") || "/";
     const params = new URLSearchParams(window.location.search);
+    if (canonicalPath === '/walk' || canonicalPath.startsWith('/walk/')) { updateWalkShare(params); return; }
     if (canonicalPath === "/etf") canonicalPath = params.get("region") === "US" ? "/etf/us" : "/etf/kr";
     const code = params.get("code")?.replace(/[^A-Za-z0-9.-]/g, "").slice(0, 16) || "";
     const keepsStockCode = code && ["/desk", "/global", "/discussion-explorer"].includes(canonicalPath);

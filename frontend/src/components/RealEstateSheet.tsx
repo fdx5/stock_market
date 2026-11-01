@@ -371,7 +371,7 @@ export default function RealEstateSheet({
               <button type="button" aria-pressed={saved} onClick={() => onSave(shown)}>{saved ? "★ 관심 저장됨" : "☆ 관심 저장"}</button>
               <span className="re-tour-tools">
                 <button type="button" className="re-holo-open" onClick={() => (onOpen3d ? onOpen3d() : setHoloOpen(true))}>3D 건물뷰</button>
-                <button type="button" className="re-roomtour-open" onClick={() => location.assign(roomTourUrl(item.id, shown.area, location.pathname + location.search + location.hash))}><span aria-hidden="true">✦</span> 룸투어(임장)</button>
+                <button type="button" className="re-roomtour-open" onClick={() => location.assign(roomTourUrl(item.id, shown.area, location.pathname + location.search + location.hash, item.name))}><span aria-hidden="true">✦</span> 룸투어(임장)</button>
               </span>
               <button type="button" aria-pressed={compared} onClick={() => onCompare(shown)}>{compared ? "✓ 비교 선택됨" : "+ 비교 추가"}</button>
               {compareCount > 0 && <button type="button" className="re-primary" onClick={onOpenCompare}>비교하기 ({compareCount})</button>}

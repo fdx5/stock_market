@@ -9,6 +9,7 @@ import { generatePlan } from "./interior/plan/generate";
 import { fetchUnits } from "./interior/plan/fetchUnits";
 import { walkComplex } from "./complexOf";
 import {apartmentName,apartmentBlock,normaliseBlock,entryComplexId} from './apartmentIdentity';
+import { updateWalkShare } from './shareMeta';
 import {entryKind,resolveEntryKind} from './entryKind';
 import { BuildingInterior, type BuildingHud, type BuildingTalk } from "./building/BuildingInterior";
 import { getSurvey, type SurveyBuilding, type SurveyFloor } from "./building/survey";
@@ -134,6 +135,14 @@ export default function WalkPage() {
     toPlan?: (x: number, y: number) => [number, number]; foot?: [number, number][]; entry?: [number, number]; campus?: [number, number][][] } | null>(null);
   /** the complex of the building being entered, when it is not the one the walk started at */
   const [visit, setVisit] = useState<{ id: string; name: string; built?: number } | null>(null);
+  useEffect(() => {
+    const name = phase === 'outdoor' ? start?.name : visit?.name ?? entering?.name ?? start?.name;
+    if (!name) return;
+    const url = new URL(location.href);
+    url.searchParams.set('name', name.slice(0, 80));
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    updateWalkShare(url.searchParams);
+  }, [start?.name, entering?.name, visit?.name, phase]);
   const [units, setUnits] = useState<UnitsResponse | null>(null);
   const [unitsErr, setUnitsErr] = useState("");
   const [pick, setPick] = useState<{ type: string; floor: number; style: StyleName | "auto" }>({ type: "", floor: 0, style: "auto" });
@@ -342,9 +351,10 @@ export default function WalkPage() {
       const back = returnTo.current ?? safeWalkBack(q.get("back")) ?? (game.current ? outdoorUrl.current : null);
       const entry: WalkEntry = { lat, lon, name: e.name, floors: e.floors,kind:e.kind,use:e.use,dong:e.dong,pnu:e.pnu,complexId:e.complexId,heading: e.heading, foot,
         campus: (e.campus ?? []).map(r => r.map(([x, y]) => g.lonLatOf(x, y))), door: g.lonLatOf(e.x, e.y), back: back ?? undefined };
-      rememberWalkEntry(entry); shareBase.current = walkLink(lat, lon);
+      rememberWalkEntry(entry); shareBase.current = walkLink(lat, lon, 1, { name: e.name, complexId: e.complexId });
       returnTo.current = back ?? `/drone-explore?lat=${start.lat.toFixed(6)}&lon=${start.lon.toFixed(6)}&walkat=${e.x.toFixed(2)},${e.y.toFixed(2)},${Math.atan2((e.cx ?? 0) - e.x, -((e.cy ?? 0) - e.y)).toFixed(3)}`;
       history.replaceState(history.state, "", shareBase.current);
+      updateWalkShare();
     }
     if (e.kind === "building"&&entryKind(e)!=='apartment') { enterBuilding(e); return; }
     sound.resume();

@@ -428,6 +428,16 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         title, description = social["title"], social["description"]
     page_image = f'{SITE}{social["image"]}' if social else IMAGE
     image_alt = social["alt"] if social else ""
+    is_walk = canonical_path == "/walk" or canonical_path.startswith("/walk/")
+    if is_walk:
+        # Link-preview crawlers do not run the apartment chooser. Keep the public
+        # apartment identity in the URL so sharing never needs a map/DB warm-up.
+        raw_name = query.get("name") or query.get("place") or ":".join(query.get("id", "").split(":")[3:])
+        walk_name = " ".join("".join(ch for ch in raw_name if ch.isprintable() and ch not in '<>"\\').split())[:80]
+        title = f"{walk_name + ' | ' if walk_name else ''}룸투어(임장) | KOSPIMAP"
+        description = f"{walk_name + '의 ' if walk_name else '아파트 '}평형과 원본 도면을 확인하고, 가구가 배치된 실내를 3D로 둘러보세요."
+        page_image = f"{SITE}/img/social/walk-roomtour-v1.png"
+        image_alt = "KOSPIMAP 룸투어(임장) 안내용 아파트 거실 이미지"
     if brief:
         title = f"{brief_day} {brief_market.upper()} 오늘 브리핑 | K-Stock Hub"
         description = _brief_description(brief, brief_day, brief_market)
@@ -533,6 +543,12 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     # and view in og:url (a crawler following og:url to the bare map page would preview
     # the map instead); the canonical stays the page, for search engines.
     share_url = canonical
+    if is_walk:
+        # og:url must keep the destination apartment; otherwise Kakao can merge
+        # different flats into the generic /walk card. Exclude return paths and
+        # browser-only state from the public share identity.
+        keep = {k: query[k][:1000] for k in ("at", "id", "name", "place", "lat", "lon", "tour", "enter", "area", "f", "hour", "weather") if query.get(k)}
+        share_url = f"{SITE}{canonical_path}" + ("?" + urlencode(keep) if keep else "")
     if canonical_path == "/realestate-map" and query.get("3d") == "1" and query.get("complex"):
         keep = {k: query[k] for k in ("sido", "sgg", "dong", "complex", "3d", "hour", "weather") if query.get(k)}
         share_url = f"{SITE}{canonical_path}?{urlencode(keep)}"
@@ -553,6 +569,9 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     document = _replace_meta(document, 'property="og:image:secure_url"', page_image)
     document = _replace_meta(document, 'property="og:image:type"', "image/jpeg" if page_image.lower().endswith((".jpg", ".jpeg")) else "image/png")
     document = _replace_meta(document, 'property="og:image:alt"', image_alt or (f"{brief_day} {brief_market.upper()} 오늘 브리핑 핵심 지표" if brief else "K-Stock Hub 시장 데이터"))
+    if is_walk:
+        document = _replace_meta(document, 'property="og:image:width"', "1729")
+        document = _replace_meta(document, 'property="og:image:height"', "910")
     document = _replace_meta(document, 'name="twitter:title"', title)
     document = _replace_meta(document, 'name="twitter:description"', description)
     document = _replace_meta(document, 'name="twitter:image"', page_image)

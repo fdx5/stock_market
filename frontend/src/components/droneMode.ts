@@ -749,7 +749,7 @@ export class DroneSession {
     const foot = ring.map(([x, y]) => ll(x, y)), [lat, lon] = walkAnchor(foot);
     rememberWalkEntry({ lat, lon, foot, campus: campus.map(r => r.map(([x, y]) => ll(x, y))),
       door: ll(doorX, doorY), heading, name:metadata.name??'',floors:metadata.floors??0,kind:metadata.kind,use:metadata.use,dong:metadata.dong,pnu:metadata.pnu,complexId:metadata.complexId,back: location.pathname + "?" + back.toString() + location.hash });
-    location.href = walkLink(lat, lon);
+    location.href = walkLink(lat, lon, 1, metadata);
     return true;
   }
   /** 1인칭 ↔ 3인칭. */

@@ -1,7 +1,7 @@
 """Copy the site's large static files (frontend/public) into the public asset repository served by
 GitHub Pages, and write the manifest the backend redirects by (backend/app/data/asset_cdn.json).
 
-Only files of 32 KB and up in the listed folders, never HTML; the backend redirects a file only
+Only files of 8 KiB and up in the listed folders, never HTML; the backend redirects a file only
 while its own copy's SHA-1 equals the manifest's, so a file changed or added later without running
 this is simply served by the site as before.
 

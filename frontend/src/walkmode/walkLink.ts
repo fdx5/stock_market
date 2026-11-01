@@ -9,9 +9,13 @@ export function parseWalkAt(value: string | null): Point | null {
   const [lat, lon] = value.split(",").map(Number);
   return lat >= 33 && lat <= 39 && lon >= 124 && lon <= 132 ? [lat, lon] : null;
 }
-export function walkLink(lat: number, lon: number, floor = 1) {
+export function walkLink(lat: number, lon: number, floor = 1, identity: { name?: string; complexId?: string } = {}) {
   if (!parseWalkAt(`${lat},${lon}`)) throw Error("Invalid walk location");
-  return `/walk?at=${lat.toFixed(6)},${lon.toFixed(6)}${Number.isInteger(floor) && floor !== 1 && floor >= -20 && floor <= 200 ? `&f=${floor}` : ""}`;
+  const name = (identity.name || identity.complexId?.split(':').slice(3).join(':') || '').trim().slice(0, 80);
+  const publicIdentity = new URLSearchParams();
+  if (name) publicIdentity.set('name', name);
+  if (identity.complexId) publicIdentity.set('id', identity.complexId.slice(0, 200));
+  return `/walk?at=${lat.toFixed(6)},${lon.toFixed(6)}${Number.isInteger(floor) && floor !== 1 && floor >= -20 && floor <= 200 ? `&f=${floor}` : ""}${publicIdentity.size ? '&' + publicIdentity : ''}`;
 }
 const inside = ([x, y]: Point, r: Point[]) => {
   let hit = false;
