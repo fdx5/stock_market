@@ -7,7 +7,7 @@ import { STYLE_NAMES } from "./types";
  * complex's type (makeLayout: its bays, rooms and their sizes from the area, the era and a seed),
  * scaled to the area. (T2–T4 below are the original three drawings, kept for reference.)
  * Register/trade areas do not describe internal walls. This generator is the explicitly
- * estimated fallback; a separately verified image-derived plan takes priority.
+ * local demo generator. Actual apartment entry requires a verified image-derived plan.
  *
  * Templates are drawn on wall centre lines, so the rooms' areas add up to the 전용면적 the way
  * the register measures it. Front (z max) is the balcony side; the front door is on the back. */

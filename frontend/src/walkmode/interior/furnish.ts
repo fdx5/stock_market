@@ -2,7 +2,7 @@ import { bedCover, bedV, chairCover, chairMore, frameV, paintingTexture, propsV,
 import * as THREE from "three";
 import { Batcher, boxUV, RoundedBoxGeometry } from "./geom";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { HALF_WALL, type CeilingLight, type Seg, type Shell } from "./build";
+import { wallHalfThickness, type CeilingLight, type Seg, type Shell } from "./build";
 import type { Palette } from "./materials";
 import * as M from "./models";
 import { ceilingCassette, chairV, coffeeTableV, pendantV, sofaV, switchV, toiletV, variantOf, wallAircon } from "./variants";
@@ -77,7 +77,7 @@ export class Placer {
   doors: Rect[] = [];
   X0: number; X1: number; Z0: number; Z1: number; fy: number;
   constructor(public room: Room, private plan: FloorPlan) {
-    const e = HALF_WALL;
+    const e = wallHalfThickness(plan);
     [this.X0, this.Z0, this.X1, this.Z1] = [room.rect[0] + e, room.rect[1] + e, room.rect[2] - e, room.rect[3] - e];
     this.fy = -(room.floorDrop ?? 0);
     // doorways: the swing of a door into this room, and a way through every opening
@@ -92,9 +92,9 @@ export class Placer {
       const r = this.rectAt(s, (a+b)/2, (o.type==="open"?Math.min(.60,b-a):b-a) + 0.12, reach);
       this.occupied.push(r); this.doors.push(r);
     }
-    if(!plan.facility&&this.doors.length>1){
+    if(!plan.facility&&(this.doors.length>1||(plan.imageAnalysis&&room.type==="living"&&this.doors.length===1))){
       const points=this.doors.map(([a,b,c,d])=>[(a+c)/2,(b+d)/2]);
-      const cx=points.reduce((s,p)=>s+p[0],0)/points.length,cz=points.reduce((s,p)=>s+p[1],0)/points.length;
+      const cx=points.length===1?(this.X0+this.X1)/2:points.reduce((s,p)=>s+p[0],0)/points.length,cz=points.length===1?(this.Z0+this.Z1)/2:points.reduce((s,p)=>s+p[1],0)/points.length;
       for(const [x,z] of points){
         const n=Math.max(1,Math.ceil(Math.hypot(x-cx,z-cz)/.12));
         for(let k=0;k<=n;k++){const px=x+(cx-x)*k/n,pz=z+(cz-z)*k/n;this.routes.push([px-.27,pz-.27,px+.27,pz+.27]);}
@@ -223,7 +223,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
   const yawOut = (f: Frame) => { const d = local(f, 0, 0, 1).sub(local(f, 0, 0, 0)); return Math.atan2(-d.x, -d.z); };
   const furnishedTv: Furnished["tv"] = { on: false };
   const furnishedLaptop: Furnished["laptop"] = { on: false };
-  const H = plan.ceilingHeightM;
+  const H = plan.ceilingHeightM,halfWall=wallHalfThickness(plan);
   // (which of each thing's kinds this flat has: by the complex, the 동 and the floor — variants.ts)
   const VS = `${plan.complexId}|${plan.dong}|${plan.floor}|${plan.style}|${plan.layoutCase??0}|f${plan.furnishingCase??0}`, built = plan.basis.built ?? 2005;
   // (the dining chairs: one of nine — not the low lounge chair — in this flat's wood and fabric)
@@ -346,7 +346,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       // roller blinds, a third down, at its windows
       for (const w of shell.windows.filter(w => w.room === room)) {
         const wi = shell.windows.indexOf(w), top = H - 0.04, yaw = Math.atan2(w.inward.x, w.inward.z), drop = (top - (w.bottom + pl.fy)) * 0.32;
-        const base = new THREE.Matrix4().makeRotationY(yaw).setPosition(w.center.x + w.inward.x * (HALF_WALL + 0.06), 0, w.center.z + w.inward.z * (HALF_WALL + 0.06));
+        const base = new THREE.Matrix4().makeRotationY(yaw).setPosition(w.center.x + w.inward.x * (halfWall + 0.06), 0, w.center.z + w.inward.z * (halfWall + 0.06));
         put([M.rb(P.trim, w.width + 0.08, 0.07, 0.08, 0.02, 0, top - 0.035, 0), M.bx(P.linen, w.width + 0.02, drop, 0.006, 0, top - 0.07 - drop / 2, 0), M.bx(P.blackMetal, w.width + 0.02, 0.025, 0.02, 0, top - 0.07 - drop, 0)], base, zone, false);
         curtainOpen.set(wi, () => 0.8);
       }
@@ -775,7 +775,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       const wi = shell.windows.indexOf(w);
       const top = H - 0.03, len = top - pl.fy - 0.01, span = w.width + 0.5;
       const yaw = Math.atan2(w.inward.x, w.inward.z);
-      const base = new THREE.Matrix4().makeRotationY(yaw).setPosition(w.center.x + w.inward.x * (HALF_WALL + 0.13), 0, w.center.z + w.inward.z * (HALF_WALL + 0.13));
+      const base = new THREE.Matrix4().makeRotationY(yaw).setPosition(w.center.x + w.inward.x * (halfWall + 0.13), 0, w.center.z + w.inward.z * (halfWall + 0.13));
       // the rail
       put([M.bx(P.trim, span + 0.1, 0.03, 0.1, 0, top + 0.0, 0)], base, zone, false);
       // a pair of pleated panels, gathered toward the two ends of the rail: one mesh a fabric,
@@ -816,7 +816,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       };
       setScale();
       curtainOpen.set(wi, () => (1 - shut * 0.92) * (1 - sheerShut * 0.35));
-      const hit = hitBox(span, len * 0.9, 0.12, w.center.clone().setY(pl.fy + len / 2).addScaledVector(w.inward, HALF_WALL + 0.16));
+      const hit = hitBox(span, len * 0.9, 0.12, w.center.clone().setY(pl.fy + len / 2).addScaledVector(w.inward, halfWall + 0.16));
       interactables.push({ id: `curtain-${wi}`, zone, room, hit, label: () => `${room.label} 커튼 ${want > 0.5 ? "열기" : "치기"}`,
         act: () => { want = want > 0.5 ? 0 : 1; sheerWant = want ? 1 : 0.6; return "curtain"; },
         update: dt => { const s0 = shut, h0 = sheerShut; shut += Math.sign(want - shut) * Math.min(Math.abs(want - shut), dt * 0.9); sheerShut += Math.sign(sheerWant - sheerShut) * Math.min(Math.abs(sheerWant - sheerShut), dt * 0.9); if (s0 !== shut || h0 !== sheerShut) { setScale(); shadowMoved.at = performance.now(); } } });
@@ -994,7 +994,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     const room = plan.rooms.find(r => r.id === f.room)!, zone = zoneOf(room);
     const yaw = (f.rot * Math.PI) / 180;
     const inward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-    const at = new THREE.Vector3(f.pos[0], 1.2, f.pos[1]).addScaledVector(inward, HALF_WALL);
+    const at = new THREE.Vector3(f.pos[0], 1.2, f.pos[1]).addScaledVector(inward, halfWall);
     const pm = new THREE.Matrix4().makeRotationY(yaw).setPosition(at.clone().addScaledVector(inward, 0.006));
     const svn = variantOf(VS, "switch", 12), sw = svn < 4 ? switchV(P, svn) : switchMore(P, svn, disposables);
     B.add(sw.plateM, zone, sw.plate, pm, false); sw.plate.dispose();

@@ -1,5 +1,6 @@
 import type { FloorPlan, Opening, Room } from "./types";
 import { fixturesFor, type PlanInput } from "./generate";
+import {resolveWallOpenings} from './wallOpenings';
 
 export interface Drawing {
   key:string;naverId:string;typeId:string;typeName:string;exclusiveArea:number;supplyArea:number;
@@ -8,17 +9,25 @@ export interface Drawing {
 export interface ImageAnalysis {
   status:"ready"|"needs_review";reason?:string;version:string;drawing:Drawing;
   rooms?:Room[];openings?:Opening[];areaM2?:number;areaError?:number;elapsedMs?:number;
-  scale?:{basis:string;xMetresPerPixel:number;zMetresPerPixel:number};
+  scale?:{basis:string;xMetresPerPixel:number;zMetresPerPixel:number;estimated?:boolean;sourceAspectRatio?:number;wallThicknessMetres?:number};
+  pixelRooms?:{id:string;rect:[number,number,number,number]}[];
+  recognizedAreas?:{text:string;areaM2:number;scope:string}[];
+  sourceMatch?:{wallRecall:number;wallPrecision:number;wallF1:number;floorCoverage?:number;target:number;targetMet:boolean;certifiedAccuracy:boolean};
   imageSize?:[number,number];pixelBounds?:[number,number,number,number];note?:string;
 }
 
 /** Source geometry is never passed through template generation, mirroring or envelope stretching. */
 export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis):FloorPlan|null {
   if(analysis.status!=="ready"||!analysis.rooms?.length||!analysis.openings||!analysis.scale||Math.abs(analysis.drawing.exclusiveArea-p.area)>.005)return null;
+  if(analysis.scale.wallThicknessMetres!==undefined&&(!Number.isFinite(analysis.scale.wallThicknessMetres)||analysis.scale.wallThicknessMetres<.02||analysis.scale.wallThicknessMetres>.4))return null;
   const rooms=analysis.rooms.map(r=>{const surfaceType=analysis.rooms!.find(q=>q.zone===r.zone&&q.type!=="hall")?.type??r.type;return {...r,surfaceType,rect:[...r.rect] as Room["rect"],floorDrop:surfaceType==="bathroom"?.03:0};});
   // Small unfurnished perimeter strips preserve stepped walls. They are not rooms
   // to stand in; the lead-room dimensions and body-sized navigation are checked separately.
-  if(rooms.length>120||rooms.some(r=>r.rect.some(v=>!Number.isFinite(v))||r.rect[2]-r.rect[0]<.10||r.rect[3]-r.rect[1]<.10))return null;
+  if(rooms.length>120||rooms.some(r=>r.rect.length!==4||r.rect.some(v=>!Number.isFinite(v))||r.rect[2]-r.rect[0]<.10||r.rect[3]-r.rect[1]<.10))return null;
+  if(new Set(rooms.map(r=>r.id)).size!==rooms.length)return null;
+  for(let i=0;i<rooms.length;i++)for(const q of rooms.slice(i+1)){
+    const r=rooms[i];if(Math.max(0,Math.min(r.rect[2],q.rect[2])-Math.max(r.rect[0],q.rect[0]))*Math.max(0,Math.min(r.rect[3],q.rect[3])-Math.max(r.rect[1],q.rect[1]))>1e-5)return null;
+  }
   const ids=new Map(rooms.map(r=>[r.id,r]));
   const openings:Opening[]=[];
   for(const source of analysis.openings){
@@ -43,9 +52,9 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis):FloorPlan
     areaExclusiveM2:p.area,ceilingHeightM:p.built&&p.built>=2015?2.4:2.32,
     source:"image_analysis",template:`${analysis.drawing.typeName} · ${analysis.drawing.variant}`,
     basis:{area:`네이버 공개 도면 전용면적 ${p.area}㎡`,rooms:"원본 이미지 벽·공간 인식 · 가구·마감은 연출",built:p.built,households:p.households},
-    rooms,openings,fixtures:[],bounds:[Math.min(...xs),Math.min(...zs),Math.max(...xs),Math.max(...zs)],
+    rooms,openings:resolveWallOpenings(rooms,openings,true),fixtures:[],bounds:[Math.min(...xs),Math.min(...zs),Math.max(...xs),Math.max(...zs)],
     check:{areaM2:analysis.areaM2??p.area,error:analysis.areaError??0},style:p.style??"modern_white",floor:p.floor??3,furnishingCase:p.furnishingCase,
-    imageAnalysis:{key:analysis.drawing.key,typeName:analysis.drawing.typeName,sourceUrl:analysis.drawing.sourceUrl,scaleBasis:analysis.scale.basis,elapsedMs:analysis.elapsedMs??0,start:[(x0+x1)/2,(z0+z1)/2,Math.PI]}};
+    imageAnalysis:{key:analysis.drawing.key,typeName:analysis.drawing.typeName,sourceUrl:analysis.drawing.sourceUrl,scaleBasis:analysis.scale.basis,wallThicknessMetres:analysis.scale.wallThicknessMetres,elapsedMs:analysis.elapsedMs??0,start:[(x0+x1)/2,(z0+z1)/2,Math.PI]}};
   plan.fixtures=fixturesFor(plan).filter(f=>{const r=ids.get(f.room);return r&&f.pos[0]>=r.rect[0]+.15&&f.pos[0]<=r.rect[2]-.15&&f.pos[1]>=r.rect[1]+.15&&f.pos[1]<=r.rect[3]-.15;});
   return plan;
 }

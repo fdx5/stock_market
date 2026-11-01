@@ -3,12 +3,15 @@ import { Batcher, boxUV, mergeMeshChildren, rectMinusHoles, RoundedBoxGeometry }
 import type { Palette } from "./materials";
 import { middleDoorBars, variantOf } from "./variants";
 import type { FloorPlan, Opening, Room } from "./plan/types";
+import {openingsOnWall,resolveWallOpenings} from './plan/wallOpenings';
+import {solidWallUnion,type WallVolume} from './solidWalls';
 
 /* The shell of a flat from its plan: each room's own four wall faces (set in by half a wall from the
  * plan's centre lines), floor and ceiling, holes cut for the openings with their reveals, sills and
  * thresholds; door and window joinery; the walls as segments for walking into. */
 
 export const HALF_WALL = 0.075;
+export const wallHalfThickness=(plan:FloorPlan)=>plan.imageAnalysis?.wallThicknessMetres!==undefined?plan.imageAnalysis.wallThicknessMetres/2:HALF_WALL;
 const EXT_DEPTH = 0.2;   // the outer wall beyond the inner half (a window's reveal is that deep)
 
 export type Seg = [number, number, number, number];
@@ -59,7 +62,7 @@ function quadAuto(B: Batcher, m: THREE.Material, zone: number, p: THREE.Vector3[
   B.quad(m, zone, p, n, uv);
 }
 
-const isDoorish = (o: Opening) => o.type === "door" || o.type === "front_door" || o.type === "glass_door" || o.type === "open";
+const isDoorish = (o: Opening) => o.type === "door" || o.type === "sliding_door" || o.type === "front_door" || o.type === "glass_door" || o.type === "open";
 
 /** a room's finish of one kind ("floor", "wall") from its Room.finish, if the building has it */
 const finishOf = (r: Room, kind: string, F?: Record<string, THREE.Material>) => {
@@ -69,16 +72,18 @@ const finishOf = (r: Room, kind: string, F?: Record<string, THREE.Material>) => 
 };
 
 export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THREE.Group, finishes?: Record<string, THREE.Material>): Shell {
+  plan={...plan,openings:resolveWallOpenings(plan.rooms,plan.openings,!!plan.imageAnalysis)};
   /** the 중문's frosted glass, when its style has it */
   let frosted: THREE.MeshBasicMaterial | null = null;
-  const H = plan.ceilingHeightM, e = HALF_WALL;
+  const H = plan.ceilingHeightM, e = wallHalfThickness(plan);
   const zones = new Map<string, number>();
   for (const r of plan.rooms) if (!zones.has(r.zone)) zones.set(r.zone, zones.size + 1);
   const zoneOf = (r: Room) => zones.get(r.zone)!;
   const byId = new Map(plan.rooms.map(r => [r.id, r]));
   const segments: Seg[] = [], doors: DoorRig[] = [], windows: WindowInfo[] = [], ceilingLights: CeilingLight[] = [];
   const lampMeshes = new Map<number, THREE.MeshPhysicalMaterial[]>();
-  const imageWalls:{axis:"x"|"z";at:number;lo:number;hi:number;bottom:number;top:number;mat:THREE.Material;zone:number}[]=[];
+  const imageWalls:WallVolume[]=[];
+  const joined=new Set<Opening>();
   // each zone's lamps their own material (a switch dims only its room's)
   const lampMats = new Map<string, THREE.MeshPhysicalMaterial>();
   // (one material for every room's lamps: the shader dims each by its vertices' zone — lightZones.ts)
@@ -119,21 +124,24 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
     const zone = zoneOf(r), fy = -(r.floorDrop ?? 0);
     const [x0, z0, x1, z1] = r.rect;
     for (const s of sidesOf(r)) {
-      const ops = plan.openings.filter(o => (o.a === r.id || o.b === r.id || (plan.imageAnalysis&&(byId.get(o.a)?.zone===r.zone||byId.get(o.b)?.zone===r.zone))) && o.axis === s.axis && Math.abs(o.at - s.line) < 1e-6 && o.center+o.width/2>s.lo+.001 && o.center-o.width/2<s.hi-.001);
+      const ops = openingsOnWall(plan.rooms,plan.openings,r,s.axis,s.line,s.lo,s.hi,!!plan.imageAnalysis);
       const lo = s.lo + (plan.imageAnalysis?0:e), hi = s.hi - (plan.imageAnalysis?0:e);
       const holes: [number, number, number, number][] = [];
       const mat = wallMat(r, s);
       for (const o of ops) {
         const clipped0=Math.max(lo,o.center-o.width/2),clipped1=Math.min(hi,o.center+o.width/2);
         if (clipped1 - clipped0 < 0.001) continue;
-        const a0=plan.imageAnalysis?o.center-o.width/2:clipped0,a1=plan.imageAnalysis?o.center+o.width/2:clipped1;
+        let a0=clipped0,a1=clipped1;
         const bottom = o.type === "open" ? Math.max(fy, 0) : o.sill, top = Math.min(H, o.sill + o.height);
         const bot = o.type === "open" || o.type === "glass_door" ? (r.floorDrop ? 0 : fy) : bottom;
         holes.push([a0, a1, bot, top >= H - 0.01 ? H + 1 : top]);
         // Image decomposition seams are continuous floor, not structural jambs/posts.
         if(plan.imageAnalysis&&o.type==="open")continue;
         // reveals: drawn once, from the opening's first room
-        if (o.a !== r.id) continue;
+        const physical=o.sourceOpening;
+        if (physical.a !== r.id||joined.has(physical)) continue;
+        joined.add(physical);
+        a0=physical.center-physical.width/2;a1=physical.center+physical.width/2;
         const out = o.b === "out";
         const dIn = e, dOut = out ? -(e + EXT_DEPTH) : -e;
         const revealMat = isDoorish(o) && o.type !== "open" ? P.doorFrame : mat;
@@ -154,11 +162,11 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
           B.add(sillMat, zone, g, new THREE.Matrix4().makeRotationY(s.axis === "x" ? Math.PI / 2 : 0).setPosition(c));
           g.dispose();
         } else quadAuto(B, sillMat, zone, [s.at(a0, sy, dIn), s.at(a1, sy, dIn), s.at(a1, sy, dOut), s.at(a0, sy, dOut)], new THREE.Vector3(0, 1, 0), [[a0, dIn], [a1, dIn], [a1, dOut], [a0, dOut]]);
-        joinery(o, s, r, a0, a1, bot, top, zone);
+        joinery(physical, s, r, a0, a1, bot, top, zone);
       }
       // the wall face
       for (const [a0, a1, y0, y1] of rectMinusHoles(lo, hi, fy, H, holes)) {
-        if(plan.imageAnalysis)imageWalls.push({axis:s.axis,at:s.line,lo:a0,hi:a1,bottom:y0,top:y1,mat,zone});
+        if(plan.imageAnalysis)imageWalls.push({axis:s.axis,at:s.line,lo:a0,hi:a1,bottom:y0,top:y1,mat,zone,inward:s.axis==='x'?s.inward.x:s.inward.z});
         else quadAuto(B, mat, zone, [s.at(a0, y0, e), s.at(a1, y0, e), s.at(a1, y1, e), s.at(a0, y1, e)], s.inward, [[a0, y0], [a1, y0], [a1, y1], [a0, y1]]);
       }
       // 걸레받이 along the floor (not across doorways), none on tiled walls
@@ -195,19 +203,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
   // Image rooms share one wall topology. Solid thickness and end caps meet at the
   // same centre-line vertices, including T junctions; per-rectangle face insets left
   // cracks and unsupported posts. Union the two observations before building once.
-  const lines=new Map<string,typeof imageWalls>();
-  for(const p of imageWalls){const key=`${p.axis}:${p.at.toFixed(4)}`,group=lines.get(key)??[];group.push(p);lines.set(key,group);}
-  for(const group of lines.values()){
-    const cuts=[...new Set(group.flatMap(p=>[p.lo,p.hi]))].sort((a,b)=>a-b);
-    const levels=[...new Set(group.flatMap(p=>[p.bottom,p.top]))].sort((a,b)=>a-b);
-    for(let i=1;i<cuts.length;i++)for(let j=1;j<levels.length;j++){
-      const a=cuts[i-1],b=cuts[i],bottom=levels[j-1],top=levels[j];
-      if(b-a<.001||top-bottom<.001)continue;
-      const p=group.find(p=>p.lo<=(a+b)/2&&p.hi>=(a+b)/2&&p.bottom<=(bottom+top)/2&&p.top>=(bottom+top)/2);if(!p)continue;
-      const g=boxUV(new THREE.BoxGeometry(p.axis==="x"?2*e:b-a,top-bottom,p.axis==="x"?b-a:2*e));
-      B.add(p.mat,p.zone,g,new THREE.Matrix4().makeTranslation(p.axis==="x"?p.at:(a+b)/2,(bottom+top)/2,p.axis==="x"?(a+b)/2:p.at));g.dispose();
-    }
-  }
+  solidWallUnion(B,imageWalls,e);
 
   // ---------------------------------------------------------------- ceilings and their lamps
   function ceiling(r: Room, zone: number) {
@@ -384,6 +380,14 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
       box(P.doorFrame, mid, top + cw / 2, d, w + 2 * cw, cw, ct);
     }
     const label = o.type === "front_door" ? (facility ? "출입문" : "현관문") : o.type === "glass_door" ? "중문" : `${(byId.get(o.a === "out" ? o.b : o.a) ?? r).label} 문`;
+    if(o.type==='sliding_door'){
+      const pw=w-.012,ph=top-bot-.01,pivot=new THREE.Group();
+      const leaf=new THREE.Mesh(boxUV(new RoundedBoxGeometry(pw,ph,.038,2,.004)),P.door);leaf.castShadow=leaf.receiveShadow=true;
+      const from=s.at(mid,bot+ph/2,e+.025),to=s.at(mid+w,bot+ph/2,e+.025);
+      leaf.position.copy(from);pivot.add(leaf);dynamic.add(pivot);
+      doors.push({opening:o,kind:'slide',pivot,leaf,t:0,want:0,closedYaw:0,openYaw:0,hinge:[from.x,from.z],length:pw,slideFrom:from.clone(),slideTo:to.clone(),label:`${r.label} 미닫이문`,zone});
+      leaf.rotation.y=yaw;return;
+    }
     if (o.type === "glass_door") {
       // 중문: a fixed and a sliding panel — slim black aluminium, an oak frame with frosted glass, a
       // bronze grid or a white full-height frame (the flat's own: variants.ts)

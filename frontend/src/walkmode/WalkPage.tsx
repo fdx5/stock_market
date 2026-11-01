@@ -69,7 +69,6 @@ export default function WalkPage() {
   const [previewTown,setPreviewTown]=useState(q.get("town")??"");
   const [previewArea,setPreviewArea]=useState(q.get("area")??"");
   const [previewBuilt,setPreviewBuilt]=useState(q.get("built")??"");
-  const [fallbackBays,setFallbackBays]=useState<"auto"|2|3|4>("auto");
   const canvas = useRef<HTMLCanvasElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const renderer = useRef<THREE.WebGLRenderer | null>(null);
@@ -343,6 +342,7 @@ export default function WalkPage() {
     if (!start || !entering || !renderer.current) return;
     sound.resume();
     const p = selectionPlan;
+    if(usesOriginal&&p.source!=="image_analysis"){setUnitsErr("검증된 원본 도면이 있어야 실내를 열 수 있습니다.");return;}
     setPlan(p);
     setFade(true);
     setPhase("interior-loading");
@@ -367,11 +367,12 @@ export default function WalkPage() {
       setTimeout(() => setFade(false), 120);
     }).catch(err => {
       if(err instanceof InteriorSafetyError){
+        if(debug)console.warn("[floorplan-validation]",err.message);
         void warm.current?.then(w=>w.release());warm.current=null;
         it.dispose();interior.current=null;setHud(null);setFade(false);
-        if(p.imageAnalysis){setRejectedDrawing(p.imageAnalysis.key);setDrawing(null);setDrawingStatus("needs_review");}
+        if(p.imageAnalysis)setRejectedDrawing(p.imageAnalysis.key);
         else setFurnishingCase(v=>v+1);
-        setUnitsErr(p.imageAnalysis?"원본 도면의 자동 배치가 통행 검증을 통과하지 못했습니다. 확인된 면적의 평균 추정 구조를 확인해 주세요.":"통행을 막는 가구 배치를 감지해 구성을 바꿨습니다. 미리보기를 확인하고 다시 입장해 주세요.");setPhase("choose");return;
+        setUnitsErr(p.imageAnalysis?`원본 도면의 배치 검증을 통과하지 못했습니다. ${err.message} 원본을 다시 확인하거나 가구 구성을 바꿔 주세요.`:"통행을 막는 가구 배치를 감지해 구성을 바꿨습니다. 미리보기를 확인하고 다시 입장해 주세요.");setPhase("choose");return;
       }
       console.error(err);setError("실내를 만들지 못했습니다: "+String(err));setPhase("error");
     });
@@ -646,23 +647,28 @@ export default function WalkPage() {
   };
 
   const chosen = units?.types.find(t => t.key === pick.type);
-  const estimatedSelectionPlan=useMemo(()=>{
+  const imageInput=useMemo(()=>{
     if(!start||!entering||!chosen||!(chosen.areaM2>0))return null;
+    return {complexId:visit?.id??start.id,complexName:visit?.name??start.name,dong:entering.dong,unitType:chosen.label,area:chosen.areaM2,
+      areaBasis:chosen.source,households:units?.households,built:units?.built??visit?.built??start.built,
+      style:pick.style==="auto"?undefined:pick.style,floor:pick.floor||undefined,furnishingCase};
+  },[start,entering,chosen,visit,units,pick.style,pick.floor,furnishingCase]);
+  const estimatedSelectionPlan=useMemo(()=>{
+    // Procedural structures are available only in the explicit local demo.
+    // Real apartment selection never constructs an average fallback.
+    if(usesOriginal||!start||!entering||!chosen||!(chosen.areaM2>0))return null;
     const id=visit?.id??start.id,area=chosen.areaM2;
     const envelope=envelopeOf(entering.foot,entering.heading,units?.built??visit?.built??start.built,area,units?.dong?.lines,chosen.lines,seeded(`${id}|${entering.dong}|${pick.floor}|line`));
     const built=units?.built??visit?.built??start.built;
-    const bays:2|3|4=fallbackBays!=="auto"?fallbackBays:area<52?2:built&&built<2005?(area<66?2:3):built&&built>=2010?(area>=72?4:3):area>=100?4:3;
     const p=generatePlan({complexId:id,complexName:visit?.name??start.name,dong:entering.dong,unitType:chosen.label,area,areaBasis:chosen.source,households:units?.households,built,
-      style:pick.style==="auto"?undefined:pick.style,floor:pick.floor||undefined,envelope,layoutCase:preferSimulation?layoutCase??undefined:0,furnishingCase,bays:preferSimulation?undefined:bays});
-    if(!preferSimulation){p.averageFallback={bays,built,reason:"네이버 원본 도면 미확인 또는 자동 분석 미완료"};p.template=`${built&&built<2005?"구축 판상형":built&&built>=2010?"신형":"면적 기준"} ${bays}Bay 평균 추정`;}
+      style:pick.style==="auto"?undefined:pick.style,floor:pick.floor||undefined,envelope,layoutCase:layoutCase??undefined,furnishingCase});
     return p;
-  },[start,entering,chosen,visit,units,pick.style,pick.floor,layoutCase,furnishingCase,preferSimulation,fallbackBays]);
+  },[start,entering,chosen,visit,units,pick.style,pick.floor,layoutCase,furnishingCase,usesOriginal]);
   const selectionPlan=useMemo(()=>{
-    const p=estimatedSelectionPlan;
-    if(!p||preferSimulation||drawing?.complexId!==p.complexId)return p;
-    return floorPlanFromImage({complexId:p.complexId,complexName:p.complexName,dong:p.dong,unitType:p.unitType,area:p.areaExclusiveM2,
-      areaBasis:p.basis.area,built:p.basis.built,households:p.basis.households,style:p.style,floor:p.floor,furnishingCase:p.furnishingCase},drawing.analysis)??p;
-  },[estimatedSelectionPlan,drawing,preferSimulation]);
+    if(!usesOriginal)return estimatedSelectionPlan;
+    if(!imageInput||drawing?.complexId!==imageInput.complexId||drawing.analysis.drawing.key===rejectedDrawing)return null;
+    return floorPlanFromImage(imageInput,drawing.analysis);
+  },[estimatedSelectionPlan,drawing,imageInput,usesOriginal,rejectedDrawing]);
   const floors = Math.max(entering?.floors || 25, 5);
   const drawingComplex=visit?.id??start?.id??"";
   const drawingName=drawingComplex.split(":").slice(3).join(":")||visit?.name||entering?.name||start?.name||"";
@@ -672,7 +678,6 @@ export default function WalkPage() {
     <div ref={root} className={`wk-root${fade ? " is-fading" : ""}${phase==="choose"?" is-selecting":""}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onLostPointerCapture={onUp}>
       <canvas ref={canvas} className="wk-canvas" />
       <div className="wk-fade" />
-      {phase==="interior"&&plan?.averageFallback&&<div className="wk-average-result" role="status">네이버 원본 도면 미적용 · {plan.template}. 실제 방·벽·문·창문 위치와 다를 수 있습니다.</div>}
 
       {(phase === "boot" || phase === "outdoor-loading" || phase === "interior-loading" || phase === "building-loading") && (
         <div className="wk-loading">
@@ -748,17 +753,17 @@ export default function WalkPage() {
                 <div className="wk-chips">{units.types.map(t => <button key={t.key} className={pick.type === t.key ? "on" : ""} onClick={() => setPick(p => ({ ...p, type: t.key }))}>{t.areaM2.toFixed(2)}㎡<small>{t.households ? `${t.households}세대` : ""}{t.households && t.trades ? " · " : ""}{t.trades ? `거래 ${t.trades}건` : ""}</small></button>)}</div>
               </div>
               {selectionPlan?.source==="image_analysis"&&<><p className="wk-sub">원본의 구조를 우선 적용했습니다. 가구·재질은 아래에서 바꿀 수 있습니다.</p><LayoutPreview plan={selectionPlan}/></>}
-              {selectionPlan?.averageFallback&&drawingStatus!=="loading"&&<div className="wk-average-note"><b>평균 추정 도면으로 입장합니다</b><p>{selectionPlan.averageFallback.reason}. 전용 {selectionPlan.areaExclusiveM2}㎡{selectionPlan.averageFallback.built?` · ${selectionPlan.averageFallback.built}년 준공`:" · 준공 시기 미확인"} 기준의 {selectionPlan.template}입니다. 실제 방·벽·문·창문 위치와 다를 수 있습니다.</p><div className="wk-chips">{(["auto",2,3,4] as const).map(b=><button key={b} className={fallbackBays===b?"on":""} onClick={()=>setFallbackBays(b)}>{b==="auto"?"유형 자동":`${b}베이 평균`}</button>)}</div><LayoutPreview plan={selectionPlan}/></div>}
-              <details className="wk-simulation-options"><summary>가상 구조 {LAYOUT_CASES}개 비교 {preferSimulation?"· 선택 중":""}</summary><button className="wk-btn" onClick={()=>setPreferSimulation(v=>!v)}>{preferSimulation?"원본 도면 우선으로 돌아가기":"가상 구조 비교하기"}</button>
+              {usesOriginal&&!selectionPlan&&drawingStatus!=="loading"&&<p className="wk-warn">검증된 원본 도면을 아직 적용하지 못했습니다. 원본 도면과 주택형을 확인해 주세요.</p>}
+              {!usesOriginal&&<details className="wk-simulation-options"><summary>가상 구조 {LAYOUT_CASES}개 비교 {preferSimulation?"· 선택 중":""}</summary><button className="wk-btn" onClick={()=>setPreferSimulation(v=>!v)}>{preferSimulation?"원본 도면 우선으로 돌아가기":"가상 구조 비교하기"}</button>
               <div className="wk-field"><label>가상 구조 케이스 <b>{String((estimatedSelectionPlan?.layoutCase??0)+1).padStart(3,"0")} / {LAYOUT_CASES}</b></label>
                 <div className="wk-chips wk-layout-families">{LAYOUT_FAMILIES.map((name,i)=><button key={name} className={(estimatedSelectionPlan?.layoutCase??0)%8===i?"on":""} onClick={()=>{setPreferSimulation(true);setLayoutCase(caseNumber(Math.floor((estimatedSelectionPlan?.layoutCase??0)/8)*8+i));}}>{name}</button>)}</div>
                 <div className="wk-row"><button className="wk-btn" onClick={()=>{setPreferSimulation(true);setLayoutCase(caseNumber((estimatedSelectionPlan?.layoutCase??0)-1));}}>이전 구조</button><button className="wk-btn" onClick={()=>{setPreferSimulation(true);setLayoutCase(caseNumber((estimatedSelectionPlan?.layoutCase??0)+1));}}>다음 구조</button><button className="wk-btn" onClick={()=>{setPreferSimulation(true);setLayoutCase(caseNumber((estimatedSelectionPlan?.layoutCase??0)+73));}}>다른 케이스</button></div>
                 {estimatedSelectionPlan&&<LayoutPreview plan={estimatedSelectionPlan}/>}
-              </div></details>
+              </div></details>}
               <div className="wk-field"><label>층 <b>{pick.floor}층</b></label><input type="range" min={2} max={floors} value={pick.floor} onChange={e => setPick(p => ({ ...p, floor: +e.target.value }))} /></div>
               <div className="wk-field"><label>인테리어</label>
-                <div className="wk-chips">{(["auto", ...STYLE_NAMES] as const).map(s => <button key={s} className={pick.style === s ? "on" : ""} onClick={() => setPick(p => ({ ...p, style: s }))}>{s === "auto" ? "자동" : STYLE_LABEL[s]}</button>)}</div>
-                <button className="wk-btn" onClick={()=>setFurnishingCase(n=>(n+1)%64)}>가구·가전 구성 바꾸기 · {furnishingCase+1} / 64</button>
+                <div className="wk-chips">{(["auto", ...STYLE_NAMES] as const).map(s => <button key={s} className={pick.style === s ? "on" : ""} onClick={() => {setPick(p => ({ ...p, style: s }));setRejectedDrawing(null);}}>{s === "auto" ? "자동" : STYLE_LABEL[s]}</button>)}</div>
+                <button className="wk-btn" onClick={()=>{setFurnishingCase(n=>(n+1)%64);setRejectedDrawing(null);}}>가구·가전 구성 바꾸기 · {furnishingCase+1} / 64</button>
               </div>
               <div className="wk-field"><label>반려동물</label>
                 <div className="wk-chips">{([["dog", "🐶 시바견"], ["cat", "🐱 고양이"]] as const).map(([k, l]) => <button key={k} className={pet === k ? "on" : ""} onClick={() => setPet(k)}>{l}</button>)}</div>
@@ -766,11 +771,11 @@ export default function WalkPage() {
               {unitsErr && <p className="wk-warn">{unitsErr}</p>}
               <details className="wk-public-plans" onToggle={e=>setPublicPlansOpen(e.currentTarget.open)}><summary>무료 공개 원본 도면 자료실</summary>{publicPlansOpen&&<PublicPlanLibrary area={chosen?.areaM2}/>}</details>
               <p className="wk-basis">
-                <span className="wk-badge">{selectionPlan?.source==="image_analysis"?"원본 이미지 분석·가상 인테리어":"가상 구조·인테리어"}</span>
+                <span className="wk-badge">{selectionPlan?.source==="image_analysis"?"원본 도면·인테리어 구성":usesOriginal?"원본 도면 검증 대기":"가상 구조·인테리어"}</span>
                 {chosen ? `${chosen.label} · 면적 출처: ${chosen.source}` : "평형 자료 없음"}{units.households ? ` · ${units.households.toLocaleString()}세대` : ""}<br />
-                전용면적을 기준으로 구성한 시뮬레이션입니다. 방·문·창문 배치와 가구는 실제 세대와 다를 수 있습니다. 실제 도면이 확보된 경우 원본을 우선합니다.
+                {usesOriginal?"선택한 원본 도면의 공간을 기준으로 구성합니다. 가구·재질은 별도의 인테리어 연출이며 치수 미표기 구간은 면적·비율 환산값입니다.":"로컬 가상 구조 시뮬레이션입니다. 실제 세대의 도면이 아닙니다."}
               </p>
-              <div className="wk-row"><button className="wk-go" disabled={!selectionPlan||(usesOriginal&&!preferSimulation&&drawingStatus==="loading")} onClick={goIn}>{usesOriginal&&!preferSimulation&&drawingStatus==="loading"?"원본 도면 분석 중…":selectionPlan?.averageFallback?"평균 추정 구조로 들어가기":"이 구조로 들어가기"}</button><button className="wk-btn" onClick={() => { if (game.current) { game.current.resume(); setPhase("outdoor"); } else leave(); }}>돌아가기</button></div>
+              <div className="wk-row"><button className="wk-go" disabled={!selectionPlan||(usesOriginal&&drawingStatus==="loading")} onClick={goIn}>{usesOriginal&&drawingStatus==="loading"?"원본 도면 분석 중…":usesOriginal&&!selectionPlan?"원본 도면 검증 필요":"이 구조로 들어가기"}</button><button className="wk-btn" onClick={() => { if (game.current) { game.current.resume(); setPhase("outdoor"); } else leave(); }}>돌아가기</button></div>
             </>}
           </div>
         </div>
@@ -795,10 +800,11 @@ export default function WalkPage() {
             <div className="wk-meta"><span className="wk-badge">{plan.source==="image_analysis"?"원본 도면 이미지 분석":"추정 평면"}</span>{plan.template} · 전용 {plan.areaExclusiveM2.toFixed(2)}㎡ (방 합계 {plan.check.areaM2}㎡, {(plan.check.error * 100).toFixed(1)}%) · {STYLE_LABEL[plan.style]} · 연출용 가상 인테리어</div>
             <div className="wk-actions">
               <button className="wk-btn" onClick={()=>{document.exitPointerLock?.();interior.current?.dispose();interior.current=null;setHud(null);setTvOpen(false);setLaptopOpen(false);setZoomed(null);setPhase("choose");setFade(false);}}>구조·인테리어 바꾸기</button>
-              <button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>
+              {!interior.current?.inspectionMode&&<button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>}
               <button className="wk-btn" onClick={exitFlat}>나가기 <kbd>Esc</kbd></button>
             </div>
           </div>)}
+          {interior.current?.inspectionMode&&<div className="wk-source-inspection" role="status" onPointerDown={e=>e.stopPropagation()}><b>원본 3D 도면 검토</b><span>원본의 좁은 문·통행 제한을 보존했습니다. 공간을 골라 둘러보세요.</span><select aria-label="도면 공간 둘러보기" defaultValue="" onChange={e=>{document.exitPointerLock?.();interior.current?.inspectRoom(e.target.value);}}><option value="" disabled>공간 선택</option>{plan.rooms.filter(r=>r.type!=="hall").map((r,i)=><option value={r.id} key={r.id}>{r.label} {i+1}</option>)}</select></div>}
           {plan.facility && liftPanel && (
             <div className="wk-prompt wk-lift" onPointerDown={e => e.stopPropagation()}>
               <p><b>엘리베이터</b> · 현재 {liftPanel.levels.find(l => l.level === liftPanel.current)?.label}</p>
@@ -822,7 +828,7 @@ export default function WalkPage() {
           {hud?.pet && touch && <button className="wk-btn wk-pet-zoom" onPointerDown={e => { e.stopPropagation(); interior.current?.zoomPet(true); }}>🔍 확대해서 보기</button>}
           {hud?.seated === "반려동물" && <div className="wk-laptop-bar" onPointerDown={e => e.stopPropagation()}><span>가까이서 보는 중</span><button className="wk-btn" onClick={() => interior.current?.zoomPet(false)}>축소 <kbd>Z</kbd></button></div>}
           {hud?.seated && hud.seated !== "화면" && hud.seated !== "반려동물" && <div className="wk-hint is-seat">{hud.seated} · 이동키를 누르면 일어납니다</div>}
-          {showHelp && !touch && <div className="wk-help" onClick={() => setShowHelp(false)}>{plan.facility ? "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (문·엘리베이터·사람과 대화·의자·수전·스위치) · V 3인칭 · M 지도 · Esc 나가기" : "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (스위치·수전·변기·커튼·문·TV·소파·침대) · V 3인칭 · H 도움말 · Esc 나가기"}</div>}
+          {showHelp && !touch && <div className="wk-help" onClick={() => setShowHelp(false)}>{interior.current?.inspectionMode?"원본 도면 검토 · 공간 선택으로 방 이동 · 마우스로 둘러보기 · E 설비 확인 · Esc 나가기":plan.facility ? "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (문·엘리베이터·사람과 대화·의자·수전·스위치) · V 3인칭 · M 지도 · Esc 나가기" : "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (스위치·수전·변기·커튼·문·TV·소파·침대) · V 3인칭 · H 도움말 · Esc 나가기"}</div>}
         </>
       )}
 

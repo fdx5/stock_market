@@ -4,8 +4,8 @@ import { furnitureFootprints } from "./spawn";
 
 export class InteriorSafetyError extends Error {}
 /** Validate the furnished, body-sized walking space, not merely a graph of room names. */
-export function interiorReachability(plan:FloorPlan,segments:Seg[],furniture:Seg[],start:[number,number]) {
- const [x0,z0,x1,z1]=plan.bounds,C=.08,R=.24,nx=Math.ceil((x1-x0)/C),nz=Math.ceil((z1-z0)/C);
+export function interiorReachability(plan:FloorPlan,segments:Seg[],furniture:Seg[],start:[number,number],cellSize=.08):string[] {
+ const [x0,z0,x1,z1]=plan.bounds,C=cellSize,R=.24,nx=Math.ceil((x1-x0)/C),nz=Math.ceil((z1-z0)/C);
  const targets=plan.rooms.filter(r=>["living","kitchen","bedroom","master","bathroom","ensuite","dressroom","alpha"].includes(r.type));
  if(nx*nz>300000||nx<1||nz<1)return targets.map(r=>r.label);
  const buckets=new Map<string,number[]>(),marks=new Uint32Array(segments.length);let stamp=0;
@@ -30,5 +30,11 @@ export function interiorReachability(plan:FloorPlan,segments:Seg[],furniture:Seg
  if(nearest<0||best>.3)return targets.map(r=>r.label);
  const queue=[nearest];seen[nearest]=1;
  for(let h=0;h<queue.length;h++){const k=queue[h],i=k%nx;for(const q of [i>0?k-1:-1,i<nx-1?k+1:-1,k-nx,k+nx])if(q>=0&&q<free.length&&free[q]&&!seen[q]){seen[q]=1;queue.push(q);}}
- return targets.filter(r=>!queue.some(k=>{const x=x0+(k%nx+.5)*C,z=z0+(Math.floor(k/nx)+.5)*C;return x>r.rect[0]&&x<r.rect[2]&&z>r.rect[1]&&z<r.rect[3];})).map(r=>r.label);
+ const blocked=targets.filter(r=>!queue.some(k=>{const x=x0+(k%nx+.5)*C,z=z0+(Math.floor(k/nx)+.5)*C;return x>r.rect[0]&&x<r.rect[2]&&z>r.rect[1]&&z<r.rect[3];})).map(r=>r.label);
+ // Source doors can have only a few centimetres of body clearance. A coarse
+ // grid may miss every valid centre position and incorrectly seal a real door.
+ // Refine validation while retaining the same walls, furniture and body radius.
+ if(blocked.length&&plan.imageAnalysis&&C>.02&&Math.ceil((x1-x0)/.02)*Math.ceil((z1-z0)/.02)<=300000)
+  return interiorReachability(plan,segments,furniture,start,.02);
+ return blocked;
 }

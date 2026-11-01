@@ -1,0 +1,757 @@
+{
+  "date": "2026-11-01",
+  "baselineCommit": "6f8f687d",
+  "recognitionVersion": "orthogonal-area-7",
+  "ocr": "Local Tesseract.js WASM; native production validation pending",
+  "originalImages": 14,
+  "baselineReady": 10,
+  "candidateReady": 14,
+  "meaning": "Automatic validation rate is not ground-truth recognition accuracy",
+  "opaqueWallRaysPassed": 2278,
+  "cases": [
+    {
+      "case": "naver-108",
+      "sourceSha256": "8bf4d5625d1ab0a8df88d9b960861b518937eb5351a4c3ca08ba04ae179a97b8",
+      "drawing": {
+        "key": "a3b45f0d747142986700e71f",
+        "naverId": "2127",
+        "typeId": "2",
+        "typeName": "108",
+        "exclusiveArea": 84.92,
+        "supplyArea": 108.42,
+        "variant": "평면도 기본형",
+        "imageId": "2127@20111007181630877314",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20111007_67/hscp_img_1317978990784s0aJx_JPEG/GW70262_1317978989220.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=2127&ptpId=2&newComplex=Y"
+      },
+      "baseline": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.01836569579288026,
+          "zMetresPerPixel": 0.02045869302307171,
+          "basis": "recognized_dimensions"
+        },
+        "areaM2": 82.1,
+        "areaError": -0.0332,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.01836569579288026,
+          "zMetresPerPixel": 0.02045869302307171,
+          "basis": "recognized_dimensions",
+          "estimated": false,
+          "sourceAspectRatio": 1.387025,
+          "wallThicknessMetres": 0.1102
+        },
+        "areaM2": 82.1,
+        "areaError": -0.0332,
+        "sourceMatch": {
+          "wallRecall": 0.9656,
+          "wallPrecision": 0.9732,
+          "wallF1": 0.9694,
+          "tolerancePixels": 4,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "naver-154",
+      "sourceSha256": "6a622903f5728618f3e34730e739a99915d72f8788782fa4f4009ff059586cc6",
+      "drawing": {
+        "key": "fc993d362926ed82005f62a5",
+        "naverId": "2127",
+        "typeId": "3",
+        "typeName": "154",
+        "exclusiveArea": 127.07,
+        "supplyArea": 154.29,
+        "variant": "평면도 기본형",
+        "imageId": "2127@20111007181638037594",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20111007_243/hscp_img_13179789979001dvBN_JPEG/GW70262_1317978996549.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=2127&ptpId=3&newComplex=Y"
+      },
+      "baseline": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.022282608695652174,
+          "zMetresPerPixel": 0.02632883065748955,
+          "basis": "recognized_dimensions"
+        },
+        "areaM2": 122.48,
+        "areaError": -0.0361,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.022282608695652174,
+          "zMetresPerPixel": 0.02632883065748955,
+          "basis": "recognized_dimensions",
+          "estimated": false,
+          "sourceAspectRatio": 1.345133,
+          "wallThicknessMetres": 0.1337
+        },
+        "areaM2": 122.48,
+        "areaError": -0.0361,
+        "sourceMatch": {
+          "wallRecall": 0.9881,
+          "wallPrecision": 0.9496,
+          "wallF1": 0.9685,
+          "tolerancePixels": 4,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "naver-81A",
+      "sourceSha256": "179448d6be5cd1ef635f4a8c36cbd3a4d2b5c7894747505e583844daf78b78df",
+      "drawing": {
+        "key": "f5a5e2348b0dae531e429867",
+        "naverId": "2127",
+        "typeId": "1",
+        "typeName": "81A",
+        "exclusiveArea": 59.99,
+        "supplyArea": 81.28,
+        "variant": "평면도 기본형",
+        "imageId": "2127@20111007181626130082",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20111007_294/hscp_img_1317978986038gfjHR_JPEG/GW70262_1317978984862.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=2127&ptpId=1&newComplex=Y"
+      },
+      "baseline": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.016548320009185,
+          "zMetresPerPixel": 0.01744553973590452,
+          "basis": "dimension_chains"
+        },
+        "areaM2": 56.72,
+        "areaError": -0.0545,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.016548320009185,
+          "zMetresPerPixel": 0.01744553973590452,
+          "basis": "dimension_chains",
+          "estimated": false,
+          "sourceAspectRatio": 1.513825,
+          "wallThicknessMetres": 0.0993
+        },
+        "areaM2": 56.72,
+        "areaError": -0.0545,
+        "sourceMatch": {
+          "wallRecall": 0.9647,
+          "wallPrecision": 0.933,
+          "wallF1": 0.9486,
+          "tolerancePixels": 3,
+          "floorCoverage": 0.9998,
+          "target": 0.95,
+          "targetMet": false,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "naver-81B",
+      "sourceSha256": "38c9bc8126ba126652599644e38ec207f94c4db9b8a91faf8aa6dbb62400eaea",
+      "drawing": {
+        "key": "a54de9a0009ba66b59ad7820",
+        "naverId": "2127",
+        "typeId": "6",
+        "typeName": "81B",
+        "exclusiveArea": 59.9,
+        "supplyArea": 81.19,
+        "variant": "평면도 기본형",
+        "imageId": "2127@20200528180142958156",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20200528_225/hscp_img_1590656502817PNA9y_JPEG/photoinfra_1590656502619.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=2127&ptpId=6&newComplex=Y"
+      },
+      "baseline": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.01592837358347956,
+          "zMetresPerPixel": 0.01662971175166297,
+          "basis": "recognized_dimensions"
+        },
+        "areaM2": 57.69,
+        "areaError": -0.0369,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.01592837358347956,
+          "zMetresPerPixel": 0.01662971175166297,
+          "basis": "recognized_dimensions",
+          "estimated": false,
+          "sourceAspectRatio": 1.510917,
+          "wallThicknessMetres": 0.0956
+        },
+        "areaM2": 57.69,
+        "areaError": -0.0369,
+        "sourceMatch": {
+          "wallRecall": 0.9967,
+          "wallPrecision": 0.8507,
+          "wallF1": 0.9179,
+          "tolerancePixels": 4,
+          "floorCoverage": 0.9989,
+          "target": 0.95,
+          "targetMet": false,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "desiang-114A",
+      "sourceSha256": "eb13cdfe5c2bed7b5e30b40b89549cfaa3f6b857bb712e5e9f8461a9a6b7d426",
+      "drawing": {
+        "key": "e1697880fe20f06bd2357a15",
+        "naverId": "107799",
+        "typeId": "9",
+        "typeName": "114A",
+        "exclusiveArea": 84.81,
+        "supplyArea": 114.58,
+        "variant": "평면도 기본형",
+        "imageId": "107799@20140213170300029262",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20140213_129/hscp_img_1392278579970zR90y_JPEG/photoinfra_1392278579691.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=107799&ptpId=9&newComplex=Y"
+      },
+      "baseline": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.020677181744581424,
+          "zMetresPerPixel": 0.02071601941747573,
+          "basis": "recognized_dimensions"
+        },
+        "areaM2": 89.57,
+        "areaError": 0.0561,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.020677181744581424,
+          "zMetresPerPixel": 0.02071601941747573,
+          "basis": "recognized_dimensions",
+          "estimated": false,
+          "sourceAspectRatio": 1.017513,
+          "wallThicknessMetres": 0.1241
+        },
+        "areaM2": 89.57,
+        "areaError": 0.0561,
+        "sourceMatch": {
+          "wallRecall": 0.9935,
+          "wallPrecision": 0.8909,
+          "wallF1": 0.9394,
+          "tolerancePixels": 5,
+          "floorCoverage": 0.9996,
+          "target": 0.95,
+          "targetMet": false,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "desiang-116B",
+      "sourceSha256": "23ead329beff7a4b67c6fabce07b431358bae66b8a30cde2eea2208dd49146fc",
+      "drawing": {
+        "key": "fcf1bee3c882f8d88b92783f",
+        "naverId": "107799",
+        "typeId": "11",
+        "typeName": "116B",
+        "exclusiveArea": 84.92,
+        "supplyArea": 116.07,
+        "variant": "평면도 확장형",
+        "imageId": "107799@20140213170405015428",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20140213_166/hscp_img_1392278644974UdI2n_JPEG/photoinfra_1392278644717.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=107799&ptpId=11&newComplex=Y"
+      },
+      "baseline": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.015973547297312703,
+          "zMetresPerPixel": 0.015973547297312703,
+          "basis": "area_calibration"
+        },
+        "areaM2": 74.73,
+        "areaError": -0.1199,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.017116698013988976,
+          "zMetresPerPixel": 0.017116698013988976,
+          "basis": "exclusive_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 1.578529,
+          "wallThicknessMetres": 0.1027
+        },
+        "areaM2": 84.92,
+        "areaError": 0.0,
+        "sourceMatch": {
+          "wallRecall": 0.9635,
+          "wallPrecision": 0.9042,
+          "wallF1": 0.9329,
+          "tolerancePixels": 4,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": false,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "desiang-81A",
+      "sourceSha256": "c80f69694a9bb9518e5de7662e03116709026a049366896e6f809219279b28b1",
+      "drawing": {
+        "key": "cd41a82d62b21d3e5f8e5151",
+        "naverId": "107799",
+        "typeId": "1",
+        "typeName": "81A",
+        "exclusiveArea": 59.81,
+        "supplyArea": 81.54,
+        "variant": "평면도 기본형",
+        "imageId": "107799@20140213170017480432",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20140213_60/hscp_img_1392278417419yY5Mp_JPEG/photoinfra_1392278417132.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=107799&ptpId=1&newComplex=Y"
+      },
+      "baseline": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.01929007932288196,
+          "zMetresPerPixel": 0.01839638682775809,
+          "basis": "dimension_chains"
+        },
+        "areaM2": 61.74,
+        "areaError": 0.0323,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.01929007932288196,
+          "zMetresPerPixel": 0.01839638682775809,
+          "basis": "dimension_chains",
+          "estimated": false,
+          "sourceAspectRatio": 0.931579,
+          "wallThicknessMetres": 0.1104
+        },
+        "areaM2": 61.74,
+        "areaError": 0.0323,
+        "sourceMatch": {
+          "wallRecall": 0.9325,
+          "wallPrecision": 0.8925,
+          "wallF1": 0.9121,
+          "tolerancePixels": 4,
+          "floorCoverage": 0.9999,
+          "target": 0.95,
+          "targetMet": false,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "luceheim-112B",
+      "sourceSha256": "eff90790200cd13b1cabc333a6bd2e4b2a597a7549848896ed3cfeac9cc87ae5",
+      "drawing": {
+        "key": "a2939be4ae08ac3421fc6e2b",
+        "naverId": "113125",
+        "typeId": "7",
+        "typeName": "112B",
+        "exclusiveArea": 84.99,
+        "supplyArea": 112.95,
+        "variant": "평면도 확장형",
+        "imageId": "113125@20191210130125308608",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20191210_274/hscp_img_1575950485177d2fTd_JPEG/photoinfra_1575950484980.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=113125&ptpId=7&newComplex=Y"
+      },
+      "baseline": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.017371276067110166,
+          "zMetresPerPixel": 0.017941849903966304,
+          "basis": "dimension_chains"
+        },
+        "areaM2": 97.82,
+        "areaError": 0.151,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.017371276067110166,
+          "zMetresPerPixel": 0.017941849903966304,
+          "basis": "dimension_chains",
+          "estimated": false,
+          "sourceAspectRatio": 1.33913,
+          "wallThicknessMetres": 0.1042
+        },
+        "areaM2": 99.64,
+        "areaError": 0.1724,
+        "sourceMatch": {
+          "wallRecall": 0.9081,
+          "wallPrecision": 0.7546,
+          "wallF1": 0.8243,
+          "tolerancePixels": 5,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": false,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "luceheim-114A",
+      "sourceSha256": "fe11df5f2b9d55b165045f45131da953b23314aa3340598e36a61b44779dbbf1",
+      "drawing": {
+        "key": "673bed0cc6aa145b90df7b8a",
+        "naverId": "113125",
+        "typeId": "8",
+        "typeName": "114A",
+        "exclusiveArea": 84.97,
+        "supplyArea": 114.73,
+        "variant": "평면도 확장형",
+        "imageId": "113125@20191210130117825214",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20191210_278/hscp_img_1575950477665nOCkE_JPEG/photoinfra_1575950477464.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=113125&ptpId=8&newComplex=Y"
+      },
+      "baseline": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.017987662161948925,
+          "zMetresPerPixel": 0.017987662161948925,
+          "basis": "area_calibration"
+        },
+        "areaM2": 87.58,
+        "areaError": 0.0308,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.017987662161948925,
+          "zMetresPerPixel": 0.017987662161948925,
+          "basis": "single_axis_dimensions",
+          "estimated": true,
+          "sourceAspectRatio": 1.198606,
+          "wallThicknessMetres": 0.1079
+        },
+        "areaM2": 90.73,
+        "areaError": 0.0677,
+        "sourceMatch": {
+          "wallRecall": 0.8734,
+          "wallPrecision": 0.7881,
+          "wallF1": 0.8286,
+          "tolerancePixels": 5,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": false,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "luceheim-86A",
+      "sourceSha256": "9c37947177c291d28a8c8c0e0f08ec530e07a9984a4f1f410036fd6800773ba3",
+      "drawing": {
+        "key": "3b8f450235d04c0e1d1cdf84",
+        "naverId": "113125",
+        "typeId": "1",
+        "typeName": "86A",
+        "exclusiveArea": 59.99,
+        "supplyArea": 86.17,
+        "variant": "평면도 확장형",
+        "imageId": "113125@20230912110455986722",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20230912_223/hscp_img_1694484295785I3azU_JPEG/photoinfra_1694484295497.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=113125&ptpId=1&newComplex=Y"
+      },
+      "baseline": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.017936441028954073,
+          "zMetresPerPixel": 0.017936441028954073,
+          "basis": "single_axis_dimensions"
+        },
+        "areaM2": 75.95,
+        "areaError": 0.2661,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.017936441028954073,
+          "zMetresPerPixel": 0.017936441028954073,
+          "basis": "single_axis_dimensions",
+          "estimated": true,
+          "sourceAspectRatio": 0.963478,
+          "wallThicknessMetres": 0.1076
+        },
+        "areaM2": 76.33,
+        "areaError": 0.2723,
+        "sourceMatch": {
+          "wallRecall": 0.8528,
+          "wallPrecision": 0.8301,
+          "wallF1": 0.8413,
+          "tolerancePixels": 4,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": false,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "suseo-49",
+      "sourceSha256": "9bc64fead5e9de9df46622f4239990172ec4583532bf40d9c97936e40b39c068",
+      "drawing": {
+        "key": "7dce3b2ddd3836ae5714d020",
+        "naverId": "671",
+        "typeId": "1",
+        "typeName": "49",
+        "exclusiveArea": 33.18,
+        "supplyArea": 49.0,
+        "variant": "평면도 기본형",
+        "imageId": "671@20110421003242702633",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20120125_129/land_system_1327420244229URukb_JPEG/116_671_1_49_GA1_1302850969824.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=671&ptpId=1&newComplex=Y"
+      },
+      "baseline": {
+        "status": "needs_review",
+        "reason": "area_or_room_consistency",
+        "scale": {
+          "xMetresPerPixel": 0.011021723540682654,
+          "zMetresPerPixel": 0.011021723540682654,
+          "basis": "area_calibration"
+        },
+        "areaM2": 32.79,
+        "areaError": -0.0118,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.01059402226018892,
+          "zMetresPerPixel": 0.01059402226018892,
+          "basis": "room_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 2.122137,
+          "wallThicknessMetres": 0.0636
+        },
+        "areaM2": 30.3,
+        "areaError": -0.0869,
+        "sourceMatch": {
+          "wallRecall": 0.9352,
+          "wallPrecision": 0.971,
+          "wallF1": 0.9527,
+          "tolerancePixels": 3,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "suseo-55",
+      "sourceSha256": "626d6508a3afa085a8edca8e20c4d403e7daaf80db522549f9ed481279c26dc3",
+      "drawing": {
+        "key": "50a47c5107676e558114120b",
+        "naverId": "671",
+        "typeId": "2",
+        "typeName": "55",
+        "exclusiveArea": 39.51,
+        "supplyArea": 55.23,
+        "variant": "평면도 기본형",
+        "imageId": "671@20110421002939366618",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20120125_124/land_system_1327420244862LldOo_JPEG/116_671_2_55_GA1_1302850976177.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=671&ptpId=2&newComplex=Y"
+      },
+      "baseline": {
+        "status": "needs_review",
+        "reason": "room_labels",
+        "scale": null,
+        "areaM2": null,
+        "areaError": null,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.00952130962001647,
+          "zMetresPerPixel": 0.00952130962001647,
+          "basis": "room_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 1.28363,
+          "wallThicknessMetres": 0.0571
+        },
+        "areaM2": 33.66,
+        "areaError": -0.1481,
+        "sourceMatch": {
+          "wallRecall": 0.9773,
+          "wallPrecision": 0.945,
+          "wallF1": 0.9609,
+          "tolerancePixels": 5,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "suseo-60",
+      "sourceSha256": "71a7beded09b27417d72a345b5d02981fb1f4bdfe808ef0d5fb8181f53211d89",
+      "drawing": {
+        "key": "5f7a2f02a03e52b1e51597d9",
+        "naverId": "671",
+        "typeId": "3",
+        "typeName": "60",
+        "exclusiveArea": 39.53,
+        "supplyArea": 60.14,
+        "variant": "평면도 기본형",
+        "imageId": "671@20110421002939621876",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20120125_135/land_system_1327420245620Hfwa5_JPEG/116_671_3_61_GA1_1302850982752.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=671&ptpId=3&newComplex=Y"
+      },
+      "baseline": {
+        "status": "needs_review",
+        "reason": "room_labels",
+        "scale": null,
+        "areaM2": null,
+        "areaError": null,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.009289003988889195,
+          "zMetresPerPixel": 0.009289003988889195,
+          "basis": "room_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 1.323052,
+          "wallThicknessMetres": 0.0557
+        },
+        "areaM2": 36.0,
+        "areaError": -0.0894,
+        "sourceMatch": {
+          "wallRecall": 1.0,
+          "wallPrecision": 0.9124,
+          "wallF1": 0.9542,
+          "tolerancePixels": 5,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    },
+    {
+      "case": "suseo-69",
+      "sourceSha256": "2acb3ed5fe274c63c50fcb26831a11fae271242aa3e226d619f0637046eeef8f",
+      "drawing": {
+        "key": "583eb327a6f13a3b2e46bcc6",
+        "naverId": "671",
+        "typeId": "4",
+        "typeName": "69",
+        "exclusiveArea": 49.96,
+        "supplyArea": 69.85,
+        "variant": "평면도 기본형",
+        "imageId": "671@20110421002939949849",
+        "imageUrl": "https://landthumb-phinf.pstatic.net/20120125_53/land_system_1327420246208lHvd4_JPEG/116_671_4_69_GA1_1302850989898.jpg",
+        "sourceUrl": "https://land.naver.com/info/groundPlanGallery.naver?rletNo=671&ptpId=4&newComplex=Y"
+      },
+      "baseline": {
+        "status": "needs_review",
+        "reason": "room_labels",
+        "scale": null,
+        "areaM2": null,
+        "areaError": null,
+        "sourceMatch": null
+      },
+      "candidate": {
+        "status": "ready",
+        "reason": null,
+        "scale": {
+          "xMetresPerPixel": 0.013322469614117956,
+          "zMetresPerPixel": 0.013322469614117956,
+          "basis": "room_area_ratio",
+          "estimated": true,
+          "sourceAspectRatio": 1.248366,
+          "wallThicknessMetres": 0.0799
+        },
+        "areaM2": 50.38,
+        "areaError": 0.0084,
+        "sourceMatch": {
+          "wallRecall": 1.0,
+          "wallPrecision": 0.9656,
+          "wallF1": 0.9825,
+          "tolerancePixels": 5,
+          "floorCoverage": 1.0,
+          "target": 0.95,
+          "targetMet": true,
+          "scope": "reconstructed_unit_and_source_floor_coverage",
+          "metric": "unit_wall_centerline_f1",
+          "certifiedAccuracy": false
+        }
+      }
+    }
+  ]
+}

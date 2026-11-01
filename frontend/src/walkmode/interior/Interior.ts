@@ -211,6 +211,8 @@ export class Interior {
   pos = new THREE.Vector2(); yaw = 0; pitch = -0.05; private vel = new THREE.Vector2();
   private eyeY = EYE; private bob = 0; private stepAcc = 0;
   view: "first" | "third" = "first";
+  inspectionMode=false;
+  inspectionIssues:string[]=[];
   /** the camera as shown: it follows pos/yaw/pitch — at once while walking and looking, eased over
    * a moment when they jump (sitting, lying, standing, changing view), never a sudden turn */
   private shown = { yaw: 0, pitch: -0.05, pos: new THREE.Vector3(), anchor: new THREE.Vector2(), boom: 1.5, ease: 0, init: false };
@@ -362,7 +364,10 @@ export class Interior {
       const openDoors=this.doorSegs();
       for(const {d,rotation,position} of saved){d.pivot.rotation.y=rotation;d.leaf.position.copy(position);}
       const blocked=interiorReachability(plan,[...this.segs,...openDoors],this.furn.colliders,[this.pos.x,this.pos.y]);
-      if(blocked.length)throw new InteriorSafetyError(`가구·문 배치 후 통행을 확보하지 못한 공간: ${[...new Set(blocked)].join(", ")}`);
+      if(blocked.length){
+        if(plan.imageAnalysis){this.inspectionMode=true;this.inspectionIssues=[...new Set(blocked)];}
+        else throw new InteriorSafetyError(`가구·문 배치 후 통행을 확보하지 못한 공간: ${[...new Set(blocked)].join(", ")}`);
+      }
     }
     this.applyCamera(0);
     await nextFrame();
@@ -609,7 +614,10 @@ export class Interior {
       const room=plan.rooms.find(r=>r.type===(plan.imageAnalysis?"living":"entrance"))??plan.rooms[0];
       const preferred:[number,number]=plan.imageAnalysis?.start.slice(0,2) as [number,number]??[(room.rect[0]+room.rect[2])/2,room.rect[1]+.65];
       const safe=walkingSpawn(plan,this.shell.segments,this.furn.colliders,this.doorSegs(),preferred);
-      if(!safe)throw new InteriorSafetyError("가구와 벽을 피한 입장 공간을 확보하지 못했습니다. 다른 인테리어를 선택해 주세요.");
+      if(!safe){
+        if(plan.imageAnalysis){this.inspectionMode=true;this.inspectRoom(room.id);return;}
+        throw new InteriorSafetyError("가구와 벽을 피한 입장 공간을 확보하지 못했습니다. 다른 인테리어를 선택해 주세요.");
+      }
       this.pos.set(safe[0],safe[1]);this.yaw=safe[2];this.vel.set(0,0);return;
     }
     const st = plan.facility?.start;
@@ -625,6 +633,16 @@ export class Interior {
   }
 
   // ---------------------------------------------------------------- input
+  /** Camera inspection preserves source geometry when a symbolic door is too
+   * narrow to walk through. It does not relax body collision or invent a door. */
+  inspectRoom(id:string){
+    const plan=this.o.plan,room=plan.rooms.find(r=>r.id===id);if(!room||!plan.imageAnalysis)return;
+    const [x0,z0,x1,z1]=room.rect,preferred:[number,number]=[(x0+x1)/2,(z0+z1)/2];
+    const local={...plan,rooms:plan.rooms.filter(r=>r.zone===room.zone)};
+    const safe=walkingSpawn(local,this.shell.segments,this.furn.colliders,this.doorSegs(),preferred);
+    this.pos.set(safe?.[0]??preferred[0],safe?.[1]??preferred[1]);
+    this.yaw=safe?.[2]??Math.PI;this.pitch=-.06;this.view="first";this.seated=null;this.vel.set(0,0);this.keys.clear();this.shown.ease=.15;this.emitHud(true);
+  }
   private overlay = false;
   private monitor: MonitorScreen | null = null;
   private screenLook: { yaw: number; pitch: number } | null = null;
@@ -711,7 +729,7 @@ export class Interior {
   tvPower(on: boolean) { this.furn.tv?.power?.(on); this.probeDirty = Math.max(this.probeDirty, 8); }
   tvPicture(img: HTMLImageElement | null) { this.furn.tv?.picture?.(img); }
   // (into first person: eyes level, ahead the way the body faces)
-  toggleView() { this.view = this.view === "first" ? "third" : "first"; this.shown.ease = viewPreferences().reduceMotion ? .15 : .3; this.emitHud(); }
+  toggleView() { if(this.inspectionMode)return;this.view = this.view === "first" ? "third" : "first"; this.shown.ease = viewPreferences().reduceMotion ? .15 : .3; this.emitHud(); }
   interact() {
     this.o.sound.resume();
     const t = this.target; if (!t) return;
@@ -799,6 +817,7 @@ export class Interior {
     if(safe){this.pos.set(safe[0],safe[1]);this.vel.set(0,0);}
   }
   private move(dt: number) {
+    if(this.inspectionMode){this.vel.set(0,0);return;}
     if (this.seated) { this.avatar.update(dt, 0); return; }
     this.recoverFurnitureOverlap();
     const k = this.keys;

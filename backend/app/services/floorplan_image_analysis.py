@@ -19,9 +19,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
+from app.services.floorplan_geometry import enclosed_floor, read_areas, fit_area_scale, source_match
 
 cv2.setNumThreads(1)
-VERSION = "orthogonal-ocr-6"
+VERSION = "orthogonal-area-7"
 
 
 def _ocr(image: np.ndarray, rotation: int = 0, mode: str = "mixed") -> list[dict]:
@@ -34,7 +35,7 @@ def _ocr(image: np.ndarray, rotation: int = 0, mode: str = "mixed") -> list[dict
     encoded = cv2.imencode(".png", scaled)[1].tobytes()
     try:
         model_dir=Path(__file__).resolve().parents[1]/"assets"/"floorplan-ocr"
-        args=[command, "stdin", "stdout", "--tessdata-dir", str(model_dir), "-l", "kor" if mode=="text" else "eng" if rotation or mode=="digits" else "kor+eng", "--oem", "1", "--psm", "6" if mode=="text" else "11"]
+        args=[command, "stdin", "stdout", "--tessdata-dir", str(model_dir), "-l", "kor" if mode=="text" else "eng" if rotation or mode=="digits" else "kor+eng", "--oem", "1", "--psm", "6" if mode in ("text", "area") else "11"]
         if rotation or mode=="digits":args.extend(["-c","tessedit_char_whitelist=0123456789"])
         # Select TSV through parameters: a custom model directory need not contain
         # the operating system's `configs/tsv` file.
@@ -60,7 +61,7 @@ def _ocr(image: np.ndarray, rotation: int = 0, mode: str = "mixed") -> list[dict
     return out
 
 
-def _room_ocr(mask: np.ndarray, bounds: tuple[int,int,int,int], locate: np.ndarray | None = None) -> list[dict]:
+def _room_ocr(mask: np.ndarray, bounds: tuple[int,int,int,int], locate: np.ndarray | None = None, mode: str = "text", multiline:bool=False) -> list[dict]:
     """Read enlarged text patches without the drawing's walls, floor or dimension chains.
 
     A single Korean-only OCR pass over the patch sheet replaces dozens of per-room calls.
@@ -73,7 +74,9 @@ def _room_ocr(mask: np.ndarray, bounds: tuple[int,int,int,int], locate: np.ndarr
     patches=[]
     for contour in contours:
         x,y,w,h=cv2.boundingRect(contour)
-        if not (12<=w<=130 and 7<=h<=28 and .65<w/h<11):continue
+        if mode=="area" or multiline:
+            if not (12<=w<=150 and 7<=h<=76 and .3<w/h<11):continue
+        elif not (12<=w<=130 and 7<=h<=28 and .65<w/h<11):continue
         ink=float((interior[y:y+h,x:x+w]>0).mean())
         if not .06<ink<.75:continue
         patches.append((max(0,x-3),max(0,y-3),min(mask.shape[1],x+w+3),min(mask.shape[0],y+h+3)))
@@ -87,7 +90,7 @@ def _room_ocr(mask: np.ndarray, bounds: tuple[int,int,int,int], locate: np.ndarr
         sheet[cursor+12:cursor+12+crop.shape[0],16:16+crop.shape[1]]=crop
         positions.append((cursor+12,cursor+12+crop.shape[0],x,y,r,b));cursor+=crop.shape[0]+28
     words=[]
-    for word in _ocr(sheet,mode="text"):
+    for word in _ocr(sheet,mode=mode):
         patch=next((p for p in positions if p[0]-4<=word["y"]<=p[1]+4),None)
         if not patch:continue
         top,_,x,y,r,b=patch
@@ -216,8 +219,10 @@ def _phrases(words: list[dict]) -> list[dict]:
     return result
 
 
-def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | None = None, expanded:bool=False,supply_area:float|None=None) -> dict:
+def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | None = None, expanded:bool=False,supply_area:float|None=None, _axis_recovery:bool=False) -> dict:
     started = time.perf_counter()
+    if not isinstance(exclusive_area, (int, float)) or not math.isfinite(exclusive_area) or not 5 <= exclusive_area <= 1000:
+        return {"status":"needs_review", "reason":"exclusive_area", "version":VERSION}
     # Inspect dimensions before allocating/decompressing the image. No on-disk source files.
     with Image.open(io.BytesIO(data)) as source:
         if source.width * source.height > 4_000_000 or min(source.size) < 200:
@@ -239,6 +244,16 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
     n, labels, stats, _ = cv2.connectedComponentsWithStats(thick)
     ids = [i for i in range(1, n) if stats[i, 4] > 100 and max(stats[i, 2:4]) > min(H, W) * .08]
     points = np.argwhere(np.isin(labels, ids))
+    if len(points) < 500:
+        # Faded scans and monochrome line plans have no black, bold wall fill.
+        neutral_ink=((gray<185)&(im.max(2)-im.min(2)<45)).astype(np.uint8)*255
+        span=max(20,round(min(H,W)*.065))
+        thin_h=cv2.morphologyEx(neutral_ink,cv2.MORPH_OPEN,np.ones((1,span),np.uint8))
+        thin_v=cv2.morphologyEx(neutral_ink,cv2.MORPH_OPEN,np.ones((span,1),np.uint8))
+        thick=thin_h|thin_v
+        n,labels,stats,_=cv2.connectedComponentsWithStats(thick)
+        ids=[i for i in range(1,n) if stats[i,4]>100 and max(stats[i,2:4])>min(H,W)*.08]
+        points=np.argwhere(np.isin(labels,ids))
     if len(points) < 500:
         return {"status": "needs_review", "reason": "wall_detection", "version": VERSION}
     y0, x0 = points.min(0).astype(int)
@@ -267,6 +282,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             x,y,w,h=cv2.boundingRect(contour)
             adjacent=blue[max(0,y-12):min(H,y+h+12),max(0,x-25):min(W,x+w+25)]
             if adjacent.size and adjacent.mean()>.025:weak[y:y+h,x:x+w]=0
+    strong_h,strong_v=horizontal.copy(),vertical.copy()
     horizontal |= weak_h
     vertical |= weak_v
     wall = horizontal | vertical
@@ -291,9 +307,35 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             recovery_lines=cv2.morphologyEx(recovery,cv2.MORPH_OPEN,np.ones((1,80),np.uint8))|cv2.morphologyEx(recovery,cv2.MORPH_OPEN,np.ones((45,1),np.uint8))
             recovery[cv2.dilate(recovery_lines,np.ones((3,3),np.uint8))>0]=0
             room_words+=_room_ocr(recovery,(x0,y0,x1,y1))
+        room_number_mask=number_mask.copy()
         number_mask[max(0,y0-3):y1+4,max(0,x0-3):x1+4]=0
         words = room_words + _ocr(255-number_mask,mode="digits") + _ocr(255-number_mask,90,mode="digits")
+        # Preserve decimal points and square-metre units inside rooms. The perimeter
+        # digit-only pass intentionally cannot supply this evidence.
+        area_words=_room_ocr(ocr_mask, (x0,y0,x1,y1), mode="area")
+        known_texts=[w["text"] for w in _phrases(room_words)]
+        groups=[("거실",),("주방","식당"),("침실","짐실","안방"),("욕실","화장실"),("현관",),("발코니","베란다")]
+        missing=[g for g in groups if not any(any(term in t for term in g) for t in known_texts)]
+        # The multiline pass supplies missing labels and areas; its lower-quality
+        # alternative spellings cannot displace already observed room anchors.
+        words += [w for w in area_words if any(c.isdigit() for c in w["text"]) or any(any(term in w["text"] for term in g) for g in missing)]
+        if any(g in missing for g in groups[:3]):
+            words += [w for w in _room_ocr(room_number_mask,(x0,y0,x1,y1),multiline=True) if any(any(term in w["text"] for term in g) for g in missing)]
+    area_evidence = read_areas(words, (x0,y0,x1,y1))
+    recognized_words=words
     words = _phrases(words)
+    # Thin counter/appliance outlines near the upper edge are not glazing. Keep
+    # weak frames at the perimeter or alongside an observed balcony, while bold
+    # structural strokes always retain their source positions.
+    balcony_words=[w for w in words if any(t in w["text"] for t in ("발코니","베란다"))]
+    for axis,weak in [("x",weak_v),("z",weak_h)]:
+        contours,_=cv2.findContours(weak,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            x,y,w,h=cv2.boundingRect(contour)
+            perimeter=min(abs(x-x0),abs(x+w-x1))<10 if axis=="x" else min(abs(y-y0),abs(y+h-y1))<10
+            beside=any((y-5<=b["y"]<=y+h+5 and abs(b["x"]-(x+w/2))<(x1-x0)*.25) if axis=="x" else (x-5<=b["x"]<=x+w+5 and abs(b["y"]-(y+h/2))<(y1-y0)*.45) for b in balcony_words)
+            if not perimeter and not beside:weak[y:y+h,x:x+w]=0
+    horizontal=strong_h|weak_h;vertical=strong_v|weak_v;wall=horizontal|vertical
     numeric = []
     for word in words:
         text = word["text"].replace(",", "").strip(" .|[]")
@@ -313,6 +355,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
     Z,z_constraints=_axis_calibration(numeric,gray,"z",(x0,y0,x1,y1),default_scale)
     chain_applied=bool(x_constraints and z_constraints)
     single_axis=False
+    has_dimension_axis=False
     if chain_applied:
         sx,sy=(X(x1)-X(x0))/(x1-x0),(Z(y1)-Z(y0))/(y1-y0)
         dimension_scale=True
@@ -321,6 +364,8 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
         sy = (_dimension_scale(dy,gray,"z",(x0,y0,x1,y1)) or dy["millimetres"]/1000/(y1-y0)) if dy else None
         if x_constraints:sx=(X(x1)-X(x0))/(x1-x0)
         if z_constraints:sy=(Z(y1)-Z(y0))/(y1-y0)
+        has_dimension_axis=bool(sx or sy)
+        single_axis=bool(sx) != bool(sy)
         dimension_scale=sx is not None and sy is not None
         if sx and sy and not .65<sx/sy<1.55:
             # OCR engines can omit one chain's ticks or join adjacent digits. With
@@ -332,7 +377,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
                 if candidates:
                     sx=sy=min(candidates,key=lambda value:abs(math.log(value/default_scale)));single_axis=True
                 else:
-                    sx=sy=default_scale;dimension_scale=False
+                    sx=sy=default_scale;dimension_scale=False;has_dimension_axis=False
             else:
                 return {"status":"needs_review","reason":"dimension_conflict","version":VERSION,"recognizedDimensions":numeric}
         sx,sy=sx or sy or default_scale,sy or sx or default_scale
@@ -340,6 +385,24 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
         Z=lambda v:float((v-y0)*sy)
     xs: list[float] = [float(x0), float(x1)]
     ys: list[float] = [float(y0), float(y1)]
+    # Surface bounds guide room decomposition without inventing structural walls.
+    surface_hsv=cv2.cvtColor(im,cv2.COLOR_BGR2HSV)
+    for word in words:
+        if not any(t in word["text"] for t in ("현관","다용도")) or not (x0<word["x"]<x1 and y0<word["y"]<y1):continue
+        cx,cy=round(word["x"]),round(word["y"])
+        for axis,values,origin,limit in [(0,xs,cx,W),(1,ys,cy,H)]:
+            for direction in [-1,1]:
+                consecutive=0
+                for step in range(5,round(min(x1-x0,y1-y0)*.3)):
+                    at=origin+direction*step
+                    if not 2<=at<limit-2:break
+                    patch=surface_hsv[max(0,cy-3):cy+4,at] if axis==0 else surface_hsv[at,max(0,cx-3):cx+4]
+                    boundary=bool(((patch[:,1]>45)|(patch[:,2]<100)).mean()>.6)
+                    consecutive=consecutive+1 if boundary else 0
+                    if consecutive>=3:
+                        coordinate=float(at-direction*2)
+                        if all(abs(v-coordinate)>7 for v in values):values.append(coordinate)
+                        break
     for axis, mask in [("x", vertical), ("y", horizontal)]:
         contours, _ = cv2.findContours(mask[y0:y1+1, x0:x1+1], cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for contour in contours:
@@ -348,6 +411,15 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
                 xs.append(x0 + x + (w - 1) / 2)
             if axis == "y" and w > minimum * 1.5 and h < 15:
                 ys.append(y0 + y + (h - 1) / 2)
+        # Connected lintels can join parallel strokes into a wide contour. Recover
+        # their individual axes from sustained line support, retaining both walls.
+        crop=mask[y0:y1+1,x0:x1+1]>0
+        support=crop.sum(axis=0 if axis=="x" else 1)
+        values=xs if axis=="x" else ys;origin=x0 if axis=="x" else y0
+        for lo,hi in _runs(support>minimum*1.5) if _axis_recovery else []:
+            if hi-lo>max(15,minimum):continue
+            center=origin+float(np.average(np.arange(lo,hi),weights=support[lo:hi]))
+            if all(abs(v-center)>7 for v in values):values.append(center)
     xs, ys = _clusters(xs), _clusters(ys)
     # Discard drawing details too narrow to be a usable floor cell, retaining actual outer limits.
     def usable(axis: list[float], scale: float) -> list[float]:
@@ -361,6 +433,12 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
         return {"status": "needs_review", "reason": "non_orthogonal_or_complex", "version": VERSION}
     nx, ny = len(xs) - 1, len(ys) - 1
     hsv = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)
+    enclosed = enclosed_floor(wall, (x0,y0,x1,y1))
+    monochrome=float((hsv[y0:y1,x0:x1,1]>35).mean())<.03
+    white_regions=((hsv[:,:,1]<15)&(hsv[:,:,2]>160)).astype(np.uint8)*255
+    white_regions=cv2.morphologyEx(white_regions,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
+    white_regions[cv2.dilate(wall,np.ones((3,3),np.uint8))>0]=0
+    _,white_ids,white_stats,_=cv2.connectedComponentsWithStats(white_regions)
     cells: dict[tuple[int, int], dict] = {}
     for j in range(ny):
         for i in range(nx):
@@ -371,8 +449,18 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             # A white recess outside the drawn outline is not a room. Neutral grey service
             # rooms and the checkered entrance are retained by their non-white pixels.
             occupied = ((patch[:, :, 1] > 15) | (patch[:, :, 2] < 232)).mean()
-            if occupied < .12:
+            inside = float((enclosed[b:d,a:c] > 0).mean())
+            labelled=any(xs[i]<w["x"]<xs[i+1] and ys[j]<w["y"]<ys[j+1] and any(term in w["text"] for term in ("거실","주방","침실","안방","욕실","현관","드레스","발코니")) for w in words)
+            if occupied < .12 and not (inside>=.65 and (monochrome or labelled)):
                 continue
+            floor_fill=float(((patch[:,:,1]>15)|((patch[:,:,2]>110)&(patch[:,:,2]<232))).mean())
+            if not monochrome and not dimension_scale and not has_dimension_axis and floor_fill<.12 and not labelled:
+                ids,counts=np.unique(white_ids[b:d,a:c],return_counts=True)
+                parts=[(int(count),int(k)) for k,count in zip(ids,counts) if k]
+                region=max(parts,default=(0,0))[1]
+                # Preserve small white fixture footprints within rooms; a large
+                # unlabelled white stairwell outside the flat is not usable floor.
+                if not region or white_stats[region,4]>(x1-x0)*(y1-y0)*.12:continue
             cells[i, j] = {"center": ((xs[i]+xs[i+1])/2, (ys[j]+ys[j+1])/2),
                            "blue":float(((patch[:,:,0]>75)&(patch[:,:,0]<115)&(patch[:,:,1]>15)).mean()),
                            "wood":float(((patch[:,:,0]>8)&(patch[:,:,0]<40)&(patch[:,:,1]>85)).mean()),
@@ -403,22 +491,28 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             neighbours[c].append((q, math.hypot((pc[0]-pq[0])*sx,(pc[1]-pq[1])*sy) + (100 if coverage > .13 else 0)))
 
     seeds = []
+    # Containment beats the nearest centre in a narrow strip next to a large room.
+    def locate(point):
+        containing=next((c for c in cells if xs[c[0]]<=point[0]<=xs[c[0]+1] and ys[c[1]]<=point[1]<=ys[c[1]+1]),None)
+        return containing if containing is not None else min(cells,key=lambda c:math.dist(cells[c]["center"],point))
     room_patterns = [("kitchen", ("주방", "식당")), ("living", ("거실",)), ("bedroom", ("침실", "짐실", "안방")),
-                     ("bathroom", ("욕실", "화장실")), ("balcony", ("발코니", "베란다")), ("entrance", ("현관",)), ("dressroom", ("드레스",))]
+                     ("bathroom", ("욕실", "화장실")), ("balcony", ("발코니", "베란다")), ("entrance", ("현관",)), ("dressroom", ("드레스",)),("utility",("다용도","세탁실"))]
     for word in words:
         if word.get("rotation",0) != 0 or not (x0 < word["x"] < x1 and y0 < word["y"] < y1):
             continue
         kind = next((kind for kind, patterns in room_patterns if any(p in word["text"] for p in patterns)), None)
         if not kind:
             continue
-        seed_cell = min(cells, key=lambda c: math.dist(cells[c]["center"], (word["x"],word["y"])))
-        if any(s["cell"] == seed_cell and s["type"] == kind for s in seeds):
+        seed_cell = locate((word["x"],word["y"])) if monochrome or kind in ("entrance","utility") else min(cells,key=lambda c:math.dist(cells[c]["center"],(word["x"],word["y"])))
+        prior=next((s for s in seeds if s["cell"]==seed_cell),None)
+        if prior and {prior["type"],kind}=={"living","bedroom"}:
+            prior.update(type="living",label="거실·침실 겸용",combinedUses=["living","bedroom"])
             continue
-        seeds.append({"cell": seed_cell, "type": kind, "label": word["text"], "observed": True})
+        if prior and prior["type"]==kind:
+            continue
+        combined="거실" in word["text"] and any(t in word["text"] for t in ("침실","안방"))
+        seeds.append({"cell": seed_cell, "type": "living" if combined else kind, "label": word["text"], "observed": True,**({"combinedUses":["living","bedroom"]} if combined else {})})
     kinds = {s["type"] for s in seeds}
-    if not {"living", "kitchen", "bedroom"}.issubset(kinds):
-        return {"status": "needs_review", "reason": "room_labels", "version": VERSION,
-                "recognizedDimensions": numeric, "recognizedRoomTypes": sorted(kinds), "elapsedMs": round((time.perf_counter()-started)*1000)}
     # Some labels are covered by an upstream watermark. Distinct pale bedroom floor
     # fills can supply an explicitly inferred seed; their walls still come from pixels.
     pale = ((hsv[:,:,0]>10)&(hsv[:,:,0]<40)&(hsv[:,:,1]>15)&(hsv[:,:,1]<100)&(hsv[:,:,2]>190)).astype(np.uint8)*255
@@ -448,6 +542,43 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
         if candidates:
             seed_cell=min(candidates,key=lambda c:math.dist(cells[c]["center"],bc[k]))
             if not any(s["cell"]==seed_cell for s in seeds):seeds.append({"cell":seed_cell,"type":"bathroom","label":"욕실 (색상 인식)","observed":False})
+    # '주방' and '식당' can be two OCR anchors in the same open room. Give that
+    # physical space one kitchen identity; duplicate IDs misrouted shared walls.
+    unique=[]
+    for seed in seeds:
+        duplicate=False
+        if seed["type"]=="kitchen":
+            reachable_cells={seed["cell"]};pending=[seed["cell"]]
+            while pending:
+                p=pending.pop()
+                for q,_ in neighbours[p]:
+                    if q not in reachable_cells and barrier(p,q)[0]<.13 and cells[q]["blue"]<.05 and cells[q]["pale"]<.5:
+                        reachable_cells.add(q);pending.append(q)
+            duplicate=any(s["type"]=="kitchen" and s["cell"] in reachable_cells for s in unique)
+        if not duplicate:unique.append(seed)
+    seeds=unique
+    kinds={s["type"] for s in seeds}
+    if "living" not in kinds and {"kitchen","bedroom"}.issubset(kinds):
+        # Small older flats often label the entire common room '주방 및 식당'.
+        # Split furnishing uses only within that observed open wood-floor region;
+        # no wall is added and its printed area remains one shared constraint.
+        kitchen_index=next(i for i,s in enumerate(seeds) if s["type"]=="kitchen")
+        kitchen=seeds[kitchen_index];region={kitchen["cell"]};pending=[kitchen["cell"]]
+        while pending:
+            p=pending.pop()
+            for q,_ in neighbours[p]:
+                if q not in region and barrier(p,q)[0]<.13 and cells[q]["blue"]<.05 and cells[q]["pale"]<.5:
+                    region.add(q);pending.append(q)
+        candidates=[c for c in region if cells[c]["wood"]>.25 and not any(s["cell"]==c for s in seeds)]
+        if candidates:
+            origin=cells[kitchen["cell"]]["center"]
+            candidate=max(candidates,key=lambda c:math.dist(cells[c]["center"],origin)*math.sqrt((xs[c[0]+1]-xs[c[0]])*(ys[c[1]+1]-ys[c[1]])))
+            if math.dist(cells[candidate]["center"],origin)*min(sx,sy)>.8:
+                kitchen["areaGroup"]=kitchen_index
+                seeds.append({"cell":candidate,"type":"living","label":"주방·식당 공용 생활 공간 (용도 추정)","observed":False,"areaGroup":kitchen_index})
+    kinds={s["type"] for s in seeds}
+    if not {"living", "kitchen", "bedroom"}.issubset(kinds):
+        return {"status":"needs_review","reason":"room_labels","version":VERSION,"recognizedDimensions":numeric,"recognizedRoomTypes":sorted(kinds),"recognizedAreas":area_evidence,"elapsedMs":round((time.perf_counter()-started)*1000)}
     # Multi-source geodesic assignment respects observed walls instead of picking a template.
     assigned, distances, queue = {}, {}, []
     for index, seed in enumerate(seeds):
@@ -462,6 +593,16 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             nd=distance+cost+mismatch
             if nd<distances.get(q,float("inf")):
                 distances[q]=nd;assigned[q]=index;heapq.heappush(queue,(nd,index,q))
+    area_constraints=[]
+    area_scale_applied=False
+    if not dimension_scale and not has_dimension_axis:
+        # Calibrate the actual occupied room union, excluding labelled balconies.
+        # Both axes share one scalar so source width/height ratios are preserved.
+        scale,area_constraints,conflict=fit_area_scale(area_evidence,cells,assigned,seeds,xs,ys,exclusive_area)
+        if conflict:
+            return {"status":"needs_review","reason":"room_area_conflict","version":VERSION,"recognizedAreas":area_evidence,"areaConstraints":area_constraints}
+        sx=sy=scale;X=lambda v:float((v-x0)*sx);Z=lambda v:float((v-y0)*sy)
+        area_scale_applied=bool(area_constraints)
     # Merge adjacent cells only across a wall-free edge and within one observed room zone.
     consumed=set();rectangles=[];cell_room={}
     for j in range(ny):
@@ -532,11 +673,13 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
     for rid,r in enumerate(rectangles):
         seed=seeds[r["zone"]];lead=leads[r["zone"]][1]==rid
         kind=("master" if r["zone"]==master else seed["type"]) if lead else ("balcony" if seed["type"]=="balcony" else "hall")
-        rid_name="bath2" if lead and kind=="bathroom" and not any(x["id"]=="bath2" for x in rooms) else "kitchen" if lead and kind=="kitchen" else f"image-{rid}"
+        rid_name="bath2" if lead and kind=="bathroom" and not any(x["id"]=="bath2" for x in rooms) else "kitchen" if lead and kind=="kitchen" and not any(x["id"]=="kitchen" for x in rooms) else f"image-{rid}"
         if lead and kind=="bathroom" and rid_name!="bath2" and not any(x["id"]=="ensuite" for x in rooms):rid_name="ensuite";kind="ensuite"
         label={"living":"거실","kitchen":"주방·식당","master":"안방","bedroom":"침실","bathroom":"욕실","balcony":"발코니","entrance":"현관","dressroom":"드레스룸"}.get(seed["type"],"실내 공간")
-        rooms.append({"id":rid_name,"type":kind,"label":label,"rect":[round(v,4) for v in r["rect"]],"zone":f"image-zone-{r['zone']}"})
+        if seed.get("combinedUses"):label="거실·침실 겸용"
+        rooms.append({"id":rid_name,"type":kind,"label":label,"rect":[round(v,4) for v in r["rect"]],"zone":f"image-zone-{r['zone']}","labelObserved":seed["observed"],"combinedUses":seed.get("combinedUses",[])})
     openings=[];seen=set();connections=set()
+    narrow_doorways=0
     boundaries={}
     # Emit one contiguous boundary run per pair of rectangles. Internal decomposition seams
     # become full-height openings; actual wall gaps become doors, not randomly placed doors.
@@ -572,13 +715,22 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
                 kind="door" if za!=zb and private and .50<=measure(hi)-measure(lo)<=1.8 and supported else "open"
                 intervals=[(lo,hi,kind)]
             else:
-                intervals=[(l+a,l+b,"door" if za!=zb and private and measure(l+b)-measure(l+a)<=1.8 else "open") for a,b in _runs(~solid) if measure(l+b)-measure(l+a)>=.50]
+                minimum_door=.32 if not dimension_scale and not has_dimension_axis else .50
+                intervals=[(l+a,l+b,"door" if za!=zb and private and measure(l+b)-measure(l+a)<=1.8 else "open") for a,b in _runs(~solid) if measure(l+b)-measure(l+a)>=minimum_door]
                 if "balcony" in kinds:
                     bold=thick[l:h,max(0,p-3):p+4] if vertical else thick[max(0,p-3):p+4,l:h]
                     glazing=[]
                     for a,b in _runs(bold.max(axis=1 if vertical else 0)==0):
                         if measure(l+b)-measure(l+a)>=.8:glazing.append((l+a,l+b,"window"))
                     intervals=[run for run in intervals if not any(min(run[1],w[1])-max(run[0],w[0])>.2*(run[1]-run[0]) for w in glazing)]+glazing
+                elif za!=zb and kinds.issubset({"living","kitchen","bedroom","dressroom"}):
+                    # Interior sliding frames are passable. Require an observed
+                    # thin frame with no bold wall underneath, never a blank gap.
+                    bold=thick[l:h,max(0,p-3):p+4] if vertical else thick[max(0,p-3):p+4,l:h]
+                    thin_only=(bold.max(axis=1 if vertical else 0)==0)&solid
+                    for a,b in _runs(thin_only):
+                        if measure(l+b)-measure(l+a)>=.65:
+                            intervals.append((l+a,l+b,"sliding_door"))
             for begin,end,kind in intervals:
                 mid=(begin+end)/2
                 _,_,ra,rb=min(parts,key=lambda part:max(part[0]-mid,0,mid-part[1]))
@@ -590,7 +742,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
                     for endpoint in [round(begin),round(end)]:
                         for direction in [-1,1]:
                             near,far=sorted((p+direction*7,p+direction*depth))
-                            patch=neutral[max(0,endpoint-2):endpoint+3,max(0,near):far] if vertical else neutral[max(0,near):far,max(0,endpoint-2):endpoint+3]
+                            patch=neutral[max(0,endpoint-4):endpoint+5,max(0,near):far] if vertical else neutral[max(0,near):far,max(0,endpoint-4):endpoint+5]
                             scores.append(float((patch>0).mean()) if patch.size else 0)
                     best=int(np.argmax(scores));hinge="end" if best>=2 else "start"
                     direction=-1 if best%2==0 else 1
@@ -602,7 +754,13 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
                     priority={"bathroom":0,"dressroom":1,"bedroom":2,"entrance":3}
                     inside=[candidate for candidate in [ra,rb] if seeds[rectangles[candidate]["zone"]]["type"] in priority]
                     if inside:swing=rooms[min(inside,key=lambda candidate:priority[seeds[rectangles[candidate]["zone"]]["type"]])]["id"]
-                openings.append({"type":kind,"a":rooms[ra]["id"],"b":rooms[rb]["id"],"axis":axis,"at":round(X(at) if vertical else Z(at),4),"center":round((a+b)/2,4),"width":round(b-a,4),"height":2.7 if kind=="open" else 1.6 if kind=="window" else 2.1,"sill":.55 if kind=="window" else 0,"hinge":hinge,"swingInto":swing})
+                width=b-a
+                if width<.50:
+                    # Retain the source gap exactly. A small symbolic door may
+                    # connect rooms without supporting body-sized walking.
+                    if kind!="door" or dimension_scale or has_dimension_axis or max(scores,default=0)<.08:continue
+                    narrow_doorways+=1
+                openings.append({"type":kind,"a":rooms[ra]["id"],"b":rooms[rb]["id"],"axis":axis,"at":round(X(at) if vertical else Z(at),4),"center":round((a+b)/2,4),"width":round(width,4),"height":2.7 if kind=="open" else 1.6 if kind=="window" else 2.1,"sill":.55 if kind=="window" else 0,"hinge":hinge,"swingInto":swing})
     # Recover an exterior entrance spanning several rectangles (the image's door leaf
     # is perpendicular to the wall, unlike a parallel window frame). No invented hole.
     for axis,at,lo,hi in [("z",ys[0],round(xs[0]),round(xs[-1])),("z",ys[-1],round(xs[0]),round(xs[-1])),("x",xs[0],round(ys[0]),round(ys[-1])),("x",xs[-1],round(ys[0]),round(ys[-1]))]:
@@ -658,7 +816,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
         before=len(reachable)
         for opening in openings:
             # Walker's diameter is 0.48 m; reject passages below that plus a margin.
-            if opening["b"]=="out" or opening["type"]=="window" or opening["width"]<.50:continue
+            if opening["b"]=="out" or opening["type"]=="window" or opening["width"]<.30:continue
             a,b=zone_by_id[opening["a"]],zone_by_id[opening["b"]]
             if a in reachable:reachable.add(b)
             if b in reachable:reachable.add(a)
@@ -669,11 +827,38 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
     # it against its own documented supply envelope, retaining the actual geometry.
     expanded_area=bool(expanded and dimension_scale and supply_area and exclusive_area*.82<=counted<=min(exclusive_area*1.45,supply_area*1.05))
     status="ready" if (abs(error)<.18 or expanded_area) and len(bedrooms)>=1 and usable_beds and connected else "needs_review"
+    source_floor=(enclosed>0) if monochrome else (hsv[:,:,1]>25)&(gray>90)
+    source_floor[:y0]=False;source_floor[y1+1:]=False;source_floor[:,:x0]=False;source_floor[:,x1+1:]=False
+    match=source_match(wall,rooms,openings,xs,ys,rectangles,(x0,y0,x1,y1),source_floor)
+    # Reconstruction can omit long walls even when its area and room count look
+    # plausible. Do not admit such a model as a source-based interior.
+    if status=="ready" and (match["wallF1"]<.80 or match["floorCoverage"]<.95):status="needs_review"
     elapsed=round((time.perf_counter()-started)*1000)
-    return {"status":status,"reason":None if status=="ready" else "area_or_room_consistency","version":VERSION,
-            "imageSize":[W,H],"pixelBounds":[int(x0),int(y0),int(x1),int(y1)],"scale":{"xMetresPerPixel":sx,"zMetresPerPixel":sy,"basis":"dimension_chains" if chain_applied else "single_axis_dimensions" if single_axis else "recognized_dimensions" if dimension_scale else "area_calibration"},
+    distance=cv2.distanceTransform(thick,cv2.DIST_L2,5)
+    thickness=[]
+    for axis,coordinates in [("x",xs),("z",ys)]:
+        for coordinate in coordinates[1:-1]:
+            at=round(coordinate)
+            patch=distance[y0:y1+1,max(0,at-3):at+4] if axis=="x" else distance[max(0,at-3):at+4,x0:x1+1]
+            widths=patch.max(axis=1 if axis=="x" else 0)*2
+            widths=widths[(widths>=2)&(widths<=30)]
+            if len(widths)>=minimum:thickness.append(float(np.median(widths))*(sx if axis=="x" else sy))
+    wall_thickness=float(np.median(thickness)) if thickness else 2*float(np.median(distance[distance>0]))*min(sx,sy)
+    result={"status":status,"reason":None if status=="ready" else "source_wall_mismatch" if match["wallF1"]<.80 else "source_floor_mismatch" if match["floorCoverage"]<.95 else "area_or_room_consistency","version":VERSION,
+            "imageSize":[W,H],"pixelBounds":[int(x0),int(y0),int(x1),int(y1)],"scale":{"xMetresPerPixel":sx,"zMetresPerPixel":sy,"basis":"dimension_chains" if chain_applied else "single_axis_dimensions" if single_axis else "recognized_dimensions" if dimension_scale else "room_area_ratio" if area_scale_applied else "exclusive_area_ratio","estimated":not dimension_scale or single_axis,"sourceAspectRatio":round((x1-x0)/(y1-y0),6),"wallThicknessMetres":round(max(.02,min(.4,wall_thickness)),4)},
             "dimensionConstraints":x_constraints+z_constraints,"dimensionChainsApplied":chain_applied,
+            "recognizedAreas":area_evidence,"areaConstraints":area_constraints,"sourceMatch":match,
+            "pixelRooms":[{"id":rooms[rid]["id"],"rect":[xs[r["grid"][0]],ys[r["grid"][1]],xs[r["grid"][2]],ys[r["grid"][3]]]} for rid,r in enumerate(rectangles)],
             "recognizedDimensions":[{k:d[k] for k in ("text","millimetres","x","y","rotation","confidence")} for d in numeric],
             "rooms":rooms,"openings":openings,"areaM2":round(counted,2),"areaError":round(error,4),"elapsedMs":elapsed,
             "areaBasis":"expanded_drawing" if expanded_area else "exclusive_area",
-            "note":"원본 이미지의 벽·방 위치를 인식한 모델입니다. 도면 치수 인식과 공간 구분에 오차가 있을 수 있으며 가구·마감은 연출입니다."+(" 확장형의 발코니 확장 면적이 포함되어 계산된 실내 면적은 전용면적과 다릅니다." if expanded_area else "")}
+            "checks":{"areaConsistent":abs(error)<.18 or expanded_area,"bedroomsUsable":usable_beds,"connected":connected,"narrowDoorways":narrow_doorways},
+            "note":"원본 이미지의 벽·방 위치를 인식한 모델입니다. 도면 치수 인식과 공간 구분에 오차가 있을 수 있으며 가구·마감은 연출입니다."+(" 확장형의 발코니 확장 면적이 포함되어 계산된 실내 면적은 전용면적과 다릅니다." if expanded_area else "")+(" 치수 없는 공간은 면적과 원본 가로·세로 비율로 환산했습니다. 실측 치수가 아니며 면적 일치는 독립적인 정확도 검증이 아닙니다." if not dimension_scale else "")+(" 작은 문 기호의 환산 폭을 그대로 보존했습니다. 보행이 어려우면 원본 3D 도면 검토 모드로 공간을 확인합니다." if narrow_doorways else "")}
+    if not _axis_recovery and not match["targetMet"]:
+        alternative=analyze_image(data,exclusive_area,words=recognized_words,expanded=expanded,supply_area=supply_area,_axis_recovery=True)
+        # Recovered axes must improve source agreement without losing room or
+        # navigation validation. A failed retry cannot replace a usable first pass.
+        if alternative.get("status")=="ready" and alternative.get("sourceMatch",{}).get("wallF1",0)>match["wallF1"]:
+            result=alternative
+        result["elapsedMs"]=round((time.perf_counter()-started)*1000)
+    return result

@@ -48,8 +48,7 @@ export interface FloorPlan {
   complexId: string; complexName: string; dong: string; unitType: string;
   areaExclusiveM2: number; ceilingHeightM: number;
   source: "estimated_template" | "licensed_plan" | "image_analysis";
-  imageAnalysis?: { key: string; typeName: string; sourceUrl: string; scaleBasis: string; elapsedMs: number; start: [number,number,number] };
-  averageFallback?: { bays:2|3|4; built:number|null; reason:string };
+  imageAnalysis?: { key: string; typeName: string; sourceUrl: string; scaleBasis: string; wallThicknessMetres?:number; elapsedMs: number; start: [number,number,number] };
   template: string;
   basis: { area: string; rooms: string; households?: number | null; built?: number | null };
   bounds: [number, number, number, number];
