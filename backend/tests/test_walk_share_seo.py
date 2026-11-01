@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from test_stock_report_seo import renderer
+from app.services.walk_share import expand_walk_query, compact_walk_query
 
 TEMPLATE = (Path(__file__).parents[2] / 'frontend/index.html').read_text(encoding='utf-8')
 
@@ -23,7 +24,9 @@ def test_apartment_title_and_thumbnail_survive_raw_crawler_html(renderer, path):
     assert meta(doc, 'og:image') == 'https://kospimap.com/img/social/walk-roomtour-v1.png'
     assert meta(doc, 'og:image:secure_url') == meta(doc, 'og:image')
     shared = parse_qs(urlsplit(meta(doc, 'og:url')).query)
-    assert shared['name'] == ['강남데시앙포레'] and shared['f'] == ['7']
+    decoded = expand_walk_query({k: v[0] for k, v in shared.items()})
+    assert decoded['id'] == query['id'] and decoded['f'] == '7'
+    assert not {'name', 'id'} & shared.keys()
     assert 'token' not in shared and 'back' not in shared
 
 
@@ -43,3 +46,20 @@ def test_generated_share_art_matches_og_dimensions_and_size():
     assert image.stat().st_size < 5 * 1024 * 1024
     with Image.open(image) as artwork:
         assert artwork.size == (1729, 910) and artwork.format == 'PNG'
+
+
+def test_compact_core_identity_has_same_title_area_and_short_url(renderer):
+    original = {'id': '11680:수서동:795:강남데시앙포레', 'name': '강남데시앙포레', 'area': '84.86', 'tour': '1', 'back': '/realestate-map?long=1', 'hour': '14'}
+    compact = compact_walk_query(original)
+    assert set(compact) == {'c', 'a'}
+    doc = renderer['render_spa_shell'](TEMPLATE, '/walk', compact)
+    assert meta(doc, 'og:title') == '강남데시앙포레 | 룸투어(임장) | KOSPIMAP'
+    assert len(meta(doc, 'og:url')) < 100
+    decoded = expand_walk_query(compact)
+    assert decoded['id'] == original['id'] and decoded['area'] == '84.86' and decoded['tour'] == '1'
+    assert compact_walk_query(decoded) == compact
+
+
+@pytest.mark.parametrize('token', ['bad_', '###', 'A' * 900, 'AA', 'wA'])
+def test_bad_compact_tokens_do_not_raise_or_become_apartment_ids(token):
+    assert 'id' not in expand_walk_query({'c': token})

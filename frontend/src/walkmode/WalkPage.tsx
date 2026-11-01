@@ -10,6 +10,7 @@ import { fetchUnits } from "./interior/plan/fetchUnits";
 import { walkComplex } from "./complexOf";
 import {apartmentName,apartmentBlock,normaliseBlock,entryComplexId} from './apartmentIdentity';
 import { updateWalkShare } from './shareMeta';
+import {compactWalkUrl, expandWalkQuery, recalledWalkBack} from './walkQuery';
 import {entryKind,resolveEntryKind} from './entryKind';
 import { BuildingInterior, type BuildingHud, type BuildingTalk } from "./building/BuildingInterior";
 import { getSurvey, type SurveyBuilding, type SurveyFloor } from "./building/survey";
@@ -64,7 +65,7 @@ if (import.meta.hot) import.meta.hot.accept(() => window.location.reload());
 interface Start { lat: number; lon: number; name: string; key: string; domain: string; id: string; built: number | null }
 
 export default function WalkPage() {
-  const q = useMemo(() => new URLSearchParams(location.search), []);
+  const q = useMemo(() => expandWalkQuery(new URLSearchParams(location.search)), []);
   const demo = import.meta.env.DEV && q.get("interior") === "demo";
   const originalPreview=demo&&q.get("original")==="1";
   const usesOriginal=!demo||originalPreview;
@@ -79,10 +80,12 @@ export default function WalkPage() {
   const [car,setCar]=useState<CarHud>({driving:false,nearby:null,label:"",speedKmh:0,topKmh:0,gear:"P",message:"",view:"third"});
   const [soundMuted, setSoundMuted] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
-  const shareBase = useRef<string | null>(null), returnTo = useRef<string | null>(null);
+  const shareBase = useRef<string | null>(null), returnTo = useRef<string | null>(safeWalkBack(q.get('back')) ?? safeWalkBack(recalledWalkBack(q.get('id') ?? '')));
   const outdoorUrl = useRef(location.pathname + location.search);
   const copyLink = async () => {
-    try { await navigator.clipboard.writeText(location.href); setCopyStatus("복사됨"); }
+    const short = compactWalkUrl(new URLSearchParams(location.search));
+    history.replaceState(history.state, '', short); updateWalkShare();
+    try { await navigator.clipboard.writeText(location.origin + short); setCopyStatus("복사됨"); }
     catch { setCopyStatus("주소창에서 복사"); }
     setTimeout(() => setCopyStatus(""), 2500);
   };
@@ -138,10 +141,10 @@ export default function WalkPage() {
   useEffect(() => {
     const name = phase === 'outdoor' ? start?.name : visit?.name ?? entering?.name ?? start?.name;
     if (!name) return;
-    const url = new URL(location.href);
-    url.searchParams.set('name', name.slice(0, 80));
-    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
-    updateWalkShare(url.searchParams);
+    const params = expandWalkQuery(new URLSearchParams(location.search));
+    params.set('name', name.slice(0, 80));
+    history.replaceState(history.state, '', compactWalkUrl(params));
+    updateWalkShare(params);
   }, [start?.name, entering?.name, visit?.name, phase]);
   const [units, setUnits] = useState<UnitsResponse | null>(null);
   const [unitsErr, setUnitsErr] = useState("");
@@ -239,7 +242,7 @@ export default function WalkPage() {
         setDrawingTarget({id,name,town:parts[1]??'',region:parts[0]??'',lat:at.lat,lon:at.lon});
         setUnits({complexId:id,name,built:r.built,households:null,sources:[],types:known?[{key:String(area),areaM2:area,label:`${area}㎡`,trades:0,source:'상세 팝업 선택 평형'}]:[]});
         setPick({type:known?String(area):'',floor:Math.min(3,floors),style:'auto'});
-        returnTo.current=safeWalkBack(q.get('back'));setPhase('choose');
+        returnTo.current=safeWalkBack(q.get('back'))??returnTo.current;setPhase('choose');
         fetchUnits(id,'',AbortSignal.timeout(10000)).then(u=>{
           setUnits(previous=>({...u,types:[...u.types,...(previous?.types.filter(t=>!u.types.some(v=>v.key===t.key))??[])]}));
           setPick(previous=>{if(previous.type.startsWith('naver:'))return previous;const selected=known?u.types.find(t=>Math.abs(t.areaM2-area)<.1):[...u.types].sort((a,b)=>b.trades-a.trades)[0];return selected?{...previous,type:selected.key}:previous;});
@@ -866,6 +869,7 @@ export default function WalkPage() {
             <div className="wk-where"><b>{plan.complexName} {plan.dong} {plan.floor}층</b><span>{hud?.room}</span></div>
             <div className="wk-meta"><span className="wk-badge">{plan.source==="image_analysis"?"원본 도면 이미지 분석":"추정 평면"}</span>{plan.template} · 전용 {plan.areaExclusiveM2.toFixed(2)}㎡ (방 합계 {plan.check.areaM2}㎡, {(plan.check.error * 100).toFixed(1)}%) · {STYLE_LABEL[plan.style]} · 연출용 가상 인테리어</div>
             <div className="wk-actions">
+              <button className="wk-btn" onClick={copyLink}>{copyStatus || "링크 복사"}</button>
               <button className="wk-btn" onClick={()=>{document.exitPointerLock?.();interior.current?.dispose();interior.current=null;setHud(null);setTvOpen(false);setLaptopOpen(false);setZoomed(null);setPhase("choose");setFade(false);}}>구조·인테리어 바꾸기</button>
               {<button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>}
               <button className="wk-btn" onClick={exitFlat}>나가기 <kbd>Esc</kbd></button>

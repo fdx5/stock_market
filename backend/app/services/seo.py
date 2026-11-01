@@ -405,6 +405,9 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
 
 def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
+    if canonical_path == "/walk" or canonical_path.startswith("/walk/"):
+        from app.services.walk_share import expand_walk_query
+        query = expand_walk_query(query)
     if canonical_path == "/etf":
         canonical_path = "/etf/us" if query.get("region") == "US" else "/etf/kr"
     brief, brief_day, brief_market = _market_brief(canonical_path)
@@ -547,7 +550,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         # og:url must keep the destination apartment; otherwise Kakao can merge
         # different flats into the generic /walk card. Exclude return paths and
         # browser-only state from the public share identity.
-        keep = {k: query[k][:1000] for k in ("at", "id", "name", "place", "lat", "lon", "tour", "enter", "area", "f", "hour", "weather") if query.get(k)}
+        from app.services.walk_share import compact_walk_query
+        keep = compact_walk_query(query)
         share_url = f"{SITE}{canonical_path}" + ("?" + urlencode(keep) if keep else "")
     if canonical_path == "/realestate-map" and query.get("3d") == "1" and query.get("complex"):
         keep = {k: query[k] for k in ("sido", "sgg", "dong", "complex", "3d", "hour", "weather") if query.get(k)}

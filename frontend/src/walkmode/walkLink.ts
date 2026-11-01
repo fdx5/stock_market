@@ -1,4 +1,5 @@
 import { originAt, toFrame, toLonLat } from "../drivegame/world/geo";
+import {compactWalkUrl} from './walkQuery';
 
 export type Point = [number, number];
 export interface WalkFootprint { id: string; pnu: string; name: string; floors: number; use: string; ring: Point[] }
@@ -15,7 +16,9 @@ export function walkLink(lat: number, lon: number, floor = 1, identity: { name?:
   const publicIdentity = new URLSearchParams();
   if (name) publicIdentity.set('name', name);
   if (identity.complexId) publicIdentity.set('id', identity.complexId.slice(0, 200));
-  return `/walk?at=${lat.toFixed(6)},${lon.toFixed(6)}${Number.isInteger(floor) && floor !== 1 && floor >= -20 && floor <= 200 ? `&f=${floor}` : ""}${publicIdentity.size ? '&' + publicIdentity : ''}`;
+  const query = new URLSearchParams(`at=${lat.toFixed(6)},${lon.toFixed(6)}${Number.isInteger(floor) && floor !== 1 && floor >= -20 && floor <= 200 ? `&f=${floor}` : ""}${publicIdentity.size ? '&' + publicIdentity : ''}`);
+  // Keep the original coordinate-only spelling for existing integrations.
+  return publicIdentity.size ? compactWalkUrl(query) : `/walk?at=${lat.toFixed(6)},${lon.toFixed(6)}${query.has('f') ? '&f=' + query.get('f') : ''}`;
 }
 const inside = ([x, y]: Point, r: Point[]) => {
   let hit = false;

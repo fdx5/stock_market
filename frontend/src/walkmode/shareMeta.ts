@@ -1,6 +1,8 @@
 /** Public apartment identity is in the URL: Kakao's crawler cannot read sessionStorage. */
+import {compactWalkUrl, expandWalkQuery} from './walkQuery';
 export const WALK_SHARE_IMAGE = 'https://kospimap.com/img/social/walk-roomtour-v1.png';
 export function walkShareMeta(params: URLSearchParams) {
+  params = expandWalkQuery(params);
   const raw = params.get('name') || params.get('place') || (params.get('id') ?? '').split(':').slice(3).join(':');
   const name = raw.replace(/[<>"\\\x00-\x1f\x7f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
   return {
@@ -11,15 +13,12 @@ export function walkShareMeta(params: URLSearchParams) {
   };
 }
 export function updateWalkShare(params = new URLSearchParams(location.search)) {
-  const meta = walkShareMeta(params), kept = new URLSearchParams();
-  for (const key of ['at', 'id', 'name', 'place', 'lat', 'lon', 'tour', 'enter', 'area', 'f', 'hour', 'weather']) {
-    const value = params.get(key); if (value) kept.set(key, value.slice(0, 1000));
-  }
+  const meta = walkShareMeta(params);
   document.title = meta.title;
   const tags: Record<string, string> = {
     'name="description"': meta.description,
     'property="og:title"': meta.title, 'property="og:description"': meta.description,
-    'property="og:url"': `https://kospimap.com${location.pathname}${kept.size ? '?' + kept : ''}`,
+    'property="og:url"': `https://kospimap.com${compactWalkUrl(params)}`,
     'property="og:type"': 'website', 'property="og:image"': meta.image,
     'property="og:image:secure_url"': meta.image, 'property="og:image:type"': 'image/png',
     'property="og:image:alt"': meta.alt, 'property="og:image:width"': '1729', 'property="og:image:height"': '910',
