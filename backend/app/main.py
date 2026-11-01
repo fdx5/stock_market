@@ -320,6 +320,15 @@ def _keep_recent_warnings() -> None:
 
 
 @app.on_event("startup")
+async def _widen_request_threadpool() -> None:
+    # Every sync route shares AnyIO's default 40-thread limiter, and only the async
+    # health check runs outside it. More headroom keeps pages and market APIs
+    # answering while a few slow upstream calls finish under their own timeouts.
+    import anyio.to_thread
+    anyio.to_thread.current_default_thread_limiter().total_tokens = 100
+
+
+@app.on_event("startup")
 def _warm_admin_dashboard() -> None:
     from app.routers import admin as admin_router
     from app.services import device_analytics

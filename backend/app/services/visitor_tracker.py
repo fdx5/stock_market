@@ -23,6 +23,10 @@ HEARTBEAT_TTL_SECONDS = 120
 NEW_SESSION_LIMIT_PER_IP = 20
 NEW_SESSION_WINDOW_SECONDS = 3600
 
+# Heartbeats queued for the store writer, coalesced per session. The bound keeps a
+# stalled store from growing memory; overflow only skips that one heartbeat's write.
+MAX_PENDING_HEARTBEATS = 5000
+
 
 class VisitorTracker:
     def __init__(self) -> None:
@@ -37,6 +41,14 @@ class VisitorTracker:
         # IP, not one entry per session_id) so it can't reproduce the same unbounded
         # growth this whole mechanism exists to prevent.
         self._new_session_log: dict[str, list[float]] = {}
+        # The shared store is written by one background thread, never on the request
+        # thread: each heartbeat used to wait up to the store gate's 4s lock timeout,
+        # so a slow store held one request worker per visitor every 20 seconds.
+        # Responses carry the counts from the writer's latest round trip.
+        self._shared_current: int | None = None
+        self._pending: dict[str, tuple[str, str, bool]] = {}
+        self._wake = threading.Event()
+        self._writer: threading.Thread | None = None
 
     def heartbeat(self, session_id: str, client_ip: str | None, is_bot: bool = False) -> tuple[int, int]:
         """`is_bot` short-circuits both counters rather than throttling them.
@@ -53,31 +65,32 @@ class VisitorTracker:
         """
         now = time.time()
         if is_bot:
-            return self.current_count(), self._persistent_total()
+            with self._lock:
+                self._prune(now)
+                return self._shared_current or len(self._sessions), self._total_cache
         with self._lock:
             self._sessions[session_id] = now
             self._prune(now)
-            current = len(self._sessions)
             is_new = session_id not in self._known_sessions
-            total = self._total_cache
 
         register_session = is_new and self._allow_new_session(client_ip, now)
         seen_at = datetime.now(timezone.utc)
-        try:
-            current, total = visitor_store.heartbeat_and_counts(
-                session_id,
-                seen_at.isoformat(),
-                (seen_at - timedelta(seconds=HEARTBEAT_TTL_SECONDS)).isoformat(),
-                register_session=register_session,
-            )
-        except Exception:
-            # Presence is useful but must never make a reader's page fail merely
-            # because the analytics store is temporarily unavailable.
-            pass
-        if register_session:
-            with self._lock:
+        with self._lock:
+            if register_session:
                 self._known_sessions.add(session_id)
-                self._total_cache = total
+            queued = self._pending.get(session_id)
+            if queued is not None or len(self._pending) < MAX_PENDING_HEARTBEATS:
+                self._pending[session_id] = (
+                    seen_at.isoformat(),
+                    (seen_at - timedelta(seconds=HEARTBEAT_TTL_SECONDS)).isoformat(),
+                    register_session or bool(queued and queued[2]),
+                )
+            if self._writer is None:
+                self._writer = threading.Thread(target=self._write_loop, name="visitor-heartbeat-writer", daemon=True)
+                self._writer.start()
+            current = max(self._shared_current or 0, len(self._sessions))
+            total = self._total_cache
+        self._wake.set()
         # A throttled new session deliberately isn't added to _known_sessions: it
         # still counts toward `current` (the heartbeat above already recorded it) so
         # the "currently online" figure isn't wrong for a real visitor caught by a
@@ -85,6 +98,26 @@ class VisitorTracker:
         # instead of the throttle only ever applying once.
 
         return current, total
+
+    def _write_loop(self) -> None:
+        self._persistent_total()
+        while True:
+            self._wake.wait()
+            self._wake.clear()
+            with self._lock:
+                batch, self._pending = self._pending, {}
+            for session_id, (seen_at, active_since, register_session) in batch.items():
+                try:
+                    current, total = visitor_store.heartbeat_and_counts(
+                        session_id, seen_at, active_since, register_session=register_session,
+                    )
+                except Exception:
+                    # Presence is useful but must never make a reader's page fail
+                    # merely because the analytics store is temporarily unavailable.
+                    continue
+                with self._lock:
+                    self._shared_current = current
+                    self._total_cache = total
 
     def current_count(self) -> int:
         """Read-only peek at how many sessions are currently online, for the admin

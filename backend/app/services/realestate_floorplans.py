@@ -13,6 +13,7 @@ import json
 import math
 import re
 import threading
+from contextlib import contextmanager
 import time
 import unicodedata
 from urllib.parse import quote, urlencode, urlparse
@@ -28,14 +29,34 @@ _catalogues: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 _images: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
 _analyses: OrderedDict[str, dict] = OrderedDict()
 _MAX_IMAGES = 24 * 1024 * 1024
-_flights = {kind:[threading.RLock() for _ in range(32)] for kind in ("catalogue","image","analysis")}
+_flights: dict[str, threading.RLock] = {}
 _network = threading.BoundedSemaphore(2)
 _analysis_gate = threading.BoundedSemaphore(1)
 
 
 def _singleflight(key: str):
-    group=_flights[key.split(":",1)[0]]
-    return group[int(hashlib.sha256(key.encode()).hexdigest()[:8],16)%len(group)]
+    # One lock per key: shared striped locks made unrelated complexes queue behind
+    # one slow lookup, each waiter holding a request thread. Idle locks are pruned.
+    with _lock:
+        lock=_flights.get(key)
+        if lock is None:
+            if len(_flights)>2048:
+                for old,idle in list(_flights.items()):
+                    if idle.acquire(blocking=False):
+                        idle.release();_flights.pop(old,None)
+            lock=_flights[key]=threading.RLock()
+    return lock
+
+
+@contextmanager
+def _slot(gate: threading.BoundedSemaphore, timeout: float):
+    # Bounded wait: a request thread never queues forever behind slow sources.
+    if not gate.acquire(timeout=timeout):
+        raise LookupError("drawing source busy")
+    try:
+        yield
+    finally:
+        gate.release()
 
 
 def _get(url: str, limit: int = 2_500_000) -> tuple[bytes, str]:
@@ -257,7 +278,9 @@ def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_
         if not hit or not nearby:hit=_catalogues.get(failure_key)
         if hit and time.monotonic() - hit[0] < (86400 if hit[1].get("status") == "available" else 15):
             return hit[1]
-    with _work:
+    if not _work.acquire(timeout=20):
+        return {"status":"unavailable","plans":[],"reason":"source_busy"}
+    try:
         try:
             found=[];seen=set();source_failed=False;location_mismatch=False;located={}
             variants=_search_names(name)
@@ -302,6 +325,8 @@ def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_
                     else {"status":"ambiguous" if found else "unavailable" if source_failed else "not_found","plans":[],"reason":"multiple_complexes" if found else "source_load_failed" if source_failed else "location_mismatch" if location_mismatch else "no_name_candidate"})
         except (requests.RequestException, LookupError, ValueError, json.JSONDecodeError):
             result = {"status": "unavailable", "plans": []}
+    finally:
+        _work.release()
     with _lock:
         _catalogues[key if result.get('status')=='available' else failure_key] = (time.monotonic(), result)
         while len(_catalogues) > 96:
@@ -330,7 +355,7 @@ def _image(naver_id: str, key: str) -> tuple[bytes, str]:
         if key in _images:
             _images.move_to_end(key)
             return _images[key]
-    with _work:
+    with _slot(_work,20):
         # Recheck after waiting: concurrent requests for one selected image share its download.
         with _lock:
             if key in _images:
@@ -362,7 +387,7 @@ def _analyze(naver_id: str, key: str) -> dict:
         if hit:
             _analyses.move_to_end(cache_key)
             return hit
-    with _analysis_gate:
+    with _slot(_analysis_gate,30):
         with _lock:
             if cache_key in _analyses:
                 return _analyses[cache_key]

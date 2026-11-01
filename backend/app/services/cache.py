@@ -37,17 +37,23 @@ class TTLCache:
         # uses to drop the least-recently-used entry first, not just an arbitrary one.
         self._store: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._lock = threading.Lock()
-        self._key_locks = tuple(threading.RLock() for _ in range(64))
+        # One lock per key, never shared between keys. A fixed pool of striped
+        # locks made unrelated keys wait on each other, and a factory that reads
+        # another cached key could deadlock against a thread doing the reverse;
+        # each stuck request then held a worker thread until the pool ran out and
+        # only the async health check still answered. Each entry is a bare Lock.
+        self._key_locks: dict[str, threading.Lock] = {}
         self.max_bytes=max_bytes;self.byte_size=0;self._sizes={}
-        self._refresh_slots=threading.BoundedSemaphore(2)
         self._refreshing: set[str] = set()
 
     def _key_lock(self, key: str) -> threading.Lock:
-        return self._key_locks[hash(key)%len(self._key_locks)]
+        with self._lock:
+            lock = self._key_locks.setdefault(key, threading.Lock())
+        return lock
 
     def _evict_if_needed_locked(self) -> None:
         """Caller holds self._lock. Payload bytes and entry counts are bounded;
-        a fixed set of reentrant locks preserves single-flight during eviction."""
+        _key_locks is not evicted, so single-flight survives eviction."""
         while len(self._store) > MAX_ENTRIES or self.byte_size>self.max_bytes:
             key,_=self._store.popitem(last=False)
             self.byte_size-=self._sizes.pop(key,0)
@@ -72,9 +78,8 @@ class TTLCache:
         if cached is not None and allow_stale:
             with self._lock:
                 already_refreshing = key in self._refreshing
-                if not already_refreshing and self._refresh_slots.acquire(blocking=False):
+                if not already_refreshing:
                     self._refreshing.add(key)
-                else:already_refreshing=True
             if not already_refreshing:
                 threading.Thread(
                     target=self._background_refresh, args=(key, ttl_seconds, factory), daemon=True
@@ -97,7 +102,6 @@ class TTLCache:
         finally:
             with self._lock:
                 self._refreshing.discard(key)
-            self._refresh_slots.release()
 
     def _refresh_locked(self, key: str, ttl_seconds: float, factory: Callable[[], Any]) -> Any:
         lock = self._key_lock(key)

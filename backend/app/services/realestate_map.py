@@ -50,6 +50,7 @@ from dotenv import load_dotenv
 
 from app.services import realestate_store, realestate_leaders, realestate_rights
 from app.services.memory_cache import CompressedLRU
+from app.services.libsql_gate import StoreUnavailable
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -1079,7 +1080,13 @@ _build_gate=threading.BoundedSemaphore(1)
 def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None, *, filters: dict | None = None) -> dict:
     # Region refreshes must not each retain a full decoded trade graph at once.
     # Already-built map responses continue through the existing fast caches.
-    with _build_gate:return _build_map(sido,sgg,dong,period,top,filters=filters)
+    # Bounded wait: queued builds must not hold every request thread forever.
+    if not _build_gate.acquire(timeout=25):
+        raise StoreUnavailable("map build busy")
+    try:
+        return _build_map(sido,sgg,dong,period,top,filters=filters)
+    finally:
+        _build_gate.release()
 
 
 def _build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None, *, filters: dict | None = None) -> dict:

@@ -25,11 +25,35 @@ def test_stale_refreshes_are_bounded_and_failures_keep_good_values():
  def slow():
   with guard:started.append(1)
   release.wait(2);raise RuntimeError('source offline')
- for i in range(12):assert c.get_or_set(str(i),60,slow)=='last good'
- assert len(c._refreshing)<=2 and len(c._key_locks)==64
+ for _ in range(3):
+  for i in range(12):assert c.get_or_set(str(i),60,slow)=='last good'
+ assert len(c._refreshing)<=12
  release.set();deadline=time.monotonic()+3
  while c._refreshing and time.monotonic()<deadline:time.sleep(.01)
- assert not c._refreshing and len(started)<=2
+ assert not c._refreshing and len(started)<=12
+
+def test_slow_key_never_blocks_other_keys():
+ # Striped shared locks once queued unrelated keys behind one slow upstream until
+ # every request thread was waiting and only the async health check answered.
+ c=TTLCache();release=threading.Event();entered=threading.Event()
+ def slow():entered.set();release.wait(5);return 'slow'
+ holder=threading.Thread(target=c.get_or_set,args=('slow',60,slow));holder.start()
+ assert entered.wait(2)
+ started=time.monotonic()
+ for i in range(500):assert c.get_or_set(f'other-{i}',60,lambda i=i:i)==i
+ assert time.monotonic()-started<2
+ release.set();holder.join(2)
+
+def test_nested_cache_reads_do_not_deadlock():
+ c=TTLCache();gate=threading.Barrier(2,timeout=2);results=[]
+ def outer(own,inner):
+  def make():
+   gate.wait();return c.get_or_set(inner,60,lambda:inner)
+  results.append(c.get_or_set(own,60,make))
+ workers=[threading.Thread(target=outer,args=pair) for pair in (('a-outer','b-inner'),('b-outer','a-inner'))]
+ for w in workers:w.start()
+ for w in workers:w.join(3)
+ assert sorted(results)==['a-inner','b-inner']
 
 def test_concurrent_misses_share_one_factory():
  c=TTLCache();calls=[]

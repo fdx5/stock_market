@@ -13,7 +13,9 @@ from app.services import realestate_store as store
 from app.services.memory_cache import CompressedLRU
 
 _memory = CompressedLRU(max_entries=256,max_bytes=16*1024*1024)
-_locks = tuple(threading.RLock() for _ in range(64))
+# One lock per key: striped shared locks made unrelated places wait on each
+# other's slow live loads, each waiter holding a request thread.
+_locks: dict[str, threading.Lock] = {}
 _guard = threading.Lock()
 KEEP_S = 30 * 86400
 EMPTY_S = 86400
@@ -44,7 +46,13 @@ def cached_geography(kind: str, lat: float, lon: float, radius: float, load: Cal
     if hit and now < hit[0]:
         return hit[1]
     with _guard:
-        lock = _locks[hash(key)%len(_locks)]
+        lock = _locks.get(key)
+        if lock is None:
+            if len(_locks) > 2000:
+                for old, idle in list(_locks.items()):
+                    if not idle.locked():
+                        _locks.pop(old, None)
+            lock = _locks[key] = threading.Lock()
     with lock:
         now = time.time()
         hit = _memory.get(key)
