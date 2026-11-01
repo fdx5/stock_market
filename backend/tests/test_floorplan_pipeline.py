@@ -74,6 +74,54 @@ def test_ambiguous_search_link_is_parsed_without_executing_javascript(monkeypatc
     assert source.catalogue("신도6차",37.726955,127.038392,"호원동","11680")["status"]=="not_found"
 
 
+@pytest.mark.parametrize('name',['신도6','신도(6차)','신도 제6차','호원신도6차','신도6차 601동'])
+def test_phase_notation_matches_the_same_complex(name):
+    assert source._same_name(name,'신도6차','호원동')
+    assert not source._same_name(name,'신도6-1차','호원동')
+    assert not source._same_name(name,'신도61차','호원동')
+    assert not source._same_name(name,'신도4차','호원동')
+    assert not source._same_name('신도101','신도101차','호원동')
+    assert not source._same_name('주공1차','주공1단지','호원동')
+    assert source._same_name('I-PARK','호원아이파크','호원동')
+    assert source._same_name('신일엘리시움','신일엘리시움(주상복합)','호원동')
+    assert not source._same_name('신일엘리시움(임대)','신일엘리시움(분양)','호원동')
+
+
+def test_missing_phase_word_retries_source_queries_without_losing_subphases(monkeypatch):
+    from urllib.parse import parse_qs,urlparse
+    source._catalogues.clear();queries=[]
+    def get(url,*args):
+        if '/search/' in url:
+            q=parse_qs(urlparse(url).query)['query'][0];queries.append(q)
+            body='<a href="?rletNo=25813">신도6-1차</a>'
+            if q.endswith('신도6차') or q.endswith('신도'):body+='<a href="?rletNo=2127">신도6차</a>'
+            return body.encode(),'text/html'
+        return gallery().encode(),'text/html'
+    monkeypatch.setattr(source,'_get',get)
+    r=source.catalogue('신도6',37.726955,127.038392,'호원동','41150')
+    assert r['naverId']=='2127' and r['matchedBy']=='phase_or_town_label'
+    assert queries[:2]==['호원동 신도6','호원동 신도6차']
+    assert len(queries)<=4
+    assert source._identity_name('신도6-1')!=source._identity_name('신도61')
+
+
+def test_one_broken_candidate_does_not_abort_other_original_catalogues(monkeypatch):
+    source._catalogues.clear()
+    monkeypatch.setattr(source,'_get',lambda *args:('<a href="?rletNo=111">삼익</a><a href="?rletNo=668">삼익</a>'.encode(),'text/html'))
+    def lookup(cid):
+        if cid=='111':raise LookupError('expired source')
+        return source.parse_gallery(gallery('668','삼익','1168011500','수서동'),'668')
+    monkeypatch.setattr(source,'_gallery',lookup)
+    assert source.catalogue('삼익',37.488,127.1,'수서동','11680')['naverId']=='668'
+
+
+def test_bare_number_does_not_choose_between_distinct_phase_and_complex_labels(monkeypatch):
+    source._catalogues.clear()
+    monkeypatch.setattr(source,'_get',lambda *args:('<a href="?rletNo=10">주공1차</a><a href="?rletNo=11">주공1단지</a>'.encode(),'text/html'))
+    monkeypatch.setattr(source,'_gallery',lambda cid:source.parse_gallery(gallery(cid,'주공1차' if cid=='10' else '주공1단지'),'10' if cid=='10' else '11'))
+    assert source.catalogue('주공1',37.726955,127.038392,'호원동','41150')['status']=='ambiguous'
+
+
 def test_only_selected_image_downloaded_once_even_with_concurrent_requests(monkeypatch):
     source._images.clear()
     plans=source.parse_gallery(gallery(),"2127")

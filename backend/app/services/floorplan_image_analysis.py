@@ -11,6 +11,7 @@ import heapq
 import io
 import math
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -22,7 +23,23 @@ from PIL import Image
 from app.services.floorplan_geometry import enclosed_floor, read_areas, fit_area_scale, source_match
 
 cv2.setNumThreads(1)
-VERSION = "orthogonal-area-8"
+VERSION = "orthogonal-area-9"
+
+_ROOM_TERMS={
+    "kitchen":("주방","식당","키친","다이닝","KITCHEN","DINING"),
+    "living":("거실","리빙룸","LIVING"),
+    "bedroom":("침실","짐실","참실","안방","BEDROOM","MASTERBED"),
+    "bathroom":("욕실","화장실","BATHROOM","BATH","TOILET","WC"),
+    "balcony":("발코니","베란다","BALCONY","VERANDA"),
+    "entrance":("현관","ENTRANCE","FOYER"),
+    "dressroom":("드레스","DRESSING","WALKINCLOSET"),
+    "utility":("다용도","세탁실","UTILITY","LAUNDRY"),
+}
+
+
+def _room_types(text: str) -> set[str]:
+    text=re.sub(r"[\s·,/&+._-]", "", text).upper()
+    return {kind for kind,terms in _ROOM_TERMS.items() if any(term in text for term in terms)}
 
 
 def _ocr(image: np.ndarray, rotation: int = 0, mode: str = "mixed") -> list[dict]:
@@ -316,11 +333,19 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
         known_texts=[w["text"] for w in _phrases(room_words)]
         groups=[("거실",),("주방","식당"),("침실","짐실","안방"),("욕실","화장실"),("현관",),("발코니","베란다")]
         missing=[g for g in groups if not any(any(term in t for term in g) for t in known_texts)]
+        known_kinds=set().union(*(_room_types(t) for t in known_texts))
         # The multiline pass supplies missing labels and areas; its lower-quality
         # alternative spellings cannot displace already observed room anchors.
-        words += [w for w in area_words if any(c.isdigit() for c in w["text"]) or any(any(term in w["text"] for term in g) for g in missing)]
+        words += [w for w in area_words if any(c.isdigit() for c in w["text"]) or _room_types(w['text'])-known_kinds or any(any(term in w["text"] for term in g) for g in missing)]
         if any(g in missing for g in groups[:3]):
             words += [w for w in _room_ocr(room_number_mask,(x0,y0,x1,y1),multiline=True) if any(any(term in w["text"] for term in g) for g in missing)]
+        observed=set().union(*(_room_types(w['text']) for w in _phrases(words)))
+        if not {'living','kitchen','bedroom'}.issubset(observed):
+            # Korean-only OCR can lose English labels or spaced room names.
+            # Retry the same source patches with the bilingual model; geometry
+            # still comes from the unmodified source pixels.
+            mixed=ocr_mask.copy();mixed[cv2.dilate(strong_h|strong_v,np.ones((3,3),np.uint8))>0]=0
+            words += [w for w in _room_ocr(mixed,(x0,y0,x1,y1),mode='mixed') if _room_types(w['text'])-observed]
     area_evidence = read_areas(words, (x0,y0,x1,y1))
     recognized_words=words
     words = _phrases(words)
@@ -450,7 +475,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             # rooms and the checkered entrance are retained by their non-white pixels.
             occupied = ((patch[:, :, 1] > 15) | (patch[:, :, 2] < 232)).mean()
             inside = float((enclosed[b:d,a:c] > 0).mean())
-            labelled=any(xs[i]<w["x"]<xs[i+1] and ys[j]<w["y"]<ys[j+1] and any(term in w["text"] for term in ("거실","주방","침실","안방","욕실","현관","드레스","발코니")) for w in words)
+            labelled=any(xs[i]<w["x"]<xs[i+1] and ys[j]<w["y"]<ys[j+1] and _room_types(w['text']) for w in words)
             if occupied < .12 and not (inside>=.65 and (monochrome or labelled)):
                 continue
             floor_fill=float(((patch[:,:,1]>15)|((patch[:,:,2]>110)&(patch[:,:,2]<232))).mean())
@@ -495,12 +520,12 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
     def locate(point):
         containing=next((c for c in cells if xs[c[0]]<=point[0]<=xs[c[0]+1] and ys[c[1]]<=point[1]<=ys[c[1]+1]),None)
         return containing if containing is not None else min(cells,key=lambda c:math.dist(cells[c]["center"],point))
-    room_patterns = [("kitchen", ("주방", "식당")), ("living", ("거실",)), ("bedroom", ("침실", "짐실", "안방")),
-                     ("bathroom", ("욕실", "화장실")), ("balcony", ("발코니", "베란다")), ("entrance", ("현관",)), ("dressroom", ("드레스",)),("utility",("다용도","세탁실"))]
+    room_patterns=list(_ROOM_TERMS)
     for word in words:
         if word.get("rotation",0) != 0 or not (x0 < word["x"] < x1 and y0 < word["y"] < y1):
             continue
-        kind = next((kind for kind, patterns in room_patterns if any(p in word["text"] for p in patterns)), None)
+        observed_types=_room_types(word['text'])
+        kind = next((kind for kind in room_patterns if kind in observed_types), None)
         if not kind:
             continue
         seed_cell = locate((word["x"],word["y"])) if monochrome or kind in ("entrance","utility") else min(cells,key=lambda c:math.dist(cells[c]["center"],(word["x"],word["y"])))
@@ -510,7 +535,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             continue
         if prior and prior["type"]==kind:
             continue
-        combined="거실" in word["text"] and any(t in word["text"] for t in ("침실","안방"))
+        combined={'living','bedroom'}.issubset(observed_types)
         seeds.append({"cell": seed_cell, "type": "living" if combined else kind, "label": word["text"], "observed": True,**({"combinedUses":["living","bedroom"]} if combined else {})})
     kinds = {s["type"] for s in seeds}
     # Some labels are covered by an upstream watermark. Distinct pale bedroom floor
@@ -577,7 +602,8 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
                 kitchen["areaGroup"]=kitchen_index
                 seeds.append({"cell":candidate,"type":"living","label":"주방·식당 공용 생활 공간 (용도 추정)","observed":False,"areaGroup":kitchen_index})
     kinds={s["type"] for s in seeds}
-    if not {"living", "kitchen", "bedroom"}.issubset(kinds):
+    combined_sleep=any('bedroom' in s.get('combinedUses',[]) for s in seeds)
+    if not {"living", "kitchen"}.issubset(kinds) or not ('bedroom' in kinds or combined_sleep):
         return {"status":"needs_review","reason":"room_labels","version":VERSION,"recognizedDimensions":numeric,"recognizedRoomTypes":sorted(kinds),"recognizedAreas":area_evidence,"elapsedMs":round((time.perf_counter()-started)*1000)}
     # Multi-source geodesic assignment respects observed walls instead of picking a template.
     assigned, distances, queue = {}, {}, []
@@ -837,7 +863,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
     # Room dimensions and logical doorway connectivity remain diagnostics. A
     # structurally matched original can enter furnished 3D review even when its
     # small printed door symbol is too narrow for body-sized walking.
-    status="ready" if (abs(error)<.25 or expanded_area) and len(bedrooms)>=1 else "needs_review"
+    status="ready" if (abs(error)<.25 or expanded_area) and (len(bedrooms)>=1 or combined_sleep) else "needs_review"
     source_floor=(enclosed>0) if monochrome else (hsv[:,:,1]>25)&(gray>90)
     source_floor[:y0]=False;source_floor[y1+1:]=False;source_floor[:,:x0]=False;source_floor[:,x1+1:]=False
     match=source_match(wall,rooms,openings,xs,ys,rectangles,(x0,y0,x1,y1),source_floor)
@@ -865,7 +891,7 @@ def analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | Non
             "areaBasis":"expanded_drawing" if expanded_area else "exclusive_area",
             "application":{"mode":"approximate_source" if area_annotation_conflict or abs(error)>=.18 or not match['targetMet'] or not usable_beds or not connected else "source","areaAnnotationAdjusted":area_annotation_conflict,"geometryBasis":"original_image","templateUsed":False},
             "checks":{"areaConsistent":abs(error)<.18 or expanded_area,"roomAreasConsistent":not area_annotation_conflict,"bedroomsUsable":usable_beds,"connected":connected,"narrowDoorways":narrow_doorways},
-            "note":"원본 이미지의 벽·방 위치를 인식한 모델입니다. 도면 치수 인식과 공간 구분에 오차가 있을 수 있으며 가구·마감은 연출입니다."+(" 확장형의 발코니 확장 면적이 포함되어 계산된 실내 면적은 전용면적과 다릅니다." if expanded_area else "")+(" 치수 없는 공간은 면적과 원본 가로·세로 비율로 환산했습니다. 실측 치수가 아니며 면적 일치는 독립적인 정확도 검증이 아닙니다." if not dimension_scale else "")+(" 작은 문 기호의 환산 폭을 그대로 보존했습니다. 보행이 어려우면 원본 3D 도면 검토 모드로 공간을 확인합니다." if narrow_doorways else "")}
+            "note":"원본 이미지의 벽·방 위치를 인식한 모델입니다. 도면 치수 인식과 공간 구분에 오차가 있을 수 있으며 가구·마감은 연출입니다."+(" 확장형의 발코니 확장 면적이 포함되어 계산된 실내 면적은 전용면적과 다릅니다." if expanded_area else "")+(" 치수 없는 공간은 면적과 원본 가로·세로 비율로 환산했습니다. 실측 치수가 아니며 면적 일치는 독립적인 정확도 검증이 아닙니다." if not dimension_scale else "")+(" 작은 문 기호의 환산 폭을 보존했으며 좁은 통로도 이동할 수 있습니다." if narrow_doorways else "")}
     if area_annotation_conflict:result['note']+=' 방별 면적 표기 차이는 전용면적을 기준으로 축척 보정했으며 원본 방 배치와 벽 위치는 유지했습니다.'
     if not _axis_recovery and not match["targetMet"]:
         alternative=analyze_image(data,exclusive_area,words=recognized_words,expanded=expanded,supply_area=supply_area,_axis_recovery=True)

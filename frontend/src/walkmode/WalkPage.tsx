@@ -590,9 +590,14 @@ export default function WalkPage() {
 
   // keys the page owns: Esc leaves (back to the street, then the map), E enters a building
   const exiting = useRef(false), lastEscape = useRef(-Infinity), unlockedAt = useRef(-Infinity), escapeHandled = useRef(false);
+  const laptopNative=useRef(false),laptopFullscreenExit=useRef(-Infinity);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       const target = e.target instanceof HTMLElement ? e.target : null;
+      if(e.code==='Escape'&&performance.now()-laptopFullscreenExit.current<350){escapeHandled.current=true;return;}
+      const laptop=document.querySelector<HTMLButtonElement>('.wk-laptop-layer.is-fullscreen [data-laptop-shrink]');
+      if(laptop){if(e.code==='Escape'){escapeHandled.current=true;e.preventDefault();if(!e.repeat)laptop.click();}return;}
+      if(target?.closest('.wk-laptop-layer'))return;
       if (e.code === "Escape") {
         if (e.type === "keydown") escapeHandled.current = true;
         if (e.repeat || performance.now() - lastEscape.current < 350) return;
@@ -620,10 +625,12 @@ export default function WalkPage() {
     };
     // Chrome consumes Escape's keydown when it releases pointer lock, but delivers keyup.
     const lock = () => { if (!document.pointerLockElement) unlockedAt.current = performance.now(); };
-    const up = (e: KeyboardEvent) => { if (e.code !== "Escape") return; const handled = escapeHandled.current; escapeHandled.current = false; if (!handled && performance.now() - unlockedAt.current < 900) down(e); };
+    const up = (e: KeyboardEvent) => { if (e.code !== "Escape") return; const handled = escapeHandled.current; escapeHandled.current = false; if(performance.now()-laptopFullscreenExit.current<900)return; if (!handled && performance.now() - unlockedAt.current < 900) down(e); };
+    const fullscreen=()=>{const owned=!!document.fullscreenElement?.classList.contains('wk-laptop-layer');if(laptopNative.current&&!owned)laptopFullscreenExit.current=performance.now();laptopNative.current=owned;};
     document.addEventListener("pointerlockchange", lock);
     window.addEventListener("keydown", down, true); window.addEventListener("keyup", up, true);
-    return () => { document.removeEventListener("pointerlockchange", lock); window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); };
+    document.addEventListener('fullscreenchange',fullscreen);
+    return () => { document.removeEventListener("pointerlockchange", lock); document.removeEventListener('fullscreenchange',fullscreen); window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); };
   });
 
   // (stepping away — a move key — ends the zoom)

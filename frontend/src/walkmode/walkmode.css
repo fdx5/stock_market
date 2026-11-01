@@ -188,6 +188,13 @@
 .wk-tv-caption { padding: 8px 10px; font-size: 12px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .wk-tv-caption a { margin-left: auto; color: #5ef0ff; }
 /* the laptop's game, laid over its screen in the scene */
+.wk-laptop-layer { position: fixed; inset: 0; z-index: 4; pointer-events: none; }
+.wk-laptop-layer .wk-laptop, .wk-laptop-layer .wk-laptop-bar { pointer-events: auto; }
+.wk-laptop-layer.is-fullscreen { display: flex; flex-direction: column; z-index: 100; background: #060c12; pointer-events: auto; }
+.wk-laptop-layer.is-fullscreen .wk-laptop { position: relative; inset: auto; width: 100% !important; height: auto !important; flex: 1; min-height: 0; transform: none !important; visibility: visible !important; }
+.wk-laptop-layer.is-fullscreen .wk-laptop-bar { position: relative; order: -1; left: auto; bottom: auto; transform: none; flex: 0 0 auto; width: 100%; max-width: none; box-sizing: border-box; border-radius: 0; margin: 0; padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); gap: 8px; flex-wrap: nowrap; }
+.wk-laptop-layer.is-fullscreen .wk-laptop-bar span { margin-right: auto; }
+.wk-laptop-layer.is-fullscreen .wk-btn { min-width: 64px; min-height: 44px; white-space: nowrap; touch-action: manipulation; }
 .wk-laptop { position: fixed; left: 0; top: 0; transform-origin: 0 0; z-index: 2; background: #000; }
 .wk-laptop iframe { width: 100%; height: 100%; border: 0; display: block; }
 /* (above the help line, large enough to find at a glance) */

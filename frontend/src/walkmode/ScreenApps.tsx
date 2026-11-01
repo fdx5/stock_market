@@ -147,35 +147,61 @@ export function homography(w: number, h: number, p: { x: number; y: number }[]):
 }
 
 export function LaptopScreen({ corners, onClose, zoom }: { corners: () => { x: number; y: number }[] | null; onClose(): void; zoom: Zoom }) {
+  const layer=useRef<HTMLDivElement>(null),nativeFull=useRef(false);
   const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null);
   const [shown, setShown] = useState(false);
+  const [full,setFull]=useState(false);
+  useEffect(()=>{
+    const change=()=>{
+      if(document.fullscreenElement===layer.current)nativeFull.current=true;
+      else if(nativeFull.current){nativeFull.current=false;setFull(false);}
+    };
+    document.addEventListener('fullscreenchange',change);
+    return ()=>{
+      document.removeEventListener('fullscreenchange',change);
+      if(layer.current&&document.fullscreenElement===layer.current)void document.exitFullscreen().catch(()=>{});
+    };
+  },[]);
+  const fullscreen=async()=>{
+    setFull(true);document.exitPointerLock?.();
+    // The controls and game share the fullscreen root. Unsupported/rejected
+    // native fullscreen keeps the same viewport layout and reachable controls.
+    try{await layer.current?.requestFullscreen?.();}catch{/* Use the viewport layout. */}
+    frame.current?.focus();
+  };
+  const exit=async(close:boolean)=>{
+    if(document.fullscreenElement===layer.current)await document.exitFullscreen().catch(()=>{});
+    setFull(false);zoom.set(false);frame.current?.blur();layer.current?.focus({preventScroll:true});
+    if(close)onClose();
+  };
   useEffect(() => {
     let raf = 0, was = false;
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const c = corners(), el = box.current;
       if (!el) return;
+      if(full){el.style.visibility='visible';el.style.transform='none';return;}
       if (!c) { el.style.visibility = "hidden"; if (was) { was = false; setShown(false); } return; }
       el.style.visibility = "visible"; el.style.transform = homography(PW, PH, c);
       if (!was) { was = true; setShown(true); }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [corners]);
+  }, [corners,full]);
   // (zoomed in, the keyboard goes to the game)
-  useEffect(() => { if (zoom.on) setTimeout(() => frame.current?.focus(), 700); }, [zoom.on]);
+  useEffect(() => { if (!zoom.on) return;const timer=setTimeout(() => frame.current?.focus(), 700);return ()=>clearTimeout(timer); }, [zoom.on]);
   return (
-    <>
+    <div className={`wk-laptop-layer${full?' is-fullscreen':''}`} ref={layer} tabIndex={-1} onPointerDown={e=>e.stopPropagation()}>
       <div className="wk-laptop" ref={box} style={{ width: PW, height: PH, visibility: "hidden" }}>
-        <iframe ref={frame} title="노트북 게임" src={LAPTOP_URL} allow="autoplay; fullscreen; gamepad" allowFullScreen />
+        <iframe ref={frame} title="노트북 게임" src={LAPTOP_URL} allow="autoplay; gamepad; fullscreen 'none'" />
       </div>
-      {shown && <div className="wk-laptop-bar" onPointerDown={e => e.stopPropagation()}>
-        <span>노트북{zoom.on ? " · 키보드로 게임 조작" : ""}</span>
-        <button className="wk-btn" onClick={() => zoom.set(!zoom.on)}>{zoom.on ? "축소" : "확대 🔍"}</button>
-        <button className="wk-btn" onClick={() => { void box.current?.requestFullscreen?.(); setTimeout(() => frame.current?.focus(), 300); }}>전체화면 ⛶</button>
-        {zoom.on && <button className="wk-btn" onClick={() => frame.current?.focus()}>키보드 연결</button>}
-        <button className="wk-btn" onClick={onClose}>노트북 덮기</button>
+      {(shown||full) && <div className="wk-laptop-bar" role="toolbar" aria-label="노트북 화면 조작" onPointerDown={e => e.stopPropagation()}>
+        <span>노트북{zoom.on&&!full ? " · 키보드로 게임 조작" : ""}</span>
+        <button type="button" className="wk-btn" data-laptop-shrink={full||undefined} onClick={() => full?void exit(false):zoom.set(!zoom.on)}>{full||zoom.on ? "축소" : "확대 🔍"}</button>
+        {!full&&<button type="button" className="wk-btn" onClick={()=>void fullscreen()}>전체화면 ⛶</button>}
+        {zoom.on&&!full && <button type="button" className="wk-btn" onClick={() => frame.current?.focus()}>키보드 연결</button>}
+        <button type="button" className="wk-btn" onClick={()=>void exit(true)}>{full?'닫기':'노트북 덮기'}</button>
       </div>}
-    </>
+    </div>
   );
 }

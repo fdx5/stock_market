@@ -3,7 +3,7 @@ import type { Drawing, ImageAnalysis } from "./interior/plan/imagePlan";
 import {apartmentName,drawingLookupIdentity} from './apartmentIdentity';
 import {drawingSelection} from './drawingSelection';
 
-interface Catalogue {status:string;name?:string;naverId?:string;plans:Drawing[];types?:Drawing[]}
+interface Catalogue {status:string;name?:string;naverId?:string;plans:Drawing[];types?:Drawing[];reason?:string}
 const lists=new Map<string,Promise<Catalogue>>(),results=new Map<string,Promise<ImageAnalysis>>();
 function once<T>(cache:Map<string,Promise<T>>,key:string,fetcher:()=>Promise<T>){
   const hit=cache.get(key);if(hit)return hit;
@@ -22,21 +22,31 @@ export default function NaverFloorPlans({name,lat,lon,town,region,pnu='',area,on
  const areaCallback=useRef(onAreaChoice);areaCallback.current=onAreaChoice;
  const [failed,setFailed]=useState(false);
  const [overlay,setOverlay]=useState(false);
+ const tried=useRef(new Set<string>());
  const searchName=apartmentName(name,town);
  const identity=drawingLookupIdentity(searchName,town,region,lat,lon);
+ useEffect(()=>{tried.current.clear();},[identity,area,retry]);
  useEffect(()=>{let active=true;setData(null);setSelected("");setAnalysis(null);callback.current(null);statusCallback.current("loading");setMessage("원본 평면도 목록을 확인하는 중…");
   const url=`/api/realestate/floor-plans?${new URLSearchParams({name:searchName,lat:String(lat),lon:String(lon),town,region,...(pnu?{pnu}:{})})}`;
-  void once(lists,identity+retry,()=>json<Catalogue>(url)).then(d=>{if(!active)return;setData(d);setLoadedIdentity(identity);if(d.status!=="available")statusCallback.current(d.status==='unavailable'?'unavailable':'not_found');setMessage(d.status==="available"?"":d.status==='ambiguous'?"동명이 있는 여러 단지가 검색되었습니다. 단지 위치를 확인해 주세요.":d.status==='unavailable'?"단지 도면 서버에 연결하지 못했습니다. 다시 확인해 주세요.":"이 아파트 단지에서 공개한 원본 도면을 찾지 못했습니다.");}).catch(()=>{if(active){setMessage("원본 도면 서버에 연결하지 못했습니다.");statusCallback.current("unavailable");}});return()=>{active=false;};
+  const key=identity+retry;
+  void once(lists,key,()=>json<Catalogue>(url,45000).then(d=>{if(d.status!=="available")lists.delete(key);return d;})).then(d=>{if(!active)return;setData(d);setLoadedIdentity(identity);if(d.status!=="available")statusCallback.current(d.status==='unavailable'?'unavailable':'not_found');setMessage(d.status==="available"?"":d.status==='ambiguous'?"이름·차수가 같은 여러 단지가 검색되었습니다. 단지 위치를 확인해 주세요.":d.status==='unavailable'?"단지 도면 서버에 연결하지 못했습니다. 다시 확인해 주세요.":d.status==='no_drawings'?"단지와 주택형은 확인했습니다. 공급자가 공개한 원본 이미지 등록을 확인하고 있습니다.":"단지명·차수·지역으로 원본 도면을 연결하지 못했습니다. 단지 정보를 다시 확인해 주세요.");}).catch(()=>{if(active){setMessage("원본 도면 서버에 연결하지 못했습니다.");statusCallback.current("unavailable");}});return()=>{active=false;};
  },[identity,retry]);
  const {matches,severalTypes,chosen}=drawingSelection(loadedIdentity===identity?data?.plans??[]:[],area,selected);
  useEffect(()=>{if(chosen&&(area===undefined||Math.abs(chosen.exclusiveArea-area)>.005))areaCallback.current(chosen);},[chosen?.key,area]);
  const choices=data?.types??data?.plans.filter((p,i,all)=>all.findIndex(a=>a.typeId===p.typeId)===i)??[];
  useEffect(()=>{let active=true;setAnalysis(null);setOverlay(false);callback.current(null);if(!chosen){if(data?.status==="available"&&loadedIdentity===identity){setMessage(severalTypes?"단지 원본을 찾았습니다. 같은 면적의 A·B 등 주택형을 선택해 주세요.":"단지 원본을 찾았습니다. 아래 원본 주택형을 선택하면 인테리어를 구성합니다.");statusCallback.current("type_selection");}return;}
+  tried.current.add(chosen.key);
+  const nextSource=()=>{
+   tried.current.add(chosen.key);
+   const next=data?.plans.find(p=>p.naverId===chosen.naverId&&p.typeId===chosen.typeId&&Math.abs(p.exclusiveArea-chosen.exclusiveArea)<.005&&!tried.current.has(p.key));
+   if(!next)return false;
+   setMessage(`${chosen.typeName}의 다른 원본 도면을 확인하는 중…`);setSelected(next.key);return true;
+  };
   statusCallback.current("loading");
   setFailed(false);
   setMessage(`${chosen.typeName} ${chosen.variant} · 이미지와 치수를 분석하는 중…`);
   const started=performance.now();
-  void once(results,chosen.key,()=>json<ImageAnalysis>(`/api/realestate/floor-plan-analysis?${new URLSearchParams({naver_id:chosen.naverId,key:chosen.key})}`,45000)).then(a=>{if(!active)return;setAnalysis(a);callback.current(a.status==="ready"?a:null);statusCallback.current(a.status);const elapsed=performance.now()-started;setMessage(a.status==="ready"?`${chosen.typeName} 원본 분석 적용 · ${(elapsed<100?0:elapsed/1000).toFixed(1)}초 · ${a.application?.geometryBasis==='reviewed_public_drawing_copy'?'공개 도면 사본·구획 보정(근사)':a.application?.areaAnnotationAdjusted?'원본 구조·전용면적 축척 보정':scaleLabels[a.scale?.basis??""]??"전용면적 기준 축척 보정"}`:a.reason==="source_wall_mismatch"?"원본은 확보했지만 벽 위치를 충분히 읽지 못했습니다. 다른 원본 주택형을 선택하거나 다시 분석해 주세요.":"원본은 확보했지만 공간 구획을 읽지 못했습니다. 다른 원본 주택형을 선택하거나 다시 분석해 주세요.");}).catch(()=>{if(active){setFailed(true);setMessage("원본은 확보했지만 분석 서버 응답을 받지 못했습니다. 다시 시도해 주세요.");statusCallback.current("analysis_failed");}});return()=>{active=false;};
+  void once(results,chosen.key,()=>json<ImageAnalysis>(`/api/realestate/floor-plan-analysis?${new URLSearchParams({naver_id:chosen.naverId,key:chosen.key})}`,45000).then(a=>{if(a.status!=="ready")results.delete(chosen.key);return a;})).then(a=>{if(!active)return;if(a.status!=="ready"&&nextSource())return;setAnalysis(a);callback.current(a.status==="ready"?a:null);statusCallback.current(a.status);const elapsed=performance.now()-started;setMessage(a.status==="ready"?`${chosen.typeName} 원본 분석 적용 · ${(elapsed<100?0:elapsed/1000).toFixed(1)}초 · ${a.application?.geometryBasis==='reviewed_public_drawing_copy'?'공개 도면 사본·구획 보정(근사)':a.application?.areaAnnotationAdjusted?'원본 구조·전용면적 축척 보정':scaleLabels[a.scale?.basis??""]??"전용면적 기준 축척 보정"}`:a.reason==="source_wall_mismatch"?"원본은 확보했지만 벽 위치를 충분히 읽지 못했습니다. 다른 원본 주택형을 선택하거나 다시 분석해 주세요.":"원본은 확보했지만 공간 구획을 읽지 못했습니다. 다른 원본 주택형을 선택하거나 다시 분석해 주세요.");}).catch(()=>{if(active){if(nextSource())return;setFailed(true);setMessage("원본은 확보했지만 분석 서버 응답을 받지 못했습니다. 다시 시도해 주세요.");statusCallback.current("analysis_failed");}});return()=>{active=false;};
  },[identity,loadedIdentity,chosen?.key,retry]);
  return <section className="wk-original-plan" aria-label="실제 원본 평면도">
   <label>{data?.name??searchName} · 단지 원본 평면도 <b>{chosen?.typeName??"주택형 선택"}</b></label>

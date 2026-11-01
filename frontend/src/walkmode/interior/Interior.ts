@@ -668,6 +668,7 @@ export class Interior {
   keyDown = (e: KeyboardEvent) => {
     if (this.overlay) return;
     const t = e.target instanceof HTMLElement ? e.target : null;
+    if(t?.closest('.wk-laptop-layer')||document.querySelector('.wk-laptop-layer.is-fullscreen'))return;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
     if (e.code === "KeyE" || e.code === "Enter") { e.preventDefault(); if (!e.repeat) this.interact(); return; }
     if (e.code === "KeyV") { if (!e.repeat) this.toggleView(); return; }

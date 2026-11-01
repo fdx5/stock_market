@@ -85,6 +85,20 @@ def test_combined_living_bedroom_label_keeps_the_living_anchor():
     assert any(r['type']=='living' and r['combinedUses']==['living','bedroom'] for r in result['rooms'])
 
 
+@pytest.mark.parametrize('labels',[('거 실 / 침 실','주 방','욕 실'),('LIVING / BEDROOM','KITCHEN','BATHROOM'),('거실겸 참실','주방 및 식당','욕실')])
+def test_source_studio_does_not_require_an_invented_separate_bedroom(labels):
+    image=Image.new('RGB',(480,360),'white');d=ImageDraw.Draw(image)
+    d.rectangle((30,30,440,320),fill='#c99852',outline='black',width=6)
+    d.rectangle((30,210,135,320),fill='#aacddd',outline='black',width=6)
+    d.rectangle((131,250,140,290),fill='#c99852')
+    encoded=io.BytesIO();image.save(encoded,format='PNG')
+    result=analyze_image(encoded.getvalue(),25,words=[word(labels[0],290,160),word(labels[1],100,85),word(labels[2],85,265)])
+    assert result['status']=='ready',result
+    assert any(r['type']=='living' and 'bedroom' in r['combinedUses'] for r in result['rooms'])
+    assert not any(r['type'] in ('bedroom','master') for r in result['rooms'])
+    assert not result['application']['templateUsed']
+
+
 def test_open_kitchen_dining_room_can_supply_an_explicitly_inferred_living_use():
     data,words=drawn_flat()
     words=[w for w in words if not w['text'].isdigit() and w['text']!='거실']

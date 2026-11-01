@@ -286,8 +286,8 @@ export function packBedroom(pl:Placer,master:boolean,preferred:number,expanded=f
   return null;
 }
 
-export function packKitchen(pl:Placer,reroute=false):{side:SideName;width:number;run:Frame;fridge:Frame;fridgeWidth:number}|null {
-  const sides=(["n","e","w","s"] as SideName[]).sort((a,b)=>pl.openingsOn(a).length-pl.openingsOn(b).length);
+export function packKitchen(pl:Placer,reroute=false,expanded=false,backless:SideName[]=[]):{side:SideName;width:number;run:Frame;fridge:Frame;fridgeWidth:number}|null {
+  const sides=(["n","e","w","s"] as SideName[]).filter(s=>!backless.includes(s)).sort((a,b)=>pl.openingsOn(a).length-pl.openingsOn(b).length);
   for(const [fw,fd] of [[.72,.72],[.62,.65],[.55,.60]])for(const side of sides)for(const end of [0,1,.5]){
     const [lo,hi]=pl.span(side),fr=pl.against(side,fw,fd,lo+fw/2+(hi-lo-fw)*end,2);if(!fr)continue;
     const count=pl.occupied.length;pl.take(fr.rect);
@@ -300,7 +300,26 @@ export function packKitchen(pl:Placer,reroute=false):{side:SideName;width:number
     }
     pl.occupied.length=count;
   }
-  if(!reroute&&pl.sourceBased&&pl.routes.length){const previous=pl.routes;pl.routes=[];const found=packKitchen(pl,true);if(!found)pl.routes=previous;return found;}
+  if(!reroute&&pl.sourceBased&&pl.routes.length){const previous=pl.routes;pl.routes=[];const found=packKitchen(pl,true,expanded,backless);if(!found)pl.routes=previous;return found;}
+  if(!expanded&&pl.sourceBased){
+    // A kitchenette can be drawn as a shallow cabinet alcove, with its standing
+    // space in the living room. Its full open edge is not a door swing. Use only
+    // existing, rectangular same-zone floor cells and retain all actual doors.
+    const cells=pl.plan.rooms.filter(r=>r.zone===pl.room.zone),ids=new Set(cells.map(r=>r.id));
+    const rect:Rect=[Math.min(...cells.map(r=>r.rect[0])),Math.min(...cells.map(r=>r.rect[1])),Math.max(...cells.map(r=>r.rect[2])),Math.max(...cells.map(r=>r.rect[3]))];
+    const area=cells.reduce((s,r)=>s+(r.rect[2]-r.rect[0])*(r.rect[3]-r.rect[1]),0);
+    const open=pl.plan.openings.filter(o=>o.type==='open'&&(ids.has(o.a)||ids.has(o.b)));
+    const alcove=open.filter(o=>{
+      const side=pl.sideOf(o.axis,o.at);if(!side)return false;
+      const [a,b]=pl.span(side),other=pl.plan.rooms.find(r=>r.id===(ids.has(o.a)?o.b:o.a));
+      return other?.type==='living'&&o.center-o.width/2<=a+.06&&o.center+o.width/2>=b-.06&&pl.depth(side)<1.2;
+    });
+    if(alcove.length&&Math.abs(area-(rect[2]-rect[0])*(rect[3]-rect[1]))<1e-4){
+      const local={...pl.plan,openings:pl.plan.openings.filter(o=>!alcove.includes(o)&&!(o.type==='open'&&ids.has(o.a)&&ids.has(o.b))).map(o=>({...o,a:ids.has(o.a)?pl.room.id:o.a,b:ids.has(o.b)?pl.room.id:o.b}))};
+      const cell=new Placer({...pl.room,rect},local);cell.occupied.push(...pl.occupied.filter(r=>!pl.doors.includes(r)));
+      const found=packKitchen(cell,false,true,alcove.map(o=>cell.sideOf(o.axis,o.at)).filter((s):s is SideName=>!!s));if(found)return found;
+    }
+  }
   return null;
 }
 
@@ -469,6 +488,14 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     }
 
     // ------------------------------------------------ living room
+    if(room.type==='living'&&room.combinedUses?.includes('bedroom')){
+      const bed=packBedroom(pl,false,1.0);
+      if(bed){
+        put(bedV(P,bed.width,bed.length,bed.lowHead?5:8,bedCover(P,VS+room.id,disposables)),bed.frame,zone);pl.take(bed.frame.rect);pl.keep(bed.way);
+        circulation.push({room:room.id,kind:'bed',footprint:bed.frame.rect,path:bed.way,size:[bed.width,bed.length]});
+        seats.push({label:'침대에 눕기',eye:local(bed.frame,0,.78,.42),yaw:yawOut(bed.frame),pose:'lie',hit:hitIn(bed.frame,bed.width,.6,bed.length*.9,0,.4,bed.length/2),zone,room});
+      }
+    }
     if (room.type === "living") {
       const fittedPair=(["w","e","n","s"] as SideName[]).find(side=>{
         if(pl.depth(side)<2.3)return false;

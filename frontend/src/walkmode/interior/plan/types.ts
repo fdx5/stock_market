@@ -16,6 +16,8 @@ export interface Room {
   type: RoomType;
   /** Surface use for an image room's unfurnished decomposition pieces. */
   surfaceType?: RoomType;
+  /** Multiple uses explicitly printed in one undivided source room. */
+  combinedUses?: RoomType[];
   label: string;
   /** an axis-aligned rectangle: [x0, z0, x1, z1] */
   rect: [number, number, number, number];

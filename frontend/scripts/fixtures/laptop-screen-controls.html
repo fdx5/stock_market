@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body><div id="root"></div>
+<script type="module">
+import React,{useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import {LaptopScreen} from '/src/walkmode/ScreenApps.tsx';
+import '/src/walkmode/walkmode.css';
+const corners=()=>window.__hideLaptopScreen?null:[{x:40,y:70},{x:innerWidth-40,y:70},{x:innerWidth-40,y:270},{x:40,y:270}];
+function Test(){const[open,setOpen]=useState(true),[zoom,setZoom]=useState(false);return React.createElement(React.Fragment,null,
+React.createElement('output',{id:'state'},JSON.stringify({open,zoom})),
+open?React.createElement(LaptopScreen,{corners,zoom:{on:zoom,set:setZoom},onClose:()=>setOpen(false)}):React.createElement('button',{onClick:()=>setOpen(true)},'다시 열기'))}
+createRoot(document.getElementById('root')).render(React.createElement(Test));
+</script></body></html>

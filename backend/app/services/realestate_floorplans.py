@@ -42,7 +42,7 @@ def _get(url: str, limit: int = 2_500_000) -> tuple[bytes, str]:
     u = urlparse(url)
     if u.scheme != "https" or u.hostname not in {"land.naver.com", "landthumb-phinf.pstatic.net"} or u.port not in (None, 443):
         raise ValueError("drawing host")
-    if not _network.acquire(timeout=.15):
+    if not _network.acquire(timeout=2):
         raise LookupError("drawing source busy")
     try:
         return _download(url,limit)
@@ -82,8 +82,63 @@ def complex_name(value: str, town: str = "") -> str:
     name=re.sub(r"\s*(?:제\s*)?(?:\d{1,4}|[A-Z])\s*동(?:\s*\d{1,4}\s*호)?\s*$","",name,flags=re.I)
     name=re.sub(r"\s+[가-힣]\s*동\s*$","",name)
     name=re.sub(r"아파트|\bAPT\b","",name,flags=re.I).strip()
+    name=re.sub(r"\(\s*주상복합\s*\)\s*$","",name).strip()
     if town and name.startswith(town):name=name[len(town):].strip()
     return re.sub(r"\s+"," ",name)
+
+
+def _brand_name(value: str) -> str:
+    return re.sub(r"I[\s-]*PARK", "아이파크", value, flags=re.I)
+
+
+def _phase_name(value: str) -> tuple[str, str, str] | None:
+    """A phase suffix, with hyphenated subphases kept distinct from 61/other phases."""
+    value=re.sub(r"[\s()（）]", "", unicodedata.normalize("NFKC", value))
+    value=re.sub(r"[‐‑–—−]", "-", value)
+    m=re.fullmatch(r"(.+?)(?:제)?(?<!\d)(\d{1,2}(?:-\d{1,2})?)(차|단지)?", value)
+    if not m:return None
+    return m[1],"-".join(str(int(n)) for n in m[2].split("-")),m[3] or ""
+
+
+def _identity_name(value: str, town: str = "") -> str:
+    value=_brand_name(complex_name(value,town))
+    # Provider names sometimes repeat the legal-town stem before the brand.
+    stem=re.sub(r"동$", "", town)
+    if len(stem)>=2 and value.startswith(stem) and len(value)-len(stem)>=2:value=value[len(stem):]
+    phase=_phase_name(value)
+    return f"{_name(phase[0])}:{phase[2] or 'ordinal'}:{phase[1]}" if phase else _name(value)
+
+
+def _same_name(a: str, b: str, town: str = "") -> bool:
+    aa,bb=_identity_name(a,town),_identity_name(b,town)
+    if aa==bb:return True
+    left,right=aa.split(":"),bb.split(":")
+    return len(left)==len(right)==3 and left[0]==right[0] and left[2]==right[2] and "ordinal" in (left[1],right[1])
+
+
+def _search_names(value: str) -> list[str]:
+    canonical=_brand_name(value);names=[value,canonical];phase=_phase_name(canonical)
+    if phase:names.extend([f"{phase[0]}{phase[1]}{suffix}" for suffix in ([phase[2]] if phase[2] else ["차","단지"])] + [phase[0]])
+    return list(dict.fromkeys(n for n in names if _name(n)))[:4]
+
+
+def _search_ids(text: str, name: str, town: str, lat: float, lon: float) -> list[str]:
+    ids=[];disallowed=set()
+    match=re.search(r"baseQueryResult\s*=\s*({[^\r\n]+});",text)
+    info=json.loads(match.group(1)) if match else {}
+    direct=str(info.get("complexCode", ""))
+    if direct.isdigit() and _same_name(str(info.get("complexName", "")),name,town):
+        try:
+            if _near(float(info["complexMapXCrdn"]),float(info["complexMapYCrdn"]),lat,lon):ids.append(direct)
+            else:disallowed.add(direct)
+        except (ValueError,TypeError,KeyError):pass
+    soup=BeautifulSoup(text,"html.parser")
+    for link in soup.select("a[href*='rletNo='],a[onclick*='reSearchComplexTab']"):
+        if not _same_name(link.get_text("",strip=True),name,town):continue
+        m=re.search(r"[?&]rletNo=(\d+)",html.unescape(link.get("href", ""))) or re.search(r"reSearchComplexTab\(\s*'[^']*'\s*,\s*'(\d+)'\s*\)",link.get("onclick", ""))
+        if m and m[1] not in ids and m[1] not in disallowed:ids.append(m[1])
+        if len(ids)>=4:break
+    return ids
 
 
 def parse_gallery(text: str, naver_id: str) -> dict:
@@ -122,7 +177,7 @@ def parse_gallery(text: str, naver_id: str) -> dict:
                 continue
             # Photos, panoramas and furnishing renders cannot replace a 2D basic/expanded plan.
             code = str(image.get("imageTypeCode", ""))
-            if not code.startswith("GA"):
+            if not code.startswith("GA") or re.search(r"입체|투시|3\s*D",str(image.get('imageTypeName','')),re.I):
                 continue
             token = hashlib.sha256(f"{naver_id}|{type_id}|{path}".encode()).hexdigest()[:24]
             plans.append({"key": token, "naverId": str(naver_id), "typeId": type_id,
@@ -171,7 +226,7 @@ def catalogue(name: str, lat: float, lon: float, town: str = "", region: str = "
     reference=floorplan_references.lookup(name,lat,lon,town,region,pnu)
     if reference:return reference
     location=f"{town}:{region}" if town and region else f"{town}:{region}:{lat:.4f}:{lon:.4f}"
-    key = f"complex-lookup:{_name(name)}:{location}:{naver_id}"
+    key = f"complex-lookup:v2:{_identity_name(name,town)}:{location}:{naver_id}"
     with _singleflight("catalogue:"+key):
         return _catalogue(name,lat,lon,town,region,naver_id,key)
 
@@ -183,45 +238,26 @@ def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_
             return hit[1]
     with _work:
         try:
-            ids: list[str] = [naver_id] if naver_id else []
-            if not ids:
-                query = f"{town} {name}".strip()
-                raw, _ = _get(LAND + "/search/search.naver?" + urlencode({"query": query}))
-                text = _text(raw)
-                match = re.search(r"baseQueryResult\s*=\s*({[^\r\n]+});", text)
-                info = json.loads(match.group(1)) if match else {}
-                direct = str(info.get("complexCode", ""))
-                if direct.isdigit() and _name(str(info.get("complexName", ""))) == _name(name):
-                    try:
-                        if _near(float(info["complexMapXCrdn"]), float(info["complexMapYCrdn"]), lat, lon):
-                            ids.append(direct)
-                    except (ValueError, TypeError, KeyError):
-                        pass
-                # Older search pages also expose exact-name complex links when several match.
+            found=[];seen=set();source_failed=False;location_mismatch=False
+            for variant in ([name] if naver_id else _search_names(name)):
+                ids=[naver_id] if naver_id else []
                 if not ids:
-                    soup = BeautifulSoup(text, "html.parser")
-                    for link in soup.select("a[href*='rletNo=']"):
-                        m = re.search(r"[?&]rletNo=(\d+)", html.unescape(link.get("href", "")))
-                        if m and _name(link.get_text("", strip=True)) == _name(name) and m[1] not in ids:
-                            ids.append(m[1])
-                        if len(ids) == 4:
-                            break
-                    for link in soup.select("a[onclick*='reSearchComplexTab']"):
-                        m=re.search(r"reSearchComplexTab\(\s*'[^']*'\s*,\s*'(\d+)'\s*\)",link.get("onclick",""))
-                        if m and _name(link.get_text("",strip=True))==_name(name) and m[1] not in ids:
-                            ids.append(m[1])
-                        if len(ids)==4:break
-            found = []
-            for cid in ids[:4]:
-                g = _gallery(cid)
-                if _name(str(g.get("name", ""))) != _name(name):
-                    continue
-                if town and _name(g.get("town", "")) != _name(town):
-                    continue
-                if region and not g.get("regionCode", "").startswith(region):
-                    continue
-                found.append(g)
-            result = found[0] if len(found) == 1 else {"status": "ambiguous" if found else "not_found", "plans": []}
+                    raw,_=_get(LAND+"/search/search.naver?"+urlencode({"query":f"{town} {variant}".strip()}))
+                    ids=_search_ids(_text(raw),name,town,lat,lon)
+                for cid in ids[:4]:
+                    if cid in seen:continue
+                    seen.add(cid)
+                    try:g=_gallery(cid)
+                    except (requests.RequestException,LookupError,ValueError,json.JSONDecodeError):
+                        source_failed=True;continue
+                    if not _same_name(str(g.get("name", "")),name,town):continue
+                    if town and _name(g.get("town", ""))!=_name(town) or region and not g.get("regionCode", "").startswith(region):
+                        location_mismatch=True;continue
+                    found.append(g)
+                phase=_phase_name(name)
+                if found and (not phase or phase[2] or naver_id):break
+            result=({**found[0],"requestedName":name,"matchedBy":"exact_name" if _name(found[0].get("name",""))==_name(name) else "phase_or_town_label"} if len(found)==1
+                    else {"status":"ambiguous" if found else "unavailable" if source_failed else "not_found","plans":[],"reason":"multiple_complexes" if found else "source_load_failed" if source_failed else "location_mismatch" if location_mismatch else "no_name_candidate"})
         except (requests.RequestException, LookupError, ValueError, json.JSONDecodeError):
             result = {"status": "unavailable", "plans": []}
     with _lock:
