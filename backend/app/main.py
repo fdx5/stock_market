@@ -18,7 +18,6 @@ from starlette.staticfiles import NotModifiedResponse
 from app.services import asset_cdn
 from app.services.libsql_gate import StoreUnavailable
 from app.services.turso import TursoError
-from app.site import LEGACY_RENDER_HOST, PRIMARY_SITE_URL
 from app.routers import discovery
 from app.routers import editorial as editorial_router
 from app.services import editorial as editorial_service
@@ -91,16 +90,10 @@ app = FastAPI(title="KOSPI 종목 예측")
 system_telemetry.install()
 
 
-@app.middleware("http")
-async def _redirect_legacy_render_domain(request: Request, call_next):
-    """Move every legacy Render URL to the same path/query on the canonical domain."""
-    host = request.headers.get("host", "").split(":", 1)[0].lower()
-    if host == LEGACY_RENDER_HOST:
-        target = f"{PRIMARY_SITE_URL}{request.url.path}"
-        if request.url.query:
-            target += f"?{request.url.query}"
-        return RedirectResponse(target, status_code=301)
-    return await call_next(request)
+# The public domain is reverse-proxied to this Render origin. Redirecting an
+# origin Host back to the public URL feeds that proxy into itself, while the
+# direct health check still looks healthy. Serve origin requests here; public
+# URL canonicalisation remains in the SEO tags and at the public edge.
 
 app.add_middleware(
     CORSMiddleware,
