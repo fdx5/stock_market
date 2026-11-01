@@ -1,0 +1,345 @@
+{
+  "deployment": {
+    "id": "dep-dbjavhnavr4c73bt8mfg",
+    "status": "live",
+    "finishedAt": "2026-11-01T03:22:07.260301Z"
+  },
+  "api": {
+    "commit": "29b6a5e0bba834b0eb5287e1143e09ce795c872a",
+    "health": {
+      "status": "ok",
+      "commit": "29b6a5e0bba834b0eb5287e1143e09ce795c872a"
+    },
+    "queries": [
+      {
+        "name": "수서1단지 에스에이치빌",
+        "sourceId": "ref-myhome-30582264",
+        "keys": [
+          "e6681def697f11036f85bd28",
+          "d1c3c4d1592060a0872a4263"
+        ]
+      },
+      {
+        "name": "수서1단지 에스에이치빌 114동",
+        "sourceId": "ref-myhome-30582264",
+        "keys": [
+          "e6681def697f11036f85bd28",
+          "d1c3c4d1592060a0872a4263"
+        ]
+      },
+      {
+        "name": "수서1단지 에스에이치빌 114",
+        "sourceId": "ref-myhome-30582264",
+        "keys": [
+          "e6681def697f11036f85bd28",
+          "d1c3c4d1592060a0872a4263"
+        ]
+      }
+    ],
+    "cases": [
+      {
+        "type": "25",
+        "status": "ready",
+        "mode": {
+          "mode": "approximate_source",
+          "areaAnnotationAdjusted": true,
+          "geometryBasis": "reviewed_public_drawing_copy",
+          "templateUsed": false
+        },
+        "sourceHashMatched": true
+      },
+      {
+        "type": "33",
+        "status": "ready",
+        "mode": {
+          "mode": "approximate_source",
+          "areaAnnotationAdjusted": true,
+          "geometryBasis": "reviewed_public_drawing_copy",
+          "templateUsed": false
+        },
+        "sourceHashMatched": true
+      }
+    ],
+    "walkAsset": "assets/WalkPage-Ddl7RQER.js",
+    "walkAssetHash": "0da8936bea83bc5e63d899e0133cb72112c1d8e77c5a39d6b63f723b4b69a8ca"
+  },
+  "browserCases": [
+    {
+      "case": "sh114-wrong-collected-phase",
+      "source": "image_analysis",
+      "facility": false,
+      "name": "수서1단지 에스에이치빌",
+      "dong": "114동",
+      "type": "33형 공개도면",
+      "kitchenCount": 1,
+      "inspection": false,
+      "lookups": [
+        {
+          "name": [
+            "수서1단지 에스에이치빌"
+          ],
+          "lat": [
+            "37.49172379"
+          ],
+          "lon": [
+            "127.08855363"
+          ],
+          "region": [
+            "1168011400"
+          ],
+          "pnu": [
+            "1168011400107110000"
+          ]
+        }
+      ],
+      "facilityRequests": [],
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "frameStats": {
+        "avgFps": 59.978407773201745,
+        "min1sFps": 59.760956175298794,
+        "p95": 16.8,
+        "p99": 16.8,
+        "maxMs": 20.19999999999891,
+        "drawingBuffer": [
+          1425,
+          1000
+        ],
+        "pixelRatio": 1,
+        "long": []
+      },
+      "errors": []
+    },
+    {
+      "case": "samick-sign-register503",
+      "source": "image_analysis",
+      "facility": false,
+      "name": "삼익",
+      "dong": "403동",
+      "type": "68",
+      "kitchenCount": 1,
+      "inspection": false,
+      "lookups": [
+        {
+          "name": [
+            "삼익"
+          ],
+          "lat": [
+            "37.488"
+          ],
+          "lon": [
+            "127.1"
+          ],
+          "town": [
+            "수서동"
+          ],
+          "region": [
+            "11680"
+          ],
+          "pnu": [
+            "1168011500107080000"
+          ]
+        }
+      ],
+      "facilityRequests": [],
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "frameStats": {
+        "avgFps": 59.978081099930435,
+        "min1sFps": 59.97001499250368,
+        "p95": 16.8,
+        "p99": 16.8,
+        "maxMs": 16.80000000000109,
+        "drawingBuffer": [
+          1425,
+          1000
+        ],
+        "pixelRatio": 1,
+        "long": []
+      },
+      "errors": []
+    },
+    {
+      "case": "sh114-sign-register503",
+      "source": "image_analysis",
+      "facility": false,
+      "name": "수서1단지 에스에이치빌",
+      "dong": "114동",
+      "type": "25형 공개도면",
+      "kitchenCount": 1,
+      "inspection": false,
+      "lookups": [
+        {
+          "name": [
+            "수서1단지 에스에이치빌"
+          ],
+          "lat": [
+            "37.49172379"
+          ],
+          "lon": [
+            "127.08855363"
+          ],
+          "region": [
+            "1168011400"
+          ],
+          "pnu": [
+            "1168011400107110000"
+          ]
+        }
+      ],
+      "facilityRequests": [],
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "frameStats": {
+        "avgFps": 59.978081099930435,
+        "min1sFps": 59.970014992503664,
+        "p95": 16.8,
+        "p99": 16.8,
+        "maxMs": 16.80000000000109,
+        "drawingBuffer": [
+          1425,
+          1000
+        ],
+        "pixelRatio": 1,
+        "long": []
+      },
+      "errors": []
+    },
+    {
+      "case": "sh114-missing-use-and-floors",
+      "source": "image_analysis",
+      "facility": false,
+      "name": "수서1단지 에스에이치빌",
+      "dong": "114동",
+      "type": "33형 공개도면",
+      "kitchenCount": 1,
+      "inspection": false,
+      "lookups": [
+        {
+          "name": [
+            "수서1단지 에스에이치빌"
+          ],
+          "lat": [
+            "37.49172379"
+          ],
+          "lon": [
+            "127.08855363"
+          ],
+          "region": [
+            "1168011400"
+          ],
+          "pnu": [
+            "1168011400107110000"
+          ]
+        }
+      ],
+      "facilityRequests": [],
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "frameStats": {
+        "avgFps": 59.97840777320178,
+        "min1sFps": 59.9700149925037,
+        "p95": 16.8,
+        "p99": 16.8,
+        "maxMs": 16.899999999999636,
+        "drawingBuffer": [
+          1425,
+          1000
+        ],
+        "pixelRatio": 1,
+        "long": []
+      },
+      "errors": []
+    },
+    {
+      "case": "legacy-empty-handoff",
+      "source": "image_analysis",
+      "facility": false,
+      "name": "삼익",
+      "dong": "",
+      "type": "68",
+      "kitchenCount": 1,
+      "inspection": false,
+      "lookups": [
+        {
+          "name": [
+            "삼익"
+          ],
+          "lat": [
+            "37.488"
+          ],
+          "lon": [
+            "127.1"
+          ],
+          "town": [
+            "수서동"
+          ],
+          "region": [
+            "11680"
+          ],
+          "pnu": [
+            "1168011500107080000"
+          ]
+        }
+      ],
+      "facilityRequests": [],
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "frameStats": {
+        "avgFps": 59.97808109993037,
+        "min1sFps": 59.964021587047725,
+        "p95": 16.8,
+        "p99": 16.8,
+        "maxMs": 16.899999999999636,
+        "drawingBuffer": [
+          1425,
+          1000
+        ],
+        "pixelRatio": 1,
+        "long": []
+      },
+      "errors": []
+    },
+    {
+      "case": "cold-sh-link",
+      "source": "image_analysis",
+      "facility": false,
+      "name": "수서1단지 에스에이치빌",
+      "dong": "114동",
+      "type": "33형 공개도면",
+      "kitchenCount": 1,
+      "inspection": false,
+      "lookups": [
+        {
+          "name": [
+            "수서1단지 에스에이치빌"
+          ],
+          "lat": [
+            "37.49169979"
+          ],
+          "lon": [
+            "127.08851363000001"
+          ],
+          "region": [
+            "1168011400"
+          ],
+          "pnu": [
+            "1168011400107110000"
+          ]
+        }
+      ],
+      "facilityRequests": [],
+      "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "frameStats": {
+        "avgFps": 59.977208660709074,
+        "min1sFps": 59.97001499250369,
+        "p95": 16.8,
+        "p99": 16.8,
+        "maxMs": 16.80000000000109,
+        "drawingBuffer": [
+          1425,
+          1000
+        ],
+        "pixelRatio": 1,
+        "long": []
+      },
+      "errors": []
+    }
+  ],
+  "scope": "Production walk JavaScript and original APIs; outer drone handoff contract, GIS/register/units responses isolated with fixtures. Real card event and DroneSession exercised locally."
+}
