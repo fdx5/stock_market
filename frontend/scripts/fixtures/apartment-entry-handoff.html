@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div>
+<script type="module">
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import DroneBuildingCard from '/src/components/DroneBuildingCard.tsx';
+import {DroneSession} from '/src/components/droneMode.ts';
+const test=window.__entryCase;
+const session=Object.create(DroneSession.prototype);
+session.p={data:{center:{lat:test.lat,lon:test.lon}}};
+session.world={buildingRingAt:()=>[[-18,-10],[18,-10],[18,10],[-18,10]]};
+session.flight={pos:{x:0,z:25}};session.campusOf=()=>[];
+window.addEventListener('drone-explore-inside',e=>{window.__entryEvent=e.detail;session.enterBuildingAt(e.detail.x,e.detail.y,e.detail);});
+createRoot(document.getElementById('root')).render(React.createElement(DroneBuildingCard,{sign:{key:'test',name:test.name,kind:'apt',x:0,y:0,top:45,n:1,w:120,info:{bx:0,by:0,pnu:test.pnu,dong:test.dong,floors:15,complexId:test.complexId}},at:{lat:test.lat,lon:test.lon},distance:20,vkey:'test',domain:location.origin,onClose:()=>{}}));
+</script></body></html>

@@ -8,7 +8,8 @@ import { Interior, prewarmInterior, type HudState } from "./interior/Interior";
 import { generatePlan } from "./interior/plan/generate";
 import { fetchUnits } from "./interior/plan/fetchUnits";
 import { walkComplex } from "./complexOf";
-import {apartmentName,apartmentBlock} from './apartmentIdentity';
+import {apartmentName,apartmentBlock,normaliseBlock,entryComplexId} from './apartmentIdentity';
+import {entryKind,resolveEntryKind} from './entryKind';
 import { BuildingInterior, type BuildingHud, type BuildingTalk } from "./building/BuildingInterior";
 import { getSurvey, type SurveyBuilding, type SurveyFloor } from "./building/survey";
 import { fitOut, type FitSource } from "./building/fitout";
@@ -143,7 +144,7 @@ export default function WalkPage() {
   const [drawingStatus,setDrawingStatus]=useState<DrawingStatus>("loading");
   const [rejectedDrawing,setRejectedDrawing]=useState<string|null>(null);
   const [preferSimulation,setPreferSimulation]=useState(()=>demo&&!originalPreview);
-  const [drawingTarget,setDrawingTarget]=useState<{id:string;name:string;region:string;town:string;lat:number;lon:number}|null>(null);
+  const [drawingTarget,setDrawingTarget]=useState<{id:string;name:string;region:string;town:string;lat:number;lon:number;pnu?:string}|null>(null);
   const selectionLookup=useRef<AbortController|null>(null);
   useEffect(()=>()=>selectionLookup.current?.abort(),[]);
   const [plan, setPlan] = useState<FloorPlan | null>(null);
@@ -272,13 +273,13 @@ export default function WalkPage() {
         }
       }
       const o = originAt(lat, lon);
-      direct.current = { pnuOf: en => { const [lo, la] = toLonLat(o, en.cx ?? en.x, en.cy ?? en.y); return pnuAt(lo, la, key, domain); }, lonLatOf: (x, y) => toLonLat(o, x, y), frameOf: (lo, la) => toFrame(o, lo, la) };
+      direct.current = { pnuOf: en => {if(en.pnu&&/^\d{19}$/.test(en.pnu))return Promise.resolve(en.pnu);const [lo, la] = toLonLat(o, en.cx ?? en.x, en.cy ?? en.y); return pnuAt(lo, la, key, domain); }, lonLatOf: (x, y) => toLonLat(o, x, y), frameOf: (lo, la) => toFrame(o, lo, la) };
       const footLL = restored?.foot ?? (q.get("foot") ?? "").split(";").map(p => p.split(",").map(Number)).filter(p => p.length === 2 && p.every(Number.isFinite)) as [number, number][];
       const foot = footLL.map(([lo, la]) => toFrame(o, lo, la));
       const cx = foot.length ? foot.reduce((t, p) => t + p[0], 0) / foot.length : 0, cy = foot.length ? foot.reduce((t, p) => t + p[1], 0) / foot.length : 0;
       const heading = restored?.heading ?? Number(q.get("heading") ?? 0);
       const [doorX, doorY] = restored ? toFrame(o, ...restored.door) : [0, 0];
-      const e: Entrance = { name: restored?.name ?? q.get("name") ?? "", dong: "", x: doorX, y: doorY, floors: restored?.floors ?? (Number(q.get("floors") ?? 0) || 5), heading, cx, cy, foot: foot.length >= 3 ? foot : undefined, kind: "building" };
+      const e: Entrance = { name: restored?.name ?? q.get("name") ?? "", dong:restored?.dong??'',pnu:restored?.pnu,complexId:entryComplexId(restored?.name??'',restored?.dong??'',restored?.complexId),use:restored?.use,x: doorX, y: doorY, floors: restored?.floors ?? (Number(q.get("floors") ?? 0) || 5), heading, cx, cy, foot: foot.length >= 3 ? foot : undefined, kind:restored?.kind };
       // (the blocks standing with it, as the drone view saw them)
       const campusLL = restored?.campus ?? (q.get("campus") ?? "").split("|").map(r => r.split(";").map(p => p.split(",").map(Number)).filter(p => p.length === 2 && p.every(Number.isFinite))) as [number, number][][];
       const campus = campusLL.map(r => r.map(([lo, la]) => toFrame(o, lo, la))).filter(r => r.length >= 3);
@@ -287,17 +288,29 @@ export default function WalkPage() {
       // (the register first: a block of flats goes by its flats, the rest by their floors)
       const pnu = await direct.current.pnuOf(e);
       const area = foot.length >= 3 ? Math.abs(foot.reduce((t, [x1, y1], i) => { const [x2, y2] = foot[(i + 1) % foot.length]; return t + x1 * y2 - x2 * y1; }, 0)) / 2 : 0;
-      const reg = pnu ? await fetch(`/api/realestate/building-floors?${new URLSearchParams({ pnu, ...(area ? { area: area.toFixed(0) } : {}) })}`, { signal: AbortSignal.timeout(18000) }).then(r => r.ok ? r.json() : null).catch(() => null) : null;
+      const reg = pnu ? await fetch(`/api/realestate/building-floors?${new URLSearchParams({ pnu,name:e.name,...(area ? { area: area.toFixed(0) } : {}) })}`, { signal: AbortSignal.timeout(10000) }).then(r => r.ok ? r.json() : null).catch(() => null) : null;
       const b = reg?.building ?? {}, footprintName=e.name;
+      const town=(pnu?addressOfPnu(pnu)??'':'').match(/([가-힣0-9]+(?:동|읍|면|리|가))(?=\s+\d)/)?.[1]??e.complexId?.split(':')[1]??'';
+      let route=await resolveEntryKind(e,b,pnu,town);
+      if(route.kind==='unknown'){
+        const nearby=await vworldWalkFootprints(lat,lon,key,domain).catch(()=>[]);
+        if(nearby.length){try{const found=resolveWalkEntry(lat,lon,nearby);e.name=found.name||e.name;e.use=found.use||e.use;e.pnu=found.pnu||pnu||undefined;e.floors=found.floors||e.floors;route=await resolveEntryKind(e,b,e.pnu??pnu,town);}catch{/* Keep the unclassified source in the apartment chooser. */}}
+      }
+      if(route.kind!=='building'){
+        e.kind='apartment';e.pnu=e.pnu??pnu??undefined;e.complexId=route.complex?.id??e.complexId;
+        e.dong=normaliseBlock(e.dong||b.dong||apartmentBlock(b.name??'')||apartmentBlock(footprintName));
+        e.name=route.complex?.name||apartmentName(e.complexId?.split(':').slice(3).join(':')??'')||apartmentName(e.name,'',e.dong)||apartmentName(footprintName,'',e.dong)||apartmentName(b.name??'','',e.dong);
+        e.floors=b.floors||e.floors;
+        setStart({lat,lon,name:e.name,key,domain,id:e.complexId??q.get('id')??`place:${e.name}`,built:route.complex?.built??null});
+        pendingEnter.current=e;return;
+      }
       e.name = b.name || e.name || "건물"; e.floors = b.floors || e.floors; e.useLabel = b.use ?? undefined;
       // (its businesses as registered, on their floors, inside its outline)
       const places = await fetch(`/api/realestate/places?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}&r=150`, { signal: AbortSignal.timeout(18000) }).then(r => r.ok ? r.json() : null).catch(() => null);
       if (places?.items && e.foot) e.tenants = (places.items as { lat: number; lon: number; name: string; kind: string; category: string | null; floor?: number | null }[])
         .filter(p => { const [px, py] = toFrame(o, p.lon, p.lat); return inPoly(px, py, e.foot!); }).map(p => ({ name: p.name, kind: p.kind, category: p.category, lat: p.lat, lon: p.lon, floor: p.floor ?? null }));
       setStart({ lat, lon, name: e.name, key, domain, id: q.get("id") ?? `place:${e.name}`, built: null });
-      const flats = /공동주택|아파트|연립|다세대/.test(`${b.use ?? ""} ${b.useDetail ?? ""}`) && (b.floors ?? 0) >= 4;
-      if (flats) { e.kind = "apartment"; e.dong = b.dong || apartmentBlock(b.name??'') || apartmentBlock(footprintName); e.name = apartmentName(b.name??'') || apartmentName(footprintName); pendingEnter.current = e; }
-      else pendingEnter.current = e;
+      e.kind='building';pendingEnter.current=e;
     } catch { setError("건물 외곽 정보를 불러오지 못했습니다. 잠시 후 이 주소를 다시 열어 주세요."); setPhase("error"); }
   };
   const pendingEnter = useRef<Entrance | null>(null);
@@ -307,17 +320,18 @@ export default function WalkPage() {
   useEffect(() => { const e = pendingEnter.current; if (!e || !start || !renderer.current) return; pendingEnter.current = null; enter(e); });
   const enter = (e: Entrance) => {
     if (!start || game.current?.cycling||game.current?.driving) return;
+    e={...e,complexId:entryComplexId(e.name,e.dong,e.complexId)};
     const g = geo();
     if (g && e.foot && e.foot.length >= 3) {
       const foot = e.foot.map(([x, y]) => g.lonLatOf(x, y)), [lat, lon] = walkAnchor(foot);
       const back = returnTo.current ?? safeWalkBack(q.get("back")) ?? (game.current ? outdoorUrl.current : null);
-      const entry: WalkEntry = { lat, lon, name: e.name, floors: e.floors, heading: e.heading, foot,
+      const entry: WalkEntry = { lat, lon, name: e.name, floors: e.floors,kind:e.kind,use:e.use,dong:e.dong,pnu:e.pnu,complexId:e.complexId,heading: e.heading, foot,
         campus: (e.campus ?? []).map(r => r.map(([x, y]) => g.lonLatOf(x, y))), door: g.lonLatOf(e.x, e.y), back: back ?? undefined };
       rememberWalkEntry(entry); shareBase.current = walkLink(lat, lon);
       returnTo.current = back ?? `/drone-explore?lat=${start.lat.toFixed(6)}&lon=${start.lon.toFixed(6)}&walkat=${e.x.toFixed(2)},${e.y.toFixed(2)},${Math.atan2((e.cx ?? 0) - e.x, -((e.cy ?? 0) - e.y)).toFixed(3)}`;
       history.replaceState(history.state, "", shareBase.current);
     }
-    if (e.kind === "building") { enterBuilding(e); return; }
+    if (e.kind === "building"&&entryKind(e)!=='apartment') { enterBuilding(e); return; }
     sound.resume();
     game.current?.pause();
     document.exitPointerLock?.();
@@ -328,16 +342,16 @@ export default function WalkPage() {
     // (the building's PNU first, for its register rows; the trades without it)
     (geo() ? geo()!.pnuOf(e) : Promise.resolve(null)).then(async pnu => {
       if(ctrl.signal.aborted)return;
-      const town=(pnu?addressOfPnu(pnu)??'':'').match(/([가-힣0-9]+(?:동|읍|면|리|가))(?=\s+\d)/)?.[1]??'';
-      const parentName=apartmentName(e.name,town);
+      const town=(pnu?addressOfPnu(pnu)??'':'').match(/([가-힣0-9]+(?:동|읍|면|리|가))(?=\s+\d)/)?.[1]??e.complexId?.split(':')[1]??'';
+      const parentName=apartmentName(e.name,town,e.dong);
       // Direct/short links have place: labels. Resolve the real complex before any units API call.
-      const resolved = await walkComplex(start, parentName, pnu, ctrl.signal,town);
+      const resolved = await walkComplex(e.complexId?{...start,id:e.complexId,name:e.complexId.split(':').slice(3).join(':')}:start,parentName,pnu,AbortSignal.timeout(8000),town).catch(()=>null);
       if(ctrl.signal.aborted)return;
       const id=resolved?.id??`drawing:${pnu?.slice(0,10)??''}:${town}:${parentName}`;
       const parts=resolved?.id.split(':');
       const at=geo()?.lonLatOf(e.cx??e.x,e.cy??e.y)??[start.lon,start.lat];
       const name=apartmentName(parts?.slice(3).join(':')||resolved?.name||parentName,parts?.[1]??town);
-      if(name)setDrawingTarget({id,name,town:parts?.[1]??town,region:parts?.[0]??pnu?.slice(0,10)??'',lat:at[1],lon:at[0]});
+      if(name)setDrawingTarget({id,name,town:parts?.[1]??town,region:parts?.[0]??pnu?.slice(0,10)??'',lat:at[1],lon:at[0],pnu:pnu??e.pnu});
       else setDrawingStatus('not_found');
       if (!resolved) throw Error("단지를 찾지 못했습니다.");
       setVisit(resolved.id === start.id ? null : resolved);
@@ -350,7 +364,7 @@ export default function WalkPage() {
       if (u.dong?.floors) setEntering({ ...e, floors: u.dong.floors });
       setPick(previous=>previous.type.startsWith("naver:")?previous:{ type: best?.key ?? "", floor: Math.min(top, 3 + Math.floor(Math.random() * Math.max(1, top - 3))), style: "auto" });
       if (!u.types.length) setUnitsErr("");
-    }).catch(() => { if (ctrl.signal.aborted) return; setUnits(previous=>previous?.types.some(t=>t.key.startsWith("naver:"))?previous:{ complexId: start.id, name: e.name || start.name, built: start.built, households: null, types: [], sources: [] }); setUnitsErr("원본 도면에서 확인한 주택형을 선택해 이용할 수 있습니다."); });
+    }).catch(() => { if (ctrl.signal.aborted) return; setDrawingStatus('unavailable');setUnits(previous=>previous?.types.some(t=>t.key.startsWith("naver:"))?previous:{ complexId: start.id, name: e.name || start.name, built: start.built, households: null, types: [], sources: [] }); setUnitsErr("단지 도면 목록에서 주택형을 선택할 수 있습니다."); });
   };
 
   const goIn = () => {
@@ -415,7 +429,6 @@ export default function WalkPage() {
     (geo() ? geo()!.pnuOf(e) : Promise.resolve(null)).then(async pnu => {
       let info: RegBuilding = { name: e.name, floors: e.floors, use:e.useLabel }, floors: RegFloor[] = [], src = "건축물대장 정보 없음 · 추정 구성";
       const g=geo()!, [lon,lat]=g.lonLatOf(e.cx??e.x,e.cy??e.y);
-      const surveyRequest=getSurvey<SurveyBuilding>(`/api/realestate/indoor-building?${new URLSearchParams({lat:String(lat),lon:String(lon),name:e.name})}`);
       if (pnu) {
         // (its footprint's area picks the right block of a campus: a hospital's main block, not its labs)
         const fa = e.foot && e.foot.length > 2 ? Math.abs(e.foot.reduce((t, [x1, y1], i) => { const [x2, y2] = e.foot![(i + 1) % e.foot!.length]; return t + x1 * y2 - x2 * y1; }, 0)) / 2 : 0;
@@ -424,12 +437,15 @@ export default function WalkPage() {
       }
       // A direct link or outdoor fallback may initially classify an apartment as a general
       // building. Its register use must still route through the verified apartment-plan gate.
-      if (/공동주택|아파트|연립|다세대/.test(`${info.use ?? ""} ${info.useDetail ?? ""}`)) {
-        const name = info.name ?? e.name;
-        enter({ ...e, name: name.replace(/\s*(제\s*)?[0-9A-Z]{1,4}\s*동$/, "").trim() || name,
-          dong: e.dong || name.match(/(\d+|[가-힣A-Z])동$/)?.[0] || "", kind: "apartment", useLabel: info.use ?? undefined });
+      const town=(pnu?addressOfPnu(pnu)??'':'').match(/([가-힣0-9]+(?:동|읍|면|리|가))(?=\s+\d)/)?.[1]??e.complexId?.split(':')[1]??'';
+      const route=await resolveEntryKind(e,info,pnu,town);
+      if (route.kind!=='building') {
+        const name = route.complex?.name||apartmentName(e.name)||apartmentName(info.name??'');
+        enter({ ...e,name,complexId:route.complex?.id??e.complexId,pnu:pnu??e.pnu,
+          dong:e.dong||apartmentBlock(info.name??'')||apartmentBlock(e.name),kind:'apartment',useLabel:info.use??undefined });
         return;
       }
+      const surveyRequest=getSurvey<SurveyBuilding>(`/api/realestate/indoor-building?${new URLSearchParams({lat:String(lat),lon:String(lon),name:e.name})}`);
       setBsource(src);
       // (the shell: the building's surveyed outline, the door where it was gone into)
       const shape = plateOf(e.foot, e.heading, info.buildingArea, [e.x, e.y]);
@@ -688,6 +704,7 @@ export default function WalkPage() {
     return floorPlanFromImage(imageInput,drawing.analysis);
   },[estimatedSelectionPlan,drawing,imageInput,usesOriginal,rejectedDrawing]);
   const floors = Math.max(entering?.floors || 25, 5);
+  const drawingStateLabel:Record<DrawingStatus,string>={loading:drawingTarget?'단지 원본 검색·구조 분석 중':'아파트 단지 확인 중',ready:selectionPlan?'원본 구조·인테리어 준비 완료':'원본 구조 연결 확인 필요',type_selection:'단지 원본 주택형 선택',not_found:'단지 원본 검색 결과 없음',unavailable:'단지·도면 연결을 다시 확인해 주세요',analysis_failed:'원본 분석 응답 재시도 필요',needs_review:'원본 공간 구획 재확인 필요'};
 
   return (
     <div ref={root} className={`wk-root${fade ? " is-fading" : ""}${phase==="choose"?" is-selecting":""}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onLostPointerCapture={onUp}>
@@ -762,7 +779,7 @@ export default function WalkPage() {
             <span className="wk-kicker">{drawingName} {entering.dong}</span>
             <h2>구조와 인테리어 고르기</h2>
               {originalPreview&&<form className="wk-preview-search" onSubmit={e=>{e.preventDefault();location.href="/walk?"+new URLSearchParams({interior:"demo",original:"1",name:previewName.trim(),town:previewTown.trim(),hour:"14",...(previewArea?{area:previewArea}:{}),...(previewBuilt?{built:previewBuilt}:{})});}}><label>아파트명<input value={previewName} onChange={e=>setPreviewName(e.target.value)} required/></label><label>법정동<input value={previewTown} onChange={e=>setPreviewTown(e.target.value)} placeholder="예: 호원동"/></label><label>전용면적 (선택)<input type="number" min="15" max="500" step=".01" value={previewArea} onChange={e=>setPreviewArea(e.target.value)} placeholder="평균 구조 테스트용"/></label><label>준공연도 (선택)<input type="number" min="1950" max="2035" value={previewBuilt} onChange={e=>setPreviewBuilt(e.target.value)} placeholder="모르면 비워두세요"/></label><button className="wk-btn">원본 도면 검색</button><p>로컬 아파트 미리보기 · 바깥 풍경은 미리보기 배경입니다.</p></form>}
-              {usesOriginal&&start&&drawingTarget&&<NaverFloorPlans name={drawingName} lat={drawingTarget.lat} lon={drawingTarget.lon} town={drawingTarget.town} region={drawingTarget.region} area={chosen?.areaM2} onStatus={setDrawingStatus} rejectedKey={rejectedDrawing} onRetry={()=>setRejectedDrawing(null)} onAnalysis={a=>setDrawing(a&&a.drawing.key!==rejectedDrawing?{complexId:drawingComplex,analysis:a}:null)} onAreaChoice={d=>{const key=`naver:${d.typeId}`;setUnits(current=>{const u=current??{complexId:drawingComplex,name:drawingName,built:start.built,households:null,types:[],sources:[]};return {...u,types:u.types.some(t=>t.key===key)?u.types:[...u.types,{key,areaM2:d.exclusiveArea,label:`${d.typeName} · ${d.exclusiveArea}㎡`,trades:0,source:"네이버 공개 도면 전용면적"}]};});setPick(p=>({...p,type:key,floor:p.floor||3}));setUnitsErr("");setPreferSimulation(false);}}/>}
+              {usesOriginal&&start&&drawingTarget&&<NaverFloorPlans name={drawingName} lat={drawingTarget.lat} lon={drawingTarget.lon} town={drawingTarget.town} region={drawingTarget.region} pnu={drawingTarget.pnu} area={chosen?.areaM2} onStatus={setDrawingStatus} rejectedKey={rejectedDrawing} onRetry={()=>setRejectedDrawing(null)} onAnalysis={a=>setDrawing(a&&a.drawing.key!==rejectedDrawing?{complexId:drawingComplex,analysis:a}:null)} onAreaChoice={d=>{const key=`naver:${d.typeId}`;setUnits(current=>{const u=current??{complexId:drawingComplex,name:drawingName,built:start.built,households:null,types:[],sources:[]};return {...u,types:u.types.some(t=>t.key===key)?u.types:[...u.types,{key,areaM2:d.exclusiveArea,label:`${d.typeName} · ${d.exclusiveArea}㎡`,trades:0,source:"단지 공개 도면 전용면적"}]};});setPick(p=>({...p,type:key,floor:p.floor||3}));setUnitsErr("");setPreferSimulation(false);}}/>}
             {!units ? <div className="wk-units-loading"><div className="wk-bar"><i className="is-indeterminate" /></div><p className="wk-sub">건축물대장·실거래 자료에서 이 동의 평형을 받아오는 중…</p></div> : <>
               <div className="wk-field"><label>평형 (전용면적)</label>
                 <div className="wk-chips">{units.types.map(t => <button key={t.key} className={pick.type === t.key ? "on" : ""} onClick={() => setPick(p => ({ ...p, type: t.key }))}>{t.areaM2.toFixed(2)}㎡<small>{t.households ? `${t.households}세대` : ""}{t.households && t.trades ? " · " : ""}{t.trades ? `거래 ${t.trades}건` : ""}</small></button>)}</div>
@@ -787,11 +804,11 @@ export default function WalkPage() {
               {unitsErr && <p className="wk-warn">{unitsErr}</p>}
               <details className="wk-public-plans" onToggle={e=>setPublicPlansOpen(e.currentTarget.open)}><summary>무료 공개 원본 도면 자료실</summary>{publicPlansOpen&&<PublicPlanLibrary area={chosen?.areaM2}/>}</details>
               <p className="wk-basis">
-                <span className="wk-badge">{selectionPlan?.source==="image_analysis"?"원본 도면·인테리어 구성":usesOriginal?"원본 도면 검증 대기":"가상 구조·인테리어"}</span>
+                <span className="wk-badge">{usesOriginal?drawingStateLabel[drawingStatus]:"가상 구조·인테리어"}</span>
                 {chosen ? `${chosen.label} · 면적 출처: ${chosen.source}` : "평형 자료 없음"}{units.households ? ` · ${units.households.toLocaleString()}세대` : ""}<br />
                 {usesOriginal?"선택한 원본 도면의 공간을 기준으로 구성합니다. 가구·재질은 별도의 인테리어 연출이며 치수 미표기 구간은 면적·비율 환산값입니다.":"로컬 가상 구조 시뮬레이션입니다. 실제 세대의 도면이 아닙니다."}
               </p>
-              <div className="wk-row"><button className="wk-go" disabled={!selectionPlan||(usesOriginal&&drawingStatus==="loading")} onClick={goIn}>{usesOriginal&&drawingStatus==="loading"?"원본 도면 분석 중…":usesOriginal&&!selectionPlan?"원본 도면 검증 필요":"이 구조로 들어가기"}</button><button className="wk-btn" onClick={() => { if (game.current) { game.current.resume(); setPhase("outdoor"); } else leave(); }}>돌아가기</button></div>
+              <div className="wk-row"><button className="wk-go" disabled={!selectionPlan||(usesOriginal&&drawingStatus==="loading")} onClick={goIn}>{usesOriginal&&!selectionPlan?drawingStateLabel[drawingStatus]:"이 구조로 들어가기"}</button><button className="wk-btn" onClick={() => { if (game.current) { game.current.resume(); setPhase("outdoor"); } else leave(); }}>돌아가기</button></div>
             </>}
           </div>
         </div>

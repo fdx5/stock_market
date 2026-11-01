@@ -2,7 +2,8 @@ import { originAt, toFrame, toLonLat } from "../drivegame/world/geo";
 
 export type Point = [number, number];
 export interface WalkFootprint { id: string; pnu: string; name: string; floors: number; use: string; ring: Point[] }
-export interface WalkEntry { lat: number; lon: number; name: string; floors: number; heading: number; foot: Point[]; campus: Point[][]; door: Point; back?: string }
+export interface WalkEntry { lat: number; lon: number; name: string; floors: number; heading: number; foot: Point[]; campus: Point[][]; door: Point; back?: string;
+  kind?:'apartment'|'building';use?:string;dong?:string;pnu?:string;complexId?:string }
 export function parseWalkAt(value: string | null): Point | null {
   if (!value || !/^\d+(?:\.\d+)?,\d+(?:\.\d+)?$/.test(value)) return null;
   const [lat, lon] = value.split(",").map(Number);
@@ -64,7 +65,7 @@ export function resolveWalkEntry(lat: number, lon: number, buildings: WalkFootpr
     const a = k * Math.PI / 12, p: Point = [edge[0] + Math.cos(a) * 1.5, edge[1] + Math.sin(a) * 1.5];
     if (!inside(p, target.r) && closest(p, target.r).d > 1) { door = p; heading = a; break; }
   }
-  return { lat, lon, name: target.b.name, floors: target.b.floors, heading, foot: target.b.ring,
+  return { lat, lon, name: target.b.name, floors: target.b.floors, use:target.b.use,pnu:target.b.pnu,heading, foot: target.b.ring,
     campus: got.slice(1).map(g => g.b.ring), door: toLonLat(o, ...door) };
 }
 const cacheKey = (lat: number, lon: number) => `walk.entry:${lat.toFixed(6)},${lon.toFixed(6)}`;

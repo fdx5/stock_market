@@ -70,6 +70,7 @@ export interface Furnished {
 export interface Frame { m: THREE.Matrix4; rect: Rect }
 
 export class Placer {
+  get sourceBased(){return !!this.plan.imageAnalysis;}
   occupied: Rect[] = [];
   /** Reserved walking routes are constraints for furniture, not physical obstacles. */
   routes: Rect[] = [];
@@ -183,21 +184,43 @@ export class Placer {
     return null;
   }
   take(r: Rect) { this.occupied.push(r); }
+  /** Replan a narrow galley's route around actual appliances. A route through
+   * the room centre can unnecessarily reject a valid counter along one wall. */
+  rerouteDoors(){
+    if(!this.doors.length)return true;
+    const C=.05,R=.24,nx=Math.ceil((this.X1-this.X0)/C),nz=Math.ceil((this.Z1-this.Z0)/C);
+    if(nx*nz>60000)return false;
+    const p=(k:number)=>[this.X0+(k%nx+.5)*C,this.Z0+(Math.floor(k/nx)+.5)*C];
+    const furniture=this.occupied.filter(r=>!this.doors.includes(r)),free=new Uint8Array(nx*nz);
+    for(let k=0;k<free.length;k++){const [x,z]=p(k);free[k]=+(x>=this.X0+R&&x<=this.X1-R&&z>=this.Z0+R&&z<=this.Z1-R&&!furniture.some(r=>x>r[0]-R&&x<r[2]+R&&z>r[1]-R&&z<r[3]+R));}
+    const candidates=this.doors.map(d=>Array.from({length:free.length},(_,k)=>k).filter(k=>{const [x,z]=p(k);return free[k]&&x>=d[0]&&x<=d[2]&&z>=d[1]&&z<=d[3];}));
+    if(candidates.some(a=>!a.length))return false;
+    const from=new Int32Array(free.length).fill(-2),queue=[candidates[0][0]];from[queue[0]]=-1;
+    for(let i=0;i<queue.length;i++){const k=queue[i],x=k%nx;for(const n of [x>0?k-1:-1,x<nx-1?k+1:-1,k-nx,k+nx])if(n>=0&&n<free.length&&free[n]&&from[n]===-2){from[n]=k;queue.push(n);}}
+    const targets=candidates.map(a=>a.find(k=>from[k]!==-2));if(targets.some(k=>k===undefined))return false;
+    const route:Rect[]=[];
+    for(let k of targets as number[])while(k>=0){const [x,z]=p(k);route.push([x-R,z-R,x+R,z+R]);k=from[k];}
+    this.routes=route;return true;
+  }
 }
 
 const opposite: Record<SideName, SideName> = { n: "s", s: "n", w: "e", e: "w" };
 
-export function packKitchen(pl:Placer):{side:SideName;width:number;run:Frame;fridge:Frame;fridgeWidth:number}|null {
+export function packKitchen(pl:Placer,reroute=false):{side:SideName;width:number;run:Frame;fridge:Frame;fridgeWidth:number}|null {
   const sides=(["n","e","w","s"] as SideName[]).sort((a,b)=>pl.openingsOn(a).length-pl.openingsOn(b).length);
   for(const [fw,fd] of [[.72,.72],[.62,.65],[.55,.60]])for(const side of sides)for(const end of [0,1,.5]){
     const [lo,hi]=pl.span(side),fr=pl.against(side,fw,fd,lo+fw/2+(hi-lo-fw)*end,2);if(!fr)continue;
     const count=pl.occupied.length;pl.take(fr.rect);
     for(const width of [2.4,2.1,1.8,1.6,1.4,1.2])for(const back of sides){
       const run=pl.against(back,width,.60,null,.85);
-      if(run){pl.occupied.length=count;return {side:back,width,run,fridge:{...fr,m:fr.m.clone().scale(new THREE.Vector3(1,1,fd/.72))},fridgeWidth:fw};}
+      if(run){
+        if(reroute){pl.take(run.rect);const connected=pl.rerouteDoors();pl.occupied.length=count+1;if(!connected)continue;}
+        pl.occupied.length=count;return {side:back,width,run,fridge:{...fr,m:fr.m.clone().scale(new THREE.Vector3(1,1,fd/.72))},fridgeWidth:fw};
+      }
     }
     pl.occupied.length=count;
   }
+  if(!reroute&&pl.sourceBased&&pl.routes.length){const previous=pl.routes;pl.routes=[];const found=packKitchen(pl,true);if(!found)pl.routes=previous;return found;}
   return null;
 }
 

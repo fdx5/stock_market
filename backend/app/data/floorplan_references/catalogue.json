@@ -1,0 +1,50 @@
+{
+  "complexes": [{
+    "id": "ref-myhome-30582264",
+    "name": "수서1단지SH빌",
+    "aliases": ["수서1단지SH빌", "수서1단지에스에이치빌", "수서1-1단지", "수서1-1단지(임대)"],
+    "town": "일원동", "regionCode": "1168011400", "pnu": "1168011400107110000",
+    "lat": 37.4917237903646, "lon": 127.088553635076,
+    "metadataSource": "https://www.myhome.go.kr/hws/portal/sch/selectRentalHouseInfoDetail.do?hsmpSn=30582264&suplyTy=01&rthousSe=C",
+    "sourceUrl": "https://spec.toesoon.com/entry/수서1단지-영구임대-모집공고",
+    "source": "공공임대 주택정보·공개 도면 사본",
+    "note": "공식 마이홈 주택형 면적과 공개된 SH 도면 사본을 연결했습니다. 흐린 사본은 방·벽 구획을 검토 보정한 근사 모델이며 실측·세부 타입·동별 배치의 완전 일치를 보장하지 않습니다.",
+    "plans": [{
+      "typeId": "25", "typeName": "25형 공개도면", "exclusiveArea": 25.62, "supplyArea": 38.072,
+      "file": "sh-25.jpg", "bounds": [161,45,340,475],
+      "rooms": [
+        {"id":"kitchen","type":"kitchen","label":"주방·입구","rect":[161,45,247,246],"zone":"kitchen"},
+        {"id":"bed","type":"bedroom","label":"침실","rect":[247,45,340,168],"zone":"bed"},
+        {"id":"bath","type":"bathroom","label":"욕실","rect":[247,168,340,246],"zone":"bath"},
+        {"id":"living","type":"living","label":"거실","rect":[161,246,340,400],"zone":"living"},
+        {"id":"balcony","type":"balcony","label":"발코니","rect":[161,400,340,475],"zone":"balcony"}
+      ],
+      "openings": [
+        {"type":"front_door","a":"kitchen","b":"out","axis":"z","at":45,"center":201,"width":36,"height":2.05,"sill":0},
+        {"type":"door","a":"kitchen","b":"bed","axis":"x","at":247,"center":130,"width":38,"height":2.05,"sill":0},
+        {"type":"door","a":"kitchen","b":"bath","axis":"x","at":247,"center":214,"width":32,"height":2.05,"sill":0},
+        {"type":"open","a":"kitchen","b":"living","axis":"z","at":246,"center":204,"width":86,"height":2.32,"sill":0},
+        {"type":"sliding_door","a":"living","b":"balcony","axis":"z","at":400,"center":250,"width":90,"height":2.05,"sill":0},
+        {"type":"window","a":"balcony","b":"out","axis":"z","at":475,"center":250,"width":130,"height":1.4,"sill":0.6}
+      ]
+    },{
+      "typeId":"33", "typeName":"33형 공개도면", "exclusiveArea":33.93,"supplyArea":50.315,
+      "file":"sh-33.jpg","bounds":[318,214,506,707],
+      "rooms":[
+        {"id":"kitchen","type":"kitchen","label":"주방·입구","rect":[318,214,383,480],"zone":"kitchen"},
+        {"id":"bed","type":"bedroom","label":"침실","rect":[383,214,506,334],"zone":"bed"},
+        {"id":"bath","type":"bathroom","label":"욕실","rect":[383,334,506,480],"zone":"bath"},
+        {"id":"living","type":"living","label":"거실","rect":[318,480,506,642],"zone":"living"},
+        {"id":"balcony","type":"balcony","label":"발코니","rect":[318,642,506,707],"zone":"balcony"}
+      ],
+      "openings":[
+        {"type":"front_door","a":"kitchen","b":"out","axis":"z","at":214,"center":345,"width":40,"height":2.05,"sill":0},
+        {"type":"door","a":"kitchen","b":"bed","axis":"x","at":383,"center":282,"width":40,"height":2.05,"sill":0},
+        {"type":"door","a":"kitchen","b":"bath","axis":"x","at":383,"center":365,"width":36,"height":2.05,"sill":0},
+        {"type":"open","a":"kitchen","b":"living","axis":"z","at":480,"center":350.5,"width":65,"height":2.32,"sill":0},
+        {"type":"sliding_door","a":"living","b":"balcony","axis":"z","at":642,"center":410,"width":100,"height":2.05,"sill":0},
+        {"type":"window","a":"balcony","b":"out","axis":"z","at":707,"center":410,"width":150,"height":1.4,"sill":0.6}
+      ]
+    }]
+  }]
+}

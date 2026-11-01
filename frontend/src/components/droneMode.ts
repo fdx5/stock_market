@@ -23,7 +23,7 @@ import {frameSlice} from './frameSlice';
 import {CoastGeometryJobs} from './coastGeometryJobs';
 import {syncGroundRelief} from './roadDrape';
 import { applyViewFov, cameraControlsPaused, viewPreferences } from "../walkmode/viewPreferences";
-import { rememberWalkEntry, walkAnchor, walkLink } from "../walkmode/walkLink";
+import { rememberWalkEntry, walkAnchor, walkLink,type WalkEntry } from "../walkmode/walkLink";
 
 /* 드론 mode of the 3D view (ComplexHologram): the flight, the world streamed round it and the
  * sound, set up over the view's own scene and taken down again. While it lasts:
@@ -703,7 +703,7 @@ export class DroneSession {
   }
   /** 내부 탐험 from a building's card (its sign): straight in, wherever the drone or the walker is —
    * its outline surveyed or traced from the roofs, the door on its side nearest the viewer */
-  enterBuildingAt(x: number, y: number): boolean {
+  enterBuildingAt(x: number, y: number,metadata:Partial<WalkEntry>={}): boolean {
     const ring = this.world.buildingRingAt(x, y) ?? this.traceRoof(x, y);
     if (!ring || ring.length < 3) return false;
     const vx = this.flight.pos.x, vy = -this.flight.pos.z;
@@ -712,7 +712,7 @@ export class DroneSession {
     const cx = ring.reduce((t, p) => t + p[0], 0) / ring.length, cy = ring.reduce((t, p) => t + p[1], 0) / ring.length;
     // (the door a step outside the wall, facing in)
     const ox = best[0] - cx, oy = best[1] - cy, ol = Math.hypot(ox, oy) || 1;
-    return this.openInside(ring, best[0] + ox / ol * 1.5, best[1] + oy / ol * 1.5, Math.atan2(oy, ox));
+    return this.openInside(ring, best[0] + ox / ol * 1.5, best[1] + oy / ol * 1.5, Math.atan2(oy, ox),metadata);
   }
   private campusOf(ring: [number, number][], x: number, y: number): [number, number][][] {
     const all = this.world.buildingRingsNear(x, y, 300).filter(r => r !== ring && r.length >= 3);
@@ -733,7 +733,7 @@ export class DroneSession {
     }
     return got.slice(1);
   }
-  private openInside(ring: [number, number][], doorX: number, doorY: number, heading: number): boolean {
+  private openInside(ring: [number, number][], doorX: number, doorY: number, heading: number,metadata:Partial<WalkEntry>={}): boolean {
     const c = this.p.data.center; if (!c) return false;
     const kx = Math.cos(c.lat * Math.PI / 180) * 111_320, ky = 110_540;
     const ll = (x: number, y: number): [number, number] => [c.lon + x / kx, c.lat + y / ky];
@@ -748,7 +748,7 @@ export class DroneSession {
     const campus = this.campusOf(ring, doorX, doorY);
     const foot = ring.map(([x, y]) => ll(x, y)), [lat, lon] = walkAnchor(foot);
     rememberWalkEntry({ lat, lon, foot, campus: campus.map(r => r.map(([x, y]) => ll(x, y))),
-      door: ll(doorX, doorY), heading, name: "", floors: 0, back: location.pathname + "?" + back.toString() + location.hash });
+      door: ll(doorX, doorY), heading, name:metadata.name??'',floors:metadata.floors??0,kind:metadata.kind,use:metadata.use,dong:metadata.dong,pnu:metadata.pnu,complexId:metadata.complexId,back: location.pathname + "?" + back.toString() + location.hash });
     location.href = walkLink(lat, lon);
     return true;
   }

@@ -256,14 +256,15 @@ def realestate_units(response: Response, id: str = Query(..., min_length=7, max_
 @router.get("/floor-plans")
 def apartment_floor_plans(response: Response, name: str = Query(..., min_length=2, max_length=100),
                           lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132),
-                          town: str = Query("", max_length=40), region: str = Query("", pattern=r"^\d{0,10}$")):
+                          town: str = Query("", max_length=40), region: str = Query("", pattern=r"^\d{0,10}$"),pnu:str=Query("",pattern=r"^(?:\d{19})?$")):
     from app.services import realestate_floorplans
-    response.headers["Cache-Control"] = "public, max-age=300"
-    return realestate_floorplans.catalogue(name, lat, lon, town, region)
+    result=realestate_floorplans.catalogue(name,lat,lon,town,region,pnu=pnu)
+    response.headers["Cache-Control"] = "public, max-age=300" if result['status']=='available' else 'no-store'
+    return result
 
 
 @router.get("/floor-plan-image")
-def apartment_floor_plan_image(naver_id: str = Query(..., pattern=r"^\d{1,10}$"), key: str = Query(..., pattern=r"^[a-f0-9]{24}$")):
+def apartment_floor_plan_image(naver_id: str = Query(..., pattern=r"^(?:\d{1,10}|ref-[a-z0-9-]{1,50})$"), key: str = Query(..., pattern=r"^[a-f0-9]{24}$")):
     from app.services import realestate_floorplans
     try:
         data, mime = realestate_floorplans.image(naver_id, key)
@@ -275,7 +276,7 @@ def apartment_floor_plan_image(naver_id: str = Query(..., pattern=r"^\d{1,10}$")
 
 
 @router.get("/floor-plan-analysis")
-def apartment_floor_plan_analysis(response: Response, naver_id: str = Query(..., pattern=r"^\d{1,10}$"), key: str = Query(..., pattern=r"^[a-f0-9]{24}$")):
+def apartment_floor_plan_analysis(response: Response, naver_id: str = Query(..., pattern=r"^(?:\d{1,10}|ref-[a-z0-9-]{1,50})$"), key: str = Query(..., pattern=r"^[a-f0-9]{24}$")):
     from app.services import realestate_floorplans
     response.headers["Cache-Control"] = "no-store"
     try:

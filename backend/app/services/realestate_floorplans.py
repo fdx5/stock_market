@@ -141,6 +141,9 @@ def parse_gallery(text: str, naver_id: str) -> dict:
 
 
 def _gallery(naver_id: str) -> dict:
+    if naver_id.startswith('ref-'):
+        from app.services import floorplan_references
+        return floorplan_references.catalogue(naver_id)
     key = "gallery:" + naver_id
     with _lock:
         hit = _catalogues.get(key)
@@ -160,10 +163,13 @@ def _near(x: float, y: float, lat: float, lon: float) -> bool:
     return math.hypot((x - lon) * 111000 * math.cos(math.radians(lat)), (y - lat) * 111000) < 650
 
 
-def catalogue(name: str, lat: float, lon: float, town: str = "", region: str = "", naver_id: str = "") -> dict:
+def catalogue(name: str, lat: float, lon: float, town: str = "", region: str = "", naver_id: str = "",pnu:str="") -> dict:
     """The same matching path for every complex. Ambiguous names fail closed."""
     name=complex_name(name,town)
     if not name:return {"status":"not_found","plans":[],"reason":"complex_name_required"}
+    from app.services import floorplan_references
+    reference=floorplan_references.lookup(name,lat,lon,town,region,pnu)
+    if reference:return reference
     location=f"{town}:{region}" if town and region else f"{town}:{region}:{lat:.4f}:{lon:.4f}"
     key = f"complex-lookup:{_name(name)}:{location}:{naver_id}"
     with _singleflight("catalogue:"+key):
@@ -173,7 +179,7 @@ def catalogue(name: str, lat: float, lon: float, town: str = "", region: str = "
 def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_id: str,key:str) -> dict:
     with _lock:
         hit = _catalogues.get(key)
-        if hit and time.monotonic() - hit[0] < (86400 if hit[1].get("status") == "available" else 300):
+        if hit and time.monotonic() - hit[0] < (86400 if hit[1].get("status") == "available" else 15):
             return hit[1]
     with _work:
         try:
@@ -238,6 +244,9 @@ def image(naver_id: str, key: str) -> tuple[bytes, str]:
 
 
 def _image(naver_id: str, key: str) -> tuple[bytes, str]:
+    if naver_id.startswith('ref-'):
+        from app.services import floorplan_references
+        return floorplan_references.image(naver_id,key)
     plan = selected(naver_id, key)
     with _lock:
         if key in _images:
@@ -264,6 +273,9 @@ def analyze(naver_id: str, key: str) -> dict:
 
 
 def _analyze(naver_id: str, key: str) -> dict:
+    if naver_id.startswith('ref-'):
+        from app.services import floorplan_references
+        return floorplan_references.analyze(naver_id,key)
     from app.services.floorplan_image_analysis import VERSION, analyze_image
     plan = selected(naver_id, key)
     cache_key = "image-plan:" + VERSION + ":" + key

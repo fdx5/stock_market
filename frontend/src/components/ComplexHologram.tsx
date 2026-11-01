@@ -4356,7 +4356,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     window.addEventListener("drone-take-off", takeOff);
     const bikeToggle = () => stageRef.current?.drone?.rideNearest();
     const carToggle = () => stageRef.current?.drone?.toggleCar();
-    const inside = (e: Event) => { const d = (e as CustomEvent<{ x: number; y: number }>).detail; if (d) stageRef.current?.drone?.enterBuildingAt(d.x, d.y); };
+    const inside = (e: Event) => { const d = (e as CustomEvent<{ x: number; y: number }&Partial<import('../walkmode/walkLink').WalkEntry>>).detail; if (d) stageRef.current?.drone?.enterBuildingAt(d.x, d.y,d); };
     window.addEventListener("drone-explore-inside", inside);
     window.addEventListener("drone-car-toggle", carToggle);
     const enterDoor = () => stageRef.current?.drone?.enterDoor();

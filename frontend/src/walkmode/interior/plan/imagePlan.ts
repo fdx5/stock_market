@@ -52,7 +52,7 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis):FloorPlan
   const plan:FloorPlan={complexId:p.complexId,complexName:p.complexName,dong:p.dong,unitType:analysis.drawing.typeName,
     areaExclusiveM2:p.area,ceilingHeightM:p.built&&p.built>=2015?2.4:2.32,
     source:"image_analysis",template:`${analysis.drawing.typeName} · ${analysis.drawing.variant}`,
-    basis:{area:`네이버 공개 도면 전용면적 ${p.area}㎡`,rooms:"원본 이미지 벽·공간 인식 · 가구·마감은 연출",built:p.built,households:p.households},
+    basis:{area:`단지 공개 도면 전용면적 ${p.area}㎡`,rooms:"원본 이미지 벽·공간 인식 · 가구·마감은 연출",built:p.built,households:p.households},
     rooms,openings:resolveWallOpenings(rooms,openings,true),fixtures:[],bounds:[Math.min(...xs),Math.min(...zs),Math.max(...xs),Math.max(...zs)],
     check:{areaM2:analysis.areaM2??p.area,error:analysis.areaError??0},style:p.style??"modern_white",floor:p.floor??3,furnishingCase:p.furnishingCase,
     imageAnalysis:{key:analysis.drawing.key,typeName:analysis.drawing.typeName,sourceUrl:analysis.drawing.sourceUrl,scaleBasis:analysis.scale.basis,wallThicknessMetres:analysis.scale.wallThicknessMetres,elapsedMs:analysis.elapsedMs??0,start:[(x0+x1)/2,(z0+z1)/2,Math.PI]}};
