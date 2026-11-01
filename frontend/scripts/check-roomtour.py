@@ -5,8 +5,9 @@ from playwright.sync_api import sync_playwright
 
 ROOT=Path(__file__).resolve().parents[2]
 ORIGIN=sys.argv[1] if len(sys.argv)>1 else 'http://127.0.0.1:5407'
-NATIVE='--native' in sys.argv
-OUT=ROOT/'tmp/roomtour-20261101'/('production' if NATIVE else 'local')
+LIVE='--live' in sys.argv
+NATIVE='--native' in sys.argv or LIVE
+OUT=ROOT/'tmp/roomtour-20261101'/('live' if LIVE else 'production' if NATIVE else 'local')
 OUT.mkdir(parents=True,exist_ok=True)
 CAT=json.loads((ROOT/'tmp/floorplan-complex-20261101/samick-before.json').read_text(encoding='utf8'))
 ID='11680:수서동:708:삼익'
@@ -15,7 +16,7 @@ TYPES=[dict(key=round(a),area=a,pyeong=a/3.3058,price=150000,deal_date='2026-10-
 results=[]
 with sync_playwright() as p:
  b=p.chromium.launch(channel='chrome',headless=False,args=['--mute-audio','--ignore-gpu-blocklist','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding'])
- for mobile in [False,True]:
+ for mobile in ([False] if '--desktop-only' in sys.argv else [False,True]):
   ctx=b.new_context(viewport={'width':390 if mobile else 1440,'height':844 if mobile else 1000},device_scale_factor=1)
   page=ctx.new_page();errors=[];requests=[]
   page.on('pageerror',lambda e:errors.append(str(e)))
@@ -23,6 +24,7 @@ with sync_playwright() as p:
    u=urllib.parse.urlparse(route.request.url);q=urllib.parse.parse_qs(u.query);path=u.path
    if not path.startswith('/api/'):return route.continue_()
    requests.append(path)
+   if LIVE:return route.continue_()
    if path.endswith('/complex'):return route.fulfill(json={'id':ID,'item':ITEM,'period':'1y','types':TYPES})
    if path.endswith('/buildings'):return route.fulfill(json={'id':ID,'name':'삼익','built':1992,'found':True,'center':{'lat':37.488,'lon':127.1},'buildings':[{'floors':15}], 'vworld_key':None})
    if path.endswith('/units'):return route.fulfill(status=503,json={})

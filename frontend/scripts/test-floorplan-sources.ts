@@ -83,5 +83,5 @@ for(const file of readdirSync(directory).filter(n=>n.endsWith('-candidate.json')
  meshes.forEach(m=>m.geometry.dispose());materials.forEach(m=>m.dispose());
  count++;
 }
-assert.ok(count>0);console.log(`source-image interiors: ${count} plans; ${bathrooms} complete bathrooms; ${beds} accessible beds; ${doorLiners} separated door liners; ${wallRays} opaque-wall rays; kitchen failures: ${JSON.stringify(failures)}`);
+assert.ok(count>0);console.log(`source-image interiors: ${count} plans; ${bathrooms} complete bathrooms; ${beds} accessible beds; ${doorLiners} stabilized door trim checks; ${wallRays} opaque-wall rays; kitchen failures: ${JSON.stringify(failures)}`);
 assert.deepEqual(failures,[],'Every tested interior must fit its essential kitchen appliances');
