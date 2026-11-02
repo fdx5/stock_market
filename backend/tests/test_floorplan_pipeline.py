@@ -292,3 +292,15 @@ def test_eup_myeon_complex_matches_source_labelled_by_the_eup_alone(monkeypatch)
     assert found['status']=='available' and found['naverId']=='108512'
     assert source.catalogue('파주한양수자인리버팰리스',37.8656,126.7737,'파주읍 봉암리','41480')['status']=='not_found'
     assert not source._same_town('당동','문산읍 당동리')
+
+
+def test_presale_right_id_without_a_town_matches_by_name_and_region(monkeypatch):
+    source._catalogues.clear();urls=[]
+    def get(url,*args):
+        urls.append(url)
+        if '/search/' in url:return '<a href="?rletNo=555">운정신도시자이</a>'.encode(),'text/html'
+        return gallery('555','운정신도시자이','4148011000','동패동').encode(),'text/html'
+    monkeypatch.setattr(source,'_get',get)
+    found=source.catalogue('운정신도시자이',37.72,126.75,'rights','41480')
+    assert found['status']=='available' and found['naverId']=='555'
+    assert not any('rights' in u for u in urls)

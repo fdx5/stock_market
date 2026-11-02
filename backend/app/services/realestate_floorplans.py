@@ -279,6 +279,8 @@ def _near(x: float, y: float, lat: float, lon: float) -> bool:
 
 def catalogue(name: str, lat: float, lon: float, town: str = "", region: str = "", naver_id: str = "",pnu:str="") -> dict:
     """The same matching path for every complex. Ambiguous names fail closed."""
+    # Presale-right ids ("41480:rights:<hash>") carry no legal town; never match on "rights".
+    if not re.search(r"[가-힣]",town):town=""
     name=complex_name(name,town)
     if not name:return {"status":"not_found","plans":[],"reason":"complex_name_required"}
     from app.services import floorplan_references
