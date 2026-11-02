@@ -1,5 +1,6 @@
 import type { FacilityKind, FacilityRole, Fixture, Side, FloorPlan, Opening, Room, RoomType, StyleName } from "./types";
 import type { RegBuilding, ZoneKind } from "../../building/plan";
+import { shopStyle } from "../shopInteriors";
 
 /* A floor of a building other than flats — an office, a clinic, a ward, shops, a school, a museum —
  * laid out the way such floors are built in Korea: a core at one end (the lifts, the stair, the
@@ -93,21 +94,23 @@ export function programOf(f: FacilityInput, rnd: () => number): Want[] {
       { type: "storage", label: "린넨실", w: 3, front: "door", people: [] },
     ];
     case "retail": {
-      const names = ["편의점", "약국", "베이커리", "안경원", "꽃집", "휴대폰 매장", "부동산", "세탁소"];
+      // (where the map names no shops: a street's usual ones — each laid out as its kind, shopInteriors)
+      const names = ["편의점", "약국", "베이커리", "안경원", "꽃집", "휴대폰 매장", "부동산", "세탁소", "화장품 가게", "생활용품점", "서점", "옷 가게", "은행", "헤어살롱", "분식", "국밥집", "PC방", "피트니스"];
       const shops = Math.max(3, Math.min(6, t.length || Math.round(f.width / 6.5)));
       // (the stock names, shuffled: each once)
       for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
       return Array.from({ length: shops }, (_, i): Want => {
         const name = at(i, names[i % names.length]);
-        const cafe = /카페|커피|베이커리|제과|빵|분식|식당|김밥|치킨|음식/.test(name);
+        // (a café is a café; restaurants, bakeries and the rest are shops laid out by their kind)
+        const cafe = /카페|커피/.test(name) || (/음식|식당/.test(name) && shopStyle(name) === "general");
         const pharm = /약국/.test(name);
         return { type: cafe ? "cafe" : pharm ? "pharmacy" : "shop", label: name, w: cafe ? 8 : 6, front: "glass", grow: i === 0, people: cafe ? ["clerk", "shopper", "shopper"] : ["clerk", "shopper"] };
       });
     }
     case "food": return [
       { type: "cafe", label: at(0, "카페"), w: 10, front: "open", grow: true, people: ["clerk", "shopper", "shopper", "shopper"] },
-      { type: "cafe", label: at(1, "한식당"), w: 9, front: "glass", people: ["cook", "shopper", "shopper"] },
-      { type: "cafe", label: at(2, "분식"), w: 6.5, front: "glass", people: ["cook", "shopper"] },
+      { type: "shop", label: at(1, "한식당"), w: 9, front: "glass", people: ["cook", "shopper", "shopper"] },
+      { type: "shop", label: at(2, "분식"), w: 6.5, front: "glass", people: ["cook", "shopper"] },
       { type: "storage", label: "식자재 창고", w: 3, front: "door", people: [] },
     ];
     case "school": {

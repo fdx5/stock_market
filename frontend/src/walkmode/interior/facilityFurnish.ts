@@ -8,6 +8,7 @@ import * as F from "./facilityModels";
 import type { Extra } from "./facilityModels";
 import type { Frame, Furnished, Interactable, MonitorScreen, Placer, Rect, SideName } from "./furnish";
 import type { FloorPlan, Opening, Room } from "./plan/types";
+import { furnishStyledShop, shopStyle, type ShopKit } from "./shopInteriors";
 import type { SignAtlas, SignStyle } from "./facilitySigns";
 import { placeVending, type VendingSession } from "./vending";
 import type { DrinkAtlas } from "./drinkArtwork";
@@ -485,6 +486,16 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     }
     // -------------------------------------------- shops and cafés
     case "shop": {
+      // (a business known by its name — a bank, a salon, a bookshop, a phone shop… — laid out as such)
+      const style = shopStyle(room.label);
+      const matCache = ((c.hooks as unknown as { shopMats?: Map<string, THREE.Material> }).shopMats ??= new Map());
+      const kit: ShopKit = { P, X, H, zone, name: room.label, fy: pl.fy, X0, Z0, X1, Z1, cx, cz, W, D, doorSide, backSide: opposite[doorSide], sideW,
+        put: (k, f, solid = false) => c.put(k, f, zone, solid), wallPut: (s, k, w, d, prefer = null, height = 0.8) => wallPut(s, k, w, d, prefer, height),
+        freeAt: (x, z, w, d, yaw = 0, take = true) => freeAt(x, z, w, d, yaw, take), wallLen: s => pl.len(s), spot, seat,
+        sign: (s, lines, w, h, y) => { if (w > 0.6) signOn(s, "brand", lines, w, h, s === "n" || s === "s" ? cx : cz, y); },
+        material: (colour, opts = {}) => { const key = colour + JSON.stringify(opts); let m = matCache.get(key); if (!m) { m = c.own(new THREE.MeshStandardMaterial({ color: colour, roughness: 0.45, ...opts })); matCache.set(key, m); } return m; },
+        plant: () => plant(null, 1.5), at: (f, x, y, z) => at(f, x, y, z), yawOf: f => yawOf(f) };
+      if (furnishStyledShop(kit, style)) break;
       const conv = /편의점|마트/.test(room.label), flowers = /꽃/.test(room.label), desky = /부동산|세탁/.test(room.label);
       if (desky) { deskOn(sideW[0] ?? winSide, 1.4, 1); deskOn(sideW[1] ?? winSide, 1.4, 1); wallPut(winSide, F.cabinets(P, 2.0, 0.9, 0.4), 2.0, 0.42, null, 0.75); break; }
       for (const s of sideW) {

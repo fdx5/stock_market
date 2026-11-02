@@ -1,5 +1,6 @@
 import type { FacilityKind, FacilityRole, Fixture, FloorPlan, Opening, Room, RoomType, Side } from "./types";
 import { FACILITY_LABEL, facilityStyle, programOf, type FacilityInput, type Want } from "./facility";
+import { shopStyle } from "../shopInteriors";
 
 /* A floor laid out from its drawing (도면 기반): the surveyed outline of the floor (SGIS), its charted
  * partitions where it has them — rooms, open floor and corridors, lifts, stairs, escalators, toilets,
@@ -129,7 +130,10 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
       // a business: its name and kind from the survey's company there, else the floor's programme
       const w = prog[shopNo++ % Math.max(1, prog.length)] ?? { type: "office" as RoomType, label: "사무실", front: "door" as const, people: ["desk"] as FacilityRole[] };
       const nm = p.name, cat = p.category ?? "";
-      const type: RoomType = /음식|카페|커피|제과|식당/.test(cat + (nm ?? "")) ? "cafe" : /의원|병원|의료|치과|한의/.test(cat + (nm ?? "")) ? "waiting" : /약국/.test(cat + (nm ?? "")) ? "pharmacy"
+      // (a business whose name says what it is — a bank, a salon, a restaurant, a phone shop — is a shop
+      // furnished as such: shopInteriors; cafés stay cafés)
+      const styled = shopStyle(`${nm ?? ""} ${cat}`);
+      const type: RoomType = styled !== "general" && !/카페|커피/.test(cat + (nm ?? "")) ? "shop" : /음식|카페|커피|제과|식당/.test(cat + (nm ?? "")) ? "cafe" : /의원|병원|의료|치과|한의/.test(cat + (nm ?? "")) ? "waiting" : /약국/.test(cat + (nm ?? "")) ? "pharmacy"
         : /소매|판매|상점|마트|편의/.test(cat) ? "shop" : /학원|교육/.test(cat) ? "classroom" : nm ? (kind === "retail" || kind === "food" ? "shop" : "openOffice") : w.type;
       r = region({ type, label: nm ?? w.label, people: w.people ?? [], front: type === "shop" || type === "cafe" || type === "pharmacy" ? "glass" : type === "waiting" ? "open" : w.front, name: nm });
     }

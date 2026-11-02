@@ -204,7 +204,9 @@ export default function WalkPage() {
       const info: RegBuilding = { name: q.get("name") ?? "검토용 빌딩", floors: top, basements: 2, use: use[kind] ?? "업무시설" };
       const floors: RegFloor[] = [-2, -1, ...Array.from({ length: top }, (_, i) => i + 1)].map(l => ({ level: l, label: l < 0 ? `지하 ${-l}층` : `${l}층`, area: W * D, uses: [{ use: l < 0 ? "주차장" : use[kind] ?? "업무시설", detail: "", area: W * D }] }));
       const levels = floors.map(f => f.level);
-      fac.current = { info, floors, W, D, levels: facilityLevels(levels, floors), tenants: [], departments: [], key: `demo|${kind}` };
+      // (&tenants=a,b,c: the ground floor's businesses, for checking their interiors)
+      const demoTenants = (q.get("tenants") ?? "").split(",").map(t => t.trim()).filter(Boolean).map(name => ({ name, level: 1 }));
+      fac.current = { info, floors, W, D, levels: facilityLevels(levels, floors), tenants: demoTenants, departments: [], key: `demo|${kind}` };
       setEntering({ name: info.name!, dong: "", x: 0, y: 0, floors: top, heading: 0, kind: "building" });
       pendingFacility.current = Number(q.get("level") ?? 1);
       return;
