@@ -271,7 +271,7 @@
 .wk-shop-item small { font-size: 10px; color: #8fdcff; }
 .wk-shop-note { color: #ffcf6e; font-size: 13px; }
 .wk-btn.wk-btn-shop { background: linear-gradient(180deg, #ffd27a, #f0a93a); color: #10141b; border-color: transparent; font-weight: 800; }
-.wk-shop-here { position: absolute; right: 16px; top: 52%; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(255, 207, 110, .6); background: rgba(6, 12, 18, .78); color: #ffe9b8; font-weight: 800; font-size: 13px; cursor: pointer; z-index: 3; }
+.wk-shop-here { position: absolute; left: 16px; top: 52%; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(255, 207, 110, .6); background: rgba(6, 12, 18, .78); color: #ffe9b8; font-weight: 800; font-size: 13px; cursor: pointer; z-index: 3; }
 .wk-shop-here kbd { background: #ffcf6e; color: #10141b; font-weight: 900; }
 /* how much the person likes the visitor, by the name in the dialogue */
 .wk-talk-rel { margin-left: 10px; color: #ff7aa8; font-size: 14px; letter-spacing: 1px; }

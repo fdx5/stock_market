@@ -107,7 +107,18 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     const f = pl.frameAt(s, u, w, 0.02);
     const g = c.signs.sign(style, lines, w, h);
     c.B.add(c.signs.material, zone, g, new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(0, y, 0.012)), false); g.dispose();
+  };  /** A business seen from the corridor: its name lit over the way in, on the corridor's face of its
+   * front wall, and a couple of display stands just inside the glass, clear of the door. */
+  const storefront = () => {
+    if (!corridorOp || room.label.length < 2) return;
+    const len = pl.len(doorSide), w = Math.min(3.2, Math.max(1.2, len * 0.45));
+    const u = THREE.MathUtils.clamp(corridorOp.center, (doorSide === "n" || doorSide === "s" ? X0 : Z0) + w / 2, (doorSide === "n" || doorSide === "s" ? X1 : Z1) - w / 2);
+    const f = pl.frameAt(doorSide, u, w, 0.02), g = c.signs.sign("brand", [room.label], w, 0.4);
+    const m = f.m.clone().multiply(new THREE.Matrix4().makeTranslation(0, Math.min(H - 0.3, 2.5), -(2 * HALF_WALL + 0.015))).multiply(new THREE.Matrix4().makeRotationY(Math.PI));
+    c.B.add(c.signs.material, zone, g, m, false); g.dispose();
+    for (let k = 0; k < 2; k++) { const d = pl.against(doorSide, 0.7, 0.7, null, 1.3, 0); if (!d) break; c.put(F.plinth(P, X, room.id.length + k * 2), d, zone, true); pl.take(d.rect); }
   };
+
   const large = Math.max(c.plan.bounds[2] - c.plan.bounds[0], c.plan.bounds[3] - c.plan.bounds[1]) > 48;
   if (large && ["lobby", "waiting", "liftHall", "corridor"].includes(room.type) && (c.hooks.vendingPut ?? 0) < 3 && Math.min(W, D) > 2.8) {
     for (const s of sides) {
@@ -486,6 +497,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     }
     // -------------------------------------------- shops and cafés
     case "shop": {
+      storefront();
       // (a business known by its name — a bank, a salon, a bookshop, a phone shop… — laid out as such)
       const style = shopStyle(room.label);
       const matCache = ((c.hooks as unknown as { shopMats?: Map<string, THREE.Material> }).shopMats ??= new Map());
@@ -525,6 +537,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       break;
     }
     case "cafe": {
+      storefront();
       const s = sideW[0] ?? solidSides[0] ?? "w", bw = Math.min(4.2, pl.len(s) - 1.4);
       const f = pl.against(s, bw, 2.25, null, 3);
       if (f) {
