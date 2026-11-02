@@ -76,7 +76,7 @@ def _download(url: str, limit: int) -> tuple[bytes,str]:
     with requests.get(url, timeout=(5, 14), stream=True, allow_redirects=False) as r:
         r.raise_for_status()
         if r.status_code != 200:
-            raise LookupError("drawing response")
+            raise LookupError(f"drawing response {r.status_code} {urlparse(r.headers.get('Location','')).path[:60]}".strip())
         chunks, size = [], 0
         for chunk in r.iter_content(65536):
             size += len(chunk)
@@ -185,6 +185,13 @@ def _located_candidate(text: str, name: str, town: str, lat: float, lon: float) 
     return {}
 
 
+def _probe(text: str, ids: int) -> dict:
+    """Public page shape only, so a production miss can be told from a blocked or changed page."""
+    title=re.search(r"<title[^>]*>([^<]{0,80})",text)
+    return {"bytes":len(text),"title":(title[1].strip() if title else ""),"base":"baseQueryResult" in text,
+            "links":len(re.findall(r"rletNo=|reSearchComplexTab",text)),"ids":ids}
+
+
 def parse_gallery(text: str, naver_id: str) -> dict:
     # Parse JSON as data, never eval the upstream page's JavaScript.
     match = re.search(r"\bvar\s+imgInfoData\s*=\s*'([^\r\n]+)'\s*;", text)
@@ -290,6 +297,7 @@ def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_
     try:
         try:
             found=[];seen=set();source_failed=False;location_mismatch=False;located={}
+            probes=[]
             variants=_search_names(name)
             primary=list(dict.fromkeys(f'{town} {variant}'.strip() for variant in variants))
             queries=primary+[variant for variant in variants if variant not in primary]
@@ -304,9 +312,11 @@ def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_
                     try:
                         raw,_=_get(LAND+"/search/search.naver?"+urlencode({"query":query}))
                         text=_text(raw);ids=_search_ids(text,name,town,lat,lon)
+                        probes.append(_probe(text,len(ids)))
                         evidence=_located_candidate(text,name,town,lat,lon)
                         if evidence:located[evidence['naverId']]=evidence
-                    except (requests.RequestException,LookupError,ValueError,json.JSONDecodeError):
+                    except (requests.RequestException,LookupError,ValueError,json.JSONDecodeError) as exc:
+                        probes.append({"error":f"{type(exc).__name__}: {exc}"[:120]})
                         source_failed=True;continue
                 for cid in ids[:4]:
                     if cid in seen:continue
@@ -329,7 +339,7 @@ def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_
                 phase=_phase_name(name)
                 if found and (not phase or phase[2] or naver_id):break
             result=({**found[0],"requestedName":name,"matchedBy":"exact_name" if _name(found[0].get("name",""))==_name(name) else "phase_or_town_label"} if len(found)==1
-                    else {"status":"ambiguous" if found else "unavailable" if source_failed else "not_found","plans":[],"reason":"multiple_complexes" if found else "source_load_failed" if source_failed else "location_mismatch" if location_mismatch else "no_name_candidate"})
+                    else {"status":"ambiguous" if found else "unavailable" if source_failed else "not_found","plans":[],"reason":"multiple_complexes" if found else "source_load_failed" if source_failed else "location_mismatch" if location_mismatch else "no_name_candidate",**({"searches":probes[:6]} if not found else {})})
         except (requests.RequestException, LookupError, ValueError, json.JSONDecodeError):
             result = {"status": "unavailable", "plans": []}
     finally:
