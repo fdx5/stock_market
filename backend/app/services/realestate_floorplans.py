@@ -189,7 +189,15 @@ def _probe(text: str, ids: int) -> dict:
     """Public page shape only, so a production miss can be told from a blocked or changed page."""
     title=re.search(r"<title[^>]*>([^<]{0,80})",text)
     return {"bytes":len(text),"title":(title[1].strip() if title else ""),"base":"baseQueryResult" in text,
-            "links":len(re.findall(r"rletNo=|reSearchComplexTab",text)),"ids":ids}
+            "links":len(re.findall(r"rletNo=|reSearchComplexTab",text)),"ids":ids,"baseFields":_base_summary(text)}
+
+
+def _base_summary(text: str) -> dict:
+    match=re.search(r"baseQueryResult\s*=\s*({[^
+]+});",text)
+    try:info=json.loads(match.group(1)) if match else {}
+    except json.JSONDecodeError:return {"parse":"failed"}
+    return {k:(v if isinstance(v,(int,float)) or (isinstance(v,str) and len(v)<40) else type(v).__name__) for k,v in list(info.items())[:16]}
 
 
 def parse_gallery(text: str, naver_id: str) -> dict:
