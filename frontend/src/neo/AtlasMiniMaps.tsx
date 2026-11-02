@@ -19,7 +19,7 @@ const MARKETS = [
 
 function mapTime(value: string | null) {
   if (!value || !Number.isFinite(Date.parse(value))) return null;
-  return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
+  return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(value));
 }
 
 export function AtlasMiniMapCard({ market, snapshot, quote, lang }: {

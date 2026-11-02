@@ -122,8 +122,8 @@ export default function EtfMarketPage({ region }: { region: EtfRegion }) {
     style: "currency", currencyDisplay: "narrowSymbol", currency: region === "KR" ? "KRW" : "USD", maximumFractionDigits: region === "KR" ? 0 : 2, minimumFractionDigits: region === "KR" ? 0 : 2 }).format(v) : "—";
   const compact = (v: number | null | undefined) => finite(v) ? new Intl.NumberFormat(lang === "ko" ? "ko-KR" : "en-US", { notation: "compact", maximumFractionDigits: 1 }).format(v) : "—";
   const amount = (v: number) => finite(v) ? `${region === "KR" ? "₩" : "$"}${new Intl.NumberFormat(region === "US" ? "en-US" : lang === "ko" ? "ko-KR" : "en-US", { notation: "compact", maximumFractionDigits: 1 }).format(v)}` : "—";
-  const timestamp = updated && Number.isFinite(Date.parse(updated)) ? new Intl.DateTimeFormat(lang === "ko" ? "ko-KR" : "en-GB", {
-    timeZone: region === "KR" ? "Asia/Seoul" : "America/New_York", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(updated)) : "—";
+  const timestamp = updated && Number.isFinite(Date.parse(updated)) ? new Intl.DateTimeFormat("en-US", {
+    timeZone: region === "KR" ? "Asia/Seoul" : "America/New_York", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(updated)) : "—";
   const selectCompare = (item: EtfItem) => {
     setMessage("");
     setChoices(current => {

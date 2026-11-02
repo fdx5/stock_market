@@ -22,7 +22,7 @@ export default function UsFuturesStrip() {
             {quote.change_pct > 0 ? "+" : ""}{quote.change_pct.toFixed(2)}%
           </strong>
           {quote.quote_time && <time dateTime={new Date(quote.quote_time * 1000).toISOString()}>
-            {new Date(quote.quote_time * 1000).toLocaleString(lang === "ko" ? "ko-KR" : "en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })} KST
+            {new Date(quote.quote_time * 1000).toLocaleString("en-US", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" })} KST
           </time>}
         </> : <span>{lang === "ko" ? "시세 수신 대기" : "Awaiting quote"}</span>}
       </span>;

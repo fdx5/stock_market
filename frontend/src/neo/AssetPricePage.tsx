@@ -82,7 +82,7 @@ export default function AssetPricePage({ asset }: { asset: MarketAsset }) {
   const yearlyChange = latest && first && first.close !== 0 ? (latest.close / first.close - 1) * 100 : undefined;
   const highs = points.map(p => p.high ?? p.close), lows = points.map(p => p.low ?? p.close);
   const daily = [...points].reverse(), totalPages = Math.ceil(daily.length / 20);
-  const stamp = quote?.quote_time ? new Intl.DateTimeFormat(lang === "ko" ? "ko-KR" : "en-GB", { timeZone: "Asia/Seoul", dateStyle: "short", timeStyle: "medium" }).format(new Date(quote.quote_time * 1000)) + " KST" : null;
+  const stamp = quote?.quote_time ? new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(quote.quote_time * 1000)) + " KST" : null;
   const sameGroup = MARKET_ASSETS.filter(item => item.group === asset.group);
   return <main className="d2 ap-page" data-asset={asset.key} data-asset-group={asset.group} lang={lang}>
     <nav className="ap-all-assets" aria-label={L("환율·암호화폐·원자재 상세", "FX, crypto and commodities")}>

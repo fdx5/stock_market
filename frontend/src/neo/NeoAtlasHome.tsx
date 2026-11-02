@@ -20,7 +20,7 @@ import "./cyberEffects.css";
 function quoteTime(value?: string | number | null) {
   if (!value) return "—";
   const date = new Date(typeof value === "number" ? value * 1000 : value);
-  return Number.isFinite(+date) ? new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date) + " KST" : "—";
+  return Number.isFinite(+date) ? new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date) + " KST" : "—";
 }
 const price = (value?: number) => value != null && Number.isFinite(value) && value > 0 ? value.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 }) : "—";
 
