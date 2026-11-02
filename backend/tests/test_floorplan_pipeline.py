@@ -304,3 +304,33 @@ def test_presale_right_id_without_a_town_matches_by_name_and_region(monkeypatch)
     found=source.catalogue('운정신도시자이',37.72,126.75,'rights','41480')
     assert found['status']=='available' and found['naverId']=='555'
     assert not any('rights' in u for u in urls)
+
+
+def test_tesseract_quote_does_not_swallow_following_words(monkeypatch):
+    # A recognised '"' must not open a CSV quoted field over the remaining rows.
+    import subprocess
+    from app.services import floorplan_image_analysis as fa
+    rows=["level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
+          '5\t1\t1\t1\t1\t1\t3\t3\t9\t9\t60\t"',
+          "5\t1\t1\t1\t1\t2\t30\t3\t30\t9\t90\t주방",
+          "5\t1\t1\t1\t1\t3\t90\t3\t30\t9\t90\t거실"]
+    class Done:stdout="\r\n".join(rows).encode()
+    monkeypatch.setattr(fa.shutil,"which",lambda _:"tesseract")
+    monkeypatch.setattr(fa.subprocess,"run",lambda *a,**k:Done())
+    words=[w["text"] for w in fa._ocr(fa.np.zeros((20,40),fa.np.uint8),mode="text")]
+    assert words==['"',"주방","거실"]
+
+
+def test_open_kitchen_returns_surplus_floor_to_the_living_room():
+    from app.services.floorplan_image_analysis import _limit_open_kitchen
+    xs=[0,1,2,3,4,5,6];ys=[0,1,2]
+    cells={(i,j):{} for i in range(6) for j in range(2)}
+    seeds=[{"cell":(0,0),"type":"kitchen"},{"cell":(5,0),"type":"living"}]
+    # The kitchen first took five of the six open columns.
+    assigned={(i,j):(0 if i<5 else 1) for i,j in cells}
+    distances={(i,j):abs(i-(0 if i<5 else 5))+j for i,j in cells}
+    neighbours={c:[(q,1.) for q in [(c[0]+1,c[1]),(c[0]-1,c[1]),(c[0],c[1]+1),(c[0],c[1]-1)] if q in cells] for c in cells}
+    _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,lambda a,b:(0.,[]),xs,ys)
+    kitchen=sum(1 for z in assigned.values() if z==0)
+    assert kitchen<=len(cells)*.45 and assigned[0,0]==0
+    assert all(assigned[i,j]==1 for i,j in cells if i>=3)

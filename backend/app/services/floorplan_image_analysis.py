@@ -26,7 +26,8 @@ cv2.setNumThreads(1)
 from app.services.floorplan_analysis_runtime import VERSION
 
 _ROOM_TERMS={
-    "kitchen":("주방","식당","키친","다이닝","KITCHEN","DINING"),
+    # (with Tesseract's usual Hangul misreads of 주방/식당 on small two-line labels)
+    "kitchen":("주방","식당","키친","다이닝","KITCHEN","DINING","추방","주빙","식딩","식탕"),
     "living":("거실","리빙룸","LIVING"),
     "bedroom":("침실","짐실","참실","안방","BEDROOM","MASTERBED"),
     "bathroom":("욕실","화장실","BATHROOM","BATH","TOILET","WC"),
@@ -62,7 +63,9 @@ def _ocr(image: np.ndarray, rotation: int = 0, mode: str = "mixed") -> list[dict
     except (subprocess.SubprocessError, OSError):
         return []
     out = []
-    for row in csv.DictReader(io.StringIO(result.stdout.decode("utf8", "replace")), delimiter="\t"):
+    # TSV has no quoting: a recognised '"' otherwise opened a quoted field that swallowed
+    # every following row (a whole plan's room labels read as one garbage word).
+    for row in csv.DictReader(io.StringIO(result.stdout.decode("utf8", "replace")), delimiter="\t", quoting=csv.QUOTE_NONE):
         try:
             if row["level"] != "5" or float(row["conf"]) < 25 or not row["text"].strip():
                 continue
@@ -234,6 +237,36 @@ def _phrases(words: list[dict]) -> list[dict]:
         group.sort(key=lambda w:w["x"])
         result.append({**group[0],"text":"".join(w["text"] for w in group),"x":float(np.mean([w["x"] for w in group])),"y":float(np.mean([w["y"] for w in group]))})
     return result
+
+
+KITCHEN_SPREAD=2.2
+OPEN_KITCHEN_SHARE=.45
+
+
+def _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,barrier,xs,ys) -> None:
+    """Return the kitchen's surplus open floor to the living room it opens onto.
+
+    The kitchen keeps its seed and the floor nearest it; cells farthest from the kitchen
+    seed that border living floor without a wall move first, so both stay contiguous."""
+    area=lambda c:(xs[c[0]+1]-xs[c[0]])*(ys[c[1]+1]-ys[c[1]])
+    seed_cells={s["cell"] for s in seeds}
+    for k,kitchen in enumerate(seeds):
+        if kitchen["type"]!="kitchen":continue
+        living=[i for i,s in enumerate(seeds) if s["type"]=="living"]
+        if not living:return
+        while True:
+            own=[c for c,z in assigned.items() if z==k]
+            open_living={}
+            for c in own:
+                for q,_ in neighbours[c]:
+                    if assigned.get(q) in living and barrier(c,q)[0]<.13:open_living[c]=assigned[q]
+            if not open_living:break
+            shared=sum(area(c) for c,z in assigned.items() if z==k or (z in living and z in open_living.values()))
+            if sum(area(c) for c in own)<=shared*OPEN_KITCHEN_SHARE:break
+            movable=[c for c in open_living if c not in seed_cells]
+            if not movable:break
+            c=max(movable,key=lambda c:distances.get(c,0))
+            assigned[c]=open_living[c]
 
 
 def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | None = None, expanded:bool=False,supply_area:float|None=None, _axis_recovery:bool=False) -> dict:
@@ -464,6 +497,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
     white_regions=cv2.morphologyEx(white_regions,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
     white_regions[cv2.dilate(wall,np.ones((3,3),np.uint8))>0]=0
     _,white_ids,white_stats,_=cv2.connectedComponentsWithStats(white_regions)
+    edge_strength=np.hypot(cv2.Sobel(gray,cv2.CV_32F,1,0),cv2.Sobel(gray,cv2.CV_32F,0,1))
     cells: dict[tuple[int, int], dict] = {}
     for j in range(ny):
         for i in range(nx):
@@ -476,7 +510,12 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             occupied = ((patch[:, :, 1] > 15) | (patch[:, :, 2] < 232)).mean()
             inside = float((enclosed[b:d,a:c] > 0).mean())
             labelled=any(xs[i]<w["x"]<xs[i+1] and ys[j]<w["y"]<ys[j+1] and _room_types(w['text']) for w in words)
-            if occupied < .12 and not (inside>=.65 and (monochrome or labelled)):
+            # A pale grey checkered entrance tile reads as near-white paper. Its dense
+            # tile joints tell it apart from a blank recess; dropping it left dead floor.
+            light=float(((patch[:,:,2]>200)&(patch[:,:,2]<248)&(patch[:,:,1]<20)).mean())
+            # (alternating with white tiles: a solid grey service floor is not a checker)
+            checker=bool(.15<light<.8 and float((patch[:,:,2]>=248).mean())>.15 and float((edge_strength[b:d,a:c]>40).mean())>.18 and float(patch[:,:,1].mean())<6)
+            if occupied < .12 and not (inside>=.65 and (monochrome or labelled or checker)):
                 continue
             floor_fill=float(((patch[:,:,1]>15)|((patch[:,:,2]>110)&(patch[:,:,2]<232))).mean())
             if not monochrome and not dimension_scale and not has_dimension_axis and floor_fill<.12 and not labelled:
@@ -489,11 +528,17 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             cells[i, j] = {"center": ((xs[i]+xs[i+1])/2, (ys[j]+ys[j+1])/2),
                            "blue":float(((patch[:,:,0]>75)&(patch[:,:,0]<115)&(patch[:,:,1]>15)).mean()),
                            "wood":float(((patch[:,:,0]>8)&(patch[:,:,0]<40)&(patch[:,:,1]>85)).mean()),
-                           "pale":float(((patch[:,:,0]>10)&(patch[:,:,0]<40)&(patch[:,:,1]>15)&(patch[:,:,1]<100)&(patch[:,:,2]>190)).mean())}
+                           "pale":float(((patch[:,:,0]>10)&(patch[:,:,0]<40)&(patch[:,:,1]>15)&(patch[:,:,1]<100)&(patch[:,:,2]>190)).mean()),
+                           "checker":checker}
     if not cells:
         return {"status": "needs_review", "reason": "floor_detection", "version": VERSION}
 
+    barrier_memo: dict = {}
     def barrier(a: tuple[int, int], b: tuple[int, int]) -> tuple[float, list[tuple[float, float]]]:
+        if (a,b) not in barrier_memo:barrier_memo[a,b]=_barrier(a,b)
+        return barrier_memo[a,b]
+
+    def _barrier(a: tuple[int, int], b: tuple[int, int]) -> tuple[float, list[tuple[float, float]]]:
         i, j = a
         vertical_edge = a[0] != b[0]
         at = round(xs[max(i, b[0])]) if vertical_edge else round(ys[max(j, b[1])])
@@ -567,6 +612,12 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
         if candidates:
             seed_cell=min(candidates,key=lambda c:math.dist(cells[c]["center"],bc[k]))
             if not any(s["cell"]==seed_cell for s in seeds):seeds.append({"cell":seed_cell,"type":"bathroom","label":"욕실 (색상 인식)","observed":False})
+    # An unlabelled checkered tile floor is the entrance, an explicit visual inference.
+    if not any(s["type"]=="entrance" for s in seeds):
+        tiles=[c for c in cells if cells[c]["checker"] and cells[c]["blue"]<.05 and not any(s["cell"]==c for s in seeds)]
+        if tiles:
+            seed_cell=max(tiles,key=lambda c:(xs[c[0]+1]-xs[c[0]])*(ys[c[1]+1]-ys[c[1]]))
+            seeds.append({"cell":seed_cell,"type":"entrance","label":"현관 (타일 무늬 인식)","observed":False})
     # '주방' and '식당' can be two OCR anchors in the same open room. Give that
     # physical space one kitchen identity; duplicate IDs misrouted shared walls.
     unique=[]
@@ -619,9 +670,18 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             # blanket penalty for every non-blue cell assigned their strips to a
             # neighbouring balcony/bedroom and invented full-width bathroom doors.
             mismatch=500 if kind=="bathroom" and feature["blue"]<.05 and (feature["wood"]>.25 or feature["pale"]>.5) else 200 if kind=="balcony" and feature["wood"]>.4 else 150 if kind in ("living","kitchen") and feature["pale"]>.5 else 150 if kind=="bedroom" and (feature["wood"]>.45 or feature["blue"]>.25) else 0
-            nd=distance+cost+mismatch
+            # A wet room is enclosed: across a wall or door it never takes untiled floor
+            # (an unlabelled entrance strip became a shower room).
+            if kind in ("bathroom","utility") and feature["blue"]<.05 and cost>=100:mismatch+=400
+            # The entrance is its tile floor; it does not take the hall beyond it.
+            if kind=="entrance" and not feature.get("checker") and not seeds[index]["observed"]:mismatch+=300
+            # Korean flats open the kitchen onto the living room, which is kept wide. The
+            # kitchen spreads at a higher cost, so the shared floor, dining area and the
+            # corridor belong to the living room rather than the kitchen.
+            nd=distance+cost*(KITCHEN_SPREAD if kind=="kitchen" else 1)+mismatch
             if nd<distances.get(q,float("inf")):
                 distances[q]=nd;assigned[q]=index;heapq.heappush(queue,(nd,index,q))
+    _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,barrier,xs,ys)
     area_constraints=[]
     area_scale_applied=False
     area_annotation_conflict=False
@@ -642,29 +702,34 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
         area_scale_applied=bool(area_constraints) and not area_annotation_conflict
     # Merge adjacent cells only across a wall-free edge and within one observed room zone.
     consumed=set();rectangles=[];cell_room={}
-    for j in range(ny):
-        for i in range(nx):
-            c=(i,j)
-            if c not in cells or c in consumed or c not in assigned:
-                continue
-            index=assigned[c];limit=i+1
-            while (limit,j) in cells and (limit,j) not in consumed and assigned.get((limit,j))==index and barrier((limit-1,j),(limit,j))[0]<.10:
-                limit+=1
-            # The largest inscribed rectangle furnishes an L-shaped room better than
-            # always taking the widest, shallowest strip first. Never merge through a wall.
-            best=(-1.,i+1,j+1)
-            for right_candidate in range(i+1,limit+1):
-                bottom_candidate=j+1
-                while bottom_candidate<ny and all((k,bottom_candidate) in cells and (k,bottom_candidate) not in consumed and assigned.get((k,bottom_candidate))==index and barrier((k,bottom_candidate-1),(k,bottom_candidate))[0]<.10 and (k==i or barrier((k-1,bottom_candidate),(k,bottom_candidate))[0]<.10) for k in range(i,right_candidate)):
-                    bottom_candidate+=1
-                candidate_area=(xs[right_candidate]-xs[i])*(ys[bottom_candidate]-ys[j])
-                if candidate_area>best[0]:best=(candidate_area,right_candidate,bottom_candidate)
-            _,right,bottom=best
-            rid=len(rectangles)
-            for yy in range(j,bottom):
-                for xx in range(i,right):
-                    consumed.add((xx,yy));cell_room[xx,yy]=rid
-            rectangles.append({"zone":index,"grid":[i,j,right,bottom],"rect":[X(xs[i]),Z(ys[j]),X(xs[right]),Z(ys[bottom])]})
+    def grow(i,j,index):
+        """The largest wall-free rectangle of one zone with its top-left cell at (i,j)."""
+        limit=i+1
+        while (limit,j) in cells and (limit,j) not in consumed and assigned.get((limit,j))==index and barrier((limit-1,j),(limit,j))[0]<.10:
+            limit+=1
+        best=(-1.,i+1,j+1)
+        for right_candidate in range(i+1,limit+1):
+            bottom_candidate=j+1
+            while bottom_candidate<ny and all((k,bottom_candidate) in cells and (k,bottom_candidate) not in consumed and assigned.get((k,bottom_candidate))==index and barrier((k,bottom_candidate-1),(k,bottom_candidate))[0]<.10 and (k==i or barrier((k-1,bottom_candidate),(k,bottom_candidate))[0]<.10) for k in range(i,right_candidate)):
+                bottom_candidate+=1
+            candidate_area=(xs[right_candidate]-xs[i])*(ys[bottom_candidate]-ys[j])
+            if candidate_area>best[0]:best=(candidate_area,right_candidate,bottom_candidate)
+        return best
+    # Take each zone's largest rectangle first, not the first one met in scan order:
+    # an L-shaped living room otherwise led with a narrow strip and furnished that.
+    while True:
+        best=None
+        for c in assigned:
+            if c in consumed or c not in cells:continue
+            candidate=grow(c[0],c[1],assigned[c])
+            if best is None or candidate[0]>best[0][0]:best=(candidate,c)
+        if best is None:break
+        (_,right,bottom),(i,j)=best;index=assigned[i,j]
+        rid=len(rectangles)
+        for yy in range(j,bottom):
+            for xx in range(i,right):
+                consumed.add((xx,yy));cell_room[xx,yy]=rid
+        rectangles.append({"zone":index,"grid":[i,j,right,bottom],"rect":[X(xs[i]),Z(ys[j]),X(xs[right]),Z(ys[bottom])]})
     # Adjacent decomposition rectangles can share a fully open edge despite a few
     # glyph pixels. Merge complete matching spans before selecting the furnished room;
     # otherwise a normal bedroom could be represented by a 1.1 m-deep lead strip.
@@ -749,7 +814,8 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
                 # sliced precisely at its jamb. Demand supporting wall ink nearby.
                 nearby=wall[max(0,l-60):min(H,h+60),max(0,p-3):p+4] if vertical else wall[max(0,p-3):p+4,max(0,l-60):min(W,h+60)]
                 supported=nearby.size and float((nearby.max(axis=1 if vertical else 0)>0).mean())>.2
-                kind="door" if za!=zb and private and .50<=measure(hi)-measure(lo)<=1.8 and supported else "open"
+                # An entrance opens onto the hall; with no wall drawn there is no door.
+                kind="door" if za!=zb and private and kinds-{"entrance"}&{"bedroom","bathroom","dressroom"} and .50<=measure(hi)-measure(lo)<=1.8 and supported else "open"
                 intervals=[(lo,hi,kind)]
             else:
                 minimum_door=.32 if not dimension_scale and not has_dimension_axis else .50
