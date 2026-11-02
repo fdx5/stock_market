@@ -244,7 +244,7 @@ export class Interior {
   private holdEye = new THREE.Matrix4().compose(new THREE.Vector3(0.15, -0.2, -0.4), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.25, -0.35, 0)), new THREE.Vector3(1, 1, 1));
   /** Drinking or eating what is in the hand: raised to the mouth and tipped (first person), or held
    * at the face (third); its sounds on their beats — opened, swallowed three times, then 캬~. */
-  private sip: { t: number; obj: THREE.Object3D; how: "can" | "carton" | "bottle" | "cup" | "crunch" | "soft"; name: string; own: boolean; beat: number } | null = null;
+  private sip: { t: number; obj: THREE.Object3D; how: "can" | "carton" | "bottle" | "cup" | "crunch" | "soft" | "peel"; name: string; own: boolean; beat: number; bites: number; peeled: boolean; bits: THREE.Mesh[] } | null = null;
   private sipM = new THREE.Matrix4(); private sipQ = new THREE.Quaternion(); private sipE = new THREE.Euler(); private sipP = new THREE.Vector3(); private sipS = new THREE.Vector3(1, 1, 1);
   /** R: the hand's item drunk or eaten (milk, cola, beer, fruit, cake…) */
   consumeHand(): boolean {
@@ -256,25 +256,46 @@ export class Interior {
   private startSip(obj: THREE.Object3D, how: NonNullable<Interior["sip"]>["how"], name: string, own: boolean) {
     this.o.sound.resume();
     if (own) { obj.matrixAutoUpdate = false; this.dynamic.add(obj); }
-    this.sip = { t: 0, obj, how, name, own, beat: 0 };
+    this.sip = { t: 0, obj, how, name, own, beat: 0, bites: 0, peeled: false, bits: [] };
     this.emitHud(true);
   }
   private sipBeats(dt: number) {
     const s = this.sip; if (!s) return;
     s.t += dt;
-    const food = s.how === "crunch" || s.how === "soft", snd = this.o.sound;
-    // (the beats: open at 0.15 s; three swallows from 0.9 s; the voice after; done at 3.6 s)
-    const beats = food ? [0.35, 1.5, 2.55] : [0.15, 0.95, 1.4, 1.85, 2.45];
+    const food = s.how === "crunch" || s.how === "soft" || s.how === "peel", snd = this.o.sound;
+    if (food) {
+      // (fruit with a skin peeled first — the peel coming away in bits, the fruit paler under it — then
+      // a bite a second, the food smaller each time until it is gone; then 음~)
+      const peelT = s.how === "peel" ? 1.6 : 0, BITES = 4, biteAt = (i: number) => peelT + 0.55 + i * 0.95;
+      if (s.how === "peel" && s.t < peelT) {
+        if (s.beat === 0) { s.beat = 1; snd.peel(); }
+        if (Math.floor(s.t * 6) > s.bits.length && s.bits.length < 8) this.dropPeel(s);
+      } else if (s.how === "peel" && !s.peeled) {
+        s.peeled = true;
+        s.obj.traverse(o => { if (o instanceof THREE.Mesh) { const m = (o.material as THREE.MeshStandardMaterial).clone(); m.vertexColors = false; m.map = null; m.color.set(s.name === "바나나" ? "#f4e9c3" : "#ffb860"); m.roughness = 0.55; m.needsUpdate = true; o.material = m; o.userData.dropMaterial = true; } });
+      }
+      while (s.bites < BITES && s.t >= biteAt(s.bites)) {
+        s.bites++; snd.chew(s.how === "crunch");
+        const left = 1 - s.bites / BITES;
+        s.obj.scale.setScalar(left > 0 ? Math.pow(left, 0.55) : 0.0001);
+      }
+      for (const b of s.bits) { b.position.y -= 0.9 * (1 / 60); b.rotation.x += 0.2; }
+      if (s.bites >= BITES && s.beat < 9) { s.beat = 9; snd.gulp(0.6); snd.ahh(true); }
+    } else {
+    // (the beats: open at 0.15 s; three swallows from 0.9 s; the voice after; done at 3.4 s)
+    const beats = [0.15, 0.95, 1.4, 1.85, 2.45];
     while (s.beat < beats.length && s.t >= beats[s.beat]) {
       const b = s.beat++;
-      if (food) { if (b < 2) snd.chew(s.how === "crunch"); else { snd.gulp(0.6); snd.ahh(true); } }
-      else if (b === 0) { if (s.how === "can") snd.canOpen(); else if (s.how === "cup") snd.play("click"); else snd.capOpen(); }
+      if (b === 0) { if (s.how === "can") snd.canOpen(); else if (s.how === "cup") snd.play("click"); else snd.capOpen(); }
       else if (b < 4) snd.gulp(1 - (b - 1) * 0.12);
       else snd.ahh(false);
     }
-    if (s.t >= (food ? 3.6 : 3.4)) {
+    }
+    if (s.t >= this.sipLength(s)) {
+      for (const b of s.bits) { b.removeFromParent(); b.geometry.dispose(); }
+      s.obj.scale.setScalar(1);
       if (s.own) { s.obj.removeFromParent(); s.obj.traverse(o => { if (!(o instanceof THREE.Mesh)) return; if (o.userData.dropMaterial) { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } }); (s.obj.children[0] as THREE.Mesh | undefined)?.geometry.dispose(); }
-      else this.furn.pantry.consume();
+      else { s.obj.traverse(o => { if (o instanceof THREE.Mesh && o.userData.dropMaterial) (o.material as THREE.Material).dispose(); }); this.furn.pantry.consume(); }
       missions.event(food ? "eat" : "drink");
       this.sip = null; this.emitHud(true);
     }
@@ -294,10 +315,21 @@ export class Interior {
     this.startSip(g, how, it.name, true);
     return true;
   }
+  /** how long having it lasts: a drink 3.4 s; food four bites (and a peeling first) */
+  private sipLength(s: NonNullable<Interior["sip"]>) { return s.how === "crunch" || s.how === "soft" || s.how === "peel" ? (s.how === "peel" ? 1.6 : 0) + 0.55 + 4 * 0.95 + 0.4 : 3.4; }
+  /** a bit of peel coming away from the fruit and falling */
+  private peelMat: THREE.MeshStandardMaterial | null = null;
+  private dropPeel(s: NonNullable<Interior["sip"]>) {
+    this.peelMat ??= new THREE.MeshStandardMaterial({ color: s.name === "바나나" ? "#e9c838" : "#f28c18", roughness: 0.7, side: THREE.DoubleSide });
+    this.peelMat.color.set(s.name === "바나나" ? "#e9c838" : "#f28c18");
+    const b = new THREE.Mesh(new THREE.PlaneGeometry(0.03 + Math.random() * 0.02, 0.02 + Math.random() * 0.015), this.peelMat);
+    const p = new THREE.Vector3().setFromMatrixPosition(s.obj.matrix); b.position.copy(p).add(new THREE.Vector3((Math.random() - 0.5) * 0.05, 0.02, (Math.random() - 0.5) * 0.05));
+    b.rotation.set(Math.random() * 3, Math.random() * 3, 0); this.dynamic.add(b); s.bits.push(b);
+  }
   /** where the item is while it is drunk: raised and tipped toward the mouth, then lowered */
   private sipPose(cam: THREE.Camera) {
     const s = this.sip; if (!s) return;
-    const food = s.how === "crunch" || s.how === "soft", T = food ? 3.6 : 3.4;
+    const food = s.how === "crunch" || s.how === "soft" || s.how === "peel", T = this.sipLength(s);
     const up = Math.min(1, s.t / 0.55), down = Math.max(0, (s.t - (T - 0.6)) / 0.6), lift = up * (1 - down);
     const ease = lift * lift * (3 - 2 * lift);
     // (tipped back while swallowing; a bite is brought to the mouth and moved a little)
@@ -314,7 +346,7 @@ export class Interior {
       const d = 0.34 - 0.18 * ease;
       this.holdM.makeRotationFromEuler(this.sipE.set(-tip, this.yaw, 0, "YXZ")).setPosition(this.pos.x - Math.sin(this.yaw) * d, y, this.pos.y - Math.cos(this.yaw) * d);
     }
-    s.obj.matrix.copy(this.holdM); s.obj.matrixWorldNeedsUpdate = true;
+    s.obj.matrix.copy(this.holdM).scale(s.obj.scale); s.obj.matrixWorldNeedsUpdate = true;
   }
   // ---------------------------------------------------------------- talk and the way shown
   private talking: PersonTalk | null = null;
@@ -1432,7 +1464,8 @@ export class Interior {
   private emitHud(force = false) {
     const room = this.shell.roomAt(this.pos.x, this.pos.y)?.label ?? "";
     const k = this.furn?.pantry.handKind() as ItemKind | null, how = k ? CONSUME[k] : undefined;
-    const use = this.sip ? `${this.sip.name} ${this.sip.how === "crunch" || this.sip.how === "soft" ? "먹는 중" : "마시는 중"}` : k && how ? `${ITEM_NAME[k]} ${how === "crunch" || how === "soft" ? "먹기" : "마시기"}` : null;
+    const eating = (h?: string) => h === "crunch" || h === "soft" || h === "peel";
+    const use = this.sip ? `${this.sip.name} ${this.sip.how === "peel" && !this.sip.peeled ? "껍질 벗기는 중" : eating(this.sip.how) ? "먹는 중" : "마시는 중"}` : k && how ? `${ITEM_NAME[k]} ${how === "peel" ? "껍질 벗겨 먹기" : eating(how) ? "먹기" : "마시기"}` : null;
     const guide = this.guide ? `${this.guide.label}까지 ${Math.max(1, Math.round(this.guideLeft()))}m · 바닥 화살표를 따라가세요` : null;
     const h: HudState = { target: this.target?.label() ?? null, room, seated: this.seated?.label ?? null, view: this.view, overhead: this.overhead, pet: this.target?.id === "cat", use, guide };
     if (force || h.target !== this.hud.target || h.room !== this.hud.room || h.seated !== this.hud.seated || h.view !== this.hud.view || h.overhead !== this.hud.overhead || h.pet !== this.hud.pet || h.use !== this.hud.use || h.guide !== this.hud.guide) { this.hud = h; this.o.onHud?.(h); }

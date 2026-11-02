@@ -168,6 +168,8 @@ export class Sound {
   }
   /** a bottle's or a carton's cap turned off (a few ratchet clicks) */
   capOpen() { for (let i = 0; i < 4; i++) setTimeout(() => this.burst(0.015, 2400 + i * 200, 5, 0.12), i * 45); }
+  /** a fruit's skin pulled off: soft tearing, a few times */
+  peel() { for (let i = 0; i < 5; i++) setTimeout(() => this.burst(0.16, 1800 + Math.random() * 900, 0.9, 0.1, "bandpass", 900, 0.03), i * 260 + Math.random() * 60); }
   /** a bite, chewed (crunch for fruit, soft for the rest) */
   chew(crunch: boolean) {
     for (let i = 0; i < 4; i++) setTimeout(() => crunch ? (this.burst(0.07, 2600, 1, 0.16, "bandpass", 1400), this.burst(0.05, 400, 1, 0.12, "lowpass")) : this.burst(0.12, 300, 0.9, 0.12, "lowpass"), i * 260 + Math.random() * 60);

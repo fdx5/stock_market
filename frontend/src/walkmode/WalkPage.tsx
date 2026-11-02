@@ -410,9 +410,14 @@ export default function WalkPage() {
 
   const goIn = () => {
     if (!selectionPlan) { setUnitsErr("확인된 전용면적을 선택해 주세요. 면적 자료가 없는 세대는 임의의 84㎡로 대체하지 않습니다."); return; }
+    // (the furniture and appliances combined afresh each time the flat is built — one of the 64
+    // furnishing cases at random — unless one was chosen with its button)
+    openPlan(furnishingPicked.current ? selectionPlan : { ...selectionPlan, furnishingCase: Math.floor(Math.random() * 64) });
+  };
+  const furnishingPicked = useRef(false);
+  const openPlan = (p: FloorPlan, fallback = false) => {
     if (!start || !entering || !renderer.current) return;
     sound.resume();
-    const p = selectionPlan;
     if(usesOriginal&&p.source!=="image_analysis"){setUnitsErr("검증된 원본 도면이 있어야 실내를 열 수 있습니다.");return;}
     setPlan(p);
     setFade(true);
@@ -441,6 +446,9 @@ export default function WalkPage() {
         if(debug)console.warn("[floorplan-validation]",err.message);
         void warm.current?.then(w=>w.release());warm.current=null;
         it.dispose();interior.current=null;setHud(null);setFade(false);
+        // (a random combination that blocks a way through: built again with the first case before
+        // the drawing itself is doubted)
+        if(!fallback&&p.furnishingCase){openPlan({...p,furnishingCase:0},true);return;}
         if(p.imageAnalysis)setRejectedDrawing(p.imageAnalysis.key);
         else setFurnishingCase(v=>v+1);
         setUnitsErr(p.imageAnalysis?`원본 도면의 배치 검증을 통과하지 못했습니다. ${err.message} 원본을 다시 확인하거나 가구 구성을 바꿔 주세요.`:"통행을 막는 가구 배치를 감지해 구성을 바꿨습니다. 미리보기를 확인하고 다시 입장해 주세요.");setPhase("choose");return;
@@ -854,7 +862,7 @@ export default function WalkPage() {
               <div className="wk-field"><label>층 <b>{pick.floor}층</b></label><input type="range" min={2} max={floors} value={pick.floor} onChange={e => setPick(p => ({ ...p, floor: +e.target.value }))} /></div>
               <div className="wk-field"><label>인테리어</label>
                 <div className="wk-chips">{(["auto", ...STYLE_NAMES] as const).map(s => <button key={s} className={pick.style === s ? "on" : ""} onClick={() => {setPick(p => ({ ...p, style: s }));setRejectedDrawing(null);}}>{s === "auto" ? "자동" : STYLE_LABEL[s]}</button>)}</div>
-                <button className="wk-btn" onClick={()=>{setFurnishingCase(n=>(n+1)%64);setRejectedDrawing(null);}}>가구·가전 구성 바꾸기 · {furnishingCase+1} / 64</button>
+                <button className="wk-btn" onClick={()=>{setFurnishingCase(n=>(n+1)%64);furnishingPicked.current=true;setRejectedDrawing(null);}}>가구·가전 구성 바꾸기 · {furnishingCase+1} / 64</button>
                 <button className="wk-btn" onClick={()=>{const random=crypto.getRandomValues(new Uint32Array(1))[0];setFurnishingCase(n=>(n+1+random%63)%64);setRejectedDrawing(null);}}>가구·가전 랜덤 변경</button>
               </div>
               <div className="wk-field"><label>반려동물</label>

@@ -8,22 +8,27 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
  * table — and are taken out to the hand and put back where the walker chooses. Where everything is
  * is kept in this browser (localStorage) and is the same in every flat's fridge. */
 
-export type ItemKind = "milk" | "cola" | "cider" | "beer" | "ketchup" | "apple" | "orange" | "banana" | "sausage" | "cake" | "eggs";
+export type ItemKind = "milk" | "cola" | "cider" | "beer" | "ketchup" | "apple" | "orange" | "banana" | "sausage" | "cake" | "eggs"
+  | "juice" | "water" | "sikhye" | "yakult" | "pudding" | "cheese" | "tangerine" | "grapes" | "strawberry" | "peach";
 export const ITEM_NAME: Record<ItemKind, string> = {
   milk: "우유", cola: "콜라", cider: "사이다", beer: "맥주", ketchup: "케첩", apple: "사과", orange: "오렌지",
   banana: "바나나", sausage: "후랑크소시지", cake: "케이크", eggs: "계란",
+  juice: "오렌지 주스", water: "생수", sikhye: "식혜", yakult: "요구르트", pudding: "푸딩", cheese: "치즈", tangerine: "귤", grapes: "포도", strawberry: "딸기", peach: "복숭아",
 };
 /** what can be drunk or eaten from the hand (R), and how it opens */
-export const CONSUME: Partial<Record<ItemKind, "can" | "carton" | "bottle" | "crunch" | "soft">> = {
-  cola: "can", cider: "can", beer: "bottle", milk: "carton", apple: "crunch", orange: "soft", banana: "soft", sausage: "soft", cake: "soft",
+export const CONSUME: Partial<Record<ItemKind, "can" | "carton" | "bottle" | "crunch" | "soft" | "peel">> = {
+  cola: "can", cider: "can", beer: "bottle", milk: "carton", apple: "crunch", orange: "peel", banana: "peel", sausage: "soft", cake: "soft",
+  juice: "bottle", water: "bottle", sikhye: "can", yakult: "bottle", pudding: "soft", cheese: "soft", tangerine: "peel", grapes: "soft", strawberry: "soft", peach: "soft",
 };
 /** what fits a door pocket (upright and narrow) */
-const SLIM = new Set<ItemKind>(["milk", "cola", "cider", "beer", "ketchup"]);
+const SLIM = new Set<ItemKind>(["milk", "cola", "cider", "beer", "ketchup", "juice", "water", "sikhye", "yakult"]);
 /** everything there is, and where it starts (slot ids: f:<level>:<i> shelves, d:<door>:<bin>:<i> door pockets, b:<i> the basket) */
 const START: [string, ItemKind][] = [
   ["f:0:0", "apple"], ["f:0:1", "orange"], ["f:0:2", "eggs"], ["f:1:0", "sausage"], ["f:1:2", "cake"], ["f:2:1", "banana"],
   ["d:0:0:0", "milk"], ["d:0:1:0", "beer"], ["d:1:0:1", "ketchup"], ["d:1:1:0", "cola"],
   ["b:0", "milk"], ["b:1", "apple"], ["b:2", "orange"], ["b:3", "beer"], ["b:4", "cider"], ["b:5", "cola"],
+  ["d:0:0:1", "juice"], ["d:0:1:1", "water"], ["d:1:0:0", "sikhye"], ["d:1:1:1", "yakult"],
+  ["f:0:3", "pudding"], ["f:1:1", "cheese"], ["f:1:3", "tangerine"], ["f:2:0", "grapes"], ["f:2:2", "strawberry"], ["f:2:3", "peach"],
 ];
 const STORE = "walk.fridge.v1";
 
@@ -137,7 +142,26 @@ function can(label: number): Piece[] {
     { g: band(0.0333, 0.092, 0.0135), paint: "#fff", label },
   ];
 }
+/** a clear plastic bottle with its liquid, a cap and a band label colour */
+function bottle(h: number, r: number, liquid: string, cap: string, band: string): Piece[] {
+  return [
+    { g: lathe([[0, 0], [r, 0], [r, h * 0.72], [r * 0.55, h * 0.86], [r * 0.38, h * 0.92], [0, h * 0.92]], 24), paint: liquid },
+    { g: band_(r + 0.0006, h * 0.32, h * 0.25), paint: band },
+    { g: new THREE.CylinderGeometry(r * 0.42, r * 0.42, h * 0.08, 16).translate(0, h * 0.96, 0), paint: cap },
+  ];
+}
+const band_ = (r: number, y: number, h: number) => new THREE.CylinderGeometry(r, r, h, 24, 1, true).translate(0, y + h / 2, 0);
 const BUILD: Record<ItemKind, () => Piece[]> = {
+  juice: () => bottle(0.22, 0.034, "#f6a623", "#f07a12", "#ffd166"),
+  water: () => bottle(0.21, 0.032, "#cfe8ff", "#1e88e5", "#64b5f6"),
+  sikhye: () => [{ g: lathe([[0, 0], [0.026, 0], [0.031, 0.005], [0.033, 0.013], [0.033, 0.106], [0.029, 0.117], [0.027, 0.122], [0, 0.119]], 28), paint: "#f0e2b6" }, { g: band_(0.0334, 0.03, 0.06), paint: "#a0522d" }],
+  yakult: () => [{ g: lathe([[0, 0], [0.018, 0], [0.02, 0.02], [0.015, 0.045], [0.019, 0.07], [0.017, 0.085], [0, 0.085]], 20), paint: "#fff5e6" }, { g: new THREE.CylinderGeometry(0.0172, 0.0172, 0.004, 16).translate(0, 0.087, 0), paint: "#d62828" }],
+  pudding: () => [{ g: lathe([[0, 0], [0.03, 0], [0.034, 0.05], [0, 0.05]], 24), paint: "#f3c66b" }, { g: new THREE.CylinderGeometry(0.034, 0.034, 0.004, 24).translate(0, 0.051, 0), paint: "#6b3f1d" }],
+  cheese: () => { const sh = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(0.09, 0.025), new THREE.Vector2(0.09, -0.025)]); const g = new THREE.ExtrudeGeometry(sh, { depth: 0.035, bevelEnabled: false }).rotateX(-Math.PI / 2).translate(-0.045, 0, 0); return [{ g, paint: p => C("#f7d14a").lerp(C("#e8b923"), Math.max(0, noise(p, 200)) * 0.4) }]; },
+  tangerine: () => { const g = new THREE.SphereGeometry(0.03, 22, 16); g.scale(1, 0.82, 1); g.translate(0, 0.026, 0); const a = C("#f28c18"), b = C("#f7a733"); return [{ g, paint: p => a.clone().lerp(b, 0.5 + 0.5 * noise(p, 180)) }, { g: new THREE.ConeGeometry(0.006, 0.006, 5).translate(0, 0.052, 0), paint: "#3f7a2a" }]; },
+  grapes: () => { const out: Piece[] = []; const pur = C("#4b1d5c"), hi = C("#7b3f8c"); for (let i = 0; i < 18; i++) { const row = Math.floor(i / 5), a = i * 2.4; out.push({ g: new THREE.SphereGeometry(0.013, 10, 8).translate(Math.cos(a) * (0.025 - row * 0.005), 0.085 - row * 0.016, Math.sin(a) * (0.025 - row * 0.005)), paint: p => pur.clone().lerp(hi, Math.max(0, noise(p, 300)) * 0.5) }); } out.push({ g: new THREE.CylinderGeometry(0.002, 0.003, 0.03, 5).translate(0, 0.1, 0), paint: "#5a3a1a" }); return out; },
+  strawberry: () => { const out: Piece[] = [{ g: new THREE.BoxGeometry(0.12, 0.035, 0.09).translate(0, 0.0175, 0), paint: "#e8f3ff" }]; for (let i = 0; i < 8; i++) { out.push({ g: new THREE.ConeGeometry(0.014, 0.03, 10).rotateX(Math.PI).translate(-0.045 + (i % 4) * 0.03, 0.05, i < 4 ? -0.02 : 0.02), paint: "#d62839" }, { g: new THREE.ConeGeometry(0.009, 0.006, 6).translate(-0.045 + (i % 4) * 0.03, 0.068, i < 4 ? -0.02 : 0.02), paint: "#3f7a2a" }); } return out; },
+  peach: () => { const g = new THREE.SphereGeometry(0.036, 24, 18); g.translate(0, 0.034, 0); const a = C("#f7b29a"), b = C("#e8645a"); return [{ g, paint: p => a.clone().lerp(b, Math.max(0, p.x * 20 + noise(p, 60) * 0.4)) }]; },
   milk: () => {
     const roof = new THREE.Shape([new THREE.Vector2(-0.035, 0), new THREE.Vector2(0.035, 0), new THREE.Vector2(0, 0.028)]);
     return [
@@ -226,7 +250,8 @@ const BUILD: Record<ItemKind, () => Piece[]> = {
   },
 };
 /** each item's height (for its slot's look box) */
-const HEIGHT: Record<ItemKind, number> = { milk: 0.2, cola: 0.122, cider: 0.122, beer: 0.25, ketchup: 0.2, apple: 0.08, orange: 0.075, banana: 0.08, sausage: 0.05, cake: 0.1, eggs: 0.07 };
+const HEIGHT: Record<ItemKind, number> = { milk: 0.2, cola: 0.122, cider: 0.122, beer: 0.25, ketchup: 0.2, apple: 0.08, orange: 0.075, banana: 0.08, sausage: 0.05, cake: 0.1, eggs: 0.07,
+  juice: 0.22, water: 0.21, sikhye: 0.122, yakult: 0.09, pudding: 0.06, cheese: 0.035, tangerine: 0.055, grapes: 0.1, strawberry: 0.07, peach: 0.075 };
 
 // ------------------------------------------------------------------ slots, the hand, the store
 export interface Slot {
