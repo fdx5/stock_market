@@ -7,7 +7,7 @@ import { bedsText, FACILITY, placeTrain, type Facility, type BikeDock, type Emer
 /** The drone's live public layers on its signs (droneSigns: one canvas, no new 3D materials) and
  * on its roads (the traffic bands droneWorld colours): what LiveLayerControls fetches is put here. */
 export class DroneLive {
-  readonly on: Record<LiveKind, boolean> = { subway: false, er: false, traffic: false, bike: false, parking: false, facility: true };
+  readonly on: Record<LiveKind, boolean> = { subway: false, er: false, traffic: false, bike: false, parking: false, facility: false };
   /** the subway entrances: one instanced canopy each (a roof on posts, glass sides and back,
    * the yellow number board over the open end), the open end away from its station */
   private exitRoot = new THREE.Group();
