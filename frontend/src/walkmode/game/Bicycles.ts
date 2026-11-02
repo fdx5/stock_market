@@ -16,6 +16,8 @@ export class Bicycles {
   private assets: THREE.BufferGeometry[] = [];
   private parked: THREE.InstancedMesh;
   private ridden = new THREE.Group();
+  /** the ridden one's frame: its own material, tinted to the garage's paint */
+  private frameMaterial = this.material.clone();
   private rear: THREE.Mesh;
   private front: THREE.Mesh;
   private steering = new THREE.Group();
@@ -84,7 +86,7 @@ export class Bicycles {
     this.parked.count = 0; this.parked.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.parked.castShadow = this.parked.receiveShadow = true;
     this.parked.frustumCulled = false;
-    const frameMesh = new THREE.Mesh(frame, this.material);
+    const frameMesh = new THREE.Mesh(frame, this.frameMaterial);
     this.rear = new THREE.Mesh(wheel, this.material); this.rear.position.set(0, 0.34, -0.56);
     this.front = new THREE.Mesh(wheel, this.material); this.front.position.set(0, 0.34 - 0.88, 0.57 - 0.4);
     const steerFork = fork.clone().translate(0, -0.88, -0.4); this.assets.push(steerFork);
@@ -123,6 +125,8 @@ export class Bicycles {
     });
     this.parked.instanceMatrix.needsUpdate = true;
   }
+  /** the ridden bicycle's paint (the frame's colours multiplied by it; white for its own) */
+  paint(hex: string) { this.frameMaterial.color.set(hex).lerp(new THREE.Color("#ffffff"), 0.35); }
   ride(bike: ParkedBicycle | null) { this.active = bike; this.ridden.visible = !!bike; }
   update(distance: number, steer: number, speed: number) {
     const b = this.active; if (!b) return;
@@ -133,5 +137,5 @@ export class Bicycles {
     this.steering.rotation.y = -steer;
     this.crank.rotation.x = this.wheelTurn / 2.8;
   }
-  dispose() { this.group.removeFromParent(); this.records.clear(); this.active = null; this.parked.dispose(); this.assets.forEach(g => g.dispose()); this.material.dispose(); }
+  dispose() { this.group.removeFromParent(); this.records.clear(); this.active = null; this.parked.dispose(); this.assets.forEach(g => g.dispose()); this.material.dispose(); this.frameMaterial.dispose(); }
 }

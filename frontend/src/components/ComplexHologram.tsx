@@ -4320,6 +4320,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (e.key === "Escape") {
         e.preventDefault(); e.stopImmediatePropagation();
         if(document.querySelector('.re-drone-auto-settings')) { window.dispatchEvent(new Event('drone-auto-settings-close'));return; }
+        if(document.querySelector('.re-game-garage')) { window.dispatchEvent(new Event('drone-garage-close'));return; }
         // (a building's card open: Esc closes it, not the flight)
         if (stageRef.current?.drone?.signs.selected) window.dispatchEvent(new Event("drone-card-close"));
         // (on foot: up into the air here, not out of the flight back to where it began)
@@ -4327,13 +4328,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         else leaveDroneRef.current();
         return;
       }
-      if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (typing(e) || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('.re-game-garage')) return;
       if (e.code === "KeyC" && !e.repeat) { const f = flight(); if (f) f.tilt = -.04; e.preventDefault(); e.stopImmediatePropagation(); return; }
       if (e.code === "KeyV" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); const v = stageRef.current?.drone?.toggleView(); if (v) setDroneView(v); return; }
       // (G: down to the street on foot, or back into the air — the same world either way)
       if (e.code === "KeyG" && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); window.dispatchEvent(new Event("drone-walk-toggle")); return; }
       // (E on foot at a building: in through its door; elsewhere E still turns)
       if (e.code === "KeyE" && !e.repeat && stageRef.current?.drone?.flight.walking && stageRef.current.drone.flight.door) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current.drone.enterDoor(); return; }
+      // (X on foot: the way to the nearest entrance shown on the ground, or hidden again)
+      if (e.code === "KeyX" && !e.repeat && stageRef.current?.drone?.flight.walking) { e.preventDefault(); e.stopImmediatePropagation(); const d = stageRef.current.drone; if (d.flight.nav && d.flight.nav.left >= 0) d.clearNav(); else d.navTo(); return; }
       // (B: onto a bicycle or off it, on foot only)
       if (e.code === "KeyB" && !e.repeat && stageRef.current?.drone?.flight.walking) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current?.drone?.rideNearest(); return; }
       // (F on foot: into the nearest car of the traffic, or out of the one driven)
@@ -4358,13 +4361,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const carToggle = () => stageRef.current?.drone?.toggleCar();
     const inside = (e: Event) => { const d = (e as CustomEvent<{ x: number; y: number }&Partial<import('../walkmode/walkLink').WalkEntry>>).detail; if (d) stageRef.current?.drone?.enterBuildingAt(d.x, d.y,d); };
     window.addEventListener("drone-explore-inside", inside);
+    const garageCar = (e: Event) => { const m = (e as CustomEvent<import('../walkmode/game/garage').GarageCar>).detail; if (m) stageRef.current?.drone?.spawnCar(m); };
+    const garageBike = (e: Event) => { const m = (e as CustomEvent<import('../walkmode/game/garage').GarageBike>).detail; if (m) stageRef.current?.drone?.spawnBike(m); };
+    window.addEventListener("drone-garage-car", garageCar); window.addEventListener("drone-garage-bike", garageBike);
+    const navOn = () => { const d = stageRef.current?.drone; if (!d) return; if (d.flight.nav && d.flight.nav.left >= 0) d.clearNav(); else d.navTo(); };
+    window.addEventListener("drone-nav", navOn);
     window.addEventListener("drone-car-toggle", carToggle);
     const enterDoor = () => stageRef.current?.drone?.enterDoor();
     window.addEventListener("drone-walk-toggle", walkToggle); window.addEventListener("drone-bike-toggle", bikeToggle); window.addEventListener("drone-enter-door", enterDoor);
     document.addEventListener("visibilitychange", vis);
     host?.addEventListener("wheel", wheel, { passive: false });
     return () => {
-      window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); window.removeEventListener("drone-walk-toggle", walkToggle); window.removeEventListener("drone-take-off", takeOff); window.removeEventListener("drone-car-toggle", carToggle); window.removeEventListener("drone-explore-inside", inside); window.removeEventListener("drone-bike-toggle", bikeToggle); window.removeEventListener("drone-enter-door", enterDoor);
+      window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); window.removeEventListener("drone-walk-toggle", walkToggle); window.removeEventListener("drone-take-off", takeOff); window.removeEventListener("drone-car-toggle", carToggle); window.removeEventListener("drone-explore-inside", inside); window.removeEventListener("drone-garage-car", garageCar); window.removeEventListener("drone-garage-bike", garageBike); window.removeEventListener("drone-nav", navOn); window.removeEventListener("drone-bike-toggle", bikeToggle); window.removeEventListener("drone-enter-door", enterDoor);
       window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", vis);
       host?.removeEventListener("wheel", wheel);
     };

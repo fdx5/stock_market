@@ -13,6 +13,10 @@ export const ITEM_NAME: Record<ItemKind, string> = {
   milk: "우유", cola: "콜라", cider: "사이다", beer: "맥주", ketchup: "케첩", apple: "사과", orange: "오렌지",
   banana: "바나나", sausage: "후랑크소시지", cake: "케이크", eggs: "계란",
 };
+/** what can be drunk or eaten from the hand (R), and how it opens */
+export const CONSUME: Partial<Record<ItemKind, "can" | "carton" | "bottle" | "crunch" | "soft">> = {
+  cola: "can", cider: "can", beer: "bottle", milk: "carton", apple: "crunch", orange: "soft", banana: "soft", sausage: "soft", cake: "soft",
+};
 /** what fits a door pocket (upright and narrow) */
 const SLIM = new Set<ItemKind>(["milk", "cola", "cider", "beer", "ketchup"]);
 /** everything there is, and where it starts (slot ids: f:<level>:<i> shelves, d:<door>:<bin>:<i> door pockets, b:<i> the basket) */
@@ -274,6 +278,12 @@ export class Pantry {
       const free = [...this.slots.values()].find(s => !where[s.id] && (!s.slim || SLIM.has(saved.hand!)));
       if (free) where[free.id] = saved.hand;
     }
+    // (what was drunk or eaten is back in its starting place the next time: the fridge restocked)
+    if (saved) {
+      const count = (list: ItemKind[]) => list.reduce((m, k) => m.set(k, (m.get(k) ?? 0) + 1), new Map<ItemKind, number>());
+      const have = count(Object.values(where)), want = count(START.map(e => e[1]));
+      for (const [id, kind] of START) if (!where[id] && (have.get(kind) ?? 0) < (want.get(kind) ?? 0)) { where[id] = kind; have.set(kind, (have.get(kind) ?? 0) + 1); }
+    }
     for (const [id, kind] of Object.entries(where)) {
       if (!(kind in BUILD)) continue;
       const s = this.slots.get(id);
@@ -301,6 +311,12 @@ export class Pantry {
     m.removeFromParent(); m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.rotation.set(0, (Math.random() - 0.5) * 0.4, 0); m.updateMatrix();
     s.anchor.add(m); this.at.set(id, m); this.hand = null;
     this.save(); return true;
+  }
+  /** the hand's item drunk or eaten: gone (the fridge has it again next visit) */
+  consume(): ItemKind | null {
+    const m = this.hand; if (!m) return null;
+    m.removeFromParent(); this.hand = null; this.save();
+    return m.userData.kind as ItemKind;
   }
   /** the hand's item, held in front of the eye (first person) or of the body */
   holdAt(world: THREE.Matrix4) { if (this.hand) { this.hand.matrix.copy(world); this.hand.matrixWorldNeedsUpdate = true; } }

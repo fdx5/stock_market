@@ -17,10 +17,12 @@ import { paintedView, sunAt } from "./view";
 import { waterTime } from "./water";
 import { Avatar } from "../player/avatar";
 import { Cat, Robot, type PetKind } from "./life";
+import { CONSUME, ITEM_NAME, type ItemKind } from "./pantry";
+import { SHOP_LABEL, shopOf, type ShopItem, type ShopKind } from "./shop";
 import type { Sound, WaterKind } from "../game/sound";
 import type { FloorPlan } from "./plan/types";
 import { facilityLook } from "./facilityMaterials";
-import { People } from "./facilityPeople";
+import { People, type PersonTalk } from "./facilityPeople";
 import type { Spot } from "./facilityFurnish";
 import { withKitGeometryCache } from "./models";
 import { applyViewFov, viewPreferences } from "../viewPreferences";
@@ -32,7 +34,9 @@ import {moveThroughGaps,passageNear} from './movement';
  * page's); its output resolution is set once on entry and kept. Everything that could cost a frame
  * later — textures, programs, the reflection probes — is done behind the loading bar. */
 
-export interface HudState { target: string | null; room: string; seated: string | null; view: "first" | "third"; /** the whole flat seen from above, cut below the ceiling */ overhead?: boolean; /** the target is the pet (it can be looked at up close) */ pet?: boolean }
+export interface HudState { target: string | null; room: string; seated: string | null; view: "first" | "third"; /** the whole flat seen from above, cut below the ceiling */ overhead?: boolean; /** the target is the pet (it can be looked at up close) */ pet?: boolean; /** what R does with the hand's item now ("콜라 마시기"), or that it is being drunk */ use?: string | null; /** the way being shown on the floor: where to, how far */ guide?: string | null }
+/** a building's person spoken to: their words, where they can show the way to, what to ask next */
+export interface InteriorTalk { name: string; text: string; destinations: { label: string; x: number; z: number }[]; directory: { label: string; uses: string }[]; questions: string[]; /** what they sell here, if anything */ shop?: { kind: ShopKind; label: string } | null }
 export interface InteriorOptions {
   plan: FloorPlan; hour: number;
   /** the flat's pet: a Shiba Inu (default) or a cat */
@@ -54,6 +58,8 @@ export interface InteriorOptions {
   onLift?(): void;
   onMonitor?(): void;
   onVending?(session: VendingSession): void;
+  /** a building's person talked to (the page shows the dialogue), or the talk over (null) */
+  onTalk?(t: InteriorTalk | null): void;
   levels?: { level: number; label: string; uses: string }[];
 }
 
@@ -230,6 +236,251 @@ export class Interior {
   private tmpV = new THREE.Vector3();
   private holdM = new THREE.Matrix4();
   private holdEye = new THREE.Matrix4().compose(new THREE.Vector3(0.15, -0.2, -0.4), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.25, -0.35, 0)), new THREE.Vector3(1, 1, 1));
+  /** Drinking or eating what is in the hand: raised to the mouth and tipped (first person), or held
+   * at the face (third); its sounds on their beats — opened, swallowed three times, then 캬~. */
+  private sip: { t: number; obj: THREE.Object3D; how: "can" | "carton" | "bottle" | "cup" | "crunch" | "soft"; name: string; own: boolean; beat: number } | null = null;
+  private sipM = new THREE.Matrix4(); private sipQ = new THREE.Quaternion(); private sipE = new THREE.Euler(); private sipP = new THREE.Vector3(); private sipS = new THREE.Vector3(1, 1, 1);
+  /** R: the hand's item drunk or eaten (milk, cola, beer, fruit, cake…) */
+  consumeHand(): boolean {
+    const k = this.furn.pantry.handKind() as ItemKind | null, how = k ? CONSUME[k] : undefined;
+    if (this.sip || !k || !how || !this.furn.pantry.hand) return false;
+    this.startSip(this.furn.pantry.hand, how, ITEM_NAME[k], false);
+    return true;
+  }
+  private startSip(obj: THREE.Object3D, how: NonNullable<Interior["sip"]>["how"], name: string, own: boolean) {
+    this.o.sound.resume();
+    if (own) { obj.matrixAutoUpdate = false; this.dynamic.add(obj); }
+    this.sip = { t: 0, obj, how, name, own, beat: 0 };
+    this.emitHud(true);
+  }
+  private sipBeats(dt: number) {
+    const s = this.sip; if (!s) return;
+    s.t += dt;
+    const food = s.how === "crunch" || s.how === "soft", snd = this.o.sound;
+    // (the beats: open at 0.15 s; three swallows from 0.9 s; the voice after; done at 3.6 s)
+    const beats = food ? [0.35, 1.5, 2.55] : [0.15, 0.95, 1.4, 1.85, 2.45];
+    while (s.beat < beats.length && s.t >= beats[s.beat]) {
+      const b = s.beat++;
+      if (food) { if (b < 2) snd.chew(s.how === "crunch"); else { snd.gulp(0.6); snd.ahh(true); } }
+      else if (b === 0) { if (s.how === "can") snd.canOpen(); else if (s.how === "cup") snd.play("click"); else snd.capOpen(); }
+      else if (b < 4) snd.gulp(1 - (b - 1) * 0.12);
+      else snd.ahh(false);
+    }
+    if (s.t >= (food ? 3.6 : 3.4)) {
+      if (s.own) { s.obj.removeFromParent(); s.obj.traverse(o => { if (!(o instanceof THREE.Mesh)) return; if (o.userData.dropMaterial) { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } }); (s.obj.children[0] as THREE.Mesh | undefined)?.geometry.dispose(); }
+      else this.furn.pantry.consume();
+      this.sip = null; this.emitHud(true);
+    }
+  }
+  /** Something bought at a counter, had there and then: a can, a bottle, a cup (with its lid), a
+   * carton or a bite of food, made in its colour and brought to the mouth with its sounds. */
+  consumeBought(it: ShopItem): boolean {
+    if (this.sip || this.furn.pantry.hand || !it.how) return false;
+    const how = it.how, g = new THREE.Group(), col = new THREE.Color(it.color);
+    const mat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.4, metalness: how === "can" ? 0.6 : 0 });
+    const geo = how === "can" ? new THREE.CylinderGeometry(0.033, 0.033, 0.122, 18) : how === "bottle" ? new THREE.CylinderGeometry(0.03, 0.034, 0.2, 14) : how === "cup" ? new THREE.CylinderGeometry(0.045, 0.034, 0.14, 18)
+      : how === "carton" ? new THREE.BoxGeometry(0.055, 0.1, 0.04) : new THREE.BoxGeometry(0.1, 0.05, 0.08);
+    const body = new THREE.Mesh(geo, mat); g.add(body);
+    // (a cup's white lid, a bottle's cap)
+    if (how === "cup" || how === "bottle") { const lid = new THREE.Mesh(new THREE.CylinderGeometry(how === "cup" ? 0.047 : 0.016, how === "cup" ? 0.047 : 0.016, 0.014, 14), new THREE.MeshStandardMaterial({ color: "#f4f4f1", roughness: 0.6 })); lid.position.y = how === "cup" ? 0.077 : 0.107; g.add(lid); }
+    g.traverse(o => { if (o instanceof THREE.Mesh) o.userData.dropMaterial = true; });
+    this.startSip(g, how, it.name, true);
+    return true;
+  }
+  /** where the item is while it is drunk: raised and tipped toward the mouth, then lowered */
+  private sipPose(cam: THREE.Camera) {
+    const s = this.sip; if (!s) return;
+    const food = s.how === "crunch" || s.how === "soft", T = food ? 3.6 : 3.4;
+    const up = Math.min(1, s.t / 0.55), down = Math.max(0, (s.t - (T - 0.6)) / 0.6), lift = up * (1 - down);
+    const ease = lift * lift * (3 - 2 * lift);
+    // (tipped back while swallowing; a bite is brought to the mouth and moved a little)
+    const tip = food ? 0.45 * ease : ease * (0.8 + 0.3 * Math.max(0, Math.min(1, (s.t - 0.9) / 1.3)));
+    const chew = food ? Math.sin(s.t * 9) * 0.01 * ease : 0;
+    if (this.view === "first" && !this.seated) {
+      // (brought up toward the mouth, below the eye and a hand's length off — not into the lens)
+      this.sipP.set(0.15 - 0.1 * ease, -0.2 + 0.08 * ease + chew, -0.4 + 0.08 * ease);
+      this.sipQ.setFromEuler(this.sipE.set(0.25 + tip, -0.35 * (1 - ease), 0));
+      this.sipM.compose(this.sipP, this.sipQ, this.sipS);
+      cam.updateMatrixWorld(); this.holdM.multiplyMatrices(cam.matrixWorld, this.sipM);
+    } else {
+      const fy = this.shell.floorAt(this.pos.x, this.pos.y), y = fy + 0.98 + 0.58 * ease;
+      const d = 0.34 - 0.18 * ease;
+      this.holdM.makeRotationFromEuler(this.sipE.set(-tip, this.yaw, 0, "YXZ")).setPosition(this.pos.x - Math.sin(this.yaw) * d, y, this.pos.y - Math.cos(this.yaw) * d);
+    }
+    s.obj.matrix.copy(this.holdM); s.obj.matrixWorldNeedsUpdate = true;
+  }
+  // ---------------------------------------------------------------- talk and the way shown
+  private talking: PersonTalk | null = null;
+  private static peer(role: PersonTalk["role"]) { return role === "patient" || role === "visitor" || role === "shopper" || role === "student" || role === "guest"; }
+  private openTalk(t: PersonTalk) {
+    this.talking = t;
+    if (!this.o.onTalk) return;
+    document.exitPointerLock?.();
+    this.keys.clear();
+    const shop = shopOf(t.room, this.o.plan.facility?.kind ?? "", t.role);
+    this.o.onTalk({ name: t.name, text: t.text, destinations: this.destinations(), directory: this.o.levels ?? [], shop: shop ? { kind: shop, label: t.room && !/복도|로비/.test(t.room) ? t.room : SHOP_LABEL[shop] } : null,
+      questions: ["다른 얘기도 들려주세요", Interior.peer(t.role) ? "좋은 하루 되세요" : "고맙습니다"] });
+  }
+  /** the dialogue's questions: 0 goes on talking, 1 thanks them and ends it */
+  ask(i: number) {
+    const t = this.talking; if (!t || !this.people) return;
+    if (i === 0) { this.people.talkAgain(t.id); return; }
+    this.people.reply(t.id, Interior.peer(t.role) ? ["네, 그쪽도요!", "감사합니다, 안녕히 가세요.", "네~ 다음에 또 봬요."][t.id % 3] : ["천만에요, 좋은 하루 되세요!", "네, 조심히 다니세요.", "별말씀을요. 또 필요하면 불러 주세요."][t.id % 3]);
+    this.closeTalk();
+  }
+  closeTalk() { this.talking = null; this.o.onTalk?.(null); }
+  /** where on this floor the way can be shown: lifts, toilets, the counters, shops, departments, the
+   * vending machines and the way out — the nearest of each, by name, nearest first */
+  private destinations(): { label: string; x: number; z: number }[] {
+    const plan = this.o.plan, out: { label: string; x: number; z: number; d: number }[] = [];
+    const add = (label: string, x: number, z: number) => {
+      const d = Math.hypot(x - this.pos.x, z - this.pos.y), old = out.find(o => o.label === label);
+      if (old) { if (d < old.d) Object.assign(old, { x, z, d }); return; }
+      out.push({ label, x, z, d });
+    };
+    const name = (l: string) => l.replace(/\s*\d+$/, "");
+    for (const r of plan.rooms) {
+      const x = (r.rect[0] + r.rect[2]) / 2, z = (r.rect[1] + r.rect[3]) / 2, l = r.label;
+      if (r.type === "liftHall" || /엘리베이터/.test(l)) add("엘리베이터", x, z);
+      else if (r.type === "restroom" || /화장실/.test(l)) add("화장실", x, z);
+      // (the staff's own rooms — 준비실, 의국, 창고, 직원실, single consulting rooms — are not destinations)
+      else if (/준비실|의국|창고|직원|처치|상담실|진료실|검사실|기계|전기|설비|재구성/.test(l)) continue;
+      else if (/원무|접수|수납|안내|약국|편의점|카페|커피|식당|푸드|매점|은행|ATM/.test(l)) add(name(l), x, z);
+      else if (/센터|채혈|영상|응급|대기/.test(l) && !/복도/.test(l)) add(name(l), x, z);
+    }
+    for (const it of this.interactables) if (it.id.startsWith("vending-")) { it.hit.getWorldPosition(this.tmpV); add("음료 자판기", this.tmpV.x, this.tmpV.z); }
+    const door = plan.openings.find(o => o.type === "front_door");
+    if (door) add("출입구", door.axis === "x" ? door.at : door.center, door.axis === "x" ? door.center : door.at);
+    return out.sort((a, b) => a.d - b.d).slice(0, 12).map(({ label, x, z }) => ({ label, x, z }));
+  }
+  private guide: { mesh: THREE.InstancedMesh; to: THREE.Vector2; label: string; path: THREE.Vector2[]; t: number } | null = null;
+  /** Show the way to (x, z) on the floor: a line of glowing chevrons along the shortest walkable
+   * route (a body-sized search round the walls and furniture), gone on arrival. */
+  guideTo(x: number, z: number, label = "목적지") {
+    this.clearGuide();
+    const path = this.route([this.pos.x, this.pos.y], [x, z]);
+    this.closeTalk();
+    if (!path) { this.o.onHud?.({ ...this.hud, guide: `${label}: 이 층에서 가는 길을 찾지 못했어요` }); return false; }
+    const pts: THREE.Vector2[] = [];
+    for (let i = 0; i + 1 < path.length; i++) {
+      const a = path[i], b = path[i + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      for (let t = i === 0 ? 0.9 : 0; t < l; t += 0.9) pts.push(new THREE.Vector2(a[0] + (b[0] - a[0]) * t / l, a[1] + (b[1] - a[1]) * t / l));
+    }
+    const shape = new THREE.Shape([new THREE.Vector2(-0.16, -0.1), new THREE.Vector2(0, 0.08), new THREE.Vector2(0.16, -0.1), new THREE.Vector2(0.16, 0.02), new THREE.Vector2(0, 0.2), new THREE.Vector2(-0.16, 0.02)]);
+    const geo = new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ color: "#5ef0ff", transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+    const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, pts.length)); mesh.frustumCulled = false; mesh.renderOrder = 5;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(1, 1, 1), at = new THREE.Vector3();
+    pts.forEach((p, i) => {
+      const n = pts[Math.min(pts.length - 1, i + 1)], prev = pts[Math.max(0, i - 1)], dx = n.x - prev.x, dz = n.y - prev.y;
+      // (the chevron's tip, +y in its shape, rotated onto −z, turned to the way ahead)
+      q.setFromAxisAngle(up, Math.atan2(-dx, -dz));
+      mesh.setMatrixAt(i, m.compose(at.set(p.x, this.shell.floorAt(p.x, p.y) + 0.02, p.y), q, sc));
+    });
+    mesh.count = pts.length; mesh.instanceMatrix.needsUpdate = true;
+    this.dynamic.add(mesh);
+    this.guide = { mesh, to: new THREE.Vector2(x, z), label, path: path.map(p => new THREE.Vector2(p[0], p[1])), t: 0 };
+    this.emitHud(true);
+    return true;
+  }
+  clearGuide() {
+    const g = this.guide; if (!g) return;
+    g.mesh.removeFromParent(); g.mesh.geometry.dispose(); (g.mesh.material as THREE.Material).dispose(); g.mesh.dispose();
+    this.guide = null; if (!this.disposed) this.emitHud(true);
+  }
+  private guideLeft() {
+    const g = this.guide; if (!g) return 0;
+    // (along the route from its point nearest the walker)
+    let best = 0, bd = Infinity;
+    g.path.forEach((p, i) => { const d = p.distanceTo(this.pos); if (d < bd) { bd = d; best = i; } });
+    let left = bd; for (let i = best; i + 1 < g.path.length; i++) left += g.path[i].distanceTo(g.path[i + 1]);
+    return left;
+  }
+  private guideTick(dt: number) {
+    const g = this.guide; if (!g) return;
+    g.t += dt;
+    (g.mesh.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.35 * Math.sin(g.t * 4);
+    if (this.pos.distanceTo(g.to) < 1.6) {
+      this.clearGuide(); this.o.onHud?.({ ...this.hud, guide: `${g.label}에 도착했어요` });
+      setTimeout(() => { if (!this.guide && !this.disposed) this.emitHud(true); }, 2500); return;
+    }
+    if (Math.floor(g.t * 2) !== Math.floor((g.t - dt) * 2)) this.emitHud();
+  }
+  /** the shortest body-sized way between two points: A* on a 0.25 m grid over the rooms, each
+   * cell clear of walls and furniture by 0.22 m, then straightened where the line is clear */
+  private route(from: [number, number], to: [number, number]): [number, number][] | null {
+    const [x0, z0, x1, z1] = this.o.plan.bounds, C = 0.25, R = 0.22, nx = Math.ceil((x1 - x0) / C), nz = Math.ceil((z1 - z0) / C);
+    if (nx < 1 || nz < 1 || nx * nz > 4_000_000) return null;
+    const state = new Uint8Array(nx * nz); // 0 unknown, 1 free, 2 blocked
+    const rooms = this.o.plan.rooms;
+    const free = (k: number) => {
+      if (state[k]) return state[k] === 1;
+      const x = x0 + (k % nx + 0.5) * C, z = z0 + (Math.floor(k / nx) + 0.5) * C;
+      let ok = rooms.some(r => x >= r.rect[0] && x <= r.rect[2] && z >= r.rect[1] && z <= r.rect[3]);
+      if (ok) for (const [a, b, c, d] of this.grid.query(x - R - .05, z - R - .05, x + R + .05, z + R + .05)) {
+        const dx = c - a, dz = d - b, t = Math.max(0, Math.min(1, ((x - a) * dx + (z - b) * dz) / (dx * dx + dz * dz || 1)));
+        if (Math.hypot(x - a - t * dx, z - b - t * dz) < R) { ok = false; break; }
+      }
+      state[k] = ok ? 1 : 2; return ok;
+    };
+    const cell = (x: number, z: number) => Math.max(0, Math.min(nx - 1, Math.floor((x - x0) / C))) + Math.max(0, Math.min(nz - 1, Math.floor((z - z0) / C))) * nx;
+    // (the nearest free cells to the two ends: the walker and a counter may stand by furniture)
+    const near = (x: number, z: number) => {
+      const c0 = cell(x, z); if (free(c0)) return c0;
+      for (let r = 1; r < 14; r++) for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) {
+        if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+        const ci = (c0 % nx) + i, cj = Math.floor(c0 / nx) + j; if (ci < 0 || cj < 0 || ci >= nx || cj >= nz) continue;
+        const k = ci + cj * nx; if (free(k)) return k;
+      }
+      return -1;
+    };
+    const s = near(...from), e = near(...to); if (s < 0 || e < 0) return null;
+    const g = new Float32Array(nx * nz).fill(Infinity), came = new Int32Array(nx * nz).fill(-1), closed = new Uint8Array(nx * nz);
+    const ex = e % nx, ez = Math.floor(e / nx), h = (k: number) => Math.hypot(k % nx - ex, Math.floor(k / nx) - ez);
+    // (a binary heap of cells by f)
+    const hf: number[] = [], hk: number[] = [];
+    const push = (f: number, k: number) => {
+      let i = hf.length; hf.push(f); hk.push(k);
+      while (i > 0) { const p = (i - 1) >> 1; if (hf[p] <= f) break; hf[i] = hf[p]; hk[i] = hk[p]; i = p; }
+      hf[i] = f; hk[i] = k;
+    };
+    const pop = () => {
+      const top = hk[0], lf = hf.pop()!, lk = hk.pop()!, n = hf.length;
+      if (n) {
+        let i = 0;
+        for (;;) { const l = i * 2 + 1, r = l + 1; let m = -1, mf = lf; if (l < n && hf[l] < mf) { m = l; mf = hf[l]; } if (r < n && hf[r] < mf) { m = r; } if (m < 0) break; hf[i] = hf[m]; hk[i] = hk[m]; i = m; }
+        hf[i] = lf; hk[i] = lk;
+      }
+      return top;
+    };
+    g[s] = 0; push(h(s), s);
+    let found = false, steps = 0;
+    while (hf.length && steps++ < 800000) {
+      const k = pop(); if (closed[k]) continue; closed[k] = 1;
+      if (k === e) { found = true; break; }
+      const i = k % nx, j = Math.floor(k / nx);
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        if (!di && !dj) continue;
+        const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= nx || b >= nz) continue;
+        const q = a + b * nx; if (closed[q] || !free(q)) continue;
+        // (no corner cutting past a blocked cell)
+        if (di && dj && (!free(i + di + j * nx) || !free(i + (j + dj) * nx))) continue;
+        const ng = g[k] + (di && dj ? Math.SQRT2 : 1);
+        if (ng < g[q]) { g[q] = ng; came[q] = k; push(ng + h(q), q); }
+      }
+    }
+    if (!found) return null;
+    const cells: [number, number][] = [];
+    for (let k = e; k >= 0; k = came[k]) { cells.push([x0 + (k % nx + 0.5) * C, z0 + (Math.floor(k / nx) + 0.5) * C]); if (k === s) break; }
+    cells.reverse();
+    // (straightened: from each kept point to the farthest one in clear sight, sampled every 0.2 m)
+    const clearLine = (a: [number, number], b: [number, number]) => { const l = Math.hypot(b[0] - a[0], b[1] - a[1]); for (let t = 0; t <= l; t += 0.2) if (!free(cell(a[0] + (b[0] - a[0]) * t / l, a[1] + (b[1] - a[1]) * t / l))) return false; return true; };
+    const out: [number, number][] = [from];
+    let i = 0;
+    while (i < cells.length - 1) { let j = cells.length - 1; while (j > i + 1 && !clearLine(cells[i], cells[j])) j--; out.push(cells[j]); i = j; }
+    out.push(to);
+    return out;
+  }
   /** (where a frame's time goes: a running average a section) */
   private lap(name: string) { const t = performance.now(), s = this.perf.seg; s[name] = (s[name] ?? 0) * 0.98 + (t - this.segT) * 0.02; this.segT = t; }
 
@@ -275,6 +526,7 @@ export class Interior {
       look ? { X: look.X, signs: look.signs, spots, hooks: { lift: () => this.o.onLift?.(), levels: this.o.levels,
         monitor: screen => { this.monitor = screen; this.zoomScreen("monitor"); this.o.onMonitor?.(); },
         vending: session => this.o.onVending?.(session), vendSound: kind => { this.o.sound.resume(); this.o.sound.play(kind === "motor" ? "fridge" : "thud"); },
+        drink: (can, name) => { if (!this.sip && !this.furn.pantry.hand) this.startSip(can, "can", name, true); else (can.children[0] as THREE.Mesh | undefined)?.geometry.dispose(); },
       } } : undefined));
     await nextFrame();
     const furnMeshes = B.build();
@@ -342,7 +594,8 @@ export class Interior {
     const collide = (x: number, z: number, r: number) => this.collide(x, z, r);
     if (plan.facility) {
       // a building: its people instead of a pet
-      this.people = new People(plan, spots, () => this.o.sound.play("click"), this.o.hour);
+      this.people = new People(plan, spots, (text, pitch) => this.o.sound.babble(text, pitch), this.o.hour);
+      this.people.onTalk = t => this.openTalk(t);
       this.people.root.traverse(o => { o.castShadow = false; });
       this.dynamic.add(this.people.root);
       this.interactables.push(...this.people.interactables((x, z) => this.shell.roomAt(x, z)));
@@ -676,6 +929,7 @@ export class Interior {
     if(t?.closest('.wk-laptop-layer')||document.querySelector('.wk-laptop-layer.is-fullscreen'))return;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
     if (e.code === "KeyE" || e.code === "Enter") { e.preventDefault(); if (!e.repeat) this.interact(); return; }
+    if (e.code === "KeyR") { if (!e.repeat) this.consumeHand(); return; }
     if (e.code === "KeyV") { if (!e.repeat) this.toggleView(); return; }
     if (e.code === "KeyT") { if (!e.repeat) this.toggleOverhead(); return; }
     if (e.code === "KeyZ" && !e.repeat) { if (this.petZoomed()) this.zoomPet(false); else if (this.target?.id === "cat") this.zoomPet(true); return; }
@@ -801,6 +1055,8 @@ export class Interior {
     this.animateDoors(dt);
     this.lap("move");
     for (const it of this.interactables) it.update?.(dt);
+    this.sipBeats(dt);
+    this.guideTick(dt);
     this.lap("things");
     const walker = { x: this.pos.x, z: this.pos.y, speed: this.seated ? 0 : this.vel.length(), seated: !!this.seated };
     if (this.seated) { const f = new THREE.Vector3(-Math.sin(this.seated.yaw), 0, -Math.cos(this.seated.yaw)); walker.x = this.seated.eye.x + f.x * 0.6; walker.z = this.seated.eye.z + f.z * 0.6; }
@@ -1088,7 +1344,8 @@ export class Interior {
     if(Math.abs(cam.near-near)>.00001){cam.near=near;cam.updateProjectionMatrix();}
     cam.rotation.set(sh.pitch, sh.yaw, 0, "YXZ");
     // what the hand holds: low and to the right of the eye, or before the body seen from behind
-    if (this.furn.pantry.hand) {
+    if (this.sip) this.sipPose(cam);
+    else if (this.furn.pantry.hand) {
       const m = this.holdM; cam.updateMatrixWorld();
       if (this.view === "first" && !this.seated) m.multiplyMatrices(cam.matrixWorld, this.holdEye);
       else m.makeRotationY(this.yaw).setPosition(this.pos.x - Math.sin(this.yaw) * 0.34, this.shell.floorAt(this.pos.x, this.pos.y) + 0.98, this.pos.y - Math.cos(this.yaw) * 0.34);
@@ -1141,8 +1398,11 @@ export class Interior {
   }
   private emitHud(force = false) {
     const room = this.shell.roomAt(this.pos.x, this.pos.y)?.label ?? "";
-    const h: HudState = { target: this.target?.label() ?? null, room, seated: this.seated?.label ?? null, view: this.view, overhead: this.overhead, pet: this.target?.id === "cat" };
-    if (force || h.target !== this.hud.target || h.room !== this.hud.room || h.seated !== this.hud.seated || h.view !== this.hud.view || h.overhead !== this.hud.overhead || h.pet !== this.hud.pet) { this.hud = h; this.o.onHud?.(h); }
+    const k = this.furn?.pantry.handKind() as ItemKind | null, how = k ? CONSUME[k] : undefined;
+    const use = this.sip ? `${this.sip.name} ${this.sip.how === "crunch" || this.sip.how === "soft" ? "먹는 중" : "마시는 중"}` : k && how ? `${ITEM_NAME[k]} ${how === "crunch" || how === "soft" ? "먹기" : "마시기"}` : null;
+    const guide = this.guide ? `${this.guide.label}까지 ${Math.max(1, Math.round(this.guideLeft()))}m · 바닥 화살표를 따라가세요` : null;
+    const h: HudState = { target: this.target?.label() ?? null, room, seated: this.seated?.label ?? null, view: this.view, overhead: this.overhead, pet: this.target?.id === "cat", use, guide };
+    if (force || h.target !== this.hud.target || h.room !== this.hud.room || h.seated !== this.hud.seated || h.view !== this.hud.view || h.overhead !== this.hud.overhead || h.pet !== this.hud.pet || h.use !== this.hud.use || h.guide !== this.hud.guide) { this.hud = h; this.o.onHud?.(h); }
   }
 
   resize(w: number, h: number) {
@@ -1181,6 +1441,7 @@ export class Interior {
     this.composer?.renderTarget1.dispose(); this.composer?.renderTarget2.dispose(); this.gtao?.dispose(); this.bloom?.dispose();
     this.renderer.setOpaqueSort(null);
     this.sun.shadow.map?.dispose();
+    this.clearGuide();
     this.people?.dispose(); this.facDispose?.();
     this.avatar.dispose(); this.cat?.dispose(); this.robot?.dispose(); this.o.sound.purr(0); this.o.sound.whirr(0);
     this.scene.clear();

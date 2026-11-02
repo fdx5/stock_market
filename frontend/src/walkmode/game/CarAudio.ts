@@ -45,3 +45,24 @@ export class CarAudio {
   stop(){const t=this.ctx.currentTime;this.engineGain.gain.cancelScheduledValues(t);this.engineGain.gain.setTargetAtTime(0,t,.025);}
   dispose(){for(const track of this.tracks){try{track.source.stop();}catch{/*already stopped*/}}this.nodes.forEach(n=>n.disconnect());this.tracks.length=0;}
 }
+
+/** A crash, made here: the body's thump, the crumple of sheet metal (bursts of band noise falling
+ * in pitch), on a car a tinkle of glass after; on foot or a bike a lighter knock. `level` 0…1.5. */
+export function crashSound(ctx:AudioContext,output:AudioNode,level:number,car:boolean){
+  const t=ctx.currentTime,len=Math.floor(ctx.sampleRate*1.2),buf=ctx.createBuffer(1,len,ctx.sampleRate),d=buf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=Math.random()*2-1;
+  const burst=(at:number,dur:number,f0:number,f1:number,q:number,gain:number,type:BiquadFilterType="bandpass")=>{
+    const src=ctx.createBufferSource();src.buffer=buf;const f=ctx.createBiquadFilter();f.type=type;f.Q.value=q;f.frequency.setValueAtTime(f0,t+at);f.frequency.exponentialRampToValueAtTime(f1,t+at+dur);
+    const g=ctx.createGain();g.gain.setValueAtTime(0,t+at);g.gain.linearRampToValueAtTime(gain,t+at+.006);g.gain.exponentialRampToValueAtTime(.0001,t+at+dur);
+    src.connect(f);f.connect(g);g.connect(output);src.start(t+at,Math.random()*.5);src.stop(t+at+dur+.05);src.onended=()=>{src.disconnect();f.disconnect();g.disconnect();};
+  };
+  const k=Math.min(1.5,level);
+  // (the thump: a low body blow)
+  const o=ctx.createOscillator(),og=ctx.createGain();o.frequency.setValueAtTime(car?90:140,t);o.frequency.exponentialRampToValueAtTime(38,t+.25);og.gain.setValueAtTime(.55*k,t);og.gain.exponentialRampToValueAtTime(.0001,t+.3);o.connect(og);og.connect(output);o.start(t);o.stop(t+.32);
+  burst(0,.22,600,120,.9,.5*k,"lowpass");
+  if(car){
+    for(let i=0;i<5;i++)burst(.01+i*.035+Math.random()*.02,.12+Math.random()*.1,2600-i*300,700,2.5,.22*k);
+    burst(.03,.5,3000,1200,1.2,.12*k);
+    if(level>.45)for(let i=0;i<10;i++)burst(.12+i*.04+Math.random()*.05,.05,5200+Math.random()*3000,4200,8,.08*k);
+  } else burst(.01,.1,1800,900,2,.15*k);
+}

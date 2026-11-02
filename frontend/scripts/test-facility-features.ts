@@ -44,11 +44,18 @@ const flat: DroneWorldQuery = { groundAt: () => 0, roofAt: () => 0, clearAhead: 
 const runner = new DroneFlight(); runner.setWalking(true, flat);
 runner.keys.add("KeyW"); runner.keys.add("ShiftLeft");
 for (let i = 0; i < 300; i++) runner.step(1 / 60, flat);
-assert.ok(-runner.pos.z > 16 && -runner.pos.z < 18, "five seconds running covers a human running distance");
-assert.ok(runner.kmh <= 13, "walking mode cannot accelerate to vehicle speed");
+// (Shift held: a run, then from 1.2 s a sprint of 6.2 m/s — a human sprinter's pace — while breath lasts)
+assert.ok(-runner.pos.z > 24 && -runner.pos.z < 30, "five seconds running into a sprint covers a human sprint distance");
+assert.ok(runner.stamina < 1 && runner.stamina > 0.4, "running spends breath");
+const jogger = new DroneFlight(); jogger.setWalking(true, flat); jogger.keys.add("KeyW"); jogger.keys.add("ShiftLeft");
+for (let i = 0; i < 60; i++) jogger.step(1 / 60, flat);
+assert.ok(-jogger.pos.z > 2.6 && -jogger.pos.z < 3.8, "the first second is a run, not a sprint");
+assert.ok(runner.kmh <= 23, "walking mode cannot accelerate to vehicle speed (a sprint, 22 km/h, at most)");
 const walled: DroneWorldQuery = { ...flat, roofAt: (_x, y) => y > 22 ? 50 : 0, buildingRingAt: (_x, y) => y > 22 ? [[-10, 22], [10, 22], [10, 40], [-10, 40]] : null };
-for (let i = 0; i < 300; i++) runner.step(1 / 60, walled);
-assert.ok(-runner.pos.z <= 21.71, "running stays outside a surveyed building wall");
+// (a sprinter from the start, the wall 22 m ahead: stopped at it, not through it)
+const wallRunner = new DroneFlight(); wallRunner.setWalking(true, walled); wallRunner.keys.add("KeyW"); wallRunner.keys.add("ShiftLeft");
+for (let i = 0; i < 600; i++) wallRunner.step(1 / 60, walled);
+assert.ok(-wallRunner.pos.z <= 21.71 && -wallRunner.pos.z > 20, "running stays outside a surveyed building wall");
 assert.equal(new Set(Array.from({ length: 40 }, (_, i) => labelHash(`진료실 ${i}`) % 4)).size, 4);
 assert.equal(new Set(Array.from({ length: 40 }, (_, i) => labelHash(`매장 ${i}`) % 5)).size, 5);
 

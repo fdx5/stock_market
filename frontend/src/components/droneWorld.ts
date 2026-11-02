@@ -283,6 +283,15 @@ export class DroneWorld {
     });
     this.root.add(this.landmarks.root);
     this.placeFootprints.set('initial',[...o.data.buildings,...o.data.context].map(b=>b.rings[0]));
+    // (the place's own buildings are solid too: their outlines and heights, by 40 m cell — the roof
+    // raster of the streamed tiles does not hold them, and a walker went through a hospital's block)
+    for (const b of [...o.data.buildings, ...o.data.context]) {
+      const r = b.rings[0]; if (!r || r.length < 3 || !(b.height > 0)) continue;
+      const xs = r.map(p => p[0]), ys = r.map(p => p[1]), top = (b.base ?? 0) + b.height;
+      for (let i = Math.floor(Math.min(...xs) / 40); i <= Math.floor(Math.max(...xs) / 40); i++) for (let j = Math.floor(Math.min(...ys) / 40); j <= Math.floor(Math.max(...ys) / 40); j++) {
+        const k = i + ',' + j; let l = this.ownRoofs.get(k); if (!l) this.ownRoofs.set(k, l = []); l.push({ r, holes: b.rings.slice(1), top });
+      }
+    }
     this.places=new DronePlaces({lat:o.data.center!.lat,lon:o.data.center!.lon,
       groundAt:(x,y)=>this.groundAt(x,y),roofAt:(x,y)=>this.registeredRoofAt(x,y),
       covered:r=>this.placeFootprints.covered(r),addWarm:o.addWarm,forget:o.forget,onLabels:o.onLabels});
@@ -315,7 +324,15 @@ export class DroneWorld {
   /** the building outlines with a corner within r of (x, y) */
   buildingRingsNear(x: number, y: number, r: number): [number, number][][] { return this.placeFootprints.ringsNear(x, y, r); }
   roofAt(x: number, y: number): number {
-    return Math.max(this.registeredRoofAt(x,y),this.places.roofAt(x,y));
+    return Math.max(this.registeredRoofAt(x,y),this.places.roofAt(x,y),this.ownRoofAt(x,y));
+  }
+  private ownRoofs = new Map<string, { r: [number, number][]; holes: [number, number][][]; top: number }[]>();
+  /** the place's own buildings' roof over (x, y): the ground there plus the building's height (its base if it has one) */
+  private ownRoofAt(x: number, y: number): number {
+    const l = this.ownRoofs.get(Math.floor(x / 40) + ',' + Math.floor(y / 40)); if (!l) return -1e4;
+    let h = -1e4;
+    for (const b of l) if (inRingXY(x, y, b.r) && !b.holes.some(q => inRingXY(x, y, q))) h = Math.max(h, this.o.terrain.at(x, y) + b.top);
+    return h;
   }
   private registeredRoofAt(x:number,y:number):number {
     const r = this.tileAt(x, y)?.roofs;
@@ -1763,4 +1780,10 @@ function roadClear(clear: Float32Array | undefined) {
     }
     return false;
   };
+}
+
+function inRingXY(x: number, y: number, r: [number, number][]) {
+  let h = false;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) h = !h; }
+  return h;
 }

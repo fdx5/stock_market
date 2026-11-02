@@ -31,22 +31,28 @@ export function placeVending(c: FacCtx, room: Room, f: Frame) {
   for (const y of [-.074, .074]) { const lid = new THREE.Mesh(c.own(new THREE.CylinderGeometry(.047, .047, .006, 16)), lidMat); lid.position.y = y; can.add(lid); }
   const tab = new THREE.Mesh(c.own(new THREE.TorusGeometry(.012, .003, 5, 14).rotateX(Math.PI / 2)), lidMat); tab.position.set(0, .079, .007); tab.scale.z = 1.4; can.add(tab);
   const root = new THREE.Group(); root.applyMatrix4(f.m); root.add(can); c.dynamic.add(root); can.visible = false;
-  let time = -1, impact = false;
+  let time = -1, impact = false, picked: Drink | null = null;
   const id = `vending-${room.id}`;
   const session: VendingSession = { id, dispense(drink) {
     if (time >= 0 || !DRINKS.some(d => d.id === drink.id)) return false;
-    const picked = DRINKS.find(d => d.id === drink.id)!;
+    picked = DRINKS.find(d => d.id === drink.id)!;
     body.geometry.dispose(); body.geometry = atlas.geometry(picked);
     time = 0; impact = false; can.visible = true; c.hooks.vendSound?.("motor"); return true;
   } };
-  c.interactables.push({ id, zone, room, hit: c.hitIn(f, .92, 1.8, .15, 0, .95, .76), label: () => time >= 0 ? "음료가 나오는 중" : "음료 자판기 사용하기", act: () => { if (time < 0) c.hooks.vending?.(session); return "beep"; }, update(dt) {
+  c.interactables.push({ id, zone, room, hit: c.hitIn(f, .92, 1.8, .15, 0, .95, .76), label: () => time >= 1.1 && picked ? `${picked.name} 꺼내서 마시기` : time >= 0 ? "음료가 나오는 중" : "음료 자판기 사용하기",
+    act: () => {
+      // (landed in the tray: taken out and drunk — the hand gets a copy, the tray is empty again)
+      if (time >= 1.1 && picked && c.hooks.drink) { const copy = can.clone(true); (copy.children[0] as THREE.Mesh).geometry = body.geometry.clone(); copy.visible = true; c.hooks.drink(copy, picked.name, picked.group === "탄산"); time = -1; can.visible = false; return null; }
+      if (time < 0) c.hooks.vending?.(session); return "beep";
+    }, update(dt) {
     if (time < 0) return;
     time += dt;
     const fall = Math.min(1, Math.max(0, (time - .35) / .5));
     can.position.set(0, .72 - .43 * fall * fall + (time > .85 && time < 1.08 ? Math.sin((time - .85) / .23 * Math.PI) * .06 : 0), .77);
     can.rotation.z = fall * Math.PI / 2;
     if (fall === 1 && !impact) { impact = true; c.hooks.vendSound?.("drop"); }
-    if (time >= 3.6) { time = -1; can.visible = false; }
+    // (left in the tray a while for the taking, then gone)
+    if (time >= 12) { time = -1; can.visible = false; }
   } });
   // Replaced can geometry belongs to this one moving mesh, not an ever-growing list per drink.
   c.own({ dispose: () => body.geometry.dispose() });

@@ -18,6 +18,8 @@ export class Avatar {
   private pedalPhase = 0;
   private cycleSteer = 0;
   pose: Pose = "stand";
+  /** off the ground (a jump): the legs tucked while it lasts */
+  air = false; private airK = 0;
   private shoeM!: THREE.MeshPhysicalMaterial; private soleM!: THREE.Material;
   private sway = 0; private runK = 0;
 
@@ -190,6 +192,13 @@ export class Avatar {
         p.spine.rotation.x = Math.sin(this.sway * 1.6) * 0.012; p.hips.rotation.z = Math.sin(this.sway * 0.35) * 0.02;
         p.lShoulder.rotation.z = -0.07 - Math.sin(this.sway * 1.6) * 0.01; p.rShoulder.rotation.z = 0.07 + Math.sin(this.sway * 1.6) * 0.01;
         p.lElbow.rotation.x = -0.12; p.rElbow.rotation.x = -0.12;
+      }
+      // (in the air from a jump: knees drawn up, arms out for balance — eased in and out)
+      this.airK += ((this.air ? 1 : 0) - this.airK) * Math.min(1, dt * 14);
+      if (this.airK > 0.01) {
+        const k = this.airK, mix = (n: string, x: number, z = 0) => { const r = p[n].rotation; r.x += (x - r.x) * k; r.z += (z - r.z) * k; };
+        mix("lHip", -0.75); mix("rHip", -0.35); mix("lKnee", 1.25); mix("rKnee", 0.7); mix("lAnkle", 0.25); mix("rAnkle", 0.2);
+        mix("lShoulder", -0.5, -0.55); mix("rShoulder", -0.3, 0.55); mix("lElbow", -0.6); mix("rElbow", -0.6); mix("spine", 0.12);
       }
     } else if (t === "cycle") {
       p.hips.position.set(0, 1.11, -0.29); p.hips.rotation.set(0, 0, 0);

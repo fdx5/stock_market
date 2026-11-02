@@ -18,6 +18,24 @@ export async function getSurvey<T>(url: string): Promise<T | null> {
   try { const r = await fetch(url, { signal: AbortSignal.timeout(18000) }); return r.ok ? await r.json() : null; }
   catch { return null; }
 }
+/** Whether a surveyed building is the one whose footprint (walk frame: x east, y north) was gone
+ * into: the share of the smaller outline covered by the other, sampled on a grid, at least 35 %.
+ * `origin` is the survey frame's corner in the walk frame. */
+export function surveyMatches(s: SurveyBuilding, foot: Point[], origin: Point): boolean {
+  const f = s.frame; if (!f || !s.outlines?.length) return false;
+  const rings = s.outlines.map(p => p[0].map(([x, y]) => [origin[0] + x - f.x, origin[1] + y - f.y] as Point)).filter(r => r.length >= 3);
+  if (!rings.length) return false;
+  const inSurvey = (x: number, y: number) => rings.some(r => inPoly(x, y, r));
+  const share = (ring: Point[], other: (x: number, y: number) => boolean) => {
+    const xs = ring.map(p => p[0]), ys = ring.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const step = Math.max(0.5, Math.sqrt((x1 - x0) * (y1 - y0) / 900));
+    let n = 0, hit = 0;
+    for (let x = x0 + step / 2; x < x1; x += step) for (let y = y0 + step / 2; y < y1; y += step) if (inPoly(x, y, ring)) { n++; if (other(x, y)) hit++; }
+    return n ? hit / n : 0;
+  };
+  const surveyArea = rings.reduce((t, r) => t + area(r), 0), footArea = area(foot);
+  return surveyArea < footArea ? rings.some(r => share(r, (x, y) => inPoly(x, y, foot)) >= .35) : share(foot, inSurvey) >= .35;
+}
 export const contains = (x: number, z: number, p: Polygon) => inPoly(x, z, p[0]) && !p.slice(1).some(h => inPoly(x, z, h));
 const area = (p: Point[]) => Math.abs(p.reduce((s, a, i) => { const b = p[(i + 1) % p.length]; return s + a[0] * b[1] - b[0] * a[1]; }, 0)) / 2;
 

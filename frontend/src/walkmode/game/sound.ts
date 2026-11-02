@@ -9,7 +9,10 @@ import { BicycleAudio, type BicycleAudioState } from "./BicycleAudio";
 const SFX = "/3d/walk/sfx/";
 const MEOWS = ["meow1", "meow2", "meow3", "meow4", "meow5", "meow6", "meow7"];
 const BARKS = ["bark1", "bark2", "bark3", "bark4", "bark5", "bark6"];
-const RECORDINGS = ["flush", "basin_loop", "basin_end", "sink_loop", "purr_loop", "pant_loop", ...MEOWS, ...BARKS];
+/** the after-drink voices (캬~, 음~ 맛있다): synthesized clips, see SOURCES.md */
+const KYA = ["kya1", "kya2", "kya3"];
+const VOICES = [...KYA, "mm"];
+const RECORDINGS = ["flush", "basin_loop", "basin_end", "sink_loop", "purr_loop", "pant_loop", ...MEOWS, ...BARKS, ...VOICES];
 /** each loop file carries this much of its own loop before and after it (see SOURCES.md) */
 const LOOP_PAD = 0.15;
 /** what a running sound is: a tap (which one), a shower, or a machine's hum */
@@ -41,7 +44,7 @@ export class Sound {
     try { dec = new OfflineAudioContext(1, 1, 48000); } catch { return (this.recLoading = Promise.resolve()); }
     this.recLoading = Promise.all(RECORDINGS.map(async n => {
       try {
-        const r = await fetch(`${SFX}${n}.mp3`);
+        const r = await fetch(`${SFX}${n}.${VOICES.includes(n) ? "wav" : "mp3"}`);
         if (r.ok) this.rec.set(n, await dec.decodeAudioData(await r.arrayBuffer()));
       } catch { /* the synthesized sound stays */ }
     })).then(() => undefined);
@@ -144,6 +147,58 @@ export class Sound {
         break;
       default: break;
     }
+  }
+  /** One swallow: the throat's low "glk" (a falling tone), the gulp's wet body (low noise) and the
+   * click of the tongue letting go. `k` 0..1 how big a mouthful. */
+  gulp(k = 1) {
+    const c = this.ctx; if (!c || !this.master) return;
+    const t = c.currentTime, o = c.createOscillator(), g = c.createGain();
+    o.type = "sine"; o.frequency.setValueAtTime(330 + Math.random() * 60, t); o.frequency.exponentialRampToValueAtTime(95, t + 0.11);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.32 * k, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.2);
+    this.burst(0.14, 260, 1.4, 0.3 * k, "lowpass", 120, 0.01);
+    setTimeout(() => this.burst(0.025, 1900, 3, 0.07 * k), 70);
+  }
+  /** a can's ring pull and the fizz rushing out (치익) */
+  canOpen() {
+    this.burst(0.02, 3600, 4, 0.35); this.burst(0.04, 1200, 2, 0.18);
+    setTimeout(() => { this.burst(0.55, 5200, 0.9, 0.22, "highpass", 2600, 0.01); this.burst(0.35, 7000, 1.5, 0.08, "bandpass", 4200); }, 25);
+    for (let i = 0; i < 9; i++) setTimeout(() => this.burst(0.012, 4000 + Math.random() * 3000, 6, 0.05 * Math.random()), 120 + i * 55 + Math.random() * 40);
+  }
+  /** a bottle's or a carton's cap turned off (a few ratchet clicks) */
+  capOpen() { for (let i = 0; i < 4; i++) setTimeout(() => this.burst(0.015, 2400 + i * 200, 5, 0.12), i * 45); }
+  /** a bite, chewed (crunch for fruit, soft for the rest) */
+  chew(crunch: boolean) {
+    for (let i = 0; i < 4; i++) setTimeout(() => crunch ? (this.burst(0.07, 2600, 1, 0.16, "bandpass", 1400), this.burst(0.05, 400, 1, 0.12, "lowpass")) : this.burst(0.12, 300, 0.9, 0.12, "lowpass"), i * 260 + Math.random() * 60);
+  }
+  /** an after-drink voice: "캬~" (drink) or "음~ 맛있다" (food); the tone-made sigh if the clip is missing */
+  ahh(food: boolean) {
+    const name = food ? "mm" : KYA[Math.floor(Math.random() * KYA.length)];
+    if (this.shot(name, 0.85, 0.98 + Math.random() * 0.06)) return;
+    this.burst(0.7, 900, 0.8, 0.12, "bandpass", 500, 0.05);
+  }
+  /** A person talking, as games do it: a murmur of short voiced syllables (one per two letters, at
+   * most 16), each a buzz through a vowel's two formants, the pitch the person's own (0.8–1.4). */
+  private babbleUntil = 0;
+  babble(text: string, pitch = 1) {
+    const c = this.ctx; if (!c || !this.master) return;
+    const t0 = Math.max(c.currentTime, this.babbleUntil), n = Math.max(2, Math.min(16, Math.round(text.replace(/\s|[.,!?~…()]/g, "").length / 2)));
+    const vowels: [number, number][] = [[730, 1090], [530, 1840], [270, 2290], [570, 840], [300, 870], [440, 1020]];
+    const f0 = 150 * pitch;
+    for (let i = 0; i < n; i++) {
+      const t = t0 + i * 0.085, d = 0.06 + Math.random() * 0.02, [a, b] = vowels[(i * 7 + text.charCodeAt(i % text.length)) % vowels.length];
+      // (a softened buzz: a sawtooth through a gentle low-pass, the vowel's formants over it)
+      const o = c.createOscillator(); o.type = "sawtooth";
+      const soft = c.createBiquadFilter(); soft.type = "lowpass"; soft.frequency.value = 2600; soft.Q.value = 0.5;
+      const f = f0 * (1 + (i === n - 1 ? -0.12 : (Math.random() - 0.4) * 0.18));
+      o.frequency.setValueAtTime(f, t); o.frequency.linearRampToValueAtTime(f * 0.94, t + d);
+      const f1 = c.createBiquadFilter(); f1.type = "bandpass"; f1.frequency.value = a * (0.9 + pitch * 0.1); f1.Q.value = 5;
+      const f2 = c.createBiquadFilter(); f2.type = "bandpass"; f2.frequency.value = b * (0.9 + pitch * 0.1); f2.Q.value = 7;
+      const g = c.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.045, t + 0.018); g.gain.setValueAtTime(0.045, t + d * 0.55); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(soft); soft.connect(f1); soft.connect(f2); f1.connect(g); f2.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + d + 0.02);
+    }
+    this.babbleUntil = t0 + n * 0.085 + 0.05;
   }
   /** a cat's "mrrow": a voiced glide through two vowel-like formants */
   meow() {

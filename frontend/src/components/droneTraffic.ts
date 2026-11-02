@@ -683,6 +683,8 @@ export class DroneTraffic {
   }
   /** the modelled body of kind k (its shared geometry and material), when loaded */
   model(k:number){const im=this.near[k];return im?{geometry:im.geometry,material:im.material as THREE.Material}:null;}
+  /** the modelled body of a kind by its name (a garage's car), when loaded */
+  modelOf(name:string){const k=KINDS.findIndex(([n],i)=>n===name&&i<EMERGENCY_FROM);return k>=0?this.model(k):null;}
   /** one instance placed as the traffic places its cars: (x, y) view frame, z its level, (hx, hy) its heading */
   place(im:THREE.InstancedMesh,i:number,x:number,y:number,z:number,hx:number,hy:number){writeMatrix(im.instanceMatrix.array as Float32Array,i,x,z,-y,-hy,hx,1,0,1,1,1);im.instanceMatrix.needsUpdate=true;}
   private driven:(Lane|number)[]=[];

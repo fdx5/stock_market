@@ -247,3 +247,29 @@
 .wk-review-entry{position:absolute;top:115px;left:50%;transform:translateX(-50%);z-index:4;background:#0d393c!important;color:#9affec!important;border:2px solid #56efd4!important;padding:14px 22px!important;font-size:17px!important;box-shadow:0 0 24px #2dffd642}
 .wk-nav-notice{position:absolute;left:50%;bottom:115px;transform:translateX(-50%);padding:10px 18px;border:1px solid #43cdb5;border-radius:10px;background:#071c28e8;color:#b6ffeb;font-size:14px;max-width:70vw;text-align:center;pointer-events:none}
 .wk-coverage-note{position:absolute;top:88px;left:22px;padding:7px 11px;background:#172330ec;border:1px solid #8c78904a;border-radius:7px;color:#ffd7a4;font-size:13px;max-width:min(570px,70vw);pointer-events:none}
+/* the hand's drink or bite: R to have it (a pill under the reticle hint), and while it lasts */
+.wk-use { position: absolute; left: 50%; bottom: 22%; transform: translateX(-50%); padding: 7px 14px; border-radius: 999px; font-size: 14px; font-weight: 700; color: #e8fbff; background: rgba(6, 12, 18, .74); border: 1px solid rgba(255, 207, 110, .55); pointer-events: none; z-index: 2; white-space: nowrap; }
+.wk-use kbd { background: #ffcf6e; color: #10141b; font-weight: 900; }
+.wk-use.is-busy { border-color: rgba(94, 240, 255, .6); animation: wk-use-pulse .9s ease-in-out infinite alternate; }
+@keyframes wk-use-pulse { from { box-shadow: 0 0 0 rgba(94, 240, 255, 0); } to { box-shadow: 0 0 18px rgba(94, 240, 255, .45); } }
+.wk-act.wk-act-use { bottom: 92px; background: linear-gradient(180deg, #ffd27a, #f0a93a); }
+.wk-nav-notice .wk-nav-cancel { pointer-events: auto; margin-left: 10px; border: 0; border-radius: 50%; width: 22px; height: 22px; background: rgba(94, 240, 255, .18); color: #b6ffeb; cursor: pointer; font-weight: 800; }
+.wk-talk-sub { display: block; margin-top: 4px; color: #8fdcff; font-size: 12px; letter-spacing: .04em; }
+/* a counter's goods (ShopMenu) */
+.wk-shop { width: min(720px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; }
+.wk-shop header { display: flex; align-items: baseline; gap: 12px; }
+.wk-shop h3 { margin: 0; color: #71ffe4; }
+.wk-shop-money { margin-left: auto; font-weight: 900; color: #7dffb0; font-size: 18px; }
+.wk-shop-money small { margin-left: 6px; font-size: 11px; color: #9bdbff; font-weight: 600; }
+.wk-shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 12px 0; }
+.wk-shop-item { display: grid; gap: 3px; text-align: left; padding: 10px; border-radius: 10px; border: 1px solid rgba(94, 240, 255, .2); background: rgba(10, 26, 38, .85); color: #e8fbff; cursor: pointer; }
+.wk-shop-item:hover:not(:disabled) { border-color: #5ef0ff; }
+.wk-shop-item:disabled { opacity: .45; cursor: not-allowed; }
+.wk-shop-item i { height: 18px; border-radius: 5px; box-shadow: inset 0 -5px 8px rgba(0, 0, 0, .3); }
+.wk-shop-item b { font-size: 13px; }
+.wk-shop-item span { font-weight: 800; color: #ffe16b; }
+.wk-shop-item small { font-size: 10px; color: #8fdcff; }
+.wk-shop-note { color: #ffcf6e; font-size: 13px; }
+.wk-btn.wk-btn-shop { background: linear-gradient(180deg, #ffd27a, #f0a93a); color: #10141b; border-color: transparent; font-weight: 800; }
+.wk-shop-here { position: absolute; right: 16px; top: 52%; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(255, 207, 110, .6); background: rgba(6, 12, 18, .78); color: #ffe9b8; font-weight: 800; font-size: 13px; cursor: pointer; z-index: 3; }
+.wk-shop-here kbd { background: #ffcf6e; color: #10141b; font-weight: 900; }

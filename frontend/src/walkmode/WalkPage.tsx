@@ -4,7 +4,7 @@ import { pnuAt, addressOfPnu } from "./game/pnu";
 import { inPoly } from "./building/plan";
 import * as THREE from "three";
 import { api } from "../api/client";
-import { Interior, prewarmInterior, type HudState } from "./interior/Interior";
+import { Interior, prewarmInterior, type HudState, type InteriorTalk } from "./interior/Interior";
 import { generatePlan } from "./interior/plan/generate";
 import { fetchUnits } from "./interior/plan/fetchUnits";
 import { walkComplex } from "./complexOf";
@@ -13,7 +13,7 @@ import { updateWalkShare } from './shareMeta';
 import {compactWalkUrl, expandWalkQuery, recalledWalkBack} from './walkQuery';
 import {entryKind,resolveEntryKind} from './entryKind';
 import { BuildingInterior, type BuildingHud, type BuildingTalk } from "./building/BuildingInterior";
-import { getSurvey, type SurveyBuilding, type SurveyFloor } from "./building/survey";
+import { getSurvey, surveyMatches, type SurveyBuilding, type SurveyFloor } from "./building/survey";
 import { fitOut, type FitSource } from "./building/fitout";
 import BuildingMap from "./building/BuildingMap";
 import { kindOf, planBuilding, plateOf, type RegBuilding, type RegFloor } from "./building/plan";
@@ -26,6 +26,8 @@ import { STYLE_LABEL } from "./interior/materials";
 import { STYLE_NAMES } from "./interior/plan/types";
 import { LAYOUT_CASES, LAYOUT_FAMILIES, caseNumber } from "./interior/plan/layoutCases";
 import LayoutPreview from "./LayoutPreview";
+import ShopMenu from "./ShopMenu";
+import { SHOP_LABEL, shopOf, type ShopKind } from "./interior/shop";
 import PublicPlanLibrary from "./PublicPlanLibrary";
 import NaverFloorPlans, { type DrawingStatus } from "./NaverFloorPlans";
 import { floorPlanFromImage, type ImageAnalysis } from "./interior/plan/imagePlan";
@@ -129,6 +131,10 @@ export default function WalkPage() {
   }, [phase]);
   const [bsource, setBsource] = useState("");
   const [talk,setTalk]=useState<BuildingTalk|null>(null);
+  /** a building floor's person spoken to (the interior engine's dialogue) */
+  const [iTalk,setITalk]=useState<InteriorTalk|null>(null);
+  /** a counter's goods on show (bought with the game's play money) */
+  const [shop,setShop]=useState<{kind:ShopKind;label:string}|null>(null);
   /** a building other than flats, walked floor by floor in the interior engine: what is known of it */
   const fac = useRef<{ info: RegBuilding; floors: RegFloor[]; W: number; D: number; levels: { level: number; label: string; uses: string }[]; tenants: { name: string; level: number }[]; departments: string[]; key: string;
     /** the building's survey (SGIS): its frame, its floors' drawings fetched as walked; the way in in plan coords */
@@ -323,7 +329,9 @@ export default function WalkPage() {
         const nearby=await vworldWalkFootprints(lat,lon,key,domain).catch(()=>[]);
         if(nearby.length){try{const found=resolveWalkEntry(lat,lon,nearby);e.name=found.name||e.name;e.use=found.use||e.use;e.pnu=found.pnu||pnu||undefined;e.floors=found.floors||e.floors;route=await resolveEntryKind(e,b,e.pnu??pnu,town);}catch{/* Keep the unclassified source in the apartment chooser. */}}
       }
-      if(route.kind!=='building'){
+      // Only positive apartment evidence (a collected complex, a 공동주택 register, a block name)
+      // opens the unit chooser; any other building goes straight in from its own drawing.
+      if(route.kind==='apartment'){
         e.kind='apartment';e.pnu=e.pnu??pnu??undefined;e.complexId=route.complex?.id??e.complexId;
         e.dong=normaliseBlock(e.dong||b.dong||apartmentBlock(b.name??'')||apartmentBlock(footprintName));
         e.name=route.complex?.name||apartmentName(e.complexId?.split(':').slice(3).join(':')??'')||apartmentName(e.name,'',e.dong)||apartmentName(footprintName,'',e.dong)||apartmentName(b.name??'','',e.dong);
@@ -439,7 +447,7 @@ export default function WalkPage() {
   const exitFlat = () => {
     if (exiting.current) return;
     exiting.current = true;
-    setVending(null); setMonitorOpen(false); setLiftPanel(null); setCameraPanel(false);
+    setVending(null); setMonitorOpen(false); setLiftPanel(null); setCameraPanel(false); setITalk(null); setShop(null);
     document.exitPointerLock?.();
     setFade(true);
     setTimeout(() => {
@@ -467,7 +475,7 @@ export default function WalkPage() {
       // building. Its register use must still route through the verified apartment-plan gate.
       const town=(pnu?addressOfPnu(pnu)??'':'').match(/([가-힣0-9]+(?:동|읍|면|리|가))(?=\s+\d)/)?.[1]??e.complexId?.split(':')[1]??'';
       const route=await resolveEntryKind(e,info,pnu,town);
-      if (route.kind!=='building') {
+      if (route.kind==='apartment') {
         const name = route.complex?.name||apartmentName(e.name)||apartmentName(info.name??'');
         enter({ ...e,name,complexId:route.complex?.id??e.complexId,pnu:pnu??e.pnu,
           dong:e.dong||apartmentBlock(info.name??'')||apartmentBlock(e.name),kind:'apartment',useLabel:info.use??undefined });
@@ -477,7 +485,10 @@ export default function WalkPage() {
       setBsource(src);
       // (the shell: the building's surveyed outline, the door where it was gone into)
       const shape = plateOf(e.foot, e.heading, info.buildingArea, [e.x, e.y]);
-      const survey=await surveyRequest;
+      // The external drawing must be this building: its outline has to overlap the footprint gone
+      // into. A neighbour matched by name or nearest point is dropped and the footprint used instead.
+      const surveyed=await surveyRequest;
+      const survey=surveyed?.status==="available"&&surveyed.frame&&e.foot&&e.foot.length>=3&&!surveyMatches(surveyed,e.foot,g.frameOf(surveyed.frame.lon,surveyed.frame.lat))?{...surveyed,status:"mismatch"}:surveyed;
       const tenants=(e.tenants??[]).filter(t=>t.floor!=null).map(t=>({name:t.name,kind:t.kind,category:t.category,level:t.floor!}));
       const frame=survey?.status==="available"?survey.frame:null;
       const surveyOutline=frame&&survey?.outlines?.[0]?.[0]?.map(([x,y])=>[x-frame.x,frame.depth-(y-frame.y)] as [number,number]);
@@ -502,7 +513,7 @@ export default function WalkPage() {
         return;
       }
       let stackReq:Promise<{status:string;level?:number;cores?:{type:string;polygons:[number,number][][][]}[]}|null>|null=null,deptReq:Promise<{departments?:{name:string;doctors:number}[]}|null>|null=null;
-      setBsource(`${src} · ${surveyState==="available"?"SGIS 건물 매칭":surveyState==="unconfigured"?"SGIS 키가 서버에 설정되지 않음":surveyState==="auth_error"?"SGIS 인증 확인 필요":surveyState==="not_covered"?"SGIS 도면 미제공 건물":"SGIS 응답 지연·연결 실패"}`);
+      setBsource(`${src} · ${surveyState==="available"?"SGIS 건물 매칭":surveyState==="unconfigured"?"SGIS 키가 서버에 설정되지 않음":surveyState==="auth_error"?"SGIS 인증 확인 필요":surveyState==="not_covered"?"SGIS 도면 미제공 건물":surveyState==="mismatch"?"SGIS 도면이 이 건물 외곽과 달라 외곽선으로 구성":"SGIS 응답 지연·연결 실패"}`);
       const bi = new BuildingInterior(renderer.current!, {
         plan, seed: Math.abs([...e.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)), hour,
         onHud: setBhud, onLiftPanel: p => { setLiftPanel(p); if (p) document.exitPointerLock?.(); }, onProgress: (k, text) => setProgress({ k, text }), onExit: () => exitBuilding(),
@@ -571,7 +582,7 @@ export default function WalkPage() {
     }
     if (!p) p = generateFacility(base);
     sound.resume(); document.exitPointerLock?.();
-    setLiftPanel(null); setVending(null); setMonitorOpen(false); setHud(null);
+    setLiftPanel(null); setVending(null); setMonitorOpen(false); setHud(null); setITalk(null);
     interior.current?.dispose(); interior.current = null;
     setPlan(p); setFade(true); setPhase("interior-loading"); setProgress({ k: 0, text: level === 1 ? "출입문으로 들어가는 중" : "엘리베이터로 이동하는 중" });
     const it = new Interior(renderer.current, {
@@ -580,6 +591,7 @@ export default function WalkPage() {
       onLift: () => { setLiftPanel({ levels: f.levels, current: level }); document.exitPointerLock?.(); },
       onVending: session => { setVending(session); document.exitPointerLock?.(); },
       onMonitor: () => { setMonitorOpen(true); document.exitPointerLock?.(); },
+      onTalk: t => { setITalk(t); if (t) document.exitPointerLock?.(); },
     });
     interior.current = it;
     it.resize(canvas.current!.clientWidth, canvas.current!.clientHeight);
@@ -601,6 +613,8 @@ export default function WalkPage() {
 
   const leave = () => { const b = returnTo.current ?? safeWalkBack(q.get("back")); if (b) location.href = b; else if (history.length > 1) history.back(); else location.href = "/realestate-map"; };
 
+  /** the shop the walker stands in (a building floor's 편의점, 카페, 약국, 식당, 매장), if any */
+  const shopHere=useMemo(()=>{if(phase!=="interior"||!plan?.facility||!hud?.room)return null;const k=shopOf(hud.room,plan.facility.kind,"");return k?{kind:k,label:/복도|로비/.test(hud.room)?SHOP_LABEL[k]:hud.room}:null;},[phase,plan,hud?.room]);
   // keys the page owns: Esc leaves (back to the street, then the map), E enters a building
   const exiting = useRef(false), lastEscape = useRef(-Infinity), unlockedAt = useRef(-Infinity), escapeHandled = useRef(false);
   const laptopNative=useRef(false),laptopFullscreenExit=useRef(-Infinity);
@@ -618,7 +632,7 @@ export default function WalkPage() {
         if (cameraPanel) { setCameraPanel(false); return; }
         if (monitorOpen) { closeMonitor(); return; }
         if (vending) { setVending(null); return; }
-        if (phase === "interior") { if (liftPanel) setLiftPanel(null); else exitFlat(); return; }
+        if (phase === "interior") { if (shop) setShop(null); else if (iTalk) interior.current?.closeTalk(); else if (liftPanel) setLiftPanel(null); else exitFlat(); return; }
         if (phase === "building") { if (talk) building.current?.closeTalk(); else if (liftPanel) building.current?.closeLiftPanel(); else exitBuilding(); return; }
         if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); }
         else if (phase === "outdoor") leave();
@@ -629,6 +643,7 @@ export default function WalkPage() {
       sound.resume();
       if (e.code === "KeyC" && !e.repeat) { active()?.resetLook(); return; }
       if (e.code === "KeyH") setShowHelp(s => !s);
+      if (e.code === "KeyQ" && phase === "interior" && !e.repeat && shopHere && !iTalk) { e.preventDefault(); setShop(shopHere); document.exitPointerLock?.(); return; }
       if(e.code==="KeyF"&&phase==="outdoor"&&!e.repeat){if(game.current?.interactCar())e.preventDefault();return;}
       if ((e.code === "KeyE" || e.code === "Enter") && phase === "outdoor" && !e.repeat) {
         if(game.current?.driving){game.current.interactCar();e.preventDefault();return;}
@@ -682,7 +697,7 @@ export default function WalkPage() {
   }, []);
   const onDown = (e: React.PointerEvent) => {
     sound.resume();
-    if (vending || monitorOpen || liftPanel || cameraPanel || talk) return;
+    if (vending || monitorOpen || liftPanel || cameraPanel || talk || iTalk || shop) return;
     if ((e.target as HTMLElement).closest("button, a, input, select, textarea, iframe")) return;
     if (e.pointerType === "touch") {
       if (!touch) setTouch(true);
@@ -896,6 +911,17 @@ export default function WalkPage() {
           {laptopOpen && <LaptopScreen corners={laptopCorners} zoom={{ on: zoomed === "laptop", set: on => zoomTo(on ? "laptop" : null) }} onClose={() => { interior.current?.closeLaptop(); setLaptopOpen(false); setZoomed(null); }} />}
           <div className="wk-cross" />
           {hud?.target && !touch && !vending && !monitorOpen && !liftPanel && <div className="wk-hint"><kbd>E</kbd> {hud.target}{hud.pet && <> · <kbd>Z</kbd> 확대해서 보기</>}</div>}
+          {hud?.guide && !iTalk && <div className="wk-nav-notice">{hud.guide}{/m ·/.test(hud.guide) && <button type="button" className="wk-nav-cancel" onClick={() => interior.current?.clearGuide()} aria-label="길 안내 끄기">×</button>}</div>}
+          {iTalk && <div className="wk-prompt wk-talk" role="dialog" aria-label="NPC 대화" onPointerDown={e => e.stopPropagation()}>
+            <h3>{iTalk.name}</h3><p>{iTalk.text}</p>
+            <div className="wk-talk-destinations">{iTalk.shop && <button className="wk-btn wk-btn-shop" onClick={() => { setShop(iTalk.shop!); interior.current?.closeTalk(); }}>🛒 {iTalk.shop.label}에서 물건 사기</button>}{iTalk.questions.map((q, i) => <button className="wk-btn" key={`q${i}`} onClick={() => interior.current?.ask(i)}>{q}</button>)}</div>
+            {iTalk.destinations.length > 0 && <><small className="wk-talk-sub">길 안내</small><div className="wk-talk-destinations">{iTalk.destinations.map((d, i) => <button className="wk-btn" key={i} onClick={() => interior.current?.guideTo(d.x, d.z, d.label)}>{d.label}</button>)}</div></>}
+            {iTalk.directory.length > 0 && <details><summary>층별 안내 보기</summary><div className="wk-talk-directory">{iTalk.directory.map((f, i) => <p key={i}><b>{f.label}</b> {f.uses}</p>)}</div></details>}
+            <button className="wk-btn" onClick={() => interior.current?.closeTalk()}>대화 마치기 <kbd>Esc</kbd></button>
+          </div>}
+          {shopHere && !shop && !iTalk && <button type="button" className="wk-shop-here" onClick={() => { setShop(shopHere); document.exitPointerLock?.(); }}>🛒 {shopHere.label} · {!touch && <kbd>Q</kbd>} 물건 사기</button>}
+          {shop && <ShopMenu shop={shop} onBuy={it => it.kind === "goods" ? false : !!interior.current?.consumeBought(it)} onClose={() => setShop(null)} />}
+          {hud?.use && !vending && !monitorOpen && !liftPanel && <div className={`wk-use${/중$/.test(hud.use) ? " is-busy" : ""}`} role="status">{/중$/.test(hud.use) ? hud.use : <>{!touch && <kbd>R</kbd>} {hud.use}</>}</div>}
           {hud?.pet && touch && <button className="wk-btn wk-pet-zoom" onPointerDown={e => { e.stopPropagation(); interior.current?.zoomPet(true); }}>🔍 확대해서 보기</button>}
           {hud?.seated === "반려동물" && <div className="wk-laptop-bar" onPointerDown={e => e.stopPropagation()}><span>가까이서 보는 중</span><button className="wk-btn" onClick={() => interior.current?.zoomPet(false)}>축소 <kbd>Z</kbd></button></div>}
           {hud?.seated && hud.seated !== "화면" && hud.seated !== "반려동물" && <div className="wk-hint is-seat">{hud.seated} · 이동키를 누르면 일어납니다</div>}
@@ -951,6 +977,7 @@ export default function WalkPage() {
           {!stickAt && <div className="wk-touch-guide">✥<small>이동 · 바깥으로 밀면 달리기</small></div>}
           {stickAt && <div className="wk-stick" style={{ left: stickAt.x - 60, top: stickAt.y - 60 }}><i style={{ transform: `translate(${stickAt.dx}px, ${stickAt.dy}px)` }} /></div>}
           {phase === "interior" && <button className={`wk-act${hud?.target ? " on" : ""}`} onPointerDown={e => { e.stopPropagation(); interior.current?.interact(); }}>{hud?.target ?? "상호작용"}</button>}
+          {phase === "interior" && hud?.use && !/중$/.test(hud.use) && <button className="wk-act wk-act-use on" onPointerDown={e => { e.stopPropagation(); interior.current?.consumeHand(); }}>{hud.use}</button>}
           {phase === "interior" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>{hud?.view === "third" ? "1인칭" : "3인칭"}</button>}
           {phase === "interior" && !plan?.facility && <button className="wk-view wk-view-top" aria-pressed={!!hud?.overhead} onPointerDown={e => { e.stopPropagation(); interior.current?.toggleOverhead(); }}>{hud?.overhead ? "걷기" : "위에서"}</button>}
           {phase === "building" && <button className={`wk-act${bhud?.prompt ? " on" : ""}`} onPointerDown={e => { e.stopPropagation(); building.current?.interact(); }}>{bhud?.prompt ?? "상호작용"}</button>}

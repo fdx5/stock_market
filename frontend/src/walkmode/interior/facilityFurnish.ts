@@ -24,6 +24,8 @@ export interface FacilityHooks {
   monitor?(screen: MonitorScreen): void;
   vending?(session: VendingSession): void;
   vendSound?(kind: "motor" | "drop"): void;
+  /** the dispensed can taken from the tray and drunk: its look (a copy of the can's) and name */
+  drink?(can: THREE.Object3D, name: string, fizzy: boolean): void;
   vendingPut?: number;
   /** the lift called: the floor panel opened */
   lift?(): void;

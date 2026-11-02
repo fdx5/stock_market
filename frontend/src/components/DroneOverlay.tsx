@@ -18,6 +18,7 @@ import './drone-live.css';
 import './traffic-cctv.css';
 import './drone-flight-settings.css';
 import CameraSettings from "../walkmode/CameraSettings";
+import DroneGameHud from "./DroneGameHud";
 
 /* 드론 mode's screen: speed, height, heading, how much of the world round it is drawn (and when
  * the drone is held back for it), sound on/off, leave; on touch screens two sticks (mode 2: the
@@ -76,7 +77,7 @@ function WalkPad({ flight }: { flight: DroneFlight }) {
       <button type="button" className="re-walk-pad-right" aria-label="오른쪽으로 돌기" {...hold("KeyE")}>▶</button>
       <button type="button" className="re-walk-pad-down" aria-label="뒤로 · 브레이크" {...hold("KeyS")}>▼</button>
       {!flight.cycling && !flight.car && <button type="button" className="re-walk-pad-run" aria-label="달리기" {...hold("ShiftLeft")}>달리기</button>}
-      <small>W·↑ 걷기 · Shift 달리기</small>
+      {flight.cycling || flight.car ? null : <small>W·↑ 걷기 · Shift 달리기</small>}
     </div>
   );
 }
@@ -211,7 +212,8 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
       {banner && <div key={banner.n} className={`re-drone-autopilot-banner${banner.on ? ' is-on' : ''}`} role="status">
         <b>{banner.on ? 'AUTOPILOT ENGAGED' : 'AUTOPILOT DISENGAGED'}</b><small>{banner.on ? '오토파일럿 켜짐' : '오토파일럿 꺼짐 · 수동 조종'}</small>
       </div>}
-      <div className="re-drone-hud" role="status" data-autopilot={auto ? flight.autopilotStatus : 'off'} data-agl={h?.agl.toFixed(1) ?? ''} data-ahead={h ? Math.round(Math.min(h.ahead, 9999)) : ""} data-unready={h ? Math.round(h.unready) : ""} data-front={h ? Math.round(h.unreadyFront) : ""} data-kmh={h ? h.kmh.toFixed(1) : ""}>
+      {flight.walking && <DroneGameHud flight={flight} touch={touch} />}
+      <div className={`re-drone-hud${flight.walking ? " is-walking" : ""}`} role="status" data-autopilot={auto ? flight.autopilotStatus : 'off'} data-agl={h?.agl.toFixed(1) ?? ''} data-ahead={h ? Math.round(Math.min(h.ahead, 9999)) : ""} data-unready={h ? Math.round(h.unready) : ""} data-front={h ? Math.round(h.unreadyFront) : ""} data-kmh={h ? h.kmh.toFixed(1) : ""}>
         <b className="re-drone-speed">{h ? Math.round(h.kmh) : 0}<small>km/h</small></b>
         <span className="re-drone-alt">고도 <b>{h ? Math.round(h.agl) : 0}</b>m</span>
         <span className="re-drone-dir">{dir} {h ? Math.round(h.heading) : 0}°</span>
@@ -220,9 +222,9 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
         </span>
       </div>
       {flight.walking && <WalkPad flight={flight} />}
-      {flight.walking && !flight.cycling && flight.door && <button type="button" className="re-drone-door" onClick={() => window.dispatchEvent(new Event('drone-enter-door'))}><kbd>E</kbd> 건물 안으로 들어가기</button>}
-      {flight.walking && <button type="button" className="re-drone-car" onClick={() => window.dispatchEvent(new Event('drone-car-toggle'))}><kbd>F</kbd> {flight.car ? `차에서 내리기 · ${Math.round(Math.abs(flight.carSpeed) * 3.6)}/${Math.round(flight.car.top * 3.6)}km/h` : '가까운 차 운전하기'}</button>}
-      {flight.walking && !flight.car && <button type="button" className="re-drone-bike" onClick={() => window.dispatchEvent(new Event('drone-bike-toggle'))}><kbd>B</kbd> {flight.cycling ? '자전거에서 내리기' : '자전거 타기 (최고 100km/h)'}</button>}
+      {flight.walking && !flight.cycling && !flight.car && flight.door && (touch || flight.door.at) && <button type="button" className="re-drone-door" onClick={() => window.dispatchEvent(new Event('drone-enter-door'))}><kbd>E</kbd> {flight.door.at ? `${flight.door.label ?? "건물"}으로 들어가기` : flight.door.label ? `들어가기 (${flight.door.label} ${flight.door.far ?? 0}m)` : '건물 안으로 들어가기'}</button>}
+      {flight.walking && touch && <button type="button" className="re-drone-car" onClick={() => window.dispatchEvent(new Event('drone-car-toggle'))}><kbd>F</kbd> {flight.car ? `차에서 내리기 · ${Math.round(Math.abs(flight.carSpeed) * 3.6)}/${Math.round(flight.car.top * 3.6)}km/h` : '가까운 차 운전하기'}</button>}
+      {flight.walking && touch && !flight.car && <button type="button" className="re-drone-bike" onClick={() => window.dispatchEvent(new Event('drone-bike-toggle'))}><kbd>B</kbd> {flight.cycling ? '자전거에서 내리기' : '자전거 타기 (최고 100km/h)'}</button>}
       <div className="re-drone-auto-controls">
       <button type="button" className={`re-drone-autopilot${flight.walking ? ' is-on' : ''}`} aria-pressed={flight.walking}
         title="드론에서 내려 이 지도 그대로 걷기 (G) · WASD 이동 · Shift 달리기 · 드래그로 둘러보기"
@@ -231,7 +233,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
           <span className="re-drone-autopilot-switch" aria-hidden="true"><i /><em>{flight.walking ? 'ON' : 'OFF'}</em></span></span>
         <small>{flight.walking ? '눌러서 다시 비행 · G' : '지면으로 내려 걷기 · G'}</small>
       </button>
-      <button type="button" className={`re-drone-autopilot${auto ? ' is-on' : ''}`} aria-pressed={auto}
+      {!flight.walking && <><button type="button" className={`re-drone-autopilot${auto ? ' is-on' : ''}`} aria-pressed={auto}
         title="설정한 속도와 고도로 시선 방향 자동 전진 · 10~1,000m 지형·건물 회피 · 이동/고도 조작 시 수동 전환"
         onClick={() => { flight.toggleAutopilot(); setHud(h => h ? { ...h, autopilot: flight.autopilot, autopilotStatus: flight.autopilotStatus } : h); }}>
         <span className="re-drone-autopilot-head">
@@ -245,7 +247,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
         <svg className="re-flight-settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg>
         <span><b>속도·고도 설정</b><small>{Math.round(flight.autoCruiseSpeed*3.6)} km/h <i>·</i> {Math.round(flight.autoCruiseAgl)} m</small></span>
         <span className="re-flight-settings-chevron" aria-hidden="true">›</span>
-      </button>
+      </button></>}
       {autoSettings && createPortal(<dialog ref={settingsDialog} data-covers-page className="re-drone-auto-settings re-drone-flight-settings" id="drone-auto-settings" aria-label="오토파일럿 설정"
         onCancel={e=>{e.preventDefault();setAutoSettings(false);}} onPointerDown={e => e.stopPropagation()}
         onClick={e=>{if(e.target===e.currentTarget){const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)setAutoSettings(false);}}}>
@@ -287,8 +289,8 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
           : <button type="button" className="re-drone-exit" onClick={onExit} title="드론에서 나가기 (Esc)">착륙</button>}
       </div>
       <DroneRadar vkey={radar.vkey} domain={radar.domain} origin={radar.origin} where={radar.where} signs={signs} onPick={pickSign}>
-        <LiveLayerControls live={live} where={radar.where} />
-        {TRAFFIC_CCTV_ENABLED&&<TrafficCctvControls cctv={cctv} signs={signs} {...radar} onPick={pickSign} onUpdate={value=>setCard(old=>{if(!old?.sign.camera)return old;const c=value.items.find(c=>c.id===old.sign.camera?.id);return c?{...old,sign:{...old.sign,camera:c}}:old;})}/>}
+        {!flight.walking && <LiveLayerControls live={live} where={radar.where} />}
+        {TRAFFIC_CCTV_ENABLED&&!flight.walking&&<TrafficCctvControls cctv={cctv} signs={signs} {...radar} onPick={pickSign} onUpdate={value=>setCard(old=>{if(!old?.sign.camera)return old;const c=value.items.find(c=>c.id===old.sign.camera?.id);return c?{...old,sign:{...old.sign,camera:c}}:old;})}/>}
       </DroneRadar>
       {help && <div className="re-drone-help" role="note">
         {touch
@@ -297,7 +299,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
         <span>최고 200km/h · 지면·건물 위 2m 이상 · 수동 고도 상한 없음</span>
         <span>오토 파일럿: 속도 0~200km/h · 목표 고도 10~1,000m 설정 · 시선 방향 전진 · 이동·고도 조작 시 수동 전환</span>
       </div>}
-      <div className="re-drone-alt-buttons" aria-label="고도 조절">
+      {!flight.walking && <div className="re-drone-alt-buttons" aria-label="고도 조절">
         {([["BtnUp", "▲", "상승 (누르고 있기)"], ["BtnDown", "▼", "하강 (누르고 있기)"]] as const).map(([code, label, title]) => (
           <button key={code} type="button" title={title} aria-label={title}
             onPointerDown={e => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); flight.keys.add(code); }}
@@ -314,7 +316,7 @@ export default function DroneOverlay({ sink, flight, signs, cctv, live, radar, t
           <svg viewBox="0 0 24 24" className="re-drone-rotate-icon" aria-hidden="true"><path d="M19 9a7.5 7.5 0 1 0 .2 5M19 4v5h-5" /></svg>
           <span>회전</span>
         </button>
-      </div>
+      </div>}
       {card?.sign.camera?(TRAFFIC_CCTV_ENABLED&&<CctvPopup key={card.sign.camera.id} camera={card.sign.camera} onClose={closeCard} onRefresh={()=>window.dispatchEvent(new Event('cctv-refresh'))}/>)
         :card&&<DroneBuildingCard sign={card.sign} at={card.at} distance={card.distance} vkey={radar.vkey} domain={radar.domain} onClose={closeCard} />}
       {livePanel && !card && <LivePanel key={livePanel.key} item={livePanel.item} onClose={() => { signs.selected = null; setLivePanel(null); }} />}

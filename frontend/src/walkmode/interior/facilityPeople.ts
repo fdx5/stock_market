@@ -42,7 +42,15 @@ interface Person {
   av: Avatar; role: FacilityRole; room: Room; spot?: Spot;
   pos: THREE.Vector2; face: number; pose: "sit" | "stand" | "lie"; y: number;
   path: THREE.Vector2[]; wait: number; speed: number; bubble: THREE.Sprite | null; bubbleT: number; turnTo: number | null; seed: number; line: number;
+  /** when they last greeted the visitor going by, or said sorry for being in the way (s) */
+  greeted: number; bumped: number;
 }
+/** what a talk gives the page: who answered, what they said, and their part (for the questions) */
+export interface PersonTalk { id: number; name: string; role: FacilityRole; text: string; /** the room they are in (its label) */ room: string }
+/** short words for passing by: staff greet, the rest excuse themselves when in the way */
+const GREET_STAFF = ["안녕하세요!", "어서 오세요.", "안녕하세요, 도와드릴까요?", "네, 안녕하세요.", "편하게 둘러보세요."];
+const GREET_PEER = ["아, 안녕하세요.", "(가볍게 목례)", "안녕하세요~"];
+const EXCUSE = ["앗, 죄송합니다.", "잠시만 지나갈게요.", "실례합니다.", "어이쿠, 먼저 가세요."];
 
 export class People {
   readonly root = new THREE.Group();
@@ -52,7 +60,11 @@ export class People {
   private nodes: { p: THREE.Vector2; room: string }[] = [];
   private corridorY: number; private corridor: Room | undefined;
 
-  constructor(private plan: FloorPlan, spots: Spot[], private speak: () => void, private hour = 12) {
+  /** the page's dialogue for a talk (absent: the bubble only) */
+  onTalk: ((t: PersonTalk) => void) | null = null;
+  private clock = 0;
+  /** `speak(text, pitch)`: a voice for what is said (the walk's babble), pitch by the person */
+  constructor(private plan: FloorPlan, spots: Spot[], private speak: (text: string, pitch: number) => void, private hour = 12) {
     const fac = plan.facility!, used = new Set<Spot>();
     let seed = Math.abs([...`${plan.complexId}|${fac.level}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7));
     const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
@@ -88,7 +100,7 @@ export class People {
       const av = new Avatar(1 + Math.floor(rnd() * 9999), OUTFIT[want.role]);
       av.shoes(true);
       const p: Person = { av, role: want.role, room, spot: s, pos: new THREE.Vector2(s?.x ?? 0, s?.z ?? 0), face: s?.face ?? 0, pose: s?.pose ?? "stand", y: s?.y ?? 0,
-        path: [], wait: rnd() * 4, speed: 1.05 + rnd() * 0.35, bubble: null, bubbleT: 0, turnTo: null, seed: Math.floor(rnd() * 1000), line: 0 };
+        path: [], wait: rnd() * 4, speed: 1.05 + rnd() * 0.35, bubble: null, bubbleT: 0, turnTo: null, seed: Math.floor(rnd() * 1000), line: 0, greeted: -99, bumped: -99 };
       if (walker) { const n = this.nodes[Math.floor(rnd() * this.nodes.length)]; if (!n) continue; p.pos.copy(n.p); p.pose = "stand"; p.spot = undefined; }
       av.pose = p.pose === "lie" ? "stand" : p.pose;
       this.root.add(av.root);
@@ -124,15 +136,31 @@ export class People {
     return { desk: "직원", clerk: "안내 직원", doctor: "의사", nurse: "간호사", patient: "환자", visitor: "방문객", student: "학생", teacher: "선생님", shopper: "손님", guard: "보안 요원", cook: "요리사", guest: "투숙객" }[p.role];
   }
   private visitor = new THREE.Vector2();
+  /** their voice's pitch: low to high by who they are */
+  private pitch(p: Person) { return 0.78 + ((p.seed * 37) % 100) / 100 * 0.6; }
   private talk(p: Person) {
     // (their own words, put together for them, going on from what they said before — npcTalk.ts;
     // the few stock lines only for a plan without its building)
     const text = this.plan.facility ? talk({ role: p.role, kind: this.plan.facility.kind, plan: this.plan, room: p.room.label, seed: p.seed * 31 + this.people.indexOf(p), turn: p.line++, hour: this.hour })
       : LINES[p.role][(p.seed + p.line++) % LINES[p.role].length];
     p.turnTo = Math.atan2(this.visitor.x - p.pos.x, this.visitor.y - p.pos.y);
-    p.wait = Math.max(p.wait, 4);
+    p.wait = Math.max(p.wait, 8);
     this.say(p, text);
-    this.speak();
+    this.speak(text, this.pitch(p));
+    this.onTalk?.({ id: this.people.indexOf(p), name: this.title(p), role: p.role, text, room: p.room.label });
+  }
+  /** the page's "다른 얘기" (or a question's answer): the same person goes on */
+  talkAgain(id: number) { const p = this.people[id]; if (p) this.talk(p); }
+  /** a reply put in their mouth (an answer to a question the page asked) */
+  reply(id: number, text: string) {
+    const p = this.people[id]; if (!p) return;
+    p.turnTo = Math.atan2(this.visitor.x - p.pos.x, this.visitor.y - p.pos.y); p.wait = Math.max(p.wait, 6);
+    this.say(p, text); this.speak(text, this.pitch(p));
+  }
+  /** a word in passing (a greeting, sorry), without the page's dialogue */
+  private remark(p: Person, text: string) {
+    p.turnTo = Math.atan2(this.visitor.x - p.pos.x, this.visitor.y - p.pos.y);
+    this.say(p, text); this.speak(text, this.pitch(p));
   }
   private say(p: Person, text: string) {
     if (p.bubble) { p.av.root.remove(p.bubble); (p.bubble.material as THREE.SpriteMaterial).map?.dispose(); (p.bubble.material as THREE.SpriteMaterial).dispose(); }
@@ -157,8 +185,16 @@ export class People {
   }
 
   update(dt: number, visitor: { x: number; z: number }) {
-    this.visitor.set(visitor.x, visitor.z);
+    this.visitor.set(visitor.x, visitor.z); this.clock += dt;
+    let spoke = false;
     for (const p of this.people) {
+      // (the visitor coming up to staff at their place: a greeting, once in a while; at most one a frame)
+      const vd = Math.hypot(visitor.x - p.pos.x, visitor.z - p.pos.y);
+      if (!spoke && !p.bubble && p.pose !== "lie" && vd < 1.9 && vd > 0.5 && this.clock - p.greeted > 45 && this.clock > 2) {
+        p.greeted = this.clock;
+        const staff = p.role === "clerk" || p.role === "nurse" || p.role === "guard" || p.role === "desk" || p.role === "doctor" || p.role === "cook";
+        if (staff || (p.seed % 3 === 0)) { this.remark(p, (staff ? GREET_STAFF : GREET_PEER)[(p.seed + Math.floor(this.clock)) % (staff ? GREET_STAFF : GREET_PEER).length]); spoke = true; }
+      }
       // (a large floor's people far off: not drawn, not walked — they wait where they are)
       if (this.large) { const far = Math.hypot(p.pos.x - visitor.x, p.pos.y - visitor.z) > 42; p.av.root.visible = !far; if (far) continue; }
       if (p.bubble && (p.bubbleT -= dt) <= 0) { p.av.root.remove(p.bubble); (p.bubble.material as THREE.SpriteMaterial).map?.dispose(); (p.bubble.material as THREE.SpriteMaterial).dispose(); p.bubble = null; p.turnTo = null; }
@@ -172,8 +208,14 @@ export class People {
           // (the visitor in the way ahead: stop and wait)
           const vx = visitor.x - p.pos.x, vz = visitor.z - p.pos.y, vd = Math.hypot(vx, vz);
           const blocked = vd < 1.1 && (vx * dx + vz * dz) / Math.max(1e-6, vd * d) > 0.3;
+          // (held up by the visitor: sorry, and round them — a step to the side of the way ahead)
+          if (blocked && !spoke && this.clock - p.bumped > 20 && vd < 0.8) {
+            p.bumped = this.clock; spoke = true; this.remark(p, EXCUSE[(p.seed + p.line) % EXCUSE.length]);
+            const side = (vx * dz - vz * dx) > 0 ? -1 : 1, ox = -dz / d * 0.7 * side, oz = dx / d * 0.7 * side;
+            p.path.unshift(new THREE.Vector2(p.pos.x + ox + dx / d * 0.4, p.pos.y + oz + dz / d * 0.4));
+          }
           if (d < 0.08) { p.path.shift(); if (!p.path.length) p.wait = 2 + (p.seed % 5); }
-          else if (!blocked) {
+          else if (!blocked || this.clock - p.bumped < 1.5) {
             const step = Math.min(d, p.speed * dt);
             p.pos.x += (dx / d) * step; p.pos.y += (dz / d) * step; speed = p.speed;
             const want = Math.atan2(dx, dz); p.face += angle(want - p.face) * Math.min(1, dt * 8);

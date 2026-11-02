@@ -65,3 +65,7 @@ Poly Haven CC0 원본 1k 디퓨즈·OpenGL 노멀·ARM을 동일 크기 WebP로 
 | 콘크리트 | https://polyhaven.com/a/concrete_floor_02 | 2 m |
 
 라이선스: https://polyhaven.com/license (CC0). 가구·가전의 추가 형상은 코드로 제작하며, 다운로드한 실내 사진을 재질로 사용하지 않는다.
+
+## 음료·음식 음성 (2026-11-02)
+
+`sfx/kya1.wav`·`kya2.wav`·`kya3.wav`(남성 "캬~")와 `sfx/mm.wav`("음~")는 녹음이나 TTS가 아니라 `scripts/synth-drink-voices.py`의 소스-필터(Klatt 방식) 음성 합성으로 이 저장소에서 만든 44.1 kHz 16비트 모노 파일이다: 성문 펄스(지터·시머·숨소리), 시간에 따라 움직이는 포먼트 공명기, ㅋ의 파열·기식, /j/→/a/ 전이, 만족스럽게 내려가는 음높이와 숨 내쉼, 작은 방 반사음. 캔 따는 소리·목넘김·씹는 소리는 `src/walkmode/game/sound.ts`에서 실시간 합성한다.

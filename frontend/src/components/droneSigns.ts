@@ -69,6 +69,8 @@ export class DroneSigns {
   static hasCard(s: Sign) { return !!s.live || (s.kind !== 'station' && s.kind !== 'bridge' && s.name.length >= 2); }
 
   /** every label of a kind now held (the complexes' names, for their bicycles) */
+  /** every label within r of (x, y) (a building's names, for what it is) */
+  labelsNear(x: number, y: number, r: number): DroneLabel[] { const out: DroneLabel[] = []; for (const l of this.byTile.values()) for (const q of l) if (Math.abs(q.x - x) < r && Math.abs(q.y - y) < r) out.push(q); return out; }
   labelsOfKind(kind: DroneLabel["kind"]): DroneLabel[] { const out: DroneLabel[] = []; for (const l of this.byTile.values()) for (const x of l) if (x.kind === kind) out.push(x); return out; }
   set(tile: string, labels: DroneLabel[] | null) {
     if (labels?.length) this.byTile.set(tile, labels); else if (!this.byTile.delete(tile)) return;
