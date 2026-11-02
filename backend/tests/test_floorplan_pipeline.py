@@ -330,7 +330,8 @@ def test_open_kitchen_returns_surplus_floor_to_the_living_room():
     assigned={(i,j):(0 if i<5 else 1) for i,j in cells}
     distances={(i,j):abs(i-(0 if i<5 else 5))+j for i,j in cells}
     neighbours={c:[(q,1.) for q in [(c[0]+1,c[1]),(c[0]-1,c[1]),(c[0],c[1]+1),(c[0],c[1]-1)] if q in cells] for c in cells}
-    _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,lambda a,b:(0.,[]),xs,ys)
+    # Two-metre cells: the kitchen keeps a workable size (6 m2, 1.8 m deep).
+    _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,lambda a,b:(0.,[]),xs,ys,(2.,2.))
     kitchen=sum(1 for z in assigned.values() if z==0)
-    assert kitchen<=len(cells)*.45 and assigned[0,0]==0
+    assert kitchen<=len(cells)*.40 and assigned[0,0]==0
     assert all(assigned[i,j]==1 for i,j in cells if i>=3)

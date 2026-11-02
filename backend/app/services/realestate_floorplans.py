@@ -72,8 +72,18 @@ def _get(url: str, limit: int = 2_500_000) -> tuple[bytes, str]:
         _network.release()
 
 
+# The public pages as a browser asks for them. The production host received a
+# search page with its complex results left empty under the library's default agent.
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.6",
+    "Referer": "https://land.naver.com/",
+}
+
+
 def _download(url: str, limit: int) -> tuple[bytes,str]:
-    with requests.get(url, timeout=(5, 14), stream=True, allow_redirects=False) as r:
+    with requests.get(url, timeout=(5, 14), stream=True, allow_redirects=False, headers=_HEADERS) as r:
         r.raise_for_status()
         if r.status_code != 200:
             raise LookupError(f"drawing response {r.status_code} {urlparse(r.headers.get('Location','')).path[:60]}".strip())

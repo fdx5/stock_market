@@ -232,18 +232,39 @@ def _phrases(words: list[dict]) -> list[dict]:
         if group is None:groups.append([word])
         else:group.append(word)
     result=list(words)
+    order={id(w):k for k,w in enumerate(words)}
     for group in groups:
         if len(group)<2:continue
-        group.sort(key=lambda w:w["x"])
-        result.append({**group[0],"text":"".join(w["text"] for w in group),"x":float(np.mean([w["x"] for w in group])),"y":float(np.mean([w["y"] for w in group]))})
+        at={"x":float(np.mean([w["x"] for w in group])),"y":float(np.mean([w["y"] for w in group]))}
+        # Syllable boxes mapped back from the patch sheet can be a few pixels out of
+        # order (방 before 주); the engine's own reading order is joined as well.
+        texts=dict.fromkeys("".join(w["text"] for w in sorted(group,key=key)) for key in (lambda w:w["x"],lambda w:order[id(w)]))
+        result.extend({**group[0],"text":text,**at} for text in texts)
     return result
 
 
-KITCHEN_SPREAD=2.2
-OPEN_KITCHEN_SHARE=.45
+def _crossed(ink: np.ndarray, a: int, b: int, c: int, d: int) -> bool:
+    # (a narrow strip along a wall or door leaf is mostly ink, not an empty crossed box)
+    if c-a<20 or d-b<20 or ink[b+5:d-5,a+5:c-5].mean()>.4:return False
+    t=np.linspace(.08,.92,40);ys=(b+(d-b-1)*t).astype(int)
+    return bool(ink[ys,(a+(c-a-1)*t).astype(int)].mean()>=.6 and ink[ys,(c-1-(c-a-1)*t).astype(int)].mean()>=.6)
 
 
-def _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,barrier,xs,ys) -> None:
+def _tile_alternation(value: np.ndarray) -> float:
+    """Grey/white changes per 100 px along rows (median): tile joints repeat, a door arc does not."""
+    if value.shape[0]<3 or value.shape[1]<8:return 0.
+    tiles=(value<246).astype(np.int8)
+    return float(np.median(np.abs(np.diff(tiles,axis=1)).sum(1)/tiles.shape[1]*100))
+
+
+KITCHEN_SPREAD=1.0
+OPEN_KITCHEN_SHARE=.40
+REFINE_CELL_METRES=1.2
+KITCHEN_MIN_M2=6.
+KITCHEN_MIN_SIDE=1.8
+
+
+def _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,barrier,xs,ys,scale=(1.,1.)) -> None:
     """Return the kitchen's surplus open floor to the living room it opens onto.
 
     The kitchen keeps its seed and the floor nearest it; cells farthest from the kitchen
@@ -252,7 +273,10 @@ def _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,barrier,xs,ys)
     seed_cells={s["cell"] for s in seeds}
     for k,kitchen in enumerate(seeds):
         if kitchen["type"]!="kitchen":continue
-        living=[i for i,s in enumerate(seeds) if s["type"]=="living"]
+        # (in a flat with a separate studio, the studio's kitchenette beside its combined
+        # living/bedroom stays whole; a single kitchen is always held to the share)
+        several=sum(s["type"]=="kitchen" for s in seeds)>1
+        living=[i for i,s in enumerate(seeds) if s["type"]=="living" and not (several and s.get("combinedUses"))]
         if not living:return
         while True:
             own=[c for c,z in assigned.items() if z==k]
@@ -263,7 +287,16 @@ def _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,barrier,xs,ys)
             if not open_living:break
             shared=sum(area(c) for c,z in assigned.items() if z==k or (z in living and z in open_living.values()))
             if sum(area(c) for c in own)<=shared*OPEN_KITCHEN_SHARE:break
-            movable=[c for c in open_living if c not in seed_cells]
+            # It stays a workable kitchen: room for the refrigerator, the counter run
+            # and standing space in front of them.
+            def workable(rest):
+                if sum(area(c) for c in rest)*scale[0]*scale[1]<KITCHEN_MIN_M2:return False
+                w=(xs[max(c[0] for c in rest)+1]-xs[min(c[0] for c in rest)])*scale[0];h=(ys[max(c[1] for c in rest)+1]-ys[min(c[1] for c in rest)])*scale[1]
+                return min(w,h)>=KITCHEN_MIN_SIDE
+            # (never at the price of a kitchen larger than the living room)
+            living_area=sum(area(c) for c,z in assigned.items() if z in living)
+            larger=sum(area(c) for c in own)>living_area
+            movable=[c for c in open_living if c not in seed_cells and (larger or workable([q for q in own if q!=c]))]
             if not movable:break
             c=max(movable,key=lambda c:distances.get(c,0))
             assigned[c]=open_living[c]
@@ -497,6 +530,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
     white_regions=cv2.morphologyEx(white_regions,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
     white_regions[cv2.dilate(wall,np.ones((3,3),np.uint8))>0]=0
     _,white_ids,white_stats,_=cv2.connectedComponentsWithStats(white_regions)
+    diagonal_ink=cv2.dilate((gray<120).astype(np.uint8),np.ones((3,3),np.uint8))
     edge_strength=np.hypot(cv2.Sobel(gray,cv2.CV_32F,1,0),cv2.Sobel(gray,cv2.CV_32F,0,1))
     cells: dict[tuple[int, int], dict] = {}
     for j in range(ny):
@@ -514,11 +548,16 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             # tile joints tell it apart from a blank recess; dropping it left dead floor.
             light=float(((patch[:,:,2]>200)&(patch[:,:,2]<248)&(patch[:,:,1]<20)).mean())
             # (alternating with white tiles: a solid grey service floor is not a checker)
-            checker=bool(.15<light<.8 and float((patch[:,:,2]>=248).mean())>.15 and float((edge_strength[b:d,a:c]>40).mean())>.18 and float(patch[:,:,1].mean())<6)
-            if occupied < .12 and not (inside>=.65 and (monochrome or labelled or checker)):
+            checker=bool(.15<light<.8 and float((patch[:,:,2]>=248).mean())>.15 and float((edge_strength[b:d,a:c]>40).mean())>.18 and float(patch[:,:,1].mean())<6
+                         and min(_tile_alternation(patch[:,:,2]),_tile_alternation(patch[:,:,2].T))>=7)
+            # A box crossed corner to corner is a shaft or duct, never floor; kept, it hung
+            # walkable side pockets off bathrooms.
+            if _crossed(diagonal_ink,round(xs[i]),round(ys[j]),round(xs[i+1]),round(ys[j+1])):continue
+            # (an entrance's tiles stay floor even where its front door leaves the outline open)
+            if occupied < .12 and not checker and not (inside>=.65 and (monochrome or labelled)):
                 continue
             floor_fill=float(((patch[:,:,1]>15)|((patch[:,:,2]>110)&(patch[:,:,2]<232))).mean())
-            if not monochrome and not dimension_scale and not has_dimension_axis and floor_fill<.12 and not labelled:
+            if not monochrome and not dimension_scale and not has_dimension_axis and floor_fill<.12 and not labelled and not checker:
                 ids,counts=np.unique(white_ids[b:d,a:c],return_counts=True)
                 parts=[(int(count),int(k)) for k,count in zip(ids,counts) if k]
                 region=max(parts,default=(0,0))[1]
@@ -530,6 +569,37 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
                            "wood":float(((patch[:,:,0]>8)&(patch[:,:,0]<40)&(patch[:,:,1]>85)).mean()),
                            "pale":float(((patch[:,:,0]>10)&(patch[:,:,0]<40)&(patch[:,:,1]>15)&(patch[:,:,1]<100)&(patch[:,:,2]>190)).mean()),
                            "checker":checker}
+    # A crossed shaft box split by grid lines: test the X over blocks of up to 3x3 cells.
+    for (i,j) in sorted(cells):
+        for w,h in [(2,1),(1,2),(2,2),(3,1),(1,3),(3,2),(2,3),(3,3)]:
+            block=[(i+u,j+v) for u in range(w) for v in range(h)]
+            if all(c in cells for c in block) and _crossed(diagonal_ink,round(xs[i]),round(ys[j]),round(xs[i+w]),round(ys[j+h])):
+                for c in block:cells.pop(c,None)
+                break
+    # Wall-free subdivision of wide floor cells. A large open living/kitchen area is
+    # otherwise one or two grid cells, and the kitchen could only take all of it or
+    # none. Each piece keeps its parent's floor decision; the lines carry no wall.
+    def refined(axis:list[float],scale:float)->list[float]:
+        out=[axis[0]]
+        for v in axis[1:]:
+            pieces=max(1,math.ceil((v-out[-1])*scale/REFINE_CELL_METRES)) if (v-out[-1])*scale>REFINE_CELL_METRES*1.25 else 1
+            out.extend(out[-1]+(v-out[-1])*k/pieces for k in range(1,pieces));out.append(v)
+        return out
+    fine_xs,fine_ys=refined(xs,sx),refined(ys,sy)
+    if len(fine_xs)>len(xs) or len(fine_ys)>len(ys):
+        parent=lambda values,fine,k:next(i for i in range(len(values)-1) if values[i]-1e-6<=fine[k] and fine[k+1]<=values[i+1]+1e-6)
+        fine_cells={}
+        for j in range(len(fine_ys)-1):
+            for i in range(len(fine_xs)-1):
+                source=cells.get((parent(xs,fine_xs,i),parent(ys,fine_ys,j)))
+                if source is None:continue
+                a,b,c,d=round(fine_xs[i])+1,round(fine_ys[j])+1,round(fine_xs[i+1])-1,round(fine_ys[j+1])-1
+                patch=hsv[b:max(b+1,d),a:max(a+1,c)]
+                fine_cells[i,j]={**source,"center":((fine_xs[i]+fine_xs[i+1])/2,(fine_ys[j]+fine_ys[j+1])/2),
+                                 "blue":float(((patch[:,:,0]>75)&(patch[:,:,0]<115)&(patch[:,:,1]>15)).mean()),
+                                 "wood":float(((patch[:,:,0]>8)&(patch[:,:,0]<40)&(patch[:,:,1]>85)).mean()),
+                                 "pale":float(((patch[:,:,0]>10)&(patch[:,:,0]<40)&(patch[:,:,1]>15)&(patch[:,:,1]<100)&(patch[:,:,2]>190)).mean())}
+        xs,ys,cells=fine_xs,fine_ys,fine_cells;nx,ny=len(xs)-1,len(ys)-1
     if not cells:
         return {"status": "needs_review", "reason": "floor_detection", "version": VERSION}
 
@@ -615,8 +685,22 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
     # An unlabelled checkered tile floor is the entrance, an explicit visual inference.
     if not any(s["type"]=="entrance" for s in seeds):
         tiles=[c for c in cells if cells[c]["checker"] and cells[c]["blue"]<.05 and not any(s["cell"]==c for s in seeds)]
-        if tiles:
-            seed_cell=max(tiles,key=lambda c:(xs[c[0]+1]-xs[c[0]])*(ys[c[1]+1]-ys[c[1]]))
+        # The connected tiled floor a person stands on, not a small crossed shaft box.
+        groups=[];pending=set(tiles)
+        while pending:
+            group={pending.pop()};queue=list(group)
+            while queue:
+                c=queue.pop()
+                for q in [(c[0]+1,c[1]),(c[0]-1,c[1]),(c[0],c[1]+1),(c[0],c[1]-1)]:
+                    if q in pending:pending.discard(q);group.add(q);queue.append(q)
+            groups.append(group)
+        def footprint(group):
+            w=(xs[max(c[0] for c in group)+1]-xs[min(c[0] for c in group)])*sx;h=(ys[max(c[1] for c in group)+1]-ys[min(c[1] for c in group)])*sy
+            return sum((xs[c[0]+1]-xs[c[0]])*(ys[c[1]+1]-ys[c[1]]) for c in group)*sx*sy,min(w,h)
+        groups=[g for g in groups if footprint(g)[0]>=.6 and footprint(g)[1]>=.55]
+        if groups:
+            group=max(groups,key=lambda g:footprint(g)[0])
+            seed_cell=max(group,key=lambda c:(xs[c[0]+1]-xs[c[0]])*(ys[c[1]+1]-ys[c[1]]))
             seeds.append({"cell":seed_cell,"type":"entrance","label":"현관 (타일 무늬 인식)","observed":False})
     # '주방' and '식당' can be two OCR anchors in the same open room. Give that
     # physical space one kitchen identity; duplicate IDs misrouted shared walls.
@@ -681,7 +765,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             nd=distance+cost*(KITCHEN_SPREAD if kind=="kitchen" else 1)+mismatch
             if nd<distances.get(q,float("inf")):
                 distances[q]=nd;assigned[q]=index;heapq.heappush(queue,(nd,index,q))
-    _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,barrier,xs,ys)
+    _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,barrier,xs,ys,(sx,sy))
     area_constraints=[]
     area_scale_applied=False
     area_annotation_conflict=False
@@ -701,9 +785,12 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
         sx=sy=scale;X=lambda v:float((v-x0)*sx);Z=lambda v:float((v-y0)*sy)
         area_scale_applied=bool(area_constraints) and not area_annotation_conflict
     # Merge adjacent cells only across a wall-free edge and within one observed room zone.
-    consumed=set();rectangles=[];cell_room={}
+    consumed=set();rectangles=[];cell_room={};_zone_barrier=barrier
     def grow(i,j,index):
         """The largest wall-free rectangle of one zone with its top-left cell at (i,j)."""
+        # Inside a bathroom or kitchen, lines are its bath, shower and counter outlines:
+        # one room. Splitting there left a 1.2 m strip with no room for the counter.
+        barrier=(lambda a,b:(0.,[])) if seeds[index]["type"] in ("bathroom","utility","kitchen") else _zone_barrier
         limit=i+1
         while (limit,j) in cells and (limit,j) not in consumed and assigned.get((limit,j))==index and barrier((limit-1,j),(limit,j))[0]<.10:
             limit+=1
@@ -722,6 +809,9 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
         for c in assigned:
             if c in consumed or c not in cells:continue
             candidate=grow(c[0],c[1],assigned[c])
+            # A kitchen leads with a piece deep enough for its counter and standing room.
+            if seeds[assigned[c]]["type"]=="kitchen" and min((xs[candidate[1]]-xs[c[0]])*sx,(ys[candidate[2]]-ys[c[1]])*sy)<KITCHEN_MIN_SIDE:
+                candidate=(candidate[0]*.3,candidate[1],candidate[2])
             if best is None or candidate[0]>best[0][0]:best=(candidate,c)
         if best is None:break
         (_,right,bottom),(i,j)=best;index=assigned[i,j]
@@ -730,6 +820,21 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             for xx in range(i,right):
                 consumed.add((xx,yy));cell_room[xx,yy]=rid
         rectangles.append({"zone":index,"grid":[i,j,right,bottom],"rect":[X(xs[i]),Z(ys[j]),X(xs[right]),Z(ys[bottom])]})
+    # A piece that is a crossed shaft box is not floor (the box can span several cells).
+    leads_area={}
+    for r in rectangles:leads_area[r["zone"]]=max(leads_area.get(r["zone"],0),(xs[r["grid"][2]]-xs[r["grid"][0]])*(ys[r["grid"][3]]-ys[r["grid"][1]]))
+    piece_area=lambda g:(xs[g[2]]-xs[g[0]])*(ys[g[3]]-ys[g[1]])
+    shaft=set()
+    for k,r in enumerate(rectangles):
+        if piece_area(r["grid"])>=leads_area[r["zone"]]:continue
+        spans=[r["grid"]]+[[min(r["grid"][0],q["grid"][0]),min(r["grid"][1],q["grid"][1]),max(r["grid"][2],q["grid"][2]),max(r["grid"][3],q["grid"][3])]
+                           for q in rectangles if q is not r and piece_area(q["grid"])<leads_area[q["zone"]]
+                           and ((q["grid"][0]==r["grid"][0] and q["grid"][2]==r["grid"][2] and (q["grid"][1]==r["grid"][3] or q["grid"][3]==r["grid"][1]))
+                                or (q["grid"][1]==r["grid"][1] and q["grid"][3]==r["grid"][3] and (q["grid"][0]==r["grid"][2] or q["grid"][2]==r["grid"][0])))]
+        for g in spans:
+            if _crossed(diagonal_ink,round(xs[g[0]]),round(ys[g[1]]),round(xs[g[2]]),round(ys[g[3]])):
+                shaft.update(id(q) for q in rectangles if q["grid"][0]>=g[0] and q["grid"][2]<=g[2] and q["grid"][1]>=g[1] and q["grid"][3]<=g[3]);break
+    rectangles=[r for r in rectangles if id(r) not in shaft]
     # Adjacent decomposition rectangles can share a fully open edge despite a few
     # glyph pixels. Merge complete matching spans before selecting the furnished room;
     # otherwise a normal bedroom could be represented by a 1.1 m-deep lead strip.
@@ -767,6 +872,12 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
     leads={}
     for rid,r in enumerate(rectangles):
         area=(r["rect"][2]-r["rect"][0])*(r["rect"][3]-r["rect"][1])
+        # A kitchen is furnished where its label is (its counter), if that piece is deep
+        # enough; a corridor joined to it is not the kitchen.
+        if seeds[r["zone"]]["type"]=="kitchen":
+            i,j,ri,bj=r["grid"];sc=seeds[r["zone"]]["cell"]
+            deep=min(r["rect"][2]-r["rect"][0],r["rect"][3]-r["rect"][1])>=KITCHEN_MIN_SIDE
+            area=area*(3 if i<=sc[0]<ri and j<=sc[1]<bj else 1)*(1 if deep else .3)
         if r["zone"] not in leads or area>leads[r["zone"]][0]:
             leads[r["zone"]]=(area,rid)
     bedrooms=[(a,rid,z) for z,(a,rid) in leads.items() if seeds[z]["type"]=="bedroom"]
@@ -780,7 +891,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
         label={"living":"거실","kitchen":"주방·식당","master":"안방","bedroom":"침실","bathroom":"욕실","balcony":"발코니","entrance":"현관","dressroom":"드레스룸"}.get(seed["type"],"실내 공간")
         if seed.get("combinedUses"):label="거실·침실 겸용"
         rooms.append({"id":rid_name,"type":kind,"label":label,"rect":[round(v,4) for v in r["rect"]],"zone":f"image-zone-{r['zone']}","labelObserved":seed["observed"],"combinedUses":seed.get("combinedUses",[])})
-    openings=[];seen=set();connections=set()
+    openings=[];seen=set();connections=set();leafless_doors=[]
     narrow_doorways=0
     boundaries={}
     # Emit one contiguous boundary run per pair of rectangles. Internal decomposition seams
@@ -819,7 +930,10 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
                 intervals=[(lo,hi,kind)]
             else:
                 minimum_door=.32 if not dimension_scale and not has_dimension_axis else .50
-                intervals=[(l+a,l+b,"door" if za!=zb and private and measure(l+b)-measure(l+a)<=1.8 else "open") for a,b in _runs(~solid) if measure(l+b)-measure(l+a)>=minimum_door]
+                # The entrance opens onto the hall; two wet rooms never open into each other.
+                wet_pair=za!=zb and {seeds[za]["type"],seeds[zb]["type"]}<= {"bathroom","utility"}
+                door_pair=bool(kinds&{"bedroom","bathroom","dressroom"})
+                intervals=[] if wet_pair else [(l+a,l+b,"door" if za!=zb and door_pair and measure(l+b)-measure(l+a)<=1.8 else "open") for a,b in _runs(~solid) if measure(l+b)-measure(l+a)>=minimum_door]
                 if "balcony" in kinds:
                     bold=thick[l:h,max(0,p-3):p+4] if vertical else thick[max(0,p-3):p+4,l:h]
                     glazing=[]
@@ -839,7 +953,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
                 _,_,ra,rb=min(parts,key=lambda part:max(part[0]-mid,0,mid-part[1]))
                 if kind=="window" and seeds[rectangles[ra]["zone"]]["type"]=="balcony":ra,rb=rb,ra
                 a,b=measure(begin),measure(end)
-                hinge="start";swing=rooms[ra]["id"]
+                hinge="start";swing=rooms[ra]["id"];leafless=False
                 if kind=="door":
                     depth=max(12,round((end-begin)*.8));scores=[]
                     for endpoint in [round(begin),round(end)]:
@@ -847,6 +961,9 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
                             near,far=sorted((p+direction*7,p+direction*depth))
                             patch=neutral[max(0,endpoint-4):endpoint+5,max(0,near):far] if vertical else neutral[max(0,near):far,max(0,endpoint-4):endpoint+5]
                             scores.append(float((patch>0).mean()) if patch.size else 0)
+                    # A gap in a drawn wall is a door only where its leaf is drawn; a few
+                    # pixels of misaligned wall line are not a doorway (bathroom mazes).
+                    leafless=coverage>=.13 and max(scores)<.06
                     best=int(np.argmax(scores));hinge="end" if best>=2 else "start"
                     direction=-1 if best%2==0 else 1
                     for candidate in [ra,rb]:
@@ -863,10 +980,41 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
                     # connect rooms without supporting body-sized walking.
                     if kind!="door" or dimension_scale or has_dimension_axis or max(scores,default=0)<.08:continue
                     narrow_doorways+=1
-                openings.append({"type":kind,"a":rooms[ra]["id"],"b":rooms[rb]["id"],"axis":axis,"at":round(X(at) if vertical else Z(at),4),"center":round((a+b)/2,4),"width":round(width,4),"height":2.7 if kind=="open" else 1.6 if kind=="window" else 2.1,"sill":.55 if kind=="window" else 0,"hinge":hinge,"swingInto":swing})
+                (leafless_doors if leafless else openings).append({"type":kind,"a":rooms[ra]["id"],"b":rooms[rb]["id"],"axis":axis,"at":round(X(at) if vertical else Z(at),4),"center":round((a+b)/2,4),"width":round(width,4),"height":2.7 if kind=="open" else 1.6 if kind=="window" else 2.1,"sill":.55 if kind=="window" else 0,"hinge":hinge,"swingInto":swing,**({"_leaf":max(scores)} if kind=="door" else {})})
+    # A room left with no way in keeps its most door-like leafless gap.
+    zone_of={r["id"]:r["zone"] for r in rooms}
+    for zone in {r["zone"] for r in rooms if r["type"] in ("bedroom","master","bathroom","ensuite","dressroom")}:
+        if any(o["b"]!="out" and o["type"]!="window" and zone in (zone_of[o["a"]],zone_of[o["b"]]) and zone_of[o["a"]]!=zone_of[o["b"]] for o in openings):continue
+        candidates=[o for o in leafless_doors if zone in (zone_of[o["a"]],zone_of[o["b"]])]
+        if candidates:openings.append(max(candidates,key=lambda o:(o["_leaf"],o["width"])))
+    # A bathroom has one door. A second "door" is its leaf's corner read through a
+    # neighbouring wall line; keep the one whose leaf is drawn most clearly.
+    for zone in {r["zone"] for r in rooms if r["type"] in ("bathroom","ensuite")}:
+        doors=[o for o in openings if o["type"]=="door" and zone in (zone_of[o["a"]],zone_of.get(o["b"])) and zone_of[o["a"]]!=zone_of.get(o["b"])]
+        if len(doors)>1:
+            # (a shared bathroom opens onto the hall, an en-suite onto its bedroom)
+            other=lambda o:seeds[int(zone_of[o["b"] if zone_of[o["a"]]==zone else o["a"]].rsplit("-",1)[1])]["type"]
+            rank={"living":2,"kitchen":2,"bedroom":1,"dressroom":1}
+            keep=max(doors,key=lambda o:(rank.get(other(o),0),o.get("_leaf",0),o["width"]))
+            openings=[o for o in openings if o not in doors or o is keep]
+    # A bathroom door is a door, not a missing wall: an unread wall line left whole
+    # sides open as 1.7 m "doors" whose swing left no room for the toilet or basin.
+    for o in openings:
+        if o["type"]=="door" and o["width"]>.9 and any(zone_of.get(k) in {r["zone"] for r in rooms if r["type"] in ("bathroom","ensuite")} for k in (o["a"],o["b"])):
+            o["width"]=.8
+    for o in openings:o.pop("_leaf",None)
     # Recover an exterior entrance spanning several rectangles (the image's door leaf
     # is perpendicular to the wall, unlike a parallel window frame). No invented hole.
-    for axis,at,lo,hi in [("z",ys[0],round(xs[0]),round(xs[-1])),("z",ys[-1],round(xs[0]),round(xs[-1])),("x",xs[0],round(ys[0]),round(ys[-1])),("x",xs[-1],round(ys[0]),round(ys[-1]))]:
+    entrance_sides=[]
+    # An entrance set back in a notch has its front door on its own outside wall,
+    # not on the drawing's bounding line.
+    for rid,r in enumerate(rectangles):
+        if seeds[r["zone"]]["type"]!="entrance":continue
+        i,j,ri,bj=r["grid"]
+        for axis,at,lo,hi,outward,beyond in [("x",xs[i],ys[j],ys[bj],-1,[(i-1,k) for k in range(j,bj)]),("x",xs[ri],ys[j],ys[bj],1,[(ri,k) for k in range(j,bj)]),
+                                             ("z",ys[j],xs[i],xs[ri],-1,[(k,j-1) for k in range(i,ri)]),("z",ys[bj],xs[i],xs[ri],1,[(k,bj) for k in range(i,ri)])]:
+            if not any(c in cell_room for c in beyond):entrance_sides.append((axis,at,round(lo),round(hi),outward))
+    for axis,at,lo,hi,outward in [("z",ys[0],round(xs[0]),round(xs[-1]),-1),("z",ys[-1],round(xs[0]),round(xs[-1]),1),("x",xs[0],round(ys[0]),round(ys[-1]),-1),("x",xs[-1],round(ys[0]),round(ys[-1]),1)]+entrance_sides:
         vertical=axis=="x";p=round(at);measure=Z if vertical else X
         bold=thick[lo:hi,max(0,p-4):p+5] if vertical else thick[max(0,p-4):p+5,lo:hi]
         frame=neutral[lo:hi,max(0,p-3):p+4] if vertical else neutral[max(0,p-3):p+4,lo:hi]
@@ -875,7 +1023,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
         for begin,end in _runs(~solid):
             a,b=measure(lo+begin),measure(lo+end)
             if not .55<=b-a<=1.3 or begin<5 or end>len(solid)-5:continue
-            outward=-1 if at==(xs[0] if vertical else ys[0]) else 1;depth=max(15,round((end-begin)*.8))
+            depth=max(15,round((end-begin)*.8))
             near,far=sorted((p+outward*7,p+outward*depth));leaf=[]
             for endpoint in [lo+begin,lo+end]:
                 patch=neutral[max(0,round(endpoint)-9):round(endpoint)+10,max(0,near):far] if vertical else neutral[max(0,near):far,max(0,round(endpoint)-9):round(endpoint)+10]
@@ -888,7 +1036,13 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
                 if any(abs(edge-at)<1 for edge in edges) and start<=mid<=stop:candidates.append(rid)
             if not candidates:continue
             rid=candidates[0]
-            openings.append({"type":"front_door","a":rooms[rid]["id"],"b":"out","axis":axis,"at":round(X(at) if vertical else Z(at),4),"center":round((a+b)/2,4),"width":round(b-a,4),"height":2.1,"sill":0,"hinge":"end" if leaf[1]>leaf[0] else "start","swingInto":rooms[rid]["id"]})
+            if any(o["type"]=="front_door" and o["axis"]==axis and abs(o["at"]-(X(at) if vertical else Z(at)))<.01 and abs(o["center"]-(a+b)/2)<.3 for o in openings):continue
+            openings.append({"type":"front_door","a":rooms[rid]["id"],"b":"out","axis":axis,"at":round(X(at) if vertical else Z(at),4),"center":round((a+b)/2,4),"width":round(b-a,4),"height":2.1,"sill":0,"hinge":"end" if leaf[1]>leaf[0] else "start","swingInto":rooms[rid]["id"],"_leaf":max(leaf)})
+    # A flat has one front door: the most clearly drawn leaf.
+    fronts=[o for o in openings if o["type"]=="front_door"]
+    if fronts:
+        keep=max(fronts,key=lambda o:o["_leaf"])
+        openings=[o for o in openings if o["type"]!="front_door" or o is keep];keep.pop("_leaf")
     # Windows are located on observed long, thin frame runs on the outside boundary.
     for rid,r in enumerate(rectangles):
         i,j,ri,bj=r["grid"]
@@ -910,6 +1064,10 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
                 if any(o["type"]=="front_door" and o["axis"]==axis and abs(o["at"]-(X(at) if axis=="x" else Z(at)))<.01 and o["center"]+o["width"]/2>begin and o["center"]-o["width"]/2<finish for o in openings):continue
                 openings.append({"type":"window","a":rooms[rid]["id"],"b":"out","axis":axis,"at":round(X(at) if axis=="x" else Z(at),4),"center":round((begin+finish)/2,4),"width":round(finish-begin,4),"height":1.6,"sill":.55})
     counted=sum((r["rect"][2]-r["rect"][0])*(r["rect"][3]-r["rect"][1]) for rid,r in enumerate(rooms) if seeds[rectangles[rid]["zone"]]["type"] not in ("balcony","utility"))
+    # A kitchen larger than the living room is never a real Korean flat: it is a misread.
+    zone_area=lambda kind:sum((r["rect"][2]-r["rect"][0])*(r["rect"][3]-r["rect"][1]) for rid,r in enumerate(rooms) if seeds[rectangles[rid]["zone"]]["type"]==kind and not seeds[rectangles[rid]["zone"]].get("combinedUses"))
+    kitchen_area,living_area=zone_area("kitchen"),zone_area("living")
+    kitchen_within_living=not living_area or kitchen_area<=living_area
     error=counted/exclusive_area-1
     usable_beds=all(min(rooms[rid]["rect"][2]-rooms[rid]["rect"][0],rooms[rid]["rect"][3]-rooms[rid]["rect"][1])>=1.9 for _,rid,_ in bedrooms)
     living_id=next((r["id"] for r in rooms if r["type"]=="living"),None)
@@ -932,7 +1090,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
     # Room dimensions and logical doorway connectivity remain diagnostics. A
     # structurally matched original can enter furnished 3D review even when its
     # small printed door symbol is too narrow for body-sized walking.
-    status="ready" if (abs(error)<.25 or expanded_area) and (len(bedrooms)>=1 or combined_sleep) else "needs_review"
+    status="ready" if (abs(error)<.25 or expanded_area) and (len(bedrooms)>=1 or combined_sleep) and kitchen_within_living else "needs_review"
     source_floor=(enclosed>0) if monochrome else (hsv[:,:,1]>25)&(gray>90)
     source_floor[:y0]=False;source_floor[y1+1:]=False;source_floor[:,:x0]=False;source_floor[:,x1+1:]=False
     match=source_match(wall,rooms,openings,xs,ys,rectangles,(x0,y0,x1,y1),source_floor)
@@ -950,7 +1108,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             widths=widths[(widths>=2)&(widths<=30)]
             if len(widths)>=minimum:thickness.append(float(np.median(widths))*(sx if axis=="x" else sy))
     wall_thickness=float(np.median(thickness)) if thickness else 2*float(np.median(distance[distance>0]))*min(sx,sy)
-    result={"status":status,"reason":None if status=="ready" else "source_wall_mismatch" if match["wallF1"]<.80 else "source_floor_mismatch" if match["floorCoverage"]<.95 else "area_or_room_consistency","version":VERSION,
+    result={"status":status,"reason":None if status=="ready" else "kitchen_exceeds_living" if not kitchen_within_living else "source_wall_mismatch" if match["wallF1"]<.80 else "source_floor_mismatch" if match["floorCoverage"]<.95 else "area_or_room_consistency","version":VERSION,
             "imageSize":[W,H],"pixelBounds":[int(x0),int(y0),int(x1),int(y1)],"scale":{"xMetresPerPixel":sx,"zMetresPerPixel":sy,"basis":"dimension_chains" if chain_applied else "single_axis_dimensions" if single_axis else "recognized_dimensions" if dimension_scale else "room_area_ratio" if area_scale_applied else "exclusive_area_ratio","estimated":not dimension_scale or single_axis,"sourceAspectRatio":round((x1-x0)/(y1-y0),6),"wallThicknessMetres":round(max(.02,min(.4,wall_thickness)),4)},
             "dimensionConstraints":x_constraints+z_constraints,"dimensionChainsApplied":chain_applied,
             "recognizedAreas":area_evidence,"areaConstraints":area_constraints,"sourceMatch":match,
@@ -959,7 +1117,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             "rooms":rooms,"openings":openings,"areaM2":round(counted,2),"areaError":round(error,4),"elapsedMs":elapsed,
             "areaBasis":"expanded_drawing" if expanded_area else "exclusive_area",
             "application":{"mode":"approximate_source" if area_annotation_conflict or abs(error)>=.18 or not match['targetMet'] or not usable_beds or not connected else "source","areaAnnotationAdjusted":area_annotation_conflict,"geometryBasis":"original_image","templateUsed":False},
-            "checks":{"areaConsistent":abs(error)<.18 or expanded_area,"roomAreasConsistent":not area_annotation_conflict,"bedroomsUsable":usable_beds,"connected":connected,"narrowDoorways":narrow_doorways},
+            "checks":{"areaConsistent":abs(error)<.18 or expanded_area,"roomAreasConsistent":not area_annotation_conflict,"bedroomsUsable":usable_beds,"connected":connected,"narrowDoorways":narrow_doorways,"kitchenWithinLiving":kitchen_within_living},
             "note":"원본 이미지의 벽·방 위치를 인식한 모델입니다. 도면 치수 인식과 공간 구분에 오차가 있을 수 있으며 가구·마감은 연출입니다."+(" 확장형의 발코니 확장 면적이 포함되어 계산된 실내 면적은 전용면적과 다릅니다." if expanded_area else "")+(" 치수 없는 공간은 면적과 원본 가로·세로 비율로 환산했습니다. 실측 치수가 아니며 면적 일치는 독립적인 정확도 검증이 아닙니다." if not dimension_scale else "")+(" 작은 문 기호의 환산 폭을 보존했으며 좁은 통로도 이동할 수 있습니다." if narrow_doorways else "")}
     if area_annotation_conflict:result['note']+=' 방별 면적 표기 차이는 전용면적을 기준으로 축척 보정했으며 원본 방 배치와 벽 위치는 유지했습니다.'
     if (status=='needs_review' and result['reason']=='area_or_room_consistency' and .25<=error<=1
