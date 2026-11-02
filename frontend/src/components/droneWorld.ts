@@ -332,34 +332,68 @@ export class DroneWorld {
    * shapes of their own, not the registered outlines, and nothing else held them. */
   private surveyRoofs = new Map<string, { x0: number; y0: number; nx: number; ny: number; h: Float32Array }>();
   private async rasterSurvey(key: string, group: THREE.Group) {
-    const box = new THREE.Box3().setFromObject(group); if (box.isEmpty()) return;
-    const x0 = Math.floor(box.min.x), y0 = Math.floor(-box.max.z), nx = Math.ceil(box.max.x) - x0 + 1, ny = Math.ceil(-box.min.z) - y0 + 1;
-    if (nx * ny > 4_000_000) return;
-    const h = new Float32Array(nx * ny).fill(-1e4), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
-    let budget = performance.now() + 2;
-    for (const o of [...group.children]) {
-      const m = o as THREE.Mesh, pos = m.geometry?.getAttribute("position"); if (!pos) continue;
-      const idx = m.geometry.index, tris = idx ? idx.count / 3 : pos.count / 3, mw = m.matrixWorld;
-      for (let t = 0; t < tris; t++) {
-        if (performance.now() > budget) { if (!(await this.pace(true)) || this.surveyRoofs.has(key + "#gone")) return; budget = performance.now() + 2; }
-        const i0 = idx ? idx.getX(t * 3) : t * 3, i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1, i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
-        a.fromBufferAttribute(pos, i0).applyMatrix4(mw); b.fromBufferAttribute(pos, i1).applyMatrix4(mw); c.fromBufferAttribute(pos, i2).applyMatrix4(mw);
-        const top = Math.max(a.y, b.y, c.y), ax = a.x, ay = -a.z, bx = b.x, by = -b.z, cx = c.x, cy = -c.z;
-        const g = this.o.terrain.at((ax + bx + cx) / 3, (ay + by + cy) / 3); if (top < g + 1.2) continue;
+    try {
+      // (the triangles actually drawn — index and draw range — over 1.2 m above the ground, in view
+      // frame: a store's spare, zero-filled vertices would stretch a bounding box across the city)
+      const tri: number[] = [], a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, budget = performance.now() + 4;
+      for (const o of [...group.children]) {
+        const m = o as THREE.Mesh, geo = m.geometry, pos = geo?.getAttribute("position"); if (!pos) continue;
+        const idx = geo.index, first = geo.drawRange.start, count = Math.min(geo.drawRange.count, idx ? idx.count : pos.count) - (geo.drawRange.count === Infinity ? 0 : 0), mw = m.matrixWorld;
+        const n = Math.floor((Number.isFinite(count) ? count : (idx ? idx.count : pos.count)) / 3);
+        for (let t = 0; t < n; t++) {
+          if (performance.now() > budget) { if (!(await this.pace(true))) return; budget = performance.now() + 4; }
+          const k = first + t * 3, i0 = idx ? idx.getX(k) : k, i1 = idx ? idx.getX(k + 1) : k + 1, i2 = idx ? idx.getX(k + 2) : k + 2;
+          if (i0 === i1 && i1 === i2) continue;   // (a hidden triangle: its indices zeroed)
+          a.fromBufferAttribute(pos, i0).applyMatrix4(mw); b.fromBufferAttribute(pos, i1).applyMatrix4(mw); c.fromBufferAttribute(pos, i2).applyMatrix4(mw);
+          const top = Math.max(a.y, b.y, c.y), cx = (a.x + b.x + c.x) / 3, cy = -(a.z + b.z + c.z) / 3;
+          if (top < this.o.terrain.at(cx, cy) + 1.2) continue;
+          tri.push(a.x, -a.z, b.x, -b.z, c.x, -c.z, top);
+          x0 = Math.min(x0, a.x, b.x, c.x); x1 = Math.max(x1, a.x, b.x, c.x); y0 = Math.min(y0, -a.z, -b.z, -c.z); y1 = Math.max(y1, -a.z, -b.z, -c.z);
+        }
+      }
+      if (!tri.length || this.disposed) return;
+      x0 = Math.floor(x0); y0 = Math.floor(y0);
+      const nx = Math.ceil(x1) - x0 + 1, ny = Math.ceil(y1) - y0 + 1;
+      if (nx * ny > 6_000_000) return;
+      const h = new Float32Array(nx * ny).fill(-1e4);
+      for (let q = 0; q < tri.length; q += 7) {
+        if (performance.now() > budget) { if (!(await this.pace(true))) return; budget = performance.now() + 4; }
+        const ax = tri[q], ay = tri[q + 1], bx = tri[q + 2], by = tri[q + 3], cx = tri[q + 4], cy = tri[q + 5], top = tri[q + 6];
         const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx) - x0)), maxX = Math.min(nx - 1, Math.floor(Math.max(ax, bx, cx) - x0));
         const minY = Math.max(0, Math.floor(Math.min(ay, by, cy) - y0)), maxY = Math.min(ny - 1, Math.floor(Math.max(ay, by, cy) - y0));
         const den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
         for (let j = minY; j <= maxY; j++) for (let i = minX; i <= maxX; i++) {
           const px = x0 + i + 0.5, py = y0 + j + 0.5;
-          // (inside the triangle seen from above; a wall's edge-on triangle marks the cells it runs through)
-          let inside = Math.abs(den) < 1e-6;
-          if (!inside) { const l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / den, l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / den; inside = l1 >= -0.05 && l2 >= -0.05 && 1 - l1 - l2 >= -0.05; }
+          // (inside the triangle seen from above; a wall's edge-on triangle marks only the cells its line
+          // runs through — not its whole bounding box, which for a diagonal wall is a wide rectangle)
+          let inside: boolean;
+          if (Math.abs(den) < 1e-4) inside = Math.min(segDist(px, py, ax, ay, bx, by), segDist(px, py, bx, by, cx, cy), segDist(px, py, cx, cy, ax, ay)) < 0.72;
+          else { const l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / den, l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / den; inside = l1 >= -0.05 && l2 >= -0.05 && 1 - l1 - l2 >= -0.05; }
           if (inside && top > h[j * nx + i]) h[j * nx + i] = top;
         }
       }
+      if (this.disposed) return;
+      this.surveyRoofs.set(key, { x0, y0, nx, ny, h });
+    } catch (error) { if (typeof location !== "undefined" && location.search.includes("dronedebug=1")) console.warn("survey collision raster", key, error); }
+  }
+  private surveyCheckAt = 0; private surveySigs = new Map<string, string>(); private rastering = new Set<string>();
+  /** one at a time, the tile nearest the walker first: several at once each got a sliver of a frame
+   * and the one underfoot was the last to finish */
+  private ensureSurveyRasters(x: number, y: number) {
+    if (this.rastering.size) return;
+    let next: { t: Tile; sig: string; d: number } | null = null;
+    for (const t of [...this.tiles.values(), ...this.viewTiles.values()]) {
+      const g = t.surveyGroup; if (!g || !g.parent) continue;
+      const d = Math.hypot(t.cx - x, t.cy - y); if (d > 700) continue;
+      const sig = g.children.map(m => { const geo = (m as THREE.Mesh).geometry; return `${geo?.id}:${geo?.index?.count ?? 0}:${geo?.drawRange.count}`; }).join("|");
+      if (this.surveySigs.get(t.key) === sig && this.surveyRoofs.has(t.key)) continue;
+      if (!next || d < next.d) next = { t, sig, d };
     }
-    if (this.disposed) return;
-    this.surveyRoofs.set(key, { x0, y0, nx, ny, h });
+    if (!next) return;
+    const { t, sig } = next;
+    this.rastering.add(t.key);
+    void this.rasterSurvey(t.key, t.surveyGroup!).finally(() => { this.rastering.delete(t.key); this.surveySigs.set(t.key, sig); this.surveyCheckAt = 0; });
   }
   private surveyRoofAt(x: number, y: number) {
     let top = -1e4;
@@ -605,6 +639,9 @@ export class DroneWorld {
     if (!left) this.trafficDirty = 0;
   }
   update(x: number, y: number, vx: number, vy: number, alt: number, look?: [number, number]) {
+    // (low over the ground: every tile's surveyed models given their collision grid, again when
+    // a later batch has changed them)
+    if (alt < 300 && performance.now() > this.surveyCheckAt) { this.surveyCheckAt = performance.now() + 1500; this.ensureSurveyRasters(x, y); }
     if (this.disposed) return;
     this.colourTraffic();
     // Streaming decisions do not change at display frequency. Still reconsider
@@ -1572,7 +1609,7 @@ export class DroneWorld {
       // Keep the preceding meshes until the full replacement is GPU-ready.
       t.surveyGroup=group;t.surveyGeos=store.entries.map(e=>e.geo);t.surveyPaint=store.entries;
       t.survey = "placed";
-      void this.rasterSurvey(t.key, group);
+      this.surveyCheckAt = 0;
       const hide = res.hide;
       const uploadedAt=performance.now();
       const retryUpload=()=>{rollback();t.surveyGeos=store.entries.map(e=>e.geo);t.surveyPaint=store.entries;defer([],true);nextState();};
@@ -1750,7 +1787,7 @@ export class DroneWorld {
   }
 
   private clear(t: Tile) {
-    this.surveyRoofs.delete(t.key);
+    this.surveyRoofs.delete(t.key); this.surveySigs.delete(t.key);
     t.near?.forEach(b=>b.restore());t.near=undefined;t.nearObjects=undefined;t.nearRoadGuard=undefined;
     for (const row of t.surveyUndo ?? []) if (row.geo.index) { (row.geo.index.array as Uint32Array).set(row.indices,row.start);row.geo.index.addUpdateRange(row.start,row.indices.length); row.geo.index.needsUpdate = true; }
     t.surveyUndo = undefined;
@@ -1828,4 +1865,9 @@ function inRingXY(x: number, y: number, r: [number, number][]) {
   let h = false;
   for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) h = !h; }
   return h;
+}
+
+function segDist(x: number, y: number, ax: number, ay: number, bx: number, by: number) {
+  const dx = bx - ax, dy = by - ay, t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(x - ax - t * dx, y - ay - t * dy);
 }

@@ -111,9 +111,10 @@ export function entranceBoxes(e: Entrance): [BoxPart, number, number, number, nu
   // its mullions and the floor band between the storeys
   if (e.kind === "hospital" || e.kind === "office" || e.kind === "civic" || e.kind === "museum" || e.kind === "store" || e.kind === "school" || e.kind === "station") {
     const lw = Math.min(cw * 0.86, w + (e.kind === "school" ? 4 : 10) * s), lh = h + (e.kind === "school" ? 1.2 : 3.6) * Math.min(1.2, s);
-    out.push(["lobby", 0, base + lh / 2, 0.05, lw, lh, 0.04]);
-    for (let k = 0, n = Math.max(2, Math.round(lw / 1.8)); k <= n; k++) out.push(["frame", -lw / 2 + lw * k / n, base + lh / 2, 0.07, 0.08, lh, 0.1]);
-    out.push(["frame", 0, base + lh, 0.07, lw + 0.1, 0.14, 0.12], ["frame", 0, base + h + 0.6, 0.07, lw, 0.22, 0.12]);
+    // (stood 12 cm proud of the facade, not flush with it: two faces a few centimetres apart flicker)
+    out.push(["lobby", 0, base + lh / 2, 0.12, lw, lh, 0.04]);
+    for (let k = 0, n = Math.max(2, Math.round(lw / 1.8)); k <= n; k++) out.push(["frame", -lw / 2 + lw * k / n, base + lh / 2, 0.16, 0.08, lh, 0.1]);
+    out.push(["frame", 0, base + lh, 0.16, lw + 0.1, 0.14, 0.12], ["frame", 0, base + h + 0.6, 0.16, lw, 0.22, 0.12]);
   }
   // a shop's or a store's glazed front on either side of the door
   if (e.kind === "shop" || e.kind === "store" || e.kind === "office" || e.kind === "station") { const side = (cw - w) / 2 - 0.3; if (side > 0.4) for (const sg of [-1, 1]) out.push(["glass", sg * (w / 2 + 0.2 + side / 2), base + (h + 0.6) / 2, 0.07, side, h + 0.6, 0.05]); }
@@ -183,6 +184,8 @@ export class EntranceLayer {
       plant: new THREE.MeshStandardMaterial({ color: "#3f7a3a", roughness: 0.9 }),
       asphalt: new THREE.MeshStandardMaterial({ color: "#3a3d42", roughness: 0.95 }),
     };
+    // (the flat parts laid on the facade drawn in front of it in the depth test)
+    for (const k of ["lobby", "glass", "sign"] as Part[]) { mat[k].polygonOffset = true; mat[k].polygonOffsetFactor = -2; mat[k].polygonOffsetUnits = -2; }
     for (const p of PARTS) {
       const m = new THREE.InstancedMesh(p === "drum" || p === "column" ? this.cyl : p === "beam" ? this.beamGeo : this.geo, mat[p], p === "drum" || p === "beam" ? 256 : MAX); m.count = 0; m.frustumCulled = false; m.castShadow = p !== "glass" && p !== "sign"; m.receiveShadow = true;
       if (p === "sign" || p === "beam") m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);

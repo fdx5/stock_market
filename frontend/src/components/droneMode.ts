@@ -1142,21 +1142,23 @@ export class DroneSession {
   /** Behind the body on foot, on the bike or in a car: the boom at the wanted height angle if it is
    * clear; else raised (up to ~60°) to look over what is behind, the longest clear one taken; never
    * pulled in so close that the view becomes the body's own eye, unless a wall is right behind. */
-  private boom(x: number, y: number, z: number, bx: number, bz: number, el0: number, want: number): { el: number; dist: number } {
-    let best = { el: el0, dist: 0 };
-    for (const lift of [0, 0.18, 0.36, 0.56, 0.8]) {
-      const el = Math.min(1.05, el0 + lift), d = this.clearBehind(x, y, z, bx, bz, el, want);
-      if (d >= want - 0.05) return { el, dist: want };
-      if (d > best.dist + 0.3) best = { el, dist: d };
+  private boom(x: number, y: number, z: number, yaw: number, el0: number, want: number): { el: number; side: number; dist: number } {
+    // (the wanted place first; then a little to either side and higher, still at full distance — a
+    // lamp post, a corner or a rise behind is looked past, not zoomed into; the one nearest the wanted)
+    let best = { el: el0, side: 0, dist: 0 };
+    for (const lift of [0, 0.16, 0.34]) for (const side of [0, 0.28, -0.28, 0.55, -0.55]) {
+      const el = Math.min(1.0, el0 + lift), a = yaw + side, d = this.clearBehind(x, y, z, Math.sin(a), Math.cos(a), el, want);
+      if (d >= want - 0.05) return { el, side, dist: want };
+      if (d > best.dist + 0.3) best = { el, side, dist: d };
     }
-    // (blocked whichever way: as far as it goes, never closer than 1.6 m — the rendered walls then pull
-    // it in further in chase(); the ground is kept by the height clamp there)
-    return { el: best.el, dist: Math.max(best.dist, Math.min(want, 1.6)) };
+    // (blocked every way by the coarse grid: back as far as the real drawn walls allow — chase()
+    // asks them — never closer than 2.4 m from the body)
+    return { el: best.el, side: best.side, dist: Math.max(best.dist, Math.min(want, 2.4)) };
   }
   /** The third-person camera: behind the drone and a little above, its heading following the
    * drone's with a short lag (turns read as turns), its height angle from the camera tilt (a drag
    * looks down on it or up past it); pulled in where a wall or a tree is between them. */
-  private boomEl = 0.28;
+  private boomEl = 0.28; private boomSide = 0; private blockedFor = 0;
   /** The buildings as drawn (the tiles' registered and surveyed buildings, the view's own): the
    * camera boom tested against their real faces, so it can never sit inside a wall the coarse roof
    * grid misses. Ten times a second; the meshes near gathered once a second. */
@@ -1197,16 +1199,27 @@ export class DroneSession {
     // (and from a little above: looking up or down tilts it within a band, never under the ground
     // nor straight overhead)
     const el0 = f.walking ? THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, f.car ? 0.1 : 0.12, f.car ? 0.5 : 0.62) : THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, -0.15, 1.35);
-    const bx = Math.sin(this.chaseYaw), bz = Math.cos(this.chaseYaw);   // behind: opposite the heading
     const want = this.chaseWant(), base = f.walking ? (f.car ? .9 : .65) : .35;
-    const fit = f.walking ? this.boom(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0, want) : { el: el0, dist: this.clearBehind(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0, want) };
-    const dist = f.walking ? Math.min(fit.dist, this.wallRay(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, this.boomEl, fit.dist)) : fit.dist;
-    // (the raised angle eased in and out, not jumped)
-    this.boomEl += ((f.walking ? fit.el : el0) - this.boomEl) * (1 - Math.exp(-dt * 6));
+    const fit = f.walking ? this.boom(f.pos.x, f.pos.y + base, f.pos.z, this.chaseYaw, el0, want) : { el: el0, side: 0, dist: this.clearBehind(f.pos.x, f.pos.y + base, f.pos.z, Math.sin(this.chaseYaw), Math.cos(this.chaseYaw), el0, want) };
+    // (the raised angle and the swing to the side eased in and out, not jumped)
+    const ease = 1 - Math.exp(-dt * 5);
+    this.boomEl += ((f.walking ? fit.el : el0) - this.boomEl) * ease;
+    this.boomSide += ((f.walking ? fit.side : 0) - this.boomSide) * ease;
+    const camYaw = this.chaseYaw + this.boomSide, bx = Math.sin(camYaw), bz = Math.cos(camYaw);   // behind: opposite the heading
+    // (the real drawn walls: the boom kept in front of them, but no nearer the body than 2 m)
+    const wall = f.walking ? this.wallRay(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, this.boomEl, fit.dist) : Infinity;
+    let dist = Math.min(fit.dist, f.walking ? Math.max(2, wall) : Infinity);
+    // (a block must last a moment before the camera comes in — a post or a branch flicking by is
+    // not a wall; then it comes in smoothly, and goes back out smoothly)
+    if (dist < this.chaseDist - 0.3) { this.blockedFor += dt; if (this.blockedFor < 0.18 && dist > 1.2) dist = this.chaseDist; } else this.blockedFor = 0;
     // Obstacles retract the boom without automatically pitching the user's view up and down.
     this.chaseLift = 0;
     const el = el0 + this.chaseLift;
-    this.chaseDist += (dist - this.chaseDist) * (1 - Math.exp(-dt * (dist < this.chaseDist ? 20 : 3)));
+    this.chaseDist += (dist - this.chaseDist) * (1 - Math.exp(-dt * (dist < this.chaseDist ? 9 : 2.5)));
+    // (the near plane with the boom: far enough out that the depth buffer keeps facades and their
+    // windows apart — 5 cm against 9 km made close walls flicker)
+    const wantNear = f.walking ? THREE.MathUtils.clamp(this.chaseDist * 0.18, 0.3, 1.0) : 0.1;
+    if (Math.abs(c.near - wantNear) > 0.03) { c.near = wantNear; c.updateProjectionMatrix(); }
     const r = this.chaseDist;
     c.position.set(f.pos.x + bx * Math.cos(el) * r, f.pos.y + Math.sin(el) * r + 0.35, f.pos.z + bz * Math.cos(el) * r);
     c.lookAt(f.pos.x - bx * 6, f.pos.y + 0.25 - Math.sin(el) * 2.2, f.pos.z - bz * 6);
@@ -1218,7 +1231,7 @@ export class DroneSession {
       if (f.car) this.placeCar();
       else if (f.cycling) this.placeRider(dt);
       else { this.walker.pose = "stand"; this.walker.air = f.hop > 0.05; this.walker.root.position.set(f.pos.x, f.pos.y - EYE, f.pos.z); this.walker.root.rotation.set(0, f.yaw + Math.PI, 0); this.walker.update(dt, Math.hypot(f.vel.x, f.vel.z)); }
-      const fx = -Math.sin(this.chaseYaw), fz = -Math.cos(this.chaseYaw);
+      const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
       // Keep one pivot and one pitch as the boom retracts. Scaling the whole offset by a
       // near-wall blend, then aiming at another moving point, caused 20-degree frame jumps.
       const eb = this.boomEl;
