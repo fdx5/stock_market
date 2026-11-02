@@ -25,10 +25,23 @@ export function walkingSpawn(plan:FloorPlan,walls:Seg[],furniture:Seg[],doors:Se
   const free=(x:number,z:number)=>plan.rooms.some(r=>x>=r.rect[0]&&x<=r.rect[2]&&z>=r.rect[1]&&z<=r.rect[3])
     &&!footprints.some(([a,b,c,d])=>x>a-radius&&x<c+radius&&z>b-radius&&z<d+radius)
     &&segments.every(s=>distance(x,z,s)>=radius);
+  if(plan.facility&&free(...preferred)){
+    const yaw=plan.facility.start?.[2]??0;
+    let clear=true;
+    for(let t=.1;t<=minExit+.01;t+=.1)if(!free(preferred[0]-Math.sin(yaw)*t,preferred[1]-Math.cos(yaw)*t)){clear=false;break;}
+    if(clear)return [...preferred,yaw];
+  }
   const rank=(r:FloorPlan["rooms"][number])=>(preferred[0]>=r.rect[0]&&preferred[0]<=r.rect[2]&&preferred[1]>=r.rect[1]&&preferred[1]<=r.rect[3]?-2000:0)+(r.type==="living"?-1000:0)+(r.type==="entrance"?-500:0);
   const rooms=[...plan.rooms].sort((a,b)=>rank(a)-rank(b));
   for(const room of rooms){
-    const [x0,z0,x1,z1]=room.rect;let best:{p:Point;yaw:number;score:number}|null=null;
+    let [x0,z0,x1,z1]=room.rect;
+    if(plan.facility){
+      // Search near the visitor, rather than rasterising a hospital's entire
+      // floor every time a changed door or seat requires overlap recovery.
+      const x=Math.max(x0,Math.min(x1,preferred[0])),z=Math.max(z0,Math.min(z1,preferred[1]));
+      x0=Math.max(x0,x-3);x1=Math.min(x1,x+3);z0=Math.max(z0,z-3);z1=Math.min(z1,z+3);
+    }
+    let best:{p:Point;yaw:number;score:number}|null=null;
     const step=.18,nx=Math.min(160,Math.ceil((x1-x0)/step)),nz=Math.min(160,Math.ceil((z1-z0)/step));
     for(let j=0;j<nz;j++)for(let i=0;i<nx;i++){
       const x=x0+(i+.5)*(x1-x0)/nx,z=z0+(j+.5)*(z1-z0)/nz;

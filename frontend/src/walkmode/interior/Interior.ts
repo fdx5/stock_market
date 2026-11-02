@@ -636,7 +636,11 @@ export class Interior {
       this.pos.set(safe[0],safe[1]);this.yaw=safe[2];this.vel.set(0,0);return;
     }
     const st = plan.facility?.start;
-    if (st) { this.pos.set(st[0], st[1]); this.yaw = st[2]; return; }
+    if (st) {
+      const safe=walkingSpawn(plan,this.shell.segments,this.furn.colliders,this.doorSegs(),[st[0],st[1]]);
+      if(!safe)throw new InteriorSafetyError("출입구 주변에 통행 가능한 공간을 확보하지 못했습니다.");
+      this.pos.set(safe[0],safe[1]);this.yaw=safe[2];this.vel.set(0,0);return;
+    }
     const entry = this.o.plan.rooms.find(r => r.type === "entrance") ?? this.o.plan.rooms[0];
     const hall = this.o.plan.openings.find(o => o.a === entry.id && o.b !== "out") ?? this.o.plan.openings.find(o => o.b === entry.id);
     const [x0, z0, x1, z1] = entry.rect;
@@ -831,7 +835,7 @@ export class Interior {
 
   private furnitureBounds:[number,number,number,number][]=[];
   private recoverFurnitureOverlap(){
-    if(this.o.plan.facility||!this.furnitureBounds.some(([a,b,c,d])=>this.pos.x>a+.001&&this.pos.x<c-.001&&this.pos.y>b+.001&&this.pos.y<d-.001))return;
+    if(!this.furnitureBounds.some(([a,b,c,d])=>this.pos.x>a+.001&&this.pos.x<c-.001&&this.pos.y>b+.001&&this.pos.y<d-.001))return;
     const safe=walkingSpawn(this.o.plan,this.shell.segments,this.furn.colliders,this.doorSegs(),[this.pos.x,this.pos.y]);
     if(safe){this.pos.set(safe[0],safe[1]);this.vel.set(0,0);}
   }

@@ -104,6 +104,18 @@ export class Placer {
         for(let k=0;k<=n;k++){const px=x+(cx-x)*k/n,pz=z+(cz-z)*k/n;this.routes.push([px-.27,pz-.27,px+.27,pz+.27]);}
       }
     }
+    if(plan.facility){
+      // Facility lobbies can be small pieces of a surveyed floor. Keep a real
+      // route between their doors before a reception desk or seating is placed.
+      const cx=(this.X0+this.X1)/2,cz=(this.Z0+this.Z1)/2,R=.35;
+      const connect=(x:number,z:number)=>{
+        this.routes.push([Math.min(x,cx)-R,z-R,Math.max(x,cx)+R,z+R],
+          [cx-R,Math.min(z,cz)-R,cx+R,Math.max(z,cz)+R]);
+      };
+      for(const [a,b,c,d] of this.doors)connect((a+c)/2,(b+d)/2);
+      const start=plan.facility.start;
+      if(start&&start[0]>=room.rect[0]&&start[0]<=room.rect[2]&&start[1]>=room.rect[1]&&start[1]<=room.rect[3])connect(start[0],start[1]);
+    }
   }
   /** a way on foot (0.1 m grid, a walker's 0.22 m half-width kept off everything placed) from a door to
    * (x, z); its cells, or null — so a desk is not put where the bed shuts it off */
