@@ -147,6 +147,10 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     c.put([M.bx(m, W - 0.03, 0.005, D - 0.03, 0, 0.0025, 0)], new THREE.Matrix4().makeTranslation(cx, pl.fy, cz), zone, false);
   };
   finish();
+  /** a fitting made usable: its look box in the frame, what it says, what it does */
+  const useAt = (f: Frame | THREE.Matrix4, [w, h, d, x, y, z]: [number, number, number, number, number, number], label: string, act: () => void) => {
+    c.interactables.push({ id: `use-${room.id}-${c.interactables.length}`, zone, room, hit: c.hitIn(f, w, h, d, x, y, z), label: () => label, act: () => { act(); return null; } });
+  };
   const storefront = () => {
     if (!corridorOp || room.label.length < 2) return;
     const len = pl.len(doorSide), w = Math.min(3.2, Math.max(1.2, len * 0.45));
@@ -277,6 +281,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       if (f) {
         const w = Math.min(3.2, pl.len(s) - 1.2);
         c.put(F.reception(P, X, w), f, zone, false); pl.take(f.rect); c.colliders.push(...rectSegs(f.rect));
+        useAt(f, [w, 1.1, 0.8, 0, 0.55, 0.45], "안내 데스크에 문의하기", () => { c.hooks.fx?.("chime"); c.hooks.toast?.(["방문증을 받았어요. 엘리베이터는 홀 안쪽에 있어요.", "안내: \"찾으시는 곳은 층별 안내도를 보시면 돼요.\"", "택배를 맡겼어요. 오후에 찾아가시면 돼요.", "주차 등록을 했어요. 3시간 무료!"][Math.floor(Math.random() * 4)]); });
         spot(at(f, -w / 4, 0, 0.95), yawOf(f), "stand", "counter");
         signOn(s, "brand", [c.plan.facility?.name ?? ""], Math.min(2.8, w), 0.42, uOf(f, s), 1.95);
       }
@@ -468,6 +473,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       const f = pl.against(s, rw, 2.25, null, 3);
       if (f) {
         c.put(F.reception(P, X, rw), f, zone, false); pl.take(f.rect); c.colliders.push(...rectSegs(f.rect));
+        useAt(f, [rw, 1.1, 0.8, 0, 0.55, 0.45], "접수하고 대기 번호 받기", () => { c.hooks.fx?.("chime"); c.hooks.toast?.(`대기 번호 ${10 + Math.floor(Math.random() * 90)}번 · 예상 대기 ${5 + Math.floor(Math.random() * 6) * 5}분 · 이름이 불리면 진료실로 들어가세요.`); });
         spot(at(f, -rw / 4, 0, 0.95), yawOf(f), "stand", "counter"); spot(at(f, rw / 4, 0, 0.95), yawOf(f), "sit", "counter");
         signOn(s, "number", ["진료 대기 0127"], 1.2, 0.3, uOf(f, s), 2.15);
       }
@@ -491,6 +497,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       const os = sideW[1] ?? opposite[sideW[0] ?? "w"];
       const couch = pl.against(os, 1.95, 0.7, null, 3);
       if (couch) { c.put(F.moved(F.examCouch(P, X), 0, 0.36), couch, zone, true); pl.take(couch.rect); c.put(F.moved(F.bedCurtain(X, 2.0, 1.2, H), 0, 0.1), couch, zone, false); }
+      if (couch) useAt(couch, [1.95, 1.0, 0.7, 0, 0.5, 0.36], "의사에게 진찰 받기", () => { c.hooks.fx?.("chime"); c.hooks.toast?.(["의사: \"가벼운 감기네요. 푹 쉬고 물 많이 드세요.\"", "의사: \"검사 결과 이상 없어요. 6개월 뒤에 또 오세요.\"", "의사: \"처방전 드릴게요. 1층 약국에서 받으세요.\"", "의사: \"스트레칭을 꾸준히 하시면 좋아질 거예요.\""][Math.floor(Math.random() * 4)]); });
       const b = pl.against(doorSide, 0.6, 0.48, null, 3) ?? pl.against(winSide, 0.6, 0.48, null, 0.7);
       if (b) { c.put(M.washbasinVanity(P, 0.6), b, zone, true); pl.take(b.rect); c.faucet(room, zone, at(b, 0, 1.045, 0.19), pl.fy + 0.86, "세면대 수전", "basin", 0.1, 0.012); c.put([{ m: P.chrome, g: boxUV(new THREE.CylinderGeometry(0.016, 0.02, 0.2, 20)).translate(0, 0.96, 0.08) }], b, zone, false); }
       wallPut(solidSides.find(s => s !== sideW[0] && s !== os) ?? winSide, F.cabinets(P, 1.2, 1.9, 0.45), 1.2, 0.47, null, 0.8);
@@ -502,6 +509,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
         const f = pl.against(sideW[0] ?? "w", 0.8, 2.0, null, 3);
         if (!f) break;
         c.put(F.moved(F.examCouch(P, X), 0, 1.0, Math.PI / 2), f, zone, true); pl.take(f.rect);
+        useAt(f, [0.8, 1.0, 2.0, 0, 0.5, 1.0], "혈압·체온 재기", () => { c.hooks.fx?.("atm"); c.hooks.toast?.(`혈압 ${110 + Math.floor(Math.random() * 20)}/${70 + Math.floor(Math.random() * 12)} · 체온 ${(36.3 + Math.random() * 0.6).toFixed(1)}℃ · 정상 범위예요.`); });
         c.put(F.moved(F.ivPole(P), 0.55, 0.25), f, zone, false);
         if (i === 0) spot(at(f, 0, 0, 1.0), yawOf(f), "lie", "bed", 0.72);
       }
@@ -536,6 +544,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       const f = pl.against(s, rw, 2.25, null, 3);
       if (f) {
         c.put(F.reception(P, X, rw), f, zone, false); pl.take(f.rect); c.colliders.push(...rectSegs(f.rect));
+        useAt(f, [rw, 1.1, 0.8, 0, 0.55, 0.45], room.type === "pharmacy" ? "약국 창구에서 약 사기" : "창구에 문의하기", () => { c.hooks.fx?.("chime"); if (room.type === "pharmacy") c.hooks.shop?.("pharmacy", room.label); else c.hooks.toast?.(["담당자분이 친절하게 안내해 주셨어요.", "서류를 접수했어요. 3일 안에 처리된대요.", "번호표를 받았어요. 잠시만 기다려 주세요."][Math.floor(Math.random() * 3)]); });
         const k = Math.max(1, Math.round(rw / 1.4));
         for (let i = 0; i < k; i++) spot(at(f, -rw / 2 + (rw / k) * (i + 0.5), 0, 0.95), yawOf(f), i % 2 ? "stand" : "sit", "counter");
         if (room.type === "pharmacy") c.put(F.wallShelves(P, X, rw, 1.9, 0.3, 6, 3), f, zone, false);
@@ -633,6 +642,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       const s = sideW[0] ?? solidSides[0] ?? "w", face = FACE[s] + Math.PI;
       const wb = pl.frameAt(s, s === "w" || s === "e" ? cz : cx, Math.min(3.6, pl.len(s) - 0.8), 0.06);
       c.put(F.whiteboard(P, X, Math.min(3.6, pl.len(s) - 0.8)), wb, zone, false);
+      useAt(wb, [Math.min(3.6, pl.len(s) - 0.8), 1.2, 0.3, 0, 1.4, 0.15], "칠판에 판서하기", () => { c.hooks.fx?.("pick"); setTimeout(() => c.hooks.fx?.("pick"), 200); setTimeout(() => c.hooks.fx?.("pick"), 420); c.hooks.toast?.(["칠판에 오늘의 날짜와 \"자습\"이라고 적었어요.", "수학 공식 E = mc²를 크게 적었어요.", "칠판 구석에 작은 고양이를 그렸어요.", "\"숙제: 교과서 34쪽\"이라고 적었어요."][Math.floor(Math.random() * 4)]); });
       const td = pl.against(s, 1.2, 1.8, null, 0.8, 0);
       if (td) { c.put(F.moved(M.desk(P, 1.2), 0, 1.1, Math.PI), td, zone, true); pl.take(td.rect); spot(at(td, 0.3, 0, 0.6), yawOf(td), "stand", "stand"); }
       // desks in rows facing the board
@@ -695,10 +705,11 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
           const f = pl.frameAt(s, u, w, 0.06);
           const tex = c.own(M.artTexture(seed++)), mat = c.own(new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.85 }));
           c.put(M.artFrame(P, w, h, mat), new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(0, 1.5, 0)), zone, false);
+          useAt(f, [w, h, 0.3, 0, 1.5, 0.15], "작품 감상하기", () => { c.hooks.fx?.("pages"); c.hooks.toast?.(["캔버스에 유화 · 빛이 번지는 오후의 강가를 담았어요.", "추상화 · 붉은 선과 푸른 면이 긴장감을 만들어요.", "사진 작품 · 새벽 골목의 고요함이 느껴져요.", "수묵화 · 여백이 오히려 많은 이야기를 해요.", "판화 · 반복되는 패턴 속에 작은 변주가 숨어 있어요."][Math.floor(Math.random() * 5)]); });
           signOn(s, "label", [`작품 ${seed}`, "캔버스에 유채, 2019"], 0.28, 0.12, u + w / 2 + 0.3, 1.25);
         }
       }
-      for (let i = 0; i < Math.min(3, Math.floor(W * D / 30)); i++) { const f = freeAt(cx + (i - 1) * 2.6, cz - 0.8, 0.62, 0.62); if (f) c.put(F.plinth(P, X, i + room.id.length), f, zone, true); }
+      for (let i = 0; i < Math.min(3, Math.floor(W * D / 30)); i++) { const f = freeAt(cx + (i - 1) * 2.6, cz - 0.8, 0.62, 0.62); if (f) { c.put(F.plinth(P, X, i + room.id.length), f, zone, true); useAt(f, [0.62, 1.6, 0.62, 0, 0.8, 0], "전시품 가까이 살펴보기", () => { c.hooks.fx?.("pages"); c.hooks.toast?.(["청동 조각 · 3세기 무렵 의례에 쓰였던 것으로 추정돼요.", "현대 조형물 · 빛의 각도에 따라 색이 변해요.", "백자 항아리 · 둥근 선이 달을 닮았어요."][Math.floor(Math.random() * 3)]); }); } }
       const b = freeAt(cx, cz + 1.2, 1.8, 0.45); if (b) { c.put(F.bench(P, X, 1.8), b, zone, true); seat("벤치에 앉기", new THREE.Vector3(cx, 0, cz + 1.2), Math.PI); }
       spot(new THREE.Vector3(X0 + 1.2, 0, cz), FACE.w + Math.PI, "stand", "stand"); spot(new THREE.Vector3(X1 - 1.2, 0, cz), FACE.e + Math.PI, "stand", "stand");
       break;
@@ -711,6 +722,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
         const f = pl.against(winSide, 0.9, 2.3, null, 0.5);
         if (!f) break;
         c.put(F.moved(F.treadmill(P, X), 0, 1.25), f, zone, true); pl.take(f.rect);
+        useAt(f, [0.9, 1.4, 2.0, 0, 0.7, 1.25], "러닝머신 달리기", () => { c.hooks.fx?.("treadmill"); c.hooks.toast?.(`러닝머신 ${5 + Math.floor(Math.random() * 25)}분 · ${(1 + Math.random() * 4).toFixed(1)}km · ${Math.floor(60 + Math.random() * 240)}kcal`); });
         if (i % 2 === 0) spot(at(f, 0, 0.27, 1.5), face, "stand", "stand", 0.27);
       }
       const ms = sideW[0];
@@ -729,6 +741,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       const bf = pl.against(s, 1.7, 2.15, null, 3);
       if (bf) {
         c.put(M.bed(P, 1.6, 2.1), bf, zone, true); pl.take(bf.rect);
+        useAt(bf, [1.6, 0.8, 2.1, 0, 0.4, 1.05], "프런트에 룸서비스 주문하기", () => { c.hooks.fx?.("chime"); c.hooks.toast?.(["룸서비스로 클럽 샌드위치를 주문했어요. 20분 뒤 도착!", "모닝콜을 7시로 맞췄어요.", "수건을 더 가져다 주신대요.", "체크아웃 시간을 확인했어요: 오전 11시"][Math.floor(Math.random() * 4)]); });
         for (const sgn of [-1, 1]) c.put([...M.nightstand(P), ...M.tableLamp(P).map(p => ({ ...p, g: p.g.translate(0, 0.52, 0.2) }))], new THREE.Matrix4().multiplyMatrices(bf.m, new THREE.Matrix4().makeTranslation(sgn * 1.15, 0, 0)), zone, false);
         c.seats.push({ label: "침대에 눕기", eye: at(bf, 0.35, 0.78, 0.42), yaw: yawOf(bf) + Math.PI, pose: "lie", hit: c.hitIn(bf, 1.6, 0.6, 1.9, 0, 0.4, 1.05), zone, room });
       }
