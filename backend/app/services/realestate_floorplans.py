@@ -193,8 +193,7 @@ def _probe(text: str, ids: int) -> dict:
 
 
 def _base_summary(text: str) -> dict:
-    match=re.search(r"baseQueryResult\s*=\s*({[^
-]+});",text)
+    match=re.search(r"baseQueryResult\s*=\s*({[^\r\n]+});",text)
     try:info=json.loads(match.group(1)) if match else {}
     except json.JSONDecodeError:return {"parse":"failed"}
     return {k:(v if isinstance(v,(int,float)) or (isinstance(v,str) and len(v)<40) else type(v).__name__) for k,v in list(info.items())[:16]}
