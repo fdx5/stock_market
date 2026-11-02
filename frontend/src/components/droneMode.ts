@@ -953,7 +953,7 @@ export class DroneSession {
     const f = this.flight; if (!f.walking || f.cycling || f.car) { f.door = null; return; }
     // (an entrance within 4.5 m: in through it — the door is where its doors are)
     const near = this.entrances?.nearest(f.pos.x, -f.pos.z, 4.5);
-    if (near) { const e = near.e; f.door = { ring: e.ring, x: e.x + e.nx * 0.2, y: e.y + e.ny * 0.2, label: ENTRANCE_SPEC[e.kind].label, at: true }; return; }
+    if (near) { const e = near.e; f.door = { ring: e.ring, x: e.x + e.nx * 0.2, y: e.y + e.ny * 0.2, label: ENTRANCE_SPEC[e.kind].label, at: true, name: e.name }; return; }
     const x = f.pos.x, y = -f.pos.z, fx = -Math.sin(f.yaw), fy = Math.cos(f.yaw);
     // (ahead first, then every way round: a wall within 4 m whichever way the walker faces)
     const dirs: [number, number, number][] = [[fx, fy, 4]];
@@ -1029,7 +1029,8 @@ export class DroneSession {
       if (!this.entrances) { this.entrances = new EntranceLayer(); this.p.scene.add(this.entrances.group); }
       // (at a wall away from the doors: the way there shown — E again at the doors goes in)
       if (!d.at && Math.hypot(e.x - this.flight.pos.x, e.y + this.flight.pos.z) > 9) return this.navTo(e);
-      return this.goIn(e, { kind: e.kind === "apartment" ? "apartment" : undefined });
+      // (named public buildings — a hospital, a school, a store — go in as buildings, no unit chooser)
+      return this.goIn(e, { kind: e.kind === "apartment" ? "apartment" : e.name && /hospital|school|civic|store|museum|station/.test(e.kind) ? "building" : undefined, name: e.name });
     }
     return this.openInside(d.ring, this.flight.pos.x, -this.flight.pos.z, Math.atan2(Math.cos(this.flight.yaw), -Math.sin(this.flight.yaw)) + Math.PI);
   }
@@ -1107,26 +1108,52 @@ export class DroneSession {
   /** The line from (x, y, z) back to the camera at height angle `el`, in half-metre steps: how far
    * it goes before anything solid (the ground, a roof), at the camera's own pivot height. */
   private clearBehind(x: number, y: number, z: number, bx: number, bz: number, el: number, want: number) {
-    const w = this.world;
-    const step = this.flight.walking ? .1 : .5;
+    const w = this.world, walking = this.flight.walking;
+    const step = walking ? .1 : .5;
     for (let s = step; s <= want; s += step) {
-      const px = x + bx * Math.cos(el) * s, pz = z + bz * Math.cos(el) * s, py = y + Math.sin(el) * s;
-      if (py < Math.max(w.groundAt(px, -pz), w.roofAt(px, -pz)) + 0.6) return Math.max(0.8, s - step);
+      const px = x + bx * Math.cos(el) * s, pz = z + bz * Math.cos(el) * s, py = y + Math.sin(el) * s, g = w.groundAt(px, -pz);
+      // (on the ground what stops the boom is a building's wall — inside a surveyed outline, or a
+      // roof over 6 m — not a kerb, a canopy edge or the roof raster running past a wall)
+      let top = g;
+      if (walking) { const roof = w.roofAt(px, -pz); if (roof - g > 0.8 && (roof - g > 6 || w.buildingRingAt(px, -pz))) top = roof; }
+      else top = Math.max(g, w.roofAt(px, -pz));
+      if (py < top + (walking ? 0.3 : 0.6)) return Math.max(walking ? 0.3 : 0.8, s - step);
     }
     return want;
+  }
+  /** Behind the body on foot, on the bike or in a car: the boom at the wanted height angle if it is
+   * clear; else raised (up to ~60°) to look over what is behind, the longest clear one taken; never
+   * pulled in so close that the view becomes the body's own eye, unless a wall is right behind. */
+  private boom(x: number, y: number, z: number, bx: number, bz: number, el0: number, want: number): { el: number; dist: number } {
+    let best = { el: el0, dist: 0 };
+    for (const lift of [0, 0.18, 0.36, 0.56, 0.8]) {
+      const el = Math.min(1.05, el0 + lift), d = this.clearBehind(x, y, z, bx, bz, el, want);
+      if (d >= want - 0.05) return { el, dist: want };
+      if (d > best.dist + 0.3) best = { el, dist: d };
+    }
+    return { el: best.el, dist: Math.max(best.dist, Math.min(want, 2.6)) };
   }
   /** The third-person camera: behind the drone and a little above, its heading following the
    * drone's with a short lag (turns read as turns), its height angle from the camera tilt (a drag
    * looks down on it or up past it); pulled in where a wall or a tree is between them. */
+  private boomEl = 0.28;
   private chase(dt: number) {
     const f = this.flight, c = this.p.camera;
     const d = Math.atan2(Math.sin(f.yaw - this.chaseYaw), Math.cos(f.yaw - this.chaseYaw));
-    const turn = d * (1 - Math.exp(-dt * (viewPreferences().reduceMotion ? 14 : 5)));
-    this.chaseYaw += f.walking && !f.car ? THREE.MathUtils.clamp(turn, -dt * 3.6, dt * 3.6) : turn;
-    const el0 = THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, -0.15, 1.35);
+    // On foot, on the bike or in a car the camera stays behind: it follows the heading closely, and
+    // a jump of the heading (a turn on the spot, out of a door, a car brought round, a cut to an
+    // entrance) is taken at once rather than swung round past the side or the front.
+    if (f.walking) this.chaseYaw = Math.abs(d) > 1.6 ? f.yaw : this.chaseYaw + d * (1 - Math.exp(-dt * (f.car ? 7 : 9)));
+    else this.chaseYaw += d * (1 - Math.exp(-dt * (viewPreferences().reduceMotion ? 14 : 5)));
+    // (and from a little above: looking up or down tilts it within a band, never under the ground
+    // nor straight overhead)
+    const el0 = f.walking ? THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, f.car ? 0.1 : 0.12, f.car ? 0.5 : 0.62) : THREE.MathUtils.clamp(0.28 - f.tilt * 0.8, -0.15, 1.35);
     const bx = Math.sin(this.chaseYaw), bz = Math.cos(this.chaseYaw);   // behind: opposite the heading
     const want = this.chaseWant(), base = f.walking ? (f.car ? .9 : .65) : .35;
-    const dist = this.clearBehind(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0, want);
+    const fit = f.walking ? this.boom(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0, want) : { el: el0, dist: this.clearBehind(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0, want) };
+    const dist = fit.dist;
+    // (the raised angle eased in and out, not jumped)
+    this.boomEl += ((f.walking ? fit.el : el0) - this.boomEl) * (1 - Math.exp(-dt * 6));
     // Obstacles retract the boom without automatically pitching the user's view up and down.
     this.chaseLift = 0;
     const el = el0 + this.chaseLift;
@@ -1145,11 +1172,15 @@ export class DroneSession {
       const fx = -Math.sin(this.chaseYaw), fz = -Math.cos(this.chaseYaw);
       // Keep one pivot and one pitch as the boom retracts. Scaling the whole offset by a
       // near-wall blend, then aiming at another moving point, caused 20-degree frame jumps.
-      c.position.set(f.pos.x - fx * Math.cos(el0) * r, f.pos.y + base + Math.sin(el0) * r, f.pos.z - fz * Math.cos(el0) * r);
+      const eb = this.boomEl;
+      c.position.set(f.pos.x - fx * Math.cos(eb) * r, f.pos.y + base + Math.sin(eb) * r, f.pos.z - fz * Math.cos(eb) * r);
+      // (never inside the ground behind — a slope rising there)
+      const under = this.world.groundAt(c.position.x, -c.position.z) + 0.45;
+      if (c.position.y < under) c.position.y = under;
       // (on foot or on the bike: looking at the walker's waist a step ahead — the whole figure, feet
       // and all, a little below the middle of the picture; in a car, at the road beyond the bonnet)
       if (f.car) c.lookAt(f.pos.x + fx * 9, f.pos.y - 1.2, f.pos.z + fz * 9);
-      else c.rotation.set(-el0, this.chaseYaw, 0, "YXZ");
+      else c.rotation.set(-eb, this.chaseYaw, 0, "YXZ");
       return;
     }
     this.model.group.visible = true;

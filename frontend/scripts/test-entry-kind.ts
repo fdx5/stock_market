@@ -3,6 +3,10 @@ import {entryKind,resolveEntryKind} from '../src/walkmode/entryKind';
 import {resolveWalkEntry,rememberWalkEntry,recalledWalkEntry,type WalkEntry} from '../src/walkmode/walkLink';
 import {entryComplexId,apartmentName} from '../src/walkmode/apartmentIdentity';
 void(async()=>{
+ // a hospital's card: its building name in the dong field must not make it a block of flats
+ assert.equal(entryKind({name:'삼성서울병원 신관',kind:'building',dong:'삼성서울병원 신관'}),'building');
+ assert.equal(entryKind({name:'삼성서울병원',dong:'양성자센터'}),'building');
+ assert.equal(entryKind({name:'래미안대치팰리스 101동',kind:'building',dong:'101동'}),'apartment','an apartment name still wins');
  for(const name of ['삼익','신동아','은마','수서1단지에스에이치빌']){
   assert.equal(entryKind({name,kind:'apartment'},{}),'apartment','sign classification survives a missing register');
   assert.equal(entryKind({name,use:'02000'},{}),'apartment','GIS housing code survives missing floor counts');

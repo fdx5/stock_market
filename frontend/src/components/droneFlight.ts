@@ -107,7 +107,7 @@ export class DroneFlight {
   moved = 0;
   /** on foot facing a building within 3 m: its outline (view frame) and the point of the wall —
    * where E goes in (droneMode) */
-  door: { ring: [number, number][]; x: number; y: number; /** its entrance's name (공동현관, 병원 정문…) */ label?: string; /** standing at the entrance */ at?: boolean; /** else how far it is (m) */ far?: number } | null = null;
+  door: { ring: [number, number][]; x: number; y: number; /** its entrance's name (공동현관, 병원 정문…) */ label?: string; /** standing at the entrance */ at?: boolean; /** the building's name, at its entrance */ name?: string; /** else how far it is (m) */ far?: number } | null = null;
   /** behind the wheel (while walking): the car's numbers and its speed along the heading (m/s) */
   car: { top: number; accel: number; brake: number; wheelbase: number; lock: number; length: number; width: number; eyeY: number } | null = null;
   carSpeed = 0; throttle = 0; braking = false;

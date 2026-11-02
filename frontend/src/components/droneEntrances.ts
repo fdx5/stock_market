@@ -292,7 +292,15 @@ export class EntranceLayer {
   /** the entrance whose door is nearest (x, y) within r */
   nearest(x: number, y: number, r: number): { e: Entrance; d: number } | null {
     let best: { e: Entrance; d: number } | null = null;
-    for (const e of this.entrances) { const d = Math.hypot(e.x + e.nx * 0.8 - x, e.y + e.ny * 0.8 - y); if (d < r && (!best || d < best.d)) best = { e, d }; }
+    for (const e of this.entrances) {
+      // (anywhere on the forecourt: across the doors' width and a little more, from the wall out to
+      // past the beam and the canopy's edge — or within r of the doors)
+      const dx = x - e.x, dy = y - e.y, u = dx * e.tx + dy * e.ty, v = dx * e.nx + dy * e.ny;
+      const reach = Math.max(r, Math.min(ENTRANCE_SPEC[e.kind].cd * e.scale, 9) + 2.5);
+      const front = Math.abs(u) <= e.w / 2 + 2 && v > -0.6 && v < reach;
+      const d = Math.hypot(e.x + e.nx * 0.8 - x, e.y + e.ny * 0.8 - y);
+      if ((front || d < r) && (!best || d < best.d)) best = { e, d };
+    }
     return best;
   }
   /** the entrance of the building with this outline */

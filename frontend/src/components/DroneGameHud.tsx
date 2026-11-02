@@ -102,6 +102,9 @@ export default function DroneGameHud({ flight, touch }: { flight: DroneFlight; t
       </div>}
       {flash && <div key={flash.n} className="re-game-flash" style={{ opacity: Math.min(0.75, 0.25 + flash.k * 0.6) }} onAnimationEnd={() => setFlash(null)} />}
       {toast && <div className="re-game-toast" role="status">{toast}</div>}
+      {f.door?.at && !f.car && !f.cycling && !entering && <button type="button" className="re-game-entry" onClick={() => window.dispatchEvent(new Event("drone-enter-door"))}>
+        <small>{f.door.label}</small><b>{f.door.name ?? "건물"}</b><span>{!touch && <kbd>E</kbd>} 들어가기</span>
+      </button>}
       {f.nav && <div className="re-game-nav" role="status"><i aria-hidden="true">➤</i><span><b>{f.nav.label}</b><small>{f.nav.left >= 0 ? `남은 거리 ${Math.round(f.nav.left)}m · 바닥 화살표를 따라가세요` : ""}</small></span></div>}
       {entering?.cut && <div className="re-game-cut" />}
       {entering && <div className="re-game-enter" role="status" style={{ animationDelay: `${Math.max(0, entering.after - 0.2)}s` }}><b>{entering.label}</b><span>안으로 들어가는 중 · 도면으로 실내를 만드는 중</span></div>}

@@ -81,3 +81,12 @@
 .re-game-nav b { font-size: 13px; }
 .re-game-nav small { font-size: 11px; color: #9bdbff; }
 @keyframes re-game-nav { 50% { transform: translateX(4px); } }
+/* at an entrance: the card to go in (the one thing in the lower middle, while it applies) */
+.re-game-entry { position: absolute; left: 50%; bottom: calc(var(--drone-footer-height, 0px) + 40px); transform: translateX(-50%); display: grid; justify-items: center; gap: 3px; min-width: 220px; padding: 12px 22px 14px; border-radius: 14px; border: 1px solid rgba(125, 255, 176, .75); background: rgba(4, 20, 16, .88); color: #e8fffa; pointer-events: auto; cursor: pointer; box-shadow: 0 0 26px rgba(125, 255, 176, .35); animation: re-game-entry-in .25s ease-out, re-game-entry-glow 1.6s ease-in-out .25s infinite alternate; font-family: inherit; }
+.re-game-entry small { font-size: 11px; color: #7dffb0; letter-spacing: .08em; }
+.re-game-entry b { font-size: 17px; }
+.re-game-entry span { display: flex; align-items: center; gap: 6px; margin-top: 4px; padding: 6px 16px; border-radius: 999px; background: linear-gradient(180deg, #7dffb0, #2fcf86); color: #03140c; font-weight: 900; font-size: 14px; }
+.re-game-entry kbd { padding: 1px 6px; border-radius: 4px; background: #03140c; color: #7dffb0; font-weight: 900; font-family: inherit; }
+.re-game-entry:hover span { filter: brightness(1.1); }
+@keyframes re-game-entry-in { from { opacity: 0; transform: translate(-50%, 10px); } }
+@keyframes re-game-entry-glow { to { box-shadow: 0 0 40px rgba(125, 255, 176, .55); } }
