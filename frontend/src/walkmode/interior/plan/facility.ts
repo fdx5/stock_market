@@ -114,6 +114,19 @@ export function programOf(f: FacilityInput, rnd: () => number): Want[] {
       { type: "storage", label: "식자재 창고", w: 3, front: "door", people: [] },
     ];
     case "school": {
+      // (a school — 초·중·고, a university — its classes by year, its special rooms, its staff room;
+      // an academy (학원) its lecture rooms)
+      if (/학교|초등|중학|고등|대학|캠퍼스/.test(f.name) && !/학원/.test(f.name)) {
+        const grade = clamp(Math.abs(L), 1, 6), n = clamp(Math.round(f.width / 8.5), 3, 6), uni = /대학/.test(f.name);
+        const special: Want[] = L === 1
+          ? [{ type: "staffroom", label: "교무실", w: 7, front: "door", people: ["teacher", "teacher", "teacher"] }, { type: "service", label: "행정실", w: 5, front: "glass", people: ["clerk"] }, { type: "treatment", label: "보건실", w: 4.6, front: "door", people: ["nurse"] }]
+          : [[{ type: "classroom" as RoomType, label: uni ? "실험실" : "과학실", w: 8, front: "door" as Front, people: ["teacher", "student", "student"] as Want["people"] }], [{ type: "classroom" as RoomType, label: uni ? "세미나실" : "음악실", w: 7.5, front: "door" as Front, people: ["teacher", "student"] as Want["people"] }], [{ type: "classroom" as RoomType, label: "컴퓨터실", w: 8, front: "door" as Front, people: ["student", "student"] as Want["people"] }], [{ type: "classroom" as RoomType, label: "도서실", w: 9, front: "door" as Front, people: ["student", "student"] as Want["people"] }]][(L - 2 + 4) % 4];
+        return [
+          ...special,
+          ...Array.from({ length: n }, (_, i): Want => ({ type: "classroom", label: uni ? `강의실 ${L}${String(i + 1).padStart(2, "0")}` : `${grade}학년 ${i + 1}반`, w: 7.6, front: "door", grow: i === 0, people: ["teacher", "student", "student", "student", "student", "student"] })),
+          { type: "storage", label: "교구실", w: 3, front: "door", people: [] },
+        ];
+      }
       const acad = t[0] ?? "";
       return [
         { type: "service", label: acad ? `${acad} 안내데스크` : "행정실", w: 5, front: "glass", people: ["clerk"] },

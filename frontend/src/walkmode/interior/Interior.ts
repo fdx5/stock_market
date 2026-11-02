@@ -61,6 +61,9 @@ export interface InteriorOptions {
   onLift?(): void;
   onMonitor?(): void;
   onVending?(session: VendingSession): void;
+  /** a shelf's or a counter's goods (the page's shop menu), and a word on the screen for a moment */
+  onShop?(kind: ShopKind, label: string): void;
+  onToast?(text: string): void;
   /** a building's person talked to (the page shows the dialogue), or the talk over (null) */
   onTalk?(t: InteriorTalk | null): void;
   levels?: { level: number; label: string; uses: string }[];
@@ -550,6 +553,10 @@ export class Interior {
       look ? { X: look.X, signs: look.signs, spots, hooks: { lift: () => this.o.onLift?.(), levels: this.o.levels,
         monitor: screen => { this.monitor = screen; this.zoomScreen("monitor"); this.o.onMonitor?.(); },
         vending: session => this.o.onVending?.(session), vendSound: kind => { this.o.sound.resume(); this.o.sound.play(kind === "motor" ? "fridge" : "thud"); },
+        shop: (kind, label) => { document.exitPointerLock?.(); this.o.onShop?.(kind, label); },
+        consume: item => { if (!this.consumeBought(item)) this.o.onToast?.("손에 든 것을 먼저 내려놓아 주세요"); },
+        toast: text => this.o.onToast?.(text),
+        fx: name => { this.o.sound.resume(); this.o.sound.fx(name); },
         drink: (can, name) => { if (!this.sip && !this.furn.pantry.hand) this.startSip(can, "can", name, true); else (can.children[0] as THREE.Mesh | undefined)?.geometry.dispose(); },
       } } : undefined));
     await nextFrame();

@@ -201,6 +201,30 @@ export class Sound {
     }
     this.babbleUntil = t0 + n * 0.085 + 0.05;
   }
+  /** The sounds of a building's machines and goods, made here: a till's scanner, a coffee machine
+   * grinding and brewing, a water dispenser's glug, an ATM's keypad, a copier running, a book's
+   * pages, a keyboard, a treadmill's belt, a shelf's goods picked up, a door chime. */
+  fx(name: "scan" | "coffee" | "water" | "atm" | "copier" | "pages" | "keys" | "treadmill" | "pick" | "chime" | "register") {
+    const at = (ms: number, f: () => void) => setTimeout(f, ms);
+    switch (name) {
+      case "scan": this.tone(2200, 0.08, 0.07, "square"); break;
+      case "register": [0, 120, 240].forEach((ms, i) => at(ms, () => this.tone([2000, 2400, 1800][i], 0.07, 0.05, "square"))); at(420, () => { this.burst(0.2, 3000, 2, 0.12); this.tone(1318, 0.25, 0.05); }); break;
+      case "coffee":
+        // (the grinder's whirr, then the pump's hiss and the drip)
+        this.burst(1.1, 900, 0.6, 0.16, "bandpass", 1300, 0.05);
+        at(1200, () => this.burst(1.6, 3200, 0.8, 0.12, "bandpass", 2400, 0.15));
+        for (let i = 0; i < 6; i++) at(1500 + i * 220, () => this.burst(0.03, 1800 + Math.random() * 600, 4, 0.06));
+        break;
+      case "water": for (let i = 0; i < 5; i++) at(i * 180, () => { this.tone(420 - i * 30, 0.12, 0.06); this.burst(0.15, 600, 1.2, 0.08, "lowpass"); }); break;
+      case "atm": for (let i = 0; i < 4; i++) at(i * 160, () => this.tone(1500, 0.06, 0.06, "square")); at(800, () => this.burst(0.9, 500, 0.7, 0.12, "lowpass", 300, 0.05)); break;
+      case "copier": this.burst(2.2, 700, 0.5, 0.14, "bandpass", 1100, 0.2); for (let i = 0; i < 3; i++) at(400 + i * 600, () => this.burst(0.25, 2400, 1, 0.08, "bandpass", 1200)); break;
+      case "pages": for (let i = 0; i < 3; i++) at(i * 260, () => this.burst(0.18, 3800, 0.8, 0.12, "highpass", 2200, 0.02)); break;
+      case "keys": for (let i = 0; i < 14; i++) at(i * 70 + Math.random() * 40, () => this.burst(0.02, 2600 + Math.random() * 1200, 3, 0.07)); break;
+      case "treadmill": this.burst(2.5, 220, 0.8, 0.18, "lowpass", 260, 0.3); this.tone(110, 2.4, 0.03, "sawtooth"); break;
+      case "pick": this.burst(0.06, 1400, 2, 0.12); at(60, () => this.burst(0.05, 600, 1.5, 0.08, "lowpass")); break;
+      case "chime": [0, 160].forEach((ms, i) => at(ms, () => this.tone([1318, 1046][i], 0.35, 0.06))); break;
+    }
+  }
   /** a cat's "mrrow": a voiced glide through two vowel-like formants */
   meow() {
     const c = this.ctx; if (!c || !this.master) return;

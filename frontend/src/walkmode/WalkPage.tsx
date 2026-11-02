@@ -136,6 +136,8 @@ export default function WalkPage() {
   const [iTalk,setITalk]=useState<InteriorTalk|null>(null);
   /** a counter's goods on show (bought with the game's play money) */
   const [shop,setShop]=useState<{kind:ShopKind;label:string}|null>(null);
+  /** what a building's fitting did, for a moment on the screen */
+  const [toast,setToast]=useState<string|null>(null);const toastTimer=useRef(0);
   /** a building other than flats, walked floor by floor in the interior engine: what is known of it */
   const fac = useRef<{ info: RegBuilding; floors: RegFloor[]; W: number; D: number; levels: { level: number; label: string; uses: string }[]; tenants: { name: string; level: number }[]; departments: string[]; key: string;
     /** the building's survey (SGIS): its frame, its floors' drawings fetched as walked; the way in in plan coords */
@@ -595,6 +597,8 @@ export default function WalkPage() {
       onVending: session => { setVending(session); document.exitPointerLock?.(); },
       onMonitor: () => { setMonitorOpen(true); document.exitPointerLock?.(); },
       onTalk: t => { setITalk(t); if (t) document.exitPointerLock?.(); },
+      onShop: (kind, label) => setShop({ kind, label }),
+      onToast: text => { setToast(text); window.clearTimeout(toastTimer.current); toastTimer.current = window.setTimeout(() => setToast(null), 3200); },
     });
     interior.current = it;
     it.resize(canvas.current!.clientWidth, canvas.current!.clientHeight);
@@ -924,6 +928,7 @@ export default function WalkPage() {
           </div>}
           {!vending && !monitorOpen && <MissionHud className="is-inside" />}
           {shopHere && !shop && !iTalk && <button type="button" className="wk-shop-here" onClick={() => { setShop(shopHere); document.exitPointerLock?.(); }}>🛒 {shopHere.label} · {!touch && <kbd>Q</kbd>} 물건 사기</button>}
+          {toast && <div className="wk-toast" role="status">{toast}</div>}
           {shop && <ShopMenu shop={shop} onBuy={it => it.kind === "goods" ? false : !!interior.current?.consumeBought(it)} onClose={() => setShop(null)} />}
           {hud?.use && !vending && !monitorOpen && !liftPanel && <div className={`wk-use${/중$/.test(hud.use) ? " is-busy" : ""}`} role="status">{/중$/.test(hud.use) ? hud.use : <>{!touch && <kbd>R</kbd>} {hud.use}</>}</div>}
           {hud?.pet && touch && <button className="wk-btn wk-pet-zoom" onPointerDown={e => { e.stopPropagation(); interior.current?.zoomPet(true); }}>🔍 확대해서 보기</button>}

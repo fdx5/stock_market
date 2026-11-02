@@ -27,6 +27,14 @@ export interface FacilityHooks {
   vendSound?(kind: "motor" | "drop"): void;
   /** the dispensed can taken from the tray and drunk: its look (a copy of the can's) and name */
   drink?(can: THREE.Object3D, name: string, fizzy: boolean): void;
+  /** a counter's or a shelf's goods shown (the page's shop menu) */
+  shop?(kind: import("./shop").ShopKind, label: string): void;
+  /** something taken and had at once (a coffee from the machine, a cup of water) */
+  consume?(item: import("./shop").ShopItem): void;
+  /** a word on the screen for a moment (what happened) */
+  toast?(text: string): void;
+  /** a machine's or the goods' sound */
+  fx?(name: "scan" | "coffee" | "water" | "atm" | "copier" | "pages" | "keys" | "treadmill" | "pick" | "chime" | "register"): void;
   vendingPut?: number;
   /** the lift called: the floor panel opened */
   lift?(): void;
@@ -73,6 +81,15 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     if (take) pl.take(rect);
     return { m: new THREE.Matrix4().makeRotationY(yaw).setPosition(x, pl.fy, z), rect };
   };
+  /** a free-standing piece as near (x, z) as it fits: the walking routes between a room's doors often
+   * cross its middle, so the search goes outward in 0.3 m steps up to 3 m */
+  const freeNear = (x: number, z: number, w: number, d: number, yaw = 0): Frame | null => {
+    const tries: [number, number][] = [];
+    for (let i = -10; i <= 10; i++) for (let j = -10; j <= 10; j++) tries.push([i * 0.3, j * 0.3]);
+    tries.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+    for (const [dx, dz] of tries) { const f = freeAt(x + dx, z + dz, w, d, yaw); if (f) return f; }
+    return null;
+  };
   const wallPut = (s: SideName, kit: M.Kit, w: number, d: number, prefer: number | null = null, height = 0.8, solid = true, clear = 0) => {
     const f = pl.against(s, w, d, prefer, height, clear);
     if (!f) { for (const p of kit) p.g.dispose(); return null; }
@@ -109,6 +126,27 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     c.B.add(c.signs.material, zone, g, new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(0, y, 0.012)), false); g.dispose();
   };  /** A business seen from the corridor: its name lit over the way in, on the corridor's face of its
    * front wall, and a couple of display stands just inside the glass, clear of the door. */
+  /** The room's own floor by what it is — carpet tiles in offices, timber in meeting rooms, polished
+   * stone in a lobby, terrazzo down corridors, tiles in restrooms and pantries, vinyl in classrooms
+   * and clinics, rubber in a gym — one of a few for each, chosen by the building, laid over the
+   * building's floor. (Shops lay their own: shopInteriors.) */
+  const finish = () => {
+    const F_: Partial<Record<string, [string, number, number][]>> = {
+      openOffice: [["#5b6472", 0.95, 0], ["#6e6a63", 0.95, 0], ["#3f4f63", 0.95, 0]], office: [["#7b6a58", 0.9, 0], ["#4f5966", 0.95, 0]],
+      meeting: [["#8a6a4a", 0.55, 0], ["#a9876a", 0.5, 0]], lobby: [["#d8d2c8", 0.15, 0.1], ["#bfb6a8", 0.2, 0.1], ["#e6e3dd", 0.12, 0.12]],
+      corridor: [["#cfcac0", 0.35, 0.02], ["#bdb8ae", 0.4, 0], ["#d9d6cf", 0.3, 0.02]], liftHall: [["#d8d2c8", 0.18, 0.1]],
+      restroom: [["#e9ecef", 0.3, 0.02], ["#d6dbe0", 0.3, 0.02]], pantry: [["#e4ddd2", 0.35, 0]], classroom: [["#cfe0c8", 0.5, 0], ["#e3d7c3", 0.5, 0]],
+      staffroom: [["#d8cbb8", 0.55, 0]], waiting: [["#dfeee9", 0.4, 0]], consult: [["#e6efec", 0.4, 0]], treatment: [["#e3ecf0", 0.4, 0]], ward: [["#e8efe6", 0.45, 0]],
+      gallery: [["#bdbab3", 0.25, 0.05], ["#8f8a82", 0.3, 0.05]], gym: [["#2b2b2b", 0.95, 0]], service: [["#d9d3c7", 0.35, 0.02]], guest: [["#8b6f5a", 0.85, 0]],
+    };
+    const opts = F_[room.type]; if (!opts || W < 1 || D < 1) return;
+    let h = 7; for (const ch of c.plan.complexId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const [col, rough, metal] = opts[h % opts.length];
+    const cache = ((c.hooks as unknown as { floorMats?: Map<string, THREE.Material> }).floorMats ??= new Map());
+    let m = cache.get(col); if (!m) { m = c.own(new THREE.MeshStandardMaterial({ color: col, roughness: rough, metalness: metal })); cache.set(col, m); }
+    c.put([M.bx(m, W - 0.03, 0.005, D - 0.03, 0, 0.0025, 0)], new THREE.Matrix4().makeTranslation(cx, pl.fy, cz), zone, false);
+  };
+  finish();
   const storefront = () => {
     if (!corridorOp || room.label.length < 2) return;
     const len = pl.len(doorSide), w = Math.min(3.2, Math.max(1.2, len * 0.45));
@@ -195,33 +233,41 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     }
     // -------------------------------------------- toilets
     case "restroom": {
-      const men = /남/.test(room.label), back = opposite[doorSide];
-      const n = Math.max(1, Math.min(4, Math.floor((pl.len(back) - 0.1) / 0.95)));
-      const cub = pl.against(back, n * 0.95, 1.6, null, 3);
+      const men = /남/.test(room.label);
+      // (the cubicles on the wall facing the way in; else on any wall but the door's — as many as fit,
+      // at least one: a restroom never stands empty)
+      let back = opposite[doorSide], n = 0, cub: Frame | null = null;
+      for (const s of [opposite[doorSide], "w", "e", "n", "s"] as SideName[]) {
+        if (s === doorSide) continue;
+        for (let m = Math.max(1, Math.min(4, Math.floor((pl.len(s) - 0.1) / 0.95))); m >= 1 && !cub; m--) for (const h of [3, 2.2]) { cub = pl.against(s, m * 0.95, 1.6, null, h); if (cub) { n = m; back = s; break; } }
+        if (cub) break;
+      }
       if (cub) {
         for (let i = 0; i < n; i++) {
           const m = new THREE.Matrix4().multiplyMatrices(cub.m, new THREE.Matrix4().makeTranslation(-n * 0.95 / 2 + 0.475 + i * 0.95, 0, 0));
           c.put(F.cubicle(X), m, zone, false);
           c.put(M.toilet(P), new THREE.Matrix4().multiplyMatrices(m, new THREE.Matrix4().makeTranslation(0, 0, 0.02)), zone, false);
+          c.interactables.push({ id: `wc-${room.id}-${i}`, zone, room, hit: c.hitIn(m, 0.45, 0.8, 0.7, 0, 0.4, 0.4), label: () => "변기 물 내리기", act: () => "flush" });
         }
         pl.take(cub.rect);
         // (the cubicles' walls block; their open doors let in)
         const r = cub.rect; c.colliders.push(...rectSegs(r).filter((_, k) => k !== ({ n: 2, s: 0, w: 1, e: 3 } as Record<SideName, number>)[back]));
       }
-      const [sa, sb] = (["w", "e"] as SideName[]);
-      const basinSide = men ? sa : sb, other = men ? sb : sa;
-      const bw = Math.min(2.2, pl.len(basinSide) - 2.4);
-      if (bw > 0.9) {
+      // (the basins on a side wall, else any free wall; the urinals on another)
+      const walls = (["w", "e", "n", "s"] as SideName[]).filter(s => s !== back && s !== doorSide);
+      let basinSide: SideName = walls[men ? 0 : 1] ?? walls[0] ?? "w", f: Frame | null = null, bw = 0;
+      for (const s of [basinSide, ...walls, doorSide]) { for (const want of [2.2, 1.6, 1.0]) { const w = Math.min(want, pl.len(s) - 1.2); if (w < 0.9) continue; f = pl.against(s, w, 0.6, null, 1.3); if (f) { bw = w; basinSide = s; break; } } if (f) break; }
+      const other = walls.find(s => s !== basinSide) ?? doorSide;
+      if (f) {
         const nb = bw > 1.6 ? 2 : 1;
-        const f = pl.against(basinSide, bw, 0.6, null, 3);
-        if (f) {
+        {
           c.put(F.basinCounter(P, X, bw, nb), f, zone, true); pl.take(f.rect);
           for (let i = 0; i < nb; i++) { const x = -bw / 2 + (bw / nb) * (i + 0.5); c.faucet(room, zone, at(f, x, 1.04, 0.2), pl.fy + 0.88, "세면대 수전", "basin", 0.1, 0.012); }
           const mc = at(f, 0, 1.55, 0.012), mn = at(f, 0, 1.55, 1.012).sub(mc).normalize();
           c.mirrors.push({ pos: mc, normal: mn, w: bw - 0.02, h: 0.93, zone });
         }
       }
-      if (men) { for (let i = 0; i < 2; i++) wallPut(other, F.urinal(P, X), 0.8, 0.45, null, 3); }
+      if (men) for (let i = 0; i < 3; i++) { let ok = false; for (const s of [other, ...walls]) if (wallPut(s, F.urinal(P, X), 0.8, 0.45, null, 1.6)) { ok = true; break; } if (!ok) break; }
       break;
     }
     // -------------------------------------------- the lobby: the desk, a lounge, the directory, the building's name
@@ -348,7 +394,8 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       plant(null, 1.5); plant(null, 1.2);
       // (a printer by the door)
       const pr = pl.against(doorSide, 0.6, 0.6, null, 3);
-      if (pr) { c.put([M.rb(P.appliance, 0.58, 0.95, 0.58, 0.02, 0, 0.475, 0.29), M.rb(P.applianceDark, 0.5, 0.06, 0.45, 0.01, 0, 0.98, 0.29), M.bx(P.applianceDark, 0.2, 0.08, 0.02, 0.15, 0.85, 0.585)], pr, zone, true); pl.take(pr.rect); }
+      if (pr) { c.put([M.rb(P.appliance, 0.58, 0.95, 0.58, 0.02, 0, 0.475, 0.29), M.rb(P.applianceDark, 0.5, 0.06, 0.45, 0.01, 0, 0.98, 0.29), M.bx(P.applianceDark, 0.2, 0.08, 0.02, 0.15, 0.85, 0.585)], pr, zone, true); pl.take(pr.rect);
+        c.interactables.push({ id: `copier-${room.id}`, zone, room, hit: c.hitIn(pr, 0.6, 1.0, 0.6, 0, 0.5, 0.29), label: () => "복합기로 문서 복사하기", act: () => { c.hooks.fx?.("copier"); c.hooks.toast?.(["회의 자료 10부를 복사했어요.", "보고서를 출력했어요.", "명함 시안을 스캔했어요.", "용지가 걸렸다가… 다시 나왔어요, 휴."][Math.floor(Math.random() * 4)]); return null; } }); }
       break;
     }
     case "office": {
@@ -361,9 +408,11 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       break;
     }
     case "meeting": {
-      const long = W >= D, tw = Math.max(1.6, (long ? W : D) - 2.6), td = Math.min(1.4, (long ? D : W) - 2.4);
+      const long = W >= D, tw0 = Math.max(1.6, (long ? W : D) - 2.6), td = Math.min(1.4, (long ? D : W) - 2.4);
       if (td > 0.8) {
-        const f = freeAt(cx, cz, tw, td, long ? 0 : Math.PI / 2);
+        // (the biggest table the room takes, a smaller one where a column or the door is in the way)
+        let f: Frame | null = null, tw = tw0;
+        for (const k of [1, 0.8, 0.6, 0.45]) { tw = Math.max(1.4, tw0 * k); f = freeNear(cx, cz, tw, td, long ? 0 : Math.PI / 2); if (f) break; }
         if (f) {
           c.put(F.meetingTable(P, tw, td), f.m, zone, false); c.colliders.push(...rectSegs(f.rect));
           const n = Math.max(1, Math.floor(tw / 0.75));
@@ -388,9 +437,18 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
         c.put([{ m: P.chrome, g: boxUV(new THREE.CylinderGeometry(0.014, 0.022, 0.33, 20)).translate(-len / 2 + 0.6, 1.04, 0.07) }], f, zone, false);
         c.faucet(room, zone, at(f, -len / 2 + 0.6, 1.15, 0.24), pl.fy + 0.6, "싱크대 수전", "sink", 0.16, 0.02);
         c.put([M.rb(P.appliance, 0.42, 0.3, 0.32, 0.02, len / 2 - 0.35, 1.0, 0.2), M.rb(P.applianceDark, 0.3, 0.38, 0.3, 0.03, len / 2 - 0.9, 1.04, 0.2)], f, zone, false);
+        // (the coffee machine: a cup brewed and drunk)
+        let brewing = 0;
+        c.interactables.push({ id: `coffee-${room.id}`, zone, room, hit: c.hitIn(f, 0.34, 0.42, 0.34, len / 2 - 0.9, 1.05, 0.2), label: () => brewing > 0 ? "커피 내리는 중…" : "커피 머신으로 아메리카노 내리기",
+          act: () => { if (brewing > 0) return null; brewing = 3.2; c.hooks.fx?.("coffee"); return null; },
+          update: dt => { if (brewing <= 0) return; brewing -= dt; if (brewing <= 0) c.hooks.consume?.({ id: "pantry-coffee", name: "아메리카노", price: 0, kind: "drink", how: "cup", color: "#3b2416" }); } });
       }
+      // (a water dispenser by the fridge: a paper cup of water)
+      const wd = pl.against(sideW[1] ?? opposite[s], 0.36, 0.36, null, 1.6);
+      if (wd) { c.put([M.rb(P.appliance, 0.32, 1.05, 0.32, 0.03, 0, 0.525, 0.18), M.cy(P.glass, 0.14, 0.14, 0.42, 0, 1.27, 0.18, 20), M.rb(P.applianceDark, 0.16, 0.06, 0.04, 0.01, 0, 0.92, 0.35)], wd, zone, true); pl.take(wd.rect);
+        c.interactables.push({ id: `water-${room.id}`, zone, room, hit: c.hitIn(wd, 0.36, 1.5, 0.36, 0, 0.75, 0.18), label: () => "정수기에서 물 마시기", act: () => { c.hooks.fx?.("water"); setTimeout(() => c.hooks.consume?.({ id: "pantry-water", name: "시원한 물", price: 0, kind: "drink", how: "cup", color: "#cfe8ff" }), 900); return null; } }); }
       wallPut(sideW[1] ?? opposite[s], M.fridge(P, 0.7, 1.8), 0.72, 0.74, null, 3);
-      const t = freeAt(cx, cz, 0.9, 0.9); if (t) { c.put(F.cafeTable(P, 0.4), t, zone, true); for (const sgn of [-1, 1]) c.put(F.stackChair(P, X), new THREE.Matrix4().makeRotationY(sgn > 0 ? Math.PI : 0).setPosition(cx, pl.fy, cz + sgn * 0.62), zone, false); }
+      const t = freeNear(cx, cz, 0.9, 0.9); if (t) { const tx = t.m.elements[12], tz = t.m.elements[14]; c.put(F.cafeTable(P, 0.4), t, zone, true); for (const sgn of [-1, 1]) c.put(F.stackChair(P, X), new THREE.Matrix4().makeRotationY(sgn > 0 ? Math.PI : 0).setPosition(tx, pl.fy, tz + sgn * 0.62), zone, false); }
       break;
     }
     case "storage": case "plant": {
@@ -506,7 +564,9 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
         freeAt: (x, z, w, d, yaw = 0, take = true) => freeAt(x, z, w, d, yaw, take), wallLen: s => pl.len(s), spot, seat,
         sign: (s, lines, w, h, y) => { if (w > 0.6) signOn(s, "brand", lines, w, h, s === "n" || s === "s" ? cx : cz, y); },
         material: (colour, opts = {}) => { const key = colour + JSON.stringify(opts); let m = matCache.get(key); if (!m) { m = c.own(new THREE.MeshStandardMaterial({ color: colour, roughness: 0.45, ...opts })); matCache.set(key, m); } return m; },
-        plant: () => plant(null, 1.5), at: (f, x, y, z) => at(f, x, y, z), yawOf: f => yawOf(f) };
+        plant: () => plant(null, 1.5), at: (f, x, y, z) => at(f, x, y, z), yawOf: f => yawOf(f),
+        use: (f, [w, h, d, x, y, z], label, act) => { c.interactables.push({ id: `use-${room.id}-${c.interactables.length}`, zone, room, hit: c.hitIn(f, w, h, d, x, y, z), label: () => label, act: () => { act(); return null; } }); },
+        shop: kind => c.hooks.shop?.(kind, room.label), consume: item => c.hooks.consume?.(item), toast: text => c.hooks.toast?.(text), fx: name => c.hooks.fx?.(name) };
       if (furnishStyledShop(kit, style)) break;
       const conv = /편의점|마트/.test(room.label), flowers = /꽃/.test(room.label), desky = /부동산|세탁/.test(room.label);
       if (desky) { deskOn(sideW[0] ?? winSide, 1.4, 1); deskOn(sideW[1] ?? winSide, 1.4, 1); wallPut(winSide, F.cabinets(P, 2.0, 0.9, 0.4), 2.0, 0.42, null, 0.75); break; }
@@ -525,13 +585,14 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
           const f = runAlong === "z" ? freeAt(cx + o, cz, len, 0.9, Math.PI / 2) : freeAt(cx, cz + o, len, 0.9, 0);
           if (f) { c.put(F.gondola(P, X, len, i * 5 + 1), f, zone, true); }
         }
-      } else { const f = freeAt(cx, cz, 1.4, 0.8); if (f) c.put([M.rb(X.accentDark, 1.4, 0.8, 0.8, 0.02, 0, 0.4, 0), ...F.moved(F.wallShelves(P, X, 1.2, 0.3, 0.3, 1, 4), 0, -0.15, 0, 0.8)], f, zone, true); }
+      } else { const f = freeNear(cx, cz, 1.4, 0.8); if (f) c.put([M.rb(X.accentDark, 1.4, 0.8, 0.8, 0.02, 0, 0.4, 0), ...F.moved(F.wallShelves(P, X, 1.2, 0.3, 0.3, 1, 4), 0, -0.15, 0, 0.8)], f, zone, true); }
       // the till near the way in
       const till = pl.against(doorSide, 1.6, 2.0, null, 3, 0);
       if (till) {
         c.put(F.moved(F.serviceCounter(P, X, 1.6, 0.6), 0, 1.4), till, zone, true); pl.take(till.rect);
         c.put([M.rb(P.applianceDark, 0.3, 0.25, 0.04, 0.01, 0, 1.18, 1.25)], till, zone, false);
         spot(at(till, 0, 0, 0.6), yawOf(till), "stand", "counter");
+        c.interactables.push({ id: `till-${room.id}`, zone, room, hit: c.hitIn(till, 1.6, 1.1, 0.7, 0, 0.55, 1.4), label: () => `${room.label} 계산대에서 사기`, act: () => { c.hooks.fx?.("scan"); c.hooks.shop?.(conv ? "convenience" : "retail", room.label); return null; } });
       }
       spot(new THREE.Vector3(cx, 0, cz + 0.4), 0.8, "stand", "stand");
       break;
@@ -603,9 +664,22 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       wallPut(s, F.lockers(P, X, Math.min(3.2, pl.len(s) - 1)), Math.min(3.2, pl.len(s) - 1), 0.52, null, 3);
       const so = sideW[1] ? pl.against(sideW[1], 1.8, 0.98, null, 3) : null;
       if (so) { c.put(M.sofa(P, 1.8), so, zone, true); pl.take(so.rect); seat("소파에 앉기", at(so, 0, 0, 0.55), yawOf(so)); }
-      const t = freeAt(cx, cz, 1.6, 0.9);
-      if (t) { c.put(F.meetingTable(P, 1.6, 0.9), t, zone, false); c.colliders.push(...rectSegs(t.rect)); for (const sgn of [-1, 1]) { const m = new THREE.Matrix4().makeRotationY(sgn > 0 ? Math.PI : 0).setPosition(cx, pl.fy, cz + sgn * 0.85); c.put(F.stackChair(P, X), m, zone, false); spot(new THREE.Vector3(cx, 0, cz + sgn * 0.85), sgn > 0 ? Math.PI : 0, "sit", "seat"); } }
-      if (/교무/.test(room.label)) deskOn(winSide, 1.4, 1);
+      const teachers = /교무|사무|직원/.test(room.label);
+      const t = teachers ? null : freeNear(cx, cz, 1.6, 0.9);
+      if (t) { const [tx, , tz] = [t.m.elements[12], 0, t.m.elements[14]]; c.put(F.meetingTable(P, 1.6, 0.9), t, zone, false); c.colliders.push(...rectSegs(t.rect)); for (const sgn of [-1, 1]) { const m = new THREE.Matrix4().makeRotationY(sgn > 0 ? Math.PI : 0).setPosition(tx, pl.fy, tz + sgn * 0.85); c.put(F.stackChair(P, X), m, zone, false); spot(new THREE.Vector3(tx, 0, tz + sgn * 0.85), sgn > 0 ? Math.PI : 0, "sit", "seat"); } }
+      // (a staff room of a school: the teachers' desks in rows, each with its monitor and chair)
+      if (/교무|사무|직원/.test(room.label)) {
+        for (let row = 0, z = Z0 + 1.6; z < Z1 - 1.2 && row < 3; z += 2.6, row++) {
+          const len = Math.min(5.6, W - 2.4), n = Math.max(1, Math.floor(len / 1.4)); if (len < 1.4) break;
+          let f: Frame | null = null, m2 = n;
+          for (; m2 >= 1 && !f; m2--) f = freeNear(cx, z, m2 * 1.4, 1.5);
+          if (!f) continue; m2++;
+          const px = f.m.elements[12], pz = f.m.elements[14];
+          c.put(F.deskPod(P, X, m2), f.m, zone, false); c.colliders.push(...rectSegs(f.rect));
+          for (let i = 0; i < m2; i++) { const dx = (i - (m2 - 1) / 2) * 1.4; c.put(F.taskChair(P, X), new THREE.Matrix4().makeRotationY(Math.PI).setPosition(px + dx, pl.fy, pz + 1.07), zone, false); spot(new THREE.Vector3(px + dx, 0, pz + 1.07), Math.PI, "sit", "desk"); }
+        }
+        deskOn(winSide, 1.4, 1);
+      }
       break;
     }
     // -------------------------------------------- galleries

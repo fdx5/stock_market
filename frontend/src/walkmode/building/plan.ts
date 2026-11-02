@@ -67,6 +67,21 @@ export function kindOf(use: string, detail: string, level: number, building: Reg
   const s = `${use} ${detail}`;
   if (/주차/.test(s)) return "parking";
   if (/기계|전기실|발전|저수|물탱크|설비/.test(s)) return "plant";
+  // (the building's own name says what it is where the register's use is missing or generic — a
+  // school is classrooms on every floor, never an office with a chief executive's room)
+  const generic = !s.trim() || /업무|근린|사무|기타/.test(s) && !/교육|판매|의료|숙박|문화/.test(s);
+  const nm = building.name ?? "";
+  if (generic) {
+    if (!s.trim() && level < 0) return "parking";
+    if (/학교|초등|중학|고등|대학|캠퍼스|유치원|학원|교육원|연수원/.test(nm)) return "class";
+    if (/박물관|미술관|전시관|과학관|기념관|아트센터/.test(nm)) return "museum";
+    if (/백화점|마트|쇼핑|몰$|몰\s|아울렛|시장|상가|플라자|타워몰/.test(nm)) return level === 1 || level < 0 && /마트/.test(nm) ? "retail" : /백화점|쇼핑|몰|아울렛/.test(nm) ? "retail" : level === 1 ? "retail" : "office";
+    if (/호텔|모텔|리조트|게스트하우스|레지던스/.test(nm)) return level === 1 ? "lobby" : "hotel";
+    if (/구청|시청|도청|군청|주민센터|행정복지|우체국|경찰|소방|법원|세무서|청사/.test(nm)) return "civic";
+    if (/역$|역\s|터미널/.test(nm)) return "station";
+    if (/헬스|피트니스|체육관|스포츠센터/.test(nm)) return "gym";
+    if (/병원|의원|메디컬|의료원/.test(nm)) { const top = building.floors ?? 0; return top >= 8 && level > Math.max(3, Math.round(top * 0.4)) ? "ward" : "clinic"; }
+  }
   if (/병실|입원|병동|요양/.test(s)) return "ward";
   // (a hospital's upper floors are its wards — the register says only 의료시설 — its lower ones the
   // outpatient clinics: in a block of eight floors or more, the top 60 %)
@@ -79,7 +94,7 @@ export function kindOf(use: string, detail: string, level: number, building: Reg
   if (/박물관|미술관|전시관|과학관|기념관|전시실/.test(s)) return "museum";
   if (/지하철|철도|역사|운수시설|대합실/.test(s)) return "station";
   if (/공공|관공|민원|주민센터|행정복지|시청|구청|우체국|경찰|소방/.test(s)) return "civic";
-  if (/학원|교육|교습|독서|학교|강의/.test(s)) return "class";
+  if (/학원|교육|교습|독서|학교|강의|연구시설/.test(s) && !/연구소$/.test(nm)) return "class";
   if (/체력|운동|헬스|체육|골프|요가|당구|볼링/.test(s)) return "gym";
   if (/숙박|호텔|모텔|여관|게스트/.test(s)) return "hotel";
   if (/오피스텔|주택|아파트|다세대|기숙/.test(s)) return "rooms";
