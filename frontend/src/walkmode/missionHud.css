@@ -1,0 +1,27 @@
+/* 오늘의 미션 (MissionHud): neon terminal palette, at an edge, folding to its head */
+.wk-missions { position: absolute; right: calc(14px + env(safe-area-inset-right)); top: 120px; width: 250px; z-index: 6; pointer-events: auto; border-radius: 10px; background: rgba(4, 12, 20, .8); border: 1px solid rgba(94, 240, 255, .3); color: #e8fbff; font-size: 12px; overflow: hidden; }
+.wk-missions-head { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 3px 8px; width: 100%; padding: 8px 10px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.wk-missions-head b { grid-row: span 2; align-self: center; font-size: 15px; color: #ffe16b; }
+.wk-missions-xp { position: relative; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .12); align-self: center; overflow: hidden; }
+.wk-missions-xp i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #ffcf6e, #ffe16b); }
+.wk-missions-head small { color: #9bdbff; font-size: 11px; }
+.wk-missions-head kbd { padding: 0 4px; border-radius: 3px; background: #ffe16b; color: #10141b; font-weight: 900; font-family: inherit; font-size: 10px; }
+.wk-missions ul { margin: 0; padding: 0 10px 8px; list-style: none; display: grid; gap: 6px; }
+.wk-missions li { display: grid; gap: 2px; }
+.wk-missions li span { font-weight: 600; }
+.wk-missions li em { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+.wk-missions li em i { display: block; height: 100%; background: linear-gradient(90deg, #13a9cf, #5ef0ff); }
+.wk-missions li small { color: #8fb3c4; font-size: 10px; }
+.wk-missions li.is-done span { color: #7dffb0; text-decoration: line-through rgba(125, 255, 176, .5); }
+.wk-mission-banner { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); z-index: 7; display: grid; justify-items: center; gap: 4px; padding: 14px 28px; border-radius: 14px; background: rgba(4, 16, 22, .9); border: 1px solid #5ef0ff; box-shadow: 0 0 40px rgba(94, 240, 255, .35); color: #e8fbff; pointer-events: none; animation: wk-mission-in .45s cubic-bezier(.2, 1.4, .4, 1); }
+.wk-mission-banner small { font-size: 11px; letter-spacing: .3em; color: #5ef0ff; font-weight: 800; }
+.wk-mission-banner b { font-size: 20px; }
+.wk-mission-banner span { font-size: 13px; color: #ffe16b; }
+.wk-mission-banner.is-level { border-color: #ffe16b; box-shadow: 0 0 50px rgba(255, 225, 107, .45); }
+.wk-mission-banner.is-level small { color: #ffe16b; }
+.wk-mission-banner.is-level b { font-size: 26px; color: #ffe16b; }
+@keyframes wk-mission-in { from { opacity: 0; transform: translate(-50%, -12px) scale(.9); } }
+@media (max-width: 640px) { .wk-missions { width: 200px; top: 70px; } }
+.wk-missions.is-drone { top: calc(var(--drone-header-height, 0px) + 446px); }
+.wk-missions.is-inside { top: 372px; }
+.wk-missions.is-drone { max-height: calc(100% - var(--drone-header-height, 0px) - var(--drone-footer-height, 0px) - 460px); min-height: 34px; overflow-y: auto; }

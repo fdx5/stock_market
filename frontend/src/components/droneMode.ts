@@ -28,6 +28,7 @@ import { EntranceLayer, ENTRANCE_SPEC, entranceKind, inRing, placeEntrance, ring
 import { GARAGE_BIKES, GARAGE_CARS, type GarageBike, type GarageCar } from "../walkmode/game/garage";
 import { crashSound } from "../walkmode/game/CarAudio";
 import { wallet } from "../walkmode/game/wallet";
+import { missions } from "../walkmode/game/missions";
 
 /* 드론 mode of the 3D view (ComplexHologram): the flight, the world streamed round it and the
  * sound, set up over the view's own scene and taken down again. While it lasts:
@@ -364,6 +365,7 @@ export class DroneSession {
   tick(dt: number, viewW: number, viewH: number) {
     const f = this.flight, w = this.world, T = this.timing, t0 = performance.now();
     applyViewFov(this.p.camera);
+    this.feel(dt);
     if (!cameraControlsPaused()) f.step(dt, w);
     if (f.walking) this.landedMoved += f.moved;
     const x = f.pos.x, y = -f.pos.z;
@@ -387,7 +389,7 @@ export class DroneSession {
     const t4 = performance.now();
     if (performance.now() > this.doorAt) { this.doorAt = performance.now() + 200; this.findDoor(); this.settle(); }
     if (f.walking && performance.now() > this.entranceAt) { this.entranceAt = performance.now() + 900; this.layEntrances(); }
-    if (f.walking) { this.stepEntrance(dt); this.navTick(dt); } else if (this.nav) this.clearNav();
+    if (f.walking) { this.stepEntrance(dt); this.navTick(dt); this.missionTick(); } else if (this.nav) this.clearNav();
     if (f.crash > 0) { this.onCrash(f.crash); f.crash = 0; }
     if (f.walking) this.pickups(dt); else if (this.coins) this.coins.mesh.visible = false;
     if (f.walking && performance.now() > this.bikeAt) { this.bikeAt = performance.now() + 3000; this.parkBikes(); }
@@ -550,6 +552,7 @@ export class DroneSession {
     if (this.walker) this.walker.root.visible = false;
     const snd = this.sound();
     if (snd) void loadCarRecordings().then(() => { if (this.car?.mesh !== mesh) return; try { this.car.audio = new CarAudio(snd.ctx, snd.output, snd.noise, prof); playCarEffect("door", snd as unknown as Parameters<typeof playCarEffect>[1]); window.setTimeout(() => playCarEffect("ignition", snd as unknown as Parameters<typeof playCarEffect>[1]), 350); } catch { /* no recordings */ } });
+    missions.event("garage"); this.topSent = 0;
     return `${model.name} · 최고 ${Math.round(top)}km/h`;
   }
   /** the garage's lists, for the page */
@@ -594,11 +597,36 @@ export class DroneSession {
     }
     c.mesh.count = n; c.mesh.instanceMatrix.needsUpdate = true;
   }
+  /** what the walker did this frame, for 오늘의 미션: metres on foot and on the bike, jumps, top speed */
+  private walked = 0; private biked = 0; private wasAir = false; private topSent = 0;
+  private missionTick() {
+    const f = this.flight;
+    if (f.car) { const kmh = Math.abs(f.carSpeed) * 3.6; if (kmh > this.topSent + 5) { this.topSent = kmh; missions.event("speed", kmh); } }
+    else if (f.cycling) { this.biked += f.moved; if (this.biked >= 10) { missions.event("bike", Math.floor(this.biked)); this.biked %= 1; } }
+    else { this.walked += f.moved; if (this.walked >= 10) { missions.event("walk", Math.floor(this.walked)); this.walked %= 1; } }
+    const air = f.hop > 0.05; if (air && !this.wasAir) missions.event("jump"); this.wasAir = air;
+  }
   private collect(v: number) {
-    wallet.earn(v);
+    wallet.earn(v); missions.event("coin");
     const snd = this.sound();
     if (snd) for (const [k, fr] of [[0, 1318], [1, 1760]] as const) { const t = snd.ctx.currentTime + k * 0.09, o = snd.ctx.createOscillator(), g = snd.ctx.createGain(); o.type = "triangle"; o.frequency.value = fr; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.18, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35); o.connect(g); g.connect(snd.output); o.start(t); o.stop(t + 0.4); }
     window.dispatchEvent(new CustomEvent("drone-pickup", { detail: { amount: v } }));
+  }
+  private carRoll = 0; private carPitch = 0; private tmpM = new THREE.Matrix4(); private tmpR = new THREE.Matrix4(); private tmpE = new THREE.Euler();
+  /** How it feels: the lens widening a little in a sprint and with speed (a car, a bike), and a
+   * jump's landing — a thump. */
+  private fovKick = 0; private wasHop = false;
+  private feel(dt: number) {
+    const f = this.flight, c = this.p.camera;
+    let want = 0;
+    if (f.walking) want = f.car ? 9 * Math.min(1, Math.abs(f.carSpeed) / Math.max(10, f.car.top)) : f.cycling ? 6 * Math.min(1, f.bikeSpeed / Math.max(5, f.bike.top)) : f.sprinting ? 6 : 0;
+    this.fovKick += (want - this.fovKick) * (1 - Math.exp(-dt * 3));
+    if (this.fovKick > 0.05) { c.fov += this.fovKick; c.updateProjectionMatrix(); }
+    const air = f.hop > 0.02;
+    if (this.wasHop && !air && f.walking) {
+      const snd = this.sound(); if (snd) { const t = snd.ctx.currentTime, o = snd.ctx.createOscillator(), g = snd.ctx.createGain(); o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.12); g.gain.setValueAtTime(0.2, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15); o.connect(g); g.connect(snd.output); o.start(t); o.stop(t + 0.16); }
+    }
+    this.wasHop = air;
   }
   /** a knock: the crunch (louder the harder), and the page's shake and flash */
   private crashAt = 0;
@@ -622,6 +650,15 @@ export class DroneSession {
     const f = this.flight, c = this.car; if (!c || !f.car) return;
     const fx = -Math.sin(f.yaw), fy = Math.cos(f.yaw);
     this.world.traffic.place(c.mesh, 0, f.pos.x, -f.pos.z, f.pos.y - c.eyeY, fx, fy);
+    // (the body on its springs: leaning out of a turn, the nose dipping under the brakes and lifting
+    // under the throttle — eased, a few degrees at most)
+    const v0 = Math.abs(f.carSpeed), wantRoll = -f.steer * Math.min(1, v0 / 25) * 0.055, wantPitch = (f.braking || f.handbrake ? 0.03 : 0) - f.throttle * Math.min(1, v0 / 15) * 0.012;
+    this.carRoll += (wantRoll - this.carRoll) * 0.12; this.carPitch += (wantPitch - this.carPitch) * 0.1;
+    if (Math.abs(this.carRoll) + Math.abs(this.carPitch) > 0.001) {
+      const m = this.tmpM; c.mesh.getMatrixAt(0, m);
+      m.multiply(this.tmpR.makeRotationFromEuler(this.tmpE.set(this.carPitch, 0, this.carRoll)));
+      c.mesh.setMatrixAt(0, m); c.mesh.instanceMatrix.needsUpdate = true;
+    }
     const v = Math.abs(f.carSpeed), gears = [0.12, 0.24, 0.40, 0.59, 0.79, 1].map(x => x * f.car!.top);
     let lo = 0; for (const g of gears) { if (v <= g) { const r = (v - lo) / Math.max(0.1, g - lo); c.audio?.update(0.15 + r * 0.85, f.throttle, f.carSpeed, f.braking, 0, this.view === "fpv"); break; } lo = g; }
     if (v > gears[gears.length - 1]) c.audio?.update(1, f.throttle, f.carSpeed, f.braking, 0, this.view === "fpv");
@@ -825,7 +862,7 @@ export class DroneSession {
     n.t += dt; (n.mesh.material as THREE.MeshBasicMaterial).opacity = 0.6 + 0.35 * Math.sin(n.t * 4);
     const f = this.flight, x = f.pos.x, y = -f.pos.z, e = n.e;
     if (this.entering) { this.clearNav(); return; }
-    if (Math.hypot(e.x + e.nx - x, e.y + e.ny - y) < 4) { this.clearNav(); return; }
+    if (Math.hypot(e.x + e.nx - x, e.y + e.ny - y) < 4) { this.clearNav(); missions.event("guide"); return; }
     if ((n.check += dt) > 1) {
       n.check = 0;
       const left = this.navLeft();
@@ -911,6 +948,7 @@ export class DroneSession {
     }
     const d1 = Math.max(0.5, Math.min(3, Math.hypot(from[0] - front[0], from[1] - front[1]) / 2.4));
     this.entering = { t: 0, e, from, front, inside, d1, meta: { ...meta, name: meta.name || undefined }, done: false };
+    missions.event("enter");
     this.entrances?.set(this.entrances.entrances.includes(e) ? this.entrances.entrances : [...this.entrances.entrances, e], e);
     if (this.view === "fpv" && f.walking) this.toggleView();
     window.dispatchEvent(new CustomEvent("drone-entering", { detail: { label: e.name ? `${e.name} · ${ENTRANCE_SPEC[e.kind].label}` : ENTRANCE_SPEC[e.kind].label, after: d1, cut: from !== here } }));

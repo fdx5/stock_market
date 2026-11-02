@@ -19,6 +19,9 @@ import { Avatar } from "../player/avatar";
 import { Cat, Robot, type PetKind } from "./life";
 import { CONSUME, ITEM_NAME, type ItemKind } from "./pantry";
 import { SHOP_LABEL, shopOf, type ShopItem, type ShopKind } from "./shop";
+import { missions } from "../game/missions";
+import { SOCIAL_LABEL, type Social } from "./npcLines";
+import { wallet } from "../game/wallet";
 import type { Sound, WaterKind } from "../game/sound";
 import type { FloorPlan } from "./plan/types";
 import { facilityLook } from "./facilityMaterials";
@@ -36,7 +39,7 @@ import {moveThroughGaps,passageNear} from './movement';
 
 export interface HudState { target: string | null; room: string; seated: string | null; view: "first" | "third"; /** the whole flat seen from above, cut below the ceiling */ overhead?: boolean; /** the target is the pet (it can be looked at up close) */ pet?: boolean; /** what R does with the hand's item now ("콜라 마시기"), or that it is being drunk */ use?: string | null; /** the way being shown on the floor: where to, how far */ guide?: string | null }
 /** a building's person spoken to: their words, where they can show the way to, what to ask next */
-export interface InteriorTalk { name: string; text: string; destinations: { label: string; x: number; z: number }[]; directory: { label: string; uses: string }[]; questions: string[]; /** what they sell here, if anything */ shop?: { kind: ShopKind; label: string } | null }
+export interface InteriorTalk { name: string; text: string; /** liking for the visitor (0…100) and in words */ rel?: number; relWord?: string; destinations: { label: string; x: number; z: number }[]; directory: { label: string; uses: string }[]; questions: string[]; /** what they sell here, if anything */ shop?: { kind: ShopKind; label: string } | null }
 export interface InteriorOptions {
   plan: FloorPlan; hour: number;
   /** the flat's pet: a Shiba Inu (default) or a cat */
@@ -269,6 +272,7 @@ export class Interior {
     if (s.t >= (food ? 3.6 : 3.4)) {
       if (s.own) { s.obj.removeFromParent(); s.obj.traverse(o => { if (!(o instanceof THREE.Mesh)) return; if (o.userData.dropMaterial) { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } }); (s.obj.children[0] as THREE.Mesh | undefined)?.geometry.dispose(); }
       else this.furn.pantry.consume();
+      missions.event(food ? "eat" : "drink");
       this.sip = null; this.emitHud(true);
     }
   }
@@ -313,18 +317,38 @@ export class Interior {
   private talking: PersonTalk | null = null;
   private static peer(role: PersonTalk["role"]) { return role === "patient" || role === "visitor" || role === "shopper" || role === "student" || role === "guest"; }
   private openTalk(t: PersonTalk) {
+    if (this.talking?.id !== t.id) missions.event("talk");
     this.talking = t;
     if (!this.o.onTalk) return;
     document.exitPointerLock?.();
     this.keys.clear();
-    const shop = shopOf(t.room, this.o.plan.facility?.kind ?? "", t.role);
-    this.o.onTalk({ name: t.name, text: t.text, destinations: this.destinations(), directory: this.o.levels ?? [], shop: shop ? { kind: shop, label: t.room && !/복도|로비/.test(t.room) ? t.room : SHOP_LABEL[shop] } : null,
-      questions: ["다른 얘기도 들려주세요", Interior.peer(t.role) ? "좋은 하루 되세요" : "고맙습니다"] });
+    this.emitTalk(t.text, t.rel, t.relWord);
   }
-  /** the dialogue's questions: 0 goes on talking, 1 thanks them and ends it */
+  /** the dialogue's actions, in order: the social ones (a gift when something is carried), more talk, goodbye */
+  private talkActions: (Social | "more" | "bye")[] = [];
+  private emitTalk(text: string, rel: number, relWord: string) {
+    const t = this.talking; if (!t || !this.o.onTalk) return;
+    const shop = shopOf(t.room, this.o.plan.facility?.kind ?? "", t.role);
+    const gift = wallet.items.find(i => i.kind === "goods");
+    this.talkActions = ["greet", "joke", "compliment", "story", "rumor", "worry", "building", "tip", ...(gift ? ["gift" as const] : []), "more", "bye"];
+    this.o.onTalk({ name: t.name, text, rel, relWord, destinations: this.destinations(), directory: this.o.levels ?? [], shop: shop ? { kind: shop, label: t.room && !/복도|로비/.test(t.room) ? t.room : SHOP_LABEL[shop] } : null,
+      questions: this.talkActions.map(a => a === "more" ? "다른 얘기도 들려주세요" : a === "bye" ? (Interior.peer(t.role) ? "좋은 하루 되세요" : "고맙습니다") : a === "gift" ? `🎁 ${gift!.name} 선물하기` : SOCIAL_LABEL[a]) });
+  }
+  /** the dialogue's buttons: a social action (their answer, their liking for the visitor changed),
+   * more talk, or thanks and goodbye */
   ask(i: number) {
     const t = this.talking; if (!t || !this.people) return;
-    if (i === 0) { this.people.talkAgain(t.id); return; }
+    const a = this.talkActions[i];
+    if (a === "more") { this.people.talkAgain(t.id); return; }
+    if (a && a !== "bye") {
+      const gift = a === "gift" ? wallet.items.find(x => x.kind === "goods") : undefined;
+      if (a === "gift" && gift) wallet.use(gift.id);
+      const places = [...new Set(this.o.plan.rooms.map(r => r.label).filter(l => !/복도|화장실|계단|창고|준비실|의국|직원|재구성/.test(l)))].slice(0, 30);
+      const ans = this.people.social(t.id, a, places, gift?.name); if (!ans) return;
+      missions.event(a === "gift" ? "gift" : "social");
+      this.emitTalk(ans.text, ans.rel, ans.relWord);
+      return;
+    }
     this.people.reply(t.id, Interior.peer(t.role) ? ["네, 그쪽도요!", "감사합니다, 안녕히 가세요.", "네~ 다음에 또 봬요."][t.id % 3] : ["천만에요, 좋은 하루 되세요!", "네, 조심히 다니세요.", "별말씀을요. 또 필요하면 불러 주세요."][t.id % 3]);
     this.closeTalk();
   }
@@ -401,7 +425,7 @@ export class Interior {
     g.t += dt;
     (g.mesh.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.35 * Math.sin(g.t * 4);
     if (this.pos.distanceTo(g.to) < 1.6) {
-      this.clearGuide(); this.o.onHud?.({ ...this.hud, guide: `${g.label}에 도착했어요` });
+      this.clearGuide(); missions.event("guide"); this.o.onHud?.({ ...this.hud, guide: `${g.label}에 도착했어요` });
       setTimeout(() => { if (!this.guide && !this.disposed) this.emitHud(true); }, 2500); return;
     }
     if (Math.floor(g.t * 2) !== Math.floor((g.t - dt) * 2)) this.emitHud();

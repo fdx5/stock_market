@@ -27,6 +27,7 @@ import { STYLE_NAMES } from "./interior/plan/types";
 import { LAYOUT_CASES, LAYOUT_FAMILIES, caseNumber } from "./interior/plan/layoutCases";
 import LayoutPreview from "./LayoutPreview";
 import ShopMenu from "./ShopMenu";
+import MissionHud from "./MissionHud";
 import { SHOP_LABEL, shopOf, type ShopKind } from "./interior/shop";
 import PublicPlanLibrary from "./PublicPlanLibrary";
 import NaverFloorPlans, { type DrawingStatus } from "./NaverFloorPlans";
@@ -913,12 +914,13 @@ export default function WalkPage() {
           {hud?.target && !touch && !vending && !monitorOpen && !liftPanel && <div className="wk-hint"><kbd>E</kbd> {hud.target}{hud.pet && <> · <kbd>Z</kbd> 확대해서 보기</>}</div>}
           {hud?.guide && !iTalk && <div className="wk-nav-notice">{hud.guide}{/m ·/.test(hud.guide) && <button type="button" className="wk-nav-cancel" onClick={() => interior.current?.clearGuide()} aria-label="길 안내 끄기">×</button>}</div>}
           {iTalk && <div className="wk-prompt wk-talk" role="dialog" aria-label="NPC 대화" onPointerDown={e => e.stopPropagation()}>
-            <h3>{iTalk.name}</h3><p>{iTalk.text}</p>
+            <h3>{iTalk.name}{iTalk.rel !== undefined && <span className="wk-talk-rel" title={`호감도 ${iTalk.rel}/100`}>{"♥".repeat(Math.max(1, Math.ceil(iTalk.rel / 20)))}<small>{iTalk.relWord}</small></span>}</h3><p>{iTalk.text}</p>
             <div className="wk-talk-destinations">{iTalk.shop && <button className="wk-btn wk-btn-shop" onClick={() => { setShop(iTalk.shop!); interior.current?.closeTalk(); }}>🛒 {iTalk.shop.label}에서 물건 사기</button>}{iTalk.questions.map((q, i) => <button className="wk-btn" key={`q${i}`} onClick={() => interior.current?.ask(i)}>{q}</button>)}</div>
             {iTalk.destinations.length > 0 && <><small className="wk-talk-sub">길 안내</small><div className="wk-talk-destinations">{iTalk.destinations.map((d, i) => <button className="wk-btn" key={i} onClick={() => interior.current?.guideTo(d.x, d.z, d.label)}>{d.label}</button>)}</div></>}
             {iTalk.directory.length > 0 && <details><summary>층별 안내 보기</summary><div className="wk-talk-directory">{iTalk.directory.map((f, i) => <p key={i}><b>{f.label}</b> {f.uses}</p>)}</div></details>}
             <button className="wk-btn" onClick={() => interior.current?.closeTalk()}>대화 마치기 <kbd>Esc</kbd></button>
           </div>}
+          {!vending && !monitorOpen && <MissionHud className="is-inside" />}
           {shopHere && !shop && !iTalk && <button type="button" className="wk-shop-here" onClick={() => { setShop(shopHere); document.exitPointerLock?.(); }}>🛒 {shopHere.label} · {!touch && <kbd>Q</kbd>} 물건 사기</button>}
           {shop && <ShopMenu shop={shop} onBuy={it => it.kind === "goods" ? false : !!interior.current?.consumeBought(it)} onClose={() => setShop(null)} />}
           {hud?.use && !vending && !monitorOpen && !liftPanel && <div className={`wk-use${/중$/.test(hud.use) ? " is-busy" : ""}`} role="status">{/중$/.test(hud.use) ? hud.use : <>{!touch && <kbd>R</kbd>} {hud.use}</>}</div>}

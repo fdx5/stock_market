@@ -10,6 +10,7 @@ import type { FloorPlan, Room } from "./plan/types";
 import type { WaterKind } from "../game/sound";
 import { poolMaterial, splashMaterial, streamMaterial, washMaterial } from "./water";
 import { ITEM_NAME, Pantry } from "./pantry";
+import { missions } from "../game/missions";
 import { FACILITY_ROOMS } from "./plan/types";
 import { furnishFacilityRoom, type FacilityHooks, type Spot } from "./facilityFurnish";
 import type { Extra } from "./facilityModels";
@@ -670,7 +671,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
           act:()=>{
             const h=pantry.handKind();
             // (eggs or a frankfurter in hand: the pan comes out on the front ring, in it goes, the hob on)
-            if(!pan.state&&(h==="eggs"||h==="sausage")){pantry.consume();pan.start(h);cooking=true;return "beep";}
+            if(!pan.state&&(h==="eggs"||h==="sausage")){pantry.consume();pan.start(h);cooking=true;missions.event("cook");return "beep";}
             // (done: eaten off the pan — a copy brought to the mouth, the pan put away)
             if(pan.state&&pan.state.t>=pan.ready){const food=pan.serve();cooking=false;if(food)furnished.eat?.(food.obj,food.name);return "click";}
             if(pan.state)return null;

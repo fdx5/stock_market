@@ -4,6 +4,7 @@ import type { DroneFlight } from "./droneFlight";
 import { GARAGE_BIKES, GARAGE_CARS, type GarageBike, type GarageCar } from "../walkmode/game/garage";
 import { wallet, won } from "../walkmode/game/wallet";
 import "./drone-game.css";
+import MissionHud from "../walkmode/MissionHud";
 
 /* On foot in the drone's world, played as a game: health and breath on the left, the play money
  * and the speedometer on the right, what can be done here as key prompts down the right edge, the
@@ -102,6 +103,7 @@ export default function DroneGameHud({ flight, touch }: { flight: DroneFlight; t
       </div>}
       {flash && <div key={flash.n} className="re-game-flash" style={{ opacity: Math.min(0.75, 0.25 + flash.k * 0.6) }} onAnimationEnd={() => setFlash(null)} />}
       {toast && <div className="re-game-toast" role="status">{toast}</div>}
+      <MissionHud className="is-drone" folded />
       {f.door?.at && !f.car && !f.cycling && !entering && <button type="button" className="re-game-entry" onClick={() => window.dispatchEvent(new Event("drone-enter-door"))}>
         <small>{f.door.label}</small><b>{f.door.name ?? "건물"}</b><span>{!touch && <kbd>E</kbd>} 들어가기</span>
       </button>}

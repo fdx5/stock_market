@@ -4,6 +4,7 @@ import type { Spot } from "./facilityFurnish";
 import type { Interactable } from "./furnish";
 import type { FacilityRole, FloorPlan, Opening, Room } from "./plan/types";
 import { talk } from "./npcTalk";
+import { affinityWord, runWarning, socialAnswer, type Social, type SocialAnswer } from "./npcLines";
 
 /* The people of a building's floor: those at their places (the team at its desks, the doctor at the
  * consulting desk, the clerks behind the counters, patients in the beds, visitors on the benches)
@@ -44,9 +45,11 @@ interface Person {
   path: THREE.Vector2[]; wait: number; speed: number; bubble: THREE.Sprite | null; bubbleT: number; turnTo: number | null; seed: number; line: number;
   /** when they last greeted the visitor going by, or said sorry for being in the way (s) */
   greeted: number; bumped: number;
+  /** how much they like the visitor (0…100), the last social action and how many times running */
+  rel: number; last: Social | null; again: number;
 }
 /** what a talk gives the page: who answered, what they said, and their part (for the questions) */
-export interface PersonTalk { id: number; name: string; role: FacilityRole; text: string; /** the room they are in (its label) */ room: string }
+export interface PersonTalk { id: number; name: string; role: FacilityRole; text: string; /** the room they are in (its label) */ room: string; /** liking for the visitor, and in words */ rel: number; relWord: string }
 /** short words for passing by: staff greet, the rest excuse themselves when in the way */
 const GREET_STAFF = ["안녕하세요!", "어서 오세요.", "안녕하세요, 도와드릴까요?", "네, 안녕하세요.", "편하게 둘러보세요."];
 const GREET_PEER = ["아, 안녕하세요.", "(가볍게 목례)", "안녕하세요~"];
@@ -100,7 +103,7 @@ export class People {
       const av = new Avatar(1 + Math.floor(rnd() * 9999), OUTFIT[want.role]);
       av.shoes(true);
       const p: Person = { av, role: want.role, room, spot: s, pos: new THREE.Vector2(s?.x ?? 0, s?.z ?? 0), face: s?.face ?? 0, pose: s?.pose ?? "stand", y: s?.y ?? 0,
-        path: [], wait: rnd() * 4, speed: 1.05 + rnd() * 0.35, bubble: null, bubbleT: 0, turnTo: null, seed: Math.floor(rnd() * 1000), line: 0, greeted: -99, bumped: -99 };
+        path: [], wait: rnd() * 4, speed: 1.05 + rnd() * 0.35, bubble: null, bubbleT: 0, turnTo: null, seed: Math.floor(rnd() * 1000), line: 0, greeted: -99, bumped: -99, rel: 12 + Math.floor(rnd() * 14), last: null, again: 0 };
       if (walker) { const n = this.nodes[Math.floor(rnd() * this.nodes.length)]; if (!n) continue; p.pos.copy(n.p); p.pose = "stand"; p.spot = undefined; }
       av.pose = p.pose === "lie" ? "stand" : p.pose;
       this.root.add(av.root);
@@ -147,7 +150,21 @@ export class People {
     p.wait = Math.max(p.wait, 8);
     this.say(p, text);
     this.speak(text, this.pitch(p));
-    this.onTalk?.({ id: this.people.indexOf(p), name: this.title(p), role: p.role, text, room: p.room.label });
+    this.onTalk?.({ id: this.people.indexOf(p), name: this.title(p), role: p.role, text, room: p.room.label, rel: p.rel, relWord: affinityWord(p.rel) });
+  }
+  /** A social action (the Sims-like part): their answer from npcLines, their liking changed by it,
+   * said aloud with a mark of how it went over the head (♥ glad, … awkward, 💢 annoyed). */
+  social(id: number, a: Social, places: string[], gift?: string): (SocialAnswer & { rel: number; relWord: string }) | null {
+    const p = this.people[id], f = this.plan.facility; if (!p || !f) return null;
+    p.again = p.last === a ? p.again + 1 : 0; p.last = a;
+    let s = (p.seed * 2654435761 + p.line++ * 40503 + a.length * 97) >>> 0;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    const ans = socialAnswer(a, { role: p.role, kind: f.kind, bldg: f.name, floor: f.levelLabel, places, affinity: p.rel, rnd, gift }, p.again);
+    p.rel = Math.max(0, Math.min(100, p.rel + ans.delta));
+    const mark = ans.mood === "happy" ? "♥ " : ans.mood === "annoyed" ? "💢 " : ans.mood === "awkward" ? "… " : "";
+    p.turnTo = Math.atan2(this.visitor.x - p.pos.x, this.visitor.y - p.pos.y); p.wait = Math.max(p.wait, 8);
+    this.say(p, mark + ans.text); this.speak(ans.text, this.pitch(p));
+    return { ...ans, rel: p.rel, relWord: affinityWord(p.rel) };
   }
   /** the page's "다른 얘기" (or a question's answer): the same person goes on */
   talkAgain(id: number) { const p = this.people[id]; if (p) this.talk(p); }
@@ -184,9 +201,17 @@ export class People {
     p.av.root.add(s); p.bubble = s; p.bubbleT = 3 + text.length * 0.09;
   }
 
-  update(dt: number, visitor: { x: number; z: number }) {
+  private runWarnAt = -99;
+  update(dt: number, visitor: { x: number; z: number; speed?: number }) {
     this.visitor.set(visitor.x, visitor.z); this.clock += dt;
     let spoke = false;
+    // (running in a hospital: the nearest of its staff says so, now and then)
+    const fk = this.plan.facility?.kind;
+    if ((fk === "clinic" || fk === "ward") && (visitor.speed ?? 0) > 2.6 && this.clock - this.runWarnAt > 9) {
+      const near = this.people.filter(p => (p.role === "nurse" || p.role === "doctor" || p.role === "guard" || p.role === "clerk") && p.pose !== "lie" && Math.hypot(p.pos.x - visitor.x, p.pos.y - visitor.z) < 5)
+        .sort((a, b) => Math.hypot(a.pos.x - visitor.x, a.pos.y - visitor.z) - Math.hypot(b.pos.x - visitor.x, b.pos.y - visitor.z))[0];
+      if (near) { this.runWarnAt = this.clock; spoke = true; let s = Math.floor(this.clock * 1000) >>> 0; this.remark(near, runWarning(() => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; })); }
+    }
     for (const p of this.people) {
       // (the visitor coming up to staff at their place: a greeting, once in a while; at most one a frame)
       const vd = Math.hypot(visitor.x - p.pos.x, visitor.z - p.pos.y);

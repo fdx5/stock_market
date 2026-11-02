@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { SHOP_ITEMS, type ShopItem, type ShopKind } from "./interior/shop";
 import { wallet, won } from "./game/wallet";
+import { missions } from "./game/missions";
 
 /* A counter's goods, bought with the game's play money: drinks and food had at once (the hand's
  * animation and its sounds), goods put in the bag. */
@@ -11,6 +12,7 @@ export default function ShopMenu({ shop, onBuy, onClose }: { shop: { kind: ShopK
   const items = SHOP_ITEMS[shop.kind], bag = wallet.items;
   const buy = (it: ShopItem) => {
     if (!wallet.spend(it.price)) { setNote(`게임 머니가 부족해요 (${won(it.price - wallet.money)} 더 필요) · 거리의 코인을 모아 보세요`); return; }
+    missions.event("buy");
     if (it.kind === "goods") { wallet.carry({ id: it.id, name: it.name, kind: "goods" }); setNote(`${it.name}을(를) 가방에 넣었어요`); return; }
     // (had there and then; if the hands are full the money is given back)
     if (!onBuy(it)) { wallet.earn(it.price); setNote("손에 든 것을 먼저 내려놓아 주세요"); return; }

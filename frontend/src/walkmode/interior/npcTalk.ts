@@ -1,4 +1,5 @@
 import type { FacilityKind, FacilityRole, FloorPlan } from "./plan/types";
+import { extraLine } from "./npcLines";
 
 /* What a building's people say: put together from parts — an opening by the hour and how often
  * they have been spoken to, one of many things their part talks about (with the floor's own rooms,
@@ -146,7 +147,8 @@ export function talk(c: TalkContext): string {
   // (a clerk's counter is the building's: a hospital's 원무과 does not sell, a store does)
   const own = c.role === "clerk" ? CLERK_BY[c.kind] : undefined;
   const pool = own ? [...own, ...TOPICS.clerk.filter(t => !/할인|포장|적립|계산/.test(t))] : (TOPICS[c.role] ?? TOPICS.visitor);
-  const body = r() < 0.18 ? fillIn(pick(SMALL)) : r() < 0.08 ? pick(WEATHER) : fillIn(pick(pool));
+  // (now and then a story of their day, a rumour, a tip or a fact of the building — npcLines)
+  const body = r() < 0.18 ? fillIn(pick(SMALL)) : r() < 0.08 ? pick(WEATHER) : r() < 0.22 ? extraLine(r, f.name, f.levelLabel, P.public) : fillIn(pick(pool));
   const second = r() < 0.35 ? " " + fillIn(pick(pool)) : "";
   const close = pick(SERVES.has(c.role) ? CLOSE_STAFF : CLOSE_PEER);
   return `${busy}${open} ${body}${second === " " + body ? "" : second}${close ? " " + close : ""}`.replace(/\s+/g, " ").trim();
