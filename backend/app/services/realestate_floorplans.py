@@ -131,6 +131,13 @@ def _identity_name(value: str, town: str = "") -> str:
     return f"{_name(phase[0])}:{phase[2] or 'ordinal'}:{phase[1]}" if phase else _name(value)
 
 
+def _same_town(source: str, town: str) -> bool:
+    """Naver labels an 읍·면 complex by the 읍·면 alone; ours appends the 리."""
+    if _name(source)==_name(town):return True
+    parts=town.split()
+    return len(parts)==2 and re.search(r"[읍면]$",parts[0]) is not None and _name(source)==_name(parts[0])
+
+
 def _same_name(a: str, b: str, town: str = "") -> bool:
     aa,bb=_identity_name(a,town),_identity_name(b,town)
     if aa==bb:return True
@@ -170,7 +177,7 @@ def _located_candidate(text: str, name: str, town: str, lat: float, lon: float) 
     place=info.get('cortarInfo') or {}
     try:
         if (str(info.get('complexCode','')).isdigit() and _same_name(str(info.get('complexName','')),name,town)
-                and town and _name(str(place.get('secNm','')))==_name(town)
+                and town and _same_town(str(place.get('secNm','')),town)
                 and _near(float(info['complexMapXCrdn']),float(info['complexMapYCrdn']),lat,lon)):
             return {'naverId':str(info['complexCode']),'regionCode':str(place.get('cortarNo') or info.get('regionCode','')),
                     'lat':float(info['complexMapYCrdn']),'lon':float(info['complexMapXCrdn'])}
@@ -311,7 +318,7 @@ def _catalogue(name: str, lat: float, lon: float, town: str, region: str, naver_
                     # catalogues at one address, often under the same name.
                     if g.get('propertyType')=='A02':continue
                     if not _same_name(str(g.get("name", "")),name,town):continue
-                    if town and _name(g.get("town", ""))!=_name(town):
+                    if town and not _same_town(g.get("town", ""),town):
                         location_mismatch=True;continue
                     if region and not g.get('regionCode','').startswith(region):
                         evidence=located.get(cid)

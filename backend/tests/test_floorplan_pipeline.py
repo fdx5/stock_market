@@ -279,3 +279,16 @@ def test_dimension_area_conflict_uses_original_pixel_ratios_without_replacing_wa
     for opening in a['openings']:
         r=ids[opening['a']];j=0 if opening['axis']=='x' else 1
         assert min(abs(opening['at']-r['rect'][j]),abs(opening['at']-r['rect'][j+2]))<.002
+
+
+def test_eup_myeon_complex_matches_source_labelled_by_the_eup_alone(monkeypatch):
+    # Our id carries "문산읍 당동리"; the source names the town "문산읍".
+    source._catalogues.clear()
+    def get(url,*args):
+        if '/search/' in url:return '<a href="?rletNo=108512">파주한양수자인리버팰리스</a>'.encode(),'text/html'
+        return gallery('108512','파주한양수자인리버팰리스','4148025000','문산읍').encode(),'text/html'
+    monkeypatch.setattr(source,'_get',get)
+    found=source.catalogue('파주한양수자인리버팰리스',37.8656,126.7737,'문산읍 당동리','41480')
+    assert found['status']=='available' and found['naverId']=='108512'
+    assert source.catalogue('파주한양수자인리버팰리스',37.8656,126.7737,'파주읍 봉암리','41480')['status']=='not_found'
+    assert not source._same_town('당동','문산읍 당동리')
