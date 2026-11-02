@@ -763,12 +763,14 @@ export class DroneSession {
     const e = en.e, inward = Math.atan2(e.nx, -e.ny);
     let p: [number, number], v = 0;
     if (en.t < en.d1) { const k = en.t / en.d1, s = k * k * (3 - 2 * k); p = [en.from[0] + (en.front[0] - en.from[0]) * s, en.from[1] + (en.front[1] - en.from[1]) * s]; v = Math.hypot(en.front[0] - en.from[0], en.front[1] - en.from[1]) / en.d1; }
-    else { const k = Math.min(1, (en.t - en.d1) / 1.1); p = [en.front[0] + (en.inside[0] - en.front[0]) * k, en.front[1] + (en.inside[1] - en.front[1]) * k]; v = 1.6; }
+    // (at the doors: they open, and a slow step up to the threshold — never past the facade; the
+    // picture is black before the threshold is reached, then the interior)
+    else { const k = Math.min(1, (en.t - en.d1) / 1.3), s2 = k * (2 - k); p = [en.front[0] + (en.inside[0] - en.front[0]) * s2, en.front[1] + (en.inside[1] - en.front[1]) * s2]; v = 0.6 * (1 - k); }
     // (facing the doors from the moment it starts; the eye at walking height over the paving)
     const g = this.world.groundAt(p[0], p[1]);
     f.pos.x = p[0]; f.pos.z = -p[1]; f.pos.y = g + EYE + 0.02; f.yaw += Math.atan2(Math.sin(inward - f.yaw), Math.cos(inward - f.yaw)) * Math.min(1, dt * 8);
     f.vel.set(-Math.sin(f.yaw) * v, 0, -Math.cos(f.yaw) * v);
-    if (en.t >= en.d1 + 1.1 && !en.done) { en.done = true; this.openInside(e.ring, e.x + e.nx * 1.2, e.y + e.ny * 1.2, Math.atan2(-e.ny, -e.nx), en.meta); }
+    if (en.t >= en.d1 + 1.3 && !en.done) { en.done = true; this.openInside(e.ring, e.x + e.nx * 1.2, e.y + e.ny * 1.2, Math.atan2(-e.ny, -e.nx), en.meta); }
   }
   // ---------------------------------------------------------------- the way to an entrance
   /** Shown on the ground: glowing chevrons every 2 m along the shortest way on foot round the
@@ -890,12 +892,23 @@ export class DroneSession {
     // (a big building's revolving drum stands in the middle: in through the sliding doors beside it)
     const drum = e.kind === "hospital" || e.kind === "office" || e.kind === "store" || e.kind === "civic", side = drum ? (e.w / 2 + Math.min(3.2, e.w * 0.38) / 2) / 2 : 0;
     const ux = e.tx * side, uy = e.ty * side;
-    const front: [number, number] = [e.x + ux + e.nx * 0.9, e.y + uy + e.ny * 0.9], inside: [number, number] = [e.x + ux - e.nx * 1.0, e.y + uy - e.ny * 1.0];
+    // (the walk ends at the threshold, just outside the glass: the building is entered by the cut to
+    // its interior, not by walking through its wall)
+    const front: [number, number] = [e.x + ux + e.nx * 1.4, e.y + uy + e.ny * 1.4], inside: [number, number] = [e.x + ux + e.nx * 0.45, e.y + uy + e.ny * 0.45];
     // (walked there only along open ground: never through a wall or round a corner of the building —
     // from afar, or with anything solid between, set down 6 m before the doors facing them)
     const w = this.world, open = (a: [number, number], b: [number, number]) => { const l = Math.hypot(b[0] - a[0], b[1] - a[1]); for (let t = 0; t <= l; t += 0.4) { const px = a[0] + (b[0] - a[0]) * t / l, py = a[1] + (b[1] - a[1]) * t / l; if (w.roofAt(px, py) > w.groundAt(px, py) + 0.8) return false; } return true; };
     let from = here;
-    if (!f.walking || Math.hypot(here[0] - front[0], here[1] - front[1]) > 9 || !open(here, front)) from = [e.x + e.nx * 6, e.y + e.ny * 6];
+    if (!f.walking || Math.hypot(here[0] - front[0], here[1] - front[1]) > 9 || !open(here, front)) {
+      // (set down before the doors on open ground with a clear walk to them and a clear view back:
+      // not inside a wing of the building that stands out past the entrance)
+      const solid = (q: [number, number]) => w.roofAt(q[0], q[1]) > w.groundAt(q[0], q[1]) + 0.8;
+      from = [front[0] + e.nx * 4.6, front[1] + e.ny * 4.6];
+      for (const d of [4.6, 3.6, 5.6, 2.6, 7, 8.5, 10, 1.6]) {
+        const q: [number, number] = [front[0] + e.nx * d, front[1] + e.ny * d], cam: [number, number] = [q[0] + e.nx * 5, q[1] + e.ny * 5];
+        if (!solid(q) && open(q, front) && open(q, cam)) { from = q; break; }
+      }
+    }
     const d1 = Math.max(0.5, Math.min(3, Math.hypot(from[0] - front[0], from[1] - front[1]) / 2.4));
     this.entering = { t: 0, e, from, front, inside, d1, meta: { ...meta, name: meta.name || undefined }, done: false };
     this.entrances?.set(this.entrances.entrances.includes(e) ? this.entrances.entrances : [...this.entrances.entrances, e], e);
@@ -921,7 +934,8 @@ export class DroneSession {
     const e = placeEntrance(ring, kind, toward, (px, py) => w.groundAt(px, py), `${cx.toFixed(1)},${cy.toFixed(1)}`);
     if (e) this.snapToFacade(e);
     // (its name for the sign: a label inside its outline first, of the kind it is if there are several)
-    const named = names.filter(n => n.name && !/^\d+동$/.test(n.name));
+    // (a building's own name: not a block number, nor a service point's label — an ambulance bay, a car park, a bike dock)
+    const named = names.filter(n => n.name && !/^\d+동$/.test(n.name) && !/^(service|er|parking|bike|cctv|exit|subway|train|station)$/.test(n.kind) && !/\p{Extended_Pictographic}|구급차|주차|정류장|출구/u.test(n.name));
     if (e && named.length) e.name = (named.find(n => kind === "hospital" ? n.kind === "hospital" || /병원/.test(n.name) : kind === "school" ? n.kind === "school" : kind === "civic" ? n.kind === "gov" : true) ?? named[0]).name;
     return e;
   }
@@ -930,8 +944,8 @@ export class DroneSession {
    * the outline or 1 m inside it is where the doors go. */
   private ray = new THREE.Raycaster();
   private snapToFacade(e: Entrance) {
-    const o = new THREE.Vector3(e.x + e.nx * 12, e.z + 1.6, -(e.y + e.ny * 12)), dir = new THREE.Vector3(-e.nx, 0, e.ny);
-    this.ray.set(o, dir); this.ray.far = 13.2;
+    const R = 18, o = new THREE.Vector3(e.x + e.nx * R, e.z + 1.6, -(e.y + e.ny * R)), dir = new THREE.Vector3(-e.nx, 0, e.ny);
+    this.ray.set(o, dir); this.ray.far = R + 1.2;
     let best = Infinity;
     const hits: THREE.Intersection[] = [];
     this.world.root.traverse(m => {
@@ -940,8 +954,12 @@ export class DroneSession {
       for (const h of hits) if (h.distance < best) best = h.distance;
     });
     if (!Number.isFinite(best)) return;
-    const out = 12 - best;   // (+: the drawn wall stands this far outside the outline)
-    if (out > -1 && out < 6.5 && Math.abs(out) > 0.15) { e.x += e.nx * out; e.y += e.ny * out; e.z = this.world.groundAt(e.x + e.nx * 0.6, e.y + e.ny * 0.6); }
+    const out = R - best;   // (+: the drawn wall stands this far outside the outline)
+    if (!(out > -1 && out < 14) || Math.abs(out) <= 0.15) return;
+    // (far out, only a wall of this same building: solid all the way back from it to the outline —
+    // a separate building in front has open ground between)
+    if (out > 4) { const w = this.world; for (let d = out - 0.4; d > 0.3; d -= 0.5) { const px = e.x + e.nx * d, py = e.y + e.ny * d; if (w.roofAt(px, py) <= w.groundAt(px, py) + 0.8) return; } }
+    e.x += e.nx * out; e.y += e.ny * out; e.z = this.world.groundAt(e.x + e.nx * 0.6, e.y + e.ny * 0.6);
   }
   private nearestWalk(x: number, y: number, r: number): [number, number] | null {
     let best: [number, number] | null = null, bd = r;
@@ -1131,12 +1149,43 @@ export class DroneSession {
       if (d >= want - 0.05) return { el, dist: want };
       if (d > best.dist + 0.3) best = { el, dist: d };
     }
-    return { el: best.el, dist: Math.max(best.dist, Math.min(want, 2.6)) };
+    // (blocked whichever way: as far as it goes, never closer than 1.6 m — the rendered walls then pull
+    // it in further in chase(); the ground is kept by the height clamp there)
+    return { el: best.el, dist: Math.max(best.dist, Math.min(want, 1.6)) };
   }
   /** The third-person camera: behind the drone and a little above, its heading following the
    * drone's with a short lag (turns read as turns), its height angle from the camera tilt (a drag
    * looks down on it or up past it); pulled in where a wall or a tree is between them. */
   private boomEl = 0.28;
+  /** The buildings as drawn (the tiles' registered and surveyed buildings, the view's own): the
+   * camera boom tested against their real faces, so it can never sit inside a wall the coarse roof
+   * grid misses. Ten times a second; the meshes near gathered once a second. */
+  private wallMeshes: THREE.Mesh[] = []; private wallAt = 0; private wallHit = { t: 0, d: Infinity, x: 0, z: 0 };
+  private wallRay(x: number, y: number, z: number, bx: number, bz: number, el: number, want: number): number {
+    const now = performance.now();
+    if (now - this.wallAt > 1000) {
+      this.wallAt = now; this.wallMeshes = [];
+      const view = this.p.viewBuildings?.()?.group, near = new THREE.Vector3(x, y, z), sph = new THREE.Sphere();
+      const take = (root: THREE.Object3D) => root.traverse(o => {
+        const m = o as THREE.Mesh; if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || !m.geometry) return;
+        if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+        sph.copy(m.geometry.boundingSphere!).applyMatrix4(m.matrixWorld);
+        if (sph.distanceToPoint(near) < 40) this.wallMeshes.push(m);
+      });
+      this.world.root.traverse(o => { if (/registered buildings|surveyed|drone view tile/.test(o.name)) take(o); });
+      if (view) take(view);
+    }
+    // (a fresh ray only every 100 ms or after moving a metre; between, the last answer)
+    if (now - this.wallHit.t > 100 || Math.hypot(x - this.wallHit.x, z - this.wallHit.z) > 1) {
+      const dir = new THREE.Vector3(bx * Math.cos(el), Math.sin(el), bz * Math.cos(el));
+      this.ray.set(new THREE.Vector3(x, y, z), dir); this.ray.far = want + 0.5;
+      let d = Infinity; const hits: THREE.Intersection[] = [];
+      for (const m of this.wallMeshes) { if (!m.visible) continue; hits.length = 0; try { m.raycast(this.ray, hits); } catch { continue; } for (const h of hits) if (h.distance < d) d = h.distance; }
+      this.wallHit = { t: now, d, x, z };
+    }
+    // (kept a little in front of the face; still never into the body's own eye)
+    return Number.isFinite(this.wallHit.d) ? Math.max(0.7, this.wallHit.d - 0.4) : want;
+  }
   private chase(dt: number) {
     const f = this.flight, c = this.p.camera;
     const d = Math.atan2(Math.sin(f.yaw - this.chaseYaw), Math.cos(f.yaw - this.chaseYaw));
@@ -1151,7 +1200,7 @@ export class DroneSession {
     const bx = Math.sin(this.chaseYaw), bz = Math.cos(this.chaseYaw);   // behind: opposite the heading
     const want = this.chaseWant(), base = f.walking ? (f.car ? .9 : .65) : .35;
     const fit = f.walking ? this.boom(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0, want) : { el: el0, dist: this.clearBehind(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, el0, want) };
-    const dist = fit.dist;
+    const dist = f.walking ? Math.min(fit.dist, this.wallRay(f.pos.x, f.pos.y + base, f.pos.z, bx, bz, this.boomEl, fit.dist)) : fit.dist;
     // (the raised angle eased in and out, not jumped)
     this.boomEl += ((f.walking ? fit.el : el0) - this.boomEl) * (1 - Math.exp(-dt * 6));
     // Obstacles retract the boom without automatically pitching the user's view up and down.
@@ -1179,8 +1228,11 @@ export class DroneSession {
       if (c.position.y < under) c.position.y = under;
       // (on foot or on the bike: looking at the walker's waist a step ahead — the whole figure, feet
       // and all, a little below the middle of the picture; in a car, at the road beyond the bonnet)
-      if (f.car) c.lookAt(f.pos.x + fx * 9, f.pos.y - 1.2, f.pos.z + fz * 9);
-      else c.rotation.set(-eb, this.chaseYaw, 0, "YXZ");
+      // (aimed at the body itself — the pivot over the walker or rider, the road past the car's bonnet —
+      // so a camera lifted over a rise behind still has them in frame, never below it)
+      const lifted = c.position.y - (f.pos.y + base + Math.sin(eb) * r);
+      if (f.car) c.lookAt(f.pos.x + fx * 9, f.pos.y - 1.2 + lifted * 0.6, f.pos.z + fz * 9);
+      else { const px = f.pos.x, py = f.pos.y + base, pz = f.pos.z, dx = px - c.position.x, dy = py - c.position.y, dz = pz - c.position.z, l = Math.hypot(dx, dy, dz) || 1; c.lookAt(px + dx / l * 3, py + dy / l * 3, pz + dz / l * 3); }
       return;
     }
     this.model.group.visible = true;

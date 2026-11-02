@@ -532,6 +532,8 @@ export class Interior {
     const furnMeshes = B.build();
     for (const m of furnMeshes) this.static.add(m);
     t = mark("furnish", t);
+    // (food cooked on the hob eaten: brought to the mouth with the bite's sounds)
+    this.furn.eat = (food, name) => { if (this.sip || this.furn.pantry.hand) { food.traverse(o => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } }); return; } this.startSip(food, "soft", name, true); };
     this.segs = [...this.shell.segments, ...this.furn.colliders];
     this.furnitureBounds=furnitureFootprints(this.furn.colliders);
     this.grid = new SegGrid(this.segs);

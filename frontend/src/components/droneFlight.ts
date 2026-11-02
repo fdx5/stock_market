@@ -277,7 +277,9 @@ export class DroneFlight {
     // bike the paving's thickness over the terrain, so the feet stand on it, not sunk into it)
     const g0 = world.groundAt(this.pos.x, -this.pos.z), deck = world.roadZ?.(this.pos.x, -this.pos.z) ?? null;
     const g = (deck != null ? Math.max(g0, deck) : g0) + (this.car ? 0 : SURFACE_LIFT);
-    this.walkY += (g + (this.car ? this.car.eyeY : this.cycling ? BIKE_EYE : EYE) - this.walkY) * Math.min(1, dt * 12); this.pos.y = this.walkY + this.hop;
+    // (up a rise at once — feet never sink into the slope; down eased, like a step down)
+    const eyeAt = g + (this.car ? this.car.eyeY : this.cycling ? BIKE_EYE : EYE);
+    this.walkY = eyeAt > this.walkY ? eyeAt : this.walkY + (eyeAt - this.walkY) * Math.min(1, dt * 14); this.pos.y = this.walkY + this.hop;
     this.agl = this.clearance = EYE; this.limit = MAX_SPEED; this.ahead = Infinity; this.load = 0;
   }
 

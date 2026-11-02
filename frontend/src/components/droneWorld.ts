@@ -324,9 +324,48 @@ export class DroneWorld {
   /** the building outlines with a corner within r of (x, y) */
   buildingRingsNear(x: number, y: number, r: number): [number, number][][] { return this.placeFootprints.ringsNear(x, y, r); }
   roofAt(x: number, y: number): number {
-    return Math.max(this.registeredRoofAt(x,y),this.places.roofAt(x,y),this.ownRoofAt(x,y));
+    return Math.max(this.registeredRoofAt(x,y),this.places.roofAt(x,y),this.ownRoofAt(x,y),this.surveyRoofAt(x,y));
   }
   private ownRoofs = new Map<string, { r: [number, number][]; holes: [number, number][][]; top: number }[]>();
+  /** The tiles' surveyed building models as solid ground for walking: each placed group's
+   * triangles above 1.2 m rasterized to a 1 m grid of their tops (view frame). The models are
+   * shapes of their own, not the registered outlines, and nothing else held them. */
+  private surveyRoofs = new Map<string, { x0: number; y0: number; nx: number; ny: number; h: Float32Array }>();
+  private async rasterSurvey(key: string, group: THREE.Group) {
+    const box = new THREE.Box3().setFromObject(group); if (box.isEmpty()) return;
+    const x0 = Math.floor(box.min.x), y0 = Math.floor(-box.max.z), nx = Math.ceil(box.max.x) - x0 + 1, ny = Math.ceil(-box.min.z) - y0 + 1;
+    if (nx * ny > 4_000_000) return;
+    const h = new Float32Array(nx * ny).fill(-1e4), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    let budget = performance.now() + 2;
+    for (const o of [...group.children]) {
+      const m = o as THREE.Mesh, pos = m.geometry?.getAttribute("position"); if (!pos) continue;
+      const idx = m.geometry.index, tris = idx ? idx.count / 3 : pos.count / 3, mw = m.matrixWorld;
+      for (let t = 0; t < tris; t++) {
+        if (performance.now() > budget) { if (!(await this.pace(true)) || this.surveyRoofs.has(key + "#gone")) return; budget = performance.now() + 2; }
+        const i0 = idx ? idx.getX(t * 3) : t * 3, i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1, i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+        a.fromBufferAttribute(pos, i0).applyMatrix4(mw); b.fromBufferAttribute(pos, i1).applyMatrix4(mw); c.fromBufferAttribute(pos, i2).applyMatrix4(mw);
+        const top = Math.max(a.y, b.y, c.y), ax = a.x, ay = -a.z, bx = b.x, by = -b.z, cx = c.x, cy = -c.z;
+        const g = this.o.terrain.at((ax + bx + cx) / 3, (ay + by + cy) / 3); if (top < g + 1.2) continue;
+        const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx) - x0)), maxX = Math.min(nx - 1, Math.floor(Math.max(ax, bx, cx) - x0));
+        const minY = Math.max(0, Math.floor(Math.min(ay, by, cy) - y0)), maxY = Math.min(ny - 1, Math.floor(Math.max(ay, by, cy) - y0));
+        const den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+        for (let j = minY; j <= maxY; j++) for (let i = minX; i <= maxX; i++) {
+          const px = x0 + i + 0.5, py = y0 + j + 0.5;
+          // (inside the triangle seen from above; a wall's edge-on triangle marks the cells it runs through)
+          let inside = Math.abs(den) < 1e-6;
+          if (!inside) { const l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / den, l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / den; inside = l1 >= -0.05 && l2 >= -0.05 && 1 - l1 - l2 >= -0.05; }
+          if (inside && top > h[j * nx + i]) h[j * nx + i] = top;
+        }
+      }
+    }
+    if (this.disposed) return;
+    this.surveyRoofs.set(key, { x0, y0, nx, ny, h });
+  }
+  private surveyRoofAt(x: number, y: number) {
+    let top = -1e4;
+    for (const r of this.surveyRoofs.values()) { const i = Math.floor(x - r.x0), j = Math.floor(y - r.y0); if (i >= 0 && j >= 0 && i < r.nx && j < r.ny) top = Math.max(top, r.h[j * r.nx + i]); }
+    return top;
+  }
   /** the place's own buildings' roof over (x, y): the ground there plus the building's height (its base if it has one) */
   private ownRoofAt(x: number, y: number): number {
     const l = this.ownRoofs.get(Math.floor(x / 40) + ',' + Math.floor(y / 40)); if (!l) return -1e4;
@@ -1533,6 +1572,7 @@ export class DroneWorld {
       // Keep the preceding meshes until the full replacement is GPU-ready.
       t.surveyGroup=group;t.surveyGeos=store.entries.map(e=>e.geo);t.surveyPaint=store.entries;
       t.survey = "placed";
+      void this.rasterSurvey(t.key, group);
       const hide = res.hide;
       const uploadedAt=performance.now();
       const retryUpload=()=>{rollback();t.surveyGeos=store.entries.map(e=>e.geo);t.surveyPaint=store.entries;defer([],true);nextState();};
@@ -1710,6 +1750,7 @@ export class DroneWorld {
   }
 
   private clear(t: Tile) {
+    this.surveyRoofs.delete(t.key);
     t.near?.forEach(b=>b.restore());t.near=undefined;t.nearObjects=undefined;t.nearRoadGuard=undefined;
     for (const row of t.surveyUndo ?? []) if (row.geo.index) { (row.geo.index.array as Uint32Array).set(row.indices,row.start);row.geo.index.addUpdateRange(row.start,row.indices.length); row.geo.index.needsUpdate = true; }
     t.surveyUndo = undefined;
@@ -1744,6 +1785,7 @@ export class DroneWorld {
     this.landmarks.dispose();
     this.places.dispose();
     this.placeFootprints.clear();
+    this.surveyRoofs.clear();
     this.plantPool.dispose();
     if (this.treeLod) groveLeavesLod(false);
     this.o.forget?.(new Set([this.plain, this.asphalt, this.paint, this.concrete, this.bore, this.trafficMat, this.paving, ...this.traffic.materials()]));

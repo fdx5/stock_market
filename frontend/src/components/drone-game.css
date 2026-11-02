@@ -67,7 +67,7 @@
 }
 .re-holo:has(.re-game-prompts) .re-walk-pad small { display: none; }
 /* going in: the picture fades to the interior's loading, the entrance named */
-.re-game-enter { position: absolute; inset: 0; display: grid; place-content: center; gap: 8px; text-align: center; background: #02060a; opacity: 0; animation: re-game-enter 1.3s ease-in forwards; pointer-events: auto; }
+.re-game-enter { position: absolute; inset: 0; display: grid; place-content: center; gap: 8px; text-align: center; background: #02060a; opacity: 0; animation: re-game-enter 0.95s ease-in forwards; pointer-events: auto; }
 .re-game-enter b { font-size: 26px; color: #5ef0ff; letter-spacing: .06em; text-shadow: 0 0 14px rgba(94, 240, 255, .5); }
 .re-game-enter span { font-size: 13px; color: #9bdbff; }
 @keyframes re-game-enter { to { opacity: 1; } }

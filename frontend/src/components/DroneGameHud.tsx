@@ -107,7 +107,7 @@ export default function DroneGameHud({ flight, touch }: { flight: DroneFlight; t
       </button>}
       {f.nav && <div className="re-game-nav" role="status"><i aria-hidden="true">➤</i><span><b>{f.nav.label}</b><small>{f.nav.left >= 0 ? `남은 거리 ${Math.round(f.nav.left)}m · 바닥 화살표를 따라가세요` : ""}</small></span></div>}
       {entering?.cut && <div className="re-game-cut" />}
-      {entering && <div className="re-game-enter" role="status" style={{ animationDelay: `${Math.max(0, entering.after - 0.2)}s` }}><b>{entering.label}</b><span>안으로 들어가는 중 · 도면으로 실내를 만드는 중</span></div>}
+      {entering && <div className="re-game-enter" role="status" style={{ animationDelay: `${Math.max(0, entering.after + 0.05)}s` }}><b>{entering.label}</b><span>안으로 들어가는 중 · 도면으로 실내를 만드는 중</span></div>}
       {garage && createPortal(
         <div className="re-game-garage" role="dialog" aria-label="차고" onPointerDown={e => e.stopPropagation()} onClick={e => { if (e.target === e.currentTarget) setGarage(null); }}>
           <div className="re-game-garage-box">

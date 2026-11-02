@@ -16,9 +16,10 @@ const RECORDINGS = ["flush", "basin_loop", "basin_end", "sink_loop", "purr_loop"
 /** each loop file carries this much of its own loop before and after it (see SOURCES.md) */
 const LOOP_PAD = 0.15;
 /** what a running sound is: a tap (which one), a shower, or a machine's hum */
-export type WaterKind = "basin" | "sink" | "tub" | "shower" | "air";
+/** (and a pan frying on the hob: "fry") */
+export type WaterKind = "basin" | "sink" | "tub" | "shower" | "air" | "fry";
 /** each kind of running water: its recording, pitch, filter and loudness */
-const RUN: Record<Exclude<WaterKind, "air">, { rec: string; rate: number; filter?: [BiquadFilterType, number]; gain: number; drain?: boolean }> = {
+const RUN: Record<Exclude<WaterKind, "air" | "fry">, { rec: string; rate: number; filter?: [BiquadFilterType, number]; gain: number; drain?: boolean }> = {
   basin: { rec: "basin_loop", rate: 1, gain: 0.55, drain: true },
   sink: { rec: "sink_loop", rate: 1, gain: 0.5, drain: true },
   tub: { rec: "sink_loop", rate: 0.8, filter: ["lowpass", 2600], gain: 0.6 },
@@ -256,6 +257,26 @@ export class Sound {
     }
     this.whirrNode.gain.setTargetAtTime(level * 0.12, c.currentTime, 0.2);
   }
+  /** A pan frying (지글지글): a hiss of high noise whose loudness flutters, and the oil's pops —
+   * short bright clicks at random — while it lasts. `level` 0..1. */
+  private fryNode: { g: GainNode; flutter: GainNode } | null = null; private popAt = 0;
+  fry(level: number) {
+    const c = this.ctx; if (!c || !this.master || !this.noise) return;
+    if (!this.fryNode && level > 0) {
+      const src = c.createBufferSource(); src.buffer = this.noise; src.loop = true;
+      const hp = c.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 2400;
+      const pk = c.createBiquadFilter(); pk.type = "peaking"; pk.frequency.value = 5200; pk.gain.value = 6; pk.Q.value = 0.8;
+      const flutter = c.createGain(); flutter.gain.value = 0.7;
+      const lfo = c.createBufferSource(); lfo.buffer = this.noise; lfo.loop = true; lfo.playbackRate.value = 0.004;
+      const lfoGain = c.createGain(); lfoGain.gain.value = 0.35; lfo.connect(lfoGain); lfoGain.connect(flutter.gain);
+      const g = c.createGain(); g.gain.value = 0;
+      src.connect(hp); hp.connect(pk); pk.connect(flutter); flutter.connect(g); g.connect(this.master); src.start(); lfo.start();
+      this.fryNode = { g, flutter };
+    }
+    if (!this.fryNode) return;
+    this.fryNode.g.gain.setTargetAtTime(level * 0.16, c.currentTime, 0.15);
+    if (level > 0.05 && c.currentTime > this.popAt) { this.popAt = c.currentTime + 0.04 + Math.random() * 0.22 / level; this.burst(0.012 + Math.random() * 0.02, 3000 + Math.random() * 4000, 3, 0.05 + Math.random() * 0.09 * level); }
+  }
   /** a footstep on wood, tile or stone */
   step(floor: "wood" | "tile" | "stone", run: boolean) {
     const k = run ? 1.4 : 1;
@@ -282,6 +303,7 @@ export class Sound {
       run.level = lv;
     }
     this.water.g.gain.setTargetAtTime(Math.min(0.9, bed) * 0.5, c.currentTime, 0.08);
+    this.fry(levels.fry ?? 0);
   }
-  dispose() { this.bicycleNode?.dispose(); this.bicycleNode = null; try { void this.ctx?.close(); } catch { /* */ } this.ctx = null; this.hum = null; this.runs.clear(); this.purrRec = null; this.pantRec = null; this.purrNode = null; this.whirrNode = null; }
+  dispose() { this.bicycleNode?.dispose(); this.bicycleNode = null; try { void this.ctx?.close(); } catch { /* */ } this.ctx = null; this.hum = null; this.runs.clear(); this.purrRec = null; this.pantRec = null; this.purrNode = null; this.whirrNode = null; this.fryNode = null; }
 }

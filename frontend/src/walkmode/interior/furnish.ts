@@ -46,6 +46,8 @@ export interface Interactable {
 }
 
 export interface Furnished {
+  /** something cooked eaten off the pan: the page's eating (Interior), given a copy to bring to the mouth */
+  eat?: (food: THREE.Object3D, name: string) => void;
   aircons:{room:string;kind:number;variant:number}[];
   circulation:{room:string;kind:string;footprint:Rect;path:[number,number][];size:number[]}[];
   bathrooms:{room:string;toilet:Rect;shower:Rect}[];
@@ -661,7 +663,20 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
           const m=new THREE.Mesh(g,heat);m.position.set(x,.862,z);rings.add(m);
         }
         rings.applyMatrix4(cookFrame);dynamic.add(rings);let cooking=false;
-        interactables.push({id:"cooktop",zone,room,hit:hitIn(cookFrame,.55,.06,.52,0,.87,.30),label:()=>`인덕션 ${cooking?"끄기":"켜기"}`,act:()=>{cooking=!cooking;return "beep";},update:dt=>{heat.opacity+=((cooking?.9:0)-heat.opacity)*Math.min(1,dt*3);rings.visible=heat.opacity>.01;}});
+        const pan=cookingPan(cookFrame);dynamic.add(pan.root);disposables.push(pan);
+        interactables.push({id:"cooktop",zone,room,hit:hitIn(cookFrame,.55,.06,.52,0,.87,.30),
+          label:()=>{const h=pantry.handKind();if(!pan.state&&(h==="eggs"||h==="sausage"))return h==="eggs"?"인덕션에 프라이팬 올리고 계란 프라이 하기":"인덕션에 프라이팬 올리고 소시지 굽기";
+            if(pan.state)return pan.label();return `인덕션 ${cooking?"끄기":"켜기"}`;},
+          act:()=>{
+            const h=pantry.handKind();
+            // (eggs or a frankfurter in hand: the pan comes out on the front ring, in it goes, the hob on)
+            if(!pan.state&&(h==="eggs"||h==="sausage")){pantry.consume();pan.start(h);cooking=true;return "beep";}
+            // (done: eaten off the pan — a copy brought to the mouth, the pan put away)
+            if(pan.state&&pan.state.t>=pan.ready){const food=pan.serve();cooking=false;if(food)furnished.eat?.(food.obj,food.name);return "click";}
+            if(pan.state)return null;
+            cooking=!cooking;return "beep";},
+          loud:()=>pan.state&&cooking?Math.min(1,.35+pan.state.t/6):0,channel:"fry",
+          update:dt=>{heat.opacity+=((cooking?.9:0)-heat.opacity)*Math.min(1,dt*3);rings.visible=heat.opacity>.01;if(cooking)pan.update(dt);}});
         for(const [i,x] of [-runA/2+.26,runA/2-.26].entries())if((i===0||runA>2.4)&&(sinkLocal===undefined||Math.abs(x-sinkLocal)>.55)){
           put(countertopAppliance(P,(variantOf(VS,"counter-appliance",4)+i)%4),new THREE.Matrix4().multiplyMatrices(fA.m,new THREE.Matrix4().makeTranslation(x,.87,.24)),zone,false);
         }
@@ -1154,9 +1169,64 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
   }
 
   pantry.stock();
-  return {
+  const furnished = {} as Furnished;
+  return Object.assign(furnished, {
     aircons,kitchens,bathrooms,circulation,interactables, colliders, pendants, curtainOpen, tv: furnishedTv, laptop: furnishedLaptop, mirrors, seats, dock, pantry, roomTimings,
     dispose: () => disposables.forEach(d => d.dispose()),
+  });
+}
+
+/** A frying pan for the hob's front ring (in the cook frame: the counter top at y .862), hidden until
+ * eggs or a frankfurter go in: two eggs whose whites set from clear to white and yolks firm, or two
+ * sausages browning with scorch lines; ready at 7 s, burnt past 26 s. */
+function cookingPan(frame: THREE.Matrix4) {
+  const root = new THREE.Group(); root.applyMatrix4(frame); root.visible = false;
+  const geos: THREE.BufferGeometry[] = [], mats: THREE.Material[] = [];
+  const g = <T extends THREE.BufferGeometry>(x: T) => { geos.push(x); return x; }, m = <T extends THREE.Material>(x: T) => { mats.push(x); return x; };
+  const iron = m(new THREE.MeshStandardMaterial({ color: "#26292d", metalness: .6, roughness: .45, side: THREE.DoubleSide })), handleM = m(new THREE.MeshStandardMaterial({ color: "#151515", roughness: .7 }));
+  const pan = new THREE.Group(); pan.position.set(-.13, .866, .42); root.add(pan);
+  const body = new THREE.Mesh(g(new THREE.CylinderGeometry(.135, .118, .04, 40, 1, true)), iron); body.position.y = .02;
+  const base = new THREE.Mesh(g(new THREE.CylinderGeometry(.118, .118, .006, 40)), iron); base.position.y = .003;
+  const handle = new THREE.Mesh(g(new THREE.BoxGeometry(.2, .02, .03)), handleM); handle.position.set(-.23, .035, 0); handle.rotation.z = .12;
+  pan.add(body, base, handle);
+  const white = m(new THREE.MeshStandardMaterial({ color: "#efe8d8", roughness: .35, transparent: true, opacity: .45 }));
+  const yolk = m(new THREE.MeshStandardMaterial({ color: "#f5a300", roughness: .25, emissive: "#3a1a00", emissiveIntensity: .15 }));
+  const meat = m(new THREE.MeshStandardMaterial({ color: "#d98a7a", roughness: .5 }));
+  const eggs = new THREE.Group(), sausages = new THREE.Group(); pan.add(eggs, sausages);
+  for (const [x, z] of [[-.045, -.02], [.05, .025]]) {
+    const w = new THREE.Mesh(g(new THREE.CylinderGeometry(.052, .055, .006, 24)), white); w.position.set(x, .009, z); w.scale.set(1, 1, .85 + Math.random() * .2);
+    const y = new THREE.Mesh(g(new THREE.SphereGeometry(.021, 18, 10)), yolk); y.position.set(x + .006, .014, z - .004); y.scale.y = .55;
+    eggs.add(w, y);
+  }
+  for (const z of [-.03, .03]) { const s = new THREE.Mesh(g(new THREE.CapsuleGeometry(.012, .1, 4, 12).rotateZ(Math.PI / 2)), meat); s.position.set(0, .016, z); sausages.add(s); }
+  const raw = { white: new THREE.Color("#efe8d8"), cooked: new THREE.Color("#ffffff"), burnt: new THREE.Color("#4a3a2a"), yolkRaw: new THREE.Color("#f5a300"), yolkSet: new THREE.Color("#f3c34a"), meatRaw: new THREE.Color("#d98a7a"), meatDone: new THREE.Color("#9b4a2a"), meatBurnt: new THREE.Color("#2a1810") };
+  const ready = 7, burn = 26;
+  let state: { kind: "eggs" | "sausage"; t: number } | null = null;
+  const look = () => {
+    if (!state) return;
+    const k = Math.min(1, state.t / ready), b = Math.max(0, Math.min(1, (state.t - burn) / 8));
+    white.opacity = .45 + .55 * k; white.color.copy(raw.white).lerp(raw.cooked, k).lerp(raw.burnt, b);
+    yolk.color.copy(raw.yolkRaw).lerp(raw.yolkSet, k * .6).lerp(raw.burnt, b);
+    meat.color.copy(raw.meatRaw).lerp(raw.meatDone, k).lerp(raw.meatBurnt, b);
+    // (sausages rolled now and then as they brown)
+    if (state.kind === "sausage") sausages.children.forEach((c, i) => { c.rotation.x = Math.floor(state!.t / 2.2 + i) * 1.2; });
+  };
+  const name = () => !state ? "" : state.t > burn + 2 ? (state.kind === "eggs" ? "탄 계란 프라이" : "탄 소시지") : state.kind === "eggs" ? "계란 프라이" : "구운 소시지";
+  return {
+    root, ready,
+    get state() { return state; },
+    start(kind: "eggs" | "sausage") { state = { kind, t: 0 }; root.visible = true; eggs.visible = kind === "eggs"; sausages.visible = kind === "sausage"; look(); },
+    update(dt: number) { if (!state) return; state.t += dt; look(); },
+    label() { if (!state) return ""; if (state.t < ready) return `${state.kind === "eggs" ? "계란 프라이" : "소시지"} 굽는 중 ${Math.floor(state.t / ready * 100)}% · 지글지글`; return `${name()} 먹기`; },
+    /** the food taken off the pan (a copy in its own materials, to be eaten), the pan put away */
+    serve(): { obj: THREE.Object3D; name: string } | null {
+      if (!state) return null;
+      const src = state.kind === "eggs" ? eggs : sausages, food = new THREE.Group();
+      src.children.forEach(c => { const mesh = c as THREE.Mesh, copy = new THREE.Mesh(mesh.geometry.clone(), (mesh.material as THREE.Material).clone()); copy.position.copy(mesh.position).sub(new THREE.Vector3(0, .01, 0)); copy.rotation.copy(mesh.rotation); copy.scale.copy(mesh.scale); copy.userData.dropMaterial = true; food.add(copy); });
+      const n = name(); state = null; root.visible = false;
+      return { obj: food, name: n };
+    },
+    dispose() { geos.forEach(x => x.dispose()); mats.forEach(x => x.dispose()); root.removeFromParent(); },
   };
 }
 
