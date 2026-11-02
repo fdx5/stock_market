@@ -113,6 +113,8 @@
 .wk-act { position: absolute; right: 16px; bottom: 24px; max-width: 46vw; min-height: 56px; padding: 10px 16px; border-radius: 28px; pointer-events: auto; border: 1px solid rgba(255, 255, 255, .2); background: rgba(6, 12, 18, .65); color: #8fa3ad; font: 700 14px inherit; }
 .wk-act.on { color: #03131a; background: linear-gradient(180deg, #31d9ff, #13a9cf); border-color: transparent; }
 .wk-view { position: absolute; right: 16px; bottom: 92px; width: 56px; height: 40px; border-radius: 20px; pointer-events: auto; border: 1px solid rgba(255, 255, 255, .2); background: rgba(6, 12, 18, .65); color: #dff6ff; font: 600 12px inherit; }
+.wk-view-top { bottom: 140px; }
+.wk-view[aria-pressed="true"] { border-color: rgba(94, 240, 255, .7); color: #5ef0ff; }
 
 @media (max-width: 640px) {
   .wk-topbar { gap: 8px; left: 12px; right: 12px; }

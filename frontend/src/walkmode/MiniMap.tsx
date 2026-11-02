@@ -37,10 +37,36 @@ export function roomNames(plan: FloorPlan): Map<string, string> {
   return out;
 }
 
+/** The plan's actual walls: room edges facing another zone or the outside, less every opening.
+ * Seams between decomposition pieces of one room are not walls, and an opening is a gap; drawing
+ * openings as dark bars over the fill made open passages read as black partitions. */
+export function mapWalls(plan: FloorPlan): [number, number, number, number][] {
+  const out: [number, number, number, number][] = [], EPS = 0.003;
+  const subtract = (runs: [number, number][], a: number, b: number) => runs.flatMap(([lo, hi]) => b <= lo || a >= hi ? [[lo, hi] as [number, number]] : [...(a > lo ? [[lo, a] as [number, number]] : []), ...(b < hi ? [[b, hi] as [number, number]] : [])]);
+  for (const r of plan.rooms) {
+    const [x0, z0, x1, z1] = r.rect;
+    for (const [axis, at, lo, hi, far] of [["x", x0, z0, z1, 2], ["x", x1, z0, z1, 0], ["z", z0, x0, x1, 3], ["z", z1, x0, x1, 1]] as const) {
+      const k = axis === "x" ? 1 : 0;
+      let runs: [number, number][] = [[lo, hi]];
+      for (const q of plan.rooms) if (q !== r && q.zone === r.zone && Math.abs(q.rect[far] - at) < EPS) runs = subtract(runs, q.rect[k], q.rect[k + 2]);
+      for (const o of plan.openings) if (o.axis === axis && Math.abs(o.at - at) < EPS) runs = subtract(runs, o.center - o.width / 2, o.center + o.width / 2);
+      for (const [a, b] of runs) if (b - a > 0.02) out.push(axis === "x" ? [at, a, at, b] : [a, at, b, at]);
+    }
+  }
+  return out;
+}
+
 export default function MiniMap({ plan, subject }: { plan: FloorPlan; subject: () => MapSubject | null }) {
   const [shown, setShown] = useState(true), [big, setBig] = useState(false);
   const me = useRef<SVGGElement>(null), pet = useRef<SVGCircleElement>(null);
   const names = useMemo(() => roomNames(plan), [plan]);
+  const walls = useMemo(() => mapWalls(plan), [plan]);
+  // A room's unfurnished pieces share the colour of the room they belong to.
+  const zoneType = useMemo(() => {
+    const area = (q: FloorPlan["rooms"][number]) => (q.rect[2] - q.rect[0]) * (q.rect[3] - q.rect[1]), best = new Map<string, FloorPlan["rooms"][number]>();
+    for (const r of plan.rooms) if (r.type !== "hall") { const b = best.get(r.zone); if (!b || area(r) > area(b)) best.set(r.zone, r); }
+    return new Map([...best].map(([z, r]) => [z, r.type]));
+  }, [plan]);
   const [x0, z0, x1, z1] = plan.bounds, pad = 0.4;
   const vb = `${x0 - pad} ${z0 - pad} ${x1 - x0 + 2 * pad} ${z1 - z0 + 2 * pad}`;
   useEffect(() => {
@@ -83,7 +109,7 @@ export default function MiniMap({ plan, subject }: { plan: FloorPlan; subject: (
           const [a, b, c, d] = r.rect;
           return (
             <g key={r.id}>
-              <rect x={a} y={b} width={c - a} height={d - b} fill={FILL[r.type] ?? "rgba(255,255,255,.06)"} stroke="rgba(223,246,255,.55)" strokeWidth={span * 0.005} />
+              <rect x={a} y={b} width={c - a} height={d - b} fill={FILL[zoneType.get(r.zone) ?? r.type] ?? "rgba(255,255,255,.06)"} stroke="none" />
               {(() => {
                 const t = names.get(r.id) ?? "";
                 if (plan.facility && !labelled.has(r.id)) return null;
@@ -93,10 +119,13 @@ export default function MiniMap({ plan, subject }: { plan: FloorPlan; subject: (
             </g>
           );
         })}
+        {walls.map(([ax, az, bx, bz], i) => <line key={`w${i}`} x1={ax} y1={az} x2={bx} y2={bz} stroke="rgba(223,246,255,.8)" strokeWidth={span * 0.008} strokeLinecap="square" />)}
         {plan.openings.map((o, i) => {
+          // An open passage is just the gap in the walls above; doors and windows are marked lightly.
+          if (o.type === "open") return null;
           const h = o.width / 2, win = o.type === "window" || o.type === "balcony_window";
           const [ax, az, bx, bz] = o.axis === "x" ? [o.at, o.center - h, o.at, o.center + h] : [o.center - h, o.at, o.center + h, o.at];
-          return <line key={i} x1={ax} y1={az} x2={bx} y2={bz} stroke={win ? "#7fd8ff" : o.type === "front_door" ? "#ffcf6e" : "#0b1218"} strokeWidth={span * (win ? 0.014 : 0.016)} strokeLinecap="butt" />;
+          return <line key={i} x1={ax} y1={az} x2={bx} y2={bz} stroke={win ? "#7fd8ff" : o.type === "front_door" ? "#ffcf6e" : "rgba(255,207,110,.55)"} strokeWidth={span * (win ? 0.012 : 0.006)} strokeLinecap="butt" />;
         })}
         <circle ref={pet} r={span * 0.013} fill="#ffb86b" stroke="#fff" strokeWidth={span * 0.004} style={{ display: "none" }} />
         <g ref={me}>

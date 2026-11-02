@@ -32,7 +32,7 @@ import {moveThroughGaps,passageNear} from './movement';
  * page's); its output resolution is set once on entry and kept. Everything that could cost a frame
  * later — textures, programs, the reflection probes — is done behind the loading bar. */
 
-export interface HudState { target: string | null; room: string; seated: string | null; view: "first" | "third"; /** the target is the pet (it can be looked at up close) */ pet?: boolean }
+export interface HudState { target: string | null; room: string; seated: string | null; view: "first" | "third"; /** the whole flat seen from above, cut below the ceiling */ overhead?: boolean; /** the target is the pet (it can be looked at up close) */ pet?: boolean }
 export interface InteriorOptions {
   plan: FloorPlan; hour: number;
   /** the flat's pet: a Shiba Inu (default) or a cat */
@@ -212,6 +212,7 @@ export class Interior {
   pos = new THREE.Vector2(); yaw = 0; pitch = -0.05; private vel = new THREE.Vector2();
   private eyeY = EYE; private bob = 0; private stepAcc = 0;
   view: "first" | "third" = "first";
+  overhead = false;
   inspectionMode=false;
   inspectionIssues:string[]=[];
   /** the camera as shown: it follows pos/yaw/pitch — at once while walking and looking, eased over
@@ -672,6 +673,7 @@ export class Interior {
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
     if (e.code === "KeyE" || e.code === "Enter") { e.preventDefault(); if (!e.repeat) this.interact(); return; }
     if (e.code === "KeyV") { if (!e.repeat) this.toggleView(); return; }
+    if (e.code === "KeyT") { if (!e.repeat) this.toggleOverhead(); return; }
     if (e.code === "KeyZ" && !e.repeat) { if (this.petZoomed()) this.zoomPet(false); else if (this.target?.id === "cat") this.zoomPet(true); return; }
     if (/^(Key[WASD]|Arrow(Up|Down|Left|Right)|Shift(Left|Right)|Space)$/.test(e.code)) { e.preventDefault(); this.keys.add(e.code); if (this.seated && /Key[WASD]|Arrow/.test(e.code)) this.standUp(); }
   };
@@ -745,6 +747,7 @@ export class Interior {
   tvPower(on: boolean) { this.furn.tv?.power?.(on); this.probeDirty = Math.max(this.probeDirty, 8); }
   tvPicture(img: HTMLImageElement | null) { this.furn.tv?.picture?.(img); }
   // (into first person: eyes level, ahead the way the body faces)
+  toggleOverhead() { this.overhead = !this.overhead; this.emitHud(); }
   toggleView() { this.view = this.view === "first" ? "third" : "first"; this.shown.ease = viewPreferences().reduceMotion ? .15 : .3; this.emitHud(); }
   interact() {
     this.o.sound.resume();
@@ -1087,11 +1090,23 @@ export class Interior {
       else m.makeRotationY(this.yaw).setPosition(this.pos.x - Math.sin(this.yaw) * 0.34, this.shell.floorAt(this.pos.x, this.pos.y) + 0.98, this.pos.y - Math.cos(this.yaw) * 0.34);
       this.furn.pantry.holdAt(m);
     }
+    if (this.overhead) { this.overheadCamera(); ar.visible = true; cam.updateMatrixWorld(); return; }
+    if (cam.up.y !== 1) { cam.up.set(0, 1, 0); cam.far = 400; cam.updateProjectionMatrix(); }
     // the head hidden from its own eye (the body stays: look down and it's there)
     ar.visible = this.seated?.label !== "화면" && this.seated?.label !== "반려동물" && (this.view === "third" ? Math.hypot(cam.position.x - this.pos.x, cam.position.z - this.pos.y) > .65 : (!(this.seated?.pose === "lie") && (this.pitch < -0.55 || this.mirrors.some(m => m.position.distanceTo(cam.position) < 4.5))));
     cam.updateMatrixWorld();
   }
+  /** The whole flat from straight above, the walls and furniture cut just under the ceiling:
+   * the rendered plan. The walker keeps moving in it and is shown where they stand. */
+  private overheadCamera() {
+    const cam = this.camera, [x0, z0, x1, z1] = this.o.plan.bounds, cut = (this.o.plan.ceilingHeightM ?? 2.4) - .08;
+    const aspect = Math.max(.2, cam.aspect), w = (x1 - x0) * 1.12 + 1, d = (z1 - z0) * 1.12 + 1, fov = 40;
+    const half = Math.tan(fov / 2 * Math.PI / 180), h = Math.max(d / 2 / half, w / 2 / half / aspect) + cut;
+    cam.fov = fov; cam.up.set(0, 0, -1); cam.position.set((x0 + x1) / 2, h, (z0 + z1) / 2); cam.lookAt((x0 + x1) / 2, 0, (z0 + z1) / 2);
+    cam.near = h - cut; cam.far = h + 1; cam.updateProjectionMatrix();
+  }
   private pick() {
+    if (this.overhead) { if (this.target) { this.target = null; this.emitHud(); } return; }
     // (zoomed in on a screen, the screen is the whole world: nothing else to point at)
     if (this.seated?.label === "화면" || this.seated?.label === "반려동물") { this.target = null; this.emitHud(); return; }
     this.ray.setFromCamera(new THREE.Vector2(0, 0), this.camera);
@@ -1122,8 +1137,8 @@ export class Interior {
   }
   private emitHud(force = false) {
     const room = this.shell.roomAt(this.pos.x, this.pos.y)?.label ?? "";
-    const h: HudState = { target: this.target?.label() ?? null, room, seated: this.seated?.label ?? null, view: this.view, pet: this.target?.id === "cat" };
-    if (force || h.target !== this.hud.target || h.room !== this.hud.room || h.seated !== this.hud.seated || h.view !== this.hud.view || h.pet !== this.hud.pet) { this.hud = h; this.o.onHud?.(h); }
+    const h: HudState = { target: this.target?.label() ?? null, room, seated: this.seated?.label ?? null, view: this.view, overhead: this.overhead, pet: this.target?.id === "cat" };
+    if (force || h.target !== this.hud.target || h.room !== this.hud.room || h.seated !== this.hud.seated || h.view !== this.hud.view || h.overhead !== this.hud.overhead || h.pet !== this.hud.pet) { this.hud = h; this.o.onHud?.(h); }
   }
 
   resize(w: number, h: number) {

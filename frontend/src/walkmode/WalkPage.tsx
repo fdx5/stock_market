@@ -871,6 +871,7 @@ export default function WalkPage() {
             <div className="wk-actions">
               <button className="wk-btn" onClick={copyLink}>{copyStatus || "링크 복사"}</button>
               <button className="wk-btn" onClick={()=>{document.exitPointerLock?.();interior.current?.dispose();interior.current=null;setHud(null);setTvOpen(false);setLaptopOpen(false);setZoomed(null);setPhase("choose");setFade(false);}}>구조·인테리어 바꾸기</button>
+              <button className="wk-btn" aria-pressed={!!hud?.overhead} onClick={() => interior.current?.toggleOverhead()}>{hud?.overhead ? "걸으며 보기" : "위에서 보기"} <kbd>T</kbd></button>
               {<button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>}
               <button className="wk-btn" onClick={exitFlat}>나가기 <kbd>Esc</kbd></button>
             </div>
@@ -898,7 +899,7 @@ export default function WalkPage() {
           {hud?.pet && touch && <button className="wk-btn wk-pet-zoom" onPointerDown={e => { e.stopPropagation(); interior.current?.zoomPet(true); }}>🔍 확대해서 보기</button>}
           {hud?.seated === "반려동물" && <div className="wk-laptop-bar" onPointerDown={e => e.stopPropagation()}><span>가까이서 보는 중</span><button className="wk-btn" onClick={() => interior.current?.zoomPet(false)}>축소 <kbd>Z</kbd></button></div>}
           {hud?.seated && hud.seated !== "화면" && hud.seated !== "반려동물" && <div className="wk-hint is-seat">{hud.seated} · 이동키를 누르면 일어납니다</div>}
-          {showHelp && !touch && <div className="wk-help" onClick={() => setShowHelp(false)}>{plan.facility ? "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (문·엘리베이터·사람과 대화·의자·수전·스위치) · V 3인칭 · M 지도 · Esc 나가기" : "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (스위치·수전·변기·커튼·문·TV·소파·침대) · V 3인칭 · H 도움말 · Esc 나가기"}</div>}
+          {showHelp && !touch && <div className="wk-help" onClick={() => setShowHelp(false)}>{plan.facility ? "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (문·엘리베이터·사람과 대화·의자·수전·스위치) · V 3인칭 · M 지도 · Esc 나가기" : "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (스위치·수전·변기·커튼·문·TV·소파·침대) · V 3인칭 · T 위에서 보기 · H 도움말 · Esc 나가기"}</div>}
         </>
       )}
 
@@ -951,6 +952,7 @@ export default function WalkPage() {
           {stickAt && <div className="wk-stick" style={{ left: stickAt.x - 60, top: stickAt.y - 60 }}><i style={{ transform: `translate(${stickAt.dx}px, ${stickAt.dy}px)` }} /></div>}
           {phase === "interior" && <button className={`wk-act${hud?.target ? " on" : ""}`} onPointerDown={e => { e.stopPropagation(); interior.current?.interact(); }}>{hud?.target ?? "상호작용"}</button>}
           {phase === "interior" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>{hud?.view === "third" ? "1인칭" : "3인칭"}</button>}
+          {phase === "interior" && !plan?.facility && <button className="wk-view wk-view-top" aria-pressed={!!hud?.overhead} onPointerDown={e => { e.stopPropagation(); interior.current?.toggleOverhead(); }}>{hud?.overhead ? "걷기" : "위에서"}</button>}
           {phase === "building" && <button className={`wk-act${bhud?.prompt ? " on" : ""}`} onPointerDown={e => { e.stopPropagation(); building.current?.interact(); }}>{bhud?.prompt ?? "상호작용"}</button>}
           {phase === "building" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>{bhud?.view === "third" ? "1인칭" : "3인칭"}</button>}
         </div>
