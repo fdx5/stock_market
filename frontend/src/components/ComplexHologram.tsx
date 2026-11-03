@@ -271,6 +271,8 @@ type Stage = {
   setDroneSky?: (k: number, fog?: [number, number]) => void;
   /** a phone's drone: two shadow cascades, not three */
   setDroneLite?: (on: boolean) => void;
+  /** the game on the streets (on foot, bike, car — not the flight): sharper near shadows */
+  setDroneGame?: (on: boolean) => void;
   /** the rail's trains placed every n frames (a phone's drone: 2) */
   railEvery?: number;
   /** Free materials of the drone's tiles (the WebGPU view's forget). */
@@ -1048,10 +1050,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       };
       requestIdleCallback(idle);
     }
+    // (the street game: the first shadow cascade 45 m, not 180 — the walker's, the cars' and the
+    // trees' shadows four times as fine where they are seen up close; the same three cascades and
+    // filter, so no new pipeline and no more passes. A phone's lite two cascades win.)
+    let droneLiteOn = false, droneGameOn = false;
+    const gameShadows = () => (native as unknown as { setShadowSplits?: (s: number[] | null) => void } | null)?.setShadowSplits?.(droneLiteOn ? [200, 900] : droneGameOn ? [45, 240, 1800] : null);
+    stage.setDroneGame = on => { if (droneGameOn === on) return; droneGameOn = on; gameShadows(); };
     stage.setDroneLite = on => {
+      droneLiteOn = on;
       if (!on && droneFx && native) { native.aoOn = droneFx.ao; native.bloomOn = droneFx.bloom; droneFx = null; }
       (native as unknown as { setDroneLite?: (on: boolean) => void } | null)?.setDroneLite?.(on); stage.railEvery = on ? 2 : 1;
       droneRatioCap = on ? 2 : 0; resize();
+      if (!on && droneGameOn) gameShadows();
       if (!on) document.documentElement.toggleAttribute("data-drone-flight", false);
       if (stage.rail) stage.rail.clearanceGap = on ? 3 : .75;
     };
@@ -4201,7 +4211,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       bridgeLabels:()=>st.bridgeSigns.all(),
       onSeaReady:field=>st.roadSeaReady?.(field),
       viewRiver:()=>st.viewRiver??null,
-      setSky: (k, fog) => st.setDroneSky?.(k, fog), onHud: h => droneHud.current?.(h), setLite: on => st.setDroneLite?.(on),
+      setSky: (k, fog) => st.setDroneSky?.(k, fog), onHud: h => droneHud.current?.(h), setLite: on => st.setDroneLite?.(on), setGame: on => st.setDroneGame?.(on),
     });
     st.controls.enabled = false; st.controls.autoRotate = false; spinRef.current = false; setSpin(false);
     st.intro = null; st.fly = null; setTip(null);
@@ -4339,6 +4349,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (e.code === "KeyX" && !e.repeat && stageRef.current?.drone?.flight.walking) { e.preventDefault(); e.stopImmediatePropagation(); const d = stageRef.current.drone; if (d.flight.nav && d.flight.nav.left >= 0) d.clearNav(); else d.navTo(); return; }
       // (B: onto a bicycle or off it, on foot only)
       if (e.code === "KeyB" && !e.repeat && stageRef.current?.drone?.flight.walking) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current?.drone?.rideNearest(); return; }
+      // (R in a car or on a bike: back onto the nearest lane — stuck against a wall, in a corner)
+      if (e.code === "KeyR" && !e.repeat && stageRef.current?.drone?.flight.walking && (stageRef.current.drone.flight.car || stageRef.current.drone.flight.cycling)) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current.drone.unstick(); return; }
       // (F on foot: into the nearest car of the traffic, or out of the one driven)
       if (e.code === "KeyF" && !e.repeat && stageRef.current?.drone?.flight.walking) { e.preventDefault(); e.stopImmediatePropagation(); stageRef.current?.drone?.toggleCar(); return; }
       if (!FLY.has(e.code)) return;
@@ -4366,13 +4378,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     window.addEventListener("drone-garage-car", garageCar); window.addEventListener("drone-garage-bike", garageBike);
     const navOn = () => { const d = stageRef.current?.drone; if (!d) return; if (d.flight.nav && d.flight.nav.left >= 0) d.clearNav(); else d.navTo(); };
     window.addEventListener("drone-nav", navOn);
+    const unstick = () => { stageRef.current?.drone?.unstick(); };
+    window.addEventListener("drone-unstick", unstick);
     window.addEventListener("drone-car-toggle", carToggle);
     const enterDoor = () => stageRef.current?.drone?.enterDoor();
     window.addEventListener("drone-walk-toggle", walkToggle); window.addEventListener("drone-bike-toggle", bikeToggle); window.addEventListener("drone-enter-door", enterDoor);
     document.addEventListener("visibilitychange", vis);
     host?.addEventListener("wheel", wheel, { passive: false });
     return () => {
-      window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); window.removeEventListener("drone-walk-toggle", walkToggle); window.removeEventListener("drone-take-off", takeOff); window.removeEventListener("drone-car-toggle", carToggle); window.removeEventListener("drone-explore-inside", inside); window.removeEventListener("drone-garage-car", garageCar); window.removeEventListener("drone-garage-bike", garageBike); window.removeEventListener("drone-nav", navOn); window.removeEventListener("drone-bike-toggle", bikeToggle); window.removeEventListener("drone-enter-door", enterDoor);
+      window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); window.removeEventListener("drone-walk-toggle", walkToggle); window.removeEventListener("drone-take-off", takeOff); window.removeEventListener("drone-car-toggle", carToggle); window.removeEventListener("drone-explore-inside", inside); window.removeEventListener("drone-garage-car", garageCar); window.removeEventListener("drone-garage-bike", garageBike); window.removeEventListener("drone-nav", navOn); window.removeEventListener("drone-unstick", unstick); window.removeEventListener("drone-bike-toggle", bikeToggle); window.removeEventListener("drone-enter-door", enterDoor);
       window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", vis);
       host?.removeEventListener("wheel", wheel);
     };

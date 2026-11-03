@@ -38,6 +38,8 @@ export interface DroneWorldQuery {
   roadZ?(x: number, y: number): number | null;
   /** the surveyed outline of a building standing at a point (none: open ground) */
   buildingRingAt?(x: number, y: number): [number, number][] | null;
+  /** whether a building is drawn there (asked where only the roof grid says one stands) */
+  drawnAt?(x: number, y: number): boolean;
 }
 
 export type DroneSticks = {
@@ -85,6 +87,8 @@ export class DroneFlight {
   bumped = 0;
   /** how long the walker has pushed against something without moving */
   private pushT = 0;
+  /** how long a car or a bike has been pressed on without getting anywhere (s): past ~1 s the HUD offers R */
+  stuckT = 0;
   autopilot = false;
   autoRotate = false;
   /** 걷기: on foot in the drone's world — on the ground, at a walker's pace, buildings solid */
@@ -189,7 +193,7 @@ export class DroneFlight {
    * stop the walker (sliding along them), a rise of more than 0.6 m at once is a wall too; the eye
    * follows the ground's height smoothly (a kerb, a slope). */
   private walk(dt: number, world: DroneWorldQuery, fwd: number, side: number, turn: number) {
-    const x0 = this.pos.x, z0 = this.pos.z;
+    const x0 = this.pos.x, z0 = this.pos.z, fwdIn = fwd;
     if (this.car) {
       // (a car: the throttle pulls to its top speed, the brake stops it and then backs it up; the
       // steering turns it about its rear axle, less lock at speed)
@@ -251,7 +255,10 @@ export class DroneFlight {
       if (roof <= (this.car ? 2.0 : 0.8)) return false;
       if (world.roadZ?.(qx, qy) != null) return false;
       const ring = !!world.buildingRingAt?.(qx, qy);
-      return wallsOnly ? ring : ring || roof > 6 || !world.buildingRingAt;
+      if (ring) return true;
+      // (no outline: the roof grid alone — a wall only where a building is drawn; a cell of the
+      // grid the view does not draw was an invisible wall)
+      return !wallsOnly && (roof > 6 || !world.buildingRingAt) && (world.drawnAt?.(qx, qy) ?? true);
     };
     const solid = (px: number, pz: number, wallsOnly = false) => {
       for (const [ox, oz] of probes) {
@@ -275,6 +282,8 @@ export class DroneFlight {
     // (a car into a wall: it stops dead, bouncing back a little — the impact for the sound)
     if (this.car && this.bumped) { this.bumped = Math.abs(this.carSpeed); this.crash = Math.max(this.crash, this.bumped); this.carSpeed *= -0.15; }
     this.moved = Math.hypot(this.pos.x - x0, this.pos.z - z0);
+    const pressing = this.car ? Math.abs(this.throttle) > 0.1 || fwdIn < -0.1 : this.cycling && fwdIn > 0.1;
+    this.stuckT = pressing && this.moved < 0.6 * dt ? this.stuckT + dt : Math.max(0, this.stuckT - dt * 3);
     // (the surface stood on: the road deck where a lane is, else the ground — and on foot or on the
     // bike the paving's thickness over the terrain, so the feet stand on it, not sunk into it)
     const g0 = world.groundAt(this.pos.x, -this.pos.z), deck = world.roadZ?.(this.pos.x, -this.pos.z) ?? null;

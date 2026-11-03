@@ -323,6 +323,22 @@ export class DroneWorld {
   buildingRingAt(x: number, y: number): [number, number][] | null { return this.placeFootprints.ringAt(x, y); }
   /** the building outlines with a corner within r of (x, y) */
   buildingRingsNear(x: number, y: number, r: number): [number, number][][] { return this.placeFootprints.ringsNear(x, y, r); }
+  /** Whether a building is drawn at (x, y) as far as the walls go — asked only where the roof grid
+   * alone (no surveyed outline) says one stands. Past the view's own square the tiles draw what their
+   * grid holds; inside it the view draws its buildings itself, from its own lists, and the tile's
+   * grid kept buildings it does not draw (left out, or a stray cell): there, only a drawn outline,
+   * the complex's own buildings or a surveyed model counts. */
+  drawnAt(x: number, y: number): boolean {
+    const t = this.tileAt(x, y);
+    if (!t?.inner) return true;
+    if (this.ownRoofAt(x, y) > -1e3 || this.surveyRoofAt(x, y) > -1e3 || this.places.roofAt(x, y) > -1e3) return true;
+    const pad = 1.2;
+    for (const v of this.viewTiles.values()) {
+      if (x < v.box[0] - 30 || x > v.box[2] + 30 || y < v.box[1] - 30 || y > v.box[3] + 30) continue;
+      for (const r of v.spanRings ?? []) if (r && r.length > 2 && ringNear(r, x, y, pad)) return true;
+    }
+    return false;
+  }
   roofAt(x: number, y: number): number {
     return Math.max(this.registeredRoofAt(x,y),this.places.roofAt(x,y),this.ownRoofAt(x,y),this.surveyRoofAt(x,y));
   }
@@ -1870,4 +1886,20 @@ function inRingXY(x: number, y: number, r: [number, number][]) {
 function segDist(x: number, y: number, ax: number, ay: number, bx: number, by: number) {
   const dx = bx - ax, dy = by - ay, t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
   return Math.hypot(x - ax - t * dx, y - ay - t * dy);
+}
+
+/** (x, y) inside the ring or within `pad` of its edge — a bounding box first */
+const ringBoxes = new WeakMap<number[][], [number, number, number, number]>();
+function ringNear(r: number[][], x: number, y: number, pad: number): boolean {
+  let b = ringBoxes.get(r);
+  if (!b) { b = [Infinity, Infinity, -Infinity, -Infinity]; for (const [px, py] of r) { b[0] = Math.min(b[0], px); b[1] = Math.min(b[1], py); b[2] = Math.max(b[2], px); b[3] = Math.max(b[3], py); } ringBoxes.set(r, b); }
+  if (x < b[0] - pad || x > b[2] + pad || y < b[1] - pad || y > b[3] + pad) return false;
+  let inside = false;
+  for (let a = 0, c = r.length - 1; a < r.length; c = a++) { const [ax, ay] = r[a], [cx, cy] = r[c]; if ((ay > y) !== (cy > y) && x < (cx - ax) * (y - ay) / (cy - ay) + ax) inside = !inside; }
+  if (inside) return true;
+  for (let a = 0, c = r.length - 1; a < r.length; c = a++) {
+    const [ax, ay] = r[a], [cx, cy] = r[c], dx = cx - ax, dy = cy - ay, l2 = dx * dx + dy * dy || 1, u = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2));
+    if (Math.hypot(x - ax - u * dx, y - ay - u * dy) < pad) return true;
+  }
+  return false;
 }

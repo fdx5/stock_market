@@ -59,12 +59,13 @@ let shadowKey = '';
 let shadowSplits = null;
 function useShadows({ shadow: size, pcss: wanted }) {
   // (and plain PCF there: contact-hardening soft shadows are the costliest filter of the frame)
-  const pcss = shadowSplits ? 0 : wanted;
+  // (a custom set of three — the street game's — keeps the soft filter; the phone's two do not)
+  const pcss = shadowSplits && shadowSplits.length < 3 ? 0 : wanted;
   const grid = lookParams.get('shadowgrid') === '0' ? 0 : 64;
   const splits = shadowSplits ?? [180, 600, 1800], key = size + '/' + pcss + '/' + splits.join(',') + '/' + grid;
   if (shadowKey === key) return;
   shadows?.dispose();
-  shadows = new SunShadows({ size, splits, normalBias: splits.length === 2 ? [0.12, 0.45] : [0.12, 0.3, 0.7], pcssCascades: pcss, cacheGrid: grid });
+  shadows = new SunShadows({ size, splits, normalBias: splits.length === 2 ? [0.12, 0.45] : [splits[0] < 100 ? 0.05 : 0.12, splits[1] < 400 ? 0.2 : 0.3, 0.7], pcssCascades: pcss, cacheGrid: grid });
   shadowKey = key;
   shadowOwner = null;
 }

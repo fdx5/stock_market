@@ -81,6 +81,8 @@ export default function DroneGameHud({ flight, touch }: { flight: DroneFlight; t
   prompts.push(["N", "차고 · 차량·자전거 선택"]);
   if (!f.car && !f.cycling) prompts.push(["Shift", f.sprinting ? "전력 질주 중" : "달리기 (계속 누르면 질주)"], ["Space", "점프"]);
   if (f.car) prompts.push(["Space", "핸드브레이크 · 드리프트"]);
+  const stuck = (f.car || f.cycling) && f.stuckT > 1.2;
+  if (stuck) prompts.unshift(["R", "도로로 복귀 (막혔을 때)"]);
   const arc = Math.min(1, kmh / Math.max(1, top));
   return (
     <div ref={root} className={`re-game${touch ? " is-touch" : ""}`}>
@@ -98,6 +100,7 @@ export default function DroneGameHud({ flight, touch }: { flight: DroneFlight; t
       {!touch && <ul className="re-game-prompts">{prompts.map(([k, t]) => <li key={k + t}><kbd>{k}</kbd>{t}</li>)}</ul>}
       {touch && <div className="re-game-touch">
         <button type="button" onPointerDown={e => { e.stopPropagation(); flight.keys.add("Space"); window.setTimeout(() => flight.keys.delete("Space"), 120); }}>{f.car ? "핸드브레이크" : "점프"}</button>
+        {stuck && <button type="button" onClick={() => window.dispatchEvent(new Event("drone-unstick"))}>도로로 복귀</button>}
         <button type="button" onClick={() => setGarage("car")}>차고</button>
         <button type="button" onClick={() => window.dispatchEvent(new Event("drone-nav"))}>입구 안내</button>
       </div>}

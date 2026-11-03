@@ -103,6 +103,8 @@ export class DroneSession {
     setSky: (k: number, fog?: [number, number]) => void;
     /** a phone (not hq): the renderer's lighter shadows while the drone flies */
     setLite?: (on: boolean) => void;
+    /** on foot, on the bike or in a car (the game, not the flight): the renderer's game-only quality */
+    setGame?: (on: boolean) => void;
     onHud: (h: DroneHud) => void;
   }) {
     this.flight = p.resume?.flight ?? new DroneFlight();
@@ -490,6 +492,31 @@ export class DroneSession {
   private carCtx: AudioContext | null = null;
   /** F on foot: into the nearest car (moving or not) within 4 m — out of the traffic, its driver
    * gone, its own top speed and engine; F again: out of it, the car left parked where it stands. */
+  /** R when stuck (a car or a bike against a wall, in a corner): set down on the nearest lane within
+   * 80 m, pointing along it the way it was going, stopped. */
+  unstick(): boolean {
+    const f = this.flight; if (!f.walking || (!f.car && !f.cycling)) return false;
+    const l = this.world.lanePointNear(f.pos.x, -f.pos.z, 80);
+    if (!l) {
+      // (no lane near — inside a complex's grounds: the nearest open ground round about, 4–24 m off,
+      // the body's width clear of any building, and facing away from what held it)
+      const w = this.world, x = f.pos.x, y = -f.pos.z, half = f.car ? Math.max(f.car.width, f.car.length) / 2 + 0.6 : 1;
+      const open = (px: number, py: number) => { const g = w.groundAt(px, py); for (const [ox, oy] of [[0, 0], [half, 0], [-half, 0], [0, half], [0, -half]]) { const qx = px + ox, qy = py + oy; if (w.roofAt(qx, qy) > w.groundAt(qx, qy) + 1.5 || w.buildingRingAt(qx, qy)) return false; } return Math.abs(g - w.groundAt(x, y)) < 3; };
+      for (let r = 4; r <= 24; r += 2) for (let k = 0; k < 16; k++) {
+        const a = f.yaw + Math.PI + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * Math.PI / 8, px = x - Math.sin(a) * r, py = y + Math.cos(a) * r;
+        if (!open(px, py)) continue;
+        f.pos.x = px; f.pos.z = -py; f.yaw = a; f.carSpeed = 0; f.bikeSpeed = 0; f.vel.set(0, 0, 0); f.stuckT = 0; this.chaseYaw = f.yaw;
+        return true;
+      }
+      return false;
+    }
+    // (the lane's direction, view frame (dx, dy) → the heading; the one nearer the old heading)
+    const yaw = Math.atan2(-l.dx, l.dy), d = Math.atan2(Math.sin(yaw - f.yaw), Math.cos(yaw - f.yaw));
+    f.pos.x = l.x; f.pos.z = -l.y; f.yaw = Math.abs(d) <= Math.PI / 2 ? yaw : yaw + Math.PI;
+    f.carSpeed = 0; f.bikeSpeed = 0; f.vel.set(0, 0, 0); f.stuckT = 0;
+    this.chaseYaw = f.yaw;
+    return true;
+  }
   toggleCar(model?: GarageCar): string | null {
     const f = this.flight; if (!f.walking) return null;
     if (model && !this.car) return this.spawnCar(model);
@@ -619,6 +646,7 @@ export class DroneSession {
   /** How it feels: the lens widening a little in a sprint and with speed (a car, a bike), and a
    * jump's landing — a thump. */
   private fovKick = 0; private wasHop = false;
+  private gameOn = false;
   private lines: HTMLDivElement | null = null; private linesShown = 0;
   /** one composited layer over the canvas (no draw calls, no shader): a conic of thin streaks masked
    * to the edges, scaled outward on a loop; its opacity is the speed */
@@ -658,6 +686,7 @@ export class DroneSession {
     if (f.walking) want = f.car ? 9 * Math.min(1, Math.abs(f.carSpeed) / Math.max(10, f.car.top)) : f.cycling ? 6 * Math.min(1, f.bikeSpeed / Math.max(5, f.bike.top)) : f.sprinting ? 6 : 0;
     this.fovKick += (want - this.fovKick) * (1 - Math.exp(-dt * 3));
     this.footSounds();
+    if (f.walking !== this.gameOn) { this.gameOn = f.walking; this.p.setGame?.(f.walking); }
     // (speed lines at the screen's edges, rushing outward: a car past ~40 km/h, a bike flat out)
     const sk = !f.walking ? 0 : f.car ? (Math.abs(f.carSpeed) - 11) / 22 : f.cycling ? (f.bikeSpeed - 7) / 10 : 0;
     // (with 움직임 줄이기 — the default — fainter and still, never rushing)
@@ -1403,6 +1432,7 @@ export class DroneSession {
     const { camera, scene, ground } = this.p;
     this.ended = true;
     if (!this.p.hq) this.p.setLite?.(false);
+    if (this.gameOn) { this.gameOn = false; this.p.setGame?.(false); }
     this.restoreView();
     this.restoreWater();
     this.seaStop.abort();this.coastJobs.dispose();
