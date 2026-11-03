@@ -521,6 +521,16 @@ export class DroneTraffic {
   private holds(c:Car,cp:CP){for(const cl of c.claims)if(cl.cp===cp)return true;return false;}
 
   /** Where the car is (its centre, heading), on its lane or on the curve into it. */
+  /** the cars' bodies within r of (x, y) (view frame), from this frame's grid of nearby cars: for the
+   * driven car, the bike and the walker to run into */
+  bodiesNear(x:number,y:number,r:number):{x:number;y:number;z:number;hx:number;hy:number;length:number;width:number}[]{
+    const out:{x:number;y:number;z:number;hx:number;hy:number;length:number;width:number}[]=[],gx=Math.floor(x/16),gy=Math.floor(y/16),n=Math.ceil(r/16);
+    for(let a=-n;a<=n;a++)for(let b=-n;b<=n;b++)for(const c of this.carGrid.get((gx+a)*100003+gy+b)??[]){
+      if(!c.alive||c.hidden||Math.abs(c.x-x)>r||Math.abs(c.y-y)>r)continue;
+      const k=KINDS[c.kind];out.push({x:c.x,y:c.y,z:c.z,hx:c.hx,hy:c.hy,length:k?.[2]??4.6,width:k&&k[2]>8?2.5:k&&k[2]>5.5?2.1:1.85});
+    }
+    return out;
+  }
   private pose(c:Car){
     const l=c.lane;
     if(c.via&&c.s<c.via.endS){

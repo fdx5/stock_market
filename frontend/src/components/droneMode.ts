@@ -28,6 +28,7 @@ import { EntranceLayer, ENTRANCE_SPEC, entranceKind, inRing, placeEntrance, ring
 import { GARAGE_BIKES, GARAGE_CARS, type GarageBike, type GarageCar } from "../walkmode/game/garage";
 import { crashSound } from "../walkmode/game/CarAudio";
 import { Sound } from "../walkmode/game/sound";
+import { vehicleOverlap } from "./trafficCollision";
 import { wallet } from "../walkmode/game/wallet";
 import { missions } from "../walkmode/game/missions";
 
@@ -77,6 +78,8 @@ export class DroneSession {
   private crowdBusy = false;
   private groundBackup: THREE.BufferGeometry | null = null;
   private trafficFilters = new Map<Record<string, any>, any>();
+  /** the view's own street traffic (its cars: x, y, hx, hy, length, width — view frame) */
+  private viewTraffic: { cars?: { x: number; y: number; z?: number; hx: number; hy: number; length?: number; width?: number; hide?: boolean }[] }[] = [];
   private saved: { fov: number; near: number; far: number } | null = null;
   private sky = 0;
   private hudAt = 0;
@@ -128,6 +131,7 @@ export class DroneSession {
       if (!traffic?.cars || !traffic?.paths || o === this.world.traffic.group) return;
       const previous = traffic.placementFilter;
       this.trafficFilters.set(traffic, previous);
+      this.viewTraffic.push(traffic);
       traffic.placementFilter = (car: { x: number; y: number; hx: number; hy: number }) => {
         const deck = this.world.landmarks.gwanganDeck();
         return previous?.(car) !== false && (!deck || !bridgeContains(deck.P, car.x, car.y, car.hx, car.hy));
@@ -394,7 +398,7 @@ export class DroneSession {
     const t4 = performance.now();
     if (performance.now() > this.doorAt) { this.doorAt = performance.now() + 200; this.findDoor(); this.settle(); }
     if (f.walking && !f.car && !(f.cycling && f.bikeSpeed > 5) && performance.now() > this.entranceAt) { this.entranceAt = performance.now() + (this.layEntrances() ? 250 : 900); }
-    if (f.walking) { this.stepEntrance(dt); this.navTick(dt); this.missionTick(); } else if (this.nav) this.clearNav();
+    if (f.walking) { this.bumpTraffic(); this.stepEntrance(dt); this.navTick(dt); this.missionTick(); } else if (this.nav) this.clearNav();
     if (f.crash > 0) { this.onCrash(f.crash); f.crash = 0; }
     if (f.walking) this.pickups(dt); else if (this.coins) this.coins.mesh.visible = false;
     if (f.walking && performance.now() > this.bikeAt) { this.bikeAt = performance.now() + 3000; this.parkBikes(); }
@@ -716,6 +720,39 @@ export class DroneSession {
       const ctx = this.carCtx, noise = ctx.createBuffer(1, 1, ctx.sampleRate);
       return { ctx, output: ctx.destination, noise, audioGraph: { ctx, output: ctx.destination } };
     } catch { return null; }
+  }
+  /** On the street the traffic's cars are solid: the driven car, the bike or the walker that runs
+   * into one is pushed back out of it (along the line between their centres, in small steps) and
+   * stopped — a knock as hard as the speed it hit at. Cars on another level (a bridge over, a road
+   * under) are left alone. Only the cars within 12 m are looked at. */
+  private trafficLookAt = 0;
+  private bumpTraffic() {
+    const f = this.flight, x = f.pos.x, y = -f.pos.z;
+    // (the view's street traffic is often made after the drone started: looked for till found)
+    if (!this.viewTraffic.length && performance.now() > this.trafficLookAt) {
+      this.trafficLookAt = performance.now() + 3000;
+      this.p.scene.traverse(o => { const t = o.userData.traffic; if (t?.cars && t?.paths && o !== this.world.traffic.group && !this.viewTraffic.includes(t)) this.viewTraffic.push(t); });
+    }
+    const L = f.car ? f.car.length : f.cycling ? 1.8 : 0.5, Wd = f.car ? f.car.width : f.cycling ? 0.6 : 0.5;
+    const hx = -Math.sin(f.yaw), hy = Math.cos(f.yaw), feet = f.pos.y - (f.car ? f.car.eyeY : f.cycling ? BIKE_EYE : EYE);
+    const bodies: { x: number; y: number; z?: number; hx: number; hy: number; length: number; width: number }[] = this.world.traffic.bodiesNear(x, y, 12);
+    for (const t of this.viewTraffic) for (const c of t.cars ?? []) {
+      if (c.hide || Math.abs(c.x - x) > 12 || Math.abs(c.y - y) > 12) continue;
+      bodies.push({ x: c.x, y: c.y, z: c.z, hx: c.hx, hy: c.hy, length: c.length ?? 4.6, width: c.width ?? 1.85 });
+    }
+    for (const b of bodies) {
+      if (b.z !== undefined && Number.isFinite(b.z) && Math.abs(b.z - feet) > 2.5) continue;
+      const h = Math.hypot(b.hx, b.hy) || 1, body = { x: b.x, y: b.y, hx: b.hx / h, hy: b.hy / h, length: b.length, width: b.width };
+      if (!vehicleOverlap(x, y, hx, hy, L, Wd, body)) continue;
+      let ux = x - b.x, uy = y - b.y; const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
+      let px = x, py = y;
+      for (let k = 0; k < 40 && vehicleOverlap(px, py, hx, hy, L, Wd, body); k++) { px += ux * 0.1; py += uy * 0.1; }
+      f.pos.x = px; f.pos.z = -py;
+      const v = f.car ? Math.abs(f.carSpeed) : f.cycling ? f.bikeSpeed : Math.hypot(f.vel.x, f.vel.z);
+      if (f.car) f.carSpeed *= -0.2; else if (f.cycling) f.bikeSpeed = 0;
+      f.vel.set(0, 0, 0);
+      f.crash = Math.max(f.crash, v > 3 ? v : 0);
+    }
   }
   /** the car's body where the flight is; its engine to the speed and the pedals */
   private placeCar() {
