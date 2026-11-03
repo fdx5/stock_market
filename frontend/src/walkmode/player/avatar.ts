@@ -8,6 +8,10 @@ import { GESTURES, type GestureName } from "./gestures";
  * frame by a walk cycle, or seated, or lying. Seen from behind in the third-person view and in the
  * bathroom mirrors in the first. */
 
+/** indoors every figure — the visitor and the people about — is drawn at this size of the outdoor
+ * one (the block figures read as giants beside a room's doors and furniture) */
+export const INDOOR_SCALE = 0.69;
+
 export type Pose = "stand" | "sit" | "lie" | "cycle";
 
 export class Avatar {

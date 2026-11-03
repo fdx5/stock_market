@@ -1,5 +1,6 @@
 import { bedCover, bedV, chairCover, chairMore, frameV, paintingTexture, propsV, sofaCover, switchMore } from "./decor";
 import * as THREE from "three";
+import { shopStyle } from "./shopInteriors";
 import { Batcher, boxUV, RoundedBoxGeometry } from "./geom";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { wallHalfThickness, type CeilingLight, type Seg, type Shell } from "./build";
@@ -20,7 +21,7 @@ import { InteriorSafetyError } from "./navigation";
 
 /** a building other than flats: its extra materials, its signs, what its lifts do, where its people go */
 export interface FacilityKit { X: Extra; signs: SignAtlas; hooks: FacilityHooks; spots: Spot[] }
-export interface MonitorScreen { id: string; corners: THREE.Vector3[] }
+export interface MonitorScreen { id: string; corners: THREE.Vector3[]; /** a PC방 computer: its games (PcGames), not the browser */ game?: boolean }
 
 /* Furnishing by rules: each room type gets its furniture against the walls that suit it (the TV on
  * the 아트월, the sofa facing it, the bed's head on a wall without a door…), slid along the wall to
@@ -484,10 +485,11 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         for (const p of kit) if (p.m === fac.X.monitor && p.g.getAttribute("position").count === 4) {
           const m = f instanceof THREE.Matrix4 ? f : f.m, a = p.g.getAttribute("position");
           const corners = [0, 1, 3, 2].map(i => new THREE.Vector3().fromBufferAttribute(a, i).applyMatrix4(m));
-          const screen: MonitorScreen = { id: `monitor-${interactables.length}`, corners };
+          const game = room.type === "shop" && shopStyle(room.label) === "pcroom";
+          const screen: MonitorScreen = { id: `monitor-${interactables.length}`, corners, ...(game ? { game } : {}) };
           const hit = new THREE.Mesh(p.g.clone(), new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }));
           hit.applyMatrix4(m); hit.updateMatrixWorld(); hits.add(hit); disposables.push(hit.geometry, hit.material as THREE.Material);
-          interactables.push({ id: screen.id, zone, room, hit, label: () => "컴퓨터 사용하기", act: () => { fac.hooks.monitor?.(screen); return "beep"; } });
+          interactables.push({ id: screen.id, zone, room, hit, label: () => screen.game ? "PC로 게임하기" : "컴퓨터 사용하기", act: () => { fac.hooks.monitor?.(screen); return "beep"; } });
         }
         put(kit, f, zone, solid, swap);
       };

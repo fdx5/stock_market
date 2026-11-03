@@ -397,10 +397,33 @@ interface Walker {
   /** Collapsed (out of view or far off). */
   hidden: boolean;
   x: number; y: number; hx: number; hy: number;
+  /** a gesture now (STREET_GESTURES index, time in it) and when the next one comes */
+  g?: { k: number; t: number }; gAt?: number; greeted?: number;
   /** Knocked down by a driven vehicle: thrown along (vx, vy), lying, up again after a while. */
   fall?: { t: number; vx: number; vy: number };
 }
 
+/* Gestures on the street (as indoors — walkmode/player/gestures.ts — in this figure's terms): arm
+ * angles for each side (shoulder forward −, outward +; elbow −) and the head's nod and turn, over time.
+ * Some stop the walker while they last (a wave, a cheer, a stretch); some go on walking (a call). */
+type ArmPose = [number, number, number];
+interface StreetGesture { name: string; dur: number; stop: boolean; kids?: boolean; at(t: number): { l?: ArmPose; r?: ArmPose; nod?: number; turn?: number } }
+const SG = (name: string, dur: number, stop: boolean, at: StreetGesture["at"], kids = false): StreetGesture => ({ name, dur, stop, at, kids });
+const STREET_GESTURES: StreetGesture[] = [
+  SG("wave", 2.2, true, t => ({ r: [-0.25, 2.55 + 0.28 * Math.sin(t * 11), -0.35], turn: 0.25 })),
+  SG("phone", 5.0, false, t => ({ r: [-0.45, 0.55, -2.5], nod: 0.05, turn: 0.12 * Math.sin(t * 1.4) })),
+  SG("lookPhone", 5.0, false, () => ({ l: [-0.55, -0.12, -1.35], r: [-0.55, -0.12, -1.35], nod: 0.45 })),
+  SG("watch", 1.8, false, () => ({ l: [-0.75, -0.45, -1.55], nod: 0.4 })),
+  SG("point", 2.0, true, () => ({ r: [-1.5, 0.15, -0.05], turn: -0.3 })),
+  SG("stretch", 2.4, true, t => { const k = Math.sin(Math.min(1, t / 2.4) * Math.PI); return { l: [-0.2, 2.9 * k, -0.1], r: [-0.2, 2.9 * k, -0.1], nod: -0.3 * k }; }),
+  SG("thumbsUp", 1.8, true, () => ({ r: [-1.1, 0.1, -1.05] })),
+  SG("shrug", 1.6, true, t => { const k = Math.sin(Math.min(1, t / 1.6) * Math.PI); return { l: [-0.2 * k, 0.55 * k, -1.5 * k], r: [-0.2 * k, 0.55 * k, -1.5 * k] }; }),
+  SG("lookAround", 3.0, true, t => ({ turn: 0.7 * Math.sin(t * 2.1) })),
+  SG("scratch", 1.8, false, t => ({ r: [-1.75, 0.75, -1.85 + 0.25 * Math.sin(t * 18)], nod: 0.08 })),
+  SG("cheer", 2.0, true, t => ({ l: [-0.2, 2.85 + 0.15 * Math.sin(t * 9), -0.2], r: [-0.2, 2.85 + 0.15 * Math.sin(t * 9), -0.2], nod: -0.25 }), true),
+  SG("clap", 2.2, true, t => { const c = -0.25 - 0.2 * Math.sin(t * 16); return { l: [-1.15, c, -0.95], r: [-1.15, c, -0.95] }; }, true),
+  SG("nod", 1.3, false, t => ({ nod: 0.28 * Math.abs(Math.sin(t * 7)) })),
+];
 /** People on `paths`, about one per `spacing` metres of path, at most `cap`. */
 export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, spacing: number, cap: number, extras = false) {
   const usable = paths.filter(r => r.cum[r.cum.length - 1] > 6);
@@ -532,9 +555,17 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
   let frameN = 0;
   const camPos = new THREE.Vector3();
 
+  const gestureClock = (w: Walker, dt: number, near: boolean) => {
+    if (w.g) { w.g.t += dt; if (w.g.t > STREET_GESTURES[w.g.k].dur) { w.g = undefined; w.gAt = 6 + ((w.phase * 997) % 1) * 18; } return; }
+    w.gAt = (w.gAt ?? 3 + ((w.phase * 7919) % 1) * 25) - dt;
+    if (w.gAt > 0 || !near || w.holding || w.kind.gait === "carry" || HELD.has(w.kind.acc)) return;
+    const kid = w.kind.h < 1.4, pool = STREET_GESTURES.map((g, i) => [g, i] as const).filter(([g]) => kid ? true : !g.kids);
+    w.g = { k: pool[Math.floor(((w.phase * 104729) % 1) * pool.length)][1], t: 0 };
+  };
   const advance = (w: Walker, dt: number) => {
     const r = w.path, len = r.cum[r.cum.length - 1];
-    w.s += w.dir * w.speed * dt;
+    const hold = w.g && STREET_GESTURES[w.g.k].stop;
+    w.s += w.dir * w.speed * dt * (hold ? 0 : 1);
     // A loop goes on round; an open path turns back at its ends.
     if (r.closed) w.s = ((w.s % len) + len) % len;
     else if (w.s > len - 0.5) { w.s = len - 0.5; w.dir = -1; }
@@ -552,7 +583,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     // Turn smoothly rather than snapping at each sample.
     w.hx += (dx / l - w.hx) * Math.min(1, dt * 6); w.hy += (dy / l - w.hy) * Math.min(1, dt * 6);
     const stride = (w.kind.gait === "run" ? 2.5 : 1.45) * w.scale;
-    w.phase += (w.speed * dt / stride) * Math.PI * 2;
+    if (!hold) w.phase += (w.speed * dt / stride) * Math.PI * 2;
   };
 
   const place = (w: Walker, bob: number) => {
@@ -583,7 +614,10 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     base.multiply(rotX.makeRotationZ(Math.sin(φ) * (run ? 0.015 : 0.03)));
     set(w, 0, torsoM.copy(base).multiply(rotY.makeRotationY(Math.sin(φ) * (run ? 0.13 : 0.07))));
     // Head (hair shares its frame).
-    chain(joint, base, 0, NECK_Y, 0, g === "slow" ? 0.12 : 0);
+    const gs = w.g ? STREET_GESTURES[w.g.k] : null, gf = gs ? gs.at(w.g!.t) : null;
+    const gk = gs ? Math.max(0, Math.min(1, w.g!.t / 0.25, (gs.dur - w.g!.t) / 0.3)) : 0;
+    chain(joint, base, 0, NECK_Y, 0, (g === "slow" ? 0.12 : 0) + (gf?.nod ?? 0) * gk);
+    if (gf?.turn) joint.multiply(rotY.makeRotationY(gf.turn * gk));
     set(w, 1, joint); set(w, 2, joint);
     // Legs: hip swing, knee flexing in the swing phase; the shoe rides the shin.
     for (let k = 0; k < 2; k++) {
@@ -613,6 +647,9 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
       else if (w.holding === "child" && k === 0) { sh = -0.35 + 0.04 * a; out = 0.95; el = -0.15; }
       else if (acc === "balloon" && k === 1) { sh = -1.25; out = 0.22; el = -0.35; }
       else if (acc === "ball" && k === 0) { sh = -0.15; out = 0.28; el = -0.95; }
+      // (a gesture's arm, eased over the walk's)
+      const ga = gf ? (k === 0 ? gf.l : gf.r) : undefined;
+      if (ga && !loaded) { sh += (ga[0] - sh) * gk; out += (ga[1] - out) * gk; el += (ga[2] - el) * gk; }
       chain(tmp, base, side * SHOULDER_X, SHOULDER_Y, 0, sh);
       tmp.multiply(rotX.makeRotationZ(side * out));
       set(w, 9 + k, tmp);
@@ -664,7 +701,12 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
           if (f.t > 5) w.fall = undefined;
         } else {
         if (w.around === false && (wi + frameN) % 6) { w.lag = (w.lag ?? 0) + dt; return; }
-        advance(w, dt + (w.lag ?? 0)); w.lag = 0;
+        const step = dt + (w.lag ?? 0);
+        const cd = Math.hypot(w.x - camPos.x, w.y + camPos.z);
+        // (passing close by the walker — the camera a few metres off — a wave or a nod, now and then)
+        if (!w.g && cd < 6 && (w.greeted ?? -1e9) < performance.now() - 40000 && !w.holding && !HELD.has(w.kind.acc) && w.kind.gait !== "carry" && ((wi * 7 + frameN) % 3 === 0)) { w.g = { k: (wi % 2) ? 0 : 12, t: 0 }; w.greeted = performance.now(); }
+        gestureClock(w, step, cd < 60);
+        advance(w, step); w.lag = 0;
         }
         sphere.center.set(w.x, terrain.at(w.x, w.y) + 1, -w.y);
         const d2 = sphere.center.distanceToSquared(camPos) * zoom2;

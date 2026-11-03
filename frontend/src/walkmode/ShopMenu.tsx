@@ -8,7 +8,7 @@ import ProductPic from "./ProductPic";
 /* A shop's goods, bought with the game's play money: each with its picture, brand and price, by
  * category, searchable; bought goods go in the bag (kept in this browser — BagPanel), drinks and
  * food can be had at once (the hand's animation and its sounds) or carried. */
-export default function ShopMenu({ shop, onBuy, onClose, onBag }: { shop: { kind: ShopKind; label: string }; onBuy: (it: ShopItem) => boolean; onClose: () => void; onBag?: () => void }) {
+export default function ShopMenu({ shop, onBuy, onClose, onBag, onRead }: { shop: { kind: ShopKind; label: string }; onBuy: (it: ShopItem) => boolean; onClose: () => void; onBag?: () => void; onRead?: (story: string) => void }) {
   const [money, setMoney] = useState(wallet.money);
   const [note, setNote] = useState<string | null>(null);
   const [cat, setCat] = useState<Cat | "all">("all");
@@ -64,6 +64,7 @@ export default function ShopMenu({ shop, onBuy, onClose, onBag }: { shop: { kind
             <div className="wk-row">
               <button type="button" className="wk-btn wk-btn-shop" disabled={money < pick.price * qty} onClick={() => buy(pick, false)}>구매해서 가방에 담기</button>
               {pick.how && <button type="button" className="wk-btn" disabled={money < pick.price} onClick={() => buy(pick, true)}>{pick.kind === "drink" ? "바로 마시기" : "바로 먹기"}</button>}
+              {pick.story && onRead && <button type="button" className="wk-btn" onClick={() => onRead(pick.story!)}>📖 미리 읽기</button>}
               <button type="button" className="wk-btn" onClick={() => setPick(null)}>목록으로</button>
             </div>
           </div>

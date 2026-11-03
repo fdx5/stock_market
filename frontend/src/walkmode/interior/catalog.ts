@@ -3,6 +3,7 @@
  * in the shop's menu as a picture (productArt.ts). Generated from tables, the same every visit (the
  * ids are what the bag in localStorage keeps). Brands and titles are invented, not real ones. */
 
+import { STORY_BOOKS } from "./books";
 export type Form =
   | "book" | "notebook" | "box" | "device" | "bottle" | "pump" | "jar" | "tube" | "lipstick" | "compact" | "perfume" | "pouch" | "sheet"
   | "can" | "carton" | "pet" | "cup" | "tee" | "shirt" | "pants" | "dress" | "coat" | "folded" | "shoe" | "boot" | "heel" | "bag" | "backpack"
@@ -20,6 +21,8 @@ export interface Product {
   desc: string;
   /** which of the form's designs (pattern, cover art) */
   seed: number;
+  /** a book that can be read (books.ts) */
+  story?: string;
 }
 export const CAT_LABEL: Record<Cat, string> = {
   makeup: "메이크업", skincare: "스킨케어", perfume: "향수", hair: "헤어·바디", tops: "상의", bottoms: "하의", outer: "아우터", shoes: "신발", bags: "가방", sunglasses: "선글라스",
@@ -83,6 +86,8 @@ FRAMES.forEach(([t, p], i) => LENS.forEach(([ln, lc], j) => { const fc = ["#1a1a
 ["볼캡", "버킷햇", "비니", "스냅백", "페도라"].forEach((t, i) => COLOURS.slice(0, 8).forEach(([cn, c], j) => { if ((i + j) % 2) return; add({ cat: "hats", brand: LABELS[(i + j) % LABELS.length], name: `${t} ${cn}`, form: "cap", price: won([29000, 35000, 25000, 39000, 59000][i], hashOf(t + cn)), kind: "goods", color: c, color2: VIVID[j % VIVID.length], ink: "#fff", desc: "프리 사이즈" }); }));
 
 // ---- books & stationery ----
+// (the readable ones first: tales and the study, ten pages each — books.ts)
+for (const b of STORY_BOOKS) { add({ cat: "books", brand: "이야기숲 출판", name: `『${b.title}』`, form: "book", price: b.price, kind: "goods", color: b.color, color2: b.color2, ink: b.ink, desc: `${b.genre} · ${b.by} · 10쪽` }); out[out.length - 1].story = b.id; }
 const GENRES: [string, string[], string[]][] = [
   ["소설", ["달빛", "여름", "마지막", "푸른", "잃어버린", "기억의", "작은", "밤의", "고요한", "두 번째"], ["정원", "기차", "편지", "서점", "섬", "도시", "약속", "계절", "항해", "온도"]],
   ["에세이", ["느리게", "오늘도", "괜찮아,", "가끔은", "다정한", "혼자서도", "천천히", "소란한"], ["걷는 법", "나에게", "하루", "마음", "산책", "위로", "일상", "식탁"]],

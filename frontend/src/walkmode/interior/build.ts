@@ -183,7 +183,9 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
           const c = s.at((a0 + a1) / 2, o.sill - 0.0125, (dIn + dOut) / 2 + 0.02);
           B.add(sillMat, zone, g, new THREE.Matrix4().makeRotationY(s.axis === "x" ? Math.PI / 2 : 0).setPosition(c));
           g.dispose();
-        } else quadAuto(B, sillMat, zone, [s.at(a0, sy, dIn), s.at(a1, sy, dIn), s.at(a1, sy, dOut), s.at(a0, sy, dOut)], new THREE.Vector3(0, 1, 0), [[a0, dIn], [a1, dIn], [a1, dOut], [a0, dOut]]);
+        } else if (!(plan.facility && !out && sy < 0.01)) quadAuto(B, sillMat, zone, [s.at(a0, sy, dIn), s.at(a1, sy, dIn), s.at(a1, sy, dOut), s.at(a0, sy, dOut)], new THREE.Vector3(0, 1, 0), [[a0, dIn], [a1, dIn], [a1, dOut], [a0, dOut]]);
+        // (a building's floors run on under its walls to their middle line — no threshold laid on
+        // the same plane over them, which flickered through them)
         joinery(physical, s, r, a0, a1, bot, top, zone);
         });
       }

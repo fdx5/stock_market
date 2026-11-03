@@ -334,3 +334,142 @@
 .wk-gesture-grid button { display: grid; justify-items: center; gap: 2px; padding: 8px 4px; border-radius: 10px; border: 1px solid rgba(94, 240, 255, .2); background: rgba(10, 26, 38, .85); color: #e8fbff; cursor: pointer; font-size: 11px; }
 .wk-gesture-grid button:hover { border-color: #5ef0ff; }
 .wk-gesture-grid i { font-style: normal; font-size: 22px; }
+
+/* a PC방 computer: its desktop and games, mapped onto the monitor */
+.wk-pc { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; background: #0b0f1d; z-index: 3; font-family: Pretendard, "Noto Sans KR", sans-serif; }
+.wk-pc-desk { position: absolute; inset: 0; background: radial-gradient(circle at 70% 30%, #4c2a85 0%, #1a1440 45%, #0b0f1d 100%); }
+.wk-pc-wall { position: absolute; right: 60px; top: 60px; text-align: right; color: #fff; }
+.wk-pc-wall b { display: block; font-size: 64px; letter-spacing: 6px; background: linear-gradient(90deg, #28d7ff, #ff3bd5); -webkit-background-clip: text; color: transparent; }
+.wk-pc-wall span { color: #cfd6ff; font-size: 22px; }
+.wk-pc-icons { position: absolute; left: 40px; top: 40px; display: grid; gap: 26px; }
+.wk-pc-icons button { display: grid; justify-items: center; width: 150px; padding: 12px; border-radius: 14px; border: 1px solid transparent; background: transparent; color: #fff; cursor: pointer; }
+.wk-pc-icons button:hover { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .25); }
+.wk-pc-icons i { font-style: normal; font-size: 64px; } .wk-pc-icons span { font-size: 22px; font-weight: 800; } .wk-pc-icons small { color: #b8c4ff; font-size: 15px; }
+.wk-pc-toast { position: absolute; left: 50%; top: 46%; transform: translateX(-50%); padding: 16px 26px; border-radius: 14px; background: rgba(10, 14, 30, .85); color: #feca57; font-size: 26px; font-weight: 800; }
+.wk-pc-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 52px; display: flex; align-items: center; gap: 22px; padding: 0 20px; background: rgba(8, 10, 20, .85); color: #fff; font-size: 26px; }
+.wk-pc-start { font-size: 20px; font-weight: 800; color: #28d7ff; } .wk-pc-clock { margin-left: auto; font-size: 20px; }
+.wk-pc-game { position: absolute; inset: 0; } .wk-pc-game canvas { width: 100%; height: 100%; display: block; outline: none; }
+.wk-pc-type { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); }
+.wk-pc-type input { width: 420px; padding: 10px 16px; border-radius: 12px; border: 2px solid #feca57; background: rgba(0, 0, 0, .6); color: #fff; font-size: 26px; text-align: center; }
+
+/* the book reader: a book on a desk, read two pages at a time */
+.bk-shade { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px;
+  background: radial-gradient(ellipse at 50% 45%, #6b4a33 0%, #3b281c 55%, #1c130d 100%); font-family: Pretendard, "Noto Sans KR", sans-serif; user-select: none; }
+.bk-top { width: min(1100px, 100%); display: flex; align-items: center; gap: 12px; color: #fbeedd; }
+.bk-top b { font-size: 18px; } .bk-top span { color: #e3c9a8; font-size: 13px; }
+.bk-top button, .bk-nav button { margin-left: auto; padding: 7px 14px; border-radius: 999px; border: 1px solid rgba(255, 236, 210, .5); background: rgba(0, 0, 0, .25); color: #fff3e2; font-weight: 700; cursor: pointer; }
+.bk-nav button:disabled { opacity: .35; cursor: default; }
+.bk-stage { width: min(1100px, 100%); aspect-ratio: 1.46; max-height: 74vh; perspective: 2400px; display: flex; justify-content: center; touch-action: none; cursor: grab; }
+.bk-book { position: relative; height: 100%; aspect-ratio: 1.46; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.45, .05, .2, 1); filter: drop-shadow(0 24px 28px rgba(0, 0, 0, .55)); }
+.bk-spine { position: absolute; left: calc(50% - 6px); top: -4px; bottom: -4px; width: 12px; border-radius: 4px; background: linear-gradient(90deg, #2a1a10, #5a3a24, #2a1a10); }
+.bk-leaf { position: absolute; left: 50%; top: 0; width: 50%; height: 100%; transform-origin: 0 50%; transform-style: preserve-3d; }
+.bk-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; overflow: hidden; border-radius: 0 6px 6px 0; }
+.bk-backface { transform: rotateY(180deg); border-radius: 6px 0 0 6px; }
+.bk-curl { position: absolute; inset: 0; pointer-events: none; }
+.bk-cast { position: absolute; top: 0; width: 50%; height: 100%; pointer-events: none; background: linear-gradient(90deg, rgba(0, 0, 0, .45), rgba(0, 0, 0, 0) 60%); z-index: 1; }
+/* paper: warm stock with its grain and fibres, the spine's shadow, the page block's edges */
+.bk-paper { position: absolute; inset: 0; padding: 5.5% 7% 6%; color: #2b2118; display: flex; flex-direction: column; gap: 10px;
+  background-color: #fbf5e8;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .35 0 0 0 0 .2 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse at 50% 40%, rgba(255, 255, 255, .5), rgba(0, 0, 0, 0) 70%); }
+.bk-front .bk-paper { box-shadow: inset 26px 0 30px -18px rgba(70, 45, 20, .45), inset -3px 0 0 #e9dcc4, inset -5px 0 0 #f6eedd, inset -7px 0 0 #e4d5ba; }
+.bk-backface .bk-paper { box-shadow: inset -26px 0 30px -18px rgba(70, 45, 20, .45), inset 3px 0 0 #e9dcc4, inset 5px 0 0 #f6eedd, inset 7px 0 0 #e4d5ba; }
+.bk-page p { margin: 0; font-size: clamp(12px, 1.45vw, 17px); line-height: 1.75; letter-spacing: -.1px; word-break: keep-all; }
+.bk-page h4 { margin: 2px 0 0; font-size: clamp(13px, 1.5vw, 18px); color: #0b3d2e; }
+.bk-ill, .bk-chart { width: 100%; height: auto; flex: none; border-radius: 12px; box-shadow: 0 1px 0 rgba(0, 0, 0, .08); }
+.bk-num { position: absolute; bottom: 3%; left: 0; right: 0; text-align: center; font-size: 12px; color: #8a7458; }
+.bk-titlepage, .bk-endpage { align-items: center; justify-content: center; text-align: center; }
+.bk-titlepage h3, .bk-endpage h3 { margin: 0; font-size: clamp(20px, 2.4vw, 30px); } .bk-titlepage p, .bk-endpage p { color: #6b5845; }
+.bk-ti-icon { font-size: clamp(40px, 6vw, 72px); }
+.bk-cover { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; box-shadow: inset 14px 0 18px -10px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .12); }
+.bk-cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, 0) 40%, rgba(0, 0, 0, .15)); }
+.bk-cover-frame { position: relative; z-index: 1; width: 78%; padding: 8% 6%; border: 2px solid rgba(255, 255, 255, .55); border-radius: 10px; }
+.bk-cover-frame small { letter-spacing: 3px; opacity: .85; } .bk-cover-icon { font-size: clamp(56px, 9vw, 120px); margin: 6% 0; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .3)); }
+.bk-cover h2 { margin: 0; font-size: clamp(22px, 3.2vw, 42px); font-weight: 900; text-shadow: 0 2px 6px rgba(0, 0, 0, .35); } .bk-cover p { opacity: .85; }
+.bk-back { flex-direction: column; gap: 8px; } .bk-barcode { width: 34%; height: 9%; margin-top: 30%; background: repeating-linear-gradient(90deg, #111 0 2px, #fff 2px 4px, #111 4px 5px, #fff 5px 8px); border: 6px solid #fff; }
+.bk-nav { width: min(700px, 100%); display: flex; align-items: center; gap: 12px; } .bk-nav button:first-child { margin-left: 0; }
+.bk-dots { flex: 1; display: flex; justify-content: center; gap: 6px; } .bk-dots i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 236, 210, .3); } .bk-dots i.on { background: #ffd8a8; }
+.bk-hint { margin: 0; color: #d7bf9e; font-size: 12px; }
+.bk-shelfwrap { justify-content: flex-start; padding-top: 40px; }
+.bk-shelf { width: min(1100px, 100%); display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 16px; overflow: auto; padding: 6px; }
+.bk-spinecard { display: grid; gap: 6px; background: transparent; border: 0; cursor: pointer; color: #f4e2c8; text-align: center; }
+.bk-mini { aspect-ratio: .7; border-radius: 4px 10px 10px 4px; display: grid; place-content: center; gap: 8px; padding: 10px; box-shadow: inset 8px 0 10px -6px rgba(0, 0, 0, .55), 0 10px 18px rgba(0, 0, 0, .45); transition: transform .2s; }
+.bk-spinecard:hover .bk-mini { transform: translateY(-6px) rotate(-1deg); } .bk-mini i { font-style: normal; font-size: 40px; } .bk-mini b { font-size: 15px; word-break: keep-all; }
+@media (max-width: 640px) { .bk-page p { font-size: 11px; line-height: 1.55; } .bk-paper { padding: 4% 5%; gap: 6px; } }
+/* the reader, refined: the book set down on opening, lifted off on closing; the turning sheet's strips */
+.bk-shade { animation: bkFade .35s ease-out both; }
+.bk-shade.is-leaving { animation: bkFadeOut .38s ease-in both; }
+.bk-shade .bk-book { animation: bkIn .75s cubic-bezier(.2, .9, .25, 1.05) backwards; }
+.bk-shade.is-leaving .bk-book { animation: bkOut .38s ease-in both; }
+@keyframes bkFade { from { opacity: 0; } } @keyframes bkFadeOut { to { opacity: 0; } }
+@keyframes bkIn { from { opacity: 0; transform: translateY(60px) scale(.88) rotateX(28deg); } }
+@keyframes bkOut { to { opacity: 0; transform: translateY(40px) scale(.92) rotateX(20deg); } }
+.bk-strip { position: absolute; top: 0; height: 100%; transform-origin: 0 50%; transform-style: preserve-3d; }
+.bk-sface { position: absolute; inset: 0; overflow: hidden; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.bk-sback { transform: rotateY(180deg); }
+.bk-sclip { position: absolute; top: 0; height: 100%; }
+.bk-slight { position: absolute; inset: 0; pointer-events: none; }
+.bk-turning { transform: none; }
+/* the page block's edges either side, thickening as it is read */
+.bk-stack { position: absolute; top: 1%; bottom: 1%; width: 50%; border-radius: 4px; background: #f3ead6; transition: opacity .4s; }
+.bk-stack-l { left: 0; } .bk-stack-r { left: 50%; }
+/* a ribbon marker and the next page's corner lifting a little under the pointer */
+.bk-ribbon { position: absolute; top: -2%; width: 14px; height: 38%; background: linear-gradient(90deg, #a4161a, #e5383b 60%, #a4161a); clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 90%, 0 100%); z-index: 40; transition: left .6s cubic-bezier(.4, .1, .2, 1); pointer-events: none; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .35)); }
+.bk-next .bk-front::after { content: ""; position: absolute; right: 0; bottom: 0; width: 0; height: 0; background: linear-gradient(315deg, #d9c9a8 0 48%, rgba(0, 0, 0, .18) 50%, rgba(0, 0, 0, 0) 56%); transition: width .25s ease, height .25s ease; }
+.bk-stage:hover .bk-next .bk-front::after { width: 9%; height: 13%; }
+.bk-progress { width: min(1100px, 100%); height: 4px; border-radius: 4px; background: rgba(255, 236, 210, .15); overflow: hidden; }
+.bk-progress i { display: block; height: 100%; background: linear-gradient(90deg, #ffd8a8, #ff9f43); transition: width .5s ease; }
+.bk-dots button { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 0; background: rgba(255, 236, 210, .28); cursor: pointer; transition: transform .2s, background .2s; }
+.bk-dots button.on { background: #ffd8a8; } .bk-dots button.here { background: #ff9f43; transform: scale(1.35); } .bk-dots button:hover { transform: scale(1.5); }
+.bk-ghost { margin-left: auto !important; } .bk-ghost + button { margin-left: 8px !important; }
+.bk-resume { padding: 9px 18px; border-radius: 999px; border: 0; background: linear-gradient(180deg, #ffd27a, #f0a93a); color: #2a1a0c; font-weight: 800; cursor: pointer; box-shadow: 0 6px 16px rgba(0, 0, 0, .35); animation: bkFade .6s .4s both; }
+.bk-shade.is-big .bk-page p { font-size: clamp(14px, 1.75vw, 20px); line-height: 1.7; }
+.bk-shade.is-big .bk-ill, .bk-shade.is-big .bk-chart { max-height: 34%; object-fit: contain; }
+@media (prefers-reduced-motion: reduce) { .bk-shade, .bk-shade .bk-book { animation: none; } }
+/* the pictures' life: the cast breathing and swaying, the place moving */
+.bk-ill g[class^="a-"], .bk-ill [class^="a-"] { transform-box: fill-box; transform-origin: 50% 100%; }
+.bk-ill .a-bob { animation: bkBob 2.6s ease-in-out infinite; } .bk-ill .a-bob2 { animation: bkBob 3.1s ease-in-out infinite; } .bk-ill .a-bob3 { animation: bkSway 3.6s ease-in-out infinite; }
+.bk-ill .a-sway { animation: bkSway 3.2s ease-in-out infinite; } .bk-ill .a-sway-tree { animation: bkSway 5s ease-in-out infinite; } .bk-ill .a-sway-slow { animation: bkSway 6s ease-in-out infinite; transform-origin: 50% 0; }
+.bk-ill .a-twinkle { animation: bkTwinkle 2.4s ease-in-out infinite; transform-origin: 50% 50%; }
+.bk-ill .a-drift { animation: bkDrift 30s linear infinite; } .bk-ill .a-spin-slow { animation: bkSpin 40s linear infinite; transform-origin: 50% 50%; }
+.bk-ill .a-wave { animation: bkWave 3s ease-in-out infinite; } .bk-ill .a-flow { animation: bkFlow 2.4s linear infinite; }
+.bk-ill .a-bubble { animation: bkBubble 6s linear infinite; } .bk-ill .a-snow { animation: bkSnow 7s linear infinite; }
+.bk-ill .a-firefly { animation: bkFirefly 4s ease-in-out infinite; } .bk-ill .a-flutter { animation: bkFlutter 5s ease-in-out infinite; }
+.bk-ill .a-flag { animation: bkSway 1.6s ease-in-out infinite; transform-origin: 0 100%; } .bk-ill .a-blink { animation: bkTwinkle 1.4s steps(2) infinite; }
+.bk-ill .a-chart { stroke-dasharray: 140; animation: bkDraw 3s ease-out infinite; } .bk-ill .a-pop { animation: bkPop .5s cubic-bezier(.3, 1.6, .5, 1) both; transform-origin: 0 100%; }
+.bk-ill.is-lite * { animation: none !important; }
+@keyframes bkBob { 0%, 100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(-3px) scaleY(1.025); } }
+@keyframes bkSway { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+@keyframes bkTwinkle { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@keyframes bkDrift { from { transform: translateX(-60px); } to { transform: translateX(460px); } }
+@keyframes bkSpin { to { transform: rotate(360deg); } }
+@keyframes bkWave { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-20px); } }
+@keyframes bkFlow { from { transform: translateX(-20px); opacity: 0; } 30% { opacity: 1; } to { transform: translateX(30px); opacity: 0; } }
+@keyframes bkBubble { from { transform: translateY(0); opacity: .9; } to { transform: translateY(-220px); opacity: 0; } }
+@keyframes bkSnow { from { transform: translate(0, 0); } to { transform: translate(30px, 240px); } }
+@keyframes bkFirefly { 0%, 100% { transform: translate(0, 0); opacity: .2; } 50% { transform: translate(12px, -14px); opacity: 1; } }
+@keyframes bkFlutter { 0%, 100% { transform: translate(0, 0) rotate(-8deg); } 25% { transform: translate(20px, -10px) rotate(8deg); } 50% { transform: translate(40px, 4px) rotate(-6deg); } 75% { transform: translate(18px, 10px) rotate(6deg); } }
+@keyframes bkDraw { from { stroke-dashoffset: 140; } 60%, to { stroke-dashoffset: 0; } }
+@keyframes bkPop { from { transform: scale(.3); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .bk-ill * { animation: none !important; } }
+/* a bigger book: the screen used to its edges */
+.bk-shade { gap: 8px; padding: 10px 12px; }
+.bk-top, .bk-progress { width: min(1680px, 98vw); }
+.bk-stage { width: min(1680px, 98vw); max-height: calc(100vh - 150px); aspect-ratio: auto; height: calc(100vh - 150px); }
+.bk-book { max-width: 100%; max-height: 100%; height: min(100%, calc((98vw) / 1.46)); }
+.bk-page p { font-size: clamp(13px, 1.25vw, 21px); line-height: 1.75; }
+.bk-page h4 { font-size: clamp(14px, 1.35vw, 22px); }
+.bk-shade.is-big .bk-page p { font-size: clamp(15px, 1.5vw, 25px); }
+/* the folding sheet */
+.bk-folding { transform: none; pointer-events: none; }
+.bk-fshade, .bk-ushadow { position: absolute; inset: 0; pointer-events: none; }
+.bk-flapwrap { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+.bk-flap { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; border-radius: 6px 0 0 6px; }
+.bk-flap .bk-paper { box-shadow: inset -26px 0 30px -18px rgba(70, 45, 20, .35); }
+/* paper with more body: a fine laid texture and a warm sheen */
+.bk-paper::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background: repeating-linear-gradient(0deg, rgba(120, 90, 50, .035) 0 1px, rgba(0, 0, 0, 0) 1px 3px), radial-gradient(ellipse at 30% 20%, rgba(255, 255, 255, .45), rgba(255, 255, 255, 0) 60%); }
+.bk-paper > * { position: relative; }
+.bk-paper > .bk-num { position: absolute; }
+/* the PC's own controls up out of the way of the game (its paddle and ship are at the bottom) */
+.wk-browser-controls.wk-pc-controls { top: 64px; bottom: auto; left: auto; right: 16px; width: auto; max-width: min(520px, calc(100vw - 32px)); }

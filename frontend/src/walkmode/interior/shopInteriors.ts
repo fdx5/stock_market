@@ -66,6 +66,8 @@ export interface ShopKit {
   shop(kind: import("./shop").ShopKind): void;
   consume(item: import("./shop").Consumable): void;
   toast(text: string): void;
+  /** the bookshop's shelf of readable books opened (BookReader) */
+  read?(): void;
   fx(name: "scan" | "coffee" | "water" | "atm" | "copier" | "pages" | "keys" | "treadmill" | "pick" | "chime" | "register"): void;
   at(f: Frame, x: number, y: number, z: number): THREE.Vector3;
   yawOf(f: Frame): number;
@@ -118,7 +120,7 @@ export function furnishStyledShop(k: ShopKit, style: ShopStyle): boolean {
   };
   /** the goods on a shelf, browsed: a pick-up sound and the shop's menu */
   const browse = (f: Frame | null | undefined, len: number, d: number, label: string) => { const kind = SHOP[style]; if (f && kind) k.use(f, [len, 1.8, d, 0, 0.9, d / 2], label, () => { k.fx("pick"); k.shop(kind); }); };
-  const backSign = (h = 0.45) => k.sign(k.backSide, [k.name], Math.min(3.2, Math.max(0, k.wallLen(k.backSide) - 1.2)), h, 2.25);
+  const backSign = (h = 0.45) => k.sign(k.backSide, [k.name], Math.min(3.2, Math.max(0, k.wallLen(k.backSide) - 1.2)), h, Math.max(2.25, Math.min(k.H - 0.25 - h / 2, 2.7)));
   const rows = (pieceW: number, pieceD: number, gap: number, make: (i: number) => M.Kit, solid = true, onRow?: (f: Frame, len: number, d: number) => void) => {
     const along = k.D > k.W ? "z" : "x", across = along === "z" ? k.W : k.D, len = Math.min(pieceW, (along === "z" ? k.D : k.W) - 3);
     if (len < 0.8) return 0;
@@ -178,7 +180,7 @@ export function furnishStyledShop(k: ShopKit, style: ShopStyle): boolean {
     }
     case "books": {
       const TITLES = ["『달러구트 꿈 백화점』", "『불편한 편의점』", "『코스모스』", "『사피엔스』", "『어린 왕자』", "『총, 균, 쇠』", "『아몬드』", "『데미안』", "『미움받을 용기』", "『82년생 김지영』"];
-      const read = (f: Frame, len: number, d: number) => k.use(f, [len, 1.8, d, 0, 0.9, d / 2], "책 꺼내 읽어 보기", () => { k.fx("pages"); k.toast(`${TITLES[Math.floor(Math.random() * TITLES.length)]}을(를) 몇 쪽 읽어 봤어요.`); });
+      const read = (f: Frame, len: number, d: number) => k.use(f, [len, 1.8, d, 0, 0.9, d / 2], "책 꺼내 읽어 보기", () => { k.fx("pages"); if (k.read) k.read(); else k.toast(`${TITLES[Math.floor(Math.random() * TITLES.length)]}을(를) 몇 쪽 읽어 봤어요.`); });
       const shelf = (len: number, h: number, seed: number): M.Kit => { const sh = F.wallShelves(P, { ...X, stock: () => [], accent: X.veneer ?? X.accent }, len, h, 0.34, Math.round(h / 0.36), seed); const n = Math.round(h / 0.36), gap = (h - 0.25) / (n - 1); for (let r = 0; r < n - 1; r++) sh.push(...row(seed % 3 ? ["books"] : ["books", "stationery"], len - 0.06, 0.12 + gap * r + 0.01, 0.31, gap - 0.04, seed + r * 11)); return sh; };
       if (A) { lineWalls(5, 0.36, 2.2, (len, s) => shelf(len, 2.2, s.charCodeAt(0)), read); rows(2.6, 0.8, 1.2, i => i % 2 ? [M.rb(X.veneer ?? P.woodLight, 2.4, 0.05, 0.8, 0.01, 0, 0.76, 0), M.rb(P.woodDark, 2.3, 0.74, 0.7, 0.02, 0, 0.37, 0), ...tableTop(A, goods(["books"], 16, i * 3), 2.3, 0.7, 0.785, i).map(q => q)] : [...shelf(2.6, 1.5, i * 13 + 5), ...F.moved(shelf(2.6, 1.5, i * 13 + 9), 0, 0, Math.PI)], true, read); }
       else { lineWalls(5, 0.36, 2.2, len => M.bookshelf(P, len, 2.2), read); rows(2.6, 0.6, 1.2, () => [...M.bookshelf(P, 2.6, 1.5), ...F.moved(M.bookshelf(P, 2.6, 1.5), 0, 0, Math.PI)], true, read); }
@@ -243,13 +245,30 @@ export function furnishStyledShop(k: ShopKit, style: ShopStyle): boolean {
       till(1.4); backSign(); return true;
     }
     case "pcroom": {
-      const dark = k.material("#16101f"), glow = k.material("#7b2cbf", { emissive: "#7b2cbf", emissiveIntensity: 0.9 });
-      // (rows of paired desks; shorter rows where the room is small; along the walls at the least)
-      const play = (f: Frame, len: number, d: number) => k.use(f, [len, 1.2, d, 0, 0.6, 0], "PC 앞에 앉아 게임 한 판", () => { k.fx("keys"); k.toast(["한 판 이겼어요! MVP 획득!", "아깝게 졌어요… 한 판 더?", "랭크 점수가 올랐어요!"][Math.floor(Math.random() * 3)]); });
-      let made = rows(4, 1.6, 0.6, () => [M.rb(dark, 4, 0.74, 0.7, 0.02, 0, 0.37, -0.4), M.rb(dark, 4, 0.74, 0.7, 0.02, 0, 0.37, 0.4), M.bx(glow, 4, 0.02, 0.02, 0, 0.75, 0),
-        ...Array.from({ length: 5 }, (_, j) => [M.bx(X.monitor, 0.6, 0.36, 0.03, -1.6 + j * 0.8, 1.0, -0.55), M.bx(X.monitor, 0.6, 0.36, 0.03, -1.6 + j * 0.8, 1.0, 0.55)]).flat()], true, play);
-      if (!made) made = rows(2.4, 1.6, 0.5, () => [M.rb(dark, 2.4, 0.74, 0.7, 0.02, 0, 0.37, -0.4), M.rb(dark, 2.4, 0.74, 0.7, 0.02, 0, 0.37, 0.4), M.bx(glow, 2.4, 0.02, 0.02, 0, 0.75, 0), ...Array.from({ length: 3 }, (_, j) => [M.bx(X.monitor, 0.6, 0.36, 0.03, -0.8 + j * 0.8, 1.0, -0.55), M.bx(X.monitor, 0.6, 0.36, 0.03, -0.8 + j * 0.8, 1.0, 0.55)]).flat()]);
-      if (!made) lineWalls(4, 0.75, 1.2, len => [M.rb(dark, len, 0.74, 0.7, 0.02, 0, 0.37, 0.35), ...Array.from({ length: Math.floor(len / 0.8) }, (_, j) => M.bx(X.monitor, 0.6, 0.36, 0.03, -len / 2 + 0.4 + j * 0.8, 1.0, 0.15))]);
+      // (rows of double desks, a PC at each seat: a monitor whose screen is the computer (furnish.ts
+      // makes a flat screen usable — here, PcGames), a lit keyboard, a mouse on its pad, a tower with
+      // its glow, a headset hung by it, a gaming chair pulled up)
+      const dark = k.material("#16101f"), glow = k.material("#7b2cbf", { emissive: "#7b2cbf", emissiveIntensity: 0.9 }), rgb = k.material("#28d7ff", { emissive: "#28d7ff", emissiveIntensity: 1.2 });
+      const keycap = k.material("#2a2a30", { roughness: 0.6 }), pad = k.material("#101014", { roughness: 0.95 }), red = k.material("#ff3b5c", { emissive: "#ff3b5c", emissiveIntensity: 0.8 });
+      const plane = (w: number, h: number, x: number, y: number, z: number, back: boolean): M.Part => ({ m: X.monitor, g: new THREE.PlaneGeometry(w, h).rotateY(back ? Math.PI : 0).translate(x, y, z) });
+      const station = (x: number, side: 1 | -1): M.Kit => {
+        const z = side * 0.55, f = side; // (screen faces the seat on its side)
+        return [
+          M.rb(P.applianceDark, 0.64, 0.4, 0.035, 0.012, x, 1.04, z), plane(0.6, 0.355, x, 1.04, z + f * 0.019, side < 0),
+          M.bx(P.applianceDark, 0.05, 0.2, 0.05, x, 0.84, z - f * 0.02), M.rb(P.applianceDark, 0.24, 0.015, 0.16, 0.006, x, 0.752, z - f * 0.02),
+          M.rb(keycap, 0.44, 0.022, 0.14, 0.006, x - 0.03, 0.756, side * 0.22), M.bx(rgb, 0.44, 0.004, 0.006, x - 0.03, 0.748, side * 0.22 + f * 0.07),
+          ...Array.from({ length: 5 }, (_, r) => M.bx(k.material(r % 2 ? "#3a3a42" : "#33333a"), 0.4, 0.006, 0.018, x - 0.03, 0.769, side * 0.22 - f * 0.05 + f * r * 0.024)),
+          M.rb(pad, 0.26, 0.004, 0.22, 0.002, x + 0.33, 0.747, side * 0.22), M.rb(P.applianceDark, 0.06, 0.03, 0.1, 0.02, x + 0.33, 0.762, side * 0.22), M.bx(red, 0.012, 0.004, 0.03, x + 0.33, 0.778, side * 0.22 + f * 0.02),
+          M.rb(P.applianceDark, 0.2, 0.46, 0.42, 0.02, x + 0.62, 0.23, side * 0.42), M.bx(rgb, 0.004, 0.4, 0.004, x + 0.52, 0.25, side * 0.42 + f * 0.2),
+          { m: P.applianceDark, g: new THREE.TorusGeometry(0.09, 0.012, 6, 16, Math.PI).translate(x - 0.34, 1.0, z - f * 0.03) },
+        ];
+      };
+      const desk = (len: number, n: number): M.Kit => [M.rb(dark, len, 0.74, 0.7, 0.02, 0, 0.37, -0.4), M.rb(dark, len, 0.74, 0.7, 0.02, 0, 0.37, 0.4), M.bx(glow, len, 0.02, 0.02, 0, 0.75, 0), M.bx(P.applianceDark, len, 0.32, 0.02, 0, 0.9, 0),
+        ...Array.from({ length: n }, (_, j) => { const x = -len / 2 + (j + 0.5) * len / n; return [...station(x, 1), ...station(x, -1)]; }).flat()];
+      const chairs = (f: Frame, len: number, n: number) => { for (let j = 0; j < n; j++) for (const side of [1, -1]) { const x = -len / 2 + (j + 0.5) * len / n, p = k.at(f, x, 0, side * 1.0); k.put(F.taskChair(P, X), new THREE.Matrix4().makeRotationY(k.yawOf(f) + (side > 0 ? Math.PI : 0)).setPosition(p.x, f.m.elements[13], p.z), false); if (j === 0 && side > 0) k.seat("의자에 앉아 PC 하기", k.at(f, x, 0, side * 0.95), k.yawOf(f) + (side > 0 ? Math.PI : 0)); if ((j + (side > 0 ? 0 : 1)) % 3 === 0) k.spot(k.at(f, x, 0, side * 0.95), k.yawOf(f) + (side > 0 ? Math.PI : 0), "sit", "desk"); } };
+      let made = rows(4, 2.6, 0.6, () => desk(4, 5), true, (f, len) => chairs(f, len, 5));
+      if (!made) made = rows(2.4, 2.6, 0.5, () => desk(2.4, 3), true, (f, len) => chairs(f, len, 3));
+      if (!made) lineWalls(4, 0.75, 1.2, len => [M.rb(dark, len, 0.74, 0.7, 0.02, 0, 0.37, 0.35), ...Array.from({ length: Math.floor(len / 0.8) }, (_, j) => station(-len / 2 + 0.4 + j * 0.8, 1).map(p => { p.g.translate(0, 0, -0.2); return p; })).flat()]);
       till(1.6); backSign(0.5); return true;
     }
     case "gym": {

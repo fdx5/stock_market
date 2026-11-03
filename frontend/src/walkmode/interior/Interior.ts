@@ -26,6 +26,7 @@ import type { Sound, WaterKind } from "../game/sound";
 import type { FloorPlan } from "./plan/types";
 import { facilityLook, FACILITY_SETS } from "./facilityMaterials";
 import { GESTURES, type GestureName } from "../player/gestures";
+import { INDOOR_SCALE } from "../player/avatar";
 import { People, type PersonTalk } from "./facilityPeople";
 import type { Spot } from "./facilityFurnish";
 import { withKitGeometryCache } from "./models";
@@ -64,6 +65,8 @@ export interface InteriorOptions {
   onVending?(session: VendingSession): void;
   /** a shelf's or a counter's goods (the page's shop menu), and a word on the screen for a moment */
   onShop?(kind: ShopKind, label: string): void;
+  /** a bookshop's shelf: its readable books */
+  onRead?(): void;
   onToast?(text: string): void;
   /** a building's person talked to (the page shows the dialogue), or the talk over (null) */
   onTalk?(t: InteriorTalk | null): void;
@@ -213,7 +216,7 @@ export class Interior {
   private probeDirty = 0;
   private mirrors: Reflector[] = [];
   // (the same person as outside — Avatar(7) in WalkGame — in socks: shoes are left at the door)
-  avatar = (() => { const a = new Avatar(0); a.shoes(false); return a; })();
+  avatar = (() => { const a = new Avatar(0); a.shoes(false); a.root.scale.setScalar(INDOOR_SCALE); return a; })();
   cat: Cat | null = null;
   /** a building's people (facilityPeople.ts) */
   people: People | null = null;
@@ -250,7 +253,7 @@ export class Interior {
   /** R: the hand's item drunk or eaten (milk, cola, beer, fruit, cake…) */
   /** the visitor's gesture: played by their figure (seen in the third person and the mirrors), and
    * answered by the people about */
-  gesture(name: GestureName) { if (this.seated && GESTURES[name].legs) return; this.avatar.play(name); this.people?.react(name); }
+  gesture(name: GestureName) { if (this.seated && GESTURES[name].legs) return; this.avatar.play(name); this.o.sound.gesture(name); this.people?.react(name); }
   consumeHand(): boolean {
     const k = this.furn.pantry.handKind() as ItemKind | null, how = k ? CONSUME[k] : undefined;
     if (this.sip || !k || !how || !this.furn.pantry.hand) return false;
@@ -592,6 +595,7 @@ export class Interior {
         shop: (kind, label) => { document.exitPointerLock?.(); this.o.onShop?.(kind, label); },
         consume: item => { if (!this.consumeBought(item)) this.o.onToast?.("손에 든 것을 먼저 내려놓아 주세요"); },
         toast: text => this.o.onToast?.(text),
+        read: () => { document.exitPointerLock?.(); this.o.onRead?.(); },
         fx: name => { this.o.sound.resume(); this.o.sound.fx(name); },
         drink: (can, name) => { if (!this.sip && !this.furn.pantry.hand) this.startSip(can, "can", name, true); else (can.children[0] as THREE.Mesh | undefined)?.geometry.dispose(); },
       } } : undefined));
@@ -665,6 +669,15 @@ export class Interior {
       // a building: its people instead of a pet
       this.people = new People(plan, spots, (text, pitch) => this.o.sound.babble(text, pitch), this.o.hour);
       this.people.onTalk = t => this.openTalk(t);
+      // (the walls and furniture for their walking: a body's clearance, and a route round them)
+      const rooms = plan.rooms;
+      this.people.nav = {
+        blocked: (x, z, r) => !rooms.some(q => x >= q.rect[0] && x <= q.rect[2] && z >= q.rect[1] && z <= q.rect[3]) || this.grid.query(x - r - .05, z - r - .05, x + r + .05, z + r + .05).some(([a, b, c, d]) => { const dx = c - a, dz = d - b, t = Math.max(0, Math.min(1, ((x - a) * dx + (z - b) * dz) / (dx * dx + dz * dz || 1))); return Math.hypot(x - a - t * dx, z - b - t * dz) < r; }),
+        route: (a, b) => this.route(a, b),
+      };
+      this.people.fitToFloor();
+      // (a person answering a gesture: the same sounds, in their own pitch, quieter)
+      this.people.onGestureSound = (g, rate) => this.o.sound.gesture(g, { rate, gain: 0.5, own: false });
       this.people.root.traverse(o => { o.castShadow = false; });
       this.dynamic.add(this.people.root);
       this.interactables.push(...this.people.interactables((x, z) => this.shell.roomAt(x, z)));
@@ -992,6 +1005,8 @@ export class Interior {
   setOverlay(on: boolean) { this.overlay = on; this.keys.clear(); this.stick.set(0, 0); this.runStick = false; if (on) this.vel.set(0, 0); }
   monitorScreen() { return this.monitor ? this.project(this.monitor.corners) : null; }
   closeMonitor() { this.zoomScreen(null); this.monitor = null; }
+  /** whether the computer in use is a PC방 one (its games) */
+  get monitorGame() { return !!this.monitor?.game; }
   resetLook() { if (!this.seated) { this.pitch = -.04; this.shown.ease = .15; } }
   keyDown = (e: KeyboardEvent) => {
     if (this.overlay) return;
@@ -1372,10 +1387,10 @@ export class Interior {
       if (s.pose === "lie") {
         // on the back, head at the eye, feet toward where it looks
         ar.rotation.set(-Math.PI / 2, s.yaw + Math.PI, 0, "YXZ");
-        ar.position.set(s.eye.x + fx * 1.62, s.eye.y - 0.12, s.eye.z + fz * 1.62);
+        ar.position.set(s.eye.x + fx * 1.62 * INDOOR_SCALE, s.eye.y - 0.12, s.eye.z + fz * 1.62 * INDOOR_SCALE);
       } else {
         ar.rotation.set(0, s.yaw + Math.PI, 0, "YXZ");
-        ar.position.set(s.eye.x - fx * 0.12, s.eye.y - 1.15, s.eye.z - fz * 0.12);
+        ar.position.set(s.eye.x - fx * 0.12, s.eye.y - 0.68 - 0.47 * INDOOR_SCALE, s.eye.z - fz * 0.12);
       }
     } else {
       ar.rotation.set(0, this.yaw + Math.PI, 0, "YXZ"); ar.position.set(this.pos.x, floor, this.pos.y);
@@ -1399,7 +1414,7 @@ export class Interior {
         // (the shoulder's offset too kept on this side of the walls: in a narrow hall it put the
         // camera inside one)
         const e = this.clearOf(this.pos.x + bx * d, this.pos.y + bz * d);
-        cam.position.set(e.x, this.eyeY + 0.22, e.y);
+        cam.position.set(e.x, floor + EYE * INDOOR_SCALE + 0.45, e.y);
       }
     }
     // eased toward what was set (dt 0: the warm-up renders, at once)
@@ -1418,7 +1433,7 @@ export class Interior {
     else if (this.furn.pantry.hand) {
       const m = this.holdM; cam.updateMatrixWorld();
       if (this.view === "first" && !this.seated) m.multiplyMatrices(cam.matrixWorld, this.holdEye);
-      else m.makeRotationY(this.yaw).setPosition(this.pos.x - Math.sin(this.yaw) * 0.34, this.shell.floorAt(this.pos.x, this.pos.y) + 0.98, this.pos.y - Math.cos(this.yaw) * 0.34);
+      else m.makeRotationY(this.yaw).setPosition(this.pos.x - Math.sin(this.yaw) * 0.34 * INDOOR_SCALE, this.shell.floorAt(this.pos.x, this.pos.y) + 0.98 * INDOOR_SCALE, this.pos.y - Math.cos(this.yaw) * 0.34 * INDOOR_SCALE);
       this.furn.pantry.holdAt(m);
     }
     if (this.overhead) { this.overheadCamera(); ar.visible = true; cam.updateMatrixWorld(); return; }

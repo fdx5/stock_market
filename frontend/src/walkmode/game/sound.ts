@@ -51,6 +51,28 @@ export class Sound {
     })).then(() => undefined);
     return this.recLoading;
   }
+  /** The gestures' voices and sounds (sfx/gesture/<name>.mp3 — a bright spoken line with its sound:
+   * applause, cheering, a ringtone, a dance loop…), fetched the first time each is asked for and kept.
+   * The visitor's own at full voice; a person answering at `rate` (their pitch) and `gain`. The
+   * visitor's last one is cut when they make another. */
+  private gestureBufs = new Map<string, Promise<AudioBuffer | null>>();
+  private gestureNow: { src: AudioBufferSourceNode; g: GainNode } | null = null;
+  gesture(name: string, o: { rate?: number; gain?: number; own?: boolean } = {}) {
+    this.resume(); const c = this.ctx; if (!c || !this.master) return;
+    let p = this.gestureBufs.get(name);
+    if (!p) { p = fetch(`${SFX}gesture/${name}.mp3`).then(r => r.ok ? r.arrayBuffer() : null).then(a => a ? c.decodeAudioData(a) : null).catch(() => null); this.gestureBufs.set(name, p); }
+    const own = o.own ?? true, asked = c.currentTime;
+    void p.then(b => {
+      if (!b || !this.master || c.currentTime - asked > 1.5) return;
+      if (own && this.gestureNow) { const n = this.gestureNow; n.g.gain.setTargetAtTime(0, c.currentTime, 0.05); n.src.stop(c.currentTime + 0.3); this.gestureNow = null; }
+      const src = c.createBufferSource(); src.buffer = b; src.playbackRate.value = o.rate ?? 1;
+      const g = c.createGain(); g.gain.value = o.gain ?? 0.95;
+      src.connect(g); g.connect(this.master); src.start();
+      if (own) { this.gestureNow = { src, g }; src.onended = () => { if (this.gestureNow?.src === src) this.gestureNow = null; }; }
+    });
+  }
+  /** the visitor's gesture sound cut short (they walked off, or sat) */
+  stopGesture() { const c = this.ctx, n = this.gestureNow; if (!c || !n) return; n.g.gain.setTargetAtTime(0, c.currentTime, 0.08); n.src.stop(c.currentTime + 0.4); this.gestureNow = null; }
   /** a recording once: its gain, pitch, from where (s) */
   private shot(name: string, gain: number, rate = 1, offset = 0): boolean {
     const c = this.ctx, b = this.rec.get(name); if (!c || !b || !this.master) return false;

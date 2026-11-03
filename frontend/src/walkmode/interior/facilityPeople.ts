@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { Avatar } from "../player/avatar";
+import { Avatar, INDOOR_SCALE } from "../player/avatar";
 import { IDLE_BY_ROLE, GESTURES, type GestureName } from "../player/gestures";
 import type { Spot } from "./facilityFurnish";
 import type { Interactable } from "./furnish";
@@ -74,6 +74,11 @@ export class People {
 
   /** the page's dialogue for a talk (absent: the bubble only) */
   onTalk: ((t: PersonTalk) => void) | null = null;
+  /** The floor's walls and furniture for the walkers (Interior): whether a body of radius r at (x, z)
+   * touches any, and a route round them. Without it (a test) they walk as before. */
+  nav: { blocked(x: number, z: number, r: number): boolean; route(a: [number, number], b: [number, number]): [number, number][] | null } | null = null;
+  /** a gesture's voice for one of the people (their pitch as a playback rate) */
+  onGestureSound: ((g: GestureName, rate: number) => void) | null = null;
   private clock = 0;
   /** `speak(text, pitch)`: a voice for what is said (the walk's babble), pitch by the person */
   constructor(private plan: FloorPlan, spots: Spot[], private speak: (text: string, pitch: number) => void, private hour = 12) {
@@ -111,7 +116,7 @@ export class People {
       if (!s && !walker) continue;
       if (s) used.add(s);
       const av = new Avatar(1 + Math.floor(rnd() * 9999), { ...OUTFIT[want.role], role: want.role });
-      av.shoes(true);
+      av.shoes(true); av.root.scale.setScalar(INDOOR_SCALE);
       const p: Person = { av, role: want.role, room, spot: s, pos: new THREE.Vector2(s?.x ?? 0, s?.z ?? 0), face: s?.face ?? 0, pose: s?.pose ?? "stand", y: s?.y ?? 0,
         path: [], wait: rnd() * 4, speed: 1.05 + rnd() * 0.35, bubble: null, bubbleT: 0, turnTo: null, seed: Math.floor(rnd() * 1000), line: 0, greeted: -99, bumped: -99, rel: 12 + Math.floor(rnd() * 14), last: null, again: 0, idleAt: 4 + rnd() * 14,
         lane: 0, goal: -1, dir: new THREE.Vector2(), moving: 0, detourAt: -9, stuck: 0 };
@@ -220,7 +225,8 @@ export class People {
     shown.forEach((l, i) => g.fillText(l, W / 2, 8 + 22 + i * LH + 6, W - 70));
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true }));
-    s.scale.set(2.2, 2.2 * H / W, 1); s.center.set(0.5, 0); s.position.y = p.pose === "sit" ? 1.45 : 1.95; s.renderOrder = 10;
+    // (on the figure, which is drawn smaller indoors: the bubble kept at its reading size)
+    s.scale.set(2.2 / INDOOR_SCALE, 2.2 * H / W / INDOOR_SCALE, 1); s.center.set(0.5, 0); s.position.y = p.pose === "sit" ? 1.45 : 1.95; s.renderOrder = 10;
     p.av.root.add(s); p.bubble = s; p.bubbleT = 3 + text.length * 0.09;
   }
 
@@ -236,7 +242,7 @@ export class People {
         : g === "cry" ? "beckon" : g === "kick" ? "stop" : g === "peace" ? "peace" : g === "laugh" ? "laugh" : g === "clap" ? "bow" : "nod";
       if (p.pose === "sit" && GESTURES[r].legs) return;
       p.turnTo = Math.atan2(this.visitor.x - p.pos.x, this.visitor.y - p.pos.y); p.wait = Math.max(p.wait, 4);
-      setTimeout(() => p.av.play(r), 200 + i * 260);
+      setTimeout(() => { p.av.play(r); if (i === 0 && !["dance", "groove", "robot"].includes(r)) this.onGestureSound?.(r, 0.86 + ((p.seed * 37) % 100) / 100 * 0.34); }, 200 + i * 260);
       const l = said[g]; if (i === 0 && l && !p.bubble) this.remark(p, l[(p.seed + p.line++) % l.length]);
     });
   }
@@ -290,7 +296,8 @@ export class People {
               if (o.oncoming || o.q.moving < 0.2) {
                 const sideSign = o.oncoming ? 1 : (o.side > 0 ? -1 : 1), off = 0.62 - Math.abs(o.side) * 0.5;
                 const wx = o.q.pos.x + rightX * sideSign * off + ux * 0.25, wz = o.q.pos.y + rightZ * sideSign * off + uz * 0.25;
-                if (this.inWalkable(wx, wz)) { p.path.unshift(new THREE.Vector2(wx, wz)); p.detourAt = this.clock; }
+                const w = new THREE.Vector2(wx, wz);
+                if (this.inWalkable(wx, wz) && this.free(wx, wz) && this.clearLine(p.pos, w) && this.clearLine(w, p.path[0])) { p.path.unshift(w); p.detourAt = this.clock; }
                 else pace = 0;
               } else if (o.along < 1.0) pace = Math.min(pace, o.q.moving * 0.95);
             }
@@ -299,7 +306,12 @@ export class People {
             p.stuck = pace < 0.05 ? p.stuck + dt : 0;
             if (p.stuck > 3) { p.stuck = 0; p.path = []; p.wait = 0.5; }
             const step = Math.min(d, pace * dt);
-            p.pos.x += ux * step; p.pos.y += uz * step; speed = pace;
+            let nx = p.pos.x + ux * step, nz = p.pos.y + uz * step;
+            if (step > 0 && !this.free(nx, nz)) {
+              if (this.free(nx, p.pos.y)) nz = p.pos.y; else if (this.free(p.pos.x, nz)) nx = p.pos.x; else { nx = p.pos.x; nz = p.pos.y; p.stuck += dt; }
+            }
+            const moved = Math.hypot(nx - p.pos.x, nz - p.pos.y);
+            p.pos.set(nx, nz); speed = moved > 1e-5 ? pace : 0;
             if (step > 0) { p.dir.set(ux, uz); const want = Math.atan2(dx, dz); p.face += angle(want - p.face) * Math.min(1, dt * 8); }
           }
         }
@@ -346,8 +358,55 @@ export class People {
     // (the door's spot itself a little off its middle, by the walker: two arriving do not meet on it)
     const off = (r() - 0.5) * 0.7, end = along ? new THREE.Vector2(n.x + off, n.y) : new THREE.Vector2(n.x, n.y + off);
     const a = this.onLane(p.pos, p.lane), b = this.onLane(end, p.lane);
-    p.path = cr ? [a, b, end] : [end];
+    const way = this.legs(p.pos, cr ? [a, b, end] : [end]);
+    // (that place not reachable from here: another next time, a short wait meanwhile)
+    if (!way || !way.length) { p.path = []; p.wait = 1 + (p.seed % 3); p.goal = (best + 1) % this.nodes.length; p.seed += 7; return; }
+    p.path = way;
     p.seed += 7;
+  }
+  /** Everyone placed where they can stand once the floor's clearance is known: a walker or a person
+   * standing at a counter moved off any furniture or wall onto the nearest clear floor (within 1.2 m),
+   * or left out if there is none; the seated and lying stay in their chairs and beds. */
+  fitToFloor() {
+    if (!this.nav) return;
+    this.people = this.people.filter(p => {
+      if (p.pose !== "stand") return true;
+      const ok = this.nav!.blocked(p.pos.x, p.pos.y, p.spot ? 0.12 : this.R) ? (p.spot ? (() => { for (let r = 0.1; r <= 0.6; r += 0.1) for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2, x = p.pos.x + Math.cos(a) * r, z = p.pos.y + Math.sin(a) * r; if (!this.nav!.blocked(x, z, 0.12)) return new THREE.Vector2(x, z); } return null; })() : this.clearNear(p.pos)) : p.pos.clone();
+      if (!ok) { this.root.remove(p.av.root); p.av.dispose(); return false; }
+      p.pos.copy(ok); this.place(p, 0); return true;
+    });
+  }
+  private readonly R = 0.2;
+  private free(x: number, z: number) { return !this.nav || !this.nav.blocked(x, z, this.R); }
+  private clearLine(a: THREE.Vector2, b: THREE.Vector2) {
+    if (!this.nav) return true;
+    const d = a.distanceTo(b), n = Math.max(1, Math.ceil(d / 0.12));
+    for (let i = 1; i <= n; i++) { const t = i / n; if (!this.free(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)) return false; }
+    return true;
+  }
+  /** the nearest clear point to q within 1.2 m (a spot by a counter, a door's point by a jamb) */
+  private clearNear(q: THREE.Vector2): THREE.Vector2 | null {
+    if (this.free(q.x, q.y)) return q.clone();
+    for (let r = 0.1; r <= 1.2; r += 0.1) for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2, x = q.x + Math.cos(a) * r, z = q.y + Math.sin(a) * r; if (this.free(x, z) && this.inWalkable(x, z)) return new THREE.Vector2(x, z); }
+    return null;
+  }
+  /** waypoints from `from` through `pts`: straight where the way is clear, round the furniture
+   * (the floor's A*) where it is not; null if somewhere cannot be reached */
+  private legs(from: THREE.Vector2, pts: THREE.Vector2[]): THREE.Vector2[] | null {
+    const out: THREE.Vector2[] = []; let cur = from.clone();
+    for (const q0 of pts) {
+      const q = this.clearNear(q0); if (!q) continue;
+      if (this.clearLine(cur, q)) { out.push(q); cur = q; continue; }
+      const r = this.nav?.route([cur.x, cur.y], [q.x, q.y]); if (!r || r.length < 2) return null;
+      // (the grid's cells thinned: a point kept where the straight line from the last kept one is not clear)
+      let last = cur;
+      for (let i = 1; i < r.length; i++) {
+        const nxt = new THREE.Vector2(r[i][0], r[i][1]), ahead = i + 1 < r.length ? new THREE.Vector2(r[i + 1][0], r[i + 1][1]) : null;
+        if (!ahead || !this.clearLine(last, ahead)) { out.push(nxt); last = nxt; }
+      }
+      cur = out[out.length - 1] ?? cur;
+    }
+    return out;
   }
   private inWalkable(x: number, z: number) { return !this.walkable.length || this.walkable.some(r => x >= r[0] && x <= r[2] && z >= r[1] && z <= r[3]); }
   /** Everyone keeps their own room: walkers pushed apart from each other and off those standing or
@@ -362,8 +421,8 @@ export class People {
       // (exactly together: apart along a fixed side, by who is who)
       const nx = d > 1e-4 ? dx / d : Math.cos(i * 2.4), nz = d > 1e-4 ? dz / d : Math.sin(i * 2.4), o = (min - d) / (ma + mb);
       const ax = a.pos.x - nx * o * ma, az = a.pos.y - nz * o * ma, bx = b.pos.x + nx * o * mb, bz = b.pos.y + nz * o * mb;
-      if (ma && this.inWalkable(ax, az)) a.pos.set(ax, az);
-      if (mb && this.inWalkable(bx, bz)) b.pos.set(bx, bz);
+      if (ma && this.inWalkable(ax, az) && this.free(ax, az)) a.pos.set(ax, az);
+      if (mb && this.inWalkable(bx, bz) && this.free(bx, bz)) b.pos.set(bx, bz);
     }
   }
   /** Who is in the way ahead within `reach` m along `dir`: the nearest, how far, how far to one side, and whether they come the other way. */
@@ -383,7 +442,7 @@ export class People {
       // on the back in the bed: the head at the spot, the feet the way it faces
       const fx = Math.sin(p.face), fz = Math.cos(p.face);
       r.rotation.set(-Math.PI / 2, p.face, 0, "YXZ");
-      r.position.set(p.pos.x + fx * 1.62 - fx * 0.02, p.y + 0.02, p.pos.y + fz * 1.62);
+      r.position.set(p.pos.x + (fx * 1.62 - fx * 0.02) * INDOOR_SCALE, p.y + 0.02, p.pos.y + fz * 1.62 * INDOOR_SCALE);
       // (lying: the avatar's own "lie" pose)
       p.av.pose = "lie";
       return;
@@ -391,7 +450,8 @@ export class People {
     r.rotation.set(0, p.face, 0, "YXZ");
     // (seated: a little back on the seat)
     const back = p.pose === "sit" ? -0.05 : 0;
-    r.position.set(p.pos.x + Math.sin(p.face) * back, p.y, p.pos.y + Math.cos(p.face) * back);
+    // (seated: the smaller hips raised onto the seat the full-size ones sat on)
+    r.position.set(p.pos.x + Math.sin(p.face) * back, p.y + (p.pose === "sit" ? 0.47 * (1 - INDOOR_SCALE) : 0), p.pos.y + Math.cos(p.face) * back);
   }
   dispose() {
     for (const p of this.people) { if (p.bubble) { (p.bubble.material as THREE.SpriteMaterial).map?.dispose(); (p.bubble.material as THREE.SpriteMaterial).dispose(); } p.av.dispose(); }

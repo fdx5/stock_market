@@ -69,3 +69,19 @@ Poly Haven CC0 원본 1k 디퓨즈·OpenGL 노멀·ARM을 동일 크기 WebP로 
 ## 음료·음식 음성 (2026-11-02)
 
 `sfx/kya1.wav`·`kya2.wav`·`kya3.wav`(남성 "캬~")와 `sfx/mm.wav`("음~")는 녹음이나 TTS가 아니라 `scripts/synth-drink-voices.py`의 소스-필터(Klatt 방식) 음성 합성으로 이 저장소에서 만든 44.1 kHz 16비트 모노 파일이다: 성문 펄스(지터·시머·숨소리), 시간에 따라 움직이는 포먼트 공명기, ㅋ의 파열·기식, /j/→/a/ 전이, 만족스럽게 내려가는 음높이와 숨 내쉼, 작은 방 반사음. 캔 따는 소리·목넘김·씹는 소리는 `src/walkmode/game/sound.ts`에서 실시간 합성한다.
+
+## 제스처 음성·효과음 (`sfx/gesture/*.mp3`, 2026-11-03)
+
+제스처 35종마다 짧은 대사와 효과음을 하나의 MP3로 섞었다(`scripts/make-gesture-sounds.py`).
+
+- 대사: MeloTTS 한국어 음성(MIT 라이선스, https://github.com/myshell-ai/MeloTTS)으로 합성했다(`scripts/tts-gesture-lines.py`). 밝은 톤을 위해 음높이를 4% 올리고 고역을 살짝 올렸다. 치찰음을 줄이고(디에서) 압축과 음량 정규화를 거쳤다. 실제 인물의 목소리를 녹음하거나 흉내 내지 않았다.
+- 녹음 효과음(BigSoundBank, CC0): Applause Concert Bar #1(s2479), Shouts and Applauses of Teens #1(s0236), Laughter of Children(s1660), Whoosh #5(s1797). 일부 구간을 잘라 쓰고 음량을 맞췄다.
+- 합성 효과음(코드로 만듦): 춤 음악 두 가지(팝 루프), 로봇 삐빅, 점프 뿅, 메시지 알림, 벨소리, 시계 똑딱, 반짝임, 카메라 셔터, 발 구름.
+
+## 책장 넘기는 소리 (`sfx/page1~6.mp3`)
+
+BigSoundBank의 CC0 녹음 "Pages that turn #1"(s0493, 문고본 다섯 번 넘김)과 "Pages that Turn #5"(s2212)에서 넘김 한 번씩을 잘라냈다(`scripts/prepare-page-turns.py`).
+
+## 서점 책
+
+전래 동화와 저작권이 만료된 세계 명작(이솝, 그림 형제, 안데르센, 페로, 콜로디, 스위프트, 캐럴, 바움)을 이 프로젝트에서 직접 짧은 한국어로 다시 썼다(`src/walkmode/interior/books.ts`). 출판된 번역문을 옮기지 않았다. 「트레이더 조」는 Codix 사례연구(2026-10-05)를 요약한 것이며 투자 조언이 아니다. 삽화는 코드로 그린 장면과 시스템 이모지로 구성한다.

@@ -24,6 +24,8 @@ export class SignAtlas {
     this.texture.colorSpace = THREE.SRGBColorSpace; this.texture.anisotropy = 8;
     // (lit by the room, glowing a little of its own: a backlit plate reads in a dim corridor)
     this.material = new THREE.MeshPhysicalMaterial({ map: this.texture, emissiveMap: this.texture, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0.32, roughness: 0.45, clearcoat: 0.4 });
+    // (a sign is a face laid on a wall: drawn in front of it at any distance, never fighting it for depth)
+    this.material.polygonOffset = true; this.material.polygonOffsetFactor = -2; this.material.polygonOffsetUnits = -4;
   }
   private alloc(w: number, h: number): [number, number] | null {
     const S = this.canvas.width;

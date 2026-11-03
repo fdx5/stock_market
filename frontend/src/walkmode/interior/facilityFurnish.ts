@@ -34,6 +34,8 @@ export interface FacilityHooks {
   shop?(kind: import("./shop").ShopKind, label: string): void;
   /** something taken and had at once (a coffee from the machine, a cup of water) */
   consume?(item: import("./shop").Consumable): void;
+  /** the bookshop's readable books (the page's BookShelf) */
+  read?(): void;
   /** a word on the screen for a moment (what happened) */
   toast?(text: string): void;
   /** a machine's or the goods' sound */
@@ -135,7 +137,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
   const signOn = (s: SideName, style: SignStyle, lines: string[], w: number, h: number, u: number, y: number) => {
     const f = pl.frameAt(s, u, w, 0.02);
     const g = c.signs.sign(style, lines, w, h);
-    c.B.add(c.signs.material, zone, g, new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(0, y, 0.012)), false); g.dispose();
+    c.B.add(c.signs.material, zone, g, new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(0, y, 0.035)), false); g.dispose();
   };  /** A business seen from the corridor: its name lit over the way in, on the corridor's face of its
    * front wall, and a couple of display stands just inside the glass, clear of the door. */
   /** The room's own floor by what it is — carpet tiles in offices, timber in meeting rooms, polished
@@ -168,6 +170,10 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
   };
   const storefront = () => {
     if (!corridorOp || room.label.length < 2) return;
+    // (a glass or open front gets its lit fascia over the opening — roomSign — at the same wall and
+    // height: a second board there would sit a few millimetres from it and flicker through it)
+    const fasciaThere = (corridorOp.type === "glass_door" || corridorOp.type === "open") && H - (corridorOp.sill + corridorOp.height) - 0.06 > 0.14;
+    if (fasciaThere) { for (let k = 0; k < 2; k++) { const d = pl.against(doorSide, 0.7, 0.7, null, 1.3, 0); if (!d) break; const top = A && store ? tableTop(A, goods(null, 4, k * 7 + 3), 0.5, 0.5, 0.92, k) : []; c.put(top.length ? [M.rb(X.lacquer ?? X.accentDark, 0.6, 0.9, 0.6, 0.02, 0, 0.45, 0), M.bx(X.brass ?? P.chrome, 0.62, 0.02, 0.62, 0, 0.91, 0), ...top, M.bx(P.glass, 0.58, 0.45, 0.58, 0, 1.15, 0)] : F.plinth(P, X, room.id.length + k * 2), d, zone, true); pl.take(d.rect); } return; }
     const len = pl.len(doorSide), w = Math.min(3.2, Math.max(1.2, len * 0.45));
     const u = THREE.MathUtils.clamp(corridorOp.center, (doorSide === "n" || doorSide === "s" ? X0 : Z0) + w / 2, (doorSide === "n" || doorSide === "s" ? X1 : Z1) - w / 2);
     const f = pl.frameAt(doorSide, u, w, 0.02), g = c.signs.sign("brand", [room.label], w, 0.4);
@@ -591,7 +597,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
         material: (colour, opts = {}) => { const key = colour + JSON.stringify(opts); let m = matCache.get(key); if (!m) { m = c.own(new THREE.MeshStandardMaterial({ color: colour, roughness: 0.45, ...opts })); matCache.set(key, m); } return m; },
         plant: () => plant(null, 1.5), at: (f, x, y, z) => at(f, x, y, z), yawOf: f => yawOf(f),
         use: (f, [w, h, d, x, y, z], label, act) => { c.interactables.push({ id: `use-${room.id}-${c.interactables.length}`, zone, room, hit: c.hitIn(f, w, h, d, x, y, z), label: () => label, act: () => { act(); return null; } }); },
-        shop: kind => c.hooks.shop?.(kind, room.label), consume: item => c.hooks.consume?.(item), toast: text => c.hooks.toast?.(text), fx: name => c.hooks.fx?.(name) };
+        shop: kind => c.hooks.shop?.(kind, room.label), consume: item => c.hooks.consume?.(item), toast: text => c.hooks.toast?.(text), fx: name => c.hooks.fx?.(name), read: c.hooks.read ? () => c.hooks.read!() : undefined };
       if (furnishStyledShop(kit, style)) break;
       const conv = /편의점|마트/.test(room.label), flowers = /꽃/.test(room.label), desky = /부동산|세탁/.test(room.label);
       if (desky) { deskOn(sideW[0] ?? winSide, 1.4, 1); deskOn(sideW[1] ?? winSide, 1.4, 1); wallPut(winSide, F.cabinets(P, 2.0, 0.9, 0.4), 2.0, 0.42, null, 0.75); break; }
@@ -806,7 +812,7 @@ function roomSign(c: FacCtx, room: Room, o: Opening | undefined) {
   // (the face toward the public side, a little off the wall; along the wall: u)
   const zAxis = o.axis === "z";
   const roomBefore = zAxis ? room.rect[3] <= o.at + 1e-6 : room.rect[2] <= o.at + 1e-6;
-  const off = (roomBefore ? 1 : -1) * (HALF_WALL + 0.012);
+  const off = (roomBefore ? 1 : -1) * (HALF_WALL + 0.025);
   const face = zAxis ? (roomBefore ? 0 : Math.PI) : (roomBefore ? Math.PI / 2 : -Math.PI / 2);
   const lo = zAxis ? room.rect[0] : room.rect[1], hi = zAxis ? room.rect[2] : room.rect[3];
   const place = (u: number, y: number) => zAxis ? new THREE.Matrix4().makeRotationY(face).setPosition(u, y, o.at + off) : new THREE.Matrix4().makeRotationY(face).setPosition(o.at + off, y, u);

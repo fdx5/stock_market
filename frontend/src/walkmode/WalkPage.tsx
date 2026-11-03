@@ -28,6 +28,9 @@ import { LAYOUT_CASES, LAYOUT_FAMILIES, caseNumber } from "./interior/plan/layou
 import LayoutPreview from "./LayoutPreview";
 import ShopMenu from "./ShopMenu";
 import BagPanel from "./BagPanel";
+import PcGames from "./PcGames";
+import { BookReader, BookShelf } from "./BookReader";
+import { storyBook, type StoryBook } from "./interior/books";
 import GesturePanel from "./GesturePanel";
 import MissionHud from "./MissionHud";
 import { SHOP_LABEL, shopOf, type ShopKind } from "./interior/shop";
@@ -140,6 +143,9 @@ export default function WalkPage() {
   const [shop,setShop]=useState<{kind:ShopKind;label:string}|null>(null);
   const [bag,setBag]=useState(false);
   const [gest,setGest]=useState(false);
+  const [shelf,setShelf]=useState(false);
+  const [reading,setReading]=useState<StoryBook|null>(null);
+  const openBook=(id:string)=>{const b=storyBook(id);if(b){setReading(b);document.exitPointerLock?.();}};
   /** what a building's fitting did, for a moment on the screen */
   const [toast,setToast]=useState<string|null>(null);const toastTimer=useRef(0);
   /** a building other than flats, walked floor by floor in the interior engine: what is known of it */
@@ -464,7 +470,7 @@ export default function WalkPage() {
   const exitFlat = () => {
     if (exiting.current) return;
     exiting.current = true;
-    setVending(null); setMonitorOpen(false); setLiftPanel(null); setCameraPanel(false); setITalk(null); setShop(null); setBag(false); setGest(false);
+    setVending(null); setMonitorOpen(false); setLiftPanel(null); setCameraPanel(false); setITalk(null); setShop(null); setBag(false); setGest(false); setShelf(false); setReading(null);
     document.exitPointerLock?.();
     setFade(true);
     setTimeout(() => {
@@ -610,6 +616,7 @@ export default function WalkPage() {
       onMonitor: () => { setMonitorOpen(true); document.exitPointerLock?.(); },
       onTalk: t => { setITalk(t); if (t) document.exitPointerLock?.(); },
       onShop: (kind, label) => setShop({ kind, label }),
+      onRead: () => setShelf(true),
       onToast: text => { setToast(text); window.clearTimeout(toastTimer.current); toastTimer.current = window.setTimeout(() => setToast(null), 3200); },
     });
     interior.current = it;
@@ -653,7 +660,7 @@ export default function WalkPage() {
         if (cameraPanel) { setCameraPanel(false); return; }
         if (monitorOpen) { closeMonitor(); return; }
         if (vending) { setVending(null); return; }
-        if (phase === "interior") { if (gest) setGest(false); else if (bag) setBag(false); else if (shop) setShop(null); else if (iTalk) interior.current?.closeTalk(); else if (liftPanel) setLiftPanel(null); else exitFlat(); return; }
+        if (phase === "interior") { if (reading) setReading(null); else if (shelf) setShelf(false); else if (gest) setGest(false); else if (bag) setBag(false); else if (shop) setShop(null); else if (iTalk) interior.current?.closeTalk(); else if (liftPanel) setLiftPanel(null); else exitFlat(); return; }
         if (phase === "building") { if (talk) building.current?.closeTalk(); else if (liftPanel) building.current?.closeLiftPanel(); else exitBuilding(); return; }
         if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); }
         else if (phase === "outdoor") leave();
@@ -720,7 +727,7 @@ export default function WalkPage() {
   }, []);
   const onDown = (e: React.PointerEvent) => {
     sound.resume();
-    if (vending || monitorOpen || liftPanel || cameraPanel || talk || iTalk || shop || bag) return;
+    if (vending || monitorOpen || liftPanel || cameraPanel || talk || iTalk || shop || bag || shelf || reading) return;
     if ((e.target as HTMLElement).closest("button, a, input, select, textarea, iframe")) return;
     if (e.pointerType === "touch") {
       if (!touch) setTouch(true);
@@ -929,7 +936,7 @@ export default function WalkPage() {
           )}
           {!vending && hud?.seated !== "화면" && hud?.seated !== "반려동물" && <MiniMap plan={plan} subject={mapSubject} />}
           {vending && <VendingMenu key={vending.id} session={vending} onClose={() => setVending(null)} />}
-          {monitorOpen && <FacilityBrowser corners={monitorCorners} onClose={closeMonitor} onZoom={on => interior.current?.zoomScreen(on ? "monitor" : null)} />}
+          {monitorOpen && (interior.current?.monitorGame ? <PcGames corners={monitorCorners} onClose={closeMonitor} onZoom={on => interior.current?.zoomScreen(on ? "monitor" : null)} /> : <FacilityBrowser corners={monitorCorners} onClose={closeMonitor} onZoom={on => interior.current?.zoomScreen(on ? "monitor" : null)} />)}
           {tvOpen && <TvBrowser corners={tvCorners} zoom={{ on: zoomed === "tv", set: on => zoomTo(on ? "tv" : null) }} onOff={() => { interior.current?.tvPower(false); setTvOpen(false); if (zoomed === "tv") zoomTo(null); }} onPicture={img => interior.current?.tvPicture(img)} />}
           {laptopOpen && <LaptopScreen corners={laptopCorners} zoom={{ on: zoomed === "laptop", set: on => zoomTo(on ? "laptop" : null) }} onClose={() => { interior.current?.closeLaptop(); setLaptopOpen(false); setZoomed(null); }} />}
           <div className="wk-cross" />
@@ -945,8 +952,10 @@ export default function WalkPage() {
           {!vending && !monitorOpen && <MissionHud className="is-inside" />}
           {shopHere && !shop && !iTalk && <button type="button" className="wk-shop-here" onClick={() => { setShop(shopHere); document.exitPointerLock?.(); }}>🛒 {shopHere.label} · {!touch && <kbd>Q</kbd>} 물건 사기</button>}
           {toast && <div className="wk-toast" role="status">{toast}</div>}
-          {shop && !bag && <ShopMenu shop={shop} onBuy={it => it.kind === "goods" ? false : !!interior.current?.consumeBought(it)} onClose={() => setShop(null)} onBag={() => setBag(true)} />}
-          {bag && <BagPanel onClose={() => setBag(false)} onUse={p => !!interior.current?.consumeBought(p)} />}
+          {shop && !bag && <ShopMenu shop={shop} onBuy={it => it.kind === "goods" ? false : !!interior.current?.consumeBought(it)} onClose={() => setShop(null)} onBag={() => setBag(true)} onRead={openBook} />}
+          {bag && <BagPanel onClose={() => setBag(false)} onUse={p => !!interior.current?.consumeBought(p)} onRead={openBook} />}
+          {shelf && !reading && <BookShelf onRead={b => { setReading(b); }} onClose={() => setShelf(false)} />}
+          {reading && <BookReader book={reading} onClose={() => setReading(null)} />}
           {gest && !shop && !bag && <GesturePanel onPick={g => interior.current?.gesture(g)} onClose={() => setGest(false)} />}
           {!shop && !bag && !iTalk && <button type="button" className="wk-gesture-here" onClick={() => setGest(g => !g)}>😀 제스처 {!touch && <kbd>G</kbd>}</button>}
           {!shop && !bag && !iTalk && <button type="button" className="wk-bag-here" onClick={() => { setBag(true); document.exitPointerLock?.(); }}>🎒 가방 {!touch && <kbd>I</kbd>}</button>}

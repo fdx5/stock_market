@@ -5,7 +5,7 @@ import ProductPic from "./ProductPic";
 
 /* The bag: everything bought, kept in this browser (localStorage, wallet.ts) — each with its
  * picture, how many, what it cost and when; drinks and food can be had from it. */
-export default function BagPanel({ onClose, onUse }: { onClose: () => void; onUse?: (p: Product) => boolean }) {
+export default function BagPanel({ onClose, onUse, onRead }: { onClose: () => void; onUse?: (p: Product) => boolean; onRead?: (story: string) => void }) {
   const [items, setItems] = useState<readonly Carried[]>(() => [...wallet.items]);
   const [cat, setCat] = useState<Cat | "all">("all");
   const [note, setNote] = useState<string | null>(null);
@@ -34,6 +34,7 @@ export default function BagPanel({ onClose, onUse }: { onClose: () => void; onUs
               <b>{r.c.name}</b>
               <small>{r.c.price ? won(r.c.price) : r.p ? won(r.p.price) : ""}{r.c.at ? ` · ${new Date(r.c.at).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })}` : ""}</small>
               {r.p?.how && onUse && <button type="button" className="wk-btn wk-btn-shop" onClick={() => use(r)}>{r.p.kind === "drink" ? "마시기" : "먹기"}</button>}
+              {r.p?.story && onRead && <button type="button" className="wk-btn wk-btn-shop" onClick={() => onRead(r.p!.story!)}>📖 읽기</button>}
             </div>))}
         </div>
       ) : <p className="wk-shop-empty">아직 산 물건이 없어요. 백화점·마트·상점에서 골라 보세요!</p>}
