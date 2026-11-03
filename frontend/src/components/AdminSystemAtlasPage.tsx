@@ -8,7 +8,7 @@ import { atlasApi, AtlasArchitecture, AtlasEdge, AtlasEndpoint, AtlasNode, Atlas
 import "./adminSystemAtlas.css";
 import { ApiPerformance, ExternalMonitor, MONITOR_VIEWS, MonitorView, OperationsOverview, RequestTraces, ServiceGrid, StorageDetails } from "./AtlasMonitoring";
 import "./atlasMonitoring.css";
-import SynapseObservatory from "./SynapseObservatory";
+import SynapseObservatory from "./AtlasReactor";
 
 type DetailTab = "overview" | "endpoints" | "modules" | "connections";
 type History = { at: number; count: number; latency: number | null; external: number; memory: number | null };
