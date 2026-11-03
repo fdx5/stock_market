@@ -91,8 +91,12 @@ export class DroneSigns {
     // Keep the mapped place's stable identity and business info, the register's
     // PNU/height, and never merge two separate mapped branches together.
     const hidden=new Set<Sign>(),normal=(s:string)=>s.replace(/[\s()（）]/g,'').toLowerCase();
-    for(const p of this.merged.filter(s=>s.info?.place))for(const b of this.merged){
-      if(b.info?.place||hidden.has(b)||p.kind!==b.kind||Math.hypot(p.x-b.x,p.y-b.y)>160)continue;
+    // (the candidates by kind in 160 m cells, each place against its own and the eight round it: every
+    // place against every sign was millions of pairs, a 30 ms frame twice a second while tiles came in)
+    const cells=new Map<string,Sign[]>(),cellOf=(k:string,x:number,y:number)=>k+'|'+Math.floor(x/160)+'|'+Math.floor(y/160);
+    for(const b of this.merged){if(b.info?.place)continue;const c=cellOf(b.kind,b.x,b.y),l=cells.get(c);if(l)l.push(b);else cells.set(c,[b]);}
+    for(const p of this.merged.filter(s=>s.info?.place))for(let gx=-1;gx<=1;gx++)for(let gy=-1;gy<=1;gy++)for(const b of cells.get(p.kind+'|'+(Math.floor(p.x/160)+gx)+'|'+(Math.floor(p.y/160)+gy))??[]){
+      if(hidden.has(b)||Math.hypot(p.x-b.x,p.y-b.y)>160)continue;
       const a=normal(p.name),n=normal(b.name);
       const brand=(s:string)=>s.match(/스타필드|신세계|홈플러스|코스트코|롯데마트|이마트|트레이더스/)?.[0];
       if(a!==n&&!(Math.min(a.length,n.length)>=4&&(a.includes(n)||n.includes(a)))&&!(brand(a)&&brand(a)===brand(n)))continue;
