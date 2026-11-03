@@ -393,7 +393,7 @@ export class DroneSession {
     this.layViewBed();
     const t4 = performance.now();
     if (performance.now() > this.doorAt) { this.doorAt = performance.now() + 200; this.findDoor(); this.settle(); }
-    if (f.walking && performance.now() > this.entranceAt) { this.entranceAt = performance.now() + 900; this.layEntrances(); }
+    if (f.walking && !f.car && !(f.cycling && f.bikeSpeed > 5) && performance.now() > this.entranceAt) { this.entranceAt = performance.now() + (this.layEntrances() ? 200 : 900); }
     if (f.walking) { this.stepEntrance(dt); this.navTick(dt); this.missionTick(); } else if (this.nav) this.clearNav();
     if (f.crash > 0) { this.onCrash(f.crash); f.crash = 0; }
     if (f.walking) this.pickups(dt); else if (this.coins) this.coins.mesh.visible = false;
@@ -881,7 +881,8 @@ export class DroneSession {
     return out;
   }
   /** Every building within 110 m of the walker given its entrance (kept per outline while it lasts). */
-  private layEntrances() {
+  /** true: buildings left whose doors are still to be worked out (the next pass comes sooner) */
+  private layEntrances(): boolean {
     const f = this.flight, x = f.pos.x, y = -f.pos.z, w = this.world;
     if (!this.entrances) { this.entrances = new EntranceLayer(); this.p.scene.add(this.entrances.group); }
     // (one building is often outlined twice — the place's register outline and the tile's surveyed one
@@ -892,9 +893,14 @@ export class DroneSession {
     // outline — traced from their roofs, a few a pass, so they have their doors before they are reached)
     rings.push(...this.tracedBlocks(x, y, rings));
     const list: Entrance[] = [], seen = new Set<string>();
+    // (new buildings' doors worked out nearest first and four a pass — each is rays at its facade;
+    // all at once, landing among fifty, was a long frame every 0.9 s until they were done)
+    const dist = (r: [number, number][]) => { let m = Infinity; for (const p of r) m = Math.min(m, Math.abs(p[0] - x) + Math.abs(p[1] - y)); return m; };
+    rings.sort((a, b) => dist(a) - dist(b));
+    let fresh = 0;
     for (const ring of rings) {
       let es = this.entranceCache.get(ring);
-      if (es === undefined) { es = this.entrancesFor(ring); this.entranceCache.set(ring, es); }
+      if (es === undefined) { if (fresh >= 2) continue; fresh++; es = this.entrancesFor(ring); this.entranceCache.set(ring, es); }
       // (one building's outline held by several sources — the place's own, the view's, a tile's — has one set of entrances)
       // (only where a building actually stands behind the doors: an outline with nothing drawn on it
       // — a block not yet loaded, one gone — gets no doors standing alone in a field)
@@ -906,6 +912,7 @@ export class DroneSession {
     const near = this.entering?.e ?? list.reduce<Entrance | null>((b, e) => { const d = Math.hypot(e.x - x, e.y - y); return d < 14 && (!b || d < Math.hypot(b.x - x, b.y - y)) ? e : b; }, null);
     this.entrances.set(list, near);
     this.entrances.nameSigns(x, y);
+    return fresh >= 2;
   }
   // ---------------------------------------------------------------- going in
   /** Going in through an entrance: walked to its doors, which slide open, and through them, the
@@ -1104,16 +1111,39 @@ export class DroneSession {
    * height, against the world's buildings (not instanced things); the first wall within 6 m outside
    * the outline or 1 m inside it is where the doors go. */
   private ray = new THREE.Raycaster();
+  private facades: { at: number; x: number; y: number; list: THREE.Mesh[] } = { at: -1e9, x: 0, y: 0, list: [] };
+  /** the world's drawn buildings within ~150 m of (x, y) (view frame): not its ground, roads, water,
+   * plants or traffic; refreshed every 4 s or 60 m */
+  private facadeMeshes(x: number, y: number): THREE.Mesh[] {
+    const F = this.facades, now = performance.now();
+    if (now - F.at < 4000 && Math.hypot(x - F.x, y - F.y) < 60) return F.list;
+    F.at = now; F.x = x; F.y = y; F.list = [];
+    const at = new THREE.Vector3(x, 0, -y), sph = new THREE.Sphere(), skip = /ground|sea|water|river|plants|traffic|portals|marks/;
+    const visit = (o: THREE.Object3D) => {
+      if (skip.test(o.name)) return;
+      const m = o as THREE.Mesh;
+      if (m.isMesh && !(m as THREE.InstancedMesh).isInstancedMesh && m.geometry) {
+        if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+        sph.copy(m.geometry.boundingSphere!).applyMatrix4(m.matrixWorld); at.y = sph.center.y;
+        if (sph.distanceToPoint(at) < 150) F.list.push(m);
+      }
+      for (const c of o.children) visit(c);
+    };
+    visit(this.world.root);
+    return F.list;
+  }
   private snapToFacade(e: Entrance) {
     const R = 18, o = new THREE.Vector3(e.x + e.nx * R, e.z + 1.6, -(e.y + e.ny * R)), dir = new THREE.Vector3(-e.nx, 0, e.ny);
     this.ray.set(o, dir); this.ray.far = R + 1.2;
     let best = Infinity;
     const hits: THREE.Intersection[] = [];
-    this.world.root.traverse(m => {
-      const mesh = m as THREE.Mesh; if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || !mesh.visible || !mesh.geometry) return;
-      hits.length = 0; try { mesh.raycast(this.ray, hits); } catch { return; }
+    // (against the buildings near, gathered once every few seconds — it walked the whole world for
+    // each door, the ground, roads, water and trees too: a long frame for every building reached)
+    for (const mesh of this.facadeMeshes(e.x, e.y)) {
+      if (!mesh.visible) continue;
+      hits.length = 0; try { mesh.raycast(this.ray, hits); } catch { continue; }
       for (const h of hits) if (h.distance < best) best = h.distance;
-    });
+    }
     if (!Number.isFinite(best)) return;
     const out = R - best;   // (+: the drawn wall stands this far outside the outline)
     if (!(out > -1 && out < 14) || Math.abs(out) <= 0.15) return;
@@ -1331,7 +1361,7 @@ export class DroneSession {
   private wallMeshes: THREE.Mesh[] = []; private wallAt = 0; private wallHit = { t: 0, d: Infinity, x: 0, z: 0 };
   private wallRay(x: number, y: number, z: number, bx: number, bz: number, el: number, want: number): number {
     const now = performance.now();
-    if (now - this.wallAt > 1000) {
+    if (now - this.wallAt > 2500) {
       this.wallAt = now; this.wallMeshes = [];
       const view = this.p.viewBuildings?.()?.group, near = new THREE.Vector3(x, y, z), sph = new THREE.Sphere();
       const take = (root: THREE.Object3D) => root.traverse(o => {
@@ -1343,12 +1373,24 @@ export class DroneSession {
       this.world.root.traverse(o => { if (/registered buildings|surveyed|drone view tile/.test(o.name)) take(o); });
       if (view) take(view);
     }
-    // (a fresh ray only every 100 ms or after moving a metre; between, the last answer)
-    if (now - this.wallHit.t > 100 || Math.hypot(x - this.wallHit.x, z - this.wallHit.z) > 1) {
-      const dir = new THREE.Vector3(bx * Math.cos(el), Math.sin(el), bz * Math.cos(el));
-      this.ray.set(new THREE.Vector3(x, y, z), dir); this.ray.far = want + 0.5;
-      let d = Infinity; const hits: THREE.Intersection[] = [];
-      for (const m of this.wallMeshes) { if (!m.visible) continue; hits.length = 0; try { m.raycast(this.ray, hits); } catch { continue; } for (const h of hits) if (h.distance < d) d = h.distance; }
+    // (a fresh ray every 150 ms — by time only: "or after moving a metre" made it every frame running
+    // or driving, each a walk over every triangle of the tiles' merged buildings, the frame's largest
+    // CPU cost. And only where the cheap 2D data puts a building on the boom's line: in an open
+    // street no triangle is looked at.)
+    if (now - this.wallHit.t > 150) {
+      let d = Infinity;
+      const hz = Math.cos(el), w = this.world;
+      let any = false;
+      for (let s = 0.5; s <= want + 1 && !any; s += 0.5) {
+        const px = x + bx * hz * s, pz = z + bz * hz * s, py = y + Math.sin(el) * s, qy = -pz;
+        if (w.buildingRingAt(px, qy) || w.roofAt(px, qy) > py - 0.6) any = true;
+      }
+      if (any) {
+        const dir = new THREE.Vector3(bx * hz, Math.sin(el), bz * hz);
+        this.ray.set(new THREE.Vector3(x, y, z), dir); this.ray.far = want + 0.5;
+        const hits: THREE.Intersection[] = [];
+        for (const m of this.wallMeshes) { if (!m.visible) continue; hits.length = 0; try { m.raycast(this.ray, hits); } catch { continue; } for (const h of hits) if (h.distance < d) d = h.distance; }
+      }
       this.wallHit = { t: now, d, x, z };
     }
     // (kept a little in front of the face; still never into the body's own eye)
