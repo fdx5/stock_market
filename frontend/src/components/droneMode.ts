@@ -1272,8 +1272,12 @@ export class DroneSession {
   /** 내부 탐험 from a building's card (its sign): straight in, wherever the drone or the walker is —
    * its outline surveyed or traced from the roofs, the door on its side nearest the viewer */
   enterBuildingAt(x: number, y: number,metadata:Partial<WalkEntry>={}): boolean {
-    const ring = this.world.buildingRingAt(x, y) ?? this.traceRoof(x, y);
-    if (!ring || ring.length < 3) return false;
+    let ring = this.world.buildingRingAt(x, y) ?? this.traceRoof(x, y);
+    // (a complex's sign stands over its grounds — the open ground between its blocks, the very sign
+    // of the complex one started from — not on a roof: the nearest of its buildings, a block of
+    // flats before a guard post or a bin store)
+    if (!ring || ring.length < 3) ring = this.nearestRing(x, y, metadata.kind === "apartment" || metadata.complexId ? 250 : 80);
+    if (!ring || ring.length < 3) { this.notice("이 건물의 윤곽을 아직 찾지 못했습니다 · 건물 가까이에서 다시 눌러 주세요"); return false; }
     // (straight in at its entrance — the drawing's way in on the street side)
     const ent = this.entranceFor(ring);
     // (on foot: walked in through it, its doors opening; flying: straight in)
@@ -1286,6 +1290,25 @@ export class DroneSession {
     // (the door a step outside the wall, facing in)
     const ox = best[0] - cx, oy = best[1] - cy, ol = Math.hypot(ox, oy) || 1;
     return this.openInside(ring, best[0] + ox / ol * 1.5, best[1] + oy / ol * 1.5, Math.atan2(oy, ox),metadata);
+  }
+  /** the building outline nearest (x, y) within r (view frame): by its centre, a block-sized one (over
+   * 150 m2) preferred to a small one twice as near */
+  private nearestRing(x: number, y: number, r: number): [number, number][] | null {
+    let best: [number, number][] | null = null, bd = Infinity;
+    for (const ring of this.world.buildingRingsNear(x, y, r)) {
+      if (ring.length < 3) continue;
+      const cx = ring.reduce((t, p) => t + p[0], 0) / ring.length, cy = ring.reduce((t, p) => t + p[1], 0) / ring.length;
+      const d = Math.hypot(cx - x, cy - y) * (ringArea(ring) > 150 ? 1 : 2);
+      if (d < bd) { bd = d; best = ring; }
+    }
+    return best;
+  }
+  /** a short message over the view (a few seconds), for an action that could not be done */
+  private notice(text: string) {
+    const el = document.createElement("div");
+    el.setAttribute("role", "status"); el.textContent = text;
+    el.style.cssText = "position:fixed;left:50%;top:18%;transform:translateX(-50%);z-index:60;padding:10px 16px;border-radius:10px;background:rgba(6,18,26,.92);border:1px solid rgba(80,230,255,.55);color:#dff8ff;font:600 14px/1.4 Pretendard,'Noto Sans KR',sans-serif;pointer-events:none;max-width:calc(100vw - 32px);text-align:center";
+    document.body.appendChild(el); window.setTimeout(() => el.remove(), 2800);
   }
   private campusOf(ring: [number, number][], x: number, y: number): [number, number][][] {
     const all = this.world.buildingRingsNear(x, y, 300).filter(r => r !== ring && r.length >= 3);
