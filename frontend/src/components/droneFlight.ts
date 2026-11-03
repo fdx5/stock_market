@@ -48,7 +48,7 @@ export type DroneSticks = {
 };
 
 /** On foot (걷기): the eye's height over the street, walking and running pace (m/s), the body's radius. */
-export const EYE = 1.6, WALK = 1.5, RUN = 3.6, SPRINT = 6.2, FOOT_R = 0.3;
+export const EYE = 1.6, WALK = 1.85, RUN = 4.0, SPRINT = 6.5, FOOT_R = 0.3;
 /** On a bicycle: the eye over the street, the top speed (100 km/h), pedalling and braking (m/s²). */
 /** how far a sidewalk's paving stands over the terrain the ground query returns (m) */
 export const SURFACE_LIFT = 0.17;
@@ -201,7 +201,8 @@ export class DroneFlight {
       else if (fwd < 0) this.carSpeed = v > 0.3 ? Math.max(0, v - c.brake * -fwd * dt) : Math.max(-5, v - 2.5 * -fwd * dt);
       else this.carSpeed = v > 0 ? Math.max(0, v - (0.6 + v * 0.012) * dt) : Math.min(0, v + 1.5 * dt);
       const want = THREE.MathUtils.clamp(side + turn, -1, 1);
-      this.steer += (want - this.steer) * Math.min(1, dt * 5);
+      // (turned in briskly, and let go it centres faster still — the wheel's caster)
+      this.steer += (want - this.steer) * Math.min(1, dt * (Math.abs(want) < 0.05 ? 9 : 6.5));
       // (the handbrake on at speed: the tail steps out — a sharper turn, a slide)
       const angle = this.steer * c.lock * (1 - 0.65 * Math.min(1, Math.abs(this.carSpeed) / 35)) * (this.handbrake && Math.abs(this.carSpeed) > 4 ? 1.9 : 1);
       this.yaw -= this.carSpeed * Math.tan(angle) / c.wheelbase * dt;
@@ -231,7 +232,8 @@ export class DroneFlight {
     const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw), rx = -fz, rz = fx;
     let ix = fx * fwd + rx * side, iz = fz * fwd + rz * side;
     const il = Math.hypot(ix, iz); if (il > 1) { ix /= il; iz /= il; }
-    const k = Math.min(1, dt * 8);
+    // (quick to start and to stop: a walker, not a skater)
+    const k = 1 - Math.exp(-dt * (il > 0.05 ? 10 : 14));
     if (!this.cycling) { this.vel.x += (ix * speed - this.vel.x) * k; this.vel.z += (iz * speed - this.vel.z) * k; }
     this.vel.y = 0;
     const here = world.groundAt(this.pos.x, -this.pos.z);

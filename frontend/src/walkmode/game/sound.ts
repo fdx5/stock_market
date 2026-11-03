@@ -118,6 +118,8 @@ export class Sound {
     }
     if (this.ctx.state === "suspended") void this.ctx.resume();
   }
+  /** done with it: its audio context closed */
+  close() { this.bicycleNode?.stop(); this.bicycleNode = null; const c = this.ctx; this.ctx = null; this.master = null; this.noise = null; this.water = null; this.hum = null; if (c) void c.close().catch(() => undefined); }
   setMuted(m: boolean) { this.muted = m; if (this.master) this.master.gain.value = m ? 0 : 0.8; }
   get audioGraph() { return this.ctx && this.master && this.noise ? { ctx: this.ctx, output: this.master, noise: this.noise } : null; }
 

@@ -27,6 +27,7 @@ import { rememberWalkEntry, walkAnchor, walkLink,type WalkEntry } from "../walkm
 import { EntranceLayer, ENTRANCE_SPEC, entranceKind, inRing, placeEntrance, ringArea, type Entrance } from "./droneEntrances";
 import { GARAGE_BIKES, GARAGE_CARS, type GarageBike, type GarageCar } from "../walkmode/game/garage";
 import { crashSound } from "../walkmode/game/CarAudio";
+import { Sound } from "../walkmode/game/sound";
 import { wallet } from "../walkmode/game/wallet";
 import { missions } from "../walkmode/game/missions";
 
@@ -63,6 +64,8 @@ export class DroneSession {
   view: "fpv" | "chase" = "fpv";
   private model = new DroneModel();
   private chaseYaw = 0;
+  /** where the walker's body faces: toward the way it goes (a step aside or back turns it), else its last heading */
+  private bodyYaw: number | null = null;
   private chaseDist = 3.6;
   /** Kept level when the rear boom meets an obstacle. */
   private chaseLift = 0;
@@ -616,14 +619,54 @@ export class DroneSession {
   /** How it feels: the lens widening a little in a sprint and with speed (a car, a bike), and a
    * jump's landing — a thump. */
   private fovKick = 0; private wasHop = false;
+  private lines: HTMLDivElement | null = null; private linesShown = 0;
+  /** one composited layer over the canvas (no draw calls, no shader): a conic of thin streaks masked
+   * to the edges, scaled outward on a loop; its opacity is the speed */
+  private speedLines(k: number, calm = false) {
+    if (Math.abs(k - this.linesShown) < 0.01 && (k > 0 || !this.lines)) return;
+    if (!this.lines) {
+      if (k <= 0) return;
+      const d = document.createElement("div"); d.className = "drone-speedlines"; d.setAttribute("aria-hidden", "true");
+      if (!document.getElementById("drone-speedlines-css")) {
+        const st = document.createElement("style"); st.id = "drone-speedlines-css";
+        st.textContent = ".drone-speedlines{position:fixed;inset:-6%;pointer-events:none;z-index:2;opacity:0;will-change:transform,opacity;background:repeating-conic-gradient(from 3deg at 50% 52%,rgba(255,255,255,0) 0deg 2.1deg,rgba(235,245,255,.75) 2.3deg,rgba(255,255,255,0) 2.6deg 4.9deg,rgba(235,245,255,.45) 5.05deg,rgba(255,255,255,0) 5.3deg 7.3deg);-webkit-mask-image:radial-gradient(ellipse 62% 58% at 50% 52%,transparent 55%,#000 100%);mask-image:radial-gradient(ellipse 62% 58% at 50% 52%,transparent 55%,#000 100%);animation:drone-speedlines .22s linear infinite}.drone-speedlines.calm{animation:none}@keyframes drone-speedlines{from{transform:scale(1) rotate(0deg)}to{transform:scale(1.07) rotate(.6deg)}}";
+        document.head.appendChild(st);
+      }
+      document.body.appendChild(d); this.lines = d;
+    }
+    this.lines.classList.toggle("calm", calm); this.linesShown = k; this.lines.style.opacity = k.toFixed(3); this.lines.style.display = k > 0.005 ? "" : "none";
+  }
+  /** on foot and on the bike: footsteps on the paving, the bicycle's tyres, freewheel and brake */
+  private fx: Sound | null = null; private stepAcc = 0; private wasCycling = false;
+  private footSounds() {
+    const f = this.flight;
+    if (!f.walking) { if (this.wasCycling) { this.fx?.stopBicycle(); this.wasCycling = false; } return; }
+    if (!this.fx) this.fx = new Sound();
+    this.fx.resume();
+    const k = f.keys, fwd = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) + Math.max(0, f.sticks.right[1]), back = (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0) + Math.max(0, -f.sticks.right[1]);
+    if (f.cycling) { this.fx.bicycle({ speed: f.bikeSpeed, pedal: Math.min(1, fwd), brake: Math.min(1, back) }); this.wasCycling = true; this.stepAcc = 0; return; }
+    if (this.wasCycling) { this.fx.stopBicycle(); this.wasCycling = false; }
+    if (f.car || f.hop > 0.02) return;
+    // (a step each stride's half: longer strides running, longer still in a sprint)
+    this.stepAcc += f.moved;
+    const run = Math.hypot(f.vel.x, f.vel.z) > 3, len = f.sprinting ? 1.45 : run ? 1.1 : 0.78;
+    if (this.stepAcc > len) { this.stepAcc = 0; this.fx.step("stone", run); }
+  }
   private feel(dt: number) {
     const f = this.flight, c = this.p.camera;
     let want = 0;
     if (f.walking) want = f.car ? 9 * Math.min(1, Math.abs(f.carSpeed) / Math.max(10, f.car.top)) : f.cycling ? 6 * Math.min(1, f.bikeSpeed / Math.max(5, f.bike.top)) : f.sprinting ? 6 : 0;
     this.fovKick += (want - this.fovKick) * (1 - Math.exp(-dt * 3));
+    this.footSounds();
+    // (speed lines at the screen's edges, rushing outward: a car past ~40 km/h, a bike flat out)
+    const sk = !f.walking ? 0 : f.car ? (Math.abs(f.carSpeed) - 11) / 22 : f.cycling ? (f.bikeSpeed - 7) / 10 : 0;
+    // (with 움직임 줄이기 — the default — fainter and still, never rushing)
+    const calm = viewPreferences().reduceMotion;
+    this.speedLines(THREE.MathUtils.clamp(sk, 0, 1) * (calm ? 0.3 : 0.5), calm);
     if (this.fovKick > 0.05) { c.fov += this.fovKick; c.updateProjectionMatrix(); }
     const air = f.hop > 0.02;
     if (this.wasHop && !air && f.walking) {
+      if (!f.car && !f.cycling) { this.fx?.step("stone", true); this.stepAcc = 0; }
       const snd = this.sound(); if (snd) { const t = snd.ctx.currentTime, o = snd.ctx.createOscillator(), g = snd.ctx.createGain(); o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.12); g.gain.setValueAtTime(0.2, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15); o.connect(g); g.connect(snd.output); o.start(t); o.stop(t + 0.16); }
     }
     this.wasHop = air;
@@ -660,8 +703,11 @@ export class DroneSession {
       c.mesh.setMatrixAt(0, m); c.mesh.instanceMatrix.needsUpdate = true;
     }
     const v = Math.abs(f.carSpeed), gears = [0.12, 0.24, 0.40, 0.59, 0.79, 1].map(x => x * f.car!.top);
-    let lo = 0; for (const g of gears) { if (v <= g) { const r = (v - lo) / Math.max(0.1, g - lo); c.audio?.update(0.15 + r * 0.85, f.throttle, f.carSpeed, f.braking, 0, this.view === "fpv"); break; } lo = g; }
-    if (v > gears[gears.length - 1]) c.audio?.update(1, f.throttle, f.carSpeed, f.braking, 0, this.view === "fpv");
+    // (revs: the share of this gear's top — a shift drops them to the next gear's ratio, about 55–75 %,
+    // never back to idle; the tyres squeal in a hard turn at speed and on the handbrake)
+    const slip = Math.abs(f.steer) * Math.min(1, Math.max(0, v - 8) / 14) * 0.9 + (f.handbrake && v > 3 ? 0.85 : 0);
+    let revs = 1; for (const g of gears) if (v <= g) { revs = Math.max(0.12, v / g); break; }
+    c.audio?.update(revs, f.throttle, f.carSpeed, f.braking, slip, this.view === "fpv");
     // (the knock itself is onCrash's: the crunch, the shake)
   }
   /** 각 단지 앞 자전거: a bicycle parked by the nearest sidewalk to each complex's name within 600 m */
@@ -1212,7 +1258,8 @@ export class DroneSession {
    * with the street round them. */
   private chaseWant() {
     const f = this.flight;
-    return (f.car ? f.car.length + 4 : f.cycling ? 6.5 : f.walking ? 6.0 : 3.6) * viewPreferences().distance;
+    const extra = f.car ? Math.min(3.5, Math.abs(f.carSpeed) * 0.07) : f.cycling ? Math.min(1.8, f.bikeSpeed * 0.12) : f.walking && f.sprinting ? 0.8 : 0;
+    return ((f.car ? f.car.length + 4 : f.cycling ? 6.5 : f.walking ? 6.0 : 3.6) + extra) * viewPreferences().distance;
   }
   /** The line from (x, y, z) back to the camera at height angle `el`, in half-metre steps: how far
    * it goes before anything solid (the ground, a roof), at the camera's own pivot height. */
@@ -1321,7 +1368,15 @@ export class DroneSession {
       this.model.group.visible = false; this.walker.root.visible = !f.car && r > 1.15;
       if (f.car) this.placeCar();
       else if (f.cycling) this.placeRider(dt);
-      else { this.walker.pose = "stand"; this.walker.air = f.hop > 0.05; this.walker.root.position.set(f.pos.x, f.pos.y - EYE, f.pos.z); this.walker.root.rotation.set(0, f.yaw + Math.PI, 0); this.walker.update(dt, Math.hypot(f.vel.x, f.vel.z)); }
+      else {
+        const sp = Math.hypot(f.vel.x, f.vel.z);
+        if (this.bodyYaw === null) this.bodyYaw = f.yaw;
+        if (sp > 0.25) { const t = Math.atan2(-f.vel.x, -f.vel.z), d = Math.atan2(Math.sin(t - this.bodyYaw), Math.cos(t - this.bodyYaw)); this.bodyYaw += d * (1 - Math.exp(-dt * 12)); }
+        this.walker.pose = "stand"; this.walker.air = f.hop > 0.05; this.walker.root.position.set(f.pos.x, f.pos.y - EYE, f.pos.z); this.walker.root.rotation.set(0, this.bodyYaw + Math.PI, 0);
+        this.walker.cadence = sp > 4.5 ? 0.92 : 1;
+        this.walker.update(dt, sp);
+      }
+      if (f.car || f.cycling) this.bodyYaw = f.yaw;
       const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
       // Keep one pivot and one pitch as the boom retracts. Scaling the whole offset by a
       // near-wall blend, then aiming at another moving point, caused 20-degree frame jumps.
@@ -1355,6 +1410,8 @@ export class DroneSession {
     this.flight.setAutoRotate(false);
     if (this.crowd) { this.dropCrowd(this.crowd.c); this.crowd = null; }
     this.audio.stop();
+    this.fx?.stopBicycle(); this.fx?.close(); this.fx = null;
+    this.lines?.remove(); this.lines = null;
     this.p.forget?.(new Set(this.cctv.materials()));
     this.cctv.dispose();
     this.p.forget?.(new Set(this.live.materials()));

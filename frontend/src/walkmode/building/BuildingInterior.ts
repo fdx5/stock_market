@@ -112,7 +112,9 @@ export class BuildingInterior {
   private skyline: THREE.Mesh | null = null; private ground: THREE.Mesh | null = null;
   private hemi = new THREE.HemisphereLight("#f4f6ff", "#8a8578", 0.7);
   private sun = new THREE.DirectionalLight("#fff2dc", 1.4);
-  private bob = 0; private shownPos = new THREE.Vector3(); private shownAnchor = new THREE.Vector3(); private shownYaw = 0; private shownPitch = 0; private shownInit = false;
+  private bob = 0;
+  /** where the body faces: third person toward where it walks; first, the view */
+  private bodyYaw = 0; private bodyInit = false; private shownPos = new THREE.Vector3(); private shownAnchor = new THREE.Vector3(); private shownYaw = 0; private shownPitch = 0; private shownInit = false;
 
   constructor(readonly renderer: THREE.WebGLRenderer, private o: BuildingOptions) {
     this.scene.add(this.floorGroup, this.avatar.root, this.hemi, this.sun);
@@ -513,12 +515,19 @@ export class BuildingInterior {
     let fx = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) + this.stick.x;
     let fz = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0) + this.stick.y;
     const l = Math.hypot(fx, fz); if (l > 1) { fx /= l; fz /= l; }
-    const run = k.has("ShiftLeft") || k.has("ShiftRight") || this.runStick, speed = run ? 3.4 : 1.45;
+    const run = k.has("ShiftLeft") || k.has("ShiftRight") || this.runStick, speed = run ? 4.0 : 1.9;
     const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
-    const wx = (fx * cy - fz * sy) * speed, wz = (-fx * sy - fz * cy) * speed, a = 1 - Math.exp(-dt * 9);
+    const wx = (fx * cy - fz * sy) * speed, wz = (-fx * sy - fz * cy) * speed, a = 1 - Math.exp(-dt * (l > 0.05 ? 11 : 16));
     this.vel.x += (wx - this.vel.x) * a; this.vel.y += (wz - this.vel.y) * a;
     const p = this.collide(this.pos.x + this.vel.x * dt, this.pos.y + this.vel.y * dt);
     const moved = p.distanceTo(this.pos); this.pos.copy(p); this.bob += moved * 4.4;
+    if (!this.bodyInit) { this.bodyYaw = this.yaw; this.bodyInit = true; }
+    if (this.view !== "third") this.bodyYaw = this.yaw;
+    else if (l > 0.05 && this.vel.length() > 0.15) {
+      const d = Math.atan2(Math.sin(Math.atan2(-this.vel.x, -this.vel.y) - this.bodyYaw), Math.cos(Math.atan2(-this.vel.x, -this.vel.y) - this.bodyYaw));
+      this.bodyYaw += d * (1 - Math.exp(-dt * 14));
+    }
+    this.avatar.cadence = run ? 0.9 : 1;
     this.avatar.update(dt, moved / Math.max(1e-4, dt));
     // stepping onto an escalator's foot: carried
     for (const e of this.escal) {
@@ -713,7 +722,7 @@ export class BuildingInterior {
     }
     const y = this.riding ? (this.riding.esc.up ? this.riding.t : 1 - this.riding.t) * this.riding.esc.H : 0;
     const ar = this.avatar.root;
-    ar.position.set(this.pos.x, y, this.pos.y); ar.rotation.set(0, this.yaw + Math.PI, 0);
+    ar.position.set(this.pos.x, y, this.pos.y); ar.rotation.set(0, (this.view === "third" && !this.riding ? this.bodyYaw : this.yaw) + Math.PI, 0);
     ar.visible = this.view === "third";
     const look = new THREE.Vector3(-Math.sin(this.shownYaw) * Math.cos(this.shownPitch), Math.sin(this.shownPitch), -Math.cos(this.shownYaw) * Math.cos(this.shownPitch));
     const head = new THREE.Vector3(this.pos.x, y + EYE + (this.view === "first" && !prefs.reduceMotion ? Math.sin(this.bob) * 0.012 : 0), this.pos.y);

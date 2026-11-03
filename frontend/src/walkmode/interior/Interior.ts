@@ -8,7 +8,7 @@ import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLigh
 import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Batcher } from "./geom";
-import { buildShell, type Seg, type Shell } from "./build";
+import { buildShell, HALF_WALL, type Seg, type Shell } from "./build";
 import { furnish, shadowMoved, switchState, type Furnished, type Interactable, type MonitorScreen } from "./furnish";
 import type { VendingSession } from "./vending";
 import { BASE_SETS, loadSets, disposeSets, Library, makePalette, SETS, STYLE_SETS, type Palette, type SetName } from "./materials";
@@ -1232,6 +1232,25 @@ export class Interior {
     const [cx,cz]=moveThroughGaps([px,pz],[x,z],segs);
     return new THREE.Vector2(cx,cz);
   }
+  /** The third-person boom: from the body toward (x, z), stopped short of the first wall or door it
+   * meets — never slid along one (slid, it ended on the wall's centre line, inside the wall's
+   * thickness, and the camera saw out of the building). */
+  private boomClear(x: number, z: number): THREE.Vector2 {
+    const px = this.pos.x, pz = this.pos.y, vx = x - px, vz = z - pz, len = Math.hypot(vx, vz);
+    if (len < 1e-6) return new THREE.Vector2(px, pz);
+    let first = 1;
+    // (walls and doors only: furniture — a sofa's back, a table — is seen over, not a reason to pull in)
+    const x0 = Math.min(px, x) - .4, z0 = Math.min(pz, z) - .4, x1 = Math.max(px, x) + .4, z1 = Math.max(pz, z) + .4;
+    const walls = this.shell.segments.filter(([a, b, c, d]) => Math.max(a, c) >= x0 && Math.min(a, c) <= x1 && Math.max(b, d) >= z0 && Math.min(b, d) <= z1);
+    for (const [a, b, c, d] of walls.concat(this.doorSegs(x0 - 1.2, z0 - 1.2, x1 + 1.2, z1 + 1.2))) {
+      const sx = c - a, sz = d - b, den = vx * sz - vz * sx; if (Math.abs(den) < 1e-12) continue;
+      const t = ((a - px) * sz - (b - pz) * sx) / den, u = ((a - px) * vz - (b - pz) * vx) / den;
+      if (t >= 0 && t < first && u >= -0.02 && u <= 1.02) first = t;
+    }
+    // (the wall's face is HALF_WALL before its line; the near plane needs a little more)
+    const keep = first >= 1 ? len : Math.max(0, first * len - (HALF_WALL + 0.17));
+    return new THREE.Vector2(px + vx / len * keep, pz + vz / len * keep);
+  }
   /** a circle against the wall and furniture segments (and the doors where they stand now) */
   private collide(x: number, z: number, radius = RADIUS, people = true): THREE.Vector2 {
     const RADIUS = radius;
@@ -1419,7 +1438,7 @@ export class Interior {
         const back = 2.8 * prefs.distance, bx = Math.sin(sh.yaw), bz = Math.cos(sh.yaw);
         // Use the displayed heading for both orbit and aim. Test the actual boom, including
         // moving doors, instead of testing its centre then snapping a shoulder into a jamb.
-        const safe = this.clearOf(this.pos.x + bx * back, this.pos.y + bz * back);
+        const safe = this.boomClear(this.pos.x + bx * back, this.pos.y + bz * back);
         let d = Math.max(.1, Math.hypot(safe.x - this.pos.x, safe.y - this.pos.y));
         // (pulled in quickly before a wall, let out slowly)
         const sb = sh;
@@ -1427,7 +1446,7 @@ export class Interior {
         d = Math.min(d + 0.05, sb.boom);
         // (the shoulder's offset too kept on this side of the walls: in a narrow hall it put the
         // camera inside one)
-        const e = this.clearOf(this.pos.x + bx * d, this.pos.y + bz * d);
+        const e = this.boomClear(this.pos.x + bx * d, this.pos.y + bz * d);
         cam.position.set(e.x, floor + EYE * INDOOR_SCALE + 0.45, e.y);
       }
     }
@@ -1438,7 +1457,7 @@ export class Interior {
       sh.pos.lerp(cam.position, kp); cam.position.copy(sh.pos);
     }
     // Recheck the interpolated path: turning a corner must not lerp through its wall.
-    if (!this.seated) { const safe = this.clearOf(cam.position.x, cam.position.z); cam.position.x = safe.x; cam.position.z = safe.y; sh.pos.copy(cam.position); }
+    if (!this.seated) { const safe = this.view === "third" ? this.collide(...this.boomClear(cam.position.x, cam.position.z).toArray() as [number, number], 0.22, false) : this.clearOf(cam.position.x, cam.position.z); cam.position.x = safe.x; cam.position.z = safe.y; sh.pos.copy(cam.position); }
     const near=passageNear(cam.position.x,cam.position.z,this.segsIn(cam.position.x-.2,cam.position.z-.2,cam.position.x+.2,cam.position.z+.2));
     if(Math.abs(cam.near-near)>.00001){cam.near=near;cam.updateProjectionMatrix();}
     cam.rotation.set(sh.pitch, sh.yaw, 0, "YXZ");

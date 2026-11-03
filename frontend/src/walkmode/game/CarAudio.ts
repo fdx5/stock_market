@@ -7,8 +7,14 @@ const recordings=new Map<string,AudioBuffer>();let loading:Promise<void>|null=nu
 /** Decode at loading time, at most three downloads/decodes in flight. */
 export function loadCarRecordings(){
   if(loading)return loading;
-  loading=(async()=>{const decoder=new OfflineAudioContext(1,1,48000);let next=0;await Promise.all(Array.from({length:3},async()=>{while(next<NAMES.length){const name=NAMES[next++],r=await fetch(ROOT+name+".wav");if(!r.ok)throw Error("Vehicle recording "+name+": "+r.status);recordings.set(name,await decoder.decodeAudioData(await r.arrayBuffer()));}}));})().catch(error=>{loading=null;throw error;});
+  loading=(async()=>{const decoder=new OfflineAudioContext(1,1,48000);let next=0;await Promise.all(Array.from({length:3},async()=>{while(next<NAMES.length){const name=NAMES[next++],r=await fetch(ROOT+name+".wav");if(!r.ok)throw Error("Vehicle recording "+name+": "+r.status);const buffer=await decoder.decodeAudioData(await r.arrayBuffer());if(name.endsWith("-steady"))closeLoop(buffer);recordings.set(name,buffer);}}));})().catch(error=>{loading=null;throw error;});
   return loading;
+}
+/** A short loop's last 50 ms bent toward its first sample: the step where it wraps (up to a tenth
+ * of full scale) clicked 2.5 times a second under the engine. */
+function closeLoop(buffer:AudioBuffer){
+  for(let ch=0;ch<buffer.numberOfChannels;ch++){const d=buffer.getChannelData(ch),n=Math.min(d.length>>2,Math.round(buffer.sampleRate*.05)),step=d[0]-d[d.length-1];
+    for(let i=0;i<n;i++)d[d.length-n+i]+=step*((i+1)/n);}
 }
 export function playCarEffect(name:"door"|"ignition"|"impact",sound:Sound,level=1){
   const graph=sound.audioGraph,buffer=recordings.get(name==="impact"?"door":name);if(!graph||!buffer)return;
@@ -28,9 +34,11 @@ export class CarAudio {
     this.engineGain=ctx.createGain();this.engineGain.gain.value=.9;this.filter=ctx.createBiquadFilter();this.filter.type="lowpass";this.filter.frequency.value=5000;
     const limiter=ctx.createDynamicsCompressor();limiter.threshold.value=-3;limiter.knee.value=3;limiter.ratio.value=8;limiter.attack.value=.003;limiter.release.value=.15;
     this.filter.connect(this.engineGain);this.engineGain.connect(limiter);limiter.connect(output);this.nodes.push(this.filter,this.engineGain,limiter);
-    for(const name of [this.bank+"-idle",this.bank+"-load-steady",this.bank+"-idle","road","skid"]){
+    // (the loaded engine twice, a little apart in time and pitch: one short grain repeating is a buzz,
+    // two drifting against each other is an engine)
+    for(const name of [this.bank+"-idle",this.bank+"-load-steady",this.bank+"-idle","road","skid",this.bank+"-load-steady"]){
       const buffer=recordings.get(name);if(!buffer)throw Error("Vehicle audio not prepared: "+name);
-      const source=ctx.createBufferSource(),gain=ctx.createGain();source.buffer=buffer;source.loop=true;gain.gain.value=0;source.connect(gain);gain.connect(this.filter);source.start(ctx.currentTime,0);
+      const source=ctx.createBufferSource(),gain=ctx.createGain();source.buffer=buffer;source.loop=true;gain.gain.value=0;source.connect(gain);gain.connect(this.filter);source.start(ctx.currentTime,this.tracks.length===5?buffer.duration*.43:0);
       this.tracks.push({source,gain});this.nodes.push(source,gain);
     }
   }
@@ -40,7 +48,8 @@ export class CarAudio {
     const levels=[ev?.006:.16*(1-r*.65),(ev?.24:.36)*load*(.24+r*.76),ev?.06*v:(1-load)*(.05+r*.13)*Math.min(1,Math.abs(speed)),.14*Math.pow(v,1.3),Math.min(.24,Math.max(0,slip-.25)*.30+(braking&&Math.abs(speed)>9?.025:0))];
     const target=(param:AudioParam,value:number,fade=.12)=>{param.cancelScheduledValues(t);param.setTargetAtTime(value,t,fade);};
     target(this.engineGain.gain,inside?.68:.85);target(this.filter.frequency,inside?2200:4400);
-    this.tracks.forEach((track,i)=>{target(track.gain.gain,levels[i]);target(track.source.playbackRate,i===0?this.pitch*(.94+r*.16):i===1?this.pitch*(.78+r*.60):i===2?this.pitch*(.96+r*.35):i===3?.88+v*.18:.94+v*.10,.18);});
+    const loadLevel=levels[1];levels[1]=loadLevel*.62;levels.push(loadLevel*.5);
+    this.tracks.forEach((track,i)=>{target(track.gain.gain,levels[i]);target(track.source.playbackRate,i===0?this.pitch*(.94+r*.16):i===1?this.pitch*(.78+r*.60):i===5?this.pitch*1.017*(.78+r*.60):i===2?this.pitch*(.96+r*.35):i===3?.88+v*.18:.94+v*.10,.18);});
   }
   stop(){const t=this.ctx.currentTime;this.engineGain.gain.cancelScheduledValues(t);this.engineGain.gain.setTargetAtTime(0,t,.025);}
   dispose(){for(const track of this.tracks){try{track.source.stop();}catch{/*already stopped*/}}this.nodes.forEach(n=>n.disconnect());this.tracks.length=0;}
