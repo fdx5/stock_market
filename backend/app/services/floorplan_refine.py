@@ -88,19 +88,23 @@ def refine(result: dict, image: np.ndarray) -> dict:
     removed: set[str] = set()
     for r in list(rooms):
         rid = r["id"]
-        if r["type"] != "hall" or area_m(rid) >= 1.6 or doors_of(rid): continue
+        # (a corridor cell up to 6 m2 — a strip of a bedroom cut off by its door's swing or its
+        # wardrobe's outline, which the grid read as a partition; never one holding the 현관문)
+        if r["type"] != "hall" or area_m(rid) >= 6.0 or any(o["type"] == "front_door" and rid in (o["a"], o["b"]) for o in openings): continue
+        if zone_type.get(r["zone"]) not in (None, "hall", "corridor"): continue
         edges = []
         for q in rooms:
             if q["id"] == rid: continue
             e = shared(rid, q["id"])
             if e: edges.append((q, e, ink_on(*e)))
         if not edges: continue
-        open_e = [(q, e) for q, e, k in edges if k < .25]
+        # (open: no bold line along at least 0.6 m of the shared edge — a corner's touch is not a side)
+        open_e = [(q, e) for q, e, k in edges if k < .25 and (e[3] - e[2]) * (sy if e[0] == "x" else sx) >= .6]
         # (blank: nearly all paper — a 현관's checker tiles are half white; never next to the 현관, never
         # with a door or a window of its own: the door's swing outside the front door is not a duct)
         near_entry = any(zone_type.get(q["zone"]) == "entrance" or q["type"] == "entrance" for q, _, _ in edges)
         has_opening = any(rid in (o["a"], o["b"]) and o["type"] != "open" for o in openings)
-        if not open_e and not near_entry and not has_opening and frac(inner_white, rid) > .7 and area_m(rid) < 1.2:
+        if not open_e and not near_entry and not has_opening and not doors_of(rid) and frac(inner_white, rid) > .7 and area_m(rid) < 1.2:
             removed.add(rid); log.append(f"solid {rid} ({area_m(rid):.2f} m2, blank, walled in)")
             continue
         zones_open = {q["zone"] for q, _ in open_e}
@@ -108,7 +112,11 @@ def refine(result: dict, image: np.ndarray) -> dict:
         z = next(iter(zones_open))
         if z == r["zone"] or zone_type.get(z) not in JOINABLE: continue
         # (walled off from the zone it was given: every edge to its old zone-mates is inked)
-        if any(q["zone"] == r["zone"] and k < .6 for q, _, k in edges): continue
+        # (walled off from the zone it was given: its edges to its old zone-mates carry the bold line —
+        # a door in it is the room's door, which stays — while it lies open to the room)
+        if any(q["zone"] == r["zone"] and k < (.45 if doors_of(rid) else .6) for q, _, k in edges): continue
+        # (a small cell must lie open to its room along most of its side; a big one wholly)
+        if area_m(rid) >= 1.6 and not any(zone_type.get(q["zone"]) in ("bedroom", "master", "dress") for q, _ in open_e): continue
         old = r["zone"]; r["zone"] = z
         # its old 'open' joins are walls in the drawing; full open joins to its new zone's rects
         openings[:] = [o for o in openings if not (o["type"] == "open" and rid in (o["a"], o["b"]) and byid.get(o["b"] if o["a"] == rid else o["a"], {}).get("zone") == old)]
@@ -168,6 +176,38 @@ def refine(result: dict, image: np.ndarray) -> dict:
         openings[:] = [o for o in openings if o["a"] not in removed and o["b"] not in removed]
     result["openings"] = openings
 
+    # --- 2c: one room's own rects are one floor. The 3D builder walls every side of every rect save
+    # its openings, so two rects of one zone sharing an edge with no "open" between them stand as two
+    # rooms: a wall across the living room, a boxed-in strip beside a bedroom. Every run of a
+    # same-zone seam with no bold line in the drawing is opened; a drawn wall stays a wall.
+    byid = {r["id"]: r for r in rooms}
+    seams = 0
+    for i, a in enumerate(rooms):
+        for b in rooms[i + 1:]:
+            if a["zone"] != b["zone"] or a["type"] == "balcony" or b["type"] == "balcony": continue
+            e = shared(a["id"], b["id"])
+            if not e: continue
+            axis, at, lo, hi = e
+            p_, l0, l1 = int(round(at)), int(round(lo)), int(round(hi))
+            band = ink[l0:l1, max(0, p_ - 3):p_ + 4] if axis == "x" else ink[max(0, p_ - 3):p_ + 4, l0:l1]
+            if not band.size: continue
+            solid = band.max(axis=1 if axis == "x" else 0) > 0
+            scale = sy if axis == "x" else sx
+            to_at, to_al = (to_x, to_z) if axis == "x" else (to_z, to_x)
+            have = [(o["center"] - o["width"] / 2, o["center"] + o["width"] / 2) for o in openings
+                    if o["type"] in ("open", "door") and {o["a"], o["b"]} == {a["id"], b["id"]}]
+            k = 0
+            while k < len(solid):
+                if solid[k]: k += 1; continue
+                j = k
+                while j < len(solid) and not solid[j]: j += 1
+                if (j - k) * scale >= .25:
+                    a_m, b_m = to_al(l0 + k), to_al(l0 + j)
+                    if not any(h0 <= a_m + .05 and h1 >= b_m - .05 for h0, h1 in have):
+                        openings.append({"type": "open", "a": a["id"], "b": b["id"], "axis": axis, "at": round(to_at(at), 4), "center": round((a_m + b_m) / 2, 4),
+                                         "width": round(b_m - a_m, 4), "height": 2.7, "sill": 0, "hinge": "start", "swingInto": a["id"]}); seams += 1
+                k = j
+    if seams: log.append(f"opened {seams} seams inside rooms")
     # --- 3: an outer edge over the page
     for r, p in zip(rooms, pixel):
         if r["type"] == "balcony": continue
