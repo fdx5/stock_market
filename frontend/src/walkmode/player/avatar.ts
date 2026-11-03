@@ -29,6 +29,8 @@ export class Avatar {
   air = false; private airK = 0;
   private shoeM!: THREE.MeshPhysicalMaterial; private soleM!: THREE.Material;
   private sway = 0; private runK = 0;
+  /** step rate (1: the full-size cadence) */
+  cadence = 1;
 
   /** `outfit`: clothes for a part (a doctor's white coat, a nurse's scrubs) instead of the seed's casual ones;
    * `style`: the block figure (the default, blocky.ts) or the realistic one */
@@ -212,7 +214,7 @@ export class Avatar {
       // lean, elbows held at a right angle and pumping, the knee driven high, the heel kicked up,
       // the body rising in the flight between steps. The head kept level all the while.
       // (past a run, a sprint: the steps quicken less than the speed, the stride lengthens)
-      this.phase += dt * (speed > 0.05 ? 1.75 + Math.min(speed, 3.5) * 0.62 + Math.max(0, speed - 3.5) * 0.75 : 0);
+      this.phase += dt * this.cadence * (speed > 0.05 ? 1.75 + Math.min(speed, 3.5) * 0.62 + Math.max(0, speed - 3.5) * 0.75 : 0);
       const a = Math.min(1, speed / 1.2);
       this.runK += (Math.min(1, Math.max(0, (speed - 2.3) / 1.4)) - this.runK) * Math.min(1, dt * 6);
       const run = this.runK, ph = this.phase * Math.PI;

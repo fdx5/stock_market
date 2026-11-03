@@ -227,6 +227,8 @@ export class Interior {
   // the walker
   pos = new THREE.Vector2(); yaw = 0; pitch = -0.05; private vel = new THREE.Vector2();
   private eyeY = EYE; private bob = 0; private stepAcc = 0;
+  /** where the body faces (third person: toward where it walks, as in a game; first: the view) */
+  private bodyYaw = 0; private bodyInit = false;
   view: "first" | "third" = "third";
   overhead = false;
   inspectionMode=false;
@@ -1188,11 +1190,12 @@ export class Interior {
     let fz = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0) + this.stick.y;
     const len = Math.hypot(fx, fz); if (len > 1) { fx /= len; fz /= len; }
     const run = k.has("ShiftLeft") || k.has("ShiftRight") || this.runStick;
-    const speed = run ? 2.8 : 1.4;
+    // brisk indoor pace (big floors: a mall, a museum); a run twice that
+    const speed = run ? 4.0 : 2.0;
     // forward is where the camera looks (−z rotated by yaw)
     const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
     const wx = (fx * cy - fz * sy) * speed, wz = (-fx * sy - fz * cy) * speed;
-    const a = 1 - Math.exp(-dt * (len > 0.05 ? 9 : 12));
+    const a = 1 - Math.exp(-dt * (len > 0.05 ? 11 : 16));
     this.vel.x += (wx - this.vel.x) * a; this.vel.y += (wz - this.vel.y) * a;
     const nx = this.pos.x + this.vel.x * dt, nz = this.pos.y + this.vel.y * dt;
     const segments=this.segsIn(Math.min(this.pos.x,nx)-.3,Math.min(this.pos.y,nz)-.3,Math.max(this.pos.x,nx)+.3,Math.max(this.pos.y,nz)+.3);
@@ -1201,10 +1204,21 @@ export class Interior {
     const moved = Math.hypot(p.x - this.pos.x, p.y - this.pos.y);
     this.pos.copy(p);
     const sp = moved / Math.max(1e-4, dt);
+    // the body turns (quickly, not instantly) toward the way it goes; standing, it keeps its heading
+    if (!this.bodyInit) { this.bodyYaw = this.yaw; this.bodyInit = true; }
+    if (this.view !== "third") this.bodyYaw = this.yaw;
+    else if (len > 0.05 && this.vel.length() > 0.15) {
+      const target = Math.atan2(-this.vel.x, -this.vel.y);
+      const d = Math.atan2(Math.sin(target - this.bodyYaw), Math.cos(target - this.bodyYaw));
+      this.bodyYaw += d * (1 - Math.exp(-dt * 14));
+    }
+    // (measured: at this pace the planted foot slips least with the walk's own step rate; a run's
+    // steps a little slower — longer — than the full-size figure's)
+    this.avatar.cadence = run ? 0.82 : 1;
     this.avatar.update(dt, sp);
     // footsteps every ~0.7 m, sounding like the floor
     this.stepAcc += moved; this.bob += moved * 4.4;
-    if (this.stepAcc > (run ? 0.95 : 0.68)) {
+    if (this.stepAcc > (run ? 1.1 : 0.68)) {
       this.stepAcc = 0;
       const r = this.shell.roomAt(p.x, p.y), t = r?.type;
       const hard = t === "lobby" || t === "corridor" || t === "liftHall" || t === "stair" || t === "parking" || t === "plant" || t === "waiting" || t === "gallery" || t === "shop" || t === "service";
@@ -1393,8 +1407,8 @@ export class Interior {
         ar.position.set(s.eye.x - fx * 0.12, s.eye.y - 0.68 - 0.47 * INDOOR_SCALE, s.eye.z - fz * 0.12);
       }
     } else {
-      ar.rotation.set(0, this.yaw + Math.PI, 0, "YXZ"); ar.position.set(this.pos.x, floor, this.pos.y);
-      const bob = this.view === "first" && !prefs.reduceMotion ? Math.sin(this.bob) * 0.012 * Math.min(1, this.vel.length() / 1.4) : 0;
+      ar.rotation.set(0, (this.view === "third" ? this.bodyYaw : this.yaw) + Math.PI, 0, "YXZ"); ar.position.set(this.pos.x, floor, this.pos.y);
+      const bob = this.view === "first" && !prefs.reduceMotion ? Math.sin(this.bob) * 0.012 * Math.min(1, this.vel.length() / 2.0) : 0;
       if (this.view === "first") {
         // the eye a little in front of the face (never through a wall or a door's jamb: inside the
         // wall's thickness its faces are not drawn, and the frame flashed through it)
