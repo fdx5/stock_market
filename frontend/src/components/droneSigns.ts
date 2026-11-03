@@ -107,11 +107,13 @@ export class DroneSigns {
    * redrawn, rasterised and sent to the compositor each frame at the phone's 2x it was a third of
    * the page's work there; the 3D under them is drawn at its full resolution all the same. */
   lite = false;
+  /** on the street (the game): the labels redrawn every other frame — they hardly move between two */
+  half = false;
   private frameNo = 0;
   draw(camera: THREE.PerspectiveCamera, w: number, h: number, fade: [number, number]) {
     const cv = this.canvas;
     if (!cv) return;
-    if (this.lite && (++this.frameNo & 1) && this.size[0] === w && this.size[1] === h) return;
+    if ((this.lite || this.half) && (++this.frameNo & 1) && this.size[0] === w && this.size[1] === h) return;
     if (!this.ctx) this.ctx = cv.getContext("2d");
     const ctx = this.ctx;
     if (!ctx) return;

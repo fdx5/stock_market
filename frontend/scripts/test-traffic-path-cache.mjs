@@ -47,6 +47,17 @@ test('stationary heights are exact and reload immediately when a bridge surface 
  for(const key of ['forward','inConn']){c[key]=!c[key];const before=queries;cache.read(c,revision,compute);assert.equal(queries,before+1);}
  c.conn={};const before=queries;cache.read(c,revision,compute);assert.equal(queries,before+1);
 });
+test('carried heights follow a steady grade between measurements and re-measure past 1.5 m, on a turn or a lane change',()=>{
+ const cache=new VehicleHeightCache(true),c={conn:{},road:0,forward:true,lane:1,s:0,u:0,inConn:false,x:0,y:0,hx:1,hy:0,length:4,width:2};let queries=0;const rev={};
+ // (a road rising 0.1 per metre along x)
+ const compute=out=>{queries++;out[0]=(c.x+c.length*.35)*.1;out[1]=(c.x-c.length*.35)*.1;};
+ cache.read(c,rev,compute);assert.equal(queries,1);
+ for(let i=1;i<=7;i++){c.x+=.2;c.s+=.2;const h=cache.read(c,rev,compute);assert.ok(Math.abs(h[0]-(c.x+1.4)*.1)<1e-9&&Math.abs(h[1]-(c.x-1.4)*.1)<1e-9);}
+ assert.equal(queries,1,'carried along the grade');
+ c.x+=.2;c.s+=.2;cache.read(c,rev,compute);assert.equal(queries,2,'re-measured past 1.5 m');
+ c.hx=Math.cos(.2);c.hy=Math.sin(.2);cache.read(c,rev,compute);assert.equal(queries,3,'re-measured on a turn');
+ c.lane=2;cache.read(c,rev,compute);assert.equal(queries,4,'re-measured on a lane change');
+});
 test('stationary pair results match curved path checks and invalidate every pose/path input',()=>{
  const cache=new VehiclePathHitCache(),c={conn:{},road:0,forward:true,lane:1,s:0,u:0,inConn:false,x:0,y:0,hx:1,hy:0,length:4,width:2},o={x:8,y:2,z:0,hx:0,hy:1,length:4,width:2};
  let checks=0;

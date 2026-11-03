@@ -393,7 +393,7 @@ export class DroneSession {
     this.layViewBed();
     const t4 = performance.now();
     if (performance.now() > this.doorAt) { this.doorAt = performance.now() + 200; this.findDoor(); this.settle(); }
-    if (f.walking && !f.car && !(f.cycling && f.bikeSpeed > 5) && performance.now() > this.entranceAt) { this.entranceAt = performance.now() + (this.layEntrances() ? 200 : 900); }
+    if (f.walking && !f.car && !(f.cycling && f.bikeSpeed > 5) && performance.now() > this.entranceAt) { this.entranceAt = performance.now() + (this.layEntrances() ? 250 : 900); }
     if (f.walking) { this.stepEntrance(dt); this.navTick(dt); this.missionTick(); } else if (this.nav) this.clearNav();
     if (f.crash > 0) { this.onCrash(f.crash); f.crash = 0; }
     if (f.walking) this.pickups(dt); else if (this.coins) this.coins.mesh.visible = false;
@@ -414,6 +414,7 @@ export class DroneSession {
     const bridges=this.p.bridgeLabels?.();
     if(bridges!==this.bridgeLabels){this.bridgeLabels=bridges;this.signs.set('view-bridges',bridges?[...bridges]:null);}
     this.cctv.update(performance.now());
+    this.signs.half = this.flight.walking;
     this.signs.draw(this.p.camera, viewW, viewH, [R * 0.72, R * 0.98]);
     const now = performance.now();
     // (where a frame's time goes: flight, world, cars, people, signs — the worst of each a second)
@@ -900,7 +901,7 @@ export class DroneSession {
     let fresh = 0;
     for (const ring of rings) {
       let es = this.entranceCache.get(ring);
-      if (es === undefined) { if (fresh >= 2) continue; fresh++; es = this.entrancesFor(ring); this.entranceCache.set(ring, es); }
+      if (es === undefined) { if (fresh >= 1) continue; fresh++; es = this.entrancesFor(ring); this.entranceCache.set(ring, es); }
       // (one building's outline held by several sources — the place's own, the view's, a tile's — has one set of entrances)
       // (only where a building actually stands behind the doors: an outline with nothing drawn on it
       // — a block not yet loaded, one gone — gets no doors standing alone in a field)
@@ -912,7 +913,7 @@ export class DroneSession {
     const near = this.entering?.e ?? list.reduce<Entrance | null>((b, e) => { const d = Math.hypot(e.x - x, e.y - y); return d < 14 && (!b || d < Math.hypot(b.x - x, b.y - y)) ? e : b; }, null);
     this.entrances.set(list, near);
     this.entrances.nameSigns(x, y);
-    return fresh >= 2;
+    return fresh >= 1;
   }
   // ---------------------------------------------------------------- going in
   /** Going in through an entrance: walked to its doors, which slide open, and through them, the

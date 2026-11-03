@@ -36,12 +36,23 @@ export class VehicleBuckets<K,T> extends Map<K,T[]> {
 /** Exact stationary wheelbase heights. A road-surface revision invalidates the
  * result, so a newly loaded bridge/deck cannot leave cars at their old height. */
 export class VehicleHeightCache<T extends TravelState & VehicleBody> {
-  private entries = new WeakMap<T, TravelState & VehicleBody & { revision: unknown; heights: [number,number] }>();
+  /** carry: a moving car's heights carried along its last measured grade for up to 1.5 m (see read) */
+  constructor(private carry = false) {}
+  private entries = new WeakMap<T, TravelState & VehicleBody & { revision: unknown; heights: [number,number]; base?: { x: number; y: number; hx: number; hy: number; h0: number; h1: number; slope: number } }>();
   read(c:T, revision:unknown, compute:(out:[number,number])=>void) {
     let e=this.entries.get(c);
     if(e && e.revision===revision && e.conn===c.conn && e.road===c.road && e.forward===c.forward && e.lane===c.lane && e.s===c.s && e.u===c.u && e.inConn===c.inConn && e.x===c.x && e.y===c.y && e.hx===c.hx && e.hy===c.hy && e.length===c.length) return e.heights;
+    // A moving car on the same stretch: its two wheel heights carried along the grade measured last
+    // (both rise by the slope times the distance along the heading) until it has gone 1.5 m, turned
+    // or changed lane — measuring the ground under every moving car every frame was the largest
+    // share of the street's CPU time. Exact on a steady grade; refreshed before a change of grade shows.
+    if(this.carry && e && e.revision===revision && e.road===c.road && e.conn===c.conn && e.forward===c.forward && e.lane===c.lane && e.inConn===c.inConn && e.length===c.length && e.base){
+      const dx=c.x-e.base.x,dy=c.y-e.base.y,turn=Math.abs(c.hx*e.base.hy-c.hy*e.base.hx);
+      if(dx*dx+dy*dy<2.25&&turn<.04){const along=dx*e.base.hx+dy*e.base.hy,k=along*e.base.slope;e.heights[0]=e.base.h0+k;e.heights[1]=e.base.h1+k;e.s=c.s;e.u=c.u;e.x=c.x;e.y=c.y;e.hx=c.hx;e.hy=c.hy;return e.heights;}
+    }
     if(!e){e={conn:c.conn,road:c.road,forward:c.forward,lane:c.lane,s:c.s,u:c.u,inConn:c.inConn,x:c.x,y:c.y,hx:c.hx,hy:c.hy,length:c.length,width:c.width,revision,heights:[0,0]};this.entries.set(c,e);}
     compute(e.heights);
+    e.base={x:c.x,y:c.y,hx:c.hx,hy:c.hy,h0:e.heights[0],h1:e.heights[1],slope:(e.heights[0]-e.heights[1])/Math.max(.1,c.length*.7)};
     e.conn=c.conn;e.road=c.road;e.forward=c.forward;e.lane=c.lane;e.s=c.s;e.u=c.u;e.inConn=c.inConn;e.x=c.x;e.y=c.y;e.hx=c.hx;e.hy=c.hy;e.length=c.length;e.revision=revision;
     return e.heights;
   }

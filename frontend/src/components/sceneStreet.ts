@@ -1446,7 +1446,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const a=gridHeight(paths[c.road],x,y),b=gridHeight(paths[cn.link.road],x,y);
     return a+(b-a)*u/(cn.len||1);
   };
-  const wheelbaseHeights = new VehicleHeightCache<Car>();
+  const wheelbaseHeights = new VehicleHeightCache<Car>(true);
   let heightCar: Car;
   const computeWheelbase = (out:[number,number]) => {
     const c=heightCar,reach=c.length*.35;
