@@ -378,6 +378,14 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
   /** put a kit in the batches with a frame; its footprint blocks walking if `solid` */
   const put = (kit: M.Kit, f: Frame | THREE.Matrix4, zone: number, solid = true, swap?: Map<THREE.Material, THREE.Material>) => {
     const m = f instanceof THREE.Matrix4 ? f : f.m;
+    // (checks only: window.__furnAudit set by a test page — each thing's world box and who put it)
+    const audit = (globalThis as { __furnAudit?: unknown[] }).__furnAudit;
+    if (audit) {
+      const bb = new THREE.Box3(), tb = new THREE.Box3();
+      for (const p of kit) { p.g.computeBoundingBox(); tb.copy(p.g.boundingBox!).applyMatrix4(m); bb.union(tb); }
+      const by = ((new Error().stack ?? "").split("\n")[2] ?? "").trim().replace(/^at\s+/, "").replace(/\?[^:]*/, "").replace(/^.*\//, "");
+      audit.push({ by, zone, solid, box: [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z], parts: kit.length });
+    }
     for (const p of kit) {
       // Mirrored wardrobe doors and future mirror furniture must never inherit
       // the living-room lighting probe as their reflected picture.
@@ -400,6 +408,9 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     return me;
   };
   const local = (f: Frame, x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyMatrix4(f.m);
+  /** a kit's work surface in its own frame — the top of its widest part (the slab, the body; not a
+   * lamp or a bowl standing on it): read before put() disposes its parts */
+  const kitTop = (kit: M.Kit) => { let best = 0, top = 0; for (const p of kit) { p.g.computeBoundingBox(); const b = p.g.boundingBox!, a = (b.max.x - b.min.x) * (b.max.z - b.min.z); if (a > best) { best = a; top = b.max.y; } } return top; };
 
 
   const pantry = new Pantry(dynamic); disposables.push(pantry);
@@ -529,8 +540,10 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       let cabW = Math.min(2.4, span - 0.6),cab:Frame|null=null;
       for(const width of [cabW,1.8,1.4,1.1].filter(w=>w<=cabW)){cab=pl.against(tvSide,width,.42,mid,.8,.55);if(cab){cabW=width;break;}}
       if (cab) {
-        put(tvCabinetCollection(P, cabW,variantOf(VS,"media-console",4)), cab, zone); pl.take(cab.rect);
-        if (cabW > 1.5) for (const s of [-1, 1]) put(propsV(P, variantOf(VS, `propsCab${s}`, 12), disposables), new THREE.Matrix4().multiplyMatrices(cab.m, new THREE.Matrix4().makeTranslation(s * (cabW / 2 - 0.2), 0.48, 0.2)), zone, false);
+        // (the things on it stand on its actual top: the consoles are not all one height)
+        const cabKit = tvCabinetCollection(P, cabW,variantOf(VS,"media-console",4)), cabTop = kitTop(cabKit);
+        put(cabKit, cab, zone); pl.take(cab.rect);
+        if (cabW > 1.5) for (const s of [-1, 1]) put(propsV(P, variantOf(VS, `propsCab${s}`, 12), disposables), new THREE.Matrix4().multiplyMatrices(cab.m, new THREE.Matrix4().makeTranslation(s * (cabW / 2 - 0.2), cabTop, 0.2)), zone, false);
       }
       const tvW = Math.min(1.68, cabW * 0.78), tvH = tvW * 0.5625;
       const tvF = pl.frameAt(tvSide, cab ? centreAlong(cab.rect, tvSide) : mid, tvW, 0.04);
@@ -741,9 +754,11 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         }
       }
       if (tw) {
-        put(diningCollection(P, tw, td,variantOf(VS,"dining-table",4)), new THREE.Matrix4().setPosition(cx, pl.fy, cz), zone, false);
+        // (the basket on the table's actual top: the dining tables are not all one height)
+        const table = diningCollection(P, tw, td,variantOf(VS,"dining-table",4)), tableTop = kitTop(table);
+        put(table, new THREE.Matrix4().setPosition(cx, pl.fy, cz), zone, false);
         // a shopping basket at the table's end: groceries to put away, or taken out of the fridge
-        basket(cx - tw / 2 + 0.36, pl.fy + 0.7525, cz);
+        basket(cx - tw / 2 + 0.36, pl.fy + tableTop, cz);
         const physical:Rect=[cx-tw/2-.05,cz-td/2-.42,cx+tw/2+.05,cz+td/2+.42];
         colliders.push(...rectSegs(physical));pl.take(physical);
         for (const sx of tw > 1.5 ? [-0.45, 0.45] : [-0.3, 0.3]) for (const sz of [-1, 1]) {
@@ -812,7 +827,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         for (const sd of [windowSide, ...(["n", "s", "e", "w"] as SideName[]).filter(x => x !== windowSide)]) if (tryDesk(sd, 1.2, 0.6) || tryDesk(sd, 1.0, 0.55)||tryDesk(sd,.8,.5)) break;
         const dk = got.f;
         if (dk && got.way) pl.keep(got.way);
-        if (dk) { const kit=deskCollection(P,deskW,variantOf(VS+room.id,'desk',4));for(const part of kit)part.g.scale(1,1,deskD/.6);put(kit, dk, zone); pl.take(dk.rect); put((v => (v < 5 ? chairV(P, v) : chairMore(P, v)))([0, 2, 3, 6, 9][variantOf(VS + room.id, "deskchair", 5)]), new THREE.Matrix4().multiplyMatrices(dk.m, new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0, 0, deskD+.35)), zone, false); if (!furnishedLaptop.corners) laptop(dk, zone, room); }
+        if (dk) { const kit=deskCollection(P,deskW,variantOf(VS+room.id,'desk',4));for(const part of kit)part.g.scale(1,1,deskD/.6);const deskTop=kitTop(kit);put(kit, dk, zone); pl.take(dk.rect); put((v => (v < 5 ? chairV(P, v) : chairMore(P, v)))([0, 2, 3, 6, 9][variantOf(VS + room.id, "deskchair", 5)]), new THREE.Matrix4().multiplyMatrices(dk.m, new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0, 0, deskD+.35)), zone, false); if (!furnishedLaptop.corners) laptop(dk, zone, room, deskTop); }
         closet:for(const depth of [.60,.45])for(const wd of [1.8,1.4,1,.8])for(const s of sides.filter(s=>s!==windowSide)){
           const w=pl.against(s,wd,depth,null,2.5,.60);if(!w)continue;
           const kit=wardrobeCollection(P,wd,Math.min(2.2,H-.12),variantOf(VS+room.id,'wardrobe',6));for(const part of kit)part.g.scale(1,1,depth/.60);
@@ -826,7 +841,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     if(room.type==="alpha"){
       const deskSide=sides.find(s=>pl.windowsOn(s).length)??"n";
       const w=Math.min(1.6,pl.len(deskSide)-.2),f=w>.8?pl.against(deskSide,w,.6,null,.75,.8):null;
-      if(f){put(deskCollection(P,w,variantOf(VS+room.id,"office-desk",4)),f,zone);pl.take(f.rect);put(chairMore(P,8),new THREE.Matrix4().multiplyMatrices(f.m,new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0,0,1.0)),zone,false);if(!furnishedLaptop.corners)laptop(f,zone,room);}
+      if(f){const officeDesk=deskCollection(P,w,variantOf(VS+room.id,"office-desk",4)),officeTop=kitTop(officeDesk);put(officeDesk,f,zone);pl.take(f.rect);put(chairMore(P,8),new THREE.Matrix4().multiplyMatrices(f.m,new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0,0,1.0)),zone,false);if(!furnishedLaptop.corners)laptop(f,zone,room,officeTop);}
       for(const side of sides.filter(s=>s!==deskSide)){const f=pl.against(side,.9,.32,null,2);if(f){put(M.bookshelf(P,.9,1.9),f,zone);pl.take(f.rect);break;}}
     }
     // ------------------------------------------------ dressroom, entrance, utility
@@ -1081,8 +1096,8 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
   /** a 14" aluminium laptop in the MacBook manner (no maker's mark): a thin unibody, a black glass
    * display with slim bezels, a black keyboard in a recess, a wide trackpad; the lid at 110°. Its
    * screen's corners are where the page lays a real browser. */
-  function laptop(f: Frame, zone: number, room: Room) {
-    const bw = 0.313, bd = 0.221, x0 = -0.12, z0 = 0.32, top = 0.75;
+  function laptop(f: Frame, zone: number, room: Room, top = 0.75) {
+    const bw = 0.313, bd = 0.221, x0 = -0.12, z0 = 0.32;
     const alu = new THREE.MeshPhysicalMaterial({ color: "#c9ccd1", roughness: 0.32, metalness: 0.85, clearcoat: 0.2 }); disposables.push(alu);
     const keyM = new THREE.MeshPhysicalMaterial({ color: "#16171a", roughness: 0.55 }); disposables.push(keyM);
     const kit: M.Kit = [M.rb(alu, bw, 0.0155, bd, 0.007, x0, top + 0.0078, z0)];

@@ -1159,5 +1159,12 @@ def analyze_image(data:bytes,exclusive_area:float,*,words:list[dict]|None=None,e
         alternative=_analyze_image(data,exclusive_area,words=recovered_words,expanded=expanded,supply_area=supply_area,_axis_recovery=True)
         alternative.pop('_recoveryWords',None)
         if alternative.get('status')=='ready' and alternative.get('sourceMatch',{}).get('wallF1',0)>match['wallF1']:result=alternative
+    # Evidence-based corrections of leftover cells and edges past the drawn floor (floorplan_refine).
+    if result.get('rooms'):
+        try:
+            from app.services.floorplan_refine import refine
+            image=cv2.imdecode(np.frombuffer(data,np.uint8),cv2.IMREAD_COLOR)
+            if image is not None:result=refine(result,image)
+        except Exception:pass   # (the uncorrected analysis stands)
     result['elapsedMs']=round((time.perf_counter()-started)*1000)
     return result

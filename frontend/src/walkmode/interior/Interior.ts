@@ -555,6 +555,9 @@ export class Interior {
   constructor(readonly renderer: THREE.WebGLRenderer, private o: InteriorOptions) {
     ensureAreaLights();
     this.scene.add(this.static, this.dynamic, this.avatar.root);
+    // (a flat opens in first person — its rooms seen as one stands in them; other buildings — shops,
+    // a hotel, a museum — in third, the figure among their people. V changes it either way.)
+    this.view = o.plan.facility ? "third" : "first";
     // (the sun's shadow map is drawn only when the flat's own things move: the walker casts none)
     this.avatar.root.traverse(o => { o.castShadow = false; });
   }
