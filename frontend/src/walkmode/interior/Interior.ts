@@ -18,13 +18,14 @@ import { waterTime } from "./water";
 import { Avatar } from "../player/avatar";
 import { Cat, Robot, type PetKind } from "./life";
 import { CONSUME, ITEM_NAME, type ItemKind } from "./pantry";
-import { SHOP_LABEL, shopOf, type ShopItem, type ShopKind } from "./shop";
+import { SHOP_LABEL, shopOf, type Consumable, type ShopKind } from "./shop";
 import { missions } from "../game/missions";
 import { SOCIAL_LABEL, type Social } from "./npcLines";
 import { wallet } from "../game/wallet";
 import type { Sound, WaterKind } from "../game/sound";
 import type { FloorPlan } from "./plan/types";
-import { facilityLook } from "./facilityMaterials";
+import { facilityLook, FACILITY_SETS } from "./facilityMaterials";
+import { GESTURES, type GestureName } from "../player/gestures";
 import { People, type PersonTalk } from "./facilityPeople";
 import type { Spot } from "./facilityFurnish";
 import { withKitGeometryCache } from "./models";
@@ -212,7 +213,7 @@ export class Interior {
   private probeDirty = 0;
   private mirrors: Reflector[] = [];
   // (the same person as outside — Avatar(7) in WalkGame — in socks: shoes are left at the door)
-  avatar = (() => { const a = new Avatar(7); a.shoes(false); return a; })();
+  avatar = (() => { const a = new Avatar(0); a.shoes(false); return a; })();
   cat: Cat | null = null;
   /** a building's people (facilityPeople.ts) */
   people: People | null = null;
@@ -223,7 +224,7 @@ export class Interior {
   // the walker
   pos = new THREE.Vector2(); yaw = 0; pitch = -0.05; private vel = new THREE.Vector2();
   private eyeY = EYE; private bob = 0; private stepAcc = 0;
-  view: "first" | "third" = "first";
+  view: "first" | "third" = "third";
   overhead = false;
   inspectionMode=false;
   inspectionIssues:string[]=[];
@@ -247,6 +248,9 @@ export class Interior {
   private sip: { t: number; obj: THREE.Object3D; how: "can" | "carton" | "bottle" | "cup" | "crunch" | "soft" | "peel"; name: string; own: boolean; beat: number; bites: number; peeled: boolean; bits: THREE.Mesh[] } | null = null;
   private sipM = new THREE.Matrix4(); private sipQ = new THREE.Quaternion(); private sipE = new THREE.Euler(); private sipP = new THREE.Vector3(); private sipS = new THREE.Vector3(1, 1, 1);
   /** R: the hand's item drunk or eaten (milk, cola, beer, fruit, cake…) */
+  /** the visitor's gesture: played by their figure (seen in the third person and the mirrors), and
+   * answered by the people about */
+  gesture(name: GestureName) { if (this.seated && GESTURES[name].legs) return; this.avatar.play(name); this.people?.react(name); }
   consumeHand(): boolean {
     const k = this.furn.pantry.handKind() as ItemKind | null, how = k ? CONSUME[k] : undefined;
     if (this.sip || !k || !how || !this.furn.pantry.hand) return false;
@@ -302,7 +306,7 @@ export class Interior {
   }
   /** Something bought at a counter, had there and then: a can, a bottle, a cup (with its lid), a
    * carton or a bite of food, made in its colour and brought to the mouth with its sounds. */
-  consumeBought(it: ShopItem): boolean {
+  consumeBought(it: Consumable): boolean {
     if (this.sip || this.furn.pantry.hand || !it.how) return false;
     const how = it.how, g = new THREE.Group(), col = new THREE.Color(it.color);
     const mat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.4, metalness: how === "can" ? 0.6 : 0 });
@@ -560,7 +564,7 @@ export class Interior {
     let t = t0;
     P(0.02, "자재 텍스처를 내려받는 중");
     // (the common sets, and the style's own floors and tiles only)
-    const names: SetName[] = [...new Set<SetName>([...BASE_SETS, ...STYLE_SETS[plan.style]])];
+    const names: SetName[] = [...new Set<SetName>([...BASE_SETS, ...STYLE_SETS[plan.style], ...(plan.facility ? FACILITY_SETS : [])])];
     const sets = await loadSets(names, (k, label) => P(0.02 + k * 0.5, label), signal);
     if (this.disposed) {disposeSets(sets);return;}
     t = mark("textures", t);
@@ -782,7 +786,8 @@ export class Interior {
         const F = (2 / Math.PI) * (X / Math.sqrt(1 + X * X) * Math.atan(Y / Math.sqrt(1 + X * X)) + Y / Math.sqrt(1 + Y * Y) * Math.atan(X / Math.sqrt(1 + Y * Y)));
         intensity *= Math.max(1, (w * h / (Math.PI * c * c)) / Math.max(1e-4, F));
       }
-      if (down) intensity *= this.o.plan.facility ? .75 : .85;
+      // (a building's public rooms lit as shops and lobbies are: brighter, a cleaner white)
+      if (down) intensity *= this.o.plan.facility ? 1.0 : .85;
       const lamp: Lamp = { zone, pos: pos.clone(), look: down ? new THREE.Vector3(pos.x, pos.y - 1, pos.z) : pos.clone().add(inward!), w, h, color: new THREE.Color(color), base: intensity, window: windowIdx, now: intensity, k: 0 };
       this.lamps.push(lamp);
       return lamp;
@@ -791,7 +796,7 @@ export class Interior {
     // units, where the noon sun is ~3.4): illuminance ≈ L·A / (π·h²) for an area A at height h.
     const lum = (target: number, area: number, h = H) => (target * Math.PI * h * h) / Math.max(0.01, area);
     for (const c of this.shell.ceilingLights) {
-      const warm = c.kind === "coffer" ? "#ffe2bd" : c.room.type === "bathroom" || c.room.type === "ensuite" ? "#fff8f0" : "#fff3e4";
+      const warm = this.o.plan.facility && c.kind !== "coffer" ? "#fff7ee" : c.kind === "coffer" ? "#ffe2bd" : c.room.type === "bathroom" || c.room.type === "ensuite" ? "#fff8f0" : "#fff3e4";
       if (c.kind === "coffer") {
         // the cove's glow from the recess, and the downlights' share
         const a1 = c.w * 0.9 * c.h * 0.9, a2 = (c.w + 0.8) * (c.h + 0.8);
@@ -848,7 +853,7 @@ export class Interior {
     const r = this.renderer;
     // (on: a previous interior on this renderer left it off, and its loading renders need the sun's shadow)
     r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFShadowMap; r.shadowMap.autoUpdate = true; r.shadowMap.needsUpdate = true;
-    r.toneMapping = THREE.NeutralToneMapping; r.toneMappingExposure = .9;
+    r.toneMapping = THREE.NeutralToneMapping; r.toneMappingExposure = this.o.plan.facility ? 1.0 : .9;
     r.outputColorSpace = THREE.SRGBColorSpace;
     const size = r.getDrawingBufferSize(new THREE.Vector2());
     // (the frame's own depth feeds the AO, its normals rebuilt from it: no second scene pass)

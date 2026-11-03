@@ -79,7 +79,7 @@ export class WalkGame {
   readonly camera = new THREE.PerspectiveCamera(62, 1, 0.1, 2600);
   readonly origin: Origin;
   world!: World; traffic!: Traffic; mats!: Materials;
-  avatar = new Avatar(7);
+  avatar = new Avatar(0);
   readonly bicycles = new Bicycles();
   readonly bicycleMotion = new BicycleMotion();
   readonly parkedCars=new ParkedCars();

@@ -46,6 +46,9 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis):FloorPlan
     const kitchenWindow=["window","balcony_window"].includes(source.type)&&(a.surfaceType==="kitchen"||b?.surfaceType==="kitchen");
     openings.push({...source,center:(start+end)/2,width:end-start,...(kitchenWindow&&source.sill<.95?{sill:.95,height:Math.max(.8,source.sill+source.height-.95)}:{})});
   }
+  // A drawing read without its 현관문 (the door symbol lost in the plan's line work) still has one:
+  // in the 현관's outside wall — the side no other room lies against — at its widest clear part.
+  if(!openings.some(o=>o.type==="front_door")){const fd=frontDoorFor(rooms,openings);if(fd)openings.push(fd);}
   const xs=rooms.flatMap(r=>[r.rect[0],r.rect[2]]),zs=rooms.flatMap(r=>[r.rect[1],r.rect[3]]);
   const living=rooms.find(r=>r.type==="living");if(!living)return null;
   const [x0,z0,x1,z1]=living.rect;
@@ -58,4 +61,32 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis):FloorPlan
     imageAnalysis:{key:analysis.drawing.key,typeName:analysis.drawing.typeName,sourceUrl:analysis.drawing.sourceUrl,scaleBasis:analysis.scale.basis,wallThicknessMetres:analysis.scale.wallThicknessMetres,elapsedMs:analysis.elapsedMs??0,start:[(x0+x1)/2,(z0+z1)/2,Math.PI]}};
   plan.fixtures=fixturesFor(plan).filter(f=>{const r=ids.get(f.room);return r&&f.pos[0]>=r.rect[0]+.15&&f.pos[0]<=r.rect[2]-.15&&f.pos[1]>=r.rect[1]+.15&&f.pos[1]<=r.rect[3]-.15;});
   return plan;
+}
+
+/** the 현관's front door where the drawing lost it: on the entrance room's (or, lacking one, the
+ * hall's) side that no other room lies against, centred on its longest clear run (≥ 0.9 m) */
+export function frontDoorFor(rooms:Room[],openings:Opening[]):Opening|null{
+  const E=1e-3,ent=rooms.filter(r=>(r.surfaceType??r.type)==="entrance");
+  const cands=ent.length?ent:rooms.filter(r=>r.type==="hall"||r.type==="corridor");
+  let best:{o:Opening;len:number}|null=null;
+  for(const r of cands){
+    const [x0,z0,x1,z1]=r.rect;
+    const sides:{axis:"x"|"z";at:number;lo:number;hi:number;out:number}[]=[{axis:"z",at:z0,lo:x0,hi:x1,out:-1},{axis:"z",at:z1,lo:x0,hi:x1,out:1},{axis:"x",at:x0,lo:z0,hi:z1,out:-1},{axis:"x",at:x1,lo:z0,hi:z1,out:1}];
+    for(const s of sides){
+      // (the parts of this side with a room beyond it, or a window in it, are not the way out)
+      const taken:[number,number][]=[];
+      for(const q of rooms){if(q===r)continue;const [a0,b0,a1,b1]=q.rect;
+        const beyond=s.axis==="z"?(s.out<0?Math.abs(b1-s.at)<E:Math.abs(b0-s.at)<E):(s.out<0?Math.abs(a1-s.at)<E:Math.abs(a0-s.at)<E);
+        if(beyond)taken.push(s.axis==="z"?[a0,a1]:[b0,b1]);}
+      for(const o of openings)if(o.axis===s.axis&&Math.abs(o.at-s.at)<E&&o.b==="out")taken.push([o.center-o.width/2-.1,o.center+o.width/2+.1]);
+      taken.sort((p,q)=>p[0]-q[0]);
+      let a=s.lo+.15;const free:[number,number][]=[];
+      for(const [t0,t1] of taken){if(t0>a)free.push([a,Math.min(t0,s.hi-.15)]);a=Math.max(a,t1);}
+      if(s.hi-.15>a)free.push([a,s.hi-.15]);
+      for(const [f0,f1] of free){const len=f1-f0;if(len<.9||(best&&len<=best.len))continue;
+        const width=Math.min(.95,len-.1);
+        best={len,o:{type:"front_door",a:r.id,b:"out",axis:s.axis,at:s.at,center:(f0+f1)/2,width,height:2.1,sill:0,hinge:"start",swingInto:"out"}};}
+    }
+  }
+  return best?.o??null;
 }

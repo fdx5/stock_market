@@ -41,7 +41,7 @@ const TEX = "/3d/walk/tex/";
 export class BuildingInterior {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(68, 1, 0.05, 900);
-  private avatar = new Avatar(7);
+  private avatar = new Avatar(0);
   private floorGroup = new THREE.Group();
   private crowd: Crowd | null = null;
   private plan!: FloorPlan;

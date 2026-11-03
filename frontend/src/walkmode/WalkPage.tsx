@@ -27,6 +27,8 @@ import { STYLE_NAMES } from "./interior/plan/types";
 import { LAYOUT_CASES, LAYOUT_FAMILIES, caseNumber } from "./interior/plan/layoutCases";
 import LayoutPreview from "./LayoutPreview";
 import ShopMenu from "./ShopMenu";
+import BagPanel from "./BagPanel";
+import GesturePanel from "./GesturePanel";
 import MissionHud from "./MissionHud";
 import { SHOP_LABEL, shopOf, type ShopKind } from "./interior/shop";
 import PublicPlanLibrary from "./PublicPlanLibrary";
@@ -136,6 +138,8 @@ export default function WalkPage() {
   const [iTalk,setITalk]=useState<InteriorTalk|null>(null);
   /** a counter's goods on show (bought with the game's play money) */
   const [shop,setShop]=useState<{kind:ShopKind;label:string}|null>(null);
+  const [bag,setBag]=useState(false);
+  const [gest,setGest]=useState(false);
   /** what a building's fitting did, for a moment on the screen */
   const [toast,setToast]=useState<string|null>(null);const toastTimer=useRef(0);
   /** a building other than flats, walked floor by floor in the interior engine: what is known of it */
@@ -460,7 +464,7 @@ export default function WalkPage() {
   const exitFlat = () => {
     if (exiting.current) return;
     exiting.current = true;
-    setVending(null); setMonitorOpen(false); setLiftPanel(null); setCameraPanel(false); setITalk(null); setShop(null);
+    setVending(null); setMonitorOpen(false); setLiftPanel(null); setCameraPanel(false); setITalk(null); setShop(null); setBag(false); setGest(false);
     document.exitPointerLock?.();
     setFade(true);
     setTimeout(() => {
@@ -629,7 +633,7 @@ export default function WalkPage() {
   const leave = () => { const b = returnTo.current ?? safeWalkBack(q.get("back")); if (b) location.href = b; else if (history.length > 1) history.back(); else location.href = "/realestate-map"; };
 
   /** the shop the walker stands in (a building floor's 편의점, 카페, 약국, 식당, 매장), if any */
-  const shopHere=useMemo(()=>{if(phase!=="interior"||!plan?.facility||!hud?.room)return null;const k=shopOf(hud.room,plan.facility.kind,"");return k?{kind:k,label:/복도|로비/.test(hud.room)?SHOP_LABEL[k]:hud.room}:null;},[phase,plan,hud?.room]);
+  const shopHere=useMemo(()=>{if(phase!=="interior"||!plan?.facility||!hud?.room)return null;const k=shopOf(hud.room,plan.facility.kind,"",plan.facility.name);return k?{kind:k,label:/복도|로비/.test(hud.room)?SHOP_LABEL[k]:hud.room}:null;},[phase,plan,hud?.room]);
   // keys the page owns: Esc leaves (back to the street, then the map), E enters a building
   const exiting = useRef(false), lastEscape = useRef(-Infinity), unlockedAt = useRef(-Infinity), escapeHandled = useRef(false);
   const laptopNative=useRef(false),laptopFullscreenExit=useRef(-Infinity);
@@ -640,6 +644,8 @@ export default function WalkPage() {
       if(laptop){if(e.code==='Escape'){escapeHandled.current=true;e.preventDefault();if(!e.repeat)laptop.click();}return;}
       if(e.code==='Escape'&&performance.now()-laptopFullscreenExit.current<350){escapeHandled.current=true;return;}
       if(target?.closest('.wk-laptop-layer'))return;
+      // (typing in a shop's search box: the letters are the box's, not the walker's)
+      if(e.code!=='Escape'&&target?.matches('input, textarea, select'))return;
       if (e.code === "Escape") {
         if (e.type === "keydown") escapeHandled.current = true;
         if (e.repeat || performance.now() - lastEscape.current < 350) return;
@@ -647,7 +653,7 @@ export default function WalkPage() {
         if (cameraPanel) { setCameraPanel(false); return; }
         if (monitorOpen) { closeMonitor(); return; }
         if (vending) { setVending(null); return; }
-        if (phase === "interior") { if (shop) setShop(null); else if (iTalk) interior.current?.closeTalk(); else if (liftPanel) setLiftPanel(null); else exitFlat(); return; }
+        if (phase === "interior") { if (gest) setGest(false); else if (bag) setBag(false); else if (shop) setShop(null); else if (iTalk) interior.current?.closeTalk(); else if (liftPanel) setLiftPanel(null); else exitFlat(); return; }
         if (phase === "building") { if (talk) building.current?.closeTalk(); else if (liftPanel) building.current?.closeLiftPanel(); else exitBuilding(); return; }
         if (phase === "choose" && game.current) { game.current.resume(); setPhase("outdoor"); }
         else if (phase === "outdoor") leave();
@@ -658,6 +664,8 @@ export default function WalkPage() {
       sound.resume();
       if (e.code === "KeyC" && !e.repeat) { active()?.resetLook(); return; }
       if (e.code === "KeyH") setShowHelp(s => !s);
+      if (e.code === "KeyG" && phase === "interior" && !e.repeat && !iTalk && !shop && !bag) { e.preventDefault(); setGest(g => !g); return; }
+      if (e.code === "KeyI" && phase === "interior" && !e.repeat && !iTalk) { e.preventDefault(); setBag(b => !b); document.exitPointerLock?.(); return; }
       if (e.code === "KeyQ" && phase === "interior" && !e.repeat && shopHere && !iTalk) { e.preventDefault(); setShop(shopHere); document.exitPointerLock?.(); return; }
       if(e.code==="KeyF"&&phase==="outdoor"&&!e.repeat){if(game.current?.interactCar())e.preventDefault();return;}
       if ((e.code === "KeyE" || e.code === "Enter") && phase === "outdoor" && !e.repeat) {
@@ -712,7 +720,7 @@ export default function WalkPage() {
   }, []);
   const onDown = (e: React.PointerEvent) => {
     sound.resume();
-    if (vending || monitorOpen || liftPanel || cameraPanel || talk || iTalk || shop) return;
+    if (vending || monitorOpen || liftPanel || cameraPanel || talk || iTalk || shop || bag) return;
     if ((e.target as HTMLElement).closest("button, a, input, select, textarea, iframe")) return;
     if (e.pointerType === "touch") {
       if (!touch) setTouch(true);
@@ -937,7 +945,11 @@ export default function WalkPage() {
           {!vending && !monitorOpen && <MissionHud className="is-inside" />}
           {shopHere && !shop && !iTalk && <button type="button" className="wk-shop-here" onClick={() => { setShop(shopHere); document.exitPointerLock?.(); }}>🛒 {shopHere.label} · {!touch && <kbd>Q</kbd>} 물건 사기</button>}
           {toast && <div className="wk-toast" role="status">{toast}</div>}
-          {shop && <ShopMenu shop={shop} onBuy={it => it.kind === "goods" ? false : !!interior.current?.consumeBought(it)} onClose={() => setShop(null)} />}
+          {shop && !bag && <ShopMenu shop={shop} onBuy={it => it.kind === "goods" ? false : !!interior.current?.consumeBought(it)} onClose={() => setShop(null)} onBag={() => setBag(true)} />}
+          {bag && <BagPanel onClose={() => setBag(false)} onUse={p => !!interior.current?.consumeBought(p)} />}
+          {gest && !shop && !bag && <GesturePanel onPick={g => interior.current?.gesture(g)} onClose={() => setGest(false)} />}
+          {!shop && !bag && !iTalk && <button type="button" className="wk-gesture-here" onClick={() => setGest(g => !g)}>😀 제스처 {!touch && <kbd>G</kbd>}</button>}
+          {!shop && !bag && !iTalk && <button type="button" className="wk-bag-here" onClick={() => { setBag(true); document.exitPointerLock?.(); }}>🎒 가방 {!touch && <kbd>I</kbd>}</button>}
           {hud?.use && !vending && !monitorOpen && !liftPanel && <div className={`wk-use${/중$/.test(hud.use) ? " is-busy" : ""}`} role="status">{/중$/.test(hud.use) ? hud.use : <>{!touch && <kbd>R</kbd>} {hud.use}</>}</div>}
           {hud?.pet && touch && <button className="wk-btn wk-pet-zoom" onPointerDown={e => { e.stopPropagation(); interior.current?.zoomPet(true); }}>🔍 확대해서 보기</button>}
           {hud?.seated === "반려동물" && <div className="wk-laptop-bar" onPointerDown={e => e.stopPropagation()}><span>가까이서 보는 중</span><button className="wk-btn" onClick={() => interior.current?.zoomPet(false)}>축소 <kbd>Z</kbd></button></div>}

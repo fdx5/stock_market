@@ -236,6 +236,69 @@ function partGeometries() {
   return { torso, hips, skirt, thigh, shin, shoe, upper, fore, hand, head, hair, acc, detail };
 }
 
+/* Block figures (the default, as the walk's own people are — walkmode/player/blocky.ts): a rounded
+ * cube of a head with its face (eyes, brows, a smile) baked in black vertex colour, box torsos by
+ * the clothes, box limbs, chunky hair and hats. The same joints, so the same walk. */
+const BLOCKY = true;
+function blockyGeometries(): ReturnType<typeof partGeometries> {
+  const rb = (w: number, h: number, d: number, r = 0.025) => new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3));
+  const white = (g: THREE.BufferGeometry) => colored(g.index ? g.toNonIndexed() : g, "#ffffff");
+  const blk = (g: THREE.BufferGeometry) => colored(g.index ? g.toNonIndexed() : g, "#16161a");
+  const box = (w: number, y0: number, y1: number, d = 0.21, r = 0.03) => white(rb(w, y1 - y0, d, r).translate(0, (y0 + y1) / 2, 0));
+  const flare = (r0: number, r1: number, y0: number, y1: number) => white(new THREE.CylinderGeometry(r0, r1, y1 - y0, 4, 1).rotateY(Math.PI / 4).scale(1, 1, 0.75).translate(0, (y0 + y1) / 2, 0));
+  const m = (list: THREE.BufferGeometry[]) => { const out = mergeGeometries(list.map(g => { g.deleteAttribute("uv"); return g; }), false)!; list.forEach(g => g.dispose()); return out; };
+  const torso: Record<Top, THREE.BufferGeometry> = {
+    shirt: box(0.38, 0.88, 1.5), tee: box(0.37, 0.89, 1.49), blouse: box(0.35, 0.9, 1.48, 0.2),
+    jacket: m([box(0.4, 0.8, 1.5, 0.23), blk(new THREE.BoxGeometry(0.012, 0.5, 0.01).translate(0, 1.05, 0.118))]),
+    hoodie: m([box(0.4, 0.84, 1.5, 0.23), white(rb(0.26, 0.12, 0.08).translate(0, 1.46, -0.13))]),
+    coat: m([box(0.42, 0.45, 1.51, 0.24), flare(0.27, 0.3, 0.45, 0.8)]), puffer: m([box(0.44, 0.36, 1.53, 0.26, 0.06)]),
+    dress: m([box(0.34, 1.0, 1.48, 0.2), flare(0.2, 0.32, 0.5, 1.02)]), vest: box(0.39, 0.84, 1.5, 0.22),
+  };
+  const hips = box(0.32, 0.8, 0.97, 0.2);
+  const skirt = flare(0.2, 0.3, 0.6, 1.0);
+  const thigh = white(rb(0.15, THIGH, 0.17).translate(0, -THIGH / 2, 0)), shin = white(rb(0.14, SHIN, 0.16).translate(0, -SHIN / 2, 0));
+  const shoe = m([white(rb(0.16, 0.08, 0.25, 0.03).translate(0, -SHIN - 0.03, 0.04)), blk(rb(0.165, 0.02, 0.255, 0.008).translate(0, -SHIN - 0.068, 0.04))]);
+  const upper = white(rb(0.12, UPPER, 0.14).translate(0, -UPPER / 2 + 0.02, 0)), fore = white(rb(0.11, FORE, 0.13).translate(0, -FORE / 2, 0));
+  const hand = white(rb(0.11, 0.1, 0.12, 0.035).translate(0, -FORE - 0.05, 0));
+  // head (neck frame): the cube, the neck; the face just proud of its front
+  const F = 0.131, fy = 0.13;
+  // (eight faces for the crowd: eyes dots, wide, happy arcs, shades, glasses; smiles, grins, an "o")
+  const eyePair = (k: number) => k === 0 ? [blk(new THREE.BoxGeometry(0.03, 0.05, 0.006).translate(-0.055, fy + 0.02, F)), blk(new THREE.BoxGeometry(0.03, 0.05, 0.006).translate(0.055, fy + 0.02, F))]
+    : k === 1 ? [blk(new THREE.CylinderGeometry(0.024, 0.024, 0.006, 10).rotateX(Math.PI / 2).translate(-0.055, fy + 0.02, F)), blk(new THREE.CylinderGeometry(0.024, 0.024, 0.006, 10).rotateX(Math.PI / 2).translate(0.055, fy + 0.02, F))]
+    : k === 2 ? [blk(new THREE.TorusGeometry(0.022, 0.006, 4, 8, Math.PI).translate(-0.055, fy + 0.01, F)), blk(new THREE.TorusGeometry(0.022, 0.006, 4, 8, Math.PI).translate(0.055, fy + 0.01, F))]
+    : k === 3 ? [blk(new THREE.BoxGeometry(0.21, 0.045, 0.008).translate(0, fy + 0.025, F + 0.002))]
+    : [blk(new THREE.TorusGeometry(0.03, 0.005, 4, 12).translate(-0.055, fy + 0.02, F)), blk(new THREE.TorusGeometry(0.03, 0.005, 4, 12).translate(0.055, fy + 0.02, F)), blk(new THREE.BoxGeometry(0.02, 0.01, 0.006).translate(-0.055, fy + 0.02, F)), blk(new THREE.BoxGeometry(0.02, 0.01, 0.006).translate(0.055, fy + 0.02, F))];
+  const mouth = (k: number) => k === 0 ? [blk(new THREE.TorusGeometry(0.045, 0.008, 4, 10, Math.PI * 0.7).rotateZ(Math.PI * 1.15).translate(0, fy - 0.02, F))]
+    : k === 1 ? [blk(new THREE.BoxGeometry(0.08, 0.025, 0.006).translate(0, fy - 0.06, F))]
+    : [blk(new THREE.CylinderGeometry(0.016, 0.016, 0.006, 10).rotateX(Math.PI / 2).translate(0, fy - 0.06, F))];
+  const brows = () => [blk(new THREE.BoxGeometry(0.05, 0.01, 0.006).translate(-0.055, fy + 0.065, F)), blk(new THREE.BoxGeometry(0.05, 0.01, 0.006).translate(0.055, fy + 0.065, F))];
+  const heads = [[0, 0], [1, 0], [2, 1], [3, 0], [4, 0], [0, 2], [1, 1], [2, 0]].map(([e, mo]) => m([white(rb(0.27, 0.26, 0.26, 0.07).translate(0, fy, 0)), white(new THREE.BoxGeometry(0.1, 0.08, 0.1).translate(0, 0.0, 0)), ...eyePair(e), ...mouth(mo), ...(e < 2 ? brows() : [])]));
+  const head = m([white(rb(0.27, 0.26, 0.26, 0.07).translate(0, fy, 0)), white(new THREE.BoxGeometry(0.1, 0.08, 0.1).translate(0, 0.0, 0)),
+    blk(new THREE.BoxGeometry(0.03, 0.05, 0.006).translate(-0.055, fy + 0.02, F)), blk(new THREE.BoxGeometry(0.03, 0.05, 0.006).translate(0.055, fy + 0.02, F)),
+    blk(new THREE.BoxGeometry(0.05, 0.01, 0.006).translate(-0.055, fy + 0.065, F)), blk(new THREE.BoxGeometry(0.05, 0.01, 0.006).translate(0.055, fy + 0.065, F)),
+    blk(new THREE.TorusGeometry(0.045, 0.008, 4, 10, Math.PI * 0.7).rotateZ(Math.PI * 1.15).translate(0, fy - 0.02, F))]);
+  const cap = (y: number, h = 0.07) => white(rb(0.285, h, 0.275, 0.03).translate(0, y, -0.004));
+  const top = 0.25;
+  const hair: Record<Hair, THREE.BufferGeometry> = {
+    short: m([cap(top), white(rb(0.285, 0.05, 0.05).translate(0, top - 0.04, 0.115))]),
+    buzz: m([cap(top - 0.01, 0.05)]),
+    bob: m([cap(top), white(rb(0.295, 0.18, 0.28, 0.035).translate(0, 0.17, -0.01))]),
+    long: m([cap(top), white(rb(0.295, 0.16, 0.28, 0.035).translate(0, 0.18, -0.01)), white(rb(0.27, 0.32, 0.06).translate(0, 0.06, -0.13))]),
+    pony: m([cap(top), white(rb(0.07, 0.24, 0.07).rotateX(0.35).translate(0, 0.14, -0.17))]),
+    perm: m([white(new THREE.IcosahedronGeometry(0.19, 1).scale(1, 0.8, 1).translate(0, top - 0.02, -0.02))]),
+    cap: m([cap(top + 0.01, 0.09), white(rb(0.22, 0.016, 0.14, 0.006).translate(0, top - 0.03, 0.18))]),
+    sunhat: m([cap(top + 0.01, 0.09), white(new THREE.CylinderGeometry(0.24, 0.24, 0.014, 16).translate(0, top - 0.02, 0))]),
+    helmet: m([white(new THREE.SphereGeometry(0.16, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, top - 0.04, 0)), white(new THREE.CylinderGeometry(0.19, 0.19, 0.014, 16).translate(0, top - 0.04, 0.02))]),
+  };
+  const old = partGeometries();
+  old.torso && Object.values(old.torso).forEach(g => g.dispose());
+  [old.hips, old.skirt, old.thigh, old.shin, old.shoe, old.upper, old.fore, old.hand, old.head].forEach(g => g.dispose());
+  Object.values(old.hair).forEach(g => g.dispose());
+  // (bags and parcels keep their shapes; the tie and hi-vis details theirs; every part white-coloured)
+  for (const g of [...Object.values(old.acc)]) if (!g.getAttribute("color")) colored(g, "#ffffff");
+  return { torso, hips, skirt, thigh, shin, shoe, upper, fore, hand, head, heads, hair, acc: old.acc, detail: old.detail } as unknown as ReturnType<typeof partGeometries>;
+}
+
 /* ---------- The crowd ---------- */
 
 /** A line people walk along (footprint frame): points, running length, whether it
@@ -345,11 +408,13 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
   const rnd = rng(seed + 97);
   // (the body parts are the same for every crowd: made once, kept for the session — each
   // crowd made them again, ~20 ms of a frame)
-  const parts = partsCache ??= partGeometries();
-  const cloth = new THREE.MeshStandardMaterial({ roughness: 0.86, metalness: 0 });
-  const skin = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0 });
-  const hairMat = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.05 });
-  const gloss = new THREE.MeshStandardMaterial({ roughness: 0.42, metalness: 0.08 });
+  const parts = partsCache ??= BLOCKY ? blockyGeometries() : partGeometries();
+  // (block figures: their faces in vertex colour, so every material reads it — all white elsewhere)
+  const vc = BLOCKY;
+  const cloth = new THREE.MeshStandardMaterial({ roughness: vc ? 0.55 : 0.86, metalness: 0, vertexColors: vc });
+  const skin = new THREE.MeshStandardMaterial({ roughness: vc ? 0.45 : 0.55, metalness: 0, vertexColors: vc });
+  const hairMat = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.05, vertexColors: vc });
+  const gloss = new THREE.MeshStandardMaterial({ roughness: 0.42, metalness: 0.08, vertexColors: vc });
   const baked = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
 
   const total = usable.reduce((s, r) => s + r.cum[r.cum.length - 1], 0);
@@ -388,7 +453,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
       const sleeve = kind.top === "vest" ? pick(["#e8e4dc", "#5a6470"]) : top;
       const slots: [number, number][] = [
         slot("torso:" + kind.top, parts.torso[kind.top], cloth, top, true),
-        slot("head", parts.head, skin, skinC, true),
+        (() => { const hs = (parts as { heads?: THREE.BufferGeometry[] }).heads, v = Math.floor(rnd() * 8); return hs ? slot("head:" + v, hs[v], skin, skinC, true) : slot("head", parts.head, skin, skinC, true); })(),
         slot("hair:" + kind.hair, parts.hair[kind.hair], kind.hair === "cap" || kind.hair === "helmet" || kind.hair === "sunhat" ? cloth : hairMat, hairC),
         slot("thigh", parts.thigh, cloth, thighC, true), slot("thigh", parts.thigh, cloth, thighC, true),
         slot(legC === skinC ? "shin:skin" : "shin", parts.shin, legC === skinC ? skin : cloth, legC, true),
@@ -409,7 +474,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
       if (kind.detail) slots.push(slot("detail:" + kind.detail, parts.detail[kind.detail], baked, "#ffffff"));
       const len = path.cum[path.cum.length - 1];
       const speed = pair ? pair.speed : (kind.gait === "run" ? 2.7 : kind.gait === "slow" ? 0.85 : kind.gait === "stroll" ? 1.05 : 1.3) * (kind.pace ?? 1) * (0.9 + rnd() * 0.2);
-      walkers.push({ kind, path, s: pair ? pair.s : rnd() * len, dir, speed, phase: rnd() * Math.PI * 2, side: pair ? 0.5 : 0, holding: pair ? "child" : kind === PARENT ? "parent" : undefined,
+      walkers.push({ kind, path, s: pair ? pair.s : rnd() * len, dir, speed, phase: rnd() * Math.PI * 2, side: pair ? 0.5 : kind === PARENT ? 0 : (rnd() - 0.5) * Math.min(0.7, Math.max(0.3, path.lateral * 1.6)), holding: pair ? "child" : kind === PARENT ? "parent" : undefined,
         scale: (kind.h / 1.7) * (0.96 + rnd() * 0.08), width: kind.build * (0.95 + rnd() * 0.1), slots, held, hidden: false, x: 0, y: 0, hx: 1, hy: 0,
         far: [new THREE.Color(top), new THREE.Color(thighC), new THREE.Color(skinC)] });
       return walkers[walkers.length - 1];
@@ -438,7 +503,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     return im;
   };
   const meshes = await mapInSlices(entries, e => newMesh(e.geo, e.mat, e.colors.length, e.shadow));
-  const box = (w: number, h: number, d: number, y: number) => new THREE.BoxGeometry(w, h, d).translate(0, y, 0);
+  const box = (w: number, h: number, d: number, y: number) => { const g = new THREE.BoxGeometry(w, h, d).translate(0, y, 0); return BLOCKY ? colored(g, "#ffffff") : g; };
   const farGeos = [box(0.4, SHOULDER_Y - HIP_Y + 0.1, 0.24, (HIP_Y + SHOULDER_Y) / 2), box(0.3, HIP_Y, 0.2, HIP_Y / 2), box(0.2, 0.24, 0.22, NECK_Y + 0.12)];
   const farMeshes = farGeos.map(g => newMesh(g, cloth, walkers.length, false));
   // What each packed position holds (colour index / walker), to re-upload only changes.

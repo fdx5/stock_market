@@ -9,6 +9,9 @@ import type { Extra } from "./facilityModels";
 import type { Frame, Furnished, Interactable, MonitorScreen, Placer, Rect, SideName } from "./furnish";
 import type { FloorPlan, Opening, Room } from "./plan/types";
 import { furnishStyledShop, shopStyle, type ShopKit } from "./shopInteriors";
+import { shopOf } from "./shop";
+import { hangingGarment, mannequin, shelfRow, stockFor, tableTop } from "./productDisplay";
+import type { Cat } from "./catalog";
 import type { SignAtlas, SignStyle } from "./facilitySigns";
 import { placeVending, type VendingSession } from "./vending";
 import type { DrinkAtlas } from "./drinkArtwork";
@@ -30,7 +33,7 @@ export interface FacilityHooks {
   /** a counter's or a shelf's goods shown (the page's shop menu) */
   shop?(kind: import("./shop").ShopKind, label: string): void;
   /** something taken and had at once (a coffee from the machine, a cup of water) */
-  consume?(item: import("./shop").ShopItem): void;
+  consume?(item: import("./shop").Consumable): void;
   /** a word on the screen for a moment (what happened) */
   toast?(text: string): void;
   /** a machine's or the goods' sound */
@@ -62,6 +65,15 @@ const dirOf = (a: number) => [Math.sin(a), Math.cos(a)] as const;
 
 export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
   const { P, X, H } = c, zone = c.zoneOf(room);
+  // (what this room sells stocks its shelves: each product in its own shape and printed face; a
+  // department store's open floor its fashion and beauty)
+  const bname = c.plan.facility?.name ?? "", fkind = c.plan.facility?.kind ?? "";
+  const store = room.type === "corridor" && (fkind === "retail" || fkind === "food") ? (/마트/.test(bname) ? "mart" : "department")
+    : room.type === "pharmacy" ? "pharmacy" : room.type === "shop" || room.type === "cafe" ? shopOf(room.label, fkind, "clerk", bname) ?? "retail" : null;
+  const A = X.atlas;
+  X.stock = store && A ? (len, y, front, maxH, seed) => shelfRow(A, stockFor(store, null, 48, seed + room.id.length * 131), len, y, front, maxH, seed) : undefined;
+  X.stockDrinks = store && A ? (len, y, front, maxH, seed) => shelfRow(A, stockFor(store, ["drink"], 24, seed), len, y, front, maxH, seed) : undefined;
+  const goods = (cats: Cat[] | null, n: number, seed: number) => store && A ? stockFor(store, cats, n, seed + room.id.length * 17) : [];
   const sides: SideName[] = ["n", "s", "w", "e"];
   // (its way in from a public space — a corridor, a hall, the lobby — not the open walls joining a
   // room's own parts)
@@ -139,12 +151,15 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       staffroom: [["#d8cbb8", 0.55, 0]], waiting: [["#dfeee9", 0.4, 0]], consult: [["#e6efec", 0.4, 0]], treatment: [["#e3ecf0", 0.4, 0]], ward: [["#e8efe6", 0.45, 0]],
       gallery: [["#bdbab3", 0.25, 0.05], ["#8f8a82", 0.3, 0.05]], gym: [["#2b2b2b", 0.95, 0]], service: [["#d9d3c7", 0.35, 0.02]], guest: [["#8b6f5a", 0.85, 0]],
     };
+    const themedFloor = c.X.floorFin?.[`type:${room.type}`];
+    // (the building's theme already laid it in the shell: buildShell)
+    if (themedFloor) return;
     const opts = F_[room.type]; if (!opts || W < 1 || D < 1) return;
     let h = 7; for (const ch of c.plan.complexId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     const [col, rough, metal] = opts[h % opts.length];
     const cache = ((c.hooks as unknown as { floorMats?: Map<string, THREE.Material> }).floorMats ??= new Map());
     let m = cache.get(col); if (!m) { m = c.own(new THREE.MeshStandardMaterial({ color: col, roughness: rough, metalness: metal })); cache.set(col, m); }
-    c.put([M.bx(m, W - 0.03, 0.005, D - 0.03, 0, 0.0025, 0)], new THREE.Matrix4().makeTranslation(cx, pl.fy, cz), zone, false);
+    c.put([M.bx(m, W, 0.005, D, 0, 0.0025, 0)], new THREE.Matrix4().makeTranslation(cx, pl.fy, cz), zone, false);
   };
   finish();
   /** a fitting made usable: its look box in the frame, what it says, what it does */
@@ -158,7 +173,8 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     const f = pl.frameAt(doorSide, u, w, 0.02), g = c.signs.sign("brand", [room.label], w, 0.4);
     const m = f.m.clone().multiply(new THREE.Matrix4().makeTranslation(0, Math.min(H - 0.3, 2.5), -(2 * HALF_WALL + 0.015))).multiply(new THREE.Matrix4().makeRotationY(Math.PI));
     c.B.add(c.signs.material, zone, g, m, false); g.dispose();
-    for (let k = 0; k < 2; k++) { const d = pl.against(doorSide, 0.7, 0.7, null, 1.3, 0); if (!d) break; c.put(F.plinth(P, X, room.id.length + k * 2), d, zone, true); pl.take(d.rect); }
+    // (by the glass: display podiums of the shop's own goods, lit from above — or a sculpture where it sells nothing)
+    for (let k = 0; k < 2; k++) { const d = pl.against(doorSide, 0.7, 0.7, null, 1.3, 0); if (!d) break; const top = A && store ? tableTop(A, goods(null, 4, k * 7 + 3), 0.5, 0.5, 0.92, k) : []; c.put(top.length ? [M.rb(X.lacquer ?? X.accentDark, 0.6, 0.9, 0.6, 0.02, 0, 0.45, 0), M.bx(X.brass ?? P.chrome, 0.62, 0.02, 0.62, 0, 0.91, 0), ...top, M.bx(P.glass, 0.58, 0.45, 0.58, 0, 1.15, 0)] : F.plinth(P, X, room.id.length + k * 2), d, zone, true); pl.take(d.rect); }
   };
 
   const large = Math.max(c.plan.bounds[2] - c.plan.bounds[0], c.plan.bounds[3] - c.plan.bounds[1]) > 48;
@@ -325,11 +341,11 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
         const tone = (k: number) => X.products[(n * 3 + k) % X.products.length];
         for (let x = X0 + 3.0; x < X1 - 2.6; x += 5.2) for (let z = Z0 + 3.0; z < Z1 - 2.6; z += 4.6) {
           const kind = (n++) % 5;
-          if (kind === 0) { const f = freeAt(x, z, 1.8, 1.0); if (f) { c.put([M.rb(P.woodLight, 1.8, 0.08, 1.0, 0.02, 0, 0.78, 0), M.rb(X.accentDark, 1.6, 0.74, 0.8, 0.02, 0, 0.37, 0), ...Array.from({ length: 6 }, (_, i) => M.rb(tone(i), 0.32, 0.06 + (i % 3) * 0.03, 0.24, 0.01, -0.6 + (i % 3) * 0.6, 0.86, i < 3 ? -0.22 : 0.22))], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
-          else if (kind === 1) { const f = freeAt(x, z, 1.6, 0.6); if (f) { c.put([M.cy(P.chrome, 0.015, 0.015, 1.5, -0.75, 0.75, 0, 8), M.cy(P.chrome, 0.015, 0.015, 1.5, 0.75, 0.75, 0, 8), { ...M.cy(P.chrome, 0.012, 0.012, 1.5, 0, 0, 0, 8), g: M.cy(P.chrome, 0.012, 0.012, 1.5, 0, 0, 0, 8).g.rotateZ(Math.PI / 2).translate(0, 1.48, 0) }, M.bx(P.chrome, 1.6, 0.02, 0.5, 0, 0.01, 0), ...Array.from({ length: 9 }, (_, i) => M.rb(tone(i), 0.04, 0.85 + (i % 2) * 0.12, 0.46, 0.01, -0.64 + i * 0.16, 1.02 - (i % 2) * 0.06, 0))], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
-          else if (kind === 2) { const f = freeAt(x, z, 1.4, 0.7); if (f) { for (const dx of [-0.38, 0.38]) c.put([M.cy(P.plastic, 0.18, 0.18, 0.02, dx, 0.01, 0, 20), M.cy(P.chrome, 0.012, 0.012, 0.9, dx, 0.45, 0, 8), M.rb(tone(dx > 0 ? 1 : 2), 0.36, 0.6, 0.22, 0.08, dx, 1.2, 0), M.rb(P.plastic, 0.3, 0.42, 0.18, 0.06, dx, 0.72, 0), M.cy(P.plastic, 0.05, 0.05, 0.1, dx, 1.55, 0, 12), M.rb(P.plastic, 0.16, 0.2, 0.18, 0.08, dx, 1.7, 0)], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
+          if (kind === 0) { const f = freeAt(x, z, 1.8, 1.0); if (f) { const sets: Cat[][] = [["tops", "bottoms"], ["bags"], ["shoes"], ["hats", "outer"]], cats = sets[n % 4], top = A ? tableTop(A, goods(cats, 12, n), 1.7, 0.9, 0.82, n) : []; c.put([M.rb(X.veneer ?? P.woodLight, 1.8, 0.06, 1.0, 0.02, 0, 0.79, 0), M.rb(X.lacquer ?? X.accentDark, 1.6, 0.76, 0.8, 0.02, 0, 0.38, 0), M.bx(X.brass ?? P.chrome, 1.8, 0.012, 1.0, 0, 0.756, 0), ...(top.length ? top : Array.from({ length: 6 }, (_, i) => M.rb(tone(i), 0.32, 0.06 + (i % 3) * 0.03, 0.24, 0.01, -0.6 + (i % 3) * 0.6, 0.86, i < 3 ? -0.22 : 0.22)))], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); if (A) useAt(f, [1.8, 1.0, 1.0, 0, 0.5, 0], "진열 상품 둘러보고 사기", () => { c.hooks.fx?.("pick"); c.hooks.shop?.(store ?? "department", c.plan.facility?.name ?? "백화점"); }); } }
+          else if (kind === 1) { const f = freeAt(x, z, 1.6, 0.6); if (f) { const clothes = goods(["tops", "outer", "bottoms"], 10, n); c.put([M.cy(P.chrome, 0.015, 0.015, 1.5, -0.75, 0.75, 0, 8), M.cy(P.chrome, 0.015, 0.015, 1.5, 0.75, 0.75, 0, 8), { ...M.cy(P.chrome, 0.012, 0.012, 1.5, 0, 0, 0, 8), g: M.cy(P.chrome, 0.012, 0.012, 1.5, 0, 0, 0, 8).g.rotateZ(Math.PI / 2).translate(0, 1.48, 0) }, M.bx(P.chrome, 1.6, 0.02, 0.5, 0, 0.01, 0), ...(A && clothes.length ? clothes.slice(0, 9).flatMap((p, i) => hangingGarment(A, p, false, P.chrome).map(q => { q.g.translate(-0.64 + i * 0.16, 1.48, 0); return q; })) : Array.from({ length: 9 }, (_, i) => M.rb(tone(i), 0.04, 0.85 + (i % 2) * 0.12, 0.46, 0.01, -0.64 + i * 0.16, 1.02 - (i % 2) * 0.06, 0)))], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); if (A) useAt(f, [1.6, 1.5, 0.6, 0, 0.75, 0], "옷 골라 보고 사기", () => { c.hooks.fx?.("pick"); c.hooks.shop?.("clothing", "패션"); }); } }
+          else if (kind === 2) { const f = freeAt(x, z, 1.4, 0.7); if (f) { for (const dx of [-0.38, 0.38]) c.put(A ? mannequin(A, goods(["tops", "outer"], 1, n + Math.round(dx * 10))[0], goods(["bottoms"], 1, n * 3 + Math.round(dx * 10))[0], P.chrome, X.paintWhite).map(q => { q.g.translate(dx, 0, 0); return q; }) : [M.cy(P.plastic, 0.18, 0.18, 0.02, dx, 0.01, 0, 20), M.cy(P.chrome, 0.012, 0.012, 0.9, dx, 0.45, 0, 8), M.rb(tone(dx > 0 ? 1 : 2), 0.36, 0.6, 0.22, 0.08, dx, 1.2, 0), M.rb(P.plastic, 0.3, 0.42, 0.18, 0.06, dx, 0.72, 0), M.cy(P.plastic, 0.05, 0.05, 0.1, dx, 1.55, 0, 12), M.rb(P.plastic, 0.16, 0.2, 0.18, 0.08, dx, 1.7, 0)], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
           else if (kind === 3) { const f = freeAt(x, z, 2.4, 0.9); if (f) { c.put(F.gondola(P, X, 2.4, n), f, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
-          else { const f = freeAt(x, z, 1.2, 1.2); if (f) { c.put([M.cy(P.woodLight, 0.55, 0.55, 0.06, 0, 0.72, 0, 32), M.cy(X.accentDark, 0.12, 0.3, 0.7, 0, 0.35, 0, 20), ...Array.from({ length: 5 }, (_, i) => M.rb(tone(i + 4), 0.2, 0.12 + (i % 2) * 0.1, 0.2, 0.02, Math.cos(i * 1.26) * 0.3, 0.8 + (i % 2) * 0.05, Math.sin(i * 1.26) * 0.3))], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); } }
+          else { const f = freeAt(x, z, 1.2, 1.2); if (f) { const sets: Cat[][] = [["perfume", "makeup"], ["sunglasses"], ["watch", "jewelry"], ["skincare"]], cats = sets[n % 4], top = A ? tableTop(A, goods(cats, 9, n), 0.76, 0.76, 0.75, n) : []; c.put([M.cy(X.counterStone ?? P.woodLight, 0.55, 0.55, 0.06, 0, 0.72, 0, 32), M.cy(X.brass ?? X.accentDark, 0.12, 0.3, 0.7, 0, 0.35, 0, 20), ...(top.length ? top : Array.from({ length: 5 }, (_, i) => M.rb(tone(i + 4), 0.2, 0.12 + (i % 2) * 0.1, 0.2, 0.02, Math.cos(i * 1.26) * 0.3, 0.8 + (i % 2) * 0.05, Math.sin(i * 1.26) * 0.3)))], f.m, zone, true); c.colliders.push(...rectSegs(f.rect)); if (A) useAt(f, [1.2, 1.0, 1.2, 0, 0.5, 0], "진열 상품 둘러보고 사기", () => { c.hooks.fx?.("pick"); c.hooks.shop?.(cats[0] === "sunglasses" ? "eyewear" : cats[0] === "watch" ? "bags" : "cosmetics", c.plan.facility?.name ?? "백화점"); }); } }
           if (kind !== 3 && n % 3 === 0) spot(new THREE.Vector3(x + 1.2, 0, z + 0.9), Math.PI, "stand", "counter");
         }
       }
@@ -601,7 +617,7 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
         c.put(F.moved(F.serviceCounter(P, X, 1.6, 0.6), 0, 1.4), till, zone, true); pl.take(till.rect);
         c.put([M.rb(P.applianceDark, 0.3, 0.25, 0.04, 0.01, 0, 1.18, 1.25)], till, zone, false);
         spot(at(till, 0, 0, 0.6), yawOf(till), "stand", "counter");
-        c.interactables.push({ id: `till-${room.id}`, zone, room, hit: c.hitIn(till, 1.6, 1.1, 0.7, 0, 0.55, 1.4), label: () => `${room.label} 계산대에서 사기`, act: () => { c.hooks.fx?.("scan"); c.hooks.shop?.(conv ? "convenience" : "retail", room.label); return null; } });
+        c.interactables.push({ id: `till-${room.id}`, zone, room, hit: c.hitIn(till, 1.6, 1.1, 0.7, 0, 0.55, 1.4), label: () => `${room.label} 계산대에서 사기`, act: () => { c.hooks.fx?.("scan"); c.hooks.shop?.(conv ? "convenience" : store ?? "retail", room.label); return null; } });
       }
       spot(new THREE.Vector3(cx, 0, cz + 0.4), 0.8, "stand", "stand");
       break;

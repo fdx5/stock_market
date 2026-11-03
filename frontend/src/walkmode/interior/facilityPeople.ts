@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Avatar } from "../player/avatar";
+import { IDLE_BY_ROLE, GESTURES, type GestureName } from "../player/gestures";
 import type { Spot } from "./facilityFurnish";
 import type { Interactable } from "./furnish";
 import type { FacilityRole, FloorPlan, Opening, Room } from "./plan/types";
@@ -47,6 +48,11 @@ interface Person {
   greeted: number; bumped: number;
   /** how much they like the visitor (0…100), the last social action and how many times running */
   rel: number; last: Social | null; again: number;
+  /** when they next do something of their own accord (a stretch, a look at the phone) */
+  idleAt: number;
+  /** their own line down the corridor (−1 … 1 of its clear half-width), the place they are making
+   * for (claimed: no two head for the same one), how they last moved (for the others to read) */
+  lane: number; goal: number; dir: THREE.Vector2; moving: number; detourAt: number; stuck: number;
 }
 /** what a talk gives the page: who answered, what they said, and their part (for the questions) */
 export interface PersonTalk { id: number; name: string; role: FacilityRole; text: string; /** the room they are in (its label) */ room: string; /** liking for the visitor, and in words */ rel: number; relWord: string }
@@ -62,6 +68,9 @@ export class People {
   /** points on the corridor and the halls the walkers go between */
   private nodes: { p: THREE.Vector2; room: string }[] = [];
   private corridorY: number; private corridor: Room | undefined;
+  private walkers = 0;
+  /** where a walker may stand: the public rooms (corridor, lobby, halls) — not pushed into a wall */
+  private walkable: [number, number, number, number][] = [];
 
   /** the page's dialogue for a talk (absent: the bubble only) */
   onTalk: ((t: PersonTalk) => void) | null = null;
@@ -76,6 +85,7 @@ export class People {
     this.corridor = plan.rooms.filter(r => r.type === "corridor" || r.type === "lobby").sort((a, b) => ar(b) - ar(a))[0];
     const cid = this.corridor?.id ?? "";
     const cr = this.corridor?.rect ?? plan.bounds; this.corridorY = (cr[1] + cr[3]) / 2;
+    this.walkable = plan.rooms.filter(r => ["corridor", "lobby", "liftHall", "waiting", "gallery", "shop", "service", "cafe"].includes(r.type)).map(r => [r.rect[0] + 0.32, r.rect[1] + 0.32, r.rect[2] - 0.32, r.rect[3] - 0.32] as [number, number, number, number]).filter(r => r[2] > r[0] && r[3] > r[1]);
     // the doors off the corridor: just outside each, a place walkers go to
     for (const o of plan.openings) {
       if (o.type === "window" || (o.a !== cid && o.b !== cid)) continue;
@@ -100,11 +110,20 @@ export class People {
       const walker = !s && (room.type === "corridor" || room.type === "lobby" || room.type === "liftHall" || room.type === "waiting" || room.type === "gallery" || room.type === "shop" || room.type === "parking");
       if (!s && !walker) continue;
       if (s) used.add(s);
-      const av = new Avatar(1 + Math.floor(rnd() * 9999), OUTFIT[want.role]);
+      const av = new Avatar(1 + Math.floor(rnd() * 9999), { ...OUTFIT[want.role], role: want.role });
       av.shoes(true);
       const p: Person = { av, role: want.role, room, spot: s, pos: new THREE.Vector2(s?.x ?? 0, s?.z ?? 0), face: s?.face ?? 0, pose: s?.pose ?? "stand", y: s?.y ?? 0,
-        path: [], wait: rnd() * 4, speed: 1.05 + rnd() * 0.35, bubble: null, bubbleT: 0, turnTo: null, seed: Math.floor(rnd() * 1000), line: 0, greeted: -99, bumped: -99, rel: 12 + Math.floor(rnd() * 14), last: null, again: 0 };
-      if (walker) { const n = this.nodes[Math.floor(rnd() * this.nodes.length)]; if (!n) continue; p.pos.copy(n.p); p.pose = "stand"; p.spot = undefined; }
+        path: [], wait: rnd() * 4, speed: 1.05 + rnd() * 0.35, bubble: null, bubbleT: 0, turnTo: null, seed: Math.floor(rnd() * 1000), line: 0, greeted: -99, bumped: -99, rel: 12 + Math.floor(rnd() * 14), last: null, again: 0, idleAt: 4 + rnd() * 14,
+        lane: 0, goal: -1, dir: new THREE.Vector2(), moving: 0, detourAt: -9, stuck: 0 };
+      if (walker) {
+        // (each walker starts at a place of its own — the least used — spread along the corridor at its own lane)
+        if (!this.nodes.length) continue;
+        const k = this.walkers++, lane = ((k * 0.618034) % 1) * 2 - 1;
+        const counts = this.nodes.map((_, i) => this.people.filter(q => !q.spot && q.goal === i).length);
+        const min = Math.min(...counts), free = this.nodes.map((_, i) => i).filter(i => counts[i] === min);
+        const i = free[Math.floor(rnd() * free.length)], n = this.nodes[i];
+        p.goal = i; p.lane = lane; p.pos.copy(this.onLane(n.p, lane)); p.pose = "stand"; p.spot = undefined; p.wait = 1 + rnd() * 6;
+      }
       av.pose = p.pose === "lie" ? "stand" : p.pose;
       this.root.add(av.root);
       this.people.push(p);
@@ -150,6 +169,7 @@ export class People {
     p.wait = Math.max(p.wait, 8);
     this.say(p, text);
     this.speak(text, this.pitch(p));
+    p.av.play(/층|쪽|복도|끝|엘리베이터|계단|오른|왼|앞/.test(text) ? "point" : /글쎄|모르|음…|고민/.test(text) ? "think" : /하하|ㅎㅎ|재밌|웃/.test(text) ? "laugh" : (["nod", "nod", "shrug", "think", "beckon"] as GestureName[])[(p.seed + p.line) % 5]);
     this.onTalk?.({ id: this.people.indexOf(p), name: this.title(p), role: p.role, text, room: p.room.label, rel: p.rel, relWord: affinityWord(p.rel) });
   }
   /** A social action (the Sims-like part): their answer from npcLines, their liking changed by it,
@@ -164,6 +184,9 @@ export class People {
     const mark = ans.mood === "happy" ? "♥ " : ans.mood === "annoyed" ? "💢 " : ans.mood === "awkward" ? "… " : "";
     p.turnTo = Math.atan2(this.visitor.x - p.pos.x, this.visitor.y - p.pos.y); p.wait = Math.max(p.wait, 8);
     this.say(p, mark + ans.text); this.speak(ans.text, this.pitch(p));
+    const pick = (l: GestureName[]) => l[(p.seed + p.line) % l.length];
+    p.av.play(ans.mood === "happy" ? pick(a === "joke" ? ["laugh", "laugh", "clap"] : a === "compliment" ? ["shy", "heart", "thumbsUp"] : a === "gift" ? ["cheer", "jump", "heart"] : a === "greet" ? ["wave", "bow"] : a === "tip" ? ["point", "thumbsUp"] : ["nod", "thumbsUp", "clap"])
+      : ans.mood === "annoyed" ? pick(["facepalm", "angry", "crossArms", "shake"]) : ans.mood === "awkward" ? pick(["scratch", "shrug", "shy"]) : pick(["nod", "think", "shrug"]));
     return { ...ans, rel: p.rel, relWord: affinityWord(p.rel) };
   }
   /** the page's "다른 얘기" (or a question's answer): the same person goes on */
@@ -201,6 +224,22 @@ export class People {
     p.av.root.add(s); p.bubble = s; p.bubbleT = 3 + text.length * 0.09;
   }
 
+  /** The visitor's gesture seen by those near: answered in kind — a wave back, a bow for a bow,
+   * clapping (or joining in) for a dance, a cheer for a cheer, a shy look for a heart. */
+  react(g: GestureName) {
+    const near = this.people.filter(p => p.pose !== "lie" && Math.hypot(p.pos.x - this.visitor.x, p.pos.y - this.visitor.y) < 5.5)
+      .sort((a, b) => Math.hypot(a.pos.x - this.visitor.x, a.pos.y - this.visitor.y) - Math.hypot(b.pos.x - this.visitor.x, b.pos.y - this.visitor.y)).slice(0, 5);
+    const said: Partial<Record<GestureName, string[]>> = { wave: ["안녕하세요~", "반가워요!"], bow: ["안녕하세요.", "네, 반갑습니다."], dance: ["오~ 춤 잘 추시네요!", "같이 춰요!"], robot: ["로봇 춤이다!", "와 멋있다!"], groove: ["리듬 좋네요~"], cheer: ["와아!", "만세!"], heart: ["어머, 감사해요!", "(부끄)"], clap: ["감사합니다!"], angry: ["저, 괜찮으세요?", "진정하세요…"], thumbsUp: ["최고!"], jump: ["기분 좋은 일 있으세요?"], cry: ["괜찮아요? 무슨 일 있어요?"], kick: ["깜짝이야!"], salute: ["충성!"], peace: ["찰칵~ 브이!"] };
+    near.forEach((p, i) => {
+      const r: GestureName = g === "wave" ? "wave" : g === "bow" || g === "deepBow" ? "bow" : g === "dance" || g === "robot" || g === "groove" ? (p.role === "student" || p.seed % 3 === 0 ? g : i % 2 ? "clap" : "cheer")
+        : g === "cheer" || g === "jump" ? (i % 2 ? "cheer" : "clap") : g === "heart" ? (p.seed % 2 ? "shy" : "heart") : g === "angry" || g === "facepalm" ? "shrug" : g === "thumbsUp" ? "thumbsUp" : g === "salute" ? "salute"
+        : g === "cry" ? "beckon" : g === "kick" ? "stop" : g === "peace" ? "peace" : g === "laugh" ? "laugh" : g === "clap" ? "bow" : "nod";
+      if (p.pose === "sit" && GESTURES[r].legs) return;
+      p.turnTo = Math.atan2(this.visitor.x - p.pos.x, this.visitor.y - p.pos.y); p.wait = Math.max(p.wait, 4);
+      setTimeout(() => p.av.play(r), 200 + i * 260);
+      const l = said[g]; if (i === 0 && l && !p.bubble) this.remark(p, l[(p.seed + p.line++) % l.length]);
+    });
+  }
   private runWarnAt = -99;
   update(dt: number, visitor: { x: number; z: number; speed?: number }) {
     this.visitor.set(visitor.x, visitor.z); this.clock += dt;
@@ -210,7 +249,7 @@ export class People {
     if ((fk === "clinic" || fk === "ward") && (visitor.speed ?? 0) > 2.6 && this.clock - this.runWarnAt > 9) {
       const near = this.people.filter(p => (p.role === "nurse" || p.role === "doctor" || p.role === "guard" || p.role === "clerk") && p.pose !== "lie" && Math.hypot(p.pos.x - visitor.x, p.pos.y - visitor.z) < 5)
         .sort((a, b) => Math.hypot(a.pos.x - visitor.x, a.pos.y - visitor.z) - Math.hypot(b.pos.x - visitor.x, b.pos.y - visitor.z))[0];
-      if (near) { this.runWarnAt = this.clock; spoke = true; let s = Math.floor(this.clock * 1000) >>> 0; this.remark(near, runWarning(() => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; })); }
+      if (near) { this.runWarnAt = this.clock; spoke = true; let s = Math.floor(this.clock * 1000) >>> 0; this.remark(near, runWarning(() => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; })); near.av.play("stop"); }
     }
     for (const p of this.people) {
       // (the visitor coming up to staff at their place: a greeting, once in a while; at most one a frame)
@@ -218,7 +257,7 @@ export class People {
       if (!spoke && !p.bubble && p.pose !== "lie" && vd < 1.9 && vd > 0.5 && this.clock - p.greeted > 45 && this.clock > 2) {
         p.greeted = this.clock;
         const staff = p.role === "clerk" || p.role === "nurse" || p.role === "guard" || p.role === "desk" || p.role === "doctor" || p.role === "cook";
-        if (staff || (p.seed % 3 === 0)) { this.remark(p, (staff ? GREET_STAFF : GREET_PEER)[(p.seed + Math.floor(this.clock)) % (staff ? GREET_STAFF : GREET_PEER).length]); spoke = true; }
+        if (staff || (p.seed % 3 === 0)) { this.remark(p, (staff ? GREET_STAFF : GREET_PEER)[(p.seed + Math.floor(this.clock)) % (staff ? GREET_STAFF : GREET_PEER).length]); spoke = true; p.av.play(p.role === "guard" ? "salute" : staff ? (p.seed % 2 ? "bow" : "wave") : "wave"); }
       }
       // (a large floor's people far off: not drawn, not walked — they wait where they are)
       if (this.large) { const far = Math.hypot(p.pos.x - visitor.x, p.pos.y - visitor.z) > 42; p.av.root.visible = !far; if (far) continue; }
@@ -235,32 +274,108 @@ export class People {
           const blocked = vd < 1.1 && (vx * dx + vz * dz) / Math.max(1e-6, vd * d) > 0.3;
           // (held up by the visitor: sorry, and round them — a step to the side of the way ahead)
           if (blocked && !spoke && this.clock - p.bumped > 20 && vd < 0.8) {
-            p.bumped = this.clock; spoke = true; this.remark(p, EXCUSE[(p.seed + p.line) % EXCUSE.length]);
+            p.bumped = this.clock; spoke = true; this.remark(p, EXCUSE[(p.seed + p.line) % EXCUSE.length]); p.av.play(p.seed % 2 ? "bow" : "stop");
             const side = (vx * dz - vz * dx) > 0 ? -1 : 1, ox = -dz / d * 0.7 * side, oz = dx / d * 0.7 * side;
             p.path.unshift(new THREE.Vector2(p.pos.x + ox + dx / d * 0.4, p.pos.y + oz + dz / d * 0.4));
           }
-          if (d < 0.08) { p.path.shift(); if (!p.path.length) p.wait = 2 + (p.seed % 5); }
+          if (d < 0.12) { p.path.shift(); if (!p.path.length) p.wait = 2 + ((p.seed + Math.floor(this.clock)) % 6); }
           else if (!blocked || this.clock - p.bumped < 1.5) {
-            const step = Math.min(d, p.speed * dt);
-            p.pos.x += (dx / d) * step; p.pos.y += (dz / d) * step; speed = p.speed;
-            const want = Math.atan2(dx, dz); p.face += angle(want - p.face) * Math.min(1, dt * 8);
+            const ux = dx / d, uz = dz / d;
+            // (another person ahead: behind one going the same way, keep pace; meeting one, both
+            // bear right; one standing there, round them on the roomier side)
+            let pace = p.speed;
+            const o = this.aheadOf(p, ux, uz, 1.5);
+            if (o && this.clock - p.detourAt > 0.8) {
+              const rightX = -uz, rightZ = ux;
+              if (o.oncoming || o.q.moving < 0.2) {
+                const sideSign = o.oncoming ? 1 : (o.side > 0 ? -1 : 1), off = 0.62 - Math.abs(o.side) * 0.5;
+                const wx = o.q.pos.x + rightX * sideSign * off + ux * 0.25, wz = o.q.pos.y + rightZ * sideSign * off + uz * 0.25;
+                if (this.inWalkable(wx, wz)) { p.path.unshift(new THREE.Vector2(wx, wz)); p.detourAt = this.clock; }
+                else pace = 0;
+              } else if (o.along < 1.0) pace = Math.min(pace, o.q.moving * 0.95);
+            }
+            if (o && o.along < 0.55 && !o.oncoming && o.q.moving < 0.2) pace = 0;
+            // (held up too long: give up the place and go somewhere else)
+            p.stuck = pace < 0.05 ? p.stuck + dt : 0;
+            if (p.stuck > 3) { p.stuck = 0; p.path = []; p.wait = 0.5; }
+            const step = Math.min(d, pace * dt);
+            p.pos.x += ux * step; p.pos.y += uz * step; speed = pace;
+            if (step > 0) { p.dir.set(ux, uz); const want = Math.atan2(dx, dz); p.face += angle(want - p.face) * Math.min(1, dt * 8); }
           }
         }
       }
       if (p.turnTo !== null && p.pose === "stand") p.face += angle(p.turnTo - p.face) * Math.min(1, dt * 6);
+      // (nothing to do for a while — waiting, at their post, seated: a gesture of their own, by their job)
+      if (speed === 0 && p.pose !== "lie" && !p.bubble && !p.av.playing && this.clock > p.idleAt) {
+        const l = IDLE_BY_ROLE[p.role] ?? IDLE_BY_ROLE.visitor, g = l[(p.seed + Math.floor(this.clock)) % l.length];
+        if (p.pose === "stand" || !GESTURES[g].legs) p.av.play(g);
+        p.idleAt = this.clock + 8 + ((p.seed * 13 + Math.floor(this.clock)) % 17);
+      }
+      p.moving = speed;
       p.av.update(dt, speed);
       if (p.turnTo !== null && p.pose === "sit") p.av.lookSide(angle(p.turnTo - p.face));
-      this.place(p, dt);
     }
+    this.separate();
+    for (const p of this.people) this.place(p, dt);
+  }
+  /** a point moved across the corridor to a lane (−1 … 1 of its clear half-width) */
+  private onLane(q: THREE.Vector2, lane: number): THREE.Vector2 {
+    const cr = this.corridor?.rect; if (!cr) return q.clone();
+    const along = cr[2] - cr[0] >= cr[3] - cr[1], half = Math.max(0, (along ? cr[3] - cr[1] : cr[2] - cr[0]) / 2 - 0.45);
+    return along ? new THREE.Vector2(q.x, this.corridorY + lane * half) : new THREE.Vector2((cr[0] + cr[2]) / 2 + lane * half, q.y);
   }
   private plot(p: Person) {
     if (!this.nodes.length) return;
-    const n = this.nodes[(p.seed + Math.floor(performance.now() / 1000)) % this.nodes.length];
-    // (down the corridor's middle line, then across to the door)
-    const cy = this.corridorY, cr = this.corridor?.rect;
-    const along = cr && cr[2] - cr[0] >= cr[3] - cr[1];
-    p.path = along ? [new THREE.Vector2(p.pos.x, cy), new THREE.Vector2(n.p.x, cy), n.p.clone()] : [new THREE.Vector2((cr![0] + cr![2]) / 2, p.pos.y), new THREE.Vector2((cr![0] + cr![2]) / 2, n.p.y), n.p.clone()];
+    // (somewhere no one else is making for — of a few picked at random, the one fewest others are near,
+    // never the one just left; then the lane wanders a little, so a route is never quite repeated)
+    let h = (p.seed * 2654435761 + Math.floor(this.clock * 10) * 40503) >>> 0;
+    const r = () => ((h = (Math.imul(h, 1664525) + 1013904223) >>> 0) / 4294967296);
+    const claimed = new Set(this.people.filter(q => q !== p && !q.spot).map(q => q.goal));
+    let best = -1, bestScore = -Infinity;
+    for (let k = 0; k < 6; k++) {
+      const i = Math.floor(r() * this.nodes.length); if (i === p.goal && this.nodes.length > 1) continue;
+      const n = this.nodes[i].p, crowd = this.people.filter(q => q !== p && q.pos.distanceTo(n) < 1.6).length;
+      const score = (claimed.has(i) ? -10 : 0) - crowd * 3 + Math.min(12, n.distanceTo(p.pos)) * 0.3 + r();
+      if (score > bestScore) { bestScore = score; best = i; }
+    }
+    if (best < 0) best = (p.goal + 1) % this.nodes.length;
+    p.goal = best;
+    p.lane = THREE.MathUtils.clamp(p.lane + (r() - 0.5) * 0.5, -1, 1);
+    const n = this.nodes[best].p, cr = this.corridor?.rect;
+    const along = !!cr && cr[2] - cr[0] >= cr[3] - cr[1];
+    // (the door's spot itself a little off its middle, by the walker: two arriving do not meet on it)
+    const off = (r() - 0.5) * 0.7, end = along ? new THREE.Vector2(n.x + off, n.y) : new THREE.Vector2(n.x, n.y + off);
+    const a = this.onLane(p.pos, p.lane), b = this.onLane(end, p.lane);
+    p.path = cr ? [a, b, end] : [end];
     p.seed += 7;
+  }
+  private inWalkable(x: number, z: number) { return !this.walkable.length || this.walkable.some(r => x >= r[0] && x <= r[2] && z >= r[1] && z <= r[3]); }
+  /** Everyone keeps their own room: walkers pushed apart from each other and off those standing or
+   * seated (who stay put), never into a wall. */
+  private separate() {
+    const P = this.people;
+    for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
+      const a = P[i], b = P[j]; if (a.pose === "lie" || b.pose === "lie") continue;
+      const ma = a.spot ? 0 : 1, mb = b.spot ? 0 : 1; if (!ma && !mb) continue;
+      const dx = b.pos.x - a.pos.x, dz = b.pos.y - a.pos.y, d = Math.hypot(dx, dz), min = a.pose === "sit" || b.pose === "sit" ? 0.5 : 0.62;
+      if (d >= min) continue;
+      // (exactly together: apart along a fixed side, by who is who)
+      const nx = d > 1e-4 ? dx / d : Math.cos(i * 2.4), nz = d > 1e-4 ? dz / d : Math.sin(i * 2.4), o = (min - d) / (ma + mb);
+      const ax = a.pos.x - nx * o * ma, az = a.pos.y - nz * o * ma, bx = b.pos.x + nx * o * mb, bz = b.pos.y + nz * o * mb;
+      if (ma && this.inWalkable(ax, az)) a.pos.set(ax, az);
+      if (mb && this.inWalkable(bx, bz)) b.pos.set(bx, bz);
+    }
+  }
+  /** Who is in the way ahead within `reach` m along `dir`: the nearest, how far, how far to one side, and whether they come the other way. */
+  private aheadOf(p: Person, dx: number, dz: number, reach: number) {
+    let hit: { q: Person; along: number; side: number; oncoming: boolean } | null = null;
+    for (const q of this.people) {
+      if (q === p || q.pose === "lie") continue;
+      const rx = q.pos.x - p.pos.x, rz = q.pos.y - p.pos.y, along = rx * dx + rz * dz, side = rx * -dz + rz * dx;
+      if (along <= 0.05 || along > reach || Math.abs(side) > 0.55) continue;
+      if (!hit || along < hit.along) hit = { q, along, side, oncoming: q.moving > 0.2 && q.dir.x * dx + q.dir.y * dz < -0.3 };
+    }
+    return hit;
   }
   private place(p: Person, _dt: number) {
     const r = p.av.root;

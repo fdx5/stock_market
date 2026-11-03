@@ -753,7 +753,7 @@ export class DroneSession {
     if (on) { this.landedAt = performance.now(); this.landedMoved = 0; }
     // (on foot the walker is seen: third person to start with — V still changes it)
     if (on && this.view === "fpv") this.toggleView();
-    if (on && !this.walker) { this.walker = new Avatar(7); this.p.scene.add(this.walker.root); }
+    if (on && !this.walker) { this.walker = new Avatar(0); this.p.scene.add(this.walker.root); }
     if (this.walker) this.walker.root.visible = false;
     this.audio.pause(on);
     return on;
@@ -761,7 +761,51 @@ export class DroneSession {
   // ---------------------------------------------------------------- entrances
   private entrances: EntranceLayer | null = null;
   private entranceAt = 0;
-  private entranceCache = new Map<[number, number][], Entrance | null>();
+  private entranceCache = new Map<[number, number][], Entrance[]>();
+  /** tall blocks traced from the roofs (no register outline): their outlines, kept while near */
+  private blocks: { ring: [number, number][]; c: [number, number]; x0: number; y0: number; x1: number; y1: number }[] = [];
+  private tracedBlocks(x: number, y: number, known: [number, number][][]): [number, number][][] {
+    const w = this.world;
+    this.blocks = this.blocks.filter(b => Math.hypot(b.c[0] - x, b.c[1] - y) < 260);
+    const inside = (px: number, py: number) => known.some(r => inRing(px, py, r)) || this.blocks.some(b => px >= b.x0 - 1 && px <= b.x1 + 1 && py >= b.y0 - 1 && py <= b.y1 + 1 && inRing(px, py, b.ring));
+    let traced = 0;
+    for (let r = 8; r <= 110 && traced < 3; r += 8) for (let k = 0, n = Math.max(8, Math.round(r * 0.8)); k < n && traced < 3; k++) {
+      const a = (k / n) * Math.PI * 2, px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+      // (a block of flats or an office slab: over 8 m tall here)
+      if (w.roofAt(px, py) - w.groundAt(px, py) < 8 || inside(px, py)) continue;
+      traced++;
+      const ring = this.traceRaw(px, py, 6);
+      if (!ring || ringArea(ring) < 120 || ringArea(ring) > 12000) { this.blocks.push({ ring: [[px - 2, py - 2], [px + 2, py - 2], [px + 2, py + 2], [px - 2, py + 2]], c: [px, py], x0: px - 2, y0: py - 2, x1: px + 2, y1: py + 2 }); continue; }
+      const xs = ring.map(p => p[0]), ys = ring.map(p => p[1]);
+      this.blocks.push({ ring, c: [xs.reduce((t, v) => t + v, 0) / xs.length, ys.reduce((t, v) => t + v, 0) / ys.length], x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) });
+    }
+    if (this.blocks.length > 240) this.blocks.splice(0, this.blocks.length - 240);
+    return this.blocks.filter(b => b.ring.length > 4 && Math.hypot(b.c[0] - x, b.c[1] - y) < 130).map(b => b.ring);
+  }
+  private standsBehind(e: Entrance) {
+    const w = this.world;
+    for (const d of [1.2, 2.5, 4]) { const px = e.x - e.nx * d, py = e.y - e.ny * d; if (w.roofAt(px, py) - w.groundAt(px, py) > 2.2) return true; }
+    return false;
+  }
+  /** A block of flats' 공동현관s: a long slab has one for each core (about every 28 m along its
+   * front), all on the side its first door faces; any other building its one entrance. */
+  entrancesFor(ring: [number, number][]): Entrance[] {
+    const e = this.entranceFor(ring); if (!e) return [];
+    if (e.kind !== "apartment") return [e];
+    // (the front's extent: the outline's corners on the door's wall line)
+    const along = ring.map(p => ({ t: (p[0] - e.x) * e.tx + (p[1] - e.y) * e.ty, n: (p[0] - e.x) * e.nx + (p[1] - e.y) * e.ny })).filter(q => Math.abs(q.n) < 3);
+    if (along.length < 2) return [e];
+    const t0 = Math.min(...along.map(q => q.t)), t1 = Math.max(...along.map(q => q.t)), L = t1 - t0;
+    const n = Math.max(1, Math.min(5, Math.round(L / 28)));
+    if (n < 2) return [e];
+    const out: Entrance[] = [];
+    for (let i = 0; i < n; i++) {
+      const t = t0 + (L * (i + 0.5)) / n, q: Entrance = { ...e, key: `${e.key}#${i}`, x: e.x + e.tx * t, y: e.y + e.ty * t };
+      q.z = this.world.groundAt(q.x + q.nx * 0.6, q.y + q.ny * 0.6);
+      this.snapToFacade(q); out.push(q);
+    }
+    return out;
+  }
   /** Every building within 110 m of the walker given its entrance (kept per outline while it lasts). */
   private layEntrances() {
     const f = this.flight, x = f.pos.x, y = -f.pos.z, w = this.world;
@@ -770,13 +814,18 @@ export class DroneSession {
     // it is drawn from, larger: the entrance goes on the outermost, the one whose walls are seen)
     const all = w.buildingRingsNear(x, y, 110), info = all.map(r => ({ r, a: ringArea(r), c: [r.reduce((t, p) => t + p[0], 0) / r.length, r.reduce((t, p) => t + p[1], 0) / r.length] as [number, number] }));
     const rings = info.filter(q => !info.some(o => o !== q && o.a > q.a * 1.05 && inRing(q.c[0], q.c[1], o.r))).map(q => q.r);
+    // (blocks drawn only from a tile's surveyed models — a neighbouring complex's 동 with no register
+    // outline — traced from their roofs, a few a pass, so they have their doors before they are reached)
+    rings.push(...this.tracedBlocks(x, y, rings));
     const list: Entrance[] = [], seen = new Set<string>();
     for (const ring of rings) {
-      let e = this.entranceCache.get(ring);
-      if (e === undefined) { e = this.entranceFor(ring); this.entranceCache.set(ring, e); }
-      // (one building's outline held by several sources — the place's own, the view's, a tile's — has one entrance)
-      if (e && !seen.has(e.key)) { seen.add(e.key); list.push(e); }
-      if (list.length > 160) break;
+      let es = this.entranceCache.get(ring);
+      if (es === undefined) { es = this.entrancesFor(ring); this.entranceCache.set(ring, es); }
+      // (one building's outline held by several sources — the place's own, the view's, a tile's — has one set of entrances)
+      // (only where a building actually stands behind the doors: an outline with nothing drawn on it
+      // — a block not yet loaded, one gone — gets no doors standing alone in a field)
+      for (const e of es) if (!seen.has(e.key) && this.standsBehind(e)) { seen.add(e.key); list.push(e); }
+      if (list.length > 220) break;
     }
     if (this.entranceCache.size > 3000) this.entranceCache.clear();
     // (the doors that move: the entrance being gone into, else the nearest within 14 m)
@@ -1052,7 +1101,13 @@ export class DroneSession {
   private traced: { x: number; y: number; ring: [number, number][] } | null = null;
   private traceRoof(x: number, y: number): [number, number][] | null {
     if (this.traced && Math.hypot(this.traced.x - x, this.traced.y - y) < 4) return this.traced.ring;
-    const w = this.world, up = (qx: number, qy: number) => w.roofAt(qx, qy) > w.groundAt(qx, qy) + 0.8;
+    const ring = this.traceRaw(x, y, 0.8);
+    if (ring) this.traced = { x, y, ring };
+    return ring;
+  }
+  /** the hull of the roof cells joined to (x, y) that stand more than `above` m over the ground */
+  private traceRaw(x: number, y: number, above: number): [number, number][] | null {
+    const w = this.world, up = (qx: number, qy: number) => w.roofAt(qx, qy) > w.groundAt(qx, qy) + above;
     if (!up(x, y)) return null;
     const seen = new Set<number>(), q: [number, number][] = [[0, 0]], pts: [number, number][] = [];
     seen.add(0);
@@ -1071,9 +1126,7 @@ export class DroneSession {
     const lo: [number, number][] = [], hi: [number, number][] = [];
     for (const p of c) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
     for (let k = c.length - 1; k >= 0; k--) { const p = c[k]; while (hi.length >= 2 && cr(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); }
-    const ring = lo.slice(0, -1).concat(hi.slice(0, -1));
-    this.traced = { x, y, ring };
-    return ring;
+    return lo.slice(0, -1).concat(hi.slice(0, -1));
   }
   /** In through the door: the building's interior (평면도 기반: its register, its floors, its
    * businesses; a block of flats by its flats) on the walk page, back here on leaving. */

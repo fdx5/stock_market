@@ -14,6 +14,15 @@ export interface Extra {
   laminate: THREE.Material; partition: THREE.Material; whiteboard: THREE.Material; monitor: THREE.Material; sign: THREE.Material;
   products: THREE.Material[]; carPaint: THREE.Material[]; paintWhite: THREE.Material; paintYellow: THREE.Material; concrete: THREE.Material;
   sheetGreen: THREE.Material; curtain: THREE.Material; mat: THREE.Material; mirrorWall: THREE.Material; hazard: THREE.Material; tail: THREE.Material;
+  /** textured finishes laid over a room's floor: `type:<room type>` (the building's theme), `shop:<style>` (a business's own) */
+  floorFin?: Record<string, THREE.Material>;
+  /** brass and gold trim, dark lacquer, a polished stone for counters (facilityMaterials.ts) */
+  brass?: THREE.Material; lacquer?: THREE.Material; counterStone?: THREE.Material; veneer?: THREE.Material;
+  /** the floor's product atlas (productDisplay.ts) */
+  atlas?: import("./productDisplay").ProductAtlas;
+  /** the room being furnished: its goods for a shelf row (len along x at height y, fronts at z = front, no taller than maxH), and its drinks */
+  stock?: (len: number, y: number, front: number, maxH: number, seed: number) => Kit;
+  stockDrinks?: (len: number, y: number, front: number, maxH: number, seed: number) => Kit;
 }
 
 const part = (m: THREE.Material, g: THREE.BufferGeometry, cast = true): Part => ({ m, g, cast });
@@ -138,10 +147,13 @@ export function wallShelves(P: Palette, X: Extra, w: number, h = 1.9, d = 0.45, 
   for (let i = 0; i <= n; i++) k.push(bx(P.steel, 0.03, h, d, -w / 2 + (w / n) * i, h / 2, d / 2));
   let s = seed * 9301 + 7;
   const rnd = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+  const gap = rows > 1 ? (h - 0.25) / (rows - 1) : 0.4;
   for (let r = 0; r < rows; r++) {
     const y = 0.12 + (h - 0.25) * (r / (rows - 1 || 1)) * (rows > 1 ? 1 : 0);
     k.push(bx(P.steel, w, 0.02, d, 0, y, d / 2), bx(X.accent, w, 0.04, 0.01, 0, y + 0.0, d + 0.005));
     if (r === rows - 1 && h > 1.7) continue;
+    // (a shop's own goods, each in its shape and its printed face — productDisplay.ts)
+    if (X.stock) { k.push(...X.stock(w - 0.06, y + 0.01, d - 0.03, gap - 0.04, seed * 13 + r * 7)); continue; }
     let x = -w / 2 + 0.04;
     while (x < w / 2 - 0.1) {
       const bw = 0.05 + rnd() * 0.08, bh = 0.09 + rnd() * 0.15, bd = Math.min(0.2, d * (0.4 + rnd() * 0.3));
@@ -167,7 +179,8 @@ export function cooler(P: Palette, X: Extra, w: number): Kit {
   const n = Math.max(1, Math.round(w / 0.75));
   for (let i = 0; i < n; i++) {
     const x = -w / 2 + (w / n) * (i + 0.5);
-    for (let r = 0; r < 5; r++) for (let j = 0; j < 6; j++) k.push(cy(X.products[(i * 7 + r * 3 + j) % X.products.length], 0.03, 0.03, 0.22, x - w / n / 2 + 0.08 + j * ((w / n - 0.16) / 5), 0.28 + r * 0.33, d - 0.15, 10));
+    if (X.stockDrinks) for (let r = 0; r < 5; r++) { k.push(bx(P.steel, w / n - 0.06, 0.012, d - 0.12, x, 0.27 + r * 0.33, d / 2)); k.push(...X.stockDrinks(w / n - 0.12, 0.28 + r * 0.33, d - 0.08, 0.3, i * 11 + r * 5).map(p => { p.g.translate(x, 0, 0); return p; })); }
+    else for (let r = 0; r < 5; r++) for (let j = 0; j < 6; j++) k.push(cy(X.products[(i * 7 + r * 3 + j) % X.products.length], 0.03, 0.03, 0.22, x - w / n / 2 + 0.08 + j * ((w / n - 0.16) / 5), 0.28 + r * 0.33, d - 0.15, 10));
     k.push(bx(P.blackMetal, w / n - 0.04, h - 0.25, 0.02, x, h / 2, d + 0.01), part(P.glass, T(new THREE.PlaneGeometry(w / n - 0.1, h - 0.33), x, h / 2, d + 0.025), false));
     k.push(bx(P.chrome, 0.02, 0.6, 0.03, x + w / n / 2 - 0.07, 1.1, d + 0.04));
   }

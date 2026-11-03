@@ -1,5 +1,5 @@
 import type { FacilityKind, FacilityRole, Fixture, FloorPlan, Opening, Room, RoomType, Side } from "./types";
-import { FACILITY_LABEL, facilityStyle, programOf, type FacilityInput, type Want } from "./facility";
+import { FACILITY_LABEL, facilityCeiling, facilityStyle, programOf, type FacilityInput, type Want } from "./facility";
 import { shopStyle } from "../shopInteriors";
 
 /* A floor laid out from its drawing (도면 기반): the surveyed outline of the floor (SGIS), its charted
@@ -424,7 +424,7 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   const lifts: NonNullable<FloorPlan["facility"]>["lifts"] = [];
   const linked = new Set<string>();
   const pairKey = (a: string, b: string) => a < b ? `${a}|${b}` : `${b}|${a}`;
-  const H = 2.75;
+  const H = Math.max(2.75, facilityCeiling(kind, f.level, f.name));
   // same region: open walls between its rectangles (one room); public spaces open into each other
   // (neighbours by a coarse grid of the rooms' bounds: a large floor has thousands of rectangles)
   const RG = 8, rgrid = new Map<number, number[]>();
@@ -572,7 +572,7 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
       let lo = e.lo + 0.5, hi = e.hi - 0.5;
       if (fd) { if (fd.center - lo > hi - fd.center) hi = Math.min(hi, fd.center - fd.width / 2 - 0.4); else lo = Math.max(lo, fd.center + fd.width / 2 + 0.4); }
       if (hi - lo < 1.2) continue;
-      wins.push({ type: "window", a: r.id, b: "out", axis: axisOf(s), at: lineOf(r, s), center: r1((lo + hi) / 2), width: r1(hi - lo), height: lobby ? 2.4 : 1.7, sill: lobby ? 0.12 : 0.8 });
+      wins.push({ type: "window", a: r.id, b: "out", axis: axisOf(s), at: lineOf(r, s), center: r1((lo + hi) / 2), width: r1(hi - lo), height: lobby ? Math.max(2.4, H - 0.5) : Math.max(1.7, H - 1.25), sill: lobby ? 0.12 : 0.8 });
     }
   }
   wins.sort((a, b) => b.width - a.width);
@@ -596,7 +596,7 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   const area = keep.reduce((t, r) => t + (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]), 0);
   const cropped = bx1 - bx0 > W + 0.5 || bz1 - bz0 > D + 0.5;
   return {
-    complexId: f.id, complexName: f.name, dong: "", unitType: FACILITY_LABEL[kind], areaExclusiveM2: Math.round(area), ceilingHeightM: kind === "parking" ? 3.0 : H,
+    complexId: f.id, complexName: f.name, dong: "", unitType: FACILITY_LABEL[kind], areaExclusiveM2: Math.round(area), ceilingHeightM: H,
     source: "estimated_template",
     template: drawn ? `SGIS 실내 구획도 기반${cropped ? ` (출입구 주변 ${Math.round(W)}×${Math.round(D)}m)` : ""}` : `실측 외곽 기반 ${FACILITY_LABEL[kind]} 배치${cropped ? ` (출입구 주변 ${Math.round(W)}×${Math.round(D)}m)` : ""}`,
     basis: { area: "SGIS 건물 외곽", rooms: drawn ? "SGIS 사업체 전개도 구획 (방·복도·승강기·계단·화장실)" : f.use ? `건축물대장 층별 용도: ${f.use}` : "건축물대장 용도", built: f.built ?? null },

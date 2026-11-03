@@ -98,6 +98,7 @@ export interface MatOpts { color?: THREE.ColorRepresentation; roughness?: number
 export class Library {
   readonly all: THREE.Material[] = [];
   constructor(private sets: Map<SetName, TexSet>) {}
+  has(set: SetName) { return this.sets.has(set); }
 
   textured(set: SetName, o: MatOpts = {}): THREE.MeshPhysicalMaterial {
     const s = this.sets.get(set)!;

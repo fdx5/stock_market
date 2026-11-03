@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import { mergeMeshChildren } from "../interior/geom";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { blockyParts, lookFor } from "./blocky";
+import { GESTURES, type GestureName } from "./gestures";
 
 /* The walker: a person of jointed, rounded parts (no rig to download) in casual clothes, posed each
  * frame by a walk cycle, or seated, or lying. Seen from behind in the third-person view and in the
@@ -23,8 +26,10 @@ export class Avatar {
   private shoeM!: THREE.MeshPhysicalMaterial; private soleM!: THREE.Material;
   private sway = 0; private runK = 0;
 
-  /** `outfit`: clothes for a part (a doctor's white coat, a nurse's scrubs) instead of the seed's casual ones */
-  constructor(seed = 1, outfit?: { top?: string; bottom?: string; hair?: string; shoe?: string }) {
+  /** `outfit`: clothes for a part (a doctor's white coat, a nurse's scrubs) instead of the seed's casual ones;
+   * `style`: the block figure (the default, blocky.ts) or the realistic one */
+  constructor(seed = 1, outfit?: { top?: string; bottom?: string; hair?: string; shoe?: string; role?: string; style?: "blocky" | "real" }) {
+    if ((outfit?.style ?? Avatar.style) === "blocky") { this.buildBlocky(seed, outfit); return; }
     let s = seed * 48271 + 11;
     const rnd = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
     const skinTones = ["#e9c4a6", "#dcb08f", "#c99a78", "#f0cfb5"];
@@ -139,13 +144,59 @@ export class Avatar {
     for (const o of all) this.geos.push(...mergeMeshChildren(o));
   }
 
+  /** every figure's style unless one is asked for */
+  static style: "blocky" | "real" = "blocky";
+  private blocky = false;
+  private buildBlocky(seed: number, outfit?: { top?: string; bottom?: string; hair?: string; shoe?: string; role?: string }) {
+    this.blocky = true;
+    const look = lookFor(seed, outfit?.role, outfit), { parts, material } = blockyParts(look);
+    const joint = (name: string, parent: THREE.Object3D, x: number, y: number, z: number) => { const j = new THREE.Group(); j.position.set(x, y, z); parent.add(j); this.parts[name] = j; return j; };
+    const hips = joint("hips", this.root, 0, 0.95, 0), spine = joint("spine", hips, 0, 0.08, 0), neck = joint("neck", spine, 0, 0.52, 0); joint("head", neck, 0, 0.11, 0);
+    for (const sx of [-1, 1]) {
+      const side = sx < 0 ? "l" : "r";
+      const sh = joint(`${side}Shoulder`, spine, sx * 0.285, 0.44, 0); joint(`${side}Elbow`, sh, 0, -0.29, 0);
+      const hip = joint(`${side}Hip`, hips, sx * 0.095, -0.04, 0), knee = joint(`${side}Knee`, hip, 0, -0.42, 0); joint(`${side}Ankle`, knee, 0, -0.43, 0);
+    }
+    // (each joint's pieces one mesh, in the shared character atlas)
+    for (const [name, geos] of Object.entries(parts)) {
+      if (!geos.length) continue;
+      const g = mergeGeometries(geos.map(q => { for (const k of Object.keys(q.attributes)) if (k !== "position" && k !== "normal" && k !== "uv") q.deleteAttribute(k); return q; }), false);
+      geos.forEach(q => q.dispose());
+      if (!g) continue;
+      this.geos.push(g);
+      const mesh = new THREE.Mesh(g, material); mesh.castShadow = true; mesh.receiveShadow = true; this.parts[name].add(mesh);
+    }
+    // (the indoor socks: the shoes' colour is in the atlas; these stand in for the switch)
+    this.shoeM = new THREE.MeshPhysicalMaterial(); this.soleM = new THREE.MeshBasicMaterial(); this.mats.push(this.shoeM, this.soleM);
+  }
   /** Pedals follow actual distance, so a stopped or blocked bicycle never pedals in place. */
   pedal(distance: number, steer: number) { this.pose = "cycle"; this.pedalPhase += distance / (0.34 * 2.8); this.cycleSteer = steer; }
   /** A seated speaker turns their head while their body stays aligned with the chair. */
   lookSide(yaw: number) { this.parts.neck.rotation.y = THREE.MathUtils.clamp(yaw, -.7, .7); }
 
+  /** a gesture played over the pose (gestures.ts): eased in and out; walking cuts a non-looping one short */
+  private gesture: { name: GestureName; t: number } | null = null;
+  play(name: GestureName) { this.gesture = { name, t: 0 }; }
+  stopGesture() { this.gesture = null; }
+  get playing(): GestureName | null { return this.gesture?.name ?? null; }
+  private applyGesture(dt: number, speed: number) {
+    const g = this.gesture; if (!g) return;
+    const def = GESTURES[g.name]; g.t += dt;
+    if ((!def.loop && g.t > def.dur) || (def.loop && g.t > def.dur * 3) || (speed > 0.4 && !def.loop && g.t > 0.3)) { this.gesture = null; return; }
+    const end = def.loop ? def.dur * 3 : def.dur, w = Math.min(1, g.t / 0.25, (end - g.t) / 0.3);
+    const k = Math.max(0, w), f = def.at(g.t), p = this.parts, legs = def.legs && this.pose === "stand";
+    for (const [n, r] of Object.entries(f.j)) {
+      if (!p[n] || (!legs && /Hip|Knee|Ankle/.test(n))) continue;
+      const o = p[n].rotation; o.x += (r[0] - o.x) * k; o.y += (r[1] - o.y) * k; o.z += (r[2] - o.z) * k;
+    }
+    if (legs && f.lift) p.hips.position.y += f.lift * k;
+  }
   /** speed: m/s along the ground; dt: s */
   update(dt: number, speed: number) {
+    this.updatePose(dt, speed);
+    this.applyGesture(dt, speed);
+  }
+  private updatePose(dt: number, speed: number) {
     const p = this.parts, t = this.pose;
     const set = (n: string, x: number, y = 0, z = 0) => { p[n].rotation.set(x, y, z); };
     if (t === "stand") {

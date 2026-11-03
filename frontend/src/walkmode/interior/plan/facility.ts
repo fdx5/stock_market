@@ -21,6 +21,29 @@ export interface FacilityInput {
   built?: number | null;
 }
 
+/** a floor's clear height by what the building is: a hotel's and a museum's ground floor soaring,
+ * a department store's sales floors high, an office tower's lobby double height, its work floors a
+ * modern 3 m; car parks and plant rooms what they need */
+export function facilityCeiling(kind: FacilityKind, level: number, name = ""): number {
+  const ground = level === 1, below = level < 0;
+  if (kind === "parking") return 3.0;
+  if (kind === "plant") return 3.6;
+  if (below) return /백화점|몰|아울렛|마트/.test(name) ? 4.0 : 3.2;
+  const store = /백화점|몰|아울렛|쇼핑|플라자|스퀘어|타워/.test(name);
+  switch (kind) {
+    case "hotel": return ground ? 5.6 : 3.0;
+    case "museum": return ground ? 6.0 : 5.0;
+    case "retail": return store ? (ground ? 5.0 : 4.4) : ground ? 3.8 : 3.4;
+    case "food": return ground ? 3.8 : 3.3;
+    case "office": return ground ? 4.8 : 3.0;
+    case "civic": return ground ? 4.6 : 3.2;
+    case "clinic": case "ward": return ground ? 4.0 : 2.9;
+    case "school": return ground ? 3.6 : 3.1;
+    case "gym": return 4.2;
+    default: return ground ? 3.8 : 2.9;
+  }
+}
+
 /** the register's use of a floor (building/plan.ts kindOf) → what is built on it */
 export function facilityKindOf(z: ZoneKind): FacilityKind {
   switch (z) {
@@ -185,8 +208,10 @@ export function generateFacility(f: FacilityInput): FloorPlan {
   const door = (a: string, b: string, axis: "x" | "z", at: number, center: number, width = 0.95, hinge: "start" | "end" = "start", swingInto = a): Opening =>
     ({ type: "door", a, b, axis, at, center: r1(center), width, height: 2.1, sill: 0, hinge, swingInto });
   const glass = (a: string, b: string, axis: "x" | "z", at: number, center: number, width = 1.8): Opening => ({ type: "glass_door", a, b, axis, at, center: r1(center), width, height: 2.3, sill: 0 });
-  const open = (a: string, b: string, axis: "x" | "z", at: number, center: number, width: number): Opening => ({ type: "open", a, b, axis, at, center: r1(center), width: r1(width), height: 2.45, sill: 0 });
-  const win = (a: string, axis: "x" | "z", at: number, center: number, width: number, sill = 0.75, height = 1.75): Opening => ({ type: "window", a, b: "out", axis, at, center: r1(center), width: r1(width), height, sill });
+  const open = (a: string, b: string, axis: "x" | "z", at: number, center: number, width: number): Opening => ({ type: "open", a, b, axis, at, center: r1(center), width: r1(width), height: Math.max(2.45, Math.min(HC - 0.6, 3.6)), sill: 0 });
+  // (a tall floor: its windows and open shop fronts as tall as it allows)
+  const HC = facilityCeiling(f.kind, f.level, f.name);
+  const win = (a: string, axis: "x" | "z", at: number, center: number, width: number, sill = 0.75, height = Math.max(1.75, HC - sill - 0.45)): Opening => ({ type: "window", a, b: "out", axis, at, center: r1(center), width: r1(width), height, sill });
   const ground = f.level === 1, parking = f.kind === "parking";
 
   // ------------------------------------------------ the core: lifts, stair, toilets; the corridor
@@ -309,7 +334,7 @@ export function generateFacility(f: FacilityInput): FloorPlan {
 
   const area = rooms.reduce((t, r) => t + (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]), 0);
   return {
-    complexId: f.id, complexName: f.name, dong: "", unitType: FACILITY_LABEL[f.kind], areaExclusiveM2: Math.round(area), ceilingHeightM: f.kind === "parking" || f.kind === "plant" ? 3.0 : 2.75,
+    complexId: f.id, complexName: f.name, dong: "", unitType: FACILITY_LABEL[f.kind], areaExclusiveM2: Math.round(area), ceilingHeightM: facilityCeiling(f.kind, f.level, f.name),
     source: "estimated_template", template: `${FACILITY_LABEL[f.kind]} 표준 평면 (코어·중복도)`,
     basis: { area: "건물 외곽 실측", rooms: f.use ? `건축물대장 층별 용도: ${f.use}` : "건축물대장 용도", built: f.built ?? null },
     bounds: [0, 0, W, D], rooms, openings, fixtures,

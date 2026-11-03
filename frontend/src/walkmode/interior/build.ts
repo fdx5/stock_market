@@ -69,9 +69,10 @@ const isDoorish = (o: Opening) => o.type === "door" || o.type === "sliding_door"
 
 /** a room's finish of one kind ("floor", "wall") from its Room.finish, if the building has it */
 const finishOf = (r: Room, kind: string, F?: Record<string, THREE.Material>) => {
-  if (!r.finish || !F) return undefined;
-  const key = r.finish.split("|").find(k => k.startsWith(kind + ":"));
-  return key ? F[key] : undefined;
+  if (!F) return undefined;
+  const key = r.finish?.split("|").find(k => k.startsWith(kind + ":"));
+  // (a building's look by room type — facilityMaterials.ts: a hotel corridor's carpet, a lobby's stone)
+  return key ? F[key] : F[`type:${r.type}:${kind}`];
 };
 
 export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THREE.Group, finishes?: Record<string, THREE.Material>): Shell {
@@ -104,7 +105,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
   // (a building's public floors — its lobby, corridors, waiting areas, galleries, its shops — in the
   // stone of the main floor; its work rooms in the rooms' floor)
   const PUBLIC = new Set<string>(["lobby", "corridor", "liftHall", "waiting", "service", "gallery", "shop", "cafe", "pharmacy"]);
-  const floorMat = (r: Room) => wet(r) || r.type === "utility" ? P.floorWet : finishOf(r, "floor", finishes) ?? (r.type === "entrance" ? P.floorEntry
+  const floorMat = (r: Room) => wet(r) || r.type === "utility" ? (plan.facility && finishes?.["type:restroom:floor"] || P.floorWet) : finishOf(r, "floor", finishes) ?? (r.type === "entrance" ? P.floorEntry
     : ["living","kitchen","hall"].includes(r.surfaceType??r.type) || PUBLIC.has(r.type) ? P.floorMain : P.floorRoom);
   // the living room's 아트월: its side wall without openings (the TV goes there)
   const living = plan.rooms.find(r => r.type === "living");
@@ -112,13 +113,16 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
   // (a building's lift hall in stone round its lift doors, its lobby's side walls likewise)
   // (a room with its own wall finish: the lobby's stone all round; a department's colour or the
   // wood on its feature wall)
-  const wallMat = (r: Room, s: Side) => { const own = finishOf(r, "wall", finishes); return wet(r) ? P.wallWet : own && (r.finish!.includes("wall:stone") || featureWall(r, s)) ? own
+  const wallMat = (r: Room, s: Side) => { const own = finishOf(r, "wall", finishes), typed = finishes?.[`type:${r.type}:wall`], feature = finishes?.[`type:${r.type}:feature`];
+    if (plan.facility && !wet(r) && feature && featureWall(r, s)) return feature;
+    if (plan.facility && !wet(r) && typed && !r.finish?.includes("wall:")) return typed;
+    return wet(r) ? (finishes?.["type:restroom:wall"] ?? P.wallWet) : own && (r.finish?.includes("wall:stone") || featureWall(r, s)) ? own
     : r === living && s.name === accentSide ? P.wallAccent
     : (r.type === "liftHall" && s.name === "s") || (r.type === "lobby" && (s.name === "w" || s.name === "e")) || featureWall(r, s) ? P.wallAccent : P.wall; };
   // (a building's rooms: some with one wall in the feature finish — which, by the room)
   function featureWall(r: Room, s: Side) {
     // (a room with its own wall finish always has its feature wall: a department's colour is how it is found)
-    const own = !!finishOf(r, "wall", finishes);
+    const own = !!finishOf(r, "wall", finishes) || !!finishes?.[`type:${r.type}:feature`];
     if (!plan.facility || (!own && !["office", "meeting", "cafe", "shop", "classroom", "consult", "waiting", "guest", "openOffice", "staffroom"].includes(r.type))) return false;
     const h = [...`${plan.complexId}|${plan.floor}|${r.id}`].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 7) >>> 0;
     return (own || h % 3 !== 0) && ["n", "s", "w", "e"][h % 4] === s.name;
@@ -216,7 +220,9 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
       for (const [b0, b1] of solid) { if(b1-b0<.002)continue;const p = s.at(b0, 0, e), q = s.at(b1, 0, e); segments.push([p.x, p.z, q.x, q.z]); }
     }
     // floor
-    const floorInset=plan.imageAnalysis?0:e;
+    // (a building's rooms open into each other along whole fronts: their floors meet at the wall's
+    // centre line, under it, so no strip of nothing shows between them)
+    const floorInset=plan.imageAnalysis||plan.facility?0:e;
     quadAuto(B, floorMat(r), zone, [new THREE.Vector3(x0 + floorInset, fy, z0 + floorInset), new THREE.Vector3(x1 - floorInset, fy, z0 + floorInset), new THREE.Vector3(x1 - floorInset, fy, z1 - floorInset), new THREE.Vector3(x0 + floorInset, fy, z1 - floorInset)], new THREE.Vector3(0, 1, 0),
       [[x0 + e, -(z0 + e)], [x1 - e, -(z0 + e)], [x1 - e, -(z1 - e)], [x0 + e, -(z1 - e)]]);
     ceiling(r, zone);
@@ -242,7 +248,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
 
   // ---------------------------------------------------------------- ceilings and their lamps
   function ceiling(r: Room, zone: number) {
-    const inset=plan.imageAnalysis?0:e;
+    const inset=plan.imageAnalysis||plan.facility?0:e;
     const [x0, z0, x1, z1] = r.rect, X0 = x0 + inset, X1 = x1 - inset, Z0 = z0 + inset, Z1 = z1 - inset, W = X1 - X0, D = Z1 - Z0;
     const down = new THREE.Vector3(0, -1, 0), cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
     const ceilQuads = (holes: [number, number, number, number][], y: number) => {
@@ -252,11 +258,17 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
     if (plan.imageAnalysis) {
       const area=(q:Room)=>(q.rect[2]-q.rect[0])*(q.rect[3]-q.rect[1]);
       const lead=plan.rooms.filter(q=>q.zone===r.zone).reduce((a,b)=>area(b)>area(a)?b:a,r);
-      if(lead!==r){ceilQuads([],H);return;}
+      if(lead!==r){
+        ceilQuads([],H);
+        // (a 현관 open to the hall still has its own sensor light: lit from the living room's lamp
+        // metres away it read as a dark hole)
+        if((r.surfaceType??r.type)==="entrance"||r.type==="entrance"){downlight(cx,cz,zone);ceilingLights.push({room:r,zone,kind:"down",pos:new THREE.Vector3(cx,H-0.01,cz),w:Math.max(0.4,W*0.6),h:Math.max(0.4,D*0.6)});}
+        return;
+      }
     }
-    if (r.type === "living" && W > 2.6 && D > 2.6) {
-      // 우물천장: a recess with hidden cove light round its lip, and 매입등 round the room
-      const m = 0.5, R0 = X0 + m, R1 = X1 - m, S0 = Z0 + m, S1 = Z1 - m, up = 0.14;
+    /** 우물천장: a recess with hidden cove light round its lip (a flat's living room, a building's lobby, gallery, suite) */
+    const cofferAt = (m: number, up: number) => {
+      const R0 = X0 + m, R1 = X1 - m, S0 = Z0 + m, S1 = Z1 - m;
       ceilQuads([[R0, R1, S0, S1]], H);
       quadAuto(B, P.ceiling, zone, [new THREE.Vector3(R0, H + up, S0), new THREE.Vector3(R1, H + up, S0), new THREE.Vector3(R1, H + up, S1), new THREE.Vector3(R0, H + up, S1)], down, [[R0, S0], [R1, S0], [R1, S1], [R0, S1]]);
       const sides: [THREE.Vector3, THREE.Vector3, THREE.Vector3][] = [
@@ -270,13 +282,27 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
         const Q0 = p.clone().setY(H + up - 0.03).addScaledVector(n, 0.002), Q1 = q.clone().setY(H + up - 0.03).addScaledVector(n, 0.002);
         quadAuto(B, lampMat(zone, P.ledWarm), zone, [Q0, Q1, Q1.clone().setY(H + up - 0.005), Q0.clone().setY(H + up - 0.005)], n, [[0, 0], [1, 0], [1, 1], [0, 1]]);
       }
+      return { R0, R1, S0, S1 };
+    };
+    if (r.type === "living" && W > 2.6 && D > 2.6) {
+      // 우물천장 and 매입등 round the room
+      const up = 0.14, { R0, R1, S0, S1 } = cofferAt(0.5, up);
       ceilingLights.push({ room: r, zone, kind: "coffer", pos: new THREE.Vector3(cx, H + up - 0.02, cz), w: R1 - R0, h: S1 - S0 });
       // 매입등 (downlights) along the long sides
       const n = Math.max(2, Math.round(W / 1.3));
       for (const zz of [Z0 + 0.28, Z1 - 0.28]) for (let i = 0; i < n; i++) downlight(X0 + (W / n) * (i + 0.5), zz, zone);
       return;
     }
-    ceilQuads([], H);
+    // (a building's grand rooms — its lobby, galleries, a hotel's rooms, a 민원실 — under a coffered
+    // ceiling with cove light; downlights round the recess)
+    const coffer = facility && W > 3.4 && D > 3.4 && ["lobby", "gallery", "guest", "service", "liftHall", "cafe", "meeting"].includes(r.type) && (plan.rooms.filter(q => q.zone === r.zone).length === 1 || r.type === "lobby");
+    if (coffer) {
+      const m = Math.min(1.1, Math.max(0.45, Math.min(W, D) * 0.14)), { R0, R1, S0, S1 } = cofferAt(m, 0.18);
+      const nx = Math.max(2, Math.round(W / 1.8)), nz = Math.max(2, Math.round(D / 1.8));
+      for (let i = 0; i < nx; i++) for (const zz of [Z0 + m / 2, Z1 - m / 2]) downlight(X0 + (W / nx) * (i + 0.5), zz, zone);
+      for (let j = 1; j < nz - 1; j++) for (const xx of [X0 + m / 2, X1 - m / 2]) downlight(xx, Z0 + (D / nz) * (j + 0.5), zone);
+      void R0; void R1; void S0; void S1;
+    } else ceilQuads([], H);
     // (a drawn floor's many rooms: one lamp's light a zone — the scene's area lights are few — over
     // the whole of the zone, from its biggest room)
     const zoneRooms = facility ? plan.rooms.filter(q => q.zone === r.zone) : [r];
@@ -308,6 +334,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
         return;
       }
       // (a lobby: long slot lines across it, not the office's panel grid)
+      if (coffer) { pushLight({ room: r, zone, kind: "panel", pos: new THREE.Vector3(cx, H - 0.05, cz), w: Math.max(0.5, W * 0.4), h: Math.max(0.5, D * 0.4) }); return; }
       if (r.type === "lobby") {
         const along = W >= D, L = along ? W : D, A = along ? D : W, n = Math.max(1, Math.round(A / 3)), seg = Math.max(1, Math.round(L / 3.2));
         for (let i = 0; i < n; i++) for (let k = 0; k < seg; k++) {
