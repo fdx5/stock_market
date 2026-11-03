@@ -877,7 +877,7 @@ export class DroneSession {
     for (let i = 0; i < n; i++) {
       const t = t0 + (L * (i + 0.5)) / n, q: Entrance = { ...e, key: `${e.key}#${i}`, x: e.x + e.tx * t, y: e.y + e.ty * t };
       q.z = this.world.groundAt(q.x + q.nx * 0.6, q.y + q.ny * 0.6);
-      this.snapToFacade(q); out.push(q);
+      this.snapCoarse(q); out.push(q);
     }
     return out;
   }
@@ -909,11 +909,16 @@ export class DroneSession {
       if (list.length > 220) break;
     }
     if (this.entranceCache.size > 3000) this.entranceCache.clear();
+    // (the exact facade for the nearest door within 25 m not yet fitted to it — one a pass, so its
+    // ray over the tiles' triangles is one short piece of a frame, and only for doors seen up close)
+    let fit: Entrance | null = null, fd = 25;
+    for (const e of list) { if (this.facadeSnapped.has(e)) continue; const d = Math.hypot(e.x - x, e.y - y); if (d < fd) { fd = d; fit = e; } }
+    if (fit) { this.facadeSnapped.add(fit); this.snapToFacade(fit); }
     // (the doors that move: the entrance being gone into, else the nearest within 14 m)
     const near = this.entering?.e ?? list.reduce<Entrance | null>((b, e) => { const d = Math.hypot(e.x - x, e.y - y); return d < 14 && (!b || d < Math.hypot(b.x - x, b.y - y)) ? e : b; }, null);
     this.entrances.set(list, near);
     this.entrances.nameSigns(x, y);
-    return fresh >= 1;
+    return fresh >= 1 || !!fit;
   }
   // ---------------------------------------------------------------- going in
   /** Going in through an entrance: walked to its doors, which slide open, and through them, the
@@ -1101,7 +1106,7 @@ export class DroneSession {
     const lane = w.lanePointNear(cx, cy, 160), walk = this.nearestWalk(cx, cy, 80);
     const toward: [number, number] | null = walk ?? (lane ? [lane.x, lane.y] : null);
     const e = placeEntrance(ring, kind, toward, (px, py) => w.groundAt(px, py), `${cx.toFixed(1)},${cy.toFixed(1)}`);
-    if (e) this.snapToFacade(e);
+    if (e) this.snapCoarse(e);
     // (its name for the sign: a label inside its outline first, of the kind it is if there are several)
     // (a building's own name: not a block number, nor a service point's label — an ambulance bay, a car park, a bike dock)
     const named = names.filter(n => n.name && !/^\d+동$/.test(n.name) && !/^(service|er|parking|bike|cctv|exit|subway|train|station)$/.test(n.kind) && !/\p{Extended_Pictographic}|구급차|주차|정류장|출구/u.test(n.name));
@@ -1133,6 +1138,22 @@ export class DroneSession {
     visit(this.world.root);
     return F.list;
   }
+  /** Where the drawn wall is, from the 2D grids alone (no triangles): marched in from 18 m out
+   * along the door's normal in 0.25 m steps to the first cell a building stands on. Good to about
+   * half a metre; the exact face is found by snapToFacade once the walker comes within 25 m. */
+  private snapCoarse(e: Entrance) {
+    const w = this.world, R = 18;
+    for (let d = R; d > -1; d -= 0.25) {
+      const px = e.x + e.nx * d, py = e.y + e.ny * d;
+      if (w.roofAt(px, py) > w.groundAt(px, py) + 2 || w.buildingRingAt(px, py)) {
+        const out = d + 0.125;
+        if (!(out > -1 && out < 14) || Math.abs(out) <= 0.3) return;
+        e.x += e.nx * out; e.y += e.ny * out; e.z = w.groundAt(e.x + e.nx * 0.6, e.y + e.ny * 0.6);
+        return;
+      }
+    }
+  }
+  private facadeSnapped = new WeakSet<Entrance>();
   private snapToFacade(e: Entrance) {
     const R = 18, o = new THREE.Vector3(e.x + e.nx * R, e.z + 1.6, -(e.y + e.ny * R)), dir = new THREE.Vector3(-e.nx, 0, e.ny);
     this.ray.set(o, dir); this.ray.far = R + 1.2;
