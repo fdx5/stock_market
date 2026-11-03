@@ -215,3 +215,7 @@ html[data-drone-flight] .re-drone-view-icon, html[data-drone-flight] .d2-bgm-tit
   .drone-warp-progress i { animation: none; transform: scaleX(1); }
 }
 
+
+/* 직접 걷기: its walker and words centred in the button, with room either side */
+.drone-explore-page .re-holo .re-holo-balloon-btn.re-holo-walk-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; min-width: 104px; text-align: center; box-sizing: border-box; }
+.drone-explore-page .re-holo .re-holo-balloon-btn.re-holo-walk-btn span { text-align: center; }

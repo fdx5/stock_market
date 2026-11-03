@@ -669,8 +669,7 @@ export class DroneSession {
   private footSounds() {
     const f = this.flight;
     if (!f.walking) { if (this.wasCycling) { this.fx?.stopBicycle(); this.wasCycling = false; } return; }
-    if (!this.fx) this.fx = new Sound();
-    this.fx.resume();
+    if (!this.fx) { this.fx = new Sound(); this.fx.resume(); }
     const k = f.keys, fwd = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) + Math.max(0, f.sticks.right[1]), back = (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0) + Math.max(0, -f.sticks.right[1]);
     if (f.cycling) { this.fx.bicycle({ speed: f.bikeSpeed, pedal: Math.min(1, fwd), brake: Math.min(1, back) }); this.wasCycling = true; this.stepAcc = 0; return; }
     if (this.wasCycling) { this.fx.stopBicycle(); this.wasCycling = false; }

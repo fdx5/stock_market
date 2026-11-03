@@ -823,6 +823,8 @@
   display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 44px) auto; gap: 4px; pointer-events: auto; user-select: none; touch-action: none; }
 .re-holo .re-walk-pad button { border-radius: 10px; border: 1px solid rgba(80, 230, 255, .5); background: rgba(6, 18, 26, .82); color: #dff8ff; font: 700 15px/1 Pretendard, "Noto Sans KR", sans-serif; cursor: pointer; touch-action: none; }
 .re-holo .re-walk-pad button:active { background: rgba(40, 140, 170, .9); }
+/* (the arrows and 달리기 centred in their keys — a button's own padding and text-align left them off to one side) */
+.re-holo .re-walk-pad button { display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; text-align: center; line-height: 1; width: 44px; height: 44px; box-sizing: border-box; }
 .re-holo .re-walk-pad-up { grid-column: 2; grid-row: 1; }
 .re-holo .re-walk-pad-left { grid-column: 1; grid-row: 2; }
 .re-holo .re-walk-pad-right { grid-column: 3; grid-row: 2; }

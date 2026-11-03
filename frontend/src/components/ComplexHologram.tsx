@@ -1054,7 +1054,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // trees' shadows four times as fine where they are seen up close; the same three cascades and
     // filter, so no new pipeline and no more passes. A phone's lite two cascades win.)
     let droneLiteOn = false, droneGameOn = false;
-    const gameShadows = () => (native as unknown as { setShadowSplits?: (s: number[] | null) => void } | null)?.setShadowSplits?.(droneLiteOn ? [200, 900] : droneGameOn ? [45, 240, 1800] : null);
+    const gameShadows = () => (native as unknown as { setShadowSplits?: (s: number[] | null) => void } | null)?.setShadowSplits?.(droneLiteOn ? [200, 900] : null);
     stage.setDroneGame = on => { if (droneGameOn === on) return; droneGameOn = on; gameShadows(); };
     stage.setDroneLite = on => {
       droneLiteOn = on;
