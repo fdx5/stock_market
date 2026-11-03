@@ -56,8 +56,17 @@ export function mapWalls(plan: FloorPlan): [number, number, number, number][] {
   return out;
 }
 
-export default function MiniMap({ plan, subject }: { plan: FloorPlan; subject: () => MapSubject | null }) {
+
+/** the touch rail's map button: shows or hides the map from outside it */
+export const toggleMiniMap = () => window.dispatchEvent(new Event("wk-map-toggle"));
+
+export default function MiniMap({ plan, subject, touch = false }: { plan: FloorPlan; subject: () => MapSubject | null; touch?: boolean }) {
   const [shown, setShown] = useState(true), [big, setBig] = useState(false);
+  useEffect(() => {
+    const t = () => setShown(s => !s);
+    window.addEventListener("wk-map-toggle", t);
+    return () => window.removeEventListener("wk-map-toggle", t);
+  }, []);
   const me = useRef<SVGGElement>(null), pet = useRef<SVGCircleElement>(null);
   const names = useMemo(() => roomNames(plan), [plan]);
   const walls = useMemo(() => mapWalls(plan), [plan]);
@@ -91,7 +100,7 @@ export default function MiniMap({ plan, subject }: { plan: FloorPlan; subject: (
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [shown, subject]);
-  if (!shown) return <button className="wk-map-show wk-btn" onClick={() => setShown(true)}>평면도 <kbd>M</kbd></button>;
+  if (!shown) return touch ? null : <button className="wk-map-show wk-btn" onClick={() => setShown(true)}>평면도 <kbd>M</kbd></button>;
   const span = Math.max(x1 - x0, z1 - z0), fs = span * 0.052;
   // (a building's room drawn in several rectangles: its name once, in its biggest; sized to fit)
   const labelled = new Set<string>();
@@ -101,8 +110,8 @@ export default function MiniMap({ plan, subject }: { plan: FloorPlan; subject: (
     for (const r of best.values()) labelled.add(r.id);
   }
   return (
-    <div className={`wk-map${big ? " is-big" : ""}`} onPointerDown={e => e.stopPropagation()}>
-      <div className="wk-map-tools"><span>실내 평면도</span><button type="button" aria-pressed={big} onClick={() => setBig(b => !b)}>{big ? "원래 크기" : "2배 확대"}</button><button type="button" aria-label="평면도 숨기기" onClick={() => setShown(false)}>×</button></div>
+    <div className={`wk-map${big ? " is-big" : ""}${touch ? " is-touch" : ""}`} onPointerDown={e => e.stopPropagation()}>
+      <div className="wk-map-tools"><span>실내 평면도</span><button type="button" aria-pressed={big} onClick={() => setBig(b => !b)}>{big ? (touch ? "작게" : "원래 크기") : (touch ? "크게" : "2배 확대")}</button><button type="button" aria-label="평면도 숨기기" onClick={() => setShown(false)}>×</button></div>
       <svg viewBox={vb} preserveAspectRatio="xMidYMid meet">
         <rect x={x0} y={z0} width={x1 - x0} height={z1 - z0} fill="none" stroke="rgba(94,240,255,.55)" strokeWidth={span * 0.012} />
         {plan.rooms.map(r => {

@@ -40,13 +40,13 @@ import { floorPlanFromImage, type ImageAnalysis } from "./interior/plan/imagePla
 import { InteriorSafetyError } from "./interior/navigation";
 import { Sound } from "./game/sound";
 import { WalkGame, type Entrance, type BicycleHud, type CarHud } from "./game/WalkGame";
-import MiniMap, { type MapSubject } from "./MiniMap";
+import MiniMap, { toggleMiniMap, type MapSubject } from "./MiniMap";
 import OutdoorMap from "./OutdoorMap";
 import { LaptopScreen, TvBrowser } from "./ScreenApps";
 import { FacilityBrowser, VendingMenu } from "./FacilityApps";
 import type { VendingSession } from "./interior/vending";
 import CameraSettings from "./CameraSettings";
-import { viewPreferences } from "./viewPreferences";
+import { viewPreferences, zoomView } from "./viewPreferences";
 import { parseWalkAt, walkLink, walkAnchor, rememberWalkEntry, recalledWalkEntry, resolveWalkEntry, safeWalkBack, type WalkEntry } from "./walkLink";
 import { vworldWalkFootprints } from "../components/vworldBuildings";
 import type { PetKind } from "./interior/life";
@@ -127,6 +127,8 @@ export default function WalkPage() {
   const [vending, setVending] = useState<VendingSession | null>(null);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [cameraPanel, setCameraPanel] = useState(false), [outdoorView, setOutdoorView] = useState<"first" | "third">("third");
+  // (a phone: the top bar's buttons folded into one menu; a short note of the view's zoom)
+  const [menuOpen, setMenuOpen] = useState(false), [zoomNote, setZoomNote] = useState("");
   const monitorCorners = useMemo(() => () => interior.current?.monitorScreen() ?? null, []);
   const closeMonitor = () => { interior.current?.closeMonitor(); setMonitorOpen(false); };
   useEffect(() => { const on = !!(liftPanel || vending || monitorOpen || cameraPanel); interior.current?.setOverlay(on); building.current?.setOverlay(on); game.current?.setOverlay(on); }, [liftPanel, vending, monitorOpen, cameraPanel, phase]);
@@ -694,13 +696,38 @@ export default function WalkPage() {
   // (stepping away — a move key — ends the zoom)
   useEffect(() => { if (zoomed && hud?.seated !== "화면") setZoomed(null); }, [hud?.seated, zoomed]);
   // looking: pointer lock with a mouse, a drag on the right half by touch
-  const drag = useRef<{ id: number; x: number; y: number } | null>(null);
+  const drag = useRef<{ id: number; x: number; y: number; sx: number; sy: number; t: number; moved: boolean } | null>(null);
+  // (the fingers on the look side: two of them pinch — the view's zoom)
+  const looks = useRef(new Map<number, { x: number; y: number }>()), pinch = useRef<{ d: number } | null>(null);
   const stick = useRef<{ id: number; x: number; y: number } | null>(null);
   const [stickAt, setStickAt] = useState<{ x: number; y: number; dx: number; dy: number } | null>(null);
   const phaseRef = useRef(phase); phaseRef.current = phase;
   const active = () => (phaseRef.current === "interior" ? interior.current : phaseRef.current === "building" ? building.current : phaseRef.current === "outdoor" ? game.current : null);
+  const third = phase === "interior" ? hud?.view === "third" : phase === "building" ? bhud?.view === "third" : outdoorView === "third";
+  const thirdRef = useRef(third); thirdRef.current = third;
+  const noteTimer = useRef(0);
+  /** zoom the view (a spread > 1 brings it closer) and say where it is now */
+  const zoom = (scale: number) => {
+    const t = thirdRef.current; zoomView(scale, t);
+    const p = viewPreferences();
+    setZoomNote(t ? `카메라 거리 ${Math.round(p.distance * 100)}%` : `시야각 ${p.fov}°`);
+    clearTimeout(noteTimer.current); noteTimer.current = window.setTimeout(() => setZoomNote(""), 1100);
+  };
   useEffect(() => {
-    const clear = () => { stick.current = null; drag.current = null; setStickAt(null); active()?.setStick(0, 0, false); };
+    // (the mouse wheel over the 3D view: the same zoom)
+    const wheel = (e: WheelEvent) => {
+      if (e.target !== canvas.current || cameraControlsOff()) return;
+      const p = phaseRef.current; if (p !== "interior" && p !== "building" && p !== "outdoor") return;
+      zoom(Math.exp(-Math.max(-120, Math.min(120, e.deltaY)) * 0.0016));
+    };
+    window.addEventListener("wheel", wheel, { passive: true });
+    return () => { window.removeEventListener("wheel", wheel); clearTimeout(noteTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const overlaysRef = useRef(false);
+  const cameraControlsOff = () => overlaysRef.current;
+  useEffect(() => {
+    const clear = () => { stick.current = null; drag.current = null; looks.current.clear(); pinch.current = null; setStickAt(null); active()?.setStick(0, 0, false); };
     window.addEventListener("blur", clear);
     return () => window.removeEventListener("blur", clear);
   }, []);
@@ -725,6 +752,19 @@ export default function WalkPage() {
     window.addEventListener("focus", lc);
     return () => { window.removeEventListener("mousemove", mm); document.removeEventListener("pointerlockchange", lc); window.removeEventListener("focus", lc); };
   }, []);
+  overlaysRef.current = !!(vending || monitorOpen || liftPanel || cameraPanel || talk);
+  const indoor = phase === "interior" || phase === "building";
+  // (the menu folds away when the phase changes or the phone turns into a mouse)
+  useEffect(() => { setMenuOpen(false); }, [phase, touch]);
+  // (the touch help says its few lines once, then goes)
+  useEffect(() => { if (!touch || !indoor || !showHelp) return; const t = setTimeout(() => setShowHelp(false), 9000); return () => clearTimeout(t); }, [touch, indoor, showHelp]);
+  const fullscreenOk = typeof document !== "undefined" && !!document.fullscreenEnabled;
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => { const f = () => setFullscreen(!!document.fullscreenElement); document.addEventListener("fullscreenchange", f); return () => document.removeEventListener("fullscreenchange", f); }, []);
+  const toggleFullscreen = () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void root.current?.requestFullscreen?.({ navigationUI: "hide" }).catch(() => undefined); };
+  /** the top bar's buttons behind one menu button on a phone (they crowded out the place's name) */
+  const menuButton = touch ? <button className="wk-btn wk-menu-btn" aria-expanded={menuOpen} aria-label="메뉴" onClick={() => setMenuOpen(o => !o)}>{menuOpen ? "✕" : "☰"}</button> : null;
+  const topbarClass = `wk-topbar${touch ? " is-compact" : ""}${touch && menuOpen ? " is-menu" : ""}`;
   const onDown = (e: React.PointerEvent) => {
     sound.resume();
     if (vending || monitorOpen || liftPanel || cameraPanel || talk || iTalk || shop || bag || shelf || reading) return;
@@ -732,8 +772,13 @@ export default function WalkPage() {
     if (e.pointerType === "touch") {
       if (!touch) setTouch(true);
       e.currentTarget.setPointerCapture(e.pointerId);
-      if (e.clientX < window.innerWidth * 0.42 && !stick.current) { stick.current = { id: e.pointerId, x: e.clientX, y: e.clientY }; setStickAt({ x: e.clientX, y: e.clientY, dx: 0, dy: 0 }); }
-      else if (!drag.current) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      if (e.clientX < window.innerWidth * 0.42 && !stick.current) { stick.current = { id: e.pointerId, x: e.clientX, y: e.clientY }; setStickAt({ x: e.clientX, y: e.clientY, dx: 0, dy: 0 }); return; }
+      looks.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (looks.current.size >= 2) {
+        // (a second finger: a pinch, not a look — and not a tap)
+        const [a, b] = [...looks.current.values()];
+        pinch.current = { d: Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)) }; drag.current = null;
+      } else if (!drag.current) drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), moved: false };
       return;
     }
     const c = canvas.current;
@@ -748,14 +793,36 @@ export default function WalkPage() {
       setStickAt({ x: stick.current.x, y: stick.current.y, dx: dx * k, dy: dy * k });
       const gain = l < r * .12 ? 0 : (Math.min(l / r, 1) - .12) / .88;
       active()?.setStick(l ? dx / l * gain : 0, l ? -dy / l * gain : 0, l > r * 1.35);
+      return;
+    }
+    const f = looks.current.get(e.pointerId);
+    if (f) { f.x = e.clientX; f.y = e.clientY; }
+    if (pinch.current && looks.current.size >= 2) {
+      const [a, b] = [...looks.current.values()], d = Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)), k = d / pinch.current.d;
+      if (Math.abs(k - 1) > 0.015) { zoom(k); pinch.current.d = d; }
     } else if (drag.current?.id === e.pointerId) {
       const p = viewPreferences(); active()?.look((e.clientX - drag.current.x) * 0.0032 * p.sensitivity, (e.clientY - drag.current.y) * 0.0032 * p.sensitivity * (p.invertY ? -1 : 1));
       drag.current.x = e.clientX; drag.current.y = e.clientY;
+      if (!drag.current.moved && Math.hypot(e.clientX - drag.current.sx, e.clientY - drag.current.sy) > 10) drag.current.moved = true;
     }
   };
   const onUp = (e: React.PointerEvent) => {
     if (stick.current?.id === e.pointerId) { stick.current = null; setStickAt(null); active()?.setStick(0, 0, false); }
-    if (drag.current?.id === e.pointerId) drag.current = null;
+    looks.current.delete(e.pointerId);
+    if (drag.current?.id === e.pointerId) {
+      const d = drag.current; drag.current = null;
+      // (a quick tap, the finger unmoved: what is under it is used — a door, a switch, a tap)
+      if (e.type === "pointerup" && !d.moved && performance.now() - d.t < 300 && phaseRef.current === "interior") {
+        const r = canvas.current?.getBoundingClientRect();
+        if (r && r.width && r.height) interior.current?.tapAt((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height * 2 - 1));
+      }
+    }
+    if (pinch.current && looks.current.size < 2) {
+      pinch.current = null;
+      // (the finger left after a pinch looks on from where it is, without a jump)
+      const [id, f] = [...looks.current.entries()][0] ?? [];
+      if (id !== undefined && f) drag.current = { id, x: f.x, y: f.y, sx: f.x, sy: f.y, t: 0, moved: true };
+    }
   };
 
   const drawingComplex=drawingTarget?.id??visit?.id??start?.id??'';
@@ -788,7 +855,7 @@ export default function WalkPage() {
   const drawingStateLabel:Record<DrawingStatus,string>={loading:drawingTarget?'단지 원본 검색·구조 분석 중':'아파트 단지 확인 중',ready:selectionPlan?'원본 구조·인테리어 준비 완료':'원본 구조 연결 확인 필요',type_selection:'단지 원본 주택형 선택',not_found:'단지 원본 검색 결과 없음',unavailable:'단지·도면 연결을 다시 확인해 주세요',analysis_failed:'원본 분석 응답 재시도 필요',needs_review:'원본 공간 구획 재확인 필요'};
 
   return (
-    <div ref={root} className={`wk-root${fade ? " is-fading" : ""}${phase==="choose"?" is-selecting":""}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onLostPointerCapture={onUp}>
+    <div ref={root} className={`wk-root${fade ? " is-fading" : ""}${phase==="choose"?" is-selecting":""}${touch ? " is-touch" : ""}${indoor ? " is-indoor" : ""}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onLostPointerCapture={onUp}>
       <canvas ref={canvas} className="wk-canvas" />
       <div className="wk-fade" />
 
@@ -899,10 +966,10 @@ export default function WalkPage() {
       {phase === "interior" && plan && (
         <>
           {plan.facility ? (
-            <div className="wk-topbar">
+            <div className={topbarClass}>
               <div className="wk-where"><b>{plan.facility.name} · {plan.facility.levelLabel}</b><span>{hud?.room} · {FACILITY_LABEL[plan.facility.kind]} · 사람 {interior.current?.people?.count ?? 0}명</span></div>
               <div className="wk-meta" title={bsource}><span className="wk-badge">추정 공간</span>{plan.template} · {plan.facility.use ? `층 용도: ${plan.facility.use}` : plan.basis.rooms} · 실내 배치는 추정 · {bsource}</div>
-              <div className="wk-actions">
+              {menuButton}<div className="wk-actions" onClick={() => setMenuOpen(false)}>{touch && fullscreenOk && <button className="wk-btn" onClick={toggleFullscreen}>{fullscreen ? "전체화면 끝내기" : "전체화면"}</button>}
                 <button className="wk-btn" onClick={copyLink}>{copyStatus || "링크 복사"}</button>
                 <button className="wk-btn" onClick={() => { setLiftPanel({ levels: fac.current?.levels ?? [], current: plan.facility!.level }); document.exitPointerLock?.(); }}>🛗 층 이동</button>
                 <button className="wk-btn" onClick={() => interior.current?.toggleView()}>{hud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>
@@ -910,10 +977,10 @@ export default function WalkPage() {
               </div>
             </div>
           ) : (
-          <div className="wk-topbar">
+          <div className={topbarClass}>
             <div className="wk-where"><b>{plan.complexName} {plan.dong} {plan.floor}층</b><span>{hud?.room}</span></div>
             <div className="wk-meta"><span className="wk-badge">{plan.source==="image_analysis"?"원본 도면 이미지 분석":"추정 평면"}</span>{plan.template} · 전용 {plan.areaExclusiveM2.toFixed(2)}㎡ (방 합계 {plan.check.areaM2}㎡, {(plan.check.error * 100).toFixed(1)}%) · {STYLE_LABEL[plan.style]} · 연출용 가상 인테리어</div>
-            <div className="wk-actions">
+            {menuButton}<div className="wk-actions" onClick={() => setMenuOpen(false)}>{touch && fullscreenOk && <button className="wk-btn" onClick={toggleFullscreen}>{fullscreen ? "전체화면 끝내기" : "전체화면"}</button>}
               <button className="wk-btn" onClick={copyLink}>{copyStatus || "링크 복사"}</button>
               <button className="wk-btn" onClick={()=>{document.exitPointerLock?.();interior.current?.dispose();interior.current=null;setHud(null);setTvOpen(false);setLaptopOpen(false);setZoomed(null);setPhase("choose");setFade(false);}}>구조·인테리어 바꾸기</button>
               <button className="wk-btn" aria-pressed={!!hud?.overhead} onClick={() => interior.current?.toggleOverhead()}>{hud?.overhead ? "걸으며 보기" : "위에서 보기"} <kbd>T</kbd></button>
@@ -934,7 +1001,7 @@ export default function WalkPage() {
               <div className="wk-row"><button className="wk-btn" onClick={() => setLiftPanel(null)}>닫기 <kbd>Esc</kbd></button></div>
             </div>
           )}
-          {!vending && hud?.seated !== "화면" && hud?.seated !== "반려동물" && <MiniMap plan={plan} subject={mapSubject} />}
+          {!vending && hud?.seated !== "화면" && hud?.seated !== "반려동물" && <MiniMap plan={plan} subject={mapSubject} touch={touch} />}
           {vending && <VendingMenu key={vending.id} session={vending} onClose={() => setVending(null)} />}
           {monitorOpen && (interior.current?.monitorGame ? <PcGames corners={monitorCorners} onClose={closeMonitor} onZoom={on => interior.current?.zoomScreen(on ? "monitor" : null)} /> : <FacilityBrowser corners={monitorCorners} onClose={closeMonitor} onZoom={on => interior.current?.zoomScreen(on ? "monitor" : null)} />)}
           {tvOpen && <TvBrowser corners={tvCorners} zoom={{ on: zoomed === "tv", set: on => zoomTo(on ? "tv" : null) }} onOff={() => { interior.current?.tvPower(false); setTvOpen(false); if (zoomed === "tv") zoomTo(null); }} onPicture={img => interior.current?.tvPicture(img)} />}
@@ -949,7 +1016,7 @@ export default function WalkPage() {
             {iTalk.directory.length > 0 && <details><summary>층별 안내 보기</summary><div className="wk-talk-directory">{iTalk.directory.map((f, i) => <p key={i}><b>{f.label}</b> {f.uses}</p>)}</div></details>}
             <button className="wk-btn" onClick={() => interior.current?.closeTalk()}>대화 마치기 <kbd>Esc</kbd></button>
           </div>}
-          {!vending && !monitorOpen && <MissionHud className="is-inside" />}
+          {!vending && !monitorOpen && <MissionHud className="is-inside" folded={touch} />}
           {shopHere && !shop && !iTalk && <button type="button" className="wk-shop-here" onClick={() => { setShop(shopHere); document.exitPointerLock?.(); }}>🛒 {shopHere.label} · {!touch && <kbd>Q</kbd>} 물건 사기</button>}
           {toast && <div className="wk-toast" role="status">{toast}</div>}
           {shop && !bag && <ShopMenu shop={shop} onBuy={it => it.kind === "goods" ? false : !!interior.current?.consumeBought(it)} onClose={() => setShop(null)} onBag={() => setBag(true)} onRead={openBook} />}
@@ -962,17 +1029,17 @@ export default function WalkPage() {
           {hud?.use && !vending && !monitorOpen && !liftPanel && <div className={`wk-use${/중$/.test(hud.use) ? " is-busy" : ""}`} role="status">{/중$/.test(hud.use) ? hud.use : <>{!touch && <kbd>R</kbd>} {hud.use}</>}</div>}
           {hud?.pet && touch && <button className="wk-btn wk-pet-zoom" onPointerDown={e => { e.stopPropagation(); interior.current?.zoomPet(true); }}>🔍 확대해서 보기</button>}
           {hud?.seated === "반려동물" && <div className="wk-laptop-bar" onPointerDown={e => e.stopPropagation()}><span>가까이서 보는 중</span><button className="wk-btn" onClick={() => interior.current?.zoomPet(false)}>축소 <kbd>Z</kbd></button></div>}
-          {hud?.seated && hud.seated !== "화면" && hud.seated !== "반려동물" && <div className="wk-hint is-seat">{hud.seated} · 이동키를 누르면 일어납니다</div>}
+          {hud?.seated && hud.seated !== "화면" && hud.seated !== "반려동물" && <div className="wk-hint is-seat">{hud.seated} · {touch ? "스틱을 움직이면" : "이동키를 누르면"} 일어납니다</div>}
           {showHelp && !touch && <div className="wk-help" onClick={() => setShowHelp(false)}>{plan.facility ? "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (문·엘리베이터·사람과 대화·의자·수전·스위치) · V 3인칭 · M 지도 · Esc 나가기" : "클릭해서 둘러보기 시작 · WASD 이동 · Shift 달리기 · E 상호작용 (스위치·수전·변기·커튼·문·TV·소파·침대) · V 3인칭 · T 위에서 보기 · H 도움말 · Esc 나가기"}</div>}
         </>
       )}
 
       {phase === "building" && (
         <>
-          <div className="wk-topbar">
+          <div className={topbarClass}>
             <div className="wk-where"><b>{bhud?.building ?? entering?.name} · {bhud?.floor}</b><span>{bhud?.uses || "층별 용도 정보 없음"} · 사람 {bhud?.people ?? 0}명</span></div>
             <div className="wk-meta" title={bsource}><span className="wk-badge">{bhud?.source?.includes("공간 구획")?"구획 데이터":bhud?.source?.startsWith("SGIS")?"외곽만 실측":"추정 공간"}</span>{bhud?.source} · {bsource}</div>
-            <div className="wk-actions">
+            {menuButton}<div className="wk-actions" onClick={() => setMenuOpen(false)}>{touch && fullscreenOk && <button className="wk-btn" onClick={toggleFullscreen}>{fullscreen ? "전체화면 끝내기" : "전체화면"}</button>}
               <button className="wk-btn" onClick={copyLink}>{copyStatus || "링크 복사"}</button>
               <button className="wk-btn" disabled={!bhud?.lifts} onClick={()=>building.current?.guideToLift()}>엘리베이터 길 안내 ({bhud?.lifts??0})</button>
               <button className="wk-btn" onClick={() => building.current?.toggleView()}>{bhud?.view === "third" ? "1인칭으로" : "3인칭으로"} <kbd>V</kbd></button>
@@ -980,7 +1047,7 @@ export default function WalkPage() {
             </div>
           </div>
           <div className="wk-cross" />
-          <BuildingMap building={()=>building.current}/>
+          <BuildingMap building={()=>building.current} touch={touch}/>
           {bhud?.coverage!=="layout"&&<div className="wk-coverage-note">이 층은 실내 도면이 제공되지 않아 자동 재구성한 공간입니다.</div>}
           {bhud?.notice&&!talk&&!liftPanel&&<div className="wk-nav-notice">{bhud.notice}</div>}
           {bhud?.loading&&<div className="wk-hint">층별 공간 데이터를 불러오는 중…</div>}
@@ -1012,22 +1079,34 @@ export default function WalkPage() {
       {(phase === "interior" || phase === "outdoor" || phase === "building") && !vending && !monitorOpen && !liftPanel && <CameraSettings open={cameraPanel} setOpen={setCameraPanel} onCenter={() => active()?.resetLook()} />}
       {(phase === "interior" || phase === "outdoor" || phase === "building") && touch && !vending && !monitorOpen && !liftPanel && !cameraPanel && (
         <div className="wk-touch">
-          {!stickAt && <div className="wk-touch-guide">✥<small>이동 · 바깥으로 밀면 달리기</small></div>}
+          {!stickAt && <div className="wk-touch-guide">✥<small>{indoor ? "이동" : "이동 · 바깥으로 밀면 달리기"}</small></div>}
           {stickAt && <div className="wk-stick" style={{ left: stickAt.x - 60, top: stickAt.y - 60 }}><i style={{ transform: `translate(${stickAt.dx}px, ${stickAt.dy}px)` }} /></div>}
           {phase === "interior" && <button className={`wk-act${hud?.target ? " on" : ""}`} onPointerDown={e => { e.stopPropagation(); interior.current?.interact(); }}>{hud?.target ?? "상호작용"}</button>}
           {phase === "interior" && hud?.use && !/중$/.test(hud.use) && <button className="wk-act wk-act-use on" onPointerDown={e => { e.stopPropagation(); interior.current?.consumeHand(); }}>{hud.use}</button>}
-          {phase === "interior" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>{hud?.view === "third" ? "1인칭" : "3인칭"}</button>}
-          {phase === "interior" && !plan?.facility && <button className="wk-view wk-view-top" aria-pressed={!!hud?.overhead} onPointerDown={e => { e.stopPropagation(); interior.current?.toggleOverhead(); }}>{hud?.overhead ? "걷기" : "위에서"}</button>}
           {phase === "building" && <button className={`wk-act${bhud?.prompt ? " on" : ""}`} onPointerDown={e => { e.stopPropagation(); building.current?.interact(); }}>{bhud?.prompt ?? "상호작용"}</button>}
-          {phase === "building" && <button className="wk-view" onPointerDown={e => { e.stopPropagation(); active()?.toggleView(); }}>{bhud?.view === "third" ? "1인칭" : "3인칭"}</button>}
+          {indoor && (
+            // (the view's own controls on the right edge, the middle of the screen left clear)
+            <div className="wk-rail" onPointerDown={e => e.stopPropagation()}>
+              <button aria-label="시점 전환" onClick={() => active()?.toggleView()}>{third ? "1인칭" : "3인칭"}</button>
+              <button aria-label={third ? "카메라 가까이" : "확대 (시야 좁게)"} onClick={() => zoom(1.15)}>＋</button>
+              <button aria-label={third ? "카메라 멀리" : "축소 (시야 넓게)"} onClick={() => zoom(1 / 1.15)}>－</button>
+              <button aria-label="시선 수평으로" onClick={() => active()?.resetLook()}>⟲</button>
+              {phase === "interior" && !plan?.facility && <button aria-label="위에서 보기" aria-pressed={!!hud?.overhead} onClick={() => interior.current?.toggleOverhead()}>{hud?.overhead ? "걷기" : "위에서"}</button>}
+              <button aria-label="평면도 보이기·숨기기" onClick={toggleMiniMap}>지도</button>
+              <button aria-label="시야·조작 설정" onClick={() => setCameraPanel(true)}>⚙</button>
+            </div>
+          )}
+          {zoomNote && <div className="wk-zoom-note" role="status">{zoomNote}</div>}
+          {indoor && showHelp && <div className="wk-help is-touch" onPointerDown={e => { e.stopPropagation(); setShowHelp(false); }}>왼쪽 끌기 <b>이동</b> · 오른쪽 끌기 <b>둘러보기</b> · 두 손가락 <b>확대·축소</b> · 물건을 <b>탭</b>하면 사용</div>}
         </div>
       )}
+      {!touch && zoomNote && <div className="wk-zoom-note" role="status">{zoomNote}</div>}
 
       {phase==="outdoor"&&reviewEntrance&&<button className="wk-review-entry wk-btn" onClick={()=>{game.current?.placeAt(reviewEntrance,2.2);enterBuilding(reviewEntrance);}}>{reviewEntrance.name} · 실내 검토 시작</button>}
       {phase === "outdoor" && (
-        <div className="wk-topbar">
+        <div className={topbarClass}>
           <div className="wk-where"><b>{start?.name}</b><span>{car.driving?`${car.label} 운전 · 최고 ${car.topKmh}km/h`:bicycle.riding ? "자전거로 실외 탐험 · 최고 60km/h" : "각 동 자전거 E · 길가의 주차 차량 F"}</span></div>
-          <div className="wk-actions"><button className="wk-btn" aria-label={soundMuted ? "효과음 켜기" : "효과음 끄기"} aria-pressed={soundMuted} onClick={() => { sound.resume(); sound.setMuted(!soundMuted); setSoundMuted(!soundMuted); }}>{soundMuted ? "🔇" : "🔊"} 효과음</button><button className="wk-btn" aria-label={`현재 ${outdoorView === "first" ? "1인칭" : "3인칭"}, 시점 전환`} onClick={() => game.current?.toggleView()}>{car.driving?(car.view==="third"?"정면으로":"3인칭으로"):outdoorView === "first" ? "3인칭으로" : "1인칭으로"} <kbd>V</kbd></button><button className="wk-btn" onClick={leave}>지도로 <kbd>Esc</kbd></button></div>
+          {menuButton}<div className="wk-actions" onClick={() => setMenuOpen(false)}>{touch && fullscreenOk && <button className="wk-btn" onClick={toggleFullscreen}>{fullscreen ? "전체화면 끝내기" : "전체화면"}</button>}<button className="wk-btn" aria-label={soundMuted ? "효과음 켜기" : "효과음 끄기"} aria-pressed={soundMuted} onClick={() => { sound.resume(); sound.setMuted(!soundMuted); setSoundMuted(!soundMuted); }}>{soundMuted ? "🔇" : "🔊"} 효과음</button><button className="wk-btn" aria-label={`현재 ${outdoorView === "first" ? "1인칭" : "3인칭"}, 시점 전환`} onClick={() => game.current?.toggleView()}>{car.driving?(car.view==="third"?"정면으로":"3인칭으로"):outdoorView === "first" ? "3인칭으로" : "1인칭으로"} <kbd>V</kbd></button><button className="wk-btn" onClick={leave}>지도로 <kbd>Esc</kbd></button></div>
         </div>
       )}
       {phase === "outdoor" && <OutdoorMap game={outdoorGame} />}

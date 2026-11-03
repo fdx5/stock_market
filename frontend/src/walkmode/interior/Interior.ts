@@ -604,6 +604,8 @@ export class Interior {
         fx: name => { this.o.sound.resume(); this.o.sound.fx(name); },
         drink: (can, name) => { if (!this.sip && !this.furn.pantry.hand) this.startSip(can, "can", name, true); else (can.children[0] as THREE.Mesh | undefined)?.geometry.dispose(); },
       } } : undefined));
+    // (a flat's desktop PCs: used as a building's office computers — the page's browser on the screen)
+    this.furn.computerHook.use = screen => { this.monitor = screen; this.zoomScreen("monitor"); this.o.onMonitor?.(); };
     await nextFrame();
     const furnMeshes = B.build();
     for (const m of furnMeshes) this.static.add(m);
@@ -1487,11 +1489,23 @@ export class Interior {
     cam.fov = fov; cam.up.set(0, 0, -1); cam.position.set((x0 + x1) / 2, h, (z0 + z1) / 2); cam.lookAt((x0 + x1) / 2, 0, (z0 + z1) / 2);
     cam.near = h - cut; cam.far = h + 1; cam.updateProjectionMatrix();
   }
+  /** A tap on the screen (touch): what is under the finger, within reach, is used — the crosshair's
+   * target left as it was when nothing is there. Returns whether something was used. */
+  tapAt(nx: number, ny: number): boolean {
+    if (this.overlay || this.overhead || this.seated?.label === "화면" || this.seated?.label === "반려동물") return false;
+    const it = this.pickAt(nx, ny);
+    if (!it) return false;
+    this.target = it; this.interact(); return true;
+  }
   private pick() {
     if (this.overhead) { if (this.target) { this.target = null; this.emitHud(); } return; }
     // (zoomed in on a screen, the screen is the whole world: nothing else to point at)
     if (this.seated?.label === "화면" || this.seated?.label === "반려동물") { this.target = null; this.emitHud(); return; }
-    this.ray.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+    this.target = this.pickAt(0, 0);
+    this.emitHud();
+  }
+  private pickAt(nx: number, ny: number): Interactable | null {
+    this.ray.setFromCamera(new THREE.Vector2(nx, ny), this.camera);
     this.ray.far = this.view === "third" ? Math.hypot(this.camera.position.x - this.pos.x, this.camera.position.z - this.pos.y) + 2.4 : 2.3;
     let best: Interactable | null = null, bd = Infinity;
     const cp = this.camera.position, reach = this.ray.far + 2.5;
@@ -1508,8 +1522,7 @@ export class Interior {
       const walls = new Set(this.shell.segments);
       if (this.grid.query(p.x, p.z, q.x, q.z).some(sg => walls.has(sg) && segHit(p.x, p.z, q.x, q.z, sg[0], sg[1], sg[2], sg[3]) !== null && Math.hypot(q.x - p.x, q.z - p.z) > 0.3)) best = null;
     }
-    this.target = best;
-    this.emitHud();
+    return best;
   }
   /** one frame through the post chain; the AO reads the depth of whichever buffer the scene is drawn into */
   private renderFrame() {

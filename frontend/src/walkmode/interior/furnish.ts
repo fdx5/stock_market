@@ -67,6 +67,10 @@ export interface Furnished {
   dock: { pos: THREE.Vector3; out: THREE.Vector3 } | null;
   /** a laptop on a desk: its screen's corners (top-left, top-right, bottom-right, bottom-left) and facing */
   laptop: { on: boolean; open?: number; corners?: THREE.Vector3[]; cornersNow?(): THREE.Vector3[]; normal?: THREE.Vector3; screen?: THREE.MeshBasicMaterial };
+  /** the desktop PCs on a flat's desks (every desk, when it has two or more): their screens, and
+   * what using one does — set by the interior (the page lays a browser over the screen) */
+  computers: MonitorScreen[];
+  computerHook: { use?(screen: MonitorScreen): void };
   /** the groceries: the fridge's and the basket's, and the one in the hand */
   pantry: Pantry;
   /** extra mirrors: their planes (for the scene to give reflections) */
@@ -365,6 +369,9 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
   const yawOut = (f: Frame) => { const d = local(f, 0, 0, 1).sub(local(f, 0, 0, 0)); return Math.atan2(-d.x, -d.z); };
   const furnishedTv: Furnished["tv"] = { on: false };
   const furnishedLaptop: Furnished["laptop"] = { on: false };
+  const computers: MonitorScreen[] = [], computerHook: Furnished["computerHook"] = {};
+  /** the flat's desks, furnished once all are known: with two or more, each gets a desktop PC */
+  const desks: { f: Frame; zone: number; room: Room; w: number; d: number; v: number; chair(m: THREE.Matrix4): void; chairAt: number }[] = [];
   const H = plan.ceilingHeightM,halfWall=wallHalfThickness(plan);
   // (which of each thing's kinds this flat has: by the complex, the 동 and the floor — variants.ts)
   const VS = `${plan.complexId}|${plan.dong}|${plan.floor}|${plan.style}|${plan.layoutCase??0}|f${plan.furnishingCase??0}`, built = plan.basis.built ?? 2005;
@@ -827,7 +834,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         for (const sd of [windowSide, ...(["n", "s", "e", "w"] as SideName[]).filter(x => x !== windowSide)]) if (tryDesk(sd, 1.2, 0.6) || tryDesk(sd, 1.0, 0.55)||tryDesk(sd,.8,.5)) break;
         const dk = got.f;
         if (dk && got.way) pl.keep(got.way);
-        if (dk) { const kit=deskCollection(P,deskW,variantOf(VS+room.id,'desk',4));for(const part of kit)part.g.scale(1,1,deskD/.6);const deskTop=kitTop(kit);put(kit, dk, zone); pl.take(dk.rect); put((v => (v < 5 ? chairV(P, v) : chairMore(P, v)))([0, 2, 3, 6, 9][variantOf(VS + room.id, "deskchair", 5)]), new THREE.Matrix4().multiplyMatrices(dk.m, new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0, 0, deskD+.35)), zone, false); if (!furnishedLaptop.corners) laptop(dk, zone, room, deskTop); }
+        if (dk) { pl.take(dk.rect); desks.push({ f: dk, zone, room, w: deskW, d: deskD, v: variantOf(VS + room.id, "desk", 4), chair: m => put((v => (v < 5 ? chairV(P, v) : chairMore(P, v)))([0, 2, 3, 6, 9][variantOf(VS + room.id, "deskchair", 5)]), m, zone, false), chairAt: deskD + .35 }); }
         closet:for(const depth of [.60,.45])for(const wd of [1.8,1.4,1,.8])for(const s of sides.filter(s=>s!==windowSide)){
           const w=pl.against(s,wd,depth,null,2.5,.60);if(!w)continue;
           const kit=wardrobeCollection(P,wd,Math.min(2.2,H-.12),variantOf(VS+room.id,'wardrobe',6));for(const part of kit)part.g.scale(1,1,depth/.60);
@@ -841,7 +848,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     if(room.type==="alpha"){
       const deskSide=sides.find(s=>pl.windowsOn(s).length)??"n";
       const w=Math.min(1.6,pl.len(deskSide)-.2),f=w>.8?pl.against(deskSide,w,.6,null,.75,.8):null;
-      if(f){const officeDesk=deskCollection(P,w,variantOf(VS+room.id,"office-desk",4)),officeTop=kitTop(officeDesk);put(officeDesk,f,zone);pl.take(f.rect);put(chairMore(P,8),new THREE.Matrix4().multiplyMatrices(f.m,new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0,0,1.0)),zone,false);if(!furnishedLaptop.corners)laptop(f,zone,room,officeTop);}
+      if(f){pl.take(f.rect);desks.push({f,zone,room,w,d:.6,v:variantOf(VS+room.id,"office-desk",4),chair:m=>put(chairMore(P,8),m,zone,false),chairAt:1.0});}
       for(const side of sides.filter(s=>s!==deskSide)){const f=pl.against(side,.9,.32,null,2);if(f){put(M.bookshelf(P,.9,1.9),f,zone);pl.take(f.rect);break;}}
     }
     // ------------------------------------------------ dressroom, entrance, utility
@@ -1092,12 +1099,48 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       } });
   }
 
+  // ---------------------------------------------------------------- a desktop PC on a desk
+  /** a 24" monitor on a stand (21.5" on a narrow desk), a keyboard and mouse before it, the tower
+   * under the desk's side; its screen's corners are where the page lays a browser, as a building's
+   * office computer. `beside`: the laptop takes the desk's left, the PC its right. */
+  function desktopPc(f: Frame, zone: number, room: Room, top: number, w: number, d: number, v: number, laptopRight: number | null) {
+    const beside = laptopRight !== null;
+    const s = d / .6, narrow = w < 1.0, mw = narrow ? .5 : .56, mh = narrow ? .3 : .33;
+    const mx = beside ? w / 2 - (narrow ? .26 : .31) : 0, mz = .13 * s, my = top + .13 + mh / 2;
+    const kit: M.Kit = [
+      M.rb(P.applianceDark, .22, .012, .17, .004, mx, top + .006, mz + .02), M.bx(P.applianceDark, .035, .2, .03, mx, top + .1, mz - .02),
+      M.rb(P.applianceDark, mw, mh, .025, .006, mx, my, mz),
+    ];
+    // the keyboard, a mouse on the right (on the desk's own pad when it has one)
+    // (a tenkeyless one on a narrow desk; beside the laptop, clear of its deck)
+    const kw = narrow ? .36 : .42, kx = beside ? Math.max(mx - .04, laptopRight! + .02 + kw / 2) : -.05, kz = Math.min(.42 * s, d - .1);
+    kit.push(M.rb(P.applianceDark, kw, .018, .13, .006, kx, top + .009, kz), M.bx(P.plastic, kw - .03, .004, .1, kx, top + .019, kz));
+    kit.push(M.rb(P.applianceDark, .06, .028, .1, .02, Math.min(w / 2 - .04, kx + kw / 2 + .07), top + .014, kz));
+    // the tower: under the desk at its right, clear of a trestle's legs
+    const tx = w / 2 - (v === 1 || v === 3 ? .32 : .2), tz = Math.max(.25, Math.min(d - .25, .3 * s));
+    kit.push(M.rb(P.applianceDark, .19, .42, .4, .01, tx, .21, tz), M.bx(P.blackMetal, .17, .02, .38, tx, .01, tz));
+    put(kit, f, zone, false);
+    // (a power light on the tower, and the screen at rest: a dim desktop until it is used)
+    const glow = new THREE.MeshBasicMaterial({ color: "#46c8ff" }); disposables.push(glow);
+    const led = new THREE.Mesh(new THREE.BoxGeometry(.006, .3, .002), glow); disposables.push(led.geometry);
+    led.applyMatrix4(new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(tx - .07, .24, tz + .201))); dynamic.add(led);
+    const scrM = new THREE.MeshBasicMaterial({ color: "#14283c" }); disposables.push(scrM);
+    const sw = mw - .024, sh = mh - .024, sg = new THREE.PlaneGeometry(sw, sh); disposables.push(sg);
+    const scr = new THREE.Mesh(sg, scrM); scr.applyMatrix4(new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(mx, my, mz + .0135))); dynamic.add(scr);
+    const corners = [[-1, 1], [1, 1], [1, -1], [-1, -1]].map(([a, b]) => local(f, mx + a * sw / 2, my + b * sh / 2, mz + .0135));
+    const screen: MonitorScreen = { id: `pc-${room.id}`, corners };
+    computers.push(screen);
+    const hit = hitIn(f, mw, mh + .1, .12, mx, my, mz);
+    interactables.push({ id: screen.id, zone, room, hit, label: () => "컴퓨터 사용하기",
+      act: () => { computerHook.use?.(screen); return "beep"; } });
+  }
+
   // ---------------------------------------------------------------- a laptop, open on the desk
   /** a 14" aluminium laptop in the MacBook manner (no maker's mark): a thin unibody, a black glass
    * display with slim bezels, a black keyboard in a recess, a wide trackpad; the lid at 110°. Its
    * screen's corners are where the page lays a real browser. */
-  function laptop(f: Frame, zone: number, room: Room, top = 0.75) {
-    const bw = 0.313, bd = 0.221, x0 = -0.12, z0 = 0.32;
+  function laptop(f: Frame, zone: number, room: Room, top = 0.75, x0 = -0.12) {
+    const bw = 0.313, bd = 0.221, z0 = 0.32;
     const alu = new THREE.MeshPhysicalMaterial({ color: "#c9ccd1", roughness: 0.32, metalness: 0.85, clearcoat: 0.2 }); disposables.push(alu);
     const keyM = new THREE.MeshPhysicalMaterial({ color: "#16171a", roughness: 0.55 }); disposables.push(keyM);
     const kit: M.Kit = [M.rb(alu, bw, 0.0155, bd, 0.007, x0, top + 0.0078, z0)];
@@ -1186,9 +1229,26 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       update: () => { rocker.rotation.x = switchState.get(zone) === false ? 0.12 : -0.12; } });
   }
 
+  // ---------------------------------------------------------------- the desks, all known now
+  // A flat with two desks or more (two children's rooms, a study): a desktop PC on every desk, the
+  // laptop as well on the first. A PC's desk is one without its own lamp or dummy monitor where the
+  // PC stands (variants 0 and 3), so nothing stands in the screen's or the keyboard's place.
+  const withPc = desks.length >= 2;
+  desks.forEach((dk, i) => {
+    const v = withPc && (dk.v === 0 || dk.v === 3) ? (dk.v === 0 ? 2 : 1) : dk.v;
+    const kit = deskCollection(P, dk.w, v); for (const part of kit) part.g.scale(1, 1, dk.d / .6);
+    const top = kitTop(kit); put(kit, dk.f, dk.zone);
+    dk.chair(new THREE.Matrix4().multiplyMatrices(dk.f.m, new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0, 0, dk.chairAt)));
+    const both = i === 0;
+    const lx = withPc ? -dk.w / 2 + (dk.w < 1 ? .17 : .19) : -.12;
+    if (both) laptop(dk.f, dk.zone, dk.room, top, lx);
+    if (withPc) desktopPc(dk.f, dk.zone, dk.room, top, dk.w, dk.d, v, both ? lx + .157 : null);
+  });
+
   pantry.stock();
   const furnished = {} as Furnished;
   return Object.assign(furnished, {
+    computers, computerHook,
     aircons,kitchens,bathrooms,circulation,interactables, colliders, pendants, curtainOpen, tv: furnishedTv, laptop: furnishedLaptop, mirrors, seats, dock, pantry, roomTimings,
     dispose: () => disposables.forEach(d => d.dispose()),
   });

@@ -1,6 +1,7 @@
 import type { FloorPlan, Opening, Room } from "./types";
 import { fixturesFor, type PlanInput } from "./generate";
 import {resolveWallOpenings} from './wallOpenings';
+import {openPublicStubs,tidyImageOpenings} from './imageTidy';
 
 export interface Drawing {
   key:string;naverId:string;typeId:string;typeName:string;exclusiveArea:number;supplyArea:number;
@@ -18,7 +19,7 @@ export interface ImageAnalysis {
 }
 
 /** Source geometry is never passed through template generation, mirroring or envelope stretching. */
-export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis):FloorPlan|null {
+export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis,o:{tidy?:boolean}={}):FloorPlan|null {
   if(analysis.status!=="ready"||!analysis.rooms?.length||!analysis.openings||!analysis.scale||Math.abs(analysis.drawing.exclusiveArea-p.area)>.005)return null;
   if(analysis.scale.wallThicknessMetres!==undefined&&(!Number.isFinite(analysis.scale.wallThicknessMetres)||analysis.scale.wallThicknessMetres<.02||analysis.scale.wallThicknessMetres>.4))return null;
   const rooms=analysis.rooms.map(r=>{const surfaceType=analysis.rooms!.find(q=>q.zone===r.zone&&q.type!=="hall")?.type??r.type;return {...r,surfaceType,rect:[...r.rect] as Room["rect"],floorDrop:surfaceType==="bathroom"?.03:0};});
@@ -49,6 +50,10 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis):FloorPlan
   // A drawing read without its 현관문 (the door symbol lost in the plan's line work) still has one:
   // in the 현관's outside wall — the side no other room lies against — at its widest clear part.
   if(!openings.some(o=>o.type==="front_door")){const fd=frontDoorFor(rooms,openings);if(fd)openings.push(fd);}
+  // (stubs of wall left by passages read short, seams inside one room, doors read half-width)
+  const tidy=o.tidy===false?{openings,report:{stubsOpened:0,seamsOpened:0,doorsWidened:0}}:tidyImageOpenings(rooms,openings);
+  let resolved=resolveWallOpenings(rooms,tidy.openings,true);
+  if(o.tidy!==false){const pub=openPublicStubs(rooms,resolved);resolved=pub.openings;tidy.report.publicStubs=pub.opened;}
   const xs=rooms.flatMap(r=>[r.rect[0],r.rect[2]]),zs=rooms.flatMap(r=>[r.rect[1],r.rect[3]]);
   const living=rooms.find(r=>r.type==="living");if(!living)return null;
   const [x0,z0,x1,z1]=living.rect;
@@ -56,9 +61,9 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis):FloorPlan
     areaExclusiveM2:p.area,ceilingHeightM:p.built&&p.built>=2015?2.4:2.32,
     source:"image_analysis",template:`${analysis.drawing.typeName} · ${analysis.drawing.variant}`,
     basis:{area:`단지 공개 도면 전용면적 ${p.area}㎡`,rooms:"원본 이미지 벽·공간 인식 · 가구·마감은 연출",built:p.built,households:p.households},
-    rooms,openings:resolveWallOpenings(rooms,openings,true),fixtures:[],bounds:[Math.min(...xs),Math.min(...zs),Math.max(...xs),Math.max(...zs)],
+    rooms,openings:resolved,fixtures:[],bounds:[Math.min(...xs),Math.min(...zs),Math.max(...xs),Math.max(...zs)],
     check:{areaM2:analysis.areaM2??p.area,error:analysis.areaError??0},style:p.style??"modern_white",floor:p.floor??3,furnishingCase:p.furnishingCase,
-    imageAnalysis:{key:analysis.drawing.key,typeName:analysis.drawing.typeName,sourceUrl:analysis.drawing.sourceUrl,scaleBasis:analysis.scale.basis,wallThicknessMetres:analysis.scale.wallThicknessMetres,elapsedMs:analysis.elapsedMs??0,start:[(x0+x1)/2,(z0+z1)/2,Math.PI]}};
+    imageAnalysis:{key:analysis.drawing.key,typeName:analysis.drawing.typeName,sourceUrl:analysis.drawing.sourceUrl,scaleBasis:analysis.scale.basis,wallThicknessMetres:analysis.scale.wallThicknessMetres,elapsedMs:analysis.elapsedMs??0,tidy:tidy.report,start:[(x0+x1)/2,(z0+z1)/2,Math.PI]}};
   plan.fixtures=fixturesFor(plan).filter(f=>{const r=ids.get(f.room);return r&&f.pos[0]>=r.rect[0]+.15&&f.pos[0]<=r.rect[2]-.15&&f.pos[1]>=r.rect[1]+.15&&f.pos[1]<=r.rect[3]-.15;});
   return plan;
 }

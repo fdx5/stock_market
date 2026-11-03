@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { BuildingInterior } from "./BuildingInterior";
 
-export default function BuildingMap({building}:{building:()=>BuildingInterior|null}) {
+export default function BuildingMap({building,touch=false}:{building:()=>BuildingInterior|null;touch?:boolean}) {
   const canvas=useRef<HTMLCanvasElement>(null),[shown,setShown]=useState(true),[big,setBig]=useState(false);
+  useEffect(()=>{const t=()=>setShown(s=>!s);window.addEventListener("wk-map-toggle",t);return()=>window.removeEventListener("wk-map-toggle",t);},[]);
   useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.code==="KeyM"&&!e.repeat)setShown(s=>!s);};window.addEventListener("keydown",key);return()=>window.removeEventListener("keydown",key);},[]);
   useEffect(()=>{
     if(!shown)return;const c=canvas.current;if(!c)return;const dpr=window.devicePixelRatio||1,scale=big?2:1;c.width=c.height=240*dpr*scale;const ctx=c.getContext("2d")!;let raf=0,last=0;
@@ -19,6 +20,6 @@ export default function BuildingMap({building}:{building:()=>BuildingInterior|nu
       ctx.save();ctx.translate(ox+s.pos.x*k,oz+s.pos.y*k);ctx.rotate(-s.yaw);ctx.fillStyle="#42fff0";ctx.beginPath();ctx.moveTo(0,-7);ctx.lineTo(-4,5);ctx.lineTo(4,5);ctx.closePath();ctx.fill();ctx.restore();
     };raf=requestAnimationFrame(draw);return()=>cancelAnimationFrame(raf);
   },[shown,building,big]);
-  if(!shown)return <button className="wk-map-show wk-btn" onClick={()=>setShown(true)}>층별 지도 <kbd>M</kbd></button>;
-  return <div className="wk-omap" onPointerDown={e=>e.stopPropagation()} title="M: 지도 숨기기"><div className="wk-map-tools"><span>실내 평면도</span><button aria-pressed={big} onClick={()=>setBig(b=>!b)}>{big?"원래 크기":"2배 확대"}</button></div><canvas ref={canvas} style={{width:big?480:240,height:"auto",maxWidth:"calc(100vw - 56px)",aspectRatio:"1"}}/><div className="wk-map-cap">층별 공간 · 청록색 길 안내 <kbd>M</kbd></div></div>;
+  if(!shown)return touch?null:<button className="wk-map-show wk-btn" onClick={()=>setShown(true)}>층별 지도 <kbd>M</kbd></button>;
+  return <div className={`wk-omap${touch?" is-touch":""}`} onPointerDown={e=>e.stopPropagation()} title="M: 지도 숨기기"><div className="wk-map-tools"><span>실내 평면도</span><button aria-pressed={big} onClick={()=>setBig(b=>!b)}>{big?"원래 크기":"2배 확대"}</button></div><canvas ref={canvas} style={{width:touch?(big?300:132):big?480:240,height:"auto",maxWidth:"calc(100vw - 56px)",aspectRatio:"1"}}/><div className="wk-map-cap">층별 공간 · 청록색 길 안내 <kbd>M</kbd></div></div>;
 }

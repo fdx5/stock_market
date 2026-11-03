@@ -473,3 +473,55 @@
 .bk-paper > .bk-num { position: absolute; }
 /* the PC's own controls up out of the way of the game (its paddle and ship are at the bottom) */
 .wk-browser-controls.wk-pc-controls { top: 64px; bottom: auto; left: auto; right: 16px; width: auto; max-width: min(520px, calc(100vw - 32px)); }
+
+/* ── phones: the indoor walk's controls on the edges, the view's middle left clear ── */
+.wk-topbar.is-compact { left: 10px; right: 10px; top: 10px; gap: 6px; align-items: center; }
+.wk-topbar.is-compact .wk-where { flex: 1; min-width: 0; padding: 6px 10px; }
+.wk-topbar.is-compact .wk-where b, .wk-topbar.is-compact .wk-where span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-topbar.is-compact .wk-where b { font-size: 13px; } .wk-topbar.is-compact .wk-where span { font-size: 11px; }
+.wk-topbar.is-compact .wk-meta { display: none; }
+.wk-topbar.is-compact .wk-actions { display: none; }
+.wk-topbar.is-compact.is-menu .wk-actions { display: flex; position: absolute; right: 0; top: 48px; flex-direction: column; align-items: stretch; gap: 6px; padding: 8px; min-width: 168px; max-height: calc(100dvh - 72px); overflow: auto; border-radius: 12px; background: rgba(6, 12, 18, .9); border: 1px solid rgba(94, 240, 255, .28); backdrop-filter: blur(8px); }
+.wk-topbar.is-compact.is-menu .wk-actions .wk-btn { min-height: 42px; text-align: left; font-size: 14px; }
+.wk-topbar.is-compact .wk-actions kbd { display: none; }
+.wk-menu-btn { flex-shrink: 0; width: 42px; height: 42px; padding: 0; display: grid; place-items: center; font-size: 18px; line-height: 1; touch-action: manipulation; }
+.wk-root.is-touch .wk-map.is-touch { left: 10px; right: auto; top: 62px; width: 150px; padding: 4px; }
+.wk-root.is-touch .wk-map.is-touch.is-big { width: min(340px, calc(100vw - 80px)); max-height: calc(100dvh - 160px); }
+.wk-root.is-touch .wk-map.is-touch .wk-map-tools button { padding: 7px 9px; }
+.wk-root.is-touch .wk-map.is-touch .wk-map-cap { display: none; }
+.wk-root.is-touch .wk-omap.is-touch { left: 10px; right: auto; top: 62px; transform: none; padding: 4px; }
+.wk-root.is-touch .wk-omap.is-touch .wk-map-cap { display: none; }
+.wk-root.is-touch.is-indoor .wk-camera-trigger { display: none; }
+.wk-rail { position: absolute; right: 10px; bottom: 90px; display: flex; flex-direction: column; gap: 8px; pointer-events: auto; }
+.wk-rail button { width: 46px; height: 46px; padding: 0; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .18); background: rgba(6, 12, 18, .6); color: #dff6ff; font: 700 13px/1 Pretendard, "Noto Sans KR", sans-serif; backdrop-filter: blur(6px); touch-action: manipulation; }
+.wk-rail button:active { background: rgba(49, 217, 255, .4); }
+.wk-root.is-touch .wk-act { right: 10px; bottom: 18px; min-height: 52px; max-width: min(52vw, 260px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; touch-action: manipulation; }
+.wk-root.is-touch.is-indoor .wk-touch-guide { left: 18px; bottom: 22px; width: 92px; height: 92px; font-size: 30px; }
+.wk-root.is-touch.is-indoor .wk-touch-guide small { font-size: 10px; }
+.wk-zoom-note { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); padding: 5px 12px; border-radius: 14px; font-size: 12.5px; font-weight: 700; color: #dff6ff; background: rgba(6, 12, 18, .7); border: 1px solid rgba(94, 240, 255, .3); pointer-events: none; z-index: 3; white-space: nowrap; }
+.wk-help.is-touch { bottom: 130px; max-width: calc(100% - 150px); font-size: 12px; pointer-events: auto; }
+.wk-help.is-touch b { color: #8affc1; font-weight: 700; }
+/* a phone held sideways: shorter controls, the rail kept clear of the map and the bar */
+@media (pointer: coarse) and (max-height: 500px) {
+  .wk-rail { bottom: 78px; gap: 6px; flex-wrap: wrap-reverse; max-height: calc(100dvh - 140px); }
+  .wk-rail button { width: 40px; height: 40px; font-size: 12px; }
+  .wk-root.is-touch .wk-map.is-touch, .wk-root.is-touch .wk-omap.is-touch { top: 58px; width: 132px; }
+  .wk-root.is-touch .wk-act { min-height: 46px; bottom: 14px; }
+  .wk-help.is-touch { bottom: 16px; max-width: calc(100% - 340px); }
+  .wk-root.is-touch.is-indoor .wk-touch-guide { bottom: 14px; width: 84px; height: 84px; }
+}
+.wk-root.is-touch .wk-map-tools span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* (the food/drink in hand's button beside the rail, not under it) */
+.wk-root.is-touch .wk-act.wk-act-use { right: 66px; bottom: 80px; max-width: min(44vw, 220px); }
+@media (pointer: coarse) and (max-height: 500px) { .wk-root.is-touch .wk-act.wk-act-use { right: 62px; bottom: 68px; } }
+/* (a phone: today's missions folded to their head line at the top right, clear of the rail and the
+   action button; the shop/bag/gesture chips smaller, stacked above the stick when held sideways) */
+.wk-root.is-touch .wk-missions.is-inside { top: 62px; right: 10px; width: 176px; max-height: calc(100dvh - 300px); overflow-y: auto; }
+.wk-root.is-touch .wk-shop-here, .wk-root.is-touch .wk-bag-here, .wk-root.is-touch .wk-gesture-here { left: 10px; padding: 6px 10px; font-size: 12px; }
+@media (pointer: coarse) and (max-height: 500px) {
+  .wk-root.is-touch .wk-missions.is-inside { top: 58px; right: 104px; max-height: calc(100dvh - 130px); }
+  .wk-root.is-touch .wk-map.is-touch, .wk-root.is-touch .wk-omap.is-touch { top: 62px; width: 120px; }
+  .wk-root.is-touch .wk-shop-here { top: auto; bottom: 182px; }
+  .wk-root.is-touch .wk-bag-here { top: auto; bottom: 146px; }
+  .wk-root.is-touch .wk-gesture-here { top: auto; bottom: 110px; }
+}
