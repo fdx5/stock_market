@@ -5,7 +5,7 @@ import signal
 import subprocess
 import sys
 
-VERSION='orthogonal-area-12'
+VERSION='orthogonal-area-13'
 
 
 def analyze_isolated(data: bytes, exclusive_area: float, *, expanded=False,supply_area=None) -> dict:

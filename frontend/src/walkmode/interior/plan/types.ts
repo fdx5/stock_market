@@ -50,10 +50,12 @@ export interface FloorPlan {
   complexId: string; complexName: string; dong: string; unitType: string;
   areaExclusiveM2: number; ceilingHeightM: number;
   source: "estimated_template" | "licensed_plan" | "image_analysis";
-  imageAnalysis?: { key: string; typeName: string; sourceUrl: string; scaleBasis: string; wallThicknessMetres?:number; elapsedMs: number; tidy?: { stubsOpened: number; seamsOpened: number; doorsWidened: number; publicStubs?: number; piecesMerged?: number; kitchenRecut?: boolean }; start: [number,number,number] };
+  imageAnalysis?: { key: string; typeName: string; sourceUrl: string; scaleBasis: string; wallThicknessMetres?:number; elapsedMs: number; tidy?: { stubsOpened: number; seamsOpened: number; doorsWidened: number; publicStubs?: number; piecesMerged?: number; kitchenRecut?: boolean; privateDoors?: number; accessDoors?: number }; start: [number,number,number] };
   template: string;
   basis: { area: string; rooms: string; households?: number | null; built?: number | null };
   bounds: [number, number, number, number];
+  /** image plans: the ways on foot from the front door into each room, kept clear of furniture */
+  walkways?: [number, number, number, number][];
   rooms: Room[];
   openings: Opening[];
   fixtures: Fixture[];

@@ -73,6 +73,10 @@ type Phase = "boot" | "outdoor-loading" | "outdoor" | "choose" | "interior-loadi
 if (import.meta.hot) import.meta.hot.accept(() => window.location.reload());
 interface Start { lat: number; lon: number; name: string; key: string; domain: string; id: string; built: number | null }
 
+/** furnishing cases tried for an original drawing's flat whose furniture shut a room off */
+const DRAWING_FURNISH_TRIES = 4;
+const ACCESS_ERROR = "가구·문 배치 후 통행";
+
 export default function WalkPage() {
   const q = useMemo(() => expandWalkQuery(new URLSearchParams(location.search)), []);
   const demo = import.meta.env.DEV && q.get("interior") === "demo";
@@ -428,7 +432,7 @@ export default function WalkPage() {
     openPlan(furnishingPicked.current ? selectionPlan : { ...selectionPlan, furnishingCase: Math.floor(Math.random() * 64) });
   };
   const furnishingPicked = useRef(false);
-  const openPlan = (p: FloorPlan, fallback = false) => {
+  const openPlan = (p: FloorPlan, fallback = false, attempt = 0) => {
     if (!start || !entering || !renderer.current) return;
     sound.resume();
     if(usesOriginal&&p.source!=="image_analysis"){setUnitsErr("검증된 원본 도면이 있어야 실내를 열 수 있습니다.");return;}
@@ -438,7 +442,7 @@ export default function WalkPage() {
     setProgress({ k: 0, text: "엘리베이터를 타고 올라가는 중" });
     const view = game.current?.captureView(entering, p.floor * 2.9 + 1.4) ?? null;
     const it = new Interior(renderer.current, {
-      plan: p, hour, view, sound, pet,
+      plan: p, hour, view, sound, pet, acceptBlocked: !!p.imageAnalysis && attempt >= DRAWING_FURNISH_TRIES,
       // (a screen in use takes the mouse back from the walk)
       onTv: on => { setTvOpen(on); if (on) document.exitPointerLock?.(); else setZoomed(z => (z === "tv" ? null : z)); },
       onTvMenu: () => { setTvOpen(true); zoomTo("tv"); document.exitPointerLock?.(); },
@@ -461,6 +465,9 @@ export default function WalkPage() {
         it.dispose();interior.current=null;setHud(null);setFade(false);
         // (a random combination that blocks a way through: built again with the first case before
         // the drawing itself is doubted)
+        // (an original drawing's rooms are all walkable as drawn: other furnishing cases, then the
+        // flat entered as it is — the drawing is not rejected for where a sofa went)
+        if(p.imageAnalysis&&attempt<DRAWING_FURNISH_TRIES&&err.message.startsWith(ACCESS_ERROR)){openPlan({...p,furnishingCase:((p.furnishingCase??0)+17*(attempt+1))%64},true,attempt+1);return;}
         if(!fallback&&p.furnishingCase){openPlan({...p,furnishingCase:0},true);return;}
         if(p.imageAnalysis)setRejectedDrawing(p.imageAnalysis.key);
         else setFurnishingCase(v=>v+1);

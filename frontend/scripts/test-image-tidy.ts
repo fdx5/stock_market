@@ -79,9 +79,10 @@ if (dir) for (const f of readdirSync(dir).filter(n => n.endsWith(".json"))) {
   files++; const s0 = stubs(p0), s1 = stubs(p1), d0 = narrow(p0), d1 = narrow(p1);
   leadShare(p0, share0); leadShare(p1, share1);
   before += s0; after += s1; nb += d0; na += d1; w0 += innerWall(p0); w1 += innerWall(p1);
-  // (rooms are only ever joined, never moved: the floor covered is the same)
+  // (rooms are only ever joined, never moved: the floor covered is the same — but for a wall's
+  // thickness of gap closed so a shut-off room gets its door, planAccess.ts closeGap)
   const cover = (p: FloorPlan) => p.rooms.reduce((s, r) => s + (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]), 0);
-  assert.ok(Math.abs(cover(p1) - cover(p0)) < 1e-6, "floor unchanged");
+  assert.ok(cover(p1) - cover(p0) > -1e-6 && cover(p1) - cover(p0) < 1, "floor unchanged");
   console.log(f.padEnd(22), `stubs ${s0}→${s1}`, `doors<0.7m ${d0}→${d1}`, JSON.stringify(p1.imageAnalysis!.tidy));
 }
 if (files) { console.log(`total (${files} drawings): wall stubs ${before}→${after}, narrow doors ${nb}→${na}, walls inside one room ${w0.toFixed(1)}→${w1.toFixed(1)} m`); assert.ok(after < before && na <= nb && w1 < w0); }

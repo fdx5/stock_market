@@ -44,6 +44,8 @@ export interface HudState { target: string | null; room: string; seated: string 
 export interface InteriorTalk { name: string; text: string; /** liking for the visitor (0…100) and in words */ rel?: number; relWord?: string; destinations: { label: string; x: number; z: number }[]; directory: { label: string; uses: string }[]; questions: string[]; /** what they sell here, if anything */ shop?: { kind: ShopKind; label: string } | null }
 export interface InteriorOptions {
   plan: FloorPlan; hour: number;
+  /** an original drawing's flat built after its furnishings blocked a room in every case tried: entered as it is */
+  acceptBlocked?: boolean;
   /** the flat's pet: a Shiba Inu (default) or a cat */
   pet?: PetKind;
   /** the real view from the flat's height (WalkGame), or null for the painted one */
@@ -246,6 +248,9 @@ export class Interior {
   private raf = 0; private last = 0; private running = false; private disposed = false;
   private segs: Seg[] = [];
   private interactables: Interactable[] = [];
+  /** rooms the furnished flat leaves no way into (checked at load; [] when every room is reached) */
+  accessBlocked: string[] = [];
+  accessDetail: unknown = null;
   perf = { frames: 0, intervals: [] as number[], worst: 0, cpuMs: 0, started: 0, loadMs: 0, phases: {} as Record<string, number>, seg: {} as Record<string, number>, long: [] as { at: number; ms: number; room: string; seg: Record<string, number> }[] };
   private segT = 0;
   private tmpV = new THREE.Vector3();
@@ -719,13 +724,21 @@ export class Interior {
     P(0.72, "셰이더를 준비하는 중");
     this.setupPost();
     this.placeAtEntrance();
-    if(!plan.facility&&!plan.imageAnalysis){
+    if(!plan.facility){
       const saved=this.shell.doors.map(d=>({d,rotation:d.pivot.rotation.y,position:d.leaf.position.clone()}));
       for(const {d} of saved)if(d.kind!=="front"){if(d.kind==="slide")d.leaf.position.copy(d.slideTo!);else d.pivot.rotation.y=d.openYaw;}
       const openDoors=this.doorSegs();
       for(const {d,rotation,position} of saved){d.pivot.rotation.y=rotation;d.leaf.position.copy(position);}
       const blocked=interiorReachability(plan,[...this.segs,...openDoors],this.furn.colliders,[this.pos.x,this.pos.y]);
-      if(blocked.length){
+      this.accessBlocked=[...new Set(blocked)];
+      if(blocked.length&&import.meta.env.DEV){
+        const boxes=furnitureFootprints(this.furn.colliders),walls=[...this.shell.segments,...openDoors];
+        const box=(b:number[]):Seg[]=>[[b[0],b[1],b[2],b[1]],[b[2],b[1],b[2],b[3]],[b[2],b[3],b[0],b[3]],[b[0],b[3],b[0],b[1]]];
+        const culprits=boxes.filter((_,k)=>interiorReachability(plan,walls,boxes.filter((__,m)=>m!==k).flatMap(box),[this.pos.x,this.pos.y]).length<blocked.length).map(b=>b.map(v=>+v.toFixed(2)));
+        (window as unknown as {__culprits?:unknown}).__culprits={culprits,boxes:boxes.length};
+      }
+      if(blocked.length)this.accessDetail={noFurniture:interiorReachability(plan,[...this.shell.segments,...openDoors],[],[this.pos.x,this.pos.y]),wallsOnly:interiorReachability(plan,this.shell.segments,[],[this.pos.x,this.pos.y]),start:[this.pos.x,this.pos.y],segs:this.segs.length,doorSegs:openDoors};
+      if(blocked.length&&!(plan.imageAnalysis&&this.o.acceptBlocked)){
         throw new InteriorSafetyError(`가구·문 배치 후 통행을 확보하지 못한 공간: ${[...new Set(blocked)].join(", ")}`);
       }
     }

@@ -1,8 +1,9 @@
 import type { FloorPlan, Opening, Room } from "./types";
 import { fixturesFor, type PlanInput } from "./generate";
 import {resolveWallOpenings} from './wallOpenings';
-import {mergeOpenPieces,openPublicStubs,tidyImageOpenings} from './imageTidy';
+import {mergeOpenPieces,openPublicStubs,tidyImageOpenings,type TidyReport} from './imageTidy';
 import {recutKitchen} from './kitchenRecut';
+import {mendAccess,privateOpensToDoors,walkways} from './planAccess';
 
 export interface Drawing {
   key:string;naverId:string;typeId:string;typeName:string;exclusiveArea:number;supplyArea:number;
@@ -52,7 +53,10 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis,o:{tidy?:b
   // in the 현관's outside wall — the side no other room lies against — at its widest clear part.
   if(!openings.some(o=>o.type==="front_door")){const fd=frontDoorFor(rooms,openings);if(fd)openings.push(fd);}
   // (stubs of wall left by passages read short, seams inside one room, doors read half-width)
-  const tidy=o.tidy===false?{openings,report:{stubsOpened:0,seamsOpened:0,doorsWidened:0}}:tidyImageOpenings(rooms,openings);
+  // (a gap read into a bedroom or a bathroom is its doorway: a private room never stands open)
+  const priv=o.tidy===false?{openings,doors:0}:privateOpensToDoors(rooms,openings);
+  const tidy=o.tidy===false?{openings,report:{stubsOpened:0,seamsOpened:0,doorsWidened:0} as TidyReport}:tidyImageOpenings(rooms,priv.openings);
+  if(priv.doors)tidy.report.privateDoors=priv.doors;
   // (a room's pieces with nothing between them: one rectangle, furnished and walked whole)
   const whole=o.tidy===false?{rooms,openings:tidy.openings,merged:0}:mergeOpenPieces(rooms,tidy.openings);
   rooms.splice(0,rooms.length,...(whole.rooms as typeof rooms));
@@ -70,6 +74,10 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis,o:{tidy?:b
     imageAnalysis:{key:analysis.drawing.key,typeName:analysis.drawing.typeName,sourceUrl:analysis.drawing.sourceUrl,scaleBasis:analysis.scale.basis,wallThicknessMetres:analysis.scale.wallThicknessMetres,elapsedMs:analysis.elapsedMs??0,tidy:tidy.report,start:[(x0+x1)/2,(z0+z1)/2,Math.PI]}};
   // (a kitchen zone cut round a corridor-like piece: cut again round where its fridge and counter fit)
   if(o.tidy!==false){const k=recutKitchen(plan);if(k){plan.rooms=k.rooms;plan.openings=k.openings;tidy.report.kitchenRecut=true;}}
+  // (every room the walker cannot get into — its door lost in the line work — given a way in)
+  if(o.tidy!==false){const n=mendAccess(plan);if(n)tidy.report.accessDoors=n;}
+  // (the ways to them kept clear of furniture)
+  if(o.tidy!==false)plan.walkways=walkways(plan);
   const merged=new Map(plan.rooms.map(r=>[r.id,r]));
   plan.fixtures=fixturesFor(plan).filter(f=>{const r=merged.get(f.room);return r&&f.pos[0]>=r.rect[0]+.15&&f.pos[0]<=r.rect[2]-.15&&f.pos[1]>=r.rect[1]+.15&&f.pos[1]<=r.rect[3]-.15;});
   return plan;

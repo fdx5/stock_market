@@ -635,7 +635,9 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
                            "blue":float(((patch[:,:,0]>75)&(patch[:,:,0]<115)&(patch[:,:,1]>15)).mean()),
                            "wood":float(((patch[:,:,0]>8)&(patch[:,:,0]<40)&(patch[:,:,1]>85)).mean()),
                            "pale":float(((patch[:,:,0]>10)&(patch[:,:,0]<40)&(patch[:,:,1]>15)&(patch[:,:,1]<100)&(patch[:,:,2]>190)).mean()),
-                           "checker":checker}
+                           "checker":checker,
+                           # tile joints: a balcony's or a bathroom's tiled floor has them, a room's plain floor not
+                           "joints":float((edge_strength[b:d,a:c]>40).mean())}
     # A crossed shaft box split by grid lines: test the X over blocks of up to 3x3 cells.
     for (i,j) in sorted(cells):
         for w,h in [(2,1),(1,2),(2,2),(3,1),(1,3),(3,2),(2,3),(3,3)]:
@@ -862,6 +864,10 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             # wood-floored corridor or dining floor outside (a bedroom grew a strip out of its door
             # and the shared floor it took left the kitchen and the hall short).
             if kind in ("bedroom","dressroom") and cost>=100 and feature["wood"]>.25 and feature["pale"]<.5:mismatch+=400
+            # A tiled balcony (its floor's joints) ends at its window: a window frame inside the
+            # plan is no barrier, and the balcony took the bedroom's plain floor behind it — a strip
+            # of the bedroom left balcony, with no way into it.
+            if kind=="balcony" and cells[seeds[index]["cell"]].get("joints",0)>=.2 and feature.get("joints",1)<.06:mismatch+=300
             # Korean flats open the kitchen onto the living room, which is kept wide. The
             # kitchen spreads at a higher cost, so the shared floor, dining area and the
             # corridor belong to the living room rather than the kitchen.

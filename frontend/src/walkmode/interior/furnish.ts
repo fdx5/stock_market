@@ -85,6 +85,8 @@ export class Placer {
   occupied: Rect[] = [];
   /** Reserved walking routes are constraints for furniture, not physical obstacles. */
   routes: Rect[] = [];
+  /** the plan's ways on foot to its rooms (FloorPlan.walkways) through this room: never furnished */
+  walkway: Rect[] = [];
   /** the doorways' clear areas (walked through; where a way in starts) */
   doors: Rect[] = [];
   X0: number; X1: number; Z0: number; Z1: number; fy: number;
@@ -92,6 +94,7 @@ export class Placer {
     const e = wallHalfThickness(plan);
     [this.X0, this.Z0, this.X1, this.Z1] = [room.rect[0] + e, room.rect[1] + e, room.rect[2] - e, room.rect[3] - e];
     this.fy = -(room.floorDrop ?? 0);
+    for (const w of plan.walkways ?? []) if (w[0] < this.X1 && w[2] > this.X0 && w[1] < this.Z1 && w[3] > this.Z0) this.walkway.push(w);
     // doorways: the swing of a door into this room, and a way through every opening
     for (const o of plan.openings) {
       if (o.a !== room.id && o.b !== room.id && !(plan.imageAnalysis&&plan.rooms.some(r=>(r.id===o.a||r.id===o.b)&&r.zone===room.zone))) continue;
@@ -189,7 +192,7 @@ export class Placer {
   free(r: Rect) {
     const eps = 0.005;
     if (r[0] < this.X0 - eps || r[2] > this.X1 + eps || r[1] < this.Z0 - eps || r[3] > this.Z1 + eps) return false;
-    return ![...this.occupied,...this.routes].some(o => r[0] < o[2] - eps && r[2] > o[0] + eps && r[1] < o[3] - eps && r[3] > o[1] + eps);
+    return ![...this.occupied,...this.routes,...this.walkway].some(o => r[0] < o[2] - eps && r[2] > o[0] + eps && r[1] < o[3] - eps && r[3] > o[1] + eps);
   }
   /** Standing/chair-pull space may share circulation and door clear floor. */
   useFree(r:Rect){
@@ -281,6 +284,9 @@ export function packBedroom(pl:Placer,master:boolean,preferred:number,expanded=f
     const target=new THREE.Vector3(0,0,depth+clearance/2).applyMatrix4(f.m),way=furnitureAccess(pl,f,target.x,target.z);if(!way)continue;
     const inset=lowHead?.10:.04;
     const m=f.m.clone().multiply(headOnWall?new THREE.Matrix4().makeTranslation(0,0,inset):new THREE.Matrix4().makeTranslation(-footprintLength/2+inset,0,depth/2).multiply(new THREE.Matrix4().makeRotationY(Math.PI/2)));
+    // (the walks between the room's doors, set aside to fit the bed, bind what comes after it:
+    // a wardrobe put by the bed in the way from one door to the other shut the room behind it)
+    pl.routes=sourceRoutes;
     return {frame:{m,rect:f.rect},width,length,side,way,target:[target.x,target.z] as [number,number],clearance,lowHead};
   }
   pl.routes=sourceRoutes;
@@ -300,7 +306,7 @@ export function packBedroom(pl:Placer,master:boolean,preferred:number,expanded=f
       const localPlan={...pl.plan,openings:pl.plan.openings.map(o=>({...o,a:ids.has(o.a)?pl.room.id:o.a,b:ids.has(o.b)?pl.room.id:o.b}))};
       for(const rect of regions.sort((a,b)=>(b[2]-b[0])*(b[3]-b[1])-(a[2]-a[0])*(a[3]-a[1]))){
         const found=packBedroom(new Placer({...pl.room,rect},localPlan),master,preferred,true);
-        if(found){pl.routes=[];return found;}
+        if(found)return found;
       }
     }
   }

@@ -47,7 +47,7 @@ function sharedRun(rooms: Room[], o: Opening, ids: Map<string, Room>): [number, 
   return hi - lo > 0.05 ? [lo, hi] : null;
 }
 
-export interface TidyReport { stubsOpened: number; seamsOpened: number; doorsWidened: number; publicStubs?: number; piecesMerged?: number; kitchenRecut?: boolean }
+export interface TidyReport { stubsOpened: number; seamsOpened: number; doorsWidened: number; publicStubs?: number; piecesMerged?: number; kitchenRecut?: boolean; privateDoors?: number; accessDoors?: number }
 
 export function tidyImageOpenings(rooms: Room[], input: Opening[]): { openings: Opening[]; report: TidyReport } {
   const ids = new Map(rooms.map(r => [r.id, r]));
