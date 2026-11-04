@@ -86,7 +86,8 @@ test('one failed index does not block the other index from updating',async()=>{
     nasdaq100Map:async()=>({items:[row('NVDA',200+tick)],session:'post',generated_at:'t2'}),
   });
   const {useUsMarketSnapshot}=await hooks('useUsMarketSnapshot');useUsMarketSnapshot();await rt.mount();
-  assert.equal(rt.states[0].all.length,2);tick=1;await rt.advance(10000);
+  // The shared desk snapshot now polls every 20s; map pages have their own cadence.
+  assert.equal(rt.states[0].all.length,2);tick=1;await rt.advance(20000);
   assert.equal(rt.states[0].sp500[0].close,100);assert.equal(rt.states[0].nasdaq[0].close,201);
   rt.unmount();
 });

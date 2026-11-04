@@ -171,7 +171,9 @@ def _constituents(index: str, fresh: bool) -> list[dict]:
         f"us_quotes:{index}",
         TTL_QUOTES_SECONDS,
         lambda: yahoo_bulk_quote.get_quotes([it["code"] for it in roster]),
-        allow_stale=not fresh,
+        # Keep roster SWR, but return refreshed prices on this request, including
+        # page entry and session transitions (not one polling interval later).
+        allow_stale=False,
     )
     codes = [it["code"] for it in roster]
     us_live_quotes.remember(quotes)

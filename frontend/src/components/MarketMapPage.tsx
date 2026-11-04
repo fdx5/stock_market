@@ -5,6 +5,7 @@ import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { TILE_FONT_FAMILY, pct, tileDisplayInfo } from "../mapTile";
 import { startVisibilityAwareInterval } from "../pollVisibility";
+import { mergeMapSnapshot } from "../marketMapSnapshot";
 import { Link, navigate } from "../router";
 import { useBrowsingChoice } from "../browsingMemory";
 import { loadStockIconUrl } from "../stockIcon";
@@ -321,28 +322,21 @@ export default function MarketMapPage({
     let cancelled = false;
     let fullInFlight = false;
     let hasFullSnapshot = false;
-
-    const mergeItems = (prev: MarketMapItem[], fresh: MarketMapItem[]): MarketMapItem[] => {
-      const byCode = new Map(prev.map((it) => [it.code, it]));
-      for (const item of fresh) byCode.set(item.code, item);
-      return Array.from(byCode.values());
-    };
+    const partialInFlight = new Set<number>();
 
     // Only the very first load shows the loading state — refreshes swap the data in
     // place so the map keeps rendering the previous snapshot instead of flashing empty.
-    // Every load (including the first) passes fresh=false to reuse the backend's
-    // stale-while-revalidate cache: forcing a synchronous re-scrape of up to hundreds
-    // of Naver pages on every page entry (fresh=isInitial, the previous behavior) could
-    // block a request thread for 10s+, and on the single-worker free-tier deploy that
-    // was enough concurrent page entries to exhaust the thread pool and stall every
-    // other request site-wide. The 10-60s tiered TTLs already keep data close to live.
+    // fresh=false reuses the slow roster scrape. The backend independently refreshes
+    // expired live quotes synchronously, so entry never waits for the next poll.
     const loadPartial = (limit: number, isInitial: boolean) => {
+      if (partialInFlight.has(limit)) return;
+      partialInFlight.add(limit);
       if (isInitial) setLoading(true);
 
       fetchMap(limit, false)
         .then((res) => {
           if (cancelled) return;
-          setItems((prev) => mergeItems(prev, res.items));
+          setItems((prev) => mergeMapSnapshot(prev, res.items, false));
           setGeneratedAt(res.generated_at);
           setSession(res.session);
           setError(null);
@@ -354,6 +348,7 @@ export default function MarketMapPage({
           // than replacing a working map with an error screen.
         })
         .finally(() => {
+          partialInFlight.delete(limit);
           if (isInitial && !cancelled) setLoading(false);
         });
     };
@@ -366,7 +361,7 @@ export default function MarketMapPage({
           if (cancelled) return;
           // The full snapshot is authoritative (unlike the partial tiers above), so it
           // replaces state outright — that's also what drops names that fell off the tail.
-          setItems(res.items);
+          setItems((prev) => mergeMapSnapshot(prev, res.items, true));
           hasFullSnapshot = true;
           setGeneratedAt(res.generated_at);
           setSession(res.session);

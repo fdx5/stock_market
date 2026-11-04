@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 
 import requests
 
@@ -37,6 +38,8 @@ def _quote_from_data(data: dict) -> dict:
 
     volume = int(data.get("accumulatedTradingVolumeRaw") or 0)
     turnover = int(data.get("accumulatedTradingValueRaw") or 0)
+    traded_at = data.get("localTradedAt")
+    quote_source = "naver_regular"
 
     over = data.get("overMarketPriceInfo")
     # A name NXT does not trade that day still carries an over-market block, with
@@ -56,6 +59,13 @@ def _quote_from_data(data: dict) -> dict:
         # must come from that same object.
         volume = int(over.get("accumulatedTradingVolumeRaw") or 0)
         turnover = int(over.get("accumulatedTradingValueRaw") or 0)
+        traded_at = over.get("localTradedAt") or traded_at
+        quote_source = "naver_nxt"
+
+    try:
+        quote_time = datetime.fromisoformat(traded_at).timestamp() if traded_at else None
+    except (TypeError, ValueError):
+        quote_time = None
 
     return {
         "code": data["itemCode"],
@@ -66,6 +76,8 @@ def _quote_from_data(data: dict) -> dict:
         "marcap": marcap,
         "volume": volume,
         "turnover": turnover,
+        "quote_time": quote_time,
+        "quote_source": quote_source,
         "open": float(data.get("openPriceRaw") or 0),
         "high": float(data.get("highPriceRaw") or 0),
         "low": float(data.get("lowPriceRaw") or 0),
@@ -88,7 +100,14 @@ def _fetch_quotes_chunk(codes: list[str]) -> dict[str, dict]:
     resp = requests.get(url, headers=HEADERS, timeout=4)
     resp.raise_for_status()
     datas = resp.json().get("datas", [])
-    return {d["itemCode"]: _quote_from_data(d) for d in datas}
+    quotes = {}
+    for data in datas:
+        try:
+            quotes[data["itemCode"]] = _quote_from_data(data)
+        except (KeyError, TypeError, ValueError):
+            # One halted/malformed row must not discard the other 49 live prices.
+            continue
+    return quotes
 
 
 def get_stock_quotes_bulk(codes: list[str]) -> dict[str, dict]:

@@ -8,7 +8,7 @@ import pandas as pd
 from app.data import krx_listing
 from app.data.naver_price_fetcher import NAVER_PAGE_SIZE, fetch_market_cap_page
 from app.data.sparkline_fetcher import get_kr_sparklines, get_us_sparklines
-from app.data.stock_quote_fetcher import get_stock_quotes_bulk
+from app.services.market_map_quotes import get_map_quotes
 from app.data.universe import get_stock_market
 from app.services.cache import cache
 
@@ -26,8 +26,6 @@ FIRST_TIER_TTL_SECONDS = 10
 SECOND_TIER_PAGES = 3
 SECOND_TIER_TTL_SECONDS = 30
 LONG_TAIL_TTL_SECONDS = 60
-# Expire before the next five-second poll, allowing for network latency.
-LEADING_QUOTES_TTL_SECONDS = 4
 TTL_INDUSTRY_SECONDS = 24 * 3600
 
 # 20일/120일 등락률 come off a year of daily bars per code (see sparkline_fetcher), the
@@ -153,16 +151,6 @@ def _naver_page_ttl(page: int) -> int:
         return FIRST_TIER_TTL_SECONDS
     if page <= SECOND_TIER_PAGES:
         return SECOND_TIER_TTL_SECONDS
-    return LONG_TAIL_TTL_SECONDS
-
-
-# Live-quote overlay TTL is keyed by the requested limit. Leading-stock views
-# (including the scanner's top 60) share a five-second cadence; full maps keep
-# the long-tail cadence to avoid fetching hundreds of codes every few seconds.
-def _realtime_quotes_ttl(limit: int) -> int:
-    # The command home's scanner reads 60 leading stocks every five seconds.
-    if limit <= 60:
-        return LEADING_QUOTES_TTL_SECONDS
     return LONG_TAIL_TTL_SECONDS
 
 
@@ -309,18 +297,9 @@ def _get_market_map(market: str, sosok: int, limit: int, fresh: bool = False) ->
     # The Naver page scrape above freezes at the 15:30 regular-session close, so overlay
     # live (NXT-aware) price/change/marcap on top of it — the same data source the
     # battle page already uses for Samsung/SK Hynix, just batched across every listed
-    # code here. Cached like the page snapshots above so concurrent requests within the
-    # TTL window share one round-trip instead of each triggering their own.
-    ttl = _realtime_quotes_ttl(limit)
-    quotes = cache.get_or_set(
-        # v2 invalidates quote objects cached before NXT volume/value were selected
-        # from overMarketPriceInfo. Without the version bump a hot-reloaded server can
-        # keep serving the old zero-volume pre-market rows until the long-tail TTL ends.
-        f"realtime_quotes:v2:{market}:{limit}",
-        ttl,
-        lambda: get_stock_quotes_bulk([it["code"] for it in items]),
-        allow_stale=not fresh,
-    )
+    # code here. Quote tiers are shared across request limits and refreshed on expiry;
+    # only the slow roster pages above use stale-while-revalidate.
+    quotes = get_map_quotes(market, [it["code"] for it in items])
     for it in items:
         quote = quotes.get(it["code"])
         if quote:
@@ -333,6 +312,9 @@ def _get_market_map(market: str, sosok: int, limit: int, fresh: bool = False) ->
             # are the regular counters (stock_quote_fetcher makes that selection).
             it["volume"] = quote["volume"]
             it["turnover"] = quote["turnover"]
+            it["quote_time"] = quote.get("quote_time")
+            it["quote_received_at"] = quote.get("quote_received_at")
+            it["quote_source"] = quote.get("quote_source")
 
     return items
 

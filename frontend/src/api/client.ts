@@ -140,6 +140,8 @@ export interface ExtendedHours {
 }
 
 export interface MarketMapItem extends ExtendedHours {
+  /** Server receipt time for sources without a trade timestamp; not response time. */
+  quote_received_at?: number | null;
   code: string;
   name: string;
   sector: string;

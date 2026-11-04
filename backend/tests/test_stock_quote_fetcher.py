@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.data import stock_quote_fetcher as fetcher  # noqa: E402
 from app.data.stock_quote_fetcher import _quote_from_data  # noqa: E402
 
 
@@ -51,3 +52,29 @@ def test_regular_market_does_not_mix_in_nxt_fields():
     assert quote["close"] == 250500
     assert quote["volume"] == 777
     assert quote["turnover"] == 888000
+
+
+def test_closed_after_market_preserves_nxt_price_and_its_trade_time():
+    payload = _payload("CLOSE")
+    payload["localTradedAt"] = "2026-11-04T15:30:00+09:00"
+    payload["overMarketPriceInfo"].update({
+        "overMarketStatus": "CLOSE", "localTradedAt": "2026-11-04T20:00:00+09:00",
+        "overPrice": "287,500", "fluctuationsRatio": "3.60",
+    })
+    quote = _quote_from_data(payload)
+    assert quote["close"] == 287500 and quote["change_pct"] == 3.60
+    assert quote["quote_time"] == fetcher.datetime.fromisoformat("2026-11-04T20:00:00+09:00").timestamp()
+    assert quote["quote_source"] == "naver_nxt"
+    payload["marketStatus"] = "OPEN"
+    assert _quote_from_data(payload)["quote_source"] == "naver_regular"
+    assert _quote_from_data(payload)["quote_time"] < quote["quote_time"]
+
+
+def test_bad_row_does_not_discard_the_rest_of_a_quote_batch(monkeypatch):
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {"datas": [{"itemCode": "BAD"}, _payload()]}
+    monkeypatch.setattr(fetcher.requests, "get", lambda *args, **kwargs: Response())
+    result = fetcher._fetch_quotes_chunk(["BAD", "005930"])
+    assert list(result) == ["005930"]
+    assert result["005930"]["close"] == 255000

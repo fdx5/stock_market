@@ -149,7 +149,7 @@ def test_market_map_falls_back_to_krx_when_naver_returns_no_rows(monkeypatch, ma
     monkeypatch.setattr(market_map, "_get_price_snapshot", lambda *args, **kwargs: [])
     monkeypatch.setattr(market_map, "_get_industry_map", lambda: {code: "반도체 제조업"})
     monkeypatch.setattr(market_map, "_get_etf_codes", lambda: set())
-    monkeypatch.setattr(market_map, "get_stock_quotes_bulk", lambda codes: {})
+    monkeypatch.setattr(market_map, "get_map_quotes", lambda market, codes: {})
     monkeypatch.setattr(
         market_map.krx_listing,
         "stock_listing",
