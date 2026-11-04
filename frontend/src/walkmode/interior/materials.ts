@@ -18,6 +18,11 @@ export const SETS = {
   // (Poly Haven, CC0: floors and tiles for the further styles — each style downloads only its own)
   laminate_floor_03: 2.08, diagonal_parquet: 2.36, rectangular_parquet: 2.25, wood_floor: 1.7, plank_flooring_02: 1.98, wooden_floor_02: 1.94,
   marble_tiles: 2.0, large_grey_tiles: 3.0, long_white_tiles: 1.27, square_tiles_02: 2.4, floor_tiles_06: 3.0, marble_mosaic_tiles: 2.0, large_floor_tiles_02: 3.0,
+  // (Poly Haven, CC0, 2026-11-05: a building's own surfaces — ceilings, sheet vinyl, epoxy and
+  // rubber floors, wall panels in veneer, plaster, mosaic, cladding, upholstery; public/3d/walk/SOURCES.md)
+  ceiling_interior: 2.0, linoleum_brown: 2.0, smooth_concrete_floor: 2.0, painted_concrete: 2.0, rubber_tiles: 2.0, interior_tiles: 1.9, floor_tiles_08: 1.5,
+  oak_veneer_01: 1.83, smoked_walnut_veneer: 1.0, plastered_wall_04: 3.2, plaster_grey_04: 1.5, rounded_square_tiled_wall: 2.0, rectangular_facade_tiles: 2.0,
+  ribbed_concrete_wall: 2.0, quatrefoil_jacquard_fabric: 0.28, patterned_concrete_wall: 2.0,
 } as const;
 /** the sets every flat loads; and each style's own besides */
 export const BASE_SETS = ["laminate_floor_02", "herringbone_parquet", "marble_white", "granite_tile", "plastered_wall_02", "poly_wool_herringbone", "rough_linen", "leather_white", "white_oak_veneer", "walnut_veneer", "velour_velvet"] as const;

@@ -18,6 +18,30 @@
 
 라이선스: CC0 1.0 Universal(https://creativecommons.org/publicdomain/zero/1.0/)
 
+
+## 시설 실내 자재 (2026-11-05 추가)
+
+Poly Haven CC0. 건물(아파트 외) 실내 천장·바닥·벽용이다. 받은 원본의 MD5를 확인한 뒤 webp로 변환했다. 천장재와 콘크리트 2종은 1024px로 줄였다. 색 맵이 낡거나 얼룩진 세트는 코드에서 색 맵 없이 노멀·거칠기만 쓴다(`facilityMaterials.ts`의 noMap·flat).
+
+| 파일 접두사 | 실제 크기(1회 반복) | 작성자 | 해상도 |
+|---|---|---|---|
+| ceiling_interior | 2.00 m | Dimitrios Savva | 1024 |
+| linoleum_brown | 2.00 m | Rob Tuytel | 2048 |
+| smooth_concrete_floor | 2.00 m | Dimitrios Savva | 1024 |
+| painted_concrete | 2.00 m | Dario Barresi, Dimitrios Savva | 1024 |
+| rubber_tiles | 2.00 m | Amal Kumar | 2048 |
+| interior_tiles | 1.90 m | Charlotte Baglioni | 2048 |
+| floor_tiles_08 | 1.50 m | Rob Tuytel | 2048 |
+| oak_veneer_01 | 1.83 m | Jenelle van Heerden | 1024 |
+| smoked_walnut_veneer | 1.00 m | Jenelle van Heerden | 1024 |
+| plastered_wall_04 | 3.20 m | Rob Tuytel | 1024 |
+| plaster_grey_04 | 1.50 m | Rob Tuytel | 1024 |
+| rounded_square_tiled_wall | 2.00 m | Charlotte Baglioni | 1024 |
+| rectangular_facade_tiles | 2.00 m | Charlotte Baglioni | 1024 |
+| ribbed_concrete_wall | 2.00 m | Charlotte Baglioni | 1024 |
+| quatrefoil_jacquard_fabric | 0.28 m | colormass, Rico Cilliers | 1024 |
+| patterned_concrete_wall | 2.00 m | Dimitrios Savva | 1024 |
+
 ## 코드로 만든 것(외부 에셋 없음)
 
 - 가구·설비·인물·고양이·로봇청소기: 코드에서 직접 만든 형상(`src/walkmode/interior/models.ts`, `life.ts`, `player/avatar.ts`). 실존 인물·브랜드 로고는 쓰지 않는다.

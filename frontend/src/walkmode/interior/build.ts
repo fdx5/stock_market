@@ -84,6 +84,8 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
   plan={...plan,openings:resolveWallOpenings(plan.rooms,plan.openings,!!plan.imageAnalysis)};
   /** the 중문's frosted glass, when its style has it */
   let frosted: THREE.MeshBasicMaterial | null = null;
+  /** the exit signs' green */
+  let exitGreen: THREE.MeshBasicMaterial | null = null;
   const H = plan.ceilingHeightM, e = wallHalfThickness(plan);
   const zones = new Map<string, number>();
   for (const r of plan.rooms) if (!zones.has(r.zone)) zones.set(r.zone, zones.size + 1);
@@ -255,9 +257,13 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
     const inset=plan.imageAnalysis||plan.facility?0:e;
     const [x0, z0, x1, z1] = r.rect, X0 = x0 + inset, X1 = x1 - inset, Z0 = z0 + inset, Z1 = z1 - inset, W = X1 - X0, D = Z1 - Z0;
     const down = new THREE.Vector3(0, -1, 0), cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
+    // (a building's room: its ceiling as such rooms are built — 600 mm tiles in a T-bar grid, painted
+    // gypsum board, a linear metal strip, the structure left exposed, wood baffles; facilityMaterials.ts)
+    const ceilM = (facility && finishOf(r, "ceiling", finishes)) || P.ceiling;
+    const sys = (ceilM.userData?.ceiling ?? "") as string;
     const ceilQuads = (holes: [number, number, number, number][], y: number) => {
       for (const [a0, a1, b0, b1] of rectMinusHoles(X0, X1, Z0, Z1, holes))
-        quadAuto(B, P.ceiling, zone, [new THREE.Vector3(a0, y, b0), new THREE.Vector3(a1, y, b0), new THREE.Vector3(a1, y, b1), new THREE.Vector3(a0, y, b1)], down, [[a0, b0], [a1, b0], [a1, b1], [a0, b1]]);
+        quadAuto(B, ceilM, zone, [new THREE.Vector3(a0, y, b0), new THREE.Vector3(a1, y, b0), new THREE.Vector3(a1, y, b1), new THREE.Vector3(a0, y, b1)], down, [[a0, b0], [a1, b0], [a1, b1], [a0, b1]]);
     };
     if (plan.imageAnalysis) {
       const area=(q:Room)=>(q.rect[2]-q.rect[0])*(q.rect[3]-q.rect[1]);
@@ -324,13 +330,18 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
       // gallery's and a shop's track spots, a car park's batten tubes)
       if (r.type === "corridor" || r.type === "liftHall" || r.type === "stair") {
         const n = Math.max(1, Math.round(Math.max(W, D) / 2.4));
-        for (let i = 0; i < n; i++) W > D ? downlight(X0 + (W / n) * (i + 0.5), cz, zone) : downlight(cx, Z0 + (D / n) * (i + 0.5), zone);
+        for (let i = 0; i < n; i++) sys === "tbar" && Math.min(W, D) >= 1.2
+          ? (W > D ? panel(Math.round((X0 + (W / n) * (i + 0.5) - 0.3) / 0.6) * 0.6 + 0.3, cz, 0.58, 0.58, zone) : panel(cx, Math.round((Z0 + (D / n) * (i + 0.5) - 0.3) / 0.6) * 0.6 + 0.3, 0.58, 0.58, zone))
+          : sys === "exposed" ? (W > D ? pendantLine(X0 + (W / n) * (i + 0.5), cz, 1.2, zone) : pendantLine(cx, Z0 + (D / n) * (i + 0.5), 1.2, zone))
+          : W > D ? downlight(X0 + (W / n) * (i + 0.5), cz, zone) : downlight(cx, Z0 + (D / n) * (i + 0.5), zone);
+        fittings(r, X0, X1, Z0, Z1, sys, zone);
         pushLight({ room: r, zone, kind: "down", pos: new THREE.Vector3(cx, H - 0.01, cz), w: Math.max(0.4, W * 0.45), h: Math.max(0.4, D * 0.45) });
         return;
       }
       if (r.type === "parking" || r.type === "plant" || r.type === "storage") {
         const nx = Math.max(1, Math.round(W / 4)), nz = Math.max(1, Math.round(D / 3));
         for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) panel(X0 + (W / nx) * (i + 0.5), Z0 + (D / nz) * (j + 0.5), 1.2, 0.08, zone);
+        fittings(r, X0, X1, Z0, Z1, sys || "exposed", zone);
         // (a car park's deck: lit in parts — one lamp for all of it would leave it dim)
         const gx = r.type === "parking" ? Math.min(4, Math.max(1, Math.round(W / 8))) : 1, gz = r.type === "parking" ? 2 : 1;
         for (let i = 0; i < gx; i++) for (let j = 0; j < gz; j++)
@@ -345,15 +356,20 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
           const a = (A / n) * (i + 0.5), l = (L / seg) * (k + 0.5), sl = Math.min(2.6, L / seg - 0.5);
           if (along) panel(X0 + l, Z0 + a, sl, 0.12, zone); else panel(X0 + a, Z0 + l, 0.12, sl, zone);
         }
+        fittings(r, X0, X1, Z0, Z1, sys, zone);
         pushLight({ room: r, zone, kind: "panel", pos: new THREE.Vector3(cx, H - 0.05, cz), w: Math.max(0.5, W * 0.4), h: Math.max(0.5, D * 0.4) });
         return;
       }
       const step = r.type === "gallery" || r.type === "shop" || r.type === "cafe" ? 2.0 : 2.4;
       const nx = Math.max(1, Math.round(W / step)), nz = Math.max(1, Math.round(D / step));
+      // (on a T-bar ceiling the panels take a tile's place: snapped to the 600 mm grid)
+      const snap = (v: number, lo: number, hi: number) => sys === "tbar" ? Math.min(hi - 0.3, Math.max(lo + 0.3, Math.round((v - 0.3) / 0.6) * 0.6 + 0.3)) : v;
       for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
-        const x = X0 + (W / nx) * (i + 0.5), z = Z0 + (D / nz) * (j + 0.5);
-        if (r.type === "gallery" || r.type === "cafe") downlight(x, z, zone); else panel(x, z, 0.58, 0.58, zone);
+        const x = snap(X0 + (W / nx) * (i + 0.5), X0, X1), z = snap(Z0 + (D / nz) * (j + 0.5), Z0, Z1);
+        if (sys === "exposed" || sys === "baffle") pendantLine(x, z, Math.min(1.8, W / nx * 0.7), zone);
+        else if (r.type === "gallery" || r.type === "cafe") downlight(x, z, zone); else panel(x, z, 0.58, 0.58, zone);
       }
+      fittings(r, X0, X1, Z0, Z1, sys, zone);
       pushLight({ room: r, zone, kind: "panel", pos: new THREE.Vector3(cx, H - 0.05, cz), w: Math.max(0.5, W * 0.4), h: Math.max(0.5, D * 0.4) });
       return;
     }
@@ -383,6 +399,83 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
     const s = Math.min(0.62, Math.min(W, D) * 0.22);
     panel(cx, cz, s, s, zone);
     ceilingLights.push({ room: r, zone, kind: "panel", pos: new THREE.Vector3(cx, H - 0.05, cz), w: s, h: s });
+  }
+  // ---------------------------------------------------------------- a building's ceiling fittings
+  /** what a real ceiling carries besides its lights: sprinkler heads on a 3 m grid, a smoke detector,
+   * square supply diffusers and return grilles in a T-bar grid; an exposed ceiling's round ducts,
+   * cable tray and hangers; wood baffles under a dark soffit; a corridor's exit signs */
+  function fittings(r: Room, X0: number, X1: number, Z0: number, Z1: number, sys: string, zone: number) {
+    if (!facility) return;
+    const W = X1 - X0, D = Z1 - Z0, alongX = W >= D, L = alongX ? W : D, A = alongX ? D : W;
+    const at = (l: number, a: number) => alongX ? [X0 + l, Z0 + a] : [X0 + a, Z0 + l];
+    const geo = (g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, ry = 0) => { B.add(m, zone, boxUV(g), new THREE.Matrix4().makeRotationY(ry).setPosition(x, y, z), false); g.dispose(); };
+    const seed = [...r.id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7) >>> 0;
+    // sprinklers (a chrome pendant head and its escutcheon), every 3 m, off the light grid
+    const ns = Math.max(1, Math.round(L / 3)), ms = Math.max(1, Math.round(A / 3));
+    for (let i = 0; i < ns; i++) for (let j = 0; j < ms; j++) {
+      const [x, z] = at((L / ns) * (i + 0.5) + 0.45, (A / ms) * (j + 0.5) + 0.3);
+      if (x > X1 - 0.2 || z > Z1 - 0.2) continue;
+      const y = sys === "exposed" ? H - 0.35 : H;
+      geo(new THREE.CylinderGeometry(0.03, 0.03, 0.006, 16), P.chrome, x, y - 0.003, z);
+      geo(new THREE.CylinderGeometry(0.008, 0.01, 0.04, 8), P.chrome, x, y - 0.026, z);
+      geo(new THREE.CylinderGeometry(0.022, 0.022, 0.003, 12), P.chrome, x, y - 0.048, z);
+      if (sys === "exposed") geo(new THREE.CylinderGeometry(0.012, 0.012, 0.33, 8), P.trim, x, H - 0.17, z);
+    }
+    // a smoke detector (rooms over 6 m², every corridor)
+    if (W * D > 6 || r.type === "corridor") {
+      const [x, z] = at(L * 0.5 + 0.9, A * 0.5);
+      if (x < X1 - 0.15 && z < Z1 - 0.15) { geo(new THREE.CylinderGeometry(0.06, 0.065, 0.035, 24), P.plastic, x, H - 0.018, z); geo(new THREE.CylinderGeometry(0.004, 0.004, 0.002, 8), P.ledWarm, x + 0.035, H - 0.036, z); }
+    }
+    if (sys === "tbar" && W > 2.4 && D > 2.4) {
+      // square supply diffusers (four nested louvres) and a perforated return grille, on tile centres
+      const k = Math.max(1, Math.round(W * D / 18));
+      for (let n = 0; n < k; n++) {
+        const u = ((seed >>> (n * 3)) % 97) / 97, v = ((seed >>> (n * 5 + 1)) % 89) / 89;
+        const x = Math.round((X0 + 0.9 + u * (W - 1.8) - 0.3) / 0.6) * 0.6 + 0.3 + 0.6, z = Math.round((Z0 + 0.9 + v * (D - 1.8) - 0.3) / 0.6) * 0.6 + 0.3;
+        if (x > X1 - 0.3 || z > Z1 - 0.3) continue;
+        for (const [s0, dy] of [[0.58, 0.004], [0.44, 0.012], [0.3, 0.02], [0.16, 0.028]] as [number, number][]) {
+          for (const [ox, oz, sx, sz] of [[0, -s0 / 2, s0, 0.02], [0, s0 / 2, s0, 0.02], [-s0 / 2, 0, 0.02, s0], [s0 / 2, 0, 0.02, s0]]) geo(new THREE.BoxGeometry(sx, 0.008, sz), P.trim, x + ox, H - dy, z + oz);
+        }
+        geo(new THREE.BoxGeometry(0.14, 0.004, 0.14), P.applianceDark, x, H - 0.03, z);
+      }
+    }
+    if (sys === "exposed" && L > 3) {
+      // the services under the slab: a round spiral duct, its hangers, a cable tray beside it
+      const a0 = A * 0.33, a1 = A * 0.62, dr = Math.min(0.32, 0.18 + A * 0.01);
+      const [x0, z0] = at(L / 2, a0);
+      const duct = new THREE.CylinderGeometry(dr, dr, L - 0.2, 24, 1, true); duct.rotateZ(Math.PI / 2);
+      geo(duct, P.steel, x0, H - 0.25 - dr, z0, alongX ? 0 : Math.PI / 2);
+      for (let l = 0.8; l < L - 0.4; l += 1.5) {
+        const [hx, hz] = at(l, a0);
+        geo(new THREE.CylinderGeometry(0.006, 0.006, 0.25, 6), P.blackMetal, hx, H - 0.125, hz);
+        const band = new THREE.TorusGeometry(dr + 0.006, 0.006, 4, 24); band.rotateY(Math.PI / 2);
+        geo(band, P.steel, hx, H - 0.25 - dr, hz, alongX ? 0 : Math.PI / 2);
+      }
+      const [tx, tz] = at(L / 2, a1);
+      for (const off of [-0.15, 0.15]) { const [ex, ez] = alongX ? [tx, tz + off] : [tx + off, tz]; geo(new THREE.BoxGeometry(alongX ? L - 0.2 : 0.01, 0.06, alongX ? 0.01 : L - 0.2), P.steel, ex, H - 0.45, ez); }
+      for (let l = 0.3; l < L - 0.2; l += 0.6) { const [rx, rz] = at(l, a1); geo(new THREE.BoxGeometry(alongX ? 0.02 : 0.3, 0.01, alongX ? 0.3 : 0.02), P.steel, rx, H - 0.475, rz); }
+    }
+    if (sys === "baffle") {
+      // wood baffles across the room under the dark soffit (the cove's own lights stay)
+      const wood = (finishes && finishes["wall:wood"]) || P.woodLight;
+      for (let l = 0.2; l < L - 0.1; l += 0.22) { const [x, z] = at(l, A / 2); geo(new THREE.BoxGeometry(alongX ? 0.04 : A - 0.1, 0.16, alongX ? A - 0.1 : 0.04), wood, x, H - 0.1, z); }
+    }
+    if (r.type === "corridor" && L > 6) {
+      // 비상구 exit signs at the corridor's ends: a green lit box with the running man's white bar
+      for (const l of [0.4, L - 0.4]) {
+        const [x, z] = at(l, A / 2);
+        geo(new THREE.BoxGeometry(alongX ? 0.06 : 0.36, 0.16, alongX ? 0.36 : 0.06), P.ledPanel, x, H - 0.12, z);
+        geo(new THREE.BoxGeometry(alongX ? 0.062 : 0.3, 0.12, alongX ? 0.3 : 0.062), exitGreen ??= new THREE.MeshBasicMaterial({ color: "#19b35a" }), x, H - 0.12, z);
+        geo(new THREE.BoxGeometry(alongX ? 0.064 : 0.16, 0.025, alongX ? 0.16 : 0.064), P.ledPanel, x, H - 0.12, z);
+      }
+    }
+  }
+  function pendantLine(x: number, z: number, len: number, zone: number) {
+    // a suspended linear LED (exposed and baffle ceilings): its body, its diffuser and two wires
+    const drop = Math.min(1.2, Math.max(0.5, H - 2.8));
+    const body = boxUV(new THREE.BoxGeometry(len, 0.05, 0.07)); B.add(P.blackMetal, zone, body, new THREE.Matrix4().makeTranslation(x, H - drop, z)); body.dispose();
+    const lens = new THREE.PlaneGeometry(len - 0.02, 0.05).rotateX(Math.PI / 2); B.add(lampMat(zone, P.ledPanel), zone, lens, new THREE.Matrix4().makeTranslation(x, H - drop - 0.026, z), false); lens.dispose();
+    for (const s of [-1, 1]) { const w = new THREE.CylinderGeometry(0.002, 0.002, drop, 4); B.add(P.chrome, zone, w, new THREE.Matrix4().makeTranslation(x + s * len * 0.4, H - drop / 2, z), false); w.dispose(); }
   }
   function panel(x: number, z: number, w: number, d: number, zone: number) {
     const body = boxUV(new RoundedBoxGeometry(w + 0.03, 0.045, d + 0.03, 2, 0.012));

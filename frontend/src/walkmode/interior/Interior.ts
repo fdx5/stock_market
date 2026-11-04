@@ -24,7 +24,7 @@ import { SOCIAL_LABEL, type Social } from "./npcLines";
 import { wallet } from "../game/wallet";
 import type { Sound, WaterKind } from "../game/sound";
 import type { FloorPlan } from "./plan/types";
-import { facilityLook, FACILITY_SETS } from "./facilityMaterials";
+import { facilityLook, facilitySets } from "./facilityMaterials";
 import { GESTURES, type GestureName } from "../player/gestures";
 import { INDOOR_SCALE } from "../player/avatar";
 import { People, type PersonTalk } from "./facilityPeople";
@@ -580,14 +580,14 @@ export class Interior {
     let t = t0;
     P(0.02, "자재 텍스처를 내려받는 중");
     // (the common sets, and the style's own floors and tiles only)
-    const names: SetName[] = [...new Set<SetName>([...BASE_SETS, ...STYLE_SETS[plan.style], ...(plan.facility ? FACILITY_SETS : [])])];
+    const names: SetName[] = [...new Set<SetName>([...BASE_SETS, ...STYLE_SETS[plan.style], ...(plan.facility ? facilitySets(plan.facility.kind) : [])])];
     const sets = await loadSets(names, (k, label) => P(0.02 + k * 0.5, label), signal);
     if (this.disposed) {disposeSets(sets);return;}
     t = mark("textures", t);
     this.lib = new Library(sets);
     this.P = makePalette(this.lib, plan.style);
     // (a building: its own floors and things over the style's — facilityMaterials.ts)
-    const look = plan.facility ? facilityLook(this.P, plan.facility.kind, plan.facility.name, this.lib) : null;
+    const look = plan.facility ? facilityLook(this.P, plan.facility.kind, plan.facility.name, this.lib, plan.facility.level) : null;
     const spots: Spot[] = [];
     if (look) { this.P = look.P; this.facDispose = look.dispose; }
     P(0.54, "벽·바닥·천장을 세우는 중");

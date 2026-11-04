@@ -17,7 +17,7 @@ const ACCENTS = ["#1f6fd1", "#0f8f7a", "#c8462c", "#5b4fc4", "#c48a1c", "#1f8fb0
 /** a department's colour (a large hospital's floors are found by them): muted, paint-like */
 const TONES = ["#7fa3c4", "#86b597", "#d9b47a", "#c597a5", "#9a98cb", "#79b5b3", "#cf9d7a", "#a3b97c"];
 
-export function facilityLook(P: Palette, kind: FacilityKind, name: string, lib?: Library): { P: Palette; X: Extra; signs: SignAtlas; finishes: Record<string, THREE.Material>; dispose(): void } {
+export function facilityLook(P: Palette, kind: FacilityKind, name: string, lib?: Library, level = 1): { P: Palette; X: Extra; signs: SignAtlas; finishes: Record<string, THREE.Material>; dispose(): void } {
   const own: { dispose(): void }[] = [];
   const pm = (o: THREE.MeshPhysicalMaterialParameters) => { const m = new THREE.MeshPhysicalMaterial(o); own.push(m); return m; };
   const re = (m: THREE.Material, o: Partial<THREE.MeshPhysicalMaterialParameters>) => { const c = (m as THREE.MeshPhysicalMaterial).clone(); c.setValues(o); own.push(c); return c; };
@@ -77,7 +77,7 @@ export function facilityLook(P: Palette, kind: FacilityKind, name: string, lib?:
   // (each a scanned set's relief and roughness under a painted or scanned face; only from sets the
   // facility loads — FACILITY_SETS)
   if (lib) {
-    themed(lib, kind, h, finishes, own);
+    themed(lib, kind, h, finishes, own, level, /마트|코스트코|트레이더스|창고형|홈플러스|하나로/.test(name));
     X.floorFin = {};
     for (const [k, m] of Object.entries(finishes)) if (k.startsWith("type:") && k.endsWith(":floor")) X.floorFin[k.slice(0, -6)] = m;
     shopFloors(lib, X.floorFin, own);
@@ -108,12 +108,29 @@ export function facilityLook(P: Palette, kind: FacilityKind, name: string, lib?:
 }
 
 /** the scanned sets a building's floor loads besides the flat's (its stones, tiles and timbers) */
-export const FACILITY_SETS: SetName[] = ["terrazzo_tiles", "marble_tiles", "large_floor_tiles_02", "large_grey_tiles", "wooden_floor_02", "square_tiles_02", "long_white_tiles", "concrete_floor_02", "beige_wall_001"];
+export const FACILITY_SETS: SetName[] = ["terrazzo_tiles", "marble_tiles", "large_floor_tiles_02", "large_grey_tiles", "wooden_floor_02", "square_tiles_02", "long_white_tiles", "concrete_floor_02", "beige_wall_001",
+  "ceiling_interior", "plastered_wall_04", "oak_veneer_01", "rounded_square_tiled_wall"];
+/** a building's sets by its kind: the common ones, and its own (a clinic's sheet vinyl, a gym's
+ * rubber, a car park's epoxy, a restaurant's tiles) — nothing another kind uses is downloaded */
+export function facilitySets(kind: FacilityKind): SetName[] {
+  const own: Partial<Record<FacilityKind, SetName[]>> = {
+    clinic: ["linoleum_brown", "smoked_walnut_veneer"], ward: ["linoleum_brown"], school: ["linoleum_brown", "plaster_grey_04"],
+    office: ["smoked_walnut_veneer", "ribbed_concrete_wall", "patterned_concrete_wall", "plaster_grey_04"], civic: ["linoleum_brown", "smoked_walnut_veneer", "patterned_concrete_wall"],
+    retail: ["smooth_concrete_floor", "smoked_walnut_veneer", "ribbed_concrete_wall", "rectangular_facade_tiles"], food: ["floor_tiles_08", "interior_tiles", "smoked_walnut_veneer", "plaster_grey_04"],
+    hotel: ["smoked_walnut_veneer", "quatrefoil_jacquard_fabric", "patterned_concrete_wall"], museum: ["plaster_grey_04", "smooth_concrete_floor", "patterned_concrete_wall"],
+    gym: ["rubber_tiles", "painted_concrete", "plaster_grey_04"], parking: ["painted_concrete"], plant: ["smooth_concrete_floor"],
+  };
+  return [...FACILITY_SETS, ...(own[kind] ?? [])];
+}
 
-type Finish = { set: SetName; noMap?: boolean; color?: string; pattern?: [PatternName, string[]]; rough?: number; normal?: number; coat?: number; coatRough?: number; env?: number; metal?: number };
+type Finish = { set: SetName; noMap?: boolean; color?: string; pattern?: [PatternName, string[]]; rough?: number; normal?: number; coat?: number; coatRough?: number; env?: number; metal?: number; ceiling?: CeilingSystem; ao?: number; flat?: boolean };
+/** how a room's ceiling is built (build.ts draws its fittings to it) */
+export type CeilingSystem = "tbar" | "gypsum" | "exposed" | "baffle" | "strip";
 /** what each kind of building's rooms are finished in: floor, all walls, one feature wall */
-function theme(kind: FacilityKind, h: number): Record<string, Finish> {
+function theme(kind: FacilityKind, h: number, level = 1, mart = false): Record<string, Finish> {
   const pick = <T,>(a: T[]) => a[h % a.length];
+  // (a choice by the building, its floor and the room: no two buildings, nor two floors, alike)
+  const per = <T,>(key: string, a: T[]) => a[Math.abs(h + level * 7919 + [...key].reduce((x, c) => (x * 31 + c.charCodeAt(0)) | 0, 3)) % a.length];
   // (a polished stone that reads as stone — veins, slab joints, a soft reflection)
   const stone = (c = "#f2ede4", v = "#9a9088"): Finish => ({ set: "marble_tiles", pattern: ["stonePanel", [c, v]], rough: 0.32, normal: 0.35, coat: 0.55, coatRough: 0.12, env: 0.55 });
   const darkStone: Finish = { set: "marble_tiles", pattern: ["darkStone", ["#26292d", "#c9c3b5"]], rough: 0.28, normal: 0.3, coat: 0.6, coatRough: 0.1, env: 0.55 };
@@ -136,6 +153,37 @@ function theme(kind: FacilityKind, h: number): Record<string, Finish> {
     "liftHall:floor": stone(), "liftHall:wall": stone("#ebe5db", "#9d9287"), "corridor:floor": terrazzo,
     "pantry:floor": restFloor, "meeting:floor": oak, "meeting:feature": slat("#8a5a3a"),
   };
+  // ---- what real buildings of each kind are built with (2026-11-05): ceilings, floors, walls ----
+  const tbar = (c = "#f4f3ef", grid = "#e2e2de"): Finish => ({ set: "ceiling_interior", pattern: ["ceilingTile", [c, grid]], rough: 0.95, normal: 0.45, env: 0.12, ceiling: "tbar" });
+  const gypsum = (c = "#f6f5f1"): Finish => ({ set: "ceiling_interior", noMap: true, color: c, rough: 0.95, normal: 0.22, env: 0.18, ceiling: "gypsum" });
+  const strip = (c = "#e9e8e4"): Finish => ({ set: "ceiling_interior", pattern: ["metalStrip", [c, "#2c2e31"]], rough: 0.38, normal: 0.15, coat: 0.2, coatRough: 0.25, metal: 0.25, env: 0.55, ceiling: "strip" });
+  const exposed = (c = "#34363a"): Finish => ({ set: "plastered_wall_04", noMap: true, color: c, rough: 0.92, normal: 0.6, env: 0.1, ceiling: "exposed" });
+  const baffle = (c = "#3a3c40"): Finish => ({ set: "plastered_wall_04", noMap: true, color: c, rough: 0.92, normal: 0.4, env: 0.1, ceiling: "baffle" });
+  const vinyl = (c: string, f = "#8f948c"): Finish => ({ set: "linoleum_brown", pattern: ["vinylSheet", [c, f]], rough: 0.5, normal: 0.3, coat: 0.3, coatRough: 0.25, env: 0.3, ao: 0.15 });
+  const epoxy = (c: string): Finish => ({ set: "painted_concrete", pattern: ["epoxy", [c]], rough: 0.42, normal: 0.12, coat: 0.45, coatRough: 0.18, env: 0.4, ao: 0.05, flat: true });
+  const polished = (c: string): Finish => ({ set: "smooth_concrete_floor", pattern: ["epoxy", [c]], rough: 0.5, normal: 0.3, coat: 0.35, coatRough: 0.22, env: 0.4, ao: 0.08, flat: true });
+  const rubber: Finish = { set: "rubber_tiles", color: "#ffffff", rough: 0.95, normal: 0.8, env: 0.08 };
+  const carpetP = (cols: string[]): Finish => ({ set: "concrete_floor_02", pattern: ["carpetPlank", cols], rough: 1, normal: 0.25, env: 0.08 });
+  const lvt = (c: string): Finish => ({ set: "wooden_floor_02", pattern: ["lvtPlank", [c]], rough: 0.55, normal: 0.35, coat: 0.3, coatRough: 0.25, env: 0.3 });
+  const plaster = (c: string): Finish => ({ set: "plastered_wall_04", noMap: true, color: c, rough: 0.88, normal: 0.35, env: 0.25 });
+  const rawConc = (c = "#d8d6d0"): Finish => ({ set: "plaster_grey_04", color: c, rough: 0.9, normal: 0.6, env: 0.2 });
+  const veneer = (dark = false): Finish => ({ set: dark ? "smoked_walnut_veneer" : "oak_veneer_01", color: dark ? "#c9a787" : "#f3e5d0", rough: 0.55, normal: 0.5, coat: 0.25, coatRough: 0.3, env: 0.35 });
+  const ribbed: Finish = { set: "ribbed_concrete_wall", color: "#e6e3dc", rough: 0.9, normal: 0.9, env: 0.2 };
+  const blockConc: Finish = { set: "patterned_concrete_wall", color: "#efebe4", rough: 0.85, normal: 0.8, env: 0.2 };
+  const mosaicWall = (c = "#ffffff"): Finish => ({ set: "rounded_square_tiled_wall", noMap: true, color: c, rough: 0.35, normal: 0.7, coat: 0.5, coatRough: 0.12, env: 0.45 });
+  const cladding: Finish = { set: "rectangular_facade_tiles", noMap: true, color: "#f2f1ee", rough: 0.4, normal: 0.6, coat: 0.4, coatRough: 0.15, env: 0.4 };
+  const warmWhite = (k: string) => per(k, ["#f2f0eb", "#eeebe4", "#f3f2ee", "#ece8df", "#e9ece9"]);
+  const WORK = ["office", "openOffice", "meeting", "consult", "treatment", "staffroom", "classroom", "pharmacy", "waiting", "service", "pantry", "ward", "guest", "shop", "cafe", "gallery", "gym"];
+  // the common ground: every kind's ceilings, walls with a plaster's relief, washrooms in tile
+  for (const r of WORK) { T[`${r}:ceiling`] = per(r + "c", [tbar(), tbar("#f7f6f2", "#d9d9d5"), gypsum()]); T[`${r}:wall`] ??= plaster(warmWhite(r)); }
+  Object.assign(T, {
+    "corridor:ceiling": per("corc", [tbar(), gypsum(), strip()]), "lobby:ceiling": per("lobc", [gypsum(), strip(), gypsum("#f2efe8")]), "liftHall:ceiling": per("lhc", [gypsum(), strip("#d9d6cf")]),
+    "stair:ceiling": gypsum(), "storage:ceiling": exposed("#c9c8c3"), "plant:ceiling": exposed("#bdbcb6"), "parking:ceiling": exposed("#c3c2bc"),
+    "restroom:ceiling": per("rrc", [strip("#eeeeea"), gypsum()]), "restroom:wall": per("rrw", [restTile, mosaicWall(), mosaicWall("#e9eef0")]),
+    "corridor:wall": plaster(warmWhite("corw")), "storage:wall": rawConc(), "plant:wall": rawConc("#cfcdc6"), "storage:floor": polished("#bdbbb5"), "plant:floor": polished("#a9a8a2"),
+    "parking:floor": epoxy(per("pk", ["#8c958e", "#7f8a91", "#9a9a94"])), "parking:wall": rawConc("#d6d4cd"), "stair:floor": per("stf", [terrazzo, greyTile]),
+    "lobby:feature": per("lobf", [slat(), veneer(), veneer(true), ribbed, blockConc, stone("#efe9df", "#a9a094")]),
+  });
   switch (kind) {
     case "hotel": {
       const [c1, c2, c3] = pick([["#3a1f2b", "#5a2f3d", "#c9a46a"], ["#1f2a3d", "#2f3f5a", "#c9a46a"], ["#2b2a24", "#4a4536", "#b89866"]]);
@@ -190,17 +238,78 @@ function theme(kind: FacilityKind, h: number): Record<string, Finish> {
     }
     case "gym": { Object.assign(T, { "lobby:feature": { ...darkStone } }); break; }
   }
+  // ---- by kind, over the common ground ----
+  const SOFT = ["#d9dcd6", "#d6d2c8", "#cfd8d6", "#dcd8cc", "#d3d9df"];
+  switch (kind) {
+    case "clinic": case "ward": {
+      const v = vinyl(per("cv", SOFT), per("cvf", ["#9aa39b", "#a39a8a", "#8e9aa3"]));
+      Object.assign(T, {
+        "corridor:floor": v, "treatment:floor": vinyl(per("tv", SOFT)), "consult:floor": vinyl(per("csv", SOFT)), "staffroom:floor": vinyl(per("sv", SOFT)), "ward:floor": vinyl(per("wv", SOFT)),
+        "pharmacy:floor": vinyl(per("pv", SOFT)), "waiting:floor": per("wf", [oak, lvt("#d8b48c"), lvt("#c9a27a"), v]),
+        "corridor:ceiling": per("ccc", [tbar(), tbar("#f7f7f4", "#d8dad8")]), "lobby:ceiling": per("clc", [strip("#efeee9"), gypsum(), gypsum("#f4f1ea")]),
+        "lobby:feature": per("clf", [veneer(), slat("#c8a27a"), veneer(true), stone("#f1ece3", "#b3a99c")]), "waiting:feature": per("cwf", [veneer(), plaster("#dfe7e2"), plaster("#e8e1d6")]),
+      });
+      break;
+    }
+    case "school": {
+      Object.assign(T, { "classroom:floor": per("clsf", [lvt("#cda57a"), oak, vinyl("#d8d3c2")]), "corridor:floor": per("scf", [terrazzo, vinyl("#d3d1c8", "#8b8a82")]),
+        "classroom:wall": plaster(per("clw", ["#f1efe6", "#eef0ea", "#f2ece2"])), "classroom:feature": plaster(per("clsfe", ["#dbe6d4", "#dfe3ec", "#ece3d1"])), "staffroom:floor": vinyl(per("ssv", SOFT)), "gym:floor": oak });
+      break;
+    }
+    case "office": {
+      const it = per("oit", [0, 0, 1]) === 1;
+      Object.assign(T, {
+        "openOffice:floor": per("oof", [carpetP(["#4a525e", "#3b424c", "#7b8594"]), carpetP(["#5a554e", "#48443e", "#8a8378"]), carpet(["#4c5563", "#3a414c", "#6a7482"]), lvt("#c8a47c")]),
+        "meeting:floor": per("omf", [carpetP(["#3f4a44", "#323b36", "#6d7a71"]), oak, carpet(["#5b5650", "#46423d", "#7a746c"])]),
+        "openOffice:ceiling": it ? exposed(per("oex", ["#2f3134", "#e8e6e1"])) : per("ooc", [tbar(), tbar("#f7f6f2", "#d9d9d5")]),
+        "openOffice:feature": per("oofe", [veneer(), ribbed, blockConc, grass("#c8bfae"), plaster("#3f4a55")]), "meeting:feature": per("omfe", [veneer(true), slat("#8a5a3a"), plaster("#2f3a44")]),
+        "corridor:floor": per("ocf", [greyTile, polished("#b9b8b2"), carpetP(["#4a525e", "#3b424c", "#7b8594"])]), "lobby:floor": per("olf", [stone(), darkStone, bigTile, stone("#e7e2d9", "#7e776f")]),
+      });
+      break;
+    }
+    case "civic": {
+      Object.assign(T, { "service:ceiling": per("svc", [tbar(), strip()]), "corridor:floor": per("cvf", [greyTile, vinyl("#d6d4cc", "#8e8c85")]), "service:floor": per("svf", [greyTile, vinyl("#d1d3cf"), polished("#c3c1ba")]) });
+      break;
+    }
+    case "retail": {
+      Object.assign(T, mart ? {
+        "corridor:floor": epoxy(per("mf", ["#d6d4cc", "#cfd1cf", "#ddd8cd"])), "shop:floor": epoxy(per("msf", ["#d6d4cc", "#cfd1cf"])), "corridor:ceiling": exposed("#3a3c40"), "shop:ceiling": exposed("#3a3c40"), "lobby:ceiling": exposed("#3a3c40"),
+        "corridor:wall": cladding,
+      } : {
+        "corridor:floor": per("rcf", [bigTile, polished("#c7c4bc"), stone("#f4f1ec", "#a9a196"), terrazzo]), "corridor:ceiling": per("rcc", [gypsum(), strip(), gypsum("#f1eee7")]),
+        "corridor:wall": per("rcw", [plaster("#f4f3f0"), cladding, plaster("#ece8e0")]),
+      });
+      break;
+    }
+    case "food": {
+      Object.assign(T, { "cafe:floor": per("ff", [{ set: "floor_tiles_08", color: "#ffffff", rough: 0.6, normal: 0.6, coat: 0.25, coatRough: 0.25, env: 0.3 } as Finish, { set: "interior_tiles", color: "#ffffff", rough: 0.4, normal: 0.6, coat: 0.4, coatRough: 0.15, env: 0.4 } as Finish, oak, polished("#a9a39a")]),
+        "cafe:ceiling": per("fcc", [exposed("#2e3033"), baffle(), gypsum()]), "cafe:wall": per("fcw", [plaster("#efe8dc"), rawConc("#d9d4ca"), veneer()]), "corridor:floor": per("fcf", [terrazzo, bigTile]) });
+      break;
+    }
+    case "gym": {
+      Object.assign(T, { "gym:floor": rubber, "gym:ceiling": exposed("#2b2d30"), "gym:wall": per("gw", [rawConc("#cfccc4"), plaster("#3a3d42"), ribbed]), "corridor:floor": rubber });
+      break;
+    }
+    case "museum": {
+      Object.assign(T, { "gallery:ceiling": per("gc", [gypsum(), exposed("#2a2c2f"), baffle("#2a2c2f")]), "gallery:floor": per("gf", [oak, polished("#9f9d97"), polished("#c4c0b7")]), "lobby:ceiling": per("mlc", [gypsum(), baffle()]) });
+      break;
+    }
+    case "hotel": {
+      Object.assign(T, { "guest:ceiling": gypsum(), "corridor:ceiling": gypsum("#f3efe6"), "lobby:ceiling": gypsum("#f1ece2") });
+      break;
+    }
+  }
   return T;
 }
 
-function themed(lib: Library, kind: FacilityKind, h: number, out: Record<string, THREE.Material>, own: { dispose(): void }[]) {
+function themed(lib: Library, kind: FacilityKind, h: number, out: Record<string, THREE.Material>, own: { dispose(): void }[], level = 1, mart = false) {
   const made = new Map<string, THREE.Material>();
-  for (const [key, f] of Object.entries(theme(kind, h))) {
+  for (const [key, f] of Object.entries(theme(kind, h, level, mart))) {
     const sig = JSON.stringify(f);
     let m = made.get(sig) as THREE.MeshPhysicalMaterial | undefined;
     if (!m) {
       if (!lib.has(f.set)) continue;
-      m = lib.textured(f.set, { useMap: !f.noMap, color: f.pattern ? "#ffffff" : f.color ?? "#ffffff", roughnessScale: f.rough ?? 0.8, normalScale: f.normal ?? 0.6, clearcoat: f.coat ?? 0, clearcoatRoughness: f.coatRough ?? 0.3, metalness: f.metal ?? 0, ao: 0.45 });
+      m = lib.textured(f.set, { useMap: !f.noMap, color: f.pattern ? "#ffffff" : f.color ?? "#ffffff", roughnessScale: f.rough ?? 0.8, normalScale: f.normal ?? 0.6, clearcoat: f.coat ?? 0, clearcoatRoughness: f.coatRough ?? 0.3, metalness: f.metal ?? 0, ao: f.ao ?? 0.45 });
       if (f.pattern) {
         // (the painted face replaces the set's colour; its relief and roughness kept, finer)
         const [name, cols] = f.pattern, t = patternTexture(name, cols, h + key.length);
@@ -209,6 +318,9 @@ function themed(lib: Library, kind: FacilityKind, h: number, out: Record<string,
         for (const tx of [m.normalMap, m.roughnessMap, m.aoMap]) tx?.repeat.set(rep * 2, rep * 2);
       }
       m.envMapIntensity = f.env ?? 0.35;
+      if (f.ceiling) m.userData.ceiling = f.ceiling;
+      // (a sealed floor is even: only the scan's relief, not its stains in the roughness and AO)
+      if (f.flat) { m.roughnessMap = null; m.aoMap = null; m.metalnessMap = null; m.roughness = f.rough ?? 0.5; m.needsUpdate = true; }
       made.set(sig, m);
     }
     out[`type:${key}`] = m;
