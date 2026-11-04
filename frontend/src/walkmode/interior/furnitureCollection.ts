@@ -115,3 +115,32 @@ export function airPurifier(P:Palette,v:number):Kit {
   for(let i=0;i<8;i++){const g=new THREE.TorusGeometry(.177,.002,4,24);g.rotateX(Math.PI/2);g.translate(0,.08+i*.035,.18);k.push({m:P.rubber,g,cast:false});}
   k.push(rb(P.screen,.05,.012,.018,.005,0,.578,.18));return k;
 }
+
+/** coffee tables sized to the sofa and the room (w along the sofa, d across): 14 kinds — oak slab,
+ * marble oval, travertine drum, two-tier glass, lift-top with a shelf, a pair of nesting rounds, a
+ * leather ottoman, a black steel frame with a smoked top, a walnut box with drawers, a round
+ * pedestal, terrazzo blocks, a rattan tray, a ceramic trio and a low Japanese board */
+export const COFFEE_KINDS = 14;
+export function coffeeTableSized(P:Palette,v:number,w:number,d:number):Kit {
+  const k:Kit=[],h=.38;
+  const legs4=(m:THREE.Material,s:number,hh:number,inset=.06)=>{for(const [x,z] of [[-1,-1],[1,-1],[-1,1],[1,1]])k.push(bx(m,s,hh,s,x*(w/2-inset),hh/2,z*(d/2-inset)));};
+  const oval=(m:THREE.Material,ww:number,dd:number,y:number,t:number)=>{const g=new THREE.CylinderGeometry(.5,.5,t,48);g.scale(ww,1,dd);k.push({m,g:boxUV(g).translate(0,y,0)});};
+  switch(((v%COFFEE_KINDS)+COFFEE_KINDS)%COFFEE_KINDS){
+    case 0:k.push(rb(P.woodLight,w,.05,d,.015,0,h-.025,0));legs4(P.woodLight,.06,h-.05);break;
+    case 1:oval(P.counter,w,d,h-.02,.04);k.push(cy(P.counter,Math.min(w,d)*.18,Math.min(w,d)*.22,h-.04,0,(h-.04)/2,0,32));break;
+    case 2:{const r=Math.min(w,d)/2;k.push(cy(P.sill,r,r,h,0,h/2,0,48));if(w>d*1.3)k.push(cy(P.sill,r*.7,r*.7,h*.8,w/2-r*.7,h*.4,0,40));break;}
+    case 3:k.push(part(P.glass,w,.012,d,0,h-.006,0),part(P.glass,w-.06,.01,d-.06,0,.12,0));for(const [x,z] of [[-1,-1],[1,-1],[-1,1],[1,1]])k.push(cy(P.chrome,.012,.012,h,x*(w/2-.03),h/2,z*(d/2-.03),10));break;
+    case 4:k.push(rb(P.woodDark,w,.04,d,.012,0,h-.02,0),rb(P.woodDark,w-.1,.02,d-.1,.006,0,.12,0),rb(P.cabinet,w-.1,h-.18,.02,.004,0,(h+.12)/2-.02,d/2-.06));legs4(P.woodDark,.045,h-.04,.05);break;
+    case 5:{const r1=Math.min(d,w*.55)/2,r2=r1*.75;k.push(cy(P.woodLight,r1,r1,.025,-w/2+r1,h,0,40),cy(P.blackMetal,.012,.012,h,-w/2+r1,h/2,0,8),cy(P.blackMetal,r1*.5,r1*.5,.01,-w/2+r1,.005,0,24),cy(P.counter,r2,r2,.022,w/2-r2,h-.08,d*.12,36),cy(P.blackMetal,.012,.012,h-.08,w/2-r2,(h-.08)/2,d*.12,8),cy(P.blackMetal,r2*.5,r2*.5,.01,w/2-r2,.005,d*.12,24));break;}
+    case 6:k.push(rb(P.leather,w,h-.03,d,.06,0,(h-.03)/2+.03,0,5),rb(P.woodDark,w*.95,.03,d*.95,.01,0,.015,0));for(let x=-w/2+.18;x<w/2-.1;x+=.22)k.push({m:P.rubber,g:new THREE.SphereGeometry(.008,6,4).translate(x,h,0),cast:false});break;
+    case 7:k.push(part(P.glass,w,.01,d,0,h-.005,0));for(const z of [-1,1])k.push(bx(P.blackMetal,w,.02,.02,0,h-.02,z*(d/2-.01)),bx(P.blackMetal,w,.02,.02,0,.01,z*(d/2-.01)));for(const x of [-1,1])for(const z of [-1,1])k.push(bx(P.blackMetal,.02,h,.02,x*(w/2-.01),h/2,z*(d/2-.01)));break;
+    case 8:k.push(rb(P.woodDark,w,h-.05,d,.01,0,(h-.05)/2+.05,0));for(const x of [-w/4,w/4])k.push(bx(P.handle,.12,.012,.012,x,h*.6,d/2+.006),bx(P.rubber,w/2-.03,.003,.002,x,h*.45,d/2+.001));legs4(P.woodDark,.04,.05,.04);break;
+    case 9:{const r=Math.min(w,d)/2;k.push(cy(P.woodLight,r,r,.035,0,h-.018,0,48),cy(P.woodLight,.07,.09,h-.07,0,(h-.07)/2+.035,0,24),cy(P.woodLight,r*.55,r*.6,.035,0,.018,0,36));break;}
+    case 10:k.push(rb(P.floorMain,w*.62,h,d,.01,-w*.19,h/2,0),rb(P.floorMain,w*.36,h*.7,d*.8,.01,w*.31,h*.35,d*.08));break;
+    case 11:oval(P.woodLight,w,d,h-.04,.06);oval(P.linen,w*.86,d*.86,h-.005,.012);for(let i=0;i<10;i++){const a=i/10*Math.PI*2;k.push(cy(P.woodLight,.012,.012,h-.07,Math.cos(a)*w*.42,(h-.07)/2,Math.sin(a)*d*.42,8));}break;
+    case 12:{const r=Math.min(d/2,w/3.2);for(const [x,hh] of [[-w/2+r,h],[0,h*.86],[w/2-r,h*.72]] as [number,number][])k.push(cy(P.ceramic,r*.96,r,hh,x,hh/2,0,40));break;}
+    default:k.push(rb(P.woodLight,w,.04,d,.01,0,.3,0));for(const x of [-1,1])k.push(rb(P.woodLight,.04,.28,d-.08,.008,x*(w/2-.08),.14,0));break;
+  }
+  return k;
+}
+function part(m:THREE.Material,w:number,h:number,d:number,x:number,y:number,z:number){return {m,g:new THREE.BoxGeometry(w,h,d).translate(x,y,z)};}

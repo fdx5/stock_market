@@ -3,6 +3,8 @@ import type {Opening,Room} from './types';
 const EPS=.002;
 const known=new Set<Opening['type']>(['door','sliding_door','front_door','glass_door','window','balcony_window','open']);
 type Owner={room:Room;side:number;lo:number;hi:number};
+/** a flat's shared spaces: an opening between two of them is a passage whoever it was read for */
+const SHARED=new Set(['living','kitchen','dining','hall','corridor','entrance']);
 
 /** Clip holes to real, opposing room boundaries. A shared semantic zone alone
  * never authorizes a hole in an exterior wall or across a missing floor strip. */
@@ -34,12 +36,21 @@ export function resolveWallOpenings(rooms:Room[],input:Opening[],expandZones=fal
     if(b?!other:opposite.length>0)continue;
     aa=owner;bb=other;break;
    }
+   // A drawn passage between shared spaces is no wall, whichever pieces the bookkeeping named:
+   // the rooms that really face each other across this stretch own it (never an exterior edge,
+   // never a private room's boundary — those still need their own matching pair).
+   if(!aa&&expandZones&&source.type==='open'&&b){
+    const before=at.filter(o=>o.side===-1),after=at.filter(o=>o.side===1);
+    if(before.length===1&&after.length===1&&[before[0].room,after[0].room].every(r=>SHARED.has(r.surfaceType??r.type))&&[a,b].some(r=>matches(before[0].room,r)||matches(after[0].room,r))){aa=before[0];bb=after[0];}
+   }
    if(!aa)continue;
    // A private-room boundary cannot become a full-height, frame-only opening.
    // Same-room decomposition seams and an open living/kitchen remain continuous.
    if(expandZones&&source.type==='open'&&b&&a.zone!==b.zone&&[a,b].some(r=>['bedroom','master','bathroom','ensuite','dressroom'].includes(r.surfaceType??r.type)))continue;
    const prior=runs[runs.length-1];
-   if(prior&&Math.abs(prior.hi-start)<EPS)prior.hi=end;
+   // (one opening across pieces of the same two rooms; a stretch owned by other rooms its own —
+   // the builder cuts each wall only where its own pair meets)
+   if(prior&&Math.abs(prior.hi-start)<EPS&&prior.a.zone===aa.room.zone&&prior.b?.zone===bb?.room.zone)prior.hi=end;
    else runs.push({lo:start,hi:end,a:aa.room,b:bb?.room});
   }
   for(const run of runs){

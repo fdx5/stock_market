@@ -10,13 +10,13 @@ import { ceilingCassette, chairV, coffeeTableV, pendantV, sofaV, switchV, toilet
 import type { FloorPlan, Room } from "./plan/types";
 import type { WaterKind } from "../game/sound";
 import { poolMaterial, splashMaterial, streamMaterial, washMaterial } from "./water";
-import { ITEM_NAME, Pantry } from "./pantry";
+import { ITEM_NAME, Pantry, type ItemKind } from "./pantry";
 import { missions } from "../game/missions";
 import { FACILITY_ROOMS } from "./plan/types";
 import { furnishFacilityRoom, type FacilityHooks, type Spot } from "./facilityFurnish";
 import type { Extra } from "./facilityModels";
 import type { SignAtlas } from "./facilitySigns";
-import { airPurifier, countertopAppliance, deskCollection, diningCollection, laundryCollection, sofaCollection, tvCabinetCollection, wardrobeCollection } from "./furnitureCollection";
+import { airPurifier, coffeeTableSized, countertopAppliance, deskCollection, diningCollection, laundryCollection, sofaCollection, tvCabinetCollection, wardrobeCollection } from "./furnitureCollection";
 import { InteriorSafetyError } from "./navigation";
 
 /** a building other than flats: its extra materials, its signs, what its lifts do, where its people go */
@@ -103,6 +103,14 @@ export class Placer {
       if (!s) continue;
       const span=this.span(s),a=Math.max(span[0],o.center-o.width/2),b=Math.min(span[1],o.center+o.width/2);
       if(b-a<.01)continue;
+      // (an open seam to a small dead-end piece of this same room — a notch, the corner the counter
+      // runs on into — is no doorway: nothing walks through it, the counter may run past)
+      if(o.type==="open"&&plan.imageAnalysis){
+        const other=plan.rooms.find(r=>(r.id===o.a||r.id===o.b)&&r.id!==room.id);
+        const area=other?(other.rect[2]-other.rect[0])*(other.rect[3]-other.rect[1]):Infinity;
+        const links=other?plan.openings.filter(q=>q.type!=="window"&&q.type!=="balcony_window"&&(q.a===other.id||q.b===other.id)).length:0;
+        if(other&&other.zone===room.zone&&area<1.5&&links<=1)continue;
+      }
       const reach = o.type === "door" && o.swingInto === room.id ? o.width + 0.1 : 0.60;
       const r = this.rectAt(s, (a+b)/2, (o.type==="open"?Math.min(.60,b-a):b-a) + 0.12, reach);
       this.occupied.push(r); this.doors.push(r);
@@ -313,18 +321,89 @@ export function packBedroom(pl:Placer,master:boolean,preferred:number,expanded=f
   return null;
 }
 
-export function packKitchen(pl:Placer,reroute=false,expanded=false,backless:SideName[]=[]):{side:SideName;width:number;run:Frame;fridge:Frame;fridgeWidth:number}|null {
+/** a wall's free stretches for a thing `depth` deep and under `height` (windows below it break them) */
+function stretches(pl:Placer,side:SideName,depth:number,height:number):[number,number][]{
+  const [lo,hi]=pl.span(side),step=.05,out:[number,number][]=[],wins=pl.windowsOn(side);
+  let a:number|null=null;
+  for(let u=lo;u<=hi-step+1e-6;u+=step){
+    const ok=pl.free(pl.rectAt(side,u+step/2,step,depth))&&!wins.some(o=>o.sill<height&&u+step>o.a-.02&&u<o.b+.02);
+    if(ok&&a===null)a=u;
+    if(!ok&&a!==null){out.push([a,u]);a=null;}
+  }
+  if(a!==null)out.push([a,hi]);
+  return out;
+}
+
+/** the fridge and the counter planned together: on each wall's free stretches, the fridge at one end
+ * and the counter the rest (or the counter the whole stretch, the fridge on another wall) — the
+ * longest counter wins, up to 4.5 m. (Placing the fridge first wherever it fit left a 4.9 m kitchen
+ * wall a 1.2 m counter, its fridge stood in the middle.) */
+function planKitchen(pl:Placer,sides:SideName[],reroute:boolean,fixed?:{frame:Frame;width:number}):{side:SideName;width:number;run:Frame;fridge:Frame;fridgeWidth:number}|null{
+  type Plan={side:SideName;u:number;width:number;fridge:Frame;fw:number;fd:number;score:number};
+  const cands:Plan[]=[];
+  // (the fridge in the drawing's niche: only the counter to plan, the longest the walls give)
+  if(fixed){
+    const count=pl.occupied.length;pl.take(fixed.frame.rect);
+    const runs:{side:SideName;u:number;width:number}[]=[];
+    for(const side of sides)for(const [a,b] of stretches(pl,side,.6,.85)){const width=Math.min(4.5,Math.floor((b-a)*10)/10);if(width>=1.2)runs.push({side,u:(a+b)/2,width});}
+    runs.sort((p,q)=>q.width-p.width);
+    for(const c of runs.slice(0,12)){const run=pl.against(c.side,c.width,.6,c.u,.85);if(!run)continue;if(reroute){pl.take(run.rect);const ok=pl.rerouteDoors();pl.occupied.length=count+1;if(!ok)continue;}pl.occupied.length=count;return {side:c.side,width:c.width,run,fridge:fixed.frame,fridgeWidth:fixed.width};}
+    pl.occupied.length=count;return null;
+  }
+  for(const [fw,fd] of [[.9,.72],[.72,.72],[.62,.65]])for(const side of sides){
+    for(const [a,b] of stretches(pl,side,.72,2)){
+      for(const atLo of [true,false]){
+        const width=Math.min(4.5,Math.floor((b-a-fw)*10)/10);if(width<1.2)continue;
+        const fu=atLo?a+fw/2:b-fw/2,fr=pl.against(side,fw,fd,fu,2);if(!fr||Math.abs(centreAlong(fr.rect,side)-fu)>.03)continue;
+        const u=atLo?a+fw+width/2:b-fw-width/2;
+        cands.push({side,u,width,fridge:fr,fw,fd,score:width+(fw>=.9?.3:fw>=.72?.15:0)});
+      }
+    }
+  }
+  // (the counter alone on its wall, the fridge wherever else it stands)
+  for(const side of sides)for(const [a,b] of stretches(pl,side,.6,.85)){
+    const width=Math.min(4.5,Math.floor((b-a)*10)/10);if(width<1.2)continue;
+    const u=(a+b)/2,count=pl.occupied.length;pl.take(pl.rectAt(side,u,width,.6));
+    let fr:Frame|null=null,fwd=[0,0];
+    for(const [fw,fd] of [[.9,.72],[.72,.72],[.62,.65]]){for(const s2 of sides)for(const end of [0,1,.5]){const [lo,hi]=pl.span(s2);fr=pl.against(s2,fw,fd,lo+fw/2+(hi-lo-fw)*end,2);if(fr)break;}if(fr){fwd=[fw,fd];break;}}
+    pl.occupied.length=count;
+    if(fr)cands.push({side,u,width,fridge:fr,fw:fwd[0],fd:fwd[1],score:width-.2+(fwd[0]>=.9?.3:fwd[0]>=.72?.15:0)});
+  }
+  cands.sort((p,q)=>q.score-p.score);
+  for(const c of cands.slice(0,24)){
+    const count=pl.occupied.length;pl.take(c.fridge.rect);
+    const run=pl.against(c.side,c.width,.6,c.u,.85);
+    if(run&&Math.abs(centreAlong(run.rect,c.side)-c.u)<.05){
+      if(reroute){pl.take(run.rect);const connected=pl.rerouteDoors();pl.occupied.length=count+1;if(!connected){pl.occupied.length=count;continue;}}
+      pl.occupied.length=count;
+      return {side:c.side,width:c.width,run,fridge:{...c.fridge,m:c.fridge.m.clone().scale(new THREE.Vector3(1,1,c.fd/.72))},fridgeWidth:c.fw};
+    }
+    pl.occupied.length=count;
+  }
+  return null;
+}
+
+export function packKitchen(pl:Placer,reroute=false,expanded=false,backless:SideName[]=[],fixed?:{frame:Frame;width:number}):{side:SideName;width:number;run:Frame;fridge:Frame;fridgeWidth:number}|null {
   const sides=(["n","e","w","s"] as SideName[]).filter(s=>!backless.includes(s)).sort((a,b)=>pl.openingsOn(a).length-pl.openingsOn(b).length);
+  if(fixed){const withNiche=planKitchen(pl,sides,reroute,fixed);if(withNiche)return withNiche;}
+  const planned=planKitchen(pl,sides,reroute);if(planned)return planned;
   for(const [fw,fd] of [[.72,.72],[.62,.65],[.55,.60]])for(const side of sides)for(const end of [0,1,.5]){
     const [lo,hi]=pl.span(side),fr=pl.against(side,fw,fd,lo+fw/2+(hi-lo-fw)*end,2);if(!fr)continue;
     const count=pl.occupied.length;pl.take(fr.rect);
-    for(const width of [2.4,2.1,1.8,1.6,1.4,1.2])for(const back of sides){
-      const run=pl.against(back,width,.60,null,.85);
-      if(run){
+    // (the counter as long as its wall allows — a long kitchen wall takes a long run, not one
+    // 2.4 m standard everywhere — the wall with the longest run chosen, up to 4.5 m)
+    let best:{side:SideName;width:number;run:Frame}|null=null;
+    for(const back of sides){
+      const top=Math.min(4.5,Math.floor(pl.len(back)*10)/10);
+      for(let width=top;width>=1.2-1e-6;width=Math.round((width-.1)*10)/10){
+        if(best&&width<=best.width)break;
+        const run=pl.against(back,width,.60,null,.85);
+        if(!run)continue;
         if(reroute){pl.take(run.rect);const connected=pl.rerouteDoors();pl.occupied.length=count+1;if(!connected)continue;}
-        pl.occupied.length=count;return {side:back,width,run,fridge:{...fr,m:fr.m.clone().scale(new THREE.Vector3(1,1,fd/.72))},fridgeWidth:fw};
+        best={side:back,width,run};break;
       }
     }
+    if(best){pl.occupied.length=count;return {...best,fridge:{...fr,m:fr.m.clone().scale(new THREE.Vector3(1,1,fd/.72))},fridgeWidth:fw};}
     pl.occupied.length=count;
   }
   if(!reroute&&pl.sourceBased&&pl.routes.length){const previous=pl.routes;pl.routes=[];const found=packKitchen(pl,true,expanded,backless);if(!found)pl.routes=previous;return found;}
@@ -377,6 +456,8 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
   const furnishedLaptop: Furnished["laptop"] = { on: false };
   const computers: MonitorScreen[] = [], computerHook: Furnished["computerHook"] = {};
   /** the flat's desks, furnished once all are known: with two or more, each gets a desktop PC */
+  /** each room's placer, kept for what is placed once the whole flat is known (a desk for the PC) */
+  const placers=new Map<Room,{pl:Placer;zone:number}>();
   const desks: { f: Frame; zone: number; room: Room; w: number; d: number; v: number; chair(m: THREE.Matrix4): void; chairAt: number }[] = [];
   const H = plan.ceilingHeightM,halfWall=wallHalfThickness(plan);
   // (which of each thing's kinds this flat has: by the complex, the 동 and the floor — variants.ts)
@@ -384,6 +465,8 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
   // (the dining chairs: one of nine — not the low lounge chair — in this flat's wood and fabric)
   const dcv = [0, 1, 2, 3, 4, 5, 6, 7, 9][variantOf(VS, "chair", 9)], diningChair = () => (dcv < 5 ? chairV(P, dcv) : chairMore(P, dcv));
   const chairSwap = chairCover(P, VS, disposables);
+  /** a tap's finish: polished chrome, matte black, brushed steel or brass (the handle metal) */
+  const tapFinish = (key: string) => [P.chrome, P.blackMetal, P.steel, P.handle][variantOf(key, "tap-finish", 4)];
   const lamps = shell.lampMeshes;
   // (the lamps' materials are shared; their glow follows the zone of their vertices)
   const zoneLamp = (_zone: number, base: THREE.MeshPhysicalMaterial) => base;
@@ -497,6 +580,7 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
 
   for (const room of plan.rooms) {
     const zone = zoneOf(room), pl = new Placer(room, plan);
+    placers.set(room,{pl,zone});
     const sides: SideName[] = ["n", "s", "w", "e"];
     const solidSides = sides.filter(s => pl.openingsOn(s).length === 0);
     const windowWall = sides.find(s => pl.windowsOn(s).some(w => w.b - w.a > 1.2)) ?? sides.find(s => pl.windowsOn(s).length);
@@ -546,21 +630,26 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
           &&[2.0,1.8,1.6,1.4].some(w=>!!pl.against(opposite[side],w,.98,null,.8));
       });
       const tvSide = fittedPair ?? solidSides.find(s => s === "w" || s === "e") ?? solidSides[0] ?? "w";
+      // (the living room's size sets its things' sizes: the TV, the sofa, the table, the aircon —
+      // a 40 ㎡ 거실 gets a 98" TV on the wall and a 4-seater, a 15 ㎡ one a 65" and a 2.5-seater)
+      const livingArea=(pl.X1-pl.X0)*(pl.Z1-pl.Z0),big=livingArea>=30?3:livingArea>=22?2:livingArea>=16?1:0;
       const sofaSide = opposite[tvSide];
       const span = pl.len(tvSide), across = pl.depth(tvSide);
       // centred a little toward the window (the dining side stays open)
       const [lo, hi] = pl.span(tvSide), mid = windowSide === "s" ? (lo + hi) / 2 + span * 0.08 : (lo + hi) / 2;
-      let cabW = Math.min(2.4, span - 0.6),cab:Frame|null=null;
-      for(const width of [cabW,1.8,1.4,1.1].filter(w=>w<=cabW)){cab=pl.against(tvSide,width,.42,mid,.8,.55);if(cab){cabW=width;break;}}
+      let cabW = Math.min([2.0,2.4,2.8,3.2][big], span - 0.6),cab:Frame|null=null;
+      for(const width of [cabW,2.4,1.8,1.4,1.1].filter(w=>w<=cabW)){cab=pl.against(tvSide,width,.42,mid,.8,.55);if(cab){cabW=width;break;}}
       if (cab) {
         // (the things on it stand on its actual top: the consoles are not all one height)
         const cabKit = tvCabinetCollection(P, cabW,variantOf(VS,"media-console",4)), cabTop = kitTop(cabKit);
         put(cabKit, cab, zone); pl.take(cab.rect);
         if (cabW > 1.5) for (const s of [-1, 1]) put(propsV(P, variantOf(VS, `propsCab${s}`, 12), disposables), new THREE.Matrix4().multiplyMatrices(cab.m, new THREE.Matrix4().makeTranslation(s * (cabW / 2 - 0.2), cabTop, 0.2)), zone, false);
       }
-      const tvW = Math.min(1.68, cabW * 0.78), tvH = tvW * 0.5625;
+      // (wall-mounted, by the room: 65" 1.43 m, 75" 1.66 m, 85" 1.88 m, 98" 2.17 m wide — within the wall
+      // and under the ceiling)
+      const tvW = Math.min([1.43,1.66,1.88,2.17][big], span - 0.5, (H - 0.75) / 0.5625 - 0.1), tvH = tvW * 0.5625, tvY = Math.max(1.15, 0.72 + tvH / 2);
       const tvF = pl.frameAt(tvSide, cab ? centreAlong(cab.rect, tvSide) : mid, tvW, 0.04);
-      put(M.tvFrame(P, tvW, tvH), new THREE.Matrix4().multiplyMatrices(tvF.m, new THREE.Matrix4().makeTranslation(0, 1.15, 0.01)), zone, false);
+      put(M.tvFrame(P, tvW, tvH), new THREE.Matrix4().multiplyMatrices(tvF.m, new THREE.Matrix4().makeTranslation(0, tvY, 0.01)), zone, false);
       // the screen: its own mesh (it lights up)
       const tex = tvTexture(); disposables.push(tex);
       // (what the screen shows can be swapped: the video playing in the TV's browser, its thumbnail)
@@ -573,26 +662,46 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       };
       const screenM = (P.screen as THREE.MeshPhysicalMaterial).clone(); screenM.emissiveMap = tex; screenM.emissiveIntensity = 0; disposables.push(screenM);
       const scr = new THREE.Mesh(new THREE.PlaneGeometry(tvW, tvH), screenM); disposables.push(scr.geometry);
-      scr.applyMatrix4(new THREE.Matrix4().multiplyMatrices(tvF.m, new THREE.Matrix4().makeTranslation(0, 1.15, 0.0392)));
+      scr.applyMatrix4(new THREE.Matrix4().multiplyMatrices(tvF.m, new THREE.Matrix4().makeTranslation(0, tvY, 0.0392)));
       dynamic.add(scr);
       // (its corners, where the page lays the TV's browser: top-left, top-right, bottom-right, bottom-left)
       scr.updateMatrixWorld();
       furnishedTv.corners = [[-1, 1], [1, 1], [1, -1], [-1, -1]].map(([x, y]) => new THREE.Vector3(x * tvW / 2, y * tvH / 2, 0.001).applyMatrix4(scr.matrixWorld));
-      Object.assign(furnishedTv, { pos: local(tvF, 0, 1.15, 0.05), normal: local(tvF, 0, 1.15, 1.05).sub(local(tvF, 0, 1.15, 0.05)), w: tvW, h: tvH, zone });
+      Object.assign(furnishedTv, { pos: local(tvF, 0, tvY, 0.05), normal: local(tvF, 0, tvY, 1.05).sub(local(tvF, 0, tvY, 0.05)), w: tvW, h: tvH, zone });
       let tvOn = false;
       furnishedTv.power = (on: boolean) => { tvOn = on; furnishedTv.on = tvOn; screenM.emissiveIntensity = tvOn ? 1.6 : 0; screenM.roughness = tvOn ? 0.3 : 0.05; };
       interactables.push({ id: "tv", zone, room, hit: scr, label: () => (tvOn ? "TV 메뉴 열기" : "TV 켜기"), act: () => { furnishedTv.power!(!tvOn); return "beep"; } });
       // the sofa facing it, a rug and a table between
       // the widest sofa that fits beside the doors (a 4-seater down to a 2.5-seater)
-      let sofaW=0,sofaD=.98,so:Frame|null=null,sofaWay:[number,number][]|null=null;
-      sofa:for(const depth of [.98,.88])for(const width of [2.9,2.6,2.3,2,1.8,1.6,1.4])for(const prefer of [mid,null]){
-        const f=pl.against(sofaSide,width,depth,prefer,.8,.60);if(!f)continue;
-        const at=local(f,0,0,depth+.30),way=furnitureAccess(pl,f,at.x,at.z);if(!way)continue;
-        so=f;sofaW=width;sofaD=depth;sofaWay=way;break sofa;
+      let sofaW=0,sofaD=.98,so:Frame|null=null,sofaWay:[number,number][]|null=null,sofaOn:SideName=sofaSide;
+      const sofaWidths=[3.6,3.3,3.0,2.9,2.6,2.3,2,1.8,1.6,1.4,1.2].filter(w=>w<=[2.6,2.9,3.3,3.6][big]);
+      // (then, where the planned ways leave no wall for it, over them — a 거실 always has its sofa;
+      // the way to it and the walk through the flat are still checked)
+      const savedWalk=pl.walkway,savedRoutes=pl.routes;
+      sofa:for(const relax of [false,true]){
+        if(relax){pl.walkway=[];pl.routes=[];}
+        for(const depth of [.98,.88])for(const width of sofaWidths)for(const side of relax?[sofaSide,...(["n","s","e","w"] as SideName[]).filter(s=>s!==sofaSide&&s!==tvSide)]:[sofaSide])for(const prefer of [mid,null]){
+          const f=pl.against(side,width,depth,side===sofaSide?prefer:null,.8,relax?.45:.60);if(!f)continue;
+          const at=local(f,0,0,depth+.30),way=furnitureAccess(pl,f,at.x,at.z);if(!way)continue;
+          so=f;sofaW=width;sofaD=depth;sofaWay=way;sofaOn=side;break sofa;
+        }
       }
+      // (no wall for it — the wall facing the TV cut by a doorway, the others by doors: under the
+      // window, still against its wall; furniture never stands off a wall)
+      if(!so)under:for(const width of sofaWidths)for(const side of ["n","s","e","w"] as SideName[]){
+        if(side===tvSide||!pl.windowsOn(side).every(o=>o.sill>=.45))continue;
+        const f=pl.against(side,width,.88,null,.4,.45);if(!f)continue;
+        const at=local(f,0,0,.88+.30),way=furnitureAccess(pl,f,at.x,at.z);if(!way)continue;
+        so=f;sofaW=width;sofaD=.88;sofaWay=way;sofaOn=side;break under;
+      }
+      pl.walkway=savedWalk;pl.routes=savedRoutes;
       if (so) {
         // (the L-shaped corner one only where the room is deep enough for its chaise)
+        // (a ㄱ자 corner sofa — its chaise out from one end — where the floor in front has room for it:
+        // more often the bigger the room)
         let sv = variantOf(VS, "sofa", 10); if (sv === 3) sv = 0;
+        const chaise=(()=>{const a=local(so,sofaW/2-.9,0,sofaD),b=local(so,sofaW/2,0,1.62);return [Math.min(a.x,b.x),Math.min(a.z,b.z),Math.max(a.x,b.x),Math.max(a.z,b.z)] as Rect;})();
+        if(sofaW>=2.3&&variantOf(VS,"sofa-shape",5)<1+big&&pl.free(chaise)){sv=3;pl.take(chaise);}
         const kit=sofaCollection(P,sofaW,sv);for(const part of kit)part.g.scale(1,1,sofaD/.98);
         put(kit, so, zone, true, sofaCover(P, VS, disposables)); pl.take(so.rect);if(sofaWay)pl.keep(sofaWay);
         circulation.push({room:room.id,kind:'sofa',footprint:so.rect,path:sofaWay??[],size:[sofaW,sofaD]});
@@ -606,21 +715,34 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         const rw = Math.min(sofaW + 0.3, across - 0.5), rd = Math.min(2.0, Math.max(1.4, across - 1.4));
         put(M.rug(P, rw, rd), new THREE.Matrix4().makeRotationY(rot).setPosition(mx, pl.fy, mz), zone, false);
         const ctx = mx + (alongX ? 0 : (c[0] - t[0]) * 0.12), ctz = mz + (alongX ? (c[1] - t[1]) * 0.12 : 0);
-        const cv = variantOf(VS, "coffee", 3);
-        table:for(const size of [1,.8,.65])for(const offset of [0,-.35,.35,-.65,.65]){
-          const x=ctx+(alongX?offset:0),z=ctz+(alongX?0:offset),w=(alongX?1.3:.74)*size,d=(alongX?.74:1.3)*size;
+        // (the table: one of 14 kinds, as long as about half the sofa — 0.8 m by a loveseat, 1.6 m by a
+        // 4-seater — and as deep as the floor between allows)
+        const cv = variantOf(VS, "coffee", 14), tw0 = Math.min(1.6, Math.max(.8, sofaW * .5)), td0 = Math.min(.8, Math.max(.5, tw0 * .55));
+        table:for(const size of [1,.85,.7,.58])for(const offset of [0,-.35,.35,-.65,.65]){
+          const tw=tw0*size,td=td0*Math.max(.8,size);
+          const x=ctx+(alongX?offset:0),z=ctz+(alongX?0:offset),w=alongX?tw:td,d=alongX?td:tw;
           const rect:Rect=[x-w/2,z-d/2,x+w/2,z+d/2];
           if(!pl.free([rect[0]-.45,rect[1]-.45,rect[2]+.45,rect[3]+.45]))continue;
-          const kit=coffeeTableV(P,cv);for(const part of kit)part.g.scale(size,1,size);
-          put(kit,new THREE.Matrix4().makeRotationY(rot).setPosition(x,pl.fy,z),zone,false);
-          put(propsV(P,variantOf(VS,"propsTable",12),disposables),new THREE.Matrix4().makeRotationY(rot+.4).setPosition(x,pl.fy+[.385,.38,.415][cv],z),zone,false);
+          const kit=coffeeTableSized(P,cv,tw,td);
+          put(kit,new THREE.Matrix4().makeRotationY(rot).setPosition(x,pl.fy,z),zone,false,chairSwap);
+          put(propsV(P,variantOf(VS,"propsTable",12),disposables),new THREE.Matrix4().makeRotationY(rot+.4).setPosition(x,pl.fy+kitTop(kit),z),zone,false);
           colliders.push(...rectSegs(rect));pl.take(rect);break table;
         }
         // the art over the sofa
         // (one of ten kinds of picture, painted for this flat, in one of six frames; its shape varies too)
         const art = new THREE.MeshPhysicalMaterial({ map: paintingTexture(variantOf(VS, "art", 9973)), roughness: 0.92 }); disposables.push(art, art.map!);
-        const aw = Math.min(1.6, sofaW * [0.6, 0.5, 0.7, 0.45][variantOf(VS, "artShape", 4)]), ah = [0.95, 0.8, 0.7, 1.05][variantOf(VS, "artShape", 4)];
-        put(frameV(P, aw, ah, art, variantOf(VS, "frame", 6), disposables), new THREE.Matrix4().multiplyMatrices(so.m, new THREE.Matrix4().makeTranslation(0, 1.55, 0.005)), zone, false);
+        // (hung on the wall the sofa stands against, only where that wall is wall — no window, door
+        // or passage behind it — and no wider than the wall there; its top under the ceiling)
+        const sofaWall:SideName=sofaOn;
+        const artU=sofaWall?centreAlong(so.rect,sofaWall):0;
+        const gaps=sofaWall?[...pl.windowsOn(sofaWall).map(o=>[o.a,o.b]),...pl.openingsOn(sofaWall).filter(o=>o.type!=="window"&&o.type!=="balcony_window").map(o=>[o.center-o.width/2,o.center+o.width/2])]:[];
+        let room0=sofaWall?Math.min(artU-pl.span(sofaWall)[0],pl.span(sofaWall)[1]-artU):0;
+        for(const [ga,gb] of gaps)room0=Math.min(room0,gb<=artU?artU-gb:ga>=artU?ga-artU:0);
+        // (its size from the wall: about half the clear wall behind the sofa, never past the sofa's
+        // ends, in the flat's proportion — a landscape, a square, a portrait or a pair's width)
+        const shape = variantOf(VS, "artShape", 4), ratio = [0.62, 0.8, 1.0, 1.3][shape];
+        const aw = Math.min(2.0, sofaW * .8, 2 * room0 - .3, Math.max(.6, 2 * room0 * .45)), ah = Math.min(aw * ratio, H - 1.55 - .2, 1.1);
+        if (aw >= .45 && ah >= .4) put(frameV(P, aw, ah, art, variantOf(VS, "frame", 6), disposables), new THREE.Matrix4().multiplyMatrices(so.m, new THREE.Matrix4().makeTranslation(0, 1.55, 0.005)), zone, false);
         // a floor lamp beside the sofa (window end)
         const lampSide = windowSide === "s" ? 1 : -1;
         const fl = local(so, (sofaW / 2 + 0.25) * (sofaSide === "e" ? -lampSide : lampSide), 0, 0.3);
@@ -647,12 +769,15 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       if (acKind !== 0) {
         let on = false, k = 0;
         const ceilingFrame=new THREE.Matrix4().setPosition((room.rect[0]+room.rect[2])/2,H,(room.rect[1]+room.rect[3])/2);
-        if (acKind === 1) put(wallAircon(P,acVariant), ac!, zone, false);
-        else put(ceilingCassette(P,acVariant),ceilingFrame,zone,false);
+        // (by the room: a bigger wall unit in a big 거실, two cassettes in one over 30 ㎡, along its length)
+        const wideX=pl.X1-pl.X0>=pl.Z1-pl.Z0,cx=(pl.X0+pl.X1)/2,cz=(pl.Z0+pl.Z1)/2;
+        if (acKind === 1) { const kit=wallAircon(P,acVariant);if(big>=2)for(const q of kit)q.g.scale(1.15,1,1.08);put(kit, ac!, zone, false); }
+        else if(big>=3)for(const f of [-1,1])put(ceilingCassette(P,acVariant),new THREE.Matrix4().setPosition(cx+(wideX?f*(pl.X1-pl.X0)/4:0),H,cz+(wideX?0:f*(pl.Z1-pl.Z0)/4)),zone,false);
+        else { const kit=ceilingCassette(P,acVariant);if(big>=2)for(const q of kit)q.g.scale(1.12,1,1.12);put(kit,ceilingFrame,zone,false); }
         interactables.push({ id: "aircon", zone, room, hit: acKind === 1 ? hitIn(ac!, 0.98, 0.35, 0.3, 0, 2.15, 0.12) : hitIn(ceilingFrame,1.05,.12,1.05,0,-.05,0), label: () => `${acKind===1?'벽걸이형':'천장형'} 에어컨 ${on ? "끄기" : "켜기"}`, act: () => { on = !on; return "beep"; },
           update: dt => { k += ((on ? 1 : 0) - k) * Math.min(1, dt * 2); }, loud: () => k * 0.1, channel: "air" });
       } else if (ac) {
-        put(M.standAircon(P,acVariant), ac, zone); pl.take(ac.rect);
+        { const kit=M.standAircon(P,acVariant);if(big>=2)for(const q of kit)q.g.scale(1.1,1.06,1.05);put(kit, ac, zone); } pl.take(ac.rect);
         // 무풍 에어컨: the outlets' rings light when on, and it hums
         const glowM = new THREE.MeshBasicMaterial({ color: "#7fd8ff", transparent: true, opacity: 0, depthWrite: false }); disposables.push(glowM);
         const glow = new THREE.Group();
@@ -667,29 +792,59 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
       const pf = pl.against(sofaSide, 0.45, 0.45, windowSide === "s" || windowSide === "e" ? pl.span(sofaSide)[1] - 0.3 : pl.span(sofaSide)[0] + 0.3, 0.3);
       if (pf) { put(M.plant(P, 1.6, 3), new THREE.Matrix4().multiplyMatrices(pf.m, new THREE.Matrix4().makeTranslation(0, 0, 0.24)), zone); pl.take(pf.rect); }
       const purifier=(["n","w","e","s"] as SideName[]).map(s=>pl.against(s,.38,.38,null,.7)).find(Boolean);
-      if(purifier){put(airPurifier(P,variantOf(VS,"purifier",2)),purifier,zone);pl.take(purifier.rect);}
+      if(purifier){put(airPurifier(P,variantOf(VS,"purifier",2)),purifier,zone);pl.take(purifier.rect);airPurifierControl(purifier,zone,room);}
     }
 
     // ------------------------------------------------ kitchen and dining
     kitchen: if (room.type === "kitchen") {
       // Essentials take precedence over dining/decor. Pack the refrigerator and
       // combined sink/cooktop run together, keeping the same protected walking routes.
-      const essential=packKitchen(pl);
+      // (the drawing's fridge niche in this kitchen: the fridge in it, facing out of its open side)
+      const nicheOf=():{frame:Frame;width:number}|null=>{
+        const sp=(plan.fridgeSpots??[]).filter(q=>{const cx=(q.rect[0]+q.rect[2])/2,cz=(q.rect[1]+q.rect[3])/2;return cx>room.rect[0]&&cx<room.rect[2]&&cz>room.rect[1]&&cz<room.rect[3];})
+          .sort((p,q)=>(q.rect[2]-q.rect[0])*(q.rect[3]-q.rect[1])-(p.rect[2]-p.rect[0])*(p.rect[3]-p.rect[1]))[0];
+        if(!sp)return null;
+        const [x0,z0,x1,z1]=sp.rect,cx=(x0+x1)/2,cz=(z0+z1)/2,alongX=sp.open==="n"||sp.open==="s",along=alongX?x1-x0:z1-z0,deep=alongX?z1-z0:x1-x0;
+        const w=Math.min(.95,along-.03);if(w<.55)return null;
+        const fd=Math.min(.72,deep),m=new THREE.Matrix4();
+        if(sp.open==="n")m.makeRotationY(Math.PI).setPosition(cx,pl.fy,z1);else if(sp.open==="s")m.makeRotationY(0).setPosition(cx,pl.fy,z0);
+        else if(sp.open==="w")m.makeRotationY(-Math.PI/2).setPosition(x1,pl.fy,cz);else m.makeRotationY(Math.PI/2).setPosition(x0,pl.fy,cz);
+        m.scale(new THREE.Vector3(1,1,fd/.72));
+        return {frame:{m,rect:[x0,z0,x1,z1]},width:w};
+      };
+      const niche=nicheOf();
+      const essential=packKitchen(pl,false,false,[],niche??undefined);
       if(!essential){
         // (a flat's second, small kitchen — a 보조주방 or a pantry read as one — is not where its
         // fridge and cooker go: a short counter where one fits; the main kitchen must still take them)
         const area=(r:Room)=>(r.rect[2]-r.rect[0])*(r.rect[3]-r.rect[1]);
         const main=plan.rooms.filter(r=>r.type==="kitchen").reduce((a,b)=>area(b)>area(a)?b:a,room);
+        // (a kitchen always has its sink: a short sink counter where the full kitchen does not fit —
+        // without the clear-floor margin, then over the planned routes, before ever going without)
+        const sinkOnly=():boolean=>{for(const clear of [.55,0])for(const w of [1.6,1.4,1.2,1.0,.8])for(const side of ["n","e","s","w"] as SideName[]){const f=pl.against(side,w,.6,null,.85,clear);if(f){put(M.lowerRun(P,w,{sinkAt:-w*.15,cookAt:w>=1.2?w*.28:undefined,holeW:Math.min(.5,w*.44),front:variantOf(VS,"kitchen-front",M.KITCHEN_FRONTS) as M.KitchenFront}),f,zone);pl.take(f.rect);const tap=M.faucetKit(P,variantOf(VS,"kitchen-tap",M.FAUCET_KINDS),tapFinish(VS+"k"),.85,.07);put(tap.kit,new THREE.Matrix4().multiplyMatrices(f.m,new THREE.Matrix4().makeTranslation(-w*.15,0,0)),zone,false);const sp=local(f,-w*.15+tap.spout[0],tap.spout[1],tap.spout[2]);faucet(room,zone,sp,pl.fy+.85-.03-.22+.004,"주방 수전","sink",.16,.02);kitchens.push({room:room.id,run:f.rect,fridge:f.rect});return true;}}return false;};
+        if(sinkOnly())break kitchen;
+        const saved=[pl.routes,pl.walkway];pl.routes=[];pl.walkway=[];const placed=sinkOnly();[pl.routes,pl.walkway]=saved;
+        if(placed)break kitchen;
         if(main===room)throw new InteriorSafetyError("주방 필수 설비와 이동 통로를 함께 확보하지 못했습니다. 다른 인테리어를 선택해 주세요.");
-        for(const w of [1.2,1.0,.8])for(const side of ["n","e","s","w"] as SideName[]){const f=pl.against(side,w,.6,null,.85,.55);if(f){put(M.lowerRun(P,w,{sinkAt:0,holeW:Math.min(.5,w*.44)}),f,zone);pl.take(f.rect);break kitchen;}}
         break kitchen;
       }
-      const back=essential.side,runA=essential.width,fA=essential.run;
-      const start=centreAlong(fA.rect,back)-runA/2,hi=start+runA;
+      const back=essential.side,runFull=essential.width;
+      const start0=centreAlong(essential.run.rect,back)-runFull/2,hi0=start0+runFull;
       fridge(essential.fridge,essential.fridgeWidth,Math.min(1.86,H-.4),zone,room);pl.take(essential.fridge.rect);
-      if (runA >= 1.2) {
-        const sinkLocal=-runA*.25,cookLocal=runA*.25;
-        put(M.lowerRun(P, runA, { sinkAt: sinkLocal,cookAt:cookLocal,holeW:Math.min(.70,runA*.44) }), fA, zone); pl.take(fA.rect);
+      // (the flat's own kitchen — kitchen-maker: door fronts, a tall oven/pantry column on a long run,
+      // a return leg (ㄱ자) or an island where the floor has room — by the flat, its fittings sized to
+      // the wall: a 4 m wall gets a 4 m run with a double bowl, not the 2.4 m standard everywhere)
+      const front=variantOf(VS,"kitchen-front",M.KITCHEN_FRONTS) as M.KitchenFront,layout=variantOf(VS,"kitchen-layout",4);
+      const tallW=runFull>=3.0&&layout!==0?.6:0;
+      const fu=centreAlong(essential.fridge.rect,back),fridgeLow=essential.fridge.rect&&Math.abs(fu-start0)<Math.abs(fu-hi0);
+      const tallAtHi=fridgeLow;
+      const start=tallW&&!tallAtHi?start0+tallW:start0,hi=tallW&&tallAtHi?hi0-tallW:hi0,runA=hi-start;
+      const fA=pl.frameAt(back,(start+hi)/2,runA,.6);
+      let tallFrame:Frame|null=null;
+      if(tallW){const u=tallAtHi?hi0-tallW/2:start0+tallW/2,tf=pl.frameAt(back,u,tallW,.6);put(M.tallUnit(P,tallW,H-.02,layout!==3,front),tf,zone);if(layout!==3)tallFrame=tf;}
+      if (runA >= 1.2 - 1e-6) {
+        const long=runA>=3.0,sinkLocal=long?-runA/2+Math.min(1.1,runA*.3):-runA*.25,cookLocal=long?runA/2-Math.min(1.0,runA*.28):runA*.25;
+        put(M.lowerRun(P, runA, { sinkAt: sinkLocal,cookAt:cookLocal,holeW:long?.86:Math.min(.70,runA*.44),double:long,front }), fA, zone); pl.take(fA.rect);
         kitchens.push({room:room.id,run:fA.rect,fridge:essential.fridge.rect});
         const cookFrame=new THREE.Matrix4().multiplyMatrices(fA.m,new THREE.Matrix4().makeTranslation(cookLocal,0,0));
         put(M.hood(P,.62,.85+.65,H-.02),cookFrame,zone,false);
@@ -714,7 +869,27 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
             cooking=!cooking;return "beep";},
           loud:()=>pan.state&&cooking?Math.min(1,.35+pan.state.t/6):0,channel:"fry",
           update:dt=>{heat.opacity+=((cooking?.9:0)-heat.opacity)*Math.min(1,dt*3);rings.visible=heat.opacity>.01;if(cooking)pan.update(dt);}});
-        for(const [i,x] of [-runA/2+.26,runA/2-.26].entries())if((i===0||runA>2.4)&&(sinkLocal===undefined||Math.abs(x-sinkLocal)>.55)){
+        // the oven and the microwave: built into the tall column, or the oven under the hob and a
+        // microwave on the counter — each cooks what is in the hand, to be eaten
+        if(tallFrame){
+          heater("oven",new THREE.Matrix4().multiplyMatrices(tallFrame.m,new THREE.Matrix4().makeTranslation(0,.92,.6)),.56,.58,zone,room);
+          heater("microwave",new THREE.Matrix4().multiplyMatrices(tallFrame.m,new THREE.Matrix4().makeTranslation(0,1.54,.6)),.56,.44,zone,room);
+        }else{
+          if(variantOf(VS,"kitchen-oven",3)!==0){
+            const of=new THREE.Matrix4().multiplyMatrices(fA.m,new THREE.Matrix4().makeTranslation(cookLocal,.14,.58));
+            put([M.rb(P.applianceDark,.58,.58,.02,.004,0,.29,.01,2),M.bx(P.steel,.46,.018,.025,0,.52,.03),M.bx(P.screen,.14,.03,.002,0,.555,.021)],of,zone,false);
+            heater("oven",of,.58,.58,zone,room);
+          }
+          const mx=runA/2-.4>Math.abs(sinkLocal)+.3&&Math.abs(runA/2-.4-cookLocal)>.5?runA/2-.4:-runA/2+.4;
+          if(runA>=1.6&&Math.abs(mx-sinkLocal)>.5&&Math.abs(mx-cookLocal)>.45){
+            const mf=new THREE.Matrix4().multiplyMatrices(fA.m,new THREE.Matrix4().makeTranslation(mx,.87,.06));
+            put([M.rb(variantOf(VS,"microwave",2)?P.appliance:P.applianceDark,.5,.3,.38,.012,0,.15,.19,2),M.rb(P.glass,.33,.2,.006,.006,-.05,.15,.383,2),M.bx(P.steel,.012,.2,.02,.15,.15,.39)],mf,zone,false);
+            heater("microwave",new THREE.Matrix4().multiplyMatrices(mf,new THREE.Matrix4().makeTranslation(-.05,0,.38)),.33,.3,zone,room,.15);
+          }
+        }
+        // (small appliances along the free counter: more of them on a longer run)
+        const spots=[-runA/2+.26,runA/2-.26,...(runA>=3.2?[(sinkLocal+cookLocal)/2]:[])];
+        for(const [i,x] of spots.entries())if((i===0||runA>2.4)&&Math.abs(x-sinkLocal)>.55&&Math.abs(x-cookLocal)>.45){
           put(countertopAppliance(P,(variantOf(VS,"counter-appliance",4)+i)%4),new THREE.Matrix4().multiplyMatrices(fA.m,new THREE.Matrix4().makeTranslation(x,.87,.24)),zone,false);
         }
         // 상부장 where there is no window, and the backsplash
@@ -724,7 +899,40 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         let a = start;
         for (const w of wins.sort((p, q) => p.a - q.a)) { if (w.a - 0.05 > a) pieces.push([a, w.a - 0.05]); a = Math.max(a, w.b + 0.05); }
         if (hi > a) pieces.push([a, hi]);
-        for (const [p0, p1] of pieces) if (p1 - p0 > 0.3) put(M.upperRun(P, p1 - p0, bottom, top), pl.frameAt(back, (p0 + p1) / 2, p1 - p0, 0.35), zone, false);
+        for (const [p0, p1] of pieces) if (p1 - p0 > 0.3) put(M.upperRun(P, p1 - p0, bottom, top, 0.35, front), pl.frameAt(back, (p0 + p1) / 2, p1 - p0, 0.35), zone, false);
+        // ㄱ자: a return leg on the wall round the corner the run reaches (layout 1, 2), or an island
+        // facing the run where the floor is deep enough (layout 2, 3 — the leg first)
+        const corner=(): {side:SideName;from:number;dir:number}|null=>{
+          const ends:[boolean,SideName][]=back==="n"||back==="s"?[[Math.abs(start0-pl.X0)<.03,"w"],[Math.abs(hi0-pl.X1)<.03,"e"]]:[[Math.abs(start0-pl.Z0)<.03,"n"],[Math.abs(hi0-pl.Z1)<.03,"s"]];
+          for(const [ok,s2] of ends){if(!ok)continue;const [lo2,hi2]=pl.span(s2),near=back==="n"||back==="w";if(tallW&&((s2==="w"||s2==="n")?!tallAtHi:tallAtHi))continue;return {side:s2,from:near?lo2+.6:hi2-.6,dir:near?1:-1};}
+          return null;
+        };
+        let leg=false;
+        const cn=layout===1||layout===2?corner():null;
+        if(cn)for(const L of [1.8,1.5,1.2,.9]){
+          const u=cn.from+cn.dir*L/2,f=pl.frameAt(cn.side,u,L,.6);
+          if(!pl.free(f.rect)||pl.windowsOn(cn.side).some(o=>o.sill<.9&&u+L/2>o.a&&u-L/2<o.b))continue;
+          put(M.lowerRun(P,L,{front}),f,zone);pl.take(f.rect);
+          if(!pl.windowsOn(cn.side).some(o=>u+L/2>o.a&&u-L/2<o.b))put(M.upperRun(P,L,bottom,top,.35,front),pl.frameAt(cn.side,u,L,.35),zone,false);
+          const lb=new THREE.PlaneGeometry(L,.62);lb.translate(0,.85+.31,.002);B.add(P.counter,zone,boxUV(lb),f.m);lb.dispose();
+          leg=true;break;
+        }
+        if(!leg&&(layout===2||layout===3)&&pl.depth(back)>=3.4){
+          // the island: its cabinets face the run across a 1 m aisle, its top runs on 0.3 m for stools
+          const iw=Math.min(2.4,Math.floor((runA-.2)*10)/10);
+          if(iw>=1.4){
+            const u=(start+hi)/2,d0=1.6,rot={n:Math.PI,s:0,w:-Math.PI/2,e:Math.PI/2}[back];
+            const m=new THREE.Matrix4().makeRotationY(rot);
+            const at=(dd:number)=>back==="n"?new THREE.Vector3(u,pl.fy,pl.Z0+dd):back==="s"?new THREE.Vector3(u,pl.fy,pl.Z1-dd):back==="w"?new THREE.Vector3(pl.X0+dd,pl.fy,u):new THREE.Vector3(pl.X1-dd,pl.fy,u);
+            const rectOf=(a0:number,a1:number):Rect=>back==="n"?[u-iw/2,pl.Z0+a0,u+iw/2,pl.Z0+a1]:back==="s"?[u-iw/2,pl.Z1-a1,u+iw/2,pl.Z1-a0]:back==="w"?[pl.X0+a0,u-iw/2,pl.X0+a1,u+iw/2]:[pl.X1-a1,u-iw/2,pl.X1-a0,u+iw/2];
+            const body=rectOf(d0,d0+.9);
+            if(pl.free(body)&&pl.useFree(rectOf(d0+.9,d0+1.6))){
+              m.setPosition(at(d0+.6));
+              const kit=M.lowerRun(P,iw,{front});kit.push(M.bx(P.counter,iw+.04,.03,.32,0,.85-.015,-.15));
+              put(kit,{m,rect:body},zone);pl.take(body);colliders.push(...rectSegs(body));
+            }
+          }
+        }
         const bs = new THREE.PlaneGeometry(runA, 0.62); bs.translate(0, 0.85 + 0.31, 0.002);
         B.add(P.counter, zone, boxUV(bs), fA.m);
         // under-cabinet light
@@ -732,10 +940,10 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         B.add(zoneLamp(zone, P.ledWarm), zone, strip, fA.m, false); strip.dispose();
         // the tap (a gooseneck), working
         if (sinkLocal !== undefined) {
-          const neck = new THREE.TorusGeometry(0.11, 0.011, 12, 32, Math.PI); neck.rotateY(Math.PI / 2); neck.translate(0, 1.18, 0.12 + 0.0);
-          const parts = [{ m: P.chrome, g: boxUV(new THREE.CylinderGeometry(0.014, 0.022, 0.33, 20)).translate(0, 1.04, 0.07) }, { m: P.chrome, g: boxUV(neck).translate(0, 0, 0.05) }, { m: P.chrome, g: boxUV(new THREE.CylinderGeometry(0.004, 0.006, 0.08, 10).rotateZ(Math.PI / 2)).translate(0.03, 0.95, 0.07) }];
-          put(parts, new THREE.Matrix4().multiplyMatrices(fA.m, new THREE.Matrix4().makeTranslation(sinkLocal, 0, 0)), zone, false);
-          const spout = local(fA, sinkLocal, 1.15, 0.28);
+          // (the tap: one of 12 shapes in one of 4 finishes, by the flat)
+          const tap=M.faucetKit(P,variantOf(VS,"kitchen-tap",M.FAUCET_KINDS),tapFinish(VS+"k"),.85,.07,long?1.1:1);
+          put(tap.kit, new THREE.Matrix4().multiplyMatrices(fA.m, new THREE.Matrix4().makeTranslation(sinkLocal, 0, 0)), zone, false);
+          const spout = local(fA, sinkLocal+tap.spout[0], tap.spout[1], tap.spout[2]);
           faucet(room, zone, spout, pl.fy + 0.85 - 0.03 - 0.22 + 0.004, "주방 수전", "sink", 0.16, 0.02);
         }
       }
@@ -816,7 +1024,15 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
         }
         // art over the head
         const art = new THREE.MeshPhysicalMaterial({ map: paintingTexture(variantOf(VS + room.id, "art", 9973)), roughness: 0.92 }); disposables.push(art, art.map!);
-        put(frameV(P, Math.min(1.2, bw + 0.2), 0.6, art, variantOf(VS + room.id, "frame", 6), disposables), new THREE.Matrix4().multiplyMatrices(bedF.m, new THREE.Matrix4().makeTranslation(0, 1.45, 0.005)), zone, false);
+        // (on the wall behind the headboard, where it is wall: not over a window or a door; sized to
+        // the clear wall there)
+        {
+          const bu=centreAlong(bedF.rect,bedSide),[s0,s1]=pl.span(bedSide);
+          let clear=Math.min(bu-s0,s1-bu);
+          for(const [ga,gb] of [...pl.windowsOn(bedSide).map(o=>[o.a,o.b]),...pl.openingsOn(bedSide).filter(o=>o.type!=="window"&&o.type!=="balcony_window").map(o=>[o.center-o.width/2,o.center+o.width/2])])clear=Math.min(clear,gb<=bu?bu-gb:ga>=bu?ga-bu:0);
+          const aw=Math.min(1.4,bw+.2,2*clear-.3),ah=Math.min(.6,aw*.5+.1);
+          if(aw>=.45)put(frameV(P, aw, ah, art, variantOf(VS + room.id, "frame", 6), disposables), new THREE.Matrix4().multiplyMatrices(bedF.m, new THREE.Matrix4().makeTranslation(0, 1.45, 0.005)), zone, false);
+        }
         }
       }
       if (big) {
@@ -962,8 +1178,9 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
           const c = local(f, 0, 1.55, 0.141), n = local(f, 0, 1.55, 1.141).sub(c).normalize();
           mirrors.push({ pos: c, normal: n, w: vw - 0.01, h: 0.73, zone,room:room.id });
           // the basin tap
-          put([{ m: P.chrome, g: boxUV(new THREE.CylinderGeometry(0.016, 0.02, 0.2, 20)).translate(0, 0.96, 0.08) }, { m: P.chrome, g: boxUV(new THREE.BoxGeometry(0.03, 0.02, 0.13)).translate(0, 1.055, 0.13) }, { m: P.chrome, g: boxUV(new THREE.CylinderGeometry(0.006, 0.006, 0.07, 10)).rotateX(-0.6).translate(0, 1.085, 0.06) }], f.m, zone, false);
-          faucet(room, zone, local(f, 0, 1.045, 0.19), pl.fy + 0.86, "세면대 수전", "basin", 0.1, 0.012);
+          const tap=M.faucetKit(P,variantOf(VS+room.id,"basin-tap",M.FAUCET_KINDS),tapFinish(VS+room.id),.86,.06,.72);
+          put(tap.kit, f.m, zone, false);
+          faucet(room, zone, local(f, tap.spout[0], tap.spout[1], tap.spout[2]), pl.fy + 0.86, "세면대 수전", "basin", 0.1, 0.012);
         }
       }
     }
@@ -1116,22 +1333,22 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
   // ---------------------------------------------------------------- a desktop PC on a desk
   /** a 24" monitor on a stand (21.5" on a narrow desk), a keyboard and mouse before it, the tower
    * under the desk's side; its screen's corners are where the page lays a browser, as a building's
-   * office computer. `beside`: the laptop takes the desk's left, the PC its right. */
-  function desktopPc(f: Frame, zone: number, room: Room, top: number, w: number, d: number, v: number, laptopRight: number | null) {
-    const beside = laptopRight !== null;
+   * office computer. `laptopLeft`: the laptop takes the desk's right (from there), the PC its left. */
+  function desktopPc(f: Frame, zone: number, room: Room, top: number, w: number, d: number, v: number, laptopLeft: number | null) {
+    const beside = laptopLeft !== null;
     const s = d / .6, narrow = w < 1.0, mw = narrow ? .5 : .56, mh = narrow ? .3 : .33;
-    const mx = beside ? w / 2 - (narrow ? .26 : .31) : 0, mz = .13 * s, my = top + .13 + mh / 2;
+    const mx = beside ? -w / 2 + (narrow ? .26 : .31) : 0, mz = .13 * s, my = top + .13 + mh / 2;
     const kit: M.Kit = [
       M.rb(P.applianceDark, .22, .012, .17, .004, mx, top + .006, mz + .02), M.bx(P.applianceDark, .035, .2, .03, mx, top + .1, mz - .02),
       M.rb(P.applianceDark, mw, mh, .025, .006, mx, my, mz),
     ];
     // the keyboard, a mouse on the right (on the desk's own pad when it has one)
     // (a tenkeyless one on a narrow desk; beside the laptop, clear of its deck)
-    const kw = narrow ? .36 : .42, kx = beside ? Math.max(mx - .04, laptopRight! + .02 + kw / 2) : -.05, kz = Math.min(.42 * s, d - .1);
+    const kw = narrow ? .36 : .42, kx = beside ? Math.min(mx + .04, laptopLeft! - .1 - kw / 2) : -.05, kz = Math.min(.42 * s, d - .1);
     kit.push(M.rb(P.applianceDark, kw, .018, .13, .006, kx, top + .009, kz), M.bx(P.plastic, kw - .03, .004, .1, kx, top + .019, kz));
-    kit.push(M.rb(P.applianceDark, .06, .028, .1, .02, Math.min(w / 2 - .04, kx + kw / 2 + .07), top + .014, kz));
-    // the tower: under the desk at its right, clear of a trestle's legs
-    const tx = w / 2 - (v === 1 || v === 3 ? .32 : .2), tz = Math.max(.25, Math.min(d - .25, .3 * s));
+    kit.push(M.rb(P.applianceDark, .06, .028, .1, .02, beside ? Math.min(laptopLeft! - .045, kx + kw / 2 + .055) : Math.min(w / 2 - .04, kx + kw / 2 + .07), top + .014, kz));
+    // the tower: under the desk on the PC's side, clear of a trestle's legs
+    const tx = (beside ? -1 : 1) * (w / 2 - (v === 1 || v === 3 ? .32 : .2)), tz = Math.max(.25, Math.min(d - .25, .3 * s));
     kit.push(M.rb(P.applianceDark, .19, .42, .4, .01, tx, .21, tz), M.bx(P.blackMetal, .17, .02, .38, tx, .01, tz));
     put(kit, f, zone, false);
     // (a power light on the tower, and the screen at rest: a dim desktop until it is used)
@@ -1147,6 +1364,67 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     const hit = hitIn(f, mw, mh + .1, .12, mx, my, mz);
     interactables.push({ id: screen.id, zone, room, hit, label: () => "컴퓨터 사용하기",
       act: () => { computerHook.use?.(screen); return "beep"; } });
+  }
+
+  // ---------------------------------------------------------------- the air purifier
+  /** clicked: off → 자동 (a slow fan, the air-quality ring blue) → 강풍 (fast, louder) → off. The
+   * fan under its top grille turns, the ring and the display light up blue; it hums by its mode. */
+  function airPurifierControl(f: Frame, zone: number, room: Room) {
+    const ringM = new THREE.MeshBasicMaterial({ color: "#3aa8ff", transparent: true, opacity: 0, depthWrite: false }); disposables.push(ringM);
+    const ringG = new THREE.TorusGeometry(.158, .006, 6, 40).rotateX(Math.PI / 2); disposables.push(ringG);
+    const ring = new THREE.Mesh(ringG, ringM); ring.applyMatrix4(new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(0, .577, .18))); dynamic.add(ring);
+    const fanM = new THREE.MeshStandardMaterial({ color: "#2a2d31", roughness: .6 }); disposables.push(fanM);
+    const fan = new THREE.Group(); fan.applyMatrix4(new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(0, .56, .18))); dynamic.add(fan);
+    for (let i = 0; i < 5; i++) { const g = new THREE.BoxGeometry(.12, .004, .035).translate(.065, 0, 0); disposables.push(g); const b = new THREE.Mesh(g, fanM); b.rotation.set(0, i / 5 * Math.PI * 2, .25); fan.add(b); }
+    const dispM = new THREE.MeshBasicMaterial({ color: "#4fb8ff", transparent: true, opacity: 0 }); disposables.push(dispM);
+    const dispG = new THREE.PlaneGeometry(.04, .008).rotateX(-Math.PI / 2); disposables.push(dispG);
+    const disp = new THREE.Mesh(dispG, dispM); disp.applyMatrix4(new THREE.Matrix4().multiplyMatrices(f.m, new THREE.Matrix4().makeTranslation(0, .585, .18))); dynamic.add(disp);
+    let mode = 0, spin = 0;
+    interactables.push({ id: `purifier-${room.id}`, zone, room, hit: hitIn(f, .36, .6, .36, 0, .3, .18),
+      label: () => mode === 0 ? "공기청정기 켜기 (자동)" : mode === 1 ? "공기청정기 강풍으로 · 공기 좋음" : "공기청정기 끄기",
+      act: () => { mode = (mode + 1) % 3; return "beep"; },
+      // (a soft fan noise: a whisper on 자동, a steady rush on 강풍)
+      loud: () => spin < .3 ? 0 : .03 + spin / 22 * .07, channel: "air",
+      update: dt => {
+        const want = [0, 9, 22][mode]; spin += (want - spin) * Math.min(1, dt * 1.5);
+        fan.rotation.y += spin * dt;
+        ringM.opacity += ((mode ? (mode === 2 ? 1 : .8) : 0) - ringM.opacity) * Math.min(1, dt * 4); dispM.opacity = ringM.opacity; ring.visible = disp.visible = ringM.opacity > .01;
+      } });
+  }
+
+  // ---------------------------------------------------------------- the oven and the microwave
+  /** an oven or a microwave at `frame` (its door's face, centre bottom; w × h): what is held goes in,
+   * it runs with its light on and a timer, and comes out cooked to be eaten */
+  function heater(kind: "oven" | "microwave", frame: THREE.Matrix4, w: number, h: number, zone: number, room: Room, lift = 0) {
+    const COOK: Partial<Record<ItemKind, [string, string]>> = kind === "microwave"
+      ? { milk: ["따뜻한 우유", "#f4eee0"], sausage: ["데운 소시지", "#b65a3a"], eggs: ["전자레인지 계란찜", "#f3cf6a"], cake: ["데운 케이크", "#d9a066"], pudding: ["따뜻한 푸딩", "#e7b562"], cheese: ["녹인 치즈", "#f2c14e"], sikhye: ["따뜻한 식혜", "#e9dcc0"], water: ["따뜻한 물", "#dfeef5"] }
+      : { eggs: ["오븐 오믈렛", "#f0c24c"], sausage: ["오븐 소시지 구이", "#8e3e22"], cheese: ["오븐 치즈 구이", "#e0a33a"], cake: ["따뜻한 케이크", "#c98a52"], apple: ["구운 사과", "#b34a2a"], banana: ["구운 바나나", "#c99a3a"], peach: ["구운 복숭아", "#e08a52"] };
+    const secs = kind === "microwave" ? 6 : 12;
+    const glowM = new THREE.MeshBasicMaterial({ color: kind === "microwave" ? "#ffd98a" : "#ff8a3a", transparent: true, opacity: 0, depthWrite: false }); disposables.push(glowM);
+    const glowG = new THREE.PlaneGeometry(w * .8, h * .62); disposables.push(glowG);
+    const glow = new THREE.Mesh(glowG, glowM); glow.applyMatrix4(new THREE.Matrix4().multiplyMatrices(frame, new THREE.Matrix4().makeTranslation(0, lift || h * .5, .004))); dynamic.add(glow);
+    let state: { kind: ItemKind; t: number } | null = null;
+    const label = () => {
+      if (state) return state.t < secs ? `${kind === "oven" ? "오븐" : "전자레인지"} ${COOK[state.kind]![0]} ${Math.ceil(secs - state.t)}초` : `${COOK[state.kind]![0]} 꺼내 먹기`;
+      const hk = pantry.handKind();
+      if (hk && COOK[hk]) return `${kind === "oven" ? "오븐에 넣고 굽기" : "전자레인지에 데우기"} · ${COOK[hk]![0]}`;
+      return `${kind === "oven" ? "오븐" : "전자레인지"} (냉장고 음식을 들고 사용)`;
+    };
+    interactables.push({ id: `${kind}-${room.id}`, zone, room, hit: hitIn(frame, w, h, .1, 0, lift || h / 2, .02), label,
+      act: () => {
+        if (state && state.t >= secs) {
+          const [name, color] = COOK[state.kind]!;
+          const food = new THREE.Group(), plateM = new THREE.MeshStandardMaterial({ color: "#f7f7f4", roughness: .35 }), foodM = new THREE.MeshStandardMaterial({ color, roughness: .55 });
+          const plate = new THREE.Mesh(new THREE.CylinderGeometry(.09, .07, .012, 28), plateM), bite = new THREE.Mesh(new THREE.SphereGeometry(.05, 18, 10), foodM);
+          bite.scale.y = .5; bite.position.y = .025; plate.userData.dropMaterial = bite.userData.dropMaterial = true; food.add(plate, bite);
+          state = null; glowM.opacity = 0; furnished.eat?.(food, name); missions.event("cook"); return "click";
+        }
+        if (state) return null;
+        const hk = pantry.handKind(); if (!hk || !COOK[hk]) return null;
+        pantry.consume(); state = { kind: hk, t: 0 }; return "beep";
+      },
+      loud: () => state && state.t < secs ? .35 : 0, channel: kind === "microwave" ? "air" : "fry",
+      update: dt => { if (!state) return; state.t += dt; glowM.opacity = state.t < secs ? .55 + .1 * Math.sin(state.t * 6) : .2; } });
   }
 
   // ---------------------------------------------------------------- a laptop, open on the desk
@@ -1244,19 +1522,30 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
   }
 
   // ---------------------------------------------------------------- the desks, all known now
-  // A flat with two desks or more (two children's rooms, a study): a desktop PC on every desk, the
-  // laptop as well on the first. A PC's desk is one without its own lamp or dummy monitor where the
-  // PC stands (variants 0 and 3), so nothing stands in the screen's or the keyboard's place.
-  const withPc = desks.length >= 2;
+  // (a flat with no desk of its own — no child's room: one in the master bedroom or the living room,
+  // for its PC)
+  if(!desks.length&&!plan.facility)desk:for(const relax of [false,true])for(const type of ["bedroom","master","living","dress","kitchen","alpha"])for(const [room,{pl,zone}] of placers){
+    if(room.type!==type)continue;
+    const saved=pl.walkway,savedR=pl.routes;if(relax){pl.walkway=[];pl.routes=[];}
+    for(const [w,d] of [[1.2,.6],[1.0,.55],[.9,.5],[.8,.5]])for(const sd of ["n","e","s","w"] as SideName[]){
+      const f=pl.against(sd,w,d,null,.7,relax?.65:.8);if(!f)continue;
+      const seat=local(f,0,0,d+.35);if(!furnitureAccess(pl,f,seat.x,seat.z))continue;
+      pl.walkway=saved;pl.routes=savedR;pl.take(f.rect);desks.push({f,zone,room,w,d,v:variantOf(VS+room.id,"desk",4),chair:m=>put(chairV(P,[0,2,3][variantOf(VS+room.id,"deskchair",3)]),m,zone,false),chairAt:d+.35});break desk;
+    }
+    pl.walkway=saved;pl.routes=savedR;
+  }
+  // Every flat has a desktop PC (its browser opens kospimap.com): one on every desk; the first desk
+  // has the laptop as well, on its right, the PC on its left.
+  const withPc = desks.length >= 1;
   desks.forEach((dk, i) => {
     const v = withPc && (dk.v === 0 || dk.v === 3) ? (dk.v === 0 ? 2 : 1) : dk.v;
     const kit = deskCollection(P, dk.w, v); for (const part of kit) part.g.scale(1, 1, dk.d / .6);
     const top = kitTop(kit); put(kit, dk.f, dk.zone);
     dk.chair(new THREE.Matrix4().multiplyMatrices(dk.f.m, new THREE.Matrix4().makeRotationY(Math.PI).setPosition(0, 0, dk.chairAt)));
     const both = i === 0;
-    const lx = withPc ? -dk.w / 2 + (dk.w < 1 ? .17 : .19) : -.12;
+    const lx = withPc ? dk.w / 2 - (dk.w < 1 ? .17 : .19) : -.12;
     if (both) laptop(dk.f, dk.zone, dk.room, top, lx);
-    if (withPc) desktopPc(dk.f, dk.zone, dk.room, top, dk.w, dk.d, v, both ? lx + .157 : null);
+    if (withPc) desktopPc(dk.f, dk.zone, dk.room, top, dk.w, dk.d, v, both ? lx - .157 : null);
   });
 
   pantry.stock();

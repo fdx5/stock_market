@@ -71,7 +71,13 @@ export function tidyImageOpenings(rooms: Room[], input: Opening[]): { openings: 
       if (hi - lo < 0.1) continue;
       const on = openings.filter(q => q.axis === axis && Math.abs(q.at - at) < EPS && ends(q)[1] > lo + EPS && ends(q)[0] < hi - EPS);
       if (on.some(concrete)) continue;
-      for (const q of on) q.width = 0;
+      // (a passage reaching past the seam keeps what lies beyond it: zeroing the whole of it stood a
+      // wall along a 주방's open side wherever it ran on past a strip)
+      for (const q of on) {
+        const [s, e] = ends(q);
+        if (e > hi + EPS && hi - s > EPS) openings.push({ ...q, center: (hi + e) / 2, width: e - hi });
+        if (s < lo - EPS) { q.center = (s + lo) / 2; q.width = lo - s; } else q.width = 0;
+      }
       openings.push({ type: "open", a: a.id, b: b.id, axis, at, center: (lo + hi) / 2, width: hi - lo, height: 2.4, sill: 0 });
       report.seamsOpened++;
     }
@@ -97,16 +103,35 @@ export function tidyImageOpenings(rooms: Room[], input: Opening[]): { openings: 
     if (right - e > EPS && right - e < reach && !(nearConcrete(right) && right < run[1] - EPS)) { e = right; changed = true; }
     if (changed) { o.center = (s + e) / 2; o.width = e - s; if (same && reach === Infinity) report.seamsOpened++; else report.stubsOpened++; }
   }
-  // two passages on one line with a stub between them: one passage
-  for (const o of openings) {
+  // two passages on one line with a stub between them: the stub opened. A passage belongs to the two
+  // rooms either side of it — joining passages of different pairs into one handed the whole run to
+  // one pair, and the wall builder then stood a wall wherever that pair does not meet (a 거실 walled
+  // off from its 주방 along a drawn opening). Same pair: one passage; else the gap its own passage,
+  // between the rooms that face each other across it.
+  const facing = (axis: "x" | "z", at: number, lo: number, hi: number): [Room, Room] | null => {
+    const j = axis === "x" ? 0 : 1, k = 1 - j, mid = (lo + hi) / 2;
+    const cover = (r: Room) => r.rect[k] <= lo + EPS && r.rect[k + 2] >= hi - EPS && r.rect[k] < mid && r.rect[k + 2] > mid;
+    const before = rooms.filter(r => Math.abs(r.rect[j + 2] - at) < EPS && cover(r)), after = rooms.filter(r => Math.abs(r.rect[j] - at) < EPS && cover(r));
+    return before.length === 1 && after.length === 1 ? [before[0], after[0]] : null;
+  };
+  const samePair = (o: Opening, q: Opening) => (q.a === o.a && q.b === o.b) || (q.a === o.b && q.b === o.a);
+  for (const o of openings.slice()) {
     if (o.type !== "open" || !o.width) continue;
-    for (const q of openings) {
-      if (q === o || q.type !== "open" || !q.width || !onLine(o, q) || q.a !== o.a && q.a !== o.b) continue;
+    for (const q of openings.slice()) {
+      if (q === o || q.type !== "open" || !q.width || !o.width || !onLine(o, q) || q.a !== o.a && q.a !== o.b && q.b !== o.a && q.b !== o.b) continue;
       const [s, e] = ends(o), [t, u] = ends(q), gap = t >= e ? t - e : s >= u ? s - u : -1;
       if (gap < 0 || gap >= STUB) continue;
       if (openings.some(c => concrete(c) && onLine(o, c) && ends(c)[1] > Math.min(e, u) && ends(c)[0] < Math.max(s, t))) continue;
-      const lo = Math.min(s, t), hi = Math.max(e, u);
-      o.center = (lo + hi) / 2; o.width = hi - lo; q.width = 0; report.stubsOpened++;
+      if (samePair(o, q)) {
+        const lo = Math.min(s, t), hi = Math.max(e, u);
+        o.center = (lo + hi) / 2; o.width = hi - lo; q.width = 0; report.stubsOpened++;
+        continue;
+      }
+      if (gap < EPS) continue;
+      const g0 = Math.min(e, u), g1 = Math.max(s, t), pair = facing(o.axis, o.at, g0, g1);
+      if (!pair || openings.some(c => onLine(o, c) && c.width > 0.01 && ends(c)[0] <= g0 + EPS && ends(c)[1] >= g1 - EPS)) continue;
+      openings.push({ type: "open", a: pair[0].id, b: pair[1].id, axis: o.axis, at: o.at, center: (g0 + g1) / 2, width: g1 - g0, height: o.height, sill: 0 });
+      report.stubsOpened++;
     }
   }
   // 2. doors read narrow: widened about their centre, within the wall they stand in

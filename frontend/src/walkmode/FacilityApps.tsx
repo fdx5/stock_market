@@ -5,6 +5,8 @@ import { paintCanPreview } from "./interior/drinkArtwork";
 import type { Drink } from "./interior/drinks";
 
 export const FACILITY_HOME = "https://kospimap.com/map";
+/** a flat's own desktop PC: the site's front page as its home */
+export const HOME_PC_HOME = "https://kospimap.com";
 function CanPreview({ drink }: { drink: Drink }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => { if (ref.current) paintCanPreview(ref.current, drink); }, [drink]);
@@ -37,9 +39,9 @@ export function VendingMenu({ session, onClose }: { session: VendingSession; onC
 }
 
 /** Only the computer being used owns an iframe. Idle monitors share a home-page texture. */
-export function FacilityBrowser({ corners, onClose, onZoom }: { corners(): { x: number; y: number }[] | null; onClose(): void; onZoom(on: boolean): void }) {
-  const home = browserUrl(FACILITY_HOME)!.href;
-  const [visits, setVisits] = useState({ urls: [home], index: 0 }), [address, setAddress] = useState(FACILITY_HOME);
+export function FacilityBrowser({ corners, onClose, onZoom, homePage = FACILITY_HOME }: { corners(): { x: number; y: number }[] | null; onClose(): void; onZoom(on: boolean): void; homePage?: string }) {
+  const home = browserUrl(homePage)!.href;
+  const [visits, setVisits] = useState({ urls: [home], index: 0 }), [address, setAddress] = useState(homePage);
   const [source, setSource] = useState({ url: home, key: 0 });
   const [zoom, setZoom] = useState(true), [slow, setSlow] = useState(false), [error, setError] = useState("");
   const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null), src = source.url;
@@ -78,7 +80,7 @@ export function FacilityBrowser({ corners, onClose, onZoom }: { corners(): { x: 
     </div>
     <div className="wk-browser-controls" role="dialog" aria-label="컴퓨터 브라우저" onPointerDown={e => e.stopPropagation()}>
       <form onSubmit={e => { e.preventDefault(); navigate(address); }}>
-        <button className="wk-btn" type="button" onClick={back}>뒤로</button><button className="wk-btn" type="button" onClick={() => navigate(FACILITY_HOME)}>홈</button>
+        <button className="wk-btn" type="button" onClick={back}>뒤로</button><button className="wk-btn" type="button" onClick={() => navigate(homePage)}>홈</button>
         <input aria-label="웹 주소 또는 검색어" value={address} onChange={e => setAddress(e.target.value)} autoFocus /><button className="wk-btn">이동 / 검색</button>
         <button className="wk-btn" type="button" onClick={() => { onZoom(!zoom); setZoom(!zoom); }}>{zoom ? "축소" : "확대"}</button><button className="wk-btn" type="button" onClick={onClose}>닫기 · Esc</button>
       </form>

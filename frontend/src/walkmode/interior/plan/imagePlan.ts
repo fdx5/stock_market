@@ -11,7 +11,7 @@ export interface Drawing {
 }
 export interface ImageAnalysis {
   status:"ready"|"needs_review";reason?:string;version:string;drawing:Drawing;
-  rooms?:Room[];openings?:Opening[];areaM2?:number;areaError?:number;elapsedMs?:number;
+  rooms?:Room[];openings?:Opening[];appliances?:{kind:string;open:"n"|"s"|"w"|"e";rect:[number,number,number,number]}[];areaM2?:number;areaError?:number;elapsedMs?:number;
   application?:{mode:string;areaAnnotationAdjusted:boolean;geometryBasis:string;templateUsed:boolean};
   scale?:{basis:string;xMetresPerPixel:number;zMetresPerPixel:number;estimated?:boolean;sourceAspectRatio?:number;wallThicknessMetres?:number};
   pixelRooms?:{id:string;rect:[number,number,number,number]}[];
@@ -72,6 +72,8 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis,o:{tidy?:b
     rooms,openings:resolved,fixtures:[],bounds:[Math.min(...xs),Math.min(...zs),Math.max(...xs),Math.max(...zs)],
     check:{areaM2:analysis.areaM2??p.area,error:analysis.areaError??0},style:p.style??"modern_white",floor:p.floor??3,furnishingCase:p.furnishingCase,
     imageAnalysis:{key:analysis.drawing.key,typeName:analysis.drawing.typeName,sourceUrl:analysis.drawing.sourceUrl,scaleBasis:analysis.scale.basis,wallThicknessMetres:analysis.scale.wallThicknessMetres,elapsedMs:analysis.elapsedMs??0,tidy:tidy.report,start:[(x0+x1)/2,(z0+z1)/2,Math.PI]}};
+  const spots=(analysis.appliances??[]).filter(a=>a.kind==="fridge"&&a.rect?.length===4&&a.rect.every(Number.isFinite)).map(a=>({open:a.open,rect:[...a.rect] as [number,number,number,number]}));
+  if(spots.length)plan.fridgeSpots=spots;
   // (a kitchen zone cut round a corridor-like piece: cut again round where its fridge and counter fit)
   if(o.tidy!==false){const k=recutKitchen(plan);if(k){plan.rooms=k.rooms;plan.openings=k.openings;tidy.report.kitchenRecut=true;}}
   // (every room the walker cannot get into — its door lost in the line work — given a way in)

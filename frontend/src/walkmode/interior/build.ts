@@ -46,6 +46,8 @@ export interface Shell {
   /** Unsupported source fragments removed from transient mesh and collisions. */
   removedPostVolumes: number;
   removedPosts: Pick<WallVolume,'axis'|'at'|'lo'|'hi'|'bottom'|'top'>[];
+  /** an image-read flat's solid wall volumes as built (empty for a generated plan) */
+  wallVolumes: WallVolume[];
 }
 
 function sidesOf(r: Room): Side[] {
@@ -540,7 +542,7 @@ export function buildShell(plan: FloorPlan, P: Palette, B: Batcher, dynamic: THR
 
   const roomAt = (x: number, z: number) => plan.rooms.find(r => x >= r.rect[0] && x <= r.rect[2] && z >= r.rect[1] && z <= r.rect[3]) ?? null;
   return {
-    zones, segments, doors, windows, ceilingLights, lampMeshes, H, removedPostVolumes, removedPosts,
+    zones, segments, doors, windows, ceilingLights, lampMeshes, H, removedPostVolumes, removedPosts, wallVolumes: supportedWalls,
     roomAt,
     floorAt: (x, z) => { const r = roomAt(x, z); return r ? -(r.floorDrop ?? 0) : 0; },
   };

@@ -33,7 +33,7 @@ import { withKitGeometryCache } from "./models";
 import { applyViewFov, viewPreferences } from "../viewPreferences";
 import { furnitureFootprints, walkingSpawn } from "./spawn";
 import { InteriorSafetyError, interiorReachability } from "./navigation";
-import {moveThroughGaps,passageNear} from './movement';
+import {keepOff,moveThroughGaps,passageNear} from './movement';
 
 /* The interior: a flat built from its plan, furnished, lit and walked through. One renderer (the
  * page's); its output resolution is set once on entry and kept. Everything that could cost a frame
@@ -78,7 +78,7 @@ export interface InteriorOptions {
   levels?: { level: number; label: string; uses: string }[];
 }
 
-const EYE = 1.6, RADIUS = 0.24;
+const EYE = 1.6, RADIUS = 0.24, BODY_MARGIN = 0.16, EYE_MARGIN = 0.12;
 // Three's init replaces global LTC tables with new textures. Repeating it on every floor left
 // the previous two GPU tables alive. The same immutable tables serve all interior instances.
 let areaLightsReady = false;
@@ -1030,6 +1030,8 @@ export class Interior {
   closeMonitor() { this.zoomScreen(null); this.monitor = null; }
   /** whether the computer in use is a PC방 one (its games) */
   get monitorGame() { return !!this.monitor?.game; }
+  /** a building (its office PCs open the map), not a flat (its desktop opens the site) */
+  get isFacility() { return !!this.o.plan.facility; }
   resetLook() { if (!this.seated) { this.pitch = -.04; this.shown.ease = .15; } }
   keyDown = (e: KeyboardEvent) => {
     if (this.overlay) return;
@@ -1220,7 +1222,10 @@ export class Interior {
     this.vel.x += (wx - this.vel.x) * a; this.vel.y += (wz - this.vel.y) * a;
     const nx = this.pos.x + this.vel.x * dt, nz = this.pos.y + this.vel.y * dt;
     const segments=this.segsIn(Math.min(this.pos.x,nx)-.3,Math.min(this.pos.y,nz)-.3,Math.max(this.pos.x,nx)+.3,Math.max(this.pos.y,nz)+.3);
-    const [px,pz]=moveThroughGaps([this.pos.x,this.pos.y],[nx,nz],segments);
+    const [gx,gz]=moveThroughGaps([this.pos.x,this.pos.y],[nx,nz],segments);
+    // (the body kept 0.16 m off the walls, doors and furniture: walked up to one, it stood on its
+    // face and the eye saw through it)
+    const [px,pz]=keepOff([gx,gz],this.segsIn(gx-.4,gz-.4,gx+.4,gz+.4),BODY_MARGIN);
     const p=new THREE.Vector2(px,pz);
     const moved = Math.hypot(p.x - this.pos.x, p.y - this.pos.y);
     this.pos.copy(p);
@@ -1478,7 +1483,10 @@ export class Interior {
       sh.pos.lerp(cam.position, kp); cam.position.copy(sh.pos);
     }
     // Recheck the interpolated path: turning a corner must not lerp through its wall.
-    if (!this.seated) { const safe = this.view === "third" ? this.collide(...this.boomClear(cam.position.x, cam.position.z).toArray() as [number, number], 0.22, false) : this.clearOf(cam.position.x, cam.position.z); cam.position.x = safe.x; cam.position.z = safe.y; sh.pos.copy(cam.position); }
+    if (!this.seated) { const safe = this.view === "third" ? this.collide(...this.boomClear(cam.position.x, cam.position.z).toArray() as [number, number], 0.22, false) : this.clearOf(cam.position.x, cam.position.z); cam.position.x = safe.x; cam.position.z = safe.y;
+      // (the eye never on a wall's face: 0.12 m off it, so the near plane stays inside the room)
+      const [ex,ez]=keepOff([cam.position.x,cam.position.z],this.segsIn(cam.position.x-.3,cam.position.z-.3,cam.position.x+.3,cam.position.z+.3),EYE_MARGIN);
+      cam.position.x=ex;cam.position.z=ez;sh.pos.copy(cam.position); }
     const near=passageNear(cam.position.x,cam.position.z,this.segsIn(cam.position.x-.2,cam.position.z-.2,cam.position.x+.2,cam.position.z+.2));
     if(Math.abs(cam.near-near)>.00001){cam.near=near;cam.updateProjectionMatrix();}
     cam.rotation.set(sh.pitch, sh.yaw, 0, "YXZ");

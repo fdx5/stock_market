@@ -272,14 +272,35 @@ export function vanity(P: Palette): Kit {
 
 // ------------------------------------------------------------------ kitchen
 
-export function lowerRun(P: Palette, w: number, opts: { sinkAt?: number; cookAt?: number; holeW?: number } = {}): Kit {
-  const k: Kit = [], h = 0.85, d = 0.6, top = 0.03, kick = 0.1;
+/** a kitchen's door fronts: 0 handleless (a groove under the top), 1 long bar pulls, 2 shaker
+ * (framed panels), 3 two-tone (the lower run in dark wood, slim black pulls) */
+export type KitchenFront = 0 | 1 | 2 | 3;
+export const KITCHEN_FRONTS = 4;
+/** the fronts on a run of doors w wide, h tall from y0, at depth zf; `upper`: pulls at the bottom */
+function fronts(P: Palette, k: Kit, w: number, y0: number, h: number, zf: number, front: KitchenFront, upper: boolean, door = 0.6) {
+  const n = Math.max(1, Math.round(w / door)), dw = w / n;
+  for (let i = 1; i < n; i++) k.push(bx(P.rubber, 0.003, h - 0.01, 0.002, -w / 2 + dw * i, y0 + h / 2, zf + 0.0005));
+  for (let i = 0; i < n; i++) {
+    const cx = -w / 2 + dw * (i + 0.5);
+    if (front === 1) k.push(bx(P.chrome, Math.min(0.32, dw * 0.55), 0.014, 0.022, cx, upper ? y0 + 0.06 : y0 + h - 0.07, zf + 0.012));
+    if (front === 3) k.push(bx(P.blackMetal, 0.012, Math.min(0.22, h * 0.4), 0.02, cx + (i % 2 ? -1 : 1) * (dw / 2 - 0.05), upper ? y0 + 0.14 : y0 + h - 0.16, zf + 0.011));
+    if (front === 2) {
+      // a raised frame round each door (a shaker front)
+      const f = 0.055, t = 0.008, inner = h - 2 * f, m = upper ? P.cabinetUpper : P.cabinet;
+      k.push(bx(m, dw - 0.012, f, t, cx, y0 + f / 2, zf + t / 2), bx(m, dw - 0.012, f, t, cx, y0 + h - f / 2, zf + t / 2));
+      k.push(bx(m, f, inner, t, cx - dw / 2 + f / 2 + 0.006, y0 + h / 2, zf + t / 2), bx(m, f, inner, t, cx + dw / 2 - f / 2 - 0.006, y0 + h / 2, zf + t / 2));
+      k.push(cy(P.handle, 0.012, 0.012, 0.025, cx + dw / 2 - 0.07, upper ? y0 + 0.08 : y0 + h - 0.09, zf + 0.02, 12));
+    }
+  }
+}
+
+export function lowerRun(P: Palette, w: number, opts: { sinkAt?: number; cookAt?: number; holeW?: number; front?: KitchenFront; double?: boolean } = {}): Kit {
+  const k: Kit = [], h = 0.85, d = 0.6, top = opts.front === 3 ? 0.04 : 0.03, kick = 0.1, front = opts.front ?? 0;
   k.push(bx(P.rubber, w, kick, d - 0.06, 0, kick / 2, (d - 0.06) / 2));
-  k.push(bx(P.cabinet, w, h - top - kick, d - 0.02, 0, kick + (h - top - kick) / 2, (d - 0.02) / 2));
-  const n = Math.max(1, Math.round(w / 0.6));
-  for (let i = 1; i < n; i++) k.push(bx(P.rubber, 0.003, h - top - kick - 0.01, 0.002, -w / 2 + (w / n) * i, kick + (h - top - kick) / 2, d - 0.0195));
-  // a handleless groove under the top, and drawers left of the cooktop
-  k.push(bx(P.steel, w, 0.03, 0.004, 0, h - top - 0.035, d - 0.018));
+  k.push(bx(front === 3 ? P.woodDark : P.cabinet, w, h - top - kick, d - 0.02, 0, kick + (h - top - kick) / 2, (d - 0.02) / 2));
+  fronts(P, k, w, kick + 0.005, h - top - kick - 0.01, d - 0.02, front, false);
+  // a handleless groove under the top
+  if (front === 0) k.push(bx(P.steel, w, 0.03, 0.004, 0, h - top - 0.035, d - 0.018));
   // the counter top, with holes for the sink
   const y = h - top / 2;
   if (opts.sinkAt !== undefined) {
@@ -293,6 +314,8 @@ export function lowerRun(P: Palette, w: number, opts: { sinkAt?: number; cookAt?
     k.push(part(P.steel, T(new THREE.PlaneGeometry(bw, depth), cx, yt - depth / 2, back + 0.001)), part(P.steel, T(new THREE.PlaneGeometry(bw, depth).rotateY(Math.PI), cx, yt - depth / 2, back + bd - 0.001)));
     k.push(part(P.steel, T(new THREE.PlaneGeometry(bd, depth).rotateY(Math.PI / 2), cx - bw / 2 + 0.001, yt - depth / 2, cz)), part(P.steel, T(new THREE.PlaneGeometry(bd, depth).rotateY(-Math.PI / 2), cx + bw / 2 - 0.001, yt - depth / 2, cz)));
     k.push(cy(P.chrome, 0.045, 0.045, 0.006, cx + bw * 0.25, yt - depth + 0.004, cz, 24));
+    // a double bowl: a divider across, its second drain
+    if (opts.double) { k.push(bx(P.steel, 0.02, depth - 0.04, bd, cx + bw * 0.08, yt - depth / 2 - 0.02, cz), cy(P.chrome, 0.04, 0.04, 0.006, cx - bw * 0.25, yt - depth + 0.004, cz, 24)); }
   } else k.push(bx(P.counter, w, top, d + 0.02, 0, y, (d + 0.02) / 2));
   if (opts.cookAt !== undefined) {
     k.push(rb(P.applianceDark, 0.58, 0.008, 0.5, 0.004, opts.cookAt, h + 0.004, 0.31));
@@ -300,11 +323,29 @@ export function lowerRun(P: Palette, w: number, opts: { sinkAt?: number; cookAt?
   return k;
 }
 
-export function upperRun(P: Palette, w: number, bottom: number, top: number, d = 0.35): Kit {
+export function upperRun(P: Palette, w: number, bottom: number, top: number, d = 0.35, front: KitchenFront = 0): Kit {
   const k: Kit = [], h = top - bottom;
   k.push(bx(P.cabinetUpper, w, h, d, 0, bottom + h / 2, d / 2));
-  const n = Math.max(1, Math.round(w / 0.45));
-  for (let i = 1; i < n; i++) k.push(bx(P.rubber, 0.003, h - 0.01, 0.002, -w / 2 + (w / n) * i, bottom + h / 2, d + 0.0005));
+  fronts(P, k, w, bottom + 0.005, h - 0.01, d, front, true, 0.45);
+  return k;
+}
+
+/** a 키큰장: a full-height column beside the counter — a built-in oven and a steam oven in it
+ * (`oven`), or a pantry of tall doors */
+export function tallUnit(P: Palette, w: number, h: number, oven: boolean, front: KitchenFront = 0): Kit {
+  const k: Kit = [], d = 0.6;
+  k.push(bx(P.rubber, w, 0.1, d - 0.06, 0, 0.05, (d - 0.06) / 2));
+  k.push(bx(front === 3 ? P.woodDark : P.cabinet, w, h - 0.1, d - 0.02, 0, 0.1 + (h - 0.1) / 2, (d - 0.02) / 2));
+  if (oven) {
+    // two appliances stacked at eye height, in black glass with a steel bar
+    for (const [y, hh] of [[0.92, 0.58], [1.54, 0.44]] as [number, number][]) {
+      k.push(rb(P.applianceDark, w - 0.04, hh, 0.02, 0.004, 0, y + hh / 2, d - 0.01, 2));
+      k.push(bx(P.steel, w - 0.16, 0.018, 0.025, 0, y + hh - 0.06, d + 0.012));
+      k.push(bx(P.screen, 0.16, 0.035, 0.002, 0, y + hh - 0.03, d + 0.001));
+    }
+    fronts(P, k, w, 0.105, 0.8, d - 0.02, front, false, w);
+    if (h > 2.1) fronts(P, k, w, 2.0, h - 2.005, d - 0.02, front, true, w);
+  } else fronts(P, k, w, 0.105, h - 0.11, d - 0.02, front, false, w / 2);
   return k;
 }
 
@@ -470,4 +511,31 @@ export function closetSystem(P: Palette, w: number, h: number, colours: THREE.Ma
   }
   for (let x = -w / 2 + 0.2; x < w / 2 - 0.2; x += 0.42) k.push(rb(colours[Math.floor(rnd() * colours.length)], 0.32, 0.14, 0.3, 0.02, x, 0.53, d / 2, 2));
   return k;
+}
+
+/** taps: 12 shapes. Each built on a deck at y (its base at z0, the wall side) and reaching out to
+ * its spout; returns the kit and the spout's mouth (where the water leaves), both in the same frame. */
+export const FAUCET_KINDS = 12;
+export function faucetKit(P: Palette, kind: number, finish: THREE.Material, y: number, z0: number, scale = 1): { kit: Kit; spout: [number, number, number] } {
+  const k: Kit = [], s = scale, M = finish; void P;
+  const col = (r0: number, r1: number, h: number, x = 0, z = z0) => k.push({ m: M, g: boxUV(new THREE.CylinderGeometry(r0 * s, r1 * s, h * s, 20)).translate(x, y + (h * s) / 2, z) });
+  const box = (w: number, h: number, d: number, x: number, yy: number, z: number) => k.push({ m: M, g: boxUV(new THREE.BoxGeometry(w * s, h * s, d * s)).translate(x, yy, z) });
+  const arc = (R: number, r: number, top: number, zc: number, sweep = Math.PI) => { const g = new THREE.TorusGeometry(R * s, r * s, 12, 32, sweep); g.rotateY(Math.PI / 2); k.push({ m: M, g: boxUV(g).translate(0, top, zc) }); };
+  const lever = (h: number, side = 0) => k.push({ m: M, g: boxUV(new THREE.CylinderGeometry(0.006 * s, 0.006 * s, 0.08 * s, 10).rotateZ(side ? 0 : Math.PI / 2).rotateX(side ? 0 : -0.5)).translate(side ? 0.04 * s * side : 0.03 * s, y + h * s, z0 + (side ? 0 : -0.01)) });
+  let mouth: [number, number, number];
+  switch (((kind % FAUCET_KINDS) + FAUCET_KINDS) % FAUCET_KINDS) {
+    case 0: { col(0.014, 0.022, 0.33); arc(0.11, 0.011, y + 0.33 * s, z0 + 0.11 * s); lever(0.1); mouth = [0, y + 0.33 * s - 0.012, z0 + 0.22 * s]; break; } // gooseneck
+    case 1: { col(0.018, 0.026, 0.42); arc(0.13, 0.013, y + 0.42 * s, z0 + 0.13 * s); col(0.016, 0.016, 0.09, 0, z0 + 0.26 * s); k[k.length - 1].g.translate(0, 0.3 * s, 0); lever(0.14, 1); mouth = [0, y + 0.3 * s - 0.01, z0 + 0.26 * s]; break; } // high-arc pull-down
+    case 2: { box(0.035, 0.3, 0.035, 0, y + 0.15 * s, z0); box(0.03, 0.03, 0.22, 0, y + 0.3 * s, z0 + 0.11 * s); box(0.03, 0.05, 0.03, 0, y + 0.27 * s, z0 + 0.21 * s); box(0.06, 0.012, 0.02, 0.03 * s, y + 0.2 * s, z0); mouth = [0, y + 0.245 * s, z0 + 0.21 * s]; break; } // L square
+    case 3: { col(0.02, 0.024, 0.14); arc(0.07, 0.012, y + 0.14 * s, z0 + 0.07 * s); lever(0.1); mouth = [0, y + 0.14 * s - 0.012, z0 + 0.14 * s]; break; } // low arc
+    case 4: { col(0.02, 0.028, 0.12); for (let i = 0; i < 9; i++) { const g = new THREE.TorusGeometry(0.028 * s, 0.004 * s, 6, 20).rotateX(Math.PI / 2); k.push({ m: M, g: g.translate(0, y + (0.13 + i * 0.03) * s, z0) }); } col(0.008, 0.008, 0.42); box(0.012, 0.012, 0.24, 0, y + 0.42 * s, z0 + 0.12 * s); col(0.016, 0.014, 0.08, 0, z0 + 0.24 * s); k[k.length - 1].g.translate(0, 0.3 * s, 0); mouth = [0, y + 0.3 * s - 0.005, z0 + 0.24 * s]; break; } // pro spring
+    case 5: { box(0.24, 0.022, 0.022, 0, y + 0.06 * s, z0); for (const x of [-0.1, 0.1]) { col(0.012, 0.016, 0.06, x * s); box(0.06, 0.008, 0.008, x * s, y + 0.1 * s, z0); box(0.008, 0.008, 0.06, x * s, y + 0.1 * s, z0); } col(0.012, 0.014, 0.25); arc(0.09, 0.011, y + 0.25 * s, z0 + 0.09 * s); mouth = [0, y + 0.25 * s - 0.012, z0 + 0.18 * s]; break; } // bridge, two cross handles
+    case 6: { col(0.022, 0.025, 0.24); lever(0.2, 1); k.push({ m: M, g: boxUV(new THREE.CylinderGeometry(0.011 * s, 0.013 * s, 0.2 * s, 14)).rotateX(Math.PI / 2 - 0.35).translate(0, y + 0.22 * s, z0 + 0.09 * s) }); mouth = [0, y + 0.185 * s, z0 + 0.185 * s]; break; } // side lever, angled spout
+    case 7: { box(0.05, 0.36, 0.05, 0, y + 0.18 * s, z0); box(0.07, 0.012, 0.16, 0, y + 0.355 * s, z0 + 0.1 * s); box(0.012, 0.06, 0.03, 0.035 * s, y + 0.3 * s, z0); mouth = [0, y + 0.345 * s, z0 + 0.17 * s]; break; } // pillar, waterfall
+    case 8: { col(0.024, 0.024, 0.2); k.push({ m: M, g: boxUV(new THREE.CylinderGeometry(0.012 * s, 0.012 * s, 0.13 * s, 14)).rotateX(Math.PI / 2).translate(0, y + 0.18 * s, z0 + 0.075 * s) }); box(0.012, 0.05, 0.012, 0, y + 0.225 * s, z0 - 0.005); mouth = [0, y + 0.17 * s, z0 + 0.14 * s]; break; } // minimal cylinder, joystick
+    case 9: { col(0.016, 0.03, 0.08); col(0.012, 0.012, 0.2); arc(0.08, 0.012, y + 0.2 * s, z0 + 0.08 * s); for (const x of [-0.07, 0.07]) { col(0.01, 0.018, 0.05, x * s, z0 - 0.02); box(0.05, 0.008, 0.008, x * s, y + 0.06 * s, z0 - 0.02); box(0.008, 0.008, 0.05, x * s, y + 0.06 * s, z0 - 0.02); } mouth = [0, y + 0.2 * s - 0.012, z0 + 0.16 * s]; break; } // classic cross handles
+    case 10: { col(0.013, 0.02, 0.22); arc(0.06, 0.012, y + 0.22 * s, z0 + 0.06 * s); k.push({ m: M, g: boxUV(new THREE.CylinderGeometry(0.012 * s, 0.012 * s, 0.006, 16)).translate(0, y + 0.12 * s, z0 + 0.012 * s) }); mouth = [0, y + 0.22 * s - 0.012, z0 + 0.12 * s]; break; } // sensor, no handle
+    default: { col(0.018, 0.022, 0.18); k.push({ m: M, g: boxUV(new THREE.CylinderGeometry(0.01 * s, 0.01 * s, 0.24 * s, 14)).rotateX(Math.PI / 4).translate(0, y + 0.26 * s, z0 + 0.085 * s) }); lever(0.12); mouth = [0, y + 0.34 * s - 0.03, z0 + 0.17 * s]; break; } // swivel tube
+  }
+  return { kit: k, spout: mouth };
 }

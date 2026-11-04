@@ -151,6 +151,10 @@ export function privateOpensToDoors(rooms: Room[], openings: Opening[]): { openi
     if (!a || !b || a.zone === b.zone) return o;
     const pa = PRIVATE.has(a.surfaceType ?? a.type), pb = PRIVATE.has(b.surfaceType ?? b.type);
     if (!pa && !pb) return o;
+    // (a bathroom has one door: a second gap read into one that has its door already is wall — never
+    // left open, never a second door)
+    const wa = WET.has(a.surfaceType ?? a.type), wb = WET.has(b.surfaceType ?? b.type);
+    if ((wa && hasDoor.has(a.zone)) || (wb && hasDoor.has(b.zone))) return null;
     if ((!pa || hasDoor.has(a.zone)) && (!pb || hasDoor.has(b.zone))) return o;
     const wet = WET.has(a.surfaceType ?? a.type) || WET.has(b.surfaceType ?? b.type);
     const width = Math.min(o.width, wet ? 0.8 : 0.9);
@@ -159,7 +163,7 @@ export function privateOpensToDoors(rooms: Room[], openings: Opening[]): { openi
     doors++;
     hasDoor.add(a.zone); hasDoor.add(b.zone);
     return { ...o, type: "door" as const, width, height: 2.1, sill: 0, hinge: "start" as const, swingInto: into.id };
-  });
+  }).filter((o): o is Opening => o !== null);
   return { openings: out, doors };
 }
 
@@ -216,6 +220,15 @@ const reachedRooms = (p: FloorPlan, g: Grid | null) => {
  * walk then reaches the room. Returns how many were added. */
 export function mendAccess(p: FloorPlan): number {
   let added = flipLeaves(p);
+  // (first without ever going through a bathroom; only a dry room still shut off after that may be
+  // given its way in through one — a bedroom walled off by a misread is worse than a second door)
+  added += mendPasses(p, false);
+  if (planAccess(p).blocked.some(b => { const r = p.rooms.find(x => x.id === b.id); const lead = r && (p.rooms.find(x => x.zone === r.zone && x.type !== "hall") ?? r); return lead && !WET.has(kindOf(lead)); })) added += mendPasses(p, true);
+  return added + flipLeaves(p);
+}
+
+function mendPasses(p: FloorPlan, throughWet: boolean): number {
+  let added = 0;
   for (let pass = 0; pass < 24; pass++) {
     const before = planAccess(p);
     if (!before.blocked.length) break;
@@ -223,7 +236,21 @@ export function mendAccess(p: FloorPlan): number {
     let progress = false;
     for (const b of before.blocked) {
       if (reached.has(b.id)) continue;
-      const r = p.rooms.find(x => x.id === b.id)!;
+      let r = p.rooms.find(x => x.id === b.id)!;
+      // (a bathroom with its door is entered through that door: when it cannot be reached, the room
+      // before its door is what needs the way in — a second door into a bathroom is never made)
+      {
+        const lead0 = p.rooms.find(x => x.zone === r.zone && x.type !== "hall") ?? r;
+        if (WET.has(kindOf(lead0))) {
+          const zoneIds = new Set(p.rooms.filter(x => x.zone === r.zone).map(x => x.id));
+          const door = p.openings.find(o => ["door", "sliding_door", "glass_door"].includes(o.type) && (zoneIds.has(o.a) !== zoneIds.has(o.b)) && o.b !== "out");
+          if (door) {
+            const front = p.rooms.find(x => x.id === (zoneIds.has(door.a) ? door.b : door.a));
+            if (!front || reached.has(front.id)) { if (!zoneIds.has(r.id) || r.type !== "hall") continue; }
+            else r = front;
+          }
+        }
+      }
       // (a room's lead piece names what it is: its hall pieces are that room too)
       const lead = p.rooms.find(x => x.zone === r.zone && x.type !== "hall") ?? r;
       const kind = kindOf(lead);
@@ -232,6 +259,8 @@ export function mendAccess(p: FloorPlan): number {
         if (q === r || !reached.has(q.id)) continue;
         const qk = kindOf(q), same = q.zone === r.zone;
         if (!same && WET.has(kind) && (WET.has(qk) || qk === "balcony")) continue;
+        // (nor through a bathroom that has its door: no room is entered through a bathroom's second door)
+        if (!throughWet && !same && WET.has(qk) && p.openings.some(o => ["door", "sliding_door", "glass_door"].includes(o.type) && o.b !== "out" && [o.a, o.b].some(id => p.rooms.find(x => x.id === id)?.zone === q.zone) && ![o.a, o.b].every(id => p.rooms.find(x => x.id === id)?.zone === q.zone))) continue;
         if (!same && kind === "balcony" && WET.has(qk)) continue;
         // (another piece of the same room first: the seam between them opened)
         const pr = same ? -1 : rank(kind, q);
@@ -273,7 +302,7 @@ export function mendAccess(p: FloorPlan): number {
     }
     if (!progress) break;
   }
-  return added + flipLeaves(p);
+  return added;
 }
 
 /** a door whose open leaf stands across the way (to the room next to it, past a corner) hinged at
@@ -329,14 +358,37 @@ function closeGap(p: FloorPlan, r: Room, reached: Set<string>): boolean {
 export function walkways(p: FloorPlan): Rect4[] {
   const g = flood(p);
   if (!g?.from) return [];
-  const { nx, x0, z0 } = g, dist = new Int32Array(g.free.length).fill(-1);
-  // (BFS order distance from the start, from the parents)
+  const { nx, x0, z0 } = g, N = g.free.length;
+  // The ways keep off the walls where the floor lets them: a shortest grid path hugs a wall, and the
+  // wall is where a counter, a wardrobe, a sofa stand — a 4.9 m kitchen wall was left a 1.4 m run.
+  // Cells within 0.8 m of a wall (the free band's edge) cost more; the way swings out into the room.
+  const clear = new Int32Array(N).fill(-1), bq: number[] = [];
+  for (let k = 0; k < N; k++) if (g.seen[k]) { const i = k % nx; if ([i > 0 ? k - 1 : -1, i < nx - 1 ? k + 1 : -1, k - nx, k + nx].some(n => n < 0 || n >= N || !g.free[n])) { clear[k] = 0; bq.push(k); } }
+  for (let h = 0; h < bq.length; h++) { const k = bq[h], i = k % nx; for (const n of [i > 0 ? k - 1 : -1, i < nx - 1 ? k + 1 : -1, k - nx, k + nx]) if (n >= 0 && n < N && g.seen[n] && clear[n] < 0) { clear[n] = clear[k] + 1; bq.push(n); } }
+  const band = Math.round(0.56 / C), cost = (k: number) => clear[k] >= 0 && clear[k] < band ? 1 + 3 * (band - clear[k]) : 1;
+  // (Dijkstra on small integer costs: a bucket queue)
+  const dist = new Int32Array(N).fill(-1), from = new Int32Array(N).fill(-1), buckets: number[][] = [];
+  const start = Array.from({ length: N }, (_, k) => k).filter(k => g.seen[k] && g.from![k] < 0);
+  const best = new Int32Array(N).fill(0x7fffffff);
+  for (const k of start) { best[k] = 0; (buckets[0] ??= []).push(k); }
   const order: number[] = [];
-  for (let k = 0; k < g.free.length; k++) if (g.seen[k] && g.from[k] < 0) { dist[k] = 0; order.push(k); }
-  for (let h = 0; h < order.length; h++) { const k = order[h], i = k % nx; for (const n of [i > 0 ? k - 1 : -1, i < nx - 1 ? k + 1 : -1, k - nx, k + nx]) if (n >= 0 && n < g.free.length && g.from[n] === k && dist[n] < 0) { dist[n] = dist[k] + 1; order.push(n); } }
+  for (let d = 0; d < buckets.length; d++) for (const k of buckets[d] ?? []) {
+    if (dist[k] >= 0 || best[k] !== d) continue;
+    dist[k] = d; order.push(k);
+    const i = k % nx;
+    for (const n of [i > 0 ? k - 1 : -1, i < nx - 1 ? k + 1 : -1, k - nx, k + nx]) {
+      if (n < 0 || n >= N || !g.seen[n] || dist[n] >= 0) continue;
+      const nd = d + cost(n); if (nd < best[n]) { best[n] = nd; from[n] = k; (buckets[nd] ??= []).push(n); }
+    }
+  }
+  g.from = from;
   const keep = new Set<number>();
   for (const r of p.rooms) {
     if (!MUST.has(kindOf(r))) continue;
+    // (no way into a small dead-end piece of a room — a notch, the corner a counter runs on into: it
+    // is reached from its room, and a way to it ran across the kitchen's counter wall)
+    if (r.type === "hall" && (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]) < 1.5 && p.rooms.some(q => q !== r && q.zone === r.zone && q.type !== "hall")
+      && p.openings.filter(o => o.type !== "window" && o.type !== "balcony_window" && (o.a === r.id || o.b === r.id)).length <= 1) continue;
     let entry = -1;
     const i0 = Math.max(0, Math.floor((r.rect[0] - x0) / C)), i1 = Math.min(nx - 1, Math.ceil((r.rect[2] - x0) / C));
     const j0 = Math.max(0, Math.floor((r.rect[1] - z0) / C)), j1 = Math.min(g.nz - 1, Math.ceil((r.rect[3] - z0) / C));
@@ -348,8 +400,10 @@ export function walkways(p: FloorPlan): Rect4[] {
     if (entry < 0) continue;
     // (on into the room 0.4 m, then back along the way to the door)
     let end = entry;
-    for (let h = 0; h < order.length; h++) { const k = order[h]; if (dist[k] === dist[entry] + 10) { let a = k; while (a >= 0 && dist[a] > dist[entry]) a = g.from[a]; if (a === entry) { end = k; break; } } }
-    for (let k = end; k >= 0; k = g.from[k]) keep.add(k);
+    // (0.4 m on: the nearest cell ten steps beyond the entry along the way)
+    const steps = (k: number) => { let n = 0; for (let a = k; a >= 0 && a !== entry; a = g.from![a]) n++; return n; };
+    for (let h = 0; h < order.length; h++) { const k = order[h]; if (dist[k] <= dist[entry]) continue; let a = k; while (a >= 0 && dist[a] > dist[entry]) a = g.from![a]; if (a === entry && steps(k) >= 10) { end = k; break; } }
+    for (let k = end; k >= 0; k = g.from![k]) keep.add(k);
   }
   const out: Rect4[] = [];
   for (const k of keep) { const x = x0 + (k % nx + .5) * C, z = z0 + (Math.floor(k / nx) + .5) * C; out.push([x - .25, z - .25, x + .25, z + .25]); }

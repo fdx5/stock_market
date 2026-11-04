@@ -32,3 +32,24 @@ export function passageNear(x:number,z:number,segments:Seg[]):number {
   for(const [a,b,c,d] of segments){const dx=c-a,dz=d-b,t=Math.max(0,Math.min(1,((x-a)*dx+(z-b)*dz)/(dx*dx+dz*dz||1)));distance=Math.min(distance,Math.hypot(x-a-t*dx,z-b-t*dz));}
   return Math.max(.0001,Math.min(.04,distance*.25));
 }
+
+/** Keep a point `margin` off every segment near it (a body off the walls, the eye off their faces):
+ * pushed straight out of each segment it is too near, never across one (the push itself is a move
+ * through the gaps). In a slot narrower than twice the margin it settles between the two sides.
+ * Stopping a walker on a wall's face put the eye on it, and the near plane cut the wall open. */
+export function keepOff(p:Point,segments:Seg[],margin:number):Point {
+  let q:Point=[...p];
+  for(let it=0;it<4;it++){
+    let px=0,pz=0,n=0;
+    for(const [a,b,c,d] of segments){
+      const dx=c-a,dz=d-b,l2=dx*dx+dz*dz||1e-12,t=Math.max(0,Math.min(1,((q[0]-a)*dx+(q[1]-b)*dz)/l2));
+      const ex=q[0]-a-t*dx,ez=q[1]-b-t*dz,dist=Math.hypot(ex,ez);
+      if(dist<margin&&dist>1e-7){px+=ex/dist*(margin-dist);pz+=ez/dist*(margin-dist);n++;}
+    }
+    if(!n)break;
+    const next=moveThroughGaps(q,[q[0]+px/Math.max(1,n/2),q[1]+pz/Math.max(1,n/2)],segments);
+    if(Math.hypot(next[0]-q[0],next[1]-q[1])<1e-6)break;
+    q=next;
+  }
+  return q;
+}

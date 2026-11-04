@@ -56,6 +56,9 @@ export interface FloorPlan {
   bounds: [number, number, number, number];
   /** image plans: the ways on foot from the front door into each room, kept clear of furniture */
   walkways?: [number, number, number, number][];
+  /** the drawing's fridge niches (a fridge-sized blank box in the kitchen, walled, open on one side):
+   * the fridge stands in one, facing out of its open side */
+  fridgeSpots?: { open: "n" | "s" | "w" | "e"; rect: [number, number, number, number] }[];
   rooms: Room[];
   openings: Opening[];
   fixtures: Fixture[];

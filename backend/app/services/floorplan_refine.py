@@ -144,7 +144,7 @@ def refine(result: dict, image: np.ndarray) -> dict:
         if any(rid in (o["a"], o["b"]) and o["type"] not in ("open",) for o in openings): continue
         blank = frac(inner_white, rid) > .7 or frac(page, rid) > .5
         if blank:
-            removed.add(rid); log.append(f"solid {rid} (dead-end pocket {a_m:.2f} m2, {short:.2f} m wide, blank)")
+            removed.add(rid); log.append(f"solid {rid} (dead-end pocket {a_m:.2f} m2, {short:.2f} m wide, blank) at {[round(v, 2) for v in r['rect']]}")
             continue
         if short >= .45: continue
         # (a slot of floor: the drawing's floor goes on into the room it lies open to — part of it)
@@ -241,6 +241,39 @@ def refine(result: dict, image: np.ndarray) -> dict:
                 for side, axis in ((0, "x"), (2, "x"), (1, "z"), (3, "z")):
                     if o["axis"] == axis and abs(o["at"] - old[side]) < .002: o["at"] = nr[side]
             r["rect"] = nr
+    # --- 4: the kitchen's fridge niche: a fridge-sized box of blank paper inside the kitchen's
+    # floor, bold-walled on its sides and open on one to the floor (the drawing's 냉장고 자리 — read
+    # as floor, the fridge stood wherever it fitted). Reported, not cut: the floor stays.
+    spots = []
+    for r, p in zip(rooms, pixel):
+        if zone_type.get(r["zone"]) != "kitchen": continue
+        a, b, c, d = map(int, map(round, p["rect"]))
+        if c - a < 8 or d - b < 8: continue
+        crop = inner_white[b:d, a:c].astype(np.uint8)
+        n_c, lab, stats, _ = cv2.connectedComponentsWithStats(crop, connectivity=4)
+        for k in range(1, n_c):
+            cx0, cy0, cw, ch, area = stats[k]
+            wm, dm = cw * sx, ch * sy
+            if not (.6 <= wm <= 1.15 and .55 <= dm <= 1.05) or area < .85 * cw * ch: continue
+            X0, Y0, X1, Y1 = a + cx0, b + cy0, a + cx0 + cw, b + cy0 + ch
+            # (its sides: bold ink, or floor beyond — the open side is the one onto the floor)
+            def beyond(side):
+                if side == "n": band = image[max(0, Y0 - 6):Y0 - 2, X0 + 2:X1 - 2]
+                elif side == "s": band = image[Y1 + 2:Y1 + 6, X0 + 2:X1 - 2]
+                elif side == "w": band = image[Y0 + 2:Y1 - 2, max(0, X0 - 6):X0 - 2]
+                else: band = image[Y0 + 2:Y1 - 2, X1 + 2:X1 + 6]
+                if band.size == 0: return 0.
+                g = cv2.cvtColor(band, cv2.COLOR_BGR2GRAY); h = cv2.cvtColor(band, cv2.COLOR_BGR2HSV)
+                return float(((g < 243) & (g > 120) & (h[:, :, 1] > 25)).mean())
+            sides = {"n": ink_on("z", Y0, X0, X1), "s": ink_on("z", Y1, X0, X1), "w": ink_on("x", X0, Y0, Y1), "e": ink_on("x", X1, Y0, Y1)}
+            floor = {k2: beyond(k2) for k2 in sides}
+            open_side = max(floor, key=lambda k2: floor[k2])
+            if floor[open_side] < .5 or sum(v > .5 for v in sides.values()) < 1: continue
+            spots.append({"kind": "fridge", "room": r["id"], "open": open_side,
+                          "rect": [round(to_x(X0), 4), round(to_z(Y0), 4), round(to_x(X1), 4), round(to_z(Y1), 4)]})
+            log.append(f"fridge niche in {r['id']} {wm:.2f}x{dm:.2f} m open {open_side} px {X0},{Y0},{X1},{Y1}")
+    if spots:
+        result["appliances"] = spots
     if log:
         result.setdefault("corrections", []).extend(log)
     return result

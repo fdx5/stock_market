@@ -44,7 +44,7 @@ import { WalkGame, type Entrance, type BicycleHud, type CarHud } from "./game/Wa
 import MiniMap, { toggleMiniMap, type MapSubject } from "./MiniMap";
 import OutdoorMap from "./OutdoorMap";
 import { LaptopScreen, TvBrowser } from "./ScreenApps";
-import { FacilityBrowser, VendingMenu } from "./FacilityApps";
+import { FACILITY_HOME, FacilityBrowser, HOME_PC_HOME, VendingMenu } from "./FacilityApps";
 import type { VendingSession } from "./interior/vending";
 import CameraSettings from "./CameraSettings";
 import { viewPreferences, zoomView } from "./viewPreferences";
@@ -427,11 +427,12 @@ export default function WalkPage() {
 
   const goIn = () => {
     if (!selectionPlan) { setUnitsErr("확인된 전용면적을 선택해 주세요. 면적 자료가 없는 세대는 임의의 84㎡로 대체하지 않습니다."); return; }
-    // (the furniture and appliances combined afresh each time the flat is built — one of the 64
-    // furnishing cases at random — unless one was chosen with its button)
-    openPlan(furnishingPicked.current ? selectionPlan : { ...selectionPlan, furnishingCase: Math.floor(Math.random() * 64) });
+    // (the furniture and appliances combined afresh every time the flat is entered — one of the 64
+    // furnishing cases at random — and, with the style left on 자동, the interior style too: nothing
+    // to choose; a style picked by hand is kept)
+    const random = crypto.getRandomValues(new Uint32Array(2));
+    openPlan({ ...selectionPlan, furnishingCase: random[0] % 64, style: pick.style === "auto" ? STYLE_NAMES[random[1] % STYLE_NAMES.length] : pick.style });
   };
-  const furnishingPicked = useRef(false);
   const openPlan = (p: FloorPlan, fallback = false, attempt = 0) => {
     if (!start || !entering || !renderer.current) return;
     sound.resume();
@@ -983,8 +984,7 @@ export default function WalkPage() {
               <div className="wk-field"><label>층 <b>{pick.floor}층</b></label><input type="range" min={2} max={floors} value={pick.floor} onChange={e => setPick(p => ({ ...p, floor: +e.target.value }))} /></div>
               <div className="wk-field"><label>인테리어</label>
                 <div className="wk-chips">{(["auto", ...STYLE_NAMES] as const).map(s => <button key={s} className={pick.style === s ? "on" : ""} onClick={() => {setPick(p => ({ ...p, style: s }));setRejectedDrawing(null);}}>{s === "auto" ? "자동" : STYLE_LABEL[s]}</button>)}</div>
-                <button className="wk-btn" onClick={()=>{setFurnishingCase(n=>(n+1)%64);furnishingPicked.current=true;setRejectedDrawing(null);}}>가구·가전 구성 바꾸기 · {furnishingCase+1} / 64</button>
-                <button className="wk-btn" onClick={()=>{const random=crypto.getRandomValues(new Uint32Array(1))[0];setFurnishingCase(n=>(n+1+random%63)%64);setRejectedDrawing(null);}}>가구·가전 랜덤 변경</button>
+                <small style={{opacity:.75}}>가구·가전 배치와 (자동일 때) 인테리어는 들어갈 때마다 새로 구성됩니다.</small>
               </div>
               <div className="wk-field"><label>반려동물</label>
                 <div className="wk-chips">{([["dog", "🐶 시바견"], ["cat", "🐱 고양이"]] as const).map(([k, l]) => <button key={k} className={pet === k ? "on" : ""} onClick={() => setPet(k)}>{l}</button>)}</div>
@@ -1042,7 +1042,7 @@ export default function WalkPage() {
           )}
           {!vending && hud?.seated !== "화면" && hud?.seated !== "반려동물" && <MiniMap plan={plan} subject={mapSubject} touch={touch} />}
           {vending && <VendingMenu key={vending.id} session={vending} onClose={() => setVending(null)} />}
-          {monitorOpen && (interior.current?.monitorGame ? <PcGames corners={monitorCorners} onClose={closeMonitor} onZoom={on => interior.current?.zoomScreen(on ? "monitor" : null)} /> : <FacilityBrowser corners={monitorCorners} onClose={closeMonitor} onZoom={on => interior.current?.zoomScreen(on ? "monitor" : null)} />)}
+          {monitorOpen && (interior.current?.monitorGame ? <PcGames corners={monitorCorners} onClose={closeMonitor} onZoom={on => interior.current?.zoomScreen(on ? "monitor" : null)} /> : <FacilityBrowser corners={monitorCorners} onClose={closeMonitor} onZoom={on => interior.current?.zoomScreen(on ? "monitor" : null)} homePage={interior.current?.isFacility ? FACILITY_HOME : HOME_PC_HOME} />)}
           {tvOpen && <TvBrowser corners={tvCorners} zoom={{ on: zoomed === "tv", set: on => zoomTo(on ? "tv" : null) }} onOff={() => { interior.current?.tvPower(false); setTvOpen(false); if (zoomed === "tv") zoomTo(null); }} onPicture={img => interior.current?.tvPicture(img)} />}
           {laptopOpen && <LaptopScreen corners={laptopCorners} zoom={{ on: zoomed === "laptop", set: on => zoomTo(on ? "laptop" : null) }} onClose={() => { interior.current?.closeLaptop(); setLaptopOpen(false); setZoomed(null); }} />}
           <div className="wk-cross" />
