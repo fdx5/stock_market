@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from unittest import TestCase
 from unittest.mock import patch
 from app.services import community_feed as feed
+REAL_LOAD_POST = feed.load_post
 
 
 class CommunityTests(TestCase):
@@ -150,3 +151,31 @@ class CommunityTests(TestCase):
         result = feed.parse_preview(('<div id="bbsWrtCntn">' + markup + '</div>').encode(), 'https://www.paxnet.co.kr/tbbs/view?id=N00801&seq=1')
         self.assertEqual(result['text'], '정상 문단')
         self.assertEqual([b['type'] for b in result['blocks']], ['paragraph'])
+
+    def test_cold_background_request_does_not_wait_for_collection(self):
+        jobs = []
+        with patch.object(feed, "_snapshots", feed.OrderedDict()), patch.object(feed, "_latest", {}), patch.object(feed, "_attempted", {}), patch.object(feed, "_refreshing", set()), patch.object(feed, "collect", return_value=(self.posts(), {"id": "pax-market", "status": "ok"})) as collect, patch.object(feed._refresh_pool, "submit", side_effect=lambda job: jobs.append(job)):
+            pending = feed.listing("kr", background=True)
+            self.assertTrue(pending['refreshing'])
+            self.assertEqual(pending['items'], [])
+            self.assertEqual(collect.call_count, 0)
+            self.assertEqual(len(jobs), 1)
+            jobs[0]()
+            ready = feed.listing("kr", background=True)
+            self.assertFalse(ready['refreshing'])
+            self.assertEqual(len(ready['items']), 50)
+
+    def test_partial_snapshots_contain_only_verified_bodies(self):
+        with patch.object(feed, "_snapshots", feed.OrderedDict()), patch.object(feed, "_latest", {}), patch.object(feed, "_attempted", {}), patch.object(feed, "collect", return_value=(self.posts(), {"id": "pax-market", "status": "ok"})):
+            result = feed.listing('kr')
+            partial = [s for s in feed._snapshots.values() if s['snapshot'] != result['snapshot']]
+            self.assertTrue(partial)
+            self.assertTrue(any(s['checked_count'] < s['candidate_count'] for s in partial))
+            self.assertTrue(all(item.get('_body', {}).get('status') == 'ok' for s in partial for item in s['items']))
+
+    def test_unavailable_public_bodies_back_off_without_repeating_every_post(self):
+        with patch.object(feed, '_previews', feed.OrderedDict()), patch.object(feed, '_body_failures', {}), patch.object(feed, '_body_backoff', {}), patch.object(feed, '_get', return_value=b'<html><body>Login required</body></html>') as get:
+            for n in range(1, 5):
+                result = REAL_LOAD_POST({'id': f'82-{n}', 'url': f'https://www.82cook.com/entiz/read.php?bn=15&num={n}'})
+                self.assertEqual(result['status'], 'unavailable')
+            self.assertEqual(get.call_count, 3)

@@ -3,7 +3,7 @@
 Collection is demand-driven; entry refreshes coalesce for five seconds. Process-local
 snapshots keep paging stable; a restart expires snapshots, never stored data.
 """
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from datetime import datetime, timezone, timedelta
 from collections import OrderedDict
 from threading import Lock
@@ -14,6 +14,8 @@ import time
 import uuid
 import unicodedata
 from html import unescape
+import logging
+from itertools import islice
 
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag, Comment
@@ -35,6 +37,9 @@ _previews = OrderedDict()
 _post_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="community-body")
 _refresh_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="community-refresh")
 _refreshing = set()
+_log = logging.getLogger(__name__)
+_body_failures = {}
+_body_backoff = {}
 
 
 def clean(value):
@@ -200,6 +205,23 @@ def collect(source, board):
         return [], {"id": source[0], "name": source[1], "status": "unavailable", "count": 0}
 
 
+def publish(board, readable, states, old=None, checked=0, candidates=0, complete=True):
+    source_states = [dict(state, readable_count=sum(p["source_id"] == state["id"] for p in readable)) for state in states]
+    if complete:
+        for state in source_states:
+            if state["status"] == "ok" and not state["readable_count"]: state["status"] = "unavailable"
+    data = {"snapshot": uuid.uuid4().hex, "board": board, "items": deduplicate(readable), "sources": source_states,
+            "checked_at": datetime.now(timezone.utc).isoformat(), "checked_count": checked, "candidate_count": candidates,
+            "collected_at": datetime.now(timezone.utc).isoformat() if readable and any(s["status"] == "ok" for s in source_states) else (old.get("collected_at") if old else None)}
+    with _guard:
+        _snapshots[data["snapshot"]] = data
+        _latest[board] = data["snapshot"]
+        while len(_snapshots) > 64:
+            key = next(k for k in _snapshots if k not in _latest.values())
+            _snapshots.pop(key)
+    return data
+
+
 def latest(board, refresh=False):
     with _locks[board]:
         now = time.monotonic()
@@ -221,23 +243,26 @@ def latest(board, refresh=False):
                 if item["source_id"] in failed: unique.setdefault(item["id"], item)
         # Publish only articles whose complete readable body or attachments were
         # actually obtained. Keep that body in the immutable reading snapshot.
-        verified = list(_post_pool.map(verified_post, unique.values()))
-        readable = [item for item in verified if item is not None]
-        for state in states:
-            state["readable_count"] = sum(p["source_id"] == state["id"] for p in readable)
-            if state["status"] == "ok" and not state["readable_count"]: state["status"] = "unavailable"
-        items = deduplicate(readable)
-        snapshot = {"snapshot": uuid.uuid4().hex, "board": board, "items": items, "sources": states,
-                    "checked_at": datetime.now(timezone.utc).isoformat(),
-                    "collected_at": datetime.now(timezone.utc).isoformat() if any(s["status"] == "ok" for s in states) else (old["collected_at"] if previous else None)}
-        with _guard:
-            _snapshots[snapshot["snapshot"]] = snapshot
-            _latest[board] = snapshot["snapshot"]
-            # Process memory only, no persisted records are touched.
-            while len(_snapshots) > 64:
-                key = next(k for k in _snapshots if k not in _latest.values())
-                _snapshots.pop(key)
-        return snapshot
+        _log.info("Community %s: checking %s public candidates", board, len(unique))
+        candidates = iter(sorted(unique.values(), key=lambda p: (p["published_at"], p["id"]), reverse=True))
+        # Keep only four queued jobs per board, so one cold board cannot monopolize
+        # the shared pool. Publish completed, readable bodies without waiting for
+        # the slowest origin request in the entire collection.
+        pending = {_post_pool.submit(verified_post, item) for item in islice(candidates, 4)}
+        readable, checked, last_publish = [], 0, time.monotonic()
+        while pending:
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                item = future.result()
+                checked += 1
+                if item is not None: readable.append(item)
+                next_item = next(candidates, None)
+                if next_item is not None: pending.add(_post_pool.submit(verified_post, next_item))
+            if readable and (len(readable) == 1 or checked % 10 == 0 or time.monotonic() - last_publish >= 2):
+                publish(board, readable, states, old if previous else None, checked, len(unique), complete=False)
+                last_publish = time.monotonic()
+        _log.info("Community %s: ready %s of %s checked", board, len(readable), checked)
+        return publish(board, readable, states, old if previous else None, checked, len(unique))
 
 
 def responsive_latest(board, refresh=False):
@@ -245,9 +270,8 @@ def responsive_latest(board, refresh=False):
         key = _latest.get(board)
         data = _snapshots.get(key)
         due = time.monotonic() - _attempted.get(board, 0) >= (5 if refresh else 60)
-        launch = data is not None and due and board not in _refreshing
+        launch = (data is None or due) and board not in _refreshing
         if launch: _refreshing.add(board)
-    if data is None: return latest(board, refresh), False
     if launch:
         def update():
             try: latest(board, refresh)
@@ -257,6 +281,8 @@ def responsive_latest(board, refresh=False):
     with _guard:
         refreshing = board in _refreshing
         data = _snapshots.get(_latest.get(board), data)
+    if data is None:
+        data = {"snapshot": "", "board": board, "items": [], "sources": [{"id": s[0], "name": s[1], "status": "pending", "count": 0} for s in SOURCES[board]], "checked_at": datetime.now(timezone.utc).isoformat(), "collected_at": None}
     return data, refreshing
 
 
@@ -433,6 +459,12 @@ def load_post(item):
     ttl = 300 if cached and cached[1].get("status") == "ok" else 30
     if cached and time.monotonic() - cached[0] < ttl: return cached[1]
     result = {"text": "", "excerpt": "", "images": [], "blocks": [], "status": "unavailable"}
+    # A source may expose search headings while requiring login for every body.
+    # Stop repeatedly requesting that source after confirmed failures; never
+    # bypass its access controls, and periodically permit a fresh public check.
+    host = urlparse(item["url"]).hostname
+    with _guard:
+        if _body_backoff.get(host, 0) > time.monotonic(): return result
     for attempt in range(2):
         try:
             result = parse_preview(_get(item["url"]), item["url"], item["id"].startswith("pax-"))
@@ -441,6 +473,15 @@ def load_post(item):
             if attempt: break
         except Exception: break
     with _guard:
+        if item["id"].startswith("82-"):
+            if result["status"] == "ok":
+                _body_failures[host] = 0
+                _body_backoff[host] = 0
+            else:
+                _body_failures[host] = _body_failures.get(host, 0) + 1
+                if _body_failures[host] >= 3:
+                    _body_backoff[host] = time.monotonic() + 120
+                    _body_failures[host] = 0
         _previews[post_id] = (time.monotonic(), result)
         while len(_previews) > 256: _previews.popitem(last=False)
     return result
