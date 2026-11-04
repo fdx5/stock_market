@@ -46,4 +46,20 @@ each full response, even when a newer partial response had already arrived.
   these are observations, not production latency guarantees.
 
 No persistent data, database schema, authentication settings, URLs, or theme changed.
-Deployment status is to be recorded after production verification.
+
+## Production deployment
+
+- Release commit: `e54417f48e46720d81087f1425dfb22e07580548`.
+- Render service: `srv-d95okvtckfvc73bjfu3g`, workspace `stock_market`.
+- Deploy: `dep-dbli1v5bedkc73aboo5g`, `live` at 2026-11-04 21:14:10 KST.
+- `/api/health` returned `status=ok` and the release commit.
+- Final API verification: KOSPI 500/500, KOSDAQ 200/200, S&P 503/503,
+  Nasdaq 102/102 returned actual quote timestamps. Both US responses reported
+  pre-market, and their NVDA quote time and price agreed in the final check.
+- Hyundai: both 20-stock and 500-stock responses returned 287,500 KRW,
+  +3.60%, `naver_nxt`, with the 20:00 KST trade timestamp.
+- Real production browser: all four maps rendered without page errors.
+  Hyundai showed +3.60% immediately and remained +3.60% after the next poll.
+- No error-level Render logs were returned for the post-deployment check.
+- API/browser validation artifacts and screenshots are under the isolated
+  worktree's `tmp/` directory; they contain public market data only.
