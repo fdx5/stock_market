@@ -302,6 +302,73 @@ def _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,barrier,xs,ys,
             assigned[c]=open_living[c]
 
 
+def _rebalance_by_area(evidence,cells,assigned,seeds,neighbours,barrier,xs,ys,exclusive_area) -> int:
+    """Room areas printed on the drawing are its own measurements: the floor the zones
+    split between them follows them where the geodesic split and the open-kitchen share
+    did not (kitchens came out at 40-65 % of their printed area, the living rooms they
+    open onto 20-60 % over theirs).
+
+    One isotropic scale from all printed rooms (as fit_area_scale), then each room short
+    of its print by more than 8 % takes adjacent cells across open edges (no wall) from
+    a room over its print, or from unprinted shared floor (living, hall, the entrance's
+    untiled part) — nearest its own label first, never a labelled seed, never splitting
+    the room it takes from, never bath tile for a dry room. Returns cells moved."""
+    area=lambda c:(xs[c[0]+1]-xs[c[0]])*(ys[c[1]+1]-ys[c[1]])
+    # (a 주방 및 식당 split for furnishing into kitchen and living keeps one print for both)
+    group={z:s.get("areaGroup",z) for z,s in enumerate(seeds)}
+    pixels={}
+    for c,z in assigned.items():pixels[group[z]]=pixels.get(group[z],0)+area(c)
+    printed={}
+    for item in evidence:
+        if item.get("scope")!="room":continue
+        c=next((c for c in cells if xs[c[0]]<=item["x"]<=xs[c[0]+1] and ys[c[1]]<=item["y"]<=ys[c[1]+1]),None)
+        z=assigned.get(c) if c is not None else None
+        if z is None or item["areaM2"]>=exclusive_area*.9 or seeds[z]["type"] in ("balcony","utility"):continue
+        z=group[z]
+        if z not in printed or item.get("confidence",0)>printed[z][1]:printed[z]=(item["areaM2"],item.get("confidence",0))
+    if len(printed)<2:return 0
+    k2=math.exp(sum(math.log(a/pixels[z]) for z,(a,_) in printed.items())/len(printed))   # m2 per pixel2
+    target={z:a/k2 for z,(a,_) in printed.items()}
+    seed_cells={s["cell"] for s in seeds}
+    shared_kinds=("living","hall","kitchen","entrance")
+    def connected_without(z,q):
+        own=[c for c,v in assigned.items() if v==z and c!=q]
+        if not own:return False
+        seen={own[0]};stack=[own[0]]
+        while stack:
+            p=stack.pop()
+            for n,_ in neighbours[p]:
+                if n!=q and n not in seen and assigned.get(n)==z:seen.add(n);stack.append(n)
+        return len(seen)==len(own)
+    moved=0
+    for _ in range(400):
+        short=[(1-pixels[z]/t,z) for z,t in target.items() if pixels.get(z,0)<t*.92]
+        if not short:break
+        short.sort(reverse=True);progress=False
+        for _,z in short:
+            kind=seeds[z]["type"];home=cells[seeds[z]["cell"]]["center"]
+            candidates=[]
+            for c,v in list(assigned.items()):
+                if group[v]!=z:continue
+                for q,_ in neighbours[c]:
+                    d=assigned.get(q)
+                    if d is None or group[d]==z or q in seed_cells or barrier(c,q)[0]>=.13:continue
+                    f=cells[q]
+                    if kind not in ("bathroom",) and f.get("blue",0)>.25:continue
+                    if f.get("checker") and kind!="entrance":continue
+                    g=group[d]
+                    surplus=g in target and pixels[g]-area(q)>=target[g]*.96
+                    free=g not in target and seeds[d]["type"] in shared_kinds and not (seeds[d]["type"]=="entrance" and f.get("checker"))
+                    if not (surplus or free):continue
+                    candidates.append((math.dist(f["center"],home),q,d,v))
+            for _,q,d,v in sorted(candidates):
+                if not connected_without(d,q):continue
+                assigned[q]=v;pixels[z]+=area(q);pixels[group[d]]-=area(q);moved+=1;progress=True;break
+            if progress:break
+        if not progress:break
+    return moved
+
+
 def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | None = None, expanded:bool=False,supply_area:float|None=None, _axis_recovery:bool=False) -> dict:
     started = time.perf_counter()
     if not isinstance(exclusive_area, (int, float)) or not math.isfinite(exclusive_area) or not 5 <= exclusive_area <= 1000:
@@ -702,6 +769,36 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             group=max(groups,key=lambda g:footprint(g)[0])
             seed_cell=max(group,key=lambda c:(xs[c[0]+1]-xs[c[0]])*(ys[c[1]+1]-ys[c[1]]))
             seeds.append({"cell":seed_cell,"type":"entrance","label":"현관 (타일 무늬 인식)","observed":False})
+    # A colour-inferred bedroom (its label hidden) inside a room that already has a seed is
+    # that room, not a second one: two seeds split one bedroom into two half rooms with a
+    # wall between them that the drawing does not have (a printed 7.17 m2 bedroom became
+    # 4.0 + 4.2). Kept only where its wall-enclosed floor holds no other seed.
+    def open_region(start):
+        region={start};pending=[start]
+        while pending:
+            p=pending.pop()
+            for q,_ in neighbours[p]:
+                if q not in region and barrier(p,q)[0]<.13 and cells[q]["blue"]<.05:
+                    region.add(q);pending.append(q)
+        return region
+    # The OCR passes (orientations, modes) read one label more than once, a little apart and
+    # sometimes garbled ('침실' and '짐침실실' 6 cm lower): a seed of a type already seeded in
+    # the same wall-enclosed floor is that room again — kept, it halved the room.
+    kept=[]
+    for seed in seeds:
+        region=None
+        if not seed["observed"] and seed["type"]=="bedroom":
+            region=open_region(seed["cell"])
+            if any(o["cell"] in region for o in seeds if o is not seed and (o["observed"] or o in kept)):continue
+        # (near: a doorway is an open edge too, so the open floor alone would join two rooms;
+        # a label read twice lands within a line or two of itself)
+        here=cells[seed["cell"]]["center"]
+        near=[o for o in kept if o["type"]==seed["type"] and seed["type"]!="kitchen" and math.dist(cells[o["cell"]]["center"],here)<120]
+        if near:
+            region=region or open_region(seed["cell"])
+            if any(o["cell"] in region for o in near):continue
+        kept.append(seed)
+    seeds=kept
     # '주방' and '식당' can be two OCR anchors in the same open room. Give that
     # physical space one kitchen identity; duplicate IDs misrouted shared walls.
     unique=[]
@@ -757,8 +854,14 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             # A wet room is enclosed: across a wall or door it never takes untiled floor
             # (an unlabelled entrance strip became a shower room).
             if kind in ("bathroom","utility") and feature["blue"]<.05 and cost>=100:mismatch+=400
-            # The entrance is its tile floor; it does not take the hall beyond it.
-            if kind=="entrance" and not feature.get("checker") and not seeds[index]["observed"]:mismatch+=300
+            # The entrance is its tile floor; it does not take the hall beyond it — labelled or
+            # not, the wood-floored hall past its step belongs to the living/kitchen side (a
+            # labelled 현관 took the dining half of a 주방 및 식당 and shrank the kitchen to 40 %).
+            if kind=="entrance" and not feature.get("checker") and (not seeds[index]["observed"] or feature["wood"]>.25):mismatch+=300
+            # A private room ends at its walls: across a wall or its door it does not take the
+            # wood-floored corridor or dining floor outside (a bedroom grew a strip out of its door
+            # and the shared floor it took left the kitchen and the hall short).
+            if kind in ("bedroom","dressroom") and cost>=100 and feature["wood"]>.25 and feature["pale"]<.5:mismatch+=400
             # Korean flats open the kitchen onto the living room, which is kept wide. The
             # kitchen spreads at a higher cost, so the shared floor, dining area and the
             # corridor belong to the living room rather than the kitchen.
@@ -766,6 +869,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             if nd<distances.get(q,float("inf")):
                 distances[q]=nd;assigned[q]=index;heapq.heappush(queue,(nd,index,q))
     _limit_open_kitchen(assigned,distances,seeds,cells,neighbours,barrier,xs,ys,(sx,sy))
+    rebalanced=_rebalance_by_area(area_evidence,cells,assigned,seeds,neighbours,barrier,xs,ys,exclusive_area)
     area_constraints=[]
     area_scale_applied=False
     area_annotation_conflict=False
@@ -1116,7 +1220,7 @@ def _analyze_image(data: bytes, exclusive_area: float, *, words: list[dict] | No
             "recognizedDimensions":[{k:d[k] for k in ("text","millimetres","x","y","rotation","confidence")} for d in numeric],
             "rooms":rooms,"openings":openings,"areaM2":round(counted,2),"areaError":round(error,4),"elapsedMs":elapsed,
             "areaBasis":"expanded_drawing" if expanded_area else "exclusive_area",
-            "application":{"mode":"approximate_source" if area_annotation_conflict or abs(error)>=.18 or not match['targetMet'] or not usable_beds or not connected else "source","areaAnnotationAdjusted":area_annotation_conflict,"geometryBasis":"original_image","templateUsed":False},
+            "application":{"mode":"approximate_source" if area_annotation_conflict or abs(error)>=.18 or not match['targetMet'] or not usable_beds or not connected else "source","areaAnnotationAdjusted":area_annotation_conflict,"geometryBasis":"original_image","templateUsed":False,"areaRebalancedCells":rebalanced},
             "checks":{"areaConsistent":abs(error)<.18 or expanded_area,"roomAreasConsistent":not area_annotation_conflict,"bedroomsUsable":usable_beds,"connected":connected,"narrowDoorways":narrow_doorways,"kitchenWithinLiving":kitchen_within_living},
             "note":"원본 이미지의 벽·방 위치를 인식한 모델입니다. 도면 치수 인식과 공간 구분에 오차가 있을 수 있으며 가구·마감은 연출입니다."+(" 확장형의 발코니 확장 면적이 포함되어 계산된 실내 면적은 전용면적과 다릅니다." if expanded_area else "")+(" 치수 없는 공간은 면적과 원본 가로·세로 비율로 환산했습니다. 실측 치수가 아니며 면적 일치는 독립적인 정확도 검증이 아닙니다." if not dimension_scale else "")+(" 작은 문 기호의 환산 폭을 보존했으며 좁은 통로도 이동할 수 있습니다." if narrow_doorways else "")}
     if area_annotation_conflict:result['note']+=' 방별 면적 표기 차이는 전용면적을 기준으로 축척 보정했으며 원본 방 배치와 벽 위치는 유지했습니다.'

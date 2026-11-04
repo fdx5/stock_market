@@ -1,7 +1,8 @@
 import type { FloorPlan, Opening, Room } from "./types";
 import { fixturesFor, type PlanInput } from "./generate";
 import {resolveWallOpenings} from './wallOpenings';
-import {openPublicStubs,tidyImageOpenings} from './imageTidy';
+import {mergeOpenPieces,openPublicStubs,tidyImageOpenings} from './imageTidy';
+import {recutKitchen} from './kitchenRecut';
 
 export interface Drawing {
   key:string;naverId:string;typeId:string;typeName:string;exclusiveArea:number;supplyArea:number;
@@ -52,8 +53,11 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis,o:{tidy?:b
   if(!openings.some(o=>o.type==="front_door")){const fd=frontDoorFor(rooms,openings);if(fd)openings.push(fd);}
   // (stubs of wall left by passages read short, seams inside one room, doors read half-width)
   const tidy=o.tidy===false?{openings,report:{stubsOpened:0,seamsOpened:0,doorsWidened:0}}:tidyImageOpenings(rooms,openings);
-  let resolved=resolveWallOpenings(rooms,tidy.openings,true);
-  if(o.tidy!==false){const pub=openPublicStubs(rooms,resolved);resolved=pub.openings;tidy.report.publicStubs=pub.opened;}
+  // (a room's pieces with nothing between them: one rectangle, furnished and walked whole)
+  const whole=o.tidy===false?{rooms,openings:tidy.openings,merged:0}:mergeOpenPieces(rooms,tidy.openings);
+  rooms.splice(0,rooms.length,...(whole.rooms as typeof rooms));
+  let resolved=resolveWallOpenings(rooms,whole.openings,true);
+  if(o.tidy!==false){const pub=openPublicStubs(rooms,resolved);resolved=pub.openings;tidy.report.publicStubs=pub.opened;tidy.report.piecesMerged=whole.merged;}
   const xs=rooms.flatMap(r=>[r.rect[0],r.rect[2]]),zs=rooms.flatMap(r=>[r.rect[1],r.rect[3]]);
   const living=rooms.find(r=>r.type==="living");if(!living)return null;
   const [x0,z0,x1,z1]=living.rect;
@@ -64,7 +68,10 @@ export function floorPlanFromImage(p:PlanInput,analysis:ImageAnalysis,o:{tidy?:b
     rooms,openings:resolved,fixtures:[],bounds:[Math.min(...xs),Math.min(...zs),Math.max(...xs),Math.max(...zs)],
     check:{areaM2:analysis.areaM2??p.area,error:analysis.areaError??0},style:p.style??"modern_white",floor:p.floor??3,furnishingCase:p.furnishingCase,
     imageAnalysis:{key:analysis.drawing.key,typeName:analysis.drawing.typeName,sourceUrl:analysis.drawing.sourceUrl,scaleBasis:analysis.scale.basis,wallThicknessMetres:analysis.scale.wallThicknessMetres,elapsedMs:analysis.elapsedMs??0,tidy:tidy.report,start:[(x0+x1)/2,(z0+z1)/2,Math.PI]}};
-  plan.fixtures=fixturesFor(plan).filter(f=>{const r=ids.get(f.room);return r&&f.pos[0]>=r.rect[0]+.15&&f.pos[0]<=r.rect[2]-.15&&f.pos[1]>=r.rect[1]+.15&&f.pos[1]<=r.rect[3]-.15;});
+  // (a kitchen zone cut round a corridor-like piece: cut again round where its fridge and counter fit)
+  if(o.tidy!==false){const k=recutKitchen(plan);if(k){plan.rooms=k.rooms;plan.openings=k.openings;tidy.report.kitchenRecut=true;}}
+  const merged=new Map(plan.rooms.map(r=>[r.id,r]));
+  plan.fixtures=fixturesFor(plan).filter(f=>{const r=merged.get(f.room);return r&&f.pos[0]>=r.rect[0]+.15&&f.pos[0]<=r.rect[2]-.15&&f.pos[1]>=r.rect[1]+.15&&f.pos[1]<=r.rect[3]-.15;});
   return plan;
 }
 

@@ -190,3 +190,30 @@ def test_neutral_bathtub_floor_stays_in_the_observed_bathroom():
     assert a['status']=='ready',a.get('reason')
     zones={r['zone'] for r in a['rooms'] if r['type'] in ('bathroom','ensuite')}
     assert any(r['zone'] in zones and p['rect'][0]<=170<=p['rect'][2] and p['rect'][1]<=125<=p['rect'][3] for r,p in zip(a['rooms'],a['pixelRooms']))
+
+
+def test_a_label_read_twice_by_ocr_is_one_room_not_two_halves():
+    # (an OCR pass reads '침실' again, garbled and 60 px lower: the bedroom stays one room)
+    data,words=drawn_flat()
+    words=words+[{"text":"짐침실실","x":200,"y":470,"w":20,"h":12,"confidence":80,"rotation":0}]
+    result=analyze_image(data,63,words=words)
+    assert result['status']=='ready',result.get('reason')
+    zones={r['zone'] for r in result['rooms'] if r['type'] in ('bedroom','master')}
+    assert len(zones)==2,zones   # the two drawn bedrooms, not three
+    # two separate bedrooms with their own labels stay two (doorways are open edges, not one room)
+    clean=analyze_image(*drawn_flat()[:1],63,words=drawn_flat()[1])
+    assert len({r['zone'] for r in clean['rooms'] if r['type'] in ('bedroom','master')})==2
+
+
+def test_printed_room_areas_steer_the_split_of_open_floor():
+    # a kitchen printed larger than the open floor the geodesic split gave it takes floor
+    # from the living room it opens onto, without crossing a wall
+    data,words=drawn_flat()
+    words=[w for w in words if not w['text'].isdigit()]+[
+        {"text":"20.5","x":230,"y":225,"w":20,"h":12,"confidence":95,"rotation":0},
+        {"text":"14.8","x":460,"y":435,"w":20,"h":12,"confidence":95,"rotation":0},
+        {"text":"10.4","x":200,"y":435,"w":20,"h":12,"confidence":95,"rotation":0}]
+    result=analyze_image(data,63,words=words)
+    assert result['status']=='ready',result.get('reason')
+    residuals=[c['relativeResidual'] for c in result.get('areaConstraints',[])]
+    assert residuals and max(residuals)<.35,residuals

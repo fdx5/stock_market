@@ -47,7 +47,7 @@ function sharedRun(rooms: Room[], o: Opening, ids: Map<string, Room>): [number, 
   return hi - lo > 0.05 ? [lo, hi] : null;
 }
 
-export interface TidyReport { stubsOpened: number; seamsOpened: number; doorsWidened: number; publicStubs?: number }
+export interface TidyReport { stubsOpened: number; seamsOpened: number; doorsWidened: number; publicStubs?: number; piecesMerged?: number; kitchenRecut?: boolean }
 
 export function tidyImageOpenings(rooms: Room[], input: Opening[]): { openings: Opening[]; report: TidyReport } {
   const ids = new Map(rooms.map(r => [r.id, r]));
@@ -166,4 +166,41 @@ export function openPublicStubs(rooms: Room[], openings: Opening[]): { openings:
     }
   }
   return { openings: out, opened };
+}
+
+/** Pieces of one room (one zone) whose union is a rectangle and whose seam is open over its whole
+ * length — after tidyImageOpenings, the strips and the mostly-open seams — become one rectangle:
+ * the room is furnished and walked as the size it is (its furniture went in the largest piece
+ * only: a living room kept 76 % of its floor, a kitchen 69 %). Never across a door or a window,
+ * never two zones; openings re-pointed to the merged room. */
+export function mergeOpenPieces(input: Room[], source: Opening[]): { rooms: Room[]; openings: Opening[]; merged: number } {
+  let rooms = input.map(r => ({ ...r, rect: [...r.rect] as Room["rect"] })), openings = source.map(o => ({ ...o })), merged = 0;
+  const area = (r: Room) => (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]);
+  for (let changed = true; changed;) {
+    changed = false;
+    pairs: for (let i = 0; i < rooms.length; i++) for (let j = i + 1; j < rooms.length; j++) {
+      const a = rooms[i], b = rooms[j];
+      // (pieces of one room: a living room and its kitchen share a zone and stay two rooms)
+      if (a.zone !== b.zone || (a.type !== b.type && a.type !== "hall" && b.type !== "hall")) continue;
+      let axis: "x" | "z", at: number, lo: number, hi: number;
+      if (Math.abs(a.rect[0] - b.rect[0]) < EPS && Math.abs(a.rect[2] - b.rect[2]) < EPS && (Math.abs(a.rect[3] - b.rect[1]) < EPS || Math.abs(b.rect[3] - a.rect[1]) < EPS)) {
+        axis = "z"; at = Math.abs(a.rect[3] - b.rect[1]) < EPS ? a.rect[3] : b.rect[3]; lo = a.rect[0]; hi = a.rect[2];
+      } else if (Math.abs(a.rect[1] - b.rect[1]) < EPS && Math.abs(a.rect[3] - b.rect[3]) < EPS && (Math.abs(a.rect[2] - b.rect[0]) < EPS || Math.abs(b.rect[2] - a.rect[0]) < EPS)) {
+        axis = "x"; at = Math.abs(a.rect[2] - b.rect[0]) < EPS ? a.rect[2] : b.rect[2]; lo = a.rect[1]; hi = a.rect[3];
+      } else continue;
+      const seam = openings.filter(o => o.axis === axis && Math.abs(o.at - at) < EPS && o.width > 0.01 && o.center + o.width / 2 > lo + EPS && o.center - o.width / 2 < hi - EPS);
+      if (seam.some(o => o.type !== "open")) continue;
+      // (open over the whole seam: the passages' union covers it, a hair's gap at each end allowed)
+      const iv = seam.map(o => [o.center - o.width / 2, o.center + o.width / 2]).sort((p, q) => p[0] - q[0]);
+      let reach = lo;
+      for (const [s, e] of iv) { if (s > reach + 0.02) break; reach = Math.max(reach, e); }
+      if (reach < hi - 0.02) continue;
+      const keep = (a.type !== "hall") !== (b.type !== "hall") ? (a.type !== "hall" ? a : b) : area(a) >= area(b) ? a : b, gone = keep === a ? b : a;
+      keep.rect = [Math.min(a.rect[0], b.rect[0]), Math.min(a.rect[1], b.rect[1]), Math.max(a.rect[2], b.rect[2]), Math.max(a.rect[3], b.rect[3])];
+      rooms = rooms.filter(r => r !== gone);
+      openings = openings.filter(o => !seam.includes(o)).map(o => ({ ...o, a: o.a === gone.id ? keep.id : o.a, b: o.b === gone.id ? keep.id : o.b, swingInto: o.swingInto === gone.id ? keep.id : o.swingInto })).filter(o => o.a !== o.b);
+      merged++; changed = true; break pairs;
+    }
+  }
+  return { rooms, openings, merged };
 }

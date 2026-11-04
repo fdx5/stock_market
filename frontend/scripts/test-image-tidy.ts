@@ -64,15 +64,26 @@ const innerWall = (p: FloorPlan) => {
 };
 const narrow = (p: FloorPlan) => p.openings.filter(o => o.type === "door" && o.width < .7).length;
 let before = 0, after = 0, nb = 0, na = 0, files = 0, w0 = 0, w1 = 0;
+/** each room type's floor in its zones' largest rectangle (what gets furnished), as a share of the zones' floor */
+const leadShare = (p: FloorPlan, acc: Record<string, [number, number]>) => {
+  const zones = new Map<string, Room[]>(); for (const r of p.rooms) zones.set(r.zone, [...(zones.get(r.zone) ?? []), r]);
+  const ar = (r: Room) => (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]);
+  for (const rs of zones.values()) { const lead = rs.filter(r => r.type !== "hall"); if (!lead.length) continue; const t = lead[0].type; const a = acc[t] ??= [0, 0]; a[0] += Math.max(...lead.map(ar)); a[1] += rs.reduce((s, r) => s + ar(r), 0); }
+};
+const share0: Record<string, [number, number]> = {}, share1: Record<string, [number, number]> = {};
 if (dir) for (const f of readdirSync(dir).filter(n => n.endsWith(".json"))) {
   const a = JSON.parse(readFileSync(join(dir, f), "utf8")) as ImageAnalysis; if (a.status !== "ready") continue;
   const inp = {...input, area: a.drawing.exclusiveArea};
   const p0 = floorPlanFromImage(inp, a, {tidy: false}), p1 = floorPlanFromImage(inp, a);
   if (!p0 || !p1) { console.log(f, "no plan"); continue; }
   files++; const s0 = stubs(p0), s1 = stubs(p1), d0 = narrow(p0), d1 = narrow(p1);
+  leadShare(p0, share0); leadShare(p1, share1);
   before += s0; after += s1; nb += d0; na += d1; w0 += innerWall(p0); w1 += innerWall(p1);
-  assert.deepEqual(p1.rooms.map(r => r.rect), p0.rooms.map(r => r.rect), "rooms never moved");
+  // (rooms are only ever joined, never moved: the floor covered is the same)
+  const cover = (p: FloorPlan) => p.rooms.reduce((s, r) => s + (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]), 0);
+  assert.ok(Math.abs(cover(p1) - cover(p0)) < 1e-6, "floor unchanged");
   console.log(f.padEnd(22), `stubs ${s0}→${s1}`, `doors<0.7m ${d0}→${d1}`, JSON.stringify(p1.imageAnalysis!.tidy));
 }
 if (files) { console.log(`total (${files} drawings): wall stubs ${before}→${after}, narrow doors ${nb}→${na}, walls inside one room ${w0.toFixed(1)}→${w1.toFixed(1)} m`); assert.ok(after < before && na <= nb && w1 < w0); }
+if (files) console.log("furnished share of each room's floor:", Object.keys(share0).map(t => `${t} ${(share0[t][0] / share0[t][1] * 100).toFixed(0)}→${(share1[t][0] / share1[t][1] * 100).toFixed(0)}%`).join(", "));
 console.log("image-tidy: checks passed");
