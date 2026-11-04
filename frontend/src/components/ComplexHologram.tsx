@@ -4258,14 +4258,21 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!stageRef.current.drone) enterDrone();
       const d = stageRef.current?.drone; if (!d) return;
       walkAtDone.current = true; window.clearInterval(timer);
-      d.walkAt(x, y, Number.isFinite(yaw) ? yaw : d.flight.yaw); setDroneView(d.view); setDroneWalking(d.flight.walking);
-      // (out of a car park in one of its parked cars: ?walkcar=index,paint — that car on the road by the door)
+      const heading = Number.isFinite(yaw) ? yaw : d.flight.yaw;
+      // (out of a car park in one of its parked cars: ?walkcar=index,paint — on foot by the door,
+      // that car on the road beside it; out by the door otherwise: the drone up over the building
+      // gone into — ?walkover=x,y its middle, else over the door)
       const wc = q.get("walkcar");
       if (wc) {
+        d.walkAt(x, y, heading);
         const [i, hex] = wc.split(","), cars = d.garage.cars, m = cars[Math.abs(Math.floor(Number(i) || 0)) % cars.length];
         if (m) d.spawnCar({ ...m, paint: /^[0-9a-f]{6}$/i.test(hex ?? "") ? `#${hex}` : m.paint });
-        q.delete("walkcar");
+      } else {
+        const [ox, oy] = (q.get("walkover") ?? "").split(",").map(Number);
+        d.hoverOver(Number.isFinite(ox) && Number.isFinite(oy) ? ox : x, Number.isFinite(ox) && Number.isFinite(oy) ? oy : y, heading);
       }
+      setDroneView(d.view); setDroneWalking(d.flight.walking);
+      q.delete("walkcar"); q.delete("walkover");
       q.delete("walkat"); history.replaceState(history.state, "", location.pathname + (q.toString() ? "?" + q.toString() : "") + location.hash);
     }, 150);
     return () => window.clearInterval(timer);

@@ -52,6 +52,8 @@ export type DroneHud = {
 
 export type DroneResume = { flight: DroneFlight; view: "fpv" | "chase"; autopilot: boolean; autoRotate: boolean };
 
+/** how far over a building's roof the drone comes back up after its inside (m) */
+const HOVER_UP = 28;
 export class DroneSession {
   private lookDir = new THREE.Vector3();
   readonly flight: DroneFlight;
@@ -397,6 +399,7 @@ export class DroneSession {
     this.layViewBed();
     const t4 = performance.now();
     if (performance.now() > this.doorAt) { this.doorAt = performance.now() + 200; this.findDoor(); this.settle(); }
+    if (this.hoverHold) this.keepHover();
     if (f.walking && !f.car && !(f.cycling && f.bikeSpeed > 5) && performance.now() > this.entranceAt) { this.entranceAt = performance.now() + (this.layEntrances() ? 250 : 900); }
     if (f.walking) { this.bumpTraffic(); this.stepEntrance(dt); this.navTick(dt); this.missionTick(); } else if (this.nav) this.clearNav();
     if (f.crash > 0) { this.onCrash(f.crash); f.crash = 0; }
@@ -829,6 +832,37 @@ export class DroneSession {
     // (the camera straight behind at its full distance — not swinging round from wherever it was)
     this.chaseYaw = yaw; this.chaseLift = 0; this.chaseDist = this.chaseWant();
     return on;
+  }
+  /** Back out of a building gone into (not in a car): the drone in the air over that building —
+   * over its middle (x, y), clear above its roof, nose the way one came out of its door, the camera
+   * tilted down to the street in front — not the walker set down at the door. */
+  hoverOver(x: number, y: number, yaw: number) {
+    const f = this.flight, w = this.world;
+    if (f.car) this.toggleCar();
+    if (f.cycling) this.toggleBike();
+    if (f.walking) this.toggleWalk(false);
+    f.setAutopilot(false); f.setAutoRotate(false); f.vel.set(0, 0, 0);
+    // (the roof's highest point round the middle: a tower's top is not at its centroid alone)
+    f.pos.set(x, this.roofAround(x, y) + HOVER_UP, -y); f.yaw = yaw; f.tilt = -0.42;
+    this.chaseYaw = yaw;
+    if (this.walker) this.walker.root.visible = false;
+    // (on a fresh page the roofs come in over the next seconds: held clear of them as they do,
+    // until the pilot moves off)
+    this.hoverHold = { x, y, until: performance.now() + 12000 };
+    return true;
+  }
+  private hoverHold: { x: number; y: number; until: number } | null = null;
+  /** the highest roof (or the ground) at and round a point: a tower's top is not at its centroid alone */
+  private roofAround(x: number, y: number) {
+    const w = this.world; let top = w.groundAt(x, y);
+    for (const r of [0, 6, 12]) for (let k = 0; k < (r ? 8 : 1); k++) { const a = k / 8 * Math.PI * 2; top = Math.max(top, w.roofAt(x + Math.cos(a) * r, y + Math.sin(a) * r)); }
+    return top;
+  }
+  private keepHover() {
+    const h = this.hoverHold, f = this.flight; if (!h) return;
+    if (performance.now() > h.until || f.walking || Math.hypot(f.pos.x - h.x, -f.pos.z - h.y) > 3) { this.hoverHold = null; return; }
+    const want = this.roofAround(h.x, h.y) + HOVER_UP;
+    if (f.pos.y < want) { f.pos.y = want; f.vel.y = 0; }
   }
   /** On foot (or in a car, on a bike): up again into the air right here — out of the car or off the
    * bike first — not back to where the flight began. */
@@ -1375,6 +1409,8 @@ export class DroneSession {
     const fx = ring.reduce((t, p) => t + p[0], 0) / ring.length - doorX, fy = ring.reduce((t, p) => t + p[1], 0) / ring.length - doorY, fl = Math.hypot(fx, fy) || 1;
     // (out of the door facing away from the building — the walk's forward is (−sin, cos) of the yaw)
     back.set("walkat", `${doorX.toFixed(2)},${doorY.toFixed(2)},${Math.atan2(fx / fl, -fy / fl).toFixed(3)}`);
+    // (and the building's middle: out again on foot, the drone comes back up over it — hoverOver)
+    back.set("walkover", `${(fx + doorX).toFixed(2)},${(fy + doorY).toFixed(2)}`);
     // (the buildings standing with it — within 30 m of it or of each other, 300 m round at most: a
     // hospital's or a campus's other blocks, for its ground floor as one — WalkPage keeps them only
     // for such a building)
