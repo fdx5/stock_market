@@ -19,6 +19,7 @@ from app.services import asset_cdn
 from app.services.libsql_gate import StoreUnavailable
 from app.services.turso import TursoError
 from app.routers import discovery
+from app.routers import community
 from app.routers import editorial as editorial_router
 from app.services import editorial as editorial_service
 
@@ -248,6 +249,7 @@ app.include_router(public_markets.router)
 app.include_router(search.router, prefix="/api")
 app.include_router(editorial_router.router, prefix="/api/editorial")
 app.include_router(discovery.router, prefix="/api/discovery")
+app.include_router(community.router, prefix="/api/community")
 
 
 @app.on_event("startup")

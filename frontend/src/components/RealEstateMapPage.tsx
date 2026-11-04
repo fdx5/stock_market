@@ -1,3 +1,4 @@
+import CommunityShortcut from "../neo/CommunityShortcut";
 import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, RealEstateItem, RealEstateMapResponse, RealEstatePeriod, RealEstateSido } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -868,6 +869,7 @@ export default function RealEstateMapPage() {
                 비교 ({compare.length})
               </button>
               <MapExportButtons exp={mapExport} disabled={zones.length === 0} />
+              <CommunityShortcut board="property" />
               <button type="button" disabled={!items.length || loading} onClick={() => csvDownload(items, levelLabel, periodInfo.label, data?.generated_at ?? "")}>CSV 저장</button>
             </div>
           </div>

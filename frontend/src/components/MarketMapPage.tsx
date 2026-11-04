@@ -1,3 +1,4 @@
+import CommunityShortcut from "../neo/CommunityShortcut";
 import { CSSProperties, ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, MarketMapItem, MarketMapResponse, MarketReturns, MarketSession, MarketSparkline } from "../api/client";
 import { wonSuffix } from "../i18n/format";
@@ -818,6 +819,7 @@ export default function MarketMapPage({
               {t("표로 보기")}
             </button>
             <MapExportButtons exp={mapExport} disabled={sectorZones.length === 0} />
+            <CommunityShortcut board={market === "us" ? "global" : "kr"} />
           </div>
         </div>
       </header>

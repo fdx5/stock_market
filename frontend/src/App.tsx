@@ -25,6 +25,7 @@ import socialCards from "./neo/socialCards.json";
 import { updateWalkShare } from './walkmode/shareMeta';
 const SOCIAL_CARDS: Record<string, { title: string; description: string; image: string; alt: string }> = socialCards;
 const AssetPricePage = lazy(() => import("./neo/AssetPricePage"));
+const CommunityPage = lazy(() => import("./neo/CommunityPage"));
 
 // Route-level code splitting: each page only ships the JS it actually needs (e.g. the
 // map pages never pull in lightweight-charts, which only Dashboard/IndexChart/
@@ -157,6 +158,7 @@ function DashboardRedirect() {
 }
 
 const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = {
+  ...Object.fromEntries([["kr", "국내 증시"], ["global", "해외 증시"], ["property", "부동산"]].map(([id, name]) => [`/community/${id}`, { title: `${name} 커뮤니티 | K-Stock Hub`, description: `${name} 커뮤니티의 공개 글을 최신순으로 모아 보고 원문과 댓글을 편리하게 확인하세요.` }])),
   ...Object.fromEntries(SERVICES.map(s => [s.path, { title: `${s.name} | K-Stock Hub`, description: s.question + " " + s.criteria }])),
   ...Object.fromEntries(MARKET_ASSETS.map(asset => [`/prices/${asset.key}`, { title: `${asset.ko} 시세·1년 차트·일별 가격 | K-Stock Hub`, description: `${asset.ko}의 최근 1년 가격 차트와 일자별 시가, 고가, 저가, 종가 및 등락률을 확인하세요.` }])),
   "/investors": { title: "거물 포트폴리오 | K-Stock Hub", description: "해외 투자 거물과 연관 운용사의 공개 주식 보유 비중, 신규 편입, 공통 보유 종목을 확인하세요." },
@@ -414,6 +416,8 @@ export default function App() {
     page = <AssetPricePage key={marketAsset.key} asset={marketAsset} />;
   } else if (portfolioMatch) {
     page = <InvestorPortfolioPage investorId={portfolioMatch[1]} />;
+  } else if (/^\/community\/(kr|global|property)$/.test(path)) {
+    page = <CommunityPage key={path} board={path.split("/")[2] as "kr" | "global" | "property"} />;
   } else if (path === "/investors") {
     page = <InvestorsPage />;
   } else if (path === "/investment-videos") {

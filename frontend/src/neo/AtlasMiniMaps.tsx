@@ -41,7 +41,7 @@ export function AtlasMiniMapCard({ market, snapshot, quote, lang }: {
   const title = lang === "ko" ? config.title : config.en;
   const price = quote.price != null && Number.isFinite(quote.price) && quote.price > 0
     ? quote.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
-  return <Link to={config.to} className="ng-mini-map-card" style={{ "--map-accent": config.accent } as CSSProperties} aria-label={L(`${title} 전체 맵 보기`, `View the full ${title} map`)}>
+  return <div className="ng-mini-map-entry"><Link to={config.to} className="ng-mini-map-card" style={{ "--map-accent": config.accent } as CSSProperties} aria-label={L(`${title} 전체 맵 보기`, `View the full ${title} map`)}>
     <header><span>{config.region}</span><NeoIcon name="map" /></header>
     <div className="ng-mini-map-heading"><div><h3>{title}</h3><span>{config.en}</span></div><div><CyberQuote value={quote.price}>{price}</CyberQuote><b className={`is-${toneOf(quote.change)}`}>{quotePct(quote.change)}</b></div></div>
     <div ref={stageRef} className="ng-mini-map-stage" style={{height:mapSize.height}} data-state={data.count ? "ready" : snapshot.settled ? "unavailable" : "loading"}>
@@ -66,7 +66,7 @@ export function AtlasMiniMapCard({ market, snapshot, quote, lang }: {
     <div className="ng-mini-map-meta"><span>{data.count ? L(`주요 ${data.count}종목`, `${data.count} leading stocks`) : L("주요 종목 미리보기", "Leading stocks preview")}</span><span>{data.count > 0 && <><i className="is-up">↑ {data.up}</i><i className="is-down">↓ {data.down}</i></>}</span></div>
     <div className="ng-mini-map-time"><span>{time ? L(`맵 기준 ${time} KST`, `Map as of ${time} KST`) : L("맵 기준 시각 확인 중", "Waiting for map timestamp")}</span>{snapshot.delayed && data.count > 0 && <b>{L("갱신 지연", "Update delayed")}</b>}</div>
     <footer><span>{L("전체 맵 보기", "Explore full map")}</span><NeoIcon name="arrow" /></footer>
-  </Link>;
+  </Link><Link to={market === "nasdaq100" ? "/community/global" : "/community/kr"} className="ng-mini-map-community"><NeoIcon name="news" /><span>{L(market === "nasdaq100" ? "해외 증시 커뮤니티" : "국내 증시 커뮤니티", market === "nasdaq100" ? "Global community" : "Korea community")}</span><span className="ng-research-new" aria-label={L("신규", "New")}>N</span><b>↗</b></Link></div>;
 }
 
 function PopulatedMaps({ quotes, lang, markets }: { quotes: Record<AtlasMarket, AtlasMapQuote>; lang: "ko" | "en"; markets: readonly (typeof MARKETS)[number][] }) {
