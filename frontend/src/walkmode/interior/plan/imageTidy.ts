@@ -16,6 +16,8 @@ const EPS = 0.002;
 export const DOOR_MIN = { bath: 0.72, room: 0.8, front: 0.85 } as const;
 /** a wall shorter than this between a passage and a corner is a misread, not a wall */
 export const STUB = 0.3;
+/** a room's piece narrower than this is a strip of it, not a space of its own */
+export const STRIP = 1.2;
 /** the jamb kept beside a door: from a corner, or from another opening */
 const JAMB = 0.06;
 
@@ -55,9 +57,29 @@ export function tidyImageOpenings(rooms: Room[], input: Opening[]): { openings: 
   const concrete = (q: Opening) => q.type !== "open";
   const ends = (q: Opening): [number, number] => [q.center - q.width / 2, q.center + q.width / 2];
 
+  // 0. a strip of a room (a reader's piece under 1.2 m across — a balcony's or a hall's sliver) is
+  //    floor of that room: the seam to the rest of it with no door or window in it is no wall
+  const short = (r: Room) => Math.min(r.rect[2] - r.rect[0], r.rect[3] - r.rect[1]);
+  for (let i = 0; i < rooms.length; i++) for (let j = i + 1; j < rooms.length; j++) {
+    const a = rooms[i], b = rooms[j];
+    if (a.zone !== b.zone || Math.min(short(a), short(b)) >= STRIP) continue;
+    for (const axis of ["x", "z"] as const) {
+      const J = axis === "x" ? 0 : 1, K = 1 - J;
+      const at = Math.abs(a.rect[J + 2] - b.rect[J]) < EPS ? a.rect[J + 2] : Math.abs(b.rect[J + 2] - a.rect[J]) < EPS ? a.rect[J] : null;
+      if (at === null) continue;
+      const lo = Math.max(a.rect[K], b.rect[K]), hi = Math.min(a.rect[K + 2], b.rect[K + 2]);
+      if (hi - lo < 0.1) continue;
+      const on = openings.filter(q => q.axis === axis && Math.abs(q.at - at) < EPS && ends(q)[1] > lo + EPS && ends(q)[0] < hi - EPS);
+      if (on.some(concrete)) continue;
+      for (const q of on) q.width = 0;
+      openings.push({ type: "open", a: a.id, b: b.id, axis, at, center: (lo + hi) / 2, width: hi - lo, height: 2.4, sill: 0 });
+      report.seamsOpened++;
+    }
+  }
   // 1. passages: to the corner when what is left there is a stub; a seam inside one room open over
   //    all of it when the drawing opened most of it
   for (const o of openings) {
+    if (!o.width) continue;
     if (o.type !== "open" || o.b === "out") continue;
     const run = sharedRun(rooms, o, ids); if (!run) continue;
     const a = ids.get(o.a)!, b = ids.get(o.b)!, same = a.zone === b.zone;

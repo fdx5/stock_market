@@ -665,11 +665,19 @@ export function furnish(plan: FloorPlan, shell: Shell, P: Palette, B: Batcher, d
     }
 
     // ------------------------------------------------ kitchen and dining
-    if (room.type === "kitchen") {
+    kitchen: if (room.type === "kitchen") {
       // Essentials take precedence over dining/decor. Pack the refrigerator and
       // combined sink/cooktop run together, keeping the same protected walking routes.
       const essential=packKitchen(pl);
-      if(!essential)throw new InteriorSafetyError("주방 필수 설비와 이동 통로를 함께 확보하지 못했습니다. 다른 인테리어를 선택해 주세요.");
+      if(!essential){
+        // (a flat's second, small kitchen — a 보조주방 or a pantry read as one — is not where its
+        // fridge and cooker go: a short counter where one fits; the main kitchen must still take them)
+        const area=(r:Room)=>(r.rect[2]-r.rect[0])*(r.rect[3]-r.rect[1]);
+        const main=plan.rooms.filter(r=>r.type==="kitchen").reduce((a,b)=>area(b)>area(a)?b:a,room);
+        if(main===room)throw new InteriorSafetyError("주방 필수 설비와 이동 통로를 함께 확보하지 못했습니다. 다른 인테리어를 선택해 주세요.");
+        for(const w of [1.2,1.0,.8])for(const side of ["n","e","s","w"] as SideName[]){const f=pl.against(side,w,.6,null,.85,.55);if(f){put(M.lowerRun(P,w,{sinkAt:0,holeW:Math.min(.5,w*.44)}),f,zone);pl.take(f.rect);break kitchen;}}
+        break kitchen;
+      }
       const back=essential.side,runA=essential.width,fA=essential.run;
       const start=centreAlong(fA.rect,back)-runA/2,hi=start+runA;
       fridge(essential.fridge,essential.fridgeWidth,Math.min(1.86,H-.4),zone,room);pl.take(essential.fridge.rect);

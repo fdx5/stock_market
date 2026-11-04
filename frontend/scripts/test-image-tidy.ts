@@ -45,17 +45,34 @@ const stubs = (p: FloorPlan) => {
   }
   return n;
 };
+/** metres of wall standing inside one room: same-zone seams not covered by an opening */
+const innerWall = (p: FloorPlan) => {
+  let m = 0;
+  for (let i = 0; i < p.rooms.length; i++) for (let j = i + 1; j < p.rooms.length; j++) {
+    const a = p.rooms[i], b = p.rooms[j]; if (a.zone !== b.zone) continue;
+    for (const axis of ["x", "z"] as const) {
+      const J = axis === "x" ? 0 : 1, K = 1 - J;
+      const at = Math.abs(a.rect[J + 2] - b.rect[J]) < .002 ? a.rect[J + 2] : Math.abs(b.rect[J + 2] - a.rect[J]) < .002 ? a.rect[J] : null;
+      if (at === null) continue;
+      const lo = Math.max(a.rect[K], b.rect[K]), hi = Math.min(a.rect[K + 2], b.rect[K + 2]); if (hi - lo < .01) continue;
+      let iv: [number, number][] = [[lo, hi]];
+      for (const o of p.openings) if (o.axis === axis && Math.abs(o.at - at) < .002) { const s = o.center - o.width / 2, e = o.center + o.width / 2; iv = iv.flatMap(([x, y]) => e <= x || s >= y ? [[x, y] as [number, number]] : [[x, Math.max(x, s)], [Math.min(y, e), y]].filter(([u, v]) => v - u > .01) as [number, number][]); }
+      m += iv.reduce((t, [x, y]) => t + y - x, 0);
+    }
+  }
+  return m;
+};
 const narrow = (p: FloorPlan) => p.openings.filter(o => o.type === "door" && o.width < .7).length;
-let before = 0, after = 0, nb = 0, na = 0, files = 0;
+let before = 0, after = 0, nb = 0, na = 0, files = 0, w0 = 0, w1 = 0;
 if (dir) for (const f of readdirSync(dir).filter(n => n.endsWith(".json"))) {
   const a = JSON.parse(readFileSync(join(dir, f), "utf8")) as ImageAnalysis; if (a.status !== "ready") continue;
   const inp = {...input, area: a.drawing.exclusiveArea};
   const p0 = floorPlanFromImage(inp, a, {tidy: false}), p1 = floorPlanFromImage(inp, a);
   if (!p0 || !p1) { console.log(f, "no plan"); continue; }
   files++; const s0 = stubs(p0), s1 = stubs(p1), d0 = narrow(p0), d1 = narrow(p1);
-  before += s0; after += s1; nb += d0; na += d1;
+  before += s0; after += s1; nb += d0; na += d1; w0 += innerWall(p0); w1 += innerWall(p1);
   assert.deepEqual(p1.rooms.map(r => r.rect), p0.rooms.map(r => r.rect), "rooms never moved");
   console.log(f.padEnd(22), `stubs ${s0}→${s1}`, `doors<0.7m ${d0}→${d1}`, JSON.stringify(p1.imageAnalysis!.tidy));
 }
-if (files) { console.log(`total (${files} drawings): wall stubs ${before}→${after}, narrow doors ${nb}→${na}`); assert.ok(after < before && na <= nb); }
+if (files) { console.log(`total (${files} drawings): wall stubs ${before}→${after}, narrow doors ${nb}→${na}, walls inside one room ${w0.toFixed(1)}→${w1.toFixed(1)} m`); assert.ok(after < before && na <= nb && w1 < w0); }
 console.log("image-tidy: checks passed");

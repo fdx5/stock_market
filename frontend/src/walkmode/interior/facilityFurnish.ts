@@ -43,11 +43,43 @@ export interface FacilityHooks {
   vendingPut?: number;
   /** the lift called: the floor panel opened */
   lift?(): void;
+  /** the stair taken: a floor up (+1) or down (−1), arriving on that floor's stair landing */
+  stairs?(dir: 1 | -1): void;
+  /** a parked car got into in a car park: driven out of the building (its paint, the bay's index) */
+  driveOut?(car: { paint: string; index: number }): void;
   /** the floors for the directory: label and what is on it */
   levels?: { level: number; label: string; uses: string }[];
   /** (the directory is put once a floor) */
   directoryPut?: boolean;
 }
+/** A stair room's flights and landings: the flights along its long way, the landing at the end
+ * whose doors need least of it — and, where a door is at the other end too, a second landing there —
+ * so the flights never shut a door (a door in a side wall: the landing reaching past it). `at` is
+ * where one arriving by the stair stands on the landing, facing the flights. */
+export function stairLayout(plan: FloorPlan, room: Room) {
+  const [X0, Z0, X1, Z1] = room.rect, cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
+  const alongZ = Z1 - Z0 >= X1 - X0, lo = alongZ ? Z0 : X0, hi = alongZ ? Z1 : X1, wide = alongZ ? X1 - X0 : Z1 - Z0, len = hi - lo;
+  // what each end's landing must reach to clear the doors near it (from that end)
+  const reach = [0, 0];
+  for (const o of plan.openings) {
+    if ((o.a !== room.id && o.b !== room.id) || o.type === "window" || o.type === "balcony_window") continue;
+    if ((o.axis === "z") === alongZ) { const e = Math.abs(o.at - lo) < Math.abs(o.at - hi) ? 0 : 1; reach[e] = Math.max(reach[e], 1.2); }   // (a door in an end wall)
+    else { const s = o.center - o.width / 2, f = o.center + o.width / 2; if (o.center - lo < hi - o.center) reach[0] = Math.max(reach[0], f - lo + 0.15); else reach[1] = Math.max(reach[1], hi - s + 0.15); }
+  }
+  // the main landing (≥ 1.9 m) where it costs least; the far one only where a door is there
+  const cost = (e: 0 | 1) => Math.max(1.9, reach[e]) + reach[1 - e];
+  const end: 0 | 1 = cost(1) < cost(0) ? 1 : 0;
+  const land = Math.min(Math.max(1.9, reach[end]), len), far = Math.min(reach[1 - end], len - land), d = len - land - far;
+  // (the flights' frame: local z up the first flight, from the main landing's edge)
+  const yaw = alongZ ? (end ? Math.PI : 0) : (end ? -Math.PI / 2 : Math.PI / 2), edge = end ? hi - land : lo + land;
+  const mid = end ? hi - Math.min(0.9, land / 2) : lo + Math.min(0.9, land / 2);
+  // (the flights' own rectangle: what they block)
+  const a = end ? lo + far : lo + land, b = end ? hi - land : hi - far;
+  const flights: [number, number, number, number] = alongZ ? [X0, a, X1, b] : [a, Z0, b, Z1];
+  const at: [number, number, number] = alongZ ? [cx, mid, yaw + Math.PI] : [mid, cz, yaw + Math.PI];
+  return { alongZ, end, land, far, wide, d, yaw, edge, at, flights };
+}
+
 export interface FacCtx {
   plan: FloorPlan; P: Palette; X: Extra; signs: SignAtlas; B: Batcher; dynamic: THREE.Group; H: number;
   put(kit: M.Kit, f: Frame | THREE.Matrix4, zone: number, solid?: boolean): void;
@@ -253,8 +285,21 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
     }
     // -------------------------------------------- the stair: two flights in the well, the exit sign over its door
     case "stair": {
-      const z0 = Z0 + 1.9, d = Z1 - z0;
-      if (d > 2.2) { c.put(F.stairs(P, X, W, d, H), new THREE.Matrix4().makeTranslation(cx, pl.fy, z0), zone, false); c.colliders.push(...rectSegs([X0, z0, X1, Z1])); }
+      // (the flights along the room's long way, the landing at the end its door is on — a door on
+      // a side wall needs the landing to reach past it — so the flights never shut the door)
+      const { alongZ, wide, d, yaw, edge, flights } = stairLayout(c.plan, room);
+      const m = new THREE.Matrix4().makeRotationY(yaw).setPosition(alongZ ? cx : edge, pl.fy, alongZ ? edge : cz);
+      if (d > 2.2) {
+        c.put(F.stairs(P, X, wide, d, H), m, zone, false);
+        c.colliders.push(...rectSegs(flights));
+      }
+      // taking the stair: up by the first flight, down by the well beside it
+      const lv = (c.hooks.levels ?? []).map(l => l.level).sort((a, b) => a - b), here = c.plan.facility?.level ?? 1, i = lv.indexOf(here);
+      const name = (l: number | undefined) => (c.hooks.levels ?? []).find(q => q.level === l)?.label ?? "";
+      const up = i >= 0 ? lv[i + 1] : undefined, down = i > 0 ? lv[i - 1] : undefined;
+      const flight = (wide - 0.1) / 2, reach = Math.max(1.2, Math.min(2.2, d));
+      if (c.hooks.stairs && up !== undefined) c.interactables.push({ id: `stair-up-${room.id}`, zone, room, hit: c.hitIn(m, flight, 1.6, reach, -wide / 2 + flight / 2, 0.8, reach / 2), label: () => `계단으로 올라가기 · ${name(up)}`, act: () => { c.hooks.stairs!(1); return "door"; } });
+      if (c.hooks.stairs && down !== undefined) c.interactables.push({ id: `stair-down-${room.id}`, zone, room, hit: c.hitIn(m, flight, 1.2, reach, wide / 2 - flight / 2, 0.4, reach / 2), label: () => `계단으로 내려가기 · ${name(down)}`, act: () => { c.hooks.stairs!(-1); return "door"; } });
       break;
     }
     // -------------------------------------------- toilets
@@ -782,7 +827,13 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
           const x = xs0 + (i + 0.5) * bay, z = z0 + dir * len / 2;
           if (((i * 7 + (dir > 0 ? 3 : 5)) % 10) < 7) {
             const f = freeAt(x, z, 1.9, 4.7, dir > 0 ? 0 : Math.PI);
-            if (f) c.put(F.parkedCar(P, X, X.carPaint[(k++) % X.carPaint.length]), f, zone, true);
+            if (f) {
+              const n = k++, paint = X.carPaint[n % X.carPaint.length];
+              c.put(F.parkedCar(P, X, paint), f, zone, true);
+              // (any parked car got into and driven out: up the ramp to the street)
+              if (c.hooks.driveOut) c.interactables.push({ id: `car-${room.id}-${n}`, zone, room, hit: c.hitIn(f, 1.9, 1.5, 4.7, 0, 0.75, 0),
+                label: () => "🚗 차량 타고 건물 밖으로", act: () => { c.hooks.driveOut!({ paint: "#" + ((paint as THREE.MeshStandardMaterial).color?.getHexString?.() ?? "8a8f96"), index: n }); return "door"; } });
+            }
           }
           c.put([M.rb(X.paintYellow, 0.7, 0.1, 0.15, 0.03, 0, 0.05, 0)], new THREE.Matrix4().makeTranslation(x, pl.fy, z0 + dir * 0.55), zone, false);
         }

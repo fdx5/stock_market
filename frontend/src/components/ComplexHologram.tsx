@@ -4259,6 +4259,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const d = stageRef.current?.drone; if (!d) return;
       walkAtDone.current = true; window.clearInterval(timer);
       d.walkAt(x, y, Number.isFinite(yaw) ? yaw : d.flight.yaw); setDroneView(d.view); setDroneWalking(d.flight.walking);
+      // (out of a car park in one of its parked cars: ?walkcar=index,paint — that car on the road by the door)
+      const wc = q.get("walkcar");
+      if (wc) {
+        const [i, hex] = wc.split(","), cars = d.garage.cars, m = cars[Math.abs(Math.floor(Number(i) || 0)) % cars.length];
+        if (m) d.spawnCar({ ...m, paint: /^[0-9a-f]{6}$/i.test(hex ?? "") ? `#${hex}` : m.paint });
+        q.delete("walkcar");
+      }
       q.delete("walkat"); history.replaceState(history.state, "", location.pathname + (q.toString() ? "?" + q.toString() : "") + location.hash);
     }, 150);
     return () => window.clearInterval(timer);

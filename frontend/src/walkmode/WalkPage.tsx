@@ -18,6 +18,7 @@ import { fitOut, type FitSource } from "./building/fitout";
 import BuildingMap from "./building/BuildingMap";
 import { kindOf, planBuilding, plateOf, type RegBuilding, type RegFloor } from "./building/plan";
 import { FACILITY_LABEL, facilityKindOf, facilityLevels, generateFacility } from "./interior/plan/facility";
+import { stairLayout } from "./interior/facilityFurnish";
 import { generateSurveyed } from "./interior/plan/surveyed";
 import { envelopeOf } from "./interior/plan/envelope";
 import { seeded } from "./interior/plan/generate";
@@ -469,6 +470,25 @@ export default function WalkPage() {
     });
   };
 
+  /** a car park's parked car got into: up the ramp and out, into the street driving it (the drone
+   * view's walk takes the car — ?walkcar — at the building's door, on the nearest road) */
+  const driveOut = (car: { paint: string; index: number }) => {
+    if (exiting.current) return;
+    exiting.current = true;
+    sound.resume(); sound.play("door");
+    setToast("🚗 차량에 탔습니다 · 주차장 출구로 나가는 중"); window.clearTimeout(toastTimer.current);
+    setVending(null); setMonitorOpen(false); setLiftPanel(null); setITalk(null); document.exitPointerLock?.();
+    setFade(true);
+    setTimeout(() => {
+      interior.current?.dispose(); interior.current = null; setHud(null); exiting.current = false;
+      if (game.current && entering) { game.current.returnFromInterior(entering); history.replaceState(history.state, "", outdoorUrl.current); shareBase.current = null; setPhase("outdoor"); setNear(null); setFade(false); game.current.interactCar(); return; }
+      const b = returnTo.current ?? safeWalkBack(q.get("back"));
+      if (!b) { leave(); return; }
+      const u = new URL(b, location.origin);
+      u.searchParams.set("walkcar", `${car.index},${car.paint.replace(/^#/, "")}`);
+      location.href = u.pathname + u.search + u.hash;
+    }, 900);
+  };
   const exitFlat = () => {
     if (exiting.current) return;
     exiting.current = true;
@@ -571,8 +591,10 @@ export default function WalkPage() {
   };
   /** One floor of the building: its plan from the register's use for it, its businesses, built and
    * lit by the flats' engine; the lift's panel brings another */
-  const openFacility = async (level: number) => {
+  const openFacility = async (level: number, via: "lift" | "stair" = "lift") => {
     const f = fac.current; if (!f || !renderer.current) return;
+    // (where the walker stood on the floor left: the stair taken comes out at the nearest one above/below)
+    const from = interior.current ? [interior.current.pos.x, interior.current.pos.y] as [number, number] : null;
     const reg = f.floors.find(x => x.level === level), main = reg?.uses.slice().sort((a, b) => b.area - a.area)[0];
     const kind = facilityKindOf(kindOf(main?.use ?? f.info.use ?? "", main?.detail ?? f.info.useDetail ?? "", level, f.info));
     const lv = f.levels.find(l => l.level === level);
@@ -606,14 +628,24 @@ export default function WalkPage() {
       p = generateSurveyed({ ...base, outline: joined.outline, entry: f.entry ?? null, seed: Math.abs([...`${f.key}|${level}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 5)), partitions: joined.links, cores: [] });
     }
     if (!p) p = generateFacility(base);
+    if (via === "stair" && p.facility) {
+      const stairs = p.rooms.filter(r => r.type === "stair"), mid = (r: typeof stairs[number]) => [(r.rect[0] + r.rect[2]) / 2, (r.rect[1] + r.rect[3]) / 2];
+      const st = from ? stairs.sort((a, b) => Math.hypot(mid(a)[0] - from[0], mid(a)[1] - from[1]) - Math.hypot(mid(b)[0] - from[0], mid(b)[1] - from[1]))[0] : stairs[0];
+      if (st) p = { ...p, facility: { ...p.facility, start: stairLayout(p, st).at } };
+    }
     sound.resume(); document.exitPointerLock?.();
     setLiftPanel(null); setVending(null); setMonitorOpen(false); setHud(null); setITalk(null);
     interior.current?.dispose(); interior.current = null;
-    setPlan(p); setFade(true); setPhase("interior-loading"); setProgress({ k: 0, text: level === 1 ? "출입문으로 들어가는 중" : "엘리베이터로 이동하는 중" });
+    setPlan(p); setFade(true); setPhase("interior-loading"); setProgress({ k: 0, text: via === "stair" ? "계단으로 이동하는 중" : level === 1 ? "출입문으로 들어가는 중" : "엘리베이터로 이동하는 중" });
     const it = new Interior(renderer.current, {
       plan: p, hour, view: null, sound, levels: f.levels,
       onProgress: (k, text) => setProgress({ k, text }), onHud: h => setHud(h), onExit: () => exitFlat(),
       onLift: () => { setLiftPanel({ levels: f.levels, current: level }); document.exitPointerLock?.(); },
+      onStairs: dir => {
+        const lv = f.levels.map(l => l.level).sort((a, b) => a - b), next = lv[lv.indexOf(level) + dir];
+        if (next !== undefined) void openFacility(next, "stair");
+      },
+      onDriveOut: car => driveOut(car),
       onVending: session => { setVending(session); document.exitPointerLock?.(); },
       onMonitor: () => { setMonitorOpen(true); document.exitPointerLock?.(); },
       onTalk: t => { setITalk(t); if (t) document.exitPointerLock?.(); },

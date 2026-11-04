@@ -154,7 +154,7 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   // ------------------------------------------------ an outline only: the programme laid out in it
   const named = new Map<string, number>();
   const floorArea = insideCells * CELL * CELL, large = floorArea > LARGE_AREA;
-  if (!drawn) { if (large) synthesizeLarge(); else synthesize(); }
+  if (!drawn) { if (kind === "parking") synthesizeParking(); else if (large) synthesizeLarge(); else synthesize(); }
   else {
     // (what the drawing leaves uncharted inside the walls is open floor)
     const open = region({ type: "corridor", label: "복도", people: ["visitor", "visitor"], front: "open" });
@@ -278,6 +278,29 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
     for (let k = 0; k < g.length; k++) if (g[k] === FREE) g[k] = cross;
   }
 
+  /** A car park with only its outline (a basement: the register says 주차장): the whole plate one
+   * deck of bays, the core by the focus — the lifts, the 비상계단, an electrical room. (A deck has no
+   * programme of rooms: cutting it as offices left the plan without one and threw.) */
+  function synthesizeParking() {
+    const along = W >= D, L = along ? nx : nz, A = along ? nz : nx;
+    const at = (u: number, v: number) => along ? v * nx + u : u * nx + v;
+    const fu = Math.round(((along ? focus[0] - wx0 : focus[1] - wz0)) / CELL), fv = Math.round(((along ? focus[1] - wz0 : focus[0] - wx0)) / CELL);
+    if (!regions.some(r => r.core === "lift")) {
+      // (the core against the plate's nearer long side to the focus, by the focus along it)
+      const u0 = Math.max(2, Math.min(L - 26, fu - 12)), low = fv < A / 2;
+      const block = (a0: number, a1: number, d0: number, d1: number, id: number) => {
+        for (let u = a0; u < a1; u++) for (let d = d0; d < d1; d++) {
+          const v = low ? 2 + d : A - 3 - d, k = at(u, v);
+          if (u >= 0 && u < L && v >= 0 && v < A && g[k] === FREE) g[k] = id;
+        }
+      };
+      block(u0, u0 + 10, 0, 6, region({ type: "storage", label: "엘리베이터", core: "lift", people: [], front: "door" }));
+      block(u0 + 10, u0 + 16, 0, 12, region({ type: "stair", label: "비상계단", core: "stair", people: [], front: "door" }));
+      block(u0 + 16, u0 + 22, 0, 8, region({ type: "storage", label: "전기실", people: [], front: "door" }));
+    }
+    const park = region({ type: "parking", label: `${f.levelLabel} 주차장`, people: ["visitor", "guard"], front: "open" });
+    for (let k = 0; k < g.length; k++) if (g[k] === FREE) g[k] = park;
+  }
   function synthesize() {
     // double-loaded corridors along the window's long axis, one every ~2 room depths + a corridor
     // (the first through the focus), cross corridors every ~26 m; the core by the focus; rooms off
@@ -376,7 +399,7 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   for (const rg of regions) {
     const o = rg.id * 4; if (bb[o] < 0) continue;
     const I0 = bb[o], J0 = bb[o + 1], I1 = bb[o + 2] + 1, J1 = bb[o + 3] + 1;
-    const maxRects = rg.type === "corridor" || rg.type === "lobby" ? (large ? 600 : 60) : large ? 10 : 6;
+    const maxRects = rg.type === "corridor" || rg.type === "lobby" || rg.type === "parking" ? (large ? 600 : 60) : large ? 10 : 6;
     for (let n = 0; n < maxRects; n++) {
       // the largest all-free rectangle of this region's unused cells (histogram method)
       const h = new Int32Array(nx); let best = { a: 0, i0: 0, j0: 0, i1: 0, j1: 0 };
@@ -420,7 +443,7 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
     if (Math.abs(az1 - bz0_) < e || Math.abs(bz1_ - az0) < e) { const lo = Math.max(ax0, bx0_), hi = Math.min(ax1, bx1_); if (hi - lo > 0.9) return { axis: "z", at: Math.abs(az1 - bz0_) < e ? az1 : az0, lo, hi }; }
     return null;
   };
-  const isPublic = (r: Room) => r.type === "corridor" || r.type === "lobby" || r.type === "liftHall";
+  const isPublic = (r: Room) => r.type === "corridor" || r.type === "lobby" || r.type === "liftHall" || r.type === "parking";
   const lifts: NonNullable<FloorPlan["facility"]>["lifts"] = [];
   const linked = new Set<string>();
   const pairKey = (a: string, b: string) => a < b ? `${a}|${b}` : `${b}|${a}`;

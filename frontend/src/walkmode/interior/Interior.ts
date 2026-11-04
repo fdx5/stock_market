@@ -61,6 +61,9 @@ export interface InteriorOptions {
   /** a building other than flats (plan.facility): its lift called (the page shows the floor panel),
    * and its floors for the directory in the lift hall */
   onLift?(): void;
+  /** the stair taken (a floor up or down), and a parked car driven out of a car park */
+  onStairs?(dir: 1 | -1): void;
+  onDriveOut?(car: { paint: string; index: number }): void;
   onMonitor?(): void;
   onVending?(session: VendingSession): void;
   /** a shelf's or a counter's goods (the page's shop menu), and a word on the screen for a moment */
@@ -594,7 +597,7 @@ export class Interior {
     P(0.6, "가구와 설비를 배치하는 중");
     switchState.clear();
     this.furn = withKitGeometryCache(() => furnish(plan, this.shell, this.P, B, this.dynamic, this.hits,
-      look ? { X: look.X, signs: look.signs, spots, hooks: { lift: () => this.o.onLift?.(), levels: this.o.levels,
+      look ? { X: look.X, signs: look.signs, spots, hooks: { lift: () => this.o.onLift?.(), levels: this.o.levels, ...(this.o.onStairs ? { stairs: (dir: 1 | -1) => this.o.onStairs!(dir) } : {}), ...(this.o.onDriveOut ? { driveOut: (car: { paint: string; index: number }) => this.o.onDriveOut!(car) } : {}),
         monitor: screen => { this.monitor = screen; this.zoomScreen("monitor"); this.o.onMonitor?.(); },
         vending: session => this.o.onVending?.(session), vendSound: kind => { this.o.sound.resume(); this.o.sound.play(kind === "motor" ? "fridge" : "thud"); },
         shop: (kind, label) => { document.exitPointerLock?.(); this.o.onShop?.(kind, label); },
