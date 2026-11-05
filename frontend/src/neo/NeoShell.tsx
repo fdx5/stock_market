@@ -130,7 +130,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     <aside className="ng-sidebar" aria-label={L("워크스페이스 탐색", "Workspace navigation")}>
       <div className="ng-sidebar-cap"><span>WORKSPACE</span><b>01 / KOSPIMAP</b></div>
       {NEO_GROUPS.map(group => {
-        const limit = group.id === "markets" || group.id === "maps" || group.id === "explore" ? 5 : 4;
+        const limit = group.id === "explore" ? group.links.length : group.id === "markets" || group.id === "maps" ? 5 : 4;
         const primary = group.links.slice(0, limit), extra = group.links.slice(limit);
         const active = extra.find(link => current(link[0]));
         const remaining = extra.filter(link => link !== active);

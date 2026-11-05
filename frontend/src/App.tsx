@@ -56,7 +56,7 @@ const EtfMarketPage = lazy(() => import("./neo/etf/EtfMarketPage"));
 const BroadsheetBriefPage = lazy(() => import("./desk2/brief/BriefPage"));
 /* The three TOP 100 boards; one component, so switching boards keeps it mounted.
    The classic StockBoardPage stays in the tree, unrouted. */
-const BroadsheetBoardPage = lazy(() => import("./desk2/board/BoardPage"));
+const NeoTop100Page = lazy(() => import("./neo/Top100Page"));
 const BroadsheetForecastPage = lazy(() => import("./desk2/forecast/ForecastPage"));
 const BroadsheetGradingPage = lazy(() => import("./desk2/forecast/GradingPage"));
 const BroadsheetGlobalCapPage = lazy(() => import("./desk2/globalcap/GlobalCapPage"));
@@ -204,16 +204,16 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
     description: "미국 상장 해외 ETF의 거래대금 인기 순위, 달러 시세, 기간별 수익률과 테마별 흐름을 확인하고 최대 4개 상품을 비교하세요.",
   },
   "/kospi-100": {
-    title: "코스피 시가총액·거래대금 순위 TOP 100 | K-Stock Hub",
-    description: "코스피 종목의 시가총액, 거래대금, 상승률과 하락률 순위를 빠르게 비교하세요.",
+    title: "코스피 시가총액·등락률 순위 TOP 100 | K-Stock Hub",
+    description: "코스피 상위 100종목의 시가총액, 거래량, 등락률과 기간별 수익률을 카드와 비교표로 확인하세요.",
   },
   "/kosdaq-100": {
-    title: "코스닥 시가총액·거래대금 순위 TOP 100 | K-Stock Hub",
-    description: "코스닥 종목의 시가총액, 거래대금, 상승률과 하락률 순위를 확인하세요.",
+    title: "코스닥 시가총액·등락률 순위 TOP 100 | K-Stock Hub",
+    description: "코스닥 상위 100종목의 시가총액, 거래량, 등락률과 기간별 수익률을 카드와 비교표로 확인하세요.",
   },
   "/nasdaq-100": {
     title: "나스닥 종목 시세와 순위 TOP 100 | K-Stock Hub",
-    description: "나스닥 주요 종목의 주가, 시가총액, 거래량과 등락률 순위를 비교하세요.",
+    description: "나스닥 100 구성 종목의 주가, 지수 비중, 등락률과 기간별 수익률을 카드와 비교표로 확인하세요.",
   },
   "/global-top100": {
     title: "세계 기업 시가총액 순위 TOP 100 | K-Stock Hub",
@@ -463,11 +463,11 @@ export default function App() {
   } else if (path === "/stocks") {
     page = <BroadsheetStocksPage />;
   } else if (path === "/kospi-100") {
-    page = <BroadsheetBoardPage market="kospi" />;
+    page = <NeoTop100Page market="kospi" />;
   } else if (path === "/kosdaq-100") {
-    page = <BroadsheetBoardPage market="kosdaq" />;
+    page = <NeoTop100Page market="kosdaq" />;
   } else if (path === "/nasdaq-100") {
-    page = <BroadsheetBoardPage market="nasdaq" />;
+    page = <NeoTop100Page market="nasdaq" />;
   } else if (path === "/map") {
     page = <KospiMapPage />;
   } else if (path === "/kosdaq-map") {

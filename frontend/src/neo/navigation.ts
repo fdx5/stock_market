@@ -23,7 +23,7 @@ const BASE_NEO_GROUPS = [
   ] },
   { id: "explore", ko: "탐험 · 커뮤니티", en: "Explore", icon: "orbit", links: [
     ["/community/kr", "국내 증시 커뮤니티", "Korea community"], ["/community/global", "해외 증시 커뮤니티", "Global community"], ["/community/property", "부동산 커뮤니티", "Property community"],
-    ["/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", "종목 토론", "Discussions"], ["/kospi-orbit", "코스피 궤도", "KOSPI orbit"], ["/kosdaq-orbit", "코스닥 궤도", "KOSDAQ orbit"], ["/nasdaq100-orbit", "나스닥 궤도", "NASDAQ orbit"], ["/drone-explore", "드론 탐험", "Drone explorer"], ["/market-bubbles", "증시 버블", "Market bubbles"], ["/market-bubbles2", "증시 버블 NEO", "Market bubbles NEO"], ["/hub", "태양계 입구", "Solar entrance"], ["/support", "커피 한 잔 후원", "Support KOSPIMAP"], ["/desk2", "클래식 데스크", "Classic desk"],
+    ["/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", "종목 토론", "Discussions"], ["/kospi-orbit", "코스피 궤도", "KOSPI orbit"], ["/kosdaq-orbit", "코스닥 궤도", "KOSDAQ orbit"], ["/nasdaq100-orbit", "나스닥 궤도", "NASDAQ orbit"], ["/drone-explore", "드론 탐험", "Drone explorer"], ["/market-bubbles", "증시 버블", "Market bubbles"], ["/hub", "태양계 입구", "Solar entrance"], ["/support", "커피 한 잔 후원", "Support KOSPIMAP"], ["/desk2", "클래식 데스크", "Classic desk"],
   ] },
  ] as const;
 const RESEARCH_SECTION: Record<string,string> = {
