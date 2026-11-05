@@ -16,6 +16,7 @@
     "@types/react-dom": "^18.3.0",
     "@types/three": "^0.185.1",
     "@vitejs/plugin-react": "^4.3.1",
+    "tesseract.js": "6.0.1",
     "typescript": "^5.5.4",
     "vite": "^5.4.1"
   },
@@ -35,6 +36,9 @@
     "/bond-tradeoffs",
     "/change-digest",
     "/commodity-impact",
+    "/community/global",
+    "/community/kr",
+    "/community/property",
     "/crypto-inside",
     "/crypto-liquidity",
     "/currency-lens",
@@ -126,7 +130,7 @@
     "/walk",
     "/yield-curve-lab"
   ],
-  "source_files": 875,
+  "source_files": 945,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -456,6 +460,13 @@
       ]
     },
     {
+      "file": "frontend/src/neo/CommunityPage.tsx",
+      "hosts": [
+        "www.youtube-nocookie.com",
+        "www.youtube.com"
+      ]
+    },
+    {
       "file": "frontend/src/neo/NeoShell.tsx",
       "hosts": [
         "chs2147.github.io",
@@ -490,6 +501,12 @@
       "file": "frontend/src/usLogo.ts",
       "hosts": [
         "companiesmarketcap.com"
+      ]
+    },
+    {
+      "file": "frontend/src/walkmode/FacilityApps.tsx",
+      "hosts": [
+        "www.google.com"
       ]
     },
     {

@@ -120,6 +120,9 @@ export function pageLabel(path: string): string {
   if (path === "/etf/kr") return "국내 ETF 마켓";
   if (path === "/etf/us") return "해외 ETF 마켓";
   if (path === "/discussion-explorer") return "종목토론";
+  if (path === "/community/kr") return "국내 증시 커뮤니티";
+  if (path === "/community/global") return "해외 증시 커뮤니티";
+  if (path === "/community/property") return "부동산 커뮤니티";
   if (path === "/market-bubbles") return "증시버블";
   if (path === "/market-bubbles2") return "증시버블 NEO";
   if (path === "/kospi-orbit") return "증시궤도 · KOSPI";

@@ -179,3 +179,43 @@ class CommunityTests(TestCase):
                 result = REAL_LOAD_POST({'id': f'82-{n}', 'url': f'https://www.82cook.com/entiz/read.php?bn=15&num={n}'})
                 self.assertEqual(result['status'], 'unavailable')
             self.assertEqual(get.call_count, 3)
+
+    def test_public_comments_preserve_replies_and_exclude_profiles(self):
+        html = '''<li class="list"><div class="text" id="text_11"><p class="writer">SECRET-WRITER<img src="/profile.png"><span class="data-date-format" data-date-format="Thu Nov 05 08:02:48 KST 2026"></span></p><p id="cont_11" style="display:none">hidden duplicate</p><p class="cont">댓글 첫 줄<br>둘째 줄<button>신고</button></p></div><div class="list"><div class="text" id="text_12"><p class="writer">PRIVATE-USER-ID</p><p class="cont">답글입니다.</p></div></div></li><script>$("#commentCnt").html("2");if("1"=="2"){$("#und-list").hide();}</script>'''
+        result = feed.parse_comments(html, 'https://www.paxnet.co.kr/tbbs/view?id=N00801&seq=1')
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['total'], 2)
+        self.assertTrue(result['has_more'])
+        self.assertEqual([c['id'] for c in result['items']], ['11', '12'])
+        self.assertEqual(result['items'][1]['parent_id'], '11')
+        self.assertEqual(result['items'][0]['published_at'], '2026-11-04T23:02:48+00:00')
+        self.assertEqual(result['items'][0]['blocks'][0]['text'], '댓글 첫 줄\n둘째 줄')
+        payload = str(result)
+        for text in ['SECRET-WRITER','PRIVATE-USER-ID','profile.png','hidden duplicate','신고']:
+            self.assertNotIn(text, payload)
+        self.assertFalse(feed.parse_comments(html.replace('if("1"=="2")','if("2"=="2")'), 'https://www.paxnet.co.kr/tbbs/view?id=N00801&seq=1', 2)['has_more'])
+
+    def test_comments_distinguish_empty_and_failed_sources(self):
+        empty = feed.parse_comments('<script>$("#commentCnt").html("0");</script>', 'https://www.paxnet.co.kr/tbbs/view?id=N00801&seq=1')
+        self.assertEqual(empty['status'], 'ok')
+        self.assertEqual(empty['total'], 0)
+        self.assertEqual(empty['items'], [])
+        failed = feed.parse_comments('<html>Login required</html>', 'https://www.paxnet.co.kr/tbbs/view?id=N00801&seq=1')
+        self.assertEqual(failed['status'], 'unavailable')
+        self.assertIsNone(failed['total'])
+
+    def test_reply_to_unavailable_parent_keeps_reply_classification(self):
+        html = '''<div class="list"><div class="text" id="text_12"><p class="cont">부모 댓글이 없어도 공개된 답글입니다.</p><button onclick="javascript:replyAddForm('12', this, '10');">답글달기</button></div></div><script>$("#commentCnt").html("1");</script>'''
+        result = feed.parse_comments(html, 'https://www.paxnet.co.kr/tbbs/view?id=N00801&seq=1')
+        self.assertEqual(result['items'][0]['parent_id'],'10')
+
+    def test_comment_endpoint_is_bounded_and_snapshot_scoped(self):
+        post = {'id':'pax-1', 'url':'https://www.paxnet.co.kr/tbbs/view?id=N00801&seq=1'}
+        snapshot = {'board':'kr', 'items':[post]}
+        with patch.object(feed, '_snapshots', {'a'*32:snapshot}), patch.object(feed, '_comment_cache', feed.OrderedDict()), patch.object(feed, '_get', return_value=b'<script>$("#commentCnt").html("0");</script>') as get:
+            feed.comments('kr','a'*32,'pax-1')
+            feed.comments('kr','a'*32,'pax-1')
+            self.assertEqual(get.call_count,1)
+            self.assertTrue(get.call_args.args[0].startswith('https://www.paxnet.co.kr/tbbs/bbsCommentList?'))
+            self.assertNotIn('regmnId', get.call_args.args[0])
+            with self.assertRaises(LookupError):feed.comments('global','a'*32,'pax-1')

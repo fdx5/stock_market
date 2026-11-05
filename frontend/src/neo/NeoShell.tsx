@@ -108,11 +108,11 @@ export default function NeoShell({ path, children }: { path: string; children: R
   const showCurrent = family !== "immersive" && frameLight && fx !== "minimal";
   const current = (to: string) => to.split("?")[0] === path;
   const navLink = (link: readonly [string, string, string]) => {
-    const service = serviceForPath(link[0]), isCommunity = link[0].startsWith("/community/"), params = new URLSearchParams(window.location.search);
+    const service = serviceForPath(link[0]), params = new URLSearchParams(window.location.search);
     const code = path.match(/^\/stock\/([A-Za-z0-9.-]+)/)?.[1] ?? params.get("code") ?? undefined;
     const market = params.get("market") ?? (code && /^[A-Za-z]/.test(code) ? "nasdaq" : "kospi");
     const to = service ? serviceLink(link[0], {code, market, region: params.get("region") ?? undefined}) : link[0];
-    return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined}><span>{link[lang === "ko" ? 1 : 2]}</span>{(service || isCommunity) && <span className="ng-research-new" aria-label={L("신규", "New")}>N</span>}<NeoIcon name="chevron" /></Link>;
+    return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined}><span>{link[lang === "ko" ? 1 : 2]}</span><NeoIcon name="chevron" /></Link>;
   };
   return <div className={`ng-shell ng-family-${family}`} data-workspace={path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
     <a className="ng-skip" href="#neo-content">{L("본문 바로가기", "Skip to content")}</a>

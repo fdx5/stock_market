@@ -16,7 +16,7 @@ from app.services import api_pulse, system_telemetry
 APP_DIR = Path(__file__).resolve().parents[1]
 GROUPS = [
     ("market", "증시 · 시세 엔진", "Market intelligence", "#58cfef", "시세·호가·수급·ETF·글로벌 시총·기술 지표"),
-    ("community", "뉴스 · 커뮤니티", "News & community", "#b098ff", "뉴스 수집·종목 토론·댓글·번역"),
+    ("community", "뉴스 · 커뮤니티", "News & community", "#b098ff", "뉴스·국내/해외 증시·부동산 게시판·댓글·번역"),
     ("realestate", "부동산 · 공간 데이터", "Spatial intelligence", "#eeb97e", "실거래·전월세·단지·GIS·건물·3D 지도"),
     ("prediction", "AI 예측 파이프라인", "Prediction pipeline", "#ee8cb9", "특징 추출·정량 지표·Claude·예측 저장·채점"),
     ("operations", "운영 · 방문 분석", "Operations & analytics", "#75d4b0", "활동 로그·방문 통계·관리자·배치·메일·알림"),
@@ -29,7 +29,7 @@ def group_for(module: str) -> str:
     if name.startswith("realestate") or name == "weather_fetcher": return "realestate"
     if name.startswith(("prediction", "ai_analyst", "predictor", "trading_calendar")): return "prediction"
     if name.startswith(("support", "supporter")): return "support"
-    if any(s in name for s in ("news", "discussion", "comment", "translate", "translation", "board_fetcher", "toss_session")): return "community"
+    if any(s in name for s in ("community", "news", "discussion", "comment", "translate", "translation", "board_fetcher", "toss_session")): return "community"
     if name.startswith(("admin", "monitor", "system_", "site_graph", "api_pulse", "activity", "visitor", "page_view", "device", "hub_event", "bot_", "kakao", "notify", "mail_", "naver_publish", "naver_blog", "naver_session", "naver_document", "naver_map_screenshot", "naver_brief", "seo", "libsql", "turso", "db_browser", "drive_score", "geo")): return "operations"
     return "market"
 
@@ -45,7 +45,7 @@ def host_group(host: str) -> str:
     if any(s in host for s in ("buymeacoffee", "paypal", "stripe", "kakaopay")): return "ext-pay"
     if any(s in host for s in ("kakao", "resend", "blog.naver")): return "ext-delivery"
     if any(s in host for s in ("data.go.kr", "vworld", "openstreetmap", "overpass", "arcgisonline", "open-meteo", "onemap", "sgis", "k-apt", "kapt", "map.naver", "land.naver", "hogangnono", "maps.googleapis")): return "ext-spatial"
-    if any(s in host for s in ("news", "bing", "translate", "ip-api", "toss", "search.naver")): return "ext-content"
+    if any(s in host for s in ("news", "bing", "translate", "ip-api", "toss", "search.naver", "paxnet.co.kr", "82cook.com")): return "ext-content"
     if any(s in host for s in ("finance.naver", "stock.naver", "yahoo", "krx", "seibro", "companiesmarketcap", "slickcharts", "trendforce", "feargreedchart", "financialmodelingprep", "wisereport", "stooq", "nasdaq")): return "ext-market"
     return "ext-resources"
 

@@ -40,6 +40,7 @@ _refreshing = set()
 _log = logging.getLogger(__name__)
 _body_failures = {}
 _body_backoff = {}
+_comment_cache = OrderedDict()
 
 
 def clean(value):
@@ -499,3 +500,57 @@ def preview(board, snapshot, post_id):
         item = next((p for p in data["items"] if p["id"] == post_id), None) if data and data["board"] == board else None
     if not item: raise LookupError("snapshot expired")
     return item.get("_body") or load_post(item)
+
+
+def parse_comments(data, source_url, page=1):
+    soup = html_soup(data)
+    scripts = "\n".join(s.get_text() for s in soup.select('script'))
+    count = re.search(r'''\$\(["']#commentCnt["']\)\.html\(["'](\d+)["']\)''', scripts)
+    total = int(count[1]) if count else None
+    last_page = re.search(r'''if\(\s*["'](\d+)["']\s*==\s*["'](\d+)["']\s*\)\s*\{\s*\$\(["']#und-list["']\)\.hide\(\)''', scripts)
+    items, seen = [], set()
+    for node in soup.select('.text[id^="text_"]'):
+        comment_id = node.get('id', '').removeprefix('text_')
+        content = node.find('p', class_='cont', recursive=False)
+        if not comment_id.isdigit() or comment_id in seen or content is None: continue
+        body = parse_preview(f'<div id="bbsWrtCntn">{content}</div>', source_url)
+        if not body['blocks']: continue
+        seen.add(comment_id)
+        date = node.select_one('.data-date-format')
+        written = None
+        if date:
+            try: written = datetime.strptime(date['data-date-format'].replace(' KST ', ' '), '%a %b %d %H:%M:%S %Y').replace(tzinfo=KST).astimezone(timezone.utc).isoformat()
+            except (KeyError, ValueError): pass
+        thread = node.find_parent('li', class_='list')
+        parent = thread.select_one('.text[id^="text_"]') if thread else None
+        parent_id = parent.get('id', '').removeprefix('text_') if parent else None
+        if parent_id == comment_id: parent_id = None
+        action = node.select_one('button[onclick*="replyAddForm"]')
+        relation = re.search(r'''replyAddForm\(\s*["']\d+["']\s*,\s*this\s*,\s*["'](\d+)["']''', action.get('onclick', '')) if action else None
+        if relation and relation[1] != '0': parent_id = relation[1]
+        # No writer ID, nickname, profile URL or profile image enters the response.
+        items.append({'id': comment_id, 'parent_id': parent_id, 'published_at': written, 'blocks': body['blocks']})
+    if not items and total is None:
+        return {'status': 'unavailable', 'items': [], 'total': None, 'has_more': False, 'page': page}
+    has_more = bool(items) and (last_page[1] != last_page[2] if last_page else total is not None and total > page * len(items))
+    return {'status': 'ok', 'items': items, 'total': total, 'has_more': has_more, 'page': page}
+
+
+def comments(board, snapshot, post_id, page=1):
+    with _guard:
+        data = _snapshots.get(snapshot)
+        item = next((p for p in data['items'] if p['id'] == post_id), None) if data and data['board'] == board else None
+        cached = _comment_cache.get((post_id, page))
+    if not item: raise LookupError('snapshot expired')
+    if cached and time.monotonic() - cached[0] < 30: return cached[1]
+    result = {'status': 'unavailable', 'items': [], 'total': None, 'has_more': False, 'page': page}
+    query = parse_qs(urlparse(item['url']).query)
+    bbs_id, seq = query.get('id', [''])[0], query.get('seq', [''])[0]
+    if item['id'].startswith('pax-') and re.fullmatch(r'N\d{1,10}', bbs_id) and re.fullmatch(r'\d{1,20}', seq):
+        url = 'https://www.paxnet.co.kr/tbbs/bbsCommentList?' + urlencode({'id': bbs_id, 'seq': seq, 'page': page, 'orderType': '', 'commentSeq': 0, 'modCmt': 'N'})
+        try: result = parse_comments(_get(url), item['url'], page)
+        except Exception: pass
+    with _guard:
+        _comment_cache[(post_id, page)] = (time.monotonic(), result)
+        while len(_comment_cache) > 256: _comment_cache.popitem(last=False)
+    return result

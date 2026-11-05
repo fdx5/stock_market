@@ -45,6 +45,9 @@ PAGES: list[dict] = [
     {"id": "page:/global-top100", "label": "글로벌시총", "path": "/global-top100", "group": "stock"},
     {"id": "page:/etf", "label": "ETF", "path": "/etf", "group": "etf"},
     {"id": "page:/discussion-explorer", "label": "종목토론", "path": "/discussion-explorer", "group": "stock"},
+    {"id": "page:/community/kr", "label": "국내 증시 커뮤니티", "path": "/community/kr", "group": "stock"},
+    {"id": "page:/community/global", "label": "해외 증시 커뮤니티", "path": "/community/global", "group": "stock"},
+    {"id": "page:/community/property", "label": "부동산 커뮤니티", "path": "/community/property", "group": "stock"},
     {"id": "page:/market-bubbles", "label": "증시버블", "path": "/market-bubbles", "group": "stock"},
     {"id": "page:/market-bubbles2", "label": "증시버블 NEO", "path": "/market-bubbles2", "group": "stock"},
     {"id": "page:/kospi-orbit", "label": "증시궤도 KOSPI", "path": "/kospi-orbit", "group": "map"},
@@ -115,10 +118,13 @@ DEPOTS: list[dict] = [
     {"id": "up:claude", "label": "Claude (예측)", "group": "upstream"},
     {"id": "up:kakao", "label": "Kakao 알림", "group": "upstream"},
     {"id": "up:resend", "label": "Resend 메일", "group": "upstream"},
+    {"id": "up:paxnet", "label": "팍스넷 공개 게시글·댓글", "group": "upstream"},
+    {"id": "up:82cook", "label": "82cook 공개 게시판", "group": "upstream"},
 ]
 
 # ───────────────────────── page → api (hand-maintained) ─────────────────────────
 PAGE_CALLS: dict[str, list[str]] = {
+    **{f"page:/community/{board}": ["/api/community/{board}", "/api/community/{board}/post", "/api/community/{board}/comments"] for board in ("kr", "global", "property")},
     # The entrance reads the four index numbers on its rail and nothing else — the
     # planets are geometry, not data.
     "page:/": ["/api/investor/indices", "/api/global/indices"],
@@ -664,6 +670,7 @@ VISITOR_SHELL_CALLS: list[str] = ["/api/activity/event"]
 # reads Naver through the same cache, and listing them one by one would be twenty lines
 # saying the same thing. Longest prefix wins, so a specific route can still override.
 API_DEPENDS: list[tuple[str, list[str]]] = [
+    ("/api/community", ["store:cache", "up:paxnet", "up:82cook"]),
     ("/api/market-brief", ["store:cache", "store:turso", "up:naver", "up:fdr", "up:bing"]),
     ("/api/etfs/{code}/toss-discussion", ["store:cache", "up:toss"]),
     ("/api/etfs/discussions", ["store:cache", "up:naver", "up:toss"]),
@@ -711,6 +718,7 @@ API_DEPENDS: list[tuple[str, list[str]]] = [
 # Which neuron cluster an endpoint belongs to, by path prefix — the monitor colours and
 # spatially groups by this, so related endpoints sit together in the cloud.
 _GROUP_BY_PREFIX: list[tuple[str, str]] = [
+    ("/api/community", "stock"),
     ("/api/admin/monitor", "monitor"),
     ("/api/admin", "admin"),
     ("/api/notify", "admin"),
