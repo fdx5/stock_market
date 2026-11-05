@@ -14,6 +14,7 @@ import { hangingGarment, mannequin, shelfRow, stockFor, tableTop } from "./produ
 import type { Cat } from "./catalog";
 import type { SignAtlas, SignStyle } from "./facilitySigns";
 import { placeVending, type VendingSession } from "./vending";
+import { dressRoom } from "./fixtures";
 import type { DrinkAtlas } from "./drinkArtwork";
 
 /* Furnishing a building's rooms by their use (plan/facility.ts): a desk pod for a team, a doctor's
@@ -852,6 +853,10 @@ export function furnishFacilityRoom(c: FacCtx, room: Room, pl: Placer) {
       break;
     }
   }
+  // (then its kind of room's equipment, on the wall and floor that leaves — fixtures.ts)
+  if (c.plan.facility && room.type !== "stair" && room.type !== "restroom") dressRoom({ c, room, pl, zone, kind: c.plan.facility.kind, name: bname, H, doorSide,
+    wallPut: (s2, kit, w, d, prefer = null, height = 0.8, solid = true, clear = 0) => wallPut(s2, kit, w, d, prefer, height, solid, clear),
+    freeNear: (x, z, w, d, yaw = 0) => freeNear(x, z, w, d, yaw), at });
   roomSign(c, room, corridorOp);
 }
 

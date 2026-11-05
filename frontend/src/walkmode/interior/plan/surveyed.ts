@@ -41,7 +41,7 @@ const ringArea = (p: P2[]) => Math.abs(p.reduce((t, a, i) => { const b = p[(i + 
 /** a long thin shape (a corridor's): its bounding box much longer than wide, or mostly empty */
 const elongated = (p: P2[]) => { const xs = p.map(q => q[0]), zs = p.map(q => q[1]), w = Math.max(...xs) - Math.min(...xs), d = Math.max(...zs) - Math.min(...zs); return Math.max(w, d) / Math.max(0.1, Math.min(w, d)) > 4 || ringArea(p) < w * d * 0.45; };
 
-interface Region { id: number; type: RoomType; label: string; core?: "lift" | "stair" | "escalator" | "toilet"; people: FacilityRole[]; front: "door" | "glass" | "open"; name?: string; finish?: string }
+interface Region { id: number; type: RoomType; label: string; core?: "lift" | "stair" | "escalator" | "toilet"; people: FacilityRole[]; front: "door" | "glass" | "open"; name?: string; finish?: string; /** open to the public space along every wall it shares with it, full height (a hypermarket's hall) */ wide?: boolean }
 
 /** the outline's main direction: the angle (mod 90°) its edges' lengths favour */
 function mainAngle(rings: P2[][]): number {
@@ -154,7 +154,9 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   // ------------------------------------------------ an outline only: the programme laid out in it
   const named = new Map<string, number>();
   const floorArea = insideCells * CELL * CELL, large = floorArea > LARGE_AREA;
-  if (!drawn) { if (kind === "parking") synthesizeParking(); else if (large) synthesizeLarge(); else synthesize(); }
+  // (a hypermarket's sales floor is one hall — never a street of little shops)
+  const hyper = kind === "retail" && /이마트(?!24)|홈플러스|롯데마트|하나로마트|코스트코|트레이더스|킴스클럽|대형마트|창고형|농협하나로/.test(f.name) && f.level >= -2 && f.level <= 3;
+  if (!drawn) { if (kind === "parking") synthesizeParking(); else if (hyper && floorArea > 600) synthesizeHall(); else if (large) synthesizeLarge(); else synthesize(); }
   else {
     // (what the drawing leaves uncharted inside the walls is open floor)
     const open = region({ type: "corridor", label: "복도", people: ["visitor", "visitor"], front: "open" });
@@ -281,6 +283,41 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
   /** A car park with only its outline (a basement: the register says 주차장): the whole plate one
    * deck of bays, the core by the focus — the lifts, the 비상계단, an electrical room. (A deck has no
    * programme of rooms: cutting it as offices left the plan without one and threw.) */
+  /** A hypermarket's floor (이마트, 홈플러스, 코스트코…): one sales hall over the plate — the aisles,
+   * chillers, produce and checkouts are its furnishing (shopInteriors mart) — with the core by the
+   * way in (lifts, stair, toilets) and a 고객센터 beside it, all off the entrance hall along the
+   * front — the floor's public space, which every room opens from. */
+  function synthesizeHall() {
+    const along = W >= D, L = along ? nx : nz, A = along ? nz : nx;
+    const at = (u: number, v: number) => along ? v * nx + u : u * nx + v;
+    const f0: P2 = entry ?? focus;
+    const fu = Math.max(0, Math.min(L - 1, Math.round(((along ? f0[0] - wx0 : f0[1] - wz0)) / CELL))), fv = Math.max(0, Math.min(A - 1, Math.round(((along ? f0[1] - wz0 : f0[0] - wx0)) / CELL)));
+    const front = fv < A / 2 ? 0 : A - 1, inward = front === 0 ? 1 : -1;
+    const block = (a0: number, a1: number, d0: number, d1: number, id: number) => {
+      for (let u = Math.max(0, a0); u < Math.min(L, a1); u++) for (let d = d0; d < d1; d++) {
+        const v = front + inward * d, k = at(u, v);
+        if (v >= 0 && v < A && g[k] === FREE) g[k] = id;
+      }
+    };
+    // the core along the front wall beside the way in (on the side with more room), behind the hall
+    const right = fu < L / 2, c0 = right ? fu + 14 : fu - 14 - 30, cd = Math.round(7 / CELL);
+    if (!regions.some(r => r.core === "lift")) {
+      block(c0, c0 + 10, cd, cd + 6, region({ type: "storage", label: "엘리베이터", core: "lift", people: [], front: "door" }));
+      block(c0 + 10, c0 + 16, cd, cd + 12, region({ type: "stair", label: "계단실", core: "stair", people: [], front: "door" }));
+      block(c0 + 16, c0 + 23, cd, cd + 10, region({ type: "restroom", label: "남자 화장실", core: "toilet", people: [], front: "door" }));
+      block(c0 + 23, c0 + 30, cd, cd + 10, region({ type: "restroom", label: "여자 화장실", core: "toilet", people: [], front: "door" }));
+    }
+    // 고객센터 on the other side of the way in
+    const s0 = right ? fu - 8 - 16 : fu + 8;
+    block(s0, s0 + 16, cd, cd + 10, region({ type: "service", label: "고객센터", people: ["clerk", "clerk"], front: "open" }));
+    // the entrance hall along the whole front: trolleys, the checkouts' far side, the way to the core
+    // and the service desk (the floor's public space: every room opens off it)
+    const ent = region({ type: "lobby", label: `${f.name} 입구`, people: ["guard", "shopper", "shopper", "visitor"], front: "open", finish: "floor:terrazzo" });
+    block(0, L, 0, Math.round(7 / CELL), ent);
+    // the hall: the rest
+    const hall = region({ type: "shop", label: `${f.name} 매장`, people: ["clerk", "clerk", "clerk", "shopper", "shopper", "shopper", "shopper", "shopper", "shopper", "shopper"], front: "open", name: f.name, wide: true });
+    for (let k = 0; k < g.length; k++) if (g[k] === FREE) g[k] = hall;
+  }
   function synthesizeParking() {
     const along = W >= D, L = along ? nx : nz, A = along ? nz : nx;
     const at = (u: number, v: number) => along ? v * nx + u : u * nx + v;
@@ -484,6 +521,16 @@ export function generateSurveyed(f: SurveyedInput): FloorPlan | null {
       continue;
     }
     if (!best) continue;
+    if (rg.wide) {
+      // (every wall this region shares with the public space open, nearly end to end, to the ceiling)
+      for (const id of ids) for (const bn of near(rooms[roomIndex.get(id)!])) {
+        const B = rooms[bn]; if (!isPublic(B)) continue;
+        const A = rooms[roomIndex.get(id)!], sh = shared(A, B); if (!sh || sh.hi - sh.lo < 1.2) continue;
+        openings.push({ type: "open", a: A.id, b: B.id, axis: sh.axis, at: sh.at, center: r1((sh.lo + sh.hi) / 2), width: r1(sh.hi - sh.lo - 0.2), height: H + 1, sill: 0 });
+        linked.add(pairKey(A.id, B.id));
+      }
+      continue;
+    }
     const { A, B, sh } = best, len = sh.hi - sh.lo;
     if (rg.front === "open" && len > 3) openings.push({ type: "open", a: A.id, b: B.id, axis: sh.axis, at: sh.at, center: r1((sh.lo + sh.hi) / 2), width: r1(Math.min(len - 1.2, Math.max(2.4, len * 0.6))), height: 2.5, sill: 0 });
     else if (rg.front === "glass" && len > 2.4) openings.push({ type: "glass_door", a: A.id, b: B.id, axis: sh.axis, at: sh.at, center: r1((sh.lo + sh.hi) / 2), width: len > 5 ? 1.8 : 1.5, height: 2.3, sill: 0 });

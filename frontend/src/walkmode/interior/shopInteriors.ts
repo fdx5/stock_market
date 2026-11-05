@@ -303,7 +303,9 @@ function mart(k: ShopKit): boolean {
   }
   // (aisles of gondolas, end to end)
   const along = k.D > k.W ? "z" : "x", across = along === "z" ? k.W : k.D, span = (along === "z" ? k.D : k.W) - 6.5;
-  const n = Math.max(1, Math.floor((across - 3) / 2.1)), len = Math.min(4, Math.max(1.6, span)), per = Math.max(1, Math.floor((span + 1.6) / (len + 1.6)));
+  // (a hypermarket's hall: as many aisles as it holds, up to 20 × 8 runs — the rest of the floor its
+  // promotion islands and the way round)
+  const n = Math.min(20, Math.max(1, Math.floor((across - 3) / 2.1))), len = Math.min(4, Math.max(1.6, span)), per = Math.min(8, Math.max(1, Math.floor((span + 1.6) / (len + 1.6))));
   for (let i = 0; i < n; i++) for (let j = 0; j < per; j++) {
     const o = -((n - 1) * 2.1) / 2 + i * 2.1, a = -((per - 1) * (len + 1.6)) / 2 + j * (len + 1.6) + (k.doorSide === "s" || k.doorSide === "e" ? -1.2 : 1.2);
     const f = along === "z" ? k.freeAt(k.cx + o, k.cz + a, len, 0.9, Math.PI / 2) : k.freeAt(k.cx + a, k.cz + o, len, 0.9, 0);

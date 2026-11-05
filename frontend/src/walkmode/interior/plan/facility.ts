@@ -184,7 +184,18 @@ export function programOf(f: FacilityInput, rnd: () => number): Want[] {
       { type: "storage", label: "방재실", w: 4.5, front: "door", people: ["guard"] },
     ];
     case "parking": return [];
-    default: return [
+    default: if (/역$|역\s|지하철|역사|터미널/.test(f.name)) return [
+      // a subway station's concourse (대합실): the gates, ticket machines and boards are its equipment
+      // (fixtures.ts); the station office and the concourse's shops along it
+      { type: "lobby", label: `${f.name.replace(/\s*\(.*\)$/, "")} 대합실`, w: 18, front: "open", grow: true, people: ["visitor", "visitor", "visitor", "visitor", "visitor", "guard"] },
+      { type: "service", label: "역무실·고객안내센터", w: 6, front: "glass", people: ["clerk", "clerk"] },
+      { type: "shop", label: "편의점", w: 6, front: "glass", people: ["clerk", "shopper"] },
+      { type: "shop", label: "베이커리", w: 5.5, front: "glass", people: ["clerk", "shopper"] },
+      { type: "cafe", label: "테이크아웃 커피", w: 5, front: "open", people: ["clerk", "shopper"] },
+      { type: "shop", label: "화장품 가게", w: 5, front: "glass", people: ["clerk", "shopper"] },
+      { type: "storage", label: "전기·통신실", w: 3, front: "door", people: [] },
+    ];
+    return [
       { type: "service", label: t[0] ? `${t[0]} 민원실` : "민원실", w: 13, front: "open", grow: true, people: ["clerk", "clerk", "clerk", "visitor", "visitor", "visitor"] },
       { type: "openOffice", label: "사무실", w: 9, front: "glass", people: ["desk", "desk", "desk"] },
       { type: "meeting", label: "상담실", w: 4, front: "door", people: ["clerk"] },
