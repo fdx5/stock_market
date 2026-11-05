@@ -250,5 +250,29 @@
     "description": "지수, 종목과 시장 정보를 기존 위젯 데스크 구성으로 확인하세요.",
     "image": "/img/social/desk2-0627747d39.png",
     "alt": "K Stock Hub 클래식 데스크 — Classic desk"
+  },
+  "/community/kr": {
+    "title": "국내 증시 커뮤니티 | K Stock Hub",
+    "description": "코스피·코스닥 시황과 시세, 투자자들의 다양한 의견을 최신 글과 전체 본문·댓글로 살펴보세요.",
+    "image": "/img/social/community-kr-og-v1.png",
+    "alt": "국내 증시 커뮤니티 — 별빛 주문서에서 펼쳐지는 서울 금융 도시와 시장 이야기",
+    "width": 1734,
+    "height": 907
+  },
+  "/community/global": {
+    "title": "해외 증시 커뮤니티 | K Stock Hub",
+    "description": "미국과 글로벌 시장의 시황, 주요 종목과 투자자들의 생각을 최신 글과 전체 본문·댓글로 살펴보세요.",
+    "image": "/img/social/community-global-og-v1.png",
+    "alt": "해외 증시 커뮤니티 — 별빛 주문서 위의 지구와 글로벌 금융 도시",
+    "width": 1734,
+    "height": 907
+  },
+  "/community/property": {
+    "title": "부동산 커뮤니티 | K Stock Hub",
+    "description": "부동산 실거래와 매매·전세, 정책과 실거주에 관한 이야기를 최신 글과 전체 본문·댓글로 살펴보세요.",
+    "image": "/img/social/community-property-og-v1.png",
+    "alt": "부동산 커뮤니티 — 별빛 주문서에서 펼쳐지는 아파트와 주택, 금빛 열쇠",
+    "width": 1731,
+    "height": 909
   }
 }

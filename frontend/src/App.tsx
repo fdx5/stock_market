@@ -23,7 +23,7 @@ import { useDesignMode } from "./neo/settings";
 import { MARKET_ASSETS } from "./marketAssets";
 import socialCards from "./neo/socialCards.json";
 import { updateWalkShare } from './walkmode/shareMeta';
-const SOCIAL_CARDS: Record<string, { title: string; description: string; image: string; alt: string }> = socialCards;
+const SOCIAL_CARDS: Record<string, { title: string; description: string; image: string; alt: string; width?: number; height?: number }> = socialCards;
 const AssetPricePage = lazy(() => import("./neo/AssetPricePage"));
 const CommunityPage = lazy(() => import("./neo/CommunityPage"));
 
@@ -387,6 +387,8 @@ export default function App() {
     document.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.setAttribute("content", image);
     document.querySelector<HTMLMetaElement>('meta[property="og:image:secure_url"]')?.setAttribute("content", image);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:image"]')?.setAttribute("content", image);
+    document.querySelector<HTMLMetaElement>('meta[property="og:image:width"]')?.setAttribute("content", String(social?.width ?? 1200));
+    document.querySelector<HTMLMetaElement>('meta[property="og:image:height"]')?.setAttribute("content", String(social?.height ?? 630));
     const imageAlt = briefMatch
       ? `${briefMatch[1]} ${displayMarketName} 오늘 브리핑 핵심 지표`
       : social?.alt ?? "K-Stock Hub 시장 데이터";

@@ -395,6 +395,7 @@ from app.services.discovery_catalog import SERVICES as DISCOVERY_PAGES
 PAGES.update({path: (name + " | K-Stock Hub", description) for path, name, description in DISCOVERY_PAGES})
 PAGES.update(market_guides.PAGES)
 PAGES.update(public_markets.PAGES)
+PAGES.update({path: (card["title"], card["description"]) for path, card in SOCIAL_CARDS.items() if path.startswith("/community/")})
 
 
 def _replace_meta(document: str, selector: str, value: str) -> str:
@@ -573,6 +574,9 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     document = _replace_meta(document, 'property="og:image:secure_url"', page_image)
     document = _replace_meta(document, 'property="og:image:type"', "image/jpeg" if page_image.lower().endswith((".jpg", ".jpeg")) else "image/png")
     document = _replace_meta(document, 'property="og:image:alt"', image_alt or (f"{brief_day} {brief_market.upper()} 오늘 브리핑 핵심 지표" if brief else "K-Stock Hub 시장 데이터"))
+    if social and social.get("width") and social.get("height") and not is_walk:
+        document = _replace_meta(document, 'property="og:image:width"', str(social["width"]))
+        document = _replace_meta(document, 'property="og:image:height"', str(social["height"]))
     if is_walk:
         document = _replace_meta(document, 'property="og:image:width"', "1729")
         document = _replace_meta(document, 'property="og:image:height"', "910")

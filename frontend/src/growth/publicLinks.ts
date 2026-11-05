@@ -4,7 +4,7 @@ export function publicMarket(search: string): PublicMarket {
   const value = new URLSearchParams(search).get("market");
   return value && Object.prototype.hasOwnProperty.call(MARKET_NAMES, value) ? value as PublicMarket : "kospi";
 }
-const PUBLIC_PATHS = new Set(["/", "/today", "/share-market", "/map", "/kosdaq-map", "/nasdaq100-map", "/sp500-map", "/desk", "/stocks", "/global", "/etf", "/news", "/market-brief", "/guides", "/kospi-100", "/kosdaq-100", "/nasdaq-100", "/ranking/trading-value"]);
+const PUBLIC_PATHS = new Set(["/", "/today", "/share-market", "/map", "/kosdaq-map", "/nasdaq100-map", "/sp500-map", "/desk", "/stocks", "/global", "/etf", "/news", "/market-brief", "/guides", "/kospi-100", "/kosdaq-100", "/nasdaq-100", "/ranking/trading-value", "/community/kr", "/community/global", "/community/property"]);
 /** Share only public routes and enumerated market choices, never the current raw URL. */
 export function publicSharePath(path: string, search = ""): string | null {
   const clean = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
