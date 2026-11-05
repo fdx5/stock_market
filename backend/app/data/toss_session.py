@@ -6,7 +6,7 @@ wants is not guessable from the endpoint's shape:
   productCode  (AAPL -> "US19801212001")  the *listing*: quotes, the community board
   companyCode  (AAPL -> "NAS000C7F-E0")   the *issuer*: news coverage
 
-Both come back from the same autocomplete lookup, so resolving them together costs
+Both come back from the same public stock-info lookup, so resolving them together costs
 one request instead of two and keeps them from drifting apart in the cache. The
 discussion and news fetchers each take the one they need from here rather than
 re-deriving it, which is also why this is a module and not a helper inside either
@@ -16,6 +16,8 @@ of them.
 import logging
 import threading
 import time
+import uuid
+from urllib.parse import quote
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 
@@ -26,6 +28,8 @@ from app.data.http_pool import mount_pool
 
 TTL_CODES_SECONDS = 24 * 60 * 60
 INFO_API = "https://wts-info-api.tossinvest.com"
+CERT_API = "https://wts-cert-api.tossinvest.com"
+PUBLIC_API = "https://wts-api.tossinvest.com"
 TOSS_TIMEOUT = (3.05, 8)
 MAX_CONCURRENT_REQUESTS = 3
 COOLDOWN_SECONDS = 30
@@ -111,18 +115,48 @@ session.headers.update(
     }
 )
 mount_pool(session, max_retries=0)
+_public_lock = threading.Lock()
+_public_generation = 0
+
+
+def _init_public_session(observed: int) -> None:
+    """Negotiate the same anonymous read session as the public website, in memory.
+
+    This never signs in, uses a member profile or persists cookies/tokens to disk.
+    A concurrent failure wave shares one initialization rather than rotating sessions.
+    """
+    global _public_generation
+    with _public_lock:
+        if observed != _public_generation: return
+        if not any(cookie.name == "deviceId" for cookie in session.cookies):
+            session.cookies.set("deviceId", str(uuid.uuid4()), domain=".tossinvest.com", path="/")
+        response = session.request("GET", f"{PUBLIC_API}/api/v3/init", timeout=TOSS_TIMEOUT)
+        try: response.raise_for_status()
+        finally: response.close()
+        _public_generation += 1
 
 
 def request_json(method: str, path: str, *, endpoint: str | None = None,
-                 result_type: type = dict, list_field: str | None = None, **kwargs) -> dict:
-    """One bounded attempt. Recovery is delayed by the gate, not an immediate retry."""
+                 result_type: type = dict, list_field: str | None = None, host: str = "info", **kwargs) -> dict:
+    """One bounded read; only explicit anonymous-client negotiation retries once."""
     endpoint = endpoint or path
     generation = _gate.begin(endpoint)
     response = None
     error = None
     retry_after = 0
+    invalid_state = False
+    public_generation = _public_generation
     try:
-        response = session.request(method, f"{INFO_API}{path}", timeout=TOSS_TIMEOUT, **kwargs)
+        base = CERT_API if host == "cert" else INFO_API
+        response = session.request(method, f"{base}{path}", timeout=TOSS_TIMEOUT, **kwargs)
+        # This is public client initialization, not an auth retry or an outage retry.
+        if response.status_code == 400:
+            try: invalid_state = (response.json().get("error") or {}).get("code") == "invalid-client-state"
+            except (ValueError, AttributeError): invalid_state = False
+            if invalid_state:
+                response.close()
+                _init_public_session(public_generation)
+                response = session.request(method, f"{base}{path}", timeout=TOSS_TIMEOUT, **kwargs)
         retry_after = _retry_after(response)
         response.raise_for_status()
         payload = response.json()
@@ -134,7 +168,7 @@ def request_json(method: str, path: str, *, endpoint: str | None = None,
     except Exception as exc:
         # A missing article/listing is specific to that request, not an outage.
         if not (isinstance(exc, requests.HTTPError) and response is not None
-                and 400 <= response.status_code < 500 and response.status_code != 429):
+                and 400 <= response.status_code < 500 and response.status_code != 429 and not invalid_state):
             error = exc
         raise
     finally:
@@ -146,21 +180,15 @@ def request_json(method: str, path: str, *, endpoint: str | None = None,
 
 
 def _resolve_codes(symbol: str) -> dict[str, str | None]:
-    payload = request_json(
-        "POST", "/api/v3/search-all/wts-auto-complete",
-        result_type=list,
-        json={"query": symbol, "sections": [{"type": "PRODUCT"}]},
-    )
-    sections = payload["result"]
-    for section in sections:
-        for item in (section.get("data") or {}).get("items") or []:
-            # Autocomplete answers with near matches too (searching AAPL also returns
-            # Apple-adjacent listings), so only an exact ticker match may be taken.
-            if str(item.get("symbol") or "").upper() == symbol.upper():
-                return {
-                    "product_code": item.get("productCode") or item.get("code"),
-                    "company_code": item.get("companyCode"),
-                }
+    try:
+        item = request_json("GET", f"/api/v2/stock-infos/code-or-symbol/{quote(symbol, safe='.-')}", endpoint="stock-code-resolution")["result"]
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return {"product_code": None, "company_code": None}
+        raise
+    # Never substitute a similarly named ETF or issuer for the exact listing.
+    if str(item.get("symbol") or "").upper() == symbol.upper() or item.get("code") == symbol:
+        return {"product_code": item.get("code") or item.get("productCode"), "company_code": item.get("companyCode")}
     return {"product_code": None, "company_code": None}
 
 

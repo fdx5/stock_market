@@ -91,13 +91,13 @@ function TalkTape({ code, us, asset }: { code: string; us: boolean; asset: "STOC
   useEffect(() => {
     let cancelled = false;
     const req = us
-      ? api.globalDiscussion(code, 20).then((r) => r.items.map((p) => ({ id: p.id, title: p.title || p.text })))
+      ? (asset === "ETF" ? api.tossEtfDiscussion(code, 20) : api.globalDiscussion(code, 20)).then((r) => r.items.map((p) => ({ id: p.id, title: p.title || p.text })))
       : api.board(code, 1, false).then((r) => r.items.map((p) => ({ id: p.nid, title: p.title })));
     req.then((t) => !cancelled && setTitles(t.slice(0, 20))).catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [code, us]);
+  }, [code, us, asset]);
   if (titles.length === 0) return null;
   const href = `/discussion-explorer?code=${encodeURIComponent(code)}&market=${us ? "US" : "KR"}&asset=${asset}`;
   return (
@@ -586,7 +586,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
                 </div>
                 <div>
                   <h3 className="sk-col-head">{L("종목 토론", "Discussion")}</h3>
-                  <Discussion code={code} name={name} source={us ? "toss" : "naver"} explorerHref={explorer} />
+                  <Discussion code={code} name={name} source={us ? isEtf ? "toss-etf" : "toss" : "naver"} explorerHref={explorer} />
                 </div>
               </div>
             </section>

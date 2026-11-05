@@ -1,4 +1,5 @@
 import type { StockUniverseMarket, StockUniverseRow } from "../api/client";
+import { formatDiscussionTime } from "../discussionTime";
 
 /* What the three tabs of 종목정보 differ by, gathered in one table.
  *
@@ -21,7 +22,7 @@ export interface MarketSpec {
    *  community board, which is where Korean retail actually discusses them; "global"
    *  is Naver's 해외종목 토론방, kept as the backend's fallback for a ticker Toss does
    *  not list and still used by the 증시버블 NASDAQ tab. */
-  discussion: "naver" | "global" | "toss";
+  discussion: "naver" | "global" | "toss" | "toss-etf";
   /** finance.naver's per-code news tab, Naver news search by company name, or Toss's
    *  per-company feed — the last being the only one of the three that is a real feed
    *  for a US listing rather than a keyword search over one. */
@@ -35,7 +36,7 @@ export const MARKETS: readonly MarketSpec[] = [
   { key: "kosdaq", label: "코스닥", caption: "KOSDAQ", currency: "KRW", discussion: "naver", news: "naver-finance", assetType: "stock", flag: "kr" },
   { key: "kr_etf", label: "국내 ETF", caption: "KRX ETF", currency: "KRW", discussion: "naver", news: "naver-finance", assetType: "etf", flag: "kr" },
   { key: "sp500", label: "S&P 500", caption: "미국 대형주", currency: "USD", discussion: "toss", news: "toss", assetType: "stock", flag: "us" },
-  { key: "us_etf", label: "해외 ETF", caption: "US ETF", currency: "USD", discussion: "toss", news: "toss", assetType: "etf", flag: "us" },
+  { key: "us_etf", label: "해외 ETF", caption: "US ETF", currency: "USD", discussion: "toss-etf", news: "toss", assetType: "etf", flag: "us" },
 ];
 
 /** The 업종 filter's "전체" option. A sentinel rather than "" so it can never collide
@@ -142,10 +143,5 @@ export function pageWindow(current: number, total: number, span = 5): (number | 
 /** Naver's 종목토론 timestamps come back as "2026.08.25 14:03"; Toss's are ISO. Both
  *  are shown as "08.25 14:03" so one list reads consistently whichever fed it. */
 export function shortDateTime(raw: string): string {
-  if (!raw) return "";
-  const iso = raw.includes("T") ? raw.replace("T", " ") : raw;
-  const match = iso.match(/(\d{4})[.\-/](\d{2})[.\-/](\d{2})\s*(\d{2}:\d{2})?/);
-  if (!match) return raw.slice(0, 16);
-  const [, , month, day, time] = match;
-  return time ? `${month}.${day} ${time}` : `${month}.${day}`;
+  return formatDiscussionTime(raw);
 }

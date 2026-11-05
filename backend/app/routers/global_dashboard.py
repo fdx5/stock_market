@@ -7,9 +7,8 @@ from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.data import global_discussion_fetcher, kospi_futures_fetcher, price_fetcher, us_live_quotes, yahoo_bulk_quote
 from app.services.cache import cache
-from app.data.toss_discussion_fetcher import get_toss_discussion
+from app.services.public_discussion import get_public_discussion
 from app.data.toss_news_fetcher import get_toss_image, get_toss_news, get_toss_news_article
-from app.data.toss_session import resolve_product_code
 from app.data.us_universe import get_us_stock_item
 from app.services.battle import get_global_enrichment
 from app.utils import dataframe_to_records
@@ -207,21 +206,9 @@ def toss_discussion(
     offset: str | None = Query(None, max_length=64),
     discussion_type: str = Query("foreignStock", pattern="^(foreignStock|foreignEtf)$"),
 ):
-    """A US listing's 종목토론, from Toss's community board.
-
-    Same response shape as /{code}/discussion above — items plus an opaque
-    `next_offset` — so one client list can be fed by either. That is not a
-    coincidence worth relying on quietly, it is the reason the fallback below can
-    exist: when Toss does not list a ticker at all, Naver's 해외종목 토론방 answers
-    in its place and the caller cannot tell the difference.
-
-    The fallback triggers on an unresolvable symbol, not on an empty board. A
-    thinly traded ETF with no posts today is answering correctly, and quietly
-    swapping in a different board's posts would misattribute them.
-    """
-    if resolve_product_code(code):
-        return get_toss_discussion(code, limit, offset)
-    return global_discussion_fetcher.get_discussion(code, limit, offset, discussion_type)
+    """Public discussions, with explicit source metadata and source-bound cursors."""
+    try: return get_public_discussion(code, limit, offset, discussion_type)
+    except Exception: raise HTTPException(503, "종목토론 수집이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.") from None
 
 
 @router.get("/{code}/toss-news")

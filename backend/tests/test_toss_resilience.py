@@ -142,9 +142,9 @@ def test_malformed_result_is_not_cached_and_recovers_after_probe(monkeypatch):
     assert discussion.get_toss_discussion("NVDA")["items"] == []
     assert not discussion.cache._store
     toss._gate._states["/api/v4/comments"].retry_at = 0
-    value = discussion.get_toss_discussion("NVDA")
+    value = discussion.get_toss_discussion("NVDA", limit=1)
     assert value["items"][0]["text"] == "Body"
-    assert value["next_offset"] == "cursor"
+    assert value["next_offset"] == "one"
     assert toss._gate._states["/api/v4/comments"].failures == 0
 
 

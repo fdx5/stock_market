@@ -73,7 +73,7 @@ interface Props {
   code: string;
   name: string;
   market: string;
-  source: "naver" | "global" | "toss";
+  source: "naver" | "global" | "toss" | "toss-etf";
   trackingContext?: "stocks" | "orbit";
 }
 
@@ -142,6 +142,7 @@ export default function StockDiscussionTab({ code, name, market, source, trackin
     const request =
       source === "toss"
         ? api.tossDiscussion(code, PAGE_SIZE, cursor)
+        : source === "toss-etf" ? api.tossEtfDiscussion(code, PAGE_SIZE, cursor)
         : source === "global"
           ? api.globalDiscussion(code, PAGE_SIZE, cursor)
           : // Naver serves 20 posts per page; the panel shows 10, so two panel pages are

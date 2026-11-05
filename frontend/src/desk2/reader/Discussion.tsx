@@ -8,6 +8,7 @@ import { useBodyScrollLock } from "../../useBodyScrollLock";
 import { Skel } from "../parts";
 import { useL } from "../lib";
 import { useContentScroll } from "../../useContentScroll";
+import "./discussionMeta.css";
 
 /* 종목토론 on the broadsheet pages — the 독자투고란.
  *
@@ -84,6 +85,8 @@ export default function Discussion({
   const [hasNext, setHasNext] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  const [sourceInfo, setSourceInfo] = useState({ label: "", url: "" });
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const [detail, setDetail] = useState<BoardDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -101,6 +104,7 @@ export default function Discussion({
     setDetail(null);
     setComments(null);
     setPendingOpen(null);
+    setSourceInfo({ label: "", url: "" });
   }, [code, source]);
 
   const openFrom = (list: Post[], index: number) => {
@@ -143,6 +147,7 @@ export default function Discussion({
         let list: Post[];
         if ("next_offset" in result) {
           list = result.items.map(fromGlobal);
+          setSourceInfo({ label: result.source_label || (source === "global" ? "네이버페이 증권" : "공개 커뮤니티"), url: result.source_url || "" });
           setHasNext(Boolean(result.next_offset));
           if (result.next_offset) setCursors((old) => (old.length > page ? old : [...old, result.next_offset]));
         } else {
@@ -171,7 +176,7 @@ export default function Discussion({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, source, page]);
+  }, [code, source, page, revision]);
 
   const step = (direction: -1 | 1) => {
     if (openIndex == null || loading) return;
@@ -224,7 +229,7 @@ export default function Discussion({
         <h4>{detail?.title || post.title}</h4>
         <p className="rd-byline">
           <b>{detail?.author || post.author}</b>
-          <time>{shortDateTime(detail?.written_at || post.date)}</time>
+          <time title="한국시간 (KST)">{shortDateTime(detail?.written_at || post.date)}</time>
           <span>
             {L("조회", "Views")} {post.views.toLocaleString()}
           </span>
@@ -259,7 +264,7 @@ export default function Discussion({
                   <p>{c.text}</p>
                   <span>
                     <b>{c.author}</b>
-                    <time>{shortDateTime(c.written_at)}</time>
+                    <time title="한국시간 (KST)">{shortDateTime(c.written_at)}</time>
                     {c.likes > 0 && <em className="is-up">+{c.likes}</em>}
                     {c.dislikes > 0 && <em className="is-down">−{c.dislikes}</em>}
                   </span>
@@ -272,11 +277,14 @@ export default function Discussion({
     );
   };
 
+  const sourceMeta = <div className="rd-source-info"><span>{sourceInfo.label || (inline ? "공개 커뮤니티" : "네이버페이 증권")} · {L("최신순 · 한국시간 (KST)", "Newest · Korean time (KST)")}</span><div>{sourceInfo.url && <a href={sourceInfo.url} target="_blank" rel="noopener noreferrer">{L("출처 보기", "Source")} ↗</a>}<button type="button" disabled={loading} onClick={() => { setCursors([null]); setPage(1); setOpenIndex(null); setRevision(n => n + 1); }}>{L("새로고침", "Refresh")} ↻</button></div></div>;
+
   if (current && !sheet) {
     const atFirst = openIndex === 0 && page === 1;
     const atLast = openIndex === posts.length - 1 && !hasNext;
     return (
       <div className="rd" ref={contentRef}>
+        {sourceMeta}
         <button type="button" className="rd-back" onClick={() => { requestScroll(); setOpenIndex(null); }}>
           ← {L("목록으로", "Back to list")}
         </button>
@@ -296,6 +304,7 @@ export default function Discussion({
 
   return (
     <div className="rd" ref={(element) => { hostRef.current = element; contentRef.current = element; }}>
+      {sourceMeta}
       {loading ? (
         <ol className="rd-list" aria-hidden="true">
           {Array.from({ length: 6 }, (_, i) => (
@@ -319,7 +328,7 @@ export default function Discussion({
                   <strong>{p.title}</strong>
                   <small>
                     {p.author}
-                    <time>{shortDateTime(p.date)}</time>
+                    <time title="한국시간 (KST)">{shortDateTime(p.date)}</time>
                     <em>
                       {L("조회", "views")} {p.views.toLocaleString()}
                     </em>

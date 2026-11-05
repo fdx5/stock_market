@@ -55,3 +55,55 @@
 @media(orientation:landscape) and (max-height:600px){.cf-spell-stage{display:grid;grid-template-columns:min(45vw,360px) minmax(0,280px);column-gap:24px;row-gap:0;width:auto;padding:12px 24px}.cf-spell-art{width:100%;grid-row:1/3}.cf-spell-copy{align-self:end;margin:0}.cf-spell-copy h2{font-size:22px}.cf-spell-skip{align-self:start;justify-self:center;margin-top:18px}.cf-spell-copy .cf-spell-progress{margin-top:15px}}
 @media(prefers-reduced-motion:reduce){.cf-spell-entry,.cf-spell-entry *{animation:none!important}.cf-spell-stars,.cf-spell-sparks{display:none}}
 html[data-fx="minimal"] .cf-spell-entry{display:none}
+
+/* The portal opens onto the real page; the native backdrop fades with it. */
+@property --cf-portal-radius{syntax:"<length>";inherits:false;initial-value:0px}
+.cf-spell-entry{background:transparent}
+.cf-spell-entry::backdrop{background:#100a18}
+.cf-spell-entry.is-leaving{animation:none;pointer-events:none}
+.cf-spell-entry.is-leaving::backdrop{animation:cf-spell-backdrop .9s ease-out both}
+.cf-spell-entry.is-handoff{display:grid;place-items:center;z-index:450;pointer-events:none}
+.cf-spell-entry.is-handoff .cf-spell-stage{visibility:hidden}
+.cf-spell-veil{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,#21122f,#100a18 65%);pointer-events:none;mask-image:radial-gradient(circle at var(--portal-x,50%) var(--portal-y,42%),transparent var(--cf-portal-radius),#000 calc(var(--cf-portal-radius) + 80px));-webkit-mask-image:radial-gradient(circle at var(--portal-x,50%) var(--portal-y,42%),transparent var(--cf-portal-radius),#000 calc(var(--cf-portal-radius) + 80px))}
+.cf-spell-nebula{z-index:1;background:radial-gradient(ellipse at 50% 40%,#bf85ff30,transparent 45%),radial-gradient(ellipse at 28% 58%,#d6b54e15,transparent 33%),radial-gradient(ellipse at 75% 25%,#718ae11b,transparent 32%)}
+.cf-spell-aurora{position:absolute;inset:-35%;z-index:1;pointer-events:none;opacity:.5;background:conic-gradient(from 30deg at 50% 42%,transparent 0deg,#c89cff14 26deg,transparent 49deg,#f3c77918 100deg,transparent 130deg,#8e78e61c 200deg,transparent 260deg,#e6bd8815 310deg,transparent 350deg);animation:cf-spell-aurora 3.4s ease-out both}
+.cf-spell-great-circle{position:absolute;width:82%;height:auto;left:9%;top:-22%;opacity:.8;filter:drop-shadow(0 0 6px #e8c18a44);animation:cf-spell-great-circle 2.2s cubic-bezier(.2,.7,.3,1) both}
+.cf-spell-art{width:min(540px,90vw);animation:cf-spell-lift 2.2s ease-out both}
+.cf-spell-halo{box-shadow:0 0 110px #bf85ff44,inset 0 0 60px #bf85ff22}
+.cf-spell-ribbons{position:absolute;left:4%;top:-20%;width:92%;aspect-ratio:1;perspective:500px;pointer-events:none}
+.cf-spell-ribbons>i{position:absolute;inset:4%;border:1px solid transparent;border-top-color:#ffe2a9cc;border-bottom-color:#bc8eea88;border-radius:50%;box-shadow:0 -3px 16px #e6bd6822;transform:rotateX(64deg) rotate(-25deg);animation:cf-spell-ribbon 2.4s ease-out both}
+.cf-spell-ribbons>i:nth-child(2){inset:10%;animation-delay:.1s;border-top-color:#d7b4ffbb;transform:rotateY(60deg) rotate(20deg)}
+.cf-spell-ribbons>i:nth-child(3){inset:17%;animation-delay:.2s;transform:rotateX(-58deg) rotate(-30deg)}
+.cf-spell-comets{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:2}
+.cf-spell-comets>i{position:absolute;left:-15%;top:var(--comet-y);width:115px;height:1px;background:linear-gradient(90deg,transparent,#d9b6ff77,#fff0ce);box-shadow:0 0 12px #e8c18a55;opacity:0;transform:rotate(24deg);animation:cf-spell-comet 1.5s var(--comet-delay) cubic-bezier(.2,.5,.5,1) both}
+.cf-spell-comets>i:after{content:"";position:absolute;right:0;top:-2px;width:4px;height:4px;border-radius:50%;background:#fff2d5;box-shadow:0 0 14px 3px #e8c18a66}
+.cf-spell-burst{position:absolute;left:50%;top:38%;width:24px;height:24px;border:1px solid #f6d39daa;border-radius:50%;opacity:0;box-shadow:0 0 25px #e8c18a44,inset 0 0 20px #bf85ff55;transform:translate(-50%,-50%);animation:cf-spell-charge 1.6s .15s ease-out both}
+.cf-spell-seal{box-shadow:0 0 45px #d1a1ff44,0 0 90px #e8c18a13,inset 0 0 18px #e8c18a15;animation-duration:1.8s}
+.cf-spell-spine{filter:drop-shadow(0 0 8px #ffe3a4cc)}
+.cf-spell-stars>i{box-shadow:0 0 10px #ffd78ebb}
+.cf-spell-progress{width:160px}
+.cf-spell-progress>i{animation-duration:1.8s}
+.is-leaving .cf-spell-veil{animation:cf-spell-portal 1.1s cubic-bezier(.25,.7,.3,1) both}
+.is-leaving .cf-spell-nebula,.is-leaving .cf-spell-aurora,.is-leaving .cf-spell-comets{animation:cf-spell-dissolve .8s ease-out both}
+.is-leaving .cf-spell-book{animation:cf-spell-book-dissolve .75s ease-in both}
+.is-leaving .cf-spell-copy,.is-leaving .cf-spell-skip{animation:cf-spell-dissolve .35s ease both}
+.is-leaving .cf-spell-great-circle,.is-leaving .cf-spell-halo,.is-leaving .cf-spell-orbit,.is-leaving .cf-spell-ribbons,.is-leaving .cf-spell-ray{animation:cf-spell-gate-expand 1s cubic-bezier(.2,.65,.3,1) both}
+.is-leaving .cf-spell-seal{animation:cf-spell-seal-home .95s cubic-bezier(.45,0,.2,1) both}
+.is-leaving .cf-spell-stars{animation:cf-spell-dissolve 1.6s ease-out both}
+.is-leaving .cf-spell-burst{animation:cf-spell-gate-wave 1.15s ease-out both}
+.is-leaving .cf-spell-sparks{opacity:0;transition:opacity .8s}
+@keyframes cf-spell-backdrop{to{opacity:0}}
+@keyframes cf-spell-portal{from{--cf-portal-radius:0px;opacity:1}to{--cf-portal-radius:150vmax;opacity:0}}
+@keyframes cf-spell-dissolve{to{opacity:0}}
+@keyframes cf-spell-book-dissolve{to{opacity:0;transform:translateY(-20px) rotateX(24deg) scale(1.18);filter:drop-shadow(0 0 30px #d6acff88)}}
+@keyframes cf-spell-seal-home{0%{opacity:1;transform:translate(0,-4px) scale(1)}85%{opacity:.75}100%{opacity:0;transform:translate(var(--seal-home-x,0px),var(--seal-home-y,-130px)) scale(var(--seal-home-scale,1))}}
+@keyframes cf-spell-gate-expand{from{opacity:.9}to{opacity:0;transform:scale(2.3) rotate(65deg)}}
+@keyframes cf-spell-gate-wave{0%{opacity:.8;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(35)}}
+@keyframes cf-spell-great-circle{from{opacity:0;transform:rotate(-55deg) scale(.35)}55%{opacity:.9}to{opacity:.8;transform:rotate(18deg) scale(1)}}
+@keyframes cf-spell-ribbon{from{opacity:0;transform:rotateX(64deg) rotate(-90deg) scale(.3)}40%{opacity:1}to{opacity:.75;transform:rotateX(64deg) rotate(100deg) scale(1.1)}}
+@keyframes cf-spell-comet{0%{opacity:0;transform:translate(-20vw,-5vh) rotate(24deg)}20%{opacity:.9}85%{opacity:.8}100%{opacity:0;transform:translate(130vw,30vh) rotate(24deg)}}
+@keyframes cf-spell-charge{0%{opacity:0;transform:translate(-50%,-50%) scale(.2)}40%{opacity:.8}100%{opacity:0;transform:translate(-50%,-50%) scale(14)}}
+@keyframes cf-spell-aurora{from{opacity:0;transform:scale(.92) rotate(-12deg)}50%{opacity:.8}to{opacity:.5;transform:scale(1.07) rotate(9deg)}}
+@media(max-width:699px){.cf-spell-art{width:min(440px,96vw)}.cf-spell-stars>i:nth-child(n+33){display:block}.cf-spell-stars>i:nth-child(n+49){display:none}.cf-spell-great-circle{width:86%;left:7%;top:-28%}.cf-spell-comets>i{width:75px}.cf-spell-stage{padding-top:42px}}
+@media(orientation:landscape) and (max-height:600px){.cf-spell-art{width:100%}.cf-spell-great-circle{width:82%;left:9%;top:-17%}.cf-spell-stage{padding-top:14px}}
+@media(prefers-reduced-motion:reduce){.cf-spell-entry,.cf-spell-entry *{animation:none!important}}

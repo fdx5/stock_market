@@ -73,7 +73,7 @@ def _fetch_discussion(code: str, limit: int, offset: str | None, discussion_type
     resp.raise_for_status()
     payload = resp.json()
     if not payload.get("isSuccess"):
-        return {"items": [], "next_offset": None}
+        raise ValueError("Naver discussion source unavailable")
 
     result = payload.get("result") or {}
     posts = result.get("posts") or []
@@ -108,6 +108,7 @@ def get_discussion(
     limit: int = 10,
     offset: str | None = None,
     discussion_type: str = "foreignStock",
+    *, raise_on_error: bool = False,
 ) -> dict:
     # Include the resolved suffix so a corrected exchange mapping cannot reuse an
     # older response cached under the wrong Naver item code.
@@ -119,4 +120,5 @@ def get_discussion(
             lambda: _fetch_discussion(code, limit, offset, discussion_type),
         )
     except Exception:
+        if raise_on_error: raise
         return {"items": [], "next_offset": None}

@@ -7,6 +7,7 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
 import { isBeforeKrPreMarket } from "../spotlight";
 import OrderBookBalance from "./OrderBookBalance";
 import StockLogo from "./StockLogo";
+import { formatDiscussionTime } from "../discussionTime";
 import "../discussionExplorer.css";
 
 const INITIAL_COUNT = 40;
@@ -162,7 +163,7 @@ function normalizeGlobal(post: GlobalDiscussionPost): UniversePost {
     title: post.title || post.text.slice(0, 70),
     preview: post.text,
     author: post.author,
-    date: post.written_at.slice(0, 16).replace("T", " "),
+    date: formatDiscussionTime(post.written_at, true),
     views: post.views,
     likes: post.likes,
     dislikes: post.dislikes,
@@ -240,7 +241,7 @@ function DetailPanel({
         <div>
           <span className="discussion-detail-kicker">DISCUSSION SIGNAL</span>
           <h2>{detail?.title || post.title}</h2>
-          <p>{detail?.author || post.author} · {detail?.written_at?.slice(0, 16).replace("T", " ") || post.date}</p>
+          <p>{detail?.author || post.author} · {detail?.written_at ? formatDiscussionTime(detail.written_at, true) : post.date} KST</p>
         </div>
         <button type="button" onClick={() => { releasePanelMedia(); onClose(); }} aria-label="상세 닫기">×</button>
       </header>
@@ -262,7 +263,7 @@ function DetailPanel({
             <h3>댓글 <span>{comments.length}</span></h3>
             {comments.length === 0 ? <p className="discussion-detail-empty">아직 댓글이 없습니다.</p> : comments.map((comment) => (
               <article key={comment.id}>
-                <div><strong>{comment.author || "익명"}</strong><time>{comment.written_at.slice(0, 16).replace("T", " ")}</time></div>
+                <div><strong>{comment.author || "익명"}</strong><time title="한국시간 (KST)">{formatDiscussionTime(comment.written_at, true)}</time></div>
                 <p>{comment.text}</p>
                 <span>공감 {comment.likes} · 비공감 {comment.dislikes}</span>
               </article>

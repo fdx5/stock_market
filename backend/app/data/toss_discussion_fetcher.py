@@ -33,35 +33,42 @@ def _fetch_discussion(symbol: str, limit: int, offset: str | None) -> dict:
     }
     if offset:
         params["lastCommentId"] = offset
-    result = request_json("GET", "/api/v4/comments", params=params, list_field="results")["result"]
-    comments = result.get("results") or []
-    items = []
-    for comment in comments:
-        title, text = _message(comment)
-        if not title and not text:
-            continue
-        author = comment.get("author") or {}
-        statistic = comment.get("statistic") or {}
-        items.append(
-            {
-                "id": str(comment.get("commentId") or ""),
-                "title": title,
-                "text": text,
+    items, seen = [], set()
+    next_offset = offset
+    # Public pages include an eleventh look-ahead row. Its key would skip that
+    # row when showing ten items, so continue from the last row actually emitted.
+    # Bounded extra reads fill short pages containing unreadable/repost shells.
+    for _ in range(6):
+        if next_offset: params["lastCommentId"] = next_offset
+        result = request_json("GET", "/api/v4/comments", host="cert", params=params, list_field="results")["result"]
+        comments = result.get("results") or []
+        for index, comment in enumerate(comments):
+            title, text = _message(comment)
+            comment_id = str(comment.get("commentId") or "")
+            if not comment_id or comment_id in seen or not (title or text): continue
+            seen.add(comment_id)
+            author = comment.get("author") or {}
+            statistic = comment.get("statistic") or {}
+            items.append({
+                "id": comment_id, "title": title, "text": text,
                 "author": author.get("nickname") or "",
                 "written_at": comment.get("createdAt") or "",
-                "likes": statistic.get("likeCount") or 0,
-                "dislikes": 0,
+                "likes": statistic.get("likeCount") or 0, "dislikes": 0,
                 "views": statistic.get("readCount") or 0,
                 "is_reply": comment.get("parentId") is not None,
-            }
-        )
-        if len(items) >= limit:
+            })
+            if len(items) >= limit:
+                more = index < len(comments) - 1 or result.get("hasNext")
+                return {"items": items, "next_offset": comment_id if more else None}
+        cursor = str(result["key"]) if result.get("hasNext") and result.get("key") else None
+        if not comments or not cursor or cursor == next_offset:
+            next_offset = None
             break
-    next_offset = str(result.get("key")) if result.get("hasNext") and result.get("key") else None
+        next_offset = cursor
     return {"items": items, "next_offset": next_offset}
 
 
-def get_toss_discussion(symbol: str, limit: int = 10, offset: str | None = None) -> dict:
+def get_toss_discussion(symbol: str, limit: int = 10, offset: str | None = None, *, raise_on_error: bool = False) -> dict:
     symbol = symbol.upper()
     try:
         return cache.get_or_set(
@@ -70,4 +77,5 @@ def get_toss_discussion(symbol: str, limit: int = 10, offset: str | None = None)
             lambda: _fetch_discussion(symbol, limit, offset),
         )
     except Exception:
+        if raise_on_error: raise
         return {"items": [], "next_offset": None}

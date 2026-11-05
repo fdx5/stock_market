@@ -867,6 +867,14 @@ export interface GlobalDiscussionPost {
   is_reply: boolean;
 }
 
+export interface GlobalDiscussionPage {
+  items: GlobalDiscussionPost[];
+  next_offset: string | null;
+  source?: "toss" | "naver";
+  source_label?: string;
+  source_url?: string;
+}
+
 /** One article in Toss's per-company news feed.
  *
  * Deliberately close to `NewsItem` — the news tab renders both through one list — but
@@ -1442,7 +1450,7 @@ export const api = {
   etfDiscussions: () => getJSONFresh<{ items: Record<string, BoardPost[]> }>(`${BASE}/etfs/discussions?region=KR`),
   etfGlobalDiscussions: () => getJSONFresh<{ items: Record<string, GlobalDiscussionPost[]> }>(`${BASE}/etfs/discussions?region=US`),
   tossEtfDiscussion: (code: string, limit = 10, offset?: string | null) =>
-    getJSONFresh<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
+    getJSONFresh<GlobalDiscussionPage>(
       `${BASE}/etfs/${encodeURIComponent(code)}/toss-discussion?limit=${limit}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
     ),
   search: (q: string, signal?: AbortSignal, includeEtf = false) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}${includeEtf ? "&include_etf=true" : ""}`, { signal }),
@@ -1636,14 +1644,14 @@ export const api = {
   globalEnrichment: (code: string, lang: string = "ko", signal?: AbortSignal) =>
     getJSON<GlobalEnrichment>(`${BASE}/global/${code}/enrichment?lang=${lang}`, { signal }),
   globalDiscussion: (code: string, limit = 10, offset?: string | null, discussionType: "foreignStock" | "foreignEtf" = "foreignStock") =>
-    getJSON<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
+    getJSON<GlobalDiscussionPage>(
       `${BASE}/global/${code}/discussion?limit=${limit}&discussion_type=${discussionType}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
     ),
   /** A US listing's 종목토론 from Toss's board. Same response shape as
    *  `globalDiscussion`, which is what lets the backend fall back to Naver's 해외종목
    *  토론방 for a ticker Toss does not list without the caller noticing. */
   tossDiscussion: (code: string, limit = 10, offset?: string | null) =>
-    getJSON<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
+    getJSON<GlobalDiscussionPage>(
       `${BASE}/global/${encodeURIComponent(code)}/toss-discussion?limit=${limit}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
     ),
   /** Korean-language news for a US listing, from Toss. Paged at the source, so `page`
