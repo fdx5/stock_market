@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "../router";
 import { HoloPanel, NeoEmptyState } from "./NeoComponents";
 import NeoIcon from "./NeoIcon";
+import CommunityMagicEntry from "./CommunityMagicEntry";
 import "./community.css";
 
 type Board = "kr" | "global" | "property";
@@ -208,6 +209,7 @@ export default function CommunityPage({ board }: { board: Board }) {
   const pagination = <nav className="cf-pagination" aria-label="게시글 페이지"><button disabled={busy || page <= 1} onClick={() => changePage(page - 1)}>← 이전</button><div>{feed && Array.from({ length: Math.min(5, feed.pages) }, (_, i) => Math.min(Math.max(1, page - 2), Math.max(1, feed.pages - 4)) + i).map(n => <button key={n} aria-current={n === page ? "page" : undefined} disabled={busy} onClick={() => changePage(n)}>{n}</button>)}</div><button disabled={busy || !feed || page >= feed.pages} onClick={() => changePage(page + 1)}>다음 →</button></nav>;
 
   return <main className={`cf-page${large ? " cf-large" : ""}`}>
+    <CommunityMagicEntry key={board} board={board} title={info.title} />
     <header className="cf-hero"><div><span className="ng-kicker">COMMUNITY SIGNAL / {info.code}</span><h1>{info.title} <span>커뮤니티</span></h1><p>{info.description}</p></div><Link className="cf-market-link" to={info.link}><NeoIcon name="chart" />{info.linkLabel} ↗</Link></header>
     <nav className="cf-boards" aria-label="커뮤니티 게시판">{BOARDS.map(b => <Link key={b.id} to={`/community/${b.id}`} aria-current={board === b.id ? "page" : undefined}><div className="cf-board-art" aria-hidden="true"><img src={`/img/community/${b.id}-v2.png`} alt="" width="112" height="112" decoding="async" /></div><div className="cf-board-copy"><span>{b.code}</span><strong>{b.title}</strong><small>{b.id === "kr" ? "코스피 · 코스닥" : b.id === "global" ? "미국 · 글로벌 주식" : "매매 · 전세 · 정책"}</small></div><NeoIcon name="chevron" /></Link>)}</nav>
     <div className="cf-status"><span><i className={feed?.sources.some(s => s.status === "ok") ? "cf-dot" : "cf-dot cf-dot-wait"} />{feed?.refreshing ? "새 글 확인 중 · 목록은 계속 읽을 수 있습니다" : auto ? "60초마다 새 글 확인" : "자동 확인 일시정지"}</span><span>최근 수집 {feed?.collected_at ? stamp(feed.collected_at) : "대기 중"} · KST</span><button onClick={() => setAuto(v => !v)} aria-pressed={auto}>{auto ? "일시정지" : "자동 확인"}</button><button onClick={fresh} disabled={busy}>↻ {busy ? "불러오는 중" : "새로고침"}</button></div>
