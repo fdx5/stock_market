@@ -15,6 +15,7 @@ import uuid
 import unicodedata
 from html import unescape
 import logging
+import json
 from itertools import islice
 
 import requests
@@ -23,10 +24,11 @@ from bs4 import BeautifulSoup, NavigableString, Tag, Comment
 KST = timezone(timedelta(hours=9))
 UA = "KospimapCommunity/1.0 (public discussion index; no AI training)"
 SOURCES = {
-    "kr": [("pax-market", "팍스넷 · 거래소 시황", "pax", "N00801"), ("pax-analysis", "팍스넷 · 시황분석", "pax", "N11022"), ("82-stock", "82cook · 주식", "82", "주식")],
-    "global": [("pax-us", "팍스넷 · 미국주식", "pax", "N11039"), ("82-us", "82cook · 미국주식", "82", "미국주식")],
-    "property": [("pax-property", "팍스넷 · 부동산 검색", "pax", "N00801"), ("82-property", "82cook · 부동산", "82", "부동산"), ("82-apartment", "82cook · 아파트", "82", "아파트")],
+    "kr": [("dc-kospi", "디시인사이드 · 코스피", "dc", "kospi")],
+    "global": [("dc-stockus", "디시인사이드 · 미국 주식", "dc", "stockus")],
+    "property": [("dc-immovables", "디시인사이드 · 부동산", "dc", "immovables")],
 }
+DC_GALLERIES = {"kospi": "mgallery/board", "stockus": "mgallery/board", "immovables": "board"}
 _locks = {key: Lock() for key in SOURCES}
 _guard = Lock()
 _robots = {}
@@ -101,9 +103,13 @@ def deduplicate(items):
     return result
 
 
-def _request(url):
+def _request(url, form=None, referer=None):
     # Fixed, code-owned URLs only. Redirects are not followed to a new origin.
-    r = requests.get(url, headers={"User-Agent": UA}, timeout=(4, 10), allow_redirects=False, stream=True)
+    headers = {"User-Agent": UA}
+    if referer: headers.update({"Referer": referer, "X-Requested-With": "XMLHttpRequest"})
+    # The sole POST endpoint is the upstream's read-only comment listing.
+    if form is not None and url != "https://gall.dcinside.com/board/comment/": raise ValueError("unsupported read endpoint")
+    r = requests.post(url, data=form, headers=headers, timeout=(4, 10), allow_redirects=False, stream=True) if form is not None else requests.get(url, headers=headers, timeout=(4, 10), allow_redirects=False, stream=True)
     try:
         r.raise_for_status()
         if r.is_redirect:
@@ -118,7 +124,7 @@ def _request(url):
         r.close()
 
 
-def _get(url):
+def _get(url, form=None, referer=None):
     host = urlparse(url).netloc
     with _guard:
         cached = _robots.get(host)
@@ -130,7 +136,7 @@ def _get(url):
             _robots[host] = cached
     if not cached[1].can_fetch(UA, url):
         raise ValueError("source policy")
-    return _request(url)
+    return _request(url, form=form, referer=referer) if form is not None else _request(url)
 
 
 def _topic(title):
@@ -184,9 +190,44 @@ def parse_pax(data, source, board):
     return items
 
 
+def parse_dc(data, source, board):
+    """Real creation timestamps only; pinned notices and promotions are not fresh posts."""
+    soup = html_soup(data)
+    items = []
+    gallery = source[3]
+    if gallery not in DC_GALLERIES: return items
+    for row in soup.select("tr.ub-content[data-no]"):
+        number = row.get("data-no", "")
+        if not number.isdigit() or "notice" in row.get("data-type", ""): continue
+        subject = row.select_one(".gall_subject")
+        if subject and clean(subject.get_text()) in {"공지", "설문", "AD"}: continue
+        a, date = row.select_one(".gall_tit > a:not(.reply_numbox)"), row.select_one(".gall_date[title]")
+        if not a or not date: continue
+        title = clean(a.get_text(" ", strip=True))[:300]
+        if not title: continue
+        if board == "property" and not re.search(r"부동산|아파트|집값|전세|월세|분양|재건축|재개발|주택|매매|실거래|대출|청약|평당|평형|국평|토지|임대|상가|오피스텔|건물|용적률|건폐율|서울|수도권|강남|서초|송파|마포|성동|용산|과천|분당|판교|동탄|광교|잠실|반포|목동|노도강|마용성|한강벨트", title): continue
+        try: written = datetime.strptime(date["title"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST).astimezone(timezone.utc).isoformat()
+        except ValueError: continue
+        count = row.select_one(".reply_num")
+        count_text = re.sub(r"\D", "", count.get_text()) if count else ""
+        items.append({"id": f"dc-{gallery}-{number}", "title": title, "published_at": written,
+                      "url": f"https://gall.dcinside.com/{DC_GALLERIES[gallery]}/view/?id={gallery}&no={number}",
+                      "source_id": source[0], "source": source[1], "language": "ko", "topic": _topic(title),
+                      "comments": int(count_text) if count_text else 0, "excerpt": "", "excerpt_kind": "공개 원문 확인"})
+    return items
+
+
 def collect(source, board):
     try:
-        if source[2] == "82":
+        if source[2] == "dc":
+            items = []
+            for page in range(1, 7 if board == "property" else 4):
+                url = f"https://gall.dcinside.com/{DC_GALLERIES[source[3]]}/lists/?" + urlencode({"id": source[3], "page": page})
+                batch = parse_dc(_get(url), source, board)
+                items.extend(batch)
+                # Property's topic filter may skip a page of unrelated chatter.
+                if not batch and board != "property": break
+        elif source[2] == "82":
             items = []
             for page in range(1, 4):
                 url = "https://www.82cook.com/entiz/enti.php?" + urlencode({"bn": "15", "searchType": "search", "search1": "1", "keys": source[3], "page": page})
@@ -207,11 +248,20 @@ def collect(source, board):
 
 
 def publish(board, readable, states, old=None, checked=0, candidates=0, complete=True):
+    if not complete and old:
+        # Reveal new verified posts immediately without collapsing an existing
+        # readable list to one row while the remaining bodies are checked.
+        active = {state["id"] for state in states}
+        seen = {item["id"] for item in readable}
+        readable = list(readable) + [item for item in old["items"] if item["source_id"] in active and item["id"] not in seen and item.get("_body", {}).get("status") == "ok"]
     source_states = [dict(state, readable_count=sum(p["source_id"] == state["id"] for p in readable)) for state in states]
+    for state in source_states:
+        state["latest_published_at"] = max((p["published_at"] for p in readable if p["source_id"] == state["id"]), default=None)
     if complete:
         for state in source_states:
             if state["status"] == "ok" and not state["readable_count"]: state["status"] = "unavailable"
     data = {"snapshot": uuid.uuid4().hex, "board": board, "items": deduplicate(readable), "sources": source_states,
+            "latest_published_at": max((p["published_at"] for p in readable), default=None),
             "checked_at": datetime.now(timezone.utc).isoformat(), "checked_count": checked, "candidate_count": candidates,
             "collected_at": datetime.now(timezone.utc).isoformat() if readable and any(s["status"] == "ok" for s in source_states) else (old.get("collected_at") if old else None)}
     with _guard:
@@ -303,7 +353,9 @@ def attachment_url(value, base):
     if not value or len(value) > 2048: return None
     url = urlparse(urljoin(base, value.strip()))
     if url.scheme not in {"https", "http"} or url.username or url.password: return None
-    if url.hostname not in {"www.paxnet.co.kr", "paxnet.co.kr", "image.paxnet.co.kr", "img.paxnet.co.kr", "www.82cook.com", "82cook.com"}: return None
+    allowed = {"www.paxnet.co.kr", "paxnet.co.kr", "image.paxnet.co.kr", "img.paxnet.co.kr", "www.82cook.com", "82cook.com", "gall.dcinside.com", "image.dcinside.com"}
+    allowed.update(f"dcimg{i}.dcinside.{suffix}" for i in range(1, 10) for suffix in ("com", "co.kr"))
+    if url.hostname not in allowed: return None
     try:
         if url.port not in {None, 80, 443}: return None
     except ValueError: return None
@@ -378,9 +430,12 @@ def public_link(value, base):
 
 def parse_preview(data, url, is_pax=True):
     soup = html_soup(data)
-    content = soup.select_one("#bbsWrtCntn" if is_pax else ".read_cont, .read_content, #readContent")
+    selector = ".write_div" if urlparse(url).hostname == "gall.dcinside.com" else "#bbsWrtCntn" if is_pax else ".read_cont, .read_content, #readContent"
+    content = soup.select_one(selector)
     if not content: return {"text": "", "excerpt": "", "images": [], "blocks": [], "status": "unavailable"}
     expand_literal_html(content)
+    for control in content.select(".appending_file, .dcappfooter, .og-div, .og-url"):
+        control.decompose()
     clean_body_controls(content)
     images, seen, blocks, buffer = [], set(), [], []
     seen_videos = set()
@@ -474,7 +529,7 @@ def load_post(item):
             if attempt: break
         except Exception: break
     with _guard:
-        if item["id"].startswith("82-"):
+        if item["id"].startswith(("82-", "dc-")):
             if result["status"] == "ok":
                 _body_failures[host] = 0
                 _body_backoff[host] = 0
@@ -536,6 +591,50 @@ def parse_comments(data, source_url, page=1):
     return {'status': 'ok', 'items': items, 'total': total, 'has_more': has_more, 'page': page}
 
 
+def parse_dc_comments(data, source_url, page=1):
+    """Project only public content; discard names, IPs, user IDs and profile fields."""
+    payload = json.loads(data) if isinstance(data, (str, bytes)) else data
+    if not isinstance(payload, dict) or not str(payload.get("total_cnt", "")).isdigit():
+        return {"status": "unavailable", "items": [], "total": None, "has_more": False, "page": page}
+    rows = payload.get("comments") or []
+    items = []
+    now = datetime.now(KST)
+    for row in rows if isinstance(rows, list) else []:
+        number, parent = str(row.get("no", "")), str(row.get("c_no", "0"))
+        if not number.isdigit() or row.get("del_yn") == "Y" or str(row.get("is_delete", "0")) != "0": continue
+        body = parse_preview('<div class="write_div">' + str(row.get("memo") or "") + '</div>', source_url)
+        if not body["blocks"]: continue
+        written = None
+        date = str(row.get("reg_date", ""))
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y.%m.%d %H:%M:%S", "%m.%d %H:%M:%S", "%m.%d %H:%M"):
+            try:
+                parsed = datetime.strptime(date, fmt).replace(tzinfo=KST)
+                if not fmt.startswith("%Y"):
+                    parsed = parsed.replace(year=now.year)
+                    if parsed > now + timedelta(days=1): parsed = parsed.replace(year=now.year - 1)
+                written = parsed.astimezone(timezone.utc).isoformat()
+                break
+            except ValueError: continue
+        items.append({"id": number, "parent_id": parent if parent.isdigit() and parent != "0" else None, "published_at": written, "blocks": body["blocks"]})
+    total = int(payload["total_cnt"])
+    # Use upstream pagination; reply counts can exceed the parent-page size.
+    soup = html_soup(str(payload.get("pagination") or ""))
+    pages = [int(n) for a in soup.select("a") for n in re.findall(r"(?:comment_page|viewComments)\s*[=(]\s*['\"]?(\d+)", a.get("href", "") + " " + a.get("onclick", ""))]
+    return {"status": "ok", "items": items, "total": total, "has_more": bool(items) and max(pages, default=page) > page, "page": page}
+
+
+def dc_comments(item, page):
+    query = parse_qs(urlparse(item["url"]).query)
+    gallery, number = query.get("id", [""])[0], query.get("no", [""])[0]
+    if gallery not in DC_GALLERIES or not number.isdigit(): raise ValueError("invalid gallery")
+    soup = html_soup(_get(item["url"]))
+    token = soup.select_one("#e_s_n_o")
+    if not token or not token.get("value"): raise ValueError("public comments unavailable")
+    # Upstream's own read-only listing protocol. Public capability stays in memory.
+    data = _get("https://gall.dcinside.com/board/comment/", form={"id": gallery, "no": number, "cmt_id": gallery, "cmt_no": number, "e_s_n_o": token["value"], "comment_page": page, "sort": "D", "prevCnt": "", "_GALLTYPE_": "G" if gallery == "immovables" else "M"}, referer=item["url"])
+    return parse_dc_comments(data, item["url"], page)
+
+
 def comments(board, snapshot, post_id, page=1):
     with _guard:
         data = _snapshots.get(snapshot)
@@ -546,6 +645,9 @@ def comments(board, snapshot, post_id, page=1):
     result = {'status': 'unavailable', 'items': [], 'total': None, 'has_more': False, 'page': page}
     query = parse_qs(urlparse(item['url']).query)
     bbs_id, seq = query.get('id', [''])[0], query.get('seq', [''])[0]
+    if item['id'].startswith('dc-'):
+        try: result = dc_comments(item, page)
+        except Exception: pass
     if item['id'].startswith('pax-') and re.fullmatch(r'N\d{1,10}', bbs_id) and re.fullmatch(r'\d{1,20}', seq):
         url = 'https://www.paxnet.co.kr/tbbs/bbsCommentList?' + urlencode({'id': bbs_id, 'seq': seq, 'page': page, 'orderType': '', 'commentSeq': 0, 'modCmt': 'N'})
         try: result = parse_comments(_get(url), item['url'], page)

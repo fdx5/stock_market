@@ -38,7 +38,7 @@ class CommunityTests(TestCase):
 
     def test_pax_parser_utc_and_safe_links(self):
         html = b'<li><div data-seq="123">1</div><p><a class="best-title" href="javascript:bad()">Market &amp; rates</a><b class="comment-num">3</b></p><span data-date-format="Thu Nov 05 07:49:12 KST 2026"></span></li>'
-        items = feed.parse_pax(html, feed.SOURCES["kr"][0], "kr")
+        items = feed.parse_pax(html, ("pax-market", "legacy", "pax", "N00801"), "kr")
         self.assertEqual(items[0]["published_at"], "2026-11-04T22:49:12+00:00")
         self.assertEqual(items[0]["url"], "https://www.paxnet.co.kr/tbbs/view?id=N00801&seq=123")
         self.assertEqual(items[0]["title"], "Market & rates")
