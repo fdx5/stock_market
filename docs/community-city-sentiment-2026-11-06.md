@@ -21,3 +21,141 @@ Universe: 60 leading securities. KR weights use market cap; US weights use index
 
 ## Validation
 30 isolated in-memory backend tests and 6 pure model tests passed; no app.main import, DB connection, migrations or direct stored-data changes. Production TypeScript/Vite build passed (pre-existing large-chunk advisories remain). Desktop/portrait/landscape layouts, full-DPR canvas, missing asset/data and motion settings verified. Live verification and deploy identifiers are appended after release.
+
+## Production release verification
+
+- Runtime commit: 2b1fc76cc07fbddc03c620c331ceee055d9f648b.
+- Render deployment: dep-dbmjq068bjmc73dohmng, live 2026-11-06 02:38:23 UTC / 11:38:23 KST.
+- Dashboard: https://dashboard.render.com/web/srv-d95okvtckfvc73bjfu3g/deploys/dep-dbmjq068bjmc73dohmng
+- /api/health status=ok and exact runtime commit confirmed; city WebP serves200 image/webp,552972 bytes.
+- Actual production source data, full bodies, public comments and snapshot-scoped page2 verified on every board. Counts below can include earlier verified rows during a progressive refresh. Cold collection is slower from the hosting region; the reader remains available and newer verified rows are published while collection continues.
+- Production native-DPR city canvas, all three entry screens, actual article opening and home gauges tested on desktop/portrait/landscape. Home has3 numeric gauges above market maps on1440px and390px widths. No page JavaScript errors or horizontal overflow. Error-level Render application logs since release were empty at02:41:14UTC.
+- Screenshot/JSON evidence remains under I:/ai_root/sm-community-city-20261106/tmp/ (not published). Local layout/performance evidence remains under I:/ai_root/sm-deploy/tmp/community-city-qa/.
+
+API summaries:
+```json
+{
+  "commit": "2b1fc76cc07fbddc03c620c331ceee055d9f648b",
+  "boards": [
+    {
+      "board": "kr",
+      "total": 143,
+      "first_page": 50,
+      "refreshing": true,
+      "sources": [
+        "디시인사이드 · 코스피"
+      ],
+      "latest_age_seconds": 131,
+      "body_blocks": 1,
+      "seconds": 139.77,
+      "page2_count": 50,
+      "pages_disjoint": true,
+      "comment_status": "ok",
+      "comments_count": 2
+    },
+    {
+      "board": "global",
+      "total": 155,
+      "first_page": 50,
+      "refreshing": true,
+      "sources": [
+        "디시인사이드 · 미국 주식"
+      ],
+      "latest_age_seconds": 15,
+      "body_blocks": 1,
+      "seconds": 141.94,
+      "page2_count": 50,
+      "pages_disjoint": true,
+      "comment_status": "ok",
+      "comments_count": 2
+    },
+    {
+      "board": "property",
+      "total": 56,
+      "first_page": 50,
+      "refreshing": false,
+      "sources": [
+        "디시인사이드 · 부동산"
+      ],
+      "latest_age_seconds": 439,
+      "body_blocks": 2,
+      "seconds": 109.66,
+      "page2_count": 6,
+      "pages_disjoint": true,
+      "comment_status": "ok",
+      "comments_count": 1
+    }
+  ]
+}
+```
+
+UI summaries:
+```json
+[
+  {
+    "board": "kr",
+    "viewport": [
+      1440,
+      1000
+    ],
+    "dpr": 1,
+    "canvas": {
+      "w": 1440,
+      "h": 1000
+    },
+    "posts": 1,
+    "reader": true,
+    "errors": []
+  },
+  {
+    "board": "global",
+    "viewport": [
+      390,
+      844
+    ],
+    "dpr": 3,
+    "canvas": {
+      "w": 1170,
+      "h": 2532
+    },
+    "posts": 20,
+    "reader": true,
+    "errors": []
+  },
+  {
+    "board": "property",
+    "viewport": [
+      844,
+      390
+    ],
+    "dpr": 2,
+    "canvas": {
+      "w": 1688,
+      "h": 780
+    },
+    "posts": 16,
+    "reader": true,
+    "errors": []
+  },
+  {
+    "home_width": 1440,
+    "gauge_values": [
+      "5/ 100",
+      "14/ 100",
+      "8/ 100"
+    ],
+    "above_maps": true,
+    "errors": []
+  },
+  {
+    "home_width": 390,
+    "gauge_values": [
+      "6/ 100",
+      "13/ 100",
+      "8/ 100"
+    ],
+    "above_maps": true,
+    "errors": []
+  }
+]
+```
