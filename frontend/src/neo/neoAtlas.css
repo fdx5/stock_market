@@ -49,6 +49,7 @@ html[data-design="neo"] .ng-content .ed-overview-title .ed-eyebrow{display:block
 html[data-design="neo"] .ng-content .ed-market-map-link{color:#1c161b;background:var(--workspace-accent);border:0;border-radius:0;font-weight:750}
 html[data-design="neo"] .ng-content .ed-overview-quote{border:0;border-radius:0;border-top:1px solid #594360;background:none;padding:11px 0}
 html[data-design="neo"] .ng-content .ed-overview-quote+ .ed-overview-quote{padding-left:12px;border-left:1px solid var(--line-soft)}
+html[data-design="neo"] .ng-content .ed-market-overview[data-market="us"] .ed-overview-quote:first-child{padding-left:12px;border-left:1px solid var(--line-soft)}
 html[data-design="neo"] .ng-content .ed-overview-quote:hover{background:#bf85ff08;border-color:#8d699f}
 html[data-design="neo"] .ng-content .ed-overview-quote strong{color:var(--text-primary)}
 html[data-design="neo"] .ng-content .ed-overview-context{padding:10px 12px;background:#d6b54e0d;border-block:1px solid #d6b54e45;margin-top:0}
