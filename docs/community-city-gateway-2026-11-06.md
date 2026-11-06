@@ -80,3 +80,7 @@ Validation: TypeScript and production Vite build; desktop1440x1000, portrait390x
   }
 ]
 ```
+
+## Production verification
+
+Runtime1216acbde645bd4a6c5a494f4efb01434c30c9df, Render deploy dep-dbmk5bdckfvc738n1fsg, live2026-11-06T03:02:48Z (12:02:48KST). Exact /api/health commit and status=ok confirmed. All3 live community gateways and real-page handoffs passed desktop1440x1000DPR1, portrait390x844DPR3 and landscape844x390DPR2, with native canvas sizes, restored scrolling, no horizontal overflow and no JS errors. Error-level application logs since rollout were empty at03:03:23UTC. Screenshots and JSON are in tmp/impact-city/live/ and tmp/impact-city/live-result.json.
