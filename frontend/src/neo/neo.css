@@ -59,7 +59,7 @@ html[data-design="neo"] :is(.is-down,.negative,.down){color:var(--market-down)}
 .ng-workspace{margin-left:var(--ng-rail);min-width:0;padding-bottom:var(--ng-bottom)}
 .ng-context{display:flex;flex-wrap:wrap;align-items:center;gap:16px;min-height:49px;padding:9px 24px;color:var(--text-secondary);font-size:11px;border-bottom:1px solid #2f203780}
 .ng-context>span:first-child{display:flex;align-items:center;gap:10px;min-width:0}.ng-context a{font:9px var(--f-type);color:#9882a5;text-decoration:none;letter-spacing:.05em}.ng-context i{font-style:normal;color:#644f71}
-.ng-context .ng-context-meta{margin-left:auto;display:flex;align-items:center;gap:8.4px;font:11.2px var(--f-type);color:var(--text-secondary);letter-spacing:.05em}.ng-context-meta>i{display:block;width:5.6px;height:5.6px;border-radius:50%;background:#af8be3}
+.ng-context .ng-context-meta{margin-left:auto;display:flex;align-items:center;gap:5.88px;font:7.84px var(--f-type);color:var(--text-secondary);letter-spacing:.05em}.ng-context-meta>i{display:block;width:3.92px;height:3.92px;border-radius:50%;background:#af8be3}
 .ng-context>button{display:none;padding:5px;border:0;color:var(--text-secondary);background:none}
 .ng-content{min-height:calc(100dvh - 220px);outline:none;padding:0 24px;max-width:1800px;margin:auto}
 .ng-kicker{font:9px/1.5 var(--f-type);letter-spacing:.13em;color:var(--accent-neon)}
@@ -107,12 +107,12 @@ html[data-design="neo"][data-fx="minimal"] .ed-breadth-line>i{animation:none!imp
 html[data-design="neo"][data-fx="minimal"] .ed-investor-card:hover{transform:none!important}
 
 .ng-audience-slot{margin-left:auto;flex-shrink:0}
-.ng-audience-slot .visitor-badge{background:none;border:0;padding:0;color:#ad9bb7;font:12.6px/1 var(--f-type);box-shadow:none;gap:7px;white-space:nowrap}
-.ng-context:has(.ng-audience-slot) .ng-context-meta{margin-left:14px}
+.ng-audience-slot .visitor-badge{background:none;border:0;padding:0;color:#ad9bb7;font:8.82px/1 var(--f-type);box-shadow:none;gap:4.9px;white-space:nowrap}
+.ng-context:has(.ng-audience-slot) .ng-context-meta{margin-left:9.8px}
 .ng-context:has(.ng-audience-slot) .market-share-control,.ng-context:has(.ng-audience-slot)>button{margin-left:0}
 .ng-setting-actions .bm-wrap{display:inline-flex}
 .ng-bookmark-control{background:#2a1d32!important;color:#ece7dd!important;border:1px solid #554161!important;border-radius:6px!important;min-height:40px!important;padding:8px 14px!important;font:12px var(--f-sans)!important}
-@media(max-width:599px){.ng-audience-slot .visitor-badge{font-size:11.2px;gap:5.6px}.ng-context{gap:9px}}
+@media(max-width:599px){.ng-audience-slot .visitor-badge{font-size:7.84px;gap:3.92px}.ng-context{gap:9px}}
 
-.ng-audience-slot :is(.visitor-badge-person,.visitor-badge-eye){font-size:12.6px}
-.ng-audience-slot .visitor-badge-dot{width:7px;height:7px}
+.ng-audience-slot :is(.visitor-badge-person,.visitor-badge-eye){font-size:8.82px}
+.ng-audience-slot .visitor-badge-dot{width:4.9px;height:4.9px}

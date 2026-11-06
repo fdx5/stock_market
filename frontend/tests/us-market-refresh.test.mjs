@@ -119,3 +119,13 @@ test('a slow night-futures request never overlaps and an older reply cannot rewi
   resolve({close:790,quote_time:100,stale:false});await flush();
   assert.equal(rt.states[0].close,801);assert.equal(rt.states[0].stale,true);rt.unmount();
 });
+
+test('Treasury header shares its poll and a partial response preserves the other tenor with a delay flag',async()=>{
+  let calls=0;
+  const rt=runtime({treasuryHeadlines:async()=>({items:++calls===1 ? [{tenor:'2',yield_pct:4.6,change_bp:3.2},{tenor:'10',yield_pct:4.8,change_bp:-2.1}] : [{tenor:'2',yield_pct:4.61,change_bp:4.2}]})});
+  const {useTreasuryHeadlines}=await hooks('useTreasuryHeadlines');
+  useTreasuryHeadlines();await rt.mount();useTreasuryHeadlines();await rt.mount();assert.equal(calls,1);
+  await rt.advance(15000);assert.equal(calls,2);
+  assert.equal(rt.states[0][0].yield_pct,4.61);assert.equal(rt.states[1][1].yield_pct,4.8);assert.equal(rt.states[1][1].stale,true);
+  rt.visible('hidden');await rt.advance(30000);assert.equal(calls,2);rt.unmount();
+});

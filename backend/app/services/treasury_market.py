@@ -76,6 +76,24 @@ def quotes():
             return {key: {**row, "stale": True} for key, row in _last_quotes.items()}
 
 
+def headline_quotes():
+    """Small header payload; shares the yield cache without requesting any charts."""
+    current = quotes()
+    with _last_lock:
+        previous = dict(_last_quotes)
+    items = []
+    for tenor in ("2", "10"):
+        symbol = f"US{tenor}Y"
+        row = current.get(symbol)
+        if row is None:
+            row = {**previous.get(symbol, {}), "stale": True}
+        items.append({"tenor": tenor, "symbol": symbol,
+            "yield_pct": number(row.get("yield_pct")), "change_bp": number(row.get("change_bp")),
+            "quote_time_label": row.get("quote_time_label"), "received_at": row.get("received_at"),
+            "stale": bool(row.get("stale")), "provider_realtime": bool(row.get("provider_realtime"))})
+    return {"items": items, "source": "CNBC / Tradeweb", "refresh_seconds": 15}
+
+
 def normalize_bars(bars, daily=False):
     points = {}
     for row in bars or []:

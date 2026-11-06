@@ -56,3 +56,22 @@ def test_intraday_only_keeps_latest_new_york_day(monkeypatch):
     result = market.intraday("10")
     assert len(result) == 1
     assert result[0]["date"] == "2026-10-23"
+
+
+def test_header_ships_only_two_and_ten_year_yields_without_charts(monkeypatch):
+    monkeypatch.setattr(market, "quotes", lambda: {"US2Y": {"yield_pct": 4.6, "change_bp": 3.2},
+        "US5Y": {"yield_pct": 4.7, "change_bp": 1}, "US10Y": {"yield_pct": 4.8, "change_bp": -2.1}})
+    monkeypatch.setattr(market, "intraday", lambda *args: pytest.fail("Header must not request charts"))
+    result = market.headline_quotes()
+    assert [row["tenor"] for row in result["items"]] == ["2", "10"]
+    assert [row["change_bp"] for row in result["items"]] == [3.2, -2.1]
+    assert not any("points" in row for row in result["items"])
+
+
+def test_missing_header_tenor_keeps_last_known_yield_and_marks_it_stale(monkeypatch):
+    monkeypatch.setattr(market, "quotes", lambda: {"US2Y": {"yield_pct": 4.6, "change_bp": 3.2}})
+    monkeypatch.setattr(market, "_last_quotes", {"US10Y": {"yield_pct": 4.8, "change_bp": -2.1}})
+    row = market.headline_quotes()["items"][1]
+    assert row["yield_pct"] == 4.8 and row["change_bp"] == -2.1 and row["stale"]
+    monkeypatch.setattr(market, "_last_quotes", {})
+    assert market.headline_quotes()["items"][1]["yield_pct"] is None

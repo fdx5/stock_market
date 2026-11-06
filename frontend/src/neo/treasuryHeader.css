@@ -1,0 +1,14 @@
+.ng-context .ng-market-quotes{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:8px;flex:0 1 550px;min-width:0;margin-left:auto;align-items:center}
+.ng-context .ng-market-quotes .ng-night-quote{width:100%;min-width:0;margin:4px 0}
+.ng-treasury-quote{box-sizing:border-box;height:49px;min-width:0;display:grid;grid-template-rows:repeat(2,minmax(0,1fr));gap:2px;padding:5px 9px;background:var(--bg-panel);border:1px solid var(--line-active);border-left:3px solid var(--workspace-accent,var(--accent-neon));border-radius:var(--radius-md);color:var(--text-primary)}
+.ng-treasury-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center;min-width:0;line-height:16px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ng-treasury-row>span{display:flex;align-items:center;gap:2px;font:600 10px/16px var(--f-sans);color:var(--text-secondary)}
+.ng-treasury-row>span i{color:var(--warning);font:700 9px var(--f-sans);font-style:normal}
+.ng-treasury-row strong{font:700 13px/16px var(--f-num);text-align:right;color:var(--text-primary)}
+.ng-treasury-row b{font:650 10px/16px var(--f-num);text-align:right;color:var(--market-flat)}
+.ng-treasury-row.is-up b{color:var(--market-up)}
+.ng-treasury-row.is-down b{color:var(--market-down)}
+.ng-treasury-row.is-stale strong{color:var(--text-secondary)}
+@media(max-width:1250px){.ng-context .ng-market-quotes{flex-basis:470px}}
+@media(max-width:599px){.ng-context .ng-market-quotes{flex:1 1 100%;width:100%;margin:0;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:7px}.ng-context .ng-market-quotes .ng-night-quote{margin:0;flex:none}.ng-treasury-quote{height:45px;padding:3px 6px;gap:1px}.ng-treasury-row{gap:4px}.ng-treasury-row>span{font-size:9px}.ng-treasury-row strong{font-size:12px}.ng-treasury-row b{font-size:9px}}
+@media(max-width:359px){.ng-context .ng-market-quotes{grid-template-columns:minmax(0,1fr)}.ng-treasury-row{grid-template-columns:70px minmax(0,1fr) auto}.ng-treasury-row strong{font-size:13px}.ng-treasury-row b{font-size:10px}}

@@ -12,6 +12,11 @@ def treasury_snapshot():
     return treasury_market.snapshot()
 
 
+@router.get("/treasuries/quotes")
+def treasury_headline_quotes():
+    return treasury_market.headline_quotes()
+
+
 @router.get("/treasuries/{tenor}/history")
 def treasury_history(tenor: Literal["2", "5", "10"]):
     try:
