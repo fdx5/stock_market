@@ -24,12 +24,14 @@ function Tile({ item }: { item: GlobalIndexWidget }) {
   const hi = closes.length ? Math.max(...closes) : null;
   const lo = closes.length ? Math.min(...closes) : null;
   const last = item.points[item.points.length - 1]?.date?.slice(5).replace("-", ".") ?? "";
+  const quoted = item.quote_time ? new Date(item.quote_time * 1000) : null;
+  const quoteTime = quoted && Number.isFinite(quoted.getTime()) ? quoted.toLocaleString(L("ko-KR", "en-GB"), { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : null;
   return (
     <article className={`d2-gl is-${tone}`}>
       <header>
         {item.flag && <img src={`/img/flag/${item.flag}.svg`} alt="" loading="lazy" />}
         <h3>{item.label}</h3>
-        {last && <time>{last}</time>}
+        {(quoteTime || last) && <time dateTime={quoted?.toISOString()}>{quoteTime ? `${quoteTime} KST` : last}</time>}
       </header>
       {item.close !== null ? (
         <>
@@ -38,6 +40,7 @@ function Tile({ item }: { item: GlobalIndexWidget }) {
             <span>{pct(item.change_pct)}</span>
           </div>
           <Spark points={closes} tone={tone} baseline={prev} className="d2-gl-spark" />
+          <small>{item.session === "pre" ? L("프리마켓 · 전일 정규장 종가 대비", "Pre-market · vs. last regular close") : item.session === "post" ? L("애프터마켓 · 전일 대비 합산", "After-hours · combined daily move") : item.unit === "index" && item.flag === "us" ? L("현물지수 · 정규장 기준", "Cash index · regular session") : L("최근 제공 시세", "Latest supplied quote")}</small>
           <dl>
             <div>
               <dt>{L("전일", "Prev")}</dt>

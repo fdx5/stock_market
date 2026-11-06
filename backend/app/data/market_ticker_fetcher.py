@@ -77,7 +77,8 @@ def _fetch_one(entry: dict) -> dict | None:
     symbol = entry["symbol"]
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
     try:
-        params = {"interval": "15m", "range": "1d", **yahoo_quote.BASE_PARAMS}
+        # Read the latest minute in pre/post trading rather than a 15-minute bar.
+        params = {"interval": "1m", "range": "1d", **yahoo_quote.BASE_PARAMS}
         resp = requests.get(url, headers=HEADERS, params=params, timeout=4)
         resp.raise_for_status()
         result = resp.json()["chart"]["result"][0]

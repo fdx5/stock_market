@@ -86,8 +86,36 @@ test('one failed index does not block the other index from updating',async()=>{
     nasdaq100Map:async()=>({items:[row('NVDA',200+tick)],session:'post',generated_at:'t2'}),
   });
   const {useUsMarketSnapshot}=await hooks('useUsMarketSnapshot');useUsMarketSnapshot();await rt.mount();
-  // The shared desk snapshot now polls every 20s; map pages have their own cadence.
+  // Shared desk snapshots retain the production 20-second polling cadence.
   assert.equal(rt.states[0].all.length,2);tick=1;await rt.advance(20000);
   assert.equal(rt.states[0].sp500[0].close,100);assert.equal(rt.states[0].nasdaq[0].close,201);
   rt.unmount();
+});
+
+test('night futures shares one ten-second poller and preserves the latest quote on source failure',async()=>{
+  let calls=0;
+  const rt=runtime({kospiNight:async()=>{
+    calls++;
+    if(calls===3)throw new Error('source down');
+    return {close:calls===1?800:801,quote_time:calls*100,stale:false};
+  }});
+  const {useKospiNight}=await hooks('useKospiNight');
+  useKospiNight();await rt.mount();useKospiNight();await rt.mount();
+  assert.equal(calls,1);await rt.advance(9999);assert.equal(calls,1);
+  await rt.advance(1);assert.equal(calls,2);assert.equal(rt.states[1].close,801);
+  await rt.advance(10000);assert.equal(rt.states[0].close,801);assert.equal(rt.states[0].stale,true);
+  rt.visible('hidden');await rt.advance(30000);assert.equal(calls,3);
+  rt.visible('visible');await rt.advance(0);assert.equal(calls,4);
+  rt.unmount();await rt.advance(30000);assert.equal(calls,4);
+});
+
+test('a slow night-futures request never overlaps and an older reply cannot rewind the price',async()=>{
+  let calls=0,resolve;
+  const rt=runtime({kospiNight:()=>{calls++;return new Promise(done=>{resolve=done;});}});
+  const {useKospiNight}=await hooks('useKospiNight');useKospiNight();await rt.mount();
+  await rt.advance(30000);assert.equal(calls,1);
+  resolve({close:801,quote_time:200,stale:false});await flush();
+  await rt.advance(10000);assert.equal(calls,2);
+  resolve({close:790,quote_time:100,stale:false});await flush();
+  assert.equal(rt.states[0].close,801);assert.equal(rt.states[0].stale,true);rt.unmount();
 });

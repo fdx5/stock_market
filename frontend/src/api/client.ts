@@ -832,6 +832,19 @@ export interface GlobalIndexPoint {
   close: number;
 }
 
+export interface KospiNightQuote {
+  close: number | null;
+  change: number | null;
+  change_pct: number | null;
+  quote_time: number | null;
+  stale: boolean;
+  fetch_failed: boolean;
+  session_state: "open" | "closed";
+  source: string;
+  source_url: string;
+  refresh_seconds: number;
+}
+
 export interface GlobalIndexWidget {
   key: string;
   label: string;
@@ -840,6 +853,8 @@ export interface GlobalIndexWidget {
   close: number | null;
   change: number | null;
   change_pct: number | null;
+  session?: MarketSession;
+  quote_time?: number | null;
   points: GlobalIndexPoint[];
   /** Country code resolved to /img/flag/<flag>.svg, shown ahead of the label. */
   flag?: string;
@@ -1640,7 +1655,8 @@ export const api = {
     ),
   usDailyPrices: (code: string, offset = 0, limit = 20) =>
     getJSON<DailyPricePage>(`${BASE}/us-stock/${code}/daily?offset=${offset}&limit=${limit}`),
-  globalIndices: () => getJSON<{ items: GlobalIndexWidget[] }>(`${BASE}/global/indices`),
+  globalIndices: () => getJSONFresh<{ items: GlobalIndexWidget[] }>(`${BASE}/global/indices`),
+  kospiNight: () => getJSONFresh<KospiNightQuote>(`${BASE}/global/kospi-night`),
   globalEnrichment: (code: string, lang: string = "ko", signal?: AbortSignal) =>
     getJSON<GlobalEnrichment>(`${BASE}/global/${code}/enrichment?lang=${lang}`, { signal }),
   globalDiscussion: (code: string, limit = 10, offset?: string | null, discussionType: "foreignStock" | "foreignEtf" = "foreignStock") =>

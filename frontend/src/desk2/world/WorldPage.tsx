@@ -27,6 +27,7 @@ import "./world.css";
 import TreasuryDesk from "./TreasuryDesk";
 import { useDesignMode } from "../../neo/settings";
 import NeoSectorDigest from "../../neo/NeoSectorDigest";
+import { usSessionItems } from "../discover/usOverviewQuotes";
 
 /* /global — 해외판: the US market as the paper's world edition.
  *
@@ -148,13 +149,15 @@ export default function WorldPage() {
 
   const all = snap.all;
   const pulse = useMemo(() => {
+    const all = usSessionItems(snap.all, snap.session);
+    const sp500 = usSessionItems(snap.sp500, snap.session);
     if (all.length === 0) return null;
     const up = all.filter((i) => i.change_pct > 0.05).length;
     const down = all.filter((i) => i.change_pct < -0.05).length;
     const cap = all.reduce((s, i) => s + capOf(i), 0);
     const weighted = cap ? all.reduce((s, i) => s + capOf(i) * i.change_pct, 0) / cap : 0;
     const map = new Map<string, { cap: number; move: number; n: number; items: MarketMapItem[] }>();
-    for (const it of snap.sp500) {
+    for (const it of sp500) {
       const e = map.get(it.sector) ?? { cap: 0, move: 0, n: 0, items: [] };
       e.cap += capOf(it);
       e.move += capOf(it) * it.change_pct;
@@ -162,7 +165,7 @@ export default function WorldPage() {
       e.items.push(it);
       map.set(it.sector, e);
     }
-    const spCap = snap.sp500.reduce((s, i) => s + capOf(i), 0);
+    const spCap = sp500.reduce((s, i) => s + capOf(i), 0);
     const sectors = [...map.entries()]
       .map(([sector, e]) => ({ sector, cap: e.cap, share: spCap ? e.cap / spCap : 0, move: e.cap ? e.move / e.cap : 0, n: e.n, items: e.items.sort((a, b) => capOf(b) - capOf(a)) }))
       // "Other" is the scraper's bucket for names it could not classify; it is not
@@ -176,11 +179,12 @@ export default function WorldPage() {
     // The seven's contribution to the S&P's cap-weighted move, in percentage points.
     const techContribution = spCap ? tech.reduce((s, i) => s + capOf(i) * i.change_pct, 0) / spCap : null;
     return { up, down, flat: all.length - up - down, weighted, sectors, best: byMove[0], worst: byMove[byMove.length - 1], tech, techCap, techMove, techShare: spCap ? techCap / spCap : 0, techContribution };
-  }, [all, snap.sp500]);
+  }, [snap.all, snap.sp500, snap.session]);
 
   const session = snap.session;
-  const sp = tk("^GSPC");
-  const ndx = tk("^NDX");
+  const extended = session === "pre" || session === "post";
+  const sp = tk(extended ? "ES=F" : "^GSPC");
+  const ndx = tk(extended ? "NQ=F" : "^NDX");
   const asOf = snap.generatedAt
     ? new Intl.DateTimeFormat(lang === "ko" ? "ko-KR" : "en-US", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(snap.generatedAt))
     : null;
@@ -203,7 +207,7 @@ export default function WorldPage() {
         active={active}
         onJump={jump}
         onFind={() => setFinderOpen(true)}
-        market={[sp && { label: "S&P 500", t: sp }, ndx && { label: L("나스닥100", "NDX 100"), t: ndx }, fx && { label: L("원/달러", "USD/KRW"), t: fx }]
+        market={[sp && { label: extended ? L("S&P 500 선물", "S&P 500 futures") : "S&P 500", t: sp }, ndx && { label: extended ? L("나스닥100 선물", "NDX futures") : L("나스닥100", "NDX 100"), t: ndx }, fx && { label: L("원/달러", "USD/KRW"), t: fx }]
           .filter((x): x is { label: string; t: MarketTickerItem } => !!x)
           .map(({ label, t }) => (
             <span key={label} className={`d2-cmd-idx is-${toneOf(t.change_pct)}`}>
@@ -217,7 +221,7 @@ export default function WorldPage() {
       <main className="d2-main">
         <section id="w-front" className="ed-summary-section" aria-label={L("미국 시장 요약", "US market overview")}>
           <MarketOverview market="us" items={all} asOf={asOf} generatedAt={snap.generatedAt} session={session} leadingSector={pulse?.best ? secName(pulse.best.sector, lang) : undefined} bigTechMove={pulse?.techCap ? pulse.techMove : undefined} bigTechShare={pulse?.techShare || undefined} />
-          {design === "neo" && <NeoSectorDigest items={snap.sp500} />}
+          {design === "neo" && <NeoSectorDigest items={usSessionItems(snap.sp500, session)} />}
           <details className="ed-market-details" onToggle={event => setMarketDetailsOpen(event.currentTarget.open)}>
             <summary>{L("섹터·빅테크 자세히", "Explore sectors and Big Tech")} <span aria-hidden="true">{marketDetailsOpen ? "−" : "＋"}</span></summary>
             {marketDetailsOpen && <div className="ed-market-details-body">

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.data import global_discussion_fetcher, kospi_futures_fetcher, price_fetcher, us_live_quotes, yahoo_bulk_quote
 from app.services.cache import cache
+from app.services import kospi_night
 from app.services.public_discussion import get_public_discussion
 from app.data.toss_news_fetcher import get_toss_image, get_toss_news, get_toss_news_article
 from app.data.us_universe import get_us_stock_item
@@ -49,17 +50,8 @@ SPARKLINE_POINTS = 60
 
 KST = ZoneInfo("Asia/Seoul")
 
-# The SOXL tile doubles as a KOSPI-futures window: whenever a KOSPI futures session is
-# open, whatever is trading in it rides along in that slot and the frontend alternates
-# the two. It takes two different instruments because no single free feed covers both
-# sessions:
-#   - KRX day session -> the real 코스피 200 선물, off Naver's index feed.
-#   - KRX night session -> KORU. KRX's own CME-linked night futures have no free,
-#     no-auth quote source at all (Naver's "FUT" freezes at the 15:45 day close, Yahoo
-#     carries no CME KOSPI symbol, Investing.com's API 403s). KORU is the US-listed 3x
-#     Korea bull ETF — it trades US hours, i.e. inside the night window, and being
-#     leveraged it tracks the same directional bet, so it stands in as the proxy. The
-#     label says KORU rather than pretending to be the futures print.
+# Day quotes use Naver; night quotes share the external crawl used by the header.
+# KORU is not used as a substitute for the night-futures contract.
 KOSPI_SESSION_WIDGETS = {
     "day": {
         "key": "kospi_fut_day",
@@ -72,12 +64,12 @@ KOSPI_SESSION_WIDGETS = {
     },
     "night": {
         "key": "kospi_fut_night",
-        "label": "코스피 야간선물 (KORU)",
-        "code": "KORU",
-        "unit": "usd",
+        "label": "코스피200 야간선물",
+        "code": "KOSPI200-NIGHT",
+        "unit": "index",
         "flag": "kr",
         "group": "us",
-        "source": "yahoo",
+        "source": "night_external",
     },
 }
 
@@ -85,7 +77,7 @@ KOSPI_SESSION_WIDGETS = {
 def _kospi_session(now: dt.datetime) -> str | None:
     """Which KOSPI 200 futures session is open right now, if any.
 
-    Day is 09:00-15:45 KST; night is 18:00-05:00 KST, which straddles midnight and so
+    Day is 09:00-15:45 KST; night is 18:00-06:00 KST, which straddles midnight and so
     lands its two halves on different weekdays — Mon-Fri evenings, Tue-Sat mornings.
     Holidays aren't modelled: on one the widget shows a flat previous close, which is
     the same thing every other tile on this grid does when its market is shut."""
@@ -96,7 +88,7 @@ def _kospi_session(now: dt.datetime) -> str | None:
         return "day"
     if weekday < 5 and minutes >= 18 * 60:
         return "night"
-    if 1 <= weekday <= 5 and minutes < 5 * 60:
+    if 1 <= weekday <= 5 and minutes < 6 * 60:
         return "night"
     return None
 
@@ -119,6 +111,9 @@ def _widget_data(widget: dict, live: dict | None = None) -> dict:
     # "source" only steers the fetch below; it isn't part of the wire format.
     meta = {k: v for k, v in widget.items() if k != "source"}
     empty = {**meta, "close": None, "change": None, "change_pct": None, "points": []}
+
+    if widget.get("source") == "night_external":
+        return _sanitized({**meta, **kospi_night.get_quote()}, empty)
 
     if widget.get("source") == "naver":
         try:
@@ -158,8 +153,8 @@ def _widget_data(widget: dict, live: dict | None = None) -> dict:
 def indices():
     # Daily history remains the sparkline; headline prices use the same live layer
     # as US maps/detail pages instead of waiting for a daily-history cache refresh.
-    symbols = ["^DJI", "^IXIC", "SOXL", "TQQQ", "KORU"]
-    batch = cache.get_or_set("us_index_widget_quotes", 15, lambda: yahoo_bulk_quote.get_quotes(symbols))
+    symbols = ["^DJI", "^IXIC", "SOXL", "TQQQ"]
+    batch = cache.get_or_set("us_index_widget_quotes", 4, lambda: yahoo_bulk_quote.get_quotes(symbols), allow_stale=False)
     us_live_quotes.remember(batch)
     us_live_quotes.recover_missing([code for code in symbols if code not in batch])
     live = us_live_quotes.latest(symbols)
@@ -180,6 +175,11 @@ def indices():
     items += [_widget_data(w) for w in OVERSEAS_WIDGETS]
 
     return {"items": items}
+
+
+@router.get("/kospi-night")
+def kospi_night_quote():
+    return kospi_night.get_quote()
 
 
 @router.get("/{code}/enrichment")

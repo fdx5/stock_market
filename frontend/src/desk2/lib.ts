@@ -187,12 +187,20 @@ export function useNow(intervalMs = 1000): Date {
 let globalItems: GlobalIndexWidget[] | null = null;
 const globalListeners = new Set<(items: GlobalIndexWidget[] | null) => void>();
 let stopGlobal: (() => void) | null = null;
+let globalInFlight = false;
 
 function loadGlobal() {
+  if (globalInFlight) return;
+  globalInFlight = true;
   api
     .globalIndices()
     .then((res) => {
-      globalItems = res.items;
+      const previous = new Map((globalItems ?? []).map(item => [item.key, item]));
+      globalItems = res.items.map(item => {
+        const old = previous.get(item.key);
+        if (old?.close != null && (item.close == null || (old.quote_time && (!item.quote_time || old.quote_time > item.quote_time)))) return old;
+        return item;
+      });
       globalListeners.forEach((fn) => fn(globalItems));
     })
     .catch(() => {
@@ -200,7 +208,8 @@ function loadGlobal() {
         globalItems = [];
         globalListeners.forEach((fn) => fn(globalItems));
       }
-    });
+    })
+    .finally(() => { globalInFlight = false; });
 }
 
 export function useGlobalIndices(): GlobalIndexWidget[] | null {
@@ -210,7 +219,7 @@ export function useGlobalIndices(): GlobalIndexWidget[] | null {
     if (globalItems !== null) setItems(globalItems);
     if (globalListeners.size === 1) {
       loadGlobal();
-      stopGlobal = startVisibilityAwareInterval(loadGlobal, 60_000);
+      stopGlobal = startVisibilityAwareInterval(loadGlobal, 5_000);
     }
     return () => {
       globalListeners.delete(setItems);

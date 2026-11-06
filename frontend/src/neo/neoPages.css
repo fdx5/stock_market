@@ -1,4 +1,9 @@
 /* Page-family adapters. Never target individual heatmap cells or 3D canvases. */
+html[data-design="neo"] .ng-content .d2-talk-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:7px;overflow:visible;scroll-snap-type:none;padding:3px 2px 12px}
+html[data-design="neo"] .ng-content .d2-talk-chips>button{min-width:0;max-width:100%;min-height:42px;justify-content:space-between;gap:6px;padding:8px 10px;border-radius:6px;text-align:left;white-space:normal}
+html[data-design="neo"] .ng-content .d2-talk-chips>button b{min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.45}
+html[data-design="neo"] .ng-content .d2-talk-chips>button small{flex-shrink:0;white-space:nowrap}
+
 html[data-design="neo"] .ng-content :is(.d2,.app,.search-landing){min-height:0;background:transparent;color:var(--text-primary);font-family:var(--f-sans);font-size:13px;line-height:1.55;max-width:none;margin:0;padding:0;container-type:normal}
 html[data-design="neo"] .ng-content :is(h1,h2,h3,h4,h5,p,button,input,select,textarea){font-family:var(--f-sans)}
 html[data-design="neo"] .ng-content :is(.d2-title,.d2-lead-title,.sk-name,.nw-lead-head,.nw-second-head,.bf-lede,.app-title){font-family:var(--f-sans);letter-spacing:-.035em;font-weight:650}

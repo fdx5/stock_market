@@ -15,6 +15,7 @@
 .d2 .ed-market-reading{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:24px;align-items:start}
 .d2 .ed-market-primary{min-width:0}
 .d2 .ed-overview-quotes{gap:12px}
+.d2 .ed-asset-quote>.ed-asset-time{display:block;font-size:9px;color:var(--ink-3);margin-top:4px}
 .d2 .ed-overview-quote{border:1px solid var(--rule);border-radius:10px;padding:13px 14px 11px;background:var(--p0);gap:3px 8px;transition:border-color .18s,background .18s}
 .d2 .ed-overview-quote:hover{border-color:var(--rule-ink);background:var(--ed-soft)}
 .d2 .ed-overview-quote>span{justify-content:space-between;font-size:11px;letter-spacing:.015em}
