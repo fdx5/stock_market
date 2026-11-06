@@ -1,19 +1,17 @@
-.ng-context .ng-night-quote{display:grid;gap:3px;flex:0 1 350px;min-width:0;margin:7px 0 7px auto;padding:9px 14px;background:linear-gradient(110deg,#102b30,#19132a);border:1px solid #5de7e0;border-left:4px solid #7affef;border-radius:8px;box-shadow:0 0 20px #55e6db26,inset 0 0 20px #4df4df08;color:var(--text-primary);text-decoration:none}
-.ng-night-label{display:flex;gap:6px;align-items:center;color:#9dfff3;font:700 11px/1.4 var(--f-sans);white-space:nowrap}
-.ng-night-label em{margin-left:auto;font:500 9px var(--f-sans);color:#d3efe7;font-style:normal}
-.ng-night-dot{width:6px;height:6px;background:#8bffee;border-radius:50%;box-shadow:0 0 8px #8bffee;flex-shrink:0}
-.ng-night-values{display:flex;align-items:baseline;gap:12px;font-variant-numeric:tabular-nums}
-.ng-night-values strong{font:800 25px/1.1 var(--f-num);letter-spacing:-.04em;color:#f1fffc;text-shadow:0 0 12px #82ffe133}
-.ng-night-values b{font:750 16px var(--f-num);color:var(--market-flat);white-space:nowrap}
-.ng-night-values i{margin-left:auto;color:#99e8e0;font-size:13px;font-style:normal}
+.ng-context .ng-night-quote{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:12px 23px;align-content:center;align-items:center;gap:2px 8px;flex:0 1 350px;min-width:0;box-sizing:border-box;height:49px;margin:4px 0 4px auto;padding:4px 11px;background:var(--bg-panel);border:1px solid var(--line-active);border-left:3px solid var(--workspace-accent,var(--accent-neon));border-radius:var(--radius-md);color:var(--text-primary);box-shadow:inset 0 0 16px color-mix(in srgb,var(--workspace-accent,var(--accent-neon)) 8%,transparent);cursor:default}
+.ng-night-label{display:flex;gap:5px;align-items:center;color:var(--workspace-accent,var(--accent-neon));font:700 10px/12px var(--f-sans);white-space:nowrap}
+.ng-night-dot{width:4px;height:4px;background:currentColor;border-radius:50%;flex-shrink:0}
+.ng-context .ng-night-quote .ng-night-time{font:9px/12px var(--f-num);color:var(--text-muted);white-space:nowrap;text-align:right}
+.ng-night-values{display:flex;align-items:baseline;gap:9px;min-width:0;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ng-night-values strong{font:750 22px/23px var(--f-num);letter-spacing:-.035em;color:var(--text-primary)}
+.ng-night-values b{font:700 13px/20px var(--f-num);color:var(--market-flat);white-space:nowrap}
 .ng-night-quote.is-up .ng-night-values b{color:var(--market-up)}
 .ng-night-quote.is-down .ng-night-values b{color:var(--market-down)}
-.ng-context .ng-night-quote>small{font:9px/1.4 var(--f-sans);color:#adc6c5;white-space:normal}
-.ng-night-quote.is-stale .ng-night-label em{color:#ffcb78}
+.ng-night-state{font:9px/14px var(--f-sans);color:var(--text-secondary);text-align:right;white-space:nowrap}
+.ng-night-quote.is-stale .ng-night-state{color:var(--warning)}
 .ng-context:has(.ng-night-quote){flex-wrap:wrap}
 .ng-context:has(.ng-night-quote) .ng-audience-slot{margin-left:0}
-.ng-night-quote:hover,.ng-night-quote:focus-visible{outline:2px solid #9dfff3;outline-offset:3px;box-shadow:0 0 28px #55e6db40}
 @media(max-width:1250px){.ng-context:has(.ng-night-quote) .ng-context-meta{display:none}.ng-context .ng-night-quote{flex-basis:290px}}
-@media(max-width:599px){.ng-context:has(.ng-night-quote){gap:8px;padding-block:6px}.ng-context:has(.ng-night-quote)>span:first-child{flex-basis:100%}.ng-context .ng-night-quote{margin:0;flex:1 1 185px;padding:8px 9px}.ng-night-label{font-size:10px;flex-wrap:wrap;white-space:normal}.ng-night-label em{font-size:8px}.ng-night-values{gap:8px}.ng-night-values strong{font-size:23px}.ng-night-values b{font-size:14px}.ng-context .ng-night-quote>small{font-size:8px}.ng-context:has(.ng-night-quote) .ng-audience-slot{flex:0 1 auto}.ng-context:has(.ng-night-quote) .visitor-badge{flex-wrap:wrap;max-width:95px;white-space:normal}}
+@media(max-width:599px){.ng-context:has(.ng-night-quote){gap:8px;padding-block:6px}.ng-context:has(.ng-night-quote)>span:first-child{flex-basis:100%}.ng-context .ng-night-quote{margin:0;flex:1 1 185px;height:45px;padding:3px 8px;gap:1px 5px;grid-template-rows:11px 22px}.ng-night-label{font-size:9px;line-height:11px;gap:4px}.ng-context .ng-night-quote .ng-night-time{font-size:8px;line-height:11px}.ng-night-values{gap:6px}.ng-night-values strong{font-size:20px;line-height:22px}.ng-night-values b{font-size:11px}.ng-night-state{font-size:8px}.ng-context:has(.ng-night-quote) .ng-audience-slot{flex:0 1 auto}.ng-context:has(.ng-night-quote) .visitor-badge{flex-wrap:wrap;max-width:95px;white-space:normal}}
 .ng-chart-tabs{flex-wrap:wrap}
 .ng-chart-toolbar{flex-wrap:wrap}
