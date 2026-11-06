@@ -202,3 +202,24 @@ html[data-design="neo"] .ng-content .ed-person-holdings b{min-width:0;white-spac
 html[data-design="neo"] .ng-content .ed-person-holdings em{white-space:nowrap}
 html[data-design="neo"] .ng-content .ed-person-foot{margin:12px 0 0;padding:10px 0 0;min-width:0}
 @media(max-width:700px){html[data-design="neo"] .ng-content .ed-investor-grid:not(.ed-catalog-grid){grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}html[data-design="neo"] .ng-content .ed-investor-card{min-width:0;width:auto;scroll-snap-align:none}}
+
+/* Map headings adapt to the available workspace, including wide touch/foldable screens. */
+html[data-design="neo"] .ng-content .ng-map-heading{container:neo-map-heading / inline-size}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-titlebar{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:12px;min-width:0}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-titlebar>div:first-child{min-width:0;width:100%}
+html[data-design="neo"] .ng-content .ng-map-heading .app-title-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0}
+html[data-design="neo"] .ng-content .ng-map-heading .app-title{flex:0 0 auto;white-space:nowrap;word-break:keep-all}
+html[data-design="neo"] .ng-content .ng-map-heading :is(.kospi-map-live-badge,.session-badge){flex:0 0 auto;white-space:nowrap}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-session-note{word-break:keep-all}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-board-links{display:flex;flex:0 0 100%;flex-wrap:wrap;gap:6px;min-width:0;max-width:100%}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-board-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:6px 10px;white-space:nowrap}
+html[data-design="neo"] .ng-content .ng-map-heading .app-subtitle{word-break:keep-all;overflow-wrap:break-word;line-height:1.7}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-updated{display:inline-block;max-width:100%;overflow-wrap:break-word}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-view-toggle{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:6px;min-width:0;max-width:100%;margin:0;padding:0;border:0}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-view-toggle :is(button,.ng-community-shortcut){flex:0 0 auto;min-height:44px;max-width:100%;margin:0;white-space:nowrap;word-break:keep-all;border:1px solid var(--line-soft);border-radius:6px}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-view-toggle button{padding:8px 12px;font-size:12px;line-height:1.5}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-share-wrap{display:flex;flex:0 0 auto;min-width:0;max-width:100%;border:0}
+html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-view-toggle .kospi-map-download-btn{margin-left:0;padding-left:12px!important;border-left:1px solid var(--line-soft)!important}
+@container neo-map-heading (min-width:1100px){html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-titlebar{grid-template-columns:minmax(0,1fr) auto;gap:16px}html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-view-toggle{max-width:650px;justify-content:flex-end}}
+@container neo-map-heading (max-width:440px){html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-board-links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}html[data-design="neo"] .ng-content .ng-map-heading .kospi-map-board-link{padding-inline:3px;font-size:9.5px;letter-spacing:-.025em}}
+
