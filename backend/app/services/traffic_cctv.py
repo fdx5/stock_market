@@ -641,6 +641,11 @@ def media(token: str):
                 while len(_manifests) > 500:
                     _manifests.popitem(last=False)
             return out, "application/vnd.apple.mpegurl"
+        # Some official servers classify .ts as Qt translation source
+        # (text/vnd.trolltech.linguist). Verify MPEG-TS packet sync bytes before
+        # correcting that MIME; never turn an HTML/error body into video by name.
+        if len(body) >= 188 * 3 and all(body[offset] == 0x47 for offset in (0, 188, 376)):
+            content_type = "video/mp2t"
         if not (content_type.startswith(("video/", "image/", "audio/")) or content_type.split(";")[0] in ("application/octet-stream", "binary/octet-stream")):
             raise ValueError("Unsupported media response")
         return body, content_type

@@ -177,3 +177,16 @@ def test_city_egress_supports_public_municipal_providers_but_pins_dns(monkeypatc
     monkeypatch.setattr(cameras.socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("10.0.0.1", 443))])
     with pytest.raises(ValueError):
         cameras._public_fetch_direct("https://lw.hrfco.go.kr/live/test/hls.m3u8", validator=lambda u: validate_target(u, "city_media"))
+
+
+def test_mislabeled_official_ts_is_served_as_video_but_html_is_rejected(monkeypatch):
+    monkeypatch.setattr(cameras, "_manifests", {})
+    monkeypatch.setattr(cameras, "_failed_media", {})
+    target = "https://cctvsec.ktict.co.kr:8082/live/segment.ts"
+    token = cameras._remember(target, domestic=True)
+    body = (b'\x47' + b'\x00' * 187) * 4
+    monkeypatch.setattr(gateway, "fetch", lambda *a: gateway.GatewayReply(200, body, "text/vnd.trolltech.linguist", target))
+    assert cameras.media(token) == (body, "video/mp2t")
+    monkeypatch.setattr(gateway, "fetch", lambda *a: gateway.GatewayReply(200, b'<html>unavailable</html>', "text/html", target))
+    with pytest.raises(ValueError, match="Unsupported media response"):
+        cameras.media(token)
