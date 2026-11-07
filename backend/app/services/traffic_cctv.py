@@ -26,11 +26,13 @@ from urllib.parse import urljoin, urlsplit
 import requests
 import urllib3
 
+from .cctv_gateway_protocol import GatewayUnavailable, gateway_required
+
 API = "https://openapi.its.go.kr:9443/cctvInfo"
 SOURCE = "국토교통부 국가교통정보센터"
 # Paused by the owner while hosting-network access is unresolved. Keep credentials
 # intact; a future approved city provider must remain independent of this gate.
-HIGHWAY_CCTV_ENABLED = False
+HIGHWAY_CCTV_ENABLED = os.environ.get("HIGHWAY_CCTV_ENABLED", "").strip().lower() in ("1", "true", "yes")
 UTIC_LIST = "https://www.utic.go.kr/guide/cctvOpenData.do"
 UTIC_PAGE = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
 UTIC_MAP = "https://www.utic.go.kr/map/mapcctv.do"
@@ -40,6 +42,7 @@ CITY_CCTV_ENABLED = True
 _cache: OrderedDict = OrderedDict()
 _media: OrderedDict = OrderedDict()
 _by_url: dict = {}
+_relayed_media: set = set()
 _lock = threading.RLock()
 _slots = threading.BoundedSemaphore(10)
 
@@ -74,7 +77,7 @@ def _allowed_port(p) -> bool:
     return port in (80, 443) or 1024 <= port <= 65535
 
 
-def _remember(url: str) -> str:
+def _remember(url: str, domestic: bool = False) -> str:
     p = urlsplit(url)
     if p.scheme not in ("http", "https") or not p.hostname or p.username or p.password:
         raise ValueError("Unsupported media URL")
@@ -83,21 +86,26 @@ def _remember(url: str) -> str:
     with _lock:
         old = _by_url.get(url)
         if old and old in _media:
+            if domestic:
+                _relayed_media.add(old)
             _media[old] = (url, time.monotonic() + 1800)
             _media.move_to_end(old)
             return old
         token = secrets.token_urlsafe(24)
         _media[token] = (url, time.monotonic() + 1800)
+        if domestic:
+            _relayed_media.add(token)
         _by_url[url] = token
         while len(_media) > 12000:
             dropped, (value, _) = _media.popitem(last=False)
+            _relayed_media.discard(dropped)
             if _by_url.get(value) == dropped:
                 _by_url.pop(value, None)
         return token
 
 
-def _path(url: str) -> str:
-    return "/api/realestate/cctv/media/" + _remember(url)
+def _path(url: str, domestic: bool = False) -> str:
+    return "/api/realestate/cctv/media/" + _remember(url, domestic)
 
 
 def _rows(body):
@@ -110,9 +118,17 @@ def _fetch_road(road, lat, lon):
     dx, dy = 2300 / (111320 * math.cos(math.radians(lat))), 2300 / 110540
     # Type 4 is the documented HTTPS HLS service; the proxy also supports HTTP
     # media returned by a provider, without mixed-content requests in the browser.
-    reply = requests.get(API, params={"apiKey": _key(), "type": road, "cctvType": "4",
+    params = {"apiKey": _key(), "type": road, "cctvType": "4",
         "minX": lon - dx, "maxX": lon + dx, "minY": lat - dy, "maxY": lat + dy,
-        "getType": "json"}, timeout=(4, 8))
+        "getType": "json"}
+    if gateway_required():
+        from . import cctv_gateway
+        result = cctv_gateway.fetch(requests.Request("GET", API, params=params).prepare().url, "api")
+        reply = requests.Response()
+        reply.status_code, reply._content = result.status, result.body
+        reply.headers["Content-Type"] = result.content_type
+    else:
+        reply = requests.get(API, params=params, timeout=(4, 8))
     if reply.status_code in (401, 403):
         raise CameraAuthError("Provider authorization rejected")
     reply.raise_for_status()
@@ -139,7 +155,7 @@ def _fetch_road(road, lat, lon):
             url = str(row.get("cctvurl") or "")
             identity = hashlib.sha256(f"{road}|{name}|{x:.6f}|{y:.6f}".encode()).hexdigest()[:24]
             typ = str(row.get("cctvtype") or "4")
-            media = _path(url) if url else None
+            media = _path(url, domestic=gateway_required()) if url else None
             out.append({"id": "its:" + identity, "name": name, "lat": y, "lon": x,
                 "source": SOURCE, "media": media, "format": "image" if typ == "3" else "mp4" if typ in ("2", "5") else "hls",
                 "updatedAt": str(row.get("filecreatetime") or "")[:30]})
@@ -447,12 +463,13 @@ def open_city(token: str) -> dict:
 def status() -> dict:
     """Provider state for production checks: names and counts only, never keys or URLs."""
     name, key = _utic_key()
+    from . import cctv_gateway
     return {"city": {"enabled": CITY_CCTV_ENABLED, "key": name if key else None,
         "env_names": [n for n in os.environ if "UTIC" in n.upper()][:10],
         "cameras": len(_utic["rows"]), "age_s": int(time.monotonic() - _utic["at"]) if _utic["at"] else None,
         "issue": _utic["issue"], "listed": _utic.get("listed"), "fields": _utic["fields"], "sample": _utic.get("sample"),
         "kinds": dict(sorted(_utic["kinds"].items(), key=lambda e: -e[1])[:30]),
-        "resolves": _resolve_log[-15:]}, "highway": {"enabled": HIGHWAY_CCTV_ENABLED, "key": bool(_key())}}
+        "resolves": _resolve_log[-15:]}, "highway": {"enabled": HIGHWAY_CCTV_ENABLED, "key": bool(_key()), "gateway": cctv_gateway.status()}}
 
 
 def cameras(lat: float, lon: float, refresh: bool = False) -> dict:
@@ -494,7 +511,8 @@ def _road_cameras(lat: float, lon: float, refresh: bool = False) -> dict:
                 except Exception as error:
                     # Exceptions can contain the credential-bearing request URL.
                     failed += 1
-                    code = ("connect_timeout" if isinstance(error, requests.exceptions.ConnectTimeout)
+                    code = ("domestic_gateway_unavailable" if isinstance(error, GatewayUnavailable)
+                        else "connect_timeout" if isinstance(error, requests.exceptions.ConnectTimeout)
                         else "read_timeout" if isinstance(error, requests.exceptions.ReadTimeout)
                         else "tls_error" if isinstance(error, requests.exceptions.SSLError)
                         else "connection_failed" if isinstance(error, requests.exceptions.ConnectionError)
@@ -515,9 +533,11 @@ def _road_cameras(lat: float, lon: float, refresh: bool = False) -> dict:
         _slots.release()
 
 
-def _public_fetch(url: str):
+def _public_fetch_direct(url: str, validator=None):
     """Pin the connection to a validated public IP, including after each redirect."""
     for _ in range(4):
+        if validator:
+            validator(url)
         p = urlsplit(url)
         if p.scheme not in ("http", "https") or not p.hostname or p.username or p.password:
             raise ValueError("Invalid media")
@@ -551,9 +571,14 @@ def _public_fetch(url: str):
     raise ValueError("Too many redirects")
 
 
+def _public_fetch(url: str):
+    return _public_fetch_direct(url)
+
+
 def media(token: str):
     with _lock:
         entry = _media.get(token)
+        domestic = token in _relayed_media
     if not entry or entry[1] < time.monotonic():
         raise LookupError("Camera link expired")
     with _lock:
@@ -571,7 +596,14 @@ def media(token: str):
         raise ValueError("Media busy")
     try:
         try:
-            body, content_type, final = _public_fetch(entry[0])
+            if domestic:
+                from . import cctv_gateway
+                reply = cctv_gateway.fetch(entry[0], "media")
+                if reply.status != 200:
+                    raise MediaProviderError(reply.status)
+                body, content_type, final = reply.body, reply.content_type, reply.final_url
+            else:
+                body, content_type, final = _public_fetch(entry[0])
         except MediaProviderError as error:
             with _lock:
                 _failed_media[entry[0]] = (time.monotonic() + 10, error.status)
@@ -584,9 +616,9 @@ def media(token: str):
             lines = []
             for line in body.decode("utf-8-sig").splitlines():
                 if line.startswith("#"):
-                    line = re.sub(r'URI="([^"]+)"', lambda m: 'URI="' + _path(urljoin(final, m[1])) + '"', line)
+                    line = re.sub(r'URI="([^"]+)"', lambda m: 'URI="' + _path(urljoin(final, m[1]), domestic=domestic) + '"', line)
                 elif line.strip():
-                    line = _path(urljoin(final, line.strip()))
+                    line = _path(urljoin(final, line.strip()), domestic=domestic)
                 lines.append(line)
             out = ("\n".join(lines) + "\n").encode()
             with _lock:

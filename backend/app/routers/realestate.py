@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query, WebSocket
 from fastapi.responses import Response
 
 from app.services import realestate_floors
@@ -10,6 +10,12 @@ from app.services import realestate_building_info, realestate_buildings, realest
 from app.services import realestate_units as realestate_units_service
 
 router = APIRouter()
+
+
+@router.websocket("/cctv/gateway")
+async def traffic_camera_gateway(socket: WebSocket):
+    from app.services import cctv_gateway
+    await cctv_gateway.serve(socket)
 
 
 @router.get("/cctv")

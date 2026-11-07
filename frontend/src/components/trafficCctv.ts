@@ -3,8 +3,8 @@ export type TrafficCamera = { id:string; name:string; lat:number; lon:number; so
   /** City (UTIC) cameras: the server resolves the current video only when opened. */
   resolve?:string };
 
-// City CCTV through UTIC (server address range approved 2026-10-19). The ITS highway
-// provider stays paused on the server; its records are still accepted if it returns.
+// City CCTV uses UTIC; highway CCTV can use the server's authenticated domestic
+// gateway. Provider credentials and upstream video URLs remain on the server.
 export const TRAFFIC_CCTV_ENABLED=true;
 export const playable=(c:TrafficCamera)=>!!(c.media||c.resolve);
 
@@ -78,7 +78,7 @@ export async function loadCameras(lat:number,lon:number,key:string,domain:string
   const items=mergeCameras([...(map.status==='fulfilled'?map.value:[]),...feeds.filter(c=>(!!c.media&&c.id.startsWith('its:'))||(!!c.resolve&&c.resolve.startsWith('/api/realestate/cctv/open/')&&c.id.startsWith('utic:')))],{lat,lon});
   const status=data?.status??'unavailable';
   const value={items,status,locationFailed:map.status==='rejected'||video.status==='rejected'||(status==='unavailable'&&!items.length),
-    connectionFailed:Array.isArray(data?.issues)&&data.issues.some((i:{code?:string})=>['connect_timeout','read_timeout','connection_failed','tls_error'].includes(i.code??''))};
+    connectionFailed:Array.isArray(data?.issues)&&data.issues.some((i:{code?:string})=>['connect_timeout','read_timeout','connection_failed','tls_error','domestic_gateway_unavailable'].includes(i.code??''))};
   if(!value.locationFailed&&['ok','needs_key'].includes(value.status)){cache.set(cell,{at:Date.now(),value});while(cache.size>24)cache.delete(cache.keys().next().value!);}
   return value;
 }
