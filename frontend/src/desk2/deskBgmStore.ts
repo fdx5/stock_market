@@ -11,10 +11,10 @@ import { BGM_TRACKS, BgmTrack, bgmSession } from "../bgmPlaylist";
    stop on every click. Here the player lives in a host appended to <body> once,
    and each masthead only reads and drives it.
 
-   Nothing plays until the reader switches it on, and nothing is even fetched:
-   the YouTube API script is loaded on the first ON (or on the pointer arriving
-   at the button, as a head start). One random order is shared with the entrance
-   for the whole tab session, including reloads and repeat laps.
+   First visits attempt autoplay; the reader's saved ON/OFF choice controls
+   subsequent visits. Browser-blocked playback retries on a trusted gesture.
+   The selected opening song leads a session order shared with the entrance,
+   including reloads and repeat laps.
 
    The player is YouTube's own IFrame player, off-screen, as on the entrance
    page. Both controls drive this single iframe.
@@ -22,9 +22,12 @@ import { BGM_TRACKS, BgmTrack, bgmSession } from "../bgmPlaylist";
 
 export type DeskTrack = BgmTrack;
 export const DESK_TRACKS = BGM_TRACKS;
+export const BGM_ENABLED_KEY = "kospimap.bgm.enabled.v1";
+let preferredOn = true;
+try { preferredOn = window.localStorage.getItem(BGM_ENABLED_KEY) !== "off"; } catch { /* In-memory default when storage is unavailable. */ }
 
 export interface DeskBgmState {
-  /** The reader's switch. Off is the default and nothing sounds until it is on. */
+  /** The reader's saved power switch. A first visit starts enabled. */
   on: boolean;
   /** Playing, as asked for — the buttons follow the press, not the network. */
   playing: boolean;
@@ -47,9 +50,9 @@ const YT_PLAYING = 1;
 const YT_PAUSED = 2;
 
 let state: DeskBgmState = {
-  on: false,
+  on: preferredOn,
   playing: false,
-  loading: false,
+  loading: preferredOn,
   track: bgmSession.track,
   position: bgmSession.position,
   total: DESK_TRACKS.length,
@@ -73,7 +76,7 @@ let host: HTMLDivElement | null = null;
 let watchdog: number | undefined;
 // Intent is separate from reported state: a delayed PLAYING event must recover
 // a watchdog timeout, while a deliberate pause/off must never restart music.
-let wantsPlayback = false;
+let wantsPlayback = preferredOn;
 let monitor: number | undefined;
 
 function playerState(): number | null {
@@ -138,6 +141,7 @@ function build() {
     .then((YT) => {
       const params = new URLSearchParams({
         enablejsapi: "1",
+        autoplay: state.on ? "1" : "0",
         controls: "0",
         disablekb: "1",
         playsinline: "1",
@@ -189,6 +193,11 @@ function build() {
               next();
             }
           },
+          onAutoplayBlocked: () => {
+            if (!state.on || !wantsPlayback) return;
+            window.clearTimeout(watchdog);
+            set({ playing: false, loading: false, blocked: true });
+          },
           // Embedding refused, removed, or region-locked: move on rather than
           // sit on a silent track — but not round the list forever.
           onError: () => {
@@ -215,7 +224,11 @@ export function warmDeskBgm() {
   build();
 }
 
-export function setDeskBgmOn(on: boolean) {
+export function setDeskBgmOn(on: boolean, remember = true) {
+  if (remember) {
+    preferredOn = on;
+    try { window.localStorage.setItem(BGM_ENABLED_KEY, on ? "on" : "off"); } catch { /* Keep the preference in memory. */ }
+  }
   if (on === state.on) return;
   wantsPlayback = on;
   if (!on) {
@@ -252,8 +265,9 @@ export function toggleDeskBgmPlay() {
   }
 }
 
-/** Drone and normal controls use the same shuffled playlist, without a forced opening song. */
+/** Drone and normal controls share the opening song and session playlist. */
 export function startDroneBgm() {
+  if (!preferredOn) return;
   if (state.on && state.playing) return;
   if (!state.on) return setDeskBgmOn(true);
   wantsPlayback = true;
@@ -327,6 +341,18 @@ function onVisibility() {
 }
 
 let warmListening = false;
+let unlockListening = false;
+function unlockPlayback(event: Event) {
+  if (!event.isTrusted || !mounted || !state.on || !wantsPlayback || document.hidden) return;
+  if (event.target instanceof Element && event.target.closest(".d2-bgm")) return;
+  if (!player || !ready) { build(); return; }
+  if (playerState() === YT_PLAYING) return;
+  set({ playing: true, loading: true, blocked: false });
+  armWatchdog();
+  if (loadedId !== state.track.id) load();
+  else player.playVideo();
+  reconcilePlayback();
+}
 export function attachDeskBgm(): () => void {
   if (!visibilityListening) {
     visibilityListening = true;
@@ -334,6 +360,13 @@ export function attachDeskBgm(): () => void {
   }
   mounted += 1;
   window.clearTimeout(leaveTimer);
+  if (!unlockListening) {
+    unlockListening = true;
+    window.addEventListener("pointerdown", unlockPlayback, { capture: true, passive: true });
+    window.addEventListener("keydown", unlockPlayback, true);
+  }
+  if (preferredOn && !state.on) setDeskBgmOn(true, false);
+  if (state.on && wantsPlayback) build();
   /* On a touch screen the player must already be built when the reader taps ON,
      because iOS only lets a play made inside that tap through — and building
      takes a script and a frame. So the first touch anywhere on a desk page
@@ -346,7 +379,13 @@ export function attachDeskBgm(): () => void {
     mounted -= 1;
     window.clearTimeout(leaveTimer);
     leaveTimer = window.setTimeout(() => {
-      if (mounted === 0) setDeskBgmOn(false);
+      if (mounted === 0) {
+        // Leaving a workspace is not the user's OFF choice.
+        setDeskBgmOn(false, false);
+        window.removeEventListener("pointerdown", unlockPlayback, true);
+        window.removeEventListener("keydown", unlockPlayback, true);
+        unlockListening = false;
+      }
     }, 800);
   };
 }

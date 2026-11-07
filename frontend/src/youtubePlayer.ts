@@ -25,6 +25,7 @@ interface YtPlayerOptions {
     onReady: (event: { target: YtPlayer }) => void;
     onStateChange: (event: { target: YtPlayer; data: number }) => void;
     onError: () => void;
+    onAutoplayBlocked?: () => void;
   };
 }
 

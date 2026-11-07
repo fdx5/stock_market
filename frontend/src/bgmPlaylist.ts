@@ -11,6 +11,7 @@ export interface BgmTrack {
 }
 
 export const BGM_TRACKS: readonly BgmTrack[] = [
+  { id: "bcmTHIqefMk", title: "DARK SIGNAL · SoundFlow Lab", channel: "SoundFlow Lab", bpm: 100, energy: 0.7, bass: 0.8, bright: 0.55 },
   { id: "-lbbHQbZNKg", title: "Lights · Sappheiros", channel: "Audio Library", bpm: 100, energy: 0.66, bass: 0.72, bright: 0.5 },
   { id: "pF2tXC1pXNo", title: "Chill · sakura Hz", channel: "Audio Library", bpm: 80, energy: 0.48, bass: 0.55, bright: 0.4 },
   { id: "DUWRbl3eVi0", title: "Dawn · Sappheiros", channel: "Sappheiros", bpm: 90, energy: 0.62, bass: 0.7, bright: 0.48 },
@@ -30,7 +31,8 @@ export const BGM_SESSION_KEY = "kospimap.bgm.session.v2";
 const CATALOGUE = BGM_TRACKS.map(track => track.id).join(",");
 type StorageAccess = Pick<Storage, "getItem" | "setItem">;
 
-/** One shuffle for the tab session; wraps reuse that order, including after reloads.
+/** The owner's opening track comes first; shuffle the rest once per tab session.
+ * Wraps and reloads reuse that order and the current position.
  * Storage contains only public video IDs and a cursor, with no account information. */
 export function createBgmSession(storage?: StorageAccess, random: () => number = Math.random) {
   let order = BGM_TRACKS.map(track => track.id);
@@ -39,6 +41,7 @@ export function createBgmSession(storage?: StorageAccess, random: () => number =
   try {
     const saved = JSON.parse(storage?.getItem(BGM_SESSION_KEY) ?? "null");
     if (saved?.catalogue === CATALOGUE && Array.isArray(saved.order) &&
+        saved.order[0] === BGM_TRACKS[0].id &&
         saved.order.length === order.length && new Set(saved.order).size === order.length &&
         saved.order.every((id: unknown) => typeof id === "string" && order.includes(id)) &&
         Number.isInteger(saved.cursor) && saved.cursor >= 0 && saved.cursor < order.length) {
@@ -48,8 +51,8 @@ export function createBgmSession(storage?: StorageAccess, random: () => number =
     }
   } catch { /* Blocked storage or malformed state: keep an in-memory session. */ }
   if (!restored) {
-    for (let i = order.length - 1; i > 0; i--) {
-      const j = Math.floor(random() * (i + 1));
+    for (let i = order.length - 1; i > 1; i--) {
+      const j = 1 + Math.floor(random() * i);
       [order[i], order[j]] = [order[j], order[i]];
     }
   }
