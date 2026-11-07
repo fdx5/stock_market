@@ -1,0 +1,42 @@
+.ng-headlines{margin:24px 0 0;--headline-accent:var(--accent-neon)}
+.ng-headlines-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:10px}
+.ng-headlines-heading>div:first-child{display:flex;align-items:center;gap:13px;min-width:0}
+.ng-headlines-live{display:inline-flex;align-items:center;gap:6px;color:var(--accent-neon);font:8px/1.4 var(--f-type);letter-spacing:.1em;white-space:nowrap}
+.ng-headlines-live i{width:5px;height:5px;border-radius:50%;background:var(--accent-neon);box-shadow:0 0 10px color-mix(in srgb,var(--accent-neon) 55%,transparent)}
+.ng-headlines-heading h2{margin:0;font:650 16px/1.4 var(--f-sans);letter-spacing:-.04em;color:var(--text-primary)}
+.ng-headlines-controls{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.ng-headlines-controls>span{font:9px/1.5 var(--f-sans);color:var(--text-muted);margin-right:7px}
+.ng-headlines-controls button{display:grid;place-items:center;width:32px;min-height:32px;padding:0;border:1px solid var(--line-soft);border-radius:var(--radius-md);background:var(--bg-panel);color:var(--text-secondary);cursor:pointer}
+.ng-headlines-controls button:hover,.ng-headlines-controls button[aria-pressed=true]{color:var(--accent-neon);border-color:var(--line-active);background:color-mix(in srgb,var(--accent-neon) 8%,var(--bg-panel))}
+.ng-headlines-controls button:disabled{opacity:.35;cursor:default}.ng-headlines-controls svg{width:17px;height:17px}.ng-headlines-controls svg path{fill:none;stroke:currentColor;stroke-width:1.5}.ng-headlines-controls button[aria-pressed=true] svg path{fill:currentColor}
+.ng-headlines :is(a,button):focus-visible{outline:2px solid var(--accent-neon);outline-offset:3px}
+.ng-headlines-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.ng-headline-card{position:relative;min-width:0;overflow:hidden;border:1px solid var(--line-soft);border-radius:var(--radius-md);background:linear-gradient(125deg,color-mix(in srgb,var(--headline-accent) 7%,transparent),transparent 62%),var(--bg-panel);isolation:isolate;--headline-accent:var(--accent-neon)}
+.ng-headline-card[data-board=global]{--headline-accent:var(--series-aqua,var(--accent-neon))}.ng-headline-card[data-board=property]{--headline-accent:var(--mustard,var(--accent-neon))}
+.ng-headline-card:before{content:"";position:absolute;inset:0 auto 0 0;width:2px;background:var(--headline-accent);opacity:.65}
+.ng-headline-board{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 13px 0}
+.ng-headline-board>a{display:flex;align-items:center;gap:6px;text-decoration:none;color:var(--headline-accent);min-width:0;min-height:24px;font-size:11px}
+.ng-headline-board .ng-icon{width:13px;height:13px}.ng-headline-board b{font-weight:650}.ng-headline-board>a>span{font:9px var(--f-sans);color:var(--text-muted)}
+.ng-headline-count{display:flex;align-items:center;gap:5px;font:8px var(--f-num);color:var(--text-muted);font-variant-numeric:tabular-nums}.ng-headline-count b{color:var(--headline-accent);font:600 10px var(--f-num)}.ng-headline-count i{font-style:normal;opacity:.4}
+.ng-headline-story{position:relative;display:flex;align-items:center;gap:9px;min-width:0;padding:0 13px 6px;text-decoration:none;color:var(--text-primary);perspective:650px}
+.ng-headline-window{position:relative;display:block;flex:1;min-width:0;height:67px;overflow:hidden;contain:paint}
+.ng-headline-slide{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;gap:5px;transform-origin:50% 100%;backface-visibility:hidden}
+.ng-headline-slide strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font:550 13px/1.55 var(--f-sans);letter-spacing:-.025em;overflow-wrap:anywhere;word-break:keep-all}
+.ng-headline-slide small{font:8px/1.4 var(--f-sans);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ng-headline-open{display:grid;place-items:center;flex:0 0 23px;height:27px;color:var(--headline-accent);font-size:18px;background:color-mix(in srgb,var(--headline-accent) 6%,transparent);border-radius:var(--radius-md)}
+.ng-headline-slide.is-incoming{animation:ng-headline-rise .56s cubic-bezier(.16,1,.3,1) both}
+.ng-headline-slide.is-outgoing{animation:ng-headline-lift .43s cubic-bezier(.4,0,.2,1) both;pointer-events:none;transform-origin:50% 0}
+.ng-headline-track{height:2px;overflow:hidden;background:color-mix(in srgb,var(--headline-accent) 8%,transparent)}
+.ng-headline-track i{display:block;width:100%;height:100%;background:linear-gradient(90deg,transparent,var(--headline-accent));transform-origin:left;animation:ng-headline-scan 1s linear both;opacity:.65}
+.ng-headline-card:has(.ng-headline-story:hover){border-color:color-mix(in srgb,var(--headline-accent) 60%,var(--line-soft));background-color:var(--bg-elevated)}
+.ng-headline-story:hover strong{color:var(--headline-accent)}
+.ng-headlines[data-reading=true] .ng-headline-slide.is-incoming{animation:none}.ng-headlines[data-reading=true] .ng-headline-slide.is-outgoing{display:none}
+.ng-headline-empty{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:73px;padding:0 13px;color:var(--text-muted);font-size:11px}.ng-headline-empty button{background:none;border:0;color:var(--headline-accent);min-height:44px;cursor:pointer;white-space:nowrap;font-size:10px}
+.ng-headline-delayed{position:absolute;right:12px;bottom:3px;font:7px var(--f-sans);color:var(--warning)}
+@keyframes ng-headline-rise{0%{opacity:0;transform:translate3d(0,110%,0) rotateX(-24deg);filter:blur(4px)}45%{opacity:1;filter:blur(0)}78%{transform:translate3d(0,-2%,0) rotateX(0)}100%{opacity:1;transform:translate3d(0,0,0) rotateX(0);filter:blur(0)}}
+@keyframes ng-headline-lift{0%{opacity:1;transform:translate3d(0,0,0) rotateX(0)}100%{opacity:0;transform:translate3d(0,-105%,0) rotateX(20deg);filter:blur(3px)}}
+@keyframes ng-headline-scan{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media(max-width:850px){.ng-headlines-grid{grid-template-columns:1fr;gap:7px}.ng-headline-card{display:grid;grid-template-columns:125px minmax(0,1fr)}.ng-headline-board{padding:0 12px;gap:4px}.ng-headline-board>a{min-height:44px}.ng-headline-board>a>span{display:none}.ng-headline-window{height:65px}.ng-headline-story{padding:0 12px 0 0}.ng-headline-track{grid-column:1/-1}.ng-headline-empty{min-height:65px;padding-left:0}}
+@media(max-width:599px){.ng-headlines{margin-top:18px}.ng-headlines-heading{gap:6px;margin-bottom:8px}.ng-headlines-heading>div:first-child{display:block}.ng-headlines-live{font-size:7px;letter-spacing:.07em}.ng-headlines-heading h2{font-size:15px;margin-top:4px}.ng-headlines-controls>span{display:none}.ng-headlines-controls button{width:44px;min-height:44px}.ng-headline-card{grid-template-columns:89px minmax(0,1fr)}.ng-headline-board{flex-direction:column;justify-content:center;align-items:flex-start;padding:0 9px;gap:0}.ng-headline-board>a{font-size:11px;min-height:44px;gap:4px}.ng-headline-count{padding-left:17px;font-size:8px;gap:4px;margin-top:-7px;padding-bottom:8px}.ng-headline-count b{font-size:9px}.ng-headline-window{height:74px}.ng-headline-slide strong{font-size:12px;line-height:1.55}.ng-headline-slide small{font-size:8px}.ng-headline-story{padding-right:9px;gap:4px}.ng-headline-open{flex-basis:18px;font-size:16px}.ng-headline-empty{font-size:10px;min-height:74px;padding-right:9px}.ng-headline-delayed{font-size:6px}}
+@media(prefers-reduced-motion:reduce){.ng-headline-slide.is-incoming,.ng-headline-slide.is-outgoing,.ng-headline-track i{animation:none}.ng-headline-slide.is-outgoing{display:none}.ng-headline-track i{transform:scaleX(1)}}
+html[data-fx=minimal] .ng-headline-slide{animation:none}html[data-fx=minimal] .ng-headline-slide.is-outgoing{display:none}
