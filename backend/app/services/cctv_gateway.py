@@ -12,6 +12,9 @@ import os
 import secrets
 import threading
 import time
+from urllib.parse import urlsplit
+
+import requests
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import WebSocket
@@ -56,6 +59,49 @@ class _Connection:
 _connection = None
 _guard = threading.Lock()
 _handshakes = threading.BoundedSemaphore(2)
+_http_last_ok = 0.0
+_http_first_ok = 0.0
+
+
+def _http_url():
+    return os.environ.get("CCTV_HTTP_GATEWAY_URL", "").strip().rstrip("/")
+
+
+def _http_fetch(url, kind):
+    global _http_last_ok, _http_first_ok
+    base = _http_url()
+    parsed = urlsplit(base)
+    secret = os.environ.get("CCTV_HTTP_GATEWAY_SECRET", "")
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+            or parsed.path or parsed.query or parsed.fragment or len(secret) < 32):
+        raise GatewayUnavailable("Domestic CCTV HTTP gateway is not configured")
+    job = secrets.token_hex(16)
+    try:
+        with requests.post(base + "/api/cctv/fetch", json={"id": job, "url": url, "kind": kind},
+                headers={"Authorization": "Bearer " + secret}, timeout=(4, 30),
+                allow_redirects=False, stream=True) as reply:
+            if reply.status_code != 200:
+                raise ValueError("Domestic CCTV HTTP gateway rejected the request")
+            packet = bytearray()
+            for chunk in reply.iter_content(65536):
+                packet.extend(chunk)
+                if len(packet) > 4 * 1024 * 1024 + 8196:
+                    raise ValueError("Domestic CCTV HTTP reply is too large")
+        header, body = unpack_reply(bytes(packet))
+        if header["id"] != job:
+            raise ValueError("Domestic CCTV HTTP reply identity mismatch")
+        if header["status"] == 200:
+            validate_target(header["final_url"], kind)
+        with _guard:
+            _http_last_ok = time.monotonic()
+            if not _http_first_ok:
+                _http_first_ok = _http_last_ok
+        return GatewayReply(header["status"], body, header["content_type"], header["final_url"])
+    except Exception:
+        # Exceptions may carry credential-bearing provider URLs. No overseas fallback.
+        with _guard:
+            _http_last_ok = 0.0
+        raise GatewayUnavailable("Domestic CCTV HTTP gateway did not complete the request") from None
 
 
 def required():
@@ -63,6 +109,13 @@ def required():
 
 
 def status():
+    if _http_url():
+        with _guard:
+            connected = bool(_http_last_ok and time.monotonic() - _http_last_ok < 300)
+            first_ok = _http_first_ok
+        return {"required": required(), "transport": "https", "configured":
+                len(os.environ.get("CCTV_HTTP_GATEWAY_SECRET", "")) >= 32,
+                "connected": connected, "connected_s": int(time.monotonic() - first_ok) if connected else None}
     with _guard:
         conn = _connection
     return {"required": required(), "configured": bool(os.environ.get("CCTV_GATEWAY_PUBLIC_KEY", "").strip()),
@@ -72,6 +125,8 @@ def status():
 
 def fetch(url, kind):
     validate_target(url, kind)
+    if _http_url():
+        return _http_fetch(url, kind)
     with _guard:
         conn = _connection
     if conn is None or time.monotonic() - conn.last_seen >= 60:

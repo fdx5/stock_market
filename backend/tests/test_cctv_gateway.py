@@ -2,6 +2,7 @@
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import struct
+import time
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -55,6 +56,10 @@ def test_signed_agent_completes_only_server_created_jobs_and_disconnects(client,
             assert result.result(timeout=3).body == b'{"response":{}}'
         ws.send_json({"type": "heartbeat"})
         assert ws.receive_json() == {"type": "heartbeat"}
+    # Client context exit and server disconnect processing run on different threads.
+    deadline = time.monotonic() + 1
+    while gateway.status()["connected"] and time.monotonic() < deadline:
+        time.sleep(.005)
     assert not gateway.status()["connected"]
 
 
