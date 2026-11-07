@@ -8,6 +8,16 @@ export type TrafficCamera = { id:string; name:string; lat:number; lon:number; so
 export const TRAFFIC_CCTV_ENABLED=true;
 export const playable=(c:TrafficCamera)=>!!(c.media||c.resolve);
 
+/** Renew the provider reference when opening/rejoining a highway camera. */
+export async function refreshHighwayCamera(camera:TrafficCamera,signal:AbortSignal) {
+  const response=await fetch(`/api/realestate/cctv?lat=${camera.lat.toFixed(6)}&lon=${camera.lon.toFixed(6)}&fresh=true`,{signal,cache:'no-store'});
+  if(!response.ok)throw new Error('CCTV 연결 실패');
+  const data=await response.json();
+  const next:TrafficCamera|undefined=Array.isArray(data?.items)?data.items.find((item:TrafficCamera)=>item.id===camera.id):undefined;
+  if(!next||typeof next.media!=='string'||!next.media.startsWith('/api/realestate/cctv/media/'))throw new Error('CCTV 영상 연결이 없습니다.');
+  return {media:next.media,format:next.format??'hls'};
+}
+
 export function cameraPoint(camera:TrafficCamera,origin:{lat:number;lon:number}) {
   return {x:(camera.lon-origin.lon)*111320*Math.cos(origin.lat*Math.PI/180),y:(camera.lat-origin.lat)*110540};
 }
@@ -21,8 +31,10 @@ export function cameraFromFeature(f:any):TrafficCamera|null {
 }
 export function mergeCameras(items:TrafficCamera[],origin:{lat:number;lon:number}) {
   const out:TrafficCamera[]=[];
-  // Video-bearing provider records win only when the name and position match.
-  for(const c of [...items].sort((a,b)=>Number(playable(b))-Number(playable(a)))) {
+  // Duplicate highway entries also appear in UTIC. Prefer ITS's domestic route
+  // for that same camera, then other playable sources, then location-only rows.
+  const priority=(c:TrafficCamera)=>playable(c)?c.id.startsWith('its:')&&!!c.media?2:1:0;
+  for(const c of [...items].sort((a,b)=>priority(b)-priority(a))) {
     if(out.some(p=>p.id===c.id||(p.name.replace(/\s/g,'')===c.name.replace(/\s/g,'')&&Math.hypot(...Object.values(cameraPoint(c,p)))<60)))continue;
     out.push(c);
   }

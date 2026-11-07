@@ -6,7 +6,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dir=await mkdtemp(path.join(tmpdir(),'traffic-cctv-')),out=path.join(dir,'cctv.mjs');
 await build({entryPoints:['src/components/trafficCctv.ts'],outfile:out,bundle:true,format:'esm',platform:'node'});
-const {cameraFromFeature,cameraPoint,mergeCameras,loadCameras}=await import(pathToFileURL(out));
+const {cameraFromFeature,cameraPoint,mergeCameras,loadCameras,refreshHighwayCamera}=await import(pathToFileURL(out));
 const feature={id:'test1',geometry:{type:'Point',coordinates:[127,37.5]},properties:{cctvname:'Test Bridge',locate:'Seoul'}};
 const c=cameraFromFeature(feature);assert.equal(c.name,'Test Bridge');assert.equal(c.address,'Seoul');
 assert.equal(cameraFromFeature({...feature,geometry:{type:'Point',coordinates:[37.5,127]}}),null);
@@ -15,6 +15,10 @@ assert.equal(cameraFromFeature({...feature,geometry:{type:'Polygon',coordinates:
 assert.deepEqual(cameraPoint(c,c),{x:0,y:0});
 const video={...c,id:'its:bridge',media:'/api/realestate/cctv/media/fixture'};
 assert.equal(mergeCameras([c,video],c).length,1);assert.equal(mergeCameras([c,video],c)[0].id,video.id);
+const cityDuplicate={...video,id:'utic:duplicate',media:undefined,resolve:'/api/realestate/cctv/open/city',name:'TestBridge'};
+for(const rows of [[cityDuplicate,video],[video,cityDuplicate]]){
+  assert.deepEqual(mergeCameras(rows,c).map(row=>row.id),[video.id],'ITS domestic playback wins over the duplicate UTIC highway route in either input order');
+}
 const next={...c,id:'other',lon:127.002};assert.equal(mergeCameras([c,next],c).length,2,'same camera name at different positions stays separate');
 const opposite={...c,id:'opposite',name:'Other direction',lon:127.00001};assert.equal(mergeCameras([video,opposite],c).length,2,'opposite camera names stay separate');
 assert.equal(mergeCameras(Array.from({length:800},(_,i)=>({...c,id:`c${i}`,name:`camera ${i}`})),c).length,500);
@@ -38,6 +42,13 @@ try{
   const failed=await loadCameras(37.5,127,'fixture','fixture',new AbortController().signal,true);
   assert.equal(failed.locationFailed,true,'an unavailable feed must not be presented as no nearby cameras');
   assert.equal(failed.connectionFailed,true);
+  globalThis.fetch=async url=>{calls.push(url);return {ok:true,json:async()=>({items:[{...video,media:'/api/realestate/cctv/media/renewed-reference'}]})};};
+  assert.equal((await refreshHighwayCamera(video,new AbortController().signal)).media,'/api/realestate/cctv/media/renewed-reference','opening a highway camera uses its renewed reference');
+  assert.ok(calls.at(-1).includes('fresh=true'));
+  globalThis.fetch=async()=>({ok:true,json:async()=>({items:[{...video,id:'its:different-camera'}]})});
+  await assert.rejects(refreshHighwayCamera(video,new AbortController().signal),'a different nearby camera must never replace the selected camera');
+  globalThis.fetch=async()=>({ok:true,json:async()=>({items:[{...video,media:'https://example.org/private-stream'}]})});
+  await assert.rejects(refreshHighwayCamera(video,new AbortController().signal),'renewed media stays on the opaque server route');
   globalThis.fetch=async()=>({ok:true,json:async()=>({items:[],status:'ok'})});
   assert.equal((await loadCameras(37.5,127,'fixture','fixture',new AbortController().signal,true)).locationFailed,false,'a valid empty area stays distinct from provider failure');
 }finally{globalThis.fetch=previousFetch;globalThis.window=previousWindow;globalThis.document=previousDocument;}

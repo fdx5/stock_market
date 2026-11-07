@@ -49,7 +49,7 @@ export default function TrafficCctvControls({cctv,signs,vkey,domain,where,onPick
         {!busy&&!result?.items.length&&<p>{result?.locationFailed?'CCTV 위치를 불러오지 못했습니다.':'주변에 제공되는 교통 CCTV가 없습니다.'}</p>}
         {['partial','unavailable'].includes(result?.status??'')&&<p>일부 CCTV 영상 정보를 불러오지 못했습니다.</p>}
         <button type="button" onClick={()=>setRetry(r=>r+1)}>CCTV 새로고침</button>
-        <small>경찰청 도시교통정보센터(UTIC) 교통 CCTV</small>
+        <small>국가교통정보센터(ITS) · 도시교통정보센터(UTIC)</small>
       </div>
     </details>}
   </div>;
