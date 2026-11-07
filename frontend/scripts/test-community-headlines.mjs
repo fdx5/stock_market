@@ -20,4 +20,8 @@ assert.equal(internal.pathname,'/community/kr');
 assert.equal(internal.searchParams.get('post_id'),'pp-stock-42');
 assert.equal(internal.searchParams.get('snapshot'),'a'.repeat(32));
 assert.ok(!communityPostUrl('property','82-42','bad').includes('snapshot'));
+const now=Date.UTC(2026,10,7,13);
+const fresh=rows.slice(0,12).map((p,i)=>({...p,source:'Busy source',published_at:new Date(now-(i+1)*60_000).toISOString()}));
+const old=rows.slice(12).map((p,i)=>({...p,source:'Quiet '+i,published_at:new Date(now-7_200_000-i*60_000).toISOString()}));
+assert.ok(latestHeadlines([...fresh,...old],now).every(p=>Date.parse(p.published_at)>now-3_600_000),'old sources must not displace available fresh posts');
 console.log('Community headline mix, ordering, internal article URLs and snapshot validation passed');

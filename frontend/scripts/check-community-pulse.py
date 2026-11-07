@@ -23,7 +23,7 @@ def route(request, broken=None):
         if url.path.startswith("/api/community/"):
             board = url.path.split("/")[-1]
             if board == broken: return request.fulfill(status=503, json={})
-            return request.fulfill(json={"items": posts(board), "refreshing": False})
+            return request.fulfill(json={"items": posts(board), "recent_hour_count": 12, "refreshing": False})
         if url.path in ["/api/market/map", "/api/market/kosdaq-map", "/api/market/nasdaq100-map"]:
             change = -1 if "kosdaq" in url.path else 1 if "nasdaq" in url.path else 0
             return request.fulfill(json={"items": [{"code": str(i), "name": f"Stock {i}", "marcap": 100, "close": 100, "change_pct": change, "quote_time": 1794010000} for i in range(60)], "generated_at": "2026-11-07T03:00:00Z"})
@@ -48,6 +48,7 @@ with sync_playwright() as p:
     page.clock.pause_at(instant + timedelta(seconds=1))
     page.goto(BASE + "/tests/fixtures/community-pulse.html", wait_until="domcontentloaded")
     expect(page.locator(".ng-headline-story")).to_have_count(3)
+    expect(page.locator('.ng-headline-freshness').first).to_have_text('최근 1시간 12건')
     expect(page.locator(".ng-headlines")).to_have_attribute("data-running", "true")
     expect(page.locator(".ng-fg-score").first).to_contain_text("50")
     counters = page.locator(".ng-headline-count b")

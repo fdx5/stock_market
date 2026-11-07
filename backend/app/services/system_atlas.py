@@ -45,7 +45,7 @@ def host_group(host: str) -> str:
     if any(s in host for s in ("buymeacoffee", "paypal", "stripe", "kakaopay")): return "ext-pay"
     if any(s in host for s in ("kakao", "resend", "blog.naver")): return "ext-delivery"
     if any(s in host for s in ("data.go.kr", "vworld", "openstreetmap", "overpass", "arcgisonline", "open-meteo", "onemap", "sgis", "k-apt", "kapt", "map.naver", "land.naver", "hogangnono", "maps.googleapis")): return "ext-spatial"
-    if any(s in host for s in ("news", "bing", "translate", "ip-api", "toss", "search.naver", "paxnet.co.kr", "82cook.com", "ppomppu.co.kr", "damoang.net", "clien.net", "dcinside.com", "dcinside.co.kr")): return "ext-content"
+    if any(s in host for s in ("news", "bing", "translate", "ip-api", "toss", "search.naver", "paxnet.co.kr", "82cook.com", "ppomppu.co.kr", "damoang.net", "clien.net", "theqoo.net", "dogdrip.net", "bobaedream.co.kr", "ruliweb.com", "dcinside.com", "dcinside.co.kr")): return "ext-content"
     if any(s in host for s in ("finance.naver", "stock.naver", "yahoo", "krx", "seibro", "companiesmarketcap", "slickcharts", "trendforce", "feargreedchart", "financialmodelingprep", "wisereport", "stooq", "nasdaq")): return "ext-market"
     return "ext-resources"
 

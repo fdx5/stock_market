@@ -6,8 +6,8 @@ import NeoIcon from "./NeoIcon";
 import { COMMUNITY_BOARDS, communityPostUrl, latestHeadlines, type CommunityBoard, type CommunityHeadline } from "./headlineFeedModel";
 import "./communityHeadlines.css";
 
-type BoardFeed = { items: CommunityHeadline[]; snapshot: string; settled: boolean; delayed: boolean };
-const empty = (): BoardFeed => ({ items: [], snapshot: "", settled: false, delayed: false });
+type BoardFeed = { items: CommunityHeadline[]; snapshot: string; settled: boolean; delayed: boolean; recent: number };
+const empty = (): BoardFeed => ({ items: [], snapshot: "", settled: false, delayed: false, recent: 0 });
 
 function useHeadlines() {
   const [feeds, setFeeds] = useState<Record<CommunityBoard, BoardFeed>>({ kr: empty(), global: empty(), property: empty() });
@@ -29,9 +29,9 @@ function useHeadlines() {
         if (!Array.isArray(data.items)) throw new Error("Invalid headline feed");
         const items = latestHeadlines(data.items);
         if (disposed) return;
-        setFeeds(previous => ({ ...previous, [board]: { items: items.length || !data.refreshing ? items : previous[board].items, snapshot: items.length || !data.refreshing ? data.snapshot : previous[board].snapshot, settled: true, delayed: false } }));
+        setFeeds(previous => ({ ...previous, [board]: { items: items.length || !data.refreshing ? items : previous[board].items, snapshot: items.length || !data.refreshing ? data.snapshot : previous[board].snapshot, settled: true, delayed: false, recent: Number.isFinite(data.recent_hour_count) ? data.recent_hour_count : 0 } }));
         // A restarting server can return an empty snapshot while collecting posts.
-        if (data.refreshing && items.length < 10) retries.set(board, window.setTimeout(() => void load(board), 5_000));
+        if (data.refreshing) retries.set(board, window.setTimeout(() => void load(board), 5_000));
       } catch {
         if (!disposed) setFeeds(previous => ({ ...previous, [board]: { ...previous[board], settled: true, delayed: true } }));
       } finally {
@@ -111,6 +111,7 @@ export default function CommunityHeadlines() {
       return <article className="ng-headline-card" key={board.id} data-board={board.id} style={{ "--headline-order": index } as CSSProperties}>
         <div className="ng-headline-board"><Link to={`/community/${board.id}`} aria-label={`${L(board.ko, board.en)} ${L("커뮤니티 전체 보기", "community")} `}><NeoIcon name={board.icon} /><b>{L(board.ko, board.en)}</b><span>{L("커뮤니티", "COMMUNITY")}</span></Link><span className="ng-headline-count" aria-label={L(`${count ? step % count + 1 : 0}번째, 총 ${count}개`, `${count ? step % count + 1 : 0} of ${count}`)}><b>{String(count ? step % count + 1 : 0).padStart(2, "0")}</b><i>/</i>{String(count).padStart(2, "0")}</span></div>
         {count ? <HeadlineReel items={feed.items} step={step} lang={lang} board={board.id} snapshot={feed.snapshot} /> : <div className="ng-headline-empty"><span>{feed.delayed ? L("최신글을 불러오지 못했습니다", "Headlines unavailable") : feed.settled ? L("새 이야기를 확인하고 있습니다", "Checking for new stories") : L("최신 이야기를 모으는 중", "Gathering the latest stories")}</span>{feed.delayed && <button type="button" onClick={() => reload(board.id)}>{L("다시 시도", "Retry")} ↻</button>}</div>}
+        {feed.settled && <span className="ng-headline-freshness">{L(`최근 1시간 ${feed.recent}건`, `${feed.recent} in the past hour`)}</span>}
         {feed.delayed && count > 0 && <span className="ng-headline-delayed">{L("갱신 지연 · 최근 목록", "Delayed · last available")}</span>}
         <div className="ng-headline-track" aria-hidden="true"><i key={`${step}-${running}`} style={{ animationPlayState: running && count > 1 ? "running" : "paused" }} /></div>
       </article>;

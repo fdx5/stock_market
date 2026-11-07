@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.services.community_feed import listing, preview, comments, entry
 
 router = APIRouter()
-POST_ID = r"^(?:(?:pax|82)-[0-9]{1,20}|dc-(?:kospi|stockus|immovables)-[0-9]{1,20}|pp-(?:stock|house)-[0-9]{1,20}|cl-cm_stock-[0-9]{1,20}|da-stock-[0-9]{1,20})$"
+POST_ID = r"^(?:(?:pax|82)-[0-9]{1,20}|dc-(?:kospi|stockus|immovables)-[0-9]{1,20}|pp-(?:stock|house)-[0-9]{1,20}|cl-cm_stock-[0-9]{1,20}|da-(?:stock|free)-[0-9]{1,20}|tq-(?:stock|square|review)-[0-9]{1,20}|dog-stock-[0-9]{1,20}|bb-(?:strange|freeb)-[0-9]{1,20}|rw-300143-[0-9]{1,20}|toss-(?:NVDA|TSLA|IREN|PLTR|RKLB|SOFI|TQQQ|SOXL)-[0-9]{1,20})$"
 
 
 @router.get('/{board}/entry')

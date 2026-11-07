@@ -13,7 +13,7 @@ export function communityPostUrl(board: CommunityBoard, postId: string, snapshot
 }
 
 /** Only link to valid public originals; newest first, at most ten distinct posts. */
-export function latestHeadlines(items: unknown): CommunityHeadline[] {
+export function latestHeadlines(items: unknown, now = Date.now()): CommunityHeadline[] {
   if (!Array.isArray(items)) return [];
   const seen = new Set<string>();
   const newest = items.filter((post): post is CommunityHeadline => {
@@ -25,18 +25,23 @@ export function latestHeadlines(items: unknown): CommunityHeadline[] {
     seen.add(post.id);
     return true;
   });
-  // Mix available communities without leaving empty slots on a quiet weekend.
-  const counts = new Map<string, number>(), chosen: CommunityHeadline[] = [];
-  for (const post of newest) {
-    const origin = post.source.split(' · ')[0];
-    if ((counts.get(origin) ?? 0) >= 4) continue;
-    counts.set(origin, (counts.get(origin) ?? 0) + 1);
-    chosen.push(post);
-    if (chosen.length === 10) break;
-  }
-  for (const post of newest) {
-    if (chosen.length === 10) break;
-    if (!chosen.some(item => item.id === post.id)) chosen.push(post);
+  // Exhaust the newest hour before using older posts to mix communities.
+  // A quiet source must never displace an available fresh article.
+  const fresh = newest.filter(post => Date.parse(post.published_at) >= now - 3_600_000);
+  const chosen: CommunityHeadline[] = [];
+  for (const pool of [fresh, newest.filter(post => !fresh.includes(post))]) {
+    const counts = new Map<string, number>();
+    for (const post of pool) {
+      if (chosen.length === 10) break;
+      const origin = post.source.split(' · ')[0];
+      if ((counts.get(origin) ?? 0) >= 4) continue;
+      counts.set(origin, (counts.get(origin) ?? 0) + 1);
+      chosen.push(post);
+    }
+    for (const post of pool) {
+      if (chosen.length === 10) break;
+      if (!chosen.some(item => item.id === post.id)) chosen.push(post);
+    }
   }
   return chosen.sort((a,b)=>(Date.parse(b.published_at)||0)-(Date.parse(a.published_at)||0));
 }

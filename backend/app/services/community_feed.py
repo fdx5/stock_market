@@ -28,6 +28,30 @@ SOURCES = {
     "global": [("pp-stock", "뽐뿌 · 증권포럼", "pp", "stock"), ("da-stock", "다모앙 · 주식한당", "da", "stock"), ("cl-stock", "클리앙 · 주식한당", "cl", "cm_stock")],
     "property": [("pp-house", "뽐뿌 · 부동산포럼", "pp", "house"), ("82-property", "82쿡 · 부동산 이야기", "82", "부동산"), ("82-apartment", "82쿡 · 아파트 이야기", "82", "아파트")],
 }
+# Additional independent public communities. All queries/boards are code-owned.
+for _board in ('kr', 'global'):
+    SOURCES[_board] += [
+        ('tq-stock', '더쿠 · 주식방', 'tq', 'stock'),
+        ('dog-stock', '개드립 · 주식·재테크', 'dog', 'stock'),
+        ('pax-market', '팍스넷 · 거래소시황', 'pax', 'N00801'),
+        ('bb-strange', '보배드림 · 경제 이야기', 'bb', 'strange'),
+        ('da-free', '다모앙 · 경제 이야기', 'da', 'free'),
+        ('82-stock', '82쿡 · 주식 이야기', '82', '주식'),
+    ]
+SOURCES['property'] += [
+    ('tq-property', '더쿠 · 부동산 이야기', 'tq', 'square'),
+    ('tq-housing', '더쿠 · 주거 이야기', 'tq', 'review'),
+    ('dog-property', '개드립 · 주거·재테크', 'dog', 'stock'),
+    ('bb-property', '보배드림 · 부동산 이야기', 'bb', 'strange'),
+    ('bb-housing', '보배드림 · 주거 이야기', 'bb', 'freeb'),
+    ('da-property', '다모앙 · 부동산 이야기', 'da', 'free'),
+    ('82-lease', '82쿡 · 전월세 이야기', '82', '전세'),
+    ('82-housing', '82쿡 · 주택 이야기', '82', '집값'),
+]
+SOURCES['global'].append(('toss-stocks','토스증권 · 해외 종목 토론','toss','global'))
+for _board in SOURCES:
+    SOURCES[_board].append(('rw-finance','루리웹 · 경제·주거 이야기','rw','300143'))
+TOSS_SYMBOLS = ('NVDA','TSLA','IREN','PLTR','RKLB','SOFI','TQQQ','SOXL')
 DC_GALLERIES = {"kospi": "mgallery/board", "stockus": "mgallery/board", "immovables": "board"}
 _locks = {key: Lock() for key in SOURCES}
 _guard = Lock()
@@ -140,7 +164,14 @@ def _get(url, form=None, referer=None):
         cached = _robots.get(host)
     if not cached or time.monotonic() - cached[0] > 3600:
         parser = RobotFileParser()
-        parser.parse(_request(f"https://{host}/robots.txt").decode("utf-8", "replace").splitlines())
+        try:
+            rules = _request(f"https://{host}/robots.txt").decode("utf-8", "replace")
+        except requests.HTTPError as error:
+            # A missing robots file is not a denial. Explicit denials and server
+            # failures still fail closed; do not bypass an upstream restriction.
+            if error.response is None or error.response.status_code not in (404, 410): raise
+            rules = ''
+        parser.parse(rules.splitlines())
         cached = (time.monotonic(), parser)
         with _guard:
             _robots[host] = cached
@@ -213,8 +244,8 @@ def parse_pax(data, source, board):
     return items
 
 
-_GLOBAL_TITLE = re.compile(r"미국|미장|해외|나스닥|다우|뉴욕|월가|연준|미주|테슬라|엔비디아|엔비디|애플|마이크로소프트|아마존|구글|알파벳|팔란티어|TSMC|Nvidia|NASDAQ|S&P|\b(?:QQQ|TQQQ|SOXL|SCHD|JEPI|JEPQ|SPY|VOO|VTI|TSLA|NVDA|AMD|MSFT|AAPL|PLTR|GOOG|META)\b", re.I)
-_FINANCE_TITLE = re.compile(r"주식|주가|증시|시황|시총|시가총액|코스피|코스닥|국장|삼성|하이닉스|금리|환율|매수|매도|물타기|투자|수익|손실|배당|실적|거래|상장|급락|급등|반등|공매도|ETF|ETN|증권|채권|경제|계좌|주린이|연금|반도체|포트폴리오", re.I)
+_GLOBAL_TITLE = re.compile(r"미국|미장|해외|나스닥|다우|뉴욕|월가|연준|미주|테슬라|엔비디아|엔비디|애플|마이크로소프트|아마존|구글|알파벳|팔란티어|아이렌|로켓랩|소파이|오픈도어|샌디스크|브로드컴|오라클|로빈후드|모더나|넷플릭스|알리바바|홍콩증시|일본증시|니케이|TSMC|Nvidia|NASDAQ|S&P|\b(?:QQQ|TQQQ|SOXL|SCHD|JEPI|JEPQ|SPY|VOO|VTI|TSLA|NVDA|AMD|MSFT|AAPL|PLTR|GOOG|META|IREN|RKLB|SOFI|HOOD|OPEN|AVGO)\b", re.I)
+_FINANCE_TITLE = re.compile(r"주식|주가|증시|시황|시총|시가총액|코스피|코스닥|국장|삼성|하이닉스|삼전|하닉|삼닉|삼하|현대차|포스코|파마리서치|금리|환율|매수|매도|물타기|물탈|투자|수익|손실|손절|익절|시드|배당|실적|거래|상장|급락|급등|반등|공매도|ETF|ETN|증권|채권|경제|계좌|주린이|연금|반도체|포트폴리오|지수|레버리지|예적금", re.I)
 _PROPERTY_TITLE = re.compile(r"부동산|아파트|집값|전세|월세|분양|재건축|재개발|주택|매매|실거래|대출|청약|평당|평형|국평|토지|임대|상가|오피스텔|용적률|건폐율|집주인|세입자|다주택|1주택|2주택|양도세|보유세|종부세|취득세")
 _PROMOTION_TITLE = re.compile(r"리딩방|수익보장|원금보장|종목추천방|오픈채팅|카톡방|텔레그램방|무료체험|가입이벤트|광고문의|씨발|(?<![가-힣])시발(?![가-힣])|개새끼|병신|좆|ㅅㅂ|ㅂㅅ", re.I)
 
@@ -227,9 +258,41 @@ def relevant_title(title, board):
 
 
 def source_time(value):
-    for fmt in ("%y.%m.%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+    for fmt in ("%y.%m.%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y.%m.%d %H:%M", "%Y.%m.%d %H:%M:%S"):
         try: return datetime.strptime(clean(value), fmt).replace(tzinfo=KST).astimezone(timezone.utc).isoformat()
         except ValueError: pass
+    return None
+
+
+def listing_time(value):
+    """Only explicit full dates, today's clock, or a provider-reported age.
+
+    Rounded relative ages use the older end of that minute/hour, so a rounded
+    '1 hour ago' never inflates the count of posts in the last 60 minutes.
+    """
+    value = clean(value)
+    exact = source_time(value)
+    if exact: return exact
+    now = datetime.now(KST)
+    if re.fullmatch(r'\d{2}:\d{2}', value):
+        try: parsed = now.replace(hour=int(value[:2]), minute=int(value[3:]), second=0, microsecond=0)
+        except ValueError: return None
+        if parsed > now + timedelta(minutes=5): parsed -= timedelta(days=1)
+        return parsed.astimezone(timezone.utc).isoformat()
+    for fmt in ('%m.%d','%y.%m.%d','%Y.%m.%d'):
+        try:
+            parsed = datetime.strptime(value,fmt).replace(tzinfo=KST)
+            if fmt == '%m.%d':
+                parsed = parsed.replace(year=now.year)
+                if parsed > now+timedelta(days=1): parsed=parsed.replace(year=now.year-1)
+            # Midnight is only a conservative candidate time. The article's
+            # full header date replaces it before publication.
+            return parsed.astimezone(timezone.utc).isoformat()
+        except ValueError: pass
+    match = re.fullmatch(r'(\d+)\s*(분|시간)\s*전', value)
+    if match:
+        age = timedelta(minutes=int(match[1])+1) if match[2] == '분' else timedelta(hours=int(match[1])+1)
+        return (now-age).replace(second=0,microsecond=0).astimezone(timezone.utc).isoformat()
     return None
 
 
@@ -272,7 +335,7 @@ def parse_cl(data, source, board):
 def parse_da(data, source, board):
     items = []
     for row in html_soup(data).select('a.post-row'):
-        match = re.fullmatch(r'/stock/(\d+)', urlparse(row.get('href','')).path)
+        match = re.fullmatch(r'/'+re.escape(source[3])+r'/(\d+)', urlparse(row.get('href','')).path)
         title_node, date = row.select_one('.post-title'), row.select_one('.date-today')
         if not match or not title_node or not date: continue
         title = clean(title_node.get('title') or title_node.get_text())
@@ -282,6 +345,92 @@ def parse_da(data, source, board):
         # undated/old article as current. Body JSON-LD supplies exact seconds.
         written = source_time(datetime.now(KST).strftime('%Y-%m-%d ') + value + ':00')
         if written: items.append(forum_item(source, match[1], title, written, 'https://damoang.net'+match[0]))
+    return items
+
+
+def parse_extra(data, source, board):
+    soup, items = html_soup(data), []
+    provider, channel = source[2:]
+    selector = 'table.bd_lst tr:not(.notice)' if provider == 'tq' else 'tr:not(.notice):not(.popular-item)' if provider == 'dog' else 'table.board_list_table tbody tr:not(.notice)' if provider == 'rw' else 'table.clistTable02 tbody tr'
+    for row in soup.select(selector):
+        if provider == 'tq':
+            anchor, date = row.select_one('td.title a:not(.replyNum)'), row.select_one('td.time')
+            match = re.fullmatch(r'/'+re.escape(channel)+r'/(\d+)', urlparse(anchor.get('href','')).path) if anchor else None
+            if not match: continue
+            number = match[1]
+            url = f'https://theqoo.net/{channel}/{number}'
+        elif provider == 'dog':
+            anchor, date = row.select_one('a:has(.title-link)'), row.select_one('td.time')
+            path = urlparse(anchor.get('href','')).path if anchor else ''
+            match = re.fullmatch(r'/(?:stock/)?(\d+)', path)
+            if not match: continue
+            number = match[1]
+            url = f'https://www.dogdrip.net/stock/{number}'
+        elif provider == 'rw':
+            anchor, date, identifier = row.select_one('a.subject_link'),row.select_one('td.time'),row.select_one('td.id')
+            if not identifier or not identifier.get_text(strip=True).isdigit(): continue
+            match = re.fullmatch(r'/community/board/300143/read/(\d+)',urlparse(anchor.get('href','')).path) if anchor else None
+            if not match: continue
+            number=match[1]
+            url='https://bbs.ruliweb.com/community/board/300143/read/'+number
+        else:
+            anchor, date = row.select_one('a.bsubject'), row.select_one('td.date')
+            params = parse_qs(urlparse(anchor.get('href','')).query) if anchor else {}
+            number = params.get('No',[''])[0]
+            if params.get('code') != [channel] or not re.fullmatch(r'\d+',number): continue
+            url = 'https://www.bobaedream.co.kr/view?'+urlencode({'code':channel,'No':number})
+        if not anchor or not date: continue
+        title_node = anchor.select_one('.title-link') if provider == 'dog' else anchor
+        title = clean(title_node.get_text(' ',strip=True))
+        written = listing_time(date.get('title') or date.get_text(' ',strip=True))
+        if not written or not relevant_title(title, board): continue
+        item = forum_item(source, number, title, written, url)
+        item['time_precision'] = 'minute' if provider != 'dog' else 'source_relative'
+        items.append(item)
+    return items
+
+
+def toss_items(source, symbol, pages=2):
+    """Reuse the site's anonymous public Toss client; retain content fields only."""
+    from app.data.toss_session import request_json, resolve_product_code
+    product = resolve_product_code(symbol,raise_on_error=True)
+    if not product: return []
+    items, cursor = [], None
+    for _ in range(pages):
+        params = {'subjectType':'STOCK','subjectId':product,'commentSortType':'RECENT'}
+        if cursor: params['lastCommentId'] = cursor
+        result = request_json('GET','/api/v4/comments',host='cert',params=params,list_field='results')['result']
+        rows = result.get('results') or []
+        for row in rows:
+            number = str(row.get('commentId') or '')
+            message = row.get('message') or {}
+            heading, text = clean(str(message.get('title') or '')), str(message.get('message') or '').strip()
+            if not number.isdigit() or row.get('parentId') is not None or len(heading+text) < 12 or _PROMOTION_TITLE.search(heading+' '+text): continue
+            try:
+                date = datetime.fromisoformat(str(row.get('createdAt') or '').replace('Z','+00:00'))
+                if not date.tzinfo: continue
+            except ValueError: continue
+            title = f'[{symbol}] '+(heading or clean(text))[:180]
+            item = forum_item(source,number,title,date.astimezone(timezone.utc).isoformat(),'https://www.tossinvest.com/community/posts/'+number)
+            blocks = [{'type':'paragraph','text':p.strip()} for p in re.split(r'\n\s*\n',text or heading) if p.strip()]
+            item.update(id=f'toss-{symbol}-{number}',_body={'status':'ok','text':text or heading,'excerpt':text or heading,'images':[],'blocks':blocks})
+            items.append(item)
+        if not rows or not result.get('hasNext'): break
+        next_cursor = str(result.get('key') or rows[-1].get('commentId') or '')
+        if not next_cursor or next_cursor==cursor: break
+        cursor = next_cursor
+    return items
+
+
+def collect_toss(source):
+    from app.services.cache import cache
+    items = []
+    for symbol in TOSS_SYMBOLS:
+        try:
+            # Separate cache contains no author/profile data or login tokens.
+            items.extend(cache.get_or_set('community-content:toss:'+symbol,60,lambda s=symbol:toss_items(source,s)))
+        except Exception:
+            _log.warning('Community source toss-%s unavailable',symbol)
     return items
 
 
@@ -314,7 +463,33 @@ def parse_dc(data, source, board):
 
 def collect(source, board):
     try:
-        if source[2] in {"pp", "cl", "da"}:
+        if source[2] == 'toss':
+            items = collect_toss(source)
+        elif source[2] in {'tq','dog','bb','rw'}:
+            items = []
+            keywords = ('부동산','아파트','전세') if board == 'property' and source[2] == 'bb' else ('',)
+            if source[2]=='rw': keywords = ('부동산','아파트','전세','월세') if board=='property' else ('주식','미장','엔비디아') if board=='global' else ('주식','국장','하이닉스')
+            for keyword in keywords:
+                for page in range(1, 3 if keyword else 5):
+                    if source[2] == 'tq':
+                        params = {'mid':source[3], 'page':page}
+                        if keyword: params.update(search_target='title',search_keyword=keyword)
+                        url = 'https://theqoo.net/index.php?'+urlencode(params)
+                    elif source[2] == 'dog':
+                        url = 'https://www.dogdrip.net/stock?'+urlencode({'page':page})
+                    elif source[2]=='rw':
+                        url='https://bbs.ruliweb.com/community/board/300143?'+urlencode({'search_type':'subject','search_key':keyword,'page':page})
+                    else:
+                        params = {'code':source[3], 'page':page}
+                        if keyword: params.update(col='subject',kw=keyword)
+                        url = 'https://www.bobaedream.co.kr/list?'+urlencode(params)
+                    try: batch = parse_extra(_list_get(url), source, board)
+                    except Exception:
+                        if items: break
+                        raise
+                    items.extend(batch)
+                    if sum(datetime.fromisoformat(p['published_at']) >= datetime.now(timezone.utc)-timedelta(hours=1) for p in items) >= 20: break
+        elif source[2] in {"pp", "cl", "da"}:
             items = []
             for page in range(1, 5 if source[2] == "pp" else 2):
                 if source[2] == "pp":
@@ -325,7 +500,7 @@ def collect(source, board):
                         raise
                 elif source[2] == "cl":
                     batch = parse_cl(_list_get('https://www.clien.net/service/board/cm_stock'), source, board)
-                else: batch = parse_da(_list_get('https://damoang.net/stock'), source, board)
+                else: batch = parse_da(_list_get('https://damoang.net/'+source[3]), source, board)
                 items.extend(batch)
         elif source[2] == "dc":
             items = []
@@ -340,7 +515,7 @@ def collect(source, board):
             for page in range(1, 4):
                 url = "https://www.82cook.com/entiz/enti.php?" + urlencode({"bn": "15", "searchType": "search", "search1": "1", "keys": source[3], "page": page})
                 batch = parse_82(_list_get(url), source, board)
-                items.extend(batch)
+                items.extend(item for item in batch if relevant_title(item['title'], board))
                 if not batch: break
             items = [item for item in items if relevant_title(item['title'], board)]
         else:
@@ -348,14 +523,17 @@ def collect(source, board):
             for page in range(1, 7 if board == "property" else 4):
                 params = {"tbbsType": "S" if board == "property" else "L", "id": source[3], "page": page, "sort": "recentOrdr"}
                 if board == "property": params.update({"sType": "cnt", "sText": "부동산"})
-                batch = parse_pax(_get("https://www.paxnet.co.kr/tbbs/list?" + urlencode(params)), source, board)
-                items.extend(batch)
+                batch = parse_pax(_list_get("https://www.paxnet.co.kr/tbbs/list?" + urlencode(params)), source, board)
+                items.extend(item for item in batch if relevant_title(item['title'], board))
                 if not batch: break
         if source[2] != 'dc':
             cutoff = datetime.now(timezone.utc) - timedelta(days=7)
             items = [item for item in items if cutoff <= datetime.fromisoformat(item['published_at']) <= datetime.now(timezone.utc) + timedelta(minutes=5)]
         return items, {"id": source[0], "name": source[1], "status": "ok" if items else "empty", "count": len(items)}
-    except Exception:
+    except Exception as error:
+        # Do not log upstream bodies, author profiles, cookies or full URLs.
+        status = error.response.status_code if isinstance(error,requests.HTTPError) and error.response is not None else None
+        _log.warning('Community source %s failed: %s%s',source[0],type(error).__name__,f' HTTP {status}' if status else '')
         return [], {"id": source[0], "name": source[1], "status": "unavailable", "count": 0}
 
 
@@ -392,7 +570,7 @@ def latest(board, refresh=False):
         if previous and now - _attempted.get(board, 0) < (5 if refresh else 60):
             with _guard: return _snapshots[previous]
         _attempted[board] = now
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=5) as pool:
             results = list(pool.map(lambda source: collect(source, board), SOURCES[board]))
         unique, states = {}, []
         for items, state in results:
@@ -407,7 +585,10 @@ def latest(board, refresh=False):
         # Publish only articles whose complete readable body or attachments were
         # actually obtained. Keep that body in the immutable reading snapshot.
         _log.info("Community %s: checking %s public candidates", board, len(unique))
-        candidates = iter(sorted(unique.values(), key=lambda p: (p["published_at"], p["id"]), reverse=True))
+        ordered = sorted(unique.values(), key=lambda p: (p["published_at"], p["id"]), reverse=True)
+        # Bound cold-start work; the newest hour always comes first. Cached
+        # successful bodies make subsequent minute refreshes inexpensive.
+        candidates = iter(ordered[:160])
         # Keep only four queued jobs per board, so one cold board cannot monopolize
         # the shared pool. Publish completed, readable bodies without waiting for
         # the slowest origin request in the entire collection.
@@ -422,10 +603,10 @@ def latest(board, refresh=False):
                 next_item = next(candidates, None)
                 if next_item is not None: pending.add(_post_pool.submit(verified_post, next_item))
             if readable and (len(readable) == 1 or checked % 10 == 0 or time.monotonic() - last_publish >= 2):
-                publish(board, readable, states, old if previous else None, checked, len(unique), complete=False)
+                publish(board, readable, states, old if previous else None, checked, min(len(unique),160), complete=False)
                 last_publish = time.monotonic()
         _log.info("Community %s: ready %s of %s checked", board, len(readable), checked)
-        return publish(board, readable, states, old if previous else None, checked, len(unique))
+        return publish(board, readable, states, old if previous else None, checked, min(len(unique),160))
 
 
 def responsive_latest(board, refresh=False):
@@ -458,7 +639,9 @@ def listing(board, page=1, snapshot=None, query="", source="", topic="", refresh
     else: data = latest(board, refresh)
     items = [i for i in data["items"] if (not query or query.casefold() in i["title"].casefold()) and (not source or i["source_id"] == source) and (not topic or i["topic"] == topic)]
     public_items = [{k: v for k, v in item.items() if k != "_body"} for item in items[(page-1)*50:page*50]]
-    return {k: v for k, v in data.items() if k != "items"} | {"items": public_items, "total": len(items), "page": page, "page_size": 50, "pages": max(1, (len(items)+49)//50), "refresh_seconds": 60, "refreshing": refreshing, "grouped_duplicates": sum(p.get("duplicate_count", 0) for p in items)}
+    now = datetime.now(timezone.utc)
+    recent = sum(now-timedelta(hours=1) <= datetime.fromisoformat(p['published_at']) <= now for p in items)
+    return {k: v for k, v in data.items() if k != "items"} | {"items": public_items, "total": len(items), "page": page, "page_size": 50, "pages": max(1, (len(items)+49)//50), "refresh_seconds": 60, "refreshing": refreshing, "recent_hour_count":recent, "hourly_target":10, "hourly_target_met":recent>=10, "grouped_duplicates": sum(p.get("duplicate_count", 0) for p in items)}
 
 
 def attachment_url(value, base):
@@ -467,7 +650,7 @@ def attachment_url(value, base):
     if url.scheme not in {"https", "http"} or url.username or url.password: return None
     allowed = {"www.paxnet.co.kr", "paxnet.co.kr", "image.paxnet.co.kr", "img.paxnet.co.kr", "www.82cook.com", "82cook.com", "gall.dcinside.com", "image.dcinside.com"}
     allowed.update(f"dcimg{i}.dcinside.{suffix}" for i in range(1, 10) for suffix in ("com", "co.kr"))
-    if url.hostname not in allowed and not any(url.hostname == root or url.hostname.endswith('.'+root) for root in ('ppomppu.co.kr','clien.net','damoang.net')): return None
+    if url.hostname not in allowed and not any(url.hostname == root or url.hostname.endswith('.'+root) for root in ('ppomppu.co.kr','clien.net','damoang.net','theqoo.net','dogdrip.net','bobaedream.co.kr','ruliweb.com')): return None
     try:
         if url.port not in {None, 80, 443}: return None
     except ValueError: return None
@@ -540,10 +723,47 @@ def public_link(value, base):
     return url.geturl()
 
 
+def article_metadata(soup, host):
+    """Provider-owned article header only; never author or comment metadata."""
+    title, written = '', None
+    if host == 'theqoo.net':
+        heading = soup.select_one('.rd_hd .title')
+        title = clean(heading.get_text(' ',strip=True)) if heading else ''
+        date = soup.select_one('.rd_hd .btm_area .side.fr')
+    elif host == 'www.bobaedream.co.kr':
+        title = clean(soup.title.get_text().split(' | ')[0]) if soup.title else ''
+        date = soup.select_one('.countGroup')
+    elif host == 'www.dogdrip.net':
+        title = clean(soup.title.get_text().split(' - DogDrip')[0]) if soup.title else ''
+        date = soup.select_one('.article-head .title-toolbar')
+        if date:
+            for node in date.select('span'):
+                written = listing_time(node.get_text(' ',strip=True))
+                if written: break
+        return title, written
+    elif host == 'bbs.ruliweb.com':
+        heading=soup.select_one('.subject_text')
+        title=clean(heading.get_text(' ',strip=True)) if heading else ''
+        date=soup.select_one('span.regdate')
+    elif host == 'www.paxnet.co.kr':
+        meta = soup.select_one('meta[property="og:title"]')
+        title = clean(meta.get('content','')) if meta else clean(soup.title.get_text().split(' | ')[0]) if soup.title else ''
+        node = soup.select_one('[data-date-format]')
+        if node:
+            try: written = datetime.strptime(node['data-date-format'].replace(' KST ',' '),'%a %b %d %H:%M:%S %Y').replace(tzinfo=KST).astimezone(timezone.utc).isoformat()
+            except ValueError:
+                written=source_time(re.sub(r'\.\d+$','',node['data-date-format']))
+        return title, written
+    else: return title, written
+    match = re.search(r'(20\d{2}[.]\d{2}[.]\d{2})[^\d]*(\d{2}:\d{2}(?::\d{2})?)',date.get_text(' ',strip=True) if date else '')
+    if match: written = source_time(match[1]+' '+match[2])
+    return title, written
+
+
 def parse_preview(data, url, is_pax=True):
     soup = html_soup(data)
     host = urlparse(url).hostname
-    selector = {"www.ppomppu.co.kr": ".JS_ContentMain .han, .JS_ContentMain", "www.clien.net": "article.post .content, .post_article", "damoang.net": "#economy-post-content, .prose"}.get(host)
+    selector = {"www.ppomppu.co.kr": ".JS_ContentMain .han, .JS_ContentMain", "www.clien.net": "article.post .content, .post_article", "damoang.net": "#economy-post-content, .prose", "theqoo.net": ".rd_body .xe_content", "www.dogdrip.net": "[class*=document_].xe_content", "www.bobaedream.co.kr": ".bodyCont", "bbs.ruliweb.com":".view_content article"}.get(host)
     if not selector: selector = ".write_div" if host == "gall.dcinside.com" else "#bbsWrtCntn" if is_pax else "#articleBody, .read_cont, .read_content, #readContent"
     content = soup.select_one(selector)
     if not content: return {"text": "", "excerpt": "", "images": [], "blocks": [], "status": "unavailable"}
@@ -621,6 +841,9 @@ def parse_preview(data, url, is_pax=True):
     text = "\n\n".join(b["text"] for b in blocks if b["type"] == "paragraph")
     # The legacy response field remains for older clients, but is no longer truncated.
     result = {"text": text, "excerpt": text, "images": images, "blocks": blocks, "status": "ok" if blocks else "empty"}
+    if host in {'theqoo.net','www.bobaedream.co.kr','bbs.ruliweb.com'}:
+        written = article_metadata(soup,host)[1]
+        if written: result['published_at'] = written
     if host == 'damoang.net':
         for node in soup.select('script[type="application/ld+json"]'):
             try:
@@ -651,6 +874,10 @@ def load_post(item):
             break
         except (requests.Timeout, requests.ConnectionError):
             if attempt: break
+        except requests.HTTPError as error:
+            if error.response is not None and error.response.status_code in (403,429):
+                with _guard: _body_backoff[host] = time.monotonic()+60
+            break
         except Exception: break
     with _guard:
         if item["id"].startswith(("82-", "dc-")):
@@ -685,21 +912,36 @@ def entry(board, post_id, snapshot=None):
         for data in snapshots:
             item = next((p for p in data['items'] if p['id'] == post_id), None)
             if item: return {'post': {k:v for k,v in item.items() if k != '_body'}, 'snapshot':data['snapshot']}
+    toss_match = re.fullmatch(r'toss-([A-Z]+)-(\d{1,20})',post_id)
+    if toss_match and board == 'global' and toss_match[1] in TOSS_SYMBOLS:
+        source = next(s for s in SOURCES[board] if s[2]=='toss')
+        item = next((p for p in toss_items(source,toss_match[1],pages=6) if p['id']==post_id),None)
+        if not item: raise LookupError('article unavailable')
+        key = uuid.uuid4().hex
+        with _guard:
+            _snapshots[key] = {'snapshot':key,'board':board,'items':[item],'sources':[]}
+            while len(_snapshots)>64: _snapshots.pop(next(k for k in _snapshots if k not in _latest.values()))
+        return {'post':{k:v for k,v in item.items() if k!='_body'},'snapshot':key}
     source, url = None, None
     for candidate in SOURCES[board]:
-        prefix = '82-' if candidate[2] == '82' else f'{candidate[2]}-{candidate[3]}-'
+        prefix = candidate[2]+'-' if candidate[2] in {'82','pax'} else f'{candidate[2]}-{candidate[3]}-'
         number = post_id.removeprefix(prefix)
         if not post_id.startswith(prefix) or not re.fullmatch(r'\d{1,20}',number): continue
         source = candidate
         if candidate[2] == 'pp': url = 'https://www.ppomppu.co.kr/zboard/view.php?'+urlencode({'id':candidate[3],'no':number})
         elif candidate[2] == 'cl': url = 'https://www.clien.net/service/board/cm_stock/'+number
-        elif candidate[2] == 'da': url = 'https://damoang.net/stock/'+number
+        elif candidate[2] == 'da': url = 'https://damoang.net/'+candidate[3]+'/'+number
         elif candidate[2] == '82': url = 'https://www.82cook.com/entiz/read.php?'+urlencode({'bn':'15','num':number})
+        elif candidate[2] == 'tq': url = 'https://theqoo.net/'+candidate[3]+'/'+number
+        elif candidate[2] == 'dog': url = 'https://www.dogdrip.net/stock/'+number
+        elif candidate[2] == 'bb': url = 'https://www.bobaedream.co.kr/view?'+urlencode({'code':candidate[3],'No':number})
+        elif candidate[2] == 'pax': url = 'https://www.paxnet.co.kr/tbbs/view?'+urlencode({'id':candidate[3],'seq':number})
+        elif candidate[2] == 'rw': url = 'https://bbs.ruliweb.com/community/board/300143/read/'+number
         break
     if not source or not url: raise LookupError('article unavailable')
     raw = _get(url)
     soup = html_soup(raw)
-    title, written = '', None
+    title, written = article_metadata(soup,urlparse(url).hostname)
     def metadata(node):
         nonlocal title, written
         if isinstance(node, list):
@@ -730,7 +972,7 @@ def entry(board, post_id, snapshot=None):
         match = re.search(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', node.get_text() if node else '')
         if match: written = source_time(match[0])
     if not written or not relevant_title(title, board): raise LookupError('article metadata unavailable')
-    body = parse_preview(raw, url, False)
+    body = parse_preview(raw, url, source[2]=='pax')
     if body['status'] != 'ok': raise ValueError('article body unavailable')
     item = forum_item(source, number, title, written, url)
     item.update(id=post_id, _body=body)
@@ -837,7 +1079,7 @@ def comments(board, snapshot, post_id, page=1):
     if not item: raise LookupError('snapshot expired')
     if cached and time.monotonic() - cached[0] < 30: return cached[1]
     result = {'status': 'unavailable', 'items': [], 'total': None, 'has_more': False, 'page': page}
-    if item['id'].startswith(('pp-','da-','cl-','82-')):
+    if item['id'].startswith(('pp-','da-','cl-','82-','tq-','dog-','bb-','toss-','rw-')):
         return {**result, 'status':'unsupported'}
     query = parse_qs(urlparse(item['url']).query)
     bbs_id, seq = query.get('id', [''])[0], query.get('seq', [''])[0]

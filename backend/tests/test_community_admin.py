@@ -16,7 +16,7 @@ class CommunityAdminTests(TestCase):
             self.assertTrue(any(n['id']==node for n in graph['nodes']))
             for api in ('/api/community/{board}', '/api/community/{board}/post', '/api/community/{board}/comments'):
                 self.assertIn({'source':node,'target':'api:'+api,'kind':'call'},graph['edges'])
-                for source in ('up:ppomppu','up:damoang','up:clien','up:82cook','store:cache'):
+                for source in ('up:ppomppu','up:damoang','up:clien','up:82cook','up:theqoo','up:dogdrip','up:bobaedream','up:ruliweb','up:paxnet','up:toss','store:cache'):
                     self.assertIn({'source':'api:'+api,'target':source,'kind':'depend'},graph['edges'])
         self.assertFalse(any('→ /api/community' in warning for warning in graph['warnings']))
 
