@@ -49,7 +49,6 @@ export default function NeoAtlasHome() {
   };
   return <main className="d2 ng-home ng-atlas" lang={lang}>
     <MarketScanner market={market} onMarketChange={chooseMarket} />
-    <TodayEntry />
     <section className="ng-asset-belt" aria-labelledby="ng-assets-h"><div><span>03 / ACROSS ASSETS</span><h2 id="ng-assets-h">{L("시장을 잇는 가격", "Prices in between")}</h2></div><div>{assets.map(asset => { const quote = tick(asset.symbol); return <Link key={asset.key} to={`/prices/${asset.key}`} className="ng-asset-link"><article className={`ng-asset-cell ng-asset-cell--${asset.key}`}><AssetCellFx kind={asset.key} up={(quote?.change_pct ?? 0) > 0}/><span>{L(asset.ko, asset.en)}<small>{asset.unit}</small></span><CyberQuote value={quote?.price}>{quote ? quote.price.toLocaleString("en-US", { maximumFractionDigits: asset.digits }) : "—"}</CyberQuote><b className={`is-${toneOf(quote?.change_pct)}`}>{pct(quote?.change_pct)}</b><small>{quoteTime(quote?.quote_time)} ↗</small></article></Link>; })}</div></section>
     <p className="ng-atlas-basis">{L("각 지수·자산의 최근 제공 시세 · 등락은 전일 대비 · 시장별 기준 시각과 거래 세션이 다를 수 있습니다.", "Latest supplied quotes · changes vs. previous close · quote times and sessions may differ across markets.")}</p>
     <CommunityHeadlines />
@@ -58,7 +57,7 @@ export default function NeoAtlasHome() {
       kospi: { price: indices.kospi?.close, change: indices.kospi?.change_pct },
       kosdaq: { price: indices.kosdaq?.close, change: indices.kosdaq?.change_pct },
       nasdaq100: { price: tick("^NDX")?.price, change: tickerChangePct(tick("^NDX")) },
-    }} lead={market} />
+    }} lead={market} afterNasdaq={<TodayEntry />} />
     <section className="ng-atlas-destinations" aria-labelledby="ng-explore-h"><header><span className="ng-kicker">04 / CHOOSE YOUR PERSPECTIVE</span><h2 id="ng-explore-h">{L("다른 시선으로 시장 읽기", "Change your perspective")}</h2></header><div>{[
       ["/map", "map", "MAP", L("면적으로 읽는 증시", "The market, in area"), L("시가총액과 등락을 한 장의 지도로", "Capitalization and returns on one map")],
       ["/etf", "layers", "ETF", L("종목 너머의 투자", "Invest beyond a stock"), L("국내·미국 ETF를 비교하고 탐색", "Explore and compare Korean & US ETFs")],
