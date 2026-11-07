@@ -91,6 +91,6 @@ export async function loadCameras(lat:number,lon:number,key:string,domain:string
   const status=data?.status??'unavailable';
   const value={items,status,locationFailed:map.status==='rejected'||video.status==='rejected'||(status==='unavailable'&&!items.length),
     connectionFailed:Array.isArray(data?.issues)&&data.issues.some((i:{code?:string})=>['connect_timeout','read_timeout','connection_failed','tls_error','domestic_gateway_unavailable'].includes(i.code??''))};
-  if(!value.locationFailed&&['ok','needs_key'].includes(value.status)){cache.set(cell,{at:Date.now(),value});while(cache.size>24)cache.delete(cache.keys().next().value!);}
+  if(!value.locationFailed&&!value.connectionFailed&&['ok','needs_key'].includes(value.status)){cache.set(cell,{at:Date.now(),value});while(cache.size>24)cache.delete(cache.keys().next().value!);}
   return value;
 }

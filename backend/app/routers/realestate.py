@@ -33,13 +33,13 @@ def traffic_camera_status(response: Response):
 
 
 @router.get("/cctv/open/{token}")
-def traffic_camera_open(response: Response, token: str):
+def traffic_camera_open(response: Response, token: str, fresh: bool = False):
     from app.services import traffic_cctv
     response.headers["Cache-Control"] = "no-store"
     if not 20 <= len(token) <= 64 or not all(c.isalnum() or c in "_-" for c in token):
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
     try:
-        return traffic_cctv.open_city(token)
+        return traffic_cctv.open_city(token, refresh=fresh)
     except LookupError:
         raise HTTPException(status_code=410, detail="영상 연결이 만료되었습니다. CCTV 목록을 새로고침하세요.") from None
     except Exception:

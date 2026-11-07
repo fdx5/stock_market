@@ -1,5 +1,6 @@
 """Bounded, GET-only protocol for the operator's domestic CCTV egress worker."""
 import json
+import ipaddress
 import os
 import struct
 from urllib.parse import urlsplit
@@ -29,6 +30,19 @@ def validate_target(url: str, kind: str) -> None:
         allowed = p.scheme == "https" and host == "openapi.its.go.kr" and port == 9443 and p.path == "/cctvInfo"
     elif kind == "media":
         allowed = any(host == root or host.endswith("." + root) for root in ("ktict.co.kr", "its.go.kr", "ex.co.kr")) and port in (80, 443, 8081, 8082, 1935)
+    elif kind == "city_media":
+        # UTIC embeds municipal providers, including public IPs and custom ports.
+        # Only the trusted server creates these jobs from a resolved UTIC page or
+        # its HLS children; no browser endpoint accepts a destination URL. The
+        # worker additionally pins public DNS on EVERY connection/redirect.
+        allowed = port in (80, 443) or 1024 <= port <= 65535
+        if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+            allowed = False
+        try:
+            if not ipaddress.ip_address(host).is_global:
+                allowed = False
+        except ValueError:
+            pass
     else:
         allowed = False
     if not allowed:

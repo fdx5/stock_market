@@ -3,8 +3,8 @@ references only; no database.
 
 The service keys and provider URLs stay on the server. Media references can only be
 created from a provider reply or one of its HLS manifests, never from a client URL.
-UTIC authenticates by key and the server's registered address range, so every UTIC
-request (catalogue, player page, video) goes through this server.
+UTIC catalogue/player authentication stays on the registered server address.
+Resolved video and its HLS children use domestic egress when required.
 """
 from __future__ import annotations
 
@@ -43,6 +43,7 @@ _cache: OrderedDict = OrderedDict()
 _media: OrderedDict = OrderedDict()
 _by_url: dict = {}
 _relayed_media: set = set()
+_city_media: set = set()
 _lock = threading.RLock()
 _slots = threading.BoundedSemaphore(10)
 
@@ -77,7 +78,7 @@ def _allowed_port(p) -> bool:
     return port in (80, 443) or 1024 <= port <= 65535
 
 
-def _remember(url: str, domestic: bool = False) -> str:
+def _remember(url: str, domestic: bool = False, city: bool = False) -> str:
     p = urlsplit(url)
     if p.scheme not in ("http", "https") or not p.hostname or p.username or p.password:
         raise ValueError("Unsupported media URL")
@@ -88,6 +89,8 @@ def _remember(url: str, domestic: bool = False) -> str:
         if old and old in _media:
             if domestic:
                 _relayed_media.add(old)
+                if city:
+                    _city_media.add(old)
             _media[old] = (url, time.monotonic() + 1800)
             _media.move_to_end(old)
             return old
@@ -95,17 +98,20 @@ def _remember(url: str, domestic: bool = False) -> str:
         _media[token] = (url, time.monotonic() + 1800)
         if domestic:
             _relayed_media.add(token)
+            if city:
+                _city_media.add(token)
         _by_url[url] = token
         while len(_media) > 12000:
             dropped, (value, _) = _media.popitem(last=False)
             _relayed_media.discard(dropped)
+            _city_media.discard(dropped)
             if _by_url.get(value) == dropped:
                 _by_url.pop(value, None)
         return token
 
 
-def _path(url: str, domestic: bool = False) -> str:
-    return "/api/realestate/cctv/media/" + _remember(url, domestic)
+def _path(url: str, domestic: bool = False, city: bool = False) -> str:
+    return "/api/realestate/cctv/media/" + _remember(url, domestic, city)
 
 
 def _rows(body):
@@ -400,7 +406,7 @@ def _log_resolve(entry: dict):
     del _resolve_log[:-30]
 
 
-def open_city(token: str) -> dict:
+def open_city(token: str, refresh: bool = False) -> dict:
     """One camera's current video, from its UTIC player page fetched by this server
     (the registered address). A resolved link is reused for five minutes."""
     with _lock:
@@ -410,7 +416,7 @@ def open_city(token: str) -> dict:
     cid = entry[0]
     with _lock:
         hit = _resolved.get(cid)
-        if hit and time.monotonic() - hit[0] < 300:
+        if not refresh and hit and time.monotonic() - hit[0] < 300:
             return hit[1]
     row = _utic["rows"].get(cid)
     _, key = _utic_key()
@@ -433,7 +439,14 @@ def open_city(token: str) -> dict:
     url, frame = _page_media(html, UTIC_PAGE)
     if not url and frame:
         try:
-            body, _, final = _public_fetch(frame)
+            if gateway_required():
+                from . import cctv_gateway
+                reply = cctv_gateway.fetch(frame, "city_media")
+                if reply.status != 200:
+                    raise MediaProviderError(reply.status)
+                body, final = reply.body, reply.final_url
+            else:
+                body, _, final = _public_fetch(frame)
             url, _ = _page_media(body[:600_000].decode("utf-8", "replace"), final)
         except Exception as error:
             _log_resolve({"kind": row["kind"], "code": "frame_" + _issue_code(error), "frame": urlsplit(frame).hostname})
@@ -445,12 +458,11 @@ def open_city(token: str) -> dict:
         area = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", visible[start:start + 3000] if start >= 0 else visible[:1500]))
         _log_resolve({"kind": row["kind"], "code": code, "page": area.replace(key, "<key>")[:300]})
         raise ValueError("No video on the player page")
-    result = {"media": _path(url), "format": _format(url)}
-    # The stream servers are public (UTIC's own map plays them in visitors' browsers);
-    # only the key, catalogue and player page are tied to the registered address.
-    # HTTPS streams play directly (the relay crossed the Pacific slower than real
-    # time); the relay stays for plain-HTTP streams and as the fallback.
-    if urlsplit(url).scheme == "https" and not urlsplit(url).query:
+    domestic = gateway_required()
+    result = {"media": _path(url, domestic=domestic, city=True), "format": _format(url)}
+    # Required domestic egress must never escape through a visitor's browser.
+    # Direct links remain available only in installations without that policy.
+    if not domestic and urlsplit(url).scheme == "https" and not urlsplit(url).query:
         result["direct"] = url
     _log_resolve({"kind": row["kind"], "code": "ok", "host": urlsplit(url).hostname, "format": result["format"]})
     with _lock:
@@ -479,7 +491,9 @@ def cameras(lat: float, lon: float, refresh: bool = False) -> dict:
     road = _road_cameras(lat, lon, refresh)
     if not city:
         return road
-    return {**city, "items": city["items"] + road["items"], "issues": city.get("issues", []) + road.get("issues", [])}
+    issues = city.get("issues", []) + road.get("issues", [])
+    combined = "ok" if city["status"] == road["status"] == "ok" else "partial"
+    return {**city, "status": combined, "items": city["items"] + road["items"], "issues": issues}
 
 
 def _road_cameras(lat: float, lon: float, refresh: bool = False) -> dict:
@@ -579,6 +593,7 @@ def media(token: str):
     with _lock:
         entry = _media.get(token)
         domestic = token in _relayed_media
+        city = token in _city_media
     if not entry or entry[1] < time.monotonic():
         raise LookupError("Camera link expired")
     with _lock:
@@ -598,7 +613,7 @@ def media(token: str):
         try:
             if domestic:
                 from . import cctv_gateway
-                reply = cctv_gateway.fetch(entry[0], "media")
+                reply = cctv_gateway.fetch(entry[0], "city_media" if city else "media")
                 if reply.status != 200:
                     raise MediaProviderError(reply.status)
                 body, content_type, final = reply.body, reply.content_type, reply.final_url
@@ -616,9 +631,9 @@ def media(token: str):
             lines = []
             for line in body.decode("utf-8-sig").splitlines():
                 if line.startswith("#"):
-                    line = re.sub(r'URI="([^"]+)"', lambda m: 'URI="' + _path(urljoin(final, m[1]), domestic=domestic) + '"', line)
+                    line = re.sub(r'URI="([^"]+)"', lambda m: 'URI="' + _path(urljoin(final, m[1]), domestic=domestic, city=city) + '"', line)
                 elif line.strip():
-                    line = _path(urljoin(final, line.strip()), domestic=domestic)
+                    line = _path(urljoin(final, line.strip()), domestic=domestic, city=city)
                 lines.append(line)
             out = ("\n".join(lines) + "\n").encode()
             with _lock:

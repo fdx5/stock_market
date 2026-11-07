@@ -3,8 +3,8 @@ import type Hls from 'hls.js';
 import type {TrafficCamera} from './trafficCctv';
 import {refreshHighwayCamera} from './trafficCctv';
 
-// direct: the provider's own HTTPS stream (public); media: the same through this server.
-type Source={media:string;format:NonNullable<TrafficCamera['format']>;direct?:string};
+// Browsers always use opaque same-origin references; provider access is server-side.
+type Source={media:string;format:NonNullable<TrafficCamera['format']>};
 
 export default function CctvPopup({camera,onClose,onRefresh}:{camera:TrafficCamera;onClose:()=>void;onRefresh:()=>void}){
   const highway=camera.id.startsWith('its:');
@@ -19,8 +19,8 @@ export default function CctvPopup({camera,onClose,onRefresh}:{camera:TrafficCame
     const stop=new AbortController();
     setState('loading');setSource(null);
     const timer=window.setTimeout(()=>{setState('error');stop.abort();},30000);
-    const request=highway?refreshHighwayCamera(camera,stop.signal):fetch(camera.resolve!,{signal:stop.signal}).then(async r=>{if(!r.ok)throw new Error(String(r.status));return r.json();});
-    request.then((s:Source)=>{if(stop.signal.aborted)return;if(typeof s?.media==='string')setSource({media:s.media,format:s.format??'hls',direct:typeof s.direct==='string'&&s.direct.startsWith('https://')?s.direct:undefined});else setState('error');})
+    const request=highway?refreshHighwayCamera(camera,stop.signal):fetch(`${camera.resolve!}${attempt?'?fresh=true':''}`,{signal:stop.signal,cache:'no-store'}).then(async r=>{if(!r.ok)throw new Error(String(r.status));return r.json();});
+    request.then((s:Source)=>{if(stop.signal.aborted)return;if(typeof s?.media==='string'&&s.media.startsWith('/api/realestate/cctv/media/'))setSource({media:s.media,format:s.format??'hls'});else setState('error');})
       .catch(()=>{if(!stop.signal.aborted)setState('error');}).finally(()=>clearTimeout(timer));
     return()=>{clearTimeout(timer);stop.abort();};
   },[camera.resolve,camera.media,camera.id,camera.lat,camera.lon,highway,attempt]);
@@ -28,12 +28,16 @@ export default function CctvPopup({camera,onClose,onRefresh}:{camera:TrafficCame
     const el=video.current;if(!el||!source||source.format==='image')return;
     let alive=true,hls:Hls|null=null;
     setState('loading');
-    const url=source.direct??source.media;
-    // A direct stream that will not start falls back to the relay before reporting an error.
-    const fail=()=>{clearTimeout(timer);if(!alive)return;if(source.direct)setSource({...source,direct:undefined});else setState('error');};
-    const timer=window.setTimeout(fail,source.direct?9000:18000);
+    const url=source.media;
+    const fail=()=>{clearTimeout(timer);if(alive)setState('error');};
+    const timer=window.setTimeout(fail,30000);
     const ready=()=>{clearTimeout(timer);if(alive)setState('ready');};
-    const ended=()=>{if(alive&&(camera.resolve||highway)&&rejoins.current++<20)setAttempt(a=>a+1);};
+    const ended=()=>{if(!alive)return;if((camera.resolve||highway)&&rejoins.current++<20)setAttempt(a=>a+1);else fail();};
+    let lastTime=el.currentTime,lastAdvance=Date.now();
+    const watchdog=window.setInterval(()=>{
+      if(el.currentTime!==lastTime||el.paused){lastTime=el.currentTime;lastAdvance=Date.now();}
+      else if(el.currentTime>0&&Date.now()-lastAdvance>20000){lastAdvance=Date.now();ended();}
+    },2000);
     el.addEventListener('playing',ready);el.addEventListener('error',fail);el.addEventListener('ended',ended);
     const play=()=>{void el.play().catch(()=>{if(alive)setState('play');});};
     // hls.js wherever it runs: Chrome's own HLS player gave up on the first relayed
@@ -48,7 +52,7 @@ export default function CctvPopup({camera,onClose,onRefresh}:{camera:TrafficCame
       hls.on(Hls.Events.ERROR,(_,data)=>{if(data.fatal){hls?.destroy();hls=null;if(el.currentTime>0)ended();else fail();}});
       hls.loadSource(url);hls.attachMedia(el);
     }).catch(fail);
-    return()=>{alive=false;clearTimeout(timer);hls?.destroy();el.removeEventListener('playing',ready);el.removeEventListener('error',fail);el.removeEventListener('ended',ended);el.pause();el.removeAttribute('src');el.load();};
+    return()=>{alive=false;clearTimeout(timer);clearInterval(watchdog);hls?.destroy();el.removeEventListener('playing',ready);el.removeEventListener('error',fail);el.removeEventListener('ended',ended);el.pause();el.removeAttribute('src');el.load();};
   },[source,camera.resolve,highway,attempt]);
   const available=!!(camera.media||camera.resolve);
   return <section className="re-cctv-popup" role="dialog" aria-modal="false" aria-label={`CCTV ${camera.name}`}

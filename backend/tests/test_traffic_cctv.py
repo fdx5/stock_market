@@ -259,6 +259,48 @@ def test_plain_http_city_player_is_asked_for_over_http(city):
     assert "direct" not in opened, "a plain-HTTP stream goes through the relay (no mixed content)"
 
 
+def test_city_video_and_hls_children_use_domestic_egress_and_renew_on_retry(city):
+    from app.services import cctv_gateway as gateway
+    city.setenv("CCTV_HIGHWAY_GATEWAY", "required")
+    city.setattr(c, "_manifests", {})
+    city.setattr(c, "_failed_media", {})
+    city.setattr(c, "_relayed_media", set())
+    city.setattr(c, "_city_media", set())
+    city.setattr(c.requests, "get", lambda *a, **k: Mock(status_code=200, headers={}, content=json.dumps(CATALOGUE).encode(), raise_for_status=lambda: None))
+    token = c.cameras(37.5465, 126.9886)["items"][0]["resolve"].rsplit("/", 1)[1]
+    pages = []
+    def page(*a, **k):
+        pages.append(1)
+        return Mock(status_code=200, headers={}, content=SEOUL_PAGE.encode(), raise_for_status=lambda: None)
+    city.setattr(c.requests, "get", page)
+    city.setattr(c, "_public_fetch", lambda *a: pytest.fail("overseas video fetch"))
+    calls = []
+    def fetch(url, kind):
+        calls.append((url, kind))
+        body = b'#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\nsegment.ts\n' if url.endswith(".m3u8") else b"video"
+        return gateway.GatewayReply(200, body, "video/mp2t", url)
+    city.setattr(gateway, "fetch", fetch)
+    opened = c.open_city(token)
+    assert "direct" not in opened, "browser must not bypass domestic IP"
+    assert c.open_city(token) == opened and len(pages) == 1
+    c.open_city(token, refresh=True)
+    assert len(pages) == 2, "retry must renew provider sessions, not reuse a five-minute stale URL"
+    manifest, _ = c.media(opened["media"].rsplit("/", 1)[1])
+    import re
+    children = re.findall(r'/api/realestate/cctv/media/([\w-]+)', manifest.decode())
+    assert len(children) == 2
+    for child in children:
+        assert c.media(child)[0] == b"video"
+    assert len(calls) == 3 and all(kind == "city_media" for _, kind in calls)
+
+
+def test_city_success_does_not_mask_domestic_gateway_failure(city):
+    city.setattr(c, "HIGHWAY_CCTV_ENABLED", True)
+    city.setattr(c, "_city_cameras", lambda *a: {"status": "ok", "items": [{"id": "utic:one"}]})
+    city.setattr(c, "_road_cameras", lambda *a: {"status": "unavailable", "items": [], "issues": [{"code": "domestic_gateway_unavailable"}]})
+    assert c.cameras(37.5, 127)["status"] == "partial"
+
+
 def test_page_without_video_is_a_failure_not_a_stream(city):
     url, frame = c._page_media('<div id="cctvarea"><source src="https://strmu.spatic.go.kr/live/null.stream/playlist.m3u8"></div>', c.UTIC_PAGE)
     assert url is None and frame is None

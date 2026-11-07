@@ -159,3 +159,21 @@ def test_domestic_worker_preserves_public_dns_and_redirect_checks(monkeypatch):
     monkeypatch.setattr(cameras.socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("127.0.0.1", 443))])
     with pytest.raises(ValueError):
         cameras._public_fetch_direct(MEDIA, validator=lambda u: validate_target(u, "media"))
+
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1:1935/video", "http://169.254.169.254/video",
+    "https://localhost/video", "https://device.local/video", "http://[::1]/video",
+    "http://192.168.1.1/video", "http://10.0.0.1/video", "http://211.34.147.236:22/video",
+])
+def test_city_egress_rejects_local_targets_and_service_ports(url):
+    with pytest.raises(ValueError):
+        validate_target(url, "city_media")
+
+
+def test_city_egress_supports_public_municipal_providers_but_pins_dns(monkeypatch):
+    for url in ["https://lw.hrfco.go.kr/live/cctv116046/hls.m3u8", "http://211.34.147.236:1935/live/cam/playlist.m3u8"]:
+        validate_target(url, "city_media")
+    monkeypatch.setattr(cameras.socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("10.0.0.1", 443))])
+    with pytest.raises(ValueError):
+        cameras._public_fetch_direct("https://lw.hrfco.go.kr/live/test/hls.m3u8", validator=lambda u: validate_target(u, "city_media"))
