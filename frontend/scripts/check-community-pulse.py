@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 import json
 from playwright.sync_api import sync_playwright, expect
 
-BASE = "http://127.0.0.1:5193"
+BASE = "http://127.0.0.1:5196"
 OUT = Path(__file__).resolve().parents[2] / "tmp/community-pulse-qa"
 OUT.mkdir(parents=True, exist_ok=True)
 boards = ["kr", "global", "property"]
@@ -38,7 +38,7 @@ def context(browser, lang="ko", reduced="no-preference", broken=None):
     return ctx
 
 with sync_playwright() as p:
-    browser = p.chromium.launch(channel="msedge", headless=True, args=["--mute-audio"])
+    browser = p.chromium.launch(channel="chrome", headless=True, args=["--mute-audio"])
     ctx = context(browser)
     page = ctx.new_page()
     errors = []
@@ -55,8 +55,8 @@ with sync_playwright() as p:
         assert counters.all_text_contents() == [f"{n%10+1:02d}"] * 3
         for board in boards:
             link = page.locator(f'[data-board="{board}"] .ng-headline-story')
-            assert link.get_attribute("href") == posts(board)[n%10]["url"]
-        page.clock.run_for(1000)
+            assert link.get_attribute("href") == f"/community/{board}?post_id={board}-{n%10}"
+        page.clock.run_for(1500)
     # The transition starts below and moves upwards, rather than swapping text.
     page.clock.run_for(160)
     page.evaluate("""document.getAnimations().forEach(a => {
@@ -74,11 +74,11 @@ with sync_playwright() as p:
     page.clock.run_for(3000)
     assert story.get_attribute("href") == current
     ctx.route("https://example.com/**", lambda r: r.fulfill(content_type="text/html", body="<title>Original post</title>"))
-    with page.expect_popup() as opened:
-        story.click()
-    opened.value.wait_for_load_state()
-    assert opened.value.url == current
-    opened.value.close()
+    story.click()
+    assert len(ctx.pages) == 1
+    assert urlparse(page.url).path == '/community/kr'
+    page.evaluate('history.back()')
+    page.wait_for_url('**/tests/fixtures/community-pulse.html')
     page.mouse.move(0, 0)
     story.focus()
     page.clock.run_for(3000)
@@ -106,7 +106,7 @@ with sync_playwright() as p:
     page.clock.run_for(61_000)
     expect(page.locator('[data-board="global"] .ng-headline-delayed')).to_be_visible()
     assert page.locator('[data-board="global"] .ng-headline-story').get_attribute("href") == retained
-    print("PASS: 10-post wraparound, 1-second cadence, original URLs, hover/focus pause, manual advance, 7 viewports", flush=True)
+    print("PASS: 10-post wraparound, 1.5-second cadence, internal URLs, hover/focus pause, manual advance, 7 viewports", flush=True)
     ctx.close()
 
     ctx = context(browser, reduced="reduce")

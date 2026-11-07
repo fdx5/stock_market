@@ -27,7 +27,7 @@
 .ng-headline-slide.is-incoming{animation:ng-headline-rise .56s cubic-bezier(.16,1,.3,1) both}
 .ng-headline-slide.is-outgoing{animation:ng-headline-lift .43s cubic-bezier(.4,0,.2,1) both;pointer-events:none;transform-origin:50% 0}
 .ng-headline-track{height:2px;overflow:hidden;background:color-mix(in srgb,var(--headline-accent) 8%,transparent)}
-.ng-headline-track i{display:block;width:100%;height:100%;background:linear-gradient(90deg,transparent,var(--headline-accent));transform-origin:left;animation:ng-headline-scan 1s linear both;opacity:.65}
+.ng-headline-track i{display:block;width:100%;height:100%;background:linear-gradient(90deg,transparent,var(--headline-accent));transform-origin:left;animation:ng-headline-scan 1.5s linear both;opacity:.65}
 .ng-headline-card:has(.ng-headline-story:hover){border-color:color-mix(in srgb,var(--headline-accent) 60%,var(--line-soft));background-color:var(--bg-elevated)}
 .ng-headline-story:hover strong{color:var(--headline-accent)}
 .ng-headlines[data-reading=true] .ng-headline-slide.is-incoming{animation:none}.ng-headlines[data-reading=true] .ng-headline-slide.is-outgoing{display:none}

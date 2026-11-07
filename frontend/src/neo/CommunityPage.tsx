@@ -3,6 +3,7 @@ import { Link } from "../router";
 import { HoloPanel, NeoEmptyState } from "./NeoComponents";
 import NeoIcon from "./NeoIcon";
 import CommunityMagicEntry from "./CommunityMagicEntry";
+import { communityPostUrl } from "./headlineFeedModel";
 import "./community.css";
 import "./communityArcane.css";
 
@@ -53,14 +54,16 @@ function CommentSection({ board, snapshot, post }: { board: Board; snapshot: str
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [unsupported, setUnsupported] = useState(false);
   const [more, setMore] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    setBusy(true); setFailed(false);
+    setBusy(true); setFailed(false);setUnsupported(false);
     fetch(`/api/community/${board}/comments?${new URLSearchParams({ snapshot, post_id: post.id, page: String(page) })}`, { signal: controller.signal })
       .then(async r => { if (!r.ok) throw new Error(); return r.json(); })
       .then(data => {
         if (controller.signal.aborted) return;
+        if (data.status === "unsupported") {setUnsupported(true);return;}
         if (data.status !== "ok") throw new Error();
         setItems(current => page === 1 ? data.items : [...new Map([...current, ...data.items].map((c: SourceComment) => [c.id, c])).values()] as SourceComment[]);
         setTotal(data.total); setMore(data.has_more);
@@ -72,7 +75,8 @@ function CommentSection({ board, snapshot, post }: { board: Board; snapshot: str
   return <section className="cf-comments" aria-label="원문 댓글" aria-busy={busy}>
     <header><h3>댓글 <span>{total ?? items.length}</span></h3><button type="button" disabled={busy} onClick={() => { setPage(1); setRevision(n => n + 1); }} aria-label="댓글 새로고침">↻</button></header>
     {busy && <p className="cf-comment-status" role="status">댓글을 불러오는 중…</p>}
-    {!busy && !failed && !items.length && <p className="cf-comment-status">아직 공개 댓글이 없습니다.</p>}
+    {!busy && !failed && !unsupported && !items.length && <p className="cf-comment-status">아직 공개 댓글이 없습니다.</p>}
+    {unsupported && <p className="cf-comment-status">이 출처의 댓글은 <a href={post.url} target="_blank" rel="noopener noreferrer">원문에서 확인할 수 있습니다 ↗</a></p>}
     {items.map((comment, i) => <article key={comment.id} className={`cf-comment${comment.parent_id ? " is-reply" : ""}`}>
       <div className="cf-comment-meta"><span className="cf-comment-number">{i + 1}</span><strong>{comment.parent_id ? "답글" : "댓글"} {i + 1}</strong>{comment.published_at && <time dateTime={comment.published_at}>{stamp(comment.published_at)}</time>}</div>
       <div className="cf-comment-body"><FullPost blocks={comment.blocks} original={post.url} /></div>
@@ -90,7 +94,10 @@ export default function CommunityPage({ board }: { board: Board }) {
   const [search, setSearch] = useState(query);
   const [source, setSource] = useState(initial.get("source") || "");
   const [topic, setTopic] = useState(initial.get("topic") || "");
-  const [snapshot, setSnapshot] = useState("");
+  const [snapshot, setSnapshot] = useState(/^[a-f0-9]{32}$/.test(initial.get("snapshot") || "") ? initial.get("snapshot")! : "");
+  const [deepLink, setDeepLink] = useState(() => initial.toString());
+  const [readerSnapshot, setReaderSnapshot] = useState("");
+  const [entryError, setEntryError] = useState("");
   const [feed, setFeed] = useState<Feed | null>(null);
   const [pending, setPending] = useState<Feed | null>(null);
   const [selected, setSelected] = useState<Post | null>(null);
@@ -109,15 +116,35 @@ export default function CommunityPage({ board }: { board: Board }) {
   const selectedIndex = feed?.items.findIndex(p => p.id === selected?.id) ?? -1;
 
   useEffect(() => {
+    const changed = () => { setDeepLink(window.location.search.slice(1)); if (!new URLSearchParams(window.location.search).has('post_id')) setSelected(null); };
+    window.addEventListener('popstate', changed);
+    return () => window.removeEventListener('popstate', changed);
+  }, []);
+
+  useEffect(() => {
+    const query = new URLSearchParams(deepLink), id = query.get('post_id');
+    if (!id) return;
+    const controller = new AbortController();
+    setEntryError("");
+    const params = new URLSearchParams({post_id:id});
+    if (/^[a-f0-9]{32}$/.test(query.get('snapshot') || '')) params.set('snapshot',query.get('snapshot')!);
+    fetch(`/api/community/${board}/entry?${params}`,{signal:controller.signal})
+      .then(async r=>{if(!r.ok)throw new Error();return r.json();})
+      .then(data=>{if(!controller.signal.aborted){setReaderSnapshot(data.snapshot);setSelected(data.post);}})
+      .catch(()=>{if(!controller.signal.aborted)setEntryError('선택한 글을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');});
+    return ()=>controller.abort();
+  },[board,deepLink,revision]);
+
+  useEffect(() => {
     setBlocks([]); setPreviewId("");
-    if (!selected || !feed) return;
+    if (!selected || !(readerSnapshot || feed?.snapshot)) return;
     const controller = new AbortController();
     setPreviewBusy(true);
-    fetch(`/api/community/${board}/post?${new URLSearchParams({ snapshot: feed.snapshot, post_id: selected.id })}`, { signal: controller.signal })
+    fetch(`/api/community/${board}/post?${new URLSearchParams({ snapshot: readerSnapshot || feed!.snapshot, post_id: selected.id })}`, { signal: controller.signal })
       .then(r => r.ok ? r.json() : { blocks: [] }).then(data => { if (!controller.signal.aborted) { setBlocks(Array.isArray(data.blocks) ? data.blocks : []); setPreviewId(selected.id); } })
       .catch(() => { if (!controller.signal.aborted) setPreviewId(selected.id); }).finally(() => { if (!controller.signal.aborted) setPreviewBusy(false); });
     return () => controller.abort();
-  }, [board, selected, feed]);
+  }, [board, selected, readerSnapshot, feed?.snapshot]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -126,14 +153,20 @@ export default function CommunityPage({ board }: { board: Board }) {
     if (snapshot) params.set("snapshot", snapshot);
     else params.set("refresh", "true");
     fetch(`/api/community/${board}?${params}`, { signal: controller.signal }).then(async r => {
-      if (!r.ok) throw new Error(r.status === 409 ? "읽던 목록이 만료되었습니다. 최신 목록을 불러와 주세요." : "목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      if (r.status === 409 && snapshot) { setSnapshot(""); throw new Error("목록을 갱신하고 있습니다…"); }
+      if (!r.ok) throw new Error("목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
       return r.json() as Promise<Feed>;
     }).then(data => {
       setFeed(data);
       const url = new URL(window.location.href);
-      for (const [k, v] of Object.entries({ page: String(page), q: query, source, topic, snapshot: data.snapshot })) { if (v) url.searchParams.set(k, v); else url.searchParams.delete(k); }
+      for (const [k, v] of Object.entries({ page: String(page), q: query, source, topic, ...(url.searchParams.has('post_id') ? {} : {snapshot: data.snapshot}) })) { if (v) url.searchParams.set(k, v); else url.searchParams.delete(k); }
       window.history.replaceState(window.history.state, "", url);
-      if (jumpToReader.current && data.items.length) { setSelected(data.items[jumpToReader.current < 0 ? data.items.length - 1 : 0]); jumpToReader.current = 0; }
+      if (jumpToReader.current && data.items.length) {
+        const next=data.items[jumpToReader.current < 0 ? data.items.length - 1 : 0];
+        setReaderSnapshot(data.snapshot);setSelected(next);
+        window.history.replaceState(window.history.state,'',communityPostUrl(board,next.id,data.snapshot));
+        jumpToReader.current = 0;
+      }
     }).catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setBusy(false); });
     return () => controller.abort();
   }, [board, page, query, source, topic, snapshot, revision]);
@@ -183,25 +216,31 @@ export default function CommunityPage({ board }: { board: Board }) {
     if (!selected) return;
     const previous = document.body.style.overflow;
     const portrait = matchMedia("(max-width: 699px) and (orientation: portrait)");
-    const rotate = () => { document.body.style.overflow = portrait.matches ? "hidden" : previous; };
-    rotate(); portrait.addEventListener("change", rotate);
+    const rotate = () => { document.body.style.overflow = portrait.matches ? "hidden" : previous;
+      const bottom=Math.max(0,...[...document.querySelectorAll('.ng-header,.ng-top-rail')].map(node=>node.getBoundingClientRect().bottom));
+      reader.current?.style.setProperty('--cf-reader-offset',`${Math.ceil(bottom)}px`);
+      const nav=document.querySelector('.ng-mobile-nav')?.getBoundingClientRect();
+      reader.current?.style.setProperty('--cf-reader-bottom',`${nav?.height ? Math.max(0,innerHeight-nav.top) : 0}px`);
+    };
+    rotate(); portrait.addEventListener("change", rotate);window.addEventListener('resize',rotate);
     reader.current?.focus({ preventScroll: true });
     reader.current?.scrollTo(0, 0);
     const keys = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setSelected(null); returnTo.current?.focus(); }
+      if (e.key === "Escape") { closeReading(); }
       if (e.key !== "Tab" || !portrait.matches) return;
       const els = [...(reader.current?.querySelectorAll<HTMLElement>("button:not(:disabled),a[href]") || [])];
       if (e.shiftKey && document.activeElement === els[0]) { e.preventDefault(); els[els.length - 1]?.focus(); }
       else if (!e.shiftKey && document.activeElement === els[els.length - 1]) { e.preventDefault(); els[0]?.focus(); }
     };
     window.addEventListener("keydown", keys);
-    return () => { document.body.style.overflow = previous; portrait.removeEventListener("change", rotate); window.removeEventListener("keydown", keys); };
+    return () => { document.body.style.overflow = previous; portrait.removeEventListener("change", rotate);window.removeEventListener('resize',rotate); window.removeEventListener("keydown", keys); };
   }, [selected]);
 
-  const reset = () => { setPage(1); setSelected(null); setPending(null); };
+  const closeReading = () => {setSelected(null);setEntryError("");setDeepLink("");const url=new URL(window.location.href);url.searchParams.delete('post_id');window.history.pushState(window.history.state,'',url);returnTo.current?.focus();};
+  const reset = () => { setPage(1); closeReading(); setPending(null); };
   const fresh = () => { reset(); setSnapshot(""); setRevision(n => n + 1); };
-  const changePage = (n: number, continueReading = false) => { if (!feed) return; setSnapshot(feed.snapshot); setPage(n); if (!continueReading) setSelected(null); jumpToReader.current = continueReading ? n < page ? -1 : 1 : 0; };
-  const open = (post: Post, element?: HTMLElement) => { if (element) returnTo.current = element; setSelected(post); };
+  const changePage = (n: number, continueReading = false) => { if (!feed) return; setSnapshot(feed.snapshot); setPage(n); if (!continueReading) closeReading(); jumpToReader.current = continueReading ? n < page ? -1 : 1 : 0; };
+  const open = (post: Post, element?: HTMLElement) => { if (element) returnTo.current = element;setEntryError("");setReaderSnapshot(feed?.snapshot || "");setSelected(post);const url=communityPostUrl(board,post.id,feed?.snapshot);window.history.pushState(window.history.state,'',url);setDeepLink(url.split('?')[1]); };
   const navigatePost = (direction: number) => {
     const next = feed?.items[selectedIndex + direction];
     if (next) open(next);
@@ -226,7 +265,7 @@ export default function CommunityPage({ board }: { board: Board }) {
       {!error && busy && (!feed || feed.page !== page) && <div className="cf-loading" role="status" aria-live="polite">커뮤니티의 최신 이야기를 모으고 있습니다…<div />{[1, 2, 3, 4, 5].map(n => <div className="cf-skeleton" key={n} />)}</div>}
       {!error && !busy && feed && !feed.items.length && <NeoEmptyState title={feed.refreshing ? "새 글의 본문과 첨부를 확인하고 있습니다" : feed.total ? "이 페이지에 글이 없습니다" : feed.sources.every(s => s.status !== "ok") ? "현재 원천 수집이 지연되고 있습니다" : "조건에 맞는 글이 없습니다"}>{feed.refreshing ? "확인이 끝난 글부터 표시합니다." : "검색어와 출처를 바꾸거나 새로고침해 주세요."}</NeoEmptyState>}
       {(!busy || feed?.page === page) && <div className="cf-posts">{feed?.items.map((p, i) => <button className="cf-post" key={p.id} aria-pressed={selected?.id === p.id} onClick={e => open(p, e.currentTarget)}><span className="cf-number">{String((page - 1) * 50 + i + 1).padStart(2, "0")}</span><span className="cf-post-main"><span className="cf-post-meta"><span>{p.source}</span><span className="cf-tag">{p.topic}</span>{p.language === "en" && <span>EN</span>}{!!p.duplicate_count && <span className="cf-duplicate">같은 제목 {p.duplicate_count + 1}건 묶음</span>}</span><strong>{p.title}</strong><span className="cf-post-bottom"><time dateTime={p.published_at} title={stamp(p.published_at)}>{relative(p.published_at)}<span> · {stamp(p.published_at)}</span></time>{p.comments != null && <span>댓글 {p.comments}</span>}</span></span><span className="cf-post-arrow" aria-hidden="true">↗</span></button>)}</div>}{pagination}</HoloPanel>
-      <aside className={`cf-reader${selected ? " is-open" : ""}`} ref={reader} tabIndex={-1} aria-label="선택한 게시글 읽기"><div className="cf-reader-top"><span>READING ROOM</span>{selected && <div className="cf-reader-shortcuts"><button disabled={busy || (selectedIndex <= 0 && page <= 1)} onClick={() => navigatePost(-1)} aria-label="이전 글 바로 읽기">←</button><button disabled={busy || !feed || (selectedIndex >= feed.items.length - 1 && page >= feed.pages)} onClick={() => navigatePost(1)} aria-label="다음 글 바로 읽기">→</button></div>}<button onClick={() => { setSelected(null); returnTo.current?.focus(); }} aria-label="읽기 닫고 목록으로 돌아가기">목록으로 ✕</button></div>{selected ? <><div className="cf-reader-meta"><span className="cf-tag">{selected.topic}</span><span>{selected.source}</span></div><h2>{selected.title}</h2><time dateTime={selected.published_at}>{stamp(selected.published_at)} KST{selected.comments != null ? ` · 댓글 ${selected.comments}` : ""}</time><div className="cf-reader-content" aria-busy={previewBusy}>{previewBusy || previewId !== selected.id ? <p role="status">본문을 불러오는 중…</p> : blocks.length ? <FullPost blocks={blocks} original={selected.url} /> : <p className="cf-content-unavailable">원문 사이트에서 본문을 가져오지 못했습니다. 아래 원문 링크에서 확인해 주세요.</p>}<div className="cf-original-row"><a className="cf-original" href={selected.url} target="_blank" rel="noopener noreferrer">원문 보기 ↗</a></div></div>{previewId === selected.id && !previewBusy && <CommentSection key={selected.id} board={board} snapshot={feed!.snapshot} post={selected} />}{!!selected.related_posts?.length && <details className="cf-related"><summary>같은 제목으로 묶인 원문 {selected.duplicate_count}건</summary><p>동일한 제목의 반복 등록 글을 묶었습니다. 본문 내용은 다를 수 있습니다.</p>{selected.related_posts.map(p => <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer"><span>{p.source} · {stamp(p.published_at)}</span><strong>{p.title} ↗</strong></a>)}</details>}<div className="cf-reader-nav"><button disabled={busy || (selectedIndex <= 0 && page <= 1)} onClick={() => navigatePost(-1)}>← 이전 글</button><span>{selectedIndex + 1} / {feed?.items.length}</span><button disabled={busy || !feed || (selectedIndex >= feed.items.length - 1 && page >= feed.pages)} onClick={() => navigatePost(1)}>다음 글 →</button></div>{feed?.items[selectedIndex + 1] && <button className="cf-up-next" onClick={() => navigatePost(1)}><span>다음 이야기</span><strong>{feed.items[selectedIndex + 1].title}</strong>→</button>}</> : <div className="cf-reader-empty"><NeoIcon name="news" /><span>여러 관점, 하나의 흐름.</span><h2>궁금한 이야기를<br />선택해 보세요.</h2><div>01 선택 <i>→</i> 02 원문 읽기 <i>→</i> 03 다음 글</div></div>}</aside>
+      <aside className={`cf-reader${selected ? " is-open" : ""}`} ref={reader} tabIndex={-1} aria-label="선택한 게시글 읽기"><div className="cf-reader-top"><span>READING ROOM</span>{selected && <div className="cf-reader-shortcuts"><button disabled={busy || (selectedIndex <= 0 && page <= 1)} onClick={() => navigatePost(-1)} aria-label="이전 글 바로 읽기">←</button><button disabled={busy || !feed || (selectedIndex >= feed.items.length - 1 && page >= feed.pages)} onClick={() => navigatePost(1)} aria-label="다음 글 바로 읽기">→</button></div>}<button onClick={closeReading} aria-label="읽기 닫고 목록으로 돌아가기">목록으로 ✕</button></div>{entryError && <p role="status">{entryError}<button type="button" onClick={()=>setRevision(n=>n+1)}>다시 시도</button></p>}{selected ? <><div className="cf-reader-meta"><span className="cf-tag">{selected.topic}</span><span>{selected.source}</span></div><h2>{selected.title}</h2><time dateTime={selected.published_at}>{stamp(selected.published_at)} KST{selected.comments != null ? ` · 댓글 ${selected.comments}` : ""}</time><div className="cf-reader-content" aria-busy={previewBusy}>{previewBusy || previewId !== selected.id ? <p role="status">본문을 불러오는 중…</p> : blocks.length ? <FullPost blocks={blocks} original={selected.url} /> : <p className="cf-content-unavailable">원문 사이트에서 본문을 가져오지 못했습니다. 아래 원문 링크에서 확인해 주세요.</p>}<div className="cf-original-row"><a className="cf-original" href={selected.url} target="_blank" rel="noopener noreferrer">원문 보기 ↗</a></div></div>{previewId === selected.id && !previewBusy && <CommentSection key={selected.id} board={board} snapshot={readerSnapshot || feed!.snapshot} post={selected} />}{!!selected.related_posts?.length && <details className="cf-related"><summary>같은 제목으로 묶인 원문 {selected.duplicate_count}건</summary><p>동일한 제목의 반복 등록 글을 묶었습니다. 본문 내용은 다를 수 있습니다.</p>{selected.related_posts.map(p => <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer"><span>{p.source} · {stamp(p.published_at)}</span><strong>{p.title} ↗</strong></a>)}</details>}<div className="cf-reader-nav"><button disabled={busy || (selectedIndex <= 0 && page <= 1)} onClick={() => navigatePost(-1)}>← 이전 글</button><span>{selectedIndex >= 0 ? `${selectedIndex + 1} / ${feed?.items.length}` : '선택한 글'}</span><button disabled={busy || !feed || (selectedIndex >= feed.items.length - 1 && page >= feed.pages)} onClick={() => navigatePost(1)}>다음 글 →</button></div>{feed?.items[selectedIndex + 1] && <button className="cf-up-next" onClick={() => navigatePost(1)}><span>다음 이야기</span><strong>{feed.items[selectedIndex + 1].title}</strong>→</button>}</> : <div className="cf-reader-empty"><NeoIcon name="news" /><span>여러 관점, 하나의 흐름.</span><h2>궁금한 이야기를<br />선택해 보세요.</h2><div>01 선택 <i>→</i> 02 원문 읽기 <i>→</i> 03 다음 글</div></div>}</aside>
     </div><footer className="cf-footnote"><details><summary>수집 출처와 갱신 상태</summary><div>{feed?.sources.map(s => <p key={s.id}><span>{s.name}</span><b>{s.status === "ok" ? `${s.count}개 확인` : s.status === "empty" ? "공개 글 없음" : "수집 지연 · 기존 목록 유지"}</b></p>)}</div><p>공개 제목 색인 · 같은 원문과 동일 제목의 반복 글은 묶어 표시합니다. 주제는 제목의 키워드 기준입니다. 검색은 현재 수집 목록에 적용됩니다. 페이지 이동 중에는 같은 수집 시점의 순서를 유지합니다. 서버 재시작 시 목록을 새로 수집합니다.</p></details><p>커뮤니티 글은 작성자의 의견입니다. 실제 시세와 거래 정보는 상단 시장 링크에서 함께 확인하세요.</p></footer>
   </main>;
 }

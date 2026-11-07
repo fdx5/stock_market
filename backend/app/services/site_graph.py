@@ -120,7 +120,9 @@ DEPOTS: list[dict] = [
     {"id": "up:resend", "label": "Resend 메일", "group": "upstream"},
     {"id": "up:paxnet", "label": "팍스넷 공개 게시글·댓글", "group": "upstream"},
     {"id": "up:82cook", "label": "82cook 공개 게시판", "group": "upstream"},
-    {"id": "up:dcinside", "label": "디시인사이드 코스피·미국주식·부동산", "group": "upstream"},
+    {"id": "up:ppomppu", "label": "뽐뿌 증권·부동산 포럼", "group": "upstream"},
+    {"id": "up:damoang", "label": "다모앙 주식한당", "group": "upstream"},
+    {"id": "up:clien", "label": "클리앙 주식한당", "group": "upstream"},
 ]
 
 # ───────────────────────── page → api (hand-maintained) ─────────────────────────
@@ -671,7 +673,7 @@ VISITOR_SHELL_CALLS: list[str] = ["/api/activity/event"]
 # reads Naver through the same cache, and listing them one by one would be twenty lines
 # saying the same thing. Longest prefix wins, so a specific route can still override.
 API_DEPENDS: list[tuple[str, list[str]]] = [
-    ("/api/community", ["store:cache", "up:dcinside"]),
+    ("/api/community", ["store:cache", "up:ppomppu", "up:damoang", "up:clien", "up:82cook"]),
     ("/api/market-brief", ["store:cache", "store:turso", "up:naver", "up:fdr", "up:bing"]),
     ("/api/etfs/{code}/toss-discussion", ["store:cache", "up:toss"]),
     ("/api/etfs/discussions", ["store:cache", "up:naver", "up:toss"]),

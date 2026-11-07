@@ -24,9 +24,9 @@ from bs4 import BeautifulSoup, NavigableString, Tag, Comment
 KST = timezone(timedelta(hours=9))
 UA = "KospimapCommunity/1.0 (public discussion index; no AI training)"
 SOURCES = {
-    "kr": [("dc-kospi", "디시인사이드 · 코스피", "dc", "kospi")],
-    "global": [("dc-stockus", "디시인사이드 · 미국 주식", "dc", "stockus")],
-    "property": [("dc-immovables", "디시인사이드 · 부동산", "dc", "immovables")],
+    "kr": [("pp-stock", "뽐뿌 · 증권포럼", "pp", "stock"), ("da-stock", "다모앙 · 주식한당", "da", "stock"), ("cl-stock", "클리앙 · 주식한당", "cl", "cm_stock")],
+    "global": [("pp-stock", "뽐뿌 · 증권포럼", "pp", "stock"), ("da-stock", "다모앙 · 주식한당", "da", "stock"), ("cl-stock", "클리앙 · 주식한당", "cl", "cm_stock")],
+    "property": [("pp-house", "뽐뿌 · 부동산포럼", "pp", "house"), ("82-property", "82쿡 · 부동산 이야기", "82", "부동산"), ("82-apartment", "82쿡 · 아파트 이야기", "82", "아파트")],
 }
 DC_GALLERIES = {"kospi": "mgallery/board", "stockus": "mgallery/board", "immovables": "board"}
 _locks = {key: Lock() for key in SOURCES}
@@ -43,6 +43,10 @@ _log = logging.getLogger(__name__)
 _body_failures = {}
 _body_backoff = {}
 _comment_cache = OrderedDict()
+_list_cache = OrderedDict()
+_list_locks = {}
+_request_locks = {}
+_request_next = {}
 
 
 def clean(value):
@@ -106,6 +110,12 @@ def deduplicate(items):
 def _request(url, form=None, referer=None):
     # Fixed, code-owned URLs only. Redirects are not followed to a new origin.
     headers = {"User-Agent": UA}
+    host = urlparse(url).netloc
+    with _guard: pace = _request_locks.setdefault(host, Lock())
+    with pace:
+        delay = _request_next.get(host, 0) - time.monotonic()
+        if delay > 0: time.sleep(delay)
+        _request_next[host] = time.monotonic() + (.65 if host.endswith('ppomppu.co.kr') else .35)
     if referer: headers.update({"Referer": referer, "X-Requested-With": "XMLHttpRequest"})
     # The sole POST endpoint is the upstream's read-only comment listing.
     if form is not None and url != "https://gall.dcinside.com/board/comment/": raise ValueError("unsupported read endpoint")
@@ -145,6 +155,19 @@ def _topic(title):
     if re.search(r"가격|시세|집값|매매|전세|월세|실거래|분양", title): return "시세·거래"
     if re.search(r"질문|궁금|까요|나요|어떤|어떻", title): return "질문"
     return "의견"
+
+
+def _list_get(url):
+    # Korea/global share the same stock boards. Coalesce their public list fetches.
+    with _guard: gate = _list_locks.setdefault(url, Lock())
+    with gate:
+        with _guard: hit = _list_cache.get(url)
+        if hit and time.monotonic() - hit[0] < 30: return hit[1]
+        body = _get(url)
+        with _guard:
+            _list_cache[url] = (time.monotonic(), body)
+            while len(_list_cache) > 32: _list_cache.popitem(last=False)
+        return body
 
 
 def parse_82(data, source, board):
@@ -190,6 +213,78 @@ def parse_pax(data, source, board):
     return items
 
 
+_GLOBAL_TITLE = re.compile(r"미국|미장|해외|나스닥|다우|뉴욕|월가|연준|미주|테슬라|엔비디아|엔비디|애플|마이크로소프트|아마존|구글|알파벳|팔란티어|TSMC|Nvidia|NASDAQ|S&P|\b(?:QQQ|TQQQ|SOXL|SCHD|JEPI|JEPQ|SPY|VOO|VTI|TSLA|NVDA|AMD|MSFT|AAPL|PLTR|GOOG|META)\b", re.I)
+_FINANCE_TITLE = re.compile(r"주식|주가|증시|시황|시총|시가총액|코스피|코스닥|국장|삼성|하이닉스|금리|환율|매수|매도|물타기|투자|수익|손실|배당|실적|거래|상장|급락|급등|반등|공매도|ETF|ETN|증권|채권|경제|계좌|주린이|연금|반도체|포트폴리오", re.I)
+_PROPERTY_TITLE = re.compile(r"부동산|아파트|집값|전세|월세|분양|재건축|재개발|주택|매매|실거래|대출|청약|평당|평형|국평|토지|임대|상가|오피스텔|용적률|건폐율|집주인|세입자|다주택|1주택|2주택|양도세|보유세|종부세|취득세")
+_PROMOTION_TITLE = re.compile(r"리딩방|수익보장|원금보장|종목추천방|오픈채팅|카톡방|텔레그램방|무료체험|가입이벤트|광고문의|씨발|(?<![가-힣])시발(?![가-힣])|개새끼|병신|좆|ㅅㅂ|ㅂㅅ", re.I)
+
+
+def relevant_title(title, board):
+    if len(title) < 6 or _PROMOTION_TITLE.search(title): return False
+    if board == "property": return bool(_PROPERTY_TITLE.search(title))
+    foreign = bool(_GLOBAL_TITLE.search(title))
+    return foreign if board == "global" else not foreign and bool(_FINANCE_TITLE.search(title))
+
+
+def source_time(value):
+    for fmt in ("%y.%m.%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try: return datetime.strptime(clean(value), fmt).replace(tzinfo=KST).astimezone(timezone.utc).isoformat()
+        except ValueError: pass
+    return None
+
+
+def forum_item(source, number, title, written, url, comments=None):
+    return {"id": f"{source[2]}-{source[3]}-{number}", "title": title[:300], "published_at": written,
+            "url": url, "source_id": source[0], "source": source[1], "language": "ko", "topic": _topic(title),
+            "comments": comments, "excerpt": "", "excerpt_kind": "공개 원문 확인"}
+
+
+def parse_pp(data, source, board):
+    items = []
+    for row in html_soup(data).select("tr.baseList"):
+        number, anchor, date = row.select_one('.baseList-numb'), row.select_one('a.baseList-title'), row.select_one('time[title]')
+        if not number or not number.get_text(strip=True).isdigit() or not anchor or not date: continue
+        query = parse_qs(urlparse(anchor.get('href', '')).query)
+        if query.get('id') != [source[3]] or query.get('no') != [number.get_text(strip=True)]: continue
+        title = clean(anchor.get_text(' ', strip=True))
+        written = source_time(date['title'])
+        if not written or not relevant_title(title, board): continue
+        count = row.select_one('.baseList-c')
+        items.append(forum_item(source, number.get_text(strip=True), title, written,
+                     'https://www.ppomppu.co.kr/zboard/view.php?' + urlencode({'id':source[3], 'no':number.get_text(strip=True)}),
+                     int(re.sub(r'\D','',count.get_text()) or 0) if count else None))
+    return items
+
+
+def parse_cl(data, source, board):
+    items = []
+    for row in html_soup(data).select('.list_item:not(.notice)'):
+        anchor, title_node, date = row.select_one('a.list_subject'), row.select_one('.subject_fixed'), row.select_one('.timestamp')
+        if not anchor or not title_node or not date: continue
+        match = re.fullmatch(r'/service/board/cm_stock/(\d+)', urlparse(anchor.get('href','')).path)
+        title = clean(title_node.get('title') or title_node.get_text())
+        written = source_time(date.get_text())
+        if not match or not written or not relevant_title(title, board): continue
+        items.append(forum_item(source, match[1], title, written, 'https://www.clien.net'+match[0]))
+    return items
+
+
+def parse_da(data, source, board):
+    items = []
+    for row in html_soup(data).select('a.post-row'):
+        match = re.fullmatch(r'/stock/(\d+)', urlparse(row.get('href','')).path)
+        title_node, date = row.select_one('.post-title'), row.select_one('.date-today')
+        if not match or not title_node or not date: continue
+        title = clean(title_node.get('title') or title_node.get_text())
+        value = clean(date.get_text())
+        if not relevant_title(title, board) or not re.fullmatch(r'\d{2}:\d{2}',value): continue
+        # Only the provider's explicitly marked "today" rows; never relabel an
+        # undated/old article as current. Body JSON-LD supplies exact seconds.
+        written = source_time(datetime.now(KST).strftime('%Y-%m-%d ') + value + ':00')
+        if written: items.append(forum_item(source, match[1], title, written, 'https://damoang.net'+match[0]))
+    return items
+
+
 def parse_dc(data, source, board):
     """Real creation timestamps only; pinned notices and promotions are not fresh posts."""
     soup = html_soup(data)
@@ -219,7 +314,20 @@ def parse_dc(data, source, board):
 
 def collect(source, board):
     try:
-        if source[2] == "dc":
+        if source[2] in {"pp", "cl", "da"}:
+            items = []
+            for page in range(1, 5 if source[2] == "pp" else 2):
+                if source[2] == "pp":
+                    url = 'https://www.ppomppu.co.kr/zboard/zboard.php?' + urlencode({'id':source[3], 'page':page})
+                    try: batch = parse_pp(_list_get(url), source, board)
+                    except Exception:
+                        if items: break
+                        raise
+                elif source[2] == "cl":
+                    batch = parse_cl(_list_get('https://www.clien.net/service/board/cm_stock'), source, board)
+                else: batch = parse_da(_list_get('https://damoang.net/stock'), source, board)
+                items.extend(batch)
+        elif source[2] == "dc":
             items = []
             for page in range(1, 7 if board == "property" else 4):
                 url = f"https://gall.dcinside.com/{DC_GALLERIES[source[3]]}/lists/?" + urlencode({"id": source[3], "page": page})
@@ -231,9 +339,10 @@ def collect(source, board):
             items = []
             for page in range(1, 4):
                 url = "https://www.82cook.com/entiz/enti.php?" + urlencode({"bn": "15", "searchType": "search", "search1": "1", "keys": source[3], "page": page})
-                batch = parse_82(_get(url), source, board)
+                batch = parse_82(_list_get(url), source, board)
                 items.extend(batch)
                 if not batch: break
+            items = [item for item in items if relevant_title(item['title'], board)]
         else:
             items = []
             for page in range(1, 7 if board == "property" else 4):
@@ -242,6 +351,9 @@ def collect(source, board):
                 batch = parse_pax(_get("https://www.paxnet.co.kr/tbbs/list?" + urlencode(params)), source, board)
                 items.extend(batch)
                 if not batch: break
+        if source[2] != 'dc':
+            cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+            items = [item for item in items if cutoff <= datetime.fromisoformat(item['published_at']) <= datetime.now(timezone.utc) + timedelta(minutes=5)]
         return items, {"id": source[0], "name": source[1], "status": "ok" if items else "empty", "count": len(items)}
     except Exception:
         return [], {"id": source[0], "name": source[1], "status": "unavailable", "count": 0}
@@ -355,7 +467,7 @@ def attachment_url(value, base):
     if url.scheme not in {"https", "http"} or url.username or url.password: return None
     allowed = {"www.paxnet.co.kr", "paxnet.co.kr", "image.paxnet.co.kr", "img.paxnet.co.kr", "www.82cook.com", "82cook.com", "gall.dcinside.com", "image.dcinside.com"}
     allowed.update(f"dcimg{i}.dcinside.{suffix}" for i in range(1, 10) for suffix in ("com", "co.kr"))
-    if url.hostname not in allowed: return None
+    if url.hostname not in allowed and not any(url.hostname == root or url.hostname.endswith('.'+root) for root in ('ppomppu.co.kr','clien.net','damoang.net')): return None
     try:
         if url.port not in {None, 80, 443}: return None
     except ValueError: return None
@@ -430,7 +542,9 @@ def public_link(value, base):
 
 def parse_preview(data, url, is_pax=True):
     soup = html_soup(data)
-    selector = ".write_div" if urlparse(url).hostname == "gall.dcinside.com" else "#bbsWrtCntn" if is_pax else ".read_cont, .read_content, #readContent"
+    host = urlparse(url).hostname
+    selector = {"www.ppomppu.co.kr": ".JS_ContentMain .han, .JS_ContentMain", "www.clien.net": "article.post .content, .post_article", "damoang.net": "#economy-post-content, .prose"}.get(host)
+    if not selector: selector = ".write_div" if host == "gall.dcinside.com" else "#bbsWrtCntn" if is_pax else "#articleBody, .read_cont, .read_content, #readContent"
     content = soup.select_one(selector)
     if not content: return {"text": "", "excerpt": "", "images": [], "blocks": [], "status": "unavailable"}
     expand_literal_html(content)
@@ -506,7 +620,17 @@ def parse_preview(data, url, is_pax=True):
     flush()
     text = "\n\n".join(b["text"] for b in blocks if b["type"] == "paragraph")
     # The legacy response field remains for older clients, but is no longer truncated.
-    return {"text": text, "excerpt": text, "images": images, "blocks": blocks, "status": "ok" if blocks else "empty"}
+    result = {"text": text, "excerpt": text, "images": images, "blocks": blocks, "status": "ok" if blocks else "empty"}
+    if host == 'damoang.net':
+        for node in soup.select('script[type="application/ld+json"]'):
+            try:
+                data = json.loads(node.get_text())
+                for entry in data if isinstance(data, list) else [data]:
+                    if entry.get('@type') == 'DiscussionForumPosting':
+                        date = datetime.fromisoformat(entry['datePublished'].replace('Z','+00:00'))
+                        if date.tzinfo: result['published_at'] = date.astimezone(timezone.utc).isoformat()
+            except (ValueError, KeyError, TypeError, AttributeError): pass
+    return result
 
 
 def load_post(item):
@@ -546,7 +670,77 @@ def load_post(item):
 def verified_post(item):
     body = item.get("_body") or load_post(item)
     if body.get("status") != "ok" or not body.get("blocks"): return None
-    return dict(item, _body=body)
+    return dict(item, _body=body, published_at=body.get('published_at') or item['published_at'])
+
+
+def entry(board, post_id, snapshot=None):
+    """A stable internal article link, including after its list snapshot expires.
+
+    Destinations are reconstructed only from active provider IDs, never a URL
+    supplied by a visitor. Opening an article does not replace the board feed.
+    """
+    with _guard:
+        data = _snapshots.get(snapshot)
+        snapshots = [data] if data and data['board'] == board else [s for s in reversed(list(_snapshots.values())) if s['board'] == board]
+        for data in snapshots:
+            item = next((p for p in data['items'] if p['id'] == post_id), None)
+            if item: return {'post': {k:v for k,v in item.items() if k != '_body'}, 'snapshot':data['snapshot']}
+    source, url = None, None
+    for candidate in SOURCES[board]:
+        prefix = '82-' if candidate[2] == '82' else f'{candidate[2]}-{candidate[3]}-'
+        number = post_id.removeprefix(prefix)
+        if not post_id.startswith(prefix) or not re.fullmatch(r'\d{1,20}',number): continue
+        source = candidate
+        if candidate[2] == 'pp': url = 'https://www.ppomppu.co.kr/zboard/view.php?'+urlencode({'id':candidate[3],'no':number})
+        elif candidate[2] == 'cl': url = 'https://www.clien.net/service/board/cm_stock/'+number
+        elif candidate[2] == 'da': url = 'https://damoang.net/stock/'+number
+        elif candidate[2] == '82': url = 'https://www.82cook.com/entiz/read.php?'+urlencode({'bn':'15','num':number})
+        break
+    if not source or not url: raise LookupError('article unavailable')
+    raw = _get(url)
+    soup = html_soup(raw)
+    title, written = '', None
+    def metadata(node):
+        nonlocal title, written
+        if isinstance(node, list):
+            for child in node: metadata(child)
+        elif isinstance(node, dict):
+            if node.get('@type') in ('Article','DiscussionForumPosting','BlogPosting'):
+                title = title or clean(node.get('headline',''))
+                if not written and node.get('datePublished'):
+                    try:
+                        parsed = datetime.fromisoformat(node['datePublished'].replace('Z','+00:00'))
+                        if parsed.tzinfo: written = parsed.astimezone(timezone.utc).isoformat()
+                    except ValueError: pass
+            if '@graph' in node: metadata(node['@graph'])
+    for script in soup.select('script[type="application/ld+json"]'):
+        try: metadata(json.loads(script.get_text()))
+        except (ValueError, TypeError): pass
+    if not title:
+        meta = soup.select_one('meta[property="og:title"]')
+        heading = soup.select_one('h4.bbstitle') or soup.select_one('.read_title') or soup.select_one('article h1') or soup.select_one('h1')
+        title = clean(meta.get('content','') if meta else heading.get_text() if heading else '')
+    if not written:
+        node = soup.select_one('time[datetime]')
+        if node:
+            try: written = datetime.fromisoformat(node['datetime']).astimezone(timezone.utc).isoformat()
+            except ValueError: pass
+    if not written and source[2] == '82':
+        node = soup.select_one('.readRight')
+        match = re.search(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', node.get_text() if node else '')
+        if match: written = source_time(match[0])
+    if not written or not relevant_title(title, board): raise LookupError('article metadata unavailable')
+    body = parse_preview(raw, url, False)
+    if body['status'] != 'ok': raise ValueError('article body unavailable')
+    item = forum_item(source, number, title, written, url)
+    item.update(id=post_id, _body=body)
+    key = uuid.uuid4().hex
+    with _guard:
+        _snapshots[key] = {'snapshot':key, 'board':board, 'items':[item], 'sources':[{'id':source[0], 'name':source[1], 'status':'ok', 'count':1}],
+                           'collected_at':datetime.now(timezone.utc).isoformat(), 'checked_at':datetime.now(timezone.utc).isoformat(), 'latest_published_at':written}
+        while len(_snapshots) > 64:
+            _snapshots.pop(next(k for k in _snapshots if k not in _latest.values()))
+    return {'post': {k:v for k,v in item.items() if k != '_body'}, 'snapshot':key}
 
 
 def preview(board, snapshot, post_id):
@@ -643,6 +837,8 @@ def comments(board, snapshot, post_id, page=1):
     if not item: raise LookupError('snapshot expired')
     if cached and time.monotonic() - cached[0] < 30: return cached[1]
     result = {'status': 'unavailable', 'items': [], 'total': None, 'has_more': False, 'page': page}
+    if item['id'].startswith(('pp-','da-','cl-','82-')):
+        return {**result, 'status':'unsupported'}
     query = parse_qs(urlparse(item['url']).query)
     bbs_id, seq = query.get('id', [''])[0], query.get('seq', [''])[0]
     if item['id'].startswith('dc-'):

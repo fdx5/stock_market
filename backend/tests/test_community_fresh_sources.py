@@ -8,13 +8,14 @@ class FreshSourceTests(TestCase):
     def row(self, number="123", kind="icon_txt", title="아파트 전세 시세", written="2026-11-06 11:20:30"):
         return f'''<tr class="ub-content" data-no="{number}" data-type="{kind}"><td class="gall_subject">일반</td><td class="gall_tit"><a href="javascript:evil()">{title}</a><a class="reply_numbox"><span class="reply_num">[12]</span></a></td><td class="gall_writer">PRIVATE-NAME PRIVATE-IP</td><td class="gall_date" title="{written}">11:20</td></tr>'''
 
-    def test_all_active_sources_replace_pax_and_old_search_boards(self):
+    def test_active_sources_mix_domestic_communities_without_dc(self):
         for sources in f.SOURCES.values():
             self.assertTrue(sources)
-            self.assertTrue(all(s[2] == "dc" for s in sources))
+            self.assertTrue(all(s[2] != "dc" for s in sources))
+            self.assertGreaterEqual(len({s[2] for s in sources}), 2)
 
     def test_dc_dates_canonical_urls_and_no_writer_fields(self):
-        item = f.parse_dc(self.row(), f.SOURCES['property'][0], 'property')[0]
+        item = f.parse_dc(self.row(), ('dc-immovables','legacy','dc','immovables'), 'property')[0]
         self.assertEqual(item['published_at'], '2026-11-06T02:20:30+00:00')
         self.assertEqual(item['url'], 'https://gall.dcinside.com/board/view/?id=immovables&no=123')
         self.assertEqual(item['comments'], 12)
@@ -22,8 +23,8 @@ class FreshSourceTests(TestCase):
 
     def test_notices_ads_and_unrelated_property_posts_do_not_displace_latest(self):
         html = self.row(kind='icon_notice') + self.row(number='-', title='광고') + self.row(number='124',title='오늘 점심 뭐 먹지') + self.row(number='125')
-        self.assertEqual([i['id'] for i in f.parse_dc(html, f.SOURCES['property'][0], 'property')], ['dc-immovables-125'])
-        self.assertEqual(f.parse_dc(self.row(written='bad'), f.SOURCES['kr'][0], 'kr'), [])
+        self.assertEqual([i['id'] for i in f.parse_dc(html, ('dc-immovables','legacy','dc','immovables'), 'property')], ['dc-immovables-125'])
+        self.assertEqual(f.parse_dc(self.row(written='bad'), ('dc-kospi','legacy','dc','kospi'), 'kr'), [])
 
     def test_dc_body_and_images_are_readable_and_script_free(self):
         body = f.parse_preview('<div class="write_div"><p>첫 문단<br>둘째 줄</p><img src="https://dcimg4.dcinside.co.kr/viewimage.php?id=abc"><script>evil()</script><div class="appending_file">앱 홍보</div></div>', 'https://gall.dcinside.com/board/view/?id=immovables&no=1')
@@ -51,14 +52,14 @@ class FreshSourceTests(TestCase):
         self.assertEqual(f.parse_dc_comments({},'https://gall.dcinside.com')['status'],'unavailable')
 
     def test_freshness_reports_post_time_independent_of_collection_time(self):
-        item = f.parse_dc(self.row(),f.SOURCES['property'][0],'property')[0]
+        item = f.parse_dc(self.row(),('dc-immovables','legacy','dc','immovables'),'property')[0]
         with patch.object(f,'_snapshots',f.OrderedDict()),patch.object(f,'_latest',{}):
             result=f.publish('property',[item],[{'id':'dc-immovables','status':'ok'}])
         self.assertEqual(result['latest_published_at'],item['published_at'])
         self.assertEqual(result['sources'][0]['latest_published_at'],item['published_at'])
 
     def test_partial_refresh_keeps_prior_verified_active_source_rows(self):
-        fresh = f.parse_dc(self.row(number='2'),f.SOURCES['property'][0],'property')[0]
+        fresh = f.parse_dc(self.row(number='2'),('dc-immovables','legacy','dc','immovables'),'property')[0]
         old = dict(fresh,id='dc-immovables-1',published_at='2026-11-05T01:00:00+00:00',_body={'status':'ok','blocks':[{'type':'paragraph','text':'prior body'}]})
         retired = dict(old,id='pax-1',source_id='pax-property')
         with patch.object(f,'_snapshots',f.OrderedDict()),patch.object(f,'_latest',{}):
