@@ -63,3 +63,81 @@ html[data-design="neo"] .sa-page .ar-reactor { border-color: var(--line-soft); }
   html[data-design="neo"] .sa-page .am-view-nav { top: calc(var(--ng-header) + var(--ng-pulse)); }
 }
 html[data-design="neo"] .sa-page:fullscreen .am-view-nav { top: 8px; }
+
+/* Atlas navigation owns its space instead of sticking over the reactor heading.
+   Use the admin container width: the site menu already consumes viewport space. */
+html[data-design="neo"] .sa-page .am-view-nav {
+  position: static;
+  top: auto;
+  z-index: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: visible;
+  margin: 0 0 22px;
+  padding: 6px;
+  box-shadow: none;
+}
+html[data-design="neo"] .sa-page .am-view-nav button {
+  flex: 1 0 118px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+}
+html[data-design="neo"] .sa-page .sa-header {
+  height: auto;
+  min-height: 60px;
+  flex-wrap: wrap;
+  padding-block: 12px;
+}
+html[data-design="neo"] .sa-page :is(.sa-breadcrumb,.sa-header-right) {
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+html[data-design="neo"] .sa-page .ar-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 270px);
+  align-items: start;
+  gap: 20px 28px;
+  margin: 0 0 24px;
+}
+html[data-design="neo"] .sa-page .ar-heading > div { min-width: 0; }
+html[data-design="neo"] .sa-page .ar-heading h1 {
+  font-size: clamp(28px, 3.4cqw, 48px);
+  line-height: 1.24;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+html[data-design="neo"] .sa-page .ar-description { margin-top: 12px; line-height: 1.7; }
+html[data-design="neo"] .sa-page .ar-heading-meta {
+  width: auto;
+  max-width: 100%;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+html[data-design="neo"] .sa-page .ar-heading-meta > button {
+  min-height: 40px;
+  max-width: 100%;
+  white-space: normal;
+}
+@container admin (max-width: 900px) {
+  html[data-design="neo"] .sa-page .ar-heading { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  html[data-design="neo"] .sa-page .ar-heading-meta {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px 16px;
+    text-align: left;
+  }
+  html[data-design="neo"] .sa-page .ar-heading-meta > button { margin: 0; }
+}
+@container admin (max-width: 600px) {
+  html[data-design="neo"] .sa-page .am-view-nav { margin-bottom: 16px; }
+  html[data-design="neo"] .sa-page .am-view-nav button { flex-basis: calc(50% - 3px); padding-inline: 8px; }
+  html[data-design="neo"] .sa-page .ar-heading-meta { align-items: flex-start; flex-direction: column; }
+  html[data-design="neo"] .sa-page .ar-heading-meta > button { width: 100%; }
+}
