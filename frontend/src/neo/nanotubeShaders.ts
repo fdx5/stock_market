@@ -99,14 +99,15 @@ void main(){
 }
 `;
 export const HULL_FRAGMENT = `
-precision mediump float;
+precision highp float;
 uniform float u_intensity;
 varying vec3 v_surfaceColor;
 varying vec3 v_surface;
 void main(){
   float face=clamp(abs(v_surface.x),0.,1.);
   float rim=pow(1.-face,2.6);
-  float sheen=exp(-pow((face-.7)/.2,2.));
+  float sheenOffset=(face-.7)/.2;
+  float sheen=exp(-sheenOffset*sheenOffset);
   float fade=smoothstep(.015,.085,v_surface.y)*(1.-smoothstep(.915,.985,v_surface.y));
   float depth=.72+.28*smoothstep(-150.,150.,v_surface.z);
   float alpha=(.009+.026*rim+.018*sheen)*fade*depth*u_intensity;
@@ -209,8 +210,10 @@ void main(){
   float feather=exp(-across*across*2.8)*(1.-smoothstep(.65,1.,across));
   // Each crest runs along the twisted light strands, with small strand-to-strand delays.
   float signalAlong=along+sin(v_details.y*17.+tube)*v_packet.z*.32;
-  float signal=exp(-pow((signalAlong-v_packet.x)/max(.001,v_packet.z),2.)*2.)*v_packet.y;
-  float afterglow=exp(-pow((signalAlong-v_packet.x-v_packet.z*1.5)/max(.001,v_packet.z*1.8),2.)*2.)*v_packet.y*.23;
+  float signalOffset=(signalAlong-v_packet.x)/max(.001,v_packet.z);
+  float trailOffset=(signalAlong-v_packet.x-v_packet.z*1.5)/max(.001,v_packet.z*1.8);
+  float signal=exp(-signalOffset*signalOffset*2.)*v_packet.y;
+  float afterglow=exp(-trailOffset*trailOffset*2.)*v_packet.y*.23;
   float alpha;
   if(u_pass>1.5)alpha=exp(-across*across*4.)*(1.-smoothstep(.75,1.,across))*(.0025+.008*pulse)*depth;
   else if(u_pass>.5)alpha=exp(-across*across*4.)*(1.-smoothstep(.78,1.,across))*(.01+.023*pulse)*front*depth;
