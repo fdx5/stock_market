@@ -671,7 +671,7 @@ def price_debug(code: str = "GOOGL"):
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 if STATIC_DIR.exists():
-    app.mount("/assets", asset_cdn.CDNStaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
     # Vite hashes /assets filenames per build, so those can be cached forever. Everything
     # else under static/ (video, img, favicons) keeps its filename across deploys, so it

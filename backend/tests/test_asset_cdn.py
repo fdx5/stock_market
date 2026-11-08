@@ -41,7 +41,7 @@ def test_content_objects_keep_the_original_source_path_and_reset_when_disabled(t
     assert asset_cdn.redirect_for('3d/a.bin') is None
 
 
-def test_compiled_assets_redirect_but_worker_entry_stays_same_origin(tmp_path):
+def test_compiled_assets_and_worker_payloads_stay_same_origin(tmp_path):
     static = tmp_path / "static"
     assets = static / "assets"
     assets.mkdir(parents=True)
@@ -58,11 +58,12 @@ def test_compiled_assets_redirect_but_worker_entry_stays_same_origin(tmp_path):
     app.mount("/assets", asset_cdn.CDNStaticFiles(directory=assets))
     client = TestClient(app)
     response = client.get("/assets/main.js", follow_redirects=False)
-    assert response.status_code == 302
-    assert response.headers["location"] == "https://example.github.io/cdn/builds/v1/assets/main.js"
+    assert response.status_code == 200
+    assert response.content == b"payload"
+    assert asset_cdn.redirect_for("assets/main.js") is None
     response = client.get("/assets/geometryWorker.js")
     assert response.status_code == 200
-    assert response.text == 'import "https://example.github.io/cdn/builds/v1/assets/geometryWorker.js";\n'
+    assert response.content == b"payload"
     assert client.get("/assets/unpublished.js").content == b"payload"
     assert client.get("/assets/missing.js").status_code == 404
 

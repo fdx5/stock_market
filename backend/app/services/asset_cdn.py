@@ -80,6 +80,10 @@ def _safe_verify(static_dir: Path) -> None:
 
 def redirect_for(rel_path: str) -> str | None:
     """The published URL of a static file (path relative to the static root), or None."""
+    # ES modules must have one canonical URL. Redirecting module graph nodes
+    # between origins can instantiate React twice and break hook dispatch.
+    if rel_path.startswith("assets/"):
+        return None
     with _lock:
         return f"{_base}/{_routes[rel_path]}" if rel_path in _routes else None
 
