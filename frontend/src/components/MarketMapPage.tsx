@@ -36,6 +36,7 @@ import {
   useMapExport,
 } from "./mapExport";
 import UsStockIcon from "./UsStockIcon";
+import "../neo/mapExpanded.css";
 
 interface SectorZone {
   sector: string;
@@ -311,7 +312,71 @@ export default function MarketMapPage({
     return () => query.removeEventListener("change", syncDesktopHover);
   }, []);
   const containerRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const [mapExpanded, setMapExpanded] = useState(false);
   const [size, setSize] = useState({ w: 0, h: 0 });
+
+  useLayoutEffect(() => {
+    if (!mapExpanded || !workspaceRef.current) return;
+    const workspace = workspaceRef.current;
+    const previousOverflow = document.body.style.overflow;
+    const previousRootOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    setHovered(null);
+    setHoveredSector(null);
+    setHoveredSectorRect(null);
+    setFinderOpen(false);
+
+    // Keep the existing workspace mounted so filters, quotes and map state survive.
+    // Inert every branch outside it, including the surrounding NeoShell controls.
+    const background: { element: HTMLElement; inert: boolean; visibility: string; priority: string }[] = [];
+    let branch: HTMLElement = workspace;
+    while (branch.parentElement) {
+      for (const sibling of branch.parentElement.children) {
+        if (sibling instanceof HTMLElement && sibling !== branch) {
+          background.push({ element: sibling, inert: sibling.inert, visibility: sibling.style.getPropertyValue("visibility"), priority: sibling.style.getPropertyPriority("visibility") });
+          sibling.inert = true;
+          sibling.style.setProperty("visibility", "hidden", "important");
+        }
+      }
+      branch = branch.parentElement;
+      if (branch === document.body) break;
+    }
+    expandButtonRef.current?.focus({ preventScroll: true });
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setMapExpanded(false);
+      } else if (event.key === "Tab") {
+        const controls = Array.from(workspace.querySelectorAll<HTMLElement>(
+          'button:not(:disabled),select:not(:disabled),input:not(:disabled):not([type="radio"]),input[type="radio"]:checked,a[href],[tabindex="0"]'
+        )).filter(element => element.getClientRects().length > 0);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && (document.activeElement === first || !workspace.contains(document.activeElement))) {
+          event.preventDefault();
+          last?.focus({ preventScroll: true });
+        } else if (!event.shiftKey && (document.activeElement === last || !workspace.contains(document.activeElement))) {
+          event.preventDefault();
+          first?.focus({ preventScroll: true });
+        }
+      }
+    };
+    window.addEventListener("keydown", keydown, true);
+    return () => {
+      window.removeEventListener("keydown", keydown, true);
+      background.forEach(({ element, inert, visibility, priority }) => {
+        element.inert = inert;
+        if (visibility) element.style.setProperty("visibility", visibility, priority);
+        else element.style.removeProperty("visibility");
+      });
+      document.body.style.overflow = previousOverflow;
+      document.documentElement.style.overflow = previousRootOverflow;
+      expandButtonRef.current?.focus({ preventScroll: true });
+    };
+  }, [mapExpanded]);
 
   // Route restoration owns entry alignment to the map canvas on every screen size.
 
@@ -401,7 +466,7 @@ export default function MarketMapPage({
   }, [fetchMap, tier1Limit, tier2Limit, fullLimit, market]);
 
   useEffect(() => {
-    if (!containerRef.current || view !== "map") return;
+    if (!containerRef.current || (view !== "map" && !mapExpanded)) return;
     const el = containerRef.current;
     const update = () => setSize({ w: el.clientWidth, h: el.clientHeight });
     update();
@@ -412,7 +477,7 @@ export default function MarketMapPage({
     // data arrives, so size is already known by the time the real treemap is ready to
     // draw - no extra measure-then-render round trip standing between "data landed"
     // and "tiles visible".
-  }, [view]);
+  }, [view, mapExpanded]);
 
   // Sector options are derived from the loaded data (not the fixed backend keyword
   // list) so the dropdown only ever offers sectors that actually have stocks in the
@@ -763,7 +828,7 @@ export default function MarketMapPage({
   });
 
   return (
-    <div className={`d2 mm app kospi-map-page${enhancedSectorView ? " kospi-map-page--expanded" : ""}`} lang={lang}>
+    <div className={`d2 mm app kospi-map-page${enhancedSectorView ? " kospi-map-page--expanded" : ""}${mapExpanded ? " kospi-map-page--viewport" : ""}`} lang={lang}>
       <Tape />
 
       <main className="d2-main mm-main">
@@ -832,8 +897,8 @@ export default function MarketMapPage({
         </span>
       )}
 
-      {!error && (
-        <div className="kospi-map-workspace">
+      {(!error || mapExpanded) && (
+        <div className="kospi-map-workspace" ref={workspaceRef} role={mapExpanded ? "dialog" : undefined} aria-modal={mapExpanded ? true : undefined} aria-label={mapExpanded ? `${pageTitle} ${lang === "ko" ? "확대 보기" : "expanded view"}` : undefined}>
           {enhancedSectorView && (
             <aside className="kospi-map-period-rail" aria-label="조회 기간">
               <div className="kospi-map-period-head">
@@ -869,6 +934,21 @@ export default function MarketMapPage({
               <span className="kospi-map-legend-label">{t("상승")}</span>
               <span className="kospi-map-legend-scale">{t("-5% ~ +5% 기준 포화")}</span>
             </div>
+            <div className="ng-map-actions">
+              <button
+                ref={expandButtonRef}
+                type="button"
+                className="ng-map-expand-button"
+                aria-expanded={mapExpanded}
+                aria-label={lang === "ko" ? (mapExpanded ? "맵 확대 닫기" : "맵 화면 확대") : (mapExpanded ? "Close expanded map" : "Expand map to window")}
+                title={mapExpanded ? (lang === "ko" ? "닫기 (Esc)" : "Close (Esc)") : undefined}
+                onClick={() => setMapExpanded(expanded => !expanded)}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+                  <path d={mapExpanded ? "M6 6l12 12M18 6L6 18" : "M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"} />
+                </svg>
+                {lang === "ko" ? (mapExpanded ? "닫기" : "화면 확대") : (mapExpanded ? "Close" : "Expand")}
+              </button>
             <label className="kospi-map-sector-filter">
               <span className="kospi-map-sector-filter-label">{t("업종")}</span>
               <select
@@ -885,8 +965,9 @@ export default function MarketMapPage({
               </select>
             </label>
             </div>
+            </div>
 
-          {view === "map" && (
+          {(view === "map" || mapExpanded) && (
             <div className="card kospi-map-canvas map-canvas-night" ref={containerRef} data-scroll-start="map" data-scroll-ready={!loading}>
               {loading &&
                 skeletonRects.map((rect, i) => (
@@ -1039,7 +1120,7 @@ export default function MarketMapPage({
             </div>
           )}
 
-            {view === "table" && (
+          {view === "table" && !mapExpanded && (
             <div className="card kospi-map-table-wrap" data-scroll-start="map" data-scroll-ready={!loading}>
               <table className="kospi-map-table">
                 <thead>
