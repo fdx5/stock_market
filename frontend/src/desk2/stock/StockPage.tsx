@@ -1,3 +1,4 @@
+import { API_POLL_MS } from "../../apiPolling";
 import ServiceConnections from "../../markets/ServiceConnections";
 import "../../markets/researchServices.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -63,7 +64,7 @@ interface Quote {
   name?: string;
 }
 
-const QUOTE_POLL_MS = 5_000;
+const QUOTE_POLL_MS = API_POLL_MS;
 
 function useBubbleMarket(code: string, us: boolean): string | null {
   const [m, setM] = useState<string | null>(null);

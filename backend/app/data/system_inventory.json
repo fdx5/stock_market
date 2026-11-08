@@ -130,7 +130,7 @@
     "/walk",
     "/yield-curve-lab"
   ],
-  "source_files": 980,
+  "source_files": 981,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -607,9 +607,7 @@
     },
     {
       "file": "keep-alive.yml",
-      "cron": [
-        "*/30 * * * *"
-      ],
+      "cron": [],
       "endpoints": [
         "/api/health",
         "/api/investor/indices",

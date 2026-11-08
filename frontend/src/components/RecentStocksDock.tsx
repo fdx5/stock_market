@@ -1,3 +1,4 @@
+import { API_POLL_MS } from "../apiPolling";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
@@ -11,7 +12,7 @@ import StockLogo from "./StockLogo";
 import "./recentStocksDock.css";
 
 const MAX_ITEMS = 5;
-const POLL_MS = 5_000;
+const POLL_MS = API_POLL_MS;
 const COLLAPSE_KEY = "kstock_recent_dock_collapsed";
 
 // Two footprints, not one. A gutter this wide (roomy monitors, or a page

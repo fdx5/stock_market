@@ -193,7 +193,7 @@ export default function AdminSystemAtlasPage() {
   const [tab, setTab] = useState<DetailTab>("overview"), [view, setView] = useState<MonitorView>("nexus");
   const [paused, setPaused] = useState(false), [focus, setFocus] = useState(false), [query, setQuery] = useState(""), [zoom, setZoom] = useState(100);
   const [refresh, setRefresh] = useState(0), [range, setRange] = useState(5), [eventFilter, setEventFilter] = useState("all");
-  const [interval, setIntervalMs] = useState(1000);
+  const [interval, setIntervalMs] = useState(10_000);
   const [now, setNow] = useState(Date.now() / 1000);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -224,7 +224,7 @@ export default function AdminSystemAtlasPage() {
     return () => { gone = true; stop(); stopHealth(); };
   }, [paused, refresh, interval]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now() / 1000), 1000); return () => window.clearInterval(timer); }, []);
-  const stale = !paused && (!!error || !!live && now - live.at > 15);
+  const stale = !paused && (!!error || !!live && now - live.at > Math.max(15, interval / 1000 * 3));
   const healthStale = !paused && (!!healthError || healthReceivedAt !== null && now - healthReceivedAt > 45);
   const [initialFilter, setInitialFilter] = useState("all");
   const changeView = (next: MonitorView, filter = "all") => { setView(next); setQuery(""); setInitialFilter(filter); };

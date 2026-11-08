@@ -216,13 +216,14 @@ def live_snapshot(routes) -> dict:
                        "retained_bytes":cache.byte_size,"max_bytes":cache.max_bytes}
     from app.services import realestate_store, atlas_behavior
     behavior = atlas_behavior.snapshot(now)
+    from app.services.response_bandwidth import counters
     db_mode = "turso" if os.environ.get("TURSO_DATABASE_URL") else "sqlite"
     return {"at": now, "api": {**system_telemetry.stats(events), "window_s": 60,
                                "window_truncated": len(retained) == api_pulse.TAIL_MAXLEN and retained[0]["ts"] > now - 60,
                                "groups": {key: system_telemetry.stats(value) for key, value in grouped.items()},
                                "breakdown": system_telemetry.breakdown(events, now),
                                "endpoints": endpoints, "recent": events[-60:][::-1]},
-            "external": external, "traces": traces, "cache": cache_state,
+            "external": external, "traces": traces, "cache": cache_state, "response_bandwidth": counters.snapshot(),
             "observed_edges": dict(observed_edges),
             "database": {"mode": db_mode, "separate_realestate": realestate_store.SEPARATE,
                          "realestate_mode": "turso" if realestate_store.TURSO_DATABASE_URL else "sqlite"},

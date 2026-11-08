@@ -71,7 +71,7 @@ function portrait(g:CanvasRenderingContext2D, cx:number, cy:number, rw:number, r
 const NOTE_SRC = ["/img/ticker/usd100-obverse.webp", "/img/ticker/krw50000-obverse.webp"];
 const noteImages:(HTMLImageElement | null)[] = [null, null];
 function bill(kind = 0):HTMLImageElement | null {
-  if (!noteImages[kind] && typeof Image !== "undefined") { const image = new Image(); image.src = NOTE_SRC[kind]; noteImages[kind] = image; }
+  if (!noteImages[kind] && typeof Image !== "undefined") { const image = new Image(); image.crossOrigin = "anonymous"; image.src = NOTE_SRC[kind]; noteImages[kind] = image; }
   const image = noteImages[kind];
   return image?.complete && image.naturalWidth ? image : null;
 }

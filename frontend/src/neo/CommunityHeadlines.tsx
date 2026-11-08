@@ -1,3 +1,4 @@
+import { API_POLL_MS } from "../apiPolling";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -31,7 +32,7 @@ function useHeadlines() {
         if (disposed) return;
         setFeeds(previous => ({ ...previous, [board]: { items: items.length || !data.refreshing ? items : previous[board].items, snapshot: items.length || !data.refreshing ? data.snapshot : previous[board].snapshot, settled: true, delayed: false, recent: Number.isFinite(data.recent_hour_count) ? data.recent_hour_count : 0 } }));
         // A restarting server can return an empty snapshot while collecting posts.
-        if (data.refreshing) retries.set(board, window.setTimeout(() => void load(board), 5_000));
+        if (data.refreshing) retries.set(board, window.setTimeout(() => void load(board), API_POLL_MS));
       } catch {
         if (!disposed) setFeeds(previous => ({ ...previous, [board]: { ...previous[board], settled: true, delayed: true } }));
       } finally {

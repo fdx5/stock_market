@@ -1,3 +1,4 @@
+import { API_POLL_MS } from "../apiPolling";
 import { useEffect, useState } from "react";
 import { GlobalIndexWidget, MarketMapItem, StockSearchResult, api } from "../api/client";
 import { Lang, useLanguage } from "../i18n/LanguageContext";
@@ -219,7 +220,7 @@ export function useGlobalIndices(): GlobalIndexWidget[] | null {
     if (globalItems !== null) setItems(globalItems);
     if (globalListeners.size === 1) {
       loadGlobal();
-      stopGlobal = startVisibilityAwareInterval(loadGlobal, 5_000);
+      stopGlobal = startVisibilityAwareInterval(loadGlobal, API_POLL_MS);
     }
     return () => {
       globalListeners.delete(setItems);

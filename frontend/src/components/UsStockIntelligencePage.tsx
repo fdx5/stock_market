@@ -1,3 +1,4 @@
+import { API_POLL_MS } from "../apiPolling";
 import { useEffect, useMemo, useState } from "react";
 import type { CompanyNewsItem, GlobalEnrichment, IndicatorPoint, UsStockQuote } from "../api/client";
 import { api } from "../api/client";
@@ -30,7 +31,7 @@ const cap = (value: number | null | undefined) => !value ? "—" : value >= 1e12
 // (0.0214 = 2.14% a day), not a percentage — printed straight it read "0.0%" on every
 // ticker. Same scale as IndicatorPanel's 20일 변동성 tile further down this page.
 const dailyVolPct = (value: number | null | undefined) => value == null ? null : value * 100;
-const QUOTE_POLL_MS = 5_000;
+const QUOTE_POLL_MS = API_POLL_MS;
 
 export default function UsStockIntelligencePage({ code, isEtf = false }: { code: string; isEtf?: boolean }) {
   const ticker = code.toUpperCase();

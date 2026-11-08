@@ -1,3 +1,5 @@
+import { startVisibilityAwareInterval } from "../pollVisibility";
+import { API_POLL_MS } from "../apiPolling";
 import { useEffect, useState } from "react";
 import {
   AdminAuthError,
@@ -83,10 +85,10 @@ export default function AdminOpsPanel() {
     let cancelled = false;
     const load = () => adminApi.predictionStatus().then((s) => !cancelled && setPrediction(s)).catch(handleAuthError);
     load();
-    const id = setInterval(load, 5_000);
+    const stop = startVisibilityAwareInterval(load, API_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   }, []);
 
@@ -94,10 +96,10 @@ export default function AdminOpsPanel() {
     let cancelled = false;
     const load = () => adminApi.dramPriceStatus().then((s) => !cancelled && setDramStatus(s)).catch(handleAuthError);
     load();
-    const id = setInterval(load, 5_000);
+    const stop = startVisibilityAwareInterval(load, API_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   }, []);
 
@@ -106,10 +108,10 @@ export default function AdminOpsPanel() {
     const load = () =>
       adminApi.kakaoVisitorStatus().then((s) => !cancelled && setKakaoVisitorStatus(s)).catch(handleAuthError);
     load();
-    const id = setInterval(load, 5_000);
+    const stop = startVisibilityAwareInterval(load, API_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   }, []);
 
@@ -118,10 +120,10 @@ export default function AdminOpsPanel() {
     const load = () =>
       adminApi.kakaoPredictionStatus().then((s) => !cancelled && setKakaoPredictionStatus(s)).catch(handleAuthError);
     load();
-    const id = setInterval(load, 5_000);
+    const stop = startVisibilityAwareInterval(load, API_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   }, []);
 
@@ -130,10 +132,10 @@ export default function AdminOpsPanel() {
     const load = () =>
       adminApi.kakaoDramPriceStatus().then((s) => !cancelled && setKakaoDramStatus(s)).catch(handleAuthError);
     load();
-    const id = setInterval(load, 5_000);
+    const stop = startVisibilityAwareInterval(load, API_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   }, []);
 

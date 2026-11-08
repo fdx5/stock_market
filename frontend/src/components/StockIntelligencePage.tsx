@@ -1,3 +1,4 @@
+import { API_POLL_MS } from "../apiPolling";
 import { useEffect, useMemo, useState } from "react";
 import type { CompanyOverview, IndicatorPoint, InvestorTrendRecord, NewsItem, StockQuote, StockSummary } from "../api/client";
 import { api } from "../api/client";
@@ -29,7 +30,7 @@ type Section = "chart" | "flow" | "orderbook" | "short" | "company" | "news" | "
 const nf = new Intl.NumberFormat("ko-KR");
 const compact = new Intl.NumberFormat("ko-KR", { notation: "compact", maximumFractionDigits: 1 });
 const DOMESTIC_NEWS_LIMIT = 7;
-const QUOTE_POLL_MS = 5_000;
+const QUOTE_POLL_MS = API_POLL_MS;
 const stockSectionNav: { id: Section; label: string }[] = [
   { id: "chart", label: "차트·기술지표" }, { id: "flow", label: "투자자 수급" },
   { id: "orderbook", label: "호가" }, { id: "short", label: "공매도·대차" },

@@ -1,3 +1,4 @@
+import { API_POLL_MS } from "../apiPolling";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -239,7 +240,7 @@ export default function RealEstateSheet({
           setRent(res);
           setRentFailed(false);
           // While the district's leases are still coming in, ask again.
-          if (res.status.collecting) timer = window.setTimeout(load, 5000);
+          if (res.status.collecting) timer = window.setTimeout(load, API_POLL_MS);
         })
         .catch(() => {
           if (!cancelled) setRentFailed(true);

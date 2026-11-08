@@ -1,3 +1,4 @@
+import { API_POLL_MS } from "../apiPolling";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActiveSession,
@@ -23,7 +24,7 @@ import "./adminLive.css";
  */
 
 const TAIL_POLL_MS = 2_500;
-const SESSIONS_POLL_MS = 5_000;
+const SESSIONS_POLL_MS = API_POLL_MS;
 const TAIL_LIMIT = 120;
 /** Past this scroll depth a fresh poll no longer replaces the list in place — see
  * the pause/resume handling below. */

@@ -54,9 +54,10 @@ test('ticker subscribers share one poller; partial and older replies preserve ne
   useMarketTicker();await rt.mount();
   useMarketTicker();await rt.mount();
   assert.equal(calls,1);assert.equal(rt.states[1].length,2);
-  await rt.advance(5000);
+  await rt.advance(9999);assert.equal(calls,1);
+  await rt.advance(1);
   assert.deepEqual(rt.states[0].map(q=>q.price),[101,200]);
-  await rt.advance(5000);
+  await rt.advance(10000);
   assert.deepEqual(rt.states[1].map(q=>q.price),[101,200]);
   rt.unmount();await rt.advance(30000);assert.equal(calls,3);
 });
@@ -67,7 +68,7 @@ test('a slow ticker response never starts overlapping requests',async()=>{
   const {useMarketTicker}=await hooks('useMarketTicker');useMarketTicker();await rt.mount();
   await rt.advance(20000);assert.equal(calls,1);
   resolve({items:[{symbol:'ES=F',price:100,quote_time:10}]});await flush();
-  await rt.advance(5000);assert.equal(calls,2);rt.unmount();resolve({items:[]});await flush();
+  await rt.advance(10000);assert.equal(calls,2);rt.unmount();resolve({items:[]});await flush();
 });
 
 test('hidden tabs pause polling and resume with current prices',async()=>{

@@ -1,3 +1,4 @@
+import { API_POLL_MS } from "./apiPolling";
 import { useEffect, useState } from "react";
 import { IndexQuote, MarketInvestorSummary, api } from "./api/client";
 import { startVisibilityAwareInterval } from "./pollVisibility";
@@ -35,7 +36,7 @@ const EMPTY: MarketIndices = {
   kosdaqInvestor: null,
 };
 
-const REFRESH_MS = 5_000;
+const REFRESH_MS = API_POLL_MS;
 
 let snapshot: MarketIndices = EMPTY;
 const listeners = new Set<(value: MarketIndices) => void>();

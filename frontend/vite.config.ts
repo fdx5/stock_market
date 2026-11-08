@@ -4,6 +4,7 @@ import { createReadStream, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import paintAssetsPlugin from "./paintAssetsPlugin.mjs";
+import { assetDeliveryConfig } from "./assetDeliveryPlugin.mjs";
 
 const planetAssets = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -12,8 +13,13 @@ const planetAssets = path.resolve(
 
 // Backend runs on :8000 in local dev (uvicorn); proxy /api so the frontend
 // can always call relative paths, matching the single-origin production setup.
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  const delivery = assetDeliveryConfig();
+  return {
+  experimental: delivery.experimental,
+  worker: delivery.worker,
   plugins: [
+    ...delivery.plugins,
     react(),
     paintAssetsPlugin(),
     {
@@ -60,4 +66,5 @@ export default defineConfig(({ mode }) => ({
       "/api": "http://127.0.0.1:8000",
     },
   },
-}));
+};
+});
