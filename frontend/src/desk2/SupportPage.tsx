@@ -2,14 +2,13 @@ import { useEffect } from "react";
 import { reportSupportDwell } from "../useActivityTracking";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import CoffeeIcon from "./CoffeeIcon";
-import Masthead from "./Masthead";
-import Colophon from "./Colophon";
+import NeoIcon from "../neo/NeoIcon";
+import { HoloPanel } from "../neo/NeoComponents";
 import SupportComments from "./SupportComments";
 import CoffeePaymentMethods from "./CoffeePaymentMethods";
 import { useL } from "./lib";
-import { useBroadsheet } from "./shell";
 import "./coffeeSupport.css";
+import "../neo/supportPage.css";
 
 export default function SupportPage() {
   useEffect(() => {
@@ -34,27 +33,35 @@ export default function SupportPage() {
       window.removeEventListener("pagehide", leave); window.removeEventListener("pageshow", resume); };
   }, []);
   const L = useL();
-  useBroadsheet();
   useDocumentTitle(L("커피 한 잔 후원하기 · K-Stock Hub", "Buy us a coffee · K-Stock Hub"));
-  return <div className="d2 d2-support">
-    <Masthead rail={false} onPrint={() => window.print()} />
+  return <div className="d2 d2-support coffee-support-page">
     <main className="coffee-main" id="support-content">
-      <Link to="/desk" className="coffee-back">← {L("마켓데스크로 돌아가기", "Back to Market Desk")}</Link>
+      <div className="coffee-page-topline"><span className="ng-kicker">KOSPIMAP / SUPPORT</span><Link to="/desk" className="coffee-back">← {L("마켓데스크", "Market Desk")}</Link></div>
+      <header className="coffee-page-header">
+        <div><h1>{L("커피 한 잔 후원하기", "A coffee for the next update")}</h1><p>{L("오늘의 작은 도움이, 내일의 더 나은 시장 화면으로 이어집니다.", "A little kindness today helps us build a better view of the markets tomorrow.")}</p></div>
+        <span className="coffee-page-badge"><NeoIcon name="coffee" />{L("한 잔의 따뜻한 응원", "A little kindness, a lasting impact")}</span>
+      </header>
       <div className="coffee-layout">
-        <section className="coffee-letter" aria-labelledby="coffee-title">
-          <span className="coffee-eyebrow">A LITTLE COFFEE, A LOT OF HEART</span>
-          <div className="coffee-mascot"><CoffeeIcon /><span className="coffee-bubble">{L("내일도 함께해요!", "See you tomorrow!")}</span></div>
-          <h1 id="coffee-title">{L("오늘도 도움이 되었다면,", "If we helped you today,")}<br /><em>{L("커피 한 잔으로 응원해 주세요", "send a little coffee our way")}</em></h1>
-          <p className="coffee-intro">{L("복잡한 시장을 조금 더 쉽고, 한눈에 볼 수 있도록. 마켓데스크는 오늘도 데이터를 정리하고 더 나은 화면을 만들어 갑니다.", "Making a complex market a little easier to see. Every day, Market Desk brings data together and works on a better experience.")}</p>
-          <p>{L("매일 만나는 이 공간을 꾸준히 업데이트하고 안정적으로 운영하려면, 지속적인 개발과 서버 운영 비용이 필요합니다. 보내주시는 후원은 서버를 유지하고, 데이터를 관리하며, 새로운 기능과 개선을 이어가는 데 소중한 보탬이 됩니다.", "Keeping this space updated and running reliably takes ongoing development and server costs. Your support helps maintain our servers and data, and keeps new features and improvements moving forward.")}</p>
-          <p>{L("마켓데스크가 시장을 살펴보는 시간에 작은 도움이 되었다면, 커피 한 잔의 마음으로 응원해 주시겠어요? 그 따뜻한 응원이 내일의 업데이트를 준비하는 큰 힘이 됩니다.", "If Market Desk has made your time following the markets a little easier, would you consider supporting us with a coffee? That small kindness means a lot as we prepare tomorrow’s updates.")}</p>
-          <div className="coffee-purpose" aria-label={L("후원이 보탬이 되는 곳", "What your support helps with")}><span>↻ {L("꾸준한 업데이트", "Regular updates")}</span><span>☁ {L("안정적인 서버 운영", "Reliable servers")}</span><span>✧ {L("더 나은 서비스", "A better experience")}</span></div>
-          <p className="coffee-thanks">{L("후원은 언제나 자유로운 선택입니다. 찾아와 주시고 이용해 주시는 것만으로도 감사합니다. 오래도록 유용한 공간으로 보답하겠습니다.", "Support is always optional. We’re grateful that you visit and use the site. We’ll keep working to make this a useful place for you, for a long time to come.")}</p>
-        </section>
         <CoffeePaymentMethods />
+        <div className="coffee-story-column">
+          <HoloPanel className="coffee-story" title={L("함께 만드는 마켓데스크", "Building Market Desk together")}>
+            <div className="coffee-story-icon"><NeoIcon name="coffee" /></div>
+            <span className="ng-kicker">A LITTLE COFFEE, A LOT OF HEART</span>
+            <h2>{L("오늘의 한 잔이,", "A coffee today,")}<br /><em>{L("내일의 업데이트로.", "an update tomorrow.")}</em></h2>
+            <p>{L("복잡한 시장을 더 쉽고, 한눈에 볼 수 있도록. 보내주신 응원은 데이터를 정리하고 더 나은 기능을 만드는 데 소중히 쓰겠습니다.", "Making complex markets easier to see. Your support helps us bring data together and keep improving the tools you use.")}</p>
+            <div className="coffee-story-thanks"><NeoIcon name="spark" /><p>{L("후원은 자유로운 선택입니다. 찾아와 이용해 주시는 것만으로도 감사합니다.", "Support is always optional. We’re grateful that you visit and use the site.")}</p></div>
+          </HoloPanel>
+          <HoloPanel className="coffee-purpose-panel" title={L("후원이 보탬이 되는 곳", "What your support helps with")}>
+            <h2>{L("보내주신 응원은 이곳에", "Where your support goes")}</h2>
+            <ul>{[
+              ["bolt", "안정적인 서버 운영", "Reliable servers", "언제 찾아와도 편안하게 시장을 살펴볼 수 있도록.", "Keeping the market within reach whenever you visit."],
+              ["layers", "꾸준한 데이터 관리", "Care for the data", "흩어진 시장 정보를 더 쉽고 명확하게 정리합니다.", "Bringing scattered market information into a clearer view."],
+              ["chart", "다음 기능과 업데이트", "The next improvement", "더 유용한 도구와 편리한 화면을 만들어 갑니다.", "Building useful tools and making the experience easier."],
+            ].map(([icon, ko, en, description, englishDescription]) => <li key={icon}><span><NeoIcon name={icon} /></span><div><h3>{L(ko, en)}</h3><p>{L(description, englishDescription)}</p></div></li>)}</ul>
+          </HoloPanel>
+        </div>
       </div>
       <SupportComments />
     </main>
-    <Colophon />
   </div>;
 }

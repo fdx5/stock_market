@@ -130,7 +130,7 @@
     "/walk",
     "/yield-curve-lab"
   ],
-  "source_files": 977,
+  "source_files": 980,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -367,8 +367,7 @@
     {
       "file": "frontend/src/desk2/CoffeePaymentMethods.tsx",
       "hosts": [
-        "buymeacoffee.com",
-        "qr.kakaopay.com"
+        "buymeacoffee.com"
       ]
     },
     {
@@ -421,6 +420,12 @@
       "file": "frontend/src/desk2/MastheadNav.tsx",
       "hosts": [
         "voltaris-nyyo.onrender.com"
+      ]
+    },
+    {
+      "file": "frontend/src/desk2/supportAmounts.ts",
+      "hosts": [
+        "qr.kakaopay.com"
       ]
     },
     {

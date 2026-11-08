@@ -1,0 +1,65 @@
+/* Shared NEO GENESIS tokens also govern the older Atlas monitoring views. */
+html[data-design="neo"] .sa-page {
+  --sa-bg: var(--bg-root); --sa-panel: var(--bg-panel); --sa-border: var(--line-soft);
+  --sa-text: var(--text-primary); --sa-muted: var(--text-muted); --sa-cyan: var(--accent-neon);
+  background: var(--bg-root); color: var(--text-primary); font-family: var(--f-sans); min-height: 0;
+}
+html[data-design="neo"] .sa-page .sn-observatory {
+  --sn-bg: var(--bg-root); --sn-line: var(--line-soft); --sn-muted: var(--text-muted); --sn-text: var(--text-primary);
+  color: var(--text-primary); font-family: var(--f-sans);
+}
+html[data-design="neo"] .sa-page :is(.sa-header,.sa-rail,.am-view-nav,.sa-map-toolbar,.sa-map-footer,.sa-detail-tabs,.sa-inspector-foot,.sn-universe-head,.sn-control-bar,.sn-space-foot,.sn-universe-caption,.sn-orbit-caption) {
+  background: var(--bg-elevated); border-color: var(--line-soft); color: var(--text-secondary);
+}
+html[data-design="neo"] .sa-page :is(.sa-topology-panel,.sa-inspector,.sa-bottom-card,.sa-kpi,.am-card,.am-service-card,.am-host-card,.am-command,.am-storage-summary,.sn-inspector,.sn-journal,.sn-telemetry,.sn-universe-panel,.sn-metrics,.sn-access-summary,.sn-access-detail) {
+  background: var(--bg-panel); border-color: var(--line-soft); border-radius: var(--radius-md); color: var(--text-primary); box-shadow: var(--glow-soft);
+}
+html[data-design="neo"] .sa-page :is(.am-overview,.sa-map-scroll,.sa-mini-network,.sa-stack-grid>section,.sa-storage-cards>button,.am-trace-list>button,.am-waterfall,.sn-universe,.sn-domains,.sn-log-columns,.sn-node-metrics,.sn-access-bar) {
+  background: var(--bg-root); border-color: var(--line-soft); color: var(--text-secondary);
+}
+html[data-design="neo"] .sa-page :is(.sa-title-row h1,.sa-panel-head h2,.sa-inspector h2,.sa-kpi-value,.sa-bottom-card h2,.am-card h3,.am-command h2,.am-service-card h3,.am-host-card h3,.sn-heading h1,.sn-inspector h2,.sn-journal h2) { color: var(--text-primary); }
+html[data-design="neo"] .sa-page .sa-node-body { fill: var(--bg-panel); stroke: var(--rule-2); }
+html[data-design="neo"] .sa-page .sa-node:is(:hover,:focus-visible,.is-selected) .sa-node-body { fill: var(--bg-elevated); stroke: var(--node-color); }
+html[data-design="neo"] .sa-page .sa-node-title { fill: var(--text-primary); }
+html[data-design="neo"] .sa-page :is(.sa-node-sub,.sa-lane-no,.sa-lane-label) { fill: var(--text-secondary); }
+html[data-design="neo"] .sa-page .sa-title-row h1 span { background: none; color: var(--accent-neon); }
+html[data-design="neo"] .sa-page :is(.sa-eyebrow,.sa-subtitle,.sa-time,.sa-count,.sa-node-sub,.sa-node-traffic,.sa-kpi-label,.sa-kpi p,.sa-kpi-value small,.sa-footnote,.sa-chart-axis,.sa-page-foot,.am-context,.am-observation-note,.am-chart-reading,.sa-stack-grid p,.sa-coverage p,.sa-stack-row code,.sn-subtitle,.sn-inspector-foot) { color: var(--text-secondary); }
+html[data-design="neo"] .sa-page :is(.sa-detail-section,.sa-endpoint,.sa-event-list button,.sa-stack-row,.sa-log-row,.sa-gate-table th,.sa-gate-table td,.am-api-table th,.am-api-table td,.sn-connections button,.sn-event) { border-color: var(--line-soft); }
+html[data-design="neo"] .sa-page :is(.sa-actions button,.sa-actions select,.sa-search,.sa-map-controls button,.sa-icon-button,.sa-detail-tabs button,.am-filter-row button,.am-select-label,.sn-search,.sn-flight-controls button,.sn-node-actions button,.sn-journal-tools button,.sn-command-search,.sn-inspector-toggle,.sn-rotation-toggle) {
+  background: var(--bg-elevated); border-color: var(--rule-2); color: var(--text-secondary); border-radius: var(--radius-sm);
+}
+html[data-design="neo"] .sa-page :is(.sa-search input,.sn-search input,.sn-command-search input) { color: var(--text-primary); }
+html[data-design="neo"] .sa-page :is(.sa-search input,.sn-search input,.sn-command-search input)::placeholder { color: var(--text-muted); }
+html[data-design="neo"] .sa-page :is(.sa-actions button,.am-view-nav button,.sa-map-controls button,.sa-detail-tabs button,.am-filter-row button,.sn-flight-controls button,.sn-node-actions button):hover:not(:disabled) { background: var(--mark); color: var(--text-primary); border-color: var(--accent-neon); }
+html[data-design="neo"] .sa-page :is(.am-view-nav button.is-active,.sa-rail>button.is-active,.sa-map-controls button.is-active,.sa-detail-tabs button.is-active,.am-filter-row button.is-active,.sn-domain[aria-pressed="true"]) { background: var(--mark); color: var(--accent-neon); border-color: var(--rule-2); }
+html[data-design="neo"] .sa-page :is(.sa-panel-dot,.sa-rail-divider) { background: var(--accent-neon); }
+html[data-design="neo"] .sa-page :is(.sa-table-chips span,.sa-method,.sa-event-type,.am-command-tags>span,.am-declared,.sn-event-type) { background: var(--mark); color: var(--accent-neon); border-color: var(--line-soft); }
+html[data-design="neo"] .sa-page :is(.sa-event-list code,.sa-event-list small,.sa-event-list time,.sa-stack-row,.sa-service-bars button,.sa-request-trace header,.am-query-cache,.am-storage-counts,.sn-map-meta,.sn-traffic-key) { color: var(--text-secondary); }
+html[data-design="neo"] .sa-page :is(.sa-request-trace,.sa-flow-module,.sa-flow-host,.sa-connections button,.sn-hover,.sn-space-label,.sn-spectrum) { background: var(--bg-elevated); color: var(--text-secondary); border-color: var(--line-soft); }
+html[data-design="neo"] .sa-page :is(.sa-request-trace>div,.sa-progress-track,.sa-service-bars button>div,.am-service-load,.am-cache-track,.am-histogram,.am-rank-bar) { background: var(--bg-root); border-color: var(--line-soft); }
+html[data-design="neo"] .sa-page :is(.sa-alert,.sa-mini-error,.sn-access-error) { color: var(--warning); background: color-mix(in srgb, var(--warning) 7%, var(--bg-root)); border-color: color-mix(in srgb, var(--warning) 40%, transparent); }
+html[data-design="neo"] .sa-page .sa-alert button { color: var(--warning); border-color: currentColor; }
+html[data-design="neo"] .sa-page .sa-green { color: var(--positive) !important; }
+html[data-design="neo"] .sa-page .sa-red { color: var(--market-up) !important; }
+html[data-design="neo"] .sa-page :is(button,a,input,select,summary,[tabindex]):focus-visible { outline: 2px solid var(--accent-neon); outline-offset: 3px; }
+html[data-design="neo"] .sa-page .am-view-nav { top: calc(var(--ng-header) + var(--ng-pulse) + 8px); border-color: var(--line-soft); box-shadow: 0 5px 18px #0003; }
+html[data-design="neo"] .sa-page .am-view-nav button { min-height: 44px; }
+html[data-design="neo"] .sa-page .sa-main { padding-top: 22px; }
+html[data-design="neo"] .sa-page .sa-alert { flex-wrap: wrap; }
+html[data-design="neo"] .sa-page .sa-alert span { min-width: 0; overflow-wrap: anywhere; }
+html[data-design="neo"] .sa-page .ar-reactor { border-color: var(--line-soft); }
+@container admin (max-width: 900px) {
+  html[data-design="neo"] .sa-page .sa-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  html[data-design="neo"] .sa-page .sa-workspace { grid-template-columns: minmax(0, 1fr); }
+  html[data-design="neo"] .sa-page .sa-map-toolbar { flex-wrap: wrap; }
+  html[data-design="neo"] .sa-page .sa-search { width: 100%; max-width: none; }
+}
+@container admin (max-width: 600px) {
+  html[data-design="neo"] .sa-page .sa-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  html[data-design="neo"] .sa-page .sa-main { padding-inline: 12px; }
+  html[data-design="neo"] .sa-page .sa-actions { width: 100%; gap: 8px; }
+  html[data-design="neo"] .sa-page .sa-actions :is(button,select) { min-height: 44px; }
+  html[data-design="neo"] .sa-page .sa-bottom-grid { grid-template-columns: minmax(0, 1fr); }
+  html[data-design="neo"] .sa-page .am-view-nav { top: calc(var(--ng-header) + var(--ng-pulse)); }
+}
+html[data-design="neo"] .sa-page:fullscreen .am-view-nav { top: 8px; }

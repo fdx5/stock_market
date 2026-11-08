@@ -10,6 +10,7 @@ from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
+from starlette.routing import WebSocketRoute
 
 from app.services import api_pulse, system_telemetry
 
@@ -111,8 +112,10 @@ def architecture(routes) -> dict:
     for route in routes:
         path = getattr(route, "path", "")
         if not path.startswith("/api") or not hasattr(route, "endpoint"): continue
+        websocket = isinstance(route, WebSocketRoute)
+        methods = {"WEBSOCKET"} if websocket else set(getattr(route, "methods", ()) or ()) - {"HEAD", "OPTIONS"}
         module = route.endpoint.__module__
-        endpoints.append({"path": path, "methods": sorted(getattr(route, "methods", []) - {"HEAD", "OPTIONS"}),
+        endpoints.append({"path": path, "methods": sorted(methods), "transport": "websocket" if websocket else "http",
                           "group": group_for(module), "module": module, "function": route.endpoint.__name__,
                           "dependencies": closure(module)})
     nodes = [
@@ -149,7 +152,7 @@ def architecture(routes) -> dict:
         if target.startswith("ext-"): edge("client", target, "Browser / link / asset", "TypeScript AST의 외부 URL 참조 (링크·리소스 포함)")
     for key, *_ in GROUPS:
         group_modules = [m for m in modules.values() if m["group"] == key]
-        edge("gateway", key, "REST", "실제 FastAPI 라우트 테이블")
+        edge("gateway", key, "HTTP / WebSocket" if any(e["group"] == key and e["transport"] == "websocket" for e in endpoints) else "REST", "실제 FastAPI 라우트 테이블")
         deps = {d for m in group_modules for d in m["imports"]} | {m["id"] for m in group_modules}
         if any(modules[d]["cache"] for d in deps if d in modules): edge(key, "cache", "TTL / SWR", "소스의 캐시 호출")
         if any(modules[d]["tables"] for d in deps if d in modules):
@@ -174,7 +177,8 @@ def architecture(routes) -> dict:
                          "limitations": ["실선은 소스 의존성, 이동 신호는 실제 API 활동과 요청에 연결된 HTTP 호출입니다. 프로세스 외부의 분산 추적이나 SQL 인과관계는 포함하지 않습니다.",
                                          "Claude CLI·httpx SDK, SMTP, 브라우저 직접 요청, 외부 결제 페이지 내부 트래픽은 HTTP 관측 범위 밖입니다.",
                                          "API·외부 HTTP는 제한된 메모리 버퍼의 최근 60초 표본입니다. 재시작하면 초기화됩니다.",
-                                         "테이블은 소스의 스키마 선언입니다. 실제 DB의 테이블·행 조회는 DB 콘솔에서 확인합니다."]}}
+                                         "테이블은 소스의 스키마 선언입니다. 실제 DB의 테이블·행 조회는 DB 콘솔에서 확인합니다.",
+                                         "WebSocket은 경로와 소스 구조에 포함하지만 지속 연결의 메시지·프레임은 HTTP 요청 통계에 포함하지 않습니다."]}}
 
 
 def live_snapshot(routes) -> dict:

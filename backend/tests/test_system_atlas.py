@@ -25,6 +25,9 @@ def client(monkeypatch):
     @app.get('/api/stock/{code}/quote')
     def quote(): return {'ok': True}
 
+    @app.websocket('/api/realestate/cctv/gateway')
+    async def cctv_gateway(websocket): pass
+
     return TestClient(app)
 
 
@@ -46,6 +49,18 @@ def test_runtime_route_inventory_and_valid_edges(client):
     assert any(m['tables'] for m in graph['modules'])
     assert '/admin/system-atlas' in graph['frontend']['routes']
     assert 'fastapi' in graph['backend_dependencies']
+
+
+def test_websocket_routes_preserve_architecture_and_snapshot_availability(client):
+    graph = client.get('/api/admin/atlas/architecture', headers={'Authorization': 'Bearer admin-fixture'}).json()
+    websocket = next(e for e in graph['endpoints'] if e['path'] == '/api/realestate/cctv/gateway')
+    assert websocket['methods'] == ['WEBSOCKET']
+    assert websocket['transport'] == 'websocket'
+    http = next(e for e in graph['endpoints'] if e['path'] == '/api/stock/{code}/quote')
+    assert http['methods'] == ['GET'] and http['transport'] == 'http'
+    snapshot = client.get('/api/admin/atlas/snapshot', headers={'Authorization': 'Bearer admin-fixture'})
+    assert snapshot.status_code == 200
+    assert snapshot.json()['api']['count'] == 0, 'declared WebSockets must not fabricate HTTP observations'
 
 
 def test_sample_window_empty_latency_errors_and_monitor_exclusion(client, monkeypatch):

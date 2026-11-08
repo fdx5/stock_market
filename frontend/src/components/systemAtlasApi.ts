@@ -10,7 +10,7 @@ export interface AtlasNode {
 }
 export interface AtlasEdge { id: string; source: string; target: string; protocol: string; evidence: string; kind: string }
 export interface AtlasModule { id: string; file: string; group: string; imports: string[]; hosts: string[]; tables: string[]; cache: boolean }
-export interface AtlasEndpoint { path: string; methods: string[]; group: string; module: string; function: string; dependencies: string[] }
+export interface AtlasEndpoint { path: string; methods: string[]; group: string; module: string; function: string; dependencies: string[]; transport?: "http" | "websocket" }
 export interface AtlasArchitecture {
   nodes: AtlasNode[]; edges: AtlasEdge[]; modules: AtlasModule[]; endpoints: AtlasEndpoint[]; backend_dependencies: Record<string, string>;
   frontend: { dependencies?: Record<string, string>; dev_dependencies?: Record<string, string>; routes?: string[]; source_files?: number;
