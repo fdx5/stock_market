@@ -37,11 +37,11 @@ test('support opens on Kakao Pay with 3000 KRW selected and the alternative avai
 });
 
 test('every amount selection changes the button, QR target, visible QR and selected radio together', () => {
-  assert.deepEqual(Array.from(options, option => option.amount), [3000, 5000, 7000, 10000]);
+  assert.deepEqual(Array.from(options, option => option.amount), [3000, 5000, 7000, 10000, null]);
   let selected = initial;
-  for (const option of options) {
+  for (const option of [...options, initial]) {
     const tree = KakaoSupportPanel({ selected, onSelect: next => { selected = next; } });
-    const radio = elements(tree, node => node.type === 'input' && node.props.value === option.amount)[0];
+    const radio = elements(tree, node => node.type === 'input' && node.props.value === (option.amount ?? 'other'))[0];
     radio.props.onChange();
     const updated = KakaoSupportPanel({ selected, onSelect() {} });
     const links = elements(updated, node => node.type === 'a');
@@ -51,7 +51,7 @@ test('every amount selection changes the button, QR target, visible QR and selec
     assert.equal(visible[0].props.src, option.qr);
     const checked = elements(updated, node => node.type === 'input' && node.props.checked);
     assert.equal(checked.length, 1);
-    assert.equal(checked[0].props.value, option.amount);
+    assert.equal(checked[0].props.value, option.amount ?? 'other');
   }
 });
 
@@ -59,8 +59,20 @@ test('links keep the original recipient and encode each selected amount without 
   for (const option of options) {
     const url = new URL(option.url);
     assert.equal(url.origin, 'https://qr.kakaopay.com');
-    assert.equal(url.pathname, `/Ej7w8lXu2${(option.amount * 8).toString(16)}0000`);
+    assert.equal(url.pathname, option.amount === null ? '/Ej7w8lXu2' : `/Ej7w8lXu2${(option.amount * 8).toString(16)}0000`);
     assert.equal(url.search, '');
     assert.equal(url.hash, '');
   }
+});
+
+test('Other restores the original unrestricted link and QR with no stale preset in the copy', () => {
+  const other = options.find(option => option.amount === null);
+  const html = renderToStaticMarkup(React.createElement(KakaoSupportPanel, { selected: other, onSelect() {} }));
+  assert.equal(other.url, 'https://qr.kakaopay.com/Ej7w8lXu2');
+  assert.equal(other.qr, '/img/support/kakaopay-other.png');
+  assert.match(html, /checked=""[^>]*value="other"/);
+  assert.ok(html.includes('원하는 금액으로 후원하기'));
+  assert.ok(html.includes('직접 입력해 주세요'));
+  assert.ok(!html.includes('3,000원 후원하기'));
+  assert.ok(!html.includes('0원 후원하기'));
 });

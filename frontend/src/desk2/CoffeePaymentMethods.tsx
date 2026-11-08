@@ -57,30 +57,31 @@ export default function CoffeePaymentMethods() {
 
 export function KakaoSupportPanel({ selected, onSelect }: { selected: KakaoSupportOption; onSelect: (option: KakaoSupportOption) => void }) {
   const L = useL();
-  const label = supportAmountLabel(selected.amount);
+  const amountText = selected.amount === null ? L("직접 입력", "Choose your amount") : `${supportAmountLabel(selected.amount)}${L("원", " KRW")}`;
+  const qrLabel = selected.amount === null ? L("금액 미지정", "Any amount") : amountText;
   return <>
     <fieldset className="coffee-amounts">
       <legend>{L("후원 금액", "Support amount")}</legend>
-      <div className="coffee-amount-options">{KAKAO_SUPPORT_OPTIONS.map(option => <label key={option.amount} className="coffee-amount-option" data-selected={selected.amount === option.amount}>
-        <input type="radio" name="kakaopay-support-amount" value={option.amount} checked={selected.amount === option.amount} onChange={() => onSelect(option)} />
-        <span>{supportAmountLabel(option.amount)}{L("원", " KRW")}</span>
+      <div className="coffee-amount-options">{KAKAO_SUPPORT_OPTIONS.map(option => <label key={option.amount ?? "other"} className="coffee-amount-option" data-selected={selected.amount === option.amount} data-other={option.amount === null}>
+        <input type="radio" name="kakaopay-support-amount" value={option.amount ?? "other"} checked={selected.amount === option.amount} onChange={() => onSelect(option)} />
+        <span>{option.amount === null ? L("기타 · 직접 입력", "Other · choose amount") : `${supportAmountLabel(option.amount)}${L("원", " KRW")}`}</span>
       </label>)}</div>
     </fieldset>
     <div className="coffee-selected-amount" role="status" aria-live="polite" aria-atomic="true">
       <small>{L("선택한 후원 금액", "Selected amount")}</small>
-      <strong>{label}<span>{L("원", " KRW")}</span></strong>
+      <strong>{selected.amount === null ? amountText : <>{supportAmountLabel(selected.amount)}<span>{L("원", " KRW")}</span></>}</strong>
     </div>
     <a data-activity-key="support-pay" className="coffee-pay-button" href={selected.url} target="_blank" rel="noopener noreferrer">
-      <span className="coffee-pay-mark" aria-hidden="true">pay</span>{L(`${label}원 후원하기`, `Support with ${label} KRW`)} <span aria-hidden="true">↗</span>
+      <span className="coffee-pay-mark" aria-hidden="true">pay</span>{selected.amount === null ? L("원하는 금액으로 후원하기", "Support with any amount") : L(`${amountText} 후원하기`, `Support with ${amountText}`)} <span aria-hidden="true">↗</span>
     </a>
     <small className="coffee-pay-help">{L("휴대폰에서는 위 버튼을 눌러 주세요.", "On your phone, tap the button above.")}</small>
     <div className="coffee-divider"><span>{L("PC에서는 QR 코드로", "On desktop, scan the QR")}</span></div>
     <a href={selected.url} target="_blank" rel="noopener noreferrer" data-activity-key="support-qr" className="coffee-qr-link"
-      aria-label={L(`${label}원 카카오페이 후원 QR 코드 · 송금 링크 열기`, `Kakao Pay ${label} KRW QR · open support link`)}>
-      {KAKAO_SUPPORT_OPTIONS.map(option => <img key={option.amount} src={option.qr} hidden={selected.amount !== option.amount}
-        width="240" height="240" alt={L(`${supportAmountLabel(option.amount)}원 카카오페이 후원 QR 코드`, `Kakao Pay ${supportAmountLabel(option.amount)} KRW support QR code`)} />)}
+      aria-label={L(`${qrLabel} 카카오페이 후원 QR 코드 · 송금 링크 열기`, `Kakao Pay ${qrLabel} QR · open support link`)}>
+      {KAKAO_SUPPORT_OPTIONS.map(option => <img key={option.amount ?? "other"} src={option.qr} hidden={selected.amount !== option.amount}
+        width="240" height="240" alt={option.amount === null ? L("금액 미지정 카카오페이 후원 QR 코드", "Kakao Pay support QR with no preset amount") : L(`${supportAmountLabel(option.amount)}원 카카오페이 후원 QR 코드`, `Kakao Pay ${supportAmountLabel(option.amount)} KRW support QR code`)} />)}
     </a>
-    <p className="coffee-qr-help">{L(`QR 코드를 스캔하면 선택한 ${label}원이 담긴 카카오페이 후원 화면으로 연결됩니다.`, `Scan the QR code to open Kakao Pay with ${label} KRW selected.`)}</p>
+    <p className="coffee-qr-help">{selected.amount === null ? L("QR 코드를 스캔한 뒤 카카오페이에서 원하는 후원 금액을 직접 입력해 주세요.", "Scan the QR code, then enter your preferred amount in Kakao Pay.") : L(`QR 코드를 스캔하면 선택한 ${amountText}이 담긴 카카오페이 후원 화면으로 연결됩니다.`, `Scan the QR code to open Kakao Pay with ${amountText} selected.`)}</p>
     <div className="coffee-payment-note">{L("송금 전 카카오페이 화면에서 받는 분과 금액을 확인해 주세요. 후원 완료 여부는 카카오페이 송금 내역에서 확인할 수 있습니다.", "Check the recipient and amount in Kakao Pay before sending. Your Kakao Pay history confirms completion.")}</div>
   </>;
 }

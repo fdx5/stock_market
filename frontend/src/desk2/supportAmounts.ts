@@ -6,6 +6,7 @@ export const KAKAO_SUPPORT_OPTIONS = [
   { amount: 5000, url: "https://qr.kakaopay.com/Ej7w8lXu29c400000", qr: "/img/support/kakaopay-5000.png" },
   { amount: 7000, url: "https://qr.kakaopay.com/Ej7w8lXu2dac00000", qr: "/img/support/kakaopay-7000.png" },
   { amount: 10000, url: "https://qr.kakaopay.com/Ej7w8lXu2138800000", qr: "/img/support/kakaopay-10000.png" },
+  { amount: null, url: "https://qr.kakaopay.com/Ej7w8lXu2", qr: "/img/support/kakaopay-other.png" },
 ] as const;
 
 export type KakaoSupportOption = typeof KAKAO_SUPPORT_OPTIONS[number];
