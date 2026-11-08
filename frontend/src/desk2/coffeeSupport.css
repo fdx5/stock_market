@@ -20,42 +20,55 @@
 .d2 .coffee-purpose { display: flex; flex-wrap: wrap; gap: 8px; margin: 26px 0; }
 .d2 .coffee-purpose span { padding: 7px 11px; border: 1px solid var(--rule); border-radius: 9px; color: var(--brass); background: var(--p1); font-size: 12px; font-weight: 600; }
 .d2 .coffee-letter .coffee-thanks { font-size: 13px; padding-top: 18px; border-top: 1px dashed var(--rule-2); }
-.d2 .coffee-payment { background: #fff8eb; color: #513829; border: 1px solid #e6d4ba; border-radius: 26px; padding: 30px 24px 26px; text-align: center; box-shadow: 0 12px 36px #432a1310; }
-.d2 .coffee-payment-tag { display: inline-block; padding: 5px 12px; border-radius: 99px; background: #f2e4cd; color: #775133; font-size: 11px; font-weight: 600; }
+.d2 .coffee-payment { background: var(--p1); color: var(--ink); border: 1px solid var(--rule-2); border-radius: 26px; padding: 30px 24px 26px; text-align: center; box-shadow: 0 12px 36px #00000024; }
+.d2 .coffee-payment-tag { display: inline-block; padding: 5px 12px; border-radius: 99px; background: var(--p2); color: var(--brass); font-size: 11px; font-weight: 600; }
 .d2 .coffee-payment h2 { margin: 14px 0 8px; font-size: 23px; font-weight: 800; letter-spacing: -.04em; }
-.d2 .coffee-payment > p { font-size: 13px; color: #79624e; line-height: 1.7; }
+.d2 .coffee-payment > p { font-size: 13px; color: var(--ink-2); line-height: 1.7; }
 .d2 .coffee-pay-button { display: flex; justify-content: center; align-items: center; gap: 9px; min-height: 54px; margin-top: 24px; padding: 12px; background: #fee500; color: #302314; border: 1px solid #edd400; border-radius: 14px; font-size: 15px; font-weight: 800; transition: background .15s, transform .15s; }
 .d2 .coffee-pay-button:hover { background: #f8dc00; transform: translateY(-1px); }
 .d2 .coffee-pay-mark { font-style: italic; font-size: 20px; font-weight: 900; letter-spacing: -.08em; }
-.d2 .coffee-pay-help { display: block; font-size: 11px; color: #79624e; margin-top: 10px; }
-.d2 .coffee-divider { display: flex; align-items: center; gap: 12px; margin: 25px 0 18px; font-size: 11px; color: #79624e; }
-.d2 .coffee-divider::before, .d2 .coffee-divider::after { content: ""; flex: 1; height: 1px; background: #e6d4ba; }
-.d2 .coffee-qr-link { display: block; max-width: 232px; margin: 0 auto; background: white; border: 1px solid #eadfce; border-radius: 14px; padding: 12px; overflow: hidden; }
+.d2 .coffee-pay-help { display: block; font-size: 11px; color: var(--ink-2); margin-top: 10px; }
+.d2 .coffee-divider { display: flex; align-items: center; gap: 12px; margin: 25px 0 18px; font-size: 11px; color: var(--ink-2); }
+.d2 .coffee-divider::before, .d2 .coffee-divider::after { content: ""; flex: 1; height: 1px; background: var(--rule-2); }
+.d2 .coffee-qr-link { display: block; max-width: 232px; margin: 0 auto; background: white; border: 1px solid var(--rule-2); border-radius: 14px; padding: 12px; overflow: hidden; }
 .d2 .coffee-qr-link img { display: block; width: 100%; height: auto; }
 .d2 .coffee-payment .coffee-qr-help { margin: 14px auto 0; max-width: 255px; font-size: 12px; }
-.d2 .coffee-payment-note { margin-top: 20px; padding: 13px; border-radius: 10px; background: #f4ebdc; font-size: 11px; line-height: 1.7; color: #79624e; }
-.d2 .coffee-signoff { display: block; font-size: 12px; color: #956b48; margin-top: 20px; }
-.d2 .coffee-payment-tabs { display: flex; gap: 4px; padding: 4px; margin-top: 22px; border: 1px solid #e6d4ba; border-radius: 12px; background: #f2e4cd; }
-.d2 .coffee-payment-tabs button { flex: 1; min-height: 42px; padding: 7px 6px; border: 0; border-radius: 8px; background: transparent; color: #79624e; font-size: 12px; font-weight: 700; cursor: pointer; }
-.d2 .coffee-payment-tabs button[aria-selected="true"] { background: #fffdf7; color: #513829; box-shadow: 0 2px 7px #432a1312; }
+.d2 .coffee-payment-note { margin-top: 20px; padding: 13px; border-radius: 10px; background: var(--p2); font-size: 11px; line-height: 1.7; color: var(--ink-2); }
+.d2 .coffee-signoff { display: block; font-size: 12px; color: var(--brass); margin-top: 20px; }
+.d2 .coffee-payment-tabs { display: flex; gap: 4px; padding: 4px; margin-top: 22px; border: 1px solid var(--rule-2); border-radius: 12px; background: var(--p2); }
+.d2 .coffee-payment-tabs button { flex: 1; min-height: 42px; padding: 7px 6px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); font-size: 12px; font-weight: 700; cursor: pointer; }
+.d2 .coffee-payment-tabs button[aria-selected="true"] { background: var(--p0); color: var(--ink); box-shadow: 0 2px 7px #00000024; }
 .d2 .coffee-payment-tabs button:focus-visible, .d2 .coffee-payment [role="tabpanel"]:focus-visible { outline: 3px solid var(--brass); outline-offset: 3px; }
 .d2 .coffee-payment [hidden] { display: none; }
+.d2 .coffee-amounts { min-width: 0; margin: 24px 0 0; padding: 0; border: 0; text-align: left; }
+.d2 .coffee-amounts legend { margin-bottom: 10px; padding: 0; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.d2 .coffee-amount-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.d2 .coffee-amount-option { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 10px 8px; border: 1px solid var(--rule-2); border-radius: 10px; background: var(--p0); color: var(--ink-2); font-size: 14px; font-weight: 700; cursor: pointer; transition: border-color .15s, background .15s; }
+.d2 .coffee-amount-option input { width: 14px; height: 14px; margin: 0; accent-color: var(--brass); }
+.d2 .coffee-amount-option:hover { border-color: var(--brass); }
+.d2 .coffee-amount-option[data-selected="true"] { border-color: var(--brass); background: var(--mark); color: var(--ink); box-shadow: inset 0 0 0 1px var(--brass); }
+.d2 .coffee-amount-option:has(input:focus-visible) { outline: 2px solid var(--brass); outline-offset: 3px; }
+.d2 .coffee-selected-amount { display: grid; gap: 4px; margin-top: 22px; }
+.d2 .coffee-selected-amount small { color: var(--ink-2); font-size: 11px; }
+.d2 .coffee-selected-amount strong { color: var(--ink); font-family: var(--f-num); font-size: 32px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.d2 .coffee-selected-amount strong > span { margin-left: 4px; color: var(--ink-2); font-size: 14px; }
+.d2 .coffee-selected-amount + .coffee-pay-button { margin-top: 16px; }
 .d2 .coffee-bmc-button { display: block; width: 100%; max-width: 280px; margin: 22px auto 0; border-radius: 12px; transition: transform .15s; }
 .d2 .coffee-bmc-button img { display: block; width: 100%; height: auto; border-radius: 12px; }
 .d2 .coffee-bmc-button:hover { transform: translateY(-2px); }
-.d2 .coffee-shop-intro { margin: 20px 0 14px; font-size: 12px; color: #79624e; line-height: 1.7; }
+.d2 .coffee-shop-intro { margin: 20px 0 14px; font-size: 12px; color: var(--ink-2); line-height: 1.7; }
 .d2 .coffee-products { display: grid; gap: 11px; }
-.d2 .coffee-product { display: flex; align-items: center; gap: 12px; min-height: 89px; padding: 14px 12px; border: 1px solid #e6d4ba; border-radius: 15px; text-align: left; background: #fffdf7; color: #513829; transition: transform .15s, border-color .15s; }
-.d2 .coffee-product:hover { transform: translateY(-2px); border-color: #956b48; }
-.d2 .coffee-product-icon { display: grid; place-items: center; flex: none; width: 76px; height: 76px; border-radius: 12px; background: #fff0b1; overflow: hidden; }
-.d2 .coffee-product-starbucks .coffee-product-icon { background: #deece2; }
-.d2 .coffee-product-bluebottle .coffee-product-icon { background: #deedf5; }
+.d2 .coffee-product { display: flex; align-items: center; gap: 12px; min-height: 89px; padding: 14px 12px; border: 1px solid var(--rule-2); border-radius: 15px; text-align: left; background: var(--p0); color: var(--ink); transition: transform .15s, border-color .15s; }
+.d2 .coffee-product:hover { transform: translateY(-2px); border-color: var(--brass); }
+.d2 .coffee-product-icon { display: grid; place-items: center; flex: none; width: 76px; height: 76px; border-radius: 12px; background: var(--p2); overflow: hidden; }
+.d2 .coffee-product-starbucks .coffee-product-icon { background: var(--p2); }
+.d2 .coffee-product-bluebottle .coffee-product-icon { background: var(--p2); }
 .d2 .coffee-product-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .d2 .coffee-product-copy { flex: 1; min-width: 0; }
 .d2 .coffee-product-copy b { display: block; font-size: 15px; line-height: 1.5; }
-.d2 .coffee-product-price { display: block; margin-top: 2px; font-size: 16px; font-weight: 800; line-height: 1.4; color: #956b48; }
-.d2 .coffee-product-copy small { display: block; margin-top: 4px; font-size: 10px; color: #79624e; line-height: 1.6; word-break: keep-all; }
-.d2 .coffee-product-arrow { flex: none; color: #956b48; font-size: 20px; }
+.d2 .coffee-product-price { display: block; margin-top: 2px; font-size: 16px; font-weight: 800; line-height: 1.4; color: var(--brass); }
+.d2 .coffee-product-copy small { display: block; margin-top: 4px; font-size: 10px; color: var(--ink-2); line-height: 1.6; word-break: keep-all; }
+.d2 .coffee-product-arrow { flex: none; color: var(--brass); font-size: 20px; }
 .d2 .coffee-success-main { max-width: 1000px; }
 .d2 .coffee-success-letter { max-width: 690px; margin: 42px auto 0; }
 .d2 .coffee-success-letter h1 { margin-bottom: 20px; font-size: clamp(26px, 3.7vw, 40px); line-height: 1.6; font-weight: 800; letter-spacing: -.05em; }
@@ -64,10 +77,6 @@
 .d2 .coffee-success-product { display: inline-block; padding: 10px 15px; border: 1px solid var(--rule-2); border-radius: 12px; background: var(--p1); font-size: 13px; color: var(--brass); }
 .d2 .coffee-success-letter .coffee-success-receipt { margin-top: 18px; font-size: 12px; }
 .d2 .coffee-success-link { display: inline-block; font-size: 13px; color: var(--brass); text-decoration: underline; text-underline-offset: 4px; }
-@media (min-width: 761px) {
-  .d2 .coffee-payment .coffee-pay-button,
-  .d2 .coffee-payment .coffee-pay-help { display: none; }
-}
 @media (max-width: 1000px) {
   .d2 .coffee-layout { gap: 32px; grid-template-columns: minmax(0, 1fr) 320px; }
 }
