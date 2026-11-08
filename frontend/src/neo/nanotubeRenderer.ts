@@ -136,7 +136,9 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     gl.colorMask(true, true, true, true); gl.depthMask(true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
     allAttributes.forEach(location => gl.disableVertexAttribArray(location));
-    common(hull); gl.colorMask(false, false, false, false); gl.enableVertexAttribArray(hullUv);
+    // The existing depth envelope also supplies a faint satin surface, at no extra draw cost.
+    const intensity = level === "full" ? 1.12 : level === "minimal" ? .5 : .9;
+    common(hull); gl.uniform1f(uniform(hull, "u_intensity"), intensity); gl.enableVertexAttribArray(hullUv);
     gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
     tubes.forEach((tube, id) => {
       gl.uniform1f(uniform(hull, "u_tube"), id);
@@ -145,7 +147,7 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     });
     gl.disable(gl.POLYGON_OFFSET_FILL); gl.disableVertexAttribArray(hullUv);
     gl.colorMask(true, true, true, true); gl.depthMask(false); gl.enable(gl.BLEND);
-    common(wire); gl.uniform1f(uniform(wire, "u_intensity"), level === "full" ? 1.12 : level === "minimal" ? .5 : .9);
+    common(wire); gl.uniform1f(uniform(wire, "u_intensity"), intensity);
     gl.uniform4fv(uniform(wire, "u_packets[0]"), pulses.sample(elapsed + 4.2));
     gl.blendFunc(gl.ONE, gl.ONE);
     gl.uniform1f(uniform(wire, "u_pass"), 2); gl.uniform1f(uniform(wire, "u_width"), 13);

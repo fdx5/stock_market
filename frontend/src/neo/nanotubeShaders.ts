@@ -15,60 +15,62 @@ const float TAU=6.28318530718;
 vec2 turn(vec2 point,float angle){
   return vec2(point.x*cos(angle)-point.y*sin(angle),point.x*sin(angle)+point.y*cos(angle));
 }
+float cameraOrbit(){return .12+sin(u_time*.025)*.035;}
 vec3 skin(float tube,vec2 uv,float branch,out float facing){
   int id=int(tube+.5);
   vec4 shape=u_shape[id],motion=u_motion[id];
   float y=(uv.y-.5)*u_length;
   float t=u_time*motion.y,phase=motion.x;
-  float knot=y*.00145+u_time*.095;
-  float p=y*.0022+t*.22+phase;
-  float q=y*.0043-t*.13+phase*.3;
-  float spinePhase=y*.0015+u_time*.12;
+  float knot=y*.00145+u_time*.048+phase*.28;
+  float p=y*.0022+t*.14+phase;
+  float q=y*.0043-t*.085+phase*.3;
+  float spinePhase=y*.0015+u_time*.065+phase*.45;
   float x=shape.y*u_viewport.x*(.84+.14*sin(knot))+shape.z*y;
   x+=sin(spinePhase)*24.*u_scale+sin(p)*motion.z*u_scale+sin(q)*motion.z*.3*u_scale;
   float dx=shape.y*u_viewport.x*.14*cos(knot)*.00145+shape.z;
   dx+=cos(spinePhase)*24.*u_scale*.0015+cos(p)*motion.z*u_scale*.0022+cos(q)*motion.z*.3*u_scale*.0043;
-  float z=shape.w*u_scale+sin(y*.0017+t*.2+phase)*24.*u_scale+cos(y*.0031-t*.17+phase*.8)*13.*u_scale;
-  float radius=shape.x*u_scale*(.94+.05*sin(y*.0044+t*.44+phase)+.025*cos(y*.0107-t*.27));
-  float theta=uv.x*TAU+y*.0006*motion.w+sin(y*.0021+t*.13+phase)*.34+t*.06*motion.w;
+  float z=shape.w*u_scale+sin(y*.0017+t*.12+phase)*24.*u_scale+cos(y*.0031-t*.1+phase*.8)*13.*u_scale;
+  float radius=shape.x*u_scale*(.96+.028*sin(y*.0044+t*.23+phase)+.014*cos(y*.0107-t*.15));
+  float theta=uv.x*TAU+y*.0006*motion.w+sin(y*.0021+t*.085+phase)*.27+t*.04*motion.w;
   vec2 side=normalize(vec2(1.,-dx));
   float form=u_form[id];
   vec2 crossSection;
-  float normalZ=cos(theta);
+  vec2 crossNormal=vec2(sin(theta),cos(theta));
   if(form<.5){
-    float winding=uv.y*TAU*2.4+t*.1+sin(uv.y*13.+phase)*.24+branch*3.14159265;
+    float winding=uv.y*TAU*2.4+t*.065+sin(uv.y*13.+phase)*.24+branch*3.14159265;
     vec2 lobe=vec2(cos(winding),sin(winding))*radius*.66;
     crossSection=lobe+vec2(sin(theta),cos(theta))*radius*.34;
   }else if(form<1.5){
     float lateral=sin(theta)*radius*1.5;
-    float crease=sin(lateral/max(radius,.01)*4.2+uv.y*7.+t*.12)*radius*.22;
-    float fold=uv.y*TAU*1.35+sin(uv.y*9.+t*.12)*.55+t*.08;
+    float crease=sin(lateral/max(radius,.01)*3.2+uv.y*7.+t*.08)*radius*.14;
+    float fold=uv.y*TAU*1.35+sin(uv.y*9.+t*.075)*.45+t*.055;
     crossSection=turn(vec2(lateral,cos(theta)*radius*.1+crease),fold);
     float lateralTangent=cos(theta)*radius*1.5;
-    float creaseTangent=cos(lateral/max(radius,.01)*4.2+uv.y*7.+t*.12)*.924*lateralTangent;
+    float creaseTangent=cos(lateral/max(radius,.01)*3.2+uv.y*7.+t*.08)*.448*lateralTangent;
     vec2 tangent=turn(vec2(lateralTangent,-sin(theta)*radius*.1+creaseTangent),fold);
-    normalZ=tangent.x/max(length(tangent),.001);
+    crossNormal=vec2(-tangent.y,tangent.x)/max(length(tangent),.001);
   }else if(form<2.5){
-    float fork=pow(.5+.5*sin(uv.y*TAU*3.6+t*.08+phase),1.6);
-    float winding=branch*TAU/3.+uv.y*4.+t*.04+sin(uv.y*11.+phase)*.3;
+    float fork=pow(.5+.5*sin(uv.y*TAU*3.6+t*.055+phase),1.4);
+    float winding=branch*TAU/3.+uv.y*4.+t*.03+sin(uv.y*11.+phase)*.3;
     vec2 lobe=vec2(cos(winding),sin(winding))*radius*fork*1.18;
     crossSection=lobe+vec2(sin(theta),cos(theta))*radius*(.3-.09*fork);
   }else{
-    float node=.5+.5*cos(uv.y*TAU*13.+t*.1);
-    float ribRadius=radius*1.65*(.33+.95*pow(node,2.6));
+    float node=.5+.5*cos(uv.y*TAU*13.+t*.065);
+    float ribRadius=radius*1.65*(.42+.76*pow(node,1.5));
     theta+=uv.y*TAU*1.8;
     float radiusTangent=-ribRadius*.36*sin(theta*3.+uv.y*TAU*4.+t*.05);
     ribRadius*=.88+.12*cos(theta*3.+uv.y*TAU*4.+t*.05);
     crossSection=vec2(sin(theta),cos(theta))*ribRadius;
     vec2 tangent=vec2(radiusTangent*sin(theta)+ribRadius*cos(theta),radiusTangent*cos(theta)-ribRadius*sin(theta));
-    normalZ=tangent.x/max(length(tangent),.001);
+    crossNormal=vec2(-tangent.y,tangent.x)/max(length(tangent),.001);
   }
-  facing=normalZ;
+  // Keep the reflected light attached to the surface as the camera slowly orbits.
+  facing=turn(vec2(crossNormal.x*side.x,crossNormal.y),cameraOrbit()).y;
   return vec3(x+side.x*crossSection.x,y+side.y*crossSection.x,z+crossSection.y);
 }
 vec4 projectPoint(vec3 point){
   // A gentle camera orbit exposes depth between folds without pointer-driven motion.
-  point.xz=turn(point.xz,.12+sin(u_time*.035)*.045);
+  point.xz=turn(point.xz,cameraOrbit());
   float angle=.4537856;
   point.xy=mat2(cos(angle),sin(angle),-sin(angle),cos(angle))*point.xy;
   float focal=1100.*u_scale+600.;
@@ -77,7 +79,8 @@ vec4 projectPoint(vec3 point){
 }
 vec3 material(float tube,vec2 uv){
   int id=int(tube+.5);
-  float mixRatio=.36+.25*sin(uv.y*9.+uv.x*2.2+u_motion[id].x*.4+u_time*.06);
+  // Circumferential color is periodic, avoiding a color seam at UV 0/1.
+  float mixRatio=.34+.19*sin(uv.y*7.+sin(uv.x*TAU)*.32+u_motion[id].x*.4+u_time*.035);
   return mix(u_colorA[id],u_colorB[id],mixRatio);
 }
 `;
@@ -85,9 +88,32 @@ vec3 material(float tube,vec2 uv){
 export const HULL_VERTEX = SCENE + `
 attribute vec3 a_uv;
 uniform float u_tube;
-void main(){float facing;gl_Position=projectPoint(skin(u_tube,a_uv.xy,a_uv.z,facing));}
+varying vec3 v_surfaceColor;
+varying vec3 v_surface;
+void main(){
+  float facing;
+  vec3 point=skin(u_tube,a_uv.xy,a_uv.z,facing);
+  gl_Position=projectPoint(point);
+  v_surfaceColor=material(u_tube,a_uv.xy);
+  v_surface=vec3(facing,a_uv.y,point.z/u_scale);
+}
 `;
-export const HULL_FRAGMENT = `precision mediump float;void main(){gl_FragColor=vec4(0.);}`;
+export const HULL_FRAGMENT = `
+precision mediump float;
+uniform float u_intensity;
+varying vec3 v_surfaceColor;
+varying vec3 v_surface;
+void main(){
+  float face=clamp(abs(v_surface.x),0.,1.);
+  float rim=pow(1.-face,2.6);
+  float sheen=exp(-pow((face-.7)/.2,2.));
+  float fade=smoothstep(.015,.085,v_surface.y)*(1.-smoothstep(.915,.985,v_surface.y));
+  float depth=.72+.28*smoothstep(-150.,150.,v_surface.z);
+  float alpha=(.009+.026*rim+.018*sheen)*fade*depth*u_intensity;
+  vec3 color=mix(v_surfaceColor,vec3(.81,.91,.95),sheen*.16);
+  gl_FragColor=vec4(color*alpha,alpha);
+}
+`;
 
 export const WIRE_VERTEX = SCENE + `
 attribute vec4 a_edge;
@@ -138,8 +164,8 @@ void main(){
   float tube=mix(a_tubes.x,a_tubes.y,a_style.x);
   if(isFilament){
     a=filament(a_tubes.x,a_edge.xy,branchA,a_style.w,fa);b=filament(a_tubes.y,a_edge.zw,branchB,a_style.w,fb);
-    vec3 ice=mix(vec3(.20,.60,1.),vec3(.90,.98,1.),.28+.65*a_style.w);
-    ca=mix(ice,ca,.3);cb=mix(ice,cb,.3);
+    vec3 ice=mix(vec3(.42,.72,.89),vec3(.90,.96,1.),.28+.65*a_style.w);
+    ca=mix(ice,ca,.7);cb=mix(ice,cb,.7);
   }else if(isBridge){
     vec3 start=a,end=b;
     a=bridge(start,end,a_link.x,a_style.w);b=bridge(start,end,a_link.y,a_style.w);
@@ -173,14 +199,14 @@ varying vec3 v_details;
 varying vec4 v_packet;
 void main(){
   float across=abs(v_data.x),along=v_data.y,tube=v_data.w;
-  float tempo=.43+tube*.043;
+  float tempo=.27+tube*.031;
   float pulse=pow(.5+.5*sin(along*19.+u_time*tempo+tube*1.7),9.);
   float trace=pow(.5+.5*sin(along*43.-u_time*.28+v_details.y*5.),12.);
   float rim=pow(1.-clamp(abs(v_data.z),0.,1.),3.);
-  float front=.30+.62*pow(max(v_data.z,0.),1.3)+rim*.20;
+  float front=.22+.62*pow(max(v_data.z,0.),1.3)+rim*.27;
   float depth=.68+.32*smoothstep(-150.,150.,v_details.z);
   float endFade=smoothstep(.015,.085,along)*(1.-smoothstep(.915,.985,along));
-  float feather=1.-smoothstep(.35,1.,across);
+  float feather=exp(-across*across*2.8)*(1.-smoothstep(.65,1.,across));
   // Each crest runs along the twisted light strands, with small strand-to-strand delays.
   float signalAlong=along+sin(v_details.y*17.+tube)*v_packet.z*.32;
   float signal=exp(-pow((signalAlong-v_packet.x)/max(.001,v_packet.z),2.)*2.)*v_packet.y;
@@ -188,22 +214,24 @@ void main(){
   float alpha;
   if(u_pass>1.5)alpha=exp(-across*across*4.)*(1.-smoothstep(.75,1.,across))*(.0025+.008*pulse)*depth;
   else if(u_pass>.5)alpha=exp(-across*across*4.)*(1.-smoothstep(.78,1.,across))*(.01+.023*pulse)*front*depth;
-  else alpha=feather*(.30+.10*pulse+.03*trace)*front*depth;
+  else alpha=feather*(.27+.065*pulse+.02*trace)*front*depth;
   bool isFilament=v_details.x>2.5&&v_details.x<3.5;
   if(isFilament){
-    float filamentPulse=pow(.5+.5*sin(along*29.+u_time*(1.+v_details.y*.7)+v_details.y*6.2831853),6.);
-    if(u_pass<.5)alpha=feather*(.34+.09*filamentPulse)*depth;
-    else if(u_pass<1.5)alpha=exp(-across*across*4.)*(.024+.04*filamentPulse)*depth;
+    float filamentPulse=pow(.5+.5*sin(along*21.+u_time*(.55+v_details.y*.4)+v_details.y*6.2831853),6.);
+    if(u_pass<.5)alpha=feather*(.38+.065*filamentPulse)*depth;
+    else if(u_pass<1.5)alpha=exp(-across*across*4.)*(.02+.028*filamentPulse)*depth;
   }else if(v_details.x>1.5&&v_details.x<2.5)alpha*=.62;
-  float light=signal+afterglow;
-  if(u_pass>1.5)alpha+=exp(-across*across*3.)*light*.18;
-  else if(u_pass>.5)alpha+=exp(-across*across*3.)*light*.72;
-  else alpha=mix(alpha,feather*.98,min(.98,light));
+  // Energy travels inside the tubes; the outer weave catches a softer reflected glow.
+  float carrier=isFilament?1.:(v_details.x>.5&&v_details.x<1.5?.42:.16);
+  float light=(signal+afterglow)*carrier;
+  if(u_pass>1.5)alpha+=exp(-across*across*3.)*light*.095;
+  else if(u_pass>.5)alpha+=exp(-across*across*3.)*light*.34;
+  else alpha=mix(alpha,feather*.88,min(.9,light));
   vec3 color=mix(v_color,vec3(.92,.98,1.),pulse*.09*front);
   color=mix(color,vec3(.68,.87,1.),rim*.16);
   if(isFilament&&u_pass<.5)color=mix(color,vec3(.88,.97,1.),pow(1.-across,3.)*.26);
-  color=mix(color,vec3(.85,.97,1.),min(.95,signal*.95));
+  color=mix(color,vec3(.85,.97,1.),min(.65,signal*carrier*.65));
   alpha=min(.98,alpha*endFade*u_intensity);
-  gl_FragColor=vec4(color*alpha*(1.+signal*.65),alpha);
+  gl_FragColor=vec4(color*alpha*(1.+signal*carrier*.22),alpha);
 }
 `;

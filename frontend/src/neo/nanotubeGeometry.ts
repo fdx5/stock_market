@@ -15,10 +15,10 @@ export interface NanotubeSpec {
 }
 
 export const NANOTUBES: readonly NanotubeSpec[] = [
-  { form: "braid", radius: 43, offset: -.34, lean: -.075, depth: -48, phase: .3, tempo: .66, sway: 49, twist: 1, columns: 16, rows: 112, wire: 1.25, colors: ["#69d9a6", "#dcfff0"] },
-  { form: "ribbon", radius: 22, offset: -.115, lean: .07, depth: 36, phase: 5.9, tempo: .96, sway: 43, twist: 1, columns: 12, rows: 168, wire: 1.0, colors: ["#dfb166", "#dc8798"] },
-  { form: "neural", radius: 35, offset: .115, lean: -.105, depth: -72, phase: 2.9, tempo: .73, sway: 57, twist: -1, columns: 14, rows: 132, wire: 1.2, colors: ["#d093c4", "#778cdb"] },
-  { form: "vertebra", radius: 14, offset: .34, lean: .035, depth: 76, phase: 6.7, tempo: 1.2, sway: 33, twist: 1, columns: 10, rows: 196, wire: .92, colors: ["#7bd2e3", "#e6f7ff"] },
+  { form: "braid", radius: 43, offset: -.34, lean: -.075, depth: -48, phase: .3, tempo: .66, sway: 41, twist: 1, columns: 16, rows: 112, wire: 1.08, colors: ["#66c8ad", "#d4eee1"] },
+  { form: "ribbon", radius: 22, offset: -.115, lean: .07, depth: 36, phase: 5.9, tempo: .96, sway: 35, twist: 1, columns: 12, rows: 168, wire: .9, colors: ["#d6ac75", "#d6a2a7"] },
+  { form: "neural", radius: 35, offset: .115, lean: -.105, depth: -72, phase: 2.9, tempo: .73, sway: 46, twist: -1, columns: 14, rows: 132, wire: 1.02, colors: ["#b69acc", "#839bd3"] },
+  { form: "vertebra", radius: 14, offset: .34, lean: .035, depth: 76, phase: 6.7, tempo: 1.2, sway: 27, twist: 1, columns: 10, rows: 196, wire: .86, colors: ["#79bdcf", "#d9eef3"] },
 ];
 
 export const fiberCount = (spec: NanotubeSpec) => Math.round(Math.max(6, Math.round(spec.radius * .55)) / 2);
