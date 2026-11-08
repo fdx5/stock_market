@@ -130,7 +130,7 @@
     "/walk",
     "/yield-curve-lab"
   ],
-  "source_files": 956,
+  "source_files": 977,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -155,6 +155,7 @@
     "frontend/src/components/workerCpuRaster.ts",
     "frontend/src/drivegame/world/tileWorker.ts",
     "frontend/src/monitor/synapseGeometry.worker.ts",
+    "frontend/src/neo/nanotubeGeometryWorker.ts",
     "frontend/src/rail/railClearanceWorker.ts",
     "frontend/src/rail/railWorker.ts",
     "frontend/src/vendor/tidewater/engine/gpu/ShaderTextWorker.js",

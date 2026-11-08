@@ -2,8 +2,8 @@
 .ng-neon-river { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none !important; user-select: none; contain: strict; background: #141017; }
 .ng-electric-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .ng-electric-atmosphere,.ng-electric-shade,.ng-electric-fallback { position: absolute; inset: 0; }
-.ng-electric-atmosphere { background: radial-gradient(ellipse at 15% 85%, #36dffb07, transparent 42%), radial-gradient(ellipse at 65% 30%, #b18aff08, transparent 45%); }
+.ng-electric-atmosphere { background: radial-gradient(ellipse at 12% 75%, #69d9a607, transparent 38%), radial-gradient(ellipse at 42% 35%, #a18af006, transparent 36%), radial-gradient(ellipse at 68% 65%, #dfb16605, transparent 32%), radial-gradient(ellipse at 86% 22%, #7bd2e307, transparent 38%); }
 .ng-electric-shade { background: linear-gradient(0deg, transparent 65%, #14101720); }
-.ng-electric-fallback { background: repeating-linear-gradient(116deg,transparent 0 2px,#bf85ff16 3px,transparent 4px 8px); mask-image: linear-gradient(110deg,transparent 8%,#000 12% 17%,transparent 24% 43%,#000 49% 54%,transparent 62% 78%,#000 84% 89%,transparent 95%); }
+.ng-electric-fallback { opacity: .55; background: repeating-linear-gradient(116deg,transparent 0 3px,#a6c9db19 3.5px,transparent 4px 9px),repeating-linear-gradient(64deg,transparent 0 7px,#ad9bda16 7.5px,transparent 8px 14px); mask-image: linear-gradient(116deg,transparent 0 8%,#000 9% 14%,transparent 15% 31%,#000 32% 35%,transparent 36% 55%,#000 56% 60%,transparent 61% 79%,#000 80% 83%,transparent 84%); }
 html[data-design="neo"] .ng-content :is(.ed-market-overview,.ed-discovery-section,.d2-flow-panel,.d2-rank-panel,.d2-global-card,.ng-panel) { background: #18131fed; }
 @media print { .ng-neon-river { display: none; } }
