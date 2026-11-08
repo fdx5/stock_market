@@ -46,7 +46,8 @@ test('every amount selection changes the button, QR target, visible QR and selec
     const updated = KakaoSupportPanel({ selected, onSelect() {} });
     const links = elements(updated, node => node.type === 'a');
     assert.ok(links.every(link => link.props.href === option.url));
-    const visible = elements(updated, node => node.type === 'img' && !node.props.hidden);
+    const qrLink = links.find(link => link.props.className === 'coffee-qr-link');
+    const visible = elements(qrLink, node => node.type === 'img' && !node.props.hidden);
     assert.equal(visible.length, 1);
     assert.equal(visible[0].props.src, option.qr);
     const checked = elements(updated, node => node.type === 'input' && node.props.checked);

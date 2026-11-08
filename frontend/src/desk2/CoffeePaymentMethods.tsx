@@ -59,7 +59,16 @@ export function KakaoSupportPanel({ selected, onSelect }: { selected: KakaoSuppo
   const L = useL();
   const amountText = selected.amount === null ? L("직접 입력", "Choose your amount") : `${supportAmountLabel(selected.amount)}${L("원", " KRW")}`;
   const qrLabel = selected.amount === null ? L("금액 미지정", "Any amount") : amountText;
+  const product = selected.product;
   return <>
+    <figure className="coffee-selected-product" hidden={!product}>
+      <div className="coffee-product-preview-stage">
+        {KAKAO_SUPPORT_OPTIONS.map(option => option.product && <img key={option.amount} src={option.product.image}
+          hidden={selected.amount !== option.amount} width="240" height="240" alt={L(option.product.name, option.product.english)} />)}
+        {product && product.quantity > 1 && <span className="coffee-product-multiplier" aria-hidden="true">×{product.quantity}</span>}
+      </div>
+      <figcaption aria-live="polite">{product && <>{L(product.name, product.english)}{product.quantity > 1 && L(" 두 잔", " · 2 cups")}</>}</figcaption>
+    </figure>
     <fieldset className="coffee-amounts">
       <legend>{L("후원 금액", "Support amount")}</legend>
       <div className="coffee-amount-options">{KAKAO_SUPPORT_OPTIONS.map(option => <label key={option.amount ?? "other"} className="coffee-amount-option" data-selected={selected.amount === option.amount} data-other={option.amount === null}>
