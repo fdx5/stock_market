@@ -1,5 +1,6 @@
 import datetime as dt
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
@@ -113,9 +114,13 @@ def _load_history(code: str, years: int, host: str = _YAHOO_HOSTS[0]) -> pd.Data
     # own routing/rewriting. Only a plain US equity ticker goes through the
     # cache-busting fetch — the KRX/Naver and index paths were never the ones seen
     # serving stale data, and fdr.DataReader already handles both correctly.
-    if code.isdigit() or code.upper() in _FDR_SPECIAL_SYMBOLS:
+    krx_code = bool(re.fullmatch(r"[0-9][0-9A-Z]{5}", code))
+    if code.isdigit() or krx_code or code.upper() in _FDR_SPECIAL_SYMBOLS:
         fetch = fdr.DataReader
-        fetch_args = (code, start, end)
+        # New KRX codes can contain letters (e.g. 0158S0). They are domestic
+        # securities, so explicitly select Naver instead of Yahoo's ticker route.
+        symbol = f"NAVER:{code}" if krx_code and not code.isdigit() else code
+        fetch_args = (symbol, start, end)
     else:
         fetch = _fetch_yahoo_direct
         fetch_args = (code, start, end, host)
@@ -254,6 +259,7 @@ def get_history_confirmed(code: str, years: int, expected_date: dt.date) -> pd.D
     if (
         (df.empty or df.iloc[-1]["date"] < expected_date.isoformat())
         and not code.isdigit()
+        and not re.fullmatch(r"[0-9][0-9A-Z]{5}", code)
         and code.upper() not in _FDR_SPECIAL_SYMBOLS
     ):
         try:
