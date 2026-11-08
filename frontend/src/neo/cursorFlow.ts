@@ -17,15 +17,15 @@ void main(){
   for(int i=0;i<28;i++){
     if(i>=u_count)break;
     vec4 drop=u_drops[i],flow=u_flow[i];
-    vec2 local=(pixel-drop.xy)/drop.z;
-    vec2 axis=flow.xy,tangent=vec2(-axis.y,axis.x);
-    float depth=1.3+.3*flow.w;
-    float breadth=.9+.35*flow.z;
-    vec2 q=vec2(dot(local,axis)/depth,dot(local,tangent)/breadth);
-    float amount=exp(-dot(q,q)*2.7)*drop.w;
+    vec2 local=pixel-drop.xy;
+    float radius=max(length(local),.001);
+    float width=6.+flow.w*16.+flow.z*4.;
+    float distanceToFront=radius-drop.z;
+    float band=distanceToFront/width;
+    float forward=.12+.88*smoothstep(-.65,.35,dot(local/radius,flow.xy));
+    float amount=exp(-.5*band*band)*drop.w*forward;
     height+=amount;
-    vec2 radial=axis*(q.x/depth)+tangent*(q.y/breadth);
-    gradient+=(-5.4*amount/drop.z)*radial;
+    gradient+=(-distanceToFront*amount/(width*width))*(local/radius);
   }
   if(height<.002)discard;
   float compression=exp(-height*.75);
@@ -39,17 +39,17 @@ void main(){
   vec3 interference=.5+.5*cos(phase);
   vec3 film=mix(vec3(.81,.88,.95),interference,.9);
   float spec=pow(max(dot(normal,normalize(vec3(-.5,-.35,1.))),0.),24.)*cover;
-  float centerFade=smoothstep(16.,46.,distance(pixel,u_pointer));
+  float centerFade=smoothstep(78.,112.,distance(pixel,u_pointer));
   float alpha=(fresnel*cover*.45+cover*.08+spec*.09)*u_intensity*centerFade;
   vec3 color=mix(film,vec3(1.,.95,.83),min(.78,spec*.85));
   gl_FragColor=vec4(color*alpha,alpha);
 }`;
 let nextId=0;
 
-/** A visible oil-film footprint follows the pointer path, then spreads outward. */
+/** Detached wavefronts travel in the input direction; only their moving rims refract. */
 export function installCursorFlow(level:"full"|"balanced"){
   const root=document.createElement("div");root.className="ng-cursor-flow";
-  root.dataset.state="idle";root.dataset.renderer="path-diffusing-thin-film";root.setAttribute("aria-hidden","true");
+  root.dataset.state="idle";root.dataset.renderer="detached-wave-thin-film";root.setAttribute("aria-hidden","true");
   const glass=document.createElement("div");glass.className="ng-liquid-refraction";
   const canvas=document.createElement("canvas");canvas.className="ng-liquid-film";
   const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg"),defs=document.createElementNS(ns,"defs"),filter=document.createElementNS(ns,"filter");
@@ -59,7 +59,7 @@ export function installCursorFlow(level:"full"|"balanced"){
   const smooth=document.createElementNS(ns,"feGaussianBlur");smooth.setAttribute("in","wave");smooth.setAttribute("stdDeviation","1.6");smooth.setAttribute("result","water");
   const warp=document.createElementNS(ns,"feDisplacementMap");warp.setAttribute("in","SourceGraphic");warp.setAttribute("in2","water");warp.setAttribute("scale",level==="full"?"10":"6");warp.setAttribute("xChannelSelector","R");warp.setAttribute("yChannelSelector","G");
   filter.append(noise,smooth,warp);defs.appendChild(filter);svg.appendChild(defs);svg.classList.add("ng-liquid-defs");svg.setAttribute("width","0");svg.setAttribute("height","0");
-  glass.style.backdropFilter=`url(#${id}) blur(.6px)`;glass.style.setProperty("-webkit-backdrop-filter",`url(#${id}) blur(.6px)`);
+  glass.style.backdropFilter=`url(#${id})`;glass.style.setProperty("-webkit-backdrop-filter",`url(#${id})`);
   root.append(svg,glass,canvas);document.body.appendChild(root);
   const dropsData=new Float32Array(MAX*4),flowData=new Float32Array(MAX*4);
   let gl:WebGLRenderingContext|null=null,program:WebGLProgram|null=null,buffer:WebGLBuffer|null=null;
@@ -68,7 +68,7 @@ export function installCursorFlow(level:"full"|"balanced"){
   let frame=0,last=0,lastEmit=0,disposed=false,failed=false;
   let viewWidth=0,viewHeight=0,dpr=0,drops:Drop[]=[];
   let target:{x:number;y:number}|null=null,head:{x:number;y:number}|null=null,anchor:{x:number;y:number}|null=null;
-  const lifetime=level==="full"?1500:1250;
+  const lifetime=level==="full"?1450:1250;
   function release(){if(gl){gl.deleteBuffer(buffer);gl.deleteProgram(program);}buffer=null;program=null;gl=null;}
   function init(){
     if(gl)return true;if(failed)return false;
@@ -104,30 +104,32 @@ export function installCursorFlow(level:"full"|"balanced"){
     }
     if(target&&head){
       const ease=1-Math.exp(-dt/18);head.x+=(target.x-head.x)*ease;head.y+=(target.y-head.y)*ease;
-      if(anchor&&now-lastEmit>=28){
+      if(anchor&&now-lastEmit>=60){
         const dx=head.x-anchor.x,dy=head.y-anchor.y,distance=Math.hypot(dx,dy);
         if(distance>1){
           const speed=distance/Math.max(16,now-lastEmit)*1000;
           const energy=Math.min(1,speed/1800);
-          const steps=Math.min(6,Math.max(1,Math.ceil(distance/14)));
-          for(let i=1;i<=steps;i++)drops.push({x:anchor.x+dx*i/steps,y:anchor.y+dy*i/steps,dx:dx/distance,dy:dy/distance,radius:30+energy*(level==="full"?42:34),born:now,phase:now*.003+i*.3,speed});
+          drops.push({x:head.x,y:head.y,dx:dx/distance,dy:dy/distance,radius:68+energy*28,born:now,phase:now*.003,speed});
           anchor={...head};lastEmit=now;
         }
       }
     }
-    drops=drops.filter(drop=>now-drop.born<lifetime).slice(-MAX);
+    drops=drops.filter(drop=>now-drop.born<lifetime).slice(-16);
     gl.disable(gl.SCISSOR_TEST);gl.clear(gl.COLOR_BUFFER_BIT);
     if(drops.length){
       const positions=drops.map(drop=>{
         const age=(now-drop.born)/lifetime;
         const drift=Math.sin(drop.phase+age*3)*age*3;
         const energy=Math.min(1,drop.speed/1800);
-        const propagation=(10+energy*16)*age;
-        return{x:drop.x+drop.dx*propagation-drop.dy*drift,y:drop.y+drop.dy*propagation+drop.dx*drift,r:drop.radius*(.7+age*1.75),age,weight:(.5+energy*.18)*Math.pow(1-age,1.35),drop};
+        const seconds=(now-drop.born)/1000;
+        const propagation=(150+Math.min(3000,drop.speed*.8))*seconds;
+        const r=drop.radius+(180+energy*240)*seconds;
+        return{x:drop.x+drop.dx*propagation-drop.dy*drift,y:drop.y+drop.dy*propagation+drop.dx*drift,r,age,width:6+energy*16+age*4,weight:(.65+energy*.45)*Math.pow(1-age,1.25),drop};
       });
       let left=viewWidth,top=viewHeight,right=0,bottom=0;
       positions.forEach((p,i)=>{
-        left=Math.min(left,p.x-p.r*1.8);top=Math.min(top,p.y-p.r*1.8);right=Math.max(right,p.x+p.r*1.8);bottom=Math.max(bottom,p.y+p.r*1.8);
+        const extent=p.r+p.width*3;
+        left=Math.min(left,p.x-extent);top=Math.min(top,p.y-extent);right=Math.max(right,p.x+extent);bottom=Math.max(bottom,p.y+extent);
         dropsData.set([p.x,p.y,p.r,p.weight],i*4);flowData.set([p.drop.dx,p.drop.dy,p.age,Math.min(1,p.drop.speed/1800)],i*4);
       });
       left=Math.max(0,Math.floor(left));top=Math.max(0,Math.floor(top));right=Math.min(viewWidth,Math.ceil(right));bottom=Math.min(viewHeight,Math.ceil(bottom));
@@ -135,15 +137,21 @@ export function installCursorFlow(level:"full"|"balanced"){
         glass.style.visibility="visible";
         gl.enable(gl.SCISSOR_TEST);gl.scissor(Math.floor(left*dpr),Math.floor((viewHeight-bottom)*dpr),Math.ceil((right-left)*dpr),Math.ceil((bottom-top)*dpr));
         gl.uniform2f(resolutionLocation,canvas.width,canvas.height);gl.uniform1f(dprLocation,dpr);gl.uniform1f(timeLocation,now/1000);
-        gl.uniform2f(pointerLocation,head?.x??-1000,head?.y??-1000);
+        const focus=target??head;
+        gl.uniform2f(pointerLocation,focus?.x??-1000,focus?.y??-1000);
         gl.uniform1i(countLocation,positions.length);gl.uniform4fv(dropsLocation,dropsData);gl.uniform4fv(flowLocation,flowData);gl.drawArrays(gl.TRIANGLES,0,6);
         glass.style.left=`${left}px`;glass.style.top=`${top}px`;glass.style.width=`${right-left}px`;glass.style.height=`${bottom-top}px`;
-        const mask=positions.filter((_,i)=>positions.length<18||i%2===0).map(p=>{
-          const alpha=Math.min(.95,p.weight*2.3).toFixed(3);
+        const waveMasks=positions.map(p=>{
+          const alpha=Math.min(.9,p.weight*1.25).toFixed(3);
           const x=p.x-left,y=p.y-top;
-          return `radial-gradient(ellipse ${(p.r*1.35).toFixed(1)}px ${(p.r*1.2).toFixed(1)}px at ${x.toFixed(1)}px ${y.toFixed(1)}px,rgba(0,0,0,${(+alpha*.75).toFixed(3)}) 0%,rgba(0,0,0,${(+alpha*.5).toFixed(3)}) 55%,transparent 100%)`;
-        }).join(",");
+          const extent=p.r+p.width*3;
+          const stop=(offset:number)=>Math.max(0,Math.min(100,(p.r+p.width*offset)/extent*100)).toFixed(2);
+          return `radial-gradient(circle ${extent.toFixed(1)}px at ${x.toFixed(1)}px ${y.toFixed(1)}px,transparent 0% ${stop(-2.6)}%,rgba(0,0,0,${(+alpha*.18).toFixed(3)}) ${stop(-1.5)}%,rgba(0,0,0,${alpha}) ${stop(0)}%,rgba(0,0,0,${(+alpha*.18).toFixed(3)}) ${stop(1.5)}%,transparent 100%)`;
+        });
+        const safeCenter=`radial-gradient(circle at ${((focus?.x??-1000)-left).toFixed(1)}px ${((focus?.y??-1000)-top).toFixed(1)}px,transparent 0px,transparent 78px,#000 112px)`;
+        const mask=[safeCenter,...waveMasks].join(",");
         glass.style.maskImage=mask;glass.style.setProperty("-webkit-mask-image",mask);
+        glass.style.maskComposite=["intersect",...waveMasks.map(()=>"add")].join(",");
       }else glass.style.visibility="hidden";
       root.dataset.state="active";frame=requestAnimationFrame(tick);
     }else if(target&&head&&Math.hypot(target.x-head.x,target.y-head.y)>.8){frame=requestAnimationFrame(tick);}

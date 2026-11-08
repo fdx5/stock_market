@@ -32,7 +32,8 @@ const CATALOGUE = BGM_TRACKS.map(track => track.id).join(",");
 type StorageAccess = Pick<Storage, "getItem" | "setItem">;
 
 /** The owner's opening track comes first; shuffle the rest once per tab session.
- * Wraps and reloads reuse that order and the current position.
+ * Route changes and repeat laps share the current position. A fresh page load
+ * always starts with the owner's opening track, while reusing the shuffled order.
  * Storage contains only public video IDs and a cursor, with no account information. */
 export function createBgmSession(storage?: StorageAccess, random: () => number = Math.random) {
   let order = BGM_TRACKS.map(track => track.id);
@@ -46,7 +47,7 @@ export function createBgmSession(storage?: StorageAccess, random: () => number =
         saved.order.every((id: unknown) => typeof id === "string" && order.includes(id)) &&
         Number.isInteger(saved.cursor) && saved.cursor >= 0 && saved.cursor < order.length) {
       order = saved.order;
-      cursor = saved.cursor;
+      cursor = 0;
       restored = true;
     }
   } catch { /* Blocked storage or malformed state: keep an in-memory session. */ }
