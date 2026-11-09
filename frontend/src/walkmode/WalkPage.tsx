@@ -448,6 +448,8 @@ export default function WalkPage() {
       onTv: on => { setTvOpen(on); if (on) document.exitPointerLock?.(); else setZoomed(z => (z === "tv" ? null : z)); },
       onTvMenu: () => { setTvOpen(true); zoomTo("tv"); document.exitPointerLock?.(); },
       onLaptop: on => { setLaptopOpen(on); if (on) document.exitPointerLock?.(); else setZoomed(z => (z === "laptop" ? null : z)); },
+      // the flat's desktop PC opens the in-world browser on kospimap.com (HOME_PC_HOME)
+      onMonitor: () => { setMonitorOpen(true); document.exitPointerLock?.(); },
       onProgress: (k, text) => setProgress({ k, text }),
       onHud: h => setHud(h),
       onExit: () => exitFlat(),
