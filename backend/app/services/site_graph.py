@@ -55,6 +55,8 @@ PAGES: list[dict] = [
     {"id": "page:/nasdaq100-orbit", "label": "증시궤도 NASDAQ100", "path": "/nasdaq100-orbit", "group": "map"},
     # The classic desk, kept routed (noindex) for readers who still have it bookmarked.
     {"id": "page:/desk2", "label": "클래식 데스크", "path": "/desk2", "group": "stock"},
+    # Pulse board: the top-100 boards of three markets over the pulse sea, with the container ship.
+    {"id": "page:/pulse-board", "label": "증시 전광판", "path": "/pulse-board", "group": "board"},
     {"id": "page:/stocks", "label": "종목정보", "path": "/stocks", "group": "stock"},
     {"id": "page:/map", "label": "코스피 지도", "path": "/map", "group": "map"},
     {"id": "page:/kosdaq-map", "label": "코스닥 지도", "path": "/kosdaq-map", "group": "map"},
@@ -444,6 +446,22 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/stock/{code}/history",
         "/api/stock/{code}/news",
         "/api/translate",
+    ],
+    # Only the tab on screen is polled (every 20 s, paused while hidden); US logos for the
+    # ship's placards come through the same-origin proxy so WebGL can read them.
+    "page:/pulse-board": [
+        "/api/market/map",
+        "/api/market/kosdaq-map",
+        "/api/market/nasdaq100-map",
+        "/api/market/us-logo/{ticker}",
+        "/api/market/ticker",
+        "/api/visitors/count",
+        "/api/translate",
+        "/api/global/indices",
+        "/api/investor/indices",
+        "/api/market/weather",
+        "/api/search",
+        "/api/search/popular",
     ],
     "page:/kospi-100": [
         "/api/market/board",
