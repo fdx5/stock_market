@@ -92,3 +92,36 @@ html[data-fx=minimal] :is(.pb-float,.pb-float-halo,.pb-float-ripple),html[data-f
 @media (max-width:899px){.pb-page{--pb-band:32vh;--pb-ship-band:calc(var(--pb-band) * .9)}}
 @media (max-height:500px) and (orientation:landscape){.pb-page{--pb-band:56vh;--pb-ship-band:calc(var(--pb-band) * .9)}}
 html.pb-ship-hover,html.pb-ship-hover body,html.pb-ship-hover .pb-page{cursor:pointer}
+
+/* Phones and tablets: tighter cells, smaller type, a compact header. */
+@media (max-width: 980px), (pointer: coarse) and (max-width: 1366px) and (max-height: 1366px) {
+  .pb-heading{margin:0 0 10px;gap:10px 16px}
+  .pb-heading h1{font-size:26px}
+  .pb-kicker{font-size:9px;margin-bottom:4px}
+  .pb-mood{padding:6px 10px;gap:8px}
+  .pb-mood-swatch{width:24px;height:24px}
+  .pb-mood b{font-size:11px}
+  .pb-mood small{font-size:9px}
+  .pb-mood-legend li{font-size:8px;padding:2px 6px}
+  .sc-scanner.pb-board .pb-markets>button{min-height:54px;padding:8px 10px}
+  .sc-scanner.pb-board .pb-markets strong{font-size:20px}
+  .pb-breadth{gap:8px}
+  .pb-sort button{min-height:28px;padding:4px 8px}
+  .pb-hint{font-size:10px;margin:8px 0 6px}
+  .sc-scanner.pb-board .pb-grid{gap:3px}
+  .sc-scanner.pb-board .sc-stock{min-height:42px;padding:6px 7px 7px 9px;gap:2px 4px;border-radius:6px;background:linear-gradient(118deg,color-mix(in srgb,var(--sc-color) calc(var(--sc-strength)*30% + 6%),#120c1af2),#0d0913f0 92%)}
+  /* the ship sails under the cells here; nearly opaque glass keeps the quotes readable */
+  .sc-scanner.pb-board .sc-stock-name,.sc-scanner.pb-board .sc-stock-return{font-size:10.5px}
+  .sc-scanner.pb-board .sc-stock-price{font-size:9.5px}
+  .sc-scanner.pb-board .sc-stock>small{font-size:7.5px}
+  .sc-scanner.pb-board .sc-stock-logo{width:14px;height:14px}
+  .pb-more{min-height:38px;font-size:11px}
+}
+@media (max-width: 699px) {
+  .pb-heading h1{font-size:22px}
+  .sc-scanner.pb-board .pb-markets>button{min-height:50px;padding:7px 8px}
+  .sc-scanner.pb-board .pb-markets strong{font-size:17px}
+  .sc-scanner.pb-board .pb-markets b{font-size:10px}
+  .sc-scanner.pb-board .sc-stock{min-height:40px;padding:5px 6px 6px 8px}
+  .sc-scanner.pb-board .sc-stock>small{display:none}
+}

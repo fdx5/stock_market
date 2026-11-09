@@ -25,13 +25,19 @@ const MARKETS = [{ key: "kospi", label: "KOSPI", region: "KR" }, { key: "kosdaq"
 // Phones and tablets (touch screens up to iPad Pro size, or any narrow view) open with 30 cells so the
 // ship stays in sight; desktops open with 50. "More" always reveals all 100.
 const COMPACT_QUERY = "(max-width: 899px), (pointer: coarse) and (max-width: 1366px) and (max-height: 1366px)";
-function useDefaultCells() {
-  const [compact, setCompact] = useState(() => typeof matchMedia === "function" && matchMedia(COMPACT_QUERY).matches);
+const PHONE_QUERY = "(max-width: 699px), (max-height: 499px) and (pointer: coarse)";
+function useMedia(query: string) {
+  const [matches, setMatches] = useState(() => typeof matchMedia === "function" && matchMedia(query).matches);
   useEffect(() => {
-    const media = matchMedia(COMPACT_QUERY), update = () => setCompact(media.matches);
+    const media = matchMedia(query), update = () => setMatches(media.matches);
     media.addEventListener("change", update); return () => media.removeEventListener("change", update);
-  }, []);
-  return compact ? 30 : 50;
+  }, [query]);
+  return matches;
+}
+/** Phones open with 20 cells, tablets with 30, desktops with 50. */
+function useDefaultCells() {
+  const phone = useMedia(PHONE_QUERY), compact = useMedia(COMPACT_QUERY);
+  return phone ? 20 : compact ? 30 : 50;
 }
 const MOOD_NAME: Record<Mood, [string, string]> = { down: ["푸른 펄스 바다", "Blue pulse sea"], calm: ["보라 펄스 바다", "Violet pulse sea"], up: ["레드·골드 펄스 바다", "Red-gold pulse sea"] };
 /** The sea's colour rule: −1% or lower is blue, +1% or higher is red-gold, violet between. */
@@ -128,7 +134,9 @@ export default function PulseBoardPage() {
     const grid = gridRef.current; if (!grid) return;
     const observer = new ResizeObserver(([entry]) => {
       const width = entry.contentRect.width;
-      setColumns(Math.max(3, Math.min(10, Math.floor(width / (width < 520 ? 112 : 128)))));
+      // compact cells on phones and tablets fit more per row than the desktop cells
+      const compact = matchMedia(COMPACT_QUERY).matches;
+      setColumns(Math.max(3, Math.min(10, Math.floor(width / (width < 520 ? 104 : compact ? 112 : 128)))));
     });
     observer.observe(grid); return () => observer.disconnect();
   }, []);

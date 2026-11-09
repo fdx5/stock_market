@@ -115,7 +115,7 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
   let radar: THREE.Object3D | null = null, mastLight: THREE.MeshStandardMaterial | null = null;
   let disposed = false, frame = 0, last = 0, time = 0, ready = false, lastWake = 0;
   let pending: ShipState | null = null, mood: Mood = "calm";
-  let width = 0, height = 0, ratio = 0, unitsShown = 1, sailing = false;
+  let width = 0, height = 0, ratio = 0, unitsShown = 1, sailing = false, phone = false;
   const motion = { heave: 0, heaveV: 0, pitch: 0, pitchV: 0, roll: 0, rollV: 0 };
   let seaMean = 0;
 
@@ -282,8 +282,10 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     camera.aspect = width / Math.max(1, height);
     // Desktop: the whole ship fits. Phones: a container stays >= ~64 px wide, so the ship sails across.
     // The ship sails across, so it is sized for legible containers rather than to fit the width.
-    const fitHeight = height * .94 / 7.1, legible = 72 / 1.45;
+    // Phones: containers ~58 px wide (still legible), so the hull spans ~2.5 screens instead of 3+.
+    const fitHeight = height * .94 / 7.1, legible = 58 / 1.45;
     const pixelsPerUnit = Math.max(width < 760 ? legible : 0, Math.min(fitHeight, width * 1.1 / 26));
+    phone = width < 760;
     sailing = 26 * pixelsPerUnit > width * .98;
     unitsShown = height / pixelsPerUnit;
     const distance = unitsShown / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
@@ -311,11 +313,12 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     layout();
     // Sailing course: in from the lower left close to the camera, away toward the upper right.
     // Slow while near so the placards can be read, quicker as the hull shrinks toward the horizon.
-    const passage = sailing ? 52 : 46;
+    // A phone's band is narrow: a slower, flatter passage keeps the hull on screen longer.
+    const passage = phone ? 58 : sailing ? 52 : 46;
     const u = ((time + passage * .22) % passage) / passage, progress = Math.pow(u, 1.55);
     const halfWidth = (z: number) => (camera.position.z - z) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
     // Fully off the left edge up close, fully off the right edge when far: it never sinks or pops.
-    const nearZ = 3, farZ = -15, startX = -(halfWidth(nearZ) + 12), endX = halfWidth(farZ) + 15;
+    const nearZ = 3, farZ = phone ? -6 : -15, startX = -(halfWidth(nearZ) + 12), endX = halfWidth(farZ) + 15;
     const hullDown = 0;
     voyage.position.set(THREE.MathUtils.lerp(startX, endX, progress), -hullDown, THREE.MathUtils.lerp(nearZ, farZ, progress));
     voyage.rotation.y = Math.atan2(nearZ - farZ, endX - startX);
