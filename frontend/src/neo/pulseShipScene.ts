@@ -468,7 +468,8 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     wakeUniforms.u_color.value.set(0xdfe8ff).lerp(rim.color, .25); wakeUniforms.u_time.value = time;
     // ~11 m/s (21 kn, a container ship at service speed) broadside, quickening with distance: ~2 min 10 s a voyage
     const here = course(along, view);
-    const speed = 11 * Math.pow(here.z / here.d0, 1.15);
+    // +30% on the leg to the horizon, ramped in through the turn
+    const speed = 11 * Math.pow(here.z / here.d0, 1.15) * (1 + .3 * Math.min(1, here.heading / .8));
     along += still ? 0 : speed * dt;
     if (along >= here.total) along = 0;
     const p = course(along, view);
