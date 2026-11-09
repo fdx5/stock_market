@@ -101,6 +101,7 @@
     "/prices/usd-krw",
     "/prices/wti",
     "/prices/xrp",
+    "/pulse-board",
     "/ranking/sp500-market-cap",
     "/ranking/trading-value",
     "/ranking/us-etf",
@@ -130,7 +131,7 @@
     "/walk",
     "/yield-curve-lab"
   ],
-  "source_files": 991,
+  "source_files": 996,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",

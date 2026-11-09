@@ -117,10 +117,10 @@ export default function NeoShell({ path, children }: { path: string; children: R
     const code = path.match(/^\/stock\/([A-Za-z0-9.-]+)/)?.[1] ?? params.get("code") ?? undefined;
     const market = params.get("market") ?? (code && /^[A-Za-z]/.test(code) ? "nasdaq" : "kospi");
     const to = service ? serviceLink(link[0], {code, market, region: params.get("region") ?? undefined}) : link[0];
-    return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined}><span>{link[lang === "ko" ? 1 : 2]}</span><NeoIcon name="chevron" /></Link>;
+    return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined}><span>{link[lang === "ko" ? 1 : 2]}{link[0] === "/pulse-board" && <b className="ng-new-badge" aria-label={L("새 메뉴", "New")}>N</b>}</span><NeoIcon name="chevron" /></Link>;
   };
   return <div className={`ng-shell ng-family-${family}`} data-workspace={path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
-    <NeoBackdrop />
+    {path !== "/pulse-board" && <NeoBackdrop />}
     <GoldCursor />
     <a className="ng-skip" href="#neo-content">{L("본문 바로가기", "Skip to content")}</a>
     <header className="ng-header" data-current-tone={currentTone}>
@@ -156,7 +156,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
         </nav>}
         {children}
       </div>
-      {family !== "immersive" && <div className="ng-footer d2"><Colophon home="/" /><div className="ng-footer-extras"><a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer">VOLTARIS ↗</a><Link to="/support">{L("커피 한 잔 후원", "Support this project")} ↗</Link><button type="button" onClick={() => window.print()}>{L("인쇄 / PDF", "Print / PDF")}</button></div></div>}
+      {family !== "immersive" && path !== "/pulse-board" && <div className="ng-footer d2"><Colophon home="/" /><div className="ng-footer-extras"><a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer">VOLTARIS ↗</a><Link to="/support">{L("커피 한 잔 후원", "Support this project")} ↗</Link><button type="button" onClick={() => window.print()}>{L("인쇄 / PDF", "Print / PDF")}</button></div></div>}
     </div>
     <nav className="ng-mobile-nav" aria-label={L("하단 탐색", "Bottom navigation")}>
       {[["/", "home", "홈", "Home"], ["/map", "map", "맵", "Maps"], ["/desk", "chart", "시장", "Markets"], ["/news", "news", "뉴스", "News"]].map(([to, icon, ko, en]) => <Link key={to} to={to} aria-current={path === to ? "page" : undefined}><NeoIcon name={icon} /><span>{L(ko, en)}</span></Link>)}<button type="button" onClick={event => open("menu", event.currentTarget)} aria-label={L("전체 메뉴", "All destinations")}><NeoIcon name="menu" /><span>{L("더보기", "More")}</span></button>

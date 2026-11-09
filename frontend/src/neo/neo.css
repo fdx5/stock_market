@@ -116,3 +116,8 @@ html[data-design="neo"][data-fx="minimal"] .ed-investor-card:hover{transform:non
 
 .ng-audience-slot :is(.visitor-badge-person,.visitor-badge-eye){font-size:8.82px}
 .ng-audience-slot .visitor-badge-dot{width:4.9px;height:4.9px}
+
+.ng-new-badge{display:inline-grid;place-items:center;margin-left:6px;width:15px;height:15px;border-radius:50%;background:linear-gradient(135deg,#ff4f8b,#ff9b3d);color:#fff;font:800 9px/1 var(--f-sans);vertical-align:1px;box-shadow:0 0 10px #ff6c8a99;animation:ng-new-pulse 2.4s ease-in-out infinite}
+@keyframes ng-new-pulse{50%{box-shadow:0 0 16px #ffb04acc}}
+@media (prefers-reduced-motion:reduce){.ng-new-badge{animation:none}}
+html[data-fx=minimal] .ng-new-badge{animation:none}

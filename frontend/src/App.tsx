@@ -25,6 +25,7 @@ import socialCards from "./neo/socialCards.json";
 import { updateWalkShare } from './walkmode/shareMeta';
 const SOCIAL_CARDS: Record<string, { title: string; description: string; image: string; alt: string; width?: number; height?: number }> = socialCards;
 const AssetPricePage = lazy(() => import("./neo/AssetPricePage"));
+const PulseBoardPage = lazy(() => import("./neo/PulseBoardPage"));
 const CommunityPage = lazy(() => import("./neo/CommunityPage"));
 
 // Route-level code splitting: each page only ships the JS it actually needs (e.g. the
@@ -462,6 +463,8 @@ export default function App() {
     const detailCode = stockMatch[1].toUpperCase();
     const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
     page = <BroadsheetStockPage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />;
+  } else if (path === "/pulse-board") {
+    page = <PulseBoardPage />;
   } else if (path === "/stocks") {
     page = <BroadsheetStocksPage />;
   } else if (path === "/kospi-100") {

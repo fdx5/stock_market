@@ -1,0 +1,94 @@
+/* Market pulse board: quote cells floating over the pulse-horizon sea. */
+.pb-page{position:relative;padding-bottom:var(--pb-ship-band,0px)}
+.sc-scanner.pb-board{position:relative;margin:0 auto;max-width:1680px;padding:6px 0 0}
+.pb-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:16px 24px;flex-wrap:wrap;margin:4px 0 14px}
+.pb-kicker{margin:0 0 6px;font:10px var(--f-type);letter-spacing:.24em;color:#c9b6dc}
+.pb-heading h1{margin:0;font:650 clamp(26px,3.1vw,40px)/1.05 var(--f-sans);letter-spacing:-.03em;color:#fbf7ff;text-shadow:0 0 22px color-mix(in srgb,var(--pb-glow) 45%,transparent)}
+.pb-board{--pb-glow:#bf85ff;--pb-edge:#c58cff59}
+.pb-board[data-mood=down]{--pb-glow:#64aaff;--pb-edge:#64aaff66}
+.pb-board[data-mood=up]{--pb-glow:#ff9a4a;--pb-edge:#ff8a5a66}
+.pb-mood{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 12px;border:1px solid var(--pb-edge);border-radius:12px;background:#0d0913b8;transition:border-color 1.2s ease}
+.pb-mood>span{display:grid;gap:2px}
+.pb-mood b{font:600 12px var(--f-sans);color:#f4ecff}
+.pb-mood small{font:10px var(--f-num);color:#b7a6c6}
+.pb-mood-swatch{width:30px;height:30px;border-radius:50%;flex:none;transition:background 1.2s ease,box-shadow 1.2s ease}
+.pb-mood-swatch.is-calm{background:radial-gradient(circle at 35% 35%,#e8d5ff,#9b6af0 55%,#3c2263);box-shadow:0 0 16px #b585ff80}
+.pb-mood-swatch.is-down{background:radial-gradient(circle at 35% 35%,#d9f6ff,#3d8bff 55%,#102a6b);box-shadow:0 0 16px #4f9dff88}
+.pb-mood-swatch.is-up{background:radial-gradient(circle at 35% 35%,#fff3c4,#ff8a2a 50%,#b5161c);box-shadow:0 0 16px #ff7a3a88}
+.pb-mood-legend{display:flex;gap:6px;margin:0;padding:0;list-style:none}
+.pb-mood-legend li{font:9px var(--f-num);padding:3px 7px;border-radius:999px;color:#efe6f7;border:1px solid #ffffff1c}
+.pb-mood-legend .is-down{background:#2f6ee03a}
+.pb-mood-legend .is-calm{background:#9b6af03a}
+.pb-mood-legend .is-up{background:linear-gradient(90deg,#e0302c4a,#ffb02a4a)}
+.sc-scanner.pb-board .pb-markets{border-color:var(--pb-edge);border-radius:12px;overflow:hidden;background:#0c0812a6;transition:border-color 1.2s ease}
+.sc-scanner.pb-board .pb-markets>button{grid-template-columns:1fr;min-height:68px;background:#120d19c4}
+.sc-scanner.pb-board .pb-markets>button[aria-pressed=true]{background:linear-gradient(120deg,color-mix(in srgb,var(--pb-glow) 28%,#1c1326),#150f1dd9);box-shadow:inset 0 2px var(--pb-glow)}
+.pb-markets>button[data-mood=down] b{text-shadow:0 0 10px #64aaff80}
+.pb-markets>button[data-mood=up] b{text-shadow:0 0 10px #ff6c8380}
+.pb-breadth{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pb-breadth .sc-breadth-track{flex:1 1 180px}
+.pb-sort{display:flex;gap:2px}
+.pb-sort button{font:10px var(--f-sans);color:#b7a2c9;border:1px solid transparent;border-radius:6px;background:transparent;padding:5px 10px;min-height:30px;cursor:pointer}
+.pb-sort button[aria-pressed=true]{color:#f6ecff;border-color:var(--pb-edge);background:color-mix(in srgb,var(--pb-glow) 16%,transparent)}
+.pb-hint{margin:10px 0 8px;font:11px var(--f-sans);color:#b9a8c8}
+.pb-more{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin:10px 0 0;min-height:42px;border:1px solid var(--pb-edge);border-radius:10px;background:#0d0913c4;color:#efe4fb;font:600 12px var(--f-sans);cursor:pointer;transition:background .25s ease,box-shadow .25s ease}
+.pb-more:hover{background:color-mix(in srgb,var(--pb-glow) 18%,#0d0913);box-shadow:0 0 18px color-mix(in srgb,var(--pb-glow) 30%,transparent)}
+.pb-more b{font:16px/1 var(--f-num);color:var(--pb-glow)}
+.pb-more:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.pb-footnote{margin:10px 0 0;font:9px var(--f-num);color:#9886a8}
+/* Translucent cells: the sea reads through the gaps and the glass. */
+.sc-scanner.pb-board .pb-grid{gap:4px;border:0;background:transparent;box-shadow:none;overflow:visible;contain:none}
+.sc-scanner.pb-board .sc-stock{border-radius:7px;min-height:52px;background:linear-gradient(118deg,color-mix(in srgb,var(--sc-color) calc(var(--sc-strength)*34% + 7%),#120c1ac4),#0d0913b8 92%);box-shadow:inset 0 0 0 1px #ffffff0d,0 0 0 1px #00000026;transition:box-shadow .25s ease,transform .25s ease}
+.sc-scanner.pb-board .sc-stock:hover{transform:translateY(-1px);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--sc-color) 70%,transparent),0 0 18px color-mix(in srgb,var(--sc-color) 35%,transparent)}
+.sc-scanner.pb-board .sc-stock.pb-focused{box-shadow:inset 0 0 0 1.5px var(--sc-color),0 0 22px color-mix(in srgb,var(--sc-color) 55%,transparent);animation:pb-focus 2.4s ease-in-out infinite}
+@keyframes pb-focus{50%{box-shadow:inset 0 0 0 1.5px var(--sc-color),0 0 34px color-mix(in srgb,var(--sc-color) 75%,transparent)}}
+/* The floating company. */
+.pb-float-lane{position:fixed;left:0;right:0;bottom:calc(var(--ng-bottom,0px) + 22px);height:96px;z-index:30;pointer-events:none}
+.pb-float{--sc-color:#bf85ff;position:absolute;left:0;top:18px;display:flex;align-items:center;gap:12px;padding:10px 12px 10px 10px;border-radius:999px;pointer-events:auto;will-change:transform;background:linear-gradient(120deg,color-mix(in srgb,var(--sc-color) 26%,#160f20e6),#0e0a15e0);border:1px solid color-mix(in srgb,var(--sc-color) 60%,transparent);box-shadow:0 0 0 1px #0007,0 10px 30px #0009,0 0 34px color-mix(in srgb,var(--sc-color) 45%,transparent);animation:pb-rise .7s cubic-bezier(.2,.8,.25,1)}
+@keyframes pb-rise{from{opacity:0;filter:blur(6px);margin-top:40px}}
+.pb-float-halo{position:absolute;inset:-14px -20px;border-radius:999px;background:radial-gradient(ellipse,color-mix(in srgb,var(--sc-color) 35%,transparent),transparent 70%);z-index:-1;animation:pb-breathe 3.2s ease-in-out infinite}
+@keyframes pb-breathe{50%{opacity:.45;transform:scale(1.08)}}
+.pb-float-logo{width:44px;height:44px;border-radius:50%;flex:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--sc-color) 70%,white),0 0 18px var(--sc-color)}
+.pb-float-logo img,.pb-float-logo svg{width:100%;height:100%;border-radius:50%}
+.pb-float-text{display:grid;gap:3px;min-width:0}
+.pb-float-text strong{font:650 15px/1.1 var(--f-sans);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
+.pb-float-text span{font:12px var(--f-num);color:#d8cbe4}
+.pb-float-text b{color:var(--sc-color);text-shadow:0 0 10px color-mix(in srgb,var(--sc-color) 70%,transparent)}
+.pb-float-link{font:600 11px var(--f-sans);color:#fff;text-decoration:none;padding:7px 12px;border-radius:999px;background:color-mix(in srgb,var(--sc-color) 35%,#1b1324);white-space:nowrap}
+.pb-float-close{width:30px;height:30px;border-radius:50%;border:1px solid #ffffff2a;background:#ffffff0d;color:#e9def3;font:16px/1 var(--f-sans);cursor:pointer;flex:none}
+.pb-float-ripple{position:absolute;left:12%;right:12%;bottom:-16px;height:14px;border-radius:50%;border:1px solid color-mix(in srgb,var(--sc-color) 60%,transparent);opacity:0;animation:pb-wake 3.4s ease-out infinite;pointer-events:none}
+@keyframes pb-wake{0%{opacity:.8;transform:scale(.6)}100%{opacity:0;transform:scale(1.6)}}
+.pb-float :is(a,button):focus-visible{outline:2px solid #fff;outline-offset:2px}
+@media (max-width:700px){
+  .pb-heading{align-items:flex-start}
+  .pb-mood{width:100%;padding:7px 10px}
+  .pb-mood-legend{width:100%}
+  .sc-scanner.pb-board .pb-markets>button{min-height:62px;padding:9px 10px}
+  .sc-scanner.pb-board .sc-stock{min-height:48px;padding:7px 8px}
+  .pb-float{gap:9px;padding:8px 10px 8px 8px}
+  .pb-float-logo{width:36px;height:36px}
+  .pb-float-text strong{font-size:13px;max-width:38vw}
+  .pb-float-lane{bottom:calc(var(--ng-bottom,0px) + 12px)}
+}
+@media (max-height:500px) and (orientation:landscape){
+  .pb-heading{margin-bottom:8px}
+  .pb-heading h1{font-size:24px}
+  .pb-hint{display:none}
+  .sc-scanner.pb-board .pb-markets>button{min-height:52px;padding:6px 10px}
+  .sc-scanner.pb-board .sc-stock{min-height:44px}
+  .pb-float-lane{bottom:calc(var(--ng-bottom,0px) + 6px);height:78px}
+  .pb-float{top:8px}
+}
+html[data-fx=minimal] :is(.pb-float,.pb-float-halo,.pb-float-ripple),html[data-fx=minimal] .sc-scanner.pb-board .sc-stock.pb-focused{animation:none}
+@media (prefers-reduced-motion:reduce){:is(.pb-float,.pb-float-halo,.pb-float-ripple),.sc-scanner.pb-board .sc-stock.pb-focused{animation:none}}
+
+/* The container ship band: fixed under the content, above the sea. */
+.pb-page{--pb-band:min(42vh,440px)}
+.pb-ship{position:fixed;left:var(--ng-rail,0px);right:0;bottom:var(--ng-bottom,0px);height:var(--pb-band);z-index:-1;pointer-events:none}
+.pb-ship canvas{display:block;width:100%;height:100%;opacity:1;transition:opacity 1.6s ease}
+.pb-ship[data-state=loading] canvas{opacity:0}
+.pb-ship[data-state=failed]{display:none}
+.pb-float-lane{bottom:calc(var(--ng-bottom,0px) + 6px)}
+@media (max-width:899px){.pb-page{--pb-band:32vh;--pb-ship-band:calc(var(--pb-band) * .9)}}
+@media (max-height:500px) and (orientation:landscape){.pb-page{--pb-band:56vh;--pb-ship-band:calc(var(--pb-band) * .9)}}
+html.pb-ship-hover,html.pb-ship-hover body,html.pb-ship-hover .pb-page{cursor:pointer}
