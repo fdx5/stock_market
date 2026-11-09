@@ -93,6 +93,9 @@ html[data-fx=minimal] :is(.pb-float,.pb-float-halo,.pb-float-ripple),html[data-f
 .pb-float-lane{bottom:calc(var(--ng-bottom,0px) + 6px)}
 @media (max-width:899px){.pb-page{--pb-band:32vh;--pb-ship-band:calc(var(--pb-band) * .9)}}
 @media (max-height:500px) and (orientation:landscape){.pb-page{--pb-band:56vh;--pb-ship-band:calc(var(--pb-band) * .9)}}
+/* Portrait phones and tablets: the cells fill the screen, so the page is deliberately made taller. Scrolled to
+   the end, the board clears the lower half of the viewport, where the ship sails (about 62-76% down). */
+@media (max-width:1100px) and (orientation:portrait){.pb-page{--pb-ship-band:56vh;--pb-ship-band:56svh}}
 html.pb-ship-hover,html.pb-ship-hover body,html.pb-ship-hover .pb-page{cursor:pointer}
 
 /* Phones and tablets: tighter cells, smaller type, a compact header. */
