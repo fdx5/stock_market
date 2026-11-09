@@ -36,7 +36,9 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import sqlite3
+import threading
 import time
 from typing import Any, Iterable, Sequence
 
@@ -59,6 +61,48 @@ _READ_ONLY = ("SELECT", "WITH", "PRAGMA", "EXPLAIN")
 
 class TursoError(RuntimeError):
     """A statement failed, or the database could not be reached."""
+
+
+class TursoUnreachable(TursoError):
+    """The database could not be reached or answered with a server error: a timeout,
+    a refused connection, an HTTP 5xx from Turso's edge. Worth a retry later, and what
+    a store's breaker counts. A plain `TursoError` is the statement itself failing
+    (bad SQL, a constraint) — the database is fine and retrying cannot help."""
+
+    #: True when the request died at the connection (refused, reset, never opened)
+    #: rather than timing out mid-answer or getting a 5xx back — the one case where a
+    #: store resending it on a fresh session is both useful and unlikely to apply twice.
+    reconnect = False
+
+
+def should_retry(exc: BaseException) -> bool:
+    """Whether a store should rerun the failed call on a fresh connection.
+
+    Not for a statement the database rejected: it fails the same way again, and each
+    rerun holds the store's lock while every other caller queues. Not for a timeout:
+    reads were already retried once inside `_pipeline`, and a write that timed out may
+    have landed, so resending it could apply it twice. Errors from a local SQLite file
+    (development) keep the old retry-once behaviour.
+    """
+    if isinstance(exc, TursoUnreachable):
+        return exc.reconnect
+    return not isinstance(exc, TursoError)
+
+
+# Idempotent schema statements every store re-sends on each (re)connect. Over HTTP a
+# "connection" is only a session object, so a reconnect after one failed statement
+# used to replay a store's whole schema - 10 to 30 round trips - while holding its
+# lock: a single slow query turned into seconds of every other caller of that store
+# queueing past the gate's wait and failing. Once one of these has succeeded against a
+# database in this process, it is answered locally.
+_IDEMPOTENT_DDL = re.compile(
+    r"^\s*CREATE\s+(UNIQUE\s+)?(TABLE|INDEX|VIEW|TRIGGER)\s+IF\s+NOT\s+EXISTS\b", re.I
+)
+_TABLE_INFO = re.compile(r"^\s*PRAGMA\s+table_info\s*\(", re.I)
+_SCHEMA_CHANGE = re.compile(r"^\s*(ALTER|DROP|CREATE)\b", re.I)
+_schema_lock = threading.Lock()
+_ddl_done: set[tuple[str, str]] = set()
+_table_info: dict[tuple[str, str, tuple], tuple[list[str], list[tuple]]] = {}
 
 
 def _http_base(url: str) -> str:
@@ -179,30 +223,45 @@ class Connection:
         # timed out waiting for its answer is not resent — it may already have landed.
         read_only = all((sql.split(None, 1) or [""])[0].upper() in _READ_ONLY for sql, _ in statements)
         for attempt in (1, 2):
+            last = attempt == 2
             try:
                 response = self._session.post(
                     self._endpoint,
                     json={"requests": requests_body},
                     timeout=(CONNECT_TIMEOUT, timeout),
                 )
-                break
             except (requests.ConnectionError, requests.Timeout) as exc:
                 never_sent = isinstance(exc, requests.ConnectTimeout)
-                if attempt == 1 and (read_only or never_sent):
+                if not last and (read_only or never_sent):
                     time.sleep(0.3)
                     continue
-                raise TursoError(f"could not reach the database: {exc}") from exc
+                error = TursoUnreachable(f"could not reach the database: {exc}")
+                error.reconnect = isinstance(exc, requests.ConnectionError)
+                raise error from exc
             except requests.RequestException as exc:
-                raise TursoError(f"could not reach the database: {exc}") from exc
+                raise TursoUnreachable(f"could not reach the database: {exc}") from exc
 
-        if response.status_code != 200:
-            raise TursoError(
-                f"database returned HTTP {response.status_code}: {response.text[:200]}"
-            )
+            status = response.status_code
+            if status == 200:
+                break
+            # Turso's edge answers 502 "upstream forward failed" (and now and then 503 or
+            # 429) for a few seconds at a time. Those never reached the database, so any
+            # request may be sent again; a 500 or 504 may have run, so only a read is.
+            unforwarded = status in (429, 502, 503)
+            if not last and (unforwarded or (status >= 500 and read_only)):
+                time.sleep(0.5)
+                continue
+            # 4xx is our request (bad token, malformed body); 5xx and 429 are Turso's side.
+            kind = TursoUnreachable if status >= 500 or status == 429 else TursoError
+            error = kind(f"database returned HTTP {status}: {response.text[:200]}")
+            # A fast refusal, not a stall: one more read by the store costs little.
+            error.reconnect = read_only and kind is TursoUnreachable
+            raise error
+
         try:
             payload = response.json()
         except ValueError as exc:
-            raise TursoError(f"unreadable response from the database: {exc}") from exc
+            raise TursoUnreachable(f"unreadable response from the database: {exc}") from exc
 
         cursors: list[Cursor] = []
         for entry in payload.get("results", []):
@@ -216,10 +275,35 @@ class Connection:
         return cursors
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> Cursor:
-        cursors = self._pipeline([(sql, tuple(parameters))], self._timeout)
+        params = tuple(parameters)
+        ddl = bool(_IDEMPOTENT_DDL.match(sql))
+        info = not ddl and bool(_TABLE_INFO.match(sql))
+        key = (self._endpoint, sql.strip())
+        with _schema_lock:
+            if ddl and key in _ddl_done:
+                return Cursor((), (), 0, None)
+            if info and (key + (params,)) in _table_info:
+                columns, rows = _table_info[key + (params,)]
+                return Cursor(columns, rows, 0, None)
+        if not ddl and not info and _SCHEMA_CHANGE.match(sql):
+            # The schema is changing: what was learned about it before is stale.
+            with _schema_lock:
+                for cached in [k for k in _table_info if k[0] == self._endpoint]:
+                    del _table_info[cached]
+                if sql.lstrip()[:4].upper() == "DROP":
+                    _ddl_done.difference_update([k for k in _ddl_done if k[0] == self._endpoint])
+        cursors = self._pipeline([(sql, params)], self._timeout)
         if not cursors:
             raise TursoError("database returned no result for the statement")
-        return cursors[0]
+        cursor = cursors[0]
+        if ddl or info:
+            with _schema_lock:
+                if ddl:
+                    _ddl_done.add(key)
+                else:
+                    columns = [d[0] for d in cursor.description or ()]
+                    _table_info[key + (params,)] = (columns, list(cursor._rows))
+        return cursor
 
     def executemany(self, sql: str, seq_of_parameters: Iterable[Sequence[Any]]) -> Cursor:
         rows = [tuple(p) for p in seq_of_parameters]

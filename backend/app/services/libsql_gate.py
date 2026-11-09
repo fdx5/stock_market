@@ -57,6 +57,18 @@ def all_gates() -> list[dict]:
     return [g.stats() for g in list(_registry)]
 
 
+def _is_outage(exc: BaseException) -> bool:
+    """Whether an error says the database is unwell, as opposed to one statement being
+    wrong. A rejected statement (a constraint, a typo in one admin query) used to count
+    toward opening the breaker, so four of them blacked out every endpoint on that store
+    for the whole cooldown although the database was answering perfectly well."""
+    from app.services import turso
+
+    if isinstance(exc, turso.TursoError):
+        return isinstance(exc, turso.TursoUnreachable)
+    return not isinstance(exc, (ValueError, TypeError, KeyError, IndexError))
+
+
 class Gate:
     """One per store, guarding that store's connection.
 
@@ -154,7 +166,8 @@ class Gate:
             with self._state:
                 self._errors += 1
                 self._last_error = f"{type(exc).__name__}: {exc}"[:200]
-            self._record_failure()
+            if _is_outage(exc):
+                self._record_failure()
             raise
         else:
             self._record_success()

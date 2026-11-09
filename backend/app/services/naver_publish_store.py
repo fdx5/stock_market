@@ -90,7 +90,9 @@ def _with_connection(fn):
             _conn = _new_ready_connection()
         try:
             return fn(_conn)
-        except Exception:
+        except Exception as exc:
+            if not turso.should_retry(exc):
+                raise
             try:
                 _conn.close()
             except Exception:

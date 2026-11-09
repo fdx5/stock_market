@@ -92,7 +92,9 @@ def _with_connection(fn):
             _conn = _new_ready_connection()
         try:
             return fn(_conn)
-        except Exception:
+        except Exception as exc:
+            if not turso.should_retry(exc):
+                raise
             try:
                 _conn.close()
             except Exception:
@@ -109,7 +111,9 @@ def _with_card_connection(fn):
             _card_conn = _new_ready_connection()
         try:
             return fn(_card_conn)
-        except Exception:
+        except Exception as exc:
+            if not turso.should_retry(exc):
+                raise
             try:
                 _card_conn.close()
             except Exception:

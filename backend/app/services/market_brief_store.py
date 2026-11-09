@@ -14,7 +14,8 @@ def _run(fn):
     with _gate.hold():
         if _conn is None:_conn=_connect();_conn.execute(SCHEMA);_conn.commit()
         try:return fn(_conn)
-        except Exception:
+        except Exception as exc:
+            if not turso.should_retry(exc):raise
             try:_conn.close()
             except Exception:pass
             _conn=_connect();_conn.execute(SCHEMA);_conn.commit();return fn(_conn)

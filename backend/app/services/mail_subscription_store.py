@@ -197,6 +197,8 @@ def _with_connection(fn):
         try:
             return fn(_conn)
         except Exception as first_exc:
+            if not turso.should_retry(first_exc):
+                raise
             try:
                 _conn.close()
             except Exception:

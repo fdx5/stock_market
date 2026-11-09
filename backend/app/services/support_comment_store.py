@@ -21,44 +21,52 @@ _SCHEMA = """CREATE TABLE IF NOT EXISTS support_comments (
 )"""
 
 
+def _ready_connection():
+    database = os.environ.get("TURSO_DATABASE_URL")
+    if database:
+        conn = turso.connect(database=database, auth_token=os.environ.get("TURSO_AUTH_TOKEN"))
+    else:
+        LOCAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = turso.connect(database=str(LOCAL_DB_PATH))
+    conn.execute(_SCHEMA)
+    columns = {row[1] for row in conn.execute('PRAGMA table_info(support_comments)').fetchall()}
+    if 'checkout_id' not in columns:
+        conn.execute('ALTER TABLE support_comments ADD COLUMN checkout_id TEXT')
+    conn.execute('''CREATE TABLE IF NOT EXISTS support_checkouts (
+        id TEXT PRIMARY KEY, product_id INTEGER NOT NULL,
+        created_at INTEGER NOT NULL, returned_at INTEGER
+    )''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS support_payments (
+        payment_id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL,
+        event_id TEXT NOT NULL, event_type TEXT NOT NULL,
+        status TEXT NOT NULL, amount TEXT NOT NULL, currency TEXT NOT NULL,
+        supporter_name TEXT NOT NULL, supporter_email TEXT NOT NULL,
+        products_json TEXT NOT NULL, paid_at INTEGER NOT NULL,
+        event_created INTEGER NOT NULL, received_at TEXT NOT NULL
+    )''')
+    conn.execute("""CREATE TABLE IF NOT EXISTS support_monthly_donors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        month TEXT NOT NULL CHECK(month GLOB '20[0-9][0-9]-[0-1][0-9]' AND substr(month, 6, 2) BETWEEN '01' AND '12'),
+        nickname TEXT NOT NULL CHECK(length(nickname) BETWEEN 1 AND 20),
+        nickname_key TEXT NOT NULL,
+        color TEXT NOT NULL CHECK(color IN ('gold', 'silver')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(month, nickname_key)
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_support_author_time ON support_comments(author_hash, posted_at)")
+    conn.commit()
+    return conn
+
+
 def _run(fn):
     global _conn
     with _gate.hold():
         if _conn is None:
-            database = os.environ.get("TURSO_DATABASE_URL")
-            if database:
-                _conn = turso.connect(database=database, auth_token=os.environ.get("TURSO_AUTH_TOKEN"))
-            else:
-                LOCAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-                _conn = turso.connect(database=str(LOCAL_DB_PATH))
-            _conn.execute(_SCHEMA)
-            columns = {row[1] for row in _conn.execute('PRAGMA table_info(support_comments)').fetchall()}
-            if 'checkout_id' not in columns:
-                _conn.execute('ALTER TABLE support_comments ADD COLUMN checkout_id TEXT')
-            _conn.execute('''CREATE TABLE IF NOT EXISTS support_checkouts (
-                id TEXT PRIMARY KEY, product_id INTEGER NOT NULL,
-                created_at INTEGER NOT NULL, returned_at INTEGER
-            )''')
-            _conn.execute('''CREATE TABLE IF NOT EXISTS support_payments (
-                payment_id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL,
-                event_id TEXT NOT NULL, event_type TEXT NOT NULL,
-                status TEXT NOT NULL, amount TEXT NOT NULL, currency TEXT NOT NULL,
-                supporter_name TEXT NOT NULL, supporter_email TEXT NOT NULL,
-                products_json TEXT NOT NULL, paid_at INTEGER NOT NULL,
-                event_created INTEGER NOT NULL, received_at TEXT NOT NULL
-            )''')
-            _conn.execute("""CREATE TABLE IF NOT EXISTS support_monthly_donors (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                month TEXT NOT NULL CHECK(month GLOB '20[0-9][0-9]-[0-1][0-9]' AND substr(month, 6, 2) BETWEEN '01' AND '12'),
-                nickname TEXT NOT NULL CHECK(length(nickname) BETWEEN 1 AND 20),
-                nickname_key TEXT NOT NULL,
-                color TEXT NOT NULL CHECK(color IN ('gold', 'silver')),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(month, nickname_key)
-            )""")
-            _conn.execute("CREATE INDEX IF NOT EXISTS idx_support_author_time ON support_comments(author_hash, posted_at)")
-            _conn.commit()
+            # Set only once the schema is in place: a statement failing halfway used to
+            # leave a connection whose later tables were never created, and every call
+            # after it failed on a missing table until the process restarted.
+            _conn = _ready_connection()
         try:
             return fn(_conn)
         except Exception:
