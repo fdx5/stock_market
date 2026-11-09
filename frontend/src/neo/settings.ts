@@ -2,15 +2,20 @@ import { useSyncExternalStore } from "react";
 
 export type FxLevel = "full" | "balanced" | "minimal";
 export type DesignMode = "neo" | "classic";
+/** Site colour tone. Dark is the default; a stored "light" choice is restored on every visit. */
+export type Tone = "dark" | "light";
+const TONE_KEY = "kospimap_tone";
 const listeners = new Set<() => void>();
 let design: DesignMode = "neo";
 let fx: FxLevel = "balanced";
 let frameLight = true;
+let tone: Tone = "dark";
 if (typeof window !== "undefined") {
   try {
     const level = window.localStorage.getItem("kospimap_fx");
     if (level === "full" || level === "minimal") fx = level;
     frameLight = window.localStorage.getItem("kospimap_frame_light") !== "off";
+    tone = window.localStorage.getItem(TONE_KEY) === "light" ? "light" : "dark";
   } catch { /* An unavailable storage area never prevents rendering. */ }
 }
 function apply() {
@@ -18,6 +23,8 @@ function apply() {
   document.documentElement.dataset.design = design;
   document.documentElement.dataset.fx = fx;
   document.documentElement.dataset.frameLight = frameLight ? "on" : "off";
+  document.documentElement.dataset.tone = tone;
+  document.documentElement.style.colorScheme = tone;
   if (design === "neo" && !document.getElementById("neo-brand-icon")) {
     const icon = document.createElement("link");
     icon.id = "neo-brand-icon"; icon.rel = "icon"; icon.type = "image/svg+xml"; icon.href = "/neo/kstock-favicon.svg?v=20261022";
@@ -41,3 +48,22 @@ export function useDesignMode() { return useSyncExternalStore(subscribeDesignSet
 export function useFxLevel() { return useSyncExternalStore(subscribeDesignSettings, () => fx, () => "balanced" as FxLevel); }
 export function setFrameLight(value: boolean) { frameLight = value; try { window.localStorage.setItem("kospimap_frame_light", value ? "on" : "off"); } catch { /* in-memory preference */ } apply(); listeners.forEach(listener => listener()); }
 export function useFrameLight() { return useSyncExternalStore(subscribeDesignSettings, () => frameLight, () => true); }
+export function getTone(): Tone { return tone; }
+export function useTone() { return useSyncExternalStore(subscribeDesignSettings, () => tone, () => "dark" as Tone); }
+/** Switches the whole site between the dark and light tone and remembers the choice. */
+export function setTone(next: Tone) {
+  if (next === tone) return;
+  const commit = () => {
+    tone = next;
+    try { window.localStorage.setItem(TONE_KEY, next); } catch { /* in-memory preference */ }
+    apply(); listeners.forEach(listener => listener());
+  };
+  // A short cross-fade instead of thousands of individual colour transitions.
+  const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const doc = document as Document & { startViewTransition?: (callback: () => void) => unknown };
+  if (!reduce && typeof doc.startViewTransition === "function") {
+    document.documentElement.classList.add("ng-tone-switching");
+    const transition = doc.startViewTransition(commit) as { finished?: Promise<unknown> };
+    transition.finished?.finally(() => document.documentElement.classList.remove("ng-tone-switching"));
+  } else commit();
+}

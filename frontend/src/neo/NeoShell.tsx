@@ -11,7 +11,7 @@ import { useMarketTicker } from "../useMarketTicker";
 import { pct } from "../desk2/lib";
 import Colophon from "../desk2/Colophon";
 import { NEO_GROUPS, neoRouteFamily, neoHeaderCurrentTone, routeLabel } from "./navigation";
-import { setFxLevel, useDesignMode, useFxLevel, setFrameLight, useFrameLight } from "./settings";
+import { setFxLevel, useDesignMode, useFxLevel, setFrameLight, useFrameLight, setTone, useTone } from "./settings";
 import NeoIcon from "./NeoIcon";
 import NeoLogo from "./NeoLogo";
 import NeoBackdrop from "./NeoBackdrop";
@@ -32,6 +32,7 @@ import "./neoCommand.css";
 import "./neoAtlas.css";
 import "./cyberEffects.css";
 import "./communityLinks.css";
+import "./neoLight.css";
 
 const Finder = lazy(() => import("../desk2/Finder"));
 const MAP_DESTINATIONS = [
@@ -56,6 +57,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
   const design = useDesignMode();
   useBroadsheetFonts();
   const fx = useFxLevel();
+  const tone = useTone();
   const { lang, setLang } = useLanguage();
   const L = (ko: string, en: string) => lang === "ko" ? ko : en;
   const [panel, setPanel] = useState<"menu" | "settings" | null>(null);
@@ -129,7 +131,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
         {[["/desk", "마켓", "Markets"], ["/map", "맵", "Maps"], ["/etf/kr", "ETF", "ETF"], ["/market-brief", "인텔리전스", "Intelligence"]].map(([to, ko, en]) => <Link key={to} to={to} aria-current={path === to || to === "/etf/kr" && path.startsWith("/etf/") ? "page" : undefined}>{L(ko, en)}</Link>)}
       </nav>
       <button type="button" className="ng-search-trigger" onClick={event => open("search", event.currentTarget)} aria-label={L("종목 및 페이지 검색", "Search stocks and pages")}><NeoIcon name="search" /><span>{L("종목 · 코드 · 페이지 검색", "Search stocks, symbols, pages")}</span><kbd>⌘ K</kbd></button>
-      <div className="ng-header-tools"><button type="button" className="ng-language" onClick={() => setLang(lang === "ko" ? "en" : "ko")} aria-label={L("영어로 전환", "Switch to Korean")}>{lang === "ko" ? "EN" : "KO"}</button><button type="button" onClick={event => open("settings", event.currentTarget)} aria-label={L("화면 설정", "Display settings")}><NeoIcon name="settings" /></button><button type="button" className="ng-menu-trigger" onClick={event => open("menu", event.currentTarget)} aria-label={L("전체 메뉴", "All destinations")}><NeoIcon name="menu" /></button></div>
+      <div className="ng-header-tools"><div className="ng-tone" role="group" aria-label={L("화면 테마", "Colour theme")} data-tone={tone}><i className="ng-tone-thumb" aria-hidden="true" /><button type="button" aria-pressed={tone === "light"} onClick={() => setTone("light")} aria-label={L("화이트 테마", "Light theme")} title={L("화이트 테마", "Light theme")}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.55 1.55M17.15 17.15l1.55 1.55M5.3 18.7l1.55-1.55M17.15 6.85l1.55-1.55" /></svg></button><button type="button" aria-pressed={tone === "dark"} onClick={() => setTone("dark")} aria-label={L("블랙 테마", "Dark theme")} title={L("블랙 테마", "Dark theme")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 14.6A8.4 8.4 0 0 1 9.4 3.8a8.4 8.4 0 1 0 10.8 10.8Z" /></svg></button></div><button type="button" className="ng-language" onClick={() => setLang(lang === "ko" ? "en" : "ko")} aria-label={L("영어로 전환", "Switch to Korean")}>{lang === "ko" ? "EN" : "KO"}</button><button type="button" onClick={event => open("settings", event.currentTarget)} aria-label={L("화면 설정", "Display settings")}><NeoIcon name="settings" /></button><button type="button" className="ng-menu-trigger" onClick={event => open("menu", event.currentTarget)} aria-label={L("전체 메뉴", "All destinations")}><NeoIcon name="menu" /></button></div>
       <NeoHeaderClocks />
       {showCurrent && <NeoHeaderCurrent tone={currentTone} />}
     </header>

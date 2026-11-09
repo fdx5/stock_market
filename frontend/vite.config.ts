@@ -4,6 +4,7 @@ import { createReadStream, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import paintAssetsPlugin from "./paintAssetsPlugin.mjs";
+import lightTone from "./lightTonePlugin.mjs";
 
 const planetAssets = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -15,6 +16,7 @@ const planetAssets = path.resolve(
 export default defineConfig(({ mode }) => {
   return {
   build: { assetsDir: "assets/app-r2" },
+  css: { postcss: { plugins: [lightTone({ include: fileURLToPath(new URL("./src", import.meta.url)) })] } },
   plugins: [
     react(),
     paintAssetsPlugin(),

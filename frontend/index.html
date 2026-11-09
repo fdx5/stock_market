@@ -12,7 +12,12 @@
         document.documentElement.classList.add("js");
         document.documentElement.setAttribute("data-theme", "dark");
         document.documentElement.setAttribute("data-design", "neo");
-        document.querySelector('meta[name="theme-color"]').setAttribute("content", document.documentElement.dataset.design === "neo" ? "#100d13" : "#0d0d0d");
+        // Restore the visitor's saved tone before first paint (dark by default).
+        var tone = "dark";
+        try { if (localStorage.getItem("kospimap_tone") === "light") tone = "light"; } catch (e) {}
+        document.documentElement.setAttribute("data-tone", tone);
+        document.documentElement.style.colorScheme = tone;
+        document.querySelector('meta[name="theme-color"]').setAttribute("content", tone === "light" ? "#f7f5fa" : "#100d13");
       })();
     </script>
     <script>

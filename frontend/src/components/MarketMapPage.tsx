@@ -1,3 +1,4 @@
+import { useTone } from "../neo/settings";
 import CommunityShortcut from "../neo/CommunityShortcut";
 import { CSSProperties, ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, MarketMapItem, MarketMapResponse, MarketReturns, MarketSession, MarketSparkline } from "../api/client";
@@ -266,6 +267,8 @@ export default function MarketMapPage({
   enhancedSectorView = false,
 }: MarketMapPageProps) {
   const { lang } = useLanguage();
+  // On screen the tiles follow the site tone; exported images keep the night palette.
+  const tileMode = useTone() === "light" ? "light" : TILE_NIGHT_MODE;
   const t = useT();
   useDocumentTitle("K-Stock Hub");
   // The maps sit on the broadsheet: its type, its masthead and colophon, and its
@@ -1013,9 +1016,9 @@ export default function MarketMapPage({
                     </div>
                   )}
                   {zone.tiles.map((tile) => {
-                    const rgb = changeToRgb(tile.item.change_pct, TILE_NIGHT_MODE);
+                    const rgb = changeToRgb(tile.item.change_pct, tileMode);
                     const bg = rgbToCss(rgb);
-                    const textColor = textColorForRgb(rgb, TILE_NIGHT_MODE);
+                    const textColor = textColorForRgb(rgb, tileMode);
                     const localX = tile.x - zone.rect.x;
                     const localY = tile.y - zone.rect.y;
                     const name = tileLabel(tile.item.code, tile.item.name);

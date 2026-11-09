@@ -1,0 +1,31 @@
+/* tone:manual — hand-tuned light tone on top of the generated light rules
+   (see lightTonePlugin.mjs). This file is never auto-converted. */
+
+/* ---- tone switch (both tones) ---- */
+.ng-tone{position:relative;display:inline-grid;grid-template-columns:1fr 1fr;align-items:center;width:62px;height:30px;margin-right:4px;padding:2px;border:1px solid var(--line-soft);border-radius:999px;background:#ffffff08;flex-shrink:0}
+.ng-tone>button{position:relative;z-index:1;display:grid;place-items:center;width:100%;height:100%;padding:0;border:0;border-radius:999px;background:none;color:var(--text-muted);cursor:pointer;transition:color var(--motion-standard)}
+.ng-tone>button:hover{color:var(--text-primary)}
+.ng-tone>button[aria-pressed="true"]{color:var(--accent-neon)}
+.ng-tone svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.ng-tone>button:last-of-type svg{fill:currentColor;fill-opacity:.18}
+.ng-tone-thumb{position:absolute;top:2px;bottom:2px;left:2px;width:calc(50% - 2px);border-radius:999px;background:#bf85ff1f;box-shadow:inset 0 0 0 1px #bf85ff47,0 0 12px #bf85ff1a;transition:transform var(--motion-layout) cubic-bezier(.3,.7,.2,1)}
+.ng-tone[data-tone="dark"] .ng-tone-thumb{transform:translateX(100%)}
+.ng-tone :focus-visible{outline-offset:1px}
+@media(max-width:599px){.ng-tone{width:56px;height:28px;margin-right:2px}.ng-tone svg{width:14px;height:14px}}
+
+/* view-transition cross-fade when switching tone */
+::view-transition-old(root),::view-transition-new(root){animation-duration:.32s;animation-timing-function:ease}
+
+/* ---- brand ---- */
+:root[data-tone="light"] .nl-word{fill:#2b2631}
+:root[data-tone="light"] .nl-word>.nl-hub{fill:#a07b17}
+:root[data-tone="light"] .nl-sub{fill:#6f6579}
+:root[data-tone="light"] .ng-header-current{opacity:.6}
+
+/* ---- background effects: the additive neon light is rendered as soft ink on
+   white — inverting the canvas keeps every hue, turns glow into tint. ---- */
+:root[data-tone="light"] :is(.ng-neon-river,.ng-silk){background:#f5f3f8}
+:root[data-tone="light"] .ng-electric-canvas{filter:invert(1) hue-rotate(180deg) saturate(1.25);mix-blend-mode:multiply;opacity:.42}
+:root[data-tone="light"] .ng-silk-canvas{filter:invert(1) hue-rotate(180deg) saturate(1.3);mix-blend-mode:multiply;opacity:.38}
+:root[data-tone="light"] .ng-electric-canvas[data-state="loading"],:root[data-tone="light"] .ng-silk-canvas[data-state="loading"]{opacity:0}
+:root[data-tone="light"] :is(.ng-electric-shade,.ng-silk-shade){background:radial-gradient(ellipse at 50% 48%,transparent 45%,#f5f3f880 100%)}

@@ -9,6 +9,6 @@ export default function NeoLogo({ className = "", symbolOnly = false }: { classN
     <path d="M14 34V14h5v8l10-8h7L24 24l13 10h-8l-10-8v8h-5Z" fill={`url(#${id}-brand)`} />
     <path d="m28 9 7-5 7 5" stroke="#f27560" strokeWidth="1.6" /><path d="M35 4v13" stroke="#f27560" strokeWidth="1.6" />
     <path d="M2 24h3m38 0h3M24 43v3" stroke="#bf85ff" strokeWidth="1" />
-    {!symbolOnly && <><text x="61" y="26" fill="#f3ecdc" fontFamily="Pretendard,Arial,sans-serif" fontSize="23" fontWeight="750" letterSpacing="-.7">K STOCK <tspan fill="#d6b54e">HUB</tspan></text><text x="62" y="40" fill="#b9aabf" fontFamily="ui-monospace,Consolas,monospace" fontSize="7" letterSpacing="2.6">NEO GENESIS / KOSPIMAP</text></>}
+    {!symbolOnly && <><text className="nl-word" x="61" y="26" fill="#f3ecdc" fontFamily="Pretendard,Arial,sans-serif" fontSize="23" fontWeight="750" letterSpacing="-.7">K STOCK <tspan className="nl-hub" fill="#d6b54e">HUB</tspan></text><text className="nl-sub" x="62" y="40" fill="#b9aabf" fontFamily="ui-monospace,Consolas,monospace" fontSize="7" letterSpacing="2.6">NEO GENESIS / KOSPIMAP</text></>}
   </svg>;
 }
