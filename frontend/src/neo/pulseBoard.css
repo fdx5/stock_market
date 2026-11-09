@@ -96,6 +96,9 @@ html[data-fx=minimal] :is(.pb-float,.pb-float-halo,.pb-float-ripple),html[data-f
 /* Portrait phones and tablets: the cells fill the screen, so the page is deliberately made taller. Scrolled to
    the end, the board clears the lower half of the viewport, where the ship sails (about 62-76% down). */
 @media (max-width:1100px) and (orientation:portrait){.pb-page{--pb-ship-band:56vh;--pb-ship-band:56svh}}
+/* Landscape phones, foldables (Galaxy Fold inner screen) and tablets: the sea camera keeps the ship at the same
+   fraction of the viewport height in any aspect, so the same open-sea tail lets it clear the cells here too. */
+@media (orientation:landscape) and (pointer:coarse) and (max-width:1366px) and (max-height:1366px),(orientation:landscape) and (max-height:500px){.pb-page{--pb-ship-band:56vh;--pb-ship-band:56svh}}
 html.pb-ship-hover,html.pb-ship-hover body,html.pb-ship-hover .pb-page{cursor:pointer}
 
 /* Phones and tablets: tighter cells, smaller type, a compact header. */
