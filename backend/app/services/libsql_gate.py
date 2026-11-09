@@ -133,14 +133,19 @@ class Gate:
             return time.monotonic() < self._open_until
 
     @contextmanager
-    def hold(self):
-        """Acquires the store's lock, or raises StoreUnavailable."""
+    def hold(self, timeout: float | None = None):
+        """Acquires the store's lock, or raises StoreUnavailable.
+
+        `timeout` overrides the default bounded wait. Only background threads that
+        own no request (the analytics writers) should pass a longer one: they may
+        queue behind a slow admin read without costing the server a worker."""
         with self._state:
             if time.monotonic() < self._open_until:
                 raise StoreUnavailable(f"{self.name}: unavailable (cooling down)")
 
         asked = time.monotonic()
-        if not self._lock.acquire(timeout=self._lock_timeout):
+        wait = self._lock_timeout if timeout is None else timeout
+        if not self._lock.acquire(timeout=wait):
             with self._state:
                 self._busy += 1
             # Give up rather than wait it out: the point of the bounded wait is that
@@ -155,7 +160,7 @@ class Gate:
             # those as failures opened the breaker on the fourth one and turned a burst
             # into a 25-second blackout of every endpoint backed by that store. Real
             # trouble still trips it: an exception raised out of the call below does.
-            raise StoreUnavailable(f"{self.name}: busy for over {self._lock_timeout}s")
+            raise StoreUnavailable(f"{self.name}: busy for over {wait}s")
 
         got = time.monotonic()
         try:

@@ -8,6 +8,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 
 from app.services import hub_event_store, page_view_store, stock_search_store
+from app.services.libsql_gate import StoreUnavailable
 
 # Bounds memory the same way visitor_tracker.py's session dict does: a fixed-size
 # ring buffer for the live tail (oldest events just fall off) rather than growing
@@ -48,11 +49,67 @@ _logger = logging.getLogger(__name__)
 _drop_counts = {name: 0 for name in _write_queues}
 
 
+# The page-view writer owns no request, so it may wait well past the gate's 4 s
+# default for a slow admin read to finish, and it retries a busy store instead of
+# dropping the visit. Only a full queue (512 events) ever sheds analytics.
+_PAGE_VIEW_BATCH = 200
+_PAGE_VIEW_WAIT = 20.0
+_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0)
+_busy_logged = 0.0
+
+
+def _note_busy(name: str, exc: Exception, pending: int) -> None:
+    """A busy store is load, not a bug: one line a minute, no traceback."""
+    global _busy_logged
+    now = time.monotonic()
+    if now - _busy_logged >= 60:
+        _busy_logged = now
+        _logger.warning("activity %s write deferred (%s); %d events waiting, retrying", name, exc, pending)
+
+
+def _page_view_writer(work: queue.Queue) -> None:
+    while True:
+        _flush_page_views(work)
+
+
+def _flush_page_views(work: queue.Queue) -> None:
+    """Blocks for one event, then writes it with everything else already queued."""
+    batch = [work.get()]
+    while len(batch) < _PAGE_VIEW_BATCH:
+        try:
+            batch.append(work.get_nowait())
+        except queue.Empty:
+            break
+    events = [args for _, args in batch]
+    try:
+        for attempt, delay in enumerate((*_RETRY_DELAYS, None)):
+            try:
+                page_view_store.record_page_views(events, wait=_PAGE_VIEW_WAIT)
+                break
+            except StoreUnavailable as exc:
+                if delay is None:
+                    _logger.warning("activity page_view write gave up after %d tries: %d events lost (%s)",
+                                    attempt + 1, len(events), exc)
+                    break
+                _note_busy("page_view", exc, len(events) + work.qsize())
+                time.sleep(delay)
+    except Exception:
+        _logger.exception("activity page_view write failed (%d events)", len(events))
+    finally:
+        for _ in batch:
+            work.task_done()
+
+
 def _writer(name: str, work: queue.Queue) -> None:
+    if name == "page_view":
+        _page_view_writer(work)
+        return
     while True:
         callback, args = work.get()
         try:
             callback(*args)
+        except StoreUnavailable as exc:
+            _note_busy(name, exc, work.qsize())
         except Exception:
             _logger.exception("activity %s write failed", name)
         finally:

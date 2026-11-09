@@ -205,12 +205,14 @@ def _new_ready_connection():
     return conn
 
 
-def _with_connection(fn):
+def _with_connection(fn, wait: float | None = None):
     """Same retry-once-on-a-fresh-connection shape as visitor_store.py /
     comment_store.py — see comment_store.py's docstring for why a single
-    process-wide connection (rather than one per call) is used here."""
+    process-wide connection (rather than one per call) is used here.
+
+    `wait` lengthens the gate's bounded wait; only the background writer uses it."""
     global _conn
-    with _gate.hold():
+    with _gate.hold(wait):
         if _conn is None:
             _conn = _new_ready_connection()
         try:
@@ -251,26 +253,51 @@ def record_page_view(
     keeping them is what makes "which crawler, how often, over which URLs" answerable
     at all — the question this column was added to answer. bot_overview() reads them.
     """
-    device = device_analytics.classify(user_agent, device_info)
-    def _run(conn):
-        conn.execute(
-            "INSERT INTO page_views (session_id, path, created_at, event_type, referrer, "
-            "source_channel, source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key, "
-            "user_agent, is_bot, device_type, device_name, device_os, device_browser) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (session_id, path, created_at, event_type, referrer, source_channel,
-             source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key,
-             user_agent, 1 if is_bot else 0, *device),
-        )
+    record_page_views([(session_id, path, created_at, event_type, referrer, source_channel, source_name,
+                        utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key,
+                        user_agent, is_bot, device_info)])
+
+
+_INSERT = (
+    "INSERT INTO page_views (session_id, path, created_at, event_type, referrer, "
+    "source_channel, source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key, "
+    "user_agent, is_bot, device_type, device_name, device_os, device_browser) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+
+
+def record_page_views(events: list[tuple], wait: float | None = None) -> None:
+    """Writes several events (record_page_view's positional arguments) in one commit.
+
+    The background writer drains its queue into one call: one gate acquisition and one
+    round trip instead of one per event, so a burst no longer queues dozens of lock
+    waits behind a slow admin read.
+    """
+    if not events:
+        return
+    rows, sealed = [], set()
+    today = datetime.now(timezone(timedelta(hours=9))).date().isoformat()
+    for (session_id, path, created_at, event_type, referrer, source_channel, source_name, utm_source,
+         utm_medium, utm_campaign, label, stock_code, stock_name, object_key, user_agent, is_bot,
+         device_info) in events:
+        device = device_analytics.classify(user_agent, device_info)
+        rows.append((session_id, path, created_at, event_type, referrer, source_channel,
+                     source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key,
+                     user_agent, 1 if is_bot else 0, *device))
         # A delayed visit must invalidate a sealed historical day. Keep its old
         # summary until the worker rebuilds; readers only accept completed days.
         if event_type == "page_view" and not is_bot:
             day = _to_kst_date(created_at).isoformat()
-            if day < datetime.now(timezone(timedelta(hours=9))).date().isoformat():
-                conn.execute("DELETE FROM device_traffic_daily WHERE day=? AND device_type='_complete'", (day,))
+            if day < today:
+                sealed.add(day)
+
+    def _run(conn):
+        conn.executemany(_INSERT, rows)
+        for day in sorted(sealed):
+            conn.execute("DELETE FROM device_traffic_daily WHERE day=? AND device_type='_complete'", (day,))
         conn.commit()
 
-    _with_connection(_run)
+    _with_connection(_run, wait)
 
 
 def bubble_stats(since_iso: str) -> dict:

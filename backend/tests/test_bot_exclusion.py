@@ -209,8 +209,8 @@ class TestActivityLog:
         from app.services import activity_log
 
         persisted: list[tuple] = []
-        monkeypatch.setattr(activity_log.threading, "Thread",
-                            lambda target, args, daemon: type("T", (), {"start": lambda self: persisted.append(args)})())
+        # Writes go through bounded queues served by long-lived writer threads; capture what is queued.
+        monkeypatch.setattr(activity_log, "_queue_write", lambda name, callback, *args: persisted.append(args))
         activity_log._tail.clear()
         activity_log._sessions.clear()
 
@@ -228,8 +228,8 @@ class TestActivityLog:
         from app.services import activity_log
 
         persisted: list[tuple] = []
-        monkeypatch.setattr(activity_log.threading, "Thread",
-                            lambda target, args, daemon: type("T", (), {"start": lambda self: persisted.append(args)})())
+        # Writes go through bounded queues served by long-lived writer threads; capture what is queued.
+        monkeypatch.setattr(activity_log, "_queue_write", lambda name, callback, *args: persisted.append(args))
         activity_log._tail.clear()
         activity_log._sessions.clear()
 
