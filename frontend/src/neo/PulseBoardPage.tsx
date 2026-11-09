@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import type { MarketMapItem } from "../api/client";
 import { Link, navigate } from "../router";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -43,6 +44,29 @@ const MOOD_NAME: Record<Mood, [string, string]> = { down: ["푸른 펄스 바다
 /** The sea's colour rule: −1% or lower is blue, +1% or higher is red-gold, violet between. */
 export const moodOf = (change?: number | null): Mood => change == null || !Number.isFinite(change) ? "calm" : change <= -1 ? "down" : change >= 1 ? "up" : "calm";
 const price = (value?: number | null) => value != null && Number.isFinite(value) && value > 0 ? value.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—";
+
+/**
+ * A slot just left of the shell's visitor count, so the sea legend lives in the context bar
+ * instead of taking a row above the board. Re-attached if the shell re-renders its bar.
+ */
+function useMoodSlot() {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const element = document.createElement("span");
+    element.className = "pb-mood-slot";
+    const attach = () => {
+      const audience = document.querySelector(".ng-audience-slot");
+      if (!audience?.parentElement) { if (element.isConnected) element.remove(); setSlot(null); return; }
+      if (element.nextElementSibling !== audience) audience.parentElement.insertBefore(element, audience);
+      setSlot(element);
+    };
+    attach();
+    const observer = new MutationObserver(() => { if (!element.isConnected || element.nextElementSibling !== document.querySelector(".ng-audience-slot")) attach(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => { observer.disconnect(); element.remove(); };
+  }, []);
+  return slot;
+}
 
 /** The focused company bobs on the sea, leaving small wakes as it drifts. */
 function FloatingCompany({ item, market, controller, onClose, lang }: {
@@ -174,29 +198,40 @@ export default function PulseBoardPage() {
     controller.current?.emit(xOf(item.code), .22, false);
   };
 
+  const moodSlot = useMoodSlot();
+  const moodHint = L("종목을 누르면 로고가 바다 위에 떠오르고, 바다 색이 그 종목의 등락을 따라갑니다.", "Tap a stock to float it on the sea; the sea then follows its move.");
+  const moodChip = <div className={`pb-mood${moodSlot ? " pb-mood--bar" : ""}`} data-mood={mood} role="status" title={moodHint}>
+    <i className={`pb-mood-swatch is-${mood}`} aria-hidden="true" />
+    <span><b>{MOOD_NAME[mood][lang === "ko" ? 0 : 1]}</b><small>{focusItem ? `${focusItem.name} ${hasReturn(focusItem) ? pct(focusItem.change_pct) : "—"}` : `${MARKETS.find(item => item.key === market)!.label} ${quotePct(quotes[market].change)}`} {L("기준", "basis")}</small></span>
+    <ol className="pb-mood-legend" aria-label={L("바다 색 기준", "Sea colour rule")}><li className="is-down">≤ −1%</li><li className="is-calm">±1%</li><li className="is-up">≥ +1%</li></ol>
+  </div>;
+
   return <div className="pb-page">
-    <NeoPulseHorizon mood={mood} energy={energy} intensity={1.18} horizon={-.22} controller={controller} />
+    <NeoPulseHorizon sea="ocean" mood={mood} energy={energy} intensity={1.18} horizon={-.22} controller={controller} />
     <PulseShip state={ship} controller={controller} onBoard={focusItem ? () => navigate(`/stock/${encodeURIComponent(focusItem.code)}`) : undefined}
       onCargo={code => { const item = stocks.find(stock => stock.code === code); if (item) focus(item); }} />
     <section className="sc-scanner pb-board" aria-labelledby="pb-title" data-mood={mood} data-market={market}>
-      <header className="pb-heading">
-        <div><p className="pb-kicker">PULSE BOARD · {MARKETS.find(item => item.key === market)!.label}</p><h1 id="pb-title">{L("증시 전광판", "Market pulse board")}</h1></div>
-        <div className="pb-mood" role="status">
-          <i className={`pb-mood-swatch is-${mood}`} aria-hidden="true" />
-          <span><b>{MOOD_NAME[mood][lang === "ko" ? 0 : 1]}</b><small>{focusItem ? `${focusItem.name} ${hasReturn(focusItem) ? pct(focusItem.change_pct) : "—"}` : `${MARKETS.find(item => item.key === market)!.label} ${quotePct(quotes[market].change)}`} {L("기준", "basis")}</small></span>
-          <ol className="pb-mood-legend" aria-label={L("바다 색 기준", "Sea colour rule")}><li className="is-down">≤ −1%</li><li className="is-calm">−1 ~ +1%</li><li className="is-up">≥ +1%</li></ol>
-        </div>
-      </header>
-      <div className="sc-markets pb-markets" role="group" aria-label={L("시장 선택", "Select market")}>{MARKETS.map(config => {
-        const quote = quotes[config.key];
-        return <button type="button" key={config.key} aria-pressed={market === config.key} onClick={() => setMarket(config.key)} data-mood={moodOf(quote.change)}>
-          <span>{config.label}<small>{config.region}</small></span><div><strong>{price(quote.price)}</strong><b className={`is-${toneOf(quote.change)}`}>{quotePct(quote.change)}</b></div>
-        </button>;
-      })}</div>
-      <div className="sc-breadth pb-breadth"><div><span>{L("등락 분포", "Breadth")}</span><b className="sc-up">↑ {up}</b><b className="sc-down">↓ {down}</b><small>{L("보합", "Flat")} {known.length - up - down}</small></div><div className="sc-breadth-track" role="img" aria-label={`${up} up, ${down} down`}>{[[up, "up"], [known.length - up - down, "flat"], [down, "down"]].map(([count, tone]) => <i key={tone} className={`sc-${tone}`} style={{ flex: Number(count) }} />)}</div>
+      {/* The title is for assistive tech only: the board itself is the page's headline. */}
+      <h1 id="pb-title" className="pb-sr">{L("증시 전광판", "Market pulse board")}</h1>
+      {moodSlot ? createPortal(moodChip, moodSlot) : moodChip}
+      {/* One compact toolbar row: market tabs with their live index, breadth, sort. */}
+      <div className="pb-toolbar">
+        <div className="pb-tabs" role="tablist" aria-label={L("시장 선택", "Select market")}>{MARKETS.map(config => {
+          const quote = quotes[config.key], selected = market === config.key;
+          return <button type="button" role="tab" key={config.key} aria-selected={selected} tabIndex={selected ? 0 : -1} className="pb-tab" data-mood={moodOf(quote.change)}
+            onClick={() => setMarket(config.key)}
+            onKeyDown={event => {
+              if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+              const index = MARKETS.findIndex(item => item.key === market), next = MARKETS[(index + (event.key === "ArrowRight" ? 1 : MARKETS.length - 1)) % MARKETS.length];
+              setMarket(next.key);
+              (event.currentTarget.parentElement?.children[MARKETS.indexOf(next)] as HTMLElement | undefined)?.focus();
+            }}>
+            <span className="pb-tab-name">{config.label}</span><strong>{price(quote.price)}</strong><b className={`is-${toneOf(quote.change)}`}>{quotePct(quote.change)}</b>
+          </button>;
+        })}</div>
+        <div className="pb-breadth" title={L("등락 분포", "Breadth")}><b className="sc-up">↑{up}</b><div className="sc-breadth-track" role="img" aria-label={`${up} up, ${down} down`}>{[[up, "up"], [known.length - up - down, "flat"], [down, "down"]].map(([count, tone]) => <i key={tone} className={`sc-${tone}`} style={{ flex: Number(count) }} />)}</div><b className="sc-down">↓{down}</b></div>
         <div className="pb-sort" role="group" aria-label={L("정렬", "Sort")}>{([["cap", L("시총순", "Size")], ["return", L("등락순", "Return")]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={order === key} onClick={() => setOrder(key)}>{label}</button>)}</div>
       </div>
-      <p className="pb-hint">{L("종목을 누르면 로고가 펄스 바다 위에 떠오르고, 바다 색이 그 종목의 등락을 따라갑니다.", "Tap a stock to float it on the pulse sea; the sea then follows its move.")}</p>
       <div ref={gridRef} className="sc-grid pb-grid" style={{ "--sc-columns": columns } as CSSProperties} role="group" aria-label={L("종목 시세", "Stock quotes")}>
         {(showAll ? visible : visible.slice(0, DEFAULT_CELLS)).map(item => {
           const ok = hasReturn(item);

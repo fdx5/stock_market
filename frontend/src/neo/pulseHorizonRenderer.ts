@@ -10,7 +10,14 @@ export interface PulseHorizonController {
   emit(screenX: number, strength: number, beacon?: boolean): void;
   /** Sea height under screen x near the viewer (ridges + heartbeat waves), its slope along x and across. */
   sampleSwell(screenX: number, spread?: number): { height: number; slope: number; cross: number };
+  /** Ocean only: the sea camera (metres, looking down +z) so an overlay can share its exact perspective. */
+  view?(): OceanView;
+  /** Ocean only: sea height in metres at a world point, from the dominant long waves. */
+  heightAt?(x: number, z: number): number;
+  /** Ocean only: the ship's pose (world metres, heading from +x toward +z) so the sea draws its wake. */
+  setShip?(pose: { x: number; z: number; heading: number; speed: number; half: number; beam: number } | null): void;
 }
+export interface OceanView { x: number; y: number; z: number; F: number; horizon: number; aspect: number; haze: [number, number, number]; sun: [number, number, number] }
 /* CPU twin of the ridge terrain. Float32 rounding in the hash keeps it close to what the GPU draws. */
 const f32 = Math.fround;
 const fract = (v: number) => v - Math.floor(v);

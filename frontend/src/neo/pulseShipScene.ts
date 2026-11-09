@@ -2,13 +2,16 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import type { PulseHorizonController } from "./pulseHorizonRenderer";
+import type { OceanView, PulseHorizonController } from "./pulseHorizonRenderer";
 import type { Mood } from "./pulseHorizonShaders";
 
 export interface ShipCargo { code: string; name: string; label: string; change: number | null; logo: string; color: string }
 export interface ShipState { mood: Mood; hullName: string; hullSub: string; hullLogo: string; cargo: ShipCargo[]; focus: boolean }
 
 const WATERLINE = -1.2;
+/** On the physical ocean one ship unit is 8.75 m: a 210 m hull, small enough to leave sea around it. */
+const METRES = 8.75;
+const HALF_LENGTH = 12 * METRES, HALF_BEAM = 2.4 * METRES;
 const MOOD_LIGHT: Record<Mood, { rim: number; neon: number; sky: number }> = {
   down: { rim: 0x4f9dff, neon: 0x5ab4ff, sky: 0x29407a },
   calm: { rim: 0xb47dff, neon: 0xc08cff, sky: 0x3d2a63 },
@@ -38,23 +41,24 @@ function nameLines(label: string) {
 }
 async function paintPlacard(canvas: HTMLCanvasElement, cargo: ShipCargo) {
   const g = canvas.getContext("2d")!, w = canvas.width, h = canvas.height;
-  const band = Math.round(h * .085);
-  const tone = cargo.change == null || cargo.change === 0 ? "#6d6578" : cargo.change > 0 ? "#e4264a" : "#1d6fe0";
-  g.fillStyle = "#fbfafd"; g.fillRect(0, 0, w, h);
-  g.fillStyle = tone; g.fillRect(0, 0, w, band); g.fillRect(0, h - band, w, band);
-  const size = h - band * 2 - 24, x = 14, y = band + 12;
-  g.save(); roundRect(g, x, y, size, size, size * .2); g.fillStyle = "#fff"; g.fill(); g.lineWidth = 4; g.strokeStyle = "#00000014"; g.stroke(); g.clip();
+  const tone = cargo.change == null || cargo.change === 0 ? "#8a8296" : cargo.change > 0 ? "#ff2d55" : "#2f86ff";
+  // A thick frame in the move's colour around a pure white board: reads against any box colour, at dusk, from afar.
+  const frame = Math.round(h * .075);
+  g.fillStyle = tone; g.fillRect(0, 0, w, h);
+  g.fillStyle = "#ffffff"; roundRect(g, frame, frame, w - frame * 2, h - frame * 2, h * .05); g.fill();
+  const size = h - frame * 2 - 20, x = frame + 12, y = frame + 10;
   const image = await loadImage(cargo.logo);
-  if (image) g.drawImage(image, x + size * .06, y + size * .06, size * .88, size * .88);
-  else { g.fillStyle = tone; g.font = `800 ${size * .46}px Pretendard, "Malgun Gothic", sans-serif`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(cargo.name.slice(0, 2), x + size / 2, y + size / 2); }
+  g.save(); roundRect(g, x, y, size, size, size * .18); g.clip();
+  if (image) g.drawImage(image, x, y, size, size);
+  else { g.fillStyle = tone; g.fillRect(x, y, size, size); g.fillStyle = "#fff"; g.font = `900 ${size * .46}px Pretendard, "Malgun Gothic", sans-serif`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(cargo.name.slice(0, 2), x + size / 2, y + size / 2); }
   g.restore();
-  const lines = nameLines(cargo.label), textX = x + size + 22, room = w - textX - 14, maxHeight = (h - band * 2 - 16) / lines.length;
-  let font = Math.min(maxHeight * .92, 150);
-  g.textAlign = "left"; g.textBaseline = "middle"; g.fillStyle = "#0d0914";
+  const lines = nameLines(cargo.label), textX = x + size + 20, room = w - textX - frame - 12, inner = h - frame * 2 - 8;
+  let font = Math.min(inner / lines.length * .9, 210);
+  g.textAlign = "left"; g.textBaseline = "middle"; g.fillStyle = "#000000";
   const widest = () => Math.max(...lines.map(line => g.measureText(line).width));
-  do { g.font = `900 ${font}px Pretendard, "Malgun Gothic", sans-serif`; font -= 3; } while (widest() > room && font > 30);
-  const lineHeight = (h - band * 2) / lines.length;
-  lines.forEach((line, index) => g.fillText(line, textX, band + lineHeight * (index + .53)));
+  do { g.font = `900 ${font}px Pretendard, "Malgun Gothic", sans-serif`; font -= 3; } while (widest() > room && font > 36);
+  const lineHeight = inner / lines.length;
+  lines.forEach((line, index) => g.fillText(line, textX, frame + 4 + lineHeight * (index + .54)));
 }
 
 /** The hull-side name: the company's logo badge, then luminous letters, on a transparent board. */
@@ -92,12 +96,42 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
   renderer.setClearColor(0x000000, 0);
   const scene = new THREE.Scene();
   const pmrem = new THREE.PMREMGenerator(renderer);
-  const environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
+  let environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
   scene.environment = environment;
   scene.environmentIntensity = .55;
+  // On the ocean the hull reflects the same dusk sky the sea does: a gradient dome rebuilt as the mood glides.
+  const skyUniforms = { u_zenith: { value: new THREE.Color() }, u_haze: { value: new THREE.Color() }, u_sun: { value: new THREE.Vector3(0, .1, -1) } };
+  const skyDome = new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), new THREE.ShaderMaterial({
+    side: THREE.BackSide, uniforms: skyUniforms,
+    vertexShader: `varying vec3 v_d; void main(){ v_d = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+    fragmentShader: `uniform vec3 u_zenith; uniform vec3 u_haze; uniform vec3 u_sun; varying vec3 v_d;
+      void main(){ vec3 d = normalize(v_d); float e = d.y;
+        vec3 c = mix(u_haze, u_zenith, smoothstep(0., .35, e));
+        c = mix(c, u_haze * .35, smoothstep(0., -.25, e));
+        float s = max(dot(d, normalize(u_sun)), 0.);
+        c += u_haze * (pow(s, 6.) * 1.5 + pow(s, 80.) * 6.);
+        gl_FragColor = vec4(c, 1.); }`,
+  }));
+  const skyScene = new THREE.Scene(); skyScene.add(skyDome);
+  let skyKey = "", skyAt = -9;
+  function refreshSky(view: OceanView) {
+    const key = view.haze.map(v => v.toFixed(2)).join();
+    if (key === skyKey || time - skyAt < .5) return;
+    skyKey = key; skyAt = time;
+    skyUniforms.u_haze.value.setRGB(view.haze[0], view.haze[1], view.haze[2], THREE.SRGBColorSpace);
+    skyUniforms.u_zenith.value.copy(skyUniforms.u_haze.value).multiplyScalar(.08);
+    skyUniforms.u_sun.value.set(view.sun[0], Math.max(view.sun[1], .06), -view.sun[2]);
+    const next = pmrem.fromScene(skyScene, 0, .1, 100).texture;
+    environment.dispose(); environment = next; scene.environment = next; scene.environmentIntensity = 1.1;
+  }
   const camera = new THREE.PerspectiveCamera(18, 1, 1, 400);
   const hemi = new THREE.HemisphereLight(0x3d2a63, 0x05030a, .9);
   const key = new THREE.DirectionalLight(0xfff1e2, 2.4); key.position.set(-18, 26, 30);
+  // Sun shadows on the ocean: containers shade each other and the deck. Redrawn every frame only while near.
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.shadowMap.autoUpdate = false;
+  const shadowSize = matchMedia("(pointer: coarse)").matches ? 1024 : 2048;
+  key.shadow.mapSize.set(shadowSize, shadowSize); key.shadow.bias = -.0004; key.shadow.normalBias = .4;
+  let shadowFrame = 0;
   const rim = new THREE.DirectionalLight(0xb47dff, 2.2); rim.position.set(14, 10, -30);
   const fill = new THREE.DirectionalLight(0xb47dff, .45); fill.position.set(10, -4, 24);
   scene.add(hemi, key, rim, fill);
@@ -118,6 +152,10 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
   let width = 0, height = 0, ratio = 0, unitsShown = 1, sailing = false, phone = false;
   const motion = { heave: 0, heaveV: 0, pitch: 0, pitchV: 0, roll: 0, rollV: 0 };
   let seaMean = 0;
+  // Ocean voyage: 0..1 along a course from broadside near the viewer to hull-down at the right horizon.
+  // ?shipAt=<metres> starts the voyage part-way (visual checks)
+  let along = Number(new URLSearchParams(location.search).get("shipAt")) || 0, waterY = WATERLINE, oceanMode = false;
+  const fog = new THREE.Fog(0x1a1024, 0, 9000);
 
   // wake + waterline glow: soft additive ellipses on the sea plane
   const glowCanvas = document.createElement("canvas"); glowCanvas.width = glowCanvas.height = 128;
@@ -198,7 +236,10 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
       const merged = mergeGeometries(list, false);
       if (!merged) continue;
       material.clippingPlanes = [water];
-      ship.add(new THREE.Mesh(merged, material));
+      const mesh = new THREE.Mesh(merged, material);
+      mesh.castShadow = mesh.receiveShadow = true;
+      for (const map of [(material as THREE.MeshStandardMaterial).map, (material as THREE.MeshStandardMaterial).normalMap]) if (map) map.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+      ship.add(mesh);
     }
     for (const mesh of keep as THREE.Mesh[]) {
       mesh.updateMatrixWorld(true);
@@ -209,12 +250,13 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
       const material = clone.material as THREE.MeshStandardMaterial;
       material.clippingPlanes = [water];
       if (name.startsWith("LogoPlate")) {
-        const placard = document.createElement("canvas"); placard.width = 768; placard.height = 300;
+        const placard = document.createElement("canvas"); placard.width = 1024; placard.height = 400;
         // glTF UVs start top-left: canvas textures must not be flipped again.
-        const texture = new THREE.CanvasTexture(placard); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 8; texture.flipY = false;
+        const texture = new THREE.CanvasTexture(placard); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy()); texture.flipY = false;
+        texture.generateMipmaps = true; texture.minFilter = THREE.LinearMipmapLinearFilter;
         placards[Number(name.slice(-2))] = { canvas: placard, texture, key: "" };
         // Self-lit: placards stay crisp and bright whatever the sea colour or tone mapping does.
-        clone.material = new THREE.MeshBasicMaterial({ map: texture, color: 0xf2f0f6, toneMapped: false, clippingPlanes: [water], polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+        clone.material = new THREE.MeshBasicMaterial({ map: texture, color: 0xffffff, toneMapped: false, clippingPlanes: [water], polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       } else if (name.startsWith("LogoBox")) boxMaterials.push(material);
       else if (name === "HullName") {
         hullCanvas = document.createElement("canvas"); hullCanvas.width = 2048; hullCanvas.height = 124;
@@ -234,7 +276,7 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
       const mesh = object as THREE.Mesh;
       if (!mesh.isMesh) return;
       const material = (mesh.material as THREE.Material).clone() as THREE.MeshStandardMaterial;
-      material.transparent = true; material.opacity = .16; material.depthWrite = false; material.clippingPlanes = [mirrorClip];
+      material.transparent = true; material.opacity = .1; material.depthWrite = false; material.clippingPlanes = [mirrorClip];
       const copy = new THREE.Mesh(mesh.geometry, material);
       copy.matrixAutoUpdate = false;
       copy.userData.source = mesh;
@@ -260,7 +302,7 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     }
     boxMaterials.forEach((material, index) => {
       const cargo = state.cargo[index % Math.max(1, state.cargo.length)];
-      if (cargo) material.color.set(cargo.color).multiplyScalar(.32);
+      if (cargo) material.color.set(cargo.color).multiplyScalar(material.map ? .62 : .32);
     });
     await Promise.all(placards.map(async (placard, index) => {
       const cargo = state.cargo[index % Math.max(1, state.cargo.length)];
@@ -305,6 +347,9 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     if (disposed || document.hidden) return;
     const dt = last ? Math.min(.05, (now - last) / 1000) : 0; last = now; time += dt;
     const light = MOOD_LIGHT[mood];
+    const view = controller.current?.view?.();
+    if (view) { oceanStep(view, dt, light); return; }
+    if (oceanMode) leaveOcean();
     rim.color.lerp(new THREE.Color(light.rim), 1 - Math.exp(-dt * 1.5));
     fill.color.copy(rim.color);
     hemi.color.lerp(new THREE.Color(light.sky), 1 - Math.exp(-dt * 1.5));
@@ -355,11 +400,117 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     for (const copy of reflection.children as THREE.Mesh[]) {
       // mirror across the fixed waterline plane
       const source = copy.userData.source as THREE.Mesh;
-      copy.matrix.makeTranslation(0, 2 * WATERLINE, 0).multiply(new THREE.Matrix4().makeScale(1, -1, 1)).multiply(source.matrixWorld);
+      copy.matrix.makeTranslation(0, 2 * waterY, 0).multiply(new THREE.Matrix4().makeScale(1, -1, 1)).multiply(source.matrixWorld);
     }
     if (radar) radar.rotation.y += dt * 1.4;
     if (mastLight) mastLight.emissiveIntensity = Math.sin(time * 3.2) > .55 ? 22 : 3;
     if (time - lastWake > 2.8 && screenX > -.05 && screenX < 1.05) { lastWake = time; controller.current?.emit(Math.min(1, Math.max(0, sternX)), .26 * (1 - progress * .6), false); }
+    renderer.render(scene, camera);
+    frame = requestAnimationFrame(frameStep);
+  }
+  /**
+   * A real ship's track: broadside to the right until mid-screen, a steady turn,
+   * then straight away toward the right horizon. Returns position (m, relative to the eye) and heading.
+   */
+  function course(metres: number, view: OceanView) {
+    const aspect = view.aspect, F = view.F;
+    const d0 = Math.max(220, 300 * F / (aspect * 2 * 1.15)), dEnd = 9000; // framing kept from the 300 m hull
+    // the turn is sized to the view so it happens mid-screen instead of sweeping off the right edge
+    const halfView = d0 * aspect / F, R = halfView * 1.55;
+    const x0 = -(1 + HALF_LENGTH * F / (d0 * aspect)) * aspect * d0 / F - 30, xTurn = -halfView * .6;
+    const xEnd = .72 * aspect * dEnd / F;
+    // the exit heading must point at the horizon mark from wherever the turn ends
+    let theta = 1;
+    for (let i = 0; i < 6; i++) theta = Math.atan2(dEnd - (d0 + R * (1 - Math.cos(theta))), xEnd - (xTurn + R * Math.sin(theta)));
+    const l1 = xTurn - x0, l2 = R * theta;
+    const exit = { x: xTurn + R * Math.sin(theta), z: d0 + R * (1 - Math.cos(theta)) };
+    const l3 = Math.hypot(xEnd - exit.x, dEnd - exit.z), total = l1 + l2 + l3;
+    const s = Math.max(0, Math.min(total, metres));
+    if (s <= l1) return { x: x0 + s, z: d0, heading: 0, d0, total };
+    if (s <= l1 + l2) { const phi = (s - l1) / R; return { x: xTurn + R * Math.sin(phi), z: d0 + R * (1 - Math.cos(phi)), heading: phi, d0, total }; }
+    const t = s - l1 - l2;
+    return { x: exit.x + Math.cos(theta) * t, z: exit.z + Math.sin(theta) * t, heading: theta, d0, total };
+  }
+  function leaveOcean() {
+    oceanMode = false; waterY = WATERLINE; water.constant = -WATERLINE; mirrorClip.constant = WATERLINE;
+    voyage.scale.setScalar(1); scene.fog = null; reflection.visible = true; wake.visible = true; foam.visible = true; controller.current?.setShip?.(null); camera.near = 1; camera.far = 400; width = 0; layout();
+  }
+  function oceanStep(view: OceanView, dt: number, light: typeof MOOD_LIGHT[Mood]) {
+    if (!oceanMode) {
+      oceanMode = true; waterY = 0; water.constant = 0; mirrorClip.constant = 0;
+      voyage.scale.setScalar(METRES); scene.fog = fog;
+      // a rough sea breaks any mirror image; the ocean shader carries the glints instead
+      reflection.visible = false; wake.visible = false; foam.visible = false;
+    }
+    layout();
+    // the overlay camera is the sea camera: same eye, focal length and off-axis horizon
+    camera.position.set(view.x, view.y, -view.z); camera.rotation.set(0, 0, 0);
+    camera.fov = 2 * THREE.MathUtils.radToDeg(Math.atan(1 / view.F)); camera.aspect = width / Math.max(1, height);
+    camera.near = 4; camera.far = 30000; camera.updateProjectionMatrix();
+    camera.projectionMatrix.elements[9] = -view.horizon;
+    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    camera.updateMatrixWorld(true);
+    fog.color.setRGB(view.haze[0], view.haze[1], view.haze[2], THREE.SRGBColorSpace);
+    refreshSky(view);
+    rim.color.lerp(new THREE.Color(light.rim), 1 - Math.exp(-dt * 1.5));
+    hemi.color.lerp(new THREE.Color(light.sky), 1 - Math.exp(-dt * 1.5));
+    // the low sun, raised a little so its light reaches the deck; the shadow box follows the hull
+    if (key.target !== voyage) { key.target = voyage; key.castShadow = true; }
+    key.position.copy(voyage.position).add(new THREE.Vector3(view.sun[0], .42, -view.sun[2]).normalize().multiplyScalar(400));
+    const box = HALF_LENGTH * 1.25;
+    Object.assign(key.shadow.camera, { left: -box, right: box, top: box, bottom: -box, near: 50, far: 900 });
+    key.shadow.camera.updateProjectionMatrix();
+    rim.position.set(view.sun[0] * 40, 12, -view.sun[2] * 40);
+    // the camera side is in the sun's shadow: deck floodlights and sky fill keep its paint readable
+    fill.position.set(-20, 18, 60); fill.color.set(0xd2cee6); fill.intensity = 1.5;
+    hemi.intensity = .7;
+    glowMaterial.color.copy(rim.color);
+    wakeUniforms.u_color.value.set(0xdfe8ff).lerp(rim.color, .25); wakeUniforms.u_time.value = time;
+    // ~11 m/s (21 kn, a container ship at service speed) broadside, quickening with distance: ~2 min 10 s a voyage
+    const here = course(along, view);
+    const speed = 11 * Math.pow(here.z / here.d0, 1.15);
+    along += still ? 0 : speed * dt;
+    if (along >= here.total) along = 0;
+    const p = course(along, view);
+    const tx = Math.cos(p.heading), tz = Math.sin(p.heading);
+    const wx = view.x + p.x, wz = view.z + p.z;
+    voyage.position.set(wx, -WATERLINE * METRES, -wz);
+    voyage.rotation.y = Math.atan2(tz, tx);
+    // the sea draws the wake at the hull's true pose; wave physics use a plausible service speed
+    controller.current?.setShip?.({ x: wx, z: wz, heading: p.heading, speed: Math.min(speed, 13), half: HALF_LENGTH, beam: HALF_BEAM });
+    // the hull rides the long waves under its own bow, stern and sides
+    const sea = controller.current?.heightAt;
+    const at = (dx: number, dz: number) => sea ? sea(wx + dx, wz + dz) : 0;
+    const reach = HALF_LENGTH * .87, side = HALF_BEAM * .7;
+    const bow = at(tx * reach, tz * reach), stern = at(-tx * reach, -tz * reach), port = at(-tz * side, tx * side), star = at(tz * side, -tx * side);
+    const targetHeave = THREE.MathUtils.clamp((bow + stern + port + star) / 4 / METRES, -.2, .2);
+    const targetPitch = THREE.MathUtils.clamp((bow - stern) / (reach * 2), -.035, .035);
+    const targetRoll = THREE.MathUtils.clamp((port - star) / (side * 2) * .6 + Math.sin(time * .37) * .008, -.05, .05);
+    for (const [value, velocity, target, stiffness, damping] of [["heave", "heaveV", targetHeave, 5, 2.8], ["pitch", "pitchV", targetPitch, 6, 3.2], ["roll", "rollV", targetRoll, 4, 2.2]] as const) {
+      motion[velocity] += ((target - motion[value]) * stiffness - motion[velocity] * damping) * dt;
+      motion[value] += motion[velocity] * dt;
+    }
+    rig.position.set(0, motion.heave, 0);
+    rig.rotation.set(motion.roll, 0, motion.pitch);
+    const haze = Math.min(1, p.z / 9000);
+    void tz;
+    glowMaterial.opacity = .22 * (1 - haze);
+    wakeUniforms.u_opacity.value = .75 * (1 - haze) * (1 - haze);
+    foam.scale.set(1, 1, 1);
+    voyage.updateMatrixWorld(true);
+    for (const copy of reflection.children as THREE.Mesh[]) {
+      const source = copy.userData.source as THREE.Mesh;
+      copy.matrix.makeTranslation(0, 2 * waterY, 0).multiply(new THREE.Matrix4().makeScale(1, -1, 1)).multiply(source.matrixWorld);
+    }
+    if (radar) radar.rotation.y += dt * 1.4;
+    if (mastLight) mastLight.emissiveIntensity = Math.sin(time * 3.2) > .55 ? 22 : 3;
+    if (time - lastWake > 3.2 && p.z < 900) {
+      const stern3 = new THREE.Vector3(-12, WATERLINE, 0).applyMatrix4(voyage.matrixWorld).project(camera);
+      if (stern3.x > -1.05 && stern3.x < 1.05) { lastWake = time; controller.current?.emit((stern3.x + 1) / 2, .2, false); }
+    }
+    // shadows: every frame up close, every 8th once the hull is small, never at the horizon
+    shadowFrame++;
+    renderer.shadowMap.needsUpdate = p.z < 1200 || (p.z < 4000 && shadowFrame % 8 === 0);
     renderer.render(scene, camera);
     frame = requestAnimationFrame(frameStep);
   }
@@ -376,13 +527,13 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
       pointer.set((clientX - box.left) / box.width * 2 - 1, -((clientY - box.top) / box.height) * 2 + 1);
       raycaster.setFromCamera(pointer, camera);
       // only the part of the ship above the sea counts; a logo container answers with its slot
-      const first = raycaster.intersectObject(ship, true).find(hit => hit.point.y > WATERLINE);
+      const first = raycaster.intersectObject(ship, true).find(hit => hit.point.y > waterY);
       if (!first) return null;
       const slot = /^Logo(?:Plate|Box)_(\d\d)/.exec(first.object.name);
       return slot ? { kind: "cargo", index: Number(slot[1]) } : { kind: "ship" };
     },
     dispose() {
-      disposed = true; cancelAnimationFrame(frame);
+      disposed = true; cancelAnimationFrame(frame); controller.current?.setShip?.(null);
       document.removeEventListener("visibilitychange", sync); removeEventListener("resize", sync);
       scene.traverse(object => {
         const mesh = object as THREE.Mesh;
@@ -390,7 +541,7 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
         if (!(mesh.userData.source)) mesh.geometry.dispose();
         (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).forEach(material => material.dispose());
       });
-      placards.forEach(placard => placard?.texture.dispose()); hullTexture?.dispose(); glowTexture.dispose(); environment.dispose(); pmrem.dispose();
+      placards.forEach(placard => placard?.texture.dispose()); hullTexture?.dispose(); glowTexture.dispose(); environment.dispose(); pmrem.dispose(); skyDome.geometry.dispose(); (skyDome.material as THREE.Material).dispose();
       renderer.dispose();
     },
   };

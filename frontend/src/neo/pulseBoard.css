@@ -85,6 +85,8 @@ html[data-fx=minimal] :is(.pb-float,.pb-float-halo,.pb-float-ripple),html[data-f
 /* The container ship band: fixed under the content, above the sea. */
 .pb-page{--pb-band:min(42vh,440px)}
 .pb-ship{position:fixed;left:var(--ng-rail,0px);right:0;bottom:var(--ng-bottom,0px);height:var(--pb-band);z-index:-1;pointer-events:none}
+/* On the physical ocean the ship shares the sea camera, so its canvas covers the whole viewport like the sea. */
+.ng-pulse-horizon[data-pattern=pulse-ocean]~.pb-ship{left:0;top:0;bottom:0;height:auto}
 .pb-ship canvas{display:block;width:100%;height:100%;opacity:1;transition:opacity 1.6s ease}
 .pb-ship[data-state=loading] canvas{opacity:0}
 .pb-ship[data-state=failed]{display:none}
@@ -124,4 +126,49 @@ html.pb-ship-hover,html.pb-ship-hover body,html.pb-ship-hover .pb-page{cursor:po
   .sc-scanner.pb-board .pb-markets b{font-size:10px}
   .sc-scanner.pb-board .sc-stock{min-height:40px;padding:5px 6px 6px 8px}
   .sc-scanner.pb-board .sc-stock>small{display:none}
+}
+
+/* 11-09 layout: no page title, a one-row toolbar, the sea legend in the context bar - more sea and ship. */
+.pb-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.sc-scanner.pb-board{padding-top:10px}
+.pb-toolbar{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin:0 0 8px}
+.pb-tabs{display:flex;gap:4px;padding:3px;border:1px solid var(--pb-edge);border-radius:11px;background:#0c0812b8;transition:border-color 1.2s ease}
+.pb-tab{display:flex;align-items:baseline;gap:7px;min-height:34px;padding:6px 12px;border:0;border-radius:8px;background:transparent;color:#cdbcdc;cursor:pointer;white-space:nowrap;transition:background .2s ease,color .2s ease}
+.pb-tab:hover{background:#ffffff0d;color:#f2eaff}
+.pb-tab[aria-selected=true]{background:linear-gradient(120deg,color-mix(in srgb,var(--pb-glow) 30%,#1c1326),#171020e6);color:#fff;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pb-glow) 45%,transparent),0 0 16px color-mix(in srgb,var(--pb-glow) 22%,transparent)}
+.pb-tab:focus-visible{outline:2px solid #fff;outline-offset:1px}
+.pb-tab-name{font:600 10px var(--f-type);letter-spacing:.04em}
+.pb-tab strong{font:600 15px/1 var(--f-num);letter-spacing:-.03em}
+.pb-tab b{font:500 11px var(--f-num)}
+.pb-tab[data-mood=down] b{text-shadow:0 0 10px #64aaff80}
+.pb-tab[data-mood=up] b{text-shadow:0 0 10px #ff6c8380}
+.pb-toolbar .pb-breadth{display:flex;align-items:center;gap:8px;flex:1 1 160px;min-width:120px}
+.pb-toolbar .pb-breadth b{font:500 11px var(--f-num)}
+.pb-toolbar .pb-breadth .sc-breadth-track{flex:1;height:4px;border-radius:2px;overflow:hidden}
+.pb-toolbar .pb-sort{margin-left:auto}
+.sc-scanner.pb-board .pb-grid{margin-top:0}
+/* the sea legend, compact, left of the visitor count */
+.pb-mood-slot{display:flex;align-items:center;margin-left:auto;min-width:0}
+.ng-context:has(.pb-mood-slot) .ng-audience-slot{margin-left:10px}
+.pb-mood.pb-mood--bar{gap:8px;padding:4px 9px 4px 5px;border-radius:999px;flex-wrap:nowrap;min-width:0;background:#0d0913d0;border:1px solid #c58cff59;cursor:help}
+.pb-mood--bar[data-mood=down]{border-color:#64aaff66}
+.pb-mood--bar[data-mood=up]{border-color:#ff8a5a66}
+.pb-mood--bar .pb-mood-swatch{width:18px;height:18px}
+.pb-mood--bar>span{display:flex;align-items:baseline;gap:6px;min-width:0;white-space:nowrap}
+.pb-mood--bar b{font-size:11px}
+.pb-mood--bar small{font-size:9px;overflow:hidden;text-overflow:ellipsis}
+.pb-mood--bar .pb-mood-legend{gap:3px}
+.pb-mood--bar .pb-mood-legend li{font-size:8px;padding:2px 5px}
+@media (max-width:1100px){.pb-mood--bar .pb-mood-legend{display:none}}
+@media (max-width:700px){
+  .pb-toolbar{gap:6px}
+  .pb-tabs{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .pb-tab{display:grid;gap:1px;justify-items:start;padding:5px 8px;min-height:40px}
+  .pb-tab strong{font-size:13px}
+  .pb-tab b{font-size:10px}
+  .pb-toolbar .pb-breadth{flex:1 1 auto}
+  .pb-mood--bar small{display:none}
+  .pb-mood.pb-mood--bar{padding:3px 8px 3px 4px}
+  .pb-mood--bar .pb-mood-swatch{width:14px;height:14px}
+  .pb-mood--bar b{font-size:10px}
 }
