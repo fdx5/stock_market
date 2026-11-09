@@ -325,14 +325,14 @@ vec3 wakeAt(vec2 xz){
   float w=(B*.8+ds*.08)*(1.+.2*sin(ds*.045+1.3)+.12*sin(ds*.11+c*.03));
   float wash=exp(-c*c/(w*w))*smoothstep(-L*.7,40.,d)*exp(-ds/900.);
   // screw race: a twisting, boiling column right behind the stern, turning with the blades
-  float race=exp(-c*c/(B*B*.35))*smoothstep(-L*.25,6.,d)*exp(-ds/150.);
-  float twist=.5+.5*sin(ds*.55-u_wakeTime*9.+atan(c,6.)*3.);
+  float race=exp(-c*c/(B*B*.4))*smoothstep(-L*.25,6.,d)*exp(-ds/190.);
+  float twist=.5+.5*sin(ds*.55-u_wakeTime*13.+atan(c,6.)*3.)*(.7+.3*sin(ds*1.7-u_wakeTime*21.+c*.4));
   // ragged bright bands where the wash meets the undisturbed sea
   float edge=exp(-pow((abs(c)-w*.95)/(w*.16+2.),2.))*smoothstep(-L*.5,60.,d)*exp(-ds/700.);
   air+=wash+race*.6;
   // dense churn close astern, then a long, thinning tail
   foam+=wash*(1.6*exp(-ds/260.)+.55*exp(-ds/1100.))+race*(1.2+.8*twist)+edge*.45*exp(-ds/400.);
-  h+=race*(twist-.5)*.6;
+  h+=race*(twist-.5)*1.1;
   for(int i=0;i<2;i++){
     float o=i==0?L*.97:-L;
     float dd=o-a;
@@ -505,21 +505,28 @@ void project(vec3 pos,float size){
 void main(){
   vec3 r=h3(a_id);
   if(a_id>=u_sternFrom){
-    // screw spray: sheets flung off at the water line in a turning spiral, falling back into the race
-    float P=.7+r.z*.8,t=u_time/P+r.x,age=fract(t)*P;
+    // screw spray: the race boils up at the transom and throws sheets in a fast turning
+    // spiral; one particle in five is a heavy mist puff that billows and hangs.
+    float puff=step(.8,r.y);
+    float P=mix(.6+r.z*.7,1.6+r.z*1.2,puff),t=u_time/P+r.x,age=fract(t)*P;
     vec3 s=h3(a_id*3.+floor(t)*53.+5.);
-    float L=u_shipInfo.y,B=u_shipInfo.z,U=clamp(u_shipInfo.x,2.,14.);
+    float L=u_shipInfo.y,B=u_shipInfo.z,U=clamp(u_shipInfo.x,2.,14.),power=clamp(U/8.,.7,1.5);
     vec2 f=u_ship.zw,pr=vec2(-f.y,f.x);
-    float th=u_time*11.+s.x*6.2832;
+    float th=u_time*17.+s.x*6.2832;
     // born thickest right at the transom, thinning astern (exponential spacing)
-    float back=-log(1.-s.z*.995)*9.;
-    vec2 at=u_ship.xy-f*(L*.97+back)+pr*(s.y-.5)*B*(1.+back*.02);
-    vec3 swirl=(vec3(pr.x,0.,pr.y)*cos(th)+vec3(0.,1.,0.)*abs(sin(th)))*(2.+3.*r.y);
-    vec3 vel=vec3(-f.x,0.,-f.y)*(U*.35+2.)*(.5+r.x)+swirl*(.4+.8*s.z)+vec3(pr.x,0.,pr.y)*(r.z-.5)*4.+vec3(0.,1.+2.5*r.y,0.);
-    vec3 pos=vec3(at.x,.2,at.y)+vel*age+vec3(0.,-4.9*age*age,0.);
-    v_alpha=u_shipInfo.w*step(0.,pos.y)*pow(1.-age/P,1.5)*smoothstep(0.,.06,age)*.32*exp(-back/30.);
+    float back=-log(1.-s.z*.995)*(puff>.5?14.:8.);
+    vec2 at=u_ship.xy-f*(L*.97+back)+pr*(s.y-.5)*B*(1.1+back*.025);
+    // pulsing thrust: blade passes kick the column in bursts
+    float kick=.75+.5*pow(.5+.5*sin(u_time*23.+s.x*4.),3.);
+    vec3 swirl=(vec3(pr.x,0.,pr.y)*cos(th)+vec3(0.,1.,0.)*abs(sin(th)))*(3.5+5.*r.z)*kick;
+    vec3 vel=vec3(-f.x,0.,-f.y)*(U*.45+3.)*(.5+r.x)+swirl*(.5+.8*s.z)+vec3(pr.x,0.,pr.y)*(r.z-.5)*7.+vec3(0.,(4.+8.*r.x)*power*kick,0.);
+    vel=mix(vel,vel*vec3(.45,.35,.45),puff);
+    float g=mix(9.8,1.4,puff);
+    vec3 pos=vec3(at.x,.25,at.y)+vel*age+vec3(0.,-.5*g*age*age,0.);
+    float near=exp(-back/(puff>.5?45.:26.));
+    v_alpha=u_shipInfo.w*step(0.,pos.y)*pow(1.-age/P,mix(1.4,2.2,puff))*smoothstep(0.,.05,age)*mix(.55,.16,puff)*near;
     v_age=age/P;
-    project(pos,.1+.3*r.y+age*.6);
+    project(pos,mix(.35+.8*s.y+age*1.3,3.+6.*age,puff));
     return;
   }
   if(a_id>=u_bowFrom){

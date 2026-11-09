@@ -13,7 +13,7 @@ const G = 9.81, F = 1.6, CAM_H = 75, SEED = 20261109; // a bridge-height eye: th
 const CASCADES = [733, 97, 17.3];
 const CUTS = [0, 2 * Math.PI / CASCADES[1] * 6, 2 * Math.PI / CASCADES[2] * 6, 1e9];
 const LOOP = 256;
-const BOW_SPRAY = 2400, STERN_SPRAY = 1800;
+const BOW_SPRAY = 2400, STERN_SPRAY = 3400;
 
 /** Quality tiers, stepped down automatically when frames run long (resolution never drops). */
 const TIERS = [
@@ -442,8 +442,11 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
       gl.uniform1f(U(spray, "u_bowFrom"), 1e9); gl.uniform1f(U(spray, "u_sternFrom"), 1e9);
       gl.drawArrays(gl.POINTS, 0, fieldCount);
       if (ship) {
+        // ship spray thins with the quality tier like the field spray, so phones keep their frame rate
+        const share = [1, .75, .55][tier] ?? .55;
         gl.uniform1f(U(spray, "u_bowFrom"), TIERS[0].spray); gl.uniform1f(U(spray, "u_sternFrom"), TIERS[0].spray + BOW_SPRAY);
-        gl.drawArrays(gl.POINTS, TIERS[0].spray, BOW_SPRAY + STERN_SPRAY);
+        gl.drawArrays(gl.POINTS, TIERS[0].spray, Math.round(BOW_SPRAY * share));
+        gl.drawArrays(gl.POINTS, TIERS[0].spray + BOW_SPRAY, Math.round(STERN_SPRAY * share));
       }
       gl.disableVertexAttribArray(idLoc);
       gl.disable(gl.BLEND); gl.depthMask(true);
