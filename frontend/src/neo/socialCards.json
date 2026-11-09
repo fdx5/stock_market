@@ -274,5 +274,13 @@
     "alt": "부동산 커뮤니티 — 별빛 주문서에서 펼쳐지는 아파트와 주택, 금빛 열쇠",
     "width": 1731,
     "height": 909
+  },
+  "/pulse-board": {
+    "title": "증시 전광판 | K Stock Hub",
+    "description": "코스피·코스닥·나스닥100 상위 종목이 지수 흐름에 따라 색이 바뀌는 펄스 바다 위에 펼쳐지는 증시 전광판입니다.",
+    "image": "/img/social/pulse-board-c2174fd707.png",
+    "alt": "K Stock Hub 증시 전광판 — Pulse board",
+    "width": 1200,
+    "height": 630
   }
 }
