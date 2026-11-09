@@ -6,6 +6,7 @@ uniform vec2 u_viewport;
 uniform float u_time;
 uniform float u_length;
 uniform float u_scale;
+uniform float u_shift;
 uniform vec4 u_shape[${NANOTUBES.length}];
 uniform vec4 u_motion[${NANOTUBES.length}];
 uniform float u_form[${NANOTUBES.length}];
@@ -75,7 +76,7 @@ vec4 projectPoint(vec3 point){
   point.xy=mat2(cos(angle),sin(angle),-sin(angle),cos(angle))*point.xy;
   float focal=1100.*u_scale+600.;
   vec2 screen=point.xy*(focal/(focal-point.z));
-  return vec4(screen.x/u_viewport.x*2.,-screen.y/u_viewport.y*2.,-point.z/(800.*u_scale),1.);
+  return vec4(screen.x/u_viewport.x*2.,-screen.y/u_viewport.y*2.+u_shift,-point.z/(800.*u_scale),1.);
 }
 vec3 material(float tube,vec2 uv){
   int id=int(tube+.5);
@@ -194,6 +195,7 @@ precision highp float;
 uniform float u_time;
 uniform float u_pass;
 uniform float u_intensity;
+uniform float u_surge;
 varying vec3 v_color;
 varying vec4 v_data;
 varying vec3 v_details;
@@ -215,7 +217,8 @@ void main(){
   float signal=exp(-signalOffset*signalOffset*2.)*v_packet.y;
   float afterglow=exp(-trailOffset*trailOffset*2.)*v_packet.y*.23;
   float alpha;
-  if(u_pass>1.5)alpha=exp(-across*across*4.)*(1.-smoothstep(.75,1.,across))*(.0025+.008*pulse)*depth;
+  if(u_pass>2.5)alpha=exp(-across*across*2.6)*(1.-smoothstep(.8,1.,across))*(.0014+.0035*pulse)*depth;
+  else if(u_pass>1.5)alpha=exp(-across*across*4.)*(1.-smoothstep(.75,1.,across))*(.0035+.01*pulse)*depth;
   else if(u_pass>.5)alpha=exp(-across*across*4.)*(1.-smoothstep(.78,1.,across))*(.01+.023*pulse)*front*depth;
   else alpha=feather*(.27+.065*pulse+.02*trace)*front*depth;
   bool isFilament=v_details.x>2.5&&v_details.x<3.5;
@@ -223,18 +226,22 @@ void main(){
     float filamentPulse=pow(.5+.5*sin(along*21.+u_time*(.55+v_details.y*.4)+v_details.y*6.2831853),6.);
     if(u_pass<.5)alpha=feather*(.38+.065*filamentPulse)*depth;
     else if(u_pass<1.5)alpha=exp(-across*across*4.)*(.02+.028*filamentPulse)*depth;
+    else if(u_pass>2.5)alpha*=.6;
   }else if(v_details.x>1.5&&v_details.x<2.5)alpha*=.62;
   // Energy travels inside the tubes; the outer weave catches a softer reflected glow.
   float carrier=isFilament?1.:(v_details.x>.5&&v_details.x<1.5?.42:.16);
   float light=(signal+afterglow)*carrier;
-  if(u_pass>1.5)alpha+=exp(-across*across*3.)*light*.095;
+  if(u_pass>2.5)alpha+=exp(-across*across*2.2)*light*.05;
+  else if(u_pass>1.5)alpha+=exp(-across*across*3.)*light*.12;
   else if(u_pass>.5)alpha+=exp(-across*across*3.)*light*.34;
   else alpha=mix(alpha,feather*.88,min(.9,light));
   vec3 color=mix(v_color,vec3(.92,.98,1.),pulse*.09*front);
   color=mix(color,vec3(.68,.87,1.),rim*.16);
   if(isFilament&&u_pass<.5)color=mix(color,vec3(.88,.97,1.),pow(1.-across,3.)*.26);
   color=mix(color,vec3(.85,.97,1.),min(.65,signal*carrier*.65));
+  if(u_pass>.5)alpha*=1.+u_surge*4.5;
+  color=mix(color,vec3(.92,.98,1.),u_surge*.32);
   alpha=min(.98,alpha*endFade*u_intensity);
-  gl_FragColor=vec4(color*alpha*(1.+signal*carrier*.22),alpha);
+  gl_FragColor=vec4(color*alpha*(1.+signal*carrier*.22+u_surge*.55),alpha);
 }
 `;

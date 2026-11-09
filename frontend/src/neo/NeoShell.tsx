@@ -14,7 +14,7 @@ import { NEO_GROUPS, neoRouteFamily, neoHeaderCurrentTone, routeLabel } from "./
 import { setFxLevel, useDesignMode, useFxLevel, setFrameLight, useFrameLight } from "./settings";
 import NeoIcon from "./NeoIcon";
 import NeoLogo from "./NeoLogo";
-import NeoRiverBackground from "./NeoRiverBackground";
+import NeoBackdrop from "./NeoBackdrop";
 import GoldCursor from "./GoldCursor";
 import NeoHeaderClocks from "./NeoHeaderClocks";
 import NeoHeaderCurrent from "./NeoHeaderCurrent";
@@ -120,7 +120,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined}><span>{link[lang === "ko" ? 1 : 2]}</span><NeoIcon name="chevron" /></Link>;
   };
   return <div className={`ng-shell ng-family-${family}`} data-workspace={path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
-    <NeoRiverBackground />
+    <NeoBackdrop />
     <GoldCursor />
     <a className="ng-skip" href="#neo-content">{L("본문 바로가기", "Skip to content")}</a>
     <header className="ng-header" data-current-tone={currentTone}>

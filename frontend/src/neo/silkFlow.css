@@ -1,0 +1,9 @@
+.ng-shell { position: relative; isolation: isolate; }
+.ng-silk { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none !important; user-select: none; contain: strict; background: #0b070e; }
+.ng-silk-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; opacity: 1; transition: opacity 1.8s ease; }
+.ng-silk-canvas[data-state="loading"] { opacity: 0; }
+.ng-silk-shade,.ng-silk-fallback { position: absolute; inset: 0; }
+.ng-silk-shade { background: radial-gradient(ellipse at 50% 50%, transparent 55%, #0b070e59 100%, #0b070e99 125%); }
+.ng-silk-fallback { background: radial-gradient(ellipse 80% 22% at 30% 38%, #bf85ff1c, transparent 70%), radial-gradient(ellipse 70% 18% at 70% 66%, #f5c98a14, transparent 70%), #0b070e; }
+@media print { .ng-silk { display: none; } }
+@media (prefers-reduced-motion: reduce) { .ng-silk-canvas { transition: none; } }

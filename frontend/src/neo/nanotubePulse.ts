@@ -12,7 +12,7 @@ export class NanotubePulses {
   constructor(count: number) {
     const launchOrder = Array.from({ length: count }, (_, id) => id).sort((a,b) => random(a * 73 + 5) - random(b * 73 + 5));
     this.trains = Array.from({ length: count }, (_, id) => ({
-      cycle: 0, start: launchOrder.indexOf(id) * .62 + random(id * 29 + 23) * .35, duration: 3.4 + random(id * 71 + 13) * 3.6,
+      cycle: 0, start: launchOrder.indexOf(id) * .42 + random(id * 29 + 23) * .3, duration: 2.8 + random(id * 71 + 13) * 2.8,
       width: .026 + random(id * 37 + 31) * .027,
     }));
     this.data = new Float32Array(count * 4);
@@ -22,8 +22,8 @@ export class NanotubePulses {
     this.trains.forEach((train, id) => {
       while (time > train.start + train.duration) {
         const seed = id * 197 + ++train.cycle * 61;
-        train.start += train.duration + .8 + random(seed + 7) * 3.5;
-        train.duration = 3.4 + random(seed + 13) * 3.6;
+        train.start += train.duration + .35 + random(seed + 7) * 1.7;
+        train.duration = 2.8 + random(seed + 13) * 2.8;
         train.width = .026 + random(seed + 31) * .027;
       }
       const progress = (time - train.start) / train.duration;

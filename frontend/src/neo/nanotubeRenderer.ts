@@ -22,6 +22,8 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
   let frame = 0, last = 0, elapsed = 0, disposed = false, lost = false, ready = false;
   let viewWidth = 0, viewHeight = 0, pixelRatio = 0;
   let worker: Worker | null = null;
+  // scroll response: surge 0..1, direction of travel, and a lagging spring offset
+  let scrollTarget = 0, scrollLast = -1, surge = 0, surgeDir = 1, lag = 0, lagVelocity = 0;
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
   const shape = new Float32Array(NANOTUBES.flatMap(tube => [tube.radius, tube.offset, tube.lean, tube.depth]));
   const motion = new Float32Array(NANOTUBES.flatMap(tube => [tube.phase, tube.tempo, tube.sway, tube.twist]));
@@ -111,6 +113,7 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     gl.uniform1f(uniform(active, "u_scale"), scale());
     gl.uniform1f(uniform(active, "u_length"), (viewHeight * .9 + viewWidth * .44) * 1.6);
     gl.uniform1f(uniform(active, "u_time"), elapsed + 4.2);
+    gl.uniform1f(uniform(active, "u_shift"), lag);
   }
   function wireBatch(batch: WireBatch, onlyHalo = false) {
     if (onlyHalo && !batch.halo) return;
@@ -126,8 +129,18 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
   function draw(now: number) {
     frame = 0;
     if (disposed || lost || !ready || document.hidden) return;
-    if (last) elapsed += Math.min(50, now - last) / 1000;
+    const dt = last ? Math.min(50, now - last) / 1000 : 0;
+    if (last) elapsed += dt;
     last = now;
+    if (scrollLast < 0) scrollLast = scrollTarget;
+    const velocity = dt > 0 ? (scrollTarget - scrollLast) / dt : 0;
+    scrollLast = scrollTarget;
+    const wanted = Math.min(1, Math.abs(velocity) / 900);
+    if (Math.abs(velocity) > 30) surgeDir = Math.sign(velocity);
+    surge += (wanted - surge) * (1 - Math.exp(-dt * (wanted > surge ? 9 : 2.2)));
+    // a soft spring: the bundles are nudged with the scroll, then settle back
+    lagVelocity += (-surgeDir * surge * .085 - lag) * 24 * dt - lagVelocity * 7.5 * dt;
+    lag += lagVelocity * dt;
     if (viewWidth !== innerWidth || viewHeight !== innerHeight || pixelRatio !== (devicePixelRatio || 1)) {
       viewWidth = innerWidth; viewHeight = innerHeight; pixelRatio = devicePixelRatio || 1;
       canvas.width = Math.round(viewWidth * pixelRatio); canvas.height = Math.round(viewHeight * pixelRatio);
@@ -137,7 +150,7 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
     allAttributes.forEach(location => gl.disableVertexAttribArray(location));
     // The existing depth envelope also supplies a faint satin surface, at no extra draw cost.
-    const intensity = level === "full" ? 1.12 : level === "minimal" ? .5 : .9;
+    const intensity = level === "full" ? 1.55 : level === "minimal" ? .75 : 1.35;
     common(hull); gl.uniform1f(uniform(hull, "u_intensity"), intensity); gl.enableVertexAttribArray(hullUv);
     gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
     tubes.forEach((tube, id) => {
@@ -148,11 +161,33 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     gl.disable(gl.POLYGON_OFFSET_FILL); gl.disableVertexAttribArray(hullUv);
     gl.colorMask(true, true, true, true); gl.depthMask(false); gl.enable(gl.BLEND);
     common(wire); gl.uniform1f(uniform(wire, "u_intensity"), intensity);
+    gl.uniform1f(uniform(wire, "u_surge"), surge);
     gl.uniform4fv(uniform(wire, "u_packets[0]"), pulses.sample(elapsed + 4.2));
     gl.blendFunc(gl.ONE, gl.ONE);
-    gl.uniform1f(uniform(wire, "u_pass"), 2); gl.uniform1f(uniform(wire, "u_width"), 13);
+    if (surge > .02) {
+      // light echoes trail behind the scroll direction
+      gl.disable(gl.DEPTH_TEST);
+      for (let echo = 4; echo >= 1; echo--) {
+        const weight = surge * (1.15 - echo * .23);
+        gl.uniform1f(uniform(wire, "u_shift"), lag + surgeDir * echo * .055 * surge);
+        gl.uniform1f(uniform(wire, "u_intensity"), intensity * weight);
+        gl.uniform1f(uniform(wire, "u_pass"), 2); gl.uniform1f(uniform(wire, "u_width"), 18 + echo * 7);
+        tubes.forEach(tube => wireBatch(tube, true));
+        gl.uniform1f(uniform(wire, "u_pass"), 1); gl.uniform1f(uniform(wire, "u_width"), 3 + echo * 1.6);
+        tubes.forEach(tube => wireBatch(tube));
+        gl.uniform1f(uniform(wire, "u_intensity"), intensity * weight * .55);
+        gl.uniform1f(uniform(wire, "u_pass"), 0);
+        tubes.forEach((tube, id) => { gl.uniform1f(uniform(wire, "u_width"), NANOTUBES[id].wire * (1 + echo * .35)); wireBatch(tube); });
+      }
+      gl.enable(gl.DEPTH_TEST);
+      gl.uniform1f(uniform(wire, "u_shift"), lag); gl.uniform1f(uniform(wire, "u_intensity"), intensity);
+    }
+    // neon aura: a wide, faint bloom that keeps the bundles present behind panels
+    gl.uniform1f(uniform(wire, "u_pass"), 3); gl.uniform1f(uniform(wire, "u_width"), 46 * (1 + surge * .6));
     tubes.forEach(tube => wireBatch(tube, true));
-    gl.uniform1f(uniform(wire, "u_pass"), 1); gl.uniform1f(uniform(wire, "u_width"), 2.8);
+    gl.uniform1f(uniform(wire, "u_pass"), 2); gl.uniform1f(uniform(wire, "u_width"), 17 * (1 + surge * .9));
+    tubes.forEach(tube => wireBatch(tube, true));
+    gl.uniform1f(uniform(wire, "u_pass"), 1); gl.uniform1f(uniform(wire, "u_width"), 2.8 * (1 + surge * .7));
     tubes.forEach(tube => wireBatch(tube)); if (links) wireBatch(links);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.uniform1f(uniform(wire, "u_pass"), 0);
@@ -161,13 +196,19 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     canvas.dataset.state = level === "minimal" || reduced.matches ? "still" : "live";
     if (level !== "minimal" && !reduced.matches) frame = requestAnimationFrame(draw);
   }
+  function onScroll(event: Event) {
+    const target = event.target;
+    scrollTarget = target instanceof Element ? target.scrollTop : scrollY;
+  }
   function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; if (ready && !document.hidden && !disposed) frame = requestAnimationFrame(draw); }
   function contextLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(frame); worker?.terminate(); worker = null; onFailure(); }
   function contextRestored() { if (!disposed) onRestore(); }
+  document.addEventListener("scroll", onScroll, { passive: true, capture: true });
   document.addEventListener("visibilitychange", sync); window.addEventListener("resize", sync); reduced.addEventListener("change", sync);
   canvas.addEventListener("webglcontextlost", contextLost); canvas.addEventListener("webglcontextrestored", contextRestored);
   return () => {
     disposed = true; cancelAnimationFrame(frame); worker?.terminate(); worker = null;
+    document.removeEventListener("scroll", onScroll, { capture: true });
     document.removeEventListener("visibilitychange", sync); window.removeEventListener("resize", sync); reduced.removeEventListener("change", sync);
     canvas.removeEventListener("webglcontextlost", contextLost); canvas.removeEventListener("webglcontextrestored", contextRestored);
     gl.colorMask(true, true, true, true); gl.depthMask(true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
