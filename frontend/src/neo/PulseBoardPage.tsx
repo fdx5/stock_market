@@ -22,7 +22,17 @@ import "./marketScannerNeon.css";
 import "./pulseBoard.css";
 
 const MARKETS = [{ key: "kospi", label: "KOSPI", region: "KR" }, { key: "kosdaq", label: "KOSDAQ", region: "KR" }, { key: "nasdaq100", label: "NASDAQ 100", region: "US" }] as const;
-const DEFAULT_CELLS = 50;
+// Phones and tablets (touch screens up to iPad Pro size, or any narrow view) open with 30 cells so the
+// ship stays in sight; desktops open with 50. "More" always reveals all 100.
+const COMPACT_QUERY = "(max-width: 899px), (pointer: coarse) and (max-width: 1366px) and (max-height: 1366px)";
+function useDefaultCells() {
+  const [compact, setCompact] = useState(() => typeof matchMedia === "function" && matchMedia(COMPACT_QUERY).matches);
+  useEffect(() => {
+    const media = matchMedia(COMPACT_QUERY), update = () => setCompact(media.matches);
+    media.addEventListener("change", update); return () => media.removeEventListener("change", update);
+  }, []);
+  return compact ? 30 : 50;
+}
 const MOOD_NAME: Record<Mood, [string, string]> = { down: ["푸른 펄스 바다", "Blue pulse sea"], calm: ["보라 펄스 바다", "Violet pulse sea"], up: ["레드·골드 펄스 바다", "Red-gold pulse sea"] };
 /** The sea's colour rule: −1% or lower is blue, +1% or higher is red-gold, violet between. */
 export const moodOf = (change?: number | null): Mood => change == null || !Number.isFinite(change) ? "calm" : change <= -1 ? "down" : change >= 1 ? "up" : "calm";
@@ -76,6 +86,7 @@ export default function PulseBoardPage() {
   const [focused, setFocused] = useState<string | null>(null);
   // 50 cells by default keeps the sea visible; the rest open on request.
   const [showAll, setShowAll] = useState(false);
+  const DEFAULT_CELLS = useDefaultCells();
   const [columns, setColumns] = useState(8);
   const controller = useRef<PulseHorizonController | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
