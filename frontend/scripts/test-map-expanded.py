@@ -49,6 +49,15 @@ with sync_playwright() as p:
             page.goto(base + path, wait_until="domcontentloaded")
             page.wait_for_selector('.kospi-map-tile')
             page.wait_for_timeout(1000)
+            # Entry opens window-filling by default.
+            assert page.locator('[role="dialog"][aria-modal="true"]').count() == 1, (path, width)
+            entry = page.evaluate(geometry_js)
+            assert entry['page'] == {"x": 0, "y": 0, "w": width, "h": height} and entry['tiles'] == 24 and entry['hit'], (path, width, entry)
+            assert page.locator('.app-header-trailing').is_hidden()
+            page.locator('.ng-map-expand-button').click()
+            page.wait_for_timeout(250)
+            assert page.locator('[role="dialog"]').count() == 0 and page.locator('[inert]').count() == 0, (path, width)
+            assert page.evaluate("document.body.style.overflow") != 'hidden'
             page.locator('.kospi-map-sector-filter select').select_option("Financials")
             page.locator('.ng-map-expand-button').scroll_into_view_if_needed()
             before_y = page.evaluate("scrollY")
