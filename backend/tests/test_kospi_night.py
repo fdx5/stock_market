@@ -11,21 +11,27 @@ def isolated(monkeypatch):
     monkeypatch.setattr(night, "_latest", None)
     monkeypatch.setattr(night, "_attempted", None)
     monkeypatch.setattr(night, "_failed", False)
+    monkeypatch.setattr(night, "_bases", {})
+    monkeypatch.setattr(night, "_base_attempted", {})
 
 def body(price=803.45, stamp="2026-11-06 21:47:18"):
     return {"stale": False, "night": {"price": price, "prevClose": 783.25,
         "updated": stamp, "live": True, "sessionDate": "2026-11-06",
         "points": [{"t": 1793969238000, "v": price}]}}
 
-def mock_get(monkeypatch, payload, calls):
+def mock_get(monkeypatch, payload, calls, day_rows=()):
     class Response:
+        def __init__(self, data): self.data = data
         def raise_for_status(self): pass
-        def json(self): return copy.deepcopy(payload)
+        def json(self): return copy.deepcopy(self.data)
     def get(url, **kwargs):
-        assert url == night.FEED_URL and kwargs["timeout"] == (3, 5)
+        assert kwargs["timeout"] == (3, 5)
+        if url == night.BASE_URL:
+            return Response(list(day_rows))
+        assert url == night.FEED_URL
         calls.append(url)
         time.sleep(.005)
-        return Response()
+        return Response(payload)
     monkeypatch.setattr(night.requests, "get", get)
 
 def test_quote_baseline_and_kst_timestamp():
@@ -80,3 +86,20 @@ def test_ticker_reads_minute_bars_and_pre_session_baseline(monkeypatch):
     result = ticker._fetch_one({"symbol": "SOXL", "label": "SOXL"})
     assert params[0]["interval"] == "1m" and params[0]["includePrePost"] == "true"
     assert result["price"] == 110 and result["change_pct"] == 10 and result["session"] == "pre"
+
+
+def test_night_change_uses_day_futures_close_not_spot(monkeypatch):
+    # Source prevClose 783.25 is the KOSPI200 spot close; the futures closed at 780.85.
+    rows = [{"localTradedAt": "2026-11-06", "closePrice": "780.85"},
+            {"localTradedAt": "2026-11-05", "closePrice": "837.25"}]
+    mock_get(monkeypatch, body(), [], rows)
+    quote = night.get_quote()
+    assert quote["prev_close"] == 780.85 and quote["base_source"] == "day_futures_close"
+    assert quote["change"] == 22.6 and quote["change_pct"] == 2.89
+
+@pytest.mark.parametrize("rows", [[], [{"localTradedAt": "2026-11-05", "closePrice": "780.85"}],
+                                  [{"localTradedAt": "2026-11-06", "closePrice": "700.00"}]])
+def test_missing_or_implausible_day_close_keeps_source_baseline(monkeypatch, rows):
+    mock_get(monkeypatch, body(), [], rows)
+    quote = night.get_quote()
+    assert quote["prev_close"] == 783.25 and quote["base_source"] == "source_prev_close"
