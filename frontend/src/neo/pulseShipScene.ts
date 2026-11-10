@@ -17,6 +17,24 @@ const MOOD_LIGHT: Record<Mood, { rim: number; neon: number; sky: number }> = {
   calm: { rim: 0xb47dff, neon: 0xc08cff, sky: 0x3d2a63 },
   up: { rim: 0xff8a3a, neon: 0xffa23c, sky: 0x5e2a1c },
 };
+/** Mirror of hullWave() in pulseOceanShaders.ts: the hull's own wave height (m) at the plating. */
+function hullWave(a: number, speed: number, L: number) {
+  const U = Math.min(14, Math.max(2, speed)), k = 9.81 / (U * U), A = Math.min(3, Math.max(.3, .022 * U * U)), pk = L * .9;
+  const aft = Math.max(pk - a, 0);
+  const ramp = (x: number) => { const t = Math.min(1, Math.max(0, x / (L * .06))); return t * t * (3 - 2 * t); };
+  let h = a > pk ? Math.exp(-(((a - pk) / (L * .07)) ** 2)) : (1 + (Math.cos(k * aft) - 1) * ramp(aft)) * Math.exp(-aft / (L * .75));
+  h += .45 * Math.exp(-(((a + L * .92) / (L * .06)) ** 2));
+  return A * h;
+}
+/** The modelled hull's half width (ship units) at a Blender x: the script's half_width() for a 24-unit, 4.8-unit hull. */
+function hullHalfUnits(x: number) {
+  const t = (x + 12) / 24;
+  if (t < .07) return 2.4 * (.66 + .34 * Math.sqrt(Math.max(0, 1 - (1 - Math.max(0, t) / .07) ** 2)));
+  if (t < .72) return 2.4;
+  return 2.4 * Math.max(0, Math.cos(Math.min(1, (t - .72) / .28) * Math.PI / 2)) ** .75;
+}
+/** Waterline stations per side: the sea is sampled along both sides of the hull each frame. */
+const WL_N = 32;
 const images = new Map<string, Promise<HTMLImageElement | null>>();
 function loadImage(src: string) {
   if (!images.has(src)) images.set(src, new Promise(resolve => {
@@ -154,7 +172,11 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
   let seaMean = 0;
   // Ocean voyage: 0..1 along a course from broadside near the viewer to hull-down at the right horizon.
   // ?shipAt=<metres> starts the voyage part-way (visual checks)
-  let along = Number(new URLSearchParams(location.search).get("shipAt")) || 0, waterY = WATERLINE, oceanMode = false;
+  // Three routes sailed in turn: 1 broadside then away to the right horizon, 2 in from the right
+  // horizon toward the lower left, 3 in from the left horizon toward the lower right.
+  // ?shipRoute=1|2|3 picks the first one (visual checks).
+  const query = new URLSearchParams(location.search);
+  let along = Number(query.get("shipAt")) || 0, route = Math.min(3, Math.max(1, Number(query.get("shipRoute")) || 1)), waterY = WATERLINE, oceanMode = false;
   const fog = new THREE.Fog(0x1a1024, 0, 9000);
   const tmpColor = new THREE.Color(), tmpSky = new THREE.Color(), tmpVector = new THREE.Vector3(), mirror = new THREE.Matrix4();
   function mirrorReflection() {
@@ -164,6 +186,68 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     for (const copy of reflection.children as THREE.Mesh[]) copy.matrix.multiplyMatrices(mirror, (copy.userData.source as THREE.Mesh).matrixWorld);
   }
   const tmpMatrix = new THREE.Matrix4();
+
+  // On the ocean the hull is cut by the moving sea instead of a flat plane: a waterline per side
+  // (world height, m, at WL_N stations) from the long waves plus the hull's own wave, refreshed
+  // each frame. Below it the hull is discarded (the sea canvas beneath shows the water against the
+  // plating); just above it a broken band of white water clings to the hull.
+  const waterline = new Float32Array(WL_N * 2);
+  const wlUniforms = {
+    u_wl: { value: waterline }, u_wlOn: { value: 0 }, u_wlTime: { value: 0 },
+    u_toVoyage: { value: new THREE.Matrix4() }, u_wlSpan: { value: new THREE.Vector2(-13, 13) },
+    u_wetColor: { value: new THREE.Color(.8, .82, .86) },
+  };
+  let centreX = 0;
+  function cutBySea(material: THREE.Material) {
+    if (material.userData.cutBySea) return;
+    material.userData.cutBySea = true;
+    material.onBeforeCompile = shader => {
+      Object.assign(shader.uniforms, wlUniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec3 v_wlWorld;")
+        .replace("#include <project_vertex>", "#include <project_vertex>\nv_wlWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", `#include <common>
+varying vec3 v_wlWorld;
+uniform vec4 u_wl[${WL_N / 2}];   // packed: four stations per slot
+float wlAt(int k) { return u_wl[k >> 2][k & 3]; }
+uniform float u_wlOn, u_wlTime;
+uniform mat4 u_toVoyage;
+uniform vec2 u_wlSpan;
+uniform vec3 u_wetColor;
+float wlWet = 0.;`)
+        .replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>
+if (u_wlOn > .5) {
+  vec3 lp = (u_toVoyage * vec4(v_wlWorld, 1.)).xyz;
+  float f = clamp((lp.x - u_wlSpan.x) / (u_wlSpan.y - u_wlSpan.x), 0., 1.) * ${WL_N - 1}.;
+  int i0 = int(floor(f)), i1 = min(i0 + 1, ${WL_N - 1}), side = lp.z < 0. ? ${WL_N} : 0;
+  float level = mix(wlAt(side + i0), wlAt(side + i1), f - floor(f));
+  float above = v_wlWorld.y - level;
+  if (above < 0.) discard;
+  // white water slapping the plating: a ragged band, washing up and down
+  float n = .5 + .5 * sin(v_wlWorld.x * .7 + u_wlTime * 2.6) * sin(v_wlWorld.z * .9 - u_wlTime * 1.9 + v_wlWorld.x * .3);
+  wlWet = (1. - smoothstep(0., .5 + 1.1 * n, above)) * (.55 + .45 * n);
+}`)
+        .replace("#include <opaque_fragment>", "#include <opaque_fragment>\ngl_FragColor.rgb = mix(gl_FragColor.rgb, u_wetColor, wlWet);");
+    };
+    material.customProgramCacheKey = () => "cut-by-sea";
+    material.needsUpdate = true;
+  }
+  /** The sea's height (m) along both sides of the hull, plus the hull's own wave. */
+  function updateWaterline(sea: ((x: number, z: number) => number) | undefined, speed: number) {
+    const span = wlUniforms.u_wlSpan.value;
+    for (let side = 0; side < 2; side++) {
+      const sign = side === 0 ? 1 : -1;
+      for (let i = 0; i < WL_N; i++) {
+        const u = span.x + (span.y - span.x) * i / (WL_N - 1);
+        tmpVector.set(u, 0, sign * (hullHalfUnits(u + centreX) + .3)).applyMatrix4(voyage.matrixWorld);
+        const swell = sea ? sea(tmpVector.x, -tmpVector.z) : 0;
+        waterline[side * WL_N + i] = swell + hullWave(u * METRES, speed, HALF_LENGTH);
+      }
+    }
+    wlUniforms.u_toVoyage.value.copy(voyage.matrixWorld).invert();
+    wlUniforms.u_wlTime.value = time;
+  }
 
   // wake + waterline glow: soft additive ellipses on the sea plane
   const glowCanvas = document.createElement("canvas"); glowCanvas.width = glowCanvas.height = 128;
@@ -279,6 +363,9 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     // centre the hull on the origin so the rig pivots about midships at the waterline
     const box = new THREE.Box3().setFromObject(ship), centre = box.getCenter(new THREE.Vector3());
     ship.position.x -= centre.x;
+    // waterline stations span the hull (the model's Blender x is the voyage-local x plus centre.x)
+    centreX = centre.x; wlUniforms.u_wlSpan.value.set(box.min.x - centre.x, box.max.x - centre.x);
+    ship.traverse(object => { const mesh = object as THREE.Mesh; if (mesh.isMesh) cutBySea(mesh.material as THREE.Material); });
     // A faint mirrored hull on the sea: the same meshes, flipped under the waterline.
     ship.traverse(object => {
       const mesh = object as THREE.Mesh;
@@ -419,12 +506,24 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     frame = requestAnimationFrame(frameStep);
   }
   /**
-   * A real ship's track: broadside to the right until mid-screen, a steady turn,
-   * then straight away toward the right horizon. Returns position (m, relative to the eye) and heading.
+   * The ship's track for a route; position (m, relative to the eye), heading, and a speed boost.
+   * Route 1: broadside to the right until mid-screen, a steady turn, then straight away toward the
+   * right horizon. Routes 2 and 3: up out of the horizon on one side, closing diagonally until the
+   * hull sails off the opposite lower corner, as near as route 1's broadside.
    */
-  function course(metres: number, view: OceanView) {
+  function course(metres: number, view: OceanView, which: number) {
     const aspect = view.aspect, F = view.F;
     const d0 = Math.max(220, 300 * F / (aspect * 2 * 1.15)), dEnd = 9000; // framing kept from the 300 m hull
+    if (which !== 1) {
+      const sign = which === 2 ? 1 : -1;
+      const from = { x: sign * .72 * aspect * dEnd / F, z: dEnd };
+      // the hull closes to half route 1's broadside distance and leaves through the lower corner,
+      // twice as large as it passed broadside
+      const zNear = d0 * .5;
+      const to = { x: -sign * (zNear * aspect / F + HALF_LENGTH * .6), z: zNear };
+      const total = Math.hypot(to.x - from.x, to.z - from.z), s = Math.max(0, Math.min(total, metres)) / total;
+      return { x: from.x + (to.x - from.x) * s, z: from.z + (to.z - from.z) * s, heading: Math.atan2(to.z - from.z, to.x - from.x), d0, total, boost: 1.3 };
+    }
     // the turn is sized to the view so it happens mid-screen instead of sweeping off the right edge
     const halfView = d0 * aspect / F, R = halfView * 1.55;
     const x0 = -(1 + HALF_LENGTH * F / (d0 * aspect)) * aspect * d0 / F - 30, xTurn = -halfView * .6;
@@ -436,18 +535,19 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     const exit = { x: xTurn + R * Math.sin(theta), z: d0 + R * (1 - Math.cos(theta)) };
     const l3 = Math.hypot(xEnd - exit.x, dEnd - exit.z), total = l1 + l2 + l3;
     const s = Math.max(0, Math.min(total, metres));
-    if (s <= l1) return { x: x0 + s, z: d0, heading: 0, d0, total };
-    if (s <= l1 + l2) { const phi = (s - l1) / R; return { x: xTurn + R * Math.sin(phi), z: d0 + R * (1 - Math.cos(phi)), heading: phi, d0, total }; }
+    // +30% on the leg to the horizon, ramped in through the turn
+    if (s <= l1) return { x: x0 + s, z: d0, heading: 0, d0, total, boost: 1 };
+    if (s <= l1 + l2) { const phi = (s - l1) / R; return { x: xTurn + R * Math.sin(phi), z: d0 + R * (1 - Math.cos(phi)), heading: phi, d0, total, boost: 1 + .3 * Math.min(1, phi / .8) }; }
     const t = s - l1 - l2;
-    return { x: exit.x + Math.cos(theta) * t, z: exit.z + Math.sin(theta) * t, heading: theta, d0, total };
+    return { x: exit.x + Math.cos(theta) * t, z: exit.z + Math.sin(theta) * t, heading: theta, d0, total, boost: 1.3 };
   }
   function leaveOcean() {
-    oceanMode = false; waterY = WATERLINE; water.constant = -WATERLINE; mirrorClip.constant = WATERLINE;
+    oceanMode = false; waterY = WATERLINE; water.constant = -WATERLINE; mirrorClip.constant = WATERLINE; wlUniforms.u_wlOn.value = 0;
     voyage.scale.setScalar(1); scene.fog = null; scene.add(reflection); reflection.visible = true; wake.visible = true; foam.visible = true; controller.current?.setShip?.(null); camera.near = 1; camera.far = 400; width = 0; layout();
   }
   function oceanStep(view: OceanView, dt: number, light: typeof MOOD_LIGHT[Mood]) {
     if (!oceanMode) {
-      oceanMode = true; waterY = 0; water.constant = 0; mirrorClip.constant = 0;
+      oceanMode = true; waterY = 0; water.constant = 40; mirrorClip.constant = 0; wlUniforms.u_wlOn.value = 1;
       voyage.scale.setScalar(METRES); scene.fog = fog;
       // a rough sea breaks any mirror image; the ocean shader carries the glints instead
       // (detached, so the hidden mirror copies drop out of the per-frame matrix pass too)
@@ -478,12 +578,14 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     glowMaterial.color.copy(rim.color);
     wakeUniforms.u_color.value.set(0xdfe8ff).lerp(rim.color, .25); wakeUniforms.u_time.value = time;
     // ~11 m/s (21 kn, a container ship at service speed) broadside, quickening with distance: ~2 min 10 s a voyage
-    const here = course(along, view);
-    // +30% on the leg to the horizon, ramped in through the turn
-    const speed = 11 * Math.pow(here.z / here.d0, 1.15) * (1 + .3 * Math.min(1, here.heading / .8));
+    const here = course(along, view, route);
+    const speed = 11 * Math.pow(Math.max(.7, here.z / here.d0), 1.15) * here.boost;
     along += still ? 0 : speed * dt;
-    if (along >= here.total) along = 0;
-    const p = course(along, view);
+    // one voyage done: the next route (1 -> 2 -> 3 -> 1)
+    if (along >= here.total) { along = 0; route = route % 3 + 1; }
+    const p = course(along, view, route);
+    const voyageTag = `${route}/${Math.round(p.total)}`;
+    if (canvas.dataset.voyage !== voyageTag) canvas.dataset.voyage = voyageTag;
     const tx = Math.cos(p.heading), tz = Math.sin(p.heading);
     const wx = view.x + p.x, wz = view.z + p.z;
     voyage.position.set(wx, -WATERLINE * METRES, -wz);
@@ -510,6 +612,7 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     wakeUniforms.u_opacity.value = .75 * (1 - haze) * (1 - haze);
     foam.scale.set(1, 1, 1);
     voyage.updateMatrixWorld(true);
+    updateWaterline(sea, Math.min(speed, 13));
     mirrorReflection();
     if (radar) radar.rotation.y += dt * 1.4;
     if (mastLight) mastLight.emissiveIntensity = Math.sin(time * 3.2) > .55 ? 22 : 3;

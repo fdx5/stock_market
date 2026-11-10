@@ -308,6 +308,17 @@ uniform vec2 u_res;
 uniform vec4 u_ship;      // world x, z, heading cos, sin
 uniform vec4 u_shipInfo;  // speed m/s, half length, half beam, active
 uniform float u_wakeTime;
+/* The wave the hull itself makes, as a height (m) at the plating for a point a metres ahead of
+   midships: water piled up against the stem, a trough along the shoulders and the transverse
+   train behind it (wavelength 2 pi U^2/g), and the stern wave. pulseShipScene.ts mirrors this
+   formula exactly to cut the hull at the same waterline. */
+float hullWave(float a,float U,float L){
+  float k=9.81/(U*U),A=clamp(.022*U*U,.3,3.),pk=L*.9;
+  float aft=max(pk-a,0.);
+  float h=a>pk?exp(-pow((a-pk)/(L*.07),2.)):mix(1.,cos(k*aft),smoothstep(0.,L*.06,aft))*exp(-aft/(L*.75));
+  h+=.45*exp(-pow((a+L*.92)/(L*.06),2.));
+  return A*h;
+}
 /* The ship's own waves: two Kelvin systems (bow, stern), the propeller wash and the bow wave
    folding along the hull. Returns (height m, foam, aeration). Free outside the ship's box. */
 vec3 wakeAt(vec2 xz){
@@ -354,6 +365,12 @@ vec3 wakeAt(vec2 xz){
   float side=exp(-max(ac-hw,0.)/14.)*smoothstep(hw-4.,hw,ac)*smoothstep(-L*1.25,-L*.8,a)*smoothstep(L+12.,L-3.,a);
   foam+=side*(1.3+1.1*smoothstep(L*.4,L,a));
   h+=side*.35*smoothstep(L*.3,L,a);
+  // the hull parts the sea: its own wave stands against the plating and spreads outward,
+  // widening astern into the Kelvin arms; the piled-up crest at the stem breaks white
+  float hwv=hullWave(a,U,L),beyond=max(ac-(hw-2.),0.);
+  float spread=exp(-beyond/(9.+max(L-a,0.)*.06))*smoothstep(-L-30.,-L+10.,a);
+  h+=hwv*spread;
+  foam+=smoothstep(.3,.85,hwv/clamp(.022*U*U,.3,3.))*spread*smoothstep(L*.55,L*.85,a)*1.5;
   return vec3(h,clamp(foam,0.,2.2),clamp(air,0.,1.));
 }
 `;
@@ -414,7 +431,7 @@ void main(){
   vec2 px=pulseAt(v_xz+vec2(.6,0.)),pz=pulseAt(v_xz+vec2(0.,.6));
   slope+=vec2(px.x-pc.x,pz.x-pc.x)/.6;
   vec3 wk=wakeAt(v_xz);
-  if(wk.y+wk.z>0.)slope+=vec2(wakeAt(v_xz+vec2(1.,0.)).x-wk.x,wakeAt(v_xz+vec2(0.,1.)).x-wk.x);
+  if(wk.y+wk.z>0.||abs(wk.x)>.02)slope+=vec2(wakeAt(v_xz+vec2(1.,0.)).x-wk.x,wakeAt(v_xz+vec2(0.,1.)).x-wk.x);
   vec3 n=normalize(vec3(-slope.x/max(1.+jx,.25),1.,-slope.y/max(1.+jz,.25)));
   // the wash flattens the short sea behind the screw
   n=normalize(mix(n,vec3(0.,1.,0.),wk.z*.5));
