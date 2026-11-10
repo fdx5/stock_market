@@ -126,7 +126,8 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
   let tier = level === "full" && !coarse ? 0 : coarse ? 2 : 1;
   const N = TIERS[tier].N; // FFT size is fixed for the canvas' life; tiers below only thin geometry and spray
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
-  const still = () => level === "minimal" || reduced.matches;
+  let reducedMotion = reduced.matches;
+  const still = () => level === "minimal" || reducedMotion;
   const HORIZON = initial.horizon ?? .3;
   const gain = (initial.intensity ?? 1) * (level === "full" ? 1 : level === "minimal" ? .85 : .95);
 
@@ -303,11 +304,14 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
   /* ---------------------------------------------------------------- frame */
   let frame = 0, last = 0, elapsed = 0, disposed = false, lost = false;
   let viewWidth = 0, viewHeight = 0, pixelRatio = 0;
+  let windowWidth = innerWidth, windowHeight = innerHeight;
+  function measureWindow() { windowWidth = innerWidth; windowHeight = innerHeight; }
   let scrollTarget = 0, scrollSmooth = 0, lastScroll = 0;
   const cam = { x: 0, z: 0, sx: 0, sy: 0, tx: 0, ty: 0, vz: 0 };
   const pulses = Array.from({ length: OCEAN_PULSES }, () => ({ born: -99, x: 0, z: 0, w: 0, beacon: 0 }));
   let nextPulse = 1.2, lastClick = -9, seed = 9;
-  const palette = flatten(paletteFor(initial.mood ?? "calm")), paletteTarget = [...palette];
+  const pulseData = new Float32Array(OCEAN_PULSES * 4), beaconData = new Float32Array(OCEAN_PULSES * 4);
+  const palette = Float32Array.from(flatten(paletteFor(initial.mood ?? "calm"))), paletteTarget = [...palette];
   let energy = initial.energy ?? 1, energyTarget = energy;
   const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   // frame-time governor: sustained long frames step down geometry and spray, never resolution
@@ -322,7 +326,7 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
     const slot = pulses.reduce((oldest, pulse) => pulse.born < oldest.born ? pulse : oldest, pulses[0]);
     Object.assign(slot, { born: elapsed, x, z, w: strength, beacon });
   }
-  function onPointerMove(event: PointerEvent) { cam.tx = (event.clientX / innerWidth - .5) * 2; cam.ty = (event.clientY / innerHeight - .5) * 2; }
+  function onPointerMove(event: PointerEvent) { cam.tx = (event.clientX / windowWidth - .5) * 2; cam.ty = (event.clientY / windowHeight - .5) * 2; }
   function onPointerDown(event: PointerEvent) {
     if (still() || elapsed - lastClick < .7) return;
     const y = 1 - event.clientY / innerHeight * 2;
@@ -334,8 +338,13 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
   }
   function onScroll(event: Event) { const target = event.target; scrollTarget = target instanceof Element ? target.scrollTop : scrollY; }
 
+  let paletteVersion = 1;
+  const paletteSent = new Map<Program, number>();
   function setPalette(p: Program) {
-    PALETTE_KEYS.forEach((key, index) => { const loc = U(p, `u_${key}`); if (loc) gl.uniform3fv(loc, palette.slice(index * 3, index * 3 + 3)); });
+    // uniforms persist per program: skip the upload when nothing changed since this program's last one
+    if (paletteSent.get(p) === paletteVersion) return;
+    paletteSent.set(p, paletteVersion);
+    PALETTE_KEYS.forEach((key, index) => { const loc = U(p, `u_${key}`); if (loc) gl.uniform3fv(loc, palette, index * 3, 3); });
     const sun = U(p, "u_sunDir"); if (sun) { const v = [.36, .045, 1], l = Math.hypot(...v); gl.uniform3f(sun, v[0] / l, v[1] / l, v[2] / l); }
     const intensity = U(p, "u_intensity"); if (intensity) gl.uniform1f(intensity, gain);
   }
@@ -364,8 +373,8 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
     }
     last = now;
     if (!still()) elapsed += dt;
-    if (viewWidth !== innerWidth || viewHeight !== innerHeight || pixelRatio !== (devicePixelRatio || 1)) {
-      viewWidth = innerWidth; viewHeight = innerHeight; pixelRatio = devicePixelRatio || 1;
+    if (viewWidth !== windowWidth || viewHeight !== windowHeight || pixelRatio !== (devicePixelRatio || 1)) {
+      viewWidth = windowWidth; viewHeight = windowHeight; pixelRatio = devicePixelRatio || 1;
       canvas.width = Math.round(viewWidth * pixelRatio); canvas.height = Math.round(viewHeight * pixelRatio);
     }
     const ease = 1 - Math.exp(-dt * 1.8);
@@ -382,7 +391,9 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
     }
     if (still() && pulses.every(pulse => pulse.w === 0)) { const p = worldAt(.62, 420); spawn(p.x, p.z, 1, 1); pulses[0].born = elapsed - 3.2; }
     const glide = still() ? 1 : 1 - Math.exp(-dt * 1.6);
-    for (let i = 0; i < palette.length; i++) palette[i] += (paletteTarget[i] - palette[i]) * glide;
+    let moved = false;
+    for (let i = 0; i < palette.length; i++) { const next = Math.fround(palette[i] + (paletteTarget[i] - palette[i]) * glide); if (next !== palette[i]) { palette[i] = next; moved = true; } }
+    if (moved) paletteVersion++;
     energy += (energyTarget - energy) * (still() ? 1 : 1 - Math.exp(-dt * .7));
     setWind(7 + (energy - .78) * 11);
 
@@ -390,12 +401,12 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
     simulate(simTime, still() ? 1 : dt);
 
     const aspect = viewWidth / Math.max(1, viewHeight), [cx, cy, cz] = camPos();
-    const pulseData = new Float32Array(OCEAN_PULSES * 4), beaconData = new Float32Array(OCEAN_PULSES * 4);
     pulses.forEach((pulse, index) => {
       const age = elapsed - pulse.born, alive = pulse.w > 0 && age < 22;
-      pulseData.set([age, pulse.x, pulse.z, alive ? pulse.w : 0], index * 4);
+      const o = index * 4;
+      pulseData[o] = age; pulseData[o + 1] = pulse.x; pulseData[o + 2] = pulse.z; pulseData[o + 3] = alive ? pulse.w : 0;
       const dz = pulse.z - cz;
-      beaconData.set([age, dz > 1 ? (pulse.x - cx) * F / (dz * aspect) : 0, .55, alive && dz > 120 ? pulse.beacon : 0], index * 4);
+      beaconData[o] = age; beaconData[o + 1] = dz > 1 ? (pulse.x - cx) * F / (dz * aspect) : 0; beaconData[o + 2] = .55; beaconData[o + 3] = alive && dz > 120 ? pulse.beacon : 0;
     });
     void cy;
 
@@ -451,11 +462,13 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
       gl.disableVertexAttribArray(idLoc);
       gl.disable(gl.BLEND); gl.depthMask(true);
     }
-    canvas.dataset.state = still() ? "still" : "live";
-    canvas.dataset.tier = String(tier);
+    const state = still() ? "still" : "live", tierName = String(tier);
+    if (canvas.dataset.state !== state) canvas.dataset.state = state;
+    if (canvas.dataset.tier !== tierName) canvas.dataset.tier = tierName;
     if (!still()) frame = requestAnimationFrame(draw);
   }
 
+  function reducedChange() { reducedMotion = reduced.matches; sync(); }
   function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; if (!document.hidden && !disposed && !lost) frame = requestAnimationFrame(draw); }
   function contextLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(frame); canvas.dataset.state = "unavailable"; onFailure(); }
   function contextRestored() { if (!disposed) onRestore(); }
@@ -463,7 +476,7 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
   addEventListener("pointermove", onPointerMove, { passive: true });
   addEventListener("pointerdown", onPointerDown, { passive: true });
   document.addEventListener("scroll", onScroll, { passive: true, capture: true });
-  document.addEventListener("visibilitychange", sync); addEventListener("resize", sync); reduced.addEventListener("change", sync);
+  document.addEventListener("visibilitychange", sync); addEventListener("resize", measureWindow); addEventListener("resize", sync); reduced.addEventListener("change", reducedChange);
   canvas.addEventListener("webglcontextlost", contextLost); canvas.addEventListener("webglcontextrestored", contextRestored);
   sync();
 
@@ -471,7 +484,7 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
     disposed = true; cancelAnimationFrame(frame);
     removeEventListener("pointermove", onPointerMove); removeEventListener("pointerdown", onPointerDown);
     document.removeEventListener("scroll", onScroll, { capture: true });
-    document.removeEventListener("visibilitychange", sync); removeEventListener("resize", sync); reduced.removeEventListener("change", sync);
+    document.removeEventListener("visibilitychange", sync); removeEventListener("resize", measureWindow); removeEventListener("resize", sync); reduced.removeEventListener("change", reducedChange);
     canvas.removeEventListener("webglcontextlost", contextLost); canvas.removeEventListener("webglcontextrestored", contextRestored);
     framebuffers.forEach(value => gl.deleteFramebuffer(value)); textures.forEach(value => gl.deleteTexture(value));
     buffers.forEach(value => gl.deleteBuffer(value)); programs.forEach(value => gl.deleteProgram(value.program));
@@ -494,7 +507,7 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
 
   /** The horizon haze as the sea shader shows it (display sRGB), for fogging overlays. */
   function hazeColor(): [number, number, number] {
-    const at = (key: typeof PALETTE_KEYS[number]) => palette.slice(PALETTE_KEYS.indexOf(key) * 3, PALETTE_KEYS.indexOf(key) * 3 + 3);
+    const at = (key: typeof PALETTE_KEYS[number]) => Array.from(palette.subarray(PALETTE_KEYS.indexOf(key) * 3, PALETTE_KEYS.indexOf(key) * 3 + 3));
     const horizon = at("horizonCol"), b1 = at("band1"), b2 = at("band2");
     return [0, 1, 2].map(i => {
       const c = (horizon[i] + b1[i] * .55 + b2[i] * .35) * .92 * gain;

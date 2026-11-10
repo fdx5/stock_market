@@ -193,7 +193,7 @@ html[data-design="neo"] .ng-legacy-bgm{display:none!important}
 .ng-header-current>i{position:absolute;top:0;bottom:0;left:-25%;width:25%;animation:ng-header-current-run 8s linear infinite;will-change:transform}
 .ng-header-current>i:before{content:"";position:absolute;left:0;right:0;top:9px;height:1px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--current-dim) 7%,transparent) 8%,color-mix(in srgb,var(--current-color) 24%,transparent) 32%,color-mix(in srgb,var(--current-bright) 65%,transparent) 65%,var(--current-tip) 86%,transparent);box-shadow:0 0 3px color-mix(in srgb,var(--current-glow) 62%,transparent)}
 .ng-header-current>i:after{content:"";position:absolute;right:12px;top:6px;width:30px;height:7px;background:radial-gradient(ellipse,color-mix(in srgb,var(--current-core) 46%,transparent),color-mix(in srgb,var(--current-glow) 14%,transparent) 42%,transparent 74%);animation:ng-current-lustre 3.4s ease-in-out infinite}
-.ng-current-discharge{position:absolute;right:0;top:0;display:block;width:84px;height:19px;overflow:visible;filter:drop-shadow(0 0 1.8px var(--current-glow))}
+.ng-current-discharge{position:absolute;right:-6px;top:-6px;display:block;width:96px;height:31px;pointer-events:none}
 .ng-current-filament{fill:none;stroke-width:1.05;stroke-linejoin:round;stroke-linecap:round}
 .ng-current-forks{fill:none;stroke:var(--current-forks);stroke-width:.65;stroke-linecap:round;opacity:.62;animation:ng-current-corona 2.17s ease-in-out infinite}
 .ng-current-mote{fill:var(--current-tip);opacity:0;animation:ng-current-mote 3.4s ease-out infinite;transform-box:fill-box;transform-origin:center}

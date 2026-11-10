@@ -79,9 +79,13 @@ function FloatingCompany({ item, market, controller, onClose, lang }: {
     const still = fx === "minimal" || matchMedia("(prefers-reduced-motion: reduce)").matches;
     let frame = 0, wake = 0;
     const start = performance.now(), seed = Math.random() * 100;
+    // sizes are measured when they change, so the drift never forces a layout inside the frame
+    let width = innerWidth, card = element.offsetWidth;
+    const measure = () => { width = innerWidth; card = element.offsetWidth; };
+    const observer = new ResizeObserver(measure); observer.observe(element);
+    addEventListener("resize", measure);
     const step = (now: number) => {
       const t = (now - start) / 1000 + seed;
-      const width = innerWidth, card = element.offsetWidth;
       const room = Math.max(0, width - card - 24);
       // a slow figure-eight drift, a bob on the swell and a gentle roll
       const x = 12 + room * (.5 + .42 * Math.sin(t * .11) * Math.cos(t * .043));
@@ -93,7 +97,7 @@ function FloatingCompany({ item, market, controller, onClose, lang }: {
     };
     if (still) element.style.transform = `translate3d(${Math.max(12, (innerWidth - element.offsetWidth) / 2)}px,0,0)`;
     else frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); removeEventListener("resize", measure); };
   }, [item.code, fx, controller]);
   const known = hasReturn(item);
   return <div className="pb-float-lane" aria-live="polite">

@@ -156,6 +156,14 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
   // ?shipAt=<metres> starts the voyage part-way (visual checks)
   let along = Number(new URLSearchParams(location.search).get("shipAt")) || 0, waterY = WATERLINE, oceanMode = false;
   const fog = new THREE.Fog(0x1a1024, 0, 9000);
+  const tmpColor = new THREE.Color(), tmpSky = new THREE.Color(), tmpVector = new THREE.Vector3(), mirror = new THREE.Matrix4();
+  function mirrorReflection() {
+    // mirror across the fixed waterline plane (only while the mirrored hull is shown)
+    if (!reflection.visible) return;
+    mirror.makeTranslation(0, 2 * waterY, 0).multiply(tmpMatrix.makeScale(1, -1, 1));
+    for (const copy of reflection.children as THREE.Mesh[]) copy.matrix.multiplyMatrices(mirror, (copy.userData.source as THREE.Mesh).matrixWorld);
+  }
+  const tmpMatrix = new THREE.Matrix4();
 
   // wake + waterline glow: soft additive ellipses on the sea plane
   const glowCanvas = document.createElement("canvas"); glowCanvas.width = glowCanvas.height = 128;
@@ -316,8 +324,14 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     if (still) render();
   }
 
+  // The canvas is position:fixed, so its box only changes on resize. Reading it every frame
+  // forced a synchronous style/layout flush of the whole page inside the animation frame.
+  let canvasBox = canvas.getBoundingClientRect();
+  const measure = () => { canvasBox = canvas.getBoundingClientRect(); };
+  const resizeObserver = new ResizeObserver(measure); resizeObserver.observe(canvas);
+  addEventListener("resize", measure);
   function layout() {
-    const box = canvas.getBoundingClientRect();
+    const box = canvasBox;
     if (box.width === width && box.height === height && ratio === devicePixelRatio) return;
     width = box.width; height = box.height; ratio = devicePixelRatio || 1;
     renderer.setPixelRatio(ratio); renderer.setSize(width, height, false);
@@ -350,9 +364,9 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     const view = controller.current?.view?.();
     if (view) { oceanStep(view, dt, light); return; }
     if (oceanMode) leaveOcean();
-    rim.color.lerp(new THREE.Color(light.rim), 1 - Math.exp(-dt * 1.5));
+    rim.color.lerp(tmpColor.setHex(light.rim), 1 - Math.exp(-dt * 1.5));
     fill.color.copy(rim.color);
-    hemi.color.lerp(new THREE.Color(light.sky), 1 - Math.exp(-dt * 1.5));
+    hemi.color.lerp(tmpSky.setHex(light.sky), 1 - Math.exp(-dt * 1.5));
     glowMaterial.color.copy(rim.color);
     wakeUniforms.u_color.value.copy(rim.color); wakeUniforms.u_time.value = time;
     layout();
@@ -374,7 +388,7 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     voyage.updateMatrixWorld(true);
     // Where the hull sits on screen, for sampling the sea and dropping wakes.
     const toScreen = (local: THREE.Vector3) => {
-      const ndc = local.applyMatrix4(voyage.matrixWorld).project(camera), box = canvas.getBoundingClientRect();
+      const ndc = local.applyMatrix4(voyage.matrixWorld).project(camera), box = canvasBox;
       return (box.left + (ndc.x + 1) / 2 * box.width) / Math.max(1, innerWidth);
     };
     const screenX = toScreen(new THREE.Vector3(0, WATERLINE, 0));
@@ -397,11 +411,7 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     foam.scale.set(1 + Math.abs(swell.height - seaMean) * 1.2, 1, 1);
     wakeUniforms.u_opacity.value = .85 * surface;
     voyage.updateMatrixWorld(true);
-    for (const copy of reflection.children as THREE.Mesh[]) {
-      // mirror across the fixed waterline plane
-      const source = copy.userData.source as THREE.Mesh;
-      copy.matrix.makeTranslation(0, 2 * waterY, 0).multiply(new THREE.Matrix4().makeScale(1, -1, 1)).multiply(source.matrixWorld);
-    }
+    mirrorReflection();
     if (radar) radar.rotation.y += dt * 1.4;
     if (mastLight) mastLight.emissiveIntensity = Math.sin(time * 3.2) > .55 ? 22 : 3;
     if (time - lastWake > 2.8 && screenX > -.05 && screenX < 1.05) { lastWake = time; controller.current?.emit(Math.min(1, Math.max(0, sternX)), .26 * (1 - progress * .6), false); }
@@ -433,14 +443,15 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
   }
   function leaveOcean() {
     oceanMode = false; waterY = WATERLINE; water.constant = -WATERLINE; mirrorClip.constant = WATERLINE;
-    voyage.scale.setScalar(1); scene.fog = null; reflection.visible = true; wake.visible = true; foam.visible = true; controller.current?.setShip?.(null); camera.near = 1; camera.far = 400; width = 0; layout();
+    voyage.scale.setScalar(1); scene.fog = null; scene.add(reflection); reflection.visible = true; wake.visible = true; foam.visible = true; controller.current?.setShip?.(null); camera.near = 1; camera.far = 400; width = 0; layout();
   }
   function oceanStep(view: OceanView, dt: number, light: typeof MOOD_LIGHT[Mood]) {
     if (!oceanMode) {
       oceanMode = true; waterY = 0; water.constant = 0; mirrorClip.constant = 0;
       voyage.scale.setScalar(METRES); scene.fog = fog;
       // a rough sea breaks any mirror image; the ocean shader carries the glints instead
-      reflection.visible = false; wake.visible = false; foam.visible = false;
+      // (detached, so the hidden mirror copies drop out of the per-frame matrix pass too)
+      reflection.visible = false; wake.visible = false; foam.visible = false; scene.remove(reflection);
     }
     layout();
     // the overlay camera is the sea camera: same eye, focal length and off-axis horizon
@@ -452,11 +463,11 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     camera.updateMatrixWorld(true);
     fog.color.setRGB(view.haze[0], view.haze[1], view.haze[2], THREE.SRGBColorSpace);
     refreshSky(view);
-    rim.color.lerp(new THREE.Color(light.rim), 1 - Math.exp(-dt * 1.5));
-    hemi.color.lerp(new THREE.Color(light.sky), 1 - Math.exp(-dt * 1.5));
+    rim.color.lerp(tmpColor.setHex(light.rim), 1 - Math.exp(-dt * 1.5));
+    hemi.color.lerp(tmpSky.setHex(light.sky), 1 - Math.exp(-dt * 1.5));
     // the low sun, raised a little so its light reaches the deck; the shadow box follows the hull
     if (key.target !== voyage) { key.target = voyage; key.castShadow = true; }
-    key.position.copy(voyage.position).add(new THREE.Vector3(view.sun[0], .42, -view.sun[2]).normalize().multiplyScalar(400));
+    key.position.copy(voyage.position).add(tmpVector.set(view.sun[0], .42, -view.sun[2]).normalize().multiplyScalar(400));
     const box = HALF_LENGTH * 1.25;
     Object.assign(key.shadow.camera, { left: -box, right: box, top: box, bottom: -box, near: 50, far: 900 });
     key.shadow.camera.updateProjectionMatrix();
@@ -499,14 +510,11 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     wakeUniforms.u_opacity.value = .75 * (1 - haze) * (1 - haze);
     foam.scale.set(1, 1, 1);
     voyage.updateMatrixWorld(true);
-    for (const copy of reflection.children as THREE.Mesh[]) {
-      const source = copy.userData.source as THREE.Mesh;
-      copy.matrix.makeTranslation(0, 2 * waterY, 0).multiply(new THREE.Matrix4().makeScale(1, -1, 1)).multiply(source.matrixWorld);
-    }
+    mirrorReflection();
     if (radar) radar.rotation.y += dt * 1.4;
     if (mastLight) mastLight.emissiveIntensity = Math.sin(time * 3.2) > .55 ? 22 : 3;
     if (time - lastWake > 3.2 && p.z < 900) {
-      const stern3 = new THREE.Vector3(-12, WATERLINE, 0).applyMatrix4(voyage.matrixWorld).project(camera);
+      const stern3 = tmpVector.set(-12, WATERLINE, 0).applyMatrix4(voyage.matrixWorld).project(camera);
       if (stern3.x > -1.05 && stern3.x < 1.05) { lastWake = time; controller.current?.emit((stern3.x + 1) / 2, .2, false); }
     }
     // shadows: every frame up close, every 8th once the hull is small, never at the horizon
@@ -536,6 +544,8 @@ export function installShipScene(canvas: HTMLCanvasElement, controller: { curren
     dispose() {
       disposed = true; cancelAnimationFrame(frame); controller.current?.setShip?.(null);
       document.removeEventListener("visibilitychange", sync); removeEventListener("resize", sync);
+      resizeObserver.disconnect(); removeEventListener("resize", measure);
+      if (!reflection.parent) scene.add(reflection); // detached on the ocean; its materials still need disposing
       scene.traverse(object => {
         const mesh = object as THREE.Mesh;
         if (!mesh.isMesh) return;
