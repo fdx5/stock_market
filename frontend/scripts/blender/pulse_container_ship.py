@@ -249,11 +249,13 @@ def atlas_rect(variant, region):
 # --- hull: u along the ship (stern overhang .. bow rake), v keel .. sheer top
 HULL_U0, HULL_U1 = X0 - 1.5, L / 2 + 2.0
 HULL_V0, HULL_V1 = -D, .5
-HW, HH = 4096, 512
+HW, HULL_ROWS, TRANSOM_ROWS = 4096, 512, 128
+HH = HULL_ROWS + TRANSOM_ROWS   # top band: the transom (512 x 128 px), painted separately
+TRANSOM_W = 512
 
 
 def hull_px(x, z):
-    return (x - HULL_U0) / (HULL_U1 - HULL_U0) * HW, (1 - (z - HULL_V0) / (HULL_V1 - HULL_V0)) * HH
+    return (x - HULL_U0) / (HULL_U1 - HULL_U0) * HW, TRANSOM_ROWS + (1 - (z - HULL_V0) / (HULL_V1 - HULL_V0)) * HULL_ROWS
 
 
 hull = np.ones((HH, HW, 3)) * srgb_to_linear((.1, .22, .52))[None, None, :]  # vivid royal blue topsides
@@ -270,23 +272,24 @@ for x in np.arange(HULL_U0, HULL_U1, .62):
     px = int(hull_px(x, 0)[0])
     if px < 1 or px > HW - 4:
         continue
-    hull[:, px:px + 2] *= .86
-    hull_height[:, px - 1:px + 3] += np.array([.4, 1, 1, .4])[None, :]
+    hull[:, px:px + 2] *= .93
+    hull_height[:, px - 1:px + 3] += np.array([.2, .5, .5, .2])[None, :]
 for z in (-.32, -.78, -1.45):
     py = int(hull_px(0, z)[1])
-    hull[py:py + 2] *= .84
-    hull_height[py - 1:py + 3] += np.array([.4, 1, 1, .4])[:, None]
+    hull[py:py + 2] *= .92
+    hull_height[py - 1:py + 3] += np.array([.2, .5, .5, .2])[:, None]
 # slight plate "hungry horse" dishing between frames
 frames = (np.cos((np.arange(HW) / HW * (HULL_U1 - HULL_U0)) / .62 * 2 * math.pi) * .5 + .5)
 hull_height += frames[None, :] * .35
 # touch-up paint patches: slightly different blue-black rectangles
 for _ in range(70):
-    x, y = RNG.uniform(0, HW), RNG.uniform(10, wl_row - 30)
-    w, h = RNG.uniform(30, 260), RNG.uniform(10, 60)
-    hull[int(y):int(y + h), int(x):int(x + w)] = hull[int(y):int(y + h), int(x):int(x + w)] * .6 + srgb_to_linear((.12, .25, .56)) * .4
+    w, h = RNG.uniform(30, 260), RNG.uniform(10, 50)
+    x, y = RNG.uniform(0, HW), RNG.uniform(TRANSOM_ROWS + 10, boot_row - 8 - h)
+    patch = hull[int(y):int(y + h), int(x):int(x + w)]
+    patch[:] = patch * .8 + srgb_to_linear((.1, .22, .52)) * RNG.uniform(.85, 1.1) * .2
 # rust runs from deck-edge scuppers, hawse pipe and stern chocks
 deck_row = int(hull_px(0, -.05)[1])
-rust_streaks(hull, 150, (0, HW), (deck_row - 4, deck_row + 12), (30, 190), (2, 5), strength=.6)
+rust_streaks(hull, 110, (0, HW), (deck_row - 4, deck_row + 12), (30, 190), (2, 5), strength=.45)
 hx, hy = hull_px(L / 2 - 1.3, -.45)
 rust_streaks(hull, 40, (hx - 26, hx + 26), (hy, hy + 10), (60, 260), (3, 8), strength=.85)
 for sx in (X0 + .5, X0 + 1.4, L / 2 - 2.6):
@@ -314,19 +317,29 @@ cross = (np.abs((xx - px) - (yy - py)) < 3) | (np.abs((xx - px) + (yy - py)) < 3
 hull[ring | (cross & (np.hypot(xx - px, yy - py) < 26))] = white
 px, py = hull_px(L / 2 - .9, -.28)
 text(hull, "PULSE LINE", int(px) - 300, int(py), 5, white)
+# transom: name and port of registry in white, seams, rust weeping from the chocks
+tr = srgb_to_linear((.1, .22, .52)) * (.85 + .3 * fbm(TRANSOM_ROWS, TRANSOM_W, 2, 5, 4))[..., None]
+for k in range(64, TRANSOM_W, 64):
+    tr[:, k:k + 2] *= .93
+tr[TRANSOM_ROWS - 22:TRANSOM_ROWS - 20] *= .92
+text(tr, "PULSE LINE", (TRANSOM_W - 10 * 6 * 5) // 2, 46, 5, white)
+text(tr, "BUSAN", (TRANSOM_W - 5 * 6 * 3) // 2, 92, 3, white)
+rust_streaks(tr, 18, (20, TRANSOM_W - 20), (2, 8), (20, 90), (1.5, 3.5), strength=.6)
+tr *= (1 - fbm(TRANSOM_ROWS, TRANSOM_W, 1, 3, 20) ** 2 * .2)[..., None]
+hull[:TRANSOM_ROWS, :TRANSOM_W] = tr
 IMG_HULL = to_image("HullPlating", hull ** (1 / 2.2))
 IMG_HULL_N = to_image("HullPlatingNormal", normal_from_height(hull_height, 1.6), True)
 
 
 # --- tiling paints (box-projected UVs, 1 tile per TILE units)
-def tiled(name, color, size=1024, seams=8, rust=.0, streaks=.0, drips=0, normal=1.2):
+def tiled(name, color, size=1024, seams=8, rust=.0, streaks=.0, drips=0, normal=1.2, seam_dark=.78):
     img = np.ones((size, size, 3)) * srgb_to_linear(color)[None, None, :]
     img *= (.86 + .25 * fbm(size, size, 4, 6))[..., None]
     height = np.zeros((size, size))
     step = size // seams
     for k in range(0, size, step):
-        img[k:k + 2] *= .78
-        img[:, k:k + 2] *= .8
+        img[k:k + 2] *= seam_dark
+        img[:, k:k + 2] *= seam_dark + .02
         height[k:k + 3] += 1
         height[:, k:k + 3] += 1
     if rust:
@@ -341,7 +354,7 @@ def tiled(name, color, size=1024, seams=8, rust=.0, streaks=.0, drips=0, normal=
 
 IMG_DECK = tiled("DeckPaint", (.2, .26, .23), seams=6, rust=.05, streaks=.3)
 IMG_HATCH = tiled("HatchPaint", (.36, .39, .39), seams=4, rust=.04, streaks=.25)
-IMG_WHITE = tiled("SuperstructurePaint", (.83, .84, .84), seams=5, drips=70, streaks=.2, normal=.8)
+IMG_WHITE = tiled("SuperstructurePaint", (.88, .89, .89), seams=2, drips=30, streaks=.12, normal=.6, seam_dark=.93)
 IMG_STEEL = tiled("SteelPaint", (.24, .25, .27), size=512, seams=4, rust=.08, streaks=.3)
 
 
@@ -393,7 +406,7 @@ M = {
     "plate": material("LogoPlate", (.9, .9, .9), .45, 0.),
     "frame": material("PlateFrame", (.03, .03, .04), .4, .6),
     "rubber": material("Fender", (.02, .02, .02), .9, 0.),
-    "bulwark": material("BulwarkPaint", (.01, .045, .25), .5, .3, normal=IMG_STEEL[1]),
+    "bulwark": material("BulwarkPaint", (.01, .045, .25), .5, .3),
     "yellow": material("SafetyYellow", (.85, .62, .05), .5, .1),
 }
 
@@ -421,9 +434,11 @@ def box_uv(bm, scale):
                 loop[uv].uv = (u * scale, v * scale)
 
 
-def mesh_object(name, bm, mats, smooth=False, uv_scale=.5):
+def mesh_object(name, bm, mats, smooth=False, uv_scale=.5, uv=True):
+    """uv=False for untextured or hairline parts: the web merge fills a zero UV, and the GLB stays lean."""
     bm.normal_update()
-    box_uv(bm, uv_scale)
+    if uv:
+        box_uv(bm, uv_scale)
     me = bpy.data.meshes.new(name)
     bm.to_mesh(me)
     bm.free()
@@ -435,12 +450,41 @@ def mesh_object(name, bm, mats, smooth=False, uv_scale=.5):
     return link(bpy.data.objects.new(name, me))
 
 
-def add_box(bm, center, size, mat_index=0, rot_z=0., rot_y=0.):
-    m = Matrix.Translation(Vector(center)) @ Matrix.Rotation(rot_z, 4, "Z") @ Matrix.Rotation(rot_y, 4, "Y") @ Matrix.Diagonal((*size, 1))
+def drop_end_caps(bm, geom, axis):
+    """Hairline bars and rods never show their end faces: dropping them saves a third of the vertices."""
+    axis = axis.normalized()
+    faces = {f for v in geom["verts"] for f in v.link_faces}
+    for f in faces:
+        f.normal_update()
+    caps = [f for f in faces if abs(f.normal.dot(axis)) > .9]
+    bmesh.ops.delete(bm, geom=caps, context="FACES_ONLY")
+
+
+def add_box(bm, center, size, mat_index=0, rot_z=0., rot_y=0., slim=False):
+    rot = Matrix.Rotation(rot_z, 4, "Z") @ Matrix.Rotation(rot_y, 4, "Y")
+    m = Matrix.Translation(Vector(center)) @ rot @ Matrix.Diagonal((*size, 1))
     geom = bmesh.ops.create_cube(bm, size=1., matrix=m)
     for f in {f for v in geom["verts"] for f in v.link_faces}:
         f.material_index = mat_index
+    if slim:
+        long = max(range(3), key=lambda i: size[i])
+        drop_end_caps(bm, geom, rot.to_3x3() @ Vector([1. if i == long else 0. for i in range(3)]))
     return geom
+
+
+def add_panel(bm, center, axis, sign, w, h, mat_index=0):
+    """One outward-facing quad on a wall (windows, frames): a box would hide five of its six faces."""
+    cx, cy, cz = center
+    if axis == "x":
+        pts = [(cx, cy - w / 2, cz - h / 2), (cx, cy + w / 2, cz - h / 2), (cx, cy + w / 2, cz + h / 2), (cx, cy - w / 2, cz + h / 2)]
+        flip = sign < 0
+    else:
+        pts = [(cx - w / 2, cy, cz - h / 2), (cx + w / 2, cy, cz - h / 2), (cx + w / 2, cy, cz + h / 2), (cx - w / 2, cy, cz + h / 2)]
+        flip = sign > 0
+    verts = [bm.verts.new(p) for p in pts]
+    f = bm.faces.new(list(reversed(verts)) if flip else verts)
+    f.material_index = mat_index
+    return f
 
 
 def add_cyl(bm, center, radius, depth, segs=12, mat_index=0, axis="Z"):
@@ -449,7 +493,7 @@ def add_cyl(bm, center, radius, depth, segs=12, mat_index=0, axis="Z"):
     geom = bmesh.ops.create_cone(bm, cap_ends=True, segments=segs, radius1=radius, radius2=radius, depth=depth, matrix=m)
     for f in {f for v in geom["verts"] for f in v.link_faces}:
         f.material_index = mat_index
-        f.smooth = True
+        f.smooth = len(f.verts) == 4
     return geom
 
 
@@ -462,6 +506,8 @@ def add_rod(bm, a, b, thick, mat_index=0):
     geom = bmesh.ops.create_cube(bm, size=1., matrix=m)
     for f in {f for v in geom["verts"] for f in v.link_faces}:
         f.material_index = mat_index
+    if length > thick * 3:
+        drop_end_caps(bm, geom, d)
 
 
 def bevel(obj, width=.02, segments=2):
@@ -516,7 +562,7 @@ def station(t):
 
 
 def hull_uv(co):
-    return ((co.x - HULL_U0) / (HULL_U1 - HULL_U0), (co.z - HULL_V0) / (HULL_V1 - HULL_V0))
+    return ((co.x - HULL_U0) / (HULL_U1 - HULL_U0), (co.z - HULL_V0) / (HULL_V1 - HULL_V0) * HULL_ROWS / HH)
 
 
 TS = sorted(set([i / 200 for i in range(201)] + [1 - (1 - i / 40) ** 2 * .1 for i in range(41)]))
@@ -536,8 +582,12 @@ def build_hull():
             for loop in f.loops:
                 loop[uv].uv = hull_uv(loop.vert.co)
     stern = bm.faces.new(list(reversed(rows[0])))
+    ys, zs = [v.co.y for v in rows[0]], [v.co.z for v in rows[0]]
+    tw, zt, zb = max(abs(y) for y in ys), max(zs), min(zs)
     for loop in stern.loops:
-        loop[uv].uv = (.005, (loop.vert.co.z - HULL_V0) / (HULL_V1 - HULL_V0))
+        co = loop.vert.co
+        # viewed from astern the ship's port side (+Y) is on the left
+        loop[uv].uv = ((tw - co.y) / (2 * tw) * TRANSOM_W / HW, 1 - (zt - co.z) / (zt - zb) * TRANSOM_ROWS / HH)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     hull = mesh_object("Hull", bm, [M["hull"]], smooth=True)
@@ -653,11 +703,11 @@ for bay in range(BAYS):
         lx = x - CL / 2 - (BAY_PITCH - CL) / 2
         span = ROW_PITCH * ROWS / 2 + .02
         for y in np.linspace(-span, span, ROWS + 1):
-            add_box(lash, (lx, y, HATCH_TOP + dz + .55), (.045, .045, 1.1))
+            add_box(lash, (lx, y, HATCH_TOP + dz + .55), (.045, .045, 1.1), slim=True)
         for h in (.45, 1.0):
             add_box(lash, (lx, 0, HATCH_TOP + dz + h), (.16, span * 2 + .1, .025))  # walkways
             for side in (-1, 1):
-                add_box(lash, (lx + side * .08, 0, HATCH_TOP + dz + h + .12), (.01, span * 2 + .1, .01))
+                add_box(lash, (lx + side * .08, 0, HATCH_TOP + dz + h + .12), (.01, span * 2 + .1, .01), slim=True)
         for y in (-span, span):
             add_box(lash, (lx, y, HATCH_TOP + dz + 1.25), (.02, .02, .5))
             add_box(floods, (lx, y * .98, HATCH_TOP + dz + 1.5), (.07, .05, .04))
@@ -707,14 +757,23 @@ for bay in range(BAYS):
             z += height + .005
 print("logo containers", logo_index)
 mesh_object("HatchCovers", hatch_bm, [M["hatch"]], uv_scale=.6)
-mesh_object("Lashing", lash, [M["dark"]])
-mesh_object("LogoCastings", logo_castings, [M["dark"]])
-mesh_object("LightFloods", floods, [M["flood"]])
+mesh_object("Lashing", lash, [M["dark"]], uv=False)
+mesh_object("LogoCastings", logo_castings, [M["dark"]], uv=False)
+mesh_object("LightFloods", floods, [M["flood"]], uv=False)
 
 # ================================================================ accommodation, funnel, mast
-ACC_X0, ACC_X1 = -11.3, -9.3
-DECK_H, DECKS = .47, 6
+# A feeder's aft house as built: a wide three-deck base (stores, engine casing, mess rooms) under a
+# slim tower of cabins, a full-beam wheelhouse with enclosed wings on brackets, external stair
+# flights and landings on the tower's aft face, the funnel standing on the base roof right behind
+# the tower, and the mooring deck under it at the stern with a free-fall lifeboat over the transom.
+ACC_X1 = -9.3              # front face, flush on every deck
+BASE_AFT = -11.6           # aft face of the base decks
+TOWER_AFT = -10.85         # aft face of the cabin tower
+DECK_H, DECKS, BASE_DECKS = .47, 7, 3
 BASE = deck_z(ACC_X1)
+BASE_HALF, TOWER_HALF, WING_HALF = 2.05, 1.72, B / 2 + .06
+ROOF = BASE + BASE_DECKS * DECK_H      # base roof: the open deck around the tower
+BZ = BASE + DECKS * DECK_H             # wheelhouse floor
 
 
 def lamp(name, mat, loc, r=.06):
@@ -725,170 +784,340 @@ def lamp(name, mat, loc, r=.06):
     return obj
 
 
-def cylinder(name, mat, loc, radius, depth, scale=(1, 1, 1), verts=32, rot=(0, 0, 0)):
-    bpy.ops.mesh.primitive_cylinder_add(vertices=verts, radius=radius, depth=depth, location=loc, rotation=rot)
-    obj = bpy.context.active_object
-    obj.name, obj.scale = name, scale
-    obj.data.materials.append(mat)
-    bpy.ops.object.shade_smooth()
-    return obj
+def rrect(cx, cy, hx, hy, r, n=4):
+    pts = []
+    for sx, sy, a0 in ((1, 1, 0), (-1, 1, 90), (-1, -1, 180), (1, -1, 270)):
+        ox, oy = cx + sx * (hx - r), cy + sy * (hy - r)
+        for i in range(n + 1):
+            a = math.radians(a0 + 90 * i / n)
+            pts.append((ox + r * math.cos(a), oy + r * math.sin(a)))
+    return pts
 
 
-walls, lips, lit, dark, mullions, rails, stairs = (bmesh.new() for _ in range(7))
+def loft(bm, sections, mat_index=0, cap_top=True):
+    """Rounded-rectangle rings (z, cx, cy, hx, hy, r) joined bottom to top: funnels and casings."""
+    rings = [[bm.verts.new((x, y, z)) for x, y in rrect(cx, cy, hx, hy, r)] for z, cx, cy, hx, hy, r in sections]
+    faces = []
+    for a, b in zip(rings, rings[1:]):
+        n = len(a)
+        faces += [bm.faces.new((a[j], a[(j + 1) % n], b[(j + 1) % n], b[j])) for j in range(n)]
+    if cap_top:
+        faces.append(bm.faces.new(rings[-1]))
+    for f in faces:
+        f.material_index = mat_index
+        f.smooth = len(f.verts) == 4
+    return faces
+
+
+def lerp_section(a, b, z):
+    t = (z - a[0]) / (b[0] - a[0])
+    return tuple(p + (q - p) * t for p, q in zip(a, b))
+
+
+def capsule_boat(bm, center, length, beam, depth, canopy, pitch=0., n=14, segs=18):
+    """An enclosed lifeboat: rounded hull below the gunwale, a lower canopy above it, bluff ends."""
+    m = Matrix.Translation(Vector(center)) @ Matrix.Rotation(pitch, 4, "Y")
+    rings = []
+    for i in range(n + 1):
+        t = .04 + .92 * i / n
+        s = math.sin(math.pi * t) ** .42
+        ring = []
+        for j in range(segs):
+            th = 2 * math.pi * j / segs
+            c, sn = math.cos(th), math.sin(th)
+            z = (canopy * sn * s ** .5) if sn > 0 else (depth * sn * s ** .8)
+            ring.append(bm.verts.new(m @ Vector(((t - .5) * length, beam / 2 * s * c, z))))
+        rings.append(ring)
+    for a, b in zip(rings, rings[1:]):
+        for j in range(segs):
+            f = bm.faces.new((a[j], a[(j + 1) % segs], b[(j + 1) % segs], b[j]))
+            f.smooth = True
+    bm.faces.new(rings[0])
+    bm.faces.new(rings[-1])
+
+
+def railing(bm, pts, z_at, height=.12, post=.2):
+    """Two-course handrail on stanchions along a polyline of (x, y); z_at(x, y) is the deck below."""
+    for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
+        length = math.hypot(xb - xa, yb - ya)
+        if length < 1e-4:
+            continue
+        ang, mx, my = math.atan2(yb - ya, xb - xa), (xa + xb) / 2, (ya + yb) / 2
+        for h, t in ((height, .014), (height * .5, .008)):
+            add_box(bm, (mx, my, z_at(mx, my) + h), (length + .012, t, t), rot_z=ang, slim=True)
+        steps = max(1, round(length / post))
+        for i in range(steps + 1):
+            x, y = xa + (xb - xa) * i / steps, ya + (yb - ya) * i / steps
+            add_box(bm, (x, y, z_at(x, y) + height / 2), (.011, .011, height), slim=True)
+
+
+def stair(bm, a, b, width=.11):
+    """A ship's stair flight: two stringers, open treads and a handrail each side."""
+    a, b = Vector(a), Vector(b)
+    d = b - a
+    run = Vector((d.x, d.y, 0))
+    side = Vector((-run.y, run.x, 0)).normalized() * (width / 2)
+    up = Vector((0, 0, .1))
+    for s in (-1, 1):
+        add_rod(bm, a + side * s, b + side * s, .014)
+        add_rod(bm, a + side * s + up, b + side * s + up, .008)
+        add_box(bm, b + side * s + up / 2, (.008, .008, .1))
+    steps = max(4, int(d.z / .05))
+    ang = math.atan2(run.y, run.x)
+    for i in range(1, steps):
+        add_box(bm, a + d * (i / steps), (.028, width, .006), rot_z=ang, slim=True)
+
+
+walls, lips, lit, dark, mullions, rails, stairs, gear, dark_parts = (bmesh.new() for _ in range(9))
+
+
+def windows(axis, plane, sign, a0, a1, count, zc, lit_p=.32, w=.12, h=.15, gap=None):
+    """Framed windows on a wall facing sign*axis; `gap` keeps a (lo, hi) span clear."""
+    for i in range(count):
+        a = a0 + (a1 - a0) * (i + .5) / count
+        if gap and gap[0] < a < gap[1]:
+            continue
+        target = lit if random.random() < lit_p else dark
+        if axis == "x":
+            add_panel(target, (plane + sign * .008, a, zc), "x", sign, w, h)
+            add_panel(mullions, (plane + sign * .003, a, zc), "x", sign, w + .028, h + .028)
+        else:
+            add_panel(target, (a, plane + sign * .008, zc), "y", sign, w, h)
+            add_panel(mullions, (a, plane + sign * .003, zc), "y", sign, w + .028, h + .028)
+
+
+def door(axis, plane, sign, a, z0):
+    size = (.01, .15, .3) if axis == "x" else (.15, .01, .3)
+    frame = (.01, .18, .33) if axis == "x" else (.18, .01, .33)
+    c = (plane + sign * .005, a, z0 + .17) if axis == "x" else (a, plane + sign * .005, z0 + .17)
+    cf = (plane + sign * .002, a, z0 + .175) if axis == "x" else (a, plane + sign * .002, z0 + .175)
+    add_box(gear, c, size)
+    add_box(mullions, cf, frame)
+
+
 for k in range(DECKS):
     z0 = BASE + k * DECK_H
-    setback = .05 * k
-    length, half = ACC_X1 - ACC_X0 - setback, 1.72 - (.1 if k >= 4 else 0)
-    cx = ACC_X0 + length / 2
-    add_box(walls, (cx, 0, z0 + DECK_H / 2), (length, half * 2, DECK_H - .04))
-    add_box(lips, (cx + .06, 0, z0 + DECK_H - .015), (length + .2, half * 2 + .22, .035))
+    base_deck = k < BASE_DECKS
+    x0, half = (BASE_AFT, BASE_HALF) if base_deck else (TOWER_AFT, TOWER_HALF)
+    length, cx = ACC_X1 - x0, (ACC_X1 + x0) / 2
+    add_box(walls, (cx, 0, z0 + DECK_H / 2), (length, half * 2, DECK_H))
+    add_box(lips, (cx, 0, z0 + DECK_H - .012), (length + .03, half * 2 + .03, .024))   # deck line / gutter
+    zc = z0 + DECK_H * .56
     if k == 0:
-        # deck store doors and vents at the base
-        for y in (-.9, .9):
-            add_box(mullions, (ACC_X0 + length + .006, y, z0 + .17), (.012, .22, .3))
+        # stores and engine-room doors, ventilation louvres
+        for y in (-1.2, 1.2):
+            door("x", ACC_X1, 1, y, z0)
+            door("x", BASE_AFT, -1, y, z0)
+        for s in (-1, 1):
+            door("y", s * half, s, ACC_X1 - .5, z0)
+            for i in range(3):
+                add_box(dark_parts, (BASE_AFT + .35 + i * .3, s * (half + .004), z0 + .26), (.22, .008, .16))
         continue
-    zc = z0 + DECK_H * .55
-    front = ACC_X0 + length
-    # individual window panes on the front and both sides, some lit
-    for i in range(10):
-        y = -half + .22 + i * (half * 2 - .44) / 9
-        target = lit if random.random() < .35 else dark
-        add_box(target, (front + .006, y, zc), (.012, .14, .16))
-        add_box(mullions, (front + .012, y, zc), (.006, .17, .19))
-    for side in (-1, 1):
-        for i in range(8):
-            x = ACC_X0 + .22 + i * (length - .45) / 7
-            target = lit if random.random() < .3 else dark
-            add_box(target, (x, side * (half + .006), zc), (.13, .012, .15))
-            add_box(mullions, (x, side * (half + .012), zc), (.16, .006, .18))
-        add_box(rails, (cx + .06, side * (half + .1), z0 + DECK_H + .1), (length + .16, .012, .012))
-        add_box(rails, (cx + .06, side * (half + .1), z0 + DECK_H + .05), (length + .16, .008, .008))
-        # external stair flight down to the deck below, alternating fore/aft
-        sx = ACC_X0 + (.35 if k % 2 else length - .6)
-        add_rod(stairs, (sx, side * (half + .14), z0), (sx + (.4 if k % 2 else -.4), side * (half + .14), z0 + DECK_H - .04), .05)
-    add_box(rails, (front + .15, 0, z0 + DECK_H + .1), (.012, half * 2 + .2, .012))
-# bridge: full-width wheelhouse, raked windows, open wings with consoles
-BZ = BASE + DECKS * DECK_H
-add_box(walls, (ACC_X1 - .72, 0, BZ + .27), (1.25, 3.44, .54))
-add_box(lips, (ACC_X1 - .66, 0, BZ + .555), (1.45, 3.6, .05))
-add_box(lips, (ACC_X1 - .02, 0, BZ + .5), (.18, 3.5, .03))  # sun visor
-for side in (-1, 1):
-    add_box(lips, (ACC_X1 - .6, side * 2.25, BZ + .02), (.95, 1.25, .045))
-    add_box(walls, (ACC_X1 - .52, side * 2.72, BZ + .2), (.45, .32, .38))
-    add_box(lit, (ACC_X1 - .29, side * 2.72, BZ + .24), (.012, .26, .16))
-    add_box(rails, (ACC_X1 - .6, side * 2.87, BZ + .26), (.95, .012, .012))
-    add_box(rails, (ACC_X1 - .14, side * 2.25, BZ + .26), (.012, 1.25, .012))
-    for i in range(3):
-        add_box(mullions, (ACC_X1 - .95 + i * .35, side * 2.2, BZ - .14), (.03, .9, .03))
+    gap = (-.78, .78) if not base_deck else None
+    windows("x", ACC_X1, 1, -half + .1, half - .1, int(half * 2 / .3), zc)
+    windows("x", x0, -1, -half + .1, half - .1, int(half * 2 / .32), zc, gap=gap)
+    for s in (-1, 1):
+        windows("y", s * half, s, x0 + .1, ACC_X1 - .1, int(length / .3), zc)
+
+# open deck on the base roof around the tower, with its railing
+railing(rails, [(ACC_X1 - .02, -BASE_HALF + .03), (BASE_AFT + .03, -BASE_HALF + .03), (BASE_AFT + .03, BASE_HALF - .03), (ACC_X1 - .02, BASE_HALF - .03)], lambda x, y: ROOF)
+for s in (-1, 1):
+    # aft landings on the tower with stair flights between them, zig-zagging up each side
+    for k in range(BASE_DECKS + 1, DECKS + 1):
+        z = BASE + k * DECK_H
+        add_box(lips, (TOWER_AFT - .08, s * 1.22, z - .012), (.16, 1.0, .024))
+        railing(rails, [(TOWER_AFT, s * .72), (TOWER_AFT - .155, s * .72), (TOWER_AFT - .155, s * 1.72)], lambda x, y, z=z: z)
+    for k in range(BASE_DECKS, DECKS):
+        z = BASE + k * DECK_H
+        ya, yb = (.86, 1.62) if k % 2 else (1.62, .86)
+        stair(stairs, (TOWER_AFT - .08, s * ya, z), (TOWER_AFT - .08, s * yb, z + DECK_H))
+    # flights up the base's aft face from the mooring deck to the roof, with landings
+    for k in range(BASE_DECKS):
+        za = deck_z(BASE_AFT) if k == 0 else BASE + k * DECK_H
+        ya, yb = (1.15, 1.9) if k % 2 == 0 else (1.9, 1.15)
+        stair(stairs, (BASE_AFT - .09, s * ya, za), (BASE_AFT - .09, s * yb, BASE + (k + 1) * DECK_H))
+        if k < BASE_DECKS - 1:
+            z = BASE + (k + 1) * DECK_H
+            add_box(lips, (BASE_AFT - .08, s * 1.55, z - .012), (.16, .95, .024))
+            railing(rails, [(BASE_AFT, s * 1.08), (BASE_AFT - .155, s * 1.08), (BASE_AFT - .155, s * 2.02)], lambda x, y, z=z: z)
+
+# wheelhouse: full width, enclosed wings out to the ship's side on brackets, raked windows, sun visor
+WH_X0 = TOWER_AFT + .04
+add_box(walls, ((WH_X0 + ACC_X1 + .05) / 2, 0, BZ + .27), (ACC_X1 + .05 - WH_X0, TOWER_HALF * 2, .54))
+for s in (-1, 1):
+    wing = WING_HALF - TOWER_HALF
+    add_box(walls, (ACC_X1 - .22, s * (TOWER_HALF + wing / 2), BZ + .27), (.54, wing, .54))
+    for xx in (ACC_X1 - .44, ACC_X1 - .02):
+        add_rod(gear, (xx, s * TOWER_HALF, BZ - .42), (xx, s * (WING_HALF - .06), BZ - .015), .035)
+    add_box(gear, (ACC_X1 - .22, s * (TOWER_HALF + wing / 2), BZ - .02), (.5, wing, .03))
+    windows("y", s * WING_HALF, s, ACC_X1 - .44, ACC_X1, 2, BZ + .3, lit_p=.5, w=.15, h=.2)
+    windows("x", ACC_X1 - .49, -1, s * (TOWER_HALF + .05), s * (WING_HALF - .05), 2, BZ + .3, lit_p=.5, w=.15, h=.2)
+    windows("y", s * TOWER_HALF, s, WH_X0 + .1, ACC_X1 - .55, 3, BZ + .3, lit_p=.6, w=.16, h=.2)
+    add_box(gear, (ACC_X1 - .05, s * (WING_HALF + .01), BZ + .5), (.06, .02, .06))   # side-light screen
 bglass = bmesh.new()
-for i in range(8):
-    y = -1.5 + i * 3 / 7
-    geom = add_box(bglass, (0, 0, 0), (.02, .36, .28))
+panes = 15
+for i in range(panes):
+    y = -WING_HALF + .12 + i * (2 * WING_HALF - .24) / (panes - 1)
+    geom = add_box(bglass, (0, 0, 0), (.02, (2 * WING_HALF - .24) / (panes - 1) - .03, .26))
     bmesh.ops.rotate(bglass, verts=geom["verts"], cent=(0, 0, 0), matrix=Matrix.Rotation(math.radians(-14), 3, "Y"))
-    bmesh.ops.translate(bglass, verts=geom["verts"], vec=(ACC_X1 - .09, y, BZ + .3))
-mesh_object("BridgeGlass", bglass, [M["glass"]])
-bevel(mesh_object("Accommodation", walls, [M["white"]], uv_scale=.9), .02)
-mesh_object("DeckLips", lips, [M["white"]], uv_scale=.9)
-mesh_object("CabinWindows", lit, [M["window"]])
-mesh_object("CabinWindowsDark", dark, [M["windowDark"]])
-mesh_object("Mullions", mullions, [M["steel"]])
-mesh_object("DeckRails", rails, [M["white"]])
-mesh_object("Stairs", stairs, [M["steel"]])
-
-# lifeboats on gravity davits, both sides, and life-raft canisters on the boat deck
-LB_Z = BASE + 2 * DECK_H + .1
-for side in (-1, 1):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=24, ring_count=12, radius=1, location=(ACC_X0 + .9, side * 2.05, LB_Z))
-    boat = bpy.context.active_object
-    boat.name, boat.scale = f"Lifeboat{side}", (.55, .17, .14)
-    boat.data.materials.append(M["orange"])
-    bpy.ops.object.shade_smooth()
-    cylinder(f"LifeboatCanopy{side}", M["white"], (ACC_X0 + .9, side * 2.05, LB_Z + .1), .1, .7, (1, 1.3, 1), 16, (0, math.radians(90), 0))
-    bm = bmesh.new()
-    for dx in (-.4, .4):
-        add_rod(bm, (ACC_X0 + .9 + dx, side * 1.72, LB_Z - .25), (ACC_X0 + .9 + dx, side * 2.12, LB_Z + .32), .04)
-        add_rod(bm, (ACC_X0 + .9 + dx, side * 2.12, LB_Z + .32), (ACC_X0 + .9 + dx, side * 2.05, LB_Z + .1), .012)
-    mesh_object(f"Davits{side}", bm, [M["dark"]])
-    for i in range(3):
-        cylinder(f"LifeRaft{side}{i}", M["white"], (ACC_X1 - .5 - i * .22, side * 1.85, BASE + 4 * DECK_H + .12), .07, .2, verts=12, rot=(math.pi / 2, 0, 0))
-
-# funnel: elliptical stack, black top, neon company band, twin exhausts and a grille
-FUN_X = ACC_X0 + .05
-cylinder("Funnel", M["white"], (FUN_X, 0, BZ + .55), .62, 2.2, (1.15, .78, 1))
-cylinder("FunnelCap", M["dark"], (FUN_X, 0, BZ + 1.55), .64, .4, (1.17, .8, 1))
-cylinder("NeonFunnel", M["funnel"], (FUN_X, 0, BZ + 1.1), .63, .2, (1.16, .79, 1))
-for y in (-.22, .22):
-    cylinder("Exhaust", M["steel"], (FUN_X - .12, y, BZ + 2.0), .09, .55, verts=16)
-    cylinder("ExhaustLip", M["dark"], (FUN_X - .12, y, BZ + 2.27), .1, .03, verts=16)
-cylinder("Uptake", M["steel"], (FUN_X + .25, 0, BZ + 1.85), .06, .35, verts=12)
-bm = bmesh.new()
-add_box(bm, (FUN_X + .1, 0, BZ - .2), (1.2, 1.5, .7))
-for i in range(6):
-    add_box(bm, (FUN_X + .71, -.5 + i * .2, BZ - .2), (.01, .12, .4))  # louvres
-bevel(mesh_object("FunnelCasing", bm, [M["white"]], uv_scale=.9), .03)
-
-# mast: lattice tower with yards, two radars, VSAT domes, antennas, horn, searchlights
-mast_x = ACC_X1 - .75
-bm = bmesh.new()
+    bmesh.ops.translate(bglass, verts=geom["verts"], vec=(ACC_X1 + .07, y, BZ + .3))
+mesh_object("BridgeGlass", bglass, [M["glass"]], uv=False)
+add_box(lips, (ACC_X1 + .1, 0, BZ + .49), (.16, WING_HALF * 2 + .02, .025))          # sun visor
+add_box(lips, ((WH_X0 + ACC_X1) / 2 + .02, 0, BZ + .555), (ACC_X1 - WH_X0 + .12, TOWER_HALF * 2 + .06, .03))
+for s in (-1, 1):
+    add_box(lips, (ACC_X1 - .22, s * (TOWER_HALF + (WING_HALF - TOWER_HALF) / 2), BZ + .555), (.6, WING_HALF - TOWER_HALF + .04, .03))
+# monkey island: railing, a lattice-topped mast with yard, radars, satcom domes, horn, searchlights
+railing(rails, [(ACC_X1, -TOWER_HALF), (WH_X0, -TOWER_HALF), (WH_X0, TOWER_HALF), (ACC_X1, TOWER_HALF), (ACC_X1, -TOWER_HALF)], lambda x, y: BZ + .57, height=.1)
+MAST_X = ACC_X1 - .72
 for dx in (-.05, .05):
     for dy in (-.05, .05):
-        add_box(bm, (mast_x + dx, dy, BZ + 1.05), (.022, .022, 1.0))
-for h in np.linspace(.6, 1.5, 6):
-    add_box(bm, (mast_x, 0, BZ + h), (.12, .12, .012))
-add_box(bm, (mast_x, 0, BZ + 1.25), (.05, 1.4, .04))
-add_box(bm, (mast_x + .12, 0, BZ + .95), (.04, 1.0, .03))
-for y in (-.65, .65):
-    add_box(bm, (mast_x, y, BZ + 1.4), (.012, .012, .3))     # whip antennas
-add_box(bm, (mast_x - .35, 0, BZ + .75), (.012, .012, .5))
-mesh_object("Mast", bm, [M["steel"]])
+        add_rod(gear, (MAST_X + dx * 1.6, dy * 1.6, BZ + .57), (MAST_X + dx, dy, BZ + 1.5), .022)
+for h in np.linspace(.75, 1.45, 5):
+    add_box(gear, (MAST_X, 0, BZ + h), (.13, .13, .01))
+add_box(gear, (MAST_X, 0, BZ + 1.3), (.04, 1.3, .035))             # signal yard
+add_box(gear, (MAST_X, 0, BZ + 1.5), (.22, .22, .02))              # radar platform
+add_box(gear, (MAST_X, 0, BZ + 1.555), (.07, .07, .09))            # scanner turning unit
+for y in (-.62, .62):
+    add_box(gear, (MAST_X, y, BZ + 1.42), (.01, .01, .24))          # signal lights / whips
+add_box(gear, (MAST_X + .55, 0, BZ + .66), (.12, .12, .18))        # forward radar pedestal
+add_box(gear, (MAST_X - .45, 0, BZ + .78), (.008, .008, .42))      # whip antenna
+for y in (-1.25, 1.25):
+    add_cyl(gear, (WH_X0 + .25, y, BZ + .65), .05, .16, 10)          # satcom pedestals
+add_box(gear, (ACC_X1 - .05, -.9, BZ + .62), (.08, .1, .06))       # horn
+mesh_object("Mast", gear, [M["steel"]])
 bm = bmesh.new()
-add_box(bm, (0, 0, 0), (.1, 1.05, .05))
-radar = mesh_object("Radar", bm, [M["white"]])
-radar.location = (mast_x, 0, BZ + 1.62)
+add_box(bm, (0, 0, 0), (.09, 1.05, .045))
+mesh_object("Radar", bm, [M["white"]]).location = (MAST_X, 0, BZ + 1.63)
 bm = bmesh.new()
-add_box(bm, (0, 0, 0), (.08, .75, .04))
-mesh_object("Radar2", bm, [M["white"]]).location = (mast_x + .12, 0, BZ + 1.0)
-for y in (-.5, .5):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=.11, location=(mast_x - .25, y, BZ + .7))
+add_box(bm, (0, 0, 0), (.08, .78, .04))
+mesh_object("Radar2", bm, [M["white"]]).location = (MAST_X + .55, 0, BZ + .78)
+for y in (-1.25, 1.25):
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=.11, location=(WH_X0 + .25, y, BZ + .82))
     dome = bpy.context.active_object
     dome.name = "VSAT"
     dome.data.materials.append(M["white"])
     bpy.ops.object.shade_smooth()
-lamp("LightPort", M["red"], (ACC_X1 - .5, -2.9, BZ + .35))
-lamp("LightStarboard", M["green"], (ACC_X1 - .5, 2.9, BZ + .35))
-lamp("LightMast", M["lamp"], (mast_x, 0, BZ + 1.6), .05)
-lamp("LightSearch", M["lamp"], (ACC_X1 - .1, -1.6, BZ + .62), .04)
+# starboard (camera side, Blender -Y) green, port red
+lamp("LightStarboard", M["green"], (ACC_X1 - .08, -(WING_HALF + .03), BZ + .5))
+lamp("LightPort", M["red"], (ACC_X1 - .08, WING_HALF + .03, BZ + .5))
+lamp("LightMast", M["lamp"], (MAST_X, 0, BZ + 1.72), .045)
+lamp("LightSearch", M["lamp"], (ACC_X1 - .05, -1.4, BZ + .64), .04)
 
-# stern: mooring deck with winches, bollards, fairleads, flag staff, free-fall lifeboat
-SZ = deck_z(X0 + .4)
+# funnel: rounded casing raked aft, soot-black top, company band, exhaust uptakes, louvred intakes
+FUN_X = (BASE_AFT + TOWER_AFT) / 2
+F0 = (ROOF, FUN_X + .01, 0, .36, .66, .17)
+F1 = (BZ + .78, FUN_X - .13, 0, .33, .6, .16)
+F2 = (BZ + 1.05, FUN_X - .17, 0, .325, .59, .16)
+fb = bmesh.new()
+loft(fb, [F0, F1], 0, cap_top=False)
+loft(fb, [F1, F2], 1)
+for s in (-1, 1):
+    for i in range(7):
+        add_box(fb, (FUN_X - .2 + i * .065, s * .655, ROOF + .45), (.03, .012, .3), 1)   # intake louvres
+f = mesh_object("Funnel", fb, [M["white"], M["dark"]])
 bm = bmesh.new()
-for y in (-1.05, 1.05):
-    add_box(bm, (X0 + .9, y, SZ + .12), (.36, .36, .24))
-    add_cyl(bm, (X0 + .9, y, SZ + .3), .14, .3, 14, axis="Y")
-for x, y in ((X0 + .35, -1.55), (X0 + .35, 1.55), (X0 + 1.5, -1.9), (X0 + 1.5, 1.9)):
-    add_cyl(bm, (x, y - .07, SZ + .1), .045, .2, 10)
-    add_cyl(bm, (x, y + .07, SZ + .1), .045, .2, 10)
-add_box(bm, (X0 - .05, 0, SZ + .7), (.035, .035, 1.4))
+b0, b1 = lerp_section(F0, F1, BZ + .42), lerp_section(F0, F1, BZ + .58)
+loft(bm, [(b0[0], b0[1], 0, b0[3] + .008, b0[4] + .008, b0[5]), (b1[0], b1[1], 0, b1[3] + .008, b1[4] + .008, b1[5])], 0, cap_top=False)
+mesh_object("NeonFunnel", bm, [M["funnel"]])
+bm = bmesh.new()
+top_x = F2[1]
+for (dx, y, r, h) in ((-.09, -.19, .085, .3), (-.09, .19, .085, .3), (.13, -.27, .05, .22), (.13, .27, .05, .22), (.16, 0, .04, .18)):
+    add_cyl(bm, (top_x + dx, y, F2[0] + h / 2 - .02), r, h, 16)
+    add_cyl(bm, (top_x + dx, y, F2[0] + h - .02), r + .012, .025, 16, 1)
+mesh_object("Exhausts", bm, [M["steel"], M["dark"]])
+# engine-room fans and the emergency generator room on the base roof
+bm = bmesh.new()
+for s in (-1, 1):
+    add_box(bm, (BASE_AFT + .3, s * 1.45, ROOF + .14), (.36, .3, .28))
+    add_cyl(bm, (BASE_AFT + .3, s * 1.45, ROOF + .32), .09, .08, 12)
+bevel(mesh_object("RoofHouses", bm, [M["white"]], uv_scale=.9), .015)
+
+# rescue boat on a slewing davit (camera side) and life-raft canisters in cradles (both sides)
+boats = bmesh.new()
+capsule_boat(boats, (TOWER_AFT + .55, -(BASE_HALF - .16), ROOF + .17), .62, .24, .09, .05)
+capsule_boat(boats, (BASE_AFT - .42, 0, BASE + 2 * DECK_H + .05), .95, .3, .12, .19, pitch=math.radians(-24))
+bmesh.ops.recalc_face_normals(boats, faces=boats.faces)
+mesh_object("Lifeboats", boats, [M["orange"]])
+bm = bmesh.new()
+add_cyl(bm, (TOWER_AFT - .1, -1.78, ROOF + .45), .03, .9, 10)
+add_rod(bm, (TOWER_AFT - .1, -1.78, ROOF + .88), (TOWER_AFT + .55, -(BASE_HALF - .16), ROOF + .5), .03)
+# free-fall launching ramp: two skid rails and an A-frame hoist off the base's aft face
+for y in (-.1, .1):
+    geom = add_box(bm, (0, 0, 0), (1.05, .03, .04))
+    bmesh.ops.rotate(bm, verts=geom["verts"], cent=(0, 0, 0), matrix=Matrix.Rotation(math.radians(-24), 3, "Y"))
+    bmesh.ops.translate(bm, verts=geom["verts"], vec=(BASE_AFT - .4, y, BASE + 2 * DECK_H - .07))
+    add_rod(bm, (BASE_AFT, y * 4, BASE + 2 * DECK_H + .45), (BASE_AFT - .62, y * 4, BASE + 2 * DECK_H + .12), .03)
+    add_rod(bm, (BASE_AFT - .62, y * 4, BASE + 2 * DECK_H + .12), (BASE_AFT - .7, y * 4, BASE + DECK_H * .5), .03)
+add_box(bm, (BASE_AFT - .62, 0, BASE + 2 * DECK_H + .12), (.03, .44, .03))
+for s in (-1, 1):
+    for i in range(2):
+        add_box(bm, (BASE_AFT + .25 + i * .26, s * (BASE_HALF - .15), ROOF + .04), (.2, .14, .03))   # raft cradles
+mesh_object("BoatGear", bm, [M["dark"]], uv=False)
+bm = bmesh.new()
+for s in (-1, 1):
+    for i in range(2):
+        add_cyl(bm, (BASE_AFT + .25 + i * .26, s * (BASE_HALF - .15), ROOF + .11), .065, .2, 12, axis="X")
+mesh_object("LifeRafts", bm, [M["white"]])
+
+bevel(mesh_object("Accommodation", walls, [M["white"]], uv_scale=.9), .012)
+mesh_object("DeckLips", lips, [M["white"]], uv_scale=.9)
+mesh_object("CabinWindows", lit, [M["window"]], uv=False)
+mesh_object("CabinWindowsDark", dark, [M["windowDark"]], uv=False)
+mesh_object("Mullions", mullions, [M["dark"]], uv=False)
+mesh_object("DeckRails", rails, [M["white"]], uv=False)
+mesh_object("Stairs", stairs, [M["steel"]], uv=False)
+mesh_object("HouseVents", dark_parts, [M["dark"]], uv=False)
+
+# stern: mooring deck under the house with a bulwark round the transom, winches, bitts, fairleads
+SZ = deck_z(X0 + .2)
+stern_t = [t for t in TS if station(t)[0].x < BASE_AFT + .05]
+edge = [station(t)[0] for t in stern_t]
+pts = [(p.x, -(p.y - .03)) for p in reversed(edge)] + [(p.x, p.y - .03) for p in edge]
+bm = bmesh.new()
+for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
+    length = math.hypot(xb - xa, yb - ya)
+    if length < 1e-4:
+        continue
+    mx, my = (xa + xb) / 2, (ya + yb) / 2
+    add_box(bm, (mx, my, deck_z(mx) + .13), (length + .02, .03, .26), rot_z=math.atan2(yb - ya, xb - xa))
+mesh_object("SternBulwark", bm, [M["bulwark"]], uv=False)
+bm = bmesh.new()
+for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
+    length = math.hypot(xb - xa, yb - ya)
+    if length < 1e-4:
+        continue
+    mx, my = (xa + xb) / 2, (ya + yb) / 2
+    add_box(bm, (mx, my, deck_z(mx) + .27), (length + .02, .06, .02), rot_z=math.atan2(yb - ya, xb - xa))  # cap rail
+mesh_object("SternCapRail", bm, [M["white"]], uv=False)
+bm = bmesh.new()
+for s in (-1, 1):
+    # mooring winch: bedplate, split drum with flanges, warping head, motor
+    add_box(bm, (X0 + .05, s * 1.05, SZ + .05), (.42, .5, .1))
+    add_cyl(bm, (X0 + .05, s * 1.0, SZ + .24), .13, .32, 16, axis="Y")
+    for dy in (-.17, .17, 0):
+        add_cyl(bm, (X0 + .05, s * 1.0 + dy, SZ + .24), .2, .025, 16, axis="Y")
+    add_cyl(bm, (X0 + .05, s * 1.38, SZ + .24), .08, .14, 12, axis="Y")
+    add_box(bm, (X0 + .05, s * .68, SZ + .2), (.22, .16, .2))
+    # double bitts and pedestal fairleads near the quarters
+    for x, y in ((X0 - .3, s * 1.2), (X0 + .25, s * 1.72)):
+        for dx in (-.07, .07):
+            add_cyl(bm, (x + dx, y, SZ + .1), .045, .2, 10)
+            add_cyl(bm, (x + dx, y, SZ + .2), .06, .02, 10)
+        add_box(bm, (x, y, SZ + .015), (.3, .12, .03))
+    add_cyl(bm, (X0 - .1, s * .55, SZ + .12), .06, .14, 10)
+add_box(bm, (X0 - .45, 0, SZ + .55), (.03, .03, 1.1))   # ensign staff
 mesh_object("SternGear", bm, [M["steel"]])
 bm = bmesh.new()
-add_box(bm, (X0 - .32, 0, SZ + 1.22), (.5, .01, .3))
+for x, y in ((X0 - .52, -.9), (X0 - .52, .9), (X0 - .1, -1.55), (X0 - .1, 1.55)):
+    near = min(pts, key=lambda p: (p[0] - x) ** 2 + (abs(p[1]) - abs(y)) ** 2)
+    add_box(bm, (near[0], math.copysign(abs(near[1]), y), deck_z(near[0]) + .14), (.14, .14, .09))   # panama chocks
+mesh_object("SternChocks", bm, [M["dark"]], uv=False)
+bm = bmesh.new()
+add_box(bm, (X0 - .7, 0, SZ + .96), (.42, .01, .26))
 mesh_object("SternFlag", bm, [M["neon"]])
-lamp("LightStern", M["lamp"], (X0 - .05, 0, SZ + 1.45), .05)
-bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=1, location=(X0 + .55, -.9, SZ + .95))
-boat = bpy.context.active_object
-boat.name, boat.scale, boat.rotation_euler = "FreeFallBoat", (.72, .22, .2), (0, math.radians(-24), 0)
-boat.data.materials.append(M["orange"])
-bpy.ops.object.shade_smooth()
-cylinder("FreeFallCanopy", M["white"], (X0 + .62, -.9, SZ + 1.1), .14, .5, (1, 1.2, 1), 24, (0, math.radians(66), 0))
+lamp("LightStern", M["lamp"], (X0 - .45, 0, SZ + 1.14), .045)
 bm = bmesh.new()
-for y in (-1.12, -.68):
-    geom = add_box(bm, (0, 0, 0), (1.5, .05, .06))
-    bmesh.ops.rotate(bm, verts=geom["verts"], cent=(0, 0, 0), matrix=Matrix.Rotation(math.radians(-24), 3, "Y"))
-    bmesh.ops.translate(bm, verts=geom["verts"], vec=(X0 + .55, y, SZ + .72))
-    add_box(bm, (X0 + 1.15, y, SZ + .55), (.06, .06, 1.1))
-mesh_object("LifeboatRamp", bm, [M["dark"]])
-bm = bmesh.new()
-add_box(bm, (X0 - .58, 0, SZ - .12), (.012, (hull_half(X0) - .02) * 1.7, .03))
+add_box(bm, (X0 - .565, 0, SZ - .045), (.012, (hull_half(X0) - .02) * 1.8, .025))
 mesh_object("NeonTransom", bm, [M["neon"]])
 
 # ================================================================ forecastle
@@ -911,7 +1140,19 @@ for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
         mid = Vector(((xa + xb) / 2, side * (ya + yb) / 2, deck_z((xa + xb) / 2) + .32 + .14))
         length = math.hypot(xb - xa, yb - ya)
         add_box(bm, mid, (length + .02, .035, .28), rot_z=side * math.atan2(yb - ya, xb - xa))
-mesh_object("Bulwark", bm, [M["bulwark"]], uv_scale=.6)
+mesh_object("Bulwark", bm, [M["bulwark"]], uv=False)
+bm = bmesh.new()
+for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
+    if ya < .05:
+        continue
+    for side in (-1, 1):
+        mx = (xa + xb) / 2
+        ang = side * math.atan2(yb - ya, xb - xa)
+        length = math.hypot(xb - xa, yb - ya)
+        add_box(bm, (mx, side * (ya + yb) / 2, deck_z(mx) + .32 + .29), (length + .02, .07, .02), rot_z=ang)   # cap rail
+        inner = side * ((ya + yb) / 2 - .05)
+        add_box(bm, (mx, inner, deck_z(mx) + .32 + .14), (.02, .07, .26), rot_z=ang)                        # stay
+mesh_object("BulwarkRail", bm, [M["white"]], uv=False)
 bm = bmesh.new()
 for x in (FX + 1.0, FX + 2.4):
     for side in (-1, 1):
@@ -948,7 +1189,7 @@ for side in (-1, 1):
     add_box(bm, (x, y, z - .14), (.3, .07, .08))                           # crown
     for dx in (-.13, .13):
         add_box(bm, (x + dx, y, z - .06), (.06, .07, .2), rot_y=math.radians(25 if dx > 0 else -25))  # flukes
-mesh_object("Anchors", bm, [M["dark"]])
+mesh_object("Anchors", bm, [M["dark"]], uv=False)
 bm = bmesh.new()
 for side in (-1, 1):
     x = L / 2 - 1.3
@@ -967,7 +1208,7 @@ bm = bmesh.new()
 x = CARGO_START - .2
 while x < FX:
     for side in (-1, 1):
-        add_box(bm, (x, side * (hull_half(x) - .06), deck_z(x) + .14), (.016, .016, .28))
+        add_box(bm, (x, side * (hull_half(x) - .06), deck_z(x) + .14), (.016, .016, .28), slim=True)
     x += .4
 for side in (-1, 1):
     segs = 40
@@ -978,8 +1219,8 @@ for side in (-1, 1):
             ya, yb = side * (hull_half(xa) - .06), side * (hull_half(xb) - .06)
             mid = Vector(((xa + xb) / 2, (ya + yb) / 2, deck_z((xa + xb) / 2) + h))
             length = math.hypot(xb - xa, yb - ya)
-            add_box(bm, mid, (length + .01, .014, .014), rot_z=math.atan2(yb - ya, xb - xa))
-mesh_object("Railing", bm, [M["white"]])
+            add_box(bm, mid, (length + .01, .014, .014), rot_z=math.atan2(yb - ya, xb - xa), slim=True)
+mesh_object("Railing", bm, [M["white"]], uv=False)
 
 # hull-side name board (camera side, flat midbody): the browser paints the market or stock name
 HN_X0, HN_X1, HN_Z0, HN_Z1 = -8.6, 5.0, -1.0, -.18
@@ -1014,11 +1255,9 @@ for fmt in ("WEBP", "JPEG", "AUTO"):
         print("export", fmt, error)
 
 if PREVIEW:
+    # broadside (the default file), plus a stern three-quarter and a close look at the house: the views the voyage shows
     cam_data = bpy.data.cameras.new("cam")
-    cam_data.lens = 50
     cam = link(bpy.data.objects.new("cam", cam_data))
-    cam.location = (3, -36, 6.5)
-    cam.rotation_euler = (math.radians(82), 0, math.radians(4.5))
     scene.camera = cam
     sun = link(bpy.data.objects.new("sun", bpy.data.lights.new("sun", "SUN")))
     sun.data.energy = 3.5
@@ -1034,7 +1273,17 @@ if PREVIEW:
             break
         except TypeError:
             continue
-    scene.render.resolution_x, scene.render.resolution_y = 1800, 700
-    scene.render.filepath = PREVIEW
-    bpy.ops.render.render(write_still=True)
-    print("preview", PREVIEW)
+    views = [("", 50, (3, -36, 6.5), (82, 0, 4.5), (1800, 700)),
+             ("_stern", 50, (-30, -22, 12), (70, 0, -55), (1600, 1000)),
+             ("_house", 50, (-19, -9, 6.5), (75, 0, -60), (1600, 1000)),
+             ("_bow", 50, (24, -16, 7), (72, 0, 55), (1600, 1000)),
+             ("_aft", 50, (-20, -7, 4), (75, 0, -52), (1600, 1000)),
+             ("_transom", 50, (-26, 0, 1.2), (90, 0, -90), (1200, 900))]
+    for suffix, lens, loc, rot, res in views:
+        cam_data.lens = lens
+        cam.location = loc
+        cam.rotation_euler = tuple(math.radians(a) for a in rot)
+        scene.render.resolution_x, scene.render.resolution_y = res
+        scene.render.filepath = PREVIEW.replace(".png", suffix + ".png")
+        bpy.ops.render.render(write_still=True)
+        print("preview", scene.render.filepath)
