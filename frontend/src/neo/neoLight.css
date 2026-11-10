@@ -29,3 +29,28 @@
 :root[data-tone="light"] .ng-silk-canvas{filter:invert(1) hue-rotate(180deg) saturate(1.3);mix-blend-mode:multiply;opacity:.38}
 :root[data-tone="light"] .ng-electric-canvas[data-state="loading"],:root[data-tone="light"] .ng-silk-canvas[data-state="loading"]{opacity:0}
 :root[data-tone="light"] :is(.ng-electric-shade,.ng-silk-shade){background:radial-gradient(ellipse at 50% 48%,transparent 45%,#f5f3f880 100%)}
+
+/* ---- pulse board cells (light): the cells float over the dark sea, so they become
+   near-opaque white glass with a quiet tint; numbers take a deep shade of their own colour. ---- */
+html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock{background:linear-gradient(118deg,color-mix(in srgb,var(--sc-color) calc(var(--sc-strength)*20% + 5%),#fffffff5),#fffffff2 92%);box-shadow:inset 0 0 0 1px #2a1f3a17,0 1px 4px #12081f2e}
+html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock:hover{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--sc-color) 70%,#2a1f3a),0 2px 12px color-mix(in srgb,var(--sc-color) 30%,transparent)}
+html:root[data-tone="light"] .sc-scanner .sc-stock-return{color:color-mix(in srgb,var(--sc-color) 55%,#1c1324);text-shadow:none;font-weight:650}
+html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock-name{color:#221c29}
+html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock:hover .sc-stock-name{color:#120d18}
+html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock-price{color:#4a4153}
+html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock>small{color:#655b70}
+@media(max-width:899px){html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock{background:linear-gradient(118deg,color-mix(in srgb,var(--sc-color) calc(var(--sc-strength)*20% + 5%),#fffffff7),#fffffff5 92%)}}
+/* pulse board header strip over the sea: market tabs, breadth, sort */
+html:root[data-tone="light"] .pb-tabs{background:#ffffffe6;border-color:#2a1f3a24;box-shadow:0 1px 4px #12081f2e}
+html:root[data-tone="light"] .pb-tab{color:#2e2735}
+html:root[data-tone="light"] .pb-tab:hover{background:#2a1f3a0d;color:#1a1420}
+html:root[data-tone="light"] .pb-tab[aria-selected=true]{background:linear-gradient(120deg,color-mix(in srgb,var(--pb-glow) 18%,#ffffff),#ffffff);color:#1a1420;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pb-glow) 55%,#2a1f3a)}
+html:root[data-tone="light"] .pb-tab-name{color:#4f4659}
+html:root[data-tone="light"] .pb-tab b{text-shadow:none!important;font-weight:650}
+html:root[data-tone="light"] .pb-tab b.is-up{color:#b8283f}
+html:root[data-tone="light"] .pb-tab b.is-down{color:#1f5fb8}
+html:root[data-tone="light"] .sc-scanner.pb-board .pb-breadth{background:#ffffffd9;border-radius:999px;padding-inline:12px;box-shadow:0 1px 4px #12081f2e}
+html:root[data-tone="light"] .sc-scanner.pb-board .pb-breadth .sc-up{color:#b8283f}
+html:root[data-tone="light"] .sc-scanner.pb-board .pb-breadth .sc-down{color:#1f5fb8}
+html:root[data-tone="light"] .sc-scanner.pb-board .pb-sort>button{background:#ffffffe6;color:#3a3243;border-color:#2a1f3a26}
+html:root[data-tone="light"] .sc-scanner.pb-board .pb-sort>button[aria-pressed=true]{background:color-mix(in srgb,var(--pb-glow) 18%,#ffffff);color:#2a2131;border-color:color-mix(in srgb,var(--pb-glow) 60%,#2a2131)}
