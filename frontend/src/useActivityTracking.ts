@@ -142,6 +142,13 @@ export function pageLabel(path: string): string {
   if (path === "/admin/growth") return "성장 통계";
   if (path === "/support") return "커피 후원";
   if (path === "/admin/live") return "관리자 실시간";
+  if (path === "/pulse-board") return "증시 전광판";
+  if (path === "/investment-videos") return "투자 영상";
+  if (path === "/investors") return "유명 투자자";
+  if (path === "/drive") return "드라이브 게임";
+  if (path === "/walk") return "직접 걷기";
+  if (path === "/support-success") return "후원 완료";
+  if (path === "/admin/support-log") return "후원 기록";
   return "기타";
 }
 

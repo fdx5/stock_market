@@ -840,9 +840,9 @@ export interface KospiNightQuote {
   stale: boolean;
   fetch_failed: boolean;
   session_state: "open" | "closed";
-  source: string;
-  source_url: string;
-  refresh_seconds: number;
+  source?: string;
+  source_url?: string;
+  refresh_seconds?: number;
 }
 
 export interface TreasuryHeadline {
@@ -1667,6 +1667,7 @@ export const api = {
     getJSON<DailyPricePage>(`${BASE}/us-stock/${code}/daily?offset=${offset}&limit=${limit}`),
   globalIndices: () => getJSONFresh<{ items: GlobalIndexWidget[] }>(`${BASE}/global/indices`),
   kospiNight: () => getJSONFresh<KospiNightQuote>(`${BASE}/global/kospi-night`),
+  kospiFutures: () => getJSONFresh<KospiNightQuote>(`${BASE}/global/kospi-futures`),
   treasuryHeadlines: () => getJSONFresh<{ items: TreasuryHeadline[]; source: string }>(`${BASE}/global/treasuries/quotes`),
   globalEnrichment: (code: string, lang: string = "ko", signal?: AbortSignal) =>
     getJSON<GlobalEnrichment>(`${BASE}/global/${code}/enrichment?lang=${lang}`, { signal }),

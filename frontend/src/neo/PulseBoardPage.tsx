@@ -5,6 +5,7 @@ import { Link, navigate } from "../router";
 import { useLanguage } from "../i18n/LanguageContext";
 import { useMarketIndices } from "../useMarketIndices";
 import { useMarketTicker } from "../useMarketTicker";
+import { useKospiFutures } from "../useKospiNight";
 import { pct, toneOf } from "../desk2/lib";
 import { hasReturn, quoteColor, quotePct, tickerChangePct } from "./marketQuote";
 import { useFxLevel } from "./settings";
@@ -109,6 +110,23 @@ function FloatingCompany({ item, market, controller, onClose, lang }: {
       <button type="button" className="pb-float-close" onClick={onClose} aria-label={lang === "ko" ? "선택 해제" : "Clear selection"}>×</button>
       <i className="pb-float-ripple" aria-hidden="true" />
     </div>
+  </div>;
+}
+
+/** KOSPI 200 day-session futures beside the market tabs: a quote, not a tab. */
+function KospiFuturesChip() {
+  const quote = useKospiFutures();
+  const { lang } = useLanguage();
+  const L = (ko: string, en: string) => lang === "ko" ? ko : en;
+  const change = quote?.change_pct;
+  const tone = change == null ? "flat" : change > 0 ? "up" : change < 0 ? "down" : "flat";
+  const state = quote?.stale ? L("지연", "Delayed") : quote?.session_state === "open" ? L("거래중", "Open") : quote ? L("마감", "Closed") : L("연결중", "Loading");
+  const stamp = quote?.quote_time ? new Date(quote.quote_time * 1000).toLocaleString(lang === "ko" ? "ko-KR" : "en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—";
+  return <div className={`pb-futures${quote?.stale ? " is-stale" : ""}`} data-mood={change == null ? "calm" : change >= 1 ? "up" : change <= -1 ? "down" : "calm"} role="group" aria-label={L("코스피200 주간선물 시세", "KOSPI 200 day futures")} title={`${L("네이버 증권 주간선물 시세", "Naver day-session futures quote")} · ${stamp} KST · ${state}`}>
+    <span className="pb-tab-name">{L("코스피200 선물", "KOSPI 200 FUT")}</span>
+    <strong>{quote?.close != null ? quote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</strong>
+    <b className={`is-${tone}`}>{change != null ? `${change > 0 ? "+" : change < 0 ? "−" : ""}${Math.abs(change).toFixed(2)}%` : "—"}</b>
+    <small>{state}</small>
   </div>;
 }
 
@@ -233,6 +251,7 @@ export default function PulseBoardPage() {
             <span className="pb-tab-name">{config.label}</span><strong>{price(quote.price)}</strong><b className={`is-${toneOf(quote.change)}`}>{quotePct(quote.change)}</b>
           </button>;
         })}</div>
+        <KospiFuturesChip />
         <div className="pb-breadth" title={L("등락 분포", "Breadth")}><b className="sc-up">↑{up}</b><div className="sc-breadth-track" role="img" aria-label={`${up} up, ${down} down`}>{[[up, "up"], [known.length - up - down, "flat"], [down, "down"]].map(([count, tone]) => <i key={tone} className={`sc-${tone}`} style={{ flex: Number(count) }} />)}</div><b className="sc-down">↓{down}</b></div>
         <div className="pb-sort" role="group" aria-label={L("정렬", "Sort")}>{([["cap", L("시총순", "Size")], ["return", L("등락순", "Return")]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={order === key} onClick={() => setOrder(key)}>{label}</button>)}</div>
       </div>

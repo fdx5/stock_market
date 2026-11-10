@@ -177,6 +177,11 @@ def indices():
     return {"items": items}
 
 
+@router.get("/kospi-futures")
+def kospi_futures_quote():
+    return kospi_futures_fetcher.get_header_quote()
+
+
 @router.get("/kospi-night")
 def kospi_night_quote():
     return kospi_night.get_quote()

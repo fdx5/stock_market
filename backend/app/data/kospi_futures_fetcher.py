@@ -1,3 +1,7 @@
+import datetime as dt
+import math
+import time
+
 import requests
 
 from app.services.cache import cache
@@ -67,3 +71,44 @@ def get_index(code: str) -> dict:
     """Quote + sparkline for one Naver-coded domestic index. Raises on failure so the
     caller can fall back rather than render a tile full of nulls."""
     return cache.get_or_set(f"naver_index:{code}", TTL_SECONDS, lambda: _fetch(code))
+
+
+# Header badge: the headline print only (no sparkline), refreshed every 10 seconds
+# server-wide so every visitor shares one Naver request.
+HEADER_TTL_SECONDS = 10
+HEADER_FAIL_BACKOFF_SECONDS = 30  # a down source must not see one retry per visitor poll
+_header_failed_at: float | None = None
+
+
+def _header_quote() -> dict:
+    resp = requests.get(BASIC_URL.format(code="FUT"), headers=HEADERS, timeout=(3, 5))
+    resp.raise_for_status()
+    basic = resp.json()
+    close = _to_float(basic["closePrice"])
+    change = _to_float(basic["compareToPreviousClosePrice"])
+    change_pct = _to_float(basic["fluctuationsRatio"])
+    if not all(math.isfinite(v) for v in (close, change, change_pct)) or close <= 0:
+        raise ValueError("Invalid quote")
+    stamp = None
+    try:
+        stamp = int(dt.datetime.fromisoformat(str(basic["localTradedAt"])).timestamp())
+    except (KeyError, ValueError, TypeError):
+        pass
+    return {"close": close, "change": change, "change_pct": change_pct, "quote_time": stamp,
+            "session_state": "open" if basic.get("marketStatus") == "OPEN" else "closed"}
+
+
+def get_header_quote() -> dict:
+    """KOSPI 200 day-session futures for the header badge; never raises."""
+    global _header_failed_at
+    failed = {"close": None, "change": None, "change_pct": None, "quote_time": None,
+              "session_state": "closed", "stale": True, "fetch_failed": True}
+    if _header_failed_at is not None and time.monotonic() - _header_failed_at < HEADER_FAIL_BACKOFF_SECONDS:
+        return failed
+    try:
+        quote = cache.get_or_set("naver_fut_header", HEADER_TTL_SECONDS, _header_quote)
+        _header_failed_at = None
+        return {**quote, "stale": False, "fetch_failed": False}
+    except Exception:
+        _header_failed_at = time.monotonic()
+        return failed

@@ -43,6 +43,12 @@ html:root[data-tone="light"] .sc-scanner.pb-board .sc-stock>small{color:#655b70}
 /* pulse board header strip over the sea: market tabs, breadth, sort */
 html:root[data-tone="light"] .pb-tabs{background:#ffffffe6;border-color:#2a1f3a24;box-shadow:0 1px 4px #12081f2e}
 html:root[data-tone="light"] .pb-tab{color:#2e2735}
+html:root[data-tone="light"] .pb-futures{background:#ffffffe6;border-color:#2a1f3a24;border-left-color:var(--workspace-accent,var(--accent-neon));box-shadow:0 1px 4px #12081f2e;color:#4f4659}
+html:root[data-tone="light"] .pb-futures strong{color:#1a1420}
+html:root[data-tone="light"] .pb-futures small{color:#6b6175}
+html:root[data-tone="light"] .pb-futures b{text-shadow:none!important;font-weight:650}
+html:root[data-tone="light"] .pb-futures b.is-up{color:#b8283f}
+html:root[data-tone="light"] .pb-futures b.is-down{color:#1f5fb8}
 html:root[data-tone="light"] .pb-tab:hover{background:#2a1f3a0d;color:#1a1420}
 html:root[data-tone="light"] .pb-tab[aria-selected=true]{background:linear-gradient(120deg,color-mix(in srgb,var(--pb-glow) 18%,#ffffff),#ffffff);color:#1a1420;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pb-glow) 55%,#2a1f3a)}
 html:root[data-tone="light"] .pb-tab-name{color:#4f4659}
