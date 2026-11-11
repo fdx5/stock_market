@@ -317,8 +317,8 @@ export default function MarketMapPage({
   const containerRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const expandButtonRef = useRef<HTMLButtonElement>(null);
-  // The four market maps open window-filling by default; Close or Esc returns to the page layout.
-  const [mapExpanded, setMapExpanded] = useState(true);
+  // The maps open in the page layout; only the Expand button opens the window-filling view.
+  const [mapExpanded, setMapExpanded] = useState(false);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useLayoutEffect(() => {
