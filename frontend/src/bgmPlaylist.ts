@@ -12,6 +12,7 @@ export interface BgmTrack {
 
 export const BGM_TRACKS: readonly BgmTrack[] = [
   { id: "bcmTHIqefMk", title: "DARK SIGNAL · SoundFlow Lab", channel: "SoundFlow Lab", bpm: 100, energy: 0.7, bass: 0.8, bright: 0.55 },
+  { id: "zXGb3k-A1Vo", title: "NIGHT PROTOCOL · SoundFlow Lab", channel: "SoundFlow Lab", bpm: 100, energy: 0.68, bass: 0.78, bright: 0.52 },
   { id: "-lbbHQbZNKg", title: "Lights · Sappheiros", channel: "Audio Library", bpm: 100, energy: 0.66, bass: 0.72, bright: 0.5 },
   { id: "pF2tXC1pXNo", title: "Chill · sakura Hz", channel: "Audio Library", bpm: 80, energy: 0.48, bass: 0.55, bright: 0.4 },
   { id: "DUWRbl3eVi0", title: "Dawn · Sappheiros", channel: "Sappheiros", bpm: 90, energy: 0.62, bass: 0.7, bright: 0.48 },
@@ -29,11 +30,14 @@ export const BGM_TRACKS: readonly BgmTrack[] = [
 
 export const BGM_SESSION_KEY = "kospimap.bgm.session.v2";
 const CATALOGUE = BGM_TRACKS.map(track => track.id).join(",");
+/** The owner's two opening tracks. Each session puts them first and second in random order. */
+export const BGM_OPENING_IDS: readonly string[] = [BGM_TRACKS[0].id, BGM_TRACKS[1].id];
+const OPENING = BGM_OPENING_IDS.length;
 type StorageAccess = Pick<Storage, "getItem" | "setItem">;
 
-/** The owner's opening track comes first; shuffle the rest once per tab session.
- * Route changes and repeat laps share the current position. A fresh page load
- * always starts with the owner's opening track, while reusing the shuffled order.
+/** The owner's two opening tracks play first and second, in a random order; the rest
+ * are shuffled once per tab session. Route changes and repeat laps share the current
+ * position. A fresh page load starts again at track 1, while reusing the saved order.
  * Storage contains only public video IDs and a cursor, with no account information. */
 export function createBgmSession(storage?: StorageAccess, random: () => number = Math.random) {
   let order = BGM_TRACKS.map(track => track.id);
@@ -42,7 +46,7 @@ export function createBgmSession(storage?: StorageAccess, random: () => number =
   try {
     const saved = JSON.parse(storage?.getItem(BGM_SESSION_KEY) ?? "null");
     if (saved?.catalogue === CATALOGUE && Array.isArray(saved.order) &&
-        saved.order[0] === BGM_TRACKS[0].id &&
+        BGM_OPENING_IDS.every(id => saved.order.indexOf(id) >= 0 && saved.order.indexOf(id) < OPENING) &&
         saved.order.length === order.length && new Set(saved.order).size === order.length &&
         saved.order.every((id: unknown) => typeof id === "string" && order.includes(id)) &&
         Number.isInteger(saved.cursor) && saved.cursor >= 0 && saved.cursor < order.length) {
@@ -52,8 +56,9 @@ export function createBgmSession(storage?: StorageAccess, random: () => number =
     }
   } catch { /* Blocked storage or malformed state: keep an in-memory session. */ }
   if (!restored) {
-    for (let i = order.length - 1; i > 1; i--) {
-      const j = 1 + Math.floor(random() * i);
+    if (random() < 0.5) [order[0], order[1]] = [order[1], order[0]];
+    for (let i = order.length - 1; i > OPENING; i--) {
+      const j = OPENING + Math.floor(random() * (i - OPENING + 1));
       [order[i], order[j]] = [order[j], order[i]];
     }
   }

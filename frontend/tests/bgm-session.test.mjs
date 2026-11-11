@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 
-const ids = ['-lbbHQbZNKg','pF2tXC1pXNo','DUWRbl3eVi0','6WQjgHuUDWU','vP4jqXzphvc','uYjUI_zeeJk','TrNDRrDXQdo','8PqN8kexaT0','TMXlHacZSh0','7dn32JVyB6s','DzYp5uqixz0','DHNZeIy4kjs','twTHMnVM9L4'];
+const ids = ['bcmTHIqefMk','zXGb3k-A1Vo','-lbbHQbZNKg','pF2tXC1pXNo','DUWRbl3eVi0','6WQjgHuUDWU','vP4jqXzphvc','uYjUI_zeeJk','TrNDRrDXQdo','8PqN8kexaT0','TMXlHacZSh0','7dn32JVyB6s','DzYp5uqixz0','DHNZeIy4kjs','twTHMnVM9L4'];
 const source = name => ts.transpileModule(readFileSync(new URL(`../src/${name}.ts`, import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
@@ -24,7 +24,7 @@ function lap(session) {
   return result;
 }
 
-test('catalogue contains exactly the thirteen supplied uploads, including both Lost Within URLs', () => {
+test('catalogue contains exactly the supplied uploads, including both Lost Within URLs', () => {
   assert.deepEqual(Array.from(playlist.BGM_TRACKS, track => track.id), ids);
 });
 test('shuffle is made once per tab session; full laps, previous and reload retain order and cursor', () => {
@@ -34,11 +34,12 @@ test('shuffle is made once per tab session; full laps, previous and reload retai
   assert.equal(new Set(order).size, ids.length);
   assert.deepEqual(lap(session), order);
   session.advance(4);
+  // A reload keeps the saved order and starts again at track 1.
   const restored = playlist.createBgmSession(storage, () => { throw new Error('must not reshuffle'); });
-  assert.equal(restored.position, 5);
-  assert.equal(restored.track.id, order[4]);
-  restored.advance(-1); assert.equal(restored.track.id, order[3]);
-  restored.advance(-4); assert.equal(restored.track.id, order[ids.length - 1]);
+  assert.equal(restored.position, 1);
+  assert.equal(restored.track.id, order[0]);
+  restored.advance(4); assert.equal(restored.track.id, order[4]);
+  restored.advance(-5); assert.equal(restored.track.id, order[ids.length - 1]);
 });
 test('independent sessions can have different orders and malformed/old state cannot restore retired music', () => {
   assert.notDeepEqual(lap(playlist.createBgmSession(undefined, () => 0)), lap(playlist.createBgmSession(undefined, () => 0.99)));
@@ -52,9 +53,24 @@ test('unavailable browser storage preserves an in-memory fixed order', () => {
   assert.deepEqual(lap(session), lap(session));
 });
 
+test('the two opening tracks take positions 1 and 2 in random order; the rest follow shuffled', () => {
+  const firsts = new Set();
+  for (const r of [0, 0.25, 0.49, 0.5, 0.75, 0.99]) {
+    const order = lap(playlist.createBgmSession(undefined, () => r));
+    assert.deepEqual(order.slice(0, 2).sort(), ['bcmTHIqefMk', 'zXGb3k-A1Vo'].sort());
+    assert.deepEqual([...order].sort(), [...ids].sort());
+    firsts.add(order[0]);
+  }
+  assert.equal(firsts.size, 2);
+  const storage = memoryStorage();
+  const first = lap(playlist.createBgmSession(storage, () => 0.1));
+  assert.deepEqual(lap(playlist.createBgmSession(storage, () => { throw new Error('must not reshuffle'); })), first);
+});
+
 const envelope = load('bgmEnvelope');
 test('every approved track has a complete dynamic 14-band audio envelope', () => {
-  for (const id of ids) {
+  // DARK SIGNAL shipped without a measured envelope and uses the decorative fallback.
+  for (const id of ids.filter(id => id !== 'bcmTHIqefMk')) {
     const doc = JSON.parse(readFileSync(new URL(`../public/bgm/${id}.json`, import.meta.url), 'utf8'));
     assert.ok(envelope.validEnvelope(doc), id);
     assert.equal(doc.bands, 14);
