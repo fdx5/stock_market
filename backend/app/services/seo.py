@@ -278,6 +278,103 @@ def _investor_digest(records: list[dict]) -> dict:
     }
 
 
+def _kr_rank(code: str) -> tuple[int, str]:
+    """(market-cap rank across KOSPI+KOSDAQ, market name), or (0, "") if unknown."""
+
+    def build() -> dict:
+        table = {}
+        for position, item in enumerate(kr_universe(), 1):
+            item_code = str(item.get("code", "")).strip().upper()
+            if KRX_CODE.fullmatch(item_code):
+                table[item_code] = (position, str(item.get("market", "")))
+        if not table:
+            raise RuntimeError("KR universe unavailable")
+        return table
+
+    try:
+        return cache.get_or_set("seo_kr_rank", 6 * 3600, build).get(code, (0, ""))
+    except Exception:
+        return 0, ""
+
+
+def _moving_average(closes: list[float], days: int) -> float | None:
+    return sum(closes[:days]) / days if len(closes) >= days else None
+
+
+def _rsi(closes: list[float], days: int = 14) -> float | None:
+    """Wilder RSI over the latest `days` changes; closes are newest first."""
+    if len(closes) < days + 1:
+        return None
+    ordered = closes[: days + 1][::-1]
+    moves = [after - before for before, after in zip(ordered, ordered[1:])]
+    gain = sum(move for move in moves if move > 0) / days
+    loss = -sum(move for move in moves if move < 0) / days
+    if loss == 0:
+        return 100.0
+    return 100 - 100 / (1 + gain / loss)
+
+
+def _kr_stock_numbers(code: str, name: str, kind: str, records: list[dict], digest: dict) -> str:
+    """The page's own figures, so ~2,700 KR stock pages stop sharing one sentence.
+
+    Uses the same cached daily rows as /investor/<code> (close, change, investor
+    net buying); nothing here is estimated, and a missing source yields no block."""
+    if not digest:
+        return ""
+    rank, market = _kr_rank(code)
+    closes = [float(row.get("close") or 0) for row in records if float(row.get("close") or 0) > 0]
+    high, low = (max(closes), min(closes)) if closes else (0.0, 0.0)
+    who = html.escape(name)
+    lines = [
+        f'{who}({code})은(는) {html.escape(market) + " 상장 종목으로 " if market else ""}'
+        + (f"코스피·코스닥 시가총액 {rank:,}위입니다. " if rank else "")
+        + f'{digest["date"]} 종가는 {digest["close"]:,.0f}원으로 전일 대비 {digest["change_pct"]:+.2f}% 움직였습니다.',
+        f'최근 {digest["days"]}거래일({digest["first_date"]}~{digest["date"]}) 종가 기준 수익률은 '
+        f'{digest["period_pct"]:+.2f}%, 이 기간 종가 범위는 {low:,.0f}~{high:,.0f}원입니다.',
+        f'같은 기간 외국인 {_amount(digest["foreign_amount"])}, 기관 {_amount(digest["institution_amount"])}, '
+        f'개인 {_amount(digest["individual_amount"])}을 순매매했습니다.',
+    ]
+    if kind == "outlook":
+        # Naver's daily rows usually stop at ten sessions; use the longest window they cover.
+        span = 20 if len(closes) >= 20 else 10
+        ma5, ma_long, rsi = _moving_average(closes, 5), _moving_average(closes, span), _rsi(closes)
+        facts = []
+        if ma5 and ma_long:
+            facts.append(
+                f"5일 이동평균 {ma5:,.0f}원, {span}일 이동평균 {ma_long:,.0f}원으로 "
+                + ("단기선이 장기선 위에 있습니다(정배열)." if ma5 > ma_long else "단기선이 장기선 아래에 있습니다(역배열).")
+            )
+            facts.append(f"종가는 {span}일 이동평균 대비 {(closes[0] / ma_long - 1) * 100:+.2f}% 위치입니다.")
+        if rsi is not None:
+            zone = "과매수 구간(70 이상)" if rsi >= 70 else "과매도 구간(30 이하)" if rsi <= 30 else "중립 구간"
+            facts.append(f"RSI(14)는 {rsi:.1f}로 {zone}입니다.")
+        if facts:
+            lines.append(" ".join(facts) + " 지표는 참고 자료이며 매매 권유가 아닙니다.")
+    rows = "".join(
+        "<tr><td>{date}</td><td>{close:,.0f}원</td><td>{change:+,.0f}원</td>"
+        "<td>{institution:+.1f}억</td><td>{foreign:+.1f}억</td></tr>".format(
+            date=html.escape(str(row.get("date", ""))),
+            close=float(row.get("close") or 0),
+            change=float(row.get("change") or 0),
+            institution=float(row.get("institution_amount") or 0),
+            foreign=float(row.get("foreign_amount") or 0),
+        )
+        for row in records[:10]
+    )
+    table = (
+        '<table style="border-collapse:collapse;max-width:760px;width:100%">'
+        f'<caption style="text-align:left;margin-bottom:8px;color:#b9c9da">{who} 최근 10거래일 종가와 수급</caption>'
+        '<thead><tr><th style="text-align:left;padding:4px 8px">날짜</th>'
+        '<th style="text-align:right;padding:4px 8px">종가</th>'
+        '<th style="text-align:right;padding:4px 8px">전일 대비</th>'
+        '<th style="text-align:right;padding:4px 8px">기관</th>'
+        '<th style="text-align:right;padding:4px 8px">외국인</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table>'
+        if rows else ""
+    )
+    return "".join(f'<p style="max-width:760px;line-height:1.8">{line}</p>' for line in lines) + table
+
+
 def _amount(value: float) -> str:
     return f"{value:+,.1f}억원"
 
@@ -399,6 +496,27 @@ PAGES.update(public_markets.PAGES)
 PAGES.update({path: (card["title"], card["description"]) for path, card in SOCIAL_CARDS.items() if path.startswith("/community/")})
 
 
+def legacy_redirect(path: str, query: dict[str, str]) -> str | None:
+    """Server-side 301 for URLs the app only rewrote in the browser.
+
+    /news ignores ?code= and the page replaced the address with plain /news, so
+    Search Console filed every /news?code=X link as a page with a redirect. The
+    stock's own news (KR) or detail page (US, ETF) is where that link meant to go.
+    """
+    if path.rstrip("/") != "/news" or "code" not in query:
+        return None
+    code = re.sub(r"[^A-Za-z0-9.-]", "", query.get("code", ""))[:16].upper()
+    rest = {key: value for key, value in query.items() if key != "code"}
+    target = "/news" + ("?" + urlencode(rest) if rest else "")
+    if code:
+        found, _, kind = _stock_entry(f"/stock/{code}")
+        if kind == "kr_stock" and not is_unknown_kr_code(f"/stock/{found}"):
+            target = f"/stock/{found}/news"
+        elif found:
+            target = f"/stock/{found}"
+    return target
+
+
 def _replace_meta(document: str, selector: str, value: str) -> str:
     escaped = html.escape(value, quote=True)
     pattern = rf'(<meta\s+{selector}\s+content=")[^"]*("\s*/?>)'
@@ -516,6 +634,21 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             canonical_query = {}
     investor_records: list[dict] = []
     investor_digest: dict = {}
+    kr_records: list[dict] = []
+    kr_digest: dict = {}
+    if stock_code and stock_kind == "kr_stock" and not stock_report:
+        try:
+            kr_records = investor_fetcher.get_investor_trend(stock_code, 30)
+        except Exception:
+            kr_records = []
+        kr_digest = _investor_digest(kr_records)
+        if kr_digest and not stock_landing_kind:
+            description = (
+                f"{stock_name}({stock_code}) {kr_digest['date']} 종가 {kr_digest['close']:,.0f}원"
+                f"({kr_digest['change_pct']:+.2f}%), 최근 {kr_digest['days']}거래일 {kr_digest['period_pct']:+.2f}%. "
+                f"외국인 {kr_digest['foreign_amount']:+,.0f}억·기관 {kr_digest['institution_amount']:+,.0f}억 순매매. "
+                "차트, 기술적 지표, 수급과 뉴스를 확인하세요."
+            )
     if investor_code:
         try:
             investor_records = investor_fetcher.get_investor_trend(investor_code, 30)
@@ -809,7 +942,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         )
         report_content = (
             f'{intro}'
-            '<nav aria-label="종목 관련 분석" style="display:flex;flex-wrap:wrap;gap:12px">'
+            + _kr_stock_numbers(stock_code, stock_name, stock_landing_kind, kr_records, kr_digest)
+            + '<nav aria-label="종목 관련 분석" style="display:flex;flex-wrap:wrap;gap:12px">'
             f'{siblings}'
             f'<a href="/discussion-explorer?code={stock_code}&amp;name={html.escape(stock_name, quote=True)}">{html.escape(stock_name)} 종목토론</a>'
             '<a href="/market-brief">오늘 브리핑</a></nav>'

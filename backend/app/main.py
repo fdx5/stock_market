@@ -81,6 +81,7 @@ from app.services.seo import (
     build_stocks_sitemap,
     build_us_sitemap,
     is_unknown_kr_code,
+    legacy_redirect,
     render_spa_shell,
 )
 from app.services.market_map import get_kosdaq_map, get_kospi_map
@@ -818,6 +819,9 @@ if STATIC_DIR.exists():
         else:
             query = {key: value for key, value in request.query_params.items()}
             path = "/" + full_path
+            moved = legacy_redirect(path, query)
+            if moved:
+                return RedirectResponse(moved, status_code=301)
             shell = render_spa_shell(_spa_template, path, query)
             if is_unknown_kr_code(path.rstrip("/") or "/"):
                 return HTMLResponse(shell, status_code=404)
