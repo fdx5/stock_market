@@ -594,6 +594,21 @@ export interface IndexLanding {
   breadth: { count: number; up: number; down: number; flat: number; gainers: IndexLandingStock[]; losers: IndexLandingStock[]; largest: IndexLandingStock[]; sectors: { name: string; count: number; average_change: number }[]; collected_at: string; currency: string } | null;
   faq: { q: string; a: string }[]; generated_at: string;
 }
+export interface HotIssueStory {
+  id: string; rank: number; title: string; original_title: string; category: string; region: "global" | "korea";
+  impact: "호재" | "악재" | "중립" | "혼재"; importance: number; summary: string; body: string[]; why_it_matters: string;
+  affected: { name: string; code: string; direction: "up" | "down" | "mixed" }[];
+  sources: { publisher: string; title: string; url: string; language: string; published_at: string }[];
+  image: { url: string; alt: string; credit: string; license: string; source_url: string } | null;
+  video: { youtube_id: string; title: string; channel: string } | null;
+}
+export interface HotIssueEdition {
+  slot?: string; edition?: string; slot_label?: string; generated_at?: string; model?: string;
+  headline?: string; dek?: string; mood?: { tone: "risk-on" | "risk-off" | "mixed"; summary: string };
+  key_numbers?: { label: string; value: string; change: string; note: string }[];
+  stories: HotIssueStory[]; watchlist?: { when: string; event: string; note: string }[]; takeaways?: string[];
+  latest_slot?: string; is_latest?: boolean; next_update?: string; today_slots?: { slot: string; label: string; published: boolean }[];
+}
 export interface OrderBookLevel {
   price: number;
   qty: number;
@@ -1516,6 +1531,8 @@ export const api = {
   news: (code: string) =>
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
   indexLanding: (key: "kospi" | "kosdaq" | "nasdaq") => getJSON<IndexLanding>(`${BASE}/market/index-landing/${key}`),
+  hotIssues: () => getJSON<HotIssueEdition>(`${BASE}/hot-issues/current`),
+  hotIssueSlot: (day: string, hhmm: string) => getJSON<HotIssueEdition>(`${BASE}/hot-issues/${day}/${hhmm}`),
   orderbook: (code: string) => getJSON<OrderBook>(`${BASE}/stock/${code}/orderbook`),
   balanceHistory: (code: string) => getJSON<BalanceHistory>(`${BASE}/stock/${code}/balance`),
   dailyPrices: (code: string, offset = 0, limit = 20) =>

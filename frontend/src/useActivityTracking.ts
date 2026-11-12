@@ -143,6 +143,10 @@ export function pageLabel(path: string): string {
   if (path === "/support") return "커피 후원";
   if (path === "/admin/live") return "관리자 실시간";
   if (path === "/pulse-board") return "증시 전광판";
+  if (path === "/hot-issues") return "오늘의 핫이슈";
+  if (path === "/kospi") return "코스피 지수";
+  if (path === "/kosdaq") return "코스닥 지수";
+  if (path === "/nasdaq") return "나스닥 지수";
   if (path === "/investment-videos") return "투자 영상";
   if (path === "/investors") return "유명 투자자";
   if (path === "/drive") return "드라이브 게임";
@@ -210,6 +214,11 @@ function sendEvent(body: Record<string, unknown>) {
 
 export function reportGrowthAction(action: "share_success" | "link_copy" | "card_download" | "embed_copy" | "rss_open" | "reminder_download"): void {
   sendEvent({ type: "click", path: window.location.pathname, label: `무료 검색·공유 · ${action}`, object_key: `growth:${action}` });
+}
+
+/** 오늘의 핫이슈: where readers enter from and what they open. Admin groups these by object_key. */
+export function reportHotIssue(action: string, label = ""): void {
+  sendEvent({ type: "click", path: window.location.pathname, label: `오늘의 핫이슈 · ${label || action}`.slice(0, 120), object_key: `hotissue:${action}`.slice(0, 100) });
 }
 
 /** Records both the deliberate CTA click and the external game's virtual entrance.

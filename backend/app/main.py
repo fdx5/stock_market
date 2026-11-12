@@ -20,6 +20,7 @@ from app.services.libsql_gate import StoreUnavailable
 from app.services.turso import TursoError
 from app.routers import discovery
 from app.routers import community
+from app.routers import hot_issues as hot_issues_router
 from app.routers import editorial as editorial_router
 from app.services import editorial as editorial_service
 
@@ -234,6 +235,7 @@ def initialize_audience_collection():
         threading.Thread(target=retry_audience_startup, name="audience-startup-retry", daemon=True).start()
 app.include_router(prediction.router, prefix="/api/prediction")
 app.include_router(translate.router, prefix="/api")
+app.include_router(hot_issues_router.router, prefix="/api/hot-issues")
 app.include_router(geo.router, prefix="/api")
 app.include_router(activity.router, prefix="/api/activity")
 from app.routers import audience_diagnostics
@@ -564,6 +566,13 @@ def _start_realestate_collector() -> None:
 @app.on_event("startup")
 def _start_market_brief_scheduler() -> None:
     market_brief_service.start_scheduler()
+
+
+@app.on_event("startup")
+def _start_hot_issue_writer() -> None:
+    # 오늘의 핫이슈: writes the 07:00 / 13:00 / 22:00 KST editions (hot_issue_writer).
+    from app.services import hot_issue_writer
+    hot_issue_writer.start_scheduler()
 
 
 @app.on_event("startup")

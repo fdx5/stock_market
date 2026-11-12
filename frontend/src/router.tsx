@@ -61,6 +61,7 @@ export function Link({
   "aria-label": ariaLabel,
   "aria-current": ariaCurrent,
   title,
+  onClick,
 }: {
   to: string;
   className?: string;
@@ -71,8 +72,11 @@ export function Link({
   "aria-label"?: string;
   "aria-current"?: "page";
   title?: string;
+  /** Runs before navigation (analytics); it cannot cancel the navigation. */
+  onClick?: () => void;
 }) {
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    onClick?.();
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     navigate(to);

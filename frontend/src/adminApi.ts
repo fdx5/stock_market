@@ -737,7 +737,7 @@ async function authedPut<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function authedPost<T>(path: string): Promise<T> {
+export async function authedPost<T>(path: string): Promise<T> {
   const session = getStoredSession();
   if (!session) throw new AdminAuthError("로그인이 필요합니다.");
   const res = await fetch(`${BASE}${path}`, {

@@ -20,6 +20,7 @@ from app.services.cache import cache
 from app.services import market_guides
 from app.services import public_markets
 from app.services import index_landing
+from app.services import hot_issues
 from app.services.social_cards import SOCIAL_CARDS
 
 from app.site import PRIMARY_SITE_URL
@@ -495,6 +496,7 @@ PAGES.update({path: (name + " | K-Stock Hub", description) for path, name, descr
 PAGES.update(market_guides.PAGES)
 PAGES.update(public_markets.PAGES)
 PAGES.update(index_landing.PAGES)
+PAGES["/hot-issues"] = hot_issues.PAGE
 PAGES.update({path: (card["title"], card["description"]) for path, card in SOCIAL_CARDS.items() if path.startswith("/community/")})
 
 
@@ -849,6 +851,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         structured = market_guides.structured_data(canonical_path, SITE)
     if canonical_path in index_landing.BY_PATH:
         structured = index_landing.structured_data(canonical_path, SITE)
+    if canonical_path == "/hot-issues":
+        structured = hot_issues.structured_data(SITE)
     script = '<script id="route-structured-data" type="application/ld+json">' + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/") + "</script>"
     document = document.replace("</head>", f"{script}\n  </head>", 1)
 
@@ -857,7 +861,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     # lightweight shell as soon as it mounts; crawlers and slow connections get
     # a meaningful heading, summary, and crawlable internal links immediately.
     links = [
-        ("/kospi", "코스피 지수"), ("/kosdaq", "코스닥 지수"), ("/nasdaq", "나스닥 지수"),
+        ("/hot-issues", "오늘의 핫이슈"), ("/kospi", "코스피 지수"), ("/kosdaq", "코스닥 지수"), ("/nasdaq", "나스닥 지수"),
         ("/desk", "국내 주식 시세"), ("/map", "코스피 시가총액 맵"),
         ("/kosdaq-map", "코스닥 시가총액 맵"), ("/etf/kr", "국내 ETF"), ("/etf/us", "해외 ETF"),
         ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
@@ -1067,6 +1071,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         report_content = market_guides.render_content(canonical_path)
     if canonical_path in index_landing.BY_PATH:
         report_content = index_landing.render_content(canonical_path)
+    if canonical_path == "/hot-issues":
+        report_content = hot_issues.render_content()
     if canonical_path == "/share-market":
         report_content = '<p>실제 시장의 상승·하락 분포 카드를 내려받아 링크와 함께 공유하세요. iframe을 허용하는 사이트에는 시장 위젯을 넣을 수 있습니다.</p><p><a href="/today">오늘 증시 한눈에</a> · <a href="/market-feed.xml">장마감 브리핑 RSS 구독</a> · <a href="/market-check.ics">평일 16:30 확인 알림</a></p>'
     report_content += public_markets.seo_content(canonical_path, stock_code if not stock_report else "", public_market)
@@ -1166,7 +1172,7 @@ def build_sitemap_index() -> str:
 def build_pages_sitemap() -> str:
     today = date.today().isoformat()
     urls: list[tuple[str, str, str, str]] = []
-    priorities = {"/": "1.0", "/kospi": "1.0", "/kosdaq": "1.0", "/nasdaq": "1.0", "/desk": "0.9", "/map": "0.9", "/market-brief": "0.9", "/etf": "0.8"}
+    priorities = {"/": "1.0", "/hot-issues": "1.0", "/kospi": "1.0", "/kosdaq": "1.0", "/nasdaq": "1.0", "/desk": "0.9", "/map": "0.9", "/market-brief": "0.9", "/etf": "0.8"}
     for path in PAGES:
         is_guide = path in market_guides.PAGES
         urls.append((f"{SITE}{path}", priorities.get(path, "0.7"), "monthly" if is_guide else "daily",

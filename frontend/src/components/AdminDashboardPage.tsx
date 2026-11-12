@@ -15,6 +15,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import AdminCommentsPanel from "./AdminCommentsPanel";
 import AdminOpsPanel from "./AdminOpsPanel";
 import AdminTrafficSection from "./AdminTrafficSection";
+import AdminHotIssuesPanel from "./AdminHotIssuesPanel";
 import AdminDevicesPanel from "./AdminDevicesPanel";
 import LiveSessionsAndLog, { LiveStatus } from "./LiveSessionsAndLog";
 import "./adminLive.css";
@@ -27,11 +28,12 @@ import "./adminConsole.css";
  * 경고·오류 로그. 각 묶음은 따로 불러오고 따로 실패하며, 실패한 곳은 마지막 값과
  * 오류, 재시도를 보인다 — 하나가 늦어 화면 전체가 "로딩 중"에 머무는 일이 없게. */
 
-type Section = "overview" | "traffic" | "live" | "ops" | "system" | "comments";
+type Section = "overview" | "traffic" | "hotissue" | "live" | "ops" | "system" | "comments";
 
 const SECTIONS: { key: Section; label: string; hint: string }[] = [
   { key: "overview", label: "개요", hint: "상태판" },
   { key: "traffic", label: "트래픽", hint: "방문·순위" },
+  { key: "hotissue", label: "핫이슈", hint: "발행·조회 로그" },
   { key: "live", label: "실시간", hint: "세션·로그" },
   { key: "ops", label: "운영·배치", hint: "예측·메일·알림" },
   { key: "system", label: "시스템", hint: "DB·수집·오류" },
@@ -511,6 +513,7 @@ export default function AdminDashboardPage() {
           />
         )}
         {section === "traffic" && <AdminTrafficSection />}
+        {section === "hotissue" && <AdminHotIssuesPanel />}
         {section === "live" && (
           <section className="admin-panel admin-panel--live">
             <div className="admin-panel-head">

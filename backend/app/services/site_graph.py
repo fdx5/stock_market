@@ -57,6 +57,8 @@ PAGES: list[dict] = [
     {"id": "page:/desk2", "label": "클래식 데스크", "path": "/desk2", "group": "stock"},
     # Pulse board: the top-100 boards of three markets over the pulse sea, with the container ship.
     {"id": "page:/pulse-board", "label": "증시 전광판", "path": "/pulse-board", "group": "board"},
+    # 오늘의 핫이슈: three editions a day from the editorial-editions branch.
+    {"id": "page:/hot-issues", "label": "오늘의 핫이슈", "path": "/hot-issues", "group": "board"},
     {"id": "page:/stocks", "label": "종목정보", "path": "/stocks", "group": "stock"},
     {"id": "page:/map", "label": "코스피 지도", "path": "/map", "group": "map"},
     {"id": "page:/kosdaq-map", "label": "코스닥 지도", "path": "/kosdaq-map", "group": "map"},

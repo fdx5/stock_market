@@ -1,0 +1,8 @@
+/* 상단 맥락 바: 코스피200 선물 배지 왼쪽의 '오늘의 핫이슈' 진입 버튼 */
+.ng-context .ng-hot-entry{margin-left:auto;display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;border:1px solid #ff6b7a66;border-radius:999px;background:linear-gradient(90deg,#ff5f6d1f,#bf85ff14);color:#ffd9dd;font:600 11px var(--f-sans);letter-spacing:-.01em;white-space:nowrap;text-decoration:none;flex:none;transition:border-color .15s,background .15s}
+.ng-context .ng-hot-entry:hover,.ng-context .ng-hot-entry[aria-current=page]{border-color:#ff8a96;background:linear-gradient(90deg,#ff5f6d33,#bf85ff26);color:#fff}
+.ng-context .ng-hot-entry>i{width:7px;height:7px;border-radius:50%;background:#ff5f6d;box-shadow:0 0 0 3px #ff5f6d33;animation:ng-hot-pulse 1.8s ease-in-out infinite}
+.ng-context .ng-hot-entry+.ng-market-quotes{margin-left:0}
+@keyframes ng-hot-pulse{50%{box-shadow:0 0 0 6px #ff5f6d00}}
+@media(prefers-reduced-motion:reduce){.ng-context .ng-hot-entry>i{animation:none}}
+:root[data-tone="light"] .ng-context .ng-hot-entry{color:#a3182a;background:#ffe9ec;border-color:#f3a3ad}

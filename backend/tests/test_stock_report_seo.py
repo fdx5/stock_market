@@ -28,6 +28,7 @@ def renderer():
     env['public_markets'] = SimpleNamespace(MARKETS={'kospi': {'name': 'KOSPI'}}, PAGES={}, seo_content=lambda *_args: '')
     env['market_guides'] = SimpleNamespace(GUIDES={}, PAGES={})
     env['index_landing'] = SimpleNamespace(BY_PATH={}, PAGES={})
+    env['hot_issues'] = SimpleNamespace(PAGE=('', ''), render_content=lambda: '', structured_data=lambda _site: {})
     exec(compile(ast.Module(body=funcs,type_ignores=[]),'seo-fixture','exec'), env)
     page_catalog = next(node.value for node in source.body if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == 'PAGES')
     env['PAGES'].update({key.value: ast.literal_eval(value) for key, value in zip(page_catalog.keys, page_catalog.values)

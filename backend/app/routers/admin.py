@@ -181,6 +181,28 @@ def research_stats(days: int = Query(7, ge=1, le=30), path: str = Query("", max_
     return {"days": days, "path": path, **page_view_store.research_stats(since, path)}
 
 
+@router.get("/hot-issues/stats", dependencies=[Depends(require_admin)])
+@ttl_cache(30)
+def hot_issue_stats(days: int = Query(7, ge=1, le=30)):
+    from app.services import hot_issues
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    from app.services import hot_issue_store
+    try:
+        runs = hot_issue_store.recent_runs((datetime.now(hot_issues.KST) - timedelta(days=min(days, 14))).isoformat(timespec="seconds"))
+    except Exception as exc:
+        runs = [{"slot": "", "at": "", "event": "log_unavailable", "trigger": "", "detail": type(exc).__name__}]
+    return {"days": days, **page_view_store.hot_issue_stats(since), "editions": hot_issues.log(min(days, 14)), "runs": runs}
+
+
+@router.post("/hot-issues/run", dependencies=[Depends(require_admin)])
+def hot_issue_run(background: BackgroundTasks):
+    """Write the slot that is due now (or the latest missed one) without waiting for the scheduler."""
+    from app.services import hot_issues, hot_issue_writer
+    slot = hot_issue_writer.due_slot() or hot_issues.current_slot()
+    background.add_task(hot_issue_writer.run_slot, slot, "admin")
+    return {"slot": slot.isoformat(timespec="minutes"), "queued": True}
+
+
 @router.get("/growth/overview", dependencies=[Depends(require_admin)])
 @ttl_cache(285)
 def growth_overview(

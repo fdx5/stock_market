@@ -58,6 +58,7 @@ const BroadsheetBriefPage = lazy(() => import("./desk2/brief/BriefPage"));
 /* The three TOP 100 boards; one component, so switching boards keeps it mounted.
    The classic StockBoardPage stays in the tree, unrouted. */
 const NeoTop100Page = lazy(() => import("./neo/Top100Page"));
+const HotIssuesPage = lazy(() => import("./neo/HotIssuesPage"));
 const IndexLandingPage = lazy(() => import("./neo/IndexLandingPage"));
 const BroadsheetForecastPage = lazy(() => import("./desk2/forecast/ForecastPage"));
 const BroadsheetGradingPage = lazy(() => import("./desk2/forecast/GradingPage"));
@@ -470,6 +471,8 @@ export default function App() {
     page = <BroadsheetStocksPage />;
   } else if (path === "/kospi" || path === "/kosdaq" || path === "/nasdaq") {
     page = <IndexLandingPage key={path} index={path.slice(1) as "kospi" | "kosdaq" | "nasdaq"} />;
+  } else if (path === "/hot-issues") {
+    page = <HotIssuesPage />;
   } else if (path === "/kospi-100") {
     page = <NeoTop100Page market="kospi" />;
   } else if (path === "/kosdaq-100") {
