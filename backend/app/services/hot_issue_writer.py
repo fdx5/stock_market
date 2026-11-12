@@ -95,8 +95,9 @@ def ask_claude(prompt: str, timeout: int = TIMEOUT) -> tuple[dict, dict]:
         raise RuntimeError("claude CLI를 찾을 수 없습니다")
     cmd = [exe, "-p", "--output-format", "json", "--json-schema", json.dumps(hi.SCHEMA, ensure_ascii=False),
            "--tools", "WebSearch,WebFetch", "--no-session-persistence", "--allowedTools", "WebSearch", "WebFetch"]
-    if os.environ.get("HOT_ISSUES_MODEL"):
-        cmd[2:2] = ["--model", os.environ["HOT_ISSUES_MODEL"]]
+    # Pinned: the CLI's own default on the server turned out to be Haiku, and this
+    # job (weighing and translating the day's reports accurately) needs the strongest model.
+    cmd[2:2] = ["--model", os.environ.get("HOT_ISSUES_MODEL", "opus")]
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="hot-issues-") as cwd:  # no repository context
         proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
