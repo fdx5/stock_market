@@ -1,7 +1,7 @@
-"""Writes 오늘의 핫이슈 on the server, three times a day.
+"""Writes 오늘의 핫이슈 on the server, twice a day (07:00 and 22:00 KST).
 
 A scheduler thread starts each edition 25 minutes before its slot (06:35 → 07:00,
-12:35 → 13:00, 21:35 → 22:00 KST). Claude Code — the same CLI and subscription token
+21:35 → 22:00 KST). Claude Code — the same CLI and subscription token
 the AI forecast uses — researches the news with WebSearch/WebFetch only and answers
 in hot_issues.SCHEMA. Every source, picture and video is checked, the edition is
 validated by the same rules the page reads with, and it is stored once per slot

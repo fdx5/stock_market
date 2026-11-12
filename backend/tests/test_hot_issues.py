@@ -16,8 +16,8 @@ def at(h, m=0, day=12):
 
 
 @pytest.mark.parametrize("now,slot,nxt", [
-    (at(6, 59), at(22, 0, 11), at(7)), (at(7), at(7), at(13)), (at(12, 59), at(7), at(13)),
-    (at(13, 5), at(13), at(22)), (at(22, 0), at(22), at(7, 0, 13)), (at(23, 59), at(22), at(7, 0, 13)),
+    (at(6, 59), at(22, 0, 11), at(7)), (at(7), at(7), at(22)), (at(13, 5), at(7), at(22)),
+    (at(21, 59), at(7), at(22)), (at(22, 0), at(22), at(7, 0, 13)), (at(23, 59), at(22), at(7, 0, 13)),
 ])
 def test_slots(now, slot, nxt):
     assert hi.current_slot(now) == slot
@@ -25,10 +25,10 @@ def test_slots(now, slot, nxt):
 
 
 def test_recent_slots_walk_back_across_midnight():
-    assert hi.recent_slots(at(8), 4) == [at(7), at(22, 0, 11), at(13, 0, 11), at(7, 0, 11)]
+    assert hi.recent_slots(at(8), 4) == [at(7), at(22, 0, 11), at(7, 0, 11), at(22, 0, 10)]
     assert hi.archive_path(at(22)) == "hot-issues/2026-11-12/2200.json"
-    assert hi.parse_slot("2026-11-12", "1300") == at(13)
-    assert hi.parse_slot("2026-11-12", "1200") is None
+    assert hi.parse_slot("2026-11-12", "0700") == at(7)
+    assert hi.parse_slot("2026-11-12", "1300") is None
 
 
 def story(**over):
@@ -68,12 +68,12 @@ def test_clean_rejects_thin_or_unsourced_editions():
 
 
 def test_current_falls_back_to_the_previous_published_slot(monkeypatch):
-    published = {hi.archive_path(at(13)): hi.clean(edition([story(), story(), story()]), at(13))}
+    published = {hi.archive_path(at(7)): hi.clean(edition([story(), story(), story()]), at(7))}
     monkeypatch.setattr(hi, "edition", lambda slot: published.get(hi.archive_path(slot)))
     out = hi.current(at(22, 5))
-    assert out["slot"] == "2026-11-12T13:00+09:00" and out["is_latest"] is False
+    assert out["slot"] == "2026-11-12T07:00+09:00" and out["is_latest"] is False
     assert out["next_update"] == "2026-11-13T07:00+09:00"
-    assert [s["published"] for s in out["today_slots"]] == [False, True, False]
+    assert [s["published"] for s in out["today_slots"]] == [True, False]
 
 
 @pytest.fixture
@@ -106,13 +106,13 @@ def test_writer_stops_after_three_starts(monkeypatch, fresh_store):
     from app.services import hot_issue_writer as w
     monkeypatch.setattr(w, "_published", set())
     monkeypatch.setattr(w, "generate", lambda slot: (_ for _ in ()).throw(RuntimeError("search failed")))
-    clock = {"now": at(12, 40)}
+    clock = {"now": at(21, 40)}
     monkeypatch.setattr(w, "_now", lambda: clock["now"])
-    for minute in (40, 49, 58):
-        clock["now"] = at(12, minute)
-        assert w._should_try(at(13), clock["now"]) is True
-        assert w.run_slot(at(13), "schedule") == "failed"
-        assert w._should_try(at(13), at(12, minute + 1)) is False  # waits RETRY_GAP
-    events = [r["event"] for r in fresh_store.runs_for("2026-11-12T13:00+09:00")]
+    for minute in (35, 44, 53):
+        clock["now"] = at(21, minute)
+        assert w._should_try(at(22), clock["now"]) is True
+        assert w.run_slot(at(22), "schedule") == "failed"
+        assert w._should_try(at(22), at(21, minute + 1)) is False  # waits RETRY_GAP
+    events = [r["event"] for r in fresh_store.runs_for("2026-11-12T22:00+09:00")]
     assert events.count("started") == 3 and events.count("failed") == 3
-    assert w._should_try(at(13), at(13, 30)) is False
+    assert w._should_try(at(22), at(22, 30)) is False

@@ -78,7 +78,7 @@ function Story({ story, lead = false }: { story: HotIssueStory; lead?: boolean }
   </article>;
 }
 
-/** 오늘의 핫이슈: one page per edition, refreshed at 07:00, 13:00 and 22:00 KST. */
+/** 오늘의 핫이슈: one page per edition, refreshed at 07:00 and 22:00 KST. */
 export default function HotIssuesPage() {
   const { lang } = useLanguage();
   const [data, setData] = useState<HotIssueEdition | null>(null);
@@ -101,7 +101,7 @@ export default function HotIssuesPage() {
     return out;
   }, [data]);
   if (!data) return <main className="hi-page">{failed ? <NeoEmptyState title="핫이슈를 불러오지 못했습니다" error /> : <NeoSkeleton rows={8} />}</main>;
-  if (!data.stories.length) return <main className="hi-page"><NeoEmptyState title="첫 판을 준비하고 있습니다">매일 07:00 · 13:00 · 22:00에 새 판이 올라옵니다. 다음 갱신 {time(home?.next_update)}</NeoEmptyState></main>;
+  if (!data.stories.length) return <main className="hi-page"><NeoEmptyState title="첫 판을 준비하고 있습니다">매일 07:00 · 22:00에 새 판이 올라옵니다. 다음 갱신 {time(home?.next_update)}</NeoEmptyState></main>;
   const [lead, ...rest] = data.stories;
   const mood = MOOD[data.mood?.tone ?? "mixed"];
   return <main className="hi-page" lang="ko">
@@ -139,7 +139,7 @@ export default function HotIssuesPage() {
       </aside>
     </div>
     <footer className="hi-foot">
-      <p>이 페이지는 국내외 언론의 공개 보도를 바탕으로 AI가 요약·번역해 매일 07:00, 13:00, 22:00(한국 시간)에 새로 정리합니다. 해외 기사는 핵심 내용을 한국어로 옮겼으며, 정확한 수치와 전문은 각 출처에서 확인하세요. 투자 판단의 근거가 아닌 참고 정보입니다.</p>
+      <p>이 페이지는 국내외 언론의 공개 보도를 바탕으로 AI가 요약·번역해 매일 07:00, 22:00(한국 시간)에 새로 정리합니다. 해외 기사는 핵심 내용을 한국어로 옮겼으며, 정확한 수치와 전문은 각 출처에서 확인하세요. 투자 판단의 근거가 아닌 참고 정보입니다.</p>
       {data.generated_at && <p className="hi-foot-meta">작성 {data.generated_at.replace("T", " ").slice(0, 16)} KST{lang === "en" ? " · Korean edition" : ""}</p>}
     </footer>
   </main>;

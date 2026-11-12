@@ -1,4 +1,4 @@
-"""오늘의 핫이슈: three editions a day (07:00, 13:00, 22:00 KST). Read-only here.
+"""오늘의 핫이슈: two editions a day (07:00 and 22:00 KST). Read-only here.
 
 Editions are written outside the web host — a local scheduled job researches the
 news, writes one JSON edition per slot and appends it to the public
@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 import requests
 
 KST = dt.timezone(dt.timedelta(hours=9))
-SLOTS = ((7, 0), (13, 0), (22, 0))
+SLOTS = ((7, 0), (22, 0))
 ARCHIVE_BASE = "https://raw.githubusercontent.com/fdx5/stock_market/editorial-editions/"
 CATEGORIES = ("global", "korea", "macro", "policy", "earnings", "geopolitics", "tech", "commodity", "fx", "crypto")
 IMPACTS = ("호재", "악재", "중립", "혼재")
@@ -277,7 +277,7 @@ def log(days: int = 7, now: dt.datetime | None = None) -> list[dict]:
 
 
 PAGE = ("오늘의 핫이슈 — 국내·해외 증시 호재·악재 한 장 정리 | KOSPIMAP",
-        "매일 07:00·13:00·22:00, 국내외 증시를 움직인 핵심 이슈와 호재·악재를 한 장에 정리합니다. 해외 뉴스는 한국어로 번역해 요약합니다.")
+        "매일 07:00·22:00, 국내외 증시를 움직인 핵심 이슈와 호재·악재를 한 장에 정리합니다. 해외 뉴스는 한국어로 번역해 요약합니다.")
 
 
 def render_content() -> str:
@@ -288,7 +288,7 @@ def render_content() -> str:
     except Exception:
         return ""
     if not data.get("stories"):
-        return "<p>첫 판을 준비하고 있습니다. 매일 07:00·13:00·22:00에 새 판이 올라옵니다.</p>"
+        return "<p>첫 판을 준비하고 있습니다. 매일 07:00·22:00에 새 판이 올라옵니다.</p>"
     parts = [f'<p><strong>{esc(data["edition"])} {esc(data["slot_label"])}판</strong> · {esc(data["headline"])}</p>',
              f'<p>{esc(data.get("dek") or "")}</p>']
     for story in data["stories"]:
