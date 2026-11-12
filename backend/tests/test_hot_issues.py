@@ -116,3 +116,16 @@ def test_writer_stops_after_three_starts(monkeypatch, fresh_store):
     events = [r["event"] for r in fresh_store.runs_for("2026-11-12T22:00+09:00")]
     assert events.count("started") == 3 and events.count("failed") == 3
     assert w._should_try(at(22), at(22, 30)) is False
+
+
+def test_share_image_is_a_1200x630_png_for_the_edition_and_generic():
+    import io
+    from PIL import Image
+    from app.services import hot_issues_og as og
+    og._cache.clear()
+    ed = hi.clean(edition([story(title="첫째"), story(title="둘째"), story(title="셋째")]), at(22))
+    for value in (ed, None):
+        img = Image.open(io.BytesIO(og.render(value)))
+        assert img.format == "PNG" and img.size == (1200, 630)
+    assert og.image_path(ed) == "/hot-issues/og/2026-11-12/2200.png"
+    assert og.image_path(None) == "/hot-issues/og/latest.png"

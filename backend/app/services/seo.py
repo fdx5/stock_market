@@ -554,6 +554,17 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     if social:
         title, description = social["title"], social["description"]
     page_image = f'{SITE}{social["image"]}' if social else IMAGE
+    if canonical_path == "/hot-issues":
+        # The preview is the edition itself: its date, headline and top issues.
+        try:
+            from app.services import hot_issues_og
+            latest = hot_issues.current()
+            page_image = SITE + hot_issues_og.image_path(latest if latest.get("stories") else None)
+            image_alt = f"오늘의 핫이슈 {latest.get('edition', '')} {latest.get('slot_label', '')}판 — {latest.get('headline', '')}".strip()
+            if latest.get("headline"):
+                description = f"[{latest['slot_label']}판] {latest['headline']} — {description}"
+        except Exception:
+            page_image = SITE + "/hot-issues/og/latest.png"
     if canonical_path in index_landing.BY_PATH:
         # The level itself leads the snippet: it is what the searcher came for.
         try:

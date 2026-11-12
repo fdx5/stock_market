@@ -792,6 +792,23 @@ if STATIC_DIR.exists():
         xml = build_rss(get_top_market_cap(30))
         return Response(content=xml, media_type="application/rss+xml", headers={"Cache-Control": "public, max-age=3600"})
 
+    @app.get("/hot-issues/og/latest.png", include_in_schema=False)
+    def hot_issues_share_latest():
+        from app.services import hot_issues, hot_issues_og
+        current = hot_issues.current()
+        return Response(content=hot_issues_og.render(current if current.get("stories") else None), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=300"})
+
+    @app.get("/hot-issues/og/{day}/{hhmm}.png", include_in_schema=False)
+    def hot_issues_share_image(day: str, hhmm: str):
+        from app.services import hot_issues, hot_issues_og
+        slot = hot_issues.parse_slot(day, hhmm)
+        edition = hot_issues.edition(slot) if slot else None
+        if not edition:
+            raise HTTPException(status_code=404, detail="Edition image not found")
+        return Response(content=hot_issues_og.render(edition), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400, immutable"})
+
     @app.get("/market-brief/og/{day}/{market}.png", include_in_schema=False)
     def market_brief_share_image(day: str, market: str):
         try:
