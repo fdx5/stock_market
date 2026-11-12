@@ -23,6 +23,7 @@ import TreasuryHeaderBadge from "./TreasuryHeaderBadge";
 import { showNightQuote } from "./nightQuoteRoutes";
 import { useBroadsheetFonts } from "../desk2/fonts";
 import DeskBgm from "../desk2/DeskBgm";
+import { attachDeskBgm, useDeskBgm } from "../desk2/deskBgmStore";
 import BookmarkButton from "../components/BookmarkButton";
 import { MARKET_ASSETS, marketAssetPath } from "../marketAssets";
 import "../desk2/desk2.css";
@@ -110,6 +111,12 @@ export default function NeoShell({ path, children }: { path: string; children: R
     return () => { document.body.style.overflow = previous; document.removeEventListener("keydown", trap); };
   }, [panel]);
 
+  /* The solar-system entrance is a full page of its own: no header, footer or
+     sidebar. The music already playing carries on (the entrance holds the
+     player), and only the current track's controls float over the scene. */
+  const solar = path === "/hub" || path === "/type2";
+  const bgm = useDeskBgm();
+  useEffect(() => solar ? attachDeskBgm() : undefined, [solar]);
   const family = neoRouteFamily(path);
   const currentTone = neoHeaderCurrentTone(path, window.location.search);
   const showCurrent = family !== "immersive" && frameLight && fx !== "minimal";
@@ -121,6 +128,12 @@ export default function NeoShell({ path, children }: { path: string; children: R
     const to = service ? serviceLink(link[0], {code, market, region: params.get("region") ?? undefined}) : link[0];
     return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined}><span>{link[lang === "ko" ? 1 : 2]}{link[0] === "/pulse-board" && <b className="ng-new-badge" aria-label={L("새 메뉴", "New")}>N</b>}</span><NeoIcon name="chevron" /></Link>;
   };
+  if (solar) return <div className="ng-shell ng-shell--solar">
+    <GoldCursor />
+    <main className="ng-solar-page" id="neo-content" tabIndex={-1}>{children}</main>
+    {bgm.on && <div className="d2 d2-bgm-float ng-solar-bgm"><DeskBgm variant="strip" /></div>}
+    {finder && <Suspense fallback={null}><div className="d2 ng-finder-host"><Finder open={finder} onClose={close} /></div></Suspense>}
+  </div>;
   return <div className={`ng-shell ng-family-${family}`} data-workspace={path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
     {path !== "/pulse-board" && <NeoBackdrop />}
     <GoldCursor />

@@ -185,7 +185,8 @@ export default function HubType2() {
   /* Background music, and nothing to do with the scene: it is off by default,
      it fetches nothing until pressed, and the camera does not care about it. */
   const bgm = useYouTubeBgm();
-  useEffect(() => { if (design === "neo" && bgm.playing) bgm.toggle(); }, [design, bgm.playing, bgm.toggle]);
+  /* The site's shared player keeps playing into the entrance: whatever was on
+     carries on here, and its controls float in the corner (see NeoShell). */
   /* The equaliser, driven off the track's own pre-computed envelope and the
      player's clock — see useBgmEqualizer for why the analysis is not live. If
      a track has no envelope file the bars keep their decorative animation and
@@ -527,7 +528,7 @@ export default function HubType2() {
             have to snap back. The second is aria-hidden — it is the same
             words, and a screen reader should hear them once. */}
         {bgm.playing && (
-          <div className="h2-np" role="status" aria-live="polite">
+          <div className={`h2-np${design === "neo" ? " ng-legacy-bgm" : ""}`} role="status" aria-live="polite">
             {/* The lamp is the whole of the "playing" indicator now — the
                 words that used to sit beside it are gone. It carries the
                 label for anyone who cannot see it blink. */}
