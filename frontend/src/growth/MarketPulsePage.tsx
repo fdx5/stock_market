@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "../router";
+import { useLanguage } from "../i18n/LanguageContext";
 import { HoloPanel, HUDSectionTitle } from "../neo/NeoComponents";
 import { MARKET_NAMES, publicMarket, type PublicMarket } from "./publicLinks";
 import ShareButton from "./ShareButton";
@@ -41,7 +42,8 @@ export function ReturnTools() {
   return <HoloPanel className="pulse-return"><HUDSectionTitle code="DAILY CHECK" title="다음 장에도 이어서 확인하세요" /><p>시장 지도로 흐름을 확인하고, 장이 끝난 뒤 브리핑으로 다시 정리하세요.</p><div className="ng-setting-actions pulse-actions"><a href="/market-feed.xml" onClick={() => reportGrowthAction("rss_open")}>장마감 브리핑 RSS 구독 ↗</a><a href="/market-check.ics" download onClick={() => reportGrowthAction("reminder_download")}>평일 16:30 확인 알림 받기 ↓</a><Link to="/market-brief">오늘 브리핑 →</Link></div><small>RSS 주소를 구독 앱에 추가하거나 달력 파일을 가져오세요. 달력 알림은 한국시간 기준이며 휴장일에도 표시될 수 있습니다.</small></HoloPanel>;
 }
 export function TodayEntry() {
-  return <section className="pulse-home-entry ng-panel" aria-label="오늘 증시와 재방문"><div><span className="ng-kicker">TODAY / SHARE / RETURN</span><h2>오늘 시장, 상승과 하락을 한눈에</h2><p>시장 분포를 확인하고 카드로 공유하세요. 다음 장은 RSS와 달력 알림으로 이어집니다.</p></div><div className="ng-setting-actions pulse-actions"><Link to="/today">오늘 증시 보기 →</Link><Link to="/share-market">시장 카드·퍼가기 ↗</Link></div></section>;
+  const { lang } = useLanguage(), L = (ko: string, en: string) => lang === "ko" ? ko : en;
+  return <section className="pulse-home-entry ng-panel" aria-label={L("오늘 증시와 재방문", "Today's market and follow-ups")}><div><span className="ng-kicker">TODAY / SHARE / RETURN</span><h2>{L("오늘 시장, 상승과 하락을 한눈에", "Today's market: gainers and losers at a glance")}</h2><p>{L("시장 분포를 확인하고 카드로 공유하세요. 다음 장은 RSS와 달력 알림으로 이어집니다.", "Check the market breadth and share it as a card. Follow the next session by RSS or calendar alert.")}</p></div><div className="ng-setting-actions pulse-actions"><Link to="/today">{L("오늘 증시 보기", "Today's market")} →</Link><Link to="/share-market">{L("시장 카드·퍼가기", "Market card & embed")} ↗</Link></div></section>;
 }
 function Rows({ title, rows, data, turnover = false }: { title: string; rows: Row[]; data: Snapshot; turnover?: boolean }) {
   return <HoloPanel><HUDSectionTitle code={turnover ? "ACTIVITY" : "MOVERS"} title={title} /><div className="pulse-table-wrap"><table><caption>{data.name} 지도 표본 내 순위</caption><thead><tr><th scope="col">종목</th><th scope="col">{turnover ? `거래규모 (${data.currency})` : `가격 (${data.currency})`}</th><th scope="col">등락률</th></tr></thead><tbody>{rows.map(row => <tr key={row.code}><th scope="row"><Link to={`/stock/${row.code}`}>{row.name}<small>{row.code}</small></Link></th><td>{turnover ? `${row.turnover?.toLocaleString("ko-KR", { maximumFractionDigits: 0 }) ?? "—"}${row.turnover_kind === "estimate" ? " ≈" : ""}` : row.close.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}</td><td className={(row.change_pct ?? 0) > 0 ? "pulse-up" : (row.change_pct ?? 0) < 0 ? "pulse-down" : ""}>{pct(row.change_pct)}</td></tr>)}</tbody></table>{!rows.length && <p>해당 조건의 종목이 없습니다.</p>}</div>{turnover && <small>≈ 표시는 현재가×거래량 근사치입니다. 실제 누적 거래대금과 차이가 있습니다.</small>}</HoloPanel>;

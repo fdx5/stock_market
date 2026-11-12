@@ -8,6 +8,7 @@ import { useAtlasMiniMaps, type AtlasMapSnapshot, type AtlasMarket } from "./use
 import NeoIcon from "./NeoIcon";
 import CyberQuote from "./CyberQuote";
 import { hasReturn, quotePct } from "./marketQuote";
+import { useEnglishNames } from "./useEnglishNames";
 import "./atlasMiniMaps.css";
 
 export interface AtlasMapQuote { price?: number; change?: number }
@@ -37,6 +38,7 @@ export function AtlasMiniMapCard({ market, snapshot, quote, lang }: {
     });resize.observe(stage);return()=>resize.disconnect();
   },[]);
   const data = useMemo(() => atlasMiniMap(snapshot.items,mapSize.width,mapSize.height), [snapshot.items,mapSize]);
+  const en = useEnglishNames(useMemo(() => snapshot.items.map(item => item.name), [snapshot.items]));
   const time = mapTime(snapshot.generatedAt);
   const title = lang === "ko" ? config.title : config.en;
   const price = quote.price != null && Number.isFinite(quote.price) && quote.price > 0
@@ -49,14 +51,15 @@ export function AtlasMiniMapCard({ market, snapshot, quote, lang }: {
         {data.tiles.map(tile => {
           const known = hasReturn(tile.item);
           const rgb = known ? changeToRgb(tile.item.change_pct) : { r: 63, g: 56, b: 69 };
-          const label = market === "nasdaq100" ? tile.item.code : tile.item.name || tile.item.code;
+          const label = market === "nasdaq100" ? tile.item.code : tile.item.name ? en(tile.item.name) : tile.item.code;
+          const latin = market === "nasdaq100" || !/[가-힣]/.test(label);
           const showName = tile.w >= 51 && tile.h >= 27;
           const twoLines = tile.w >= 62 && tile.h >= 48;
           const fontSize = tile.w > 220 && tile.h > 100 ? 25 : tile.w > 130 && tile.h > 65 ? 18 : 13;
-          const maxChars = Math.max(2, Math.floor((tile.w - 12) / (market === "nasdaq100" ? fontSize * .65 : fontSize)));
+          const maxChars = Math.max(2, Math.floor((tile.w - 12) / (latin ? fontSize * .62 : fontSize)));
           const name = label.length > maxChars ? label.slice(0, maxChars - 1) + "…" : label;
           return <g key={tile.id}>
-            <title>{`${tile.item.name || tile.item.code} · ${known ? pct(tile.item.change_pct) : L("등락 확인 중", "Return unavailable")}`}</title>
+            <title>{`${tile.item.name ? en(tile.item.name) : tile.item.code} · ${known ? pct(tile.item.change_pct) : L("등락 확인 중", "Return unavailable")}`}</title>
             <rect x={tile.x + .7} y={tile.y + .7} width={Math.max(0, tile.w - 1.4)} height={Math.max(0, tile.h - 1.4)} fill={rgbToCss(rgb)} rx="1" />
             {showName && <text x={tile.x + tile.w / 2} y={tile.y + tile.h / 2 + (twoLines ? -5 : 4)} textAnchor="middle" fill={textColorForRgb(rgb)} fontSize={fontSize} fontWeight="650">{name}{twoLines && <tspan x={tile.x + tile.w / 2} dy={fontSize+7} fontSize={Math.max(11,fontSize-4)} fontWeight="500">{known ? pct(tile.item.change_pct) : "—"}</tspan>}</text>}
           </g>;
