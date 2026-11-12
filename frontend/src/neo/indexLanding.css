@@ -12,7 +12,15 @@
 .il-page .is-down{color:var(--market-down,#4f9bff)}
 .il-page .is-flat{color:var(--text-secondary)}
 .il-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px}
-.il-chart .market-chart,.il-chart svg{width:100%}
+.il-chart .market-chart{width:100%}
+.il-chart-plot{height:300px}
+.il-chart-read{display:flex;flex-wrap:wrap;gap:6px 18px;margin:4px 0 8px;font-size:12px;color:var(--text-secondary)}
+.il-chart-read b{font:600 13px var(--f-num,ui-monospace);color:var(--text-primary)}
+.il-chart-read b.is-up{color:var(--market-up,#ff5f6d)}.il-chart-read b.is-down{color:var(--market-down,#4f9bff)}
+.il-periods{display:flex;gap:4px}
+.il-periods button{padding:5px 10px;border:1px solid var(--line-soft);background:none;color:var(--text-secondary);font-size:11px;cursor:pointer}
+.il-periods button[aria-pressed=true]{border-color:var(--accent-neon);color:var(--text-primary)}
+@media(max-width:600px){.il-chart-plot{height:240px}}
 .il-stats dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;margin:0}
 .il-stats dl>div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line-soft);padding:6px 0}
 .il-stats dt{color:var(--text-secondary);font-size:12px}

@@ -95,6 +95,12 @@ export default function MarketChart(props: Props) {
       typeof value === "number" && tooltipNumbers ? tooltipNumbers.format(value) : String(value ?? "-");
     const dates = props.dates ?? props.series[0]?.values.map((_,i) => String(i+1)) ?? [];
     const hasVolume = props.series.some(s => s.volume);
+    /* Line charts hug their own low and high. The axis used to round outward to
+       "nice" ticks, which left a sparkline's line in the middle 60% of an already
+       small box: a 10% move and a 1% move looked the same height. Bars and candles
+       keep the default; a caller's explicit min/max (RSI 0–100) always wins. */
+    const tight = props.series.filter(s => !s.volume).every(s => !s.type || s.type === "line");
+    const air = (v: { min: number; max: number }) => { const span = v.max - v.min; return span > 0 ? span * (compact ? .025 : .05) : Math.abs(v.max) * .001 || 1; };
     const first = host.current.dataset.chartPainted !== "true";
     const startIndex = range ? Math.max(0, dates.findIndex(date => date >= range.from)) : 0;
     let endIndex = dates.length - 1;
@@ -111,7 +117,7 @@ export default function MarketChart(props: Props) {
         borderColor: "rgba(140,150,165,.25)", axisPointer: { type: "cross", label: { show: !compact, precision: props.tooltipDecimals ?? "auto" } },
       },
       grid: hasVolume ? [{ left: 12, right: 66, top: 14, bottom: "29%" }, { left: 12, right: 66, top: "76%", bottom: 52 }] :
-        { left: compact ? 2 : 12, right: compact ? 2 : 62, top: compact ? 4 : 12, bottom: compact ? 3 : 30 },
+        { left: compact ? 2 : 12, right: compact ? 2 : 62, top: compact ? 2 : 12, bottom: compact ? 2 : 30 },
       xAxis: (hasVolume ? [0,1] : [0]).map((n) => ({ type: "category", data: dates, gridIndex: n,
         boundaryGap: props.series.some(s => s.type === "bar" || s.type === "candlestick"), axisLine: { show: false }, axisTick: { show: false },
         axisLabel: { show: !compact && (!hasVolume || n===1), color: text, hideOverlap: true, fontSize: 10,
@@ -119,8 +125,9 @@ export default function MarketChart(props: Props) {
         axisPointer: { show: props.interactive !== false, snap: true },
       })),
       yAxis: (hasVolume ? [0,1] : [0]).map(n => ({ type: "value", gridIndex: n, scale: true, position: "right",
-        min: n===0 ? props.min : undefined, max: n===0 ? props.max : undefined,
-        axisLabel: { show: !compact, color: text, fontSize: 10, formatter: (v: number) => Intl.NumberFormat("en",{notation:"compact",maximumFractionDigits:2}).format(v) },
+        min: n===0 ? props.min ?? (tight ? (v: { min: number; max: number }) => v.min - air(v) : undefined) : undefined,
+        max: n===0 ? props.max ?? (tight ? (v: { min: number; max: number }) => v.max + air(v) : undefined) : undefined,
+        axisLabel: { show: !compact, color: text, fontSize: 10, showMinLabel: !(n===0 && tight && props.min == null), showMaxLabel: !(n===0 && tight && props.max == null), formatter: (v: number) => Intl.NumberFormat("en",{notation:"compact",maximumFractionDigits:2}).format(v) },
         splitNumber: n ? 2 : 4, splitLine: { show: !compact && !n, lineStyle: { color: "rgba(130,140,155,.16)", type: "dashed" } },
       })),
       dataZoom: props.controller ? [{ type: "inside", xAxisIndex: hasVolume ? [0,1] : [0], filterMode: "filter", zoomOnMouseWheel: "ctrl", moveOnMouseWheel: false,

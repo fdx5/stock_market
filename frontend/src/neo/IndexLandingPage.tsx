@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, type IndexLanding, type IndexLandingStock } from "../api/client";
-import TrendChart from "../charts/TrendChart";
+import MarketChart from "../charts/MarketChart";
 import { useLanguage } from "../i18n/LanguageContext";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
@@ -16,6 +16,7 @@ const TITLES: Record<Key, { ko: string; en: string }> = {
   nasdaq: { ko: "나스닥 지수 시세·차트 — 나스닥 종합·나스닥100 오늘 등락 | KOSPIMAP", en: "NASDAQ today — Composite and NASDAQ 100 | KOSPIMAP" },
 };
 const POLL_MS = 30_000;
+const PERIODS = [{ days: 21, ko: "1개월", en: "1M" }, { days: 63, ko: "3개월", en: "3M" }, { days: 120, ko: "6개월", en: "6M" }] as const;
 const num = (value: number | null | undefined, digits = 2) => value == null ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const signed = (value: number | null | undefined, digits = 2) => value == null ? "—" : `${value > 0 ? "+" : ""}${num(value, digits)}`;
 
@@ -26,6 +27,7 @@ export default function IndexLandingPage({ index }: { index: Key }) {
   const L = (ko: string, en: string) => lang === "ko" ? ko : en;
   const [data, setData] = useState<IndexLanding | null>(null);
   const [failed, setFailed] = useState(false);
+  const [period, setPeriod] = useState<number>(120);
   useDocumentTitle(L(TITLES[index].ko, TITLES[index].en));
   useEffect(() => {
     let live = true;
@@ -36,6 +38,13 @@ export default function IndexLandingPage({ index }: { index: Key }) {
     return () => { live = false; window.clearInterval(timer); };
   }, [index]);
   const b = data?.breadth;
+  const plot = useMemo(() => {
+    const rows = (data?.chart ?? []).slice(-period);
+    const values = rows.map(row => row.close);
+    if (values.length < 2) return null;
+    const change = (values[values.length - 1] / values[0] - 1) * 100;
+    return { dates: rows.map(row => row.date), values, lo: Math.min(...values), hi: Math.max(...values), change };
+  }, [data, period]);
   const en = useEnglishNames([...(b?.gainers ?? []), ...(b?.losers ?? []), ...(b?.largest ?? [])].flatMap(item => [item.name, item.sector]).concat((b?.sectors ?? []).map(s => s.name)));
   const others = (["kospi", "kosdaq", "nasdaq"] as const).filter(key => key !== index);
   const names: Record<Key, [string, string]> = { kospi: ["코스피", "KOSPI"], kosdaq: ["코스닥", "KOSDAQ"], nasdaq: ["나스닥", "NASDAQ"] };
@@ -58,8 +67,12 @@ export default function IndexLandingPage({ index }: { index: Key }) {
 
     <div className="il-grid">
       <HoloPanel className="il-chart">
-        <HUDSectionTitle code="TREND" title={L(`${name} 최근 6개월`, `${names[index][1]} — last 6 months`)} />
-        <TrendChart points={data.chart.map(p => p.close)} dates={data.chart.map(p => p.date)} trend={toneOf((data.chart[data.chart.length - 1]?.close ?? 0) - (data.chart[0]?.close ?? 0))} format={v => num(v)} />
+        <HUDSectionTitle code="TREND" title={L(`${name} 지수 추이`, `${names[index][1]} trend`)} action={<div className="il-periods" role="group" aria-label={L("기간", "Period")}>{PERIODS.map(p => <button type="button" key={p.days} aria-pressed={period === p.days} onClick={() => setPeriod(p.days)}>{L(p.ko, p.en)}</button>)}</div>} />
+        {plot ? <>
+          <div className="il-chart-read"><span>{L("기간 등락", "Period change")} <b className={`is-${toneOf(plot.change)}`}>{pct(plot.change)}</b></span><span>{L("최고", "High")} <b>{num(plot.hi)}</b></span><span>{L("최저", "Low")} <b>{num(plot.lo)}</b></span></div>
+          <MarketChart className="il-chart-plot" height={300} label={L(`${name} 지수 종가 추이`, `${names[index][1]} closing levels`)} dates={plot.dates} baseline={plot.values[0]} tooltipDecimals={2}
+            series={[{ name: L("종가", "Close"), values: plot.values, color: plot.change >= 0 ? "var(--up)" : "var(--down)", fill: true }]} />
+        </> : <p>{L("차트 데이터를 준비 중입니다.", "Chart data is not ready.")}</p>}
       </HoloPanel>
       <HoloPanel className="il-stats">
         <HUDSectionTitle code="RANGE" title={L("기간 수익률·52주 범위", "Returns and 52-week range")} />
