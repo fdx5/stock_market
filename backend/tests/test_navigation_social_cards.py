@@ -13,7 +13,8 @@ def test_static_navigation_cards_have_unique_art_and_include_community():
     paths={match.split('?')[0] for match in re.findall(r'\["(/[^\"]*)", "[^\"]+", "[^\"]+"\]',source)}
     # Live market cards/guides have their own renderer; ETF URLs now use explicit
     # region canonicals. Retired destinations keep artwork for existing links.
-    dynamic={'/today','/share-market','/guides','/etf/kr','/etf/us'}
+    # Index landings (/kospi, /kosdaq, /nasdaq) share the live market card image.
+    dynamic={'/today','/share-market','/guides','/etf/kr','/etf/us','/kospi','/kosdaq','/nasdaq'}
     assert paths-dynamic<=set(CARDS)
     assert {'/community/kr','/community/global','/community/property'}<=paths & set(CARDS)
     assert json.loads((ROOT/'frontend/src/neo/socialCards.json').read_text(encoding='utf-8'))==CARDS

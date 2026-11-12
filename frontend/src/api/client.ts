@@ -582,6 +582,18 @@ export interface BoardComment {
   dislikes: number;
 }
 
+export interface IndexLandingQuote { close: number; change: number | null; change_pct: number | null; status: string | null; as_of: string | null; partner?: IndexLandingQuote | null }
+export interface IndexLandingStock { code: string; name: string; close: number; change_pct: number | null; sector: string }
+export interface IndexLanding {
+  key: "kospi" | "kosdaq" | "nasdaq"; path: string; name: string; en: string; title: string; description: string;
+  map: string; map_label: string; partner_name: string | null; live: IndexLandingQuote | null;
+  stats: { high_52w: number | null; low_52w: number | null; return_1w: number | null; return_1m: number | null; return_3m: number | null; return_ytd: number | null; ma20: number | null; ma60: number | null };
+  history: { date: string; open: number | null; high: number | null; low: number | null; close: number }[];
+  chart: { date: string; close: number }[];
+  investor: { individual_amount: number | null; foreign_amount: number | null; institution_amount: number | null } | null;
+  breadth: { count: number; up: number; down: number; flat: number; gainers: IndexLandingStock[]; losers: IndexLandingStock[]; largest: IndexLandingStock[]; sectors: { name: string; count: number; average_change: number }[]; collected_at: string; currency: string } | null;
+  faq: { q: string; a: string }[]; generated_at: string;
+}
 export interface OrderBookLevel {
   price: number;
   qty: number;
@@ -1503,6 +1515,7 @@ export const api = {
     ),
   news: (code: string) =>
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
+  indexLanding: (key: "kospi" | "kosdaq" | "nasdaq") => getJSON<IndexLanding>(`${BASE}/market/index-landing/${key}`),
   orderbook: (code: string) => getJSON<OrderBook>(`${BASE}/stock/${code}/orderbook`),
   balanceHistory: (code: string) => getJSON<BalanceHistory>(`${BASE}/stock/${code}/balance`),
   dailyPrices: (code: string, offset = 0, limit = 20) =>

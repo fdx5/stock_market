@@ -2,7 +2,7 @@ import { SERVICES } from "../markets/catalog";
 import { GUIDE_SEO } from "../guides/catalog";
 const BASE_NEO_GROUPS = [
   { id: "markets", ko: "마켓 워크스페이스", en: "Markets", icon: "chart", links: [
-    ["/", "관제 홈", "Command home"], ["/desk", "국내 증시", "Korea desk"], ["/global", "미국 증시", "US desk"], ["/pulse-board", "증시 전광판", "Pulse board"], ["/stocks", "종목 탐색", "Stock explorer"],
+    ["/", "관제 홈", "Command home"], ["/desk", "국내 증시", "Korea desk"], ["/global", "미국 증시", "US desk"], ["/pulse-board", "증시 전광판", "Pulse board"], ["/stocks", "종목 탐색", "Stock explorer"], ["/kospi", "코스피 지수", "KOSPI index"], ["/kosdaq", "코스닥 지수", "KOSDAQ index"], ["/nasdaq", "나스닥 지수", "NASDAQ index"],
   ] },
   { id: "etfs", ko: "ETF 마켓", en: "ETF markets", icon: "layers", links: [
     ["/etf/kr", "국내 ETF", "Korea ETFs"], ["/etf/us", "해외 ETF", "Overseas ETFs"],

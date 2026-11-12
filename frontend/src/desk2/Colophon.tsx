@@ -16,6 +16,9 @@ const DIRECTORY: { ko: string; en: string; links: { to: string; ko: string; en: 
     ko: "시장 지도",
     en: "Maps",
     links: [
+      { to: "/kospi", ko: "코스피 지수", en: "KOSPI index" },
+      { to: "/kosdaq", ko: "코스닥 지수", en: "KOSDAQ index" },
+      { to: "/nasdaq", ko: "나스닥 지수", en: "NASDAQ index" },
       { to: "/map", ko: "코스피 시가총액 맵", en: "KOSPI map" },
       { to: "/kosdaq-map", ko: "코스닥 시가총액 맵", en: "KOSDAQ map" },
       { to: "/sp500-map", ko: "S&P 500 맵", en: "S&P 500 map" },
