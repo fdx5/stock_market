@@ -1,3 +1,4 @@
+import { onPageSeenChange, pageUnseen } from "../pageCovered";
 import { COMPOSITE_FRAGMENT, DECAY_FRAGMENT, PARTICLE_FRAGMENT, PARTICLE_VERTEX, QUAD_VERTEX, RIVERS, UPDATE_FRAGMENT } from "./silkFlowShaders";
 
 type FxLevel = "full" | "balanced" | "minimal";
@@ -195,7 +196,7 @@ export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFai
 
   function draw(now: number) {
     frame = 0;
-    if (disposed || lost || document.hidden) return;
+    if (disposed || lost || pageUnseen()) return;
     const dt = last ? Math.min(1 / 20, (now - last) / 1000) : 1 / 60;
     last = now;
     if (viewWidth !== innerWidth || viewHeight !== innerHeight || pixelRatio !== (devicePixelRatio || 1) || !acc.length) {
@@ -236,20 +237,20 @@ export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFai
     const target = event.target;
     scrollTarget = target instanceof Element ? target.scrollTop : scrollY;
   }
-  function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; painted = false; if (!document.hidden && !disposed && !lost) frame = requestAnimationFrame(draw); }
+  function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; painted = false; if (!pageUnseen() && !disposed && !lost) frame = requestAnimationFrame(draw); }
   function contextLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(frame); canvas.dataset.state = "unavailable"; onFailure(); }
   function contextRestored() { if (!disposed) onRestore(); }
   canvas.dataset.state = "loading"; canvas.dataset.particles = String(count);
   addEventListener("pointermove", onPointerMove, { passive: true });
   document.addEventListener("scroll", onScroll, { passive: true, capture: true });
-  document.addEventListener("visibilitychange", sync); addEventListener("resize", sync); reduced.addEventListener("change", sync);
+  const offSeen = onPageSeenChange(sync); addEventListener("resize", sync); reduced.addEventListener("change", sync);
   canvas.addEventListener("webglcontextlost", contextLost); canvas.addEventListener("webglcontextrestored", contextRestored);
   sync();
   return () => {
     disposed = true; cancelAnimationFrame(frame);
     removeEventListener("pointermove", onPointerMove);
     document.removeEventListener("scroll", onScroll, { capture: true });
-    document.removeEventListener("visibilitychange", sync); removeEventListener("resize", sync); reduced.removeEventListener("change", sync);
+    offSeen(); removeEventListener("resize", sync); reduced.removeEventListener("change", sync);
     canvas.removeEventListener("webglcontextlost", contextLost); canvas.removeEventListener("webglcontextrestored", contextRestored);
     acc.forEach(target => { gl.deleteFramebuffer(target.framebuffer); gl.deleteTexture(target.texture); });
     release();

@@ -1822,6 +1822,10 @@ export class ComplexRenderer {
         mesh.count = obj.count ?? 1;
         mesh.instVersion = obj.instanceMatrix?.version;
       }
+      // (a drone tile's building drawn by its merged copy — tileBatch.ts: kept, uploaded and ready,
+      // but not drawn and not casting)
+      const batched = !!obj.userData.batchedInto;
+      if (mesh.visible === batched) { mesh.visible = !batched; if (mesh.castShadow) this.castersChanged = true; }
       // Casters that moved lately (walkers, traffic, boats, the balloon) are drawn into the
       if(mesh.geometry!==obj.geometry){
         if(!geometryRoom(obj.geometry))deferred=true;
@@ -2016,7 +2020,7 @@ export class ComplexRenderer {
     // the exact caster sets once instead of traversing non-casters in each layer.
     const casterLists=this.casterLists??={all:[],moving:[],still:[]};
     casterLists.all.length=casterLists.moving.length=casterLists.still.length=0;
-    for(const mesh of this.meshes.values())if(mesh.castShadow){casterLists.all.push(mesh);(isMoving(mesh)?casterLists.moving:casterLists.still).push(mesh);}
+    for(const mesh of this.meshes.values())if(mesh.castShadow&&mesh.visible){casterLists.all.push(mesh);(isMoving(mesh)?casterLists.moving:casterLists.still).push(mesh);}
     shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value), i => timer.pass('shadow' + i), this.renderer.precompiling ? null : isMoving,casterLists);
     if (this.env && this.shown) this.captureEnv(look);
     // TAA: the frame a sub-pixel off (8 Halton offsets); a jump (a hop, a resize, the balloon's

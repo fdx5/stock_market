@@ -1,3 +1,4 @@
+import { onPageSeenChange, pageUnseen } from "../pageCovered";
 import { MOODS, type Mood } from "./pulseHorizonShaders";
 import type { PulseHorizonController } from "./pulseHorizonRenderer";
 import {
@@ -363,7 +364,7 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
 
   function draw(now: number) {
     frame = 0;
-    if (disposed || lost || document.hidden) return;
+    if (disposed || lost || pageUnseen()) return;
     const dt = last ? Math.min(.05, (now - last) / 1000) : 1 / 60;
     if (last && !still()) {
       const ms = now - last;
@@ -469,14 +470,14 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
   }
 
   function reducedChange() { reducedMotion = reduced.matches; sync(); }
-  function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; if (!document.hidden && !disposed && !lost) frame = requestAnimationFrame(draw); }
+  function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; if (!pageUnseen() && !disposed && !lost) frame = requestAnimationFrame(draw); }
   function contextLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(frame); canvas.dataset.state = "unavailable"; onFailure(); }
   function contextRestored() { if (!disposed) onRestore(); }
   canvas.dataset.state = "loading"; canvas.dataset.sea = "ocean";
   addEventListener("pointermove", onPointerMove, { passive: true });
   addEventListener("pointerdown", onPointerDown, { passive: true });
   document.addEventListener("scroll", onScroll, { passive: true, capture: true });
-  document.addEventListener("visibilitychange", sync); addEventListener("resize", measureWindow); addEventListener("resize", sync); reduced.addEventListener("change", reducedChange);
+  const offSeen = onPageSeenChange(sync); addEventListener("resize", measureWindow); addEventListener("resize", sync); reduced.addEventListener("change", reducedChange);
   canvas.addEventListener("webglcontextlost", contextLost); canvas.addEventListener("webglcontextrestored", contextRestored);
   sync();
 
@@ -484,7 +485,7 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
     disposed = true; cancelAnimationFrame(frame);
     removeEventListener("pointermove", onPointerMove); removeEventListener("pointerdown", onPointerDown);
     document.removeEventListener("scroll", onScroll, { capture: true });
-    document.removeEventListener("visibilitychange", sync); removeEventListener("resize", measureWindow); removeEventListener("resize", sync); reduced.removeEventListener("change", reducedChange);
+    offSeen(); removeEventListener("resize", measureWindow); removeEventListener("resize", sync); reduced.removeEventListener("change", reducedChange);
     canvas.removeEventListener("webglcontextlost", contextLost); canvas.removeEventListener("webglcontextrestored", contextRestored);
     framebuffers.forEach(value => gl.deleteFramebuffer(value)); textures.forEach(value => gl.deleteTexture(value));
     buffers.forEach(value => gl.deleteBuffer(value)); programs.forEach(value => gl.deleteProgram(value.program));

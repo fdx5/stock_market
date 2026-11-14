@@ -26,6 +26,8 @@ import { DroneTraffic } from "./droneTraffic";
 import { farGround } from "./farGround";
 import { vworldSampler, type Terrain } from "./sceneTerrain";
 import { gridAt } from "./waterCore";
+import { droneLampsOn, tileLamps } from "./droneLamps";
+import { dissolveBatch, newBatchState, stepBatch, type TileBatchState } from "./tileBatch";
 import { CONTEXT_FLOOR_M, seasonGround, sharedContextMaterial, sharedContextTexturesSliced, type ContextStyle, type Planting } from "./complexScene";
 import { buildPlants } from "./scenePlants";
 import {jamsilTreeMask,withoutStadiumTrees} from './stadiumPlanting';
@@ -119,6 +121,10 @@ type Tile = {
   /** whether its buildings and its trees cast shadows now */
   castB: boolean; castP: boolean;
   surveyGroup: THREE.Group | null;
+  /** its street lamps (droneLamps.ts): made at night within reach, freed by day */
+  lamps?: THREE.Group | null;
+  /** its buildings drawn as one merged copy once settled (tileBatch.ts) */
+  batch?: TileBatchState;
   /** its water as the server had it (asked before the rest; undefined: not yet asked) */
   seaBody?: SeaBody | null;
   plantWater?:((x:number,y:number)=>boolean);
@@ -179,6 +185,7 @@ const COLOUR_R = { hq: 600, lite: 400 };
 const OFF = typeof location !== "undefined" ? (new URLSearchParams(location.search).get("droneoff") ?? "").split(",") : [];
 const DTRACE = typeof location !== "undefined" && location.search.includes("dtrace=1");
 const NO_COLOUR = typeof location !== "undefined" && (new URLSearchParams(location.search).get("dronecolour") === "0" || OFF.includes("colour"));
+const NO_BATCH = typeof location !== "undefined" && /[?&]tilebatch=0/.test(location.search);
 const distToBox = (x: number, y: number, b: [number, number, number, number]) =>
   Math.hypot(Math.max(b[0] - x, 0, x - b[2]), Math.max(b[1] - y, 0, y - b[3]));
 
@@ -247,6 +254,8 @@ export class DroneWorld {
     data: RealEstateBuildingsResponse; terrain: Terrain; extent: ViewExtent; seed: number; hq: boolean;
     addWarm: (parent: THREE.Object3D, obj: THREE.Object3D) => void;
     drawReady: (obj: THREE.Object3D) => boolean;
+    /** whether a tile's buildings may be drawn from one merged copy (tileBatch.ts) */
+    batchable?: () => boolean;
     forget?: (materials: Set<THREE.Material>) => void;
     /** where the view's own trees stand (view frame): on the collision grid of its tiles */
     viewTrees?: () => [number, number][];
@@ -654,7 +663,47 @@ export class DroneWorld {
     // (the tiles dropped while waiting count no more)
     if (!left) this.trafficDirty = 0;
   }
-  update(x: number, y: number, vx: number, vy: number, alt: number, look?: [number, number]) {
+  /** Settled tiles' buildings drawn as one mesh each (tileBatch.ts): a few hundred building draws
+   * fewer in a dense city, each of which the renderer works through in every shadow cascade and
+   * the colour pass. At most one merge per call; the rest only checked. ?tilebatch=0 turns it off. */
+  /** Night: lamps on the sidewalks of the tiles within reach (two made a pass); day: none. */
+  private lampTiles(x: number, y: number) {
+    const on = droneLampsOn(), reach = this.o.hq ? 1100 : 650;
+    let made = 0;
+    for (const t of this.tiles.values()) {
+      const want = on && t.state === "ready" && !!t.zup && !!t.walkPaths?.length && distToBox(x, y, t.box) < reach;
+      if (want && t.lamps === undefined && made < 2) {
+        made++;
+        const mesh = t.lamps = tileLamps(t.walkPaths!, (px, py) => this.groundAt(px, py));
+        if (mesh) { const zup = t.zup!; this.o.addWarm(zup, mesh); t.dispose.push(() => { mesh.removeFromParent(); mesh.children.forEach(c => (c as THREE.InstancedMesh).dispose()); }); }
+      } else if (!want && t.lamps !== undefined && (!on || distToBox(x, y, t.box) > reach + 150)) {
+        t.lamps?.removeFromParent(); t.lamps?.children.forEach(c => (c as THREE.InstancedMesh).dispose()); t.lamps = undefined;
+      }
+    }
+  }
+  private batchAt = 0;
+  private batchTiles(now: number) {
+    if (now - this.batchAt < 250) return;
+    this.batchAt = now;
+    const on = !NO_BATCH && (this.o.batchable?.() ?? false);
+    let merged = false;
+    for (const t of this.tiles.values()) {
+      const st = t.batch;
+      if (!on) { if (st?.mesh) dissolveBatch(st); continue; }
+      if (!t.zup || !t.buildingGroup || t.state !== "ready" || t.survey === "running" || t.survey === "placed") {
+        if (st?.mesh) dissolveBatch(st);
+        if (st) st.sig = "";
+        continue;
+      }
+      // (one merge a call: the copy is a few MB at most, but several in one frame would show)
+      if (merged && !st?.mesh) continue;
+      const b = t.batch ??= newBatchState();
+      if (!b.dispose) t.dispose.push(b.dispose = () => dissolveBatch(b));
+      const step = stepBatch(b, t.zup, [t.buildingGroup, t.surveyGroup], sharedContextMaterial("apt"), now, 1500, o => this.o.drawReady(o), `drone tile ${t.key} batched buildings`);
+      if (step === "made") { merged = true; if (DTRACE) console.info(`[dtile] ${t.key} batch made ${Math.round(now)}`); }
+    }
+  }
+    update(x: number, y: number, vx: number, vy: number, alt: number, look?: [number, number]) {
     // (low over the ground: every tile's surveyed models given their collision grid, again when
     // a later batch has changed them)
     if (alt < 300 && performance.now() > this.surveyCheckAt) { this.surveyCheckAt = performance.now() + 1500; this.ensureSurveyRasters(x, y); }
@@ -743,12 +792,14 @@ export class DroneWorld {
     const placed=[...this.tiles.values(),...this.viewTiles.values()].filter(t=>t.survey==='placed').length;
     const detailSlots=Math.max(0,Math.min((this.o.hq?2:1)-this.surveying-placed,surveyWant.length));
     for(let k=0;k<detailSlots;k++)void this.surveyTile(surveyWant[k][1]);
+    this.batchTiles(now);
     // Shadows from the near tiles only (with 80 m of slack: not switched back and forth); the lane
     // paint true to size within ~260 m of the camera (its height counted), broad past it.
     if (this.shadowCheck % 15 === 14) this.plantPool.shadows(x, y, TREE_SHADOW, TILE_M);
     // (a phone: the view's own woodland and its neighbours' in the pool's far models too — the
     // forests round the start were all drawn at full detail out to a kilometre)
     if (this.treeLod && this.shadowCheck % 60 === 37) groveLeavesLod(true);
+    if (this.shadowCheck % 15 === 7) this.lampTiles(x, y);
     if (++this.shadowCheck % 15 === 0) for (const t of this.tiles.values()) {
       const d = distToBox(x, y, t.box);
       // (the lane paint, true to size, drawn within ~700 m of the camera: past it, under a pixel)

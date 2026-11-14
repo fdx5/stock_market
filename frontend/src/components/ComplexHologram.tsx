@@ -44,6 +44,7 @@ import {jamsilTreeMask,withoutStadiumTrees} from './stadiumPlanting';
 import { loadBuildings, saveBuildings } from "./buildingStore";
 import { buildPlants, preloadPlants } from "./scenePlants";
 import { vehicleShapes } from "./vehicleClient";
+import { setDroneLampLevel } from "./droneLamps";
 import { buildLamps, buildRoadMarkings, buildRoadSurface, buildTraffic, stitchedRoads,preloadTraffic,type TrafficArms } from "./sceneStreet";
 import { FLAT, gradeRoads, gridNormals, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
 import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
@@ -233,6 +234,8 @@ type Stage = {
   /** Add decoration; on WebGL its programs compile in parallel before it joins the scene. */
   addWarm: (parent: THREE.Object3D, obj: THREE.Object3D) => void;
   drawReady: (obj: THREE.Object3D) => boolean;
+  /** Whether the native renderer draws (it honours tileBatch's merged copies; WebGL would draw both). */
+  batchable: () => boolean;
   frame: () => void;
   /** A picture of the next frame drawn, for sharing (null: none wanted). */
   snap: ((frame: Blob | null) => void) | null;
@@ -1019,6 +1022,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null, signs: null, traffic: null, crowds: [], viewH: 600, drone: null, viewTrees: { near: [], far: [] },
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => { if (!obj.userData.sceneDiscarded) parent.add(obj); }); },
       drawReady: obj => native ? native.objectsReady(obj) : !nativePending && !!obj.parent,
+      batchable: () => !!native,
     };
     stageRef.current = stage;
     stage.bridgeSigns.canvas=bridgeSignCanvas.current;
@@ -1443,6 +1447,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       stage.lit.windows.forEach(m => { m.emissiveIntensity = l.windows; });
       stage.lit.crowns.forEach(m => { m.emissiveIntensity = l.windows * 0.5; });
       stage.lit.ground.forEach(m => { m.emissiveIntensity = l.lamps * 0.9; });
+      setDroneLampLevel(l.lamps);
       stage.onLook.forEach(f => f(l));
       // Behind an overcast no stars or moon.
       u.uStarVis.value = l.stars * (1 - l.overcast);
@@ -4204,7 +4209,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       resume: resume ?? undefined,
       scene: st.scene, camera: st.camera, ground: st.ground, terrain: terrainRef.current, data, seed, hq: st.hq,
       extent: { ring: DRONE_RING_M, farHalf: DRONE_FAR_HALF },
-      addWarm: st.addWarm, drawReady: st.drawReady, forget: st.forgetMaterials, viewTrees: () => [...st.viewTrees.near, ...st.viewTrees.far],
+      addWarm: st.addWarm, drawReady: st.drawReady, batchable: st.batchable, forget: st.forgetMaterials, viewTrees: () => [...st.viewTrees.near, ...st.viewTrees.far],
       viewBuildings: () => st.viewBuildings,
       nearBuildings:()=>st.nearBuildings,
       stationLabels:()=>st.rail?.stationLabels(),

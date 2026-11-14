@@ -1,3 +1,4 @@
+import { onPageSeenChange, pageUnseen } from "../pageCovered";
 import { NANOTUBES, fiberCount, formId, type NanotubeGeometry } from "./nanotubeGeometry";
 import { HULL_FRAGMENT, HULL_VERTEX, WIRE_FRAGMENT, WIRE_VERTEX } from "./nanotubeShaders";
 import { NanotubePulses } from "./nanotubePulse";
@@ -128,7 +129,7 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
   }
   function draw(now: number) {
     frame = 0;
-    if (disposed || lost || !ready || document.hidden) return;
+    if (disposed || lost || !ready || pageUnseen()) return;
     const dt = last ? Math.min(50, now - last) / 1000 : 0;
     if (last) elapsed += dt;
     last = now;
@@ -200,16 +201,16 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     const target = event.target;
     scrollTarget = target instanceof Element ? target.scrollTop : scrollY;
   }
-  function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; if (ready && !document.hidden && !disposed) frame = requestAnimationFrame(draw); }
+  function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; if (ready && !pageUnseen() && !disposed) frame = requestAnimationFrame(draw); }
   function contextLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(frame); worker?.terminate(); worker = null; onFailure(); }
   function contextRestored() { if (!disposed) onRestore(); }
   document.addEventListener("scroll", onScroll, { passive: true, capture: true });
-  document.addEventListener("visibilitychange", sync); window.addEventListener("resize", sync); reduced.addEventListener("change", sync);
+  const offSeen = onPageSeenChange(sync); window.addEventListener("resize", sync); reduced.addEventListener("change", sync);
   canvas.addEventListener("webglcontextlost", contextLost); canvas.addEventListener("webglcontextrestored", contextRestored);
   return () => {
     disposed = true; cancelAnimationFrame(frame); worker?.terminate(); worker = null;
     document.removeEventListener("scroll", onScroll, { capture: true });
-    document.removeEventListener("visibilitychange", sync); window.removeEventListener("resize", sync); reduced.removeEventListener("change", sync);
+    offSeen(); window.removeEventListener("resize", sync); reduced.removeEventListener("change", sync);
     canvas.removeEventListener("webglcontextlost", contextLost); canvas.removeEventListener("webglcontextrestored", contextRestored);
     gl.colorMask(true, true, true, true); gl.depthMask(true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     buffers.forEach(value => gl.deleteBuffer(value)); programs.forEach(value => gl.deleteProgram(value.program)); tubes = []; links = null;

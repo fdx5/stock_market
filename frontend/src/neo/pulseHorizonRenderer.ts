@@ -1,3 +1,4 @@
+import { onPageSeenChange, pageUnseen } from "../pageCovered";
 import { MOODS, PULSES, RIDGE_FRAGMENT, RIDGE_VERTEX, SKY_FRAGMENT, SKY_VERTEX, type Mood } from "./pulseHorizonShaders";
 
 export interface PulseHorizonController {
@@ -169,7 +170,7 @@ export function installPulseHorizon(canvas: HTMLCanvasElement, level: FxLevel, o
 
   function draw(now: number) {
     frame = 0;
-    if (disposed || lost || document.hidden) return;
+    if (disposed || lost || pageUnseen()) return;
     const dt = last ? Math.min(.05, (now - last) / 1000) : 0;
     last = now;
     if (!still()) elapsed += dt;
@@ -264,21 +265,21 @@ export function installPulseHorizon(canvas: HTMLCanvasElement, level: FxLevel, o
     canvas.dataset.state = still() ? "still" : "live";
     if (!still()) frame = requestAnimationFrame(draw);
   }
-  function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; if (!document.hidden && !disposed && !lost) frame = requestAnimationFrame(draw); }
+  function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; if (!pageUnseen() && !disposed && !lost) frame = requestAnimationFrame(draw); }
   function contextLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(frame); canvas.dataset.state = "unavailable"; onFailure(); }
   function contextRestored() { if (!disposed) onRestore(); }
   canvas.dataset.state = "loading"; canvas.dataset.ridges = String(ridges);
   addEventListener("pointermove", onPointerMove, { passive: true });
   addEventListener("pointerdown", onPointerDown, { passive: true });
   document.addEventListener("scroll", onScroll, { passive: true, capture: true });
-  document.addEventListener("visibilitychange", sync); addEventListener("resize", sync); reduced.addEventListener("change", sync);
+  const offSeen = onPageSeenChange(sync); addEventListener("resize", sync); reduced.addEventListener("change", sync);
   canvas.addEventListener("webglcontextlost", contextLost); canvas.addEventListener("webglcontextrestored", contextRestored);
   sync();
   const dispose = () => {
     disposed = true; cancelAnimationFrame(frame);
     removeEventListener("pointermove", onPointerMove); removeEventListener("pointerdown", onPointerDown);
     document.removeEventListener("scroll", onScroll, { capture: true });
-    document.removeEventListener("visibilitychange", sync); removeEventListener("resize", sync); reduced.removeEventListener("change", sync);
+    offSeen(); removeEventListener("resize", sync); reduced.removeEventListener("change", sync);
     canvas.removeEventListener("webglcontextlost", contextLost); canvas.removeEventListener("webglcontextrestored", contextRestored);
     buffers.forEach(value => gl.deleteBuffer(value)); programs.forEach(value => gl.deleteProgram(value.program));
   };

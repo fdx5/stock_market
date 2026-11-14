@@ -6,6 +6,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useDocumentTitle } from '../useDocumentTitle';
 import LoadingState from './LoadingState';
 import { navigate } from '../router';
+import { pauseBackdrops } from '../pageCovered';
 import {dronePlaceId,readDronePlace,placeDisplayTitle,type DronePlace} from './dronePlaces';
 import DroneWarp from './DroneWarp';
 import {droneDestinationUrl,incomingDroneTravel,consumeDroneTravel} from './droneTravel';
@@ -25,6 +26,8 @@ export default function DroneExplorePage() {
   const [warp,setWarp]=useState<{id:number;name:string;started:number;elapsed:boolean;ready:boolean;error:string;from:string}|null>(()=>incoming.current?{...incoming.current,started:performance.now(),id:1,elapsed:false,ready:false,error:''}:null);
   const warpSeq=useRef(incoming.current?1:0),warpUrl=useRef(incoming.current?.url??'');
   useEffect(()=>consumeDroneTravel(incoming.current),[]);
+  // (the 3D view fills the window: the site's animated backdrop behind it stops drawing)
+  useEffect(()=>pauseBackdrops(),[]);
   useEffect(()=>{
     const update=()=>{
       if(warpUrl.current&&location.pathname+location.search!==warpUrl.current){warpUrl.current='';setWarp(null);}

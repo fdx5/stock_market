@@ -36,6 +36,19 @@ export const BUILDING_APPEARANCE_WGSL = /* wgsl */`{
     rough = select(0.6, 0.32, finish > 2.5);
     metal = select(0.0, 0.62, finish > 2.5);
   }
+  if (up > 0.5) {
+    // Roof slabs: waterproofing laid in sheets (6 m, world-aligned: a surveyed roof's uv is flat),
+    // each sheet its own shade of weathering, the laps between them darker. Antialiased like the
+    // joints; beyond a few pixels a sheet keeps only its shade.
+    let ruv = in.P.xz / 6.0;
+    let sheet = floor(ruv);
+    let rf = fract(ruv);
+    let raa = max(fwidth(ruv), vec2f(0.001));
+    let redge = min(rf, 1.0 - rf);
+    let lap = 1.0 - smoothstep(0.012 - raa.x, 0.012 + raa.x, redge.x) * smoothstep(0.012 - raa.y, 0.012 + raa.y, redge.y);
+    let shade = fract(sin(dot(sheet, vec2f(12.9898, 78.233)) + buildingSeed) * 43758.5453);
+    paint *= (0.9 + 0.14 * shade) * (1.0 - lap * 0.2 * (1.0 - smoothstep(0.25, 0.8, max(raa.x, raa.y))));
+  }
   var width = select(0.31, 0.36, kind < 0.5);
   var height = select(0.27, 0.31, kind < 0.5);
   width += (variant % 3.0 - 1.0) * 0.035;
@@ -68,7 +81,27 @@ export const BUILDING_APPEARANCE_WGSL = /* wgsl */`{
   let splitAt = select(split, centre.x + (split - 0.5) * width * 2.0, windowLayout > 0.5);
   let mullion = smoothstep(0.008 - footprint.x, 0.008 + footprint.x, abs(q.x - splitAt));
   let pane = inner * mullion;
-  let area = width * height * 4.0 * 0.91 * coverage;
+  // Far off, each axis box-filtered over the pixel's footprint (the exact share of the pixel the
+  // windows cover across, and up): a row of windows stays a row as long as the floors are wider
+  // than a pixel, and only an axis that is truly below a pixel averages out. (A single average
+  // for both axes turned every tower beyond a few hundred metres into one flat grey.)
+  let hx = max(footprint.x * 0.5, 0.0001);
+  let hy = max(footprint.y * 0.5, 0.0001);
+  let x0 = in.uv.x - hx; let x1 = in.uv.x + hx;
+  let y0 = in.uv.y - hy; let y1 = in.uv.y + hy;
+  let w2 = 2.0 * width; let h2 = 2.0 * height;
+  var ax = centre.x - width;
+  if (coverage > 1.5) { ax = 0.27 - width; }
+  var fx = ((floor(x1) * w2 + clamp(fract(x1) - ax, 0.0, w2)) - (floor(x0) * w2 + clamp(fract(x0) - ax, 0.0, w2))) / (2.0 * hx);
+  if (coverage > 1.5) {
+    let bx = 0.73 - width;
+    fx += ((floor(x1) * w2 + clamp(fract(x1) - bx, 0.0, w2)) - (floor(x0) * w2 + clamp(fract(x0) - bx, 0.0, w2))) / (2.0 * hx);
+  }
+  let ay = centre.y - height;
+  let fy = ((floor(y1) * h2 + clamp(fract(y1) - ay, 0.0, h2)) - (floor(y0) * h2 + clamp(fract(y0) - ay, 0.0, h2))) / (2.0 * hy);
+  // (spaced columns: every other bay blank — half the share across once a bay is under a pixel)
+  let spaced = select(1.0, mix(openings, 0.5, smoothstep(0.3, 0.9, footprint.x)), windowLayout > 3.5);
+  let area = clamp(fx, 0.0, 1.0) * clamp(fy, 0.0, 1.0) * 0.91 * spaced;
   let glazing = mix(pane, area, distant) * clamp(1.0 - plain, 0.0, 1.0);
   let frame = (box - pane) * (1.0 - distant) * clamp(1.0 - plain, 0.0, 1.0);
   let framePaint = select(vec3f(0.54, 0.55, 0.54), vec3f(0.16, 0.18, 0.19), variant % 2.0 > 0.5);

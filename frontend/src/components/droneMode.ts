@@ -94,6 +94,7 @@ export class DroneSession {
     data: RealEstateBuildingsResponse; seed: number; hq: boolean; extent: ViewExtent;
     addWarm: (parent: THREE.Object3D, obj: THREE.Object3D) => void;
     drawReady: (obj: THREE.Object3D) => boolean;
+    batchable?: () => boolean;
     forget?: (materials: Set<THREE.Material>) => void;
     /** where the view's own trees stand (view frame) */
     viewTrees?: () => [number, number][];
@@ -113,7 +114,7 @@ export class DroneSession {
     onHud: (h: DroneHud) => void;
   }) {
     this.flight = p.resume?.flight ?? new DroneFlight();
-    this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, forget: p.forget, viewTrees: p.viewTrees, viewBuildings:p.viewBuildings,nearBuildings:p.nearBuildings,
+    this.world = new DroneWorld({ data: p.data, terrain: p.terrain, extent: p.extent, seed: p.seed, hq: p.hq, addWarm: p.addWarm, drawReady: p.drawReady, batchable: p.batchable, forget: p.forget, viewTrees: p.viewTrees, viewBuildings:p.viewBuildings,nearBuildings:p.nearBuildings,
       viewWater: () => this.viewWater(),
       onSeaReady: field => { void this.sinkSeaGround(field); p.onSeaReady?.(field); },
       onLabels: (k, l) => this.signs.set(k, l) });

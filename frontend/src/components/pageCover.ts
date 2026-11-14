@@ -11,6 +11,8 @@
 const RULES = `html.re-page-covered body { background: #07090d; }
 html.re-page-covered body > :not([data-covers-page]) { content-visibility: hidden; contain-intrinsic-size: auto 100vh; }`;
 
+import { PAGE_COVER_EVENT } from "../pageCovered";
+
 let covers = 0;
 
 /** Marks the page as covered until the returned function is called (each cover counted). */
@@ -21,11 +23,11 @@ export function coverPage(): () => void {
     style.textContent = RULES;
     document.head.appendChild(style);
   }
-  if (covers++ === 0) document.documentElement.classList.add("re-page-covered");
+  if (covers++ === 0) { document.documentElement.classList.add("re-page-covered"); document.dispatchEvent(new Event(PAGE_COVER_EVENT)); }
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    if (--covers === 0) document.documentElement.classList.remove("re-page-covered");
+    if (--covers === 0) { document.documentElement.classList.remove("re-page-covered"); document.dispatchEvent(new Event(PAGE_COVER_EVENT)); }
   };
 }
