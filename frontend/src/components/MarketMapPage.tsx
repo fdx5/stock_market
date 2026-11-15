@@ -1,3 +1,4 @@
+import AdSenseBanner from "../neo/AdSenseBanner";
 import { useTone } from "../neo/settings";
 import CommunityShortcut from "../neo/CommunityShortcut";
 import { CSSProperties, ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -905,6 +906,7 @@ export default function MarketMapPage({
         <div className="kospi-map-workspace" ref={workspaceRef} role={mapExpanded ? "dialog" : undefined} aria-modal={mapExpanded ? true : undefined} aria-label={mapExpanded ? `${pageTitle} ${lang === "ko" ? "확대 보기" : "expanded view"}` : undefined}>
           {enhancedSectorView && (
             <aside className="kospi-map-period-rail" aria-label="조회 기간">
+              <AdSenseBanner />
               <div className="kospi-map-period-head">
                 <small>PERFORMANCE</small>
                 <strong>조회 기간</strong>

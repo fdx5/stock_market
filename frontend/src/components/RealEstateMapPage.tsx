@@ -1,3 +1,4 @@
+import AdSenseBanner from "../neo/AdSenseBanner";
 import CommunityShortcut from "../neo/CommunityShortcut";
 import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, RealEstateItem, RealEstateMapResponse, RealEstatePeriod, RealEstateSido } from "../api/client";
@@ -890,6 +891,7 @@ export default function RealEstateMapPage() {
 
         <div className={`kospi-map-workspace${view === "table" ? " is-table" : ""}`}>
           <aside className="kospi-map-period-rail re-map-rail" aria-label="조회 기간과 지역 지도">
+            <AdSenseBanner />
             <div className="kospi-map-period-head">
               <small>REAL TRADES</small>
               <strong>조회 기간</strong>

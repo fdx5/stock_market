@@ -1,3 +1,4 @@
+import AdSenseBanner from "./AdSenseBanner";
 import { useEffect, useMemo, useState } from "react";
 import { api, type HotIssueEdition, type HotIssueStory } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -128,6 +129,7 @@ export default function HotIssuesPage() {
 
     <div className="hi-layout">
       <div className="hi-stories">
+        <AdSenseBanner />
         <Story story={lead} lead />
         {rest.map(story => <Story key={story.id} story={story} />)}
       </div>

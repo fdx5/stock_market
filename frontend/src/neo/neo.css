@@ -121,3 +121,10 @@ html[data-design="neo"][data-fx="minimal"] .ed-investor-card:hover{transform:non
 @keyframes ng-new-pulse{50%{box-shadow:0 0 16px #ffb04acc}}
 @media (prefers-reduced-motion:reduce){.ng-new-badge{animation:none}}
 html[data-fx=minimal] .ng-new-badge{animation:none}
+
+.ng-adsense-banner{width:calc(100% - 24px);max-width:1752px;margin:20px auto}
+.ng-adsense-banner[data-ad-status="unfilled"]{display:none!important}
+@media print{.ng-adsense-banner{display:none!important}}
+
+.kospi-map-period-rail>.ng-adsense-banner{width:100%;margin:0 0 12px}
+.kospi-map-page--viewport .ng-adsense-banner{display:none!important}
