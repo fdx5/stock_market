@@ -46,12 +46,15 @@ html[data-design="neo"] .ng-content .kospi-map-page--viewport {
   overflow: hidden;
   background: var(--bg-root);
 }
+html[data-design="neo"] .kospi-map-page--viewport .ng-adsense-banner,
 html[data-design="neo"] .kospi-map-page--viewport > :not(.mm-main),
 html[data-design="neo"] .kospi-map-page--viewport .mm-main > :not(.kospi-map-workspace,.kospi-sector-layer,.kospi-map-tooltip) {
   display: none !important;
 }
 html[data-design="neo"] .ng-content .kospi-map-page--viewport > .mm-main {
+  box-sizing: border-box;
   height: 100%;
+  min-height: 0;
   padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
 }
 html[data-design="neo"] .ng-content .kospi-map-page--viewport .kospi-map-workspace {

@@ -891,7 +891,6 @@ export default function RealEstateMapPage() {
 
         <div className={`kospi-map-workspace${view === "table" ? " is-table" : ""}`}>
           <aside className="kospi-map-period-rail re-map-rail" aria-label="조회 기간과 지역 지도">
-            <AdSenseBanner />
             <div className="kospi-map-period-head">
               <small>REAL TRADES</small>
               <strong>조회 기간</strong>
@@ -907,6 +906,7 @@ export default function RealEstateMapPage() {
                 </label>
               ))}
             </div>
+            {!holoIsFull && <AdSenseBanner />}
             <div className={`re-map-region${regionMapOpen ? "" : " is-collapsed"}`}>
               <button
                 type="button"

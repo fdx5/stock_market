@@ -906,7 +906,6 @@ export default function MarketMapPage({
         <div className="kospi-map-workspace" ref={workspaceRef} role={mapExpanded ? "dialog" : undefined} aria-modal={mapExpanded ? true : undefined} aria-label={mapExpanded ? `${pageTitle} ${lang === "ko" ? "확대 보기" : "expanded view"}` : undefined}>
           {enhancedSectorView && (
             <aside className="kospi-map-period-rail" aria-label="조회 기간">
-              <AdSenseBanner />
               <div className="kospi-map-period-head">
                 <small>PERFORMANCE</small>
                 <strong>조회 기간</strong>
@@ -930,6 +929,7 @@ export default function MarketMapPage({
                 {periodLoading ? "기간 수익률 계산 중…" : periodError || `${items.length.toLocaleString()}개 종목`}
               </div>
               <p className="kospi-map-period-note">기간별 변동률을 조회합니다.</p>
+              <AdSenseBanner />
             </aside>
           )}
           <div className="kospi-map-workspace-main">
