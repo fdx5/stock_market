@@ -5,7 +5,7 @@ type AdWindow = Window & { adsbygoogle?: { push(request: object): unknown } };
 
 const bannerRoutes = new Set([
   "/", "/desk", "/global", "/map", "/kosdaq-map", "/sp500-map",
-  "/nasdaq100-map", "/realestate-map", "/pulse-board", "/hot-issues",
+  "/nasdaq100-map", "/realestate-map", "/hot-issues",
   "/kospi-100", "/kosdaq-100", "/nasdaq-100",
 ]);
 
