@@ -1,6 +1,6 @@
 {
   "/": {
-    "title": "관제 홈 | K Stock Hub",
+    "title": "코스피맵 (KOSPIMAP) | 국내외 주식 시세와 ETF",
     "description": "한국과 미국 증시, 환율과 가상자산의 흐름을 하나의 관제 홈에서 연결해 살펴보세요.",
     "image": "/img/social/home-66e7f386d0.png",
     "alt": "K Stock Hub 관제 홈 — Command home"
@@ -30,7 +30,7 @@
     "alt": "K Stock Hub ETF 마켓 — ETF market"
   },
   "/map": {
-    "title": "코스피 맵 | K Stock Hub",
+    "title": "코스피맵 | 코스피 시가총액 맵과 주식 히트맵",
     "description": "코스피 종목의 시가총액과 등락을 면적과 색으로 한눈에 읽는 시장 지도입니다.",
     "image": "/img/social/map-9a99b64ed4.png",
     "alt": "K Stock Hub 코스피 맵 — KOSPI map"
