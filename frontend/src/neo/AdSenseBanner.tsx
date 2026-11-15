@@ -5,16 +5,16 @@ type AdWindow = Window & { adsbygoogle?: { push(request: object): unknown } };
 
 const bannerRoutes = new Set([
   "/", "/desk", "/global", "/map", "/kosdaq-map", "/sp500-map",
-  "/nasdaq100-map", "/realestate-map", "/hot-issues",
+  "/nasdaq100-map", "/realestate-map", "/pulse-board", "/hot-issues",
   "/kospi-100", "/kosdaq-100", "/nasdaq-100",
 ]);
 
-export default function AdSenseBanner() {
+export default function AdSenseBanner({ format = "auto" }: { format?: "auto" | "horizontal" } = {}) {
   const path = useRoute();
-  return import.meta.env.PROD && bannerRoutes.has(path) ? <AdSlot key={path} /> : null;
+  return import.meta.env.PROD && bannerRoutes.has(path) ? <AdSlot key={path} format={format} /> : null;
 }
 
-function AdSlot() {
+function AdSlot({ format }: { format: "auto" | "horizontal" }) {
   const ref = useRef<HTMLModElement>(null);
   const requested = useRef(false);
 
@@ -48,7 +48,7 @@ function AdSlot() {
       style={{ display: "block" }}
       data-ad-client="ca-pub-8278980164088928"
       data-ad-slot="9440754514"
-      data-ad-format="auto"
+      data-ad-format={format}
       data-full-width-responsive="true"
     />
   );

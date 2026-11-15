@@ -1,3 +1,4 @@
+import AdSenseBanner from "./AdSenseBanner";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { MarketMapItem } from "../api/client";
@@ -236,6 +237,7 @@ export default function PulseBoardPage() {
       {/* The title is for assistive tech only: the board itself is the page's headline. */}
       <h1 id="pb-title" className="pb-sr">{L("증시 전광판", "Market pulse board")}</h1>
       {moodSlot ? createPortal(moodChip, moodSlot) : moodChip}
+      <div className="pb-banner"><AdSenseBanner format="horizontal" /></div>
       {/* One compact toolbar row: market tabs with their live index, breadth, sort. */}
       <div className="pb-toolbar">
         <div className="pb-tabs" role="tablist" aria-label={L("시장 선택", "Select market")}>{MARKETS.map(config => {

@@ -470,10 +470,14 @@ export default function MarketMapPage({
     };
   }, [fetchMap, tier1Limit, tier2Limit, fullLimit, market]);
 
-  useEffect(() => {
-    if (!containerRef.current || (view !== "map" && !mapExpanded)) return;
+  useLayoutEffect(() => {
     const el = containerRef.current;
-    const update = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    if (!el) return;
+    const update = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      setSize(previous => previous.w === w && previous.h === h ? previous : { w, h });
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -482,7 +486,7 @@ export default function MarketMapPage({
     // data arrives, so size is already known by the time the real treemap is ready to
     // draw - no extra measure-then-render round trip standing between "data landed"
     // and "tiles visible".
-  }, [view, mapExpanded]);
+  }, [view, mapExpanded, error]);
 
   // Sector options are derived from the loaded data (not the fixed backend keyword
   // list) so the dropdown only ever offers sectors that actually have stocks in the
