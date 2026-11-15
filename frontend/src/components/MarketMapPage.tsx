@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import AdSenseBanner from "../neo/AdSenseBanner";
 import { useTone } from "../neo/settings";
 import CommunityShortcut from "../neo/CommunityShortcut";
@@ -317,14 +318,24 @@ export default function MarketMapPage({
   }, []);
   const containerRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const expandedFrom = useRef<{ height: number; scrollY: number } | null>(null);
   const expandButtonRef = useRef<HTMLButtonElement>(null);
   // The maps open in the page layout; only the Expand button opens the window-filling view.
   const [mapExpanded, setMapExpanded] = useState(false);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useLayoutEffect(() => {
-    if (!mapExpanded || !workspaceRef.current) return;
+    if (!mapExpanded) {
+      if (expandedFrom.current) {
+        window.scrollTo(0, expandedFrom.current.scrollY);
+        expandButtonRef.current?.focus({ preventScroll: true });
+        expandedFrom.current = null;
+      }
+      return;
+    }
     const workspace = workspaceRef.current;
+    if (!workspace) return;
     const previousOverflow = document.body.style.overflow;
     const previousRootOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = "hidden";
@@ -334,8 +345,8 @@ export default function MarketMapPage({
     setHoveredSectorRect(null);
     setFinderOpen(false);
 
-    // Keep the existing workspace mounted so filters, quotes and map state survive.
-    // Inert every branch outside it, including the surrounding NeoShell controls.
+    // The portal is a direct child of body. Inert the branches outside the dialog,
+    // including the surrounding NeoShell controls.
     const background: { element: HTMLElement; inert: boolean; visibility: string; priority: string }[] = [];
     let branch: HTMLElement = workspace;
     while (branch.parentElement) {
@@ -379,7 +390,6 @@ export default function MarketMapPage({
       });
       document.body.style.overflow = previousOverflow;
       document.documentElement.style.overflow = previousRootOverflow;
-      expandButtonRef.current?.focus({ preventScroll: true });
     };
   }, [mapExpanded]);
 
@@ -836,8 +846,8 @@ export default function MarketMapPage({
     shareText: `${t(subtitlePrefix)} ${t("종목 MAP")}`,
   });
 
-  return (
-    <div className={`d2 mm app kospi-map-page${enhancedSectorView ? " kospi-map-page--expanded" : ""}${mapExpanded ? " kospi-map-page--viewport" : ""}`} lang={lang}>
+  const page = (
+    <div ref={pageRef} className={`d2 mm app kospi-map-page${enhancedSectorView ? " kospi-map-page--expanded" : ""}${mapExpanded ? " kospi-map-page--viewport" : ""}`} lang={lang}>
       <Tape />
 
       <main className="d2-main mm-main">
@@ -933,7 +943,7 @@ export default function MarketMapPage({
                 {periodLoading ? "기간 수익률 계산 중…" : periodError || `${items.length.toLocaleString()}개 종목`}
               </div>
               <p className="kospi-map-period-note">기간별 변동률을 조회합니다.</p>
-              <AdSenseBanner />
+              {!mapExpanded && <AdSenseBanner />}
             </aside>
           )}
           <div className="kospi-map-workspace-main">
@@ -952,7 +962,15 @@ export default function MarketMapPage({
                 aria-expanded={mapExpanded}
                 aria-label={lang === "ko" ? (mapExpanded ? "맵 확대 닫기" : "맵 화면 확대") : (mapExpanded ? "Close expanded map" : "Expand map to window")}
                 title={mapExpanded ? (lang === "ko" ? "닫기 (Esc)" : "Close (Esc)") : undefined}
-                onClick={() => setMapExpanded(expanded => !expanded)}
+                onClick={() => {
+                  if (!mapExpanded) {
+                    expandedFrom.current = {
+                      height: pageRef.current?.getBoundingClientRect().height ?? 0,
+                      scrollY: window.scrollY,
+                    };
+                  }
+                  setMapExpanded(!mapExpanded);
+                }}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
                   <path d={mapExpanded ? "M6 6l12 12M18 6L6 18" : "M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"} />
@@ -1262,5 +1280,16 @@ export default function MarketMapPage({
       <Colophon />
       <Finder open={finderOpen} onClose={() => setFinderOpen(false)} />
     </div>
+  );
+
+  if (!mapExpanded) return page;
+  return (
+    <>
+      <div aria-hidden="true" style={{ height: expandedFrom.current?.height }} />
+      {createPortal(
+        <div className="ng-content ng-map-viewport-host">{page}</div>,
+        document.body,
+      )}
+    </>
   );
 }
