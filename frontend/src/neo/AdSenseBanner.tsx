@@ -1,17 +1,31 @@
 import { useEffect, useRef } from "react";
 import { useRoute } from "../router";
+import { useLanguage } from "../i18n/LanguageContext";
 
 type AdWindow = Window & { adsbygoogle?: { push(request: object): unknown } };
 
 const bannerRoutes = new Set([
   "/", "/desk", "/global", "/map", "/kosdaq-map", "/sp500-map",
   "/nasdaq100-map", "/realestate-map", "/pulse-board", "/hot-issues",
-  "/kospi-100", "/kosdaq-100", "/nasdaq-100",
+  "/kospi-100", "/kosdaq-100", "/nasdaq-100", "/etf/kr", "/etf/us",
 ]);
 
-export default function AdSenseBanner({ format = "auto" }: { format?: "auto" | "horizontal" } = {}) {
+export default function AdSenseBanner({
+  format = "auto", labelled = false,
+}: { format?: "auto" | "horizontal"; labelled?: boolean } = {}) {
   const path = useRoute();
-  return import.meta.env.PROD && bannerRoutes.has(path) ? <AdSlot key={path} format={format} /> : null;
+  const { lang } = useLanguage();
+  const isStockDetail = /^\/stock\/[A-Za-z0-9.-]{1,16}\/?$/.test(path);
+  if (!import.meta.env.PROD || !(bannerRoutes.has(path) || isStockDetail)) return null;
+  const slot = <AdSlot key={path} format={format} />;
+  if (!labelled) return slot;
+
+  return (
+    <div className="ng-adsense-inline">
+      <span className="ng-adsense-inline-label">{lang === "ko" ? "광고" : "Advertisement"}</span>
+      {slot}
+    </div>
+  );
 }
 
 function AdSlot({ format }: { format: "auto" | "horizontal" }) {
