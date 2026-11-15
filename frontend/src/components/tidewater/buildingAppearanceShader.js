@@ -106,11 +106,48 @@ export const BUILDING_APPEARANCE_WGSL = /* wgsl */`{
   let frame = (box - pane) * (1.0 - distant) * clamp(1.0 - plain, 0.0, 1.0);
   let framePaint = select(vec3f(0.54, 0.55, 0.54), vec3f(0.16, 0.18, 0.19), variant % 2.0 > 0.5);
   paint = mix(paint, framePaint, clamp(frame, 0.0, 1.0));
-  let glass = mix(vec3f(0.035, 0.065, 0.085), vec3f(0.09, 0.14, 0.18), variant / 7.0);
+  var glass = mix(vec3f(0.035, 0.065, 0.085), vec3f(0.09, 0.14, 0.18), variant / 7.0);
+  var glassRough = 0.16;
+  var glassSpec = 1.35;
+  // Wear and life (11-15, "실사처럼"): what makes a facade read as built and lived in, not drawn —
+  // rain run-off under each sill, the base's grime, each bay's render a shade apart, the floor
+  // slabs' line; panes that each reflect a little differently, some behind blinds or curtains.
+  // All from the building's own uv and seed (no texture, no draw); faded out with distance, so a
+  // far facade keeps its exact average (no shimmer).
+  let nearBy = 1.0 - distant;
+  let wallShare = clamp(1.0 - plain, 0.0, 1.0);
+  // (the base: a darker plinth over the lowest half floor, at every distance — it is larger than a pixel)
+  let grime = (1.0 - smoothstep(0.0, 0.55, in.uv.y)) * wallShare;
+  paint *= 1.0 - 0.16 * grime;
+  if (nearBy > 0.01) {
+    let bay = floor(in.uv);
+    let tone = fract(sin(dot(bay, vec2f(127.1, 311.7)) + buildingSeed * 0.37) * 43758.5453);
+    let life = fract(sin(dot(bay, vec2f(269.5, 183.3)) + buildingSeed * 0.71) * 24634.6345);
+    // each bay's render a shade apart (a facade repainted, weathered unevenly)
+    paint *= 1.0 + (tone - 0.5) * 0.07 * nearBy * wallShare;
+    // rain run-off: a stain under the sill, the window's width, fading down the wall
+    let sill = centre.y - height;
+    let underSill = (1.0 - smoothstep(width * 0.85, width * 1.05, abs(q.x - centre.x))) * smoothstep(0.0, sill, q.y) * step(q.y, sill);
+    paint *= 1.0 - underSill * (0.05 + 0.1 * tone) * nearBy * wallShare * openings * (1.0 - up);
+    // the floor slab's line, where each storey meets the next
+    let slab = 1.0 - smoothstep(0.02, 0.05 + footprint.y, min(q.y, 1.0 - q.y));
+    paint *= 1.0 - slab * 0.07 * nearBy * wallShare * (1.0 - up);
+    // panes: each its own reflection (tint, sharpness) — and blinds or curtains drawn part way in some
+    glass *= 0.82 + 0.36 * life;
+    glassRough = mix(0.16, 0.06 + 0.2 * tone, nearBy);
+    let blindDown = select(0.0, 0.25 + 0.6 * fract(life * 7.31), life > 0.58);
+    let paneTop = centre.y + height;
+    let blindEdge = paneTop - blindDown * 2.0 * height;
+    let blind = smoothstep(blindEdge - footprint.y, blindEdge + footprint.y, q.y) * step(0.001, blindDown) * nearBy;
+    let blindColour = select(vec3f(0.42, 0.39, 0.33), vec3f(0.30, 0.31, 0.32), tone > 0.6);
+    glass = mix(glass, blindColour, blind * 0.55);
+    glassRough = mix(glassRough, 0.55, blind * 0.6);
+    glassSpec = mix(glassSpec, 0.9, blind * 0.6);
+  }
   s.albedo = mix(paint, glass, glazing);
-  s.roughness = mix(rough, 0.16, glazing);
+  s.roughness = mix(rough, glassRough, glazing);
   s.metalness = mix(metal, 0.0, glazing);
-  s.specularIntensity = mix(0.6, 1.35, glazing);
+  s.specularIntensity = mix(0.6, glassSpec, glazing);
   s.alpha = 1.0;
   // Stable per-building, floor and room variation: no frame-dependent flicker,
   // repeated eight-building light map, extra lights, textures or draw calls.

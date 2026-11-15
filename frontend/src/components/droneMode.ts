@@ -692,6 +692,9 @@ export class DroneSession {
     const f = this.flight, c = this.p.camera;
     let want = 0;
     if (f.walking) want = f.car ? 9 * Math.min(1, Math.abs(f.carSpeed) / Math.max(10, f.car.top)) : f.cycling ? 6 * Math.min(1, f.bikeSpeed / Math.max(5, f.bike.top)) : f.sprinting ? 6 : 0;
+    // (the drone too: the view widens a little with speed, as it rushes — 6° at full speed, 3° with
+    // 움직임 줄이기 — so 200 km/h reads as fast from 100 m up)
+    else { const k = Math.min(1, f.kmh / 200); want = (viewPreferences().reduceMotion ? 3 : 6) * k * k * (3 - 2 * k); }
     this.fovKick += (want - this.fovKick) * (1 - Math.exp(-dt * 3));
     this.footSounds();
     if (f.walking !== this.gameOn) { this.gameOn = f.walking; this.p.setGame?.(f.walking); }

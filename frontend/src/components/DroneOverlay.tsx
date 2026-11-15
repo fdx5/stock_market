@@ -29,12 +29,15 @@ const COMPASS = ["북", "북동", "동", "남동", "남", "남서", "서", "북�
 
 function Stick({ side, flight, label }: { side: "left" | "right"; flight: DroneFlight; label: [string, string] }) {
   const pad = useRef<HTMLDivElement>(null);
-  const [knob, setKnob] = useState<[number, number]>([0, 0]);
+  const knobEl = useRef<HTMLElement>(null);
   const active = useRef<number | null>(null);
   const set = (x: number, y: number) => {
-    setKnob([x, y]);
-    // (a little dead zone round the centre; y up is +1)
-    const dz = (v: number) => (Math.abs(v) < 0.08 ? 0 : v);
+    // (the knob moved directly: a React render each pointer move, at up to 120 a second, was
+    // main-thread time taken from the flight's frames)
+    if (knobEl.current) knobEl.current.style.transform = `translate(${x * 50}%, ${y * 50}%)`;
+    // (a small dead zone round the centre, then full deflection already at 85% of the pad: a
+    // thumb reaches full speed without pressing on the pad's rim; y up is +1)
+    const dz = (v: number) => { const a = Math.abs(v); return a < 0.06 ? 0 : Math.sign(v) * Math.min(1, (a - 0.06) / 0.79); };
     flight.sticks[side] = [dz(x), dz(-y)];
   };
   const move = (e: RPointerEvent<HTMLDivElement>) => {
@@ -57,7 +60,7 @@ function Stick({ side, flight, label }: { side: "left" | "right"; flight: DroneF
       onPointerMove={e => { e.stopPropagation(); move(e); }} onPointerUp={e => { e.stopPropagation(); end(e); }} onPointerCancel={end}>
       <span className="re-drone-stick-label is-v">{label[0]}</span>
       <span className="re-drone-stick-label is-h">{label[1]}</span>
-      <i style={{ transform: `translate(${knob[0] * 50}%, ${knob[1] * 50}%)` }} />
+      <i ref={knobEl} />
     </div>
   );
 }

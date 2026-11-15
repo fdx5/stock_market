@@ -27,8 +27,12 @@ export const CRAWL_SPEED = 40 / 3.6, HOLD_MAX = 3;
 /** Gentle clockwise panorama: one revolution in ninety seconds. */
 export const AUTO_ROTATE_RATE = Math.PI * 2 / 90;
 
-const ACCEL = 10.5, BRAKE = 8, VACCEL = 9, CLIMB = 15, SINK = 10, YAW_RATE = 1.5, RADIUS = 0.45;
-const DRAG = ACCEL / (MAX_SPEED * MAX_SPEED * 1.32);
+// (11-15: quicker on the sticks — "굼뜨다": twice the thrust and braking, a faster and more direct
+// turn, climbs that answer at once. The world-ahead hold keeps its own gentler braking (LIMIT_BRAKE):
+// how far ahead the tiles must be ready does not change.)
+const ACCEL = 22, BRAKE = 18, VACCEL = 22, CLIMB = 18, SINK = 14, YAW_RATE = 2.3, RADIUS = 0.45;
+const LIMIT_BRAKE = 8;
+const DRAG = ACCEL / (MAX_SPEED * MAX_SPEED * 1.15);
 
 export interface DroneWorldQuery {
   groundAt(x: number, y: number): number;
@@ -398,8 +402,10 @@ export class DroneFlight {
     }
     // Turning: eased, a little slower at speed (a wider arc, as a real drone flies it).
     const h = Math.hypot(this.vel.x, this.vel.z);
-    const want = -turn * YAW_RATE * (1 - 0.35 * Math.min(1, h / MAX_SPEED));
-    this.yawRate += (want - this.yawRate) * Math.min(1, dt * 6);
+    // (a stick's response curve: fine aim near the centre, the full rate at the edge)
+    const t = Math.sign(turn) * (0.45 * Math.abs(turn) + 0.55 * turn * turn);
+    const want = -t * YAW_RATE * (1 - 0.2 * Math.min(1, h / MAX_SPEED));
+    this.yawRate += (want - this.yawRate) * Math.min(1, dt * 14);
     this.yaw += this.yawRate * dt;
     // Heading in the scene: yaw 0 looks along −z (north).
     const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw), rx = -fz, rz = fx;
@@ -430,10 +436,10 @@ export class DroneFlight {
     let hs = Math.hypot(this.vel.x, this.vel.z);
     if (hs > 0.5 || this.autopilot) {
       const dx = hs > .5 ? this.vel.x / hs : fx, dy = hs > .5 ? -this.vel.z / hs : -fz;
-      const look = READY_AHEAD + (hs * hs) / (2 * BRAKE) + 40;
+      const look = READY_AHEAD + (hs * hs) / (2 * LIMIT_BRAKE) + 40;
       const clear = world.clearAhead(x, y, dx, dy, look);
       this.ahead = clear;
-      this.limit = clear >= look ? MAX_SPEED : Math.sqrt(Math.max(0, 2 * BRAKE * (clear - READY_AHEAD)));
+      this.limit = clear >= look ? MAX_SPEED : Math.sqrt(Math.max(0, 2 * LIMIT_BRAKE * (clear - READY_AHEAD)));
       this.held = this.limit < CRAWL_SPEED ? this.held + dt : 0;
       if (this.held > HOLD_MAX) this.limit = Math.max(this.limit, CRAWL_SPEED);
     } else {
@@ -445,7 +451,7 @@ export class DroneFlight {
     hs = Math.hypot(this.vel.x, this.vel.z);
     if (hs > cap) {
       // (a firm brake, not a jump: the drone slows as it would with the stick pulled back)
-      const k = Math.max(cap, hs - BRAKE * 1.5 * dt) / hs;
+      const k = Math.max(cap, hs - LIMIT_BRAKE * 1.5 * dt) / hs;
       this.vel.x *= k; this.vel.z *= k;
     }
 

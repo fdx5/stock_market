@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { photoBuildings, photoTextureAt, type PhotoBuilding } from "./vworld3d";
 import { bridgeSections } from './bridgeDeck';
+import { atlasable, buildAtlas, type LandmarkAtlas } from "./landmarkAtlas";
 
 /* Landmarks the drone flies to: the palaces, the stadiums and arenas, as VWorld surveyed them —
  * every building of the site in its photo-textured 3D model (국토교통부 브이월드 3D 건물:
@@ -201,7 +202,9 @@ export function buildGwanganBridge(project: (lon: number, lat: number) => [numbe
   return { group, materials: [deckMat, steelMat, concMat, cableMat, paintMat], dispose: () => { geos.forEach(g => g.dispose()); deckMat.dispose(); steelMat.dispose(); concMat.dispose(); cableMat.dispose(); paintMat.dispose(); } };
 }
 
-type Loaded = { state: "loading" | "placed"; group: THREE.Group | null; materials: THREE.Material[]; models: PhotoBuilding[]; dispose: () => void; stop: AbortController; shown?: Shown[] };
+type Loaded = { state: "loading" | "placed"; group: THREE.Group | null; materials: THREE.Material[]; models: PhotoBuilding[]; dispose: () => void; stop: AbortController; shown?: Shown[];
+  /** its models in one mesh and one picture (landmarkAtlas), once loaded; `ready` once it is drawn in their place */
+  atlas?: LandmarkAtlas; atlasReady?: boolean };
 
 /* The photographs by distance. A model's photograph is one picture of all its walls (about
  * π × its width of wall across): a 20 m hall's 1024 px is some 5 cm a texel, a detail the screen
@@ -217,7 +220,9 @@ const LEVELS = [{ near: 300 }, { near: 100 }, { near: 0 }];
 /** texels across for level `l` (its nearest distance d): the wall's π·D seen at d / 934 m a pixel */
 const levelSize = (diameter: number, l: number, full: number) =>
   l >= LEVELS.length - 1 ? full : Math.min(full, Math.max(32, Math.ceil(Math.PI * diameter * 934 / LEVELS[l].near)));
-type Shown = { m: PhotoBuilding; mesh: THREE.Mesh; diameter: number; top: number; level: number; mats: (THREE.MeshStandardMaterial | null)[]; asking: AbortController | null };
+type Shown = { m: PhotoBuilding; mesh: THREE.Mesh; diameter: number; top: number; level: number; mats: (THREE.MeshStandardMaterial | null)[]; asking: AbortController | null;
+  /** its part of the site's atlas mesh, and whether it is drawn alone now (close) */
+  part?: number; alone?: boolean; pendingFold?: boolean; entry?: Loaded };
 
 /** The sites near the drone, loaded and let go as it flies (droneWorld). */
 export class Landmarks {
@@ -233,6 +238,8 @@ export class Landmarks {
     seaLevel: () => number | null;
     addWarm: (parent: THREE.Object3D, obj: THREE.Object3D) => void;
     forget?: (materials: Set<THREE.Material>) => void;
+    /** whether an object's materials are ready to draw (a swap waits for it: no blank frame) */
+    drawReady?: (obj: THREE.Object3D) => boolean;
     /** a site's models are on screen: hide the boxes standing in for them */
     onPlaced?: (site: LandmarkSite) => void;
     onBridgePlaced?: () => void;
@@ -269,15 +276,25 @@ export class Landmarks {
 
   update(x: number, y: number, agl = 0) {
     const now = performance.now();
+    this.settleAtlases();
     if (now - this.lodAt > 400) { this.lodAt = now; this.lod(x, y, agl); }
     // Models usually arrive before their terrain tile. Follow the later DEM instead of
     // leaving palace halls floating at the fallback height used during the download.
     if (now - this.alignedAt > 500) {
       this.alignedAt = now;
-      for (const entry of this.loaded.values()) for (const child of entry.group?.children ?? []) {
-        if (child.userData.landmarkX === undefined) continue;
-        child.position.y = this.o.groundAt(child.userData.landmarkX, child.userData.landmarkY) - 0.15;
-        child.updateMatrixWorld();
+      for (const entry of this.loaded.values()) {
+        for (const child of entry.group?.children ?? []) {
+          if (child.userData.landmarkX === undefined) continue;
+          child.position.y = this.o.groundAt(child.userData.landmarkX, child.userData.landmarkY) - 0.15;
+          child.updateMatrixWorld();
+        }
+        // (the models in the atlas: their parts of it, and their meshes kept aside, at the ground too)
+        if (entry.atlas) for (const r of entry.shown ?? []) {
+          if (r.part === undefined) continue;
+          const y = this.o.groundAt(r.m.cx, r.m.cy) - 0.15;
+          entry.atlas.lift(r.part, y);
+          if (!r.mesh.parent) { r.mesh.position.y = y; r.mesh.updateMatrixWorld(); }
+        }
       }
       const deck = this.deckMemo;
       if (deck && this.loaded.has('gwangan')) {
@@ -337,9 +354,20 @@ export class Landmarks {
   }
   /** Model `r` drawn with level `l`'s photograph; any larger one let go. */
   private show(r: Shown, l: number) {
+    const atlas = r.entry?.atlasReady ? r.entry.atlas : undefined;
+    if (atlas && r.part !== undefined && l === 0) {
+      // (far again: back into the atlas mesh, its own mesh put aside)
+      atlas.fold(r.part, false); r.alone = false; r.pendingFold = false; r.mesh.removeFromParent();
+      r.level = 0; r.asking?.abort();
+      const gone = new Set<THREE.Material>();
+      for (let k = 1; k < r.mats.length; k++) { const old = r.mats[k]; if (old) { gone.add(old); r.mats[k] = null; old.map?.dispose(); old.dispose(); } }
+      if (gone.size) this.o.forget?.(gone);
+      return;
+    }
     const mat = r.mats[l];
     if (!mat) return;
     r.mesh.material = mat;
+    if (atlas && r.part !== undefined && !r.mesh.parent) { r.entry!.group!.add(r.mesh); r.mesh.updateMatrixWorld(true); r.alone = true; r.pendingFold = true; }
     r.level = l;
     if (l < LEVELS.length - 1) r.asking?.abort();
     const gone = new Set<THREE.Material>();
@@ -388,7 +416,7 @@ export class Landmarks {
       group.add(mesh);
       mats.push(mat);
       const bs = m.geometry.boundingSphere!, box = m.geometry.boundingBox ?? (m.geometry.computeBoundingBox(), m.geometry.boundingBox!);
-      shown.push({ m, mesh, diameter: bs.radius * 2, top: box.max.z, level: 0, mats: [mat, null, null], asking: null });
+      shown.push({ m, mesh, diameter: bs.radius * 2, top: box.max.z, level: 0, mats: [mat, null, null], asking: null, entry });
     };
     try {
       // (each first at the far size: the nearer ones come as the drone does — lod)
@@ -399,6 +427,56 @@ export class Landmarks {
     this.retryAt.delete(site.id);
     entry.state = "placed";
     this.o.onPlaced?.(site);
+    void this.merge(site, entry);
+  }
+
+  /** The site's models into one mesh and one picture (landmarkAtlas): drawn in their place once its
+   * material is ready; the far pictures and materials then let go. */
+  private async merge(site: LandmarkSite, entry: Loaded) {
+    if (new URLSearchParams(location.search).get("landmarkatlas") === "0") return;
+    const take = (entry.shown ?? []).filter(r => {
+      const bmp = r.mats[0]?.map?.image as ImageBitmap | undefined;
+      return !!bmp && bmp.width > 0 && typeof bmp.close === "function" && atlasable(r.m.geometry);
+    });
+    if (take.length < 2) return;
+    for (const r of take) r.mesh.updateMatrix();
+    let atlas: LandmarkAtlas;
+    try {
+      atlas = await buildAtlas(take.map(r => ({ geometry: r.m.geometry, bitmap: r.mats[0]!.map!.image as ImageBitmap, matrix: r.mesh.matrix.clone(), ground: r.mesh.position.y })), this.o.hq ? 4096 : 2048, `landmark ${site.name}`);
+    } catch { return; }
+    if (this.loaded.get(site.id) !== entry || !entry.group) { atlas.dispose(); return; }
+    atlas.mesh.castShadow = this.o.hq; atlas.mesh.receiveShadow = true;
+    atlas.mesh.userData.landmark = site.name;
+    atlas.mesh.updateMatrixWorld(true);
+    take.forEach((r, i) => { r.part = i; });
+    entry.atlas = atlas; entry.materials.push(atlas.material);
+    // (drawn by the renderer only once its material is ready: then it takes the models' place —
+    // settleAtlases, checked every scheduling pass)
+    this.o.addWarm(entry.group, atlas.mesh);
+  }
+  /** an atlas whose material is ready drawn in place of its models (the near ones stay alone) */
+  private settleAtlases() {
+    for (const entry of this.loaded.values()) {
+      const atlas = entry.atlas;
+      if (!atlas) continue;
+      if (entry.atlasReady) {
+        // (a model come close: its part folded away once its own mesh can be drawn)
+        for (const r of entry.shown ?? []) if (r.pendingFold && r.part !== undefined && r.mesh.parent && (!this.o.drawReady || this.o.drawReady(r.mesh))) { atlas.fold(r.part, true); r.pendingFold = false; }
+        continue;
+      }
+      if (!atlas.mesh.parent || (this.o.drawReady && !this.o.drawReady(atlas.mesh))) continue;
+      entry.atlasReady = true;
+      const gone = new Set<THREE.Material>();
+      for (const r of entry.shown ?? []) {
+        if (r.part === undefined) continue;
+        if (r.level > 0) { atlas.fold(r.part, true); r.alone = true; continue; }
+        r.mesh.removeFromParent(); r.alone = false;
+        // (the far picture lives in the atlas now)
+        const far = r.mats[0];
+        if (far) { gone.add(far); far.map?.dispose(); (far.map?.image as ImageBitmap | undefined)?.close?.(); far.dispose(); r.mats[0] = null; }
+      }
+      if (gone.size) this.o.forget?.(gone);
+    }
   }
 
   private drop(id: string) {
@@ -408,6 +486,7 @@ export class Landmarks {
     e.stop.abort();
     if (e.group) { e.group.removeFromParent(); this.o.forget?.(new Set([...e.materials, ...(e.shown ?? []).flatMap(r => r.mats.filter((m): m is THREE.MeshStandardMaterial => !!m))])); }
     e.dispose();
+    e.atlas?.dispose(); e.atlas = undefined;
   }
 
   dispose() { for (const id of [...this.loaded.keys()]) this.drop(id); this.root.removeFromParent(); }

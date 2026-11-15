@@ -56,6 +56,8 @@ export type RingResult = {
 
 type RingJob = {
   urls: string[]; lat: number; lon: number; inner: number; outer: number;
+  /** the roofs bare: no parapets nor rooftop plant (?rooftops=0) */
+  bare?: boolean;
   near: Float32Array; seed: number;
   /** the surveyed roads (6 m and wider) as segments: ax, ay, bx, by, half width */
   roads: Float32Array;
@@ -102,6 +104,8 @@ function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile, clas
   self.onmessage = (e: MessageEvent<RingJob>) => {
     const t0 = performance.now();
     const job = e.data, { lat, lon } = job;
+    // (?rooftops=0: the roofs bare, as before 11-15)
+    const rooftops = !job.bare;
     const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540;
     // Terrain: the view's own grid (bilinear, clamped at its edge as the view's ground is).
     const g = job.grid;
@@ -376,6 +380,67 @@ function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile, clas
         }
         b.i.push(hb, hb + 1, hb + 2, hb, hb + 2, hb + 3);
       }
+      // (11-15, 실사화 2단계) What a real roof carries: a parapet round its edge, and on a larger
+      // one its plant — the stair and lift house, condensers, a water tank. In the walls' span (the
+      // aerial colours and a surveyed shape's swap take them with the walls), plain-faced
+      // (appearance + 32: no windows), and no draw of their own.
+      if (floors >= 3 && ring.length <= 64 && rooftops) {
+        const plain = [appearance[0] + 32, appearance[1], appearance[2], appearance[3]];
+        const face = (ax: number, ay: number, bx: number, by: number, z0: number, z1: number, nx: number, ny: number, nz: number, col: number[]) => {
+          const fb = b.p.length / 3, alongX = Math.abs(by - ay) < Math.abs(bx - ax);
+          for (const [x, y, z] of [[ax, ay, z0], [bx, by, z0], [bx, by, z1], [ax, ay, z1]]) {
+            b.p.push(x, y, z); b.n.push(nx, ny, nz); b.u.push((alongX ? x : y) / profile.bay, (z - ground) / profile.storey); b.c.push(col[0], col[1], col[2]); b.f.push(...plain);
+          }
+          b.i.push(fb, fb + 1, fb + 2, fb, fb + 2, fb + 3);
+        };
+        const ph = Math.min(1.2, 0.65 + height * 0.008), ins = 0.22;
+        for (let i = 0; i < ring.length; i++) {
+          const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % ring.length];
+          const ex = bx - ax, ey = by - ay, el = Math.hypot(ex, ey);
+          if (el < 1.2) continue;
+          const nx = ey / el, ny = -ex / el;
+          face(ax, ay, bx, by, top, top + ph, nx, ny, 0, tint);
+          // (its inner face, a hand's breadth in, facing the roof)
+          face(bx - nx * ins, by - ny * ins, ax - nx * ins, ay - ny * ins, top - 0.05, top + ph, -nx, -ny, 0, tint);
+        }
+        // the plant: on a roof of 120 m² and more, four storeys up
+        const A = Math.abs(area);
+        const inside = (x: number, y: number) => { let c = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+        if (floors >= 4 && A >= 120 && !holes.length) {
+          // (along the outline's longest edge)
+          let ux = 1, uy = 0, best = 0;
+          for (let i = 0; i < ring.length; i++) { const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % ring.length], l = Math.hypot(bx - ax, by - ay); if (l > best) { best = l; ux = (bx - ax) / l; uy = (by - ay) / l; } }
+          const vx = -uy, vy = ux;
+          const fits = (x: number, y: number, w: number, d: number) => inside(x, y) && inside(x + ux * w / 2 + vx * d / 2, y + uy * w / 2 + vy * d / 2) && inside(x - ux * w / 2 - vx * d / 2, y - uy * w / 2 - vy * d / 2) && inside(x + ux * w / 2 - vx * d / 2, y + uy * w / 2 - vy * d / 2) && inside(x - ux * w / 2 + vx * d / 2, y - uy * w / 2 + vy * d / 2);
+          const box = (x: number, y: number, w: number, d: number, h: number, col: number[]) => {
+            const c = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(([a, e]) => [x + ux * a + vx * e, y + uy * a + vy * e]);
+            for (let k = 0; k < 4; k++) {
+              const [ax, ay] = c[k], [bx, by] = c[(k + 1) % 4], l = Math.hypot(bx - ax, by - ay) || 1;
+              face(ax, ay, bx, by, top - 0.05, top + h, (by - ay) / l, -(bx - ax) / l, 0, col);
+            }
+            const tb = b.p.length / 3;
+            for (const [px, py] of c) { b.p.push(px, py, top + h); b.n.push(0, 0, 1); b.u.push(px / profile.bay, py / profile.storey); b.c.push(col[0] * 0.92, col[1] * 0.92, col[2] * 0.92); b.f.push(...plain); }
+            b.i.push(tb, tb + 1, tb + 2, tb, tb + 2, tb + 3);
+          };
+          // the stair and lift house: a small block of the walls' own finish, at the middle
+          const w = Math.min(9, Math.max(3.2, Math.sqrt(A) * 0.24)), d = Math.min(6, Math.max(2.6, w * 0.62));
+          let cxx = cx, cyy = cy;
+          if (fits(cxx, cyy, w, d)) box(cxx, cyy, w, d, 3 + rnd() * 0.6, tint);
+          else { cxx = NaN; }
+          // condensers in a row beside it, and on a big roof a water tank
+          const grey = [0.74, 0.75, 0.76], steelC = [0.58, 0.62, 0.66];
+          const n = Math.min(5, Math.floor(A / 220));
+          const ox = Number.isFinite(cxx) ? w / 2 + 1.6 : 0, side = rnd() < 0.5 ? 1 : -1;
+          for (let k = 0; k < n; k++) {
+            const x = cx + ux * side * (ox + k * 1.7), y = cy + uy * side * (ox + k * 1.7);
+            if (fits(x, y, 1.3, 0.9)) box(x, y, 1.3, 0.9, 1.05, grey);
+          }
+          if (A >= 500 && rnd() < 0.55) {
+            const x = cx - vx * (d / 2 + 2.4), y = cy - vy * (d / 2 + 2.4);
+            if (fits(x, y, 3.2, 2.4)) box(x, y, 3.2, 2.4, 2.1, steelC);
+          }
+        }
+      }
       // roof: ear clipping of the outline (outlines are a few to a few dozen points), the courtyards
       // cut out of it
       const roofRing = holes.length ? bridged(ring, holes) : ring;
@@ -437,6 +502,7 @@ function ringWorkerMain(appearanceProfile:typeof buildingAppearanceProfile, clas
 /** The worker's script as one Blob URL for the page's lifetime (one a call was never revoked: the
  * drone, making workers tile after tile, piled them up in memory). */
 let ringUrl: string | null = null;
+const BARE_ROOFS = typeof location !== "undefined" && /[?&]rooftops=0/.test(location.search);
 function ringWorkerUrl(src: string) { return (ringUrl ??= URL.createObjectURL(new Blob([src], { type: "text/javascript" }))); }
 
 /** The ring's buildings (inner < distance ≤ outer from the result's centre, none already drawn —
@@ -458,7 +524,7 @@ export function ringBuildings(data: RealEstateBuildingsResponse, near: Float32Ar
 
   const job: RingJob = {
     urls, lat, lon, inner: opts.inner ?? 0, outer, near, seed: opts.seed, roads: new Float32Array(segs), clearedSite:data.cleared_site,
-    grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, floorM: opts.floorM,
+    grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, floorM: opts.floorM, bare: BARE_ROOFS,
   };
   return sceneWorkerFresh<RingResult>(ringWorkerUrl(src), () => new Worker(ringWorkerUrl(src)), job, opts.signal);
 }
@@ -478,7 +544,7 @@ export function ringTile(lat: number, lon: number, key: string, domain: string |
 
   const job: RingJob = {
     urls, lat, lon, inner: opts.inner, outer: Infinity, near: new Float32Array(0), seed: opts.seed, roads: new Float32Array(0),
-    grid, floorM: opts.floorM, box, heightCell: opts.heightCell ?? 2,
+    grid, floorM: opts.floorM, box, heightCell: opts.heightCell ?? 2, bare: BARE_ROOFS,
   };
   const src = `(${ringWorkerMain.toString()})(${buildingAppearanceProfile.toString()},${namedBuildingKind.toString()})`;
   return sceneWorkerFresh<RingResult>(ringWorkerUrl(src), () => new Worker(ringWorkerUrl(src)), job, opts.signal);

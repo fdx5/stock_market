@@ -22,7 +22,7 @@ import {SurveyGeometryStore} from './surveyGeometryStore';
 import { roadTile } from "./droneRoads";
 import {fitTileStreetSurfaces} from './tileStreetSurfaces';
 import {lowerUnderRiver,type RiverLowerArgs,type RiverLowerResult} from './riverLower';
-import { DroneTraffic } from "./droneTraffic";
+import { makeDroneTraffic, type TrafficApi } from "./droneTrafficClient";
 import { farGround } from "./farGround";
 import { vworldSampler, type Terrain } from "./sceneTerrain";
 import { gridAt } from "./waterCore";
@@ -232,7 +232,7 @@ export class DroneWorld {
   /** Sidewalk paving and kerbs. */
   private paving = new THREE.MeshStandardMaterial({ color: "#a7a39b", roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
   /** The cars on them. */
-  readonly traffic: DroneTraffic;
+  readonly traffic: TrafficApi;
   /** the tiles' woodland, pooled by cell (dronePlantPool) */
   private plantPool!: PlantPool;
   private treeLod = false;
@@ -274,7 +274,7 @@ export class DroneWorld {
     // (WebGPU: the same asphalt grain as the view's road surfaces)
     this.asphalt.userData.groundDetail = true;
     void paintedTexture('asphalt',1024).then(map=>{if(this.disposed){map.dispose();return;}this.asphaltMap=map;this.asphalt.map=map;this.asphalt.color.set('#ffffff');this.asphalt.needsUpdate=true;});
-    this.traffic = new DroneTraffic(o.seed + 31, !o.hq);
+    this.traffic = makeDroneTraffic(o.seed + 31, !o.hq);
     this.root.add(this.traffic.group);
     // (a phone: its far woodland in the lighter leaf levels; ?treelod=0 the comparison path)
     this.treeLod = !o.hq && !/[?&]treelod=0/.test(location.search);
@@ -286,7 +286,7 @@ export class DroneWorld {
       groundAt: (x, y) => this.groundAt(x, y),
       // (the sea, 0 m on the national DEM: −base in the view frame)
       seaLevel: () => { void this.baseHeight(); return this.base === null ? null : -this.base; },
-      addWarm: o.addWarm, forget: o.forget,
+      addWarm: o.addWarm, forget: o.forget, drawReady: o.drawReady,
       onPlaced: site => { for (const t of this.tiles.values()) this.hideInSite(t, site); },
       onBridgePlaced: () => { for (const t of this.tiles.values()) if (t.state === 'placed' || t.state === 'ready') this.bridgeTraffic(t); },
     });

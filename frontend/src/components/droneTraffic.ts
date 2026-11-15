@@ -137,6 +137,13 @@ function blockGeometry() {
   return merged;
 }
 
+/** One step of the traffic from its worker: the instances to draw and the cars round the camera
+ * (bodies: [id, kind, x, y, z, hx, hy, v, r, g, b] each, view frame). */
+export type TrafficFrame = { far: { n: number; m: Float32Array; c: Float32Array }; near: { n: number; m: Float32Array; c: Float32Array }[];
+  beaconN: number; beacons: Float32Array[]; bodies: Float32Array; cars: number; ms?: number };
+export const TRAFFIC_KINDS = KINDS.map(k => ({ name: k[0], length: k[2] }));
+export const TRAFFIC_EMERGENCY_FROM = EMERGENCY_FROM;
+
 export class DroneTraffic {
   private stepNo=0;
   private curves=new WeakMap<Lane,WeakMap<Lane,Curve|null>>();
@@ -177,7 +184,11 @@ export class DroneTraffic {
   /** how far a car is placed (m), and how many there are at most — a phone's drone: fewer, nearer */
   private readonly FAR_M: number;
   private readonly CAP_FAR: number;
-  constructor(seed: number, lite = false) {
+  /** the modelled cars' kit loaded and their instanced meshes made (none: blocks only) */
+  readonly nearReady: Promise<void>;
+  /** `headless`: the simulation only (trafficWorker) — no car models loaded; setNear says which
+   * kinds the page draws modelled, and where their roof lights sit. */
+  constructor(seed: number, lite = false, headless = false) {
     this.FAR_M = lite ? 560 : 1100; this.CAP_FAR = lite ? 400 : 3000;
     let s = (seed % 2147483646) + 1;
     this.rnd = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
@@ -186,8 +197,9 @@ export class DroneTraffic {
     this.far.count = 0; this.far.frustumCulled = false; this.far.castShadow = false; this.far.receiveShadow = true;
     this.far.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.CAP_FAR * 3), 3);
     this.group.add(this.far, ...this.beacons);
+    if (headless) { this.nearReady = Promise.resolve(); return; }
     // The modelled cars once the kit is in (it is the view's: usually loaded already).
-    void loadCarModels().then(models => {
+    this.nearReady = loadCarModels().then(models => {
       if (this.disposed) return;
       this.nearMat = carModelMaterial();
       KINDS.forEach(([name], i) => {
@@ -201,6 +213,56 @@ export class DroneTraffic {
         this.group.add(im);
       });
     }).catch(() => {});
+  }
+
+  /** which kinds are drawn modelled near the camera, and their roofs (the page's, from its kit) */
+  nearKinds() { return { kinds: this.near.map(im => !!im), roofs: this.roofs.map(r => [r[0], r[1]] as [number, number]) }; }
+  /** (headless) the page's modelled kinds: a kind it has no model of stays a block, as on the page */
+  setNear(kinds: boolean[], roofs: [number, number][]) {
+    const geo = new THREE.BufferGeometry(), mat = this.farMat;
+    kinds.forEach((on, i) => {
+      if (!on || this.near[i]) return;
+      const im = new THREE.InstancedMesh(geo, mat, CAP_NEAR);
+      im.count = 0; im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAP_NEAR * 3), 3);
+      this.near[i] = im;
+    });
+    roofs.forEach((r, i) => { if (this.roofs[i]) this.roofs[i] = [r[0], r[1]]; });
+  }
+
+  /** (headless) this step's placed instances, and the cars round the camera (bodiesNear, nearestCar),
+   * as plain arrays for the page: copies, to be transferred. */
+  frame(): TrafficFrame {
+    const cut = (im: THREE.InstancedMesh | null) => {
+      const n = im?.count ?? 0;
+      return { n, m: im ? (im.instanceMatrix.array as Float32Array).slice(0, n * 16) : new Float32Array(0), c: im?.instanceColor ? (im.instanceColor.array as Float32Array).slice(0, n * 3) : new Float32Array(0) };
+    };
+    const bodies: number[] = [];
+    for (const at of this.carGrid.values()) for (const c of at) {
+      if (!c.alive || c.hidden) continue;
+      this.pose(c);
+      bodies.push(c.id, c.kind, c.x, c.y, c.z, c.hx, c.hy, c.v, c.colour.r, c.colour.g, c.colour.b);
+    }
+    const bn = this.beacons[0].count;
+    return { far: cut(this.far), near: this.near.map(cut), beaconN: bn,
+      beacons: this.beacons.map(b => (b.instanceMatrix.array as Float32Array).slice(0, bn * 16)),
+      bodies: Float32Array.from(bodies), cars: this.cars.length };
+  }
+  /** (the page) a frame of the worker's placed into this one's meshes */
+  applyFrame(f: TrafficFrame) {
+    const put = (im: THREE.InstancedMesh, p: { n: number; m: Float32Array; c: Float32Array }) => {
+      const n = Math.min(p.n, im.instanceMatrix.count);
+      if (!n && !im.count) return;
+      (im.instanceMatrix.array as Float32Array).set(p.m.subarray(0, n * 16));
+      if (im.instanceColor && p.c.length) (im.instanceColor.array as Float32Array).set(p.c.subarray(0, n * 3));
+      im.count = n; this.uploadPrefix(im, n);
+    };
+    put(this.far, f.far);
+    for (let i = 0; i < this.near.length; i++) { const im = this.near[i], p = f.near[i]; if (im && p) put(im, p); }
+    if (f.beaconN || this.beacons[0].count) this.beacons.forEach((b, i) => {
+      const n = Math.min(f.beaconN, CAP_BEACON);
+      (b.instanceMatrix.array as Float32Array).set(f.beacons[i].subarray(0, n * 16));
+      b.count = n; this.uploadPrefix(b, n);
+    });
   }
 
   private cell = (x: number, y: number) => `${Math.round(x / 4)},${Math.round(y / 4)}`;
