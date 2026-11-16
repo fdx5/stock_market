@@ -10,14 +10,25 @@ const bannerRoutes = new Set([
   "/kospi-100", "/kosdaq-100", "/nasdaq-100", "/etf/kr", "/etf/us",
 ]);
 
+type BannerOptions = { format?: "auto" | "horizontal"; labelled?: boolean };
+
+export function AdSenseBannerPair({ format = "auto", labelled = false }: BannerOptions = {}) {
+  return (
+    <div className="ng-adsense-pair">
+      <div className="ng-adsense-pair-banner"><AdSenseBanner format={format} labelled={labelled} /></div>
+      <div className="ng-adsense-pair-square"><AdSenseBanner slotId="9025269231" labelled={labelled} /></div>
+    </div>
+  );
+}
+
 export default function AdSenseBanner({
-  format = "auto", labelled = false,
-}: { format?: "auto" | "horizontal"; labelled?: boolean } = {}) {
+  format = "auto", labelled = false, slotId = "9440754514",
+}: BannerOptions & { slotId?: string } = {}) {
   const path = useRoute();
   const { lang } = useLanguage();
   const isStockDetail = /^\/stock\/[A-Za-z0-9.-]{1,16}\/?$/.test(path);
   if (!import.meta.env.PROD || !(bannerRoutes.has(path) || isStockDetail)) return null;
-  const slot = <AdSlot key={path} format={format} />;
+  const slot = <AdSlot key={`${path}:${slotId}`} format={format} slotId={slotId} />;
   if (!labelled) return slot;
 
   return (
@@ -28,7 +39,7 @@ export default function AdSenseBanner({
   );
 }
 
-function AdSlot({ format }: { format: "auto" | "horizontal" }) {
+function AdSlot({ format, slotId }: { format: "auto" | "horizontal"; slotId: string }) {
   const ref = useRef<HTMLModElement>(null);
   const requested = useRef(false);
 
@@ -61,7 +72,7 @@ function AdSlot({ format }: { format: "auto" | "horizontal" }) {
       className="adsbygoogle ng-adsense-banner"
       style={{ display: "block" }}
       data-ad-client="ca-pub-8278980164088928"
-      data-ad-slot="9440754514"
+      data-ad-slot={slotId}
       data-ad-format={format}
       data-full-width-responsive="true"
     />

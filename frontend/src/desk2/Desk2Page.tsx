@@ -1,4 +1,4 @@
-import AdSenseBanner from "../neo/AdSenseBanner";
+import { AdSenseBannerPair } from "../neo/AdSenseBanner";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -113,7 +113,7 @@ export default function Desk2Page() {
         <section id="d2-front" className="ed-summary-section" aria-label={L("시장 요약", "Market overview")}>
           <MarketOverview market="kr" items={marketItems} asOf={asOf} generatedAt={snapshot.generatedAt} />
         </section>
-        <AdSenseBanner />
+        <AdSenseBannerPair />
         <InvestorShowcase id="d2-investors" />
         <VideoShowcase id="d2-videos" market="kr" />
 
