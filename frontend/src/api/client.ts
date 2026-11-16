@@ -715,6 +715,8 @@ export interface MarketInvestorSummary {
   individual_amount: number;
   foreign_amount: number;
   institution_amount: number;
+  business_date?: string;
+  fetched_at?: number;
 }
 
 export interface InvestorSummaryItem {

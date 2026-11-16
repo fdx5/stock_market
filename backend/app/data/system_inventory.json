@@ -69,14 +69,17 @@
     "/global-peers",
     "/global-top100",
     "/guides",
+    "/hot-issues",
     "/hub",
     "/index/kosdaq",
     "/index/kospi",
     "/investment-videos",
     "/investors",
+    "/kosdaq",
     "/kosdaq-100",
     "/kosdaq-map",
     "/kosdaq-orbit",
+    "/kospi",
     "/kospi-100",
     "/kospi-orbit",
     "/liquidity-quality",
@@ -89,6 +92,7 @@
     "/market-radar",
     "/market/kospi/foreign-buying",
     "/markets",
+    "/nasdaq",
     "/nasdaq-100",
     "/nasdaq100-map",
     "/nasdaq100-orbit",
@@ -131,7 +135,7 @@
     "/walk",
     "/yield-curve-lab"
   ],
-  "source_files": 998,
+  "source_files": 1016,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -150,6 +154,7 @@
     "frontend/src/components/sceneWorkerPool.ts",
     "frontend/src/components/terrainGridWorker.ts",
     "frontend/src/components/texWorker.ts",
+    "frontend/src/components/trafficWorker.ts",
     "frontend/src/components/treeDecodeWorker.ts",
     "frontend/src/components/vehicleWorker.ts",
     "frontend/src/components/wakeWorker.ts",
@@ -471,6 +476,13 @@
       "hosts": [
         "www.youtube-nocookie.com",
         "www.youtube.com"
+      ]
+    },
+    {
+      "file": "frontend/src/neo/HotIssuesPage.tsx",
+      "hosts": [
+        "i.ytimg.com",
+        "www.youtube-nocookie.com"
       ]
     },
     {

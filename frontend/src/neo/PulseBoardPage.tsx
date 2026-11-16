@@ -1,4 +1,5 @@
 import AdSenseBanner from "./AdSenseBanner";
+import PulseInvestorFlow from "./PulseInvestorFlow";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { MarketMapItem } from "../api/client";
@@ -237,12 +238,20 @@ export default function PulseBoardPage() {
       {/* The title is for assistive tech only: the board itself is the page's headline. */}
       <h1 id="pb-title" className="pb-sr">{L("증시 전광판", "Market pulse board")}</h1>
       {moodSlot ? createPortal(moodChip, moodSlot) : moodChip}
-      <div className="pb-banner"><AdSenseBanner format="horizontal" /></div>
+      <div className={`pb-topline${market === "nasdaq100" ? " pb-topline--us" : ""}`}>
+        {market !== "nasdaq100" && <PulseInvestorFlow key={market} market={market}
+          source={market === "kospi" ? indices.kospiInvestor : indices.kosdaqInvestor}
+          quote={market === "kospi" ? indices.kospi : indices.kosdaq} />}
+        <div className="pb-banner"><AdSenseBanner format="horizontal" /></div>
+      </div>
       {/* One compact toolbar row: market tabs with their live index, breadth, sort. */}
       <div className="pb-toolbar">
+        <div className="pb-market-picker">
+        <div className="pb-market-prompt"><span><span aria-hidden="true">⇄</span> {L("시장 선택", "Select market")}</span><small>{L("눌러서 시장 전환", "Tap to switch markets")}</small></div>
         <div className="pb-tabs" role="tablist" aria-label={L("시장 선택", "Select market")}>{MARKETS.map(config => {
           const quote = quotes[config.key], selected = market === config.key;
           return <button type="button" role="tab" key={config.key} aria-selected={selected} tabIndex={selected ? 0 : -1} className="pb-tab" data-mood={moodOf(quote.change)}
+            title={selected ? L(`${config.label} 선택됨`, `${config.label} selected`) : L(`${config.label} 전광판 보기`, `View ${config.label} board`)}
             onClick={() => setMarket(config.key)}
             onKeyDown={event => {
               if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
@@ -251,8 +260,10 @@ export default function PulseBoardPage() {
               (event.currentTarget.parentElement?.children[MARKETS.indexOf(next)] as HTMLElement | undefined)?.focus();
             }}>
             <span className="pb-tab-name">{config.label}</span><strong>{price(quote.price)}</strong><b className={`is-${toneOf(quote.change)}`}>{quotePct(quote.change)}</b>
+            <span className="pb-tab-action" aria-hidden="true">{selected ? <><i>✓</i>{L("선택됨", "Selected")}</> : <>{L("보기", "View")}<i>→</i></>}</span>
           </button>;
         })}</div>
+        </div>
         <KospiFuturesChip />
         <div className="pb-breadth" title={L("등락 분포", "Breadth")}><b className="sc-up">↑{up}</b><div className="sc-breadth-track" role="img" aria-label={`${up} up, ${down} down`}>{[[up, "up"], [known.length - up - down, "flat"], [down, "down"]].map(([count, tone]) => <i key={tone} className={`sc-${tone}`} style={{ flex: Number(count) }} />)}</div><b className="sc-down">↓{down}</b></div>
         <div className="pb-sort" role="group" aria-label={L("정렬", "Sort")}>{([["cap", L("시총순", "Size")], ["return", L("등락순", "Return")]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={order === key} onClick={() => setOrder(key)}>{label}</button>)}</div>

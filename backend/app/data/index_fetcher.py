@@ -1,3 +1,5 @@
+import time
+
 import requests
 
 from app.services.cache import cache
@@ -76,6 +78,10 @@ def _fetch_market_investor(symbol: str) -> dict | None:
         "individual_amount": individual,
         "foreign_amount": foreign,
         "institution_amount": institution,
+        # Collection time, not a trade timestamp: the upstream rounds net amounts
+        # to KRW 100M. Clients must distinguish interpolated digits from trades.
+        "business_date": str(trend.get("bizdate") or ""),
+        "fetched_at": time.time(),
     }
 
 

@@ -200,3 +200,27 @@ html.pb-ship-hover,html.pb-ship-hover body,html.pb-ship-hover .pb-page{cursor:po
   --pb-ship-band:56vh;
   --pb-ship-band:56svh;
 }
+
+/* Market names are actionable switches, with a visible invitation and state. */
+.pb-market-picker{min-width:0;max-width:100%}
+.pb-market-prompt{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 4px 5px;color:var(--text-secondary,#cdbcdc);font:500 10px var(--f-sans)}
+.pb-market-prompt>span>span{color:var(--accent-neon,#bf85ff);font-size:13px}
+.pb-market-prompt small{color:var(--text-muted,#9d8aac);font:9px var(--f-sans)}
+.pb-market-picker .pb-tabs{gap:5px;background:#0c0812b8;padding:4px}
+.pb-market-picker .pb-tab{position:relative;border:1px solid #bf85ff38;background:#bf85ff08;min-height:42px;transition:border-color .18s,background .18s,box-shadow .18s,transform .18s}
+.pb-market-picker .pb-tab:hover{border-color:var(--accent-neon,#bf85ff);background:#bf85ff20;box-shadow:0 0 14px #bf85ff18;transform:translateY(-1px)}
+.pb-market-picker .pb-tab:active{transform:translateY(1px)}
+.pb-market-picker .pb-tab[aria-selected=true]{border-color:var(--accent-neon,#bf85ff);box-shadow:inset 0 -2px var(--accent-neon,#bf85ff),0 0 12px #bf85ff20}
+.pb-tab-action{display:flex;align-items:center;gap:4px;margin-left:3px;font:500 9px var(--f-sans);color:var(--accent-neon,#bf85ff)}
+.pb-tab-action i{font:12px var(--f-num);font-style:normal;transition:transform .18s}
+.pb-tab:hover .pb-tab-action i{transform:translateX(2px)}
+.pb-tab[aria-selected=true] .pb-tab-action{color:var(--text-secondary,#cdbcdc)}
+@media(max-width:700px){
+  .pb-market-picker{width:100%}
+  .pb-market-picker .pb-tab{padding:7px 8px;min-height:75px;gap:3px}
+  .pb-tab-action{position:absolute;right:7px;bottom:8px;margin:0;font-size:8px;gap:3px}
+  .pb-tab-action i{font-size:10px}
+  .pb-tab[aria-selected=true] .pb-tab-action{font-size:7px}
+}
+@media(prefers-reduced-motion:reduce){.pb-market-picker .pb-tab,.pb-tab-action i{transition:none}.pb-market-picker .pb-tab:hover,.pb-market-picker .pb-tab:active,.pb-tab:hover .pb-tab-action i{transform:none}}
+html[data-fx=minimal] .pb-market-picker .pb-tab,html[data-fx=minimal] .pb-tab-action i{transition:none}
