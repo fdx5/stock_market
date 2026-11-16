@@ -142,15 +142,15 @@ html[data-fx=minimal] .ng-new-badge{animation:none}
 .ng-adsense-inline:has(>ins[data-ad-status="unfilled"]){display:none}
 @media print{.ng-adsense-inline{display:none}}
 
-.ng-adsense-pair{display:flex;flex-wrap:nowrap;align-items:center;gap:24px;width:100%;max-width:100%;min-width:0;container-type:inline-size}
-.ng-adsense-pair>div{min-width:0;padding-block:20px}
-.ng-adsense-pair .ng-adsense-inline{margin-block:0}
+.ng-adsense-pair{--ng-ad-height:90px;display:flex;flex-wrap:nowrap;align-items:center;gap:24px;width:100%;max-width:100%;min-width:0;container-type:inline-size}
+.ng-adsense-pair>div{min-width:0;padding-block:4px}
+.ng-adsense-pair .ng-adsense-inline,.ng-adsense-pair .ng-adsense-inline:has(>ins[data-ad-status="filled"]){margin-block:0}
 .ng-adsense-pair-banner{flex:1}
 .ng-adsense-pair-banner .ng-adsense-banner{width:100%;max-width:728px;margin:0 auto}
 .ng-adsense-pair-square{display:none;flex:0 0 300px;width:300px;margin-left:auto}
-.ng-adsense-pair-square .ng-adsense-banner{width:100%;min-height:250px;margin:0}
+.ng-adsense-pair-square .ng-adsense-banner{width:100%;margin:0}
 .ng-adsense-pair>div:empty,.ng-adsense-pair>div:has(.ng-adsense-banner[data-ad-status="unfilled"]){display:none}
 .ng-adsense-pair:not(:has(.ng-adsense-banner:not([data-ad-status="unfilled"]))){display:none}
 @container(min-width:1052px){.ng-adsense-pair-square{display:block}}
-@container(max-width:520px){.ng-adsense-pair>div{padding-block:12px}}
+@container(max-width:520px){.ng-adsense-pair>div{--ng-ad-height:50px}}
 @media print{.ng-adsense-pair{display:none}}

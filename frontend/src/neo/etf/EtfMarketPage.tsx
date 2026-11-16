@@ -1,4 +1,4 @@
-import AdSenseBanner from "../AdSenseBanner";
+import { AdSenseBannerPair } from "../AdSenseBanner";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api, type EtfItem } from "../../api/client";
@@ -202,8 +202,8 @@ export default function EtfMarketPage({ region }: { region: EtfRegion }) {
         </div>{isGeared(e) && <span className="em-geared-label">{L("레버리지·인버스", "Leveraged / inverse")}</span>}
       </HoloPanel>)}</div> : <NeoEmptyState title={L("거래 순위를 표시할 데이터가 없습니다.", "No trading ranking available.")} />}
     </section>
+    <AdSenseBannerPair format="horizontal" labelled />
     <div className="em-workspace"><section className="em-screener" aria-labelledby="em-list-title" id="etf-list">
-      <AdSenseBanner format="horizontal" labelled />
       <div className="em-section-title"><div><span className="ng-kicker">FUND SCREENER</span><h2 id="em-list-title">{L("ETF 탐색", "Explore ETFs")} <span>{visible.length}<small> / {items.length}</small></span></h2></div><div className="em-segment" role="group" aria-label={L("목록 보기", "List view")}>{(["table", "card"] as const).map(view => <button type="button" key={view} aria-pressed={choices.view === view} onClick={() => patch({ view })}><NeoIcon name={view === "table" ? "menu" : "layers"} />{view === "table" ? L("목록", "List") : L("카드", "Cards")}</button>)}</div></div>
       <div className="em-controls"><div className="em-control-row"><label className="em-search"><NeoIcon name="search" /><input ref={searchRef} type="search" value={choices.q} onChange={e => patch({ q: e.target.value })} onKeyDown={e => { if (e.key === "Escape") patch({ q: "" }); }} placeholder={L("ETF명 · 코드 · 추종지수 검색", "Search fund, ticker or benchmark")} aria-label={L("ETF 검색", "Search ETFs")} />{choices.q && <button type="button" onClick={() => { patch({ q: "" }); searchRef.current?.focus(); }} aria-label={L("검색어 지우기", "Clear search")}><NeoIcon name="close" /></button>}</label>
         <label className="em-sort"><span>{L("정렬", "Sort")}</span><select aria-label={L("정렬 기준", "Sort by")} value={choices.sort} onChange={e => patch({ sort: e.target.value as EtfSort, direction: e.target.value === "name" ? "asc" : "desc" })}>{SORTS.map(sort => <option key={sort} value={sort}>{L(...sortLabels[sort])}</option>)}</select></label><button className="em-direction" type="button" onClick={() => patch({ direction: choices.direction === "desc" ? "asc" : "desc" })} aria-label={choices.direction === "desc" ? L("현재 내림차순, 오름차순으로 변경", "Descending, switch to ascending") : L("현재 오름차순, 내림차순으로 변경", "Ascending, switch to descending")}>{choices.direction === "desc" ? "↓" : "↑"}</button></div>
