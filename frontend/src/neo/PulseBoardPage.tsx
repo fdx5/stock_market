@@ -20,6 +20,7 @@ import { usCompanyLogoProxyUrl } from "../usLogo";
 import type { PulseHorizonController } from "./pulseHorizonRenderer";
 import type { Mood } from "./pulseHorizonShaders";
 import { boardStocks, usePulseBoardMarket, type BoardMarket } from "./pulseBoardData";
+import DeepDiveBackground from "../pulse2/DeepDiveBackground";
 import "./marketScanner.css";
 import "./marketScannerFx.css";
 import "./marketScannerNeon.css";
@@ -132,7 +133,8 @@ function KospiFuturesChip() {
   </div>;
 }
 
-export default function PulseBoardPage() {
+/** `variant="deep"` (증시 전광판2): the same board over the deep-dive scene instead of the sea and ship. */
+export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | "deep" } = {}) {
   const { lang } = useLanguage(), L = (ko: string, en: string) => lang === "ko" ? ko : en;
   const fx = useFxLevel();
   const [market, setMarket] = useState<BoardMarket>("kospi");
@@ -230,10 +232,12 @@ export default function PulseBoardPage() {
     <ol className="pb-mood-legend" aria-label={L("바다 색 기준", "Sea colour rule")}><li className="is-down">≤ −1%</li><li className="is-calm">±1%</li><li className="is-up">≥ +1%</li></ol>
   </div>;
 
-  return <div className="pb-page">
+  return <div className={`pb-page${variant === "deep" ? " pb-page--deep" : ""}`}>
+    {variant === "deep" ? <DeepDiveBackground change={basis} /> : <>
     <NeoPulseHorizon sea="ocean" mood={mood} energy={energy} intensity={1.18} horizon={-.22} controller={controller} />
     <PulseShip state={ship} controller={controller} onBoard={focusItem ? () => navigate(`/stock/${encodeURIComponent(focusItem.code)}`) : undefined}
       onCargo={code => { const item = stocks.find(stock => stock.code === code); if (item) focus(item); }} />
+    </>}
     <section className="sc-scanner pb-board" aria-labelledby="pb-title" data-mood={mood} data-market={market}>
       {/* The title is for assistive tech only: the board itself is the page's headline. */}
       <h1 id="pb-title" className="pb-sr">{L("증시 전광판", "Market pulse board")}</h1>

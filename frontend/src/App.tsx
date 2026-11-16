@@ -467,6 +467,8 @@ export default function App() {
     page = <BroadsheetStockPage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />;
   } else if (path === "/pulse-board") {
     page = <PulseBoardPage />;
+  } else if (path === "/pulse-board-2") {
+    page = <PulseBoardPage variant="deep" />;
   } else if (path === "/stocks") {
     page = <BroadsheetStocksPage />;
   } else if (path === "/kospi" || path === "/kosdaq" || path === "/nasdaq") {

@@ -224,3 +224,9 @@ html.pb-ship-hover,html.pb-ship-hover body,html.pb-ship-hover .pb-page{cursor:po
 }
 @media(prefers-reduced-motion:reduce){.pb-market-picker .pb-tab,.pb-tab-action i{transition:none}.pb-market-picker .pb-tab:hover,.pb-market-picker .pb-tab:active,.pb-tab:hover .pb-tab-action i{transform:none}}
 html[data-fx=minimal] .pb-market-picker .pb-tab,html[data-fx=minimal] .pb-tab-action i{transition:none}
+
+/* 증시 전광판2: the deep-dive scene fills the viewport behind the board; the page keeps
+   a tall open band at the end so the scene is seen whole below the cells. */
+.pb2-deep{position:fixed;left:var(--ng-rail,0px);right:0;top:0;bottom:0;z-index:-1;pointer-events:none;background:#01030a}
+.pb2-deep canvas{display:block;width:100%;height:100%}
+.pb-page--deep{--pb-ship-band:58vh}
