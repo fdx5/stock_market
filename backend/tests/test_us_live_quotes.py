@@ -144,9 +144,10 @@ def test_global_top100_uses_extended_print_on_both_quote_paths(monkeypatch):
 
 def test_global_index_headline_uses_live_quote_while_keeping_history(monkeypatch):
     from app.routers import global_dashboard as dashboard
-    df = pd.DataFrame([{"date": "20261016", "close": 90}, {"date": "20261019", "close": 100}])
-    monkeypatch.setattr(dashboard.price_fetcher, "get_history", lambda *args, **kwargs: df)
-    out = dashboard._widget_data(dashboard.US_WIDGETS[2], {"close": 110, "change": 20, "change_pct": 22.22, "session": "post", "quote_time": 200})
+    quote = {"close": 110, "change": 20, "change_pct": 22.22, "session": "post", "quote_time": 200,
+             "points": [{"date": "2026-10-16", "close": 90}, {"date": "2026-10-19", "close": 100}]}
+    monkeypatch.setattr(dashboard.global_index_fetcher, "get_index", lambda code: quote)
+    out = dashboard._widget_data(dashboard.US_WIDGETS[2])
     assert out["close"] == 110 and out["change_pct"] == 22.22
     assert len(out["points"]) == 2 and out["session"] == "post"
 

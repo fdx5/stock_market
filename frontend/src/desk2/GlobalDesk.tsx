@@ -40,7 +40,7 @@ function Tile({ item }: { item: GlobalIndexWidget }) {
             <span>{pct(item.change_pct)}</span>
           </div>
           <Spark points={closes} tone={tone} baseline={prev} className="d2-gl-spark" />
-          <small>{item.session === "pre" ? L("프리마켓 · 전일 정규장 종가 대비", "Pre-market · vs. last regular close") : item.session === "post" ? L("애프터마켓 · 전일 대비 합산", "After-hours · combined daily move") : item.unit === "index" && item.flag === "us" ? L("현물지수 · 정규장 기준", "Cash index · regular session") : L("최근 제공 시세", "Latest supplied quote")}</small>
+          <small>{item.stale ? L("수집 지연 · 마지막 정상 시세", "Feed delayed · last valid quote") : item.session === "pre" ? L("프리마켓 · 전일 정규장 종가 대비", "Pre-market · vs. last regular close") : item.session === "post" ? L("애프터마켓 · 전일 대비 합산", "After-hours · combined daily move") : item.unit === "index" && item.flag === "us" ? L("현물지수 · 정규장 기준", "Cash index · regular session") : L("최근 제공 시세", "Latest supplied quote")}</small>
           <dl>
             <div>
               <dt>{L("전일", "Prev")}</dt>

@@ -894,6 +894,7 @@ export interface GlobalIndexWidget {
   change_pct: number | null;
   session?: MarketSession;
   quote_time?: number | null;
+  stale?: boolean;
   points: GlobalIndexPoint[];
   /** Country code resolved to /img/flag/<flag>.svg, shown ahead of the label. */
   flag?: string;

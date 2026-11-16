@@ -1,34 +1,25 @@
 import datetime as dt
 import logging
 import math
+from concurrent.futures import ThreadPoolExecutor
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Response
 
-from app.data import global_discussion_fetcher, kospi_futures_fetcher, price_fetcher, us_live_quotes, yahoo_bulk_quote
-from app.services.cache import cache
+from app.data import global_discussion_fetcher, global_index_fetcher, kospi_futures_fetcher
 from app.services import kospi_night
 from app.services.public_discussion import get_public_discussion
 from app.data.toss_news_fetcher import get_toss_image, get_toss_news, get_toss_news_article
 from app.data.us_universe import get_us_stock_item
 from app.services.battle import get_global_enrichment
-from app.utils import dataframe_to_records
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# FinanceDataReader dispatches these non-KR-style codes to Yahoo Finance under the
-# hood — DJI/IXIC are Yahoo's index codes (^DJI/^IXIC), same mechanism already proven
-# for arbitrary US tickers by price_fetcher.get_history / us_stock.py.
-# DJI/IXIC are point-valued indices; SOXL/TQQQ are ETFs whose "close" is a real
-# per-share USD price — "unit" tells the frontend which of those to display.
-# "flag" is a country code the frontend resolves to /img/flag/<code>.svg — an image, not
-# an emoji, because Chrome on Windows renders regional-indicator emoji as bare letter
-# pairs ("US") rather than a flag. "group" sorts each index into one of the dashboard's
-# two rolling flip-tiles (US vs. overseas). FDR only auto-prepends Yahoo's "^" for index
-# codes it recognises — DJI/IXIC/N225/SSEC/HSI/FTSE are on that list, but the Taiwan
-# weighted index is not, so it's passed as the explicit Yahoo symbol "^TWII".
+# Keep public widget codes stable; global_index_fetcher maps them to explicit
+# provider symbols. Indices are point-valued; SOXL/TQQQ are USD ETF prices.
+# Country flags and region groups are shared by the existing dashboard layouts.
 US_WIDGETS = [
     {"key": "dow", "label": "다우존스", "code": "DJI", "unit": "index", "flag": "us", "group": "us"},
     {"key": "nasdaq", "label": "나스닥종합", "code": "IXIC", "unit": "index", "flag": "us", "group": "us"},
@@ -43,10 +34,6 @@ OVERSEAS_WIDGETS = [
     {"key": "taiwan", "label": "대만 가권", "code": "^TWII", "unit": "index", "flag": "tw", "group": "overseas"},
     {"key": "ftse", "label": "FTSE 100", "code": "FTSE", "unit": "index", "flag": "gb", "group": "overseas"},
 ]
-
-# ~3 months of daily closes — enough for a simple sparkline trend without shipping a
-# full year of points for a small non-interactive widget.
-SPARKLINE_POINTS = 60
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -107,7 +94,7 @@ def _sanitized(item: dict, empty: dict) -> dict:
     return item
 
 
-def _widget_data(widget: dict, live: dict | None = None) -> dict:
+def _widget_data(widget: dict) -> dict:
     # "source" only steers the fetch below; it isn't part of the wire format.
     meta = {k: v for k, v in widget.items() if k != "source"}
     empty = {**meta, "close": None, "change": None, "change_pct": None, "points": []}
@@ -123,47 +110,24 @@ def _widget_data(widget: dict, live: dict | None = None) -> dict:
             return empty
 
     try:
-        df = price_fetcher.get_history(widget["code"], years=1)
+        return _sanitized({**meta, **global_index_fetcher.get_index(widget["code"])}, empty)
     except Exception:
-        logger.exception("global_dashboard: failed to load history for %s", widget["code"])
-        if live:
-            return _sanitized({**meta, **live, "points": []}, empty)
+        logger.exception("global_dashboard: failed to load index %s", widget["code"])
         return empty
-
-    tail = df.tail(SPARKLINE_POINTS)
-    latest = df.iloc[-1]
-    prev = df.iloc[-2] if len(df) > 1 else latest
-    change = float(latest["close"] - prev["close"])
-    change_pct = float(change / prev["close"] * 100) if prev["close"] else 0.0
-    return _sanitized(
-        {
-            **meta,
-            "close": live["close"] if live else float(latest["close"]),
-            "change": live["change"] if live else change,
-            "change_pct": live["change_pct"] if live else change_pct,
-            "session": live.get("session") if live else "regular",
-            "quote_time": live.get("quote_time") if live else None,
-            "points": dataframe_to_records(tail[["date", "close"]]),
-        },
-        empty,
-    )
 
 
 @router.get("/indices")
-def indices():
-    # Daily history remains the sparkline; headline prices use the same live layer
-    # as US maps/detail pages instead of waiting for a daily-history cache refresh.
-    symbols = ["^DJI", "^IXIC", "SOXL", "TQQQ"]
-    batch = cache.get_or_set("us_index_widget_quotes", 4, lambda: yahoo_bulk_quote.get_quotes(symbols), allow_stale=False)
-    us_live_quotes.remember(batch)
-    us_live_quotes.recover_missing([code for code in symbols if code not in batch])
-    live = us_live_quotes.latest(symbols)
-    items = [_widget_data(w, live.get("^" + w["code"] if w["unit"] == "index" else w["code"])) for w in US_WIDGETS]
+def indices(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    # Independent, short-lived quotes for every region, with bounded concurrency.
+    with ThreadPoolExecutor(max_workers=9) as pool:
+        all_items = list(pool.map(_widget_data, US_WIDGETS + OVERSEAS_WIDGETS))
+    items = all_items[:len(US_WIDGETS)]
 
     session = _kospi_session(dt.datetime.now(KST))
     if session:
         partner_widget = KOSPI_SESSION_WIDGETS[session]
-        partner = _widget_data(partner_widget, live.get(partner_widget["code"]))
+        partner = _widget_data(partner_widget)
         # A tile that failed to load has nothing to show, so drop it rather than flipping
         # a dash into the US rotation every few seconds. When it did load, it rides the
         # same bottom-to-top flip as everything else — slotted right after SOXL, the tile
@@ -172,7 +136,7 @@ def indices():
             soxl_at = next((i for i, it in enumerate(items) if it["key"] == "soxl"), len(items) - 1)
             items.insert(soxl_at + 1, partner)
 
-    items += [_widget_data(w) for w in OVERSEAS_WIDGETS]
+    items += all_items[len(US_WIDGETS):]
 
     return {"items": items}
 

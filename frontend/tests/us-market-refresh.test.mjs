@@ -34,13 +34,33 @@ async function hooks(name) {
   const result=await build({entryPoints:[new URL(`../src/${name}.ts`,import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')],bundle:true,write:false,format:'esm',platform:'node',plugins:[{name:'memory-hook-environment',setup(b){
     b.onResolve({filter:/^react$/},()=>({path:'react',namespace:'fixture'}));
     b.onResolve({filter:/api\/client$/},()=>({path:'api',namespace:'fixture'}));
+    b.onResolve({filter:/i18n\/LanguageContext$/},()=>({path:'language',namespace:'fixture'}));
+    b.onResolve({filter:/\/router$/},()=>({path:'router',namespace:'fixture'}));
     b.onLoad({filter:/.*/,namespace:'fixture'},({path})=>({contents:path==='react' ? `
       export const useEffect=(effect)=>globalThis.__usQuoteTest.effects.push(effect);
       export const useState=(initial)=>{const rt=globalThis.__usQuoteTest;const i=rt.states.length;rt.states.push(initial);return [initial,(next)=>{rt.states[i]=typeof next==='function'?next(rt.states[i]):next;}];};
-    ` : `export const api=new Proxy({}, {get:(_target,name)=>(...args)=>globalThis.__usQuoteTest.api[name](...args)});`}));
+    ` : path==='language' ? `export const useLanguage=()=>({lang:'ko'});` : path==='router' ? `export const navigate=()=>{};` : `export const api=new Proxy({}, {get:(_target,name)=>(...args)=>globalThis.__usQuoteTest.api[name](...args)});`}));
   }}]});
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text+`\n// module ${++moduleId}`).toString('base64')}`);
 }
+
+test('world indices poll every ten seconds, keep newer timestamps and expose feed failures',async()=>{
+  let calls=0;
+  const replies=[
+    [{key:'nikkei',close:110,quote_time:200,stale:false}],
+    [{key:'nikkei',close:null,quote_time:null}],
+    [{key:'nikkei',close:90,quote_time:100}],
+    [{key:'nikkei',close:120,quote_time:300,stale:false}],
+  ];
+  const rt=runtime({globalIndices:async()=>({items:replies[Math.min(calls++,3)]})});
+  const {useGlobalIndices}=await hooks('desk2/lib');
+  useGlobalIndices();await rt.mount();useGlobalIndices();await rt.mount();
+  assert.equal(calls,1);await rt.advance(9999);assert.equal(calls,1);
+  await rt.advance(1);assert.equal(rt.states[0][0].close,110);assert.equal(rt.states[1][0].stale,true);
+  await rt.advance(10000);assert.equal(rt.states[0][0].quote_time,200);
+  await rt.advance(10000);assert.equal(rt.states[0][0].close,120);assert.equal(rt.states[0][0].stale,false);
+  rt.unmount();await rt.advance(20000);assert.equal(calls,4);
+});
 
 test('ticker subscribers share one poller; partial and older replies preserve newer prices',async()=>{
   let calls=0;

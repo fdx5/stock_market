@@ -199,7 +199,7 @@ function loadGlobal() {
       const previous = new Map((globalItems ?? []).map(item => [item.key, item]));
       globalItems = res.items.map(item => {
         const old = previous.get(item.key);
-        if (old?.close != null && (item.close == null || (old.quote_time && (!item.quote_time || old.quote_time > item.quote_time)))) return old;
+        if (old?.close != null && (item.close == null || (old.quote_time && (!item.quote_time || old.quote_time > item.quote_time)))) return { ...old, stale: true };
         return item;
       });
       globalListeners.forEach((fn) => fn(globalItems));
