@@ -9,8 +9,16 @@ window.history.replaceState({ ...window.history.state, kstockEntry: activeEntry 
 window.history.scrollRestoration = "manual";
 let returning = true;
 let pushing = false;
+// The pulse board is excluded from AdSense auto ads (no bottom anchor there). Auto ads
+// are set up per page load, so crossing into or out of it loads the page afresh: an
+// anchor from another page cannot follow the visitor in, and pages after it get theirs.
+const ADLESS = "/pulse-board";
+let shownPath = window.location.pathname === "/pulse-board-2" ? ADLESS : window.location.pathname;
+const crossesAdless = (to: string) => to !== shownPath && (to === ADLESS || shownPath === ADLESS);
 window.addEventListener("popstate", () => {
   if (pushing) return;
+  if (crossesAdless(window.location.pathname)) { window.location.reload(); return; }
+  shownPath = window.location.pathname;
   stopScrollRestoration();
   saveReadingPosition(activeUrl, activeEntry);
   activeUrl = readingUrl();
@@ -23,6 +31,9 @@ window.addEventListener("pagehide", () => saveReadingPosition(readingUrl(), acti
 export function navigationSnapshot() { return { url: activeUrl, entry: activeEntry, returning }; }
 
 export function navigate(path: string): void {
+  const target = new URL(path, window.location.href).pathname;
+  if (crossesAdless(target)) { window.location.assign(path); return; }
+  shownPath = target;
   stopScrollRestoration();
   // Cancel an in-flight smooth scroll before saving the outgoing entry.
   window.scrollTo({ top: window.scrollY, left: window.scrollX, behavior: "instant" as ScrollBehavior });
