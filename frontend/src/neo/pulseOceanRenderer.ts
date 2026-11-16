@@ -129,7 +129,8 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
   let reducedMotion = reduced.matches;
   const still = () => level === "minimal" || reducedMotion;
-  const HORIZON = initial.horizon ?? .3;
+  const baseHorizon = initial.horizon ?? .3;
+  let HORIZON = baseHorizon;
   const gain = (initial.intensity ?? 1) * (level === "full" ? 1 : level === "minimal" ? .85 : .95);
 
   const programs: Program[] = [], buffers: WebGLBuffer[] = [], textures: WebGLTexture[] = [], framebuffers: WebGLFramebuffer[] = [];
@@ -318,7 +319,8 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
   // frame-time governor: sustained long frames step down geometry and spray, never resolution
   let slow = 0, fast = 0;
 
-  const camPos = () => [cam.x + cam.sx * 6, CAM_H + cam.sy * 2.2, cam.z] as const;
+  const cameraHeight = () => CAM_H * Math.max(.25, Math.min(1, (1 + HORIZON) / (1 + baseHorizon)));
+  const camPos = () => [cam.x + cam.sx * 6, cameraHeight() + cam.sy * 2.2, cam.z] as const;
   function worldAt(screenX: number, distance: number) {
     const aspect = viewWidth / Math.max(1, viewHeight), [cx, , cz] = camPos();
     return { x: cx + (screenX * 2 - 1) * aspect * distance / F, z: cz + distance };
@@ -333,7 +335,7 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
     const y = 1 - event.clientY / innerHeight * 2;
     if (y > HORIZON - .02) return;
     lastClick = elapsed;
-    const d = Math.min(1400, CAM_H * F / (HORIZON - y));
+    const d = Math.min(1400, cameraHeight() * F / (HORIZON - y));
     const p = worldAt(event.clientX / innerWidth, d);
     spawn(p.x, p.z, .45, 0);
   }
@@ -524,6 +526,7 @@ export function installPulseOcean(canvas: HTMLCanvasElement, level: FxLevel, onF
     heightAt(x, z) { return heightAt(x, z, simTime); },
     setShip(pose) { ship = pose; },
     dispose,
+    setContentOffset(pixels) { HORIZON = Math.max(-.72, baseHorizon - 2 * Math.max(0, pixels) / Math.max(1, innerHeight)); if (still()) sync(); },
     setMood(mood) { paletteTarget.splice(0, paletteTarget.length, ...flatten(paletteFor(mood))); if (still()) sync(); },
     setEnergy(value) { energyTarget = Math.max(.6, Math.min(1.9, value)); if (still()) sync(); },
     sampleSwell(screenX, spread = .12) {

@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { IndexQuote, MarketInvestorSummary } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { useFxLevel } from "./settings";
-import { FLOW_DURATION_MS, flowIsFresh, flowValuesAt, investorWon, sameAmounts, type FlowAmounts, type FlowTransition } from "./investorFlowMotion";
+import { FLOW_DURATION_MS, flowIsFresh, flowValuesAt, flowMicroValuesAt, investorWon, sameAmounts, type FlowAmounts, type FlowTransition } from "./investorFlowMotion";
 import "./pulseInvestorFlow.css";
 
 const format = (value: number) => Math.abs(value).toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -49,8 +49,11 @@ export default function PulseInvestorFlow({ market, source, quote }: {
   const [paused, setPaused] = useState(false), [reduced, setReduced] = useState(() => matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [display, setDisplay] = useState<FlowAmounts | null>(() => investorWon(source));
   const [mode, setMode] = useState<Mode>("loading");
-  const visible = useRef(display), previous = useRef<{ values: FlowAmounts; date?: string; fetched: number } | null>(null);
-  const transition = useRef<FlowTransition | null>(null);
+  const [acceptedSource, setAcceptedSource] = useState(source);
+  const visible = useRef(display), latest = useRef({ source, quote });
+  latest.current = { source, quote };
+  const wake = useRef<() => void>(() => {});
+  const cycle = useRef<{ source: MarketInvestorSummary; target: FlowAmounts; change: FlowAmounts; transition: FlowTransition; direction: number } | null>(null);
   const still = paused || reduced || fx === "minimal";
 
   useEffect(() => {
@@ -61,30 +64,35 @@ export default function PulseInvestorFlow({ market, source, quote }: {
   }, []);
 
   useEffect(() => {
-    const target = investorWon(source), now = Date.now();
-    const fresh = flowIsFresh(source, quote, now), last = previous.current;
     const publish = (values: FlowAmounts | null) => {
       if (!sameAmounts(visible.current, values)) { visible.current = values; setDisplay(values); }
     };
-    if (!target) { transition.current = null; publish(null); setMode("loading"); return; }
-    const changed = !sameAmounts(last?.values ?? null, target);
-    if (!still && fresh && !document.hidden && changed && last && last.date === source?.business_date
-      && now - last.fetched <= 30_000 && visible.current) {
-      transition.current = { from: visible.current, to: target, startedAt: now };
-    } else if (changed || still || !fresh) {
-      transition.current = null;
-      publish(target);
-    }
-    previous.current = { values: target, date: source?.business_date, fetched: (source?.fetched_at ?? 0) * 1000 };
     let timer = 0;
     const tick = () => {
       clearTimeout(timer);
       if (document.hidden) return;
-      const time = Date.now(), currentFresh = flowIsFresh(source, quote, time);
-      const motion = transition.current;
-      const moving = !still && currentFresh && !!motion && time - motion.startedAt < FLOW_DURATION_MS;
-      publish(moving ? flowValuesAt(motion!, time) : target);
-      if (!moving) transition.current = null;
+      const { source, quote } = latest.current;
+      const target = investorWon(source), time = Date.now();
+      const currentFresh = flowIsFresh(source, quote, time);
+      const moving = !still && currentFresh && !!target && target.some(value => value !== 0);
+      if (moving && target && source) {
+        const last = cycle.current;
+        if (!last || last.source.business_date !== source.business_date || time - last.transition.startedAt >= FLOW_DURATION_MS) {
+          const sameDay = last?.source.business_date === source.business_date;
+          const change = sameDay && last ? target.map((value, index) => value - last.target[index]) as FlowAmounts : [0, 0, 0] as FlowAmounts;
+          cycle.current = { source, target, change: sameAmounts(change, [0, 0, 0]) && last && sameDay ? last.change : change,
+            transition: { from: sameDay && visible.current ? visible.current : target, to: target, startedAt: time }, direction: quote?.change_pct ?? 0 };
+          setAcceptedSource(source);
+        }
+        const active = cycle.current!;
+        publish(flowMicroValuesAt(flowValuesAt(active.transition, time), active.change, active.transition.startedAt, time, active.direction));
+      } else {
+        cycle.current = null;
+        publish(target);
+        setAcceptedSource(source);
+      }
+      if (!target) setMode("loading");
+      else
       setMode(quote?.market_status && quote.market_status !== "OPEN" ? "closed"
         : !currentFresh ? "delayed" : still ? "paused" : moving ? "flowing" : "waiting");
       timer = window.setTimeout(tick, moving ? 120 : 1000);
@@ -92,25 +100,26 @@ export default function PulseInvestorFlow({ market, source, quote }: {
     const visibility = () => {
       clearTimeout(timer);
       // Resume at the received amount; never replay movements missed in another tab.
-      transition.current = null;
-      if (!document.hidden) { publish(target); tick(); }
+      cycle.current = null;
+      if (!document.hidden) { publish(investorWon(latest.current.source)); tick(); }
     };
+    wake.current = tick;
     tick();
     document.addEventListener("visibilitychange", visibility);
-    return () => { clearTimeout(timer); document.removeEventListener("visibilitychange", visibility); };
-  }, [source, quote, still]);
+    return () => { clearTimeout(timer); wake.current = () => {}; document.removeEventListener("visibilitychange", visibility); };
+  }, [still]);
+  useEffect(() => { wake.current(); }, [source, quote]);
 
   const labels = [L("개인", "Individuals"), L("외국인", "Foreign"), L("기관", "Institutions")];
   const statuses: Record<Mode, string> = {
-    loading: L("연결 중", "Connecting"), waiting: L("다음 수급 대기", "Awaiting change"), flowing: L("수급 흐르는 중", "Flowing"),
+    loading: L("연결 중", "Connecting"), waiting: L("수급 대기", "Awaiting flow"), flowing: L("흐름 연출 중", "Visual flow"),
     closed: L("장 마감", "Market closed"), delayed: L("수신 지연", "Delayed"), paused: L("움직임 멈춤", "Motion paused"),
   };
-  const stamp = source?.fetched_at ? new Date(source.fetched_at * 1000).toLocaleTimeString(lang === "ko" ? "ko-KR" : "en-GB", { timeZone: "Asia/Seoul", hour12: false }) : "—";
-  const actual = investorWon(source);
+  const actual = investorWon(acceptedSource);
   return <section className="pif-panel" data-mode={mode} data-still={still} aria-label={L("투자자별 순매수·순매도 금액", "Investor net buying and selling")}>
     <div className="pif-content">
       <header className="pif-head"><div><span className="pif-kicker">{market.toUpperCase()} <i /> MONEY FLOW</span><h2>{L("돈의 흐름", "Money in motion")}</h2></div>
-        <div className="pif-controls"><span className="pif-status"><i />{statuses[mode]}</span><button type="button" onClick={() => setPaused(value => !value)} aria-pressed={paused} disabled={reduced || fx === "minimal"} aria-label={paused ? L("숫자 흐름 켜기", "Play number motion") : L("숫자 흐름 멈추기", "Pause number motion")} title={L("숫자 움직임 켜기·끄기", "Toggle number motion")}>{still ? "▶" : "Ⅱ"}</button></div>
+        <div className="pif-controls"><button type="button" onClick={() => setPaused(value => !value)} aria-pressed={paused} disabled={reduced || fx === "minimal"} aria-label={paused ? L("숫자 흐름 켜기", "Play number motion") : L("숫자 흐름 멈추기", "Pause number motion")} title={`${statuses[mode]} · ${L("숫자 움직임 켜기·끄기", "Toggle visual number motion")}`}><span aria-hidden="true">{still ? "▶" : "Ⅱ"}</span></button></div>
       </header>
       <div className="pif-rows">{labels.map((label, index) => {
         const value = display?.[index], tone = value == null || value === 0 ? "flat" : value > 0 ? "buy" : "sell";
@@ -119,8 +128,6 @@ export default function PulseInvestorFlow({ market, source, quote }: {
           {value == null ? <span className="pif-empty">—</span> : <RollingAmount value={value} animate={!still && mode === "flowing"} />}
         </div>;
       })}</div>
-      <footer className="pif-foot"><span>{L("10초 연동 · 원 단위 보간 연출", "10s sync · interpolated KRW digits")}</span><span>{L("수신", "Received")} {stamp} <span className="pif-zone">KST</span></span></footer>
-      <p className="pif-explain">{L("순매수·순매도 원본은 억원 단위입니다. 원 단위 숫자는 수신값 사이의 연출이며 실제 체결 금액이 아닙니다.", "Source net amounts are rounded to KRW 100M. Interpolated digits between received values are visual motion, not individual trades.")}</p>
     </div>
   </section>;
 }

@@ -27,7 +27,18 @@ export default function NeoPulseHorizon({ mood = "calm", energy = 1, intensity =
       if (sea === "ocean" && oceanSupported()) { try { installed = installPulseOcean(canvas.current, fx, lost, restore, options); } catch (error) { console.warn("pulse ocean", error); } }
       installed ??= installPulseHorizon(canvas.current, fx, lost, restore, options);
       live.current = installed; if (controller) controller.current = installed;
-      return () => { installed.dispose(); live.current = null; if (controller && controller.current === installed) controller.current = null; };
+      // Measure actual added content, including ad fill/unfill and mobile wrapping.
+      // Only camera uniforms change; both canvases retain full native resolution.
+      const band = sea === "ocean" ? document.querySelector<HTMLElement>(".pb-topline") : null;
+      const offset = () => {
+        const pixels = (band?.getBoundingClientRect().height ?? 0) + (band && band.offsetHeight > 0 ? 32 : 0);
+        installed?.setContentOffset?.(pixels);
+        canvas.current?.parentElement?.style.setProperty("--pb-content-offset", `${Math.round(pixels)}px`);
+      };
+      const observer = band ? new ResizeObserver(offset) : null;
+      if (band) observer?.observe(band);
+      addEventListener("resize", offset); offset();
+      return () => { observer?.disconnect(); removeEventListener("resize", offset); installed.dispose(); live.current = null; if (controller && controller.current === installed) controller.current = null; };
     } catch { setUnavailable(true); }
   }, [fx, epoch, intensity, horizon, controller, sea]);
   useEffect(() => { live.current?.setMood(mood); }, [mood]);

@@ -3,6 +3,8 @@ import { MOODS, PULSES, RIDGE_FRAGMENT, RIDGE_VERTEX, SKY_FRAGMENT, SKY_VERTEX, 
 
 export interface PulseHorizonController {
   dispose(): void;
+  /** Move the sea and its shared ship camera below added board content. */
+  setContentOffset?(pixels: number): void;
   /** Recolour the sea; the palette glides to the new mood over ~1.5 s. */
   setMood(mood: Mood): void;
   /** Swell height multiplier, roughly .8 (quiet) to 1.7 (volatile). */
@@ -96,7 +98,8 @@ export function installPulseHorizon(canvas: HTMLCanvasElement, level: FxLevel, o
   let amp = initial.energy ?? 1, ampTarget = amp;
   const gain = initial.intensity ?? 1;
   // horizon height in clip space: .3 sits 35% down the screen, lower values sink the sea
-  const HORIZON = initial.horizon ?? .3;
+  const baseHorizon = initial.horizon ?? .3;
+  let HORIZON = baseHorizon;
   const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
 
   function program(vertexSource: string, fragmentSource: string): Program {
@@ -285,6 +288,7 @@ export function installPulseHorizon(canvas: HTMLCanvasElement, level: FxLevel, o
   };
   return {
     dispose,
+    setContentOffset(pixels) { HORIZON = Math.max(-.72, baseHorizon - 2 * Math.max(0, pixels) / Math.max(1, innerHeight)); if (still()) sync(); },
     setMood(mood) { paletteTarget.splice(0, paletteTarget.length, ...flatten(mood)); if (still()) sync(); },
     setEnergy(energy) { ampTarget = Math.max(.6, Math.min(1.9, energy)); if (still()) sync(); },
     sampleSwell(screenX, spread = .12) {

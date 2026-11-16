@@ -1,6 +1,6 @@
 import type { IndexQuote, MarketInvestorSummary } from "../api/client";
 
-export const FLOW_DURATION_MS = 10_000;
+export const FLOW_DURATION_MS = 60_000;
 export const FLOW_STALE_MS = 30_000;
 export type FlowAmounts = [number, number, number];
 export interface FlowTransition { from: FlowAmounts; to: FlowAmounts; startedAt: number }
@@ -31,6 +31,38 @@ export function flowValuesAt(transition: FlowTransition, now: number): FlowAmoun
     const wave = .065 * Math.sin(Math.PI * p) * Math.sin(12 * Math.PI * p + index * 1.7);
     const progress = Math.max(0, Math.min(1, p + wave));
     return Math.round(transition.from[index] + (target - transition.from[index]) * progress);
+  }) as FlowAmounts;
+}
+
+/** Keep the unresolved won digits alive even when the rounded feed repeats.
+ * This is explicitly labelled visual motion, bounded below half the feed's
+ * KRW 100M precision. It never accumulates or changes a net buy/sell sign.
+ */
+function noise(time: number, seed: number): number {
+  const at = (index: number) => {
+    let hash = Math.imul(index ^ seed, 0x45d9f3b);
+    hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
+    return ((hash ^ (hash >>> 16)) >>> 0) / 0xffffffff * 2 - 1;
+  };
+  const index = Math.floor(time), p = time - index, ease = p * p * (3 - 2 * p);
+  return at(index) + (at(index + 1) - at(index)) * ease;
+}
+
+export function flowMicroValuesAt(base: FlowAmounts, change: FlowAmounts, startedAt: number, now: number, initialDirection = 1): FlowAmounts {
+  const seconds = Math.max(0, Math.min(FLOW_DURATION_MS, now - startedAt)) / 1000;
+  const envelope = Math.max(0, Math.min(1, seconds / .8, (FLOW_DURATION_MS / 1000 - seconds) / .8));
+  return base.map((value, index) => {
+    if (value === 0) return 0;
+    const amplitude = Math.min(18_000_000, 3_200_000 + Math.abs(change[index]) * .025, Math.abs(value) * .02);
+    const seed = (Math.floor(startedAt / 1000) ^ Math.imul(index + 1, 19790321) ^ Math.round(Math.abs(change[index]))) | 0;
+    const tempo = .85 + (seed >>> 0) % 61 / 100;
+    const t = seconds * tempo;
+    // Independent short bursts, slow drifts and lulls instead of a repeating sine.
+    const irregular = .44 * noise(t / .47, seed) + .28 * noise(t / 1.63, seed + 13)
+      + .18 * noise(t / 5.71, seed + 31) + .10 * noise(t / 13.9, seed + 57);
+    const opening = (Math.sign(change[index]) || Math.sign(initialDirection) || 1) * .4 * Math.exp(-seconds / 3);
+    const wave = Math.max(-1, Math.min(1, irregular * (1 - Math.exp(-seconds / 2)) + opening));
+    return Math.round(value + amplitude * wave * envelope);
   }) as FlowAmounts;
 }
 

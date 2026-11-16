@@ -26,7 +26,7 @@ def fixture(route):
     if not url.path.startswith("/api/"):
         route.continue_()
         return
-    now = datetime.now(timezone.utc)
+    now = datetime.fromtimestamp(state.get("fixed_time", time.time()), timezone.utc)
     stamp = now.isoformat()
     day = now.astimezone(timezone(timedelta(hours=9))).strftime("%Y%m%d")
     data = {"items": [], "count": 0, "total": 0}
@@ -38,7 +38,7 @@ def fixture(route):
                 "individual_amount": (6256 if market == "kospi" else 2459) + step * 5,
                 "foreign_amount": (-9116 if market == "kospi" else -1617) - step * 3,
                 "institution_amount": (1235 if market == "kospi" else -645) + step * 2,
-                "business_date": day, "fetched_at": time.time() - (60 if state["stale"] else 0),
+                "business_date": day, "fetched_at": now.timestamp() - (60 if state["stale"] else 0),
             }
         data = {market: {"symbol": market.upper(), "name": market, "close": 5160 if market == "kospi" else 674,
                         "change": -24, "change_pct": -2.45, "market_status": "CLOSE" if state["closed"] else "OPEN", "updated_at": stamp}
@@ -76,21 +76,23 @@ with sync_playwright() as p:
         return /webgl|webgpu/.test(kind)?null:original.call(this,kind,...args);
       };""")
     page.goto(f"{URL}/pulse-board")
-    page.locator(".pif-panel[data-mode=waiting]").wait_for(timeout=60000)
+    page.locator(".pif-panel[data-mode=flowing]").wait_for(timeout=60000)
     assert page.locator(".pb-market-prompt").inner_text().find("눌러서 시장 전환") >= 0
     assert page.locator(".pb-tab[aria-selected=false] .pb-tab-action").count() == 2
     capture(page, "desktop")
     page.locator(".pif-panel[data-mode=flowing]").wait_for(timeout=20000)
-    assert state["calls"] == 2, "the panel must share the existing ten-second poll"
+    assert state["calls"] == 1, "rolling must start on first entry without waiting for another poll"
     samples = []
     for _ in range(8):
         samples.append(amounts(page))
         page.wait_for_timeout(140)
     assert len({tuple(row) for row in samples}) >= 7, samples
     assert page.evaluate("document.querySelector('.pif-panel').getAnimations({subtree:true}).length") > 0
-    assert page.locator(".pif-explain").inner_text().find("실제 체결 금액이 아닙니다") >= 0
+    assert page.locator(".pif-explain,.pif-foot,.pif-status").count() == 0
+    assert page.locator(".pif-controls button").inner_text() == "Ⅱ"
+    assert page.locator(".pif-panel").bounding_box()["height"] < 65
     capture(page, "rolling")
-    print("PASS fast rolling, shared poll, net-flow labels and interpolation disclosure", flush=True)
+    print("PASS immediate first-entry rolling, icon control and compact panel", flush=True)
 
     # An ad stand-in exercises the exact layout selector without contacting AdSense.
     page.evaluate("""() => { const ad=document.createElement('ins');ad.className='ng-adsense-banner';ad.dataset.adStatus='filled';ad.style.cssText='display:block;width:100%;height:90px;background:#23192c';document.querySelector('.pb-banner').append(ad); }""")
@@ -105,6 +107,7 @@ with sync_playwright() as p:
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
         assert page.locator(".pif-panel").evaluate("el => el.scrollWidth <= el.clientWidth"), width
         assert page.locator(".pif-row").evaluate_all("els=>els.every(el=>el.scrollWidth<=el.clientWidth)"), width
+        assert page.locator(".pif-panel").bounding_box()["height"] < 100, width
         capture(page, f"width-{width}")
     print("PASS banner-left desktop layout and 1280/768/390/320px without overflow", flush=True)
 
@@ -151,27 +154,44 @@ with sync_playwright() as p:
     assert page.locator(".pif-empty").count() == 3
     state["missing"] = False
     state["unchanged"] = True
+    state["fixed_time"] = time.time()
+    page.clock.install(time=datetime.fromtimestamp(state["fixed_time"], timezone.utc))
     page.reload()
-    page.locator(".pif-panel[data-mode=waiting]").wait_for(timeout=30000)
+    page.locator(".pif-panel[data-mode=flowing]").wait_for(timeout=30000)
     original = amounts(page)
-    page.wait_for_timeout(12000)
-    assert amounts(page) == original
-    assert page.locator(".pif-panel").get_attribute("data-mode") == "waiting"
+    reference = page.locator(".pif-row").first.get_attribute("title")
+    page.clock.run_for(1000)
+    assert amounts(page) != original
+    state["unchanged"] = False
+    for _ in range(5):
+        state["fixed_time"] += 10
+        page.clock.fast_forward(10000)
+        page.wait_for_timeout(100)
+        assert page.locator(".pif-panel").get_attribute("data-mode") == "flowing"
+        assert page.locator(".pif-row").first.get_attribute("title") == reference, "reference must hold for one minute"
+    state["fixed_time"] += 12
+    page.clock.fast_forward(12000)
+    page.wait_for_timeout(200)
+    assert page.locator(".pif-row").first.get_attribute("title") != reference, "new reference must be accepted after one minute"
+    assert page.locator(".pif-panel").get_attribute("data-mode") == "flowing"
+    print("PASS a full minute of continuous rolling and minute reference refresh", flush=True)
     # Visibility is emulated only in this isolated test page; no user tabs change.
     page.evaluate("""() => { Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});
       Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'hidden'});
       document.dispatchEvent(new Event('visibilitychange')); }""")
     calls = state["calls"]
-    page.wait_for_timeout(12000)
+    state["fixed_time"] += 12
+    page.clock.fast_forward(12000)
     assert state["calls"] == calls, "background tabs must not poll"
     # The shared scheduler deliberately staggers pollers by up to one interval.
-    with page.expect_response(lambda response: "/api/investor/indices" in response.url, timeout=15000):
-        page.evaluate("""() => { delete document.hidden;delete document.visibilityState;
-          document.dispatchEvent(new Event('visibilitychange')); }""")
+    page.evaluate("""() => { delete document.hidden;delete document.visibilityState;
+      document.dispatchEvent(new Event('visibilitychange')); }""")
+    state["fixed_time"] += 10
+    page.clock.fast_forward(10000)
     page.wait_for_timeout(200)
     assert state["calls"] > calls
-    assert amounts(page) == original
-    print("PASS unchanged replies stay still; hidden tabs pause and resume without catch-up motion", flush=True)
+    assert page.locator(".pif-panel").get_attribute("data-mode") == "flowing"
+    print("PASS hidden tabs pause and resume visual flow without replaying missed changes", flush=True)
     assert not errors, errors
     browser.close()
     print(json.dumps({"result": "PASS", "screenshots": str(OUTPUT), "page_errors": errors}, ensure_ascii=False), flush=True)
