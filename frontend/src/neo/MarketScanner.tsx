@@ -11,6 +11,7 @@ import { hasReturn, quoteColor, quotePct, tickerChangePct, tradingValue } from "
 import { marketScanner, type ScannerOrder } from "./marketScannerModel";
 import { useFxLevel } from "./settings";
 import StockLogo from "../components/StockLogo";
+import PulseInvestorFlow from "./PulseInvestorFlow";
 import { useContentScroll } from "../useContentScroll";
 import { pinnedScrollOffset } from "../scrollNavigation";
 import { createGoldDust } from "./goldDust";
@@ -179,6 +180,9 @@ export default function MarketScanner({market,onMarketChange}:{market:AtlasMarke
       return <button type="button" key={config.key} aria-pressed={market===config.key} onClick={()=>switchMarket(config.key)} title={`${description} · ${quoteTime(quote.at)}`}><span>{config.label}<small>{config.key==="nasdaq100"?"US":"KR"}</small></span><div><strong>{price(quote.price)}</strong><b className={`is-${toneOf(quote.change)}`}>{quotePct(quote.change)}</b></div><MiniTrend values={points} tone={toneOf(quote.change)} label={`${config.label} · ${description}`}/></button>;
     })}</div>
     <div className="sc-breadth"><div><span>{L("등락 분포","Breadth")}</span><b className="sc-up">↑ {model.up}</b><b className="sc-down">↓ {model.down}</b><small>{L("보합","Flat")} {model.flat}</small>{model.unknown>0&&<small>{L("미확인","Unknown")} {model.unknown}</small>}</div><div className="sc-breadth-track" role="img" aria-label={`${model.up} up, ${model.down} down, ${model.flat} flat, ${model.unknown} unknown`}>{[[model.up,"up"],[model.flat,"flat"],[model.down,"down"],[model.unknown,"unknown"]].map(([count,tone])=><i key={tone} className={`sc-${tone}`} style={{flex:Number(count)}}/>)}</div><Link to={config.to}>{L("전체 맵","Full map")} ↗</Link></div>
+    {market !== "nasdaq100" && <PulseInvestorFlow key={market} market={market} inline
+      source={market === "kospi" ? indices.kospiInvestor : indices.kosdaqInvestor}
+      quote={market === "kospi" ? indices.kospi : indices.kosdaq} />}
     <div ref={controlsRef} className="sc-controls"><div className="sc-count"><strong>{L("주요 종목","Leading stocks")}</strong><span>{visible.length}<small> / {model.stocks.length}</small></span></div><div role="group" aria-label={L("종목 정렬","Sort stocks")}>{filters.map(([key,label])=><button key={key} aria-pressed={order===key} onClick={()=>setOrder(key)}>{label}</button>)}</div><label className="sc-sector-filter"><span className="sc-sr-only">{L("업종 선택","Select sector")}</span><select aria-label={L("업종 선택","Select sector")} value={sector??""} onChange={event=>{setSector(event.target.value||null);setSelected(null);setExpanded(false);}}><option value="">{L("전체 업종","All sectors")}</option>{model.sectors.map(group=><option key={group.name} value={group.name}>{en(group.name)} ({group.count})</option>)}</select></label></div>
     <div ref={gridRef} className="sc-grid" style={{"--sc-columns":columns} as CSSProperties} role="group" aria-label={L("종목 시세","Stock quotes")} onPointerMove={pourDust} onPointerLeave={endDust}>
       {visible.map(item=>{

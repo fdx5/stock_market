@@ -41,8 +41,8 @@ const RollingAmount = memo(function RollingAmount({ value, animate }: { value: n
   </span>;
 });
 
-export default function PulseInvestorFlow({ market, source, quote }: {
-  market: "kospi" | "kosdaq"; source: MarketInvestorSummary | null; quote: IndexQuote | null;
+export default function PulseInvestorFlow({ market, source, quote, inline = false }: {
+  market: "kospi" | "kosdaq"; source: MarketInvestorSummary | null; quote: IndexQuote | null; inline?: boolean;
 }) {
   const { lang } = useLanguage(), L = (ko: string, en: string) => lang === "ko" ? ko : en;
   const fx = useFxLevel();
@@ -116,9 +116,9 @@ export default function PulseInvestorFlow({ market, source, quote }: {
     closed: L("장 마감", "Market closed"), delayed: L("수신 지연", "Delayed"), paused: L("움직임 멈춤", "Motion paused"),
   };
   const actual = investorWon(acceptedSource);
-  return <section className="pif-panel" data-mode={mode} data-still={still} aria-label={L("투자자별 순매수·순매도 금액", "Investor net buying and selling")}>
+  return <section className={`pif-panel${inline ? " pif-panel--inline" : ""}`} data-market={market} data-mode={mode} data-still={still} aria-label={L("투자자별 순매수·순매도 금액", "Investor net buying and selling")}>
     <div className="pif-content">
-      <header className="pif-head"><div><span className="pif-kicker">{market.toUpperCase()} <i /> MONEY FLOW</span><h2>{L("돈의 흐름", "Money in motion")}</h2></div>
+      <header className="pif-head"><div><span className="pif-kicker">{market.toUpperCase()}{!inline && <> <i /> MONEY FLOW</>}</span><h2>{L("돈의 흐름", "Money in motion")}</h2></div>
         <div className="pif-controls"><button type="button" onClick={() => setPaused(value => !value)} aria-pressed={paused} disabled={reduced || fx === "minimal"} aria-label={paused ? L("숫자 흐름 켜기", "Play number motion") : L("숫자 흐름 멈추기", "Pause number motion")} title={`${statuses[mode]} · ${L("숫자 움직임 켜기·끄기", "Toggle visual number motion")}`}><span aria-hidden="true">{still ? "▶" : "Ⅱ"}</span></button></div>
       </header>
       <div className="pif-rows">{labels.map((label, index) => {

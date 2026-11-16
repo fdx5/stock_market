@@ -61,3 +61,18 @@
 @media(prefers-reduced-motion:reduce){.pif-trace svg{animation:none!important}}
 html[data-fx=minimal] .pif-trace svg,.pif-panel[data-still=true] .pif-trace svg{animation:none}
 @media print{.pb-topline .pb-banner,.pif-controls{display:none}.pb-topline{display:block}.pif-trace svg{animation:none!important}}
+
+/* Home scanner: a single narrow strip above leading stocks, sharing board motion. */
+.pif-panel.pif-panel--inline{margin:0 0 8px;border-radius:7px}
+.pif-panel--inline .pif-content{display:flex;align-items:center;gap:10px;padding:4px 9px}
+.pif-panel--inline .pif-head{display:flex;flex:none;flex-direction:row;align-items:center;gap:7px;margin:0}
+.pif-panel--inline .pif-kicker{font-size:8px;white-space:nowrap}
+.pif-panel--inline .pif-rows{display:grid;flex:1;min-width:0;grid-template-columns:repeat(3,minmax(230px,1fr));gap:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:var(--accent-neon) transparent}
+.pif-panel--inline .pif-row,.pif-panel--inline .pif-row:last-child{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:3px 10px;border:0;border-right:1px solid #bd85ff20}
+.pif-panel--inline .pif-row:last-child{padding-right:0;border-right:0}
+.pif-panel--inline .pif-row-label{display:flex;flex:none;align-items:center;gap:4px;margin:0;font-size:10px;line-height:1.1;white-space:nowrap}
+.pif-panel--inline .pif-row-label>small{font-size:8px}
+.pif-panel--inline .pif-trace{display:none}
+.pif-panel--inline .pif-amount{font-size:14px}
+.pif-panel--inline .pif-amount>small{font-size:8px;margin-left:3px}
+@media(max-width:700px){.pif-panel--inline .pif-content{gap:6px;padding:3px 6px}.pif-panel--inline .pif-head{gap:5px}.pif-panel--inline .pif-kicker{font-size:7px}.pif-panel--inline .pif-rows{grid-template-columns:repeat(3,minmax(212px,1fr))}.pif-panel--inline .pif-row,.pif-panel--inline .pif-row:last-child{padding:3px 7px}.pif-panel--inline .pif-amount{font-size:13px}.pif-panel--inline .pif-row-label{font-size:9px}.pif-panel--inline .pif-row-label>small{font-size:7px}}

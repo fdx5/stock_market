@@ -77,11 +77,11 @@ with sync_playwright() as p:
       };""")
     page.goto(f"{URL}/pulse-board")
     page.locator(".pif-panel[data-mode=flowing]").wait_for(timeout=60000)
+    assert state["calls"] == 1, "rolling must start on first entry without waiting for another poll"
     assert page.locator(".pb-market-prompt").inner_text().find("눌러서 시장 전환") >= 0
     assert page.locator(".pb-tab[aria-selected=false] .pb-tab-action").count() == 2
     capture(page, "desktop")
     page.locator(".pif-panel[data-mode=flowing]").wait_for(timeout=20000)
-    assert state["calls"] == 1, "rolling must start on first entry without waiting for another poll"
     samples = []
     for _ in range(8):
         samples.append(amounts(page))
