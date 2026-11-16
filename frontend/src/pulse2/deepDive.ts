@@ -18,8 +18,9 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { AudioLevels } from "./audioLevels";
 import { moodColor, moodStrength } from "./mood";
 import { PoseRig, loadMocap, sample, blend, type Clip, type Pose, type RootMotion } from "./pose";
+import { Worlds } from "./worlds";
 
-const LOOP = 96;            // seconds in one take
+const LOOP = 600;           // seconds in one take: ten minutes, mostly the fall
 const PORTAL_R = 4.2;
 const smooth = (x: number) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
 const lerp = THREE.MathUtils.lerp;
@@ -34,6 +35,7 @@ float fbm3(vec3 p){ float s=0.0,a=0.5; for(int i=0;i<4;i++){ s+=a*n3(p); p=p*2.0
 `;
 const COMMON = /* glsl */`
 uniform float uTime, uEnergy, uBass, uMid, uHigh, uBeat, uFlare, uStrength;
+uniform vec4 uW; // weights of the four pulse patterns, crossfading in turn
 uniform vec3 uMood, uFog;
 `;
 
@@ -49,7 +51,7 @@ export class DeepDive {
   private audio = new AudioLevels();
   private u: Record<string, U> = {
     uTime: { value: 0 }, uEnergy: { value: 0 }, uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }, uBeat: { value: 0 },
-    uFlare: { value: 0 }, uStrength: { value: 0 }, uMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
+    uFlare: { value: 0 }, uStrength: { value: 0 }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
   };
   private moodTarget = new THREE.Color(0x3a8bff);
   private strengthTarget = 0;
@@ -63,6 +65,7 @@ export class DeepDive {
   private abyss?: THREE.Mesh;
   private rain!: THREE.Mesh; private dust!: THREE.Points; private sparks!: THREE.Points;
   private ribbons = new THREE.Group();
+  private worlds!: Worlds;
   private floor?: Reflector;
   private raf = 0; private last = 0; private t0 = performance.now();
   private disposed = false;
@@ -88,7 +91,7 @@ export class DeepDive {
     this.buildShaft();
     this.buildTunnel();
     this.buildRain();
-    this.buildRibbons();
+    this.worlds = new Worlds(this.scene, this.u, COMMON, NOISE);
     this.buildMist();
     this.loadFigure();
 
@@ -156,6 +159,26 @@ export class DeepDive {
     this.renderer.dispose();
   }
 
+  private feet: { name: string; down: boolean }[] = [{ name: "foot_l", down: true }, { name: "foot_r", down: true }];
+  private stepIdx = 0;
+  private liveMix = 0;
+  private _fv = new THREE.Vector3();
+  private footsteps(T: number, fig: THREE.Object3D) {
+    if (!this.rig) return;
+    fig.updateMatrixWorld(true);
+    for (const f of this.feet) {
+      const bone = this.rig.bones.get(f.name); if (!bone) continue;
+      const p = bone.getWorldPosition(this._fv), h = p.y - fig.position.y;
+      // (the ankle sits ~9 cm above the sole: below 13 cm the foot is on the floor)
+      const down = h < 0.13;
+      if (down && !f.down) {
+        const steps = this.u.uSteps.value as THREE.Vector4[];
+        steps[this.stepIdx++ % 4].set(p.x, p.z, T, 0.6 + (this.u.uBass.value as number) * 0.8 + (this.u.uBeat.value as number) * 0.6);
+      }
+      f.down = down;
+    }
+  }
+
   private onVis = () => { this.visible = !document.hidden; if (this.visible) { this.last = performance.now(); this.raf = requestAnimationFrame(this.frame); } };
 
   private resize() {
@@ -163,7 +186,10 @@ export class DeepDive {
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
     this.bloom.setSize(w, h);
-    this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
+    this.camera.aspect = w / h;
+    // The subject sits low in the frame (~60 % down), clear of the board above it.
+    this.camera.setViewOffset(w, h, 0, -h * 0.12, w, h);
+    this.camera.updateProjectionMatrix();
   }
 
   // ------------------------------------------------------------------ build
@@ -196,7 +222,7 @@ export class DeepDive {
         uniform mat4 textureMatrix; varying vec4 vUv; varying vec3 vWorld;
         void main(){ vUv = textureMatrix * vec4(position,1.0); vec4 w = modelMatrix*vec4(position,1.0); vWorld = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
       fragmentShader: /* glsl */`
-        uniform sampler2D tDiffuse; uniform float uPortalR; varying vec4 vUv; varying vec3 vWorld;
+        uniform sampler2D tDiffuse; uniform float uPortalR; uniform vec4 uSteps[4]; varying vec4 vUv; varying vec3 vWorld;
         ${COMMON}${NOISE}
         void main(){
           float r = length(vWorld.xz);
@@ -212,10 +238,30 @@ export class DeepDive {
           float seg = 6.2831853 / 32.0, da = abs(fract(a/seg + 0.5) - 0.5) * seg * r;
           float seams = (1.0 - smoothstep(0.01, 0.05, da)) * smoothstep(34.0, 8.0, r) * step(uPortalR + 0.6, r);
           // pulses running outward from the portal, faster and brighter with the bass
-          float wave = pow(0.5 + 0.5*sin(r*0.75 - uTime*(1.6 + uBass*3.0)), 10.0) * (0.25 + uBass*1.8 + uBeat*1.2);
+          // four pulse patterns, crossfaded in turn: rings outward, a spiral, a radar sweep, a heartbeat
+          float sp = uTime*(1.6 + uBass*3.0);
+          float pRings = pow(0.5 + 0.5*sin(r*0.75 - sp), 10.0);
+          float pSpiral = pow(0.5 + 0.5*sin(r*0.55 + a*3.0 - sp), 10.0);
+          float sweepA = mod(a - uTime*0.7, 6.2831853);
+          float pSweep = exp(-sweepA*2.2) * 2.0 * smoothstep(34.0, 6.0, r);
+          float hb = fract(uTime*0.85); float beat2 = exp(-pow(hb*9.0, 2.0)) + 0.65*exp(-pow((hb-0.2)*9.0, 2.0));
+          float pHeart = beat2 * exp(-(r - uPortalR)*0.08) * (0.6 + 0.4*pow(0.5+0.5*sin(r*1.4 - uTime*6.0), 4.0));
+          float wave = dot(uW, vec4(pRings, pSpiral, pSweep, pHeart)) * (0.25 + uBass*1.8 + uBeat*1.2);
           float near = exp(-(r - uPortalR) * 0.45);
           vec3 base = vec3(0.004, 0.007, 0.012) * (0.6 + 0.8*n3(vec3(vWorld.xz*0.35, 1.0)));
           vec3 glow = uMood * ((rings*0.55 + seams*0.35) * (0.18 + wave) * (0.4 + 0.6*near) + near * (0.9 + uEnergy*1.6 + uBeat));
+          // footfalls: where a sole lands, a flash, an electric ring running out and crackling
+          // filaments along the floor's seams, fading in about two seconds
+          for (int i = 0; i < 4; i++) {
+            vec4 st = uSteps[i]; float age = uTime - st.z;
+            if (age < 0.0 || age > 2.2) continue;
+            float d = length(vWorld.xz - st.xy), life = 1.0 - age/2.2;
+            float ring = exp(-pow((d - age*1.8)*7.0, 2.0)) * life * life;
+            float core = exp(-d*5.0) * exp(-age*3.5) * 2.4;
+            float arc = pow(n3(vec3(vWorld.xz*7.0, uTime*14.0 + float(i)*3.0)), 7.0) * 9.0 * exp(-d*1.4) * exp(-age*2.2);
+            float lines = (rings + seams) * exp(-d*0.6) * exp(-age*1.6) * 1.6;
+            glow += (uMood*1.3 + vec3(0.15)) * (ring*1.4 + core + arc + lines) * st.w;
+          }
           float fres = 0.55;
           vec3 col = base + refl * fres + glow;
           float d = length(cameraPosition - vWorld);
@@ -308,7 +354,12 @@ export class DeepDive {
             float cu = u*${slots.toFixed(1)}, ci = floor(cu), cell = fract(cu);
             float on = step(0.45, fract(sin(ci*12.9898 + uPhase*3.1)*43758.5453));
             float slot = side * on * smoothstep(0.5, 0.15, length(vec2(cell - 0.5, (v - 0.25) * 4.0) * vec2(1.0, 1.0)) - 0.0);
-            float pulse = pow(0.5 + 0.5*sin(u*28.0 - uTime*(2.2 + uBass*5.0) + uPhase), 10.0);
+            float sp = uTime*(2.2 + uBass*5.0);
+            float pUp = pow(0.5 + 0.5*sin(u*28.0 - sp + uPhase), 10.0);
+            float pDown = pow(0.5 + 0.5*sin(u*20.0 + sp*0.8 + uPhase), 12.0);
+            float hb = fract(uTime*0.85 + uPhase*0.05); float pHeart = (exp(-pow(hb*9.0,2.0)) + 0.65*exp(-pow((hb-0.2)*9.0,2.0))) * 0.9;
+            float pSpark = step(0.93, fract(sin(floor(u*36.0)*91.7 + floor(uTime*5.0 + uPhase)*13.3)*43758.5)) * 1.4;
+            float pulse = dot(uW, vec4(pUp, pDown, pHeart, pSpark));
             float edge = pow(1.0 - abs(v*2.0 - 1.0), 1.0) * 0.0;
             // a thin glowing seam along the rib, brighter where the pulse passes
             float seam = (1.0 - smoothstep(0.0, 0.035, abs(v - 0.25))) * (0.25 + pulse*2.5);
@@ -385,7 +436,7 @@ export class DeepDive {
     const glowMat = new THREE.ShaderMaterial({
       uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; void main(){ float a=vUv.x*6.2831853; float k=(0.8+0.6*sin(a*12.0 - uTime*4.0))*(1.0+uEnergy*2.0+uBeat*1.5);
+      fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; void main(){ float a=vUv.x*6.2831853; float hb=fract(uTime*0.85); float k = dot(uW, vec4(0.8+0.6*sin(a*12.0 - uTime*4.0), 0.5+1.0*pow(0.5+0.5*sin(a*3.0 + uTime*2.0),6.0), 0.6+1.2*pow(max(0.0,cos(a - uTime*1.5)),12.0), 0.5+1.4*(exp(-pow(hb*9.0,2.0))+0.65*exp(-pow((hb-0.2)*9.0,2.0)))))*(1.0+uEnergy*2.0+uBeat*1.5);
         gl_FragColor = vec4(uMood*k*1.6, 1.0); }`,
     });
     for (let i = 0; i < 14; i++) {
@@ -461,7 +512,9 @@ export class DeepDive {
         uniforms: { ...this.u, uK: { value: k } }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
         vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
         fragmentShader: /* glsl */`${COMMON} uniform float uK; varying vec2 vUv;
-          void main(){ float u=vUv.x; float run = pow(0.5+0.5*sin(u*46.0 - uTime*(3.0+uMid*6.0) - uK*2.0), 8.0);
+          void main(){ float u=vUv.x; float sp = uTime*(3.0+uMid*6.0);
+            float run = dot(uW, vec4(pow(0.5+0.5*sin(u*46.0 - sp - uK*2.0), 8.0), pow(0.5+0.5*sin(u*30.0 + sp*0.7 - uK), 10.0),
+              pow(0.5+0.5*sin(u*6.0 - sp*0.4 - uK), 6.0), (exp(-pow(fract(uTime*0.85)*9.0,2.0)) + 0.6*exp(-pow((fract(uTime*0.85)-0.2)*9.0,2.0)))));
             float ends = smoothstep(0.0,0.12,u)*smoothstep(1.0,0.75,u);
             float k = (0.15 + run*1.8) * ends * (0.45 + uEnergy*1.4 + uBeat*0.7);
             gl_FragColor = vec4((uMood*1.5 + vec3(0.12))*k, 1.0); }`,
@@ -537,11 +590,14 @@ export class DeepDive {
 
   // ------------------------------------------------------------------ animate
   private pose: Pose = {}; private root: RootMotion = { x: 0, y: 0, z: 0, yaw: 0 };
+  private camPos = new THREE.Vector3(); private camLook = new THREE.Vector3(); private camInit = false; private lastT = 0;
   private tmpA: Pose = {}; private tmpB: Pose = {};
   private static DIVE: Pose = {
-    upperarm_l: [0, 0, 105], upperarm_r: [0, 0, -105], lowerarm_l: [-8, 0, 0], lowerarm_r: [-8, 0, 0],
-    clavicle_l: [0, 0, 12], clavicle_r: [0, 0, -12], spine_02: [-8, 0, 0], spine_03: [-6, 0, 0], neck: [-10, 0, 0], head: [-14, 0, 0],
-    thigh_l: [4, 0, -3], thigh_r: [4, 0, 3], calf_l: [6, 0, 0], calf_r: [6, 0, 0], foot_l: [30, 0, 0], foot_r: [30, 0, 0],
+    // a swan dive held loosely: arms opened wide from the A-pose and a little forward, elbows
+    // softly bent, wrists straight in line with the forearms; back gently arched, toes pointed
+    upperarm_l: [-12, 8, 34], upperarm_r: [-12, -8, -34], lowerarm_l: [-16, 0, 0], lowerarm_r: [-16, 0, 0],
+    clavicle_l: [0, 0, 6], clavicle_r: [0, 0, -6], spine_01: [-4, 0, 0], spine_02: [-6, 0, 0], spine_03: [-5, 0, 0], neck: [-8, 0, 0], head: [-12, 0, 0],
+    thigh_l: [3, 0, -2], thigh_r: [5, 0, 2], calf_l: [8, 0, 0], calf_r: [4, 0, 0], foot_l: [32, 0, 0], foot_r: [30, 0, 0],
   };
 
   private frame = (now: number) => {
@@ -552,7 +608,17 @@ export class DeepDive {
     this.audio.update(dt, T);
     const a = this.audio.v, u = this.u;
     (u.uTime.value as number) = T;
-    u.uEnergy.value = a.all; u.uBass.value = a.bass; u.uMid.value = a.mid; u.uHigh.value = a.high; u.uBeat.value = a.beat;
+    // (the equaliser modulates the light; it must never flood it: about half its range is used,
+    // and the floor of the music's level is taken out so a loud passage is not a white-out)
+    const lift = (x: number) => Math.max(0, x - 0.18) / 0.82;
+    // Music off: a steady base glow with a slow breath and a gentle heartbeat, so the
+    // scene never goes dark; music on blends in over a couple of seconds.
+    this.liveMix += ((this.audio.live ? 1 : 0) - this.liveMix) * (1 - Math.exp(-dt * 1.2));
+    const breath = 0.5 + 0.5 * Math.sin(T * 0.9), hbp = (T * 0.75) % 1, heart = Math.exp(-Math.pow(hbp * 9, 2)) + 0.6 * Math.exp(-Math.pow((hbp - 0.2) * 9, 2));
+    const base = { e: 0.22 + 0.08 * breath, b: 0.24 + 0.1 * breath, m: 0.2 + 0.06 * Math.sin(T * 0.6), h: 0.2, beat: heart * 0.25 };
+    const L = this.liveMix, mixv = (x: number, y: number) => x * (1 - L) + y * L;
+    u.uEnergy.value = mixv(base.e, lift(a.all) * 0.42 + 0.06); u.uBass.value = mixv(base.b, lift(a.bass) * 0.5 + 0.05); u.uMid.value = mixv(base.m, lift(a.mid) * 0.5 + 0.05);
+    u.uHigh.value = mixv(base.h, lift(a.high) * 0.5 + 0.05); u.uBeat.value = mixv(base.beat, a.beat * 0.55);
     (u.uMood.value as THREE.Color).lerp(this.moodTarget, 1 - Math.exp(-dt * 1.4));
     u.uStrength.value = lerp(u.uStrength.value as number, this.strengthTarget, 1 - Math.exp(-dt * 1.4));
     const fogC = (u.uFog.value as THREE.Color).copy(u.uMood.value as THREE.Color).multiplyScalar(0.035).add(new THREE.Color(0x010206));
@@ -561,61 +627,91 @@ export class DeepDive {
 
     // ---- the take
     const fig = this.figure, cam = this.camera;
-    const WALK0 = 2, WALK1 = 34, EDGE1 = 39, FALL1 = 43, DIVE1 = 86;
-    const zStart = 13.5, zEdge = PORTAL_R + 0.7;
-    let figY = 0, figZ = zStart, figTilt = 0, diveMix = 0, walking = 0;
-    if (t < WALK0) { figZ = zStart; }
-    else if (t < WALK1) { const k = (t - WALK0) / (WALK1 - WALK0); figZ = lerp(zStart, zEdge, k); walking = 1 - smooth((t - (WALK1 - 1.2)) / 1.2) * 0; }
-    else if (t < EDGE1) { figZ = zEdge; }
-    else if (t < FALL1) { const k = (t - EDGE1) / (FALL1 - EDGE1); figZ = lerp(zEdge, 1.2, smooth(k * 1.4)); figY = -Math.pow(Math.max(0, t - EDGE1 - 0.6), 2) * 2.6; figTilt = smooth((t - EDGE1 - 0.3) / 2.6) * Math.PI; diveMix = smooth((t - EDGE1) / 2.2); }
-    else { figZ = 1.2; figY = -((FALL1 - EDGE1 - 0.6) ** 2) * 2.6 - (t - FALL1) * 0.55; figTilt = Math.PI; diveMix = 1; }
-    walking = t >= WALK0 && t < WALK1 ? 1 : 0;
+    // The walk keeps the capture's stride: speed = stride length x playback rate, so the feet
+    // never slide. A slow, solemn pace.
+    const WALK_RATE = 0.62, WALK_SPEED = 1.05 * WALK_RATE;
+    const zStart = 18, zEdge = PORTAL_R + 0.7;
+    const WALK0 = 2, WALK1 = WALK0 + (zStart - zEdge) / WALK_SPEED, EDGE1 = WALK1 + 5, FALL1 = EDGE1 + 6, G = 1.5;
+    let figY = 0, figZ = zStart, figTilt = 0, diveMix = 0;
+    const drop = (x: number) => -Math.pow(Math.max(0, x), 2) * G * 0.5;
+    if (t < WALK0) figZ = zStart;
+    else if (t < WALK1) figZ = lerp(zStart, zEdge, (t - WALK0) / (WALK1 - WALK0));
+    else if (t < EDGE1) figZ = zEdge;
+    else if (t < FALL1) { const k = (t - EDGE1) / (FALL1 - EDGE1); figZ = lerp(zEdge, 1.2, smooth(k * 1.6)); figY = drop(t - EDGE1 - 1.2); figTilt = smooth((t - EDGE1 - 0.8) / 4.2) * Math.PI; diveMix = smooth((t - EDGE1 - 0.3) / 3.5); }
+    else { figZ = 1.2; figY = drop(FALL1 - EDGE1 - 1.2) - (t - FALL1) * 0.25; figTilt = Math.PI; diveMix = 1; }
+    const walking = t >= WALK0 && t < WALK1;
     fig.position.set(0, figY, figZ);
-    // facing the portal (−z); head-first dive rotates about the shoulders' axis
     fig.rotation.set(0, Math.PI, 0);
-    if (figTilt > 0) { fig.rotation.x = -figTilt; fig.position.y += figTilt > 0.1 ? 1.0 * Math.sin(Math.min(figTilt, Math.PI) / 2) : 0; }
-    if (t >= FALL1) fig.rotation.y = Math.PI + (t - FALL1) * 0.12; // a slow turn as it falls
-    // pose: walk / stand / dive, blended
+    if (figTilt > 0) { fig.rotation.x = -figTilt; fig.position.y += Math.sin(Math.min(figTilt, Math.PI) / 2) * 1.0; }
+    if (t >= FALL1) { fig.rotation.y = Math.PI + (t - FALL1) * 0.1; fig.rotation.z = Math.sin((t - FALL1) * 0.21) * 0.12; }
     if (this.rig) {
       const r: RootMotion = { x: 0, y: 0, z: 0, yaw: 0 };
-      if (this.walk) sample(this.walk, T, this.tmpA, r); else for (const k in this.tmpA) delete this.tmpA[k];
+      if (this.walk) { this.walk.mocapSpeed = WALK_RATE; sample(this.walk, t - WALK0, this.tmpA, r); } else for (const k in this.tmpA) delete this.tmpA[k];
       if (this.idle) sample(this.idle, T, this.tmpB, r); else for (const k in this.tmpB) delete this.tmpB[k];
-      const standMix = t >= WALK1 - 0.8 && t < EDGE1 + 1 ? smooth((t - (WALK1 - 0.8)) / 1.2) : 0;
-      blend(this.pose, [{ pose: this.tmpA, w: (1 - standMix) * (1 - diveMix) * (walking || t < WALK1 ? 1 : 0) + 1e-6 }, { pose: this.tmpB, w: standMix * (1 - diveMix) + (t < WALK0 ? 1 : 0) }, { pose: DeepDive.DIVE, w: diveMix }]);
-      // breathing waves through the diver's arms
-      if (diveMix > 0.5) { const s = Math.sin(T * 1.3) * 6; this.pose.upperarm_l = [this.pose.upperarm_l?.[0] ?? 0, 0, (this.pose.upperarm_l?.[2] ?? 0) + s]; this.pose.upperarm_r = [this.pose.upperarm_r?.[0] ?? 0, 0, (this.pose.upperarm_r?.[2] ?? 0) - s]; }
+      // walk -> stand eased over a stride, stand -> dive over the fall's first seconds
+      const standMix = t < WALK0 ? 1 : t < WALK1 - 1.0 ? 0 : smooth((t - (WALK1 - 1.0)) / 1.4);
+      blend(this.pose, [{ pose: this.tmpA, w: (walking || t < WALK1 + 0.5 ? 1 - standMix : 0) * (1 - diveMix) + 1e-6 }, { pose: this.tmpB, w: standMix * (1 - diveMix) }, { pose: DeepDive.DIVE, w: diveMix }]);
+      // drifting while it falls: arms float, legs part a little, slow and uneven (wrists stay in line)
+      if (diveMix > 0.01) {
+        const add = (k: string, x: number, y: number, z: number) => { const o = this.pose[k] ?? (this.pose[k] = [0, 0, 0]); o[0] += x * diveMix; o[1] += y * diveMix; o[2] += z * diveMix; };
+        const s1 = Math.sin(T * 0.55), s2 = Math.sin(T * 0.43 + 1.3), s3 = Math.sin(T * 0.31 + 2.1);
+        add("upperarm_l", s1 * 6, 0, s2 * 9); add("upperarm_r", -s2 * 5, 0, -s1 * 9);
+        add("lowerarm_l", s3 * 5, 0, 0); add("lowerarm_r", -s1 * 5, 0, 0);
+        add("thigh_l", s3 * 4, 0, -2 - s1 * 2); add("thigh_r", -s3 * 4, 0, 2 + s2 * 2);
+        add("spine_02", s1 * 2, s2 * 2, 0);
+        // the captured walk's wrist bend must not carry into the dive
+        for (const h of ["hand_l", "hand_r"]) this.pose[h] = [0, 0, 0];
+      }
       this.rig.apply(this.pose);
     }
+    // footfalls: a sole reaching the floor fires a pulse there
+    if (this.body && walking || (this.body && t < WALK1 + 1)) this.footsteps(T, fig);
 
     // ---- camera
     const figPos = fig.position;
     const pos = new THREE.Vector3(), look = new THREE.Vector3();
+    let fov = 52;
     if (t < WALK1) {
-      // behind and a little to the side, low, tracking; a slow dolly
-      const k = t / WALK1;
-      pos.set(lerp(1.1, 0.6, k), lerp(2.3, 2.1, k), figZ + lerp(9.0, 6.5, k));
+      const k = (t - WALK0) / (WALK1 - WALK0);
+      pos.set(lerp(1.1, 0.6, smooth(k)), lerp(2.3, 2.1, k), figZ + lerp(9.0, 6.5, smooth(k)));
       look.set(0, lerp(2.6, 1.9, k), figZ - 9);
     } else if (t < EDGE1) {
       const k = smooth((t - WALK1) / (EDGE1 - WALK1));
-      pos.set(lerp(0.5, 4.2, k), lerp(2.0, 5.5, k), lerp(zEdge + 5.0, zEdge + 5.6, k));
-      look.set(0, lerp(1.25, -1.0, k), lerp(zEdge - 7, 0, k));
-    } else if (t < FALL1 + 2) {
-      // rises over the rim and tips down into the pit with the diver
-      const k = smooth((t - EDGE1) / (FALL1 + 2 - EDGE1));
-      pos.set(lerp(4.2, 1.2, k), lerp(5.5, figPos.y - 6.0, k * k), lerp(zEdge + 5.6, 1.2 + 4.0, k));
-      look.set(0, lerp(-1.0, figPos.y + 1.0, k), lerp(0, 1.2, k));
+      pos.set(lerp(0.6, 4.2, k), lerp(2.1, 5.5, k), lerp(zEdge + 6.5, zEdge + 5.6, k));
+      look.set(0, lerp(1.9, -1.0, k), lerp(zEdge - 9, 0, k));
+      fov = lerp(52, 54, k);
+    } else if (t < FALL1 + 3) {
+      const k = smooth((t - EDGE1) / (FALL1 + 3 - EDGE1));
+      const F = new THREE.Vector3(0, figPos.y - 0.9, figPos.z);
+      pos.set(lerp(4.2, 0, k), lerp(5.5, F.y - 6.0, k * k), lerp(zEdge + 5.6, F.z + 4.0, k));
+      look.set(0, lerp(-1.0, F.y + 1.2, k), lerp(0, F.z, k));
+      fov = lerp(54, 64, k);
     } else {
-      // below the diver looking up: the figure falls toward us, the portal ring far above
-      const th = (t - FALL1) * 0.08;
-      pos.set(Math.sin(th) * 4.0, figPos.y - 6.0, 1.2 + Math.cos(th) * 4.0);
-      look.set(0, figPos.y + 1.2, 1.2);
+      // Five ways of watching the fall, each held 32 s and crossfaded over 5 s.
+      const tf = t - (FALL1 + 3), F = new THREE.Vector3(0, figPos.y - 0.9, figPos.z);
+      const moves = [
+        (q: number) => { const th = q * 0.08; return { p: new THREE.Vector3(Math.sin(th) * 4.0, -6.0, Math.cos(th) * 4.0), l: new THREE.Vector3(0, 1.2, 0), f: 64 }; },
+        (q: number) => { const th = 1.0 + q * 0.12; return { p: new THREE.Vector3(Math.cos(th) * 5.5, 0.4, Math.sin(th) * 5.5), l: new THREE.Vector3(0, -0.4, 0), f: 56 }; },
+        (q: number) => { const th = q * 0.05; return { p: new THREE.Vector3(Math.cos(th) * 1.6, 6.5, Math.sin(th) * 1.6), l: new THREE.Vector3(0, -8, 0), f: 70 }; },
+        (q: number) => { const th = -q * 0.14; return { p: new THREE.Vector3(Math.cos(th) * 2.3, -0.5, Math.sin(th) * 2.3), l: new THREE.Vector3(0, -0.2, 0), f: 50 }; },
+        (q: number) => { const th = 2.0 + q * 0.04; return { p: new THREE.Vector3(Math.cos(th) * 7.2, -2.5, Math.sin(th) * 7.2), l: new THREE.Vector3(0, -1.5, 0), f: 60 }; },
+      ];
+      const HOLD = 32, BLEND = 5, idx = Math.floor(tf / HOLD), within = tf - idx * HOLD;
+      const A = moves[idx % moves.length](tf), Bm = moves[(idx + 1) % moves.length](tf), b = smooth((within - (HOLD - BLEND)) / BLEND);
+      pos.copy(A.p).lerp(Bm.p, b).add(F); look.copy(A.l).lerp(Bm.l, b).add(F); fov = lerp(A.f, Bm.f, b);
     }
-    cam.position.copy(pos); cam.lookAt(look);
-    cam.fov = t < WALK1 ? 52 : t < EDGE1 ? 54 : 64; cam.updateProjectionMatrix();
+    // eased camera: no jitter, even across the crossfades
+    if (!this.camInit || Math.abs(t - this.lastT) > 1) { this.camPos.copy(pos); this.camLook.copy(look); this.camInit = true; }
+    this.lastT = t;
+    const kc = 1 - Math.exp(-dt * 3.5);
+    this.camPos.lerp(pos, kc); this.camLook.lerp(look, kc);
+    cam.position.copy(this.camPos); cam.lookAt(this.camLook);
+    cam.fov += (fov - cam.fov) * kc; cam.updateProjectionMatrix();
 
     // ---- dive environment
     const diving = t > EDGE1 + 1;
-    const fallSpeed = diving ? 26 + a.bass * 10 : 0;
+    // a slow, floating fall: the rings drift up past the diver rather than rush
+    const fallSpeed = diving ? 6.5 * smooth((t - EDGE1 - 1) / 6) + (u.uBass.value as number) * 4 : 0;
     this.tunnelScroll += fallSpeed * dt;
     const camY = cam.position.y;
     this.tunnelSegs.forEach((s, i) => {
@@ -630,16 +726,24 @@ export class DeepDive {
     this.scroll += rainSpeed * dt;
     const ru = (this.rain.material as THREE.ShaderMaterial).uniforms;
     ru.uScroll.value = this.scroll; ru.uBase.value = Math.max(camY, 0) + (camY < 0 ? camY : 0) + 20 * (camY >= 0 ? 1 : 0);
-    // ribbons wrap the figure
-    this.ribbons.position.set(0, figPos.y - (diving ? 4 : 0), figPos.z);
-    this.ribbons.rotation.y = T * 0.18;
-    this.ribbons.scale.setScalar(diving ? 1.6 : 1);
+    // The fall's surroundings change: five worlds take turns (~70 s each, 10 s crossfades),
+    // the ribbed ring tunnel first; the hall's dressing fades as the camera goes under.
+    const fallT = Math.max(0, t - FALL1);
+    const ERA = 70, EB = 10, ei = Math.floor(fallT / ERA), eb = smooth(((fallT % ERA) - (ERA - EB)) / EB);
+    const ew = [0, 0, 0, 0, 0]; ew[ei % 5] = 1 - eb; ew[(ei + 1) % 5] += eb;
+    if (!diving) { ew.fill(0); ew[0] = 1; }
+    // the ribbed rings open out and away when their world ends
+    this.tunnelSegs.forEach(sg => sg.scale.setScalar(1 + (1 - ew[0]) * 1.6));
+    this.tunnel.visible = ew[0] > 0.01;
+    this.worlds.update(T, camY, this.tunnelScroll, smooth((camY + 4) / 6), ew);
 
     // ---- the loop flare: grows over the last 10 s, flashes, then the walk fades back in
     const flare = Math.max(smooth((t - (LOOP - 9)) / 8) * 0.9 + (t > LOOP - 1.2 ? smooth((t - (LOOP - 1.2)) / 1.0) * 0.1 : 0), 1 - smooth(t / 2.2));
     u.uFlare.value = flare;
-    this.bloom.strength = 0.85 + a.beat * 0.45 + a.all * 0.35 + flare * 1.2;
-    this.renderer.toneMappingExposure = 0.92 + a.all * 0.15;
+    // pulse patterns take turns every 16 s, each fading into the next
+    { const ph = T / 16, i = Math.floor(ph) % 4, b = smooth((ph % 1 - 0.7) / 0.3), w = [0, 0, 0, 0]; w[i] = 1 - b; w[(i + 1) % 4] += b; (u.uW.value as THREE.Vector4).set(w[0], w[1], w[2], w[3]); }
+    this.bloom.strength = 0.72 + (u.uBeat.value as number) * 0.35 + (u.uEnergy.value as number) * 0.3 + flare * 1.2;
+    this.renderer.toneMappingExposure = 0.9 + (u.uEnergy.value as number) * 0.1;
     this.composer.render(dt);
   };
 }

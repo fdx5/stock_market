@@ -13,6 +13,8 @@ export interface Levels { bass: number; mid: number; high: number; all: number; 
 
 export class AudioLevels {
   readonly v: Levels = { bass: 0, mid: 0, high: 0, all: 0, beat: 0 };
+  /** Music playing and its envelope known (else the visuals use their own steady glow). */
+  live = false;
   private env: BgmEnvelope | null = null;
   private track = "";
   private prevBass = 0;
@@ -23,6 +25,7 @@ export class AudioLevels {
     if (id && id !== this.track) { this.track = id; this.env = null; void loadBgmEnvelope(id).then(e => { if (this.track === id) this.env = e; }); }
     const t = st?.playing ? getDeskBgmTime() : null;
     let bass = 0, mid = 0, high = 0, all = 0;
+    this.live = !!(this.env && t !== null);
     if (this.env && t !== null) {
       const e = this.env, f = t * e.fps, f0 = Math.floor(f), k = f - f0;
       const at = (band: number, bars: number) => {
