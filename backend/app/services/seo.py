@@ -719,6 +719,11 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         keep = {k: query[k] for k in ("sido", "sgg", "dong", "complex", "3d", "hour", "weather") if query.get(k)}
         share_url = f"{SITE}{canonical_path}?{urlencode(keep)}"
 
+    if canonical_path == "/pulse-board":
+        # The board's preview changed (deep-dive card); messengers had cached the old one
+        # under the bare address, so shares are keyed to a fresh one.
+        share_url = f"{SITE}/pulse-board?v=2"
+
     document = re.sub(r"<title>.*?</title>", f"<title>{html.escape(title)}</title>", template, count=1, flags=re.S)
     document = _replace_meta(document, 'name="description"', description)
     if page_lookup == "/market-brief":
