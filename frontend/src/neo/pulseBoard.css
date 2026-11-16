@@ -230,3 +230,10 @@ html[data-fx=minimal] .pb-market-picker .pb-tab,html[data-fx=minimal] .pb-tab-ac
 .pb2-deep{position:fixed;left:var(--ng-rail,0px);right:0;top:0;bottom:0;z-index:-1;pointer-events:none;background:#01030a}
 .pb2-deep canvas{display:block;width:100%;height:100%}
 .pb-page--deep{--pb-ship-band:58vh}
+/* 증시 전광판2: "종목 감추기" keeps only the index tabs and this toggle, for watching the scene */
+.pb-actions{display:flex;gap:10px;align-items:stretch}
+.pb-actions .pb-more{flex:1 1 auto}
+.pb-actions .pb-bare-toggle{flex:0 0 auto;width:auto;padding:0 18px}
+.pb-board--bare .pb-topline,.pb-board--bare .pb-breadth,.pb-board--bare .pb-sort,.pb-board--bare .pb-grid,.pb-board--bare .pb-footnote,.pb-board--bare .pb-actions>.pb-more:not(.pb-bare-toggle):not(.pb-alt-link),.pb-board--bare .pb-market-prompt{display:none}
+.pb-board--bare .pb-actions{justify-content:flex-end}
+.pb-actions .pb-alt-link{flex:0 0 auto;width:auto;padding:0 18px;text-decoration:none}

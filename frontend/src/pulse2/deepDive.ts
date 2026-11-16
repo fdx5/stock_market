@@ -37,6 +37,7 @@ const COMMON = /* glsl */`
 uniform float uTime, uEnergy, uBass, uMid, uHigh, uBeat, uFlare, uStrength;
 uniform vec4 uW; // weights of the four pulse patterns, crossfading in turn
 uniform vec3 uMood, uFog;
+uniform vec3 uFocus; // the figure: light gathers round it, the rest falls back into shadow
 `;
 
 type U = { value: unknown };
@@ -51,7 +52,7 @@ export class DeepDive {
   private audio = new AudioLevels();
   private u: Record<string, U> = {
     uTime: { value: 0 }, uEnergy: { value: 0 }, uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }, uBeat: { value: 0 },
-    uFlare: { value: 0 }, uStrength: { value: 0 }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
+    uFlare: { value: 0 }, uStrength: { value: 0 }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uFocus: { value: new THREE.Vector3(0, 1, 13) }, uMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
   };
   private moodTarget = new THREE.Color(0x3a8bff);
   private strengthTarget = 0;
@@ -106,7 +107,7 @@ export class DeepDive {
         if (!(c.r == c.r) || !(c.g == c.g) || !(c.b == c.b) || c.r > 1e4 || c.g > 1e4 || c.b > 1e4) c = vec4(0.0);
         gl_FragColor = vec4(min(c.rgb, vec3(24.0)), 1.0); }`,
     }));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.95, 0.65, 0.12);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.95, 0.5, 0.55);
     this.composer.addPass(this.bloom);
     this.finish = new ShaderPass({
       uniforms: { tDiffuse: { value: null }, uFlare: this.u.uFlare, uMood: this.u.uMood, uTime: this.u.uTime, uRes: { value: new THREE.Vector2(1, 1) } },
@@ -118,7 +119,12 @@ export class DeepDive {
           // a whisper of chromatic aberration toward the edges
           vec2 off = c * r * 0.006;
           vec3 col = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
-          col *= mix(1.0, 0.35, smoothstep(0.35, 0.95, r));             // vignette
+          // vignette round the subject (sat low in the frame), deep at the edges
+          float rs = length((vUv - vec2(0.5, 0.4)) * vec2(1.0, 1.15));
+          col *= mix(1.0, 0.18, smoothstep(0.2, 0.85, rs));
+          // contrast: mid-tones settle, highlights keep their punch
+          float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+          col *= mix(0.62, 1.0, smoothstep(0.05, 0.9, lum));
           col = mix(col, vec3(1.0) * 0.6 + uMood * 0.8, clamp(uFlare, 0.0, 1.0)); // the loop's flare
           gl_FragColor = vec4(col, 1.0);
         }`,
@@ -249,7 +255,8 @@ export class DeepDive {
           float wave = dot(uW, vec4(pRings, pSpiral, pSweep, pHeart)) * (0.25 + uBass*1.8 + uBeat*1.2);
           float near = exp(-(r - uPortalR) * 0.45);
           vec3 base = vec3(0.004, 0.007, 0.012) * (0.6 + 0.8*n3(vec3(vWorld.xz*0.35, 1.0)));
-          vec3 glow = uMood * ((rings*0.55 + seams*0.35) * (0.18 + wave) * (0.4 + 0.6*near) + near * (0.9 + uEnergy*1.6 + uBeat));
+          float focus = 0.15 + 0.85*exp(-length(vWorld.xz - uFocus.xz) / 9.0);
+          vec3 glow = uMood * ((rings*0.55 + seams*0.35) * (0.05 + wave) * (0.4 + 0.6*near) * focus + near * (0.7 + uEnergy*1.4 + uBeat));
           // footfalls: where a sole lands, a flash, an electric ring running out and crackling
           // filaments along the floor's seams, fading in about two seconds
           for (int i = 0; i < 4; i++) {
@@ -317,8 +324,11 @@ export class DeepDive {
         float k = exp(-r*3.0)*3.0 + swirl*0.6*exp(-r*1.5);
         gl_FragColor = vec4(uMood*k*(0.8+uEnergy*1.5) + vec3(k*0.15), 1.0); }`,
     }));
-    core.rotation.x = -Math.PI / 2; core.position.y = -69;
-    this.scene.add(abyss, core);
+    // (a child of the abyss, so it goes when the abyss does: the fall passes its depth
+    // later, and flying through it whited out the frame)
+    core.rotation.x = -Math.PI / 2; core.position.y = -69 - abyss.position.y;
+    abyss.add(core);
+    this.scene.add(abyss);
   }
 
   /** A tapered tube along a curve (radius r0 → r1), uv.x along, uv.y around. */
@@ -343,8 +353,8 @@ export class DeepDive {
     const u = this.u;
     m.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, u, { uPhase: { value: phase } });
-      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec2 vRib;").replace("#include <uv_vertex>", "#include <uv_vertex>\nvRib = uv;");
-      sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\nvarying vec2 vRib; uniform float uPhase;\n${COMMON}`)
+      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec2 vRib; varying vec3 vRibW;").replace("#include <uv_vertex>", "#include <uv_vertex>\nvRib = uv;").replace("#include <project_vertex>", "#include <project_vertex>\nvRibW = (modelMatrix*vec4(transformed,1.0)).xyz;");
+      sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\nvarying vec2 vRib; varying vec3 vRibW; uniform float uPhase;\n${COMMON}`)
         .replace("#include <emissivemap_fragment>", /* glsl */`#include <emissivemap_fragment>
           {
             float u = vRib.x, v = vRib.y;
@@ -352,7 +362,7 @@ export class DeepDive {
             // lit oval cells set into the inner face, irregular like living tissue
             float side = smoothstep(0.78, 0.96, 0.5 + 0.5*sin(v*6.2831853));
             float cu = u*${slots.toFixed(1)}, ci = floor(cu), cell = fract(cu);
-            float on = step(0.45, fract(sin(ci*12.9898 + uPhase*3.1)*43758.5453));
+            float on = step(0.66, fract(sin(ci*12.9898 + uPhase*3.1)*43758.5453));
             float slot = side * on * smoothstep(0.5, 0.15, length(vec2(cell - 0.5, (v - 0.25) * 4.0) * vec2(1.0, 1.0)) - 0.0);
             float sp = uTime*(2.2 + uBass*5.0);
             float pUp = pow(0.5 + 0.5*sin(u*28.0 - sp + uPhase), 10.0);
@@ -363,7 +373,9 @@ export class DeepDive {
             float edge = pow(1.0 - abs(v*2.0 - 1.0), 1.0) * 0.0;
             // a thin glowing seam along the rib, brighter where the pulse passes
             float seam = (1.0 - smoothstep(0.0, 0.035, abs(v - 0.25))) * (0.25 + pulse*2.5);
-            totalEmissiveRadiance += uMood * (slot * (0.7 + uEnergy*1.6 + uBeat*0.9) * (0.6 + pulse*1.6) + seam*(0.5 + uEnergy) + edge);
+            // lit cells mostly dark until a pulse passes; all of it brightest near the figure
+            float focus = 0.1 + 0.9*exp(-length(vRibW - uFocus) / 11.0);
+            totalEmissiveRadiance += uMood * (slot * (0.25 + uEnergy*1.2 + uBeat*0.9) * (0.25 + pulse*2.2) + seam*(0.15 + uEnergy*0.6)*(0.3 + pulse) + edge) * focus;
           }`);
     };
     return m;
@@ -392,7 +404,7 @@ export class DeepDive {
       uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.0); }`,
       fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; void main(){ vec2 c=(vUv-0.5)*vec2(2.0,1.0); float r=length(c); float k=smoothstep(0.5,0.0,r)*1.6 + smoothstep(0.52,0.46,r)*0.6;
-        gl_FragColor = vec4(uMood*k*(0.45+uEnergy*1.2), 1.0); }`,
+        gl_FragColor = vec4(uMood*k*(0.14+uEnergy*0.5), 1.0); }`,
     });
     const M = 64, pods = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.2, 4.4), podMat, M * 2);
     const tmp = new THREE.Object3D();
@@ -437,7 +449,7 @@ export class DeepDive {
       uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; void main(){ float a=vUv.x*6.2831853; float hb=fract(uTime*0.85); float k = dot(uW, vec4(0.8+0.6*sin(a*12.0 - uTime*4.0), 0.5+1.0*pow(0.5+0.5*sin(a*3.0 + uTime*2.0),6.0), 0.6+1.2*pow(max(0.0,cos(a - uTime*1.5)),12.0), 0.5+1.4*(exp(-pow(hb*9.0,2.0))+0.65*exp(-pow((hb-0.2)*9.0,2.0)))))*(1.0+uEnergy*2.0+uBeat*1.5);
-        gl_FragColor = vec4(uMood*k*1.6, 1.0); }`,
+        gl_FragColor = vec4(uMood*k*k*0.55, 1.0); }`,
     });
     for (let i = 0; i < 14; i++) {
       const seg = new THREE.Group();
@@ -471,13 +483,13 @@ export class DeepDive {
     const u = { ...this.u, uBase: { value: 0 }, uScroll: { value: 0 } };
     this.rain = new THREE.Mesh(g, new THREE.ShaderMaterial({
       uniforms: u, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uBase, uScroll; varying vec2 vUv; varying float vA;
+      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uBase, uScroll; uniform vec3 uFocus; varying vec2 vUv; varying float vA;
         void main(){ float y = uBase + mod(aSeed.z - uScroll*aSeed.w, 90.0) - 45.0;
           vec3 c = vec3(aSeed.x, y, aSeed.y);
           vec3 toCam = cameraPosition - c; toCam.y = 0.0; toCam = normalize(toCam);
           vec3 right = normalize(cross(vec3(0.0,1.0,0.0), toCam));
           vec3 p = c + right*position.x + vec3(0.0,1.0,0.0)*position.y;
-          vUv = uv; vA = smoothstep(45.0, 30.0, abs(y - uBase)) * (0.5 + 0.5*aSeed.w);
+          vUv = uv; vA = smoothstep(45.0, 30.0, abs(y - uBase)) * (0.5 + 0.5*aSeed.w) * (0.2 + 0.8*exp(-length(c - uFocus) / 10.0));
           gl_Position = projectionMatrix*viewMatrix*vec4(p,1.0); }`,
       fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; varying float vA;
         void main(){ float x = 1.0 - abs(vUv.x*2.0-1.0); float k = x*x * pow(vUv.y, 1.5) * vA * (0.35 + uHigh*1.3 + uBeat*0.5);
@@ -667,6 +679,7 @@ export class DeepDive {
     // footfalls: a sole reaching the floor fires a pulse there
     if (this.body && walking || (this.body && t < WALK1 + 1)) this.footsteps(T, fig);
 
+    (u.uFocus.value as THREE.Vector3).set(fig.position.x, fig.position.y + (figTilt > 1.5 ? -1 : 1), fig.position.z);
     // ---- camera
     const figPos = fig.position;
     const pos = new THREE.Vector3(), look = new THREE.Vector3();
@@ -681,10 +694,17 @@ export class DeepDive {
       look.set(0, lerp(1.9, -1.0, k), lerp(zEdge - 9, 0, k));
       fov = lerp(52, 54, k);
     } else if (t < FALL1 + 3) {
+      // The camera goes over the edge with the diver: it follows the body down (always
+      // framing it) and, once the body is under the floor, keeps over the portal's opening
+      // so the floor never hides it.
       const k = smooth((t - EDGE1) / (FALL1 + 3 - EDGE1));
       const F = new THREE.Vector3(0, figPos.y - 0.9, figPos.z);
-      pos.set(lerp(4.2, 0, k), lerp(5.5, F.y - 6.0, k * k), lerp(zEdge + 5.6, F.z + 4.0, k));
-      look.set(0, lerp(-1.0, F.y + 1.2, k), lerp(0, F.z, k));
+      const off = new THREE.Vector3(4.2, 6.4, 5.6).lerp(new THREE.Vector3(0, -6.0, 4.0), k);
+      pos.copy(F).add(off);
+      const under = smooth((-F.y - 0.2) / 1.8) * (1 - smooth((-pos.y - 10) / 6));
+      const rr = Math.hypot(pos.x, pos.z), maxR = lerp(99, PORTAL_R - 1.0, under);
+      if (rr > maxR) { pos.x *= maxR / rr; pos.z *= maxR / rr; }
+      look.copy(F).add(new THREE.Vector3(0, lerp(-0.2, 1.2, k), 0));
       fov = lerp(54, 64, k);
     } else {
       // Five ways of watching the fall, each held 32 s and crossfaded over 5 s.
@@ -742,7 +762,7 @@ export class DeepDive {
     u.uFlare.value = flare;
     // pulse patterns take turns every 16 s, each fading into the next
     { const ph = T / 16, i = Math.floor(ph) % 4, b = smooth((ph % 1 - 0.7) / 0.3), w = [0, 0, 0, 0]; w[i] = 1 - b; w[(i + 1) % 4] += b; (u.uW.value as THREE.Vector4).set(w[0], w[1], w[2], w[3]); }
-    this.bloom.strength = 0.72 + (u.uBeat.value as number) * 0.35 + (u.uEnergy.value as number) * 0.3 + flare * 1.2;
+    this.bloom.strength = 0.95 + (u.uBeat.value as number) * 0.35 + (u.uEnergy.value as number) * 0.3 + flare * 1.2;
     this.renderer.toneMappingExposure = 0.9 + (u.uEnergy.value as number) * 0.1;
     this.composer.render(dt);
   };

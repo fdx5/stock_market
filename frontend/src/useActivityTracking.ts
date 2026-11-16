@@ -143,6 +143,7 @@ export function pageLabel(path: string): string {
   if (path === "/support") return "커피 후원";
   if (path === "/admin/live") return "관리자 실시간";
   if (path === "/pulse-board") return "증시 전광판";
+  if (path === "/pulse-board-ship") return "증시 전광판(구)";
   if (path === "/hot-issues") return "오늘의 핫이슈";
   if (path === "/kospi") return "코스피 지수";
   if (path === "/kosdaq") return "코스닥 지수";

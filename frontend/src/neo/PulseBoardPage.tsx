@@ -142,6 +142,9 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
   const [focused, setFocused] = useState<string | null>(null);
   // 50 cells by default keeps the sea visible; the rest open on request.
   const [showAll, setShowAll] = useState(false);
+  // 증시 전광판2: hide every stock (the index tabs stay) to watch the scene alone.
+  const [bare, setBare] = useState(() => { try { return variant === "deep" && localStorage.getItem("pb2-bare") === "1"; } catch { return false; } });
+  const toggleBare = () => setBare(value => { const next = !value; try { localStorage.setItem("pb2-bare", next ? "1" : "0"); } catch { /* private mode */ } return next; });
   const DEFAULT_CELLS = useDefaultCells();
   const [columns, setColumns] = useState(8);
   const controller = useRef<PulseHorizonController | null>(null);
@@ -238,9 +241,9 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
     <PulseShip state={ship} controller={controller} onBoard={focusItem ? () => navigate(`/stock/${encodeURIComponent(focusItem.code)}`) : undefined}
       onCargo={code => { const item = stocks.find(stock => stock.code === code); if (item) focus(item); }} />
     </>}
-    <section className="sc-scanner pb-board" aria-labelledby="pb-title" data-mood={mood} data-market={market}>
+    <section className={`sc-scanner pb-board${bare ? " pb-board--bare" : ""}`} aria-labelledby="pb-title" data-mood={mood} data-market={market}>
       {/* The title is for assistive tech only: the board itself is the page's headline. */}
-      <h1 id="pb-title" className="pb-sr">{L("증시 전광판", "Market pulse board")}</h1>
+      <h1 id="pb-title" className="pb-sr">{variant === "deep" ? L("증시 전광판", "Market pulse board") : L("증시 전광판(구)", "Market pulse board (classic)")}</h1>
       {moodSlot ? createPortal(moodChip, moodSlot) : moodChip}
       <div className={`pb-topline${market === "nasdaq100" ? " pb-topline--us" : ""}`}>
         {market !== "nasdaq100" && <PulseInvestorFlow key={market} market={market}
@@ -287,10 +290,17 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
         })}
         {!stocks.length && <div className="sc-empty">{snapshot.settled ? L("시장 데이터를 확인하고 있습니다.", "Market data is unavailable.") : L("시장 데이터를 불러오는 중입니다.", "Loading market data.")}</div>}
       </div>
+      <div className="pb-actions">
       {visible.length > DEFAULT_CELLS && <button type="button" className="pb-more" aria-expanded={showAll} onClick={() => {
         if (showAll) gridRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
         setShowAll(value => !value);
       }}>{showAll ? L(`상위 ${DEFAULT_CELLS}종목만 보기`, `Show top ${DEFAULT_CELLS}`) : L(`더보기 · ${visible.length - DEFAULT_CELLS}종목 더`, `Show ${visible.length - DEFAULT_CELLS} more`)}<b aria-hidden="true">{showAll ? "−" : "+"}</b></button>}
+      {variant === "deep" && <button type="button" className="pb-more pb-bare-toggle" aria-pressed={bare} onClick={toggleBare}>
+        {bare ? L("종목 보이기", "Show stocks") : L("종목 감추기", "Hide stocks")}<b aria-hidden="true">{bare ? "▾" : "▴"}</b></button>}
+      {variant === "deep"
+        ? <Link className="pb-more pb-alt-link" to="/pulse-board-ship">{L("증시 전광판(구)", "Classic board")}<b aria-hidden="true">↗</b></Link>
+        : <Link className="pb-more pb-alt-link" to="/pulse-board">{L("새 증시 전광판", "New pulse board")}<b aria-hidden="true">↗</b></Link>}
+      </div>
       <p className="pb-footnote">{market === "nasdaq100" ? L("막대: 상대 지수 비중", "Bar: relative index weight") : L("막대: 상대 시가총액", "Bar: relative market cap")} · {L("최근 제공 시세 · 전일 대비", "Latest supplied quotes · vs. previous close")}{snapshot.delayed ? ` · ${L("갱신 지연", "Delayed")}` : ""} · {Math.min(showAll ? visible.length : DEFAULT_CELLS, visible.length)} / {stocks.length}{L("종목", " stocks")}</p>
     </section>
     {focusItem && <FloatingCompany item={focusItem} market={market} controller={controller} onClose={() => setFocused(null)} lang={lang} />}

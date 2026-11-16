@@ -465,10 +465,12 @@ export default function App() {
     const detailCode = stockMatch[1].toUpperCase();
     const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
     page = <BroadsheetStockPage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />;
-  } else if (path === "/pulse-board") {
-    page = <PulseBoardPage />;
-  } else if (path === "/pulse-board-2") {
+  } else if (path === "/pulse-board" || path === "/pulse-board-2") {
+    // The deep-dive board is the 증시 전광판 now; its preview address forwards here.
+    if (path === "/pulse-board-2") window.history.replaceState(window.history.state, "", "/pulse-board" + window.location.search);
     page = <PulseBoardPage variant="deep" />;
+  } else if (path === "/pulse-board-ship") {
+    page = <PulseBoardPage variant="sea" />;
   } else if (path === "/stocks") {
     page = <BroadsheetStocksPage />;
   } else if (path === "/kospi" || path === "/kosdaq" || path === "/nasdaq") {

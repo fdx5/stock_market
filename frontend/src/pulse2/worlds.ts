@@ -131,13 +131,16 @@ export class Worlds {
     ng.setAttribute("aSeed", new THREE.InstancedBufferAttribute(ns, 4)); ng.instanceCount = NN;
     this.nebula = new THREE.Mesh(ng, new THREE.ShaderMaterial({
       uniforms: { ...u, uVis: this.vis.nebula, uBase: { value: 0 }, uScroll: { value: 0 } }, ...additive,
-      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uBase, uScroll; varying vec2 vUv; varying float vS;
+      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uBase, uScroll; varying vec2 vUv; varying float vS; varying float vFade;
         void main(){ vec3 c = vec3(aSeed.x, uBase + mod(aSeed.y + uScroll*0.35, 160.0) - 80.0, aSeed.z);
-          vec4 mv = viewMatrix*vec4(c,1.0); mv.xy += position.xy * (18.0 + aSeed.w*26.0); vUv = uv; vS = aSeed.w; gl_Position = projectionMatrix*mv; }`,
-      fragmentShader: /* glsl */`${common}${noise} uniform float uVis; varying vec2 vUv; varying float vS;
+          vec4 mv = viewMatrix*vec4(c,1.0); float sz = 18.0 + aSeed.w*26.0; mv.xy += position.xy * sz; vUv = uv; vS = aSeed.w;
+          // a cloud the camera is inside or close to fades out instead of filling the frame
+          vFade = smoothstep(sz*0.4, sz*1.2, -mv.z);
+          gl_Position = projectionMatrix*mv; }`,
+      fragmentShader: /* glsl */`${common}${noise} uniform float uVis; varying vec2 vUv; varying float vS; varying float vFade;
         void main(){ vec2 c = vUv-0.5; float r = length(c)*2.0;
           float n = fbm3(vec3(c*3.0 + vS*10.0, uTime*0.03 + vS));
-          float k = smoothstep(1.0, 0.2, r) * smoothstep(0.35, 0.85, n) * 0.11 * (0.7 + uEnergy*0.8) * uVis;
+          float k = smoothstep(1.0, 0.2, r) * smoothstep(0.35, 0.85, n) * 0.06 * (0.7 + uEnergy*0.8) * uVis * vFade;
           vec3 tint = mix(uMood, uMood.bgr*0.6 + vec3(0.05,0.0,0.08), vS*0.5);
           gl_FragColor = vec4(tint*k*2.0, 1.0); }`,
     }));
