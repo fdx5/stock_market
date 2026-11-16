@@ -21,6 +21,7 @@ import type { PulseHorizonController } from "./pulseHorizonRenderer";
 import type { Mood } from "./pulseHorizonShaders";
 import { boardStocks, usePulseBoardMarket, type BoardMarket } from "./pulseBoardData";
 import DeepDiveBackground from "../pulse2/DeepDiveBackground";
+import PulseStockPanel, { STOCK_PANEL_QUERY } from "./PulseStockPanel";
 import "./marketScanner.css";
 import "./marketScannerFx.css";
 import "./marketScannerNeon.css";
@@ -147,6 +148,8 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
   const [bare, setBare] = useState(() => { try { return variant === "deep" && localStorage.getItem("pb2-bare") === "1"; } catch { return false; } });
   const toggleBare = () => setBare(value => { const next = !value; try { localStorage.setItem("pb2-bare", next ? "1" : "0"); } catch { /* private mode */ } return next; });
   const DEFAULT_CELLS = useDefaultCells(variant === "deep");
+  // 증시 전광판: on wide screens a selected stock opens a detail pane; phones keep the floating chip.
+  const wide = useMedia(STOCK_PANEL_QUERY), panel = variant === "deep" && wide;
   const [columns, setColumns] = useState(8);
   const controller = useRef<PulseHorizonController | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -304,6 +307,8 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
       </div>
       <p className="pb-footnote">{market === "nasdaq100" ? L("막대: 상대 지수 비중", "Bar: relative index weight") : L("막대: 상대 시가총액", "Bar: relative market cap")} · {L("최근 제공 시세 · 전일 대비", "Latest supplied quotes · vs. previous close")}{snapshot.delayed ? ` · ${L("갱신 지연", "Delayed")}` : ""} · {Math.min(showAll ? visible.length : DEFAULT_CELLS, visible.length)} / {stocks.length}{L("종목", " stocks")}</p>
     </section>
-    {focusItem && <FloatingCompany item={focusItem} market={market} controller={controller} onClose={() => setFocused(null)} lang={lang} />}
+    {focusItem && (panel
+      ? <PulseStockPanel key={focusItem.code} item={focusItem} stocks={stocks} market={market} indexChange={quotes[market].change} onClose={() => setFocused(null)} lang={lang} />
+      : <FloatingCompany item={focusItem} market={market} controller={controller} onClose={() => setFocused(null)} lang={lang} />)}
   </div>;
 }

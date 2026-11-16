@@ -19,9 +19,13 @@ import { AudioLevels } from "./audioLevels";
 import { moodColor, moodStrength } from "./mood";
 import { PoseRig, loadMocap, sample, blend, type Clip, type Pose, type RootMotion } from "./pose";
 import { Worlds } from "./worlds";
+import { AbyssSky, Embers } from "./abyss";
+import { Cave, GoldRain, RedBeam } from "./rise";
 
 const LOOP = 600;           // seconds in one take: ten minutes, mostly the fall
+const RISE_LOOP = 60;       // the rally take: meditation, the raised arm and beam, the gold rain
 const PORTAL_R = 4.2;
+const RISE_Z = 0; // where the figure sits: the middle of the cave (no pool in the rally take)
 const smooth = (x: number) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
 const lerp = THREE.MathUtils.lerp;
 
@@ -37,8 +41,23 @@ const COMMON = /* glsl */`
 uniform float uTime, uEnergy, uBass, uMid, uHigh, uBeat, uFlare, uStrength;
 uniform vec4 uW; // weights of the four pulse patterns, crossfading in turn
 uniform vec3 uMood, uFog;
+uniform vec3 uFigMood; // the figure's own colour: the mood, or red while it fires the beam
 uniform vec3 uFocus; // the figure: light gathers round it, the rest falls back into shadow
 `;
+
+const THIGH_FIX = /* glsl */`
+#ifdef USE_SKINNING
+  // Volume kept round a deeply turned hip: linear-blend skinning pulls the skin shared by the
+  // pelvis and a thigh in toward the thigh's axis when the thigh twists far (the inner thigh
+  // pinches). Put each such vertex back at its rest distance from the axis.
+  if (uFixOn > 0.5 && aFix.z > 0.001) {
+    vec3 hp = aFix.x < 1.5 ? uHipL : uHipR, dr = aFix.x < 1.5 ? uDirL : uDirR;
+    vec3 dd = transformed - hp; float ax = dot(dd, dr); vec3 rad = dd - ax * dr; float rl = length(rad);
+    if (rl > 1e-4 && rl < aFix.y) transformed = hp + ax * dr + rad * mix(1.0, aFix.y / rl, aFix.z);
+  }
+#endif
+`;
+const THIGH_FIX_DECL = "attribute vec3 aFix; uniform float uFixOn; uniform vec3 uHipL, uDirL, uHipR, uDirR;";
 
 type U = { value: unknown };
 
@@ -52,7 +71,7 @@ export class DeepDive {
   private audio = new AudioLevels();
   private u: Record<string, U> = {
     uTime: { value: 0 }, uEnergy: { value: 0 }, uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }, uBeat: { value: 0 },
-    uFlare: { value: 0 }, uStrength: { value: 0 }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uFocus: { value: new THREE.Vector3(0, 1, 13) }, uMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
+    uFlare: { value: 0 }, uStrength: { value: 0 }, uHole: { value: 1 }, uFixOn: { value: 0 }, uHipL: { value: new THREE.Vector3() }, uDirL: { value: new THREE.Vector3(0, -1, 0) }, uHipR: { value: new THREE.Vector3() }, uDirR: { value: new THREE.Vector3(0, -1, 0) }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uFocus: { value: new THREE.Vector3(0, 1, 13) }, uMood: { value: new THREE.Color(0x3a8bff) }, uFigMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
   };
   private moodTarget = new THREE.Color(0x3a8bff);
   private strengthTarget = 0;
@@ -74,6 +93,28 @@ export class DeepDive {
   private tunnelScroll = 0;
   private resizeObs: ResizeObserver;
   private visible = true;
+  private emitters: THREE.Object3D[] = [];
+  private heart?: THREE.Sprite; private heartBone?: THREE.Object3D;
+  private sky!: AbyssSky; private embers!: Embers;
+  private gold!: GoldRain; private beam!: RedBeam; private cave!: Cave;
+  /** Up 1 % or more: the rally take (meditation, raised arm, red beam, gold rain) instead of the dive. */
+  private riseMode = false;
+  private pelvisH = 1.02;
+  private shaftVis = { value: 1 };
+  private portalParts: THREE.Object3D[] = [];
+  private keyLight!: THREE.PointLight; private figLight!: THREE.PointLight;
+  private caveSun!: THREE.DirectionalLight; private caveFill!: THREE.HemisphereLight;
+  private static _glow?: THREE.Texture;
+  /** A soft radial glow (white centre, long falloff) for sprites. */
+  static glowTex() {
+    if (DeepDive._glow) return DeepDive._glow;
+    const c = document.createElement("canvas"); c.width = c.height = 128;
+    const g = c.getContext("2d")!, gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(0.12, "rgba(255,255,255,0.55)"); gr.addColorStop(0.4, "rgba(255,255,255,0.12)"); gr.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    return (DeepDive._glow = t);
+  }
 
   constructor(private canvas: HTMLCanvasElement, private quality: "high" | "medium" = "high") {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance", alpha: false });
@@ -93,6 +134,22 @@ export class DeepDive {
     this.buildTunnel();
     this.buildRain();
     this.worlds = new Worlds(this.scene, this.u, COMMON, NOISE);
+    this.sky = new AbyssSky(this.scene, this.u, COMMON, NOISE);
+    this.embers = new Embers(this.scene, this.u, COMMON, quality === "high" ? 900 : 500);
+    this.gold = new GoldRain(this.scene, this.u, COMMON, quality === "high" ? 4200 : 2200, this.renderer.getPixelRatio());
+    this.cave = new Cave(this.scene, this.u, COMMON, NOISE, quality);
+    this.beam = new RedBeam(this.scene, this.u, COMMON, DeepDive.glowTex());
+    // Light in the mood's colour: one from the portal, one carried by the figure, so the
+    // chrome ribs and the hall's walls take shape round it instead of sinking into black.
+    this.keyLight = new THREE.PointLight(0x3a8bff, 0, 60, 1.6); this.keyLight.position.set(0, 1.4, 0);
+    this.figLight = new THREE.PointLight(0x3a8bff, 0, 26, 1.8);
+    this.scene.add(this.keyLight, this.figLight);
+    // The cavern's moonlight: a cool light slanting down from the chimney, so the crags and
+    // formations model in light and shadow. (Always present, dark outside the rally take:
+    // switching a light on and off would recompile every lit material.)
+    this.caveSun = new THREE.DirectionalLight(0xbcd2ff, 0); this.caveSun.position.set(-18, 60, 14); this.caveSun.target.position.set(4, 0, -6);
+    this.caveFill = new THREE.HemisphereLight(0x6d86b8, 0x0a0f1a, 0);
+    this.scene.add(this.caveSun, this.caveSun.target, this.caveFill);
     this.buildMist();
     this.loadFigure();
 
@@ -114,6 +171,7 @@ export class DeepDive {
     this.composer.addPass(this.bloom);
     this.finish = new ShaderPass({
       uniforms: { tDiffuse: { value: null }, uFlare: this.u.uFlare, uMood: this.u.uMood, uTime: this.u.uTime, uRes: { value: new THREE.Vector2(1, 1) } },
+      defines: { STREAK: quality === "high" ? 1 : 0 },
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: /* glsl */`
         uniform sampler2D tDiffuse; uniform float uFlare, uTime; uniform vec3 uMood; uniform vec2 uRes; varying vec2 vUv;
@@ -122,12 +180,22 @@ export class DeepDive {
           // a whisper of chromatic aberration toward the edges
           vec2 off = c * r * 0.006;
           vec3 col = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+          #if STREAK
+          // an anamorphic lens: the brightest lights draw a faint horizontal streak
+          vec3 st = vec3(0.0); float px = 1.0 / uRes.x;
+          for (int i = 1; i <= 8; i++) { float d = float(i*i) * 3.0 * px, w = exp(-float(i)*0.45);
+            st += (max(texture2D(tDiffuse, vUv + vec2(d, 0.0)).rgb - 1.4, 0.0) + max(texture2D(tDiffuse, vUv - vec2(d, 0.0)).rgb - 1.4, 0.0)) * w; }
+          col += (st * 0.5 + dot(st, vec3(0.33)) * 0.15) * (uMood * 0.5 + vec3(0.35)) * 0.09;
+          #endif
           // vignette round the subject (sat low in the frame), deep at the edges
           float rs = length((vUv - vec2(0.5, 0.4)) * vec2(1.0, 1.15));
           col *= mix(1.0, 0.18, smoothstep(0.2, 0.85, rs));
           // contrast: mid-tones settle, highlights keep their punch
           float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
           col *= mix(0.62, 1.0, smoothstep(0.05, 0.9, lum));
+          // split tone: the shadows lean a touch cool and deep, the highlights a touch warm
+          col = mix(col, col * vec3(0.92, 0.96, 1.1), smoothstep(0.3, 0.0, lum) * 0.5);
+          col = mix(col, col * vec3(1.06, 1.02, 0.95), smoothstep(0.4, 1.4, lum) * 0.4);
           col = mix(col, vec3(1.0) * 0.6 + uMood * 0.8, clamp(uFlare, 0.0, 1.0)); // the loop's flare
           // fine film grain, which also dithers away banding in the dark gradients
           float g = fract(sin(dot(vUv*uRes + fract(uTime*7.13)*91.0, vec2(12.9898, 78.233)))*43758.5453) - 0.5;
@@ -147,7 +215,9 @@ export class DeepDive {
 
   /** The colour of the market: the index change on arrival, a chosen stock's afterwards. */
   setMood(changePct: number | null | undefined) {
-    moodColor(changePct, this.moodTarget);
+    const rise = typeof changePct === "number" && Number.isFinite(changePct) && changePct >= 1;
+    // (the rally take keeps the hall blue: only the figure and its beam turn red)
+    moodColor(rise ? -1.2 : changePct, this.moodTarget);
     // (working in linear light: the stops are authored in sRGB)
     this.moodTarget.convertSRGBToLinear();
     // Equal brightness whatever the hue: yellow and orange carry far more luminance than
@@ -155,6 +225,10 @@ export class DeepDive {
     const c = this.moodTarget, lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     c.multiplyScalar(Math.min(1.1, 0.3 / Math.max(0.05, lum)));
     this.strengthTarget = moodStrength(changePct);
+    if (rise !== this.riseMode) {
+      // a different take: start it from its beginning (it opens on a soft flare)
+      this.riseMode = rise; this.t0 = performance.now(); this.camInit = false;
+    }
   }
 
   /** Jump the take to `t` seconds (checks and screenshots). */
@@ -237,11 +311,11 @@ export class DeepDive {
         uniform mat4 textureMatrix; varying vec4 vUv; varying vec3 vWorld;
         void main(){ vUv = textureMatrix * vec4(position,1.0); vec4 w = modelMatrix*vec4(position,1.0); vWorld = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
       fragmentShader: /* glsl */`
-        uniform sampler2D tDiffuse; uniform float uPortalR; uniform vec4 uSteps[4]; varying vec4 vUv; varying vec3 vWorld;
+        uniform sampler2D tDiffuse; uniform float uPortalR, uHole; uniform vec4 uSteps[4]; varying vec4 vUv; varying vec3 vWorld;
         ${COMMON}${NOISE}
         void main(){
           float r = length(vWorld.xz);
-          if (r < uPortalR - 0.05) discard;
+          if (uHole > 0.5 && r < uPortalR - 0.05) discard;
           float a = atan(vWorld.z, vWorld.x);
           // wet stone: broad ripples bend the reflection a little
           vec2 nn = vec2(n3(vec3(vWorld.xz*0.9, uTime*0.05)), n3(vec3(vWorld.xz*0.9+7.0, uTime*0.05))) - 0.5;
@@ -262,7 +336,7 @@ export class DeepDive {
           float hb = fract(uTime*0.85); float beat2 = exp(-pow(hb*9.0, 2.0)) + 0.65*exp(-pow((hb-0.2)*9.0, 2.0));
           float pHeart = beat2 * exp(-(r - uPortalR)*0.08) * (0.6 + 0.4*pow(0.5+0.5*sin(r*1.4 - uTime*6.0), 4.0));
           float wave = dot(uW, vec4(pRings, pSpiral, pSweep, pHeart)) * (0.25 + uBass*1.8 + uBeat*1.2);
-          float near = exp(-(r - uPortalR) * 0.45);
+          float near = exp(-max(r - uPortalR, 0.0) * 0.45) * mix(0.25, 1.0, uHole);
           vec3 base = vec3(0.004, 0.007, 0.012) * (0.6 + 0.8*n3(vec3(vWorld.xz*0.35, 1.0)));
           float focus = 0.15 + 0.85*exp(-length(vWorld.xz - uFocus.xz) / 9.0);
           vec3 glow = uMood * ((rings*0.55 + seams*0.35) * (0.05 + wave) * (0.4 + 0.6*near) * focus + near * (0.7 + uEnergy*1.4 + uBeat));
@@ -311,6 +385,7 @@ export class DeepDive {
     const lip = new THREE.Mesh(new THREE.TorusGeometry(PORTAL_R - 0.05, 0.22, 24, 192), new THREE.MeshStandardMaterial({ color: 0x0b0e15, metalness: 1, roughness: 0.18 }));
     lip.rotation.x = -Math.PI / 2; lip.position.y = -0.12;
     this.scene.add(rim, halo, lip);
+    this.portalParts = [rim, halo, lip];
     // The abyss under it: a shaft wall of glowing bands drifting down into a bright core.
     const abyss = new THREE.Mesh(new THREE.CylinderGeometry(PORTAL_R - 0.1, PORTAL_R - 0.6, 70, 128, 1, true), new THREE.ShaderMaterial({
       uniforms: { ...this.u }, side: THREE.BackSide, transparent: true,
@@ -384,6 +459,9 @@ export class DeepDive {
             float seam = (1.0 - smoothstep(0.0, 0.035, abs(v - 0.25))) * (0.25 + pulse*2.5);
             // lit cells mostly dark until a pulse passes; all of it brightest near the figure
             float focus = 0.1 + 0.9*exp(-length(vRibW - uFocus) / 11.0);
+            vec3 Vr = normalize(vViewPosition); float rimR = pow(1.0 - abs(dot(normal, Vr)), 4.0);
+            float far = exp(-length(vRibW - uFocus) / 26.0);
+            totalEmissiveRadiance += uMood * rimR * (0.10 + uEnergy*0.12 + pulse*0.25) * (0.25 + 0.75*far);
             totalEmissiveRadiance += uMood * (slot * (0.25 + uEnergy*1.2 + uBeat*0.9) * (0.25 + pulse*2.2) + seam*(0.15 + uEnergy*0.6)*(0.3 + pulse) + edge) * focus;
           }`);
     };
@@ -412,33 +490,47 @@ export class DeepDive {
     const podMat = new THREE.ShaderMaterial({
       uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.0); }`,
-      fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; void main(){ vec2 c=(vUv-0.5)*vec2(2.0,1.0); float r=length(c); float k=smoothstep(0.5,0.0,r)*1.6 + smoothstep(0.52,0.46,r)*0.6;
-        gl_FragColor = vec4(uMood*k*(0.14+uEnergy*0.5), 1.0); }`,
+      // tall slits of light set in the wall: a hot core line, a soft gradient glow, a slow
+      // flicker of light travelling up each, brighter toward the floor
+      fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; void main(){
+        float x = abs(vUv.x - 0.5) * 2.0, y = vUv.y;
+        float ends = smoothstep(0.0, 0.08, y) * smoothstep(1.0, 0.85, y);
+        float core = exp(-x*x*90.0), glow = exp(-x*x*6.0) * 0.18;
+        float run = pow(0.5 + 0.5*sin(y*9.0 - uTime*(0.8 + uBass*1.5) + gl_FragCoord.x*0.002), 6.0);
+        float k = (core * (0.5 + run*1.2) + glow) * ends * (1.2 - y*0.6);
+        gl_FragColor = vec4((uMood*1.2 + vec3(0.05))*k*(0.18+uEnergy*0.45), 1.0); }`,
     });
-    const M = 64, pods = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.2, 4.4), podMat, M * 2);
+    const M = 64, pods = new THREE.InstancedMesh(new THREE.PlaneGeometry(1.1, 7.5), podMat, M * 2);
     const tmp = new THREE.Object3D();
     for (let i = 0; i < M * 2; i++) {
       const row = i < M ? 0 : 1, a = ((i % M) / M) * Math.PI * 2, r = 44 + row * 2;
-      tmp.position.set(Math.cos(a) * r, 3 + row * 9, Math.sin(a) * r); tmp.lookAt(0, tmp.position.y, 0); tmp.scale.setScalar(1 - row * 0.25); tmp.updateMatrix();
+      tmp.position.set(Math.cos(a + row * 0.049) * r, 3.9 + row * 10, Math.sin(a + row * 0.049) * r); tmp.lookAt(0, tmp.position.y, 0); tmp.scale.setScalar(1 - row * 0.25); tmp.updateMatrix();
       pods.setMatrixAt(i, tmp.matrix);
     }
     const wall = new THREE.Mesh(new THREE.CylinderGeometry(46, 46, 60, 96, 1, true), new THREE.MeshStandardMaterial({ color: 0x05070c, metalness: 0.9, roughness: 0.35, side: THREE.BackSide }));
     wall.position.y = 26;
-    this.chamber.add(pods, wall);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(45.6, 0.08, 8, 360), new THREE.ShaderMaterial({
+      uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `${COMMON} varying vec2 vUv; void main(){ float a=vUv.x*6.2831853; float run=pow(0.5+0.5*sin(a*3.0 - uTime*0.4),4.0);
+        gl_FragColor = vec4((uMood*1.4+vec3(0.08))*(0.35+run*0.9)*(0.6+uEnergy*0.6), 1.0); }`,
+    }));
+    band.rotation.x = Math.PI / 2; band.position.y = 0.15;
+    this.chamber.add(pods, wall, band);
     this.scene.add(this.chamber);
   }
 
   /** The light falling through the ceiling's opening onto the portal. */
   private buildShaft() {
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(3.2, PORTAL_R, 52, 64, 1, true), new THREE.ShaderMaterial({
-      uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      uniforms: { ...this.u, uShaft: this.shaftVis }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
       vertexShader: `varying vec3 vN; varying vec3 vW; varying float vY; void main(){ vN = normalize(normalMatrix*normal); vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; vY=position.y; gl_Position=projectionMatrix*viewMatrix*w; }`,
-      fragmentShader: /* glsl */`${COMMON}${NOISE} varying vec3 vN; varying vec3 vW; varying float vY;
+      fragmentShader: /* glsl */`${COMMON}${NOISE} uniform float uShaft; varying vec3 vN; varying vec3 vW; varying float vY;
         void main(){ vec3 V = normalize(cameraPosition - vW); float face = pow(abs(dot(normalize(vN), V)), 2.0);
           float a = atan(vW.z, vW.x);
           float streak = 0.35 + pow(n3(vec3(a*9.0, vW.y*0.05 + uTime*0.35, 0.0)), 3.0) * 1.6;
           float fade = smoothstep(-26.0, -18.0, vY) * smoothstep(26.0, 14.0, vY);
-          float k = face * streak * fade * (0.28 + uEnergy*0.45 + uBeat*0.25);
+          float k = face * streak * fade * (0.28 + uEnergy*0.45 + uBeat*0.25) * uShaft;
           gl_FragColor = vec4((uMood*0.8 + vec3(0.25)) * k, 1.0); }`,
     }));
     shaft.position.y = 26;
@@ -567,7 +659,7 @@ export class DeepDive {
       const u = this.u;
       mat.onBeforeCompile = sh => {
         Object.assign(sh.uniforms, u);
-        sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vObj;").replace("#include <project_vertex>", "vObj = transformed;\n#include <project_vertex>");
+        sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vObj;\n" + THIGH_FIX_DECL).replace("#include <skinning_vertex>", "#include <skinning_vertex>\n" + THIGH_FIX).replace("#include <project_vertex>", "vObj = transformed;\n#include <project_vertex>");
         sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\nvarying vec3 vObj;\n${COMMON}${NOISE}`)
           .replace("#include <opaque_fragment>", /* glsl */`
             {
@@ -577,16 +669,56 @@ export class DeepDive {
               vec3 p = vObj * 5.0;
               float flow = fbm3(p*0.6 + vec3(0.0, -uTime*0.9, uTime*0.2));
               float vein = pow(1.0 - abs(n3(p*1.4 + vec3(uTime*0.25, -uTime*0.6, 0.0))*2.0 - 1.0), 7.0);
-              vec3 col = uMood * (0.55 + flow*1.1 + vein*(1.6 + uEnergy*2.6 + uBeat*1.8) + fres*(3.6 + uEnergy*2.0)) + vec3(0.06 + fres*0.5 + vein*0.25);
-              gl_FragColor = vec4(col, clamp(0.72 + fres*0.28, 0.0, 1.0));
+              // a fine second web of capillaries, and a slow scan of light sweeping up the body
+              float cap = pow(1.0 - abs(n3(p*3.6 + vec3(0.0, -uTime*0.4, uTime*0.3))*2.0 - 1.0), 14.0);
+              float scanY = fract(uTime*0.11) * 2.6 - 0.3;
+              float scan = exp(-pow((vObj.y - scanY) * 14.0, 2.0)) * (0.6 + uBeat*0.8);
+              // depth: the body's middle reads as a dense, darker glass; its edges burn
+              float core = pow(ndv, 3.0);
+              vec3 hot = mix(uFigMood, vec3(1.0), 0.3);            // highlights run toward white
+              vec3 deep = uFigMood * vec3(0.55, 0.6, 0.75);         // the glass's depth, cooler
+              vec3 col = deep * (0.35 + flow*0.9) * (0.6 + core*0.5)
+                + uFigMood * vein * (1.6 + uEnergy*2.6 + uBeat*1.8)
+                + hot * (cap * (0.35 + uHigh*0.9) + scan * 0.9)
+                + hot * fres * (2.6 + uEnergy*1.6)
+                + vec3(0.02 + fres*0.18 + vein*0.12);
+              gl_FragColor = vec4(col, clamp(0.68 + fres*0.32 + scan*0.1, 0.0, 1.0));
             }
             #include <opaque_fragment>`.replace("#include <opaque_fragment>", ""));
       };
-      g.scene.traverse(o => { const m = o as THREE.SkinnedMesh; if (m.isMesh) { m.material = mat; m.frustumCulled = false; } });
+      // An aura: a second skin a few centimetres out, only its silhouette glows, so the
+      // body sits in a soft halo of its own light. (Shares the skeleton: no extra skinning work.)
+      const aura = new THREE.MeshStandardMaterial({ color: 0x000000, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+      aura.onBeforeCompile = sh => {
+        Object.assign(sh.uniforms, u);
+        sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\n" + THIGH_FIX_DECL).replace("#include <begin_vertex>", "#include <begin_vertex>\ntransformed += objectNormal * 0.035;").replace("#include <skinning_vertex>", "#include <skinning_vertex>\n" + THIGH_FIX);
+        sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\n${COMMON}`)
+          .replace("#include <opaque_fragment>", /* glsl */`
+            { vec3 V = normalize(vViewPosition); float ndv = abs(dot(normal, V));
+              float halo = pow(1.0 - ndv, 3.2) * smoothstep(0.0, 0.25, ndv + 0.05);
+              gl_FragColor = vec4(uFigMood * halo * (0.45 + uEnergy*0.5 + uBeat*0.4), 1.0); }`);
+      };
+      const auras: [THREE.Object3D, THREE.Object3D][] = [];
+      g.scene.traverse(o => { const m = o as THREE.SkinnedMesh; if (m.isMesh) { m.material = mat; m.frustumCulled = false; if (m.isSkinnedMesh) { const a = m.clone(); a.material = aura; a.renderOrder = 2; auras.push([m, a]); } } });
+      for (const [src, a] of auras) (src.parent ?? g.scene).add(a);
       g.scene.scale.setScalar(0.93);
       this.body = g.scene;
       this.figure.add(g.scene);
       this.rig = new PoseRig(g.scene);
+      { const hr = this.rig.bones.get("hand_r"), la = this.rig.bones.get("lowerarm_r");
+        if (hr && la) { g.scene.updateMatrixWorld(true); const d = hr.getWorldPosition(new THREE.Vector3()).sub(la.getWorldPosition(new THREE.Vector3())).normalize();
+          this.handDir = d.applyQuaternion(hr.getWorldQuaternion(new THREE.Quaternion()).invert()); } }
+      this.buildThighFix(g.scene);
+      { const pv = this.rig.bones.get("pelvis"); if (pv) { this.figure.updateMatrixWorld(true); this.pelvisH = this.figure.worldToLocal(pv.getWorldPosition(new THREE.Vector3())).y; } }
+      this.emitters = ["hand_l", "hand_r", "lowerarm_l", "lowerarm_r", "upperarm_l", "upperarm_r", "head", "spine_03", "spine_02", "pelvis", "calf_l", "calf_r", "foot_l", "foot_r"]
+        .map(n => this.rig!.bones.get(n)).filter((b): b is THREE.Bone => !!b);
+      // a heart of light in the chest
+      const chest = this.rig.bones.get("spine_03");
+      if (chest) {
+        const heart = new THREE.Sprite(new THREE.SpriteMaterial({ map: DeepDive.glowTex(), color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+        heart.renderOrder = 3; heart.scale.setScalar(0.55);
+        this.heart = heart; this.scene.add(heart); this.heartBone = chest;
+      }
       const [walk, idle] = await Promise.all([loadMocap("u_walk"), loadMocap("u_idle")]);
       if (walk) this.walk = { name: "walk", duration: (walk.frames / walk.fps) / 0.85, loop: true, keys: [{ t: 0, pose: {} }], mocap: walk, mocapStart: 0, mocapSpeed: 0.85, inPlace: true };
       if (idle) this.idle = { name: "idle", duration: idle.frames / idle.fps, loop: true, keys: [{ t: 0, pose: {} }], mocap: idle, mocapStart: 0, inPlace: true };
@@ -602,7 +734,7 @@ export class DeepDive {
           vec3 p = vec3(cos(a)*aSeed.z, y, sin(a)*aSeed.z);
           vec4 mv = modelViewMatrix*vec4(p,1.0); gl_PointSize = (0.6+aSeed.w*1.2)*40.0/max(0.5,-mv.z); vA = 0.4+aSeed.w*0.6; gl_Position = projectionMatrix*mv; }`,
       fragmentShader: `${COMMON} varying float vA; void main(){ float r=length(gl_PointCoord-0.5); float k=smoothstep(0.5,0.0,r)*vA*(0.6+uHigh*1.5+uBeat);
-        gl_FragColor = vec4((uMood*1.6+vec3(0.2))*k, 1.0); }`,
+        gl_FragColor = vec4((uFigMood*1.6+vec3(0.2))*k, 1.0); }`,
     }));
     this.sparks.frustumCulled = false;
     this.figure.add(this.sparks);
@@ -612,7 +744,29 @@ export class DeepDive {
   // ------------------------------------------------------------------ animate
   private pose: Pose = {}; private root: RootMotion = { x: 0, y: 0, z: 0, yaw: 0 };
   private camPos = new THREE.Vector3(); private camLook = new THREE.Vector3(); private camInit = false; private lastT = 0;
-  private tmpA: Pose = {}; private tmpB: Pose = {};
+  private tmpA: Pose = {}; private tmpB: Pose = {}; private tmpC: Pose = {};
+  private camRoll = 0;
+  private _cp = new THREE.Vector3(); private _cl = new THREE.Vector3(); private _cf = new THREE.Vector3();
+  /** The views of the fall, in cylinder coordinates round the diver (th from +z, y up,
+   *  `ly` the look point's height): `q` 0..1 through the shot, `s` seconds into the fall.
+   *  The body falls head down, so "above" is behind its feet and "below" is ahead of it. */
+  private shot(i: number, q: number, s: number) {
+    const k = ((i % 6) + 6) % 6, e = smooth(q);
+    switch (k) {
+      // 0. over it, looking down past the body into the depths it falls toward
+      case 0: return { r: 2.3 - 0.5 * e, th: 0.3 + s * 0.05, y: 6.2 - 1.2 * e, ly: -9, f: 60, roll: 0 };
+      // 1. side profile on a long lens, a slow track round
+      case 1: return { r: 7.2, th: 1.4 + s * 0.045, y: 0.6 - 0.6 * e, ly: -0.3, f: 34, roll: 0.05 };
+      // 2. ahead of it, looking back up: it comes at the lens, the world streaming away behind
+      case 2: return { r: 3.0 + 0.6 * e, th: 2.6 + s * 0.08, y: -6.4 + 1.8 * e, ly: 1.0, f: 64, roll: -0.07 };
+      // 3. a push in from wide to a close portrait
+      case 3: return { r: 7.4 - 4.2 * e, th: 3.9 - s * 0.06, y: -1.4 + 1.0 * e, ly: -0.7, f: 58 - 14 * e, roll: 0.04 };
+      // 4. a spiral crane: half a turn round it, rising from below to above
+      case 4: return { r: 4.6, th: 4.9 + e * 2.6, y: lerp(-4.2, 4.2, e), ly: lerp(0.8, -2.4, e), f: 54, roll: 0.03 * Math.sin(e * 3.14) };
+      // 5. close behind the feet, the whole body laid out down the frame to the glow below
+      default: return { r: 1.5, th: 5.6 + s * 0.035, y: 3.4 - 0.4 * e, ly: -6, f: 68, roll: 0.06 * Math.sin(s * 0.2) };
+    }
+  }
   private static DIVE: Pose = {
     // a swan dive held loosely: arms opened wide from the A-pose and a little forward, elbows
     // softly bent, wrists straight in line with the forearms; back gently arched, toes pointed
@@ -620,10 +774,42 @@ export class DeepDive {
     clavicle_l: [0, 0, 6], clavicle_r: [0, 0, -6], spine_01: [-4, 0, 0], spine_02: [-6, 0, 0], spine_03: [-5, 0, 0], neck: [-8, 0, 0], head: [-12, 0, 0],
     thigh_l: [3, 0, -2], thigh_r: [5, 0, 2], calf_l: [8, 0, 0], calf_r: [4, 0, 0], foot_l: [32, 0, 0], foot_r: [30, 0, 0],
   };
+  // At the rim: the arms open a little from the sides, chest lifted, chin up toward the light.
+  private static PREP: Pose = {
+    upperarm_l: [-6, 4, 16], upperarm_r: [-6, -4, -16], lowerarm_l: [-12, 0, 0], lowerarm_r: [-12, 0, 0],
+    clavicle_l: [0, 0, 4], clavicle_r: [0, 0, -4], spine_02: [-4, 0, 0], spine_03: [-5, 0, 0], neck: [-4, 0, 0], head: [-8, 0, 0],
+  };
+  // Gathering to spring: knees bent, hips back, arms swung behind.
+  private static CROUCH: Pose = {
+    spine_01: [12, 0, 0], spine_02: [8, 0, 0], spine_03: [4, 0, 0], head: [6, 0, 0],
+    thigh_l: [-28, 0, -2], thigh_r: [-28, 0, 2], calf_l: [48, 0, 0], calf_r: [48, 0, 0], foot_l: [-20, 0, 0], foot_r: [-20, 0, 0],
+    upperarm_l: [38, 0, 10], upperarm_r: [38, 0, -10], lowerarm_l: [-14, 0, 0], lowerarm_r: [-14, 0, 0],
+  };
+  // The fall's shapes. A wide star: arms high and open, legs parted.
+  private static STAR: Pose = {
+    upperarm_l: [-8, 6, 62], upperarm_r: [-8, -6, -62], lowerarm_l: [-10, 0, 0], lowerarm_r: [-10, 0, 0],
+    clavicle_l: [0, 0, 10], clavicle_r: [0, 0, -10], spine_02: [-6, 0, 0], spine_03: [-6, 0, 0], neck: [-6, 0, 0], head: [-10, 0, 0],
+    thigh_l: [2, 0, 14], thigh_r: [4, 0, -14], calf_l: [12, 0, 0], calf_r: [8, 0, 0], foot_l: [30, 0, 0], foot_r: [30, 0, 0],
+  };
+  // Streamlined: arms swept forward past the head toward the depths, body long.
+  private static REACH: Pose = {
+    upperarm_l: [-70, 0, 70], upperarm_r: [-70, 0, -70], lowerarm_l: [-8, 0, 0], lowerarm_r: [-8, 0, 0],
+    clavicle_l: [0, 0, 12], clavicle_r: [0, 0, -12], spine_01: [-2, 0, 0], spine_02: [-3, 0, 0], neck: [-14, 0, 0], head: [-16, 0, 0],
+    thigh_l: [2, 0, -1], thigh_r: [2, 0, 1], calf_l: [4, 0, 0], calf_r: [4, 0, 0], foot_l: [34, 0, 0], foot_r: [34, 0, 0],
+  };
+  // A loose half-curl: knees drawn up, arms soft round them.
+  private static CURL: Pose = {
+    spine_01: [12, 0, 0], spine_02: [10, 0, 0], spine_03: [6, 0, 0], neck: [6, 0, 0], head: [6, 0, 0],
+    thigh_l: [-42, 0, 4], thigh_r: [-36, 0, -4], calf_l: [70, 0, 0], calf_r: [62, 0, 0], foot_l: [22, 0, 0], foot_r: [22, 0, 0],
+    upperarm_l: [-38, 0, 22], upperarm_r: [-34, 0, -22], lowerarm_l: [-55, 0, 0], lowerarm_r: [-50, 0, 0],
+  };
 
   private frame = (now: number) => {
     if (this.disposed || !this.visible) return;
     this.raf = requestAnimationFrame(this.frame);
+    // (a long stall — shaders compiling as a take first appears — holds the take rather than
+    // skipping it: the meditation must not be lost to a compile)
+    if (this.last && now - this.last > 250) this.t0 += now - this.last - 16;
     const dt = Math.min(0.05, Math.max(0.001, (now - (this.last || now)) / 1000)); this.last = now;
     const T = (now - this.t0) / 1000, t = T % LOOP;
     this.audio.update(dt, T);
@@ -652,7 +838,16 @@ export class DeepDive {
     u.uStrength.value = lerp(u.uStrength.value as number, this.strengthTarget, 1 - Math.exp(-dt * 1.4));
     const fogC = (u.uFog.value as THREE.Color).copy(u.uMood.value as THREE.Color).multiplyScalar(0.035).add(new THREE.Color(0x010206));
     (this.scene.fog as THREE.FogExp2).color.copy(fogC);
+    // (the cavern is seen across 30-60 m: a thinner haze there, so its rock stays legible)
+    (this.scene.fog as THREE.FogExp2).density = this.riseMode ? 0.0055 : 0.011;
     (this.scene.background as THREE.Color).copy(fogC).multiplyScalar(0.7);
+    if (this.riseMode) { this.riseFrame(T, dt); this.post(T % RISE_LOOP, RISE_LOOP, dt, false); return; }
+    this.gold.update(-1, 0); this.beam.update(this._fv, -1, 0, 0); this.rain.visible = true; this.shaftVis.value = 1;
+    this.chamber.visible = true; this.cave.update(false, 0, 0); this.figure.scale.setScalar(1);
+    this.caveSun.intensity = 0; this.caveFill.intensity = 0;
+    (u.uHole.value as number) = 1; for (const o of this.portalParts) o.visible = true;
+    this.legFill(0); this.updateThighFix(false);
+    (u.uFigMood.value as THREE.Color).copy(u.uMood.value as THREE.Color);
 
     // ---- the take
     const fig = this.figure, cam = this.camera;
@@ -669,83 +864,143 @@ export class DeepDive {
     else if (t < FALL1) { const k = (t - EDGE1) / (FALL1 - EDGE1); figZ = lerp(zEdge, 1.2, smooth(k * 1.6)); figY = drop(t - EDGE1 - 1.2); figTilt = smooth((t - EDGE1 - 0.8) / 4.2) * Math.PI; diveMix = smooth((t - EDGE1 - 0.3) / 3.5); }
     else { figZ = 1.2; figY = drop(FALL1 - EDGE1 - 1.2) - (t - FALL1) * 0.25; figTilt = Math.PI; diveMix = 1; }
     const walking = t >= WALK0 && t < WALK1;
+    // At the edge: it stands, breathes, opens its arms and lifts its chest toward the light,
+    // then sinks into a crouch with the arms swung back, and springs out over the portal.
+    const prepMix = smooth((t - (WALK1 + 1.2)) / 2.4) * (1 - smooth((t - (EDGE1 - 0.9)) / 0.6));
+    const crouchMix = smooth((t - (EDGE1 - 1.1)) / 0.8) * (1 - smooth((t - (EDGE1 + 0.05)) / 0.45));
+    figY -= crouchMix * 0.09;
+    // the spring: a lift off the floor as the legs extend
+    if (t >= EDGE1 && t < EDGE1 + 1.4) figY += Math.sin(Math.PI * (t - EDGE1) / 1.4) * 0.35;
     fig.position.set(0, figY, figZ);
     fig.rotation.set(0, Math.PI, 0);
     if (figTilt > 0) { fig.rotation.x = -figTilt; fig.position.y += Math.sin(Math.min(figTilt, Math.PI) / 2) * 1.0; }
-    if (t >= FALL1) { fig.rotation.y = Math.PI + (t - FALL1) * 0.1; fig.rotation.z = Math.sin((t - FALL1) * 0.21) * 0.12; }
+    if (t >= FALL1) {
+      // a weightless drift: the long axis sways slowly, the body turns about it
+      const tf = t - FALL1, e = smooth(tf / 8);
+      fig.rotation.x = -Math.PI + e * (0.2 * Math.sin(tf * 0.13) + 0.08 * Math.sin(tf * 0.31 + 1.1));
+      fig.rotation.y = Math.PI + tf * 0.1 + e * 0.5 * Math.sin(tf * 0.05);
+      fig.rotation.z = e * (0.16 * Math.sin(tf * 0.09 + 1.0) + 0.05 * Math.sin(tf * 0.27));
+    }
     if (this.rig) {
       const r: RootMotion = { x: 0, y: 0, z: 0, yaw: 0 };
       if (this.walk) { this.walk.mocapSpeed = WALK_RATE; sample(this.walk, t - WALK0, this.tmpA, r); } else for (const k in this.tmpA) delete this.tmpA[k];
       if (this.idle) sample(this.idle, T, this.tmpB, r); else for (const k in this.tmpB) delete this.tmpB[k];
       // walk -> stand eased over a stride, stand -> dive over the fall's first seconds
       const standMix = t < WALK0 ? 1 : t < WALK1 - 1.0 ? 0 : smooth((t - (WALK1 - 1.0)) / 1.4);
-      blend(this.pose, [{ pose: this.tmpA, w: (walking || t < WALK1 + 0.5 ? 1 - standMix : 0) * (1 - diveMix) + 1e-6 }, { pose: this.tmpB, w: standMix * (1 - diveMix) }, { pose: DeepDive.DIVE, w: diveMix }]);
-      // drifting while it falls: arms float, legs part a little, slow and uneven (wrists stay in line)
+      // In the fall the body moves through a slow cycle of shapes: the swan, a wide star,
+      // arms streamlined toward the depths, a loose half-curl, back to the swan.
+      let divePose = DeepDive.DIVE;
+      if (t >= FALL1) {
+        const cyc = [DeepDive.DIVE, DeepDive.STAR, DeepDive.REACH, DeepDive.CURL], HOLD = 19, BL = 7;
+        const tf = t - FALL1, i = Math.floor(tf / HOLD), w = smooth(((tf % HOLD) - (HOLD - BL)) / BL);
+        divePose = blend(this.tmpC, [{ pose: cyc[i % 4], w: 1 - w }, { pose: cyc[(i + 1) % 4], w }]);
+      }
+      blend(this.pose, [
+        { pose: this.tmpA, w: (walking || t < WALK1 + 0.5 ? 1 - standMix : 0) * (1 - diveMix) + 1e-6 },
+        { pose: this.tmpB, w: standMix * (1 - diveMix) * (1 - prepMix) * (1 - crouchMix) },
+        { pose: DeepDive.PREP, w: prepMix * (1 - diveMix) * (1 - crouchMix) },
+        { pose: DeepDive.CROUCH, w: crouchMix * (1 - diveMix) },
+        { pose: divePose, w: diveMix }]);
+      // drifting while it falls: arms float, legs part a little, slow and uneven
       if (diveMix > 0.01) {
         const add = (k: string, x: number, y: number, z: number) => { const o = this.pose[k] ?? (this.pose[k] = [0, 0, 0]); o[0] += x * diveMix; o[1] += y * diveMix; o[2] += z * diveMix; };
+        // the captured walk's wrist bend must not carry into the dive
+        for (const h of ["hand_l", "hand_r"]) { const o = this.pose[h]; if (o) { o[0] *= 1 - diveMix; o[1] *= 1 - diveMix; o[2] *= 1 - diveMix; } }
         const s1 = Math.sin(T * 0.55), s2 = Math.sin(T * 0.43 + 1.3), s3 = Math.sin(T * 0.31 + 2.1);
         add("upperarm_l", s1 * 6, 0, s2 * 9); add("upperarm_r", -s2 * 5, 0, -s1 * 9);
         add("lowerarm_l", s3 * 5, 0, 0); add("lowerarm_r", -s1 * 5, 0, 0);
+        add("hand_l", 0, 0, s2 * 6); add("hand_r", 0, 0, -s3 * 6);
         add("thigh_l", s3 * 4, 0, -2 - s1 * 2); add("thigh_r", -s3 * 4, 0, 2 + s2 * 2);
-        add("spine_02", s1 * 2, s2 * 2, 0);
-        // the captured walk's wrist bend must not carry into the dive
-        for (const h of ["hand_l", "hand_r"]) this.pose[h] = [0, 0, 0];
+        add("calf_l", Math.max(0, s2) * 6, 0, 0); add("calf_r", Math.max(0, s1) * 6, 0, 0);
+        add("spine_02", s1 * 2, s2 * 2, 0); add("head", s3 * 3, s1 * 4, 0);
       }
+      // breathing at the edge: the chest rises and falls
+      if (prepMix > 0.01) { const br = Math.sin(T * 1.4) * prepMix; const o = this.pose.spine_03 ?? (this.pose.spine_03 = [0, 0, 0]); o[0] -= br * 2.5; }
       this.rig.apply(this.pose);
     }
     // footfalls: a sole reaching the floor fires a pulse there
     if (this.body && walking || (this.body && t < WALK1 + 1)) this.footsteps(T, fig);
+    // the spring off the edge leaves a shock on the floor
+    if (this.body && t >= EDGE1 && this.lastT < EDGE1 && t - this.lastT < 1) { const s = this.u.uSteps.value as THREE.Vector4[]; s[this.stepIdx++ % 4].set(0, zEdge - 0.2, T, 1.5); }
 
     (u.uFocus.value as THREE.Vector3).set(fig.position.x, fig.position.y + (figTilt > 1.5 ? -1 : 1), fig.position.z);
     // ---- camera
     const figPos = fig.position;
-    const pos = new THREE.Vector3(), look = new THREE.Vector3();
-    let fov = 52;
+    const pos = this._cp.set(0, 0, 0), look = this._cl.set(0, 0, 0);
+    let fov = 52, roll = 0;
     if (t < WALK1) {
+      // behind and a little to the side, a slow arc round as it walks
       const k = (t - WALK0) / (WALK1 - WALK0);
-      pos.set(lerp(1.1, 0.6, smooth(k)), lerp(2.3, 2.1, k), figZ + lerp(9.0, 6.5, smooth(k)));
-      look.set(0, lerp(2.6, 1.9, k), figZ - 9);
+      pos.set(lerp(1.6, 0.4, smooth(k)) + Math.sin(k * 2.4) * 0.5, lerp(2.4, 2.0, k), figZ + lerp(9.0, 6.2, smooth(k)));
+      look.set(0, lerp(2.6, 1.8, k), figZ - 9);
+      roll = -0.03 * Math.sin(k * 2.4);
     } else if (t < EDGE1) {
+      // round to the side and up: the figure at the rim, the portal opening at its feet
       const k = smooth((t - WALK1) / (EDGE1 - WALK1));
-      pos.set(lerp(0.6, 4.2, k), lerp(2.1, 5.5, k), lerp(zEdge + 6.5, zEdge + 5.6, k));
-      look.set(0, lerp(1.9, -1.0, k), lerp(zEdge - 9, 0, k));
-      fov = lerp(52, 54, k);
-    } else if (t < FALL1 + 3) {
-      // The camera goes over the edge with the diver: it follows the body down (always
-      // framing it) and, once the body is under the floor, keeps over the portal's opening
-      // so the floor never hides it.
-      const k = smooth((t - EDGE1) / (FALL1 + 3 - EDGE1));
-      const F = new THREE.Vector3(0, figPos.y - 0.9, figPos.z);
-      const off = new THREE.Vector3(4.2, 6.4, 5.6).lerp(new THREE.Vector3(0, -6.0, 4.0), k);
-      pos.copy(F).add(off);
+      pos.set(lerp(0.4, 4.6, k), lerp(2.0, 3.2, k) + smooth((t - (EDGE1 - 1.6)) / 1.6) * 1.6, lerp(zEdge + 6.2, zEdge + 4.4, k));
+      look.set(0, lerp(1.8, 0.7, k), lerp(zEdge - 9, zEdge - (cam.aspect < 0.8 ? 0.3 : 1.4), k));
+      fov = lerp(52, 48, k);
+      roll = 0.04 * k;
+    } else if (t < FALL1 + 4) {
+      // The leap: the camera cranes up overhead as the body arcs out over the opening, then
+      // drops through the portal after it, finishing directly above it looking down into
+      // the depths — where the first view of the fall begins.
+      const k = smooth((t - EDGE1) / (FALL1 + 4 - EDGE1));
+      const F = this._cf.set(0, figPos.y - 0.9, figPos.z);
+      const bz = (a: number, c1: number, c2: number, d: number) => { const m = 1 - k; return m * m * m * a + 3 * m * m * k * c1 + 3 * m * k * k * c2 + k * k * k * d; };
+      const s0 = this.shot(0, 0, 0);
+      pos.set(bz(4.6, 3.6, 1.0, Math.sin(s0.th) * s0.r), bz(4.0, 8.5, 9.0, s0.y), bz(4.4, 3.0, 1.4, Math.cos(s0.th) * s0.r)).add(F);
       const under = smooth((-F.y - 0.2) / 1.8) * (1 - smooth((-pos.y - 10) / 6));
       const rr = Math.hypot(pos.x, pos.z), maxR = lerp(99, PORTAL_R - 1.0, under);
       if (rr > maxR) { pos.x *= maxR / rr; pos.z *= maxR / rr; }
-      look.copy(F).add(new THREE.Vector3(0, lerp(-0.2, 1.2, k), 0));
-      fov = lerp(54, 64, k);
+      look.set(0, lerp(0.5, s0.ly, smooth((k - 0.35) / 0.65)), 0).add(F);
+      fov = lerp(48, s0.f, k);
+      roll = lerp(0.04, 0, k);
     } else {
-      // Five ways of watching the fall, each held 32 s and crossfaded over 5 s.
-      const tf = t - (FALL1 + 3), F = new THREE.Vector3(0, figPos.y - 0.9, figPos.z);
-      const moves = [
-        (q: number) => { const th = q * 0.08; return { p: new THREE.Vector3(Math.sin(th) * 4.0, -6.0, Math.cos(th) * 4.0), l: new THREE.Vector3(0, 1.2, 0), f: 64 }; },
-        (q: number) => { const th = 1.0 + q * 0.12; return { p: new THREE.Vector3(Math.cos(th) * 5.5, 0.4, Math.sin(th) * 5.5), l: new THREE.Vector3(0, -0.4, 0), f: 56 }; },
-        (q: number) => { const th = q * 0.05; return { p: new THREE.Vector3(Math.cos(th) * 1.6, 6.5, Math.sin(th) * 1.6), l: new THREE.Vector3(0, -8, 0), f: 70 }; },
-        (q: number) => { const th = -q * 0.14; return { p: new THREE.Vector3(Math.cos(th) * 3.8, -0.6, Math.sin(th) * 3.8), l: new THREE.Vector3(0, -0.3, 0), f: 54 }; },
-        (q: number) => { const th = 2.0 + q * 0.04; return { p: new THREE.Vector3(Math.cos(th) * 7.2, -2.5, Math.sin(th) * 7.2), l: new THREE.Vector3(0, -1.5, 0), f: 60 }; },
-      ];
-      const HOLD = 32, BLEND = 5, idx = Math.floor(tf / HOLD), within = tf - idx * HOLD;
-      const A = moves[idx % moves.length](tf), Bm = moves[(idx + 1) % moves.length](tf), b = smooth((within - (HOLD - BLEND)) / BLEND);
-      pos.copy(A.p).lerp(Bm.p, b).add(F); look.copy(A.l).lerp(Bm.l, b).add(F); fov = lerp(A.f, Bm.f, b);
+      // Six ways of watching the fall, each held ~28 s with a slow move inside it, crossfaded
+      // over 7 s in cylindrical coordinates round the diver so the camera swings round the
+      // body and never cuts through it.
+      const tf = t - (FALL1 + 4), F = this._cf.set(0, figPos.y - 0.9, figPos.z);
+      const HOLD = 28, BLEND = 7, idx = Math.floor(tf / HOLD), within = tf - idx * HOLD;
+      const A = this.shot(idx, within / HOLD, tf), B = this.shot(idx + 1, 0, tf), b = smooth((within - (HOLD - BLEND)) / BLEND);
+      let dth = B.th - A.th; dth = Math.atan2(Math.sin(dth), Math.cos(dth));
+      const th = A.th + dth * b, y = lerp(A.y, B.y, b);
+      // (a crossfade between a view from above and one from below swings wide round the body)
+      const r = lerp(A.r, B.r, b) + Math.sin(Math.PI * b) * Math.min(3, Math.abs(A.y - B.y) * 0.35);
+      pos.set(Math.sin(th) * r, y, Math.cos(th) * r).add(F);
+      look.set(0, lerp(A.ly, B.ly, b), 0).add(F);
+      fov = lerp(A.f, B.f, b); roll = lerp(A.roll, B.roll, b);
     }
+    // a living, hand-held camera: slow layered drift, never a shake
+    const hh = smooth(t / 3) * (t >= FALL1 ? 1 : 0.5);
+    pos.x += hh * (Math.sin(T * 0.37) * 0.14 + Math.sin(T * 0.91 + 1.3) * 0.04);
+    pos.y += hh * (Math.sin(T * 0.29 + 0.7) * 0.10 + Math.sin(T * 0.83) * 0.03);
+    pos.z += hh * (Math.sin(T * 0.33 + 2.1) * 0.14 + Math.sin(T * 0.77 + 0.4) * 0.04);
+    look.x += hh * Math.sin(T * 0.23 + 0.5) * 0.08; look.y += hh * Math.sin(T * 0.19) * 0.06;
+    roll += hh * Math.sin(T * 0.17 + 0.9) * 0.012;
     // eased camera: no jitter, even across the crossfades
-    if (!this.camInit || Math.abs(t - this.lastT) > 1) { this.camPos.copy(pos); this.camLook.copy(look); this.camInit = true; }
+    if (!this.camInit || Math.abs(t - this.lastT) > 1) { this.camPos.copy(pos); this.camLook.copy(look); this.camRoll = roll; this.camInit = true; }
     this.lastT = t;
-    const kc = 1 - Math.exp(-dt * 3.5);
-    this.camPos.lerp(pos, kc); this.camLook.lerp(look, kc);
-    cam.position.copy(this.camPos); cam.lookAt(this.camLook);
+    const kc = 1 - Math.exp(-dt * 3.0);
+    this.camPos.lerp(pos, kc); this.camLook.lerp(look, kc); this.camRoll += (roll - this.camRoll) * kc;
+    cam.position.copy(this.camPos); cam.lookAt(this.camLook); cam.rotateZ(this.camRoll);
     // (very wide, short frames — phones held sideways — draw in closer so the figure reads)
     fov *= cam.aspect > 1.9 ? 0.8 : 1;
+    // the lens breathes with the kick drum, a hair
+    fov -= (u.uBeat.value as number) * 0.6 * (t >= FALL1 ? 1 : 0.4);
     cam.fov += (fov - cam.fov) * kc; cam.updateProjectionMatrix();
+
+    // ---- the figure's light: a heart in the chest, light thrown on the hall
+    const mood = u.uMood.value as THREE.Color;
+    if (this.heart && this.heartBone) {
+      this.heartBone.getWorldPosition(this.heart.position);
+      const pulse = 0.75 + 0.25 * Math.sin(T * 2.2) + (u.uBeat.value as number) * 0.5;
+      this.heart.scale.setScalar(0.5 + pulse * 0.25);
+      this.heart.material.color.copy(mood).multiplyScalar(1.6).addScalar(0.35).multiplyScalar(0.45 * pulse);
+    }
+    this.keyLight.color.copy(mood); this.keyLight.intensity = (90 + (u.uEnergy.value as number) * 120 + (u.uBeat.value as number) * 60) * (1 - smooth((t - EDGE1) / 6));
+    this.figLight.color.copy(mood); this.figLight.position.copy(fig.position).add(this._fv.set(0, figTilt > 1.5 ? -0.8 : 1.2, 0));
+    this.figLight.intensity = 26 + (u.uEnergy.value as number) * 40;
 
     // ---- dive environment
     const diving = t > EDGE1 + 1;
@@ -775,14 +1030,233 @@ export class DeepDive {
     this.tunnelSegs.forEach(sg => sg.scale.setScalar(1 + (1 - ew[0]) * 1.6));
     this.tunnel.visible = ew[0] > 0.01;
     this.worlds.update(T, camY, this.tunnelScroll, smooth((camY + 4) / 6), ew);
+    // the depths open round the camera once it is under the floor
+    this.sky.update(cam.position, 1 - smooth((camY + 3) / 5), fallSpeed, this.tunnelScroll);
+    // embers: drifting up off the shoulders as it walks, a comet's tail once it falls
+    this.embers.update(dt, this.emitters, diving ? 80 + (u.uEnergy.value as number) * 60 : walking || t < EDGE1 ? 28 : 0,
+      diving ? fallSpeed * 0.9 + 1.2 : 0.45, diving ? 0.9 : 0.25);
 
+    this.post(t, LOOP, dt, true);
+  };
+
+  /** The take's end: the loop flare, the pulse patterns, bloom and exposure, and the render. */
+  private post(t: number, loop: number, dt: number, endFlare: boolean) {
+    const u = this.u, T = u.uTime.value as number;
     // ---- the loop flare: grows over the last 10 s, flashes, then the walk fades back in
-    const flare = Math.max(smooth((t - (LOOP - 9)) / 8) * 0.9 + (t > LOOP - 1.2 ? smooth((t - (LOOP - 1.2)) / 1.0) * 0.1 : 0), 1 - smooth(t / 2.2));
+    // (the rally take loops seamlessly from meditation to meditation: only its opening fades in)
+    const flare = Math.max(endFlare ? smooth((t - (loop - 9)) / 8) * 0.9 + (t > loop - 1.2 ? smooth((t - (loop - 1.2)) / 1.0) * 0.1 : 0) : 0, (endFlare || T < loop ? 1 : 0) * (1 - smooth(t / 2.2)));
     u.uFlare.value = flare;
     // pulse patterns take turns every 16 s, each fading into the next
     { const ph = T / 16, i = Math.floor(ph) % 4, b = smooth((ph % 1 - 0.7) / 0.3), w = [0, 0, 0, 0]; w[i] = 1 - b; w[(i + 1) % 4] += b; (u.uW.value as THREE.Vector4).set(w[0], w[1], w[2], w[3]); }
     this.bloom.strength = 0.9 + (u.uBeat.value as number) * 0.55 + (u.uEnergy.value as number) * 0.35 + flare * 1.2;
     this.renderer.toneMappingExposure = 0.88 + (u.uEnergy.value as number) * 0.12 + (u.uBeat.value as number) * 0.08;
     this.composer.render(dt);
+  }
+
+  // ------------------------------------------------------------------ the rally take
+  // Lotus, sitting in the air over the portal: thighs out and forward, shins crossed in
+  // front, hands resting on the thighs, the head a little bowed. (Solved for this rig's rest
+  // directions; joint conventions in pose.ts.)
+  // the wrist bent back so the palm faces up (measured on this rig: see palmAt)
+  static PALM_UP: [number, number, number] = [-30, -90, -30];
+  private static LOTUS: Pose = {
+    // full lotus: thighs out and forward along the floor, shins crossed in front, each foot
+    // stretched along its shin onto the other thigh, sole to the sky (solved for this rig's
+    // rest directions). The deep turn of the hips thins their skin: see legFill.
+    // (knees drawn in toward the body and the ankles tucked up into the other groin)
+    thigh_l: [34.8, 126.2, -81.2], thigh_r: [15.3, -120.5, 81.2], calf_l: [152, 0, 0], calf_r: [143, 0, 0],
+    foot_l: [73, 115, -11], foot_r: [74, -104, 2],
+    // hands resting on the thighs, elbows soft
+    upperarm_l: [6, -22, -23], upperarm_r: [6, 22, 23], lowerarm_l: [-10, 0, 0], lowerarm_r: [-10, 0, 0],
+    spine_01: [-2, 0, 0], spine_02: [-2, 0, 0], neck: [4, 0, 0], head: [12, 0, 0],
   };
+  // ... the right arm raised straight up over the shoulder to the sky, the face lifted to it
+  private static RAISE: Pose = {
+    ...DeepDive.LOTUS,
+    upperarm_r: [6, -78, -138], lowerarm_r: [90, 40, 0], clavicle_r: [0, 0, -12], hand_r: DeepDive.PALM_UP,
+    spine_02: [-4, 0, 0], spine_03: [-5, 0, 0], neck: [-8, 0, 0], head: [-16, 0, 0],
+  };
+  /** The rally take's views round the seated figure (th from its front, +z; y and ly from the chest). */
+  /** The rally take's views: straight on, centred on the figure, wide (the whole cave), one
+   *  lens; the camera only tilts up to follow the beam and settles back. th 0 = in front (+z). */
+  private static RISE_SHOTS: { at: number; s: (q: number) => { r: number; th: number; y: number; ly: number; f: number; roll: number } }[] = [
+    // the figure meditating in the middle of the cave
+    { at: 0, s: () => ({ r: 26, th: 0, y: 3.4, ly: 1.4, f: 50, roll: 0 }) },
+    // the arm goes up, the beam leaves the palm: the view tilts up with it
+    { at: 6, s: q => ({ r: 26, th: 0, y: 3.4, ly: lerp(1.4, 2.8, smooth(q)), f: 50, roll: 0 }) },
+    // held while the gold rains down
+    { at: 14, s: () => ({ r: 26, th: 0, y: 3.4, ly: 2.8, f: 50, roll: 0 }) },
+    // the arm comes down: back to the meditation
+    { at: 50, s: q => ({ r: 26, th: 0, y: 3.4, ly: lerp(2.8, 1.4, smooth(q)), f: 50, roll: 0 }) },
+  ];
+  private _red = new THREE.Color(1.1, 0.075, 0.045);
+  /** Seated, the skin round a deeply bent and turned hip thins (linear-blend skinning): fill
+   *  it out by widening the thighs' cross-section (bone Y runs along the bone), and give the
+   *  calves the inverse so the shins keep their shape. X, the knee's hinge axis, takes most
+   *  of it (exact through the bend); Z a little (it shears slightly through the bent knee). */
+  private riseLift?: number;
+  private skin?: THREE.SkinnedMesh;
+  /** Per vertex of the body: which thigh it shares with the pelvis (1 left, 2 right), its rest
+   *  distance from that thigh's axis, and how far the fix applies (most where the weights are
+   *  split evenly between the two). Measured on the rest pose, in the mesh's own space. */
+  private buildThighFix(root: THREE.Object3D) {
+    let mesh: THREE.SkinnedMesh | undefined;
+    root.traverse(o => { const m = o as THREE.SkinnedMesh; if (!mesh && m.isSkinnedMesh && (m.material as THREE.Material).blending !== THREE.AdditiveBlending) mesh = m; });
+    if (!mesh || !this.rig) return;
+    this.skin = mesh;
+    root.updateMatrixWorld(true); mesh.skeleton.update();
+    const g = mesh.geometry, n = g.attributes.position.count, si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+    const names = mesh.skeleton.bones.map(b => b.name);
+    const axis = (side: string) => {
+      const a = mesh!.worldToLocal(this.rig!.bones.get(`thigh_${side}`)!.getWorldPosition(new THREE.Vector3()));
+      const b = mesh!.worldToLocal(this.rig!.bones.get(`calf_${side}`)!.getWorldPosition(new THREE.Vector3()));
+      return { a, d: b.sub(a).normalize() };
+    };
+    const ax = { l: axis("l"), r: axis("r") };
+    const fix = new Float32Array(n * 3), v = new THREE.Vector3(), t = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      let wl = 0, wr = 0;
+      for (let k = 0; k < 4; k++) { const nm = names[si.getComponent(i, k)], w = sw.getComponent(i, k); if (nm === "thigh_l") wl += w; else if (nm === "thigh_r") wr += w; }
+      const wt = Math.max(wl, wr);
+      if (wt < 0.03 || wt > 0.985) continue;
+      const side = wl >= wr ? ax.l : ax.r;
+      mesh.getVertexPosition(i, v);
+      t.copy(v).sub(side.a); const along = t.dot(side.d); t.addScaledVector(side.d, -along);
+      fix[i * 3] = wl >= wr ? 1 : 2; fix[i * 3 + 1] = t.length(); fix[i * 3 + 2] = Math.min(1, 4 * wt * (1 - wt) * 1.3);
+    }
+    g.setAttribute("aFix", new THREE.BufferAttribute(fix, 3));
+  }
+  /** The thighs' current axes, in the mesh's space, for the fix in the vertex shader. */
+  private updateThighFix(on: boolean) {
+    (this.u.uFixOn.value as number) = on ? 1 : 0;
+    if (!on || !this.skin || !this.rig) return;
+    for (const [side, hu, du] of [["l", "uHipL", "uDirL"], ["r", "uHipR", "uDirR"]] as const) {
+      const a = this.skin.worldToLocal(this.rig.bones.get(`thigh_${side}`)!.getWorldPosition(this._v2.set(0, 0, 0)));
+      (this.u[hu].value as THREE.Vector3).copy(a);
+      const b = this.skin.worldToLocal(this.rig.bones.get(`calf_${side}`)!.getWorldPosition(this._fv2.set(0, 0, 0)));
+      (this.u[du].value as THREE.Vector3).copy(b).sub(a).normalize();
+    }
+  }
+  private _fv2 = new THREE.Vector3();
+  private legFill(k: number) {
+    if (!this.rig) return;
+    const sx = 1 + 0.36 * k, sz = 1 + 0.18 * k;
+    for (const side of ["l", "r"]) {
+      this.rig.bones.get(`thigh_${side}`)?.scale.set(sx, 1, sz);
+      this.rig.bones.get(`calf_${side}`)?.scale.set(1 / sx, 1, 1 / sz);
+    }
+  }
+  private handDir?: THREE.Vector3; private _q = new THREE.Quaternion();
+  /** The middle of the palm: from the wrist, along the hand, a little off its back. */
+  private palmAt(hand: THREE.Object3D, out: THREE.Vector3) {
+    hand.getWorldPosition(out);
+    if (this.handDir) out.addScaledVector(this._v2.copy(this.handDir).applyQuaternion(hand.getWorldQuaternion(this._q)), 0.075);
+    out.y += 0.02;
+    return out;
+  }
+  private _v2 = new THREE.Vector3();
+
+  private riseFrame(T: number, dt: number) {
+    const t = T % RISE_LOOP, u = this.u, fig = this.figure, cam = this.camera;
+    const MED1 = 5.5, RAISE1 = 7.3, BEAM0 = 7.1, BEAM_END = 50, LOWER0 = 51.5, LOWER1 = 54.5;
+    const raise = smooth((t - MED1) / (RAISE1 - MED1)) * (1 - smooth((t - LOWER0) / (LOWER1 - LOWER0)));
+    // seated on the cave floor (the sit bones ~14 cm under the hip joints), just beyond the pool
+    // (twice life size and more: a colossal figure, read from across the cavern)
+    const S = 2.8, pelvisY = 0.14 * S;
+    fig.scale.setScalar(S);
+    fig.position.set(0, pelvisY - this.pelvisH * S + (this.riseLift ?? 0), RISE_Z);
+    fig.rotation.set(0, 0, 0);
+    if (this.rig) {
+      blend(this.pose, [{ pose: DeepDive.LOTUS, w: 1 - raise + 1e-6 }, { pose: DeepDive.RAISE, w: raise }]);
+      // slow breathing, deeper in meditation; the raised arm reaches a little higher on the beat
+      const br = Math.sin(T * 1.1) * (1 - raise * 0.5);
+      const add = (k: string, x: number, y: number, z: number) => { const o = this.pose[k] ?? (this.pose[k] = [0, 0, 0]); o[0] += x; o[1] += y; o[2] += z; };
+      add("spine_03", -br * 2.2, 0, 0); add("spine_02", -br * 1.2, 0, 0); add("head", br * 1.5, Math.sin(T * 0.21) * 2 * (1 - raise), 0);
+      add("clavicle_r", 0, 0, -raise * (u.uBeat.value as number) * 3);
+      this.rig.apply(this.pose);
+      this.legFill(1);
+      fig.updateMatrixWorld(true); this.updateThighFix(true);
+      // Sit it ON the floor: measure the posed skin's lowest point once and lift the body so
+      // it rests there (without this the buttocks and shins sank under the floor and vanished).
+      if (this.riseLift === undefined && this.body) {
+        let mesh: THREE.SkinnedMesh | undefined;
+        this.body.traverse(o => { const m = o as THREE.SkinnedMesh; if (!mesh && m.isSkinnedMesh) mesh = m; });
+        if (mesh) {
+          fig.updateMatrixWorld(true); mesh.skeleton.update();
+          const v = this._v2, n = mesh.geometry.attributes.position.count; let min = Infinity;
+          for (let i = 0; i < n; i += 2) { mesh.getVertexPosition(i, v).applyMatrix4(mesh.matrixWorld); if (v.y < min) min = v.y; }
+          this.riseLift = Number.isFinite(min) ? 0.01 - min : 0;
+          fig.position.y += this.riseLift;
+        }
+      }
+    }
+    const chest = this._cf.set(0, pelvisY + 0.45 * S + (this.riseLift ?? 0), RISE_Z);
+    (u.uFocus.value as THREE.Vector3).copy(chest);
+
+    // ---- the beam and the rain
+    const hand = this.rig?.bones.get("hand_r");
+    if (hand) { fig.updateMatrixWorld(true); this.palmAt(hand, this._fv); }
+    const beamAge = t - BEAM0, beamVis = (t >= BEAM0 ? 1 : 0) * (1 - smooth((t - BEAM_END) / 1.6));
+    // the figure flushes red as it fires, and cools back to the hall's blue when the beam ends
+    const figRed = smooth((t - (BEAM0 - 0.7)) / 1.0) * (1 - smooth((t - BEAM_END) / 2.5));
+    (u.uFigMood.value as THREE.Color).copy(u.uMood.value as THREE.Color).lerp(this._red, figRed);
+    this.beam.update(this._fv, beamAge, beamVis, u.uBeat.value as number);
+    // (the red beam takes the place of the pale light shaft while it burns)
+    this.shaftVis.value = 1 - 0.85 * smooth((t - BEAM0) / 1.5) * (1 - smooth((t - BEAM_END) / 3));
+    if (t >= BEAM0 && this.lastT < BEAM0 && t - this.lastT < 1) { const s = u.uSteps.value as THREE.Vector4[]; s[this.stepIdx++ % 4].set(0, RISE_Z, T, 2.2); }
+    this.gold.update(t - (BEAM0 + 0.7), 1 - smooth((t - 53) / 6));
+
+    // ---- camera
+    const sh = DeepDive.RISE_SHOTS, BL = 3;
+    let i = sh.length - 1; while (i > 0 && sh[i].at > t) i--;
+    const end = i + 1 < sh.length ? sh[i + 1].at : RISE_LOOP, nextS = i + 1 < sh.length ? sh[i + 1] : sh[0];
+    const A = sh[i].s((t - sh[i].at) / (end - sh[i].at)), B = nextS.s(0), b = smooth((t - (end - BL)) / BL);
+    let dth = B.th - A.th; dth = Math.atan2(Math.sin(dth), Math.cos(dth));
+    const th = A.th + dth * b, r = lerp(A.r, B.r, b) + Math.sin(Math.PI * b) * Math.min(3, Math.abs(A.y - B.y) * 0.3);
+    const pos = this._cp.set(Math.sin(th) * r, lerp(A.y, B.y, b), Math.cos(th) * r).add(chest);
+    const look = this._cl.set(0, lerp(A.ly, B.ly, b), 0).add(chest);
+    let fov = lerp(A.f, B.f, b), roll = lerp(A.roll, B.roll, b);
+    pos.y = Math.max(0.35, pos.y);
+
+    pos.y += Math.sin(T * 0.29 + 0.7) * 0.08;
+    pos.z += Math.sin(T * 0.33 + 2.1) * 0.12;
+    look.y += Math.sin(T * 0.19) * 0.03;
+
+    if (!this.camInit || Math.abs(t - this.lastT) > 1 && Math.abs(t - this.lastT) < RISE_LOOP - 1) { this.camPos.copy(pos); this.camLook.copy(look); this.camRoll = roll; this.camInit = true; }
+    this.lastT = t;
+    const kc = 1 - Math.exp(-dt * 2.6);
+    this.camPos.lerp(pos, kc); this.camLook.lerp(look, kc); this.camRoll += (roll - this.camRoll) * kc;
+    cam.position.copy(this.camPos); cam.lookAt(this.camLook); cam.rotateZ(this.camRoll);
+    fov *= cam.aspect > 1.9 ? 0.8 : 1;
+    fov -= (u.uBeat.value as number) * 0.5;
+    cam.fov += (fov - cam.fov) * kc; cam.updateProjectionMatrix();
+
+    // ---- light
+    const mood = u.uMood.value as THREE.Color;
+    if (this.heart && this.heartBone) {
+      this.heartBone.getWorldPosition(this.heart.position);
+      const pulse = 0.75 + 0.25 * Math.sin(T * 1.1) + (u.uBeat.value as number) * 0.4;
+      this.heart.scale.setScalar(0.55 + pulse * 0.3);
+      this.heart.material.color.copy(u.uFigMood.value as THREE.Color).multiplyScalar(1.6).addScalar(0.35).multiplyScalar(0.5 * pulse);
+    }
+    this.keyLight.color.copy(mood); this.keyLight.intensity = 90 + (u.uEnergy.value as number) * 120 + (u.uBeat.value as number) * 60;
+    this.figLight.color.copy(mood).lerp(this._red, beamVis * 0.8);
+    this.figLight.position.copy(beamVis > 0.01 ? this._fv : chest);
+    this.figLight.intensity = 26 + (u.uEnergy.value as number) * 40 + beamVis * 60;
+
+    // ---- the hall only: no tunnel, no depths
+    for (const s of this.tunnelSegs) s.visible = false;
+    this.tunnel.visible = false;
+    // no pool: the floor is whole, the figure sits in the middle of it
+    if (this.abyss) this.abyss.visible = false;
+    (u.uHole.value as number) = 0; for (const o of this.portalParts) o.visible = false;
+    // (the gold takes the place of the hall's coloured rain)
+    this.rain.visible = false;
+    this.worlds.update(T, cam.position.y, 0, 0, [1, 0, 0, 0, 0]);
+    this.chamber.visible = false; this.cave.update(true, beamVis, T);
+    this.caveSun.intensity = 1.1; this.caveFill.intensity = 0.22;
+    this.sky.update(cam.position, 0, 0, 0);
+    this.embers.update(dt, this.emitters, 16 + beamVis * 20, 0.35 + beamVis * 0.4, 0.2);
+  }
 }
+

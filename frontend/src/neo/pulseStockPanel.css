@@ -1,0 +1,38 @@
+/* 증시 전광판: the selected stock's panel, a pane of glass at the right of the scene.
+   Wide screens only (desktops, unfolded foldables): see STOCK_PANEL_QUERY. */
+.pbp{--sc-color:#7aa8ff;position:fixed;right:18px;bottom:calc(var(--ng-bottom,0px) + 18px);z-index:31;width:min(360px,36vw);max-height:min(560px,calc(100vh - 140px));display:flex;flex-direction:column;gap:12px;padding:16px 16px 14px;border-radius:16px;color:#e9eef9;
+  background:linear-gradient(160deg,color-mix(in srgb,var(--sc-color) 14%,#0a1020a8),#060a16b8);border:1px solid color-mix(in srgb,var(--sc-color) 38%,#ffffff22);
+  box-shadow:0 18px 48px #000a,0 0 40px color-mix(in srgb,var(--sc-color) 22%,transparent),inset 0 1px 0 #ffffff14;
+  -webkit-backdrop-filter:blur(16px) saturate(1.2);backdrop-filter:blur(16px) saturate(1.2);animation:pbp-in .5s cubic-bezier(.2,.8,.25,1);overflow:hidden}
+@keyframes pbp-in{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+.pbp-head{display:flex;align-items:center;gap:10px}
+.pbp-logo{width:34px;height:34px;border-radius:10px;flex:none}
+.pbp-id{display:flex;flex-direction:column;min-width:0;flex:1}
+.pbp-id strong{font-size:16px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pbp-id small{font-size:11px;color:#9fb0cf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pbp-close{flex:none;width:28px;height:28px;border-radius:50%;border:1px solid #ffffff2a;background:#ffffff0d;color:#dfe7f7;font-size:17px;line-height:1;cursor:pointer}
+.pbp-close:hover{background:#ffffff1f}
+.pbp-quote{display:flex;align-items:baseline;gap:10px;padding:2px 2px 10px;border-bottom:1px solid #ffffff14}
+.pbp-quote strong{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.pbp-quote b{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}
+.pbp-quote span{font-size:12px;color:#aab6cc;font-variant-numeric:tabular-nums}
+.pbp.is-up .pbp-quote b,.pbp.is-up .pbp-quote span{color:#ff5d6c}
+.pbp.is-down .pbp-quote b,.pbp.is-down .pbp-quote span{color:#4f9dff}
+.pbp h3{display:flex;align-items:baseline;gap:8px;margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.04em;color:#a9b8d6}
+.pbp h3 em{font-style:normal;font-size:13px;font-weight:800;color:color-mix(in srgb,var(--sc-color) 70%,#fff);letter-spacing:0}
+.pbp h3 small{margin-left:auto;font-size:11px;font-weight:600;color:#7f8fae;font-variant-numeric:tabular-nums}
+.pbp-flow ul{margin:0;padding:0 0 0 14px;display:flex;flex-direction:column;gap:5px}
+.pbp-flow li{font-size:13px;line-height:1.5;color:#dbe3f2}
+.pbp-flow li::marker{color:color-mix(in srgb,var(--sc-color) 70%,#fff)}
+.pbp-note{margin:8px 0 0;font-size:10.5px;color:#7486a6}
+.pbp-talk{padding-top:10px;border-top:1px solid #ffffff14}
+.pbp-roll{height:2.4em;overflow:hidden;font-size:13.5px;border-radius:10px;background:#ffffff08;border:1px solid #ffffff12;padding:0 10px}
+.pbp-roll ol{list-style:none;margin:0;padding:0;transition:transform .55s cubic-bezier(.3,.7,.2,1)}
+.pbp-roll li{height:2.4em;line-height:2.4em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#c8d3e8;opacity:.35;transition:opacity .5s}
+.pbp-roll li.is-on{opacity:1;color:#f2f6ff}
+.pbp-empty{margin:0;line-height:2.4em;color:#8796b4}
+.pbp-more{align-self:flex-end;font-size:12px;font-weight:700;color:color-mix(in srgb,var(--sc-color) 65%,#fff);text-decoration:none}
+.pbp-more:hover{text-decoration:underline}
+@media (prefers-reduced-motion:reduce){.pbp{animation:none}.pbp-roll ol{transition:none}}
+/* unfolded foldables and small tablets: a slimmer pane */
+@media (max-width:1000px){.pbp{width:min(320px,42vw);padding:13px 13px 12px}.pbp-quote strong{font-size:22px}.pbp-flow li{font-size:12.5px}}

@@ -81,6 +81,25 @@ export class Worlds {
       p.position.set(Math.cos(a) * R, 30, Math.sin(a) * R); p.lookAt(0, 30, 0);
       this.hall.add(p);
     }
+    // Slanted beams falling from openings high in the vault, dust turning in them.
+    const beamMat = new THREE.ShaderMaterial({
+      uniforms: { ...u, uVis: this.vis.hall }, ...additive, side: THREE.DoubleSide,
+      vertexShader: `varying vec2 vUv; varying vec3 vW; varying vec3 vN; void main(){ vUv=uv; vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; vN=normalize(mat3(modelMatrix)*normal); gl_Position=projectionMatrix*viewMatrix*w; }`,
+      fragmentShader: /* glsl */`${common}${noise} uniform float uVis; varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+        void main(){ vec3 V = normalize(cameraPosition - vW); float face = pow(abs(dot(vN, V)), 1.5);
+          float x = 1.0 - abs(vUv.x*2.0 - 1.0);
+          float motes = n3(vec3(vUv.x*14.0, vUv.y*30.0 - uTime*0.25, uTime*0.1));
+          float k = face * (0.55 + 0.6*motes) * smoothstep(0.0, 0.35, vUv.y) * smoothstep(1.0, 0.75, vUv.y) * (0.07 + uEnergy*0.07) * uVis;
+          gl_FragColor = vec4((uMood*0.8 + vec3(0.2))*k, 1.0); }`,
+    });
+    for (let i = 0; i < 5; i++) {
+      const a = Math.PI / 2 + (i - 2) * 0.55 + (i % 2 ? 0.12 : -0.08), R = 26 + (i % 3) * 4;
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 1.0, 62, 24, 1, true), beamMat);
+      // from high on the far side, leaning down toward the hall's middle
+      beam.position.set(Math.cos(a + Math.PI) * R * 0.5, 22, Math.sin(a + Math.PI) * R * 0.5);
+      beam.lookAt(0, -40, 0); beam.rotateX(Math.PI / 2);
+      this.hall.add(beam);
+    }
     scene.add(this.hall);
 
     // ---------------------------------------------------------------- the fall's worlds
