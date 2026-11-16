@@ -722,7 +722,7 @@ export class DeepDive {
         (q: number) => { const th = q * 0.08; return { p: new THREE.Vector3(Math.sin(th) * 4.0, -6.0, Math.cos(th) * 4.0), l: new THREE.Vector3(0, 1.2, 0), f: 64 }; },
         (q: number) => { const th = 1.0 + q * 0.12; return { p: new THREE.Vector3(Math.cos(th) * 5.5, 0.4, Math.sin(th) * 5.5), l: new THREE.Vector3(0, -0.4, 0), f: 56 }; },
         (q: number) => { const th = q * 0.05; return { p: new THREE.Vector3(Math.cos(th) * 1.6, 6.5, Math.sin(th) * 1.6), l: new THREE.Vector3(0, -8, 0), f: 70 }; },
-        (q: number) => { const th = -q * 0.14; return { p: new THREE.Vector3(Math.cos(th) * 2.3, -0.5, Math.sin(th) * 2.3), l: new THREE.Vector3(0, -0.2, 0), f: 50 }; },
+        (q: number) => { const th = -q * 0.14; return { p: new THREE.Vector3(Math.cos(th) * 3.8, -0.6, Math.sin(th) * 3.8), l: new THREE.Vector3(0, -0.3, 0), f: 54 }; },
         (q: number) => { const th = 2.0 + q * 0.04; return { p: new THREE.Vector3(Math.cos(th) * 7.2, -2.5, Math.sin(th) * 7.2), l: new THREE.Vector3(0, -1.5, 0), f: 60 }; },
       ];
       const HOLD = 32, BLEND = 5, idx = Math.floor(tf / HOLD), within = tf - idx * HOLD;

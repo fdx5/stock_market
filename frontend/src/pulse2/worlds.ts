@@ -1,7 +1,7 @@
 // What surrounds the diver changes as it falls, and the hall it walks through is alive:
 // hall dressing (hanging tendrils, drifting orbs, far arches, light pillars) and five
 // "worlds" for the fall that crossfade every ~70 s — the ribbed ring tunnel (in
-// deepDive.ts), a vortex of light, a field of crystal shards, an open nebula, and
+// deepDive.ts), rising streamers of light, a field of crystal shards, an open nebula, and
 // hexagonal lattice rings. Everything is lit by the shared mood/music uniforms.
 import * as THREE from "three";
 
@@ -84,19 +84,39 @@ export class Worlds {
     scene.add(this.hall);
 
     // ---------------------------------------------------------------- the fall's worlds
-    // 1. A vortex: long spiralling streams of light round the fall, turning.
+    // 1. Streamers: ribbons of light that rush up past the diver as it falls, each one
+    //    swaying, uncoiling and recoiling as it goes, light running along it with the music.
+    //    Short strands recycled below, so the fall is felt as motion, never a fixed pattern.
     const vortexMat = new THREE.ShaderMaterial({
-      uniforms: { ...u, uVis: this.vis.vortex }, ...additive,
-      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: /* glsl */`${common} uniform float uVis; varying vec2 vUv;
-        void main(){ float u=vUv.x; float run = dot(uW, vec4(pow(0.5+0.5*sin(u*30.0 - uTime*1.4),8.0), pow(0.5+0.5*sin(u*14.0 + uTime*1.0),8.0), pow(0.5+0.5*sin(u*6.0 - uTime*0.7),4.0), pow(0.5+0.5*sin(u*20.0 - uTime*1.8),10.0)));
-          float k = (0.08 + run*1.0) * (0.5 + uEnergy*1.0 + uBeat*0.5) * uVis;
-          gl_FragColor = vec4((uMood*1.5 + vec3(0.1))*k, 1.0); }`,
+      uniforms: { ...u, uVis: this.vis.vortex }, ...additive, side: THREE.DoubleSide,
+      vertexShader: /* glsl */`uniform float uTime; attribute float aK; varying vec2 vUv; varying float vK; varying float vY;
+        void main(){ vUv = uv; vK = aK;
+          vec3 p = position; float y = p.y;
+          // coil that tightens and loosens over time, and a slow travelling sway
+          float coil = (0.6 + 0.5*sin(uTime*0.23 + aK*6.0)) * 0.11;
+          float ang = atan(p.z, p.x) + y*coil + uTime*(0.25 + 0.2*sin(aK*9.0));
+          float r = length(p.xz) * (1.0 + 0.22*sin(y*0.09 + uTime*0.6 + aK*11.0));
+          p.x = cos(ang)*r + sin(y*0.05 + uTime*0.4 + aK*5.0)*1.6; p.z = sin(ang)*r + cos(y*0.06 + uTime*0.35 + aK*7.0)*1.6;
+          vec4 w = modelMatrix*vec4(p,1.0); vY = w.y - cameraPosition.y;
+          gl_Position = projectionMatrix*viewMatrix*w; }`,
+      fragmentShader: /* glsl */`${common} uniform float uVis; varying vec2 vUv; varying float vK; varying float vY;
+        void main(){ float u = vUv.x;
+          float ends = smoothstep(0.0, 0.25, u) * smoothstep(1.0, 0.75, u);          // strands fade at both ends
+          float across = pow(1.0 - abs(vUv.y*2.0 - 1.0), 2.0);
+          float run = pow(0.5+0.5*sin(u*18.0 - uTime*(2.0 + uMid*4.0) - vK*20.0), 6.0);
+          float near = exp(-abs(vY)*0.05);
+          float k = (0.10 + run*(0.9 + uBass*1.2 + uBeat*1.0)) * ends * across * near * uVis;
+          gl_FragColor = vec4((uMood*1.4 + vec3(0.08))*k, 1.0); }`,
     });
-    for (let k = 0; k < 14; k++) {
-      const pts: THREE.Vector3[] = [], R = 8 + (k % 5) * 2.2, turns = 3 + (k % 3), ph = (k / 14) * Math.PI * 2;
-      for (let i = 0; i <= 200; i++) { const t = i / 200, a = ph + t * turns * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * R, t * 120 - 60, Math.sin(a) * R)); }
-      this.vortex.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 600, 0.06 + (k % 2) * 0.05, 5, false), vortexMat));
+    for (let k = 0; k < 22; k++) {
+      const pts: THREE.Vector3[] = [], R = 4.5 + Math.random() * 12, ph = Math.random() * Math.PI * 2, len = 26 + Math.random() * 24, turns = 0.3 + Math.random() * 0.7;
+      for (let i = 0; i <= 80; i++) { const t = i / 80, a = ph + t * turns * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * R, t * len - len / 2, Math.sin(a) * R)); }
+      // a flat ribbon (a thin, wide tube reads as a soft band from every side)
+      const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 160, 0.05 + Math.random() * 0.1, 4, false);
+      g.setAttribute("aK", new THREE.Float32BufferAttribute(new Array(g.attributes.position.count).fill(Math.random()), 1));
+      const m = new THREE.Mesh(g, vortexMat); m.frustumCulled = false;
+      m.userData = { base: Math.random() * 140, speed: 0.8 + Math.random() * 0.6 };
+      this.vortex.add(m);
     }
     this.vortex.visible = false;
     scene.add(this.vortex);
@@ -174,7 +194,8 @@ export class Worlds {
     this.vis.hall.value = hall; this.hall.visible = hall > 0.01;
     const set = (key: string, obj: THREE.Object3D, v: number) => { this.vis[key].value = v; obj.visible = v > 0.01; };
     set("vortex", this.vortex, w[1]); set("shards", this.shards, w[2]); set("nebula", this.nebula, w[3]); set("hex", this.hex, w[4]);
-    this.vortex.position.y = camY - 10; this.vortex.rotation.y = -T * 0.05;
+    // streamers rise past the camera (faster ones nearer), recycled below
+    this.vortex.children.forEach(m => { const d = m.userData as { base: number; speed: number }; m.position.y = camY - 70 + ((d.base + scroll * d.speed * 1.4) % 140); });
     for (const m of [this.shards, this.nebula]) { const s = (m.material as THREE.ShaderMaterial).uniforms; s.uBase.value = camY - 6; s.uScroll.value = scroll; }
     this.hex.position.y = camY - 4;
     this.hex.children.forEach(r => {
