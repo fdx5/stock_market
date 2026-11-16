@@ -18,12 +18,14 @@ export class AudioLevels {
   private env: BgmEnvelope | null = null;
   private track = "";
   private prevBass = 0;
+  private prevAll = 0;
 
   update(dt: number, now: number) {
     const st = getDeskBgmState();
     const id = (st?.track as { id?: string } | undefined)?.id ?? "";
     if (id && id !== this.track) { this.track = id; this.env = null; void loadBgmEnvelope(id).then(e => { if (this.track === id) this.env = e; }); }
-    const t = st?.playing ? getDeskBgmTime() : null;
+    // (read a touch ahead: the frame is seen a little after it is drawn)
+    const t0 = st?.playing ? getDeskBgmTime() : null, t = t0 === null ? null : t0 + 0.06;
     let bass = 0, mid = 0, high = 0, all = 0;
     this.live = !!(this.env && t !== null);
     if (this.env && t !== null) {
@@ -40,11 +42,13 @@ export class AudioLevels {
       bass = 0.18 + 0.12 * b; mid = 0.16 + 0.08 * Math.sin(now * 0.45 + 1); high = 0.12; all = 0.16 + 0.08 * b;
     }
     const v = this.v;
-    const follow = (cur: number, target: number) => cur + (target - cur) * (1 - Math.exp(-dt * (target > cur ? 14 : 3.2)));
+    const follow = (cur: number, target: number) => cur + (target - cur) * (1 - Math.exp(-dt * (target > cur ? 30 : 7)));
     v.bass = follow(v.bass, bass); v.mid = follow(v.mid, mid); v.high = follow(v.high, high); v.all = follow(v.all, all);
     // A beat: the bass rising quickly; decays smoothly.
-    const rise = Math.max(0, bass - this.prevBass) * 8;
+    // (a rise in the bass or the whole mix; frame-rate independent)
+    const rise = Math.max(0, bass - this.prevBass, (all - this.prevAll) * 0.8) * 8 * Math.min(1, 1 / 60 / Math.max(dt, 1e-3) * 1.0) ;
+    this.prevAll = all;
     this.prevBass = bass;
-    v.beat = Math.max(v.beat * Math.exp(-dt * 4.5), Math.min(1, rise));
+    v.beat = Math.max(v.beat * Math.exp(-dt * 6), Math.min(1, rise * 1.6));
   }
 }

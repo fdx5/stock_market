@@ -168,6 +168,7 @@ export class DeepDive {
   private feet: { name: string; down: boolean }[] = [{ name: "foot_l", down: true }, { name: "foot_r", down: true }];
   private stepIdx = 0;
   private liveMix = 0;
+  private avg = { all: 0.4, bass: 0.4, mid: 0.4, high: 0.3 };
   private _fv = new THREE.Vector3();
   private footsteps(T: number, fig: THREE.Object3D) {
     if (!this.rig) return;
@@ -245,7 +246,7 @@ export class DeepDive {
           float seams = (1.0 - smoothstep(0.01, 0.05, da)) * smoothstep(34.0, 8.0, r) * step(uPortalR + 0.6, r);
           // pulses running outward from the portal, faster and brighter with the bass
           // four pulse patterns, crossfaded in turn: rings outward, a spiral, a radar sweep, a heartbeat
-          float sp = uTime*(1.6 + uBass*3.0);
+          float sp = uTime*(0.9 + uBass*1.6);
           float pRings = pow(0.5 + 0.5*sin(r*0.75 - sp), 10.0);
           float pSpiral = pow(0.5 + 0.5*sin(r*0.55 + a*3.0 - sp), 10.0);
           float sweepA = mod(a - uTime*0.7, 6.2831853);
@@ -364,11 +365,11 @@ export class DeepDive {
             float cu = u*${slots.toFixed(1)}, ci = floor(cu), cell = fract(cu);
             float on = step(0.66, fract(sin(ci*12.9898 + uPhase*3.1)*43758.5453));
             float slot = side * on * smoothstep(0.5, 0.15, length(vec2(cell - 0.5, (v - 0.25) * 4.0) * vec2(1.0, 1.0)) - 0.0);
-            float sp = uTime*(2.2 + uBass*5.0);
+            float sp = uTime*(1.2 + uBass*2.5);
             float pUp = pow(0.5 + 0.5*sin(u*28.0 - sp + uPhase), 10.0);
             float pDown = pow(0.5 + 0.5*sin(u*20.0 + sp*0.8 + uPhase), 12.0);
             float hb = fract(uTime*0.85 + uPhase*0.05); float pHeart = (exp(-pow(hb*9.0,2.0)) + 0.65*exp(-pow((hb-0.2)*9.0,2.0))) * 0.9;
-            float pSpark = step(0.93, fract(sin(floor(u*36.0)*91.7 + floor(uTime*5.0 + uPhase)*13.3)*43758.5)) * 1.4;
+            float pSpark = pow(0.5 + 0.5*sin(u*9.0 + uPhase*2.0 + uTime*0.35), 12.0) * pow(0.5 + 0.5*sin(uTime*0.5 + uPhase), 2.0) * 1.6;
             float pulse = dot(uW, vec4(pUp, pDown, pHeart, pSpark));
             float edge = pow(1.0 - abs(v*2.0 - 1.0), 1.0) * 0.0;
             // a thin glowing seam along the rib, brighter where the pulse passes
@@ -448,7 +449,7 @@ export class DeepDive {
     const glowMat = new THREE.ShaderMaterial({
       uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; void main(){ float a=vUv.x*6.2831853; float hb=fract(uTime*0.85); float k = dot(uW, vec4(0.8+0.6*sin(a*12.0 - uTime*4.0), 0.5+1.0*pow(0.5+0.5*sin(a*3.0 + uTime*2.0),6.0), 0.6+1.2*pow(max(0.0,cos(a - uTime*1.5)),12.0), 0.5+1.4*(exp(-pow(hb*9.0,2.0))+0.65*exp(-pow((hb-0.2)*9.0,2.0)))))*(1.0+uEnergy*2.0+uBeat*1.5);
+      fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; void main(){ float a=vUv.x*6.2831853; float hb=fract(uTime*0.85); float k = dot(uW, vec4(0.8+0.6*sin(a*6.0 - uTime*1.2), 0.5+1.0*pow(0.5+0.5*sin(a*3.0 + uTime*2.0),6.0), 0.6+1.2*pow(max(0.0,cos(a - uTime*1.5)),12.0), 0.5+1.4*(exp(-pow(hb*9.0,2.0))+0.65*exp(-pow((hb-0.2)*9.0,2.0)))))*(1.0+uEnergy*2.0+uBeat*1.5);
         gl_FragColor = vec4(uMood*k*k*0.55, 1.0); }`,
     });
     for (let i = 0; i < 14; i++) {
@@ -629,8 +630,16 @@ export class DeepDive {
     const breath = 0.5 + 0.5 * Math.sin(T * 0.9), hbp = (T * 0.75) % 1, heart = Math.exp(-Math.pow(hbp * 9, 2)) + 0.6 * Math.exp(-Math.pow((hbp - 0.2) * 9, 2));
     const base = { e: 0.22 + 0.08 * breath, b: 0.24 + 0.1 * breath, m: 0.2 + 0.06 * Math.sin(T * 0.6), h: 0.2, beat: heart * 0.25 };
     const L = this.liveMix, mixv = (x: number, y: number) => x * (1 - L) + y * L;
-    u.uEnergy.value = mixv(base.e, lift(a.all) * 0.42 + 0.06); u.uBass.value = mixv(base.b, lift(a.bass) * 0.5 + 0.05); u.uMid.value = mixv(base.m, lift(a.mid) * 0.5 + 0.05);
-    u.uHigh.value = mixv(base.h, lift(a.high) * 0.5 + 0.05); u.uBeat.value = mixv(base.beat, a.beat * 0.55);
+    // Follow the music by its movement, not its loudness: each band against its own
+    // slow average (a few seconds), so every swell and hit shows at once, on a quiet
+    // track as on a loud one, without the frame washing out.
+    const avg = this.avg, ka = 1 - Math.exp(-dt / 3.5);
+    avg.all += (a.all - avg.all) * ka; avg.bass += (a.bass - avg.bass) * ka; avg.mid += (a.mid - avg.mid) * ka; avg.high += (a.high - avg.high) * ka;
+    const dyn = (x: number, m: number, g: number) => Math.min(1, Math.max(0, 0.35 + (x - m) * g));
+    const live = { e: 0.08 + dyn(a.all, avg.all, 2.6) * 0.5 + lift(a.all) * 0.08, b: 0.06 + dyn(a.bass, avg.bass, 2.4) * 0.7,
+      m: 0.06 + dyn(a.mid, avg.mid, 2.6) * 0.6, h: 0.05 + dyn(a.high, avg.high, 3.0) * 0.6, beat: Math.min(1, a.beat * 1.1) };
+    u.uEnergy.value = mixv(base.e, live.e); u.uBass.value = mixv(base.b, live.b); u.uMid.value = mixv(base.m, live.m);
+    u.uHigh.value = mixv(base.h, live.h); u.uBeat.value = mixv(base.beat, live.beat);
     (u.uMood.value as THREE.Color).lerp(this.moodTarget, 1 - Math.exp(-dt * 1.4));
     u.uStrength.value = lerp(u.uStrength.value as number, this.strengthTarget, 1 - Math.exp(-dt * 1.4));
     const fogC = (u.uFog.value as THREE.Color).copy(u.uMood.value as THREE.Color).multiplyScalar(0.035).add(new THREE.Color(0x010206));
@@ -742,14 +751,14 @@ export class DeepDive {
     });
     if (this.abyss) this.abyss.visible = camY > -10;
     // rain/dust: down through the hall; once falling, rushing up past the camera
-    const rainSpeed = t < EDGE1 ? 9 : -(fallSpeed + 8);
+    const rainSpeed = t < EDGE1 ? 6 : -(fallSpeed * 0.8 + 3);
     this.scroll += rainSpeed * dt;
     const ru = (this.rain.material as THREE.ShaderMaterial).uniforms;
     ru.uScroll.value = this.scroll; ru.uBase.value = Math.max(camY, 0) + (camY < 0 ? camY : 0) + 20 * (camY >= 0 ? 1 : 0);
     // The fall's surroundings change: five worlds take turns (~70 s each, 10 s crossfades),
     // the ribbed ring tunnel first; the hall's dressing fades as the camera goes under.
     const fallT = Math.max(0, t - FALL1);
-    const ERA = 70, EB = 10, ei = Math.floor(fallT / ERA), eb = smooth(((fallT % ERA) - (ERA - EB)) / EB);
+    const ERA = 70, EB = 16, ei = Math.floor(fallT / ERA), eb = smooth(((fallT % ERA) - (ERA - EB)) / EB);
     const ew = [0, 0, 0, 0, 0]; ew[ei % 5] = 1 - eb; ew[(ei + 1) % 5] += eb;
     if (!diving) { ew.fill(0); ew[0] = 1; }
     // the ribbed rings open out and away when their world ends
@@ -762,8 +771,8 @@ export class DeepDive {
     u.uFlare.value = flare;
     // pulse patterns take turns every 16 s, each fading into the next
     { const ph = T / 16, i = Math.floor(ph) % 4, b = smooth((ph % 1 - 0.7) / 0.3), w = [0, 0, 0, 0]; w[i] = 1 - b; w[(i + 1) % 4] += b; (u.uW.value as THREE.Vector4).set(w[0], w[1], w[2], w[3]); }
-    this.bloom.strength = 0.95 + (u.uBeat.value as number) * 0.35 + (u.uEnergy.value as number) * 0.3 + flare * 1.2;
-    this.renderer.toneMappingExposure = 0.9 + (u.uEnergy.value as number) * 0.1;
+    this.bloom.strength = 0.9 + (u.uBeat.value as number) * 0.55 + (u.uEnergy.value as number) * 0.35 + flare * 1.2;
+    this.renderer.toneMappingExposure = 0.88 + (u.uEnergy.value as number) * 0.12 + (u.uBeat.value as number) * 0.08;
     this.composer.render(dt);
   };
 }

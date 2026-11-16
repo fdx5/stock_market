@@ -89,8 +89,8 @@ export class Worlds {
       uniforms: { ...u, uVis: this.vis.vortex }, ...additive,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: /* glsl */`${common} uniform float uVis; varying vec2 vUv;
-        void main(){ float u=vUv.x; float run = dot(uW, vec4(pow(0.5+0.5*sin(u*60.0 - uTime*5.0),8.0), pow(0.5+0.5*sin(u*25.0 + uTime*3.0),10.0), pow(0.5+0.5*sin(u*8.0 - uTime*2.0),4.0), pow(0.5+0.5*sin(u*40.0 - uTime*7.0),16.0)));
-          float k = (0.12 + run*1.6) * (0.5 + uEnergy*1.4 + uBeat) * uVis;
+        void main(){ float u=vUv.x; float run = dot(uW, vec4(pow(0.5+0.5*sin(u*30.0 - uTime*1.4),8.0), pow(0.5+0.5*sin(u*14.0 + uTime*1.0),8.0), pow(0.5+0.5*sin(u*6.0 - uTime*0.7),4.0), pow(0.5+0.5*sin(u*20.0 - uTime*1.8),10.0)));
+          float k = (0.08 + run*1.0) * (0.5 + uEnergy*1.0 + uBeat*0.5) * uVis;
           gl_FragColor = vec4((uMood*1.5 + vec3(0.1))*k, 1.0); }`,
     });
     for (let k = 0; k < 14; k++) {
@@ -101,25 +101,23 @@ export class Worlds {
     this.vortex.visible = false;
     scene.add(this.vortex);
 
-    // 2. Crystal shards drifting past: glassy, edge-lit, slowly tumbling.
-    const SN = 520, sg = new THREE.InstancedBufferGeometry().copy(new THREE.OctahedronGeometry(1, 0) as unknown as THREE.InstancedBufferGeometry);
+    // 2. Pearls of light drifting past: smooth glassy spheres, a soft rim and a quiet core.
+    const SN = 220, sg = new THREE.InstancedBufferGeometry().copy(new THREE.IcosahedronGeometry(1, 3) as unknown as THREE.InstancedBufferGeometry);
     const ss = new Float32Array(SN * 4), sr = new Float32Array(SN * 4);
-    for (let i = 0; i < SN; i++) { const a = Math.random() * Math.PI * 2, r = 4 + Math.pow(Math.random(), 0.7) * 24; ss.set([Math.cos(a) * r, Math.random() * 120, Math.sin(a) * r, 0.15 + Math.random() * 0.7], i * 4); sr.set([Math.random() * 6.28, Math.random() * 6.28, Math.random(), 0.4 + Math.random() * 2.5], i * 4); }
+    for (let i = 0; i < SN; i++) { const a = Math.random() * Math.PI * 2, r = 5 + Math.pow(Math.random(), 0.6) * 26; ss.set([Math.cos(a) * r, Math.random() * 120, Math.sin(a) * r, 0.12 + Math.pow(Math.random(), 2.5) * 1.6], i * 4); sr.set([Math.random() * 6.28, Math.random(), Math.random(), 0], i * 4); }
     sg.setAttribute("aSeed", new THREE.InstancedBufferAttribute(ss, 4)); sg.setAttribute("aRot", new THREE.InstancedBufferAttribute(sr, 4)); sg.instanceCount = SN;
     this.shards = new THREE.Mesh(sg, new THREE.ShaderMaterial({
       uniforms: { ...u, uVis: this.vis.shards, uBase: { value: 0 }, uScroll: { value: 0 } }, ...additive,
-      vertexShader: /* glsl */`attribute vec4 aSeed; attribute vec4 aRot; uniform float uTime, uBase, uScroll; varying vec3 vN; varying vec3 vV; varying float vS;
-        mat3 rot(vec3 a){ float cx=cos(a.x),sx=sin(a.x),cy=cos(a.y),sy=sin(a.y),cz=cos(a.z),sz=sin(a.z);
-          return mat3(cy*cz, cy*sz, -sy, sx*sy*cz-cx*sz, sx*sy*sz+cx*cz, sx*cy, cx*sy*cz+sx*sz, cx*sy*sz-sx*cz, cx*cy); }
-        void main(){ mat3 R = rot(vec3(aRot.x + uTime*0.3*aRot.z, aRot.y + uTime*0.2, uTime*0.1*aRot.z));
-          vec3 p = R * (position * vec3(aSeed.w*0.35, aSeed.w*aRot.w, aSeed.w*0.35));
-          vec3 c = vec3(aSeed.x, uBase + mod(aSeed.y + uScroll*0.8, 120.0) - 60.0, aSeed.z);
-          vec4 w = modelMatrix*vec4(c + p, 1.0); vN = normalize(R*normal); vV = normalize(cameraPosition - w.xyz); vS = aSeed.w;
+      vertexShader: /* glsl */`attribute vec4 aSeed; attribute vec4 aRot; uniform float uTime, uBase, uScroll; varying vec3 vN; varying vec3 vV; varying float vS; varying float vD;
+        void main(){ vec3 c = vec3(aSeed.x + sin(uTime*0.07 + aRot.x)*1.5, uBase + mod(aSeed.y + uScroll*(0.5 + aRot.y*0.4), 120.0) - 60.0, aSeed.z + cos(uTime*0.06 + aRot.x)*1.5);
+          vec4 w = modelMatrix*vec4(c + position*aSeed.w, 1.0); vN = normal; vV = normalize(cameraPosition - w.xyz); vS = aRot.z;
+          vD = smoothstep(1.5, 6.0, distance(cameraPosition, c));
           gl_Position = projectionMatrix*viewMatrix*w; }`,
-      fragmentShader: /* glsl */`${common} uniform float uVis; varying vec3 vN; varying vec3 vV; varying float vS;
-        void main(){ float f = pow(1.0 - abs(dot(normalize(vN), vV)), 2.0); float glint = pow(max(0.0, dot(normalize(vN), normalize(vec3(0.3,1.0,0.2)))), 24.0);
-          float k = (0.06 + f*1.1 + glint*1.5) * (0.6 + uHigh*1.2 + uBeat*0.6) * uVis;
-          gl_FragColor = vec4((uMood*1.3 + vec3(0.2))*k, 1.0); }`,
+      fragmentShader: /* glsl */`${common} uniform float uVis; varying vec3 vN; varying vec3 vV; varying float vS; varying float vD;
+        void main(){ float f = 1.0 - abs(dot(normalize(vN), vV)); float rim = pow(f, 3.0); float core = pow(1.0 - f, 6.0)*0.25;
+          float breath = 0.75 + 0.25*sin(uTime*0.6 + vS*40.0);
+          float k = (rim*0.9 + core) * breath * (0.55 + uHigh*0.8 + uBeat*0.3) * uVis * vD;
+          gl_FragColor = vec4((uMood*1.2 + vec3(0.16))*k, 1.0); }`,
     }));
     this.shards.frustumCulled = false; this.shards.visible = false;
     scene.add(this.shards);
@@ -147,21 +145,25 @@ export class Worlds {
     this.nebula.frustumCulled = false; this.nebula.visible = false;
     scene.add(this.nebula);
 
-    // 4. Hexagonal lattice rings, alternate ones counter-rotating.
-    const hexMat = new THREE.ShaderMaterial({
+    // 4. An armillary of light: vast thin circles on different axes turning slowly round the
+    // diver, and wide soft halos drifting up past it. Smooth, sparse, quiet.
+    const ringMat = (bright: number) => new THREE.ShaderMaterial({
       uniforms: { ...u, uVis: this.vis.hex }, ...additive,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: /* glsl */`${common} uniform float uVis; varying vec2 vUv; void main(){ float a=vUv.x*6.2831853;
-        float k = (0.5 + 0.8*pow(0.5+0.5*sin(a*6.0 - uTime*2.5), 6.0)) * (0.6 + uEnergy*1.4 + uBeat) * uVis;
-        gl_FragColor = vec4((uMood*1.4 + vec3(0.1))*k, 1.0); }`,
+        float run = pow(0.5+0.5*sin(a*2.0 - uTime*0.45), 4.0);
+        float k = (0.22 + run*0.9) * ${bright.toFixed(2)} * (0.6 + uEnergy*0.9 + uBeat*0.4) * uVis;
+        gl_FragColor = vec4((uMood*1.3 + vec3(0.1))*k, 1.0); }`,
     });
-    for (let i = 0; i < 16; i++) {
-      const ring = new THREE.Group();
-      const R = 7 + (i % 4) * 1.6;
-      const outer = new THREE.Mesh(new THREE.TorusGeometry(R, 0.09, 4, 6), hexMat); outer.rotation.x = Math.PI / 2;
-      const inner = new THREE.Mesh(new THREE.TorusGeometry(R * 0.82, 0.05, 4, 6), hexMat); inner.rotation.x = Math.PI / 2; inner.rotation.z = Math.PI / 6;
-      ring.add(outer, inner);
+    for (let i = 0; i < 6; i++) {
+      const R = 13 + i * 2.6, ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.035 + i * 0.006, 8, 360), ringMat(1.0));
+      ring.userData = { ax: new THREE.Vector3(Math.sin(i * 1.7), 0.6 + 0.4 * Math.cos(i), Math.cos(i * 2.3)).normalize(), sp: (i % 2 ? 1 : -1) * (0.035 + i * 0.008), tilt: 0.5 + i * 0.37 };
       this.hex.add(ring);
+    }
+    for (let i = 0; i < 9; i++) {
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(10 + (i % 3) * 3.5, 0.05, 8, 360), ringMat(0.7));
+      halo.rotation.x = Math.PI / 2; halo.userData = { halo: i };
+      this.hex.add(halo);
     }
     this.hex.visible = false;
     scene.add(this.hex);
@@ -172,12 +174,13 @@ export class Worlds {
     this.vis.hall.value = hall; this.hall.visible = hall > 0.01;
     const set = (key: string, obj: THREE.Object3D, v: number) => { this.vis[key].value = v; obj.visible = v > 0.01; };
     set("vortex", this.vortex, w[1]); set("shards", this.shards, w[2]); set("nebula", this.nebula, w[3]); set("hex", this.hex, w[4]);
-    this.vortex.position.y = camY - 10; this.vortex.rotation.y = -T * 0.12;
+    this.vortex.position.y = camY - 10; this.vortex.rotation.y = -T * 0.05;
     for (const m of [this.shards, this.nebula]) { const s = (m.material as THREE.ShaderMaterial).uniforms; s.uBase.value = camY - 6; s.uScroll.value = scroll; }
-    this.hex.children.forEach((r, i) => {
-      const spacing = 7.5, L = this.hex.children.length * spacing;
-      r.position.y = camY - 60 + ((i * spacing + scroll * 0.9) % L);
-      r.rotation.y = (i % 2 ? 1 : -1) * T * 0.15 + i * 0.3;
+    this.hex.position.y = camY - 4;
+    this.hex.children.forEach(r => {
+      const d = r.userData as { ax?: THREE.Vector3; sp?: number; tilt?: number; halo?: number };
+      if (d.ax) { r.rotation.set(d.tilt!, T * d.sp!, d.tilt! * 0.6); r.rotateOnAxis(d.ax, T * d.sp! * 0.7); }
+      else { const spacing = 14, L = 9 * spacing; r.position.y = -60 + ((d.halo! * spacing + scroll * 0.6) % L); }
     });
   }
 }
