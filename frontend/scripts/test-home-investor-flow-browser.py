@@ -62,17 +62,14 @@ with sync_playwright() as p:
         page.set_viewport_size({'width':width,'height':900})
         # Existing scanner cells animate their layout after a resize.
         page.wait_for_timeout(800)
-        assert panel.bounding_box()['height'] < 50, width
+        assert panel.bounding_box()['height'] < (100 if width <= 520 else 65), width
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'), (width, page.evaluate("['.ng-content','.ng-atlas','.sc-scanner','.pif-panel','.pif-content','.pif-rows','.sc-controls'].map(s=>{const e=document.querySelector(s),r=e.getBoundingClientRect();return [s,r.width,r.x,e.scrollWidth]})"))
-        assert panel.locator('.pif-row').evaluate_all('els=>Math.max(...els.map(el=>el.getBoundingClientRect().top))-Math.min(...els.map(el=>el.getBoundingClientRect().top))<1'), width
+        if width > 520:
+            assert panel.locator('.pif-row').evaluate_all('els=>Math.max(...els.map(el=>el.getBoundingClientRect().top))-Math.min(...els.map(el=>el.getBoundingClientRect().top))<1'), width
         assert panel.locator('.pif-row').evaluate_all('els=>els.every(el=>el.scrollWidth<=el.clientWidth+1)'), width
-        if width == 320:
-            rail = panel.locator('.pif-rows')
-            assert rail.evaluate('el=>el.scrollWidth>el.clientWidth')
-            rail.evaluate('el=>el.scrollLeft=el.scrollWidth')
-            assert rail.evaluate('el=>el.scrollLeft>0')
+        assert panel.locator('.pif-rows').evaluate('el=>el.scrollWidth<=el.clientWidth+1'), width
         page.screenshot(path=str(OUTPUT/f'width-{width}.png'))
-    print('PASS immediate rolling, one shared poll, placement and one-line layout at 1600/1280/768/390/320px',flush=True)
+    print('PASS immediate rolling, shared poll, placement and no horizontal scrolling at 1600/1280/768/390/320px',flush=True)
     markets = page.get_by_role('group',name='시장 선택',exact=True)
     markets.get_by_role('button',name=re.compile('^KOSDAQ')).click()
     assert panel.get_attribute('data-market') == 'kosdaq'
