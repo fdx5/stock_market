@@ -229,7 +229,10 @@ html[data-fx=minimal] .pb-market-picker .pb-tab,html[data-fx=minimal] .pb-tab-ac
    a tall open band at the end so the scene is seen whole below the cells. */
 .pb2-deep{position:fixed;left:var(--ng-rail,0px);right:0;top:0;bottom:0;z-index:-1;pointer-events:none;background:#01030a}
 .pb2-deep canvas{display:block;width:100%;height:100%}
-.pb-page--deep{--pb-ship-band:58vh}
+.pb-page--deep{--pb-ship-band:62vh;--pb-ship-band:62svh}
+/* phones: a clear stretch of the scene under the board (the page simply scrolls further) */
+@media (orientation:portrait) and (max-width:900px){.pb-page--deep{--pb-ship-band:68vh;--pb-ship-band:68svh}}
+@media (orientation:landscape) and (max-height:600px){.pb-page--deep{--pb-ship-band:calc(100vh - 96px);--pb-ship-band:calc(100svh - 96px)}}
 /* 증시 전광판2: "종목 감추기" keeps only the index tabs and this toggle, for watching the scene */
 .pb-actions{display:flex;gap:10px;align-items:stretch}
 .pb-actions .pb-more{flex:1 1 auto}

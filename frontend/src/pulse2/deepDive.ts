@@ -96,7 +96,10 @@ export class DeepDive {
     this.buildMist();
     this.loadFigure();
 
-    this.composer = new EffectComposer(this.renderer);
+    // A multisampled, half-float target: smooth edges on the thin rings and ribs (the
+    // canvas's own antialiasing does not reach through the post chain), no banding.
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: quality === "high" ? 4 : 2 });
+    this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     // (any NaN or infinite pixel would be smeared across the whole frame by the bloom: scrub
     // them, and cap the HDR so a hot spot cannot flood the glow)
@@ -126,7 +129,10 @@ export class DeepDive {
           float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
           col *= mix(0.62, 1.0, smoothstep(0.05, 0.9, lum));
           col = mix(col, vec3(1.0) * 0.6 + uMood * 0.8, clamp(uFlare, 0.0, 1.0)); // the loop's flare
-          gl_FragColor = vec4(col, 1.0);
+          // fine film grain, which also dithers away banding in the dark gradients
+          float g = fract(sin(dot(vUv*uRes + fract(uTime*7.13)*91.0, vec2(12.9898, 78.233)))*43758.5453) - 0.5;
+          col += g * (0.0015 + 0.012*lum); // (linear light: tiny in the darks)
+          gl_FragColor = vec4(max(col, 0.0), 1.0);
         }`,
     });
     this.composer.addPass(this.finish);
@@ -193,9 +199,11 @@ export class DeepDive {
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
     this.bloom.setSize(w, h);
+    ((this.finish.uniforms as Record<string, { value: unknown }>).uRes.value as THREE.Vector2).set(w, h);
     this.camera.aspect = w / h;
-    // The subject sits low in the frame (~60 % down), clear of the board above it.
-    this.camera.setViewOffset(w, h, 0, -h * 0.12, w, h);
+    // The subject sits low in the frame (~64 % down), clear of the board above it.
+    // (lower still on short landscape screens, where the site header takes the top third)
+    this.camera.setViewOffset(w, h, 0, -h * (w < h * 0.8 ? 0.09 : h < 560 ? 0.17 : 0.14), w, h); // (portrait phones: clear of the tab bar)
     this.camera.updateProjectionMatrix();
   }
 
@@ -735,6 +743,8 @@ export class DeepDive {
     const kc = 1 - Math.exp(-dt * 3.5);
     this.camPos.lerp(pos, kc); this.camLook.lerp(look, kc);
     cam.position.copy(this.camPos); cam.lookAt(this.camLook);
+    // (very wide, short frames — phones held sideways — draw in closer so the figure reads)
+    fov *= cam.aspect > 1.9 ? 0.8 : 1;
     cam.fov += (fov - cam.fov) * kc; cam.updateProjectionMatrix();
 
     // ---- dive environment

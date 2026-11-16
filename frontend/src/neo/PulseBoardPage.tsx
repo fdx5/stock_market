@@ -40,9 +40,10 @@ function useMedia(query: string) {
   return matches;
 }
 /** Phones open with 20 cells, tablets with 30, desktops with 50. */
-function useDefaultCells() {
+function useDefaultCells(deep = false) {
   const phone = useMedia(PHONE_QUERY), compact = useMedia(COMPACT_QUERY);
-  return phone ? 20 : compact ? 30 : 50;
+  // (the deep-dive board keeps fewer on small screens, so the scene shows under it)
+  return phone ? (deep ? 10 : 20) : compact ? (deep ? 20 : 30) : 50;
 }
 const MOOD_NAME: Record<Mood, [string, string]> = { down: ["푸른 펄스 바다", "Blue pulse sea"], calm: ["보라 펄스 바다", "Violet pulse sea"], up: ["레드·골드 펄스 바다", "Red-gold pulse sea"] };
 /** The sea's colour rule: −1% or lower is blue, +1% or higher is red-gold, violet between. */
@@ -145,7 +146,7 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
   // 증시 전광판2: hide every stock (the index tabs stay) to watch the scene alone.
   const [bare, setBare] = useState(() => { try { return variant === "deep" && localStorage.getItem("pb2-bare") === "1"; } catch { return false; } });
   const toggleBare = () => setBare(value => { const next = !value; try { localStorage.setItem("pb2-bare", next ? "1" : "0"); } catch { /* private mode */ } return next; });
-  const DEFAULT_CELLS = useDefaultCells();
+  const DEFAULT_CELLS = useDefaultCells(variant === "deep");
   const [columns, setColumns] = useState(8);
   const controller = useRef<PulseHorizonController | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
