@@ -271,8 +271,8 @@ export class LightFall {
           vec3 gold = vec3(1.0, 0.78, 0.42), silver = vec3(0.78, 0.86, 1.0);
           vec3 tint = vS.y < 0.3 ? gold : vS.y < 0.5 ? silver : uMood * 1.25 + vec3(0.08);
           vec3 c = mix(tint, vec3(1.0, 0.97, 0.92), clamp(head * 0.4 + core * (1.0 - y) * 0.35, 0.0, 1.0));
-          float k = ((core + halo) * tail + head) * vA * uVisF * (0.5 + uHigh * 0.6 + uBeat * 0.5) * (0.7 + 0.3 * sin(uTime * (2.0 + vS.w * 3.0) + vS.x * 40.0));
-          gl_FragColor = vec4(c * k * 0.9, 1.0); }`,
+          float k = ((core + halo) * tail + head) * vA * uVisF * (0.55 + uHigh * 0.35 + uBeat * 0.2) * (0.88 + 0.12 * sin(uTime * (0.8 + vS.w * 1.2) + vS.x * 40.0));
+          gl_FragColor = vec4(c * k * 0.75, 1.0); }`,
     }));
     this.streaks.frustumCulled = false; this.streaks.visible = false;
     scene.add(this.streaks);
@@ -307,7 +307,7 @@ export class LightFall {
           float wake = smoothstep(1.0, 0.55, d) * smoothstep(0.1, 0.9, d) * 0.03;   // a faint glow over the disc
           float run = pow(0.5 + 0.5 * sin(a * 2.0 - uTime * 0.9 + vS.w * 6.0), 6.0);
           vec3 c = mix(uMood * 1.2 + vec3(0.1), vec3(1.0, 0.86, 0.6), 0.25 + run * 0.35);
-          float k = (line * (0.45 + run * 0.9) + twin + tick + jewel + wake) * vA * face * uVisF * (0.55 + uEnergy * 0.5 + uBeat * 0.9);
+          float k = (line * (0.45 + run * 0.9) + twin + tick + jewel + wake) * vA * face * uVisF * (0.5 + uEnergy * 0.35 + uBeat * 0.3) * 0.85;
           gl_FragColor = vec4(c * k, 1.0); }`,
     }));
     this.rings.frustumCulled = false; this.rings.visible = false;

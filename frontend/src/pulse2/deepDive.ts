@@ -97,6 +97,7 @@ export class DeepDive {
   private disposed = false;
   private scroll = 0;     // rain/dust scroll (m)
   private tunnelScroll = 0;
+  private soft = { e: 0.2, b: 0.2, m: 0.2, h: 0.2, beat: 0 };
   private resizeObs: ResizeObserver;
   private visible = true;
   /** Drawn while the page is shown and the canvas on screen; otherwise no frames at all. */
@@ -228,9 +229,9 @@ export class DeepDive {
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv);
         if (!(c.r == c.r) || !(c.g == c.g) || !(c.b == c.b) || c.r > 1e4 || c.g > 1e4 || c.b > 1e4) c = vec4(0.0);
-        gl_FragColor = vec4(min(c.rgb, vec3(24.0)), 1.0); }`,
+        gl_FragColor = vec4(min(c.rgb, vec3(10.0)), 1.0); }`,
     }));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.95, 0.5, 0.55);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.95, 0.62, 0.6);
     this.composer.addPass(this.bloom);
     this.finish = new ShaderPass({
       uniforms: { tDiffuse: { value: null }, uFlare: this.u.uFlare, uMood: this.u.uMood, uTime: this.u.uTime, uDeep: this.u.uDeep, uRes: { value: new THREE.Vector2(1, 1) } },
@@ -248,7 +249,7 @@ export class DeepDive {
           vec3 st = vec3(0.0); float px = 1.0 / uRes.x;
           for (int i = 1; i <= 8; i++) { float d = float(i*i) * 3.0 * px, w = exp(-float(i)*0.45);
             st += (max(texture2D(tDiffuse, vUv + vec2(d, 0.0)).rgb - 1.4, 0.0) + max(texture2D(tDiffuse, vUv - vec2(d, 0.0)).rgb - 1.4, 0.0)) * w; }
-          col += (st * 0.5 + dot(st, vec3(0.33)) * 0.15) * (uMood * 0.5 + vec3(0.35)) * 0.09;
+          col += (st * 0.5 + dot(st, vec3(0.33)) * 0.15) * (uMood * 0.5 + vec3(0.35)) * 0.06;
           #endif
           // vignette round the subject (sat low in the frame), deep at the edges
           float rs = length((vUv - vec2(0.5, 0.4)) * vec2(1.0, 1.15));
@@ -259,6 +260,8 @@ export class DeepDive {
           // split tone: the shadows lean a touch cool and deep, the highlights a touch warm
           col = mix(col, col * vec3(0.92, 0.96, 1.1), smoothstep(0.3, 0.0, lum) * 0.5);
           col = mix(col, col * vec3(1.06, 1.02, 0.95), smoothstep(0.4, 1.4, lum) * 0.4);
+          // a soft shoulder: the brightest light rolls off gently instead of glaring
+          col = col / (1.0 + max(lum - 1.2, 0.0) * 0.35);
           col = mix(col, vec3(1.0) * 0.6 + uMood * 0.8, clamp(uFlare, 0.0, 1.0)); // the loop's flare
           // fine film grain, which also dithers away banding in the dark gradients
           float g = fract(sin(dot(vUv*uRes + fract(uTime*7.13)*91.0, vec2(12.9898, 78.233)))*43758.5453) - 0.5;
@@ -968,8 +971,12 @@ export class DeepDive {
     const dyn = (x: number, m: number, g: number) => Math.min(1, Math.max(0, 0.35 + (x - m) * g));
     const live = { e: 0.08 + dyn(a.all, avg.all, 2.6) * 0.5 + lift(a.all) * 0.08, b: 0.06 + dyn(a.bass, avg.bass, 2.4) * 0.7,
       m: 0.06 + dyn(a.mid, avg.mid, 2.6) * 0.6, h: 0.05 + dyn(a.high, avg.high, 3.0) * 0.6, beat: Math.min(1, a.beat * 1.1) };
-    u.uEnergy.value = mixv(base.e, live.e); u.uBass.value = mixv(base.b, live.b); u.uMid.value = mixv(base.m, live.m);
-    u.uHigh.value = mixv(base.h, live.h); u.uBeat.value = mixv(base.beat, live.beat);
+    // easy on the eyes over a long watch: the light swells and settles with the music rather
+    // than flashing on every hit (bands eased, the beat smaller, rising fast and fading slowly)
+    const sf = this.soft, ks = 1 - Math.exp(-dt * 5), kb = mixv(base.beat, live.beat) * 0.55;
+    sf.e += (mixv(base.e, live.e) - sf.e) * ks; sf.b += (mixv(base.b, live.b) - sf.b) * ks; sf.m += (mixv(base.m, live.m) - sf.m) * ks; sf.h += (mixv(base.h, live.h) - sf.h) * ks;
+    sf.beat = kb > sf.beat ? sf.beat + (kb - sf.beat) * (1 - Math.exp(-dt * 14)) : sf.beat + (kb - sf.beat) * (1 - Math.exp(-dt * 3));
+    u.uEnergy.value = sf.e; u.uBass.value = sf.b; u.uMid.value = sf.m; u.uHigh.value = sf.h; u.uBeat.value = sf.beat;
     (u.uMood.value as THREE.Color).lerp(this.moodTarget, 1 - Math.exp(-dt * 1.4));
     u.uStrength.value = lerp(u.uStrength.value as number, this.strengthTarget, 1 - Math.exp(-dt * 1.4));
     const fogC = (u.uFog.value as THREE.Color).copy(u.uMood.value as THREE.Color).multiplyScalar(0.035).add(DeepDive.FOG_BASE);
@@ -1124,7 +1131,7 @@ export class DeepDive {
     // (very wide, short frames — phones held sideways — draw in closer so the figure reads)
     fov *= cam.aspect > 1.9 ? 0.8 : 1;
     // the lens breathes with the kick drum, a hair
-    fov -= (u.uBeat.value as number) * 0.6 * (t >= FALL1 ? 1 : 0.4);
+    fov -= (u.uBeat.value as number) * 0.25 * (t >= FALL1 ? 1 : 0.4);
     cam.fov += (fov - cam.fov) * kc; cam.updateProjectionMatrix();
 
     // ---- the figure's light: a heart in the chest, light thrown on the hall
@@ -1253,8 +1260,8 @@ export class DeepDive {
     u.uFlare.value = flare;
     // pulse patterns take turns every 16 s, each fading into the next
     { const ph = T / 16, i = Math.floor(ph) % 4, b = smooth((ph % 1 - 0.7) / 0.3), w = [0, 0, 0, 0]; w[i] = 1 - b; w[(i + 1) % 4] += b; (u.uW.value as THREE.Vector4).set(w[0], w[1], w[2], w[3]); }
-    this.bloom.strength = 0.9 + (u.uBeat.value as number) * 0.55 + (u.uEnergy.value as number) * 0.35 + flare * 1.2;
-    this.renderer.toneMappingExposure = (0.88 + (u.uEnergy.value as number) * 0.12 + (u.uBeat.value as number) * 0.08) * (1 - 0.2 * (u.uDeep.value as number));
+    this.bloom.strength = 0.74 + (u.uBeat.value as number) * 0.2 + (u.uEnergy.value as number) * 0.22 + flare * 1.2;
+    this.renderer.toneMappingExposure = (0.88 + (u.uEnergy.value as number) * 0.08 + (u.uBeat.value as number) * 0.03) * (1 - 0.2 * (u.uDeep.value as number));
     this.composer.render(dt);
   }
 
@@ -1466,7 +1473,7 @@ export class DeepDive {
     this.camPos.lerp(pos, kc); this.camLook.lerp(look, kc); this.camRoll += (roll - this.camRoll) * kc;
     this.placeCam(dt);
     fov *= cam.aspect > 1.9 ? 0.8 : 1;
-    fov -= (u.uBeat.value as number) * 0.5;
+    fov -= (u.uBeat.value as number) * 0.2;
     cam.fov += (fov - cam.fov) * kc; cam.updateProjectionMatrix();
 
     // ---- light
