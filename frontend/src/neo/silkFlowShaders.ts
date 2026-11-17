@@ -41,6 +41,8 @@ uniform float u_time;
 uniform float u_aspect;
 uniform vec4 u_pulse;   // x position, river, strength, -
 uniform vec3 u_pointer; // x, y, strength
+uniform vec3 u_eddyA; // center x/y and strength, shared by every particle
+uniform vec3 u_eddyB;
 const float BASE[${RIVERS}]=float[${RIVERS}](.2,.41,.61,.81);
 const float WIDTH[${RIVERS}]=float[${RIVERS}](.03,.045,.026,.04);
 const float SPEED[${RIVERS}]=float[${RIVERS}](.2,.15,.18,.14);
@@ -59,10 +61,9 @@ float stream(vec2 p){
   }
   float t=u_time;
   psi+=.011*snoise(vec3(p*1.5,t*.04))+.0035*snoise(vec3(p*3.4+7.,t*.07));
-  vec2 e1=vec2(u_aspect*(.5+.36*sin(t*.021)),.5+.26*sin(t*.029+1.));
-  vec2 e2=vec2(u_aspect*(.5+.38*sin(t*.017+2.6)),.5+.3*sin(t*.025+4.));
-  psi+=.0045*sin(t*.043)*exp(-dot(p-e1,p-e1)/.02);
-  psi-=.004*sin(t*.037+1.3)*exp(-dot(p-e2,p-e2)/.016);
+  vec2 e1=p-u_eddyA.xy,e2=p-u_eddyB.xy;
+  psi+=u_eddyA.z*exp(-dot(e1,e1)/.02);
+  psi-=u_eddyB.z*exp(-dot(e2,e2)/.016);
   vec2 q=p-u_pointer.xy;
   psi+=u_pointer.z*.0035*exp(-dot(q,q)/.01);
   return psi;
@@ -97,11 +98,11 @@ void main(){
   vec4 m=texelFetch(u_motion,tc,0);
   vec2 p=s.xy;
   float age=s.z+u_dt,life=m.w;
-  vec2 v=flow(p);
-  v.y+=u_drift;
-  p+=v*u_dt;
+  bool expired=age>life;
+  vec2 v=vec2(0.);
+  if(!expired){v=flow(p);v.y+=u_drift;p+=v*u_dt;}
   bool out_=p.x<-.04||p.x>u_aspect+.04||p.y<-.04||p.y>1.04;
-  if(age>life||out_){
+  if(expired||out_){
     vec2 seed=vec2(gl_FragCoord.xy)+u_frame*vec2(1.618,2.414);
     float r0=hash12(seed),r1=hash12(seed+11.3),r2=hash12(seed+27.1),r3=hash12(seed+43.7),r4=hash12(seed+59.9);
     float river=r0<.8?floor(r1*${RIVERS}.):${RIVERS}.;
@@ -185,14 +186,15 @@ uniform float u_time;
 uniform float u_aspect;
 uniform float u_exposure;
 uniform float u_glow;
+uniform vec4 u_bgCenters;
 in vec2 v_uv;out vec4 o;
 float hash12(vec2 p){vec3 p3=fract(vec3(p.xyx)*.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
 void main(){
   vec2 uv=v_uv;
   vec2 q=vec2(uv.x*u_aspect,uv.y);
   vec3 bg=vec3(.043,.027,.055);
-  vec2 g1=vec2(u_aspect*(.28+.08*sin(u_time*.013)),.7);
-  vec2 g2=vec2(u_aspect*(.76+.06*sin(u_time*.011+2.)),.3);
+  vec2 g1=u_bgCenters.xy;
+  vec2 g2=u_bgCenters.zw;
   bg+=vec3(.07,.035,.1)*exp(-dot(q-g1,q-g1)*2.2);
   bg+=vec3(.06,.04,.05)*exp(-dot(q-g2,q-g2)*2.6);
   vec3 a=texture(u_acc,uv).rgb;

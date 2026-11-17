@@ -87,15 +87,17 @@ vec3 material(float tube,vec2 uv){
 `;
 
 export const HULL_VERTEX = SCENE + `
-attribute vec3 a_uv;
+attribute vec4 a_uv;
 uniform float u_tube;
+uniform float u_batched;
 varying vec3 v_surfaceColor;
 varying vec3 v_surface;
 void main(){
   float facing;
-  vec3 point=skin(u_tube,a_uv.xy,a_uv.z,facing);
+  float tube=mix(u_tube,a_uv.w,u_batched);
+  vec3 point=skin(tube,a_uv.xy,a_uv.z,facing);
   gl_Position=projectPoint(point);
-  v_surfaceColor=material(u_tube,a_uv.xy);
+  v_surfaceColor=material(tube,a_uv.xy);
   v_surface=vec3(facing,a_uv.y,point.z/u_scale);
 }
 `;
@@ -123,6 +125,8 @@ attribute vec4 a_style;
 attribute vec2 a_tubes;
 attribute vec2 a_link;
 uniform float u_width;
+uniform float u_pass;
+uniform float u_coreWidths[${NANOTUBES.length}];
 uniform vec4 u_packets[${NANOTUBES.length}];
 varying vec3 v_color;
 varying vec4 v_data;
@@ -179,7 +183,8 @@ void main(){
   vec2 direction=(pb.xy-pa.xy)*u_viewport;
   vec2 normal=vec2(-direction.y,direction.x)/max(length(direction),.001);
   vec4 clip=mix(pa,pb,a_style.x);
-  float strandWidth=isFilament?u_width*(.65+a_style.w*.4):u_width;
+  float width=u_pass<.5?(isBridge?.52:u_coreWidths[int(a_tubes.x+.5)]):u_width;
+  float strandWidth=isFilament?width*(.65+a_style.w*.4):width;
   clip.xy+=normal*a_style.y*strandWidth/u_viewport;
   clip.z-=.0018;
   gl_Position=clip;

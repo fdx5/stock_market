@@ -1,11 +1,12 @@
-import { onPageSeenChange, pageUnseen } from "../pageCovered";
+import { browserBackdropEnvironment, type BackdropEnvironment } from "./backdropEnvironment";
 import { NANOTUBES, fiberCount, formId, type NanotubeGeometry } from "./nanotubeGeometry";
 import { HULL_FRAGMENT, HULL_VERTEX, WIRE_FRAGMENT, WIRE_VERTEX } from "./nanotubeShaders";
 import { NanotubePulses } from "./nanotubePulse";
+import { mergeNanotubeBatches } from "./nanotubeBatches";
 
 type FxLevel = "full" | "balanced" | "minimal";
 type Program = { program: WebGLProgram; uniforms: Map<string, WebGLUniformLocation | null> };
-type WireBatch = { vertices: WebGLBuffer; indices: WebGLBuffer; halo: WebGLBuffer | null; count: number; haloCount: number };
+type WireBatch = { vertices: WebGLBuffer; indices: WebGLBuffer; halo: WebGLBuffer | null; count: number; haloCount: number; type?: number; tubeCount?: number; vao?: WebGLVertexArrayObjectOES; haloVao?: WebGLVertexArrayObjectOES };
 type TubeBatch = WireBatch & { hullVertices: WebGLBuffer; hullIndices: WebGLBuffer; hullCount: number };
 
 function rgb(hex: string) {
@@ -13,25 +14,37 @@ function rgb(hex: string) {
 }
 
 /** One native-resolution canvas, depth-tested cages, no per-frame mesh uploads. */
-export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFailure: () => void, onRestore: () => void) {
+export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFailure: () => void, onRestore: () => void, environment: BackdropEnvironment = browserBackdropEnvironment()) {
   const context = canvas.getContext("webgl", { alpha: true, premultipliedAlpha: true, antialias: true, depth: true, stencil: false });
   if (!context) throw new Error("WebGL unavailable");
   const gl: WebGLRenderingContext = context;
   const programs: Program[] = [];
   const buffers = new Set<WebGLBuffer>();
+  const vaoExt = gl.getExtension("OES_vertex_array_object");
+  const uintIndices = gl.getExtension("OES_element_index_uint");
+  const parallel = gl.getExtension("KHR_parallel_shader_compile");
+  const vaos = new Set<WebGLVertexArrayObjectOES>();
+  const configuredVaos = new Set<WebGLVertexArrayObjectOES>();
   let tubes: TubeBatch[] = [], links: WireBatch | null = null;
-  let frame = 0, last = 0, elapsed = 0, disposed = false, lost = false, ready = false;
+  let merged: TubeBatch | null = null;
+  let frame = 0, last = 0, elapsed = 0, disposed = false, lost = false, ready = false, failed = false;
   let viewWidth = 0, viewHeight = 0, pixelRatio = 0;
   let worker: Worker | null = null;
+  let initFrame = 0, initialized = false;
+  let hullUv = -1, attributes: number[] = [];
+  const allAttributes = new Set<number>();
   // scroll response: surge 0..1, direction of travel, and a lagging spring offset
   let scrollTarget = 0, scrollLast = -1, surge = 0, surgeDir = 1, lag = 0, lagVelocity = 0;
-  const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  const reduced = environment.reduced;
+  const pageUnseen = environment.unseen;
   const shape = new Float32Array(NANOTUBES.flatMap(tube => [tube.radius, tube.offset, tube.lean, tube.depth]));
   const motion = new Float32Array(NANOTUBES.flatMap(tube => [tube.phase, tube.tempo, tube.sway, tube.twist]));
   const colorA = new Float32Array(NANOTUBES.flatMap(tube => rgb(tube.colors[0])));
   const colorB = new Float32Array(NANOTUBES.flatMap(tube => rgb(tube.colors[1])));
   const forms = new Float32Array(NANOTUBES.map(formId));
   const pulses = new NanotubePulses(NANOTUBES.length);
+  const coreWidths = new Float32Array(NANOTUBES.map(tube => tube.wire));
+  function state(value: string) { if (canvas.dataset.state !== value) canvas.dataset.state = value; }
 
   function program(vertexSource: string, fragmentSource: string): Program {
     const shaders: WebGLShader[] = [];
@@ -41,12 +54,12 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
         const shader = gl.createShader(kind);
         if (!shader) throw new Error("Shader unavailable");
         shaders.push(shader); gl.shaderSource(shader, source); gl.compileShader(shader);
-        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || "Shader compilation failed");
+        if (!parallel && !gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || "Shader compilation failed");
       }
       linked = gl.createProgram();
       if (!linked) throw new Error("Program unavailable");
       shaders.forEach(shader => gl.attachShader(linked!, shader)); gl.linkProgram(linked);
-      if (!gl.getProgramParameter(linked, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(linked) || "Shader link failed");
+      if (!parallel && !gl.getProgramParameter(linked, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(linked) || "Shader link failed");
       const result = { program: linked, uniforms: new Map<string, WebGLUniformLocation | null>() };
       programs.push(result); return result;
     } catch (error) { if (linked) gl.deleteProgram(linked); throw error; }
@@ -56,23 +69,41 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     if (!program.uniforms.has(name)) program.uniforms.set(name, gl.getUniformLocation(program.program, name));
     return program.uniforms.get(name)!;
   }
-  function buffer(target: number, data: Float32Array | Uint16Array) {
+  function buffer(target: number, data: Float32Array | Uint16Array | Uint32Array) {
     const result = gl.createBuffer();
     if (!result) throw new Error("Buffer unavailable");
     buffers.add(result); gl.bindBuffer(target, result); gl.bufferData(target, data, gl.STATIC_DRAW); return result;
   }
   function fail(error?: unknown) {
-    ready = false; cancelAnimationFrame(frame); frame = 0;
+    failed = true;
+    ready = false; cancelAnimationFrame(frame); frame = 0; cancelAnimationFrame(initFrame); initFrame = 0;
     worker?.terminate(); worker = null;
     canvas.dataset.state = "unavailable";
     // Only a renderer diagnostic, never application data or request state.
     if (error instanceof Error) canvas.dataset.rendererError = error.message.slice(0, 240);
+    release();
     onFailure();
   }
 
   let hull: Program, wire: Program;
   try {
     hull = program(HULL_VERTEX, HULL_FRAGMENT); wire = program(WIRE_VERTEX, WIRE_FRAGMENT);
+  } catch (error) { release(); throw error; }
+
+  function initialize() {
+    initFrame = 0;
+    if (disposed || lost || initialized || pageUnseen()) return;
+    // Completion queries never force the driver to finish compilation on the UI
+    // thread. Uniform/attribute lookup starts only once both programs are ready.
+    if (parallel && programs.some(active => !gl.getProgramParameter(active.program, parallel.COMPLETION_STATUS_KHR))) {
+      initFrame = requestAnimationFrame(initialize); return;
+    }
+    try {
+    for (const active of programs) if (!gl.getProgramParameter(active.program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(active.program) || "Shader link failed");
+    initialized = true;
+    hullUv = gl.getAttribLocation(hull.program, "a_uv");
+    attributes = ["a_edge", "a_style", "a_tubes", "a_link"].map(name => gl.getAttribLocation(wire.program, name));
+    [hullUv, ...attributes].filter(location => location >= 0).forEach(location => allAttributes.add(location));
     for (const active of [hull, wire]) {
       gl.useProgram(active.program);
       gl.uniform4fv(uniform(active, "u_shape[0]"), shape); gl.uniform4fv(uniform(active, "u_motion[0]"), motion);
@@ -86,12 +117,22 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
       try {
         if (!event.data.geometry) throw new Error(event.data.error || "Geometry unavailable");
         const geometry = event.data.geometry;
+        if (uintIndices) {
+          const batch = mergeNanotubeBatches(geometry);
+          merged = {
+            vertices: buffer(gl.ARRAY_BUFFER, batch.vertices), indices: buffer(gl.ELEMENT_ARRAY_BUFFER, batch.indices),
+            halo: buffer(gl.ELEMENT_ARRAY_BUFFER, batch.haloIndices), count: batch.indices.length, haloCount: batch.haloIndices.length,
+            hullVertices: buffer(gl.ARRAY_BUFFER, batch.hullVertices), hullIndices: buffer(gl.ELEMENT_ARRAY_BUFFER, batch.hullIndices), hullCount: batch.hullIndices.length,
+            type: gl.UNSIGNED_INT, tubeCount: batch.tubeCount,
+          };
+        } else {
         tubes = geometry.tubes.map(tube => ({
           vertices: buffer(gl.ARRAY_BUFFER, tube.vertices), indices: buffer(gl.ELEMENT_ARRAY_BUFFER, tube.indices),
           halo: buffer(gl.ELEMENT_ARRAY_BUFFER, tube.haloIndices), count: tube.indices.length, haloCount: tube.haloIndices.length,
           hullVertices: buffer(gl.ARRAY_BUFFER, tube.hullVertices), hullIndices: buffer(gl.ELEMENT_ARRAY_BUFFER, tube.hullIndices), hullCount: tube.hullIndices.length,
         }));
         links = { vertices: buffer(gl.ARRAY_BUFFER, geometry.links.vertices), indices: buffer(gl.ELEMENT_ARRAY_BUFFER, geometry.links.indices), halo: null, count: geometry.links.indices.length, haloCount: 0 };
+        }
         canvas.dataset.bonds = String(geometry.edgeCount); canvas.dataset.tubes = String(NANOTUBES.length);
         canvas.dataset.fibers = String(NANOTUBES.reduce((sum, tube) => sum + fiberCount(tube), 0));
         canvas.dataset.forms = NANOTUBES.map(tube => tube.form).join(",");
@@ -100,13 +141,15 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     };
     worker.onerror = () => fail(new Error("Geometry worker unavailable"));
     canvas.dataset.state = "loading"; worker.postMessage({ build: true });
-  } catch (error) {
-    worker?.terminate(); buffers.forEach(value => gl.deleteBuffer(value)); programs.forEach(value => gl.deleteProgram(value.program)); throw error;
+    } catch (error) { fail(error); }
   }
 
-  const hullUv = gl.getAttribLocation(hull.program, "a_uv");
-  const attributes = ["a_edge", "a_style", "a_tubes", "a_link"].map(name => gl.getAttribLocation(wire.program, name));
-  const allAttributes = new Set([hullUv, ...attributes].filter(location => location >= 0));
+  function release() {
+    vaos.forEach(value => vaoExt?.deleteVertexArrayOES(value)); vaos.clear(); configuredVaos.clear();
+    buffers.forEach(value => gl.deleteBuffer(value)); buffers.clear();
+    programs.forEach(value => gl.deleteProgram(value.program)); programs.length = 0;
+    tubes = []; links = null; merged = null;
+  }
   const scale = () => Math.max(.4, Math.min(viewWidth, viewHeight) / 900);
   function common(active: Program) {
     gl.useProgram(active.program);
@@ -116,8 +159,16 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     gl.uniform1f(uniform(active, "u_time"), elapsed + 4.2);
     gl.uniform1f(uniform(active, "u_shift"), lag);
   }
-  function wireBatch(batch: WireBatch, onlyHalo = false) {
+  function wireBatch(batch: WireBatch, onlyHalo = false, includeLinks = false) {
     if (onlyHalo && !batch.halo) return;
+    let vao = onlyHalo ? batch.haloVao : batch.vao;
+    if (vaoExt && !vao) {
+      vao = vaoExt.createVertexArrayOES() ?? undefined;
+      if (vao) { vaos.add(vao); if (onlyHalo) batch.haloVao = vao; else batch.vao = vao; }
+    }
+    if (vaoExt && vao) vaoExt.bindVertexArrayOES(vao);
+    // Attribute formats and index bindings are immutable for each batch/pass.
+    if (!vao || !configuredVaos.has(vao)) {
     gl.bindBuffer(gl.ARRAY_BUFFER, batch.vertices);
     const widths = [4, 4, 2, 2], offsets = [0, 16, 32, 40];
     attributes.forEach((location, index) => {
@@ -125,7 +176,18 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
       gl.enableVertexAttribArray(location); gl.vertexAttribPointer(location, widths[index], gl.FLOAT, false, 48, offsets[index]);
     });
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, onlyHalo ? batch.halo : batch.indices);
-    gl.drawElements(gl.TRIANGLES, onlyHalo ? batch.haloCount : batch.count, gl.UNSIGNED_SHORT, 0);
+    if (vao) configuredVaos.add(vao);
+    }
+    gl.drawElements(gl.TRIANGLES, onlyHalo ? batch.haloCount : includeLinks ? batch.count : batch.tubeCount ?? batch.count, batch.type ?? gl.UNSIGNED_SHORT, 0);
+    if (vaoExt && vao) vaoExt.bindVertexArrayOES(null);
+  }
+  function wires(halo = false, includeLinks = false) {
+    if (merged) wireBatch(merged, halo, includeLinks);
+    else { tubes.forEach(tube => wireBatch(tube, halo)); if (includeLinks && links) wireBatch(links); }
+  }
+  function widths(multiplier = 1) {
+    NANOTUBES.forEach((tube, id) => { coreWidths[id] = tube.wire * multiplier; });
+    gl.uniform1fv(uniform(wire, "u_coreWidths[0]"), coreWidths);
   }
   function draw(now: number) {
     frame = 0;
@@ -142,8 +204,9 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     // a soft spring: the bundles are nudged with the scroll, then settle back
     lagVelocity += (-surgeDir * surge * .085 - lag) * 24 * dt - lagVelocity * 7.5 * dt;
     lag += lagVelocity * dt;
-    if (viewWidth !== innerWidth || viewHeight !== innerHeight || pixelRatio !== (devicePixelRatio || 1)) {
-      viewWidth = innerWidth; viewHeight = innerHeight; pixelRatio = devicePixelRatio || 1;
+    const view = environment.viewport();
+    if (viewWidth !== view.width || viewHeight !== view.height || pixelRatio !== view.dpr) {
+      viewWidth = view.width; viewHeight = view.height; pixelRatio = view.dpr;
       canvas.width = Math.round(viewWidth * pixelRatio); canvas.height = Math.round(viewHeight * pixelRatio);
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
@@ -153,12 +216,18 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     // The existing depth envelope also supplies a faint satin surface, at no extra draw cost.
     const intensity = level === "full" ? 1.55 : level === "minimal" ? .75 : 1.35;
     common(hull); gl.uniform1f(uniform(hull, "u_intensity"), intensity); gl.enableVertexAttribArray(hullUv);
+    gl.uniform1f(uniform(hull, "u_batched"), merged ? 1 : 0);
     gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
+    if (merged) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, merged.hullVertices); gl.vertexAttribPointer(hullUv, 4, gl.FLOAT, false, 16, 0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, merged.hullIndices); gl.drawElements(gl.TRIANGLES, merged.hullCount, gl.UNSIGNED_INT, 0);
+    } else {
     tubes.forEach((tube, id) => {
       gl.uniform1f(uniform(hull, "u_tube"), id);
       gl.bindBuffer(gl.ARRAY_BUFFER, tube.hullVertices); gl.vertexAttribPointer(hullUv, 3, gl.FLOAT, false, 12, 0);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tube.hullIndices); gl.drawElements(gl.TRIANGLES, tube.hullCount, gl.UNSIGNED_SHORT, 0);
     });
+    }
     gl.disable(gl.POLYGON_OFFSET_FILL); gl.disableVertexAttribArray(hullUv);
     gl.colorMask(true, true, true, true); gl.depthMask(false); gl.enable(gl.BLEND);
     common(wire); gl.uniform1f(uniform(wire, "u_intensity"), intensity);
@@ -173,46 +242,47 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
         gl.uniform1f(uniform(wire, "u_shift"), lag + surgeDir * echo * .055 * surge);
         gl.uniform1f(uniform(wire, "u_intensity"), intensity * weight);
         gl.uniform1f(uniform(wire, "u_pass"), 2); gl.uniform1f(uniform(wire, "u_width"), 18 + echo * 7);
-        tubes.forEach(tube => wireBatch(tube, true));
+        wires(true);
         gl.uniform1f(uniform(wire, "u_pass"), 1); gl.uniform1f(uniform(wire, "u_width"), 3 + echo * 1.6);
-        tubes.forEach(tube => wireBatch(tube));
+        wires();
         gl.uniform1f(uniform(wire, "u_intensity"), intensity * weight * .55);
         gl.uniform1f(uniform(wire, "u_pass"), 0);
-        tubes.forEach((tube, id) => { gl.uniform1f(uniform(wire, "u_width"), NANOTUBES[id].wire * (1 + echo * .35)); wireBatch(tube); });
+        widths(1 + echo * .35); wires();
       }
       gl.enable(gl.DEPTH_TEST);
       gl.uniform1f(uniform(wire, "u_shift"), lag); gl.uniform1f(uniform(wire, "u_intensity"), intensity);
     }
     // neon aura: a wide, faint bloom that keeps the bundles present behind panels
     gl.uniform1f(uniform(wire, "u_pass"), 3); gl.uniform1f(uniform(wire, "u_width"), 46 * (1 + surge * .6));
-    tubes.forEach(tube => wireBatch(tube, true));
+    wires(true);
     gl.uniform1f(uniform(wire, "u_pass"), 2); gl.uniform1f(uniform(wire, "u_width"), 17 * (1 + surge * .9));
-    tubes.forEach(tube => wireBatch(tube, true));
+    wires(true);
     gl.uniform1f(uniform(wire, "u_pass"), 1); gl.uniform1f(uniform(wire, "u_width"), 2.8 * (1 + surge * .7));
-    tubes.forEach(tube => wireBatch(tube)); if (links) wireBatch(links);
+    wires(false, true);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.uniform1f(uniform(wire, "u_pass"), 0);
-    tubes.forEach((tube, id) => { gl.uniform1f(uniform(wire, "u_width"), NANOTUBES[id].wire); wireBatch(tube); });
-    if (links) { gl.uniform1f(uniform(wire, "u_width"), .52); wireBatch(links); }
-    canvas.dataset.state = level === "minimal" || reduced.matches ? "still" : "live";
+    widths(); wires(false, true);
+    state(level === "minimal" || reduced.matches ? "still" : "live");
     if (level !== "minimal" && !reduced.matches) frame = requestAnimationFrame(draw);
   }
-  function onScroll(event: Event) {
-    const target = event.target;
-    scrollTarget = target instanceof Element ? target.scrollTop : scrollY;
+  function onScroll(top: number) { scrollTarget = top; }
+  function sync() {
+    cancelAnimationFrame(frame); frame = 0; cancelAnimationFrame(initFrame); initFrame = 0; last = 0;
+    if (pageUnseen() || disposed || lost || failed) return;
+    if (ready) frame = requestAnimationFrame(draw);
+    else if (!initialized) initFrame = requestAnimationFrame(initialize);
   }
-  function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; if (ready && !pageUnseen() && !disposed) frame = requestAnimationFrame(draw); }
-  function contextLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(frame); worker?.terminate(); worker = null; onFailure(); }
+  function contextLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(frame); cancelAnimationFrame(initFrame); worker?.terminate(); worker = null; onFailure(); }
   function contextRestored() { if (!disposed) onRestore(); }
-  document.addEventListener("scroll", onScroll, { passive: true, capture: true });
-  const offSeen = onPageSeenChange(sync); window.addEventListener("resize", sync); reduced.addEventListener("change", sync);
+  const offScroll = environment.onScroll(onScroll), offSeen = environment.onSeen(sync), offResize = environment.onResize(sync);
+  reduced.addEventListener("change", sync);
   canvas.addEventListener("webglcontextlost", contextLost); canvas.addEventListener("webglcontextrestored", contextRestored);
+  state("loading"); sync();
   return () => {
-    disposed = true; cancelAnimationFrame(frame); worker?.terminate(); worker = null;
-    document.removeEventListener("scroll", onScroll, { capture: true });
-    offSeen(); window.removeEventListener("resize", sync); reduced.removeEventListener("change", sync);
+    disposed = true; cancelAnimationFrame(frame); cancelAnimationFrame(initFrame); worker?.terminate(); worker = null;
+    offScroll(); offSeen(); offResize(); reduced.removeEventListener("change", sync);
     canvas.removeEventListener("webglcontextlost", contextLost); canvas.removeEventListener("webglcontextrestored", contextRestored);
     gl.colorMask(true, true, true, true); gl.depthMask(true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    buffers.forEach(value => gl.deleteBuffer(value)); programs.forEach(value => gl.deleteProgram(value.program)); tubes = []; links = null;
+    release();
   };
 }

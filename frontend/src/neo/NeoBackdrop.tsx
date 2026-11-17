@@ -1,6 +1,8 @@
-import { useState } from "react";
-import NeoRiverBackground from "./NeoRiverBackground";
-import NeoSilkFlow from "./NeoSilkFlow";
+import { lazy, Suspense, useEffect, useState } from "react";
+
+// Only the selected renderer, shaders and styles belong on the initial load.
+const NeoRiverBackground = lazy(() => import("./NeoRiverBackground"));
+const NeoSilkFlow = lazy(() => import("./NeoSilkFlow"));
 
 type Backdrop = "nanotube" | "silk";
 
@@ -16,7 +18,7 @@ const ENTRY_CHOICE: Backdrop = typeof window === "undefined" ? "nanotube" : pick
 
 export default function NeoBackdrop() {
   const [choice, setChoice] = useState<Backdrop>(ENTRY_CHOICE);
-  if (typeof document !== "undefined") document.documentElement.dataset.backdrop = choice;
+  useEffect(() => { document.documentElement.dataset.backdrop = choice; }, [choice]);
   // Devices without WebGL2 float targets keep the existing nanotube structures.
-  return choice === "silk" ? <NeoSilkFlow onUnavailable={() => setChoice("nanotube")} /> : <NeoRiverBackground />;
+  return <Suspense fallback={null}>{choice === "silk" ? <NeoSilkFlow onUnavailable={() => setChoice("nanotube")} /> : <NeoRiverBackground />}</Suspense>;
 }

@@ -1,4 +1,4 @@
-import { onPageSeenChange, pageUnseen } from "../pageCovered";
+import { browserBackdropEnvironment, type BackdropEnvironment } from "./backdropEnvironment";
 import { COMPOSITE_FRAGMENT, DECAY_FRAGMENT, PARTICLE_FRAGMENT, PARTICLE_VERTEX, QUAD_VERTEX, RIVERS, UPDATE_FRAGMENT } from "./silkFlowShaders";
 
 type FxLevel = "full" | "balanced" | "minimal";
@@ -11,19 +11,23 @@ type StateTarget = { state: WebGLTexture; motion: WebGLTexture; framebuffer: Web
  * accumulated in a half-float buffer that decays every frame, then tone-mapped
  * with a mip-based halo. Nothing but uniforms crosses the bus per frame.
  */
-export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFailure: () => void, onRestore: () => void) {
+export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFailure: () => void, onRestore: () => void, environment: BackdropEnvironment = browserBackdropEnvironment()) {
   const context = canvas.getContext("webgl2", { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: "default" });
   if (!context) throw new Error("WebGL2 unavailable");
   const gl: WebGL2RenderingContext = context;
   if (!gl.getExtension("EXT_color_buffer_float")) throw new Error("Float render targets unavailable");
+  const parallel = gl.getExtension("KHR_parallel_shader_compile");
   const texWidth = 256, texHeight = level === "full" ? 384 : 256;
   const count = texWidth * texHeight;
-  const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  const reduced = environment.reduced;
+  const pageUnseen = environment.unseen;
   const still = () => level === "minimal" || reduced.matches;
   const programs: Program[] = [], textures: WebGLTexture[] = [], framebuffers: WebGLFramebuffer[] = [];
   let frame = 0, last = 0, elapsed = 0, frameIndex = 0, disposed = false, lost = false, painted = false;
   let viewWidth = 0, viewHeight = 0, pixelRatio = 0;
   let acc: Target[] = [], accIndex = 0;
+  let warmupSteps = 0, warmupFence: WebGLSync | null = null;
+  let initFrame = 0, initialized = false, released = false;
   let scrollTarget = 0, scrollSmooth = 0, drift = 0;
   const pointer = { x: -9, y: -9, strength: 0, lastMove: -99 };
   const pulse = { x: -1, river: -1, strength: 0, next: 5 };
@@ -32,22 +36,24 @@ export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFai
 
   function compile(vertexSource: string, fragmentSource: string): Program {
     const shaders: WebGLShader[] = [];
+    let linked: WebGLProgram | null = null;
     try {
-      const linked = gl.createProgram();
+      linked = gl.createProgram();
       if (!linked) throw new Error("Program unavailable");
       for (const [kind, source] of [[gl.VERTEX_SHADER, vertexSource], [gl.FRAGMENT_SHADER, fragmentSource]] as const) {
         const shader = gl.createShader(kind);
         if (!shader) throw new Error("Shader unavailable");
         shaders.push(shader); gl.shaderSource(shader, source); gl.compileShader(shader);
-        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || "Shader compilation failed");
+        if (!parallel && !gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || "Shader compilation failed");
         gl.attachShader(linked, shader);
       }
       gl.bindAttribLocation(linked, 0, "a_pos");
       gl.linkProgram(linked);
-      if (!gl.getProgramParameter(linked, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(linked) || "Shader link failed");
+      if (!parallel && !gl.getProgramParameter(linked, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(linked) || "Shader link failed");
       const result = { program: linked, uniforms: new Map<string, WebGLUniformLocation | null>() };
       programs.push(result); return result;
-    } finally { shaders.forEach(shader => gl.deleteShader(shader)); }
+    } catch (error) { if (linked) gl.deleteProgram(linked); throw error; }
+    finally { shaders.forEach(shader => gl.deleteShader(shader)); }
   }
   const uniform = (active: Program, name: string) => {
     if (!active.uniforms.has(name)) active.uniforms.set(name, gl.getUniformLocation(active.program, name));
@@ -87,34 +93,55 @@ export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFai
     particles = compile(PARTICLE_VERTEX.replace("in vec2 a_pos;", ""), PARTICLE_FRAGMENT);
     decay = compile(QUAD_VERTEX, DECAY_FRAGMENT);
     composite = compile(QUAD_VERTEX, COMPOSITE_FRAGMENT);
+  } catch (error) { release(); throw error; }
+  function initialize() {
+    initFrame = 0;
+    if (disposed || lost || initialized || pageUnseen()) return;
+    if (parallel && programs.some(active => !gl.getProgramParameter(active.program, parallel.COMPLETION_STATUS_KHR))) {
+      initFrame = requestAnimationFrame(initialize); return;
+    }
+    try {
+    for (const active of programs) if (!gl.getProgramParameter(active.program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(active.program) || "Shader link failed");
     gl.bindVertexArray(quadVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
     // particles begin already dead at staggered moments, so the field fills in gently
-    const aspect = innerWidth / Math.max(1, innerHeight);
+    const initial = environment.viewport();
+    const aspect = initial.width / Math.max(1, initial.height);
     const state = new Float32Array(count * 4), motion = new Float32Array(count * 4);
     for (let i = 0; i < count; i++) {
-      state.set([random() * aspect, random(), 0, RIVERS], i * 4);
-      motion.set([0, 0, 0, random() * 1.6], i * 4);
+      const offset = i * 4;
+      state[offset] = random() * aspect; state[offset + 1] = random(); state[offset + 3] = RIVERS;
+      motion[offset + 3] = random() * 1.6;
     }
     for (let i = 0; i < 2; i++) {
       const stateTexture = texture(texWidth, texHeight, gl.RGBA32F, 1, state);
       const motionTexture = texture(texWidth, texHeight, gl.RGBA32F, 1, motion);
       states.push({ state: stateTexture, motion: motionTexture, framebuffer: framebuffer([stateTexture, motionTexture]) });
     }
-  } catch (error) { release(); throw error; }
+    initialized = true; sync();
+    } catch (error) {
+      if (error instanceof Error) canvas.dataset.rendererError = error.message.slice(0, 240);
+      canvas.dataset.state = "unavailable"; release(); onFailure();
+    }
+  }
 
   function release() {
+    if (released) return; released = true;
     framebuffers.forEach(value => gl.deleteFramebuffer(value)); textures.forEach(value => gl.deleteTexture(value));
     programs.forEach(value => gl.deleteProgram(value.program));
     if (quad) gl.deleteBuffer(quad); if (emptyVao) gl.deleteVertexArray(emptyVao); if (quadVao) gl.deleteVertexArray(quadVao);
   }
   function resizeTargets() {
+    if (warmupFence) { gl.deleteSync(warmupFence); warmupFence = null; }
+    painted = false; warmupSteps = 0;
     acc.forEach(target => { gl.deleteFramebuffer(target.framebuffer); gl.deleteTexture(target.texture); });
     acc = [];
-    const levels = Math.floor(Math.log2(Math.max(canvas.width, canvas.height))) + 1;
+    // The compositor reads only LOD 0, 3 and 5. Preserve those exact levels and
+    // avoid allocating/generating the unused tail down to the 1x1 texture.
+    const levels = Math.min(6, Math.floor(Math.log2(Math.max(canvas.width, canvas.height))) + 1);
     for (let i = 0; i < 2; i++) {
       const target = gl.createTexture()!;
       gl.bindTexture(gl.TEXTURE_2D, target);
@@ -123,6 +150,7 @@ export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFai
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, levels - 1);
       const fb = gl.createFramebuffer()!;
       gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target, 0);
@@ -132,10 +160,15 @@ export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFai
     }
   }
   function field(active: Program, aspect: number) {
-    gl.uniform1f(uniform(active, "u_time"), elapsed + 40);
+    const time = elapsed + 40;
+    gl.uniform1f(uniform(active, "u_time"), time);
     gl.uniform1f(uniform(active, "u_aspect"), aspect);
     gl.uniform4f(uniform(active, "u_pulse"), pulse.x, pulse.river, pulse.strength, 0);
     gl.uniform3f(uniform(active, "u_pointer"), pointer.x, pointer.y, pointer.strength);
+    // Time-only trigonometry is shared across particles and all four finite
+    // differences, rather than repeated millions of times in the fragment shader.
+    gl.uniform3f(uniform(active, "u_eddyA"), aspect * (.5 + .36 * Math.sin(time * .021)), .5 + .26 * Math.sin(time * .029 + 1), .0045 * Math.sin(time * .043));
+    gl.uniform3f(uniform(active, "u_eddyB"), aspect * (.5 + .38 * Math.sin(time * .017 + 2.6)), .5 + .3 * Math.sin(time * .025 + 4), .004 * Math.sin(time * .037 + 1.3));
   }
   function step(dt: number, aspect: number) {
     // 1. advect particles
@@ -189,6 +222,8 @@ export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFai
     gl.uniform1i(uniform(composite, "u_acc"), 0);
     gl.uniform1f(uniform(composite, "u_time"), elapsed + 40);
     gl.uniform1f(uniform(composite, "u_aspect"), canvas.width / Math.max(1, canvas.height));
+    const time = elapsed + 40, aspect = canvas.width / Math.max(1, canvas.height);
+    gl.uniform4f(uniform(composite, "u_bgCenters"), aspect * (.28 + .08 * Math.sin(time * .013)), .7, aspect * (.76 + .06 * Math.sin(time * .011 + 2)), .3);
     gl.uniform1f(uniform(composite, "u_exposure"), 1.12);
     gl.uniform1f(uniform(composite, "u_glow"), level === "minimal" ? .7 : .95);
     gl.bindVertexArray(quadVao); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -199,15 +234,26 @@ export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFai
     if (disposed || lost || pageUnseen()) return;
     const dt = last ? Math.min(1 / 20, (now - last) / 1000) : 1 / 60;
     last = now;
-    if (viewWidth !== innerWidth || viewHeight !== innerHeight || pixelRatio !== (devicePixelRatio || 1) || !acc.length) {
-      viewWidth = innerWidth; viewHeight = innerHeight; pixelRatio = devicePixelRatio || 1;
+    const view = environment.viewport();
+    if (viewWidth !== view.width || viewHeight !== view.height || pixelRatio !== view.dpr || !acc.length) {
+      viewWidth = view.width; viewHeight = view.height; pixelRatio = view.dpr;
       canvas.width = Math.round(viewWidth * pixelRatio); canvas.height = Math.round(viewHeight * pixelRatio);
       resizeTargets();
     }
     const aspect = viewWidth / Math.max(1, viewHeight);
     if (still()) {
-      if (!painted) { for (let i = 0; i < 240; i++) { elapsed += 1 / 60; step(1 / 60, aspect); } present(); painted = true; }
-      canvas.dataset.state = "still";
+      if (!painted) {
+        // Same 240 full-resolution simulation steps, spread across small GPU
+        // batches. No synchronous GPU wait and no single-frame 720-draw burst.
+        if (warmupFence) {
+          if (gl.clientWaitSync(warmupFence, 0, 0) === gl.TIMEOUT_EXPIRED) { frame = requestAnimationFrame(draw); return; }
+          gl.deleteSync(warmupFence); warmupFence = null;
+        }
+        for (let i = 0; i < 8 && warmupSteps < 240; i++, warmupSteps++) { elapsed += 1 / 60; step(1 / 60, aspect); }
+        if (warmupSteps < 240) { warmupFence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0); gl.flush(); frame = requestAnimationFrame(draw); return; }
+        present(); painted = true;
+      }
+      if (canvas.dataset.state !== "still") canvas.dataset.state = "still";
       return;
     }
     elapsed += dt;
@@ -225,32 +271,34 @@ export function installSilkFlow(canvas: HTMLCanvasElement, level: FxLevel, onFai
     }
     step(dt, aspect);
     present();
-    canvas.dataset.state = "live";
+    painted = true;
+    if (canvas.dataset.state !== "live") canvas.dataset.state = "live";
     frame = requestAnimationFrame(draw);
   }
-  function onPointerMove(event: PointerEvent) {
-    pointer.x = event.clientX / innerWidth * (innerWidth / Math.max(1, innerHeight));
-    pointer.y = 1 - event.clientY / innerHeight;
+  function onPointerMove(x: number, y: number) {
+    const view = environment.viewport();
+    pointer.x = x / Math.max(1, view.height);
+    pointer.y = 1 - y / Math.max(1, view.height);
     pointer.lastMove = elapsed;
   }
-  function onScroll(event: Event) {
-    const target = event.target;
-    scrollTarget = target instanceof Element ? target.scrollTop : scrollY;
+  function onScroll(top: number) { scrollTarget = top; }
+  function sync() {
+    cancelAnimationFrame(frame); frame = 0; cancelAnimationFrame(initFrame); initFrame = 0; last = 0;
+    if (pageUnseen() || disposed || lost || released) return;
+    if (initialized) frame = requestAnimationFrame(draw);
+    else initFrame = requestAnimationFrame(initialize);
   }
-  function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; painted = false; if (!pageUnseen() && !disposed && !lost) frame = requestAnimationFrame(draw); }
-  function contextLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(frame); canvas.dataset.state = "unavailable"; onFailure(); }
+  function contextLost(event: Event) { event.preventDefault(); lost = true; cancelAnimationFrame(frame); cancelAnimationFrame(initFrame); canvas.dataset.state = "unavailable"; onFailure(); }
   function contextRestored() { if (!disposed) onRestore(); }
   canvas.dataset.state = "loading"; canvas.dataset.particles = String(count);
-  addEventListener("pointermove", onPointerMove, { passive: true });
-  document.addEventListener("scroll", onScroll, { passive: true, capture: true });
-  const offSeen = onPageSeenChange(sync); addEventListener("resize", sync); reduced.addEventListener("change", sync);
+  const offPointer = environment.onPointer(onPointerMove), offScroll = environment.onScroll(onScroll);
+  const offSeen = environment.onSeen(sync), offResize = environment.onResize(sync); reduced.addEventListener("change", sync);
   canvas.addEventListener("webglcontextlost", contextLost); canvas.addEventListener("webglcontextrestored", contextRestored);
   sync();
   return () => {
-    disposed = true; cancelAnimationFrame(frame);
-    removeEventListener("pointermove", onPointerMove);
-    document.removeEventListener("scroll", onScroll, { capture: true });
-    offSeen(); removeEventListener("resize", sync); reduced.removeEventListener("change", sync);
+    disposed = true; cancelAnimationFrame(frame); cancelAnimationFrame(initFrame);
+    if (warmupFence) { gl.deleteSync(warmupFence); warmupFence = null; }
+    offPointer(); offScroll(); offSeen(); offResize(); reduced.removeEventListener("change", sync);
     canvas.removeEventListener("webglcontextlost", contextLost); canvas.removeEventListener("webglcontextrestored", contextRestored);
     acc.forEach(target => { gl.deleteFramebuffer(target.framebuffer); gl.deleteTexture(target.texture); });
     release();
