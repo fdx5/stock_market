@@ -3,8 +3,9 @@
 @media(max-width:767px){
   html:root[data-design="neo"][data-theme][data-tone]{--ng-header:calc(48px + env(safe-area-inset-top,0px))}
   .ng-shell:has(.ng-modal-scrim){z-index:20000}
-  .ng-shell>.ng-header{display:grid;grid-template-columns:28px clamp(76px,23vw,98px) 28px 24px minmax(0,1fr);grid-template-rows:47px;column-gap:3px;row-gap:0;align-content:start;align-items:center;padding:env(safe-area-inset-top,0px) max(6px,env(safe-area-inset-right,0px)) 0 max(6px,env(safe-area-inset-left,0px));white-space:nowrap}
-  .ng-shell>.ng-header>.ng-phone-menu-toggle{grid-column:1;grid-row:1;align-self:center;justify-self:start;display:grid;place-items:center;width:28px;height:36px;margin:0;padding:0;border:0;border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer}
+  .ng-shell>.ng-header{display:grid;grid-template-columns:44px minmax(76px,1fr) 28px 24px max-content;grid-template-rows:47px;column-gap:3px;row-gap:0;align-content:start;align-items:center;padding:env(safe-area-inset-top,0px) max(6px,env(safe-area-inset-right,0px)) 0 max(6px,env(safe-area-inset-left,0px));white-space:nowrap}
+  .ng-shell>.ng-header>.ng-phone-menu-toggle{grid-column:1;grid-row:1;align-self:center;justify-self:start;display:grid;place-items:center;width:44px;height:44px;margin:0;padding:0;border:0;border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;touch-action:manipulation}
+  .ng-shell>.ng-header>.ng-phone-menu-toggle:active{background:color-mix(in srgb,var(--accent-neon) 16%,var(--bg-panel))}
   .ng-phone-menu-toggle .ng-icon{width:16px;height:16px}
   .ng-shell>.ng-header>.ng-brand{grid-column:2;grid-row:1;align-self:center;justify-self:start;width:100%;min-width:0;max-width:100%;height:36px;margin:0;display:flex;align-items:center}
   .ng-header .ng-brand>.ng-brand-logo{display:none}
@@ -15,8 +16,8 @@
   .ng-header>.ng-search-trigger>.ng-icon{width:16px;height:16px}
   .ng-header>.ng-search-trigger>span,.ng-header>.ng-search-trigger>kbd{display:none}
   .ng-shell>.ng-header>.ng-header-tools{grid-column:4;grid-row:1;justify-self:center;display:flex;gap:0;min-width:0;margin:0;padding:0}
-  .ng-shell>.ng-header>.ng-header-clocks{grid-column:5;grid-row:1;display:flex;flex-wrap:nowrap;align-items:center;justify-content:space-between;align-self:center;width:100%;min-width:0;height:36px;gap:4px;padding:0;border:0}
-  .ng-shell>.ng-header .ng-header-clock{display:flex;flex:0 1 auto;min-width:0;align-items:center;justify-content:center;gap:2px;white-space:nowrap}
+  .ng-shell>.ng-header>.ng-header-clocks{grid-column:5;grid-row:1;display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-end;justify-self:end;align-self:center;width:max-content;min-width:0;height:36px;gap:clamp(6px,2vw,12px);padding:0;border:0;text-align:right}
+  .ng-shell>.ng-header .ng-header-clock{display:flex;flex:0 0 auto;min-width:0;align-items:center;justify-content:flex-end;gap:2px;white-space:nowrap;text-align:right}
   .ng-shell>.ng-header .ng-header-clock>span:first-child{font-size:0;letter-spacing:0}
   .ng-shell>.ng-header .ng-header-clock>span>small{font-size:7px;margin-left:0}
   .ng-shell>.ng-header .ng-header-clock time{font-size:clamp(10px,3vw,13px);line-height:1;letter-spacing:0}

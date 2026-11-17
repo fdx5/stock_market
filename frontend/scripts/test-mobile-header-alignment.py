@@ -19,7 +19,7 @@ with sync_playwright() as playwright:
     browser = playwright.chromium.launch(channel="chrome", headless=True, args=["--mute-audio"])
     for width, lang, tone, path in ((320, "en", "dark", "/map"), (360, "ko", "light", "/map"), (390, "ko", "dark", "/map"),
                                    (430, "en", "light", "/global"), (767, "ko", "light", "/sp500-map")):
-        page = browser.new_page(viewport={"width": width, "height": 844})
+        page = browser.new_page(viewport={"width": width, "height": 844}, is_mobile=True, has_touch=True)
         page.add_init_script(f"localStorage.setItem('site_lang','{lang}');localStorage.setItem('kospimap_tone','{tone}');")
         def route(request):
             url = urlsplit(request.request.url)
@@ -34,7 +34,7 @@ with sync_playwright() as playwright:
         header = page.locator(".ng-header")
         header.wait_for(timeout=20000)
         page.evaluate("document.fonts.ready")
-        page.wait_for_timeout(200)
+        page.wait_for_timeout(1800 if width == 320 else 200)
         geometry = header.evaluate("""e=>{
           const rect=s=>e.querySelector(s).getBoundingClientRect().toJSON();
           return {header:e.getBoundingClientRect().toJSON(), menu:rect('.ng-phone-menu-toggle'),
@@ -48,7 +48,7 @@ with sync_playwright() as playwright:
         for key in ("menu", "logo", "search", "tools", "clocks"):
             child = geometry[key]
             assert child["top"] >= bounds["top"] and child["bottom"] <= bounds["bottom"], (key, geometry)
-        assert geometry["menu"]["width"] == 28 and geometry["menu"]["height"] == 36
+        assert geometry["menu"]["width"] == 44 and geometry["menu"]["height"] == 44
         ordered = [geometry[key] for key in ("menu", "logo", "search", "tools", "clocks")]
         center = lambda child: child["y"] + child["height"] / 2
         assert all(abs(center(child) - center(ordered[0])) <= 1 for child in ordered), geometry
@@ -56,12 +56,17 @@ with sync_playwright() as playwright:
         assert header.evaluate("e=>e.scrollWidth<=e.clientWidth"), geometry
         assert page.locator(".ng-brand-phone").is_visible()
         assert geometry["times"][0]["right"] <= geometry["times"][1]["left"] and geometry["clockFits"], geometry
+        assert abs(bounds["right"] - geometry["clocks"]["right"] - 6) <= 1, geometry
+        assert 5 <= geometry["times"][1]["left"] - geometry["times"][0]["right"] <= 13, geometry
+        assert abs(geometry["tools"]["right"] + 3 - geometry["clocks"]["left"]) <= 1, geometry
+        assert abs(geometry["search"]["right"] + 3 - geometry["tools"]["left"]) <= 1, geometry
         assert geometry["rail"]["top"] >= bounds["bottom"] - 1, geometry
         page.screenshot(path=str(folder / f"header-{width}-{lang}-{tone}.png"), animations="disabled", clip={"x": 0, "y": 0, "width": width, "height": 210})
-        page.locator(".ng-phone-menu-toggle").click()
-        page.locator("#neo-navigation-menu").wait_for()
-        page.keyboard.press("Escape")
-        assert not page.locator("#neo-navigation-menu").count()
+        for point in ({"x": 3, "y": 3}, {"x": 41, "y": 41}):
+            page.locator(".ng-phone-menu-toggle").tap(position=point)
+            page.locator("#neo-navigation-menu").wait_for()
+            page.keyboard.press("Escape")
+            assert not page.locator("#neo-navigation-menu").count()
         page.set_viewport_size({"width": width, "height": 620})
         assert page.locator(".ng-brand").bounding_box()["y"] >= 0
         result = {"width": width, "lang": lang, "tone": tone, "path": path, "layout": geometry}
