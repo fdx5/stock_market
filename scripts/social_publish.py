@@ -47,11 +47,22 @@ def read_json(url, **kwargs):
 
 
 def buffer(query, variables=None):
-    token = os.getenv("BUFFER_PUBLISH_API_KEY")
+    token = os.getenv("BUFFER_PUBLISH_API_KEY", "").strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
     if not token:
         raise RuntimeError("BUFFER_PUBLISH_API_KEY is missing from Actions secrets")
-    reply = read_json(BUFFER, token=token,
-                      data={"query": query, "variables": variables or {}})
+    if not token.isascii() or any(char.isspace() for char in token):
+        raise RuntimeError("BUFFER_PUBLISH_API_KEY must contain the copied key rather than a command or label")
+    try:
+        reply = read_json(BUFFER, token=token,
+                          data={"query": query, "variables": variables or {}})
+    except HTTPError as error:
+        if error.code == 401:
+            raise RuntimeError("Buffer did not recognize the personal API key in Actions secrets") from None
+        if error.code == 403:
+            raise RuntimeError("Buffer API key is missing the required account or post permission") from None
+        raise
     if reply.get("errors") or not reply.get("data"):
         # API errors may contain user text or authenticated request information.
         raise RuntimeError("Buffer GraphQL request failed")
