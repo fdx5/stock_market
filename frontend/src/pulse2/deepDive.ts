@@ -19,7 +19,7 @@ import { AudioLevels } from "./audioLevels";
 import { moodColor, moodStrength } from "./mood";
 import { PoseRig, loadMocap, sample, blend, type Clip, type Pose, type RootMotion } from "./pose";
 import { Worlds } from "./worlds";
-import { AbyssSky, Embers } from "./abyss";
+import { AbyssSky, Embers, MarineSnow } from "./abyss";
 import { CANOPY, CEILING, Cave, GoldRain, LightCanopy, RedBeam } from "./rise";
 
 const LOOP = 600;           // seconds in one take: ten minutes, mostly the fall
@@ -77,7 +77,7 @@ export class DeepDive {
   private audio = new AudioLevels();
   private u: Record<string, U> = {
     uTime: { value: 0 }, uEnergy: { value: 0 }, uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }, uBeat: { value: 0 },
-    uFlare: { value: 0 }, uStrength: { value: 0 }, uHole: { value: 1 }, uPR: { value: 1 }, tFigH: { value: null }, uFigHMat: { value: new THREE.Matrix4() }, uFigHOn: { value: 0 }, uPxScale: { value: 1 }, uFixOn: { value: 0 }, uHipL: { value: new THREE.Vector3() }, uDirL: { value: new THREE.Vector3(0, -1, 0) }, uHipR: { value: new THREE.Vector3() }, uDirR: { value: new THREE.Vector3(0, -1, 0) }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uFocus: { value: new THREE.Vector3(0, 1, 13) }, uMood: { value: new THREE.Color(0x3a8bff) }, uFigMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
+    uFlare: { value: 0 }, uStrength: { value: 0 }, uHole: { value: 1 }, uPR: { value: 1 }, uDeep: { value: 0 }, tFigH: { value: null }, uFigHMat: { value: new THREE.Matrix4() }, uFigHOn: { value: 0 }, uPxScale: { value: 1 }, uFixOn: { value: 0 }, uHipL: { value: new THREE.Vector3() }, uDirL: { value: new THREE.Vector3(0, -1, 0) }, uHipR: { value: new THREE.Vector3() }, uDirR: { value: new THREE.Vector3(0, -1, 0) }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uFocus: { value: new THREE.Vector3(0, 1, 13) }, uMood: { value: new THREE.Color(0x3a8bff) }, uFigMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
   };
   private moodTarget = new THREE.Color(0x3a8bff);
   private strengthTarget = 0;
@@ -141,6 +141,7 @@ export class DeepDive {
   private sky!: AbyssSky; private embers!: Embers;
   private gold!: GoldRain; private beam!: RedBeam; private beamL!: RedBeam; private beamM!: RedBeam; private cave!: Cave;
   private canopy!: LightCanopy;
+  private snow!: MarineSnow;
   private _mid = new THREE.Vector3(); private _tR = new THREE.Vector3(); private _tL = new THREE.Vector3();
   /** The rally's size: +5 % and more, both arms rise and fire beams twice as thick and bright. */
   private risePct = 0;
@@ -190,6 +191,7 @@ export class DeepDive {
     this.buildRain();
     this.worlds = new Worlds(this.scene, this.u, COMMON, NOISE);
     this.sky = new AbyssSky(this.scene, this.u, COMMON, NOISE);
+    this.snow = new MarineSnow(this.scene, this.u, COMMON, quality === "high" ? 2400 : 1300);
     this.embers = new Embers(this.scene, this.u, COMMON, quality === "high" ? 900 : 500);
     this.gold = new GoldRain(this.scene, this.u, COMMON, quality === "high" ? 4200 : 2200, goldDensity(GOLD_MAX_PCT));
     this.gold.setDensity(this.goldMult);
@@ -230,11 +232,11 @@ export class DeepDive {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.95, 0.5, 0.55);
     this.composer.addPass(this.bloom);
     this.finish = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, uFlare: this.u.uFlare, uMood: this.u.uMood, uTime: this.u.uTime, uRes: { value: new THREE.Vector2(1, 1) } },
+      uniforms: { tDiffuse: { value: null }, uFlare: this.u.uFlare, uMood: this.u.uMood, uTime: this.u.uTime, uDeep: this.u.uDeep, uRes: { value: new THREE.Vector2(1, 1) } },
       defines: { STREAK: quality === "high" ? 1 : 0 },
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: /* glsl */`
-        uniform sampler2D tDiffuse; uniform float uFlare, uTime; uniform vec3 uMood; uniform vec2 uRes; varying vec2 vUv;
+        uniform sampler2D tDiffuse; uniform float uFlare, uTime, uDeep; uniform vec3 uMood; uniform vec2 uRes; varying vec2 vUv;
         void main(){
           vec2 c = vUv - 0.5; float r = length(c);
           // a whisper of chromatic aberration toward the edges
@@ -249,7 +251,7 @@ export class DeepDive {
           #endif
           // vignette round the subject (sat low in the frame), deep at the edges
           float rs = length((vUv - vec2(0.5, 0.4)) * vec2(1.0, 1.15));
-          col *= mix(1.0, 0.18, smoothstep(0.2, 0.85, rs));
+          col *= mix(1.0, 0.18 - 0.1 * uDeep, smoothstep(0.2 - 0.06 * uDeep, 0.85 - 0.12 * uDeep, rs));
           // contrast: mid-tones settle, highlights keep their punch
           float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
           col *= mix(0.62, 1.0, smoothstep(0.05, 0.9, lum));
@@ -972,7 +974,7 @@ export class DeepDive {
     const fogC = (u.uFog.value as THREE.Color).copy(u.uMood.value as THREE.Color).multiplyScalar(0.035).add(DeepDive.FOG_BASE);
     (this.scene.fog as THREE.FogExp2).color.copy(fogC);
     // (the cavern is seen across 30-60 m: a thinner haze there, so its rock stays legible)
-    (this.scene.fog as THREE.FogExp2).density = this.riseMode ? 0.0055 : 0.011;
+    (this.scene.fog as THREE.FogExp2).density = this.riseMode ? 0.0055 : 0.011 + 0.007 * (u.uDeep.value as number);
     (this.scene.background as THREE.Color).copy(fogC).multiplyScalar(0.7);
     (u.uFigHOn.value as number) = this.riseMode && this.skin ? 1 : 0;
     if (this.riseMode) { this.riseFrame(T, dt); this.renderFigH(); this.post(T % RISE_LOOP, RISE_LOOP, dt, false); this.pace(gap, performance.now() - cpu0); return; }
@@ -1117,7 +1119,7 @@ export class DeepDive {
     this.lastT = t;
     const kc = 1 - Math.exp(-dt * 3.0);
     this.camPos.lerp(pos, kc); this.camLook.lerp(look, kc); this.camRoll += (roll - this.camRoll) * kc;
-    cam.position.copy(this.camPos); cam.lookAt(this.camLook); cam.rotateZ(this.camRoll);
+    this.placeCam(dt);
     // (very wide, short frames — phones held sideways — draw in closer so the figure reads)
     fov *= cam.aspect > 1.9 ? 0.8 : 1;
     // the lens breathes with the kick drum, a hair
@@ -1157,6 +1159,8 @@ export class DeepDive {
     // The fall's surroundings change: five worlds take turns (~70 s each, 10 s crossfades),
     // the ribbed ring tunnel first; the hall's dressing fades as the camera goes under.
     const fallT = Math.max(0, t - FALL1);
+    // how deep: grows over the first four minutes of the fall (darker, the light above dwindling)
+    (u.uDeep.value as number) = smooth(fallT / 240);
     // Nine worlds, ~60 s each: the ring tunnel always opens the fall, the rest come in an
     // order shuffled afresh on every pass of the take, never the same one twice running.
     const ERA = 60, EB = 14, ei = Math.floor(fallT / ERA), eb = smooth(((fallT % ERA) - (ERA - EB)) / EB);
@@ -1169,6 +1173,7 @@ export class DeepDive {
     this.worlds.update(T, camY, this.tunnelScroll, smooth((camY + 4) / 6), ew);
     // the depths open round the camera once it is under the floor
     this.sky.update(cam.position, 1 - smooth((camY + 3) / 5), fallSpeed, this.tunnelScroll);
+    this.snow.update(cam.position, fallSpeed, 1 - smooth((camY + 2) / 4), dt);
     // embers: drifting up off the shoulders as it walks, a comet's tail once it falls
     this.embers.update(dt, this.emitters, diving ? 80 + (u.uEnergy.value as number) * 60 : walking || t < EDGE1 ? 28 : 0,
       diving ? fallSpeed * 0.9 + 1.2 : 0.45, diving ? 0.9 : 0.25);
@@ -1209,6 +1214,34 @@ export class DeepDive {
     return this._order.list;
   }
 
+  // ---- the viewer's own camera: orbit, zoom and pan on top of the take's camera
+  private userT = { yaw: 0, pitch: 0, zoom: 1, px: 0, py: 0 };
+  private userV = { yaw: 0, pitch: 0, zoom: 1, px: 0, py: 0 };
+  private _sph = new THREE.Spherical(); private _off = new THREE.Vector3(); private _lk = new THREE.Vector3();
+  private _rt = new THREE.Vector3(); private _upv = new THREE.Vector3();
+  /** Turn round the subject: `dx` left/right, `dy` up/down (radians). */
+  userOrbit(dx: number, dy: number) { const t = this.userT; t.yaw += dx; t.pitch = Math.max(-1.3, Math.min(1.3, t.pitch + dy)); }
+  /** Closer (< 1) or further (> 1). */
+  userZoom(f: number) { const t = this.userT; t.zoom = Math.max(0.3, Math.min(3.2, t.zoom * f)); }
+  /** Slide the view: `dx`, `dy` in fractions of the subject's distance. */
+  userPan(dx: number, dy: number) { const t = this.userT; t.px = Math.max(-1.5, Math.min(1.5, t.px + dx)); t.py = Math.max(-1.5, Math.min(1.5, t.py + dy)); }
+  userReset() { Object.assign(this.userT, { yaw: 0, pitch: 0, zoom: 1, px: 0, py: 0 }); }
+  /** Put the camera where the take wants it, then apply the viewer's orbit, zoom and pan
+   *  (eased, so a drag glides). */
+  private placeCam(dt: number) {
+    const cam = this.camera, v = this.userV, t = this.userT, k = 1 - Math.exp(-dt * 8);
+    v.yaw += (t.yaw - v.yaw) * k; v.pitch += (t.pitch - v.pitch) * k; v.zoom += (t.zoom - v.zoom) * k; v.px += (t.px - v.px) * k; v.py += (t.py - v.py) * k;
+    const idle = Math.abs(v.yaw) + Math.abs(v.pitch) + Math.abs(v.zoom - 1) + Math.abs(v.px) + Math.abs(v.py) < 1e-4;
+    if (idle) { cam.position.copy(this.camPos); cam.lookAt(this.camLook); cam.rotateZ(this.camRoll); return; }
+    const off = this._off.subVectors(this.camPos, this.camLook), s = this._sph.setFromVector3(off);
+    s.theta += v.yaw; s.phi = Math.max(0.06, Math.min(Math.PI - 0.06, s.phi - v.pitch)); s.radius *= v.zoom;
+    off.setFromSpherical(s);
+    // pan along the view's own right and up
+    const right = this._rt.crossVectors(this._upv.set(0, 1, 0), off).normalize(), up = this._upv.crossVectors(off, right).normalize();
+    const look = this._lk.copy(this.camLook).addScaledVector(right, v.px * s.radius).addScaledVector(up, v.py * s.radius);
+    cam.position.copy(look).add(off); cam.lookAt(look); cam.rotateZ(this.camRoll * (1 - Math.min(1, Math.abs(v.pitch))));
+  }
+
   /** The take's end: the loop flare, the pulse patterns, bloom and exposure, and the render. */
   private post(t: number, loop: number, dt: number, endFlare: boolean) {
     const u = this.u, T = u.uTime.value as number;
@@ -1219,7 +1252,7 @@ export class DeepDive {
     // pulse patterns take turns every 16 s, each fading into the next
     { const ph = T / 16, i = Math.floor(ph) % 4, b = smooth((ph % 1 - 0.7) / 0.3), w = [0, 0, 0, 0]; w[i] = 1 - b; w[(i + 1) % 4] += b; (u.uW.value as THREE.Vector4).set(w[0], w[1], w[2], w[3]); }
     this.bloom.strength = 0.9 + (u.uBeat.value as number) * 0.55 + (u.uEnergy.value as number) * 0.35 + flare * 1.2;
-    this.renderer.toneMappingExposure = 0.88 + (u.uEnergy.value as number) * 0.12 + (u.uBeat.value as number) * 0.08;
+    this.renderer.toneMappingExposure = (0.88 + (u.uEnergy.value as number) * 0.12 + (u.uBeat.value as number) * 0.08) * (1 - 0.2 * (u.uDeep.value as number));
     this.composer.render(dt);
   }
 
@@ -1429,7 +1462,7 @@ export class DeepDive {
     this.lastT = t;
     const kc = 1 - Math.exp(-dt * 2.6);
     this.camPos.lerp(pos, kc); this.camLook.lerp(look, kc); this.camRoll += (roll - this.camRoll) * kc;
-    cam.position.copy(this.camPos); cam.lookAt(this.camLook); cam.rotateZ(this.camRoll);
+    this.placeCam(dt);
     fov *= cam.aspect > 1.9 ? 0.8 : 1;
     fov -= (u.uBeat.value as number) * 0.5;
     cam.fov += (fov - cam.fov) * kc; cam.updateProjectionMatrix();
@@ -1458,7 +1491,7 @@ export class DeepDive {
     this.worlds.update(T, cam.position.y, 0, 0, [1, 0, 0, 0, 0, 0, 0, 0, 0]);
     this.chamber.visible = false; this.cave.update(true, beamVis, T);
     this.caveSun.intensity = 1.1; this.caveFill.intensity = 0.22;
-    this.sky.update(cam.position, 0, 0, 0);
+    this.sky.update(cam.position, 0, 0, 0); this.snow.update(cam.position, 0, 0, dt); (u.uDeep.value as number) = 0;
     this.embers.update(dt, this.emitters, 16 + beamVis * 20, 0.35 + beamVis * 0.4, 0.2);
   }
 }

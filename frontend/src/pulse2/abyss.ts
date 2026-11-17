@@ -22,7 +22,7 @@ export class AbyssSky {
       uniforms: { ...u, uVis: this.vis, uSpeed: this.speed, uScroll: this.scroll },
       side: THREE.BackSide, depthWrite: false, depthTest: false,
       vertexShader: `varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: /* glsl */`${common}${noise} uniform float uVis, uSpeed, uScroll; varying vec3 vD;
+      fragmentShader: /* glsl */`${common}${noise} uniform float uVis, uSpeed, uScroll, uDeep; varying vec3 vD;
         float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7)))*43758.5453); }
         // a star field on a cylinder round the fall: cells, one star in some; stretched
         // vertically with the speed so the fall reads as motion
@@ -40,6 +40,9 @@ export class AbyssSky {
         void main(){
           vec3 d = normalize(vD);
           float down = max(-d.y, 0.0), up = max(d.y, 0.0);
+          // how deep the fall has gone (0 at the portal .. 1 a few minutes down): the colour
+          // drains, the light from above dwindles, the unknown takes over
+          float deep = uDeep, lit = mix(1.0, 0.42, deep);
           // an accent hue: the mood turned a third of the way round the wheel, kept dimmer
           vec3 acc = vec3(uMood.b*0.9 + uMood.g*0.2, uMood.r*0.5 + uMood.b*0.15, uMood.g*0.4 + uMood.r*0.7) * 0.8 + vec3(0.01, 0.0, 0.02);
           // slow nebulae, drifting up with the fall
@@ -47,19 +50,46 @@ export class AbyssSky {
           float n1 = fbm3(np), n2 = fbm3(np * 1.9 + vec3(4.1, -uScroll*0.002, 2.3));
           float neb = smoothstep(0.42, 0.85, n1) * (0.55 + 0.45*smoothstep(0.3, 0.8, n2));
           float neb2 = smoothstep(0.5, 0.9, n2) * (1.0 - smoothstep(0.4, 0.7, n1));
-          vec3 col = vec3(0.003, 0.005, 0.012);
-          col += uMood * neb * 0.16 * (0.8 + uEnergy*0.6) + acc * neb2 * 0.07;
+          vec3 col = vec3(0.003, 0.005, 0.012) * lit;
+          col += (uMood * neb * 0.16 * (0.8 + uEnergy*0.6) + acc * neb2 * 0.07) * lit;
           // aurora curtains: soft vertical folds round the fall, swaying
           float az = atan(d.z, d.x);
           float fold = sin(az * 5.0 + sin(d.y * 3.0 + uTime*0.15) * 1.6 + uTime*0.05);
           float curtain = pow(0.5 + 0.5*fold, 6.0) * smoothstep(0.75, 0.0, abs(d.y + 0.15)) * (0.4 + 0.6*n2);
-          col += mix(uMood, acc, 0.35) * curtain * 0.07 * (0.7 + uMid*0.8);
+          col += mix(uMood, acc, 0.35) * curtain * 0.07 * (0.7 + uMid*0.8) * lit;
+          // the unknown: vast dark forms drifting up past the fall, swallowing the light
+          // behind them, a thin iridescent rim where light grazes their edge
+          vec3 fp = vec3(az * 1.3, d.y * 2.2 - uScroll * 0.004, uTime * 0.01);
+          float form = fbm3(fp * 0.9 + vec3(9.0, 0.0, 0.0));
+          float body = smoothstep(0.56, 0.62, form) * smoothstep(0.95, 0.2, abs(d.y));
+          float rim = (smoothstep(0.53, 0.56, form) - smoothstep(0.56, 0.6, form)) * smoothstep(0.95, 0.2, abs(d.y));
+          vec3 film = 0.5 + 0.5 * cos(6.2831853 * (form * 3.0 + d.y * 0.8 + uTime * 0.03 + vec3(0.0, 0.33, 0.67)));
+          float unk = smoothstep(0.05, 0.6, deep) * 0.85 + 0.15;
+          col *= 1.0 - body * 0.85 * unk;
+          col += mix(uMood, film, 0.55) * rim * 0.09 * unk * (0.7 + uHigh * 0.8);
+          // veils of light, very faint, slowly turning, with the colours of a soap film
+          float veil = pow(1.0 - abs(sin(az * 2.0 + d.y * 3.5 + n1 * 5.0 + uTime * 0.07)), 26.0) * smoothstep(0.85, 0.1, abs(d.y - 0.1));
+          col += film * veil * 0.035 * (0.4 + 0.6 * deep) * (0.6 + uMid);
+          // far below, now and then, a living thing flashes: a soft bloom of light in the deep
+          for (int i = 0; i < 3; i++) {
+            float fi = float(i), per = 7.0 + fi * 3.7, ph = mod(uTime + fi * 4.3, per);
+            float seed = floor((uTime + fi * 4.3) / per) + fi * 13.0;
+            float a = hash2(vec2(seed, 1.7)) * 6.2831853, el = -0.25 - hash2(vec2(seed, 5.3)) * 0.6;
+            vec3 dir = normalize(vec3(cos(a) * sqrt(1.0 - el*el), el, sin(a) * sqrt(1.0 - el*el)));
+            float ang = acos(clamp(dot(d, dir), -1.0, 1.0));
+            float flash = exp(-ph * 1.6) * smoothstep(0.0, 0.25, ph);
+            float shape = exp(-pow(ang * 18.0, 2.0)) * 1.4 + exp(-pow((ang - ph * 0.03) * 40.0, 2.0)) * 0.6;
+            col += mix(acc, film, 0.4) * shape * flash * 0.22 * (0.3 + 0.7 * deep);
+          }
           // the destination: a far glow below, a hot white heart
-          col += uMood * (pow(down, 4.0) * 0.16 + pow(down, 40.0) * 0.55) * (0.75 + uEnergy*0.5 + uBeat*0.3);
+          col += uMood * (pow(down, 4.0) * 0.16 + pow(down, 40.0) * 0.55) * (0.75 + uEnergy*0.5 + uBeat*0.3) * mix(1.0, 0.7, deep);
           col += (uMood + vec3(0.4)) * pow(down, 400.0) * 0.8;
-          // the opening, far above: a faint cool ring of light
-          col += (uMood*0.5 + vec3(0.12)) * exp(-pow((up - 0.985) * 90.0, 2.0)) * 0.35;
-          col += (stars(d, 90.0, uScroll*0.05, 0.0) + stars(d, 46.0, uScroll*0.025, 17.0) * 0.8) * (uMood * 0.8 + vec3(0.35));
+          // the light from above, dwindling as the fall goes on: a wide pale glow that
+          // shrinks to a point, the opening a fading ring
+          float far = mix(1.0, 0.12, deep);
+          col += (uMood*0.4 + vec3(0.1, 0.13, 0.17)) * pow(up, mix(6.0, 60.0, deep)) * 0.22 * far;
+          col += (uMood*0.5 + vec3(0.12)) * exp(-pow((up - 0.985) * 90.0, 2.0)) * 0.35 * far;
+          col += (stars(d, 90.0, uScroll*0.05, 0.0) + stars(d, 46.0, uScroll*0.025, 17.0) * 0.8) * (uMood * 0.8 + vec3(0.35)) * mix(1.0, 0.65, deep);
           gl_FragColor = vec4(col * uVis, 1.0);
         }`,
     }));
@@ -73,6 +103,53 @@ export class AbyssSky {
     this.speed.value = Math.min(1.5, speed / 7);
     this.scroll.value = scroll;
     this.mesh.position.copy(cam);
+  }
+}
+
+/** Marine snow: fine pale motes hanging in the dark all round the camera, rising past it as
+ *  the diver sinks (faster with the fall), the nearest soft and large, the far ones pin
+ *  points. What makes the sinking felt in every frame. */
+export class MarineSnow {
+  readonly points: THREE.Points;
+  private off = { value: 0 };
+  private vis = { value: 0 };
+  private at = { value: new THREE.Vector3() };
+
+  constructor(scene: THREE.Scene, u: U, common: string, count: number) {
+    const seed = new Float32Array(count * 4);
+    for (let i = 0; i < count; i++) seed.set([Math.random(), Math.random(), Math.random(), Math.random()], i * 4);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 4));
+    this.points = new THREE.Points(g, new THREE.ShaderMaterial({
+      uniforms: { ...u, uOff: this.off, uVisS: this.vis, uAt: this.at }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uOff, uTime, uPxScale; uniform vec3 uAt; varying float vA; varying float vS;
+        void main(){
+          float B = 44.0;
+          // a box round the camera, wrapped, rising (the diver sinks)
+          vec3 p = (aSeed.xyz - 0.5) * B;
+          p.y = mod(p.y + uOff * (0.7 + aSeed.w * 0.6) + B * 0.5, B) - B * 0.5;
+          p.x += sin(uTime * 0.13 + aSeed.w * 30.0) * 0.6; p.z += cos(uTime * 0.11 + aSeed.w * 20.0) * 0.6;
+          vec3 w = uAt + p;
+          vec4 mv = viewMatrix * vec4(w, 1.0);
+          float dist = -mv.z;
+          vS = aSeed.w;
+          vA = smoothstep(0.6, 2.5, dist) * (1.0 - smoothstep(14.0, 22.0, length(p))) * (0.35 + aSeed.w * 0.65);
+          gl_PointSize = vA > 0.001 ? (0.6 + aSeed.w * 1.6) * 26.0 * uPxScale / max(1.0, dist) + 1.0 : 0.0;
+          gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: /* glsl */`${common} uniform float uVisS; varying float vA; varying float vS;
+        void main(){ float r = length(gl_PointCoord - 0.5) * 2.0; float k = exp(-r * r * 4.0) * vA * uVisS * 0.55;
+          vec3 c = mix(vec3(0.62, 0.74, 0.86), uMood * 1.2 + vec3(0.15), 0.35 + vS * 0.3);
+          gl_FragColor = vec4(c * k, 1.0); }`,
+    }));
+    this.points.frustumCulled = false; this.points.visible = false;
+    scene.add(this.points);
+  }
+
+  /** `speed`: the fall's speed (m/s); `vis` 0..1. */
+  update(cam: THREE.Vector3, speed: number, vis: number, dt: number) {
+    this.off.value += (0.35 + speed * 0.9) * dt; this.vis.value = vis; this.at.value.copy(cam);
+    this.points.visible = vis > 0.01;
   }
 }
 
