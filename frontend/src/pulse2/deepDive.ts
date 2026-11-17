@@ -59,6 +59,12 @@ const THIGH_FIX = /* glsl */`
 `;
 const THIGH_FIX_DECL = "attribute vec3 aFix; uniform float uFixOn; uniform vec3 uHipL, uDirL, uHipR, uDirR;";
 
+/** Gold in the rally take: 20 % more grains for every further whole 1 % of rise
+ *  (+1 % = 1x, +2 % = 1.2x, +3 % = 1.4x…), up to +30 % (the Korean daily limit). */
+const GOLD_MAX_PCT = 30;
+/** The figure's underside map for its shadow: a camera under the floor looking up. */
+const FIGH_NEAR = -0.3, FIGH_FAR = 6, FIGH_R = 3.4;
+const goldDensity = (pct: number) => 1 + 0.2 * Math.floor(Math.min(GOLD_MAX_PCT, Math.max(1, pct)) - 1);
 type U = { value: unknown };
 
 export class DeepDive {
@@ -71,7 +77,7 @@ export class DeepDive {
   private audio = new AudioLevels();
   private u: Record<string, U> = {
     uTime: { value: 0 }, uEnergy: { value: 0 }, uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }, uBeat: { value: 0 },
-    uFlare: { value: 0 }, uStrength: { value: 0 }, uHole: { value: 1 }, uFixOn: { value: 0 }, uHipL: { value: new THREE.Vector3() }, uDirL: { value: new THREE.Vector3(0, -1, 0) }, uHipR: { value: new THREE.Vector3() }, uDirR: { value: new THREE.Vector3(0, -1, 0) }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uFocus: { value: new THREE.Vector3(0, 1, 13) }, uMood: { value: new THREE.Color(0x3a8bff) }, uFigMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
+    uFlare: { value: 0 }, uStrength: { value: 0 }, uHole: { value: 1 }, uPR: { value: 1 }, tFigH: { value: null }, uFigHMat: { value: new THREE.Matrix4() }, uFigHOn: { value: 0 }, uPxScale: { value: 1 }, uFixOn: { value: 0 }, uHipL: { value: new THREE.Vector3() }, uDirL: { value: new THREE.Vector3(0, -1, 0) }, uHipR: { value: new THREE.Vector3() }, uDirR: { value: new THREE.Vector3(0, -1, 0) }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uFocus: { value: new THREE.Vector3(0, 1, 13) }, uMood: { value: new THREE.Color(0x3a8bff) }, uFigMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
   };
   private moodTarget = new THREE.Color(0x3a8bff);
   private strengthTarget = 0;
@@ -93,12 +99,50 @@ export class DeepDive {
   private tunnelScroll = 0;
   private resizeObs: ResizeObserver;
   private visible = true;
+  /** Drawn while the page is shown and the canvas on screen; otherwise no frames at all. */
+  private onScreen = true; private shown = true;
+  private io?: IntersectionObserver;
+  /** Frames are drawn at most 60 times a second: a 90-144 Hz screen would otherwise draw the
+   *  same slow take two or more times over. */
+  private lastDraw = 0;
+  /** Sharpness: the device's pixels up to `prMax`, stepped down (never below `prMin`) only
+   *  when frames keep running late while the script is idle, i.e. the GPU is the bottleneck. */
+  private pr = 1; private prMax = 1; private prMin = 1;
+  private late = { n: 0, slow: 0, cpu: 0, since: 0 };
+  private prBase = 1;
+  private figH?: { rt: THREE.WebGLRenderTarget; cam: THREE.OrthographicCamera; mat: THREE.MeshDepthMaterial };
+  private _cc = new THREE.Color();
+  /** The rally take: render the seated figure's underside from below (body only) for the
+   *  floor's contact shadow. 512 px over 6.8 m: about 1.3 cm a texel. */
+  private renderFigH() {
+    if (!this.skin) return;
+    if (!this.figH) {
+      const rt = new THREE.WebGLRenderTarget(512, 512, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: true });
+      const cam = new THREE.OrthographicCamera(-FIGH_R, FIGH_R, FIGH_R, -FIGH_R, 0, FIGH_FAR);
+      cam.layers.set(3);
+      this.skin.layers.enable(3);
+      this.figH = { rt, cam, mat: new THREE.MeshDepthMaterial({ depthPacking: THREE.BasicDepthPacking }) };
+      this.u.tFigH.value = rt.texture;
+    }
+    const { rt, cam, mat } = this.figH, r = this.renderer, sc = this.scene;
+    cam.position.set(0, FIGH_NEAR, RISE_Z); cam.up.set(0, 0, -1); cam.lookAt(0, 10, RISE_Z); cam.updateMatrixWorld(true);
+    (this.u.uFigHMat.value as THREE.Matrix4).multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    const prevT = r.getRenderTarget(), prevA = r.getClearAlpha(), bg = sc.background, ov = sc.overrideMaterial;
+    r.getClearColor(this._cc);
+    sc.background = null; sc.overrideMaterial = mat;
+    r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(sc, cam);
+    sc.background = bg; sc.overrideMaterial = ov;
+    r.setRenderTarget(prevT); r.setClearColor(this._cc, prevA);
+  }
+  private syncPointScale() { (this.u.uPR.value as number) = this.pr; (this.u.uPxScale.value as number) = this.pr / this.prBase; }
+  private static FOG_BASE = new THREE.Color(0x010206);
   private emitters: THREE.Object3D[] = [];
   private heart?: THREE.Sprite; private heartBone?: THREE.Object3D;
   private sky!: AbyssSky; private embers!: Embers;
   private gold!: GoldRain; private beam!: RedBeam; private cave!: Cave;
   /** Up 1 % or more: the rally take (meditation, raised arm, red beam, gold rain) instead of the dive. */
   private riseMode = false;
+  private goldMult = 1;
   private pelvisH = 1.02;
   private shaftVis = { value: 1 };
   private portalParts: THREE.Object3D[] = [];
@@ -118,7 +162,14 @@ export class DeepDive {
 
   constructor(private canvas: HTMLCanvasElement, private quality: "high" | "medium" = "high") {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance", alpha: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality === "high" ? 1.5 : 1));
+    // (sharper than before: the savings below pay for it; a slow GPU steps itself back)
+    const dpr = window.devicePixelRatio || 1;
+    this.prMax = Math.min(dpr, quality === "high" ? 2 : 1.6); this.prMin = Math.min(dpr, 1);
+    this.pr = this.prMax;
+    this.renderer.setPixelRatio(this.pr);
+    // point sprites are sized in device pixels, tuned at the former ratio: keep their look
+    this.prBase = Math.min(dpr, quality === "high" ? 1.5 : 1);
+    this.syncPointScale();
     // (Neutral keeps a saturated blue blue; ACES turns it violet)
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = 0.95;
@@ -136,7 +187,8 @@ export class DeepDive {
     this.worlds = new Worlds(this.scene, this.u, COMMON, NOISE);
     this.sky = new AbyssSky(this.scene, this.u, COMMON, NOISE);
     this.embers = new Embers(this.scene, this.u, COMMON, quality === "high" ? 900 : 500);
-    this.gold = new GoldRain(this.scene, this.u, COMMON, quality === "high" ? 4200 : 2200, this.renderer.getPixelRatio());
+    this.gold = new GoldRain(this.scene, this.u, COMMON, quality === "high" ? 4200 : 2200, goldDensity(GOLD_MAX_PCT));
+    this.gold.setDensity(this.goldMult);
     this.cave = new Cave(this.scene, this.u, COMMON, NOISE, quality);
     this.beam = new RedBeam(this.scene, this.u, COMMON, DeepDive.glowTex());
     // Light in the mood's colour: one from the portal, one carried by the figure, so the
@@ -155,7 +207,7 @@ export class DeepDive {
 
     // A multisampled, half-float target: smooth edges on the thin rings and ribs (the
     // canvas's own antialiasing does not reach through the post chain), no banding.
-    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: quality === "high" ? 4 : 2 });
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     // (any NaN or infinite pixel would be smeared across the whole frame by the bloom: scrub
@@ -210,6 +262,10 @@ export class DeepDive {
     this.resizeObs.observe(canvas);
     this.resize();
     document.addEventListener("visibilitychange", this.onVis);
+    if (typeof IntersectionObserver !== "undefined") {
+      this.io = new IntersectionObserver(es => { this.onScreen = es.some(e => e.isIntersecting); this.onVis(); });
+      this.io.observe(canvas);
+    }
     this.raf = requestAnimationFrame(this.frame);
   }
 
@@ -225,6 +281,8 @@ export class DeepDive {
     const c = this.moodTarget, lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     c.multiplyScalar(Math.min(1.1, 0.3 / Math.max(0.05, lum)));
     this.strengthTarget = moodStrength(changePct);
+    this.goldMult = rise ? goldDensity(changePct) : 1;
+    this.gold?.setDensity(this.goldMult);
     if (rise !== this.riseMode) {
       // a different take: start it from its beginning (it opens on a soft flare)
       this.riseMode = rise; this.t0 = performance.now(); this.camInit = false;
@@ -238,9 +296,9 @@ export class DeepDive {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     document.removeEventListener("visibilitychange", this.onVis);
-    this.resizeObs.disconnect();
+    this.resizeObs.disconnect(); this.io?.disconnect();
     this.scene.traverse(o => { const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose(); const mat = m.material as THREE.Material | THREE.Material[] | undefined; if (Array.isArray(mat)) mat.forEach(x => x.dispose()); else mat?.dispose(); });
-    this.floor?.dispose();
+    this.floor?.dispose(); this.figH?.rt.dispose(); this.figH?.mat.dispose();
     this.composer.dispose();
     this.renderer.dispose();
   }
@@ -266,12 +324,20 @@ export class DeepDive {
     }
   }
 
-  private onVis = () => { this.visible = !document.hidden; if (this.visible) { this.last = performance.now(); this.raf = requestAnimationFrame(this.frame); } };
+  private onVis = () => {
+    const was = this.visible;
+    this.visible = !document.hidden && this.onScreen;
+    if (this.visible && !was && !this.disposed) { cancelAnimationFrame(this.raf); this.last = performance.now(); this.raf = requestAnimationFrame(this.frame); }
+  };
 
   private resize() {
     const w = Math.max(1, this.canvas.clientWidth), h = Math.max(1, this.canvas.clientHeight);
     this.renderer.setSize(w, h, false);
+    this.composer.setPixelRatio(this.pr);
     this.composer.setSize(w, h);
+    // the floor's reflection at about half the frame's own pixels, in its proportions (a fixed
+    // square was stretched on wide screens and wasted on phones)
+    this.floor?.getRenderTarget().setSize(Math.max(256, Math.round(w * this.pr * 0.55)), Math.max(256, Math.round(h * this.pr * 0.55)));
     this.bloom.setSize(w, h);
     ((this.finish.uniforms as Record<string, { value: unknown }>).uRes.value as THREE.Vector2).set(w, h);
     this.camera.aspect = w / h;
@@ -312,14 +378,51 @@ export class DeepDive {
         void main(){ vUv = textureMatrix * vec4(position,1.0); vec4 w = modelMatrix*vec4(position,1.0); vWorld = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
       fragmentShader: /* glsl */`
         uniform sampler2D tDiffuse; uniform float uPortalR, uHole; uniform vec4 uSteps[4]; varying vec4 vUv; varying vec3 vWorld;
+        uniform sampler2D tFigH; uniform mat4 uFigHMat; uniform float uFigHOn;
         ${COMMON}${NOISE}
+        // the seated figure's underside, seen from below: the height of its lowest point over
+        // each spot of the floor (9: nothing there)
+        float figH(vec2 xz){
+          vec4 p = uFigHMat * vec4(xz.x, 0.0, xz.y, 1.0); vec2 st = p.xy * 0.5 + 0.5;
+          if (st.x < 0.0 || st.y < 0.0 || st.x > 1.0 || st.y > 1.0) return 9.0;
+          float v = texture2D(tFigH, st).r;
+          return v < 1e-4 ? 9.0 : ${FIGH_NEAR.toFixed(2)} + (1.0 - v) * ${FIGH_FAR.toFixed(1)};
+        }
+        // How much of the floor's light the figure takes away at this spot: a crisp, dark line
+        // where the body rests on the floor, a soft occlusion gathering round it (how much of the
+        // sky the body hides, sampled on a spiral), and its shadow from a high light behind it, falling
+        // forward toward the camera so it reads in the frontal view.
+        float figShadow(vec2 xz){
+          if (uFigHOn < 0.5 || abs(xz.x - uFocus.x) > ${FIGH_R.toFixed(1)} || abs(xz.y - uFocus.z) > ${FIGH_R.toFixed(1)}) return 0.0;
+          float h0 = figH(xz);
+          float contact = 1.0 - smoothstep(0.015, 0.16, h0);
+          // (a per-pixel turn of the spiral and of the march: smooth, no stepped copies)
+          float jit = fract(sin(dot(xz, vec2(12.9898, 78.233))) * 43758.5453);
+          float ao = 0.0;
+          for (int i = 0; i < 16; i++) {
+            float fi = float(i), rad = 0.04 + 1.3 * sqrt((fi + 0.5) / 16.0), an = fi * 2.39996 + jit * 6.2831853;
+            float h = figH(xz + vec2(cos(an), sin(an)) * rad);
+            ao += 1.0 - smoothstep(rad * 0.35, rad * 1.5 + 0.08, h);
+          }
+          ao /= 16.0;
+          float sun = 0.0;
+          for (int k = 0; k < 14; k++) {
+            float hk = (float(k) + jit) * 0.19;
+            float h = figH(xz + vec2(-0.22, -0.42) * hk);
+            // softer the higher the part that casts it (a wide light: penumbra grows with height)
+            sun = max(sun, (1.0 - smoothstep(hk - 0.1 - hk * 0.25, hk + 0.04, h)) * (1.0 - hk * 0.22));
+          }
+          return clamp(max(contact, ao * 1.15) + sun * 0.55 * (1.0 - contact), 0.0, 1.0);
+        }
         void main(){
           float r = length(vWorld.xz);
           if (uHole > 0.5 && r < uPortalR - 0.05) discard;
           float a = atan(vWorld.z, vWorld.x);
           // wet stone: broad ripples bend the reflection a little
           vec2 nn = vec2(n3(vec3(vWorld.xz*0.9, uTime*0.05)), n3(vec3(vWorld.xz*0.9+7.0, uTime*0.05))) - 0.5;
-          vec4 uv = vUv; uv.xy += nn * 0.035 * uv.w;
+          // (round the seated figure the water lies still, so its reflection stays clear)
+          float still = uFigHOn > 0.5 ? mix(0.06, 1.0, smoothstep(2.5, 16.0, length(vWorld.xz - uFocus.xz))) : 1.0;
+          vec4 uv = vUv; uv.xy += nn * 0.035 * still * uv.w;
           vec3 refl = texture2DProj(tDiffuse, uv).rgb;
           // inlaid rings and radial seams around the portal
           float dr = abs(fract(r/2.4 + 0.5) - 0.5) * 2.4;
@@ -353,7 +456,11 @@ export class DeepDive {
             glow += (uMood*1.3 + vec3(0.15)) * (ring*1.4 + core + arc + lines) * st.w;
           }
           float fres = 0.55;
-          vec3 col = base + refl * fres + glow;
+          float sh = figShadow(vWorld.xz), lit = 1.0 - sh * 0.92;
+          // the figure's own light pooled on the floor round it, which its shadow cuts into
+          float fd = length(vWorld.xz - uFocus.xz);
+          vec3 pool = uFigHOn > 0.5 ? uFigMood * (0.55 * exp(-fd / 1.8) + 0.12 * exp(-fd / 6.0)) * (0.8 + uEnergy * 0.6) : vec3(0.0);
+          vec3 col = base * lit + refl * fres * (1.0 - sh * 0.55) + (glow + pool) * lit;
           float d = length(cameraPosition - vWorld);
           col = mix(col, uFog, 1.0 - exp(-d*0.018));
           gl_FragColor = vec4(col, 1.0);
@@ -419,7 +526,7 @@ export class DeepDive {
   private tube(curve: THREE.Curve<THREE.Vector3>, seg: number, rad: number, r0: number, r1: number) {
     const frames = curve.computeFrenetFrames(seg, false), pos: number[] = [], uv: number[] = [], idx: number[] = [];
     for (let i = 0; i <= seg; i++) {
-      const u = i / seg, p = curve.getPointAt(u), r = lerp(r0, r1, Math.pow(u, 0.8)) * (1 + 0.12 * Math.sin(u * 40));
+      const u = i / seg, p = curve.getPointAt(u), r = lerp(r0, r1, Math.pow(u, 0.8)) * (1 + 0.035 * Math.sin(u * 40));
       for (let j = 0; j <= rad; j++) {
         const v = (j / rad) * Math.PI * 2, n = frames.normals[i].clone().multiplyScalar(Math.cos(v)).addScaledVector(frames.binormals[i], Math.sin(v));
         pos.push(p.x + n.x * r, p.y + n.y * r, p.z + n.z * r); uv.push(u, j / rad);
@@ -431,9 +538,11 @@ export class DeepDive {
     return g;
   }
 
-  /** Chrome biomechanical ribs with glowing slots; a light pulse runs along each. */
+  /** Slender ribs of polished dark metal lit from within: two fine filaments of light run
+   *  their length, the edges glow (they never read as black masses against the dark), a few
+   *  lit cells, and a light pulse travels along each with the music. */
   private ribMaterial(phase: number, slots = 22) {
-    const m = new THREE.MeshStandardMaterial({ color: 0x141a24, metalness: 1, roughness: 0.12, envMapIntensity: 3.2 });
+    const m = new THREE.MeshStandardMaterial({ color: 0x1a2232, metalness: 1, roughness: 0.16, envMapIntensity: 2.6 });
     const u = this.u;
     m.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, u, { uPhase: { value: phase } });
@@ -457,10 +566,17 @@ export class DeepDive {
             float edge = pow(1.0 - abs(v*2.0 - 1.0), 1.0) * 0.0;
             // a thin glowing seam along the rib, brighter where the pulse passes
             float seam = (1.0 - smoothstep(0.0, 0.035, abs(v - 0.25))) * (0.25 + pulse*2.5);
+            // fine filaments, always alight, on both flanks
+            float fil = (1.0 - smoothstep(0.0, 0.018, abs(v - 0.5))) + (1.0 - smoothstep(0.0, 0.018, abs(fract(v + 0.5) - 0.5)));
             // lit cells mostly dark until a pulse passes; all of it brightest near the figure
             float focus = 0.1 + 0.9*exp(-length(vRibW - uFocus) / 11.0);
             vec3 Vr = normalize(vViewPosition); float rimR = pow(1.0 - abs(dot(normal, Vr)), 4.0);
             float far = exp(-length(vRibW - uFocus) / 26.0);
+            vec3 lum = uMood * 1.2 + vec3(0.06, 0.08, 0.1);
+            // a glowing rim, so a rib reads as a line of light, never a dark mass
+            totalEmissiveRadiance += lum * pow(1.0 - abs(dot(normal, Vr)), 2.0) * (0.22 + uEnergy*0.2 + pulse*0.4) * (0.4 + 0.6*far);
+            totalEmissiveRadiance += lum * fil * (0.55 + uEnergy*0.5 + pulse*1.6) * (0.35 + 0.65*far);
+            totalEmissiveRadiance += uMood * 0.05;
             totalEmissiveRadiance += uMood * rimR * (0.10 + uEnergy*0.12 + pulse*0.25) * (0.25 + 0.75*far);
             totalEmissiveRadiance += uMood * (slot * (0.25 + uEnergy*1.2 + uBeat*0.9) * (0.25 + pulse*2.2) + seam*(0.15 + uEnergy*0.6)*(0.3 + pulse) + edge) * focus;
           }`);
@@ -478,12 +594,12 @@ export class DeepDive {
       if (aisle < 0.42) continue;
       const at = (r: number, y: number, s: number) => new THREE.Vector3(Math.cos(a + s * tw) * r, y, Math.sin(a + s * tw) * r);
       const curve = new THREE.CatmullRomCurve3([at(23, -2, 0), at(22.5, 7, 0.12), at(20, 17, 0.32), at(15, 26, 0.55), at(9, 32, 0.8), at(5.4, 36, 1)], false, "centripetal");
-      const main = new THREE.Mesh(this.tube(curve, 180, 20, 1.9, 0.5), this.ribMaterial(k * 1.3));
+      const main = new THREE.Mesh(this.tube(curve, 180, 16, 0.5, 0.16), this.ribMaterial(k * 1.3));
       this.chamber.add(main);
       // two branches peeling off each rib, like roots
       for (const s of [-1, 1]) {
         const b = new THREE.CatmullRomCurve3([at(22, 3, 0.1), at(20 + s * 1.5, 10, 0.1 + s * 0.35), at(17, 15, s * 0.55), at(13.5, 17, s * 0.75)], false, "centripetal");
-        this.chamber.add(new THREE.Mesh(this.tube(b, 90, 14, 0.75, 0.2), this.ribMaterial(k * 1.3 + s, 12)));
+        this.chamber.add(new THREE.Mesh(this.tube(b, 90, 10, 0.2, 0.06), this.ribMaterial(k * 1.3 + s, 12)));
       }
     }
     // a far wall of arches, each with a lit oval pod, ringing the hall
@@ -555,9 +671,9 @@ export class DeepDive {
     for (let i = 0; i < 14; i++) {
       const seg = new THREE.Group();
       const R = 9 + (i % 3) * 1.5;
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.55, 20, 160), ringMat);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.16, 14, 200), ringMat);
       ring.rotation.x = Math.PI / 2;
-      const line = new THREE.Mesh(new THREE.TorusGeometry(R - 0.5, 0.05, 8, 200), glowMat);
+      const line = new THREE.Mesh(new THREE.TorusGeometry(R - 0.32, 0.03, 8, 240), glowMat);
       line.rotation.x = Math.PI / 2;
       seg.add(ring, line);
       // curved ribs between this ring and the next, sweeping in a spiral
@@ -565,7 +681,7 @@ export class DeepDive {
         const a = (k / 9) * Math.PI * 2 + i * 0.3;
         const at = (r: number, y: number, s: number) => new THREE.Vector3(Math.cos(a + s) * r, y, Math.sin(a + s) * r);
         const c = new THREE.CatmullRomCurve3([at(R, 0, 0), at(R + 2.2, -2.2, 0.18), at(R + 1.4, -4.6, 0.38), at(R, -6, 0.5)]);
-        seg.add(new THREE.Mesh(this.tube(c, 40, 10, 0.32, 0.22), ringMat));
+        seg.add(new THREE.Mesh(this.tube(c, 48, 8, 0.075, 0.05), ringMat));
       }
       seg.visible = false;
       this.tunnel.add(seg);
@@ -603,10 +719,10 @@ export class DeepDive {
     const dg = new THREE.BufferGeometry(); dg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(D * 3), 3)); dg.setAttribute("aSeed", new THREE.BufferAttribute(dp, 4));
     this.dust = new THREE.Points(dg, new THREE.ShaderMaterial({
       uniforms: u, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uBase, uScroll, uTime; varying float vA;
+      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uBase, uScroll, uTime, uPxScale; varying float vA;
         void main(){ float y = uBase + mod(aSeed.y - uScroll*0.25*(0.3+aSeed.w), 90.0) - 45.0;
           vec3 p = vec3(aSeed.x + sin(uTime*0.2 + aSeed.w*30.0)*0.6, y, aSeed.z + cos(uTime*0.17 + aSeed.w*20.0)*0.6);
-          vec4 mv = viewMatrix*vec4(p,1.0); gl_PointSize = (0.8 + aSeed.w*2.2) * 45.0 / max(1.0,-mv.z); vA = smoothstep(45.0, 25.0, abs(y-uBase)) * (0.4+aSeed.w);
+          vec4 mv = viewMatrix*vec4(p,1.0); gl_PointSize = (0.8 + aSeed.w*2.2) * 45.0 * uPxScale / max(1.0,-mv.z); vA = smoothstep(45.0, 25.0, abs(y-uBase)) * (0.4+aSeed.w);
           gl_Position = projectionMatrix*mv; }`,
       fragmentShader: /* glsl */`${COMMON} varying float vA; void main(){ float r=length(gl_PointCoord-0.5); float k=smoothstep(0.5,0.0,r)*vA*(0.5+uMid*1.4);
         gl_FragColor = vec4((uMood*1.4+vec3(0.1))*k, 1.0); }`,
@@ -729,10 +845,10 @@ export class DeepDive {
     const sg = new THREE.BufferGeometry(); sg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(S * 3), 3)); sg.setAttribute("aSeed", new THREE.BufferAttribute(sp, 4));
     this.sparks = new THREE.Points(sg, new THREE.ShaderMaterial({
       uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uTime; varying float vA;
+      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uTime, uPxScale; varying float vA;
         void main(){ float a = aSeed.x + uTime*(0.6+aSeed.w); float y = aSeed.y + sin(uTime*1.3 + aSeed.w*9.0)*0.15;
           vec3 p = vec3(cos(a)*aSeed.z, y, sin(a)*aSeed.z);
-          vec4 mv = modelViewMatrix*vec4(p,1.0); gl_PointSize = (0.6+aSeed.w*1.2)*40.0/max(0.5,-mv.z); vA = 0.4+aSeed.w*0.6; gl_Position = projectionMatrix*mv; }`,
+          vec4 mv = modelViewMatrix*vec4(p,1.0); gl_PointSize = (0.6+aSeed.w*1.2)*40.0*uPxScale/max(0.5,-mv.z); vA = 0.4+aSeed.w*0.6; gl_Position = projectionMatrix*mv; }`,
       fragmentShader: `${COMMON} varying float vA; void main(){ float r=length(gl_PointCoord-0.5); float k=smoothstep(0.5,0.0,r)*vA*(0.6+uHigh*1.5+uBeat);
         gl_FragColor = vec4((uFigMood*1.6+vec3(0.2))*k, 1.0); }`,
     }));
@@ -807,6 +923,11 @@ export class DeepDive {
   private frame = (now: number) => {
     if (this.disposed || !this.visible) return;
     this.raf = requestAnimationFrame(this.frame);
+    // at most 60 frames a second, evenly (a 120 Hz screen draws every other refresh, 90 Hz two in three)
+    const STEP = 1000 / 60;
+    if (this.lastDraw && now - this.lastDraw < STEP - 2) return;
+    this.lastDraw = this.lastDraw && now - this.lastDraw < STEP * 2 ? this.lastDraw + STEP : now;
+    const cpu0 = performance.now(), gap = this.last ? now - this.last : 0;
     // (a long stall — shaders compiling as a take first appears — holds the take rather than
     // skipping it: the meditation must not be lost to a compile)
     if (this.last && now - this.last > 250) this.t0 += now - this.last - 16;
@@ -836,12 +957,13 @@ export class DeepDive {
     u.uHigh.value = mixv(base.h, live.h); u.uBeat.value = mixv(base.beat, live.beat);
     (u.uMood.value as THREE.Color).lerp(this.moodTarget, 1 - Math.exp(-dt * 1.4));
     u.uStrength.value = lerp(u.uStrength.value as number, this.strengthTarget, 1 - Math.exp(-dt * 1.4));
-    const fogC = (u.uFog.value as THREE.Color).copy(u.uMood.value as THREE.Color).multiplyScalar(0.035).add(new THREE.Color(0x010206));
+    const fogC = (u.uFog.value as THREE.Color).copy(u.uMood.value as THREE.Color).multiplyScalar(0.035).add(DeepDive.FOG_BASE);
     (this.scene.fog as THREE.FogExp2).color.copy(fogC);
     // (the cavern is seen across 30-60 m: a thinner haze there, so its rock stays legible)
     (this.scene.fog as THREE.FogExp2).density = this.riseMode ? 0.0055 : 0.011;
     (this.scene.background as THREE.Color).copy(fogC).multiplyScalar(0.7);
-    if (this.riseMode) { this.riseFrame(T, dt); this.post(T % RISE_LOOP, RISE_LOOP, dt, false); return; }
+    (u.uFigHOn.value as number) = this.riseMode && this.skin ? 1 : 0;
+    if (this.riseMode) { this.riseFrame(T, dt); this.renderFigH(); this.post(T % RISE_LOOP, RISE_LOOP, dt, false); this.pace(gap, performance.now() - cpu0); return; }
     this.gold.update(-1, 0); this.beam.update(this._fv, -1, 0, 0); this.rain.visible = true; this.shaftVis.value = 1;
     this.chamber.visible = true; this.cave.update(false, 0, 0); this.figure.scale.setScalar(1);
     this.caveSun.intensity = 0; this.caveFill.intensity = 0;
@@ -1037,7 +1159,27 @@ export class DeepDive {
       diving ? fallSpeed * 0.9 + 1.2 : 0.45, diving ? 0.9 : 0.25);
 
     this.post(t, LOOP, dt, true);
+    this.pace(gap, performance.now() - cpu0);
   };
+
+  /** Watch the frame pace over 2 s windows. When most frames come late (under ~50 fps) and
+   *  the script's own share of the frame is small (the GPU is what is slow), take a quarter
+   *  off the pixel ratio, down to `prMin`. Stalls (compiles, a busy tab) do not count. */
+  private pace(gap: number, cpu: number) {
+    const L = this.late, now = performance.now();
+    if (!L.since) L.since = now;
+    if (gap <= 0 || gap > 100) return;
+    L.n++; L.cpu += cpu; if (gap > 20.5) L.slow++;
+    if (now - L.since < 2000) return;
+    const slow = L.n >= 30 && L.slow / L.n > 0.6, cpuBound = L.cpu / L.n > 9;
+    // (the first seconds of a take compile its shaders: ignore them)
+    if (slow && !cpuBound && now - this.t0 > 4000 && this.pr > this.prMin + 0.01) {
+      this.pr = Math.max(this.prMin, this.pr - 0.25);
+      this.renderer.setPixelRatio(this.pr); this.syncPointScale();
+      this.resize();
+    }
+    L.n = 0; L.slow = 0; L.cpu = 0; L.since = now;
+  }
 
   /** The take's end: the loop flare, the pulse patterns, bloom and exposure, and the render. */
   private post(t: number, loop: number, dt: number, endFlare: boolean) {
@@ -1204,7 +1346,7 @@ export class DeepDive {
     // (the red beam takes the place of the pale light shaft while it burns)
     this.shaftVis.value = 1 - 0.85 * smooth((t - BEAM0) / 1.5) * (1 - smooth((t - BEAM_END) / 3));
     if (t >= BEAM0 && this.lastT < BEAM0 && t - this.lastT < 1) { const s = u.uSteps.value as THREE.Vector4[]; s[this.stepIdx++ % 4].set(0, RISE_Z, T, 2.2); }
-    this.gold.update(t - (BEAM0 + 0.7), 1 - smooth((t - 53) / 6));
+    this.gold.update(t - (BEAM0 + 0.7), 1 - smooth((t - 53) / 6), dt);
 
     // ---- camera
     const sh = DeepDive.RISE_SHOTS, BL = 3;

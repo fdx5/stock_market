@@ -93,11 +93,11 @@ export class Embers {
     g.setAttribute("aSeed", new THREE.BufferAttribute(Float32Array.from({ length: count }, () => Math.random()), 1));
     this.points = new THREE.Points(g, new THREE.ShaderMaterial({
       uniforms: { ...u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      vertexShader: /* glsl */`attribute float aAge; attribute float aSeed; varying float vA; varying float vS;
+      vertexShader: /* glsl */`attribute float aAge; attribute float aSeed; uniform float uPxScale; varying float vA; varying float vS;
         void main(){ vec4 mv = viewMatrix*vec4(position,1.0);
           float life = clamp(aAge, 0.0, 1.0);
           vA = smoothstep(0.0, 0.08, life) * (1.0 - life) * (1.0 - life); vS = aSeed;
-          gl_PointSize = (0.5 + aSeed*1.1) * (1.0 - life*0.6) * 20.0 / max(0.4, -mv.z);
+          gl_PointSize = (0.5 + aSeed*1.1) * (1.0 - life*0.6) * 20.0 * uPxScale / max(0.4, -mv.z);
           gl_Position = projectionMatrix*mv; }`,
       fragmentShader: /* glsl */`${common} varying float vA; varying float vS;
         void main(){ float r = length(gl_PointCoord - 0.5); float k = (smoothstep(0.5, 0.0, r)*0.35 + smoothstep(0.16, 0.0, r)*1.3) * vA * (0.45 + uHigh*0.8 + uBeat*0.4);

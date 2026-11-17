@@ -19,8 +19,16 @@ export class GoldRain {
   readonly mesh: THREE.Points;
   private on = { value: -1 };
   private vis = { value: 0 };
+  /** Grains shown now (eased) and wanted: the base count times the rally's density. */
+  private shown = { value: 0 };
+  private want = 0;
+  private readonly base: number;
+  private readonly cap: number;
 
-  constructor(scene: THREE.Scene, u: U, common: string, count: number, pixelRatio: number) {
+  /** `count` grains at +1 %; room is made for up to `maxMult` times that. */
+  constructor(scene: THREE.Scene, u: U, common: string, count: number, maxMult = 1) {
+    this.base = count; this.cap = Math.ceil(count * maxMult); this.want = this.shown.value = count;
+    count = this.cap;
     const seed = new Float32Array(count * 4), kind = new Float32Array(count * 4);
     for (let i = 0; i < count; i++) {
       // over the whole cave, a little denser toward the middle
@@ -33,11 +41,12 @@ export class GoldRain {
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
     g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 4));
     g.setAttribute("aKind", new THREE.BufferAttribute(kind, 4));
+    g.setAttribute("aIdx", new THREE.BufferAttribute(Float32Array.from({ length: count }, (_, i) => i), 1));
     // the home's palette: #fff4c2 #ffd76a #f2b53a #ffe9a3 #d9962b #fffbe8
     const tones = ["#fff4c2", "#ffd76a", "#f2b53a", "#ffe9a3", "#d9962b", "#fffbe8"].map(h => new THREE.Color(h));
     this.mesh = new THREE.Points(g, new THREE.ShaderMaterial({
-      uniforms: { ...u, uOn: this.on, uVis: this.vis, uPR: { value: pixelRatio }, uTones: { value: tones } }, ...additive,
-      vertexShader: /* glsl */`attribute vec4 aSeed; attribute vec4 aKind; uniform float uTime, uOn, uPR;
+      uniforms: { ...u, uOn: this.on, uVis: this.vis, uShown: this.shown, uTones: { value: tones } }, ...additive,
+      vertexShader: /* glsl */`attribute vec4 aSeed; attribute vec4 aKind; attribute float aIdx; uniform float uTime, uOn, uPR, uShown;
         varying float vA; varying float vTw; varying float vStar; varying float vTone;
         void main(){
           float H = ${CEILING.toFixed(1)}, sp = aKind.y;
@@ -53,9 +62,10 @@ export class GoldRain {
           // grain size in CSS px as on the home (0.35..1.45 x 4), barely scaled by distance;
           // the sprite is three times the grain, to hold its trail and star rays
           float sizePx = (0.35 + aSeed.w * 1.1) * 4.0 * (1.0 + tw * 0.5) * clamp(16.0 / max(1.0, -mv.z), 0.55, 1.35);
-          gl_PointSize = sizePx * 3.0 * uPR;
-          // bright up in the air, fading to nothing as it nears the floor; no grain on the lens
-          vA = started * pow(smoothstep(0.1, 4.5, y), 1.3) * smoothstep(H, H - 3.0, y) * smoothstep(0.8, 3.0, -mv.z);
+          // bright up in the air, fading to nothing as it nears the floor; no grain on the lens;
+          // grains past the current count fade in or out one by one as the rally grows or eases
+          vA = started * pow(smoothstep(0.1, 4.5, y), 1.3) * smoothstep(H, H - 3.0, y) * smoothstep(0.8, 3.0, -mv.z) * clamp(uShown - aIdx, 0.0, 1.0);
+          gl_PointSize = vA > 0.001 ? sizePx * 3.0 * uPR : 0.0;   // nothing to fill for an unseen grain
           gl_Position = projectionMatrix * mv; }`,
       fragmentShader: /* glsl */`${common} uniform float uVis; uniform vec3 uTones[6];
         varying float vA; varying float vTw; varying float vStar; varying float vTone;
@@ -81,7 +91,15 @@ export class GoldRain {
   }
 
   /** `since`: seconds since the rain began (<0: not yet); `vis` 0..1. */
-  update(since: number, vis: number) { this.on.value = since; this.vis.value = vis; this.mesh.visible = vis > 0.005 && since >= 0; }
+  update(since: number, vis: number, dt = 1 / 60) {
+    this.on.value = since; this.vis.value = vis; this.mesh.visible = vis > 0.005 && since >= 0;
+    // ease toward the wanted count over about a second and a half
+    const s = this.shown.value; this.shown.value = s + (this.want - s) * Math.min(1, dt * 2.5);
+    this.mesh.geometry.setDrawRange(0, Math.min(this.cap, Math.ceil(this.shown.value + 1)));
+  }
+
+  /** Density relative to +1 %: 1.2 at +2 %, 1.4 at +3 %… */
+  setDensity(mult: number) { this.want = Math.min(this.cap, this.base * Math.max(1, mult)); }
 }
 
 /** The rally take's room: a vast limestone cavern. A dome of rock with a chimney open to the
