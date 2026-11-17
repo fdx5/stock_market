@@ -2,6 +2,19 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
+    <script id="canonical-origin-redirect">
+      // The public edge fetches this same HTML from Render. Redirect by the
+      // browser's visible hostname so those proxy fetches cannot create a loop.
+      // Keep this ahead of app/third-party scripts, including stale-boot recovery.
+      (function () {
+        if (window.location.hostname !== "kospi-predictor.onrender.com") return;
+        var target = new URL(window.location.href);
+        target.protocol = "https:";
+        target.host = "kospimap.com";
+        target.port = "";
+        window.location.replace(target.href);
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0d0d0d" />
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8278980164088928"
