@@ -70,7 +70,7 @@ export class GoldRain {
           // a light grain drifts as it falls, swinging a little like a flake
           vec3 c = vec3(aSeed.x + sin(uTime*0.9 + sw)*0.35 + sin(fall*0.21 + sw)*0.5, y, aSeed.y + cos(uTime*0.7 + sw)*0.35);
           vec4 mv = viewMatrix * vec4(c, 1.0);
-          float tw = 0.55 + 0.45 * sin(uTime * 11.0 + sw * 7.0);
+          float tw = 0.7 + 0.3 * sin(uTime * (2.2 + fract(sw * 3.7) * 1.6) + sw * 7.0);   // a slow glint, never a strobe
           vTw = tw; vStar = aKind.w; vTone = aKind.x;
           // grain size in CSS px as on the home (0.35..1.45 x 4), barely scaled by distance;
           // the sprite is three times the grain, to hold its trail and star rays
@@ -98,7 +98,7 @@ export class GoldRain {
           float g = vStar * smoothstep(0.82, 1.0, vTw);
           float rays = (exp(-abs(p.y) * 70.0) + exp(-abs(p.x) * 70.0)) * (1.0 - smoothstep(0.0, 0.5, length(p)));
           col += mix(vec3(1.0), tone, 0.35) * rays * g * 1.2;
-          float a = vA * uVis * (0.45 + vTw * 0.55) * (0.85 + uHigh*0.4 + uBeat*0.25);
+          float a = vA * uVis * (0.45 + vTw * 0.55) * (0.85 + uHigh*0.25 + uBeat*0.1) * 0.9;
           gl_FragColor = vec4(col * a * 1.1, 1.0); }`,
     }));
     this.mesh.frustumCulled = false; this.mesh.visible = false;
@@ -337,16 +337,16 @@ export class RedBeam {
           float L = ${CEILING.toFixed(1)};
           float h = vY * L;
           // a train of fine pulses streaming up, and a big pulse every two seconds
-          float fine = pow(0.5 + 0.5*sin(h*1.4 - uTime*22.0), 6.0);
+          float fine = pow(0.5 + 0.5*sin(h*0.9 - uTime*5.0), 4.0);
           float big = 0.0;
           for (int i = 0; i < 3; i++) { float ph = mod(uAge - float(i)*2.0, 6.0); big += exp(-pow((h - ph*26.0)*0.35, 2.0)) * step(0.0, uAge - float(i)*2.0); }
           float tipFade = smoothstep(uLen, uLen - 0.04, vY);
           float base = smoothstep(0.0, 0.01, vY);
           float k;
           vec3 col;
-          if (${core.toFixed(1)} > 0.5) { k = pow(face, 3.0) * (1.2 + fine*0.8 + big*3.0); col = mix(vec3(1.0, 0.1, 0.05), vec3(1.0, 0.75, 0.6), pow(face, 8.0)) * k * 2.0; }
-          else { k = pow(face, 2.0) * (0.25 + fine*0.25 + big*1.4); col = vec3(1.0, 0.06, 0.03) * k * 0.35; }
-          col *= (1.0 + uBeat*0.6 + uEnergy*0.4) * tipFade * base * uVis * uGain;
+          if (${core.toFixed(1)} > 0.5) { k = pow(face, 3.0) * (1.2 + fine*0.35 + big*1.7); col = mix(vec3(1.0, 0.12, 0.06), vec3(1.0, 0.78, 0.62), pow(face, 8.0)) * k * 1.55; }
+          else { k = pow(face, 2.0) * (0.25 + fine*0.12 + big*0.9); col = vec3(1.0, 0.07, 0.035) * k * 0.3; }
+          col *= (1.0 + uBeat*0.2 + uEnergy*0.25) * tipFade * base * uVis * uGain;
           gl_FragColor = vec4(col, 1.0); }`,
     });
     const core = new THREE.Mesh(geo, mat(1)); core.scale.set(0.06, CEILING + 26, 0.06);
@@ -390,13 +390,13 @@ export class RedBeam {
       if (this.top !== null) this.len.value = len * Math.max(0.01, this.top - from.y) / (CEILING + 26);
     }
     if (to) this.strike.visible = false;
-    const flash = Math.exp(-age * 2.5) * 3;
+    const flash = Math.exp(-age * 1.6) * 1.5;   // (a swell, not a flash)
     this.hand.position.copy(from);
-    this.hand.scale.setScalar((0.9 + flash * 0.8 + beat * 0.4 + Math.sin(age * 7) * 0.08) * vis * Math.sqrt(this.thick));
+    this.hand.scale.setScalar((0.9 + flash * 0.6 + beat * 0.15 + Math.sin(age * 2.2) * 0.04) * vis * Math.sqrt(this.thick));
     this.hand.material.opacity = Math.min(1, 0.8 + flash) * vis;
     this.strike.position.set(from.x, this.top ?? CEILING + 2, from.z);
-    const hit = grow >= 1 ? Math.exp(-(age - 0.8) * 1.5) * 4 + 1 : 0;
-    this.strike.scale.setScalar((3 + hit * 2.5 + beat * 1.5) * vis * Math.sqrt(this.thick));
+    const hit = grow >= 1 ? Math.exp(-(age - 0.8) * 1.0) * 2.2 + 1 : 0;
+    this.strike.scale.setScalar((3 + hit * 2.0 + beat * 0.5) * vis * Math.sqrt(this.thick));
     this.strike.material.opacity = Math.min(1, 0.6 + hit * 0.2) * vis * (grow >= 1 ? 1 : 0);
   }
 }
@@ -429,7 +429,7 @@ export class LightCanopy {
           float inside = smoothstep(Rs + 0.5, Rs - 5.0, r);
           vec3 p3 = vec3(q * 0.16, uTime * 0.07);
           float web = pow(1.0 - abs(n3(p3) - 0.5) * 2.0, 7.0) * 0.8 + pow(1.0 - abs(n3(p3 * 2.3 + 4.0) - 0.5) * 2.0, 10.0) * 0.5;
-          float pool = inside * (0.1 + web * 0.75) * (0.8 + 0.2 * sin(uTime * 1.3 - r * 0.25));
+          float pool = inside * (0.1 + web * 0.75) * (0.85 + 0.15 * sin(uTime * 0.6 - r * 0.2));
           // the heart where the beam meets it
           float heart = exp(-r * 0.45) * 1.6 + exp(-r * 1.6) * 2.5;
           // drops beading on it: one in each cell of a fine grid, swelling and glinting
@@ -438,15 +438,15 @@ export class LightCanopy {
           float d = length(f - jit * 0.6);
           float cr = length((cell + 0.5) * 1.1);
           float born = smoothstep(0.0, 1.2, uAge - (-${SPREAD_T.toFixed(2)} * log(max(1e-3, 1.0 - min(cr, ${(SPREAD_R - 0.5).toFixed(1)}) / ${SPREAD_R.toFixed(1)}))));
-          float glint = pow(0.5 + 0.5 * sin(uTime * (3.0 + hs * 5.0) + hs * 40.0), 6.0);
-          float bead = exp(-d * d * 260.0) * born * step(0.45, hs) * (0.35 + glint * 1.6);
+          float glint = pow(0.5 + 0.5 * sin(uTime * (0.7 + hs * 1.3) + hs * 40.0), 4.0);
+          float bead = exp(-d * d * 260.0) * born * step(0.45, hs) * (0.4 + glint * 0.85);
           vec3 red = vec3(1.0, 0.16, 0.08), gold = vec3(1.0, 0.72, 0.28), silver = vec3(0.82, 0.88, 1.0);
           vec3 tint = mix(red, gold, smoothstep(1.5, 12.0, r));
           tint = mix(tint, silver, smoothstep(16.0, 32.0, r) * 0.45);
           vec3 beadTint = mix(gold * 1.2, silver * 1.2, step(0.72, hs));
           float edge = smoothstep(${(SPREAD_R + 2).toFixed(1)}, ${(SPREAD_R - 6).toFixed(1)}, r);
-          vec3 col = (tint * (front * 0.55 + pool * 0.5) + mix(red, vec3(1.0, 0.8, 0.6), 0.4) * heart * 0.5) * edge + beadTint * bead * edge;
-          col *= uVisC * (0.85 + uBeat * 0.3 + uEnergy * 0.25);
+          vec3 col = (tint * (front * 0.55 + pool * 0.5) + mix(red, vec3(1.0, 0.8, 0.6), 0.4) * heart * 0.36) * edge + beadTint * bead * edge;
+          col *= uVisC * (0.8 + uBeat * 0.1 + uEnergy * 0.15);
           gl_FragColor = vec4(col, 1.0); }`,
     }));
     this.mesh.position.y = CANOPY; this.mesh.frustumCulled = false; this.mesh.visible = false;

@@ -1480,11 +1480,11 @@ export class DeepDive {
     const mood = u.uMood.value as THREE.Color;
     if (this.heart && this.heartBone) {
       this.heartBone.getWorldPosition(this.heart.position);
-      const pulse = 0.75 + 0.25 * Math.sin(T * 1.1) + (u.uBeat.value as number) * 0.4;
+      const pulse = 0.8 + 0.2 * Math.sin(T * 1.1) + (u.uBeat.value as number) * 0.15;
       this.heart.scale.setScalar(0.55 + pulse * 0.3);
       this.heart.material.color.copy(u.uFigMood.value as THREE.Color).multiplyScalar(1.6).addScalar(0.35).multiplyScalar(0.5 * pulse);
     }
-    this.keyLight.color.copy(mood); this.keyLight.intensity = 90 + (u.uEnergy.value as number) * 120 + (u.uBeat.value as number) * 60;
+    this.keyLight.color.copy(mood); this.keyLight.intensity = 90 + (u.uEnergy.value as number) * 90 + (u.uBeat.value as number) * 20;
     this.figLight.color.copy(mood).lerp(this._red, beamVis * 0.8);
     this.figLight.position.copy(beamVis > 0.01 ? (strong ? this._v2.copy(this._fv).add(this._fvL).multiplyScalar(0.5) : this._fv) : chest);
     this.figLight.intensity = 26 + (u.uEnergy.value as number) * 40 + beamVis * 60;
