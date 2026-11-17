@@ -1,11 +1,17 @@
 // What surrounds the diver changes as it falls, and the hall it walks through is alive:
-// hall dressing (hanging tendrils, drifting orbs, far arches, light pillars) and five
-// "worlds" for the fall that crossfade every ~70 s — the ribbed ring tunnel (in
-// deepDive.ts), rising streamers of light, a field of crystal shards, an open nebula, and
-// hexagonal lattice rings. Everything is lit by the shared mood/music uniforms.
+// hall dressing (hanging tendrils, drifting orbs, far arches, light pillars) and nine
+// "worlds" for the fall that crossfade every ~60 s in a shuffled order — the ribbed ring
+// tunnel (in deepDive.ts), rising streamers of light, pearls, an open nebula, an armillary
+// of rings, a double helix, a forest of candles, aurora curtains and wireframe solids. Everything is lit by the shared mood/music uniforms.
 import * as THREE from "three";
 
 type U = Record<string, { value: unknown }>;
+/** The distinct corners of a solid, as points (for the sparks at its vertices). */
+function mergeVerts(g: THREE.BufferGeometry) {
+  const p = g.attributes.position, seen = new Set<string>(), out: number[] = [];
+  for (let i = 0; i < p.count; i++) { const k = p.getX(i).toFixed(3) + "," + p.getY(i).toFixed(3) + "," + p.getZ(i).toFixed(3); if (!seen.has(k)) { seen.add(k); out.push(p.getX(i), p.getY(i), p.getZ(i)); } }
+  const r = new THREE.BufferGeometry(); r.setAttribute("position", new THREE.Float32BufferAttribute(out, 3)); return r;
+}
 const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false } as const;
 
 export class Worlds {
@@ -14,7 +20,13 @@ export class Worlds {
   private hex = new THREE.Group();
   private shards: THREE.Mesh;
   private nebula: THREE.Mesh;
-  private vis: Record<string, { value: number }> = { hall: { value: 1 }, vortex: { value: 0 }, shards: { value: 0 }, nebula: { value: 0 }, hex: { value: 0 } };
+  private helix = new THREE.Group();
+  private candles = new THREE.Group();
+  private aurora = new THREE.Group();
+  private solids = new THREE.Group();
+  private vis: Record<string, { value: number }> = { hall: { value: 1 }, vortex: { value: 0 }, shards: { value: 0 }, nebula: { value: 0 }, hex: { value: 0 }, helix: { value: 0 }, candles: { value: 0 }, aurora: { value: 0 }, solids: { value: 0 } };
+  /** How many worlds the fall has (the ring tunnel, in deepDive.ts, is world 0). */
+  static readonly COUNT = 9;
 
   constructor(scene: THREE.Scene, private u: U, common: string, noise: string) {
     // ---------------------------------------------------------------- the hall
@@ -206,13 +218,182 @@ export class Worlds {
     }
     this.hex.visible = false;
     scene.add(this.hex);
+
+    // 5. A double helix of light: two fine strands winding round the fall, joined by rungs
+    //    that light up in turn, the whole of it turning slowly as it rises past.
+    {
+      const R = 22, PITCH = 26, LEN = PITCH * 7, N = 900;
+      const strandMat = new THREE.ShaderMaterial({
+        uniforms: { ...u, uVis: this.vis.helix }, ...additive,
+        vertexShader: `varying vec2 vUv; varying float vD; void main(){ vUv=uv; vec4 w = modelMatrix*vec4(position,1.0); vD = abs(w.y - cameraPosition.y); gl_Position=projectionMatrix*viewMatrix*w; }`,
+        fragmentShader: /* glsl */`${common} uniform float uVis; varying vec2 vUv; varying float vD;
+          void main(){ float run = pow(0.5+0.5*sin(vUv.x*42.0 - uTime*(1.4+uMid*3.0)), 6.0);
+            float k = (0.35 + run*1.4) * (0.55 + uEnergy*0.9 + uBeat*0.5) * exp(-vD*0.025) * uVis;
+            gl_FragColor = vec4((uMood*1.3 + vec3(0.12))*k, 1.0); }`,
+      });
+      for (const ph of [0, Math.PI]) {
+        const pts: THREE.Vector3[] = [];
+        for (let i = 0; i <= N; i++) { const t = i / N, a = ph + t * (LEN / PITCH) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * R, t * LEN - LEN / 2, Math.sin(a) * R)); }
+        this.helix.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), N * 2, 0.07, 6, false), strandMat));
+      }
+      const RN = 7 * 18, rung = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.02, 0.02, 1, 6, 1, true), new THREE.ShaderMaterial({
+        uniforms: { ...u, uVis: this.vis.helix }, ...additive,
+        vertexShader: `attribute float aI; varying float vI; varying vec2 vUv; void main(){ vI = aI; vUv = uv; gl_Position=projectionMatrix*viewMatrix*modelMatrix*instanceMatrix*vec4(position,1.0); }`,
+        fragmentShader: /* glsl */`${common} uniform float uVis; varying float vI; varying vec2 vUv;
+          void main(){ float lit = pow(0.5+0.5*sin(vI*0.9 - uTime*(2.0 + uBass*3.0)), 10.0);
+            float mid = 1.0 - abs(vUv.y*2.0 - 1.0);
+            float k = (0.12 + lit*1.6) * (0.4 + 0.6*mid) * (0.6 + uEnergy*0.8) * uVis;
+            gl_FragColor = vec4((uMood*1.2 + vec3(0.2))*k, 1.0); }`,
+      }), RN);
+      // (short bars across each strand, like the rungs' ends: none spans the middle, where
+      // the diver and the camera are)
+      const o = new THREE.Object3D(), ai = new Float32Array(RN);
+      for (let i = 0; i < RN; i++) {
+        const t = Math.floor(i / 2) / (RN / 2), a = t * (LEN / PITCH) * Math.PI * 2 + (i % 2) * Math.PI, y = t * LEN - LEN / 2;
+        o.position.set(Math.cos(a) * R, y, Math.sin(a) * R); o.rotation.set(0, -a, Math.PI / 2); o.scale.set(1.6, 3.2, 1.6); o.updateMatrix(); rung.setMatrixAt(i, o.matrix); ai[i] = Math.floor(i / 2);
+      }
+      rung.geometry.setAttribute("aI", new THREE.InstancedBufferAttribute(ai, 1));
+      rung.frustumCulled = false;
+      this.helix.add(rung);
+      this.helix.userData = { pitch: PITCH };
+      this.helix.visible = false;
+      scene.add(this.helix);
+    }
+
+    // 6. A forest of candles: tall bars of light like a price chart's candles, standing all
+    //    round the fall at many distances, each with its wick, edges glowing, a light running
+    //    up them; they rise past as the diver sinks.
+    {
+      const CN = 170, box = new THREE.BoxGeometry(1, 1, 1);
+      const seeds = new Float32Array(CN * 4), kind = new Float32Array(CN * 4);
+      for (let i = 0; i < CN; i++) {
+        const a = Math.random() * Math.PI * 2, r = 8 + Math.pow(Math.random(), 0.8) * 20;
+        seeds.set([Math.cos(a) * r, Math.random() * 150, Math.sin(a) * r, 3 + Math.pow(Math.random(), 1.4) * 14], i * 4);
+        kind.set([0.4 + Math.random() * 0.5, Math.random(), Math.random() < 0.5 ? 1 : 0, Math.random()], i * 4);
+      }
+      const mk = (wick: boolean) => {
+        const g = new THREE.InstancedBufferGeometry().copy(box as unknown as THREE.InstancedBufferGeometry);
+        g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seeds, 4)); g.setAttribute("aKind", new THREE.InstancedBufferAttribute(kind, 4)); g.instanceCount = CN;
+        const m = new THREE.Mesh(g, new THREE.ShaderMaterial({
+          uniforms: { ...u, uVis: this.vis.candles, uBase: { value: 0 }, uScroll: { value: 0 } }, ...additive,
+          vertexShader: /* glsl */`attribute vec4 aSeed; attribute vec4 aKind; uniform float uBase, uScroll, uTime; varying vec2 vUv; varying vec4 vK; varying float vD;
+            void main(){ vUv = uv; vK = aKind;
+              float h = aSeed.w * ${wick ? "1.7" : "1.0"}, wdt = ${wick ? "0.035" : "aKind.x"};
+              vec3 c = vec3(aSeed.x, uBase + mod(aSeed.y + uScroll*0.7, 150.0) - 75.0, aSeed.z);
+              vec3 p = c + vec3(position.x*wdt, position.y*h, position.z*wdt);
+              vec4 w = modelMatrix*vec4(p,1.0); vD = distance(cameraPosition, w.xyz);
+              gl_Position = projectionMatrix*viewMatrix*w; }`,
+          fragmentShader: /* glsl */`${common} uniform float uVis; varying vec2 vUv; varying vec4 vK; varying float vD;
+            void main(){
+              vec2 e = min(vUv, 1.0 - vUv); float edge = 1.0 - smoothstep(0.0, 0.08, min(e.x, e.y));
+              float run = pow(0.5+0.5*sin(vUv.y*6.0 - uTime*(1.0 + vK.y*1.5) + vK.w*20.0), 8.0);
+              // rising candles carry the mood's colour, falling ones a cooler white
+              vec3 tint = mix(uMood*1.3 + vec3(0.06), vec3(0.55, 0.65, 0.8), vK.z*0.55);
+              float k = ${wick ? "(0.5 + run*0.8)" : "(0.12 + edge*1.6 + run*0.9)"} * (0.7 + uEnergy*0.9 + uBeat*0.5) * smoothstep(2.5, 7.0, vD) * exp(-vD*0.012) * uVis * 1.6;
+              gl_FragColor = vec4(tint*k, 1.0); }`,
+        }));
+        m.frustumCulled = false;
+        return m;
+      };
+      this.candles.add(mk(false), mk(true));
+      this.candles.visible = false;
+      scene.add(this.candles);
+    }
+
+    // 7. Aurora: tall curtains of light hanging round the fall, folding slowly, bright
+    //    at their lower hem and fading upward, drifting past as the diver sinks.
+    {
+      const auroraMat = new THREE.ShaderMaterial({
+        uniforms: { ...u, uVis: this.vis.aurora, uScroll: { value: 0 } }, ...additive, side: THREE.DoubleSide,
+        vertexShader: /* glsl */`${noise} uniform float uTime, uScroll; attribute float aK; varying vec2 vUv; varying float vK;
+          void main(){ vUv = uv; vK = aK;
+            vec3 p = position; float a = atan(p.z, p.x);
+            float fold = n3(vec3(a*3.0 + aK*7.0, uTime*0.05, aK)) - 0.5;
+            float r = length(p.xz) + fold*5.0 + sin(a*5.0 + uTime*0.2 + aK*9.0)*1.2;
+            p.x = cos(a)*r; p.z = sin(a)*r;
+            gl_Position = projectionMatrix*modelViewMatrix*vec4(p,1.0); }`,
+        fragmentShader: /* glsl */`${common}${noise} uniform float uVis, uScroll; varying vec2 vUv; varying float vK;
+          void main(){
+            float rays = n3(vec3(vUv.x*60.0 + vK*13.0, vUv.y*1.5 + uScroll*0.02, uTime*0.08));
+            rays = pow(rays, 2.5) * 1.8;
+            float hem = smoothstep(0.0, 0.08, vUv.y) * pow(1.0 - vUv.y, 1.6);
+            float ends = smoothstep(0.0, 0.1, vUv.x) * smoothstep(1.0, 0.9, vUv.x);
+            vec3 tint = mix(uMood*1.2, uMood.gbr*0.7 + vec3(0.05, 0.12, 0.1), vUv.y*0.7 + vK*0.2);
+            float k = rays * hem * ends * (0.4 + uEnergy*0.5 + uMid*0.35) * uVis;
+            gl_FragColor = vec4(tint*k, 1.0); }`,
+      });
+      for (let i = 0; i < 6; i++) {
+        const R = 12 + i * 2.6, arc = 1.8 + Math.random() * 1.8, h = 34 + Math.random() * 20;
+        const g = new THREE.CylinderGeometry(R, R, h, 96, 1, true, Math.random() * Math.PI * 2, arc);
+        g.setAttribute("aK", new THREE.Float32BufferAttribute(new Array(g.attributes.position.count).fill(Math.random()), 1));
+        const m = new THREE.Mesh(g, auroraMat); m.frustumCulled = false;
+        m.userData = { base: Math.random() * 120, speed: 0.25 + Math.random() * 0.25, spin: (Math.random() - 0.5) * 0.03, h };
+        this.aurora.add(m);
+      }
+      this.aurora.userData = { mat: auroraMat };
+      this.aurora.visible = false;
+      scene.add(this.aurora);
+    }
+
+    // 8. Sacred geometry: great wireframe solids of light (icosahedra, dodecahedra,
+    //    octahedra) turning slowly in the dark round the fall, a spark at every vertex.
+    {
+      const lineMat = new THREE.ShaderMaterial({
+        uniforms: { ...u, uVis: this.vis.solids }, ...additive,
+        vertexShader: `varying float vY; varying float vD; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vY = position.y; vD = distance(cameraPosition, w.xyz); gl_Position=projectionMatrix*viewMatrix*w; }`,
+        fragmentShader: /* glsl */`${common} uniform float uVis; varying float vY; varying float vD;
+          void main(){ float run = pow(0.5+0.5*sin(vY*3.0 - uTime*(1.5 + uBass*2.0)), 6.0);
+            float k = (0.35 + run*1.2) * (0.55 + uEnergy*0.8 + uBeat*0.5) * smoothstep(2.0, 8.0, vD) * exp(-vD*0.018) * uVis;
+            gl_FragColor = vec4((uMood*1.3 + vec3(0.14))*k, 1.0); }`,
+      });
+      const ptMat = new THREE.ShaderMaterial({
+        uniforms: { ...u, uVis: this.vis.solids }, ...additive,
+        vertexShader: `uniform float uPxScale; varying float vD; void main(){ vec4 mv = modelViewMatrix*vec4(position,1.0); vD = -mv.z; gl_PointSize = 70.0 * uPxScale / max(1.0, -mv.z); gl_Position = projectionMatrix*mv; }`,
+        fragmentShader: /* glsl */`${common} uniform float uVis; varying float vD;
+          void main(){ float r = length(gl_PointCoord - 0.5)*2.0; float k = (exp(-r*r*10.0)*1.6 + exp(-r*r*2.5)*0.25) * (0.6 + uHigh*1.0 + uBeat*0.6) * smoothstep(2.0, 8.0, vD) * uVis;
+            gl_FragColor = vec4((uMood*1.2 + vec3(0.3))*k, 1.0); }`,
+      });
+      const shapes = [() => new THREE.IcosahedronGeometry(1, 0), () => new THREE.DodecahedronGeometry(1, 0), () => new THREE.OctahedronGeometry(1, 0), () => new THREE.IcosahedronGeometry(1, 1)];
+      for (let i = 0; i < 9; i++) {
+        const geo = shapes[i % shapes.length](), size = 3.5 + Math.random() * 6;
+        const grp = new THREE.Group();
+        grp.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 1), lineMat));
+        // (an inner, smaller twin turning the other way: depth and a jewel-like look)
+        const inner = new THREE.LineSegments(new THREE.EdgesGeometry(shapes[(i + 1) % shapes.length](), 1), lineMat); inner.scale.setScalar(0.45); grp.add(inner);
+        grp.add(new THREE.Points(mergeVerts(geo), ptMat));
+        grp.scale.setScalar(size);
+        const a = (i / 9) * Math.PI * 2 + Math.random() * 0.4, r = 14 + Math.random() * 14;
+        grp.userData = { x: Math.cos(a) * r, z: Math.sin(a) * r, base: Math.random() * 160, speed: 0.35 + Math.random() * 0.3, rx: (Math.random() - 0.5) * 0.2, ry: (Math.random() - 0.5) * 0.25, inner };
+        grp.traverse(c => { c.frustumCulled = false; });
+        this.solids.add(grp);
+      }
+      this.solids.visible = false;
+      scene.add(this.solids);
+    }
   }
 
-  /** `hall`: 0..1 how much of the hall is in view; `w`: weights of [rings, vortex, shards, nebula, hex]. */
+  /** `hall`: 0..1 how much of the hall is in view; `w`: weights of [rings, vortex, shards,
+   *  nebula, hex, helix, candles, aurora, solids]. */
   update(T: number, camY: number, scroll: number, hall: number, w: number[]) {
     this.vis.hall.value = hall; this.hall.visible = hall > 0.01;
     const set = (key: string, obj: THREE.Object3D, v: number) => { this.vis[key].value = v; obj.visible = v > 0.01; };
     set("vortex", this.vortex, w[1]); set("shards", this.shards, w[2]); set("nebula", this.nebula, w[3]); set("hex", this.hex, w[4]);
+    set("helix", this.helix, w[5] ?? 0); set("candles", this.candles, w[6] ?? 0); set("aurora", this.aurora, w[7] ?? 0); set("solids", this.solids, w[8] ?? 0);
+    if (this.helix.visible) {
+      // (seamless: the helix repeats every pitch, so it is shifted within one)
+      const P = (this.helix.userData as { pitch: number }).pitch;
+      this.helix.position.y = camY + 4 - ((scroll * 0.8) % P); this.helix.rotation.y = T * 0.06;
+    }
+    if (this.candles.visible) for (const m of this.candles.children) { const s = ((m as THREE.Mesh).material as THREE.ShaderMaterial).uniforms; s.uBase.value = camY - 4; s.uScroll.value = scroll; }
+    if (this.aurora.visible) {
+      ((this.aurora.userData as { mat: THREE.ShaderMaterial }).mat.uniforms.uScroll.value as number) = scroll;
+      this.aurora.children.forEach(m => { const d = m.userData as { base: number; speed: number; spin: number }; m.position.y = camY - 60 + ((d.base + scroll * d.speed) % 120); m.rotation.y = T * d.spin; });
+    }
+    if (this.solids.visible) this.solids.children.forEach(g => {
+      const d = g.userData as { x: number; z: number; base: number; speed: number; rx: number; ry: number; inner: THREE.Object3D };
+      g.position.set(d.x, camY - 80 + ((d.base + scroll * d.speed) % 160), d.z);
+      g.rotation.set(T * d.rx, T * d.ry, T * d.rx * 0.5); d.inner.rotation.set(-T * d.ry * 1.6, T * d.rx * 1.3, 0);
+    });
     // streamers rise past the camera (faster ones nearer), recycled below
     this.vortex.children.forEach(m => { const d = m.userData as { base: number; speed: number }; m.position.y = camY - 70 + ((d.base + scroll * d.speed * 1.4) % 140); });
     for (const m of [this.shards, this.nebula]) { const s = (m.material as THREE.ShaderMaterial).uniforms; s.uBase.value = camY - 6; s.uScroll.value = scroll; }

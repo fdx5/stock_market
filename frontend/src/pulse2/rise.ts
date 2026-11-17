@@ -303,14 +303,17 @@ export class RedBeam {
   private len = { value: 0 };
   private vis = { value: 0 };
   private age = { value: 0 };
+  private gain = { value: 1 };
+  private thick = 1;
+  private core: THREE.Mesh; private halo: THREE.Mesh;
   private hand: THREE.Sprite; private strike: THREE.Sprite;
 
   constructor(scene: THREE.Scene, u: U, common: string, glow: THREE.Texture) {
     const geo = new THREE.CylinderGeometry(1, 1, 1, 32, 1, true).translate(0, 0.5, 0);
     const mat = (core: number) => new THREE.ShaderMaterial({
-      uniforms: { ...u, uLen: this.len, uVis: this.vis, uAge: this.age }, ...additive, side: THREE.DoubleSide,
+      uniforms: { ...u, uLen: this.len, uVis: this.vis, uAge: this.age, uGain: this.gain }, ...additive, side: THREE.DoubleSide,
       vertexShader: `varying vec3 vN; varying vec3 vW; varying float vY; void main(){ vY = position.y; vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix)*normal); gl_Position = projectionMatrix*viewMatrix*w; }`,
-      fragmentShader: /* glsl */`${common} uniform float uLen, uVis, uAge; varying vec3 vN; varying vec3 vW; varying float vY;
+      fragmentShader: /* glsl */`${common} uniform float uLen, uVis, uAge, uGain; varying vec3 vN; varying vec3 vW; varying float vY;
         void main(){
           if (vY > uLen) discard;
           vec3 V = normalize(cameraPosition - vW); float face = abs(dot(normalize(vN), V));
@@ -326,11 +329,12 @@ export class RedBeam {
           vec3 col;
           if (${core.toFixed(1)} > 0.5) { k = pow(face, 3.0) * (1.2 + fine*0.8 + big*3.0); col = mix(vec3(1.0, 0.1, 0.05), vec3(1.0, 0.75, 0.6), pow(face, 8.0)) * k * 2.0; }
           else { k = pow(face, 2.0) * (0.25 + fine*0.25 + big*1.4); col = vec3(1.0, 0.06, 0.03) * k * 0.35; }
-          col *= (1.0 + uBeat*0.6 + uEnergy*0.4) * tipFade * base * uVis;
+          col *= (1.0 + uBeat*0.6 + uEnergy*0.4) * tipFade * base * uVis * uGain;
           gl_FragColor = vec4(col, 1.0); }`,
     });
     const core = new THREE.Mesh(geo, mat(1)); core.scale.set(0.06, CEILING + 26, 0.06);
     const halo = new THREE.Mesh(geo, mat(0)); halo.scale.set(0.4, CEILING + 26, 0.4);
+    this.core = core; this.halo = halo;
     const sprite = (c: number) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); s.renderOrder = 4; return s; };
     this.hand = sprite(0xff3020); this.strike = sprite(0xff2a18);
     for (const m of [core, halo]) { m.frustumCulled = false; this.group.add(m); }
@@ -338,8 +342,17 @@ export class RedBeam {
     scene.add(this.group, this.hand, this.strike);
   }
 
-  /** `from`: the hand; `age`: seconds since the beam left it (<0: none); `vis` 0..1. */
-  update(from: THREE.Vector3, age: number, vis: number, beat: number) {
+  /** A stronger beam: `thick` times as wide, `gain` times as bright (1, 1: the usual). */
+  setPower(thick: number, gain: number) {
+    if (thick !== this.thick) { this.thick = thick; this.core.scale.set(0.06 * thick, CEILING + 26, 0.06 * thick); this.halo.scale.set(0.4 * thick, CEILING + 26, 0.4 * thick); }
+    this.gain.value = gain;
+  }
+
+  private static UP = new THREE.Vector3(0, 1, 0);
+  private _d = new THREE.Vector3();
+  /** `from`: the hand; `age`: seconds since the beam left it (<0: none); `vis` 0..1; `to`:
+   *  where it ends instead of the vault (a beam bending in to meet another). */
+  update(from: THREE.Vector3, age: number, vis: number, beat: number, to?: THREE.Vector3) {
     const on = age >= 0 && vis > 0.005;
     this.group.visible = on; this.hand.visible = on; this.strike.visible = on;
     if (!on) return;
@@ -347,13 +360,19 @@ export class RedBeam {
     // shoots up to the vault in under a second
     const grow = Math.min(1, age / 0.8), len = 1 - Math.pow(1 - grow, 3);
     this.len.value = len * (CEILING / (CEILING + 26)) + (grow >= 1 ? 26 / (CEILING + 26) : 0); this.vis.value = vis; this.age.value = age;
+    if (to) {
+      const d = this._d.subVectors(to, from), dist = d.length();
+      this.group.quaternion.setFromUnitVectors(RedBeam.UP, d.multiplyScalar(1 / Math.max(1e-4, dist)));
+      this.len.value = Math.min(this.len.value, dist / (CEILING + 26));
+    } else this.group.quaternion.identity();
+    if (to) this.strike.visible = false;
     const flash = Math.exp(-age * 2.5) * 3;
     this.hand.position.copy(from);
-    this.hand.scale.setScalar((0.9 + flash * 0.8 + beat * 0.4 + Math.sin(age * 7) * 0.08) * vis);
+    this.hand.scale.setScalar((0.9 + flash * 0.8 + beat * 0.4 + Math.sin(age * 7) * 0.08) * vis * Math.sqrt(this.thick));
     this.hand.material.opacity = Math.min(1, 0.8 + flash) * vis;
     this.strike.position.set(from.x, CEILING + 2, from.z);
     const hit = grow >= 1 ? Math.exp(-(age - 0.8) * 1.5) * 4 + 1 : 0;
-    this.strike.scale.setScalar((3 + hit * 2.5 + beat * 1.5) * vis);
+    this.strike.scale.setScalar((3 + hit * 2.5 + beat * 1.5) * vis * Math.sqrt(this.thick));
     this.strike.material.opacity = Math.min(1, 0.6 + hit * 0.2) * vis * (grow >= 1 ? 1 : 0);
   }
 }

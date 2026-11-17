@@ -20,7 +20,7 @@ import { moodColor, moodStrength } from "./mood";
 import { PoseRig, loadMocap, sample, blend, type Clip, type Pose, type RootMotion } from "./pose";
 import { Worlds } from "./worlds";
 import { AbyssSky, Embers } from "./abyss";
-import { Cave, GoldRain, RedBeam } from "./rise";
+import { CEILING, Cave, GoldRain, RedBeam } from "./rise";
 
 const LOOP = 600;           // seconds in one take: ten minutes, mostly the fall
 const RISE_LOOP = 60;       // the rally take: meditation, the raised arm and beam, the gold rain
@@ -139,7 +139,10 @@ export class DeepDive {
   private emitters: THREE.Object3D[] = [];
   private heart?: THREE.Sprite; private heartBone?: THREE.Object3D;
   private sky!: AbyssSky; private embers!: Embers;
-  private gold!: GoldRain; private beam!: RedBeam; private cave!: Cave;
+  private gold!: GoldRain; private beam!: RedBeam; private beamL!: RedBeam; private beamM!: RedBeam; private cave!: Cave;
+  private _mid = new THREE.Vector3(); private _tR = new THREE.Vector3(); private _tL = new THREE.Vector3();
+  /** The rally's size: +5 % and more, both arms rise and fire beams twice as thick and bright. */
+  private risePct = 0;
   /** Up 1 % or more: the rally take (meditation, raised arm, red beam, gold rain) instead of the dive. */
   private riseMode = false;
   private goldMult = 1;
@@ -191,6 +194,8 @@ export class DeepDive {
     this.gold.setDensity(this.goldMult);
     this.cave = new Cave(this.scene, this.u, COMMON, NOISE, quality);
     this.beam = new RedBeam(this.scene, this.u, COMMON, DeepDive.glowTex());
+    this.beamL = new RedBeam(this.scene, this.u, COMMON, DeepDive.glowTex());
+    this.beamM = new RedBeam(this.scene, this.u, COMMON, DeepDive.glowTex());
     // Light in the mood's colour: one from the portal, one carried by the figure, so the
     // chrome ribs and the hall's walls take shape round it instead of sinking into black.
     this.keyLight = new THREE.PointLight(0x3a8bff, 0, 60, 1.6); this.keyLight.position.set(0, 1.4, 0);
@@ -282,6 +287,7 @@ export class DeepDive {
     c.multiplyScalar(Math.min(1.1, 0.3 / Math.max(0.05, lum)));
     this.strengthTarget = moodStrength(changePct);
     this.goldMult = rise ? goldDensity(changePct) : 1;
+    this.risePct = rise ? changePct : 0;
     this.gold?.setDensity(this.goldMult);
     if (rise !== this.riseMode) {
       // a different take: start it from its beginning (it opens on a soft flare)
@@ -824,6 +830,9 @@ export class DeepDive {
       { const hr = this.rig.bones.get("hand_r"), la = this.rig.bones.get("lowerarm_r");
         if (hr && la) { g.scene.updateMatrixWorld(true); const d = hr.getWorldPosition(new THREE.Vector3()).sub(la.getWorldPosition(new THREE.Vector3())).normalize();
           this.handDir = d.applyQuaternion(hr.getWorldQuaternion(new THREE.Quaternion()).invert()); } }
+      { const hl = this.rig.bones.get("hand_l"), la = this.rig.bones.get("lowerarm_l");
+        if (hl && la) { g.scene.updateMatrixWorld(true); const d = hl.getWorldPosition(new THREE.Vector3()).sub(la.getWorldPosition(new THREE.Vector3())).normalize();
+          this.handDirL = d.applyQuaternion(hl.getWorldQuaternion(new THREE.Quaternion()).invert()); } }
       this.buildThighFix(g.scene);
       { const pv = this.rig.bones.get("pelvis"); if (pv) { this.figure.updateMatrixWorld(true); this.pelvisH = this.figure.worldToLocal(pv.getWorldPosition(new THREE.Vector3())).y; } }
       this.emitters = ["hand_l", "hand_r", "lowerarm_l", "lowerarm_r", "upperarm_l", "upperarm_r", "head", "spine_03", "spine_02", "pelvis", "calf_l", "calf_r", "foot_l", "foot_r"]
@@ -964,7 +973,7 @@ export class DeepDive {
     (this.scene.background as THREE.Color).copy(fogC).multiplyScalar(0.7);
     (u.uFigHOn.value as number) = this.riseMode && this.skin ? 1 : 0;
     if (this.riseMode) { this.riseFrame(T, dt); this.renderFigH(); this.post(T % RISE_LOOP, RISE_LOOP, dt, false); this.pace(gap, performance.now() - cpu0); return; }
-    this.gold.update(-1, 0); this.beam.update(this._fv, -1, 0, 0); this.rain.visible = true; this.shaftVis.value = 1;
+    this.gold.update(-1, 0); this.beam.update(this._fv, -1, 0, 0); this.beamL.update(this._fv, -1, 0, 0); this.beamM.update(this._fv, -1, 0, 0); this.rain.visible = true; this.shaftVis.value = 1;
     this.chamber.visible = true; this.cave.update(false, 0, 0); this.figure.scale.setScalar(1);
     this.caveSun.intensity = 0; this.caveFill.intensity = 0;
     (u.uHole.value as number) = 1; for (const o of this.portalParts) o.visible = true;
@@ -1145,8 +1154,11 @@ export class DeepDive {
     // The fall's surroundings change: five worlds take turns (~70 s each, 10 s crossfades),
     // the ribbed ring tunnel first; the hall's dressing fades as the camera goes under.
     const fallT = Math.max(0, t - FALL1);
-    const ERA = 70, EB = 16, ei = Math.floor(fallT / ERA), eb = smooth(((fallT % ERA) - (ERA - EB)) / EB);
-    const ew = [0, 0, 0, 0, 0]; ew[ei % 5] = 1 - eb; ew[(ei + 1) % 5] += eb;
+    // Nine worlds, ~60 s each: the ring tunnel always opens the fall, the rest come in an
+    // order shuffled afresh on every pass of the take, never the same one twice running.
+    const ERA = 60, EB = 14, ei = Math.floor(fallT / ERA), eb = smooth(((fallT % ERA) - (ERA - EB)) / EB);
+    const order = this.worldOrder(Math.floor(T / LOOP));
+    const ew: number[] = new Array(Worlds.COUNT).fill(0); ew[order[ei % order.length]] = 1 - eb; ew[order[(ei + 1) % order.length]] += eb;
     if (!diving) { ew.fill(0); ew[0] = 1; }
     // the ribbed rings open out and away when their world ends
     this.tunnelSegs.forEach(sg => sg.scale.setScalar(1 + (1 - ew[0]) * 1.6));
@@ -1179,6 +1191,19 @@ export class DeepDive {
       this.resize();
     }
     L.n = 0; L.slow = 0; L.cpu = 0; L.since = now;
+  }
+
+  private _order: { pass: number; list: number[] } = { pass: -1, list: [] };
+  /** The fall's worlds for this pass: 0 (the tunnel) first, then the others shuffled with a
+   *  seed per pass (so a pass keeps its order and each pass differs). */
+  private worldOrder(pass: number) {
+    if (this._order.pass === pass) return this._order.list;
+    let seed = (Math.imul(pass + 1, 2654435761) + 12345) >>> 0;
+    const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+    const rest = Array.from({ length: Worlds.COUNT - 1 }, (_, i) => i + 1);
+    for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+    this._order = { pass, list: [0, ...rest] };
+    return this._order.list;
   }
 
   /** The take's end: the loop flare, the pulse patterns, bloom and exposure, and the render. */
@@ -1217,6 +1242,12 @@ export class DeepDive {
     ...DeepDive.LOTUS,
     upperarm_r: [6, -78, -138], lowerarm_r: [90, 40, 0], clavicle_r: [0, 0, -12], hand_r: DeepDive.PALM_UP,
     spine_02: [-4, 0, 0], spine_03: [-5, 0, 0], neck: [-8, 0, 0], head: [-16, 0, 0],
+  };
+  // ... at +5 % and more, both arms raised to the sky, palms up
+  private static RAISE2: Pose = {
+    ...DeepDive.RAISE,
+    upperarm_l: [6, 78, 138], lowerarm_l: [90, -40, 0], clavicle_l: [0, 0, 12], hand_l: [-30, 90, 30],
+    head: [-20, 0, 0],
   };
   /** The rally take's views round the seated figure (th from its front, +z; y and ly from the chest). */
   /** The rally take's views: straight on, centred on the figure, wide (the whole cave), one
@@ -1288,11 +1319,11 @@ export class DeepDive {
       this.rig.bones.get(`calf_${side}`)?.scale.set(1 / sx, 1, 1 / sz);
     }
   }
-  private handDir?: THREE.Vector3; private _q = new THREE.Quaternion();
+  private handDir?: THREE.Vector3; private handDirL?: THREE.Vector3; private _q = new THREE.Quaternion(); private _fvL = new THREE.Vector3();
   /** The middle of the palm: from the wrist, along the hand, a little off its back. */
-  private palmAt(hand: THREE.Object3D, out: THREE.Vector3) {
+  private palmAt(hand: THREE.Object3D, out: THREE.Vector3, dir = this.handDir) {
     hand.getWorldPosition(out);
-    if (this.handDir) out.addScaledVector(this._v2.copy(this.handDir).applyQuaternion(hand.getWorldQuaternion(this._q)), 0.075);
+    if (dir) out.addScaledVector(this._v2.copy(dir).applyQuaternion(hand.getWorldQuaternion(this._q)), 0.075);
     out.y += 0.02;
     return out;
   }
@@ -1305,16 +1336,18 @@ export class DeepDive {
     // seated on the cave floor (the sit bones ~14 cm under the hip joints), just beyond the pool
     // (twice life size and more: a colossal figure, read from across the cavern)
     const S = 2.8, pelvisY = 0.14 * S;
+    const strong = this.risePct >= 5;
     fig.scale.setScalar(S);
     fig.position.set(0, pelvisY - this.pelvisH * S + (this.riseLift ?? 0), RISE_Z);
     fig.rotation.set(0, 0, 0);
     if (this.rig) {
-      blend(this.pose, [{ pose: DeepDive.LOTUS, w: 1 - raise + 1e-6 }, { pose: DeepDive.RAISE, w: raise }]);
+      blend(this.pose, [{ pose: DeepDive.LOTUS, w: 1 - raise + 1e-6 }, { pose: strong ? DeepDive.RAISE2 : DeepDive.RAISE, w: raise }]);
       // slow breathing, deeper in meditation; the raised arm reaches a little higher on the beat
       const br = Math.sin(T * 1.1) * (1 - raise * 0.5);
       const add = (k: string, x: number, y: number, z: number) => { const o = this.pose[k] ?? (this.pose[k] = [0, 0, 0]); o[0] += x; o[1] += y; o[2] += z; };
       add("spine_03", -br * 2.2, 0, 0); add("spine_02", -br * 1.2, 0, 0); add("head", br * 1.5, Math.sin(T * 0.21) * 2 * (1 - raise), 0);
       add("clavicle_r", 0, 0, -raise * (u.uBeat.value as number) * 3);
+      if (strong) add("clavicle_l", 0, 0, raise * (u.uBeat.value as number) * 3);
       this.rig.apply(this.pose);
       this.legFill(1);
       fig.updateMatrixWorld(true); this.updateThighFix(true);
@@ -1338,11 +1371,30 @@ export class DeepDive {
     // ---- the beam and the rain
     const hand = this.rig?.bones.get("hand_r");
     if (hand) { fig.updateMatrixWorld(true); this.palmAt(hand, this._fv); }
+    const handL = this.rig?.bones.get("hand_l");
+    if (handL) this.palmAt(handL, this._fvL, this.handDirL);
     const beamAge = t - BEAM0, beamVis = (t >= BEAM0 ? 1 : 0) * (1 - smooth((t - BEAM_END) / 1.6));
     // the figure flushes red as it fires, and cools back to the hall's blue when the beam ends
     const figRed = smooth((t - (BEAM0 - 0.7)) / 1.0) * (1 - smooth((t - BEAM_END) / 2.5));
     (u.uFigMood.value as THREE.Color).copy(u.uMood.value as THREE.Color).lerp(this._red, figRed);
-    this.beam.update(this._fv, beamAge, beamVis, u.uBeat.value as number);
+    // (+5 % and more: two beams, each twice as thick and twice as bright; after ~5 s they bend
+    // in to meet above the head and go on as one beam, twice as thick again)
+    const beat = u.uBeat.value as number;
+    this.beam.setPower(strong ? 2 : 1, strong ? 2 : 1); this.beamL.setPower(2, 2); this.beamM.setPower(4, 2);
+    const MERGE0 = 5, mk = strong ? smooth((beamAge - MERGE0) / 1.2) : 0;
+    if (mk > 0) {
+      const mid = this._mid.addVectors(this._fv, this._fvL).multiplyScalar(0.5);
+      mid.y += Math.max(1.6, this._fv.distanceTo(this._fvL) * 0.9);
+      // each side beam's end swings from the vault in to the meeting point
+      this._tR.set(this._fv.x, CEILING + 26, this._fv.z).lerp(mid, mk); this._tL.set(this._fvL.x, CEILING + 26, this._fvL.z).lerp(mid, mk);
+      this.beam.update(this._fv, beamAge, beamVis, beat, this._tR);
+      this.beamL.update(this._fvL, beamAge, beamVis, beat, this._tL);
+      this.beamM.update(mid, beamAge - MERGE0 - 0.6, beamVis * mk, beat);
+    } else {
+      this.beam.update(this._fv, beamAge, beamVis, beat);
+      this.beamL.update(this._fvL, strong ? beamAge : -1, beamVis, beat);
+      this.beamM.update(this._fv, -1, 0, 0);
+    }
     // (the red beam takes the place of the pale light shaft while it burns)
     this.shaftVis.value = 1 - 0.85 * smooth((t - BEAM0) / 1.5) * (1 - smooth((t - BEAM_END) / 3));
     if (t >= BEAM0 && this.lastT < BEAM0 && t - this.lastT < 1) { const s = u.uSteps.value as THREE.Vector4[]; s[this.stepIdx++ % 4].set(0, RISE_Z, T, 2.2); }
@@ -1383,7 +1435,7 @@ export class DeepDive {
     }
     this.keyLight.color.copy(mood); this.keyLight.intensity = 90 + (u.uEnergy.value as number) * 120 + (u.uBeat.value as number) * 60;
     this.figLight.color.copy(mood).lerp(this._red, beamVis * 0.8);
-    this.figLight.position.copy(beamVis > 0.01 ? this._fv : chest);
+    this.figLight.position.copy(beamVis > 0.01 ? (strong ? this._v2.copy(this._fv).add(this._fvL).multiplyScalar(0.5) : this._fv) : chest);
     this.figLight.intensity = 26 + (u.uEnergy.value as number) * 40 + beamVis * 60;
 
     // ---- the hall only: no tunnel, no depths
@@ -1394,7 +1446,7 @@ export class DeepDive {
     (u.uHole.value as number) = 0; for (const o of this.portalParts) o.visible = false;
     // (the gold takes the place of the hall's coloured rain)
     this.rain.visible = false;
-    this.worlds.update(T, cam.position.y, 0, 0, [1, 0, 0, 0, 0]);
+    this.worlds.update(T, cam.position.y, 0, 0, [1, 0, 0, 0, 0, 0, 0, 0, 0]);
     this.chamber.visible = false; this.cave.update(true, beamVis, T);
     this.caveSun.intensity = 1.1; this.caveFill.intensity = 0.22;
     this.sky.update(cam.position, 0, 0, 0);
