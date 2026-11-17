@@ -17,7 +17,7 @@ results = []
 
 with sync_playwright() as playwright:
     browser = playwright.chromium.launch(channel="chrome", headless=True, args=["--mute-audio"])
-    for width, lang, tone, path in ((320, "en", "dark", "/map"), (390, "ko", "dark", "/map"),
+    for width, lang, tone, path in ((320, "en", "dark", "/map"), (360, "ko", "light", "/map"), (390, "ko", "dark", "/map"),
                                    (430, "en", "light", "/global"), (767, "ko", "light", "/sp500-map")):
         page = browser.new_page(viewport={"width": width, "height": 844})
         page.add_init_script(f"localStorage.setItem('site_lang','{lang}');localStorage.setItem('kospimap_tone','{tone}');")
@@ -33,6 +33,8 @@ with sync_playwright() as playwright:
         page.goto(args.base_url + path + "?bg=nanotube", wait_until="domcontentloaded")
         header = page.locator(".ng-header")
         header.wait_for(timeout=20000)
+        page.evaluate("document.fonts.ready")
+        page.wait_for_timeout(200)
         geometry = header.evaluate("""e=>{
           const rect=s=>e.querySelector(s).getBoundingClientRect().toJSON();
           return {header:e.getBoundingClientRect().toJSON(), menu:rect('.ng-phone-menu-toggle'),
@@ -42,16 +44,20 @@ with sync_playwright() as playwright:
             rail:document.querySelector('.ng-top-rail').getBoundingClientRect().toJSON(), rows:getComputedStyle(e).gridTemplateRows};
         }""")
         bounds = geometry["header"]
-        assert bounds["height"] == 90 and len(geometry["rows"].split()) == 2, geometry
+        assert bounds["height"] == 48 and len(geometry["rows"].split()) == 1, geometry
         for key in ("menu", "logo", "search", "tools", "clocks"):
             child = geometry[key]
             assert child["top"] >= bounds["top"] and child["bottom"] <= bounds["bottom"], (key, geometry)
-        assert geometry["menu"]["width"] >= 44 and geometry["menu"]["height"] >= 44
-        assert geometry["menu"]["y"] == geometry["clocks"]["y"], geometry
-        assert geometry["menu"]["right"] <= geometry["clocks"]["left"], geometry
+        assert geometry["menu"]["width"] == 28 and geometry["menu"]["height"] == 36
+        ordered = [geometry[key] for key in ("menu", "logo", "search", "tools", "clocks")]
+        center = lambda child: child["y"] + child["height"] / 2
+        assert all(abs(center(child) - center(ordered[0])) <= 1 for child in ordered), geometry
+        assert all(left["right"] <= right["left"] for left, right in zip(ordered, ordered[1:])), geometry
+        assert header.evaluate("e=>e.scrollWidth<=e.clientWidth"), geometry
+        assert page.locator(".ng-brand-phone").is_visible()
         assert geometry["times"][0]["right"] <= geometry["times"][1]["left"] and geometry["clockFits"], geometry
         assert geometry["rail"]["top"] >= bounds["bottom"] - 1, geometry
-        page.screenshot(path=str(folder / f"header-{width}-{lang}-{tone}.png"), clip={"x": 0, "y": 0, "width": width, "height": 210})
+        page.screenshot(path=str(folder / f"header-{width}-{lang}-{tone}.png"), animations="disabled", clip={"x": 0, "y": 0, "width": width, "height": 210})
         page.locator(".ng-phone-menu-toggle").click()
         page.locator("#neo-navigation-menu").wait_for()
         page.keyboard.press("Escape")
@@ -60,7 +66,13 @@ with sync_playwright() as playwright:
         assert page.locator(".ng-brand").bounding_box()["y"] >= 0
         result = {"width": width, "lang": lang, "tone": tone, "path": path, "layout": geometry}
         results.append(result)
-        print(json.dumps({"width": width, "path": path, "two_rows": True, "header_height": bounds["height"], "controls_inside": True}), flush=True)
+        page.locator(".ng-search-trigger").click()
+        page.get_by_role("dialog").wait_for()
+        page.keyboard.press("Escape")
+        before = page.locator(".ng-language").inner_text()
+        page.locator(".ng-language").click()
+        assert page.locator(".ng-language").inner_text() != before
+        print(json.dumps({"width": width, "path": path, "one_row": True, "header_height": bounds["height"], "controls_inside": True}), flush=True)
         page.close()
     browser.close()
 (folder / "layout.json").write_text(json.dumps(results, indent=2), encoding="utf-8")

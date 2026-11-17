@@ -62,6 +62,12 @@ with sync_playwright() as playwright:
                     documents.append(route.request.url)
                     assert len(documents) <= 2, documents
                     route.continue_()
+                elif route.request.resource_type == "script":
+                    # Simulate a completed boot: deliberately aborting entry JS
+                    # would trigger the shell's unrelated stale-build recovery.
+                    route.fulfill(content_type="application/javascript", body="window.__KSTOCK_APP_BOOTED__=true;")
+                elif route.request.resource_type == "stylesheet":
+                    route.fulfill(content_type="text/css", body="")
                 else:
                     route.abort()
             page.route("**/*", live_route)
