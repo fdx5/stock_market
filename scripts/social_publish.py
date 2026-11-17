@@ -215,7 +215,9 @@ def upload_map(day, name, png):
         if error.code != 404:
             raise
         # An orphan root avoids attaching application history to the asset branch.
-        tree = read_json(f"{git_api}/git/trees", token=token, data={"tree": []})
+        tree = read_json(f"{git_api}/git/trees", token=token, data={"tree": [
+            {"path": ".gitattributes", "mode": "100644", "type": "blob", "content": "*.png binary\n"},
+        ]})
         commit = read_json(f"{git_api}/git/commits", token=token,
                            data={"tree": tree["sha"], "message": "Initialize public social media assets"})
         request(f"{git_api}/git/refs", token=token,
