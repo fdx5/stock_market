@@ -19,7 +19,7 @@ import { AudioLevels } from "./audioLevels";
 import { moodColor, moodStrength } from "./mood";
 import { PoseRig, loadMocap, sample, blend, type Clip, type Pose, type RootMotion } from "./pose";
 import { Worlds } from "./worlds";
-import { AbyssSky, Embers, MarineSnow } from "./abyss";
+import { AbyssSky, Embers, LightFall, MarineSnow } from "./abyss";
 import { CANOPY, CEILING, Cave, GoldRain, LightCanopy, RedBeam } from "./rise";
 
 const LOOP = 600;           // seconds in one take: ten minutes, mostly the fall
@@ -141,7 +141,7 @@ export class DeepDive {
   private sky!: AbyssSky; private embers!: Embers;
   private gold!: GoldRain; private beam!: RedBeam; private beamL!: RedBeam; private beamM!: RedBeam; private cave!: Cave;
   private canopy!: LightCanopy;
-  private snow!: MarineSnow;
+  private snow!: MarineSnow; private lightFall!: LightFall;
   private _mid = new THREE.Vector3(); private _tR = new THREE.Vector3(); private _tL = new THREE.Vector3();
   /** The rally's size: +5 % and more, both arms rise and fire beams twice as thick and bright. */
   private risePct = 0;
@@ -192,6 +192,7 @@ export class DeepDive {
     this.worlds = new Worlds(this.scene, this.u, COMMON, NOISE);
     this.sky = new AbyssSky(this.scene, this.u, COMMON, NOISE);
     this.snow = new MarineSnow(this.scene, this.u, COMMON, quality === "high" ? 2400 : 1300);
+    this.lightFall = new LightFall(this.scene, this.u, COMMON, quality === "high" ? 320 : 180);
     this.embers = new Embers(this.scene, this.u, COMMON, quality === "high" ? 900 : 500);
     this.gold = new GoldRain(this.scene, this.u, COMMON, quality === "high" ? 4200 : 2200, goldDensity(GOLD_MAX_PCT));
     this.gold.setDensity(this.goldMult);
@@ -1174,6 +1175,7 @@ export class DeepDive {
     // the depths open round the camera once it is under the floor
     this.sky.update(cam.position, 1 - smooth((camY + 3) / 5), fallSpeed, this.tunnelScroll);
     this.snow.update(cam.position, fallSpeed, 1 - smooth((camY + 2) / 4), dt);
+    this.lightFall.update(cam.position, fallSpeed, 1 - smooth((camY + 2) / 4), dt);
     // embers: drifting up off the shoulders as it walks, a comet's tail once it falls
     this.embers.update(dt, this.emitters, diving ? 80 + (u.uEnergy.value as number) * 60 : walking || t < EDGE1 ? 28 : 0,
       diving ? fallSpeed * 0.9 + 1.2 : 0.45, diving ? 0.9 : 0.25);
@@ -1491,7 +1493,7 @@ export class DeepDive {
     this.worlds.update(T, cam.position.y, 0, 0, [1, 0, 0, 0, 0, 0, 0, 0, 0]);
     this.chamber.visible = false; this.cave.update(true, beamVis, T);
     this.caveSun.intensity = 1.1; this.caveFill.intensity = 0.22;
-    this.sky.update(cam.position, 0, 0, 0); this.snow.update(cam.position, 0, 0, dt); (u.uDeep.value as number) = 0;
+    this.sky.update(cam.position, 0, 0, 0); this.snow.update(cam.position, 0, 0, dt); this.lightFall.update(cam.position, 0, 0, dt); (u.uDeep.value as number) = 0;
     this.embers.update(dt, this.emitters, 16 + beamVis * 20, 0.35 + beamVis * 0.4, 0.2);
   }
 }

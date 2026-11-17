@@ -81,6 +81,18 @@ export class AbyssSky {
             float shape = exp(-pow(ang * 18.0, 2.0)) * 1.4 + exp(-pow((ang - ph * 0.03) * 40.0, 2.0)) * 0.6;
             col += mix(acc, film, 0.4) * shape * flash * 0.22 * (0.3 + 0.7 * deep);
           }
+          // light falling: tall shafts all round, their grain streaming down into the deep
+          float shA = pow(0.5 + 0.5 * sin(az * 7.0 + n1 * 2.2 + uTime * 0.02), 10.0);
+          float flow = n3(vec3(az * 11.0, d.y * 7.0 + uTime * 0.9 + uScroll * 0.012, uTime * 0.05));
+          flow = pow(flow, 3.0) * 2.4;
+          float shaft = shA * flow * smoothstep(-0.95, -0.2, d.y) * smoothstep(1.0, 0.3, d.y);
+          col += mix(uMood * 0.9 + vec3(0.06), vec3(1.0, 0.86, 0.62), 0.3) * shaft * 0.07 * mix(1.0, 0.6, deep) * (0.7 + uMid * 0.6);
+          // the maelstrom below: arms of faint light spiralling slowly into the dark at the
+          // bottom of everything, deeper and wider the further the fall goes
+          float th = acos(clamp(-d.y, -1.0, 1.0));
+          float spiral = sin(az * 3.0 + log(th + 0.015) * 7.0 - uTime * 0.22 - uScroll * 0.002);
+          float arms = pow(0.5 + 0.5 * spiral, 5.0) * exp(-th * mix(3.2, 2.0, deep)) * smoothstep(0.0, 0.06, th) * (0.6 + 0.4 * n2);
+          col += mix(uMood, acc + vec3(0.05, 0.03, 0.0), 0.4) * arms * 0.16 * (0.45 + 0.55 * deep) * (0.8 + uBass * 0.6);
           // the destination: a far glow below, a hot white heart
           col += uMood * (pow(down, 4.0) * 0.16 + pow(down, 40.0) * 0.55) * (0.75 + uEnergy*0.5 + uBeat*0.3) * mix(1.0, 0.7, deep);
           col += (uMood + vec3(0.4)) * pow(down, 400.0) * 0.8;
@@ -210,5 +222,103 @@ export class Embers {
     }
     this.points.geometry.attributes.position.needsUpdate = true;
     this.points.geometry.attributes.aAge.needsUpdate = true;
+  }
+}
+
+/** Light falling into the deep: comets of light — a white-hot head, a long tail in the
+ *  market's colour, some gold, some silver — dropping past the diver faster than it falls,
+ *  so they overtake it and vanish below; and slow pulse rings, wide thin halos with fine
+ *  graduations, sinking down the shaft one after another and brightening with the beat. */
+export class LightFall {
+  readonly streaks: THREE.Mesh;
+  readonly rings: THREE.Mesh;
+  private off = { value: 0 };
+  private ringOff = { value: 0 };
+  private vis = { value: 0 };
+  private at = { value: new THREE.Vector3() };
+
+  constructor(scene: THREE.Scene, u: U, common: string, count: number) {
+    const quad = () => new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(1, 1) as unknown as THREE.InstancedBufferGeometry);
+    const sg = quad(), seed = new Float32Array(count * 4);
+    for (let i = 0; i < count; i++) seed.set([Math.random(), Math.random(), Math.random(), Math.random()], i * 4);
+    sg.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 4)); sg.instanceCount = count;
+    const shared = { uOffF: this.off, uRingOff: this.ringOff, uVisF: this.vis, uAtF: this.at };
+    this.streaks = new THREE.Mesh(sg, new THREE.ShaderMaterial({
+      uniforms: { ...u, ...shared }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uOffF, uTime; uniform vec3 uAtF; varying vec2 vUv; varying float vA; varying vec4 vS;
+        void main(){
+          float B = 90.0, a = aSeed.x * 6.2831853, r = 4.0 + pow(aSeed.y, 0.75) * 38.0;
+          float sp = 0.55 + aSeed.w * 0.9;
+          vec3 c = vec3(cos(a + uTime * 0.01) * r, B * 0.5 - mod(aSeed.z * B + uOffF * sp, B), sin(a + uTime * 0.01) * r);
+          vec3 w = vec3(0.0, uAtF.y, 0.0) + c;   // round the fall's axis
+          vec3 V = cameraPosition - w; float dist = length(V);
+          vec3 right = cross(vec3(0.0, 1.0, 0.0), V);
+          right = dot(right, right) < 1e-4 ? vec3(1.0, 0.0, 0.0) : normalize(right);
+          // a line never thinner than a pixel or so: far ones widen and dim instead of shimmering
+          float wd = 0.035 + aSeed.w * 0.04, wpx = max(wd, dist * 0.0022);
+          float len = (3.0 + aSeed.w * 9.0) * sp;
+          vec3 p = w + right * position.x * wpx * 6.0 + vec3(0.0, 1.0, 0.0) * (position.y + 0.5) * len;
+          vUv = uv; vS = aSeed;
+          vA = (wd / wpx) * smoothstep(B * 0.5, B * 0.32, abs(c.y)) * smoothstep(4.0, 14.0, dist) * exp(-dist * 0.012);
+          gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0); }`,
+      fragmentShader: /* glsl */`${common} uniform float uVisF; varying vec2 vUv; varying float vA; varying vec4 vS;
+        void main(){
+          float x = (vUv.x - 0.5) * 6.0, y = vUv.y;              // y: 0 the head (below) .. 1 the tail's end
+          float core = exp(-x * x * 9.0), halo = exp(-x * x * 1.2) * 0.22;
+          float tail = smoothstep(1.0, 0.0, y) * smoothstep(0.0, 0.03, y) * (0.25 + 0.75 * pow(1.0 - y, 3.0));
+          float head = exp(-pow(y * 16.0, 2.0)) * exp(-x * x * 2.0) * 2.4;
+          // gold, silver or the market's own colour; the head white-hot
+          vec3 gold = vec3(1.0, 0.78, 0.42), silver = vec3(0.78, 0.86, 1.0);
+          vec3 tint = vS.y < 0.3 ? gold : vS.y < 0.5 ? silver : uMood * 1.25 + vec3(0.08);
+          vec3 c = mix(tint, vec3(1.0, 0.97, 0.92), clamp(head * 0.4 + core * (1.0 - y) * 0.35, 0.0, 1.0));
+          float k = ((core + halo) * tail + head) * vA * uVisF * (0.5 + uHigh * 0.6 + uBeat * 0.5) * (0.7 + 0.3 * sin(uTime * (2.0 + vS.w * 3.0) + vS.x * 40.0));
+          gl_FragColor = vec4(c * k * 0.9, 1.0); }`,
+    }));
+    this.streaks.frustumCulled = false; this.streaks.visible = false;
+    scene.add(this.streaks);
+
+    // the pulse rings: a few wide horizontal halos round the fall's axis
+    const RN = 6, rg = quad(), rs = new Float32Array(RN * 4);
+    for (let i = 0; i < RN; i++) rs.set([i / RN, Math.random(), Math.random(), Math.random()], i * 4);
+    rg.setAttribute("aSeed", new THREE.InstancedBufferAttribute(rs, 4)); rg.instanceCount = RN;
+    this.rings = new THREE.Mesh(rg, new THREE.ShaderMaterial({
+      uniforms: { ...u, ...shared }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      vertexShader: /* glsl */`attribute vec4 aSeed; uniform float uRingOff; uniform vec3 uAtF; varying vec2 vP; varying float vA; varying float vR; varying vec4 vS; varying vec3 vW;
+        void main(){
+          float H = 120.0, ph = mod(aSeed.x * H + uRingOff, H);
+          float y = uAtF.y + H * 0.42 - ph;                        // from high above, down past the diver
+          float R = 9.0 + aSeed.y * 12.0 + ph * 0.05;               // widening a little as it sinks
+          vec3 w = vec3(position.x * R * 2.2, y, position.y * R * 2.2);
+          vP = position.xy * 2.2; vR = R; vS = aSeed; vW = w;
+          float dy = abs(y - cameraPosition.y);
+          vA = smoothstep(1.0, 9.0, dy) * smoothstep(H * 0.42, H * 0.25, abs(y - uAtF.y)) ;
+          gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0); }`,
+      fragmentShader: /* glsl */`${common} uniform float uVisF; varying vec2 vP; varying float vA; varying float vR; varying vec4 vS; varying vec3 vW;
+        void main(){
+          // seen edge-on a ring would gather into a hard bright line across the frame: let it go
+          float face = smoothstep(0.06, 0.4, abs(normalize(cameraPosition - vW).y));
+          float d = length(vP), e = (d - 1.0) * vR;                 // metres from the ring's line
+          float a = atan(vP.y, vP.x);
+          float line = exp(-e * e * 60.0) * 1.3 + exp(-e * e * 1.6) * 0.18;
+          float twin = exp(-pow((e + 0.55) * 14.0, 2.0)) * 0.45;    // a finer twin just inside
+          // graduations, like the engraving on an instrument, and a few jewels round it
+          float tick = step(0.82, fract(a / 6.2831853 * 120.0)) * exp(-pow((e + 0.28) * 7.0, 2.0)) * 0.5;
+          float jewel = pow(0.5 + 0.5 * cos(a * 8.0 + uTime * 0.2 + vS.z * 6.0), 90.0) * exp(-e * e * 10.0) * 2.0;
+          float wake = smoothstep(1.0, 0.55, d) * smoothstep(0.1, 0.9, d) * 0.03;   // a faint glow over the disc
+          float run = pow(0.5 + 0.5 * sin(a * 2.0 - uTime * 0.9 + vS.w * 6.0), 6.0);
+          vec3 c = mix(uMood * 1.2 + vec3(0.1), vec3(1.0, 0.86, 0.6), 0.25 + run * 0.35);
+          float k = (line * (0.45 + run * 0.9) + twin + tick + jewel + wake) * vA * face * uVisF * (0.55 + uEnergy * 0.5 + uBeat * 0.9);
+          gl_FragColor = vec4(c * k, 1.0); }`,
+    }));
+    this.rings.frustumCulled = false; this.rings.visible = false;
+    scene.add(this.rings);
+  }
+
+  /** `speed`: the fall's speed (m/s): the light falls faster still; `vis` 0..1. */
+  update(cam: THREE.Vector3, speed: number, vis: number, dt: number) {
+    this.off.value += (9 + speed * 0.6) * dt;
+    this.ringOff.value += (4.5 + speed * 0.3) * dt;
+    this.vis.value = vis; this.at.value.copy(cam);
+    this.streaks.visible = this.rings.visible = vis > 0.01;
   }
 }

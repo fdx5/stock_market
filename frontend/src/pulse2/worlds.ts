@@ -137,7 +137,8 @@ export class Worlds {
           float run = pow(0.5+0.5*sin(u*18.0 - uTime*(2.0 + uMid*4.0) - vK*20.0), 6.0);
           float near = exp(-abs(vY)*0.05);
           float k = (0.10 + run*(0.9 + uBass*1.2 + uBeat*1.0)) * ends * across * near * uVis;
-          gl_FragColor = vec4((uMood*1.4 + vec3(0.08))*k, 1.0); }`,
+          vec3 c = mix(uMood*1.4 + vec3(0.08), vec3(1.0, 0.9, 0.72), run*across*0.45);
+          gl_FragColor = vec4(c*k, 1.0); }`,
     });
     for (let k = 0; k < 22; k++) {
       const pts: THREE.Vector3[] = [], R = 4.5 + Math.random() * 12, ph = Math.random() * Math.PI * 2, len = 26 + Math.random() * 24, turns = 0.3 + Math.random() * 0.7;
@@ -168,7 +169,10 @@ export class Worlds {
         void main(){ float f = 1.0 - abs(dot(normalize(vN), vV)); float rim = pow(f, 3.0); float core = pow(1.0 - f, 6.0)*0.25;
           float breath = 0.75 + 0.25*sin(uTime*0.6 + vS*40.0);
           float k = (rim*0.9 + core) * breath * (0.55 + uHigh*0.8 + uBeat*0.3) * uVis * vD;
-          gl_FragColor = vec4((uMood*1.2 + vec3(0.16))*k, 1.0); }`,
+          // a thin film on the surface: colours sliding round the rim like a soap bubble's
+          vec3 film = 0.5 + 0.5*cos(6.2831853*(f*1.6 + vS + uTime*0.04 + vec3(0.0, 0.33, 0.67)));
+          vec3 c = mix(uMood*1.2 + vec3(0.16), film*0.9 + vec3(0.1), 0.38*smoothstep(0.4, 0.95, f));
+          gl_FragColor = vec4(c*k, 1.0); }`,
     }));
     this.shards.frustumCulled = false; this.shards.visible = false;
     scene.add(this.shards);
@@ -203,8 +207,11 @@ export class Worlds {
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: /* glsl */`${common} uniform float uVis; varying vec2 vUv; void main(){ float a=vUv.x*6.2831853;
         float run = pow(0.5+0.5*sin(a*2.0 - uTime*0.45), 4.0);
-        float k = (0.22 + run*0.9) * ${bright.toFixed(2)} * (0.6 + uEnergy*0.9 + uBeat*0.4) * uVis;
-        gl_FragColor = vec4((uMood*1.3 + vec3(0.1))*k, 1.0); }`,
+        float tick = step(0.86, fract(vUv.x*144.0)) * 0.35 + step(0.8, fract(vUv.x*12.0 + 0.1)) * 0.5;
+        float jewel = pow(0.5+0.5*cos(a*6.0), 120.0) * 2.2;
+        float k = (0.16 + run*0.9 + tick + jewel) * ${bright.toFixed(2)} * (0.6 + uEnergy*0.9 + uBeat*0.4) * uVis;
+        vec3 c = mix(uMood*1.3 + vec3(0.1), vec3(1.0, 0.9, 0.72), clamp(run*0.4 + jewel*0.3, 0.0, 0.8));
+        gl_FragColor = vec4(c*k, 1.0); }`,
     });
     for (let i = 0; i < 6; i++) {
       const R = 13 + i * 2.6, ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.035 + i * 0.006, 8, 360), ringMat(1.0));
@@ -228,8 +235,9 @@ export class Worlds {
         vertexShader: `varying vec2 vUv; varying float vD; void main(){ vUv=uv; vec4 w = modelMatrix*vec4(position,1.0); vD = abs(w.y - cameraPosition.y); gl_Position=projectionMatrix*viewMatrix*w; }`,
         fragmentShader: /* glsl */`${common} uniform float uVis; varying vec2 vUv; varying float vD;
           void main(){ float run = pow(0.5+0.5*sin(vUv.x*42.0 - uTime*(1.4+uMid*3.0)), 6.0);
-            float k = (0.35 + run*1.4) * (0.55 + uEnergy*0.9 + uBeat*0.5) * exp(-vD*0.025) * uVis;
-            gl_FragColor = vec4((uMood*1.3 + vec3(0.12))*k, 1.0); }`,
+            float k = (0.3 + run*1.4) * (0.55 + uEnergy*0.9 + uBeat*0.5) * exp(-vD*0.025) * uVis;
+            float core = pow(1.0 - abs(fract(vUv.y)*2.0 - 1.0), 3.0);
+            gl_FragColor = vec4(mix(uMood*1.3 + vec3(0.12), vec3(1.0, 0.9, 0.72), run*core*0.5)*k*(0.55 + 0.45*core), 1.0); }`,
       });
       for (const ph of [0, Math.PI]) {
         const pts: THREE.Vector3[] = [];
@@ -285,12 +293,12 @@ export class Worlds {
               gl_Position = projectionMatrix*viewMatrix*w; }`,
           fragmentShader: /* glsl */`${common} uniform float uVis; varying vec2 vUv; varying vec4 vK; varying float vD;
             void main(){
-              vec2 e = min(vUv, 1.0 - vUv); float edge = 1.0 - smoothstep(0.0, 0.08, min(e.x, e.y));
+              vec2 e = min(vUv, 1.0 - vUv); float edge = 1.0 - smoothstep(0.0, 0.035, min(e.x, e.y));
               float run = pow(0.5+0.5*sin(vUv.y*6.0 - uTime*(1.0 + vK.y*1.5) + vK.w*20.0), 8.0);
               // rising candles carry the mood's colour, falling ones a cooler white
               vec3 tint = mix(uMood*1.3 + vec3(0.06), vec3(0.55, 0.65, 0.8), vK.z*0.55);
-              float k = ${wick ? "(0.5 + run*0.8)" : "(0.12 + edge*1.6 + run*0.9)"} * (0.7 + uEnergy*0.9 + uBeat*0.5) * smoothstep(2.5, 7.0, vD) * exp(-vD*0.012) * uVis * 1.6;
-              gl_FragColor = vec4(tint*k, 1.0); }`,
+              float k = ${wick ? "(0.5 + run*0.8)" : "(0.035 + edge*1.5 + run*0.55 + edge*run*1.2)"} * (0.7 + uEnergy*0.9 + uBeat*0.5) * smoothstep(2.5, 7.0, vD) * exp(-vD*0.012) * uVis * 1.6;
+              gl_FragColor = vec4(mix(tint, vec3(1.0, 0.9, 0.72), edge*run*0.5)*k, 1.0); }`,
         }));
         m.frustumCulled = false;
         return m;
@@ -344,7 +352,7 @@ export class Worlds {
         fragmentShader: /* glsl */`${common} uniform float uVis; varying float vY; varying float vD;
           void main(){ float run = pow(0.5+0.5*sin(vY*3.0 - uTime*(1.5 + uBass*2.0)), 6.0);
             float k = (0.35 + run*1.2) * (0.55 + uEnergy*0.8 + uBeat*0.5) * smoothstep(2.0, 8.0, vD) * exp(-vD*0.018) * uVis;
-            gl_FragColor = vec4((uMood*1.3 + vec3(0.14))*k, 1.0); }`,
+            gl_FragColor = vec4(mix(uMood*1.3 + vec3(0.14), vec3(1.0, 0.9, 0.72), run*0.45)*k, 1.0); }`,
       });
       const ptMat = new THREE.ShaderMaterial({
         uniforms: { ...u, uVis: this.vis.solids }, ...additive,
