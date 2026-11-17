@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.data import global_discussion_fetcher, global_index_fetcher, kospi_futures_fetcher
-from app.services import kospi_night
+from app.services import kospi_night, nasdaq_futures
 from app.services.public_discussion import get_public_discussion
 from app.data.toss_news_fetcher import get_toss_image, get_toss_news, get_toss_news_article
 from app.data.us_universe import get_us_stock_item
@@ -144,6 +144,11 @@ def indices(response: Response):
 @router.get("/kospi-futures")
 def kospi_futures_quote():
     return kospi_futures_fetcher.get_header_quote()
+
+
+@router.get("/nasdaq-futures")
+def nasdaq_futures_quotes():
+    return nasdaq_futures.get_quotes()
 
 
 @router.get("/kospi-night")

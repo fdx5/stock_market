@@ -9,7 +9,7 @@ const flush = async () => { for (let i=0;i<12;i++) await Promise.resolve(); };
 function runtime(api) {
   let now=0, id=0;
   const timers=new Map(), listeners=new Map();
-  const rt={api,states:[],effects:[],cleanups:[],requests:[]};
+  const rt={api,states:[],effects:[],cleanups:[],requests:[],element:(...args)=>args,Fragment:'fragment'};
   globalThis.__usQuoteTest=rt;
   globalThis.document={visibilityState:'visible',addEventListener:(name,fn)=>listeners.set(fn,name),removeEventListener:(_name,fn)=>listeners.delete(fn)};
   const schedule=(fn,ms,interval=0)=>{timers.set(++id,{fn,at:now+ms,interval});return id;};
@@ -31,18 +31,37 @@ function runtime(api) {
   return rt;
 }
 async function hooks(name) {
-  const result=await build({entryPoints:[new URL(`../src/${name}.ts`,import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')],bundle:true,write:false,format:'esm',platform:'node',plugins:[{name:'memory-hook-environment',setup(b){
+  const result=await build({entryPoints:[new URL(`../src/${name.endsWith('.tsx')?name:name+'.ts'}`,import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')],bundle:true,write:false,format:'esm',platform:'node',jsx:'transform',jsxFactory:'globalThis.__usQuoteTest.element',jsxFragment:'globalThis.__usQuoteTest.Fragment',plugins:[{name:'memory-hook-environment',setup(b){
+    b.onLoad({filter:/\.css$/},()=>({contents:'',loader:'js'}));
     b.onResolve({filter:/^react$/},()=>({path:'react',namespace:'fixture'}));
+    b.onResolve({filter:/^react\/jsx-runtime$/},()=>({path:'jsx',namespace:'fixture'}));
     b.onResolve({filter:/api\/client$/},()=>({path:'api',namespace:'fixture'}));
     b.onResolve({filter:/i18n\/LanguageContext$/},()=>({path:'language',namespace:'fixture'}));
     b.onResolve({filter:/\/router$/},()=>({path:'router',namespace:'fixture'}));
     b.onLoad({filter:/.*/,namespace:'fixture'},({path})=>({contents:path==='react' ? `
       export const useEffect=(effect)=>globalThis.__usQuoteTest.effects.push(effect);
       export const useState=(initial)=>{const rt=globalThis.__usQuoteTest;const i=rt.states.length;rt.states.push(initial);return [initial,(next)=>{rt.states[i]=typeof next==='function'?next(rt.states[i]):next;}];};
-    ` : path==='language' ? `export const useLanguage=()=>({lang:'ko'});` : path==='router' ? `export const navigate=()=>{};` : `export const api=new Proxy({}, {get:(_target,name)=>(...args)=>globalThis.__usQuoteTest.api[name](...args)});`}));
+    ` : path==='jsx' ? `export const jsx=(...args)=>globalThis.__usQuoteTest.element(...args); export const jsxs=jsx; export const Fragment='fragment';` : path==='language' ? `export const useLanguage=()=>({lang:'ko'});` : path==='router' ? `export const navigate=()=>{};` : `export const api=new Proxy({}, {get:(_target,name)=>(...args)=>globalThis.__usQuoteTest.api[name](...args)});`}));
   }}]});
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text+`\n// module ${++moduleId}`).toString('base64')}`);
 }
+
+test('Nasdaq header pair shares one request and preserves both windows on failure or old replies',async()=>{
+  let calls=0;
+  const quote=(close,quote_time)=>({close,quote_time,change_pct:1,stale:false});
+  const rt=runtime({nasdaqFutures:async()=>{
+    calls++;
+    if(calls===2)throw new Error('feed down');
+    return {day:quote(calls===1?100:90,calls===1?200:100),night:quote(110+calls,200+calls)};
+  }});
+  const {default:Badges}=await hooks('neo/NasdaqFuturesBadges.tsx');Badges();await rt.mount();
+  assert.equal(calls,1);assert.equal(rt.states[0].night.close,111);
+  await rt.advance(10000);assert.equal(rt.states[0].day.stale,true);assert.equal(rt.states[0].night.quote_time,201);
+  await rt.advance(10000);assert.equal(rt.states[0].day.close,100);assert.equal(rt.states[0].night.close,113);
+  rt.visible('hidden');await rt.advance(30000);assert.equal(calls,3);
+  rt.visible('visible');await rt.advance(0);assert.equal(calls,4);
+  rt.unmount();await rt.advance(20000);assert.equal(calls,4);
+});
 
 test('world indices poll every ten seconds, keep newer timestamps and expose feed failures',async()=>{
   let calls=0;

@@ -115,6 +115,18 @@ export interface MarketTickerItem {
   session: MarketSession;
 }
 
+export interface NasdaqFuturesQuote {
+  close: number;
+  change_pct: number | null;
+  quote_time: number;
+  quote_source: string;
+  stale: boolean;
+}
+export interface NasdaqFuturesQuotes {
+  day: NasdaqFuturesQuote | null;
+  night: NasdaqFuturesQuote | null;
+}
+
 /** The extended-hours half of a US quote, shared by map tiles, board cards and the
  * /global detail header so all three describe an after-hours price the same way.
  *
@@ -1699,6 +1711,7 @@ export const api = {
   usDailyPrices: (code: string, offset = 0, limit = 20) =>
     getJSON<DailyPricePage>(`${BASE}/us-stock/${code}/daily?offset=${offset}&limit=${limit}`),
   globalIndices: () => getJSONFresh<{ items: GlobalIndexWidget[] }>(`${BASE}/global/indices`),
+  nasdaqFutures: () => getJSONFresh<NasdaqFuturesQuotes>(`${BASE}/global/nasdaq-futures`),
   kospiNight: () => getJSONFresh<KospiNightQuote>(`${BASE}/global/kospi-night`),
   kospiFutures: () => getJSONFresh<KospiNightQuote>(`${BASE}/global/kospi-futures`),
   treasuryHeadlines: () => getJSONFresh<{ items: TreasuryHeadline[]; source: string }>(`${BASE}/global/treasuries/quotes`),
