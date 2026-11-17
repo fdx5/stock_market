@@ -240,15 +240,14 @@ html[data-fx=minimal] .pb-market-picker .pb-tab,html[data-fx=minimal] .pb-tab-ac
 .pb-board--bare .pb-topline,.pb-board--bare .pb-breadth,.pb-board--bare .pb-sort,.pb-board--bare .pb-grid,.pb-board--bare .pb-footnote,.pb-board--bare .pb-actions>.pb-more:not(.pb-bare-toggle):not(.pb-alt-link),.pb-board--bare .pb-market-prompt{display:none}
 .pb-board--bare .pb-actions{justify-content:flex-end}
 .pb-actions .pb-alt-link{flex:0 0 auto;width:auto;padding:0 18px;text-decoration:none}
-/* 증시 전광판: the viewer's own camera on the deep-dive scene */
-.pb2-cam-toggle{position:fixed;left:calc(var(--ng-rail,0px) + 16px);bottom:calc(var(--ng-bottom,0px) + 16px + env(safe-area-inset-bottom,0px));z-index:34;display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:0 13px 0 11px;border:1px solid color-mix(in srgb,var(--accent,#38b6ff) 45%,transparent);border-radius:999px;background:color-mix(in srgb,#02060f 62%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#cfe6ff;font:600 12px var(--f-sans);letter-spacing:.02em;cursor:pointer;box-shadow:0 0 18px color-mix(in srgb,var(--accent,#38b6ff) 18%,transparent);transition:border-color .2s,box-shadow .2s,background .2s}
-.pb2-cam-toggle svg{width:16px;height:16px}
-.pb2-cam-toggle:hover,.pb2-cam-toggle:focus-visible{border-color:var(--accent,#38b6ff);box-shadow:0 0 24px color-mix(in srgb,var(--accent,#38b6ff) 35%,transparent);outline:none}
-.pb2-cam-toggle.is-on{background:color-mix(in srgb,var(--accent,#38b6ff) 22%,#02060f);color:#fff}
-.pb2-cam{position:fixed;left:var(--ng-rail,0px);right:0;top:0;bottom:0;z-index:33;cursor:grab;touch-action:none;user-select:none}
-.pb2-cam:active{cursor:grabbing}
-.pb2-cam-hint{position:absolute;left:50%;bottom:calc(var(--ng-bottom,0px) + 22px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);margin:0;padding:7px 14px;border-radius:999px;background:color-mix(in srgb,#02060f 55%,transparent);color:#bcd3ee;font:500 11px var(--f-sans);white-space:nowrap;pointer-events:none;animation:pb2-hint 6s ease forwards}
-@keyframes pb2-hint{0%,70%{opacity:1}100%{opacity:0}}
-html.pb2-viewing .pb-page>:not(.pb2-deep):not(.pb2-cam):not(.pb2-cam-toggle){opacity:0;pointer-events:none;transition:opacity .35s ease}
-.pb-page>:not(.pb2-deep):not(.pb2-cam):not(.pb2-cam-toggle){transition:opacity .35s ease}
-@media (max-width:599px){.pb2-cam-hint{white-space:normal;width:min(92vw,360px);text-align:center;border-radius:12px}.pb2-cam-toggle{left:12px}}
+/* 증시 전광판: two camera modes for the deep-dive scene (시점 조작 / 자동 VIEW) */
+.pb2-cam-modes{position:fixed;left:calc(var(--ng-rail,0px) + 16px);bottom:calc(var(--ng-bottom,0px) + 16px + env(safe-area-inset-bottom,0px));z-index:34;display:inline-flex;padding:3px;gap:3px;border:1px solid color-mix(in srgb,var(--accent,#38b6ff) 40%,transparent);border-radius:999px;background:color-mix(in srgb,#02060f 62%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 0 18px color-mix(in srgb,var(--accent,#38b6ff) 16%,transparent)}
+.pb2-cam-modes button{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px 0 10px;border:0;border-radius:999px;background:transparent;color:#9fb6d2;font:600 12px var(--f-sans);letter-spacing:.02em;cursor:pointer;transition:background .2s,color .2s,box-shadow .2s}
+.pb2-cam-modes button svg{width:15px;height:15px}
+.pb2-cam-modes button:hover,.pb2-cam-modes button:focus-visible{color:#e6f2ff;outline:none}
+.pb2-cam-modes button.is-on{background:color-mix(in srgb,var(--accent,#38b6ff) 26%,#02060f);color:#fff;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent,#38b6ff) 70%,transparent),0 0 14px color-mix(in srgb,var(--accent,#38b6ff) 30%,transparent)}
+.pb2-cam-hint{position:fixed;left:calc(var(--ng-rail,0px) + (100vw - var(--ng-rail,0px)) / 2);bottom:calc(var(--ng-bottom,0px) + 64px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:34;margin:0;padding:7px 14px;border-radius:999px;background:color-mix(in srgb,#02060f 70%,transparent);color:#bcd3ee;font:500 11px var(--f-sans);white-space:nowrap;pointer-events:none;animation:pb2-hint 6s ease forwards}
+@keyframes pb2-hint{0%,75%{opacity:1}100%{opacity:0}}
+html.pb2-manual .pb-page{touch-action:pan-y}
+html.pb2-dragging,html.pb2-dragging *{user-select:none!important;-webkit-user-select:none!important;cursor:grabbing!important}
+@media (max-width:599px){.pb2-cam-hint{white-space:normal;width:min(92vw,360px);text-align:center;border-radius:12px}.pb2-cam-modes{left:12px}.pb2-cam-modes button{padding:0 10px 0 8px;font-size:11px}}
