@@ -1380,11 +1380,13 @@ export class DeepDive {
     // (+5 % and more: two beams, each twice as thick and twice as bright; after ~5 s they bend
     // in to meet above the head and go on as one beam, twice as thick again)
     const beat = u.uBeat.value as number;
-    this.beam.setPower(strong ? 2 : 1, strong ? 2 : 1); this.beamL.setPower(2, 2); this.beamM.setPower(4, 2);
+    // (the glow round them held back, so the cores read and the hall is not washed out)
+    this.beam.setPower(strong ? 1.3 : 1, strong ? 1.3 : 1, strong ? 0.55 : 1); this.beamL.setPower(1.3, 1.3, 0.55); this.beamM.setPower(2, 1.4, 0.5);
     const MERGE0 = 5, mk = strong ? smooth((beamAge - MERGE0) / 1.2) : 0;
     if (mk > 0) {
       const mid = this._mid.addVectors(this._fv, this._fvL).multiplyScalar(0.5);
-      mid.y += Math.max(1.6, this._fv.distanceTo(this._fvL) * 0.9);
+      // (they meet just in front of the wrists and leave as one from there)
+      mid.y += 0.35;
       // each side beam's end swings from the vault in to the meeting point
       this._tR.set(this._fv.x, CEILING + 26, this._fv.z).lerp(mid, mk); this._tL.set(this._fvL.x, CEILING + 26, this._fvL.z).lerp(mid, mk);
       this.beam.update(this._fv, beamAge, beamVis, beat, this._tR);

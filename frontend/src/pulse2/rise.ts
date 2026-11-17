@@ -303,15 +303,15 @@ export class RedBeam {
   private len = { value: 0 };
   private vis = { value: 0 };
   private age = { value: 0 };
-  private gain = { value: 1 };
-  private thick = 1;
+  private gain = { value: 1 }; private haloGain = { value: 1 };
+  private thick = 1; private haloK = 1;
   private core: THREE.Mesh; private halo: THREE.Mesh;
   private hand: THREE.Sprite; private strike: THREE.Sprite;
 
   constructor(scene: THREE.Scene, u: U, common: string, glow: THREE.Texture) {
     const geo = new THREE.CylinderGeometry(1, 1, 1, 32, 1, true).translate(0, 0.5, 0);
     const mat = (core: number) => new THREE.ShaderMaterial({
-      uniforms: { ...u, uLen: this.len, uVis: this.vis, uAge: this.age, uGain: this.gain }, ...additive, side: THREE.DoubleSide,
+      uniforms: { ...u, uLen: this.len, uVis: this.vis, uAge: this.age, uGain: core ? this.gain : this.haloGain }, ...additive, side: THREE.DoubleSide,
       vertexShader: `varying vec3 vN; varying vec3 vW; varying float vY; void main(){ vY = position.y; vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix)*normal); gl_Position = projectionMatrix*viewMatrix*w; }`,
       fragmentShader: /* glsl */`${common} uniform float uLen, uVis, uAge, uGain; varying vec3 vN; varying vec3 vW; varying float vY;
         void main(){
@@ -342,10 +342,14 @@ export class RedBeam {
     scene.add(this.group, this.hand, this.strike);
   }
 
-  /** A stronger beam: `thick` times as wide, `gain` times as bright (1, 1: the usual). */
-  setPower(thick: number, gain: number) {
-    if (thick !== this.thick) { this.thick = thick; this.core.scale.set(0.06 * thick, CEILING + 26, 0.06 * thick); this.halo.scale.set(0.4 * thick, CEILING + 26, 0.4 * thick); }
-    this.gain.value = gain;
+  /** A stronger beam: `thick` times as wide, `gain` times as bright (1, 1: the usual); the
+   *  glow round it can be held back on its own (`halo`: its width and brightness). */
+  setPower(thick: number, gain: number, halo = 1) {
+    if (thick !== this.thick || halo !== this.haloK) {
+      this.thick = thick; this.haloK = halo;
+      this.core.scale.set(0.06 * thick, CEILING + 26, 0.06 * thick); this.halo.scale.set(0.4 * thick * halo, CEILING + 26, 0.4 * thick * halo);
+    }
+    this.gain.value = gain; this.haloGain.value = gain * halo;
   }
 
   private static UP = new THREE.Vector3(0, 1, 0);
