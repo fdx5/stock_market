@@ -3,15 +3,16 @@ import { DeepDive } from "./deepDive";
 import { useLanguage } from "../i18n/LanguageContext";
 
 /** The 증시 전광판2 background: the deep-dive scene behind the board, coloured by the
- *  market (`change`: the index on arrival, a chosen stock afterwards). A small button
- *  lets the viewer take the camera: the board fades away and the scene can be turned
+ *  market (`change`: the index on arrival, a chosen stock afterwards). The viewer holds
+ *  the camera by default (a button switches to the board, remembered): the board fades away and the scene can be turned
  *  (drag), zoomed (wheel, pinch) and slid (right-drag, Shift-drag, two fingers); a
  *  double-click resets the view, Esc or the button gives the board back. */
 export default function DeepDiveBackground({ change }: { change: number | null | undefined }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const scene = useRef<DeepDive | null>(null);
   const [failed, setFailed] = useState(false);
-  const [viewing, setViewing] = useState(false);
+  // Camera mode is the default; a viewer who goes back to the board is remembered.
+  const [viewing, setViewing] = useState(() => { try { return localStorage.getItem("pb2-cam") !== "0"; } catch { return true; } });
   const { lang } = useLanguage();
   const L = (ko: string, en: string) => lang === "ko" ? ko : en;
   useEffect(() => {
@@ -31,6 +32,7 @@ export default function DeepDiveBackground({ change }: { change: number | null |
   useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle("pb2-viewing", viewing);
+    try { localStorage.setItem("pb2-cam", viewing ? "1" : "0"); } catch { /* private mode: not remembered */ }
     if (!viewing) { scene.current?.userReset(); return; }
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setViewing(false); };
     window.addEventListener("keydown", onKey);
