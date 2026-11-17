@@ -20,7 +20,7 @@ import { moodColor, moodStrength } from "./mood";
 import { PoseRig, loadMocap, sample, blend, type Clip, type Pose, type RootMotion } from "./pose";
 import { Worlds } from "./worlds";
 import { AbyssSky, Embers } from "./abyss";
-import { CEILING, Cave, GoldRain, RedBeam } from "./rise";
+import { CANOPY, CEILING, Cave, GoldRain, LightCanopy, RedBeam } from "./rise";
 
 const LOOP = 600;           // seconds in one take: ten minutes, mostly the fall
 const RISE_LOOP = 60;       // the rally take: meditation, the raised arm and beam, the gold rain
@@ -140,6 +140,7 @@ export class DeepDive {
   private heart?: THREE.Sprite; private heartBone?: THREE.Object3D;
   private sky!: AbyssSky; private embers!: Embers;
   private gold!: GoldRain; private beam!: RedBeam; private beamL!: RedBeam; private beamM!: RedBeam; private cave!: Cave;
+  private canopy!: LightCanopy;
   private _mid = new THREE.Vector3(); private _tR = new THREE.Vector3(); private _tL = new THREE.Vector3();
   /** The rally's size: +5 % and more, both arms rise and fire beams twice as thick and bright. */
   private risePct = 0;
@@ -196,6 +197,8 @@ export class DeepDive {
     this.beam = new RedBeam(this.scene, this.u, COMMON, DeepDive.glowTex());
     this.beamL = new RedBeam(this.scene, this.u, COMMON, DeepDive.glowTex());
     this.beamM = new RedBeam(this.scene, this.u, COMMON, DeepDive.glowTex());
+    this.beam.top = this.beamL.top = this.beamM.top = CANOPY;
+    this.canopy = new LightCanopy(this.scene, this.u, COMMON, NOISE);
     // Light in the mood's colour: one from the portal, one carried by the figure, so the
     // chrome ribs and the hall's walls take shape round it instead of sinking into black.
     this.keyLight = new THREE.PointLight(0x3a8bff, 0, 60, 1.6); this.keyLight.position.set(0, 1.4, 0);
@@ -973,7 +976,7 @@ export class DeepDive {
     (this.scene.background as THREE.Color).copy(fogC).multiplyScalar(0.7);
     (u.uFigHOn.value as number) = this.riseMode && this.skin ? 1 : 0;
     if (this.riseMode) { this.riseFrame(T, dt); this.renderFigH(); this.post(T % RISE_LOOP, RISE_LOOP, dt, false); this.pace(gap, performance.now() - cpu0); return; }
-    this.gold.update(-1, 0); this.beam.update(this._fv, -1, 0, 0); this.beamL.update(this._fv, -1, 0, 0); this.beamM.update(this._fv, -1, 0, 0); this.rain.visible = true; this.shaftVis.value = 1;
+    this.gold.update(-1, 0); this.beam.update(this._fv, -1, 0, 0); this.beamL.update(this._fv, -1, 0, 0); this.beamM.update(this._fv, -1, 0, 0); this.canopy.update(this._fv, -1, 0); this.rain.visible = true; this.shaftVis.value = 1;
     this.chamber.visible = true; this.cave.update(false, 0, 0); this.figure.scale.setScalar(1);
     this.caveSun.intensity = 0; this.caveFill.intensity = 0;
     (u.uHole.value as number) = 1; for (const o of this.portalParts) o.visible = true;
@@ -1256,11 +1259,11 @@ export class DeepDive {
     // the figure meditating in the middle of the cave
     { at: 0, s: () => ({ r: 26, th: 0, y: 3.4, ly: 1.4, f: 50, roll: 0 }) },
     // the arm goes up, the beam leaves the palm: the view tilts up with it
-    { at: 6, s: q => ({ r: 26, th: 0, y: 3.4, ly: lerp(1.4, 2.8, smooth(q)), f: 50, roll: 0 }) },
-    // held while the gold rains down
-    { at: 14, s: () => ({ r: 26, th: 0, y: 3.4, ly: 2.8, f: 50, roll: 0 }) },
+    { at: 6, s: q => ({ r: 26, th: 0, y: 3.4, ly: lerp(1.4, 5, smooth(q)), f: 50, roll: 0 }) },
+    // held while the light spreads over the canopy and the gold and silver rain down
+    { at: 14, s: () => ({ r: 26, th: 0, y: 3.4, ly: 5, f: 50, roll: 0 }) },
     // the arm comes down: back to the meditation
-    { at: 50, s: q => ({ r: 26, th: 0, y: 3.4, ly: lerp(2.8, 1.4, smooth(q)), f: 50, roll: 0 }) },
+    { at: 50, s: q => ({ r: 26, th: 0, y: 3.4, ly: lerp(5, 1.4, smooth(q)), f: 50, roll: 0 }) },
   ];
   private _red = new THREE.Color(1.1, 0.075, 0.045);
   /** Seated, the skin round a deeply bent and turned hip thins (linear-blend skinning): fill
@@ -1400,7 +1403,11 @@ export class DeepDive {
     // (the red beam takes the place of the pale light shaft while it burns)
     this.shaftVis.value = 1 - 0.85 * smooth((t - BEAM0) / 1.5) * (1 - smooth((t - BEAM_END) / 3));
     if (t >= BEAM0 && this.lastT < BEAM0 && t - this.lastT < 1) { const s = u.uSteps.value as THREE.Vector4[]; s[this.stepIdx++ % 4].set(0, RISE_Z, T, 2.2); }
-    this.gold.update(t - (BEAM0 + 0.7), 1 - smooth((t - 53) / 6), dt);
+    // the light meets the canopy ~0.55 s after leaving the hand, spreads, and the drops it
+    // beads there fall as gold and silver rain
+    { const strikeAt = strong && mk > 0.5 ? this._mid : strong ? this._v2.addVectors(this._fv, this._fvL).multiplyScalar(0.5) : this._fv;
+      this.canopy.update(strikeAt, beamAge - 0.55, beamVis); }
+    this.gold.update(t - (BEAM0 + 0.55), 1 - smooth((t - 53) / 6), dt);
 
     // ---- camera
     const sh = DeepDive.RISE_SHOTS, BL = 3;

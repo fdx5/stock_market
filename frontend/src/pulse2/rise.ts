@@ -9,6 +9,10 @@ type U = Record<string, { value: unknown }>;
 const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false } as const;
 
 export const CEILING = 34;
+/** The canopy of light the beam strikes, low enough to be seen in the frontal wide view;
+ *  the light spreads across it to SPREAD_R (63 % of the way in SPREAD_T seconds). */
+export const CANOPY = 22;
+const SPREAD_R = 36, SPREAD_T = 2.4;
 
 /** Gold dust raining from the vault, drawn like the gold dust on the market home (goldDust.ts):
  *  small round grains with a white core in six gold tones, twinkling, a faint light trail
@@ -34,8 +38,9 @@ export class GoldRain {
       // over the whole cave, a little denser toward the middle
       const a = Math.random() * Math.PI * 2, r = 0.8 + Math.pow(Math.random(), 0.9) * 34, z = Math.random();
       seed.set([Math.cos(a) * r, Math.sin(a) * r, Math.random(), z * z], i * 4);
-      // tone 0..5, fall speed (m/s), twinkle phase, star (7 %, as on the home)
-      kind.set([Math.floor(Math.random() * 6), 1.6 + Math.random() * 2.6, Math.random() * 6.28, Math.random() < 0.07 ? 1 : 0], i * 4);
+      // tone 0..5 gold, 6..7 silver (a third), fall speed (m/s), twinkle phase, star (7 %, as on the home)
+      const tone = Math.random() < 0.34 ? 6 + Math.floor(Math.random() * 2) : Math.floor(Math.random() * 6);
+      kind.set([tone, 1.6 + Math.random() * 2.6, Math.random() * 6.28, Math.random() < 0.07 ? 1 : 0], i * 4);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
@@ -43,16 +48,24 @@ export class GoldRain {
     g.setAttribute("aKind", new THREE.BufferAttribute(kind, 4));
     g.setAttribute("aIdx", new THREE.BufferAttribute(Float32Array.from({ length: count }, (_, i) => i), 1));
     // the home's palette: #fff4c2 #ffd76a #f2b53a #ffe9a3 #d9962b #fffbe8
-    const tones = ["#fff4c2", "#ffd76a", "#f2b53a", "#ffe9a3", "#d9962b", "#fffbe8"].map(h => new THREE.Color(h));
+    // and two silvers
+    const tones = ["#fff4c2", "#ffd76a", "#f2b53a", "#ffe9a3", "#d9962b", "#fffbe8", "#eef3fb", "#c9d4e6"].map(h => new THREE.Color(h));
     this.mesh = new THREE.Points(g, new THREE.ShaderMaterial({
       uniforms: { ...u, uOn: this.on, uVis: this.vis, uShown: this.shown, uTones: { value: tones } }, ...additive,
       vertexShader: /* glsl */`attribute vec4 aSeed; attribute vec4 aKind; attribute float aIdx; uniform float uTime, uOn, uPR, uShown;
         varying float vA; varying float vTw; varying float vStar; varying float vTone;
         void main(){
-          float H = ${CEILING.toFixed(1)}, sp = aKind.y;
-          float fall = mod(aSeed.z * H + uTime * sp, H);           // metres below the vault
-          float y = H - fall;
-          float started = step(fall, max(0.0, uOn) * sp + aSeed.z * 2.0) * step(0.0, uOn);
+          float H = ${CANOPY.toFixed(1)}, sp = aKind.y;
+          // The light reaches this grain's place on the canopy (spreading out from the
+          // beam), a drop beads there for a moment, then lets go and falls; afterwards it
+          // keeps falling on its own loop (continuous: the same clock).
+          float r = length(aSeed.xy);
+          float reach = -${SPREAD_T.toFixed(2)} * log(max(1e-3, 1.0 - min(r, ${(SPREAD_R - 0.5).toFixed(1)}) / ${SPREAD_R.toFixed(1)}));
+          float tau = uOn - reach - (0.5 + aSeed.z * 2.2);        // < 0: still beading
+          float beading = step(0.0, uOn - reach) * step(tau, 0.0);
+          float fall = tau > 0.0 ? mod(tau * sp + 0.5 * min(tau, 1.0) * min(tau, 1.0) * 0.0, H) : 0.0;
+          float y = H - fall - 0.15;
+          float started = step(0.0, tau) + beading;
           float sw = aKind.z;
           // a light grain drifts as it falls, swinging a little like a flake
           vec3 c = vec3(aSeed.x + sin(uTime*0.9 + sw)*0.35 + sin(fall*0.21 + sw)*0.5, y, aSeed.y + cos(uTime*0.7 + sw)*0.35);
@@ -62,17 +75,19 @@ export class GoldRain {
           // grain size in CSS px as on the home (0.35..1.45 x 4), barely scaled by distance;
           // the sprite is three times the grain, to hold its trail and star rays
           float sizePx = (0.35 + aSeed.w * 1.1) * 4.0 * (1.0 + tw * 0.5) * clamp(16.0 / max(1.0, -mv.z), 0.55, 1.35);
+          // a drop swells as it beads
+          if (beading > 0.5) sizePx *= mix(0.4, 1.15, smoothstep(-(0.5 + aSeed.z * 2.2), 0.0, tau));
           // bright up in the air, fading to nothing as it nears the floor; no grain on the lens;
           // grains past the current count fade in or out one by one as the rally grows or eases
-          vA = started * pow(smoothstep(0.1, 4.5, y), 1.3) * smoothstep(H, H - 3.0, y) * smoothstep(0.8, 3.0, -mv.z) * clamp(uShown - aIdx, 0.0, 1.0);
+          vA = started * pow(smoothstep(0.1, 4.5, y), 1.3) * smoothstep(0.8, 3.0, -mv.z) * clamp(uShown - aIdx, 0.0, 1.0);
           gl_PointSize = vA > 0.001 ? sizePx * 3.0 * uPR : 0.0;   // nothing to fill for an unseen grain
           gl_Position = projectionMatrix * mv; }`,
-      fragmentShader: /* glsl */`${common} uniform float uVis; uniform vec3 uTones[6];
+      fragmentShader: /* glsl */`${common} uniform float uVis; uniform vec3 uTones[8];
         varying float vA; varying float vTw; varying float vStar; varying float vTone;
         void main(){
           vec2 p = gl_PointCoord - 0.5;              // the grain sits in the middle third
           int ti = int(vTone + 0.5); vec3 tone = uTones[0];
-          for (int i = 1; i < 6; i++) if (i == ti) tone = uTones[i];
+          for (int i = 1; i < 8; i++) if (i == ti) tone = uTones[i];
           float r = length(p) * 6.0;                 // 0 at the centre, 1 at the grain's edge
           // the home sprite: white core, the tone by 18 %, a third of it by 45 %, gone by the edge
           vec3 col = mix(vec3(1.0), tone, smoothstep(0.0, 0.18, r)) * (1.0 - smoothstep(0.18, 0.45, r) * 0.67) * (1.0 - smoothstep(0.45, 1.0, r));
@@ -304,6 +319,8 @@ export class RedBeam {
   private vis = { value: 0 };
   private age = { value: 0 };
   private gain = { value: 1 }; private haloGain = { value: 1 };
+  /** Where the beam ends (the canopy), or past the vault when unset. */
+  top: number | null = null;
   private thick = 1; private haloK = 1;
   private core: THREE.Mesh; private halo: THREE.Mesh;
   private hand: THREE.Sprite; private strike: THREE.Sprite;
@@ -368,15 +385,78 @@ export class RedBeam {
       const d = this._d.subVectors(to, from), dist = d.length();
       this.group.quaternion.setFromUnitVectors(RedBeam.UP, d.multiplyScalar(1 / Math.max(1e-4, dist)));
       this.len.value = Math.min(this.len.value, dist / (CEILING + 26));
-    } else this.group.quaternion.identity();
+    } else {
+      this.group.quaternion.identity();
+      if (this.top !== null) this.len.value = len * Math.max(0.01, this.top - from.y) / (CEILING + 26);
+    }
     if (to) this.strike.visible = false;
     const flash = Math.exp(-age * 2.5) * 3;
     this.hand.position.copy(from);
     this.hand.scale.setScalar((0.9 + flash * 0.8 + beat * 0.4 + Math.sin(age * 7) * 0.08) * vis * Math.sqrt(this.thick));
     this.hand.material.opacity = Math.min(1, 0.8 + flash) * vis;
-    this.strike.position.set(from.x, CEILING + 2, from.z);
+    this.strike.position.set(from.x, this.top ?? CEILING + 2, from.z);
     const hit = grow >= 1 ? Math.exp(-(age - 0.8) * 1.5) * 4 + 1 : 0;
     this.strike.scale.setScalar((3 + hit * 2.5 + beat * 1.5) * vis * Math.sqrt(this.thick));
     this.strike.material.opacity = Math.min(1, 0.6 + hit * 0.2) * vis * (grow >= 1 ? 1 : 0);
+  }
+}
+
+/** The canopy of light the beam strikes: where it meets it the light spreads out across
+ *  the canopy in a widening ring (red at the heart, gold toward the rim, a breath of silver
+ *  at the edge), a web of light pooling inside it, and drops of gold and silver beading on
+ *  it, glinting, before they fall (the falling is GoldRain's). */
+export class LightCanopy {
+  readonly mesh: THREE.Mesh;
+  private age = { value: -1 };
+  private vis = { value: 0 };
+  private at = { value: new THREE.Vector2() };
+
+  constructor(scene: THREE.Scene, u: U, common: string, noise: string) {
+    const geo = new THREE.CircleGeometry(SPREAD_R + 2, 160).rotateX(Math.PI / 2);
+    this.mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+      uniforms: { ...u, uAge: this.age, uVisC: this.vis, uAt: this.at }, ...additive, side: THREE.DoubleSide,
+      vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
+      fragmentShader: /* glsl */`${common}${noise} uniform float uAge, uVisC; uniform vec2 uAt; varying vec3 vW;
+        float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        void main(){
+          if (uAge < 0.0) discard;
+          vec2 q = vW.xz - uAt; float r = length(q);
+          float Rs = ${SPREAD_R.toFixed(1)} * (1.0 - exp(-uAge / ${SPREAD_T.toFixed(2)}));
+          // the spreading front, bright as it races out, calmer as it slows
+          float speed = exp(-uAge / ${SPREAD_T.toFixed(2)});
+          float front = exp(-pow((r - Rs) * 0.55, 2.0)) * (0.35 + 1.4 * speed);
+          // inside it, light pooling in a slow web (caustics on a ceiling of water)
+          float inside = smoothstep(Rs + 0.5, Rs - 5.0, r);
+          vec3 p3 = vec3(q * 0.16, uTime * 0.07);
+          float web = pow(1.0 - abs(n3(p3) - 0.5) * 2.0, 7.0) * 0.8 + pow(1.0 - abs(n3(p3 * 2.3 + 4.0) - 0.5) * 2.0, 10.0) * 0.5;
+          float pool = inside * (0.1 + web * 0.75) * (0.8 + 0.2 * sin(uTime * 1.3 - r * 0.25));
+          // the heart where the beam meets it
+          float heart = exp(-r * 0.45) * 1.6 + exp(-r * 1.6) * 2.5;
+          // drops beading on it: one in each cell of a fine grid, swelling and glinting
+          vec2 cell = floor(q / 1.1), f = fract(q / 1.1) - 0.5;
+          float hs = hash2(cell); vec2 jit = vec2(hash2(cell + 7.1), hash2(cell + 3.3)) - 0.5;
+          float d = length(f - jit * 0.6);
+          float cr = length((cell + 0.5) * 1.1);
+          float born = smoothstep(0.0, 1.2, uAge - (-${SPREAD_T.toFixed(2)} * log(max(1e-3, 1.0 - min(cr, ${(SPREAD_R - 0.5).toFixed(1)}) / ${SPREAD_R.toFixed(1)}))));
+          float glint = pow(0.5 + 0.5 * sin(uTime * (3.0 + hs * 5.0) + hs * 40.0), 6.0);
+          float bead = exp(-d * d * 260.0) * born * step(0.45, hs) * (0.35 + glint * 1.6);
+          vec3 red = vec3(1.0, 0.16, 0.08), gold = vec3(1.0, 0.72, 0.28), silver = vec3(0.82, 0.88, 1.0);
+          vec3 tint = mix(red, gold, smoothstep(1.5, 12.0, r));
+          tint = mix(tint, silver, smoothstep(16.0, 32.0, r) * 0.45);
+          vec3 beadTint = mix(gold * 1.2, silver * 1.2, step(0.72, hs));
+          float edge = smoothstep(${(SPREAD_R + 2).toFixed(1)}, ${(SPREAD_R - 6).toFixed(1)}, r);
+          vec3 col = (tint * (front * 0.55 + pool * 0.5) + mix(red, vec3(1.0, 0.8, 0.6), 0.4) * heart * 0.5) * edge + beadTint * bead * edge;
+          col *= uVisC * (0.85 + uBeat * 0.3 + uEnergy * 0.25);
+          gl_FragColor = vec4(col, 1.0); }`,
+    }));
+    this.mesh.position.y = CANOPY; this.mesh.frustumCulled = false; this.mesh.visible = false;
+    this.mesh.renderOrder = 3;
+    scene.add(this.mesh);
+  }
+
+  /** `at`: where the beam meets the canopy; `age`: seconds since it did (<0: not yet). */
+  update(at: THREE.Vector3, age: number, vis: number) {
+    this.age.value = age; this.vis.value = vis; this.at.value.set(at.x, at.z);
+    this.mesh.visible = age >= 0 && vis > 0.005;
   }
 }
