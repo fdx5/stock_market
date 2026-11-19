@@ -15,7 +15,7 @@ const bannerRoutes = new Set([
   "/etf-overlap", "/data-confidence", "/session-planner", ...MARKET_ASSETS.flatMap(asset => [`/prices/${asset.key}`, `/prices/${asset.key}/`]),
 ]);
 
-type BannerOptions = { labelled?: boolean };
+type BannerOptions = { labelled?: boolean; contentReady?: boolean };
 const slotIds = {
   banner: "9440754514",
   secondary: "4040463452",
@@ -33,29 +33,36 @@ const bannerSizes: readonly AdSize[] = [
   { width: 234, height: 60 },
 ];
 const rectangleSizes: readonly AdSize[] = [{ width: 300, height: 250 }];
+const compactBannerSizes: readonly AdSize[] = [
+  { width: 234, height: 60 },
+  { width: 200, height: 60 },
+  { width: 160, height: 60 },
+];
+const compactRectangleSizes: readonly AdSize[] = [{ width: 125, height: 125 }];
 const handheldAds = "(max-width: 899px), (pointer: coarse)";
 
 export function AdSenseBannerPair({
-  labelled = false, expandedDesktop = false,
-}: BannerOptions & { expandedDesktop?: boolean } = {}) {
-  const banner = <AdSenseBanner labelled={labelled} />;
+  labelled = false, contentReady = true, expandedDesktop = false, compactPortrait = false,
+}: BannerOptions & { expandedDesktop?: boolean; compactPortrait?: boolean } = {}) {
+  const options = { labelled, contentReady };
+  const banner = <AdSenseBanner {...options} />;
   return (
-    <div className="ng-adsense-pair">
+    <div className={compactPortrait ? "ng-adsense-pair ng-adsense-pair--portrait" : "ng-adsense-pair"}>
       {expandedDesktop ? (
         <div className="ng-adsense-stack">
           {banner}
-          <AdSenseBanner labelled={labelled} variant="secondary" />
+          <AdSenseBanner {...options} variant="secondary" />
         </div>
       ) : banner}
-      {expandedDesktop && <AdSenseBanner labelled={labelled} variant="secondary-rectangle" />}
-      <AdSenseBanner labelled={labelled} variant="rectangle" />
+      {expandedDesktop && <AdSenseBanner {...options} variant="secondary-rectangle" />}
+      <AdSenseBanner {...options} variant="rectangle" />
     </div>
   );
 }
 
 export default function AdSenseBanner({
   labelled = false, variant = "banner", fluid = false, contentReady = true,
-}: BannerOptions & { variant?: AdVariant; fluid?: boolean; contentReady?: boolean } = {}) {
+}: BannerOptions & { variant?: AdVariant; fluid?: boolean } = {}) {
   const path = useRoute();
   const { lang } = useLanguage();
   const isStockDetail = /^\/stock\/[A-Za-z0-9.-]{1,16}\/?$/.test(path);
@@ -78,8 +85,13 @@ function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; f
     if (!area || !ad || !loader) return;
 
     const handheld = window.matchMedia(handheldAds);
+    const pair = area.closest(".ng-adsense-pair");
+    const portraitPair = pair?.classList.contains("ng-adsense-pair--portrait");
+    const mobileBanner = variant === "banner" || (variant === "secondary" && pair === null);
+    const isCompact = () => getComputedStyle(area).getPropertyValue("--ng-ad-compact").trim() === "1";
+    const canHold = () => handheld.matches && (mobileBanner || (portraitPair && isCompact()));
     const fit = () => {
-      if (!handheld.matches) delete area.dataset.adInView;
+      if (area.dataset.adInView && !canHold()) delete area.dataset.adInView;
       const width = area.clientWidth;
       // A filled creative keeps its original size. Responsive hiding keeps it
       // out of the layout if the column shrinks, without requesting it again.
@@ -92,7 +104,11 @@ function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; f
       // AdSense push is shared by the document. Waiting for the loader keeps
       // a navigation from leaving queued requests for slots that have unmounted.
       if (!contentReady || loader.dataset.loaded !== "true" || document.hidden || width === 0) return;
-      const size = fluid ? undefined : (rectangle ? rectangleSizes : bannerSizes).find(candidate => candidate.width <= width);
+      const compact = portraitPair && isCompact();
+      const sizes = compact
+        ? (rectangle ? compactRectangleSizes : compactBannerSizes)
+        : (rectangle ? rectangleSizes : bannerSizes);
+      const size = fluid ? undefined : sizes.find(candidate => candidate.width <= width);
       if (!fluid && !size) return;
       requestedMinWidth.current = size?.width ?? 1;
       area.dataset.adFits = "true";
@@ -113,9 +129,9 @@ function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; f
 
     // Keep a visible, unfilled banner at its reserved height until it leaves
     // the viewport. A slot that already collapsed must stay collapsed.
-    const visibility = !fluid && variant === "banner" && typeof IntersectionObserver !== "undefined"
+    const visibility = !fluid && (mobileBanner || portraitPair) && typeof IntersectionObserver !== "undefined"
       ? new IntersectionObserver(([entry]) => {
-        if (!handheld.matches || !entry.isIntersecting || entry.boundingClientRect.height === 0) {
+        if (!canHold() || !entry.isIntersecting || entry.boundingClientRect.height === 0) {
           delete area.dataset.adInView;
         } else if (ad.dataset.adStatus !== "unfilled") {
           area.dataset.adInView = "true";

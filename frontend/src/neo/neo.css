@@ -133,19 +133,19 @@ html[data-fx=minimal] .ng-new-badge{animation:none}
 .ng-adsense-slot>.ng-adsense-banner[data-ad-status=unfilled]{display:none!important}
 .ng-adsense-slot[data-ad-fits=true]:is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){margin-block:12px 16px}
 @media (max-width:899px), (pointer:coarse){
-  .ng-adsense-slot--banner[data-ad-fits=true]:is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){
+  :is(.ng-adsense-slot--banner,.kospi-map-bottom-ad>.ng-adsense-slot--secondary)[data-ad-fits=true]:is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){
     min-height:var(--ng-ad-height,0px);
   }
 }
 .kospi-map-period-rail>.ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-banner:not([data-ad-status=unfilled])){margin:0 0 12px}
-.ng-adsense-inline-label{display:none}
-.ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-banner[data-ad-status=filled])>.ng-adsense-inline-label{
-  display:block;
+.ng-adsense-inline-label{
+  display:none;
   text-align:center;
   color:var(--text-secondary);
-  font:11px/1.4 var(--f-sans);
+  font:11px/16px var(--f-sans);
   margin-bottom:4px;
 }
+.ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-banner[data-ad-status=filled])>.ng-adsense-inline-label{display:block}
 .ng-adsense-pair{
   display:flex;align-items:center;gap:24px;
   width:100%;min-width:0;container-type:inline-size;
@@ -166,5 +166,39 @@ html[data-fx=minimal] .ng-new-badge{animation:none}
     .ng-adsense-pair:has(>:is(.ng-adsense-slot--rectangle,.ng-adsense-slot--secondary-rectangle)[data-ad-fits=true]>ins:not([data-ad-status=unfilled]))>.ng-adsense-stack>.ng-adsense-slot{margin-block:0}
   }
 }
+/* 160 + 125 + 8 fits a 320px phone with 12px gutters. Two rectangles
+   need room for a 234px banner, two 125px squares and two 8px gaps. */
+@media (max-width:599px) and (orientation:portrait){
+  .ng-adsense-pair--portrait{gap:8px}
+  @container(min-width:293px){
+    .ng-adsense-pair--portrait>.ng-adsense-stack{
+      --ng-ad-compact:1;
+      display:flex;flex-direction:column;gap:5px;
+    }
+    .ng-adsense-pair--portrait>.ng-adsense-stack:has(>.ng-adsense-slot[data-ad-fits=true][data-ad-in-view=true],>.ng-adsense-slot[data-ad-fits=true]>ins:not([data-ad-status=unfilled])){
+      padding-block:12px 16px;
+    }
+    .ng-adsense-pair--portrait>.ng-adsense-stack>.ng-adsense-slot[data-ad-fits=true]{margin-block:0}
+    .ng-adsense-pair--portrait>.ng-adsense-stack .ng-adsense-banner{margin-inline:0 auto}
+    .ng-adsense-pair--portrait .ng-adsense-slot--secondary{display:block}
+    .ng-adsense-pair--portrait>:is(.ng-adsense-slot--rectangle,.ng-adsense-slot--secondary-rectangle){
+      --ng-ad-compact:1;
+      flex-basis:125px;
+    }
+    .ng-adsense-pair--portrait>.ng-adsense-slot--rectangle{display:block}
+    .ng-adsense-pair--portrait .ng-adsense-slot[data-ad-fits=true]:is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){
+      min-height:var(--ng-ad-height,0px);
+    }
+    .ng-adsense-pair--portrait .ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-inline-label):is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){
+      min-height:calc(var(--ng-ad-height,0px) + 20px);
+    }
+    .ng-adsense-pair--portrait .ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-banner:not([data-ad-status=filled]))>.ng-adsense-inline-label{
+      display:block;visibility:hidden;
+    }
+  }
+  @container(min-width:500px){.ng-adsense-pair--portrait>.ng-adsense-slot--secondary-rectangle{display:block}}
+}
+.kospi-map-bottom-ad>.ng-adsense-slot--secondary{display:block}
+.kospi-map-bottom-ad .ng-adsense-banner{margin-inline:auto 0}
 html:has(#adsense-loader[data-failed=true]) :is(.ng-adsense-slot,.ng-adsense-pair){display:none!important}
 @media print{.ng-adsense-slot,.ng-adsense-pair{display:none!important}}

@@ -1148,6 +1148,12 @@ export default function MarketMapPage({
             </div>
           )}
 
+          {enhancedSectorView && view === "map" && !mapExpanded && (
+            <div className="kospi-map-bottom-ad">
+              <AdSenseBanner variant="secondary" contentReady={!loading && items.length > 0} />
+            </div>
+          )}
+
           {view === "table" && !mapExpanded && (
             <div className="card kospi-map-table-wrap" data-scroll-start="map" data-scroll-ready={!loading}>
               <table className="kospi-map-table">
