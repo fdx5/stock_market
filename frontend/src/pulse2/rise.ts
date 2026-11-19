@@ -159,6 +159,7 @@ export class Cave {
       sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\nvarying vec3 vCaveW; uniform float uRed;\n${common}${noise}`)
         // limestone colour: bedding strata, mineral staining, darker in the joints
         .replace("#include <color_fragment>", /* glsl */`#include <color_fragment>
+          float goldSeam;
           {
             vec3 w = vCaveW;
             float warp = fbm3(w * 0.045) * 7.0;
@@ -166,8 +167,16 @@ export class Cave {
             float grain = fbm3(w * 0.35);
             float stain = smoothstep(0.45, 0.8, fbm3(w * 0.08 + 11.0));
             vec3 pale = vec3(0.30, 0.34, 0.40), dark = vec3(0.10, 0.12, 0.16), mineral = vec3(0.16, 0.20, 0.26);
+            // Folded gold-bearing seams share the same strata and grain as the stone.
+            float bedding = w.y * 0.27 + warp * 0.72 + grain * 0.55;
+            float seamDist = abs(fract(bedding + 0.5) - 0.5);
+            float width = clamp(fwidth(bedding), 0.008, 0.12);
+            float seam = (1.0 - smoothstep(0.012, 0.022 + width, seamDist))
+              * smoothstep(0.34, 0.67, stain * 0.6 + grain * 0.55);
             vec3 c = mix(dark, pale, strata * 0.35 + grain * 0.65);
             c = mix(c, mineral, stain * 0.5);
+            goldSeam = seam;
+            c = mix(c, vec3(0.53, 0.31, 0.12), seam * 0.65);
             diffuseColor.rgb = c * ${tone.toFixed(2)};
           }`)
         .replace("#include <roughnessmap_fragment>", /* glsl */`#include <roughnessmap_fragment>
@@ -209,6 +218,13 @@ export class Cave {
             // the red beam on the vault round the chimney
             float vault = smoothstep(10.0, 44.0, w.y) * exp(-length(w.xz) / 38.0);
             e += albedo * vec3(1.0, 0.1, 0.06) * uRed * vault * (1.4 + 0.6 * uBeat);
+            // The strike warms the upper strata first. The reflection reaches
+            // lower ledges as the gold starts to fall, then ebbs with the beam.
+            float age = mod(uTime, 60.0) - 7.65;
+            float travel = (length(w.xz) + abs(w.y - 22.0)) * 0.095;
+            float arrival = smoothstep(travel, travel + 2.5, age);
+            e += vec3(0.83, 0.38, 0.09) * goldSeam * arrival * uRed
+              * (0.32 + 0.45 * max(nW.y, 0.0));
             totalEmissiveRadiance += e;
           }`);
     };

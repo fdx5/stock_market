@@ -106,10 +106,7 @@ export class DeepDive {
   /** Frames are drawn at most 60 times a second: a 90-144 Hz screen would otherwise draw the
    *  same slow take two or more times over. */
   private lastDraw = 0;
-  /** Sharpness: the device's pixels up to `prMax`, stepped down (never below `prMin`) only
-   *  when frames keep running late while the script is idle, i.e. the GPU is the bottleneck. */
-  private pr = 1; private prMax = 1; private prMin = 1;
-  private late = { n: 0, slow: 0, cpu: 0, since: 0 };
+  private pr: number;
   private prBase = 1;
   private figH?: { rt: THREE.WebGLRenderTarget; cam: THREE.OrthographicCamera; mat: THREE.MeshDepthMaterial };
   private _cc = new THREE.Color();
@@ -168,10 +165,8 @@ export class DeepDive {
 
   constructor(private canvas: HTMLCanvasElement, private quality: "high" | "medium" = "high") {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance", alpha: false });
-    // (sharper than before: the savings below pay for it; a slow GPU steps itself back)
     const dpr = window.devicePixelRatio || 1;
-    this.prMax = Math.min(dpr, quality === "high" ? 2 : 1.6); this.prMin = Math.min(dpr, 1);
-    this.pr = this.prMax;
+    this.pr = Math.min(dpr, quality === "high" ? 2 : 1.6);
     this.renderer.setPixelRatio(this.pr);
     // point sprites are sized in device pixels, tuned at the former ratio: keep their look
     this.prBase = Math.min(dpr, quality === "high" ? 1.5 : 1);
@@ -882,13 +877,13 @@ export class DeepDive {
   private camRoll = 0;
   private _cp = new THREE.Vector3(); private _cl = new THREE.Vector3(); private _cf = new THREE.Vector3();
   /** The views of the fall, in cylinder coordinates round the diver (th from +z, y up,
-   *  `ly` the look point's height): `q` 0..1 through the shot, `s` seconds into the fall.
+   *  `ly` the look point's height): `q` 0..1 through the shot, `s` seconds into the shot.
    *  The body falls head down, so "above" is behind its feet and "below" is ahead of it. */
   private shot(i: number, q: number, s: number) {
     const k = ((i % 6) + 6) % 6, e = smooth(q);
     switch (k) {
       // 0. over it, looking down past the body into the depths it falls toward
-      case 0: return { r: 2.3 - 0.5 * e, th: 0.3 + s * 0.05, y: 6.2 - 1.2 * e, ly: -9, f: 60, roll: 0 };
+      case 0: return { r: lerp(2.3, 1.2, e), th: 0.3 + e * 0.95, y: lerp(6.2, 4.6, e), ly: lerp(-9, -12, e), f: lerp(60, 55, e), roll: 0 };
       // 1. side profile on a long lens, a slow track round
       case 1: return { r: 7.2, th: 1.4 + s * 0.045, y: 0.6 - 0.6 * e, ly: -0.3, f: 34, roll: 0.05 };
       // 2. ahead of it, looking back up: it comes at the lens, the world streaming away behind
@@ -945,7 +940,6 @@ export class DeepDive {
     const STEP = 1000 / 60;
     if (this.lastDraw && now - this.lastDraw < STEP - 2) return;
     this.lastDraw = this.lastDraw && now - this.lastDraw < STEP * 2 ? this.lastDraw + STEP : now;
-    const cpu0 = performance.now(), gap = this.last ? now - this.last : 0;
     // (a long stall — shaders compiling as a take first appears — holds the take rather than
     // skipping it: the meditation must not be lost to a compile)
     if (this.last && now - this.last > 250) this.t0 += now - this.last - 16;
@@ -985,7 +979,7 @@ export class DeepDive {
     (this.scene.fog as THREE.FogExp2).density = this.riseMode ? 0.0055 : 0.011 + 0.007 * (u.uDeep.value as number);
     (this.scene.background as THREE.Color).copy(fogC).multiplyScalar(0.7);
     (u.uFigHOn.value as number) = this.riseMode && this.skin ? 1 : 0;
-    if (this.riseMode) { this.riseFrame(T, dt); this.renderFigH(); this.post(T % RISE_LOOP, RISE_LOOP, dt, false); this.pace(gap, performance.now() - cpu0); return; }
+    if (this.riseMode) { this.riseFrame(T, dt); this.renderFigH(); this.post(T % RISE_LOOP, RISE_LOOP, dt, false); return; }
     this.gold.update(-1, 0); this.beam.update(this._fv, -1, 0, 0); this.beamL.update(this._fv, -1, 0, 0); this.beamM.update(this._fv, -1, 0, 0); this.canopy.update(this._fv, -1, 0); this.rain.visible = true; this.shaftVis.value = 1;
     this.chamber.visible = true; this.cave.update(false, 0, 0); this.figure.scale.setScalar(1);
     this.caveSun.intensity = 0; this.caveFill.intensity = 0;
@@ -1106,7 +1100,7 @@ export class DeepDive {
       // body and never cuts through it.
       const tf = t - (FALL1 + 4), F = this._cf.set(0, figPos.y - 0.9, figPos.z);
       const HOLD = 28, BLEND = 7, idx = Math.floor(tf / HOLD), within = tf - idx * HOLD;
-      const A = this.shot(idx, within / HOLD, tf), B = this.shot(idx + 1, 0, tf), b = smooth((within - (HOLD - BLEND)) / BLEND);
+      const A = this.shot(idx, Math.min(1, within / (HOLD - BLEND)), Math.min(within, HOLD - BLEND)), B = this.shot(idx + 1, 0, 0), b = smooth((within - (HOLD - BLEND)) / BLEND);
       let dth = B.th - A.th; dth = Math.atan2(Math.sin(dth), Math.cos(dth));
       const th = A.th + dth * b, y = lerp(A.y, B.y, b);
       // (a crossfade between a view from above and one from below swings wide round the body)
@@ -1188,27 +1182,7 @@ export class DeepDive {
       diving ? fallSpeed * 0.9 + 1.2 : 0.45, diving ? 0.9 : 0.25);
 
     this.post(t, LOOP, dt, true);
-    this.pace(gap, performance.now() - cpu0);
   };
-
-  /** Watch the frame pace over 2 s windows. When most frames come late (under ~50 fps) and
-   *  the script's own share of the frame is small (the GPU is what is slow), take a quarter
-   *  off the pixel ratio, down to `prMin`. Stalls (compiles, a busy tab) do not count. */
-  private pace(gap: number, cpu: number) {
-    const L = this.late, now = performance.now();
-    if (!L.since) L.since = now;
-    if (gap <= 0 || gap > 100) return;
-    L.n++; L.cpu += cpu; if (gap > 20.5) L.slow++;
-    if (now - L.since < 2000) return;
-    const slow = L.n >= 30 && L.slow / L.n > 0.6, cpuBound = L.cpu / L.n > 9;
-    // (the first seconds of a take compile its shaders: ignore them)
-    if (slow && !cpuBound && now - this.t0 > 4000 && this.pr > this.prMin + 0.01) {
-      this.pr = Math.max(this.prMin, this.pr - 0.25);
-      this.renderer.setPixelRatio(this.pr); this.syncPointScale();
-      this.resize();
-    }
-    L.n = 0; L.slow = 0; L.cpu = 0; L.since = now;
-  }
 
   private _order: { pass: number; list: number[] } = { pass: -1, list: [] };
   /** The fall's worlds for this pass: 0 (the tunnel) first, then the others shuffled with a
@@ -1294,19 +1268,6 @@ export class DeepDive {
     upperarm_l: [6, 78, 138], lowerarm_l: [90, -40, 0], clavicle_l: [0, 0, 12], hand_l: [-30, 90, 30],
     head: [-20, 0, 0],
   };
-  /** The rally take's views round the seated figure (th from its front, +z; y and ly from the chest). */
-  /** The rally take's views: straight on, centred on the figure, wide (the whole cave), one
-   *  lens; the camera only tilts up to follow the beam and settles back. th 0 = in front (+z). */
-  private static RISE_SHOTS: { at: number; s: (q: number) => { r: number; th: number; y: number; ly: number; f: number; roll: number } }[] = [
-    // the figure meditating in the middle of the cave
-    { at: 0, s: () => ({ r: 26, th: 0, y: 3.4, ly: 1.4, f: 50, roll: 0 }) },
-    // the arm goes up, the beam leaves the palm: the view tilts up with it
-    { at: 6, s: q => ({ r: 26, th: 0, y: 3.4, ly: lerp(1.4, 5, smooth(q)), f: 50, roll: 0 }) },
-    // held while the light spreads over the canopy and the gold and silver rain down
-    { at: 14, s: () => ({ r: 26, th: 0, y: 3.4, ly: 5, f: 50, roll: 0 }) },
-    // the arm comes down: back to the meditation
-    { at: 50, s: q => ({ r: 26, th: 0, y: 3.4, ly: lerp(5, 1.4, smooth(q)), f: 50, roll: 0 }) },
-  ];
   private _red = new THREE.Color(1.1, 0.075, 0.045);
   /** Seated, the skin round a deeply bent and turned hip thins (linear-blend skinning): fill
    *  it out by widening the thighs' cross-section (bone Y runs along the bone), and give the
@@ -1452,20 +1413,17 @@ export class DeepDive {
     this.gold.update(t - (BEAM0 + 0.55), 1 - smooth((t - 53) / 6), dt);
 
     // ---- camera
-    const sh = DeepDive.RISE_SHOTS, BL = 3;
-    let i = sh.length - 1; while (i > 0 && sh[i].at > t) i--;
-    const end = i + 1 < sh.length ? sh[i + 1].at : RISE_LOOP, nextS = i + 1 < sh.length ? sh[i + 1] : sh[0];
-    const A = sh[i].s((t - sh[i].at) / (end - sh[i].at)), B = nextS.s(0), b = smooth((t - (end - BL)) / BL);
-    let dth = B.th - A.th; dth = Math.atan2(Math.sin(dth), Math.cos(dth));
-    const th = A.th + dth * b, r = lerp(A.r, B.r, b) + Math.sin(Math.PI * b) * Math.min(3, Math.abs(A.y - B.y) * 0.3);
-    const pos = this._cp.set(Math.sin(th) * r, lerp(A.y, B.y, b), Math.cos(th) * r).add(chest);
-    const look = this._cl.set(0, lerp(A.ly, B.ly, b), 0).add(chest);
-    let fov = lerp(A.f, B.f, b), roll = lerp(A.roll, B.roll, b);
-    pos.y = Math.max(0.35, pos.y);
-
-    pos.y += Math.sin(T * 0.29 + 0.7) * 0.08;
-    pos.z += Math.sin(T * 0.33 + 2.1) * 0.12;
-    look.y += Math.sin(T * 0.19) * 0.03;
+    // One continuous dolly: approach the hands, retreat as the vault lights,
+    // then track across the rain. All envelopes return to zero before the loop.
+    const approach = smooth(t / MED1) * (1 - smooth((t - BEAM0) / 9));
+    const reveal = smooth((t - BEAM0) / 10) * (1 - smooth((t - BEAM_END) / 9));
+    const arc = Math.sin(Math.PI * smooth((t - BEAM0) / (RISE_LOOP - BEAM0)));
+    const radius = 22 - 4.5 * approach + 4.5 * reveal;
+    const angle = -0.19 + 0.13 * approach + 0.42 * arc;
+    const pos = this._cp.set(Math.sin(angle) * radius, 2.8 - approach + 2.3 * reveal, Math.cos(angle) * radius).add(chest);
+    const look = this._cl.set(0, 1.3 - 0.55 * approach + 4.4 * reveal, 0).add(chest);
+    let fov = 48 - 3 * approach + 5 * reveal;
+    const roll = 0;
 
     if (!this.camInit || Math.abs(t - this.lastT) > 1 && Math.abs(t - this.lastT) < RISE_LOOP - 1) { this.camPos.copy(pos); this.camLook.copy(look); this.camRoll = roll; this.camInit = true; }
     this.lastT = t;

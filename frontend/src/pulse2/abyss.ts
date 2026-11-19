@@ -93,15 +93,32 @@ export class AbyssSky {
           float spiral = sin(az * 3.0 + log(th + 0.015) * 7.0 - uTime * 0.22 - uScroll * 0.002);
           float arms = pow(0.5 + 0.5 * spiral, 5.0) * exp(-th * mix(3.2, 2.0, deep)) * smoothstep(0.0, 0.06, th) * (0.6 + 0.4 * n2);
           col += mix(uMood, acc + vec3(0.05, 0.03, 0.0), 0.4) * arms * 0.16 * (0.45 + 0.55 * deep) * (0.8 + uBass * 0.6);
-          // the destination: a far glow below, a hot white heart
-          col += uMood * (pow(down, 4.0) * 0.16 + pow(down, 40.0) * 0.55) * (0.75 + uEnergy*0.5 + uBeat*0.3) * mix(1.0, 0.7, deep);
-          col += (uMood + vec3(0.4)) * pow(down, 400.0) * 0.8;
+          col += (stars(d, 90.0, uScroll*0.05, 0.0) + stars(d, 46.0, uScroll*0.025, 17.0) * 0.8) * (uMood * 0.8 + vec3(0.35)) * mix(1.0, 0.65, deep);
+          // At the vanishing point a tilted accretion disc crosses a dark core.
+          // Its far half disappears behind the silhouette; the near lip catches the light.
+          if (down > 0.72) {
+            vec2 plane = d.xz / down;
+            vec2 axis = vec2(0.91, 0.4146);
+            vec2 p = vec2(dot(plane, axis), dot(plane, vec2(-axis.y, axis.x)));
+            p /= mix(0.10, 0.18, deep);
+            float radius = length(p);
+            float core = 1.0 - smoothstep(0.91, 1.0, radius);
+            float orbit = length(vec2(p.x, p.y * 3.2));
+            float disc = exp(-abs(orbit - 1.85) * 2.8);
+            float lanes = 0.65 + 0.35 * sin(orbit * 19.0 + n2 * 6.0 - uTime * 0.18);
+            float foreground = smoothstep(-0.06, 0.06, p.y);
+            vec3 ice = mix(uMood, vec3(0.56, 0.85, 1.0), 0.42);
+            col += ice * exp(-radius * 1.8) * 0.55;
+            col *= 1.0 - core * 0.95;
+            col += ice * disc * lanes * (1.0 - core * (1.0 - foreground)) * 0.7;
+            float crescent = exp(-abs(radius - 1.0) * 17.0) * (0.58 - 0.35 * p.y / max(radius, 0.001));
+            col += (ice + vec3(0.18)) * crescent;
+          }
           // the light from above, dwindling as the fall goes on: a wide pale glow that
           // shrinks to a point, the opening a fading ring
           float far = mix(1.0, 0.12, deep);
           col += (uMood*0.4 + vec3(0.1, 0.13, 0.17)) * pow(up, mix(6.0, 60.0, deep)) * 0.22 * far;
           col += (uMood*0.5 + vec3(0.12)) * exp(-pow((up - 0.985) * 90.0, 2.0)) * 0.35 * far;
-          col += (stars(d, 90.0, uScroll*0.05, 0.0) + stars(d, 46.0, uScroll*0.025, 17.0) * 0.8) * (uMood * 0.8 + vec3(0.35)) * mix(1.0, 0.65, deep);
           gl_FragColor = vec4(col * uVis, 1.0);
         }`,
     }));
