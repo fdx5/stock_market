@@ -20,6 +20,7 @@ const slotIds = {
   banner: "9440754514",
   secondary: "4040463452",
   rectangle: "9025269231",
+  "secondary-rectangle": "4327083118",
 } as const;
 type AdVariant = keyof typeof slotIds;
 type AdSize = { width: number; height: number };
@@ -35,17 +36,18 @@ const rectangleSizes: readonly AdSize[] = [{ width: 300, height: 250 }];
 const handheldAds = "(max-width: 899px), (pointer: coarse)";
 
 export function AdSenseBannerPair({
-  labelled = false, secondBanner = false,
-}: BannerOptions & { secondBanner?: boolean } = {}) {
+  labelled = false, expandedDesktop = false,
+}: BannerOptions & { expandedDesktop?: boolean } = {}) {
   const banner = <AdSenseBanner labelled={labelled} />;
   return (
     <div className="ng-adsense-pair">
-      {secondBanner ? (
+      {expandedDesktop ? (
         <div className="ng-adsense-stack">
           {banner}
           <AdSenseBanner labelled={labelled} variant="secondary" />
         </div>
       ) : banner}
+      {expandedDesktop && <AdSenseBanner labelled={labelled} variant="secondary-rectangle" />}
       <AdSenseBanner labelled={labelled} variant="rectangle" />
     </div>
   );
@@ -63,7 +65,7 @@ export default function AdSenseBanner({
 }
 
 function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; fluid: boolean; contentReady: boolean; label?: string }) {
-  const rectangle = variant === "rectangle";
+  const rectangle = variant === "rectangle" || variant === "secondary-rectangle";
   const host = useRef<HTMLDivElement>(null);
   const slot = useRef<HTMLModElement>(null);
 

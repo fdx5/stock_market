@@ -450,7 +450,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
               {design === "neo" && chartPanel}
               </div>
 
-              <AdSenseBannerPair secondBanner labelled />
+              <AdSenseBannerPair expandedDesktop labelled />
               <StockInsights model={brief} code={code} isEtf={isEtf} receivedAt={receivedAt} quoteUnavailable={quoteUnavailable} />
               <TalkTape code={code} us={us} asset={asset} />
               {design === "neo" && <details className="ng-stock-forecast"><summary>{L("AI 예측 자세히", "AI forecast details")} <span>＋</span></summary><Forecast code={code} /></details>}

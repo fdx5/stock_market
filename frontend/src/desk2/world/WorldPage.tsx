@@ -232,7 +232,7 @@ export default function WorldPage() {
           </details>
         </section>
         <TreasuryDesk />
-        <AdSenseBannerPair secondBanner />
+        <AdSenseBannerPair expandedDesktop />
         <InvestorShowcase id="w-investors" />
         <VideoShowcase id="w-videos" market="us" />
         <div className="ed-lens-toolbar"><span>{L("아래 종목표 통화", "Currency for stock tables below")}</span><Marker options={[{ id: "usd" as Lens, label: L("달러", "USD") }, { id: "krw" as Lens, label: L("원화", "KRW") }]} value={lens} onChange={setLens} label={L("통화 선택", "Currency")} /></div>
