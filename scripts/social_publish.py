@@ -122,17 +122,22 @@ def market_close(day):
 
 
 def close_report(day, market):
-    report = read_json(f"{SITE}/api/market-brief/{day}/{market}")
-    quote = report["index"]
+    # An archived brief can still contain its first intraday quote. Read the
+    # current public index directly and check the session before calling it close.
+    quote = read_json(f"{SITE}/api/investor/indices?fresh=true")[market]
     updated = dt.datetime.fromisoformat(quote["updated_at"]).astimezone(KST)
-    if (report["date"] != str(day) or report["market"] != market.upper()
+    if (quote["symbol"] != market.upper()
             or quote["market_status"] != "CLOSE" or updated.date() != day
             or updated < market_close(day)):
         raise RuntimeError(f"{market} has no verified same-day closing quote")
     level, change = float(quote["close"]), float(quote["change_pct"])
     if not (math.isfinite(level) and level > 0 and math.isfinite(change)):
         raise RuntimeError(f"{market} returned invalid closing values")
-    return f"{level:,.2f} ({change:+.2f}%)", report["breadth"]
+    snapshot = read_json(f"{SITE}/market-snapshot/{market}.json")
+    stamp = dt.datetime.fromisoformat(snapshot["collected_at"]).astimezone(KST)
+    if stamp.date() != day or stamp < market_close(day) or not snapshot["known_count"]:
+        raise RuntimeError(f"{market} has no same-day post-close breadth snapshot")
+    return f"{level:,.2f} ({change:+.2f}%)", {"decline": snapshot["down"]}
 
 
 def export_maps():
@@ -147,7 +152,11 @@ def export_maps():
         # frames, pointer, and overlays are never part of that canvas.
         for market, route, title in MAPS:
             page = context.new_page()
-            page.goto(SITE + route, wait_until="domcontentloaded", timeout=60000)
+            endpoint = "/api/market/map?limit=500" if market == "kospi" else "/api/market/kosdaq-map?limit=200"
+            with page.expect_response(lambda response: endpoint in response.url, timeout=60000) as loaded:
+                page.goto(SITE + route, wait_until="domcontentloaded", timeout=60000)
+            full_snapshot = loaded.value.json()
+            expect(page.locator(".kospi-map-tile")).to_have_count(full_snapshot["count"], timeout=60000)
             page.locator(".kospi-map-updated").wait_for(timeout=60000)
             download = page.get_by_role("button", name=re.compile("MAP 다운로드|Download MAP", re.I))
             expect(download).to_be_enabled(timeout=45000)
@@ -293,6 +302,9 @@ def publish(channel, text, assets):
 
 
 def deliver(day, edition):
+    if completed_delivery(day, edition):
+        print(f"{day} {edition}: all three channels already published")
+        return
     profiles = connected_profiles()
     if not profiles:
         raise RuntimeError("No configured Buffer profiles are connected")
@@ -324,6 +336,36 @@ def deliver(day, edition):
             incomplete.append(f"{service}: {status}")
     if incomplete:
         raise RuntimeError("Unconfirmed delivery: " + ", ".join(incomplete))
+    record_delivery(day, edition)
+
+
+def receipt_path(day, edition):
+    return f"receipts/{day}/{edition}.json"
+
+
+def completed_delivery(day, edition):
+    repo = os.environ["GITHUB_REPOSITORY"]
+    path = receipt_path(day, edition)
+    try:
+        receipt = read_json(f"https://raw.githubusercontent.com/{repo}/{ASSETS_BRANCH}/{path}")
+    except HTTPError as error:
+        if error.code == 404:
+            return False
+        raise
+    return receipt.get("date") == str(day) and receipt.get("edition") == edition and receipt.get("published") is True
+
+
+def record_delivery(day, edition):
+    # The append-only receipt is written only after Buffer confirms all channels.
+    # Later scheduler checks use it without consuming Buffer's monthly API quota.
+    repo = os.environ["GITHUB_REPOSITORY"]
+    path = receipt_path(day, edition)
+    content = json.dumps({"date": str(day), "edition": edition, "published": True,
+                          "verified_at": dt.datetime.now(KST).isoformat()}).encode()
+    request(f"https://api.github.com/repos/{repo}/contents/{path}",
+            token=os.environ["GITHUB_TOKEN"], method="PUT",
+            data={"message": f"Confirm {day} {edition} social publication",
+                  "branch": ASSETS_BRANCH, "content": base64.b64encode(content).decode()})
 
 
 def prepare(day, edition, *, preview):
@@ -333,21 +375,23 @@ def prepare(day, edition, *, preview):
     return text, media
 
 
-def scheduled_edition(now, schedule):
-    close_slot = schedule == "0,20,40 7,8,9 * * 1-5"
-    if close_slot:
-        if now.hour < 16 or now.hour >= 20 or now < market_close(now.date()):
-            return None
+def due_editions(now):
+    # Use what is due now even when GitHub starts a scheduled run hours late.
+    day = now.date()
+    if now.time() >= dt.time(22, 15):
+        due = [(day, "evening")]
+    elif now.time() >= dt.time(7, 15):
+        due = [(day, "morning")]
+    else:
+        due = [(day - dt.timedelta(days=1), "evening")]
+    ready = max(dt.datetime.combine(day, dt.time(16), KST),
+                market_close(day) + dt.timedelta(minutes=10))
+    if now >= ready:
         import exchange_calendars
 
-        return "close" if exchange_calendars.get_calendar("XKRX").is_session(now.date().isoformat()) else None
-    if schedule != "15,35,55 13,22 * * *":
-        raise RuntimeError("Unexpected schedule")
-    if dt.time(7, 15) <= now.time() < dt.time(10):
-        return "morning"
-    if dt.time(22, 15) <= now.time():
-        return "evening"
-    return None
+        if exchange_calendars.get_calendar("XKRX").is_session(day.isoformat()):
+            due.append((day, "close"))
+    return due
 
 
 def main():
@@ -373,8 +417,7 @@ def main():
         return
     if mode == "publish-current":
         edition = os.environ["PREVIEW_EDITION"]
-        schedule = "0,20,40 7,8,9 * * 1-5" if edition == "close" else "15,35,55 13,22 * * *"
-        if scheduled_edition(now, schedule) != edition:
+        if (now.date(), edition) not in due_editions(now):
             raise RuntimeError("This edition is outside its current KST publication window")
         deliver(now.date(), edition)
         return
@@ -382,11 +425,17 @@ def main():
     if not start or now.date() < dt.date.fromisoformat(start):
         print("Cloud publishing is awaiting cutover.")
         return
-    edition = scheduled_edition(now, os.environ["SCHEDULE"])
-    if edition:
-        deliver(now.date(), edition)
-    else:
-        print("Outside the publication window or no KRX session.")
+    failures = []
+    for day, edition in due_editions(now):
+        if day < dt.date.fromisoformat(start):
+            continue
+        try:
+            deliver(day, edition)
+        except (OSError, RuntimeError, KeyError, ValueError) as error:
+            failures.append(f"{day} {edition}: {type(error).__name__}")
+            print(f"::error::{day} {edition}: {error}")
+    if failures:
+        raise RuntimeError("Publication requires retry: " + ", ".join(failures))
 
 
 if __name__ == "__main__":

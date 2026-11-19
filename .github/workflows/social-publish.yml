@@ -2,8 +2,9 @@ name: KOSPIMAP social publishing
 
 on:
   schedule:
-    - cron: "15,35,55 13,22 * * *" # 07:15 / 22:15 KST and retries
-    - cron: "0,20,40 7,8,9 * * 1-5" # 16:00 KST and same-day retries
+    - cron: "15 13,22 * * *" # 07:15 / 22:15 KST
+    - cron: "0,40 7 * * 1-5" # 16:00 KST; 16:40 covers delayed CSAT close
+    - cron: "7,27,47 * * * *" # Recover due posts even when earlier runs are delayed
   workflow_dispatch:
     inputs:
       mode:
@@ -11,7 +12,7 @@ on:
         required: true
         type: choice
         default: preview
-        options: [preview, verify, publish-current]
+        options: [preview, verify, publish-current, catch-up]
       preview_date:
         description: "KST date to preview without publishing (YYYY-MM-DD)"
         required: false
