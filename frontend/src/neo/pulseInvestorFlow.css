@@ -1,13 +1,13 @@
 .pb-topline{display:grid;grid-template-columns:minmax(340px,1fr) minmax(0,728px);align-items:center;gap:24px;margin-bottom:14px}
 .pb-topline .pb-banner{width:100%;min-width:0;margin:0}
 .pb-topline .pb-banner .ng-adsense-slot{margin-block:0}
-.pb-topline:not(:has(.pb-banner .ng-adsense-slot:not([data-ad-failed=true])>ins:not([data-ad-status=unfilled]))),
+.pb-topline:not(:has(.pb-banner .ng-adsense-slot[data-ad-in-view=true],.pb-banner .ng-adsense-slot:not([data-ad-failed=true])>ins:not([data-ad-status=unfilled]))),
 html:has(#adsense-loader[data-failed=true]) .pb-topline{grid-template-columns:minmax(0,1fr)}
-.pb-topline .pb-banner:not(:has(.ng-adsense-slot:not([data-ad-failed=true])>ins:not([data-ad-status=unfilled]))),
+.pb-topline .pb-banner:not(:has(.ng-adsense-slot[data-ad-in-view=true],.ng-adsense-slot:not([data-ad-failed=true])>ins:not([data-ad-status=unfilled]))),
 html:has(#adsense-loader[data-failed=true]) .pb-banner{display:none}
 .pb-topline--us{display:block}
 .pb-topline--us .pb-banner{max-width:728px;margin-inline:auto}
-.pb-topline--us:not(:has(.ng-adsense-slot[data-ad-fits=true]>ins:not([data-ad-status=unfilled]))),
+.pb-topline--us:not(:has(.ng-adsense-slot[data-ad-fits=true][data-ad-in-view=true],.ng-adsense-slot[data-ad-fits=true]>ins:not([data-ad-status=unfilled]))),
 html:has(#adsense-loader[data-failed=true]) .pb-topline--us{margin-bottom:0}
 .pif-panel{container-type:inline-size;min-width:0;overflow:hidden;border:1px solid color-mix(in srgb,var(--accent-neon,#bd85ff) 28%,transparent);border-radius:12px;background:linear-gradient(120deg,#160e20e8,#0d0a15e8);box-shadow:inset 0 1px #ffffff09}
 html[data-design="neo"]:has(.pif-panel){scroll-padding-bottom:calc(var(--ng-bottom,0px) + 12px)}

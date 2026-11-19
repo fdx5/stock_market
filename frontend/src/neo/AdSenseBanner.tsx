@@ -30,6 +30,7 @@ const bannerSizes: readonly AdSize[] = [
   { width: 234, height: 60 },
 ];
 const rectangleSizes: readonly AdSize[] = [{ width: 300, height: 250 }];
+const handheldAds = "(max-width: 899px), (pointer: coarse)";
 
 export function AdSenseBannerPair({
   labelled = false, secondBanner = false,
@@ -72,7 +73,9 @@ function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; f
     const loader = document.getElementById("adsense-loader");
     if (!area || !ad || !loader) return;
 
+    const handheld = window.matchMedia(handheldAds);
     const fit = () => {
+      if (!handheld.matches) delete area.dataset.adInView;
       const width = area.clientWidth;
       // A filled creative keeps its original size. Responsive hiding keeps it
       // out of the layout if the column shrinks, without requesting it again.
@@ -92,6 +95,7 @@ function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; f
       if (size) {
         ad.style.width = `${size.width}px`;
         ad.style.height = `${size.height}px`;
+        area.style.setProperty("--ng-ad-height", ad.style.height);
       }
       const ads = window as AdWindow;
       try {
@@ -103,6 +107,19 @@ function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; f
       }
     };
 
+    // Keep a visible, unfilled banner at its reserved height until it leaves
+    // the viewport. A slot that already collapsed must stay collapsed.
+    const visibility = !fluid && variant === "banner" && typeof IntersectionObserver !== "undefined"
+      ? new IntersectionObserver(([entry]) => {
+        if (!handheld.matches || !entry.isIntersecting || entry.boundingClientRect.height === 0) {
+          delete area.dataset.adInView;
+        } else if (ad.dataset.adStatus !== "unfilled") {
+          area.dataset.adInView = "true";
+        }
+      })
+      : undefined;
+    visibility?.observe(area);
+
     const observer = new ResizeObserver(fit);
     observer.observe(area);
     loader.addEventListener("load", fit);
@@ -111,11 +128,12 @@ function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; f
     fit();
     return () => {
       observer.disconnect();
+      visibility?.disconnect();
       loader.removeEventListener("load", fit);
       window.removeEventListener("pageshow", fit);
       document.removeEventListener("visibilitychange", fit);
     };
-  }, [contentReady, fluid, rectangle]);
+  }, [contentReady, fluid, rectangle, variant]);
 
   return (
     <div ref={host} className={`ng-adsense-slot ng-adsense-slot--${variant}`}>

@@ -125,11 +125,18 @@ html[data-fx=minimal] .ng-new-badge{animation:none}
 .ng-adsense-slot{
   width:100%;max-width:100%;min-width:0;
   contain:inline-size;overflow:clip;
+  /* Blank light iframe documents stay transparent against the site background. */
+  color-scheme:light;
 }
 .ng-adsense-slot>.ng-adsense-banner{display:block;margin:0 auto}
 .ng-adsense-slot:not([data-ad-fits=true])>.ng-adsense-banner,
 .ng-adsense-slot>.ng-adsense-banner[data-ad-status=unfilled]{display:none!important}
-.ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-banner:not([data-ad-status=unfilled])){margin-block:12px 16px}
+.ng-adsense-slot[data-ad-fits=true]:is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){margin-block:12px 16px}
+@media (max-width:899px), (pointer:coarse){
+  .ng-adsense-slot--banner[data-ad-fits=true]:is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){
+    min-height:var(--ng-ad-height,0px);
+  }
+}
 .kospi-map-period-rail>.ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-banner:not([data-ad-status=unfilled])){margin:0 0 12px}
 .ng-adsense-inline-label{display:none}
 .ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-banner[data-ad-status=filled])>.ng-adsense-inline-label{
@@ -146,7 +153,7 @@ html[data-fx=minimal] .ng-new-badge{animation:none}
 .ng-adsense-pair>.ng-adsense-slot,.ng-adsense-stack{flex:1;min-width:0}
 .ng-adsense-slot--secondary,.ng-adsense-pair>.ng-adsense-slot--rectangle{display:none}
 .ng-adsense-pair>.ng-adsense-slot--rectangle{flex:0 0 300px}
-:is(.ng-adsense-pair,.ng-adsense-stack)>.ng-adsense-slot:has(>.ng-adsense-banner[data-ad-status=unfilled]){display:none}
+:is(.ng-adsense-pair,.ng-adsense-stack)>.ng-adsense-slot:not([data-ad-in-view=true]):has(>.ng-adsense-banner[data-ad-status=unfilled]){display:none}
 @container(min-width:1052px){.ng-adsense-pair>.ng-adsense-slot--rectangle{display:block}}
 @media (min-width:900px) and (any-pointer:fine){
   .ng-adsense-slot--secondary{display:block}
