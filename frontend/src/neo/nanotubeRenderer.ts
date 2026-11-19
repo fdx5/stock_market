@@ -231,33 +231,17 @@ export function installNanotubes(canvas: HTMLCanvasElement, level: FxLevel, onFa
     gl.disable(gl.POLYGON_OFFSET_FILL); gl.disableVertexAttribArray(hullUv);
     gl.colorMask(true, true, true, true); gl.depthMask(false); gl.enable(gl.BLEND);
     common(wire); gl.uniform1f(uniform(wire, "u_intensity"), intensity);
-    gl.uniform1f(uniform(wire, "u_surge"), surge);
+    // No scroll highlight: brightening, echoes and widened glow on scroll were glaring.
+    // Scrolling only nudges the bundles (the lag spring); the light stays constant.
+    gl.uniform1f(uniform(wire, "u_surge"), 0);
     gl.uniform4fv(uniform(wire, "u_packets[0]"), pulses.sample(elapsed + 4.2));
     gl.blendFunc(gl.ONE, gl.ONE);
-    if (surge > .02) {
-      // light echoes trail behind the scroll direction
-      gl.disable(gl.DEPTH_TEST);
-      for (let echo = 4; echo >= 1; echo--) {
-        const weight = surge * (1.15 - echo * .23);
-        gl.uniform1f(uniform(wire, "u_shift"), lag + surgeDir * echo * .055 * surge);
-        gl.uniform1f(uniform(wire, "u_intensity"), intensity * weight);
-        gl.uniform1f(uniform(wire, "u_pass"), 2); gl.uniform1f(uniform(wire, "u_width"), 18 + echo * 7);
-        wires(true);
-        gl.uniform1f(uniform(wire, "u_pass"), 1); gl.uniform1f(uniform(wire, "u_width"), 3 + echo * 1.6);
-        wires();
-        gl.uniform1f(uniform(wire, "u_intensity"), intensity * weight * .55);
-        gl.uniform1f(uniform(wire, "u_pass"), 0);
-        widths(1 + echo * .35); wires();
-      }
-      gl.enable(gl.DEPTH_TEST);
-      gl.uniform1f(uniform(wire, "u_shift"), lag); gl.uniform1f(uniform(wire, "u_intensity"), intensity);
-    }
     // neon aura: a wide, faint bloom that keeps the bundles present behind panels
-    gl.uniform1f(uniform(wire, "u_pass"), 3); gl.uniform1f(uniform(wire, "u_width"), 46 * (1 + surge * .6));
+    gl.uniform1f(uniform(wire, "u_pass"), 3); gl.uniform1f(uniform(wire, "u_width"), 46);
     wires(true);
-    gl.uniform1f(uniform(wire, "u_pass"), 2); gl.uniform1f(uniform(wire, "u_width"), 17 * (1 + surge * .9));
+    gl.uniform1f(uniform(wire, "u_pass"), 2); gl.uniform1f(uniform(wire, "u_width"), 17);
     wires(true);
-    gl.uniform1f(uniform(wire, "u_pass"), 1); gl.uniform1f(uniform(wire, "u_width"), 2.8 * (1 + surge * .7));
+    gl.uniform1f(uniform(wire, "u_pass"), 1); gl.uniform1f(uniform(wire, "u_width"), 2.8);
     wires(false, true);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.uniform1f(uniform(wire, "u_pass"), 0);
