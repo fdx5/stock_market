@@ -301,7 +301,7 @@ def publish(channel, text, assets):
         raise RuntimeError("Buffer rejected the post")
 
 
-def deliver(day, edition):
+def deliver(day, edition, prepared=None):
     if completed_delivery(day, edition):
         print(f"{day} {edition}: all three channels already published")
         return
@@ -316,7 +316,7 @@ def deliver(day, edition):
     existing = {service: post_status(channel, headline) for service, channel in profiles.items()}
     pending = {service: channel for service, channel in profiles.items() if not existing[service]}
     if pending:
-        text, media = prepare(day, edition, preview=False)
+        text, media = prepared if prepared is not None else prepare(day, edition, preview=False)
         assets = [{"image": {"url": url or upload_map(day, name, png), "metadata": {"altText": alt}}}
                   for name, png, alt, url in media]
         for service, channel in pending.items():
@@ -407,6 +407,36 @@ def main():
         print("Prepared preview; no social API calls were made.")
         return
     now = dt.datetime.now(KST)
+    if mode == "publish-prepared":
+        path = os.environ["PREPARED_PATH"]
+        if not re.fullmatch(r"prepared/\d{4}-\d{2}-\d{2}/[a-f0-9]{20}\.json", path):
+            raise RuntimeError("Invalid verified publication plan path")
+        repo = os.environ["GITHUB_REPOSITORY"]
+        prefix = f"https://raw.githubusercontent.com/{repo}/{ASSETS_BRANCH}/"
+        plan = read_json(prefix + path)
+        if plan["date"] != str(now.date()):
+            raise RuntimeError("The verified publication plan is not for today")
+        for edition, entry in plan["editions"].items():
+            if edition not in {"morning", "evening", "close"}:
+                raise RuntimeError("Unknown prepared edition")
+            ready = market_close(now.date()) if edition == "close" else dt.datetime.combine(
+                now.date(), dt.time(7, 15) if edition == "morning" else dt.time(22, 15), KST)
+            if now < ready or weighted_length(entry["text"]) > 280 or len(entry["text"]) > 300:
+                raise RuntimeError("Prepared edition is not ready or exceeds the text limit")
+            media = []
+            for asset in entry["assets"]:
+                url = asset["url"]
+                if not url.startswith(prefix) and not url.startswith(SITE + "/hot-issues/og/" + str(now.date()) + "/"):
+                    raise RuntimeError("Prepared media must use verified first-party URLs")
+                png = request(url)
+                size = image_size(png)
+                if edition == "close" and size != (1920, 1200):
+                    raise RuntimeError("Prepared heatmap must be 1920×1200")
+                media.append((asset["name"], png, asset["alt"], url))
+            if len(media) != (2 if edition == "close" else 1):
+                raise RuntimeError("Prepared edition has an incorrect image count")
+            deliver(now.date(), edition, prepared=(entry["text"], media))
+        return
     if mode == "verify":
         profiles = connected_profiles()
         if profiles.keys() != PROFILES.keys():
