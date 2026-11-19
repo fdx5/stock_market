@@ -40,7 +40,7 @@ export class GoldRain {
       seed.set([Math.cos(a) * r, Math.sin(a) * r, Math.random(), z * z], i * 4);
       // tone 0..5 gold, 6..7 silver (a third), fall speed (m/s), twinkle phase, star (7 %, as on the home)
       const tone = Math.random() < 0.34 ? 6 + Math.floor(Math.random() * 2) : Math.floor(Math.random() * 6);
-      kind.set([tone, 1.6 + Math.random() * 2.6, Math.random() * 6.28, Math.random() < 0.07 ? 1 : 0], i * 4);
+      kind.set([tone, 1.6 + Math.random() * 2.6, Math.random() * 6.28, Math.random() < 0.22 ? 1 : 0], i * 4);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
@@ -68,9 +68,11 @@ export class GoldRain {
           float started = step(0.0, tau) + beading;
           float sw = aKind.z;
           // a light grain drifts as it falls, swinging a little like a flake
-          vec3 c = vec3(aSeed.x + sin(uTime*0.9 + sw)*0.35 + sin(fall*0.21 + sw)*0.5, y, aSeed.y + cos(uTime*0.7 + sw)*0.35);
+          // (and the air stirs: slow gusts carry the dust sideways in swirls, so it flies, not just drops)
+          float gust = sin(uTime*0.23 + aSeed.y*0.05) * 0.6 + sin(uTime*0.11 + aSeed.x*0.04) * 0.4;
+          vec3 c = vec3(aSeed.x + sin(uTime*0.9 + sw)*0.7 + sin(fall*0.21 + sw)*1.1 + gust*fall*0.09, y, aSeed.y + cos(uTime*0.7 + sw)*0.7 + cos(fall*0.17 + sw*1.3)*0.9);
           vec4 mv = viewMatrix * vec4(c, 1.0);
-          float tw = 0.7 + 0.3 * sin(uTime * (2.2 + fract(sw * 3.7) * 1.6) + sw * 7.0);   // a slow glint, never a strobe
+          float tw = 0.62 + 0.38 * sin(uTime * (2.2 + fract(sw * 3.7) * 1.6) + sw * 7.0);   // a slow glint, never a strobe
           vTw = tw; vStar = aKind.w; vTone = aKind.x;
           // grain size in CSS px as on the home (0.35..1.45 x 4), barely scaled by distance;
           // the sprite is three times the grain, to hold its trail and star rays
@@ -95,11 +97,13 @@ export class GoldRain {
           float trail = (1.0 - smoothstep(0.0, 0.035, abs(p.x))) * smoothstep(-0.5, -0.05, p.y) * step(p.y, 0.0) * 0.22;
           col += tone * trail;
           // a star glint when it catches the light
-          float g = vStar * smoothstep(0.82, 1.0, vTw);
+          float g = mix(0.25, 1.0, vStar) * smoothstep(0.7, 1.0, vTw);
           float rays = (exp(-abs(p.y) * 70.0) + exp(-abs(p.x) * 70.0)) * (1.0 - smoothstep(0.0, 0.5, length(p)));
-          col += mix(vec3(1.0), tone, 0.35) * rays * g * 1.2;
+          col += mix(vec3(1.0), tone, 0.35) * rays * g * 2.0;
+          // and a soft sheen round the grain at the top of its glint
+          col += mix(vec3(1.0), tone, 0.5) * exp(-length(p) * 22.0) * g * 0.6;
           float a = vA * uVis * (0.45 + vTw * 0.55) * (0.85 + uHigh*0.25 + uBeat*0.1) * 0.9;
-          gl_FragColor = vec4(col * a * 1.1, 1.0); }`,
+          gl_FragColor = vec4(col * a * 1.3, 1.0); }`,
     }));
     this.mesh.frustumCulled = false; this.mesh.visible = false;
     scene.add(this.mesh);

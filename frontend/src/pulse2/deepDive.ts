@@ -190,7 +190,7 @@ export class DeepDive {
     this.snow = new MarineSnow(this.scene, this.u, COMMON, quality === "high" ? 2400 : 1300);
     this.lightFall = new LightFall(this.scene, this.u, COMMON, quality === "high" ? 320 : 180);
     this.embers = new Embers(this.scene, this.u, COMMON, quality === "high" ? 900 : 500);
-    this.gold = new GoldRain(this.scene, this.u, COMMON, quality === "high" ? 4200 : 2200, goldDensity(GOLD_MAX_PCT));
+    this.gold = new GoldRain(this.scene, this.u, COMMON, quality === "high" ? 8400 : 4400, goldDensity(GOLD_MAX_PCT));
     this.gold.setDensity(this.goldMult);
     this.cave = new Cave(this.scene, this.u, COMMON, NOISE, quality);
     this.beam = new RedBeam(this.scene, this.u, COMMON, DeepDive.glowTex());
@@ -1384,10 +1384,10 @@ export class DeepDive {
     const figRed = smooth((t - (BEAM0 - 0.7)) / 1.0) * (1 - smooth((t - BEAM_END) / 2.5));
     (u.uFigMood.value as THREE.Color).copy(u.uMood.value as THREE.Color).lerp(this._red, figRed);
     // (+5 % and more: two beams, each twice as thick and twice as bright; after ~5 s they bend
-    // in to meet above the head and go on as one beam, twice as thick again)
+    // in to meet above the head and go on as one beam, four times as thick)
     const beat = u.uBeat.value as number;
     // (the glow round them held back, so the cores read and the hall is not washed out)
-    this.beam.setPower(strong ? 1.3 : 1, strong ? 1.3 : 1, strong ? 0.55 : 1); this.beamL.setPower(1.3, 1.3, 0.55); this.beamM.setPower(2, 1.4, 0.5);
+    this.beam.setPower(strong ? 1.3 : 1, strong ? 1.3 : 1, strong ? 0.55 : 1); this.beamL.setPower(1.3, 1.3, 0.55); this.beamM.setPower(4, 1.4, 0.4);
     const MERGE0 = 5, mk = strong ? smooth((beamAge - MERGE0) / 1.2) : 0;
     if (mk > 0) {
       const mid = this._mid.addVectors(this._fv, this._fvL).multiplyScalar(0.5);
