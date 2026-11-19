@@ -30,3 +30,11 @@ export const GROWTH_SEO: Record<string, { title: string; description: string }> 
   "/today": { title: "오늘 증시 한눈에 · 코스피·코스닥 상승·하락·거래 집중 | K-Stock Hub", description: "코스피·코스닥·나스닥 100 지도 표본의 상승·하락 종목, 거래 집중과 업종 흐름을 실제 시세로 비교하세요. 시장 카드 공유와 RSS 구독을 제공합니다." },
   "/share-market": { title: "증시 카드 공유·시장 위젯 퍼가기 | K-Stock Hub", description: "실제 시장 요약 카드를 내려받고, 외부 사이트용 증시 위젯과 공유 링크를 만들어 보세요." },
 };
+
+export function todayMetadata(market: PublicMarket) {
+  const name = MARKET_NAMES[market];
+  return {
+    title: `오늘 ${name} 상승·하락 종목과 거래대금 순위 | KOSPIMAP`,
+    description: `오늘 ${name} 지도에 포함된 주요 종목의 상승·하락, 거래대금 순위와 업종별 등락률을 확인하세요. 시장 히트맵을 열어 종목별 시세를 볼 수 있습니다.`,
+  };
+}

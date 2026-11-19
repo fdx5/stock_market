@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import time
 from urllib.error import HTTPError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
@@ -87,6 +88,15 @@ def weighted_length(text):
     )
 
 
+def campaign_caption(text, service, edition):
+    path = "/map" if edition == "close" else "/hot-issues"
+    url = SITE + path
+    params = urlencode({"utm_source": "x" if service == "twitter" else service,
+                        "utm_medium": "social",
+                        "utm_campaign": "market_close" if edition == "close" else "hot_issues"})
+    return re.sub(rf"^{re.escape(url)}$", f"{url}?{params}", text, flags=re.MULTILINE)
+
+
 def make_news(day, edition):
     slot = SLOTS[edition]
     clock = f"{slot[:2]}:{slot[2:]}"
@@ -108,7 +118,7 @@ def make_news(day, edition):
         if not keyword or keyword in headline:
             continue
         candidate = f"{first}\n{headline}\n• {keyword}{footer}"
-        if weighted_length(candidate) <= 280:
+        if weighted_length(candidate) <= 280 and len(campaign_caption(candidate, "bluesky", edition)) <= 300:
             text = candidate
         break
     return text, [(f"news-{slot}.png", png, f"{day:%m/%d} {clock} 오늘의 핫이슈 요약 카드", media)]
@@ -322,7 +332,10 @@ def deliver(day, edition, prepared=None):
         for service, channel in pending.items():
             try:
                 if not post_status(channel, headline):
-                    publish(channel, text, assets)
+                    caption = campaign_caption(text, service, edition)
+                    if len(caption) > 300 or weighted_length(caption) > 280:
+                        raise RuntimeError("Tagged caption exceeds the cross-platform post length")
+                    publish(channel, caption, assets)
             except (OSError, RuntimeError) as error:
                 print(f"::warning::{service} delivery request needs verification ({type(error).__name__})")
         time.sleep(12)

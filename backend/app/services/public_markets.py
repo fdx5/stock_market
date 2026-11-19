@@ -26,6 +26,18 @@ PAGES = {
 }
 
 
+def today_path(market: str) -> str:
+    return "/today" if market == "kospi" else f"/today?market={market}"
+
+
+def today_metadata(market: str) -> tuple[str, str]:
+    name = MARKETS[market]["name"]
+    return (
+        f"오늘 {name} 상승·하락 종목과 거래대금 순위 | KOSPIMAP",
+        f"오늘 {name} 지도에 포함된 주요 종목의 상승·하락, 거래대금 순위와 업종별 등락률을 확인하세요. 시장 히트맵을 열어 종목별 시세를 볼 수 있습니다.",
+    )
+
+
 def number(value):
     if isinstance(value, bool):
         return None
@@ -124,17 +136,48 @@ def seo_content(path: str, stock_code: str = "", market: str = "kospi") -> str:
         value = snapshot(market)
     except Exception:
         return '<p>시장 요약을 준비 중입니다. 시장 지도에서 수신 상태를 확인할 수 있습니다.</p>'
-    rows = value["turnover"] if path == "/ranking/trading-value" else value["largest"]
-    table = "".join(f'<tr><th scope="row"><a href="/stock/{row["code"]}">{html.escape(row["name"])}</a></th>'
-                    f'<td>{row["close"]:,.2f} {value["currency"]}</td><td>{_pct(row["change_pct"])}</td>'
-                    f'<td>{html.escape(row["sector"])}</td></tr>' for row in rows)
-    return (f'<section><h2>{value["name"]} 실제 시세와 시장 분포</h2><p>시총 상위 표본 {value["count"]}종목, '
+    links = " · ".join(f'<a href="{today_path(key)}">{spec["name"]} 오늘 증시</a>'
+                       for key, spec in MARKETS.items())
+    tables = ""
+    if path == "/today":
+        for label, key in (("상승률 상위", "gainers"), ("하락률 상위", "losers")):
+            if value[key]:
+                tables += _quote_table(f'{value["name"]} {label} 종목', value[key], value["currency"])
+    if path in {"/today", "/ranking/trading-value"} and value["turnover"]:
+        tables += _quote_table(f'{value["name"]} 거래대금 상위 종목', value["turnover"],
+                               value["currency"], turnover=True)
+    if path != "/ranking/trading-value" or not tables:
+        tables += _quote_table("시가총액 상위 종목의 최근 시세", value["largest"], value["currency"])
+    sectors = ""
+    if path == "/today" and value["sectors"]:
+        items = "".join(f'<li>{html.escape(row["name"])} {_pct(row["average_change"])} ({row["count"]}종목)</li>'
+                        for row in value["sectors"])
+        sectors = f'<h3>{value["name"]} 업종별 등락률</h3><p>등락률이 있는 표본의 업종별 단순평균입니다.</p><ul>{items}</ul>'
+    return (f'<section><h2>{value["name"]} 실제 시세와 시장 분포</h2><p>시장 지도 표본 {value["count"]}종목, '
             f'등락률 확인 {value["known_count"]}종목 중 상승 {value["up"]}, 하락 {value["down"]}, 보합 {value["flat"]}. '
             f'화면 집계 {html.escape(value["collected_at"])}.</p><p>{html.escape(value["basis"])}</p>'
-            '<table><caption>수신된 종목 시세 · 거래규모는 제공값 또는 현재가×거래량의 근사치</caption>'
-            '<thead><tr><th>종목</th><th>가격</th><th>등락률</th><th>업종</th></tr></thead>'
-            f'<tbody>{table}</tbody></table><p><a href="/today">오늘 시장 요약</a> · '
-            f'<a href="{value["map_path"]}">시장 지도</a> · <a href="/share-market">시장 카드와 위젯 공유</a></p></section>')
+            f'{tables}{sectors}<p>{links} · <a href="{value["map_path"]}">시장 지도</a> · '
+            '<a href="/share-market">시장 카드와 위젯 공유</a></p></section>')
+
+
+def _quote_table(caption: str, rows: list[dict], currency: str, *, turnover: bool = False) -> str:
+    columns = ['<th>종목</th>', '<th>가격</th>', '<th>등락률</th>', '<th>업종</th>']
+    if turnover:
+        columns.append('<th>거래대금</th>')
+    body = []
+    for row in rows:
+        cells = [
+            f'<th scope="row"><a href="/stock/{row["code"]}">{html.escape(row["name"])}</a></th>',
+            f'<td>{row["close"]:,.2f} {currency}</td>',
+            f'<td>{_pct(row["change_pct"])}</td>',
+            f'<td>{html.escape(row["sector"])}</td>',
+        ]
+        if turnover:
+            note = " (추정)" if row["turnover_kind"] == "estimate" else ""
+            cells.append(f'<td>{row["turnover"]:,.0f} {currency}{note}</td>')
+        body.append(f'<tr>{"".join(cells)}</tr>')
+    return (f'<table><caption>{html.escape(caption)}</caption><thead><tr>{"".join(columns)}</tr></thead>'
+            f'<tbody>{"".join(body)}</tbody></table>')
 
 
 def widget_html(market: str, value: dict | None) -> str:

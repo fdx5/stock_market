@@ -649,6 +649,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             canonical_query["market"] = public_market
         page_image = f"{SITE}/market-card/{public_market}.png"
         image_alt = f"{public_markets.MARKETS[public_market]['name']} 시장 표본 분포와 집계 시각"
+        if canonical_path == "/today":
+            title, description = public_markets.today_metadata(public_market)
     if code and canonical_path in {"/desk", "/global", "/discussion-explorer"}:
         canonical_query["code"] = code
         if display_name:
@@ -1118,8 +1120,9 @@ def _urlset(urls: list[tuple[str, str, str, str]]) -> str:
     rows = []
     for loc, priority, frequency, lastmod in urls:
         escaped_loc = html.escape(loc, quote=False)
+        lastmod_tag = f"<lastmod>{lastmod}</lastmod>" if lastmod else ""
         rows.append(
-            f"  <url><loc>{escaped_loc}</loc><lastmod>{lastmod}</lastmod>"
+            f"  <url><loc>{escaped_loc}</loc>{lastmod_tag}"
             f"<changefreq>{frequency}</changefreq><priority>{priority}</priority></url>"
         )
     return '<?xml version="1.0" encoding="UTF-8"?>\n' \
@@ -1193,7 +1196,10 @@ def build_pages_sitemap() -> str:
     for path in PAGES:
         is_guide = path in market_guides.PAGES
         urls.append((f"{SITE}{path}", priorities.get(path, "0.7"), "monthly" if is_guide else "daily",
-                     market_guides.CATALOG["updated"] if is_guide else today))
+                     market_guides.CATALOG["updated"] if is_guide else "" if path == "/today" else today))
+    for market in public_markets.MARKETS:
+        if market != "kospi":
+            urls.append((f"{SITE}{public_markets.today_path(market)}", "0.7", "daily", ""))
 
     try:
         brief_dates = market_brief_store.dates(1000)

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect } from "react";
 import { GUIDE_SEO } from "./guides/catalog";
-import { GROWTH_SEO, publicMarket } from "./growth/publicLinks";
+import { GROWTH_SEO, publicMarket, todayMetadata } from "./growth/publicLinks";
 import { syncThemeForPath } from "./theme";
 import { attachDeskBgm } from "./desk2/deskBgmStore";
 import LoadingState from "./components/LoadingState";
@@ -358,7 +358,9 @@ export default function App() {
     if (/^\/(stock|investor)\//.test(canonicalPath)) return;
 
     const social = SOCIAL_CARDS[canonicalPath.replace(/\/$/, "") || "/"];
-    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"] : GROWTH_SEO[canonicalPath] ?? GUIDE_SEO[canonicalPath] ?? social ?? PUBLIC_PAGE_SEO[canonicalPath];
+    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"]
+      : canonicalPath === "/today" ? todayMetadata(market)
+      : GROWTH_SEO[canonicalPath] ?? GUIDE_SEO[canonicalPath] ?? social ?? PUBLIC_PAGE_SEO[canonicalPath];
     if (!seo) return;
     const name = canonicalName || code;
     const briefRaw = briefMatch ? briefMatch[2].toUpperCase() : "";
