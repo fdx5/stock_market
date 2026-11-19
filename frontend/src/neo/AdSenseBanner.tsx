@@ -10,7 +10,9 @@ const bannerRoutes = new Set([
   "/nasdaq100-map", "/realestate-map", "/pulse-board", "/pulse-board-ship", "/hot-issues",
   "/kospi-100", "/kosdaq-100", "/nasdaq-100", "/etf/kr", "/etf/us",
   "/kospi", "/kosdaq", "/nasdaq", "/stocks", "/news", "/global-top100", "/market-brief",
-  "/session-planner", ...MARKET_ASSETS.flatMap(asset => [`/prices/${asset.key}`, `/prices/${asset.key}/`]),
+  "/markets", "/market-inside", "/stock-tradeoffs", "/recovery-lab", "/market-radar",
+  "/stock-screener", "/stock-compare", "/sector-strength", "/decision-brief", "/global-peers",
+  "/etf-overlap", "/data-confidence", "/session-planner", ...MARKET_ASSETS.flatMap(asset => [`/prices/${asset.key}`, `/prices/${asset.key}/`]),
 ]);
 
 type BannerOptions = { labelled?: boolean };

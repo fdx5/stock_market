@@ -1,5 +1,5 @@
 import { reportResearchEvent } from "../useActivityTracking";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "../router";
 import { DataRow, useResearch } from "./researchApi";
 import { Bars, LocalData, localNumber, n, Notice, Outcome, p, ResourceState, safeHref, Stats, Table } from "./ResearchUI";
@@ -7,7 +7,7 @@ import { overlap } from "./researchModel";
 import SymbolPicker from "./SymbolPicker";
 import { dividendAmount } from "./researchFormat";
 
-export default function FundServices({ kind, region, initialCode }: { kind: string; region: string; initialCode?: string }) {
+export default function FundServices({ kind, region, initialCode, onContentReady }: { kind: string; region: string; initialCode?: string; onContentReady: (ready: boolean) => void }) {
   const [a, setA] = useState(initialCode && /^[A-Za-z0-9.-]{1,16}$/.test(initialCode) && (region === "US" ? /^[A-Za-z]/.test(initialCode) : /^\d/.test(initialCode)) ? initialCode : region === "US" ? "VOO" : "069500"), [b, setB] = useState(() => { const peer = new URLSearchParams(window.location.search).get("peer"); return peer && /^[A-Za-z0-9.-]{1,16}$/.test(peer) ? peer : region === "US" ? "SPY" : "102110"; });
   const [draftA, setDraftA] = useState(a), [draftB, setDraftB] = useState(b), [error, setError] = useState("");
   const [local, setLocal] = useState<DataRow[] | null>(null);
@@ -24,6 +24,9 @@ export default function FundServices({ kind, region, initialCode }: { kind: stri
   const holdingsA = local ? local.filter(r => String(r.fund).toUpperCase() === a).map(r => ({ ...r, weight: localNumber(r.weight) })) : first.data?.items ?? [];
   const holdingsB = local ? local.filter(r => String(r.fund).toUpperCase() === b).map(r => ({ ...r, weight: localNumber(r.weight) })) : second.data?.items ?? [];
   const result = overlap(holdingsA, holdingsB);
+  const hasPublicComparison = kind === "etf-overlap" && !local
+    && Boolean(first.data?.items.length && second.data?.items.length && result);
+  useEffect(() => onContentReady(hasPublicComparison), [hasPublicComparison, onContentReady]);
   const dates = local ? [...new Set(local.map(r => String(r.date)))] : [];
   const dateOk = dates.length === 1 && /^\d{4}-\d{2}-\d{2}$/.test(dates[0]);
   const currencyMismatch = !local && region === "KR" && prices.data?.currency && prices.data.currency !== "KRW";

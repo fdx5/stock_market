@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import MarketChart from "../charts/MarketChart";
 import { Link } from "../router";
 import { useDiscoveryData } from "./useDiscoveryData";
@@ -85,11 +85,14 @@ export function SnapshotResearch({ kind, market }: { kind: string; market: Disco
   return <><ResourceState resource={resource} /><Outcome title={kind === "sector-replay" ? "당시 구성 종목을 보존한 기록만 비교합니다" : "두 공개 시점 사이에 달라진 사실을 확인하세요"}><p>오늘의 구성 종목으로 과거를 다시 만들지 않습니다. 처음에는 기록이 없을 수 있습니다. 기록 버튼은 공개 시장 표본만 새 줄로 보관하며, 개인 관심종목·보유정보는 저장하지 않습니다.</p></Outcome><button type="button" data-research-action="snapshot_record" onClick={() => void record()} disabled={saving}>{saving ? "보관 중…" : "현재 표본 기록 보관"}</button><p role="status">{message}</p><div className="rs-control-grid">{[{ label: "처음 시점", value: left?.id ?? "", action: setA }, { label: "비교 시점", value: right?.id ?? "", action: setB }].map(s => <label className="rs-field" key={s.label}>{s.label}<select value={s.value} onChange={e => s.action(e.target.value)}>{rows.map(r => <option key={r.id} value={r.id}>{new Date(r.recorded_at).toLocaleString("ko-KR")}</option>)}</select></label>)}</div>{kind === "sector-replay" ? <Table caption="보관 당시 표본의 업종 강도 기록" rows={replay.slice(-100).reverse()} columns={[{ key: "date", label: "보관 시각" }, { key: "sector", label: "업종" }, { key: "rank", label: "당시 표본 순위" }, { key: "move", label: "가중 등락률", render: p }, { key: "count", label: "계산 종목 수" }]} /> : <Table caption="표본 진입·제외와 가격 변화" rows={rows.length > 1 ? changes : []} columns={[{ key: "name", label: "종목", render: (_v, r) => <StockAnchor code={r.code} name={r.name} /> }, { key: "state", label: "표본 상태" }, { key: "before", label: "첫 가격", render: n }, { key: "after", label: "비교 가격", render: n }, { key: "change", label: "가격 변화", render: p }]} />}{rows.length < 2 && <Notice>서로 다른 시점의 기록이 두 개 이상 쌓이면 변화 비교가 가능합니다. 기록을 만들기 위해 과거 값을 합성하지 않습니다.</Notice>}</>;
 }
 
-export function BoardResearch({ kind, context }: { kind: string; context: StockContext }) {
+export function BoardResearch({ kind, context, onContentReady }: { kind: string; context: StockContext; onContentReady: (ready: boolean) => void }) {
   const data = useDiscoveryData(), rows = useMemo(() => discoveryRows(data.boards), [data.boards]);
   const global = useResearch(kind === "global-peers" ? "/api/global-top100?limit=100" : null);
   const [sector, setSector] = useState(""); const [questions, setQuestions] = useState("");
   const selected = rows.find(r => r.code === context.code && r.market === context.market);
+  const ready = kind === "global-peers" ? Boolean(global.data?.items.length)
+    : kind === "data-confidence" ? rows.length > 0 : Boolean(selected);
+  useEffect(() => onContentReady(ready), [onContentReady, ready]);
   if (kind === "data-confidence") return <><Outcome title="무슨 숫자가 빠졌는지 먼저 확인하세요"><p>상태를 하나의 신뢰 점수로 압축하지 않습니다. 집계시각은 체결시각과 다르며 가격·시총·재무의 수신 범위와 누락을 따로 확인합니다.</p></Outcome><Table caption="현재 보드의 필드별 자료 범위" rows={MARKETS.map(m => { const list = rows.filter(r => r.market === m); return { market: MARKET_NAMES[m], count: list.length, price: list.filter(r => r.close !== null).length, cap: list.filter(r => r.cap !== null).length, per: list.filter(r => r.per !== null).length, roe: list.filter(r => r.roe !== null).length, at: data.boards[m]?.generated_at ?? "미수신", status: data.errors[m] ? "갱신 실패 또는 미수신" : list.length ? "집계 수신 · 체결 지연 미확인" : "미수신" }; })} columns={[{ key: "market", label: "표본" }, { key: "count", label: "종목" }, { key: "price", label: "가격 있음" }, { key: "cap", label: "시총 있음" }, { key: "per", label: "PER 있음" }, { key: "roe", label: "ROE 있음" }, { key: "at", label: "집계시각" }, { key: "status", label: "관측 상태" }]} /><button type="button" disabled={data.loading} onClick={() => void data.refresh()}>상태 다시 확인</button><Notice>원천 체결시각이 없는 필드는 신선도 정상으로 인증하지 않습니다. 나스닥 지수 비중은 달러 시가총액으로 쓰지 않습니다.</Notice></>;
   if (kind === "global-peers") {
     const items = global.data?.items ?? [], sectors = [...new Set(items.map(r => String(r.sector || "미분류")))].sort();

@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Link } from "../router";
 import { pct } from "../desk2/lib";
+import AdSenseBanner from "../neo/AdSenseBanner";
 import { compareIds, discoveryRows, DiscoveryFilters, DiscoveryMarket, DiscoveryPreset, DiscoveryRow, DiscoverySort, MARKET_NAMES, MARKETS, readFilters, rowsCsv, screenRows, sectorStrength } from "./discoveryModel";
 import { useDiscoveryData } from "./useDiscoveryData";
 import { MarketInside, RecoveryLab, TradeoffLab } from "./DecisionTools";
@@ -149,6 +150,9 @@ export default function MarketDiscoveryPage({ mode }: { mode: DiscoveryPage }) {
   const setPreset = (preset: DiscoveryPreset) => update({ preset, sort: preset === "losers" ? "change-asc" : preset === "liquid" ? "amount" : preset === "near-high" ? "high" : preset === "value" ? "per" : "change" });
   const activeBoard = data.boards[filters.market];
   const hasData = Object.keys(data.boards).length > 0;
+  const hasContent = mode === "hub" || mode === "compare"
+    ? rows.length > 0
+    : rows.some(row => row.market === filters.market);
   return <div className="mdis ng-research" lang="ko">
     <a className="d2-skip" href="#mdis-main">본문 바로가기</a>
 
@@ -161,6 +165,7 @@ export default function MarketDiscoveryPage({ mode }: { mode: DiscoveryPage }) {
         return <li key={m} className={data.errors[m] ? "mdis-status-error" : ""}>{MARKET_NAMES[m]} · {board?.items.length ?? 0}종목 · 집계 {time} KST{m === "nasdaq" && board ? ` · ${board.session === "pre" ? "장전" : board.session === "post" ? "장후" : "정규장 기준"}` : ""}{data.errors[m] ? ` · ${board ? "갱신 실패, 이전 집계 표시" : "불러오기 실패"}` : ""}</li>;
       })}</ul><small>집계시각은 체결시각이 아닙니다. 원천 시세 지연과 거래시간 차이가 있을 수 있습니다.</small></section>
       {Object.keys(data.errors).length > 0 && <p className="mdis-notice" role="status">일부 시장 집계를 불러오지 못했습니다. 집계 새로고침으로 다시 시도할 수 있습니다.</p>}
+      <AdSenseBanner labelled contentReady={hasContent} />
       {mode === "hub" ? <Hub rows={rows} ready={hasData || !data.loading} /> : <>
         {mode !== "compare" && <MarketSelect market={filters.market} onChange={market => update({ market, sector: null })} />}
         {mode === "inside" ? <MarketInside rows={rows} market={filters.market} /> : mode === "tradeoffs" ? <TradeoffLab rows={rows} market={filters.market} baseId={params.get("base")} onBase={base => update({ base })} /> : mode === "recovery" ? <RecoveryLab key={filters.market} rows={rows} market={filters.market} /> : mode === "compare" ? <Compare rows={rows} ids={selected} onSelect={select} query={filters.q} onQuery={q => update({ q })} /> : mode === "sectors" ? <Sectors rows={rows} market={filters.market} /> : <>
