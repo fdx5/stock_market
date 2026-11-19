@@ -143,9 +143,19 @@ html[data-fx=minimal] .ng-new-badge{animation:none}
   display:flex;align-items:center;gap:24px;
   width:100%;min-width:0;container-type:inline-size;
 }
-.ng-adsense-pair>.ng-adsense-slot{flex:1}
-.ng-adsense-pair>.ng-adsense-slot--rectangle{display:none;flex:0 0 300px}
-.ng-adsense-pair>.ng-adsense-slot:has(>.ng-adsense-banner[data-ad-status=unfilled]){display:none}
+.ng-adsense-pair>.ng-adsense-slot,.ng-adsense-stack{flex:1;min-width:0}
+.ng-adsense-slot--secondary,.ng-adsense-pair>.ng-adsense-slot--rectangle{display:none}
+.ng-adsense-pair>.ng-adsense-slot--rectangle{flex:0 0 300px}
+:is(.ng-adsense-pair,.ng-adsense-stack)>.ng-adsense-slot:has(>.ng-adsense-banner[data-ad-status=unfilled]){display:none}
 @container(min-width:1052px){.ng-adsense-pair>.ng-adsense-slot--rectangle{display:block}}
+@media (min-width:900px) and (any-pointer:fine){
+  .ng-adsense-slot--secondary{display:block}
+  @container(min-width:1052px){
+    .ng-adsense-pair:has(>.ng-adsense-slot--rectangle[data-ad-fits=true]>ins:not([data-ad-status=unfilled]))>.ng-adsense-stack{
+      align-self:stretch;display:flex;flex-direction:column;justify-content:space-around;padding-block:12px 16px;
+    }
+    .ng-adsense-pair:has(>.ng-adsense-slot--rectangle[data-ad-fits=true]>ins:not([data-ad-status=unfilled]))>.ng-adsense-stack>.ng-adsense-slot{margin-block:0}
+  }
+}
 html:has(#adsense-loader[data-failed=true]) :is(.ng-adsense-slot,.ng-adsense-pair){display:none!important}
 @media print{.ng-adsense-slot,.ng-adsense-pair{display:none!important}}

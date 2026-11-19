@@ -11,6 +11,12 @@ const bannerRoutes = new Set([
 ]);
 
 type BannerOptions = { labelled?: boolean };
+const slotIds = {
+  banner: "9440754514",
+  secondary: "4040463452",
+  rectangle: "9025269231",
+} as const;
+type AdVariant = keyof typeof slotIds;
 type AdSize = { width: number; height: number };
 
 const bannerSizes: readonly AdSize[] = [
@@ -22,26 +28,35 @@ const bannerSizes: readonly AdSize[] = [
 ];
 const rectangleSizes: readonly AdSize[] = [{ width: 300, height: 250 }];
 
-export function AdSenseBannerPair({ labelled = false }: BannerOptions = {}) {
+export function AdSenseBannerPair({
+  labelled = false, secondBanner = false,
+}: BannerOptions & { secondBanner?: boolean } = {}) {
+  const banner = <AdSenseBanner labelled={labelled} />;
   return (
     <div className="ng-adsense-pair">
-      <AdSenseBanner labelled={labelled} />
-      <AdSenseBanner labelled={labelled} rectangle />
+      {secondBanner ? (
+        <div className="ng-adsense-stack">
+          {banner}
+          <AdSenseBanner labelled={labelled} variant="secondary" />
+        </div>
+      ) : banner}
+      <AdSenseBanner labelled={labelled} variant="rectangle" />
     </div>
   );
 }
 
 export default function AdSenseBanner({
-  labelled = false, rectangle = false, fluid = false,
-}: BannerOptions & { rectangle?: boolean; fluid?: boolean } = {}) {
+  labelled = false, variant = "banner", fluid = false,
+}: BannerOptions & { variant?: AdVariant; fluid?: boolean } = {}) {
   const path = useRoute();
   const { lang } = useLanguage();
   const isStockDetail = /^\/stock\/[A-Za-z0-9.-]{1,16}\/?$/.test(path);
   if (!import.meta.env.PROD || !(bannerRoutes.has(path) || isStockDetail)) return null;
-  return <AdSlot key={path} rectangle={rectangle} fluid={fluid} label={labelled ? (lang === "ko" ? "??" : "Advertisement") : undefined} />;
+  return <AdSlot key={`${path}:${variant}`} variant={variant} fluid={fluid} label={labelled ? (lang === "ko" ? "??" : "Advertisement") : undefined} />;
 }
 
-function AdSlot({ rectangle, fluid, label }: { rectangle: boolean; fluid: boolean; label?: string }) {
+function AdSlot({ variant, fluid, label }: { variant: AdVariant; fluid: boolean; label?: string }) {
+  const rectangle = variant === "rectangle";
   const host = useRef<HTMLDivElement>(null);
   const slot = useRef<HTMLModElement>(null);
 
@@ -94,13 +109,13 @@ function AdSlot({ rectangle, fluid, label }: { rectangle: boolean; fluid: boolea
   }, [fluid, rectangle]);
 
   return (
-    <div ref={host} className={rectangle ? "ng-adsense-slot ng-adsense-slot--rectangle" : "ng-adsense-slot"}>
+    <div ref={host} className={`ng-adsense-slot ng-adsense-slot--${variant}`}>
       {label && <span className="ng-adsense-inline-label">{label}</span>}
       <ins
         ref={slot}
         className="adsbygoogle ng-adsense-banner"
         data-ad-client="ca-pub-8278980164088928"
-        data-ad-slot={rectangle ? "9025269231" : "9440754514"}
+        data-ad-slot={slotIds[variant]}
         data-ad-format={fluid ? "auto" : undefined}
         data-full-width-responsive="false"
       />
