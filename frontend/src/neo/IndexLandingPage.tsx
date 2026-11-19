@@ -7,6 +7,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import { pct, toneOf } from "../desk2/lib";
 import { HoloPanel, HUDSectionTitle, NeoEmptyState, NeoSkeleton } from "./NeoComponents";
 import { useEnglishNames } from "./useEnglishNames";
+import AdSenseBanner from "./AdSenseBanner";
 import "./indexLanding.css";
 
 type Key = "kospi" | "kosdaq" | "nasdaq";
@@ -88,6 +89,8 @@ export default function IndexLandingPage({ index }: { index: Key }) {
         </dl></>}
       </HoloPanel>
     </div>
+
+    <AdSenseBanner labelled />
 
     {b && <HoloPanel className="il-breadth">
       <HUDSectionTitle code="MOVERS" title={L(`오늘 ${name} 상승·하락 종목`, `Today's ${names[index][1]} movers`)} description={L(`시가총액 상위 ${b.count}종목 중 상승 ${b.up} · 하락 ${b.down} · 보합 ${b.flat}`, `${b.count} largest names: ${b.up} up · ${b.down} down · ${b.flat} flat`)} action={<Link to={data.map}>{L(data.map_label, "Full market map")} ↗</Link>} />

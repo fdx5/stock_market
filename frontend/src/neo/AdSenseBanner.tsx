@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useRoute } from "../router";
 import { useLanguage } from "../i18n/LanguageContext";
+import { MARKET_ASSETS } from "../marketAssets";
 
 type AdWindow = Window & { adsbygoogle?: { push(request: object): unknown } };
 
@@ -8,6 +9,8 @@ const bannerRoutes = new Set([
   "/", "/desk", "/global", "/map", "/kosdaq-map", "/sp500-map",
   "/nasdaq100-map", "/realestate-map", "/pulse-board", "/pulse-board-ship", "/hot-issues",
   "/kospi-100", "/kosdaq-100", "/nasdaq-100", "/etf/kr", "/etf/us",
+  "/kospi", "/kosdaq", "/nasdaq", "/stocks", "/news", "/global-top100", "/market-brief",
+  "/session-planner", ...MARKET_ASSETS.flatMap(asset => [`/prices/${asset.key}`, `/prices/${asset.key}/`]),
 ]);
 
 type BannerOptions = { labelled?: boolean };
@@ -46,16 +49,17 @@ export function AdSenseBannerPair({
 }
 
 export default function AdSenseBanner({
-  labelled = false, variant = "banner", fluid = false,
-}: BannerOptions & { variant?: AdVariant; fluid?: boolean } = {}) {
+  labelled = false, variant = "banner", fluid = false, contentReady = true,
+}: BannerOptions & { variant?: AdVariant; fluid?: boolean; contentReady?: boolean } = {}) {
   const path = useRoute();
   const { lang } = useLanguage();
   const isStockDetail = /^\/stock\/[A-Za-z0-9.-]{1,16}\/?$/.test(path);
-  if (!import.meta.env.PROD || !(bannerRoutes.has(path) || isStockDetail)) return null;
-  return <AdSlot key={`${path}:${variant}`} variant={variant} fluid={fluid} label={labelled ? (lang === "ko" ? "??" : "Advertisement") : undefined} />;
+  const isBrief = /^\/market-brief\/(?:latest\/(?:kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco)|\d{4}-\d{2}-\d{2}\/(?:kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6}))\/?$/i.test(path);
+  if (!import.meta.env.PROD || !(bannerRoutes.has(path) || isStockDetail || isBrief)) return null;
+  return <AdSlot key={`${path}:${variant}`} variant={variant} fluid={fluid} contentReady={contentReady} label={labelled ? (lang === "ko" ? "광고" : "Advertisement") : undefined} />;
 }
 
-function AdSlot({ variant, fluid, label }: { variant: AdVariant; fluid: boolean; label?: string }) {
+function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; fluid: boolean; contentReady: boolean; label?: string }) {
   const rectangle = variant === "rectangle";
   const host = useRef<HTMLDivElement>(null);
   const slot = useRef<HTMLModElement>(null);
@@ -65,7 +69,8 @@ function AdSlot({ variant, fluid, label }: { variant: AdVariant; fluid: boolean;
   useEffect(() => {
     const area = host.current;
     const ad = slot.current;
-    if (!area || !ad) return;
+    const loader = document.getElementById("adsense-loader");
+    if (!area || !ad || !loader) return;
 
     const fit = () => {
       const width = area.clientWidth;
@@ -77,7 +82,9 @@ function AdSlot({ variant, fluid, label }: { variant: AdVariant; fluid: boolean;
         area.dataset.adFits = String(width >= previous);
         return;
       }
-      if (document.hidden || width === 0) return;
+      // AdSense push is shared by the document. Waiting for the loader keeps
+      // a navigation from leaving queued requests for slots that have unmounted.
+      if (!contentReady || loader.dataset.loaded !== "true" || document.hidden || width === 0) return;
       const size = fluid ? undefined : (rectangle ? rectangleSizes : bannerSizes).find(candidate => candidate.width <= width);
       if (!fluid && !size) return;
       requestedMinWidth.current = size?.width ?? 1;
@@ -98,15 +105,17 @@ function AdSlot({ variant, fluid, label }: { variant: AdVariant; fluid: boolean;
 
     const observer = new ResizeObserver(fit);
     observer.observe(area);
+    loader.addEventListener("load", fit);
     window.addEventListener("pageshow", fit);
     document.addEventListener("visibilitychange", fit);
     fit();
     return () => {
       observer.disconnect();
+      loader.removeEventListener("load", fit);
       window.removeEventListener("pageshow", fit);
       document.removeEventListener("visibilitychange", fit);
     };
-  }, [fluid, rectangle]);
+  }, [contentReady, fluid, rectangle]);
 
   return (
     <div ref={host} className={`ng-adsense-slot ng-adsense-slot--${variant}`}>

@@ -18,6 +18,7 @@ import {
   toneOf,
 } from "../../stocks/market";
 import { useStockDetail, useStockRoster, withLiveClose } from "../../stocks/useStockData";
+import AdSenseBanner from "../../neo/AdSenseBanner";
 import { reportStockView, reportStocksEvent } from "../../useActivityTracking";
 import { useDocumentTitle } from "../../useDocumentTitle";
 import { useBodyScrollLock } from "../../useBodyScrollLock";
@@ -359,6 +360,7 @@ export default function StocksPage() {
       </div>
 
       <main className="d2-main st-main">
+        <AdSenseBanner labelled contentReady={rows.length > 0} />
         <div className="st-filters">
           <div className="st-chips" role="group" aria-label={L("업종", "Sector")}>
             <button type="button" className={sector === ALL_SECTORS ? "is-on" : ""} onClick={() => changeSector(ALL_SECTORS)}>

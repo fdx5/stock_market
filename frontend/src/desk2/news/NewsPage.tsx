@@ -1,4 +1,5 @@
 import ServiceConnections from "../../markets/ServiceConnections";
+import AdSenseBanner from "../../neo/AdSenseBanner";
 import "../../markets/researchServices.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GlobalTop20Item, api } from "../../api/client";
@@ -218,6 +219,8 @@ export default function NewsPage() {
             )}
           </section>
         )}
+
+        <AdSenseBanner labelled contentReady={items.length > 0} />
 
         <section id="nw-stories" ref={storiesRef} className="d2-sec nw-stories" aria-label={L("기사", "Stories")}>
           {reading && active ? (

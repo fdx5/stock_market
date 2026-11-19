@@ -489,7 +489,8 @@ export function useActivityTracking(path: string): void {
   }, [path]);
 
   useEffect(() => {
-    if (isAdminPath(path)) return;
+    // The ETF market immediately replaces this legacy URL with /etf/kr or /etf/us.
+    if (isAdminPath(path) || path === "/etf") return;
     if (path === "/discussion-explorer") {
       const params = new URLSearchParams(window.location.search);
       const code = params.get("code") || "005930";
