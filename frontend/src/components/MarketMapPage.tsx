@@ -943,7 +943,7 @@ export default function MarketMapPage({
                 {periodLoading ? "기간 수익률 계산 중…" : periodError || `${items.length.toLocaleString()}개 종목`}
               </div>
               <p className="kospi-map-period-note">기간별 변동률을 조회합니다.</p>
-              {!mapExpanded && <AdSenseBanner />}
+              {!mapExpanded && <AdSenseBanner fluid />}
             </aside>
           )}
           <div className="kospi-map-workspace-main">

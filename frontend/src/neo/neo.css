@@ -122,35 +122,30 @@ html[data-design="neo"][data-fx="minimal"] .ed-investor-card:hover{transform:non
 @media (prefers-reduced-motion:reduce){.ng-new-badge{animation:none}}
 html[data-fx=minimal] .ng-new-badge{animation:none}
 
-.ng-adsense-banner{width:calc(100% - 24px);max-width:1752px;margin:20px auto}
-.ng-adsense-banner[data-ad-status="unfilled"]{display:none!important}
-@media print{.ng-adsense-banner{display:none!important}}
-
-.kospi-map-period-rail>.ng-adsense-banner{width:100%;margin:0 0 12px}
-.kospi-map-page--viewport .ng-adsense-banner{display:none!important}
-
-.ng-adsense-inline{width:100%;max-width:728px;min-width:0;margin-inline:auto}
-.ng-adsense-inline>.ng-adsense-banner{width:100%;margin:0}
+.ng-adsense-slot{
+  width:100%;max-width:100%;min-width:0;
+  contain:inline-size;overflow:clip;
+}
+.ng-adsense-slot>.ng-adsense-banner{display:block;margin:0 auto}
+.ng-adsense-slot:not([data-ad-fits=true])>.ng-adsense-banner,
+.ng-adsense-slot>.ng-adsense-banner[data-ad-status=unfilled]{display:none!important}
+.ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-banner:not([data-ad-status=unfilled])){margin-block:12px 16px}
+.kospi-map-period-rail>.ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-banner:not([data-ad-status=unfilled])){margin:0 0 12px}
 .ng-adsense-inline-label{display:none}
-.ng-adsense-inline:has(>ins[data-ad-status="filled"]){margin-block:12px 16px}
-.ng-adsense-inline:has(>ins[data-ad-status="filled"])>.ng-adsense-inline-label{
+.ng-adsense-slot[data-ad-fits=true]:has(>.ng-adsense-banner[data-ad-status=filled])>.ng-adsense-inline-label{
   display:block;
+  text-align:center;
   color:var(--text-secondary);
   font:11px/1.4 var(--f-sans);
   margin-bottom:4px;
 }
-.ng-adsense-inline:has(>ins[data-ad-status="unfilled"]){display:none}
-@media print{.ng-adsense-inline{display:none}}
-
-.ng-adsense-pair{--ng-ad-height:90px;display:flex;flex-wrap:nowrap;align-items:center;gap:24px;width:100%;max-width:100%;min-width:0;container-type:inline-size}
-.ng-adsense-pair>div{min-width:0;padding-block:4px}
-.ng-adsense-pair .ng-adsense-inline,.ng-adsense-pair .ng-adsense-inline:has(>ins[data-ad-status="filled"]){margin-block:0}
-.ng-adsense-pair-banner{flex:1}
-.ng-adsense-pair-banner .ng-adsense-banner{width:100%;max-width:728px;margin:0 auto}
-.ng-adsense-pair-square{display:none;flex:0 0 300px;width:300px;margin-left:auto}
-.ng-adsense-pair-square .ng-adsense-banner{width:100%;margin:0}
-.ng-adsense-pair>div:empty,.ng-adsense-pair>div:has(.ng-adsense-banner[data-ad-status="unfilled"]){display:none}
-.ng-adsense-pair:not(:has(.ng-adsense-banner:not([data-ad-status="unfilled"]))){display:none}
-@container(min-width:1052px){.ng-adsense-pair-square{display:block}}
-@container(max-width:520px){.ng-adsense-pair>div{--ng-ad-height:50px}}
-@media print{.ng-adsense-pair{display:none}}
+.ng-adsense-pair{
+  display:flex;align-items:center;gap:24px;
+  width:100%;min-width:0;container-type:inline-size;
+}
+.ng-adsense-pair>.ng-adsense-slot{flex:1}
+.ng-adsense-pair>.ng-adsense-slot--rectangle{display:none;flex:0 0 300px}
+.ng-adsense-pair>.ng-adsense-slot:has(>.ng-adsense-banner[data-ad-status=unfilled]){display:none}
+@container(min-width:1052px){.ng-adsense-pair>.ng-adsense-slot--rectangle{display:block}}
+html:has(#adsense-loader[data-failed=true]) :is(.ng-adsense-slot,.ng-adsense-pair){display:none!important}
+@media print{.ng-adsense-slot,.ng-adsense-pair{display:none!important}}

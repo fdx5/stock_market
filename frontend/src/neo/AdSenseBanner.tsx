@@ -10,74 +10,100 @@ const bannerRoutes = new Set([
   "/kospi-100", "/kosdaq-100", "/nasdaq-100", "/etf/kr", "/etf/us",
 ]);
 
-type BannerOptions = { format?: "auto" | "horizontal"; labelled?: boolean };
+type BannerOptions = { labelled?: boolean };
+type AdSize = { width: number; height: number };
 
-export function AdSenseBannerPair({ format = "auto", labelled = false }: BannerOptions = {}) {
+const bannerSizes: readonly AdSize[] = [
+  { width: 728, height: 90 },
+  { width: 468, height: 60 },
+  { width: 320, height: 50 },
+  { width: 300, height: 50 },
+  { width: 234, height: 60 },
+];
+const rectangleSizes: readonly AdSize[] = [{ width: 300, height: 250 }];
+
+export function AdSenseBannerPair({ labelled = false }: BannerOptions = {}) {
   return (
     <div className="ng-adsense-pair">
-      <div className="ng-adsense-pair-banner"><AdSenseBanner format={format} labelled={labelled} fixedHeight /></div>
-      <div className="ng-adsense-pair-square"><AdSenseBanner slotId="9025269231" labelled={labelled} fixedHeight /></div>
+      <AdSenseBanner labelled={labelled} />
+      <AdSenseBanner labelled={labelled} rectangle />
     </div>
   );
 }
 
 export default function AdSenseBanner({
-  format = "auto", labelled = false, slotId = "9440754514", fixedHeight = false,
-}: BannerOptions & { slotId?: string; fixedHeight?: boolean } = {}) {
+  labelled = false, rectangle = false, fluid = false,
+}: BannerOptions & { rectangle?: boolean; fluid?: boolean } = {}) {
   const path = useRoute();
   const { lang } = useLanguage();
   const isStockDetail = /^\/stock\/[A-Za-z0-9.-]{1,16}\/?$/.test(path);
   if (!import.meta.env.PROD || !(bannerRoutes.has(path) || isStockDetail)) return null;
-  const slot = <AdSlot key={`${path}:${slotId}`} format={format} slotId={slotId} fixedHeight={fixedHeight} />;
-  if (!labelled) return slot;
-
-  return (
-    <div className="ng-adsense-inline">
-      <span className="ng-adsense-inline-label">{lang === "ko" ? "광고" : "Advertisement"}</span>
-      {slot}
-    </div>
-  );
+  return <AdSlot key={path} rectangle={rectangle} fluid={fluid} label={labelled ? (lang === "ko" ? "??" : "Advertisement") : undefined} />;
 }
 
-function AdSlot({ format, slotId, fixedHeight }: { format: "auto" | "horizontal"; slotId: string; fixedHeight: boolean }) {
-  const ref = useRef<HTMLModElement>(null);
-  const requested = useRef(false);
+function AdSlot({ rectangle, fluid, label }: { rectangle: boolean; fluid: boolean; label?: string }) {
+  const host = useRef<HTMLDivElement>(null);
+  const slot = useRef<HTMLModElement>(null);
+
+  const requestedMinWidth = useRef<number>();
 
   useEffect(() => {
-    const slot = ref.current;
-    if (!slot || requested.current) return;
+    const area = host.current;
+    const ad = slot.current;
+    if (!area || !ad) return;
 
-    const request = () => {
-      if (fixedHeight) {
-        slot.style.height = getComputedStyle(slot).getPropertyValue("--ng-ad-height").trim() || "90px";
+    const fit = () => {
+      const width = area.clientWidth;
+      // A filled creative keeps its original size. Responsive hiding keeps it
+      // out of the layout if the column shrinks, without requesting it again.
+      if (area.dataset.adFailed === "true") return;
+      const previous = requestedMinWidth.current;
+      if (previous !== undefined) {
+        area.dataset.adFits = String(width >= previous);
+        return;
       }
-      if (requested.current || slot.clientWidth === 0) return;
-      requested.current = true;
-      if (!fixedHeight) observer.disconnect();
+      if (document.hidden || width === 0) return;
+      const size = fluid ? undefined : (rectangle ? rectangleSizes : bannerSizes).find(candidate => candidate.width <= width);
+      if (!fluid && !size) return;
+      requestedMinWidth.current = size?.width ?? 1;
+      area.dataset.adFits = "true";
+      if (size) {
+        ad.style.width = `${size.width}px`;
+        ad.style.height = `${size.height}px`;
+      }
       const ads = window as AdWindow;
       try {
         const queue = ads.adsbygoogle ?? (ads.adsbygoogle = [] as object[]);
         queue.push({});
       } catch {
-        // An ad blocker or a provider error should leave the page usable.
+        area.dataset.adFits = "false";
+        area.dataset.adFailed = "true";
       }
     };
-    const observer = new ResizeObserver(request);
-    observer.observe(slot);
-    request();
-    return () => observer.disconnect();
-  }, [fixedHeight]);
 
-  if (!import.meta.env.PROD) return null;
+    const observer = new ResizeObserver(fit);
+    observer.observe(area);
+    window.addEventListener("pageshow", fit);
+    document.addEventListener("visibilitychange", fit);
+    fit();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("pageshow", fit);
+      document.removeEventListener("visibilitychange", fit);
+    };
+  }, [fluid, rectangle]);
+
   return (
-    <ins
-      ref={ref}
-      className="adsbygoogle ng-adsense-banner"
-      style={{ display: "block", height: fixedHeight ? "90px" : undefined }}
-      data-ad-client="ca-pub-8278980164088928"
-      data-ad-slot={slotId}
-      data-ad-format={fixedHeight ? undefined : format}
-      data-full-width-responsive={fixedHeight ? undefined : "true"}
-    />
+    <div ref={host} className={rectangle ? "ng-adsense-slot ng-adsense-slot--rectangle" : "ng-adsense-slot"}>
+      {label && <span className="ng-adsense-inline-label">{label}</span>}
+      <ins
+        ref={slot}
+        className="adsbygoogle ng-adsense-banner"
+        data-ad-client="ca-pub-8278980164088928"
+        data-ad-slot={rectangle ? "9025269231" : "9440754514"}
+        data-ad-format={fluid ? "auto" : undefined}
+        data-full-width-responsive="false"
+      />
+    </div>
   );
 }

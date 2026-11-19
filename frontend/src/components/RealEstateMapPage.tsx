@@ -906,7 +906,7 @@ export default function RealEstateMapPage() {
                 </label>
               ))}
             </div>
-            {!holoIsFull && <AdSenseBanner />}
+            {!holoIsFull && <AdSenseBanner fluid />}
             <div className={`re-map-region${regionMapOpen ? "" : " is-collapsed"}`}>
               <button
                 type="button"

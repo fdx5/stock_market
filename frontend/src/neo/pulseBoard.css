@@ -194,9 +194,7 @@ html.pb-ship-hover,html.pb-ship-hover body,html.pb-ship-hover .pb-page{cursor:po
 
 /* Keep the ad in the board's flow and keep the lower viewport clear on scroll. */
 .pb-banner{max-width:728px;margin-inline:auto}
-.pb-banner>.ng-adsense-banner{width:100%;margin:0}
-.pb-banner>.ng-adsense-banner[data-ad-status="filled"]{margin-bottom:12px}
-.pb-page:has(.pb-banner>[data-ad-status="filled"]){
+.pb-page:has(.pb-banner .ng-adsense-slot[data-ad-fits=true]>[data-ad-status="filled"]){
   --pb-ship-band:56vh;
   --pb-ship-band:56svh;
 }
