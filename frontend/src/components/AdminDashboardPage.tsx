@@ -431,6 +431,46 @@ function SystemSection({ health, state }: { health: AdminHealth | null; state: {
         </Card>
       </div>
 
+      <Card title="DB 읽기 상위 쿼리 (Turso rows read)">
+        {health?.db_reads?.error ? (
+          <p className="ac-note">집계를 읽지 못했습니다: {health.db_reads.error}</p>
+        ) : (
+          <>
+            <p className="ac-note">
+              서버 시작 후 {health?.db_reads?.hours ?? 0}시간 · 총 {(health?.db_reads?.rows_read ?? 0).toLocaleString()}행 읽음 · 시간당{" "}
+              {(health?.db_reads?.rows_read_per_hour ?? 0).toLocaleString()}행 · 쿼리 {(health?.db_reads?.statements ?? 0).toLocaleString()}회
+            </p>
+            <div className="ac-table-wrap">
+              <table className="ac-table">
+                <thead>
+                  <tr>
+                    <th>비중</th>
+                    <th>읽은 행</th>
+                    <th>시간당</th>
+                    <th>실행</th>
+                    <th>행/회</th>
+                    <th>쿼리</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(health?.db_reads?.top ?? []).map((r, i) => (
+                    <tr key={i} className={r.share >= 0.2 ? "is-warn" : ""}>
+                      <td>{(r.share * 100).toFixed(1)}%</td>
+                      <td>{r.rows_read.toLocaleString()}</td>
+                      <td>{r.per_hour.toLocaleString()}</td>
+                      <td>{r.calls.toLocaleString()}</td>
+                      <td>{r.calls ? Math.round(r.rows_read / r.calls).toLocaleString() : 0}</td>
+                      <td><code style={{ whiteSpace: "normal", wordBreak: "break-all", fontSize: "0.85em" }}>{r.sql}</code></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="ac-note">Turso는 스캔한 행 수로 과금합니다. 비중 20% 이상은 강조합니다. 배포(재시작) 시 0부터 다시 집계합니다.</p>
+          </>
+        )}
+      </Card>
+
       <Card title={`로그 (경고·오류 최근 ${health?.logs.length ?? 0}건)`}>
         <div className="ac-log-tools">
           {(["all", "ERROR", "WARNING"] as const).map((f) => (

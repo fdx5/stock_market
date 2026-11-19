@@ -596,6 +596,18 @@ export interface AdminHealth {
   logs: AdminHealthLog[];
   admin_cache: { name: string; args: string; overdue_s: number; error: string | null }[];
   realestate: AdminRealestateStatus;
+  db_reads?: AdminDbReads;
+}
+
+/** Turso rows_read (the billed quantity) per statement since the server started. */
+export interface AdminDbReads {
+  since?: number;
+  hours?: number;
+  rows_read?: number;
+  rows_read_per_hour?: number;
+  statements?: number;
+  error?: string;
+  top?: { sql: string; calls: number; rows_read: number; rows_returned: number; per_hour: number; share: number }[];
 }
 
 export class AdminAuthError extends Error {}
