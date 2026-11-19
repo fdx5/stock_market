@@ -133,7 +133,7 @@ html[data-fx=minimal] .ng-new-badge{animation:none}
 .ng-adsense-slot>.ng-adsense-banner[data-ad-status=unfilled]{display:none!important}
 .ng-adsense-slot[data-ad-fits=true]:is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){margin-block:12px 16px}
 @media (max-width:899px), (pointer:coarse){
-  :is(.ng-adsense-slot--banner,.kospi-map-bottom-ad>.ng-adsense-slot--secondary)[data-ad-fits=true]:is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){
+  :is(.ng-adsense-slot--banner,.kospi-map-view-ad>.ng-adsense-slot--secondary)[data-ad-fits=true]:is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){
     min-height:var(--ng-ad-height,0px);
   }
 }
@@ -198,7 +198,17 @@ html[data-fx=minimal] .ng-new-badge{animation:none}
   }
   @container(min-width:500px){.ng-adsense-pair--portrait>.ng-adsense-slot--secondary-rectangle{display:block}}
 }
-.kospi-map-bottom-ad>.ng-adsense-slot--secondary{display:block}
-.kospi-map-bottom-ad .ng-adsense-banner{margin-inline:auto 0}
-html:has(#adsense-loader[data-failed=true]) :is(.ng-adsense-slot,.ng-adsense-pair){display:none!important}
+.kospi-map-view-actions{display:flex;flex-direction:column;gap:16px;min-width:0}
+@container neo-map-heading (min-width:1100px){
+  .kospi-map-view-actions>.kospi-map-view-toggle{align-self:flex-end}
+  .kospi-map-view-actions:has(>.kospi-map-view-ad>.ng-adsense-slot:not([data-ad-failed=true])>ins:not([data-ad-status=unfilled])){
+    width:min(728px,62cqw);
+  }
+}
+.kospi-map-view-ad>.ng-adsense-slot--secondary{display:block}
+.kospi-map-view-ad>.ng-adsense-slot[data-ad-fits=true]:is([data-ad-in-view=true],:has(>.ng-adsense-banner:not([data-ad-status=unfilled]))){margin-block:0}
+.kospi-map-view-ad .ng-adsense-banner{margin-inline:auto 0}
+.kospi-map-view-ad:empty,
+.kospi-map-view-ad:has(>.ng-adsense-slot[data-ad-failed=true],>.ng-adsense-slot:not([data-ad-in-view=true])>ins[data-ad-status=unfilled]){display:none}
+html:has(#adsense-loader[data-failed=true]) :is(.ng-adsense-slot,.ng-adsense-pair,.kospi-map-view-ad){display:none!important}
 @media print{.ng-adsense-slot,.ng-adsense-pair{display:none!important}}

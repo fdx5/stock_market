@@ -895,15 +895,22 @@ export default function MarketMapPage({
               )}
             </p>
           </div>
-          <div className="kospi-map-view-toggle">
-            <button type="button" className={view === "map" ? "active" : ""} onClick={() => setView("map")}>
-              {t("맵 보기")}
-            </button>
-            <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}>
-              {t("표로 보기")}
-            </button>
-            <MapExportButtons exp={mapExport} disabled={sectorZones.length === 0} />
-            <CommunityShortcut board={market === "us" ? "global" : "kr"} />
+          <div className="kospi-map-view-actions">
+            <div className="kospi-map-view-toggle">
+              <button type="button" className={view === "map" ? "active" : ""} onClick={() => setView("map")}>
+                {t("맵 보기")}
+              </button>
+              <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}>
+                {t("표로 보기")}
+              </button>
+              <MapExportButtons exp={mapExport} disabled={sectorZones.length === 0} />
+              <CommunityShortcut board={market === "us" ? "global" : "kr"} />
+            </div>
+            {enhancedSectorView && view === "map" && !mapExpanded && !error && !loading && items.length > 0 && (
+              <div className="kospi-map-view-ad">
+                <AdSenseBanner variant="secondary" />
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -1145,12 +1152,6 @@ export default function MarketMapPage({
                     .map((tile) => `${tile.item.code}@${Math.round(tile.x)},${Math.round(tile.y)},${Math.round(tile.w)}`).join(";")).join("|")}
                 />
               )}
-            </div>
-          )}
-
-          {enhancedSectorView && view === "map" && !mapExpanded && (
-            <div className="kospi-map-bottom-ad">
-              <AdSenseBanner variant="secondary" contentReady={!loading && items.length > 0} />
             </div>
           )}
 
