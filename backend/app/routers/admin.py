@@ -58,8 +58,14 @@ _summary_last: dict = {}
 
 
 @router.get("/summary", dependencies=[Depends(require_admin)])
-@ttl_cache(55)
 def summary():
+    # Only the live presence figure is fresh per request (in memory / a 15s-cached
+    # count); the 24h page_views scans behind the rest are cached for minutes.
+    return {"online_now": tracker.current_count(), **_summary_db()}
+
+
+@ttl_cache(285)
+def _summary_db():
     since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     # Every figure above `bots` counts people only (page_view_store.HUMAN). `bots` is
     # the same 24 hours seen from the other side, reported rather than dropped: a crawl
@@ -71,7 +77,7 @@ def summary():
         "bots": lambda: page_view_store.bot_overview(since_24h),
     }
     fallback = {"total_visits": 0, "views_last_24h": 0, "top_pages": [], "bots": {"pageviews": 0, "sessions": 0, "agents": []}}
-    out: dict = {"online_now": tracker.current_count()}
+    out: dict = {}
     stale: list[str] = []
     for name, fn in parts.items():
         try:
@@ -139,22 +145,25 @@ _RANKING_WINDOW = timedelta(days=7)
 
 
 @router.get("/traffic/devices", dependencies=[Depends(require_admin)])
-@ttl_cache(55)
+@ttl_cache(285)  # reads all of today's page_views
 def traffic_devices(days: int = Query(30, ge=1, le=730)):
     return device_analytics.overview(days)
 
 
 @router.get("/traffic/audience", dependencies=[Depends(require_admin)])
+@ttl_cache(285)  # a 30-90 day GROUP BY over audience rows; the panel polls every 30s
 def traffic_audience(days: int = Query(30, ge=1, le=90), country: str = Query("", pattern="^([A-Z]{2}|unknown)?$")):
     return audience_analytics.overview(days, country=country)
 
 
 @router.get("/traffic/audience/live", dependencies=[Depends(require_admin)])
+@ttl_cache(60)  # scans 24h of location rows; the map polled every 10s
 def traffic_audience_live(country: str = Query("", pattern="^([A-Z]{2}|unknown)?$")):
     return audience_live.overview(country=country)
 
 
 @router.get("/traffic/audience/regions", dependencies=[Depends(require_admin)])
+@ttl_cache(285)  # a 30-90 day GROUP BY; the map polled every 10s
 def traffic_audience_regions(days: int = Query(30, ge=1, le=90), country: str = Query("", pattern="^([A-Z]{2}|unknown)?$")):
     return audience_live.region_history(days, country=country)
 
@@ -166,13 +175,14 @@ def traffic_audience_regions(days: int = Query(30, ge=1, le=90), country: str = 
 @router.get("/pages/top", dependencies=[Depends(require_admin)])
 @ttl_cache(285)
 def pages_top(limit: int = Query(7, ge=1, le=200)):
-    since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
-    items = page_view_store.counts_by_page(since, limit)
+    # Closed days from the daily rollup, only today from raw rows: a 7-day raw scan
+    # of page_views per refresh was one of the dashboard's heaviest reads.
+    items = page_view_store.counts_by_page_days(_RANKING_WINDOW.days, limit)
     return {"items": items}
 
 
 @router.get("/research/stats", dependencies=[Depends(require_admin)])
-@ttl_cache(30)
+@ttl_cache(285)  # days of raw page_views x4 queries; 30s was a scan every poll
 def research_stats(days: int = Query(7, ge=1, le=30), path: str = Query("", max_length=100)):
     from app.services.discovery_catalog import SERVICES
     if path and path not in {item[0] for item in SERVICES}:
@@ -182,7 +192,7 @@ def research_stats(days: int = Query(7, ge=1, le=30), path: str = Query("", max_
 
 
 @router.get("/hot-issues/stats", dependencies=[Depends(require_admin)])
-@ttl_cache(30)
+@ttl_cache(285)  # days of raw page_views x4 queries; 30s was a scan every poll
 def hot_issue_stats(days: int = Query(7, ge=1, le=30)):
     from app.services import hot_issues
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -696,7 +706,16 @@ def health():
     return system_health.snapshot()
 
 
+@router.get("/db/reads", dependencies=[Depends(require_admin)])
+def db_reads(limit: int = Query(40, ge=1, le=400)):
+    """Turso rows_read (the billed quantity) per statement since this process started."""
+    from app.services import turso
+
+    return turso.read_stats(limit)
+
+
 _warm_started = False
+WARM_WHILE_ADMIN_IDLE_SECONDS = 15 * 60
 
 
 def start_warmer() -> None:
@@ -751,9 +770,17 @@ def start_warmer() -> None:
             time.sleep(1)
 
     def loop() -> None:
+        # Only while someone is using the dashboard. Every job here scans days of
+        # page_views / hub_events, and Turso bills each scanned row: warming them every
+        # few minutes around the clock read far more than the dashboard itself ever did.
+        # After an idle stretch the first panels are answered from the last (stale)
+        # values while admin_query_cache refreshes them, so nothing waits.
         time.sleep(90)  # after the site's own startup work
+        last = -1e9
         while True:
-            warm_once()
-            time.sleep(240)
+            if admin_auth.admin_recently_active(WARM_WHILE_ADMIN_IDLE_SECONDS) and time.monotonic() - last >= 240:
+                last = time.monotonic()
+                warm_once()
+            time.sleep(30)
 
     threading.Thread(target=loop, name="admin-warmer", daemon=True).start()

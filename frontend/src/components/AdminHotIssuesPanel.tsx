@@ -42,7 +42,7 @@ export default function AdminHotIssuesPanel() {
       catch (e) { if (alive) { if (e instanceof AdminAuthError) navigate("/admin"); else setError(e instanceof Error ? e.message : "핫이슈 통계를 불러오지 못했습니다."); } }
       finally { pending = false; }
     };
-    void load(); const stop = startVisibilityAwareInterval(() => void load(), 30_000);
+    void load(); const stop = startVisibilityAwareInterval(() => void load(), 300_000);
     return () => { alive = false; stop(); };
   }, [days, revision]);
   const data = result?.days === days ? result : null;

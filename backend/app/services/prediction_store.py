@@ -124,6 +124,8 @@ _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_predictions_predict_date ON stock_predictions (predict_date)",
     "CREATE INDEX IF NOT EXISTS idx_predictions_code_date ON stock_predictions (stock_code, predict_date)",
     "CREATE INDEX IF NOT EXISTS idx_predictions_market_predict ON stock_predictions (market, predict_date)",
+    # has_run (the scheduler, every 5 minutes in its window) filters on collect_date.
+    "CREATE INDEX IF NOT EXISTS idx_predictions_collect_market ON stock_predictions (collect_date, market)",
 )
 
 # (db column, row-dict key). One list drives the INSERT, the UPDATE-on-conflict, the

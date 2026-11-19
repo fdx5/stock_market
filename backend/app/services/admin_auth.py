@@ -187,8 +187,20 @@ def _require(authorization: str | None, scopes: tuple[str, ...]) -> None:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
 
+# When an admin request last passed (monotonic). The dashboard's background warmer
+# reads it: recomputing week-long page_views/hub_events aggregates every few minutes
+# while nobody has the dashboard open was a steady drain on Turso's read quota.
+last_admin_seen = 0.0
+
+
+def admin_recently_active(within: float) -> bool:
+    return last_admin_seen > 0 and time.monotonic() - last_admin_seen <= within
+
+
 def require_admin(authorization: str | None = Header(default=None)) -> None:
+    global last_admin_seen
     _require(authorization, (SCOPE_ADMIN,))
+    last_admin_seen = time.monotonic()
 
 
 def require_monitor(authorization: str | None = Header(default=None)) -> None:

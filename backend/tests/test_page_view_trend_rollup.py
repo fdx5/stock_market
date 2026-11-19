@@ -45,3 +45,27 @@ def test_daily_trend_matches_the_raw_bucket_queries(monkeypatch, tmp_path):
     # The closed days are now rolled up and read without touching page_views.
     assert pvs.ensure_trend_rollups(4) == 2  # the two older closed days not yet read
     assert pvs.ensure_trend_rollups(4) == 0
+
+
+def test_week_ranking_from_rollups_matches_raw_counts(monkeypatch, tmp_path):
+    _use_temp_db(monkeypatch, tmp_path)
+    now = datetime.now(pvs.KST)
+
+    def seed(conn):
+        for d in range(0, 9):
+            when = now - timedelta(days=d)
+            _add(conn, f"a{d}", "/desk", when)
+            _add(conn, f"b{d}", "/stock/005930", when)
+            _add(conn, f"c{d}", "/stock/000660", when)
+            _add(conn, "bot", "/desk", when, is_bot=1)
+        conn.commit()
+
+    pvs._with_connection(seed)
+    since = datetime.combine((now - timedelta(days=6)).date(), datetime.min.time(), pvs.KST).astimezone(timezone.utc)
+    raw = pvs.counts_by_page(since.isoformat())
+    # Before the rollup exists (read from raw days) and after it.
+    assert pvs.counts_by_page_days(7) == raw
+    pvs.ensure_trend_rollups(8)
+    assert pvs.counts_by_page_days(7) == raw
+    assert pvs.counts_by_page_days(7, 1) == raw[:1]
+    assert raw[0] == {"path": "/stock/{code}", "count": 14}

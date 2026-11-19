@@ -169,4 +169,15 @@ def snapshot() -> dict:
         "logs": logs,
         "admin_cache": admin_query_cache.status(),
         "realestate": realestate,
+        "db_reads": _db_reads(),
     }
+
+
+def _db_reads() -> dict:
+    """Turso rows_read per statement since start (the billed quantity), top 15."""
+    from app.services import turso
+
+    try:
+        return turso.read_stats(15)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}"}

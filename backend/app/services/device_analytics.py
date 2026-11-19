@@ -24,6 +24,9 @@ SCHEMAS = (
         id INTEGER PRIMARY KEY CHECK(id=1), first_day TEXT, updated_at TEXT)""",
     """CREATE INDEX IF NOT EXISTS idx_page_views_device_day ON page_views(created_at)
         WHERE event_type='page_view' AND is_bot IS NOT 1""",
+    # Additive: the 5-minute worker reads the completion markers; without this it
+    # scanned every device row of every day each time.
+    """CREATE INDEX IF NOT EXISTS idx_device_traffic_type_day ON device_traffic_daily(device_type, day)""",
 )
 _started = False
 _job_lock = threading.Lock()

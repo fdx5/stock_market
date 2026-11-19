@@ -44,3 +44,18 @@ def test_a_connection_that_never_opened_is_retried_even_for_a_write(monkeypatch)
     c, calls = _conn(monkeypatch, [requests.ConnectTimeout("no route"), Resp()])
     c.execute("INSERT INTO t VALUES (1)")
     assert len(calls) == 2
+
+
+def test_rows_read_is_tallied_per_statement(monkeypatch):
+    class Counted(Resp):
+        def json(self):
+            body = super().json()
+            body["results"][0]["response"]["result"]["rows_read"] = 1234
+            return body
+
+    c, _ = _conn(monkeypatch, [Counted()])
+    sql = "SELECT  x FROM   rows_read_probe"
+    c.execute(sql)
+    top = {row["sql"]: row for row in turso.read_stats(400)["top"]}
+    assert top["SELECT x FROM rows_read_probe"]["rows_read"] == 1234
+    assert top["SELECT x FROM rows_read_probe"]["calls"] == 1

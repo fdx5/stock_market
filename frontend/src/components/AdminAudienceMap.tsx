@@ -50,7 +50,7 @@ export default function AdminAudienceMap({ days = 30, country = "", reloadKey = 
       catch (e) { if (!gone) setError(e instanceof Error ? e.message : "접속 지도를 불러오지 못했습니다."); }
       finally { pending = false; }
     };
-    void load(); const stop = startVisibilityAwareInterval(() => void load(), 10_000);
+    void load(); const stop = startVisibilityAwareInterval(() => void load(), 60_000);
     return () => { gone = true; stop(); };
   }, [reload, mode, days, country, reloadKey]);
   useEffect(() => {

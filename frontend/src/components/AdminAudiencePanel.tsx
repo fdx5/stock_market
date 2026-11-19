@@ -37,7 +37,7 @@ export default function AdminAudiencePanel() {
       } finally { pending = false; }
     };
     void load();
-    const stop = startVisibilityAwareInterval(() => void load(), 30_000);
+    const stop = startVisibilityAwareInterval(() => void load(), 300_000);
     return () => { cancelled = true; stop(); };
   }, [days, country, reload]);
   const data = result?.days === days && (result.country || "") === country ? result : null;

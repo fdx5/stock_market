@@ -20,7 +20,7 @@ export default function AdminResearchPanel() {
       catch (e) { if (alive) { if (e instanceof AdminAuthError) navigate("/admin"); else setError(e instanceof Error ? e.message : "신규 서비스 통계를 불러오지 못했습니다."); } }
       finally { pending = false; }
     };
-    void load(); const stop = startVisibilityAwareInterval(() => void load(), 30_000);
+    void load(); const stop = startVisibilityAwareInterval(() => void load(), 300_000);
     return () => { alive = false; stop(); };
   }, [days, path, revision]);
   const data = result?.days === days && result.path === path ? result : null;

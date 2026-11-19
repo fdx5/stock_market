@@ -101,6 +101,67 @@ _IDEMPOTENT_DDL = re.compile(
 _TABLE_INFO = re.compile(r"^\s*PRAGMA\s+table_info\s*\(", re.I)
 _SCHEMA_CHANGE = re.compile(r"^\s*(ALTER|DROP|CREATE)\b", re.I)
 _schema_lock = threading.Lock()
+
+# Turso bills the rows each statement *scans* (rows_read in every Hrana execute
+# result), not the rows it returns. Tallied per statement text (parameters are bound,
+# so the text carries no values) so the admin health view and the hourly log can name
+# the statement that is eating the read quota instead of it being guessed from code.
+_reads_lock = threading.Lock()
+_reads: dict[str, list] = {}  # sql -> [calls, rows_read, rows_returned]
+_reads_started = time.time()
+_reads_logged = time.monotonic()
+_READS_MAX_KEYS = 400
+_READS_LOG_SECONDS = 3600
+
+
+def _note_reads(sql: str, rows_read: int, returned: int) -> None:
+    global _reads_logged
+    key = " ".join(sql.split())[:240]
+    report = None
+    with _reads_lock:
+        entry = _reads.get(key)
+        if entry is None:
+            if len(_reads) >= _READS_MAX_KEYS:
+                key = "(other statements)"
+                entry = _reads.setdefault(key, [0, 0, 0])
+            else:
+                entry = _reads[key] = [0, 0, 0]
+        entry[0] += 1
+        entry[1] += rows_read
+        entry[2] += returned
+        now = time.monotonic()
+        if now - _reads_logged >= _READS_LOG_SECONDS:
+            _reads_logged = now
+            report = sorted(_reads.items(), key=lambda kv: kv[1][1], reverse=True)[:8]
+    if report:
+        import logging
+        log = logging.getLogger(__name__)
+        total = sum(v[1] for _, v in report)
+        log.info("turso rows_read since start (top 8 = %d): %s", total,
+                 " | ".join(f"{v[1]}r/{v[0]}x {k[:90]}" for k, v in report))
+
+
+def read_stats(limit: int = 30) -> dict:
+    """Rows read per statement since this process started, heaviest first."""
+    with _reads_lock:
+        items = sorted(_reads.items(), key=lambda kv: kv[1][1], reverse=True)
+        total = sum(v[1] for _, v in items)
+        calls = sum(v[0] for _, v in items)
+    hours = max((time.time() - _reads_started) / 3600, 1 / 60)
+    return {
+        "since": _reads_started,
+        "hours": round(hours, 2),
+        "rows_read": total,
+        "rows_read_per_hour": round(total / hours),
+        "statements": calls,
+        "top": [
+            {"sql": k, "calls": v[0], "rows_read": v[1], "rows_returned": v[2],
+             "per_hour": round(v[1] / hours), "share": round(v[1] / total, 4) if total else 0}
+            for k, v in items[:limit]
+        ],
+    }
+
+
 _ddl_done: set[tuple[str, str]] = set()
 _table_info: dict[tuple[str, str, tuple], tuple[list[str], list[tuple]]] = {}
 
@@ -264,14 +325,20 @@ class Connection:
             raise TursoUnreachable(f"unreadable response from the database: {exc}") from exc
 
         cursors: list[Cursor] = []
-        for entry in payload.get("results", []):
+        for index, entry in enumerate(payload.get("results", [])):
             if entry.get("type") == "error":
                 message = (entry.get("error") or {}).get("message", "unknown error")
                 raise TursoError(message)
             response_body = entry.get("response") or {}
             if response_body.get("type") != "execute":
                 continue
-            cursors.append(_to_cursor(response_body["result"]))
+            result = response_body["result"]
+            if index < len(statements):
+                try:
+                    _note_reads(statements[index][0], int(result.get("rows_read") or 0), len(result.get("rows") or ()))
+                except Exception:  # noqa: BLE001 - accounting must never fail a query
+                    pass
+            cursors.append(_to_cursor(result))
         return cursors
 
     def execute(self, sql: str, parameters: Sequence[Any] = ()) -> Cursor:

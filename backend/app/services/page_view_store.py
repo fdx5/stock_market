@@ -438,6 +438,48 @@ def counts_by_page(since_iso: str, limit: int | None = None) -> list[dict]:
     return [{"path": path, "count": count} for path, count in rows]
 
 
+def counts_by_page_days(days: int, limit: int | None = None) -> list[dict]:
+    """counts_by_page over the last `days` KST days including today: closed days from
+    page_views_trend_daily (rolled up once per day), today from raw rows. Same route
+    folding as counts_by_page; reads a few hundred rollup rows instead of a week of
+    raw events."""
+    today = datetime.now(KST).date()
+    closed = _closed_days(days - 1, today)
+
+    def _run(conn):
+        # Read-only: a closed day the nightly rollup has not reached yet is counted
+        # from its raw rows here rather than written (ensure_trend_rollups owns that).
+        rows: list[tuple] = []
+        for day in _missing_trend_days(conn, closed):
+            start, end = _kst_day_bounds(day)
+            rows += conn.execute(
+                f"SELECT {_ROUTE_TEMPLATE_SQL} AS route, COUNT(*) FROM page_views "
+                f"WHERE created_at >= ? AND created_at < ? AND {HUMAN} GROUP BY route",
+                (start, end),
+            ).fetchall()
+        if closed:
+            rows += conn.execute(
+                f"SELECT {_ROUTE_TEMPLATE_SQL} AS route, SUM(views) FROM page_views_trend_daily "
+                "WHERE day >= ? AND day <= ? GROUP BY route",
+                (closed[0], closed[-1]),
+            ).fetchall()
+        start_iso, _ = _kst_day_bounds(today.isoformat())
+        rows += conn.execute(
+            f"SELECT {_ROUTE_TEMPLATE_SQL} AS route, COUNT(*) FROM page_views "
+            f"WHERE created_at >= ? AND {HUMAN} GROUP BY route",
+            (start_iso,),
+        ).fetchall()
+        return rows
+
+    totals: dict[str, int] = {}
+    for route, count in _with_connection(_run):
+        totals[route] = totals.get(route, 0) + int(count or 0)
+    items = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
+    if limit is not None:
+        items = items[:limit]
+    return [{"path": path, "count": count} for path, count in items if count]
+
+
 _BUCKET_FORMAT = {"minute": "%Y-%m-%dT%H:%M", "day": "%Y-%m-%d"}
 
 
