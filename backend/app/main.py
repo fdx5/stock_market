@@ -578,6 +578,12 @@ def _start_hot_issue_writer() -> None:
 
 
 @app.on_event("startup")
+def _start_social_publish_trigger() -> None:
+    from app.services import social_publish_scheduler
+    social_publish_scheduler.start_scheduler()
+
+
+@app.on_event("startup")
 def _start_naver_session_keepalive() -> None:
     # Not a batch — this only walks blog.naver.com every few hours so Naver keeps
     # rotating the stored session cookies. The publish batch itself runs once per

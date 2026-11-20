@@ -162,11 +162,20 @@ def export_maps():
         # frames, pointer, and overlays are never part of that canvas.
         for market, route, title in MAPS:
             page = context.new_page()
-            endpoint = "/api/market/map?limit=500" if market == "kospi" else "/api/market/kosdaq-map?limit=200"
+            limit = 500 if market == "kospi" else 200
+            endpoint = f'/api/market/{"map" if market == "kospi" else "kosdaq-map"}?limit={limit}'
             with page.expect_response(lambda response: endpoint in response.url, timeout=60000) as loaded:
                 page.goto(SITE + route, wait_until="domcontentloaded", timeout=60000)
             full_snapshot = loaded.value.json()
-            expect(page.locator(".kospi-map-tile")).to_have_count(full_snapshot["count"], timeout=60000)
+            minimum = math.ceil(limit * 0.95)
+            if full_snapshot["count"] < minimum:
+                raise RuntimeError(f"{market} map response is incomplete: {full_snapshot['count']} of {limit}")
+            # The treemap can omit a tile when its sector has too little visible area.
+            # Allow that difference while guarding against the initial partial render.
+            page.wait_for_function(
+                "(minimum) => document.querySelectorAll('.kospi-map-tile').length >= minimum",
+                arg=minimum, timeout=60000,
+            )
             page.locator(".kospi-map-updated").wait_for(timeout=60000)
             download = page.get_by_role("button", name=re.compile("MAP 다운로드|Download MAP", re.I))
             expect(download).to_be_enabled(timeout=45000)
