@@ -107,7 +107,7 @@ def _articles(query, bing):
                 continue
         title = re.sub(r"\s+By \w+$", "", title.removesuffix(" - " + source))
         excerpt = unescape(re.sub("<[^>]+>", "", item.findtext("description", ""))).strip() if bing else ""
-        rows.append(dict(title=title, url=link, source=source, summary=excerpt[:300], published=published.isoformat(), translated=False))
+        rows.append(dict(title=title, url=link, source=source, summary=excerpt[:300], published=published.astimezone(timezone.utc).isoformat(), translated=False))
     return sorted(rows, key=lambda row: row["published"], reverse=True)
 
 
@@ -131,6 +131,84 @@ NEWS_TERMS = {
 }
 
 
+# Home-language Google News for markets whose own press rarely reaches Korean or
+# US-English searches. Only established outlets of that market are kept.
+LOCAL_SEARCH = {
+    "DE": [("DAX Börse when:2d", "de", "DE")],
+    "CH": [("SMI Börse when:2d", "de", "CH")],
+    "AU": [("ASX 200 when:2d", "en-AU", "AU")],
+    "SA": [("تاسي when:2d", "ar", "SA"), ("Saudi TASI when:3d", "en", "US")],
+    "GB": [("FTSE 100 when:2d", "en-GB", "GB")],
+    "FR": [("CAC 40 Bourse when:2d", "fr", "FR")],
+}
+# Arabic outlets appear under their Arabic names (Argaam with its whole tagline).
+SOURCE_NAMES = {"ارقام": "Argaam", "الاقتصادية": "Al Eqtisadiah", "صحيفة مال": "Maaal", "اندبندنت عربية": "Independent Arabia",
+                "عاجل": "Ajel", "الشرق الأوسط": "Asharq Al-Awsat", "ASHARQ AL-AWSAT English": "Asharq Al-Awsat", "العربية": "Al Arabiya"}
+# Derivative quote pages and other listings that share index names with news.
+LISTING = re.compile(r"\bTurbo\b|Optionsschein|Zertifikat|Knock-?out|\| (Kurs|Chart|Preis)|Stock Price Today|Cours (de )?Bourse|: Cours", re.I)
+LOCAL_PUBLISHERS = {name.casefold() for name in (
+    "tagesschau.de", "Manager Magazin", "WELT", "Finanzen.net", "DIE ZEIT", "Onvista", "boerse.de", "Der Aktionär",
+    "n-tv.de", "Handelsblatt", "FAZ", "Frankfurter Allgemeine", "FAZ - Frankfurter Allgemeine Zeitung",
+    "Süddeutsche Zeitung", "DER SPIEGEL", "Börse Online", "Börse Frankfurt", "WirtschaftsWoche", "Capital", "dpa-AFX",
+    "finanzen.ch", "Cash", "NZZ", "Neue Zürcher Zeitung", "SRF", "Handelszeitung", "Tages-Anzeiger", "Blick",
+    "nau.ch", "Finanz und Wirtschaft", "finews.ch", "AWP", "Luzerner Zeitung", "watson",
+    "The Motley Fool Australia", "Market Index", "The Sydney Morning Herald", "The Australian Financial Review",
+    "AFR", "ABC News", "The Australian", "news.com.au", "Herald Sun", "Livewire Markets", "The Guardian",
+    "Arab News", "Argaam", "Saudi Gazette", "Asharq Al-Awsat", "Zawya", "Reuters", "Bloomberg",
+    "Al Eqtisadiah", "Maaal", "Independent Arabia", "Ajel", "Al Arabiya",
+    "Yahoo Finance UK", "marketscreener.com", "Investors' Chronicle", "City AM", "Interactive Investor", "The Times",
+    "London Evening Standard", "Investing.com UK", "BBC", "Financial Times", "The Telegraph", "This is Money", "Sky News",
+    "Boursorama", "Investir Les Echos", "BFM Bourse", "Zonebourse", "Boursier.com", "ABC Bourse", "Capital.fr",
+    "Le Revenu", "Les Echos", "Le Figaro Bourse", "Le Figaro", "Le Monde", "La Tribune", "Yahoo Finance France", "France 24",
+)}
+
+
+# The translator renders "Anthropic" literally ("인류") but leaves "Anthropic Inc."
+# alone; the marked name is put back in Korean afterwards.
+GLOSSARY_KO = {"anthropic": "앤트로픽", "nvidia": "엔비디아", "openai": "오픈AI"}
+GLOSSARY = re.compile(r"\b(" + "|".join(GLOSSARY_KO) + r")\b(?:,? Inc\.?)?", re.I)
+MARKED = re.compile(r"\b(" + "|".join(GLOSSARY_KO) + r")(?:,? Inc\.?)?", re.I)
+
+
+def _particles(text):
+    """Re-pick the Korean particle after a substituted name (앤트로픽와 -> 앤트로픽과)."""
+    def fix(m):
+        word, particle = m.group(1), m.group(2)
+        batchim = (ord(word[-1]) - 0xAC00) % 28 != 0
+        pairs = {"와": "과", "가": "이", "는": "은", "를": "을", "로": "으로"}
+        if batchim:
+            return word + pairs.get(particle, particle)
+        back = {v: k for k, v in pairs.items()}
+        return word + back.get(particle, particle)
+    names = "|".join(GLOSSARY_KO.values())
+    text = re.sub(rf"({names})\s?\((주|Inc\.?)\)", r"\1", text)
+    return re.sub(rf"({names})(으로|와|과|가|이|는|은|를|을|로)(?![가-힣])", fix, text)
+
+
+def _local_articles(country):
+    rows = []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=3)
+    for query, hl, gl in LOCAL_SEARCH[country]:
+        response = requests.get("https://news.google.com/rss/search", timeout=(2, 5),
+                                params={"q": query, "hl": hl, "gl": gl, "ceid": f"{gl}:{hl.split('-')[0]}"})
+        response.raise_for_status()
+        for item in ET.fromstring(response.content).findall("./channel/item"):
+            try:
+                published = parsedate_to_datetime(item.findtext("pubDate", ""))
+            except (TypeError, ValueError):
+                continue
+            raw = (item.findtext("source") or "").strip()
+            source = next((name for prefix, name in SOURCE_NAMES.items() if raw.startswith(prefix)), raw)
+            link = item.findtext("link", "").strip()
+            title = unescape(item.findtext("title", "")).strip().removesuffix(" - " + raw)
+            if (published < cutoff or source.casefold() not in LOCAL_PUBLISHERS or urlsplit(link).scheme != "https"
+                    or LISTING.search(title)):
+                continue
+            rows.append(dict(title=title, url=link, source=source, summary="",
+                             published=published.astimezone(timezone.utc).isoformat(), translated=False))
+    return rows
+
+
 def _news(country):
     stories = {}
     received = False
@@ -140,8 +218,15 @@ def _news(country):
     for row in publisher_stories(country, pattern, MARKET_EVENT):
         stories.setdefault(row["title"], row)
         received = True
+    if country in LOCAL_SEARCH:
+        try:
+            for row in _local_articles(country):
+                stories.setdefault(row["title"], row)
+            received = True
+        except (requests.RequestException, ET.ParseError):
+            pass
     for query, bing in ((QUERIES[country], True), (fallback, True), (QUERIES[country], False)):
-        if len(stories) >= 8:
+        if len(stories) >= 12:
             break
         try:
             rows = _articles(query, bing)
@@ -154,12 +239,16 @@ def _news(country):
     if not received:
         raise HTTPException(503, "News feed unavailable")
     selected = []
-    for row in sorted(stories.values(), key=lambda item: item["published"], reverse=True):
+    fresh = (datetime.now(timezone.utc) - timedelta(hours=36)).isoformat()
+    rank = lambda row: (row["published"] >= fresh, bool(row.get("paragraphs")) + bool(row.get("image")), row["published"])
+    for row in sorted(stories.values(), key=rank, reverse=True):
         # The same wire story often reappears with a lightly edited headline.
         bare = lambda title: re.sub(r"^\[[^\]]*\]\s*", "", title)
+        if sum(kept["source"] == row["source"] for kept in selected) >= 2:
+            continue
         if not any(SequenceMatcher(None, bare(row["title"]), bare(kept["title"])).ratio() > 0.8 for kept in selected):
             selected.append(row)
-    selected = selected[:5]
+    selected = selected[:6]
     with ThreadPoolExecutor(max_workers=5) as pool:
         selected = list(pool.map(enrich, selected)) if selected else []
     hangul = re.compile(r"[가-힣]")
@@ -169,11 +258,12 @@ def _news(country):
         row.setdefault("image", None)
         fields += [(row, key, None) for key in ("title", "summary") if row[key] and not hangul.search(row[key])]
         fields += [(row, "paragraphs", i) for i, line in enumerate(row["paragraphs"]) if not hangul.search(line)]
-    translations = translate_via_chrome([row[key] if i is None else row[key][i] for row, key, i in fields], "auto", "ko")
+    texts = [GLOSSARY.sub(lambda m: m.group(1) + " Inc.", row[key] if i is None else row[key][i]) for row, key, i in fields]
+    translations = translate_via_chrome(texts, "auto", "ko")
     if fields and not translations and all(not hangul.search(row["title"]) for row in selected):
         raise HTTPException(503, "Korean translation unavailable")
     for (row, key, i), translated in zip(fields, translations or [""] * len(fields)):
-        value = translated if hangul.search(translated or "") else ""
+        value = _particles(MARKED.sub(lambda m: GLOSSARY_KO[m.group(1).casefold()], translated)) if hangul.search(translated or "") else ""
         if i is None:
             row[key] = value
         else:
@@ -181,10 +271,10 @@ def _news(country):
         row["translated"] = True
     for row in selected:
         row["paragraphs"] = [line for line in row["paragraphs"] if line]
-    # Stories with a picture and readable body lead the list.
+    # Today's and yesterday's stories first; within them, a picture and readable body lead.
     selected = [row for row in selected if row["title"]]
-    selected.sort(key=lambda row: (bool(row["image"]) + bool(row["paragraphs"]), row["published"]), reverse=True)
-    return selected[:4]
+    selected.sort(key=rank, reverse=True)
+    return selected[:5]
 
 
 @router.get("/news/{country}")

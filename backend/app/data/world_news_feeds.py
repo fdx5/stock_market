@@ -18,11 +18,26 @@ COMMON = [
     ("머니투데이", "https://rss.mt.co.kr/mt_news.xml"),
 ]
 REGIONAL = {
-    "CA": ("The Globe and Mail", "https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/investing/"),
-    "GB": ("The Guardian", "https://www.theguardian.com/business/stock-markets/rss"),
-    "FR": ("BFM Business", "https://www.bfmtv.com/rss/economie/"),
-    "AU": ("The Sydney Morning Herald", "https://www.smh.com.au/rss/business.xml"),
-    "IN": ("The Economic Times", "https://economictimes.indiatimes.com/markets/stocks/news/rssfeeds/2146842.cms"),
+    "CA": [("The Globe and Mail", "https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/investing/")],
+    "GB": [("The Guardian", "https://www.theguardian.com/business/stock-markets/rss")],
+    "FR": [("BFM Business", "https://www.bfmtv.com/rss/economie/")],
+    "AU": [("The Sydney Morning Herald", "https://www.smh.com.au/rss/business.xml")],
+    "IN": [("The Economic Times", "https://economictimes.indiatimes.com/markets/stocks/news/rssfeeds/2146842.cms")],
+    "DE": [("tagesschau.de", "https://www.tagesschau.de/wirtschaft/finanzen/index~rss2.xml"),
+           ("n-tv.de", "https://www.n-tv.de/wirtschaft/rss"),
+           ("Handelsblatt", "https://www.handelsblatt.com/contentexport/feed/finanzen"),
+           ("Frankfurter Allgemeine", "https://www.faz.net/rss/aktuell/finanzen/")],
+    "CH": [("NZZ", "https://www.nzz.ch/finanzen.rss"), ("NZZ", "https://www.nzz.ch/wirtschaft.rss"),
+           ("SRF", "https://www.srf.ch/news/bnf/rss/1926"),
+           ("Tages-Anzeiger", "https://www.tagesanzeiger.ch/wirtschaft/rss.html"),
+           ("finews.ch", "https://www.finews.ch/news?format=feed")],
+}
+# Home-market feeds write in their own language and rarely name the country in a
+# market headline, so they are matched on local market vocabulary instead.
+LOCAL = {
+    "DE": re.compile(r"\bDax\b|MDax|TecDax|Marktbericht|Börse Frankfurt|deutsche[nr]? Aktien|Frankfurter Börse", re.I),
+    "CH": re.compile(r"\bSMI\b|SPI\b|Schweizer (Börse|Aktien|Aktienmarkt)|Börse Zürich|Aktien Schweiz|SIX", re.I),
+    "AU": re.compile(r"\bASX\b|sharemarket|Australian shares|S&P/ASX", re.I),
 }
 
 # "[서울=뉴시스] 홍길동 기자 = " style datelines that open Korean wire copy.
@@ -57,7 +72,7 @@ def _read(source, url):
         image = next((node.get("url") for node in item if node.tag in
                       ("enclosure", "{http://search.yahoo.com/mrss/}content", "{http://search.yahoo.com/mrss/}thumbnail")
                       and node.get("url") and (node.get("type") or "image/").startswith("image/")), None)
-        rows.append((title, link, source, published.isoformat(), html, image))
+        rows.append((title, link, source, published.astimezone(timezone.utc).isoformat(), html, image))
     return rows
 
 
@@ -69,11 +84,20 @@ def _cached(feed):
         return []
 
 
+def home_feed(source):
+    """Home-market publishers whose feeds carry only a teaser; the page fills the body."""
+    return any(source == name for feeds in REGIONAL.values() for name, _ in feeds)
+
+
 def publisher_stories(country, pattern, market_event):
-    feeds = [*COMMON, *([REGIONAL[country]] if country in REGIONAL else [])]
-    with ThreadPoolExecutor(max_workers=len(feeds)) as pool:
-        candidates = [item for feed in pool.map(_cached, feeds) for item in feed
+    regional = REGIONAL.get(country, [])
+    local = LOCAL.get(country)
+    with ThreadPoolExecutor(max_workers=len(COMMON) + len(regional)) as pool:
+        common, home = pool.map(_cached, COMMON), pool.map(_cached, regional)
+        candidates = [item for feed in common for item in feed
                       if re.search(pattern, item[0], re.I) and market_event.search(item[0])]
+        candidates += [item for feed in home for item in feed
+                       if (local.search(item[0]) if local else re.search(pattern, item[0], re.I) and market_event.search(item[0]))]
     stories = {}
     for title, link, source, published, html, media in sorted(candidates, key=lambda item: item[3], reverse=True):
         if link in stories:
@@ -88,10 +112,10 @@ def publisher_stories(country, pattern, market_event):
         lines = [line for line in lines if len(line) > 12 and line.lower() not in ("continue reading...", "continue reading…")]
         lines = [BYLINE.sub("", line).strip() for line in lines]
         lines = [line for line in lines if len(line) > 12]
-        if len(" ".join(lines)) < 100:
+        if len(" ".join(lines)) < 100 and not home_feed(source):
             continue
         stories[link] = dict(title=title, url=link, source=source, published=published, translated=False,
-                             summary=lines[0], paragraphs=lines[1:16], image=picture(media or (img and img["src"]), link))
+                             summary=lines[0] if lines else "", paragraphs=lines[1:16], image=picture(media or (img and img["src"]), link))
         if len(stories) >= 6:
             break
     return list(stories.values())
@@ -143,7 +167,7 @@ def _brief(text, limit=210):
 
 def tidy(story):
     """Drop datelines, shorten the lead, and skip body lines it already covers."""
-    raw = BYLINE.sub("", story.get("summary") or "").strip()
+    raw = re.sub(r"\s*\[(mehr|more|weiterlesen|lire la suite)\]\s*$", "", BYLINE.sub("", story.get("summary") or ""), flags=re.I).strip()
     lines = [BYLINE.sub("", line).strip() for line in story.get("paragraphs") or []]
     key = lambda text: re.sub(r"\W", "", text)[:40]
     lead = _brief(raw)
