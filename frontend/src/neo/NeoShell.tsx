@@ -138,7 +138,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     const code = path.match(/^\/stock\/([A-Za-z0-9.-]+)/)?.[1] ?? params.get("code") ?? undefined;
     const market = params.get("market") ?? (code && /^[A-Za-z]/.test(code) ? "nasdaq" : "kospi");
     const to = service ? serviceLink(link[0], {code, market, region: params.get("region") ?? undefined}) : link[0];
-    return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined} onClick={link[0] === "/hot-issues" ? () => reportHotIssue("entry:menu", "메뉴") : undefined}><span>{link[lang === "ko" ? 1 : 2]}{(link[0] === "/pulse-board" || link[0] === "/hot-issues") && <b className="ng-new-badge" aria-label={L("새 메뉴", "New")}>N</b>}</span><NeoIcon name="chevron" /></Link>;
+    return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined} onClick={link[0] === "/hot-issues" ? () => reportHotIssue("entry:menu", "메뉴") : undefined}><span>{link[lang === "ko" ? 1 : 2]}{(link[0] === "/world-markets" || link[0] === "/pulse-board" || link[0] === "/hot-issues") && <b className="ng-new-badge" aria-label={L("새 메뉴", "New")}>N</b>}</span><NeoIcon name="chevron" /></Link>;
   };
   if (solar) return <div className="ng-shell ng-shell--solar">
     <GoldCursor />

@@ -1,5 +1,6 @@
 """Public, read-only market workspace. Neither prices nor articles require a database."""
 from concurrent.futures import ThreadPoolExecutor
+from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
@@ -14,6 +15,7 @@ from app.data.global_index_fetcher import get_index
 from app.data.world_markets import MARKETS, SOURCE
 from app.services.cache import cache
 from app.data.translate_fetcher import translate_via_chrome
+from app.data.world_news_feeds import enrich, publisher_stories
 
 router = APIRouter()
 QUERIES = {row[0]: row[4] for row in MARKETS}
@@ -74,7 +76,7 @@ def _articles(query, bing):
         except (ValueError, TypeError):
             continue
         link = item.findtext("link", "").strip()
-        title = item.findtext("title", "").strip()
+        title = unescape(item.findtext("title", "")).strip()
         if not title or urlsplit(link).scheme not in ("http", "https"):
             continue
         source = item.findtext("{*}Source") or item.findtext("source") or ""
@@ -85,7 +87,7 @@ def _articles(query, bing):
             link = parse_qs(urlsplit(link).query).get("url", [link])[0]
             if urlsplit(link).scheme not in ("http", "https"):
                 continue
-        title = title.removesuffix(" - " + source)
+        title = re.sub(r"\s+By \w+$", "", title.removesuffix(" - " + source))
         excerpt = unescape(re.sub("<[^>]+>", "", item.findtext("description", ""))).strip() if bing else ""
         rows.append(dict(title=title, url=link, source=source, summary=excerpt[:300], published=published.isoformat(), translated=False))
     return sorted(rows, key=lambda row: row["published"], reverse=True)
@@ -111,7 +113,14 @@ def _news(country):
     stories = {}
     received = False
     pattern, fallback = NEWS_TERMS[country]
+    # Publisher feeds carry the article body and picture themselves; search
+    # results only fill the remaining slots.
+    for row in publisher_stories(country, pattern, MARKET_EVENT):
+        stories.setdefault(row["title"], row)
+        received = True
     for query, bing in ((QUERIES[country], True), (fallback, True), (QUERIES[country], False)):
+        if len(stories) >= 8:
+            break
         try:
             rows = _articles(query, bing)
             received = True
@@ -120,21 +129,40 @@ def _news(country):
                     stories.setdefault(row["title"], row)
         except (requests.RequestException, ET.ParseError):
             continue
-        if len(stories) >= 3:
-            break
     if not received:
         raise HTTPException(503, "News feed unavailable")
-    selected = sorted(stories.values(), key=lambda item: (bool(item["summary"]), item["published"]), reverse=True)[:5]
+    selected = []
+    for row in sorted(stories.values(), key=lambda item: item["published"], reverse=True):
+        # The same wire story often reappears with a lightly edited headline.
+        bare = lambda title: re.sub(r"^\[[^\]]*\]\s*", "", title)
+        if not any(SequenceMatcher(None, bare(row["title"]), bare(kept["title"])).ratio() > 0.8 for kept in selected):
+            selected.append(row)
+    selected = selected[:5]
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        selected = list(pool.map(enrich, selected)) if selected else []
     hangul = re.compile(r"[가-힣]")
-    fields = [(row, key) for row in selected for key in ("title", "summary")
-              if row[key] and not hangul.search(row[key])]
-    translations = translate_via_chrome([row[key] for row, key in fields], "auto", "ko")
+    fields = []
+    for row in selected:
+        row.setdefault("paragraphs", [])
+        row.setdefault("image", None)
+        fields += [(row, key, None) for key in ("title", "summary") if row[key] and not hangul.search(row[key])]
+        fields += [(row, "paragraphs", i) for i, line in enumerate(row["paragraphs"]) if not hangul.search(line)]
+    translations = translate_via_chrome([row[key] if i is None else row[key][i] for row, key, i in fields], "auto", "ko")
     if fields and not translations and all(not hangul.search(row["title"]) for row in selected):
         raise HTTPException(503, "Korean translation unavailable")
-    for (row, key), translated in zip(fields, translations or [""] * len(fields)):
-        row[key] = translated if hangul.search(translated) else ""
+    for (row, key, i), translated in zip(fields, translations or [""] * len(fields)):
+        value = translated if hangul.search(translated or "") else ""
+        if i is None:
+            row[key] = value
+        else:
+            row[key][i] = value
         row["translated"] = True
-    return [row for row in selected if row["title"]][:3]
+    for row in selected:
+        row["paragraphs"] = [line for line in row["paragraphs"] if line]
+    # Stories with a picture and readable body lead the list.
+    selected = [row for row in selected if row["title"]]
+    selected.sort(key=lambda row: (bool(row["image"]) + bool(row["paragraphs"]), row["published"]), reverse=True)
+    return selected[:4]
 
 
 @router.get("/news/{country}")

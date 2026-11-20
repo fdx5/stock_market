@@ -9,7 +9,7 @@ type Market = {code: string; name: string; cap: number; indices: [string, string
 type Catalog = {source: string; period: string; markets: Market[]};
 type Point = {date: string; close: number};
 type Quote = {close: number | null; change: number | null; change_pct: number | null; points: Point[]; quote_time: number | null; stale: boolean};
-type Story = {url: string; title: string; source: string; published: string; summary: string; translated: boolean};
+type Story = {url: string; title: string; source: string; published: string; summary: string; translated: boolean; paragraphs?: string[]; image?: string | null};
 
 function useFeed<T>(url: string, interval = 0) {
   const [state, setState] = useState<{url: string; value?: T; error?: boolean}>({url});
@@ -57,6 +57,37 @@ function Placement({type, secondary = false}: {type: "banner" | "rectangle" | "r
     {import.meta.env.DEV ? <small>광고 · {type === "banner" ? "가로 배너" : type === "rail" ? "세로 배너" : "사각 배너"}</small> :
       <AdSenseBanner labelled variant={variant} fluid={type === "rail"} />}
   </aside>;
+}
+
+function StoryImage({src, alt, source}: {src?: string | null; alt: string; source: string}) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) return null;
+  return <figure className="wm-story-figure"><img src={src} alt={alt} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+    <figcaption>사진 · {source}</figcaption></figure>;
+}
+
+function NewsStory({story, featured}: {story: Story; featured: boolean}) {
+  const [open, setOpen] = useState(false);
+  const body = story.paragraphs ?? [];
+  const preview = featured ? 2 : 0;
+  const shown = open ? body : body.slice(0, preview);
+  const minutes = Math.max(1, Math.round((story.summary.length + body.join("").length) / 500));
+  const id = "wm-story-" + story.url.replace(/[^a-z0-9]/gi, "").slice(-24);
+  return <article className={featured ? "wm-story wm-story--lead" : "wm-story"} data-open={open || undefined}>
+    {(featured || open) ? <StoryImage src={story.image} alt={story.title} source={story.source} /> :
+      story.image && <img className="wm-story-thumb" src={story.image} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={e => { e.currentTarget.hidden = true; }} />}
+    <div className="wm-story-text">
+      <small className="wm-story-meta"><b>{story.source}</b><span>{kst(new Date(story.published))} KST</span>{body.length > 0 && <span>{minutes}분 읽기</span>}{story.translated && <span className="wm-story-tag">자동 번역</span>}</small>
+      <h4>{story.title}</h4>
+      {story.summary && <p className="wm-story-lead"><span>핵심</span>{story.summary}</p>}
+      {shown.length > 0 && <div className="wm-story-body" id={id}>{shown.map((line, i) => <p key={i}>{line}</p>)}</div>}
+      <div className="wm-story-actions">
+        {body.length > preview && <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(v => !v)}>{open ? "접기" : featured ? `전문 이어 읽기 (${body.length - preview}문단)` : "본문 읽기"}</button>}
+        <a href={story.url} target="_blank" rel="noreferrer">원문 보기 ↗</a>
+      </div>
+      {open && story.translated && <p className="wm-story-note">해외 매체 기사를 자동 번역했습니다. 정확한 표현은 원문을 확인하세요.</p>}
+    </div>
+  </article>;
 }
 
 function Failure({text, retry}: {text: string; retry: () => void}) {
@@ -121,7 +152,7 @@ export default function WorldMarketsPage() {
         <HoloPanel className="wm-news"><h3>{market.name} 주요 이슈</h3>
           {articles.error && <Failure text="뉴스 갱신이 지연되고 있습니다." retry={articles.retry}/>}
           {!articles.value && !articles.error && <NeoSkeleton rows={3}/>}
-          {articles.value?.map(s => <article key={s.url}><small>{s.source}{s.translated && " · 한국어 번역"} · {kst(new Date(s.published))} KST</small><h4><a href={s.url} target="_blank" rel="noreferrer">{s.title} ↗</a></h4>{s.summary && <p>{s.summary}</p>}</article>)}
+          {articles.value?.map((s, i) => <NewsStory key={market.code + s.url} story={s} featured={i === 0} />)}
           {articles.value?.length === 0 && <NeoEmptyState title="최근 7일간 확인된 주요 매체의 증시 보도가 없습니다."/>}
         </HoloPanel>
         <div className="wm-rectangle-pair">
