@@ -13,6 +13,7 @@ export const CEO_NAMES: Record<string, string> = {
   "2222.SR": "Amin H. Nasser",
   META: "Mark Zuckerberg",
   SPCX: "Elon Musk",
+  ANT: "Dario Amodei",
   TSLA: "Elon Musk",
   "005930.KS": "Jay Y. Lee",
   "BRK-B": "Greg Abel",

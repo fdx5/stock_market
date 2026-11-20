@@ -66,6 +66,7 @@ US_EXTRA_TICKERS = ("AMD", "INTC", "MU", "SNDK", "ALAB")
 # English names on a bad day would look broken next to the KRX rows.
 US_KOREAN_NAMES = {
     "SPCX": "스페이스X",
+    "ANT": "앤트로픽",
     "AAPL": "애플",
     "MSFT": "마이크로소프트",
     "NVDA": "엔비디아",

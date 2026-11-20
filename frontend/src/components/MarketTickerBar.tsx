@@ -22,6 +22,7 @@ const ICONS: Record<string, string> = {
   META: "/img/ticker/meta.webp",
   TSLA: "/img/ticker/tesla.webp",
   SPCX: "/img/ticker/spacex.webp",
+  ANT: "/img/ticker/anthropic.webp",
   "CL=F": "/img/ticker/oil.webp",
   "BTC-USD": "/img/ticker/btc.webp",
   "ETH-USD": "/img/ticker/eth.webp",

@@ -106,6 +106,7 @@ KOREAN_NAMES: dict[str, str] = {
     "ON": "온세미컨덕터",
     "ADI": "아나로그디바이스",
     "SKHY": "SK하이닉스",
+    "ANT": "앤트로픽",
 }
 
 # Corporate-form noise. A Naver query is a bag of words, so leaving "Inc" on the end

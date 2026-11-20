@@ -49,6 +49,8 @@ SYMBOLS = [
     {"symbol": "META", "label": "Meta"},
     {"symbol": "TSLA", "label": "Tesla"},
     {"symbol": "SPCX", "label": "SpaceX"},
+    # Listed on NASDAQ 2026-11-19 (IPO $83).
+    {"symbol": "ANT", "label": "Anthropic"},
     {"symbol": "BTC-USD", "label": "Bitcoin"},
     {"symbol": "ETH-USD", "label": "Ethereum"},
     {"symbol": "XRP-USD", "label": "Ripple"},

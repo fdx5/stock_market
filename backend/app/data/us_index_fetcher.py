@@ -111,6 +111,7 @@ _NON_SP500_SECTORS = {
     "FER": "Industrials",
     "RKLB": "Industrials",
     "SPCX": "Industrials",
+    "ANT": "Information Technology",
     "ALNY": "Health Care",
 }
 

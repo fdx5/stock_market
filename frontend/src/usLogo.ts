@@ -58,6 +58,8 @@ function logoSymbol(ticker: string): string {
 const SELF_HOSTED_LOGOS: Record<string, string> = {
   SKHY: "/img/ticker/skhynix.webp",
 };
+// Anthropic (ANT, listed 2026-11-19) is already on the logo host — its "A\" mark,
+// checked by eye — so it needs no entry here.
 
 export function usCompanyLogoUrl(ticker: string): string {
   return SELF_HOSTED_LOGOS[ticker] ?? `https://companiesmarketcap.com/img/company-logos/${LOGO_SIZE}/${logoSymbol(ticker)}.webp`;

@@ -10,6 +10,7 @@ export const COMPANY_SHORT_NAMES: Record<string, string> = {
   TSM: "TSMC",
   "2222.SR": "Saudi Aramco",
   META: "Meta",
+  ANT: "Anthropic",
   "BRK-B": "Berkshire",
   LLY: "Eli Lilly",
   JPM: "JPMorgan",

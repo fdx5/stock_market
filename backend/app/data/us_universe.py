@@ -1,6 +1,8 @@
 import threading
 
+from app.data.us_company_korean_names import KOREAN_NAMES
 from app.data.us_index_fetcher import get_nasdaq100_constituents, get_sp500_constituents
+from app.data.us_recent_listings import RECENT_US_LISTINGS
 from app.services.cache import cache
 from app.services.translation import translate_batch_to_korean
 
@@ -22,6 +24,22 @@ def _load_us_universe() -> list[dict]:
     seen: dict[str, dict] = {}
     for it in get_sp500_constituents() + get_nasdaq100_constituents():
         seen.setdefault(it["code"], it)
+    # New listings that neither index carries yet (see us_recent_listings) — real NASDAQ
+    # names, so they belong in search and on the detail page like any constituent.
+    # The zero price is only the last-resort snapshot; the detail page quotes live.
+    for row in RECENT_US_LISTINGS:
+        seen.setdefault(
+            row["code"],
+            {
+                "code": row["code"],
+                "name": row["name"],
+                "sector": row["sector"],
+                "marcap": 0.0,
+                "close": 0.0,
+                "change": 0.0,
+                "change_pct": 0.0,
+            },
+        )
     return list(seen.values())
 
 
@@ -125,6 +143,10 @@ def search_us_stocks(query: str, limit: int = 30) -> list[dict]:
     matched_english_names: set[str] = set()
     if korean_names:
         matched_english_names = {english for english, korean in korean_names.items() if query in korean}
+    # The curated table is the reliable Korean source (the machine translation often
+    # echoes its English input), so "앤트로픽" or "엔비디아" must find the ticker even
+    # while the translate batch is cold or unhelpful.
+    curated_codes = {code for code, korean in KOREAN_NAMES.items() if query in korean}
 
     matched = [
         item
@@ -132,5 +154,10 @@ def search_us_stocks(query: str, limit: int = 30) -> list[dict]:
         if query_lower in item["code"].lower()
         or query_lower in item["name"].lower()
         or item["name"] in matched_english_names
+        or item["code"] in curated_codes
     ]
+    # An exact ticker ("ANT") must beat every name that merely contains it (PLTR, PWR).
+    # sorted() is stable, so the remaining matches keep the universe's own order.
+    query_upper = query.upper()
+    matched.sort(key=lambda it: 0 if it["code"] == query_upper else 1)
     return [{"code": it["code"], "name": it["name"], "market": "US"} for it in matched[:limit]]

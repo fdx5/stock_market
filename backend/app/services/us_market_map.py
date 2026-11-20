@@ -9,6 +9,7 @@ from app.data.us_index_fetcher import (
     get_us_stock_quote,
     market_session,
 )
+from app.data.us_recent_listings import RECENT_US_LISTINGS
 from app.services.cache import cache
 
 
@@ -153,20 +154,106 @@ def _benchmark_weight(items: list[dict]) -> float | None:
     )
 
 
+# New NASDAQ listings that neither scrape carries yet (see us_recent_listings). Unlike
+# SKHY these are real US listings, so their weight is just Yahoo's own market cap over
+# the same benchmark-derived index total SKHY uses, and they join the NASDAQ board too.
+TTL_RECENT_LISTINGS_SECONDS = 15
+
+
+def _fetch_recent_listing_quotes() -> dict:
+    codes = [row["code"] for row in RECENT_US_LISTINGS]
+    quotes = yahoo_bulk_quote.get_quotes(codes + [MARKETCAP_BENCHMARK_TICKER])
+    benchmark_marketcap_usd = (quotes.get(MARKETCAP_BENCHMARK_TICKER) or {}).get("market_cap")
+    global _last_benchmark_marketcap_usd
+    if benchmark_marketcap_usd:
+        _last_benchmark_marketcap_usd = benchmark_marketcap_usd
+    out: dict[str, dict] = {}
+    for row in RECENT_US_LISTINGS:
+        quote = quotes.get(row["code"])
+        # Same crumbless v8 fallback the SKHY tile and every detail page rely on.
+        if not quote or not quote.get("close"):
+            try:
+                quote = get_us_stock_quote(row["code"], row["name"])
+            except Exception:
+                quote = None
+        if quote and quote.get("close"):
+            out[row["code"]] = quote
+    return {"quotes": out, "benchmark_marketcap_usd": benchmark_marketcap_usd or _last_benchmark_marketcap_usd}
+
+
+def _get_recent_listing_quotes() -> dict:
+    return cache.get_or_set("us_recent_listing_tiles", TTL_RECENT_LISTINGS_SECONDS, _fetch_recent_listing_quotes)
+
+
+def recent_listing_tiles(
+    total_marketcap_usd: float,
+    benchmark_weight: float | None = None,
+    exclude: set[str] | frozenset[str] = frozenset(),
+) -> list[dict]:
+    """One map tile per recent listing, in the same shape as a scraped constituent.
+    A quote miss drops just that tile for the request, like SKHY's; a ticker the scrape
+    already carries (`exclude`) is skipped so it can never appear twice."""
+    try:
+        base = _get_recent_listing_quotes()
+    except Exception:
+        return []
+    benchmark_marketcap_usd = base.get("benchmark_marketcap_usd")
+    if benchmark_weight and benchmark_weight > 0 and benchmark_marketcap_usd:
+        total_marketcap_usd = benchmark_marketcap_usd / (benchmark_weight / 100)
+    tiles: list[dict] = []
+    for row in RECENT_US_LISTINGS:
+        quote = base["quotes"].get(row["code"])
+        if row["code"] in exclude or not quote:
+            continue
+        market_cap = quote.get("market_cap") or quote.get("regular_close") or quote["close"]
+        if not quote.get("market_cap"):
+            market_cap = market_cap * row["shares_outstanding"]
+        tiles.append(
+            {
+                **{k: v for k, v in quote.items() if k not in {"code", "name"}},
+                "code": row["code"],
+                "name": row["name"],
+                "sector": row["sector"],
+                "market_cap": market_cap,
+                "marcap": market_cap / total_marketcap_usd * 100,
+                "listed_on": row["listed_on"],
+                "ipo_price": row["ipo_price"],
+            }
+        )
+    return tiles
+
+
+def _with_extra_tiles(items: list[dict], total_marketcap_usd: float) -> list[dict]:
+    weight = _benchmark_weight(items)
+    present = {it.get("code") for it in items}
+    extra = recent_listing_tiles(total_marketcap_usd, weight, exclude=present)
+    skhy = _skhynix_tile(total_marketcap_usd, weight)
+    return items + extra + ([skhy] if skhy else [])
+
+
 def get_sp500_map_with_skhynix(limit: int = 503, fresh: bool = False) -> list[dict]:
-    """get_sp500_map, plus SK Hynix's tile — see the note above. A quote miss (Yahoo
-    not answering for SKHY, or a crumb handshake failure) just omits the tile for that
-    request rather than failing the whole map; it reappears once the miss clears."""
-    items = get_sp500_map(limit, fresh=fresh)
-    extra = _skhynix_tile(_SP500_TOTAL_MARKETCAP_USD, _benchmark_weight(items))
-    return items + [extra] if extra else items
+    """get_sp500_map, plus SK Hynix's tile — see the note above — and any recent NASDAQ
+    listing not yet in the scrape. A quote miss (Yahoo not answering, or a crumb
+    handshake failure) just omits that tile for the request rather than failing the
+    whole map; it reappears once the miss clears."""
+    return _with_extra_tiles(get_sp500_map(limit, fresh=fresh), _SP500_TOTAL_MARKETCAP_USD)
 
 
 def get_nasdaq100_map_with_skhynix(limit: int = 103, fresh: bool = False) -> list[dict]:
     """See get_sp500_map_with_skhynix."""
+    return _with_extra_tiles(get_nasdaq100_map(limit, fresh=fresh), _NASDAQ100_TOTAL_MARKETCAP_USD)
+
+
+def get_nasdaq100_map_with_listings(limit: int = 103, fresh: bool = False) -> list[dict]:
+    """The Nasdaq-100 roster plus recent NASDAQ listings, without SKHY — for the NASDAQ
+    board, which ranks real NASDAQ names and has no place for a synthetic KRX tile."""
     items = get_nasdaq100_map(limit, fresh=fresh)
-    extra = _skhynix_tile(_NASDAQ100_TOTAL_MARKETCAP_USD, _benchmark_weight(items))
-    return items + [extra] if extra else items
+    present = {it.get("code") for it in items}
+    return items + recent_listing_tiles(_NASDAQ100_TOTAL_MARKETCAP_USD, _benchmark_weight(items), exclude=present)
+
+
+def _recent_listing_sector(ticker: str) -> str | None:
+    return next((row["sector"] for row in RECENT_US_LISTINGS if row["code"] == ticker), None)
 
 
 US_SECTOR_PEER_LIMIT = 40
@@ -189,6 +276,8 @@ def get_us_sector_name(code: str) -> dict:
         sector = _find_sector(get_nasdaq100_constituents(), ticker)
     if sector is None and ticker == SKHYNIX_TICKER:
         sector = "Information Technology"
+    if sector is None:
+        sector = _recent_listing_sector(ticker)
     return {"code": ticker, "sector": sector}
 
 
@@ -224,12 +313,23 @@ def get_us_sector_map(code: str, limit: int = US_SECTOR_PEER_LIMIT) -> dict:
         sector = _find_sector(get_nasdaq100_constituents(), ticker)
     if sector is None and ticker == SKHYNIX_TICKER:
         sector = "Information Technology"
+    if sector is None:
+        sector = _recent_listing_sector(ticker)
 
     peers = (
         sorted((it for it in ranked if it["sector"] == sector), key=lambda it: it["marcap"], reverse=True)[:limit]
         if sector is not None
         else []
     )
+    if sector is not None:
+        present = {it["code"] for it in ranked}
+        listings = [
+            tile
+            for tile in recent_listing_tiles(_SP500_TOTAL_MARKETCAP_USD, _benchmark_weight(ranked), exclude=present)
+            if tile["sector"] == sector
+        ]
+        if listings:
+            peers = sorted(peers + listings, key=lambda it: it["marcap"], reverse=True)
     if sector == "Information Technology":
         extra = _skhynix_tile(_SP500_TOTAL_MARKETCAP_USD, _benchmark_weight(ranked))
         if extra:

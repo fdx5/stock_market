@@ -26,11 +26,12 @@ import datetime as dt
 from zoneinfo import ZoneInfo
 
 from app.data.sparkline_fetcher import SparkSeries, get_kr_sparklines, get_us_sparklines
+from app.data.us_company_korean_names import KOREAN_NAMES
 from app.data.us_index_fetcher import market_session
 from app.data.us_universe import get_korean_names_ready
 from app.services.cache import cache
 from app.services.market_map import get_kosdaq_map, get_kospi_map
-from app.services.us_market_map import get_nasdaq100_map
+from app.services.us_market_map import get_nasdaq100_map_with_listings
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -201,7 +202,7 @@ def _nasdaq_roster(limit: int, fresh: bool) -> list[dict]:
     # slickcharts already returns the Nasdaq-100 ordered by index weight, but sort
     # explicitly anyway — `rank` is written from this order and shown on every card, so
     # it must not depend on an upstream's ordering staying what it is today.
-    ranked = sorted(get_nasdaq100_map(103, fresh=fresh), key=lambda it: it["marcap"], reverse=True)[:limit]
+    ranked = sorted(get_nasdaq100_map_with_listings(103, fresh=fresh), key=lambda it: it["marcap"], reverse=True)[:limit]
     korean = get_korean_names_ready()
     return [
         {
@@ -211,7 +212,7 @@ def _nasdaq_roster(limit: int, fresh: bool) -> list[dict]:
             # The Korean rendering of the company name, already translated and cached
             # for search (see us_universe). Null when it isn't in that map yet, which
             # the frontend renders as the English name rather than as a gap.
-            "name_ko": korean.get(it["name"]),
+            "name_ko": KOREAN_NAMES.get(it["code"]) or korean.get(it["name"]),
             "sector": US_SECTOR_KO.get(it["sector"], "기타"),
             "close": it["close"],
             "change": it["change"],
