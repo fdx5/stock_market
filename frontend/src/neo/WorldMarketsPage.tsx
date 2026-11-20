@@ -51,10 +51,11 @@ function Trace({points, large = false}: {points: Point[]; large?: boolean}) {
   </svg>;
 }
 
-function Placement({type}: {type: "banner" | "rectangle" | "rail"}) {
+function Placement({type, secondary = false}: {type: "banner" | "rectangle" | "rail"; secondary?: boolean}) {
+  const variant = type === "rectangle" ? (secondary ? "secondary-rectangle" : "rectangle") : "banner";
   return <aside aria-label="광고" className={`wm-ad wm-ad-${type}`}>
     {import.meta.env.DEV ? <small>광고 · {type === "banner" ? "가로 배너" : type === "rail" ? "세로 배너" : "사각 배너"}</small> :
-      <AdSenseBanner labelled variant={type === "rectangle" ? "rectangle" : "banner"} fluid={type === "rail"} />}
+      <AdSenseBanner labelled variant={variant} fluid={type === "rail"} />}
   </aside>;
 }
 
@@ -123,7 +124,10 @@ export default function WorldMarketsPage() {
           {articles.value?.map(s => <article key={s.url}><small>{s.source}{s.translated && " · 한국어 번역"} · {kst(new Date(s.published))} KST</small><h4><a href={s.url} target="_blank" rel="noreferrer">{s.title} ↗</a></h4>{s.summary && <p>{s.summary}</p>}</article>)}
           {articles.value?.length === 0 && <NeoEmptyState title="최근 7일간 확인된 주요 매체의 증시 보도가 없습니다."/>}
         </HoloPanel>
-        <Placement type="rectangle" />
+        <div className="wm-rectangle-pair">
+          <Placement type="rectangle" />
+          <Placement type="rectangle" secondary />
+        </div>
       </div><Placement type="rail" /></div>
     </section>}
   </div>;

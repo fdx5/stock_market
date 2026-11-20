@@ -33,6 +33,7 @@ const bannerSizes: readonly AdSize[] = [
   { width: 234, height: 60 },
 ];
 const rectangleSizes: readonly AdSize[] = [{ width: 300, height: 250 }];
+const pairedRectangleSizes: readonly AdSize[] = [...rectangleSizes, { width: 250, height: 250 }, { width: 200, height: 200 }];
 const compactBannerSizes: readonly AdSize[] = [
   { width: 234, height: 60 },
   { width: 200, height: 60 },
@@ -86,6 +87,7 @@ function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; f
 
     const handheld = window.matchMedia(handheldAds);
     const pair = area.closest(".ng-adsense-pair");
+    const rectangles = area.closest(".wm-rectangle-pair") ? pairedRectangleSizes : rectangleSizes;
     const portraitPair = pair?.classList.contains("ng-adsense-pair--portrait");
     const mobileBanner = variant === "banner" || (variant === "secondary" && pair === null);
     const isCompact = () => getComputedStyle(area).getPropertyValue("--ng-ad-compact").trim() === "1";
@@ -107,7 +109,7 @@ function AdSlot({ variant, fluid, contentReady, label }: { variant: AdVariant; f
       const compact = portraitPair && isCompact();
       const sizes = compact
         ? (rectangle ? compactRectangleSizes : compactBannerSizes)
-        : (rectangle ? rectangleSizes : bannerSizes);
+        : (rectangle ? rectangles : bannerSizes);
       const size = fluid ? undefined : sizes.find(candidate => candidate.width <= width);
       if (!fluid && !size) return;
       requestedMinWidth.current = size?.width ?? 1;
