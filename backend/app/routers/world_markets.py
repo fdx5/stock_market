@@ -145,7 +145,7 @@ LOCAL_SEARCH = {
 SOURCE_NAMES = {"ارقام": "Argaam", "الاقتصادية": "Al Eqtisadiah", "صحيفة مال": "Maaal", "اندبندنت عربية": "Independent Arabia",
                 "عاجل": "Ajel", "الشرق الأوسط": "Asharq Al-Awsat", "ASHARQ AL-AWSAT English": "Asharq Al-Awsat", "العربية": "Al Arabiya"}
 # Derivative quote pages and other listings that share index names with news.
-LISTING = re.compile(r"\bTurbo\b|Optionsschein|Zertifikat|Knock-?out|\| (Kurs|Chart|Preis)|Stock Price Today|Cours (de )?Bourse|: Cours", re.I)
+LISTING = re.compile(r"\bTurbo\b|Optionsschein|Zertifikat|Knock-?out|\| (Kurs|Chart|Preis)|Stock Price Today|Cours (de )?Bourse|: Cours|Cours Action|Cotation Bourse", re.I)
 LOCAL_PUBLISHERS = {name.casefold() for name in (
     "tagesschau.de", "Manager Magazin", "WELT", "Finanzen.net", "DIE ZEIT", "Onvista", "boerse.de", "Der Aktionär",
     "n-tv.de", "Handelsblatt", "FAZ", "Frankfurter Allgemeine", "FAZ - Frankfurter Allgemeine Zeitung",
