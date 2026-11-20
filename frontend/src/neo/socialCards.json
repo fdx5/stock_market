@@ -282,5 +282,13 @@
     "alt": "K Stock Hub 증시 전광판 — Pulse board",
     "width": 1200,
     "height": 630
+  },
+  "/world-markets": {
+    "title": "전세계 증시 | 세계 주요 지수와 국가별 증시 뉴스 | K Stock Hub",
+    "description": "시가총액 상위 10개 시장의 다우, 나스닥, 닛케이, 코스피 등 12개 지수 흐름과 국가별 주요 뉴스를 사진·한국어 요약으로 확인하세요.",
+    "image": "/img/social/world-markets-712c8b5567.png",
+    "alt": "K Stock Hub 전세계 증시 — 10개 시장 국기와 대표 지수",
+    "width": 1200,
+    "height": 630
   }
 }
