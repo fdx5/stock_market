@@ -351,6 +351,12 @@ def deliver(day, edition, prepared=None):
     incomplete = []
     for service in PROFILES:
         post = post_status(profiles[service], headline) if service in profiles else None
+        # Publishing can continue asynchronously after Buffer accepts the request.
+        for _ in range(5):
+            if not post or post["status"] != "sending":
+                break
+            time.sleep(6)
+            post = post_status(profiles[service], headline)
         if post and post["status"] == "sent":
             print(f"{service}: published {post.get('externalLink') or post['id']}")
         else:
