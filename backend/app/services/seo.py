@@ -480,6 +480,7 @@ PAGES: dict[str, tuple[str, str]] = {
     "/kospi-100": ("코스피 시가총액·거래대금 순위 TOP 100 | K-Stock Hub", "코스피 종목의 시가총액, 거래대금, 등락률과 기간 수익률 순위를 비교하세요."),
     "/kosdaq-100": ("코스닥 시가총액·거래대금 순위 TOP 100 | K-Stock Hub", "코스닥 종목의 시가총액, 거래대금과 상승·하락률 순위를 확인하세요."),
     "/nasdaq-100": ("나스닥 종목 시세와 순위 TOP 100 | K-Stock Hub", "나스닥 주요 종목의 주가, 시가총액, 거래량과 기간별 수익률을 비교하세요."),
+    "/world-markets": ("전세계 증시 | 세계 주요 지수와 국가별 증시 뉴스 | K-Stock Hub", "시가총액 상위 10개 국가·지역의 다우, 나스닥, 코스피, 코스닥 등 12개 지수 등락과 추이, 국가별 주요 뉴스와 대표 기업을 비교하세요."),
     "/global-top100": ("세계 기업 시가총액 순위 TOP 100 | K-Stock Hub", "전 세계 기업 시가총액 순위와 국가·업종별 주요 기업 정보를 확인하세요."),
     "/global": ("미국 주식 시세와 종목 분석 | K-Stock Hub", "미국 주식 현재가, 등락률, 차트, 뉴스와 종목토론을 한 화면에서 확인하세요."),
     "/discussion-explorer": ("주식·ETF 종목토론 | K-Stock Hub", "국내외 주식과 ETF의 최근 게시글과 댓글을 3D 공간에서 탐색하세요."),
@@ -880,7 +881,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     # lightweight shell as soon as it mounts; crawlers and slow connections get
     # a meaningful heading, summary, and crawlable internal links immediately.
     links = [
-        ("/hot-issues", "오늘의 핫이슈"), ("/kospi", "코스피 지수"), ("/kosdaq", "코스닥 지수"), ("/nasdaq", "나스닥 지수"),
+        ("/world-markets", "전세계 증시"), ("/hot-issues", "오늘의 핫이슈"), ("/kospi", "코스피 지수"), ("/kosdaq", "코스닥 지수"), ("/nasdaq", "나스닥 지수"),
         ("/desk", "국내 주식 시세"), ("/map", "코스피맵 · 코스피 시가총액 맵"),
         ("/kosdaq-map", "코스닥 시가총액 맵"), ("/etf/kr", "국내 ETF"), ("/etf/us", "해외 ETF"),
         ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
@@ -1092,6 +1093,11 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         report_content = index_landing.render_content(canonical_path)
     if canonical_path == "/hot-issues":
         report_content = hot_issues.render_content()
+    if canonical_path == "/world-markets":
+        from app.data.world_markets import MARKETS
+        report_content = "<h2>시가총액 순 주요 지수 · 2026년 4월 기준</h2><ol>" + "".join(
+            f"<li>{row[1]} · {', '.join(name for _, name in row[3])} · {row[2]:.2f}조 달러</li>"
+            for row in MARKETS) + "</ol>"
     if canonical_path == "/share-market":
         report_content = '<p>실제 시장의 상승·하락 분포 카드를 내려받아 링크와 함께 공유하세요. iframe을 허용하는 사이트에는 시장 위젯을 넣을 수 있습니다.</p><p><a href="/today">오늘 증시 한눈에</a> · <a href="/market-feed.xml">장마감 브리핑 RSS 구독</a> · <a href="/market-check.ics">평일 16:30 확인 알림</a></p>'
     report_content += public_markets.seo_content(canonical_path, stock_code if not stock_report else "", public_market)

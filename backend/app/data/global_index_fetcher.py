@@ -16,7 +16,8 @@ from app.services.cache import cache
 SYMBOLS = {
     "DJI": "^DJI", "IXIC": "^IXIC", "SOXL": "SOXL", "TQQQ": "TQQQ",
     "N225": "^N225", "SSEC": "000001.SS", "HSI": "^HSI",
-    "^TWII": "^TWII", "FTSE": "^FTSE",
+    "NIFTY": "^NSEI", "TSX": "^GSPTSE", "CAC": "^FCHI",
+    "KOSPI": "^KS11", "KOSDAQ": "^KQ11", "^TWII": "^TWII", "FTSE": "^FTSE",
 }
 QUOTE_TTL = 10
 HISTORY_TTL = 300

@@ -106,6 +106,8 @@
     "/prices/wti",
     "/prices/xrp",
     "/pulse-board",
+    "/pulse-board-2",
+    "/pulse-board-ship",
     "/ranking/sp500-market-cap",
     "/ranking/trading-value",
     "/ranking/us-etf",
@@ -133,9 +135,10 @@
     "/today",
     "/type2",
     "/walk",
+    "/world-markets",
     "/yield-curve-lab"
   ],
-  "source_files": 1016,
+  "source_files": 1037,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -161,6 +164,7 @@
     "frontend/src/components/workerCpuRaster.ts",
     "frontend/src/drivegame/world/tileWorker.ts",
     "frontend/src/monitor/synapseGeometry.worker.ts",
+    "frontend/src/neo/backdropRenderWorker.ts",
     "frontend/src/neo/nanotubeGeometryWorker.ts",
     "frontend/src/rail/railClearanceWorker.ts",
     "frontend/src/rail/railWorker.ts",
@@ -493,6 +497,12 @@
       ]
     },
     {
+      "file": "frontend/src/neo/WorldMarketsPage.tsx",
+      "hosts": [
+        "finance.yahoo.com"
+      ]
+    },
+    {
       "file": "frontend/src/rail/review.ts",
       "hosts": [
         "www.openstreetmap.org"
@@ -628,6 +638,15 @@
         "/api/market/map",
         "/api/stock/005930/"
       ]
+    },
+    {
+      "file": "social-publish.yml",
+      "cron": [
+        "15 13,22 * * *",
+        "0,40 7 * * 1-5",
+        "7,27,47 * * * *"
+      ],
+      "endpoints": []
     }
   ],
   "deployment": {

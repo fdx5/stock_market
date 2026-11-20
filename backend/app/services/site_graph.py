@@ -42,6 +42,7 @@ PAGES: list[dict] = [
     # anything already indexed keep resolving here. See App.tsx.
     {"id": "page:/dashboard", "label": "종목 대시보드 (구)", "path": "/dashboard", "group": "stock"},
     {"id": "page:/global", "label": "해외증시", "path": "/global", "group": "stock"},
+    {"id": "page:/world-markets", "label": "전세계 증시", "path": "/world-markets", "group": "stock"},
     {"id": "page:/global-top100", "label": "글로벌시총", "path": "/global-top100", "group": "stock"},
     {"id": "page:/etf", "label": "ETF", "path": "/etf", "group": "etf"},
     {"id": "page:/discussion-explorer", "label": "종목토론", "path": "/discussion-explorer", "group": "stock"},
@@ -224,6 +225,7 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/translate",
     ],
     # No KR market data at all by design — see StockRadarBoard's `market` prop.
+    "page:/world-markets": ["/api/world-markets", "/api/world-markets/quotes", "/api/world-markets/news/{country}"],
     "page:/global": [
         "/api/search",
         "/api/search/popular",

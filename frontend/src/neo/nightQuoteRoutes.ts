@@ -7,6 +7,7 @@ const pages = new Set([...menuRoots, "/etf", "/ranking/us-etf", "/map", "/kospi-
 export const showNasdaqFutures = (path: string) => ["/sp500-map", "/nasdaq100-map"].includes(path.replace(/\/$/, ""));
 
 export function showNightQuote(path: string, search = "") {
+  if (path === "/world-markets") return false;
   if (path.startsWith("/etf/")) return true;
   if (pages.has(path) || menuRoots.some(root => root !== "/" && path.startsWith(`${root}/`))) return true;
   return path.startsWith("/stock/") && new URLSearchParams(search).get("asset")?.toUpperCase() === "ETF";

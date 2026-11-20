@@ -6,7 +6,7 @@ import { MARKET_ASSETS } from "../marketAssets";
 type AdWindow = Window & { adsbygoogle?: { push(request: object): unknown } };
 
 const bannerRoutes = new Set([
-  "/", "/desk", "/global", "/map", "/kosdaq-map", "/sp500-map",
+  "/", "/desk", "/global", "/world-markets", "/map", "/kosdaq-map", "/sp500-map",
   "/nasdaq100-map", "/realestate-map", "/pulse-board", "/pulse-board-ship", "/hot-issues",
   "/kospi-100", "/kosdaq-100", "/nasdaq-100", "/etf/kr", "/etf/us",
   "/kospi", "/kosdaq", "/nasdaq", "/stocks", "/news", "/global-top100", "/market-brief",

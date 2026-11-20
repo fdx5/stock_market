@@ -41,6 +41,7 @@ from app.routers import (
     fight,
     geo,
     global_dashboard,
+    world_markets,
     global_top100,
     investor,
     market_map,
@@ -211,6 +212,7 @@ app.include_router(investor.router, prefix="/api/investor")
 app.include_router(battle.router, prefix="/api/battle")
 app.include_router(etf.router, prefix="/api/etfs")
 app.include_router(fight.router, prefix="/api/fight")
+app.include_router(world_markets.router, prefix="/api/world-markets")
 app.include_router(global_dashboard.router, prefix="/api/global")
 app.include_router(treasuries.router, prefix="/api/global")
 

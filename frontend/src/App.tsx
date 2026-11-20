@@ -58,6 +58,7 @@ const BroadsheetBriefPage = lazy(() => import("./desk2/brief/BriefPage"));
 /* The three TOP 100 boards; one component, so switching boards keeps it mounted.
    The classic StockBoardPage stays in the tree, unrouted. */
 const NeoTop100Page = lazy(() => import("./neo/Top100Page"));
+const WorldMarketsPage = lazy(() => import("./neo/WorldMarketsPage"));
 const HotIssuesPage = lazy(() => import("./neo/HotIssuesPage"));
 const IndexLandingPage = lazy(() => import("./neo/IndexLandingPage"));
 const BroadsheetForecastPage = lazy(() => import("./desk2/forecast/ForecastPage"));
@@ -161,6 +162,7 @@ function DashboardRedirect() {
 }
 
 const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = {
+  "/world-markets": { title: "전세계 증시 | 세계 주요 지수와 국가별 증시 뉴스 | K-Stock Hub", description: "시가총액 상위 10개 국가·지역의 다우, 나스닥, 코스피, 코스닥 등 12개 지수 등락과 추이, 국가별 주요 뉴스와 대표 기업을 비교하세요." },
   ...Object.fromEntries([["kr", "국내 증시"], ["global", "해외 증시"], ["property", "부동산"]].map(([id, name]) => [`/community/${id}`, { title: `${name} 커뮤니티 | K-Stock Hub`, description: `${name} 커뮤니티의 공개 글을 최신순으로 모아 보고 원문과 댓글을 편리하게 확인하세요.` }])),
   ...Object.fromEntries(SERVICES.map(s => [s.path, { title: `${s.name} | K-Stock Hub`, description: s.question + " " + s.criteria }])),
   ...Object.fromEntries(MARKET_ASSETS.map(asset => [`/prices/${asset.key}`, { title: `${asset.ko} 시세·1년 차트·일별 가격 | K-Stock Hub`, description: `${asset.ko}의 최근 1년 가격 차트와 일자별 시가, 고가, 저가, 종가 및 등락률을 확인하세요.` }])),
@@ -477,6 +479,8 @@ export default function App() {
     page = <BroadsheetStocksPage />;
   } else if (path === "/kospi" || path === "/kosdaq" || path === "/nasdaq") {
     page = <IndexLandingPage key={path} index={path.slice(1) as "kospi" | "kosdaq" | "nasdaq"} />;
+  } else if (path === "/world-markets") {
+    page = <WorldMarketsPage />;
   } else if (path === "/hot-issues") {
     page = <HotIssuesPage />;
   } else if (path === "/kospi-100") {
