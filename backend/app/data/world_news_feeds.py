@@ -21,6 +21,7 @@ REGIONAL = {
     "CA": ("The Globe and Mail", "https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/investing/"),
     "GB": ("The Guardian", "https://www.theguardian.com/business/stock-markets/rss"),
     "FR": ("BFM Business", "https://www.bfmtv.com/rss/economie/"),
+    "AU": ("The Sydney Morning Herald", "https://www.smh.com.au/rss/business.xml"),
     "IN": ("The Economic Times", "https://economictimes.indiatimes.com/markets/stocks/news/rssfeeds/2146842.cms"),
 }
 

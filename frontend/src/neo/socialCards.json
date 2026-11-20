@@ -285,9 +285,9 @@
   },
   "/world-markets": {
     "title": "전세계 증시 | 세계 주요 지수와 국가별 증시 뉴스 | K Stock Hub",
-    "description": "시가총액 상위 10개 시장의 다우, 나스닥, 닛케이, 코스피 등 12개 지수 흐름과 국가별 주요 뉴스를 사진·한국어 요약으로 확인하세요.",
-    "image": "/img/social/world-markets-712c8b5567.png",
-    "alt": "K Stock Hub 전세계 증시 — 10개 시장 국기와 대표 지수",
+    "description": "시가총액 상위 14개 시장의 다우, 나스닥, 닛케이, 코스피, DAX 등 16개 지수 흐름과 최신 추정 시가총액, 국가별 주요 뉴스를 사진·한국어 요약으로 확인하세요.",
+    "image": "/img/social/world-markets-723e806b1c.png",
+    "alt": "K Stock Hub 전세계 증시 — 14개 시장 국기와 대표 지수",
     "width": 1200,
     "height": 630
   }

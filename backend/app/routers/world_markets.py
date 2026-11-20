@@ -5,14 +5,15 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
 import re
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 from xml.etree import ElementTree as ET
 
 import requests
 from fastapi import APIRouter, HTTPException
 
 from app.data.global_index_fetcher import get_index
-from app.data.world_markets import MARKETS, SOURCE
+from app.data.world_market_caps import latest_caps
+from app.data.world_markets import MARKETS, SOURCE, WFE_SOURCE
 from app.services.cache import cache
 from app.data.translate_fetcher import translate_via_chrome
 from app.data.world_news_feeds import enrich, publisher_stories
@@ -23,11 +24,24 @@ QUERIES = {row[0]: row[4] for row in MARKETS}
 
 @router.get("")
 def catalog():
-    return {"source": SOURCE, "period": "2026-04", "markets": [
-        {"code": code, "name": name, "cap": cap, "indices": indices,
-         "ticker": ticker, "company": company, "context": context}
+    try:
+        caps = latest_caps()
+    except Exception:
+        caps = {}
+    return build_catalog(caps)
+
+
+def build_catalog(caps):
+    markets = [
+        {"code": code, "name": name, "cap": caps.get(code, {}).get("cap", cap),
+         "cap_as_of": caps.get(code, {}).get("as_of"), "cap_estimated": caps.get(code, {}).get("estimated", False),
+         "base_cap": cap, "base_date": caps.get(code, {}).get("base_date"),
+         "indices": indices, "ticker": ticker, "company": company, "context": context}
         for code, name, cap, indices, _, ticker, company, context in MARKETS
-    ]}
+    ]
+    markets.sort(key=lambda m: m["cap"], reverse=True)
+    as_of = max((m["cap_as_of"] for m in markets if m["cap_as_of"]), default=None)
+    return {"source": SOURCE, "sources": [SOURCE, WFE_SOURCE], "period": as_of or "2026-04", "as_of": as_of, "markets": markets}
 
 
 def _quotes():
@@ -51,11 +65,15 @@ PUBLISHERS = {name.casefold() for name in (
     "CNBC", "Financial Times", "The Wall Street Journal", "MarketWatch", "Barron's",
     "Nikkei Asia", "The Japan Times", "The Globe and Mail", "BNN Bloomberg", "CBC News",
     "The Economic Times", "Business Standard", "South China Morning Post", "Focus Taiwan",
+    "RTTNews", "MarketScreener", "Yahoo Finance", "Morningstar", "Morningstar, Inc.", "news.com.au", "Herald Sun",
+    "Market Index", "Bluewin", "FinanzNachrichten.de", "이투데이", "헤럴드경제", "아주경제",
+    "Arab News", "Saudi Gazette", "Argaam", "The Sydney Morning Herald", "The Australian Financial Review",
+    "ABC News", "The Australian", "Handelsblatt", "Deutsche Welle", "DW", "swissinfo.ch", "SWI swissinfo.ch",
     "Investir - Les Échos Bourse", "Capital France", "Les Échos", "Le Figaro", "Taipei Times", "France 24", "Les Echos", "Investing.com", "Investing.com 한국어",
 )}
 MARKET_EVENT = re.compile(
-    r"증시|지수|주식시장|코스피|코스닥|나스닥|다우|닛케이|항셍|가권|니프티|센섹스|뉴욕장|상하이종합|"
-    r"stocks|shares|equities|index|indexes|indices|nasdaq|dow jones|s&p|tsx|ftse|cac ?40|sensex|nifty|hang seng|nikkei|taiex|kospi",
+    r"증시|지수|주식시장|코스피|코스닥|나스닥|다우|닛케이|항셍|가권|니프티|센섹스|뉴욕장|상하이종합|닥스|타다울|"
+    r"stocks|shares|equities|index|indexes|indices|nasdaq|dow jones|s&p|tsx|ftse|cac ?40|sensex|nifty|hang seng|nikkei|taiex|kospi|dax|smi|tasi|tadawul|asx|bourse",
     re.I,
 )
 
@@ -80,7 +98,7 @@ def _articles(query, bing):
         if not title or urlsplit(link).scheme not in ("http", "https"):
             continue
         source = item.findtext("{*}Source") or item.findtext("source") or ""
-        source = re.sub(r" on MSN(?:\.com)?$", "", source, flags=re.I).strip()
+        source = re.sub(r" on MSN(?:\.com)?$", "", unquote(source), flags=re.I).strip()
         if source.casefold() not in PUBLISHERS:
             continue
         if bing:
@@ -106,6 +124,10 @@ NEWS_TERMS = {
     "KR": ("국내|한국|코스피|코스닥|KOSPI|KOSDAQ", "South Korea Kospi stocks"),
     "GB": (r"영국.{0,5}(증시|주식|지수)|런던.{0,5}(증시|증권)|FTSE|London stocks", "FTSE 100 stocks"),
     "FR": (r"프랑스.{0,5}(증시|주식|지수)|파리.{0,5}(증시|증권)|CAC\s?40|Paris stocks", "Bourse Paris CAC 40"),
+    "DE": (r"독일.{0,5}(증시|주식|지수)|프랑크푸르트.{0,5}(증시|증권)|DAX|닥스|German stocks|Frankfurt", "DAX German stocks"),
+    "CH": (r"스위스.{0,5}(증시|주식|지수)|SMI|Swiss stocks|Swiss shares|Swiss market", "Swiss SMI stocks"),
+    "SA": (r"사우디.{0,5}(증시|주식|지수)|타다울|TASI|Tadawul|Saudi stocks|Saudi shares|Saudi index|Saudi bourse", "Saudi stocks Tadawul TASI"),
+    "AU": (r"호주.{0,5}(증시|주식|지수)|ASX|Australian shares|Australian stocks|Australia stocks", "ASX 200 Australian shares"),
 }
 
 

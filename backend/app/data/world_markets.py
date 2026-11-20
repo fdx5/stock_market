@@ -1,5 +1,13 @@
-"""Domestic equity market capitalisation in USD trillions, April 2026 (Bloomberg)."""
+"""Domestic equity market capitalisation in USD trillions at each market's base date.
+
+Ten markets: Bloomberg, end of April 2026 (via Visual Capitalist). The next four:
+World Federation of Exchanges domestic market capitalisation, end of March 2026.
+world_market_caps carries both forward with each market's index and currency.
+"""
 SOURCE = "https://www.visualcapitalist.com/ranked-the-worlds-largest-stock-markets/"
+WFE_SOURCE = "https://focus.world-exchanges.org/issue/may-2026/market-statistics"
+BASE_DATES = {"DE": "2026-03-31", "CH": "2026-03-31", "SA": "2026-03-31", "AU": "2026-03-31"}
+DEFAULT_BASE_DATE = "2026-04-30"
 
 # Country, market cap, indices, regional news query, listed company for context.
 MARKETS = [
@@ -13,4 +21,8 @@ MARKETS = [
     ("KR", "한국", 4.04, [("KOSPI", "코스피"), ("KOSDAQ", "코스닥")], "코스피 코스닥", "005930", "삼성전자", "코스피는 유가증권시장, 코스닥은 코스닥시장을 각각 추적합니다. 대형 수출주와 중소형 성장주의 방향 차이를 비교하세요."),
     ("GB", "영국", 3.99, [("FTSE", "FTSE 100")], "영국 증시", "HSBC", "HSBC", "런던 상장 대형주 100개로 구성됩니다. 해외 매출 비중이 큰 기업이 많아 파운드화와 원자재 가격을 같이 볼 필요가 있습니다."),
     ("FR", "프랑스", 3.45, [("CAC", "CAC 40")], "프랑스 증시", "LVMUY", "LVMH", "파리 시장의 대표주 40개를 추적합니다. 명품·산업재 기업의 글로벌 수요와 유로화 변동이 주요 관전 포인트입니다."),
+    ("DE", "독일", 2.66, [("DAX", "DAX")], "독일 증시 DAX", "SAP", "SAP", "프랑크푸르트 상장 대형주 40개로 구성된 DAX는 배당을 재투자하는 총수익 지수입니다. 자동차·산업재 수출과 유로화 흐름을 함께 보세요."),
+    ("SA", "사우디아라비아", 2.64, [("TASI", "타다울 전체")], "사우디 증시", "2222.SR", "사우디 아람코", "타다울 전체 지수는 사우디 거래소 상장 주식 전반을 추적합니다. 아람코 비중이 커서 국제 유가와 산유량 정책이 핵심 변수입니다."),
+    ("CH", "스위스", 2.45, [("SMI", "SMI")], "스위스 증시 SMI", "NSRGY", "네슬레", "스위스 우량주 20개로 구성된 SMI는 제약·식품·금융 대형주 비중이 높아 경기 방어적인 성격이 강합니다. 스위스 프랑 강세가 수출 기업에 부담이 될 수 있습니다."),
+    ("AU", "호주", 2.25, [("ASX200", "S&P/ASX 200")], "호주 증시 ASX", "BHP", "BHP", "호주 증권거래소 대형주 200개를 추적합니다. 은행과 철광석·광산주 비중이 커서 중국 경기와 원자재 가격에 민감합니다."),
 ]

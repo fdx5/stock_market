@@ -5,8 +5,8 @@ import AdSenseBanner from "./AdSenseBanner";
 import { HoloPanel, NeoEmptyState, NeoSkeleton } from "./NeoComponents";
 import "./worldMarkets.css";
 
-type Market = {code: string; name: string; cap: number; indices: [string, string][]; ticker: string; company: string; context: string};
-type Catalog = {source: string; period: string; markets: Market[]};
+type Market = {code: string; name: string; cap: number; cap_as_of?: string | null; cap_estimated?: boolean; base_cap?: number; base_date?: string | null; indices: [string, string][]; ticker: string; company: string; context: string};
+type Catalog = {source: string; sources?: string[]; period: string; as_of?: string | null; markets: Market[]};
 type Point = {date: string; close: number};
 type Quote = {close: number | null; change: number | null; change_pct: number | null; points: Point[]; quote_time: number | null; stale: boolean};
 type Story = {url: string; title: string; source: string; published: string; summary: string; translated: boolean; paragraphs?: string[]; image?: string | null};
@@ -37,6 +37,7 @@ function useFeed<T>(url: string, interval = 0) {
 const number = (n?: number | null) => n == null ? "—" : n.toLocaleString("ko-KR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const signed = (n?: number | null) => n == null ? "—" : (n > 0 ? "+" : "") + number(n);
 const tone = (n?: number | null) => !n ? "flat" : n > 0 ? "up" : "down";
+const day = (iso?: string | null) => iso ? `${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일` : "";
 const kst = (date: Date) => date.toLocaleString("ko-KR", {timeZone: "Asia/Seoul", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false});
 
 function Trace({points, large = false}: {points: Point[]; large?: boolean}) {
@@ -113,11 +114,11 @@ export default function WorldMarketsPage() {
   };
   return <div className="wm-page">
     <header className="wm-header"><div><span className="ng-kicker">GLOBAL EQUITIES</span><h1>전세계 증시</h1></div>
-      {catalog.value && <a href={catalog.value.source} target="_blank" rel="noreferrer">시총 순위 기준 · {catalog.value.period} ↗</a>}</header>
+      {catalog.value && <a href={catalog.value.source} target="_blank" rel="noreferrer">시가총액 순위 · {catalog.value.as_of ? day(catalog.value.as_of) + " 기준 추정" : catalog.value.period} ↗</a>}</header>
     {catalog.error && <Failure text="시장 목록을 불러오지 못했습니다." retry={catalog.retry} />}
     {!catalog.value && !catalog.error && <NeoSkeleton />}
     {quotes.error && <Failure text="지수 갱신이 지연되고 있습니다." retry={quotes.retry} />}
-    {catalog.value && <><div className="wm-label"><h2>주요 지수</h2><span>10개 시장 · 12개 지수 · 전 거래일 대비</span></div>
+    {catalog.value && <><div className="wm-label"><h2>주요 지수</h2><span>{catalog.value.markets.length}개 시장 · {catalog.value.markets.reduce((n, m) => n + m.indices.length, 0)}개 지수 · 전 거래일 대비</span></div>
       <div className="wm-grid">{catalog.value.markets.flatMap((m, i) => m.indices.map(([id, label]) => {
         const q = quotes.value?.[id];
         return <button key={id} type="button" onClick={() => choose(id)} aria-pressed={selected === id} className="wm-card">
@@ -128,7 +129,7 @@ export default function WorldMarketsPage() {
           <Trace points={q?.points.slice(-20) ?? []} />
         </button>;
       }))}</div>
-      <p className="wm-note">국내 상장사 시가총액 기준 · 홍콩 별도 집계 · 차트는 최근 최대 20거래일</p>
+      <p className="wm-note">순위는 각 시장 국내 상장사 시가총액 순 · 홍콩 별도 집계 · 블룸버그(2026년 4월 말)·WFE(2026년 3월 말) 집계에 이후 대표지수와 달러 환율 변동을 반영한 추정치 · 차트는 최근 최대 20거래일</p>
     </>}
     <Placement type="banner" />
     {market && <section id="wm-brief" tabIndex={-1} className="wm-brief">
@@ -146,7 +147,7 @@ export default function WorldMarketsPage() {
             <div><dt>기간 최고 종가</dt><dd>{number(Math.max(...closes))}</dd></div>
           </dl>}
           <p>{market.context}</p>
-          <div className="wm-facts"><span>시장 시총 ({catalog.value?.period}) <b>{number(market.cap)}조 달러</b></span>
+          <div className="wm-facts"><span title={market.base_cap ? `${market.base_date} 집계 ${number(market.base_cap)}조 달러에서 지수·환율 변동 반영` : undefined}>시장 시총 ({market.cap_estimated ? day(market.cap_as_of) + " 추정" : market.base_date ?? catalog.value?.period}) <b>{number(market.cap)}조 달러</b>{market.cap_estimated && market.base_cap ? <small data-tone={tone(market.cap - market.base_cap)}> {+market.base_date!.slice(5, 7)}월 말 대비 {signed((market.cap / market.base_cap - 1) * 100)}%</small> : null}</span>
             <a href={market.code === "KR" || market.code === "US" ? `/stock/${market.ticker}` : `https://finance.yahoo.com/quote/${market.ticker}/`}><StockLogo className="wm-logo" code={market.ticker} name={market.company}/> {market.company} ↗</a></div>
         </HoloPanel>
         <HoloPanel className="wm-news"><h3>{market.name} 주요 이슈</h3>

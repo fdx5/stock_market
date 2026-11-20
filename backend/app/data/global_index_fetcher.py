@@ -18,7 +18,10 @@ SYMBOLS = {
     "N225": "^N225", "SSEC": "000001.SS", "HSI": "^HSI",
     "NIFTY": "^NSEI", "TSX": "^GSPTSE", "CAC": "^FCHI",
     "KOSPI": "^KS11", "KOSDAQ": "^KQ11", "^TWII": "^TWII", "FTSE": "^FTSE",
+    "DAX": "^GDAXI", "SMI": "^SSMI", "TASI": "^TASI.SR", "ASX200": "^AXJO",
 }
+# Yahoo returns only the latest bar for these; CNBC carries the daily series.
+CNBC_HISTORY = {"^TASI.SR": ".TASI"}
 QUOTE_TTL = 10
 HISTORY_TTL = 300
 _last_good: dict[str, dict] = {}
@@ -48,7 +51,22 @@ def _date(stamp: int, meta: dict) -> str:
     return dt.datetime.fromtimestamp(stamp, zone).date().isoformat()
 
 
+def cnbc_history(symbol: str) -> list[dict]:
+    response = requests.get("https://ts-api.cnbc.com/harmony/app/charts/1Y.json",
+                            params={"symbol": CNBC_HISTORY[symbol]},
+                            headers={"User-Agent": "Mozilla/5.0"}, timeout=(2, 5))
+    response.raise_for_status()
+    points = [{"date": f"{bar['tradeTime'][:4]}-{bar['tradeTime'][4:6]}-{bar['tradeTime'][6:8]}", "close": float(bar["close"])}
+              for bar in response.json()["barData"]["priceBars"] if bar.get("close")]
+    points = [p for p in points if math.isfinite(p["close"]) and p["close"] > 0]
+    if not points:
+        raise ValueError("World index history is empty")
+    return points
+
+
 def _history(symbol: str) -> list[dict]:
+    if symbol in CNBC_HISTORY:
+        return cnbc_history(symbol)[-60:]
     result = _chart(symbol, "3mo", "1d")
     closes = result["indicators"]["quote"][0]["close"]
     points = []
