@@ -162,7 +162,7 @@ function DashboardRedirect() {
 }
 
 const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = {
-  "/world-markets": { title: "전세계 증시 | 세계 주요 지수와 국가별 증시 뉴스 | K-Stock Hub", description: "시가총액 상위 10개 국가·지역의 다우, 나스닥, 코스피, 코스닥 등 12개 지수 등락과 추이, 국가별 주요 뉴스와 대표 기업을 비교하세요." },
+  "/world-markets": { title: "전세계 증시 | 세계 주요 지수와 국가별 증시 뉴스 | K-Stock Hub", description: "14개 시장의 S&P 500, 코스피, 나스닥 등 주요 지수 17개를 히트맵과 수익률 차트로 비교하세요. 환율, 미국 국채 금리, 시가총액과 국가별 증시 뉴스를 함께 확인할 수 있습니다." },
   ...Object.fromEntries([["kr", "국내 증시"], ["global", "해외 증시"], ["property", "부동산"]].map(([id, name]) => [`/community/${id}`, { title: `${name} 커뮤니티 | K-Stock Hub`, description: `${name} 커뮤니티의 공개 글을 최신순으로 모아 보고 원문과 댓글을 편리하게 확인하세요.` }])),
   ...Object.fromEntries(SERVICES.map(s => [s.path, { title: `${s.name} | K-Stock Hub`, description: s.question + " " + s.criteria }])),
   ...Object.fromEntries(MARKET_ASSETS.map(asset => [`/prices/${asset.key}`, { title: `${asset.ko} 시세·1년 차트·일별 가격 | K-Stock Hub`, description: `${asset.ko}의 최근 1년 가격 차트와 일자별 시가, 고가, 저가, 종가 및 등락률을 확인하세요.` }])),

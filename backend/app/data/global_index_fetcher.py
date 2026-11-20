@@ -14,6 +14,7 @@ from app.data import yahoo_quote
 from app.services.cache import cache
 
 SYMBOLS = {
+    "SPX": "^GSPC",
     "DJI": "^DJI", "IXIC": "^IXIC", "SOXL": "SOXL", "TQQQ": "TQQQ",
     "N225": "^N225", "SSEC": "000001.SS", "HSI": "^HSI",
     "NIFTY": "^NSEI", "TSX": "^GSPTSE", "CAC": "^FCHI",

@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.data.global_index_fetcher import get_index
 from app.data.world_market_caps import latest_caps
-from app.data.world_markets import MARKETS, SOURCE, WFE_SOURCE
+from app.data.world_markets import BASE_DATES, DEFAULT_BASE_DATE, MARKETS, SOURCE, WFE_SOURCE
 from app.services.cache import cache
 from app.data.translate_fetcher import translate_via_chrome
 from app.data.world_news_feeds import enrich, publisher_stories
@@ -35,7 +35,7 @@ def build_catalog(caps):
     markets = [
         {"code": code, "name": name, "cap": caps.get(code, {}).get("cap", cap),
          "cap_as_of": caps.get(code, {}).get("as_of"), "cap_estimated": caps.get(code, {}).get("estimated", False),
-         "base_cap": cap, "base_date": caps.get(code, {}).get("base_date"),
+         "base_cap": cap, "base_date": caps.get(code, {}).get("base_date", BASE_DATES.get(code, DEFAULT_BASE_DATE)),
          "indices": indices, "ticker": ticker, "company": company, "context": context}
         for code, name, cap, indices, _, ticker, company, context in MARKETS
     ]

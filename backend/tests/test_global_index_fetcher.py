@@ -38,8 +38,13 @@ def test_every_region_has_a_live_quote_actual_timestamp_and_repaired_daily_bar(m
         calls.append((actual, period, interval))
         return payload()
     monkeypatch.setattr(feed, "_chart", chart)
+    def cnbc(actual):
+        calls.append((actual, "CNBC", "1d"))
+        return [{"date": "2026-11-13", "close": 100}]
+    monkeypatch.setattr(feed, "cnbc_history", cnbc)
     row = feed.get_index(code)
-    assert calls == [(symbol, "1d", "1m"), (symbol, "3mo", "1d")]
+    history = "CNBC" if symbol in feed.CNBC_HISTORY else "3mo"
+    assert calls == [(symbol, "1d", "1m"), (symbol, history, "1d")]
     assert row["close"] == 110 and row["change_pct"] == 10
     assert row["quote_time"] == STAMP and row["stale"] is False
     assert row["points"] == [{"date": "2026-11-13", "close": 100}, {"date": "2026-11-16", "close": 110}]
