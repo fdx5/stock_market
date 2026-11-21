@@ -224,6 +224,16 @@ def _asset_history_content(asset: str) -> str:
     return f'<section><h2>일별 가격 기준</h2>{source}{rows}</section>'
 
 
+def sp500_ranking(items: list[dict]) -> tuple[str, list[dict]]:
+    caps = [item for item in items if (number(item.get("market_cap")) or 0) > 0]
+    # A sparse quote feed would otherwise put a handful of companies ahead of
+    # every missing cap. Use the published index weights when coverage is low.
+    if caps and len(caps) >= 0.8 * len(items):
+        return "market_cap", sorted(caps, key=lambda item: (-float(item["market_cap"]), item["code"]))
+    weights = [item for item in items if (number(item.get("marcap")) or 0) > 0]
+    return "index_weight", sorted(weights, key=lambda item: (-float(item["marcap"]), item["code"]))
+
+
 def _ranking_content(path: str) -> str:
     if path in {"/sector/semiconductor", "/ranking/trading-value"}:
         return _domestic_ranking_content(path)
@@ -231,10 +241,15 @@ def _ranking_content(path: str) -> str:
     if path == "/ranking/sp500-market-cap":
         from app.data.us_index_fetcher import cached_sp500_quotes
 
-        items = cached_sp500_quotes()
-        metric, label, currency = "market_cap", "시가총액 (USD)", "USD"
-        caption = "S&P 500 구성 종목 시가총액 상위"
-        note = "수신된 S&P 500 구성 종목별 시가총액을 미국 달러 기준으로 비교합니다."
+        basis, items = sp500_ranking(cached_sp500_quotes())
+        if basis == "market_cap":
+            metric, label, currency = "market_cap", "시가총액 (USD)", "USD"
+            caption = "S&P 500 구성 종목 시가총액 상위"
+            note = "시가총액이 수신된 S&P 500 구성 종목을 미국 달러 기준으로 비교합니다."
+        else:
+            metric, label, currency = "marcap", "지수 편입 비중 (%)", ""
+            caption = "S&P 500 지수 편입 비중 상위"
+            note = "시가총액 데이터가 부족해 Slickcharts가 제공하는 S&P 500 편입 비중을 표시합니다."
     else:
         from app.services.etf_market import cached_etfs
 
@@ -252,13 +267,14 @@ def _ranking_content(path: str) -> str:
         if value is not None and value > 0 and re.fullmatch(r"[A-Z0-9.-]{1,16}", code):
             ranked.append((value, code, item))
     ranked.sort(key=lambda entry: (-entry[0], entry[1]))
-    rows = "".join(
-        f'<tr><th scope="row"><a href="/stock/{code}">{html.escape(str(item.get("name") or code))} ({code})</a></th>'
-        f'<td>{value:,.0f} {html.escape(currency or str(item.get("currency") or ""))}</td></tr>'
-        for value, code, item in ranked[:12]
-    )
+    rows = []
+    for value, code, item in ranked[:12]:
+        unit = html.escape(currency or str(item.get("currency") or ""))
+        shown = f"{value:.2f}%" if metric == "marcap" else f"{value:,.0f} {unit}"
+        name = html.escape(str(item.get("name") or code))
+        rows.append(f'<tr><th scope="row"><a href="/stock/{code}">{name} ({code})</a></th><td>{shown}</td></tr>')
     table = (f'<table><caption>{caption}</caption><thead><tr><th>종목</th><th>{label}</th></tr></thead>'
-             f'<tbody>{rows}</tbody></table>') if rows else ""
+             f'<tbody>{"".join(rows)}</tbody></table>') if rows else ""
     return f'<section><h2>{caption}</h2><p>{html.escape(note)}</p>{table}</section>'
 
 

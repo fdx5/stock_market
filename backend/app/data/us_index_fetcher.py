@@ -194,7 +194,7 @@ def get_nasdaq100_constituents(fresh: bool = False) -> list[dict]:
 def cached_sp500_quotes() -> list[dict]:
     roster = cache.peek("slickcharts:sp500", max_stale_seconds=4 * 86400) or []
     quotes = us_live_quotes.latest([item["code"] for item in roster])
-    return [_merge_quote(item, quotes[item["code"]]) for item in roster if item["code"] in quotes]
+    return [_merge_quote(item, quotes.get(item["code"])) for item in roster]
 
 
 def market_session(items: list[dict]) -> str:

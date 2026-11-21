@@ -136,7 +136,6 @@ def test_seo_price_and_us_ranking_use_cached_data(monkeypatch):
     })
     monkeypatch.setattr(us_index_fetcher, 'cached_sp500_quotes', lambda: [
         {'code': 'NVDA', 'name': 'Nvidia', 'market_cap': 14200},
-        {'code': 'NOQUOTE', 'name': 'Unavailable', 'market_cap': None},
     ])
     monkeypatch.setattr(etf_market, 'cached_etfs', lambda _region: {
         'items': [{'code': 'QQQ', 'name': 'Invesco QQQ', 'currency': 'USD', 'turnover': 15300}],
@@ -148,3 +147,24 @@ def test_seo_price_and_us_ranking_use_cached_data(monkeypatch):
     assert '/stock/NVDA' in sp500 and '14,200 USD' in sp500 and 'NOQUOTE' not in sp500
     etfs = markets.seo_content('/ranking/us-etf')
     assert '/stock/QQQ' in etfs and '15,300 USD' in etfs and '2026-11-20T21:30:00+00:00' in etfs
+
+
+def test_sp500_sparse_cap_feed_uses_published_weights(monkeypatch):
+    from app.data import us_index_fetcher
+    from app.routers import market_map
+
+    items = [
+        {'code': 'NVDA', 'name': 'Nvidia', 'marcap': 7.3, 'market_cap': None},
+        {'code': 'AAPL', 'name': 'Apple', 'marcap': 6.2, 'market_cap': 14123},
+        {'code': 'MSFT', 'name': 'Microsoft', 'marcap': 4.1},
+    ]
+    monkeypatch.setattr(us_index_fetcher, 'cached_sp500_quotes', lambda: items)
+    monkeypatch.setattr(market_map, 'get_sp500_map', lambda limit, fresh: items)
+    app = FastAPI()
+    app.include_router(market_map.router)
+    body = markets.seo_content('/ranking/sp500-market-cap')
+    assert '지수 편입 비중' in body and '7.30%' in body and '14,123' not in body
+    with TestClient(app) as client:
+        result = client.get('/sp500-map?limit=2&ranked=true').json()
+    assert result['ranking_basis'] == 'index_weight'
+    assert [item['code'] for item in result['items']] == ['NVDA', 'AAPL']

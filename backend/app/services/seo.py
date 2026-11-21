@@ -462,7 +462,7 @@ PAGES: dict[str, tuple[str, str]] = {
     "/ranking/trading-value": ("오늘 거래대금 순위 | K-Stock Hub", "코스피·코스닥 종목을 오늘 거래대금 기준으로 비교합니다."),
     "/market/kospi/foreign-buying": ("종목별 외국인·기관 수급 전체보기 | K-Stock Hub", "코스피·코스닥 상장 종목의 외국인·기관·개인 순매수 금액을 비교하고 종목별 투자자 매매동향 페이지로 이동하세요."),
     "/ranking/us-etf": ("미국 ETF 거래대금 순위 | K-Stock Hub", "미국 주요 ETF의 현재가, 거래대금과 기간 수익률 순위입니다."),
-    "/ranking/sp500-market-cap": ("S&P500 시가총액 순위 | K-Stock Hub", "S&P500 주요 기업을 시가총액 기준으로 비교합니다."),
+    "/ranking/sp500-market-cap": ("S&P 500 시가총액 순위 | K-Stock Hub", "S&P 500 구성 종목의 시가총액을 비교합니다. 시가총액 데이터가 부족한 경우 지수 편입 비중을 표시합니다."),
     "/etf/compare/069500/102110": ("KODEX 200·TIGER 200 비교 | K-Stock Hub", "대표 코스피200 ETF의 가격, 거래대금과 기간 수익률을 나란히 비교합니다."),
     "/hub": ("K-Stock Hub 태양계 시장 탐험", "K-Stock Hub의 태양계 인터페이스에서 국내외 주식 시장과 주요 서비스를 탐험하세요."),
     "/": ("코스피맵 (KOSPIMAP) | 국내외 주식 시세와 ETF", "코스피·코스닥·미국 증시 시세, 시가총액 맵, 거래대금 순위, ETF와 종목토론을 한곳에서 확인하세요."),

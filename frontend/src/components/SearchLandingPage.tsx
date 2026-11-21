@@ -28,6 +28,7 @@ export default function SearchLandingPage({ kind, code, slug, codes }: { kind: K
   const [prediction, setPrediction] = useState<Predict | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [rows, setRows] = useState<MarketMapItem[]>([]);
+  const [sp500Weight, setSp500Weight] = useState(false);
   const [investors, setInvestors] = useState<InvestorSummaryItem[]>([]);
   const [etfs, setEtfs] = useState<EtfRow[]>([]);
   const [updatedAt, setUpdatedAt] = useState("");
@@ -68,9 +69,11 @@ export default function SearchLandingPage({ kind, code, slug, codes }: { kind: K
         if (cancelled) return;
         setEtfs((data.items as EtfRow[]).sort((a, b) => b.turnover - a.turnover)); setUpdatedAt(data.updated_at);
       } else if (kind === "sp500") {
-        const data = await api.sp500Map(503);
+        const data = await api.sp500Ranking();
         if (cancelled) return;
-        setRows([...data.items].sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0)).slice(0, 100)); setUpdatedAt(data.generated_at);
+        setRows(data.items);
+        setSp500Weight(data.ranking_basis === "index_weight");
+        setUpdatedAt(data.generated_at);
       }
     };
     let inFlight = false;
@@ -95,7 +98,7 @@ export default function SearchLandingPage({ kind, code, slug, codes }: { kind: K
     if (kind === "investor-ranking") return ["종목별 외국인·기관 수급 전체보기", "코스피·코스닥 상장 종목의 외국인·기관·개인 순매수 금액을 비교하고 종목별 투자자 매매동향 페이지로 이동하세요."];
     if (kind === "etf-compare") return ["KODEX 200·TIGER 200 비교", "대표 코스피200 ETF의 가격, 거래대금과 기간 수익률을 나란히 비교합니다."];
     if (kind === "us-etf") return ["미국 ETF 거래대금 순위", "미국 주요 ETF의 현재가, 거래대금과 기간 수익률 순위입니다."];
-    return ["S&P500 시가총액 순위", "S&P500 주요 기업을 시가총액 기준으로 비교합니다."];
+    return ["S&P 500 시가총액 순위", "S&P 500 구성 종목의 시가총액을 비교합니다. 시가총액 데이터가 부족한 경우 지수 편입 비중을 표시합니다."];
   }, [kind, summary, code]);
 
   useEffect(() => {
@@ -116,10 +119,11 @@ export default function SearchLandingPage({ kind, code, slug, codes }: { kind: K
       {!loading && kind === "outlook" && indicators && <><section className="sl-cards"><article><span>전망</span><strong>{String(prediction?.prediction || prediction?.result || "데이터 분석")}</strong><p>예상 변동 {pct(Number(prediction?.predicted_change_pct ?? prediction?.change_rate ?? 0))}</p></article><article><span>RSI(14)</span><strong>{indicators.rsi14?.toFixed(1) || "-"}</strong><p>{(indicators.rsi14 || 50) >= 70 ? "과열 구간" : (indicators.rsi14 || 50) <= 30 ? "침체 구간" : "중립 구간"}</p></article><article><span>MACD</span><strong>{indicators.macd?.toFixed(2) || "-"}</strong><p>신호선 {indicators.macd_signal?.toFixed(2) || "-"}</p></article></section><Related code={code!} /></>}
       {!loading && kind === "news" && <><section className="sl-news">{news.map(item => <a key={item.link} href={item.link} target="_blank" rel="noreferrer"><span>{item.press} · {item.date}</span><h2>{item.title}</h2>{item.summary && <p>{item.summary}</p>}</a>)}</section><Related code={code!} /></>}
       {!loading && rows.length > 0 && <>
-        <StockTable rows={rows.slice(0, FIRST_TABLE_ROWS)} mode={kind} />
+        {kind === "sp500" && sp500Weight && <p className="sl-updated">현재 Slickcharts가 제공하는 S&P 500 지수 편입 비중 순위입니다.</p>}
+        <StockTable rows={rows.slice(0, FIRST_TABLE_ROWS)} mode={kind} sp500Weight={sp500Weight} />
         {rows.length > FIRST_TABLE_ROWS && <>
           <AdZone kind="break" lazy />
-          <StockTable rows={rows.slice(FIRST_TABLE_ROWS)} mode={kind} offset={FIRST_TABLE_ROWS} />
+          <StockTable rows={rows.slice(FIRST_TABLE_ROWS)} mode={kind} offset={FIRST_TABLE_ROWS} sp500Weight={sp500Weight} />
         </>}
         {kind !== "sp500" && <p className="sl-updated">거래대금 미제공 종목의 ≈ 표시는 현재가×거래량 근사치입니다.</p>}
       </>}
@@ -136,16 +140,20 @@ export default function SearchLandingPage({ kind, code, slug, codes }: { kind: K
 }
 
 function Related({ code }: { code: string }) { return <nav className="sl-related"><h2>관련 분석</h2><Link to={`/stock/${code}`}>주가·차트</Link><Link to={`/investor/${code}`}>외국인·기관 수급</Link><Link to={`/stock/${code}/outlook`}>주가 전망</Link><Link to={`/stock/${code}/news`}>관련 뉴스</Link></nav>; }
-function StockTable({ rows, mode, offset = 0 }: { rows: MarketMapItem[]; mode: Kind; offset?: number }) {
+function StockTable({ rows, mode, offset = 0, sp500Weight }: { rows: MarketMapItem[]; mode: Kind; offset?: number; sp500Weight: boolean }) {
   const isUs = mode === "sp500";
+  const metricName = isUs ? (sp500Weight ? "지수 편입 비중" : "시가총액 (USD)") : "거래대금";
   return <section className="sl-table-wrap"><table>
-    <thead><tr><th>순위</th><th>종목</th><th>업종</th><th>현재가</th><th>등락률</th><th>{isUs ? "시가총액" : "거래대금"}</th></tr></thead>
-    <tbody>{rows.map((item, i) => <tr key={item.code}>
+    <thead><tr><th>순위</th><th>종목</th><th>업종</th><th>현재가</th><th>등락률</th><th>{metricName}</th></tr></thead>
+    <tbody>{rows.map((item, i) => {
+      const value = isUs ? (sp500Weight ? item.marcap : item.market_cap) : turnover(item);
+      const shown = value == null ? "—" : isUs && sp500Weight ? value.toFixed(2) + "%" : nf.format(Math.round(value));
+      return <tr key={item.code}>
       <td>{offset + i + 1}</td>
       <td><Link to={`/stock/${item.code}`}><b>{item.name}</b><small>{item.code}</small></Link></td>
       <td>{item.sector}</td><td>{nf.format(item.close)}</td><td className={tone(item.change_pct)}>{pct(item.change_pct)}</td>
-      <td>{!isUs && item.turnover == null && "≈ "}{isUs && !item.market_cap ? "—" : nf.format(Math.round(isUs ? item.market_cap! : turnover(item)))}</td>
-    </tr>)}</tbody>
+      <td>{!isUs && item.turnover == null && "≈ "}{shown}</td>
+    </tr>; })}</tbody>
   </table></section>;
 }
 

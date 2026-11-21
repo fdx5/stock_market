@@ -27,11 +27,13 @@ from app.services.market_map import (
     get_sector_name,
 )
 from app.services.stock_board import BOARD_LIMIT, MARKETS, get_board
+from app.services.public_markets import sp500_ranking
 from app.services.stock_universe_page import MARKET_KEYS as UNIVERSE_MARKETS
 from app.services.stock_universe_page import PAGE_SIZE, get_page
 from app.services.us_market_map import (
     US_SECTOR_PEER_LIMIT,
     get_nasdaq100_map_with_skhynix,
+    get_sp500_map,
     get_sp500_map_with_skhynix,
     get_us_sector_map,
     get_us_sector_name,
@@ -88,8 +90,13 @@ def kosdaq_map(response: Response, limit: int = Query(200, ge=1, le=500), fresh:
 
 
 @router.get("/sp500-map")
-def sp500_map(response: Response, limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False)):
+def sp500_map(response: Response, limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False), ranked: bool = Query(False)):
     response.headers["Cache-Control"] = "no-store"
+    if ranked:
+        basis, items = sp500_ranking(get_sp500_map(503, fresh=fresh))
+        items = items[:limit]
+        return {"generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"), "count": len(items),
+                "items": items, "session": us_market_session(items), "ranking_basis": basis}
     items = get_sp500_map_with_skhynix(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),

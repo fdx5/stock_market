@@ -193,6 +193,7 @@ export interface MarketMapResponse {
   generated_at: string;
   count: number;
   items: MarketMapItem[];
+  ranking_basis?: "market_cap" | "index_weight";
   /** Which US session the whole snapshot is quoting from — the page badges its header
    * with it. Absent on the two KR maps. */
   session?: MarketSession;
@@ -1571,6 +1572,7 @@ export const api = {
     getJSONFresh<MarketMapResponse>(
       `${BASE}/market/sp500-map?limit=${limit}&fresh=${fresh}`
     ),
+  sp500Ranking: () => getJSONFresh<MarketMapResponse>(`${BASE}/market/sp500-map?limit=100&fresh=false&ranked=true`),
   nasdaq100Map: (limit = 103, fresh = false) =>
     getJSONFresh<MarketMapResponse>(
       `${BASE}/market/nasdaq100-map?limit=${limit}&fresh=${fresh}`

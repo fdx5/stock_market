@@ -7,6 +7,7 @@ Allow: /api/market/assets/*/history$
 Allow: /api/market/map?limit=500&fresh=false$
 Allow: /api/market/kosdaq-map?limit=200&fresh=false$
 Allow: /api/market/sp500-map?limit=503&fresh=false$
+Allow: /api/market/sp500-map?limit=100&fresh=false&ranked=true$
 Allow: /api/etfs?region=US$
 # Query-string variants (?code=, ?market=, ?name=) repeat their base page, which is
 # canonical; crawling thousands of them spends the budget the real pages need.
@@ -63,6 +64,7 @@ Allow: /api/market/assets/*/history$
 Allow: /api/market/map?limit=500&fresh=false$
 Allow: /api/market/kosdaq-map?limit=200&fresh=false$
 Allow: /api/market/sp500-map?limit=503&fresh=false$
+Allow: /api/market/sp500-map?limit=100&fresh=false&ranked=true$
 Allow: /api/etfs?region=US$
 # Query-string variants (?code=, ?market=, ?name=) repeat their base page, which is
 # canonical; crawling thousands of them spends the budget the real pages need.
