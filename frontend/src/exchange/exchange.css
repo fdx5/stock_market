@@ -3,7 +3,7 @@
   --exchange-line: #9bb2d334;
   --exchange-panel: #0d1421f2;
   display: grid;
-  grid-template-rows: auto minmax(240px, 1fr) auto;
+  grid-template-rows: minmax(240px, 1fr) auto;
   min-width: 0;
   height: 100%;
   background: #10101b;
@@ -64,7 +64,7 @@
 .exchange-benchmark { display: grid; grid-template-columns: auto auto; align-items: baseline; justify-content: end; gap: 3px 9px; font: 625 12px var(--f-type); }
 .exchange-benchmark span { grid-column: 1 / -1; color: #9eabc2; text-align: right; font-size: 9px; letter-spacing: .12em; }
 .exchange-benchmark strong { font-size: clamp(17px, 2vw, 27px); font-weight: 760; line-height: 1.15; }
-.exchange-stage { position: relative; min-height: 0; overflow: hidden; background: #121320; }
+.exchange-stage { position: relative; min-height: 0; overflow: hidden; background: #121320; scroll-margin-bottom: var(--ng-bottom, 0px); }
 .exchange-page:fullscreen { width: 100%; height: 100%; }
 .exchange-view, .exchange-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .exchange-view { background: radial-gradient(ellipse at 50% 40%, #28223c, #0b0c13 70%) center / cover; }
@@ -164,9 +164,11 @@
   background: #0a121ce4;
 }
 .exchange-minimap > span { display: block; margin-bottom: 5px; color: #b8c9e4; font-size: 10px; }
-.exchange-plan { position: relative; aspect-ratio: 28 / 23.62; border: 1px solid #a9bfde59; background: #182337; }
-.exchange-plan-wall { position: absolute; width: 84%; height: 7%; top: 5%; left: 8%; background: #aabfe45b; }
-.exchange-plan-post { position: absolute; width: 14%; height: 15%; transform: translate(-50%, -50%); background: #ac87ce43; border: 1px solid #c3a5e76c; border-radius: 25%; }
+.exchange-plan { position: relative; aspect-ratio: 42 / 31.5; border: 1px solid #d9b45a66; background: radial-gradient(circle at 50% 46%, #2a2418, #13110d); }
+.exchange-plan-wall { position: absolute; width: 90%; height: 7%; top: 0; left: 5%; background: #d9b45a70; }
+.exchange-plan-podium { position: absolute; width: 6.5%; height: 21%; top: 39.5%; left: 0; background: #d9b45a55; }
+.exchange-plan-gallery { position: absolute; width: 100%; height: 8%; bottom: 0; left: 0; background: #d9b45a2e; }
+.exchange-plan-post { position: absolute; width: 11.5%; height: 15.3%; transform: translate(-50%, -50%); background: #d9b45a33; border: 1px solid #e8c97a90; border-radius: 50%; }
 .exchange-plan-person {
   position: absolute;
   width: 0;
@@ -330,3 +332,85 @@
   }
   .exchange-joystick span { pointer-events: none; width: 32px; height: 32px; border-radius: 50%; background: #d6e3faa6; border: 1px solid #eff5ff; }
 }
+
+.exchange-panel-view { display: block; width: 100%; margin: 4px 0 12px; border-radius: 6px; background: #000; box-shadow: 0 0 0 1px #ffffff14, 0 8px 30px #0009; }
+.exchange-focus[data-panel] { width: min(760px, calc(100% - 28px)); }
+.exchange-progress { display: block; width: min(320px, 70vw); height: 4px; margin: 4px auto 0; overflow: hidden; border-radius: 2px; background: #ffffff1a; }
+.exchange-progress > b { display: block; height: 100%; background: linear-gradient(90deg, #a77b26, #f5d48a); transition: width .2s; }
+.exchange-monitor-picker > div { width: min(560px, 92vw); max-height: min(70vh, 560px); overflow-y: auto; grid-template-columns: 1fr; }
+.exchange-monitor-picker section { display: flex; flex-wrap: wrap; gap: 4px; }
+.exchange-monitor-picker h3 { width: 100%; margin: 6px 2px 2px; color: #d9b45a; font: 700 11px var(--f-type); letter-spacing: .12em; text-transform: uppercase; }
+
+/* Phone immersive mode: the floor covers the site chrome (header, pulse bar, player, bottom nav). */
+.exchange-page[data-immersive] { position: fixed; inset: 0; z-index: 300; height: 100dvh; width: 100vw; }
+.exchange-page[data-immersive] .exchange-header { min-height: 0; padding: max(6px, env(safe-area-inset-top)) 8px 5px; gap: 4px 8px; }
+.exchange-page[data-immersive] .exchange-title span { display: none; }
+.exchange-page[data-immersive] .exchange-title h1 { font-size: 16px; }
+.exchange-page[data-immersive] .exchange-market-switch button { min-height: 32px; }
+.exchange-page[data-immersive] .exchange-controls { padding-bottom: max(4px, env(safe-area-inset-bottom)); }
+html.exchange-immersive, html.exchange-immersive body { overflow: hidden; overscroll-behavior: none; }
+
+/* Compact market switch: in the site context bar (left of 오늘의 핫이슈) or over the floor. */
+.exchange-sr-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.exchange-switch-mini { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid #ffffff1f; border-radius: 999px; background: #0c0f18d9; }
+.exchange-switch-mini button { min-height: 26px; padding: 0 10px; border: 0; border-radius: 999px; background: none; color: #aab4c8; font: 700 10.5px var(--f-num, sans-serif); letter-spacing: .04em; cursor: pointer; }
+.exchange-switch-mini button[aria-pressed="true"] { background: linear-gradient(90deg, #d9b45a, #f3d98f); color: #1a1408; }
+.exchange-overlay-top .exchange-switch-mini { margin-right: auto; }
+@media (pointer: coarse) { .exchange-switch-mini button { min-height: 32px; padding: 0 11px; } }
+
+/* Stock search in single-stock detail dialogs. */
+.exchange-stock-search { position: relative; margin: 2px 0 8px; }
+.exchange-stock-search input { width: 100%; height: 38px; padding: 0 12px; border: 1px solid #ffffff26; border-radius: 8px; background: #05070c; color: #f2f5fb; font: 500 13px var(--f-sans); outline: none; }
+.exchange-stock-search input:focus { border-color: var(--exchange-accent); box-shadow: 0 0 0 3px #71e8fe22; }
+.exchange-stock-search ul { position: absolute; z-index: 5; inset: 42px 0 auto; margin: 0; padding: 4px; list-style: none; border: 1px solid #ffffff22; border-radius: 8px; background: #0b0f18f7; box-shadow: 0 12px 30px #000a; }
+.exchange-stock-search button { width: 100%; display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 0; border-radius: 6px; background: none; color: #e9eef7; font: 600 13px var(--f-sans); text-align: left; cursor: pointer; }
+.exchange-stock-search button:hover, .exchange-stock-search button:focus-visible { background: #ffffff12; }
+.exchange-stock-search button span { color: #8f9ab0; font: 500 11px var(--f-num); }
+.exchange-search-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: #c7d0e0; font-size: 12px; }
+
+/* Big-board detail sections. */
+.exchange-ov { display: grid; gap: 10px; margin-bottom: 10px; }
+.exchange-ov section { padding: 10px 12px; border: 1px solid #ffffff14; border-radius: 8px; background: #05070cc0; }
+.exchange-ov h3 { margin: 0 0 8px; color: #e8ecf5; font: 700 13px var(--f-sans); }
+.exchange-ov h3 small { margin-left: 6px; color: #8892a6; font: 500 11px var(--f-num); }
+.exchange-ov-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0; }
+.exchange-ov-stats div { padding: 6px 8px; border-radius: 6px; background: #ffffff08; }
+.exchange-ov-stats dt { color: #8f99ad; font-size: 11px; }
+.exchange-ov-stats dd { margin: 2px 0 0; font: 700 16px var(--f-num); color: #f1f4fa; }
+.exchange-ov-breadth { display: flex; height: 10px; overflow: hidden; border-radius: 5px; background: #1a1e29; }
+.exchange-ov-breadth i[data-tone="up"] { background: #ff3d5f; } .exchange-ov-breadth i[data-tone="flat"] { background: #8b94a8; } .exchange-ov-breadth i[data-tone="down"] { background: #3b8dff; }
+.exchange-ov-line { display: flex; gap: 14px; margin: 7px 0 0; font: 700 12px var(--f-num); } .exchange-ov-line span { margin-left: auto; color: #aab3c6; }
+.exchange-ov-flows { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.exchange-ov-flows li { display: grid; grid-template-columns: 60px 1fr 90px; align-items: center; gap: 8px; font-size: 12px; color: #d6dceb; }
+.exchange-ov-flows i { position: relative; height: 10px; border-radius: 5px; background: #1a1e29; }
+.exchange-ov-flows i b { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+.exchange-ov-flows i b[data-tone="up"] { background: #ff3d5f; } .exchange-ov-flows i b[data-tone="down"] { background: #3b8dff; }
+.exchange-ov-flows strong { text-align: right; font: 700 13px var(--f-num); }
+.exchange-ov-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.exchange-ov-two ol { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; counter-reset: ov; }
+.exchange-ov-two li { display: grid; grid-template-columns: 1fr auto 52px; gap: 6px; align-items: baseline; font-size: 12px; color: #e3e8f2; }
+.exchange-ov-two li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exchange-ov-two li b { font: 700 12px var(--f-num); } .exchange-ov-two li small { text-align: right; color: #8892a6; font: 500 11px var(--f-num); }
+.exchange-ov-related { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.exchange-ov-related li { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: baseline; padding: 6px 8px; border-radius: 6px; background: #ffffff08; font-size: 12px; color: #c9d1e0; }
+.exchange-ov-related strong { font: 700 13px var(--f-num); color: #f3f6fb; } .exchange-ov-related b { font: 700 12px var(--f-num); }
+@media (max-width: 760px) { .exchange-ov-stats { grid-template-columns: repeat(2, 1fr); } .exchange-ov-two, .exchange-ov-related { grid-template-columns: 1fr; } }
+
+/* Wide heat-map dialog (site market-map style). */
+.exchange-focus[data-wide] { left: 14px; width: auto; }
+.exchange-heatmap { position: relative; margin-bottom: 12px; }
+.exchange-heatmap-legend { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; color: #c7cfdf; font-size: 12px; }
+.exchange-heatmap-legend i { display: flex; gap: 2px; font-style: normal; }
+.exchange-heatmap-legend b { padding: 2px 6px; border-radius: 3px; color: #fff; font: 700 10px var(--f-num); }
+.exchange-heatmap-box { position: relative; height: min(64vh, 640px); overflow: hidden; border-radius: 6px; background: #05060a; }
+.exchange-heatmap-box > section { position: absolute; box-sizing: border-box; border: 1px solid #000; }
+.exchange-heatmap-box header { display: flex; justify-content: space-between; gap: 6px; height: 18px; padding: 0 5px; overflow: hidden; background: #11141d; color: #d9dfeb; font: 700 11px/18px var(--f-sans); white-space: nowrap; }
+.exchange-heatmap-box header b { font-family: var(--f-num); }
+.exchange-heatmap-tile { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 2px 5px; overflow: hidden; border: 1px solid #0006; cursor: pointer; text-align: center; line-height: 1.12; font-weight: 700; }
+.exchange-heatmap-tile:hover { outline: 2px solid #fff; outline-offset: -2px; z-index: 2; }
+.exchange-heatmap-name { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exchange-heatmap-name img { border-radius: 50%; flex: none; }
+.exchange-heatmap-tip { position: fixed; z-index: 400; display: grid; gap: 2px; min-width: 170px; padding: 8px 10px; pointer-events: none; border: 1px solid #ffffff2a; border-radius: 8px; background: #0b0f18f2; color: #e9eef7; font-size: 12px; box-shadow: 0 10px 28px #000a; }
+.exchange-heatmap-tip small { color: #8f9ab0; }
+.exchange-heatmap-tip span { display: flex; justify-content: space-between; gap: 10px; font: 700 13px var(--f-num); }
+@media (max-width: 760px) { .exchange-focus[data-wide] { left: 8px; } .exchange-heatmap-box { height: 58vh; } }

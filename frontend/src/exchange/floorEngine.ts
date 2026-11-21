@@ -1,12 +1,15 @@
 import {
-  ACESFilmicToneMapping, CanvasTexture, Color, DirectionalLight, EquirectangularReflectionMapping, Group, HemisphereLight,
-  Mesh, MeshBasicMaterial, PerspectiveCamera, PlaneGeometry, Raycaster, Scene, Texture, Vector2, WebGPUCoordinateSystem,
+  Color, EquirectangularReflectionMapping, HemisphereLight, Mesh, MeshStandardMaterial, NeutralToneMapping, PerspectiveCamera,
+  Raycaster, SRGBColorSpace, Scene, Texture, TextureLoader, Vector2, WebGPUCoordinateSystem,
   type BufferGeometry, type Material, type Object3D,
 } from "three";
-import { WebGPURenderer } from "three/webgpu";
+import { RenderPipeline, WebGPURenderer } from "three/webgpu";
+import { pass } from "three/tsl";
+import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+import bake from "./bake.json";
 import { FLOOR, MARKETS, STORAGE_ASSETS, type FloorSnapshot, type Language } from "./market";
 import { createScreens } from "./screens";
 
@@ -20,17 +23,18 @@ export type FloorDriver = {
   dispose: () => void;
 };
 
-const HALL = STORAGE_ASSETS + "/trading-hall-v2.glb";
-const ENV = STORAGE_ASSETS + "/lighting-v1.hdr";
-const EYE = 1.66, RADIUS = .29;
+const HALL = STORAGE_ASSETS + "/trading-hall-v3.glb";
+const ENV = STORAGE_ASSETS + "/hall-env-v3.hdr";   // Cycles panorama of this hall
+const EYE = 1.68, RADIUS = .32;
 const RAD = Math.PI / 180;
 const KEYS = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight", "ShiftLeft", "ShiftRight"]);
-const ALL_OBSTACLES = [...FLOOR.obstacles, ...FLOOR.posts.map(({ x, z }) => ({ x, z, w: 4.44, d: 4.6 }))];
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export function walkable(x: number, z: number) {
-  if (Math.abs(x) > FLOOR.room.width / 2 - FLOOR.room.sideInset || Math.abs(z) > FLOOR.room.depth / 2 - .53) return false;
-  return !ALL_OBSTACLES.some(item => Math.abs(x - item.x) < item.w / 2 + RADIUS && Math.abs(z - item.z) < item.d / 2 + RADIUS);
+  const walk = FLOOR.walk;
+  if (Math.abs(x) > walk.x || z < walk.zMin || z > walk.zMax) return false;
+  if (FLOOR.obstacles.some(o => Math.abs(x - o.x) < o.w / 2 + RADIUS && Math.abs(z - o.z) < o.d / 2 + RADIUS)) return false;
+  return !FLOOR.circles.some(c => Math.hypot(x - c.x, z - c.z) < c.r + RADIUS);
 }
 
 function releaseModel(root: Object3D) {
@@ -52,61 +56,63 @@ function releaseModel(root: Object3D) {
   for (const geometry of geometries) geometry.dispose();
 }
 
-function addContactShadows(scene: Scene) {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 128;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  const shade = ctx.createRadialGradient(64, 64, 18, 64, 64, 63);
-  shade.addColorStop(0, "#000b");
-  shade.addColorStop(.53, "#03030975");
-  shade.addColorStop(1, "#0000");
-  ctx.fillStyle = shade;
-  ctx.fillRect(0, 0, 128, 128);
-  const map = new CanvasTexture(canvas);
-  const mat = new MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false });
-  const geometry = new PlaneGeometry(1, 1);
-  const pads = new Group();
-  for (const { x, z } of FLOOR.posts) {
-    const mesh = new Mesh(geometry, mat);
-    mesh.position.set(x, .022, z);
-    mesh.scale.set(5.8, 4.4, 1);
-    mesh.rotation.x = -Math.PI / 2;
-    pads.add(mesh);
+function groupOf(object: Object3D) {
+  for (let node: Object3D | null = object; node; node = node.parent) {
+    if (node.name === "shell" || node.name === "fixtures" || node.name === "emit") return node.name;
   }
-  for (const x of [-10.15, 10.15]) {
-    const mesh = new Mesh(geometry, mat);
-    mesh.position.set(x, .019, 7.6);
-    mesh.scale.set(4.3, 3.6, 1);
-    mesh.rotation.x = -Math.PI / 2;
-    pads.add(mesh);
-  }
-  scene.add(pads);
-  return () => { geometry.dispose(); mat.dispose(); map.dispose(); };
+  return "props";
+}
+
+/** Texture quality for screen canvases: full on capable devices, lighter on small-memory phones. */
+function screenQuality() {
+  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+  const coarse = matchMedia("(pointer: coarse)").matches;
+  return memory <= 4 ? .62 : coarse ? .8 : 1;
 }
 
 type Events = {
   renderer: (mode: "webgpu" | "webgl2") => void;
   position: (x: number, z: number, yaw: number) => void;
   select: (panel: string) => void;
+  progress?: (fraction: number) => void;
   error: () => void;
 };
 
+async function fetchWithProgress(url: string, signal: AbortSignal, progress?: (f: number) => void) {
+  const response = await fetch(url, { signal });
+  if (!response.ok || !response.body) throw new Error("Trading hall model unavailable");
+  const total = Number(response.headers.get("content-length")) || 13e6;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    progress?.(Math.min(.99, received / total));
+  }
+  const out = new Uint8Array(received);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.length; }
+  return out.buffer;
+}
+
 export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElement, signal: AbortSignal, events: Events): Promise<FloorDriver> {
   if (signal.aborted) throw signal.reason;
-  const renderer = new WebGPURenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance" });
-  renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.11;
+  const params = new URLSearchParams(location.search);
+  // Phones: dense pixels already hide edges, so skip MSAA there and start without bloom.
+  const touch = matchMedia("(pointer: coarse)").matches;
+  const dense = (window.devicePixelRatio || 1) >= 2;
+  const renderer = new WebGPURenderer({ canvas, antialias: !(touch && dense), alpha: false, powerPreference: "high-performance" });
+  renderer.toneMapping = NeutralToneMapping;
+  renderer.toneMappingExposure = .92;   // comfortable for long viewing
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const scene = new Scene();
-  scene.background = new Color("#11101b");
-  const camera = new PerspectiveCamera(65, 1, .06, 55);
-  const sky = new HemisphereLight("#d9e0ff", "#493341", .74);
-  const key = new DirectionalLight("#fff0df", 1.32);
-  key.position.set(-5, 10, 6);
-  const fill = new DirectionalLight("#a9bdff", .81);
-  fill.position.set(7, 6, -8);
-  scene.add(sky, key, fill);
+  scene.background = new Color("#120f0b");
+  const camera = new PerspectiveCamera(62, 1, .08, 90);
+  const sky = new HemisphereLight("#fff2dd", "#3a2a1c", .55);
+  scene.add(sky);
   const releases: (() => void)[] = [];
   let disposed = false, frame = 0;
   let environment: Texture | undefined;
@@ -119,52 +125,102 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     renderer.dispose();
   };
   try {
-    const binary = fetch(HALL, { signal }).then(response => {
-      if (!response.ok) throw new Error("Trading hall model unavailable");
-      return response.arrayBuffer();
+    const textures = new TextureLoader();
+    const lightmap = (file: string) => textures.loadAsync(STORAGE_ASSETS + "/" + file).then(tex => {
+      tex.flipY = false;
+      tex.channel = 1;
+      tex.colorSpace = SRGBColorSpace;
+      return tex;
     });
-    await Promise.all([renderer.init(), binary]);
+    const screens = createScreens(screenQuality());
+    const [, binary, shellMap, fixtureMap] = await Promise.all([
+      renderer.init(), fetchWithProgress(HALL, signal, events.progress),
+      lightmap(bake.shell.file), lightmap(bake.fixtures.file), screens.ready(),
+    ]);
     if (signal.aborted) { dispose(); throw signal.reason; }
-    const model = (await loader.parseAsync(await binary, STORAGE_ASSETS + "/")).scene;
-    releases.push(() => releaseModel(model));
+    const model = (await loader.parseAsync(binary, STORAGE_ASSETS + "/")).scene;
+    releases.push(() => { releaseModel(model); shellMap.dispose(); fixtureMap.dispose(); });
     if (signal.aborted) { dispose(); throw signal.reason; }
+
+    // Baked global illumination: each lightmapped group gets its own material copies.
+    const cloned = new Map<string, MeshStandardMaterial>();
+    const propMaterials = new Set<MeshStandardMaterial>();
+    model.traverse(child => {
+      if (!(child instanceof Mesh)) return;
+      const group = groupOf(child);
+      child.matrixAutoUpdate = false;
+      child.updateMatrix();
+      const source = child.material as MeshStandardMaterial;
+      if ((group === "shell" || group === "fixtures") && child.geometry.getAttribute("uv1")) {
+        const key = group + ":" + source.uuid;
+        let m = cloned.get(key);
+        if (!m) {
+          m = source.clone();
+          m.lightMap = group === "shell" ? shellMap : fixtureMap;
+          m.lightMapIntensity = (group === "shell" ? bake.shell.scale : bake.fixtures.scale) * Math.PI;
+          m.envMapIntensity = m.metalness > .5 ? 1.0 : .55;
+          cloned.set(key, m);
+        }
+        child.material = m;
+      } else if (group === "emit") {
+        // Daylight glazing reads as soft sky, not a glare source; lamps a touch dimmer for long sessions.
+        if (source.name === "Daylight glazing") source.emissiveIntensity *= .6;
+        else if (source.emissiveIntensity > 1) source.emissiveIntensity *= .8;
+        if (source.transparent || source.name === "Balustrade glass") {
+          source.transparent = true; source.opacity = .16; source.depthWrite = false;
+        }
+      } else {
+        propMaterials.add(source);   // bronze bull, chandeliers, furniture: lit by the hall panorama
+      }
+    });
     scene.add(model);
+    scene.add(screens.group);
+    releases.push(screens.dispose);
     void new HDRLoader().loadAsync(ENV).then(texture => {
       if (disposed || signal.aborted) { texture.dispose(); return; }
       texture.mapping = EquirectangularReflectionMapping;
       scene.environment = environment = texture;
-      scene.environmentIntensity = .52;
-      scene.environmentRotation.y = -.23;
+      for (const m of propMaterials) { m.envMap = texture; m.envMapIntensity = 1.7; m.needsUpdate = true; }
+      // The panorama is the lit hall itself; lightmaps already carry diffuse light, so keep it modest.
+      scene.environmentIntensity = .5;
     }).catch(() => {});
-    const shadows = addContactShadows(scene);
-    if (shadows) releases.push(shadows);
-    const screens = createScreens();
-    scene.add(screens.group);
-    releases.push(screens.dispose);
+
+    // Bloom only on genuinely bright pixels: lamps, daylight, the brightest figures.
+    let pipeline: RenderPipeline | undefined;
+    if (params.get("bloom") === "1" || (params.get("bloom") !== "0" && !touch)) {
+      pipeline = new RenderPipeline(renderer);
+      const scenePass = pass(scene, camera);
+      const color = scenePass.getTextureNode("output");
+      pipeline.outputNode = color.add(bloom(color, .22, .4, .9));
+      releases.push(() => pipeline?.dispose());
+    }
 
     const keys = new Set<string>();
     const state = { ...FLOOR.spawn };
     state.yaw *= RAD;
     let pitch = state.pitch;
+    let lookYaw = state.yaw, lookPitch = pitch;   // rendered view eases toward the dragged target
     let touchX = 0, touchForward = 0, velX = 0, velZ = 0;
     let drag: { pointer: number; x: number; y: number; travel: number } | undefined;
     let last = 0, lastPosition = 0, lastHover = -Infinity, pushedPose = false, aspect = 1, dpr = 0;
+    let slowSince = 0, tier = 0, started = 0;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const measure = new URLSearchParams(location.search).has("exchangeMetrics");
+    const measure = params.has("exchangeMetrics");
     const frames: number[] = [];
+    const recent: number[] = [];
     const pointer = new Vector2(), ray = new Raycaster();
     const backend = renderer.coordinateSystem === WebGPUCoordinateSystem ? "webgpu" : "webgl2";
     const pause = () => { keys.clear(); touchX = touchForward = velX = velZ = 0; };
     const isField = (event: KeyboardEvent) => event.target instanceof HTMLElement &&
       !!event.target.closest("input,button,select,textarea,a,[contenteditable],[role=dialog]");
+    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 2 ? 1.25 : tier >= 1 ? 1.6 : touch ? 2 : 2.5);
 
     function resize() {
       const { width, height } = host.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
-      dpr = window.devicePixelRatio || 1;
+      dpr = maxRatio();
       aspect = camera.aspect = width / height;
-      // Keep horizontal perspective usable on portrait screens without zooming the render resolution.
-      camera.fov = aspect < 1 ? Math.min(98, Math.max(74, 2 * Math.atan(Math.tan(32 * RAD) / aspect) / RAD)) : 63;
+      camera.fov = aspect < 1 ? Math.min(96, Math.max(72, 2 * Math.atan(Math.tan(31 * RAD) / aspect) / RAD)) : 62;
       camera.updateProjectionMatrix();
       renderer.setPixelRatio(dpr);
       renderer.setSize(width, height, false);
@@ -178,10 +234,10 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const rect = canvas.getBoundingClientRect();
       pointer.set((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1);
       ray.setFromCamera(pointer, camera);
-      ray.far = 29;
+      ray.far = 45;
       const hit = ray.intersectObjects(screens.targets, false)[0];
       if (!hit) return null;
-      ray.far = hit.distance - .008;
+      ray.far = hit.distance - .02;
       return ray.intersectObject(model, true).length ? null : hit.object.userData.panel as string;
     }
 
@@ -193,7 +249,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     }
     function move(event: PointerEvent) {
       if (!drag || drag.pointer !== event.pointerId) {
-        if (event.pointerType === "mouse" && !drag && event.timeStamp - lastHover >= 80) {
+        if (event.pointerType === "mouse" && !drag && event.timeStamp - lastHover >= 90) {
           lastHover = event.timeStamp;
           canvas.style.cursor = pick(event.clientX, event.clientY) ? "pointer" : "grab";
         }
@@ -204,7 +260,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       drag.travel += Math.abs(dx) + Math.abs(dy);
       if (drag.travel < 5) return;
       state.yaw -= dx * .0045;
-      pitch = clamp(pitch - dy * .0045, -.74, .88);
+      pitch = clamp(pitch - dy * .0045, -.8, 1.15);
       canvas.style.cursor = "grabbing";
     }
     function up(event: PointerEvent) {
@@ -227,36 +283,64 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     }
     const keyup = (event: KeyboardEvent) => { keys.delete(event.code); };
 
+    function govern(elapsed: number, now: number) {
+      // Hold 60 fps: shed bloom first, then cap the pixel ratio; resolution goes only when needed.
+      // Ignore the first seconds: pipeline compiles and the first paint of every display are one-off.
+      if (!started) started = now;
+      if (now - started < 6000) return;
+      recent.push(elapsed);
+      if (recent.length > 90) recent.shift();
+      if (recent.length < 90 || tier >= 3) return;
+      const avg = recent.reduce((s, v) => s + v, 0) / recent.length;
+      if (avg > 18.2) {
+        if (!slowSince) slowSince = now;
+        if (now - slowSince > 2500) {
+          tier++;
+          slowSince = 0;
+          recent.length = 0;
+          if (tier === 1 && pipeline) { pipeline.dispose(); pipeline = undefined; tier = 1; } else resize();
+          canvas.dataset.qualityTier = String(tier);
+        }
+      } else slowSince = 0;
+    }
+
     function repaint(now: number) {
       if (!last) last = now;
       const elapsed = now - last, step = Math.min(elapsed / 1000, .033);
       last = now;
+      if (elapsed > 0 && elapsed < 250) govern(elapsed, now);
       if (measure && elapsed > 0) {
         frames.push(elapsed);
         if (frames.length > 2400) frames.splice(0, 600);
       }
-      if (dpr !== (window.devicePixelRatio || 1)) resize();
+      if (dpr !== maxRatio()) resize();
       const axisX = Number(keys.has("KeyD") || keys.has("ArrowRight")) - Number(keys.has("KeyA") || keys.has("ArrowLeft")) + touchX;
       const axisZ = Number(keys.has("KeyW") || keys.has("ArrowUp")) - Number(keys.has("KeyS") || keys.has("ArrowDown")) + touchForward;
-      const scale = ((keys.has("ShiftLeft") || keys.has("ShiftRight")) ? 4.5 : 2.75) / Math.max(1, Math.hypot(axisX, axisZ));
+      const scale = ((keys.has("ShiftLeft") || keys.has("ShiftRight")) ? 5.2 : 3.0) / Math.max(1, Math.hypot(axisX, axisZ));
       const cos = Math.cos(state.yaw), sin = Math.sin(state.yaw);
-      const blend = 1 - Math.exp(-step * 13);
+      const blend = 1 - Math.exp(-step * 8);   // gentle acceleration and glide
       velX += ((axisX * cos - axisZ * sin) * scale - velX) * blend;
       velZ += ((-axisX * sin - axisZ * cos) * scale - velZ) * blend;
       const nx = state.x + velX * step, nz = state.z + velZ * step;
       if (walkable(nx, state.z)) state.x = nx;
       if (walkable(state.x, nz)) state.z = nz;
-      const stride = reduced.matches ? 0 : clamp(Math.hypot(velX, velZ) / 2.75, 0, 1) * Math.sin(now * .009) * .022;
+      const stride = reduced.matches ? 0 : clamp(Math.hypot(velX, velZ) / 3, 0, 1) * Math.sin(now * .0085) * .02;
       camera.position.set(state.x, EYE + stride, state.z);
-      camera.rotation.set(pitch, state.yaw, 0, "YXZ");
+      const ease = 1 - Math.exp(-step * 22);
+      lookYaw += (state.yaw - lookYaw) * ease;
+      lookPitch += (pitch - lookPitch) * ease;
+      camera.rotation.set(lookPitch, lookYaw, 0, "YXZ");
       screens.tick(now, reduced.matches);
-      renderer.render(scene, camera);
+      if (pipeline) pipeline.render(); else renderer.render(scene, camera);
       if (!pushedPose || now - lastPosition > 130) {
         pushedPose = true; lastPosition = now;
         events.position(state.x, state.z, state.yaw);
         if (measure && frames.length) {
           canvas.dataset.frameMs = frames.slice(-300).map(delta => delta.toFixed(2)).join(",");
           canvas.dataset.drawCalls = String(renderer.info.render.drawCalls);
+          canvas.dataset.triangles = String(renderer.info.render.triangles);
+          canvas.dataset.pose = [state.x, state.z, state.yaw].map(v => v.toFixed(2)).join(",");
+          canvas.dataset.paintMs = JSON.stringify(screens.paintMs);
         }
       }
       if (dpr && aspect) frame = requestAnimationFrame(repaint);
@@ -284,9 +368,9 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       document.removeEventListener("visibilitychange", visibility);
     });
     renderer.onDeviceLost = () => { dispose(); if (!signal.aborted) events.error(); };
-    const accent = new DirectionalLight(MARKETS.kospi.color, .37);
-    accent.position.set(0, 3.5, -10);
-    scene.add(accent);
+    // Compile every pipeline up front so the first walk-around never hitches.
+    await renderer.compileAsync(scene, camera);
+    if (signal.aborted) { dispose(); throw signal.reason; }
     events.renderer(backend);
     visibility();
     return {
@@ -294,12 +378,12 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       jump(pose) {
         if (!walkable(pose.x, pose.z)) return;
         pause();
-        state.x = pose.x; state.z = pose.z; state.yaw = pose.yaw * RAD; pitch = pose.pitch;
+        state.x = pose.x; state.z = pose.z; state.yaw = lookYaw = pose.yaw * RAD; pitch = lookPitch = pose.pitch;
         canvas.focus({ preventScroll: true });
       },
       stop: pause,
       update(snapshot, series, language) {
-        accent.color.set(MARKETS[snapshot.market].color);
+        sky.color.set("#fff2dd").lerp(new Color(MARKETS[snapshot.market].color), .08);
         screens.update(snapshot, series, language);
       },
       dispose,

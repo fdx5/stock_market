@@ -233,6 +233,11 @@ export function reportHotIssue(action: string, label = ""): void {
   sendEvent({ type: "click", path: window.location.pathname, label: `오늘의 핫이슈 · ${label || action}`.slice(0, 120), object_key: `hotissue:${action}`.slice(0, 100) });
 }
 
+/** 3D stock exchange: menu entry, renderer outcome, monitors opened, stations and market switches. */
+export function reportExchange(action: string, label = ""): void {
+  sendEvent({ type: "click", path: window.location.pathname, label: `증권 거래소 · ${label || action}`.slice(0, 120), object_key: `exchange:${action}`.slice(0, 100) });
+}
+
 /** Records both the deliberate CTA click and the external game's virtual entrance.
  * keepalive on sendEvent preserves both requests while the new tab is opening. */
 export function reportVoltarisIngress(sourcePath: string): void {

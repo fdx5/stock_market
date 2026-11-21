@@ -191,6 +191,13 @@ def research_stats(days: int = Query(7, ge=1, le=30), path: str = Query("", max_
     return {"days": days, "path": path, **page_view_store.research_stats(since, path)}
 
 
+@router.get("/exchange/stats", dependencies=[Depends(require_admin)])
+@ttl_cache(285)  # days of raw page_views x4 queries
+def exchange_stats(days: int = Query(7, ge=1, le=30)):
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    return {"days": days, **page_view_store.exchange_stats(since)}
+
+
 @router.get("/hot-issues/stats", dependencies=[Depends(require_admin)])
 @ttl_cache(285)  # days of raw page_views x4 queries; 30s was a scan every poll
 def hot_issue_stats(days: int = Query(7, ge=1, le=30)):

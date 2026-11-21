@@ -6,3 +6,4 @@
 @keyframes ng-hot-pulse{50%{box-shadow:0 0 0 6px #ff5f6d00}}
 @media(prefers-reduced-motion:reduce){.ng-context .ng-hot-entry>i{animation:none}}
 :root[data-tone="light"] .ng-context .ng-hot-entry{color:#a3182a;background:#ffe9ec;border-color:#f3a3ad}
+.ng-context .ng-exchange-slot{margin-left:auto;display:inline-flex;align-items:center}.ng-context .ng-exchange-slot+.ng-hot-entry{margin-left:8px}

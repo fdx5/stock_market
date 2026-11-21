@@ -397,6 +397,33 @@ def hot_issue_stats(since_iso: str) -> dict:
             "recent": [{"at": at, "path": path, "action": (key or "view").removeprefix("hotissue:"), "label": label} for at, path, key, label in recent]}
 
 
+def exchange_stats(since_iso: str) -> dict:
+    """SELECT-only: visits of the 3D /exchange floor and what visitors did there (object_key exchange:*)."""
+    where = f"created_at >= ? AND {HUMAN}"
+    view = "event_type='page_view' AND path='/exchange'"
+    act = "event_type='click' AND object_key LIKE 'exchange:%'"
+    def read(conn):
+        views = conn.execute(f"SELECT COUNT(*), COUNT(DISTINCT session_id) FROM page_views WHERE {where} AND {view}", (since_iso,)).fetchone()
+        actions = conn.execute(
+            "SELECT object_key, COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
+            f"WHERE {where} AND {act} GROUP BY object_key ORDER BY COUNT(*) DESC LIMIT 200", (since_iso,)).fetchall()
+        trend = conn.execute(
+            "SELECT strftime('%Y-%m-%d',created_at,'+9 hours'), "
+            f"SUM(CASE WHEN {view} THEN 1 ELSE 0 END), COUNT(DISTINCT CASE WHEN {view} THEN session_id END), "
+            f"SUM(CASE WHEN {act} THEN 1 ELSE 0 END) "
+            f"FROM page_views WHERE {where} AND (path='/exchange' OR object_key LIKE 'exchange:%') GROUP BY 1 ORDER BY 1",
+            (since_iso,)).fetchall()
+        recent = conn.execute(
+            "SELECT created_at, path, object_key, label FROM page_views "
+            f"WHERE {where} AND (({view}) OR ({act})) ORDER BY created_at DESC LIMIT 80", (since_iso,)).fetchall()
+        return views, actions, trend, recent
+    views, actions, trend, recent = _with_connection(read)
+    return {"since": since_iso, "views": int(views[0] or 0), "sessions": int(views[1] or 0),
+            "actions": [{"action": key.removeprefix("exchange:"), "count": count, "sessions": sessions} for key, count, sessions in actions],
+            "trend": [{"day": day, "views": int(v or 0), "sessions": int(s or 0), "actions": int(a or 0)} for day, v, s, a in trend],
+            "recent": [{"at": at, "path": path, "action": (key or "view").removeprefix("exchange:"), "label": label} for at, path, key, label in recent]}
+
+
 # Routes that carry a code in the path. Grouping them is what makes the admin's page
 # ranking readable: /stock/005930 and /stock/000660 are one page with a few thousand
 # possible URLs, and counted apart the 종목 상세 page never appears in a top-5 at all —
