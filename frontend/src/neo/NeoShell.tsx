@@ -158,6 +158,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
   const bgm = useDeskBgm();
   useEffect(() => solar ? attachDeskBgm() : undefined, [solar]);
   const family = neoRouteFamily(path);
+  const exchange = path === "/exchange" || path === "/exchange/";
   const currentTone = neoHeaderCurrentTone(path, window.location.search);
   const showCurrent = family !== "immersive" && frameLight && fx !== "minimal";
   const current = (to: string) => to.split("?")[0] === path;
@@ -183,8 +184,8 @@ export default function NeoShell({ path, children }: { path: string; children: R
     {bgm.on && <div className="d2 d2-bgm-float ng-solar-bgm"><DeskBgm variant="strip" /></div>}
     {finder && <Suspense fallback={null}><div className="d2 ng-finder-host"><Finder open={finder} onClose={close} /></div></Suspense>}
   </div>;
-  return <div className={`ng-shell ng-family-${family}`} data-workspace={path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
-    {!path.startsWith("/pulse-board") && <NeoBackdrop />}
+  return <div className={`ng-shell ng-family-${family}`} data-workspace={exchange ? "exchange" : path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
+    {!exchange && !path.startsWith("/pulse-board") && <NeoBackdrop />}
     <GoldCursor />
     <a className="ng-skip" href="#neo-content">{L("본문 바로가기", "Skip to content")}</a>
     <header className="ng-header" data-current-tone={currentTone}>
@@ -202,7 +203,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     <aside className="ng-sidebar" aria-label={L("워크스페이스 탐색", "Workspace navigation")}>
       <div className="ng-sidebar-cap"><span>WORKSPACE</span><b>01 / KOSPIMAP</b></div>
       {NEO_GROUPS.map(group => {
-        const limit = group.id === "explore" ? group.links.length : group.id === "markets" ? 7 : group.id === "maps" ? 5 : 4;
+        const limit = group.id === "explore" ? group.links.length : group.id === "markets" ? 8 : group.id === "maps" ? 5 : 4;
         const primary = group.links.slice(0, limit), extra = group.links.slice(limit);
         const active = extra.find(link => current(link[0]));
         const remaining = extra.filter(link => link !== active);

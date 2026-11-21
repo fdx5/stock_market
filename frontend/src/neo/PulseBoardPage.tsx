@@ -304,6 +304,7 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
       {variant === "deep"
         ? <Link className="pb-more pb-alt-link" to="/pulse-board-ship">{L("증시 전광판(구)", "Classic board")}<b aria-hidden="true">↗</b></Link>
         : <Link className="pb-more pb-alt-link" to="/pulse-board">{L("새 증시 전광판", "New pulse board")}<b aria-hidden="true">↗</b></Link>}
+      <Link className="pb-more pb-alt-link" to="/exchange">{L("증권 거래소", "Stock exchange")}<b aria-hidden="true">↗</b></Link>
       </div>
       <p className="pb-footnote">{market === "nasdaq100" ? L("막대: 상대 지수 비중", "Bar: relative index weight") : L("막대: 상대 시가총액", "Bar: relative market cap")} · {L("최근 제공 시세 · 전일 대비", "Latest supplied quotes · vs. previous close")}{snapshot.delayed ? ` · ${L("갱신 지연", "Delayed")}` : ""} · {Math.min(showAll ? visible.length : DEFAULT_CELLS, visible.length)} / {stocks.length}{L("종목", " stocks")}</p>
     </section>

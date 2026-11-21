@@ -1554,13 +1554,13 @@ export const api = {
   dailyPrices: (code: string, offset = 0, limit = 20) =>
     getJSON<DailyPricePage>(`${BASE}/stock/${code}/daily?offset=${offset}&limit=${limit}`),
   globalTop100: () => getJSONFresh<GlobalTop100Response>(`${BASE}/global-top100`),
-  marketMap: (limit = 500, fresh = false) =>
+  marketMap: (limit = 500, fresh = false, signal?: AbortSignal) =>
     getJSONFresh<MarketMapResponse>(
-      `${BASE}/market/map?limit=${limit}&fresh=${fresh}`
+      `${BASE}/market/map?limit=${limit}&fresh=${fresh}`, signal
     ),
-  kosdaqMap: (limit = 200, fresh = false) =>
+  kosdaqMap: (limit = 200, fresh = false, signal?: AbortSignal) =>
     getJSONFresh<MarketMapResponse>(
-      `${BASE}/market/kosdaq-map?limit=${limit}&fresh=${fresh}`
+      `${BASE}/market/kosdaq-map?limit=${limit}&fresh=${fresh}`, signal
     ),
   /** 20일/120일 등락률 for just the given codes — call with the rows actually on
    * screen (a ranking table's 50 or 20 codes), not a whole screened universe. */
@@ -1572,7 +1572,8 @@ export const api = {
     getJSONFresh<MarketMapResponse>(
       `${BASE}/market/sp500-map?limit=${limit}&fresh=${fresh}`
     ),
-  sp500Ranking: () => getJSONFresh<MarketMapResponse>(`${BASE}/market/sp500-map?limit=100&fresh=false&ranked=true`),
+  sp500Ranking: (limit = 100, signal?: AbortSignal) =>
+    getJSONFresh<MarketMapResponse>(`${BASE}/market/sp500-map?limit=${limit}&fresh=false&ranked=true`, signal),
   nasdaq100Map: (limit = 103, fresh = false) =>
     getJSONFresh<MarketMapResponse>(
       `${BASE}/market/nasdaq100-map?limit=${limit}&fresh=${fresh}`

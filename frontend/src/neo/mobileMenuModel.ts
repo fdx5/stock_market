@@ -2,7 +2,7 @@ import { NEO_GROUPS } from "./navigation";
 
 // Major destinations reuse the site's canonical URLs and bilingual labels.
 const routes: Record<string, string[]> = {
-  markets: ["/", "/desk", "/global", "/world-markets", "/pulse-board", "/hot-issues", "/stocks", "/kospi", "/kosdaq", "/nasdaq"],
+  markets: ["/", "/desk", "/global", "/world-markets", "/pulse-board", "/exchange", "/hot-issues", "/stocks", "/kospi", "/kosdaq", "/nasdaq"],
   maps: ["/map", "/kosdaq-map", "/sp500-map", "/nasdaq100-map", "/realestate-map"],
   etfs: ["/etf/kr", "/etf/us"],
   intelligence: ["/market-brief", "/news", "/ai-prediction", "/ai-prediction/grading", "/investors", "/investment-videos", "/dram-price", "/guides"],

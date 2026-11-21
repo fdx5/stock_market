@@ -1,0 +1,53 @@
+{
+  "room": { "width": 28, "depth": 23.62, "height": 12.8 },
+  "spawn": { "x": 0, "z": 9.4, "yaw": 0, "pitch": 0.11 },
+  "posts": [
+    { "x": -4.65, "z": 3.4 }, { "x": 4.65, "z": 3.4 },
+    { "x": -5.15, "z": -4.1 }, { "x": 5.15, "z": -4.1 }
+  ],
+  "stations": [
+    { "id": "overview", "ko": "중앙 시세판", "en": "Market wall", "x": 0, "z": -5.9, "yaw": 0, "pitch": 0.46 },
+    { "id": "leaders", "ko": "대표 종목", "en": "Market leaders", "x": -4.65, "z": 6.5, "yaw": 0, "pitch": 0.08 },
+    { "id": "breadth", "ko": "시장 흐름", "en": "Market breadth", "x": 4.65, "z": 6.5, "yaw": 0, "pitch": 0.08 },
+    { "id": "commodities", "ko": "원자재 · 환율", "en": "Commodities & FX", "x": 10.6, "z": -4.2, "yaw": -100, "pitch": 0.18 },
+    { "id": "sectors", "ko": "업종 관제", "en": "Sector desk", "x": -10.6, "z": -4.2, "yaw": 100, "pitch": 0.18 }
+  ],
+  "screens": [
+    { "id": "overview", "x": 0, "y": 5.25, "z": -11.51, "yaw": 0, "w": 11.2, "h": 3.4, "housing": "wall" },
+    { "id": "leaders", "x": -8.7, "y": 4.45, "z": -11.53, "yaw": 0, "w": 4.8, "h": 2.3, "housing": "wall" },
+    { "id": "breadth", "x": 8.7, "y": 4.45, "z": -11.53, "yaw": 0, "w": 4.8, "h": 2.3, "housing": "wall" },
+    { "id": "ticker", "x": 0, "y": 8.33, "z": -11.42, "yaw": 0, "w": 24, "h": 0.61, "housing": "wall" },
+    { "id": "sign", "x": 0, "y": 10.05, "z": -11.62, "yaw": 0, "w": 7.2, "h": 0.66, "housing": "wall" },
+    { "id": "sectors", "x": -13.74, "y": 3.6, "z": -4.75, "yaw": 90, "w": 6.4, "h": 2.75, "housing": "wall" },
+    { "id": "commodities", "x": 13.74, "y": 3.6, "z": -4.75, "yaw": -90, "w": 6.4, "h": 2.75, "housing": "wall" },
+    { "id": "gainers", "x": -13.74, "y": 3.15, "z": 3.45, "yaw": 90, "w": 4.7, "h": 2.15, "housing": "wall" },
+    { "id": "laggards", "x": 13.74, "y": 3.15, "z": 3.45, "yaw": -90, "w": 4.7, "h": 2.15, "housing": "wall" },
+    { "id": "ticker", "x": -13.48, "y": 7.4, "z": -1.25, "yaw": 90, "w": 14, "h": 0.45, "housing": "wall" },
+    { "id": "ticker", "x": 13.48, "y": 7.4, "z": -1.25, "yaw": -90, "w": 14, "h": 0.45, "housing": "wall" },
+    { "id": "leaders", "x": -4.65, "y": 1.85, "z": 4.55, "yaw": 0, "w": 1.9, "h": 0.82, "housing": "post" },
+    { "id": "gainers", "x": -5.99, "y": 1.71, "z": 4.22, "yaw": -25, "w": 0.81, "h": 0.5, "housing": "post" },
+    { "id": "post0", "x": -3.31, "y": 1.71, "z": 4.22, "yaw": 25, "w": 0.81, "h": 0.5, "housing": "post" },
+    { "id": "post1", "x": -4.65, "y": 1.84, "z": 2.24, "yaw": 180, "w": 1.9, "h": 0.82, "housing": "post" },
+    { "id": "breadth", "x": 4.65, "y": 1.85, "z": 4.55, "yaw": 0, "w": 1.9, "h": 0.82, "housing": "post" },
+    { "id": "post2", "x": 3.31, "y": 1.71, "z": 4.22, "yaw": -25, "w": 0.81, "h": 0.5, "housing": "post" },
+    { "id": "laggards", "x": 5.99, "y": 1.71, "z": 4.22, "yaw": 25, "w": 0.81, "h": 0.5, "housing": "post" },
+    { "id": "post3", "x": 4.65, "y": 1.84, "z": 2.24, "yaw": 180, "w": 1.9, "h": 0.82, "housing": "post" },
+    { "id": "sectors", "x": -5.15, "y": 1.85, "z": -2.95, "yaw": 0, "w": 1.9, "h": 0.82, "housing": "post" },
+    { "id": "post4", "x": -6.49, "y": 1.71, "z": -3.28, "yaw": -25, "w": 0.81, "h": 0.5, "housing": "post" },
+    { "id": "post5", "x": -3.81, "y": 1.71, "z": -3.28, "yaw": 25, "w": 0.81, "h": 0.5, "housing": "post" },
+    { "id": "overview", "x": -5.15, "y": 1.84, "z": -5.26, "yaw": 180, "w": 1.9, "h": 0.82, "housing": "post" },
+    { "id": "commodities", "x": 5.15, "y": 1.85, "z": -2.95, "yaw": 0, "w": 1.9, "h": 0.82, "housing": "post" },
+    { "id": "post6", "x": 3.81, "y": 1.71, "z": -3.28, "yaw": -25, "w": 0.81, "h": 0.5, "housing": "post" },
+    { "id": "post7", "x": 6.49, "y": 1.71, "z": -3.28, "yaw": 25, "w": 0.81, "h": 0.5, "housing": "post" },
+    { "id": "breadth", "x": 5.15, "y": 1.84, "z": -5.26, "yaw": 180, "w": 1.9, "h": 0.82, "housing": "post" }
+  ],
+  "obstacles": [
+    { "x": -10.15, "z": 7.6, "w": 3.25, "d": 3.05 },
+    { "x": 10.15, "z": 7.6, "w": 3.25, "d": 3.05 },
+    { "x": -12.9, "z": -8.9, "w": 0.8, "d": 0.8 },
+    { "x": 12.9, "z": -8.9, "w": 0.8, "d": 0.8 },
+    { "x": -12.9, "z": 8.9, "w": 0.8, "d": 0.8 },
+    { "x": 12.9, "z": 8.9, "w": 0.8, "d": 0.8 },
+    { "x": 0, "z": -10.9, "w": 24, "d": 1.8 }
+  ]
+}
