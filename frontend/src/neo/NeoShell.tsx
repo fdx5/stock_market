@@ -60,6 +60,15 @@ function NeoPulse() {
   return <div className="ng-pulse"><span className="ng-pulse-label"><i /> MARKET PULSE</span><div className="ng-pulse-values">{values.map(value => <Link key={value.name} to={value.to}><span>{value.name}</span><b>{value.price != null && Number.isFinite(value.price) && value.price > 0 ? value.price.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—"}</b><em className={value.change == null ? "" : value.change > 0 ? "is-up" : value.change < 0 ? "is-down" : "is-flat"}>{pct(value.change)}</em></Link>)}</div></div>;
 }
 
+/* The multiplex (related-content grid) closes pages people read to the end:
+   the home, the market desks, news, a stock, an index, a price, a brief. Long
+   tables, lists, maps and tools leave it out - it would sit thousands of
+   pixels down, unseen. 오늘의 핫이슈 sets its own at the end of its stories. */
+function multiplexRoute(path: string) {
+  if (/^\/(stock\/[A-Za-z0-9.-]{1,16}|prices\/[a-z0-9-]+|market-brief(\/.*)?)\/?$/.test(path)) return adRoute(path);
+  return ["/", "/desk", "/global", "/world-markets", "/news", "/kospi", "/kosdaq", "/nasdaq"].includes(path);
+}
+
 export default function NeoShell({ path, children }: { path: string; children: ReactNode }) {
   const frameLight = useFrameLight();
   const design = useDesignMode();
@@ -211,9 +220,9 @@ export default function NeoShell({ path, children }: { path: string; children: R
           <div>{MAP_DESTINATIONS.map(([to, ko, en]) => <Link key={to} to={to} aria-current={path === to ? "page" : undefined}>{L(ko, en)}</Link>)}</div>
         </nav>}
         <AdRailContext.Provider value={railActive}>{children}</AdRailContext.Provider>
+        {multiplexRoute(path) && <div className="ng-multiplex-band"><MultiplexAd key={path} slot="5479707639" media={path === "/" ? "(min-width: 900px) and (max-width: 1679px)" : "(min-width: 900px)"} /></div>}
         {rail && <aside className="ng-ad-rail" data-state={railState}><AdZone key={path} kind="rail" onState={setRailState} /></aside>}
       </div>
-      {family !== "immersive" && !path.startsWith("/pulse-board") && adRoute(path) && <div className="ng-multiplex-band"><MultiplexAd key={path} slot="5479707639" media="(min-width: 900px)" /></div>}
       {family !== "immersive" && !path.startsWith("/pulse-board") && <div className="ng-footer d2"><Colophon home="/" /><div className="ng-footer-extras"><a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer">VOLTARIS ↗</a><Link to="/support">{L("커피 한 잔 후원", "Support this project")} ↗</Link><button type="button" onClick={() => window.print()}>{L("인쇄 / PDF", "Print / PDF")}</button></div></div>}
     </div>
     <nav className="ng-mobile-nav" aria-label={L("하단 탐색", "Bottom navigation")}>

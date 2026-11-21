@@ -1,4 +1,4 @@
-﻿.wm-container { container-type: inline-size; max-width: 1510px; margin-inline: auto; }
+﻿.wm-container { container-type: inline-size; width: 100%; max-width: 1510px; margin-inline: auto; }
 .wm-page {
   --wm-panel: color-mix(in srgb, var(--bg-panel) 85%, var(--bg-root));
   --wm-edge: color-mix(in srgb, var(--accent-neon) 23%, var(--line-soft));

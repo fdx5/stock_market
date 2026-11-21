@@ -33,7 +33,9 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
 /* every content page, wide screens: the shell's sticky ad column */
 @media(min-width:1680px){
   .ng-content.ng-content--ad-rail{display:grid;grid-template-columns:minmax(0,1fr) 318px;column-gap:24px;align-items:start}
-  .ng-content--ad-rail>:not(.ng-ad-rail){grid-column:1;min-width:0}
+  /* width:100% - a page root centred with margin:auto (and size-contained, like 전세계 증시) would otherwise shrink to nothing in the grid */
+  .ng-content--ad-rail>:not(.ng-ad-rail){grid-column:1;min-width:0;width:100%;box-sizing:border-box}
+  .ng-content--ad-rail>.ng-multiplex-band{max-width:1200px;justify-self:center}
   .ng-content--ad-rail>.ng-ad-rail{grid-column:2;grid-row:1/span 6;align-self:stretch;padding-top:14px}
   .ng-ad-rail>.ad-zone{position:sticky;top:calc(var(--ng-header,68px) + var(--ng-pulse,50px) + 16px)}
   .ng-content--ad-rail:has(>.ng-ad-rail[data-state="empty"]){grid-template-columns:minmax(0,1fr) 0;column-gap:0}
@@ -57,8 +59,11 @@ html[data-tone="light"] .hi-stories>.ad-inarticle{background:#f6f4f8}
 .ad-multiplex[data-state="empty"]{display:none}
 .ad-multiplex .adsbygoogle{min-height:1px}
 html[data-tone="light"] .ad-multiplex{background:#f6f4f8}
-.ng-multiplex-band{max-width:1800px;margin:28px auto 0;padding:0 24px;box-sizing:border-box}
+/* in the content column (beside the rail, never under it), centred, tiles kept at a readable size */
+.ng-multiplex-band{width:100%;max-width:1200px;margin:36px auto 8px;justify-self:center;box-sizing:border-box}
 .ng-multiplex-band:not(:has(.ad-multiplex:not([data-state="empty"]))){display:none}
 .ng-multiplex-band .ad-fluid-dummy{height:280px}
 .ng-home-rail>.ad-multiplex{margin-top:14px}
 .ng-home-rail>.ad-multiplex .ad-fluid-dummy{height:900px}
+.hi-stories>.hi-multiplex{margin-top:18px}
+.ad-multiplex>.ad-zone-label{padding-bottom:2px}

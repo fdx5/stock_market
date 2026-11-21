@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { InArticleAd } from "./AdZone";
+import { InArticleAd, MultiplexAd } from "./AdZone";
 import { useEffect, useMemo, useState } from "react";
 import { api, type HotIssueEdition, type HotIssueStory } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -132,6 +132,7 @@ export default function HotIssuesPage() {
       <div className="hi-stories">
         <Story story={lead} lead />
         {rest.map((story, i) => <Fragment key={story.id}><Story story={story} />{(i === 3 || i === 7) && i < rest.length - 1 && <InArticleAd />}</Fragment>)}
+        <MultiplexAd slot="5479707639" media="(min-width: 900px)" className="hi-multiplex" />
       </div>
       <aside className="hi-side">
         <section className="hi-panel" aria-labelledby="hi-index-h"><h3 id="hi-index-h">이번 판 이슈</h3><ol className="hi-index">{data.stories.map(s => <li key={s.id}><a href={`#${s.id}`}><span className={`hi-dot ${IMPACT_CLASS[s.impact]}`} aria-hidden="true" />{s.title}</a></li>)}</ol></section>
