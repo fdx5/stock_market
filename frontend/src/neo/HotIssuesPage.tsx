@@ -1,4 +1,5 @@
-import AdSenseBanner from "./AdSenseBanner";
+import { Fragment } from "react";
+import { InArticleAd } from "./AdZone";
 import { useEffect, useMemo, useState } from "react";
 import { api, type HotIssueEdition, type HotIssueStory } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -63,7 +64,7 @@ function Story({ story, lead = false }: { story: HotIssueStory; lead?: boolean }
       <p className="hi-summary">{story.summary}</p>
       {(story.image || story.video) && <div className="hi-story-media">{media}</div>}
       {open ? <div className="hi-body">
-        {story.body.map((p, i) => <p key={i}>{p}</p>)}
+        {story.body.map((p, i) => <Fragment key={i}><p>{p}</p>{lead && i === 1 && story.body.length >= 3 && <InArticleAd />}</Fragment>)}
         {story.why_it_matters && <aside className="hi-why"><b>왜 중요한가</b><p>{story.why_it_matters}</p></aside>}
       </div> : <button type="button" className="hi-more" onClick={() => { setOpen(true); reportHotIssue(`open:${story.id}`, story.title); }}>자세히 읽기 <span aria-hidden="true">↓</span></button>}
       {story.affected.length > 0 && <ul className="hi-affected" aria-label="관련 종목">{story.affected.map(a => {
@@ -129,9 +130,8 @@ export default function HotIssuesPage() {
 
     <div className="hi-layout">
       <div className="hi-stories">
-        <AdSenseBanner />
         <Story story={lead} lead />
-        {rest.map(story => <Story key={story.id} story={story} />)}
+        {rest.map((story, i) => <Fragment key={story.id}><Story story={story} />{(i === 3 || i === 7) && i < rest.length - 1 && <InArticleAd />}</Fragment>)}
       </div>
       <aside className="hi-side">
         <section className="hi-panel" aria-labelledby="hi-index-h"><h3 id="hi-index-h">이번 판 이슈</h3><ol className="hi-index">{data.stories.map(s => <li key={s.id}><a href={`#${s.id}`}><span className={`hi-dot ${IMPACT_CLASS[s.impact]}`} aria-hidden="true" />{s.title}</a></li>)}</ol></section>

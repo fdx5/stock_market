@@ -1,7 +1,7 @@
 import { reportResearchEvent } from "../useActivityTracking";
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "../router";
-import AdSenseBanner from "../neo/AdSenseBanner";
+import AdZone from "../neo/AdZone";
 import { serviceForPath } from "./catalog";
 import { DiscoveryMarket } from "./discoveryModel";
 import ServiceConnections from "./ServiceConnections";
@@ -59,7 +59,7 @@ export default function ServiceWorkspacePage({ path }: { path: string }) {
     default: throw new Error("Unregistered service route");
   }
   return <div className="mdis rs ng-research" lang="ko"><a className="d2-skip" href="#research-main">본문 바로가기</a><main id="research-main" className="mdis-main"><section className="mdis-hero"><div><p className="mdis-kicker">RESEARCH WORKSPACE / {service.id}</p><h1>{service.name}<span aria-hidden="true">.</span></h1><p>{service.question}</p><small>가입 없이 탐색 · 근거와 비교 기준을 함께</small></div><div className="mdis-hero-aside"><span>CONTEXT BEFORE CONCLUSION</span><p>관측한 사실에서<br />다음 질문으로.</p><button type="button" data-research-action="copy_link" onClick={() => void copy()}>조회 링크 복사</button><p className="rs-message" role="status">{message}</p></div></section>
-    <AdSenseBanner labelled contentReady={adContentReady} />
+    <AdZone kind="break" ready={adContentReady} />
     {stock && <form className="rs-context" onSubmit={apply}><label className="rs-field">시장<select value={context.market} onChange={e => { const market = e.target.value as DiscoveryMarket; const code = market === "nasdaq" ? "AAPL" : market === "kosdaq" ? "247540" : "005930"; update({ market, code }); setDraft(code); }}><option value="kospi">코스피</option><option value="kosdaq">코스닥</option><option value="nasdaq">미국</option></select></label><SymbolPicker label="종목명 · 코드 검색" value={draft} onChange={setDraft} region={kind === "currency-lens" ? "US" : undefined} onSelect={item => { const market = symbolMarket(item); update({ code: item.code.toUpperCase(), market, region: market === "nasdaq" ? "US" : "KR" }); setMessage(`${item.name} (${item.code}) 적용`); }} /><label className="rs-field">가격 조회 기간<select value={context.period} onChange={e => update({ period: e.target.value })}><option value="6mo">6개월</option><option value="1y">1년</option><option value="2y">2년</option><option value="5y">5년</option></select></label><button type="submit">종목 적용</button><Link to={`/stock/${context.code}`}>기존 종목 원표 ↗</Link></form>}
     {FUND_KINDS.has(kind) && <label className="rs-field">ETF 시장<select value={context.region} onChange={e => { const region = e.target.value; update({ region, code: region === "US" ? "VOO" : "069500", market: region === "US" ? "nasdaq" : "kospi" }); }}><option value="KR">국내</option><option value="US">미국</option></select></label>}
     {["sector-replay", "change-digest"].includes(kind) && <label className="rs-field">기록 시장<select value={context.market} onChange={e => update({ market: e.target.value as DiscoveryMarket })}><option value="kospi">코스피</option><option value="kosdaq">코스닥</option><option value="nasdaq">나스닥</option></select></label>}

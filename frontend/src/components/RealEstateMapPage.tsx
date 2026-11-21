@@ -1,4 +1,4 @@
-import AdSenseBanner from "../neo/AdSenseBanner";
+import AdZone from "../neo/AdZone";
 import CommunityShortcut from "../neo/CommunityShortcut";
 import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, RealEstateItem, RealEstateMapResponse, RealEstatePeriod, RealEstateSido } from "../api/client";
@@ -906,7 +906,7 @@ export default function RealEstateMapPage() {
                 </label>
               ))}
             </div>
-            {!holoIsFull && <AdSenseBanner fluid />}
+            {!holoIsFull && <AdZone kind="break" />}
             <div className={`re-map-region${regionMapOpen ? "" : " is-collapsed"}`}>
               <button
                 type="button"

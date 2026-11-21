@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { Link, navigate } from "../../router";
 import { useDocumentTitle } from "../../useDocumentTitle";
-import AdSenseBanner from "../../neo/AdSenseBanner";
+import AdZone from "../../neo/AdZone";
 import Colophon from "../Colophon";
 import Finder from "../Finder";
 import Masthead from "../Masthead";
@@ -357,7 +357,7 @@ export default function BriefPage({ initialDate = "", initialMarket = "KOSPI" }:
               </div>
             </section>
 
-            <AdSenseBanner labelled />
+            <AdZone kind="break" />
 
             {diffs.length > 0 && prev && (
               <section className="bf-compare" aria-label={L("전 거래일 대비", "Against the previous session")}>

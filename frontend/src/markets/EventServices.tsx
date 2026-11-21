@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "../router";
-import AdSenseBanner from "../neo/AdSenseBanner";
+import AdZone from "../neo/AdZone";
 import { DataRow, useResearch } from "./researchApi";
 import { LocalData, n, Notice, Outcome, ResourceState, safeHref, Stats, Table } from "./ResearchUI";
 
@@ -35,5 +35,5 @@ export function SessionPlanner() {
       <Link className="rs-next" to="/today?market=kosdaq">코스닥 오늘 시황 ↗</Link>
       <Link className="rs-next" to="/today?market=nasdaq100">나스닥 100 오늘 시황 ↗</Link>
     </nav>
-    <label className="rs-field">시작 날짜<input type="date" value={start} onChange={e => { if (e.target.value) setStart(e.target.value); }} /></label><ResourceState resource={resource} /><Outcome title="서울에서 보는 한국·미국 정규장 일정"><p>시간은 IANA 서울·뉴욕 시간대에서 변환합니다. 미국 DST와 표에 등록된 휴장·반장을 반영하며, 휴장표의 지원 연도 밖은 미확인으로 남깁니다.</p></Outcome><Table caption="14일 정규장 시간표" rows={(resource.data?.items ?? []).map(row => ({ ...row, region: row.region === "KR" ? "한국" : "미국", state: !row.calendar_valid ? "휴장표 미확인" : row.open ? row.half_day ? "반장" : "정규장" : "휴장", start_ko: row.start ? new Date(row.start).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false }) : "—", end_ko: row.end ? new Date(row.end).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false }) : "—" }))} columns={[{ key: "date", label: "원시장 날짜" }, { key: "region", label: "시장" }, { key: "state", label: "개장 상태" }, { key: "start_ko", label: "개장 KST" }, { key: "end_ko", label: "마감 KST" }]} /><AdSenseBanner labelled contentReady={Boolean(resource.data?.items.length)} /><Link className="rs-next" to="/event-collision">경제발표가 겹치는 시간도 확인 ↗</Link></>;
+    <label className="rs-field">시작 날짜<input type="date" value={start} onChange={e => { if (e.target.value) setStart(e.target.value); }} /></label><ResourceState resource={resource} /><Outcome title="서울에서 보는 한국·미국 정규장 일정"><p>시간은 IANA 서울·뉴욕 시간대에서 변환합니다. 미국 DST와 표에 등록된 휴장·반장을 반영하며, 휴장표의 지원 연도 밖은 미확인으로 남깁니다.</p></Outcome><Table caption="14일 정규장 시간표" rows={(resource.data?.items ?? []).map(row => ({ ...row, region: row.region === "KR" ? "한국" : "미국", state: !row.calendar_valid ? "휴장표 미확인" : row.open ? row.half_day ? "반장" : "정규장" : "휴장", start_ko: row.start ? new Date(row.start).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false }) : "—", end_ko: row.end ? new Date(row.end).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false }) : "—" }))} columns={[{ key: "date", label: "원시장 날짜" }, { key: "region", label: "시장" }, { key: "state", label: "개장 상태" }, { key: "start_ko", label: "개장 KST" }, { key: "end_ko", label: "마감 KST" }]} /><AdZone kind="break" ready={Boolean(resource.data?.items.length)} /><Link className="rs-next" to="/event-collision">경제발표가 겹치는 시간도 확인 ↗</Link></>;
 }

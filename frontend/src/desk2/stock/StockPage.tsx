@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CompanyOverview, GlobalEnrichment, IndicatorPoint, InvestorTrendRecord, StockBoard, StockSummary } from "../../api/client";
 import { api } from "../../api/client";
 import { useLanguage } from "../../i18n/LanguageContext";
-import { AdSenseBannerPair } from "../../neo/AdSenseBanner";
+import AdZone from "../../neo/AdZone";
 import { useDesignMode } from "../../neo/settings";
 import { startVisibilityAwareInterval } from "../../pollVisibility";
 import { Link, navigate } from "../../router";
@@ -450,7 +450,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
               {design === "neo" && chartPanel}
               </div>
 
-              <AdSenseBannerPair expandedDesktop labelled />
+              <AdZone kind="break" />
               <StockInsights model={brief} code={code} isEtf={isEtf} receivedAt={receivedAt} quoteUnavailable={quoteUnavailable} />
               <TalkTape code={code} us={us} asset={asset} />
               {design === "neo" && <details className="ng-stock-forecast"><summary>{L("AI 예측 자세히", "AI forecast details")} <span>＋</span></summary><Forecast code={code} /></details>}

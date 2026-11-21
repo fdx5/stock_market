@@ -6,7 +6,7 @@ import { Link } from "../router";
 import { useMarketTicker } from "../useMarketTicker";
 import { useBroadsheet } from "../desk2/shell";
 import { pct, toneOf } from "../desk2/lib";
-import AdSenseBanner from "./AdSenseBanner";
+import AdZone from "./AdZone";
 import "./assetPrices.css";
 
 const RANGE_DAYS = { "1M": 30, "3M": 90, "6M": 180, "1Y": 366 };
@@ -105,7 +105,7 @@ export default function AssetPricePage({ asset }: { asset: MarketAsset }) {
       <Link to="/market-brief">{L("오늘 시장 브리핑", "Daily market briefing")} <span aria-hidden="true">↗</span></Link>
       <Link to="/session-planner">{L("한국·미국 거래 일정", "Korea and U.S. trading hours")} <span aria-hidden="true">↗</span></Link>
     </nav>}
-    <AdSenseBanner labelled contentReady={history !== null} />
+    <AdZone kind="break" ready={history !== null} />
     <section className="ap-daily-panel" aria-labelledby="ap-daily-title"><div className="ap-section-head"><div><span className="ng-kicker">DAILY RECORD</span><h2 id="ap-daily-title">{L("일자별 시세 · 변동", "Daily prices & changes")}</h2></div><span>{points.length} {L("거래일", "daily records")}</span></div>
       {history ? <><div className="ap-table-scroll" tabIndex={0} role="region" aria-label={L("일별 시세 표, 좌우 스크롤 가능", "Daily price table, scroll horizontally")}><table><caption>{L(asset.ko, asset.en)} · {asset.unit} · {L("최근 1년 일별 시세", "Last year of daily prices")}</caption><thead><tr>{[L("일자", "Date"), L("종가", "Close"), L("등락", "Change"), L("등락률", "Change %"), L("시가", "Open"), L("고가", "High"), L("저가", "Low")].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{daily.slice(page * 20, page * 20 + 20).map(point => <tr key={point.date}><th scope="row"><time dateTime={point.date}>{point.date}</time></th><td>{format(point.close)}</td><td className={`is-${toneOf(point.change ?? undefined)}`}>{point.change == null ? "—" : `${point.change > 0 ? "+" : ""}${format(point.change)}`}</td><td className={`is-${toneOf(point.change_pct ?? undefined)}`}>{pct(point.change_pct ?? undefined)}</td><td>{format(point.open)}</td><td>{format(point.high)}</td><td>{format(point.low)}</td></tr>)}</tbody></table></div><nav className="ap-pagination" aria-label={L("일별 시세 페이지", "Daily price pages")}><button type="button" disabled={page === 0} onClick={() => setPage(value => value - 1)}>{L("이전", "Previous")}</button><span aria-live="polite">{page + 1} / {totalPages}</span><button type="button" disabled={page + 1 >= totalPages} onClick={() => setPage(value => value + 1)}>{L("다음", "Next")}</button></nav></> : <p className="ap-basis">{error ? L("데이터가 연결되면 일별 시세를 표시합니다.", "Daily records appear when data is available.") : L("일별 시세 확인 중…", "Loading daily records…")}</p>}
     </section>

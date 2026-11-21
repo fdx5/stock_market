@@ -4,7 +4,7 @@ import StockLogo from "../components/StockLogo";
 import { MARKET_ASSETS } from "../marketAssets";
 import { Link } from "../router";
 import { useMarketTicker } from "../useMarketTicker";
-import AdSenseBanner from "./AdSenseBanner";
+import AdZone from "./AdZone";
 import MarketFlag from "./MarketFlag";
 import { HoloPanel, NeoEmptyState, NeoSkeleton } from "./NeoComponents";
 import WorldMarketsChart from "./WorldMarketsChart";
@@ -55,14 +55,6 @@ function Sparkline({points}: {points: Point[]}) {
     <polygon points={"2,29 " + line + " 98,29"} fill="currentColor" opacity=".12" />
     <polyline points={line} fill="none" stroke="currentColor" strokeWidth="1.3" vectorEffect="non-scaling-stroke" />
   </svg>;
-}
-
-function Placement({type, secondary = false}: {type: "banner" | "rectangle" | "rail"; secondary?: boolean}) {
-  const variant = type === "rectangle" ? (secondary ? "secondary-rectangle" : "rectangle") : "banner";
-  return <aside aria-label="광고" className={`wm-ad wm-ad-${type}`}>
-    {import.meta.env.DEV ? <small>광고 · {type === "banner" ? "가로 배너" : type === "rail" ? "세로 배너" : "사각 배너"}</small> :
-      <AdSenseBanner labelled variant={variant} fluid={type === "rail"} />}
-  </aside>;
 }
 
 function StoryImage({src, alt, source}: {src?: string | null; alt: string; source: string}) {
@@ -414,7 +406,7 @@ export default function WorldMarketsPage() {
         <div className="wm-detail-layout"><MarketDetail row={active} rows={rows} catalog={catalog.value} choose={id => choose(id, false)} />
           <CapRanking catalog={catalog.value} active={active} choose={choose} /></div>
       </section>
-      <Placement type="banner" />
+      <AdZone kind="break" />
       <section className="wm-layout" id="wm-news" aria-label="시장 뉴스">
         <div className="wm-main">
           <HoloPanel className="wm-news">
@@ -429,9 +421,7 @@ export default function WorldMarketsPage() {
             {articles.value?.map((story, i) => <NewsStory key={country + story.url} story={story} featured={i === 0} />)}
             {articles.value?.length === 0 && <NeoEmptyState title="최근 7일간 확인된 주요 매체의 증시 보도가 없습니다."/>}
           </HoloPanel>
-          <div className="wm-rectangle-pair"><Placement type="rectangle" /><Placement type="rectangle" secondary /></div>
         </div>
-        <Placement type="rail" />
       </section>
     </>}
   </div></div>;

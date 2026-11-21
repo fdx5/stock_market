@@ -12,7 +12,7 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
   .ng-atlas.ng-home--rail{display:grid;grid-template-columns:minmax(0,1fr) 318px;column-gap:24px;align-items:start}
   .ng-atlas.ng-home--rail>*{grid-column:1;min-width:0}
   .ng-atlas.ng-home--rail>.ng-home-rail{grid-column:2;grid-row:1/span 30;align-self:stretch;margin-top:14px}
-  .ng-home-rail>.ad-zone{position:sticky;top:calc(var(--ng-header,68px) + var(--ng-pulse,50px) + 16px)}
+  /* not sticky: the multiplex unit continues straight under the banner */
   .ng-atlas.ng-home--rail:has(.ng-home-rail>.ad-zone[data-state="empty"]),.ng-atlas.ng-home--rail:not(:has(.ng-home-rail>.ad-zone)){grid-template-columns:minmax(0,1fr) 0;column-gap:0}
 }
 
@@ -29,3 +29,36 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
 @media(max-width:767px){
   .ad-zone--feed-banner,.ad-zone--feed-rect{margin:18px auto 0;width:var(--ad-w);max-width:calc(100% - 18px)}
 }
+
+/* every content page, wide screens: the shell's sticky ad column */
+@media(min-width:1680px){
+  .ng-content.ng-content--ad-rail{display:grid;grid-template-columns:minmax(0,1fr) 318px;column-gap:24px;align-items:start}
+  .ng-content--ad-rail>:not(.ng-ad-rail){grid-column:1;min-width:0}
+  .ng-content--ad-rail>.ng-ad-rail{grid-column:2;grid-row:1/span 6;align-self:stretch;padding-top:14px}
+  .ng-ad-rail>.ad-zone{position:sticky;top:calc(var(--ng-header,68px) + var(--ng-pulse,50px) + 16px)}
+  .ng-content--ad-rail:has(>.ng-ad-rail[data-state="empty"]){grid-template-columns:minmax(0,1fr) 0;column-gap:0}
+}
+
+/* a break between two sections: one strip, centred, the page's own spacing around it */
+.ad-zone--break,.ad-zone--break-rect{margin:16px auto;width:var(--ad-w);max-width:calc(100% - 18px)}
+.pb-banner>.ad-zone{margin:0 auto}
+.ad-zone--tower{margin:14px auto 0;width:var(--ad-w);max-width:calc(100% - 18px)}
+
+/* in-article ad: reads as a pause in the text - hairlines above and below, the article's own width */
+.ad-inarticle{display:flex;flex-direction:column;gap:6px;margin:20px 0;padding:10px 0;border-block:1px solid var(--line-soft,#ffffff1a)}
+.ad-inarticle .adsbygoogle{min-height:1px}
+.ad-inarticle[data-state="empty"]{display:none}
+.ad-fluid-dummy{width:100%;height:220px}
+.hi-stories>.ad-inarticle{margin:4px 0;padding:14px 16px;border:1px solid var(--line-soft,#ffffff1a);border-radius:10px;background:#0c080f}
+html[data-tone="light"] .hi-stories>.ad-inarticle{background:#f6f4f8}
+
+/* multiplex: above the footer on every page (desktop), and under the home rail's banner */
+.ad-multiplex{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line-soft,#ffffff1a);border-radius:8px;background:#0c080f}
+.ad-multiplex[data-state="empty"]{display:none}
+.ad-multiplex .adsbygoogle{min-height:1px}
+html[data-tone="light"] .ad-multiplex{background:#f6f4f8}
+.ng-multiplex-band{max-width:1800px;margin:28px auto 0;padding:0 24px;box-sizing:border-box}
+.ng-multiplex-band:not(:has(.ad-multiplex:not([data-state="empty"]))){display:none}
+.ng-multiplex-band .ad-fluid-dummy{height:280px}
+.ng-home-rail>.ad-multiplex{margin-top:14px}
+.ng-home-rail>.ad-multiplex .ad-fluid-dummy{height:900px}

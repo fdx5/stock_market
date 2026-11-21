@@ -9,7 +9,7 @@ import { hiResFlagUrl } from "../../data/flagCodes";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../../pollVisibility";
 import { useDocumentTitle } from "../../useDocumentTitle";
-import AdSenseBanner from "../../neo/AdSenseBanner";
+import AdZone from "../../neo/AdZone";
 import Colophon from "../Colophon";
 import Finder from "../Finder";
 import Masthead from "../Masthead";
@@ -516,7 +516,7 @@ export default function GlobalCapPage() {
           )}
         </section>
 
-        <AdSenseBanner labelled contentReady={all.length > 0} />
+        <AdZone kind="break-rect" ready={all.length > 0} />
 
         <section id="gc-list" className="d2-sec" aria-labelledby="gc-list-h">
           <SectionHead

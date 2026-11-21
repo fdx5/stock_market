@@ -1,4 +1,4 @@
-import { AdSenseBannerPair } from "../../neo/AdSenseBanner";
+import AdZone from "../../neo/AdZone";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EtfItem, MarketMapItem, MarketSparkline, MarketTickerItem, api } from "../../api/client";
 import StockLogo from "../../components/StockLogo";
@@ -232,7 +232,7 @@ export default function WorldPage() {
           </details>
         </section>
         <TreasuryDesk />
-        <AdSenseBannerPair expandedDesktop />
+        <AdZone kind="break" />
         <InvestorShowcase id="w-investors" />
         <VideoShowcase id="w-videos" market="us" />
         <div className="ed-lens-toolbar"><span>{L("아래 종목표 통화", "Currency for stock tables below")}</span><Marker options={[{ id: "usd" as Lens, label: L("달러", "USD") }, { id: "krw" as Lens, label: L("원화", "KRW") }]} value={lens} onChange={setLens} label={L("통화 선택", "Currency")} /></div>

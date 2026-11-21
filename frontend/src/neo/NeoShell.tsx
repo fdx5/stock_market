@@ -39,6 +39,8 @@ import "./cyberEffects.css";
 import "./communityLinks.css";
 import "./neoLight.css";
 import "./hotIssueEntry.css";
+import AdZone, { AdRailContext, MultiplexAd, SHELL_RAIL_MEDIA, useMediaQuery } from "./AdZone";
+import { adRoute } from "./AdSenseBanner";
 
 const Finder = lazy(() => import("../desk2/Finder"));
 const MAP_DESTINATIONS = [
@@ -150,6 +152,15 @@ export default function NeoShell({ path, children }: { path: string; children: R
   const currentTone = neoHeaderCurrentTone(path, window.location.search);
   const showCurrent = family !== "immersive" && frameLight && fx !== "minimal";
   const current = (to: string) => to.split("?")[0] === path;
+  /* Wide screens: one sticky ad column beside every content page (not the
+     home, which lays out its own, nor maps and full-screen scenes). While it
+     shows, the pages' in-content breaks stand down; if it stays unfilled,
+     the column folds away and the breaks come back. */
+  const wide = useMediaQuery(SHELL_RAIL_MEDIA);
+  const [railState, setRailState] = useState<"pending" | "filled" | "empty">("pending");
+  useEffect(() => setRailState("pending"), [path]);
+  const rail = wide && path !== "/" && family !== "map" && family !== "immersive" && !path.startsWith("/pulse-board") && adRoute(path);
+  const railActive = rail && railState !== "empty";
   const navLink = (link: readonly [string, string, string]) => {
     const service = serviceForPath(link[0]), params = new URLSearchParams(window.location.search);
     const code = path.match(/^\/stock\/([A-Za-z0-9.-]+)/)?.[1] ?? params.get("code") ?? undefined;
@@ -194,13 +205,15 @@ export default function NeoShell({ path, children }: { path: string; children: R
     {showCurrent && <NeoHeaderCurrent tone="violet" placement="sidebar" />}
     <div className="ng-workspace">
       <div className="ng-context"><span><Link to="/">KOSPIMAP</Link><i>/</i>{routeLabel(path, lang)}</span><Link to="/hot-issues" className="ng-hot-entry" aria-current={path === "/hot-issues" ? "page" : undefined} onClick={() => reportHotIssue("entry:header", "상단 진입 버튼")}><i aria-hidden="true" /><span>{L("오늘의 핫이슈", "Hot issues")}</span></Link>{showNightQuote(path, window.location.search) && <div className="ng-market-quotes">{showNasdaqFutures(path) ? <NasdaqFuturesBadges /> : <><KospiNightBadge session="day" /><KospiNightBadge /></>}<TreasuryHeaderBadge /></div>}<span className="ng-audience-slot" /><ShareButton path={path} search={window.location.search} title={path.startsWith("/community/") ? `${routeLabel(path, lang)} | K Stock Hub` : undefined} /><button type="button" onClick={event => open("menu", event.currentTarget)} aria-label={L("다른 워크스페이스", "Change workspace")}><NeoIcon name="layers" /></button></div>
-      <div className={`ng-content${path === "/" ? " ng-content--atlas" : ""}`} id="neo-content" tabIndex={-1}>
+      <div className={`ng-content${path === "/" ? " ng-content--atlas" : ""}${rail ? " ng-content--ad-rail" : ""}`} id="neo-content" tabIndex={-1}>
         {family === "map" && <nav className="ng-map-switcher" aria-label={L("시장 지도 전환", "Switch market map")}>
           <div><span>{L("시장 지도", "MARKET MAPS")}</span><small>{L("다른 시장으로 바로 이동", "Go directly to another market")}</small></div>
           <div>{MAP_DESTINATIONS.map(([to, ko, en]) => <Link key={to} to={to} aria-current={path === to ? "page" : undefined}>{L(ko, en)}</Link>)}</div>
         </nav>}
-        {children}
+        <AdRailContext.Provider value={railActive}>{children}</AdRailContext.Provider>
+        {rail && <aside className="ng-ad-rail" data-state={railState}><AdZone key={path} kind="rail" onState={setRailState} /></aside>}
       </div>
+      {family !== "immersive" && !path.startsWith("/pulse-board") && adRoute(path) && <div className="ng-multiplex-band"><MultiplexAd key={path} slot="5479707639" media="(min-width: 900px)" /></div>}
       {family !== "immersive" && !path.startsWith("/pulse-board") && <div className="ng-footer d2"><Colophon home="/" /><div className="ng-footer-extras"><a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer">VOLTARIS ↗</a><Link to="/support">{L("커피 한 잔 후원", "Support this project")} ↗</Link><button type="button" onClick={() => window.print()}>{L("인쇄 / PDF", "Print / PDF")}</button></div></div>}
     </div>
     <nav className="ng-mobile-nav" aria-label={L("하단 탐색", "Bottom navigation")}>

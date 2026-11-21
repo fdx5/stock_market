@@ -1,4 +1,4 @@
-import AdSenseBanner from "./AdSenseBanner";
+import AdZone from "./AdZone";
 import PulseInvestorFlow from "./PulseInvestorFlow";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
@@ -253,7 +253,7 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
         {market !== "nasdaq100" && <PulseInvestorFlow key={market} market={market}
           source={market === "kospi" ? indices.kospiInvestor : indices.kosdaqInvestor}
           quote={market === "kospi" ? indices.kospi : indices.kosdaq} />}
-        <div className="pb-banner"><AdSenseBanner /></div>
+        <div className="pb-banner"><AdZone kind="break" /></div>
       </div>
       {/* One compact toolbar row: market tabs with their live index, breadth, sort. */}
       <div className="pb-toolbar">

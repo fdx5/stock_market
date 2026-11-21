@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import AdSenseBanner from "../neo/AdSenseBanner";
+import AdZone from "../neo/AdZone";
 import { useTone } from "../neo/settings";
 import CommunityShortcut from "../neo/CommunityShortcut";
 import { CSSProperties, ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -906,11 +906,6 @@ export default function MarketMapPage({
               <MapExportButtons exp={mapExport} disabled={sectorZones.length === 0} />
               <CommunityShortcut board={market === "us" ? "global" : "kr"} />
             </div>
-            {enhancedSectorView && view === "map" && !mapExpanded && !error && !loading && items.length > 0 && (
-              <div className="kospi-map-view-ad">
-                <AdSenseBanner variant="secondary" />
-              </div>
-            )}
           </div>
         </div>
       </header>
@@ -950,7 +945,7 @@ export default function MarketMapPage({
                 {periodLoading ? "기간 수익률 계산 중…" : periodError || `${items.length.toLocaleString()}개 종목`}
               </div>
               <p className="kospi-map-period-note">기간별 변동률을 조회합니다.</p>
-              {!mapExpanded && <AdSenseBanner fluid />}
+              {!mapExpanded && <AdZone kind="tower" />}
             </aside>
           )}
           <div className="kospi-map-workspace-main">
