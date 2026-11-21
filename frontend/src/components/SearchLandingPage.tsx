@@ -5,6 +5,7 @@ import { Link } from "../router";
 import Footer from "./Footer";
 import Logo from "./Logo";
 import { startVisibilityAwareInterval } from "../pollVisibility";
+import AdZone from "../neo/AdZone";
 import "./searchLanding.css";
 import "./searchLandingLogoFix.css";
 
@@ -16,6 +17,8 @@ type EtfRow = { code: string; name: string; close: number; change_pct: number; t
 const nf = new Intl.NumberFormat("ko-KR");
 const pct = (value: number | null | undefined) => value == null ? "-" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 const tone = (value: number) => value > 0 ? "up" : value < 0 ? "down" : "flat";
+const turnover = (item: MarketMapItem) => item.turnover ?? item.close * (item.volume || 0);
+const FIRST_TABLE_ROWS = 8;
 
 export default function SearchLandingPage({ kind, code, slug, codes }: { kind: Kind; code?: string; slug?: string; codes?: string[] }) {
   const [loading, setLoading] = useState(true);
@@ -50,7 +53,7 @@ export default function SearchLandingPage({ kind, code, slug, codes }: { kind: K
         if (cancelled) return;
         const all = [...kospi.items, ...kosdaq.items];
         const filtered = kind === "sector" ? all.filter(item => /반도체|전자|semiconductor/i.test(item.sector)) : all;
-        filtered.sort((a, b) => kind === "trading" ? ((b.close * (b.volume || 0)) - (a.close * (a.volume || 0))) : b.change_pct - a.change_pct);
+        filtered.sort((a, b) => kind === "trading" ? turnover(b) - turnover(a) : b.change_pct - a.change_pct);
         setRows(filtered.slice(0, 100)); setUpdatedAt(kospi.generated_at);
       } else if (kind === "investor-ranking") {
         const [flows, market] = await Promise.all([api.investorSummary(), api.marketMap(500)]);
@@ -112,12 +115,48 @@ export default function SearchLandingPage({ kind, code, slug, codes }: { kind: K
       {!loading && !error && summary && <section className="sl-summary"><div><span>현재가</span><strong>{nf.format(summary.close)}원</strong></div><div><span>등락률</span><strong className={tone(summary.change_pct)}>{pct(summary.change_pct)}</strong></div><div><span>거래량</span><strong>{nf.format(summary.volume)}주</strong></div></section>}
       {!loading && kind === "outlook" && indicators && <><section className="sl-cards"><article><span>전망</span><strong>{String(prediction?.prediction || prediction?.result || "데이터 분석")}</strong><p>예상 변동 {pct(Number(prediction?.predicted_change_pct ?? prediction?.change_rate ?? 0))}</p></article><article><span>RSI(14)</span><strong>{indicators.rsi14?.toFixed(1) || "-"}</strong><p>{(indicators.rsi14 || 50) >= 70 ? "과열 구간" : (indicators.rsi14 || 50) <= 30 ? "침체 구간" : "중립 구간"}</p></article><article><span>MACD</span><strong>{indicators.macd?.toFixed(2) || "-"}</strong><p>신호선 {indicators.macd_signal?.toFixed(2) || "-"}</p></article></section><Related code={code!} /></>}
       {!loading && kind === "news" && <><section className="sl-news">{news.map(item => <a key={item.link} href={item.link} target="_blank" rel="noreferrer"><span>{item.press} · {item.date}</span><h2>{item.title}</h2>{item.summary && <p>{item.summary}</p>}</a>)}</section><Related code={code!} /></>}
-      {!loading && rows.length > 0 && <StockTable rows={rows} mode={kind} />}
+      {!loading && rows.length > 0 && <>
+        <StockTable rows={rows.slice(0, FIRST_TABLE_ROWS)} mode={kind} />
+        {rows.length > FIRST_TABLE_ROWS && <>
+          <AdZone kind="break" lazy />
+          <StockTable rows={rows.slice(FIRST_TABLE_ROWS)} mode={kind} offset={FIRST_TABLE_ROWS} />
+        </>}
+        {kind !== "sp500" && <p className="sl-updated">거래대금 미제공 종목의 ≈ 표시는 현재가×거래량 근사치입니다.</p>}
+      </>}
       {!loading && investors.length > 0 && <section className="sl-table-wrap"><table><thead><tr><th>순위</th><th>종목</th><th>외국인</th><th>기관</th><th>개인</th></tr></thead><tbody>{investors.map((item, i) => <tr key={item.code}><td>{i + 1}</td><td><Link to={`/investor/${item.code}`}><b>{item.name}</b><small>{item.code}</small></Link></td><td className={tone(item.foreign_amount)}>{eok(item.foreign_amount, "ko")}원</td><td>{eok(item.institution_amount, "ko")}원</td><td>{eok(item.individual_amount, "ko")}원</td></tr>)}</tbody></table></section>}
-      {!loading && etfs.length > 0 && <section className="sl-table-wrap"><table><thead><tr><th>ETF</th><th>현재가</th><th>등락률</th><th>거래대금</th><th>1개월</th><th>3개월</th><th>YTD</th></tr></thead><tbody>{etfs.map(item => <tr key={item.code}><td><b>{item.name}</b><small>{item.code}</small></td><td>{nf.format(item.close)} {item.currency}</td><td className={tone(item.change_pct)}>{pct(item.change_pct)}</td><td>{nf.format(Math.round(item.turnover))}</td><td>{pct(item.returns?.d20)}</td><td>{pct(item.returns?.d60)}</td><td>{pct(item.returns?.ytd)}</td></tr>)}</tbody></table></section>}
+      {!loading && etfs.length > 0 && <>
+        <EtfTable rows={etfs.slice(0, FIRST_TABLE_ROWS)} />
+        {etfs.length > FIRST_TABLE_ROWS && <>
+          <AdZone kind="break" lazy />
+          <EtfTable rows={etfs.slice(FIRST_TABLE_ROWS)} />
+        </>}
+      </>}
     </main><Footer />
   </div>;
 }
 
 function Related({ code }: { code: string }) { return <nav className="sl-related"><h2>관련 분석</h2><Link to={`/stock/${code}`}>주가·차트</Link><Link to={`/investor/${code}`}>외국인·기관 수급</Link><Link to={`/stock/${code}/outlook`}>주가 전망</Link><Link to={`/stock/${code}/news`}>관련 뉴스</Link></nav>; }
-function StockTable({ rows, mode }: { rows: MarketMapItem[]; mode: Kind }) { return <section className="sl-table-wrap"><table><thead><tr><th>순위</th><th>종목</th><th>업종</th><th>현재가</th><th>등락률</th><th>{mode === "sp500" ? "시가총액" : "거래대금"}</th></tr></thead><tbody>{rows.map((item, i) => <tr key={item.code}><td>{i + 1}</td><td><Link to={`/stock/${item.code}`}><b>{item.name}</b><small>{item.code}</small></Link></td><td>{item.sector}</td><td>{nf.format(item.close)}</td><td className={tone(item.change_pct)}>{pct(item.change_pct)}</td><td>{nf.format(Math.round(mode === "sp500" ? (item.market_cap || 0) : item.close * (item.volume || 0)))}</td></tr>)}</tbody></table></section>; }
+function StockTable({ rows, mode, offset = 0 }: { rows: MarketMapItem[]; mode: Kind; offset?: number }) {
+  const isUs = mode === "sp500";
+  return <section className="sl-table-wrap"><table>
+    <thead><tr><th>순위</th><th>종목</th><th>업종</th><th>현재가</th><th>등락률</th><th>{isUs ? "시가총액" : "거래대금"}</th></tr></thead>
+    <tbody>{rows.map((item, i) => <tr key={item.code}>
+      <td>{offset + i + 1}</td>
+      <td><Link to={`/stock/${item.code}`}><b>{item.name}</b><small>{item.code}</small></Link></td>
+      <td>{item.sector}</td><td>{nf.format(item.close)}</td><td className={tone(item.change_pct)}>{pct(item.change_pct)}</td>
+      <td>{!isUs && item.turnover == null && "≈ "}{isUs && !item.market_cap ? "—" : nf.format(Math.round(isUs ? item.market_cap! : turnover(item)))}</td>
+    </tr>)}</tbody>
+  </table></section>;
+}
+
+function EtfTable({ rows }: { rows: EtfRow[] }) {
+  return <section className="sl-table-wrap"><table>
+    <thead><tr><th>ETF</th><th>현재가</th><th>등락률</th><th>거래대금</th><th>1개월</th><th>3개월</th><th>YTD</th></tr></thead>
+    <tbody>{rows.map(item => <tr key={item.code}>
+      <td><Link to={`/stock/${item.code}`}><b>{item.name}</b><small>{item.code}</small></Link></td>
+      <td>{nf.format(item.close)} {item.currency}</td><td className={tone(item.change_pct)}>{pct(item.change_pct)}</td>
+      <td>{nf.format(Math.round(item.turnover))}</td>
+      <td>{pct(item.returns?.d20)}</td><td>{pct(item.returns?.d60)}</td><td>{pct(item.returns?.ytd)}</td>
+    </tr>)}</tbody>
+  </table></section>;
+}

@@ -191,6 +191,12 @@ def get_nasdaq100_constituents(fresh: bool = False) -> list[dict]:
     return _constituents("nasdaq100", fresh)
 
 
+def cached_sp500_quotes() -> list[dict]:
+    roster = cache.peek("slickcharts:sp500", max_stale_seconds=4 * 86400) or []
+    quotes = us_live_quotes.latest([item["code"] for item in roster])
+    return [_merge_quote(item, quotes[item["code"]]) for item in roster if item["code"] in quotes]
+
+
 def market_session(items: list[dict]) -> str:
     """Which US session a whole list of names is quoting from — what a page badges its
     header with.

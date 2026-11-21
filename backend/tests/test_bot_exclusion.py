@@ -283,16 +283,38 @@ class TestSitemapCodes:
         xml = seo.build_sitemap_index()
         for section in seo.SITEMAP_SECTIONS:
             assert f"/sitemap-{section}.xml" in xml
+        assert "<lastmod>" not in xml
 
-    def test_rss_applies_the_same_rule(self):
+    def test_pages_sitemap_only_lists_canonical_etf_paths_and_confirmed_dates(self, monkeypatch):
         from app.services import seo
 
+        monkeypatch.setattr(seo.market_brief_store, "dates", lambda _limit: [
+            {"date": "2026-11-19", "market": "KOSPI", "created_at": "2026-11-20T09:00:00+09:00"},
+            {"date": "2026-11-18", "market": "KOSDAQ"},
+        ])
+        xml = seo.build_pages_sitemap()
+        assert "/etf</loc>" not in xml
+        assert "/etf/kr</loc>" in xml and "/etf/us</loc>" in xml
+        assert "/market-brief/2026-11-19/kospi</loc><lastmod>2026-11-20</lastmod>" in xml
+        assert "/market-brief/2026-11-18/kosdaq</loc><changefreq>" in xml
+
+    def test_rss_applies_the_same_rule(self, monkeypatch):
+        from xml.etree import ElementTree
+        from app.services import seo
+
+        monkeypatch.setattr(seo.market_brief_store, "dates", lambda _limit: [
+            {"date": "2026-11-20", "market": "KOSPI", "created_at": "2026-11-20T09:00:00+09:00"},
+        ])
         xml = seo.build_rss([
             {"code": "005930", "name": "삼성전자"},
             {"code": "00680K", "name": "LS 3우B"},
         ])
-        assert "005930" in xml
-        assert "00680" not in xml
+        items = {item.findtext("link"): item for item in ElementTree.fromstring(xml).findall("./channel/item")}
+        stock = items["https://kospimap.com/stock/005930"]
+        assert stock.findtext("guid") == "https://kospimap.com/stock/005930"
+        assert stock.find("pubDate") is None
+        assert items["https://kospimap.com/market-brief/2026-11-20/kospi"].findtext("pubDate") == "Fri, 20 Nov 2026 09:00:00 +0900"
+        assert "/desk?" not in xml and "/etf</link>" not in xml and "00680" not in xml
 
 
 class TestCrawlableInvestorPages:

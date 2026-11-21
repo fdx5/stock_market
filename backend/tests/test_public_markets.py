@@ -113,3 +113,38 @@ def test_seo_shows_actual_values_and_escapes_public_data(monkeypatch, snapshot):
     assert '100.00 KRW' in body and '화면 집계' in body
     assert '<script>NAVER</script>' not in body
     assert html.escape('<script>NAVER</script>') in body
+
+
+def test_seo_domestic_rankings_include_both_markets(monkeypatch, snapshot):
+    kosdaq = markets.summarize('kosdaq', [
+        {'code': '403870', 'name': 'HPSP', 'sector': '반도체', 'close': 40000, 'change_pct': 3, 'turnover': 2500},
+    ], '2026-11-20T16:30:00+09:00')
+    monkeypatch.setattr(markets, 'snapshot', lambda market: snapshot if market == 'kospi' else kosdaq)
+    trading = markets.seo_content('/ranking/trading-value')
+    assert trading.index('/stock/403870') < trading.index('/stock/005930')
+    assert '2,500 KRW' in trading and '1,000 KRW (추정)' in trading
+    sector = markets.seo_content('/sector/semiconductor')
+    assert '/stock/403870' in sector and '/stock/005930' in sector and '/stock/035420' not in sector
+
+
+def test_seo_price_and_us_ranking_use_cached_data(monkeypatch):
+    from app.data import us_index_fetcher
+    from app.services import asset_prices, etf_market
+
+    monkeypatch.setattr(asset_prices, 'cached_asset_history', lambda _asset: {
+        'points': [{'date': '2026-11-20', 'close': 1473.3, 'change_pct': -0.42}],
+    })
+    monkeypatch.setattr(us_index_fetcher, 'cached_sp500_quotes', lambda: [
+        {'code': 'NVDA', 'name': 'Nvidia', 'market_cap': 14200},
+        {'code': 'NOQUOTE', 'name': 'Unavailable', 'market_cap': None},
+    ])
+    monkeypatch.setattr(etf_market, 'cached_etfs', lambda _region: {
+        'items': [{'code': 'QQQ', 'name': 'Invesco QQQ', 'currency': 'USD', 'turnover': 15300}],
+        'updated_at': '2026-11-20T21:30:00+00:00',
+    })
+    asset = markets.seo_content('/prices/usd-krw')
+    assert '2026-11-20' in asset and '1,473.3000' in asset and '-0.42%' in asset
+    sp500 = markets.seo_content('/ranking/sp500-market-cap')
+    assert '/stock/NVDA' in sp500 and '14,200 USD' in sp500 and 'NOQUOTE' not in sp500
+    etfs = markets.seo_content('/ranking/us-etf')
+    assert '/stock/QQQ' in etfs and '15,300 USD' in etfs and '2026-11-20T21:30:00+00:00' in etfs

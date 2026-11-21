@@ -11,7 +11,8 @@ import html
 import json
 import re
 from urllib.parse import urlencode
-from datetime import date, datetime, timezone
+from datetime import datetime
+from email.utils import format_datetime
 
 from app.data import investor_fetcher
 from app.data.universe import get_stock_name, get_top_market_cap_all
@@ -556,6 +557,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     if social:
         title, description = social["title"], social["description"]
     page_image = f'{SITE}{social["image"]}' if social else IMAGE
+    image_alt = social["alt"] if social else ""
     if canonical_path == "/hot-issues":
         # The preview is the edition itself: its date, headline and top issues.
         try:
@@ -578,7 +580,6 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         landing_market = index_landing.LANDINGS[index_landing.BY_PATH[canonical_path]]["market"]
         page_image = f"{SITE}/market-card/{landing_market}.png"
         image_alt = f"{index_landing.LANDINGS[index_landing.BY_PATH[canonical_path]]['name']} 시장 상승·하락 분포 카드"
-    image_alt = social["alt"] if social else ""
     is_walk = canonical_path == "/walk" or canonical_path.startswith("/walk/")
     if is_walk:
         # Link-preview crawlers do not run the apartment chooser. Keep the public
@@ -888,6 +889,9 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         ("/realestate-map", "부동산 맵"),
         ("/news", "증시 뉴스"), ("/market-brief", "오늘 브리핑"),
         ("/guides", "주식 시장 읽는 법"), ("/today", "오늘 증시 한눈에"), ("/share-market", "시장 카드·퍼가기"),
+        ("/ranking/trading-value", "국내 주식 거래대금 순위"), ("/sector/semiconductor", "반도체 관련주"),
+        ("/ranking/us-etf", "미국 ETF 거래대금 순위"), ("/ranking/sp500-market-cap", "S&P 500 시가총액 순위"),
+        ("/prices/usd-krw", "원/달러 환율"), ("/prices/bitcoin", "비트코인 시세"),
         ("/discussion-explorer", "종목토론"),
         (INVESTOR_HUB, "외국인·기관 수급 종목"),
         ("/stock/005930", "삼성전자 주가"), ("/stock/000660", "SK하이닉스 주가"),
@@ -1144,32 +1148,6 @@ def _urlset(urls: list[tuple[str, str, str, str]]) -> str:
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + "\n".join(rows) + "\n</urlset>\n"
 
 
-def latest_trading_day() -> str:
-    """The last session actually reflected in the investor data.
-
-    `lastmod` used to be `date.today()` on every URL of every section, refreshed
-    daily — including weekends and holidays, when nothing behind those URLs had
-    changed. A sitemap whose lastmod is always "now" tells Google nothing, and
-    Google discounts it. One upstream lookup gives every investor URL an honest
-    date, and it is cached for an hour alongside the sitemap response itself.
-    """
-
-    def resolve() -> str:
-        try:
-            # pageSize 30 on purpose: the same key /investor/005930 and the React page
-            # already populate, so this adds no upstream request of its own.
-            records = investor_fetcher.get_investor_trend("005930", 30)
-            day = str(records[0]["date"]) if records else ""
-        except Exception:
-            day = ""
-        return day if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else date.today().isoformat()
-
-    try:
-        return cache.get_or_set("seo_latest_trading_day", 3600, resolve)
-    except Exception:
-        return date.today().isoformat()
-
-
 def _valid_codes(kr_stocks: list[dict]) -> list[str]:
     # Only a bare six-digit code has a page behind it: STOCK_ROUTE/INVESTOR_ROUTE
     # above and App.tsx both match exactly `\d{6}`, so anything else renders the
@@ -1194,9 +1172,8 @@ def build_sitemap_index() -> str:
     number; per-section submission shows immediately whether it is the investor
     pages or the stock landing pages that Google is declining.
     """
-    today = date.today().isoformat()
     entries = "".join(
-        f"  <sitemap><loc>{SITE}/sitemap-{section}.xml</loc><lastmod>{today}</lastmod></sitemap>\n"
+        f"  <sitemap><loc>{SITE}/sitemap-{section}.xml</loc></sitemap>\n"
         for section in SITEMAP_SECTIONS
     )
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -1205,13 +1182,14 @@ def build_sitemap_index() -> str:
 
 
 def build_pages_sitemap() -> str:
-    today = date.today().isoformat()
     urls: list[tuple[str, str, str, str]] = []
-    priorities = {"/": "1.0", "/hot-issues": "1.0", "/kospi": "1.0", "/kosdaq": "1.0", "/nasdaq": "1.0", "/desk": "0.9", "/map": "0.9", "/market-brief": "0.9", "/etf": "0.8"}
+    priorities = {"/": "1.0", "/hot-issues": "1.0", "/kospi": "1.0", "/kosdaq": "1.0", "/nasdaq": "1.0", "/desk": "0.9", "/map": "0.9", "/market-brief": "0.9", "/etf/kr": "0.8", "/etf/us": "0.8"}
     for path in PAGES:
+        if path == "/etf":
+            continue
         is_guide = path in market_guides.PAGES
         urls.append((f"{SITE}{path}", priorities.get(path, "0.7"), "monthly" if is_guide else "daily",
-                     market_guides.CATALOG["updated"] if is_guide else "" if path == "/today" else today))
+                     market_guides.CATALOG["updated"] if is_guide else ""))
     for market in public_markets.MARKETS:
         if market != "kospi":
             urls.append((f"{SITE}{public_markets.today_path(market)}", "0.7", "daily", ""))
@@ -1220,12 +1198,18 @@ def build_pages_sitemap() -> str:
         brief_dates = market_brief_store.dates(1000)
     except Exception:
         brief_dates = []
+    seen_briefs = set()
     for item in brief_dates:
         day = str(item.get("date") or "")
         market = str(item.get("market") or "").lower()
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or market not in {"kospi", "kosdaq"}:
             continue
-        urls.append((f"{SITE}/market-brief/{day}/{market}", "0.8", "never", day))
+        if (day, market) in seen_briefs:
+            continue
+        seen_briefs.add((day, market))
+        published = str(item.get("created_at") or "")[:10]
+        lastmod = published if re.fullmatch(r"\d{4}-\d{2}-\d{2}", published) else ""
+        urls.append((f"{SITE}/market-brief/{day}/{market}", "0.8", "never", lastmod))
 
     # US names are in sitemap-us.xml as /stock/<ticker>; the old /global?code= URLs
     # now forward there, and a redirecting URL has no place in a sitemap.
@@ -1237,28 +1221,24 @@ def build_stocks_sitemap(kr_stocks: list[dict]) -> str:
     else: one canonical URL per company. The /outlook and /news sub-pages and the
     /investor pages stay reachable by link but are not offered for indexing, so the
     crawl budget goes to the page that answers "<회사> 주가"."""
-    lastmod = latest_trading_day()
     etfs = _kr_etf_names()
     urls: list[tuple[str, str, str, str]] = []
-    for rank, code in enumerate(c for c in _valid_codes(kr_stocks) if c not in etfs):
-        urls.append((f"{SITE}/stock/{code}", "0.8" if rank < 300 else "0.6", "daily", lastmod))
+    for rank, code in enumerate(c for c in dict.fromkeys(_valid_codes(kr_stocks)) if c not in etfs):
+        urls.append((f"{SITE}/stock/{code}", "0.8" if rank < 300 else "0.6", "daily", ""))
     return _urlset(urls)
 
 
 def build_etf_sitemap() -> str:
     """Every KRX-listed ETF and the US ETFs the site covers, as /stock/<code>."""
-    lastmod = latest_trading_day()
-    urls = [(f"{SITE}/stock/{code}", "0.6", "daily", lastmod) for code in _kr_etf_names()]
-    today = date.today().isoformat()
-    urls += [(f"{SITE}/stock/{code}", "0.6", "daily", today) for code, (_, kind) in _us_catalog().items() if kind == "us_etf"]
+    urls = [(f"{SITE}/stock/{code}", "0.6", "daily", "") for code in _kr_etf_names()]
+    urls += [(f"{SITE}/stock/{code}", "0.6", "daily", "") for code, (_, kind) in _us_catalog().items() if kind == "us_etf"]
     return _urlset(urls)
 
 
 def build_us_sitemap() -> str:
     """The S&P 500 and NASDAQ 100 (plus SK hynix's ADR), as /stock/<ticker>."""
-    today = date.today().isoformat()
     urls = [
-        (f"{SITE}/stock/{code}", "0.8" if rank < 100 else "0.6", "daily", today)
+        (f"{SITE}/stock/{code}", "0.8" if rank < 100 else "0.6", "daily", "")
         for rank, code in enumerate(c for c, (_, kind) in _us_catalog().items() if kind == "us_stock")
     ]
     return _urlset(urls)
@@ -1267,8 +1247,8 @@ def build_us_sitemap() -> str:
 
 def build_rss(kr_stocks: list[dict]) -> str:
     """Compact discovery feed for Naver Search Advisor and feed readers."""
-    now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
     items: list[str] = []
+    publications = []
     try:
         brief_dates = market_brief_store.dates(30)
     except Exception:
@@ -1280,23 +1260,25 @@ def build_rss(kr_stocks: list[dict]) -> str:
             continue
         url = f"{SITE}/market-brief/{day}/{market.lower()}"
         title = f"{day} {market} 오늘 브리핑"
+        pub_tag = ""
         try:
-            report = market_brief_store.get(day, market) or {}
-            description = _brief_description(report, day, market)
-            published = datetime.fromisoformat(str(item.get("created_at") or day)).astimezone(timezone.utc)
-            pub_date = published.strftime("%a, %d %b %Y %H:%M:%S +0000")
-        except Exception:
-            description = _brief_description({}, day, market)
-            pub_date = now
+            published = datetime.fromisoformat(str(item.get("created_at") or ""))
+            if published.tzinfo is None:
+                published = published.replace(tzinfo=public_markets.KST)
+            publications.append(published)
+            pub_tag = f"<pubDate>{format_datetime(published)}</pubDate>"
+        except ValueError:
+            pass
+        description = f"{day} {market} 종가, 외국인·기관 수급과 거래 흐름을 발행된 브리핑에서 확인하세요."
         items.append(f"<item><title>{html.escape(title)}</title><link>{html.escape(url)}</link>"
                      f"<guid isPermaLink=\"true\">{html.escape(url)}</guid><description>{html.escape(description)}</description>"
-                     f"<pubDate>{pub_date}</pubDate></item>")
-    featured = [(path, *PAGES[path]) for path in ("/", "/desk", "/market-brief", "/map", "/kosdaq-map", "/etf", "/news")]
+                     f"{pub_tag}</item>")
+    featured = [(path, *PAGES[path]) for path in ("/", "/desk", "/market-brief", "/map", "/kosdaq-map", "/etf/kr", "/etf/us", "/news")]
     for path, title, description in featured:
         url = f"{SITE}{path}"
         items.append(f"<item><title>{html.escape(title)}</title><link>{html.escape(url)}</link>"
                      f"<guid isPermaLink=\"true\">{html.escape(url)}</guid><description>{html.escape(description)}</description>"
-                     f"<pubDate>{now}</pubDate></item>")
+                     "</item>")
     for stock in kr_stocks[:30]:
         # Same reason build_sitemap validates rather than strips: /desk only promotes a
         # code to the stock page when it is exactly six digits (App.tsx), and stripping
@@ -1306,13 +1288,13 @@ def build_rss(kr_stocks: list[dict]) -> str:
         name = str(stock.get("name", "")).strip()[:80]
         if not re.fullmatch(r"\d{6}", code) or not name:
             continue
-        url = f"{SITE}/desk?" + urlencode({"code": code, "name": name})
+        url = f"{SITE}/stock/{code}"
         title = f"{name} 주가·차트·투자자 동향"
         items.append(f"<item><title>{html.escape(title)}</title><link>{html.escape(url)}</link>"
                      f"<guid isPermaLink=\"true\">{html.escape(url)}</guid>"
-                     f"<description>{html.escape(name)}({code})의 현재가와 시장 정보를 확인하세요.</description>"
-                     f"<pubDate>{now}</pubDate></item>")
+                     f"<description>{html.escape(name)}({code})의 현재가와 시장 정보를 확인하세요.</description></item>")
+    built = f"<lastBuildDate>{format_datetime(max(publications))}</lastBuildDate>" if publications else ""
     return ('<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel>'
             f'<title>K-Stock Hub 증시 정보</title><link>{SITE}</link>'
             '<description>국내외 주식 시세, 시가총액 맵, ETF와 시장 정보</description><language>ko-KR</language>'
-            f'<lastBuildDate>{now}</lastBuildDate>{"".join(items)}</channel></rss>\n')
+            f'{built}{"".join(items)}</channel></rss>\n')

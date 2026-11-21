@@ -141,14 +141,12 @@ class TTLCache:
             self._store.pop(key, None)
             self.byte_size-=self._sizes.pop(key,0)
 
-    def peek(self, key: str) -> Any | None:
-        """Non-blocking read: returns the cached value if present and unexpired,
-        otherwise None — never calls a factory. For callers on a latency-sensitive
-        path (e.g. live search-as-you-type) that must not block on a slow rebuild."""
+    def peek(self, key: str, *, max_stale_seconds: float = 0) -> Any | None:
+        """Read without refreshing. Callers displaying dated snapshots can allow bounded staleness."""
         now = time.time()
         with self._lock:
             cached = self._store.get(key)
-            if cached is not None and cached[0] > now:
+            if cached is not None and cached[0] + max_stale_seconds > now:
                 self._store.move_to_end(key)
                 return cached[1]
         return None

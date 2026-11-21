@@ -88,3 +88,7 @@ def get_asset_history(asset: str) -> dict:
         raise KeyError(asset)
     # At most seven in-memory entries; no database or persistent file writes.
     return cache.get_or_set(f"asset_daily_v1:{asset}", 300, lambda: _fetch(asset), allow_stale=False)
+
+
+def cached_asset_history(asset: str) -> dict | None:
+    return cache.peek(f"asset_daily_v1:{asset}", max_stale_seconds=4 * 86400)

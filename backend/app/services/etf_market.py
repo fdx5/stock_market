@@ -195,6 +195,10 @@ def get_etfs(region: str) -> dict:
     return cache.get_or_set(f"etfs:{region}", ETF_TTL_SECONDS, lambda: _build(region), allow_stale=False)
 
 
+def cached_etfs(region: str) -> dict | None:
+    return cache.peek(f"etfs:{region}", max_stale_seconds=4 * 86400)
+
+
 def get_etf_discussions(region: str = "KR") -> dict[str, list[dict]]:
     """Latest ten discussion posts per ETF, fetched concurrently.
 

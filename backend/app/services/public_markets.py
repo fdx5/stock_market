@@ -18,7 +18,7 @@ MARKETS = {
     "kosdaq": {"name": "코스닥", "path": "/kosdaq-map", "limit": 200, "currency": "KRW"},
     "nasdaq100": {"name": "나스닥 100", "path": "/nasdaq100-map", "limit": 103, "currency": "USD"},
 }
-PAGE_MARKETS = {"/today": "kospi", "/map": "kospi", "/kospi-100": "kospi", "/ranking/trading-value": "kospi",
+PAGE_MARKETS = {"/today": "kospi", "/map": "kospi", "/kospi-100": "kospi",
                 "/kosdaq-map": "kosdaq", "/kosdaq-100": "kosdaq", "/nasdaq100-map": "nasdaq100", "/nasdaq-100": "nasdaq100"}
 PAGES = {
     "/today": ("오늘 증시 한눈에 · 코스피 코스닥 상승·하락·거래대금 | K-Stock Hub", "코스피·코스닥·나스닥 100 표본의 상승·하락 종목, 거래 집중과 업종 흐름을 실제 시세로 비교하세요. 시장 카드 공유, RSS 구독과 평일 확인 알림을 제공합니다."),
@@ -30,6 +30,13 @@ RELATED_MARKET_LINKS = {
                          ("/today?market=nasdaq100", "나스닥 100 오늘 시황")),
     "/prices/usd-krw": (("/today", "코스피 오늘 시황"), ("/map", "코스피 히트맵"),
                        ("/nasdaq100-map", "나스닥 100 히트맵")),
+}
+
+RANKING_LINKS = {
+    "/sector/semiconductor": (("/today", "오늘 코스피 시황"), ("/kosdaq-map", "코스닥 종목 히트맵")),
+    "/ranking/trading-value": (("/today", "오늘 코스피 시황"), ("/today?market=kosdaq", "오늘 코스닥 시황")),
+    "/ranking/sp500-market-cap": (("/sp500-map", "S&P 500 히트맵"), ("/world-markets", "세계 주요 지수")),
+    "/ranking/us-etf": (("/etf/us", "미국 ETF 수익률 비교"), ("/prices/usd-krw", "원/달러 환율")),
 }
 
 
@@ -141,9 +148,16 @@ def seo_content(path: str, stock_code: str = "", market: str = "kospi") -> str:
         return (f'<section><h2>{html.escape(row["name"])} 최근 제공 시세</h2>'
                 f'<p>현재가 {row["close"]:,.2f} {value["currency"]}, 전일 대비 {_pct(row["change_pct"])}. '
                 f'화면 집계 {html.escape(value["collected_at"])}. 실제 체결 시각과 다를 수 있습니다.</p></section>')
+    if path.startswith("/prices/"):
+        daily = _asset_history_content(path.removeprefix("/prices/"))
+        if path not in RELATED_MARKET_LINKS:
+            return daily
+    else:
+        daily = ""
     if path in RELATED_MARKET_LINKS:
-        links = "".join(f'<li><a href="{href}">{label}</a></li>' for href, label in RELATED_MARKET_LINKS[path])
-        return f'<section><h2>관련 증시 시황과 히트맵</h2><ul>{links}</ul></section>'
+        return daily + _related_links(RELATED_MARKET_LINKS[path])
+    if path in RANKING_LINKS:
+        return _ranking_content(path) + _related_links(RANKING_LINKS[path])
     market = market if path == "/today" and market in MARKETS else PAGE_MARKETS.get(path)
     if not market:
         return ""
@@ -158,11 +172,10 @@ def seo_content(path: str, stock_code: str = "", market: str = "kospi") -> str:
         for label, key in (("상승률 상위", "gainers"), ("하락률 상위", "losers")):
             if value[key]:
                 tables += _quote_table(f'{value["name"]} {label} 종목', value[key], value["currency"])
-    if path in {"/today", "/ranking/trading-value"} and value["turnover"]:
+    if path == "/today" and value["turnover"]:
         tables += _quote_table(f'{value["name"]} 거래대금 상위 종목', value["turnover"],
                                value["currency"], turnover=True)
-    if path != "/ranking/trading-value" or not tables:
-        tables += _quote_table("시가총액 상위 종목의 최근 시세", value["largest"], value["currency"])
+    tables += _quote_table("시가총액 상위 종목의 최근 시세", value["largest"], value["currency"])
     sectors = ""
     if path == "/today" and value["sectors"]:
         items = "".join(f'<li>{html.escape(row["name"])} {_pct(row["average_change"])} ({row["count"]}종목)</li>'
@@ -173,6 +186,102 @@ def seo_content(path: str, stock_code: str = "", market: str = "kospi") -> str:
             f'화면 집계 {html.escape(value["collected_at"])}.</p><p>{html.escape(value["basis"])}</p>'
             f'{tables}{sectors}<p>{links} · <a href="{value["map_path"]}">시장 지도</a> · '
             '<a href="/share-market">시장 카드와 위젯 공유</a></p></section>')
+
+
+def _related_links(links: tuple[tuple[str, str], ...]) -> str:
+    items = "".join(f'<li><a href="{href}">{label}</a></li>' for href, label in links)
+    return f'<nav aria-label="관련 시장 데이터"><h2>관련 시장 데이터</h2><ul>{items}</ul></nav>'
+
+
+def _asset_history_content(asset: str) -> str:
+    from app.services.asset_prices import ASSETS, cached_asset_history
+
+    if asset not in ASSETS:
+        return ""
+    history = cached_asset_history(asset)
+    symbol, unit = ASSETS[asset]
+    source = (
+        f'<p>Yahoo Finance 일별 시세 · {html.escape(symbol)} · 단위 {html.escape(unit)}. '
+        '등락률은 직전 일별 가격 기준이며 마지막 행은 조회 시점에 따라 달라질 수 있습니다.</p>'
+    )
+    rows = ""
+    if history and history["points"]:
+        cells = "".join(
+            f'<tr><th scope="row"><time datetime="{html.escape(row["date"])}">{html.escape(row["date"])}</time></th>'
+            f'<td>{row["close"]:,.4f}</td><td>{_pct(row["change_pct"])}</td></tr>'
+            for row in reversed(history["points"][-10:])
+        )
+        rows = ('<table><caption>최근 10개 일별 가격</caption><thead><tr><th>일자</th><th>가격</th>'
+                f'<th>등락률</th></tr></thead><tbody>{cells}</tbody></table>')
+    else:
+        ticker = next((item for item in (cache.peek("market_ticker", max_stale_seconds=4 * 86400) or [])
+                       if item.get("symbol") == symbol), {})
+        stamp, price = number(ticker.get("quote_time")), number(ticker.get("price"))
+        if stamp is not None and 0 < stamp <= datetime.now(timezone.utc).timestamp() and price is not None:
+            observed = datetime.fromtimestamp(stamp, KST).isoformat(timespec="minutes")
+            rows = (f'<p>최근 수신 시세 {price:,.4f} {html.escape(unit)} '
+                    f'(<time datetime="{observed}">{observed[:16].replace("T", " ")} KST</time>).</p>')
+    return f'<section><h2>일별 가격 기준</h2>{source}{rows}</section>'
+
+
+def _ranking_content(path: str) -> str:
+    if path in {"/sector/semiconductor", "/ranking/trading-value"}:
+        return _domestic_ranking_content(path)
+
+    if path == "/ranking/sp500-market-cap":
+        from app.data.us_index_fetcher import cached_sp500_quotes
+
+        items = cached_sp500_quotes()
+        metric, label, currency = "market_cap", "시가총액 (USD)", "USD"
+        caption = "S&P 500 구성 종목 시가총액 상위"
+        note = "수신된 S&P 500 구성 종목별 시가총액을 미국 달러 기준으로 비교합니다."
+    else:
+        from app.services.etf_market import cached_etfs
+
+        data = cached_etfs("US") or {}
+        items = data.get("items", [])
+        metric, label, currency = "turnover", "거래규모", ""
+        caption = "미국 ETF 거래규모 상위"
+        note = "KOSPIMAP에서 제공하는 미국 ETF 표본입니다. 제공값이 없을 때 현재가×거래량으로 거래규모를 근사합니다."
+        if data.get("updated_at"):
+            note += f' 화면 집계 {data["updated_at"]}.'
+    ranked = []
+    for item in items:
+        code = str(item.get("code") or "")
+        value = number(item.get(metric))
+        if value is not None and value > 0 and re.fullmatch(r"[A-Z0-9.-]{1,16}", code):
+            ranked.append((value, code, item))
+    ranked.sort(key=lambda entry: (-entry[0], entry[1]))
+    rows = "".join(
+        f'<tr><th scope="row"><a href="/stock/{code}">{html.escape(str(item.get("name") or code))} ({code})</a></th>'
+        f'<td>{value:,.0f} {html.escape(currency or str(item.get("currency") or ""))}</td></tr>'
+        for value, code, item in ranked[:12]
+    )
+    table = (f'<table><caption>{caption}</caption><thead><tr><th>종목</th><th>{label}</th></tr></thead>'
+             f'<tbody>{rows}</tbody></table>') if rows else ""
+    return f'<section><h2>{caption}</h2><p>{html.escape(note)}</p>{table}</section>'
+
+
+def _domestic_ranking_content(path: str) -> str:
+    sector = path == "/sector/semiconductor"
+    ranked = []
+    for market in ("kospi", "kosdaq"):
+        try:
+            value = snapshot(market)
+        except Exception:
+            continue
+        if sector:
+            ranked.extend(row for row in value["_rows"] if row["change_pct"] is not None
+                          and re.search(r"반도체|전자|semiconductor", row["sector"], re.I))
+        else:
+            ranked.extend(value["turnover"])
+    caption = "반도체·전자 업종 등락률" if sector else "코스피·코스닥 거래규모 상위"
+    note = "코스피·코스닥 시가총액 상위 지도 표본입니다."
+    if not sector:
+        note += " 제공 거래대금을 우선 사용하며, 추정 표시는 현재가×거래량입니다."
+    ranked.sort(key=lambda row: (-(row["change_pct"] if sector else row["turnover"]), row["code"]))
+    table = _quote_table(caption, ranked[:12], "KRW", turnover=not sector) if ranked else ""
+    return f'<section><h2>{caption}</h2><p>{note}</p>{table}</section>'
 
 
 def _quote_table(caption: str, rows: list[dict], currency: str, *, turnover: bool = False) -> str:

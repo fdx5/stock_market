@@ -27,7 +27,7 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
 
 /* phones: ads sit in the gap between two sections, centred, never wider than the screen */
 @media(max-width:767px){
-  .ad-zone--feed-banner,.ad-zone--feed-rect{margin:18px auto 0;width:var(--ad-w);max-width:calc(100% - 18px)}
+  .ad-zone--feed-banner,.ad-zone--feed-rect{margin:18px auto 0;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
 }
 
 /* every content page, wide screens: the shell's sticky ad column */
@@ -42,9 +42,9 @@ html[data-tone="light"] .ad-zone{background:#f6f4f8}
 }
 
 /* a break between two sections: one strip, centred, the page's own spacing around it */
-.ad-zone--break,.ad-zone--break-rect{margin:16px auto;width:var(--ad-w);max-width:calc(100% - 18px)}
+.ad-zone--break,.ad-zone--break-rect{margin:16px auto;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
 .pb-banner>.ad-zone{margin:0 auto}
-.ad-zone--tower{margin:14px auto 0;width:var(--ad-w);max-width:calc(100% - 18px)}
+.ad-zone--tower{margin:14px auto 0;box-sizing:border-box;width:calc(var(--ad-w) + 18px);max-width:100%}
 
 /* in-article ad: reads as a pause in the text - hairlines above and below, the article's own width */
 .ad-inarticle{display:flex;flex-direction:column;gap:6px;margin:20px 0;padding:10px 0;border-block:1px solid var(--line-soft,#ffffff1a)}
