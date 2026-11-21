@@ -150,7 +150,7 @@ def build(source):
         box("Walnut market-wall panel", x, 4.15, -11.61, width, 6.9, .14, wood, "north", bevel=.045, tile=2.8)
         box("Market wall brass baseline", x, .76, -11.53, width, .027, .038, brass, "north")
         box("Market wall upper brass trim", x, 7.62, -11.52, width, .028, .04, brass, "north")
-    box("Raised ticker fascia", 0, 8.32, -11.58, 24.92, .79, .2, steel, "north", bevel=.043)
+    box("Raised ticker fascia", 0, 8.32, -11.34, 24.92, .79, .69, steel, "north", bevel=.043)
     for x in (-10.1, -8.9, -7.7, 7.7, 8.9, 10.1):
         box("Marquee wall vertical rib", x, 10.04, -11.62, .063, 1.95, .08, brass, "north", bevel=.018)
     for side in (-1, 1):
@@ -158,6 +158,7 @@ def build(source):
         wall_x = 14 * side
         box("Clerestory side wall", wall_x, 6.4, 0, .38, 12.8, 24, plaster, wing, tile=2.4)
         box("Timber plinth", wall_x - side * .21, 1.05, 0, .15, 2.05, 23.7, wood, wing, tile=1.8)
+        box("Gallery aisle edge", side * (width / 2 - room["sideInset"] + .30), .055, 0, .15, .11, 23.1, steel, wing, bevel=.028)
         box("Low brass reveal", wall_x - side * .295, 2.11, 0, .025, .034, 23.65, brass, wing)
         box("Clerestory ledge", wall_x - side * .32, 7.11, 0, .57, .32, 23.7, steel, wing, bevel=.035)
         for i, z in enumerate((-9.55, -5.7, -1.9, 1.9, 5.7, 9.55)):
@@ -234,8 +235,23 @@ def build(source):
             steel, zone, bevel=.028 if wall else .019, yaw=yaw)
         box("Screen recessed black face", x - front_x * .028, y, z - front_z * .028, w + bezel * .48, h + bezel * .48,
             .018, black, zone, yaw=yaw)
-        if not wall:
-            box("Monitor arm", x - front_x * .15, (y + .92) / 2, z - front_z * .15, .055, y - .92, .105, steel, zone, yaw=yaw)
+        if wall:
+            # Span from the display housing back to the wall without crossing the screen face.
+            reach = .76 if yaw == 0 else .65
+            center_depth = (reach + .14) / 2
+            supports = (-.36, -.12, .12, .36) if screen["id"] == "ticker" else (-.34, .34)
+            for support in supports:
+                offset = w * support
+                box("Recessed display bracket", x + front_z * offset - front_x * center_depth, y,
+                    z - front_x * offset - front_z * center_depth, .15, min(.45, h * .54), reach - .14,
+                    steel, zone, bevel=.023, yaw=yaw)
+        else:
+            setback = .29 if w < 1 else .15
+            box("Monitor arm", x - front_x * setback, (y + .92) / 2, z - front_z * setback,
+                .055, y - .92, .105, steel, zone, yaw=yaw)
+            if w < 1:
+                box("Extended monitor mount", x - front_x * .22, y, z - front_z * .22,
+                    .055, .065, .18, steel, zone, yaw=yaw)
         box("Indicator light", x - front_x * .028, y - h / 2 - bezel * .14, z - front_z * .017,
             min(.25, w * .14), .022 if wall else .009, .014, cyan, zone, yaw=yaw)
 

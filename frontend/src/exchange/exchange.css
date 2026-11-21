@@ -95,11 +95,10 @@
   color: #dbe7fd;
   font-size: 11px;
 }
-.exchange-status strong, .exchange-status small { display: block; }
-.exchange-status small { margin-top: 3px; font: 10px var(--f-type); color: #9daac1; }
+.exchange-status small { display: block; font: 10px var(--f-type); color: #aebad0; }
 .exchange-status i { width: 6px; height: 6px; margin-top: 3px; background: #a0a7be; border-radius: 50%; flex-shrink: 0; }
 .exchange-status i[data-live="true"] { background: var(--exchange-accent); box-shadow: 0 0 11px var(--exchange-accent); }
-.exchange-stage-actions { display: flex; gap: 5px; }
+.exchange-stage-actions { display: flex; gap: 5px; margin-left: auto; }
 .exchange-action {
   display: inline-flex;
   gap: 6px;

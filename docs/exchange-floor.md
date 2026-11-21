@@ -24,6 +24,9 @@ Three.js가 WebGPU를 우선 사용하고 호환 장치에서 WebGL 2로 전환�
 ```powershell
 python scripts/fetch_exchange_sources.py <sources>
 blender -b --factory-startup --python scripts/build_exchange_floor.py -- <sources> <output.glb> --blend <output.blend>
+blender -b --factory-startup --python-exit-code 1 --python scripts/verify_exchange_panels.py -- <sources>
 ```
 
 `frontend/src/exchange/layout.json`을 수정한 뒤 모델을 다시 내보낸다. 렌더링할 GLB, HDR, 입장 미리보기와 공유 이미지를 기존 `fdx5/kospimap-assets` GitHub Pages에 게시하고, 검증한 해시 경로를 `backend/app/data/asset_cdn.json`에 연결한다. 기존 URL에서 SHA 검증을 거친 정적 자산 주소로 리다이렉트된다.
+
+패널 검증은 화면마다 15개 지점에서 브래킷·기둥과의 간섭을 검사하고 좌측·정면·우측의 보행 가능 위치에서 전체 화면이 보이는지 확인한다.

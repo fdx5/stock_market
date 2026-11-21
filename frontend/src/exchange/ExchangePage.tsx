@@ -285,8 +285,7 @@ export default function ExchangePage() {
     const promise = document.fullscreenElement ? document.exitFullscreen() : pageRef.current?.requestFullscreen();
     void promise?.catch(() => {});
   };
-  const status = data.failed ? t(lang, "표본 갱신 지연", "Sample delayed") : data.received
-    ? t(lang, "10초 간격 조회", "10s polling") : t(lang, "시세 연결 중", "Connecting quotes");
+  const sampleStatus = data.failed ? t(lang, "표본 갱신 지연", "Sample delayed") : t(lang, "표본 갱신", "Sample updated");
 
   return <main ref={pageRef} className="exchange-page" data-market={market} data-phase={phase}>
     <header className="exchange-header">
@@ -300,14 +299,14 @@ export default function ExchangePage() {
         <b data-tone={changeTone(data.index?.change)}>{changeText(data.index?.change)}</b></div>
     </header>
     <div className="exchange-stage">
-      <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v1.webp)" }}>
+      <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v2.webp)" }}>
         <canvas key={retry} ref={canvas} className="exchange-canvas" tabIndex={0} aria-label={t(lang, "3D 거래소. 방향키로 이동하고 모니터를 선택하세요.", "3D trading floor. Use arrow keys to move and select a monitor.")} />
       </div>
       <div className="exchange-overlay-top">
-        <div className="exchange-status"><i data-live={phase !== "failed"} />
-          <div><strong>{phase === "webgpu" ? "WebGPU" : phase === "webgl2" ? "WebGL 2" : t(lang, "거래소", "EXCHANGE")} · {status}</strong>
-            <small>{data.received ? t(lang, "표본 갱신", "Sample updated") + " " + shortTime(data.received) : t(lang, "수신된 시세만 표시", "Supplied quotes only")}</small></div>
-        </div>
+        {(data.received || data.failed) && <div className="exchange-status">
+          <i data-live={!data.failed} />
+          <small>{sampleStatus}{data.received ? " " + shortTime(data.received) : ""}</small>
+        </div>}
         <div className="exchange-stage-actions">
           <button type="button" className="exchange-action" aria-pressed={sound} onClick={() => { void toggleSound(); }}>{sound ? t(lang, "음향 켜짐", "Sound on") : t(lang, "음향", "Sound")}</button>
           {document.fullscreenEnabled && <button type="button" className="exchange-action" aria-pressed={full} onClick={toggleFullscreen}>{full ? t(lang, "전체화면 종료", "Exit full screen") : t(lang, "전체화면", "Full screen")}</button>}

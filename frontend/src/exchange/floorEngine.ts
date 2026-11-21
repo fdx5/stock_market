@@ -20,7 +20,7 @@ export type FloorDriver = {
   dispose: () => void;
 };
 
-const HALL = STORAGE_ASSETS + "/trading-hall-v1.glb";
+const HALL = STORAGE_ASSETS + "/trading-hall-v2.glb";
 const ENV = STORAGE_ASSETS + "/lighting-v1.hdr";
 const EYE = 1.66, RADIUS = .29;
 const RAD = Math.PI / 180;
@@ -29,7 +29,7 @@ const ALL_OBSTACLES = [...FLOOR.obstacles, ...FLOOR.posts.map(({ x, z }) => ({ x
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export function walkable(x: number, z: number) {
-  if (Math.abs(x) > FLOOR.room.width / 2 - .56 || Math.abs(z) > FLOOR.room.depth / 2 - .53) return false;
+  if (Math.abs(x) > FLOOR.room.width / 2 - FLOOR.room.sideInset || Math.abs(z) > FLOOR.room.depth / 2 - .53) return false;
   return !ALL_OBSTACLES.some(item => Math.abs(x - item.x) < item.w / 2 + RADIUS && Math.abs(z - item.z) < item.d / 2 + RADIUS);
 }
 
@@ -148,7 +148,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     let pitch = state.pitch;
     let touchX = 0, touchForward = 0, velX = 0, velZ = 0;
     let drag: { pointer: number; x: number; y: number; travel: number } | undefined;
-    let last = 0, lastPosition = 0, pushedPose = false, aspect = 1, dpr = 0;
+    let last = 0, lastPosition = 0, lastHover = -Infinity, pushedPose = false, aspect = 1, dpr = 0;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     const measure = new URLSearchParams(location.search).has("exchangeMetrics");
     const frames: number[] = [];
@@ -164,7 +164,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       dpr = window.devicePixelRatio || 1;
       aspect = camera.aspect = width / height;
       // Keep horizontal perspective usable on portrait screens without zooming the render resolution.
-      camera.fov = aspect < 1 ? 74 : 63;
+      camera.fov = aspect < 1 ? Math.min(98, Math.max(74, 2 * Math.atan(Math.tan(32 * RAD) / aspect) / RAD)) : 63;
       camera.updateProjectionMatrix();
       renderer.setPixelRatio(dpr);
       renderer.setSize(width, height, false);
@@ -178,9 +178,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const rect = canvas.getBoundingClientRect();
       pointer.set((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1);
       ray.setFromCamera(pointer, camera);
+      ray.far = 29;
       const hit = ray.intersectObjects(screens.targets, false)[0];
-      if (hit && hit.distance < 29) return hit.object.userData.panel as string;
-      return null;
+      if (!hit) return null;
+      ray.far = hit.distance - .008;
+      return ray.intersectObject(model, true).length ? null : hit.object.userData.panel as string;
     }
 
     function down(event: PointerEvent) {
@@ -191,7 +193,10 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     }
     function move(event: PointerEvent) {
       if (!drag || drag.pointer !== event.pointerId) {
-        if (event.pointerType === "mouse" && !drag) canvas.style.cursor = pick(event.clientX, event.clientY) ? "pointer" : "grab";
+        if (event.pointerType === "mouse" && !drag && event.timeStamp - lastHover >= 80) {
+          lastHover = event.timeStamp;
+          canvas.style.cursor = pick(event.clientX, event.clientY) ? "pointer" : "grab";
+        }
         return;
       }
       const dx = event.clientX - drag.x, dy = event.clientY - drag.y;

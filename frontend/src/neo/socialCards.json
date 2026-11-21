@@ -278,7 +278,7 @@
   "/exchange": {
     "title": "증권 거래소 · 3D 트레이딩 플로어 | KOSPIMAP",
     "description": "약 200평의 3D 증권 거래소를 탐험하며 코스피·코스닥·S&P 500 지수, 종목 시세, 원자재와 환율을 살펴보세요.",
-    "image": "/3d/exchange-floor/floor-share-v1.png",
+    "image": "/3d/exchange-floor/floor-share-v2.png",
     "alt": "지수 시세판과 거래 포스트가 배치된 KOSPIMAP 3D 증권 거래소"
   },
   "/pulse-board": {
