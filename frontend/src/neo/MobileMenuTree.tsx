@@ -29,7 +29,7 @@ export default function MobileMenuTree({ path, filter, onFilter, onNavigate, onS
         const active = group.links.some(([to]) => menuLinkActive(to, path));
         return <section className={active ? "is-current" : ""} key={group.id}>
           <button type="button" className="ng-phone-branch" aria-expanded={open} aria-controls={`phone-menu-${group.id}`} onClick={() => toggle(group.id)}><NeoIcon name={group.icon} /><span>{L(group.ko, group.en)}</span><small>{group.links.length}</small><NeoIcon name="chevron" /></button>
-          <ul id={`phone-menu-${group.id}`} hidden={!open}>{group.links.map(([to, ko, en]) => <li key={to}><Link to={to} onClick={onNavigate} aria-current={menuLinkActive(to, path) ? "page" : undefined}><span>{L(ko, en)}{to === "/world-markets" && <b className="ng-new-badge" aria-label={L("새 메뉴", "New")}>N</b>}</span>{menuLinkActive(to, path) ? <small>{L("현재", "Here")}</small> : <NeoIcon name="chevron" />}</Link></li>)}</ul>
+          <ul id={`phone-menu-${group.id}`} hidden={!open}>{group.links.map(([to, ko, en]) => <li key={to}><Link to={to} onClick={onNavigate} aria-current={menuLinkActive(to, path) ? "page" : undefined}><span>{L(ko, en)}{to === "/pulse-board" && <b className="ng-new-badge" aria-label={L("새 메뉴", "New")}>N</b>}</span>{menuLinkActive(to, path) ? <small>{L("현재", "Here")}</small> : <NeoIcon name="chevron" />}</Link></li>)}</ul>
         </section>;
       })}
     </nav>

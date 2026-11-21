@@ -127,6 +127,23 @@ export default function NeoShell({ path, children }: { path: string; children: R
      sidebar. The music already playing carries on (the entrance holds the
      player), and only the current track's controls float over the scene. */
   const solar = path === "/hub" || path === "/type2";
+  /* Phones: the ticker + music rail (76px) tucks under the header while the
+     reader scrolls down and returns on any scroll up, so the fixed chrome
+     stops eating a fifth of the screen. */
+  useEffect(() => {
+    const phone = window.matchMedia("(max-width: 899px)"), root = document.documentElement;
+    let last = window.scrollY, frame = 0;
+    const update = () => {
+      frame = 0;
+      const y = window.scrollY, hide = phone.matches && y > 160 && y > last + 4;
+      if (hide) root.dataset.ngRail = "hidden";
+      else if (y < last - 4 || y <= 160 || !phone.matches) delete root.dataset.ngRail;
+      if (Math.abs(y - last) > 4) last = y;
+    };
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(update); };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("scroll", onScroll); cancelAnimationFrame(frame); delete root.dataset.ngRail; };
+  }, []);
   const bgm = useDeskBgm();
   useEffect(() => solar ? attachDeskBgm() : undefined, [solar]);
   const family = neoRouteFamily(path);
@@ -138,7 +155,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     const code = path.match(/^\/stock\/([A-Za-z0-9.-]+)/)?.[1] ?? params.get("code") ?? undefined;
     const market = params.get("market") ?? (code && /^[A-Za-z]/.test(code) ? "nasdaq" : "kospi");
     const to = service ? serviceLink(link[0], {code, market, region: params.get("region") ?? undefined}) : link[0];
-    return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined} onClick={link[0] === "/hot-issues" ? () => reportHotIssue("entry:menu", "메뉴") : undefined}><span>{link[lang === "ko" ? 1 : 2]}{(link[0] === "/world-markets" || link[0] === "/pulse-board" || link[0] === "/hot-issues") && <b className="ng-new-badge" aria-label={L("새 메뉴", "New")}>N</b>}</span><NeoIcon name="chevron" /></Link>;
+    return <Link key={link[0]} to={to} aria-current={current(link[0]) ? "page" : undefined} onClick={link[0] === "/hot-issues" ? () => reportHotIssue("entry:menu", "메뉴") : undefined}><span>{link[lang === "ko" ? 1 : 2]}{link[0] === "/pulse-board" && <b className="ng-new-badge" aria-label={L("새 메뉴", "New")}>N</b>}</span><NeoIcon name="chevron" /></Link>;
   };
   if (solar) return <div className="ng-shell ng-shell--solar">
     <GoldCursor />

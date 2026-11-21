@@ -1,0 +1,31 @@
+/* Ad zones: a quiet frame that belongs to the page's dark design, a small 광고 label,
+   the creative's exact size reserved while loading, gone entirely when unfilled. */
+.ad-zone{--ad-w:300px;--ad-h:250px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:content-box;padding:8px;border:1px solid var(--line-soft,#ffffff1a);border-radius:6px;background:#0c080f;contain:layout paint}
+.ad-zone-label{align-self:stretch;font:600 10px/1 var(--f-sans);letter-spacing:.08em;color:var(--text-muted,#8a8193)}
+.ad-zone-ins,.ad-zone-dummy{width:var(--ad-w);height:var(--ad-h);max-width:100%}
+.ad-zone-dummy{display:grid;place-items:center;border:1px dashed #d6b54e80;color:#d6b54e;font:12px var(--f-num);background:repeating-linear-gradient(45deg,#d6b54e0a 0 10px,transparent 10px 20px)}
+.ad-zone[data-state="empty"]{display:none}
+html[data-tone="light"] .ad-zone{background:#f6f4f8}
+
+/* wide screens: a rail column beside the content, the ad sticky under the header */
+@media(min-width:1680px){
+  .ng-atlas.ng-home--rail{display:grid;grid-template-columns:minmax(0,1fr) 318px;column-gap:24px;align-items:start}
+  .ng-atlas.ng-home--rail>*{grid-column:1;min-width:0}
+  .ng-atlas.ng-home--rail>.ng-home-rail{grid-column:2;grid-row:1/span 30;align-self:stretch;margin-top:14px}
+  .ng-home-rail>.ad-zone{position:sticky;top:calc(var(--ng-header,68px) + var(--ng-pulse,50px) + 16px)}
+  .ng-atlas.ng-home--rail:has(.ng-home-rail>.ad-zone[data-state="empty"]),.ng-atlas.ng-home--rail:not(:has(.ng-home-rail>.ad-zone)){grid-template-columns:minmax(0,1fr) 0;column-gap:0}
+}
+
+/* laptops & tablets: fear & greed stacked beside one rectangle - one compact row instead of a thin strip */
+.ng-home-split{display:block}
+@media(min-width:768px) and (max-width:1679px){
+  .ng-home-split:has(>.ad-zone:not([data-state="empty"])){display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:stretch;margin-top:18px}
+  .ng-home-split:has(>.ad-zone:not([data-state="empty"]))>.ng-fear-greed{margin-top:0;display:flex;flex-direction:column}
+  .ng-home-split:has(>.ad-zone:not([data-state="empty"]))>.ng-fear-greed .ng-fg-grid{grid-template-columns:1fr;gap:8px;flex:1}
+  .ng-home-split>.ad-zone{align-self:start;margin-top:12px}
+}
+
+/* phones: ads sit in the gap between two sections, centred, never wider than the screen */
+@media(max-width:767px){
+  .ad-zone--feed-banner,.ad-zone--feed-rect{margin:18px auto 0;width:var(--ad-w);max-width:calc(100% - 18px)}
+}

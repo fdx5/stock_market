@@ -1,0 +1,21 @@
+/* Home readability floor (11-21): body text >= 11px on desktop, >= 12px on phones;
+   HUD/decorative codes >= 9-10px. Touch screens get >= 44px hit areas without
+   changing what is drawn (an invisible ::after extends the target). */
+html[data-design="neo"] .ng-atlas :is(.sc-stock>.sc-stock-price,.pif-row-label>span,.ng-asset-cell>b,.ng-mini-map-time>span,.ng-mini-map-legend>span,.ng-fg-mini>b,.ng-headline-board>a>span,.sc-controls>div>button,.ng-atlas-destinations p,.ng-fg-method p){font-size:11px}
+html[data-design="neo"] .ng-atlas :is(.sc-stock>small,.pif-row-label>small,.pif-amount>small,.ng-asset-cell>span,.ng-asset-cell>small,.ng-asset-cell>span>small,.ng-headline-count,.ng-headline-count>b,.ng-headline-count>i,.ng-headline-freshness,.ng-headline-slide>small,.ng-fg-market-name>span,.ng-fg-score>small,.ng-mini-map-heading>div>span,.sc-markets>button>span,.sc-markets>button small,.sc-selected>div>span,.sc-breadth>div>span,.ng-atlas-destinations a>span){font-size:10.5px}
+html[data-design="neo"] .ng-atlas :is(.ng-mini-map-card>header>span,.sc-hud-tag,.ng-research-new){font-size:9px}
+html[data-design="neo"] .ng-shell :is(.ng-pulse-values>a>span,.ng-pulse-values>a>em,.ng-night-label,.ng-night-time,.ng-night-state,.ng-treasury-row>span,.ng-treasury-row>b,.ng-context>span>a,.ng-header-clock>span>small,.ng-clock-date,.d2-bgm-state){font-size:10.5px}
+html[data-design="neo"] .ng-shell :is(.ng-nav-group>h2,.ng-nav-more>summary>span,.ng-nav-more>summary>small,.ng-footer-extras>a,.ng-pulse-label,.ng-sidebar-cap>span){font-size:10px}
+
+@media(max-width:599px){
+  html[data-design="neo"] .ng-atlas :is(.sc-stock>.sc-stock-price,.pif-row-label>span,.ng-asset-cell>b,.ng-mini-map-time>span,.ng-fg-mini>b,.ng-atlas-destinations p,.ng-fg-method p,.sc-controls>div>button){font-size:12px}
+  html[data-design="neo"] .ng-atlas :is(.sc-stock>small,.pif-row-label>small,.pif-amount>small,.ng-asset-cell>span,.ng-asset-cell>small,.ng-headline-freshness,.ng-headline-slide>small,.ng-fg-market-name>span,.ng-fg-score>small,.sc-markets>button>span,.sc-breadth>div>span){font-size:11px}
+  html[data-design="neo"] .ng-shell :is(.ng-pulse-values>a>span,.ng-pulse-values>a>em,.ng-night-label,.ng-night-time,.ng-night-state,.ng-treasury-row>span,.ng-treasury-row>b,.ng-mobile-nav>a>span){font-size:11px}
+}
+
+@media(pointer:coarse){
+  html[data-design="neo"] :is(.sc-breadth a,.sc-selected a,.sc-expand,.pif-controls>button,.ng-language,.ng-search-trigger,.market-share-control>button,.ng-hot-entry,.d2-bgm-transport>button,.d2-bgm-power,.ng-headline-board button,.ng-context a,.ng-atlas .ng-mini-map-community){position:relative}
+  html[data-design="neo"] :is(.sc-breadth a,.sc-selected a,.sc-expand,.pif-controls>button,.ng-language,.market-share-control>button,.ng-hot-entry,.ng-context a)::after{content:"";position:absolute;inset:-10px -8px;min-height:44px}
+  html[data-design="neo"] .ng-atlas :is(.sc-controls>div>button,.sc-sector-filter,.sc-sector-filter select){min-height:40px}
+  html[data-design="neo"] .ng-footer :is(nav a,li a){display:inline-flex;align-items:center;min-height:36px}
+}

@@ -177,6 +177,8 @@ html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header :is(.d2-bgm-channel,.d
 @media(max-width:599px){.ng-audio-toolbar{padding-inline:12px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header{--eq-w:42px;--eq-h:21px;gap:8px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-transport>button{width:30px}html[data-design="neo"] .ng-audio-toolbar .d2-bgm--header .d2-bgm-title{font-size:10px}}
 html[data-design="neo"][data-fx="minimal"] .ng-audio-toolbar .d2-bgm-title.is-overflow span{animation:none!important;transform:none!important}
 @media(prefers-reduced-motion:reduce){.ng-audio-toolbar .d2-bgm-title.is-overflow span{animation:none!important;transform:none!important}}
+@media(max-width:899px){.ng-top-rail{transition:transform .26s cubic-bezier(.2,.7,.3,1),opacity .2s}html[data-ng-rail="hidden"] .ng-top-rail{transform:translateY(calc(-1 * var(--ng-pulse)));opacity:0;pointer-events:none}}
+@media(max-width:899px) and (prefers-reduced-motion:reduce){.ng-top-rail{transition:none}}
 @media print{.ng-top-rail{display:none}}
 html[data-design="neo"] .ng-legacy-bgm{display:none!important}
 .ng-asset-belt>div:last-of-type{gap:1px;background:#d6b54e38}

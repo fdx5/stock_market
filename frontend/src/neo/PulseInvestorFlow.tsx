@@ -7,6 +7,16 @@ import "./pulseInvestorFlow.css";
 
 const format = (value: number) => Math.abs(value).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const signed = (value: number) => `${value < 0 ? "−" : value > 0 ? "+" : ""}${format(value)}`;
+/** Readable at a glance: 1조 5,381억 (ko) or 1.54tn / 953.3bn (en) instead of thirteen digits of won. */
+export function compactWon(value: number, ko: boolean) {
+  const abs = Math.abs(value);
+  if (ko) {
+    const eok = Math.round(abs / 1e8), jo = Math.floor(eok / 10000), rest = eok % 10000;
+    if (eok === 0) return `${Math.round(abs / 1e4).toLocaleString("en-US")}만`;
+    return jo ? `${jo}조${rest ? ` ${rest.toLocaleString("en-US")}억` : ""}` : `${rest.toLocaleString("en-US")}억`;
+  }
+  return abs >= 1e12 ? `${(abs / 1e12).toFixed(2)}tn` : abs >= 1e9 ? `${(abs / 1e9).toFixed(1)}bn` : `${(abs / 1e6).toFixed(0)}m`;
+}
 type Mode = "loading" | "waiting" | "flowing" | "closed" | "delayed" | "paused";
 
 /** Only a changed place rolls. Stable keys count from the units place. */
@@ -27,17 +37,18 @@ const RollingDigit = memo(function RollingDigit({ digit, direction, animate }: {
   </span></span>;
 }, (a, b) => a.digit === b.digit && a.animate === b.animate);
 
-const RollingAmount = memo(function RollingAmount({ value, animate }: { value: number; animate: boolean }) {
+const RollingAmount = memo(function RollingAmount({ value, animate, ko }: { value: number; animate: boolean; ko: boolean }) {
   const last = useRef(value);
   const direction = Math.abs(value) - Math.abs(last.current);
   useLayoutEffect(() => { last.current = value; }, [value]);
-  const characters = format(value).split("");
-  return <span className="pif-amount" aria-label={`${signed(value)} 원`}>
+  const characters = compactWon(value, ko).split("");
+  const sign = value < 0 ? "−" : value > 0 ? "+" : "";
+  return <span className="pif-amount" aria-label={`${sign}${compactWon(value, ko)}${ko ? " 원" : " KRW"}`}>
     <span className="pif-sign" aria-hidden="true">{value < 0 ? "−" : value > 0 ? "+" : ""}</span>
-    <span className="pif-places" aria-hidden="true">{characters.map((digit, index) => digit === ","
-      ? <span className="pif-comma" key={characters.length - index}>,</span>
+    <span className="pif-places" aria-hidden="true">{characters.map((digit, index) => !/[0-9]/.test(digit)
+      ? <span className={digit === "," || digit === "." ? "pif-comma" : "pif-unit"} key={characters.length - index}>{digit === " " ? " " : digit}</span>
       : <RollingDigit key={characters.length - index} digit={digit} direction={direction} animate={animate} />)}</span>
-    <small aria-hidden="true">원</small>
+    <small aria-hidden="true">{ko ? "원" : "KRW"}</small>
   </span>;
 });
 
@@ -125,7 +136,7 @@ export default function PulseInvestorFlow({ market, source, quote, inline = fals
         const value = display?.[index], tone = value == null || value === 0 ? "flat" : value > 0 ? "buy" : "sell";
         return <div className="pif-row" data-tone={tone} key={index} title={actual ? `${L("최근 수신 순매수·순매도", "Latest received net flow")}: ${signed(actual[index])} KRW` : undefined}>
           <div className="pif-row-label"><span>{label}</span><small>{value == null ? "—" : value > 0 ? L("순매수", "Net buy") : value < 0 ? L("순매도", "Net sell") : L("중립", "Flat")}</small><i className="pif-trace" aria-hidden="true"><svg viewBox="0 0 96 16"><path d="M0 10 Q8 10 12 8 T24 8 T36 5 T48 9 T60 6 T72 7 T84 4 T96 5" /></svg></i></div>
-          {value == null ? <span className="pif-empty">—</span> : <RollingAmount value={value} animate={!still && mode === "flowing"} />}
+          {value == null ? <span className="pif-empty">—</span> : <RollingAmount value={value} animate={!still && mode === "flowing"} ko={lang === "ko"} />}
         </div>;
       })}</div>
     </div>

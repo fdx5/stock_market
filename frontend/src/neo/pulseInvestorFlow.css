@@ -44,6 +44,7 @@ html[data-design="neo"]:has(.pif-panel){scroll-padding-bottom:calc(var(--ng-bott
 .pif-reel>span{display:block;flex:none;height:1.45em;line-height:1.45}
 .pif-sign{min-width:.9ch;font-size:.8em;opacity:.75}
 .pif-comma{width:.55ch;opacity:.5}
+.pif-unit{font-size:.72em;opacity:.82;margin-inline:.08em .18em;align-self:flex-end;padding-bottom:.12em}
 .pif-amount>small{margin-left:5px;font:9px var(--f-sans);color:var(--text-muted,#a996bd)}
 .pif-empty{display:block;text-align:right;font:18px var(--f-num);color:var(--text-muted,#a996bd)}
 .pif-foot{display:flex;justify-content:space-between;gap:6px 16px;flex-wrap:wrap;margin-top:11px;padding-top:7px;border-top:1px solid #bd85ff18;font:8px var(--f-sans);color:var(--text-muted,#a996bd)}

@@ -9,7 +9,7 @@
 .sc-hud-corner.is-bl{bottom:-6px;left:-6px;border-width:0 0 1px 1px}.sc-hud-corner.is-br{bottom:-6px;right:-6px;border-width:0 1px 1px 0}
 
 /* Heading: chromatic split title, live beacon and HUD tag */
-.ng-atlas .sc-heading h1{position:relative;display:flex;align-items:center;gap:9px;color:#fbf4ff;text-shadow:-.6px 0 #ff3d8b88,.6px 0 #3de6ff88,0 0 18px #c58cff66}
+.ng-atlas .sc-heading h2{position:relative;display:flex;align-items:center;gap:9px;color:#fbf4ff;text-shadow:-.6px 0 #ff3d8b88,.6px 0 #3de6ff88,0 0 18px #c58cff66}
 .sc-live-dot{width:6px;height:6px;border-radius:50%;background:var(--sc-cyan);box-shadow:0 0 0 2px #5ff0ff22,0 0 10px var(--sc-cyan);flex:none}
 .sc-hud-tag{font:500 8px/1 var(--f-num);letter-spacing:.14em;color:#8ff4ff;padding:3px 6px 3px 7px;border:1px solid #5ff0ff44;background:linear-gradient(90deg,#5ff0ff14,transparent);text-shadow:0 0 8px #5ff0ff88;clip-path:polygon(0 0,100% 0,100% 62%,calc(100% - 5px) 100%,0 100%)}
 
@@ -58,7 +58,7 @@
   html:not([data-fx=minimal]) .sc-scanner[data-live=on] .sc-breadth-track:after{animation:sc-charge 4.2s cubic-bezier(.45,0,.2,1) infinite}
   html:not([data-fx=minimal]) .sc-scanner[data-live=on] .sc-ambient-scan{animation:sc-sweep 7s cubic-bezier(.4,0,.3,1) 1.2s infinite}
   html:not([data-fx=minimal]) .sc-scanner[data-live=on] .sc-hud-corner{animation:sc-corner 3.6s ease-in-out infinite}
-  html:not([data-fx=minimal]) .sc-heading h1{animation:sc-glitch .5s steps(2,end) 1}
+  html:not([data-fx=minimal]) .sc-heading h2{animation:sc-glitch .5s steps(2,end) 1}
 }
 @keyframes sc-beacon{0%,100%{opacity:1;box-shadow:0 0 0 2px #5ff0ff22,0 0 10px var(--sc-cyan)}50%{opacity:.45;box-shadow:0 0 0 5px #5ff0ff00,0 0 4px var(--sc-cyan)}}
 @keyframes sc-rail{to{background-position:-200% 0}}

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useLanguage } from "../i18n/LanguageContext";
 import { Link } from "../router";
 import { pct, toneOf } from "../desk2/lib";
@@ -57,11 +57,14 @@ export function AtlasMiniMapCard({ market, snapshot, quote, lang }: {
           const twoLines = tile.w >= 62 && tile.h >= 48;
           const fontSize = tile.w > 220 && tile.h > 100 ? 25 : tile.w > 130 && tile.h > 65 ? 18 : 13;
           const maxChars = Math.max(2, Math.floor((tile.w - 12) / (latin ? fontSize * .62 : fontSize)));
-          const name = label.length > maxChars ? label.slice(0, maxChars - 1) + "…" : label;
+          const cut = label.length > maxChars;
+          // A name cut down to a letter or two ("KB…", "셀트…") reads as noise; such a tile shows its return instead.
+          const asReturn = cut && maxChars < 4;
+          const name = asReturn ? (known ? pct(tile.item.change_pct) : "—") : cut ? label.slice(0, maxChars - 1) + "…" : label;
           return <g key={tile.id}>
             <title>{`${tile.item.name ? en(tile.item.name) : tile.item.code} · ${known ? pct(tile.item.change_pct) : L("등락 확인 중", "Return unavailable")}`}</title>
             <rect x={tile.x + .7} y={tile.y + .7} width={Math.max(0, tile.w - 1.4)} height={Math.max(0, tile.h - 1.4)} fill={rgbToCss(rgb)} rx="1" />
-            {showName && <text x={tile.x + tile.w / 2} y={tile.y + tile.h / 2 + (twoLines ? -5 : 4)} textAnchor="middle" fill={textColorForRgb(rgb)} fontSize={fontSize} fontWeight="650">{name}{twoLines && <tspan x={tile.x + tile.w / 2} dy={fontSize+7} fontSize={Math.max(11,fontSize-4)} fontWeight="500">{known ? pct(tile.item.change_pct) : "—"}</tspan>}</text>}
+            {showName && <text x={tile.x + tile.w / 2} y={tile.y + tile.h / 2 + (twoLines && !asReturn ? -5 : 4)} textAnchor="middle" fill={textColorForRgb(rgb)} fontSize={fontSize} fontWeight="650">{name}{twoLines && !asReturn && <tspan x={tile.x + tile.w / 2} dy={fontSize+7} fontSize={Math.max(11,fontSize-4)} fontWeight="500">{known ? pct(tile.item.change_pct) : "—"}</tspan>}</text>}
           </g>;
         })}
       </svg> : <div className="ng-mini-map-empty"><NeoIcon name="map" /><span>{snapshot.settled ? L("맵 데이터를 확인하고 있습니다", "Map data is unavailable") : L("시장 지도를 불러오는 중", "Loading market map")}</span><small>{L("전체 맵에서 더 넓게 살펴보세요", "Explore further in the full map")}</small></div>}
@@ -72,13 +75,15 @@ export function AtlasMiniMapCard({ market, snapshot, quote, lang }: {
   </Link><Link to={market === "nasdaq100" ? "/community/global" : "/community/kr"} className="ng-mini-map-community"><NeoIcon name="news" /><span>{L(market === "nasdaq100" ? "해외 증시 커뮤니티" : "국내 증시 커뮤니티", market === "nasdaq100" ? "Global community" : "Korea community")}</span><span className="ng-research-new" aria-label={L("신규", "New")}>N</span><b>↗</b></Link></div>;
 }
 
-function PopulatedMaps({ quotes, lang, markets, afterNasdaq }: { quotes: Record<AtlasMarket, AtlasMapQuote>; lang: "ko" | "en"; markets: readonly (typeof MARKETS)[number][]; afterNasdaq?: ReactNode }) {
+function PopulatedMaps({ quotes, lang, market }: { quotes: Record<AtlasMarket, AtlasMapQuote>; lang: "ko" | "en"; market: AtlasMarket }) {
   const snapshots = useAtlasMiniMaps();
-  return <>{markets.map(market => <Fragment key={market.key}><AtlasMiniMapCard market={market.key} snapshot={snapshots[market.key]} quote={quotes[market.key]} lang={lang} />{market.key === "nasdaq100" && afterNasdaq}</Fragment>)}</>;
+  return <AtlasMiniMapCard key={market} market={market} snapshot={snapshots[market]} quote={quotes[market]} lang={lang} />;
 }
 
 /** `lead` is the index chosen in the scanner above; its map comes first, the rest keep their order. */
-export default function AtlasMiniMaps({ quotes, lead, afterNasdaq }: { quotes: Record<AtlasMarket, AtlasMapQuote>; lead?: AtlasMarket; afterNasdaq?: ReactNode }) {
+/** One map at a time: the index chosen in the scanner above (the tabs here change that same choice),
+ * so the three indices are not repeated down the page as three full-size maps. */
+export default function AtlasMiniMaps({ quotes, lead = "kospi", onLeadChange, afterNasdaq }: { quotes: Record<AtlasMarket, AtlasMapQuote>; lead?: AtlasMarket; onLeadChange?: (market: AtlasMarket) => void; afterNasdaq?: ReactNode }) {
   const { lang } = useLanguage();
   const L = (ko: string, en: string) => lang === "ko" ? ko : en;
   const sectionRef = useRef<HTMLElement>(null);
@@ -88,15 +93,16 @@ export default function AtlasMiniMaps({ quotes, lead, afterNasdaq }: { quotes: R
     if (!section || typeof IntersectionObserver === "undefined") { setActive(true); return; }
     const observer = new IntersectionObserver(entries => {
       if (entries.some(entry => entry.isIntersecting)) { setActive(true); observer.disconnect(); }
-    }, { rootMargin: "240px" });
+    }, { rootMargin: "1200px 0px" });   // start well before the reader arrives, so the map is drawn, not "loading"
     observer.observe(section);
     return () => observer.disconnect();
   }, []);
-  const markets = useMemo(() => [...MARKETS].sort((a, b) => Number(b.key === lead) - Number(a.key === lead)), [lead]);
   const placeholder: AtlasMapSnapshot = { items: [], generatedAt: null, settled: false, delayed: false };
   return <section ref={sectionRef} className="ng-atlas-mini-maps" aria-labelledby="ng-mini-maps-h">
     <header><div><span className="ng-kicker">MARKET MAPS</span><h2 id="ng-mini-maps-h">{L("시장별 종목 지도", "Market maps")}</h2><p>{L("코스피 · 코스닥 · 나스닥100 주요 종목", "Leading KOSPI, KOSDAQ and NASDAQ 100 constituents")}</p></div><div className="ng-mini-map-legend"><span><i className="is-up" />{L("상승", "Up")}</span><span><i className="is-flat" />{L("보합", "Flat")}</span><span><i className="is-down" />{L("하락", "Down")}</span></div></header>
-    <div className="ng-mini-map-grid">{active ? <PopulatedMaps quotes={quotes} lang={lang} markets={markets} afterNasdaq={afterNasdaq} /> : markets.map(market => <Fragment key={market.key}><AtlasMiniMapCard market={market.key} snapshot={placeholder} quote={quotes[market.key]} lang={lang} />{market.key === "nasdaq100" && afterNasdaq}</Fragment>)}</div>
+    <div className="ng-mini-map-tabs" role="group" aria-label={L("지도 시장 선택", "Choose the map's market")}>{MARKETS.map(market => <button type="button" key={market.key} aria-pressed={market.key === lead} onClick={() => onLeadChange?.(market.key)} style={{ "--map-accent": market.accent } as CSSProperties}><span>{lang === "ko" ? market.title : market.en}</span><b className={`is-${toneOf(quotes[market.key].change)}`}>{quotePct(quotes[market.key].change)}</b></button>)}</div>
+    <div className="ng-mini-map-grid">{active ? <PopulatedMaps quotes={quotes} lang={lang} market={lead} /> : <AtlasMiniMapCard key={lead} market={lead} snapshot={placeholder} quote={quotes[lead]} lang={lang} />}</div>
     <p className="ng-mini-map-basis">{L("면적은 국내 시가총액·미국 지수 편입 비중, 색은 전일 대비 등락입니다. 주요 종목을 축약한 미리보기입니다.", "Area: Korean market cap / US index weight. Color: change vs. previous close. A preview of leading constituents.")}</p>
+    {afterNasdaq}
   </section>;
 }

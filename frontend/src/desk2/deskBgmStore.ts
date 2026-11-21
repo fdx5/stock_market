@@ -366,7 +366,15 @@ export function attachDeskBgm(): () => void {
     window.addEventListener("keydown", unlockPlayback, true);
   }
   if (preferredOn && !state.on) setDeskBgmOn(true, false);
-  if (state.on && wantsPlayback) build();
+  /* The YouTube player (script + iframe, a few hundred KB and a stream of stats
+     requests) must not compete with the first paint, nor spend a phone's data
+     before the reader does anything. A touch screen builds it on the first
+     touch below; a desktop builds it once the page has gone idle. */
+  if (state.on && wantsPlayback && !player && !window.matchMedia("(hover: none)").matches) {
+    const idle = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    const later = () => idle ? idle(() => build(), { timeout: 6000 }) : window.setTimeout(build, 2500);
+    if (document.readyState === "complete") later(); else window.addEventListener("load", later, { once: true });
+  }
   /* On a touch screen the player must already be built when the reader taps ON,
      because iOS only lets a play made inside that tap through — and building
      takes a script and a frame. So the first touch anywhere on a desk page
