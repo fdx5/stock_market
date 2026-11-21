@@ -56,8 +56,14 @@ export function eok(value: number, lang: Lang, withSign = true): string {
     if (abs >= 10_000) return `${sign}₩${(abs / 10_000).toFixed(2)}T`;
     return `${sign}₩${(abs / 10).toFixed(1)}B`;
   }
-  if (abs >= 10_000) return `${sign}${(abs / 10_000).toFixed(2)}조`;
-  return `${sign}${Math.round(abs).toLocaleString()}억`;
+  return `${sign}${eokKo(abs)}`;
+}
+
+/** 억 amount in Korean units, exact to the 억: 9,330억 · 1조 5,381억 · 2조. */
+export function eokKo(abs: number): string {
+  const total = Math.round(Math.abs(abs)), jo = Math.floor(total / 10_000), rest = total % 10_000;
+  if (!jo) return `${rest.toLocaleString("en-US")}억`;
+  return rest ? `${jo}조 ${rest.toLocaleString("en-US")}억` : `${jo}조`;
 }
 
 /** A won amount, set in 조/억. */

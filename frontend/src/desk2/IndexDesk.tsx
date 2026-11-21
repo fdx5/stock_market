@@ -66,7 +66,7 @@ function IndexBlock({ quote, investor, label, to, span }: { quote: IndexQuote | 
       <div className="d2-flows" role="img" aria-label={flows.map((f) => `${f.label} ${eok(f.v, lang)}`).join(", ")}>
         <div className="d2-flows-head">
           <span>{L("투자자별 누적 순매수", "Net buying by investor")}</span>
-          <small>{L("억원", "KRW 100M")}</small>
+          <small>{L("원", "KRW")}</small>
         </div>
         {flows.length === 0 ? (
           <Skel h={60} />

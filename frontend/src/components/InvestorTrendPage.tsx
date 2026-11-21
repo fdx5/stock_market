@@ -1,3 +1,4 @@
+import { eok } from "../desk2/lib";
 import { useEffect, useState } from "react";
 import { InvestorTrendRecord, api } from "../api/client";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
@@ -9,14 +10,7 @@ import ThemeToggle from "./ThemeToggle";
 import { useDocumentTitle } from "../useDocumentTitle";
 
 function formatAmount(value: number, lang: Lang): string {
-  const abs = Math.abs(value);
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  if (lang === "en") {
-    if (abs >= 10_000) return `${sign}${(abs / 10_000).toFixed(1)}T`;
-    return `${sign}${(abs / 10).toFixed(1)}B`;
-  }
-  if (abs >= 10_000) return `${sign}${(abs / 10_000).toFixed(1)}조`;
-  return `${sign}${Math.round(abs).toLocaleString()}억`;
+  return eok(value, lang);
 }
 
 function amountColor(value: number): string {

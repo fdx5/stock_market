@@ -1,3 +1,4 @@
+import { eokKo } from "../desk2/lib";
 import { useEffect, useMemo, useState } from "react";
 import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
@@ -90,9 +91,7 @@ const signed = (n: number, d = 2) => `${n > 0 ? "+" : ""}${n.toFixed(d)}`;
 const flowMoney = (n: number) => {
   const sign = n > 0 ? "+" : n < 0 ? "-" : "";
   const amount = Math.abs(n);
-  return amount >= 10_000
-    ? `${sign}${(amount / 10_000).toFixed(1)}조원`
-    : `${sign}${nf.format(Math.round(amount))}억원`;
+  return `${sign}${eokKo(amount)}원`;
 };
 
 function Bars({ items }: { items?: { name: string; change_pct: number }[] }) {

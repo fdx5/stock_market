@@ -1,3 +1,4 @@
+import { eokKo } from "../desk2/lib";
 import { API_POLL_MS } from "../apiPolling";
 import { useEffect, useMemo, useState } from "react";
 import type { CompanyOverview, IndicatorPoint, InvestorTrendRecord, NewsItem, StockQuote, StockSummary } from "../api/client";
@@ -52,8 +53,7 @@ function amount(eok: number) {
   if (!abs) return "0억원";
   // A 30-day cumulative flow on a large cap runs into five digits of 억원, which is
   // where 조원 becomes the readable unit.
-  if (abs >= 10000) return `${sign}${(abs / 10000).toFixed(2)}조원`;
-  if (abs >= 100) return `${sign}${nf.format(Math.round(abs))}억원`;
+  if (abs >= 100) return `${sign}${eokKo(abs)}원`;
   return `${sign}${abs.toFixed(1)}억원`;
 }
 

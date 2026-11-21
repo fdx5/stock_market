@@ -3,7 +3,7 @@ import { api, type MarketMapItem, type MarketSession } from "../../api/client";
 import { useMarketIndices } from "../../useMarketIndices";
 import { useMarketTicker } from "../../useMarketTicker";
 import { Link } from "../../router";
-import { pct, toneOf, useL } from "../lib";
+import { eok, pct, toneOf, useL } from "../lib";
 import MarketBreadth from "./MarketBreadth";
 import NeoIndexChart from "../../neo/NeoIndexChart";
 import { useDesignMode } from "../../neo/settings";
@@ -74,7 +74,7 @@ export default function MarketOverview({ market, items, asOf, generatedAt, sessi
   ] : usOverviewQuotes(ticker, session, L("ko", "en") === "en");
   const collected = stamp(generatedAt) ?? asOf;
   const sessionText = session === "pre" ? L("프리마켓", "Pre-market") : session === "post" ? L("애프터마켓", "After-hours") : session === "regular" ? L("정규장", "Regular session") : null;
-  const flow = (value?: number) => value != null && Number.isFinite(value) ? `${value > 0 ? "+" : ""}${Math.round(value).toLocaleString()}${L("억", "")}` : "—";
+  const flow = (value?: number) => value != null && Number.isFinite(value) ? eok(value, L("ko", "en") as "ko" | "en") : "—";
   return <div className="ed-market-overview" ref={motion.ref} data-market={market} data-motion={motion.active ? "on" : "off"} data-motion-cycle={motion.cycle}>
     <div className="ed-overview-topline"><nav className="ed-market-switch" aria-label={L("시장 선택", "Choose a market")}><Link to="/desk" aria-current={market === "kr" ? "page" : undefined}>{L("한국 시장", "Korea")}<span>KR</span></Link><Link to="/global" aria-current={market === "us" ? "page" : undefined}>{L("미국 시장", "United States")}<span>US</span></Link></nav><span className="ed-overview-time">{collected ? <>{L("종목 집계", "Stocks as of")} <time dateTime={generatedAt ?? undefined}>{collected}</time> KST</> : L("시장 데이터 확인 중", "Waiting for market data")}</span></div>
     <div className="ed-overview-title"><div><span className="ed-eyebrow">MARKET / {market === "kr" ? "SEOUL" : "NEW YORK"}</span><h1 className="d2-title">{market === "kr" ? L("오늘의 국내 시장", "Korea at a glance") : L("지금의 미국 시장", "The US at a glance")}</h1></div><Link className="ed-market-map-link" to={market === "kr" ? "/kospi-map" : "/sp500-map"}>{L("시장 지도", "Market map")} <span aria-hidden="true">↗</span></Link></div>

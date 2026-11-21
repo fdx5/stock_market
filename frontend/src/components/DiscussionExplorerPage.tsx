@@ -1,3 +1,4 @@
+import { eok } from "../desk2/lib";
 import { PointerEvent as ReactPointerEvent, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BoardComment, BoardDetail, BoardPost, EtfItem, GlobalDiscussionPost, InvestorTrendRecord, MarketSparkline, StockSearchResult, api } from "../api/client";
 import { Link } from "../router";
@@ -352,10 +353,7 @@ const AI_BRIEF_SLUGS: Record<string, string> = {
 type StockBrief = { date: string; summary: string; analysis: string[]; key_issues?: string[] };
 
 function formatEok(value: number): string {
-  const abs = Math.abs(value);
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  if (abs >= 10_000) return `${sign}${(abs / 10_000).toFixed(1)}조`;
-  return `${sign}${Math.round(abs).toLocaleString()}억`;
+  return eok(value, "ko");
 }
 
 /** KST calendar date as YYYY-MM-DD, matching the trading-date string market_brief.py

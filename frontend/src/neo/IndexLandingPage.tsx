@@ -4,7 +4,7 @@ import MarketChart from "../charts/MarketChart";
 import { useLanguage } from "../i18n/LanguageContext";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { pct, toneOf } from "../desk2/lib";
+import { eok, pct, toneOf } from "../desk2/lib";
 import { HoloPanel, HUDSectionTitle, NeoEmptyState, NeoSkeleton } from "./NeoComponents";
 import { useEnglishNames } from "./useEnglishNames";
 import AdSenseBanner from "./AdSenseBanner";
@@ -84,8 +84,8 @@ export default function IndexLandingPage({ index }: { index: Key }) {
           <div><dt>{L("20일 이동평균", "20-day MA")}</dt><dd>{num(s.ma20)}</dd></div>
           <div><dt>{L("60일 이동평균", "60-day MA")}</dt><dd>{num(s.ma60)}</dd></div>
         </dl>
-        {inv && <><h3>{L("투자자별 순매수 (억원)", "Net buying by investor (KRW 100M)")}</h3><dl className="il-flows">
-          {[[L("개인", "Individuals"), inv.individual_amount], [L("외국인", "Foreigners"), inv.foreign_amount], [L("기관", "Institutions"), inv.institution_amount]].map(([label, value]) => <div key={String(label)}><dt>{label}</dt><dd className={`is-${toneOf(value as number | null)}`}>{signed(value as number | null, 0)}</dd></div>)}
+        {inv && <><h3>{L("투자자별 순매수", "Net buying by investor")}</h3><dl className="il-flows">
+          {[[L("개인", "Individuals"), inv.individual_amount], [L("외국인", "Foreigners"), inv.foreign_amount], [L("기관", "Institutions"), inv.institution_amount]].map(([label, value]) => <div key={String(label)}><dt>{label}</dt><dd className={`is-${toneOf(value as number | null)}`}>{value == null ? "—" : eok(value as number, lang)}</dd></div>)}
         </dl></>}
       </HoloPanel>
     </div>
