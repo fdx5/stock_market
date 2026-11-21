@@ -60,12 +60,12 @@
 .hi-summary{margin:14px 0 0;font-size:17.5px;line-height:1.75;font-weight:600;color:#f3ecf6}
 .hi-story-media{margin-top:18px}
 .hi-media{margin:0;border-radius:12px;overflow:hidden;border:1px solid var(--hi-line);background:#000}
-.hi-media img{display:block;width:100%;max-height:420px;object-fit:cover}
+.hi-media>img{display:block;width:auto;height:auto;max-width:100%;max-height:min(520px,65svh);margin-inline:auto;object-fit:contain}
 .hi-media iframe{display:block;width:100%;aspect-ratio:16/9;border:0}
 .hi-media figcaption{padding:9px 12px;font-size:12px;line-height:1.5;color:var(--text-secondary);background:#0c070f}
 .hi-media figcaption a{color:#c9b6d6}
 .hi-video-poster{position:relative;display:block;width:100%;padding:0;border:0;background:#000;cursor:pointer;aspect-ratio:16/9}
-.hi-video-poster img{width:100%;height:100%;max-height:none;object-fit:cover;opacity:.82}
+.hi-video-poster img{display:block;width:100%;height:100%;object-fit:contain;opacity:.82}
 .hi-play{position:absolute;inset:50% auto auto 50%;width:68px;height:68px;transform:translate(-50%,-50%);border-radius:50%;background:#ff5f6dd9;box-shadow:0 0 0 8px #ff5f6d33}
 .hi-play::after{content:"";position:absolute;left:27px;top:21px;border-left:20px solid #fff;border-top:13px solid transparent;border-bottom:13px solid transparent}
 .hi-body{margin-top:16px}
