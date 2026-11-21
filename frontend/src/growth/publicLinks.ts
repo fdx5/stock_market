@@ -4,6 +4,9 @@ export function publicMarket(search: string): PublicMarket {
   const value = new URLSearchParams(search).get("market");
   return value && Object.prototype.hasOwnProperty.call(MARKET_NAMES, value) ? value as PublicMarket : "kospi";
 }
+export function todayPath(market: PublicMarket): string {
+  return market === "kospi" ? "/today" : `/today?market=${market}`;
+}
 const PUBLIC_PATHS = new Set(["/", "/today", "/share-market", "/map", "/kosdaq-map", "/nasdaq100-map", "/sp500-map", "/desk", "/stocks", "/global", "/etf", "/news", "/market-brief", "/guides", "/kospi-100", "/kosdaq-100", "/nasdaq-100", "/ranking/trading-value", "/community/kr", "/community/global", "/community/property"]);
 /** Share only public routes and enumerated market choices, never the current raw URL. */
 export function publicSharePath(path: string, search = ""): string | null {
@@ -15,7 +18,8 @@ export function publicSharePath(path: string, search = ""): string | null {
   const code = params.get("code")?.toUpperCase() || "";
   if ((clean === "/desk" && /^\d{6}$/.test(code)) || (clean === "/global" && /^[A-Z][A-Z0-9.-]{0,15}$/.test(code))) return `/stock/${code}`;
   if (clean === "/etf" && params.get("region") === "US") return "/etf?region=US";
-  return ["/today", "/share-market"].includes(clean) && publicMarket(search) !== "kospi" ? `${clean}?market=${publicMarket(search)}` : clean;
+  if (clean === "/today") return todayPath(publicMarket(search));
+  return clean === "/share-market" && publicMarket(search) !== "kospi" ? `${clean}?market=${publicMarket(search)}` : clean;
 }
 export function publicShareUrl(path: string, search = "", source: "copy" | "native" = "copy"): string | null {
   const safe = publicSharePath(path, search);
@@ -33,6 +37,12 @@ export const GROWTH_SEO: Record<string, { title: string; description: string }> 
 
 export function todayMetadata(market: PublicMarket) {
   const name = MARKET_NAMES[market];
+  if (market === "nasdaq100") {
+    return {
+      title: `오늘 ${name} 상승·하락 종목과 업종별 등락률 | KOSPIMAP`,
+      description: `오늘 ${name} 지도에 포함된 주요 종목의 상승·하락과 업종별 등락률을 확인하세요. 시장 히트맵을 열어 종목별 시세를 볼 수 있습니다.`,
+    };
+  }
   return {
     title: `오늘 ${name} 상승·하락 종목과 거래대금 순위 | KOSPIMAP`,
     description: `오늘 ${name} 지도에 포함된 주요 종목의 상승·하락, 거래대금 순위와 업종별 등락률을 확인하세요. 시장 히트맵을 열어 종목별 시세를 볼 수 있습니다.`,

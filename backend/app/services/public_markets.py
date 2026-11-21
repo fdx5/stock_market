@@ -25,6 +25,13 @@ PAGES = {
     "/share-market": ("증시 카드 공유·시장 위젯 퍼가기 | K-Stock Hub", "코스피·코스닥·나스닥 100 시장 요약 카드를 내려받고, 외부 사이트용 증시 위젯과 공유 링크를 만들어 보세요."),
 }
 
+RELATED_MARKET_LINKS = {
+    "/session-planner": (("/today", "코스피 오늘 시황"), ("/today?market=kosdaq", "코스닥 오늘 시황"),
+                         ("/today?market=nasdaq100", "나스닥 100 오늘 시황")),
+    "/prices/usd-krw": (("/today", "코스피 오늘 시황"), ("/map", "코스피 히트맵"),
+                       ("/nasdaq100-map", "나스닥 100 히트맵")),
+}
+
 
 def today_path(market: str) -> str:
     return "/today" if market == "kospi" else f"/today?market={market}"
@@ -32,6 +39,11 @@ def today_path(market: str) -> str:
 
 def today_metadata(market: str) -> tuple[str, str]:
     name = MARKETS[market]["name"]
+    if market == "nasdaq100":
+        return (
+            f"오늘 {name} 상승·하락 종목과 업종별 등락률 | KOSPIMAP",
+            f"오늘 {name} 지도에 포함된 주요 종목의 상승·하락과 업종별 등락률을 확인하세요. 시장 히트맵을 열어 종목별 시세를 볼 수 있습니다.",
+        )
     return (
         f"오늘 {name} 상승·하락 종목과 거래대금 순위 | KOSPIMAP",
         f"오늘 {name} 지도에 포함된 주요 종목의 상승·하락, 거래대금 순위와 업종별 등락률을 확인하세요. 시장 히트맵을 열어 종목별 시세를 볼 수 있습니다.",
@@ -129,6 +141,9 @@ def seo_content(path: str, stock_code: str = "", market: str = "kospi") -> str:
         return (f'<section><h2>{html.escape(row["name"])} 최근 제공 시세</h2>'
                 f'<p>현재가 {row["close"]:,.2f} {value["currency"]}, 전일 대비 {_pct(row["change_pct"])}. '
                 f'화면 집계 {html.escape(value["collected_at"])}. 실제 체결 시각과 다를 수 있습니다.</p></section>')
+    if path in RELATED_MARKET_LINKS:
+        links = "".join(f'<li><a href="{href}">{label}</a></li>' for href, label in RELATED_MARKET_LINKS[path])
+        return f'<section><h2>관련 증시 시황과 히트맵</h2><ul>{links}</ul></section>'
     market = market if path == "/today" and market in MARKETS else PAGE_MARKETS.get(path)
     if not market:
         return ""

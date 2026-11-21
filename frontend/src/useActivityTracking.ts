@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { MARKET_NAMES, publicMarket } from "./growth/publicLinks";
 import { GUIDE_SEO } from "./guides/catalog";
 import { getSessionId } from "./session";
 import { audienceBrowserId, loadAudienceConfig } from "./audienceIdentity";
@@ -59,7 +60,14 @@ function acquisitionAttribution(): Attribution {
  * fallback — which returned "대시보드" too. Anything unmatched is now "기타",
  * so a route added to App.tsx without a line here shows up as obviously
  * missing rather than quietly impersonating the desk. */
+function marketPageViewLabel(path: string): string | null {
+  const match = /^\/today\?market=(kospi|kosdaq|nasdaq100)$/.exec(path);
+  return match ? `${MARKET_NAMES[publicMarket(path.slice("/today".length))]} 오늘 시황` : null;
+}
+
 export function pageLabel(path: string): string {
+  const marketLabel = marketPageViewLabel(path);
+  if (marketLabel) return marketLabel;
   // Activity rows may originate from older clients that sent a query string or
   // trailing slash. Classify the canonical route instead of falling through to 기타.
   const cleanPath = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
@@ -164,6 +172,7 @@ export function pageLabel(path: string): string {
  * the ranking, and its trend line never appears at all. Mirrors MonitorPage's routeOf —
  * the KR and US detail pages stay apart because they are different pages. */
 export function routeTemplate(path: string): string {
+  if (marketPageViewLabel(path)) return path;
   const clean = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
   const stock = clean.match(/^\/stock\/([A-Za-z0-9.-]{1,16})(\/(investor|outlook|news|report))?$/);
   if (stock) {
@@ -467,6 +476,8 @@ export function reportResearchEvent(action: ResearchAction, stock?: { code: stri
 
 export function useActivityTracking(path: string): void {
   const lastClickRef = useRef<{ key: string; ts: number } | null>(null);
+  const market = path === "/today" || path === "/today/" ? publicMarket(window.location.search) : null;
+  const pageViewPath = market ? `/today?market=${market}` : path;
 
   useEffect(() => {
     if (isAdminPath(path)) return;
@@ -508,8 +519,8 @@ export function useActivityTracking(path: string): void {
       });
       return;
     }
-    sendEvent({ type: "page_view", path, label: pageLabel(path), ...acquisitionAttribution() });
-  }, [path]);
+    sendEvent({ type: "page_view", path: pageViewPath, label: pageLabel(pageViewPath), ...acquisitionAttribution() });
+  }, [path, pageViewPath]);
 
   useEffect(() => {
     function onClick(event: MouseEvent) {
