@@ -533,6 +533,8 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
 
 def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
+    if canonical_path in {"/pulse-board", "/pulse-board-2"}:
+        template = re.sub(r'<script id="adsense-loader"[^>]*>.*?</script>\s*', "", template, count=1, flags=re.S)
     if canonical_path == "/walk" or canonical_path.startswith("/walk/"):
         from app.services.walk_share import expand_walk_query
         query = expand_walk_query(query)

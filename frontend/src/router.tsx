@@ -9,15 +9,26 @@ window.history.replaceState({ ...window.history.state, kstockEntry: activeEntry 
 window.history.scrollRestoration = "manual";
 let returning = true;
 let pushing = false;
-// (Navigation into and out of the pulse board stays in-app like everywhere else, so the
-// site's music plays on without a cut; it used to reload to keep AdSense auto ads' anchor
-// from following the visitor in, which restarted the music.)
+
+export function isPulseBoardPath(path: string) {
+  return /^\/pulse-board(?:-2)?\/*$/.test(path);
+}
+
+// Auto ads belong to the document that loaded AdSense. Crossing into or out of
+// the ad-free board starts a fresh document so ads cannot follow an SPA visit.
+const boardDocument = isPulseBoardPath(window.location.pathname);
+const needsDocument = (path: string) => isPulseBoardPath(path) !== boardDocument;
+
 window.addEventListener("popstate", () => {
   if (pushing) return;
   stopScrollRestoration();
   saveReadingPosition(activeUrl, activeEntry);
   activeUrl = readingUrl();
   activeEntry = window.history.state?.kstockEntry ?? makeEntry();
+  if (needsDocument(window.location.pathname)) {
+    window.location.reload();
+    return;
+  }
   window.history.replaceState({ ...window.history.state, kstockEntry: activeEntry }, "");
   returning = true;
 });
@@ -32,6 +43,10 @@ export function navigate(path: string): void {
   activeUrl = readingUrl();
   saveReadingPosition(activeUrl, activeEntry);
   path = resolvedBrowsingUrl(path);
+  if (needsDocument(new URL(path, window.location.href).pathname)) {
+    window.location.assign(path);
+    return;
+  }
   const entry = makeEntry();
   window.history.pushState({ kstockEntry: entry }, "", path);
   // Update before the synthetic pop event so it cannot save the old scroll for

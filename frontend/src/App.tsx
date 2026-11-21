@@ -9,7 +9,7 @@ import VoltarisIngressLink from "./components/VoltarisIngressLink";
 import HeaderBookmark from "./components/HeaderBookmark";
 import HeaderVisitorBadge from "./components/HeaderVisitorBadge";
 import { useActivityTracking } from "./useActivityTracking";
-import { navigate, navigationSnapshot, useRoute } from "./router";
+import { isPulseBoardPath, navigate, navigationSnapshot, useRoute } from "./router";
 import { isBrowsingPage, ReadingRestoration } from "./browsingMemory";
 import ReadingTools from "./components/ReadingTools";
 import "./components/marketBriefPrint.css";
@@ -470,9 +470,9 @@ export default function App() {
     const detailCode = stockMatch[1].toUpperCase();
     const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
     page = <BroadsheetStockPage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />;
-  } else if (path === "/pulse-board" || path === "/pulse-board-2") {
+  } else if (isPulseBoardPath(path)) {
     // The deep-dive board is the 증시 전광판 now; its preview address forwards here.
-    if (path === "/pulse-board-2") window.history.replaceState(window.history.state, "", "/pulse-board" + window.location.search);
+    if (path !== "/pulse-board") window.history.replaceState(window.history.state, "", "/pulse-board" + window.location.search + window.location.hash);
     page = <PulseBoardPage variant="deep" />;
   } else if (path === "/pulse-board-ship") {
     page = <PulseBoardPage variant="sea" />;

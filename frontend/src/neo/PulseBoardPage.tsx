@@ -249,12 +249,12 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
       {/* The title is for assistive tech only: the board itself is the page's headline. */}
       <h1 id="pb-title" className="pb-sr">{variant === "deep" ? L("증시 전광판", "Market pulse board") : L("증시 전광판(구)", "Market pulse board (classic)")}</h1>
       {moodSlot ? createPortal(moodChip, moodSlot) : moodChip}
-      <div className={`pb-topline${market === "nasdaq100" ? " pb-topline--us" : ""}`}>
+      {(market !== "nasdaq100" || variant === "sea") && <div className={`pb-topline${market === "nasdaq100" ? " pb-topline--us" : ""}`}>
         {market !== "nasdaq100" && <PulseInvestorFlow key={market} market={market}
           source={market === "kospi" ? indices.kospiInvestor : indices.kosdaqInvestor}
           quote={market === "kospi" ? indices.kospi : indices.kosdaq} />}
-        <div className="pb-banner"><AdZone kind="break" /></div>
-      </div>
+        {variant === "sea" && <div className="pb-banner"><AdZone kind="break" /></div>}
+      </div>}
       {/* One compact toolbar row: market tabs with their live index, breadth, sort. */}
       <div className="pb-toolbar">
         <div className="pb-market-picker">

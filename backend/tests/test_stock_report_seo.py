@@ -36,6 +36,18 @@ def renderer():
     return env
 
 
+@pytest.mark.parametrize(("path", "has_adsense"), [
+    ("/pulse-board", False), ("/pulse-board/", False), ("/pulse-board-2", False),
+    ("/pulse-board-ship", True), ("/world-markets", True),
+])
+def test_pulse_board_shell_omits_adsense_only_for_the_new_board(renderer, path, has_adsense):
+    template = (Path(__file__).parents[2] / "frontend/index.html").read_text(encoding="utf-8")
+    document = renderer["render_spa_shell"](template, path, {"v": "2"})
+    assert ('id="adsense-loader"' in document) == has_adsense
+    assert ("adsbygoogle.js" in document) == has_adsense
+    assert 'id="root"' in document
+
+
 # Newest first, as Naver returns them: 30 sessions rising 100 won a day to 72,900.
 TREND = [{'date': f'2026-11-{30 - i:02d}', 'close': 72900.0 - 100 * i, 'change': 100.0,
           'individual_amount': -1.0, 'institution_amount': 0.5, 'foreign_amount': 0.5} for i in range(30)]
