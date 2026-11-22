@@ -52,7 +52,7 @@ python scripts/exchange_ktx2.py frontend/public/3d/exchange-floor --toktx <KTX-S
 
 - 4개 층 탐험: 1층 + 갤러리 2·3·4층(+5 / +9.5 / +14m). 북서쪽 공중 스위치백 계단(오크 디딤판·유리 난간, 29/26/26단, 단높이 17cm)과 원형 투명 파노라마 엘리베이터 2대(120°·240°, 유리 슬라이딩 문, 1F~4F 버튼; 운행 중 시점은 중앙 홀을 향함). 보행은 layout.json `walk`(지면·갤러리 링·계단·랜딩·문턱·캐빈)의 높이 표면으로 판정한다.
 - 외곽 산책로: 유리 오피스 대신 오크 슬랫 벽과 그림 벽, 벽에 붙인 곡면 소파, 조형물 받침. 통로 최소 폭 3.2m 이상(레이아웃 생성 시 검증).
-- 미술관: 퍼블릭 도메인 명화 31점(Wikimedia Commons, `scripts/fetch_exchange_art.py`, 3,840px 원본은 감상 창을 열 때만 로드, 벽에는 1K)과 Poly Haven CC0 조형물 9점(`scripts/render_exchange_sculptures.py` 스튜디오 렌더). 클릭하면 전체 화면 감상(휠·핀치 확대, 드래그 이동), 감상 중에는 3D 렌더링을 멈춘다.
+- 미술관: 퍼블릭 도메인 명화 31점(Wikimedia Commons, `scripts/fetch_exchange_art.py`)과 Poly Haven CC0 조형물 9점(`scripts/render_exchange_sculptures.py`). 모바일 벽에는 공용 미리보기(`python scripts/build_exchange_art_preview.py`)를 먼저 표시하고 실제 액자 위치를 기준으로 시야에 들어오는 작품부터 1K 이미지를 표시한다. 클릭하면 3,840px 원본을 전체 화면에서 감상할 수 있다(휠·핀치 확대, 드래그 이동). 감상 중에는 3D 렌더링을 멈춘다.
 - 조경: 화분 일체형 모델만 외곽에 소수 배치(안쪽 데스크 구역에는 없음), 빌드 시 식물·좌석 겹침 검사. 꽃 20종은 버텍스 컬러 한 재질.
 - 성능: 패널 그리기는 Worker(OffscreenCanvas)에서, 정적 소품은 8구역 병합(드로우콜 ~130), 첫 화면은 전광판이 다 그려진 뒤 공개. 모델 URL에 베이크 키를 붙여 캐시된 옛 모델을 쓰지 않는다.
 - iPadOS와 터치 기기에서는 GPU가 지원하는 경우 원본 텍스처 크기의 KTX2 모델과 4K 라이트맵을 사용한다. WebGPU를 제공하는 브라우저에서는 먼저 WebGPU를 초기화하고, 사용할 수 없거나 렌더링이 실패하면 WebGL 2로 복구한다. 모바일은 모델과 라이트맵을 순서대로 준비하고 시야에 들어오는 메시부터 렌더링한다. 반사 환경과 주변 그림은 입장 뒤에 로드한다. WebGL 2와 모바일은 첫 프레임에서 필요한 재질부터 컴파일한다.

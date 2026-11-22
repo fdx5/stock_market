@@ -1,6 +1,6 @@
 import {
-  Box3, BoxGeometry, Color, EquirectangularReflectionMapping, Frustum, MeshBasicMaterial, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial, NeutralToneMapping,
-  PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Texture, TextureLoader, Vector2, WebGPUCoordinateSystem,
+  Box3, BoxGeometry, Color, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, MeshBasicMaterial, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial, NeutralToneMapping,
+  PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Sphere, Texture, TextureLoader, Vector2, WebGPUCoordinateSystem,
   type Ray,
   type BufferGeometry, type Material, type Object3D,
 } from "three";
@@ -36,6 +36,8 @@ export type FloorDriver = {
 const BAKE_KEY = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36);
 const hallAsset = (file: string) => `${STORAGE_ASSETS}/${file}${BAKE_KEY}`;
 const ENV = STORAGE_ASSETS + "/hall-env-v5.hdr" + BAKE_KEY;   // Cycles panorama of this hall
+// Slot order and dimensions match scripts/build_exchange_art_preview.py.
+const ART_PREVIEW = { columns: 8, tile: 256, border: 8 };
 const SKY = "#f4f1ea";   // daylight through the skylight, warmed by the oak
 const EYE = 1.68, RADIUS = .32;
 const RAD = Math.PI / 180;
@@ -217,6 +219,7 @@ async function fetchWithProgress(url: string, signal: AbortSignal, progress?: (f
 export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElement, signal: AbortSignal, events: Events, retryWithWebGL = false): Promise<FloorDriver> {
   if (signal.aborted) throw signal.reason;
   const params = new URLSearchParams(location.search);
+  const measure = params.has("exchangeMetrics");
   // Phones: dense pixels already hide edges, so skip MSAA there and start without bloom.
   const touch = matchMedia("(pointer: coarse)").matches;
   // iPadOS can present a desktop user agent. Keep its mobile memory budget with either backend.
@@ -329,7 +332,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     });
     // Art: canvases named "Artwork:<id>" get their picture lazily; sculptures get cheap pick proxies.
     const artTargets: Mesh[] = [];
-    const artCanvases: { mesh: Mesh; id: string; center: Vector3 }[] = [];
+    const artCanvases: { mesh: Mesh; id: string; bounds: Sphere; placeholder: Mesh["material"]; retryAt: number }[] = [];
     const SCULPTURE_IDS = ((FLOOR as unknown as { sculptures?: { id: string }[] }).sculptures ?? []).map(s => s.id);
     model.traverse(child => {
       // GLTFLoader sanitises node names (drops ":" and ".", spaces become "_"): "Artwork:starry-night" ->
@@ -341,7 +344,9 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       if (!mesh) return;
       mesh.userData.panel = "art:" + id;
       artTargets.push(mesh);
-      artCanvases.push({ mesh, id, center: mesh.getWorldPosition(new Vector3()) });
+      // gltfpack gives these meshes a shared quantization origin. The geometry locates the picture.
+      const bounds = new Box3().setFromObject(mesh).getBoundingSphere(new Sphere());
+      artCanvases.push({ mesh, id, bounds, placeholder: mesh.material, retryAt: 0 });
     });
     for (const id of SCULPTURE_IDS) {
       const node = model.getObjectByName(id + "_1") ?? model.getObjectByName(id + " 1") ?? model.getObjectByName(id);
@@ -354,7 +359,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       scene.add(proxy);
       artTargets.push(proxy);
     }
-    if (params.has("exchangeMetrics")) {
+    if (measure) {
       const names: string[] = [];
       model.traverse(o => { if (/artwork|elevator/i.test(o.name)) names.push(o.type + ":" + o.name); });
       canvas.dataset.artNodes = String(artCanvases.length) + " | " + names.slice(0, 6).join(", ");
@@ -377,33 +382,84 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     if (!mobile) loadEnvironment();
 
     const artwork = new Map<Mesh, () => void>();
+    const previewMeshes = new Set<Mesh>();
+    let previewMaterial: MeshStandardMaterial | undefined;
     let artPending = false;
-    const loadArtwork = async ({ mesh, id }: typeof artCanvases[number]) => {
-      const original = mesh.material;
+    const pictureMaterial = (map: Texture) => new MeshStandardMaterial({ map, roughness: .78, emissive: 0xffffff, emissiveMap: map, emissiveIntensity: .22 });
+    const artworkMetrics = () => {
+      if (measure) canvas.dataset.artDetails = artCanvases.filter(({ mesh }) => artwork.has(mesh)).map(({ id }) => id).join(",");
+    };
+    const loadPreview = async () => {
+      const map = await textures.loadAsync(`${STORAGE_ASSETS}/art/gallery-preview-v1.webp`);
+      if (disposed || signal.aborted) { map.dispose(); return; }
+      map.colorSpace = SRGBColorSpace;
+      map.flipY = false;
+      map.channel = 1;
+      previewMaterial = pictureMaterial(map);
+      const { columns, tile, border } = ART_PREVIEW;
+      const slots = new Map(FLOOR.artWalls.map(({ id }, index) => [id, index]));
+      const width = columns * tile, height = Math.ceil(slots.size / columns) * tile;
+      const span = tile - 2 * border - 1;
+      for (const { mesh, id } of artCanvases) {
+        const slot = slots.get(id), uv = mesh.geometry.getAttribute("uv");
+        if (slot === undefined || !uv) continue;
+        const x = slot % columns * tile + border + .5, y = Math.floor(slot / columns) * tile + border + .5;
+        const coords = new Float32Array(uv.count * 2);
+        for (let i = 0; i < uv.count; i++) {
+          coords[i * 2] = (x + uv.getX(i) * span) / width;
+          coords[i * 2 + 1] = (y + uv.getY(i) * span) / height;
+        }
+        mesh.geometry.setAttribute("uv1", new Float32BufferAttribute(coords, 2));
+        previewMeshes.add(mesh);
+        if (!artwork.has(mesh)) mesh.material = previewMaterial;
+      }
+      if (measure) canvas.dataset.artPreviews = String(previewMeshes.size);
+    };
+    const loadArtwork = async (art: typeof artCanvases[number]) => {
+      const { mesh, id, placeholder } = art;
+      let map: Texture | undefined;
       try {
-        const map = await textures.loadAsync(`${STORAGE_ASSETS}/art/${id}-1k.webp`);
+        map = await textures.loadAsync(`${STORAGE_ASSETS}/art/${id}-1k.webp`);
         if (disposed || signal.aborted) { map.dispose(); return; }
         map.colorSpace = SRGBColorSpace;
         map.flipY = false;
         map.anisotropy = 8;
-        const material = new MeshStandardMaterial({ map, roughness: .78, emissive: 0xffffff, emissiveMap: map, emissiveIntensity: .22 });
-        artwork.set(mesh, () => { mesh.material = original; material.dispose(); map.dispose(); });
-        mesh.material = material;
         renderer.initTexture(map);
-      } catch { /* a missing picture leaves the neutral canvas */ }
+        const material = pictureMaterial(map);
+        artwork.set(mesh, () => {
+          mesh.material = previewMeshes.has(mesh) && previewMaterial ? previewMaterial : placeholder;
+          material.dispose();
+          material.map?.dispose();
+        });
+        mesh.material = material;
+        artworkMetrics();
+      } catch {
+        map?.dispose();
+        art.retryAt = performance.now() + 10_000;
+      }
     };
-    releases.push(() => { for (const release of artwork.values()) release(); artwork.clear(); });
+    releases.push(() => {
+      for (const release of artwork.values()) release();
+      artwork.clear();
+      for (const { mesh, placeholder } of artCanvases) mesh.material = placeholder;
+      previewMaterial?.map?.dispose();
+      previewMaterial?.dispose();
+      previewMeshes.clear();
+    });
+    if (mobile) void loadPreview().catch(() => { /* nearby 1K pictures still load independently */ });
     function updateArtwork() {
       if (artPending) return;
-      const nearest = artCanvases.map(art => ({ art, distance: art.center.distanceToSquared(camera.position), visible: frustum.containsPoint(art.center) }))
+      const nearest = artCanvases.map(art => ({ art, distance: art.bounds.center.distanceToSquared(camera.position), visible: frustum.intersectsSphere(art.bounds) }))
         .filter(({ distance, visible }) => visible || distance < 14 ** 2)
         .sort((a, b) => Number(b.visible) - Number(a.visible) || a.distance - b.distance).slice(0, 8).map(({ art }) => art);
       for (const [mesh, release] of artwork) {
         if (nearest.some(art => art.mesh === mesh)) continue;
         release();
         artwork.delete(mesh);
+        artworkMetrics();
       }
-      const next = nearest.find(art => !artwork.has(art.mesh));
+      const now = performance.now();
+      const next = nearest.find(art => !artwork.has(art.mesh) && art.retryAt <= now);
       if (next) {
         artPending = true;
         void loadArtwork(next).finally(() => { artPending = false; });
@@ -433,7 +489,6 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     let last = 0, lastPosition = 0, lastHover = -Infinity, lastArtwork = 0, pushedPose = false, aspect = 1, dpr = 0;
     let slowSince = 0, tier = 0, started = 0;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const measure = params.has("exchangeMetrics");
     const frames: number[] = [];
     const recent: number[] = [];
     const pointer = new Vector2(), ray = new Raycaster();
