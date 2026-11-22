@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { api, type PredictionItem, type PremarketGroup, type PremarketMarket, type PremarketScope } from "../../api/client";
 import StockLogo from "../../components/StockLogo";
+import NeoIcon from "../../neo/NeoIcon";
 import { startVisibilityAwareInterval } from "../../pollVisibility";
 import { formatChangeRate, formatFullDate, formatMoney, probabilities, RESULT_ARROW, RESULT_CLASS } from "../../prediction";
 import { Link } from "../../router";
@@ -53,7 +54,11 @@ function ForecastCard({ item, market, busy, onOpen }: {
     >
       <span className="ng-premarket-identity">
         <StockLogo code={item.code} name={item.name} className="ng-premarket-logo" />
-        <span><strong>{item.name}</strong><small>{item.code}</small></span>
+        <span className="ng-premarket-name"><strong>{item.name}</strong><small>{item.code}</small></span>
+        <span className="ng-premarket-details" aria-hidden="true">
+          <span>{busy ? L("불러오는 중", "Loading") : L("상세 보기", "View details")}</span>
+          <NeoIcon name="chevron" />
+        </span>
       </span>
       <span className="ng-premarket-price">
         <b>{formatMoney(item.predict_price, market)}</b>
@@ -161,13 +166,16 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
   return (
     <section className="ng-panel ng-premarket" aria-labelledby={headingId}>
       <header className="ng-premarket-head">
-        <div>
-          <h2 id={headingId}>{L("AI 주가 예측", "AI stock forecasts")}</h2>
-          <p>{formatFullDate(active.date)} · {L("장전 · 시가총액 순", "Premarket · by market cap")}</p>
+        <div className="ng-premarket-title">
+          <h2 id={headingId}><NeoIcon name="spark" />{L("AI 주가 예측", "AI stock forecasts")}</h2>
+          <small>{L("예측은 빗나갈 수 있으니 참고용으로만 활용하세요.", "Forecasts may be inaccurate. Use them for reference only.")}</small>
         </div>
-        <Link to={`/ai-prediction?date=${active.date}&market=${active.market}`}>
-          {L("전체 예측", "All forecasts")} <span aria-hidden="true">↗</span>
-        </Link>
+        <div className="ng-premarket-meta">
+          <p>{formatFullDate(active.date)} · {L("장전 · 시가총액 순", "Premarket · by market cap")}</p>
+          <Link to={`/ai-prediction?date=${active.date}&market=${active.market}`}>
+            {L("전체 예측", "All forecasts")} <span aria-hidden="true">↗</span>
+          </Link>
+        </div>
       </header>
       {markets.length > 1 ? (
         <div className="ng-premarket-markets" role="group" aria-label={L("예측 시장 선택", "Forecast market")}>

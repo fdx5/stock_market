@@ -78,5 +78,15 @@ html[data-fx=minimal] .sc-scanner :is(.sc-trend,.sc-trend-head){filter:none}
 .sc-scanner .sc-markets>button:has(.sc-trend.is-up){--sc-tone-glow:#ff4f6d26}.sc-scanner .sc-markets>button:has(.sc-trend.is-down){--sc-tone-glow:#3fa9ff26}
 .sc-scanner .sc-markets>button[aria-pressed=true]:after{opacity:1}
 html[data-fx=minimal] .sc-scanner .sc-markets>button:after{display:none}
-/* Gold dust canvas: whole viewport, above content, never intercepts input */
-.sc-gold-dust{position:fixed;inset:0;width:100vw;height:100vh;z-index:60;pointer-events:none}
+.sc-scanner .sc-expand {
+  min-height: 30px;
+  gap: 8px;
+  padding: 3px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.sc-scanner .sc-expand:hover { border-color: var(--accent-neon); }

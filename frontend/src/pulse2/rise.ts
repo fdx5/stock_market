@@ -14,7 +14,7 @@ export const CEILING = 34;
 export const CANOPY = 22;
 const SPREAD_R = 36, SPREAD_T = 2.4;
 
-/** Gold dust raining from the vault, drawn like the gold dust on the market home (goldDust.ts):
+/** Gold dust raining from the vault:
  *  small round grains with a white core in six gold tones, twinkling, a faint light trail
  *  above each, and now and then a four-point star glint. GPU only: each grain falls on its
  *  own loop; `uOn` is the seconds since the rain began, so its front comes down from the

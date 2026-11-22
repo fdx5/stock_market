@@ -1,31 +1,100 @@
-.ng-premarket {
+.ng-panel.ng-premarket {
+  --forecast-rim: color-mix(in srgb, var(--accent-neon) 52%, var(--line-soft));
   container-type: inline-size;
-  margin-block: 18px;
-  padding: clamp(12px, 2vw, 22px);
+  margin-block: 14px;
+  padding: clamp(11px, 1.5vw, 18px);
+  border-color: var(--forecast-rim);
+  background:
+    radial-gradient(ellipse at 7% 0%, color-mix(in srgb, var(--accent-neon) 18%, transparent), transparent 60%),
+    radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--line-active) 33%, transparent), transparent 52%),
+    var(--bg-panel);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--text-primary) 16%, transparent),
+    0 6px 25px color-mix(in srgb, var(--accent-neon) 17%, transparent);
   font-family: var(--f-sans);
+}
+
+.ng-panel.ng-premarket::before {
+  inset: 0 12px auto;
+  width: auto;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent-neon) 22%, var(--text-primary) 54%, var(--line-active) 78%, transparent);
+  opacity: .85;
+}
+
+.ng-panel.ng-premarket::after {
+  content: "";
+  position: absolute;
+  inset: 0 12px auto;
+  height: 5px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--text-primary), transparent) no-repeat;
+  background-size: 24% 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes ng-premarket-shine {
+  0% { background-position: -32% 0; opacity: 0; }
+  16% { opacity: .9; }
+  78%, 100% { background-position: 132% 0; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:not([data-fx="minimal"]) .ng-premarket::after {
+    animation: ng-premarket-shine 3.4s ease-in-out 2;
+  }
 }
 
 .ng-premarket-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-bottom: 12px;
+  gap: 4px 12px;
+  margin-bottom: 8px;
 }
 
+.ng-premarket-title,
+.ng-premarket-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.ng-premarket-title { flex: 1 1 260px; }
+
 .ng-premarket-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
+  flex: none;
   color: var(--text-primary);
   font: 800 clamp(18px, 2.2vw, 24px)/1.2 var(--f-display);
 }
 
+.ng-premarket-title small {
+  color: var(--text-secondary);
+  font: 500 10px/1.35 var(--f-sans);
+  word-break: keep-all;
+}
+
+.ng-premarket-head h2 .ng-icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  color: var(--accent-neon);
+  filter: drop-shadow(0 0 6px var(--accent-neon));
+}
+
 .ng-premarket-head p,
 .ng-premarket-status {
-  margin: 5px 0 0;
+  margin: 0;
   color: var(--text-secondary);
   font-size: 12px;
 }
+
+.ng-premarket-status { margin-top: 8px; }
 
 .ng-premarket .ng-premarket-head a {
   padding-block: 5px;
@@ -34,17 +103,18 @@
   font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 3px;
+  white-space: nowrap;
 }
 
 .ng-premarket-markets {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .ng-premarket-markets button {
-  min-height: 36px;
+  min-height: 34px;
   padding: 4px 13px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
@@ -66,7 +136,7 @@
 }
 
 .ng-premarket-single {
-  margin: 0 0 9px;
+  margin: 0 0 6px;
   color: var(--accent-neon);
   font-size: 12px;
   font-weight: 700;
@@ -75,27 +145,60 @@
 .ng-premarket-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: clamp(7px, 1vw, 13px);
+  gap: clamp(8px, .9vw, 13px);
 }
 
 .ng-premarket-grid > .ng-premarket-card {
+  --forecast-card-edge: color-mix(in srgb, var(--accent-neon) 30%, var(--line-soft));
+  --forecast-card-shadow: color-mix(in srgb, var(--bg-elevated) 42%, #100b14);
+  --forecast-card-highlight: color-mix(in srgb, var(--accent-neon) 11%, var(--bg-elevated));
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 9px;
+  gap: 5px;
   min-width: 0;
-  padding: clamp(8px, 1.25vw, 14px);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
+  padding: clamp(8px, .85vw, 11px) clamp(8px, 1.1vw, 14px);
+  border: 1px solid var(--forecast-card-edge);
+  border-radius: var(--radius-md);
+  background: linear-gradient(148deg, var(--forecast-card-highlight), var(--bg-elevated) 64%);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--text-primary) 14%, transparent),
+    0 3px 0 var(--forecast-card-shadow), 0 5px 9px #100b1430;
   color: var(--text-primary);
   font-family: var(--f-sans);
   text-align: start;
   cursor: pointer;
 }
 
-.ng-premarket-card:is(:hover, :focus-visible, [aria-busy="true"]) {
+.ng-premarket-grid > .ng-premarket-card:is(:focus-visible, [aria-busy="true"]) {
   border-color: var(--accent-neon);
+  --forecast-card-highlight: color-mix(in srgb, var(--accent-neon) 24%, var(--bg-elevated));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ng-premarket-grid > .ng-premarket-card:hover {
+    border-color: var(--accent-neon);
+    --forecast-card-highlight: color-mix(in srgb, var(--accent-neon) 24%, var(--bg-elevated));
+    box-shadow: inset 0 1px color-mix(in srgb, var(--text-primary) 18%, transparent),
+      0 4px 0 var(--forecast-card-shadow), 0 7px 17px color-mix(in srgb, var(--accent-neon) 21%, transparent);
+  }
+}
+
+.ng-premarket-grid > .ng-premarket-card:active {
+  box-shadow: inset 0 1px 3px #100b1460, 0 1px 0 var(--forecast-card-shadow);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:not([data-fx="minimal"]) .ng-premarket-card {
+    transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  }
+
+  html:not([data-fx="minimal"]) .ng-premarket-card:active { transform: translateY(2px); }
+
+  @media (hover: hover) and (pointer: fine) {
+    html:not([data-fx="minimal"]) .ng-premarket-card:hover:not(:active) {
+      transform: translateY(-3px);
+    }
+  }
 }
 
 .ng-premarket :is(a, button):focus-visible {
@@ -110,9 +213,10 @@
   width: 100%;
 }
 
-.ng-premarket-identity > span:last-child {
+.ng-premarket-name {
   display: grid;
-  gap: 2px;
+  flex: 1;
+  gap: 1px;
   min-width: 0;
 }
 
@@ -131,9 +235,9 @@
 
 .ng-premarket-logo {
   display: grid;
-  flex: 0 0 26px;
-  width: 26px;
-  height: 26px;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   border-radius: 6px;
   background: var(--line-soft);
@@ -180,12 +284,41 @@
 
 .ng-premarket-prob i { background: currentColor; }
 
+.ng-premarket-details {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 4px;
+  padding: 3px 5px 3px 6px;
+  border: 1px solid var(--forecast-card-edge);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-neon) 13%, var(--bg-elevated));
+  color: color-mix(in srgb, var(--accent-neon) 76%, var(--text-primary));
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.ng-premarket-details .ng-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
 @container (max-width: 840px) {
   .ng-premarket-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @container (max-width: 600px) {
+  .ng-premarket-head { display: grid; }
+  .ng-premarket-meta { justify-content: space-between; }
   .ng-premarket-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container (max-width: 470px) {
+  .ng-premarket-details { padding: 4px; }
+  .ng-premarket-details > span { display: none; }
 }
 
 @container (max-width: 280px) {
