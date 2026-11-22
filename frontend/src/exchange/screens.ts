@@ -110,6 +110,7 @@ const fontsReady = (() => {
 export const loadDisplayFonts = fontsReady;
 
 const UPLOAD = new URLSearchParams(location.search).get("tex") ?? "bitmap";
+const isBitmap = (image: unknown): image is ImageBitmap => typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap;
 /** Paint in a worker unless the browser lacks OffscreenCanvas transfer, or ?paint=main asks otherwise. */
 const WORKER_OK = typeof Worker !== "undefined" && typeof OffscreenCanvas !== "undefined"
   && typeof OffscreenCanvas.prototype.transferToImageBitmap === "function"
@@ -135,19 +136,26 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   // Worker painting: the main thread only posts requests and uploads finished bitmaps.
   let worker: Worker | undefined;
   let workerReady: Promise<void> = Promise.resolve();
+  let workerTimer = 0, finishWorkerStart = () => {};
   let inflight = 0;
   const MAX_INFLIGHT = lite ? 2 : 3;
+  const stopWorker = () => {
+    worker?.terminate();
+    worker = undefined;
+    inflight = 0;
+    clearTimeout(workerTimer);
+    finishWorkerStart();
+  };
   if (WORKER_OK) {
     try {
       worker = new Worker(new URL("./paintWorker.ts", import.meta.url), { type: "module" });
       workerReady = new Promise<void>(resolve => {
-        const timer = setTimeout(resolve, 6000);
-        worker!.addEventListener("message", function first(event: MessageEvent<WorkerOut>) {
-          if (event.data.type === "ready") { clearTimeout(timer); worker!.removeEventListener("message", first); resolve(); }
-        });
+        finishWorkerStart = resolve;
+        workerTimer = window.setTimeout(stopWorker, 6000);
       });
       worker.onmessage = (event: MessageEvent<WorkerOut>) => {
         const msg = event.data;
+        if (msg.type === "ready") { clearTimeout(workerTimer); finishWorkerStart(); return; }
         if (msg.type === "logo") {
           if (active) for (const id of panels.keys()) if (/^s\d|leaders|gainers|laggards|movers|heatgrid/.test(id)) dirty.add(id);
           return;
@@ -156,14 +164,18 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
         inflight = Math.max(0, inflight - 1);
         paintMs[msg.id] = msg.ms;
         const panel = panels.get(msg.id);
-        if (!msg.bitmap) return;
+        if (!msg.bitmap) {
+          stopWorker();
+          if (active) for (const id of panels.keys()) dirty.add(id);
+          return;
+        }
         if (!active || !panel || msg.token !== panel.token) { msg.bitmap.close(); return; }
         pending.get(msg.id)?.close();
         pending.set(msg.id, msg.bitmap);
       };
-      worker.onerror = () => { worker?.terminate(); worker = undefined; inflight = 0; };
+      worker.onerror = () => { stopWorker(); if (active) for (const id of panels.keys()) dirty.add(id); };
       worker.postMessage({ type: "init", base: FONT_BASE, faces: FONT_FACES } satisfies WorkerIn);
-    } catch { worker = undefined; }
+    } catch { stopWorker(); }
   }
   let lastBackground = 0, signature = "";
   /** Page counts per list panel, computed once per snapshot rather than (with a sort) every frame. */
@@ -312,7 +324,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   /** The GPU has the pixels: release the bitmap memory right away. */
   const releaseOnUpload = (tex: Texture) => {
     const image = tex.image as unknown;
-    if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) image.close();
+    if (isBitmap(image)) image.close();
   };
 
   const logo = (g: G, market: ExchangeMarket, code: string, x: number, y: number, size: number) => {
@@ -378,8 +390,15 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       pending.get(id)?.close();
       pending.set(id, bitmap);
     };
-    if (source instanceof HTMLCanvasElement) void createImageBitmap(source).then(queue).catch(() => {});
-    else queue(source.transferToImageBitmap());
+    // On older WebKit, upload the shared 2D surface directly when snapshots are unavailable.
+    if (source instanceof HTMLCanvasElement) {
+      if (typeof createImageBitmap === "function") void createImageBitmap(source).then(queue).catch(() => {});
+      else {
+        panel.tex.image = source;
+        panel.tex.needsUpdate = true;
+        upload?.(panel.tex);
+      }
+    } else queue(source.transferToImageBitmap());
   }
 
   /** Hand at most a few finished snapshots to the GPU per frame. */
@@ -392,7 +411,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       if (!panel) { bitmap.close(); continue; }
       // A previous snapshot never uploaded (panel culled since): drop it instead of leaking it.
       const old = panel.tex.image as unknown;
-      if (typeof ImageBitmap !== "undefined" && old instanceof ImageBitmap && old !== bitmap) old.close();
+      if (isBitmap(old) && old !== bitmap) old.close();
       panel.tex.image = bitmap;
       panel.tex.onUpdate = releaseOnUpload;
       panel.tex.needsUpdate = true;
@@ -422,7 +441,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
         const version = ++outerPaint;
         const commit = (image: ImageBitmap | HTMLCanvasElement) => {
           if (!active || version !== outerPaint) {
-            if (image instanceof ImageBitmap) image.close();
+            if (isBitmap(image)) image.close();
             return;
           }
           const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement | null;
@@ -433,10 +452,11 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
           // Repeat a partial feed a whole number of times until the full selection arrives.
           outerRepeats.value = Math.max(1, Math.round(ticker.width / (entries.length * OUTER_TICKER_ATLAS.slotWidth)));
           upload?.(ticker.tex);
-          if (old instanceof ImageBitmap) setTimeout(() => old.close(), 500);
+          if (isBitmap(old)) setTimeout(() => old.close(), 500);
         };
         if (outerTickerCanvas) commit(outerTickerCanvas.transferToImageBitmap());
-        else void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
+        else if (typeof createImageBitmap === "function") void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
+        else commit(ticker.canvas);
         continue;
       }
       const width = style === "column" ? paintColumn(ticker.canvas, snapshot, lang) : paintTicker(ticker.canvas, style, snapshot, lang);
@@ -463,17 +483,20 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       }
       // Same-size repaints reuse the GPU texture; only a size change reallocates it. The upload goes
       // through an async ImageBitmap so the frame never waits on the 2D canvas.
-      const resized = ticker.tex.userData.width !== width;
-      ticker.tex.userData.width = width;
-      void createImageBitmap(ticker.canvas).then(bitmap => {
-        if (!active) { bitmap.close(); return; }
-        const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement;
-        if (resized) ticker.tex.dispose();
-        (ticker.tex as { image: unknown }).image = bitmap;
+      const version = (ticker.tex.userData.paintVersion ?? 0) + 1;
+      ticker.tex.userData.paintVersion = version;
+      const commit = (image: ImageBitmap | HTMLCanvasElement) => {
+        if (!active || version !== ticker.tex.userData.paintVersion) { if (isBitmap(image)) image.close(); return; }
+        const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement | null;
+        if (ticker.tex.userData.width !== width) ticker.tex.dispose();
+        ticker.tex.userData.width = width;
+        ticker.tex.image = image;
         ticker.tex.needsUpdate = true;
         upload?.(ticker.tex);
-        if (old instanceof ImageBitmap) setTimeout(() => old.close(), 500);
-      }).catch(() => { if (resized) ticker.tex.dispose(); ticker.tex.needsUpdate = true; });
+        if (isBitmap(old)) setTimeout(() => old.close(), 500);
+      };
+      if (typeof createImageBitmap === "function") void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
+      else commit(ticker.canvas);
     }
   }
 
@@ -554,7 +577,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
     paintMs,
     dispose() {
       active = false;
-      worker?.terminate();
+      stopWorker();
       setTickerLogoListener(undefined);
       clearTimeout(logoTimer);
       for (const img of logos.values()) if (img) img.onload = img.onerror = null;
@@ -567,10 +590,12 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       for (const b of pending.values()) b.close();
       pending.clear();
       for (const s of scratch.values()) s.canvas.width = s.canvas.height = 0;
-      const outerImage = tickers.get("tickerA")?.tex.image;
-      if (outerImage instanceof ImageBitmap) outerImage.close();
       if (outerTickerCanvas) outerTickerCanvas.width = outerTickerCanvas.height = 0;
-      for (const tk of tickers.values()) tk.tex.dispose();
+      for (const tk of tickers.values()) {
+        releaseOnUpload(tk.tex);
+        tk.tex.dispose();
+        tk.canvas.width = tk.canvas.height = 0;
+      }
       materials.forEach(m => m.dispose());
     },
   };

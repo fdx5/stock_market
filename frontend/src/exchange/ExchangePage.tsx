@@ -362,7 +362,7 @@ export default function ExchangePage() {
   const histories = usePostSeries(market, data.rows);
   const [phase, setPhase] = useState<Phase>("loading");
   const [progress, setProgress] = useState(0);
-  const [retry, setRetry] = useState(0);
+  const [retry, setRetry] = useState({ id: 0, recovery: false });
   const [driver, setDriver] = useState<FloorDriver | null>(null);
   const [focus, setFocus] = useState<string>();
   const [showMap, setShowMap] = useState(true);
@@ -386,17 +386,32 @@ export default function ExchangePage() {
   const audioPending = useRef(false);
   const activeAudio = useRef(true);
   const currentPosition = useRef({ ...FLOOR.spawn });
+  const displays = useRef({ snapshot: data, series: histories, language: lang });
+  displays.current = { snapshot: data, series: histories, language: lang };
   const spec = MARKETS[market];
 
   useEffect(() => {
     if (!host.current || !canvas.current) return;
     const container = host.current, element = canvas.current;
-    let engine: FloorDriver | undefined;
+    let engine: FloorDriver | undefined, failed = false;
     const controller = new AbortController();
     const signal = controller.signal;
     setPhase("loading");
     setProgress(0);
     setDriver(null);
+    const onError = (error: unknown) => {
+      if (signal.aborted || failed) return;
+      failed = true;
+      controller.abort();
+      console.warn("[exchange] 3D floor failed", error);
+      setDriver(null);
+      if (!retry.recovery) {
+        setRetry({ id: retry.id + 1, recovery: true });
+      } else {
+        reportExchange("3d:failed", "3D 시작 실패");
+        setPhase("failed");
+      }
+    };
     void import("./floorEngine").then(({ createFloor }) => createFloor(container, element, signal, {
       renderer(mode) { setPhase(mode); reportExchange("3d:" + mode, "3D 입장 " + mode.toUpperCase()); },
       progress: setProgress,
@@ -411,17 +426,13 @@ export default function ExchangePage() {
       select(id) { setFocus(id); audio.current?.select(); reportExchange("panel:" + id, (id.includes(":") && !id.startsWith("a:") ? "감상 · " : "관제 화면 · ") + panelLabel(id, "ko")); },
       lift: setLift,
       floor: setFloor,
-      error() { setDriver(null); setPhase("failed"); },
-    })).then(value => {
+      initialDisplays: () => displays.current,
+      error: onError,
+    }, retry.recovery)).then(value => {
       engine = value;
-      if (signal.aborted) value.dispose();
+      if (signal.aborted || failed) value.dispose();
       else setDriver(value);
-    }).catch(error => {
-      if (signal.aborted) return;
-      console.warn("[exchange] 3D floor failed", error);
-      reportExchange("3d:failed", "3D 시작 실패");
-      setPhase("failed");
-    });
+    }).catch(onError);
     return () => { controller.abort(); engine?.dispose(); };
   }, [retry]);
   useEffect(() => { driver?.update(data, histories, lang); }, [data, driver, histories, lang]);
@@ -536,7 +547,7 @@ export default function ExchangePage() {
     {slot && !immersive && createPortal(<MarketSwitch market={market} lang={lang} choose={chooseMarket} />, slot)}
     <div className="exchange-stage">
       <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v5.webp)" }}>
-        <canvas key={retry} ref={canvas} className="exchange-canvas" tabIndex={0} aria-label={t(lang, "3D 거래소. 방향키로 이동하고 모니터를 선택하세요.", "3D trading floor. Use arrow keys to move and select a monitor.")} />
+        <canvas key={retry.id} ref={canvas} className="exchange-canvas" tabIndex={0} aria-label={t(lang, "3D 거래소. 방향키로 이동하고 모니터를 선택하세요.", "3D trading floor. Use arrow keys to move and select a monitor.")} />
       </div>
       <div className="exchange-overlay-top">
         {(immersive || !slot) && <MarketSwitch market={market} lang={lang} choose={chooseMarket} />}
@@ -564,7 +575,7 @@ export default function ExchangePage() {
       {phase === "failed" && <div className="exchange-entry" role="status"><div>
         <strong>{t(lang, "3D 거래소에 연결하지 못했습니다.", "The 3D trading floor could not start.")}</strong>
         <small>{t(lang, "아래 관제 화면에서 시세와 차트를 계속 볼 수 있습니다.", "The market monitors below still show quotes and charts.")}</small>
-        <button type="button" className="exchange-action" onClick={() => setRetry(value => value + 1)}>{t(lang, "3D 다시 시도", "Retry 3D")}</button>
+        <button type="button" className="exchange-action" onClick={() => setRetry(value => ({ id: value.id + 1, recovery: false }))}>{t(lang, "3D 다시 시도", "Retry 3D")}</button>
       </div></div>}
       {!focus && driver && <>
         <span className="exchange-reticle" aria-hidden="true" />

@@ -9,6 +9,7 @@ import { pass } from "three/tsl";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
+import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import bake from "./bake.json";
 import { FLOOR, MARKETS, STORAGE_ASSETS, type FloorSnapshot, type Language } from "./market";
@@ -33,7 +34,7 @@ export type FloorDriver = {
 // Every bake changes the lightmap scales: use them as a cache key, so a reload always gets the
 // current model and maps (the file names stay the same between local rebuilds).
 const BAKE_KEY = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36);
-const HALL = STORAGE_ASSETS + "/trading-hall-v5.glb" + BAKE_KEY;
+const hallAsset = (file: string) => `${STORAGE_ASSETS}/${file}${BAKE_KEY}`;
 const ENV = STORAGE_ASSETS + "/hall-env-v5.hdr" + BAKE_KEY;   // Cycles panorama of this hall
 const SKY = "#f4f1ea";   // daylight through the skylight, warmed by the oak
 const EYE = 1.68, RADIUS = .32;
@@ -173,41 +174,59 @@ type Events = {
   progress?: (fraction: number) => void;
   lift?: (state: LiftState) => void;
   floor?: (floor: number) => void;
-  error: () => void;
+  initialDisplays: () => { snapshot: FloorSnapshot; series: Captions; language: Language };
+  error: (error: unknown) => void;
 };
 
 async function fetchWithProgress(url: string, signal: AbortSignal, progress?: (f: number) => void) {
   const response = await fetch(url, { signal });
-  if (!response.ok || !response.body) throw new Error("Trading hall model unavailable");
-  const total = Number(response.headers.get("content-length")) || 13e6;
+  if (!response.ok) throw new Error(`Trading hall model unavailable (${response.status})`);
+  if (!response.body) return response.arrayBuffer();
+  // The GLB header gives the decoded size even when the CDN compresses the HTTP response.
+  // Read into one buffer so the download chunks do not also occupy memory during model decode.
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const header = new Uint8Array(12);
+  let out: Uint8Array<ArrayBuffer> | undefined;
   let received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.length;
-    progress?.(Math.min(.99, received / total));
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!out) {
+        header.set(value.subarray(0, header.length - received), received);
+        if (received + value.length < header.length) { received += value.length; continue; }
+        const glb = new DataView(header.buffer);
+        const bytes = glb.getUint32(8, true);
+        if (glb.getUint32(0, true) !== 0x46546c67 || bytes < header.length || bytes > 256 * 1024 ** 2) {
+          throw new Error("Invalid trading hall model header");
+        }
+        out = new Uint8Array(bytes);
+        out.set(header);
+      }
+      out.set(value, received);
+      received += value.length;
+      progress?.(Math.min(.99, received / out.length));
+    }
+  } finally {
+    reader.releaseLock();
   }
-  const out = new Uint8Array(received);
-  let offset = 0;
-  for (const c of chunks) { out.set(c, offset); offset += c.length; }
+  if (!out || received !== out.length) throw new Error("Incomplete trading hall model download");
   return out.buffer;
 }
 
-export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElement, signal: AbortSignal, events: Events): Promise<FloorDriver> {
+export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElement, signal: AbortSignal, events: Events, retryWithWebGL = false): Promise<FloorDriver> {
   if (signal.aborted) throw signal.reason;
   const params = new URLSearchParams(location.search);
   // Phones: dense pixels already hide edges, so skip MSAA there and start without bloom.
   const touch = matchMedia("(pointer: coarse)").matches;
+  // iPadOS can present a desktop user agent. Use the established WebGL 2 backend on Apple touch devices.
+  const appleTouch = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
+  const mobile = touch || appleTouch;
   const dense = (window.devicePixelRatio || 1) >= 2;
-  const renderer = new WebGPURenderer({ canvas, antialias: !(touch && dense), alpha: false, powerPreference: "high-performance" });
+  const renderer = new WebGPURenderer({ canvas, antialias: !(mobile && dense), alpha: false, powerPreference: "high-performance",
+    forceWebGL: appleTouch || retryWithWebGL });
   renderer.toneMapping = NeutralToneMapping;
   renderer.toneMappingExposure = .72;   // calm daylight: bright stone floors must not glare
-  // Decode the 16 MB meshopt payload in workers: on phones the main-thread decode was a visible stall.
-  if (typeof Worker !== "undefined") MeshoptDecoder.useWorkers?.(Math.min(4, Math.max(1, (navigator.hardwareConcurrency || 4) >> 1)));
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const scene = new Scene();
   scene.background = new Color("#d9dde2");
   const camera = new PerspectiveCamera(62, 1, .08, 90);
@@ -220,27 +239,56 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     if (disposed) return;
     disposed = true;
     cancelAnimationFrame(frame);
-    for (const release of releases) release();
+    for (const release of releases.reverse()) release();
     environment?.dispose();
     renderer.dispose();
   };
+  const fail = (error: unknown) => {
+    if (disposed || signal.aborted) return;
+    dispose();
+    events.error(error);
+  };
   try {
+    renderer.onDeviceLost = info => fail(new Error(`${info.api} device lost: ${info.message}`));
+    await renderer.init();
+    signal.throwIfAborted();
+    if (disposed) throw new Error("Trading hall GPU context was lost");
+    const compressed = mobile && (["texture-compression-astc", "texture-compression-etc2", "texture-compression-bc",
+      "texture-compression-s3tc"] as const).some(feature => renderer.hasFeature(feature));
+    if (params.has("exchangeMetrics")) canvas.dataset.hallTextures = compressed ? "ktx2" : "webp";
     const textures = new TextureLoader();
-    const lightmap = (file: string) => textures.loadAsync(STORAGE_ASSETS + "/" + file + BAKE_KEY).then(tex => {
+    const ktx = compressed ? new KTX2Loader().setWorkerLimit(2).detectSupport(renderer) : undefined;
+    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    if (ktx) loader.setKTX2Loader(ktx);
+    const lightmap = async (file: string) => {
+      const tex = ktx ? await ktx.loadAsync(hallAsset(file.replace(/\.webp$/, ".ktx2"))) : await textures.loadAsync(hallAsset(file));
+      if (disposed || signal.aborted) { tex.dispose(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.flipY = false;
       tex.channel = 1;
       tex.colorSpace = SRGBColorSpace;
+      releases.push(() => tex.dispose());
       return tex;
-    });
-    const screens = createScreens(screenQuality(), touch, texture => renderer.initTexture(texture));
-    const [, binary, shellMap, fixtureMap] = await Promise.all([
-      renderer.init(), fetchWithProgress(HALL, signal, events.progress),
-      lightmap(bake.shell.file), lightmap(bake.fixtures.file), screens.ready(),
-    ]);
-    if (signal.aborted) { dispose(); throw signal.reason; }
-    const model = (await loader.parseAsync(binary, STORAGE_ASSETS + "/")).scene;
-    releases.push(() => { releaseModel(model); shellMap.dispose(); fixtureMap.dispose(); });
-    if (signal.aborted) { dispose(); throw signal.reason; }
+    };
+    const loadModel = async () => {
+      const file = compressed ? "trading-hall-v5-ktx2.glb" : "trading-hall-v5.glb";
+      const binary = await fetchWithProgress(hallAsset(file), signal, events.progress);
+      events.progress?.(.99);
+      const { scene: model } = await loader.parseAsync(binary, STORAGE_ASSETS + "/");
+      if (disposed || signal.aborted) { releaseModel(model); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
+      releases.push(() => releaseModel(model));
+      return model;
+    };
+    const { model, shellMap, fixtureMap } = await (async () => {
+      // Limit the mobile startup peak: decode the hall before allocating either 4K lightmap.
+      try {
+        if (mobile) return { model: await loadModel(), shellMap: await lightmap(bake.shell.file), fixtureMap: await lightmap(bake.fixtures.file) };
+        const [model, shellMap, fixtureMap] = await Promise.all([loadModel(), lightmap(bake.shell.file), lightmap(bake.fixtures.file)]);
+        return { model, shellMap, fixtureMap };
+      } finally { ktx?.dispose(); }
+    })();
+    signal.throwIfAborted();
+    const screens = createScreens(screenQuality(), mobile, texture => renderer.initTexture(texture));
+    releases.push(screens.dispose);
 
     // Baked global illumination: each lightmapped group gets its own material copies.
     const cloned = new Map<string, MeshStandardMaterial>();
@@ -277,7 +325,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     });
     // Art: canvases named "Artwork:<id>" get their picture lazily; sculptures get cheap pick proxies.
     const artTargets: Mesh[] = [];
-    const artCanvases: { mesh: Mesh; id: string }[] = [];
+    const artCanvases: { mesh: Mesh; id: string; center: Vector3 }[] = [];
     const SCULPTURE_IDS = ((FLOOR as unknown as { sculptures?: { id: string }[] }).sculptures ?? []).map(s => s.id);
     model.traverse(child => {
       // GLTFLoader sanitises node names (drops ":" and ".", spaces become "_"): "Artwork:starry-night" ->
@@ -289,7 +337,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       if (!mesh) return;
       mesh.userData.panel = "art:" + id;
       artTargets.push(mesh);
-      artCanvases.push({ mesh, id });
+      artCanvases.push({ mesh, id, center: mesh.getWorldPosition(new Vector3()) });
     });
     for (const id of SCULPTURE_IDS) {
       const node = model.getObjectByName(id + "_1") ?? model.getObjectByName(id + " 1") ?? model.getObjectByName(id);
@@ -314,8 +362,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const doorOpen = LIFTS.map(() => 1);
     scene.add(model);
     scene.add(screens.group);
-    releases.push(screens.dispose);
-    void new HDRLoader().loadAsync(ENV).then(texture => {
+    const loadEnvironment = () => void new HDRLoader().loadAsync(ENV).then(texture => {
       if (disposed || signal.aborted) { texture.dispose(); return; }
       texture.mapping = EquirectangularReflectionMapping;
       scene.environment = environment = texture;
@@ -323,10 +370,45 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       // The panorama is the lit hall itself; lightmaps already carry diffuse light, so keep it modest.
       scene.environmentIntensity = .5;
     }).catch(() => {});
+    if (!mobile) loadEnvironment();
+
+    const artwork = new Map<Mesh, () => void>();
+    let artPending = false;
+    const loadArtwork = async ({ mesh, id }: typeof artCanvases[number]) => {
+      const original = mesh.material;
+      try {
+        const map = await textures.loadAsync(`${STORAGE_ASSETS}/art/${id}-1k.webp`);
+        if (disposed || signal.aborted) { map.dispose(); return; }
+        map.colorSpace = SRGBColorSpace;
+        map.flipY = false;
+        map.anisotropy = 8;
+        const material = new MeshStandardMaterial({ map, roughness: .78, emissive: 0xffffff, emissiveMap: map, emissiveIntensity: .22 });
+        artwork.set(mesh, () => { mesh.material = original; material.dispose(); map.dispose(); });
+        mesh.material = material;
+        renderer.initTexture(map);
+      } catch { /* a missing picture leaves the neutral canvas */ }
+    };
+    releases.push(() => { for (const release of artwork.values()) release(); artwork.clear(); });
+    function updateArtwork() {
+      if (artPending) return;
+      const nearest = artCanvases.map(art => ({ art, distance: art.center.distanceToSquared(camera.position), visible: frustum.containsPoint(art.center) }))
+        .filter(({ distance, visible }) => visible || distance < 14 ** 2)
+        .sort((a, b) => Number(b.visible) - Number(a.visible) || a.distance - b.distance).slice(0, 8).map(({ art }) => art);
+      for (const [mesh, release] of artwork) {
+        if (nearest.some(art => art.mesh === mesh)) continue;
+        release();
+        artwork.delete(mesh);
+      }
+      const next = nearest.find(art => !artwork.has(art.mesh));
+      if (next) {
+        artPending = true;
+        void loadArtwork(next).finally(() => { artPending = false; });
+      }
+    }
 
     // Bloom only on genuinely bright pixels: lamps, daylight, the brightest figures.
     let pipeline: RenderPipeline | undefined;
-    if (params.get("bloom") === "1" || (params.get("bloom") !== "0" && !touch)) {
+    if (params.get("bloom") === "1" || (params.get("bloom") !== "0" && !mobile)) {
       pipeline = new RenderPipeline(renderer);
       const scenePass = pass(scene, camera);
       const color = scenePass.getTextureNode("output");
@@ -344,7 +426,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     let lookYaw = state.yaw, lookPitch = pitch;   // rendered view eases toward the dragged target
     let touchX = 0, touchForward = 0, velX = 0, velZ = 0;
     let drag: { pointer: number; x: number; y: number; travel: number } | undefined;
-    let last = 0, lastPosition = 0, lastHover = -Infinity, pushedPose = false, aspect = 1, dpr = 0;
+    let last = 0, lastPosition = 0, lastHover = -Infinity, lastArtwork = 0, pushedPose = false, aspect = 1, dpr = 0;
     let slowSince = 0, tier = 0, started = 0;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     const measure = params.has("exchangeMetrics");
@@ -361,12 +443,13 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     function resize() {
       const { width, height } = host.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
-      dpr = maxRatio();
+      const ratio = maxRatio();
+      if (dpr === ratio && canvas.width === Math.floor(width * ratio) && canvas.height === Math.floor(height * ratio)) return;
+      dpr = ratio;
       aspect = camera.aspect = width / height;
       camera.fov = aspect < 1 ? Math.min(96, Math.max(72, 2 * Math.atan(Math.tan(31 * RAD) / aspect) / RAD)) : 62;
       camera.updateProjectionMatrix();
-      renderer.setPixelRatio(dpr);
-      renderer.setSize(width, height, false);
+      renderer.setDrawingBufferSize(width, height, dpr);
     }
     const observer = new ResizeObserver(resize);
     observer.observe(host);
@@ -446,6 +529,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       } else slowSince = 0;
     }
 
+    let ready = false, rendered = false;
     function repaint(now: number) {
       if (!last) last = now;
       const elapsed = now - last, step = Math.min(elapsed / 1000, .033);
@@ -529,6 +613,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem);
       screens.tick(now, reduced.matches, frustum);
       if (pipeline) pipeline.render(); else renderer.render(scene, camera);
+      rendered = true;
+      if (mobile && ready && now - lastArtwork > 350) {
+        lastArtwork = now;
+        updateArtwork();
+      }
       if (!pushedPose || now - lastPosition > 130) {
         pushedPose = true; lastPosition = now;
         events.position(state.x, state.z, state.yaw);
@@ -540,13 +629,18 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           canvas.dataset.paintMs = JSON.stringify(screens.paintMs);
         }
       }
-      if (dpr && aspect) frame = requestAnimationFrame(repaint);
+    }
+    function drawFrame(now: number) {
+      frame = 0;
+      if (disposed || signal.aborted) return;
+      try { repaint(now); } catch (error) { fail(error); }
+      if (!disposed && dpr && aspect) frame = requestAnimationFrame(drawFrame);
     }
     // Render only while someone can see it: tab visible and the view at least partly on screen.
     let onScreen = true, suspended = false;
     const visibility = () => {
       if (document.hidden || !onScreen || suspended) { cancelAnimationFrame(frame); frame = 0; last = 0; pause(); }
-      else if (!disposed && !frame) frame = requestAnimationFrame(repaint);
+      else if (!disposed && !frame) frame = requestAnimationFrame(drawFrame);
     };
     const sight = new IntersectionObserver(entries => {
       onScreen = entries[entries.length - 1].isIntersecting;
@@ -572,46 +666,49 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       window.removeEventListener("blur", pause);
       document.removeEventListener("visibilitychange", visibility);
     });
-    renderer.onDeviceLost = () => { dispose(); if (!signal.aborted) events.error(); };
-    // Compile every pipeline and upload every hall texture up front, so the first look around
-    // never uploads (or builds mips for) a texture in the frame it comes into view.
-    await renderer.compileAsync(scene, camera);
-    if (signal.aborted) { dispose(); throw signal.reason; }
-    const hallTextures = new Set<Texture>();
-    model.traverse(child => {
-      if (!(child instanceof Mesh)) return;
-      for (const m of Array.isArray(child.material) ? child.material : [child.material]) {
-        for (const value of Object.values(m)) if (value instanceof Texture) hallTextures.add(value);
-      }
-    });
-    for (const texture of hallTextures) renderer.initTexture(texture);
+    if (!mobile && backend === "webgpu") {
+      // WebGPU desktop can warm the scene. On WebGL 2 the eager binding pass can fail before
+      // the first render, and on mobile it also forces every texture into memory at once.
+      await renderer.compileAsync(scene, camera);
+      signal.throwIfAborted();
+      if (disposed) throw new Error("Trading hall GPU context was lost");
+      const hallTextures = new Set<Texture>();
+      model.traverse(child => {
+        if (!(child instanceof Mesh)) return;
+        for (const m of Array.isArray(child.material) ? child.material : [child.material]) {
+          for (const value of Object.values(m)) if (value instanceof Texture) hallTextures.add(value);
+        }
+      });
+      for (const texture of hallTextures) renderer.initTexture(texture);
+    }
+    const update = (snapshot: FloorSnapshot, series: Captions, language: Language) => {
+      sky.color.set(SKY).lerp(new Color(MARKETS[snapshot.market].color), .06);
+      screens.update(snapshot, series, language);
+    };
+    await screens.ready();
+    signal.throwIfAborted();
+    if (disposed) throw new Error("Trading hall GPU context was lost");
+    const initial = events.initialDisplays();
+    update(initial.snapshot, initial.series, initial.language);
     visibility();
     // Reveal once every visible display has its first picture (or after 5 s): no black screens on entry.
     const revealStart = performance.now();
     await new Promise<void>(resolve => {
       const check = () => {
-        if (disposed || signal.aborted || screens.settled() || performance.now() - revealStart > 5000) resolve();
+        if (disposed || signal.aborted || (rendered && screens.settled()) || performance.now() - revealStart > 5000) resolve();
         else setTimeout(check, 60);
       };
       check();
     });
-    if (signal.aborted) { dispose(); throw signal.reason; }
+    signal.throwIfAborted();
+    if (disposed) throw new Error("Trading hall GPU context was lost");
     events.renderer(backend);
-    void (async () => {
-      const loader = new TextureLoader();
-      for (const { mesh, id } of artCanvases) {
-        if (disposed) return;
-        try {
-          const map = await loader.loadAsync(`${STORAGE_ASSETS}/art/${id}-1k.webp`);
-          if (disposed) { map.dispose(); return; }
-          map.colorSpace = SRGBColorSpace;
-          map.flipY = false;
-          map.anisotropy = 8;
-          const m = new MeshStandardMaterial({ map, roughness: .78, emissive: 0xffffff, emissiveMap: map, emissiveIntensity: .22 });
-          releases.push(() => { map.dispose(); m.dispose(); });
-          mesh.material = m;
-          renderer.initTexture(map);
-        } catch { /* a missing picture leaves the neutral canvas */ }
+    ready = true;
+    if (mobile) loadEnvironment();
+    else void (async () => {
+      for (const art of artCanvases) {
+        if (disposed || signal.aborted) return;
+        await loadArtwork(art);
       }
     })();
     return {
@@ -630,10 +727,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         const i = LIFTS.findIndex((e, k) => Math.hypot(state.x - e.x, state.z - e.z) < e.r - CABIN_WALK && Math.abs(state.y - cabins[k]) < .3);
         if (i >= 0 && FLOORS[floor] !== undefined) cabinTarget[i] = FLOORS[floor];
       },
-      update(snapshot, series, language) {
-        sky.color.set(SKY).lerp(new Color(MARKETS[snapshot.market].color), .06);
-        screens.update(snapshot, series, language);
-      },
+      update,
       dispose,
     };
   } catch (error) {

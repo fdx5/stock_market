@@ -43,6 +43,7 @@ blender -b --factory-startup --python-exit-code 1 --python scripts/build_exchang
 # 빠른 검토: ... -- <sources> <out> --preview-only --preview-samples 48 --shots concept,spawn
 python scripts/glb_webp.py <out>/trading-hall-v5.glb <out>/hall-webp.glb
 npx gltfpack -i <out>/hall-webp.glb -o trading-hall-v5.glb -cc -kn -km -ke -kv -vt 14 -vp 16
+python scripts/exchange_ktx2.py frontend/public/3d/exchange-floor --toktx <KTX-Software>/bin/toktx
 ```
 
 `-kv`는 필수다(없으면 라이트맵 UV가 지워져 면이 검게 나온다). 빌드는 `frontend/src/exchange/bake.json`(라이트맵 배율)을 갱신한다. 걷기·충돌·모니터 가림 판정은 layout.json의 원·부채꼴 고체(`circles`, `arcs`, `occluders`)로 한다. GLB·라이트맵·HDR·글꼴은 `fdx5/kospimap-assets` GitHub Pages에 추가 게시하고 `backend/app/data/asset_cdn.json`에 연결한다.
@@ -54,4 +55,5 @@ npx gltfpack -i <out>/hall-webp.glb -o trading-hall-v5.glb -cc -kn -km -ke -kv -
 - 미술관: 퍼블릭 도메인 명화 31점(Wikimedia Commons, `scripts/fetch_exchange_art.py`, 3,840px 원본은 감상 창을 열 때만 로드, 벽에는 1K)과 Poly Haven CC0 조형물 9점(`scripts/render_exchange_sculptures.py` 스튜디오 렌더). 클릭하면 전체 화면 감상(휠·핀치 확대, 드래그 이동), 감상 중에는 3D 렌더링을 멈춘다.
 - 조경: 화분 일체형 모델만 외곽에 소수 배치(안쪽 데스크 구역에는 없음), 빌드 시 식물·좌석 겹침 검사. 꽃 20종은 버텍스 컬러 한 재질.
 - 성능: 패널 그리기는 Worker(OffscreenCanvas)에서, 정적 소품은 8구역 병합(드로우콜 ~130), 첫 화면은 전광판이 다 그려진 뒤 공개. 모델 URL에 베이크 키를 붙여 캐시된 옛 모델을 쓰지 않는다.
+- iPadOS와 터치 기기에서는 GPU가 지원하는 경우 원본 텍스처 크기의 KTX2 모델과 4K 라이트맵을 사용한다. iPadOS는 WebGL 2에서 시작한다. 모바일은 모델과 라이트맵을 순서대로 준비하고 시야에 들어오는 메시부터 렌더링한다. 반사 환경과 주변 그림은 입장 뒤에 로드한다. WebGL 2와 모바일은 첫 프레임에서 필요한 재질부터 컴파일한다. GUI, 화면 해상도 정책과 전체화면 미술품 원본은 기존과 같다.
 - 티커: 종목명 오른쪽에 기업 로고, 기둥 LED 스트립은 실시간 시세 카드가 위로 흐르는 세로 티커.
