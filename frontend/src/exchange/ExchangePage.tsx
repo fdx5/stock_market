@@ -8,7 +8,8 @@ import {
   marketCode, rowsForPanel, stockIndex, useFloorQuotes, usePostSeries, useStockHistory, shortTime,
   type ExchangeMarket, type FloorSnapshot, type Language,
 } from "./market";
-import type { FloorDriver } from "./floorEngine";
+import type { FloorDriver, LiftState } from "./floorEngine";
+import ArtViewer, { artLabel } from "./ArtViewer";
 import { PAINTERS, areaChart, searchedStockPainter, type PaintEnv } from "./panels";
 import { api, type MarketMapItem, type StockSearchResult } from "../api/client";
 import { loadDisplayFonts } from "./screens";
@@ -26,6 +27,7 @@ const KINDS = ["market", "stocks", "global", "assets", "desk"] as const;
 const SCROLLERS = ".exchange-focus, .exchange-monitor-picker > div, .exchange-station-list, .exchange-stock-search ul, .exchange-heatmap-box";
 
 function panelLabel(id: string, lang: Language, data?: FloorSnapshot) {
+  if (id.startsWith("art:") || id.startsWith("sculpture:")) return artLabel(id, lang);
   const i = stockIndex(id);
   if (i >= 0) {
     const row = data?.rows[i];
@@ -333,6 +335,26 @@ function MarketSwitch({ market, lang, choose }: { market: ExchangeMarket; lang: 
 
 const plan = (x: number, z: number) => ({ left: (50 + x / FLOOR.room.width * 100) + "%", top: (50 + z / FLOOR.room.depth * 100) + "%" });
 
+/** The round floor plan, drawn from the same layout the 3D hall is built from (viewBox in metres). */
+function FloorPlan() {
+  const R = FLOOR.room.radius, rad = Math.PI / 180;
+  const pt = (r: number, t: number) => `${(r * Math.sin(t * rad)).toFixed(2)} ${(r * Math.cos(t * rad)).toFixed(2)}`;
+  const band = (r0: number, r1: number, a0: number, a1: number) => {
+    const big = a1 - a0 > 180 ? 1 : 0;
+    // Angles grow toward +x from +z, i.e. clockwise on this plan (x right, z down): sweep flag 0.
+    return `M${pt(r1, a0)}A${r1} ${r1} 0 ${big} 0 ${pt(r1, a1)}L${pt(r0, a1)}A${r0} ${r0} 0 ${big} 1 ${pt(r0, a0)}Z`;
+  };
+  return <svg className="exchange-plan-svg" viewBox={`${-R} ${-R} ${2 * R} ${2 * R}`} aria-hidden="true">
+    <circle r={R - .2} className="exchange-plan-wall" />
+    <circle r={FLOOR.radii.gallery} className="exchange-plan-gallery" />
+    {FLOOR.desks.map((d, i) => <path key={i} d={band(d.r - .05, d.r + .8, d.a0, d.a1)} className="exchange-plan-desk" />)}
+    {FLOOR.lounges.map(l => <path key={l.t} d={band(17.1, 20.7, l.t - 11, l.t + 11)} className="exchange-plan-lounge" />)}
+    <circle r={FLOOR.radii.counter} className="exchange-plan-counter" />
+    <circle r={FLOOR.tower.plinth} className="exchange-plan-core" />
+    {FLOOR.columns.map(c => <circle key={c.x + ":" + c.z} cx={c.x} cy={c.z} r={.9} className="exchange-plan-column" />)}
+  </svg>;
+}
+
 export default function ExchangePage() {
   const { lang } = useLanguage();
   const [market, setMarket] = useState<ExchangeMarket>(() => marketCode(new URLSearchParams(location.search).get("market")));
@@ -347,6 +369,8 @@ export default function ExchangePage() {
   const [sound, setSound] = useState(false);
   const [soundError, setSoundError] = useState(false);
   const [full, setFull] = useState(false);
+  const [lift, setLift] = useState<LiftState | null>(null);
+  const [floor, setFloor] = useState(0);
   // Phones open straight into an immersive, viewport-filling floor; the first touch also asks for real full screen.
   const [immersive, setImmersive] = useState(() => matchMedia("(max-width: 760px)").matches);
   const askedFullscreen = useRef(false);
@@ -384,7 +408,9 @@ export default function ExchangePage() {
         }
         audio.current?.position(x, z, yaw);
       },
-      select(id) { setFocus(id); audio.current?.select(); reportExchange("panel:" + id, "관제 화면 · " + panelLabel(id, "ko")); },
+      select(id) { setFocus(id); audio.current?.select(); reportExchange("panel:" + id, (id.includes(":") && !id.startsWith("a:") ? "감상 · " : "관제 화면 · ") + panelLabel(id, "ko")); },
+      lift: setLift,
+      floor: setFloor,
       error() { setDriver(null); setPhase("failed"); },
     })).then(value => {
       engine = value;
@@ -399,6 +425,11 @@ export default function ExchangePage() {
     return () => { controller.abort(); engine?.dispose(); };
   }, [retry]);
   useEffect(() => { driver?.update(data, histories, lang); }, [data, driver, histories, lang]);
+  // The art viewer covers the hall: no 3D frames behind it (they made long viewing sessions stutter).
+  useEffect(() => {
+    const art = !!focus && (focus.startsWith("art:") || focus.startsWith("sculpture:"));
+    driver?.suspend(art);
+  }, [driver, focus]);
   useEffect(() => {
     document.documentElement.classList.toggle("exchange-immersive", immersive);
     return () => document.documentElement.classList.remove("exchange-immersive");
@@ -504,7 +535,7 @@ export default function ExchangePage() {
     <h1 className="exchange-sr-title">{t(lang, "증권 거래소", "Stock exchange")} · {spec.label}</h1>
     {slot && !immersive && createPortal(<MarketSwitch market={market} lang={lang} choose={chooseMarket} />, slot)}
     <div className="exchange-stage">
-      <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v4.webp)" }}>
+      <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v5.webp)" }}>
         <canvas key={retry} ref={canvas} className="exchange-canvas" tabIndex={0} aria-label={t(lang, "3D 거래소. 방향키로 이동하고 모니터를 선택하세요.", "3D trading floor. Use arrow keys to move and select a monitor.")} />
       </div>
       <div className="exchange-overlay-top">
@@ -524,7 +555,7 @@ export default function ExchangePage() {
       </div>
       {soundError && <p className="exchange-sound-error" role="status">{t(lang, "이 기기에서 음향을 시작하지 못했습니다.", "Sound could not start on this device.")}</p>}
       {phase === "loading" && <div className="exchange-entry" role="status">
-        <div><span>{t(lang, `${FLOOR.room.pyeong}평 · 1,323㎡ 거래소`, "1,323 m² trading floor")}</span>
+        <div><span>{t(lang, `${Math.round(FLOOR.room.pyeong)}평 · ${FLOOR.room.area.toLocaleString("en-US")}㎡ 아트리움 거래소`, `${FLOOR.room.area.toLocaleString("en-US")} m² trading atrium`)}</span>
           <strong>{t(lang, "거래소를 불러오는 중", "Loading the trading floor")}</strong>
           <small>{progress < .99 ? t(lang, "3D 모델·라이트맵 수신 ", "Receiving model and lightmaps ") + Math.round(progress * 100) + "%"
             : t(lang, "재질·전광판 셰이더 준비", "Compiling materials and displays")}</small>
@@ -539,21 +570,26 @@ export default function ExchangePage() {
         <span className="exchange-reticle" aria-hidden="true" />
         <Joystick driver={driver} lang={lang} />
         {showMap && <div className="exchange-minimap">
-          <span>{t(lang, "거래소 평면도", "Floor map")}</span>
+          <span>{t(lang, "거래소 평면도", "Floor map")} <b className="exchange-floor-badge">{floor + 1}F</b></span>
           <div aria-hidden="true" className="exchange-plan">
-            <i className="exchange-plan-wall" />
-            <i className="exchange-plan-podium" />
-            <i className="exchange-plan-gallery" />
-            {FLOOR.posts.map(({ x, z }) => <i className="exchange-plan-post" key={x + ":" + z} style={plan(x, z)} />)}
+            <FloorPlan />
             <b ref={mark} className="exchange-plan-person" />
           </div>
         </div>}
         <div className="exchange-instructions"><span>{t(lang, "WASD / 방향키 이동 · Shift 빠르게 · 드래그 시점 · 모니터 클릭", "WASD / arrows move · Shift runs · drag to look · click monitors")}</span>
           <small>{t(lang, "왼쪽 조이스틱 이동 · 화면 드래그 · 모니터 탭", "Left joystick moves · drag to look · tap monitors")}</small></div>
       </>}
-      {focus && <FocusPanel key={market + ":" + focus} data={data} id={focus} lang={lang} histories={histories} onClose={() => {
-        setFocus(undefined); canvas.current?.focus({ preventScroll: true });
-      }} />}
+      {focus && (focus.startsWith("art:") || focus.startsWith("sculpture:")
+        ? <ArtViewer key={focus} id={focus} lang={lang} onClose={() => { setFocus(undefined); canvas.current?.focus({ preventScroll: true }); }} />
+        : <FocusPanel key={market + ":" + focus} data={data} id={focus} lang={lang} histories={histories} onClose={() => {
+          setFocus(undefined); canvas.current?.focus({ preventScroll: true });
+        }} />)}
+      {driver && lift?.inside != null && !focus && <div className="exchange-lift" role="group" aria-label={t(lang, "엘리베이터 층 선택", "Elevator floors")}>
+        <span>{t(lang, "글라스 엘리베이터", "Glass elevator")}</span>
+        <div>{[3, 2, 1, 0].map(f => <button key={f} type="button" aria-pressed={lift.floor === f && !lift.moving}
+          onClick={() => { driver.ride(f); reportExchange("lift:" + (f + 1), "엘리베이터 " + (f + 1) + "층"); }}>{f + 1}F</button>)}</div>
+        {lift.moving && <small>{t(lang, "이동 중", "Moving")}</small>}
+      </div>}
     </div>
     <div className="exchange-controls">
       <div className="exchange-station-list" aria-label={t(lang, "거래소 내부 이동", "Move to a station")}>

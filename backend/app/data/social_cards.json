@@ -277,9 +277,9 @@
   },
   "/exchange": {
     "title": "증권 거래소 · 3D 트레이딩 플로어 | KOSPIMAP",
-    "description": "400평 규모 3D 증권 거래소에서 58종 전광판으로 코스피·코스닥·S&P 500 지수, 시장 지도, 수급, 세계 증시, 원자재·환율을 실시간으로 살펴보세요.",
-    "image": "/3d/exchange-floor/floor-share-v3.png",
-    "alt": "금박 격자 천장 아래 빅 보드와 원형 거래 포스트가 놓인 KOSPIMAP 3D 증권 거래소",
+    "description": "672평 원형 아트리움 3D 증권 거래소. 라이트 코어와 59종 실시간 전광판으로 코스피·코스닥·S&P 500, 시장 지도, 수급, 세계 증시를 보고, 4개 층 갤러리와 명화 31점도 감상하세요.",
+    "image": "/3d/exchange-floor/floor-share-v5.png",
+    "alt": "오크 트리 기둥과 방사형 스카이라이트 아래 전광판 라이트 코어와 원형 트레이딩 데스크가 놓인 KOSPIMAP 3D 증권 거래소",
     "width": 1200,
     "height": 630
   },

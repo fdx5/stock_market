@@ -8,7 +8,7 @@ import { changeToRgb, rgbToCss, textColorForRgb } from "../treemap";
 import {
   ASSET_SINGLES, MARKETS, PANEL_LABELS, STOCK_PANELS, assetSymbol, changeText, companyLogo, displayValue, fixedValue,
   isPrice, rowsForPanel, shortTime, stockIndex, type ExchangeMarket, type FloorSnapshot, type Language,
-} from "./market";
+} from "./marketCore";
 
 export type G = CanvasRenderingContext2D;
 /** page/prev/t drive list page flips: t runs 0→1 over a flip, 1 when settled. */
@@ -1261,11 +1261,45 @@ export const PAGES: Record<string, (d: FloorSnapshot) => number> = {
 export const LIVE_PANELS = new Set(["clocks", "session"]);
 
 // ------------------------------------------------------------------ tickers
-export type TickerStyle = "amber" | "cyan" | "commodity" | "news" | "ring";
-type Entry = { label: string; value: string; change: number | null | undefined };
+export type TickerStyle = "amber" | "cyan" | "commodity" | "news" | "ring" | "column";
+type Entry = { label: string; value: string; change: number | null | undefined; logo?: string };
+
+/* Company logos on the ticker strips (main thread). Loaded once; when one arrives the strips repaint. */
+const tickerLogos = new Map<string, HTMLImageElement | null>();
+let tickerLogoListener: (() => void) | undefined;
+export function setTickerLogoListener(fn: (() => void) | undefined) { tickerLogoListener = fn; }
+function tickerLogo(url: string) {
+  const known = tickerLogos.get(url);
+  if (known !== undefined) return known && known.complete && known.naturalWidth > 0 ? known : null;
+  if (tickerLogos.size > 200) return null;
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.decoding = "async";
+  tickerLogos.set(url, img);
+  img.onload = () => tickerLogoListener?.();
+  img.onerror = () => tickerLogos.set(url, null);
+  img.src = url;
+  return null;
+}
+/** A rounded white logo chip; returns the width it took (0 when the logo is not ready). */
+function drawLogo(g: G, url: string | undefined, x: number, cy: number, size: number) {
+  if (!url) return 0;
+  const img = tickerLogo(url);
+  if (!img) return 0;
+  g.save();
+  g.beginPath();
+  g.roundRect(x, cy - size / 2, size, size, size * .24);
+  g.fillStyle = "#f4f6fa";
+  g.fill();
+  g.clip();
+  const s = size * .8 / Math.max(img.naturalWidth, img.naturalHeight);
+  g.drawImage(img, x + (size - img.naturalWidth * s) / 2, cy - img.naturalHeight * s / 2, img.naturalWidth * s, img.naturalHeight * s);
+  g.restore();
+  return size;
+}
 
 export function tickerEntries(style: TickerStyle, d: FloorSnapshot, lang: Language): Entry[] {
-  const fromRows = d.rows.slice(0, 30).map(r => ({ label: d.market === "sp500" ? r.code : r.name, value: displayValue(r.close, d.market === "sp500" ? 2 : 0), change: r.change_pct }));
+  const fromRows = d.rows.slice(0, 30).map(r => ({ label: d.market === "sp500" ? r.code : r.name, value: displayValue(r.close, d.market === "sp500" ? 2 : 0), change: r.change_pct, logo: companyLogo(d.market, r.code) }));
   const idx = (Object.keys(MARKETS) as ExchangeMarket[]).map(k => ({ label: MARKETS[k].label, value: displayValue(d.indices[k]?.close), change: d.indices[k]?.change }));
   if (style === "amber" || style === "ring") return [...idx, ...fromRows];
   if (style === "cyan") {
@@ -1281,6 +1315,35 @@ export function tickerEntries(style: TickerStyle, d: FloorSnapshot, lang: Langua
 }
 
 /** Paints a seamless ticker strip; returns its pixel width (≤ 8192). */
+/** The LED strips on the columns: a tall stack of quote cards (name, price, change, a mini bar),
+ * scrolled vertically in the shader. Returns the canvas height (the scroll length). */
+export function paintColumn(canvas: HTMLCanvasElement, d: FloorSnapshot, lang: Language) {
+  const W = 192, H = 4096, CARD = 168;
+  canvas.width = W; canvas.height = H;
+  const g = canvas.getContext("2d");
+  if (!g) return 0;
+  g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
+  const entries = tickerEntries("ring", d, lang);
+  if (!entries.length) return H;
+  for (let i = 0, y = 0; y < H; i++, y += CARD) {
+    const en = entries[i % entries.length];
+    const col = tone(en.change);
+    g.fillStyle = "#0b1626"; g.fillRect(8, y + 8, W - 16, CARD - 16);
+    g.fillStyle = col; g.fillRect(8, y + 8, 4, CARD - 16);
+    const chip = drawLogo(g, en.logo, W - 50, y + 38, 34);
+    txt(g, en.label, 20, y + 46, 26, "#e8f2ff", { w: 700, max: W - 34 - (chip ? 40 : 0) });
+    txt(g, en.value, 20, y + 90, 30, "#ffffff", { w: 700, f: FONT.num });
+    txt(g, `${arrow(en.change)} ${changeText(en.change)}`, 20, y + 128, 24, col, { w: 700, f: FONT.num, glow: 8 });
+    const v = Math.max(-1, Math.min(1, (en.change ?? 0) / 5));
+    g.fillStyle = "#ffffff14"; g.fillRect(20, y + 142, W - 40, 6);
+    g.fillStyle = col; g.fillRect(W / 2, y + 142, (W - 40) / 2 * v, 6);
+  }
+  // LED pitch, faint
+  g.fillStyle = "#00000030";
+  for (let py = 0; py < H; py += 4) g.fillRect(0, py, W, 1);
+  return H;
+}
+
 export function paintTicker(canvas: HTMLCanvasElement, style: TickerStyle, d: FloorSnapshot, lang: Language) {
   const H = 128;
   const g = canvas.getContext("2d");
@@ -1292,7 +1355,7 @@ export function paintTicker(canvas: HTMLCanvasElement, style: TickerStyle, d: Fl
   g.font = `700 ${size}px ${font}`;
   const widths = entries.map(en => {
     g.font = `700 ${size}px ${font}`;
-    const a = measure(g, en.label);
+    const a = measure(g, en.label) + (en.logo ? size * 1.15 + 12 : 0);
     const b = measure(g, en.value);
     g.font = `700 ${size * .8}px ${FONT.num}`;
     const c = style === "news" ? 0 : measure(g, `${arrow(en.change)} ${changeText(en.change)}`);
@@ -1318,6 +1381,8 @@ export function paintTicker(canvas: HTMLCanvasElement, style: TickerStyle, d: Fl
       continue;
     }
     x += txt(g, en.label, x, H / 2 + 2, size, style === "amber" ? "#ffcf6a" : main, { w: 600, f: font, base: "middle", glow: style === "amber" ? 6 : 0 }) + 14;
+    const chip = drawLogo(g, en.logo, x, H / 2, size * 1.15);
+    x += chip ? chip + 12 : 0;
     x += txt(g, en.value, x, H / 2 + 2, size, "#ffffff", { w: 600, f: FONT.num, base: "middle" }) + 12;
     x += txt(g, `${arrow(en.change)} ${changeText(en.change)}`, x, H / 2 + 2, size * .82, col, { w: 700, f: FONT.num, base: "middle", glow: 6 }) + 46;
     g.fillStyle = "#ffffff22"; g.fillRect(x - 26, H * .34, 2, H * .32);

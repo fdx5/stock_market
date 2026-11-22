@@ -170,11 +170,15 @@
   background: #0a121ce4;
 }
 .exchange-minimap > span { display: block; margin-bottom: 5px; color: #b8c9e4; font-size: 10px; }
-.exchange-plan { position: relative; aspect-ratio: 42 / 31.5; border: 1px solid #c9d2e04d; border-radius: 3px; background: radial-gradient(circle at 50% 46%, #1a2334, #0a0e16); }
-.exchange-plan-wall { position: absolute; width: 90%; height: 7%; top: 0; left: 5%; background: #c9d2e059; }
-.exchange-plan-podium { position: absolute; width: 6.5%; height: 21%; top: 39.5%; left: 0; background: #c9d2e040; }
-.exchange-plan-gallery { position: absolute; width: 100%; height: 8%; bottom: 0; left: 0; background: #c9d2e024; }
-.exchange-plan-post { position: absolute; width: 11.5%; height: 15.3%; transform: translate(-50%, -50%); background: #33405a66; border: 1px solid #c9d2e080; border-radius: 50%; }
+.exchange-plan { position: relative; aspect-ratio: 1; }
+.exchange-plan-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.exchange-plan-svg .exchange-plan-wall { fill: #0e1420; stroke: #c9d2e070; stroke-width: .5; }
+.exchange-plan-svg .exchange-plan-gallery { fill: none; stroke: #c9d2e040; stroke-width: .35; stroke-dasharray: 1.2 1; }
+.exchange-plan-svg .exchange-plan-desk { fill: #c9d2e033; stroke: #c9d2e066; stroke-width: .15; }
+.exchange-plan-svg .exchange-plan-lounge { fill: #b48a5e40; }
+.exchange-plan-svg .exchange-plan-counter { fill: none; stroke: #c9d2e080; stroke-width: .5; }
+.exchange-plan-svg .exchange-plan-core { fill: color-mix(in srgb, var(--exchange-accent) 40%, #0e1420); stroke: var(--exchange-accent); stroke-width: .3; }
+.exchange-plan-svg .exchange-plan-column { fill: #c9d2e059; }
 .exchange-plan-person {
   position: absolute;
   width: 0;
@@ -467,3 +471,27 @@ html.exchange-immersive, html.exchange-immersive body { overflow: hidden; oversc
 .exchange-page:is([data-immersive], :fullscreen) :is(.exchange-focus, .exchange-monitor-picker > div, .exchange-heatmap-box, .exchange-stock-search ul) { touch-action: pan-y; }
 .exchange-page:is([data-immersive], :fullscreen) .exchange-station-list { touch-action: pan-x; }
 .exchange-page:is([data-immersive], :fullscreen) :is(input, textarea) { -webkit-user-select: text; user-select: text; }
+
+/* Art viewer: one painting or sculpture, full stage, zoom to the brushwork. */
+.exchange-art { position: absolute; inset: 0; z-index: 6; display: grid; grid-template-rows: auto 1fr auto; background: #07090dF2; }
+.exchange-art-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: zoom-in; }
+.exchange-art-stage[data-zoomed] { cursor: grab; }
+/* The whole picture fits the current view (contain); zoom goes from there. */
+.exchange-art-stage img { position: absolute; top: 64px; right: 16px; bottom: 44px; left: 16px; display: block; width: calc(100% - 32px); height: calc(100% - 108px); object-fit: contain; transform-origin: center; transition: transform .08s linear; filter: drop-shadow(0 24px 60px #000c); user-select: none; }
+.exchange-art-caption { grid-row: 1; grid-column: 1; z-index: 1; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 14px 16px; pointer-events: none; background: linear-gradient(180deg, #07090dd0, transparent); }
+.exchange-art-caption > * { pointer-events: auto; }
+.exchange-art-caption h2 { margin: 0; font-size: clamp(17px, 2.2vw, 24px); color: #f3f5f9; letter-spacing: -.02em; }
+.exchange-art-caption p { margin: 4px 0 0; color: #b9c2d2; font-size: 12px; }
+.exchange-art-tools { display: flex; align-items: center; gap: 6px; }
+.exchange-art-tools small { color: #9aa6ba; font-size: 11px; margin-right: 4px; }
+.exchange-art-tools .exchange-action { width: 38px; height: 38px; padding: 0; font-size: 18px; }
+.exchange-art-credit { grid-row: 3; grid-column: 1; z-index: 1; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 16px; color: #9aa6ba; font-size: 11px; background: linear-gradient(0deg, #07090dd0, transparent); pointer-events: none; }
+.exchange-art-credit a { color: var(--exchange-accent); pointer-events: auto; }
+/* Elevator floor panel and the floor badge on the minimap. */
+.exchange-lift { position: absolute; z-index: 3; right: 14px; top: 50%; transform: translateY(-50%); display: grid; gap: 6px; padding: 10px; border: 1px solid var(--exchange-line-strong); border-radius: 12px; background: var(--exchange-panel); box-shadow: var(--exchange-shadow); text-align: center; }
+.exchange-lift > span { color: var(--exchange-muted); font-size: 10px; letter-spacing: .06em; }
+.exchange-lift > div { display: grid; gap: 6px; }
+.exchange-lift button { width: 56px; height: 44px; border-radius: 10px; border: 1px solid var(--exchange-line); background: #0f1724; color: #e9edf4; font: 700 15px var(--f-num); cursor: pointer; }
+.exchange-lift button[aria-pressed="true"] { border-color: var(--exchange-accent); color: var(--exchange-accent); box-shadow: 0 0 12px color-mix(in srgb, var(--exchange-accent) 40%, transparent); }
+.exchange-lift small { color: var(--exchange-accent); font-size: 10px; }
+.exchange-floor-badge { margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--exchange-accent) 20%, #0e1420); color: var(--exchange-accent); font: 700 10px var(--f-num); }
