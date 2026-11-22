@@ -1,6 +1,7 @@
 import {
-  Color, EquirectangularReflectionMapping, HemisphereLight, Mesh, MeshStandardMaterial, NeutralToneMapping, PerspectiveCamera,
-  Raycaster, SRGBColorSpace, Scene, Texture, TextureLoader, Vector2, WebGPUCoordinateSystem,
+  Box3, Color, EquirectangularReflectionMapping, Frustum, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial, NeutralToneMapping,
+  PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Texture, TextureLoader, Vector2, Vector3, WebGPUCoordinateSystem,
+  type Ray,
   type BufferGeometry, type Material, type Object3D,
 } from "three";
 import { RenderPipeline, WebGPURenderer } from "three/webgpu";
@@ -23,8 +24,9 @@ export type FloorDriver = {
   dispose: () => void;
 };
 
-const HALL = STORAGE_ASSETS + "/trading-hall-v3.glb";
-const ENV = STORAGE_ASSETS + "/hall-env-v3.hdr";   // Cycles panorama of this hall
+const HALL = STORAGE_ASSETS + "/trading-hall-v4.glb";
+const ENV = STORAGE_ASSETS + "/hall-env-v4.hdr";   // Cycles panorama of this hall
+const SKY = "#f3f1ec";   // neutral 3,500 K fill, matching the v4 bake
 const EYE = 1.68, RADIUS = .32;
 const RAD = Math.PI / 180;
 const KEYS = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight", "ShiftLeft", "ShiftRight"]);
@@ -35,6 +37,48 @@ export function walkable(x: number, z: number) {
   if (Math.abs(x) > walk.x || z < walk.zMin || z > walk.zMax) return false;
   if (FLOOR.obstacles.some(o => Math.abs(x - o.x) < o.w / 2 + RADIUS && Math.abs(z - o.z) < o.d / 2 + RADIUS)) return false;
   return !FLOOR.circles.some(c => Math.hypot(x - c.x, z - c.z) < c.r + RADIUS);
+}
+
+/* Monitor picking: what can stand between the eye and a screen, as boxes and upright cylinders.
+ * v3 raycast the whole merged hall (hundreds of thousands of triangles, no BVH) on every tap and
+ * hover — a multi-hundred-ms freeze per tap on phones. These few primitives answer the same
+ * question in microseconds. */
+type Cylinder = { x: number; z: number; r: number; y0: number; y1: number };
+const OCCLUDE_BOXES: Box3[] = [], OCCLUDE_CYLINDERS: Cylinder[] = [];
+{
+  const { width: W, depth: D } = FLOOR.room;
+  const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) =>
+    OCCLUDE_BOXES.push(new Box3(new Vector3(x0, y0, z0), new Vector3(x1, y1, z1)));
+  box(-W / 2, 6.34, D / 2 - 2.6, W / 2, 8.25, D / 2);             // visitor gallery and balustrade
+  box(-W / 2, 4.97, -3.4, -W / 2 + 2.8, 6.3, 3.4);                // bell podium balcony
+  for (const o of FLOOR.obstacles) box(o.x - o.w / 2, 0, o.z - o.d / 2, o.x + o.w / 2, 1.2, o.z + o.d / 2);
+  for (const c of FLOOR.circles) {
+    OCCLUDE_CYLINDERS.push({ x: c.x, z: c.z, r: 2.15, y0: 0, y1: 1.13 },   // trading post counter
+      { x: c.x, z: c.z, r: .5, y0: 1.13, y1: 3.95 },                       // walnut column
+      { x: c.x, z: c.z, r: 2.0, y0: 3.7, y1: 4.85 });                      // crown and canopy
+  }
+}
+const hitPoint = new Vector3();
+function occluded(ray: Ray, far: number) {
+  for (const b of OCCLUDE_BOXES) {
+    if (ray.intersectBox(b, hitPoint) && hitPoint.distanceTo(ray.origin) < far) return true;
+  }
+  const { origin: o, direction: d } = ray;
+  const a = d.x * d.x + d.z * d.z;
+  if (a < 1e-9) return false;
+  for (const c of OCCLUDE_CYLINDERS) {
+    const ox = o.x - c.x, oz = o.z - c.z;
+    const b = ox * d.x + oz * d.z, k = ox * ox + oz * oz - c.r * c.r;
+    const disc = b * b - a * k;
+    if (disc < 0) continue;
+    const root = Math.sqrt(disc);
+    for (const t of [(-b - root) / a, (-b + root) / a]) {
+      if (t <= 0 || t >= far) continue;
+      const y = o.y + d.y * t;
+      if (y >= c.y0 && y <= c.y1) return true;
+    }
+  }
+  return false;
 }
 
 function releaseModel(root: Object3D) {
@@ -107,11 +151,13 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
   const renderer = new WebGPURenderer({ canvas, antialias: !(touch && dense), alpha: false, powerPreference: "high-performance" });
   renderer.toneMapping = NeutralToneMapping;
   renderer.toneMappingExposure = .92;   // comfortable for long viewing
+  // Decode the 16 MB meshopt payload in workers: on phones the main-thread decode was a visible stall.
+  if (typeof Worker !== "undefined") MeshoptDecoder.useWorkers?.(Math.min(4, Math.max(1, (navigator.hardwareConcurrency || 4) >> 1)));
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const scene = new Scene();
-  scene.background = new Color("#120f0b");
+  scene.background = new Color("#0b0e15");
   const camera = new PerspectiveCamera(62, 1, .08, 90);
-  const sky = new HemisphereLight("#fff2dd", "#3a2a1c", .55);
+  const sky = new HemisphereLight(SKY, "#1b2130", .55);
   scene.add(sky);
   const releases: (() => void)[] = [];
   let disposed = false, frame = 0;
@@ -132,7 +178,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       tex.colorSpace = SRGBColorSpace;
       return tex;
     });
-    const screens = createScreens(screenQuality());
+    const screens = createScreens(screenQuality(), touch, texture => renderer.initTexture(texture));
     const [, binary, shellMap, fixtureMap] = await Promise.all([
       renderer.init(), fetchWithProgress(HALL, signal, events.progress),
       lightmap(bake.shell.file), lightmap(bake.fixtures.file), screens.ready(),
@@ -209,6 +255,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const frames: number[] = [];
     const recent: number[] = [];
     const pointer = new Vector2(), ray = new Raycaster();
+    const frustum = new Frustum(), viewProjection = new Matrix4();
     const backend = renderer.coordinateSystem === WebGPUCoordinateSystem ? "webgpu" : "webgl2";
     const pause = () => { keys.clear(); touchX = touchForward = velX = velZ = 0; };
     const isField = (event: KeyboardEvent) => event.target instanceof HTMLElement &&
@@ -237,8 +284,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       ray.far = 45;
       const hit = ray.intersectObjects(screens.targets, false)[0];
       if (!hit) return null;
-      ray.far = hit.distance - .02;
-      return ray.intersectObject(model, true).length ? null : hit.object.userData.panel as string;
+      return occluded(ray.ray, hit.distance - .02) ? null : hit.object.userData.panel as string;
     }
 
     function down(event: PointerEvent) {
@@ -330,7 +376,9 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       lookYaw += (state.yaw - lookYaw) * ease;
       lookPitch += (pitch - lookPitch) * ease;
       camera.rotation.set(lookPitch, lookYaw, 0, "YXZ");
-      screens.tick(now, reduced.matches);
+      camera.updateMatrixWorld();
+      frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem);
+      screens.tick(now, reduced.matches, frustum);
       if (pipeline) pipeline.render(); else renderer.render(scene, camera);
       if (!pushedPose || now - lastPosition > 130) {
         pushedPose = true; lastPosition = now;
@@ -345,10 +393,18 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
       if (dpr && aspect) frame = requestAnimationFrame(repaint);
     }
+    // Render only while someone can see it: tab visible and the view at least partly on screen.
+    let onScreen = true;
     const visibility = () => {
-      if (document.hidden) { cancelAnimationFrame(frame); frame = 0; last = 0; pause(); }
+      if (document.hidden || !onScreen) { cancelAnimationFrame(frame); frame = 0; last = 0; pause(); }
       else if (!disposed && !frame) frame = requestAnimationFrame(repaint);
     };
+    const sight = new IntersectionObserver(entries => {
+      onScreen = entries[entries.length - 1].isIntersecting;
+      visibility();
+    });
+    sight.observe(host);
+    releases.push(() => sight.disconnect());
     canvas.addEventListener("pointerdown", down);
     canvas.addEventListener("pointermove", move);
     canvas.addEventListener("pointerup", up);
@@ -368,9 +424,18 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       document.removeEventListener("visibilitychange", visibility);
     });
     renderer.onDeviceLost = () => { dispose(); if (!signal.aborted) events.error(); };
-    // Compile every pipeline up front so the first walk-around never hitches.
+    // Compile every pipeline and upload every hall texture up front, so the first look around
+    // never uploads (or builds mips for) a texture in the frame it comes into view.
     await renderer.compileAsync(scene, camera);
     if (signal.aborted) { dispose(); throw signal.reason; }
+    const hallTextures = new Set<Texture>();
+    model.traverse(child => {
+      if (!(child instanceof Mesh)) return;
+      for (const m of Array.isArray(child.material) ? child.material : [child.material]) {
+        for (const value of Object.values(m)) if (value instanceof Texture) hallTextures.add(value);
+      }
+    });
+    for (const texture of hallTextures) renderer.initTexture(texture);
     events.renderer(backend);
     visibility();
     return {
@@ -383,7 +448,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       },
       stop: pause,
       update(snapshot, series, language) {
-        sky.color.set("#fff2dd").lerp(new Color(MARKETS[snapshot.market].color), .08);
+        sky.color.set(SKY).lerp(new Color(MARKETS[snapshot.market].color), .06);
         screens.update(snapshot, series, language);
       },
       dispose,

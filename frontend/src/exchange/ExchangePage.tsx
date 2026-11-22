@@ -22,6 +22,8 @@ type Station = (typeof FLOOR.stations)[number];
 const MARKETS_LIST = Object.keys(MARKETS) as ExchangeMarket[];
 const t = (lang: Language, ko: string, en: string) => lang === "ko" ? ko : en;
 const KINDS = ["market", "stocks", "global", "assets", "desk"] as const;
+/** Overlays that scroll by touch; every other touch move on the floor is a camera drag. */
+const SCROLLERS = ".exchange-focus, .exchange-monitor-picker > div, .exchange-station-list, .exchange-stock-search ul, .exchange-heatmap-box";
 
 function panelLabel(id: string, lang: Language, data?: FloorSnapshot) {
   const i = stockIndex(id);
@@ -348,6 +350,7 @@ export default function ExchangePage() {
   // Phones open straight into an immersive, viewport-filling floor; the first touch also asks for real full screen.
   const [immersive, setImmersive] = useState(() => matchMedia("(max-width: 760px)").matches);
   const askedFullscreen = useRef(false);
+  const keepFullscreen = useRef(false);
   // The market switch lives in the site's context bar, left of 오늘의 핫이슈; inside the floor when immersive.
   const [slot, setSlot] = useState<Element | null>(null);
   useEffect(() => { setSlot(document.querySelector(".ng-exchange-slot")); }, []);
@@ -400,16 +403,34 @@ export default function ExchangePage() {
     document.documentElement.classList.toggle("exchange-immersive", immersive);
     return () => document.documentElement.classList.remove("exchange-immersive");
   }, [immersive]);
+  // Immersive mode owns full screen until the user presses 축소. If the browser drops it anyway
+  // (an edge swipe, a system gesture), the next tap on the floor quietly restores it.
   const firstTouch = () => {
-    if (!immersive || askedFullscreen.current || !document.fullscreenEnabled || document.fullscreenElement) return;
-    askedFullscreen.current = true;
+    if (!immersive || !document.fullscreenEnabled || document.fullscreenElement) return;
+    if (askedFullscreen.current && !keepFullscreen.current) return;
+    askedFullscreen.current = keepFullscreen.current = true;
     void pageRef.current?.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
   };
   const leaveImmersive = () => {
+    keepFullscreen.current = false;
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     setImmersive(false);
     reportExchange("view:compact", "몰입 모드 축소");
   };
+  // A swipe on the floor is a camera drag, never a page gesture: no scrolling, pull-to-refresh,
+  // pinch zoom or swipe-to-exit-full-screen. Lists that really scroll keep their own panning.
+  useEffect(() => {
+    if (!immersive && !full) return;
+    const page = pageRef.current;
+    if (!page) return;
+    const guard = (event: TouchEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (event.touches.length < 2 && target?.closest(SCROLLERS)) return;
+      if (event.cancelable) event.preventDefault();
+    };
+    page.addEventListener("touchmove", guard, { passive: false });
+    return () => page.removeEventListener("touchmove", guard);
+  }, [immersive, full]);
   useEffect(() => {
     activeAudio.current = true;
     return () => { activeAudio.current = false; audio.current?.close(); audio.current = null; };
@@ -483,7 +504,7 @@ export default function ExchangePage() {
     <h1 className="exchange-sr-title">{t(lang, "증권 거래소", "Stock exchange")} · {spec.label}</h1>
     {slot && !immersive && createPortal(<MarketSwitch market={market} lang={lang} choose={chooseMarket} />, slot)}
     <div className="exchange-stage">
-      <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v3.webp)" }}>
+      <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v4.webp)" }}>
         <canvas key={retry} ref={canvas} className="exchange-canvas" tabIndex={0} aria-label={t(lang, "3D 거래소. 방향키로 이동하고 모니터를 선택하세요.", "3D trading floor. Use arrow keys to move and select a monitor.")} />
       </div>
       <div className="exchange-overlay-top">

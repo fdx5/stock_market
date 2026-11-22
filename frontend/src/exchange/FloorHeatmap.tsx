@@ -1,6 +1,7 @@
 /* The floor's heat map opened as a wide dialog: the site's market-map treemap (same squarify,
  * colour scale and tile rules as /map), grouped by sector, top 200 by market cap. */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import { api, type MarketMapItem } from "../api/client";
 import { TILE_FONT_FAMILY, pct, tileDisplayInfo } from "../mapTile";
 import { navigate } from "../router";
@@ -22,9 +23,12 @@ export default function FloorHeatmap({ market, fallback, lang }: { market: Excha
 
   useEffect(() => {
     let alive = true;
-    const load = market === "sp500" ? api.sp500Map(200) : market === "kosdaq" ? api.kosdaqMap(200) : api.marketMap(200);
-    load.then(value => { if (alive && value.items.length) setRows(value.items.filter(r => r.close > 0)); }).catch(() => {});
-    return () => { alive = false; };
+    const load = () => (market === "sp500" ? api.sp500Map(200) : market === "kosdaq" ? api.kosdaqMap(200) : api.marketMap(200))
+      .then(value => { if (alive && value.items.length) setRows(value.items.filter(r => r.close > 0)); }).catch(() => {});
+    void load();
+    // Keep the open dialog live, like the floor's own displays.
+    const stop = startVisibilityAwareInterval(() => { void load(); }, 30_000);
+    return () => { alive = false; stop(); };
   }, [market]);
   useEffect(() => {
     const el = box.current;

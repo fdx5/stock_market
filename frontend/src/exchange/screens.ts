@@ -2,15 +2,26 @@
  *
  * Screens read as OLED glass: the panel image drives the emissive channel of a near-black,
  * glossy material, so the room's environment reflects off the glass while the content glows.
- * Repaints are queued and spread over frames so a data refresh never stalls the render loop. */
+ * Repaints are queued and spread over frames so a data refresh never stalls the render loop.
+ *
+ * Memory and frame pacing (phones froze on v3): panels paint into a few shared scratch canvases
+ * (one per pixel size) instead of 53 resident canvases. Where OffscreenCanvas exists the finished
+ * picture leaves by transferToImageBitmap — a zero-copy hand-off, where createImageBitmap(canvas)
+ * forced a GPU→CPU readback of the 2D canvas on the main thread. Each snapshot bitmap is closed as
+ * soon as the GPU has it, and finished bitmaps go to the GPU at a fixed number per frame.
+ *
+ * Turning used to hitch: three.js uploads a changed texture only when its mesh is next drawn, so
+ * every panel refreshed behind the camera uploaded (with mips) in the frame it swung into view.
+ * Uploads are now pushed immediately through `upload` (renderer.initTexture), visible panels paint
+ * first, and panels out of view keep refreshing in the background at a low, steady rate. */
 import {
   BufferGeometry, CanvasTexture, CylinderGeometry, Group, LinearMipmapLinearFilter, LinearFilter, Mesh, MeshStandardMaterial,
-  PlaneGeometry, RepeatWrapping, SRGBColorSpace, type Material,
+  PlaneGeometry, RepeatWrapping, SRGBColorSpace, Sphere, Texture, Vector3, type Frustum, type Material,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { MeshStandardNodeMaterial } from "three/webgpu";
 import { texture as textureNode, uniform, uv, vec2 } from "three/tsl";
-import { FLOOR, companyLogo, type ExchangeMarket, type FloorSnapshot, type Language } from "./market";
+import { FLOOR, companyLogo, shortTime, type ExchangeMarket, type FloorSnapshot, type Language } from "./market";
 import { LIVE_PANELS, PAGES, PAINTERS, paintTicker, type G, type PaintEnv, type TickerStyle } from "./panels";
 
 type Screen = (typeof FLOOR.screens)[number];
@@ -48,10 +59,26 @@ export const loadDisplayFonts = fontsReady;
 
 const UPLOAD = new URLSearchParams(location.search).get("tex") ?? "bitmap";
 
-export function createScreens(quality: number) {
+type Panel = {
+  tex: Texture; w: number; h: number; scale: number; pxW: number; pxH: number;
+  /** Own canvas only in ?tex=cpu mode; otherwise panels share scratch canvases. */
+  canvas?: HTMLCanvasElement; g?: G;
+  spheres: Sphere[]; visible: boolean; token: number;
+};
+
+/** lite: touch devices — fewer uploads per frame, single-repaint page flips, tighter paint budget. */
+export function createScreens(quality: number, lite = false, upload?: (texture: Texture) => void) {
   const group = new Group();
   const targets: Mesh[] = [];
-  const panels = new Map<string, { canvas: HTMLCanvasElement; g: G; tex: CanvasTexture; w: number; h: number; scale: number; token?: number }>();
+  const panels = new Map<string, Panel>();
+  const scratch = new Map<string, { canvas: HTMLCanvasElement | OffscreenCanvas; g: G }>();
+  const offscreen = typeof OffscreenCanvas !== "undefined" && typeof OffscreenCanvas.prototype.transferToImageBitmap === "function";
+  /** Finished snapshots waiting for their GPU upload; newest wins per panel. */
+  const pending = new Map<string, ImageBitmap>();
+  const UPLOADS_PER_FRAME = lite ? 1 : 2, PAINT_BUDGET = lite ? 3 : 4, BACKGROUND_EVERY = lite ? 220 : 90;
+  let lastBackground = 0, signature = "";
+  /** Page counts per list panel, computed once per snapshot rather than (with a sort) every frame. */
+  const pageCounts = new Map<string, number>();
   const tickers = new Map<string, { canvas: HTMLCanvasElement; tex: CanvasTexture; width: number; meshes: Mesh[]; offset: { value: number } }>();
   /** Page flips for list panels: page index, the page it left and when the flip started. */
   const pagers = new Map<string, { page: number; prev: number; at: number; next: number }>();
@@ -68,7 +95,7 @@ export function createScreens(quality: number) {
   const byPanel = new Map<string, Screen[]>();
   for (const s of FLOOR.screens) byPanel.set(s.id, [...(byPanel.get(s.id) ?? []), s]);
 
-  function glass(map: CanvasTexture, intensity = 1) {
+  function glass(map: Texture, intensity = 1) {
     // Glossy glass, but the reflection stays well under the picture: visible, never washing it out.
     const m = new MeshStandardMaterial({ color: 0x000000, roughness: .11, metalness: 0, emissive: 0xffffff, emissiveMap: map, emissiveIntensity: intensity });
     m.envMapIntensity = .36;
@@ -120,10 +147,14 @@ export function createScreens(quality: number) {
     const spec = panelSpec(id, instances);
     const w = 720 * spec.aspect, h = 720;
     const pxW = Math.round(spec.width * quality), pxH = Math.round(pxW / spec.aspect);
-    const canvas = Object.assign(document.createElement("canvas"), { width: pxW, height: pxH });
-    const g = canvas.getContext("2d", { alpha: false, willReadFrequently: UPLOAD === "cpu" });
-    if (!g) continue;
-    const tex = new CanvasTexture(canvas);
+    let canvas: HTMLCanvasElement | undefined, g: G | undefined;
+    if (UPLOAD === "cpu") {
+      canvas = Object.assign(document.createElement("canvas"), { width: pxW, height: pxH });
+      g = canvas.getContext("2d", { alpha: false, willReadFrequently: true }) ?? undefined;
+      if (!g) continue;
+    }
+    // Bitmap mode: version 0 keeps a placeholder on the GPU until the first snapshot lands.
+    const tex = canvas ? new CanvasTexture(canvas) : new Texture();
     tex.colorSpace = SRGBColorSpace;
     tex.generateMipmaps = true;
     tex.minFilter = LinearMipmapLinearFilter;
@@ -145,8 +176,30 @@ export function createScreens(quality: number) {
     mesh.userData.panel = id;
     group.add(mesh);
     if (id !== "sign") targets.push(mesh);
-    panels.set(id, { canvas, g, tex, w, h, scale: pxH / 720 });
+    const spheres = instances.map(s => new Sphere(new Vector3(s.x, s.y, s.z), Math.hypot(s.w, s.h) * .65 + .5));
+    panels.set(id, { canvas, g, tex, w, h, scale: pxH / 720, pxW, pxH, spheres, visible: true, token: 0 });
   }
+
+  function surface(panel: Panel) {
+    if (panel.g) return panel.g;
+    const key = panel.pxW + "x" + panel.pxH;
+    let entry = scratch.get(key);
+    if (!entry) {
+      const canvas = offscreen ? new OffscreenCanvas(panel.pxW, panel.pxH)
+        : Object.assign(document.createElement("canvas"), { width: panel.pxW, height: panel.pxH });
+      // Painters share one 2D API; OffscreenCanvasRenderingContext2D covers everything they call.
+      const g = canvas.getContext("2d", { alpha: false }) as G | null;
+      if (!g) return undefined;
+      entry = { canvas, g };
+      scratch.set(key, entry);
+    }
+    return entry.g;
+  }
+  /** The GPU has the pixels: release the bitmap memory right away. */
+  const releaseOnUpload = (tex: Texture) => {
+    const image = tex.image as unknown;
+    if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) image.close();
+  };
 
   const logo = (g: G, market: ExchangeMarket, code: string, x: number, y: number, size: number) => {
     const url = companyLogo(market, code);
@@ -183,24 +236,47 @@ export function createScreens(quality: number) {
   function paint(id: string, now: number) {
     const panel = panels.get(id);
     if (!panel || !snapshot) return;
-    const { g, w, h, scale } = panel;
+    const g = surface(panel);
+    if (!g) return;
+    const { w, h, scale } = panel;
     g.setTransform(scale, 0, 0, scale, 0, 0);
+    if (!panel.canvas) { g.fillStyle = "#000"; g.fillRect(0, 0, w, h); }   // shared canvas: no leftovers
     const pager = pagers.get(id);
-    const t = pager ? Math.min(1, (performance.now() - pager.at) / 650) : 1;
+    const t = pager && !lite ? Math.min(1, (performance.now() - pager.at) / 650) : 1;
     const env: PaintEnv = { lang, series, now, cycle: 0, logo, page: pager?.page ?? 0, prev: pager?.prev ?? 0, t };
     const start = performance.now();
     try { PAINTERS[id](g, w, h, snapshot, env); } catch (error) { console.warn("[exchange] panel", id, error); }
     paintMs[id] = Math.round((performance.now() - start) * 10) / 10;
-    if (UPLOAD !== "bitmap") { panel.tex.needsUpdate = true; return; }
-    // Snapshot the canvas asynchronously, then upload the bitmap: no canvas→GPU sync stall in the frame.
-    const token = (panel.token = (panel.token ?? 0) + 1);
-    void createImageBitmap(panel.canvas).then(bitmap => {
+    if (panel.canvas) { panel.tex.needsUpdate = true; return; }
+    // Snapshot now (the shared canvas is reused by the next paint); the upload waits for flush().
+    const token = ++panel.token;
+    const source = g.canvas as HTMLCanvasElement | OffscreenCanvas;
+    const queue = (bitmap: ImageBitmap) => {
       if (!active || token !== panel.token) { bitmap.close(); return; }
-      const old = panel.tex.image as ImageBitmap | HTMLCanvasElement;
-      (panel.tex as { image: unknown }).image = bitmap;
+      pending.get(id)?.close();
+      pending.set(id, bitmap);
+    };
+    if (source instanceof HTMLCanvasElement) void createImageBitmap(source).then(queue).catch(() => {});
+    else queue(source.transferToImageBitmap());
+  }
+
+  /** Hand at most a few finished snapshots to the GPU per frame. */
+  function flush() {
+    let n = 0;
+    for (const [id, bitmap] of pending) {
+      if (n >= UPLOADS_PER_FRAME) break;
+      const panel = panels.get(id);
+      pending.delete(id);
+      if (!panel) { bitmap.close(); continue; }
+      // A previous snapshot never uploaded (panel culled since): drop it instead of leaking it.
+      const old = panel.tex.image as unknown;
+      if (typeof ImageBitmap !== "undefined" && old instanceof ImageBitmap && old !== bitmap) old.close();
+      panel.tex.image = bitmap;
+      panel.tex.onUpdate = releaseOnUpload;
       panel.tex.needsUpdate = true;
-      if (old instanceof ImageBitmap) setTimeout(() => old.close(), 500);
-    }).catch(() => { panel.tex.needsUpdate = true; });
+      upload?.(panel.tex);   // now, not when the panel next enters the view
+      n++;
+    }
   }
 
   function paintTickers() {
@@ -229,6 +305,7 @@ export function createScreens(quality: number) {
         if (resized) ticker.tex.dispose();
         (ticker.tex as { image: unknown }).image = bitmap;
         ticker.tex.needsUpdate = true;
+        upload?.(ticker.tex);
         if (old instanceof ImageBitmap) setTimeout(() => old.close(), 500);
       }).catch(() => { if (resized) ticker.tex.dispose(); ticker.tex.needsUpdate = true; });
     }
@@ -238,21 +315,33 @@ export function createScreens(quality: number) {
     group, targets,
     ready: fontsReady,
     update(next: FloorSnapshot, nextSeries: Record<string, number[]>, language: Language) {
+      // Polls return the same data most of the time (always, outside market hours): repaint only
+      // when something a display shows has changed. The header stamp counts at display precision.
+      const nextSignature = language + "|" + JSON.stringify(next, (key, value) => key === "received" ? shortTime(value) : value)
+        + "|" + Object.entries(nextSeries).map(([k, v]) => k + ":" + v.length + ":" + v[v.length - 1]).join(",");
       snapshot = next; series = nextSeries; lang = language;
-      for (const id of panels.keys()) dirty.add(id);
+      if (nextSignature === signature) return;
+      signature = nextSignature;
+      pageCounts.clear();
+      for (const id of panels.keys()) {
+        pageCounts.set(id, PAGES[id]?.(next) ?? 1);
+        dirty.add(id);
+      }
       paintTickers();
     },
-    /** Called once per frame: scrolls tickers, ticks clocks and drains at most two repaints. */
-    tick(now: number, reduced: boolean) {
+    /** Called once per frame: scrolls tickers, ticks clocks and repaints what the camera can see. */
+    tick(now: number, reduced: boolean, frustum?: Frustum) {
+      if (frustum) for (const panel of panels.values()) panel.visible = panel.spheres.some(s => frustum.intersectsSphere(s));
+      flush();
       if (!reduced) for (const [id, ticker] of tickers) {
         const speed = id === "ring" ? 85 : id === "tickerD" ? 120 : 150;   // px per second on the strip
         ticker.offset.value = (now / 1000 * speed / ticker.width) % 1;
       }
-      // Page flips: staggered per panel; while a flip animates, that panel repaints every frame.
+      // Page flips: staggered per panel; on desktop a visible flip repaints every frame while it slides.
       if (snapshot && !reduced) {
         let i = 0;
         for (const id of panels.keys()) {
-          const pages = PAGES[id]?.(snapshot) ?? 1;
+          const pages = pageCounts.get(id) ?? 1;
           i++;
           if (pages < 2) continue;
           let pager = pagers.get(id);
@@ -263,20 +352,29 @@ export function createScreens(quality: number) {
             pager.at = now;
             pager.next = now + 7000;
           }
-          if (now - pager.at < 720) dirty.add(id);
+          // Desktop animates the slide every frame; phones change page in a single repaint.
+          if (pager.at === now || (!lite && now - pager.at < 720 && panels.get(id)?.visible)) dirty.add(id);
         }
       }
       const second = Math.floor(now / 1000);
       if (second !== lastSecond) {
         lastSecond = second;
-        for (const id of LIVE_PANELS) dirty.add(id);
+        for (const id of LIVE_PANELS) if (panels.get(id)?.visible !== false) dirty.add(id);   // clocks: only when seen
       }
-      // Time-boxed: one panel always, more only while the frame still has headroom.
+      // Time-boxed: visible panels first — one always, more only while the frame has headroom.
       const start = performance.now();
+      let hidden: string | undefined;
       for (const id of dirty) {
+        if (panels.get(id)?.visible === false) { hidden ??= id; continue; }
         dirty.delete(id);
         paint(id, Date.now());
-        if (performance.now() - start > 4) break;
+        if (performance.now() - start > PAINT_BUDGET || pending.size >= UPLOADS_PER_FRAME * 3) return;
+      }
+      // Nothing visible left to do: refresh one panel behind the camera, so turning finds it current.
+      if (hidden && now - lastBackground >= BACKGROUND_EVERY && pending.size < UPLOADS_PER_FRAME) {
+        lastBackground = now;
+        dirty.delete(hidden);
+        paint(hidden, Date.now());
       }
     },
     paintMs,
@@ -284,7 +382,14 @@ export function createScreens(quality: number) {
       active = false;
       for (const img of logos.values()) if (img) img.onload = img.onerror = null;
       group.traverse(child => { if (child instanceof Mesh) child.geometry.dispose(); });
-      for (const p of panels.values()) { p.tex.dispose(); p.canvas.width = p.canvas.height = 0; }
+      for (const p of panels.values()) {
+        releaseOnUpload(p.tex);
+        p.tex.dispose();
+        if (p.canvas) p.canvas.width = p.canvas.height = 0;
+      }
+      for (const b of pending.values()) b.close();
+      pending.clear();
+      for (const s of scratch.values()) s.canvas.width = s.canvas.height = 0;
       for (const tk of tickers.values()) tk.tex.dispose();
       materials.forEach(m => m.dispose());
     },

@@ -36,16 +36,41 @@ export function txt(g: G, s: string, x: number, y: number, size: number, color: 
   const spacing = g as G & { letterSpacing?: string };
   if ("letterSpacing" in g) spacing.letterSpacing = (o.ls ?? 0) + "px";
   let value = s;
-  if (o.max && g.measureText(value).width > o.max) {
-    while (value.length > 1 && g.measureText(value + "…").width > o.max) value = value.slice(0, -1);
-    value += "…";
+  if (o.max && measure(g, value) > o.max) {
+    // Longest prefix that fits with an ellipsis: binary search, not one measureText per character.
+    let lo = 1, hi = value.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (measure(g, value.slice(0, mid) + "…") <= o.max) lo = mid; else hi = mid - 1;
+    }
+    value = value.slice(0, lo) + "…";
   }
   if (o.glow) { g.shadowColor = color; g.shadowBlur = o.glow; }
   g.fillStyle = color;
   g.fillText(value, x, y);
   if (o.glow) g.shadowBlur = 0;
   if ("letterSpacing" in g) spacing.letterSpacing = "0px";
-  return g.measureText(value).width;
+  return measure(g, value);
+}
+
+/** Text widths repeat every repaint (names, labels, figures): cache them per font and spacing. */
+const widths = new Map<string, number>();
+function measure(g: G, s: string): number {
+  const spacing = (g as G & { letterSpacing?: string }).letterSpacing ?? "";
+  const font = g.font, size = /(\d+(?:\.\d+)?)px/.exec(font);
+  // Outline fonts scale linearly: measure once at 100 px and scale, so tiles of every size
+  // (heat maps, auto-fit labels) share one measurement. Letter spacing does not scale: exact path.
+  const scaled = !!size && (spacing === "" || spacing === "0px");
+  const ref = scaled ? font.replace(size[0], "100px") : font;
+  const key = ref + "|" + spacing + "|" + s;
+  let w = widths.get(key);
+  if (w === undefined) {
+    if (widths.size > 6000) widths.clear();
+    if (scaled) { g.font = ref; w = g.measureText(s).width; g.font = font; }
+    else w = g.measureText(s).width;
+    widths.set(key, w);
+  }
+  return scaled ? w * Number(size[1]) / 100 : w;
 }
 
 function rr(g: G, x: number, y: number, w: number, h: number, r: number) {
@@ -73,7 +98,7 @@ export function heat(v: number | null | undefined, _span = 3) {
 export function pill(g: G, v: number | null | undefined, x: number, y: number, size: number, align: "left" | "right" = "left", label?: string) {
   const s = label ?? `${arrow(v)} ${changeText(v)}`;
   g.font = `700 ${size}px ${FONT.num}`;
-  const tw = g.measureText(s).width, pw = tw + size * .9, ph = size * 1.42;
+  const tw = measure(g, s), pw = tw + size * .9, ph = size * 1.42;
   const x0 = align === "right" ? x - pw : x;
   const c = tone(v);
   rr(g, x0, y - ph * .74, pw, ph, ph * .28);
@@ -229,7 +254,7 @@ export function areaChart(g: G, pts: readonly number[], x: number, y: number, w:
   if (o.labels) {
     const label = displayValue(points[points.length - 1], o.digits ?? 2);
     g.font = `700 21px ${FONT.mono}`;
-    const lw = g.measureText(label).width + 18;
+    const lw = measure(g, label) + 18;
     rr(g, x + cw + 4, ly - 16, Math.min(lw, labelW), 32, 6);
     g.fillStyle = color; g.fill();
     txt(g, label, x + cw + 13, ly + 8, 21, "#000", { w: 700, f: FONT.mono, max: labelW - 16 });
@@ -845,7 +870,7 @@ P.clocks = (g, w, h, _d, e) => {
     txt(g, `${e.lang === "ko" ? cl.country : cl.ko} · ${z.offset}`, tx, y + 108, 21, "#aab0c0", { w: 600, max: tw });
     txt(g, `${String(z.hr).padStart(2, "0")}:${String(z.mi).padStart(2, "0")}`, tx - 4, y + 196, 84, "#ffffff", { w: 700, f: FONT.num, glow: 12 });
     g.font = `700 84px ${FONT.num}`;
-    const hmW = g.measureText(`${String(z.hr).padStart(2, "0")}:${String(z.mi).padStart(2, "0")}`).width;
+    const hmW = measure(g, `${String(z.hr).padStart(2, "0")}:${String(z.mi).padStart(2, "0")}`);
     txt(g, ":" + String(z.se).padStart(2, "0"), tx + hmW, y + 196, 40, "#ffd36a", { w: 700, f: FONT.num });
     txt(g, `${z.month}.${z.day} (${e.lang === "ko" ? WEEK_KO[z.weekday] ?? z.weekday : z.weekday})  ${day ? "☀ " + t(e, "주간", "DAY") : "☾ " + t(e, "야간", "NIGHT")}`,
       tx, y + 236, 22, day ? "#ffd36a" : "#9fb3ff", { w: 650 });
@@ -1084,7 +1109,7 @@ P.news = (g, w, h, d, e) => {
   let line = "";
   for (const word of words) {
     const next = line ? line + " " + word : word;
-    if (g.measureText(next).width > w - 120 && line) { lines.push(line); line = word; } else line = next;
+    if (measure(g, next) > w - 120 && line) { lines.push(line); line = word; } else line = next;
   }
   lines.push(line);
   lines.slice(0, 2).forEach((l, i) => txt(g, l, 50, top + 112 + i * 64, 52, "#fff", { w: 800, glow: 6, max: w - 100 }));
@@ -1195,12 +1220,13 @@ function stockPainter(i: number, tag?: string): Painter {
 P.sign = (g, w, h) => {
   g.fillStyle = "#000"; g.fillRect(0, 0, w, h);
   const grad = g.createLinearGradient(0, h * .2, 0, h * .85);
-  grad.addColorStop(0, "#fff6d8"); grad.addColorStop(.45, "#f0c766"); grad.addColorStop(1, "#a77b26");
+  // Platinum lettering with a cool halo: the hall's nickel, not gilt.
+  grad.addColorStop(0, "#ffffff"); grad.addColorStop(.5, "#e4e9f1"); grad.addColorStop(1, "#9aabc4");
   g.font = `800 ${h * .7}px ${FONT.disp}`;
   g.textAlign = "center";
   const spacing = g as G & { letterSpacing?: string };
   if ("letterSpacing" in g) spacing.letterSpacing = h * .12 + "px";
-  g.shadowColor = "#f5c85a"; g.shadowBlur = 40;
+  g.shadowColor = "#7fd3ff"; g.shadowBlur = 34;
   g.fillStyle = grad;
   g.fillText("KOSPIMAP  EXCHANGE", w / 2, h * .76);
   g.shadowBlur = 0;
@@ -1266,10 +1292,10 @@ export function paintTicker(canvas: HTMLCanvasElement, style: TickerStyle, d: Fl
   g.font = `700 ${size}px ${font}`;
   const widths = entries.map(en => {
     g.font = `700 ${size}px ${font}`;
-    const a = g.measureText(en.label).width;
-    const b = g.measureText(en.value).width;
+    const a = measure(g, en.label);
+    const b = measure(g, en.value);
     g.font = `700 ${size * .8}px ${FONT.num}`;
-    const c = style === "news" ? 0 : g.measureText(`${arrow(en.change)} ${changeText(en.change)}`).width;
+    const c = style === "news" ? 0 : measure(g, `${arrow(en.change)} ${changeText(en.change)}`);
     return a + b + c + 96;
   });
   let total = 0, count = 0;

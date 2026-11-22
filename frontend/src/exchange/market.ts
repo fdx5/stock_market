@@ -14,7 +14,7 @@ import layout from "./layout.json";
 export const MARKETS = {
   kospi: { label: "KOSPI", venue: "KRX", currency: "KRW", map: "/map", index: "/kospi", color: "#5fe3ff" },
   kosdaq: { label: "KOSDAQ", venue: "KRX", currency: "KRW", map: "/kosdaq-map", index: "/kosdaq", color: "#b99cff" },
-  sp500: { label: "S&P 500", venue: "NYSE · NASDAQ", currency: "USD", map: "/sp500-map", index: "/ranking/sp500-market-cap", color: "#ffc871" },
+  sp500: { label: "S&P 500", venue: "NYSE · NASDAQ", currency: "USD", map: "/sp500-map", index: "/ranking/sp500-market-cap", color: "#74e0bf" },
 } as const;
 export type ExchangeMarket = keyof typeof MARKETS;
 export type Language = "ko" | "en";

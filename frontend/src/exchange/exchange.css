@@ -1,18 +1,24 @@
 .exchange-page {
   --exchange-accent: #71e8fe;
-  --exchange-line: #9bb2d334;
-  --exchange-panel: #0d1421f2;
+  --exchange-line: #c8d3e626;
+  --exchange-line-strong: #d6deeb40;
+  --exchange-panel: linear-gradient(180deg, #121927f5, #0a0f18f5);
+  --exchange-glass: linear-gradient(180deg, #141b29e8, #0b1019e8);
+  --exchange-nickel: #d5dae2;
+  --exchange-muted: #9aa6ba;
+  --exchange-shadow: 0 12px 32px #0007, inset 0 1px 0 #ffffff0d;
   display: grid;
   grid-template-rows: minmax(240px, 1fr) auto;
   min-width: 0;
   height: 100%;
-  background: #10101b;
+  background: #0b0e15;
   color: #ecf1fb;
+  overscroll-behavior: none;
   font-family: var(--f-sans);
   isolation: isolate;
 }
 .exchange-page[data-market="kosdaq"] { --exchange-accent: #c0a6ff; }
-.exchange-page[data-market="sp500"] { --exchange-accent: #f4c986; }
+.exchange-page[data-market="sp500"] { --exchange-accent: #74e0bf; }
 .exchange-page [data-tone="up"] { color: #ff90a5; }
 .exchange-page [data-tone="down"] { color: #83beff; }
 .exchange-page [data-tone="flat"] { color: #b9c6da; }
@@ -64,10 +70,10 @@
 .exchange-benchmark { display: grid; grid-template-columns: auto auto; align-items: baseline; justify-content: end; gap: 3px 9px; font: 625 12px var(--f-type); }
 .exchange-benchmark span { grid-column: 1 / -1; color: #9eabc2; text-align: right; font-size: 9px; letter-spacing: .12em; }
 .exchange-benchmark strong { font-size: clamp(17px, 2vw, 27px); font-weight: 760; line-height: 1.15; }
-.exchange-stage { position: relative; min-height: 0; overflow: hidden; background: #121320; scroll-margin-bottom: var(--ng-bottom, 0px); }
+.exchange-stage { position: relative; min-height: 0; overflow: hidden; background: #0b0e15; scroll-margin-bottom: var(--ng-bottom, 0px); }
 .exchange-page:fullscreen { width: 100%; height: 100%; }
 .exchange-view, .exchange-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.exchange-view { background: radial-gradient(ellipse at 50% 40%, #28223c, #0b0c13 70%) center / cover; }
+.exchange-view { background: radial-gradient(ellipse at 50% 40%, #1d2638, #0a0d14 70%) center / cover; }
 .exchange-canvas { display: block; touch-action: none; outline: 0; cursor: grab; }
 .exchange-page:is([data-phase="loading"], [data-phase="failed"]) .exchange-canvas { visibility: hidden; pointer-events: none; }
 .exchange-canvas:focus-visible { outline: 1px solid var(--exchange-accent); outline-offset: -2px; }
@@ -164,11 +170,11 @@
   background: #0a121ce4;
 }
 .exchange-minimap > span { display: block; margin-bottom: 5px; color: #b8c9e4; font-size: 10px; }
-.exchange-plan { position: relative; aspect-ratio: 42 / 31.5; border: 1px solid #d9b45a66; background: radial-gradient(circle at 50% 46%, #2a2418, #13110d); }
-.exchange-plan-wall { position: absolute; width: 90%; height: 7%; top: 0; left: 5%; background: #d9b45a70; }
-.exchange-plan-podium { position: absolute; width: 6.5%; height: 21%; top: 39.5%; left: 0; background: #d9b45a55; }
-.exchange-plan-gallery { position: absolute; width: 100%; height: 8%; bottom: 0; left: 0; background: #d9b45a2e; }
-.exchange-plan-post { position: absolute; width: 11.5%; height: 15.3%; transform: translate(-50%, -50%); background: #d9b45a33; border: 1px solid #e8c97a90; border-radius: 50%; }
+.exchange-plan { position: relative; aspect-ratio: 42 / 31.5; border: 1px solid #c9d2e04d; border-radius: 3px; background: radial-gradient(circle at 50% 46%, #1a2334, #0a0e16); }
+.exchange-plan-wall { position: absolute; width: 90%; height: 7%; top: 0; left: 5%; background: #c9d2e059; }
+.exchange-plan-podium { position: absolute; width: 6.5%; height: 21%; top: 39.5%; left: 0; background: #c9d2e040; }
+.exchange-plan-gallery { position: absolute; width: 100%; height: 8%; bottom: 0; left: 0; background: #c9d2e024; }
+.exchange-plan-post { position: absolute; width: 11.5%; height: 15.3%; transform: translate(-50%, -50%); background: #33405a66; border: 1px solid #c9d2e080; border-radius: 50%; }
 .exchange-plan-person {
   position: absolute;
   width: 0;
@@ -336,10 +342,10 @@
 .exchange-panel-view { display: block; width: 100%; margin: 4px 0 12px; border-radius: 6px; background: #000; box-shadow: 0 0 0 1px #ffffff14, 0 8px 30px #0009; }
 .exchange-focus[data-panel] { width: min(760px, calc(100% - 28px)); }
 .exchange-progress { display: block; width: min(320px, 70vw); height: 4px; margin: 4px auto 0; overflow: hidden; border-radius: 2px; background: #ffffff1a; }
-.exchange-progress > b { display: block; height: 100%; background: linear-gradient(90deg, #a77b26, #f5d48a); transition: width .2s; }
+.exchange-progress > b { display: block; height: 100%; background: linear-gradient(90deg, color-mix(in srgb, var(--exchange-accent) 45%, #1b2638), var(--exchange-accent)); transition: width .2s; }
 .exchange-monitor-picker > div { width: min(560px, 92vw); max-height: min(70vh, 560px); overflow-y: auto; grid-template-columns: 1fr; }
 .exchange-monitor-picker section { display: flex; flex-wrap: wrap; gap: 4px; }
-.exchange-monitor-picker h3 { width: 100%; margin: 6px 2px 2px; color: #d9b45a; font: 700 11px var(--f-type); letter-spacing: .12em; text-transform: uppercase; }
+.exchange-monitor-picker h3 { width: 100%; margin: 6px 2px 2px; color: var(--exchange-muted); font: 700 11px var(--f-type); letter-spacing: .12em; text-transform: uppercase; }
 
 /* Phone immersive mode: the floor covers the site chrome (header, pulse bar, player, bottom nav). */
 .exchange-page[data-immersive] { position: fixed; inset: 0; z-index: 300; height: 100dvh; width: 100vw; }
@@ -354,7 +360,7 @@ html.exchange-immersive, html.exchange-immersive body { overflow: hidden; oversc
 .exchange-sr-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .exchange-switch-mini { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid #ffffff1f; border-radius: 999px; background: #0c0f18d9; }
 .exchange-switch-mini button { min-height: 26px; padding: 0 10px; border: 0; border-radius: 999px; background: none; color: #aab4c8; font: 700 10.5px var(--f-num, sans-serif); letter-spacing: .04em; cursor: pointer; }
-.exchange-switch-mini button[aria-pressed="true"] { background: linear-gradient(90deg, #d9b45a, #f3d98f); color: #1a1408; }
+.exchange-switch-mini button[aria-pressed="true"] { background: color-mix(in srgb, var(--exchange-accent) 18%, #101826); color: var(--exchange-accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--exchange-accent) 45%, transparent); }
 .exchange-overlay-top .exchange-switch-mini { margin-right: auto; }
 @media (pointer: coarse) { .exchange-switch-mini button { min-height: 32px; padding: 0 11px; } }
 
@@ -414,3 +420,50 @@ html.exchange-immersive, html.exchange-immersive body { overflow: hidden; oversc
 .exchange-heatmap-tip small { color: #8f9ab0; }
 .exchange-heatmap-tip span { display: flex; justify-content: space-between; gap: 10px; font: 700 13px var(--f-num); }
 @media (max-width: 760px) { .exchange-focus[data-wide] { left: 8px; } .exchange-heatmap-box { height: 58vh; } }
+
+/* v4 chrome: midnight glass, nickel hairlines, one accent per market. No blur filters: a
+   backdrop-filter over a WebGPU canvas costs a full-screen pass per frame on phones. */
+.exchange-status, .exchange-action, .exchange-minimap, .exchange-instructions, .exchange-entry > div,
+.exchange-monitor-picker > div, .exchange-switch-mini {
+  border-color: var(--exchange-line);
+  background: var(--exchange-glass);
+  box-shadow: var(--exchange-shadow);
+}
+.exchange-action { border-radius: 8px; padding: 6px 12px; color: #e9edf4; font-weight: 620; letter-spacing: -.005em; transition: border-color .15s, color .15s, background-color .15s; }
+.exchange-action:hover { background: color-mix(in srgb, var(--exchange-accent) 9%, #101826); }
+.exchange-action[aria-pressed="true"] { background: color-mix(in srgb, var(--exchange-accent) 14%, #0f1724); }
+.exchange-action:focus-visible { outline: 2px solid color-mix(in srgb, var(--exchange-accent) 70%, transparent); outline-offset: 1px; }
+.exchange-status { border-radius: 10px; padding: 8px 12px; }
+.exchange-status small { color: var(--exchange-muted); }
+.exchange-minimap { border-radius: 10px; padding: 9px; }
+.exchange-minimap > span { color: var(--exchange-muted); letter-spacing: .04em; }
+.exchange-instructions { border-radius: 999px; padding: 7px 14px; color: #d6dce7; }
+.exchange-entry { background: radial-gradient(ellipse at 50% 45%, #0b0f1880, #05070bd0); }
+.exchange-entry > div { border-radius: 14px; padding: 22px 30px; border-top-color: var(--exchange-line); background: var(--exchange-panel);
+  box-shadow: var(--exchange-shadow), inset 0 2px 0 color-mix(in srgb, var(--exchange-accent) 60%, transparent); }
+.exchange-entry span { letter-spacing: .14em; }
+.exchange-progress { height: 3px; }
+.exchange-reticle { width: 8px; height: 8px; border-color: #f4f6fae0; box-shadow: 0 0 0 1px #0007; }
+.exchange-switch-mini { border-color: var(--exchange-line-strong); }
+.exchange-switch-mini button { color: #b3bccb; transition: color .15s, background-color .15s; }
+.exchange-focus { border-radius: 14px; border-color: var(--exchange-line-strong); border-top-color: var(--exchange-line-strong);
+  box-shadow: 0 18px 46px #02050cb0, inset 0 2px 0 color-mix(in srgb, var(--exchange-accent) 65%, transparent); }
+.exchange-focus-head span { color: color-mix(in srgb, var(--exchange-accent) 85%, #fff); }
+.exchange-focus-head h2 { letter-spacing: -.03em; }
+.exchange-chart, .exchange-breadth div, .exchange-ov section { border-color: var(--exchange-line); border-radius: 10px; }
+.exchange-chart { background: #0d1320; }
+.exchange-panel-view { border-radius: 10px; }
+.exchange-controls { border-top-color: var(--exchange-line); background: linear-gradient(180deg, #0f141f, #0b0e15); }
+.exchange-monitor-picker > div { border-radius: 12px; padding: 8px; background: var(--exchange-panel); }
+.exchange-plan-person { border-bottom-color: var(--exchange-accent); filter: drop-shadow(0 0 3px color-mix(in srgb, var(--exchange-accent) 80%, transparent)); }
+@media (pointer: coarse) {
+  .exchange-instructions { border-radius: 999px; padding: 4px 10px; }
+  .exchange-joystick { border-color: #d5dae24d; background: radial-gradient(circle, #1a2333d9 0 55%, #0e1420d9 56%);
+    box-shadow: 0 6px 18px #0008, inset 0 0 0 1px #ffffff0f; }
+  .exchange-joystick span { background: radial-gradient(circle at 40% 35%, #f4f6fa, #c3cad6); border-color: #ffffffcc; box-shadow: 0 2px 8px #0009; }
+}
+/* Immersive and full screen: the floor owns every touch (see the touch guard in ExchangePage). */
+.exchange-page[data-immersive], .exchange-page:fullscreen { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
+.exchange-page:is([data-immersive], :fullscreen) :is(.exchange-focus, .exchange-monitor-picker > div, .exchange-heatmap-box, .exchange-stock-search ul) { touch-action: pan-y; }
+.exchange-page:is([data-immersive], :fullscreen) .exchange-station-list { touch-action: pan-x; }
+.exchange-page:is([data-immersive], :fullscreen) :is(input, textarea) { -webkit-user-select: text; user-select: text; }

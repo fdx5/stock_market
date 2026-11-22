@@ -2,10 +2,10 @@
 
     blender -b --factory-startup --python scripts/build_exchange_floor.py -- <sources> <out dir> [--samples N] [--preview]
 
-Then: python scripts/glb_webp.py <out>/trading-hall-v3.glb <out>/hall-webp.glb and
-gltfpack -i <out>/hall-webp.glb -o trading-hall-v3.glb -cc -kn -km -ke -kv -vt 14 -vp 16.
+Then: python scripts/glb_webp.py <out>/trading-hall-v4.glb <out>/hall-webp.glb and
+gltfpack -i <out>/hall-webp.glb -o trading-hall-v4.glb -cc -kn -km -ke -kv -vt 14 -vp 16.
 
-Writes <out>/trading-hall-v3.glb, <out>/lightmap-shell-v3.webp, <out>/lightmap-fixtures-v3.webp and
+Writes <out>/trading-hall-v4.glb, <out>/lightmap-shell-v4.webp, <out>/lightmap-fixtures-v4.webp and
 frontend/src/exchange/bake.json (lightmap scales). Coordinates follow layout.json (three.js metres);
 Blender's (x, y, z) = three's (x, -z, y).
 """
@@ -95,23 +95,33 @@ def textured(key, name, root, roughness_scale=1.0, roughness_bias=0.0, metal=0.0
 
 def make_materials(src):
     r = src / "materials"
+    # v4 palette (derive_exchange_palette.py): midnight navy, greige travertine, white statuary,
+    # champagne nickel and smoked oak on a dark verde floor. Gold survives only on the bull's horns.
+    # The keys "gold"/"brass" are the geometry's roles (gilded mass / fine trim), now nickel.
     MAT["floor"] = textured("floor", "Polished verde marble", r, .55, .02, normal=.25)
-    MAT["wallstone"] = textured("wallstone", "Honed rosato marble", r, .8, .12, normal=.35)
-    MAT["cream"] = textured("cream", "Cream statuary marble", r, .7, .08, normal=.3)
-    MAT["gold"] = textured("gold", "Gold leaf", r, .9, .04, metal=1, normal=.5)
-    MAT["brass"] = textured("brass", "Brushed brass", r, .8, .05, metal=1, normal=.35)
-    MAT["walnut"] = textured("walnut", "Polished walnut", r, .55, .06, normal=.45)
+    MAT["wallstone"] = textured("greige", "Honed greige travertine", r, .8, .12, normal=.35)
+    MAT["cream"] = textured("statuary", "White statuary marble", r, .7, .08, normal=.3)
+    MAT["gold"] = textured("pnickel", "Polished champagne nickel", r, .9, .04, metal=1, normal=.3)
+    MAT["brass"] = textured("nickel", "Brushed champagne nickel", r, .8, .05, metal=1, normal=.3)
+    # Furniture: smoked oak (taupe-grey grain) with taupe leather inset panels; walnut and navy panels fought.
+    MAT["walnut"] = textured("smokedoak", "Smoked oak", r, .55, .06, normal=.45)
+    MAT["hide"] = textured("hide", "Taupe nappa leather", r, .9, .05, normal=.7)
+    MAT["horn"] = _principled("Gilded horn", (1.0, .74, .33), .2, metal=1)
     MAT["carpet"] = textured("carpet", "Navy wool carpet", r, 1, 0, normal=.8)
+    MAT["fabric"] = textured("carpet", "Midnight wool wall fabric", r, 1, 0, normal=.45, tint=(.62, .7, .92))
     MAT["leather"] = textured("leather", "Black aniline leather", r, .9, .05, normal=.6)
-    MAT["plaster"] = textured("plaster", "Ivory plaster", r, 1, 0, normal=.4, tint=(.93, .88, .8))
+    MAT["plaster"] = textured("plaster", "Soft white plaster", r, 1, 0, normal=.4, tint=(.9, .9, .89))
+    MAT["midnight"] = textured("plaster", "Midnight plaster", r, 1, 0, normal=.5, tint=(.075, .1, .175))
+    MAT["lacquer"] = _principled("Midnight lacquer", (.022, .032, .068), .3, 0)
     MAT["steel"] = textured("steel", "Graphite anodised aluminium", r, .7, .06, metal=1, normal=.25, tint=(.32, .33, .36))
     MAT["silver"] = textured("steel", "Satin aluminium", r, .6, .02, metal=1, normal=.2, tint=(.82, .83, .86))
     MAT["black"] = _principled("Piano black", (.006, .006, .008), .12, 0)
     MAT["bezel"] = _principled("Display bezel", (.004, .004, .005), .22, .2)
-    MAT["window"] = _principled("Daylight glazing", (.78, .86, 1.0), .2, 0, emit=.7, emit_color=(.8, .87, 1.0))
-    MAT["skylight"] = _principled("Laylight glass", (1.0, .93, .8), .3, 0, emit=2.0, emit_color=(1.0, .9, .74))
-    MAT["downlight"] = _principled("Downlight lens", (1.0, .86, .66), .3, 0, emit=7, emit_color=(1.0, .84, .62))
-    MAT["cove"] = _principled("Warm cove light", (1.0, .75, .45), .4, 0, emit=3.6, emit_color=(1.0, .72, .42))
+    MAT["window"] = _principled("Daylight glazing", (.8, .87, 1.0), .2, 0, emit=.6, emit_color=(.82, .88, 1.0))
+    # 3,500 K-ish: warm enough for stone and walnut, neutral enough that nothing turns amber.
+    MAT["skylight"] = _principled("Laylight glass", (1.0, .97, .92), .3, 0, emit=2.0, emit_color=(1.0, .96, .9))
+    MAT["downlight"] = _principled("Downlight lens", (1.0, .93, .82), .3, 0, emit=7, emit_color=(1.0, .92, .8))
+    MAT["cove"] = _principled("Cove light", (1.0, .9, .78), .4, 0, emit=3.2, emit_color=(1.0, .9, .78))
     MAT["glass"] = _principled("Balustrade glass", (.55, .62, .66), .05, 0, alpha=.25)
 
 
@@ -258,23 +268,23 @@ def arch_window(x, z, normal_x, w, y0, y1, group="shell"):
     face = [tuple(P(x + normal_x * .02, v, z - normal_x * u)) for u, v in pts]
     emit_object("Daylight window", face, [tuple(range(len(face)))], "window", "emit", Matrix.Identity(4), 2,
                 facing=(normal_x, 0, 0))
-    arch_band(x, z, normal_x, r - .02, r + .14, y1, .16, "brass")
+    arch_band(x, z, normal_x, r - .02, r + .14, y1, .16, "steel")
     arch_band(x, z, normal_x, r + .14, r + .5, y1, .08, "cream", "shell")
     for i in range(9):
         a = pi * (i + .5) / 9
         box("Voussoir gilt", x + normal_x * .1, y1 + sin(a) * (r + .32), z - normal_x * cos(a) * (r + .32),
             .04, .1, .1, "gold", "shell")
-    box("Keystone", x + normal_x * .14, y1 + r + .42, z, .2, .62, .44, "gold", "shell", bevel=.03)
+    box("Keystone", x + normal_x * .14, y1 + r + .42, z, .2, .62, .44, "cream", "shell", bevel=.03)
     for u in (-r, r):
-        box("Window jamb", x + normal_x * .07, (y0 + y1) / 2, z - normal_x * u, .14, y1 - y0, .16, "brass", "fixtures")
+        box("Window jamb", x + normal_x * .07, (y0 + y1) / 2, z - normal_x * u, .14, y1 - y0, .16, "steel", "fixtures")
     for k in range(1, 4):
         u = -r + w * k / 4
         top = y1 + sqrt(max(0, r * r - u * u))
-        box("Window mullion", x + normal_x * .07, (y0 + top) / 2, z - normal_x * u, .08, top - y0, .06, "brass", "fixtures")
+        box("Window mullion", x + normal_x * .07, (y0 + top) / 2, z - normal_x * u, .08, top - y0, .06, "steel", "fixtures")
     for k in range(1, 6):
         v = y0 + (y1 - y0) * k / 6
-        box("Window transom", x + normal_x * .07, v, z, .07, .05, w, "brass", "fixtures")
-    arch_band(x, z, normal_x, r * .45, r * .45 + .06, y1, .1, "brass", segs=20)
+        box("Window transom", x + normal_x * .07, v, z, .07, .05, w, "steel", "fixtures")
+    arch_band(x, z, normal_x, r * .45, r * .45 + .06, y1, .1, "steel", segs=20)
     box("Window sill", x + normal_x * .2, y0 - .1, z, .45, .2, w + .5, "cream", "shell", bevel=.03)
 
 
@@ -309,13 +319,13 @@ def wall_ornament():
         xf, s = (-HX, 1) if wall == "w" else (HX, -1)
         for z in LAYOUT["bays"]:
             if not (wall == "w" and z == 0):
-                framed_panel(wall, z, 4.9, 4.2, 6.9, "cream")
+                framed_panel(wall, z, 4.9, 4.2, 6.9, "fabric", "brass")
             if wall == "w" and z:
                 framed_panel(wall, z, 13.9, 3.4, 2.6, "cream")
         for z in LAYOUT["sidePilasters"]:
             sconce(xf + s * .36, 3.3, z, s, 0)
     for x in (-15.0, -9.0, -3.0, 3.0, 9.0, 15.0):
-        framed_panel("s", x, 11.2, 5.4, 3.3, "cream")
+        framed_panel("s", x, 11.2, 5.4, 3.3, "fabric", "brass")
         verts, faces = [], []
         prof = [(0, 0), (.62, 0), (.66, .05), (.6, .1), (0, .12)]
         n, sides = len(prof), 40
@@ -331,7 +341,7 @@ def wall_ornament():
         box("Roundel boss", x, 14.3, HZ - .15, .4, .4, .08, "cream", "shell", bevel=.07, segments=4)
     for x in (-18.1, -12.0, -6.0, 6.0, 12.0, 18.1):
         sconce(x, 3.6, HZ - .36, 0, -1)
-    framed_panel("n", 0, 15.3, 17.4, 1.4, "wallstone")
+    framed_panel("n", 0, 15.3, 17.4, 1.4, "lacquer")
     for axis, base, out, span in (("x", (0, -HZ), (0, 0, 1), HX), ("x", (0, HZ), (0, 0, -1), HX),
                                   ("z", (-HX, 0), (1, 0, 0), HZ), ("z", (HX, 0), (-1, 0, 0), HZ)):
         for t in np.arange(-span + .9, span - .5, 1.75):
@@ -380,7 +390,7 @@ def build_shell():
         molding("String course", axis, -span, span, base, [(8.75, 0), (8.75, .08), (8.85, .1), (8.95, .08), (8.95, 0)], "cream", "shell", out)
         # Entablature: architrave, gilded frieze, dentils and cornice.
         molding("Architrave", axis, -span, span, base, [(16.4, 0), (16.4, .16), (16.75, .16), (16.8, .2), (16.85, .2), (16.85, 0)], "cream", "shell", out)
-        molding("Frieze", axis, -span, span, base, [(16.85, 0), (16.85, .1), (17.55, .1), (17.55, 0)], "gold", "shell", out)
+        molding("Frieze", axis, -span, span, base, [(16.85, 0), (16.85, .1), (17.55, .1), (17.55, 0)], "lacquer", "shell", out)
         molding("Cornice", axis, -span, span, base, [(17.55, 0), (17.55, .26), (17.72, .3), (17.8, .48), (17.95, .62),
                                                     (18.05, .62), (18.05, 0)], "cream", "shell", out)
         molding("Cove light", axis, -span + .7, span - .7, base, [(18.06, .45), (18.06, .58), (18.09, .58), (18.09, .45)], "cove", "emit", out)
@@ -405,8 +415,8 @@ def build_shell():
             off = (k - 2) * width / 5.6
             box("Pilaster flute", x + nx * (proj + .002) + (off if nz else 0), (y0 + 1.0 + y1 - 1.3) / 2,
                 z + nz * (proj + .002) + (0 if nz else off), .07 if nz else .01, y1 - 1.3 - y0 - 1.0, .01 if nz else .07, "wallstone")
-        for k, (yy, grow, hh, mat) in enumerate(((y1 - .9, .06, .12, "gold"), (y1 - .72, .14, .3, "gold"),
-                                                 (y1 - .38, .26, .22, "gold"), (y1 - .12, .34, .14, "cream"))):
+        for k, (yy, grow, hh, mat) in enumerate(((y1 - .9, .06, .12, "gold"), (y1 - .72, .14, .3, "cream"),
+                                                 (y1 - .38, .26, .22, "cream"), (y1 - .12, .34, .14, "cream"))):
             box("Capital", x + nx * (proj + grow) / 2, yy + hh / 2, z + nz * (proj + grow) / 2,
                 wx + (grow * 2 if nz else grow), hh, wz + (grow if nz else grow * 2), mat, bevel=.03)
         for s in (-1, 1):
@@ -443,7 +453,7 @@ def build_shell():
     # Bell podium balcony in the west centre bay.
     px0 = -HX + 2.8
     box("Podium slab", (-HX + px0) / 2, 5.15, 0, 2.8, .36, 6.8, "cream", "shell", bevel=.04)
-    molding("Podium fascia", "z", -3.4, 3.4, (px0, 0), [(4.92, 0), (4.92, .06), (5.0, .1), (5.34, .1), (5.4, .06), (5.4, 0)], "gold", "shell", (1, 0, 0))
+    molding("Podium fascia", "z", -3.4, 3.4, (px0, 0), [(4.92, 0), (4.92, .06), (5.0, .1), (5.34, .1), (5.4, .06), (5.4, 0)], "lacquer", "shell", (1, 0, 0))
     for s in (-1, 1):
         lathe("Podium column", px0 - .35, 0, s * 3.0, [(.36, 0), (.36, .3), (.3, .42), (.27, .6), (.24, 4.4), (.3, 4.6), (.38, 4.97), (0, 4.97)],
               "cream", "shell", 40)
@@ -478,23 +488,23 @@ def build_shell():
     wall_ornament()
 
     # Coffered gilded ceiling with a central laylight.
-    box("Ceiling slab", 0, H + .2, 0, W + 1, .4, D + 1, "plaster", tile=3)
+    box("Ceiling slab", 0, H + .2, 0, W + 1, .4, D + 1, "midnight", tile=3)
     cs = 3.5
     nxc, nzc = int(W / cs), int(D / cs)
     for i in range(nxc + 1):
         x = -HX + i * cs
         box("Ceiling beam x", x, H - .55, 0, .62, 1.1, D, "plaster", bevel=.03, tile=2)
-        box("Beam soffit gilt", x, H - 1.11, 0, .42, .03, D, "gold")
+        box("Beam soffit gilt", x, H - 1.11, 0, .42, .03, D, "lacquer")
     for k in range(nzc + 1):
         z = -HZ + k * cs
         box("Ceiling beam z", 0, H - .55, z, W, 1.1, .62, "plaster", bevel=.03, tile=2)
-        box("Beam soffit gilt", 0, H - 1.11, z, W, .03, .42, "gold")
+        box("Beam soffit gilt", 0, H - 1.11, z, W, .03, .42, "lacquer")
     for i in range(nxc):
         for k in range(nzc):
             cx, cz = -HX + (i + .5) * cs, -HZ + (k + .5) * cs
             central = abs(cx) < 7 and -6 < cz < 3
             inner = cs - .62
-            for step, (inset, hh, yy, mat) in enumerate(((.0, .18, H - .38, "gold"), (.22, .14, H - .2, "plaster"), (.4, .08, H - .1, "gold"))):
+            for step, (inset, hh, yy, mat) in enumerate(((.0, .18, H - .38, "plaster"), (.22, .14, H - .2, "midnight"), (.4, .08, H - .1, "gold"))):
                 s = inner - inset * 2
                 for u in (-1, 1):
                     box("Coffer step", cx + u * (s / 2 - .06), yy, cz, .12, hh, s, mat)
@@ -522,7 +532,7 @@ def build_posts():
             a = k * pi / 8 + pi / 16
             box("Cabinet panel", x + sin(a) * 2.005, .66, z + cos(a) * 2.005, .7, .62, .012, "walnut", "fixtures",
                 yaw=k * 22.5 + 11.25, bevel=.004)
-            box("Cabinet panel gilt", x + sin(a) * 2.012, .66, z + cos(a) * 2.012, .62, .54, .004, "gold", "fixtures",
+            box("Cabinet panel gilt", x + sin(a) * 2.012, .66, z + cos(a) * 2.012, .62, .54, .004, "hide", "fixtures",
                 yaw=k * 22.5 + 11.25)
         ring("Post brass band", x, 1.06, z, 2.03, 1.24, .03, "brass", "fixtures", 64)
         lathe("Post counter top", x, 1.09, z, [(1.18, 0), (2.12, 0), (2.15, .02), (2.14, .045), (1.18, .045)], "floor", "fixtures", 72, smooth=False, inner_cap=False)
@@ -539,7 +549,7 @@ def build_posts():
         lathe("Crown core", x, 3.96, z, [(1.5, 0), (1.5, .64), (0, .64)], "black", "fixtures", 64, smooth=False)
         ring("Crown band low", x, 3.97, z, 1.63, 1.48, .06, "brass", "fixtures", 64)
         ring("Crown band high", x, 4.55, z, 1.63, 1.48, .06, "brass", "fixtures", 64)
-        lathe("Canopy", x, 4.61, z, [(0, 0), (1.95, 0), (2.0, .05), (1.95, .12), (1.7, .2), (0, .22)], "gold", "fixtures", 64)
+        lathe("Canopy", x, 4.61, z, [(0, 0), (1.95, 0), (2.0, .05), (1.95, .12), (1.7, .2), (0, .22)], "lacquer", "fixtures", 64)
         for k in range(10):
             a = k * pi / 5
             disc("Canopy downlight", x + sin(a) * 1.78, 4.595, z + cos(a) * 1.78, .07, .016, "downlight", "emit", 16)
@@ -628,12 +638,14 @@ def build_booths():
         box("Booth divider", x + side * .2, .62, z + (1.28 if z > 0 else -1.28), .9, 1.24, .05, "walnut", "fixtures", bevel=.01)
 
 
-def import_prop(source, identifier, placements, group="props", scale=1.0, lift=0.0):
+def import_prop(source, identifier, placements, group="props", scale=1.0, lift=0.0, prepare=None):
     before = set(bpy.context.scene.objects)
     bpy.ops.import_scene.gltf(filepath=str(source / identifier / f"{identifier}.gltf"))
     imported = set(bpy.context.scene.objects) - before
     bpy.context.view_layer.update()
     meshes = [(obj, obj.matrix_world.copy()) for obj in imported if obj.type == "MESH"]
+    if prepare:
+        prepare([obj for obj, _ in meshes])
     for idx, place in enumerate(placements):
         x, y, z, yaw = place if len(place) == 4 else (place[0], lift, place[1], place[2])
         transform = Matrix.Translation(P(x, y, z)) @ Matrix.Rotation(radians(yaw), 4, "Z") @ Matrix.Scale(scale, 4)
@@ -644,6 +656,30 @@ def import_prop(source, identifier, placements, group="props", scale=1.0, lift=0
             GROUPS[group].append(dup)
     for obj in imported:
         bpy.data.objects.remove(obj, do_unlink=True)
+
+
+def gild_horns(objects):
+    """Gold horns on the bronze bull: the horn faces are the bright ones in its diffuse map."""
+    for obj in objects:
+        me = obj.data
+        mat = me.materials[0]
+        node = next(n for n in mat.node_tree.nodes if n.type == "TEX_IMAGE" and n.image and "diff" in n.image.name)
+        img = node.image
+        w, h = img.size
+        px = np.empty(w * h * 4, dtype=np.float32)
+        img.pixels.foreach_get(px)
+        lum = px.reshape(h, w, 4)[..., :3].mean(axis=2)          # sRGB-encoded 0..1, bottom row first
+        uv = me.uv_layers.active.data
+        me.materials.append(MAT["horn"])
+        slot = len(me.materials) - 1
+        count = 0
+        for poly in me.polygons:
+            u = sum(uv[i].uv.x for i in poly.loop_indices) / poly.loop_total
+            v = sum(uv[i].uv.y for i in poly.loop_indices) / poly.loop_total
+            if lum[int(v % 1 * (h - 1)), int(u % 1 * (w - 1))] > 95 / 255:
+                poly.material_index = slot
+                count += 1
+        print("gilded horn faces:", count, flush=True)
 
 
 def build_props(source):
@@ -657,11 +693,11 @@ def build_props(source):
     import_prop(source, "modern_coffee_table_01", [(s * 16.0, 0, 10.4, 0) for s in (-1, 1)], scale=1.2)
     import_prop(source, "potted_plant_02", [(s * 19.3, 0, z, 0) for s in (-1, 1) for z in (8.4, 12.9)] +
                 [(s * 18.9, .4, -13.6, 0) for s in (-1, 1)], scale=1.45)
-    # Bronze bull on a marble plinth facing the entrance.
+    # Bronze bull with gilded horns on a marble plinth facing the entrance.
     box("Bull plinth", 0, .55, 10.6, 1.1, 1.1, 1.1, "cream", "fixtures", bevel=.03, tile=1)
     box("Bull plinth base", 0, .06, 10.6, 1.4, .12, 1.4, "floor", "fixtures", bevel=.02)
     box("Bull plinth cap", 0, 1.12, 10.6, 1.24, .06, 1.24, "brass", "fixtures", bevel=.015)
-    import_prop(source, "bull_head", [(0, 1.15, 10.6, 0)], scale=2.6)
+    import_prop(source, "bull_head", [(0, 1.15, 10.6, 0)], scale=2.6, prepare=gild_horns)
     # Busts flanking the main portal, a grandfather clock on the bell podium.
     for s in (-1, 1):
         box("Bust pedestal", s * 3.4, .6, 15.05, .55, 1.2, .55, "floor", "fixtures", bevel=.02)
@@ -669,7 +705,7 @@ def build_props(source):
     import_prop(source, "vintage_grandfather_clock_01", [(-HX + .45, 5.33, 2.4, -90)], scale=1.0)
     # Chandeliers hung from the coffers.
     spots = [(x, z) for x in (-8.75, 8.75) for z in (-8.95, 1.55, 8.55)]
-    import_prop(source, "Chandelier_03", [(x, 12.4, z, 0) for x, z in spots], scale=3.6)
+    import_prop(source, "Chandelier_03_nickel", [(x, 12.4, z, 0) for x, z in spots], scale=3.6)
     for x, z in spots:
         lathe("Chandelier rod", x, 15.9, z, [(.035, 0), (.035, H - 15.9), (0, H - 15.9)], "brass", "fixtures", 12)
         lathe("Ceiling canopy", x, H - 1.2, z, [(0, 0), (.25, 0), (.28, .1), (0, .14)], "gold", "fixtures", 24)
@@ -691,20 +727,20 @@ def bake_lights():
         extra.append(obj)
 
     for post in LAYOUT["posts"]:
-        area("Post light", P(post["x"], 4.55, post["z"]), 3.6, 210, (1, .86, .68))
+        area("Post light", P(post["x"], 4.55, post["z"]), 3.6, 210, (1, .92, .82))
     for x, z in [(x, z) for x in (-8.75, 8.75) for z in (-8.95, 1.55, 8.55)]:
         data = bpy.data.lights.new("Chandelier", "POINT")
-        data.energy, data.color, data.shadow_soft_size = 1600, (1, .8, .55), .9
+        data.energy, data.color, data.shadow_soft_size = 1600, (1, .88, .74), .9
         obj = bpy.data.objects.new("Chandelier", data)
         obj.location = P(x, 14.2, z)
         bpy.context.collection.objects.link(obj)
         extra.append(obj)
     for x in np.arange(-17.5, 18, 5.0):
-        area("Floor wash", P(float(x), 17.2, -4.0), 2.5, 1900, (1, .9, .78), size_y=16)
-        area("Floor wash", P(float(x), 17.2, 9.5), 2.5, 1000, (1, .9, .78), size_y=8)
+        area("Floor wash", P(float(x), 17.2, -4.0), 2.5, 1900, (1, .94, .88), size_y=16)
+        area("Floor wash", P(float(x), 17.2, 9.5), 2.5, 1000, (1, .94, .88), size_y=8)
     for side in (-1, 1):   # wall washers keep the marble walls and boards' surroundings lit
-        area("Wall wash", P(side * 17.5, 15.5, 0), 2.0, 1400, (1, .92, .82), (radians(-30 * side), 0, radians(90)), size_y=26)
-    area("Board wash", P(0, 15.5, -11.5), 3.0, 1500, (1, .92, .84), (radians(35), 0, 0), size_y=30)
+        area("Wall wash", P(side * 17.5, 15.5, 0), 2.0, 1400, (1, .95, .9), (radians(-30 * side), 0, radians(90)), size_y=26)
+    area("Board wash", P(0, 15.5, -11.5), 3.0, 1500, (1, .95, .9), (radians(35), 0, 0), size_y=30)
     # Screens glow onto the stone: emissive stand-ins removed before export.
     glow = _principled("Screen glow stand-in", (.1, .2, .4), .5, 0, emit=1.4, emit_color=(.25, .45, .95))
     for s in LAYOUT["screens"]:
@@ -853,7 +889,7 @@ def environment(out_dir, samples=160):
     scene.render.image_settings.file_format = "HDR"
     scene.render.image_settings.color_depth = "32"
     scene.view_settings.view_transform = "Standard"
-    scene.render.filepath = str(out_dir / "hall-env-v3.hdr")
+    scene.render.filepath = str(out_dir / "hall-env-v4.hdr")
     bpy.ops.render.render(write_still=True)
     bpy.data.objects.remove(cam, do_unlink=True)
 
@@ -902,15 +938,15 @@ if __name__ == "__main__":
     meta = {}
     for g, size in (("shell", opts.shell_size), ("fixtures", opts.fixture_size)):
         enc, scale = bake(GROUPS[g][0], size, opts.samples, out)
-        save_lightmap(enc, out / f"lightmap-{g}-v3.webp")
-        meta[g] = {"scale": round(scale, 5), "file": f"lightmap-{g}-v3.webp"}
+        save_lightmap(enc, out / f"lightmap-{g}-v4.webp")
+        meta[g] = {"scale": round(scale, 5), "file": f"lightmap-{g}-v4.webp"}
         print(g, "baked, scale", scale, flush=True)
     for obj in extra:
         bpy.data.objects.remove(obj, do_unlink=True)
     (ROOT / "frontend/src/exchange/bake.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
     if opts.blend:
         bpy.ops.wm.save_as_mainfile(filepath=str(opts.blend.resolve()))
-    bpy.ops.export_scene.gltf(filepath=str(out / "trading-hall-v3.glb"), export_format="GLB", export_yup=True,
+    bpy.ops.export_scene.gltf(filepath=str(out / "trading-hall-v4.glb"), export_format="GLB", export_yup=True,
                               export_image_format="AUTO", export_cameras=False,
                               export_lights=False, export_materials="EXPORT", export_extras=False,
                               export_meshopt_compression_enable=False, export_gpu_instances=True,

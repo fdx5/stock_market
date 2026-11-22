@@ -7,10 +7,16 @@
 - 목록형 패널(시총·상승·하락·거래대금 상위, 업종, 히트맵, 수급, 핫이슈)은 7초마다 다음 페이지로 슬라이드·페이드 전환한다. 패널마다 시차를 둔다.
 - 데스크톱은 WASD·방향키, Shift 달리기, 드래그 시점(보간), 모니터 클릭·Enter로 관제 화면을 연다. 관제 화면은 3D 화면과 같은 페인터를 기기 해상도로 그린다. 터치 화면은 왼쪽 조이스틱과 드래그를 쓴다.
 
+## 색과 재질 (v4, 2026-11-22)
+
+v3의 금박·황동·장밋빛 대리석 위주 배색을 바꿨다. 미드나잇 네이비(천장 우물 반자·프리즈·하부 벽 울 패브릭·포스트 캐노피), 그레이지 트래버틴 벽, 화이트 스태추어리 필라스터, 샴페인 니켈 몰딩·난간·띠, 스모크드 오크 가구(포스트 캐비닛 패널은 토프 나파 가죽 — 월넛·네이비 패널 조합은 서로 부딪혀 제외), 다크 베르데 바닥. 금색은 정면 브론즈 황소의 뿔에만 남긴다(텍스처가 밝은 뿔 면에만 금 재질). 조명은 3,500K 전후(앰버 없음). 창틀은 그래파이트. `derive_exchange_palette.py`가 CC0 원본에서 채도·평균색만 바꾼 텍스처(greige, statuary, nickel, pnickel, smokedoak, hide, 니켈 샹들리에)를 추가로 만든다. 화면 주변이 어두워져 전광판 대비가 커졌다.
+
 ## 렌더링
 
-- Blender 5.2 Cycles(OptiX)로 전역 조명을 4K 라이트맵 2장(구조/집기)에 굽는다. 브라우저는 실시간 그림자 없이 라이트맵(`uv1`)과 홀 자체를 Cycles로 촬영한 등장방형 HDR(`hall-env-v3.hdr`)을 반사 환경으로 쓴다.
+- Blender 5.2 Cycles(OptiX)로 전역 조명을 4K 라이트맵 2장(구조/집기)에 굽는다. 브라우저는 실시간 그림자 없이 라이트맵(`uv1`)과 홀 자체를 Cycles로 촬영한 등장방형 HDR(`hall-env-v4.hdr`)을 반사 환경으로 쓴다.
 - 화면은 검은 유리(거칠기 0.11, 반사 0.36) 위 발광 텍스처로 OLED처럼 보이게 한다. 패널은 720 설계 단위로 그리고 텍스처 해상도(1,152~3,840px, 저메모리 기기 0.62배)에 맞춰 스케일한다. 다시 그리기는 프레임당 4ms 예산 안에서 나눠 처리한다.
+- 모바일 프리징·좌우 회전 랙 대책: 패널은 크기별 공유 OffscreenCanvas에 그리고 `transferToImageBitmap`으로 넘긴다(createImageBitmap(canvas)는 2D 캔버스 GPU→CPU 읽기를 유발). 비트맵은 GPU 업로드 직후 닫는다. 업로드는 프레임당 1장(터치)/2장으로 제한하고 `renderer.initTexture`로 즉시 올린다 — three.js는 바뀐 텍스처를 메시가 다시 그려질 때 올리므로, 예전엔 시점을 돌리는 순간 뒤쪽 패널 여러 장이 밉맵과 함께 한 프레임에 몰렸다. 화면에 보이는 패널을 먼저 그리고, 안 보이는 패널은 백그라운드에서 일정 간격으로 갱신한다. 시계·세션은 보일 때만 매초 다시 그린다. 터치 기기는 페이지 전환 애니메이션 없이 한 번에 넘긴다. 홀 텍스처는 로드 직후 모두 업로드한다. 모니터 선택 가림 판정은 전체 홀 메시 레이캐스트(탭마다 수백 ms) 대신 포스트·갤러리·포디움·장애물의 상자·원기둥으로 한다. 텍스트 폭은 100px 기준으로 캐시해 크기만 비례 환산한다. meshopt 디코딩은 워커에서 한다.
+- 몰입·전체화면에서는 화면 위 터치 이동이 페이지 제스처(스크롤·당겨서 새로고침·스와이프 전체화면 종료)가 되지 않게 막고, 스크롤 목록만 자체 팬을 허용한다. 브라우저가 전체화면을 풀어도 몰입 모드면 다음 탭에서 복구한다(‘축소’로만 나감).
 - 60fps 유지: 블룸 → 픽셀 비율 상한(1.6 → 1.25) 순으로만 단계적으로 낮춘다. `?exchangeMetrics=1`이면 캔버스 `data-frame-ms`, `data-draw-calls`, `data-paint-ms`에 계측값을 기록한다. `?bloom=0`은 블룸을 끈다.
 - 글꼴(OFL): Pretendard Variable, IBM Plex Sans Condensed/Mono, Doto, Big Shoulders Display — `frontend/public/3d/exchange-floor/fonts/SOURCES.md`.
 
@@ -25,7 +31,7 @@
 ## 참고 및 소재
 
 - 공간 구성 참고: [NYSE 거래소 역사](https://www.nyse.com/history-of-nyse/) · [Library of Congress 사진 자료](https://guides.loc.gov/wall-street-history/stock-exchanges/images)
-- ambientCG CC0 소재: Marble016(바닥), Marble020(벽), Marble014(필라스터), Metal048A(금박), Metal042A(황동), Wood066(월넛), Carpet012, Leather026, PaintedPlaster017, Metal032 · [라이선스](https://docs.ambientcg.com/license/)
+- ambientCG CC0 소재: Marble016(바닥), Marble020(벽, 그레이지로 재톤), Marble014(필라스터), Metal048A·Metal042A(니켈로 재톤), Wood066(스모크드 오크 톤으로 재톤), Carpet012, Leather026, PaintedPlaster017, Metal032 · [라이선스](https://docs.ambientcg.com/license/)
 - Poly Haven CC0 모델: Chandelier_03, bull_head, sofa_02, mid_century_lounge_chair, potted_plant_02, marble_bust_01, vintage_grandfather_clock_01, modern_coffee_table_01 · [라이선스](https://polyhaven.com/license)
 
 ## 모델 재생성
@@ -33,9 +39,10 @@
 ```powershell
 python scripts/exchange_layout.py                      # layout.json (화면·동선·장애물)
 python scripts/fetch_exchange_sources.py <sources>
+python scripts/derive_exchange_palette.py <sources>      # v4 팔레트 텍스처(추가 파일만 생성)
 blender -b --factory-startup --python-exit-code 1 --python scripts/build_exchange_floor.py -- <sources> <out> --samples 384
-python scripts/glb_webp.py <out>/trading-hall-v3.glb <out>/hall-webp.glb
-npx gltfpack -i <out>/hall-webp.glb -o trading-hall-v3.glb -cc -kn -km -ke -kv -vt 14 -vp 16
+python scripts/glb_webp.py <out>/trading-hall-v4.glb <out>/hall-webp.glb
+npx gltfpack -i <out>/hall-webp.glb -o trading-hall-v4.glb -cc -kn -km -ke -kv -vt 14 -vp 16
 blender -b --factory-startup --python-exit-code 1 --python scripts/verify_exchange_panels.py -- <sources>
 ```
 

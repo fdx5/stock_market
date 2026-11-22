@@ -212,3 +212,12 @@ html[data-fx=minimal] .ng-new-badge{animation:none}
 .kospi-map-view-ad:has(>.ng-adsense-slot[data-ad-failed=true],>.ng-adsense-slot:not([data-ad-in-view=true])>ins[data-ad-status=unfilled]){display:none}
 html:has(#adsense-loader[data-failed=true]) :is(.ng-adsense-slot,.ng-adsense-pair,.kospi-map-view-ad){display:none!important}
 @media print{.ng-adsense-slot,.ng-adsense-pair{display:none!important}}
+/* Footer shares the content column: same side padding at every breakpoint and the same max width per page family, so its edges line up with the page above (관제 홈 included). */
+.ng-footer{padding-inline:24px;box-sizing:border-box}
+.ng-content--atlas~.ng-footer,.ng-family-map .ng-footer{max-width:none;width:100%}
+.ng-family-editorial .ng-footer{max-width:1600px}
+@media(min-width:1800px){.ng-footer{padding-inline:32px}}
+@media(max-width:1250px){.ng-footer{padding-inline:18px}}
+@media(max-width:1050px){.ng-footer{padding-inline:15px}}
+@media(max-width:899px){.ng-footer{padding-inline:18px}}
+@media(max-width:599px){.ng-footer{padding-inline:12px}}
