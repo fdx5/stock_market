@@ -75,6 +75,10 @@ export const changeText = (value: number | null | undefined) =>
 export const changeTone = (value: number | null | undefined) => value && value > 0 ? "up" : value && value < 0 ? "down" : "flat";
 export const isPrice = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value > 0;
 export const companyLogo = (market: ExchangeMarket, code: string) => market === "sp500" ? usCompanyLogoProxyUrl(code) : stockIconUrl(code);
+export function stockDetailPath(market: ExchangeMarket, code: string) {
+  const symbol = encodeURIComponent(code);
+  return market === "sp500" ? "/global?code=" + symbol : "/stock/" + symbol;
+}
 export const marketCode = (value: string | null): ExchangeMarket => value === "kosdaq" || value === "sp500" ? value : "kospi";
 export const stockIndex = (id: string) => /^s(1[0-5]|[0-9])$/.test(id) ? Number(id.slice(1)) : -1;
 export const assetSymbol = (id: string) => id.startsWith("a:") ? id.slice(2) : "";

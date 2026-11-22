@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useLanguage } from "../i18n/LanguageContext";
-import { Link } from "../router";
 import { reportExchange } from "../useActivityTracking";
 import {
   ASSET_SINGLES, FLOOR, MARKETS, PANEL_LABELS, STORAGE_ASSETS, assetSymbol, changeText, changeTone, companyLogo, displayValue,
-  marketCode, rowsForPanel, stockIndex, useFloorQuotes, usePostSeries, useStockHistory, shortTime,
+  marketCode, rowsForPanel, stockDetailPath, stockIndex, useFloorQuotes, usePostSeries, useStockHistory, shortTime,
   type ExchangeMarket, type FloorSnapshot, type Language,
 } from "./market";
 import type { FloorDriver, LiftState } from "./floorEngine";
@@ -272,8 +271,8 @@ function FocusPanel({ data, id, lang, histories, onClose }: {
       </ul>
     </>;
   }
-  const link = picked ? { to: picked.market === "sp500" ? "/global?code=" + picked.code : "/stock/" + picked.code, label: t(lang, picked.name + " 상세 보기", "Open " + picked.name) }
-    : isStock && selected ? { to: data.market === "sp500" ? "/global?code=" + selected.code : "/stock/" + selected.code, label: t(lang, "종목 상세 보기", "Open stock details") }
+  const link = picked ? { to: stockDetailPath(picked.market, picked.code), label: t(lang, picked.name + " 상세 보기", "Open " + picked.name) }
+    : isStock && selected ? { to: stockDetailPath(data.market, selected.code), label: t(lang, "종목 상세 보기", "Open stock details") }
     : symbol ? { to: ASSET_SINGLES[symbol].href, label: t(lang, "자산 시세·차트", "Asset price and chart") }
       : id === "overview" ? { to: spec.index, label: t(lang, "지수 상세 보기", "Open index details") }
         : id === "news" || id === "brief" ? { to: "/hot-issues", label: t(lang, "오늘의 핫이슈 전체", "Read today's hot issues") }
@@ -296,7 +295,8 @@ function FocusPanel({ data, id, lang, histories, onClose }: {
     {heat && <FloorHeatmap market={data.market} fallback={data.rows} lang={lang} />}
     {id === "overview" && <OverviewDetails data={data} lang={lang} />}
     {details}
-    <Link className="exchange-detail-link" to={link.to}>{link.label} ↗</Link>
+    <a className="exchange-detail-link" href={link.to} target="_blank" rel="noopener noreferrer"
+      aria-label={link.label + " (" + t(lang, "새 탭", "new tab") + ")"}>{link.label} ↗</a>
   </aside>;
 }
 

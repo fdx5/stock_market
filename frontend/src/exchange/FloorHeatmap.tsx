@@ -4,11 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { api, type MarketMapItem } from "../api/client";
 import { TILE_FONT_FAMILY, pct, tileDisplayInfo } from "../mapTile";
-import { navigate } from "../router";
 import { changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import StockIcon from "../components/StockIcon";
 import UsStockIcon from "../components/UsStockIcon";
-import { MARKETS, displayValue, type ExchangeMarket, type Language } from "./market";
+import { MARKETS, displayValue, stockDetailPath, type ExchangeMarket, type Language } from "./market";
 
 type Tile = { x: number; y: number; w: number; h: number; row: MarketMapItem };
 type Group = { name: string; x: number; y: number; w: number; h: number; change: number; tiles: Tile[] };
@@ -54,7 +53,6 @@ export default function FloorHeatmap({ market, fallback, lang }: { market: Excha
     });
   }, [rows, size]);
 
-  const open = (row: MarketMapItem) => navigate(market === "sp500" ? "/global?code=" + row.code : "/stock/" + row.code);
   return <div className="exchange-heatmap">
     <div className="exchange-heatmap-legend">
       <span>{MARKETS[market].label} · {t("시가총액 상위", "Top by market cap")} {rows.length} · {t("업종별", "by sector")}</span>
@@ -67,16 +65,17 @@ export default function FloorHeatmap({ market, fallback, lang }: { market: Excha
           const rgb = changeToRgb(tile.row.change_pct);
           const name = market === "sp500" ? tile.row.code : tile.row.name;
           const info = tileDisplayInfo(tile.w, tile.h, name);
-          return <button key={tile.row.code} type="button" className="exchange-heatmap-tile"
+          return <a key={tile.row.code} className="exchange-heatmap-tile"
+            href={stockDetailPath(market, tile.row.code)} target="_blank" rel="noopener noreferrer"
             style={{ left: tile.x - group.x, top: tile.y - group.y, width: tile.w, height: tile.h, background: rgbToCss(rgb), color: textColorForRgb(rgb), fontFamily: TILE_FONT_FAMILY }}
-            onMouseMove={event => setHover({ row: tile.row, x: event.clientX, y: event.clientY })} onClick={() => open(tile.row)}
-            aria-label={`${name} ${pct(tile.row.change_pct)}`}>
+            onMouseMove={event => setHover({ row: tile.row, x: event.clientX, y: event.clientY })}
+            aria-label={`${name} ${pct(tile.row.change_pct)} (${t("새 탭에서 종목 상세 보기", "open stock details in a new tab")})`}>
             {info.showName && <span className="exchange-heatmap-name" style={{ fontSize: info.fontSizes.name }}>
               {info.showIcon && (market === "sp500" ? <UsStockIcon code={tile.row.code} className="exchange-heatmap-icon" style={{ width: info.iconSize, height: info.iconSize }} />
                 : <StockIcon code={tile.row.code} className="exchange-heatmap-icon" style={{ width: info.iconSize, height: info.iconSize }} />)}
               {name}</span>}
             {(info.showName || info.showPctOnly) && <span style={{ fontSize: info.fontSizes.pct }}>{pct(tile.row.change_pct)}</span>}
-          </button>;
+          </a>;
         })}
       </section>)}
     </div>
@@ -84,7 +83,7 @@ export default function FloorHeatmap({ market, fallback, lang }: { market: Excha
       <strong>{hover.row.name}</strong><small>{hover.row.code} · {hover.row.sector}</small>
       <span>{displayValue(hover.row.close, market === "sp500" ? 2 : 0)} {MARKETS[market].currency}
         <b data-tone={hover.row.change_pct > 0 ? "up" : hover.row.change_pct < 0 ? "down" : "flat"}>{pct(hover.row.change_pct)}</b></span>
-      <small>{t("클릭하면 종목 상세로 이동", "Click for stock details")}</small>
+      <small>{t("새 탭에서 종목 상세 보기", "Open stock details in a new tab")}</small>
     </div>}
   </div>;
 }
