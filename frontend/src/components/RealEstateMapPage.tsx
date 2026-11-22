@@ -27,7 +27,9 @@ import "../desk2/realestate-explore.css";
 import {
   MapExportButtons,
   MapPreviewModal,
+  MAP_EXPORT_FOOTER_HEIGHT,
   TILE_NIGHT_MODE,
+  drawMapExportFooter,
   loadImage,
   resolveCssColor,
   truncateToWidth,
@@ -690,7 +692,7 @@ export default function RealEstateMapPage() {
     const scale = Math.min(window.devicePixelRatio || 1, 2);
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(size.w * scale);
-    canvas.height = Math.round(size.h * scale);
+    canvas.height = Math.round((size.h + MAP_EXPORT_FOOTER_HEIGHT) * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     ctx.scale(scale, scale);
@@ -826,6 +828,7 @@ export default function RealEstateMapPage() {
       ctx.lineWidth = 2;
       ctx.strokeRect(zone.rect.x + 1, zone.rect.y + 1, Math.max(zone.rect.w - 2, 0), Math.max(zone.rect.h - 2, 0));
     }
+    drawMapExportFooter(ctx, size.w, size.h, cardBg, textPrimary, TILE_FONT_FAMILY);
     return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   };
 

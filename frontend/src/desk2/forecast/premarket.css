@@ -62,6 +62,7 @@
 }
 
 .ng-premarket-title { flex: 1 1 260px; }
+.ng-premarket-meta { flex-wrap: wrap; }
 
 .ng-premarket-head h2 {
   display: flex;
@@ -152,12 +153,15 @@
   --forecast-card-edge: color-mix(in srgb, var(--accent-neon) 30%, var(--line-soft));
   --forecast-card-shadow: color-mix(in srgb, var(--bg-elevated) 42%, #100b14);
   --forecast-card-highlight: color-mix(in srgb, var(--accent-neon) 11%, var(--bg-elevated));
+  --forecast-card-signal: var(--text-secondary);
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 5px;
+  gap: 7px;
   min-width: 0;
-  padding: clamp(8px, .85vw, 11px) clamp(8px, 1.1vw, 14px);
+  min-height: 158px;
+  padding: 13px clamp(9px, 1.1vw, 16px) 11px;
   border: 1px solid var(--forecast-card-edge);
   border-radius: var(--radius-md);
   background: linear-gradient(148deg, var(--forecast-card-highlight), var(--bg-elevated) 64%);
@@ -167,6 +171,37 @@
   font-family: var(--f-sans);
   text-align: start;
   cursor: pointer;
+}
+
+.ng-premarket-card.is-up { --forecast-card-signal: var(--market-up); }
+.ng-premarket-card.is-down { --forecast-card-signal: var(--market-down); }
+
+.ng-premarket-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 12px auto;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--forecast-card-signal), transparent);
+  pointer-events: none;
+}
+
+.ng-premarket-grid > .ng-premarket-selectable.is-checked {
+  border-color: var(--accent-neon);
+  --forecast-card-highlight: color-mix(in srgb, var(--accent-neon) 25%, var(--bg-elevated));
+}
+
+.ng-premarket-selectable input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--accent-neon);
+  cursor: pointer;
+}
+
+.ng-premarket-selectable:focus-within {
+  outline: 2px solid var(--accent-neon);
+  outline-offset: 2px;
 }
 
 .ng-premarket-grid > .ng-premarket-card:is(:focus-visible, [aria-busy="true"]) {
@@ -222,7 +257,7 @@
 
 .ng-premarket-identity strong {
   overflow: hidden;
-  font-size: 13px;
+  font-size: clamp(13px, 1.15vw, 17px);
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -235,9 +270,9 @@
 
 .ng-premarket-logo {
   display: grid;
-  flex: 0 0 24px;
-  width: 24px;
-  height: 24px;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border-radius: 6px;
   background: var(--line-soft);
@@ -251,7 +286,7 @@
   flex-wrap: wrap;
   gap: 2px 6px;
   width: 100%;
-  font: 700 clamp(13px, 1.45vw, 18px)/1.2 var(--f-num);
+  font: 700 clamp(16px, 1.65vw, 24px)/1.12 var(--f-num);
   font-variant-numeric: tabular-nums;
 }
 
@@ -270,19 +305,34 @@
   font-size: 11px;
 }
 
-.ng-premarket .is-up { color: var(--market-up); }
-.ng-premarket .is-flat { color: var(--text-secondary); }
-.ng-premarket .is-down { color: var(--market-down); }
+.ng-premarket :is(em, i, .ng-premarket-prob-values span).is-up { color: var(--market-up); }
+.ng-premarket :is(em, i, .ng-premarket-prob-values span).is-flat { color: var(--text-secondary); }
+.ng-premarket :is(em, i, .ng-premarket-prob-values span).is-down { color: var(--market-down); }
 
 .ng-premarket-prob {
   display: flex;
   overflow: hidden;
   width: 100%;
-  height: 3px;
+  height: 4px;
   border-radius: 2px;
 }
 
 .ng-premarket-prob i { background: currentColor; }
+
+.ng-premarket-prob-values,
+.ng-premarket-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ng-premarket-card-foot { min-height: 23px; }
+.ng-premarket-card-foot .ng-premarket-details { margin-left: auto; }
 
 .ng-premarket-details {
   display: flex;
@@ -306,6 +356,85 @@
   flex: none;
 }
 
+.ng-premarket .ng-premarket-share-toggle,
+.ng-premarket .ng-premarket-share-controls :is(button, a),
+.ng-premarket .ng-premarket-share-feedback a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--forecast-rim);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font: 700 12px/1.25 var(--f-sans);
+  white-space: nowrap;
+}
+
+.ng-premarket .ng-premarket-share-toggle[aria-pressed="true"],
+.ng-premarket .ng-premarket-share-controls .ng-premarket-download {
+  background: color-mix(in srgb, var(--accent-neon) 24%, var(--bg-elevated));
+}
+
+.ng-premarket .ng-premarket-share-controls .ng-premarket-kakao {
+  border-color: #d6bf0c;
+  background: #fee500;
+  color: #241600;
+}
+
+.ng-premarket-share-toggle .ng-icon,
+.ng-premarket-kakao .kakao-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.ng-premarket .ng-premarket-share-controls button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.ng-premarket-share-instructions {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-left: 3px solid var(--accent-neon);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.ng-premarket-share-actions {
+  position: sticky;
+  bottom: calc(var(--ng-bottom, 0px) + 4px);
+  z-index: 3;
+  margin-top: 10px;
+  padding: 8px;
+  border: 1px solid var(--forecast-rim);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: 0 -3px 12px #100b1440;
+}
+
+.ng-premarket-share-controls,
+.ng-premarket-share-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ng-premarket-share-controls > span,
+.ng-premarket-share-feedback > span {
+  margin-right: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ng-premarket-share-feedback { margin-top: 6px; }
+
 @container (max-width: 840px) {
   .ng-premarket-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
@@ -314,11 +443,19 @@
   .ng-premarket-head { display: grid; }
   .ng-premarket-meta { justify-content: space-between; }
   .ng-premarket-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ng-premarket-grid > .ng-premarket-card { min-height: 140px; gap: 5px; }
 }
 
 @container (max-width: 470px) {
   .ng-premarket-details { padding: 4px; }
   .ng-premarket-details > span { display: none; }
+  .ng-premarket-meta p { flex-basis: 100%; }
+  .ng-premarket-share-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .ng-premarket-share-controls button:nth-child(2) { justify-self: end; }
+  .ng-premarket .ng-premarket-share-controls :is(button, a) { min-height: 44px; padding-inline: 6px; }
 }
 
 @container (max-width: 280px) {

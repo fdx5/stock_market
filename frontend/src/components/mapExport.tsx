@@ -51,6 +51,23 @@ export function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, max
   return lo > 0 ? text.slice(0, lo) + ellipsis : "";
 }
 
+export const IMAGE_EXPORT_SOURCE = "출처 : kospimap.com";
+export const MAP_EXPORT_FOOTER_HEIGHT = 34;
+
+export function drawMapExportFooter(
+  ctx: CanvasRenderingContext2D, width: number, top: number, background: string, foreground: string, font: string,
+) {
+  ctx.save();
+  ctx.fillStyle = background;
+  ctx.fillRect(0, top, width, MAP_EXPORT_FOOTER_HEIGHT);
+  ctx.fillStyle = foreground;
+  ctx.font = `650 13px ${font}`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillText(IMAGE_EXPORT_SOURCE, width - 14, top + MAP_EXPORT_FOOTER_HEIGHT / 2, Math.max(1, width - 28));
+  ctx.restore();
+}
+
 export function downloadTimestamp(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");

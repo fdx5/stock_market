@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { api, type PredictionItem, type PremarketGroup, type PremarketMarket, type PremarketScope } from "../../api/client";
 import StockLogo from "../../components/StockLogo";
 import NeoIcon from "../../neo/NeoIcon";
@@ -6,6 +6,7 @@ import { startVisibilityAwareInterval } from "../../pollVisibility";
 import { formatChangeRate, formatFullDate, formatMoney, probabilities, RESULT_ARROW, RESULT_CLASS } from "../../prediction";
 import { Link } from "../../router";
 import { useL } from "../lib";
+import PremarketShareActions from "./PremarketShareActions";
 import "./premarket.css";
 
 const MARKET_LABELS = { KOSPI: "코스피", KOSDAQ: "코스닥", NASDAQ: "나스닥" };
@@ -33,32 +34,25 @@ type Detail = {
   failed?: boolean;
 };
 
-function ForecastCard({ item, market, busy, onOpen }: {
+function ForecastCard({ item, market, busy, onOpen, selection }: {
   item: Preview;
   market: PremarketMarket;
   busy: boolean;
   onOpen: () => void;
+  selection?: { checked: boolean; onChange: () => void };
 }) {
   const L = useL();
   const change = formatChangeRate(item.change_rate);
   const p = probabilities(item);
 
-  return (
-    <button
-      type="button"
-      className="ng-premarket-card"
-      aria-label={L(`${item.name} ${change} 예측 상세`, `${item.name} ${change} forecast details`)}
-      aria-haspopup="dialog"
-      aria-busy={busy}
-      onClick={onOpen}
-    >
+  const className = `ng-premarket-card is-${RESULT_CLASS[item.result]}`;
+  const content = (
+    <>
       <span className="ng-premarket-identity">
         <StockLogo code={item.code} name={item.name} className="ng-premarket-logo" />
         <span className="ng-premarket-name"><strong>{item.name}</strong><small>{item.code}</small></span>
-        <span className="ng-premarket-details" aria-hidden="true">
-          <span>{busy ? L("불러오는 중", "Loading") : L("상세 보기", "View details")}</span>
-          <NeoIcon name="chevron" />
-        </span>
+        {selection && <input type="checkbox" checked={selection.checked} onChange={selection.onChange}
+          aria-label={L(`${item.name} 선택`, `Select ${item.name}`)} />}
       </span>
       <span className="ng-premarket-price">
         <b>{formatMoney(item.predict_price, market)}</b>
@@ -66,7 +60,6 @@ function ForecastCard({ item, market, busy, onOpen }: {
       </span>
       <span className="ng-premarket-basis">
         <span>{L("기준가", "Base")} {formatMoney(item.base_price, market)}</span>
-        {item.reliability !== null && <span>{L("신뢰도", "Reliability")} {item.reliability}</span>}
       </span>
       {p && (
         <span className="ng-premarket-prob" role="img"
@@ -76,6 +69,31 @@ function ForecastCard({ item, market, busy, onOpen }: {
           <i className="is-down" style={{ width: `${p.down}%` }} />
         </span>
       )}
+      {p && (
+        <span className="ng-premarket-prob-values" aria-hidden="true">
+          <span className="is-up">{L("상승", "Up")} {p.up}%</span>
+          <span className="is-flat">{L("보합", "Flat")} {p.flat}%</span>
+          <span className="is-down">{L("하락", "Down")} {p.down}%</span>
+        </span>
+      )}
+      <span className="ng-premarket-card-foot">
+        {item.reliability !== null && <span>{L("신뢰도", "Reliability")} {item.reliability}</span>}
+        {!selection && <span className="ng-premarket-details" aria-hidden="true">
+          <span>{busy ? L("불러오는 중", "Loading") : L("상세 보기", "View details")}</span>
+          <NeoIcon name="chevron" />
+        </span>}
+      </span>
+    </>
+  );
+
+  if (selection) {
+    return <label className={`${className} ng-premarket-selectable${selection.checked ? " is-checked" : ""}`}>{content}</label>;
+  }
+  return (
+    <button type="button" className={className}
+      aria-label={L(`${item.name} ${change} 예측 상세`, `${item.name} ${change} forecast details`)}
+      aria-haspopup="dialog" aria-busy={busy} onClick={onOpen}>
+      {content}
     </button>
   );
 }
@@ -87,9 +105,16 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
   const [now, setNow] = useState(Date.now);
   const [selected, setSelected] = useState<PremarketMarket>(MARKETS[scope][0]);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [shareKey, setShareKey] = useState<string | null>(null);
+  const [codes, setCodes] = useState<string[]>([]);
+  const shareButton = useRef<HTMLButtonElement>(null);
   const detailRequest = useRef<AbortController | null>(null);
   const available = groups.filter((group) => group.hide_at > now);
   const active = available.find((group) => group.market === selected) ?? available[0];
+  const sessionKey = active ? `${active.market}:${active.date}` : null;
+  const selecting = shareKey !== null && shareKey === sessionKey;
+  const selectedItems = useMemo(() => selecting && active ? active.items.filter((item) => codes.includes(item.code)) : [],
+    [active, codes, selecting]);
   const activeDetail = detail?.market === active?.market && detail?.date === active?.date ? detail : null;
   const nextCutoff = Math.min(...available.map((group) => group.hide_at));
 
@@ -159,6 +184,10 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
   };
 
   if (!active) return null;
+  const closeShare = () => {
+    setShareKey(null);
+    setCodes([]);
+  };
   const markets = MARKETS[scope];
   const reader = activeDetail?.reader;
   const marketLabel = (market: PremarketMarket) => L(MARKET_LABELS[market], market);
@@ -175,6 +204,14 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
           <Link to={`/ai-prediction?date=${active.date}&market=${active.market}`}>
             {L("전체 예측", "All forecasts")} <span aria-hidden="true">↗</span>
           </Link>
+          <button type="button" className="ng-premarket-share-toggle" ref={shareButton} aria-pressed={selecting}
+            onClick={() => {
+              closeDetail();
+              if (selecting) closeShare();
+              else { setCodes([]); setShareKey(sessionKey); }
+            }}>
+            <NeoIcon name="layers" />{L("이미지 공유하기", "Share image")}
+          </button>
         </div>
       </header>
       {markets.length > 1 ? (
@@ -182,18 +219,31 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
           {markets.map((market) => (
             <button key={market} type="button" aria-pressed={active.market === market}
               disabled={!available.some((group) => group.market === market)}
-              onClick={() => { closeDetail(); setSelected(market); }}>
+              onClick={() => { if (active.market !== market) { closeShare(); closeDetail(); setSelected(market); } }}>
               {marketLabel(market)}
             </button>
           ))}
         </div>
       ) : <p className="ng-premarket-single">{marketLabel(active.market)}</p>}
+      {selecting && <p className="ng-premarket-share-instructions" role="status">
+        {L("공유할 종목을 선택하세요.", "Select the stocks you want to share.")}
+      </p>}
       <div className="ng-premarket-grid" aria-label={marketLabel(active.market)}>
         {active.items.map((item) => (
           <ForecastCard key={item.code} item={item} market={active.market} onOpen={() => openDetail(active, item.code)}
-            busy={activeDetail?.code === item.code && !reader && !activeDetail.failed} />
+            busy={activeDetail?.code === item.code && !reader && !activeDetail.failed}
+            selection={selecting ? {
+              checked: codes.includes(item.code),
+              onChange: () => setCodes((old) => old.includes(item.code)
+                ? old.filter((code) => code !== item.code)
+                : [...old, item.code]),
+            } : undefined} />
         ))}
       </div>
+      {selecting && <PremarketShareActions
+        key={`${sessionKey}:${selectedItems.map((item) => item.code).join(",")}`}
+        group={active} items={selectedItems} marketLabel={marketLabel(active.market)}
+        onCancel={() => { closeShare(); shareButton.current?.focus(); }} />}
       {activeDetail?.failed && <p className="ng-premarket-status" role="status">
         {L("예측 상세를 불러오지 못했습니다. 카드를 눌러 다시 시도해 주세요.", "Forecast details could not load. Select a card to retry.")}
       </p>}

@@ -31,8 +31,10 @@ import StockIcon from "./StockIcon";
 import {
   MapExportButtons,
   MapPreviewModal,
+  MAP_EXPORT_FOOTER_HEIGHT,
   TILE_NIGHT_MODE,
   drawContained,
+  drawMapExportFooter,
   loadImage,
   resolveCssColor,
   truncateToWidth,
@@ -707,7 +709,7 @@ export default function MarketMapPage({
     const scale = Math.min(window.devicePixelRatio || 1, 2);
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(size.w * scale);
-    canvas.height = Math.round(size.h * scale);
+    canvas.height = Math.round((size.h + MAP_EXPORT_FOOTER_HEIGHT) * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     ctx.scale(scale, scale);
@@ -818,6 +820,7 @@ export default function MarketMapPage({
       );
     }
 
+    drawMapExportFooter(ctx, size.w, size.h, cardBg, textPrimary, TILE_FONT_FAMILY);
     // Blob (rather than a data: URL) is required for the mobile save path below:
     // iOS Safari and in-app browsers (KakaoTalk, Naver, etc.) silently ignore
     // <a download> on data: URLs, so the "download" never actually saves a file there.
