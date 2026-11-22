@@ -1352,9 +1352,9 @@ export function paintOuterTicker(canvas: HTMLCanvasElement | OffscreenCanvas, en
     g.save();
     g.translate(left + 12, top + slotHeight / 2);
     g.scale(Math.min(1, (slotWidth - 32) / contentWidth), 1);
-    let x = txt(g, entry.label, 0, 2, size, "#ffcf6a", { ...middle, glow: 6 }) + 10;
-    drawLogo(g, entry.logo, x, 0, logoSize);
-    x += logoSpace;
+    drawLogo(g, entry.logo, 0, 0, logoSize);
+    let x = logoSpace;
+    x += txt(g, entry.label, x, 2, size, "#ffcf6a", { ...middle, glow: 6 }) + 10;
     x += txt(g, entry.value, x, 2, size, "#ffffff", { ...middle, f: FONT.num }) + 10;
     txt(g, change, x, 2, size * .82, tone(entry.change), { ...middle, w: 700, f: FONT.num, glow: 6 });
     g.restore();
