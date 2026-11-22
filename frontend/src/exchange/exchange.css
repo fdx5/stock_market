@@ -351,8 +351,9 @@
 .exchange-monitor-picker section { display: flex; flex-wrap: wrap; gap: 4px; }
 .exchange-monitor-picker h3 { width: 100%; margin: 6px 2px 2px; color: var(--exchange-muted); font: 700 11px var(--f-type); letter-spacing: .12em; text-transform: uppercase; }
 
-/* Phone immersive mode: the floor covers the site chrome (header, pulse bar, player, bottom nav). */
-.exchange-page[data-immersive] { position: fixed; inset: 0; z-index: 300; height: 100dvh; width: 100vw; }
+/* Let the fixed floor cover the viewport instead of being clipped to the contained workspace. */
+html.exchange-immersive[data-design="neo"] .ng-shell[data-workspace="exchange"] .ng-content { contain: none; isolation: auto; }
+.exchange-page[data-immersive] { position: fixed; inset: 0; z-index: 300; height: 100dvh; width: 100%; overflow: hidden; }
 .exchange-page[data-immersive] .exchange-header { min-height: 0; padding: max(6px, env(safe-area-inset-top)) 8px 5px; gap: 4px 8px; }
 .exchange-page[data-immersive] .exchange-title span { display: none; }
 .exchange-page[data-immersive] .exchange-title h1 { font-size: 16px; }

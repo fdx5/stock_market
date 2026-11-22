@@ -219,12 +219,12 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
   const params = new URLSearchParams(location.search);
   // Phones: dense pixels already hide edges, so skip MSAA there and start without bloom.
   const touch = matchMedia("(pointer: coarse)").matches;
-  // iPadOS can present a desktop user agent. Use the established WebGL 2 backend on Apple touch devices.
+  // iPadOS can present a desktop user agent. Keep its mobile memory budget with either backend.
   const appleTouch = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
   const mobile = touch || appleTouch;
   const dense = (window.devicePixelRatio || 1) >= 2;
   const renderer = new WebGPURenderer({ canvas, antialias: !(mobile && dense), alpha: false, powerPreference: "high-performance",
-    forceWebGL: appleTouch || retryWithWebGL });
+    forceWebGL: retryWithWebGL || !("gpu" in navigator && navigator.gpu) });
   renderer.toneMapping = NeutralToneMapping;
   renderer.toneMappingExposure = .72;   // calm daylight: bright stone floors must not glare
   const scene = new Scene();
@@ -250,6 +250,10 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
   };
   try {
     renderer.onDeviceLost = info => fail(new Error(`${info.api} device lost: ${info.message}`));
+    // WebGPU can report invalid shaders and exhausted GPU resources asynchronously.
+    if (mobile) renderer.onError = (error: unknown) => fail(new Error(
+      typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error),
+    ));
     await renderer.init();
     signal.throwIfAborted();
     if (disposed) throw new Error("Trading hall GPU context was lost");

@@ -371,10 +371,9 @@ export default function ExchangePage() {
   const [full, setFull] = useState(false);
   const [lift, setLift] = useState<LiftState | null>(null);
   const [floor, setFloor] = useState(0);
-  // Phones open straight into an immersive, viewport-filling floor; the first touch also asks for real full screen.
+  // On touch screens the floor fills the viewport without browser fullscreen swipe gestures.
   const [immersive, setImmersive] = useState(() => matchMedia("(max-width: 760px)").matches);
-  const askedFullscreen = useRef(false);
-  const keepFullscreen = useRef(false);
+  const viewportFullscreen = matchMedia("(any-pointer: coarse), (max-width: 760px)").matches;
   // The market switch lives in the site's context bar, left of 오늘의 핫이슈; inside the floor when immersive.
   const [slot, setSlot] = useState<Element | null>(null);
   useEffect(() => { setSlot(document.querySelector(".ng-exchange-slot")); }, []);
@@ -445,17 +444,7 @@ export default function ExchangePage() {
     document.documentElement.classList.toggle("exchange-immersive", immersive);
     return () => document.documentElement.classList.remove("exchange-immersive");
   }, [immersive]);
-  // Immersive mode owns full screen until the user presses 축소. If the browser drops it anyway
-  // (an edge swipe, a system gesture), the next tap on the floor quietly restores it.
-  const firstTouch = () => {
-    if (!immersive || !document.fullscreenEnabled || document.fullscreenElement) return;
-    if (askedFullscreen.current && !keepFullscreen.current) return;
-    askedFullscreen.current = keepFullscreen.current = true;
-    void pageRef.current?.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
-  };
   const leaveImmersive = () => {
-    keepFullscreen.current = false;
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     setImmersive(false);
     reportExchange("view:compact", "몰입 모드 축소");
   };
@@ -537,12 +526,13 @@ export default function ExchangePage() {
     finally { audioPending.current = false; }
   }
   const toggleFullscreen = () => {
-    const promise = document.fullscreenElement ? document.exitFullscreen() : pageRef.current?.requestFullscreen();
-    void promise?.catch(() => {});
+    if (document.fullscreenElement === pageRef.current) void document.exitFullscreen().catch(() => {});
+    else if (viewportFullscreen) setImmersive(true);
+    else void pageRef.current?.requestFullscreen().catch(() => {});
   };
   const sampleStatus = data.failed ? t(lang, "표본 갱신 지연", "Sample delayed") : t(lang, "표본 갱신", "Sample updated");
 
-  return <main ref={pageRef} className="exchange-page" data-market={market} data-phase={phase} data-immersive={immersive || undefined} onPointerUpCapture={firstTouch}>
+  return <main ref={pageRef} className="exchange-page" data-market={market} data-phase={phase} data-immersive={immersive || undefined}>
     <h1 className="exchange-sr-title">{t(lang, "증권 거래소", "Stock exchange")} · {spec.label}</h1>
     {slot && !immersive && createPortal(<MarketSwitch market={market} lang={lang} choose={chooseMarket} />, slot)}
     <div className="exchange-stage">
@@ -558,10 +548,7 @@ export default function ExchangePage() {
         <div className="exchange-stage-actions">
           <button type="button" className="exchange-action" aria-pressed={sound} onClick={() => { void toggleSound(); }}>{sound ? t(lang, "음향 켜짐", "Sound on") : t(lang, "음향", "Sound")}</button>
           {immersive ? <button type="button" className="exchange-action" onClick={leaveImmersive}>{t(lang, "축소", "Exit")}</button>
-            : <>
-              {document.fullscreenEnabled && <button type="button" className="exchange-action" aria-pressed={full} onClick={toggleFullscreen}>{full ? t(lang, "전체화면 종료", "Exit full screen") : t(lang, "전체화면", "Full screen")}</button>}
-              {matchMedia("(max-width: 760px)").matches && <button type="button" className="exchange-action" onClick={() => setImmersive(true)}>{t(lang, "몰입 모드", "Immersive")}</button>}
-            </>}
+            : (viewportFullscreen || document.fullscreenEnabled) && <button type="button" className="exchange-action" aria-pressed={full} onClick={toggleFullscreen}>{full ? t(lang, "전체화면 종료", "Exit full screen") : t(lang, "전체화면", "Full screen")}</button>}
         </div>
       </div>
       {soundError && <p className="exchange-sound-error" role="status">{t(lang, "이 기기에서 음향을 시작하지 못했습니다.", "Sound could not start on this device.")}</p>}
