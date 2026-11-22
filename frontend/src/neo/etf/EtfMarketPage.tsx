@@ -34,9 +34,12 @@ function Trend({ item }: { item: EtfItem }) {
   if (valid.length < 2) return <span className="em-trend-empty">—</span>;
   const low = Math.min(...valid), span = Math.max(...valid) - low;
   const points = values.map((v, i) => finite(v) ? `${i && finite(values[i - 1]) ? "L" : "M"}${i / Math.max(1, values.length - 1) * 120},${span ? 29 - (v - low) / span * 26 : 16}` : "").join(" ");
-  return <svg className={`em-trend ${tone(item.change_pct)}`} viewBox="0 0 120 32" preserveAspectRatio="none" role="img" aria-label={`${item.name} ${valid.length}개 가격 표본 추이`}>
-    <path className="em-trend-guide" d="M0 30H120" /><path d={points} />
-  </svg>;
+  // The sparkline opens the fund page, like the name next to it.
+  return <Link to={detail(item)} className="em-trend" aria-label={`${item.name} ${valid.length}개 가격 표본 추이 · 상세·차트`}>
+    <svg className={`em-trend-svg ${tone(item.change_pct)}`} viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+      <path className="em-trend-guide" d="M0 30H120" /><path d={points} />
+    </svg>
+  </Link>;
 }
 
 function Dialog({ title, children, close, wide = false }: { title: string; children: ReactNode; close: () => void; wide?: boolean }) {

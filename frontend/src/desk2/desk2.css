@@ -4616,3 +4616,8 @@ tr.is-alert-cool .d2-macro-alert {
     transition: none !important;
   }
 }
+/* Index tiles that are ETFs link to the fund page: the whole tile, graph included, is the target. */
+.d2-gl.is-link{position:relative;cursor:pointer;transition:border-color .15s,background-color .15s}
+.d2-gl-link{position:absolute;inset:0;z-index:1;border-radius:inherit}
+.d2-gl.is-link:hover{border-color:color-mix(in srgb,currentColor 35%,transparent)}
+.d2-gl-link:focus-visible{outline:2px solid var(--accent-neon,#bf85ff);outline-offset:2px}

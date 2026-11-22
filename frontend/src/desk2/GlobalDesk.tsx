@@ -1,4 +1,5 @@
 import { GlobalIndexWidget } from "../api/client";
+import { Link } from "../router";
 import { Skel, Spark } from "./parts";
 import { pct, toneOf, useGlobalIndices, useL } from "./lib";
 
@@ -26,8 +27,11 @@ function Tile({ item }: { item: GlobalIndexWidget }) {
   const last = item.points[item.points.length - 1]?.date?.slice(5).replace("-", ".") ?? "";
   const quoted = item.quote_time ? new Date(item.quote_time * 1000) : null;
   const quoteTime = quoted && Number.isFinite(quoted.getTime()) ? quoted.toLocaleString(L("ko-KR", "en-GB"), { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : null;
+  // US-listed ETFs among the tiles (SOXL, TQQQ: USD prices with a ticker code) open their fund page.
+  const etf = item.unit === "usd" && /^[A-Z]{2,5}$/.test(item.code);
   return (
-    <article className={`d2-gl is-${tone}`}>
+    <article className={`d2-gl is-${tone}${etf ? " is-link" : ""}`}>
+      {etf && <Link className="d2-gl-link" to={`/stock/${encodeURIComponent(item.code)}?asset=ETF`} aria-label={`${item.label} ${L("ETF 상세·차트", "ETF details & chart")}`}><span className="sr-only">{item.label}</span></Link>}
       <header>
         {item.flag && <img src={`/img/flag/${item.flag}.svg`} alt="" loading="lazy" />}
         <h3>{item.label}</h3>
