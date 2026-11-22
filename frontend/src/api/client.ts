@@ -1762,10 +1762,10 @@ export const api = {
       accuracy: AccuracyWindows | null;
     }>(`${BASE}/prediction/stock/${encodeURIComponent(code)}?limit=${limit}`),
   predictionAccuracy: () => getJSON<PredictionAccuracy>(`${BASE}/prediction/accuracy`),
-  predictionGradingMatrix: (market?: string | null, limit = 20) => {
+  predictionGradingMatrix: (market?: string | null, limit = 20, signal?: AbortSignal) => {
     const params = new URLSearchParams();
     if (market) params.set("market", market);
     params.set("limit", String(limit));
-    return getJSON<GradingMatrixResponse>(`${BASE}/prediction/grading-matrix?${params.toString()}`);
+    return getJSON<GradingMatrixResponse>(`${BASE}/prediction/grading-matrix?${params.toString()}`, { signal });
   },
 };

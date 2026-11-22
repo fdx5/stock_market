@@ -2,7 +2,7 @@ import datetime as dt
 import os
 import secrets
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Response
 
 from app.data.prediction_universe import MARKET_KOSDAQ, MARKET_KOSPI, MARKET_NASDAQ
 from app.services import prediction_batch, prediction_grader, prediction_store
@@ -222,6 +222,7 @@ def accuracy():
 
 @router.get("/grading-matrix")
 def grading_matrix(
+    response: Response,
     market: str | None = Query(None, pattern=r"^(KOSPI|KOSDAQ|NASDAQ)$"),
     limit: int = Query(20, ge=1, le=60),
 ):
@@ -241,7 +242,9 @@ def grading_matrix(
         }
 
     key = f"prediction:grading-matrix:{market or 'ALL'}:{limit}"
-    return cache.get_or_set(key, TTL_PREDICTION_META_SECONDS, _build)
+    data = cache.get_or_set(key, TTL_PREDICTION_META_SECONDS, _build)
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return data
 
 
 @router.get("/stock/{code}")

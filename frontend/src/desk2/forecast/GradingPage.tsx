@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { GradingMatrixResponse, PredictionItem, api } from "../../api/client";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { formatChangeRate, formatMoney } from "../../prediction";
@@ -106,17 +106,16 @@ export default function GradingPage() {
   useFinderHotkey(setFinderOpen);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    const { signal } = controller;
     setLoading(true);
     setError("");
     api
-      .predictionGradingMatrix(market === "ALL" ? null : market, limit)
-      .then((r) => !cancelled && setData(r))
-      .catch((e: Error) => !cancelled && setError(e.message || L("채점 결과를 불러오지 못했습니다.", "Could not load the grades.")))
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
+      .predictionGradingMatrix(market === "ALL" ? null : market, limit, signal)
+      .then((r) => !signal.aborted && setData(r))
+      .catch((e: Error) => !signal.aborted && setError(e.message || L("채점 결과를 불러오지 못했습니다.", "Could not load the grades.")))
+      .finally(() => !signal.aborted && setLoading(false));
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [market, limit]);
 
@@ -173,6 +172,11 @@ export default function GradingPage() {
       return sort === "best" ? rb - ra : ra - rb;
     });
   }, [raw, perRow, sort, query]);
+
+  // Show the summary and respond to controls before reconciling thousands of table cells.
+  const matrix = useMemo(() => ({ rows, dates, perRow, perDate, total, compact }), [rows, dates, perRow, perDate, total, compact]);
+  const table = useDeferredValue(matrix);
+  const tableBusy = loading || table !== matrix;
 
   // The matrix carries only the compact cell; the full call comes from the stock's
   // history, fetched on click, and opens the same reader the forecast page uses.
@@ -395,11 +399,11 @@ export default function GradingPage() {
             </div>
           </div>
           {cellError && <p className="sk-error">{cellError}</p>}
-          {loading && !data && <Skel h={420} />}
+          {((loading && !data) || (tableBusy && !table.rows.length && rows.length > 0)) && <Skel h={420} />}
           {!loading && !error && rows.length === 0 && <p className="d2-empty">{query ? L("검색과 맞는 종목이 없습니다.", "No names match.") : L("아직 채점된 예측이 없습니다.", "Nothing graded yet.")}</p>}
-          {rows.length > 0 && (
-            <div className={`gr-scroll${loading ? " is-refreshing" : ""}`}>
-              <table className={`gr-matrix${compact ? " is-compact" : ""}`}>
+          {rows.length > 0 && table.rows.length > 0 && (
+            <div className="gr-scroll" aria-busy={tableBusy}>
+              <table className={`gr-matrix${table.compact ? " is-compact" : ""}`}>
                 <thead>
                   <tr>
                     <th className="gr-stock" scope="col">
@@ -408,7 +412,7 @@ export default function GradingPage() {
                     <th className="gr-ratecol" scope="col">
                       {L("적중률", "Rate")}
                     </th>
-                    {dates.map((d) => (
+                    {table.dates.map((d) => (
                       <th key={d.date} scope="col" title={d.label}>
                         {shortDate(d.date)}
                         <small>{d.weekday}</small>
@@ -417,16 +421,16 @@ export default function GradingPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
+                  {table.rows.map((row) => (
                     <tr key={row.code}>
                       <th className="gr-stock" scope="row">
                         <b>{row.name}</b>
                         <small>{MARKET_KO[row.market] ?? row.market}</small>
                       </th>
                       <td className="gr-ratecol">
-                        <Rate t={perRow.get(row.code) ?? EMPTY} />
+                        <Rate t={table.perRow.get(row.code) ?? EMPTY} />
                       </td>
-                      {dates.map((d) => {
+                      {table.dates.map((d) => {
                         const c = row.cells[d.date];
                         if (!c) return <td key={d.date} className="gr-cell is-empty" aria-label={L("예측 없음", "No call")} />;
                         const state = c.hit === null ? "pending" : c.hit ? "hit" : "miss";
@@ -440,7 +444,7 @@ export default function GradingPage() {
                               <span className="gr-mark" aria-hidden="true">
                                 {isBusy ? "…" : state === "hit" ? "✓" : state === "miss" ? "✕" : "·"}
                               </span>
-                              {!compact && (
+                              {!table.compact && (
                                 <>
                                   <span className={`gr-line is-${dirOf(c.result)}`}>
                                     {c.result} {formatChangeRate(c.change_rate)}
@@ -464,10 +468,10 @@ export default function GradingPage() {
                       {L("일자별", "By session")}
                     </th>
                     <td className="gr-ratecol">
-                      <Rate t={total} />
+                      <Rate t={table.total} />
                     </td>
-                    {dates.map((d) => {
-                      const t = perDate.get(d.date) ?? EMPTY;
+                    {table.dates.map((d) => {
+                      const t = table.perDate.get(d.date) ?? EMPTY;
                       const r = rateOf(t);
                       return (
                         <td key={d.date} className={`gr-foot is-${band(r)}`}>

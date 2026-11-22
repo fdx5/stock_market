@@ -159,6 +159,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
   useEffect(() => solar ? attachDeskBgm() : undefined, [solar]);
   const family = neoRouteFamily(path);
   const exchange = path === "/exchange" || path === "/exchange/";
+  const scorecard = path === "/ai-prediction/grading";
   const currentTone = neoHeaderCurrentTone(path, window.location.search);
   const showCurrent = family !== "immersive" && frameLight && fx !== "minimal";
   const current = (to: string) => to.split("?")[0] === path;
@@ -185,7 +186,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     {finder && <Suspense fallback={null}><div className="d2 ng-finder-host"><Finder open={finder} onClose={close} /></div></Suspense>}
   </div>;
   return <div className={`ng-shell ng-family-${family}`} data-workspace={exchange ? "exchange" : path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
-    {!exchange && !path.startsWith("/pulse-board") && <NeoBackdrop />}
+    {!exchange && !scorecard && !path.startsWith("/pulse-board") && <NeoBackdrop />}
     <GoldCursor />
     <a className="ng-skip" href="#neo-content">{L("본문 바로가기", "Skip to content")}</a>
     <header className="ng-header" data-current-tone={currentTone}>

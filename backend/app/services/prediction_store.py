@@ -633,51 +633,27 @@ def grading_matrix(markets: tuple[str, ...] | None, limit_dates: int = 20) -> di
     """Date x 종목 shape for the 채점결과 매트릭스 page: the most recent `limit_dates`
     graded 예측일자 as columns, one row per stock, each cell the call and its outcome.
 
-    Two queries rather than one, deliberately: the date window has to be the N most
-    recent graded *sessions* regardless of roster size (one query, grouped), then every
-    row inside that window is pulled per stock (second query) — a single query
-    aggregated by stock would instead cap at N *rows* per stock, which shortens the
-    window for a market whose roster is smaller than another's.
+    Select the session window inside the same statement so a cold request takes one
+    round trip and sees a consistent snapshot. The outer query includes pending calls
+    on those dates and preserves the market filter.
     """
-
-    def _dates(conn):
-        if markets:
-            placeholders = ", ".join("?" for _ in markets)
-            return conn.execute(
-                "SELECT DISTINCT predict_date FROM stock_predictions "
-                f"WHERE hit IS NOT NULL AND market IN ({placeholders}) "
-                "ORDER BY predict_date DESC LIMIT ?",
-                (*markets, limit_dates),
-            ).fetchall()
-        return conn.execute(
-            "SELECT DISTINCT predict_date FROM stock_predictions "
-            "WHERE hit IS NOT NULL ORDER BY predict_date DESC LIMIT ?",
-            (limit_dates,),
-        ).fetchall()
-
-    dates = [row[0] for row in _with_connection(_dates)]
-    if not dates:
-        return {"dates": [], "rows": []}
+    market_params = markets or ()
+    placeholders = ", ".join("?" for _ in market_params)
+    market_filter = f" AND market IN ({placeholders})" if market_params else ""
 
     def _rows(conn):
-        date_placeholders = ", ".join("?" for _ in dates)
-        sql = (
+        return conn.execute(
             "SELECT stock_code, stock_name, market, predict_date, predict_result, "
             "predict_price, change_rate, confidence, actual_result, actual_price, "
             "actual_change_rate, hit, market_cap "
-            f"FROM stock_predictions WHERE predict_date IN ({date_placeholders})"
-        )
-        params: list = list(dates)
-        if markets:
-            market_placeholders = ", ".join("?" for _ in markets)
-            sql += f" AND market IN ({market_placeholders})"
-            params.extend(markets)
-        # Newest date first per code, so the first row seen below is that stock's most
-        # recent 시가총액 snapshot — the one the row order should reflect, not whichever
-        # date the DB happens to return first.
-        sql += " ORDER BY predict_date DESC"
-        return conn.execute(sql, params).fetchall()
+            "FROM stock_predictions WHERE predict_date IN ("
+            "SELECT DISTINCT predict_date FROM stock_predictions WHERE hit IS NOT NULL"
+            f"{market_filter} ORDER BY predict_date DESC LIMIT ?)"
+            f"{market_filter} ORDER BY predict_date DESC",
+            (*market_params, limit_dates, *market_params),
+        ).fetchall()
 
+    dates: list[str] = []
     by_code: dict[str, dict] = {}
     for (
         code,
@@ -694,6 +670,9 @@ def grading_matrix(markets: tuple[str, ...] | None, limit_dates: int = 20) -> di
         hit,
         market_cap,
     ) in _with_connection(_rows):
+        if not dates or dates[-1] != predict_date:
+            dates.append(predict_date)
+        # The first row seen for a stock carries its newest market-cap snapshot.
         entry = by_code.setdefault(
             code, {"code": code, "name": name, "market": market, "market_cap": market_cap, "cells": {}}
         )

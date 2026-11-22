@@ -1,5 +1,29 @@
 /* 채점표 — prefix gr-. Builds on forecast.css (fc-) for the front and controls. */
 
+html[data-design="neo"] .ng-content .gr > .ng-page-heading,
+html[data-design="neo"] .ng-content .gr > .d2-main > .d2-sec {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  box-shadow: var(--glow-soft);
+  padding: clamp(12px, 1.65vw, 22px);
+  min-width: 0;
+}
+
+html[data-design="neo"] .ng-content .gr > .gr-bar {
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+}
+
+html[data-design="neo"] .ng-content .gr :is(
+  .d2-sec-note, .fc-note, .sk-disclaimer, .gr-tally dt, .gr-rate small,
+  .gr-podium li small, .gr-chart small, .gr-chart-50 i, .gr-matrix th small,
+  .gr-line--px, .gr-foot small
+) {
+  color: var(--text-secondary);
+}
+
 .d2 .gr-bar-inner {
   grid-template-columns: auto auto auto minmax(160px, 1fr);
   gap: 18px;
@@ -277,15 +301,20 @@
 .d2 .gr-scroll {
   overflow: auto;
   max-height: 78vh;
+  background: var(--p0);
+  border: 1px solid var(--rule);
   border-top: 2px solid var(--rule-ink);
-  transition: opacity 0.2s;
+  border-radius: var(--radius-sm);
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto min(78vh, 540px);
 }
-.d2 .gr-scroll.is-refreshing {
-  opacity: 0.45;
+.d2 .gr-scroll[aria-busy="true"] {
+  border-top-color: var(--line-active);
 }
 .d2 .gr-matrix {
   border-collapse: separate;
   border-spacing: 0;
+  min-width: 100%;
   font-size: 12px;
 }
 .d2 .gr-matrix thead th {
@@ -397,7 +426,7 @@
 }
 .d2 .gr-line {
   font-family: var(--f-num);
-  font-size: 11.5px;
+  font-size: 12px;
   white-space: nowrap;
   color: var(--ink-2);
 }
@@ -412,7 +441,7 @@
 }
 .d2 .gr-line--px {
   color: var(--ink-3);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 .d2 .gr-foot {
   text-align: center;
