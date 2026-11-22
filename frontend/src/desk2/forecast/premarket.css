@@ -27,7 +27,7 @@
   font-size: 12px;
 }
 
-.ng-premarket-head a {
+.ng-premarket .ng-premarket-head a {
   padding-block: 5px;
   color: var(--accent-neon);
   font-size: 12px;
@@ -78,7 +78,7 @@
   gap: clamp(7px, 1vw, 13px);
 }
 
-.ng-premarket-card {
+.ng-premarket-grid > .ng-premarket-card {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -87,7 +87,7 @@
   padding: clamp(8px, 1.25vw, 14px);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
-  background: var(--bg-panel);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   font-family: var(--f-sans);
   text-align: start;
