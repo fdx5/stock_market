@@ -41,6 +41,7 @@ BATCH_TOKEN = os.environ.get("PREDICTION_BATCH_TOKEN")
 # Fixed order so the page's tab strip and the API agree without the frontend
 # re-sorting; also the order a Korean-market audience reads them in.
 MARKET_ORDER = (MARKET_KOSPI, MARKET_KOSDAQ, MARKET_NASDAQ)
+_PREMARKET_SCOPES = {"all": MARKET_ORDER, "kr": MARKET_ORDER[:2], "us": (MARKET_NASDAQ,)}
 
 MARKET_LABELS = {
     MARKET_KOSPI: "코스피",
@@ -176,6 +177,35 @@ def _predictions_payload(date: str | None, market: str | None) -> dict:
     }
 
 
+@router.get("/premarket")
+def premarket(response: Response, scope: str = Query("all", pattern=r"^(all|kr|us)$")):
+    """Public forecast previews for each market's upcoming session before pre-market."""
+    now = dt.datetime.now(dt.timezone.utc)
+    sessions = {}
+    for market in _PREMARKET_SCOPES[scope]:
+        region = "US" if market == MARKET_NASDAQ else "KR"
+        upcoming = cal.upcoming_premarket(region, now)
+        if upcoming:
+            day, cutoff = upcoming
+            sessions[market] = (cal.to_key(day), int(cutoff.timestamp() * 1000))
+
+    targets = {market: day for market, (day, _) in sessions.items()}
+    response.headers["Cache-Control"] = "public, max-age=30"
+    if not targets:
+        return {"groups": []}
+    key = "prediction:premarket:" + ",".join(f"{market}:{day}" for market, day in targets.items())
+    cards = cache.get_or_set(
+        key, TTL_PREDICTION_DAY_SECONDS, lambda: prediction_store.premarket_cards(targets)
+    )
+    return {
+        "groups": [
+            {"market": market, "date": day, "hide_at": cutoff, "items": cards[market]}
+            for market, (day, cutoff) in sessions.items()
+            if cards.get(market)
+        ]
+    }
+
+
 def _avg(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 1) if values else None
 
@@ -268,6 +298,22 @@ def stock_history(code: str, limit: int = Query(20, ge=1, le=90)):
 
     key = f"prediction:stock:{code}:{limit}"
     return cache.get_or_set(key, TTL_PREDICTION_META_SECONDS, _build)
+
+
+@router.get("/stock/{code}/session")
+def stock_session(
+    code: str,
+    market: str = Query(..., pattern=r"^(KOSPI|KOSDAQ|NASDAQ)$"),
+    date: str = Query(..., pattern=r"^\d{8}$"),
+):
+    def _build():
+        item = prediction_store.session_prediction(code, market, date)
+        if item is None:
+            raise HTTPException(status_code=404, detail="해당 거래일의 종목 예측을 찾을 수 없습니다.")
+        return item
+
+    key = f"prediction:stock-session:{market}:{code}:{date}"
+    return cache.get_or_set(key, TTL_PREDICTION_DAY_SECONDS, _build)
 
 
 @router.get("/run/status")

@@ -8,6 +8,7 @@ import { useMarketSnapshot } from "../useMarketSnapshot";
 import { recordRecent } from "../watchlist";
 import MarketOverview from "./discover/MarketOverview";
 import { InvestorShowcase, VideoShowcase } from "./discover/DiscoverySections";
+import PremarketForecast from "./forecast/PremarketForecast";
 import Colophon from "./Colophon";
 import CommandBar, { DeskSection } from "./CommandBar";
 import CommodityDesk from "./CommodityDesk";
@@ -114,6 +115,7 @@ export default function Desk2Page() {
           <MarketOverview market="kr" items={marketItems} asOf={asOf} generatedAt={snapshot.generatedAt} />
         </section>
         <AdZone kind="break" />
+        <PremarketForecast scope="kr" />
         <InvestorShowcase id="d2-investors" />
         <VideoShowcase id="d2-videos" market="kr" />
 

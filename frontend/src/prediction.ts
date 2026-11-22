@@ -184,7 +184,7 @@ export function scoreWidthPct(score: number): number {
  * reaches back into history — so every caller has to handle its absence rather than
  * defaulting to zeroes that would render as a confident 0% 상승. */
 export function probabilities(
-  item: PredictionItem
+  item: Pick<PredictionItem, "prob_up" | "prob_flat" | "prob_down">
 ): { up: number; flat: number; down: number } | null {
   if (item.prob_up === null || item.prob_flat === null || item.prob_down === null) return null;
   return { up: item.prob_up, flat: item.prob_flat, down: item.prob_down };

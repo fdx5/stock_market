@@ -418,6 +418,44 @@ def list_by_predict_date(predict_date: str, market: str | None = None) -> list[d
     return [_row_to_prediction(row) for row in _with_connection(_run)]
 
 
+def premarket_cards(sessions: dict[str, str], limit: int = 8) -> dict[str, list[dict]]:
+    """Lightweight, market-cap ordered previews for the requested future sessions."""
+    if not sessions:
+        return {}
+    fields = (
+        ("stock_code", "code"), ("stock_name", "name"), ("market", "market"),
+        ("predict_result", "result"), ("base_price", "base_price"), ("predict_price", "predict_price"),
+        ("change_rate", "change_rate"), ("prob_up", "prob_up"),
+        ("prob_flat", "prob_flat"), ("prob_down", "prob_down"),
+        ("reliability", "reliability"),
+    )
+    columns = ", ".join(column for column, _ in fields)
+    windows = " OR ".join("(market = ? AND predict_date = ?)" for _ in sessions)
+    params = tuple(value for session in sessions.items() for value in session)
+
+    def _run(conn):
+        return conn.execute(
+            "WITH latest AS ("
+            f"SELECT {columns}, market_cap, score, hit, ROW_NUMBER() OVER ("
+            "PARTITION BY market, stock_code ORDER BY collect_date DESC) AS publication "
+            f"FROM stock_predictions WHERE {windows}"
+            "), ranked AS ("
+            f"SELECT {columns}, ROW_NUMBER() OVER (PARTITION BY market "
+            "ORDER BY market_cap DESC, score DESC, stock_code) AS rank "
+            "FROM latest WHERE publication = 1 AND hit IS NULL) "
+            f"SELECT {columns} FROM ranked WHERE rank <= ? ORDER BY market, rank",
+            (*params, limit),
+        ).fetchall()
+
+    groups: dict[str, list[dict]] = {}
+    keys = [key for _, key in fields]
+    for row in _with_connection(_run):
+        item = dict(zip(keys, row))
+        market = item.pop("market")
+        groups.setdefault(market, []).append(item)
+    return groups
+
+
 def list_predict_dates(limit: int = 30) -> list[str]:
     """Distinct 예측일자 values, newest first — the date navigator's options. Only
     dates that actually have rows are offered, so a day the batch never ran for
@@ -473,6 +511,19 @@ def list_by_code(code: str, limit: int = 30) -> list[dict]:
         ).fetchall()
 
     return [_row_to_prediction(row) for row in _with_connection(_run)]
+
+
+def session_prediction(code: str, market: str, date: str) -> dict | None:
+    def _run(conn):
+        return conn.execute(
+            f"SELECT {_SELECT_SQL} FROM stock_predictions "
+            "WHERE stock_code = ? AND market = ? AND predict_date = ? "
+            "ORDER BY collect_date DESC LIMIT 1",
+            (code, market, date),
+        ).fetchone()
+
+    row = _with_connection(_run)
+    return _row_to_prediction(row) if row else None
 
 
 def list_ungraded(markets: tuple[str, ...], upto_date: str, limit: int = 1200) -> list[dict]:

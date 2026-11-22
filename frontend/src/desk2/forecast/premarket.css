@@ -1,0 +1,193 @@
+.ng-premarket {
+  container-type: inline-size;
+  margin-block: 18px;
+  padding: clamp(12px, 2vw, 22px);
+  font-family: var(--f-sans);
+}
+
+.ng-premarket-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 12px;
+}
+
+.ng-premarket-head h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font: 800 clamp(18px, 2.2vw, 24px)/1.2 var(--f-display);
+}
+
+.ng-premarket-head p,
+.ng-premarket-status {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ng-premarket-head a {
+  padding-block: 5px;
+  color: var(--accent-neon);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ng-premarket-markets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.ng-premarket-markets button {
+  min-height: 36px;
+  padding: 4px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font: 700 12px var(--f-sans);
+  cursor: pointer;
+}
+
+.ng-premarket-markets button[aria-pressed="true"] {
+  border-color: var(--accent-neon);
+  background: color-mix(in srgb, var(--accent-neon) 15%, var(--bg-panel));
+  color: var(--text-primary);
+}
+
+.ng-premarket-markets button:disabled {
+  opacity: .48;
+  cursor: default;
+}
+
+.ng-premarket-single {
+  margin: 0 0 9px;
+  color: var(--accent-neon);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ng-premarket-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(7px, 1vw, 13px);
+}
+
+.ng-premarket-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 9px;
+  min-width: 0;
+  padding: clamp(8px, 1.25vw, 14px);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: var(--f-sans);
+  text-align: start;
+  cursor: pointer;
+}
+
+.ng-premarket-card:is(:hover, :focus-visible, [aria-busy="true"]) {
+  border-color: var(--accent-neon);
+}
+
+.ng-premarket :is(a, button):focus-visible {
+  outline: 2px solid var(--accent-neon);
+  outline-offset: 2px;
+}
+
+.ng-premarket-identity {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+}
+
+.ng-premarket-identity > span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ng-premarket-identity strong {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ng-premarket-identity small {
+  color: var(--text-secondary);
+  font: 10px var(--f-type);
+}
+
+.ng-premarket-logo {
+  display: grid;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--line-soft);
+  font: 700 9px var(--f-sans);
+  object-fit: contain;
+}
+
+.ng-premarket-price {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  width: 100%;
+  font: 700 clamp(13px, 1.45vw, 18px)/1.2 var(--f-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.ng-premarket-price em {
+  font-size: .9em;
+  font-style: normal;
+}
+
+.ng-premarket-basis {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  width: 100%;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.ng-premarket .is-up { color: var(--market-up); }
+.ng-premarket .is-flat { color: var(--text-secondary); }
+.ng-premarket .is-down { color: var(--market-down); }
+
+.ng-premarket-prob {
+  display: flex;
+  overflow: hidden;
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.ng-premarket-prob i { background: currentColor; }
+
+@container (max-width: 840px) {
+  .ng-premarket-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@container (max-width: 600px) {
+  .ng-premarket-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container (max-width: 280px) {
+  .ng-premarket-grid { grid-template-columns: minmax(0, 1fr); }
+}

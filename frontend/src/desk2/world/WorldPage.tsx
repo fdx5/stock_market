@@ -26,6 +26,7 @@ import { jumpTo, useBroadsheet, useFinderHotkey, useScrollSpy } from "../shell";
 import "../pages.css";
 import "./world.css";
 import TreasuryDesk from "./TreasuryDesk";
+import PremarketForecast from "../forecast/PremarketForecast";
 import { useDesignMode } from "../../neo/settings";
 import NeoSectorDigest from "../../neo/NeoSectorDigest";
 import { usSessionItems } from "../discover/usOverviewQuotes";
@@ -231,6 +232,7 @@ export default function WorldPage() {
             </div>}
           </details>
         </section>
+        <PremarketForecast scope="us" />
         <TreasuryDesk />
         <AdZone kind="break" />
         <InvestorShowcase id="w-investors" />

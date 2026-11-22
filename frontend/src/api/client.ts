@@ -1008,6 +1008,19 @@ export interface SessionScore {
  * the call's account of itself (probabilities, reliability, close explanation,
  * evidence), and what actually happened (the actual_ fields and `hit`) — the last of
  * which stays null until the predicted session has traded and been graded. */
+export type PremarketScope = "all" | "kr" | "us";
+export type PremarketMarket = "KOSPI" | "KOSDAQ" | "NASDAQ";
+
+export interface PremarketGroup {
+  market: PremarketMarket;
+  date: string;
+  hide_at: number;
+  items: Pick<PredictionItem,
+    "code" | "name" | "result" | "base_price" | "predict_price" | "change_rate" |
+    "prob_up" | "prob_flat" | "prob_down" | "reliability"
+  >[];
+}
+
 export interface PredictionItem {
   /** 수집일자 — the session the prediction was computed from. */
   collect_date: string;
@@ -1761,6 +1774,13 @@ export const api = {
       items: PredictionItem[];
       accuracy: AccuracyWindows | null;
     }>(`${BASE}/prediction/stock/${encodeURIComponent(code)}?limit=${limit}`),
+  premarketForecasts: (scope: PremarketScope, signal: AbortSignal) =>
+    getJSON<{ groups: PremarketGroup[] }>(`${BASE}/prediction/premarket?scope=${scope}`, { signal }),
+  predictionSession: (code: string, market: PremarketMarket, date: string, signal: AbortSignal) =>
+    getJSON<PredictionItem>(
+      `${BASE}/prediction/stock/${encodeURIComponent(code)}/session?market=${market}&date=${date}`,
+      { signal },
+    ),
   predictionAccuracy: () => getJSON<PredictionAccuracy>(`${BASE}/prediction/accuracy`),
   predictionGradingMatrix: (market?: string | null, limit = 20, signal?: AbortSignal) => {
     const params = new URLSearchParams();

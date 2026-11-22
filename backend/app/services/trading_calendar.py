@@ -133,6 +133,25 @@ def now_et() -> dt.datetime:
 # reported on at all.
 CLOSE_TIME = {"KR": dt.time(15, 30), "US": dt.time(16, 0)}
 
+# NXT's domestic pre-market and Nasdaq's US pre-market, in local exchange time.
+_PREMARKET_START = {"KR": dt.time(8), "US": dt.time(4)}
+_AFTER_HOURS_END = dt.time(20)
+
+
+def upcoming_premarket(region: str, now: dt.datetime) -> tuple[dt.date, dt.datetime] | None:
+    """The target forecast session and its pre-market cutoff outside trading hours."""
+    zone = KST if region == "KR" else ET
+    local = now.astimezone(zone)
+    today = local.date()
+    cutoff = _PREMARKET_START[region]
+    if is_trading_day(today, region):
+        if local.time() < cutoff:
+            return today, dt.datetime.combine(today, cutoff, zone)
+        if local.time() < _AFTER_HOURS_END:
+            return None
+    next_day = next_trading_day(today, region)
+    return next_day, dt.datetime.combine(next_day, cutoff, zone)
+
 
 def session_date(region: str) -> dt.date:
     """The trading day the batch is reporting on — i.e. the most recent session that
