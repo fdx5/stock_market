@@ -45,7 +45,7 @@ function ForecastCard({ item, market, busy, onOpen, selection }: {
   const change = formatChangeRate(item.change_rate);
   const p = probabilities(item);
 
-  const className = `ng-premarket-card is-${RESULT_CLASS[item.result]}`;
+  const direction = RESULT_CLASS[item.result];
   const content = (
     <>
       <span className="ng-premarket-identity">
@@ -56,7 +56,7 @@ function ForecastCard({ item, market, busy, onOpen, selection }: {
       </span>
       <span className="ng-premarket-price">
         <b>{formatMoney(item.predict_price, market)}</b>
-        <em className={`is-${RESULT_CLASS[item.result]}`}>{RESULT_ARROW[item.result]} {change}</em>
+        <em className={`is-${direction}`}>{RESULT_ARROW[item.result]} {change}</em>
       </span>
       <span className="ng-premarket-basis">
         <span>{L("기준가", "Base")} {formatMoney(item.base_price, market)}</span>
@@ -87,10 +87,11 @@ function ForecastCard({ item, market, busy, onOpen, selection }: {
   );
 
   if (selection) {
-    return <label className={`${className} ng-premarket-selectable${selection.checked ? " is-checked" : ""}`}>{content}</label>;
+    return <label className={`ng-premarket-card ng-premarket-selectable${selection.checked ? " is-checked" : ""}`}
+      data-direction={direction}>{content}</label>;
   }
   return (
-    <button type="button" className={className}
+    <button type="button" className="ng-premarket-card" data-direction={direction}
       aria-label={L(`${item.name} ${change} 예측 상세`, `${item.name} ${change} forecast details`)}
       aria-haspopup="dialog" aria-busy={busy} onClick={onOpen}>
       {content}

@@ -173,8 +173,8 @@
   cursor: pointer;
 }
 
-.ng-premarket-card.is-up { --forecast-card-signal: var(--market-up); }
-.ng-premarket-card.is-down { --forecast-card-signal: var(--market-down); }
+.ng-premarket-card[data-direction="up"] { --forecast-card-signal: var(--market-up); }
+.ng-premarket-card[data-direction="down"] { --forecast-card-signal: var(--market-down); }
 
 .ng-premarket-card::before {
   content: "";
