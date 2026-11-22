@@ -19,10 +19,13 @@ import {
   PlaneGeometry, RepeatWrapping, SRGBColorSpace, Sphere, Texture, Vector3, type Frustum, type Material,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { MeshStandardNodeMaterial } from "three/webgpu";
+import { MeshStandardNodeMaterial, type UniformNode } from "three/webgpu";
 import { texture as textureNode, uniform, uv, vec2 } from "three/tsl";
 import { FLOOR, companyLogo, shortTime, type ExchangeMarket, type FloorSnapshot, type Language } from "./market";
-import { LIVE_PANELS, PAGES, PAINTERS, paintColumn, paintTicker, setTickerLogoListener, type G, type PaintEnv, type TickerStyle } from "./panels";
+import {
+  LIVE_PANELS, OUTER_TICKER_ATLAS, PAGES, PAINTERS, paintColumn, paintOuterTicker, paintTicker, setTickerLogoListener,
+  tickerEntries, type G, type PaintEnv, type TickerStyle,
+} from "./panels";
 import type { WorkerIn, WorkerOut } from "./paintWorker";
 
 type Screen = (typeof FLOOR.screens)[number] & { r?: number; a0?: number; a1?: number };
@@ -56,6 +59,25 @@ function arcGeometry(s: Screen) {
 }
 const curved = (s: Screen) => s.kind === "arc" || s.kind === "band";
 const TICKERS: Record<string, TickerStyle> = { tickerA: "amber", tickerB: "cyan", tickerC: "commodity", tickerD: "news", ring: "ring", tickerV: "column" };
+/** The two ends of the mesh must sample the same position at every scroll offset. */
+function outerTickerTexture(
+  tex: Texture,
+  offset: UniformNode<"float", number>,
+  count: UniformNode<"float", number>,
+  repeats: UniformNode<"float", number>,
+) {
+  const columns = OUTER_TICKER_ATLAS.columns;
+  const band = uv();
+  const progress = band.x.add(offset).mul(repeats);
+  const slot = progress.fract().mul(count);
+  const row = slot.div(columns).floor();
+  const rowCount = count.div(columns).ceil();
+  const atlasUvs = vec2(slot.mod(columns).div(columns), row.add(band.y.oneMinus()).div(rowCount));
+  // Derive mip gradients before wrapping at the ring seam and moving between atlas rows.
+  const continuous = vec2(progress.mul(count).div(columns), band.y.negate().div(rowCount));
+  return textureNode(tex, atlasUvs).grad(continuous.dFdx(), continuous.dFdy());
+}
+
 /** Texture width at full quality, and the aspect a panel is designed for (720 design units tall). */
 function panelSpec(id: string, instances: Screen[]) {
   const primary = instances.reduce((a, b) => (a.w * a.h >= b.w * b.h ? a : b));
@@ -147,6 +169,10 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   /** Page counts per list panel, computed once per snapshot rather than (with a sort) every frame. */
   const pageCounts = new Map<string, number>();
   const tickers = new Map<string, { canvas: HTMLCanvasElement; tex: Texture; width: number; meshes: Mesh[]; offset: { value: number } }>();
+  const outerTickerCanvas = offscreen ? new OffscreenCanvas(1, 1) : undefined;
+  const outerCount = uniform(1);
+  const outerRepeats = uniform(1);
+  let outerSignature = "", outerPaint = 0;
   /** Page flips for list panels: page index, the page it left and when the flip started. */
   const pagers = new Map<string, { page: number; prev: number; at: number; next: number }>();
   const materials: Material[] = [];
@@ -189,14 +215,16 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       const vertical = TICKERS[id] === "column";
       const tex = new Texture();
       tex.colorSpace = SRGBColorSpace;
-      tex.wrapS = RepeatWrapping;
+      if (id === "tickerA") tex.flipY = false;
+      else tex.wrapS = RepeatWrapping;
       if (vertical) tex.wrapT = RepeatWrapping;
       tex.anisotropy = 8;
       // Scroll in the shader: a uniform offset, so moving text costs no texture upload at all.
       const offset = uniform(0);
       const mat = new MeshStandardNodeMaterial({ color: 0x000000, roughness: .12, metalness: 0 });
       mat.envMapIntensity = .3;
-      mat.emissiveNode = textureNode(tex, uv().add(vertical ? vec2(0, offset) : vec2(offset, 0))).rgb.mul(id === "tickerA" ? 1.25 : 1.1);
+      mat.emissiveNode = id === "tickerA" ? outerTickerTexture(tex, offset, outerCount, outerRepeats).rgb.mul(1.25)
+        : textureNode(tex, uv().add(vertical ? vec2(0, offset) : vec2(offset, 0))).rgb.mul(1.1);
       materials.push(mat);
       const meshes = instances.map(s => {
         let geometry: BufferGeometry;
@@ -212,7 +240,8 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
         return mesh;
       });
       tex.userData.width = canvas.width;
-      tickers.set(id, { canvas, tex, width: 1024, meshes, offset });
+      const width = id === "tickerA" ? instances[0].w / instances[0].h * OUTER_TICKER_ATLAS.slotHeight : 1024;
+      tickers.set(id, { canvas, tex, width, meshes, offset });
       continue;
     }
     const painter = PAINTERS[id];
@@ -376,13 +405,41 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   let logoTimer = 0;
   setTickerLogoListener(() => {
     if (!active || logoTimer) return;
-    logoTimer = window.setTimeout(() => { logoTimer = 0; if (active) paintTickers(); }, 1200);
+    logoTimer = window.setTimeout(() => { logoTimer = 0; if (active) paintTickers(true); }, 1200);
   });
 
-  function paintTickers() {
+  function paintTickers(logosChanged = false) {
     if (!snapshot) return;
     for (const [id, ticker] of tickers) {
-      const width = TICKERS[id] === "column" ? paintColumn(ticker.canvas, snapshot, lang) : paintTicker(ticker.canvas, TICKERS[id], snapshot, lang);
+      const style = TICKERS[id];
+      if (style === "amber") {
+        const entries = tickerEntries(style, snapshot, lang);
+        const signature = JSON.stringify(entries);
+        if (!logosChanged && signature === outerSignature) continue;
+        const source = outerTickerCanvas ?? ticker.canvas;
+        if (!paintOuterTicker(source, entries)) continue;
+        outerSignature = signature;
+        const version = ++outerPaint;
+        const commit = (image: ImageBitmap | HTMLCanvasElement) => {
+          if (!active || version !== outerPaint) {
+            if (image instanceof ImageBitmap) image.close();
+            return;
+          }
+          const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement | null;
+          if (old && old.height !== image.height) ticker.tex.dispose();
+          ticker.tex.image = image;
+          ticker.tex.needsUpdate = true;
+          outerCount.value = entries.length;
+          // Repeat a partial feed a whole number of times until the full selection arrives.
+          outerRepeats.value = Math.max(1, Math.round(ticker.width / (entries.length * OUTER_TICKER_ATLAS.slotWidth)));
+          upload?.(ticker.tex);
+          if (old instanceof ImageBitmap) setTimeout(() => old.close(), 500);
+        };
+        if (outerTickerCanvas) commit(outerTickerCanvas.transferToImageBitmap());
+        else void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
+        continue;
+      }
+      const width = style === "column" ? paintColumn(ticker.canvas, snapshot, lang) : paintTicker(ticker.canvas, style, snapshot, lang);
       if (!width) continue;
       ticker.width = width;
       // Repeat the strip along each mesh at its natural pixel aspect.
@@ -510,6 +567,9 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       for (const b of pending.values()) b.close();
       pending.clear();
       for (const s of scratch.values()) s.canvas.width = s.canvas.height = 0;
+      const outerImage = tickers.get("tickerA")?.tex.image;
+      if (outerImage instanceof ImageBitmap) outerImage.close();
+      if (outerTickerCanvas) outerTickerCanvas.width = outerTickerCanvas.height = 0;
       for (const tk of tickers.values()) tk.tex.dispose();
       materials.forEach(m => m.dispose());
     },

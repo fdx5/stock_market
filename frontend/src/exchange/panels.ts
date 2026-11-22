@@ -6,7 +6,7 @@
 import type { MarketMapItem, MarketTickerItem } from "../api/client";
 import { changeToRgb, rgbToCss, textColorForRgb } from "../treemap";
 import {
-  ASSET_SINGLES, MARKETS, PANEL_LABELS, STOCK_PANELS, assetSymbol, changeText, companyLogo, displayValue, fixedValue,
+  ASSET_SINGLES, MARKETS, OUTER_TICKER_STOCK_LIMIT, PANEL_LABELS, STOCK_PANELS, assetSymbol, changeText, companyLogo, displayValue, fixedValue,
   isPrice, rowsForPanel, shortTime, stockIndex, type ExchangeMarket, type FloorSnapshot, type Language,
 } from "./marketCore";
 
@@ -1266,15 +1266,17 @@ type Entry = { label: string; value: string; change: number | null | undefined; 
 
 /* Company logos on the ticker strips (main thread). Loaded once; when one arrives the strips repaint. */
 const tickerLogos = new Map<string, HTMLImageElement | null>();
+const TICKER_LOGO_LIMIT = OUTER_TICKER_STOCK_LIMIT * Object.keys(MARKETS).length;
 let tickerLogoListener: (() => void) | undefined;
 export function setTickerLogoListener(fn: (() => void) | undefined) { tickerLogoListener = fn; }
 function tickerLogo(url: string) {
   const known = tickerLogos.get(url);
   if (known !== undefined) return known && known.complete && known.naturalWidth > 0 ? known : null;
-  if (tickerLogos.size > 200) return null;
+  if (tickerLogos.size >= TICKER_LOGO_LIMIT) return null;
   const img = new Image();
   img.crossOrigin = "anonymous";
   img.decoding = "async";
+  img.fetchPriority = "low";
   tickerLogos.set(url, img);
   img.onload = () => tickerLogoListener?.();
   img.onerror = () => tickerLogos.set(url, null);
@@ -1299,9 +1301,14 @@ function drawLogo(g: G, url: string | undefined, x: number, cy: number, size: nu
 }
 
 export function tickerEntries(style: TickerStyle, d: FloorSnapshot, lang: Language): Entry[] {
-  const fromRows = d.rows.slice(0, 30).map(r => ({ label: d.market === "sp500" ? r.code : r.name, value: displayValue(r.close, d.market === "sp500" ? 2 : 0), change: r.change_pct, logo: companyLogo(d.market, r.code) }));
   const idx = (Object.keys(MARKETS) as ExchangeMarket[]).map(k => ({ label: MARKETS[k].label, value: displayValue(d.indices[k]?.close), change: d.indices[k]?.change }));
-  if (style === "amber" || style === "ring") return [...idx, ...fromRows];
+  if (style === "amber" || style === "ring") {
+    const rows = style === "amber" ? d.outerTickerRows.slice(0, OUTER_TICKER_STOCK_LIMIT) : d.rows.slice(0, 30);
+    return [...idx, ...rows.map(r => ({
+      label: name(d, r), value: displayValue(r.close, d.market === "sp500" ? 2 : 0),
+      change: r.change_pct, logo: companyLogo(d.market, r.code),
+    }))];
+  }
   if (style === "cyan") {
     const world = d.extras.world.map(x => ({ label: x.label, value: displayValue(x.close), change: x.change_pct }));
     const fx = ["KRW=X", "JPYKRW=X", "EURKRW=X", "BTC-USD", "ETH-USD", "GC=F", "CL=F"].map(s => d.tickers[s]).filter(Boolean)
@@ -1314,7 +1321,52 @@ export function tickerEntries(style: TickerStyle, d: FloorSnapshot, lang: Langua
   return hot?.headline ? [{ label: "HEADLINE", value: hot.headline, change: 0 }, ...titles] : titles;
 }
 
-/** Paints a seamless ticker strip; returns its pixel width (≤ 8192). */
+export const OUTER_TICKER_ATLAS = { columns: 16, slotWidth: 256, slotHeight: 128 };
+
+/** Pack the outer ring into rows so every quote fits within the GPU texture size limit. */
+export function paintOuterTicker(canvas: HTMLCanvasElement | OffscreenCanvas, entries: Entry[]) {
+  const { columns, slotWidth, slotHeight } = OUTER_TICKER_ATLAS;
+  const width = columns * slotWidth;
+  const height = Math.ceil(entries.length / columns) * slotHeight;
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const g = canvas.getContext("2d") as G | null;
+  if (!g) return false;
+  g.fillStyle = "#000";
+  g.fillRect(0, 0, width, height);
+
+  const size = 32, logoSize = size * 1.15, middle = { base: "middle" } as const;
+  for (const [index, entry] of entries.entries()) {
+    const left = (index % columns) * slotWidth;
+    const top = Math.floor(index / columns) * slotHeight;
+    const change = `${arrow(entry.change)} ${changeText(entry.change)}`;
+    g.font = `600 ${size}px ${FONT.kr}`;
+    const labelWidth = measure(g, entry.label);
+    g.font = `600 ${size}px ${FONT.num}`;
+    const valueWidth = measure(g, entry.value);
+    g.font = `700 ${size * .82}px ${FONT.num}`;
+    const changeWidth = measure(g, change);
+    const logoSpace = entry.logo ? logoSize + 8 : 0;
+    const contentWidth = labelWidth + logoSpace + valueWidth + changeWidth + 20;
+
+    g.save();
+    g.translate(left + 12, top + slotHeight / 2);
+    g.scale(Math.min(1, (slotWidth - 32) / contentWidth), 1);
+    let x = txt(g, entry.label, 0, 2, size, "#ffcf6a", { ...middle, glow: 6 }) + 10;
+    drawLogo(g, entry.logo, x, 0, logoSize);
+    x += logoSpace;
+    x += txt(g, entry.value, x, 2, size, "#ffffff", { ...middle, f: FONT.num }) + 10;
+    txt(g, change, x, 2, size * .82, tone(entry.change), { ...middle, w: 700, f: FONT.num, glow: 6 });
+    g.restore();
+
+    g.fillStyle = "#ffffff22";
+    g.fillRect(left + slotWidth - 8, top + slotHeight * .34, 2, slotHeight * .32);
+  }
+  g.fillStyle = "#00000038";
+  for (let y = 0; y < height; y += 4) g.fillRect(0, y, width, 1);
+  return true;
+}
+
 /** The LED strips on the columns: a tall stack of quote cards (name, price, change, a mini bar),
  * scrolled vertically in the shader. Returns the canvas height (the scroll length). */
 export function paintColumn(canvas: HTMLCanvasElement, d: FloorSnapshot, lang: Language) {
@@ -1344,14 +1396,15 @@ export function paintColumn(canvas: HTMLCanvasElement, d: FloorSnapshot, lang: L
   return H;
 }
 
-export function paintTicker(canvas: HTMLCanvasElement, style: TickerStyle, d: FloorSnapshot, lang: Language) {
+/** Paints a scrolling strip; returns its pixel width (≤ 8192). */
+export function paintTicker(canvas: HTMLCanvasElement, style: Exclude<TickerStyle, "amber">, d: FloorSnapshot, lang: Language) {
   const H = 128;
   const g = canvas.getContext("2d");
   if (!g) return 0;
   const entries = tickerEntries(style, d, lang);
   // Readable faces only: Pretendard for names and headlines, Plex Condensed for figures.
   const font = FONT.kr;
-  const size = style === "amber" ? 32 : 28;
+  const size = 28;
   g.font = `700 ${size}px ${font}`;
   const widths = entries.map(en => {
     g.font = `700 ${size}px ${font}`;
@@ -1367,7 +1420,7 @@ export function paintTicker(canvas: HTMLCanvasElement, style: TickerStyle, d: Fl
   const W = Math.max(1024, Math.min(8192, Math.ceil((total || 1) / 512) * 512));
   canvas.width = W; canvas.height = H;
   g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
-  const main = style === "amber" ? "#ffb21a" : style === "cyan" ? "#5fe3ff" : style === "commodity" ? "#9cf27a" : style === "ring" ? "#f4f7ff" : "#ffffff";
+  const main = style === "cyan" ? "#5fe3ff" : style === "commodity" ? "#9cf27a" : style === "ring" ? "#f4f7ff" : "#ffffff";
   let x = 40;
   for (let i = 0; i < count; i++) {
     const en = entries[i];
@@ -1380,17 +1433,12 @@ export function paintTicker(canvas: HTMLCanvasElement, style: TickerStyle, d: Fl
       x += txt(g, en.value, x, H / 2 + 2, size, main, { w: 600, base: "middle", f: font }) + 70;
       continue;
     }
-    x += txt(g, en.label, x, H / 2 + 2, size, style === "amber" ? "#ffcf6a" : main, { w: 600, f: font, base: "middle", glow: style === "amber" ? 6 : 0 }) + 14;
+    x += txt(g, en.label, x, H / 2 + 2, size, main, { w: 600, f: font, base: "middle" }) + 14;
     const chip = drawLogo(g, en.logo, x, H / 2, size * 1.15);
     x += chip ? chip + 12 : 0;
     x += txt(g, en.value, x, H / 2 + 2, size, "#ffffff", { w: 600, f: FONT.num, base: "middle" }) + 12;
     x += txt(g, `${arrow(en.change)} ${changeText(en.change)}`, x, H / 2 + 2, size * .82, col, { w: 700, f: FONT.num, base: "middle", glow: 6 }) + 46;
     g.fillStyle = "#ffffff22"; g.fillRect(x - 26, H * .34, 2, H * .32);
-  }
-  if (style === "amber") {
-    // A faint LED pitch: texture up close without breaking up the letterforms.
-    g.fillStyle = "#00000038";
-    for (let py = 0; py < H; py += 4) g.fillRect(0, py, W, 1);
   }
   g.textBaseline = "alphabetic";
   return W;

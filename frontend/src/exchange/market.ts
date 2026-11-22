@@ -8,7 +8,7 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
 import { useMarketIndices, type MarketIndices } from "../useMarketIndices";
 import { useMarketTicker } from "../useMarketTicker";
 import {
-  STOCK_PANELS, isPrice, rowsForPanel, stockIndex, type ExchangeMarket, type FloorExtras, type FloorIndex, type FloorSnapshot, type SectorStat,
+  OUTER_TICKER_STOCK_LIMIT, STOCK_PANELS, isPrice, rowsForPanel, stockIndex, type ExchangeMarket, type FloorExtras, type FloorIndex, type FloorSnapshot, type SectorStat,
 } from "./marketCore";
 
 export * from "./marketCore";
@@ -31,9 +31,9 @@ function useSample(market: ExchangeMarket) {
       pending = request;
       const timeout = window.setTimeout(() => request.abort(), 9_500);
       try {
-        const value = await (market === "sp500" ? api.sp500Ranking(SAMPLE_LIMIT, request.signal)
-          : market === "kosdaq" ? api.kosdaqMap(SAMPLE_LIMIT, false, request.signal)
-            : api.marketMap(SAMPLE_LIMIT, false, request.signal));
+        const value = await (market === "sp500" ? api.sp500Ranking(OUTER_TICKER_STOCK_LIMIT, request.signal)
+          : market === "kosdaq" ? api.kosdaqMap(OUTER_TICKER_STOCK_LIMIT, false, request.signal)
+            : api.marketMap(OUTER_TICKER_STOCK_LIMIT, false, request.signal));
         if (!value.items.some(item => isPrice(item.close))) throw new Error("empty market sample");
         if (active) setSamples(old => ({ ...old, [market]: { value, failed: false } }));
       } catch {
@@ -104,7 +104,8 @@ export function useFloorQuotes(market: ExchangeMarket): FloorSnapshot {
   const kr = useKrHistory();
   const extras = useFloorExtras();
   return useMemo(() => {
-    const rows = (value?.items ?? []).filter(row => /^[A-Za-z0-9.-]{1,16}$/.test(row.code) && isPrice(row.close));
+    const outerTickerRows = (value?.items ?? []).filter(row => /^[A-Za-z0-9.-]{1,16}$/.test(row.code) && isPrice(row.close));
+    const rows = outerTickerRows.slice(0, SAMPLE_LIMIT);
     const tickers = Object.fromEntries(ticker.filter(item => isPrice(item.price)).map(item => [item.symbol, item]));
     const us = tickers["^GSPC"];
     const all: Record<ExchangeMarket, FloorIndex | null> = {
@@ -131,7 +132,7 @@ export function useFloorQuotes(market: ExchangeMarket): FloorSnapshot {
     }
     const sectors = [...groups.values()].map(group => ({ ...group, change: group.change / (group.cap || 1) }))
       .sort((a, b) => b.cap - a.cap);
-    return { market, rows, tickers, failed, received: value?.generated_at ?? null, index: all[market], indices: all,
+    return { market, rows, outerTickerRows, tickers, failed, received: value?.generated_at ?? null, index: all[market], indices: all,
       investorTotals: market === "kosdaq" ? indices.kosdaqInvestor : indices.kospiInvestor,
       up, down, flat, sectors, extras, capBasis: value?.ranking_basis, session: value?.session };
   }, [market, value, failed, ticker, indices, kr, extras]);

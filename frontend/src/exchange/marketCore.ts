@@ -15,6 +15,8 @@ export const MARKETS = {
 } as const;
 export type ExchangeMarket = keyof typeof MARKETS;
 export type Language = "ko" | "en";
+export const OUTER_TICKER_STOCK_LIMIT = 120;
+
 export const STORAGE_ASSETS = "/3d/exchange-floor";
 export const STOCK_PANELS = 16;
 
@@ -101,6 +103,7 @@ export type FloorIndex = { close: number; change: number | null; time: string | 
 export type SectorStat = { name: string; change: number; count: number; cap: number };
 export type FloorSnapshot = {
   market: ExchangeMarket; rows: MarketMapItem[]; tickers: Record<string, MarketTickerItem>;
+  outerTickerRows: MarketMapItem[];
   failed: boolean; received: string | null; index: FloorIndex | null;
   indices: Record<ExchangeMarket, FloorIndex | null>; investorTotals: MarketIndices["kospiInvestor"];
   capBasis: "market_cap" | "index_weight" | undefined; session: string | undefined;
