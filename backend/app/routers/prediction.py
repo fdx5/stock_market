@@ -180,6 +180,7 @@ def _predictions_payload(date: str | None, market: str | None) -> dict:
 @router.get("/premarket")
 def premarket(response: Response, scope: str = Query("all", pattern=r"^(all|kr|us)$")):
     """Public forecast previews for each market's upcoming session before pre-market."""
+    response.headers["Cache-Control"] = "no-store"
     now = dt.datetime.now(dt.timezone.utc)
     sessions = {}
     for market in _PREMARKET_SCOPES[scope]:
@@ -190,18 +191,19 @@ def premarket(response: Response, scope: str = Query("all", pattern=r"^(all|kr|u
             sessions[market] = (cal.to_key(day), int(cutoff.timestamp() * 1000))
 
     targets = {market: day for market, (day, _) in sessions.items()}
-    response.headers["Cache-Control"] = "public, max-age=30"
     if not targets:
-        return {"groups": []}
+        return {"server_now": int(now.timestamp() * 1000), "groups": []}
     key = "prediction:premarket:" + ",".join(f"{market}:{day}" for market, day in targets.items())
     cards = cache.get_or_set(
         key, TTL_PREDICTION_DAY_SECONDS, lambda: prediction_store.premarket_cards(targets)
     )
+    server_now = int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)
     return {
+        "server_now": server_now,
         "groups": [
             {"market": market, "date": day, "hide_at": cutoff, "items": cards[market]}
             for market, (day, cutoff) in sessions.items()
-            if cards.get(market)
+            if cutoff > server_now and cards.get(market)
         ]
     }
 

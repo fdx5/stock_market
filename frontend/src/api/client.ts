@@ -1775,7 +1775,9 @@ export const api = {
       accuracy: AccuracyWindows | null;
     }>(`${BASE}/prediction/stock/${encodeURIComponent(code)}?limit=${limit}`),
   premarketForecasts: (scope: PremarketScope, signal: AbortSignal) =>
-    getJSON<{ groups: PremarketGroup[] }>(`${BASE}/prediction/premarket?scope=${scope}`, { signal }),
+    getJSON<{ server_now: number; groups: PremarketGroup[] }>(`${BASE}/prediction/premarket?scope=${scope}`, {
+      cache: "no-store", signal,
+    }),
   predictionSession: (code: string, market: PremarketMarket, date: string, signal: AbortSignal) =>
     getJSON<PredictionItem>(
       `${BASE}/prediction/stock/${encodeURIComponent(code)}/session?market=${market}&date=${date}`,

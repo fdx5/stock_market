@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { api, type PredictionItem, type PremarketGroup, type PremarketMarket, type PremarketScope } from "../../api/client";
 import StockLogo from "../../components/StockLogo";
 import NeoIcon from "../../neo/NeoIcon";
@@ -103,7 +103,9 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
   const L = useL();
   const headingId = useId();
   const [groups, setGroups] = useState<PremarketGroup[]>([]);
-  const [now, setNow] = useState(Date.now);
+  const [now, setNow] = useState(0);
+  const clock = useRef({ serverTime: 0, measuredAt: 0 });
+  const currentTime = useCallback(() => clock.current.serverTime + (performance.now() - clock.current.measuredAt), []);
   const [selected, setSelected] = useState<PremarketMarket>(MARKETS[scope][0]);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [shareKey, setShareKey] = useState<string | null>(null);
@@ -125,9 +127,10 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
       if (request) return;
       const controller = new AbortController();
       request = controller;
-      api.premarketForecasts(scope, controller.signal).then(({ groups }) => {
+      api.premarketForecasts(scope, controller.signal).then(({ server_now, groups }) => {
         if (controller.signal.aborted) return;
-        setNow(Date.now());
+        clock.current = { serverTime: server_now, measuredAt: performance.now() };
+        setNow(server_now);
         setGroups(groups);
       }).catch(() => {
         // Keep forecasts for their published window during temporary network errors.
@@ -137,7 +140,9 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
     };
     refresh();
     const stop = startVisibilityAwareInterval(refresh, 120_000);
+    window.addEventListener("pageshow", refresh);
     return () => {
+      window.removeEventListener("pageshow", refresh);
       stop();
       request?.abort();
       detailRequest.current?.abort();
@@ -145,9 +150,9 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
   }, [scope]);
 
   useEffect(() => {
-    const updateClock = () => setNow(Date.now());
+    const updateClock = () => setNow(currentTime());
     const timer = Number.isFinite(nextCutoff)
-      ? window.setTimeout(updateClock, Math.max(0, nextCutoff - Date.now()))
+      ? window.setTimeout(updateClock, Math.max(0, Math.ceil(nextCutoff - currentTime())))
       : undefined;
     document.addEventListener("visibilitychange", updateClock);
     window.addEventListener("pageshow", updateClock);
@@ -156,7 +161,7 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
       document.removeEventListener("visibilitychange", updateClock);
       window.removeEventListener("pageshow", updateClock);
     };
-  }, [nextCutoff, now]);
+  }, [currentTime, nextCutoff, now]);
 
   const closeDetail = () => {
     detailRequest.current?.abort();
@@ -164,8 +169,9 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
   };
 
   const openDetail = (group: PremarketGroup, code: string) => {
-    if (Date.now() >= group.hide_at) {
-      setNow(Date.now());
+    const openedAt = currentTime();
+    if (openedAt >= group.hide_at) {
+      setNow(openedAt);
       return;
     }
     detailRequest.current?.abort();
@@ -175,7 +181,7 @@ export default function PremarketForecast({ scope }: { scope: PremarketScope }) 
     setDetail(target);
     Promise.all([api.predictionSession(code, group.market, group.date, request.signal), loadReader()])
       .then(([item, Component]) => {
-        if (!request.signal.aborted && Date.now() < group.hide_at) {
+        if (!request.signal.aborted && currentTime() < group.hide_at) {
           setDetail({ ...target, reader: { Component, item } });
         }
       })

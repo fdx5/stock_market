@@ -2,8 +2,13 @@ import datetime as dt
 import sqlite3
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+from app.routers import prediction
 from app.services import prediction_store, trading_calendar
+from app.services.cache import TTLCache
+from app.services.http_cache import validate_public_json
 
 
 @pytest.mark.parametrize(
@@ -29,6 +34,57 @@ def test_premarket_window(region, utc_now, expected_cutoff):
         day, cutoff = session
         assert day == cutoff.date()
         assert cutoff.astimezone(dt.timezone.utc) == dt.datetime.fromisoformat(expected_cutoff)
+
+
+@pytest.mark.parametrize(
+    ("kst_now", "scope", "load_seconds", "expected"),
+    [
+        ("2026-11-23T07:59:59+09:00", "kr", 0, {
+            "KOSPI": "2026-11-23T08:00:00+09:00",
+            "KOSDAQ": "2026-11-23T08:00:00+09:00",
+        }),
+        ("2026-11-23T07:59:59+09:00", "kr", 1, {}),
+        ("2026-11-23T08:00:00+09:00", "kr", 0, {}),
+        ("2026-11-23T08:00:00+09:00", "all", 0, {"NASDAQ": "2026-11-23T18:00:00+09:00"}),
+        ("2026-11-23T17:59:59+09:00", "us", 0, {"NASDAQ": "2026-11-23T18:00:00+09:00"}),
+        ("2026-11-23T18:00:00+09:00", "us", 0, {}),
+        ("2026-11-23T20:00:00+09:00", "kr", 0, {
+            "KOSPI": "2026-11-24T08:00:00+09:00",
+            "KOSDAQ": "2026-11-24T08:00:00+09:00",
+        }),
+    ],
+)
+def test_premarket_previews_respect_market_cutoffs(monkeypatch, kst_now, scope, load_seconds, expected):
+    datetime_type = dt.datetime
+    now = datetime_type.fromisoformat(kst_now)
+
+    class Clock(datetime_type):
+        @classmethod
+        def now(cls, tz):
+            return now.astimezone(tz)
+
+    def load_cards(targets):
+        nonlocal now
+        now += dt.timedelta(seconds=load_seconds)
+        return {market: [{"code": market}] for market in targets}
+
+    monkeypatch.setattr(prediction.dt, "datetime", Clock)
+    monkeypatch.setattr(prediction, "cache", TTLCache())
+    monkeypatch.setattr(prediction_store, "premarket_cards", load_cards)
+    app = FastAPI()
+    app.middleware("http")(validate_public_json)
+    app.include_router(prediction.router, prefix="/api/prediction")
+
+    response = TestClient(app).get("/api/prediction/premarket", params={"scope": scope})
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    payload = response.json()
+    assert payload["server_now"] == int(now.timestamp() * 1000)
+    assert {group["market"]: group["hide_at"] for group in payload["groups"]} == {
+        market: int(datetime_type.fromisoformat(cutoff).timestamp() * 1000)
+        for market, cutoff in expected.items()
+    }
 
 
 def test_cards_and_popup_use_the_same_upcoming_session(monkeypatch):

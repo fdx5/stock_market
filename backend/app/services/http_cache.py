@@ -5,7 +5,10 @@ import json
 from fastapi import Request
 from fastapi.responses import Response
 
-EXCLUSIONS = ("/api/admin", "/api/activity", "/api/notify", "/api/visitors")
+EXCLUSIONS = (
+    "/api/admin", "/api/activity", "/api/notify", "/api/visitors",
+    "/api/prediction/premarket",  # Includes the current clock for forecast expiry.
+)
 
 
 async def validate_public_json(request: Request, call_next):
