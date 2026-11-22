@@ -6,6 +6,9 @@ const pages = new Set([...menuRoots, "/etf", "/ranking/us-etf", "/map", "/kospi-
 
 export const showNasdaqFutures = (path: string) => ["/sp500-map", "/nasdaq100-map"].includes(path.replace(/\/$/, ""));
 
+/** 관제 홈·국내 증시: NQ day/night badges after the Treasury badge, only while that window trades. */
+export const showOpenNasdaqFutures = (path: string) => ["/", "/desk"].includes(path === "/" ? path : path.replace(/\/$/, ""));
+
 export function showNightQuote(path: string, search = "") {
   if (path === "/world-markets") return false;
   if (path.startsWith("/etf/")) return true;
