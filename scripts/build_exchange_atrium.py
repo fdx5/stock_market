@@ -1,14 +1,23 @@
-"""Model KOSPIMAP's v5 trading atrium in Blender, bake its lighting and export glTF.
+"""Model KOSPIMAP's v6 Grand Luminous Trading Atrium in Blender 5.2, bake 4K Cycles GI & export glTF.
 
     blender -b --factory-startup --python scripts/build_exchange_atrium.py -- <sources> <out dir> [--samples N] [--preview]
 
-Then: python scripts/glb_webp.py <out>/trading-hall-v5.glb <out>/hall-webp.glb and
-gltfpack -i <out>/hall-webp.glb -o trading-hall-v5.glb -cc -kn -km -ke -kv -vt 14 -vp 16.
-
-The plan comes from layout.json (scripts/exchange_layout.py), three.js metres, angles from +z
-toward +x. Blender's (x, y, z) = three's (x, -z, y). Groups: shell and fixtures are lightmapped
-(Cycles bake), emit holds lamps, glass and LED strips, props are lit by the hall panorama,
-bakeonly is removed before export (screen stand-ins that light the bake and the previews).
+Upgrades over v5:
+- Monumental sculpted travertine + bronze + champagne-brass tree columns with double-profiled vaulted ribs,
+  coffered oak spandrels, recessed continuous 3000K arch cove channels, and a 3-tier sculpted oculus dome.
+- 5-tier telescoping holographic light core: suspended wide open halo crown, precision brass-trimmed screen
+  drums with structural spoke arms, translucent holographic glass collar (`HoloCoreFX`), and a luminous
+  floor glass well with 48 multi-radius crystal fiber-optic filaments.
+- Architectural perimeter depth: museum-grade recessed walnut+brass art alcoves (all 31 paintings preserved),
+  signature diamond champagne-gold inlaid walnut feature walls behind curved promenade sofas, floor-to-ceiling
+  mullioned daylight skyline windows, and refined fluted oak/walnut acoustic accents.
+- Bespoke Calacatta marble plaza with dark Emperador marble borders & radial champagne-brass floor inlays.
+- Living illuminated reflecting pools (`WaterSurface` node for WebGPU ripple shader) with underwater cyan-gold
+  LED lines and low curved glass guards with brass spigots.
+- Sculpted fluted-walnut curved trading pods with brass trims, glowing toe-kicks, and a marble-topped central
+  command rotunda with circular brass footrail.
+- Balanced Nishita daylight + sculpted 3000K architectural coves + cool sapphire core glow for dramatic
+  contrast, clean AO, and 2K Cycles HDR reflections while maintaining ~140-165 draw calls at 60fps.
 """
 import argparse
 from collections import defaultdict
@@ -31,8 +40,8 @@ H = LAYOUT["room"]["height"]
 LEVELS = LAYOUT["levels"]
 GROUPS = defaultdict(list)
 MAT = {}
-VERSION = "v5"
-rng = random.Random(5)
+VERSION = "v6"
+rng = random.Random(6)
 
 
 def P(x, y, z):
@@ -48,13 +57,16 @@ def rot(yaw=0.0, tilt=0.0):
 
 
 # ---------------------------------------------------------------- materials
-def _principled(name, color, roughness, metal=0.0, emit=0.0, emit_color=None, alpha=1.0):
+def _principled(name, color, roughness, metal=0.0, emit=0.0, emit_color=None, alpha=1.0, coat=0.0):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     bsdf = m.node_tree.nodes.get("Principled BSDF")
     bsdf.inputs["Base Color"].default_value = (*color, 1)
     bsdf.inputs["Roughness"].default_value = roughness
     bsdf.inputs["Metallic"].default_value = metal
+    if coat and "Coat Weight" in bsdf.inputs:
+        bsdf.inputs["Coat Weight"].default_value = coat
+        bsdf.inputs["Coat Roughness"].default_value = 0.08
     if emit:
         bsdf.inputs["Emission Color"].default_value = (*(emit_color or color), 1)
         bsdf.inputs["Emission Strength"].default_value = emit
@@ -65,8 +77,8 @@ def _principled(name, color, roughness, metal=0.0, emit=0.0, emit_color=None, al
     return m
 
 
-def textured(key, name, root, metal=0.0, normal=0.6, tint=None):
-    m = _principled(name, (.5, .5, .5), .5, metal)
+def textured(key, name, root, metal=0.0, normal=0.6, tint=None, coat=0.0):
+    m = _principled(name, (.5, .5, .5), .5, metal, coat=coat)
     nt, links = m.node_tree.nodes, m.node_tree.links
     bsdf = nt.get("Principled BSDF")
     uv = nt.new("ShaderNodeUVMap")
@@ -101,9 +113,8 @@ def textured(key, name, root, metal=0.0, normal=0.6, tint=None):
     return m
 
 
-def emissive_image(name, path, strength, uv_map="Surface"):
-    """Black glass whose emission comes from an image (LED strips): exports as an emissive texture."""
-    m = _principled(name, (.01, .012, .016), .18)
+def emissive_image(name, path, strength, uv_map="Surface", base=(.01, .012, .016), rough=.18):
+    m = _principled(name, base, rough)
     nt, links = m.node_tree.nodes, m.node_tree.links
     bsdf = nt.get("Principled BSDF")
     tex = nt.new("ShaderNodeTexImage")
@@ -119,63 +130,80 @@ def emissive_image(name, path, strength, uv_map="Surface"):
 
 def make_materials(src, out):
     r = src / "materials"
-    MAT["stone"] = textured("stone", "Honed light stone", r, normal=.2)
-    MAT["trav"] = textured("trav", "Warm travertine", r, normal=.35)
-    MAT["oak"] = textured("veneer", "Light oak veneer", r, normal=.55)
-    MAT["oakv"] = textured("veneerv", "Light oak veneer, vertical grain", r, normal=.55)
-    MAT["deck"] = textured("oak", "Oak floorboards", r, normal=.4)
-    MAT["darkoak"] = textured("veneer", "Smoked oak veneer", r, normal=.55, tint=(.5, .45, .4))
-    MAT["carpet"] = textured("carpet", "Charcoal carpet tile", r, normal=.8, tint=(.62, .62, .64))
-    MAT["weave"] = textured("weave", "Linen weave", r, normal=.6)
-    MAT["screenfab"] = textured("weave", "Grey acoustic fabric", r, normal=.6, tint=(.58, .6, .62))
-    MAT["plaster"] = textured("plaster", "Soft white plaster", r, normal=.3)
-    MAT["leather"] = textured("leather", "Dark leather", r, normal=.6)
-    MAT["steel"] = textured("steel", "Graphite metal", r, metal=1, normal=.2, tint=(.3, .3, .32))
-    MAT["silver"] = textured("steel", "Satin aluminium", r, metal=1, normal=.2, tint=(.8, .8, .82))
-    MAT["white"] = _principled("Warm white laminate", (.82, .8, .76), .38)
-    MAT["black"] = _principled("Black metal", (.012, .012, .014), .3, .4)
-    MAT["bezel"] = _principled("Display bezel", (.004, .004, .005), .22, .2)
-    MAT["mesh"] = textured("carpet", "Black knit mesh", r, normal=1.0, tint=(.16, .16, .17))
-    MAT["mesh"].use_backface_culling = False     # upholstery: visible from both sides
-    MAT["soil"] = _principled("Planter soil", (.05, .035, .025), .95)
-    MAT["water"] = _principled("Reflecting pool", (.03, .07, .075), .04)
-    MAT["ceramic"] = _principled("Glazed ceramic", (.86, .84, .8), .22)
-    MAT["keys"] = _principled("Keycaps", (.035, .035, .04), .5)
-    MAT["artwall"] = textured("plaster", "Gallery wall", r, normal=.25, tint=(.97, .95, .92))
-    MAT["framewood"] = textured("veneer", "Frame oak", r, normal=.4, tint=(.42, .36, .3))
-    MAT["artcanvas"] = _principled("Artwork canvas", (.5, .5, .5), .6)
-    MAT["paper"] = _principled("Notebook cover", (.62, .58, .52), .8)
-    MAT["phoneglow"] = _principled("Phone display", (.2, .45, .7), .3, 0, emit=1.5, emit_color=(.35, .6, .95))
-    # Emitters (group emit).
-    MAT["glass"] = _principled("Balustrade glass", (.6, .66, .68), .04, 0, alpha=.22)
-    MAT["officeglass"] = _principled("Office glass", (.55, .6, .62), .05, 0, alpha=.3)
-    MAT["skylight"] = _principled("Daylight glazing", (.86, .92, 1.0), .2, 0, emit=2.1, emit_color=(.86, .92, 1.0))
-    MAT["cove"] = _principled("Warm cove light", (1.0, .82, .6), .4, 0, emit=4.5, emit_color=(1.0, .8, .58))
-    MAT["downlight"] = _principled("Downlight lens", (1.0, .9, .76), .3, 0, emit=8, emit_color=(1.0, .9, .76))
-    MAT["officelight"] = _principled("Office ceiling light", (1.0, .95, .88), .3, 0, emit=4.0, emit_color=(1.0, .95, .88))
-    MAT["filament"] = _principled("Light core filament", (.7, .92, 1.0), .2, 0, emit=9, emit_color=(.62, .9, 1.0))
-    MAT["coreglow"] = _principled("Light core glow", (.5, .8, 1.0), .2, 0, emit=2.4, emit_color=(.45, .78, 1.0))
-    MAT["street"] = _principled("Daylight glazing", (.8, .86, .92), .2, 0, emit=1.2, emit_color=(.82, .88, .96))
-    MAT["datarain"] = emissive_image("Column data strip", out / "datarain.png", 3.2)
+    # Luxury v6 architectural stone & marble hierarchy
+    MAT["stone"] = textured("calacatta", "Calacatta light marble", r, normal=.18, coat=.12)
+    MAT["darkmarble"] = textured("darkmarble", "Emperador dark marble", r, normal=.18, coat=.18)
+    MAT["trav"] = textured("trav", "Architectural warm travertine", r, normal=.28)
+    # Woods: light architectural oak + rich American walnut
+    MAT["oak"] = textured("veneer", "Light oak veneer", r, normal=.45)
+    MAT["oakv"] = textured("veneerv", "Light oak veneer vertical", r, normal=.45)
+    MAT["deck"] = textured("oak", "Oak floorboards", r, normal=.35)
+    MAT["walnut"] = textured("walnut", "American walnut", r, normal=.42)
+    MAT["walnutv"] = textured("walnutv", "American walnut vertical", r, normal=.42)
+    MAT["darkoak"] = textured("walnut", "Smoked walnut trim", r, normal=.45, tint=(.62, .58, .55))
+    # Fabrics & upholstery
+    MAT["carpet"] = textured("carpet", "Charcoal acoustic carpet", r, normal=.75, tint=(.46, .48, .52))
+    MAT["weave"] = textured("weave", "Ivory linen weave", r, normal=.55)
+    MAT["screenfab"] = textured("weave", "Slate acoustic fabric", r, normal=.55, tint=(.46, .49, .53))
+    MAT["pillow_camel"] = textured("weave", "Camel throw cushion", r, normal=.5, tint=(.76, .58, .42))
+    MAT["pillow_slate"] = textured("weave", "Slate blue throw cushion", r, normal=.5, tint=(.32, .42, .52))
+    MAT["plaster"] = textured("plaster", "Architectural matte plaster", r, normal=.22)
+    MAT["leather"] = textured("leather", "Espresso saddle leather", r, normal=.55)
+    # Metals: champagne brass, dark architectural bronze, satin titanium
+    MAT["brass"] = textured("brass", "Champagne brushed brass", r, metal=.94, normal=.18)
+    MAT["bronze"] = textured("steel", "Dark architectural bronze", r, metal=.88, normal=.18, tint=(.24, .21, .19))
+    MAT["steel"] = textured("steel", "Graphite brushed steel", r, metal=.92, normal=.18, tint=(.34, .35, .38))
+    MAT["silver"] = textured("steel", "Satin titanium aluminium", r, metal=.92, normal=.16, tint=(.82, .83, .85))
+    # Finishes & small fixtures
+    MAT["white"] = _principled("Honed matte composite", (.86, .84, .80), .32)
+    MAT["black"] = _principled("Anodized obsidian metal", (.018, .02, .024), .24, .55)
+    MAT["bezel"] = _principled("Display bezel", (.006, .007, .009), .18, .35)
+    MAT["mesh"] = textured("carpet", "Carbon knit mesh", r, normal=.95, tint=(.16, .17, .19))
+    MAT["mesh"].use_backface_culling = False
+    MAT["soil"] = _principled("Planter river pebbles", (.06, .05, .04), .85)
+    MAT["water"] = _principled("Reflecting pool water", (.02, .08, .10), .03, .12, coat=1.0)
+    MAT["ceramic"] = _principled("Glazed travertine ceramic", (.88, .85, .81), .20)
+    MAT["keys"] = _principled("Keycaps", (.03, .032, .036), .45)
+    MAT["artwall"] = textured("plaster", "Museum gallery wall", r, normal=.18, tint=(.97, .95, .92))
+    MAT["framewood"] = textured("walnut", "Museum frame walnut", r, normal=.35, tint=(.55, .44, .34))
+    MAT["artcanvas"] = _principled("Artwork canvas", (.5, .5, .5), .58)
+    MAT["paper"] = _principled("Notebook cover", (.66, .62, .56), .78)
+    MAT["phoneglow"] = _principled("Phone display", (.2, .48, .78), .25, 0, emit=1.6, emit_color=(.32, .65, 1.0))
+    # Glass & luminous architectural emitters
+    MAT["glass"] = _principled("Balustrade glass", (.72, .82, .86), .03, 0, alpha=.18)
+    MAT["coreglass"] = _principled("Core crystal glass", (.55, .82, .96), .03, 0, alpha=.20)
+    MAT["hologlass"] = _principled("Holographic data ring", (.25, .78, 1.0), .06, 0, emit=2.6, emit_color=(.28, .78, 1.0), alpha=.42)
+    MAT["skylight"] = _principled("Daylight glazing", (.88, .93, 1.0), .18, 0, emit=2.2, emit_color=(.88, .94, 1.0))
+    MAT["skywindow"] = emissive_image("Perimeter daylight window", r / "window_skyline.jpg", .95, base=(.55, .64, .76), rough=.06)
+    MAT["cove"] = _principled("Warm 3000K cove", (1.0, .82, .56), .35, 0, emit=5.2, emit_color=(1.0, .80, .54))
+    MAT["cove_soft"] = _principled("Soft warm accent", (1.0, .84, .60), .35, 0, emit=3.2, emit_color=(1.0, .82, .58))
+    MAT["downlight"] = _principled("Architectural downlight", (1.0, .91, .76), .25, 0, emit=9.5, emit_color=(1.0, .90, .74))
+    MAT["filament"] = _principled("Core cyan filament", (.58, .92, 1.0), .15, 0, emit=11.0, emit_color=(.48, .88, 1.0))
+    MAT["filament_w"] = _principled("Core white filament", (.88, .97, 1.0), .15, 0, emit=14.0, emit_color=(.84, .96, 1.0))
+    MAT["coreglow"] = _principled("Core energy rod", (.35, .78, 1.0), .15, 0, emit=3.8, emit_color=(.32, .76, 1.0))
+    MAT["corewell"] = _principled("Core floor light well", (.55, .90, 1.0), .08, 0, emit=6.5, emit_color=(.45, .86, 1.0))
+    MAT["cyanglow"] = _principled("Cyan accent LED", (.25, .82, 1.0), .25, 0, emit=4.8, emit_color=(.22, .80, 1.0))
+    MAT["waterled"] = _principled("Pool underwater LED", (.32, .85, .95), .25, 0, emit=4.2, emit_color=(.30, .84, .96))
+    MAT["datarain"] = emissive_image("Column data strip", out / "datarain.png", 3.4)
 
 
 def data_rain(path):
-    """A tall LED strip texture: columns of small cyan/blue figure blocks, as on the concept columns."""
-    w, h = 64, 1024
+    """High-density sapphire/cyan/ice-white holographic data stream texture for column recesses."""
+    w, h = 128, 1024
     img = np.zeros((h, w, 3), dtype=np.float32)
-    img[:] = (.004, .01, .02)
-    for col in range(0, w, 8):
+    img[:] = (.004, .012, .026)
+    for col in range(4, w - 4, 10):
         y = 0
         while y < h:
-            run = rng.randint(2, 7)
-            if rng.random() < .62:
-                c = rng.choice([(.25, .75, 1.0), (.15, .45, 1.0), (.6, .95, 1.0), (.1, .9, .75)])
+            run = rng.randint(2, 9)
+            if rng.random() < .66:
+                c = rng.choice([(.22, .78, 1.0), (.12, .48, 1.0), (.68, .96, 1.0), (.15, .92, .82), (.92, .96, 1.0)])
                 k = rng.uniform(.35, 1.0)
                 for j in range(run):
                     yy = y + j * 5
                     if yy + 3 < h:
-                        img[yy:yy + 3, col + 1:col + 6] = [v * k * (1 - j * .08) for v in c]
-            y += run * 5 + rng.randint(2, 18)
+                        img[yy:yy + 3, col:col + 7] = [v * k * (1 - j * .06) for v in c]
+            y += run * 5 + rng.randint(3, 20)
     bimg = bpy.data.images.new("datarain", w, h, alpha=False)
     rgba = np.concatenate([img[::-1], np.ones((h, w, 1), np.float32)], axis=2)
     bimg.pixels.foreach_set(rgba.ravel())
@@ -216,7 +244,7 @@ def emit_object(name, verts, faces, mat, group, matrix, tile=1.0, bevel=0.0, seg
     me.transform(matrix)
     if smooth:
         me.shade_smooth()
-        me.set_sharp_from_angle(angle=radians(35))
+        me.set_sharp_from_angle(angle=radians(36))
     if uv is not None:
         layer = me.uv_layers.new(name="Surface")
         for poly in me.polygons:
@@ -239,7 +267,6 @@ def box(name, x, y, z, w, h, d, mat, group="fixtures", *, bevel=0.0, yaw=0.0, ti
 
 
 def oriented(screen, du, dv, dn, w, h, d, mat, group="fixtures", bevel=0.0):
-    """A box in a flat screen's local frame (u right, v up, n out of the face)."""
     r = rot(screen["yaw"], screen.get("tilt", 0))
     c = P(screen["x"], screen["y"], screen["z"]) + r.to_3x3() @ Vector((du, -dn, dv))
     a, b, cc = w / 2, d / 2, h / 2
@@ -249,8 +276,6 @@ def oriented(screen, du, dv, dn, w, h, d, mat, group="fixtures", bevel=0.0):
 
 
 def lathe(name, x, y, z, profile, mat, group="fixtures", sides=48, tile=1.0, smooth=True, caps=True, cyl=False):
-    """Revolve (radius, height) points around the vertical axis at (x, y, z).
-    cyl: wrap UVs around the surface (u = arc length, v = height) instead of box projection."""
     verts, faces, uv = [], [], {}
     n = len(profile)
     rings = sides + 1 if cyl else sides
@@ -278,14 +303,13 @@ def lathe(name, x, y, z, profile, mat, group="fixtures", sides=48, tile=1.0, smo
     return emit_object(name, verts, faces, mat, group, Matrix.Translation(P(x, y, z)), tile, smooth=smooth, uv=uv if cyl else None)
 
 
-def sector(name, r0, r1, y0, y1, a0, a1, mat, group="fixtures", *, step=.6, tile=1.0, faces_on="all", segs=None):
-    """Annular sector solid between radii r0..r1, heights y0..y1, angles a0..a1 (deg, from +z toward +x)."""
+def sector(name, r0, r1, y0, y1, a0, a1, mat, group="fixtures", *, step=.6, tile=1.0, faces_on="all", segs=None, smooth=False):
     full = abs((a1 - a0) - 360) < 1e-6
     n = segs or max(4, int(radians(a1 - a0) * r1 / step))
     verts, faces, uv = [], [], {}
     cols = n + 1
     r_ref, dr, dy = (r0 + r1) / 2, r1 - r0, y1 - y0
-    around = (0, dr, dr + dy, 2 * dr + dy)     # perimeter of the section: v across the member
+    around = (0, dr, dr + dy, 2 * dr + dy)
     for i in range(cols):
         t = a0 + (a1 - a0) * i / n
         for k, (r, y) in enumerate(((r0, y0), (r1, y0), (r1, y1), (r0, y1))):
@@ -302,11 +326,10 @@ def sector(name, r0, r1, y0, y1, a0, a1, mat, group="fixtures", *, step=.6, tile
                 faces.append(f)
     if not full and faces_on == "all":
         faces += [(0, 1, 2, 3)[::-1], (n * 4, n * 4 + 1, n * 4 + 2, n * 4 + 3)]
-    return emit_object(name, verts, faces, mat, group, Matrix.Identity(4), tile, uv=uv)
+    return emit_object(name, verts, faces, mat, group, Matrix.Identity(4), tile, uv=uv, smooth=smooth)
 
 
 def arc_surface(name, r, y0, y1, a0, a1, mat, group, inward=True, step=.5, uv_fit=False):
-    """A curved, single-sided surface (glass, screens): normals toward the centre when inward."""
     n = max(3, int(radians(abs(a1 - a0)) * r / step))
     verts, faces, uv = [], [], {}
     for i in range(n + 1):
@@ -323,7 +346,6 @@ def arc_surface(name, r, y0, y1, a0, a1, mat, group, inward=True, step=.5, uv_fi
 
 
 def sweep(name, pts, w, h, mat, group="shell", closed=False, tile=1.0, smooth=False):
-    """Rectangular section (w across, h along the up-ish normal) along a polyline of three-coordinates."""
     vs = [P(*p) for p in pts]
     n = len(vs)
     verts, faces, uv = [], [], {}
@@ -353,24 +375,51 @@ def sweep(name, pts, w, h, mat, group="shell", closed=False, tile=1.0, smooth=Fa
     return emit_object(name, verts, faces, mat, group, Matrix.Identity(4), tile, smooth=smooth, uv=uv)
 
 
-def slat_wall(name, r, y0, y1, a0, a1, mat, group="shell", width=.07, depth=.045, pitch=.15, tile=1.6):
-    """Vertical slat cladding on a circle, facing the centre, as one mesh. Grain runs up each slat
-    (u = height with the horizontal-grain veneer), v across the slat face."""
+def sweep_profile(name, pts, profile_2d, mat, group="shell", tile=1.8, smooth=True):
+    """Sweep a custom closed 2D profile [(u, v), ...] along a 3D polyline (for sculpted I-beam/coffered arches)."""
+    vs = [P(*p) for p in pts]
+    n = len(vs)
+    m = len(profile_2d)
     verts, faces, uv = [], [], {}
-    n = int(radians(a1 - a0) * r / pitch)
+    along = [0.0]
+    for i in range(1, n):
+        along.append(along[-1] + (vs[i] - vs[i - 1]).length)
+    perim = [0.0]
+    for k in range(1, m):
+        perim.append(perim[-1] + hypot(profile_2d[k][0] - profile_2d[k - 1][0], profile_2d[k][1] - profile_2d[k - 1][1]))
+    for i in range(n):
+        t = (vs[min(i + 1, n - 1)] - vs[max(i - 1, 0)]).normalized()
+        side = t.cross(Vector((0, 0, 1)))
+        if side.length < 1e-4:
+            side = t.cross(Vector((1, 0, 0)))
+        side.normalize()
+        up = side.cross(t).normalized()
+        for k, (pu, pv) in enumerate(profile_2d):
+            uv[len(verts)] = (along[i] / tile, perim[k] / tile)
+            verts.append(tuple(vs[i] + side * pu + up * pv))
+    for i in range(n - 1):
+        for k in range(m):
+            k2 = (k + 1) % m
+            faces.append((i * m + k, i * m + k2, (i + 1) * m + k2, (i + 1) * m + k))
+    return emit_object(name, verts, faces, mat, group, Matrix.Identity(4), tile, smooth=smooth, uv=uv)
+
+
+def slat_wall(name, r, y0, y1, a0, a1, mat, group="shell", width=.065, depth=.055, pitch=.14, tile=1.6):
+    """Vertical architectural acoustic slats on an arc."""
+    verts, faces, uv = [], [], {}
+    n = max(1, int(radians(a1 - a0) * r / pitch))
     for i in range(n):
         t = a0 + (a1 - a0) * (i + .5) / n
         sx, sz = sin(radians(t)), cos(radians(t))
-        tx, tz = cos(radians(t)), -sin(radians(t))             # tangent
+        tx, tz = cos(radians(t)), -sin(radians(t))
         base = len(verts)
-        off = rng.uniform(0, 3)                                 # each slat starts at a different grain spot
+        off = rng.uniform(0, 3)
         for k, (u_, d_) in enumerate(((-1, 0), (1, 0), (1, 1), (-1, 1))):
             for y in (y0, y1):
                 x = (r - d_ * depth) * sx + u_ * width / 2 * tx
                 z = (r - d_ * depth) * sz + u_ * width / 2 * tz
                 uv[len(verts)] = ((y + off) / tile, (i * pitch + (u_ + 1) / 2 * width + d_ * depth) / tile)
                 verts.append(tuple(P(x, y, z)))
-        # corners 0..3 each with (bottom, top): index base + 2k (+1 top)
         q = lambda k, top: base + 2 * k + top
         for k in range(4):
             k2 = (k + 1) % 4
@@ -380,56 +429,38 @@ def slat_wall(name, r, y0, y1, a0, a1, mat, group="shell", width=.07, depth=.045
 
 # ---------------------------------------------------------------- architecture
 def build_floor():
+    # Grand Calacatta marble plaza disc
     disc_profile = [(0, 0), (R_WALL + .2, 0), (R_WALL + .2, -.3), (0, -.3)]
-    lathe("Ground stone", 0, 0, 0, disc_profile, "stone", "shell", sides=128, tile=1.6, smooth=False)
+    lathe("Ground marble", 0, 0, 0, disc_profile, "stone", "shell", sides=128, tile=2.2, smooth=False)
     aisles, aw = LAYOUT["aisles"], LAYOUT["aisleWidth"]
-    # Carpet fields between the aisles, from the plaza ring to the lounges.
+    # Charcoal acoustic carpet fields under the curved trading desk zones + bronze edge binder
     for i, a in enumerate(aisles):
         b = aisles[(i + 1) % len(aisles)] + (360 if i == len(aisles) - 1 else 0)
-        for r0, r1 in ((6.9, 17.0),):
-            pad = degrees(aw / 2 / r1) + .4
-            sector("Carpet field", r0, r1, 0, .012, a + pad + .9, b - pad - .9, "carpet", "shell", tile=1.0, faces_on=("top", "inner", "outer"))
-    # Concentric metal inlays and the plaza medallion rings around the core.
-    for r in (4.0, 6.85, 17.05):
-        sector("Floor inlay", r - .03, r + .03, 0, .004, 0, 360, "silver", "fixtures", faces_on=("top",))
-    for r in (3.4, 3.55):
-        sector("Plaza ring", r - .05, r + .05, 0, .004, 0, 360, "darkoak", "fixtures", faces_on=("top",))
-
-
-def build_galleries():
-    for li, y in enumerate(LEVELS):
-        # Slab, fascia (travertine band) and the warm cove under its lip.
-        sector("Gallery slab", R_GAL + .2, R_WALL, y - .42, y, 0, 360, "stone", "shell", tile=1.6, faces_on=("top",))
-        sector("Gallery soffit", R_GAL + .2, R_WALL, y - .42, y - .42, 0, 360, "plaster", "shell", faces_on=("bottom",), tile=2)
-        sector("Gallery fascia", R_GAL - .06, R_GAL + .2, y - .98, y + .02, 0, 360, "trav", "shell", tile=1.2)
-        sector("Fascia cove", R_GAL + .21, R_GAL + .26, y - 1.0, y - .97, 0, 360, "cove", "emit", faces_on=("bottom",))
-        # Oak slat ceiling under each gallery (concentric slats), lit by downlights.
-        for k in range(16):
-            r = R_GAL + .45 + k * .27
-            if r > R_WALL - .15:
-                break
-            sector("Gallery slat", r, r + .1, y - .5, y - .43, 0, 360, "oak", "shell", step=.9, faces_on=("bottom", "inner", "outer"), tile=1.4)
-        for t in np.arange(3.75, 360, 7.5):
-            x, z = pol(23.2, t)
-            box("Gallery downlight", x, y - .505, z, .14, .01, .14, "downlight", "emit")
-        # Balustrade: glass, oak handrail, slim posts; open where a landing or an elevator meets the gallery.
-        for a0, a1 in rail_runs(li + 1):
-            arc_surface("Balustrade", R_GAL + .1, y + .05, y + 1.08, a0, a1, "glass", "emit", inward=True, step=1.2)
-            sector("Handrail", R_GAL + .03, R_GAL + .17, y + 1.06, y + 1.13, a0, a1, "oak", "fixtures", step=.8)
-            for t in np.arange(a0, a1 + .01, 6 if a1 - a0 > 12 else max(1.0, (a1 - a0) / 2)):
-                x, z = pol(R_GAL + .1, t)
-                box("Rail post", x, y + .58, z, .035, 1.06, .035, "silver", "fixtures")
-        # Office glass fronts with mullions, lit interiors, back walls of oak and plaster.
-        top = (LEVELS[li + 1] - .45) if li + 1 < len(LEVELS) else H - .5
-        build_offices(y, top, li + 1)
-    # Ground floor offices under gallery 1, with the entrance break in the south.
-    build_offices(0.0, LEVELS[0] - .45, 0)
-    # Outer wall: closes the drum behind the offices.
-    arc_surface("Outer wall", R_WALL, 0, H, 0, 360, "plaster", "shell", inward=True, step=1.0)
+        pad = degrees(aw / 2 / 17.0) + .4
+        a0, a1 = a + pad + .9, b - pad - .9
+        sector("Carpet field", 6.92, 16.98, 0, .012, a0, a1, "carpet", "shell", tile=1.1, faces_on=("top", "inner", "outer"))
+        # Crisp champagne-brass trim edging the carpet borders
+        sector("Carpet brass inner", 6.88, 6.92, 0, .013, a0, a1, "brass", "fixtures", faces_on=("top",))
+        sector("Carpet brass outer", 16.98, 17.02, 0, .013, a0, a1, "brass", "fixtures", faces_on=("top",))
+    # Concentric Emperador dark marble architectural border bands & champagne-brass inlays
+    for r0, r1 in ((3.22, 3.62), (5.58, 5.82), (6.68, 6.84), (17.06, 17.24), (21.45, 21.75)):
+        sector("Dark marble ring", r0, r1, 0, .003, 0, 360, "darkmarble", "shell", tile=1.8, faces_on=("top",))
+    for r in (3.20, 3.64, 4.15, 5.56, 5.84, 6.66, 6.86, 17.04, 17.26, 21.43, 21.77, 24.40):
+        sector("Floor brass inlay", r - .018, r + .018, 0, .0045, 0, 360, "brass", "fixtures", faces_on=("top",), step=.5)
+    # Radial champagne-brass & dark-marble aisle runner lines leading straight to the luminous core!
+    for a in aisles:
+        for side in (-1, 1):
+            ang = a + side * degrees(1.12 / 12.0)
+            p0, p1 = pol(5.85, ang), pol(21.42, ang)
+            sweep("Aisle brass line", [(p0[0], .004, p0[1]), (p1[0], .004, p1[1])], .032, .003, "brass", "fixtures")
+        # Subtle central Emperador stone medallion strips along the 6 radial avenues
+        for r_mid in (7.8, 11.4, 15.2, 19.2):
+            x, z = pol(r_mid, a)
+            box("Aisle medallion", x, .002, z, .36, .003, .36, "darkmarble", "shell", yaw=a + 45)
+            box("Aisle medallion brass", x, .0035, z, .42, .002, .42, "brass", "fixtures", yaw=a + 45)
 
 
 def rail_runs(level):
-    """The balustrade arcs on a gallery level, with the openings (landings, elevator doors) cut out."""
     cuts = sorted((o["a0"], o["a1"]) for o in LAYOUT["openings"] if o["level"] == level)
     runs, start = [], 0.0
     for a0, a1 in cuts:
@@ -441,132 +472,524 @@ def rail_runs(level):
     return runs
 
 
-ART_HALF = 3.9   # degrees: half the width of an art bay at the office line (~3.3 m)
+def build_galleries():
+    for li, y in enumerate(LEVELS):
+        # Honed Calacatta marble gallery deck + perimeter brass inlay
+        sector("Gallery slab", R_GAL + .2, R_WALL, y - .42, y, 0, 360, "stone", "shell", tile=2.0, faces_on=("top",))
+        sector("Gallery brass inlay", R_GAL + .55, R_GAL + .59, y, y + .004, 0, 360, "brass", "fixtures", faces_on=("top",))
+        sector("Gallery dark border", R_GAL + .22, R_GAL + .54, y, y + .003, 0, 360, "darkmarble", "shell", tile=1.6, faces_on=("top",))
+        sector("Gallery soffit", R_GAL + .2, R_WALL, y - .44, y - .42, 0, 360, "plaster", "shell", faces_on=("bottom",), tile=2)
+
+        # Sculpted 3-tier stepped travertine gallery fascia with champagne-brass trim & continuous cove channel
+        sector("Fascia upper bullnose", R_GAL - .09, R_GAL + .22, y - .12, y + .03, 0, 360, "trav", "shell", tile=1.2)
+        sector("Fascia top brass", R_GAL - .105, R_GAL - .085, y - .04, y + .02, 0, 360, "brass", "fixtures", step=.5)
+        sector("Fascia main band", R_GAL - .06, R_GAL + .22, y - .88, y - .12, 0, 360, "trav", "shell", tile=1.2)
+        sector("Fascia lower bronze trim", R_GAL - .075, R_GAL + .12, y - .94, y - .88, 0, 360, "bronze", "fixtures", step=.5)
+        sector("Fascia cove lip", R_GAL - .04, R_GAL + .26, y - 1.02, y - .94, 0, 360, "trav", "shell", tile=1.2)
+        # Continuous 3000K recessed warm cove ribbon under every gallery ring
+        sector("Fascia cove LED", R_GAL + .02, R_GAL + .18, y - 1.03, y - 1.01, 0, 360, "cove", "emit", faces_on=("bottom",))
+        # Subtle upward warm wash along the lower fascia reveal
+        sector("Fascia accent line", R_GAL - .08, R_GAL - .065, y - .96, y - .94, 0, 360, "cove_soft", "emit", faces_on=("inner",))
+
+        # Concentric acoustic oak ceiling slats under each gallery + recessed bronze downlight cans
+        for k in range(15):
+            r = R_GAL + .50 + k * .28
+            if r > R_WALL - .22:
+                break
+            sector("Gallery slat", r, r + .09, y - .51, y - .44, 0, 360, "oak", "shell", step=.9, faces_on=("bottom", "inner", "outer"), tile=1.5)
+        for t in np.arange(3.75, 360, 7.5):
+            x, z = pol(23.5, t)
+            lathe("Downlight bezel", x, y - .52, z, [(.095, 0), (.095, .02), (.072, .02), (.072, 0)], "bronze", "fixtures", sides=14, caps=False)
+            lathe("Downlight lens", x, y - .515, z, [(.07, 0), (.07, .005), (0, .005)], "downlight", "emit", sides=14)
+
+        # Luxury glass balustrade: bronze shoe channel, clear glass, brass clamp posts, sculpted oak rail + LED
+        for a0, a1 in rail_runs(li + 1):
+            sector("Balustrade shoe", R_GAL + .06, R_GAL + .15, y + .01, y + .09, a0, a1, "bronze", "fixtures", step=.6)
+            sector("Balustrade shoe brass", R_GAL + .055, R_GAL + .065, y + .06, y + .085, a0, a1, "brass", "fixtures", step=.6)
+            arc_surface("Balustrade", R_GAL + .105, y + .09, y + 1.07, a0, a1, "glass", "emit", inward=True, step=1.0)
+            sector("Handrail oak", R_GAL + .04, R_GAL + .17, y + 1.06, y + 1.13, a0, a1, "oak", "fixtures", step=.6)
+            sector("Handrail brass groove", R_GAL + .08, R_GAL + .13, y + 1.048, y + 1.062, a0, a1, "brass", "fixtures", step=.6, faces_on=("bottom",))
+            step_t = 5.0 if a1 - a0 > 12 else max(1.0, (a1 - a0) / 2)
+            for t in np.arange(a0, a1 + .01, step_t):
+                x, z = pol(R_GAL + .105, t)
+                box("Rail post", x, y + .57, z, .028, 1.00, .042, "bronze", "fixtures", yaw=t)
+                box("Rail clamp", x, y + .24, z, .046, .06, .052, "brass", "fixtures", yaw=t)
+                box("Rail clamp top", x, y + .92, z, .046, .06, .052, "brass", "fixtures", yaw=t)
+
+        top = (LEVELS[li + 1] - .45) if li + 1 < len(LEVELS) else H - .5
+        build_perimeter(y, top, li + 1)
+
+    build_perimeter(0.0, LEVELS[0] - .45, 0)
+    # Outer structural drum behind all bays
+    arc_surface("Outer wall", R_WALL, 0, H, 0, 360, "plaster", "shell", inward=True, step=1.0)
 
 
-def glass_runs(a0, a1, level):
-    bays = sorted(w["t"] for w in LAYOUT.get("artWalls", []) if w["level"] == level)
-    runs, start = [], a0
-    for t in bays:
-        if t - ART_HALF > start:
-            runs.append((start, t - ART_HALF))
-        start = max(start, t + ART_HALF)
-    if start < a1:
-        runs.append((start, a1))
-    return runs
+ART_HALF = 4.1   # degrees: museum gallery alcove half-width (~3.7m)
 
 
 def build_art_bay(w, y0, y1):
-    """A solid wall bay in the office line: warm plaster, a framed painting and a picture light."""
+    """Museum-grade recessed gallery alcove: crisp warm plaster niche, walnut pilasters, hairline brass trim,
+    double-stepped walnut+brass museum frame, brushed brass picture lamp, and dark marble skirting."""
     t = w["t"]
-    sector("Art wall", R_OFF - .02, R_WALL - .05, y0, y1, t - ART_HALF, t + ART_HALF, "artwall", "shell", step=.4)
-    sector("Art wall reveal", R_OFF - .03, R_OFF - .02, y0, y0 + .12, t - ART_HALF, t + ART_HALF, "darkoak", "fixtures", step=.4)
+    # Recessed gallery niche plaster wall
+    sector("Art wall", R_OFF - .02, R_WALL - .04, y0, y1, t - ART_HALF, t + ART_HALF, "artwall", "shell", step=.4)
+    # Dark marble baseboard & brass top reveal
+    sector("Art skirting", R_OFF - .04, R_OFF - .015, y0, y0 + .14, t - ART_HALF, t + ART_HALF, "darkmarble", "fixtures", step=.4)
+    sector("Art skirting brass", R_OFF - .045, R_OFF - .015, y0 + .14, y0 + .155, t - ART_HALF, t + ART_HALF, "brass", "fixtures", step=.4)
+    # Flanking walnut pilasters & brass hairline vertical reveal frames
+    for side in (-1, 1):
+        a_edge = t + side * ART_HALF
+        a_lo, a_hi = sorted((a_edge, a_edge - side * .55))
+        sector("Art pilaster", R_OFF - .08, R_OFF + .02, y0, y1, a_lo, a_hi, "walnutv", "fixtures", segs=2)
+        b_lo, b_hi = sorted((a_edge - side * .55, a_edge - side * .62))
+        sector("Art brass reveal", R_OFF - .065, R_OFF - .015, y0 + .14, y1 - .08, b_lo, b_hi, "brass", "fixtures", segs=1)
+    # Upper gallery niche warm wash cove
+    sector("Art niche header", R_OFF - .08, R_OFF + .02, y1 - .14, y1, t - ART_HALF, t + ART_HALF, "walnut", "fixtures", step=.4)
+    sector("Art niche cove", R_OFF - .06, R_OFF - .02, y1 - .15, y1 - .14, t - ART_HALF + .6, t + ART_HALF - .6, "cove_soft", "emit", faces_on=("bottom",))
+
+    # Double-stepped museum painting frame (outer walnut moulding + inner champagne brass fillet)
     x, z = pol(R_OFF - .05, t)
     yaw = t + 180
-    fw, fh = w["w"] + .1, w["h"] + .1
-    for du, dv, bw, bh in ((0, fh / 2 - .025, fw, .05), (0, -fh / 2 + .025, fw, .05), (fw / 2 - .025, 0, .05, fh), (-fw / 2 + .025, 0, .05, fh)):
-        ox, oz = cos(radians(t + 180 - 90)) * 0, 0
-        tx, tz = cos(radians(t)), -sin(radians(t))          # tangent (screen-right when facing the wall)
-        box("Art frame", x + tx * du, w["cy"] + dv, z + tz * du, bw, bh, .05, "framewood", "fixtures", yaw=yaw)
-    box("Art backing", x, w["cy"], z, fw - .04, fh - .04, .02, "black", "fixtures", yaw=yaw)
-    # The canvas: its own node, textured in the browser from art/<id>-1k.webp (and opened in the viewer).
-    cx, cz = pol(R_OFF - .085, t)
+    tx, tz = cos(radians(t)), -sin(radians(t))
+    fw, fh = w["w"] + .14, w["h"] + .14
+    for du, dv, bw, bh in ((0, fh / 2 - .03, fw, .06), (0, -fh / 2 + .03, fw, .06),
+                           (fw / 2 - .03, 0, .06, fh), (-fw / 2 + .03, 0, .06, fh)):
+        box("Art frame outer", x + tx * du, w["cy"] + dv, z + tz * du, bw, bh, .06, "framewood", "fixtures", yaw=yaw)
+    # Inner champagne-gold museum fillet
+    ix, iz = pol(R_OFF - .072, t)
+    iw, ih = w["w"] + .036, w["h"] + .036
+    for du, dv, bw, bh in ((0, ih / 2 - .009, iw, .018), (0, -ih / 2 + .009, iw, .018),
+                           (iw / 2 - .009, 0, .018, ih), (-iw / 2 + .009, 0, .018, ih)):
+        box("Art frame brass", ix + tx * du, w["cy"] + dv, iz + tz * du, bw, bh, .022, "brass", "fixtures", yaw=yaw)
+    box("Art backing", x, w["cy"], z, fw - .06, fh - .06, .02, "black", "fixtures", yaw=yaw)
+
+    # Artwork canvas node (exact naming preserved for ArtViewer & lazy 1K texture loader!)
+    cx, cz = pol(R_OFF - .09, t)
     a, b = w["w"] / 2, w["h"] / 2
-    canvas = emit_object(f"Artwork:{w['id']}", [(-a, 0, -b), (a, 0, -b), (a, 0, b), (-a, 0, b)], [(0, 1, 2, 3)], "artcanvas", "props",
-                         Matrix.Translation(P(cx, w["cy"], cz)) @ rot(yaw), uv={0: (0, 0), 1: (1, 0), 2: (1, 1), 3: (0, 1)}, recalc=False)
-    lx, lz = pol(R_OFF - .28, t)
-    box("Picture light", lx, w["cy"] + w["h"] / 2 + .2, lz, min(1.0, w["w"] * .6), .04, .07, "steel", "fixtures", yaw=yaw)
-    box("Picture light lens", lx, w["cy"] + w["h"] / 2 + .178, lz, min(.96, w["w"] * .58), .006, .05, "downlight", "emit", yaw=yaw)
-    ax, az = pol(R_OFF - .16, t)
-    box("Picture light arm", ax, w["cy"] + w["h"] / 2 + .2, az, .02, .02, .22, "steel", "fixtures", yaw=t)
+    emit_object(f"Artwork:{w['id']}", [(-a, 0, -b), (a, 0, -b), (a, 0, b), (-a, 0, b)], [(0, 1, 2, 3)], "artcanvas", "props",
+                Matrix.Translation(P(cx, w["cy"], cz)) @ rot(yaw), uv={0: (0, 0), 1: (1, 0), 2: (1, 1), 3: (0, 1)}, recalc=False)
+
+    # Brushed champagne-brass gallery picture light
+    lx, lz = pol(R_OFF - .30, t)
+    lamp_w = min(1.05, w["w"] * .62)
+    box("Picture light", lx, w["cy"] + w["h"] / 2 + .22, lz, lamp_w, .036, .06, "brass", "fixtures", yaw=yaw)
+    box("Picture light lens", lx, w["cy"] + w["h"] / 2 + .20, lz, lamp_w - .04, .006, .042, "downlight", "emit", yaw=yaw)
+    for side in (-1, 1):
+        ax, az = pol(R_OFF - .17, t + side * degrees((lamp_w * .32) / R_OFF))
+        box("Picture light arm", ax, w["cy"] + w["h"] / 2 + .22, az, .018, .018, .24, "brass", "fixtures", yaw=t)
 
 
-def build_offices(y0, y1, level):
-    """The promenade's outer wall: vertical oak slats with art bays and a warm wall-wash line.
-    (The glass offices and their tables are gone: the ring is open walking space.)"""
-    slat_wall("Promenade slat wall", R_WALL - .04, y0 + .1, y1 - .14, 0, 360, "oak")
-    sector("Slat wall shadow gap", R_WALL - .03, R_WALL, y0, y1, 0, 360, "darkoak", "shell", faces_on=("inner",), step=1.2)
-    sector("Wall wash line", R_WALL - .35, R_WALL - .3, y1 - .06, y1 - .04, 0, 360, "cove", "emit", faces_on=("bottom",), step=1.2)
-    for w in LAYOUT.get("artWalls", []):
-        if w["level"] == level:
-            build_art_bay(w, y0, y1)
+def build_diamond_feature_wall(t_center, span_deg, y0, y1):
+    """Signature concept-board feature wall: deep American walnut panels inlaid with geometric
+    champagne-brass diamond & chevron lines, framed by architectural bronze reveals and warm cove wash."""
+    a0, a1 = t_center - span_deg / 2, t_center + span_deg / 2
+    r_face = R_WALL - .12
+    # Deep walnut backing wall
+    sector("Feature walnut wall", r_face, R_WALL - .02, y0, y1, a0, a1, "walnutv", "shell", step=.4, tile=1.8)
+    # Dark marble plinth & champagne brass top/bottom borders
+    sector("Feature plinth", r_face - .03, r_face, y0, y0 + .16, a0, a1, "darkmarble", "fixtures", step=.4)
+    sector("Feature brass base", r_face - .035, r_face, y0 + .16, y0 + .18, a0, a1, "brass", "fixtures", step=.4)
+    sector("Feature brass head", r_face - .035, r_face, y1 - .14, y1 - .12, a0, a1, "brass", "fixtures", step=.4)
+    # Geometric diamond-chevron brass inlay lattice (directly inspired by the concept board!)
+    y_lo, y_hi = y0 + .22, y1 - .18
+    y_mid = (y_lo + y_hi) / 2
+    r_bar = r_face - .016
+    # Outer diamond & intersecting chevron diagonals
+    pts_sets = [
+        [(a0 + .8, y_mid), (t_center, y_hi), (a1 - .8, y_mid), (t_center, y_lo), (a0 + .8, y_mid)],
+        [(a0 + .8, y_lo), (t_center - span_deg * .16, y_mid), (a0 + .8, y_hi)],
+        [(a1 - .8, y_lo), (t_center + span_deg * .16, y_mid), (a1 - .8, y_hi)],
+        [(t_center - span_deg * .25, y_lo), (t_center + span_deg * .25, y_hi)],
+        [(t_center + span_deg * .25, y_lo), (t_center - span_deg * .25, y_hi)],
+    ]
+    for poly in pts_sets:
+        world_pts = []
+        for idx in range(len(poly) - 1):
+            (ta, ya), (tb, yb) = poly[idx], poly[idx + 1]
+            for k in range(5):
+                u = k / 4
+                px, pz = pol(r_bar, ta + (tb - ta) * u)
+                world_pts.append((px, ya + (yb - ya) * u, pz))
+            sweep("Feature brass inlay", world_pts, .028, .024, "brass", "fixtures")
+            world_pts = []
+    # Vertical flanking warm architectural glow strips
+    for edge in (a0 + .2, a1 - .2):
+        ex, ez = pol(r_face - .025, edge)
+        box("Feature side glow", ex, (y0 + y1) / 2, ez, .025, y1 - y0 - .4, .025, "cove_soft", "emit", yaw=edge)
+
+
+def build_daylight_window_bay(a0, a1, y0, y1):
+    """Floor-to-ceiling mullioned architectural daylight window bay looking out to soft sunlit sky."""
+    if a1 - a0 < 2.5:
+        return
+    r_glass = R_WALL - .06
+    r_mull = R_WALL - .14
+    # Luminous skyline daylight glazing
+    arc_surface("Daylight window", r_glass, y0 + .18, y1 - .16, a0 + .2, a1 - .2, "skywindow", "emit", inward=True, step=.5, uv_fit=True)
+    # Deep architectural travertine sill & header reveals
+    sector("Window sill", r_mull - .04, R_WALL - .02, y0, y0 + .20, a0, a1, "darkmarble", "fixtures", step=.5)
+    sector("Window sill brass", r_mull - .045, r_mull - .01, y0 + .19, y0 + .21, a0, a1, "brass", "fixtures", step=.5)
+    sector("Window header", r_mull - .04, R_WALL - .02, y1 - .18, y1, a0, a1, "bronze", "fixtures", step=.5)
+    # Intermediate horizontal transom bar at 68% height
+    y_trans = y0 + (y1 - y0) * .68
+    sector("Window transom", r_mull, r_glass, y_trans - .035, y_trans + .035, a0, a1, "bronze", "fixtures", step=.5)
+    # Slender vertical dark-bronze curtain-wall mullions
+    arc_m = radians(a1 - a0) * r_mull
+    n_panes = max(2, int(round(arc_m / 1.55)))
+    for k in range(n_panes + 1):
+        t = a0 + (a1 - a0) * k / n_panes
+        mx, mz = pol((r_mull + r_glass) / 2, t)
+        box("Window mullion", mx, (y0 + y1) / 2, mz, .065, y1 - y0 - .22, .12, "bronze", "fixtures", yaw=t)
+
+
+def build_perimeter(y0, y1, level):
+    """Rhythmic luxury perimeter composition:
+    - Museum-grade recessed art alcoves (all 31 paintings preserved at exact layout coordinates)
+    - Diamond champagne-gold inlaid walnut feature walls behind curved promenade sofas (0/120/240 deg)
+    - Grand illuminated entrance portal at 0 deg on Ground floor
+    - Floor-to-ceiling mullioned daylight skyline windows in open structural bays (massive spatial depth!)
+    - Refined vertical walnut/oak acoustic slats flanking columns & bays
+    """
+    # Collect occupied angular intervals so nothing overlaps!
+    art_list = [w for w in LAYOUT.get("artWalls", []) if w["level"] == level]
+    occupied = []
+
+    # 1. Museum Art Alcoves
+    for w in art_list:
+        build_art_bay(w, y0, y1)
+        occupied.append((w["t"] - ART_HALF - .2, w["t"] + ART_HALF + .2))
+
+    # 2. Diamond Champagne-Gold Feature Walls (behind curved sofas at 120, 240, and 0 on upper levels)
+    feature_angles = (120.0, 240.0) if level == 0 else (0.0, 120.0, 240.0)
+    for ft in feature_angles:
+        build_diamond_feature_wall(ft, 13.0, y0, y1)
+        occupied.append((ft - 6.7, ft + 6.7))
+
+    # 3. Ground floor Grand Entrance Portal at 0 deg
+    if level == 0:
+        build_daylight_window_bay(-9.0, 9.0, y0, y1)
+        # Grand bronze & champagne-brass entry portal framing
+        for side in (-1, 1):
+            px, pz = pol(R_WALL - .22, side * 9.2)
+            box("Portal pier", px, (y0 + y1) / 2, pz, .42, y1 - y0, .38, "trav", "shell", yaw=side * 9.2)
+            bx, bz = pol(R_WALL - .40, side * 9.2)
+            box("Portal brass strip", bx, (y0 + y1) / 2, bz, .06, y1 - y0 - .2, .06, "brass", "fixtures", yaw=side * 9.2)
+        occupied.append((-9.6, 9.6))
+
+    # 4. Fill remaining perimeter spans with alternating Floor-to-Ceiling Daylight Windows & Fluted Walnut Slats
+    # Normalize intervals into [0, 360]
+    norm_occ = []
+    for a0, a1 in occupied:
+        if a0 < 0:
+            norm_occ.append((0.0, a1))
+            norm_occ.append((a0 + 360.0, 360.0))
+        elif a1 > 360:
+            norm_occ.append((a0, 360.0))
+            norm_occ.append((0.0, a1 - 360.0))
+        else:
+            norm_occ.append((a0, a1))
+    norm_occ.sort()
+    merged_occ = []
+    for a0, a1 in norm_occ:
+        if merged_occ and a0 <= merged_occ[-1][1]:
+            merged_occ[-1] = (merged_occ[-1][0], max(merged_occ[-1][1], a1))
+        else:
+            merged_occ.append((a0, a1))
+
+    gaps = []
+    cur = 0.0
+    for a0, a1 in merged_occ:
+        if a0 > cur + .2:
+            gaps.append((cur, a0))
+        cur = max(cur, a1)
+    if cur < 359.8:
+        gaps.append((cur, 360.0))
+
+    for g0, g1 in gaps:
+        span = g1 - g0
+        if span >= 8.5:
+            # Slat flanks + large floor-to-ceiling daylight window in the center!
+            flank = min(3.2, span * .22)
+            slat_wall("Flank walnut slats", R_WALL - .04, y0 + .12, y1 - .14, g0, g0 + flank, "walnut", width=.06, depth=.055, pitch=.14)
+            sector("Flank shadow", R_WALL - .03, R_WALL, y0, y1, g0, g0 + flank, "darkoak", "shell", faces_on=("inner",), step=.8)
+            build_daylight_window_bay(g0 + flank, g1 - flank, y0, y1)
+            slat_wall("Flank walnut slats", R_WALL - .04, y0 + .12, y1 - .14, g1 - flank, g1, "walnut", width=.06, depth=.055, pitch=.14)
+            sector("Flank shadow", R_WALL - .03, R_WALL, y0, y1, g1 - flank, g1, "darkoak", "shell", faces_on=("inner",), step=.8)
+        else:
+            # Refined vertical oak & walnut acoustic slat bay
+            slat_wall("Promenade slats", R_WALL - .04, y0 + .12, y1 - .14, g0, g1, "oak", width=.065, depth=.055, pitch=.145)
+            sector("Slat shadow", R_WALL - .03, R_WALL, y0, y1, g0, g1, "darkoak", "shell", faces_on=("inner",), step=.8)
+
+    # Continuous subtle upper wall-wash cove along the outer perimeter
+    sector("Wall wash cove", R_WALL - .32, R_WALL - .26, y1 - .06, y1 - .04, 0, 360, "cove_soft", "emit", faces_on=("bottom",), step=1.2)
+
 
 def build_columns():
+    """12 Monumental Sculpted Tree Columns:
+    - Stepped Emperador dark marble + travertine plinth with champagne-brass uplight reveal
+    - Sculpted travertine architectural pier flanked by curved bronze reveal flutes & vertical brass pinstripes
+    - Recessed front holographic ticker channel with bronze housing & cyan cap accents
+    - Triple-layered double-profiled Gothic-modern branching arches & radial roof ribs with recessed LED coves!
+    """
     for t in LAYOUT["columnAngles"]:
         x, z = pol(R_COL, t)
-        lathe("Column base", x, 0, z, [(.7, 0), (.7, .28), (.64, .34), (0, .34)], "trav", "shell", sides=40, tile=1.2)
-        lathe("Column", x, .34, z, [(.58, 0), (.56, .7), (.54, 15.66), (.62, 16.06), (.66, 16.26), (0, 16.26)],
-              "oakv", "shell", sides=48, tile=2.2, cyl=True)
-        for yy in LEVELS:   # slim bronze-dark collars where the galleries meet the column
-            lathe("Column collar", x, yy - .5, z, [(.6, 0), (.6, .06), (0, .06)], "steel", "fixtures", sides=40)
-        # LED data strip on the column's inner face, as on the concept boards.
+        # 3-stepped monumental base plinth
+        lathe("Column plinth dark", x, 0, z, [(.80, 0), (.80, .14), (.74, .18), (0, .18)], "darkmarble", "shell", sides=36, tile=1.4)
+        lathe("Column plinth brass", x, .18, z, [(.745, 0), (.745, .035), (.71, .035), (0, .035)], "brass", "fixtures", sides=36)
+        lathe("Column plinth trav", x, .215, z, [(.71, 0), (.68, .28), (.61, .36), (0, .36)], "trav", "shell", sides=36, tile=1.2)
+        # Sculpted main travertine pier (tall, noble, slightly tapered with flaring capital)
+        lathe("Column shaft", x, .57, z, [(.57, 0), (.55, .8), (.54, 14.7), (.60, 15.25), (.69, 15.7), (.76, 15.95), (0, 15.95)],
+              "trav", "shell", sides=40, tile=2.0, cyl=True)
+        # Architectural bronze side ribs & champagne-brass vertical pinstripes running the full 15.5m height!
+        for side in (-1, 1):
+            tx, tz = cos(radians(t)), -sin(radians(t))
+            # Sculpted side flange fin
+            fx, fz = x + tx * side * .52, z + tz * side * .52
+            box("Column bronze flute", fx, 8.2, fz, .10, 15.1, .28, "bronze", "fixtures", yaw=t)
+            bx, bz = x + tx * side * .575, z + tz * side * .575
+            box("Column brass stripe", bx, 8.2, bz, .024, 15.0, .06, "brass", "fixtures", yaw=t)
+        # Stepped champagne-brass & bronze collar rings at each gallery slab intersection
+        for yy in LEVELS:
+            lathe("Column collar bronze", x, yy - .54, z, [(.62, 0), (.62, .10), (.58, .12), (0, .12)], "bronze", "fixtures", sides=32)
+            lathe("Column collar brass", x, yy - .44, z, [(.63, 0), (.63, .03), (0, .03)], "brass", "fixtures", sides=32)
+        # Recessed inner data-strip architectural frame (live vertical ticker tickerV sits cleanly on front!)
         ix, iz = pol(R_COL - .55, t)
-        box("Column strip frame", ix, 8.6, iz, .44, 13.8, .06, "black", "fixtures", yaw=t)
-        # the LED strip itself is a live screen (layout kind "strip"), drawn by the browser
-    # Branching: each column top splits into two pointed arches toward its neighbours and one rib to the oculus.
+        box("Column strip housing", ix, 8.6, iz, .48, 13.85, .06, "bronze", "fixtures", yaw=t)
+        # Twin vertical champagne-brass edge trim beside the live ticker strip
+        tx, tz = cos(radians(t)), -sin(radians(t))
+        for side in (-1, 1):
+            box("Column strip brass", ix + tx * side * .23, 8.6, iz + tz * side * .23, .022, 13.85, .072, "brass", "fixtures", yaw=t)
+        # Subtle cyan glowing top & bottom end-caps on the column data channel
+        for cy in (1.65, 15.55):
+            box("Column strip cap", ix, cy, iz, .42, .05, .075, "cyanglow", "emit", yaw=t)
+
+    # Sculpted branching arches & triple-profiled radial vault ribs
     cols = LAYOUT["columnAngles"]
+    # I-beam / coffered travertine arch profile (u: width, v: vertical height)
+    arch_profile = [
+        (-.28, -.32), (.28, -.32), (.28, -.20), (.20, -.16), (.20, .18),
+        (.32, .24), (.32, .36), (-.32, .36), (-.32, .24), (-.20, .18), (-.20, -.16), (-.28, -.20)
+    ]
+    rib_profile = [
+        (-.24, -.36), (.24, -.36), (.24, -.24), (.17, -.18), (.17, .20),
+        (.28, .28), (.28, .40), (-.28, .40), (-.28, .28), (-.17, .20), (-.17, -.18), (-.24, -.24)
+    ]
+
     for i, t in enumerate(cols):
         t2 = cols[(i + 1) % len(cols)] + (360 if i == len(cols) - 1 else 0)
+        # Pointed vaulted arch bridging neighboring columns
         pts = []
         for k in range(25):
             u = k / 24
             a = t + (t2 - t) * u
-            y = 16.4 + 3.05 * (sin(pi * u) ** .75)
-            r = R_COL - .35 * sin(pi * u)
+            y = 16.35 + 3.05 * (sin(pi * u) ** .72)
+            r = R_COL - .38 * sin(pi * u)
             x, z = pol(r, a)
             pts.append((x, y, z))
-        sweep("Gallery arch", pts, .5, .62, "oak", "shell", tile=2.4)
-        # Radial rib to the oculus: rises from the column top, then runs almost level to the centre.
+        sweep_profile("Gallery arch vault", pts, arch_profile, "trav", "shell", tile=2.2)
+        # Warm recessed LED cove strip following the underside of each vaulted arch!
+        arch_cove = [(px, py - .33, pz) for px, py, pz in pts[1:-1]]
+        sweep("Arch cove LED", arch_cove, .065, .02, "cove", "emit")
+        # Crisp brass edge accent along the lower arch lip
+        arch_brass = [(px, py - .305, pz) for px, py, pz in pts[1:-1]]
+        sweep("Arch brass trim", arch_brass, .14, .016, "brass", "fixtures")
+
+        # Main sweeping radial vault rib from column capital to the 3-tier oculus
         rib = []
         for k in range(29):
             u = k / 28
-            r = R_COL - (R_COL - 5.6) * u
-            y = 16.4 + 3.35 * (1 - (1 - min(1, u * 3.2)) ** 2) - .25 * u
+            r = R_COL - (R_COL - 5.95) * u
+            y = 16.35 + 3.45 * (1 - (1 - min(1, u * 2.9)) ** 2.2) - .22 * u
             x, z = pol(r, t)
             rib.append((x, y, z))
-        sweep("Roof rib", rib, .46, .7, "oak", "shell", tile=2.4)
-        # Warm LED line along the underside of each rib.
-        line = [(px, py - .36, pz) for px, py, pz in rib]
-        sweep("Rib cove", line, .06, .02, "cove", "emit")
-        # Secondary rib half-way between columns.
+        sweep_profile("Roof main rib", rib, rib_profile, "trav", "shell", tile=2.2)
+        # Continuous warm 3000K recessed LED channel along the rib belly + bronze reveal
+        rib_bronze = [(px, py - .37, pz) for px, py, pz in rib[1:]]
+        sweep("Rib bronze channel", rib_bronze, .14, .022, "bronze", "fixtures")
+        rib_cove = [(px, py - .385, pz) for px, py, pz in rib[1:]]
+        sweep("Rib cove LED", rib_cove, .07, .016, "cove", "emit")
+
+        # Secondary sculptural oak + bronze rib halfway between columns (forming grand coffered skylight bays)
         mid = t + 15
         sec = []
         for k in range(23):
             u = k / 22
-            r = 19.0 - (19.0 - 5.6) * u
+            r = 19.6 - (19.6 - 6.0) * u
             x, z = pol(r, mid)
-            sec.append((x, 19.3 - .05 * u, z))
-        sweep("Roof sub-rib", sec, .22, .34, "oak", "shell", tile=2.4)
-
-
-def arc_dummy_plane(name, x, y, z, yaw, w, h, mat, group, uv_repeat=(1, 1)):
-    a, c = w / 2, h / 2
-    verts = [(-a, 0, -c), (a, 0, -c), (a, 0, c), (-a, 0, c)]
-    uv = {0: (0, 0), 1: (uv_repeat[0], 0), 2: (uv_repeat[0], uv_repeat[1]), 3: (0, uv_repeat[1])}
-    return emit_object(name, verts, [(0, 1, 2, 3)], mat, group, Matrix.Translation(P(x, y, z)) @ rot(yaw), uv=uv, recalc=False)
+            sec.append((x, 19.48 - .06 * u, z))
+        sweep("Roof sub-rib trav", sec, .26, .32, "trav", "shell", tile=2.2)
+        sec_cove = [(px, py - .175, pz) for px, py, pz in sec]
+        sweep("Roof sub-rib brass", sec_cove, .08, .018, "brass", "fixtures")
 
 
 def build_roof():
-    # Ring beam over the galleries and the oculus ring around the light core.
-    sector("Ring beam", R_COL - .6, R_WALL, 19.1, 19.75, 0, 360, "trav", "shell", tile=1.4)
-    sector("Oculus ring", 5.0, 5.9, 19.2, 19.85, 0, 360, "trav", "shell", tile=1.2)
-    sector("Oculus cove", 5.0, 5.08, 19.15, 19.2, 0, 360, "cove", "emit", faces_on=("bottom",))
-    # Skylight: glazing between the ribs, with concentric mullions.
-    sector("Skylight glazing", 5.9, R_COL - .6, 19.82, 19.86, 0, 360, "skylight", "emit", faces_on=("bottom",), step=1.0)
-    for r in np.arange(7.0, R_COL - .6, 1.6):
-        sector("Skylight mullion", r - .04, r + .04, 19.62, 19.82, 0, 360, "silver", "shell", step=1.0)
+    """Cathedral-Grade Coffered Skylight & 3-Tier Sculpted Luminous Oculus Crown."""
+    # Perimeter structural ring beam & warm oak acoustic coffered ceiling over top gallery
+    sector("Ring beam", R_COL - .75, R_WALL, 19.15, 19.85, 0, 360, "trav", "shell", tile=1.4)
+    sector("Ring beam brass", R_COL - .77, R_COL - .72, 19.16, 19.24, 0, 360, "brass", "fixtures", step=.6)
+    sector("Ring beam cove", R_COL - .70, R_COL - .55, 19.12, 19.15, 0, 360, "cove", "emit", faces_on=("bottom",))
+
+    # 3-Tier Sculpted Floating Oculus Halo Dome (Concept #1 & #3 hero centerpiece!)
+    # Tier 1 (Outer sculptural ring, r=5.4..6.65)
+    lathe("Oculus outer crown", 0, 19.05, 0, [
+        (5.45, 0.0), (6.55, 0.0), (6.70, 0.14), (6.70, 0.85), (5.30, 0.85), (5.30, 0.12)
+    ], "trav", "shell", sides=96, tile=1.5, caps=False)
+    sector("Oculus outer brass", 5.38, 5.46, 19.04, 19.08, 0, 360, "brass", "fixtures", step=.4)
+    sector("Oculus outer cove", 5.20, 5.42, 19.16, 19.20, 0, 360, "cove", "emit", faces_on=("bottom",), step=.4)
+
+    # Tier 2 (Suspended floating inner halo ring, r=4.35..5.10, dropped gracefully below)
+    lathe("Oculus inner halo", 0, 18.65, 0, [
+        (4.35, 0.0), (5.05, 0.0), (5.14, 0.10), (5.14, 0.42), (4.26, 0.42), (4.26, 0.10)
+    ], "trav", "shell", sides=96, tile=1.4, caps=False)
+    sector("Oculus halo brass", 4.30, 4.38, 18.64, 18.68, 0, 360, "brass", "fixtures", step=.4)
+    sector("Oculus halo cove", 4.40, 4.98, 18.62, 18.65, 0, 360, "cove", "emit", faces_on=("bottom",), step=.4)
+    sector("Oculus halo uplight", 4.38, 5.02, 19.07, 19.10, 0, 360, "cove_soft", "emit", faces_on=("top",), step=.4)
+
+    # Inner dark-bronze louvered core drum inside oculus
+    lathe("Oculus core drum", 0, 19.10, 0, [(3.65, 0.0), (3.65, 0.90), (2.20, 0.90), (2.20, 0.0)],
+          "bronze", "fixtures", sides=72, caps=False)
+    sector("Oculus inner cyan halo", 2.05, 2.22, 19.08, 19.12, 0, 360, "cyanglow", "emit", faces_on=("bottom",), step=.4)
+
+    # Deeply recessed skylight glazing & precision dark-bronze architectural mullion grid
+    sector("Skylight glazing", 5.8, R_COL - .6, 20.08, 20.12, 0, 360, "skylight", "emit", faces_on=("bottom",), step=1.0)
+    for r in np.arange(7.2, R_COL - .6, 1.55):
+        sector("Skylight mullion", r - .045, r + .045, 19.78, 20.08, 0, 360, "bronze", "shell", step=1.0)
+        sector("Skylight mullion cap", r - .025, r + .025, 19.76, 19.78, 0, 360, "brass", "fixtures", step=1.0)
     for t in np.arange(0, 360, 7.5):
-        (x0, z0), (x1, z1) = pol(5.9, t), pol(R_COL - .6, t)
-        sweep("Skylight radial", [(x0, 19.72, z0), (x1, 19.72, z1)], .07, .18, "silver", "shell")
-    # Roof slab above the glass (closes the box for the bake) and the oak soffit over the top gallery.
-    sector("Roof slab", 0, R_WALL + .2, 20.0, 20.3, 0, 360, "plaster", "shell", faces_on=("bottom",), step=2.0)
+        (x0, z0), (x1, z1) = pol(6.55, t), pol(R_COL - .65, t)
+        sweep("Skylight radial", [(x0, 19.90, z0), (x1, 19.90, z1)], .065, .24, "bronze", "shell")
+
+    # Roof cap closing light leak + concentric oak acoustic slats over 4F promenade
+    sector("Roof slab", 0, R_WALL + .2, 20.25, 20.55, 0, 360, "plaster", "shell", faces_on=("bottom",), step=2.0)
     for k in range(18):
         r = R_COL - .4 + k * .25
         if r > R_WALL - .1:
             break
-        sector("Roof slat", r, r + .1, 19.0, 19.08, 0, 360, "oak", "shell", step=.9, faces_on=("bottom", "inner", "outer"), tile=1.4)
+        sector("Roof slat", r, r + .095, 19.04, 19.12, 0, 360, "oak", "shell", step=.9, faces_on=("bottom", "inner", "outer"), tile=1.5)
 
 
+def build_tower():
+    """5-Tier Telescoping Holographic Light Core:
+    - Stepped Emperador marble + travertine plinth with illuminated cyan glass floor well
+    - 48 multi-radius crystal fiber-optic filaments + glass crystal drum with 12 delicate bronze fins
+    - Dedicated `HoloCoreFX` translucent holographic glass collar at y=5.55m (animated in WebGPU shader!)
+    - Precision champagne-brass trimmed ring housings anchored by visible cantilevered structural spokes
+    - Iconic wide open suspended halo crown at y=15.3m with 12 brushed-titanium tension suspension rods!
+    """
+    tw = LAYOUT["tower"]
+    # Sculpted circular plinth with recessed brass toe-kick & glowing cyan floor light-well
+    lathe("Core plinth dark", 0, 0, 0, [(tw["plinth"] + .06, 0), (tw["plinth"] + .06, .12), (tw["plinth"], .16), (0, .16)],
+          "darkmarble", "fixtures", sides=72)
+    sector("Core plinth cove", tw["plinth"] + .02, tw["plinth"] + .065, .02, .05, 0, 360, "cove", "emit", faces_on=("outer",), step=.4)
+    lathe("Core plinth trav", 0, .16, 0, [(tw["plinth"], 0), (tw["plinth"], .18), (tw["plinth"] - .08, .24), (0, .24)],
+          "trav", "fixtures", sides=72)
+    sector("Plinth brass collar", tw["plinth"] - .12, tw["plinth"] - .07, .39, .41, 0, 360, "brass", "fixtures", faces_on=("top",), step=.4)
+    lathe("Core base drum", 0, .40, 0, [(1.92, 0), (1.92, .46), (1.76, .58), (0, .58)], "black", "fixtures", sides=64)
+    sector("Core base brass", 1.76, 1.92, .57, .60, 0, 360, "brass", "fixtures", faces_on=("top", "outer"), step=.4)
+    # Illuminated circular crystal light well where the cyan fiber-optic core emerges!
+    lathe("Core light well", 0, .96, 0, [(1.62, 0), (1.62, .04), (0, .04)], "corewell", "emit", sides=64)
+
+    # Crystal borosilicate glass core drum + 12 delicate bronze vertical structural fins
+    arc_surface("Core glass", tw["core"] + .04, 1.0, H, 0, 360, "coreglass", "emit", inward=False, step=.3)
+    for k in range(12):
+        t = k * 30
+        fx, fz = pol(tw["core"] + .06, t)
+        box("Core glass fin", fx, H / 2 + .5, fz, .022, H - 1.0, .06, "bronze", "fixtures", yaw=t)
+    # Horizontal precision stainless tension collars around the crystal core
+    for hy in (1.5, 3.3, 5.2, 6.2, 10.1, 14.1, 17.5):
+        sector("Core collar ring", tw["core"] + .03, tw["core"] + .09, hy, hy + .045, 0, 360, "brass", "fixtures", step=.35)
+
+    # 48 Multi-radius layered luminous cyan & pure-white fiber-optic filaments
+    for k in range(48):
+        t = k * 360 / 48 + rng.uniform(-2.5, 2.5)
+        r = rng.uniform(.35, 1.38)
+        x, z = pol(r, t)
+        y0 = 1.0 + rng.uniform(0, 1.8)
+        y1 = H - rng.uniform(0, 2.2)
+        mat_fil = "filament_w" if k % 3 == 0 else "filament"
+        w_fil = .024 if k % 3 == 0 else .034
+        box("Core filament", x, (y0 + y1) / 2, z, w_fil, y1 - y0, w_fil, mat_fil, "emit")
+    # Soft luminous central sapphire energy column
+    lathe("Core energy rod", 0, 1.0, 0, [(.38, 0), (.38, H - 1.0)], "coreglow", "emit", sides=28, caps=False)
+
+    # Dedicated translucent holographic glass data ring (y=5.2..6.25, r=2.65) -> animated by WebGPU TSL shader!
+    holo_outer = arc_surface("HoloCoreFX", 2.65, 5.20, 6.25, 0, 360, "hologlass", "holo", inward=False, step=.28, uv_fit=True)
+    holo_inner = arc_surface("HoloCoreFX_inner", 2.20, 5.40, 6.05, 0, 360, "hologlass", "holo", inward=False, step=.28, uv_fit=True)
+    for hy in (5.18, 6.25):
+        sector("Holo brass rim", 2.58, 2.68, hy, hy + .035, 0, 360, "brass", "fixtures", step=.35)
+        sector("Holo cyan edge", 2.66, 2.685, hy + .005, hy + .03, 0, 360, "cyanglow", "emit", faces_on=("outer",), step=.35)
+
+    # Telescoping multi-tier screen ring housings with champagne-brass lips, warm/cyan edge halos & structural spokes
+    for idx, ring in enumerate(tw["rings"]):
+        y0, y1 = ring["y"] - ring["h"] / 2 - .10, ring["y"] + ring["h"] / 2 + .10
+        r_in = ring["r"] - .52
+        r_out = ring["r"] - .10
+        lathe("Ring housing", 0, y0, 0, [(r_in, 0), (r_out, 0), (r_out, y1 - y0), (r_in, y1 - y0)],
+              "black", "fixtures", sides=72, smooth=False)
+        for yy in (y0 - .04, y1):
+            sector("Ring bezel lip", r_out - .05, ring["r"] + .17, yy, yy + .04, 0, 360, "bronze", "fixtures", step=.35)
+            sector("Ring brass trim", ring["r"] + .14, ring["r"] + .18, yy + .008, yy + .032, 0, 360, "brass", "fixtures", step=.35)
+            led_mat = "cyanglow" if idx == 0 else "cove"
+            sector("Ring halo LED", ring["r"] + .16, ring["r"] + .182, yy, yy + .012, 0, 360, led_mat, "emit", faces_on=("outer", "bottom"), step=.35)
+        # 6 Radial cantilevered structural spoke arms anchoring the screen ring to the central core drum
+        for sk in range(6):
+            st = sk * 60 + 30
+            sx, sz = pol((tw["core"] + r_in) / 2, st)
+            box("Ring spoke arm", sx, ring["y"], sz, .08, .12, r_in - tw["core"] + .1, "bronze", "fixtures", yaw=st)
+
+    # Top Wide Open Suspended Halo Crown (y=15.3, r=4.35) + Base Ticker Drum (y=2.55, r=2.45)
+    cr, cy, ch = tw["crown"]["r"], tw["crown"]["y"], tw["crown"]["h"]
+    # Open architectural crown ring (hollow interior so you look right through up to the glowing oculus!)
+    lathe("Crown open ring", 0, cy - ch / 2 - .09, 0,
+          [(cr - .38, 0), (cr - .05, 0), (cr - .05, ch + .18), (cr - .38, ch + .18)],
+          "bronze", "fixtures", sides=84, smooth=False)
+    for yy in (cy - ch / 2 - .12, cy + ch / 2 + .09):
+        sector("Crown brass lip", cr - .42, cr + .04, yy, yy + .04, 0, 360, "brass", "fixtures", step=.35)
+        sector("Crown LED ring", cr - .43, cr - .38, yy, yy + .03, 0, 360, "cove", "emit", faces_on=("inner", "bottom"), step=.35)
+    # Base ticker drum
+    br, by, bh = 2.45, 2.55, .62
+    lathe("Base ticker drum", 0, by - bh / 2 - .07, 0,
+          [(br - .38, 0), (br - .05, 0), (br - .05, bh + .14), (br - .38, bh + .14)],
+          "bronze", "fixtures", sides=72, smooth=False)
+    for yy in (by - bh / 2 - .09, by + bh / 2 + .07):
+        sector("Base ticker brass", br - .06, br + .03, yy, yy + .025, 0, 360, "brass", "fixtures", step=.35)
+        sector("Base ticker cyan", br + .01, br + .035, yy, yy + .02, 0, 360, "cyanglow", "emit", faces_on=("outer",), step=.35)
+
+    # 12 Brushed-titanium tension suspension rods from oculus down through the crown and rings
+    for k in range(12):
+        t = k * 30 + 15
+        x, z = pol(4.15, t)
+        box("Crown hanger", x, 17.2, z, .022, 3.8, .022, "silver", "fixtures")
+    for k in range(6):
+        t = k * 60 + 30
+        x, z = pol(3.35, t)
+        box("Core hanger", x, 11.4, z, .026, 15.2, .026, "silver", "fixtures")
+
+
+def build_counter():
+    """Central Command Rotunda: fluted American walnut body, Calacatta marble top, champagne-brass
+    footrail on brackets, and continuous warm under-counter & toe-kick indirect glow."""
+    rc = LAYOUT["radii"]["counter"]
+    aisles, aw = LAYOUT["aisles"], LAYOUT["aisleWidth"]
+    for i, a in enumerate(aisles):
+        b = aisles[(i + 1) % len(aisles)] + (360 if i == len(aisles) - 1 else 0)
+        pad = degrees(aw / 2 / rc)
+        a0, a1 = a + pad, b - pad
+        sector("Counter body", rc - .48, rc - .03, .08, 1.01, a0, a1, "walnut", "fixtures", tile=1.2)
+        # Fluted vertical walnut ribs on outer face of command counter
+        slat_wall("Counter flutes", rc + .01, .12, .98, a0 + .4, a1 - .4, "walnut", "fixtures", width=.042, depth=.035, pitch=.09, tile=1.2)
+        # Honed Calacatta marble counter top overhang + brass edge trim
+        sector("Counter marble top", rc - .58, rc + .08, 1.01, 1.07, a0 - .3, a1 + .3, "stone", "fixtures", tile=1.2)
+        sector("Counter brass lip", rc + .06, rc + .09, 1.005, 1.03, a0 - .3, a1 + .3, "brass", "fixtures")
+        # Warm under-counter floating glow & toe-kick illumination
+        sector("Counter under glow", rc - .02, rc + .04, .99, 1.01, a0, a1, "cove", "emit", faces_on=("bottom",))
+        sector("Counter kick plinth", rc - .45, rc - .06, 0, .08, a0, a1, "darkmarble", "fixtures")
+        sector("Counter kick LED", rc - .05, rc - .01, .02, .07, a0, a1, "cove", "emit", faces_on=("outer",))
+        # Circular champagne-brass footrail
+        sector("Counter footrail", rc + .12, rc + .155, .17, .205, a0 + .6, a1 - .6, "brass", "fixtures", step=.35)
+
+
+# ---------------------------------------------------------------- vertical circulation
 def helix(r, a_from, a_to, y_from, y_to, dy=0.0, n=40):
     out = []
     for k in range(n + 1):
@@ -577,7 +1000,6 @@ def helix(r, a_from, a_to, y_from, y_to, dy=0.0, n=40):
 
 
 def ribbon(name, path_lo, path_hi, mat, group):
-    """A surface between two polylines (glass balustrades along a curved stair)."""
     verts, faces = [], []
     for lo, hi in zip(path_lo, path_hi):
         verts += [tuple(P(*lo)), tuple(P(*hi))]
@@ -595,25 +1017,24 @@ def build_stairs():
         for k in range(n):
             lo, hi = sorted((a_from + da * k, a_from + da * (k + 1)))
             y = y0 + dy * (k + 1)
-            sector("Stair tread", f["r0"], f["r1"], y - .045, y, lo - .05, hi + .05, "oak", "fixtures", segs=2, tile=1.2)
-            sector("Stair nosing light", f["r0"] + .03, f["r1"] - .03, y - .05, y - .045, lo, lo + (hi - lo) * .12, "cove", "emit",
-                   segs=1, faces_on=("bottom",))
-        # Folded-plate steel stringers on both edges, glass balustrades with oak rails above them.
+            sector("Stair tread", f["r0"], f["r1"], y - .048, y, lo - .05, hi + .05, "oak", "fixtures", segs=2, tile=1.2)
+            sector("Stair nosing brass", f["r0"] + .02, f["r1"] - .02, y - .01, y + .002, lo, lo + (hi - lo) * .08, "brass", "fixtures", segs=1, faces_on=("top",))
+            sector("Stair nosing light", f["r0"] + .03, f["r1"] - .03, y - .054, y - .048, lo, lo + (hi - lo) * .12, "cove", "emit", segs=1, faces_on=("bottom",))
         for r in (f["r0"] - .03, f["r1"] + .03):
-            sweep("Stair stringer", helix(r, a_from, a_to, y0, y1, -.16), .05, .38, "steel", "fixtures")
+            sweep("Stair stringer", helix(r, a_from, a_to, y0, y1, -.16), .055, .38, "bronze", "fixtures")
+            sweep("Stair stringer brass", helix(r, a_from, a_to, y0, y1, -.34), .06, .02, "brass", "fixtures")
             ribbon("Stair glass", helix(r, a_from, a_to, y0, y1, .02), helix(r, a_from, a_to, y0, y1, 1.0), "glass", "emit")
             sweep("Stair handrail", helix(r, a_from, a_to, y0, y1, 1.02), .06, .05, "oak", "fixtures", tile=1.5)
-        # Soffit under the flight: a smooth white underside, as in cantilevered gallery stairs.
         lo_path = helix((f["r0"] + f["r1"]) / 2, a_from, a_to, y0, y1, -.36)
         sweep("Stair soffit", lo_path, f["r1"] - f["r0"] + .1, .02, "plaster", "fixtures")
     for L in walk["landings"]:
         y = L["y"]
         sector("Landing", L["r0"], L["r1"], y - .3, y, L["a0"], L["a1"], "stone", "fixtures", tile=1.4)
-        sector("Landing edge", L["r0"] - .05, L["r0"], y - .32, y + .02, L["a0"], L["a1"], "trav", "fixtures")
-        sector("Landing cove", L["r0"] + .05, L["r0"] + .1, y - .31, y - .3, L["a0"], L["a1"], "cove", "emit", faces_on=("bottom",))
+        sector("Landing edge", L["r0"] - .06, L["r0"], y - .32, y + .02, L["a0"], L["a1"], "trav", "fixtures")
+        sector("Landing brass", L["r0"] - .068, L["r0"] - .055, y - .04, y + .015, L["a0"], L["a1"], "brass", "fixtures")
+        sector("Landing cove", L["r0"] + .05, L["r0"] + .12, y - .31, y - .3, L["a0"], L["a1"], "cove", "emit", faces_on=("bottom",))
         arc_surface("Landing glass", L["r0"] + .02, y + .02, y + 1.05, L["a0"], L["a1"], "glass", "emit", inward=False)
         sector("Landing rail", L["r0"] - .04, L["r0"] + .08, y + 1.03, y + 1.1, L["a0"], L["a1"], "oak", "fixtures")
-        # The far end of the landing (away from the flights) closes with glass to the gallery edge.
         far = L["a0"] if (L["a1"] in (s_["aFrom"] for s_ in walk["flights"]) or L["a1"] in (s_["aTo"] for s_ in walk["flights"])) else L["a1"]
         x0, z0 = pol(L["r0"], far)
         x1, z1 = pol(R_GAL, far)
@@ -621,36 +1042,38 @@ def build_stairs():
 
 
 def build_elevators():
-    """Two round panoramic cabins on guide rails at the gallery fronts. Cabins are separate nodes
-    ("Elevator cabin N") that the browser moves; rails, caps and thresholds are static."""
+    """Two panoramic glass elevators framed in architectural bronze & champagne brass."""
     for e in LAYOUT["elevators"]:
         x, z, t, rc = e["x"], e["z"], e["t"], e["r"]
-        out = 1                                                     # rails sit on the gallery side
         for side in (-1, 1):
             rx, rz = pol(LAYOUT["radii"]["gallery"] - .32, t + side * degrees(.55 / 20.25))
-            box("Elevator rail", rx, 8.6, rz, .12, 17.2, .16, "steel", "fixtures", yaw=t)
-        lathe("Elevator cap", x, 17.15, z, [(rc + .15, 0), (rc + .15, .35), (0, .35)], "steel", "fixtures", sides=48)
-        sector("Elevator cap light", rc - .2, rc + .14, 17.14, 17.15, 0, 360, "cove", "emit", faces_on=("bottom",), segs=48) \
-            if False else lathe("Elevator cap ring", x, 17.12, z, [(rc + .16, 0), (rc + .16, .03), (rc - .1, .03), (rc - .1, 0)], "cove", "emit", sides=48, caps=False)
-        lathe("Elevator pit", x, 0, z, [(rc + .2, 0), (rc + .2, .02), (0, .02)], "steel", "fixtures", sides=48)
+            box("Elevator rail", rx, 8.6, rz, .12, 17.2, .16, "bronze", "fixtures", yaw=t)
+            box("Elevator rail brass", rx, 8.6, rz, .03, 17.2, .17, "brass", "fixtures", yaw=t)
+        lathe("Elevator cap", x, 17.15, z, [(rc + .16, 0), (rc + .16, .35), (0, .35)], "bronze", "fixtures", sides=48)
+        lathe("Elevator cap brass", x, 17.14, z, [(rc + .17, 0), (rc + .17, .04), (rc + .12, .04), (rc + .12, 0)], "brass", "fixtures", sides=48, caps=False)
+        lathe("Elevator cap ring", x, 17.11, z, [(rc + .12, 0), (rc + .12, .03), (rc - .1, .03), (rc - .1, 0)], "cove", "emit", sides=48, caps=False)
+        lathe("Elevator pit", x, 0, z, [(rc + .22, 0), (rc + .22, .02), (0, .02)], "darkmarble", "fixtures", sides=48)
+        lathe("Elevator pit brass", x, .02, z, [(rc + .23, 0), (rc + .23, .005), (rc + .18, .005), (rc + .18, 0)], "brass", "fixtures", sides=48, caps=False)
         for th in (q for q in LAYOUT["walk"]["thresholds"] if q["elevator"] == e["id"]):
             sector("Elevator threshold", th["r0"], th["r1"], th["y"] - .3, th["y"], th["a0"], th["a1"], "stone", "fixtures")
             for edge in (th["a0"], th["a1"]):
                 xa, za = pol(th["r0"], edge)
                 xb, zb = pol(LAYOUT["radii"]["gallery"], edge)
                 ribbon("Threshold glass", [(xa, th["y"], za), (xb, th["y"], zb)], [(xa, th["y"] + 1.05, za), (xb, th["y"] + 1.05, zb)], "glass", "emit")
-        # The cabin: floor, glass drum (open toward the gallery), ceiling with a light ring, handrail.
         cabin = bpy.data.objects.new(f"Elevator cabin {e['id']}", None)
         bpy.context.collection.objects.link(cabin)
         cabin.location = P(x, 0, z)
         group = f"cabin{e['id']}"
-        door = t                                                    # opening faces the gallery (outward)
+        door = t
         parts = [
-            lathe("Cabin floor", x, 0, z, [(rc, 0), (rc, .12), (0, .12)], "stone", group, sides=48),
-            lathe("Cabin ceiling", x, 2.56, z, [(rc, 0), (rc, .14), (0, .14)], "white", group, sides=48),
-            lathe("Cabin light", x, 2.55, z, [(rc - .1, 0), (rc - .1, .012), (rc - .3, .012), (rc - .3, 0)], "downlight", group, sides=48, caps=False),
-            lathe("Cabin base ring", x, .12, z, [(rc + .02, 0), (rc + .02, .1), (rc - .02, .1), (rc - .02, 0)], "steel", group, sides=48, caps=False),
-            lathe("Cabin top ring", x, 2.46, z, [(rc + .02, 0), (rc + .02, .1), (rc - .02, .1), (rc - .02, 0)], "steel", group, sides=48, caps=False),
+            lathe("Cabin floor", x, 0, z, [(rc, 0), (rc, .12), (0, .12)], "darkmarble", group, sides=48),
+            lathe("Cabin ceiling", x, 2.56, z, [(rc, 0), (rc, .14), (0, .14)], "trav", group, sides=48),
+            lathe("Cabin light", x, 2.545, z, [(rc - .08, 0), (rc - .08, .015), (rc - .28, .015), (rc - .28, 0)], "downlight", group, sides=48, caps=False),
+            lathe("Cabin underglow", x, -.01, z, [(rc - .06, 0), (rc - .06, .012), (rc - .24, .012), (rc - .24, 0)], "cove", group, sides=48, caps=False),
+            lathe("Cabin base ring", x, .12, z, [(rc + .02, 0), (rc + .02, .1), (rc - .02, .1), (rc - .02, 0)], "bronze", group, sides=48, caps=False),
+            lathe("Cabin base brass", x, .20, z, [(rc + .026, 0), (rc + .026, .024), (rc - .02, .024), (rc - .02, 0)], "brass", group, sides=48, caps=False),
+            lathe("Cabin top ring", x, 2.46, z, [(rc + .02, 0), (rc + .02, .1), (rc - .02, .1), (rc - .02, 0)], "bronze", group, sides=48, caps=False),
+            lathe("Cabin top brass", x, 2.45, z, [(rc + .026, 0), (rc + .026, .024), (rc - .02, .024), (rc - .02, 0)], "brass", group, sides=48, caps=False),
         ]
         for a0, a1 in ((door + 32, door + 360 - 32),):
             def local_arc(r, y0, y1, mat, name):
@@ -666,7 +1089,7 @@ def build_elevators():
                 return emit_object(name, verts, faces, mat, group, Matrix.Identity(4), 1.0, recalc=False)
             parts.append(local_arc(rc - .01, .22, 2.46, "glass", "Cabin glass"))
             hand = [(x + pol(rc - .1, a0 + (a1 - a0) * i / 24)[0], .95, z + pol(rc - .1, a0 + (a1 - a0) * i / 24)[1]) for i in range(25)]
-            parts.append(sweep("Cabin handrail", hand, .05, .05, "oak", group))
+            parts.append(sweep("Cabin handrail", hand, .045, .045, "brass", group))
         doors = []
         for side, (d0, d1) in (("L", (door - 31, door)), ("R", (door, door + 31))):
             pivot = bpy.data.objects.new(f"Elevator door{side} {e['id']}", None)
@@ -684,7 +1107,7 @@ def build_elevators():
                 faces.append((o, o + 2, o + 3, o + 1))
             leaf.append(emit_object("Cabin door glass", verts, faces, "glass", group, Matrix.Identity(4), 1.0, recalc=False))
             ex, ez = pol(rc - .05, d0 if side == "L" else d1)
-            leaf.append(box("Cabin door edge", x + ex, 1.34, z + ez, .03, 2.24, .03, "silver", group))
+            leaf.append(box("Cabin door edge", x + ex, 1.34, z + ez, .03, 2.24, .03, "brass", group))
             bpy.context.view_layer.update()
             for part in leaf:
                 world = part.matrix_world.copy()
@@ -707,67 +1130,8 @@ def build_elevators():
         GROUPS["cabins"].append(cabin)
 
 
-def build_tower():
-    tw = LAYOUT["tower"]
-    lathe("Core plinth", 0, 0, 0, [(tw["plinth"], 0), (tw["plinth"], .3), (tw["plinth"] - .08, .38), (0, .38)], "trav", "fixtures", sides=72)
-    sector("Plinth inlay", tw["plinth"] - .04, tw["plinth"] - .02, .3, .381, 0, 360, "cove", "emit", faces_on=("top",))
-    lathe("Core base", 0, .38, 0, [(1.75, 0), (1.75, .5), (1.6, .62), (0, .62)], "black", "fixtures", sides=64)
-    # Glass core with light filaments and a soft inner glow column.
-    arc_surface("Core glass", tw["core"], 1.0, H, 0, 360, "glass", "emit", inward=False, step=.3)
-    for k in range(28):
-        t = k * 360 / 28 + rng.uniform(-3, 3)
-        r = rng.uniform(.55, 1.3)
-        x, z = pol(r, t)
-        y0, y1 = 1.0 + rng.uniform(0, 1.5), H - rng.uniform(0, 2.0)
-        box("Core filament", x, (y0 + y1) / 2, z, .035, y1 - y0, .035, "filament", "emit")
-    lathe("Core glow", 0, 1.0, 0, [(.32, 0), (.32, H - 1.0)], "coreglow", "emit", sides=24, caps=False)
-    # Ring housings behind the screen facets, with warm edge lines.
-    for ring in tw["rings"]:
-        y0, y1 = ring["y"] - ring["h"] / 2 - .08, ring["y"] + ring["h"] / 2 + .08
-        lathe("Ring housing", 0, y0, 0, [(ring["r"] - .55, 0), (ring["r"] - .1, 0), (ring["r"] - .1, y1 - y0), (ring["r"] - .55, y1 - y0)],
-              "black", "fixtures", sides=72, smooth=False)
-        for yy in (y0 - .03, y1):
-            sector("Ring lip", ring["r"] - .1, ring["r"] + .16, yy, yy + .03, 0, 360, "black", "fixtures", step=.4)
-            sector("Ring light", ring["r"] + .15, ring["r"] + .165, yy, yy + .03, 0, 360, "cove", "emit", faces_on=("outer",), step=.4)
-    for cr, cy, ch in ((LAYOUT["tower"]["crown"]["r"], LAYOUT["tower"]["crown"]["y"], LAYOUT["tower"]["crown"]["h"]), (2.45, 2.55, .62)):
-        lathe("Ticker drum", 0, cy - ch / 2 - .06, 0, [(cr - .4, 0), (cr - .05, 0), (cr - .05, ch + .12), (cr - .4, ch + .12)], "black", "fixtures", sides=72, smooth=False)
-    # Hangers: slender rods from the oculus ring to the rings.
-    for k in range(6):
-        t = k * 60 + 30
-        x, z = pol(4.2, t)
-        box("Hanger", x, 12.0, z, .03, 15.6, .03, "silver", "fixtures")
-
-
-def build_counter():
-    rc = LAYOUT["radii"]["counter"]
-    aisles, aw = LAYOUT["aisles"], LAYOUT["aisleWidth"]
-    for i, a in enumerate(aisles):
-        b = aisles[(i + 1) % len(aisles)] + (360 if i == len(aisles) - 1 else 0)
-        pad = degrees(aw / 2 / rc)
-        sector("Counter body", rc - .5, rc, 0, 1.02, a + pad, b - pad, "oak", "fixtures", tile=1.0)
-        sector("Counter top", rc - .58, rc + .06, 1.02, 1.07, a + pad - .3, b - pad + .3, "white", "fixtures")
-        sector("Counter kick", rc - .02, rc + .005, .02, .1, a + pad, b - pad, "cove", "emit", faces_on=("outer",))
-
-
-# ---------------------------------------------------------------- furniture
-def chair(x, z, yaw):
-    """Task chair: five-star base, column, mesh seat and back."""
-    a = radians(yaw)
-    for k in range(5):
-        b = yaw + k * 72
-        dx, dz = pol(.2, b)
-        box("Chair leg", x + dx, .06, z + dz, .045, .035, .38, "silver", "fixtures", yaw=b)
-    box("Chair column", x, .27, z, .05, .38, .05, "black", "fixtures")
-    box("Chair seat", x, .49, z, .5, .07, .48, "mesh", "fixtures", yaw=yaw, bevel=.02)
-    bx, bz = x - sin(a) * .25, z - cos(a) * .25
-    box("Chair back", bx, .86, bz, .48, .56, .05, "mesh", "fixtures", yaw=yaw, tilt=-8, bevel=.02)
-    for s in (-1, 1):
-        ox, oz = cos(a) * .27 * s, -sin(a) * .27 * s
-        box("Chair arm", x + ox, .66, z + oz, .05, .04, .3, "black", "fixtures", yaw=yaw)
-
-
+# ---------------------------------------------------------------- furniture & desks
 def _bevelled(obj, width=.012, segments=1, subdiv=0):
-    """Round off a part: bevel its edges (and optionally subdivide) so it catches light like a product."""
     me = obj.data
     bm = bmesh.new()
     bm.from_mesh(me)
@@ -782,11 +1146,10 @@ def _bevelled(obj, width=.012, segments=1, subdiv=0):
 
 
 def make_task_chair():
-    """Ergonomic task chair at the origin facing +z: five-star base on casters, gas lift, padded seat,
-    curved mesh back on an aluminium frame with lumbar pad and headrest, padded T-arms."""
+    """Executive ergonomic task chair: brushed titanium base, sculpted lumbar shell, knit mesh & headrest."""
     g = "chairsrc"
     parts = []
-    for k in range(5):                                   # five-star base: tapered arms + casters
+    for k in range(5):
         a = k * 72
         tip = pol(.31, a)
         parts.append(sweep("Chair base arm", [(0, .1, 0), (tip[0] * .6, .085, tip[1] * .6), (tip[0], .065, tip[1])], .045, .035, "silver", g, smooth=True))
@@ -799,17 +1162,14 @@ def make_task_chair():
     parts.append(_bevelled(box("Seat mechanism", 0, .34, 0, .24, .05, .26, "black", g), .01, 2))
     parts.append(_bevelled(box("Seat pan", 0, .38, .01, .5, .045, .48, "black", g), .015, 2))
     parts.append(_bevelled(box("Seat cushion", 0, .425, .02, .48, .06, .46, "mesh", g), .025, 2))
-    # Back: curved mesh panel in a frame, slightly reclined.
     back = []
     for k in range(9):
         u = k / 8
         y = .5 + .5 * u
-        bend = -.2 - .06 * sin(pi * u)                       # lumbar curve
+        bend = -.2 - .06 * sin(pi * u)
         back.append((0, y, bend - .07 * u))
     for side in (-1, 1):
         parts.append(sweep("Back frame", [(side * .23, y, z) for (_, y, z) in back], .022, .03, "silver", g, smooth=True))
-    # Back: an upholstered panel with thickness (front and back faces, closed edges) and a black
-    # moulded shell behind it, so the back reads solid from every side.
     w, th = .22, .025
     front = [tuple(P(sx * w, y, z)) for (_, y, z) in back for sx in (-1, 1)]
     rear = [tuple(P(sx * w, y, z - th)) for (_, y, z) in back for sx in (-1, 1)]
@@ -818,13 +1178,13 @@ def make_task_chair():
     faces = []
     for k in range(n - 1):
         a0, a1, b0, b1 = 2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 3
-        faces.append((a0, a1, b1, b0))                                  # upholstered front
+        faces.append((a0, a1, b1, b0))
         o = 2 * n
-        faces.append((o + a0, o + b0, o + b1, o + a1))                  # rear face
-        faces.append((a0, b0, o + b0, o + a0))                          # left edge
-        faces.append((a1, o + a1, o + b1, b1))                          # right edge
-    faces.append((0, 2 * n, 2 * n + 1, 1))                              # bottom edge
-    faces.append((2 * n - 2, 2 * n - 1, 4 * n - 1, 4 * n - 2))          # top edge
+        faces.append((o + a0, o + b0, o + b1, o + a1))
+        faces.append((a0, b0, o + b0, o + a0))
+        faces.append((a1, o + a1, o + b1, b1))
+    faces.append((0, 2 * n, 2 * n + 1, 1))
+    faces.append((2 * n - 2, 2 * n - 1, 4 * n - 1, 4 * n - 2))
     parts.append(emit_object("Back cushion", verts, faces, "mesh", g, Matrix.Identity(4), recalc=True))
     shell = [(0, y, z - th - .012) for (_, y, z) in back]
     parts.append(sweep("Back shell", shell, 2 * w + .03, .012, "black", g, smooth=True))
@@ -833,7 +1193,7 @@ def make_task_chair():
     parts.append(_bevelled(box("Lumbar pad", 0, .66, -.24, .34, .1, .03, "black", g, tilt=-6), .012, 2))
     parts.append(_bevelled(box("Headrest", 0, 1.12, -.29, .3, .12, .05, "mesh", g, tilt=-10), .02, 2))
     parts.append(box("Headrest post", 0, 1.04, -.285, .03, .1, .02, "silver", g))
-    for side in (-1, 1):                                   # T-arms
+    for side in (-1, 1):
         parts.append(box("Arm post", side * .25, .52, -.02, .03, .18, .05, "black", g))
         parts.append(_bevelled(box("Arm pad", side * .25, .62, .01, .08, .03, .26, "black", g), .012, 2))
     bpy.ops.object.select_all(action="DESELECT")
@@ -848,7 +1208,6 @@ def make_task_chair():
 
 
 def place_instances(source, placements, name, group="props"):
-    """Linked duplicates of one mesh (exported as GPU instances): (x, y, z, yaw) in three space."""
     for x, y, z, yaw in placements:
         obj = bpy.data.objects.new(name, source.data)
         bpy.context.collection.objects.link(obj)
@@ -856,27 +1215,36 @@ def place_instances(source, placements, name, group="props"):
         GROUPS[group].append(obj)
 
 
-CHAIRS, CUPS, LAMPS = [], [], []
+CHAIRS, CUPS = [], []
 
 
 def build_desks():
+    """Bespoke Curved Trading Pods: American walnut ribbed outer cladding, honed matte stone desktop,
+    champagne-brass trim rails, slate acoustic privacy screens, and glowing warm recessed toe-kicks."""
     for d in LAYOUT["desks"]:
         r, a0, a1 = d["r"], d["a0"], d["a1"]
+        # Honed matte composite desktop + walnut bullnose edge
         sector("Desk top", r - .05, r + .78, .73, .77, a0, a1, "white", "fixtures", step=.5)
-        sector("Desk edge band", r + .77, r + .79, .725, .775, a0, a1, "darkoak", "fixtures", step=.5)
-        sector("Cable tray", r + .05, r + .25, .6, .62, a0 + .5, a1 - .5, "steel", "fixtures", step=.5)
-        sector("Desk front", r - .05, r + .01, .06, .73, a0 + .3, a1 - .3, "oak", "fixtures", step=.5, tile=1.0)
-        sector("Desk screen", r - .1, r - .04, .77, 1.04, a0, a1, "screenfab", "fixtures", step=.5)
-        sector("Desk screen cap", r - .11, r - .03, 1.04, 1.06, a0, a1, "silver", "fixtures", step=.5)
-        sector("Desk end", r - .05, r + .78, 0, .73, a0, a0 + degrees(.04 / r), "oak", "fixtures", segs=1)
-        sector("Desk end", r - .05, r + .78, 0, .73, a1 - degrees(.04 / r), a1, "oak", "fixtures", segs=1)
+        sector("Desk edge band", r + .77, r + .795, .725, .775, a0, a1, "walnut", "fixtures", step=.5)
+        sector("Desk edge brass", r + .79, r + .80, .742, .758, a0, a1, "brass", "fixtures", step=.5)
+        sector("Cable tray", r + .05, r + .25, .6, .62, a0 + .5, a1 - .5, "bronze", "fixtures", step=.5)
+        # Sculpted American walnut front modesty shell + recessed glowing toe-kick
+        sector("Desk front", r - .055, r + .01, .07, .73, a0 + .2, a1 - .2, "walnut", "fixtures", step=.5, tile=1.2)
+        sector("Desk kick base", r - .03, r + .02, 0, .07, a0 + .3, a1 - .3, "bronze", "fixtures", step=.5)
+        sector("Desk kick glow", r - .05, r - .025, .02, .055, a0 + .4, a1 - .4, "cove_soft", "emit", faces_on=("inner",), step=.5)
+        # Horizontal champagne-brass mid-reveal on the outer walnut shell
+        sector("Desk front brass", r - .065, r - .05, .38, .405, a0 + .2, a1 - .2, "brass", "fixtures", step=.5)
+        # Slate acoustic privacy screen topped with champagne-brass cap rail
+        sector("Desk screen", r - .10, r - .04, .77, 1.04, a0, a1, "screenfab", "fixtures", step=.5)
+        sector("Desk screen cap", r - .11, r - .03, 1.04, 1.065, a0, a1, "brass", "fixtures", step=.5)
+        # Rounded solid walnut end-cheeks with vertical brass reveal
+        for end_a0, end_a1 in ((a0, a0 + degrees(.045 / r)), (a1 - degrees(.045 / r), a1)):
+            sector("Desk end", r - .08, r + .78, 0, .77, end_a0, end_a1, "walnut", "fixtures", segs=1)
     for s in LAYOUT["seats"]:
         r, t = s["r"], s["t"]
-        x, z = pol(r + .38, t)
-        box("Pedestal", *pol(r + .25, t + degrees(.42 / r))[:1], .3, pol(r + .25, t + degrees(.42 / r))[1], .4, .58, .5, "white", "fixtures", yaw=t)
+        box("Pedestal", *pol(r + .25, t + degrees(.42 / r))[:1], .3, pol(r + .25, t + degrees(.42 / r))[1], .4, .58, .5, "walnut", "fixtures", yaw=t)
         cx, cz = pol(r + 1.18, t)
-        CHAIRS.append((cx, 0, cz, t + 180 + rng.uniform(-14, 14)))   # facing the desk
-        # Desk life: keyboard (keycaps), mouse on a pad, desk phone, notebook, cup; a lamp at some seats.
+        CHAIRS.append((cx, 0, cz, t + 180 + rng.uniform(-14, 14)))
         kx, kz = pol(r + .45, t)
         box("Keyboard", kx, .776, kz, .44, .018, .14, "black", "fixtures", yaw=t, bevel=.004)
         box("Keycaps", kx, .787, kz, .41, .006, .11, "keys", "fixtures", yaw=t)
@@ -892,7 +1260,7 @@ def build_desks():
         if rng.random() < .6:
             ux, uz = pol(r + .58, t - degrees(.6 / r))
             CUPS.append((ux, .77, uz, rng.uniform(0, 360)))
-        # (no desk lamps: removed at the owner's request)
+        # (no desk lamps per owner's request)
 
 
 def build_monitors():
@@ -905,68 +1273,100 @@ def build_monitors():
                 continue
             oriented(s, 0, 0, -.02, w + .03, h + .03, .03, "bezel", bevel=.004)
             oriented(s, 0, 0, -.045, w * .3, h * .3, .03, "black")
-            # Every monitor stands on the desk: pole behind the screen down to a foot plate
-            # (upper-tier poles pass behind the screen below them).
             reach = s["y"] - .77
-            oriented(s, 0, -reach / 2, -.065, .045, reach, .03, "silver")
-            oriented(s, 0, -reach + .005, -.08, min(.3, w * .4), .01, .18, "silver")
+            oriented(s, 0, -reach / 2, -.065, .042, reach, .028, "bronze")
+            oriented(s, 0, -reach + .005, -.08, min(.3, w * .4), .012, .18, "bronze")
         elif kind == "arc":
-            # Curved boards: a black backing a little larger than the picture.
             r = s["r"] + .06
-            pad = degrees(.12 / r)
+            pad = degrees(.13 / r)
+            # Sleek precision bronze housing + champagne-brass perimeter reveal + warm indirect back-glow
             sector("Board backing", r, r + .14, s["y"] - s["h"] / 2 - .12, s["y"] + s["h"] / 2 + .12, s["a0"] - pad, s["a1"] + pad, "bezel", "fixtures", step=.4)
-            sector("Board light", r - .01, r, s["y"] - s["h"] / 2 - .13, s["y"] - s["h"] / 2 - .1, s["a0"] - pad, s["a1"] + pad, "cove", "emit", step=.4, faces_on=("inner",))
-            # Visible mounting: a steel top rail tied back to the gallery fascia, and hanger rods up to
-            # the slab above, so no board reads as floating.
-            top = s["y"] + s["h"] / 2 + .12
-            sector("Board top rail", r - .02, R_GAL + .05, top, top + .08, s["a0"] - pad, s["a1"] + pad, "steel", "fixtures", step=.4)
+            sector("Board brass top", r - .015, r + .02, s["y"] + s["h"] / 2 + .11, s["y"] + s["h"] / 2 + .14, s["a0"] - pad, s["a1"] + pad, "brass", "fixtures", step=.4)
+            sector("Board brass bot", r - .015, r + .02, s["y"] - s["h"] / 2 - .14, s["y"] - s["h"] / 2 - .11, s["a0"] - pad, s["a1"] + pad, "brass", "fixtures", step=.4)
+            sector("Board light", r - .005, r + .02, s["y"] - s["h"] / 2 - .15, s["y"] - s["h"] / 2 - .13, s["a0"] - pad, s["a1"] + pad, "cove", "emit", step=.4, faces_on=("bottom", "inner"))
+            top = s["y"] + s["h"] / 2 + .14
+            sector("Board top rail", r - .02, R_GAL + .05, top, top + .07, s["a0"] - pad, s["a1"] + pad, "bronze", "fixtures", step=.4)
             above = min((lv - 1.0 for lv in LEVELS if lv - 1.0 >= top), default=None)
             for edge in (s["a0"] + 1.2, s["a1"] - 1.2):
                 hx, hz = pol(r + .07, edge)
                 if above is not None and above - top > .05:
-                    box("Board hanger", hx, (top + above) / 2, hz, .035, above - top, .035, "silver", "fixtures")
+                    box("Board hanger", hx, (top + above) / 2, hz, .032, above - top, .032, "silver", "fixtures")
                 bx, bz = pol((r + R_GAL) / 2, edge)
-                box("Board bracket", bx, top - .3, bz, .06, .5, R_GAL - r + .1, "steel", "fixtures", yaw=edge)
+                box("Board bracket", bx, top - .3, bz, .055, .48, R_GAL - r + .1, "bronze", "fixtures", yaw=edge)
 
 
 def curved_sofa(r, a0, a1, y=.14):
-    """A curved modern sectional on the lounge arc, facing the centre: plinth, cushions, back, arms."""
-    sector("Sofa plinth", r - .55, r + .32, y, y + .08, a0, a1, "darkoak", "fixtures", step=.3)
-    sector("Sofa base", r - .52, r + .3, y + .08, y + .4, a0, a1, "weave", "fixtures", step=.3, tile=.3)
+    """Luxury curved modular sectional sofa: walnut plinth, ivory linen cushions & tailored throw pillows."""
+    sector("Sofa plinth", r - .55, r + .32, y, y + .09, a0, a1, "walnut", "fixtures", step=.3)
+    sector("Sofa brass strip", r - .555, r - .54, y + .07, y + .09, a0, a1, "brass", "fixtures", step=.3)
+    sector("Sofa base", r - .52, r + .30, y + .09, y + .40, a0, a1, "weave", "fixtures", step=.3, tile=.3)
     n = max(3, int(radians(a1 - a0) * r / .95))
-    gap = degrees(.025 / r)
+    gap = degrees(.028 / r)
     for k in range(n):
         c0 = a0 + (a1 - a0) * k / n + gap
         c1 = a0 + (a1 - a0) * (k + 1) / n - gap
-        sector("Sofa cushion", r - .5, r + .05, y + .4, y + .53, c0, c1, "weave", "fixtures", step=.2, tile=.3)
-        sector("Sofa back cushion", r + .05, r + .27, y + .53, y + .92, c0, c1, "weave", "fixtures", step=.2, tile=.3)
-    sector("Sofa back", r + .27, r + .32, y + .08, y + .95, a0, a1, "weave", "fixtures", step=.3, tile=.3)
+        _bevelled(sector("Sofa cushion", r - .51, r + .05, y + .40, y + .545, c0, c1, "weave", "fixtures", step=.28, tile=.3), .024, 1)
+        _bevelled(sector("Sofa back cushion", r + .05, r + .27, y + .54, y + .92, c0, c1, "weave", "fixtures", step=.28, tile=.3), .024, 1)
+        # Accent tailored throw cushions on alternate seats!
+        if k % 2 == 0:
+            pt = (c0 + c1) / 2
+            px, pz = pol(r - .04, pt)
+            pmat = "pillow_camel" if (k // 2) % 2 == 0 else "pillow_slate"
+            box("Throw pillow", px, y + .66, pz, .38, .34, .11, pmat, "fixtures", yaw=pt + 180 + rng.uniform(-10, 10), tilt=-14, bevel=.028, segments=1)
+    sector("Sofa back", r + .27, r + .33, y + .09, y + .95, a0, a1, "weave", "fixtures", step=.3, tile=.3)
     for a in (a0, a1 - degrees(.18 / r)):
-        sector("Sofa arm", r - .52, r + .3, y + .08, y + .66, a, a + degrees(.18 / r), "weave", "fixtures", segs=2, tile=.3)
+        sector("Sofa arm", r - .52, r + .30, y + .09, y + .67, a, a + degrees(.18 / r), "weave", "fixtures", segs=2, tile=.3)
 
 
 def build_landscape():
-    # Lounges: oak decks with sofas, lounge chairs, round tables and rugs, edged by low planters.
+    """Stepped Biophilic Lounges with glowing step LEDs & Living Illuminated Reflecting Pools."""
     for L in LAYOUT["lounges"]:
         t = L["t"]
-        sector("Lounge deck", 17.1, 20.7, 0, .14, t - 11, t + 11, "deck", "fixtures", tile=1.2)
-        sector("Lounge step", 16.95, 17.1, 0, .07, t - 11, t + 11, "trav", "fixtures")
-        sector("Lounge rug", 17.7, 20.1, .142, .156, t - 7, t + 7, "weave", "fixtures", tile=1.5, faces_on=("top", "inner", "outer"))
-        # Trough = rim walls around a lower soil bed (no coplanar faces: they flickered).
-        sector("Lounge planter rim", 20.3, 20.38, .14, .8, t - 11, t + 11, "trav", "fixtures")
-        sector("Lounge planter rim", 20.62, 20.7, .14, .8, t - 11, t + 11, "trav", "fixtures")
+        # 2-stepped oak lounge deck with glowing warm step strips
+        sector("Lounge deck", 17.1, 20.7, 0, .15, t - 11, t + 11, "deck", "fixtures", tile=1.2)
+        sector("Lounge step", 16.88, 17.1, 0, .075, t - 11, t + 11, "trav", "fixtures")
+        sector("Lounge step glow 1", 16.86, 16.89, .055, .075, t - 10.8, t + 10.8, "cove", "emit", faces_on=("inner",))
+        sector("Lounge step glow 2", 17.08, 17.11, .125, .148, t - 10.8, t + 10.8, "cove", "emit", faces_on=("inner",))
+        sector("Lounge rug", 17.65, 20.15, .152, .166, t - 7.2, t + 7.2, "weave", "fixtures", tile=1.5, faces_on=("top", "inner", "outer"))
+        # Sculpted travertine planter trough with champagne-brass coping trim
+        sector("Lounge planter rim", 20.30, 20.38, .15, .80, t - 11, t + 11, "trav", "fixtures")
+        sector("Lounge planter rim", 20.62, 20.70, .15, .80, t - 11, t + 11, "trav", "fixtures")
+        sector("Lounge planter brass", 20.29, 20.39, .80, .82, t - 11, t + 11, "brass", "fixtures")
+        sector("Lounge planter brass", 20.61, 20.71, .80, .82, t - 11, t + 11, "brass", "fixtures")
         for edge in (t - 11, t + 11 - degrees(.08 / 20.5)):
-            sector("Lounge planter end", 20.38, 20.62, .14, .8, edge, edge + degrees(.08 / 20.5), "trav", "fixtures", segs=1)
-        sector("Lounge planter soil", 20.38, 20.62, .14, .74, t - 10.8, t + 10.8, "soil", "fixtures")
-        curved_sofa(19.55, t - 7.5, t + 7.5)
+            sector("Lounge planter end", 20.38, 20.62, .15, .80, edge, edge + degrees(.08 / 20.5), "trav", "fixtures", segs=1)
+        sector("Lounge planter soil", 20.38, 20.62, .15, .74, t - 10.8, t + 10.8, "soil", "fixtures")
+        curved_sofa(19.55, t - 7.5, t + 7.5, y=.15)
     for so in LAYOUT.get("sofas", []):
         curved_sofa(so["r"], so["t"] - so["span"] / 2, so["t"] + so["span"] / 2, y=so["y"])
+
+    # Living Illuminated Reflecting Pools (dedicated `water` group -> WebGPU ripple/caustics shader!)
     for w in LAYOUT["water"]:
-        sector("Pool rim", w["r0"] - .12, w["r1"] + .12, 0, .42, w["a0"] - .5, w["a1"] + .5, "trav", "fixtures")
-        sector("Pool water", w["r0"], w["r1"], .36, .37, w["a0"], w["a1"], "water", "fixtures", faces_on=("top",))
-    # (the potted trees bring their own pots)
+        r0, r1, a0, a1 = w["r0"], w["r1"], w["a0"], w["a1"]
+        # Stepped travertine & dark Emperador marble coping
+        sector("Pool outer wall", r0 - .14, r0, 0, .42, a0 - .5, a1 + .5, "trav", "fixtures", step=.35)
+        sector("Pool outer wall", r1, r1 + .14, 0, .42, a0 - .5, a1 + .5, "trav", "fixtures", step=.35)
+        for edge in (a0 - .5, a1):
+            sector("Pool end wall", r0 - .14, r1 + .14, 0, .42, edge, edge + .5, "trav", "fixtures", segs=2)
+        sector("Pool brass rim", r0 - .15, r0 + .01, .42, .44, a0 - .5, a1 + .5, "brass", "fixtures", step=.35)
+        sector("Pool brass rim", r1 - .01, r1 + .15, .42, .44, a0 - .5, a1 + .5, "brass", "fixtures", step=.35)
+        # Dark slate-marble submerged basin floor
+        sector("Pool basin", r0, r1, .02, .12, a0, a1, "darkmarble", "fixtures", faces_on=("top",), step=.35)
+        # Underwater luminous cyan-aquamarine LED strips running inside the rim!
+        sector("Pool underwater LED", r0 + .01, r0 + .04, .28, .31, a0 + .2, a1 - .2, "waterled", "emit", faces_on=("outer", "top"), step=.35)
+        sector("Pool underwater LED", r1 - .04, r1 - .01, .28, .31, a0 + .2, a1 - .2, "waterled", "emit", faces_on=("inner", "top"), step=.35)
+        # Subtle warm base toe-kick around the pool plinth
+        sector("Pool base glow", r0 - .145, r0 - .135, .02, .05, a0 - .4, a1 + .4, "cove_soft", "emit", faces_on=("inner",), step=.4)
+        # Low curved glass splash guard with brass spigots (straight from concept board!)
+        arc_surface("Pool glass guard", r0 - .07, .44, .76, a0 - .2, a1 + .2, "glass", "emit", inward=False, step=.4)
+        for gt in (a0 + .8, (a0 + a1) / 2, a1 - .8):
+            gx, gz = pol(r0 - .07, gt)
+            box("Pool glass spigot", gx, .48, gz, .035, .08, .045, "brass", "fixtures", yaw=gt)
+        # Water surface mesh in dedicated group "water" (exported as named node `WaterSurface`)
+        sector("Pool water surface", r0, r1, .355, .365, a0, a1, "water", "water", faces_on=("top",), step=.35)
 
 
+# ---------------------------------------------------------------- props & flowers
 def import_prop(source, identifier, placements, group="props", scale=1.0, max_tris=None, fit=None):
     before = set(bpy.context.scene.objects)
     bpy.ops.import_scene.gltf(filepath=str(source / identifier / f"{identifier}.gltf"))
@@ -978,7 +1378,7 @@ def import_prop(source, identifier, placements, group="props", scale=1.0, max_tr
         if total > max_tris:
             ratio = max_tris / total
             for o, _ in meshes:
-                if o.data.shape_keys:          # decimation cannot apply over shape keys
+                if o.data.shape_keys:
                     o.shape_key_clear()
                 bm = bmesh.new()
                 bm.from_mesh(o.data)
@@ -991,19 +1391,15 @@ def import_prop(source, identifier, placements, group="props", scale=1.0, max_tr
                 with bpy.context.temp_override(object=o, active_object=o, selected_objects=[o]):
                     bpy.ops.object.modifier_apply(modifier=mod.name)
             print(f"{identifier}: {total} tris -> {int(total * ratio)}", flush=True)
-    # Pivot = the model's base centre. Poly Haven files carry their own node offsets; without this the
-    # offset is scaled and rotated with each copy and plants land metres from their planters.
     corners = [w @ Vector(c) for o, w in meshes for c in o.bound_box]
     lo = Vector((min(c.x for c in corners), min(c.y for c in corners), min(c.z for c in corners)))
     hi = Vector((max(c.x for c in corners), max(c.y for c in corners), max(c.z for c in corners)))
-    # Base = centroid of the lowest vertices (the trunk foot or the pot bottom), not the bounding-box
-    # centre: leaning plants have their canopy metres off the trunk.
     band = lo.z + max(.02, (hi.z - lo.z) * .03)
     foot = [w @ v.co for o, w in meshes for v in o.data.vertices if (w @ v.co).z <= band]
     fx = sum(v.x for v in foot) / len(foot) if foot else (lo.x + hi.x) / 2
     fy = sum(v.y for v in foot) / len(foot) if foot else (lo.y + hi.y) / 2
     pivot = Matrix.Translation(-Vector((fx, fy, lo.z)))
-    if fit:                                  # scale so the model stands fit metres tall
+    if fit:
         scale = fit / max(1e-3, hi.z - lo.z)
     for idx, (x, y, z, yaw) in enumerate(placements):
         transform = Matrix.Translation(P(x, y, z)) @ Matrix.Rotation(radians(yaw), 4, "Z") @ Matrix.Scale(scale, 4) @ pivot
@@ -1014,7 +1410,6 @@ def import_prop(source, identifier, placements, group="props", scale=1.0, max_tr
             dup.matrix_world = transform @ world
             GROUPS[group].append(dup)
             dups.append(dup)
-        # Verify: the model's foot (lowest 3 % of its height) must stand on the placement point.
         bpy.context.view_layer.update()
         pts = [d.matrix_world @ v.co for d in dups for v in d.data.vertices]
         low = min(v.z for v in pts)
@@ -1024,7 +1419,6 @@ def import_prop(source, identifier, placements, group="props", scale=1.0, max_tr
         target = P(x, y, z)
         off = ((fx - target.x) ** 2 + (fy - target.y) ** 2) ** .5
         if off > .05:
-            print(f"PLACEMENT {identifier} #{idx}: foot off by {off:.2f} m (target r={hypot(x, z):.2f}); correcting", flush=True)
             for d in dups:
                 d.matrix_world = Matrix.Translation(Vector((target.x - fx, target.y - fy, 0))) @ d.matrix_world
     for obj in imported:
@@ -1035,23 +1429,18 @@ def build_props(source):
     chairs, tables, ferns = [], [], []
     for L in LAYOUT["lounges"]:
         t = L["t"]
-        for dt in (-3.4, 3.4):            # lounge chairs on the inner side, facing the curved sofa
+        for dt in (-3.4, 3.4):
             x, z = pol(17.75, t + dt)
-            chairs.append((x, .14, z, t + dt * .6))   # front faces outward, toward the sofa
+            chairs.append((x, .15, z, t + dt * .6))
         x, z = pol(18.5, t)
-        tables.append((x, .14, z, 0))
+        tables.append((x, .15, z, 0))
         for dt in (-10, -8.6, 8.6, 10):
             x, z = pol(20.55, t + dt)
-            ferns.append((x, .8, z, rng.uniform(0, 360)))
+            ferns.append((x, .82, z, rng.uniform(0, 360)))
     import_prop(source, "mid_century_lounge_chair", chairs, max_tris=3500)
     import_prop(source, "coffee_table_round_01", tables, max_tris=2000)
-    # Multi-stem money trees: two or three stems per planter, each turned and leaning a little, so the
-    # canopy is full and branched; trunks start in the planter soil. (The decimated tree_small_02 lost
-    # its trunk and floated: it is gone.)
-    # Trees: a potted tree model with its pot in the same file, so a tree can only ever stand in its pot.
-    # (pachira_aquatica_01 is gone: its leaf objects landed metres from the trunk, among the desks.)
     trees = [(p["x"], 0.0, p["z"], rng.uniform(0, 360)) for p in LAYOUT["planters"]]
-    import_prop(source, "potted_plant_02", trees, scale=2.3, max_tris=6000)
+    import_prop(source, "potted_plant_02", trees, scale=2.4, max_tris=6000)
     chair = make_task_chair()
     place_instances(chair, CHAIRS, "Task chair")
     bpy.data.objects.remove(chair, do_unlink=True)
@@ -1059,26 +1448,25 @@ def build_props(source):
     place_instances(mug, CUPS, "Coffee cup")
     bpy.data.objects.remove(mug, do_unlink=True)
     GROUPS["cupsrc"] = []
-    if LAMPS:
-        import_prop(source, "desk_lamp_arm_01", LAMPS, scale=.9, max_tris=1500)
-    # Potted plants along the galleries and the ground-floor walkway (same spots on every floor).
     pots = [(gp["x"], [0.0, *LEVELS][gp["level"]], gp["z"], rng.uniform(0, 360)) for gp in LAYOUT["galleryPots"]]
-    import_prop(source, "potted_plant_02", pots, scale=1.3, max_tris=2500)
+    import_prop(source, "potted_plant_02", pots, scale=1.35, max_tris=2500)
     foliage = build_flowers()
+    # Museum-grade travertine + dark Emperador marble + champagne-brass sculpture pedestals
     fits = {"marble_bust_01": .7, "horse_statue_01": .95, "gothic_statue": 1.2, "bronze_whale_statue": .6, "bronze_ray_statue": .55,
             "horse_head": .7, "lion_head": .6, "carved_wooden_elephant": .6, "antique_ceramic_vase_01": .75}
     for sc in LAYOUT.get("sculptures", []):
         plinth_h = 1.05 if fits.get(sc["id"], .7) < 1 else .55
-        box("Sculpture plinth", sc["x"], sc["y"] + plinth_h / 2, sc["z"], .56, plinth_h, .56, "trav", "fixtures", yaw=sc["t"], bevel=.01)
-        box("Plinth top", sc["x"], sc["y"] + plinth_h + .005, sc["z"], .58, .01, .58, "stone", "fixtures", yaw=sc["t"])
+        box("Sculpture plinth base", sc["x"], sc["y"] + .04, sc["z"], .62, .08, .62, "darkmarble", "fixtures", yaw=sc["t"])
+        box("Sculpture plinth", sc["x"], sc["y"] + plinth_h / 2, sc["z"], .56, plinth_h - .06, .56, "trav", "fixtures", yaw=sc["t"], bevel=.01)
+        box("Plinth brass collar", sc["x"], sc["y"] + plinth_h - .015, sc["z"], .58, .022, .58, "brass", "fixtures", yaw=sc["t"])
+        box("Plinth top", sc["x"], sc["y"] + plinth_h + .005, sc["z"], .58, .016, .58, "darkmarble", "fixtures", yaw=sc["t"])
         if (source / sc["id"]).exists():
-            import_prop(source, sc["id"], [(sc["x"], sc["y"] + plinth_h + .01, sc["z"], sc["t"] + 180)], fit=fits.get(sc["id"], .7), max_tris=8000)
-    import_prop(source, "fern_02", foliage, scale=.55, max_tris=1200)
+            import_prop(source, sc["id"], [(sc["x"], sc["y"] + plinth_h + .013, sc["z"], sc["t"] + 180)], fit=fits.get(sc["id"], .7), max_tris=8000)
+    import_prop(source, "fern_02", foliage + ferns, scale=.55, max_tris=1200)
 
 
-# ---------------------------------------------------------------- flowers
+# ---------------------------------------------------------------- flowers (20 species, 1 vertex-color material)
 FLOWER_SPECS = {
-    # kind, petals, layers, petal length/width (m), cup, colour (sRGB 0-1), centre colour, stem height
     "rose": ("cup", 9, 4, .045, .04, .7, (.74, .05, .1), (.5, .03, .06), .55),
     "peony": ("cup", 11, 4, .06, .055, .55, (.96, .62, .72), (.98, .85, .5), .5),
     "lily": ("star", 6, 1, .09, .03, -.25, (.99, .97, .93), (.75, .8, .3), .65),
@@ -1107,7 +1495,6 @@ def lin(c):
 
 
 def build_flower_mesh(name, spec, seed):
-    """One clump of 5-8 stems with blooms and leaves, as a single mesh with petal/centre/leaf/stem materials."""
     kind, petals, layers, plen, pwid, cup, col, ccol, height = spec
     plen, pwid = plen * 1.35, pwid * 1.35
     r = random.Random(seed)
@@ -1118,7 +1505,6 @@ def build_flower_mesh(name, spec, seed):
         faces.append((o, o + 1, o + 2, o + 3))
         mats.append(m)
     def petal(origin, direction, up, length, width, curve, m):
-        # a 3-segment curved petal strip; curve bends it toward 'up'
         side = direction.cross(up).normalized()
         prev_l = prev_r = None
         for k in range(4):
@@ -1132,18 +1518,17 @@ def build_flower_mesh(name, spec, seed):
     def leaf(base, direction, length, width):
         petal(base, direction, Vector((0, 0, 1)), length, width, .25, 2)
     stems = r.randint(5, 7)
-    for s_ in range(stems):
+    for _ in range(stems):
         a = r.uniform(0, 2 * pi)
         d = r.uniform(.02, .16)
         base = Vector((cos(a) * d, sin(a) * d, 0))
         h = height * r.uniform(.75, 1.1)
         lean = Vector((cos(a) * r.uniform(.02, .12), sin(a) * r.uniform(.02, .12), 0))
         top = base + Vector((0, 0, h)) + lean
-        # stem: a thin 2-quad cross
         for ang in (0, pi / 2):
             off = Vector((cos(ang), sin(ang), 0)) * .004
             add_quad(base - off, base + off, top + off, top - off, 3)
-        for k in range(3):
+        for _ in range(3):
             la = r.uniform(0, 2 * pi)
             leaf(base + (top - base) * r.uniform(.05, .5), Vector((cos(la), sin(la), .35)).normalized(), r.uniform(.12, .2), r.uniform(.035, .06))
         head = top
@@ -1160,10 +1545,8 @@ def build_flower_mesh(name, spec, seed):
                         dirv = (dirv + Vector((0, 0, .5))).normalized()
                     else:
                         dirv = (dirv + Vector((0, 0, .08 + lc * .3))).normalized()
-                    up = Vector((0, 0, 1))
                     scale = 1 - layer * (.22 if kind == "cup" else .1)
-                    petal(head, dirv, up, plen * scale, pwid * scale, lc * .6 if kind != "star" else -.35, 0)
-            # centre disc / bud
+                    petal(head, dirv, Vector((0, 0, 1)), plen * scale, pwid * scale, lc * .6 if kind != "star" else -.35, 0)
             cr = plen * (.45 if kind == "ray" and petals > 18 else .22)
             for k in range(8):
                 a0, a1 = 2 * pi * k / 8, 2 * pi * (k + 1) / 8
@@ -1179,7 +1562,6 @@ def build_flower_mesh(name, spec, seed):
             br = plen * (2.0 if petals > 30 else 1.7) * (1.5 if name.startswith("allium") else 1)
             centre = head + Vector((0, 0, br * .7))
             for k in range(petals):
-                # Fibonacci sphere florets, upper 80 %
                 yk = 1 - (k / (petals - 1)) * 1.6
                 rad = sqrt(max(0, 1 - yk * yk))
                 th = k * 2.39996
@@ -1190,7 +1572,7 @@ def build_flower_mesh(name, spec, seed):
                     pa = q * pi / 2
                     dirv = (tangent * cos(pa) + nrm.cross(tangent) * sin(pa)).normalized()
                     petal(pos, dirv, nrm, plen * .9, pwid, .1, 0)
-        else:   # orchid: an arching spray of flat five-petal blooms
+        else:
             for k in range(petals):
                 u = k / petals
                 pos = head + Vector((u * .18 * cos(a), u * .18 * sin(a), .06 * sin(pi * u) - u * .08))
@@ -1205,12 +1587,11 @@ def build_flower_mesh(name, spec, seed):
     me = bpy.data.meshes.new(name)
     me.from_pydata([tuple(v) for v in verts], [], faces)
     me.update()
-    # One material for every flower: the part colours live in a vertex colour attribute (one draw call).
-    palette = [lin(col), lin(ccol), (.06, .2, .05), (.08, .22, .05)]
+    palette = [lin(col), lin(ccol), (.05, .18, .04), (.07, .20, .04)]
     attr = me.color_attributes.new("Col", "BYTE_COLOR", "CORNER")
     for poly, m in zip(me.polygons, mats):
         c = palette[m]
-        shade = .9 + .2 * ((poly.index * 37) % 11) / 10        # slight variation from petal to petal
+        shade = .9 + .2 * ((poly.index * 37) % 11) / 10
         for li in poly.loop_indices:
             attr.data[li].color = (min(1, c[0] * shade), min(1, c[1] * shade), min(1, c[2] * shade), 1)
     me.materials.append(MAT["flower"])
@@ -1226,9 +1607,6 @@ def build_flowers():
     nt.links.new(vc.outputs["Color"], nt.nodes["Principled BSDF"].inputs["Base Color"])
     m.use_backface_culling = False
     MAT["flower"] = m
-    MAT["leaf"] = _principled("Flower leaf", (.06, .2, .05), .55)
-    MAT["leaf"].use_backface_culling = False
-    MAT["stem"] = _principled("Flower stem", (.08, .22, .05), .6)
     meshes = {name: [build_flower_mesh(f"{name} {v}", FLOWER_SPECS[name], sum(map(ord, name)) * 7 + v) for v in range(2)] for name in FLOWER_SPECS}
     def plant(species, x, y, z, k):
         me = meshes[species][k % 2]
@@ -1238,20 +1616,10 @@ def build_flowers():
         GROUPS["props"].append(obj)
     names = list(FLOWER_SPECS)
     foliage = []
-    # Under-planting in the tree planters (soil at 0.68), a ring around the trunks.
-    for i, p in enumerate([]):
-        for k in range(4):
-            a = k * 90 + rng.uniform(-10, 10)
-            ox, oz = pol(rng.uniform(.45, .65), a)
-            plant(names[(i * 5 + k) % len(names)], p["x"] + ox, .68, p["z"] + oz, k)
-            pass
-    # The lounge troughs (soil at 0.8), between the sofa ends.
     for j, L in enumerate(LAYOUT["lounges"]):
         for k, dt in enumerate(np.arange(-7.2, 7.3, 1.45)):
             x, z = pol(20.5, L["t"] + dt)
             plant(names[(j * 7 + k * 3) % len(names)], x, .74, z, k)
-            pass
-    # Ceramic bowls of mixed flowers on every floor.
     for b in LAYOUT["bowls"]:
         r = b["r"]
         lathe("Flower bowl", b["x"], b["y"], b["z"], [(r * .55, 0), (r * .8, .06), (r, .28), (r * .97, .42), (r * .9, .42), (r * .9, .38), (0, .38)],
@@ -1266,25 +1634,25 @@ def build_flowers():
 
 # ---------------------------------------------------------------- bake-only screen stand-ins
 def dashboard_textures(out):
-    """A few dark financial-UI images for previews and screen glow (never exported)."""
+    """Crisp dark financial terminal textures for realistic Cycles GI bounce and previews (never exported)."""
     paths = []
     for v in range(6):
         w, h = 512, 300
         img = np.zeros((h, w, 3), dtype=np.float32)
-        img[:] = (.01, .02, .05)
-        img[:18] = (.03, .07, .16)
+        img[:] = (.008, .016, .036)
+        img[:20] = (.02, .06, .14)
         for k in range(rng.randint(2, 4)):
-            x0, y0 = rng.randint(10, 260), rng.randint(30, 160)
-            pts = np.cumsum(np.array([rng.uniform(-6, 6) for _ in range(200)]))
-            c = rng.choice([(.2, .9, .5), (1.0, .3, .35), (.35, .65, 1.0), (.95, .8, .3)])
+            x0, y0 = rng.randint(10, 240), rng.randint(36, 170)
+            pts = np.cumsum(np.array([rng.uniform(-6, 6) for _ in range(210)]))
+            c = rng.choice([(.15, .92, .55), (1.0, .30, .36), (.28, .72, 1.0), (.98, .78, .25)])
             for i, p in enumerate(pts):
-                xx, yy = x0 + i, int(y0 + 60 - p)
+                xx, yy = x0 + i, int(y0 + 55 - p)
                 if 0 <= xx < w and 0 <= yy < h:
-                    img[max(0, yy - 1):yy + 1, xx] = c
-        for row in range(24, h - 8, 11):
-            if rng.random() < .55:
-                x = rng.randint(300, 340)
-                img[row:row + 4, x:x + rng.randint(40, 160)] = rng.choice([(.2, .8, .45), (.9, .3, .35), (.6, .7, .9)])
+                    img[max(0, yy - 1):yy + 2, xx] = c
+        for row in range(28, h - 10, 11):
+            if rng.random() < .6:
+                x = rng.randint(295, 340)
+                img[row:row + 4, x:x + rng.randint(45, 155)] = rng.choice([(.18, .85, .50), (.95, .28, .35), (.45, .75, 1.0)])
         bimg = bpy.data.images.new(f"dash{v}", w, h, alpha=False)
         bimg.pixels.foreach_set(np.concatenate([img[::-1], np.ones((h, w, 1), np.float32)], axis=2).ravel())
         path = out / f"preview-dash{v}.png"
@@ -1292,7 +1660,7 @@ def dashboard_textures(out):
         bimg.file_format = "PNG"
         bimg.save()
         paths.append(path)
-    return [emissive_image(f"Screen stand-in {i}", p, 1.6) for i, p in enumerate(paths)]
+    return [emissive_image(f"Screen stand-in {i}", p, 2.2) for i, p in enumerate(paths)]
 
 
 def screen_standins(mats):
@@ -1311,48 +1679,68 @@ def screen_standins(mats):
             arc_surface("standin", s["w"] + .01, s["y"] - s["h"] / 2, s["y"] + s["h"] / 2, 0, 360, m, "bakeonly", inward=False, uv_fit=True, step=.3)
 
 
-# ---------------------------------------------------------------- bake
+# ---------------------------------------------------------------- lighting & bake
 def bake_lights():
+    """Sculpted architectural lighting:
+    - Dramatic sunlit Nishita sunshaft cutting diagonally across the marble & galleries
+    - Warm 3000K architectural gallery & promenade wash pools
+    - Cool sapphire-cyan holographic glow radiating from the central light core onto the plaza & desks
+    """
     extra = []
 
     def add(obj):
         bpy.context.collection.objects.link(obj)
         extra.append(obj)
 
+    # Golden-daylight architectural sun casting crisp skylight rib patterns across the atrium
     sun = bpy.data.lights.new("Sun", "SUN")
-    sun.energy, sun.angle, sun.color = 3.2, radians(2.5), (1.0, .96, .9)
+    sun.energy, sun.angle, sun.color = 4.6, radians(1.6), (1.0, .93, .82)
     o = bpy.data.objects.new("Sun", sun)
-    o.rotation_euler = (radians(38), 0, radians(35))
+    o.rotation_euler = (radians(42), 0, radians(38))
     add(o)
-    for t in np.arange(0, 360, 30):           # gallery-front washers keep the trading floor even
-        x, z = pol(13.0, t)
-        data = bpy.data.lights.new("Wash", "AREA")
-        data.energy, data.size, data.color = 900, 4.0, (1.0, .93, .84)
-        lo = bpy.data.objects.new("Wash", data)
-        lo.location = P(x, 18.6, z)
+
+    # Skylight soft directional pools (sculpted so shadows & AO keep rich architectural depth!)
+    for t in np.arange(0, 360, 30):
+        x, z = pol(12.5, t)
+        data = bpy.data.lights.new("SkylightWash", "AREA")
+        data.energy, data.size, data.color = 520, 3.6, (1.0, .95, .88)
+        lo = bpy.data.objects.new("SkylightWash", data)
+        lo.location = P(x, 18.8, z)
         add(lo)
+
+    # Central holographic core sapphire-cyan point lights casting cool modern glow onto the central marble plaza!
+    for cy, energy in ((1.8, 520), (5.6, 680), (10.5, 480)):
+        data = bpy.data.lights.new("CoreSapphire", "POINT")
+        data.energy, data.shadow_soft_size, data.color = energy, 1.4, (.32, .80, 1.0)
+        lo = bpy.data.objects.new("CoreSapphire", data)
+        lo.location = P(0, cy, 0)
+        add(lo)
+
+    # Warm 3000K gallery promenade & art-alcove grazing accents
     tops = [LEVELS[0] - .45] + [LEVELS[i + 1] - .45 for i in range(len(LEVELS) - 1)] + [H - .5]
-    for top in tops:                          # offices: warm fill behind the glass
+    for top in tops:
         for t in np.arange(0, 360, 20):
-            x, z = pol((R_OFF + R_WALL) / 2, t)
-            data = bpy.data.lights.new("Office", "AREA")
-            data.energy, data.size, data.color = 300, 2.2, (1.0, .9, .78)
-            lo = bpy.data.objects.new("Office", data)
-            lo.location = P(x, top - .3, z)
+            x, z = pol((R_GAL + R_WALL) / 2, t)
+            data = bpy.data.lights.new("PromenadeWarm", "AREA")
+            data.energy, data.size, data.color = 260, 1.8, (1.0, .88, .72)
+            lo = bpy.data.objects.new("PromenadeWarm", data)
+            lo.location = P(x, top - .28, z)
             lo.rotation_euler = (0, 0, 0)
             add(lo)
     return extra
 
 
-def join(group):
+def join(group, name=None):
     objs = GROUPS[group]
+    if not objs:
+        return None
     bpy.ops.object.select_all(action="DESELECT")
     for o in objs:
         o.select_set(True)
     bpy.context.view_layer.objects.active = objs[0]
     bpy.ops.object.join()
     obj = bpy.context.view_layer.objects.active
-    obj.name = obj.data.name = group
+    obj.name = obj.data.name = name or group
     GROUPS[group] = [obj]
     return obj
 
@@ -1439,38 +1827,44 @@ def setup_cycles():
             continue
     scene.cycles.max_bounces = 6
     scene.cycles.diffuse_bounces = 4
+    scene.cycles.glossy_bounces = 4
     scene.cycles.transparent_max_bounces = 8
     scene.cycles.use_denoising = True
     scene.view_settings.view_transform = "AgX"
+    try:
+        scene.view_settings.look = "AgX - Medium High Contrast"
+    except TypeError:
+        pass
     world = bpy.data.worlds.new("Sky")
     world.use_nodes = True
     nt = world.node_tree
     sky = nt.nodes.new("ShaderNodeTexSky")
     try:
         sky.sky_type = "NISHITA"
-        sky.sun_elevation = radians(52)
-        sky.sun_rotation = radians(35)
+        sky.sun_elevation = radians(48)
+        sky.sun_rotation = radians(38)
     except (AttributeError, TypeError):
         pass
     nt.links.new(sky.outputs["Color"], nt.nodes["Background"].inputs["Color"])
-    nt.nodes["Background"].inputs["Strength"].default_value = .55
+    nt.nodes["Background"].inputs["Strength"].default_value = .52
     scene.world = world
-    # Glazing emits daylight but must not shadow the sun or the sky.
-    for obj in GROUPS["emit"]:
-        obj.visible_shadow = False
+    for gname in ("emit", "holo"):
+        for obj in GROUPS[gname]:
+            obj.visible_shadow = False
 
 
 def environment(out_dir, samples=160):
+    """High-fidelity 2K Cycles equirectangular HDR environment map for crisp marble, brass & glass reflections."""
     scene = bpy.context.scene
     cam_data = bpy.data.cameras.new("env")
     cam_data.type = "PANO"
     cam_data.panorama_type = "EQUIRECTANGULAR"
     cam = bpy.data.objects.new("env", cam_data)
     bpy.context.collection.objects.link(cam)
-    cam.location = P(0, 3.2, 9.0)
+    cam.location = P(0, 3.6, 8.5)
     cam.rotation_euler = (radians(90), 0, radians(-90))
     scene.camera = cam
-    scene.render.resolution_x, scene.render.resolution_y = 1024, 512
+    scene.render.resolution_x, scene.render.resolution_y = 2048, 1024
     scene.render.resolution_percentage = 100
     scene.cycles.samples = samples
     scene.render.image_settings.file_format = "HDR"
@@ -1495,28 +1889,13 @@ def preview(out_dir, samples=64, shots=None):
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_depth = "8"
     cams = {
-        # The concept boards' view: from the first gallery, south-west, across the floor to the core.
-        "concept": ((-6.5, 8.4, 20.3), (1.0, 6.4, -2.0), 14),
-        "concept2": ((8.0, 6.4, 19.8), (-.5, 7.4, -1.5), 14),
+        "concept": ((8.2, 7.2, 19.6), (-.5, 6.8, -1.8), 14),
         "spawn": ((0, 1.68, 22.6), (0, 6.5, 0), 16),
         "desk": ((9.5, 1.6, 9.0), (0, 4.0, 0), 18),
         "ceiling": ((0, 1.7, 12.0), (0, 19.5, -4.0), 14),
-        "counter": ((*pol(8.2, 20)[:1], 1.6, pol(8.2, 20)[1]), (*pol(5.0, 30)[:1], 1.0, pol(5.0, 30)[1]), 18),
-        "birdS": ((0, 15.6, 23.0), (0, 0, -4.0), 12),
-        "birdN": ((0, 15.6, -23.0), (0, 0, 4.0), 12),
-        "birdE": ((23.0, 15.6, 0), (-4.0, 0, 0), 12),
-        "birdW": ((-23.0, 15.6, 0), (4.0, 0, 0), 12),
         "lounge": ((*pol(15.8, 200)[:1], 1.65, pol(15.8, 200)[1]), (*pol(19.6, 211)[:1], .5, pol(19.6, 211)[1]), 20),
-        "column": ((*pol(17.5, 40)[:1], 1.7, pol(17.5, 40)[1]), (*pol(22.3, 45)[:1], 6.0, pol(22.3, 45)[1]), 22),
-        "stairs": ((*pol(14.5, 330)[:1], 1.7, pol(14.5, 330)[1]), (*pol(20.3, 340)[:1], 6.5, pol(20.3, 340)[1]), 16),
-        "elevator": ((*pol(15.0, 112)[:1], 2.4, pol(15.0, 112)[1]), (*pol(20.25, 120)[:1], 5.0, pol(20.25, 120)[1]), 16),
-        "flowers": ((*pol(18.0, 50)[:1], 1.4, pol(18.0, 50)[1]), (*pol(20.6, 45)[:1], .7, pol(20.6, 45)[1]), 30),
-        "promenade": ((*pol(22.6, 100)[:1], 1.65, pol(22.6, 100)[1]), (*pol(25.0, 130)[:1], 1.2, pol(25.0, 130)[1]), 18),
-        "tree": ((*pol(22.0, 165)[:1], 1.6, pol(22.0, 165)[1]), (*pol(25.15, 172)[:1], 1.6, pol(25.15, 172)[1]), 20),
-        "art": ((*pol(20.0, 30)[:1], 1.65, pol(20.0, 30)[1]), (*pol(24.2, 36)[:1], 1.6, pol(24.2, 36)[1]), 24),
-        "chairs": ((*pol(10.2, 28)[:1], 1.5, pol(10.2, 28)[1]), (*pol(8.6, 20)[:1], .7, pol(8.6, 20)[1]), 24),
-        "chairback": ((*pol(10.6, 15)[:1], 1.3, pol(10.6, 15)[1]), (*pol(9.4, 17)[:1], .75, pol(9.4, 17)[1]), 35),
-        "wall": ((*pol(21.0, 100)[:1], 1.6, pol(21.0, 100)[1]), (*pol(26.5, 112)[:1], 2.4, pol(26.5, 112)[1]), 24),
+        "promenade": ((*pol(22.6, 100)[:1], 1.65, pol(22.6, 100)[1]), (*pol(25.0, 125)[:1], 1.6, pol(25.0, 125)[1]), 18),
+        "art": ((*pol(21.0, 24)[:1], 1.65, pol(21.0, 24)[1]), (*pol(25.8, 30)[:1], 1.8, pol(25.8, 30)[1]), 22),
     }
     for name, (loc, tgt, lens) in cams.items():
         if shots and name not in shots:
@@ -1533,7 +1912,6 @@ def preview(out_dir, samples=64, shots=None):
 
 
 def overlap_report():
-    """Plants must not stand on seats, sofas, desks or walkways: flag any prop whose footprint does."""
     seats = [(*pol(s["r"] + 1.18, s["t"]), .7) for s in LAYOUT["seats"]]
     for L in LAYOUT["lounges"]:
         seats += [(*pol(17.75, L["t"] + d), .6) for d in (-3.4, 3.4)] + [(*pol(19.3, L["t"] + d), .55) for d in np.arange(-6, 6.1, 2)]
@@ -1555,16 +1933,13 @@ def overlap_report():
 
 
 def merge_props():
-    """Static props (plants, flowers, chairs, cups, lounge furniture) as eight sector meshes:
-    one draw per material per quadrant instead of one per object, and still culled by view.
-    Paintings, sculptures and cabins keep their own nodes (the browser textures, picks or moves them)."""
     keep = ("Artwork", ) + tuple(sc["id"] for sc in LAYOUT.get("sculptures", []))
     buckets = defaultdict(list)
     for o in GROUPS["props"]:
         if o.name.startswith(keep) or o.type != "MESH" or o.parent is not None:
             continue
         c = o.matrix_world.translation
-        q = int((degrees(atan2(c.x, -c.y)) % 360) // 45) % 8        # eight sectors: culled with the view
+        q = int((degrees(atan2(c.x, -c.y)) % 360) // 45) % 8
         buckets[q].append(o)
     kept = [o for o in GROUPS["props"] if o.name.startswith(keep) or o.type != "MESH" or o.parent is not None]
     merged = []
@@ -1607,11 +1982,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("sources", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--samples", type=int, default=384)
+    parser.add_argument("--samples", type=int, default=320)
     parser.add_argument("--shell-size", type=int, default=4096)
     parser.add_argument("--fixture-size", type=int, default=4096)
     parser.add_argument("--preview", action="store_true")
-    parser.add_argument("--preview-only", action="store_true", help="render the previews and stop (no bake/export)")
+    parser.add_argument("--preview-only", action="store_true")
     parser.add_argument("--preview-samples", type=int, default=64)
     parser.add_argument("--shots", default="")
     opts = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
@@ -1623,7 +1998,7 @@ if __name__ == "__main__":
     screen_standins(standins)
     extra = bake_lights()
     overlap_report()
-    tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for g in ("shell", "fixtures", "emit", "props") for o in GROUPS[g])
+    tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for g in ("shell", "fixtures", "emit", "props", "water", "holo") for o in GROUPS[g])
     print("triangles (before instancing):", tris, {g: len(GROUPS[g]) for g in GROUPS}, flush=True)
     if opts.preview or opts.preview_only:
         preview(out, opts.preview_samples, set(filter(None, opts.shots.split(","))))
@@ -1632,7 +2007,8 @@ if __name__ == "__main__":
     merge_props()
     for g in ("shell", "fixtures", "emit"):
         join(g)
-    # Cabin parts keep their own objects under their "Elevator cabin N" node (the browser moves them).
+    join("water", name="WaterSurface")
+    join("holo", name="HoloCoreFX")
     lightmap_uv(GROUPS["shell"][0], .0012)
     lightmap_uv(GROUPS["fixtures"][0], .0012)
     environment(out)

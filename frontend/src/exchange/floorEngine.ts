@@ -12,9 +12,11 @@ import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import bake from "./bake.json";
+import { createAtriumFX, ShowcaseTour, type AtriumMood } from "./atriumFx";
 import { FLOOR, MARKETS, STORAGE_ASSETS, type FloorSnapshot, type Language } from "./market";
 import { createScreens } from "./screens";
 
+export type { AtriumMood };
 type Pose = { x: number; z: number; yaw: number; pitch: number; y?: number };
 /** Elevator state for the UI: whether the visitor stands in a cabin, where the cabins are. */
 export type LiftState = { inside: number | null; floor: number; moving: boolean; cabins: number[] };
@@ -26,6 +28,10 @@ export type FloorDriver = {
   update: (snapshot: FloorSnapshot, series: Captions, language: Language) => void;
   /** Send the cabin the visitor stands in to a floor (0 = ground). */
   ride: (floor: number) => void;
+  /** Switch real-time architectural lighting mood (daylight / golden / night). */
+  setMood: (mood: AtriumMood) => void;
+  /** Toggle smooth cinematic architectural camera tour. */
+  setTour: (on: boolean) => void;
   /** Stop rendering while a full-screen overlay (the art viewer) hides the hall. */
   suspend: (on: boolean) => void;
   dispose: () => void;
@@ -35,7 +41,7 @@ export type FloorDriver = {
 // current model and maps (the file names stay the same between local rebuilds).
 const BAKE_KEY = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36);
 const hallAsset = (file: string) => `${STORAGE_ASSETS}/${file}${BAKE_KEY}`;
-const ENV = STORAGE_ASSETS + "/hall-env-v5.hdr" + BAKE_KEY;   // Cycles panorama of this hall
+const ENV = STORAGE_ASSETS + "/hall-env-v6.hdr" + BAKE_KEY;   // 2K Cycles panorama of this v6 hall
 // Slot order and dimensions match scripts/build_exchange_art_preview.py.
 const ART_PREVIEW = { columns: 8, tile: 256, border: 8 };
 const SKY = "#f4f1ea";   // daylight through the skylight, warmed by the oak
@@ -176,6 +182,7 @@ type Events = {
   progress?: (fraction: number) => void;
   lift?: (state: LiftState) => void;
   floor?: (floor: number) => void;
+  tour?: (active: boolean) => void;
   initialDisplays: () => { snapshot: FloorSnapshot; series: Captions; language: Language };
   error: (error: unknown) => void;
 };
@@ -243,7 +250,9 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     disposed = true;
     cancelAnimationFrame(frame);
     for (const release of releases.reverse()) release();
+    scene.environment = null;
     environment?.dispose();
+    environment = undefined;
     renderer.dispose();
   };
   const fail = (error: unknown) => {
@@ -277,7 +286,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       return tex;
     };
     const loadModel = async () => {
-      const file = compressed ? "trading-hall-v5-ktx2.glb" : "trading-hall-v5.glb";
+      const file = compressed ? "trading-hall-v6-ktx2.glb" : "trading-hall-v6.glb";
       const binary = await fetchWithProgress(hallAsset(file), signal, events.progress);
       events.progress?.(.99);
       const { scene: model } = await loader.parseAsync(binary, STORAGE_ASSETS + "/");
@@ -299,6 +308,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
 
     // Baked global illumination: each lightmapped group gets its own material copies.
     const cloned = new Map<string, MeshStandardMaterial>();
+    const detachedSources = new Set<MeshStandardMaterial>();
+    const lightmapped: { mat: MeshStandardMaterial; base: number }[] = [];
     const propMaterials = new Set<MeshStandardMaterial>();
     model.traverse(child => {
       if (!(child instanceof Mesh)) return;
@@ -311,24 +322,35 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         let m = cloned.get(key);
         if (!m) {
           m = source.clone();
-          // Light stone floors and slabs read too bright under the skylight: tone them down.
-          if (/light stone/i.test(source.name)) m.color.multiplyScalar(.7);
+          // Preserve luminous Calacatta ivory marble without washing out specular highlights.
+          if (/calacatta|light stone/i.test(source.name)) m.color.multiplyScalar(.92);
           m.lightMap = group === "shell" ? shellMap : fixtureMap;
-          m.lightMapIntensity = (group === "shell" ? bake.shell.scale : bake.fixtures.scale) * Math.PI;
-          m.envMapIntensity = m.metalness > .5 ? 1.0 : .55;
+          const baseIntensity = (group === "shell" ? bake.shell.scale : bake.fixtures.scale) * Math.PI;
+          m.lightMapIntensity = baseIntensity;
+          // Rich metallic reflections on champagne brass & bronze; subtle sheen on polished marble.
+          m.envMapIntensity = m.metalness > .5 ? 1.45 : /marble/i.test(source.name) ? .92 : .55;
           cloned.set(key, m);
+          lightmapped.push({ mat: m, base: baseIntensity });
         }
+        detachedSources.add(source);
         child.material = m;
       } else if (group === "emit") {
-        // Daylight glazing reads as soft sky, not a glare source; lamps a touch dimmer for long sessions.
-        if (source.name === "Daylight glazing") source.emissiveIntensity *= .6;
-        else if (source.emissiveIntensity > 1) source.emissiveIntensity *= .8;
-        if (source.transparent || source.name === "Balustrade glass") {
-          source.transparent = true; source.opacity = .16; source.depthWrite = false;
+        if (source.name === "Daylight glazing") source.emissiveIntensity *= .62;
+        else if (/perimeter daylight window/i.test(source.name)) source.emissiveIntensity *= .92;
+        else if (source.emissiveIntensity > 1) source.emissiveIntensity *= .85;
+        if (source.transparent || /glass/i.test(source.name)) {
+          source.transparent = true;
+          source.opacity = /core crystal/i.test(source.name) ? .22 : .16;
+          source.depthWrite = false;
         }
       } else {
-        propMaterials.add(source);   // bronze bull, chandeliers, furniture: lit by the hall panorama
+        propMaterials.add(source);
       }
+    });
+    // Dispose original un-lightmapped GLTF materials that were replaced by lightmapped clones.
+    releases.push(() => {
+      for (const s of detachedSources) s.dispose();
+      detachedSources.clear();
     });
     // Art: canvases named "Artwork:<id>" get their picture lazily; sculptures get cheap pick proxies.
     const artTargets: Mesh[] = [];
@@ -348,17 +370,28 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const bounds = new Box3().setFromObject(mesh).getBoundingSphere(new Sphere());
       artCanvases.push({ mesh, id, bounds, placeholder: mesh.material, retryAt: 0 });
     });
+    const proxyMat = new MeshBasicMaterial({ visible: false });
+    const proxyGeos: BufferGeometry[] = [];
     for (const id of SCULPTURE_IDS) {
       const node = model.getObjectByName(id + "_1") ?? model.getObjectByName(id + " 1") ?? model.getObjectByName(id);
       if (!node) continue;
       const box = new Box3().setFromObject(node);
-      const proxy = new Mesh(new BoxGeometry(...box.getSize(new Vector3()).toArray()), new MeshBasicMaterial({ visible: false }));
+      const geo = new BoxGeometry(...box.getSize(new Vector3()).toArray());
+      proxyGeos.push(geo);
+      const proxy = new Mesh(geo, proxyMat);
       proxy.position.copy(box.getCenter(new Vector3()));
       proxy.userData.panel = "sculpture:" + id;
+      proxy.matrixAutoUpdate = false;
+      proxy.updateMatrix();
       proxy.updateMatrixWorld(true);
       scene.add(proxy);
       artTargets.push(proxy);
     }
+    releases.push(() => {
+      for (const g of proxyGeos) g.dispose();
+      proxyMat.dispose();
+    });
+    const pickTargets = artTargets.length ? [...screens.targets, ...artTargets] : screens.targets;
     if (measure) {
       const names: string[] = [];
       model.traverse(o => { if (/artwork|elevator/i.test(o.name)) names.push(o.type + ":" + o.name); });
@@ -371,13 +404,21 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const doorOpen = LIFTS.map(() => 1);
     scene.add(model);
     scene.add(screens.group);
+    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile);
+    scene.add(fx.group);
+    releases.push(fx.dispose);
+    const tour = new ShowcaseTour();
+    const stopTour = () => {
+      if (!tour.isActive()) return;
+      tour.stop();
+      events.tour?.(false);
+    };
     const loadEnvironment = () => void new HDRLoader().loadAsync(ENV).then(texture => {
       if (disposed || signal.aborted) { texture.dispose(); return; }
       texture.mapping = EquirectangularReflectionMapping;
       scene.environment = environment = texture;
       for (const m of propMaterials) { m.envMap = texture; m.envMapIntensity = 1.7; m.needsUpdate = true; }
-      // The panorama is the lit hall itself; lightmaps already carry diffuse light, so keep it modest.
-      scene.environmentIntensity = .5;
+      fx.setEnvironment(texture);
     }).catch(() => {});
     if (!mobile) loadEnvironment();
 
@@ -466,13 +507,13 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
     }
 
-    // Bloom only on genuinely bright pixels: lamps, daylight, the brightest figures.
+    // Bloom only on genuinely bright pixels: lamps, holographic core, daylight, brightest figures.
     let pipeline: RenderPipeline | undefined;
     if (params.get("bloom") === "1" || (params.get("bloom") !== "0" && !mobile)) {
       pipeline = new RenderPipeline(renderer);
       const scenePass = pass(scene, camera);
       const color = scenePass.getTextureNode("output");
-      pipeline.outputNode = color.add(bloom(color, .22, .4, .9));
+      pipeline.outputNode = color.add(bloom(color, .25, .42, .88));
       releases.push(() => pipeline?.dispose());
     }
 
@@ -520,7 +561,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       pointer.set((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1);
       ray.setFromCamera(pointer, camera);
       ray.far = 45;
-      const hit = ray.intersectObjects(artTargets.length ? [...screens.targets, ...artTargets] : screens.targets, false)[0];
+      const hit = ray.intersectObjects(pickTargets, false)[0];
       if (!hit) return null;
       return occluded(ray.ray, hit.distance - .02) ? null : hit.object.userData.panel as string;
     }
@@ -543,6 +584,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       drag.x = event.clientX; drag.y = event.clientY;
       drag.travel += Math.abs(dx) + Math.abs(dy);
       if (drag.travel < 5) return;
+      stopTour();
       state.yaw -= dx * .0045;
       pitch = clamp(pitch - dy * .0045, -.8, 1.15);
       canvas.style.cursor = "grabbing";
@@ -563,15 +605,15 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         const panel = pick(rect.left + rect.width / 2, rect.top + rect.height / 2);
         if (panel) { event.preventDefault(); pause(); events.select(panel); }
       }
-      if (KEYS.has(event.code)) { event.preventDefault(); keys.add(event.code); }
+      if (KEYS.has(event.code)) { event.preventDefault(); stopTour(); keys.add(event.code); }
     }
     const keyup = (event: KeyboardEvent) => { keys.delete(event.code); };
 
     function govern(elapsed: number, now: number) {
       // Hold 60 fps: shed bloom first, then cap the pixel ratio; resolution goes only when needed.
-      // Ignore the first seconds: pipeline compiles and the first paint of every display are one-off.
+      // Ignore the first seconds: pipeline compiles, 31 gallery artworks and the first display paints are one-off.
       if (!started) started = now;
-      if (now - started < 6000) return;
+      if (now - started < 12000) return;
       recent.push(elapsed);
       if (recent.length > 90) recent.shift();
       if (recent.length < 90 || tier >= 3) return;
@@ -647,29 +689,38 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         const hz = surfaceAt(state.x, nz, state.y, cabins);
         if (hz !== null) { state.z = nz; state.y = hz; }
       }
-      eyeY += (state.y - eyeY) * (1 - Math.exp(-step * 14));    // stairs read as steps, not a ramp jolt
-      const stride = reduced.matches ? 0 : clamp(Math.hypot(velX, velZ) / 3, 0, 1) * Math.sin(now * .0085) * .02;
-      camera.position.set(state.x, eyeY + EYE + stride, state.z);
-      // Riding up or down: turn the view to the atrium and the light core (the reason to ride a glass cabin).
-      if (moving && !wasMoving) {
-        const face = Math.atan2(state.x, state.z);                       // yaw that looks at the centre
-        const turn = Math.atan2(Math.sin(face - state.yaw), Math.cos(face - state.yaw));
-        state.yaw += turn;                                               // shortest way round; the view eases there
-        pitch = .06;
+      const tourPose = tour.step(step);
+      if (tourPose) {
+        camera.position.set(tourPose.x, tourPose.y, tourPose.z);
+        lookYaw = state.yaw = tourPose.yaw;
+        lookPitch = pitch = tourPose.pitch;
+        camera.rotation.set(lookPitch, lookYaw, 0, "YXZ");
+      } else {
+        eyeY += (state.y - eyeY) * (1 - Math.exp(-step * 14));    // stairs read as steps, not a ramp jolt
+        const stride = reduced.matches ? 0 : clamp(Math.hypot(velX, velZ) / 3, 0, 1) * Math.sin(now * .0085) * .02;
+        camera.position.set(state.x, eyeY + EYE + stride, state.z);
+        // Riding up or down: turn the view to the atrium and the light core (the reason to ride a glass cabin).
+        if (moving && !wasMoving) {
+          const face = Math.atan2(state.x, state.z);                       // yaw that looks at the centre
+          const turn = Math.atan2(Math.sin(face - state.yaw), Math.cos(face - state.yaw));
+          state.yaw += turn;                                               // shortest way round; the view eases there
+          pitch = .06;
+        }
+        wasMoving = moving;
+        const ease = 1 - Math.exp(-step * 22);
+        lookYaw += (state.yaw - lookYaw) * ease;
+        lookPitch += (pitch - lookPitch) * ease;
+        camera.rotation.set(lookPitch, lookYaw, 0, "YXZ");
       }
-      wasMoving = moving;
       const liftKey = inside + ":" + moving + ":" + cabins.map(c => levelOf(c)).join(",");
       if (liftKey !== lastLift) {
         lastLift = liftKey;
         events.lift?.({ inside: inside >= 0 ? inside : null, floor: levelOf(state.y), moving, cabins: cabins.map(levelOf) });
       }
       if (levelOf(state.y) !== lastFloor) { lastFloor = levelOf(state.y); events.floor?.(lastFloor); }
-      const ease = 1 - Math.exp(-step * 22);
-      lookYaw += (state.yaw - lookYaw) * ease;
-      lookPitch += (pitch - lookPitch) * ease;
-      camera.rotation.set(lookPitch, lookYaw, 0, "YXZ");
       camera.updateMatrixWorld();
       frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem);
+      fx.tick(now, step, reduced.matches);
       screens.tick(now, reduced.matches, frustum);
       if (pipeline) pipeline.render(); else renderer.render(scene, camera);
       rendered = true;
@@ -740,8 +791,10 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       });
       for (const texture of hallTextures) renderer.initTexture(texture);
     }
+    const testChangeRaw = params.get("testChange");
+    const testChange = testChangeRaw !== null && Number.isFinite(Number(testChangeRaw)) ? Number(testChangeRaw) : null;
     const update = (snapshot: FloorSnapshot, series: Captions, language: Language) => {
-      sky.color.set(SKY).lerp(new Color(MARKETS[snapshot.market].color), .06);
+      fx.setIndexChange(testChange ?? snapshot.index?.change ?? 0);
       screens.update(snapshot, series, language);
     };
     await screens.ready();
@@ -771,16 +824,22 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
     })();
     return {
-      move(x, forward) { touchX = clamp(x, -1, 1); touchForward = clamp(forward, -1, 1); },
+      move(x, forward) { if (Math.abs(x) > .05 || Math.abs(forward) > .05) stopTour(); touchX = clamp(x, -1, 1); touchForward = clamp(forward, -1, 1); },
       jump(pose) {
         const y = pose.y ?? 0;
         if (surfaceAt(pose.x, pose.z, y, cabins) === null) return;
+        stopTour();
         pause();
         state.x = pose.x; state.z = pose.z; state.y = eyeY = y;
         state.yaw = lookYaw = pose.yaw * RAD; pitch = lookPitch = pose.pitch;
         canvas.focus({ preventScroll: true });
       },
       stop: pause,
+      setMood(mood) { fx.setMood(mood); },
+      setTour(on) {
+        if (on) { pause(); tour.start(); events.tour?.(true); }
+        else stopTour();
+      },
       suspend(on) { suspended = on; visibility(); },
       ride(floor) {
         const i = LIFTS.findIndex((e, k) => Math.hypot(state.x - e.x, state.z - e.z) < e.r - CABIN_WALK && Math.abs(state.y - cabins[k]) < .3);

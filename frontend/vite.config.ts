@@ -61,7 +61,7 @@ export default defineConfig(({ mode }) => {
       "/api/realestate": process.env.REALESTATE_API_TARGET || loadEnv(mode, process.cwd(), "REALESTATE_").REALESTATE_API_TARGET || "http://127.0.0.1:8000",
       "/api/editorial": process.env.EDITORIAL_API_TARGET || "http://127.0.0.1:8000",
       "/api/community": process.env.COMMUNITY_API_TARGET || "http://127.0.0.1:8000",
-      "/api": "http://127.0.0.1:8000",
+      "/api": { target: process.env.API_PROXY_TARGET || "http://127.0.0.1:8000", changeOrigin: true },
     },
   },
 };

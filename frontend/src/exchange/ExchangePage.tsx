@@ -7,7 +7,7 @@ import {
   marketCode, rowsForPanel, stockDetailPath, stockIndex, useFloorQuotes, usePostSeries, useStockHistory, shortTime,
   type ExchangeMarket, type FloorSnapshot, type Language,
 } from "./market";
-import type { FloorDriver, LiftState } from "./floorEngine";
+import type { AtriumMood, FloorDriver, LiftState } from "./floorEngine";
 import ArtViewer, { artLabel } from "./ArtViewer";
 import { PAINTERS, areaChart, searchedStockPainter, type PaintEnv } from "./panels";
 import { api, type MarketMapItem, type StockSearchResult } from "../api/client";
@@ -369,6 +369,8 @@ export default function ExchangePage() {
   const [sound, setSound] = useState(false);
   const [soundError, setSoundError] = useState(false);
   const [full, setFull] = useState(false);
+  const [mood, setMood] = useState<AtriumMood>("daylight");
+  const [tour, setTour] = useState(false);
   const [lift, setLift] = useState<LiftState | null>(null);
   const [floor, setFloor] = useState(0);
   // On touch screens the floor fills the viewport without browser fullscreen swipe gestures.
@@ -425,6 +427,7 @@ export default function ExchangePage() {
       select(id) { setFocus(id); audio.current?.select(); reportExchange("panel:" + id, (id.includes(":") && !id.startsWith("a:") ? "감상 · " : "관제 화면 · ") + panelLabel(id, "ko")); },
       lift: setLift,
       floor: setFloor,
+      tour: setTour,
       initialDisplays: () => displays.current,
       error: onError,
     }, retry.recovery)).then(value => {
@@ -435,6 +438,7 @@ export default function ExchangePage() {
     return () => { controller.abort(); engine?.dispose(); };
   }, [retry]);
   useEffect(() => { driver?.update(data, histories, lang); }, [data, driver, histories, lang]);
+  useEffect(() => { driver?.setMood(mood); }, [driver, mood]);
   // The art viewer covers the hall: no 3D frames behind it (they made long viewing sessions stutter).
   useEffect(() => {
     const art = !!focus && (focus.startsWith("art:") || focus.startsWith("sculpture:"));
@@ -536,7 +540,7 @@ export default function ExchangePage() {
     <h1 className="exchange-sr-title">{t(lang, "증권 거래소", "Stock exchange")} · {spec.label}</h1>
     {slot && !immersive && createPortal(<MarketSwitch market={market} lang={lang} choose={chooseMarket} />, slot)}
     <div className="exchange-stage">
-      <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v5.webp)" }}>
+      <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v6.webp)" }}>
         <canvas key={retry.id} ref={canvas} className="exchange-canvas" tabIndex={0} aria-label={t(lang, "3D 거래소. 방향키로 이동하고 모니터를 선택하세요.", "3D trading floor. Use arrow keys to move and select a monitor.")} />
       </div>
       <div className="exchange-overlay-top">
@@ -546,6 +550,20 @@ export default function ExchangePage() {
           <small>{sampleStatus}{data.received ? " " + shortTime(data.received) : ""}</small>
         </div>}
         <div className="exchange-stage-actions">
+          <div className="exchange-mood-switch" role="group" aria-label={t(lang, "아트리움 조명 무드", "Atrium lighting mood")}>
+            {([
+              ["daylight", t(lang, "주간", "Day")],
+              ["golden", t(lang, "골든아워", "Golden")],
+              ["night", t(lang, "네온나이트", "Night")],
+            ] as const).map(([key, label]) => (
+              <button key={key} type="button" className="exchange-mood-btn" aria-pressed={mood === key} disabled={!driver}
+                onClick={() => { setMood(key); reportExchange("mood:" + key, "무드 · " + label); }}>{label}</button>
+            ))}
+          </div>
+          <button type="button" className="exchange-action" aria-pressed={tour} disabled={!driver}
+            onClick={() => { const next = !tour; setTour(next); driver?.setTour(next); reportExchange("tour:" + (next ? "on" : "off"), "시네마틱 투어"); }}>
+            {tour ? t(lang, "투어 중지", "Stop tour") : t(lang, "시네마틱 투어", "Tour")}
+          </button>
           <button type="button" className="exchange-action" aria-pressed={sound} onClick={() => { void toggleSound(); }}>{sound ? t(lang, "음향 켜짐", "Sound on") : t(lang, "음향", "Sound")}</button>
           {immersive ? <button type="button" className="exchange-action" onClick={leaveImmersive}>{t(lang, "축소", "Exit")}</button>
             : (viewportFullscreen || document.fullscreenEnabled) && <button type="button" className="exchange-action" aria-pressed={full} onClick={toggleFullscreen}>{full ? t(lang, "전체화면 종료", "Exit full screen") : t(lang, "전체화면", "Full screen")}</button>}

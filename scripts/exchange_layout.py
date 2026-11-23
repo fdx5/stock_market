@@ -79,15 +79,15 @@ add("ring", 0, 15.3, 0, 0, 4.35, 1.05, "ring")                       # crown tic
 TOWER["crown"] = {"y": 15.3, "r": 4.35, "h": 1.05}
 
 # ---- gallery screens: a giant curved main board on the north fronts, curved panels around
-arc("overview", R_GALLERY - .25, 135, 17.0, 11.9, 6.4)              # north-east: clear of the light core seen from the entrance
+arc("overview", R_GALLERY - .25, 148.5, 15.2, 11.9, 6.4)            # shifted left of the 120 deg elevator (a0=128.3 deg, ~1.8m clear of rails/cap)
 arc("sign", R_GALLERY - .25, 0, 15.0, 16.0, 1.9)                    # above the entrance, gallery 3 front
-arc("clocks", R_GALLERY - .25, 225, 9.4, 11.9, 2.6)
+arc("clocks", R_GALLERY - .25, 221.5, 9.4, 11.9, 2.6)               # clear of the 240 deg west elevator
 arc("session", R_GALLERY - .25, 268, 9.4, 11.9, 2.6)
 arc("treemap", R_GALLERY - .25, 90, 7.4, 7.35, 4.3)                 # east: across gallery 1-2
 arc("world", R_GALLERY - .25, 270, 7.4, 7.35, 4.3)                  # west
 arc("news", R_GALLERY - .25, 60, 4.45, 7.55, 2.9)          # top edge into the gallery-2 fascia
 arc("globaltop", R_GALLERY - .25, 300, 4.45, 7.7, 2.6)
-arc("heatgrid", R_GALLERY - .25, 150, 4.45, 7.0, 3.0)
+arc("heatgrid", R_GALLERY - .25, 150, 4.45, 6.85, 2.9)
 arc("histogram", R_GALLERY - .25, 210, 4.4, 7.7, 2.6)
 for k, (t, panel) in enumerate(zip((40, 62, 100, 300), ("investor", "sectors", "capshare", "movers"))):
     arc(panel, R_GALLERY - .25, t, 4.4, 11.9, 2.6)
@@ -99,9 +99,9 @@ for t in COLUMNS:
 
 # ---- ticker ribbons on the gallery fascias (inward, continuous except where boards hang)
 BANDS = [("tickerA", 4.48, .78, 0, 360),                            # gallery 1: the amber tape, all round
-         ("tickerC", 13.48, .78, 150, 210),                           # gallery 3 over the north board
-         ("tickerB", 13.48, .78, -50, 50),                            # gallery 3 south, under the sign
-         ("tickerD", 8.98, .72, 300, 420)]                            # gallery 2, north-east to north-west via south
+         ("tickerC", 13.48, .78, 170, 210),                         # gallery 3 over the north board
+         ("tickerB", 13.48, .78, -50, 50),                          # gallery 3 south, under the sign
+         ("tickerD", 8.98, .72, 300, 420)]                          # gallery 2, north-east to north-west via south
 for panel, y, h, a0, a1 in BANDS:
     r = R_GALLERY - .085          # just proud of the travertine fascia (R_GALLERY - .06)
     mid = (a0 + a1) / 2

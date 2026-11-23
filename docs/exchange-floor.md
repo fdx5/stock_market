@@ -57,3 +57,10 @@ python scripts/exchange_ktx2.py frontend/public/3d/exchange-floor --toktx <KTX-S
 - 성능: 패널 그리기는 Worker(OffscreenCanvas)에서, 정적 소품은 8구역 병합(드로우콜 ~130), 첫 화면은 전광판이 다 그려진 뒤 공개. 모델 URL에 베이크 키를 붙여 캐시된 옛 모델을 쓰지 않는다.
 - iPadOS와 터치 기기에서는 GPU가 지원하는 경우 원본 텍스처 크기의 KTX2 모델과 4K 라이트맵을 사용한다. WebGPU를 제공하는 브라우저에서는 먼저 WebGPU를 초기화하고, 사용할 수 없거나 렌더링이 실패하면 WebGL 2로 복구한다. 모바일은 모델과 라이트맵을 순서대로 준비하고 시야에 들어오는 메시부터 렌더링한다. 반사 환경과 주변 그림은 입장 뒤에 로드한다. WebGL 2와 모바일은 첫 프레임에서 필요한 재질부터 컴파일한다.
 - 티커: 종목명 오른쪽에 기업 로고, 기둥 LED 스트립은 실시간 시세 카드가 위로 흐르는 세로 티커.
+
+## v6 기능 (2026-11-23)
+
+- 그랜드 아트리움 건축 리마스터(`scripts/build_exchange_atrium.py`, `scripts/prepare_exchange_v6_sources.py`): ambientCG CC0 럭셔리 PBR 4종(Calacatta 대리석 `Marble006`, Emperador 다크 대리석 `Marble016`, Brushed Champagne Brass `Metal049A`, American Walnut `Wood067`) 추가. 이중 프로파일 I-빔 볼트 아치, 3단 조각 오큘러스 크라운, 바닥-천장 도심 스카이라인 채광창, 다이아몬드 브라스 인레이 월넛 피처 월, 뮤지엄 리세스 아트 니치, 방사형 브라스 인레이 대리석 광장, 플루티드 월넛 중앙 커맨드 카운터 및 곡면 트레이딩 포드.
+- WebGPU/TSL 실시간 셰이더(`frontend/src/exchange/atriumFx.ts`): 수경 잔물결·커스틱스 셰이더(`WaterSurface`), 반투명 홀로그램 유리 코어(`HoloCoreFX`) 및 역회전 궤도 링, 볼류메트릭 빛기둥, 부유 광입자.
+- 지수 등락 연동 중앙 네온 발광: 선택 시장 기준 지수의 등락률에 따라 하락 시 블루 계열(스카이→코발트→딥 사파이어), 상승 시 레드 계열(코랄→크림슨→딥 루비), 보합 시 아이스-시안으로 중앙 네온 코어·필라멘트·홀로그램 링·바닥 라이트 웰·주변 반사광이 낙폭/상승폭에 비례해 채도와 발광 강도·펄스가 강해진다.
+- 실시간 3종 조명 무드(`주간` / `골든아워` / `네온나이트`) 및 Catmull-Rom 시네마틱 투어 카메라 추가. 4K Cycles OptiX 라이트맵 2장 + 2K HDR(`hall-env-v6.hdr`) + 16-bit UV meshopt GLB + 모바일 KTX2(`trading-hall-v6-ktx2.glb`).

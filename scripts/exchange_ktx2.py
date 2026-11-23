@@ -28,8 +28,8 @@ def encode(picture, work, name, srgb, uastc, toktx):
     return output.read_bytes()
 
 
-def build(assets, toktx):
-    gltf, binary = read_glb(assets / "trading-hall-v5.glb")
+def build(assets, toktx, version="v6"):
+    gltf, binary = read_glb(assets / f"trading-hall-{version}.glb")
     textures = gltf["textures"]
     color_sources, normal_sources = set(), set()
     for material in gltf["materials"]:
@@ -56,7 +56,7 @@ def build(assets, toktx):
 
         lightmaps = {}
         for group in ("shell", "fixtures"):
-            name = f"lightmap-{group}-v5"
+            name = f"lightmap-{group}-{version}"
             with Image.open(assets / f"{name}.webp") as picture:
                 lightmaps[name] = pool.submit(encode, picture.copy(), work, name, True, True, toktx)
         images = dict(zip((im["bufferView"] for im in gltf["images"]),
@@ -81,12 +81,13 @@ def build(assets, toktx):
     for key in ("extensionsUsed", "extensionsRequired"):
         gltf[key] = [BASIS if ext == WEBP else ext for ext in gltf[key]]
     gltf["buffers"][0]["byteLength"] = len(packed)
-    write_glb(assets / "trading-hall-v5-ktx2.glb", gltf, bytes(packed))
+    write_glb(assets / f"trading-hall-{version}-ktx2.glb", gltf, bytes(packed))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("assets", type=Path)
     parser.add_argument("--toktx", default="toktx")
+    parser.add_argument("--version", default="v6")
     args = parser.parse_args()
-    build(args.assets, args.toktx)
+    build(args.assets, args.toktx, args.version)

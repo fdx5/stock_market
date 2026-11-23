@@ -104,7 +104,33 @@
 .exchange-status small { display: block; font: 10px var(--f-type); color: #aebad0; }
 .exchange-status i { width: 6px; height: 6px; margin-top: 3px; background: #a0a7be; border-radius: 50%; flex-shrink: 0; }
 .exchange-status i[data-live="true"] { background: var(--exchange-accent); box-shadow: 0 0 11px var(--exchange-accent); }
-.exchange-stage-actions { display: flex; gap: 5px; margin-left: auto; }
+.exchange-stage-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; margin-left: auto; }
+.exchange-mood-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--exchange-line);
+  border-radius: 5px;
+  background: #0b111ee8;
+}
+.exchange-mood-btn {
+  min-height: 28px;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #aebad0;
+  font: 650 11px var(--f-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.exchange-mood-btn:hover { color: #ecf1fb; }
+.exchange-mood-btn[aria-pressed="true"] {
+  color: var(--exchange-accent);
+  border-color: color-mix(in srgb, var(--exchange-accent), transparent 55%);
+  background: color-mix(in srgb, var(--exchange-accent) 14%, #0b111e);
+}
+.exchange-mood-btn:disabled { opacity: .45; cursor: default; }
 .exchange-action {
   display: inline-flex;
   gap: 6px;

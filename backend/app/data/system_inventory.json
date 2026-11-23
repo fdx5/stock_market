@@ -108,7 +108,6 @@
     "/prices/wti",
     "/prices/xrp",
     "/pulse-board",
-    "/pulse-board-2",
     "/pulse-board-ship",
     "/ranking/sp500-market-cap",
     "/ranking/trading-value",
@@ -140,7 +139,7 @@
     "/world-markets",
     "/yield-curve-lab"
   ],
-  "source_files": 1053,
+  "source_files": 1061,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -165,6 +164,7 @@
     "frontend/src/components/wakeWorker.ts",
     "frontend/src/components/workerCpuRaster.ts",
     "frontend/src/drivegame/world/tileWorker.ts",
+    "frontend/src/exchange/paintWorker.ts",
     "frontend/src/monitor/synapseGeometry.worker.ts",
     "frontend/src/neo/backdropRenderWorker.ts",
     "frontend/src/neo/nanotubeGeometryWorker.ts",
