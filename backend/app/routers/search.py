@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Query
 
+from app.data import us_listing_directory
 from app.data.universe import get_stock_market, search_stocks
 from app.data.us_universe import get_us_stock_item, search_us_stocks
 from app.schemas import StockSearchResult
@@ -32,7 +33,19 @@ def search(q: str = Query(..., min_length=1), limit: int = 30, include_etf: bool
     # The full US listing also carries the curated ETFs; keep the curated entry once.
     curated = {(r["code"], r["market"]) for r in etf_results}
     us_results = [r for r in us_results if (r["code"], r["market"]) not in curated]
-    return etf_results + kr_results + us_results
+    results = etf_results + kr_results + us_results
+    # A typed ticker (ADI, TC) must lead even when longer names merely contain it.
+    exact = q.strip().upper()
+    norm = exact.replace(".", "-")
+    if not any(r["code"].upper().replace(".", "-") == norm for r in results):
+        # Short tickers (MP, MIC) can be crowded out of the limit by name matches.
+        listed = us_listing_directory.lookup(norm)
+        if listed:
+            hit = {"code": listed["code"], "name": listed["name"], "market": "US"}
+            if listed["etf"]:
+                hit["asset_type"] = "ETF"
+            results = [hit, *results[: max(0, limit - 1)]]
+    return sorted(results, key=lambda r: r["code"].upper().replace("-", ".") != exact.replace("-", "."))
 
 
 def _resolve_market(code: str) -> str:
