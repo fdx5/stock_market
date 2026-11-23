@@ -46,8 +46,9 @@ export default function NasdaqFuturesBadges({ openOnly = false }: { openOnly?: b
     const stop = startVisibilityAwareInterval(load, 10_000);
     return () => { cancelled = true; stop(); };
   }, []);
-  const openWindow = openOnly ? nasdaqOpenWindow(now) : null;
-  const windows = (["day", "night"] as const).filter(window => !openOnly || (window === openWindow && quotes[window] != null && now / 1000 - quotes[window]!.quote_time < FRESH_SECONDS));
+  const openWindow = nasdaqOpenWindow(now);
+  const trading = (window: "day" | "night") => window === openWindow && quotes[window] != null && now / 1000 - quotes[window]!.quote_time < FRESH_SECONDS;
+  const windows = (["day", "night"] as const).filter(window => !openOnly || trading(window));
   return <>{windows.map(window => {
     const quote = quotes[window];
     const change = quote?.change_pct;
@@ -57,11 +58,12 @@ export default function NasdaqFuturesBadges({ openOnly = false }: { openOnly?: b
     const time = stamp?.toLocaleTimeString("en-GB", { timeZone: "Asia/Seoul", hour12: false }) ?? "—";
     const date = stamp?.toLocaleString(lang === "ko" ? "ko-KR" : "en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) ?? "—";
     const basis = window === "day" ? L("미국 정규장 시간대(09:30~16:00 ET) NQ 시세 · 전회 같은 시간대 종가 대비", "NQ during US cash hours (09:30–16:00 ET) · vs. prior regular-window close") : L("같은 NQ 계약의 정규장 밖 최신 시세 · 직전 정규시간대 종가 대비", "Same NQ contract outside cash hours · vs. preceding regular-window close");
-    return <div key={window} className={`ng-night-quote is-nasdaq is-${window} is-${tone}${quote?.stale ? " is-stale" : ""}`} role="group" aria-label={name} title={`${basis} · ${date} KST · ${L("공급자 시세 지연 가능", "Feed may be delayed")}${quote?.quote_source === "yahoo_5m" ? L(" · 5분봉 종가", " · 5-minute bar close") : ""}`}>
+    const live = trading(window) && !quote?.stale;
+    return <div key={window} className={`ng-night-quote is-nasdaq is-${window} is-${tone}${quote?.stale ? " is-stale" : ""}${live ? " is-live" : ""}`} role="group" aria-label={name} title={`${basis} · ${date} KST · ${L("공급자 시세 지연 가능", "Feed may be delayed")}${quote?.quote_source === "yahoo_5m" ? L(" · 5분봉 종가", " · 5-minute bar close") : ""}`}>
       <span className="ng-night-label"><span className="ng-night-dot" aria-hidden="true" />{name}</span>
       <time className="ng-night-time" dateTime={stamp?.toISOString()}>{time}</time>
       <span className="ng-night-values"><strong>{quote ? quote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</strong><b>{change != null ? `${change > 0 ? "▲ +" : change < 0 ? "▼ −" : ""}${Math.abs(change).toFixed(2)}%` : "—"}</b></span>
-      <span className="ng-night-state">{!quote ? L("연결중", "Loading") : quote.stale ? L("수집 지연", "Delayed") : window === "day" ? L("정규시간대", "Cash hours") : L("야간 시세", "Overnight")}</span>
+      <span className="ng-night-state">{live && <i className="ng-live-led" role="img" aria-label={L("거래 중", "Trading")} />}{!quote ? L("연결중", "Loading") : quote.stale ? L("수집 지연", "Delayed") : window === "day" ? L("정규시간대", "Cash hours") : L("야간 시세", "Overnight")}</span>
     </div>;
   })}</>;
 }
