@@ -29,6 +29,9 @@ def search(q: str = Query(..., min_length=1), limit: int = 30, include_etf: bool
     kr_results = search_stocks(q, limit=remaining) if remaining > 0 else []
     remaining -= len(kr_results)
     us_results = search_us_stocks(q, limit=remaining) if remaining > 0 else []
+    # The full US listing also carries the curated ETFs; keep the curated entry once.
+    curated = {(r["code"], r["market"]) for r in etf_results}
+    us_results = [r for r in us_results if (r["code"], r["market"]) not in curated]
     return etf_results + kr_results + us_results
 
 

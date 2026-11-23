@@ -1,5 +1,6 @@
 import threading
 
+from app.data import us_listing_directory
 from app.data.us_company_korean_names import KOREAN_NAMES
 from app.data.us_index_fetcher import get_nasdaq100_constituents, get_sp500_constituents
 from app.data.us_recent_listings import RECENT_US_LISTINGS
@@ -70,7 +71,14 @@ def get_us_stock_item(code: str) -> dict | None:
     for item in get_us_universe():
         if item["code"] == code:
             return item
-    return _SKHY_ITEM if code == "SKHY" else None
+    if code == "SKHY":
+        return _SKHY_ITEM
+    # Any other US-listed stock or ETF (IONQ, IONX, ...): the detail page quotes it
+    # live, so the zero snapshot is only the last-resort fallback.
+    listed = us_listing_directory.lookup(code)
+    if listed:
+        return {"code": listed["code"], "name": listed["name"], "close": 0.0, "change": 0.0, "change_pct": 0.0}
+    return None
 
 
 def get_us_stock_name(code: str) -> str | None:
@@ -160,4 +168,23 @@ def search_us_stocks(query: str, limit: int = 30) -> list[dict]:
     # sorted() is stable, so the remaining matches keep the universe's own order.
     query_upper = query.upper()
     matched.sort(key=lambda it: 0 if it["code"] == query_upper else 1)
-    return [{"code": it["code"], "name": it["name"], "market": "US"} for it in matched[:limit]]
+    results = [{"code": it["code"], "name": it["name"], "market": "US"} for it in matched[:limit]]
+
+    # Everything else listed in the US — non-index stocks and every ETF — after the
+    # curated names, except that an exact ticker always comes first.
+    if len(results) < limit:
+        # The index roster writes share classes as BRK.B, the directory as BRK-B.
+        known = {r["code"].replace(".", "-") for r in results}
+        for row in us_listing_directory.search(query, limit):
+            if row["code"] in known:
+                continue
+            hit = {"code": row["code"], "name": row["name"], "market": "US"}
+            if row["etf"]:
+                hit["asset_type"] = "ETF"
+            if row["code"] == query_upper:
+                results.insert(0, hit)
+            else:
+                results.append(hit)
+            if len(results) >= limit:
+                break
+    return results[:limit]
