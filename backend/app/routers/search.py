@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Query
 
-from app.data import us_listing_directory
+from app.data import kr_etf_directory, us_listing_directory
 from app.data.universe import get_stock_market, search_stocks
 from app.data.us_universe import get_us_stock_item, search_us_stocks
 from app.schemas import StockSearchResult
@@ -29,6 +29,16 @@ def search(q: str = Query(..., min_length=1), limit: int = 30, include_etf: bool
     remaining = limit - len(etf_results)
     kr_results = search_stocks(q, limit=remaining) if remaining > 0 else []
     remaining -= len(kr_results)
+    if include_etf and remaining > 0:
+        # Every other KRX ETF (about 1,200), after the curated funds and KR stocks.
+        curated_kr = {r["code"] for r in etf_results if r["market"] == "KR"}
+        kr_etfs = [
+            {"code": row["code"], "name": row["name"], "market": "KR", "asset_type": "ETF"}
+            for row in kr_etf_directory.search(q, remaining + len(curated_kr))
+            if row["code"] not in curated_kr
+        ][:remaining]
+        kr_results += kr_etfs
+        remaining -= len(kr_etfs)
     us_results = search_us_stocks(q, limit=remaining) if remaining > 0 else []
     # The full US listing also carries the curated ETFs; keep the curated entry once.
     curated = {(r["code"], r["market"]) for r in etf_results}

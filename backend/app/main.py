@@ -285,9 +285,10 @@ def _warm_admin_dashboard() -> None:
 @app.on_event("startup")
 def _warm_us_listing_directory() -> None:
     # Full US stock/ETF list for search; fetched once so the first search doesn't wait.
-    from app.data import us_listing_directory
+    from app.data import kr_etf_directory, us_listing_directory
 
     threading.Thread(target=us_listing_directory.get_listings, name="us-listings-warm", daemon=True).start()
+    threading.Thread(target=kr_etf_directory.get_listings, name="kr-etf-warm", daemon=True).start()
 
 
 @app.on_event("startup")

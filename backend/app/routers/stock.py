@@ -52,6 +52,12 @@ def _resolve_name(code: str) -> str:
 
         name = next((etf_name for etf_code, etf_name, *_ in KR_ETFS if etf_code == code), None)
     if name is None:
+        # Any other KRX ETF (about 1,200 beyond the curated ranking set).
+        from app.data import kr_etf_directory
+
+        listed = kr_etf_directory.lookup(code)
+        name = listed["name"] if listed else None
+    if name is None:
         raise HTTPException(status_code=404, detail=f"종목 코드 '{code}'를 찾을 수 없습니다.")
     return name
 
