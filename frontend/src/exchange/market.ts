@@ -47,21 +47,39 @@ function useSample(market: ExchangeMarket) {
   return samples[market] ?? EMPTY_SAMPLE;
 }
 
+/** Runs `load` now and, while it keeps failing, again after 3s, 6s, 12s… (capped at
+ * 60s). The panels' regular refresh is 1–10 minutes; without this a single failed
+ * first request — e.g. during a server restart after a deploy — left a panel dark
+ * for that whole interval. Returns a cancel function. */
+function withRetry(load: () => Promise<unknown>): () => void {
+  let cancelled = false, timer: number | undefined, delay = 3_000;
+  const attempt = () => {
+    load().catch(() => {
+      if (cancelled) return;
+      timer = window.setTimeout(attempt, delay);
+      delay = Math.min(delay * 2, 60_000);
+    });
+  };
+  attempt();
+  return () => { cancelled = true; window.clearTimeout(timer); };
+}
+
 const noPoints: number[] = [];
 function useKrHistory() {
   const [histories, setHistories] = useState<{ kospi: number[]; kosdaq: number[] }>({ kospi: noPoints, kosdaq: noPoints });
   useEffect(() => {
     let active = true;
+    const retries: (() => void)[] = [];
     const read = () => {
+      while (retries.length) retries.pop()?.();
       for (const key of ["kospi", "kosdaq"] as const) {
-        api.indexHistory(key === "kospi" ? "KOSPI" : "KOSDAQ", 1)
-          .then(value => { if (active) setHistories(old => ({ ...old, [key]: value.points.map(row => row.close).filter(isPrice).slice(-120) })); })
-          .catch(() => {});
+        retries.push(withRetry(() => api.indexHistory(key === "kospi" ? "KOSPI" : "KOSDAQ", 1)
+          .then(value => { if (active) setHistories(old => ({ ...old, [key]: value.points.map(row => row.close).filter(isPrice).slice(-120) })); })));
       }
     };
     read();
     const stop = startVisibilityAwareInterval(read, 300_000);
-    return () => { active = false; stop(); };
+    return () => { active = false; stop(); while (retries.length) retries.pop()?.(); };
   }, []);
   return histories;
 }
@@ -71,25 +89,36 @@ function usePoll<T>(load: () => Promise<T>, every: number): T | null {
   const [value, setValue] = useState<T | null>(null);
   useEffect(() => {
     let active = true;
-    const read = () => { load().then(next => { if (active) setValue(next); }).catch(() => {}); };
+    let cancelRetry: (() => void) | undefined;
+    const read = () => {
+      cancelRetry?.();
+      cancelRetry = withRetry(() => load().then(next => { if (active) setValue(next); }));
+    };
     read();
     const stop = startVisibilityAwareInterval(read, every);
-    return () => { active = false; stop(); };
+    return () => { active = false; stop(); cancelRetry?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [every]);
   return value;
 }
 
 
+/** A cold server can answer 200 with an empty list; treat that as a miss so it retries
+ * soon instead of drawing an empty panel until the next regular refresh. */
+function nonEmpty<T>(items: T[]): T[] {
+  if (!items?.length) throw new Error("empty");
+  return items;
+}
+
 export function useFloorExtras(): FloorExtras {
-  const world = usePoll(() => api.globalIndices().then(r => r.items), 60_000);
-  const futures = usePoll(() => api.futures().then(r => r.items), 60_000);
-  const investor = usePoll(() => api.investorSummary().then(r => r.items), 300_000);
-  const rates = usePoll(() => api.treasuryHeadlines().then(r => r.items), 60_000);
+  const world = usePoll(() => api.globalIndices().then(r => nonEmpty(r.items)), 60_000);
+  const futures = usePoll(() => api.futures().then(r => nonEmpty(r.items)), 60_000);
+  const investor = usePoll(() => api.investorSummary().then(r => nonEmpty(r.items)), 300_000);
+  const rates = usePoll(() => api.treasuryHeadlines().then(r => nonEmpty(r.items)), 60_000);
   const kospiNight = usePoll(() => api.kospiNight(), 60_000);
   const kospiFutures = usePoll(() => api.kospiFutures(), 60_000);
   const hot = usePoll(() => api.hotIssues(), 600_000);
-  const globalTop = usePoll(() => api.globalTop20().then(r => r.items), 300_000);
+  const globalTop = usePoll(() => api.globalTop20().then(r => nonEmpty(r.items)), 300_000);
   return useMemo(() => ({
     world: world ?? [], futures: futures ?? [], investor: investor ?? [], rates: rates ?? [],
     kospiNight, kospiFutures, hot, globalTop: globalTop ?? [],
@@ -146,13 +175,13 @@ export function useStockHistory(market: ExchangeMarket, code: string | undefined
   useEffect(() => {
     if (!code || !key || existing) return;
     let active = true;
-    api.marketSparklines([code], market === "sp500" ? "us" : "kr").then(data => {
+    const cancel = withRetry(() => api.marketSparklines([code], market === "sp500" ? "us" : "kr").then(data => {
       if (active) setEntries(old => {
         const recent = Object.entries(old).slice(-19);
         return { ...Object.fromEntries(recent), [key]: (data.items[code]?.points ?? []).filter(isPrice).slice(-90) };
       });
-    }).catch(() => {});
-    return () => { active = false; };
+    }));
+    return () => { active = false; cancel(); };
   }, [market, code, key, existing]);
   return existing ?? noPoints;
 }
@@ -165,13 +194,17 @@ export function usePostSeries(market: ExchangeMarket, rows: MarketMapItem[]) {
   useEffect(() => {
     if (!symbols) return;
     let active = true;
-    const load = () => { void api.marketSparklines(symbols.split(","), market === "sp500" ? "us" : "kr").then(data => {
-      if (active) setResult({ market, series: Object.fromEntries(Object.entries(data.items)
-        .map(([code, chart]) => [code, chart.points.filter(isPrice).slice(-90)])) });
-    }).catch(() => {}); };
+    let cancelRetry: (() => void) | undefined;
+    const load = () => {
+      cancelRetry?.();
+      cancelRetry = withRetry(() => api.marketSparklines(symbols.split(","), market === "sp500" ? "us" : "kr").then(data => {
+        if (active) setResult({ market, series: Object.fromEntries(Object.entries(data.items)
+          .map(([code, chart]) => [code, chart.points.filter(isPrice).slice(-90)])) });
+      }));
+    };
     load();
     const stop = startVisibilityAwareInterval(load, 300_000);
-    return () => { active = false; stop(); };
+    return () => { active = false; stop(); cancelRetry?.(); };
   }, [market, symbols]);
   return result?.market === market ? result.series : EMPTY_SERIES;
 }
