@@ -4,7 +4,7 @@ import { STORAGE_ASSETS, type Language } from "./marketCore";
 import bake from "./bake.json";
 
 const t = (lang: Language, ko: string, en: string) => (lang === "ko" ? ko : en);
-const SKY_VER = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36) + "p11";
+const SKY_VER = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36) + "p14";
 
 const SKYLINE_URLS: Record<AtriumMood, string> = {
   daylight: `${STORAGE_ASSETS}/skyline-day-v6.webp${SKY_VER}`,
@@ -16,20 +16,20 @@ const MOOD_META: Record<AtriumMood, { ko: string; en: string; subKo: string; sub
   daylight: {
     ko: "주간",
     en: "Day",
-    subKo: "서울 미래 금융 메트로폴리스 · 맑은 오전 45층 360° 파노라마",
-    subEn: "Futuristic Seoul Financial Metropolis · 45F Morning 360° Panorama",
+    subKo: "서울 360° 8K 실사 초고화질 파노라마 · 맑은 주간 전망 (Wikimedia Commons CC BY-SA)",
+    subEn: "Seoul 360° 8K Photoreal Panorama · Clear Daylight View (Wikimedia Commons CC BY-SA)",
   },
   golden: {
     ko: "골든아워",
     en: "Golden",
-    subKo: "서울 미래 금융 메트로폴리스 · 황금빛 노을 45층 360° 파노라마",
-    subEn: "Futuristic Seoul Financial Metropolis · 45F Golden Hour 360° Panorama",
+    subKo: "서울 360° 8K 실사 초고화질 파노라마 · 황금빛 노을 전망 (Wikimedia Commons CC BY-SA)",
+    subEn: "Seoul 360° 8K Photoreal Panorama · Golden Hour Sunset View (Wikimedia Commons CC BY-SA)",
   },
   night: {
     ko: "네온나이트",
     en: "Night",
-    subKo: "서울 미래 금융 메트로폴리스 · 블루아워 야경 45층 360° 파노라마",
-    subEn: "Futuristic Seoul Financial Metropolis · 45F Blue-Hour Night 360° Panorama",
+    subKo: "서울 360° 8K 실사 초고화질 파노라마 · 서울 야경 전망 (Wikimedia Commons CC BY-SA)",
+    subEn: "Seoul 360° 8K Photoreal Panorama · Seoul Nightscape (Wikimedia Commons CC BY-SA)",
   },
 };
 
@@ -330,8 +330,8 @@ export default function SkylineViewer({
 
       <header className="exchange-art-caption exchange-skyline-head">
         <div>
-          <span className="exchange-skyline-kicker">45F OBSERVATORY WINDOW · 360° PANORAMA</span>
-          <h2>{t(lang, "서울 미래 도심 전망창", "Seoul Skyline Observatory")}</h2>
+          <span className="exchange-skyline-kicker">SEOUL 8K OBSERVATORY WINDOW · 360° PANORAMA</span>
+          <h2>{t(lang, "서울 360° 초고화질 전망창", "Seoul 8K 360° Observatory")}</h2>
           <p>{t(lang, meta.subKo, meta.subEn)}</p>
         </div>
         <div className="exchange-skyline-tools">

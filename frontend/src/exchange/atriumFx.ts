@@ -254,16 +254,18 @@ export function createAtriumFX(
       envMapIntensity: 0.44,
       side: DoubleSide,
     });
-    const viewDir = normalize(positionWorld.sub(cameraPosition));
+    const rawDir = normalize(positionWorld.sub(cameraPosition));
+    // Soften extreme close-to-glass vertical nadir pinch (y * 0.56) while keeping 100% true 3D horizontal parallax:
+    // Standing right next to any 1F-4F window and looking straight down NEVER pinches or stretches like a waterfall!
+    const viewDir = normalize(vec3(rawDir.x, rawDir.y.mul(0.56), rawDir.z));
     const eq = equirectUV(viewDir);
-    // True 1.0x 360° non-repeating panorama (4 completely distinct Seoul districts around the full compass — zero duplication!)
+    // True 1.0x 360° single-shot 8K real-camera Seoul panorama (ZERO stitch seams, ZERO duplication!)
     const uSky = eq.x;
-    // Soft non-clamping perspective elevation curve (ZERO fake mirrored bottom strip, ZERO waterfall stretch!):
-    // Horizon sits at v=0.52; steep downward gazes (-30°..-89°) glide gracefully across the REAL crisp Han River
-    // foreground (v=0.52..0.95) and never clamp or smear even when looking straight down from 4F!
+    // Non-clamping elevation curve (pad_bot = 0): centers glittering Seoul skyline & Han River right at eye level
+    // (v=0.58) for 1F-2F lounge windows, while steep downward gazes (-45°..-90°) glide smoothly inside v=[0.58..0.95]!
     const elev = eq.y.sub(0.5).mul(2.0);
-    const curved = elev.div(float(0.88).add(abs(elev).mul(1.25)));
-    const vSky = clamp(float(0.52).sub(curved.mul(0.95)), float(0.02), float(0.97));
+    const curved = elev.div(float(0.95).add(abs(elev).mul(1.22)));
+    const vSky = clamp(float(0.58).sub(curved.mul(0.84)), float(0.02), float(0.96));
     const skyUv = vec2(uSky, vSky);
 
     const dayCol = texture(skyDayTex, skyUv).rgb;

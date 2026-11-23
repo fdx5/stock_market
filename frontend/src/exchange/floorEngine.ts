@@ -308,7 +308,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       return model;
     };
     const loadSkyline = async (file: string) => {
-      const tex = await textures.loadAsync(hallAsset(file) + "p11");
+      const tex = await textures.loadAsync(hallAsset(file) + "p14");
       if (disposed || signal.aborted) { tex.dispose(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.colorSpace = SRGBColorSpace;
       tex.flipY = false;
