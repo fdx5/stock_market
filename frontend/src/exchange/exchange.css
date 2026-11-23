@@ -527,3 +527,170 @@ html.exchange-immersive, html.exchange-immersive body { overflow: hidden; oversc
 .exchange-lift button[aria-pressed="true"] { border-color: var(--exchange-accent); color: var(--exchange-accent); box-shadow: 0 0 12px color-mix(in srgb, var(--exchange-accent) 40%, transparent); }
 .exchange-lift small { color: var(--exchange-accent); font-size: 10px; }
 .exchange-floor-badge { margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--exchange-accent) 20%, #0e1420); color: var(--exchange-accent); font: 700 10px var(--f-num); }
+
+/* 360° Wide Panoramic Observatory Window Viewer (clicked from any exterior window or bottom utility button). */
+.exchange-skyline {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: #060910;
+  overflow: hidden;
+  user-select: none;
+}
+.exchange-skyline-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+.exchange-skyline-stage:active { cursor: grabbing; }
+.exchange-skyline-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+.exchange-skyline-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  opacity: 0;
+  transition: opacity .55s ease;
+  pointer-events: none;
+}
+.exchange-skyline-layer[data-active] { opacity: 1; }
+.exchange-skyline-layer img {
+  display: block;
+  width: calc(100% / 3);
+  height: 100%;
+  flex: 0 0 calc(100% / 3);
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
+.exchange-skyline-glass {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px #ffffff16,
+    inset 0 64px 72px -34px #04070dc8,
+    inset 0 -72px 80px -28px #04070de0;
+}
+.exchange-skyline-head {
+  align-items: center;
+  padding: 14px 18px 20px;
+  background: linear-gradient(180deg, #060a12d8 0%, #060a1278 65%, transparent 100%);
+}
+.exchange-skyline-kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--exchange-accent);
+  font: 700 9.5px/1.2 var(--f-type);
+  letter-spacing: .16em;
+}
+.exchange-skyline-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.exchange-skyline-tools > .exchange-action:not(.exchange-art-pill) {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  font-size: 18px;
+}
+.exchange-skyline-footer {
+  grid-row: 3;
+  grid-column: 1;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 18px 14px;
+  background: linear-gradient(0deg, #050810e6 0%, #05081080 65%, transparent 100%);
+  pointer-events: none;
+}
+.exchange-skyline-compass-wrap {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(560px, 92vw);
+  padding: 7px 14px;
+  border: 1px solid var(--exchange-line-strong);
+  border-radius: 999px;
+  background: #0a101cd6;
+  box-shadow: 0 10px 28px #0009;
+}
+.exchange-skyline-heading {
+  min-width: 68px;
+  color: var(--exchange-accent);
+  font: 700 11.5px var(--f-type);
+  letter-spacing: .08em;
+}
+.exchange-skyline-compass {
+  position: relative;
+  flex: 1;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  cursor: ew-resize;
+  color: #8f9db5;
+  font: 600 9.5px var(--f-type);
+  letter-spacing: .06em;
+}
+.exchange-skyline-compass::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ffffff18, #71e8fe44 50%, #ffffff18);
+}
+.exchange-skyline-compass > span:not(.exchange-skyline-needle) {
+  position: relative;
+  z-index: 1;
+  padding: 0 3px;
+  background: #0a101c;
+}
+.exchange-skyline-needle {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--exchange-accent);
+  box-shadow: 0 0 10px var(--exchange-accent), 0 0 0 2px #090e18;
+  z-index: 2;
+  pointer-events: none;
+}
+.exchange-skyline-zoom {
+  min-width: 42px;
+  text-align: right;
+  color: #b7c4d9;
+  font: 600 11px var(--f-num);
+}
+.exchange-skyline-hint {
+  margin: 0;
+  color: #9aa8bf;
+  font-size: 11px;
+  text-align: center;
+}
+@media (max-width: 760px) {
+  .exchange-skyline-head { padding: 10px 10px 14px; }
+  .exchange-skyline-hint { font-size: 10px; }
+}

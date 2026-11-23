@@ -287,12 +287,14 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const ktx = compressed ? new KTX2Loader().setWorkerLimit(2).detectSupport(renderer) : undefined;
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     if (ktx) loader.setKTX2Loader(ktx);
+    const maxAniso = mobile ? 2 : Math.min(8, renderer.getMaxAnisotropy());
     const lightmap = async (file: string) => {
       const tex = ktx ? await ktx.loadAsync(hallAsset(file.replace(/\.webp$/, ".ktx2"))) : await textures.loadAsync(hallAsset(file));
       if (disposed || signal.aborted) { tex.dispose(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.flipY = false;
       tex.channel = 1;
       tex.colorSpace = SRGBColorSpace;
+      tex.anisotropy = maxAniso;
       releases.push(() => tex.dispose());
       return tex;
     };
@@ -306,34 +308,38 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       return model;
     };
     const loadSkyline = async (file: string) => {
-      const tex = await textures.loadAsync(hallAsset(file));
+      const tex = await textures.loadAsync(hallAsset(file) + "p3");
       if (disposed || signal.aborted) { tex.dispose(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.colorSpace = SRGBColorSpace;
       tex.flipY = false;
       tex.wrapS = RepeatWrapping;
       tex.wrapT = ClampToEdgeWrapping;
-      tex.generateMipmaps = false;
-      tex.minFilter = LinearFilter;
-      tex.magFilter = LinearFilter;
+      tex.anisotropy = maxAniso;
       renderer.initTexture(tex);
       releases.push(() => tex.dispose());
       return tex;
     };
-    const { model, shellMap, fixtureMap, skyDay, skyNight } = await (async () => {
+    const { model, shellMap, fixtureMap, skyDay, skyGolden, skyNight } = await (async () => {
       // Limit the mobile startup peak: decode the hall before allocating either 4K lightmap.
       try {
         if (mobile) {
           const model = await loadModel();
           const shellMap = await lightmap(bake.shell.file);
           const fixtureMap = await lightmap(bake.fixtures.file);
-          const [skyDay, skyNight] = await Promise.all([loadSkyline("skyline-day-v6.webp"), loadSkyline("skyline-night-v6.webp")]);
-          return { model, shellMap, fixtureMap, skyDay, skyNight };
+          const [skyDay, skyGolden, skyNight] = await Promise.all([
+            loadSkyline("skyline-day-v6.webp"),
+            loadSkyline("skyline-golden-v6.webp"),
+            loadSkyline("skyline-night-v6.webp"),
+          ]);
+          return { model, shellMap, fixtureMap, skyDay, skyGolden, skyNight };
         }
-        const [model, shellMap, fixtureMap, skyDay, skyNight] = await Promise.all([
+        const [model, shellMap, fixtureMap, skyDay, skyGolden, skyNight] = await Promise.all([
           loadModel(), lightmap(bake.shell.file), lightmap(bake.fixtures.file),
-          loadSkyline("skyline-day-v6.webp"), loadSkyline("skyline-night-v6.webp"),
+          loadSkyline("skyline-day-v6.webp"),
+          loadSkyline("skyline-golden-v6.webp"),
+          loadSkyline("skyline-night-v6.webp"),
         ]);
-        return { model, shellMap, fixtureMap, skyDay, skyNight };
+        return { model, shellMap, fixtureMap, skyDay, skyGolden, skyNight };
       } finally { ktx?.dispose(); }
     })();
     signal.throwIfAborted();
@@ -429,6 +435,15 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       for (const g of proxyGeos) g.dispose();
       proxyMat.dispose();
     });
+    // Clickable exterior panoramic windows: clicking any daylight window opens the 360° Seoul skyline observatory!
+    model.traverse(child => {
+      if (!(child instanceof Mesh)) return;
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      if (mats.some(m => m && /perimeter daylight window/i.test(m.name))) {
+        child.userData.panel = "skyline:view";
+        artTargets.push(child);
+      }
+    });
     const pickTargets = artTargets.length ? [...screens.targets, ...artTargets] : screens.targets;
     if (measure) {
       const names: string[] = [];
@@ -442,7 +457,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const doorOpen = LIFTS.map(() => 1);
     scene.add(model);
     scene.add(screens.group);
-    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile, { day: skyDay, night: skyNight }, camera, screens.group);
+    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile, { day: skyDay, golden: skyGolden, night: skyNight }, camera, screens.group);
     scene.add(fx.group);
     releases.push(fx.dispose);
     const tour = new ShowcaseTour();
@@ -693,7 +708,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const rect = canvas.getBoundingClientRect();
       pointer.set((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1);
       ray.setFromCamera(pointer, camera);
-      ray.far = 45;
+      ray.far = 65;
       const hit = ray.intersectObjects(pickTargets, false)[0];
       if (!hit) return null;
       return occluded(ray.ray, hit.distance - .02) ? null : hit.object.userData.panel as string;
@@ -949,7 +964,10 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           for (const value of Object.values(m)) if (value instanceof Texture) hallTextures.add(value);
         }
       });
-      for (const texture of hallTextures) renderer.initTexture(texture);
+      for (const texture of hallTextures) {
+        if (texture.anisotropy < maxAniso) texture.anisotropy = maxAniso;
+        renderer.initTexture(texture);
+      }
     }
     const testChangeRaw = params.get("testChange");
     const testChange = testChangeRaw !== null && Number.isFinite(Number(testChangeRaw)) ? Number(testChangeRaw) : null;

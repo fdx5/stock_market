@@ -1166,7 +1166,7 @@ def make_task_chair():
     parts.append(lathe("Lift cover", 0, .12, 0, [(.04, 0), (.035, .14), (0, .14)], "black", g, sides=16))
     parts.append(_bevelled(box("Seat mechanism", 0, .34, 0, .24, .05, .26, "black", g), .01, 2))
     parts.append(_bevelled(box("Seat pan", 0, .38, .01, .5, .045, .48, "black", g), .015, 2))
-    parts.append(_bevelled(box("Seat cushion", 0, .425, .02, .48, .06, .46, "mesh", g), .025, 2))
+    parts.append(_bevelled(box("Seat cushion", 0, .426, .02, .48, .062, .46, "leather", g), .028, 2))
     back = []
     for k in range(9):
         u = k / 8
@@ -1199,8 +1199,8 @@ def make_task_chair():
     parts.append(_bevelled(box("Headrest", 0, 1.12, -.29, .3, .12, .05, "mesh", g, tilt=-10), .02, 2))
     parts.append(box("Headrest post", 0, 1.04, -.285, .03, .1, .02, "silver", g))
     for side in (-1, 1):
-        parts.append(box("Arm post", side * .25, .52, -.02, .03, .18, .05, "black", g))
-        parts.append(_bevelled(box("Arm pad", side * .25, .62, .01, .08, .03, .26, "black", g), .012, 2))
+        parts.append(box("Arm post", side * .25, .52, -.02, .03, .18, .05, "silver", g))
+        parts.append(_bevelled(box("Arm pad", side * .25, .62, .01, .08, .03, .26, "leather", g), .012, 2))
     bpy.ops.object.select_all(action="DESELECT")
     for o in parts:
         o.select_set(True)
@@ -1306,26 +1306,41 @@ def build_monitors():
 
 
 def curved_sofa(r, a0, a1, y=.14):
-    """Luxury Italian designer curved sectional sofa: smooth-beveled plush linen cushions, walnut shadow plinth & tailored pillows."""
-    sector("Sofa plinth", r - .55, r + .32, y, y + .085, a0, a1, "walnut", "fixtures", step=.18, smooth=True)
-    sector("Sofa brass strip", r - .556, r - .542, y + .068, y + .088, a0, a1, "brass", "fixtures", step=.18, smooth=True)
-    _bevelled(sector("Sofa base", r - .52, r + .30, y + .09, y + .395, a0, a1, "weave", "fixtures", step=.18, tile=.32, smooth=True), .018, 2)
-    n = max(3, int(radians(a1 - a0) * r / .92))
-    gap = degrees(.022 / r)
+    """Bespoke Italian designer curved modular sofa: recessed floating walnut shadow plinth,
+    plump sculpted individual linen seat/back cushions with recessed welt shadow gaps,
+    espresso-leather bolster armrests, and tailored camel & slate throw pillows."""
+    # Recessed floating walnut shadow plinth (inset 5cm under base for deep authentic floating shadow!)
+    sector("Sofa plinth", r - .46, r + .26, y, y + .088, a0 + .15, a1 - .15, "walnut", "fixtures", step=.18, smooth=True)
+    sector("Sofa brass strip", r - .468, r - .454, y + .068, y + .088, a0 + .15, a1 - .15, "brass", "fixtures", step=.18, smooth=True)
+    _bevelled(sector("Sofa base", r - .52, r + .30, y + .09, y + .388, a0, a1, "weave", "fixtures", step=.18, tile=.24, smooth=True), .022, 2)
+    n = max(3, int(radians(a1 - a0) * r / .88))
+    gap = degrees(.028 / r)
     for k in range(n):
         c0 = a0 + (a1 - a0) * k / n + gap
         c1 = a0 + (a1 - a0) * (k + 1) / n - gap
-        _bevelled(sector("Sofa cushion", r - .52, r + .06, y + .398, y + .565, c0, c1, "weave", "fixtures", step=.16, tile=.28, smooth=True), .036, 2)
-        _bevelled(sector("Sofa back cushion", r + .04, r + .26, y + .55, y + .94, c0, c1, "weave", "fixtures", step=.16, tile=.28, smooth=True), .038, 2)
-        # Accent tailored plump throw cushions on alternate seats!
+        # Deep dark leather shadow-gap welt tucked inside each cushion seam for crisp photorealistic separation!
+        if k > 0:
+            seam_t = a0 + (a1 - a0) * k / n
+            sx, sz = pol(r - .22, seam_t)
+            box("Sofa cushion seam", sx, y + .455, sz, .016, .11, .52, "darkoak", "fixtures", yaw=seam_t)
+        _bevelled(sector("Sofa cushion", r - .53, r + .06, y + .392, y + .568, c0, c1, "weave", "fixtures", step=.16, tile=.22, smooth=True), .042, 2)
+        # Reclined layered ergonomic back cushion (lower bolster + upper plush cushion!)
+        _bevelled(sector("Sofa back lower", r + .03, r + .24, y + .555, y + .735, c0, c1, "weave", "fixtures", step=.16, tile=.22, smooth=True), .036, 2)
+        _bevelled(sector("Sofa back upper", r + .08, r + .28, y + .720, y + .955, c0, c1, "weave", "fixtures", step=.16, tile=.22, smooth=True), .042, 2)
+        # Accent tailored plump throw cushions on alternate seats
         if k % 2 == 0:
             pt = (c0 + c1) / 2
-            px, pz = pol(r - .05, pt)
+            px, pz = pol(r - .06, pt)
             pmat = "pillow_camel" if (k // 2) % 2 == 0 else "pillow_slate"
-            box("Throw pillow", px, y + .67, pz, .40, .35, .13, pmat, "fixtures", yaw=pt + 180 + rng.uniform(-10, 10), tilt=-15, bevel=.042, segments=2)
-    _bevelled(sector("Sofa back", r + .265, r + .34, y + .09, y + .96, a0, a1, "weave", "fixtures", step=.18, tile=.32, smooth=True), .024, 2)
-    for a in (a0, a1 - degrees(.20 / r)):
-        _bevelled(sector("Sofa arm", r - .52, r + .32, y + .09, y + .69, a, a + degrees(.20 / r), "weave", "fixtures", segs=3, tile=.30, smooth=True), .034, 2)
+            box("Throw pillow", px, y + .675, pz, .42, .36, .14, pmat, "fixtures", yaw=pt + 180 + rng.uniform(-12, 12), tilt=-18, bevel=.048, segments=2)
+    # Sculpted walnut-backed outer shell + upholstered inner back
+    _bevelled(sector("Sofa back", r + .275, r + .345, y + .09, y + .95, a0, a1, "walnut", "fixtures", step=.18, tile=1.1, smooth=True), .022, 2)
+    # Rounded espresso saddle-leather armrest bolsters framing both ends!
+    for side_idx, a in enumerate((a0, a1 - degrees(.21 / r))):
+        _bevelled(sector("Sofa arm", r - .51, r + .32, y + .09, y + .64, a, a + degrees(.21 / r), "weave", "fixtures", segs=3, tile=.24, smooth=True), .038, 2)
+        arm_t = a + degrees(.105 / r)
+        ax, az = pol(r - .12, arm_t)
+        box("Sofa leather bolster", ax, y + .67, az, .18, .09, .74, "leather", "fixtures", yaw=arm_t, bevel=.036, segments=2)
 
 
 def build_landscape():
@@ -1436,7 +1451,7 @@ def import_prop(source, identifier, placements, group="props", scale=1.0, max_tr
 
 
 def build_props(source):
-    chairs, tables, ferns = [], [], []
+    chairs, tables, side_tables, ferns = [], [], [], []
     for L in LAYOUT["lounges"]:
         t = L["t"]
         for dt in (-3.4, 3.4):
@@ -1444,11 +1459,16 @@ def build_props(source):
             chairs.append((x, .15, z, t + dt * .6))
         x, z = pol(18.5, t)
         tables.append((x, .15, z, 0))
+        for dt in (-8.3, 8.3):
+            sx, sz = pol(19.15, t + dt)
+            side_tables.append((sx, .15, sz, t + dt))
         for dt in (-10, -8.6, 8.6, 10):
             x, z = pol(20.55, t + dt)
             ferns.append((x, .82, z, rng.uniform(0, 360)))
     import_prop(source, "mid_century_lounge_chair", chairs, max_tris=3500)
     import_prop(source, "coffee_table_round_01", tables, max_tris=2000)
+    if (source / "side_table_01").exists():
+        import_prop(source, "side_table_01", side_tables, max_tris=1800)
     trees = [(p["x"], 0.0, p["z"], rng.uniform(0, 360)) for p in LAYOUT["planters"]]
     import_prop(source, "potted_plant_02", trees, scale=2.4, max_tris=6000)
     chair = make_task_chair()
@@ -1805,6 +1825,7 @@ def lightmap_uv(obj, margin):
 
 def bake(obj, size, samples):
     img = bpy.data.images.new(obj.name + " lightmap", size, size, float_buffer=True, alpha=False)
+    ao_img = bpy.data.images.new(obj.name + " ao", size, size, float_buffer=True, alpha=False)
     nodes = []
     for slot in obj.material_slots:
         m = slot.material
@@ -1824,6 +1845,13 @@ def bake(obj, size, samples):
     scene.render.bake.margin = 10
     scene.render.bake.margin_type = "EXTEND"
     bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT", "INDIRECT"}, use_clear=True, margin=10)
+
+    # Secondary 4K Cycles GPU Ray-Traced Ambient Occlusion pass (0.00ms runtime cost -> V-Ray contact shadows!)
+    for _, n, _ in nodes:
+        n.image = ao_img
+    scene.cycles.samples = 64
+    bpy.ops.object.bake(type="AO", use_clear=True, margin=10)
+
     for m, n, uv in nodes:
         m.node_tree.nodes.remove(n)
         m.node_tree.nodes.remove(uv)
@@ -1831,6 +1859,12 @@ def bake(obj, size, samples):
     pix = np.empty(size * size * 4, dtype=np.float32)
     img.pixels.foreach_get(pix)
     rgb = pix.reshape(size, size, 4)[::-1, :, :3]
+    ao_pix = np.empty(size * size * 4, dtype=np.float32)
+    ao_img.pixels.foreach_get(ao_pix)
+    ao = np.clip(ao_pix.reshape(size, size, 4)[::-1, :, 0], 0.0, 1.0)
+    # Multiply subtle ray-traced contact AO into tight crevices & floor contacts (preserves bright open areas cleanly!)
+    rgb = rgb * (0.72 + 0.28 * (ao[..., None] ** 1.35))
+    bpy.data.images.remove(ao_img)
     # Subtle 3-tap micro-anti-aliasing preserves razor-sharp Cycles OptiX sunbeams & contact AO crevices!
     k = np.array([.10, .80, .10], dtype=np.float32)
     for axis in (0, 1):

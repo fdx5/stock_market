@@ -13,8 +13,9 @@ import {
   type WebGPURenderer,
 } from "three/webgpu";
 import {
-  abs, cameraPosition, clamp, cos, dot, equirectUV, float, mix, normalView, normalWorld, normalize, positionLocal,
-  positionViewDirection, positionWorld, pow, reflector, sin, smoothstep, texture as texNode, uniform, uv, vec2, vec3,
+  abs, cameraPosition, clamp, cos, dot, equirectUV, float, mix, mx_fractal_noise_float, mx_noise_float, normalView,
+  normalWorld, normalize, positionLocal, positionViewDirection, positionWorld, pow, reflector, sin, smoothstep,
+  texture, uniform, uv, vec2, vec3,
 } from "three/tsl";
 import { FLOOR } from "./market";
 
@@ -30,7 +31,7 @@ type MoodSpec = {
   lightmapMul: number;
   skylightColor: string;
   skylightEmit: number;
-  windowTint: string;
+  windowGoldenMix: number;
   windowNightMix: number;
   windowExposure: number;
   coveMul: number;
@@ -50,19 +51,19 @@ const MOODS: Record<AtriumMood, MoodSpec> = {
     ground: "#342d26",
     hemi: 0.28,
     envIntensity: 0.48,
-    lightmapMul: 0.76,
+    lightmapMul: 0.78,
     skylightColor: "#9eb8d4",
-    skylightEmit: 0.56,
-    windowTint: "#eef4fa",
+    skylightEmit: 0.58,
+    windowGoldenMix: 0.0,
     windowNightMix: 0.0,
-    windowExposure: 2.15,
+    windowExposure: 1.06,
     coveMul: 0.68,
     godRayColor: "#e6d8be",
     godRayOpacity: 0.024,
     holoBoost: 0.76,
     moteColor: "#e6d9c0",
     moteOpacity: 0.18,
-    reflectBoost: 0.85,
+    reflectBoost: 0.88,
   },
   golden: {
     exposure: 0.64,
@@ -71,19 +72,19 @@ const MOODS: Record<AtriumMood, MoodSpec> = {
     ground: "#281c14",
     hemi: 0.24,
     envIntensity: 0.42,
-    lightmapMul: 0.58,
+    lightmapMul: 0.60,
     skylightColor: "#c8905c",
-    skylightEmit: 0.48,
-    windowTint: "#ffcb8e",
-    windowNightMix: 0.36,
-    windowExposure: 1.85,
+    skylightEmit: 0.50,
+    windowGoldenMix: 1.0,
+    windowNightMix: 0.0,
+    windowExposure: 1.08,
     coveMul: 0.82,
     godRayColor: "#dda25a",
     godRayOpacity: 0.038,
     holoBoost: 0.86,
     moteColor: "#deb882",
     moteOpacity: 0.24,
-    reflectBoost: 0.92,
+    reflectBoost: 0.94,
   },
   night: {
     exposure: 0.60,
@@ -92,12 +93,12 @@ const MOODS: Record<AtriumMood, MoodSpec> = {
     ground: "#090d16",
     hemi: 0.15,
     envIntensity: 0.30,
-    lightmapMul: 0.22,
+    lightmapMul: 0.23,
     skylightColor: "#0e1c36",
-    skylightEmit: 0.22,
-    windowTint: "#dceaff",
+    skylightEmit: 0.24,
+    windowGoldenMix: 0.0,
     windowNightMix: 1.0,
-    windowExposure: 2.65,
+    windowExposure: 1.28,
     coveMul: 0.98,
     godRayColor: "#3c8ed0",
     godRayOpacity: 0.028,
@@ -183,7 +184,7 @@ export function createAtriumFX(
   hemiLight: HemisphereLight,
   lightmapped: TrackedLightmapMat[],
   mobile: boolean,
-  skyline: { day: Texture; night: Texture },
+  skyline: { day: Texture; golden: Texture; night: Texture },
   mainCamera: Object3D,
   screensGroup: Object3D,
 ): AtriumFX {
@@ -201,6 +202,7 @@ export function createAtriumFX(
   // Real-time planar reflection intensity (modulated by mood & 60fps governor)
   const uReflectStrength = uniform(mobile ? 0.0 : MOODS.daylight.reflectBoost);
   let reflectTierMul = 1.0;
+  let floorVisibleCur = true;
 
   // Live index-reactive central neon uniforms (Blue on drop <-> Ice-Cyan flat <-> Red on rise)
   const uCoreColor = uniform(new Color("#5ee4ff"));
@@ -212,13 +214,15 @@ export function createAtriumFX(
   const uCeilingIntensity = uniform(4.4);
   const uPulseSpeed = uniform(1.0);
 
-  // Photorealistic 360° Seoul skyline window uniforms
-  const uWindowTint = uniform(new Color(MOODS.daylight.windowTint));
+  // Living vaulted skylight & 3-mood futuristic Seoul 360° parallax skyline uniforms
+  const uWindowGoldenMix = uniform(MOODS.daylight.windowGoldenMix);
   const uWindowNightMix = uniform(MOODS.daylight.windowNightMix);
   const uWindowExposure = uniform(MOODS.daylight.windowExposure);
+  const uSkylightColor = uniform(new Color(MOODS.daylight.skylightColor));
+  const uSkylightEmit = uniform(MOODS.daylight.skylightEmit);
 
-  // ---- A. Layer-Culled Real-Time WebGPU Planar Mirror Reflector (0.30x honed-stone softness, ~75% less GPU load!) ----
-  const floorReflector = mobile ? null : reflector({ resolutionScale: 0.30, bounces: false });
+  // ---- A. Layer-Culled Real-Time WebGPU Planar Mirror Reflector (0.25x honed-stone softness, ~80% less GPU load!) ----
+  const floorReflector = mobile ? null : reflector({ resolutionScale: 0.25, bounces: false });
   if (floorReflector) {
     floorReflector.target.rotation.x = -Math.PI / 2; // local +Z -> world +Y (horizontal floor mirror)
     floorReflector.target.position.set(0, 0.002, 0);
@@ -234,40 +238,68 @@ export function createAtriumFX(
     disposables.push(floorReflector);
   }
 
-  // ---- B. Preloaded Seamless 2048x1024 Photorealistic Seoul Financial District Day & Night Panoramas ----
+  // ---- B. True 3D Viewing-Angle & Position Parallax 360° Futuristic Seoul Panoramas (Day / Golden / Night) ----
   const skyDayTex = skyline.day;
+  const skyGoldenTex = skyline.golden;
   const skyNightTex = skyline.night;
 
   const makeParallaxSkylineWindow = (src: MeshStandardMaterial) => {
-    const wm = new MeshPhysicalNodeMaterial({
-      color: new Color("#04070d"),
-      roughness: 0.06,
-      metalness: 0.04,
-      clearcoat: 0.85,
-      clearcoatRoughness: 0.06,
-      envMapIntensity: 0.50,
+    // WebGPU TSL MeshStandardNodeMaterial (DoubleSide: arc_surface inward winding!) with true 3D viewing-ray parallax:
+    // Each window pixel samples along normalize(positionWorld - cameraPosition), so moving left/right or turning
+    // reveals genuinely different districts of our seamless 360° futuristic Seoul financial metropolis in true 3D depth!
+    const wm = new MeshStandardNodeMaterial({
+      color: new Color("#05080e"),
+      roughness: 0.07,
+      metalness: 0.05,
+      envMapIntensity: 0.44,
+      side: DoubleSide,
     });
-    // True 3D infinite-horizon equirectangular view-ray parallax (flipY=false: v=0 top sky, v=1 bottom skyscrapers!)
     const viewDir = normalize(positionWorld.sub(cameraPosition));
     const eq = equirectUV(viewDir);
+    // Exact integer 2.0x repeat around 360°: zero West atan2 seam, 1:1 natural 28mm architectural proportions!
     const uSky = eq.x.mul(2.0);
-    // Center viewDir.y=0 right on the gleaming Seoul skyscraper crowns & sunlit horizon (0.49)
-    const vSky = clamp(float(0.49).sub(eq.y.sub(0.5).mul(1.85)), float(0.02), float(0.98));
+    // eq.y = asin(viewDir.y)/PI + 0.5 -> map ±27° vertical elevation to texture V (flipY=false: 0 top sky, 1 river)
+    const vSky = clamp(float(0.55).sub(eq.y.sub(0.5).mul(3.26)), float(0.02), float(0.98));
     const skyUv = vec2(uSky, vSky);
-    // Calm Low-E architectural curtain-wall glass: crisp sunlit towers by day, jewel-like city lights by night (zero glare!)
-    const dayCol = texNode(skyDayTex, skyUv).rgb.mul(uWindowTint);
-    const nightRaw = texNode(skyNightTex, skyUv).rgb;
-    const nightCol = pow(nightRaw.max(vec3(0.0001, 0.0001, 0.0001)), vec3(0.84, 0.84, 0.86)).mul(vec3(1.16, 1.12, 1.22));
-    const ndv = clamp(abs(dot(normalView, positionViewDirection)), 0.0, 1.0);
-    const glassRim = pow(float(1.0).sub(ndv), float(3.2));
-    const skyRgb = mix(dayCol, nightCol, uWindowNightMix).mul(uWindowExposure);
-    wm.emissiveNode = skyRgb.mul(float(1.0).sub(glassRim.mul(0.24)));
+
+    const dayCol = texture(skyDayTex, skyUv).rgb;
+    const goldCol = texture(skyGoldenTex, skyUv).rgb;
+    const nightCol = texture(skyNightTex, skyUv).rgb;
+    const blended = mix(mix(dayCol, goldCol, uWindowGoldenMix), nightCol, uWindowNightMix);
+
+    // Subtle low-iron architectural double-glazing grazing rim sheen
+    const ndv = clamp(abs(dot(normalView, positionViewDirection)), float(0.0), float(1.0));
+    const glassRim = pow(float(1.0).sub(ndv), float(3.2)).mul(0.055);
+    wm.emissiveNode = blended.mul(uWindowExposure).add(vec3(0.58, 0.72, 0.88).mul(glassRim));
     envMats.push(wm);
     disposables.push(wm, src);
     return wm;
   };
 
-  // ---- C. Physical Polished Marble with Real-Time Planar Reflection (exclusively on Calacatta -> 0 WebGPU RT hazards!) ----
+  // ---- B2. Living Atmospheric Vaulted Skylight Dome (drifting wispy cirrus clouds + directional sunlit warmth!) ----
+  let skylightMatCache: MeshStandardNodeMaterial | null = null;
+  const makeAtmosphericSkylight = (src: MeshStandardMaterial) => {
+    const sm = new MeshStandardNodeMaterial({
+      color: new Color("#101824"),
+      roughness: 0.14,
+      metalness: 0.02,
+    });
+    const domePos = positionWorld.xz.mul(0.055);
+    const drift = vec2(uTime.mul(0.008), uTime.mul(0.004));
+    const cloudA = mx_fractal_noise_float(domePos.add(drift), 3, 2.0, 0.52, 1.0);
+    const cloudMask = smoothstep(float(-0.12), float(0.55), cloudA);
+    // Directional warm sunlit haze matching Cycles sun azimuth (36 deg)
+    const radialDir = normalize(positionWorld.xz.add(vec2(0.001, 0.001)));
+    const sunDot = clamp(dot(radialDir, vec2(0.58, 0.81)).mul(0.5).add(0.5), float(0.0), float(1.0));
+    const sunHaze = pow(sunDot, float(3.0)).mul(float(1.0).sub(uWindowNightMix));
+    const skyBase = uSkylightColor.mul(float(0.82).add(cloudMask.mul(0.32)));
+    const skyWithSun = skyBase.add(vec3(0.42, 0.34, 0.22).mul(sunHaze.mul(0.55)));
+    sm.emissiveNode = skyWithSun.mul(uSkylightEmit);
+    disposables.push(sm, src);
+    return sm;
+  };
+
+  // ---- C. Physical Polished Marble with Honed Stone Micro-Grain Planar Reflection (exclusively on shell Calacatta!) ----
   const marbleNodeCache = new Map<string, MeshPhysicalNodeMaterial>();
   const makeReflectiveMarble = (src: MeshStandardMaterial, isDark: boolean) => {
     const cached = marbleNodeCache.get(src.uuid);
@@ -276,7 +308,7 @@ export function createAtriumFX(
       color: src.color.clone().multiplyScalar(isDark ? 0.84 : 0.72),
       map: src.map,
       normalMap: src.normalMap,
-      normalScale: src.normalScale.clone().multiplyScalar(1.24),
+      normalScale: src.normalScale.clone().multiplyScalar(1.28),
       roughnessMap: src.roughnessMap,
       roughness: isDark ? Math.max(0.20, src.roughness * 0.82) : Math.max(0.22, src.roughness * 0.84),
       metalness: src.metalness,
@@ -292,7 +324,9 @@ export function createAtriumFX(
       const upMask = smoothstep(float(0.75), float(0.96), normalWorld.y);
       const ndv = clamp(abs(dot(normalView, positionViewDirection)), 0.0, 1.0);
       const fresnel = float(0.08).add(pow(float(1.0).sub(ndv), float(3.4)).mul(0.32));
-      const reflMask = floorYMask.mul(upMask).mul(fresnel).mul(uReflectStrength);
+      // Subtle honed stone mineral grain variation prevents plastic mirror uniformity!
+      const stoneGrain = mx_noise_float(positionWorld.xz.mul(2.4), 0.18, 0.92);
+      const reflMask = floorYMask.mul(upMask).mul(fresnel).mul(stoneGrain).mul(uReflectStrength);
       // Soft shoulder tone-curve keeps planar floor reflections silky & calm (zero glare!)
       const calmRefl = floorReflector.rgb.div(floorReflector.rgb.add(vec3(1.05, 1.05, 1.05))).mul(1.25);
       pm.emissiveNode = calmRefl.mul(reflMask);
@@ -340,7 +374,7 @@ export function createAtriumFX(
   const seenEmit = new Set<string>();
   const seenCore = new Set<string>();
   const coveNodeCache = new Map<string, MeshStandardNodeMaterial>();
-  let windowMatCache: MeshPhysicalNodeMaterial | null = null;
+  let windowMatCache: MeshStandardNodeMaterial | null = null;
 
   const makeCeilingReactiveCove = (src: MeshStandardMaterial, baseEmit: number) => {
     const cached = coveNodeCache.get(src.uuid);
@@ -412,6 +446,11 @@ export function createAtriumFX(
         replaced = true;
         if (!windowMatCache) windowMatCache = makeParallaxSkylineWindow(m);
         return windowMatCache;
+      }
+      if (/daylight glazing/i.test(m.name)) {
+        replaced = true;
+        if (!skylightMatCache) skylightMatCache = makeAtmosphericSkylight(m);
+        return skylightMatCache;
       }
       if (/calacatta light marble|emperador dark marble/i.test(m.name)) {
         replaced = true;
@@ -511,15 +550,14 @@ export function createAtriumFX(
       envMapIntensity: 2.2,
     });
     const wp = positionWorld.xz;
-    const waveA = sin(wp.x.mul(3.6).add(wp.y.mul(2.2)).add(uTime.mul(1.65)));
-    const waveB = cos(wp.x.mul(-2.9).add(wp.y.mul(4.1)).sub(uTime.mul(1.25)));
-    const waveC = sin(wp.x.mul(6.8).sub(wp.y.mul(5.8)).add(uTime.mul(2.3)));
-    const ripple = waveA.mul(0.45).add(waveB.mul(0.35)).add(waveC.mul(0.20));
-    const caustic = pow(ripple.mul(0.5).add(0.5), float(3.4));
+    const nA = mx_noise_float(wp.mul(1.85).add(vec2(uTime.mul(0.38), uTime.mul(-0.24))), 0.65, 0.0);
+    const nB = mx_noise_float(wp.mul(4.1).add(vec2(uTime.mul(-0.52), uTime.mul(0.46))), 0.35, 0.0);
+    const ripple = nA.add(nB);
+    const caustic = pow(clamp(ripple.mul(0.55).add(0.5), float(0.0), float(1.0)), float(3.2));
     const ndv = clamp(abs(dot(normalView, positionViewDirection)), 0.0, 1.0);
     const waterFresnel = float(0.16).add(pow(float(1.0).sub(ndv), float(3.5)).mul(0.36));
-    waterMat.roughnessNode = float(0.032).add(ripple.abs().mul(0.045));
-    const causticGlow = vec3(0.05, 0.28, 0.38).mul(caustic.mul(0.34).add(0.05)).mul(uHoloBoost);
+    waterMat.roughnessNode = float(0.028).add(ripple.abs().mul(0.048));
+    const causticGlow = vec3(0.05, 0.30, 0.40).mul(caustic.mul(0.38).add(0.05)).mul(uHoloBoost);
     waterMat.emissiveNode = causticGlow.add(vec3(0.04, 0.12, 0.18).mul(waterFresnel));
     envMats.push(waterMat);
     disposables.push(waterMat);
@@ -833,7 +871,6 @@ export function createAtriumFX(
   const curSky = new Color(MOODS.daylight.sky);
   const curGround = new Color(MOODS.daylight.ground);
   const curSkylight = new Color(MOODS.daylight.skylightColor);
-  const curWinTint = new Color(MOODS.daylight.windowTint);
   const curGodRay = new Color(MOODS.daylight.godRayColor);
   const curMote = new Color(MOODS.daylight.moteColor);
   let curExposure = MOODS.daylight.exposure;
@@ -841,6 +878,7 @@ export function createAtriumFX(
   let curEnv = MOODS.daylight.envIntensity;
   let curLmMul = MOODS.daylight.lightmapMul;
   let curSkyEmit = MOODS.daylight.skylightEmit;
+  let curWinGolden = MOODS.daylight.windowGoldenMix;
   let curWinNight = MOODS.daylight.windowNightMix;
   let curWinExp = MOODS.daylight.windowExposure;
   let curCoveMul = MOODS.daylight.coveMul;
@@ -869,6 +907,7 @@ export function createAtriumFX(
       curEnv += (spec.envIntensity - curEnv) * k;
       curLmMul += (spec.lightmapMul - curLmMul) * k;
       curSkyEmit += (spec.skylightEmit - curSkyEmit) * k;
+      curWinGolden += (spec.windowGoldenMix - curWinGolden) * k;
       curWinNight += (spec.windowNightMix - curWinNight) * k;
       curWinExp += (spec.windowExposure - curWinExp) * k;
       curCoveMul += (spec.coveMul - curCoveMul) * k;
@@ -887,7 +926,6 @@ export function createAtriumFX(
       curSky.lerp(tmpColor.set(spec.sky), k);
       curGround.lerp(tmpColor.set(spec.ground), k);
       curSkylight.lerp(tmpColor.set(spec.skylightColor), k);
-      curWinTint.lerp(tmpColor.set(spec.windowTint), k);
       curGodRay.lerp(tmpColor.set(spec.godRayColor), k);
       curMote.lerp(tmpColor.set(spec.moteColor), k);
 
@@ -908,10 +946,12 @@ export function createAtriumFX(
         }
       }
 
-      uWindowTint.value.copy(curWinTint);
+      uWindowGoldenMix.value = curWinGolden;
       uWindowNightMix.value = curWinNight;
       uWindowExposure.value = curWinExp;
-      uReflectStrength.value = mobile ? 0.0 : curReflectBoost * reflectTierMul;
+      uSkylightColor.value.copy(curSkylight);
+      uSkylightEmit.value = curSkyEmit;
+      uReflectStrength.value = mobile || !floorVisibleCur ? 0.0 : curReflectBoost * reflectTierMul;
 
       uCoveWarmMul.value = curCoveMul;
       uCoreColor.value.copy(curCorePrimary);
@@ -927,6 +967,7 @@ export function createAtriumFX(
       if (
         Math.abs(spec.exposure - curExposure) < 0.0008 &&
         Math.abs(spec.lightmapMul - curLmMul) < 0.0008 &&
+        Math.abs(spec.windowGoldenMix - curWinGolden) < 0.0008 &&
         Math.abs(spec.windowNightMix - curWinNight) < 0.0008 &&
         Math.abs(targetCoreIntensity - curCoreIntensity) < 0.001 &&
         Math.abs(targetCoreStrength - curCoreStrength) < 0.001
@@ -1003,6 +1044,10 @@ export function createAtriumFX(
         m.envMap = env;
         m.needsUpdate = true;
       }
+      if (windowMatCache) {
+        windowMatCache.envMap = env;
+        windowMatCache.needsUpdate = true;
+      }
     },
     setReflectionLevel(level: 0 | 1 | 2) {
       if (!floorReflector) return;
@@ -1015,7 +1060,7 @@ export function createAtriumFX(
       } else {
         reflectTierMul = level === 2 ? 1.0 : 0.82;
         uReflectStrength.value = curReflectBoost * reflectTierMul;
-        floorReflector.reflector.resolutionScale = level === 2 ? 0.30 : 0.20;
+        floorReflector.reflector.resolutionScale = level === 2 ? 0.25 : 0.18;
         floorReflector.target.rotation.x = -Math.PI / 2;
         floorReflector.target.updateMatrix();
       }
@@ -1027,6 +1072,16 @@ export function createAtriumFX(
         const speedMul = 1.0 + curCoreStrength * 0.85;
         updateRotatingRods(dt, nowSec, speedMul);
         for (const ring of orbitalRings) ring.mesh.rotation.y += ring.speed * speedMul * dt;
+      }
+      // Smart floor-visibility reflector culling: auto-skip 100% of planar reflection pass on upper floors or looking up!
+      if (floorReflector && reflectTierMul > 0) {
+        const floorVisible = mainCamera.position.y < 4.8 && mainCamera.rotation.x < 0.44;
+        if (floorVisible !== floorVisibleCur) {
+          floorVisibleCur = floorVisible;
+          floorReflector.target.rotation.x = floorVisible ? -Math.PI / 2 : Math.PI / 2;
+          floorReflector.target.updateMatrix();
+          uReflectStrength.value = floorVisible ? curReflectBoost * reflectTierMul : 0.0;
+        }
       }
       applyMood(1 - Math.exp(-dt * 4.2), reduced ? 0 : nowSec);
     },
