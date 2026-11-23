@@ -15,6 +15,22 @@ V6_FILES = [
     "3d/exchange-floor/lightmap-fixtures-v6.ktx2",
     "3d/exchange-floor/trading-hall-v6.glb",
     "3d/exchange-floor/trading-hall-v6-ktx2.glb",
+    "3d/exchange-floor/skyline-day-v6.webp",
+    "3d/exchange-floor/skyline-night-v6.webp",
+    "3d/exchange-floor/art/dance-class.jpg",
+    "3d/exchange-floor/art/dance-class-1k.webp",
+    "3d/exchange-floor/art/where-from.jpg",
+    "3d/exchange-floor/art/where-from-1k.webp",
+    "3d/exchange-floor/art/cafe-terrace.jpg",
+    "3d/exchange-floor/art/cafe-terrace-1k.webp",
+    "3d/exchange-floor/art/wanderer.jpg",
+    "3d/exchange-floor/art/wanderer-1k.webp",
+    "3d/exchange-floor/art/almond-blossom.jpg",
+    "3d/exchange-floor/art/almond-blossom-1k.webp",
+    "3d/exchange-floor/art/folies-bergere.jpg",
+    "3d/exchange-floor/art/folies-bergere-1k.webp",
+    "3d/exchange-floor/art/water-lilies.jpg",
+    "3d/exchange-floor/art/water-lilies-1k.webp",
 ]
 
 

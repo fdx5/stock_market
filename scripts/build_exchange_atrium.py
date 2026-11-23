@@ -130,30 +130,30 @@ def emissive_image(name, path, strength, uv_map="Surface", base=(.01, .012, .016
 
 def make_materials(src, out):
     r = src / "materials"
-    # Luxury v6 architectural stone & marble hierarchy
-    MAT["stone"] = textured("calacatta", "Calacatta light marble", r, normal=.18, coat=.12)
-    MAT["darkmarble"] = textured("darkmarble", "Emperador dark marble", r, normal=.18, coat=.18)
-    MAT["trav"] = textured("trav", "Architectural warm travertine", r, normal=.28)
+    # Luxury v6-ultra photorealistic architectural stone & marble hierarchy
+    MAT["stone"] = textured("calacatta", "Calacatta light marble", r, normal=.30, coat=.28)
+    MAT["darkmarble"] = textured("darkmarble", "Emperador dark marble", r, normal=.28, coat=.36)
+    MAT["trav"] = textured("trav", "Architectural warm travertine", r, normal=.42)
     # Woods: light architectural oak + rich American walnut
-    MAT["oak"] = textured("veneer", "Light oak veneer", r, normal=.45)
-    MAT["oakv"] = textured("veneerv", "Light oak veneer vertical", r, normal=.45)
-    MAT["deck"] = textured("oak", "Oak floorboards", r, normal=.35)
-    MAT["walnut"] = textured("walnut", "American walnut", r, normal=.42)
-    MAT["walnutv"] = textured("walnutv", "American walnut vertical", r, normal=.42)
-    MAT["darkoak"] = textured("walnut", "Smoked walnut trim", r, normal=.45, tint=(.62, .58, .55))
+    MAT["oak"] = textured("veneer", "Light oak veneer", r, normal=.55)
+    MAT["oakv"] = textured("veneerv", "Light oak veneer vertical", r, normal=.55)
+    MAT["deck"] = textured("oak", "Oak floorboards", r, normal=.46)
+    MAT["walnut"] = textured("walnut", "American walnut", r, normal=.56)
+    MAT["walnutv"] = textured("walnutv", "American walnut vertical", r, normal=.56)
+    MAT["darkoak"] = textured("walnut", "Smoked walnut trim", r, normal=.52, tint=(.62, .58, .55))
     # Fabrics & upholstery
-    MAT["carpet"] = textured("carpet", "Charcoal acoustic carpet", r, normal=.75, tint=(.46, .48, .52))
-    MAT["weave"] = textured("weave", "Ivory linen weave", r, normal=.55)
-    MAT["screenfab"] = textured("weave", "Slate acoustic fabric", r, normal=.55, tint=(.46, .49, .53))
-    MAT["pillow_camel"] = textured("weave", "Camel throw cushion", r, normal=.5, tint=(.76, .58, .42))
-    MAT["pillow_slate"] = textured("weave", "Slate blue throw cushion", r, normal=.5, tint=(.32, .42, .52))
-    MAT["plaster"] = textured("plaster", "Architectural matte plaster", r, normal=.22)
-    MAT["leather"] = textured("leather", "Espresso saddle leather", r, normal=.55)
+    MAT["carpet"] = textured("carpet", "Charcoal acoustic carpet", r, normal=.82, tint=(.44, .46, .50))
+    MAT["weave"] = textured("weave", "Ivory linen weave", r, normal=.62)
+    MAT["screenfab"] = textured("weave", "Slate acoustic fabric", r, normal=.62, tint=(.44, .47, .51))
+    MAT["pillow_camel"] = textured("weave", "Camel throw cushion", r, normal=.56, tint=(.76, .58, .42))
+    MAT["pillow_slate"] = textured("weave", "Slate blue throw cushion", r, normal=.56, tint=(.32, .42, .52))
+    MAT["plaster"] = textured("plaster", "Architectural matte plaster", r, normal=.28)
+    MAT["leather"] = textured("leather", "Espresso saddle leather", r, normal=.64)
     # Metals: champagne brass, dark architectural bronze, satin titanium
-    MAT["brass"] = textured("brass", "Champagne brushed brass", r, metal=.94, normal=.18)
-    MAT["bronze"] = textured("steel", "Dark architectural bronze", r, metal=.88, normal=.18, tint=(.24, .21, .19))
-    MAT["steel"] = textured("steel", "Graphite brushed steel", r, metal=.92, normal=.18, tint=(.34, .35, .38))
-    MAT["silver"] = textured("steel", "Satin titanium aluminium", r, metal=.92, normal=.16, tint=(.82, .83, .85))
+    MAT["brass"] = textured("brass", "Champagne brushed brass", r, metal=.95, normal=.26)
+    MAT["bronze"] = textured("steel", "Dark architectural bronze", r, metal=.90, normal=.26, tint=(.22, .19, .17))
+    MAT["steel"] = textured("steel", "Graphite brushed steel", r, metal=.92, normal=.24, tint=(.32, .33, .36))
+    MAT["silver"] = textured("steel", "Satin titanium aluminium", r, metal=.93, normal=.20, tint=(.82, .83, .85))
     # Finishes & small fixtures
     MAT["white"] = _principled("Honed matte composite", (.86, .84, .80), .32)
     MAT["black"] = _principled("Anodized obsidian metal", (.018, .02, .024), .24, .55)
@@ -174,7 +174,7 @@ def make_materials(src, out):
     MAT["coreglass"] = _principled("Core crystal glass", (.55, .82, .96), .03, 0, alpha=.20)
     MAT["hologlass"] = _principled("Holographic data ring", (.25, .78, 1.0), .06, 0, emit=2.6, emit_color=(.28, .78, 1.0), alpha=.42)
     MAT["skylight"] = _principled("Daylight glazing", (.88, .93, 1.0), .18, 0, emit=2.2, emit_color=(.88, .94, 1.0))
-    MAT["skywindow"] = emissive_image("Perimeter daylight window", r / "window_skyline.jpg", .95, base=(.55, .64, .76), rough=.06)
+    MAT["skywindow"] = emissive_image("Perimeter daylight window", r / "window_skyline.jpg", 1.15, base=(.04, .05, .07), rough=.04)
     MAT["cove"] = _principled("Warm 3000K cove", (1.0, .82, .56), .35, 0, emit=5.2, emit_color=(1.0, .80, .54))
     MAT["cove_soft"] = _principled("Soft warm accent", (1.0, .84, .60), .35, 0, emit=3.2, emit_color=(1.0, .82, .58))
     MAT["downlight"] = _principled("Architectural downlight", (1.0, .91, .76), .25, 0, emit=9.5, emit_color=(1.0, .90, .74))
@@ -429,9 +429,9 @@ def slat_wall(name, r, y0, y1, a0, a1, mat, group="shell", width=.065, depth=.05
 
 # ---------------------------------------------------------------- architecture
 def build_floor():
-    # Grand Calacatta marble plaza disc
+    # Grand Calacatta marble plaza disc (tight 1.50m vein tiling for razor-sharp close-up realism)
     disc_profile = [(0, 0), (R_WALL + .2, 0), (R_WALL + .2, -.3), (0, -.3)]
-    lathe("Ground marble", 0, 0, 0, disc_profile, "stone", "shell", sides=128, tile=2.2, smooth=False)
+    lathe("Ground marble", 0, 0, 0, disc_profile, "stone", "shell", sides=128, tile=1.50, smooth=False)
     aisles, aw = LAYOUT["aisles"], LAYOUT["aisleWidth"]
     # Charcoal acoustic carpet fields under the curved trading desk zones + bronze edge binder
     for i, a in enumerate(aisles):
@@ -475,17 +475,17 @@ def rail_runs(level):
 def build_galleries():
     for li, y in enumerate(LEVELS):
         # Honed Calacatta marble gallery deck + perimeter brass inlay
-        sector("Gallery slab", R_GAL + .2, R_WALL, y - .42, y, 0, 360, "stone", "shell", tile=2.0, faces_on=("top",))
+        sector("Gallery slab", R_GAL + .2, R_WALL, y - .42, y, 0, 360, "stone", "shell", tile=1.45, faces_on=("top",))
         sector("Gallery brass inlay", R_GAL + .55, R_GAL + .59, y, y + .004, 0, 360, "brass", "fixtures", faces_on=("top",))
         sector("Gallery dark border", R_GAL + .22, R_GAL + .54, y, y + .003, 0, 360, "darkmarble", "shell", tile=1.6, faces_on=("top",))
         sector("Gallery soffit", R_GAL + .2, R_WALL, y - .44, y - .42, 0, 360, "plaster", "shell", faces_on=("bottom",), tile=2)
 
         # Sculpted 3-tier stepped travertine gallery fascia with champagne-brass trim & continuous cove channel
-        sector("Fascia upper bullnose", R_GAL - .09, R_GAL + .22, y - .12, y + .03, 0, 360, "trav", "shell", tile=1.2)
-        sector("Fascia top brass", R_GAL - .105, R_GAL - .085, y - .04, y + .02, 0, 360, "brass", "fixtures", step=.5)
-        sector("Fascia main band", R_GAL - .06, R_GAL + .22, y - .88, y - .12, 0, 360, "trav", "shell", tile=1.2)
-        sector("Fascia lower bronze trim", R_GAL - .075, R_GAL + .12, y - .94, y - .88, 0, 360, "bronze", "fixtures", step=.5)
-        sector("Fascia cove lip", R_GAL - .04, R_GAL + .26, y - 1.02, y - .94, 0, 360, "trav", "shell", tile=1.2)
+        sector("Fascia upper bullnose", R_GAL - .09, R_GAL + .22, y - .12, y + .03, 0, 360, "trav", "shell", tile=1.2, step=.32, smooth=True)
+        sector("Fascia top brass", R_GAL - .105, R_GAL - .085, y - .04, y + .02, 0, 360, "brass", "fixtures", step=.32, smooth=True)
+        sector("Fascia main band", R_GAL - .06, R_GAL + .22, y - .88, y - .12, 0, 360, "trav", "shell", tile=1.2, step=.32, smooth=True)
+        sector("Fascia lower bronze trim", R_GAL - .075, R_GAL + .12, y - .94, y - .88, 0, 360, "bronze", "fixtures", step=.32, smooth=True)
+        sector("Fascia cove lip", R_GAL - .04, R_GAL + .26, y - 1.02, y - .94, 0, 360, "trav", "shell", tile=1.2, step=.32, smooth=True)
         # Continuous 3000K recessed warm cove ribbon under every gallery ring
         sector("Fascia cove LED", R_GAL + .02, R_GAL + .18, y - 1.03, y - 1.01, 0, 360, "cove", "emit", faces_on=("bottom",))
         # Subtle upward warm wash along the lower fascia reveal
@@ -1229,20 +1229,20 @@ def build_desks():
     for d in LAYOUT["desks"]:
         r, a0, a1 = d["r"], d["a0"], d["a1"]
         end_deg = degrees(.045 / r)
-        # Honed matte composite desktop + non-coplanar walnut edge band & brass trim (zero corner z-fighting!)
-        sector("Desk top", r - .05, r + .778, .73, .77, a0, a1, "white", "fixtures", step=.5)
-        sector("Desk edge band", r + .780, r + .798, .726, .774, a0 - .02, a1 + .02, "walnut", "fixtures", step=.5)
-        sector("Desk edge brass", r + .7995, r + .806, .742, .758, a0 + .08, a1 - .08, "brass", "fixtures", step=.5)
-        sector("Cable tray", r + .05, r + .25, .60, .62, a0 + end_deg + .3, a1 - end_deg - .3, "bronze", "fixtures", step=.5)
+        # Honed matte composite desktop + non-coplanar smooth-curved walnut edge band & brass trim (zero corner z-fighting!)
+        sector("Desk top", r - .05, r + .778, .73, .77, a0, a1, "white", "fixtures", step=.22, smooth=True)
+        sector("Desk edge band", r + .780, r + .798, .726, .774, a0 - .02, a1 + .02, "walnut", "fixtures", step=.22, smooth=True)
+        sector("Desk edge brass", r + .7995, r + .806, .742, .758, a0 + .08, a1 - .08, "brass", "fixtures", step=.22, smooth=True)
+        sector("Cable tray", r + .05, r + .25, .60, .62, a0 + end_deg + .3, a1 - end_deg - .3, "bronze", "fixtures", step=.32)
         # Sculpted American walnut front modesty shell strictly between end cheeks
-        sector("Desk front", r - .055, r + .01, .074, .728, a0 + end_deg + .02, a1 - end_deg - .02, "walnut", "fixtures", step=.5, tile=1.2)
-        sector("Desk kick base", r - .03, r + .02, .013, .072, a0 + end_deg + .1, a1 - end_deg - .1, "bronze", "fixtures", step=.5)
-        sector("Desk kick glow", r - .05, r - .032, .022, .056, a0 + end_deg + .2, a1 - end_deg - .2, "cove_soft", "emit", faces_on=("inner",), step=.5)
+        sector("Desk front", r - .055, r + .01, .074, .728, a0 + end_deg + .02, a1 - end_deg - .02, "walnut", "fixtures", step=.22, tile=1.2, smooth=True)
+        sector("Desk kick base", r - .03, r + .02, .013, .072, a0 + end_deg + .1, a1 - end_deg - .1, "bronze", "fixtures", step=.28, smooth=True)
+        sector("Desk kick glow", r - .05, r - .032, .022, .056, a0 + end_deg + .2, a1 - end_deg - .2, "cove_soft", "emit", faces_on=("inner",), step=.28)
         # Horizontal champagne-brass mid-reveal cleanly in front of Desk front
-        sector("Desk front brass", r - .066, r - .0565, .38, .405, a0 + end_deg + .12, a1 - end_deg - .12, "brass", "fixtures", step=.5)
+        sector("Desk front brass", r - .066, r - .0565, .38, .405, a0 + end_deg + .12, a1 - end_deg - .12, "brass", "fixtures", step=.22, smooth=True)
         # Slate acoustic privacy screen & cap strictly above Desk top (.77) with zero shared planes
-        sector("Desk screen", r - .10, r - .04, .772, 1.038, a0 + .03, a1 - .03, "screenfab", "fixtures", step=.5)
-        sector("Desk screen cap", r - .11, r - .03, 1.040, 1.066, a0, a1, "brass", "fixtures", step=.5)
+        sector("Desk screen", r - .10, r - .04, .772, 1.038, a0 + .03, a1 - .03, "screenfab", "fixtures", step=.22, smooth=True)
+        sector("Desk screen cap", r - .11, r - .03, 1.040, 1.066, a0, a1, "brass", "fixtures", step=.22, smooth=True)
         # Solid walnut end-cheeks strictly BELOW Desk top (.728 < .73) and inside edge band (.768 < .778)
         for end_a0, end_a1 in ((a0, a0 + end_deg), (a1 - end_deg, a1)):
             sector("Desk end", r - .052, r + .768, .013, .728, end_a0, end_a1, "walnut", "fixtures", segs=1)
@@ -1251,12 +1251,16 @@ def build_desks():
         box("Pedestal", *pol(r + .25, t + degrees(.42 / r))[:1], .3, pol(r + .25, t + degrees(.42 / r))[1], .4, .58, .5, "walnut", "fixtures", yaw=t)
         cx, cz = pol(r + 1.18, t)
         CHAIRS.append((cx, 0, cz, t + 180 + rng.uniform(-14, 14)))
+        # Tailored espresso saddle-leather desk blotter mat & brushed brass cable grommet (strictly above .770 desktop)
+        bx, bz = pol(r + .48, t - degrees(.08 / r))
+        box("Desk blotter", bx, .773, bz, .76, .004, .34, "leather", "fixtures", yaw=t, bevel=.0015)
+        gx, gz = pol(r + .10, t)
+        box("Desk grommet", gx, .773, gz, .16, .004, .065, "brass", "fixtures", yaw=t)
         kx, kz = pol(r + .45, t)
-        box("Keyboard", kx, .776, kz, .44, .018, .14, "black", "fixtures", yaw=t, bevel=.004)
-        box("Keycaps", kx, .787, kz, .41, .006, .11, "keys", "fixtures", yaw=t)
+        box("Keyboard", kx, .783, kz, .44, .016, .14, "black", "fixtures", yaw=t, bevel=.004)
+        box("Keycaps", kx, .793, kz, .41, .005, .11, "keys", "fixtures", yaw=t)
         mx, mz = pol(r + .47, t - degrees(.33 / r))
-        box("Mouse pad", mx, .771, mz, .22, .004, .19, "black", "fixtures", yaw=t)
-        box("Mouse", mx, .784, mz, .06, .025, .1, "black", "fixtures", yaw=t, bevel=.01)
+        box("Mouse", mx, .788, mz, .06, .024, .1, "black", "fixtures", yaw=t, bevel=.01)
         px, pz = pol(r + .45, t + degrees(.5 / r))
         box("Desk phone", px, .8, pz, .2, .05, .18, "black", "fixtures", yaw=t + 12, bevel=.008)
         box("Phone display", px, .826, pz, .08, .004, .05, "phoneglow", "emit", yaw=t + 12)
@@ -1302,43 +1306,43 @@ def build_monitors():
 
 
 def curved_sofa(r, a0, a1, y=.14):
-    """Luxury curved modular sectional sofa: walnut plinth, ivory linen cushions & tailored throw pillows."""
-    sector("Sofa plinth", r - .55, r + .32, y, y + .09, a0, a1, "walnut", "fixtures", step=.3)
-    sector("Sofa brass strip", r - .555, r - .54, y + .07, y + .09, a0, a1, "brass", "fixtures", step=.3)
-    sector("Sofa base", r - .52, r + .30, y + .09, y + .40, a0, a1, "weave", "fixtures", step=.3, tile=.3)
-    n = max(3, int(radians(a1 - a0) * r / .95))
-    gap = degrees(.028 / r)
+    """Luxury Italian designer curved sectional sofa: smooth-beveled plush linen cushions, walnut shadow plinth & tailored pillows."""
+    sector("Sofa plinth", r - .55, r + .32, y, y + .085, a0, a1, "walnut", "fixtures", step=.18, smooth=True)
+    sector("Sofa brass strip", r - .556, r - .542, y + .068, y + .088, a0, a1, "brass", "fixtures", step=.18, smooth=True)
+    _bevelled(sector("Sofa base", r - .52, r + .30, y + .09, y + .395, a0, a1, "weave", "fixtures", step=.18, tile=.32, smooth=True), .018, 2)
+    n = max(3, int(radians(a1 - a0) * r / .92))
+    gap = degrees(.022 / r)
     for k in range(n):
         c0 = a0 + (a1 - a0) * k / n + gap
         c1 = a0 + (a1 - a0) * (k + 1) / n - gap
-        _bevelled(sector("Sofa cushion", r - .51, r + .05, y + .40, y + .545, c0, c1, "weave", "fixtures", step=.28, tile=.3), .024, 1)
-        _bevelled(sector("Sofa back cushion", r + .05, r + .27, y + .54, y + .92, c0, c1, "weave", "fixtures", step=.28, tile=.3), .024, 1)
-        # Accent tailored throw cushions on alternate seats!
+        _bevelled(sector("Sofa cushion", r - .52, r + .06, y + .398, y + .565, c0, c1, "weave", "fixtures", step=.16, tile=.28, smooth=True), .036, 2)
+        _bevelled(sector("Sofa back cushion", r + .04, r + .26, y + .55, y + .94, c0, c1, "weave", "fixtures", step=.16, tile=.28, smooth=True), .038, 2)
+        # Accent tailored plump throw cushions on alternate seats!
         if k % 2 == 0:
             pt = (c0 + c1) / 2
-            px, pz = pol(r - .04, pt)
+            px, pz = pol(r - .05, pt)
             pmat = "pillow_camel" if (k // 2) % 2 == 0 else "pillow_slate"
-            box("Throw pillow", px, y + .66, pz, .38, .34, .11, pmat, "fixtures", yaw=pt + 180 + rng.uniform(-10, 10), tilt=-14, bevel=.028, segments=1)
-    sector("Sofa back", r + .27, r + .33, y + .09, y + .95, a0, a1, "weave", "fixtures", step=.3, tile=.3)
-    for a in (a0, a1 - degrees(.18 / r)):
-        sector("Sofa arm", r - .52, r + .30, y + .09, y + .67, a, a + degrees(.18 / r), "weave", "fixtures", segs=2, tile=.3)
+            box("Throw pillow", px, y + .67, pz, .40, .35, .13, pmat, "fixtures", yaw=pt + 180 + rng.uniform(-10, 10), tilt=-15, bevel=.042, segments=2)
+    _bevelled(sector("Sofa back", r + .265, r + .34, y + .09, y + .96, a0, a1, "weave", "fixtures", step=.18, tile=.32, smooth=True), .024, 2)
+    for a in (a0, a1 - degrees(.20 / r)):
+        _bevelled(sector("Sofa arm", r - .52, r + .32, y + .09, y + .69, a, a + degrees(.20 / r), "weave", "fixtures", segs=3, tile=.30, smooth=True), .034, 2)
 
 
 def build_landscape():
-    """Stepped Biophilic Lounges with glowing step LEDs & Living Illuminated Reflecting Pools."""
+    """Stepped Biophilic Lounges with smooth curved decks, glowing step LEDs & Living Illuminated Reflecting Pools."""
     for L in LAYOUT["lounges"]:
         t = L["t"]
-        # 2-stepped oak lounge deck with glowing warm step strips
-        sector("Lounge deck", 17.1, 20.7, 0, .15, t - 11, t + 11, "deck", "fixtures", tile=1.2)
-        sector("Lounge step", 16.88, 17.1, 0, .075, t - 11, t + 11, "trav", "fixtures")
-        sector("Lounge step glow 1", 16.86, 16.89, .055, .075, t - 10.8, t + 10.8, "cove", "emit", faces_on=("inner",))
-        sector("Lounge step glow 2", 17.08, 17.11, .125, .148, t - 10.8, t + 10.8, "cove", "emit", faces_on=("inner",))
-        sector("Lounge rug", 17.65, 20.15, .152, .166, t - 7.2, t + 7.2, "weave", "fixtures", tile=1.5, faces_on=("top", "inner", "outer"))
+        # 2-stepped oak lounge deck with smooth curved nosing & glowing warm step strips
+        sector("Lounge deck", 17.1, 20.7, 0, .15, t - 11, t + 11, "deck", "fixtures", tile=1.1, step=.22, smooth=True)
+        sector("Lounge step", 16.88, 17.1, 0, .075, t - 11, t + 11, "trav", "fixtures", step=.22, smooth=True)
+        sector("Lounge step glow 1", 16.86, 16.89, .055, .075, t - 10.8, t + 10.8, "cove", "emit", faces_on=("inner",), step=.24)
+        sector("Lounge step glow 2", 17.08, 17.11, .125, .148, t - 10.8, t + 10.8, "cove", "emit", faces_on=("inner",), step=.24)
+        sector("Lounge rug", 17.65, 20.15, .152, .166, t - 7.2, t + 7.2, "weave", "fixtures", tile=1.2, faces_on=("top", "inner", "outer"), step=.22, smooth=True)
         # Sculpted travertine planter trough with champagne-brass coping trim
-        sector("Lounge planter rim", 20.30, 20.38, .15, .80, t - 11, t + 11, "trav", "fixtures")
-        sector("Lounge planter rim", 20.62, 20.70, .15, .80, t - 11, t + 11, "trav", "fixtures")
-        sector("Lounge planter brass", 20.29, 20.39, .80, .82, t - 11, t + 11, "brass", "fixtures")
-        sector("Lounge planter brass", 20.61, 20.71, .80, .82, t - 11, t + 11, "brass", "fixtures")
+        sector("Lounge planter rim", 20.30, 20.38, .15, .80, t - 11, t + 11, "trav", "fixtures", step=.24, smooth=True)
+        sector("Lounge planter rim", 20.62, 20.70, .15, .80, t - 11, t + 11, "trav", "fixtures", step=.24, smooth=True)
+        sector("Lounge planter brass", 20.29, 20.39, .80, .82, t - 11, t + 11, "brass", "fixtures", step=.24, smooth=True)
+        sector("Lounge planter brass", 20.61, 20.71, .80, .82, t - 11, t + 11, "brass", "fixtures", step=.24, smooth=True)
         for edge in (t - 11, t + 11 - degrees(.08 / 20.5)):
             sector("Lounge planter end", 20.38, 20.62, .15, .80, edge, edge + degrees(.08 / 20.5), "trav", "fixtures", segs=1)
         sector("Lounge planter soil", 20.38, 20.62, .15, .74, t - 10.8, t + 10.8, "soil", "fixtures")
@@ -1497,7 +1501,9 @@ FLOWER_SPECS = {
 
 
 def lin(c):
-    return tuple(v ** 2.2 for v in c)
+    # Refine floral hues into understated 5-star hotel botanical tones (never neon/plastic-bright!)
+    muted = (c[0] * .58 + .28, c[1] * .58 + .27, c[2] * .58 + .24)
+    return tuple(max(0.0, min(1.0, v)) ** 2.2 for v in muted)
 
 
 def build_flower_mesh(name, spec, seed):
@@ -1698,41 +1704,72 @@ def bake_lights():
         bpy.context.collection.objects.link(obj)
         extra.append(obj)
 
-    # Golden-daylight architectural sun casting crisp skylight rib patterns across the atrium
+    # Dramatic sunlit Nishita-matched architectural sun casting crisp skylight rib patterns across the marble plaza!
     sun = bpy.data.lights.new("Sun", "SUN")
-    sun.energy, sun.angle, sun.color = 4.6, radians(1.6), (1.0, .93, .82)
+    sun.energy, sun.angle, sun.color = 9.2, radians(0.75), (1.0, .93, .80)
     o = bpy.data.objects.new("Sun", sun)
-    o.rotation_euler = (radians(42), 0, radians(38))
+    o.rotation_euler = (radians(44), 0, radians(36))
     add(o)
 
-    # Skylight soft directional pools (sculpted so shadows & AO keep rich architectural depth!)
+    # Balanced cool-sky skylight fill pools so warm sunbeams & architectural AO crevices pop photographically!
     for t in np.arange(0, 360, 30):
         x, z = pol(12.5, t)
         data = bpy.data.lights.new("SkylightWash", "AREA")
-        data.energy, data.size, data.color = 520, 3.6, (1.0, .95, .88)
+        data.energy, data.size, data.color = 260, 2.8, (.90, .95, 1.0)
         lo = bpy.data.objects.new("SkylightWash", data)
         lo.location = P(x, 18.8, z)
         add(lo)
 
     # Central holographic core sapphire-cyan point lights casting cool modern glow onto the central marble plaza!
-    for cy, energy in ((1.8, 520), (5.6, 680), (10.5, 480)):
+    for cy, energy in ((1.8, 560), (5.6, 720), (10.5, 500)):
         data = bpy.data.lights.new("CoreSapphire", "POINT")
-        data.energy, data.shadow_soft_size, data.color = energy, 1.4, (.32, .80, 1.0)
+        data.energy, data.shadow_soft_size, data.color = energy, 1.25, (.30, .80, 1.0)
         lo = bpy.data.objects.new("CoreSapphire", data)
         lo.location = P(0, cy, 0)
         add(lo)
 
-    # Warm 3000K gallery promenade & art-alcove grazing accents
+    # Sculpted warm 3000K gallery promenade rhythm (controlled energy for genuine architectural chiaroscuro)
     tops = [LEVELS[0] - .45] + [LEVELS[i + 1] - .45 for i in range(len(LEVELS) - 1)] + [H - .5]
     for top in tops:
         for t in np.arange(0, 360, 20):
             x, z = pol((R_GAL + R_WALL) / 2, t)
             data = bpy.data.lights.new("PromenadeWarm", "AREA")
-            data.energy, data.size, data.color = 260, 1.8, (1.0, .88, .72)
+            data.energy, data.size, data.color = 155, 1.15, (1.0, .86, .68)
             lo = bpy.data.objects.new("PromenadeWarm", data)
             lo.location = P(x, top - .28, z)
             lo.rotation_euler = (0, 0, 0)
             add(lo)
+
+    # Focused Museum Track Spotlights + Soft Warm Lower Gallery Wall-Wash illuminating all 31 paintings & 9 sculptures!
+    for w in LAYOUT.get("artWalls", []):
+        lx, lz = pol(R_OFF - 1.35, w["t"])
+        tx, tz = pol(R_OFF - .09, w["t"])
+        data = bpy.data.lights.new("ArtSpot", "SPOT")
+        data.energy, data.color = 260, (1.0, .89, .70)
+        data.spot_size, data.spot_blend, data.shadow_soft_size = radians(48), .65, .18
+        lo = bpy.data.objects.new("ArtSpot", data)
+        lo.location = P(lx, w["cy"] + 1.28, lz)
+        look(lo, P(tx, w["cy"] - .08, tz))
+        add(lo)
+        # Soft warm ambient gallery wash illuminating the painting & surrounding recessed plaster wall below the lamp
+        wx, wz = pol(R_OFF - .52, w["t"])
+        wdata = bpy.data.lights.new("ArtHalo", "POINT")
+        wdata.energy, wdata.shadow_soft_size, wdata.color = 48, .42, (1.0, .86, .64)
+        wlo = bpy.data.objects.new("ArtHalo", wdata)
+        wlo.location = P(wx, w["cy"] + w["h"] * .22, wz)
+        add(wlo)
+    for sc in LAYOUT.get("sculptures", []):
+        sx, sz = sc["x"], sc["z"]
+        rad = max(1.0, (sx * sx + sz * sz) ** .5)
+        lx, lz = sx * (rad - .95) / rad, sz * (rad - .95) / rad
+        sy = sc["y"] + sc.get("plinthH", 1.1)
+        data = bpy.data.lights.new("SculptureSpot", "SPOT")
+        data.energy, data.color = 155, (1.0, .95, .86)
+        data.spot_size, data.spot_blend, data.shadow_soft_size = radians(34), .45, .12
+        lo = bpy.data.objects.new("SculptureSpot", data)
+        lo.location = P(lx, sy + 2.35, lz)
+        look(lo, P(sx, sy + .55, sz))
+        add(lo)
     return extra
 
 
@@ -1794,9 +1831,10 @@ def bake(obj, size, samples):
     pix = np.empty(size * size * 4, dtype=np.float32)
     img.pixels.foreach_get(pix)
     rgb = pix.reshape(size, size, 4)[::-1, :, :3]
-    k = np.array([.06, .24, .4, .24, .06], dtype=np.float32)
+    # Subtle 3-tap micro-anti-aliasing preserves razor-sharp Cycles OptiX sunbeams & contact AO crevices!
+    k = np.array([.10, .80, .10], dtype=np.float32)
     for axis in (0, 1):
-        rgb = sum(np.roll(rgb, i - 2, axis=axis) * k[i] for i in range(5))
+        rgb = sum(np.roll(rgb, i - 1, axis=axis) * k[i] for i in range(3))
     lum = rgb.mean(axis=2)
     scale = float(np.percentile(lum[lum > 1e-4], 99.6)) * 1.15 or 1.0
     return np.clip(rgb / scale, 0, 1) ** (1 / 2.2), scale

@@ -1,18 +1,18 @@
 import {
-  Box3, BoxGeometry, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, MeshBasicMaterial, PointLight, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial, NeutralToneMapping,
+  AgXToneMapping, Box3, BoxGeometry, ClampToEdgeWrapping, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, LinearFilter, MeshBasicMaterial, PointLight, RepeatWrapping, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial,
   PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Sphere, Texture, TextureLoader, Vector2, WebGPUCoordinateSystem,
   type Ray,
   type BufferGeometry, type Material, type Object3D,
 } from "three";
 import { RenderPipeline, WebGPURenderer } from "three/webgpu";
-import { pass } from "three/tsl";
+import { float, pass, screenUV, smoothstep, vec2, vec4, vibrance } from "three/tsl";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import bake from "./bake.json";
-import { createAtriumFX, ShowcaseTour, type AtriumMood } from "./atriumFx";
+import { createAtriumFX, ShowcaseTour, type AtriumMood, type TrackedLightmapMat } from "./atriumFx";
 import { FLOOR, MARKETS, STORAGE_ASSETS, type FloorSnapshot, type Language } from "./market";
 import { createScreens } from "./screens";
 
@@ -246,8 +246,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
   const dense = (window.devicePixelRatio || 1) >= 2;
   const renderer = new WebGPURenderer({ canvas, antialias: !(mobile && dense), alpha: false, powerPreference: "high-performance",
     forceWebGL: retryWithWebGL || !("gpu" in navigator && navigator.gpu) });
-  renderer.toneMapping = NeutralToneMapping;
-  renderer.toneMappingExposure = .72;   // calm daylight: bright stone floors must not glare
+  renderer.toneMapping = AgXToneMapping;
+  renderer.toneMappingExposure = .62;   // AgX calm luxury exposure: true sapphire/crimson hues, zero glare, effortless viewing
   const scene = new Scene();
   scene.background = new Color("#d9dde2");
   const camera = new PerspectiveCamera(62, 1, .08, 90);
@@ -305,12 +305,35 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       releases.push(() => releaseModel(model));
       return model;
     };
-    const { model, shellMap, fixtureMap } = await (async () => {
+    const loadSkyline = async (file: string) => {
+      const tex = await textures.loadAsync(hallAsset(file));
+      if (disposed || signal.aborted) { tex.dispose(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
+      tex.colorSpace = SRGBColorSpace;
+      tex.flipY = false;
+      tex.wrapS = RepeatWrapping;
+      tex.wrapT = ClampToEdgeWrapping;
+      tex.generateMipmaps = false;
+      tex.minFilter = LinearFilter;
+      tex.magFilter = LinearFilter;
+      renderer.initTexture(tex);
+      releases.push(() => tex.dispose());
+      return tex;
+    };
+    const { model, shellMap, fixtureMap, skyDay, skyNight } = await (async () => {
       // Limit the mobile startup peak: decode the hall before allocating either 4K lightmap.
       try {
-        if (mobile) return { model: await loadModel(), shellMap: await lightmap(bake.shell.file), fixtureMap: await lightmap(bake.fixtures.file) };
-        const [model, shellMap, fixtureMap] = await Promise.all([loadModel(), lightmap(bake.shell.file), lightmap(bake.fixtures.file)]);
-        return { model, shellMap, fixtureMap };
+        if (mobile) {
+          const model = await loadModel();
+          const shellMap = await lightmap(bake.shell.file);
+          const fixtureMap = await lightmap(bake.fixtures.file);
+          const [skyDay, skyNight] = await Promise.all([loadSkyline("skyline-day-v6.webp"), loadSkyline("skyline-night-v6.webp")]);
+          return { model, shellMap, fixtureMap, skyDay, skyNight };
+        }
+        const [model, shellMap, fixtureMap, skyDay, skyNight] = await Promise.all([
+          loadModel(), lightmap(bake.shell.file), lightmap(bake.fixtures.file),
+          loadSkyline("skyline-day-v6.webp"), loadSkyline("skyline-night-v6.webp"),
+        ]);
+        return { model, shellMap, fixtureMap, skyDay, skyNight };
       } finally { ktx?.dispose(); }
     })();
     signal.throwIfAborted();
@@ -320,7 +343,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     // Baked global illumination: each lightmapped group gets its own material copies.
     const cloned = new Map<string, MeshStandardMaterial>();
     const detachedSources = new Set<MeshStandardMaterial>();
-    const lightmapped: { mat: MeshStandardMaterial; base: number }[] = [];
+    const lightmapped: TrackedLightmapMat[] = [];
     const propMaterials = new Set<MeshStandardMaterial>();
     model.traverse(child => {
       if (!(child instanceof Mesh)) return;
@@ -333,13 +356,15 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         let m = cloned.get(key);
         if (!m) {
           m = source.clone();
-          // Preserve luminous Calacatta ivory marble without washing out specular highlights.
-          if (/calacatta|light stone/i.test(source.name)) m.color.multiplyScalar(.92);
+          // Calm luxury honed Italian stone & plaster palette (warm, rich, zero blinding white glare).
+          if (/calacatta|light stone/i.test(source.name)) m.color.multiplyScalar(.78);
+          else if (/travertine|plaster|gallery wall|composite/i.test(source.name)) m.color.multiplyScalar(.85);
+          m.userData.isFloorShell = group === "shell";
           m.lightMap = group === "shell" ? shellMap : fixtureMap;
           const baseIntensity = (group === "shell" ? bake.shell.scale : bake.fixtures.scale) * Math.PI;
           m.lightMapIntensity = baseIntensity;
-          // Rich metallic reflections on champagne brass & bronze; subtle sheen on polished marble.
-          m.envMapIntensity = m.metalness > .5 ? 1.45 : /marble/i.test(source.name) ? .92 : .55;
+          // Understated satin metallic luster on champagne brass & bronze; soft reflections on stone & walnut.
+          m.envMapIntensity = m.metalness > .5 ? 1.25 : /marble/i.test(source.name) ? .62 : /walnut|oak/i.test(source.name) ? .45 : .34;
           cloned.set(key, m);
           lightmapped.push({ mat: m, base: baseIntensity });
         }
@@ -417,7 +442,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const doorOpen = LIFTS.map(() => 1);
     scene.add(model);
     scene.add(screens.group);
-    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile);
+    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile, { day: skyDay, night: skyNight }, camera, screens.group);
     scene.add(fx.group);
     releases.push(fx.dispose);
     const tour = new ShowcaseTour();
@@ -523,7 +548,12 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const previewMeshes = new Set<Mesh>();
     let previewMaterial: MeshStandardMaterial | undefined;
     let artPending = false;
-    const pictureMaterial = (map: Texture) => new MeshStandardMaterial({ map, roughness: .78, emissive: 0xffffff, emissiveMap: map, emissiveIntensity: .22 });
+    // Museum anti-glare matte canvas: zero milky envMap reflection over dark brushstrokes, crisp vivid detail!
+    const pictureMaterial = (map: Texture) => {
+      const mat = new MeshStandardMaterial({ map, roughness: .94, metalness: 0.0, emissive: 0xfff8ee, emissiveMap: map, emissiveIntensity: .38 });
+      mat.envMapIntensity = 0.06;
+      return mat;
+    };
     const artworkMetrics = () => {
       if (measure) canvas.dataset.artDetails = artCanvases.filter(({ mesh }) => artwork.has(mesh)).map(({ id }) => id).join(",");
     };
@@ -604,13 +634,17 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
     }
 
-    // Bloom only on genuinely bright pixels: lamps, holographic core, daylight, brightest figures.
+    // Restrained cinema post-processing: whisper-soft high-threshold bloom (zero glare!) + subtle luxury vignette.
     let pipeline: RenderPipeline | undefined;
     if (params.get("bloom") === "1" || (params.get("bloom") !== "0" && !mobile)) {
       pipeline = new RenderPipeline(renderer);
       const scenePass = pass(scene, camera);
       const color = scenePass.getTextureNode("output");
-      pipeline.outputNode = color.add(bloom(color, .25, .42, .88));
+      const lit = color.add(bloom(color, .085, .36, 1.48));
+      const centered = screenUV.sub(vec2(0.5, 0.5)).mul(2.0);
+      const vig = float(1.0).sub(smoothstep(float(0.42), float(1.36), centered.length()).mul(0.15));
+      const graded = vibrance(lit, float(0.04));
+      pipeline.outputNode = vec4(graded.rgb.mul(vig), lit.a);
       releases.push(() => pipeline?.dispose());
     }
 
@@ -635,7 +669,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const pause = () => { keys.clear(); touchX = touchForward = velX = velZ = 0; };
     const isField = (event: KeyboardEvent) => event.target instanceof HTMLElement &&
       !!event.target.closest("input,button,select,textarea,a,[contenteditable],[role=dialog]");
-    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 2 ? 1.25 : tier >= 1 ? 1.6 : touch ? 2 : 2.5);
+    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 4 ? 1.25 : tier >= 3 ? 1.6 : touch ? 2 : 2.5);
 
     function resize() {
       const { width, height } = host.getBoundingClientRect();
@@ -709,13 +743,13 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const keyup = (event: KeyboardEvent) => { keys.delete(event.code); };
 
     function govern(elapsed: number, now: number) {
-      // Hold 60 fps: shed bloom first, then cap the pixel ratio; resolution goes only when needed.
+      // Hold locked 60 fps: step down planar reflection res -> disable reflector & bloom -> cap DPR only if needed.
       // Ignore the first seconds: pipeline compiles, 31 gallery artworks and the first display paints are one-off.
       if (!started) started = now;
       if (now - started < 12000) return;
       recent.push(elapsed);
       if (recent.length > 90) recent.shift();
-      if (recent.length < 90 || tier >= 3) return;
+      if (recent.length < 90 || tier >= 4) return;
       const avg = recent.reduce((s, v) => s + v, 0) / recent.length;
       if (avg > 18.2) {
         if (!slowSince) slowSince = now;
@@ -723,7 +757,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           tier++;
           slowSince = 0;
           recent.length = 0;
-          if (tier === 1 && pipeline) { pipeline.dispose(); pipeline = undefined; tier = 1; } else resize();
+          if (tier === 1) fx.setReflectionLevel(1);
+          else if (tier === 2) {
+            fx.setReflectionLevel(0);
+            if (pipeline) { pipeline.dispose(); pipeline = undefined; }
+          } else resize();
           canvas.dataset.qualityTier = String(tier);
         }
       } else slowSince = 0;
@@ -942,7 +980,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     else void (async () => {
       for (const art of artCanvases) {
         if (disposed || signal.aborted) return;
+        // Never compete with an active camera drag/pan frame when uploading 1K paintings!
+        while (drag && !disposed && !signal.aborted) await new Promise(r => setTimeout(r, 80));
+        if (disposed || signal.aborted) return;
         await loadArtwork(art);
+        await new Promise(r => setTimeout(r, 45));
       }
     })();
     return {
