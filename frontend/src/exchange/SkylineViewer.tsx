@@ -4,7 +4,7 @@ import { STORAGE_ASSETS, type Language } from "./marketCore";
 import bake from "./bake.json";
 
 const t = (lang: Language, ko: string, en: string) => (lang === "ko" ? ko : en);
-const SKY_VER = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36) + "p18";
+const SKY_VER = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36) + "p19";
 
 const SKYLINE_URLS: Record<AtriumMood, string> = {
   daylight: `${STORAGE_ASSETS}/skyline-day-v6.webp${SKY_VER}`,

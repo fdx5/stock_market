@@ -139,7 +139,7 @@
     "/world-markets",
     "/yield-curve-lab"
   ],
-  "source_files": 1062,
+  "source_files": 1063,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",

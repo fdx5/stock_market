@@ -1,5 +1,5 @@
 import {
-  AgXToneMapping, Box3, BoxGeometry, ClampToEdgeWrapping, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, LinearFilter, MeshBasicMaterial, PointLight, RepeatWrapping, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial,
+  AgXToneMapping, Box3, BoxGeometry, ClampToEdgeWrapping, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, LinearFilter, LinearMipmapLinearFilter, MeshBasicMaterial, PointLight, RepeatWrapping, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial,
   PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Sphere, Texture, TextureLoader, Vector2, WebGPUCoordinateSystem,
   type Ray,
   type BufferGeometry, type Material, type Object3D,
@@ -307,18 +307,29 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       releases.push(() => releaseModel(model));
       return model;
     };
-    const loadSkyline = async (file: string) => {
-      const tex = await textures.loadAsync(hallAsset(file) + "p18");
+    const loadSkyline = async (file: string, isHiResTile = false) => {
+      const tex = await textures.loadAsync(hallAsset(file) + "p19");
       if (disposed || signal.aborted) { tex.dispose(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.colorSpace = SRGBColorSpace;
       tex.flipY = false;
-      tex.wrapS = RepeatWrapping;
+      tex.wrapS = isHiResTile ? ClampToEdgeWrapping : RepeatWrapping;
       tex.wrapT = ClampToEdgeWrapping;
-      // Disable mipmaps on 6K equirectangular skyline: completely eliminates the GPU atan2(-X) dFdx 1px dotted seam line!
-      tex.generateMipmaps = false;
-      tex.minFilter = LinearFilter;
-      tex.magFilter = LinearFilter;
+      // 16K dual-hemisphere tiles use continuous analytical LOD + trilinear mipmaps for razor-sharp supersampling without seam;
+      // 8K single equirectangular fallback disables mipmaps to avoid the atan2(-X) dFdx 1px dotted seam line.
+      if (isHiResTile) {
+        tex.generateMipmaps = true;
+        tex.minFilter = LinearMipmapLinearFilter;
+        tex.magFilter = LinearFilter;
+      } else {
+        tex.generateMipmaps = false;
+        tex.minFilter = LinearFilter;
+        tex.magFilter = LinearFilter;
+      }
       renderer.initTexture(tex);
+      return tex;
+    };
+    const loadSkyline8k = async (file: string) => {
+      const tex = await loadSkyline(file, false);
       releases.push(() => tex.dispose());
       return tex;
     };
@@ -330,17 +341,17 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           const shellMap = await lightmap(bake.shell.file);
           const fixtureMap = await lightmap(bake.fixtures.file);
           const [skyDay, skyGolden, skyNight] = await Promise.all([
-            loadSkyline("skyline-day-v6.webp"),
-            loadSkyline("skyline-golden-v6.webp"),
-            loadSkyline("skyline-night-v6.webp"),
+            loadSkyline8k("skyline-day-v6.webp"),
+            loadSkyline8k("skyline-golden-v6.webp"),
+            loadSkyline8k("skyline-night-v6.webp"),
           ]);
           return { model, shellMap, fixtureMap, skyDay, skyGolden, skyNight };
         }
         const [model, shellMap, fixtureMap, skyDay, skyGolden, skyNight] = await Promise.all([
           loadModel(), lightmap(bake.shell.file), lightmap(bake.fixtures.file),
-          loadSkyline("skyline-day-v6.webp"),
-          loadSkyline("skyline-golden-v6.webp"),
-          loadSkyline("skyline-night-v6.webp"),
+          loadSkyline8k("skyline-day-v6.webp"),
+          loadSkyline8k("skyline-golden-v6.webp"),
+          loadSkyline8k("skyline-night-v6.webp"),
         ]);
         return { model, shellMap, fixtureMap, skyDay, skyGolden, skyNight };
       } finally { ktx?.dispose(); }
@@ -976,12 +987,19 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const testChange = testChangeRaw !== null && Number.isFinite(Number(testChangeRaw)) ? Number(testChangeRaw) : null;
     const update = (snapshot: FloorSnapshot, series: Captions, language: Language) => {
       fx.setIndexChange(testChange ?? snapshot.index?.change ?? 0);
+      if (measure) {
+        const c = fx.getCelebrationState();
+        canvas.dataset.rallyTier = String(c.tier);
+        canvas.dataset.rallySparks = String(c.activeCeilingSparks);
+      }
       screens.update(snapshot, series, language);
     };
     await screens.ready();
     signal.throwIfAborted();
     if (disposed) throw new Error("Trading hall GPU context was lost");
     const initial = events.initialDisplays();
+    const initialChange = testChange ?? initial.snapshot.index?.change ?? 0;
+    if (initialChange >= 3.0) fx.setMood("night");
     update(initial.snapshot, initial.series, initial.language);
     visibility();
     // Reveal once every visible display has its first picture (or after 5 s): no black screens on entry.
@@ -997,17 +1015,82 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     if (disposed) throw new Error("Trading hall GPU context was lost");
     events.renderer(backend);
     ready = true;
-    if (mobile) loadEnvironment();
-    else void (async () => {
-      for (const art of artCanvases) {
-        if (disposed || signal.aborted) return;
-        // Never compete with an active camera drag/pan frame when uploading 1K paintings!
-        while (drag && !disposed && !signal.aborted) await new Promise(r => setTimeout(r, 80));
-        if (disposed || signal.aborted) return;
-        await loadArtwork(art);
-        await new Promise(r => setTimeout(r, 45));
+    // On-demand effective-16K dual-hemisphere skyline loader (desktop only: 2x 8192x4096 = 16,380x4,096 seamless!).
+    // Keeps GPU VRAM strictly bounded to ONLY the currently active mood (~256 MB) while instant 8K handles smooth crossfades.
+    let activeHiRes: { mood: AtriumMood; L: Texture; R: Texture } | null = null;
+    let hiResToken = 0;
+    const disposeHiResLater = (pair: { L: Texture; R: Texture }) => {
+      window.setTimeout(() => {
+        pair.L.dispose();
+        pair.R.dispose();
+      }, 250);
+    };
+    releases.push(() => {
+      hiResToken += 1;
+      if (activeHiRes) {
+        fx.setHiResSkyline(null);
+        activeHiRes.L.dispose();
+        activeHiRes.R.dispose();
+        activeHiRes = null;
       }
-    })();
+    });
+    const loadHiResSkyline = async (mood: AtriumMood) => {
+      if (mobile || disposed || signal.aborted) return;
+      if (activeHiRes?.mood === mood) {
+        fx.setHiResSkyline(mood, activeHiRes.L, activeHiRes.R);
+        return;
+      }
+      const token = ++hiResToken;
+      if (activeHiRes) {
+        const stale = activeHiRes;
+        activeHiRes = null;
+        fx.setHiResSkyline(null);
+        disposeHiResLater(stale);
+      }
+      if (params.has("exchangeMetrics")) canvas.dataset.skylineRes = "8k-loading-16k";
+      const key = mood === "daylight" ? "day" : mood;
+      try {
+        const [texL, texR] = await Promise.all([
+          loadSkyline(`skyline-${key}-16k-L-v6.webp`, true),
+          loadSkyline(`skyline-${key}-16k-R-v6.webp`, true),
+        ]);
+        if (disposed || signal.aborted || token !== hiResToken) {
+          texL.dispose();
+          texR.dispose();
+          return;
+        }
+        // Avoid hitching an active pointer drag when binding the 16K pair
+        while (drag && !disposed && !signal.aborted && token === hiResToken) {
+          await new Promise(r => setTimeout(r, 60));
+        }
+        if (disposed || signal.aborted || token !== hiResToken) {
+          texL.dispose();
+          texR.dispose();
+          return;
+        }
+        activeHiRes = { mood, L: texL, R: texR };
+        fx.setHiResSkyline(mood, texL, texR);
+        if (params.has("exchangeMetrics")) canvas.dataset.skylineRes = `16k-${key}`;
+      } catch {
+        // Keep seamless 8K fallback active silently if 16K tiles are unavailable
+        if (params.has("exchangeMetrics") && token === hiResToken) canvas.dataset.skylineRes = "8k-fallback";
+      }
+    };
+
+    if (mobile) loadEnvironment();
+    else {
+      void loadHiResSkyline(fx.getMood());
+      void (async () => {
+        for (const art of artCanvases) {
+          if (disposed || signal.aborted) return;
+          // Never compete with an active camera drag/pan frame when uploading 1K paintings!
+          while (drag && !disposed && !signal.aborted) await new Promise(r => setTimeout(r, 80));
+          if (disposed || signal.aborted) return;
+          await loadArtwork(art);
+          await new Promise(r => setTimeout(r, 45));
+        }
+      })();
+    }
     return {
       move(x, forward) { if (Math.abs(x) > .05 || Math.abs(forward) > .05) stopTour(); touchX = clamp(x, -1, 1); touchForward = clamp(forward, -1, 1); },
       jump(pose) {
@@ -1020,7 +1103,10 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         canvas.focus({ preventScroll: true });
       },
       stop: pause,
-      setMood(mood) { fx.setMood(mood); },
+      setMood(mood) {
+        fx.setMood(mood);
+        void loadHiResSkyline(mood);
+      },
       setTour(on) {
         if (on) { pause(); tour.start(); events.tour?.(true); }
         else stopTour();

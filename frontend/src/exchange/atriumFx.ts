@@ -13,11 +13,12 @@ import {
   type WebGPURenderer,
 } from "three/webgpu";
 import {
-  abs, cameraPosition, clamp, cos, dot, equirectUV, float, mix, mx_fractal_noise_float, mx_noise_float, normalView,
-  normalWorld, normalize, positionLocal, positionViewDirection, positionWorld, pow, reflector, sin, smoothstep,
-  texture, uniform, uv, vec2, vec3,
+  abs, cameraPosition, clamp, cos, dFdx, dFdy, dot, equirectUV, float, fract, log2, max, min, mix,
+  mx_fractal_noise_float, mx_noise_float, normalView, normalWorld, normalize, positionLocal, positionViewDirection,
+  positionWorld, pow, reflector, sin, smoothstep, sqrt, step, texture, uniform, uv, vec2, vec3,
 } from "three/tsl";
 import { FLOOR } from "./market";
+import { createBullCelebrationFX } from "./bullCelebrationFx";
 
 export type AtriumMood = "daylight" | "golden" | "night";
 
@@ -121,7 +122,11 @@ export type AtriumFX = {
   group: Group;
   setMood: (mood: AtriumMood) => void;
   getMood: () => AtriumMood;
+  /** Attach (or clear with null) on-demand effective-16K dual-hemisphere skyline textures for the active mood. */
+  setHiResSkyline: (mood: AtriumMood | null, texL?: Texture, texR?: Texture) => void;
   setIndexChange: (changePct: number | null | undefined) => void;
+  /** Telemetry for >= +3% / >= +4% bull rally celebration pyrotechnics. */
+  getCelebrationState: () => { tier: 0 | 1 | 2; activeCeilingSparks: number; rallyBoost: number };
   setEnvironment: (env: Texture) => void;
   /** 2 = ultra planar reflections (0.42x), 1 = balanced (0.28x), 0 = disabled (0ms GPU cost). */
   setReflectionLevel: (level: 0 | 1 | 2) => void;
@@ -148,6 +153,7 @@ const C_DROP_HI_DEEP = new Color("#6ea4dc");
 const C_DROP_GLASS_A = new Color("#94b8d4");
 const C_DROP_GLASS_B = new Color("#5288c4");
 const C_WARM_CEILING = new Color("#e8be86");
+const C_RALLY_CRIMSON = new Color("#ff1e42");
 
 /** Compute calm, understated central neon core color & intensity multiplier from index % change. */
 function coreSignalForChange(pct: number, outPrimary: Color, outHighlight: Color, outGlass: Color) {
@@ -238,41 +244,32 @@ export function createAtriumFX(
     disposables.push(floorReflector);
   }
 
-  // ---- B. True 3D Viewing-Angle & Position Parallax 360° Futuristic Seoul Panoramas (Day / Golden / Night) ----
+  // ---- B. True 3D Viewing-Angle & Position Parallax 360° Panoramas (8K Instant + Effective-16K Dual-Tile Progressive) ----
   const skyDayTex = skyline.day;
   const skyGoldenTex = skyline.golden;
   const skyNightTex = skyline.night;
+  const windowMeshes: Mesh[] = [];
+  let currentEnvMap: Texture | null = null;
+  let hiResMood: AtriumMood | null = null;
+  let hiResMat: MeshStandardNodeMaterial | null = null;
+  let usingHiRes = false;
 
-  const makeParallaxSkylineWindow = (src: MeshStandardMaterial) => {
-    // WebGPU TSL MeshStandardNodeMaterial (DoubleSide: arc_surface inward winding!) with true 3D viewing-ray parallax:
-    // Each window pixel samples along normalize(positionWorld - cameraPosition), so moving left/right or turning
-    // reveals genuinely different districts of our seamless 360° futuristic Seoul financial metropolis in true 3D depth!
-    const wm = new MeshStandardNodeMaterial({
-      color: new Color("#03050a"),
-      roughness: 0.05,
-      metalness: 0.04,
-      envMapIntensity: 0.18,
-      side: DoubleSide,
-    });
+  const buildWindowSkyCoords = () => {
     const rawDir = normalize(positionWorld.sub(cameraPosition));
     // Soften extreme close-to-glass vertical nadir pinch (y * 0.56) while keeping 100% true 3D horizontal parallax:
     // Standing right next to any 1F-4F window and looking straight down NEVER pinches or stretches like a waterfall!
     const viewDir = normalize(vec3(rawDir.x, rawDir.y.mul(0.56), rawDir.z));
     const eq = equirectUV(viewDir);
-    // True 1.0x 360° single-shot 8K real-camera Seoul panorama (ZERO stitch seams, ZERO duplication!)
     const uSky = eq.x;
-    // Non-clamping elevation curve (pad_bot = 0): centers glittering Seoul skyline & Han River right at eye level
-    // (v=0.58) for 1F-2F lounge windows, while steep downward gazes (-45°..-90°) glide smoothly inside v=[0.58..0.95]!
+    // Non-clamping elevation curve (pad_bot = 0): centers skyline right at eye level (v=0.58)
+    // for 1F-2F lounge windows, while steep downward gazes (-45°..-90°) glide smoothly inside v=[0.58..0.96]!
     const elev = eq.y.sub(0.5).mul(2.0);
     const curved = elev.div(float(0.95).add(abs(elev).mul(1.22)));
     const vSky = clamp(float(0.58).sub(curved.mul(0.84)), float(0.02), float(0.96));
-    const skyUv = vec2(uSky, vSky);
+    return { uSky, vSky };
+  };
 
-    const dayCol = texture(skyDayTex, skyUv).rgb;
-    const goldCol = texture(skyGoldenTex, skyUv).rgb;
-    const nightCol = texture(skyNightTex, skyUv).rgb;
-    const blended = mix(mix(dayCol, goldCol, uWindowGoldenMix), nightCol, uWindowNightMix);
-
+  const applyWindowOutput = (wm: MeshStandardNodeMaterial, blended: ReturnType<typeof texture>["rgb"]) => {
     // Subtle low-iron anti-reflective glazing rim sheen + bloom-safe crisp highlight knee so night windows stay razor-sharp!
     const ndv = clamp(abs(dot(normalView, positionViewDirection)), float(0.0), float(1.0));
     const glassRim = pow(float(1.0).sub(ndv), float(3.4)).mul(0.026);
@@ -281,9 +278,73 @@ export function createAtriumFX(
     const nightSafe = exposed.div(float(1.0).add(exposed.mul(0.24))).mul(1.22);
     const crispOut = mix(exposed, nightSafe, uWindowNightMix);
     wm.emissiveNode = crispOut.add(vec3(0.58, 0.72, 0.88).mul(glassRim));
+  };
+
+  const makeParallaxSkylineWindow = (src: MeshStandardMaterial) => {
+    // 8K base material: instant boot + silky smooth Day/Golden/Night crossfades.
+    const wm = new MeshStandardNodeMaterial({
+      color: new Color("#03050a"),
+      roughness: 0.05,
+      metalness: 0.04,
+      envMapIntensity: 0.18,
+      side: DoubleSide,
+    });
+    const { uSky, vSky } = buildWindowSkyCoords();
+    const skyUv = vec2(uSky, vSky);
+    const dayCol = texture(skyDayTex, skyUv).rgb;
+    const goldCol = texture(skyGoldenTex, skyUv).rgb;
+    const nightCol = texture(skyNightTex, skyUv).rgb;
+    const blended = mix(mix(dayCol, goldCol, uWindowGoldenMix), nightCol, uWindowNightMix);
+    applyWindowOutput(wm, blended);
     envMats.push(wm);
     disposables.push(wm, src);
     return wm;
+  };
+
+  const makeParallaxSkylineWindow16k = (texL: Texture, texR: Texture) => {
+    // Dedicated WebGPU MeshStandardNodeMaterial with fresh immutable GPUBindGroup for effective-16K (2x 8192x4096):
+    // Continuous analytical seam-free LOD eliminates both u=0 and u=0.5 mip seams while enabling crisp 16K trilinear supersampling!
+    const wm = new MeshStandardNodeMaterial({
+      color: new Color("#03050a"),
+      roughness: 0.05,
+      metalness: 0.04,
+      envMapIntensity: 0.18,
+      side: DoubleSide,
+    });
+    if (currentEnvMap) wm.envMap = currentEnvMap;
+    const { uSky, vSky } = buildWindowSkyCoords();
+    const uWrapped = fract(uSky);
+    const isRight = step(float(0.5), uWrapped);
+    const uLocal = mix(uWrapped.mul(2.0), uWrapped.sub(0.5).mul(2.0), isRight);
+    // Exact 1px circular overlap gutter mapping (8190 unique cols + 2px gutter = 8192):
+    const uTile = uLocal.mul(8190.0 / 8192.0).add(1.0 / 8192.0);
+    const tileUv = vec2(uTile, vSky);
+
+    // 100% continuous screen-space derivatives across BOTH u=0 (-X) and u=0.5 (+X) -> zero mip seam anywhere in 360°!
+    const uA = uSky;
+    const uB = fract(uSky.add(0.5));
+    const dUdx = min(abs(dFdx(uA)), abs(dFdx(uB))).mul(16380.0);
+    const dUdy = min(abs(dFdy(uA)), abs(dFdy(uB))).mul(16380.0);
+    const dVdx = abs(dFdx(vSky)).mul(4096.0);
+    const dVdy = abs(dFdy(vSky)).mul(4096.0);
+    const rho = max(
+      sqrt(dUdx.mul(dUdx).add(dVdx.mul(dVdx))),
+      sqrt(dUdy.mul(dUdy).add(dVdy.mul(dVdy))),
+    );
+    // -0.55 crisp negative mip bias: ultra-sharp architectural window detail with smooth trilinear anti-shimmering!
+    const lod = clamp(log2(max(rho, float(1.0))).sub(0.55), float(0.0), float(4.0));
+
+    const hiL = texture(texL, tileUv, lod).rgb;
+    const hiR = texture(texR, tileUv, lod).rgb;
+    const blended = mix(hiL, hiR, isRight);
+    applyWindowOutput(wm, blended);
+    return wm;
+  };
+
+  const bindWindowMaterial = (mat: MeshStandardNodeMaterial) => {
+    for (const mesh of windowMeshes) {
+      mesh.material = mat;
+    }
   };
 
   // ---- B2. Living Atmospheric Vaulted Skylight Dome (drifting wispy cirrus clouds + directional sunlit warmth!) ----
@@ -385,6 +446,9 @@ export function createAtriumFX(
   const seenCore = new Set<string>();
   const coveNodeCache = new Map<string, MeshStandardNodeMaterial>();
   let windowMatCache: MeshStandardNodeMaterial | null = null;
+  const ceilingNeonPts: number[] = [];
+  let pillarCrownMaxY = 0;
+  const harvestV = new Vector3();
 
   const makeCeilingReactiveCove = (src: MeshStandardMaterial, baseEmit: number) => {
     const cached = coveNodeCache.get(src.uuid);
@@ -450,11 +514,26 @@ export function createAtriumFX(
       if (!(m instanceof MeshStandardMaterial)) return m;
       if (/warm 3000k cove|soft warm accent/i.test(m.name)) {
         replaced = true;
+        // Harvest exact 3D world-space vertices of vaulted ceiling neon lines so gold/silver sparks rain directly from them!
+        const posAttr = child.geometry.getAttribute("position");
+        if (posAttr && posAttr.count > 0 && ceilingNeonPts.length < 3600) {
+          child.updateMatrixWorld(true);
+          const stride = Math.max(1, Math.floor(posAttr.count / 180));
+          for (let vi = 0; vi < posAttr.count && ceilingNeonPts.length < 3600; vi += stride) {
+            harvestV.fromBufferAttribute(posAttr, vi).applyMatrix4(child.matrixWorld);
+            const r = Math.hypot(harvestV.x, harvestV.z);
+            if (harvestV.y >= 15.4 && r <= 23.0) {
+              ceilingNeonPts.push(harvestV.x, harvestV.y, harvestV.z);
+              if (r <= 4.8 && harvestV.y > pillarCrownMaxY) pillarCrownMaxY = harvestV.y;
+            }
+          }
+        }
         return makeCeilingReactiveCove(m, Math.max(m.emissiveIntensity, 3.2));
       }
       if (/perimeter daylight window/i.test(m.name)) {
         replaced = true;
         if (!windowMatCache) windowMatCache = makeParallaxSkylineWindow(m);
+        if (!windowMeshes.includes(child)) windowMeshes.push(child);
         return windowMatCache;
       }
       if (/daylight glazing/i.test(m.name)) {
@@ -863,6 +942,12 @@ export function createAtriumFX(
     disposables.push(moteGeo, moteMat);
   }
 
+  // 4b. AAA Bull-Market Celebration Pyrotechnics (>= +3%: 3x crimson ceiling neon + gold/silver sparks + pillar-crown fireworks + glitter; >= +4%: 2x sparks!)
+  const pillarCrownY = pillarCrownMaxY >= 15.6 && pillarCrownMaxY <= 18.8 ? pillarCrownMaxY - 0.18 : 17.35;
+  const celebration = createBullCelebrationFX(new Float32Array(ceilingNeonPts), pillarCrownY, mobile);
+  group.add(celebration.group);
+  disposables.push(celebration);
+
   // Smooth Atmosphere Mood & Index-Reactive Central Neon Controller
   let targetMood: AtriumMood = "daylight";
   let targetChangePct = 0;
@@ -1011,8 +1096,11 @@ export function createAtriumFX(
       coreLightMid.intensity = 6.5 * spillBoost * curHolo * breath;
     }
 
+    const rallyBoost = celebration.getRallyBoost();
+    // >= +3.0% bull rally: ceiling crimson-red neon lines blaze 3.0x brighter!
+    const rallyMul = 1.0 + rallyBoost * 2.0;
     const ceilBlend = clampVal(0.24 + curCoreStrength * 0.62, 0, 1);
-    if (curCoreStrength < 0.02) {
+    if (curCoreStrength < 0.02 && rallyBoost < 0.005) {
       uCeilingColor.value.copy(C_WARM_CEILING);
       uCeilingIntensity.value = 2.0 * curCoveMul;
       if (ceilingLight) {
@@ -1021,10 +1109,12 @@ export function createAtriumFX(
       }
     } else {
       uCeilingColor.value.copy(C_WARM_CEILING).lerp(curCorePrimary, ceilBlend);
-      uCeilingIntensity.value = 2.1 * curCoveMul * curCoreIntensity * breath;
+      if (rallyBoost > 0.005) uCeilingColor.value.lerp(C_RALLY_CRIMSON, rallyBoost);
+      uCeilingIntensity.value = 2.1 * curCoveMul * curCoreIntensity * breath * rallyMul;
       if (ceilingLight) {
         ceilingLight.color.copy(curCorePrimary);
-        ceilingLight.intensity = (5.5 + curCoreStrength * 11.0) * curHolo * breath;
+        if (rallyBoost > 0.005) ceilingLight.color.lerp(C_RALLY_CRIMSON, rallyBoost);
+        ceilingLight.intensity = (5.5 + curCoreStrength * 11.0) * curHolo * breath * rallyMul;
       }
     }
     uCoreIntensity.value = curCoreIntensity * breath;
@@ -1039,17 +1129,48 @@ export function createAtriumFX(
       if (mood === targetMood) return;
       targetMood = mood;
       moodDirty = true;
+      // Switch immediately back to 8K base material during mood crossfade so Day/Golden/Night blend smoothly!
+      if (usingHiRes && windowMatCache) {
+        bindWindowMaterial(windowMatCache);
+        usingHiRes = false;
+      }
     },
     getMood() {
       return targetMood;
+    },
+    setHiResSkyline(mood: AtriumMood | null, texL?: Texture, texR?: Texture) {
+      if (usingHiRes && windowMatCache) {
+        bindWindowMaterial(windowMatCache);
+        usingHiRes = false;
+      }
+      if (hiResMat) {
+        const staleMat = hiResMat;
+        hiResMat = null;
+        window.setTimeout(() => staleMat.dispose(), 250);
+      }
+      if (!mood || !texL || !texR) {
+        hiResMood = null;
+        return;
+      }
+      hiResMood = mood;
+      hiResMat = makeParallaxSkylineWindow16k(texL, texR);
     },
     setIndexChange(changePct: number | null | undefined) {
       const next = typeof changePct === "number" && Number.isFinite(changePct) ? changePct : 0;
       if (Math.abs(next - targetChangePct) < 1e-4) return;
       targetChangePct = next;
+      celebration.setIndexChange(next);
       refreshTargetSignal();
     },
+    getCelebrationState() {
+      return {
+        tier: celebration.getTier(),
+        activeCeilingSparks: celebration.getActiveCeilingSparks(),
+        rallyBoost: celebration.getRallyBoost(),
+      };
+    },
     setEnvironment(env: Texture) {
+      currentEnvMap = env;
       for (const m of envMats) {
         m.envMap = env;
         m.needsUpdate = true;
@@ -1057,6 +1178,10 @@ export function createAtriumFX(
       if (windowMatCache) {
         windowMatCache.envMap = env;
         windowMatCache.needsUpdate = true;
+      }
+      if (hiResMat) {
+        hiResMat.envMap = env;
+        hiResMat.needsUpdate = true;
       }
     },
     setReflectionLevel(level: 0 | 1 | 2) {
@@ -1093,9 +1218,25 @@ export function createAtriumFX(
           uReflectStrength.value = floorVisible ? curReflectBoost * reflectTierMul : 0.0;
         }
       }
+      celebration.tick(nowSec, dt, reduced);
       applyMood(1 - Math.exp(-dt * 4.2), reduced ? 0 : nowSec);
+      // Lock into fresh WebGPU 16K material once the active mood crossfade has settled
+      const specNow = MOODS[targetMood];
+      const moodSettled =
+        Math.abs(specNow.windowNightMix - curWinNight) < 0.03 &&
+        Math.abs(specNow.windowGoldenMix - curWinGolden) < 0.03;
+      if (!usingHiRes && hiResMat && hiResMood === targetMood && moodSettled) {
+        bindWindowMaterial(hiResMat);
+        usingHiRes = true;
+      }
     },
     dispose() {
+      if (usingHiRes && windowMatCache) {
+        bindWindowMaterial(windowMatCache);
+        usingHiRes = false;
+      }
+      hiResMat?.dispose();
+      hiResMat = null;
       for (const d of disposables) d.dispose();
     },
   };

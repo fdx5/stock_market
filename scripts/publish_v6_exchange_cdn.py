@@ -18,6 +18,12 @@ V6_FILES = [
     "3d/exchange-floor/skyline-day-v6.webp",
     "3d/exchange-floor/skyline-golden-v6.webp",
     "3d/exchange-floor/skyline-night-v6.webp",
+    "3d/exchange-floor/skyline-day-16k-L-v6.webp",
+    "3d/exchange-floor/skyline-day-16k-R-v6.webp",
+    "3d/exchange-floor/skyline-golden-16k-L-v6.webp",
+    "3d/exchange-floor/skyline-golden-16k-R-v6.webp",
+    "3d/exchange-floor/skyline-night-16k-L-v6.webp",
+    "3d/exchange-floor/skyline-night-16k-R-v6.webp",
 ]
 
 

@@ -371,7 +371,19 @@ export default function ExchangePage() {
   const [sound, setSound] = useState(false);
   const [soundError, setSoundError] = useState(false);
   const [full, setFull] = useState(false);
-  const [mood, setMood] = useState<AtriumMood>("daylight");
+  const [mood, setMood] = useState<AtriumMood>(() => {
+    if (typeof window !== "undefined") {
+      const raw = new URLSearchParams(window.location.search).get("testChange");
+      if (raw !== null && Number.isFinite(Number(raw)) && Number(raw) >= 3.0) return "night";
+    }
+    return "daylight";
+  });
+  const moodManualRef = useRef(false);
+  const chooseMood = (next: AtriumMood, label: string, prefix = "무드 · ") => {
+    moodManualRef.current = true;
+    setMood(next);
+    reportExchange("mood:" + next, prefix + label);
+  };
   const [tour, setTour] = useState(false);
   const [lift, setLift] = useState<LiftState | null>(null);
   const [floor, setFloor] = useState(0);
@@ -440,6 +452,14 @@ export default function ExchangePage() {
     return () => { controller.abort(); engine?.dispose(); };
   }, [retry]);
   useEffect(() => { driver?.update(data, histories, lang); }, [data, driver, histories, lang]);
+  useEffect(() => {
+    if (moodManualRef.current) return;
+    const raw = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("testChange") : null;
+    const effectiveChange = raw !== null && Number.isFinite(Number(raw)) ? Number(raw) : data.index?.change;
+    if (typeof effectiveChange === "number" && Number.isFinite(effectiveChange) && effectiveChange >= 3.0) {
+      setMood("night");
+    }
+  }, [data.index?.change]);
   useEffect(() => { driver?.setMood(mood); }, [driver, mood]);
   // Pause 3D frames while a full-screen 2D overlay (painting or 360° skyline observatory) covers the hall (3D sculpture viewer renders live!).
   useEffect(() => {
@@ -559,7 +579,7 @@ export default function ExchangePage() {
               ["night", t(lang, "네온나이트", "Night")],
             ] as const).map(([key, label]) => (
               <button key={key} type="button" className="exchange-mood-btn" aria-pressed={mood === key} disabled={!driver}
-                onClick={() => { setMood(key); reportExchange("mood:" + key, "무드 · " + label); }}>{label}</button>
+                onClick={() => chooseMood(key, label)}>{label}</button>
             ))}
           </div>
           <button type="button" className="exchange-action" aria-pressed={tour} disabled={!driver}
@@ -600,7 +620,7 @@ export default function ExchangePage() {
       {focus && (focus === "skyline:view"
         ? <SkylineViewer
             mood={mood}
-            onMoodChange={next => { setMood(next); reportExchange("mood:" + next, "전망 무드 · " + next); }}
+            onMoodChange={next => chooseMood(next, next, "전망 무드 · ")}
             initialYaw={currentPosition.current.yaw}
             lang={lang}
             onClose={() => { setFocus(undefined); canvas.current?.focus({ preventScroll: true }); }}
