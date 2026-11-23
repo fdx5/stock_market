@@ -4,7 +4,7 @@ import { STORAGE_ASSETS, type Language } from "./marketCore";
 import bake from "./bake.json";
 
 const t = (lang: Language, ko: string, en: string) => (lang === "ko" ? ko : en);
-const SKY_VER = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36) + "p3";
+const SKY_VER = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36) + "p11";
 
 const SKYLINE_URLS: Record<AtriumMood, string> = {
   daylight: `${STORAGE_ASSETS}/skyline-day-v6.webp${SKY_VER}`,
@@ -16,20 +16,20 @@ const MOOD_META: Record<AtriumMood, { ko: string; en: string; subKo: string; sub
   daylight: {
     ko: "주간",
     en: "Day",
-    subKo: "서울 미래 금융 메트로폴리스 · 맑은 오전 45층 파노라마",
-    subEn: "Futuristic Seoul Financial Metropolis · 45F Morning Panorama",
+    subKo: "서울 미래 금융 메트로폴리스 · 맑은 오전 45층 360° 파노라마",
+    subEn: "Futuristic Seoul Financial Metropolis · 45F Morning 360° Panorama",
   },
   golden: {
     ko: "골든아워",
     en: "Golden",
-    subKo: "서울 미래 금융 메트로폴리스 · 황금빛 노을 45층 파노라마",
-    subEn: "Futuristic Seoul Financial Metropolis · 45F Golden Hour Panorama",
+    subKo: "서울 미래 금융 메트로폴리스 · 황금빛 노을 45층 360° 파노라마",
+    subEn: "Futuristic Seoul Financial Metropolis · 45F Golden Hour 360° Panorama",
   },
   night: {
     ko: "네온나이트",
     en: "Night",
-    subKo: "서울 미래 금융 메트로폴리스 · 블루아워 야경 45층 파노라마",
-    subEn: "Futuristic Seoul Financial Metropolis · 45F Blue-Hour Night Panorama",
+    subKo: "서울 미래 금융 메트로폴리스 · 블루아워 야경 45층 360° 파노라마",
+    subEn: "Futuristic Seoul Financial Metropolis · 45F Blue-Hour Night 360° Panorama",
   },
 };
 
@@ -43,12 +43,12 @@ function yawToHeading(yaw: number) {
   return wrap01(deg / 360);
 }
 
-/** Match the exact 3D exterior window parallax UV (equirectUV(dir).x * 2) so opening from any window frames the same buildings. */
+/** Match the exact 3D exterior window 1x 360° parallax UV (equirectUV(dir).x) so opening frames the exact same district. */
 function yawToPanoramaU(yaw: number) {
   const dirX = -Math.sin(yaw);
   const dirZ = -Math.cos(yaw);
   const eqX = Math.atan2(dirZ, dirX) / (Math.PI * 2) + 0.5;
-  return wrap01(eqX * 2.0);
+  return wrap01(eqX);
 }
 
 function compassLabel(deg: number) {
@@ -78,7 +78,7 @@ export default function SkylineViewer({
 
   const [autoPan, setAutoPan] = useState(false);
   const [zoomUi, setZoomUi] = useState(1);
-  const [aspect, setAspect] = useState(3.25);
+  const [aspect, setAspect] = useState(4.0);
   const [loadedMoods, setLoadedMoods] = useState<Partial<Record<AtriumMood, boolean>>>({});
 
   // Continuous physics state stored in refs for silky 120Hz GPU transform updates without React re-renders
@@ -165,19 +165,19 @@ export default function SkylineViewer({
       if (stage && track) {
         const vw = stage.clientWidth || window.innerWidth;
         const vh = stage.clientHeight || window.innerHeight;
-        // Each panorama tile spans full viewport height with natural undistorted aspect ratio (and at least 1.6x viewport width)
-        const tileW = Math.max(vw * 1.45, vh * aspect);
-        const tileH = tileW / aspect;
+        // Frame strictly the full crisp futuristic cityscape (v=0.08..1.00) with ZERO over-zoom blur!
+        const tileH = Math.round(vh * 1.10);
+        const tileW = Math.round(Math.max(vw * 2.6, tileH * aspect));
 
-        if (s.keysLeft) { s.targetU -= dt * 0.18; s.targetHeading -= dt * 0.09; }
-        if (s.keysRight) { s.targetU += dt * 0.18; s.targetHeading += dt * 0.09; }
+        if (s.keysLeft) { s.targetU -= dt * 0.11; s.targetHeading -= dt * 0.11; }
+        if (s.keysRight) { s.targetU += dt * 0.11; s.targetHeading += dt * 0.11; }
         if (s.autoPan && !s.dragging && !s.keysLeft && !s.keysRight) {
-          s.targetU += dt * 0.022;
-          s.targetHeading += dt * 0.011;
+          s.targetU += dt * 0.015;
+          s.targetHeading += dt * 0.015;
         }
         if (!s.dragging && Math.abs(s.velU) > 1e-5) {
           s.targetU += s.velU * dt;
-          s.targetHeading += s.velU * 0.5 * dt;
+          s.targetHeading += s.velU * dt;
           s.velU *= Math.exp(-dt * 5.2);
         }
 
@@ -193,7 +193,7 @@ export default function SkylineViewer({
         // Place the 3-tile strip so the middle tile cleanly covers [0, 1) with seamless left/right neighbors!
         const uWrapped = wrap01(s.u);
         const centerX = -(tileW + uWrapped * tileW) + vw * 0.5;
-        const centerY = (vh - tileH) * 0.5;
+        const centerY = (vh - tileH) * 0.5 - tileH * 0.038;
         // Scale around viewport center
         const originX = vw * 0.5 - centerX;
         const originY = vh * 0.5 - centerY;
@@ -248,11 +248,11 @@ export default function SkylineViewer({
     const stage = stageRef.current;
     const vw = stage?.clientWidth || window.innerWidth;
     const vh = stage?.clientHeight || window.innerHeight;
-    const tileW = Math.max(vw * 1.45, vh * aspect);
-    // Dragging left reveals city to the right (natural window gaze pan!)
+    const tileW = Math.max(vw * 3.0, vh * 1.44 * aspect);
+    // Dragging left reveals city to the right (1:1 true 360° rotation!)
     const du = (-dx / (tileW * sim.current.zoom)) * 1.08;
     sim.current.targetU += du;
-    sim.current.targetHeading += du * 0.5;
+    sim.current.targetHeading += du;
     sim.current.velU = du * 18;
     if (sim.current.zoom > 1.02) {
       sim.current.targetPanY += dy;
@@ -274,9 +274,9 @@ export default function SkylineViewer({
       return;
     }
     const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) * 0.4 ? e.deltaX : e.deltaY;
-    const du = (delta / 2600) / sim.current.zoom;
+    const du = (delta / 4200) / sim.current.zoom;
     sim.current.targetU += du;
-    sim.current.targetHeading += du * 0.5;
+    sim.current.targetHeading += du;
     sim.current.velU = 0;
   };
 
@@ -286,7 +286,7 @@ export default function SkylineViewer({
     setAutoPan(false);
     sim.current.velU = 0;
     sim.current.targetHeading = frac;
-    sim.current.targetU = wrap01(frac * 2);
+    sim.current.targetU = wrap01(frac);
   };
 
   const meta = MOOD_META[mood];

@@ -308,13 +308,16 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       return model;
     };
     const loadSkyline = async (file: string) => {
-      const tex = await textures.loadAsync(hallAsset(file) + "p3");
+      const tex = await textures.loadAsync(hallAsset(file) + "p11");
       if (disposed || signal.aborted) { tex.dispose(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.colorSpace = SRGBColorSpace;
       tex.flipY = false;
       tex.wrapS = RepeatWrapping;
       tex.wrapT = ClampToEdgeWrapping;
-      tex.anisotropy = maxAniso;
+      // Disable mipmaps on 6K equirectangular skyline: completely eliminates the GPU atan2(-X) dFdx 1px dotted seam line!
+      tex.generateMipmaps = false;
+      tex.minFilter = LinearFilter;
+      tex.magFilter = LinearFilter;
       renderer.initTexture(tex);
       releases.push(() => tex.dispose());
       return tex;

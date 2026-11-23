@@ -642,6 +642,17 @@
       ]
     },
     {
+      "file": "prediction-night-revision.yml",
+      "cron": [
+        "10 21 * * 0-4",
+        "40 21 * * 0-4"
+      ],
+      "endpoints": [
+        "/api/health",
+        "/api/prediction/night-revision"
+      ]
+    },
+    {
       "file": "social-publish.yml",
       "cron": [
         "15 13,22 * * *",

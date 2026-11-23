@@ -256,10 +256,14 @@ export function createAtriumFX(
     });
     const viewDir = normalize(positionWorld.sub(cameraPosition));
     const eq = equirectUV(viewDir);
-    // Exact integer 2.0x repeat around 360°: zero West atan2 seam, 1:1 natural 28mm architectural proportions!
-    const uSky = eq.x.mul(2.0);
-    // eq.y = asin(viewDir.y)/PI + 0.5 -> map ±27° vertical elevation to texture V (flipY=false: 0 top sky, 1 river)
-    const vSky = clamp(float(0.55).sub(eq.y.sub(0.5).mul(3.26)), float(0.02), float(0.98));
+    // True 1.0x 360° non-repeating panorama (4 completely distinct Seoul districts around the full compass — zero duplication!)
+    const uSky = eq.x;
+    // Soft non-clamping perspective elevation curve (ZERO fake mirrored bottom strip, ZERO waterfall stretch!):
+    // Horizon sits at v=0.52; steep downward gazes (-30°..-89°) glide gracefully across the REAL crisp Han River
+    // foreground (v=0.52..0.95) and never clamp or smear even when looking straight down from 4F!
+    const elev = eq.y.sub(0.5).mul(2.0);
+    const curved = elev.div(float(0.88).add(abs(elev).mul(1.25)));
+    const vSky = clamp(float(0.52).sub(curved.mul(0.95)), float(0.02), float(0.97));
     const skyUv = vec2(uSky, vSky);
 
     const dayCol = texture(skyDayTex, skyUv).rgb;
