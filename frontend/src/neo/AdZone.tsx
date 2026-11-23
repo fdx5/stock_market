@@ -13,6 +13,7 @@ import "./adZone.css";
    - `?adpreview=1` draws the boxes without requesting ads, for layout checks. */
 
 type AdWindow = Window & { adsbygoogle?: { push(request: object): unknown } };
+type AdState = "pending" | "filled" | "empty";
 type Size = { width: number; height: number };
 export type AdZoneKind = "rail" | "side" | "feed-banner" | "feed-rect" | "break" | "break-rect" | "tower";
 
@@ -29,7 +30,7 @@ const SLOT: Record<AdZoneKind, string> = {
 const SIZES: Record<AdZoneKind, Size[]> = {
   rail: [{ width: 300, height: 600 }, { width: 300, height: 250 }],
   side: [{ width: 300, height: 250 }],
-  "feed-banner": [{ width: 320, height: 100 }, { width: 320, height: 50 }],
+  "feed-banner": [{ width: 320, height: 100 }, { width: 300, height: 50 }],
   "feed-rect": [{ width: 300, height: 250 }, { width: 250, height: 250 }],
   // A break between two sections: as wide as the column allows, never taller than a strip.
   break: [{ width: 970, height: 90 }, { width: 728, height: 90 }, { width: 468, height: 60 }, { width: 320, height: 100 }, { width: 300, height: 50 }, { width: 234, height: 60 }],
@@ -52,6 +53,26 @@ export const AD_MEDIA: Record<AdZoneKind, string> = {
 export const AdRailContext = createContext(false);
 export const SHELL_RAIL_MEDIA = "(min-width: 1680px)";
 
+// A blocked or stalled request may never get a data-ad-status from AdSense.
+// Keep watching after the timeout so a confirmed fill can still be shown.
+function watchAdResponse(ad: HTMLElement, setState: (state: AdState) => void) {
+  const timeout = window.setTimeout(() => setState("empty"), 8_000);
+  const readStatus = () => {
+    const status = ad.dataset.adStatus;
+    if (status === "filled") setState("filled");
+    else if (status === "unfilled" || status === "unfill-optimized") setState("empty");
+    else return;
+    window.clearTimeout(timeout);
+  };
+  const observer = new MutationObserver(readStatus);
+  observer.observe(ad, { attributes: true, attributeFilter: ["data-ad-status"] });
+  readStatus();
+  return () => {
+    window.clearTimeout(timeout);
+    observer.disconnect();
+  };
+}
+
 // Remembered for the tab: some pages rewrite their own query string.
 const preview = () => { try { if (new URLSearchParams(window.location.search).has("adpreview")) sessionStorage.setItem("adpreview", "1"); return sessionStorage.getItem("adpreview") === "1"; } catch { return false; } };
 
@@ -68,7 +89,7 @@ function useMedia(query: string) {
 export function useMediaQuery(query: string) { return useMedia(query); }
 
 /** `ready`: a page's ad waits for its content, so no ad is ever shown on an empty screen. */
-export default function AdZone({ kind, className = "", ready = true, lazy = false, onState }: { kind: AdZoneKind; className?: string; ready?: boolean; lazy?: boolean; onState?: (state: "pending" | "filled" | "empty") => void }) {
+export default function AdZone({ kind, className = "", ready = true, lazy = false, onState }: { kind: AdZoneKind; className?: string; ready?: boolean; lazy?: boolean; onState?: (state: AdState) => void }) {
   const show = useMedia(AD_MEDIA[kind]);
   const railShowing = useContext(AdRailContext);
   const dry = preview();
@@ -76,11 +97,11 @@ export default function AdZone({ kind, className = "", ready = true, lazy = fals
   return <AdBox key={kind} kind={kind} dry={dry} lazy={lazy} className={className} onState={onState} />;
 }
 
-function AdBox({ kind, dry, lazy, className, onState }: { kind: AdZoneKind; dry: boolean; lazy: boolean; className: string; onState?: (state: "pending" | "filled" | "empty") => void }) {
+function AdBox({ kind, dry, lazy, className, onState }: { kind: AdZoneKind; dry: boolean; lazy: boolean; className: string; onState?: (state: AdState) => void }) {
   const { lang } = useLanguage();
   const host = useRef<HTMLElement>(null), slot = useRef<HTMLModElement>(null);
   const [size, setSize] = useState<Size | null>(null);
-  const [state, setState] = useState<"pending" | "filled" | "empty">("pending");
+  const [state, setState] = useState<AdState>("pending");
   const [near, setNear] = useState(!lazy);
   const requested = useRef(false);
   useEffect(() => { onState?.(state); }, [state, onState]);
@@ -88,16 +109,21 @@ function AdBox({ kind, dry, lazy, className, onState }: { kind: AdZoneKind; dry:
   useEffect(() => {
     const area = host.current;
     if (!area) return;
-    // The rail's tall creative only when the window is tall enough to show all of it under the header.
-    const room = kind === "rail" ? window.innerHeight - 160 : Infinity;
-    // The zone sizes itself to its creative, so measure the column it sits in (minus the frame's 18px).
-    const width = (area.parentElement?.clientWidth ?? window.innerWidth) - 18;
-    // A phone-width break uses the phone sizes only (a 468x60 on a 412px phone would be skipped anyway).
-    const phone = window.matchMedia("(max-width: 767px)").matches;
-    const sizes = kind.startsWith("break") ? SIZES[kind].filter(s => phone ? s.width <= 320 : s.height <= 90)
-      : kind === "tower" ? SIZES[kind].filter(s => phone ? s.height <= 100 : s.height >= 250) : SIZES[kind];
-    const pick = sizes.find(s => s.width <= width && s.height <= room) ?? sizes[sizes.length - 1];
-    setSize(pick);
+    const column = area.parentElement;
+    const fit = () => {
+      if (requested.current) return;
+      const room = kind === "rail" ? window.innerHeight - 160 : Infinity;
+      // Measure the column because the zone itself takes the creative's width.
+      const width = (column?.clientWidth ?? window.innerWidth) - 18;
+      const phone = window.matchMedia("(max-width: 767px)").matches;
+      const sizes = kind.startsWith("break") ? SIZES[kind].filter(s => phone ? s.width <= 320 : s.height <= 90)
+        : kind === "tower" ? SIZES[kind].filter(s => phone ? s.height <= 100 : s.height >= 250) : SIZES[kind];
+      setSize(sizes.find(s => s.width <= width && s.height <= room) ?? null);
+    };
+    fit();
+    const observer = column && typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : undefined;
+    if (column) observer?.observe(column);
+    return () => observer?.disconnect();
   }, [kind]);
 
   useEffect(() => {
@@ -110,7 +136,9 @@ function AdBox({ kind, dry, lazy, className, onState }: { kind: AdZoneKind; dry:
 
   useEffect(() => {
     const ad = slot.current, loader = document.getElementById("adsense-loader");
-    if (!size || dry || !ad || !loader) return;
+    if (!size || dry || !ad) return;
+    if (!loader) { setState("empty"); return; }
+    const stopWatching = watchAdResponse(ad, setState);
     const push = () => {
       if (requested.current || loader.dataset.loaded !== "true" || document.hidden) return;
       if (ad.clientWidth < size.width) return;
@@ -118,13 +146,6 @@ function AdBox({ kind, dry, lazy, className, onState }: { kind: AdZoneKind; dry:
       try { ((window as AdWindow).adsbygoogle ??= [] as unknown as { push(request: object): unknown }).push({}); }
       catch { setState("empty"); }
     };
-    // AdSense marks the <ins>: filled, or unfilled / unfill-optimized when there is nothing to show.
-    const status = new MutationObserver(() => {
-      const value = ad.dataset.adStatus;
-      if (value === "filled") setState("filled");
-      else if (value && value.startsWith("unfill")) setState("empty");
-    });
-    status.observe(ad, { attributes: true, attributeFilter: ["data-ad-status"] });
     const unavailable = () => setState("empty");
     if (loader.dataset.failed === "true") unavailable();
     const width = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(push);
@@ -134,7 +155,7 @@ function AdBox({ kind, dry, lazy, className, onState }: { kind: AdZoneKind; dry:
     document.addEventListener("visibilitychange", push);
     push();
     return () => {
-      status.disconnect();
+      stopWatching();
       width?.disconnect();
       loader.removeEventListener("load", push);
       loader.removeEventListener("error", unavailable);
@@ -142,7 +163,7 @@ function AdBox({ kind, dry, lazy, className, onState }: { kind: AdZoneKind; dry:
     };
   }, [size, dry, near]);
 
-  return <aside ref={host} className={`ad-zone ad-zone--${kind} ${className}`} data-state={dry ? "preview" : state}
+  return <aside ref={host} className={`ad-zone ad-zone--${kind} ${className}`} data-state={dry ? "preview" : state} data-ad-fits={Boolean(size)}
     aria-label={lang === "ko" ? "광고" : "Advertisement"} style={size ? { "--ad-w": `${size.width}px`, "--ad-h": `${size.height}px` } as CSSProperties : undefined}>
     <span className="ad-zone-label" aria-hidden="true">{lang === "ko" ? "광고" : "AD"}</span>
     {size && (dry
@@ -165,7 +186,7 @@ function FluidAd({ slot: slotId, layout, format, media = "all", className, dummy
 function FluidBox({ slotId, layout, format, dry, className, dummy }: { slotId: string; layout?: string; format: string; dry: boolean; className: string; dummy: string }) {
   const host = useRef<HTMLElement>(null), slot = useRef<HTMLModElement>(null);
   const [near, setNear] = useState(false);
-  const [state, setState] = useState<"pending" | "filled" | "empty">("pending");
+  const [state, setState] = useState<AdState>("pending");
   const requested = useRef(false);
   useEffect(() => {
     const area = host.current;
@@ -177,17 +198,14 @@ function FluidBox({ slotId, layout, format, dry, className, dummy }: { slotId: s
   }, []);
   useEffect(() => {
     const ad = slot.current, loader = document.getElementById("adsense-loader");
-    if (!near || dry || !ad || !loader) return;
+    if (!near || dry || !ad) return;
+    if (!loader) { setState("empty"); return; }
+    const stopWatching = watchAdResponse(ad, setState);
     const push = () => {
       if (requested.current || loader.dataset.loaded !== "true" || document.hidden || ad.clientWidth === 0) return;
       requested.current = true;
       try { ((window as AdWindow).adsbygoogle ??= [] as unknown as { push(request: object): unknown }).push({}); } catch { setState("empty"); }
     };
-    const status = new MutationObserver(() => {
-      const value = ad.dataset.adStatus;
-      if (value === "filled") setState("filled"); else if (value && value.startsWith("unfill")) setState("empty");
-    });
-    status.observe(ad, { attributes: true, attributeFilter: ["data-ad-status"] });
     const unavailable = () => setState("empty");
     if (loader.dataset.failed === "true") unavailable();
     const width = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(push);
@@ -197,7 +215,7 @@ function FluidBox({ slotId, layout, format, dry, className, dummy }: { slotId: s
     document.addEventListener("visibilitychange", push);
     push();
     return () => {
-      status.disconnect();
+      stopWatching();
       width?.disconnect();
       loader.removeEventListener("load", push);
       loader.removeEventListener("error", unavailable);

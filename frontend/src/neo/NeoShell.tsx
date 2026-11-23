@@ -215,7 +215,19 @@ export default function NeoShell({ path, children }: { path: string; children: R
     </aside>
     {showCurrent && <NeoHeaderCurrent tone="violet" placement="sidebar" />}
     <div className="ng-workspace">
-      <div className="ng-context"><span><Link to="/">KOSPIMAP</Link><i>/</i>{routeLabel(path, lang)}</span>{path === "/exchange" && <span className="ng-exchange-slot" />}<Link to="/hot-issues" className="ng-hot-entry" aria-current={path === "/hot-issues" ? "page" : undefined} onClick={() => reportHotIssue("entry:header", "상단 진입 버튼")}><i aria-hidden="true" /><span>{L("오늘의 핫이슈", "Hot issues")}</span></Link>{showNightQuote(path, window.location.search) && <div className="ng-market-quotes">{showNasdaqFutures(path) ? <NasdaqFuturesBadges /> : <><KospiNightBadge session="day" /><KospiNightBadge /></>}{showOpenNasdaqFutures(path) && <NasdaqFuturesBadges openOnly />}<TreasuryHeaderBadge /></div>}<span className="ng-audience-slot" /><ShareButton path={path} search={window.location.search} title={path.startsWith("/community/") ? `${routeLabel(path, lang)} | K Stock Hub` : undefined} /><button type="button" onClick={event => open("menu", event.currentTarget)} aria-label={L("다른 워크스페이스", "Change workspace")}><NeoIcon name="layers" /></button></div>
+      <div className="ng-context">
+        <span><Link to="/">KOSPIMAP</Link><i>/</i>{routeLabel(path, lang)}</span>
+        {path === "/exchange" && <span className="ng-exchange-slot" />}
+        <Link to="/hot-issues" className="ng-hot-entry" aria-current={path === "/hot-issues" ? "page" : undefined} onClick={() => reportHotIssue("entry:header", "상단 진입 버튼")}><i aria-hidden="true" /><span>{L("오늘의 핫이슈", "Hot issues")}</span></Link>
+        {showNightQuote(path, window.location.search) && <div className="ng-market-quotes">
+          {showNasdaqFutures(path) ? <NasdaqFuturesBadges /> : <KospiNightBadge />}
+          {showOpenNasdaqFutures(path) && <NasdaqFuturesBadges openOnly />}
+          <TreasuryHeaderBadge />
+        </div>}
+        <span className="ng-audience-slot" />
+        <ShareButton path={path} search={window.location.search} title={path.startsWith("/community/") ? `${routeLabel(path, lang)} | K Stock Hub` : undefined} />
+        <button type="button" onClick={event => open("menu", event.currentTarget)} aria-label={L("다른 워크스페이스", "Change workspace")}><NeoIcon name="layers" /></button>
+      </div>
       <div className={`ng-content${path === "/" ? " ng-content--atlas" : ""}${rail ? " ng-content--ad-rail" : ""}`} id="neo-content" tabIndex={-1}>
         {family === "map" && <nav className="ng-map-switcher" aria-label={L("시장 지도 전환", "Switch market map")}>
           <div><span>{L("시장 지도", "MARKET MAPS")}</span><small>{L("다른 시장으로 바로 이동", "Go directly to another market")}</small></div>

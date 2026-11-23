@@ -2,9 +2,10 @@
    the creative's exact size reserved while loading, gone entirely when unfilled. */
 .ad-zone{--ad-w:300px;--ad-h:250px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:content-box;padding:8px;border:1px solid var(--line-soft,#ffffff1a);border-radius:6px;background:#0c080f;contain:layout paint}
 .ad-zone-label{align-self:stretch;font:600 10px/1 var(--f-sans);letter-spacing:.08em;color:var(--text-muted,#8a8193)}
+:is(.ad-zone,.ad-inarticle,.ad-multiplex){color-scheme:light}
 .ad-zone-ins,.ad-zone-dummy{width:var(--ad-w);height:var(--ad-h);max-width:100%}
 .ad-zone-dummy{display:grid;place-items:center;border:1px dashed #d6b54e80;color:#d6b54e;font:12px var(--f-num);background:repeating-linear-gradient(45deg,#d6b54e0a 0 10px,transparent 10px 20px)}
-.ad-zone[data-state="empty"]{display:none}
+.ad-zone:is([data-state="empty"],[data-ad-fits="false"]){display:none}
 html[data-tone="light"] .ad-zone{background:#f6f4f8}
 
 /* wide screens: a rail column beside the content, the ad sticky under the header */

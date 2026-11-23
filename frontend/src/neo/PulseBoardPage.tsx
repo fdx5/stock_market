@@ -7,7 +7,7 @@ import { Link, navigate } from "../router";
 import { useLanguage } from "../i18n/LanguageContext";
 import { useMarketIndices } from "../useMarketIndices";
 import { useMarketTicker } from "../useMarketTicker";
-import { useKospiFutures } from "../useKospiNight";
+import { useOpenKospiQuote } from "../useKospiNight";
 import { pct, toneOf } from "../desk2/lib";
 import { hasReturn, quoteColor, quotePct, tickerChangePct } from "./marketQuote";
 import { useFxLevel } from "./settings";
@@ -118,19 +118,24 @@ function FloatingCompany({ item, market, controller, onClose, lang }: {
   </div>;
 }
 
-/** KOSPI 200 day-session futures beside the market tabs: a quote, not a tab. */
+/** The active KOSPI 200 futures session beside the market tabs. */
 function KospiFuturesChip() {
-  const quote = useKospiFutures();
+  const active = useOpenKospiQuote();
   const { lang } = useLanguage();
+  if (!active) return null;
+
+  const { session, quote } = active;
   const L = (ko: string, en: string) => lang === "ko" ? ko : en;
-  const change = quote?.change_pct;
+  const name = session === "day" ? L("코스피200 선물", "KOSPI 200 FUT") : L("코스피200 야간선물", "KOSPI 200 NIGHT");
+  const change = quote.change_pct;
   const tone = change == null ? "flat" : change > 0 ? "up" : change < 0 ? "down" : "flat";
-  const state = quote?.stale ? L("지연", "Delayed") : quote?.session_state === "open" ? L("거래중", "Open") : quote ? L("마감", "Closed") : L("연결중", "Loading");
-  const stamp = quote?.quote_time ? new Date(quote.quote_time * 1000).toLocaleString(lang === "ko" ? "ko-KR" : "en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—";
-  return <div className={`pb-futures${quote?.stale ? " is-stale" : ""}`} data-mood={change == null ? "calm" : change >= 1 ? "up" : change <= -1 ? "down" : "calm"} role="group" aria-label={L("코스피200 주간선물 시세", "KOSPI 200 day futures")} title={`${L("네이버 증권 주간선물 시세", "Naver day-session futures quote")} · ${stamp} KST · ${state}`}>
-    <span className="pb-tab-name">{L("코스피200 선물", "KOSPI 200 FUT")}</span>
-    <strong>{quote?.close != null ? quote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</strong>
+  const state = quote.stale ? L("지연", "Delayed") : L("거래중", "Open");
+  const stamp = new Date(quote.quote_time * 1000).toLocaleString(lang === "ko" ? "ko-KR" : "en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  return <div className={`pb-futures${quote.stale ? " is-stale" : ""}`} data-mood={change == null ? "calm" : change >= 1 ? "up" : change <= -1 ? "down" : "calm"} role="group" aria-label={name} title={`${name} · ${stamp} KST · ${state}`}>
+    <span className="pb-tab-name">{name}</span>
+    <strong>{quote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
     <b className={`is-${tone}`}>{change != null ? `${change > 0 ? "+" : change < 0 ? "−" : ""}${Math.abs(change).toFixed(2)}%` : "—"}</b>
+    {!quote.stale && <i className="ng-live-led" role="img" aria-label={L("거래 중", "Trading")} />}
     <small>{state}</small>
   </div>;
 }
