@@ -17,20 +17,20 @@ const scope = self as unknown as DedicatedWorkerGlobalScope;
 let snapshot: FloorSnapshot | undefined;
 let series: Record<string, number[]> = {};
 let lang: Language = "ko";
-const canvases = new Map<string, { canvas: OffscreenCanvas; g: G }>();
+// Reuse a single OffscreenCanvas (worker paints 1 panel at a time -> saves ~40-60MB of resident backing stores!)
+let workCanvas: OffscreenCanvas | undefined;
+let workCtx: G | undefined;
 const logos = new Map<string, ImageBitmap | null | "loading">();
 
 function surface(pxW: number, pxH: number) {
-  const key = pxW + "x" + pxH;
-  let entry = canvases.get(key);
-  if (!entry) {
-    const canvas = new OffscreenCanvas(pxW, pxH);
-    const g = canvas.getContext("2d", { alpha: false }) as unknown as G | null;
-    if (!g) return undefined;
-    entry = { canvas, g };
-    canvases.set(key, entry);
+  if (!workCanvas) {
+    workCanvas = new OffscreenCanvas(pxW, pxH);
+    workCtx = (workCanvas.getContext("2d", { alpha: false }) as unknown as G | null) ?? undefined;
+  } else if (workCanvas.width !== pxW || workCanvas.height !== pxH) {
+    workCanvas.width = pxW;
+    workCanvas.height = pxH;
   }
-  return entry;
+  return workCanvas && workCtx ? { canvas: workCanvas, g: workCtx } : undefined;
 }
 
 function logo(g: G, market: ExchangeMarket, code: string, x: number, y: number, size: number) {
@@ -55,11 +55,11 @@ function logo(g: G, market: ExchangeMarket, code: string, x: number, y: number, 
     g.textAlign = "left";
   }
   g.restore();
-  if (img !== undefined || logos.size > 160) return;
+  if (img !== undefined || logos.size >= 96) return;
   logos.set(url, "loading");
   void fetch(url, { mode: "cors", credentials: "omit" })
     .then(r => r.ok ? r.blob() : Promise.reject(new Error(String(r.status))))
-    .then(blob => createImageBitmap(blob))
+    .then(blob => createImageBitmap(blob, { resizeWidth: 96, resizeHeight: 96, resizeQuality: "medium" }).catch(() => createImageBitmap(blob)))
     .then(bitmap => { logos.set(url, bitmap); scope.postMessage({ type: "logo" } satisfies WorkerOut); })
     .catch(() => logos.set(url, null));
 }

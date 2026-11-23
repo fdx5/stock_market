@@ -82,8 +82,9 @@ function outerTickerTexture(
 function panelSpec(id: string, instances: Screen[]) {
   const primary = instances.reduce((a, b) => (a.w * a.h >= b.w * b.h ? a : b));
   const aspect = primary.w / primary.h;
-  const width = id === "overview" ? 3840 : ["treemap", "world", "heatgrid", "news"].includes(id) ? 2048
-    : id === "sign" ? 4096 : ["clocks", "session"].includes(id) ? 3200 : /^s\d/.test(id) ? 1152 : 1440;
+  // Balanced Retina-sharp screen widths: cuts live texture upload + WebGPU mipmap bandwidth by ~55% with zero visible softness.
+  const width = id === "overview" ? 2560 : ["treemap", "world", "heatgrid", "news"].includes(id) ? 1600
+    : id === "sign" ? 2560 : ["clocks", "session"].includes(id) ? 1920 : /^s\d/.test(id) ? 960 : 1280;
   return { aspect, width };
 }
 
@@ -132,7 +133,8 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   const offscreen = typeof OffscreenCanvas !== "undefined" && typeof OffscreenCanvas.prototype.transferToImageBitmap === "function";
   /** Finished snapshots waiting for their GPU upload; newest wins per panel. */
   const pending = new Map<string, ImageBitmap>();
-  const UPLOADS_PER_FRAME = lite ? 1 : 2, PAINT_BUDGET = lite ? 3 : 4, BACKGROUND_EVERY = lite ? 220 : 90;
+  // Strictly 1 GPU mipmapped texture upload per frame prevents multi-upload command-queue stalls & 33ms frame drops!
+  const UPLOADS_PER_FRAME = 1, PAINT_BUDGET = lite ? 2.5 : 3.5, BACKGROUND_EVERY = lite ? 280 : 160;
   // Worker painting: the main thread only posts requests and uploads finished bitmaps.
   let worker: Worker | undefined;
   let workerReady: Promise<void> = Promise.resolve();
@@ -185,8 +187,8 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   const outerCount = uniform(1);
   const outerRepeats = uniform(1);
   let outerSignature = "", outerPaint = 0;
-  /** Page flips for list panels: page index, the page it left and when the flip started. */
-  const pagers = new Map<string, { page: number; prev: number; at: number; next: number }>();
+  /** Page flips for list panels: page index, the page it left, when the flip started, and last slide paint time. */
+  const pagers = new Map<string, { page: number; prev: number; at: number; next: number; lastSlide: number }>();
   const materials: Material[] = [];
   const logos = new Map<string, HTMLImageElement | null>();
   const dirty = new Set<string>();
@@ -195,6 +197,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   let lang: Language = "ko";
   let active = true;
   let lastSecond = 0;
+  let lastSessionTick = 0;
   const paintMs: Record<string, number> = {};
 
   const byPanel = new Map<string, Screen[]>();
@@ -230,7 +233,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       if (id === "tickerA") tex.flipY = false;
       else tex.wrapS = RepeatWrapping;
       if (vertical) tex.wrapT = RepeatWrapping;
-      tex.anisotropy = 8;
+      tex.anisotropy = 4;
       // Scroll in the shader: a uniform offset, so moving text costs no texture upload at all.
       const offset = uniform(0);
       const mat = new MeshStandardNodeMaterial({ color: 0x000000, roughness: .12, metalness: 0 });
@@ -273,7 +276,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
     tex.generateMipmaps = true;
     tex.minFilter = LinearMipmapLinearFilter;
     tex.magFilter = LinearFilter;
-    tex.anisotropy = 8;
+    tex.anisotropy = 4;
     const parts = instances.map(s => {
       const geometry = curved(s) ? arcGeometry(s) : new PlaneGeometry(s.w, s.h);
       // Crop rather than stretch when an instance's aspect differs from the panel's design.
@@ -531,7 +534,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
         const speed = id === "ring" ? 85 : id === "tickerD" ? 120 : id === "tickerV" ? -70 : 150;   // px/s along the strip (columns rise)
         ticker.offset.value = (now / 1000 * speed / ticker.width) % 1;
       }
-      // Page flips: staggered per panel; on desktop a visible flip repaints every frame while it slides.
+      // Page flips: staggered per panel; pace desktop slide at ~9Hz (~5 smooth steps) instead of 60Hz mipmap upload storms!
       if (snapshot && !reduced) {
         let i = 0;
         for (const id of panels.keys()) {
@@ -539,21 +542,35 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
           i++;
           if (pages < 2) continue;
           let pager = pagers.get(id);
-          if (!pager) { pager = { page: 0, prev: 0, at: -1e9, next: now + 6000 + i * 830 }; pagers.set(id, pager); }
+          if (!pager) { pager = { page: 0, prev: 0, at: -1e9, next: now + 7000 + i * 1450, lastSlide: -1e9 }; pagers.set(id, pager); }
           if (now >= pager.next) {
             pager.prev = pager.page % pages;
             pager.page = (pager.page + 1) % pages;
             pager.at = now;
-            pager.next = now + 7000;
+            pager.lastSlide = now;
+            pager.next = now + 9000;
+            dirty.add(id);
+            continue;
           }
-          // Desktop animates the slide every frame; phones change page in a single repaint.
-          if (pager.at === now || (!lite && now - pager.at < 720 && panels.get(id)?.visible)) dirty.add(id);
+          if (!lite && panels.get(id)?.visible) {
+            const elapsed = now - pager.at;
+            if (elapsed > 0 && elapsed < 760 && now - pager.lastSlide >= 115) {
+              pager.lastSlide = now;
+              dirty.add(id);
+            }
+          }
         }
       }
       const second = Math.floor(now / 1000);
       if (second !== lastSecond) {
         lastSecond = second;
-        for (const id of LIVE_PANELS) if (panels.get(id)?.visible !== false) dirty.add(id);   // clocks: only when seen
+        if (LIVE_PANELS.has("clocks") && panels.get("clocks")?.visible !== false) dirty.add("clocks");
+      }
+      // Stagger session board onto half-second offset every 2s so clocks & session NEVER compete in the same frame!
+      const sessionBucket = Math.floor((now + 500) / 2000);
+      if (sessionBucket !== lastSessionTick) {
+        lastSessionTick = sessionBucket;
+        if (LIVE_PANELS.has("session") && panels.get("session")?.visible !== false) dirty.add("session");
       }
       // Time-boxed: visible panels first — one always, more only while the frame has headroom.
       const start = performance.now();

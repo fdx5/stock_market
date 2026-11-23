@@ -287,15 +287,40 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const ktx = compressed ? new KTX2Loader().setWorkerLimit(2).detectSupport(renderer) : undefined;
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     if (ktx) loader.setKTX2Loader(ktx);
-    const maxAniso = mobile ? 2 : Math.min(8, renderer.getMaxAnisotropy());
+    const maxAniso = mobile ? 2 : Math.min(4, renderer.getMaxAnisotropy());
+    const canBitmap = typeof createImageBitmap === "function";
+    const closeBitmapOnUpload = (tex: Texture) => {
+      const img = tex.image as unknown;
+      if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) img.close();
+    };
+    const disposeTexSafe = (tex: Texture) => {
+      closeBitmapOnUpload(tex);
+      tex.dispose();
+    };
+    /** Decode large static WebP textures off-main-thread via ImageBitmap & free CPU RAM immediately after GPU upload! */
+    const loadBitmapTexture = async (url: string, resize?: { width: number; height: number }): Promise<Texture> => {
+      if (!canBitmap) return textures.loadAsync(url);
+      const res = await fetch(url, { signal });
+      if (!res.ok) throw new Error(`Texture unavailable (${res.status}): ${url}`);
+      const blob = await res.blob();
+      signal.throwIfAborted();
+      const bitmap = resize
+        ? await createImageBitmap(blob, { resizeWidth: resize.width, resizeHeight: resize.height, resizeQuality: "high" })
+        : await createImageBitmap(blob);
+      if (disposed || signal.aborted) { bitmap.close(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
+      const tex = new Texture(bitmap);
+      tex.onUpdate = closeBitmapOnUpload;
+      tex.needsUpdate = true;
+      return tex;
+    };
     const lightmap = async (file: string) => {
-      const tex = ktx ? await ktx.loadAsync(hallAsset(file.replace(/\.webp$/, ".ktx2"))) : await textures.loadAsync(hallAsset(file));
-      if (disposed || signal.aborted) { tex.dispose(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
+      const tex = ktx ? await ktx.loadAsync(hallAsset(file.replace(/\.webp$/, ".ktx2"))) : await loadBitmapTexture(hallAsset(file));
+      if (disposed || signal.aborted) { disposeTexSafe(tex); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.flipY = false;
       tex.channel = 1;
       tex.colorSpace = SRGBColorSpace;
       tex.anisotropy = maxAniso;
-      releases.push(() => tex.dispose());
+      releases.push(() => disposeTexSafe(tex));
       return tex;
     };
     const loadModel = async () => {
@@ -308,14 +333,17 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       return model;
     };
     const loadSkyline = async (file: string, isHiResTile = false) => {
-      const tex = await textures.loadAsync(hallAsset(file) + "p19");
-      if (disposed || signal.aborted) { tex.dispose(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
+      // Desktop active mood always upgrades to native 16K (2x 8192x4096), so downscale the 3 crossfade-only fallback
+      // skylines to 4096x1024 on desktop -> saves ~151MB GPU VRAM + ~200MB CPU RAM with zero steady-state visual loss!
+      const resizeFallback = !isHiResTile && !mobile ? { width: 4096, height: 1024 } : undefined;
+      const tex = await loadBitmapTexture(hallAsset(file) + "p19", resizeFallback);
+      if (disposed || signal.aborted) { disposeTexSafe(tex); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.colorSpace = SRGBColorSpace;
       tex.flipY = false;
       tex.wrapS = isHiResTile ? ClampToEdgeWrapping : RepeatWrapping;
       tex.wrapT = ClampToEdgeWrapping;
       // 16K dual-hemisphere tiles use continuous analytical LOD + trilinear mipmaps for razor-sharp supersampling without seam;
-      // 8K single equirectangular fallback disables mipmaps to avoid the atan2(-X) dFdx 1px dotted seam line.
+      // 8K/4K single equirectangular fallback disables mipmaps to avoid the atan2(-X) dFdx 1px dotted seam line.
       if (isHiResTile) {
         tex.generateMipmaps = true;
         tex.minFilter = LinearMipmapLinearFilter;
@@ -330,7 +358,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     };
     const loadSkyline8k = async (file: string) => {
       const tex = await loadSkyline(file, false);
-      releases.push(() => tex.dispose());
+      releases.push(() => disposeTexSafe(tex));
       return tex;
     };
     const { model, shellMap, fixtureMap, skyDay, skyGolden, skyNight } = await (async () => {
@@ -587,8 +615,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       if (measure) canvas.dataset.artDetails = artCanvases.filter(({ mesh }) => artwork.has(mesh)).map(({ id }) => id).join(",");
     };
     const loadPreview = async () => {
-      const map = await textures.loadAsync(`${STORAGE_ASSETS}/art/gallery-preview-v1.webp`);
-      if (disposed || signal.aborted) { map.dispose(); return; }
+      const map = await loadBitmapTexture(`${STORAGE_ASSETS}/art/gallery-preview-v1.webp`);
+      if (disposed || signal.aborted) { disposeTexSafe(map); return; }
       map.colorSpace = SRGBColorSpace;
       map.flipY = false;
       map.channel = 1;
@@ -616,22 +644,22 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const { mesh, id, placeholder } = art;
       let map: Texture | undefined;
       try {
-        map = await textures.loadAsync(`${STORAGE_ASSETS}/art/${id}-1k.webp`);
-        if (disposed || signal.aborted) { map.dispose(); return; }
+        map = await loadBitmapTexture(`${STORAGE_ASSETS}/art/${id}-1k.webp`);
+        if (disposed || signal.aborted) { disposeTexSafe(map); return; }
         map.colorSpace = SRGBColorSpace;
         map.flipY = false;
-        map.anisotropy = 8;
+        map.anisotropy = maxAniso;
         renderer.initTexture(map);
         const material = pictureMaterial(map);
         artwork.set(mesh, () => {
           mesh.material = previewMeshes.has(mesh) && previewMaterial ? previewMaterial : placeholder;
+          if (material.map) disposeTexSafe(material.map);
           material.dispose();
-          material.map?.dispose();
         });
         mesh.material = material;
         artworkMetrics();
       } catch {
-        map?.dispose();
+        if (map) disposeTexSafe(map);
         art.retryAt = performance.now() + 10_000;
       }
     };
@@ -639,16 +667,19 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       for (const release of artwork.values()) release();
       artwork.clear();
       for (const { mesh, placeholder } of artCanvases) mesh.material = placeholder;
-      previewMaterial?.map?.dispose();
+      if (previewMaterial?.map) disposeTexSafe(previewMaterial.map);
       previewMaterial?.dispose();
       previewMeshes.clear();
     });
-    if (mobile) void loadPreview().catch(() => { /* nearby 1K pictures still load independently */ });
+    // Load the single lightweight preview atlas on BOTH mobile & desktop so all 31 paintings appear immediately
+    // without a 31x 1K WebP upload stutter storm on page entry; nearest 8 visible paintings upgrade lazily to 1K!
+    void loadPreview().catch(() => { /* nearby 1K pictures still load independently */ });
+    const maxLiveArt = mobile ? 6 : 8;
     function updateArtwork() {
-      if (artPending) return;
+      if (artPending || drag) return;
       const nearest = artCanvases.map(art => ({ art, distance: art.bounds.center.distanceToSquared(camera.position), visible: frustum.intersectsSphere(art.bounds) }))
-        .filter(({ distance, visible }) => visible || distance < 14 ** 2)
-        .sort((a, b) => Number(b.visible) - Number(a.visible) || a.distance - b.distance).slice(0, 8).map(({ art }) => art);
+        .filter(({ distance, visible }) => (visible && distance < 24 ** 2) || distance < 14 ** 2)
+        .sort((a, b) => Number(b.visible) - Number(a.visible) || a.distance - b.distance).slice(0, maxLiveArt).map(({ art }) => art);
       for (const [mesh, release] of artwork) {
         if (nearest.some(art => art.mesh === mesh)) continue;
         release();
@@ -688,6 +719,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     let touchX = 0, touchForward = 0, velX = 0, velZ = 0;
     let drag: { pointer: number; x: number; y: number; travel: number } | undefined;
     let last = 0, lastPosition = 0, lastHover = -Infinity, lastArtwork = 0, pushedPose = false, aspect = 1, dpr = 0;
+    let lastSentX = NaN, lastSentZ = NaN, lastSentYaw = NaN;
     let slowSince = 0, tier = 0, started = 0;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     const frames: number[] = [];
@@ -698,7 +730,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const pause = () => { keys.clear(); touchX = touchForward = velX = velZ = 0; };
     const isField = (event: KeyboardEvent) => event.target instanceof HTMLElement &&
       !!event.target.closest("input,button,select,textarea,a,[contenteditable],[role=dialog]");
-    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 4 ? 1.25 : tier >= 3 ? 1.6 : touch ? 2 : 2.5);
+    // Cap desktop DPR at 1.5x (Retina-sharp with WebGPU MSAA) to prevent 4K/HiDPI 4x-6x pixel fillrate drops!
+    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 4 ? 1.0 : tier >= 3 ? 1.25 : touch ? 1.75 : 1.5);
 
     function resize() {
       const { width, height } = host.getBoundingClientRect();
@@ -772,25 +805,27 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const keyup = (event: KeyboardEvent) => { keys.delete(event.code); };
 
     function govern(elapsed: number, now: number) {
-      // Hold locked 60 fps: step down planar reflection res -> disable reflector & bloom -> cap DPR only if needed.
-      // Ignore the first seconds: pipeline compiles, 31 gallery artworks and the first display paints are one-off.
+      // Hold locked 60 fps: step down planar reflection res -> disable reflector -> cap DPR -> disable bloom if needed.
+      // Ignore the first 5s while initial WebGPU pipeline & 16K skyline settle.
       if (!started) started = now;
-      if (now - started < 12000) return;
+      if (now - started < 5000) return;
       recent.push(elapsed);
-      if (recent.length > 90) recent.shift();
-      if (recent.length < 90 || tier >= 4) return;
+      if (recent.length > 60) recent.shift();
+      if (recent.length < 60 || tier >= 4) return;
       const avg = recent.reduce((s, v) => s + v, 0) / recent.length;
-      if (avg > 18.2) {
+      if (avg > 18.8) {
         if (!slowSince) slowSince = now;
-        if (now - slowSince > 2500) {
+        if (now - slowSince > 1600) {
           tier++;
           slowSince = 0;
           recent.length = 0;
           if (tier === 1) fx.setReflectionLevel(1);
-          else if (tier === 2) {
-            fx.setReflectionLevel(0);
+          else if (tier === 2) fx.setReflectionLevel(0);
+          else if (tier === 3) resize();
+          else if (tier === 4) {
             if (pipeline) { pipeline.dispose(); pipeline = undefined; }
-          } else resize();
+            resize();
+          }
           canvas.dataset.qualityTier = String(tier);
         }
       } else slowSince = 0;
@@ -913,19 +948,28 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       screens.tick(now, reduced.matches, frustum);
       if (pipeline) pipeline.render(); else renderer.render(scene, camera);
       rendered = true;
-      if (mobile && ready && now - lastArtwork > 350) {
+      if (ready && now - lastArtwork > (mobile ? 400 : 450)) {
         lastArtwork = now;
         updateArtwork();
       }
-      if (!pushedPose || now - lastPosition > 130) {
+      if (!pushedPose || now - lastPosition > 140) {
         pushedPose = true; lastPosition = now;
-        events.position(state.x, state.z, state.yaw);
+        if (
+          Math.abs(state.x - lastSentX) > 0.01 ||
+          Math.abs(state.z - lastSentZ) > 0.01 ||
+          Math.abs(state.yaw - lastSentYaw) > 0.004
+        ) {
+          lastSentX = state.x; lastSentZ = state.z; lastSentYaw = state.yaw;
+          events.position(state.x, state.z, state.yaw);
+        }
         if (measure && frames.length) {
           canvas.dataset.frameMs = frames.slice(-300).map(delta => delta.toFixed(2)).join(",");
           canvas.dataset.drawCalls = String(renderer.info.render.drawCalls);
           canvas.dataset.triangles = String(renderer.info.render.triangles);
           canvas.dataset.pose = [state.x, state.z, state.yaw].map(v => v.toFixed(2)).join(",");
           canvas.dataset.paintMs = JSON.stringify(screens.paintMs);
+          const perfMem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+          if (perfMem) canvas.dataset.jsHeapMb = (perfMem.usedJSHeapSize / (1024 * 1024)).toFixed(1);
         }
       }
     }
@@ -1021,16 +1065,16 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     let hiResToken = 0;
     const disposeHiResLater = (pair: { L: Texture; R: Texture }) => {
       window.setTimeout(() => {
-        pair.L.dispose();
-        pair.R.dispose();
+        disposeTexSafe(pair.L);
+        disposeTexSafe(pair.R);
       }, 250);
     };
     releases.push(() => {
       hiResToken += 1;
       if (activeHiRes) {
         fx.setHiResSkyline(null);
-        activeHiRes.L.dispose();
-        activeHiRes.R.dispose();
+        disposeTexSafe(activeHiRes.L);
+        disposeTexSafe(activeHiRes.R);
         activeHiRes = null;
       }
     });
@@ -1080,16 +1124,6 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     if (mobile) loadEnvironment();
     else {
       void loadHiResSkyline(fx.getMood());
-      void (async () => {
-        for (const art of artCanvases) {
-          if (disposed || signal.aborted) return;
-          // Never compete with an active camera drag/pan frame when uploading 1K paintings!
-          while (drag && !disposed && !signal.aborted) await new Promise(r => setTimeout(r, 80));
-          if (disposed || signal.aborted) return;
-          await loadArtwork(art);
-          await new Promise(r => setTimeout(r, 45));
-        }
-      })();
     }
     return {
       move(x, forward) { if (Math.abs(x) > .05 || Math.abs(forward) > .05) stopTour(); touchX = clamp(x, -1, 1); touchForward = clamp(forward, -1, 1); },

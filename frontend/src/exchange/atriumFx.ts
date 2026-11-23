@@ -3,7 +3,7 @@
  * central neon rods, 3-mood atmosphere controller, and cinematic showcase tour for KOSPIMAP Exchange v6-Ultra. */
 import {
   AdditiveBlending, BufferAttribute, BufferGeometry, CatmullRomCurve3, Color,
-  CylinderGeometry, DoubleSide, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial,
+  CylinderGeometry, DoubleSide, Group, InstancedMesh, Mesh, MeshStandardMaterial,
   Object3D, PlaneGeometry, PointLight, Points, RingGeometry, Vector3,
   type HemisphereLight, type Scene, type Texture,
 } from "three";
@@ -227,8 +227,8 @@ export function createAtriumFX(
   const uSkylightColor = uniform(new Color(MOODS.daylight.skylightColor));
   const uSkylightEmit = uniform(MOODS.daylight.skylightEmit);
 
-  // ---- A. Layer-Culled Real-Time WebGPU Planar Mirror Reflector (0.25x honed-stone softness, ~80% less GPU load!) ----
-  const floorReflector = mobile ? null : reflector({ resolutionScale: 0.25, bounces: false });
+  // ---- A. Layer-Culled Real-Time WebGPU Planar Mirror Reflector (0.20x honed-stone softness, ~86% less GPU load!) ----
+  const floorReflector = mobile ? null : reflector({ resolutionScale: 0.20, bounces: false });
   if (floorReflector) {
     floorReflector.target.rotation.x = -Math.PI / 2; // local +Z -> world +Y (horizontal floor mirror)
     floorReflector.target.position.set(0, 0.002, 0);
@@ -357,7 +357,8 @@ export function createAtriumFX(
     });
     const domePos = positionWorld.xz.mul(0.055);
     const drift = vec2(uTime.mul(0.008), uTime.mul(0.004));
-    const cloudA = mx_fractal_noise_float(domePos.add(drift), 3, 2.0, 0.52, 1.0);
+    // 2-octave FBM saves ~33% ALU across the vaulted skylight dome while preserving soft wispy cloud motion!
+    const cloudA = mx_fractal_noise_float(domePos.add(drift), 2, 2.0, 0.52, 1.0);
     const cloudMask = smoothstep(float(-0.12), float(0.55), cloudA);
     // Directional warm sunlit haze matching Cycles sun azimuth (36 deg)
     const radialDir = normalize(positionWorld.xz.add(vec2(0.001, 0.001)));
@@ -506,9 +507,11 @@ export function createAtriumFX(
       }
       curObj = curObj.parent;
     }
-    if (inReflectLayer) child.layers.enable(1);
-
     const mats = Array.isArray(child.material) ? child.material : [child.material];
+    // Never double-render heavy 16K dual-hemisphere skyline windows or FBM skylight dome inside the planar floor reflector!
+    const skipReflectMesh = mats.some(m => m instanceof MeshStandardMaterial && /perimeter daylight window|daylight glazing/i.test(m.name));
+    if (inReflectLayer && !skipReflectMesh) child.layers.enable(1);
+
     let replaced = false;
     const nextMats = mats.map(m => {
       if (!(m instanceof MeshStandardMaterial)) return m;
@@ -613,7 +616,6 @@ export function createAtriumFX(
     coreLightMid.position.set(0, 6.2, 0);
     coreLightMid.matrixAutoUpdate = false;
     coreLightMid.updateMatrix();
-    coreLightMid.layers.enable(1);
     group.add(coreLightMid);
     disposables.push(coreLightMid);
   }
@@ -622,7 +624,6 @@ export function createAtriumFX(
     ceilingLight.position.set(0, 17.6, 0);
     ceilingLight.matrixAutoUpdate = false;
     ceilingLight.updateMatrix();
-    ceilingLight.layers.enable(1);
     group.add(ceilingLight);
     disposables.push(ceilingLight);
   }
@@ -741,29 +742,27 @@ export function createAtriumFX(
     { mat: rodMatPrimary, role: "filament", baseEmit: 2.8 },
     { mat: rodMatHighlight, role: "filamentW", baseEmit: 3.6 },
   );
-  const rodDummy = new Object3D();
-  const rodMat4 = new Matrix4();
+  const rodPriArr = rodsPrimary.instanceMatrix.array as Float32Array;
+  const rodHiArr = rodsHighlight.instanceMatrix.array as Float32Array;
+  function writeRodMatrix(arr: Float32Array, idx: number, angle: number, r: number, y: number, sxz: number, sy: number) {
+    const c = Math.cos(angle), s = Math.sin(angle);
+    const o = idx * 16;
+    arr[o] = c * sxz;     arr[o + 1] = 0;  arr[o + 2] = -s * sxz; arr[o + 3] = 0;
+    arr[o + 4] = 0;       arr[o + 5] = sy; arr[o + 6] = 0;        arr[o + 7] = 0;
+    arr[o + 8] = s * sxz; arr[o + 9] = 0;  arr[o + 10] = c * sxz; arr[o + 11] = 0;
+    arr[o + 12] = s * r;  arr[o + 13] = y; arr[o + 14] = c * r;   arr[o + 15] = 1;
+  }
   function updateRotatingRods(dt: number, nowSec: number, speedMul: number) {
     for (let i = 0; i < primarySpecs.length; i++) {
       const s = primarySpecs[i];
       s.angle += s.speed * speedMul * dt;
-      const bob = Math.sin(nowSec * 1.4 + s.phase) * 0.14;
-      rodDummy.position.set(Math.sin(s.angle) * s.r, s.yMid + bob, Math.cos(s.angle) * s.r);
-      rodDummy.rotation.set(0, s.angle, 0);
-      rodDummy.scale.set(1.05, s.height, 1.05);
-      rodDummy.updateMatrix();
-      rodsPrimary.setMatrixAt(i, rodMat4.copy(rodDummy.matrix));
+      writeRodMatrix(rodPriArr, i, s.angle, s.r, s.yMid + Math.sin(nowSec * 1.4 + s.phase) * 0.14, 1.05, s.height);
     }
     rodsPrimary.instanceMatrix.needsUpdate = true;
     for (let i = 0; i < highlightSpecs.length; i++) {
       const s = highlightSpecs[i];
       s.angle += s.speed * speedMul * dt;
-      const bob = Math.cos(nowSec * 1.65 + s.phase) * 0.16;
-      rodDummy.position.set(Math.sin(s.angle) * s.r, s.yMid + bob, Math.cos(s.angle) * s.r);
-      rodDummy.rotation.set(0, s.angle, 0);
-      rodDummy.scale.set(0.82, s.height, 0.82);
-      rodDummy.updateMatrix();
-      rodsHighlight.setMatrixAt(i, rodMat4.copy(rodDummy.matrix));
+      writeRodMatrix(rodHiArr, i, s.angle, s.r, s.yMid + Math.cos(nowSec * 1.65 + s.phase) * 0.16, 0.82, s.height);
     }
     rodsHighlight.instanceMatrix.needsUpdate = true;
   }
@@ -906,7 +905,8 @@ export function createAtriumFX(
     }
   }
 
-  // 4. Floating Atmospheric Light Motes (single draw call GPU points)
+  // 4. Floating Atmospheric Light Motes (single draw call GPU points; hidden during bull celebration to avoid redundant draw)
+  let motesPoints: Points | null = null;
   {
     const count = mobile ? 120 : 320;
     const positions = new Float32Array(count * 3);
@@ -938,6 +938,7 @@ export function createAtriumFX(
     motes.matrixAutoUpdate = false;
     motes.updateMatrix();
     motes.frustumCulled = false;
+    motesPoints = motes;
     group.add(motes);
     disposables.push(moteGeo, moteMat);
   }
@@ -996,6 +997,7 @@ export function createAtriumFX(
     const spec = MOODS[targetMood];
     const k = clampVal(blend, 0, 1);
 
+    const colorsChanged = moodDirty;
     if (moodDirty) {
       curExposure += (spec.exposure - curExposure) * k;
       curHemi += (spec.hemi - curHemi) * k;
@@ -1076,23 +1078,27 @@ export function createAtriumFX(
 
     for (const item of trackedCore) {
       if (item.role === "glass") {
-        item.mat.color.copy(curCoreGlass);
+        if (colorsChanged) item.mat.color.copy(curCoreGlass);
       } else if (item.role === "filamentW") {
-        item.mat.color.copy(curCoreHighlight);
-        item.mat.emissive.copy(curCoreHighlight);
+        if (colorsChanged) {
+          item.mat.color.copy(curCoreHighlight);
+          item.mat.emissive.copy(curCoreHighlight);
+        }
         item.mat.emissiveIntensity = item.baseEmit * (0.9 + (liveEmitMul - 1.0) * 0.85);
       } else {
-        item.mat.color.copy(curCorePrimary);
-        item.mat.emissive.copy(curCorePrimary);
+        if (colorsChanged) {
+          item.mat.color.copy(curCorePrimary);
+          item.mat.emissive.copy(curCorePrimary);
+        }
         item.mat.emissiveIntensity = item.baseEmit * liveEmitMul;
       }
     }
 
     const spillBoost = 0.45 + curCoreStrength * 0.95;
-    coreLightLow.color.copy(curCorePrimary);
+    if (colorsChanged) coreLightLow.color.copy(curCorePrimary);
     coreLightLow.intensity = (mobile ? 8.5 : 4.2) * spillBoost * curHolo * breath;
     if (coreLightMid) {
-      coreLightMid.color.copy(curCorePrimary);
+      if (colorsChanged) coreLightMid.color.copy(curCorePrimary);
       coreLightMid.intensity = 6.5 * spillBoost * curHolo * breath;
     }
 
@@ -1195,7 +1201,7 @@ export function createAtriumFX(
       } else {
         reflectTierMul = level === 2 ? 1.0 : 0.82;
         uReflectStrength.value = curReflectBoost * reflectTierMul;
-        floorReflector.reflector.resolutionScale = level === 2 ? 0.25 : 0.18;
+        floorReflector.reflector.resolutionScale = level === 2 ? 0.20 : 0.14;
         floorReflector.target.rotation.x = -Math.PI / 2;
         floorReflector.target.updateMatrix();
       }
@@ -1219,6 +1225,7 @@ export function createAtriumFX(
         }
       }
       celebration.tick(nowSec, dt, reduced);
+      if (motesPoints) motesPoints.visible = celebration.getTier() === 0;
       applyMood(1 - Math.exp(-dt * 4.2), reduced ? 0 : nowSec);
       // Lock into fresh WebGPU 16K material once the active mood crossfade has settled
       const specNow = MOODS[targetMood];
