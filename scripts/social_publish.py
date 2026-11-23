@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import time
+from unicodedata import normalize
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -97,6 +98,54 @@ def campaign_caption(text, service, edition):
     return re.sub(rf"^{re.escape(url)}$", f"{url}?{params}", text, flags=re.MULTILINE)
 
 
+def story_hashtag(value):
+    if not isinstance(value, str):
+        return ""
+    label = normalize("NFKC", value).strip().lstrip("#")
+    if not re.fullmatch(r"[\w .-]{2,40}", label):
+        return ""
+    tag = "".join(char for char in label if char.isalnum())
+    return f"#{tag}" if 2 <= len(tag) <= 24 and any(char.isalpha() for char in tag) else ""
+
+
+def lead_hashtags(story):
+    seen = {"#코스피", "#코스닥", "#증시뉴스"}
+    tags = []
+    keywords = story.get("social_keywords")
+    if not isinstance(keywords, list):
+        keywords = []
+
+    # Older editions only have the story title, summary and affected companies.
+    context = "".join(f'{story["title"]} {story.get("summary", "")}'.casefold().split())
+    companies = [entry["name"] for entry in story.get("affected", [])
+                 if "".join(entry["name"].casefold().split()) in context]
+    for keyword in keywords + companies:
+        tag = story_hashtag(keyword)
+        if tag and tag.casefold() not in seen:
+            tags.append(tag)
+            seen.add(tag.casefold())
+        if len(tags) == 2:
+            break
+    if tags:
+        return tags
+    # A broad macro story may have no named stock. Use a short phrase from its title.
+    words = [word for word in re.findall(r"[^\W_]+", story["title"])
+             if any(char.isalpha() for char in word)]
+    for keyword in [" ".join(words[:2]), *words]:
+        tag = story_hashtag(keyword)
+        if tag and tag.casefold() not in seen:
+            return [tag]
+    return []
+
+
+def news_caption_fits(text, edition):
+    return (
+        weighted_length(text) <= 280
+        and len(campaign_caption(text, "bluesky", edition)) <= 300
+        and len(campaign_caption(text, "threads", edition).encode("utf-8")) <= 500
+    )
+
+
 def make_news(day, edition):
     slot = SLOTS[edition]
     clock = f"{slot[:2]}:{slot[2:]}"
@@ -111,16 +160,18 @@ def make_news(day, edition):
     headline = " ".join(payload["headline"].split())
     if not headline:
         raise RuntimeError("News headline is empty")
-    footer = f"\n\n{SITE}/hot-issues\n#코스피 #코스닥 #증시뉴스"
+    lead = payload["stories"][0]  # The public edition is already sorted by rank.
+    hashtags = " ".join([*lead_hashtags(lead), "#코스피", "#코스닥", "#증시뉴스"])
+    footer = f"\n\n{SITE}/hot-issues\n{hashtags}"
     text = f"{first}\n{headline}{footer}"
-    for story in payload["stories"]:
-        keyword = " ".join(story["title"].split())
-        if not keyword or keyword in headline:
-            continue
-        candidate = f"{first}\n{headline}\n• {keyword}{footer}"
-        if weighted_length(candidate) <= 280 and len(campaign_caption(candidate, "bluesky", edition)) <= 300:
+    while headline and not news_caption_fits(text, edition):
+        headline = headline[:-1].rstrip()
+        text = f"{first}\n{headline}…{footer}"
+    lead_title = " ".join(lead["title"].split())
+    if lead_title and lead_title not in headline:
+        candidate = f"{text.removesuffix(footer)}\n• {lead_title}{footer}"
+        if news_caption_fits(candidate, edition):
             text = candidate
-        break
     return text, [(f"news-{slot}.png", png, f"{day:%m/%d} {clock} 오늘의 핫이슈 요약 카드", media)]
 
 

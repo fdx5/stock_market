@@ -67,6 +67,46 @@ def test_clean_rejects_thin_or_unsourced_editions():
         hi.clean({**edition([story(), story(), story()]), "headline": ""}, at(7))
 
 
+@pytest.mark.parametrize("keywords, expected_tags, truncated", [
+    (["#젠슨 황", "엔비디아"], "#젠슨황 #엔비디아", False),
+    ([], "#엔비디아", False),
+    (["가" * 24, "나" * 24], f'#{"가" * 24} #{"나" * 24}', True),
+])
+def test_news_caption_prioritizes_lead_tags_and_fits_all_channels(monkeypatch, keywords, expected_tags, truncated):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
+    from io import BytesIO
+
+    from PIL import Image
+
+    from scripts import social_publish as publish
+
+    slot = at(7)
+    raw = edition([
+        story(title="삼성전자 실적", importance=3, social_keywords=["삼성전자"]),
+        story(title="젠슨 황 엔비디아 복귀", importance=5, social_keywords=keywords,
+              affected=[{"name": "엔비디아", "code": "NVDA"}]),
+        story(title="미국 금리 발표", importance=4, social_keywords=["미국금리"]),
+    ])
+    raw["headline"] = "가" * 90
+    cleaned = hi.clean(raw, slot)
+    assert cleaned["stories"][0]["social_keywords"] == keywords
+
+    buffer = BytesIO()
+    Image.new("RGB", (4, 4)).save(buffer, format="PNG")
+    monkeypatch.setattr(publish, "read_json", lambda _url: cleaned)
+    monkeypatch.setattr(publish, "request", lambda _url: buffer.getvalue())
+    text, media = publish.make_news(slot.date(), "morning")
+    assert text.splitlines()[-1].startswith(expected_tags + " #코스피")
+    assert "#삼성전자" not in text and "#미국금리" not in text
+    assert ("…" in text) is truncated
+    assert media[0][0] == "news-0700.png"
+    for service in publish.PROFILES:
+        caption = publish.campaign_caption(text, service, "morning")
+        assert publish.weighted_length(caption) <= 280
+        assert len(caption) <= 300
+        assert len(caption.encode("utf-8")) <= 500
+
+
 def test_current_falls_back_to_the_previous_published_slot(monkeypatch):
     published = {hi.archive_path(at(7)): hi.clean(edition([story(), story(), story()]), at(7))}
     monkeypatch.setattr(hi, "edition", lambda slot: published.get(hi.archive_path(slot)))

@@ -42,7 +42,7 @@ SCHEMA: dict = {
             "required": ["label", "value", "change", "note"], "properties": {
                 "label": {"type": "string"}, "value": {"type": "string"}, "change": {"type": "string"}, "note": {"type": "string"}}}},
         "stories": {"type": "array", "minItems": 4, "maxItems": 10, "items": {"type": "object", "additionalProperties": False,
-            "required": ["title", "category", "region", "impact", "importance", "summary", "body", "why_it_matters", "affected", "sources", "image", "video", "original_title"],
+            "required": ["title", "category", "region", "impact", "importance", "social_keywords", "summary", "body", "why_it_matters", "affected", "sources", "image", "video", "original_title"],
             "properties": {
                 "title": {"type": "string", "description": "한국어 제목 (45자 이내)"},
                 "original_title": {"type": "string", "description": "해외 기사면 원문 제목, 국내면 빈 문자열"},
@@ -50,6 +50,9 @@ SCHEMA: dict = {
                 "region": {"type": "string", "enum": ["global", "korea"]},
                 "impact": {"type": "string", "enum": list(IMPACTS)},
                 "importance": {"type": "integer", "minimum": 1, "maximum": 5},
+                "social_keywords": {"type": "array", "minItems": 1, "maxItems": 2,
+                    "items": {"type": "string", "minLength": 2, "maxLength": 24},
+                    "description": "기사의 핵심 인물·기업·기관·사건명 1~2개. 가장 중요한 고유명사를 먼저. # 제외."},
                 "summary": {"type": "string", "description": "핵심 요약 1~2문장"},
                 "body": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"type": "string"}, "description": "상세 설명 문단"},
                 "why_it_matters": {"type": "string", "description": "국내 투자자에게 왜 중요한지"},
@@ -160,6 +163,9 @@ def clean(payload: dict, slot: dt.datetime) -> dict:
             affected.append({"name": _text(a.get("name"), 40), "code": code if STOCK_CODE.match(code) else "",
                              "direction": a.get("direction") if a.get("direction") in ("up", "down", "mixed") else "mixed"})
         importance = raw.get("importance")
+        keywords = raw.get("social_keywords")
+        social_keywords = [keyword.strip() for keyword in keywords
+                           if isinstance(keyword, str) and 2 <= len(keyword.strip()) <= 24][:2] if isinstance(keywords, list) else []
         stories.append({
             "id": f"s{len(stories) + 1}", "title": title, "original_title": _text(raw.get("original_title"), 200),
             "category": raw.get("category") if raw.get("category") in CATEGORIES else "global",
@@ -168,6 +174,7 @@ def clean(payload: dict, slot: dt.datetime) -> dict:
             "importance": importance if isinstance(importance, int) and 1 <= importance <= 5 else 3,
             "summary": summary, "body": body, "why_it_matters": _text(raw.get("why_it_matters"), 600),
             "affected": affected[:8], "sources": sources, "image": image, "video": video,
+            "social_keywords": social_keywords,
         })
     if len(stories) < 3:
         raise ValueError("fewer than three publishable stories")
