@@ -4,7 +4,7 @@ import { STORAGE_ASSETS, type Language } from "./marketCore";
 import bake from "./bake.json";
 
 const t = (lang: Language, ko: string, en: string) => (lang === "ko" ? ko : en);
-const SKY_VER = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36) + "p15";
+const SKY_VER = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36) + "p18";
 
 const SKYLINE_URLS: Record<AtriumMood, string> = {
   daylight: `${STORAGE_ASSETS}/skyline-day-v6.webp${SKY_VER}`,
@@ -28,8 +28,8 @@ const MOOD_META: Record<AtriumMood, { ko: string; en: string; subKo: string; sub
   night: {
     ko: "네온나이트",
     en: "Night",
-    subKo: "서울 360° 8K 실사 초고화질 파노라마 · 서울 야경 전망 (Wikimedia Commons CC BY-SA)",
-    subEn: "Seoul 360° 8K Photoreal Panorama · Seoul Nightscape (Wikimedia Commons CC BY-SA)",
+    subKo: "맨해튼 미드타운 고층 도심 360° 8K 초고화질 야경 파노라마 (Wikimedia Commons CC BY 2.0)",
+    subEn: "Midtown Manhattan High-Rise 360° 8K Night Panorama (Wikimedia Commons CC BY 2.0)",
   },
 };
 

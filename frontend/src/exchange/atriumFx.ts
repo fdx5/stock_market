@@ -98,7 +98,7 @@ const MOODS: Record<AtriumMood, MoodSpec> = {
     skylightEmit: 0.24,
     windowGoldenMix: 0.0,
     windowNightMix: 1.0,
-    windowExposure: 1.28,
+    windowExposure: 1.38,
     coveMul: 0.98,
     godRayColor: "#3c8ed0",
     godRayOpacity: 0.028,
@@ -248,10 +248,10 @@ export function createAtriumFX(
     // Each window pixel samples along normalize(positionWorld - cameraPosition), so moving left/right or turning
     // reveals genuinely different districts of our seamless 360° futuristic Seoul financial metropolis in true 3D depth!
     const wm = new MeshStandardNodeMaterial({
-      color: new Color("#05080e"),
-      roughness: 0.07,
-      metalness: 0.05,
-      envMapIntensity: 0.44,
+      color: new Color("#03050a"),
+      roughness: 0.05,
+      metalness: 0.04,
+      envMapIntensity: 0.18,
       side: DoubleSide,
     });
     const rawDir = normalize(positionWorld.sub(cameraPosition));
@@ -273,10 +273,14 @@ export function createAtriumFX(
     const nightCol = texture(skyNightTex, skyUv).rgb;
     const blended = mix(mix(dayCol, goldCol, uWindowGoldenMix), nightCol, uWindowNightMix);
 
-    // Subtle low-iron architectural double-glazing grazing rim sheen
+    // Subtle low-iron anti-reflective glazing rim sheen + bloom-safe crisp highlight knee so night windows stay razor-sharp!
     const ndv = clamp(abs(dot(normalView, positionViewDirection)), float(0.0), float(1.0));
-    const glassRim = pow(float(1.0).sub(ndv), float(3.2)).mul(0.055);
-    wm.emissiveNode = blended.mul(uWindowExposure).add(vec3(0.58, 0.72, 0.88).mul(glassRim));
+    const glassRim = pow(float(1.0).sub(ndv), float(3.4)).mul(0.026);
+    const exposed = blended.mul(uWindowExposure);
+    // Keep bright night skyscraper lights vivid & punchy while softly capping right under bloom threshold (1.44) -> ZERO bloom smudge!
+    const nightSafe = exposed.div(float(1.0).add(exposed.mul(0.24))).mul(1.22);
+    const crispOut = mix(exposed, nightSafe, uWindowNightMix);
+    wm.emissiveNode = crispOut.add(vec3(0.58, 0.72, 0.88).mul(glassRim));
     envMats.push(wm);
     disposables.push(wm, src);
     return wm;
