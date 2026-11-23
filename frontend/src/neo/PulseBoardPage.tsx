@@ -7,7 +7,7 @@ import { Link, navigate } from "../router";
 import { useLanguage } from "../i18n/LanguageContext";
 import { useMarketIndices } from "../useMarketIndices";
 import { useMarketTicker } from "../useMarketTicker";
-import { useOpenKospiQuote } from "../useKospiNight";
+import { useKospiHeaderQuotes, type KospiHeaderQuote } from "../useKospiNight";
 import { pct, toneOf } from "../desk2/lib";
 import { hasReturn, quoteColor, quotePct, tickerChangePct } from "./marketQuote";
 import { useFxLevel } from "./settings";
@@ -118,24 +118,24 @@ function FloatingCompany({ item, market, controller, onClose, lang }: {
   </div>;
 }
 
-/** The active KOSPI 200 futures session beside the market tabs. */
-function KospiFuturesChip() {
-  const active = useOpenKospiQuote();
-  const { lang } = useLanguage();
-  if (!active) return null;
+function KospiFuturesChips() {
+  const items = useKospiHeaderQuotes();
+  return <>{items.map(item => <KospiFuturesChip key={item.session} {...item} />)}</>;
+}
 
-  const { session, quote } = active;
+function KospiFuturesChip({ session, quote, reference }: KospiHeaderQuote) {
+  const { lang } = useLanguage();
   const L = (ko: string, en: string) => lang === "ko" ? ko : en;
   const name = session === "day" ? L("코스피200 선물", "KOSPI 200 FUT") : L("코스피200 야간선물", "KOSPI 200 NIGHT");
   const change = quote.change_pct;
   const tone = change == null ? "flat" : change > 0 ? "up" : change < 0 ? "down" : "flat";
-  const state = quote.stale ? L("지연", "Delayed") : L("거래중", "Open");
+  const state = reference ? L("참고", "Reference") : quote.stale ? L("지연", "Delayed") : L("거래중", "Open");
   const stamp = new Date(quote.quote_time * 1000).toLocaleString(lang === "ko" ? "ko-KR" : "en-GB", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-  return <div className={`pb-futures${quote.stale ? " is-stale" : ""}`} data-mood={change == null ? "calm" : change >= 1 ? "up" : change <= -1 ? "down" : "calm"} role="group" aria-label={name} title={`${name} · ${stamp} KST · ${state}`}>
+  return <div className={`pb-futures${quote.stale ? " is-stale" : ""}${reference ? " is-reference" : ""}`} data-mood={reference || change == null ? "calm" : change >= 1 ? "up" : change <= -1 ? "down" : "calm"} role="group" aria-label={name} title={`${name} · ${stamp} KST · ${state}`}>
     <span className="pb-tab-name">{name}</span>
     <strong>{quote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
     <b className={`is-${tone}`}>{change != null ? `${change > 0 ? "+" : change < 0 ? "−" : ""}${Math.abs(change).toFixed(2)}%` : "—"}</b>
-    {!quote.stale && <i className="ng-live-led" role="img" aria-label={L("거래 중", "Trading")} />}
+    {!reference && !quote.stale && <i className="ng-live-led" role="img" aria-label={L("거래 중", "Trading")} />}
     <small>{state}</small>
   </div>;
 }
@@ -280,7 +280,7 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
           </button>;
         })}</div>
         </div>
-        <KospiFuturesChip />
+        <KospiFuturesChips />
         <div className="pb-breadth" title={L("등락 분포", "Breadth")}><b className="sc-up">↑{up}</b><div className="sc-breadth-track" role="img" aria-label={`${up} up, ${down} down`}>{[[up, "up"], [known.length - up - down, "flat"], [down, "down"]].map(([count, tone]) => <i key={tone} className={`sc-${tone}`} style={{ flex: Number(count) }} />)}</div><b className="sc-down">↓{down}</b></div>
         <div className="pb-sort" role="group" aria-label={L("정렬", "Sort")}>{([["cap", L("시총순", "Size")], ["return", L("등락순", "Return")]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={order === key} onClick={() => setOrder(key)}>{label}</button>)}</div>
       </div>

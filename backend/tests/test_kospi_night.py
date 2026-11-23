@@ -1,6 +1,7 @@
 """In-memory responses and clocks; no DB, app startup or network."""
 from concurrent.futures import ThreadPoolExecutor
 import copy
+import datetime as dt
 import time
 import pytest
 import requests
@@ -65,6 +66,46 @@ def test_failure_and_older_source_preserve_last_value_and_report_delay(monkeypat
     clock[0] += 10
     mock_get(monkeypatch, body(790, "2026-11-06 21:40:00"), calls)
     assert night.get_quote()["close"] == 803.45
+
+
+@pytest.mark.parametrize(("session", "morning", "regular_day"), [
+    ("2026-11-23", "2026-11-24", "2026-11-24"),
+    ("2026-11-20", "2026-11-21", "2026-11-23"),
+    ("2026-10-08", "2026-10-09", "2026-10-12"),
+])
+def test_last_night_quote_lasts_until_next_regular_close(monkeypatch, session, morning, regular_day):
+    def at(day, clock):
+        return dt.datetime.fromisoformat(f"{day}T{clock}").replace(tzinfo=night.KST)
+
+    payload = body(stamp=f"{morning} 05:59:58")
+    payload["night"]["sessionDate"] = session
+    mock_get(monkeypatch, payload, [])
+    now = at(morning, "05:59:59")
+    monkeypatch.setattr(night.calendar, "now_kst", lambda: now)
+    close = at(regular_day, "15:45:00")
+    expected = {"from": int(at(morning, "06:00:00").timestamp()), "until": int(close.timestamp())}
+
+    assert night.get_quote()["session_state"] == "open"
+    assert night.get_quote()["reference_window"] == expected
+
+    now = at(morning, "06:00:00")
+    quote = night.get_quote()
+    assert quote["session_state"] == "closed"
+    assert quote["reference_window"] == expected and quote["close"] == 803.45
+
+    now = close - dt.timedelta(seconds=1)
+    assert night.get_quote()["reference_window"] == expected
+
+    now = close
+    assert night.get_quote()["reference_window"] is None
+
+
+def test_quote_from_outside_its_night_session_has_no_reference_window(monkeypatch):
+    payload = body(stamp="2026-11-09 05:59:58")
+    mock_get(monkeypatch, payload, [])
+    now = dt.datetime(2026, 11, 9, 9, tzinfo=night.KST)
+    monkeypatch.setattr(night.calendar, "now_kst", lambda: now)
+    assert night.get_quote()["reference_window"] is None
 
 @pytest.mark.parametrize("price", [None, 0, -1, float("nan"), float("inf"), True])
 def test_invalid_quotes_are_not_published(monkeypatch, price):

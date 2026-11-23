@@ -3,9 +3,10 @@ import datetime as dt
 import math
 import threading
 import time
-from zoneinfo import ZoneInfo
 
 import requests
+
+from app.services import trading_calendar as calendar
 
 SOURCE_URL = "https://kospi.donkiugi.com/"
 FEED_URL = "https://kospi.donkiugi.com/api/quotes.php?action=dashboard"
@@ -16,7 +17,10 @@ REFRESH_SECONDS = 10
 BASE_URL = "https://m.stock.naver.com/api/index/FUT/price?pageSize=5&page=1"
 BASE_RETRY_SECONDS = 60
 BASE_MAX_GAP = 0.03  # a quarterly roll or a wrong row must not become the baseline
-KST = ZoneInfo("Asia/Seoul")
+KST = calendar.KST
+NIGHT_START = dt.time(18)
+NIGHT_END = dt.time(6)
+REGULAR_CLOSE = dt.time(15, 45)
 _lock = threading.Lock()
 _attempted: float | None = None
 _latest: dict | None = None
@@ -87,6 +91,29 @@ def _parse(body: dict, base: float | None = None) -> dict:
             "points": points}
 
 
+def _reference_window(quote: dict, now: dt.datetime) -> dict[str, int] | None:
+    """Keep the last print from this night session through the next regular close."""
+    session_date = quote.get("session_date")
+    stamp = quote.get("quote_time")
+    if not isinstance(session_date, str) or stamp is None:
+        return None
+    try:
+        start_day = dt.date.fromisoformat(session_date)
+    except ValueError:
+        return None
+    if not calendar.is_trading_day(start_day, "KR"):
+        return None
+
+    start = dt.datetime.combine(start_day, NIGHT_START, KST)
+    end = dt.datetime.combine(start_day + dt.timedelta(days=1), NIGHT_END, KST)
+    if not start.timestamp() <= stamp <= min(end.timestamp(), now.timestamp()):
+        return None
+
+    next_day = calendar.next_trading_day(start_day, "KR")
+    regular_close = dt.datetime.combine(next_day, REGULAR_CLOSE, KST)
+    return {"from": int(end.timestamp()), "until": int(regular_close.timestamp())} if now < regular_close else None
+
+
 def get_quote() -> dict:
     global _attempted, _latest, _failed
     # One server-wide crawl per 10 seconds, including failures. Concurrent visitors
@@ -108,12 +135,13 @@ def get_quote() -> dict:
             except (requests.RequestException, ValueError, TypeError, KeyError, OverflowError):
                 _failed = True
         quote = dict(_latest) if _latest else {"close": None, "change": None, "change_pct": None, "quote_time": None, "points": []}
-        now_kst = dt.datetime.now(KST)
-        minute = now_kst.hour * 60 + now_kst.minute
-        night_window = (now_kst.weekday() < 5 and minute >= 18 * 60) or (1 <= now_kst.weekday() <= 5 and minute < 6 * 60)
+        now_kst = calendar.now_kst()
+        market_time = now_kst.time()
+        night_window = (now_kst.weekday() < 5 and market_time >= NIGHT_START) or (1 <= now_kst.weekday() <= 5 and market_time < NIGHT_END)
         age = now_kst.timestamp() - quote["quote_time"] if quote["quote_time"] else None
         stale = _failed or bool(quote.get("source_stale")) or bool(night_window and (age is None or age > 180))
         return {**quote, "stale": stale, "fetch_failed": _failed,
                 "session_state": "open" if night_window and quote.get("source_live") else "closed",
+                "reference_window": _reference_window(quote, now_kst),
                 "source": "코스피 야간선물", "source_url": SOURCE_URL,
                 "refresh_seconds": REFRESH_SECONDS, "checked_at": now_kst.isoformat()}

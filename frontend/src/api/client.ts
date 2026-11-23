@@ -882,6 +882,7 @@ export interface KospiNightQuote {
   stale: boolean;
   fetch_failed: boolean;
   session_state: "open" | "closed";
+  reference_window?: { from: number; until: number } | null;
   source?: string;
   source_url?: string;
   refresh_seconds?: number;

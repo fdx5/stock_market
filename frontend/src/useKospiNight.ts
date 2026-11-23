@@ -38,9 +38,19 @@ export const useKospiNight = createQuotePoller(() => api.kospiNight());
 export const useKospiFutures = createQuotePoller(() => api.kospiFutures());
 
 const FRESH_SECONDS = 30 * 60;
-type TradingQuote = KospiNightQuote & { close: number; quote_time: number };
+type PricedQuote = KospiNightQuote & { close: number; quote_time: number };
 
-export function useOpenKospiQuote() {
+export type KospiHeaderQuote = {
+  session: "day" | "night";
+  quote: PricedQuote;
+  reference: boolean;
+};
+
+function hasPrice(quote: KospiNightQuote | null): quote is PricedQuote {
+  return quote?.close != null && quote.quote_time != null;
+}
+
+export function useKospiHeaderQuotes(): KospiHeaderQuote[] {
   const day = useKospiFutures();
   const night = useKospiNight();
   const [now, setNow] = useState(() => Date.now());
@@ -49,13 +59,21 @@ export function useOpenKospiQuote() {
     return startVisibilityAwareInterval(update, 10_000);
   }, []);
 
-  const isTrading = (quote: KospiNightQuote | null): quote is TradingQuote =>
-    quote?.session_state === "open" && quote.close != null && quote.quote_time != null &&
-    now / 1000 - quote.quote_time < FRESH_SECONDS;
+  const seconds = now / 1000;
+  const isTrading = (quote: KospiNightQuote | null): quote is PricedQuote =>
+    hasPrice(quote) && quote.session_state === "open" && seconds - quote.quote_time < FRESH_SECONDS;
 
   const dayOpen = isTrading(day);
-  if (isTrading(night) && (!dayOpen || night.quote_time > day.quote_time)) {
-    return { session: "night", quote: night } as const;
+  const referenceWindow = night?.reference_window;
+  const nightEnded = referenceWindow != null && seconds >= referenceWindow.from;
+  if (!nightEnded && isTrading(night) && (!dayOpen || night.quote_time > day.quote_time)) {
+    return [{ session: "night", quote: night, reference: false }];
   }
-  return dayOpen ? { session: "day", quote: day } as const : null;
+
+  const items: KospiHeaderQuote[] = [];
+  if (dayOpen) items.push({ session: "day", quote: day, reference: false });
+  if (nightEnded && seconds < referenceWindow.until && hasPrice(night)) {
+    items.push({ session: "night", quote: night, reference: true });
+  }
+  return items;
 }

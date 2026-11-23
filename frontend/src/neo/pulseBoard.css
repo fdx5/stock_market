@@ -185,7 +185,7 @@ html.pb-ship-hover,html.pb-ship-hover body,html.pb-ship-hover .pb-page{cursor:po
   .pb-futures{gap:5px;min-height:30px;padding:4px 8px;border-left-width:2px;border-radius:9px}
   .pb-futures strong{font-size:13px}
   .pb-futures b{font-size:10px}
-  .pb-futures small{display:none}
+  .pb-futures:not(.is-reference) small{display:none}
   .pb-mood--bar small{display:none}
   .pb-mood.pb-mood--bar{padding:3px 8px 3px 4px}
   .pb-mood--bar .pb-mood-swatch{width:14px;height:14px}
