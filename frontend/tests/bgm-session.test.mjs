@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 
-const ids = ['bcmTHIqefMk','zXGb3k-A1Vo','-lbbHQbZNKg','pF2tXC1pXNo','DUWRbl3eVi0','6WQjgHuUDWU','vP4jqXzphvc','uYjUI_zeeJk','TrNDRrDXQdo','8PqN8kexaT0','TMXlHacZSh0','7dn32JVyB6s','DzYp5uqixz0','DHNZeIy4kjs','twTHMnVM9L4'];
+const ids = ['2moWP_PSooE','bcmTHIqefMk','zXGb3k-A1Vo','-lbbHQbZNKg','pF2tXC1pXNo','DUWRbl3eVi0','6WQjgHuUDWU','vP4jqXzphvc','uYjUI_zeeJk','TrNDRrDXQdo','8PqN8kexaT0','TMXlHacZSh0','7dn32JVyB6s','DzYp5uqixz0','DHNZeIy4kjs','twTHMnVM9L4'];
 const source = name => ts.transpileModule(readFileSync(new URL(`../src/${name}.ts`, import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
@@ -53,13 +53,14 @@ test('unavailable browser storage preserves an in-memory fixed order', () => {
   assert.deepEqual(lap(session), lap(session));
 });
 
-test('the two opening tracks take positions 1 and 2 in random order; the rest follow shuffled', () => {
+test('the lead track is always first; the two opening tracks take positions 2 and 3 in random order', () => {
   const firsts = new Set();
   for (const r of [0, 0.25, 0.49, 0.5, 0.75, 0.99]) {
     const order = lap(playlist.createBgmSession(undefined, () => r));
-    assert.deepEqual(order.slice(0, 2).sort(), ['bcmTHIqefMk', 'zXGb3k-A1Vo'].sort());
+    assert.equal(order[0], '2moWP_PSooE');
+    assert.deepEqual(order.slice(1, 3).sort(), ['bcmTHIqefMk', 'zXGb3k-A1Vo'].sort());
     assert.deepEqual([...order].sort(), [...ids].sort());
-    firsts.add(order[0]);
+    firsts.add(order[1]);
   }
   assert.equal(firsts.size, 2);
   const storage = memoryStorage();
