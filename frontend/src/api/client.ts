@@ -975,7 +975,7 @@ export type PredictionDirection = "상승" | "하락" | "보합";
 /** One input the call was actually computed from. Categories with no data are absent
  * from the list rather than present-and-empty — see prediction_quality.build_evidence. */
 export interface PredictionEvidence {
-  category: "주가" | "거래량" | "수급" | "업종지수" | "환율" | "뉴스" | "호가";
+  category: "주가" | "거래량" | "수급" | "업종지수" | "환율" | "뉴스" | "호가" | "야간선물";
   label: string;
   value: string;
   impact: "positive" | "negative" | "neutral";
@@ -1061,6 +1061,13 @@ export interface PredictionItem {
    * rows carry index weight, a cap-share proxy — comparable within a market but not
    * across them, which is fine because the page only ever sorts inside one group. */
   market_cap: number | null;
+
+  /** KRX only: the KOSPI200 night-futures move the call was revised with before the
+   * open, and the evening call it replaced. Null until (or unless) revised. */
+  night_fut_pct?: number | null;
+  night_applied_at?: string | null;
+  pre_night_result?: PredictionDirection | null;
+  pre_night_change_rate?: number | null;
 
   /** Null until the predicted session has closed and been graded. */
   actual_price: number | null;

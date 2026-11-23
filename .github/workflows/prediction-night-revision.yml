@@ -1,0 +1,38 @@
+name: AI 종목예측 야간선물 반영
+
+# Backup trigger for the pre-open KOSPI200 night-futures revision of the KRX forecasts
+# (backend/app/services/prediction_night.py). The web process runs it itself every
+# 5 minutes inside 06:05–08:50 KST; this wakes the server and asks again in case that
+# loop was asleep. The endpoint is window-gated and idempotent, so a duplicate call
+# simply reports "nothing to revise".
+#
+#   21:10 UTC Sun–Thu = 06:10 KST Mon–Fri
+#   21:40 UTC Sun–Thu = 06:40 KST Mon–Fri (retry if the night quote was still settling)
+
+on:
+  schedule:
+    - cron: "10 21 * * 0-4"
+    - cron: "40 21 * * 0-4"
+  workflow_dispatch:
+
+concurrency:
+  group: ai-prediction-night
+  cancel-in-progress: false
+
+env:
+  BASE_URL: https://kospimap.com
+
+jobs:
+  revise:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake the server
+        run: curl -fsS --compressed --max-time 90 "$BASE_URL/api/health" || true
+      - name: Apply night futures
+        env:
+          TOKEN: ${{ secrets.PREDICTION_BATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsS --compressed --max-time 60 -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE_URL/api/prediction/night-revision"

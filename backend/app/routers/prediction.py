@@ -383,3 +383,13 @@ def run(
         "force": force,
         "queued_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+@router.post("/night-revision")
+def night_revision(authorization: str | None = Header(None)):
+    """Cron backup for the pre-open KOSPI200 night-futures revision (the in-process
+    scheduler is the primary trigger). Window-gated and idempotent."""
+    _require_batch_token(authorization)
+    from app.services import prediction_night
+
+    return prediction_night.run_revision()

@@ -114,7 +114,33 @@ _ADDED_COLUMNS = (
     ("actual_result", "TEXT"),
     ("hit", "INTEGER"),
     ("graded_at", "TEXT"),
+    # Pre-open KOSPI200 night-futures revision (prediction_night). Beta and volatility
+    # are written by the evening batch; the rest only once the night session has
+    # closed. The pre_night_* columns keep the evening forecast exactly as published,
+    # so revising the call never loses what the batch originally said.
+    ("night_beta", "REAL"),
+    ("volatility_pct", "REAL"),
+    ("night_fut_pct", "REAL"),
+    ("night_applied_at", "TEXT"),
+    ("pre_night_result", "TEXT"),
+    ("pre_night_change_rate", "REAL"),
+    ("pre_night_predict_price", "REAL"),
 )
+
+# One row per night session, written once (insert-or-ignore) by the pre-open revision.
+# It is the only record of what the night futures actually did, kept so the coefficient
+# in prediction_night can be re-measured against real sessions instead of the proxy
+# backtest it was set from.
+_NIGHT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS night_futures_sessions (
+    session_date TEXT PRIMARY KEY,
+    night_close REAL NOT NULL,
+    day_futures_close REAL NOT NULL,
+    change_pct REAL NOT NULL,
+    quote_time INTEGER,
+    captured_at TEXT NOT NULL
+)
+"""
 
 # The page's hot queries are "everything predicted for date X" (the date navigator),
 # "this stock's prediction history" (the accuracy strip on a card), and "which rows are
@@ -156,6 +182,13 @@ _WRITE_FIELDS = (
     ("close_summary", "close_summary"),
     ("evidence", "evidence"),
     ("market_cap", "market_cap"),
+    ("night_beta", "night_beta"),
+    ("volatility_pct", "volatility_pct"),
+    ("night_fut_pct", "night_fut_pct"),
+    ("night_applied_at", "night_applied_at"),
+    ("pre_night_result", "pre_night_result"),
+    ("pre_night_change_rate", "pre_night_change_rate"),
+    ("pre_night_predict_price", "pre_night_predict_price"),
     ("created_at", "created_at"),
     ("updated_at", "updated_at"),
 )
@@ -209,6 +242,7 @@ def _migrate(conn) -> None:
 def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
+    conn.execute(_NIGHT_SCHEMA)
     _migrate(conn)
     for statement in _INDEXES:
         conn.execute(statement)
@@ -587,6 +621,93 @@ def apply_grades(grades: list[dict]) -> int:
         return len(grades)
 
     return _with_connection(_run)
+
+
+def list_night_candidates(collect_date: str, markets: tuple[str, ...]) -> list[dict]:
+    """This session's rows still open for the pre-open night-futures revision: not yet
+    graded and not yet revised. Both guards are in SQL, so a second trigger (the cron
+    endpoint and the in-process scheduler racing) finds nothing left to do."""
+    if not markets:
+        return []
+    placeholders = ", ".join("?" for _ in markets)
+
+    def _run(conn):
+        return conn.execute(
+            f"SELECT {_SELECT_SQL} FROM stock_predictions "
+            f"WHERE collect_date = ? AND market IN ({placeholders}) "
+            "AND hit IS NULL AND graded_at IS NULL AND night_applied_at IS NULL",
+            (collect_date, *markets),
+        ).fetchall()
+
+    return [_row_to_prediction(row) for row in _with_connection(_run)]
+
+
+# Columns the night revision rewrites. The evening values of the three that define the
+# call are copied into pre_night_* in the same statement (COALESCE keeps the first copy
+# if this ever ran twice), so nothing the batch published is lost.
+_NIGHT_REVISED = (
+    ("predict_result", "result"),
+    ("predict_price", "predict_price"),
+    ("change_rate", "change_rate"),
+    ("prob_up", "prob_up"),
+    ("prob_flat", "prob_flat"),
+    ("prob_down", "prob_down"),
+    ("detail", "detail"),
+    ("evidence", "evidence"),
+    ("night_fut_pct", "night_fut_pct"),
+    ("night_applied_at", "night_applied_at"),
+    ("updated_at", "updated_at"),
+)
+
+
+def apply_night_revisions(revisions: list[dict]) -> int:
+    """Writes pre-open revisions. Only touches rows that are still ungraded and
+    unrevised, keyed on the table's own unique (collect_date, stock_code)."""
+    if not revisions:
+        return 0
+    sets = ", ".join(f"{col} = ?" for col, _ in _NIGHT_REVISED)
+    sql = (
+        "UPDATE stock_predictions SET "
+        "pre_night_result = COALESCE(pre_night_result, predict_result), "
+        "pre_night_change_rate = COALESCE(pre_night_change_rate, change_rate), "
+        "pre_night_predict_price = COALESCE(pre_night_predict_price, predict_price), "
+        f"{sets} "
+        "WHERE collect_date = ? AND stock_code = ? "
+        "AND hit IS NULL AND graded_at IS NULL AND night_applied_at IS NULL"
+    )
+
+    def _run(conn):
+        written = 0
+        for rev in revisions:
+            values = tuple(_encode(key, rev) for _, key in _NIGHT_REVISED)
+            cur = conn.execute(sql, (*values, rev["collect_date"], rev["code"]))
+            written += max(0, getattr(cur, "rowcount", 0) or 0)
+        conn.commit()
+        return written
+
+    return _with_connection(_run)
+
+
+def record_night_session(session: dict, captured_at: str) -> None:
+    """Keeps the first capture of a night session; a later capture is ignored."""
+
+    def _run(conn):
+        conn.execute(
+            "INSERT INTO night_futures_sessions "
+            "(session_date, night_close, day_futures_close, change_pct, quote_time, captured_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (session_date) DO NOTHING",
+            (
+                session["session_date"],
+                session["close"],
+                session["prev_close"],
+                session["change_pct"],
+                session.get("quote_time"),
+                captured_at,
+            ),
+        )
+        conn.commit()
+
+    _with_connection(_run)
 
 
 def graded_history(codes: tuple[str, ...] | None = None, limit: int = 12_000) -> list[tuple]:

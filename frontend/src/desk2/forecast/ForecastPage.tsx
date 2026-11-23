@@ -779,7 +779,8 @@ export default function ForecastPage() {
                 for (const it of g.items) {
                   const index = it.evidence.find((e) => e.category === "업종지수");
                   const fx = it.evidence.find((e) => e.category === "환율");
-                  if (index || fx) return { index, fx };
+                  const night = g.items.map((x) => x.night_fut_pct).find((v) => v != null);
+                  if (index || fx || night != null) return { index, fx, night };
                 }
                 return null;
               })();
@@ -838,6 +839,11 @@ export default function ForecastPage() {
                       {ctx.fx && (
                         <span>
                           <b>{ctx.fx.label}</b> {ctx.fx.value}
+                        </span>
+                      )}
+                      {ctx.night != null && (
+                        <span title={L("06시 야간선물 마감 후 장 시작 전 예측을 갱신했습니다", "Revised pre-open after the 06:00 night futures close")}>
+                          <b>{L("코스피200 야간선물 반영", "KOSPI200 night futures")}</b> {formatChangeRate(ctx.night)}
                         </span>
                       )}
                     </p>

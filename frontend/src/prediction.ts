@@ -229,6 +229,7 @@ export const RELIABILITY_CLASS: Record<string, string> = {
  * as tofu boxes in the app's font stack. The coloured leading edge already carries the
  * direction, so the icon was decoration that could fail. */
 export const EVIDENCE_ORDER: Record<PredictionEvidence["category"], number> = {
+  야간선물: 0,
   주가: 1,
   거래량: 2,
   수급: 3,

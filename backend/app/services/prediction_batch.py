@@ -537,6 +537,15 @@ def _scheduler_loop() -> None:
                 # A failed run must not kill the loop — the next poll retries, since the
                 # slot is only marked done above on success.
                 logger.exception("prediction_batch: scheduled run failed for %s", region)
+        # Pre-open night-futures revision of today's KRX rows. Self-gated on the
+        # 06:05–08:50 KST window and idempotent in SQL, so polling it every 5 minutes
+        # is just "run once the night session has closed".
+        try:
+            from app.services import prediction_night
+
+            prediction_night.run_revision()
+        except Exception:
+            logger.exception("prediction_batch: night futures revision failed")
         time.sleep(_SCHEDULER_POLL_SECONDS)
 
 

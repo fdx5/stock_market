@@ -30,6 +30,15 @@ NEWS_LIMIT = 10
 
 TTL_INDEX_CONTEXT_SECONDS = 30 * 60
 
+# Beta against KOSPI200 is what turns one market-wide overnight number (the KOSPI200
+# night futures, applied pre-open by prediction_night) into a per-stock expectation.
+# 120 sessions is long enough to be stable and short enough to follow a stock whose
+# character has changed; clipped so one freak window can't triple a forecast.
+BETA_INDEX_SYMBOL = "KS200"
+BETA_WINDOW = 120
+BETA_MIN_SESSIONS = 60
+BETA_CLIP = (0.0, 3.0)
+
 # FinanceDataReader's symbols for each roster market's own index. The market regime is
 # shared across every stock in a market, so it's fetched once per run and cached, not
 # per stock.
@@ -188,6 +197,37 @@ def get_index_context(market: str) -> dict | None:
     )
 
 
+def _beta_index_closes() -> pd.Series | None:
+    df = cache.get_or_set(
+        "prediction_beta_index",
+        TTL_INDEX_CONTEXT_SECONDS,
+        lambda: price_fetcher.get_history(BETA_INDEX_SYMBOL, 1, allow_stale=False),
+        allow_stale=False,
+    )
+    if df is None or df.empty:
+        return None
+    return df.set_index("date")["close"].astype(float)
+
+
+def market_beta(indicator_df: pd.DataFrame) -> float | None:
+    """The stock's 120-session beta to KOSPI200, or None when it can't be measured."""
+    index = _beta_index_closes()
+    if index is None:
+        return None
+    stock = indicator_df.set_index("date")["close"].astype(float)
+    joined = pd.concat([stock.rename("s"), index.rename("m")], axis=1, join="inner").dropna()
+    returns = joined.pct_change().dropna().tail(BETA_WINDOW)
+    if len(returns) < BETA_MIN_SESSIONS:
+        return None
+    var = float(returns["m"].var())
+    if not var or var <= 0:
+        return None
+    beta = float(returns["s"].cov(returns["m"])) / var
+    if beta != beta:  # NaN
+        return None
+    return round(max(BETA_CLIP[0], min(BETA_CLIP[1], beta)), 3)
+
+
 def collect_for_stock(item: dict, session: dt.date) -> dict | None:
     """Every input for one stock. Returns None only when price history is missing —
     without a close there is nothing to predict a move *from*, so that one failure is
@@ -203,6 +243,7 @@ def collect_for_stock(item: dict, session: dt.date) -> dict | None:
     orderbook = _safe("orderbook", code, lambda: _orderbook_pressure(code), None) if korean else None
     flows = _safe("investor", code, lambda: _investor_flow(code), None) if korean else None
     headlines = _safe("news", code, lambda: _headlines(item), [])
+    beta = _safe("beta", code, lambda: market_beta(indicator_df), None) if korean else None
 
     return {
         "item": item,
@@ -210,6 +251,7 @@ def collect_for_stock(item: dict, session: dt.date) -> dict | None:
         "orderbook": orderbook,
         "flows": flows,
         "headlines": headlines,
+        "market_beta": beta,
         "index": _safe("index", code, lambda: get_index_context(item["market"]), None),
     }
 

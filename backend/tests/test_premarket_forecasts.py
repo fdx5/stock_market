@@ -90,6 +90,7 @@ def test_premarket_previews_respect_market_cutoffs(monkeypatch, kst_now, scope, 
 def test_cards_and_popup_use_the_same_upcoming_session(monkeypatch):
     with sqlite3.connect(":memory:") as conn:
         conn.executescript(prediction_store._SCHEMA)
+        prediction_store._migrate(conn)
         for index in prediction_store._INDEXES:
             conn.execute(index)
         conn.executemany(

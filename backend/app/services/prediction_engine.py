@@ -614,6 +614,11 @@ def build_prediction(
         # within a market — which is all the page needs, since it sorts inside each
         # market group — but not across the two.
         "market_cap": item.get("market_cap"),
+        # What the pre-open night-futures revision (prediction_night) needs and can't
+        # recompute at 06:00 without refetching every history: the stock's KOSPI200 beta
+        # and the volatility its 보합 band and probabilities were scaled by.
+        "night_beta": features.get("market_beta"),
+        "volatility_pct": technical["volatility_pct"],
         "created_at": now_iso,
         "updated_at": now_iso,
         # Not persisted — carried on the in-memory row so the batch's response can
