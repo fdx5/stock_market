@@ -439,10 +439,10 @@ export default function ExchangePage() {
   }, [retry]);
   useEffect(() => { driver?.update(data, histories, lang); }, [data, driver, histories, lang]);
   useEffect(() => { driver?.setMood(mood); }, [driver, mood]);
-  // The art viewer covers the hall: no 3D frames behind it (they made long viewing sessions stutter).
+  // Pause 3D frames ONLY while a 2D painting viewer covers the hall (3D sculpture viewer renders live!).
   useEffect(() => {
-    const art = !!focus && (focus.startsWith("art:") || focus.startsWith("sculpture:"));
-    driver?.suspend(art);
+    const paintingOverlay = !!focus && focus.startsWith("art:");
+    driver?.suspend(paintingOverlay);
   }, [driver, focus]);
   useEffect(() => {
     document.documentElement.classList.toggle("exchange-immersive", immersive);
@@ -543,7 +543,7 @@ export default function ExchangePage() {
       <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v6.webp)" }}>
         <canvas key={retry.id} ref={canvas} className="exchange-canvas" tabIndex={0} aria-label={t(lang, "3D 거래소. 방향키로 이동하고 모니터를 선택하세요.", "3D trading floor. Use arrow keys to move and select a monitor.")} />
       </div>
-      <div className="exchange-overlay-top">
+      {!(focus?.startsWith("art:") || focus?.startsWith("sculpture:")) && <div className="exchange-overlay-top">
         {(immersive || !slot) && <MarketSwitch market={market} lang={lang} choose={chooseMarket} />}
         {(data.received || data.failed) && <div className="exchange-status">
           <i data-live={!data.failed} />
@@ -568,7 +568,7 @@ export default function ExchangePage() {
           {immersive ? <button type="button" className="exchange-action" onClick={leaveImmersive}>{t(lang, "축소", "Exit")}</button>
             : (viewportFullscreen || document.fullscreenEnabled) && <button type="button" className="exchange-action" aria-pressed={full} onClick={toggleFullscreen}>{full ? t(lang, "전체화면 종료", "Exit full screen") : t(lang, "전체화면", "Full screen")}</button>}
         </div>
-      </div>
+      </div>}
       {soundError && <p className="exchange-sound-error" role="status">{t(lang, "이 기기에서 음향을 시작하지 못했습니다.", "Sound could not start on this device.")}</p>}
       {phase === "loading" && <div className="exchange-entry" role="status">
         <div><span>{t(lang, `${Math.round(FLOOR.room.pyeong)}평 · ${FLOOR.room.area.toLocaleString("en-US")}㎡ 아트리움 거래소`, `${FLOOR.room.area.toLocaleString("en-US")} m² trading atrium`)}</span>
@@ -596,7 +596,7 @@ export default function ExchangePage() {
           <small>{t(lang, "왼쪽 조이스틱 이동 · 화면 드래그 · 모니터 탭", "Left joystick moves · drag to look · tap monitors")}</small></div>
       </>}
       {focus && (focus.startsWith("art:") || focus.startsWith("sculpture:")
-        ? <ArtViewer key={focus} id={focus} lang={lang} onClose={() => { setFocus(undefined); canvas.current?.focus({ preventScroll: true }); }} />
+        ? <ArtViewer key={focus} id={focus} lang={lang} driver={driver} onClose={() => { setFocus(undefined); canvas.current?.focus({ preventScroll: true }); }} />
         : <FocusPanel key={market + ":" + focus} data={data} id={focus} lang={lang} histories={histories} onClose={() => {
           setFocus(undefined); canvas.current?.focus({ preventScroll: true });
         }} />)}

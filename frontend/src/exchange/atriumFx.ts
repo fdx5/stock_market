@@ -5,7 +5,7 @@
  * rings, merged Volumetric God-Rays, and Atmospheric Light Motes) — designed to hold locked 60 fps. */
 import {
   AdditiveBlending, BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, CylinderGeometry, DoubleSide,
-  Group, Mesh, MeshStandardMaterial, Object3D, PointLight, Points, RingGeometry, Vector3,
+  Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, Object3D, PointLight, Points, RingGeometry, Vector3,
   type HemisphereLight, type Scene, type Texture,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
@@ -356,6 +356,89 @@ export function createAtriumFX(
     for (const m of detachedHolo) disposables.push(m);
   }
 
+  // 2b. 48 Individually 360°-Rotating Central Neon Light Rods (2 InstancedMesh draw calls, 0 GC!)
+  // Each neon rod orbits 360° around the central core at its own unique radius, height, speed & direction!
+  type RodSpec = { r: number; angle: number; speed: number; yMid: number; height: number; phase: number; highlight: boolean };
+  const rodSpecs: RodSpec[] = [];
+  const primarySpecs: RodSpec[] = [];
+  const highlightSpecs: RodSpec[] = [];
+  // Deterministic PRNG so the sculptural light cadence is balanced on every load
+  let seed = 20261123;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  for (let k = 0; k < 48; k++) {
+    const highlight = k % 3 === 0;
+    const layer = k % 3; // 0: inner fast, 1: mid counter-rotating, 2: outer stately orbit
+    const r = layer === 0 ? 0.42 + rand() * 0.28 : layer === 1 ? 0.72 + rand() * 0.30 : 1.04 + rand() * 0.32;
+    const baseSpeed = layer === 0 ? 0.42 + rand() * 0.28 : layer === 1 ? -(0.28 + rand() * 0.24) : 0.16 + rand() * 0.20;
+    const dirFlip = (k % 5 === 0) ? -1 : 1;
+    const y0 = 1.05 + rand() * 2.4;
+    const y1 = 16.8 + rand() * 2.5;
+    const spec: RodSpec = {
+      r,
+      angle: (k / 48) * Math.PI * 2 + (rand() - 0.5) * 0.12,
+      speed: baseSpeed * dirFlip,
+      yMid: (y0 + y1) * 0.5,
+      height: y1 - y0,
+      phase: rand() * Math.PI * 2,
+      highlight,
+    };
+    rodSpecs.push(spec);
+    if (highlight) highlightSpecs.push(spec);
+    else primarySpecs.push(spec);
+  }
+  const rodGeo = new CylinderGeometry(0.017, 0.017, 1.0, 6, 1, false);
+  const rodMatPrimary = new MeshStandardMaterial({
+    color: new Color("#5ee4ff"),
+    emissive: new Color("#5ee4ff"),
+    emissiveIntensity: 8.5,
+    roughness: 0.15,
+    metalness: 0.0,
+  });
+  const rodMatHighlight = new MeshStandardMaterial({
+    color: new Color("#d2f8ff"),
+    emissive: new Color("#d2f8ff"),
+    emissiveIntensity: 10.5,
+    roughness: 0.15,
+    metalness: 0.0,
+  });
+  const rodsPrimary = new InstancedMesh(rodGeo, rodMatPrimary, primarySpecs.length);
+  const rodsHighlight = new InstancedMesh(rodGeo, rodMatHighlight, highlightSpecs.length);
+  rodsPrimary.frustumCulled = false;
+  rodsHighlight.frustumCulled = false;
+  group.add(rodsPrimary, rodsHighlight);
+  disposables.push(rodGeo, rodMatPrimary, rodMatHighlight);
+  trackedCore.push(
+    { mat: rodMatPrimary, role: "filament", baseEmit: 8.5 },
+    { mat: rodMatHighlight, role: "filamentW", baseEmit: 10.5 },
+  );
+  const rodDummy = new Object3D();
+  const rodMat4 = new Matrix4();
+  function updateRotatingRods(dt: number, nowSec: number, speedMul: number) {
+    for (let i = 0; i < primarySpecs.length; i++) {
+      const s = primarySpecs[i];
+      s.angle += s.speed * speedMul * dt;
+      const bob = Math.sin(nowSec * 1.4 + s.phase) * 0.14;
+      rodDummy.position.set(Math.sin(s.angle) * s.r, s.yMid + bob, Math.cos(s.angle) * s.r);
+      rodDummy.rotation.set(0, s.angle, 0);
+      rodDummy.scale.set(1.05, s.height, 1.05);
+      rodDummy.updateMatrix();
+      rodsPrimary.setMatrixAt(i, rodMat4.copy(rodDummy.matrix));
+    }
+    rodsPrimary.instanceMatrix.needsUpdate = true;
+    for (let i = 0; i < highlightSpecs.length; i++) {
+      const s = highlightSpecs[i];
+      s.angle += s.speed * speedMul * dt;
+      const bob = Math.cos(nowSec * 1.65 + s.phase) * 0.16;
+      rodDummy.position.set(Math.sin(s.angle) * s.r, s.yMid + bob, Math.cos(s.angle) * s.r);
+      rodDummy.rotation.set(0, s.angle, 0);
+      rodDummy.scale.set(0.82, s.height, 0.82);
+      rodDummy.updateMatrix();
+      rodsHighlight.setMatrixAt(i, rodMat4.copy(rodDummy.matrix));
+    }
+    rodsHighlight.instanceMatrix.needsUpdate = true;
+  }
+  updateRotatingRods(0, 0, 1);
+
   // Two delicate counter-rotating holographic telemetry rings orbiting the central core
   const ringMat = new MeshBasicNodeMaterial({
     transparent: true,
@@ -659,6 +742,7 @@ export function createAtriumFX(
       if (!reduced) {
         uTime.value = nowSec;
         const speedMul = 1.0 + curCoreStrength * 0.85;
+        updateRotatingRods(dt, nowSec, speedMul);
         for (const ring of orbitalRings) ring.mesh.rotation.y += ring.speed * speedMul * dt;
       }
       applyMood(1 - Math.exp(-dt * 4.2), reduced ? 0 : nowSec);

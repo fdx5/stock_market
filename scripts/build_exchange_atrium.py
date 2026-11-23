@@ -899,7 +899,9 @@ def build_tower():
     for hy in (1.5, 3.3, 5.2, 6.2, 10.1, 14.1, 17.5):
         sector("Core collar ring", tw["core"] + .03, tw["core"] + .09, hy, hy + .045, 0, 360, "brass", "fixtures", step=.35)
 
-    # 48 Multi-radius layered luminous cyan & pure-white fiber-optic filaments
+    # 48 Multi-radius layered luminous cyan & pure-white fiber-optic filaments:
+    # kept in `bakeonly` so they illuminate the Cycles 4K lightmap & 2K HDR identically,
+    # while the browser renders 48 live individually 360°-rotating neon rods via InstancedMesh!
     for k in range(48):
         t = k * 360 / 48 + rng.uniform(-2.5, 2.5)
         r = rng.uniform(.35, 1.38)
@@ -908,7 +910,7 @@ def build_tower():
         y1 = H - rng.uniform(0, 2.2)
         mat_fil = "filament_w" if k % 3 == 0 else "filament"
         w_fil = .024 if k % 3 == 0 else .034
-        box("Core filament", x, (y0 + y1) / 2, z, w_fil, y1 - y0, w_fil, mat_fil, "emit")
+        box("Core filament", x, (y0 + y1) / 2, z, w_fil, y1 - y0, w_fil, mat_fil, "bakeonly")
     # Soft luminous central sapphire energy column
     lathe("Core energy rod", 0, 1.0, 0, [(.38, 0), (.38, H - 1.0)], "coreglow", "emit", sides=28, caps=False)
 
@@ -978,13 +980,13 @@ def build_counter():
         sector("Counter body", rc - .48, rc - .03, .08, 1.01, a0, a1, "walnut", "fixtures", tile=1.2)
         # Fluted vertical walnut ribs on outer face of command counter
         slat_wall("Counter flutes", rc + .01, .12, .98, a0 + .4, a1 - .4, "walnut", "fixtures", width=.042, depth=.035, pitch=.09, tile=1.2)
-        # Honed Calacatta marble counter top overhang + brass edge trim
+        # Honed Calacatta marble counter top overhang + non-coplanar brass edge trim
         sector("Counter marble top", rc - .58, rc + .08, 1.01, 1.07, a0 - .3, a1 + .3, "stone", "fixtures", tile=1.2)
-        sector("Counter brass lip", rc + .06, rc + .09, 1.005, 1.03, a0 - .3, a1 + .3, "brass", "fixtures")
-        # Warm under-counter floating glow & toe-kick illumination
-        sector("Counter under glow", rc - .02, rc + .04, .99, 1.01, a0, a1, "cove", "emit", faces_on=("bottom",))
-        sector("Counter kick plinth", rc - .45, rc - .06, 0, .08, a0, a1, "darkmarble", "fixtures")
-        sector("Counter kick LED", rc - .05, rc - .01, .02, .07, a0, a1, "cove", "emit", faces_on=("outer",))
+        sector("Counter brass lip", rc + .081, rc + .094, 1.012, 1.036, a0 - .22, a1 + .22, "brass", "fixtures")
+        # Warm under-counter floating glow & toe-kick illumination (cleanly offset below 1.01)
+        sector("Counter under glow", rc - .02, rc + .04, .988, 1.005, a0, a1, "cove", "emit", faces_on=("bottom",))
+        sector("Counter kick plinth", rc - .45, rc - .06, 0, .078, a0, a1, "darkmarble", "fixtures")
+        sector("Counter kick LED", rc - .055, rc - .015, .02, .068, a0 + .15, a1 - .15, "cove", "emit", faces_on=("outer",))
         # Circular champagne-brass footrail
         sector("Counter footrail", rc + .12, rc + .155, .17, .205, a0 + .6, a1 - .6, "brass", "fixtures", step=.35)
 
@@ -1047,13 +1049,15 @@ def build_elevators():
         x, z, t, rc = e["x"], e["z"], e["t"], e["r"]
         for side in (-1, 1):
             rx, rz = pol(LAYOUT["radii"]["gallery"] - .32, t + side * degrees(.55 / 20.25))
-            box("Elevator rail", rx, 8.6, rz, .12, 17.2, .16, "bronze", "fixtures", yaw=t)
-            box("Elevator rail brass", rx, 8.6, rz, .03, 17.2, .17, "brass", "fixtures", yaw=t)
-        lathe("Elevator cap", x, 17.15, z, [(rc + .16, 0), (rc + .16, .35), (0, .35)], "bronze", "fixtures", sides=48)
-        lathe("Elevator cap brass", x, 17.14, z, [(rc + .17, 0), (rc + .17, .04), (rc + .12, .04), (rc + .12, 0)], "brass", "fixtures", sides=48, caps=False)
-        lathe("Elevator cap ring", x, 17.11, z, [(rc + .12, 0), (rc + .12, .03), (rc - .1, .03), (rc - .1, 0)], "cove", "emit", sides=48, caps=False)
+            # Stop rails cleanly below the shaft cap (17.16) and inset brass strip to avoid coplanar caps
+            box("Elevator rail", rx, 8.56, rz, .12, 17.12, .16, "bronze", "fixtures", yaw=t)
+            box("Elevator rail brass", rx, 8.56, rz, .032, 17.08, .172, "brass", "fixtures", yaw=t)
+        # Stacked shaft cap: strictly separated vertical & radial tiers (zero coplanar z-fighting!)
+        lathe("Elevator cap", x, 17.185, z, [(rc + .16, 0), (rc + .16, .34), (0, .34)], "bronze", "fixtures", sides=48)
+        lathe("Elevator cap brass", x, 17.142, z, [(rc + .175, 0), (rc + .175, .038), (rc + .125, .038), (rc + .125, 0)], "brass", "fixtures", sides=48, caps=False)
+        lathe("Elevator cap ring", x, 17.105, z, [(rc + .112, 0), (rc + .112, .030), (rc - .10, .030), (rc - .10, 0)], "cove", "emit", sides=48, caps=False)
         lathe("Elevator pit", x, 0, z, [(rc + .22, 0), (rc + .22, .02), (0, .02)], "darkmarble", "fixtures", sides=48)
-        lathe("Elevator pit brass", x, .02, z, [(rc + .23, 0), (rc + .23, .005), (rc + .18, .005), (rc + .18, 0)], "brass", "fixtures", sides=48, caps=False)
+        lathe("Elevator pit brass", x, .022, z, [(rc + .235, 0), (rc + .235, .006), (rc + .19, .006), (rc + .19, 0)], "brass", "fixtures", sides=48, caps=False)
         for th in (q for q in LAYOUT["walk"]["thresholds"] if q["elevator"] == e["id"]):
             sector("Elevator threshold", th["r0"], th["r1"], th["y"] - .3, th["y"], th["a0"], th["a1"], "stone", "fixtures")
             for edge in (th["a0"], th["a1"]):
@@ -1065,15 +1069,16 @@ def build_elevators():
         cabin.location = P(x, 0, z)
         group = f"cabin{e['id']}"
         door = t
+        # Every cabin ring, ceiling disc, light ring, and floor is strictly separated by >=4mm (zero z-fighting!)
         parts = [
-            lathe("Cabin floor", x, 0, z, [(rc, 0), (rc, .12), (0, .12)], "darkmarble", group, sides=48),
-            lathe("Cabin ceiling", x, 2.56, z, [(rc, 0), (rc, .14), (0, .14)], "trav", group, sides=48),
-            lathe("Cabin light", x, 2.545, z, [(rc - .08, 0), (rc - .08, .015), (rc - .28, .015), (rc - .28, 0)], "downlight", group, sides=48, caps=False),
-            lathe("Cabin underglow", x, -.01, z, [(rc - .06, 0), (rc - .06, .012), (rc - .24, .012), (rc - .24, 0)], "cove", group, sides=48, caps=False),
-            lathe("Cabin base ring", x, .12, z, [(rc + .02, 0), (rc + .02, .1), (rc - .02, .1), (rc - .02, 0)], "bronze", group, sides=48, caps=False),
-            lathe("Cabin base brass", x, .20, z, [(rc + .026, 0), (rc + .026, .024), (rc - .02, .024), (rc - .02, 0)], "brass", group, sides=48, caps=False),
-            lathe("Cabin top ring", x, 2.46, z, [(rc + .02, 0), (rc + .02, .1), (rc - .02, .1), (rc - .02, 0)], "bronze", group, sides=48, caps=False),
-            lathe("Cabin top brass", x, 2.45, z, [(rc + .026, 0), (rc + .026, .024), (rc - .02, .024), (rc - .02, 0)], "brass", group, sides=48, caps=False),
+            lathe("Cabin floor", x, .032, z, [(rc, 0), (rc, .09), (0, .09)], "darkmarble", group, sides=48),
+            lathe("Cabin ceiling", x, 2.585, z, [(rc + .01, 0), (rc + .01, .135), (0, .135)], "trav", group, sides=48),
+            lathe("Cabin light", x, 2.556, z, [(rc - .09, 0), (rc - .09, .022), (rc - .29, .022), (rc - .29, 0)], "downlight", group, sides=48, caps=False),
+            lathe("Cabin underglow", x, .022, z, [(rc - .07, 0), (rc - .07, .008), (rc - .23, .008), (rc - .23, 0)], "cove", group, sides=48, caps=False),
+            lathe("Cabin base ring", x, .126, z, [(rc + .02, 0), (rc + .02, .076), (rc - .02, .076), (rc - .02, 0)], "bronze", group, sides=48, caps=False),
+            lathe("Cabin base brass", x, .206, z, [(rc + .028, 0), (rc + .028, .022), (rc - .014, .022), (rc - .014, 0)], "brass", group, sides=48, caps=False),
+            lathe("Cabin top brass", x, 2.444, z, [(rc + .028, 0), (rc + .028, .022), (rc - .014, .022), (rc - .014, 0)], "brass", group, sides=48, caps=False),
+            lathe("Cabin top ring", x, 2.470, z, [(rc + .02, 0), (rc + .02, .108), (rc - .02, .108), (rc - .02, 0)], "bronze", group, sides=48, caps=False),
         ]
         for a0, a1 in ((door + 32, door + 360 - 32),):
             def local_arc(r, y0, y1, mat, name):
@@ -1223,23 +1228,24 @@ def build_desks():
     champagne-brass trim rails, slate acoustic privacy screens, and glowing warm recessed toe-kicks."""
     for d in LAYOUT["desks"]:
         r, a0, a1 = d["r"], d["a0"], d["a1"]
-        # Honed matte composite desktop + walnut bullnose edge
-        sector("Desk top", r - .05, r + .78, .73, .77, a0, a1, "white", "fixtures", step=.5)
-        sector("Desk edge band", r + .77, r + .795, .725, .775, a0, a1, "walnut", "fixtures", step=.5)
-        sector("Desk edge brass", r + .79, r + .80, .742, .758, a0, a1, "brass", "fixtures", step=.5)
-        sector("Cable tray", r + .05, r + .25, .6, .62, a0 + .5, a1 - .5, "bronze", "fixtures", step=.5)
-        # Sculpted American walnut front modesty shell + recessed glowing toe-kick
-        sector("Desk front", r - .055, r + .01, .07, .73, a0 + .2, a1 - .2, "walnut", "fixtures", step=.5, tile=1.2)
-        sector("Desk kick base", r - .03, r + .02, 0, .07, a0 + .3, a1 - .3, "bronze", "fixtures", step=.5)
-        sector("Desk kick glow", r - .05, r - .025, .02, .055, a0 + .4, a1 - .4, "cove_soft", "emit", faces_on=("inner",), step=.5)
-        # Horizontal champagne-brass mid-reveal on the outer walnut shell
-        sector("Desk front brass", r - .065, r - .05, .38, .405, a0 + .2, a1 - .2, "brass", "fixtures", step=.5)
-        # Slate acoustic privacy screen topped with champagne-brass cap rail
-        sector("Desk screen", r - .10, r - .04, .77, 1.04, a0, a1, "screenfab", "fixtures", step=.5)
-        sector("Desk screen cap", r - .11, r - .03, 1.04, 1.065, a0, a1, "brass", "fixtures", step=.5)
-        # Rounded solid walnut end-cheeks with vertical brass reveal
-        for end_a0, end_a1 in ((a0, a0 + degrees(.045 / r)), (a1 - degrees(.045 / r), a1)):
-            sector("Desk end", r - .08, r + .78, 0, .77, end_a0, end_a1, "walnut", "fixtures", segs=1)
+        end_deg = degrees(.045 / r)
+        # Honed matte composite desktop + non-coplanar walnut edge band & brass trim (zero corner z-fighting!)
+        sector("Desk top", r - .05, r + .778, .73, .77, a0, a1, "white", "fixtures", step=.5)
+        sector("Desk edge band", r + .780, r + .798, .726, .774, a0 - .02, a1 + .02, "walnut", "fixtures", step=.5)
+        sector("Desk edge brass", r + .7995, r + .806, .742, .758, a0 + .08, a1 - .08, "brass", "fixtures", step=.5)
+        sector("Cable tray", r + .05, r + .25, .60, .62, a0 + end_deg + .3, a1 - end_deg - .3, "bronze", "fixtures", step=.5)
+        # Sculpted American walnut front modesty shell strictly between end cheeks
+        sector("Desk front", r - .055, r + .01, .074, .728, a0 + end_deg + .02, a1 - end_deg - .02, "walnut", "fixtures", step=.5, tile=1.2)
+        sector("Desk kick base", r - .03, r + .02, .013, .072, a0 + end_deg + .1, a1 - end_deg - .1, "bronze", "fixtures", step=.5)
+        sector("Desk kick glow", r - .05, r - .032, .022, .056, a0 + end_deg + .2, a1 - end_deg - .2, "cove_soft", "emit", faces_on=("inner",), step=.5)
+        # Horizontal champagne-brass mid-reveal cleanly in front of Desk front
+        sector("Desk front brass", r - .066, r - .0565, .38, .405, a0 + end_deg + .12, a1 - end_deg - .12, "brass", "fixtures", step=.5)
+        # Slate acoustic privacy screen & cap strictly above Desk top (.77) with zero shared planes
+        sector("Desk screen", r - .10, r - .04, .772, 1.038, a0 + .03, a1 - .03, "screenfab", "fixtures", step=.5)
+        sector("Desk screen cap", r - .11, r - .03, 1.040, 1.066, a0, a1, "brass", "fixtures", step=.5)
+        # Solid walnut end-cheeks strictly BELOW Desk top (.728 < .73) and inside edge band (.768 < .778)
+        for end_a0, end_a1 in ((a0, a0 + end_deg), (a1 - end_deg, a1)):
+            sector("Desk end", r - .052, r + .768, .013, .728, end_a0, end_a1, "walnut", "fixtures", segs=1)
     for s in LAYOUT["seats"]:
         r, t = s["r"], s["t"]
         box("Pedestal", *pol(r + .25, t + degrees(.42 / r))[:1], .3, pol(r + .25, t + degrees(.42 / r))[1], .4, .58, .5, "walnut", "fixtures", yaw=t)

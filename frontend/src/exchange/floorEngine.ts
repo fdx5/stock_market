@@ -1,5 +1,5 @@
 import {
-  Box3, BoxGeometry, Color, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, MeshBasicMaterial, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial, NeutralToneMapping,
+  Box3, BoxGeometry, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, MeshBasicMaterial, PointLight, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial, NeutralToneMapping,
   PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Sphere, Texture, TextureLoader, Vector2, WebGPUCoordinateSystem,
   type Ray,
   type BufferGeometry, type Material, type Object3D,
@@ -21,6 +21,13 @@ type Pose = { x: number; z: number; yaw: number; pitch: number; y?: number };
 /** Elevator state for the UI: whether the visitor stands in a cabin, where the cabins are. */
 export type LiftState = { inside: number | null; floor: number; moving: boolean; cabins: number[] };
 type Captions = Record<string, number[]>;
+export type SculptureControlAction =
+  | { type: "orbit"; dx: number; dy: number }
+  | { type: "pan"; dx: number; dy: number }
+  | { type: "zoom"; factor: number }
+  | { type: "reset" }
+  | { type: "autoRotate"; on: boolean };
+
 export type FloorDriver = {
   move: (x: number, forward: number) => void;
   jump: (pose: Pose) => void;
@@ -32,6 +39,10 @@ export type FloorDriver = {
   setMood: (mood: AtriumMood) => void;
   /** Toggle smooth cinematic architectural camera tour. */
   setTour: (on: boolean) => void;
+  /** Open or close interactive 360° 3D museum studio viewer for a loaded sculpture. */
+  inspectSculpture: (id: string | null) => boolean;
+  /** Control the 360° sculpture viewer camera (orbit, pan, zoom, reset, autoRotate). */
+  sculptureControl: (action: SculptureControlAction) => void;
   /** Stop rendering while a full-screen overlay (the art viewer) hides the hall. */
   suspend: (on: boolean) => void;
   dispose: () => void;
@@ -372,9 +383,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     });
     const proxyMat = new MeshBasicMaterial({ visible: false });
     const proxyGeos: BufferGeometry[] = [];
+    const sculptureNodes = new Map<string, Object3D>();
     for (const id of SCULPTURE_IDS) {
       const node = model.getObjectByName(id + "_1") ?? model.getObjectByName(id + " 1") ?? model.getObjectByName(id);
       if (!node) continue;
+      sculptureNodes.set(id, node);
       const box = new Box3().setFromObject(node);
       const geo = new BoxGeometry(...box.getSize(new Vector3()).toArray());
       proxyGeos.push(geo);
@@ -417,9 +430,93 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       if (disposed || signal.aborted) { texture.dispose(); return; }
       texture.mapping = EquirectangularReflectionMapping;
       scene.environment = environment = texture;
+      inspectScene.environment = texture;
       for (const m of propMaterials) { m.envMap = texture; m.envMapIntensity = 1.7; m.needsUpdate = true; }
       fx.setEnvironment(texture);
     }).catch(() => {});
+
+    // ---- Interactive 360° 3D Sculpture Inspection Studio (shares the same WebGPURenderer & 2K HDR!)
+    const inspectScene = new Scene();
+    inspectScene.background = new Color("#090d16");
+    inspectScene.environmentIntensity = 0.85;
+    const inspectCamera = new PerspectiveCamera(40, 1, 0.05, 30);
+    const sHemi = new HemisphereLight("#eef4ff", "#24201c", 0.82);
+    const sKey = new DirectionalLight("#fff4e0", 2.05);
+    sKey.position.set(3.4, 5.2, 4.2);
+    const sRim = new DirectionalLight("#72ccff", 1.1);
+    sRim.position.set(-4.2, 3.0, -3.6);
+    const sFill = new PointLight("#ffdcb4", 1.35, 12, 1.5);
+    sFill.position.set(0, 1.2, 3.4);
+    inspectScene.add(sHemi, sKey, sRim, sFill);
+    // Sleek museum pedestal turntable (satin dark obsidian + champagne brass collar)
+    const pedGeo = new CylinderGeometry(0.76, 0.84, 0.16, 64);
+    const pedMat = new MeshStandardMaterial({ color: "#151820", roughness: 0.48, metalness: 0.12 });
+    const pedMesh = new Mesh(pedGeo, pedMat);
+    pedMesh.position.y = -0.76;
+    const pedRingGeo = new CylinderGeometry(0.778, 0.778, 0.016, 64, 1, true);
+    const pedRingMat = new MeshStandardMaterial({ color: "#c8a974", roughness: 0.28, metalness: 0.88 });
+    const pedRingMesh = new Mesh(pedRingGeo, pedRingMat);
+    pedRingMesh.position.y = -0.689;
+    const inspectStage = new Group();
+    inspectStage.add(pedMesh, pedRingMesh);
+    inspectScene.add(inspectStage);
+    const inspectHolder = new Group();
+    inspectStage.add(inspectHolder);
+    releases.push(() => {
+      inspectScene.environment = null;
+      pedGeo.dispose(); pedMat.dispose(); pedRingGeo.dispose(); pedRingMat.dispose();
+      sHemi.dispose(); sKey.dispose(); sRim.dispose(); sFill.dispose();
+    });
+    let inspectingId: string | null = null;
+    const orbit = {
+      theta: 0.42, targetTheta: 0.42,
+      phi: 1.24, targetPhi: 1.24,
+      dist: 2.35, targetDist: 2.35,
+      panX: 0, targetPanX: 0,
+      panY: 0.04, targetPanY: 0.04,
+      autoRotate: true,
+    };
+    const resetOrbit = () => {
+      orbit.targetTheta = 0.42;
+      orbit.targetPhi = 1.24;
+      orbit.targetDist = 2.35;
+      orbit.targetPanX = 0;
+      orbit.targetPanY = 0.04;
+    };
+    const clearInspectHolder = () => {
+      while (inspectHolder.children.length) inspectHolder.remove(inspectHolder.children[0]);
+    };
+    const openSculptureInspect = (id: string | null) => {
+      clearInspectHolder();
+      inspectingId = null;
+      if (!id) return true;
+      const source = sculptureNodes.get(id);
+      if (!source) return false;
+      const clone = source.clone(true);
+      clone.position.set(0, 0, 0);
+      clone.rotation.set(0, 0, 0);
+      clone.scale.set(1, 1, 1);
+      clone.matrixAutoUpdate = true;
+      clone.traverse(o => { o.matrixAutoUpdate = true; });
+      clone.updateMatrixWorld(true);
+      const bounds = new Box3().setFromObject(clone);
+      const size = bounds.getSize(new Vector3());
+      const center = bounds.getCenter(new Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+      const normScale = 1.38 / maxDim;
+      clone.scale.setScalar(normScale);
+      clone.position.set(-center.x * normScale, -bounds.min.y * normScale - 0.672, -center.z * normScale);
+      inspectHolder.add(clone);
+      resetOrbit();
+      orbit.theta = orbit.targetTheta;
+      orbit.phi = orbit.targetPhi;
+      orbit.dist = orbit.targetDist;
+      orbit.panX = orbit.targetPanX;
+      orbit.panY = orbit.targetPanY;
+      orbit.autoRotate = true;
+      inspectingId = id;
+      return true;
+    };
     if (!mobile) loadEnvironment();
 
     const artwork = new Map<Mesh, () => void>();
@@ -546,9 +643,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const ratio = maxRatio();
       if (dpr === ratio && canvas.width === Math.floor(width * ratio) && canvas.height === Math.floor(height * ratio)) return;
       dpr = ratio;
-      aspect = camera.aspect = width / height;
+      aspect = camera.aspect = inspectCamera.aspect = width / height;
       camera.fov = aspect < 1 ? Math.min(96, Math.max(72, 2 * Math.atan(Math.tan(31 * RAD) / aspect) / RAD)) : 62;
       camera.updateProjectionMatrix();
+      inspectCamera.fov = aspect < 1 ? 50 : 40;
+      inspectCamera.updateProjectionMatrix();
       renderer.setDrawingBufferSize(width, height, dpr);
     }
     const observer = new ResizeObserver(resize);
@@ -641,6 +740,29 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         if (frames.length > 2400) frames.splice(0, 600);
       }
       if (dpr !== maxRatio()) resize();
+      // When inspecting a 3D sculpture, pause the hall simulation & render ONLY the lightweight 360° studio!
+      if (inspectingId) {
+        if (orbit.autoRotate && !reduced.matches) orbit.targetTheta += step * 0.34;
+        const k = 1 - Math.exp(-step * 12);
+        orbit.theta += (orbit.targetTheta - orbit.theta) * k;
+        orbit.phi += (orbit.targetPhi - orbit.phi) * k;
+        orbit.dist += (orbit.targetDist - orbit.dist) * k;
+        orbit.panX += (orbit.targetPanX - orbit.panX) * k;
+        orbit.panY += (orbit.targetPanY - orbit.panY) * k;
+        const sinPhi = Math.sin(orbit.phi);
+        inspectCamera.position.set(
+          orbit.panX + orbit.dist * sinPhi * Math.sin(orbit.theta),
+          orbit.panY + orbit.dist * Math.cos(orbit.phi),
+          orbit.dist * sinPhi * Math.cos(orbit.theta),
+        );
+        inspectCamera.lookAt(orbit.panX, orbit.panY, 0);
+        const prevExposure = renderer.toneMappingExposure;
+        renderer.toneMappingExposure = 1.02;
+        renderer.render(inspectScene, inspectCamera);
+        renderer.toneMappingExposure = prevExposure;
+        rendered = true;
+        return;
+      }
       const axisX = Number(keys.has("KeyD") || keys.has("ArrowRight")) - Number(keys.has("KeyA") || keys.has("ArrowLeft")) + touchX;
       const axisZ = Number(keys.has("KeyW") || keys.has("ArrowUp")) - Number(keys.has("KeyS") || keys.has("ArrowDown")) + touchForward;
       const scale = ((keys.has("ShiftLeft") || keys.has("ShiftRight")) ? 5.2 : 3.0) / Math.max(1, Math.hypot(axisX, axisZ));
@@ -839,6 +961,27 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       setTour(on) {
         if (on) { pause(); tour.start(); events.tour?.(true); }
         else stopTour();
+      },
+      inspectSculpture(id) {
+        if (id) { stopTour(); pause(); }
+        return openSculptureInspect(id);
+      },
+      sculptureControl(action) {
+        if (action.type === "orbit") {
+          orbit.autoRotate = false;
+          orbit.targetTheta -= action.dx * 0.0085;
+          orbit.targetPhi = clamp(orbit.targetPhi - action.dy * 0.0075, 0.14, 1.54);
+        } else if (action.type === "pan") {
+          const s = orbit.targetDist * 0.0014;
+          orbit.targetPanX = clamp(orbit.targetPanX - action.dx * s, -0.75, 0.75);
+          orbit.targetPanY = clamp(orbit.targetPanY + action.dy * s, -0.55, 0.75);
+        } else if (action.type === "zoom") {
+          orbit.targetDist = clamp(orbit.targetDist / action.factor, 0.85, 4.4);
+        } else if (action.type === "reset") {
+          resetOrbit();
+        } else if (action.type === "autoRotate") {
+          orbit.autoRotate = action.on;
+        }
       },
       suspend(on) { suspended = on; visibility(); },
       ride(floor) {

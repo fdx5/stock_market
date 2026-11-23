@@ -1,10 +1,10 @@
 {
  "shell": {
-  "scale": 16.72409,
+  "scale": 16.72586,
   "file": "lightmap-shell-v6.webp"
  },
  "fixtures": {
-  "scale": 4.07866,
+  "scale": 4.11075,
   "file": "lightmap-fixtures-v6.webp"
  }
 }
