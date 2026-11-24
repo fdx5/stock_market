@@ -608,7 +608,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     // Museum anti-glare matte canvas: zero milky envMap reflection over dark brushstrokes, crisp vivid detail!
     const pictureMaterial = (map: Texture) => {
       const mat = new MeshStandardMaterial({ map, roughness: .94, metalness: 0.0, emissive: 0xfff8ee, emissiveMap: map, emissiveIntensity: .38 });
-      mat.envMapIntensity = 0.06;
+      mat.envMapIntensity = 0.0;
       return mat;
     };
     const artworkMetrics = () => {
@@ -672,14 +672,14 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       previewMeshes.clear();
     });
     // Load the single lightweight preview atlas on BOTH mobile & desktop so all 31 paintings appear immediately
-    // without a 31x 1K WebP upload stutter storm on page entry; nearest 8 visible paintings upgrade lazily to 1K!
+    // without stutter; upgrade to 1K ONLY when visitor walks close (<10.5m) & slows down (NEVER during Tour Mode!).
     void loadPreview().catch(() => { /* nearby 1K pictures still load independently */ });
-    const maxLiveArt = mobile ? 6 : 8;
+    const maxLiveArt = mobile ? 5 : 6;
     function updateArtwork() {
-      if (artPending || drag) return;
+      if (artPending || drag || tour.isActive() || velX * velX + velZ * velZ > 0.16) return;
       const nearest = artCanvases.map(art => ({ art, distance: art.bounds.center.distanceToSquared(camera.position), visible: frustum.intersectsSphere(art.bounds) }))
-        .filter(({ distance, visible }) => (visible && distance < 24 ** 2) || distance < 14 ** 2)
-        .sort((a, b) => Number(b.visible) - Number(a.visible) || a.distance - b.distance).slice(0, maxLiveArt).map(({ art }) => art);
+        .filter(({ distance, visible }) => visible && distance < 10.5 ** 2)
+        .sort((a, b) => a.distance - b.distance).slice(0, maxLiveArt).map(({ art }) => art);
       for (const [mesh, release] of artwork) {
         if (nearest.some(art => art.mesh === mesh)) continue;
         release();
@@ -731,7 +731,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const isField = (event: KeyboardEvent) => event.target instanceof HTMLElement &&
       !!event.target.closest("input,button,select,textarea,a,[contenteditable],[role=dialog]");
     // Cap desktop DPR at 1.5x (Retina-sharp with WebGPU MSAA) to prevent 4K/HiDPI 4x-6x pixel fillrate drops!
-    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 4 ? 1.0 : tier >= 3 ? 1.25 : touch ? 1.75 : 1.5);
+    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 3 ? 1.0 : tier >= 1 ? 1.25 : touch ? 1.75 : 1.5);
 
     function resize() {
       const { width, height } = host.getBoundingClientRect();
@@ -805,27 +805,24 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const keyup = (event: KeyboardEvent) => { keys.delete(event.code); };
 
     function govern(elapsed: number, now: number) {
-      // Hold locked 60 fps: step down planar reflection res -> disable reflector -> cap DPR -> disable bloom if needed.
-      // Ignore the first 5s while initial WebGPU pipeline & 16K skyline settle.
+      // Hold locked 60 fps smoothly without pipeline reallocation hitches:
+      // tier 1 = cap DPR 1.25 -> tier 2 = disable bloom -> tier 3 = cap DPR 1.0.
       if (!started) started = now;
       if (now - started < 5000) return;
       recent.push(elapsed);
       if (recent.length > 60) recent.shift();
-      if (recent.length < 60 || tier >= 4) return;
+      if (recent.length < 60 || tier >= 3) return;
       const avg = recent.reduce((s, v) => s + v, 0) / recent.length;
-      if (avg > 18.8) {
+      if (avg > 19.2) {
         if (!slowSince) slowSince = now;
-        if (now - slowSince > 1600) {
+        if (now - slowSince > 1800) {
           tier++;
           slowSince = 0;
           recent.length = 0;
-          if (tier === 1) fx.setReflectionLevel(1);
-          else if (tier === 2) fx.setReflectionLevel(0);
-          else if (tier === 3) resize();
-          else if (tier === 4) {
+          if (tier === 1) resize();
+          else if (tier === 2) {
             if (pipeline) { pipeline.dispose(); pipeline = undefined; }
-            resize();
-          }
+          } else resize();
           canvas.dataset.qualityTier = String(tier);
         }
       } else slowSince = 0;
@@ -952,21 +949,24 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         lastArtwork = now;
         updateArtwork();
       }
-      if (!pushedPose || now - lastPosition > 140) {
+      if (!pushedPose || now - lastPosition > (tourPose ? 260 : 140)) {
         pushedPose = true; lastPosition = now;
+        const posX = tourPose ? tourPose.x : state.x;
+        const posZ = tourPose ? tourPose.z : state.z;
+        const posYaw = tourPose ? tourPose.yaw : state.yaw;
         if (
-          Math.abs(state.x - lastSentX) > 0.01 ||
-          Math.abs(state.z - lastSentZ) > 0.01 ||
-          Math.abs(state.yaw - lastSentYaw) > 0.004
+          Math.abs(posX - lastSentX) > 0.01 ||
+          Math.abs(posZ - lastSentZ) > 0.01 ||
+          Math.abs(posYaw - lastSentYaw) > 0.004
         ) {
-          lastSentX = state.x; lastSentZ = state.z; lastSentYaw = state.yaw;
-          events.position(state.x, state.z, state.yaw);
+          lastSentX = posX; lastSentZ = posZ; lastSentYaw = posYaw;
+          events.position(posX, posZ, posYaw);
         }
         if (measure && frames.length) {
           canvas.dataset.frameMs = frames.slice(-300).map(delta => delta.toFixed(2)).join(",");
           canvas.dataset.drawCalls = String(renderer.info.render.drawCalls);
           canvas.dataset.triangles = String(renderer.info.render.triangles);
-          canvas.dataset.pose = [state.x, state.z, state.yaw].map(v => v.toFixed(2)).join(",");
+          canvas.dataset.pose = [posX, posZ, posYaw].map(v => v.toFixed(2)).join(",");
           canvas.dataset.paintMs = JSON.stringify(screens.paintMs);
           const perfMem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
           if (perfMem) canvas.dataset.jsHeapMb = (perfMem.usedJSHeapSize / (1024 * 1024)).toFixed(1);
