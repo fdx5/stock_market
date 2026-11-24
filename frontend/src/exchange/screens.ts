@@ -127,6 +127,8 @@ type Panel = {
 /** lite: touch/iPad devices — lighter paint budget, single-repaint page flips; disableWorker: avoids Safari OffscreenCanvas OOM. */
 export function createScreens(quality: number, lite = false, upload?: (texture: Texture) => void, disableWorker = false) {
   const group = new Group();
+  group.matrixAutoUpdate = false;
+  group.updateMatrix();
   const targets: Mesh[] = [];
   const panels = new Map<string, Panel>();
   const scratch = new Map<string, { canvas: HTMLCanvasElement | OffscreenCanvas; g: G }>();
@@ -187,7 +189,24 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   let lastBackground = 0, signature = "";
   /** Page counts per list panel, computed once per snapshot rather than (with a sort) every frame. */
   const pageCounts = new Map<string, number>();
-  const tickers = new Map<string, { canvas: HTMLCanvasElement; tex: Texture; width: number; meshes: Mesh[]; offset: { value: number } }>();
+  type TickerSegment = { start: number; count: number; length: number; height: number; vertical?: boolean; phase: number };
+  type TickerEntry = {
+    canvas: HTMLCanvasElement;
+    tex: Texture;
+    width: number;
+    mesh: Mesh;
+    segments: TickerSegment[];
+    baseU?: Float32Array;
+    baseV?: Float32Array;
+    offset: { value: number };
+  };
+  const tickers = new Map<string, TickerEntry>();
+  const pendingTickers = new Map<string, { image: ImageBitmap | HTMLCanvasElement; apply: () => void }>();
+  const queueTickerCommit = (id: string, image: ImageBitmap | HTMLCanvasElement, apply: () => void) => {
+    const prev = pendingTickers.get(id);
+    if (prev && prev.image !== image && isBitmap(prev.image)) prev.image.close();
+    pendingTickers.set(id, { image, apply });
+  };
   const outerTickerCanvas = offscreen ? new OffscreenCanvas(1, 1) : undefined;
   const outerCount = uniform(1);
   const outerRepeats = uniform(1);
@@ -246,22 +265,37 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       mat.emissiveNode = id === "tickerA" ? outerTickerTexture(tex, offset, outerCount, outerRepeats).rgb.mul(1.25)
         : textureNode(tex, uv().add(vertical ? vec2(0, offset) : vec2(offset, 0))).rgb.mul(1.1);
       materials.push(mat);
-      const meshes = instances.map(s => {
+      const segments: TickerSegment[] = [];
+      const parts: BufferGeometry[] = [];
+      let vCursor = 0;
+      for (let idx = 0; idx < instances.length; idx++) {
+        const s = instances[idx];
         let geometry: BufferGeometry;
         if (id === "ring") {
           geometry = new CylinderGeometry(s.w, s.w, s.h, 96, 1, true);
           geometry.translate(s.x, s.y, s.z);
         } else if (curved(s)) geometry = arcGeometry(s);
         else geometry = place(new PlaneGeometry(s.w, s.h), s);
-        const mesh = new Mesh(geometry, mat);
-        mesh.userData.ticker = vertical ? { length: s.h, height: s.w, vertical: true, phase: (instances.indexOf(s) * .137) % 1 }
-          : { length: id === "ring" ? 2 * Math.PI * s.w : s.w, height: s.h };
-        group.add(mesh);
-        return mesh;
-      });
+        const count = geometry.getAttribute("position").count;
+        segments.push(
+          vertical
+            ? { start: vCursor, count, length: s.h, height: s.w, vertical: true, phase: (idx * .137) % 1 }
+            : { start: vCursor, count, length: id === "ring" ? 2 * Math.PI * s.w : s.w, height: s.h, phase: 0 },
+        );
+        vCursor += count;
+        parts.push(geometry);
+      }
+      // Merge all instances of a ticker (e.g. 12 vertical column strips + 2 rings) into 1 draw call per ticker ID!
+      const mergedGeo = parts.length === 1 ? parts[0] : mergeGeometries(parts, false);
+      if (parts.length > 1) parts.forEach(p => p.dispose());
+      if (!mergedGeo) continue;
+      const mesh = new Mesh(mergedGeo, mat);
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      group.add(mesh);
       tex.userData.width = canvas.width;
       const width = id === "tickerA" ? instances[0].w / instances[0].h * OUTER_TICKER_ATLAS.slotHeight : 1024;
-      tickers.set(id, { canvas, tex, width, meshes, offset });
+      tickers.set(id, { canvas, tex, width, mesh, segments, offset });
       continue;
     }
     const painter = PAINTERS[id];
@@ -302,6 +336,8 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
     parts.forEach(p => p.dispose());
     if (!merged) continue;
     const mesh = new Mesh(merged, glass(tex, id === "sign" ? 1.4 : 1));
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     mesh.userData.panel = id;
     group.add(mesh);
     if (id !== "sign") targets.push(mesh);
@@ -419,6 +455,13 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   function flush() {
     const limit = uploadsPerFrame();
     let n = 0;
+    // Commit paced ticker texture uploads within the same per-frame GPU upload budget (zero multi-upload frame stalls!).
+    for (const [id, entry] of pendingTickers) {
+      if (n >= limit) break;
+      pendingTickers.delete(id);
+      entry.apply();
+      n++;
+    }
     for (const [id, bitmap] of pending) {
       if (n >= limit) break;
       const panel = panels.get(id);
@@ -459,15 +502,21 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
             if (isBitmap(image)) image.close();
             return;
           }
-          const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement | null;
-          if (old && old.height !== image.height) ticker.tex.dispose();
-          ticker.tex.image = image;
-          ticker.tex.needsUpdate = true;
-          outerCount.value = entries.length;
-          // Repeat a partial feed a whole number of times until the full selection arrives.
-          outerRepeats.value = Math.max(1, Math.round(ticker.width / (entries.length * OUTER_TICKER_ATLAS.slotWidth)));
-          uploadFn?.(ticker.tex);
-          if (isBitmap(old)) setTimeout(() => old.close(), 500);
+          queueTickerCommit(id, image, () => {
+            if (!active || version !== outerPaint) {
+              if (isBitmap(image)) image.close();
+              return;
+            }
+            const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement | null;
+            if (old && old.height !== image.height) ticker.tex.dispose();
+            ticker.tex.image = image;
+            ticker.tex.needsUpdate = true;
+            outerCount.value = entries.length;
+            // Repeat a partial feed a whole number of times until the full selection arrives.
+            outerRepeats.value = Math.max(1, Math.round(ticker.width / (entries.length * OUTER_TICKER_ATLAS.slotWidth)));
+            uploadFn?.(ticker.tex);
+            if (isBitmap(old)) setTimeout(() => old.close(), 500);
+          });
         };
         if (outerTickerCanvas) commit(outerTickerCanvas.transferToImageBitmap());
         else if (typeof createImageBitmap === "function") void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
@@ -477,38 +526,40 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       const width = style === "column" ? paintColumn(ticker.canvas, snapshot, lang) : paintTicker(ticker.canvas, style, snapshot, lang);
       if (!width) continue;
       ticker.width = width;
-      // Repeat the strip along each mesh at its natural pixel aspect.
-      for (const mesh of ticker.meshes) {
-        const { length, height, vertical: up, phase = 0 } = mesh.userData.ticker as { length: number; height: number; vertical?: boolean; phase?: number };
-        const uv = mesh.geometry.getAttribute("uv");
-        if (up) {
+      // Repeat the strip along each merged ticker segment at its natural pixel aspect.
+      const uv = ticker.mesh.geometry.getAttribute("uv");
+      for (const seg of ticker.segments) {
+        const end = seg.start + seg.count;
+        if (seg.vertical) {
           // Column strips: the card stack runs along v; each column starts at its own phase.
-          const repeat = length / height * ticker.canvas.width / width;
-          if (!mesh.userData.baseV) mesh.userData.baseV = Float32Array.from({ length: uv.count }, (_, i) => uv.getY(i));
-          const base = mesh.userData.baseV as Float32Array;
-          for (let i = 0; i < uv.count; i++) uv.setY(i, base[i] * repeat + phase);
-          uv.needsUpdate = true;
-          continue;
+          const repeat = seg.length / seg.height * ticker.canvas.width / width;
+          if (!ticker.baseV) ticker.baseV = Float32Array.from({ length: uv.count }, (_, i) => uv.getY(i));
+          const base = ticker.baseV;
+          for (let i = seg.start; i < end; i++) uv.setY(i, base[i] * repeat + seg.phase);
+        } else {
+          const repeat = seg.length / seg.height * 128 / width;
+          if (!ticker.baseU) ticker.baseU = Float32Array.from({ length: uv.count }, (_, i) => uv.getX(i));
+          const base = ticker.baseU;
+          for (let i = seg.start; i < end; i++) uv.setX(i, base[i] * repeat);
         }
-        const repeat = length / height * 128 / width;
-        if (!mesh.userData.baseU) mesh.userData.baseU = Float32Array.from({ length: uv.count }, (_, i) => uv.getX(i));
-        const base = mesh.userData.baseU as Float32Array;
-        for (let i = 0; i < uv.count; i++) uv.setX(i, base[i] * repeat);
-        uv.needsUpdate = true;
       }
+      uv.needsUpdate = true;
       // Same-size repaints reuse the GPU texture; only a size change reallocates it. The upload goes
       // through an async ImageBitmap so the frame never waits on the 2D canvas.
       const version = (ticker.tex.userData.paintVersion ?? 0) + 1;
       ticker.tex.userData.paintVersion = version;
       const commit = (image: ImageBitmap | HTMLCanvasElement) => {
         if (!active || version !== ticker.tex.userData.paintVersion) { if (isBitmap(image)) image.close(); return; }
-        const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement | null;
-        if (ticker.tex.userData.width !== width) ticker.tex.dispose();
-        ticker.tex.userData.width = width;
-        ticker.tex.image = image;
-        ticker.tex.needsUpdate = true;
-        uploadFn?.(ticker.tex);
-        if (isBitmap(old)) setTimeout(() => old.close(), 500);
+        queueTickerCommit(id, image, () => {
+          if (!active || version !== ticker.tex.userData.paintVersion) { if (isBitmap(image)) image.close(); return; }
+          const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement | null;
+          if (ticker.tex.userData.width !== width) ticker.tex.dispose();
+          ticker.tex.userData.width = width;
+          ticker.tex.image = image;
+          ticker.tex.needsUpdate = true;
+          uploadFn?.(ticker.tex);
+          if (isBitmap(old)) setTimeout(() => old.close(), 500);
+        });
       };
       if (typeof createImageBitmap === "function") void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
       else commit(ticker.canvas);
@@ -556,7 +607,17 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
     },
     /** Called once per frame: scrolls tickers, ticks clocks and repaints what the camera can see. */
     tick(now: number, reduced: boolean, frustum?: Frustum) {
-      if (frustum) for (const panel of panels.values()) panel.visible = panel.spheres.some(s => frustum.intersectsSphere(s));
+      if (frustum) {
+        // Zero-closure frustum visibility check (runs only when camera actually moved!)
+        for (const panel of panels.values()) {
+          const spheres = panel.spheres;
+          let vis = false;
+          for (let si = 0; si < spheres.length; si++) {
+            if (frustum.intersectsSphere(spheres[si])) { vis = true; break; }
+          }
+          panel.visible = vis;
+        }
+      }
       flush();
       if (!reduced) for (const [id, ticker] of tickers) {
         const speed = id === "ring" ? 85 : id === "tickerD" ? 120 : id === "tickerV" ? -70 : 150;   // px/s along the strip (columns rise)
@@ -637,6 +698,8 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       }
       for (const b of pending.values()) b.close();
       pending.clear();
+      for (const t of pendingTickers.values()) if (isBitmap(t.image)) t.image.close();
+      pendingTickers.clear();
       for (const s of scratch.values()) s.canvas.width = s.canvas.height = 0;
       if (outerTickerCanvas) outerTickerCanvas.width = outerTickerCanvas.height = 0;
       for (const tk of tickers.values()) {

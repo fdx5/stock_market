@@ -1030,6 +1030,7 @@ export function createBullCelebrationFX(
       for (const fl of flashes) {
         fl.age += stepDt;
         if (fl.age < 0.65) {
+          fl.mesh.visible = true;
           const ft = fl.age / 0.65;
           const invFt = 1 - ft;
           const pulse = invFt * invFt * rallyBoost;
@@ -1039,8 +1040,9 @@ export function createBullCelebrationFX(
           const fScale = 0.50 + Math.sqrt(ft) * 1.35;
           fl.mesh.scale.set(fScale, fScale, fScale);
           if (pulse > peakLight) peakLight = pulse;
-        } else {
+        } else if (fl.mesh.visible) {
           fl.mat.opacity = 0;
+          fl.mesh.visible = false;
         }
       }
       if (burstLight) {
