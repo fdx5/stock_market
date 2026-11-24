@@ -361,6 +361,19 @@ export class DeepDive {
       if (qSeek !== null && qSeek !== undefined && qSeek !== "" && Number.isFinite(Number(qSeek))) {
         this.seek(Number(qSeek));
       }
+      const qZoom = qs?.get("pulseZoom");
+      if (qZoom !== null && qZoom !== undefined && qZoom !== "" && Number.isFinite(Number(qZoom))) {
+        this.userZoom(Number(qZoom));
+      }
+      const qYaw = qs?.get("pulseYaw");
+      const qPitch = qs?.get("pulsePitch");
+      if ((qYaw && Number.isFinite(Number(qYaw))) || (qPitch && Number.isFinite(Number(qPitch)))) {
+        this.userOrbit(Number(qYaw || 0), Number(qPitch || 0));
+      }
+      const qPanY = qs?.get("pulsePanY");
+      if (qPanY && Number.isFinite(Number(qPanY))) {
+        this.userPan(0, Number(qPanY));
+      }
     }
   }
 
@@ -1507,8 +1520,25 @@ export class DeepDive {
   // Lotus, sitting in the air over the portal: thighs out and forward, shins crossed in
   // front, hands resting on the thighs, the head a little bowed. (Solved for this rig's rest
   // directions; joint conventions in pose.ts.)
-  // the wrist bent back so the palm faces up (measured on this rig: see palmAt)
-  static PALM_UP: [number, number, number] = [-30, -90, -30];
+  // Pure anatomical 58° wrist dorsiflexion (0° axial wrist twist, 0° ulnar/radial break — solved
+  // directly from energy_human.glb's orthogonal wrist hinge axis so the palm opens smoothly to the sky).
+  static PALM_UP: [number, number, number] = [-40, -26.3, -32.4];
+  static PALM_UP_L: [number, number, number] = [-40, 26.3, 32.4];
+  // Expressive sculpted fingers for the open-palm energy offering (soft organic cascade from index -> pinky + open thumb).
+  private static FINGERS_R: Pose = {
+    index_01_r: [2.9, -8.6, -4.4], index_02_r: [3.8, 4.8, 5.3], index_03_r: [2.9, 3.6, 3.9],
+    middle_01_r: [-0.6, -3.6, -2.6], middle_02_r: [4.7, 6.1, 6.7], middle_03_r: [3.8, 4.8, 5.3],
+    ring_01_r: [-1.8, 5.6, 2.4], ring_02_r: [7.2, 10, 10.9], ring_03_r: [5.6, 7.4, 8.1],
+    pinky_01_r: [-3.5, 13.3, 5.3], pinky_02_r: [8.6, 12.7, 13.8], pinky_03_r: [6.4, 8.7, 9.5],
+    thumb_01_r: [5, -14.7, -8.1], thumb_02_r: [1.4, -7.3, -4.2], thumb_03_r: [2, 2.4, 2.6],
+  };
+  private static FINGERS_L: Pose = {
+    index_01_l: [2.9, 8.6, 4.4], index_02_l: [3.8, -4.8, -5.3], index_03_l: [2.9, -3.6, -3.9],
+    middle_01_l: [-0.6, 3.6, 2.6], middle_02_l: [4.7, -6.1, -6.7], middle_03_l: [3.8, -4.8, -5.3],
+    ring_01_l: [-1.8, -5.6, -2.4], ring_02_l: [7.2, -10, -10.9], ring_03_l: [5.6, -7.4, -8.1],
+    pinky_01_l: [-3.5, -13.3, -5.3], pinky_02_l: [8.6, -12.7, -13.8], pinky_03_l: [6.4, -8.7, -9.5],
+    thumb_01_l: [5, 14.7, 8.1], thumb_02_l: [1.4, 7.3, 4.2], thumb_03_l: [2, -2.4, -2.6],
+  };
   private static LOTUS: Pose = {
     // full lotus: thighs out and forward along the floor, shins crossed in front, each foot
     // stretched along its shin onto the other thigh, sole to the sky (solved for this rig's
@@ -1520,16 +1550,19 @@ export class DeepDive {
     upperarm_l: [6, -22, -23], upperarm_r: [6, 22, 23], lowerarm_l: [-10, 0, 0], lowerarm_r: [-10, 0, 0],
     spine_01: [-2, 0, 0], spine_02: [-2, 0, 0], neck: [4, 0, 0], head: [12, 0, 0],
   };
-  // ... the right arm raised straight up over the shoulder to the sky, the face lifted to it
+  // ... the right arm lifted in a graceful open arc, forearm naturally aligned (zero wrist twist),
+  // wrist cleanly dorsiflexed ~58° so the open glowing palm faces upward & gently forward to the sky
   private static RAISE: Pose = {
     ...DeepDive.LOTUS,
-    upperarm_r: [6, -78, -138], lowerarm_r: [90, 40, 0], clavicle_r: [0, 0, -12], hand_r: DeepDive.PALM_UP,
+    ...DeepDive.FINGERS_R,
+    upperarm_r: [-41.4, 93.3, -113], lowerarm_r: [10.8, -11.6, 1.5], clavicle_r: [0, 0, -14], hand_r: DeepDive.PALM_UP,
     spine_02: [-4, 0, 0], spine_03: [-5, 0, 0], neck: [-8, 0, 0], head: [-16, 0, 0],
   };
-  // ... at +5 % and more, both arms raised to the sky, palms up
+  // ... at +5 % and more, both arms rise in a balanced open chalice, palms open to the sky
   private static RAISE2: Pose = {
     ...DeepDive.RAISE,
-    upperarm_l: [6, 78, 138], lowerarm_l: [90, -40, 0], clavicle_l: [0, 0, 12], hand_l: [-30, 90, 30],
+    ...DeepDive.FINGERS_L,
+    upperarm_l: [-41.4, -93.3, 113], lowerarm_l: [10.8, 11.6, -1.5], clavicle_l: [0, 0, 14], hand_l: DeepDive.PALM_UP_L,
     head: [-20, 0, 0],
   };
   private _red = new THREE.Color(1.1, 0.075, 0.045);
@@ -1590,9 +1623,26 @@ export class DeepDive {
     }
   }
   private handDir?: THREE.Vector3; private handDirL?: THREE.Vector3; private _q = new THREE.Quaternion(); private _fvL = new THREE.Vector3();
-  /** The middle of the palm: from the wrist, along the hand, a little off its back. */
-  private palmAt(hand: THREE.Object3D, out: THREE.Vector3, dir = this.handDir) {
+  private _pMid = new THREE.Vector3(); private _pIdx = new THREE.Vector3(); private _pPnk = new THREE.Vector3();
+  /** Exact 3D center of the open palm (midpoint between wrist and middle knuckle, lifted gently off the palm face). */
+  private palmAt(hand: THREE.Object3D, out: THREE.Vector3, side: "r" | "l" = "r") {
     hand.getWorldPosition(out);
+    const mid = this.rig?.bones.get(`middle_01_${side}`);
+    const idx = this.rig?.bones.get(`index_01_${side}`);
+    const pnk = this.rig?.bones.get(`pinky_01_${side}`);
+    if (mid && idx && pnk) {
+      mid.getWorldPosition(this._pMid);
+      idx.getWorldPosition(this._pIdx);
+      pnk.getWorldPosition(this._pPnk);
+      // Hand direction & palm normal in world space
+      this._v2.subVectors(this._pMid, out);
+      this._fv2.subVectors(this._pIdx, this._pPnk);
+      if (side === "r") this._fv2.cross(this._v2); else this._fv2.crossVectors(this._v2, this._fv2);
+      if (this._fv2.lengthSq() > 1e-8) this._fv2.normalize();
+      out.lerp(this._pMid, 0.52).addScaledVector(this._fv2, 0.05);
+      return out;
+    }
+    const dir = side === "l" ? this.handDirL : this.handDir;
     if (dir) out.addScaledVector(this._v2.copy(dir).applyQuaternion(hand.getWorldQuaternion(this._q)), 0.075);
     out.y += 0.02;
     return out;
@@ -1616,8 +1666,15 @@ export class DeepDive {
       const br = Math.sin(T * 1.1) * (1 - raise * 0.5);
       const add = (k: string, x: number, y: number, z: number) => { const o = this.pose[k] ?? (this.pose[k] = [0, 0, 0]); o[0] += x; o[1] += y; o[2] += z; };
       add("spine_03", -br * 2.2, 0, 0); add("spine_02", -br * 1.2, 0, 0); add("head", br * 1.5, Math.sin(T * 0.21) * 2 * (1 - raise), 0);
-      add("clavicle_r", 0, 0, -raise * (u.uBeat.value as number) * 3);
-      if (strong) add("clavicle_l", 0, 0, raise * (u.uBeat.value as number) * 3);
+      const liftPulse = raise * ((u.uBeat.value as number) * 2.5 + Math.sin(T * 1.35) * 1.4);
+      add("clavicle_r", 0, 0, -liftPulse);
+      // Subtle living wrist breath along the natural dorsiflexion plane so the open palm feels poised and alive
+      const wristWave = raise * (Math.sin(T * 1.35 - 0.6) * 0.055 + (u.uBeat.value as number) * 0.04);
+      add("hand_r", DeepDive.PALM_UP[0] * wristWave, DeepDive.PALM_UP[1] * wristWave, DeepDive.PALM_UP[2] * wristWave);
+      if (strong) {
+        add("clavicle_l", 0, 0, liftPulse);
+        add("hand_l", DeepDive.PALM_UP_L[0] * wristWave, DeepDive.PALM_UP_L[1] * wristWave, DeepDive.PALM_UP_L[2] * wristWave);
+      }
       this.rig.apply(this.pose);
       this.legFill(1);
       fig.updateMatrixWorld(true); this.updateThighFix(true);
@@ -1640,9 +1697,9 @@ export class DeepDive {
 
     // ---- the beam and the rain
     const hand = this.rig?.bones.get("hand_r");
-    if (hand) { fig.updateMatrixWorld(true); this.palmAt(hand, this._fv); }
+    if (hand) { fig.updateMatrixWorld(true); this.palmAt(hand, this._fv, "r"); }
     const handL = this.rig?.bones.get("hand_l");
-    if (handL) this.palmAt(handL, this._fvL, this.handDirL);
+    if (handL) this.palmAt(handL, this._fvL, "l");
     const beamAge = t - BEAM0, beamVis = (t >= BEAM0 ? 1 : 0) * (1 - smooth((t - BEAM_END) / 1.6));
     // the figure flushes red as it fires, and cools back to the hall's blue when the beam ends
     const figRed = smooth((t - (BEAM0 - 0.7)) / 1.0) * (1 - smooth((t - BEAM_END) / 2.5));
@@ -1655,8 +1712,8 @@ export class DeepDive {
     const MERGE0 = 5, mk = strong ? smooth((beamAge - MERGE0) / 1.2) : 0;
     if (mk > 0) {
       const mid = this._mid.addVectors(this._fv, this._fvL).multiplyScalar(0.5);
-      // (they meet just in front of the wrists and leave as one from there)
-      mid.y += 0.35;
+      // (they meet gracefully above the open palms and leave as one beam from there)
+      mid.y += 0.65;
       // each side beam's end swings from the vault in to the meeting point
       this._tR.set(this._fv.x, CEILING + 26, this._fv.z).lerp(mid, mk); this._tL.set(this._fvL.x, CEILING + 26, this._fvL.z).lerp(mid, mk);
       this.beam.update(this._fv, beamAge, beamVis, beat, this._tR);
