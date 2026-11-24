@@ -72,6 +72,7 @@
     "/global-top100",
     "/guides",
     "/hot-issues",
+    "/hot-issues/",
     "/hub",
     "/index/kosdaq",
     "/index/kospi",
@@ -139,7 +140,7 @@
     "/world-markets",
     "/yield-curve-lab"
   ],
-  "source_files": 1065,
+  "source_files": 1067,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",

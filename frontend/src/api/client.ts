@@ -115,6 +115,12 @@ export interface MarketTickerItem {
   session: MarketSession;
 }
 
+export interface MarketTickerTailItem extends MarketTickerItem {
+  points_len: number;
+  points_first: number | null;
+  points_sum: number;
+}
+
 export interface NasdaqFuturesQuote {
   close: number;
   change_pct: number | null;
@@ -1642,6 +1648,8 @@ export const api = {
       `${BASE}/market/us-sector-map?code=${encodeURIComponent(code)}&limit=${limit}`, signal
     ),
   marketTicker: () => getJSONFresh<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
+  /** Same items with only the last `tail` sparkline points; see useMarketTicker. */
+  marketTickerTail: (tail: number) => getJSONFresh<{ items: MarketTickerTailItem[] }>(`${BASE}/market/ticker?tail=${tail}`),
   assetHistory: (asset: string) => getJSONFresh<AssetHistoryResponse>(`${BASE}/market/assets/${encodeURIComponent(asset)}/history`),
   seoulWeather: () =>
     getJSON<{ temperature: number; code: number; is_day: boolean }>(`${BASE}/market/weather`),

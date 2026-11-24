@@ -285,14 +285,31 @@ def us_logo(ticker: str):
 
 
 @router.get("/ticker")
-def ticker(response: Response):
+def ticker(response: Response, tail: int | None = Query(None, ge=1, le=64)):
     """Neither field this returns is ever shown with a timestamp (see MarketTickerBar),
     so a browser reusing a response for TTL_TICKER_SECONDS - the fastest this can
     possibly change server-side anyway - is free: the 5s client poll (useMarketTicker)
     already outruns that TTL, so roughly half its requests become cache hits with
     identical bytes to what a real fetch would have returned."""
     response.headers["Cache-Control"] = f"public, max-age={TTL_TICKER_SECONDS}"
-    return {"items": get_market_ticker()}
+    items = get_market_ticker()
+    if tail is None:
+        return {"items": items}
+    return {"items": [ticker_tail_item(item, tail) for item in items]}
+
+
+def ticker_tail_item(item: dict, tail: int) -> dict:
+    """The sparkline is ~9,600 one-minute points across the belt and only its last minute
+    or two moves between 10s polls. With ?tail=N the client receives just the last N points
+    plus the full series' length, first value and left-to-right sum, rebuilds the series
+    from the one it already holds and checks it against those - any mismatch makes it fetch
+    the full payload, so what is drawn never differs from the full response."""
+    points = item.get("points") or []
+    total = 0.0
+    for value in points:
+        total += value
+    return {**item, "points": points[-tail:], "points_len": len(points),
+            "points_first": points[0] if points else None, "points_sum": total}
 
 
 @router.get("/weather")

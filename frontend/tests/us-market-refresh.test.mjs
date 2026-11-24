@@ -46,6 +46,10 @@ async function hooks(name) {
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text+`\n// module ${++moduleId}`).toString('base64')}`);
 }
 
+// The server's ?tail=N shape (backend market_map.ticker_tail_item) built from a full reply.
+const tailOf=(items,n)=>items.map(item=>{const points=item.points??[];let sum=0;for(const v of points)sum+=v;return {...item,points:points.slice(-n),points_len:points.length,points_first:points.length?points[0]:null,points_sum:sum};});
+const tickerApi=(full)=>({marketTicker:full,marketTickerTail:async(n)=>({items:tailOf((await full()).items,n)})});
+
 test('Nasdaq header pair shares one request and preserves both windows on failure or old replies',async()=>{
   let calls=0;
   const quote=(close,quote_time)=>({close,quote_time,change_pct:1,stale:false});
@@ -88,7 +92,7 @@ test('ticker subscribers share one poller; partial and older replies preserve ne
     [{symbol:'ES=F',price:101,quote_time:20}],
     [{symbol:'ES=F',price:99,quote_time:5}],
   ];
-  const rt=runtime({marketTicker:async()=>({items:replies[Math.min(calls++,2)]})});
+  const rt=runtime(tickerApi(async()=>({items:replies[Math.min(calls++,2)]})));
   const {useMarketTicker}=await hooks('useMarketTicker');
   useMarketTicker();await rt.mount();
   useMarketTicker();await rt.mount();
@@ -103,7 +107,7 @@ test('ticker subscribers share one poller; partial and older replies preserve ne
 
 test('a slow ticker response never starts overlapping requests',async()=>{
   let calls=0,resolve;
-  const rt=runtime({marketTicker:()=>{calls++;return new Promise(done=>{resolve=done;});}});
+  const rt=runtime(tickerApi(()=>{calls++;return new Promise(done=>{resolve=done;});}));
   const {useMarketTicker}=await hooks('useMarketTicker');useMarketTicker();await rt.mount();
   await rt.advance(20000);assert.equal(calls,1);
   resolve({items:[{symbol:'ES=F',price:100,quote_time:10}]});await flush();
@@ -112,7 +116,7 @@ test('a slow ticker response never starts overlapping requests',async()=>{
 
 test('hidden tabs pause polling and resume with current prices',async()=>{
   let calls=0;
-  const rt=runtime({marketTicker:async()=>({items:[{symbol:'NQ=F',price:++calls,quote_time:calls}]})});
+  const rt=runtime(tickerApi(async()=>({items:[{symbol:'NQ=F',price:++calls,quote_time:calls}]})));
   const {useMarketTicker}=await hooks('useMarketTicker');useMarketTicker();await rt.mount();
   rt.visible('hidden');await rt.advance(30000);assert.equal(calls,1);
   rt.visible('visible');await rt.advance(0);assert.equal(calls,2);assert.equal(rt.states[0][0].price,2);rt.unmount();
@@ -168,4 +172,26 @@ test('Treasury header shares its poll and a partial response preserves the other
   await rt.advance(15000);assert.equal(calls,2);
   assert.equal(rt.states[0][0].yield_pct,4.61);assert.equal(rt.states[1][1].yield_pct,4.8);assert.equal(rt.states[1][1].stale,true);
   rt.visible('hidden');await rt.advance(30000);assert.equal(calls,2);rt.unmount();
+});
+
+test('ticker refreshes carry only the sparkline tail and rebuild the exact full series',async()=>{
+  const series=Array.from({length:300},(_,i)=>100+Math.sin(i/7)*3+i*0.01);
+  let minute=300,fulls=0,tails=0,corrupt=false;
+  const current=()=>{const points=series.slice(0,minute);points[points.length-1]+=0.123;return [{symbol:'BTC-USD',price:points.at(-1),quote_time:minute,points}];};
+  const rt=runtime({
+    marketTicker:async()=>{fulls++;return {items:current()};},
+    marketTickerTail:async(n)=>{tails++;const items=tailOf(current(),n);if(corrupt)items[0].points_sum+=1;return {items};},
+  });
+  const {useMarketTicker}=await hooks('useMarketTicker');useMarketTicker();await rt.mount();
+  assert.equal(fulls,1);
+  series.push(...Array.from({length:10},(_,i)=>90+i));
+  for(let step=0;step<3;step++){minute++;await rt.advance(10000);assert.deepEqual(rt.states[0][0].points,current()[0].points);}
+  assert.equal(fulls,1);assert.equal(tails,3);
+  // A checksum that does not reproduce falls back to the full payload immediately.
+  corrupt=true;minute++;await rt.advance(10000);
+  assert.equal(fulls,2);assert.deepEqual(rt.states[0][0].points,current()[0].points);
+  // A gap longer than the tail (e.g. a long-hidden tab) cannot be spliced either.
+  corrupt=false;minute+=5;await rt.advance(10000);assert.equal(fulls,2);
+  assert.deepEqual(rt.states[0][0].points,current()[0].points);
+  rt.unmount();
 });
