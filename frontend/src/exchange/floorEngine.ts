@@ -1,11 +1,11 @@
 import {
-  AgXToneMapping, Box3, BoxGeometry, BufferAttribute, BufferGeometry, ClampToEdgeWrapping, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, LinearFilter, LinearMipmapLinearFilter, MeshBasicMaterial, UnsignedByteType, PointLight, RepeatWrapping, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial,
+  AgXToneMapping, Box3, BoxGeometry, BufferAttribute, BufferGeometry, ClampToEdgeWrapping, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, LinearFilter, LinearMipmapLinearFilter, MeshBasicMaterial, NormalBlending, UnsignedByteType, PointLight, RepeatWrapping, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial,
   PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Sphere, Texture, TextureLoader, Vector2, WebGPUCoordinateSystem,
   type Ray,
   type Material, type Object3D,
 } from "three";
-import { RenderPipeline, WebGPURenderer } from "three/webgpu";
-import { clamp as tslClamp, clearcoat, normalWorld, roughness, unpackRGBToNormal, packNormalToRGB, emissive, float, luminance, mix, mrt, normalView, output, pass, sample, screenUV, smoothstep, vec2, vec4, vibrance } from "three/tsl";
+import { BlendMode, RenderPipeline, WebGPURenderer } from "three/webgpu";
+import { clamp as tslClamp, clearcoat, diffuseColor, step, normalWorld, roughness, unpackRGBToNormal, packNormalToRGB, emissive, float, luminance, mix, mrt, normalView, output, pass, sample, screenUV, smoothstep, vec2, vec4, vibrance } from "three/tsl";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { ao } from "three/addons/tsl/display/GTAONode.js";
 import { ssr } from "three/addons/tsl/display/SSRNode.js";
@@ -923,12 +923,19 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const sceneColor = scenePass.getTextureNode("output");
       let color: ReturnType<typeof vec4> | typeof sceneColor = sceneColor;
       if (wantAO) {
-        scenePass.setMRT(mrt({
+        // Only opaque surfaces may write the AO/SSR buffers: light shafts, holo rings, glass and motes are
+        // translucent (alpha < 1). Without this a god-ray sheet overwrote the floor's normals and GTAO
+        // drew it as a dark wall from ceiling to floor. Per-attachment alpha blending keeps what is behind.
+        const opaque = step(.985, diffuseColor.a);
+        const geometryMrt = mrt({
           output,
-          normal: vec4(packNormalToRGB(normalView), tslClamp(luminance(emissive).mul(6), 0, 1)),
-          // SSR mask: only level clear-coated stone/water mirrors the hall (clearcoat & roughness are the material's own).
-          surface: vec4(clearcoat.mul(smoothstep(.8, .97, normalWorld.y)), roughness, 0, 1),
-        }));
+          normal: vec4(packNormalToRGB(normalView), opaque),
+          // r = SSR reflectivity (level clear-coated stone/water), g = roughness, b = glow (never darkened by AO)
+          surface: vec4(clearcoat.mul(smoothstep(.8, .97, normalWorld.y)), roughness, tslClamp(luminance(emissive).mul(6), 0, 1), opaque),
+        });
+        geometryMrt.setBlendMode("normal", new BlendMode(NormalBlending));
+        geometryMrt.setBlendMode("surface", new BlendMode(NormalBlending));
+        scenePass.setMRT(geometryMrt);
         scenePass.getTexture("normal").type = UnsignedByteType;
         scenePass.getTexture("surface").type = UnsignedByteType;
         const packed = scenePass.getTextureNode("normal");
@@ -943,7 +950,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         aoPass.scale.value = 1.2;
         aoPass.samples.value = 12;
         const occlusion = aoPass.getTextureNode().sample(screenUV).r;
-        const glow = packed.a;            // screens, LEDs, coves: never darkened
+        const glow = surface.b;           // screens, LEDs, coves: never darkened
         const factor = mix(float(1), occlusion, float(.9).mul(float(1).sub(glow)));
         let rgb = sceneColor.rgb.mul(factor);
         if (wantSSR) {
@@ -982,7 +989,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     let last = 0, lastPosition = 0, lastHover = -Infinity, lastArtwork = 0, pushedPose = false, aspect = 1, dpr = 0;
     let lastSentX = NaN, lastSentZ = NaN, lastSentYaw = NaN;
     let lastCamX = NaN, lastCamY = NaN, lastCamZ = NaN, lastCamYaw = NaN, lastCamPitch = NaN;
-    let slowSince = 0, tier = 0, started = 0;
+    let slowSince = 0, tier = 0, started = 0, fastSince = 0, ssrDropped = false, ssrRetries = 0;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     const frames: number[] = [];
     const recent: number[] = [];
@@ -1067,13 +1074,25 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
 
     function govern(elapsed: number, now: number) {
       // Hold locked 60 fps smoothly without pipeline reallocation hitches:
-      // tier 1 = drop AO -> tier 2 = cap DPR 1.25 -> tier 3 = disable bloom -> tier 4 = cap DPR 1.0.
+      // tier 1 = drop SSR (restored once frames recover) -> tier 2 = cap DPR 1.25 -> tier 3 = disable bloom -> tier 4 = cap DPR 1.0.
       if (!started) started = now;
       if (now - started < 5000) return;
       recent.push(elapsed);
       if (recent.length > 60) recent.shift();
       if (recent.length < 60 || tier >= 4) return;
       const avg = recent.reduce((s, v) => s + v, 0) / recent.length;
+      if (measure) canvas.dataset.govern = `${tier}:${avg.toFixed(1)}:${ssrDropped ? 1 : 0}:${ssrRetries}`;
+      // SSR is often dropped by the burst of big texture uploads right after entering (16K skyline, art).
+      // Once frames hold 60 fps again for 10 s, try it again (twice at most, so a slow GPU cannot flap).
+      if (tier === 1 && ssrDropped && ssrRetries < 2 && avg <= 17.6) {
+        if (!fastSince) fastSince = now;
+        if (now - fastSince > 10000) {
+          tier = 0; ssrDropped = false; ssrRetries++; fastSince = 0; recent.length = 0;
+          wantSSR = true; buildPipeline();
+          canvas.dataset.qualityTier = "0";
+          return;
+        }
+      } else fastSince = 0;
       if (avg > 19.2) {
         if (!slowSince) slowSince = now;
         if (now - slowSince > 1800) {
@@ -1081,8 +1100,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           slowSince = 0;
           recent.length = 0;
           if (tier === 1) {
-            // First step down: drop the screen-space AO only (picture stays sharp at full resolution).
-            if (wantSSR && pipeline) { wantSSR = false; buildPipeline(); } else resize();
+            // First step down: drop the floor reflections only (picture stays sharp at full resolution).
+            if (wantSSR && pipeline) { wantSSR = false; ssrDropped = true; buildPipeline(); } else resize();
           } else if (tier === 2) resize();
           else if (tier === 3) {
             if (pipeline) { pipeline.dispose(); pipeline = undefined; }
