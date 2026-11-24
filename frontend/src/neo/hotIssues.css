@@ -11,9 +11,9 @@
 .hi-kicker{display:inline-flex;align-items:center;gap:8px;font:600 11px/1 var(--f-type,ui-monospace);letter-spacing:.16em;color:#ffb3bb}
 .hi-kicker i{width:8px;height:8px;border-radius:50%;background:var(--hi-good);box-shadow:0 0 12px var(--hi-good)}
 .hi-editions{display:flex;gap:6px}
-.hi-editions button{display:flex;align-items:baseline;gap:3px;padding:7px 12px;border:1px solid var(--hi-line);border-radius:999px;background:#ffffff08;color:var(--text-secondary);font:600 13px var(--f-num,ui-monospace);cursor:pointer}
-.hi-editions button small{font:500 10px var(--f-sans)}
-.hi-editions button[aria-pressed=true]{border-color:var(--accent-neon,#bf85ff);color:#fff;background:#bf85ff26}
+.hi-editions :is(a,button){display:flex;align-items:baseline;gap:3px;padding:7px 12px;border:1px solid var(--hi-line);border-radius:999px;background:#ffffff08;color:var(--text-secondary);font:600 13px var(--f-num,ui-monospace);cursor:pointer}
+.hi-editions :is(a,button) small{font:500 10px var(--f-sans)}
+.hi-editions a:hover{border-color:var(--accent-neon,#bf85ff);color:#fff;background:#bf85ff26}
 .hi-editions button:disabled{opacity:.45;cursor:default}
 .hi-stamp{display:flex;flex-wrap:wrap;gap:6px 14px;margin:18px 0 10px;color:var(--text-secondary);font-size:13px}
 .hi-stamp b{color:#fff;font-weight:600}

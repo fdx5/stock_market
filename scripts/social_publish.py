@@ -90,12 +90,11 @@ def weighted_length(text):
 
 
 def campaign_caption(text, service, edition):
-    path = "/map" if edition == "close" else "/hot-issues"
-    url = SITE + path
+    path = "/map" if edition == "close" else r"/hot-issues(?:/\d{4}-\d{2}-\d{2}/(?:0700|2200))?"
     params = urlencode({"utm_source": "x" if service == "twitter" else service,
                         "utm_medium": "social",
                         "utm_campaign": "market_close" if edition == "close" else "hot_issues"})
-    return re.sub(rf"^{re.escape(url)}$", f"{url}?{params}", text, flags=re.MULTILINE)
+    return re.sub(rf"^{re.escape(SITE)}{path}$", lambda match: f"{match.group()}?{params}", text, flags=re.MULTILINE)
 
 
 def story_hashtag(value):
@@ -162,7 +161,7 @@ def make_news(day, edition):
         raise RuntimeError("News headline is empty")
     lead = payload["stories"][0]  # The public edition is already sorted by rank.
     hashtags = " ".join([*lead_hashtags(lead), "#코스피", "#코스닥", "#증시뉴스"])
-    footer = f"\n\n{SITE}/hot-issues\n{hashtags}"
+    footer = f"\n\n전체 기사·출처 보기\n{SITE}/hot-issues/{day}/{slot}\n{hashtags}"
     text = f"{first}\n{headline}{footer}"
     while headline and not news_caption_fits(text, edition):
         headline = headline[:-1].rstrip()

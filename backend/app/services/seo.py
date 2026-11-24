@@ -531,7 +531,7 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
     return re.sub(pattern, rf"\g<1>{escaped}\g<2>", document, count=1)
 
 
-def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
+def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edition: dict | None = None) -> str:
     canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
     if canonical_path in {"/pulse-board", "/pulse-board-2"}:
         template = re.sub(r'<script id="adsense-loader"[^>]*>.*?</script>\s*', "", template, count=1, flags=re.S)
@@ -561,17 +561,21 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         title, description = social["title"], social["description"]
     page_image = f'{SITE}{social["image"]}' if social else IMAGE
     image_alt = social["alt"] if social else ""
+    hot_data = hot_edition
     if canonical_path == "/hot-issues":
-        # The preview is the edition itself: its date, headline and top issues.
         try:
-            from app.services import hot_issues_og
-            latest = hot_issues.current()
-            page_image = SITE + hot_issues_og.image_path(latest if latest.get("stories") else None)
-            image_alt = f"오늘의 핫이슈 {latest.get('edition', '')} {latest.get('slot_label', '')}판 — {latest.get('headline', '')}".strip()
-            if latest.get("headline"):
-                description = f"[{latest['slot_label']}판] {latest['headline']} — {description}"
+            hot_data = hot_issues.current()
         except Exception:
-            page_image = SITE + "/hot-issues/og/latest.png"
+            hot_data = {}
+    if hot_data is not None:
+        from app.services import hot_issues_og
+        page_image = SITE + hot_issues_og.image_path(hot_data if hot_data.get("stories") else None)
+        if hot_data.get("headline"):
+            image_alt = f"오늘의 핫이슈 {hot_data['edition']} {hot_data['slot_label']}판 — {hot_data['headline']}"
+            if hot_edition:
+                title, description = hot_issues.edition_metadata(hot_edition)
+            else:
+                description = f"[{hot_data['slot_label']}판] {hot_data['headline']} — {description}"
     if canonical_path in index_landing.BY_PATH:
         # The level itself leads the snippet: it is what the searcher came for.
         try:
@@ -742,7 +746,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     document = _replace_meta(document, 'property="og:title"', title)
     document = _replace_meta(document, 'property="og:description"', description)
     document = _replace_meta(document, 'property="og:url"', share_url)
-    document = _replace_meta(document, 'property="og:type"', "article" if brief or canonical_path in market_guides.GUIDES else "website")
+    document = _replace_meta(document, 'property="og:type"', "article" if brief or hot_edition or canonical_path in market_guides.GUIDES else "website")
     document = _replace_meta(document, 'property="og:image"', page_image)
     document = _replace_meta(document, 'property="og:image:secure_url"', page_image)
     document = _replace_meta(document, 'property="og:image:type"', "image/jpeg" if page_image.lower().endswith((".jpg", ".jpeg")) else "image/png")
@@ -875,8 +879,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         structured = market_guides.structured_data(canonical_path, SITE)
     if canonical_path in index_landing.BY_PATH:
         structured = index_landing.structured_data(canonical_path, SITE)
-    if canonical_path == "/hot-issues":
-        structured = hot_issues.structured_data(SITE)
+    if hot_data is not None:
+        structured = hot_issues.structured_data(SITE, hot_data, archive=hot_edition is not None)
     script = '<script id="route-structured-data" type="application/ld+json">' + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/") + "</script>"
     document = document.replace("</head>", f"{script}\n  </head>", 1)
 
@@ -1099,8 +1103,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         report_content = market_guides.render_content(canonical_path)
     if canonical_path in index_landing.BY_PATH:
         report_content = index_landing.render_content(canonical_path)
-    if canonical_path == "/hot-issues":
-        report_content = hot_issues.render_content()
+    if hot_data is not None:
+        report_content = hot_issues.render_content(hot_data, archive=hot_edition is not None)
     if canonical_path == "/world-markets":
         # Rendering must not wait on quote feeds: use the estimate already cached.
         from app.routers.world_markets import build_catalog
@@ -1202,6 +1206,11 @@ def build_pages_sitemap() -> str:
         brief_dates = market_brief_store.dates(1000)
     except Exception:
         brief_dates = []
+    try:
+        hot_archive = hot_issues.sitemap_editions()
+    except Exception:
+        hot_archive = []
+    urls.extend((f"{SITE}{path}", "0.7", "never", lastmod) for path, lastmod in hot_archive)
     seen_briefs = set()
     for item in brief_dates:
         day = str(item.get("date") or "")

@@ -809,14 +809,14 @@ if STATIC_DIR.exists():
         xml = build_rss(get_top_market_cap(30))
         return Response(content=xml, media_type="application/rss+xml", headers={"Cache-Control": "public, max-age=3600"})
 
-    @app.get("/hot-issues/og/latest.png", include_in_schema=False)
+    @app.api_route("/hot-issues/og/latest.png", methods=["GET", "HEAD"], include_in_schema=False)
     def hot_issues_share_latest():
         from app.services import hot_issues, hot_issues_og
         current = hot_issues.current()
         return Response(content=hot_issues_og.render(current if current.get("stories") else None), media_type="image/png",
                         headers={"Cache-Control": "public, max-age=300"})
 
-    @app.get("/hot-issues/og/{day}/{hhmm}.png", include_in_schema=False)
+    @app.api_route("/hot-issues/og/{day}/{hhmm}.png", methods=["GET", "HEAD"], include_in_schema=False)
     def hot_issues_share_image(day: str, hhmm: str):
         from app.services import hot_issues, hot_issues_og
         slot = hot_issues.parse_slot(day, hhmm)
@@ -825,6 +825,18 @@ if STATIC_DIR.exists():
             raise HTTPException(status_code=404, detail="Edition image not found")
         return Response(content=hot_issues_og.render(edition), media_type="image/png",
                         headers={"Cache-Control": "public, max-age=86400, immutable"})
+
+    @app.api_route("/hot-issues/{day}/{hhmm}", methods=["GET", "HEAD"], include_in_schema=False)
+    def hot_issues_archive(day: str, hhmm: str):
+        from app.services import hot_issues
+
+        slot = hot_issues.parse_slot(day, hhmm)
+        if slot is None or day != slot.date().isoformat() or slot > datetime.now(hot_issues.KST):
+            raise HTTPException(status_code=404, detail="Edition not found")
+        edition = hot_issues.edition(slot)
+        if edition is None:
+            raise HTTPException(status_code=404, detail="Edition not found")
+        return HTMLResponse(render_spa_shell(_spa_template, hot_issues.edition_path(edition), {}, hot_edition=edition))
 
     @app.get("/market-brief/og/{day}/{market}.png", include_in_schema=False)
     def market_brief_share_image(day: str, market: str):

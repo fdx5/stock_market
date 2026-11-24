@@ -81,28 +81,32 @@ function Story({ story, lead = false }: { story: HotIssueStory; lead?: boolean }
 }
 
 /** 오늘의 핫이슈: one page per edition, refreshed at 07:00 and 22:00 KST. */
-export default function HotIssuesPage() {
+export default function HotIssuesPage({ archiveDay, archiveTime }: { archiveDay?: string; archiveTime?: string }) {
   const { lang } = useLanguage();
   const [data, setData] = useState<HotIssueEdition | null>(null);
   const [failed, setFailed] = useState(false);
-  const [picked, setPicked] = useState<string | null>(null);
-  const [home, setHome] = useState<HotIssueEdition | null>(null);
-  useDocumentTitle("오늘의 핫이슈 — 국내·해외 증시 호재·악재 한 장 정리 | KOSPIMAP");
+  const latestTitle = "오늘의 핫이슈 — 국내·해외 증시 호재·악재 한 장 정리 | KOSPIMAP";
+  useDocumentTitle(archiveDay && data?.stories.length
+    ? `${data.headline} | ${data.edition} ${data.slot_label} 핫이슈 · KOSPIMAP`
+    : archiveDay ? document.title : latestTitle);
+  const home = archiveDay ? null : data;
   useEffect(() => {
     let live = true;
-    const load = () => (picked ? api.hotIssueSlot(picked.slice(0, 10), picked.slice(11, 16).replace(":", "")) : api.hotIssues())
-      .then(value => { if (!live) return; if (!picked) setHome(value); setData(value); setFailed(false); })
+    const load = () => (archiveDay && archiveTime ? api.hotIssueSlot(archiveDay, archiveTime) : api.hotIssues())
+      .then(value => { if (!live) return; setData(value); setFailed(false); })
       .catch(() => { if (live) setFailed(true); });
     load();
-    const timer = picked ? undefined : window.setInterval(() => { if (!document.hidden) load(); }, REFRESH_MS);
+    const timer = archiveDay ? undefined : window.setInterval(() => { if (!document.hidden) load(); }, REFRESH_MS);
     return () => { live = false; window.clearInterval(timer); };
-  }, [picked]);
+  }, [archiveDay, archiveTime]);
   const tally = useMemo(() => {
     const out = { 호재: 0, 악재: 0, 중립: 0, 혼재: 0 } as Record<string, number>;
     data?.stories.forEach(s => { out[s.impact] = (out[s.impact] ?? 0) + 1; });
     return out;
   }, [data]);
-  if (!data) return <main className="hi-page">{failed ? <NeoEmptyState title="핫이슈를 불러오지 못했습니다" error /> : <NeoSkeleton rows={8} />}</main>;
+  if (!data) return <main className="hi-page">{failed
+    ? <NeoEmptyState title="핫이슈를 불러오지 못했습니다" error>{archiveDay && <Link to="/hot-issues">최신 핫이슈 보기</Link>}</NeoEmptyState>
+    : <NeoSkeleton rows={8} />}</main>;
   if (!data.stories.length) return <main className="hi-page"><NeoEmptyState title="첫 판을 준비하고 있습니다">매일 07:00 · 22:00에 새 판이 올라옵니다. 다음 갱신 {time(home?.next_update)}</NeoEmptyState></main>;
   const [lead, ...rest] = data.stories;
   const mood = MOOD[data.mood?.tone ?? "mixed"];
@@ -110,12 +114,17 @@ export default function HotIssuesPage() {
     <header className="hi-mast">
       <div className="hi-mast-top">
         <span className="hi-kicker"><i aria-hidden="true" />TODAY'S HOT ISSUES</span>
-        <nav className="hi-editions" aria-label="오늘 발행된 판">
-          {(home?.today_slots ?? []).map(s => <button type="button" key={s.slot} disabled={!s.published} aria-pressed={(picked ?? home?.slot) === s.slot}
-            onClick={() => { setPicked(s.slot === home?.slot ? null : s.slot); reportHotIssue(`edition:${s.label}`, `${s.label}판`); }}>{s.label}<small>{s.published ? "판" : "미발행"}</small></button>)}
+        <nav className="hi-editions" aria-label="핫이슈 판 이동">
+          {home?.slot && home.edition && home.slot_label && !home.today_slots?.some(s => s.slot === home.slot) &&
+            <Link to={`/hot-issues/${home.edition}/${home.slot_label.replace(":", "")}`}>직전 {home.slot_label}판 ↗</Link>}
+          {archiveDay ? <Link to="/hot-issues">최신 핫이슈 ↗</Link>
+            : (home?.today_slots ?? []).map(s => s.published
+              ? <Link key={s.slot} to={`/hot-issues/${s.slot.slice(0, 10)}/${s.label.replace(":", "")}`}
+                  onClick={() => reportHotIssue(`edition:${s.label}`, `${s.label}판`)}>{s.label}<small>판 ↗</small></Link>
+              : <button key={s.slot} type="button" disabled>{s.label}<small>미발행</small></button>)}
         </nav>
       </div>
-      <p className="hi-stamp"><b>{day(data.slot)} {data.slot_label}판</b>{home?.next_update && <span>다음 갱신 {day(home.next_update) !== day(home.latest_slot) ? "내일 " : ""}{time(home.next_update)}</span>}{home?.is_latest === false && !picked && <span className="hi-late">최신 판 준비 중 · 직전 판을 보여드립니다</span>}</p>
+      <p className="hi-stamp"><b>{day(data.slot)} {data.slot_label}판</b>{home?.next_update && <span>다음 갱신 {day(home.next_update) !== day(home.latest_slot) ? "내일 " : ""}{time(home.next_update)}</span>}{home?.is_latest === false && <span className="hi-late">최신 판 준비 중 · 직전 판을 보여드립니다</span>}</p>
       <h1>{data.headline}</h1>
       {data.dek && <p className="hi-dek">{data.dek}</p>}
       <div className="hi-mood-row">

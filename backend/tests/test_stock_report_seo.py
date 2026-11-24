@@ -36,6 +36,28 @@ def renderer():
     return env
 
 
+def test_hot_issue_archive_has_its_own_content_and_metadata(renderer):
+    from app.services import hot_issues
+
+    renderer["hot_issues"] = hot_issues
+    path = "/hot-issues/2026-11-24/0700"
+    data = {
+        "edition": "2026-11-24", "slot_label": "07:00", "slot": "2026-11-24T07:00+09:00",
+        "headline": "코스피 <실적> 전망", "dek": "시장 요약",
+        "stories": [{"rank": 1, "impact": "혼재", "title": "첫 기사", "summary": "핵심 요약",
+                     "body": ["상세 내용"], "why_it_matters": "", "sources": [
+                         {"url": "https://example.org/article", "publisher": "원문"}]}],
+    }
+    template = (Path(__file__).parents[2] / "frontend/index.html").read_text(encoding="utf-8")
+    html_source = renderer["render_spa_shell"](template, path, {"utm_source": "x"}, hot_edition=data)
+    assert '<link rel="canonical" href="https://kospimap.com' + path + '"' in html_source
+    assert "코스피 &lt;실적&gt; 전망" in html_source
+    assert "핵심 요약" in html_source and 'href="https://example.org/article"' in html_source
+    assert '<meta property="og:type" content="article"' in html_source
+    assert '/hot-issues/og/2026-11-24/0700.png' in html_source
+    assert '"mainEntityOfPage": "https://kospimap.com' + path in html_source
+
+
 @pytest.mark.parametrize(("path", "has_adsense"), [
     ("/pulse-board", False), ("/pulse-board/", False), ("/pulse-board-2", False),
     ("/pulse-board-ship", True), ("/world-markets", True),

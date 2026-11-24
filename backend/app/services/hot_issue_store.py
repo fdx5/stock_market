@@ -103,6 +103,14 @@ def get_edition(slot: str) -> dict | None:
         return None
 
 
+def published_slots(through: str, limit: int) -> list[str]:
+    rows = _with_connection(lambda conn: conn.execute(
+        "SELECT slot FROM hot_issue_editions WHERE slot <= ? ORDER BY slot DESC LIMIT ?",
+        (through, limit),
+    ).fetchall())
+    return [row[0] for row in rows]
+
+
 def log_run(slot: str, at: str, event: str, trigger: str = "", detail: str = "") -> None:
     def run(conn):
         conn.execute("INSERT INTO hot_issue_runs (slot, at, event, trigger, detail) VALUES (?, ?, ?, ?, ?)",

@@ -87,7 +87,7 @@ def test_news_caption_prioritizes_lead_tags_and_fits_all_channels(monkeypatch, k
               affected=[{"name": "엔비디아", "code": "NVDA"}]),
         story(title="미국 금리 발표", importance=4, social_keywords=["미국금리"]),
     ])
-    raw["headline"] = "가" * 90
+    raw["headline"] = "가" * (90 if truncated else 50)
     cleaned = hi.clean(raw, slot)
     assert cleaned["stories"][0]["social_keywords"] == keywords
 
@@ -102,9 +102,20 @@ def test_news_caption_prioritizes_lead_tags_and_fits_all_channels(monkeypatch, k
     assert media[0][0] == "news-0700.png"
     for service in publish.PROFILES:
         caption = publish.campaign_caption(text, service, "morning")
+        assert f"https://kospimap.com/hot-issues/{slot.date()}/0700?utm_source=" in caption
         assert publish.weighted_length(caption) <= 280
         assert len(caption) <= 300
         assert len(caption.encode("utf-8")) <= 500
+
+
+def test_archive_sitemap_links_only_canonical_published_slots(monkeypatch):
+    from app.services import hot_issue_store
+
+    slots = ["2026-11-12T22:00+09:00", "2026-11-12T07:00+09:00", "2026-11-12T06:30+09:00"]
+    monkeypatch.setattr(hot_issue_store, "published_slots", lambda *_: slots)
+    assert hi.sitemap_editions(at(12)) == [
+        ("/hot-issues/2026-11-12/0700", "2026-11-12T07:00+09:00"),
+    ]
 
 
 def test_current_falls_back_to_the_previous_published_slot(monkeypatch):

@@ -287,17 +287,48 @@ PAGE = ("오늘의 핫이슈 — 국내·해외 증시 호재·악재 한 장 �
         "매일 07:00·22:00, 국내외 증시를 움직인 핵심 이슈와 호재·악재를 한 장에 정리합니다. 해외 뉴스는 한국어로 번역해 요약합니다.")
 
 
-def render_content() -> str:
+def edition_path(data: dict) -> str:
+    return f"/hot-issues/{data['edition']}/{data['slot_label'].replace(':', '')}"
+
+
+def edition_metadata(data: dict) -> tuple[str, str]:
+    return (
+        f"{data['headline']} | {data['edition']} {data['slot_label']} 핫이슈 · KOSPIMAP",
+        (data.get("dek") or data["stories"][0]["summary"])[:160],
+    )
+
+
+def sitemap_editions(now: dt.datetime | None = None) -> list[tuple[str, str]]:
+    from app.services import hot_issue_store
+
+    now = (now or dt.datetime.now(KST)).astimezone(KST)
+    paths = []
+    for key in hot_issue_store.published_slots(now.isoformat(timespec="minutes"), 60):
+        slot = parse_slot(key[:10], key[11:16].replace(":", ""))
+        if slot and key == slot.isoformat(timespec="minutes") and slot <= now:
+            paths.append((f"/hot-issues/{slot:%Y-%m-%d/%H%M}", key))
+    return paths
+
+
+def render_content(data: dict, archive: bool = False) -> str:
     import html as _html
     esc = _html.escape
-    try:
-        data = current()
-    except Exception:
-        return ""
     if not data.get("stories"):
         return "<p>첫 판을 준비하고 있습니다. 매일 07:00·22:00에 새 판이 올라옵니다.</p>"
     parts = [f'<p><strong>{esc(data["edition"])} {esc(data["slot_label"])}판</strong> · {esc(data["headline"])}</p>',
              f'<p>{esc(data.get("dek") or "")}</p>']
+    if archive:
+        parts.append('<p><a href="/hot-issues">최신 핫이슈 보기</a></p>')
+    else:
+        links = {edition_path(data): f'{data["edition"]} {data["slot_label"]}판'}
+        for entry in data.get("today_slots", []):
+            if entry["published"]:
+                day = entry["slot"][:10]
+                stamp = entry["label"]
+                links[f"/hot-issues/{day}/{stamp.replace(':', '')}"] = f"{day} {stamp}판"
+        parts.append('<nav aria-label="발행된 핫이슈 판">' + " · ".join(
+            f'<a href="{esc(path)}">{esc(label)}</a>' for path, label in links.items()
+        ) + '</nav>')
     for story in data["stories"]:
         sources = " · ".join(f'<a href="{esc(s["url"])}" rel="nofollow noopener">{esc(s["publisher"])}</a>' for s in story["sources"])
         parts.append(f'<article><h2>{story["rank"]}. [{esc(story["impact"])}] {esc(story["title"])}</h2>'
@@ -309,20 +340,21 @@ def render_content() -> str:
     return "".join(parts)
 
 
-def structured_data(site: str) -> dict:
-    try:
-        data = current()
-    except Exception:
-        data = {}
-    graph = [{"@type": "WebPage", "name": PAGE[0], "description": PAGE[1], "url": f"{site}/hot-issues", "inLanguage": "ko-KR",
+def structured_data(site: str, data: dict, archive: bool = False) -> dict:
+    path = edition_path(data) if archive else "/hot-issues"
+    title, description = edition_metadata(data) if archive else PAGE
+    url = site + path
+    graph = [{"@type": "WebPage", "name": title, "description": description, "url": url, "inLanguage": "ko-KR",
               "isPartOf": {"@type": "WebSite", "name": "KOSPIMAP", "url": site}},
              {"@type": "BreadcrumbList", "itemListElement": [
                  {"@type": "ListItem", "position": 1, "name": "KOSPIMAP", "item": site},
                  {"@type": "ListItem", "position": 2, "name": "오늘의 핫이슈", "item": f"{site}/hot-issues"}]}]
-    if data.get("stories"):
+    if archive:
+        graph[1]["itemListElement"].append({"@type": "ListItem", "position": 3,
+                                            "name": data["headline"], "item": url})
         graph.append({"@type": "Article", "headline": data["headline"][:110], "description": data.get("dek", "")[:300],
                       "datePublished": data["slot"], "dateModified": data["slot"], "inLanguage": "ko-KR",
-                      "mainEntityOfPage": f"{site}/hot-issues",
+                      "mainEntityOfPage": url, "image": f"{site}/hot-issues/og/{data['edition']}/{data['slot_label'].replace(':', '')}.png",
                       "author": {"@type": "Organization", "name": "KOSPIMAP", "url": site},
                       "publisher": {"@type": "Organization", "name": "KOSPIMAP", "url": site}})
     return {"@context": "https://schema.org", "@graph": graph}

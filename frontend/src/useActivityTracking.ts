@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { MARKET_NAMES, publicMarket } from "./growth/publicLinks";
+import { HOT_ISSUE_EDITION, MARKET_NAMES, publicMarket } from "./growth/publicLinks";
 import { GUIDE_SEO } from "./guides/catalog";
 import { getSessionId } from "./session";
 import { audienceBrowserId, loadAudienceConfig } from "./audienceIdentity";
@@ -155,6 +155,7 @@ export function pageLabel(path: string): string {
   if (path === "/exchange") return "증권 거래소";
   if (path === "/world-markets") return "전세계 증시";
   if (path === "/hot-issues") return "오늘의 핫이슈";
+  if (path === "/hot-issues/{edition}" || HOT_ISSUE_EDITION.test(path)) return "핫이슈 발행판";
   if (path === "/kospi") return "코스피 지수";
   if (path === "/kosdaq") return "코스닥 지수";
   if (path === "/nasdaq") return "나스닥 지수";
@@ -183,6 +184,7 @@ export function routeTemplate(path: string): string {
   if (/^\/investor\/[^/]+$/.test(clean)) return "/investor/{code}";
   if (/^\/index\/[^/]+$/i.test(clean)) return "/index/{symbol}";
   if (/^\/market-brief\/\d{4}-\d{2}-\d{2}\/[^/]+$/.test(clean)) return "/market-brief/{day}";
+  if (HOT_ISSUE_EDITION.test(clean)) return "/hot-issues/{edition}";
   if (/^\/etf\/compare\//.test(clean)) return "/etf/compare/{codes}";
   return clean;
 }
