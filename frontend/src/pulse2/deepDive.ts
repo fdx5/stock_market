@@ -309,16 +309,22 @@ export class DeepDive {
   private prewarm() {
     const todo: THREE.Object3D[] = [];
     this.scene.traverse(o => { if ((o as THREE.Mesh).material) todo.push(o); });
-    const idle = (fn: () => void) => typeof requestIdleCallback === "function" ? requestIdleCallback(fn, { timeout: 500 }) : setTimeout(fn, 30);
+    const r = this.renderer;
     const step = () => {
       if (this.disposed) return;
-      const until = performance.now() + 6;
+      // (compiled for where they are drawn: the composer's half-float target, which picks the
+      // variant without tone mapping and in linear colour; compiled for the screen they would
+      // be other programs, and the real ones would still compile on first use)
+      const prev = r.getRenderTarget();
+      r.setRenderTarget(this.composer.readBuffer);
+      const until = performance.now() + 4;
       while (todo.length && performance.now() < until) {
-        try { this.renderer.compile(todo.shift()!, this.camera, this.scene); } catch { /* compiled on first use instead */ }
+        try { r.compile(todo.shift()!, this.camera, this.scene); } catch { /* compiled on first use instead */ }
       }
-      if (todo.length) idle(step);
+      r.setRenderTarget(prev);
+      if (todo.length) setTimeout(step, 20);
     };
-    idle(step);
+    step();
   }
 
   /** The colour of the market: the index change on arrival, a chosen stock's afterwards. */
