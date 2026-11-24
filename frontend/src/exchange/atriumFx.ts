@@ -122,13 +122,15 @@ export type AtriumFX = {
   group: Group;
   setMood: (mood: AtriumMood) => void;
   getMood: () => AtriumMood;
+  /** Upgrade 1-texture instant-boot skyline material to full 3-mood crossfade fallback once inactive moods load. */
+  setFallbackSkylines: (day: Texture, golden: Texture, night: Texture) => void;
   /** Attach (or clear with null) on-demand effective-16K dual-hemisphere skyline textures for the active mood. */
   setHiResSkyline: (mood: AtriumMood | null, texL?: Texture, texR?: Texture) => void;
   setIndexChange: (changePct: number | null | undefined) => void;
   /** Telemetry for >= +3% / >= +4% bull rally celebration pyrotechnics. */
   getCelebrationState: () => { tier: 0 | 1 | 2; activeCeilingSparks: number; rallyBoost: number };
   setEnvironment: (env: Texture) => void;
-  /** 2 = ultra planar reflections (0.42x), 1 = balanced (0.28x), 0 = disabled (0ms GPU cost). */
+  /** 2 = full analytical luster, 1 = balanced, 0 = off. */
   setReflectionLevel: (level: 0 | 1 | 2) => void;
   tick: (now: number, dt: number, reduced: boolean) => void;
   dispose: () => void;
@@ -190,7 +192,7 @@ export function createAtriumFX(
   hemiLight: HemisphereLight,
   lightmapped: TrackedLightmapMat[],
   mobile: boolean,
-  skyline: { day: Texture; golden: Texture; night: Texture },
+  skyline: { initial: Texture; day?: Texture; golden?: Texture; night?: Texture },
   mainCamera: Object3D,
   screensGroup: Object3D,
 ): AtriumFX {
@@ -230,10 +232,10 @@ export function createAtriumFX(
   void mainCamera;
   void screensGroup;
 
-  // ---- B. True 3D Viewing-Angle & Position Parallax 360° Panoramas (8K Instant + Effective-16K Dual-Tile Progressive) ----
-  const skyDayTex = skyline.day;
-  const skyGoldenTex = skyline.golden;
-  const skyNightTex = skyline.night;
+  // ---- B. True 3D Viewing-Angle & Position Parallax 360° Panoramas (Single-Tex Instant Boot + Lazy 3-Mood + 16K) ----
+  let skyDayTex = skyline.day ?? skyline.initial;
+  let skyGoldenTex = skyline.golden ?? skyline.initial;
+  let skyNightTex = skyline.night ?? skyline.initial;
   const windowMeshes: Mesh[] = [];
   let currentEnvMap: Texture | null = null;
   let hiResMood: AtriumMood | null = null;
@@ -266,8 +268,8 @@ export function createAtriumFX(
     wm.emissiveNode = crispOut.add(vec3(0.58, 0.72, 0.88).mul(glassRim));
   };
 
-  const makeParallaxSkylineWindow = (src: MeshStandardMaterial) => {
-    // 8K base material: instant boot + silky smooth Day/Golden/Night crossfades.
+  const makeParallaxSkylineWindow = (src?: MeshStandardMaterial, singleTex?: Texture) => {
+    // Single-tex instant boot (only 1 skyline downloaded before reveal!) or full 3-mood crossfade material.
     const wm = new MeshStandardNodeMaterial({
       color: new Color("#03050a"),
       roughness: 0.05,
@@ -275,15 +277,21 @@ export function createAtriumFX(
       envMapIntensity: 0.18,
       side: DoubleSide,
     });
+    if (currentEnvMap) wm.envMap = currentEnvMap;
     const { uSky, vSky } = buildWindowSkyCoords();
     const skyUv = vec2(uSky, vSky);
-    const dayCol = texture(skyDayTex, skyUv).rgb;
-    const goldCol = texture(skyGoldenTex, skyUv).rgb;
-    const nightCol = texture(skyNightTex, skyUv).rgb;
-    const blended = mix(mix(dayCol, goldCol, uWindowGoldenMix), nightCol, uWindowNightMix);
-    applyWindowOutput(wm, blended);
+    if (singleTex) {
+      applyWindowOutput(wm, texture(singleTex, skyUv).rgb);
+    } else {
+      const dayCol = texture(skyDayTex, skyUv).rgb;
+      const goldCol = texture(skyGoldenTex, skyUv).rgb;
+      const nightCol = texture(skyNightTex, skyUv).rgb;
+      const blended = mix(mix(dayCol, goldCol, uWindowGoldenMix), nightCol, uWindowNightMix);
+      applyWindowOutput(wm, blended);
+    }
     envMats.push(wm);
-    disposables.push(wm, src);
+    if (src) disposables.push(src);
+    disposables.push(wm);
     return wm;
   };
 
@@ -524,7 +532,10 @@ export function createAtriumFX(
       }
       if (/perimeter daylight window/i.test(m.name)) {
         replaced = true;
-        if (!windowMatCache) windowMatCache = makeParallaxSkylineWindow(m);
+        if (!windowMatCache) {
+          const hasAll3 = !!(skyline.day && skyline.golden && skyline.night);
+          windowMatCache = makeParallaxSkylineWindow(m, hasAll3 ? undefined : skyline.initial);
+        }
         if (!windowMeshes.includes(child)) windowMeshes.push(child);
         return windowMatCache;
       }
@@ -1132,6 +1143,15 @@ export function createAtriumFX(
     },
     getMood() {
       return targetMood;
+    },
+    setFallbackSkylines(day: Texture, golden: Texture, night: Texture) {
+      skyDayTex = day;
+      skyGoldenTex = golden;
+      skyNightTex = night;
+      const prev = windowMatCache;
+      windowMatCache = makeParallaxSkylineWindow(undefined, undefined);
+      if (!usingHiRes) bindWindowMaterial(windowMatCache);
+      if (prev) window.setTimeout(() => prev.dispose(), 250);
     },
     setHiResSkyline(mood: AtriumMood | null, texL?: Texture, texR?: Texture) {
       if (usingHiRes && windowMatCache) {

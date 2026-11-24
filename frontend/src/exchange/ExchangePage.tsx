@@ -357,6 +357,9 @@ function FloorPlan() {
   </svg>;
 }
 
+// Start fetching the 3D WebGPU floorEngine chunk immediately on module load (overlaps with React mount!)
+const floorEngineMod = typeof window !== "undefined" ? import("./floorEngine") : null;
+
 export default function ExchangePage() {
   const { lang } = useLanguage();
   const [market, setMarket] = useState<ExchangeMarket>(() => marketCode(new URLSearchParams(location.search).get("market")));
@@ -427,7 +430,7 @@ export default function ExchangePage() {
         setPhase("failed");
       }
     };
-    void import("./floorEngine").then(({ createFloor }) => createFloor(container, element, signal, {
+    void (floorEngineMod ?? import("./floorEngine")).then(({ createFloor }) => createFloor(container, element, signal, {
       renderer(mode) { setPhase(mode); reportExchange("3d:" + mode, "3D 입장 " + mode.toUpperCase()); },
       progress: setProgress,
       position(x, z, yaw) {

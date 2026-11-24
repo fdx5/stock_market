@@ -124,23 +124,28 @@ type Panel = {
   spheres: Sphere[]; visible: boolean; token: number;
 };
 
-/** lite: touch devices — fewer uploads per frame, single-repaint page flips, tighter paint budget. */
-export function createScreens(quality: number, lite = false, upload?: (texture: Texture) => void) {
+/** lite: touch/iPad devices — lighter paint budget, single-repaint page flips; disableWorker: avoids Safari OffscreenCanvas OOM. */
+export function createScreens(quality: number, lite = false, upload?: (texture: Texture) => void, disableWorker = false) {
   const group = new Group();
   const targets: Mesh[] = [];
   const panels = new Map<string, Panel>();
   const scratch = new Map<string, { canvas: HTMLCanvasElement | OffscreenCanvas; g: G }>();
-  const offscreen = typeof OffscreenCanvas !== "undefined" && typeof OffscreenCanvas.prototype.transferToImageBitmap === "function";
+  const offscreen = !disableWorker && typeof OffscreenCanvas !== "undefined" && typeof OffscreenCanvas.prototype.transferToImageBitmap === "function";
   /** Finished snapshots waiting for their GPU upload; newest wins per panel. */
   const pending = new Map<string, ImageBitmap>();
-  // Strictly 1 GPU mipmapped texture upload per frame prevents multi-upload command-queue stalls & 33ms frame drops!
-  const UPLOADS_PER_FRAME = 1, PAINT_BUDGET = lite ? 2.5 : 3.5, BACKGROUND_EVERY = lite ? 280 : 160;
+  // During initial loading overlay (bootMode=true), burst-flush visible boards in ~4 frames (~65ms) instead of 2.5s!
+  // Once revealed (bootMode=false), strictly 1 GPU upload per frame preserves locked 60 FPS with zero frame drops.
+  let bootMode = true;
+  let uploadFn = upload;
+  const uploadsPerFrame = () => (bootMode ? (lite ? 4 : 8) : 1);
+  const maxInflight = () => (bootMode ? (lite ? 4 : 6) : (lite ? 2 : 3));
+  const paintBudget = () => (bootMode ? 12 : (lite ? 2.5 : 3.5));
+  const BACKGROUND_EVERY = lite ? 280 : 160;
   // Worker painting: the main thread only posts requests and uploads finished bitmaps.
   let worker: Worker | undefined;
   let workerReady: Promise<void> = Promise.resolve();
   let workerTimer = 0, finishWorkerStart = () => {};
   let inflight = 0;
-  const MAX_INFLIGHT = lite ? 2 : 3;
   const stopWorker = () => {
     worker?.terminate();
     worker = undefined;
@@ -148,12 +153,12 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
     clearTimeout(workerTimer);
     finishWorkerStart();
   };
-  if (WORKER_OK) {
+  if (WORKER_OK && !disableWorker) {
     try {
       worker = new Worker(new URL("./paintWorker.ts", import.meta.url), { type: "module" });
       workerReady = new Promise<void>(resolve => {
         finishWorkerStart = resolve;
-        workerTimer = window.setTimeout(stopWorker, 6000);
+        workerTimer = window.setTimeout(stopWorker, 2800);
       });
       worker.onmessage = (event: MessageEvent<WorkerOut>) => {
         const msg = event.data;
@@ -273,10 +278,12 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
     // Bitmap mode: version 0 keeps a placeholder on the GPU until the first snapshot lands.
     const tex = canvas ? new CanvasTexture(canvas) : new Texture();
     tex.colorSpace = SRGBColorSpace;
-    tex.generateMipmaps = true;
-    tex.minFilter = LinearMipmapLinearFilter;
+    // On mobile/iPad, skip mipmaps on smaller stock cards to save ~33% GPU VRAM!
+    const useMips = !lite || !/^s\d/.test(id);
+    tex.generateMipmaps = useMips;
+    tex.minFilter = useMips ? LinearMipmapLinearFilter : LinearFilter;
     tex.magFilter = LinearFilter;
-    tex.anisotropy = 4;
+    tex.anisotropy = lite ? 2 : 4;
     const parts = instances.map(s => {
       const geometry = curved(s) ? arcGeometry(s) : new PlaneGeometry(s.w, s.h);
       // Crop rather than stretch when an instance's aspect differs from the panel's design.
@@ -311,7 +318,8 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
 
   function surface(panel: Panel) {
     if (panel.g) return panel.g;
-    const key = panel.pxW + "x" + panel.pxH;
+    // Reuse a SINGLE shared scratch canvas (never retain 18 separate multi-MB canvases on iPad/Safari!)
+    const key = "shared";
     let entry = scratch.get(key);
     if (!entry) {
       const canvas = offscreen ? new OffscreenCanvas(panel.pxW, panel.pxH)
@@ -321,6 +329,9 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       if (!g) return undefined;
       entry = { canvas, g };
       scratch.set(key, entry);
+    } else if (entry.canvas.width !== panel.pxW || entry.canvas.height !== panel.pxH) {
+      entry.canvas.width = panel.pxW;
+      entry.canvas.height = panel.pxH;
     }
     return entry.g;
   }
@@ -399,16 +410,17 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       else {
         panel.tex.image = source;
         panel.tex.needsUpdate = true;
-        upload?.(panel.tex);
+        uploadFn?.(panel.tex);
       }
     } else queue(source.transferToImageBitmap());
   }
 
-  /** Hand at most a few finished snapshots to the GPU per frame. */
+  /** Hand finished snapshots to the GPU (burst during boot overlay, strictly 1/frame after reveal for 60 FPS). */
   function flush() {
+    const limit = uploadsPerFrame();
     let n = 0;
     for (const [id, bitmap] of pending) {
-      if (n >= UPLOADS_PER_FRAME) break;
+      if (n >= limit) break;
       const panel = panels.get(id);
       pending.delete(id);
       if (!panel) { bitmap.close(); continue; }
@@ -418,7 +430,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       panel.tex.image = bitmap;
       panel.tex.onUpdate = releaseOnUpload;
       panel.tex.needsUpdate = true;
-      upload?.(panel.tex);   // now, not when the panel next enters the view
+      uploadFn?.(panel.tex);   // now, not when the panel next enters the view
       n++;
     }
   }
@@ -454,7 +466,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
           outerCount.value = entries.length;
           // Repeat a partial feed a whole number of times until the full selection arrives.
           outerRepeats.value = Math.max(1, Math.round(ticker.width / (entries.length * OUTER_TICKER_ATLAS.slotWidth)));
-          upload?.(ticker.tex);
+          uploadFn?.(ticker.tex);
           if (isBitmap(old)) setTimeout(() => old.close(), 500);
         };
         if (outerTickerCanvas) commit(outerTickerCanvas.transferToImageBitmap());
@@ -495,7 +507,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
         ticker.tex.userData.width = width;
         ticker.tex.image = image;
         ticker.tex.needsUpdate = true;
-        upload?.(ticker.tex);
+        uploadFn?.(ticker.tex);
         if (isBitmap(old)) setTimeout(() => old.close(), 500);
       };
       if (typeof createImageBitmap === "function") void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
@@ -505,7 +517,23 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
 
   return {
     group, targets,
-    ready: () => Promise.all([fontsReady(), workerReady]).then(() => undefined),
+    /** Attach GPU upload hook once WebGPURenderer has initialized (allows worker & painting to start at t=0ms!). */
+    setUpload(fn: (texture: Texture) => void) { uploadFn = fn; },
+    /** Toggle high-speed burst flushing during loading screen vs locked 1-upload/frame 60 FPS mode after reveal. */
+    setBootMode(on: boolean) { bootMode = on; },
+    /** When the offscreen paint worker is active, don't block 3D reveal on main-thread 2MB font download! */
+    ready: () => (worker ? workerReady : fontsReady()).then(() => undefined),
+    /** Pre-kick visible panel paints while GLB is still downloading (zero GPU calls, pure worker parallelism!). */
+    prewarm(limit = 16) {
+      if (!snapshot || !worker) return;
+      let sent = 0;
+      for (const id of dirty) {
+        if (inflight >= maxInflight() || sent >= limit) break;
+        dirty.delete(id);
+        paint(id, Date.now());
+        sent++;
+      }
+    },
     /** Every visible display has its first picture on the GPU (or nothing is left to paint). */
     settled: () => !!snapshot && pending.size === 0 && inflight === 0
       && ![...dirty].some(id => panels.get(id)?.visible !== false),
@@ -574,18 +602,21 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       }
       // Time-boxed: visible panels first — one always, more only while the frame has headroom.
       const start = performance.now();
+      const capInflight = maxInflight();
+      const capUpload = uploadsPerFrame();
+      const capBudget = paintBudget();
       let hidden: string | undefined;
       for (const id of dirty) {
         if (panels.get(id)?.visible === false) { hidden ??= id; continue; }
-        if (worker && inflight >= MAX_INFLIGHT) return;
+        if (worker && inflight >= capInflight) return;
         dirty.delete(id);
         paint(id, Date.now());
-        if (!worker && performance.now() - start > PAINT_BUDGET) return;
-        if (pending.size >= UPLOADS_PER_FRAME * 3) return;
+        if (!worker && performance.now() - start > capBudget) return;
+        if (pending.size >= capUpload * 3) return;
       }
-      if (worker && inflight >= MAX_INFLIGHT) return;
+      if (worker && inflight >= capInflight) return;
       // Nothing visible left to do: refresh one panel behind the camera, so turning finds it current.
-      if (hidden && now - lastBackground >= BACKGROUND_EVERY && pending.size < UPLOADS_PER_FRAME) {
+      if (hidden && now - lastBackground >= BACKGROUND_EVERY && pending.size < capUpload) {
         lastBackground = now;
         dirty.delete(hidden);
         paint(hidden, Date.now());

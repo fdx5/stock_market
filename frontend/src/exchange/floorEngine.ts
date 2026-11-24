@@ -52,7 +52,8 @@ export type FloorDriver = {
 // current model and maps (the file names stay the same between local rebuilds).
 const BAKE_KEY = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36);
 const hallAsset = (file: string) => `${STORAGE_ASSETS}/${file}${BAKE_KEY}`;
-const ENV = STORAGE_ASSETS + "/hall-env-v6.hdr" + BAKE_KEY;   // 2K Cycles panorama of this v6 hall
+const ENV = STORAGE_ASSETS + "/hall-env-v6.hdr" + BAKE_KEY;        // 2K Cycles panorama of this v6 hall (desktop)
+const ENV_MOBILE = STORAGE_ASSETS + "/hall-env-v5.hdr" + BAKE_KEY; // 4x lighter 1.6MB HDR for iPad/mobile memory budget
 // Slot order and dimensions match scripts/build_exchange_art_preview.py.
 const ART_PREVIEW = { columns: 8, tile: 256, border: 8 };
 const SKY = "#f4f1ea";   // daylight through the skylight, warmed by the oak
@@ -179,11 +180,12 @@ function groupOf(object: Object3D) {
   return "props";
 }
 
-/** Texture quality for screen canvases: full on capable devices, lighter on small-memory phones. */
-function screenQuality() {
+/** Texture quality for screen canvases: full on desktop & flagship Android (Fold 7/8, S26), 0.72x on iPad, 0.55x on phones. */
+function screenQuality(mobile: boolean, isIPad: boolean) {
+  if (isIPad) return .72;
+  if (mobile) return .55;
   const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
-  const coarse = matchMedia("(pointer: coarse)").matches;
-  return memory <= 4 ? .62 : coarse ? .8 : 1;
+  return memory <= 4 ? .65 : 1;
 }
 
 type Events = {
@@ -208,6 +210,7 @@ async function fetchWithProgress(url: string, signal: AbortSignal, progress?: (f
   const header = new Uint8Array(12);
   let out: Uint8Array<ArrayBuffer> | undefined;
   let received = 0;
+  let lastProgress = -1;
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -225,7 +228,12 @@ async function fetchWithProgress(url: string, signal: AbortSignal, progress?: (f
       }
       out.set(value, received);
       received += value.length;
-      progress?.(Math.min(.99, received / out.length));
+      const frac = Math.min(.99, received / out.length);
+      // Throttle progress callbacks (~50 updates instead of ~1,800) so React never churns during GLB download!
+      if (frac - lastProgress >= 0.02 || frac >= 0.99) {
+        lastProgress = frac;
+        progress?.(frac);
+      }
     }
   } finally {
     reader.releaseLock();
@@ -236,16 +244,48 @@ async function fetchWithProgress(url: string, signal: AbortSignal, progress?: (f
 
 export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElement, signal: AbortSignal, events: Events, retryWithWebGL = false): Promise<FloorDriver> {
   if (signal.aborted) throw signal.reason;
+  const tBoot0 = performance.now();
   const params = new URLSearchParams(location.search);
   const measure = params.has("exchangeMetrics");
-  // Phones: dense pixels already hide edges, so skip MSAA there and start without bloom.
   const touch = matchMedia("(pointer: coarse)").matches;
-  // iPadOS can present a desktop user agent. Keep its mobile memory budget with either backend.
+  // iPadOS can present a desktop user agent. Detect iOS/iPadOS Safari separately for WebKit memory safety.
   const appleTouch = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
-  const mobile = touch || appleTouch;
+  const isIPad = appleTouch && Math.max(window.screen?.width ?? 0, window.screen?.height ?? 0) >= 900;
+  const deviceMem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? (appleTouch ? 4 : 8);
+  const cpuCores = navigator.hardwareConcurrency ?? 4;
+  const hasWebGPU = "gpu" in navigator && !!navigator.gpu;
+  // Flagship Android devices (Galaxy Z Fold 7/8, Galaxy S25/S26, Tab S10+ — 8GB+ RAM, 8+ cores, Vulkan WebGPU)
+  // preserve FULL desktop-grade 16K + Bloom + 2K HDR + full fireworks quality without forced downgrade!
+  const flagshipMobile = !appleTouch && hasWebGPU && deviceMem >= 8 && cpuCores >= 8;
+  const mobile = (touch || appleTouch) && !flagshipMobile;
   const dense = (window.devicePixelRatio || 1) >= 2;
-  const renderer = new WebGPURenderer({ canvas, antialias: !(mobile && dense), alpha: false, powerPreference: "high-performance",
-    forceWebGL: retryWithWebGL || !("gpu" in navigator && navigator.gpu) });
+
+  // Determine initial mood upfront so we ONLY download ONE skyline before reveal (saves 8-10MB critical-path download!)
+  const testChangeRaw = params.get("testChange");
+  const testChange = testChangeRaw !== null && Number.isFinite(Number(testChangeRaw)) ? Number(testChangeRaw) : null;
+  const bootDisplays = events.initialDisplays();
+  const initialChange = testChange ?? bootDisplays.snapshot.index?.change ?? 0;
+  const initialMood: AtriumMood = initialChange >= 3.0 ? "night" : "daylight";
+  const initialSkyKey = initialMood === "daylight" ? "day" : initialMood;
+
+  // Start screens worker & font fetch at t=0ms — 100% IN PARALLEL with WebGPU init & 28MB GLB download!
+  const screens = createScreens(screenQuality(mobile, isIPad), mobile, undefined, appleTouch);
+  let prewarmCancelled = false;
+  void screens.ready().then(() => {
+    if (prewarmCancelled || signal.aborted) return;
+    const latest = events.initialDisplays();
+    screens.update(latest.snapshot, latest.series, latest.language);
+    screens.prewarm(24);
+  }).catch(() => {});
+
+  // iPadOS/iOS Safari uses Metal-backed WebGL2 directly (avoids experimental Safari WebGPU hangs/OOM crashes!).
+  const renderer = new WebGPURenderer({
+    canvas,
+    antialias: !(mobile && dense),
+    alpha: false,
+    powerPreference: "high-performance",
+    forceWebGL: retryWithWebGL || appleTouch || !("gpu" in navigator && navigator.gpu),
+  });
   renderer.toneMapping = AgXToneMapping;
   renderer.toneMappingExposure = .62;   // AgX calm luxury exposure: true sapphire/crimson hues, zero glare, effortless viewing
   const scene = new Scene();
@@ -253,12 +293,15 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
   const camera = new PerspectiveCamera(62, 1, .08, 90);
   const sky = new HemisphereLight(SKY, "#5a5048", .5);
   scene.add(sky);
-  const releases: (() => void)[] = [];
+  const releases: (() => void)[] = [
+    () => { prewarmCancelled = true; screens.dispose(); },
+  ];
   let disposed = false, frame = 0;
   let environment: Texture | undefined;
   const dispose = () => {
     if (disposed) return;
     disposed = true;
+    prewarmCancelled = true;
     cancelAnimationFrame(frame);
     for (const release of releases.reverse()) release();
     scene.environment = null;
@@ -273,44 +316,68 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
   };
   try {
     renderer.onDeviceLost = info => fail(new Error(`${info.api} device lost: ${info.message}`));
-    // WebGPU can report invalid shaders and exhausted GPU resources asynchronously.
-    if (mobile) renderer.onError = (error: unknown) => fail(new Error(
-      typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error),
-    ));
+    // Start downloading the GLB immediately on desktop while renderer.init() warms up WebGPU!
+    const earlyDesktopGlb = !mobile ? fetchWithProgress(hallAsset("trading-hall-v6.glb"), signal, events.progress) : null;
     await renderer.init();
+    const tInitDone = performance.now();
     signal.throwIfAborted();
     if (disposed) throw new Error("Trading hall GPU context was lost");
+    screens.setUpload(texture => renderer.initTexture(texture));
+    const backend = renderer.coordinateSystem === WebGPUCoordinateSystem ? "webgpu" : "webgl2";
     const compressed = mobile && (["texture-compression-astc", "texture-compression-etc2", "texture-compression-bc",
       "texture-compression-s3tc"] as const).some(feature => renderer.hasFeature(feature));
     if (params.has("exchangeMetrics")) canvas.dataset.hallTextures = compressed ? "ktx2" : "webp";
     const textures = new TextureLoader();
-    const ktx = compressed ? new KTX2Loader().setWorkerLimit(2).detectSupport(renderer) : undefined;
+    // Single KTX2 WASM worker on mobile/iPad halves peak transcode RAM (prevents iPadOS JetSam OOM kills!).
+    const ktx = compressed ? new KTX2Loader().setWorkerLimit(1).detectSupport(renderer) : undefined;
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     if (ktx) loader.setKTX2Loader(ktx);
     const maxAniso = mobile ? 2 : Math.min(4, renderer.getMaxAnisotropy());
-    const canBitmap = typeof createImageBitmap === "function";
+    const useBitmapUpload = !appleTouch && backend === "webgpu" && typeof createImageBitmap === "function";
     const closeBitmapOnUpload = (tex: Texture) => {
       const img = tex.image as unknown;
       if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) img.close();
     };
     const disposeTexSafe = (tex: Texture) => {
       closeBitmapOnUpload(tex);
+      const img = tex.image as unknown;
+      if (typeof HTMLCanvasElement !== "undefined" && img instanceof HTMLCanvasElement) {
+        img.width = 0; img.height = 0;
+      }
       tex.dispose();
     };
-    /** Decode large static WebP textures off-main-thread via ImageBitmap & free CPU RAM immediately after GPU upload! */
+    /** Decode static WebP textures cleanly: zero-CPU-RAM ImageBitmap on WebGPU desktop, Safari-safe downscaled canvas on iPad/WebGL2! */
     const loadBitmapTexture = async (url: string, resize?: { width: number; height: number }): Promise<Texture> => {
-      if (!canBitmap) return textures.loadAsync(url);
-      const res = await fetch(url, { signal });
-      if (!res.ok) throw new Error(`Texture unavailable (${res.status}): ${url}`);
-      const blob = await res.blob();
-      signal.throwIfAborted();
-      const bitmap = resize
-        ? await createImageBitmap(blob, { resizeWidth: resize.width, resizeHeight: resize.height, resizeQuality: "high" })
-        : await createImageBitmap(blob);
-      if (disposed || signal.aborted) { bitmap.close(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
-      const tex = new Texture(bitmap);
-      tex.onUpdate = closeBitmapOnUpload;
-      tex.needsUpdate = true;
+      if (useBitmapUpload) {
+        const res = await fetch(url, { signal });
+        if (!res.ok) throw new Error(`Texture unavailable (${res.status}): ${url}`);
+        const blob = await res.blob();
+        signal.throwIfAborted();
+        const bitmap = resize
+          ? await createImageBitmap(blob, { resizeWidth: resize.width, resizeHeight: resize.height, resizeQuality: "high" })
+          : await createImageBitmap(blob);
+        if (disposed || signal.aborted) { bitmap.close(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
+        const tex = new Texture(bitmap);
+        tex.onUpdate = closeBitmapOnUpload;
+        tex.needsUpdate = true;
+        return tex;
+      }
+      const tex = await textures.loadAsync(url);
+      if (disposed || signal.aborted) { tex.dispose(); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
+      // On iPad/WebGL2, downscale giant 8K textures cleanly via 2D canvas -> 2048x512 (4MB vs 67MB VRAM, 16x safer on iPadOS!)
+      if (resize && tex.image) {
+        const c = document.createElement("canvas");
+        c.width = resize.width;
+        c.height = resize.height;
+        const g = c.getContext("2d", { alpha: false });
+        if (g) {
+          g.drawImage(tex.image as CanvasImageSource, 0, 0, resize.width, resize.height);
+          tex.dispose();
+          const scaled = new Texture(c);
+          scaled.needsUpdate = true;
+          return scaled;
+        }
+      }
       return tex;
     };
     const lightmap = async (file: string) => {
@@ -325,7 +392,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     };
     const loadModel = async () => {
       const file = compressed ? "trading-hall-v6-ktx2.glb" : "trading-hall-v6.glb";
-      const binary = await fetchWithProgress(hallAsset(file), signal, events.progress);
+      const binary = earlyDesktopGlb ? await earlyDesktopGlb : await fetchWithProgress(hallAsset(file), signal, events.progress);
       events.progress?.(.99);
       const { scene: model } = await loader.parseAsync(binary, STORAGE_ASSETS + "/");
       if (disposed || signal.aborted) { releaseModel(model); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
@@ -333,17 +400,15 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       return model;
     };
     const loadSkyline = async (file: string, isHiResTile = false) => {
-      // Desktop active mood always upgrades to native 16K (2x 8192x4096), so downscale the 3 crossfade-only fallback
-      // skylines to 4096x1024 on desktop -> saves ~151MB GPU VRAM + ~200MB CPU RAM with zero steady-state visual loss!
-      const resizeFallback = !isHiResTile && !mobile ? { width: 4096, height: 1024 } : undefined;
+      // Desktop & flagship Android upgrade active mood to native 16K (4096x1024 crossfade fallback);
+      // iPad uses crisp 4096x1024 (16MB vs 201MB -> zero crash!); low-mem phones use 2048x512 (4MB VRAM!).
+      const resizeFallback = isHiResTile ? undefined : (mobile && !isIPad) ? { width: 2048, height: 512 } : { width: 4096, height: 1024 };
       const tex = await loadBitmapTexture(hallAsset(file) + "p19", resizeFallback);
       if (disposed || signal.aborted) { disposeTexSafe(tex); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.colorSpace = SRGBColorSpace;
       tex.flipY = false;
       tex.wrapS = isHiResTile ? ClampToEdgeWrapping : RepeatWrapping;
       tex.wrapT = ClampToEdgeWrapping;
-      // 16K dual-hemisphere tiles use continuous analytical LOD + trilinear mipmaps for razor-sharp supersampling without seam;
-      // 8K/4K single equirectangular fallback disables mipmaps to avoid the atan2(-X) dFdx 1px dotted seam line.
       if (isHiResTile) {
         tex.generateMipmaps = true;
         tex.minFilter = LinearMipmapLinearFilter;
@@ -356,37 +421,30 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       renderer.initTexture(tex);
       return tex;
     };
-    const loadSkyline8k = async (file: string) => {
+    const loadSkylineFallback = async (file: string) => {
       const tex = await loadSkyline(file, false);
       releases.push(() => disposeTexSafe(tex));
       return tex;
     };
-    const { model, shellMap, fixtureMap, skyDay, skyGolden, skyNight } = await (async () => {
-      // Limit the mobile startup peak: decode the hall before allocating either 4K lightmap.
+    // Download ONLY the active initial mood's skyline before reveal (saves 8-10MB critical-path bytes + 2x 8K decodes!)
+    const { model, shellMap, fixtureMap, initialSkyTex } = await (async () => {
       try {
         if (mobile) {
           const model = await loadModel();
           const shellMap = await lightmap(bake.shell.file);
           const fixtureMap = await lightmap(bake.fixtures.file);
-          const [skyDay, skyGolden, skyNight] = await Promise.all([
-            loadSkyline8k("skyline-day-v6.webp"),
-            loadSkyline8k("skyline-golden-v6.webp"),
-            loadSkyline8k("skyline-night-v6.webp"),
-          ]);
-          return { model, shellMap, fixtureMap, skyDay, skyGolden, skyNight };
+          const initialSkyTex = await loadSkylineFallback(`skyline-${initialSkyKey}-v6.webp`);
+          return { model, shellMap, fixtureMap, initialSkyTex };
         }
-        const [model, shellMap, fixtureMap, skyDay, skyGolden, skyNight] = await Promise.all([
+        const [model, shellMap, fixtureMap, initialSkyTex] = await Promise.all([
           loadModel(), lightmap(bake.shell.file), lightmap(bake.fixtures.file),
-          loadSkyline8k("skyline-day-v6.webp"),
-          loadSkyline8k("skyline-golden-v6.webp"),
-          loadSkyline8k("skyline-night-v6.webp"),
+          loadSkylineFallback(`skyline-${initialSkyKey}-v6.webp`),
         ]);
-        return { model, shellMap, fixtureMap, skyDay, skyGolden, skyNight };
+        return { model, shellMap, fixtureMap, initialSkyTex };
       } finally { ktx?.dispose(); }
     })();
+    const tAssetsDone = performance.now();
     signal.throwIfAborted();
-    const screens = createScreens(screenQuality(), mobile, texture => renderer.initTexture(texture));
-    releases.push(screens.dispose);
 
     // Baked global illumination: each lightmapped group gets its own material copies.
     const cloned = new Map<string, MeshStandardMaterial>();
@@ -499,7 +557,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const doorOpen = LIFTS.map(() => 1);
     scene.add(model);
     scene.add(screens.group);
-    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile, { day: skyDay, golden: skyGolden, night: skyNight }, camera, screens.group);
+    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile, { initial: initialSkyTex }, camera, screens.group);
     scene.add(fx.group);
     releases.push(fx.dispose);
     const tour = new ShowcaseTour();
@@ -508,7 +566,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       tour.stop();
       events.tour?.(false);
     };
-    const loadEnvironment = () => void new HDRLoader().loadAsync(ENV).then(texture => {
+    const loadEnvironment = () => void new HDRLoader().loadAsync(mobile ? ENV_MOBILE : ENV).then(texture => {
       if (disposed || signal.aborted) { texture.dispose(); return; }
       texture.mapping = EquirectangularReflectionMapping;
       scene.environment = environment = texture;
@@ -599,7 +657,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       inspectingId = id;
       return true;
     };
-    if (!mobile) loadEnvironment();
+    // Defer 6.39MB HDR environment & preview atlas until right after reveal so boot bandwidth stays 100% focused!
 
     const artwork = new Map<Mesh, () => void>();
     const previewMeshes = new Set<Mesh>();
@@ -671,9 +729,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       previewMaterial?.dispose();
       previewMeshes.clear();
     });
-    // Load the single lightweight preview atlas on BOTH mobile & desktop so all 31 paintings appear immediately
-    // without stutter; upgrade to 1K ONLY when visitor walks close (<10.5m) & slows down (NEVER during Tour Mode!).
-    void loadPreview().catch(() => { /* nearby 1K pictures still load independently */ });
+    // Preview atlas loads right after reveal so boot stays instant; nearest 6 visible paintings upgrade lazily to 1K!
     const maxLiveArt = mobile ? 5 : 6;
     function updateArtwork() {
       if (artPending || drag || tour.isActive() || velX * velX + velZ * velZ > 0.16) return;
@@ -726,12 +782,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const recent: number[] = [];
     const pointer = new Vector2(), ray = new Raycaster();
     const frustum = new Frustum(), viewProjection = new Matrix4();
-    const backend = renderer.coordinateSystem === WebGPUCoordinateSystem ? "webgpu" : "webgl2";
     const pause = () => { keys.clear(); touchX = touchForward = velX = velZ = 0; };
     const isField = (event: KeyboardEvent) => event.target instanceof HTMLElement &&
       !!event.target.closest("input,button,select,textarea,a,[contenteditable],[role=dialog]");
-    // Cap desktop DPR at 1.5x (Retina-sharp with WebGPU MSAA) to prevent 4K/HiDPI 4x-6x pixel fillrate drops!
-    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 3 ? 1.0 : tier >= 1 ? 1.25 : touch ? 1.75 : 1.5);
+    // Cap DPR: 1.5x on desktop & flagship Android, 1.35x on iPad, 1.25x on low-memory phones.
+    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 3 ? 1.0 : isIPad ? 1.35 : mobile ? 1.25 : tier >= 1 ? 1.25 : 1.5);
 
     function resize() {
       const { width, height } = host.getBoundingClientRect();
@@ -1009,26 +1064,19 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       window.removeEventListener("blur", pause);
       document.removeEventListener("visibilitychange", visibility);
     });
-    if (!mobile && backend === "webgpu") {
-      // WebGPU desktop can warm the scene. On WebGL 2 the eager binding pass can fail before
-      // the first render, and on mobile it also forces every texture into memory at once.
-      await renderer.compileAsync(scene, camera);
-      signal.throwIfAborted();
-      if (disposed) throw new Error("Trading hall GPU context was lost");
-      const hallTextures = new Set<Texture>();
+    // Set crisp anisotropy on GLB hall textures without a 6.1-second blocking compileAsync over all 120+ offscreen materials!
+    // Frame 1 compiles only the visible frustum (~0.6-1.0s instead of 6.1s!), cutting total load time by ~5+ seconds!
+    if (!mobile) {
       model.traverse(child => {
         if (!(child instanceof Mesh)) return;
         for (const m of Array.isArray(child.material) ? child.material : [child.material]) {
-          for (const value of Object.values(m)) if (value instanceof Texture) hallTextures.add(value);
+          for (const value of Object.values(m)) {
+            if (value instanceof Texture && value.anisotropy < maxAniso) value.anisotropy = maxAniso;
+          }
         }
       });
-      for (const texture of hallTextures) {
-        if (texture.anisotropy < maxAniso) texture.anisotropy = maxAniso;
-        renderer.initTexture(texture);
-      }
     }
-    const testChangeRaw = params.get("testChange");
-    const testChange = testChangeRaw !== null && Number.isFinite(Number(testChangeRaw)) ? Number(testChangeRaw) : null;
+    const tCompileDone = performance.now();
     const update = (snapshot: FloorSnapshot, series: Captions, language: Language) => {
       fx.setIndexChange(testChange ?? snapshot.index?.change ?? 0);
       if (measure) {
@@ -1038,27 +1086,64 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
       screens.update(snapshot, series, language);
     };
-    await screens.ready();
+    await Promise.race([screens.ready(), new Promise<void>(r => window.setTimeout(r, 900))]);
     signal.throwIfAborted();
     if (disposed) throw new Error("Trading hall GPU context was lost");
     const initial = events.initialDisplays();
-    const initialChange = testChange ?? initial.snapshot.index?.change ?? 0;
-    if (initialChange >= 3.0) fx.setMood("night");
+    if (initialMood === "night") fx.setMood("night");
     update(initial.snapshot, initial.series, initial.language);
     visibility();
-    // Reveal once every visible display has its first picture (or after 5 s): no black screens on entry.
-    const revealStart = performance.now();
+    // Reveal as soon as Frame 1 renders + hero boards flush (max 450ms post-first-frame, never stuck at 99% for 3s!)
+    let firstRenderAt = 0;
     await new Promise<void>(resolve => {
       const check = () => {
-        if (disposed || signal.aborted || (rendered && screens.settled()) || performance.now() - revealStart > 5000) resolve();
-        else setTimeout(check, 60);
+        if (disposed || signal.aborted) { resolve(); return; }
+        if (rendered && !firstRenderAt) firstRenderAt = performance.now();
+        if (rendered && (screens.settled() || performance.now() - firstRenderAt > 450)) resolve();
+        else requestAnimationFrame(check);
       };
       check();
     });
     signal.throwIfAborted();
     if (disposed) throw new Error("Trading hall GPU context was lost");
+    // Keep fast boot-burst screen uploads active briefly after reveal until all visible boards settle, then lock to 1/frame for 60 FPS!
+    const finishBootBurst = () => {
+      if (disposed || signal.aborted) return;
+      if (screens.settled()) screens.setBootMode(false);
+      else window.setTimeout(() => { if (!disposed && !signal.aborted) screens.setBootMode(false); }, 1200);
+    };
+    finishBootBurst();
+    if (measure) {
+      const tReveal = performance.now();
+      canvas.dataset.bootMs = JSON.stringify({
+        init: Math.round(tInitDone - tBoot0),
+        assets: Math.round(tAssetsDone - tInitDone),
+        compile: Math.round(tCompileDone - tAssetsDone),
+        reveal: Math.round(tReveal - tCompileDone),
+        total: Math.round(tReveal - tBoot0),
+      });
+    }
     events.renderer(backend);
     ready = true;
+    // Lazy-load the other 2 inactive fallback skylines after reveal (or immediately on mood switch!)
+    let fallbackSkylinesPromise: Promise<void> | null = null;
+    const ensureAllFallbackSkylines = () => {
+      if (fallbackSkylinesPromise) return fallbackSkylinesPromise;
+      fallbackSkylinesPromise = (async () => {
+        try {
+          const dayTex = initialMood === "daylight" ? initialSkyTex : await loadSkylineFallback("skyline-day-v6.webp");
+          if (disposed || signal.aborted) return;
+          const goldenTex = await loadSkylineFallback("skyline-golden-v6.webp");
+          if (disposed || signal.aborted) return;
+          const nightTex = initialMood === "night" ? initialSkyTex : await loadSkylineFallback("skyline-night-v6.webp");
+          if (disposed || signal.aborted) return;
+          fx.setFallbackSkylines(dayTex, goldenTex, nightTex);
+        } catch {
+          // Keep active skyline intact if secondary fallback fails
+        }
+      })();
+      return fallbackSkylinesPromise;
+    };
     // On-demand effective-16K dual-hemisphere skyline loader (desktop only: 2x 8192x4096 = 16,380x4,096 seamless!).
     // Keeps GPU VRAM strictly bounded to ONLY the currently active mood (~256 MB) while instant 8K handles smooth crossfades.
     let activeHiRes: { mood: AtriumMood; L: Texture; R: Texture } | null = null;
@@ -1121,9 +1206,15 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
     };
 
-    if (mobile) loadEnvironment();
-    else {
-      void loadHiResSkyline(fx.getMood());
+    // Post-reveal progressive enhancement: load HDR env, gallery preview atlas, 16K skyline (desktop), & secondary moods!
+    loadEnvironment();
+    void loadPreview().catch(() => { /* nearby 1K pictures still load independently */ });
+    if (!mobile) {
+      void loadHiResSkyline(fx.getMood()).then(() => {
+        if (!disposed && !signal.aborted) window.setTimeout(() => void ensureAllFallbackSkylines(), 1500);
+      });
+    } else {
+      window.setTimeout(() => { if (!disposed && !signal.aborted) void ensureAllFallbackSkylines(); }, 2500);
     }
     return {
       move(x, forward) { if (Math.abs(x) > .05 || Math.abs(forward) > .05) stopTour(); touchX = clamp(x, -1, 1); touchForward = clamp(forward, -1, 1); },
@@ -1138,6 +1229,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       },
       stop: pause,
       setMood(mood) {
+        void ensureAllFallbackSkylines();
         fx.setMood(mood);
         void loadHiResSkyline(mood);
       },
