@@ -14,8 +14,10 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { AudioLevels } from "./audioLevels";
 import { moodColor, moodStrength } from "./mood";
+import { getNoise2DTexture, NOISE_LUT_GLSL } from "./noise3d";
 import { PoseRig, loadMocap, sample, blend, type Clip, type Pose, type RootMotion } from "./pose";
 import { Worlds } from "./worlds";
 import { AbyssSky, Embers, LightFall, MarineSnow } from "./abyss";
@@ -29,13 +31,8 @@ const smooth = (x: number) => { x = Math.min(1, Math.max(0, x)); return x * x * 
 const lerp = THREE.MathUtils.lerp;
 
 // ------------------------------------------------------------------ shared GLSL
-const NOISE = /* glsl */`
-float h31(vec3 p){ p = fract(p*0.3183099+0.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
-float n3(vec3 x){ vec3 i=floor(x), f=fract(x); f=f*f*(3.0-2.0*f);
-  return mix(mix(mix(h31(i+vec3(0,0,0)),h31(i+vec3(1,0,0)),f.x),mix(h31(i+vec3(0,1,0)),h31(i+vec3(1,1,0)),f.x),f.y),
-             mix(mix(h31(i+vec3(0,0,1)),h31(i+vec3(1,0,1)),f.x),mix(h31(i+vec3(0,1,1)),h31(i+vec3(1,1,1)),f.x),f.y),f.z); }
-float fbm3(vec3 p){ float s=0.0,a=0.5; for(int i=0;i<4;i++){ s+=a*n3(p); p=p*2.03+vec3(1.7,9.2,3.1); a*=0.5; } return s; }
-`;
+// 1-tap hardware-interpolated 256x256 2D-packed 3D value noise (exact C¹ cubic Hermite, ~6-8x faster ALU!)
+const NOISE = NOISE_LUT_GLSL;
 const COMMON = /* glsl */`
 uniform float uTime, uEnergy, uBass, uMid, uHigh, uBeat, uFlare, uStrength;
 uniform vec4 uW; // weights of the four pulse patterns, crossfading in turn
@@ -76,8 +73,15 @@ export class DeepDive {
   private audio = new AudioLevels();
   private u: Record<string, U> = {
     uTime: { value: 0 }, uEnergy: { value: 0 }, uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }, uBeat: { value: 0 },
-    uFlare: { value: 0 }, uStrength: { value: 0 }, uHole: { value: 1 }, uPR: { value: 1 }, uDeep: { value: 0 }, tFigH: { value: null }, uFigHMat: { value: new THREE.Matrix4() }, uFigHOn: { value: 0 }, uPxScale: { value: 1 }, uFixOn: { value: 0 }, uHipL: { value: new THREE.Vector3() }, uDirL: { value: new THREE.Vector3(0, -1, 0) }, uHipR: { value: new THREE.Vector3() }, uDirR: { value: new THREE.Vector3(0, -1, 0) }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uFocus: { value: new THREE.Vector3(0, 1, 13) }, uMood: { value: new THREE.Color(0x3a8bff) }, uFigMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
+    uFlare: { value: 0 }, uStrength: { value: 0 }, uHole: { value: 1 }, uPR: { value: 1 }, uDeep: { value: 0 }, uNoise2D: { value: getNoise2DTexture() }, uStepsOn: { value: 0 }, tFigH: { value: null }, uFigHMat: { value: new THREE.Matrix4() }, uFigHOn: { value: 0 }, uPxScale: { value: 1 }, uFixOn: { value: 0 }, uHipL: { value: new THREE.Vector3() }, uDirL: { value: new THREE.Vector3(0, -1, 0) }, uHipR: { value: new THREE.Vector3() }, uDirR: { value: new THREE.Vector3(0, -1, 0) }, uW: { value: new THREE.Vector4(1, 0, 0, 0) }, uSteps: { value: [new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0), new THREE.Vector4(0, 0, -99, 0)] }, uFocus: { value: new THREE.Vector3(0, 1, 13) }, uMood: { value: new THREE.Color(0x3a8bff) }, uFigMood: { value: new THREE.Color(0x3a8bff) }, uFog: { value: new THREE.Color(0x02040a) },
   };
+  private sharedRibMat?: THREE.MeshStandardMaterial;
+  private mistMesh?: THREE.Mesh;
+  private lowSpecGpu = false;
+  private figHFrame = 0;
+  private _ew = new Array<number>(Worlds.COUNT).fill(0);
+  private _w = [0, 0, 0, 0];
+  private _root: RootMotion = { x: 0, y: 0, z: 0, yaw: 0 };
   private moodTarget = new THREE.Color(0x3a8bff);
   private strengthTarget = 0;
   private figure = new THREE.Group();
@@ -108,6 +112,13 @@ export class DeepDive {
   }
   private raf = 0; private last = 0; private t0 = performance.now();
   private disposed = false;
+  private metricsOn = false;
+  private metricsMoodOverride: number | null = null;
+  private metricsFrames: number[] = [];
+  private metricsJs: number[] = [];
+  private metricsLastNow = 0;
+  private metricsLastPush = 0;
+  private metricsInitMs = 0;
   private scroll = 0;     // rain/dust scroll (m)
   private tunnelScroll = 0;
   private soft = { e: 0.2, b: 0.2, m: 0.2, h: 0.2, beat: 0 };
@@ -129,6 +140,9 @@ export class DeepDive {
    *  floor's contact shadow. 512 px over 6.8 m: about 1.3 cm a texel. */
   private renderFigH() {
     if (!this.skin) return;
+    // The seated lotus torso/legs on the floor barely shift between 16ms frames: updating the
+    // contact-shadow underside map at 30 Hz (every 2nd frame) is visually identical and halves pass cost.
+    if (this.figH && (this.figHFrame++ & 1) === 1) return;
     if (!this.figH) {
       const rt = new THREE.WebGLRenderTarget(512, 512, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: true });
       const cam = new THREE.OrthographicCamera(-FIGH_R, FIGH_R, FIGH_R, -FIGH_R, 0, FIGH_FAR);
@@ -179,9 +193,31 @@ export class DeepDive {
   }
 
   constructor(private canvas: HTMLCanvasElement, private quality: "high" | "medium" = "high") {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance", alpha: false });
+    const tCtor0 = performance.now();
+    const qs = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    this.metricsOn = qs?.get("pulseMetrics") === "1";
+    const qMood = this.metricsOn ? qs?.get("pulseMood") : null;
+    if (qMood !== null && qMood !== undefined && qMood !== "" && Number.isFinite(Number(qMood))) {
+      this.metricsMoodOverride = Number(qMood);
+    }
+    // Canvas MSAA is never used because all rendering goes through EffectComposer's own MSAA target;
+    // disabling canvas antialias is 100% bit-identical while freeing full-screen backbuffer MSAA bandwidth/VRAM.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance", alpha: false });
+    // Detect genuinely low-spec GPUs (software renderers, legacy Intel HD/UHD, entry Mali/Adreno, <=4GB RAM)
+    // to optimize MSAA samples/pixel-ratio cleanly without ever downgrading visual quality on capable devices.
+    let lowSpecGpu = quality === "medium";
+    try {
+      const gl = this.renderer.getContext();
+      const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+      const gpuName = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "") : "";
+      const devMem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+      if (/swiftshader|llvmpipe|software|intel\(r\)\s*(hd|uhd)\s*graphics\s*(4|5|6)\d{2}|mali-g5|mali-t|adreno\s*\(tm\)\s*(4|5|61\d)|powervr/i.test(gpuName) || devMem <= 4) {
+        lowSpecGpu = true;
+      }
+    } catch { /* ignore */ }
+    this.lowSpecGpu = lowSpecGpu;
     const dpr = window.devicePixelRatio || 1;
-    this.pr = Math.min(dpr, quality === "high" ? 2 : 1.6);
+    this.pr = Math.min(dpr, quality === "high" ? (lowSpecGpu ? 1.5 : 2) : 1.5);
     this.renderer.setPixelRatio(this.pr);
     // point sprites are sized in device pixels, tuned at the former ratio: keep their look
     this.prBase = Math.min(dpr, quality === "high" ? 1.5 : 1);
@@ -216,21 +252,28 @@ export class DeepDive {
     // Light in the mood's colour: one from the portal, one carried by the figure, so the
     // chrome ribs and the hall's walls take shape round it instead of sinking into black.
     this.keyLight = new THREE.PointLight(0x3a8bff, 0, 60, 1.6); this.keyLight.position.set(0, 1.4, 0);
+    this.keyLight.matrixAutoUpdate = false; this.keyLight.updateMatrix();
     this.figLight = new THREE.PointLight(0x3a8bff, 0, 26, 1.8);
     this.scene.add(this.keyLight, this.figLight);
     // The cavern's moonlight: a cool light slanting down from the chimney, so the crags and
     // formations model in light and shadow. (Always present, dark outside the rally take:
     // switching a light on and off would recompile every lit material.)
     this.caveSun = new THREE.DirectionalLight(0xbcd2ff, 0); this.caveSun.position.set(-18, 60, 14); this.caveSun.target.position.set(4, 0, -6);
+    this.caveSun.matrixAutoUpdate = false; this.caveSun.updateMatrix();
+    this.caveSun.target.matrixAutoUpdate = false; this.caveSun.target.updateMatrix();
     this.caveFill = new THREE.HemisphereLight(0x6d86b8, 0x0a0f1a, 0);
+    this.caveFill.matrixAutoUpdate = false; this.caveFill.updateMatrix();
     this.scene.add(this.caveSun, this.caveSun.target, this.caveFill);
     this.buildMist();
     this.loadFigure();
 
     // A multisampled, half-float target: smooth edges on the thin rings and ribs (the
     // canvas's own antialiasing does not reach through the post chain), no banding.
-    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    // Use 2x MSAA on genuinely low-spec GPUs (half MSAA bandwidth) and disable MSAA on the
+    // unused second ping-pong target (renderTarget2) to cut HalfFloat MSAA VRAM in half!
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: lowSpecGpu ? 2 : 4 });
     this.composer = new EffectComposer(this.renderer, rt);
+    this.composer.renderTarget2.samples = 0;
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     // (any NaN or infinite pixel would be smeared across the whole frame by the bloom: scrub
     // them, and cap the HDR so a hot spot cannot flood the glow. Done where the frame is read
@@ -243,9 +286,10 @@ export class DeepDive {
     hp.needsUpdate = true;
     this.composer.addPass(this.bloom);
     // The finish also does the output pass's work (tone mapping, sRGB): one full-screen pass fewer.
+    const streakTaps = quality === "high" ? (lowSpecGpu ? 4 : 8) : 0;
     this.finish = new ShaderPass({
       uniforms: { tDiffuse: { value: null }, uFlare: this.u.uFlare, uMood: this.u.uMood, uTime: this.u.uTime, uDeep: this.u.uDeep, uRes: { value: new THREE.Vector2(1, 1) }, toneMappingExposure: { value: 1 } },
-      defines: { STREAK: quality === "high" ? 1 : 0 },
+      defines: { STREAK_TAPS: streakTaps },
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: /* glsl */`
         uniform sampler2D tDiffuse; uniform float uFlare, uTime, uDeep; uniform vec3 uMood; uniform vec2 uRes; varying vec2 vUv;
@@ -253,18 +297,22 @@ export class DeepDive {
         // them; the colour-space ones always are)
         #include <tonemapping_pars_fragment>
         vec3 tap(vec2 p){ vec3 c = texture2D(tDiffuse, p).rgb;
-          if (!(c.r == c.r) || !(c.g == c.g) || !(c.b == c.b) || c.r > 1e4 || c.g > 1e4 || c.b > 1e4) return vec3(0.0);
+          if (!(dot(c, c) >= 0.0) || max(c.r, max(c.g, c.b)) > 1e4) return vec3(0.0);
           return min(c, vec3(10.0)); }
         void main(){
           vec2 c = vUv - 0.5; float r = length(c);
           // a whisper of chromatic aberration toward the edges
           vec2 off = c * r * 0.006;
           vec3 col = vec3(tap(vUv + off).r, tap(vUv).g, tap(vUv - off).b);
-          #if STREAK
+          #if STREAK_TAPS > 0
           // an anamorphic lens: the brightest lights draw a faint horizontal streak
           vec3 st = vec3(0.0); float px = 1.0 / uRes.x;
-          for (int i = 1; i <= 8; i++) { float d = float(i*i) * 3.0 * px, w = exp(-float(i)*0.45);
-            st += (max(tap(vUv + vec2(d, 0.0)) - 1.4, 0.0) + max(tap(vUv - vec2(d, 0.0)) - 1.4, 0.0)) * w; }
+          const float STEP_SCALE = 8.0 / float(STREAK_TAPS);
+          for (int i = 1; i <= STREAK_TAPS; i++) {
+            float fi = float(i) * STEP_SCALE;
+            float d = fi * fi * 3.0 * px, w = exp(-fi * 0.45) * STEP_SCALE;
+            st += (max(tap(vUv + vec2(d, 0.0)) - 1.4, 0.0) + max(tap(vUv - vec2(d, 0.0)) - 1.4, 0.0)) * w;
+          }
           col += (st * 0.5 + dot(st, vec3(0.33)) * 0.15) * (uMood * 0.5 + vec3(0.35)) * 0.06;
           #endif
           // vignette round the subject (sat low in the frame), deep at the edges
@@ -300,6 +348,20 @@ export class DeepDive {
     this.raf = requestAnimationFrame(this.frame);
     // once the opening frames are up, compile the shaders of everything the takes will show
     setTimeout(() => this.prewarm(), 1500);
+    this.metricsInitMs = Math.round(performance.now() - tCtor0);
+    if (this.metricsOn) {
+      this.renderer.info.autoReset = false;
+      this.canvas.dataset.initMs = String(this.metricsInitMs);
+      this.canvas.dataset.quality = this.quality;
+      this.canvas.dataset.pr = this.pr.toFixed(2);
+      if (this.metricsMoodOverride !== null) {
+        this.setMood(this.metricsMoodOverride);
+      }
+      const qSeek = qs?.get("pulseSeek");
+      if (qSeek !== null && qSeek !== undefined && qSeek !== "" && Number.isFinite(Number(qSeek))) {
+        this.seek(Number(qSeek));
+      }
+    }
   }
 
   /** Compile every material in the scene ahead of its first appearance, a few objects at a
@@ -308,7 +370,15 @@ export class DeepDive {
    *  KHR_parallel_shader_compile the driver then builds them off the main thread. */
   private prewarm() {
     const todo: THREE.Object3D[] = [];
-    this.scene.traverse(o => { if ((o as THREE.Mesh).material) todo.push(o); });
+    const seenMat = new Set<string>();
+    this.scene.traverse(o => {
+      const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      if (!mat) return;
+      const key = Array.isArray(mat) ? mat.map(m => m.uuid).join(",") : mat.uuid;
+      if (seenMat.has(key)) return;
+      seenMat.add(key);
+      todo.push(o);
+    });
     const r = this.renderer;
     const step = () => {
       if (this.disposed) return;
@@ -329,18 +399,19 @@ export class DeepDive {
 
   /** The colour of the market: the index change on arrival, a chosen stock's afterwards. */
   setMood(changePct: number | null | undefined) {
-    const rise = typeof changePct === "number" && Number.isFinite(changePct) && changePct >= 1;
+    const pct = this.metricsMoodOverride !== null ? this.metricsMoodOverride : changePct;
+    const rise = typeof pct === "number" && Number.isFinite(pct) && pct >= 1;
     // (the rally take keeps the hall blue: only the figure and its beam turn red)
-    moodColor(rise ? -1.2 : changePct, this.moodTarget);
+    moodColor(rise ? -1.2 : pct, this.moodTarget);
     // (working in linear light: the stops are authored in sRGB)
     this.moodTarget.convertSRGBToLinear();
     // Equal brightness whatever the hue: yellow and orange carry far more luminance than
     // blue, and would wash the hall white through the bloom.
     const c = this.moodTarget, lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     c.multiplyScalar(Math.min(1.1, 0.3 / Math.max(0.05, lum)));
-    this.strengthTarget = moodStrength(changePct);
-    this.goldMult = rise ? goldDensity(changePct) : 1;
-    this.risePct = rise ? changePct : 0;
+    this.strengthTarget = moodStrength(pct);
+    this.goldMult = rise ? goldDensity(pct) : 1;
+    this.risePct = rise ? pct : 0;
     this.gold?.setDensity(this.goldMult);
     if (rise !== this.riseMode) {
       // a different take: start it from its beginning (it opens on a soft flare)
@@ -436,7 +507,7 @@ export class DeepDive {
         uniform mat4 textureMatrix; varying vec4 vUv; varying vec3 vWorld;
         void main(){ vUv = textureMatrix * vec4(position,1.0); vec4 w = modelMatrix*vec4(position,1.0); vWorld = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
       fragmentShader: /* glsl */`
-        uniform sampler2D tDiffuse; uniform float uPortalR, uHole; uniform vec4 uSteps[4]; varying vec4 vUv; varying vec3 vWorld;
+        uniform sampler2D tDiffuse; uniform float uPortalR, uHole, uStepsOn; uniform vec4 uSteps[4]; varying vec4 vUv; varying vec3 vWorld;
         uniform sampler2D tFigH; uniform mat4 uFigHMat; uniform float uFigHOn;
         ${COMMON}${NOISE}
         // the seated figure's underside, seen from below: the height of its lowest point over
@@ -458,15 +529,17 @@ export class DeepDive {
           // (a per-pixel turn of the spiral and of the march: smooth, no stepped copies)
           float jit = fract(sin(dot(xz, vec2(12.9898, 78.233))) * 43758.5453);
           float ao = 0.0;
-          for (int i = 0; i < 16; i++) {
-            float fi = float(i), rad = 0.04 + 1.3 * sqrt((fi + 0.5) / 16.0), an = fi * 2.39996 + jit * 6.2831853;
+          const int AO_TAPS = ${this.lowSpecGpu ? 10 : 16};
+          for (int i = 0; i < ${this.lowSpecGpu ? 10 : 16}; i++) {
+            float fi = float(i), rad = 0.04 + 1.3 * sqrt((fi + 0.5) / float(AO_TAPS)), an = fi * 2.39996 + jit * 6.2831853;
             float h = figH(xz + vec2(cos(an), sin(an)) * rad);
             ao += 1.0 - smoothstep(rad * 0.35, rad * 1.5 + 0.08, h);
           }
-          ao /= 16.0;
+          ao /= float(AO_TAPS);
           float sun = 0.0;
-          for (int k = 0; k < 14; k++) {
-            float hk = (float(k) + jit) * 0.19;
+          const float SUN_STEP = ${(this.lowSpecGpu ? 2.66 / 9 : 0.19).toFixed(4)};
+          for (int k = 0; k < ${this.lowSpecGpu ? 9 : 14}; k++) {
+            float hk = (float(k) + jit) * SUN_STEP;
             float h = figH(xz + vec2(-0.22, -0.42) * hk);
             // softer the higher the part that casts it (a wide light: penumbra grows with height)
             sun = max(sun, (1.0 - smoothstep(hk - 0.1 - hk * 0.25, hk + 0.04, h)) * (1.0 - hk * 0.22));
@@ -488,31 +561,30 @@ export class DeepDive {
           float rings = (1.0 - smoothstep(0.015, 0.06, dr)) * smoothstep(40.0, 6.0, r);
           float seg = 6.2831853 / 32.0, da = abs(fract(a/seg + 0.5) - 0.5) * seg * r;
           float seams = (1.0 - smoothstep(0.01, 0.05, da)) * smoothstep(34.0, 8.0, r) * step(uPortalR + 0.6, r);
-          // pulses running outward from the portal, faster and brighter with the bass
-          // four pulse patterns, crossfaded in turn: rings outward, a spiral, a radar sweep, a heartbeat
+          // four pulse patterns, crossfaded in turn: evaluate only active weights (skips ~75% of floor trig/pow!)
           float sp = uTime*(0.9 + uBass*1.6);
-          float pRings = pow(0.5 + 0.5*sin(r*0.75 - sp), 10.0);
-          float pSpiral = pow(0.5 + 0.5*sin(r*0.55 + a*3.0 - sp), 10.0);
-          float sweepA = mod(a - uTime*0.7, 6.2831853);
-          float pSweep = exp(-sweepA*2.2) * 2.0 * smoothstep(34.0, 6.0, r);
-          float hb = fract(uTime*0.85); float beat2 = exp(-pow(hb*9.0, 2.0)) + 0.65*exp(-pow((hb-0.2)*9.0, 2.0));
-          float pHeart = beat2 * exp(-(r - uPortalR)*0.08) * (0.6 + 0.4*pow(0.5+0.5*sin(r*1.4 - uTime*6.0), 4.0));
-          float wave = dot(uW, vec4(pRings, pSpiral, pSweep, pHeart)) * (0.25 + uBass*1.8 + uBeat*1.2);
+          float waveVal = 0.0;
+          if (uW.x > 0.001) waveVal += uW.x * pow(0.5 + 0.5*sin(r*0.75 - sp), 10.0);
+          if (uW.y > 0.001) waveVal += uW.y * pow(0.5 + 0.5*sin(r*0.55 + a*3.0 - sp), 10.0);
+          if (uW.z > 0.001) { float sweepA = mod(a - uTime*0.7, 6.2831853); waveVal += uW.z * exp(-sweepA*2.2) * 2.0 * smoothstep(34.0, 6.0, r); }
+          if (uW.w > 0.001) { float hb = fract(uTime*0.85); float beat2 = exp(-pow(hb*9.0, 2.0)) + 0.65*exp(-pow((hb-0.2)*9.0, 2.0)); waveVal += uW.w * beat2 * exp(-(r - uPortalR)*0.08) * (0.6 + 0.4*pow(0.5+0.5*sin(r*1.4 - uTime*6.0), 4.0)); }
+          float wave = waveVal * (0.25 + uBass*1.8 + uBeat*1.2);
           float near = exp(-max(r - uPortalR, 0.0) * 0.45) * mix(0.25, 1.0, uHole);
           vec3 base = vec3(0.004, 0.007, 0.012) * (0.6 + 0.8*n3(vec3(vWorld.xz*0.35, 1.0)));
           float focus = 0.15 + 0.85*exp(-length(vWorld.xz - uFocus.xz) / 9.0);
           vec3 glow = uMood * ((rings*0.55 + seams*0.35) * (0.05 + wave) * (0.4 + 0.6*near) * focus + near * (0.7 + uEnergy*1.4 + uBeat));
-          // footfalls: where a sole lands, a flash, an electric ring running out and crackling
-          // filaments along the floor's seams, fading in about two seconds
-          for (int i = 0; i < 4; i++) {
-            vec4 st = uSteps[i]; float age = uTime - st.z;
-            if (age < 0.0 || age > 2.2) continue;
-            float d = length(vWorld.xz - st.xy), life = 1.0 - age/2.2;
-            float ring = exp(-pow((d - age*1.8)*7.0, 2.0)) * life * life;
-            float core = exp(-d*5.0) * exp(-age*3.5) * 2.4;
-            float arc = pow(n3(vec3(vWorld.xz*7.0, uTime*14.0 + float(i)*3.0)), 7.0) * 9.0 * exp(-d*1.4) * exp(-age*2.2);
-            float lines = (rings + seams) * exp(-d*0.6) * exp(-age*1.6) * 1.6;
-            glow += (uMood*1.3 + vec3(0.15)) * (ring*1.4 + core + arc + lines) * st.w;
+          // footfalls: skip completely when no step is active (100% of rally & dive!)
+          if (uStepsOn > 0.5) {
+            for (int i = 0; i < 4; i++) {
+              vec4 st = uSteps[i]; float age = uTime - st.z;
+              if (age < 0.0 || age > 2.2) continue;
+              float d = length(vWorld.xz - st.xy), life = 1.0 - age/2.2;
+              float ring = exp(-pow((d - age*1.8)*7.0, 2.0)) * life * life;
+              float core = exp(-d*5.0) * exp(-age*3.5) * 2.4;
+              float arc = pow(n3(vec3(vWorld.xz*7.0, uTime*14.0 + float(i)*3.0)), 7.0) * 9.0 * exp(-d*1.4) * exp(-age*2.2);
+              float lines = (rings + seams) * exp(-d*0.6) * exp(-age*1.6) * 1.6;
+              glow += (uMood*1.3 + vec3(0.15)) * (ring*1.4 + core + arc + lines) * st.w;
+            }
           }
           float fres = 0.55;
           float sh = figShadow(vWorld.xz), lit = 1.0 - sh * 0.92;
@@ -527,6 +599,7 @@ export class DeepDive {
     };
     const floor = new Reflector(geo, { clipBias: 0.003, textureWidth: 1024, textureHeight: 1024, shader });
     floor.rotation.x = -Math.PI / 2;
+    floor.matrixAutoUpdate = false; floor.updateMatrix();
     const m = floor.material as THREE.ShaderMaterial;
     for (const k of Object.keys(this.u)) m.uniforms[k] = this.u[k];
     // The reflection is drawn before the frame rather than from inside it (see reflect()).
@@ -539,21 +612,20 @@ export class DeepDive {
 
   private buildPortal() {
     const ringMat = (_width: number, power: number) => new THREE.ShaderMaterial({
-      uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      uniforms: { ...this.u, uPower: { value: power } }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: /* glsl */`${COMMON} varying vec2 vUv;
+      fragmentShader: /* glsl */`${COMMON} uniform float uPower; varying vec2 vUv;
         void main(){ float a = vUv.x * 6.2831853;
           float flow = 0.65 + 0.35*sin(a*6.0 - uTime*(1.5+uMid*3.0)) * sin(a*2.0 + uTime*0.7);
-          float k = (${power.toFixed(1)}) * flow * (1.0 + uEnergy*1.8 + uBeat*1.5 + uStrength*0.8);
+          float k = uPower * flow * (1.0 + uEnergy*1.8 + uBeat*1.5 + uStrength*0.8);
           gl_FragColor = vec4(uMood * k + vec3(k*0.08), 1.0); }`,
     });
-    void ringMat;
     const rim = new THREE.Mesh(new THREE.TorusGeometry(PORTAL_R, 0.07, 16, 256), ringMat(0.07, 3.2));
-    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.03;
+    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.03; rim.matrixAutoUpdate = false; rim.updateMatrix();
     const halo = new THREE.Mesh(new THREE.TorusGeometry(PORTAL_R + 0.55, 0.03, 12, 256), ringMat(0.03, 1.2));
-    halo.rotation.x = -Math.PI / 2; halo.position.y = 0.02;
+    halo.rotation.x = -Math.PI / 2; halo.position.y = 0.02; halo.matrixAutoUpdate = false; halo.updateMatrix();
     const lip = new THREE.Mesh(new THREE.TorusGeometry(PORTAL_R - 0.05, 0.22, 24, 192), new THREE.MeshStandardMaterial({ color: 0x0b0e15, metalness: 1, roughness: 0.18 }));
-    lip.rotation.x = -Math.PI / 2; lip.position.y = -0.12;
+    lip.rotation.x = -Math.PI / 2; lip.position.y = -0.12; lip.matrixAutoUpdate = false; lip.updateMatrix();
     this.scene.add(rim, halo, lip);
     this.portalParts = [rim, halo, lip];
     // The abyss under it: a shaft wall of glowing bands drifting down into a bright core.
@@ -568,7 +640,7 @@ export class DeepDive {
           vec3 col = uMood * (bands*1.4 + streak*0.8) * (0.5+uEnergy*1.5) * fade + uMood * smoothstep(40.0, 68.0, depth) * 3.0;
           gl_FragColor = vec4(col + vec3(0.002,0.004,0.01), 1.0); }`,
     }));
-    abyss.position.y = -35;
+    abyss.position.y = -35; abyss.matrixAutoUpdate = false; abyss.updateMatrix();
     this.abyss = abyss;
     const core = new THREE.Mesh(new THREE.CircleGeometry(PORTAL_R, 64), new THREE.ShaderMaterial({
       uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
@@ -580,7 +652,7 @@ export class DeepDive {
     }));
     // (a child of the abyss, so it goes when the abyss does: the fall passes its depth
     // later, and flying through it whited out the frame)
-    core.rotation.x = -Math.PI / 2; core.position.y = -69 - abyss.position.y;
+    core.rotation.x = -Math.PI / 2; core.position.y = -69 - abyss.position.y; core.matrixAutoUpdate = false; core.updateMatrix();
     abyss.add(core);
     this.scene.add(abyss);
   }
@@ -601,68 +673,100 @@ export class DeepDive {
     return g;
   }
 
-  /** Slender ribs of polished dark metal lit from within: two fine filaments of light run
-   *  their length, the edges glow (they never read as black masses against the dark), a few
-   *  lit cells, and a light pulse travels along each with the music. */
-  private ribMaterial(phase: number, slots = 22) {
+  /** Tag a rib geometry with its per-rib (phase, slots) metadata so all ribs share ONE material & 1 draw call! */
+  private tagRibMeta(g: THREE.BufferGeometry, phase: number, slots: number) {
+    const count = g.attributes.position.count;
+    const meta = new Float32Array(count * 2);
+    for (let i = 0; i < count; i++) { meta[i * 2] = phase; meta[i * 2 + 1] = slots; }
+    g.setAttribute("aRibMeta", new THREE.BufferAttribute(meta, 2));
+    return g;
+  }
+
+  /** Slender ribs of polished dark metal lit from within: ONE shared PBR shader program across
+   *  all chamber ribs and dive tunnel segments (cuts 42 separate PBR shader programs -> 1!). */
+  private ribMaterial() {
+    if (this.sharedRibMat) return this.sharedRibMat;
     const m = new THREE.MeshStandardMaterial({ color: 0x1a2232, metalness: 1, roughness: 0.16, envMapIntensity: 2.6 });
     const u = this.u;
+    m.customProgramCacheKey = () => "pb2-rib-shared";
     m.onBeforeCompile = sh => {
-      Object.assign(sh.uniforms, u, { uPhase: { value: phase } });
-      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec2 vRib; varying vec3 vRibW;").replace("#include <uv_vertex>", "#include <uv_vertex>\nvRib = uv;").replace("#include <project_vertex>", "#include <project_vertex>\nvRibW = (modelMatrix*vec4(transformed,1.0)).xyz;");
-      sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\nvarying vec2 vRib; varying vec3 vRibW; uniform float uPhase;\n${COMMON}`)
+      Object.assign(sh.uniforms, u);
+      sh.vertexShader = sh.vertexShader
+        .replace("#include <common>", "#include <common>\nattribute vec2 aRibMeta;\nvarying vec2 vRib; varying vec3 vRibW; varying vec2 vRibMeta;")
+        .replace("#include <uv_vertex>", "#include <uv_vertex>\nvRib = uv; vRibMeta = aRibMeta;")
+        .replace("#include <project_vertex>", "#include <project_vertex>\nvRibW = (modelMatrix*vec4(transformed,1.0)).xyz;");
+      sh.fragmentShader = sh.fragmentShader
+        .replace("#include <common>", `#include <common>\nvarying vec2 vRib; varying vec3 vRibW; varying vec2 vRibMeta;\n${COMMON}`)
         .replace("#include <emissivemap_fragment>", /* glsl */`#include <emissivemap_fragment>
           {
             float u = vRib.x, v = vRib.y;
+            float phase = vRibMeta.x, slots = vRibMeta.y;
             // elongated slots on one face of the rib, like lit gills
             // lit oval cells set into the inner face, irregular like living tissue
             float side = smoothstep(0.78, 0.96, 0.5 + 0.5*sin(v*6.2831853));
-            float cu = u*${slots.toFixed(1)}, ci = floor(cu), cell = fract(cu);
-            float on = step(0.66, fract(sin(ci*12.9898 + uPhase*3.1)*43758.5453));
-            float slot = side * on * smoothstep(0.5, 0.15, length(vec2(cell - 0.5, (v - 0.25) * 4.0) * vec2(1.0, 1.0)) - 0.0);
+            float cu = u*slots, ci = floor(cu), cell = fract(cu);
+            float on = step(0.66, fract(sin(ci*12.9898 + phase*3.1)*43758.5453));
+            float slot = side * on * smoothstep(0.5, 0.15, length(vec2(cell - 0.5, (v - 0.25) * 4.0)));
             float sp = uTime*(1.2 + uBass*2.5);
-            float pUp = pow(0.5 + 0.5*sin(u*28.0 - sp + uPhase), 10.0);
-            float pDown = pow(0.5 + 0.5*sin(u*20.0 + sp*0.8 + uPhase), 12.0);
-            float hb = fract(uTime*0.85 + uPhase*0.05); float pHeart = (exp(-pow(hb*9.0,2.0)) + 0.65*exp(-pow((hb-0.2)*9.0,2.0))) * 0.9;
-            float pSpark = pow(0.5 + 0.5*sin(u*9.0 + uPhase*2.0 + uTime*0.35), 12.0) * pow(0.5 + 0.5*sin(uTime*0.5 + uPhase), 2.0) * 1.6;
-            float pulse = dot(uW, vec4(pUp, pDown, pHeart, pSpark));
-            float edge = pow(1.0 - abs(v*2.0 - 1.0), 1.0) * 0.0;
+            float pulse = 0.0;
+            if (uW.x > 0.001) pulse += uW.x * pow(0.5 + 0.5*sin(u*28.0 - sp + phase), 10.0);
+            if (uW.y > 0.001) pulse += uW.y * pow(0.5 + 0.5*sin(u*20.0 + sp*0.8 + phase), 12.0);
+            if (uW.z > 0.001) { float hb = fract(uTime*0.85 + phase*0.05); pulse += uW.z * (exp(-pow(hb*9.0,2.0)) + 0.65*exp(-pow((hb-0.2)*9.0,2.0))) * 0.9; }
+            if (uW.w > 0.001) pulse += uW.w * pow(0.5 + 0.5*sin(u*9.0 + phase*2.0 + uTime*0.35), 12.0) * pow(0.5 + 0.5*sin(uTime*0.5 + phase), 2.0) * 1.6;
             // a thin glowing seam along the rib, brighter where the pulse passes
             float seam = (1.0 - smoothstep(0.0, 0.035, abs(v - 0.25))) * (0.25 + pulse*2.5);
             // fine filaments, always alight, on both flanks
             float fil = (1.0 - smoothstep(0.0, 0.018, abs(v - 0.5))) + (1.0 - smoothstep(0.0, 0.018, abs(fract(v + 0.5) - 0.5)));
             // lit cells mostly dark until a pulse passes; all of it brightest near the figure
-            float focus = 0.1 + 0.9*exp(-length(vRibW - uFocus) / 11.0);
-            vec3 Vr = normalize(vViewPosition); float rimR = pow(1.0 - abs(dot(normal, Vr)), 4.0);
-            float far = exp(-length(vRibW - uFocus) / 26.0);
+            float dFocus = length(vRibW - uFocus);
+            float focus = 0.1 + 0.9*exp(-dFocus / 11.0);
+            vec3 Vr = normalize(vViewPosition); float ndv = 1.0 - abs(dot(normal, Vr));
+            float rim2 = ndv * ndv; float rimR = rim2 * rim2;
+            float far = exp(-dFocus / 26.0);
             vec3 lum = uMood * 1.2 + vec3(0.06, 0.08, 0.1);
             // a glowing rim, so a rib reads as a line of light, never a dark mass
-            totalEmissiveRadiance += lum * pow(1.0 - abs(dot(normal, Vr)), 2.0) * (0.22 + uEnergy*0.2 + pulse*0.4) * (0.4 + 0.6*far);
+            totalEmissiveRadiance += lum * rim2 * (0.22 + uEnergy*0.2 + pulse*0.4) * (0.4 + 0.6*far);
             totalEmissiveRadiance += lum * fil * (0.55 + uEnergy*0.5 + pulse*1.6) * (0.35 + 0.65*far);
             totalEmissiveRadiance += uMood * 0.05;
             totalEmissiveRadiance += uMood * rimR * (0.10 + uEnergy*0.12 + pulse*0.25) * (0.25 + 0.75*far);
-            totalEmissiveRadiance += uMood * (slot * (0.25 + uEnergy*1.2 + uBeat*0.9) * (0.25 + pulse*2.2) + seam*(0.15 + uEnergy*0.6)*(0.3 + pulse) + edge) * focus;
+            totalEmissiveRadiance += uMood * (slot * (0.25 + uEnergy*1.2 + uBeat*0.9) * (0.25 + pulse*2.2) + seam*(0.15 + uEnergy*0.6)*(0.3 + pulse)) * focus;
           }`);
     };
+    this.sharedRibMat = m;
     return m;
   }
 
   private buildChamber() {
     // Ribs all round the hall but the aisle the figure walks in (from +z), which the
     // camera follows: never a rib between the camera and the walk.
+    // Batch all ~42 static chamber ribs into 4 radial quadrants (NE/NW/SE/SW) sharing 1 PBR shader:
+    // cuts 42 draws -> 4 while preserving tight frustum culling on the back half of the hall!
     const N = 16;
+    const ribQuads: THREE.BufferGeometry[][] = [[], [], [], []];
     for (let k = 0; k < N; k++) {
       const a = (k / N) * Math.PI * 2 + 0.11, tw = 0.35;
       const aisle = Math.abs(Math.atan2(Math.sin(a - Math.PI / 2), Math.cos(a - Math.PI / 2)));
       if (aisle < 0.42) continue;
+      const qIdx = (Math.cos(a) >= 0 ? 1 : 0) + (Math.sin(a) >= 0 ? 2 : 0);
       const at = (r: number, y: number, s: number) => new THREE.Vector3(Math.cos(a + s * tw) * r, y, Math.sin(a + s * tw) * r);
       const curve = new THREE.CatmullRomCurve3([at(23, -2, 0), at(22.5, 7, 0.12), at(20, 17, 0.32), at(15, 26, 0.55), at(9, 32, 0.8), at(5.4, 36, 1)], false, "centripetal");
-      const main = new THREE.Mesh(this.tube(curve, 180, 16, 0.5, 0.16), this.ribMaterial(k * 1.3));
-      this.chamber.add(main);
+      ribQuads[qIdx].push(this.tagRibMeta(this.tube(curve, 180, 16, 0.5, 0.16), k * 1.3, 22));
       // two branches peeling off each rib, like roots
       for (const s of [-1, 1]) {
         const b = new THREE.CatmullRomCurve3([at(22, 3, 0.1), at(20 + s * 1.5, 10, 0.1 + s * 0.35), at(17, 15, s * 0.55), at(13.5, 17, s * 0.75)], false, "centripetal");
-        this.chamber.add(new THREE.Mesh(this.tube(b, 90, 10, 0.2, 0.06), this.ribMaterial(k * 1.3 + s, 12)));
+        ribQuads[qIdx].push(this.tagRibMeta(this.tube(b, 90, 10, 0.2, 0.06), k * 1.3 + s, 12));
+      }
+    }
+    const ribMat = this.ribMaterial();
+    for (const geos of ribQuads) {
+      if (!geos.length) continue;
+      const mergedRibs = mergeGeometries(geos, false);
+      geos.forEach(g => g.dispose());
+      if (mergedRibs) {
+        mergedRibs.computeBoundingSphere();
+        const ribsMesh = new THREE.Mesh(mergedRibs, ribMat);
+        ribsMesh.matrixAutoUpdate = false; ribsMesh.updateMatrix();
+        this.chamber.add(ribsMesh);
       }
     }
     // a far wall of arches, each with a lit oval pod, ringing the hall
@@ -686,16 +790,18 @@ export class DeepDive {
       tmp.position.set(Math.cos(a + row * 0.049) * r, 3.9 + row * 10, Math.sin(a + row * 0.049) * r); tmp.lookAt(0, tmp.position.y, 0); tmp.scale.setScalar(1 - row * 0.25); tmp.updateMatrix();
       pods.setMatrixAt(i, tmp.matrix);
     }
+    pods.matrixAutoUpdate = false; pods.updateMatrix();
     const wall = new THREE.Mesh(new THREE.CylinderGeometry(46, 46, 60, 96, 1, true), new THREE.MeshStandardMaterial({ color: 0x05070c, metalness: 0.9, roughness: 0.35, side: THREE.BackSide }));
-    wall.position.y = 26;
+    wall.position.y = 26; wall.matrixAutoUpdate = false; wall.updateMatrix();
     const band = new THREE.Mesh(new THREE.TorusGeometry(45.6, 0.08, 8, 360), new THREE.ShaderMaterial({
       uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: `${COMMON} varying vec2 vUv; void main(){ float a=vUv.x*6.2831853; float run=pow(0.5+0.5*sin(a*3.0 - uTime*0.4),4.0);
         gl_FragColor = vec4((uMood*1.4+vec3(0.08))*(0.35+run*0.9)*(0.6+uEnergy*0.6), 1.0); }`,
     }));
-    band.rotation.x = Math.PI / 2; band.position.y = 0.15;
+    band.rotation.x = Math.PI / 2; band.position.y = 0.15; band.matrixAutoUpdate = false; band.updateMatrix();
     this.chamber.add(pods, wall, band);
+    this.chamber.matrixAutoUpdate = false; this.chamber.updateMatrix();
     this.scene.add(this.chamber);
   }
 
@@ -712,39 +818,68 @@ export class DeepDive {
           float k = face * streak * fade * (0.28 + uEnergy*0.45 + uBeat*0.25) * uShaft;
           gl_FragColor = vec4((uMood*0.8 + vec3(0.25)) * k, 1.0); }`,
     }));
-    shaft.position.y = 26;
+    shaft.position.y = 26; shaft.matrixAutoUpdate = false; shaft.updateMatrix();
     const top = new THREE.Mesh(new THREE.TorusGeometry(5.2, 0.12, 12, 160), new THREE.ShaderMaterial({
       uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       vertexShader: `void main(){ gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: `${COMMON} void main(){ gl_FragColor = vec4(uMood*(2.2+uEnergy*2.0)+vec3(0.3), 1.0); }`,
     }));
-    top.rotation.x = Math.PI / 2; top.position.y = 50;
+    top.rotation.x = Math.PI / 2; top.position.y = 50; top.matrixAutoUpdate = false; top.updateMatrix();
     this.scene.add(shaft, top);
   }
 
-  /** The endless fall: ring segments recycled below the diver. */
+  /** The endless fall: ring segments recycled below the diver (154 draw calls -> 28 via 3 shared merged segment geometries!). */
   private buildTunnel() {
-    const ringMat = this.ribMaterial(0, 40);
+    const ringMat = this.ribMaterial();
     const glowMat = new THREE.ShaderMaterial({
       uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; void main(){ float a=vUv.x*6.2831853; float hb=fract(uTime*0.85); float k = dot(uW, vec4(0.8+0.6*sin(a*6.0 - uTime*1.2), 0.5+1.0*pow(0.5+0.5*sin(a*3.0 + uTime*2.0),6.0), 0.6+1.2*pow(max(0.0,cos(a - uTime*1.5)),12.0), 0.5+1.4*(exp(-pow(hb*9.0,2.0))+0.65*exp(-pow((hb-0.2)*9.0,2.0)))))*(1.0+uEnergy*2.0+uBeat*1.5);
         gl_FragColor = vec4(uMood*k*k*0.55, 1.0); }`,
     });
+    // Build only 3 unique segment templates (for i % 3 radii) with 3 frustum-cullable 120° rib sectors + 1 ring!
+    const segRingGeos: THREE.BufferGeometry[] = [];
+    const segRibSectors: THREE.BufferGeometry[][] = [];
+    const segGlowGeos: THREE.BufferGeometry[] = [];
+    for (let rIdx = 0; rIdx < 3; rIdx++) {
+      const R = 9 + rIdx * 1.5;
+      const ringGeo = new THREE.TorusGeometry(R, 0.16, 14, 200);
+      ringGeo.rotateX(Math.PI / 2);
+      this.tagRibMeta(ringGeo, 0, 40);
+      ringGeo.computeBoundingSphere();
+      segRingGeos.push(ringGeo);
+      const sectors: THREE.BufferGeometry[] = [];
+      for (let sec = 0; sec < 3; sec++) {
+        const parts: THREE.BufferGeometry[] = [];
+        for (let j = 0; j < 3; j++) {
+          const k = sec * 3 + j;
+          const a = (k / 9) * Math.PI * 2;
+          const at = (r: number, y: number, s: number) => new THREE.Vector3(Math.cos(a + s) * r, y, Math.sin(a + s) * r);
+          const c = new THREE.CatmullRomCurve3([at(R, 0, 0), at(R + 2.2, -2.2, 0.18), at(R + 1.4, -4.6, 0.38), at(R, -6, 0.5)]);
+          parts.push(this.tagRibMeta(this.tube(c, 48, 8, 0.075, 0.05), 0, 40));
+        }
+        const merged = mergeGeometries(parts, false)!;
+        parts.forEach(p => p.dispose());
+        merged.computeBoundingSphere();
+        sectors.push(merged);
+      }
+      segRibSectors.push(sectors);
+      const lineGeo = new THREE.TorusGeometry(R - 0.32, 0.03, 8, 240);
+      lineGeo.rotateX(Math.PI / 2);
+      segGlowGeos.push(lineGeo);
+    }
     for (let i = 0; i < 14; i++) {
       const seg = new THREE.Group();
-      const R = 9 + (i % 3) * 1.5;
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.16, 14, 200), ringMat);
-      ring.rotation.x = Math.PI / 2;
-      const line = new THREE.Mesh(new THREE.TorusGeometry(R - 0.32, 0.03, 8, 240), glowMat);
-      line.rotation.x = Math.PI / 2;
+      const rIdx = i % 3;
+      const ring = new THREE.Mesh(segRingGeos[rIdx], ringMat);
+      ring.matrixAutoUpdate = false; ring.updateMatrix();
+      const line = new THREE.Mesh(segGlowGeos[rIdx], glowMat);
+      line.matrixAutoUpdate = false; line.updateMatrix();
       seg.add(ring, line);
-      // curved ribs between this ring and the next, sweeping in a spiral
-      for (let k = 0; k < 9; k++) {
-        const a = (k / 9) * Math.PI * 2 + i * 0.3;
-        const at = (r: number, y: number, s: number) => new THREE.Vector3(Math.cos(a + s) * r, y, Math.sin(a + s) * r);
-        const c = new THREE.CatmullRomCurve3([at(R, 0, 0), at(R + 2.2, -2.2, 0.18), at(R + 1.4, -4.6, 0.38), at(R, -6, 0.5)]);
-        seg.add(new THREE.Mesh(this.tube(c, 48, 8, 0.075, 0.05), ringMat));
+      for (const secGeo of segRibSectors[rIdx]) {
+        const sm = new THREE.Mesh(secGeo, ringMat);
+        sm.matrixAutoUpdate = false; sm.updateMatrix();
+        seg.add(sm);
       }
       seg.visible = false;
       this.tunnel.add(seg);
@@ -794,40 +929,62 @@ export class DeepDive {
     this.scene.add(this.dust);
   }
 
-  /** Luminous ribbons spiralling round the diver; light runs along them with the music. */
+  /** Luminous ribbons spiralling round the diver; merged into 1 single draw call & 1 shader program! */
   private buildRibbons() {
+    const geos: THREE.BufferGeometry[] = [];
     for (let k = 0; k < 4; k++) {
       const pts: THREE.Vector3[] = [], turns = 1.4 + k * 0.3, r0 = 0.9 + k * 0.35, h = 3.2 + k * 0.6, ph = k * 1.6;
       for (let i = 0; i <= 120; i++) { const t = i / 120, a = ph + t * turns * Math.PI * 2, r = r0 * (0.8 + 0.4 * Math.sin(t * 3 + k)); pts.push(new THREE.Vector3(Math.cos(a) * r, t * h - 0.3, Math.sin(a) * r)); }
-      const curve = new THREE.CatmullRomCurve3(pts);
-      const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 300, 0.006 + (k % 2) * 0.004, 6, false), new THREE.ShaderMaterial({
-        uniforms: { ...this.u, uK: { value: k } }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-        vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-        fragmentShader: /* glsl */`${COMMON} uniform float uK; varying vec2 vUv;
+      const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 300, 0.006 + (k % 2) * 0.004, 6, false);
+      const ak = new Float32Array(g.attributes.position.count); ak.fill(k);
+      g.setAttribute("aK", new THREE.BufferAttribute(ak, 1));
+      geos.push(g);
+    }
+    const merged = mergeGeometries(geos, false);
+    geos.forEach(g => g.dispose());
+    if (merged) {
+      const mat = new THREE.ShaderMaterial({
+        uniforms: { ...this.u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+        vertexShader: `attribute float aK; varying vec2 vUv; varying float vK; void main(){ vUv=uv; vK=aK; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+        fragmentShader: /* glsl */`${COMMON} varying vec2 vUv; varying float vK;
           void main(){ float u=vUv.x; float sp = uTime*(3.0+uMid*6.0);
-            float run = dot(uW, vec4(pow(0.5+0.5*sin(u*46.0 - sp - uK*2.0), 8.0), pow(0.5+0.5*sin(u*30.0 + sp*0.7 - uK), 10.0),
-              pow(0.5+0.5*sin(u*6.0 - sp*0.4 - uK), 6.0), (exp(-pow(fract(uTime*0.85)*9.0,2.0)) + 0.6*exp(-pow((fract(uTime*0.85)-0.2)*9.0,2.0)))));
+            float run = dot(uW, vec4(pow(0.5+0.5*sin(u*46.0 - sp - vK*2.0), 8.0), pow(0.5+0.5*sin(u*30.0 + sp*0.7 - vK), 10.0),
+              pow(0.5+0.5*sin(u*6.0 - sp*0.4 - vK), 6.0), (exp(-pow(fract(uTime*0.85)*9.0,2.0)) + 0.6*exp(-pow((fract(uTime*0.85)-0.2)*9.0,2.0)))));
             float ends = smoothstep(0.0,0.12,u)*smoothstep(1.0,0.75,u);
             float k = (0.15 + run*1.8) * ends * (0.45 + uEnergy*1.4 + uBeat*0.7);
             gl_FragColor = vec4((uMood*1.5 + vec3(0.12))*k, 1.0); }`,
-      }));
-      this.ribbons.add(mesh);
+      });
+      this.ribbons.add(new THREE.Mesh(merged, mat));
     }
     this.scene.add(this.ribbons);
   }
 
-  /** Low drifting mist over the floor. */
+  /** Low drifting mist over the floor: 4 layers merged into 1 draw call + exact early-out before fbm3 (~65% less ALU)! */
   private buildMist() {
     const mat = new THREE.ShaderMaterial({
       uniforms: { ...this.u }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       vertexShader: `varying vec3 vW; void main(){ vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
-      fragmentShader: /* glsl */`${COMMON}${NOISE} varying vec3 vW; void main(){ float r=length(vW.xz);
+      fragmentShader: /* glsl */`${COMMON}${NOISE} varying vec3 vW; void main(){
+        float r2 = dot(vW.xz, vW.xz);
+        if (r2 >= 1600.0 || r2 <= ${(PORTAL_R * PORTAL_R).toFixed(2)}) discard;
+        float r = sqrt(r2);
         float m = fbm3(vec3(vW.xz*0.12 + vec2(uTime*0.02, uTime*0.013), vW.y*0.3 + uTime*0.03));
-        float k = smoothstep(0.45, 0.85, m) * smoothstep(40.0, 12.0, r) * smoothstep(PORTAL_R_, PORTAL_R_+3.0, r) * 0.05;
-        gl_FragColor = vec4((uMood*0.5 + vec3(0.18,0.22,0.3))*k, 1.0); }`.replace(/PORTAL_R_/g, PORTAL_R.toFixed(1)),
+        float k = smoothstep(0.45, 0.85, m) * smoothstep(40.0, 12.0, r) * smoothstep(${PORTAL_R.toFixed(1)}, ${(PORTAL_R + 3.0).toFixed(1)}, r) * 0.05;
+        gl_FragColor = vec4((uMood*0.5 + vec3(0.18,0.22,0.3))*k, 1.0); }`,
     });
+    const geos: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 4; i++) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), mat); m.rotation.x = -Math.PI / 2; m.position.y = 0.25 + i * 0.35; this.scene.add(m);
+      const g = new THREE.PlaneGeometry(90, 90);
+      g.rotateX(-Math.PI / 2);
+      g.translate(0, 0.25 + i * 0.35, 0);
+      geos.push(g);
+    }
+    const merged = mergeGeometries(geos, false);
+    geos.forEach(g => g.dispose());
+    if (merged) {
+      this.mistMesh = new THREE.Mesh(merged, mat);
+      this.mistMesh.matrixAutoUpdate = false; this.mistMesh.updateMatrix();
+      this.scene.add(this.mistMesh);
     }
   }
 
@@ -1073,7 +1230,7 @@ export class DeepDive {
       fig.rotation.z = e * (0.16 * Math.sin(tf * 0.09 + 1.0) + 0.05 * Math.sin(tf * 0.27));
     }
     if (this.rig) {
-      const r: RootMotion = { x: 0, y: 0, z: 0, yaw: 0 };
+      const r = this._root; r.x = 0; r.y = 0; r.z = 0; r.yaw = 0;
       if (this.walk) { this.walk.mocapSpeed = WALK_RATE; sample(this.walk, t - WALK0, this.tmpA, r); } else for (const k in this.tmpA) delete this.tmpA[k];
       if (this.idle) sample(this.idle, T, this.tmpB, r); else for (const k in this.tmpB) delete this.tmpB[k];
       // walk -> stand eased over a stride, stand -> dive over the fall's first seconds
@@ -1206,6 +1363,7 @@ export class DeepDive {
       s.rotation.y = T * 0.05 + i * 0.2;
     });
     if (this.abyss) this.abyss.visible = camY > -10;
+    if (this.mistMesh) this.mistMesh.visible = camY > -8;
     // rain/dust: down through the hall; once falling, rushing up past the camera
     const rainSpeed = t < EDGE1 ? 6 : -(fallSpeed * 0.8 + 3);
     this.scroll += rainSpeed * dt;
@@ -1220,7 +1378,7 @@ export class DeepDive {
     // order shuffled afresh on every pass of the take, never the same one twice running.
     const ERA = 60, EB = 14, ei = Math.floor(fallT / ERA), eb = smooth(((fallT % ERA) - (ERA - EB)) / EB);
     const order = this.worldOrder(Math.floor(T / LOOP));
-    const ew: number[] = new Array(Worlds.COUNT).fill(0); ew[order[ei % order.length]] = 1 - eb; ew[order[(ei + 1) % order.length]] += eb;
+    const ew = this._ew; ew.fill(0); ew[order[ei % order.length]] = 1 - eb; ew[order[(ei + 1) % order.length]] += eb;
     if (!diving) { ew.fill(0); ew[0] = 1; }
     // the ribbed rings open out and away when their world ends
     this.tunnelSegs.forEach(sg => sg.scale.setScalar(1 + (1 - ew[0]) * 1.6));
@@ -1286,7 +1444,9 @@ export class DeepDive {
     const flare = Math.max(endFlare ? smooth((t - (loop - 9)) / 8) * 0.9 + (t > loop - 1.2 ? smooth((t - (loop - 1.2)) / 1.0) * 0.1 : 0) : 0, (endFlare || T < loop ? 1 : 0) * (1 - smooth(t / 2.2)));
     u.uFlare.value = flare;
     // pulse patterns take turns every 16 s, each fading into the next
-    { const ph = T / 16, i = Math.floor(ph) % 4, b = smooth((ph % 1 - 0.7) / 0.3), w = [0, 0, 0, 0]; w[i] = 1 - b; w[(i + 1) % 4] += b; (u.uW.value as THREE.Vector4).set(w[0], w[1], w[2], w[3]); }
+    { const ph = T / 16, i = Math.floor(ph) % 4, b = smooth((ph % 1 - 0.7) / 0.3), w = this._w; w[0] = w[1] = w[2] = w[3] = 0; w[i] = 1 - b; w[(i + 1) % 4] += b; (u.uW.value as THREE.Vector4).set(w[0], w[1], w[2], w[3]); }
+    // Enable floor footstep loop only while at least one step shock is still alive (skips 100% of rally & dive!)
+    { const steps = u.uSteps.value as THREE.Vector4[]; let on = 0; for (let i = 0; i < 4; i++) { const age = T - steps[i].z; if (age >= 0 && age <= 2.2) { on = 1; break; } } u.uStepsOn.value = on; }
     this.bloom.strength = 0.74 + (u.uBeat.value as number) * 0.2 + (u.uEnergy.value as number) * 0.22 + flare * 1.2;
     this.renderer.toneMappingExposure = (0.88 + (u.uEnergy.value as number) * 0.08 + (u.uBeat.value as number) * 0.03) * (1 - 0.2 * (u.uDeep.value as number));
     (this.finish.uniforms as Record<string, { value: unknown }>).toneMappingExposure.value = this.renderer.toneMappingExposure;
@@ -1296,7 +1456,51 @@ export class DeepDive {
     if (!this.matricesFresh) sc.updateMatrixWorld();
     this.matricesFresh = false;
     sc.matrixWorldAutoUpdate = false;
+    const jsStart = this.metricsOn ? performance.now() : 0;
+    if (this.metricsOn) this.renderer.info.reset();
     try { this.reflect(); this.composer.render(dt); } finally { sc.matrixWorldAutoUpdate = true; }
+    if (this.metricsOn) {
+      const nowMs = performance.now();
+      const jsDur = nowMs - jsStart;
+      if (this.metricsLastNow > 0) {
+        const delta = nowMs - this.metricsLastNow;
+        if (delta > 0 && delta < 1000) {
+          this.metricsFrames.push(delta);
+          if (this.metricsFrames.length > 180) this.metricsFrames.shift();
+        }
+      }
+      this.metricsLastNow = nowMs;
+      this.metricsJs.push(jsDur);
+      if (this.metricsJs.length > 180) this.metricsJs.shift();
+      if (nowMs - this.metricsLastPush > 300 && this.metricsFrames.length >= 5) {
+        this.metricsLastPush = nowMs;
+        const arr = this.metricsFrames.slice(-120);
+        const sorted = [...arr].sort((a, b) => a - b);
+        const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+        const med = sorted[Math.floor(sorted.length / 2)];
+        const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
+        const max = sorted[sorted.length - 1];
+        const over20 = arr.filter(x => x > 20).length;
+        const avgJs = this.metricsJs.slice(-120).reduce((a, b) => a + b, 0) / Math.min(120, this.metricsJs.length);
+        const ds = this.canvas.dataset;
+        ds.calls = String(this.renderer.info.render.calls);
+        ds.triangles = String(this.renderer.info.render.triangles);
+        ds.programs = String(this.renderer.info.programs?.length ?? 0);
+        ds.geometries = String(this.renderer.info.memory.geometries);
+        ds.textures = String(this.renderer.info.memory.textures);
+        ds.pr = this.pr.toFixed(2);
+        ds.mode = this.riseMode ? "rally" : (t > 24 ? "dive" : "hall");
+        ds.fps = (1000 / Math.max(1, avg)).toFixed(2);
+        ds.avgMs = avg.toFixed(2);
+        ds.medMs = med.toFixed(2);
+        ds.p95Ms = p95.toFixed(2);
+        ds.maxMs = max.toFixed(2);
+        ds.over20 = String(over20);
+        ds.jsMs = avgJs.toFixed(2);
+        ds.samples = String(arr.length);
+        ds.res = `${this.canvas.width}x${this.canvas.height}`;
+      }
+    }
   }
 
   // ------------------------------------------------------------------ the rally take
@@ -1512,6 +1716,7 @@ export class DeepDive {
     this.tunnel.visible = false;
     // no pool: the floor is whole, the figure sits in the middle of it
     if (this.abyss) this.abyss.visible = false;
+    if (this.mistMesh) this.mistMesh.visible = true;
     (u.uHole.value as number) = 0; for (const o of this.portalParts) o.visible = false;
     // (the gold takes the place of the hall's coloured rain)
     this.rain.visible = false;

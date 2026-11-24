@@ -167,7 +167,7 @@ export class MarineSnow {
           gl_PointSize = vA > 0.001 ? (0.6 + aSeed.w * 1.6) * 26.0 * uPxScale / max(1.0, dist) + 1.0 : 0.0;
           gl_Position = projectionMatrix * mv; }`,
       fragmentShader: /* glsl */`${common} uniform float uVisS; varying float vA; varying float vS;
-        void main(){ float r = length(gl_PointCoord - 0.5) * 2.0; float k = exp(-r * r * 4.0) * vA * uVisS * 0.55;
+        void main(){ vec2 p = gl_PointCoord - 0.5; float r2 = dot(p, p) * 4.0; if (r2 > 1.0) discard; float k = exp(-r2 * 4.0) * vA * uVisS * 0.55;
           vec3 c = mix(vec3(0.62, 0.74, 0.86), uMood * 1.2 + vec3(0.15), 0.35 + vS * 0.3);
           gl_FragColor = vec4(c * k, 1.0); }`,
     }));
@@ -200,13 +200,15 @@ export class Embers {
     this.points = new THREE.Points(g, new THREE.ShaderMaterial({
       uniforms: { ...u }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
       vertexShader: /* glsl */`attribute float aAge; attribute float aSeed; uniform float uPxScale; varying float vA; varying float vS;
-        void main(){ vec4 mv = viewMatrix*vec4(position,1.0);
+        void main(){
           float life = clamp(aAge, 0.0, 1.0);
+          if (life >= 0.999) { vA = 0.0; vS = 0.0; gl_PointSize = 0.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+          vec4 mv = viewMatrix*vec4(position,1.0);
           vA = smoothstep(0.0, 0.08, life) * (1.0 - life) * (1.0 - life); vS = aSeed;
           gl_PointSize = (0.5 + aSeed*1.1) * (1.0 - life*0.6) * 20.0 * uPxScale / max(0.4, -mv.z);
           gl_Position = projectionMatrix*mv; }`,
       fragmentShader: /* glsl */`${common} varying float vA; varying float vS;
-        void main(){ float r = length(gl_PointCoord - 0.5); float k = (smoothstep(0.5, 0.0, r)*0.35 + smoothstep(0.16, 0.0, r)*1.3) * vA * (0.45 + uHigh*0.8 + uBeat*0.4);
+        void main(){ vec2 p = gl_PointCoord - 0.5; float r2 = dot(p, p); if (r2 > 0.25) discard; float r = sqrt(r2); float k = (smoothstep(0.5, 0.0, r)*0.35 + smoothstep(0.16, 0.0, r)*1.3) * vA * (0.45 + uHigh*0.8 + uBeat*0.4);
           gl_FragColor = vec4(mix(uFigMood*1.7, vec3(1.0, 0.95, 0.9), 0.15 + 0.25*vS) * k, 1.0); }`,
     }));
     this.points.frustumCulled = false;
@@ -228,8 +230,10 @@ export class Embers {
       }
     } else this.carry = 0;
     const ages = (this.points.geometry.attributes.aAge as THREE.BufferAttribute).array as Float32Array;
+    let alive = 0;
     for (let i = 0; i < N; i++) {
       if (this.age[i] > this.life[i]) { ages[i] = 1; continue; }
+      alive++;
       this.age[i] += dt;
       // a little curl so the tail eddies rather than runs in straight lines
       const k = i * 3, s = Math.sin(this.age[i] * 2.3 + i), c = Math.cos(this.age[i] * 1.9 + i * 0.7);
@@ -237,8 +241,11 @@ export class Embers {
       this.pos[k] += this.vel[k] * dt; this.pos[k + 1] += this.vel[k + 1] * dt; this.pos[k + 2] += this.vel[k + 2] * dt;
       ages[i] = this.age[i] / this.life[i];
     }
-    this.points.geometry.attributes.position.needsUpdate = true;
-    this.points.geometry.attributes.aAge.needsUpdate = true;
+    this.points.visible = alive > 0;
+    if (alive > 0) {
+      this.points.geometry.attributes.position.needsUpdate = true;
+      this.points.geometry.attributes.aAge.needsUpdate = true;
+    }
   }
 }
 

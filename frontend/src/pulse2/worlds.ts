@@ -4,6 +4,7 @@
 // tunnel (in deepDive.ts), rising streamers of light, pearls, an open nebula, an armillary
 // of rings, a double helix, a forest of candles, aurora curtains and wireframe solids. Everything is lit by the shared mood/music uniforms.
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 type U = Record<string, { value: unknown }>;
 /** The distinct corners of a solid, as points (for the sparks at its vertices). */
@@ -40,12 +41,25 @@ export class Worlds {
           float k = (0.08 + run*0.9 + tip) * (0.6 + uEnergy*1.2) * uVis;
           gl_FragColor = vec4((uMood*1.4 + vec3(0.05))*k, 1.0); }`,
     });
+    const tendrilQuads: THREE.BufferGeometry[][] = [[], [], [], []];
     for (let i = 0; i < 46; i++) {
       const a = Math.random() * Math.PI * 2, r = 8 + Math.random() * 28, top = 38 + Math.random() * 8, len = 10 + Math.random() * 20;
       if (Math.abs(Math.atan2(Math.sin(a - Math.PI / 2), Math.cos(a - Math.PI / 2))) < 0.3 && r < 22) continue; // keep the aisle clear
       const x = Math.cos(a) * r, z = Math.sin(a) * r, sway = (Math.random() - 0.5) * 3;
+      const qIdx = (x >= 0 ? 1 : 0) + (z >= 0 ? 2 : 0);
       const c = new THREE.CatmullRomCurve3([new THREE.Vector3(x, top, z), new THREE.Vector3(x + sway * 0.3, top - len * 0.4, z + sway * 0.2), new THREE.Vector3(x + sway, top - len, z + sway * 0.5)]);
-      this.hall.add(new THREE.Mesh(new THREE.TubeGeometry(c, 60, 0.03 + Math.random() * 0.05, 5, false), tendrilMat));
+      tendrilQuads[qIdx].push(new THREE.TubeGeometry(c, 60, 0.03 + Math.random() * 0.05, 5, false));
+    }
+    for (const geos of tendrilQuads) {
+      if (!geos.length) continue;
+      const merged = mergeGeometries(geos, false);
+      geos.forEach(g => g.dispose());
+      if (merged) {
+        merged.computeBoundingSphere();
+        const m = new THREE.Mesh(merged, tendrilMat);
+        m.matrixAutoUpdate = false; m.updateMatrix();
+        this.hall.add(m);
+      }
     }
     // Drifting orbs of light in the air of the hall.
     const ON = 90, og = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(1, 1) as unknown as THREE.InstancedBufferGeometry);
@@ -72,11 +86,27 @@ export class Worlds {
         void main(){ float a = vUv.x; float slots = step(0.6, fract(a*26.0)) * 0.6; float run = pow(0.5+0.5*sin(a*20.0 - uTime*0.8), 6.0);
           gl_FragColor = vec4(uMood*(0.25 + slots + run*0.8)*0.55*uVis, 1.0); }`,
     });
+    const tmpO = new THREE.Object3D();
+    const archQuads: THREE.BufferGeometry[][] = [[], [], [], []];
     for (let i = 0; i < 12; i++) {
       const a = (i / 12) * Math.PI * 2 + 0.26, R = 66;
-      const arch = new THREE.Mesh(new THREE.TorusGeometry(14 + (i % 3) * 3, 0.35, 8, 120, Math.PI), archMat);
-      arch.position.set(Math.cos(a) * R, -2, Math.sin(a) * R); arch.lookAt(0, -2, 0);
-      this.hall.add(arch);
+      const cx = Math.cos(a) * R, cz = Math.sin(a) * R;
+      const qIdx = (cx >= 0 ? 1 : 0) + (cz >= 0 ? 2 : 0);
+      const g = new THREE.TorusGeometry(14 + (i % 3) * 3, 0.35, 8, 120, Math.PI);
+      tmpO.position.set(cx, -2, cz); tmpO.rotation.set(0, 0, 0); tmpO.scale.setScalar(1); tmpO.lookAt(0, -2, 0); tmpO.updateMatrix();
+      g.applyMatrix4(tmpO.matrix);
+      archQuads[qIdx].push(g);
+    }
+    for (const geos of archQuads) {
+      if (!geos.length) continue;
+      const merged = mergeGeometries(geos, false);
+      geos.forEach(g => g.dispose());
+      if (merged) {
+        merged.computeBoundingSphere();
+        const m = new THREE.Mesh(merged, archMat);
+        m.matrixAutoUpdate = false; m.updateMatrix();
+        this.hall.add(m);
+      }
     }
     // Tall shafts of light far round the hall.
     const pillarMat = new THREE.ShaderMaterial({
@@ -87,11 +117,22 @@ export class Worlds {
           float k = pow(x, 3.0) * (0.4 + n*0.8) * smoothstep(0.0, 0.2, vUv.y) * smoothstep(1.0, 0.6, vUv.y) * (0.18 + uEnergy*0.3) * uVis;
           gl_FragColor = vec4((uMood + vec3(0.1))*k, 1.0); }`,
     });
+    const pillarGeos: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2 + 0.6, R = 54;
-      const p = new THREE.Mesh(new THREE.PlaneGeometry(4, 80), pillarMat);
-      p.position.set(Math.cos(a) * R, 30, Math.sin(a) * R); p.lookAt(0, 30, 0);
-      this.hall.add(p);
+      const g = new THREE.PlaneGeometry(4, 80);
+      tmpO.position.set(Math.cos(a) * R, 30, Math.sin(a) * R); tmpO.rotation.set(0, 0, 0); tmpO.scale.setScalar(1); tmpO.lookAt(0, 30, 0); tmpO.updateMatrix();
+      g.applyMatrix4(tmpO.matrix);
+      pillarGeos.push(g);
+    }
+    {
+      const merged = mergeGeometries(pillarGeos, false);
+      pillarGeos.forEach(g => g.dispose());
+      if (merged) {
+        const m = new THREE.Mesh(merged, pillarMat);
+        m.matrixAutoUpdate = false; m.updateMatrix();
+        this.hall.add(m);
+      }
     }
     // Slanted beams falling from openings high in the vault, dust turning in them.
     const beamMat = new THREE.ShaderMaterial({
@@ -104,14 +145,28 @@ export class Worlds {
           float k = face * (0.55 + 0.6*motes) * smoothstep(0.0, 0.35, vUv.y) * smoothstep(1.0, 0.75, vUv.y) * (0.07 + uEnergy*0.07) * uVis;
           gl_FragColor = vec4((uMood*0.8 + vec3(0.2))*k, 1.0); }`,
     });
+    const beamGeos: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 5; i++) {
       const a = Math.PI / 2 + (i - 2) * 0.55 + (i % 2 ? 0.12 : -0.08), R = 26 + (i % 3) * 4;
-      const beam = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 1.0, 62, 24, 1, true), beamMat);
+      const g = new THREE.CylinderGeometry(3.2, 1.0, 62, 24, 1, true);
       // from high on the far side, leaning down toward the hall's middle
-      beam.position.set(Math.cos(a + Math.PI) * R * 0.5, 22, Math.sin(a + Math.PI) * R * 0.5);
-      beam.lookAt(0, -40, 0); beam.rotateX(Math.PI / 2);
-      this.hall.add(beam);
+      tmpO.position.set(Math.cos(a + Math.PI) * R * 0.5, 22, Math.sin(a + Math.PI) * R * 0.5);
+      tmpO.rotation.set(0, 0, 0); tmpO.scale.setScalar(1);
+      tmpO.lookAt(0, -40, 0); tmpO.rotateX(Math.PI / 2); tmpO.updateMatrix();
+      g.applyMatrix4(tmpO.matrix);
+      beamGeos.push(g);
     }
+    {
+      const merged = mergeGeometries(beamGeos, false);
+      beamGeos.forEach(g => g.dispose());
+      if (merged) {
+        const m = new THREE.Mesh(merged, beamMat);
+        m.matrixAutoUpdate = false; m.updateMatrix();
+        this.hall.add(m);
+      }
+    }
+    this.hall.matrixAutoUpdate = false;
+    this.hall.updateMatrix();
     scene.add(this.hall);
 
     // ---------------------------------------------------------------- the fall's worlds
@@ -191,7 +246,7 @@ export class Worlds {
           vFade = smoothstep(sz*0.4, sz*1.2, -mv.z);
           gl_Position = projectionMatrix*mv; }`,
       fragmentShader: /* glsl */`${common}${noise} uniform float uVis; varying vec2 vUv; varying float vS; varying float vFade;
-        void main(){ vec2 c = vUv-0.5; float r = length(c)*2.0;
+        void main(){ vec2 c = vUv-0.5; float r = length(c)*2.0; if (r >= 1.0) discard;
           float n = fbm3(vec3(c*3.0 + vS*10.0, uTime*0.03 + vS));
           float k = smoothstep(1.0, 0.2, r) * smoothstep(0.35, 0.85, n) * 0.06 * (0.7 + uEnergy*0.8) * uVis * vFade;
           vec3 tint = mix(uMood, uMood.bgr*0.6 + vec3(0.05,0.0,0.08), vS*0.5);
@@ -203,23 +258,24 @@ export class Worlds {
     // 4. An armillary of light: vast thin circles on different axes turning slowly round the
     // diver, and wide soft halos drifting up past it. Smooth, sparse, quiet.
     const ringMat = (bright: number) => new THREE.ShaderMaterial({
-      uniforms: { ...u, uVis: this.vis.hex }, ...additive,
+      uniforms: { ...u, uVis: this.vis.hex, uBright: { value: bright } }, ...additive,
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: /* glsl */`${common} uniform float uVis; varying vec2 vUv; void main(){ float a=vUv.x*6.2831853;
+      fragmentShader: /* glsl */`${common} uniform float uVis, uBright; varying vec2 vUv; void main(){ float a=vUv.x*6.2831853;
         float run = pow(0.5+0.5*sin(a*2.0 - uTime*0.45), 4.0);
         float tick = step(0.86, fract(vUv.x*144.0)) * 0.35 + step(0.8, fract(vUv.x*12.0 + 0.1)) * 0.5;
         float jewel = pow(0.5+0.5*cos(a*6.0), 120.0) * 2.2;
-        float k = (0.16 + run*0.9 + tick + jewel) * ${bright.toFixed(2)} * (0.6 + uEnergy*0.9 + uBeat*0.4) * uVis;
+        float k = (0.16 + run*0.9 + tick + jewel) * uBright * (0.6 + uEnergy*0.9 + uBeat*0.4) * uVis;
         vec3 c = mix(uMood*1.3 + vec3(0.1), vec3(1.0, 0.9, 0.72), clamp(run*0.4 + jewel*0.3, 0.0, 0.8));
         gl_FragColor = vec4(c*k, 1.0); }`,
     });
+    const ringMatBright = ringMat(1.0), ringMatDim = ringMat(0.7);
     for (let i = 0; i < 6; i++) {
-      const R = 13 + i * 2.6, ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.035 + i * 0.006, 8, 360), ringMat(1.0));
+      const R = 13 + i * 2.6, ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.035 + i * 0.006, 8, 360), ringMatBright);
       ring.userData = { ax: new THREE.Vector3(Math.sin(i * 1.7), 0.6 + 0.4 * Math.cos(i), Math.cos(i * 2.3)).normalize(), sp: (i % 2 ? 1 : -1) * (0.035 + i * 0.008), tilt: 0.5 + i * 0.37 };
       this.hex.add(ring);
     }
     for (let i = 0; i < 9; i++) {
-      const halo = new THREE.Mesh(new THREE.TorusGeometry(10 + (i % 3) * 3.5, 0.05, 8, 360), ringMat(0.7));
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(10 + (i % 3) * 3.5, 0.05, 8, 360), ringMatDim);
       halo.rotation.x = Math.PI / 2; halo.userData = { halo: i };
       this.hex.add(halo);
     }
@@ -239,11 +295,15 @@ export class Worlds {
             float core = pow(1.0 - abs(fract(vUv.y)*2.0 - 1.0), 3.0);
             gl_FragColor = vec4(mix(uMood*1.3 + vec3(0.12), vec3(1.0, 0.9, 0.72), run*core*0.5)*k*(0.55 + 0.45*core), 1.0); }`,
       });
+      const strandGeos: THREE.BufferGeometry[] = [];
       for (const ph of [0, Math.PI]) {
         const pts: THREE.Vector3[] = [];
         for (let i = 0; i <= N; i++) { const t = i / N, a = ph + t * (LEN / PITCH) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * R, t * LEN - LEN / 2, Math.sin(a) * R)); }
-        this.helix.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), N * 2, 0.07, 6, false), strandMat));
+        strandGeos.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), N * 2, 0.07, 6, false));
       }
+      const mergedStrands = mergeGeometries(strandGeos, false);
+      strandGeos.forEach(g => g.dispose());
+      if (mergedStrands) this.helix.add(new THREE.Mesh(mergedStrands, strandMat));
       const RN = 7 * 18, rung = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.02, 0.02, 1, 6, 1, true), new THREE.ShaderMaterial({
         uniforms: { ...u, uVis: this.vis.helix }, ...additive,
         vertexShader: `attribute float aI; varying float vI; varying vec2 vUv; void main(){ vI = aI; vUv = uv; gl_Position=projectionMatrix*viewMatrix*modelMatrix*instanceMatrix*vec4(position,1.0); }`,
