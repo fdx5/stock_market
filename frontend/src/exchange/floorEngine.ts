@@ -1,8 +1,8 @@
 import {
-  AgXToneMapping, Box3, BoxGeometry, ClampToEdgeWrapping, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, LinearFilter, LinearMipmapLinearFilter, MeshBasicMaterial, PointLight, RepeatWrapping, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial,
+  AgXToneMapping, Box3, BoxGeometry, BufferAttribute, BufferGeometry, ClampToEdgeWrapping, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, LinearFilter, LinearMipmapLinearFilter, MeshBasicMaterial, PointLight, RepeatWrapping, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial,
   PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Sphere, Texture, TextureLoader, Vector2, WebGPUCoordinateSystem,
   type Ray,
-  type BufferGeometry, type Material, type Object3D,
+  type Material, type Object3D,
 } from "three";
 import { RenderPipeline, WebGPURenderer } from "three/webgpu";
 import { float, pass, screenUV, smoothstep, vec2, vec4, vibrance } from "three/tsl";
@@ -595,13 +595,59 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const hemi = tmpCenter.z >= 0 ? "S" : "N";
       const attrSig = Object.keys(geo.attributes).sort().map(k => {
         const a = geo.attributes[k];
-        return `${k}:${a.itemSize}:${a.normalized ? 1 : 0}`;
+        // position/normal/tangent are promoted to Float32 before world-matrix bake (fixes KHR_mesh_quantization Uint16 overflow!)
+        const promoted = k === "position" || k === "normal" || k === "tangent";
+        const typeTag = promoted ? "Float32Array" : a.array.constructor.name;
+        const normTag = promoted ? 0 : (a.normalized ? 1 : 0);
+        return `${k}:${a.itemSize}:${normTag}:${typeTag}`;
       }).join("|");
       const key = `${child.material.uuid}#${geo.index ? "I" : "N"}#${attrSig}#${hemi}`;
       let bucket = propBuckets.get(key);
       if (!bucket) { bucket = { mat: child.material, meshes: [] }; propBuckets.set(key, bucket); }
       bucket.meshes.push(child);
     });
+    const dequantizeForMerge = (src: BufferGeometry): BufferGeometry => {
+      const dst = new BufferGeometry();
+      if (src.index) dst.setIndex(src.index.clone());
+      for (const name of Object.keys(src.attributes)) {
+        const a = src.attributes[name];
+        const count = a.count, itemSize = a.itemSize;
+        if (name === "position" || name === "normal" || name === "tangent") {
+          // Promote quantized integer attributes (e.g. KHR_mesh_quantization Uint16 position / Int8 normal)
+          // to full Float32 BEFORE applyMatrix4, so negative/fractional world coordinates never wrap or truncate!
+          const arr = new Float32Array(count * itemSize);
+          if (itemSize === 3) {
+            for (let i = 0; i < count; i++) {
+              arr[i * 3] = a.getX(i);
+              arr[i * 3 + 1] = a.getY(i);
+              arr[i * 3 + 2] = a.getZ(i);
+            }
+          } else if (itemSize === 4) {
+            for (let i = 0; i < count; i++) {
+              arr[i * 4] = a.getX(i);
+              arr[i * 4 + 1] = a.getY(i);
+              arr[i * 4 + 2] = a.getZ(i);
+              arr[i * 4 + 3] = a.getW(i);
+            }
+          } else {
+            for (let i = 0; i < count; i++) {
+              for (let c = 0; c < itemSize; c++) arr[i * itemSize + c] = a.getComponent(i, c);
+            }
+          }
+          dst.setAttribute(name, new Float32BufferAttribute(arr, itemSize, false));
+        } else if ("isInterleavedBufferAttribute" in a && a.isInterleavedBufferAttribute) {
+          const Ctor = a.array.constructor as new (len: number) => Float32Array | Uint16Array | Uint8Array | Int16Array | Int8Array;
+          const arr = new Ctor(count * itemSize);
+          for (let i = 0; i < count; i++) {
+            for (let c = 0; c < itemSize; c++) arr[i * itemSize + c] = a.getComponent(i, c);
+          }
+          dst.setAttribute(name, new BufferAttribute(arr, itemSize, a.normalized));
+        } else {
+          dst.setAttribute(name, a.clone());
+        }
+      }
+      return dst;
+    };
     const mergedStaticGroup = new Group();
     mergedStaticGroup.name = "StaticBatchedProps";
     mergedStaticGroup.matrixAutoUpdate = false;
@@ -612,17 +658,22 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const clones: BufferGeometry[] = [];
       let ok = true;
       for (const m of bucket.meshes) {
-        const g = m.geometry.clone();
+        const g = dequantizeForMerge(m.geometry);
         g.applyMatrix4(m.matrixWorld);
-        // Strip morph attributes if empty & ensure consistent drawRange
         clones.push(g);
       }
       const merged = mergeGeometries(clones, false);
       for (const g of clones) g.dispose();
       if (!merged) ok = false;
       if (ok && merged) {
-        merged.computeBoundingSphere();
         merged.computeBoundingBox();
+        merged.computeBoundingSphere();
+        // Sanity check: merged bounds must stay strictly inside the atrium hall (never exploded!)
+        const bb = merged.boundingBox;
+        if (!bb || Math.abs(bb.min.x) > 80 || Math.abs(bb.max.x) > 80 || Math.abs(bb.min.z) > 80 || Math.abs(bb.max.z) > 80) {
+          merged.dispose();
+          continue;
+        }
         const batchMesh = new Mesh(merged, bucket.mat);
         batchMesh.matrixAutoUpdate = false;
         batchMesh.updateMatrix();
