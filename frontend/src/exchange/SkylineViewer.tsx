@@ -4,32 +4,32 @@ import { STORAGE_ASSETS, type Language } from "./marketCore";
 import bake from "./bake.json";
 
 const t = (lang: Language, ko: string, en: string) => (lang === "ko" ? ko : en);
-const SKY_VER = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36) + "p19";
+const SKY_VER = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36) + "v7c";
 
 const SKYLINE_URLS: Record<AtriumMood, string> = {
-  daylight: `${STORAGE_ASSETS}/skyline-day-v6.webp${SKY_VER}`,
-  golden: `${STORAGE_ASSETS}/skyline-golden-v6.webp${SKY_VER}`,
-  night: `${STORAGE_ASSETS}/skyline-night-v6.webp${SKY_VER}`,
+  daylight: `${STORAGE_ASSETS}/skyline-day-v7.webp${SKY_VER}`,
+  golden: `${STORAGE_ASSETS}/skyline-golden-v7.webp${SKY_VER}`,
+  night: `${STORAGE_ASSETS}/skyline-night-v7.webp${SKY_VER}`,
 };
 
 const MOOD_META: Record<AtriumMood, { ko: string; en: string; subKo: string; subEn: string }> = {
   daylight: {
     ko: "주간",
     en: "Day",
-    subKo: "서울 360° 8K 실사 초고화질 파노라마 · 맑은 주간 전망 (Wikimedia Commons CC BY-SA)",
-    subEn: "Seoul 360° 8K Photoreal Panorama · Clear Daylight View (Wikimedia Commons CC BY-SA)",
+    subKo: "맨해튼 금융 지구 360° 16K 실사 초고화질 파노라마 · 맑은 주간 전망 (Wikimedia Commons CC BY-SA 4.0)",
+    subEn: "Manhattan Financial District 360° 16K Photoreal Panorama · Clear Daylight View (Wikimedia Commons CC BY-SA 4.0)",
   },
   golden: {
     ko: "골든아워",
     en: "Golden",
-    subKo: "서울 360° 8K 실사 초고화질 파노라마 · 황금빛 노을 전망 (Wikimedia Commons CC BY-SA)",
-    subEn: "Seoul 360° 8K Photoreal Panorama · Golden Hour Sunset View (Wikimedia Commons CC BY-SA)",
+    subKo: "맨해튼 금융 지구 360° 16K 실사 초고화질 파노라마 · 황금빛 노을 전망 (Wikimedia Commons CC BY-SA 4.0)",
+    subEn: "Manhattan Financial District 360° 16K Photoreal Panorama · Golden Hour Sunset View (Wikimedia Commons CC BY-SA 4.0)",
   },
   night: {
     ko: "네온나이트",
     en: "Night",
-    subKo: "맨해튼 미드타운 고층 도심 360° 8K 초고화질 야경 파노라마 (Wikimedia Commons CC BY 2.0)",
-    subEn: "Midtown Manhattan High-Rise 360° 8K Night Panorama (Wikimedia Commons CC BY 2.0)",
+    subKo: "맨해튼 금융 지구 360° 16K 실사 초고화질 야경 파노라마 (Wikimedia Commons CC BY-SA 4.0)",
+    subEn: "Manhattan Financial District 360° 16K Photoreal Night Panorama (Wikimedia Commons CC BY-SA 4.0)",
   },
 };
 
@@ -292,7 +292,7 @@ export default function SkylineViewer({
   const meta = MOOD_META[mood];
 
   return (
-    <div className="exchange-skyline" role="dialog" aria-modal="true" aria-label={t(lang, "360° 서울 스카이라인 전망창", "360° Seoul Skyline Observatory")}>
+    <div className="exchange-skyline" role="dialog" aria-modal="true" aria-label={t(lang, "360° 금융 도심 스카이라인 전망창", "360° Financial Metropolis Skyline Observatory")}>
       <div
         ref={stageRef}
         className="exchange-skyline-stage"
@@ -330,8 +330,8 @@ export default function SkylineViewer({
 
       <header className="exchange-art-caption exchange-skyline-head">
         <div>
-          <span className="exchange-skyline-kicker">SEOUL 8K OBSERVATORY WINDOW · 360° PANORAMA</span>
-          <h2>{t(lang, "서울 360° 초고화질 전망창", "Seoul 8K 360° Observatory")}</h2>
+          <span className="exchange-skyline-kicker">FINANCIAL DISTRICT 16K OBSERVATORY · 360° PANORAMA</span>
+          <h2>{t(lang, "금융 도심 360° 초고화질 전망창", "Financial Metropolis 16K 360° Observatory")}</h2>
           <p>{t(lang, meta.subKo, meta.subEn)}</p>
         </div>
         <div className="exchange-skyline-tools">

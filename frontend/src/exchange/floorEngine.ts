@@ -416,7 +416,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       // Desktop & flagship Android upgrade active mood to native 16K (4096x1024 crossfade fallback);
       // iPad uses crisp 4096x1024 (16MB vs 201MB -> zero crash!); low-mem phones use 2048x512 (4MB VRAM!).
       const resizeFallback = isHiResTile ? undefined : (mobile && !isIPad) ? { width: 2048, height: 512 } : { width: 4096, height: 1024 };
-      const tex = await loadBitmapTexture(hallAsset(file) + "p19", resizeFallback);
+      const tex = await loadBitmapTexture(hallAsset(file) + "v7c", resizeFallback);
       if (disposed || signal.aborted) { disposeTexSafe(tex); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.colorSpace = SRGBColorSpace;
       tex.flipY = false;
@@ -426,10 +426,12 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         tex.generateMipmaps = true;
         tex.minFilter = LinearMipmapLinearFilter;
         tex.magFilter = LinearFilter;
+        tex.anisotropy = Math.min(8, renderer.getMaxAnisotropy());
       } else {
         tex.generateMipmaps = false;
         tex.minFilter = LinearFilter;
         tex.magFilter = LinearFilter;
+        tex.anisotropy = Math.min(4, renderer.getMaxAnisotropy());
       }
       renderer.initTexture(tex);
       return tex;
@@ -447,13 +449,13 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           const shellMap = await lightmap(bake.shell.file);
           const fixtureMap = await lightmap(bake.fixtures.file);
           const groundMap = bake.ground ? await lightmap(bake.ground.file) : undefined;
-          const initialSkyTex = await loadSkylineFallback(`skyline-${initialSkyKey}-v6.webp`);
+          const initialSkyTex = await loadSkylineFallback(`skyline-${initialSkyKey}-v7.webp`);
           return { model, shellMap, fixtureMap, groundMap, initialSkyTex };
         }
         const [model, shellMap, fixtureMap, groundMap, initialSkyTex] = await Promise.all([
           loadModel(), lightmap(bake.shell.file), lightmap(bake.fixtures.file),
           bake.ground ? lightmap(bake.ground.file) : Promise.resolve(undefined),
-          loadSkylineFallback(`skyline-${initialSkyKey}-v6.webp`),
+          loadSkylineFallback(`skyline-${initialSkyKey}-v7.webp`),
         ]);
         return { model, shellMap, fixtureMap, groundMap, initialSkyTex };
       } finally { ktx?.dispose(); }
@@ -1374,11 +1376,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       if (fallbackSkylinesPromise) return fallbackSkylinesPromise;
       fallbackSkylinesPromise = (async () => {
         try {
-          const dayTex = initialMood === "daylight" ? initialSkyTex : await loadSkylineFallback("skyline-day-v6.webp");
+          const dayTex = initialMood === "daylight" ? initialSkyTex : await loadSkylineFallback("skyline-day-v7.webp");
           if (disposed || signal.aborted) return;
-          const goldenTex = await loadSkylineFallback("skyline-golden-v6.webp");
+          const goldenTex = await loadSkylineFallback("skyline-golden-v7.webp");
           if (disposed || signal.aborted) return;
-          const nightTex = initialMood === "night" ? initialSkyTex : await loadSkylineFallback("skyline-night-v6.webp");
+          const nightTex = initialMood === "night" ? initialSkyTex : await loadSkylineFallback("skyline-night-v7.webp");
           if (disposed || signal.aborted) return;
           fx.setFallbackSkylines(dayTex, goldenTex, nightTex);
         } catch {
@@ -1423,8 +1425,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const key = mood === "daylight" ? "day" : mood;
       try {
         const [texL, texR] = await Promise.all([
-          loadSkyline(`skyline-${key}-16k-L-v6.webp`, true),
-          loadSkyline(`skyline-${key}-16k-R-v6.webp`, true),
+          loadSkyline(`skyline-${key}-16k-L-v7.webp`, true),
+          loadSkyline(`skyline-${key}-16k-R-v7.webp`, true),
         ]);
         if (disposed || signal.aborted || token !== hiResToken) {
           texL.dispose();
