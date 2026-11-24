@@ -30,7 +30,10 @@ def publish(out: Path, prefix: str):
         destination = "objects/" + digest(source, "sha256") + path.suffix.lower()
         target = out / destination
         if target.exists():
-            if target.read_bytes() != source:
+            existing = target.read_bytes()
+            if path.suffix.lower() in {".json", ".css", ".svg", ".txt", ".md", ".xml"}:
+                existing = existing.replace(b"\r\n", b"\n")   # Windows checkouts add CRLF to text objects
+            if existing != source:
                 raise RuntimeError(f"Refusing to overwrite existing asset: {destination}")
         else:
             target.parent.mkdir(parents=True, exist_ok=True)

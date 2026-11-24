@@ -1,10 +1,14 @@
 {
+ "ground": {
+  "scale": 9.32112,
+  "file": "lightmap-ground-v7.webp"
+ },
  "shell": {
-  "scale": 17.17849,
-  "file": "lightmap-shell-v6.webp"
+  "scale": 16.61592,
+  "file": "lightmap-shell-v7.webp"
  },
  "fixtures": {
-  "scale": 3.7313,
-  "file": "lightmap-fixtures-v6.webp"
+  "scale": 3.71873,
+  "file": "lightmap-fixtures-v7.webp"
  }
 }

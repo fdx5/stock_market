@@ -15,12 +15,12 @@
  * Uploads are now pushed immediately through `upload` (renderer.initTexture), visible panels paint
  * first, and panels out of view keep refreshing in the background at a low, steady rate. */
 import {
-  BufferAttribute, BufferGeometry, CanvasTexture, CylinderGeometry, Group, LinearMipmapLinearFilter, LinearFilter, Mesh, MeshStandardMaterial,
+  BufferAttribute, BufferGeometry, CanvasTexture, Float32BufferAttribute, CylinderGeometry, Group, LinearMipmapLinearFilter, LinearFilter, Mesh, MeshStandardMaterial,
   PlaneGeometry, RepeatWrapping, SRGBColorSpace, Sphere, Texture, Vector3, type Frustum, type Material,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { MeshStandardNodeMaterial, type UniformNode } from "three/webgpu";
-import { texture as textureNode, uniform, uv, vec2 } from "three/tsl";
+import { abs, attribute, dot, float, fract, fwidth, length, max, mix, normalView, positionViewDirection, smoothstep, step, texture as textureNode, uniform, uv, vec2, vec3 } from "three/tsl";
 import { FLOOR, companyLogo, shortTime, type ExchangeMarket, type FloorSnapshot, type Language } from "./market";
 import {
   LIVE_PANELS, OUTER_TICKER_ATLAS, PAGES, PAINTERS, paintColumn, paintOuterTicker, paintTicker, setTickerLogoListener,
@@ -229,10 +229,50 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
 
   function glass(map: Texture, intensity = 1) {
     // Glossy glass, but the reflection stays well under the picture: visible, never washing it out.
+    if (!lite) return display(map, intensity);
     const m = new MeshStandardMaterial({ color: 0x000000, roughness: .11, metalness: 0, emissive: 0xffffff, emissiveMap: map, emissiveIntensity: intensity });
     m.envMapIntensity = .36;
     materials.push(m);
     return m;
+  }
+
+  /** A physical display. Each vertex carries its screen's pixel grid (`cells`) and whether it is an LED wall
+   * (`led`). Up close the picture resolves into LED emitters (boards, core facets) or RGB sub-pixel stripes
+   * (desk monitors); further away the grid fades out before it can alias. LCDs dim and lose contrast off-axis,
+   * LED walls barely do. Boards have matte black louvres, monitors a glossy cover glass. */
+  function display(map: Texture, intensity: number) {
+    const m = new MeshStandardNodeMaterial({ color: 0x050607, roughness: .2, metalness: 0 });
+    const led = attribute<"float">("led", "float");
+    const cells = attribute<"vec2">("cells", "vec2");
+    m.roughnessNode = mix(float(.1), float(.46), led);
+    m.envMapIntensity = .3;
+    const picture = textureNode(map).rgb;
+    const c = uv().mul(cells);
+    const w = fwidth(c);
+    const resolve = float(1).sub(smoothstep(.1, .38, max(w.x, w.y)));       // grid only once a cell spans ~3+ px
+    const f = abs(fract(c).sub(.5)).mul(2);
+    const emitter = float(1).sub(smoothstep(.5, .78, length(f))).mul(2.6);   // round SMD dots, same mean light
+    const sub = fract(c.x).mul(3);
+    const stripe = vec3(
+      float(1).sub(step(1, sub)), step(1, sub).mul(float(1).sub(step(2, sub))), step(2, sub),
+    ).mul(float(1).sub(smoothstep(.82, .97, f.y).mul(.6))).mul(2.85);
+    const grid = mix(stripe, vec3(emitter), led);
+    const ndv = abs(dot(normalView, positionViewDirection));
+    const viewing = mix(float(.62).add(smoothstep(.05, .75, ndv).mul(.38)), float(.9).add(ndv.mul(.1)), led);
+    m.emissiveNode = picture.mul(mix(vec3(1), grid, resolve)).mul(viewing).mul(intensity);
+    materials.push(m);
+    return m;
+  }
+  /** Per-instance display grid: LED pitch 2.5 mm (facets) / 4 mm (boards), LCD pixel 0.25 mm. */
+  function tagDisplay(geometry: BufferGeometry, s: Screen) {
+    const led = s.kind === "desk" || s.kind === "counter" ? 0 : 1;
+    const pitch = led ? (s.kind === "facet" ? .0025 : .004) : .00025;
+    const n = geometry.getAttribute("position").count;
+    geometry.setAttribute("led", new Float32BufferAttribute(new Float32Array(n).fill(led), 1));
+    const cells = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) { cells[i * 2] = s.w / pitch; cells[i * 2 + 1] = s.h / pitch; }
+    geometry.setAttribute("cells", new Float32BufferAttribute(cells, 2));
+    return geometry;
   }
 
   function place(geometry: BufferGeometry, s: Screen) {
@@ -330,7 +370,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       const su = fit ? (a > spec.aspect ? a / spec.aspect : 1) : (a < spec.aspect ? a / spec.aspect : 1);
       const sv = fit ? (a < spec.aspect ? spec.aspect / a : 1) : (a > spec.aspect ? spec.aspect / a : 1);
       for (let i = 0; i < uv.count; i++) uv.setXY(i, .5 + (uv.getX(i) - .5) * su, .5 + (uv.getY(i) - .5) * sv);
-      return curved(s) ? geometry : place(geometry, s);
+      return tagDisplay(curved(s) ? geometry : place(geometry, s), s);
     });
     const merged = mergeGeometries(parts);
     parts.forEach(p => p.dispose());

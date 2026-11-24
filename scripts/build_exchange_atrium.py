@@ -22,6 +22,7 @@ Upgrades over v5:
 import argparse
 from collections import defaultdict
 import json
+import os
 from math import atan2, cos, degrees, hypot, pi, radians, sin, sqrt
 from pathlib import Path
 import random
@@ -40,7 +41,7 @@ H = LAYOUT["room"]["height"]
 LEVELS = LAYOUT["levels"]
 GROUPS = defaultdict(list)
 MAT = {}
-VERSION = "v6"
+VERSION = os.environ.get("EXCHANGE_VERSION", "v7")
 rng = random.Random(6)
 
 
@@ -430,21 +431,32 @@ def slat_wall(name, r, y0, y1, a0, a1, mat, group="shell", width=.065, depth=.05
 # ---------------------------------------------------------------- architecture
 def build_floor():
     # Grand Calacatta marble plaza disc (tight 1.50m vein tiling for razor-sharp close-up realism)
-    disc_profile = [(0, 0), (R_WALL + .2, 0), (R_WALL + .2, -.3), (0, -.3)]
-    lathe("Ground marble", 0, 0, 0, disc_profile, "stone", "shell", sides=128, tile=1.50, smooth=False)
+    # Top face only: the rim and underside are never seen and would waste half of the plaza's own lightmap.
+    disc_profile = [(0, 0), (R_WALL + .2, 0)]
+    disc = lathe("Ground marble", 0, 0, 0, disc_profile, "stone", "ground", sides=128, tile=1.50, smooth=False, caps=False)
+    # An open disc gives recalc_face_normals no inside/outside to go by: make every face look up.
+    bm = bmesh.new()
+    bm.from_mesh(disc.data)
+    bm.normal_update()
+    down = [f for f in bm.faces if f.normal.z < 0]
+    if down:
+        bmesh.ops.reverse_faces(bm, faces=down)
+    bm.to_mesh(disc.data)
+    bm.free()
+    assert all(p.normal.z > 0 for p in disc.data.polygons), "ground disc must face up"
     aisles, aw = LAYOUT["aisles"], LAYOUT["aisleWidth"]
     # Charcoal acoustic carpet fields under the curved trading desk zones + bronze edge binder
     for i, a in enumerate(aisles):
         b = aisles[(i + 1) % len(aisles)] + (360 if i == len(aisles) - 1 else 0)
         pad = degrees(aw / 2 / 17.0) + .4
         a0, a1 = a + pad + .9, b - pad - .9
-        sector("Carpet field", 6.92, 16.98, 0, .012, a0, a1, "carpet", "shell", tile=1.1, faces_on=("top", "inner", "outer"))
+        sector("Carpet field", 6.92, 16.98, 0, .012, a0, a1, "carpet", "ground", tile=1.1, faces_on=("top", "inner", "outer"))
         # Crisp champagne-brass trim edging the carpet borders
         sector("Carpet brass inner", 6.88, 6.92, 0, .013, a0, a1, "brass", "fixtures", faces_on=("top",))
         sector("Carpet brass outer", 16.98, 17.02, 0, .013, a0, a1, "brass", "fixtures", faces_on=("top",))
     # Concentric Emperador dark marble architectural border bands & champagne-brass inlays
     for r0, r1 in ((3.22, 3.62), (5.58, 5.82), (6.68, 6.84), (17.06, 17.24), (21.45, 21.75)):
-        sector("Dark marble ring", r0, r1, 0, .003, 0, 360, "darkmarble", "shell", tile=1.8, faces_on=("top",))
+        sector("Dark marble ring", r0, r1, 0, .003, 0, 360, "darkmarble", "ground", tile=1.8, faces_on=("top",))
     for r in (3.20, 3.64, 4.15, 5.56, 5.84, 6.66, 6.86, 17.04, 17.26, 21.43, 21.77, 24.40):
         sector("Floor brass inlay", r - .018, r + .018, 0, .0045, 0, 360, "brass", "fixtures", faces_on=("top",), step=.5)
     # Radial champagne-brass & dark-marble aisle runner lines leading straight to the luminous core!
@@ -456,8 +468,9 @@ def build_floor():
         # Subtle central Emperador stone medallion strips along the 6 radial avenues
         for r_mid in (7.8, 11.4, 15.2, 19.2):
             x, z = pol(r_mid, a)
-            box("Aisle medallion", x, .002, z, .36, .003, .36, "darkmarble", "shell", yaw=a + 45)
-            box("Aisle medallion brass", x, .0035, z, .42, .002, .42, "brass", "fixtures", yaw=a + 45)
+            box("Aisle medallion", x, .002, z, .36, .003, .36, "darkmarble", "ground", yaw=a + 45)
+            # Brass plate sits just below the stone, so only a 3 cm brass frame shows round the dark medallion.
+            box("Aisle medallion brass", x, .0015, z, .42, .002, .42, "brass", "fixtures", yaw=a + 45)
 
 
 def rail_runs(level):
@@ -1823,7 +1836,22 @@ def lightmap_uv(obj, margin):
     me.uv_layers["Surface"].active_render = True
 
 
-def bake(obj, size, samples):
+def edge_aware_denoise(rgb, radius=2, sigma_l=.08):
+    """Light bilateral pass on a baked lightmap: removes Cycles grain on flat stone while keeping shadow edges."""
+    lum = rgb.mean(axis=2) + 1e-4
+    acc = np.zeros_like(rgb)
+    wsum = np.zeros(lum.shape, np.float32)
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            sh = np.roll(np.roll(rgb, dy, 0), dx, 1)
+            sl = np.roll(np.roll(lum, dy, 0), dx, 1)
+            w = np.exp(-(dx * dx + dy * dy) / (2 * (radius * .75) ** 2)) * np.exp(-((np.log(sl) - np.log(lum)) ** 2) / (2 * sigma_l ** 2))
+            acc += sh * w[..., None]
+            wsum += w
+    return (acc / wsum[..., None]).astype(np.float32)
+
+
+def bake(obj, size, samples, denoise=False):
     img = bpy.data.images.new(obj.name + " lightmap", size, size, float_buffer=True, alpha=False)
     ao_img = bpy.data.images.new(obj.name + " ao", size, size, float_buffer=True, alpha=False)
     nodes = []
@@ -1865,6 +1893,8 @@ def bake(obj, size, samples):
     # Multiply subtle ray-traced contact AO into tight crevices & floor contacts (preserves bright open areas cleanly!)
     rgb = rgb * (0.72 + 0.28 * (ao[..., None] ** 1.35))
     bpy.data.images.remove(ao_img)
+    if denoise:
+        rgb = edge_aware_denoise(rgb.astype(np.float32))
     # Subtle 3-tap micro-anti-aliasing preserves razor-sharp Cycles OptiX sunbeams & contact AO crevices!
     k = np.array([.10, .80, .10], dtype=np.float32)
     for axis in (0, 1):
@@ -2063,6 +2093,8 @@ if __name__ == "__main__":
     parser.add_argument("--samples", type=int, default=320)
     parser.add_argument("--shell-size", type=int, default=4096)
     parser.add_argument("--fixture-size", type=int, default=4096)
+    parser.add_argument("--ground-size", type=int, default=4096)
+    parser.add_argument("--ground-samples", type=int, default=768)
     parser.add_argument("--preview", action="store_true")
     parser.add_argument("--preview-only", action="store_true")
     parser.add_argument("--preview-samples", type=int, default=64)
@@ -2076,23 +2108,26 @@ if __name__ == "__main__":
     screen_standins(standins)
     extra = bake_lights()
     overlap_report()
-    tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for g in ("shell", "fixtures", "emit", "props", "water", "holo") for o in GROUPS[g])
+    tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for g in ("shell", "ground", "fixtures", "emit", "props", "water", "holo") for o in GROUPS[g])
     print("triangles (before instancing):", tris, {g: len(GROUPS[g]) for g in GROUPS}, flush=True)
     if opts.preview or opts.preview_only:
         preview(out, opts.preview_samples, set(filter(None, opts.shots.split(","))))
     if opts.preview_only:
         sys.exit(0)
     merge_props()
-    for g in ("shell", "fixtures", "emit"):
+    for g in ("shell", "fixtures", "emit", "ground"):
         join(g)
     join("water", name="WaterSurface")
     join("holo", name="HoloCoreFX")
     lightmap_uv(GROUPS["shell"][0], .0012)
     lightmap_uv(GROUPS["fixtures"][0], .0012)
+    # 1F plaza on its own 4K map: ~1.3 cm texels, so desk, chair and skylight-rib shadows stay crisp.
+    lightmap_uv(GROUPS["ground"][0], .002)
     environment(out)
     meta = {}
-    for g, size in (("shell", opts.shell_size), ("fixtures", opts.fixture_size)):
-        enc, scale = bake(GROUPS[g][0], size, opts.samples)
+    for g, size, samples in (("ground", opts.ground_size, opts.ground_samples), ("shell", opts.shell_size, opts.samples),
+                             ("fixtures", opts.fixture_size, opts.samples)):
+        enc, scale = bake(GROUPS[g][0], size, samples, denoise=True)
         save_lightmap(enc, out / f"lightmap-{g}-{VERSION}.webp")
         meta[g] = {"scale": round(scale, 5), "file": f"lightmap-{g}-{VERSION}.webp"}
         print(g, "baked, scale", scale, flush=True)

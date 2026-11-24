@@ -1,18 +1,21 @@
 import {
-  AgXToneMapping, Box3, BoxGeometry, BufferAttribute, BufferGeometry, ClampToEdgeWrapping, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, LinearFilter, LinearMipmapLinearFilter, MeshBasicMaterial, PointLight, RepeatWrapping, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial,
+  AgXToneMapping, Box3, BoxGeometry, BufferAttribute, BufferGeometry, ClampToEdgeWrapping, Color, CylinderGeometry, DirectionalLight, EquirectangularReflectionMapping, Float32BufferAttribute, Frustum, Group, LinearFilter, LinearMipmapLinearFilter, MeshBasicMaterial, UnsignedByteType, PointLight, RepeatWrapping, Vector3, HemisphereLight, Matrix4, Mesh, MeshStandardMaterial,
   PerspectiveCamera, Raycaster, SRGBColorSpace, Scene, Sphere, Texture, TextureLoader, Vector2, WebGPUCoordinateSystem,
   type Ray,
   type Material, type Object3D,
 } from "three";
 import { RenderPipeline, WebGPURenderer } from "three/webgpu";
-import { float, pass, screenUV, smoothstep, vec2, vec4, vibrance } from "three/tsl";
+import { clamp as tslClamp, clearcoat, normalWorld, roughness, unpackRGBToNormal, packNormalToRGB, emissive, float, luminance, mix, mrt, normalView, output, pass, sample, screenUV, smoothstep, vec2, vec4, vibrance } from "three/tsl";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
+import { ao } from "three/addons/tsl/display/GTAONode.js";
+import { ssr } from "three/addons/tsl/display/SSRNode.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import bake from "./bake.json";
+import bakeV7 from "./bake.json";
+import bakeV6 from "./bake-v6.json";
 import { createAtriumFX, ShowcaseTour, type AtriumMood, type TrackedLightmapMat } from "./atriumFx";
 import { FLOOR, MARKETS, STORAGE_ASSETS, type FloorSnapshot, type Language } from "./market";
 import { createScreens } from "./screens";
@@ -51,10 +54,14 @@ export type FloorDriver = {
 
 // Every bake changes the lightmap scales: use them as a cache key, so a reload always gets the
 // current model and maps (the file names stay the same between local rebuilds).
-const BAKE_KEY = "?v=" + Math.round(bake.shell.scale * 1e4).toString(36) + Math.round(bake.fixtures.scale * 1e4).toString(36);
+type Bake = { shell: { scale: number; file: string }; fixtures: { scale: number; file: string }; ground?: { scale: number; file: string } };
+const bakeKey = (b: Bake) => "?v=" + Math.round(b.shell.scale * 1e4).toString(36) + Math.round(b.fixtures.scale * 1e4).toString(36);
+const BAKE_KEY = bakeKey(bakeV6 as Bake);
 const hallAsset = (file: string) => `${STORAGE_ASSETS}/${file}${BAKE_KEY}`;
-const ENV = STORAGE_ASSETS + "/hall-env-v6.hdr" + BAKE_KEY;        // 2K Cycles panorama of this v6 hall (desktop)
-const ENV_MOBILE = STORAGE_ASSETS + "/hall-env-v5.hdr" + BAKE_KEY; // 4x lighter 1.6MB HDR for iPad/mobile memory budget
+// Desktop: v7 hall (1F plaza on its own 4K lightmap). Phones and iPad keep the v6 hall and its GPU-compressed copy.
+const HALL_V7 = { bake: bakeV7 as Bake, glb: "trading-hall-v7.glb", env: "hall-env-v7.hdr" };
+const HALL_V6 = { bake: bakeV6 as Bake, glb: "trading-hall-v6.glb", env: "hall-env-v6.hdr" };
+const ENV_MOBILE = STORAGE_ASSETS + "/hall-env-v5.hdr" + bakeKey(bakeV6 as Bake); // 4x lighter 1.6MB HDR for iPad/mobile memory budget
 // Slot order and dimensions match scripts/build_exchange_art_preview.py.
 const ART_PREVIEW = { columns: 8, tile: 256, border: 8 };
 const SKY = "#f4f1ea";   // daylight through the skylight, warmed by the oak
@@ -177,7 +184,7 @@ function releaseModel(root: Object3D) {
 
 function groupOf(object: Object3D) {
   for (let node: Object3D | null = object; node; node = node.parent) {
-    if (node.name === "shell" || node.name === "fixtures" || node.name === "emit") return node.name;
+    if (node.name === "shell" || node.name === "fixtures" || node.name === "emit" || node.name === "ground") return node.name;
   }
   return "props";
 }
@@ -260,6 +267,10 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
   // preserve FULL desktop-grade 16K + Bloom + 2K HDR + full fireworks quality without forced downgrade!
   const flagshipMobile = !appleTouch && hasWebGPU && deviceMem >= 8 && cpuCores >= 8;
   const mobile = (touch || appleTouch) && !flagshipMobile;
+  const hall = mobile ? HALL_V6 : HALL_V7;
+  const bake = hall.bake;
+  const hallKey = bakeKey(bake);
+  const hallFile = (file: string) => `${STORAGE_ASSETS}/${file}${hallKey}`;
   const dense = (window.devicePixelRatio || 1) >= 2;
 
   // Determine initial mood upfront so we ONLY download ONE skyline before reveal (saves 8-10MB critical-path download!)
@@ -319,7 +330,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
   try {
     renderer.onDeviceLost = info => fail(new Error(`${info.api} device lost: ${info.message}`));
     // Start downloading the GLB immediately on desktop while renderer.init() warms up WebGPU!
-    const earlyDesktopGlb = !mobile ? fetchWithProgress(hallAsset("trading-hall-v6.glb"), signal, events.progress) : null;
+    const earlyDesktopGlb = !mobile ? fetchWithProgress(hallFile(hall.glb), signal, events.progress) : null;
     await renderer.init();
     const tInitDone = performance.now();
     signal.throwIfAborted();
@@ -383,7 +394,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       return tex;
     };
     const lightmap = async (file: string) => {
-      const tex = ktx ? await ktx.loadAsync(hallAsset(file.replace(/\.webp$/, ".ktx2"))) : await loadBitmapTexture(hallAsset(file));
+      const tex = ktx ? await ktx.loadAsync(hallFile(file.replace(/\.webp$/, ".ktx2"))) : await loadBitmapTexture(hallFile(file));
       if (disposed || signal.aborted) { disposeTexSafe(tex); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
       tex.flipY = false;
       tex.channel = 1;
@@ -393,8 +404,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       return tex;
     };
     const loadModel = async () => {
-      const file = compressed ? "trading-hall-v6-ktx2.glb" : "trading-hall-v6.glb";
-      const binary = earlyDesktopGlb ? await earlyDesktopGlb : await fetchWithProgress(hallAsset(file), signal, events.progress);
+      const file = compressed ? "trading-hall-v6-ktx2.glb" : hall.glb;
+      const binary = earlyDesktopGlb ? await earlyDesktopGlb : await fetchWithProgress(hallFile(file), signal, events.progress);
       events.progress?.(.99);
       const { scene: model } = await loader.parseAsync(binary, STORAGE_ASSETS + "/");
       if (disposed || signal.aborted) { releaseModel(model); throw signal.reason ?? new Error("Trading hall GPU context was lost"); }
@@ -429,20 +440,22 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       return tex;
     };
     // Download ONLY the active initial mood's skyline before reveal (saves 8-10MB critical-path bytes + 2x 8K decodes!)
-    const { model, shellMap, fixtureMap, initialSkyTex } = await (async () => {
+    const { model, shellMap, fixtureMap, groundMap, initialSkyTex } = await (async () => {
       try {
         if (mobile) {
           const model = await loadModel();
           const shellMap = await lightmap(bake.shell.file);
           const fixtureMap = await lightmap(bake.fixtures.file);
+          const groundMap = bake.ground ? await lightmap(bake.ground.file) : undefined;
           const initialSkyTex = await loadSkylineFallback(`skyline-${initialSkyKey}-v6.webp`);
-          return { model, shellMap, fixtureMap, initialSkyTex };
+          return { model, shellMap, fixtureMap, groundMap, initialSkyTex };
         }
-        const [model, shellMap, fixtureMap, initialSkyTex] = await Promise.all([
+        const [model, shellMap, fixtureMap, groundMap, initialSkyTex] = await Promise.all([
           loadModel(), lightmap(bake.shell.file), lightmap(bake.fixtures.file),
+          bake.ground ? lightmap(bake.ground.file) : Promise.resolve(undefined),
           loadSkylineFallback(`skyline-${initialSkyKey}-v6.webp`),
         ]);
-        return { model, shellMap, fixtureMap, initialSkyTex };
+        return { model, shellMap, fixtureMap, groundMap, initialSkyTex };
       } finally { ktx?.dispose(); }
     })();
     const tAssetsDone = performance.now();
@@ -459,7 +472,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       child.matrixAutoUpdate = false;
       child.updateMatrix();
       const source = child.material as MeshStandardMaterial;
-      if ((group === "shell" || group === "fixtures") && child.geometry.getAttribute("uv1")) {
+      const map = group === "ground" ? groundMap : group === "shell" ? shellMap : group === "fixtures" ? fixtureMap : undefined;
+      if (map && child.geometry.getAttribute("uv1")) {
         const key = group + ":" + source.uuid;
         let m = cloned.get(key);
         if (!m) {
@@ -467,12 +481,14 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           // Calm luxury honed Italian stone & plaster palette (warm, rich, zero blinding white glare).
           if (/calacatta|light stone/i.test(source.name)) m.color.multiplyScalar(.78);
           else if (/travertine|plaster|gallery wall|composite/i.test(source.name)) m.color.multiplyScalar(.85);
-          m.userData.isFloorShell = group === "shell";
-          m.lightMap = group === "shell" ? shellMap : fixtureMap;
-          const baseIntensity = (group === "shell" ? bake.shell.scale : bake.fixtures.scale) * Math.PI;
+          // Satin champagne brass reads as metal, not brown paint: bright warm F0, brushed-satin roughness.
+          if (/champagne brushed brass/i.test(source.name)) { m.color.set("#e3c793"); m.map = null; m.roughnessMap = m.metalnessMap = null; m.metalness = 1; m.roughness = .3; }
+          m.userData.isFloorShell = group === "shell" || group === "ground";
+          m.lightMap = map;
+          const baseIntensity = (group === "ground" && bake.ground ? bake.ground.scale : group === "fixtures" ? bake.fixtures.scale : bake.shell.scale) * Math.PI;
           m.lightMapIntensity = baseIntensity;
           // Understated satin metallic luster on champagne brass & bronze; soft reflections on stone & walnut.
-          m.envMapIntensity = m.metalness > .5 ? 1.25 : /marble/i.test(source.name) ? .62 : /walnut|oak/i.test(source.name) ? .45 : .34;
+          m.envMapIntensity = /champagne brushed brass/i.test(source.name) ? 1.7 : m.metalness > .5 ? 1.25 : /marble/i.test(source.name) ? .62 : /walnut|oak/i.test(source.name) ? .45 : .34;
           cloned.set(key, m);
           lightmapped.push({ mat: m, base: baseIntensity });
         }
@@ -708,7 +724,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       tour.stop();
       events.tour?.(false);
     };
-    const loadEnvironment = () => void new HDRLoader().loadAsync(mobile ? ENV_MOBILE : ENV).then(texture => {
+    const loadEnvironment = () => void new HDRLoader().loadAsync(mobile ? ENV_MOBILE : hallFile(hall.env)).then(texture => {
       if (disposed || signal.aborted) { texture.dispose(); return; }
       texture.mapping = EquirectangularReflectionMapping;
       scene.environment = environment = texture;
@@ -892,19 +908,66 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
     }
 
-    // Restrained cinema post-processing: whisper-soft high-threshold bloom (zero glare!) + subtle luxury vignette.
+    // Restrained cinema post-processing: whisper-soft high-threshold bloom (zero glare!) + subtle luxury vignette,
+    // plus screen-space ambient occlusion (GTAO) so chairs, sofas, monitors and planters sit on the floor with real
+    // contact shadows. Lit screens/LEDs are masked out of the AO through the emissive channel packed in normal.a.
     let pipeline: RenderPipeline | undefined;
-    if (params.get("bloom") === "1" || (params.get("bloom") !== "0" && !mobile)) {
+    const wantBloom = params.get("bloom") === "1" || (params.get("bloom") !== "0" && !mobile);
+    let wantAO = wantBloom && params.get("ao") !== "0" && backend === "webgpu";
+    let wantSSR = wantAO && params.get("ssr") !== "0";
+    const ssrStrength = float(Number(params.get("ssrk") ?? 1));
+    const buildPipeline = () => {
+      pipeline?.dispose();
       pipeline = new RenderPipeline(renderer);
       const scenePass = pass(scene, camera);
-      const color = scenePass.getTextureNode("output");
+      const sceneColor = scenePass.getTextureNode("output");
+      let color: ReturnType<typeof vec4> | typeof sceneColor = sceneColor;
+      if (wantAO) {
+        scenePass.setMRT(mrt({
+          output,
+          normal: vec4(packNormalToRGB(normalView), tslClamp(luminance(emissive).mul(6), 0, 1)),
+          // SSR mask: only level clear-coated stone/water mirrors the hall (clearcoat & roughness are the material's own).
+          surface: vec4(clearcoat.mul(smoothstep(.8, .97, normalWorld.y)), roughness, 0, 1),
+        }));
+        scenePass.getTexture("normal").type = UnsignedByteType;
+        scenePass.getTexture("surface").type = UnsignedByteType;
+        const packed = scenePass.getTextureNode("normal");
+        const surface = scenePass.getTextureNode("surface");
+        const depth = scenePass.getTextureNode("depth");
+        const sceneNormal = sample(uv => unpackRGBToNormal(packed.sample(uv).rgb));
+        const aoPass = ao(depth, sceneNormal, camera);
+        aoPass.resolutionScale = .5;
+        aoPass.radius.value = .6;         // metres: chair legs, desk skirts, sofa seams, monitor feet
+        aoPass.thickness.value = .9;
+        aoPass.distanceExponent.value = 1.6;
+        aoPass.scale.value = 1.2;
+        aoPass.samples.value = 12;
+        const occlusion = aoPass.getTextureNode().sample(screenUV).r;
+        const glow = packed.a;            // screens, LEDs, coves: never darkened
+        const factor = mix(float(1), occlusion, float(.9).mul(float(1).sub(glow)));
+        let rgb = sceneColor.rgb.mul(factor);
+        if (wantSSR) {
+          // Polished stone floor mirrors the desks, screens and core (only pixels the marble marks are traced).
+          const reflection = ssr(sceneColor, depth, sceneNormal, { metalnessNode: surface.r, roughnessNode: surface.g, camera });
+          reflection.resolutionScale = .5;
+          reflection.maxDistance.value = 14;
+          reflection.thickness.value = .08;
+          reflection.quality.value = .5;
+          reflection.maxLuminance.value = 6;
+          reflection.screenEdgeFade.value = .25;
+          rgb = rgb.add(reflection.getTextureNode().sample(screenUV).rgb.mul(ssrStrength));
+        }
+        color = vec4(rgb, sceneColor.a);
+      }
       const lit = color.add(bloom(color, .085, .36, 1.48));
       const centered = screenUV.sub(vec2(0.5, 0.5)).mul(2.0);
       const vig = float(1.0).sub(smoothstep(float(0.42), float(1.36), centered.length()).mul(0.15));
       const graded = vibrance(lit, float(0.04));
       pipeline.outputNode = vec4(graded.rgb.mul(vig), lit.a);
-      releases.push(() => pipeline?.dispose());
-    }
+      if (measure) canvas.dataset.ao = (wantAO ? "ao" : "-") + (wantAO && wantSSR ? "+ssr" : "");
+    };
+    if (wantBloom) buildPipeline();
+    releases.push(() => pipeline?.dispose());
 
     const keys = new Set<string>();
     const state = { ...FLOOR.spawn, y: 0 };
@@ -929,7 +992,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const isField = (event: KeyboardEvent) => event.target instanceof HTMLElement &&
       !!event.target.closest("input,button,select,textarea,a,[contenteditable],[role=dialog]");
     // Cap DPR: 1.5x on desktop & flagship Android, 1.35x on iPad, 1.25x on low-memory phones.
-    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 3 ? 1.0 : isIPad ? 1.35 : mobile ? 1.25 : tier >= 1 ? 1.25 : 1.5);
+    const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 4 ? 1.0 : isIPad ? 1.35 : mobile ? 1.25 : tier >= 2 ? 1.25 : 1.5);
 
     function resize() {
       const { width, height } = host.getBoundingClientRect();
@@ -1004,12 +1067,12 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
 
     function govern(elapsed: number, now: number) {
       // Hold locked 60 fps smoothly without pipeline reallocation hitches:
-      // tier 1 = cap DPR 1.25 -> tier 2 = disable bloom -> tier 3 = cap DPR 1.0.
+      // tier 1 = drop AO -> tier 2 = cap DPR 1.25 -> tier 3 = disable bloom -> tier 4 = cap DPR 1.0.
       if (!started) started = now;
       if (now - started < 5000) return;
       recent.push(elapsed);
       if (recent.length > 60) recent.shift();
-      if (recent.length < 60 || tier >= 3) return;
+      if (recent.length < 60 || tier >= 4) return;
       const avg = recent.reduce((s, v) => s + v, 0) / recent.length;
       if (avg > 19.2) {
         if (!slowSince) slowSince = now;
@@ -1017,8 +1080,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           tier++;
           slowSince = 0;
           recent.length = 0;
-          if (tier === 1) resize();
-          else if (tier === 2) {
+          if (tier === 1) {
+            // First step down: drop the screen-space AO only (picture stays sharp at full resolution).
+            if (wantSSR && pipeline) { wantSSR = false; buildPipeline(); } else resize();
+          } else if (tier === 2) resize();
+          else if (tier === 3) {
             if (pipeline) { pipeline.dispose(); pipeline = undefined; }
           } else resize();
           canvas.dataset.qualityTier = String(tier);
@@ -1373,6 +1439,26 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       });
     } else {
       window.setTimeout(() => { if (!disposed && !signal.aborted) void ensureAllFallbackSkylines(); }, 2500);
+    }
+    if (measure) {
+      // Repeatable screenshots/timings: put the camera on an exact pose (only with ?exchangeMetrics).
+      const w = window as unknown as { __exchangePose?: (p: Pose) => void };
+      w.__exchangePose = p => {
+        stopTour(); pause();
+        state.x = p.x; state.z = p.z; state.y = eyeY = p.y ?? 0;
+        state.yaw = lookYaw = p.yaw * RAD; pitch = lookPitch = p.pitch;
+      };
+      (window as unknown as { __exchangePick?: (x: number, y: number) => unknown }).__exchangePick = (x, y) => {
+        const rect = canvas.getBoundingClientRect();
+        pointer.set((x - rect.left) / rect.width * 2 - 1, -(y - rect.top) / rect.height * 2 + 1);
+        ray.setFromCamera(pointer, camera);
+        return ray.intersectObjects(scene.children, true).slice(0, 4).map(h => {
+          const m = (h.object as Mesh).material as Material | Material[];
+          const mat = Array.isArray(m) ? m.map(v => v.name).join("+") : m?.name;
+          return { name: h.object.name, parent: h.object.parent?.name, mat, d: +h.distance.toFixed(2), p: h.point.toArray().map(v => +v.toFixed(2)) };
+        });
+      };
+      releases.push(() => { delete w.__exchangePose; });
     }
     return {
       move(x, forward) { if (Math.abs(x) > .05 || Math.abs(forward) > .05) stopTour(); touchX = clamp(x, -1, 1); touchForward = clamp(forward, -1, 1); },

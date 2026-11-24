@@ -10,12 +10,12 @@ import {
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, PointsNodeMaterial,
-  type WebGPURenderer,
+  type Node, type WebGPURenderer,
 } from "three/webgpu";
 import {
   abs, cameraPosition, clamp, cos, dFdx, dFdy, dot, equirectUV, float, fract, log2, max, min, mix,
   mx_fractal_noise_float, mx_noise_float, normalView, normalWorld, normalize, positionLocal, positionViewDirection,
-  positionWorld, pow, sin, smoothstep, sqrt, step, texture, uniform, uv, vec2, vec3,
+  atan, floor as tslFloor, fwidth, hash, positionWorld, pow, sin, smoothstep, sqrt, step, texture, uniform, uv, vec2, vec3, vec4,
 } from "three/tsl";
 import { FLOOR } from "./market";
 import { createBullCelebrationFX } from "./bullCelebrationFx";
@@ -367,6 +367,7 @@ export function createAtriumFX(
 
   // ---- C. Physical Polished Marble with Honed Stone Micro-Grain Planar Reflection (exclusively on shell Calacatta!) ----
   const marbleNodeCache = new Map<string, MeshPhysicalNodeMaterial>();
+  const luminance3 = (c: Node<"vec3">) => dot(c, vec3(.2126, .7152, .0722));
   const makeReflectiveMarble = (src: MeshStandardMaterial, isDark: boolean) => {
     const cached = marbleNodeCache.get(src.uuid);
     if (cached) return cached;
@@ -400,6 +401,47 @@ export function createAtriumFX(
       const reflMask = floorYMask.mul(upMask).mul(fresnel).mul(stoneGrain).mul(uReflectStrength);
       pm.emissiveNode = coreBounce.add(ceilBounce).mul(reflMask);
     }
+    // Laid stone: level floors become radial large-format slabs (1.2 m rings, ~1.25 m arcs) with 2.5 mm joints.
+    // Every slab shows a different cut of the block and a slight shade difference, as real quarried stone does;
+    // walls, counters and columns keep their modelled UVs. Joints are matte and do not mirror the hall.
+    const levelFloor = smoothstep(float(0.8), float(0.97), normalWorld.y);
+    let jointOpen: Node<"float"> = float(0);
+    if (src.map) {
+      const ring = 1.2, arc = 1.25, joint = .00125;
+      const xz = positionWorld.xz;
+      const radius = xz.length();
+      const ringPos = radius.div(ring);
+      const ringIdx = tslFloor(ringPos);
+      const segments = tslFloor(ringIdx.add(.5).mul(ring * 2 * Math.PI / arc)).max(6);
+      const theta = atan(xz.y, xz.x).div(2 * Math.PI).add(.5);
+      const segPos = theta.mul(segments);
+      const segIdx = tslFloor(segPos);
+      const radialEdge = min(fract(ringPos), float(1).sub(fract(ringPos))).mul(ring);
+      const arcLen = radius.mul(2 * Math.PI).div(segments);
+      const arcEdge = min(fract(segPos), float(1).sub(fract(segPos))).mul(arcLen);
+      const edge = min(radialEdge, arcEdge);
+      const aa = fwidth(edge).max(1e-5);
+      const centre = smoothstep(float(1.15), float(1.3), radius);            // no joints in the core well
+      jointOpen = float(1).sub(smoothstep(float(joint), float(joint).add(aa.mul(1.5)), edge)).mul(centre).mul(levelFloor);
+      const seed = ringIdx.mul(97.0).add(segIdx).add(isDark ? 7000 : 0);
+      const h1 = hash(seed), h2 = hash(seed.add(13.1)), h3 = hash(seed.add(29.7));
+      const slabUv = xz.div(1.5).add(vec2(h1, h2).mul(9.0));
+      const cut = texture(src.map, slabUv).rgb;
+      const modelledTex = texture(src.map);
+      modelledTex.updateMatrix = true;
+      const modelled = modelledTex.rgb;
+      const base = mix(modelled, cut, levelFloor);
+      // Calacatta: warm white ground, crisper grey veins; Emperador keeps its own palette, just a touch richer.
+      const graded = isDark
+        ? base.mul(float(.94).add(h3.mul(.12)))
+        : mix(vec3(luminance3(base)), base, 1.1).sub(.86).mul(1.24).add(.86).mul(vec3(1.0, .985, .955)).mul(float(.965).add(h3.mul(.07)));
+      const grout = vec3(isDark ? .05 : .44, isDark ? .045 : .42, isDark ? .04 : .39);
+      const tint = src.color.clone().multiplyScalar(isDark ? 0.84 : 0.72);
+      pm.colorNode = mix(graded.clamp(0, 1), grout, jointOpen).mul(vec3(tint.r, tint.g, tint.b));
+      pm.roughnessNode = mix(float(pm.roughness), float(.85), jointOpen);
+      pm.clearcoatNode = mix(float(pm.clearcoat), float(0), jointOpen);
+    }
+    // Screen-space reflections key off clearcoat (see floorEngine): joints carry none, so they stay matte.
     for (const entry of lightmapped) {
       if (entry.mat === src) entry.mat = pm;
     }
