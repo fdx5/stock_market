@@ -14,7 +14,6 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { AudioLevels } from "./audioLevels";
 import { moodColor, moodStrength } from "./mood";
 import { PoseRig, loadMocap, sample, blend, type Clip, type Pose, type RootMotion } from "./pose";
@@ -93,6 +92,20 @@ export class DeepDive {
   private ribbons = new THREE.Group();
   private worlds!: Worlds;
   private floor?: Reflector;
+  /** The floor's own reflection render (Reflector's onBeforeRender), called by reflect(). */
+  private reflectFloor?: (...a: Parameters<THREE.Object3D["onBeforeRender"]>) => void;
+  private _frustum = new THREE.Frustum(); private _pv = new THREE.Matrix4();
+  /** Render the floor's reflection, when the floor is in view, ahead of the frame itself.
+   *  (Drawn from inside the frame, as Reflector does, the nested render keeps its own lights
+   *  state, and every lit material then looks up its shader program twice a frame.) */
+  private reflect() {
+    const floor = this.floor, cam = this.camera;
+    if (!floor || !this.reflectFloor || !floor.visible) return;
+    cam.updateMatrixWorld(); floor.updateMatrixWorld();
+    this._frustum.setFromProjectionMatrix(this._pv.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    if (!this._frustum.intersectsObject(floor)) return;
+    this.reflectFloor(this.renderer, this.scene, cam, floor.geometry, floor.material as THREE.Material, null as unknown as THREE.Group);
+  }
   private raf = 0; private last = 0; private t0 = performance.now();
   private disposed = false;
   private scroll = 0;     // rain/dust scroll (m)
@@ -110,6 +123,8 @@ export class DeepDive {
   private prBase = 1;
   private figH?: { rt: THREE.WebGLRenderTarget; cam: THREE.OrthographicCamera; mat: THREE.MeshDepthMaterial };
   private _cc = new THREE.Color();
+  /** The scene's world matrices were brought up to date this frame (by the shadow-map render). */
+  private matricesFresh = false;
   /** The rally take: render the seated figure's underside from below (body only) for the
    *  floor's contact shadow. 512 px over 6.8 m: about 1.3 cm a texel. */
   private renderFigH() {
@@ -128,7 +143,7 @@ export class DeepDive {
     const prevT = r.getRenderTarget(), prevA = r.getClearAlpha(), bg = sc.background, ov = sc.overrideMaterial;
     r.getClearColor(this._cc);
     sc.background = null; sc.overrideMaterial = mat;
-    r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(sc, cam);
+    r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(sc, cam); this.matricesFresh = true;
     sc.background = bg; sc.overrideMaterial = ov;
     r.setRenderTarget(prevT); r.setClearColor(this._cc, prevA);
   }
@@ -218,32 +233,38 @@ export class DeepDive {
     this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     // (any NaN or infinite pixel would be smeared across the whole frame by the bloom: scrub
-    // them, and cap the HDR so a hot spot cannot flood the glow)
-    this.composer.addPass(new ShaderPass({
-      uniforms: { tDiffuse: { value: null } },
-      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv);
-        if (!(c.r == c.r) || !(c.g == c.g) || !(c.b == c.b) || c.r > 1e4 || c.g > 1e4 || c.b > 1e4) c = vec4(0.0);
-        gl_FragColor = vec4(min(c.rgb, vec3(10.0)), 1.0); }`,
-    }));
+    // them, and cap the HDR so a hot spot cannot flood the glow. Done where the frame is read
+    // — the bloom's bright pass and the finish — instead of in a full-screen pass of its own.)
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.95, 0.62, 0.6);
+    const hp = this.bloom.materialHighPassFilter;
+    hp.fragmentShader = hp.fragmentShader.replace("vec4 texel = texture2D( tDiffuse, vUv );", `vec4 texel = texture2D( tDiffuse, vUv );
+      if (!(texel.r == texel.r) || !(texel.g == texel.g) || !(texel.b == texel.b) || texel.r > 1e4 || texel.g > 1e4 || texel.b > 1e4) texel = vec4(0.0);
+      texel = vec4(min(texel.rgb, vec3(10.0)), 1.0);`);
+    hp.needsUpdate = true;
     this.composer.addPass(this.bloom);
+    // The finish also does the output pass's work (tone mapping, sRGB): one full-screen pass fewer.
     this.finish = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, uFlare: this.u.uFlare, uMood: this.u.uMood, uTime: this.u.uTime, uDeep: this.u.uDeep, uRes: { value: new THREE.Vector2(1, 1) } },
+      uniforms: { tDiffuse: { value: null }, uFlare: this.u.uFlare, uMood: this.u.uMood, uTime: this.u.uTime, uDeep: this.u.uDeep, uRes: { value: new THREE.Vector2(1, 1) }, toneMappingExposure: { value: 1 } },
       defines: { STREAK: quality === "high" ? 1 : 0 },
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
       fragmentShader: /* glsl */`
         uniform sampler2D tDiffuse; uniform float uFlare, uTime, uDeep; uniform vec3 uMood; uniform vec2 uRes; varying vec2 vUv;
+        // (tone mapping is off for this material, so its functions are not in the prefix: include
+        // them; the colour-space ones always are)
+        #include <tonemapping_pars_fragment>
+        vec3 tap(vec2 p){ vec3 c = texture2D(tDiffuse, p).rgb;
+          if (!(c.r == c.r) || !(c.g == c.g) || !(c.b == c.b) || c.r > 1e4 || c.g > 1e4 || c.b > 1e4) return vec3(0.0);
+          return min(c, vec3(10.0)); }
         void main(){
           vec2 c = vUv - 0.5; float r = length(c);
           // a whisper of chromatic aberration toward the edges
           vec2 off = c * r * 0.006;
-          vec3 col = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+          vec3 col = vec3(tap(vUv + off).r, tap(vUv).g, tap(vUv - off).b);
           #if STREAK
           // an anamorphic lens: the brightest lights draw a faint horizontal streak
           vec3 st = vec3(0.0); float px = 1.0 / uRes.x;
           for (int i = 1; i <= 8; i++) { float d = float(i*i) * 3.0 * px, w = exp(-float(i)*0.45);
-            st += (max(texture2D(tDiffuse, vUv + vec2(d, 0.0)).rgb - 1.4, 0.0) + max(texture2D(tDiffuse, vUv - vec2(d, 0.0)).rgb - 1.4, 0.0)) * w; }
+            st += (max(tap(vUv + vec2(d, 0.0)) - 1.4, 0.0) + max(tap(vUv - vec2(d, 0.0)) - 1.4, 0.0)) * w; }
           col += (st * 0.5 + dot(st, vec3(0.33)) * 0.15) * (uMood * 0.5 + vec3(0.35)) * 0.06;
           #endif
           // vignette round the subject (sat low in the frame), deep at the edges
@@ -261,11 +282,12 @@ export class DeepDive {
           // fine film grain, which also dithers away banding in the dark gradients
           float g = fract(sin(dot(vUv*uRes + fract(uTime*7.13)*91.0, vec2(12.9898, 78.233)))*43758.5453) - 0.5;
           col += g * (0.0015 + 0.012*lum); // (linear light: tiny in the darks)
-          gl_FragColor = vec4(max(col, 0.0), 1.0);
+          // (what the output pass did: Neutral tone mapping, then the sRGB transfer)
+          gl_FragColor = sRGBTransferOETF(vec4(NeutralToneMapping(max(col, 0.0)), 1.0));
         }`,
     });
+    this.finish.material.toneMapped = false;
     this.composer.addPass(this.finish);
-    this.composer.addPass(new OutputPass());
 
     this.resizeObs = new ResizeObserver(() => this.resize());
     this.resizeObs.observe(canvas);
@@ -276,6 +298,27 @@ export class DeepDive {
       this.io.observe(canvas);
     }
     this.raf = requestAnimationFrame(this.frame);
+    // once the opening frames are up, compile the shaders of everything the takes will show
+    setTimeout(() => this.prewarm(), 1500);
+  }
+
+  /** Compile every material in the scene ahead of its first appearance, a few objects at a
+   *  time in idle moments. Left to first use, the dive's worlds compiled as the figure reached
+   *  the portal (a 0.6 s freeze there) and the rally take's on the change of take. With
+   *  KHR_parallel_shader_compile the driver then builds them off the main thread. */
+  private prewarm() {
+    const todo: THREE.Object3D[] = [];
+    this.scene.traverse(o => { if ((o as THREE.Mesh).material) todo.push(o); });
+    const idle = (fn: () => void) => typeof requestIdleCallback === "function" ? requestIdleCallback(fn, { timeout: 500 }) : setTimeout(fn, 30);
+    const step = () => {
+      if (this.disposed) return;
+      const until = performance.now() + 6;
+      while (todo.length && performance.now() < until) {
+        try { this.renderer.compile(todo.shift()!, this.camera, this.scene); } catch { /* compiled on first use instead */ }
+      }
+      if (todo.length) idle(step);
+    };
+    idle(step);
   }
 
   /** The colour of the market: the index change on arrival, a chosen stock's afterwards. */
@@ -480,6 +523,10 @@ export class DeepDive {
     floor.rotation.x = -Math.PI / 2;
     const m = floor.material as THREE.ShaderMaterial;
     for (const k of Object.keys(this.u)) m.uniforms[k] = this.u[k];
+    // The reflection is drawn before the frame rather than from inside it (see reflect()).
+    const draw = floor.onBeforeRender.bind(floor);
+    floor.onBeforeRender = () => {};
+    this.reflectFloor = draw;
     this.floor = floor;
     this.scene.add(floor);
   }
@@ -1236,7 +1283,14 @@ export class DeepDive {
     { const ph = T / 16, i = Math.floor(ph) % 4, b = smooth((ph % 1 - 0.7) / 0.3), w = [0, 0, 0, 0]; w[i] = 1 - b; w[(i + 1) % 4] += b; (u.uW.value as THREE.Vector4).set(w[0], w[1], w[2], w[3]); }
     this.bloom.strength = 0.74 + (u.uBeat.value as number) * 0.2 + (u.uEnergy.value as number) * 0.22 + flare * 1.2;
     this.renderer.toneMappingExposure = (0.88 + (u.uEnergy.value as number) * 0.08 + (u.uBeat.value as number) * 0.03) * (1 - 0.2 * (u.uDeep.value as number));
-    this.composer.render(dt);
+    (this.finish.uniforms as Record<string, { value: unknown }>).toneMappingExposure.value = this.renderer.toneMappingExposure;
+    // The scene's matrices once a frame: the reflection and the frame itself (and the rally
+    // take's shadow map, which has just refreshed them) would each walk the whole scene again.
+    const sc = this.scene;
+    if (!this.matricesFresh) sc.updateMatrixWorld();
+    this.matricesFresh = false;
+    sc.matrixWorldAutoUpdate = false;
+    try { this.reflect(); this.composer.render(dt); } finally { sc.matrixWorldAutoUpdate = true; }
   }
 
   // ------------------------------------------------------------------ the rally take
