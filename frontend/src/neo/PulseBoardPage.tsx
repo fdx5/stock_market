@@ -22,6 +22,7 @@ import type { Mood } from "./pulseHorizonShaders";
 import { boardStocks, usePulseBoardMarket, type BoardMarket } from "./pulseBoardData";
 import DeepDiveBackground from "../pulse2/DeepDiveBackground";
 import PulseStockPanel, { STOCK_PANEL_QUERY } from "./PulseStockPanel";
+import PulseCinemaView, { type CinemaCamPreset } from "./PulseCinemaView";
 import "./marketScanner.css";
 import "./marketScannerFx.css";
 import "./marketScannerNeon.css";
@@ -152,6 +153,10 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
   // 증시 전광판2: hide every stock (the index tabs stay) to watch the scene alone.
   const [bare, setBare] = useState(() => { try { return variant === "deep" && localStorage.getItem("pb2-bare") === "1"; } catch { return false; } });
   const toggleBare = () => setBare(value => { const next = !value; try { localStorage.setItem("pb2-bare", next ? "1" : "0"); } catch { /* private mode */ } return next; });
+  // 시네마뷰 (Cinema View): fullscreen broadcast theater over the live 3D scene with auto-spotlight & ticker!
+  const [cinema, setCinema] = useState(false);
+  const [cinemaCamPreset, setCinemaCamPreset] = useState<CinemaCamPreset>("orbit");
+  const futures = useKospiHeaderQuotes();
   const DEFAULT_CELLS = useDefaultCells(variant === "deep");
   // 증시 전광판: on wide screens a selected stock opens a detail pane; phones keep the floating chip.
   const wide = useMedia(STOCK_PANEL_QUERY), panel = variant === "deep" && wide;
@@ -192,6 +197,20 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
   const strength = (item: MarketMapItem) => .3 + Math.min(.5, Math.abs(hasReturn(item) ? item.change_pct : 0) / 8);
 
   useEffect(() => { setFocused(null); setShowAll(false); ledger.current.clear(); introduced.current = null; }, [market]);
+  // Shortcut 'C' toggles Cinema View when not typing in an input
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && t.closest("input,textarea,select,[contenteditable],[role=dialog]")) return;
+      if (e.key === "c" || e.key === "C") {
+        e.preventDefault();
+        setCinema(v => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   useEffect(() => {
     const grid = gridRef.current; if (!grid) return;
     const observer = new ResizeObserver(([entry]) => {
@@ -245,7 +264,15 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
   </div>;
 
   return <div className={`pb-page${variant === "deep" ? " pb-page--deep" : ""}`}>
-    {variant === "deep" ? <DeepDiveBackground change={basis} /> : <>
+    {variant === "deep" ? (
+      <DeepDiveBackground
+        change={basis}
+        cinema={cinema}
+        camPreset={cinemaCamPreset}
+        onCamPreset={setCinemaCamPreset}
+        onOpenCinema={() => setCinema(true)}
+      />
+    ) : <>
     <NeoPulseHorizon sea="ocean" mood={mood} energy={energy} intensity={1.18} horizon={-.22} controller={controller} />
     <PulseShip state={ship} controller={controller} onBoard={focusItem ? () => navigate(`/stock/${encodeURIComponent(focusItem.code)}`) : undefined}
       onCargo={code => { const item = stocks.find(stock => stock.code === code); if (item) focus(item); }} />
@@ -283,6 +310,16 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
         <KospiFuturesChips />
         <div className="pb-breadth" title={L("등락 분포", "Breadth")}><b className="sc-up">↑{up}</b><div className="sc-breadth-track" role="img" aria-label={`${up} up, ${down} down`}>{[[up, "up"], [known.length - up - down, "flat"], [down, "down"]].map(([count, tone]) => <i key={tone} className={`sc-${tone}`} style={{ flex: Number(count) }} />)}</div><b className="sc-down">↓{down}</b></div>
         <div className="pb-sort" role="group" aria-label={L("정렬", "Sort")}>{([["cap", L("시총순", "Size")], ["return", L("등락순", "Return")]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={order === key} onClick={() => setOrder(key)}>{label}</button>)}</div>
+        <button
+          type="button"
+          className="pb-cinema-trigger"
+          aria-pressed={cinema}
+          onClick={() => setCinema(true)}
+          title={L("전체 화면 시네마뷰 실행 (단축키 C)", "Launch Cinema View (Shortcut C)")}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Zm2 2v8h14V8H5Zm5.5 1.6 4.8 2.4-4.8 2.4V9.6Z" fill="currentColor" /></svg>
+          {L("시네마뷰", "Cinema View")}
+        </button>
       </div>
       <div ref={gridRef} className="sc-grid pb-grid" style={{ "--sc-columns": columns } as CSSProperties} role="group" aria-label={L("종목 시세", "Stock quotes")}>
         {(showAll ? visible : visible.slice(0, DEFAULT_CELLS)).map(item => {
@@ -313,8 +350,27 @@ export default function PulseBoardPage({ variant = "sea" }: { variant?: "sea" | 
       </div>
       <p className="pb-footnote">{market === "nasdaq100" ? L("막대: 상대 지수 비중", "Bar: relative index weight") : L("막대: 상대 시가총액", "Bar: relative market cap")} · {L("최근 제공 시세 · 전일 대비", "Latest supplied quotes · vs. previous close")}{snapshot.delayed ? ` · ${L("갱신 지연", "Delayed")}` : ""} · {Math.min(showAll ? visible.length : DEFAULT_CELLS, visible.length)} / {stocks.length}{L("종목", " stocks")}</p>
     </section>
-    {focusItem && (panel
+    {!cinema && focusItem && (panel
       ? <PulseStockPanel key={focusItem.code} item={focusItem} stocks={stocks} market={market} indexChange={quotes[market].change} onClose={() => setFocused(null)} lang={lang} />
       : <FloatingCompany item={focusItem} market={market} controller={controller} onClose={() => setFocused(null)} lang={lang} />)}
+    <PulseCinemaView
+      open={cinema}
+      variant={variant}
+      lang={lang}
+      mood={mood}
+      market={market}
+      markets={MARKETS.map(m => ({ key: m.key, label: m.label, price: quotes[m.key].price, change: quotes[m.key].change }))}
+      futures={futures}
+      stocks={visible}
+      up={up}
+      down={down}
+      knownCount={known.length}
+      focusedCode={focused}
+      camPreset={cinemaCamPreset}
+      onCamPreset={setCinemaCamPreset}
+      onSelectMarket={setMarket}
+      onFocusStock={setFocused}
+      onClose={() => setCinema(false)}
+    />
   </div>;
 }
