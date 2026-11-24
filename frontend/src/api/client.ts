@@ -1479,6 +1479,60 @@ async function getJSONFresh<T>(url: string, signal?: AbortSignal): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Outbound bandwidth: the US map lists (S&P 500 ~31 KB gzipped) were fetched whole every
+ * 10-20 s although most rows do not change between polls. After one full response, a refresh
+ * sends back the server's `delta_seq`/`delta_token` and receives only the rows changed since,
+ * plus the full ordered code list and a close checksum (backend services/map_delta.py). The
+ * full response is rebuilt here, so callers get exactly what a full fetch returns; anything
+ * that does not reproduce makes an immediate full request, and a full one runs every 5 min. */
+interface MapDeltaResponse extends MarketMapResponse {
+  delta?: boolean;
+  delta_seq?: number;
+  delta_token?: string;
+  codes?: string[];
+  close_sum?: number;
+}
+interface MapDeltaHeld { token: string; seq: number; byCode: Map<string, MarketMapItem>; fullAt: number }
+const mapDeltaHeld = new Map<string, MapDeltaHeld>();
+const MAP_FULL_EVERY_MS = 5 * 60_000;
+
+export function rebuildMapDelta(held: Map<string, MarketMapItem> | undefined, res: MapDeltaResponse): MarketMapItem[] | null {
+  if (!held || !res.codes || typeof res.close_sum !== "number") return null;
+  const changed = new Map(res.items.map((item) => [item.code, item]));
+  const items: MarketMapItem[] = [];
+  let total = 0;
+  for (const code of res.codes) {
+    const item = changed.get(code) ?? held.get(code);
+    if (!item) return null;
+    items.push(item);
+    if (typeof item.close === "number") total += item.close;
+  }
+  if (items.length !== res.count || Math.abs(total - res.close_sum) > 1e-9 * Math.max(1, Math.abs(res.close_sum))) return null;
+  return items;
+}
+
+async function mapDelta(url: string, retry = true): Promise<MarketMapResponse> {
+  const held = mapDeltaHeld.get(url);
+  const useDelta = held && Date.now() - held.fullAt < MAP_FULL_EVERY_MS;
+  const res = await getJSONFresh<MapDeltaResponse>(useDelta ? `${url}&since=${held.seq}&token=${encodeURIComponent(held.token)}` : url);
+  const { delta, delta_seq, delta_token, codes: _codes, close_sum: _sum, ...rest } = res;
+  let items = res.items;
+  if (delta) {
+    const rebuilt = rebuildMapDelta(held?.byCode, res);
+    if (!rebuilt) {
+      mapDeltaHeld.delete(url);
+      if (retry) return mapDelta(url, false);
+      throw new Error("지도 데이터를 다시 불러오지 못했습니다.");
+    }
+    items = rebuilt;
+  }
+  if (typeof delta_seq === "number" && delta_token) {
+    mapDeltaHeld.set(url, { token: delta_token, seq: delta_seq, byCode: new Map(items.map((item) => [item.code, item])),
+      fullAt: delta && held ? held.fullAt : Date.now() });
+  }
+  return { ...rest, items };
+}
+
 async function postJSON<T>(url: string, payload: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
@@ -1596,15 +1650,13 @@ export const api = {
       `${BASE}/market/returns?codes=${codes.join(",")}&market=${market}`
     ),
   sp500Map: (limit = 503, fresh = false) =>
-    getJSONFresh<MarketMapResponse>(
-      `${BASE}/market/sp500-map?limit=${limit}&fresh=${fresh}`
-    ),
+    fresh ? getJSONFresh<MarketMapResponse>(`${BASE}/market/sp500-map?limit=${limit}&fresh=true`)
+      : mapDelta(`${BASE}/market/sp500-map?limit=${limit}&fresh=false`),
   sp500Ranking: (limit = 100, signal?: AbortSignal) =>
     getJSONFresh<MarketMapResponse>(`${BASE}/market/sp500-map?limit=${limit}&fresh=false&ranked=true`, signal),
   nasdaq100Map: (limit = 103, fresh = false) =>
-    getJSONFresh<MarketMapResponse>(
-      `${BASE}/market/nasdaq100-map?limit=${limit}&fresh=${fresh}`
-    ),
+    fresh ? getJSONFresh<MarketMapResponse>(`${BASE}/market/nasdaq100-map?limit=${limit}&fresh=true`)
+      : mapDelta(`${BASE}/market/nasdaq100-map?limit=${limit}&fresh=false`),
   stockBoard: (market: "kospi" | "kosdaq" | "nasdaq", fresh = false) =>
     getJSONFresh<StockBoard>(`${BASE}/market/board?market=${market}&fresh=${fresh}`),
   /** The same board without its sparkline history — for a page that already has one.

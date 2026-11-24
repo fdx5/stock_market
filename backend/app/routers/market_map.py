@@ -13,7 +13,7 @@ from app.data.us_index_fetcher import TTL_CONSTITUENTS_SECONDS as US_SECTOR_TTL_
 from app.data.us_index_fetcher import market_session as us_market_session
 from app.data.us_logo_fetcher import get_us_logo
 from app.data.weather_fetcher import TTL_WEATHER_SECONDS, get_seoul_weather
-from app.services import dram_price
+from app.services import dram_price, map_delta
 from app.services.indicators import compute_indicators
 from app.services.market_map import (
     LONG_TAIL_TTL_SECONDS,
@@ -90,7 +90,8 @@ def kosdaq_map(response: Response, limit: int = Query(200, ge=1, le=500), fresh:
 
 
 @router.get("/sp500-map")
-def sp500_map(response: Response, limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False), ranked: bool = Query(False)):
+def sp500_map(response: Response, limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False), ranked: bool = Query(False),
+              since: int | None = Query(None, ge=0), token: str | None = Query(None, max_length=32)):
     response.headers["Cache-Control"] = "no-store"
     if ranked:
         basis, items = sp500_ranking(get_sp500_map(503, fresh=fresh))
@@ -98,7 +99,7 @@ def sp500_map(response: Response, limit: int = Query(503, ge=1, le=503), fresh: 
         return {"generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"), "count": len(items),
                 "items": items, "session": us_market_session(items), "ranking_basis": basis}
     items = get_sp500_map_with_skhynix(limit, fresh=fresh)
-    return {
+    return map_delta.apply(f"sp500:{limit}", {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
         # Which US session these prices came from — outside regular hours each item's
         # close is its pre/post print. The two KR maps above have no equivalent field:
@@ -107,19 +108,20 @@ def sp500_map(response: Response, limit: int = Query(503, ge=1, le=503), fresh: 
         "session": us_market_session(items),
         "count": len(items),
         "items": items,
-    }
+    }, since, token)
 
 
 @router.get("/nasdaq100-map")
-def nasdaq100_map(response: Response, limit: int = Query(103, ge=1, le=103), fresh: bool = Query(False)):
+def nasdaq100_map(response: Response, limit: int = Query(103, ge=1, le=103), fresh: bool = Query(False),
+                  since: int | None = Query(None, ge=0), token: str | None = Query(None, max_length=32)):
     response.headers["Cache-Control"] = "no-store"
     items = get_nasdaq100_map_with_skhynix(limit, fresh=fresh)
-    return {
+    return map_delta.apply(f"nasdaq100:{limit}", {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
         "session": us_market_session(items),
         "count": len(items),
         "items": items,
-    }
+    }, since, token)
 
 
 @router.get("/board")
