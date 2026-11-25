@@ -17,9 +17,9 @@ from PIL import Image
 
 SITE = "https://kospimap.com"
 EDITIONS = {"movers_open": "0920", "movers_noon": "1230", "movers_close": "1600",
-            "us_movers_pre": "2230", "us_movers_open": "0040", "us_movers_close": "0640"}
+            "us_movers_pre": "2100", "us_movers_open": "0040", "us_movers_close": "0640"}
 POST_AT = {"movers_open": (9, 30), "movers_noon": (12, 40), "movers_close": (16, 15),
-           "us_movers_pre": (22, 40), "us_movers_open": (0, 50), "us_movers_close": (6, 50)}
+           "us_movers_pre": (21, 10), "us_movers_open": (0, 50), "us_movers_close": (6, 50)}
 NAMES = {"movers_open": "장 초반", "movers_noon": "점심", "movers_close": "장 마감",
          "us_movers_pre": "프리마켓", "us_movers_open": "개장 직후", "us_movers_close": "마감"}
 BASE_TAGS_BY = {"kr": ("#급등주", "#특징주", "#주식"), "us": ("#미국주식", "#나스닥", "#해외주식")}

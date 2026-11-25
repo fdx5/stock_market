@@ -63,11 +63,12 @@
 .mv-move.is-up{background:linear-gradient(135deg,#ff5a78,#d92c52);box-shadow:0 4px 14px #ff4d6d33}
 .mv-move.is-down{background:linear-gradient(135deg,#4a95ff,#2a63d4);box-shadow:0 4px 14px #3d8bff33}
 
-/* logos */
-.mv-logo{flex:none;display:inline-grid;place-items:center;border-radius:50%;overflow:hidden;background:#fff;box-shadow:0 0 0 1px #ffffff26,0 2px 8px #0005}
-.mv-logo .mv-logo-img{width:100%;height:100%;object-fit:cover;display:grid;place-items:center;font:700 11px var(--f-sans);color:#1b2333}
-.mv-logo .stock-logo--mono{background:#dfe6f3}
-
+/* logos: a clean circular clip (mask, not overflow + ring), the ring drawn inside as an overlay */
+.mv-logo{position:relative;flex:none;display:inline-block;border-radius:50%;background:#fff;box-shadow:0 2px 8px #00000059;
+  -webkit-mask-image:radial-gradient(circle,#000 calc(70.5% - .5px),transparent 70.7%);mask-image:radial-gradient(circle,#000 calc(70.5% - .5px),transparent 70.7%)}
+.mv-logo::after{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 0 0 1px #0000001a;pointer-events:none}
+.mv-logo .mv-logo-img{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover;image-rendering:auto}
+.mv-logo .stock-logo--mono{display:grid;place-items:center;background:linear-gradient(135deg,#e8eef9,#cfd9ea);font:800 11px var(--f-sans);color:#1b2333;letter-spacing:-.02em}
 /* board */
 .mv-board{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .mv-board-col{padding:14px 12px 8px;border:1px solid var(--mv-line);border-radius:18px;background:var(--mv-card)}
@@ -116,12 +117,18 @@
 .mv-stats>div{padding:9px 10px;border-radius:11px;background:#ffffff07;border:1px solid #ffffff0a}
 .mv-stats dt{font-size:11.5px;color:var(--mv-dim)}
 .mv-stats dd{margin:3px 0 0;font:700 14px var(--f-num,ui-monospace);color:#fff}
-.mv-chart{margin:12px 0 0;padding:10px 10px 6px;border-radius:12px;background:#060a14;border:1px solid #ffffff0a}
-.mv-chart figcaption{font-size:11.5px;color:var(--mv-dim);margin:0 0 4px 2px}
-.mv-chart svg{display:block;width:100%;height:auto}
-.mv-chart-grid{stroke:#ffffff12;stroke-width:1;stroke-dasharray:3 4}
-.mv-chart-line{fill:none;stroke:var(--mv-accent);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
-.mv-chart-dot{fill:#fff;stroke:var(--mv-accent);stroke-width:2.5}
+.mv-chart{--mv-tone:#ff5a78;margin:12px 0 0;padding:10px 10px 6px;border-radius:14px;background:linear-gradient(180deg,#0a0f1c,#060a14);border:1px solid #ffffff0d}
+.mv-chart.is-down{--mv-tone:#4a95ff}
+.mv-chart figcaption{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 6px;font-size:11.5px;color:var(--mv-dim)}
+.mv-chart figcaption b{font:700 12px var(--f-num,ui-monospace);color:var(--mv-tone)}
+.mv-chart svg{display:block;width:100%;height:auto;overflow:visible}
+.mv-chart-grid{stroke:#ffffff0f;stroke-width:1}
+.mv-chart-base{stroke:#ffffff33;stroke-width:1;stroke-dasharray:3 4}
+.mv-chart-line{fill:none;stroke:var(--mv-tone);stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round;filter:drop-shadow(0 0 4px color-mix(in srgb,var(--mv-tone) 55%,transparent))}
+.mv-chart-halo{fill:var(--mv-tone);opacity:.22}
+.mv-chart-dot{fill:#fff;stroke:var(--mv-tone);stroke-width:2.4}
+.mv-chart-tag{fill:var(--mv-tone)}
+.mv-chart-tagtext{fill:#fff;font:700 10.5px var(--f-num,ui-monospace)}
 .mv-chart-axis{fill:var(--mv-dim);font:500 10.5px var(--f-num,ui-monospace)}
 .mv-why{margin:12px 0 0;padding:14px 15px;border-radius:12px;background:#ffffff07;border-left:3px solid var(--mv-accent)}
 .mv-why h4,.mv-news h4{margin:0;font-size:13px;font-weight:700;color:#d8e6ff}
@@ -173,7 +180,9 @@
 :root[data-tone="light"] :is(.mv-mast,.mv-spot){background:#f6f8fc}
 :root[data-tone="light"] :is(.mv-mast h1,.mv-split,.mv-card-id h3,.mv-board-name b,.mv-board-col h2,.mv-themes h2,.mv-summary dd,.mv-stats dd,.mv-spot-name b){color:#111827}
 :root[data-tone="light"] :is(.mv-dek,.mv-why p,.mv-spot p){color:#273246}
-:root[data-tone="light"] .mv-chart{background:#f3f6fb}
+:root[data-tone="light"] .mv-chart{background:#f5f7fb}
+:root[data-tone="light"] .mv-chart-grid{stroke:#0000000f}
+:root[data-tone="light"] .mv-chart-base{stroke:#00000033}
 :root[data-tone="light"] :is(.mv-why,.mv-stats>div,.mv-summary>div,.mv-jump a){background:#f6f8fc}
 :root[data-tone="light"] :is(.mv-why h4,.mv-news h4,.mv-tag,.mv-themes b,.mv-kicker,.mv-site,.mv-spot-label,.mv-spot-go){color:#2c4f9e}
 :root[data-tone="light"] .mv-capture{background:var(--bg-base,#eef2f8)}

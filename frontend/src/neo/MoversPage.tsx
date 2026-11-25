@@ -18,7 +18,7 @@ const COPY: Record<Market, { title: string; base: string; schedule: string; foot
   },
   us: {
     title: "나스닥100 급등주·급락주 이유 — 미국 주식 특징주 정리 | KOSPIMAP", base: "/movers/us",
-    schedule: "미국장 거래일 22:30 · 00:40 · 06:40(한국 시간)", kicker: "급등·급락 이유 · 나스닥100",
+    schedule: "미국장 거래일 21:00 · 00:40 · 06:40(한국 시간)", kicker: "급등·급락 이유 · 나스닥100",
     foot: "나스닥100 구성 종목 중 등락률 상위를 골랐습니다. 프리마켓·애프터마켓 시간에는 시간외 가격을 반영합니다.",
   },
 };
@@ -40,11 +40,12 @@ function Logo({ s, size }: { s: Pick<MoverStock, "code" | "name">; size: number 
   return <span className="mv-logo" style={{ width: size, height: size }}><StockLogo code={s.code} name={s.name} className="mv-logo-img" /></span>;
 }
 
-/** Up to 20 sessions: grid, high/low and dates on the axes, the latest close marked. */
+/** Up to 20 sessions: risers in red, fallers in blue; high/low/dates on the axes, start price dashed, latest close tagged. */
 function PriceChart({ s, us }: { s: MoverStock; us: boolean }) {
   const line = s.line ?? [];
   if (line.length < 3) return null;
-  const W = 340, H = 128, padR = 62, padB = 20, top = 10;
+  const up = s.direction === "up";
+  const W = 340, H = 132, padR = 66, padB = 20, top = 12;
   const min = Math.min(...line), max = Math.max(...line), span = max - min || 1;
   const x = (i: number) => (i / (line.length - 1)) * (W - padR);
   const y = (v: number) => top + (1 - (v - min) / span) * (H - padB - top);
@@ -53,16 +54,22 @@ function PriceChart({ s, us }: { s: MoverStock; us: boolean }) {
   const last = line[line.length - 1];
   const dates = s.line_dates ?? [];
   const id = `mvg-${s.code.replace(/[^A-Za-z0-9]/g, "")}`;
-  return <figure className="mv-chart">
-    <figcaption>최근 {line.length}거래일 종가</figcaption>
+  const lastY = y(last);
+  const tagY = Math.min(H - padB - 9, Math.max(top + 9, lastY));
+  return <figure className={`mv-chart ${up ? "is-up" : "is-down"}`}>
+    <figcaption><span>최근 {line.length}거래일 종가</span><b>{pct(s.ret_20d)}</b></figcaption>
     <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${s.name} 최근 ${line.length}거래일 종가, 최고 ${fmt(max)}, 최저 ${fmt(min)}`}>
-      <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#8fb8ff" stopOpacity=".34" /><stop offset="1" stopColor="#8fb8ff" stopOpacity="0" /></linearGradient></defs>
+      <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--mv-tone)" stopOpacity=".38" /><stop offset="1" stopColor="var(--mv-tone)" stopOpacity="0" /></linearGradient></defs>
       {[0, .5, 1].map(f => <line key={f} x1="0" x2={W - padR} y1={top + f * (H - padB - top)} y2={top + f * (H - padB - top)} className="mv-chart-grid" />)}
+      <line x1="0" x2={W - padR} y1={y(line[0])} y2={y(line[0])} className="mv-chart-base" />
       <polygon points={`0,${H - padB} ${pts} ${W - padR},${H - padB}`} fill={`url(#${id})`} />
       <polyline points={pts} className="mv-chart-line" />
-      <circle cx={x(line.length - 1)} cy={y(last)} r="4.5" className="mv-chart-dot" />
-      <text x={W - padR + 8} y={top + 4} className="mv-chart-axis">{fmt(max)}</text>
-      <text x={W - padR + 8} y={H - padB + 2} className="mv-chart-axis">{fmt(min)}</text>
+      <circle cx={x(line.length - 1)} cy={lastY} r="7" className="mv-chart-halo" />
+      <circle cx={x(line.length - 1)} cy={lastY} r="3.6" className="mv-chart-dot" />
+      <rect x={W - padR + 6} y={tagY - 9} width={padR - 8} height="18" rx="5" className="mv-chart-tag" />
+      <text x={W - padR + 6 + (padR - 8) / 2} y={tagY + 4} textAnchor="middle" className="mv-chart-tagtext">{fmt(last)}</text>
+      {tagY - top > 22 && <text x={W - padR + 8} y={top + 4} className="mv-chart-axis">{fmt(max)}</text>}
+      {H - padB - tagY > 22 && <text x={W - padR + 8} y={H - padB + 2} className="mv-chart-axis">{fmt(min)}</text>}
       {dates.length > 1 && <>
         <text x="0" y={H - 3} className="mv-chart-axis">{dates[0].slice(5).replace("-", ".")}</text>
         <text x={W - padR} y={H - 3} textAnchor="end" className="mv-chart-axis">{dates[dates.length - 1].slice(5).replace("-", ".")}</text>

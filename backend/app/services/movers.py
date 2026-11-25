@@ -1,7 +1,7 @@
 """급등·급락 이유: 국내(코스피·코스닥)와 미국(나스닥100)을 따로, 하루 세 판씩.
 
 KR: KRX trading days at 09:20, 12:30 and 16:00 KST, whole-market Naver rankings.
-US: US trading sessions at 22:30 (pre-market), 00:40 (first hour) and 06:40 (close) KST,
+US: US trading sessions at 21:00 (pre-market), 00:40 (first hour) and 06:40 (close) KST,
     the NASDAQ-100 from the site's own map feed (extended-hours aware).
 
 Each edition attaches every name's latest news and a 20-session price line, asks Claude
@@ -30,11 +30,11 @@ import requests
 log = logging.getLogger(__name__)
 KST = ZoneInfo("Asia/Seoul")
 MARKETS = ("kr", "us")
-SLOTS = {"kr": ((9, 20), (12, 30), (16, 0)), "us": ((22, 30), (0, 40), (6, 40))}
-SLOT_NAMES = {"0920": "장 초반", "1230": "점심", "1600": "장 마감", "2230": "프리마켓", "0040": "개장 직후", "0640": "마감"}
+SLOTS = {"kr": ((9, 20), (12, 30), (16, 0)), "us": ((21, 0), (0, 40), (6, 40))}
+SLOT_NAMES = {"0920": "장 초반", "1230": "점심", "1600": "장 마감", "2100": "프리마켓", "0040": "개장 직후", "0640": "마감"}
 # SNS edition per slot; links carry utm_campaign=<edition>-<YYYYMMDD> so each post's visits can be counted.
 SOCIAL_EDITIONS = {"kr": {"0920": "movers_open", "1230": "movers_noon", "1600": "movers_close"},
-                   "us": {"2230": "us_movers_pre", "0040": "us_movers_open", "0640": "us_movers_close"}}
+                   "us": {"2100": "us_movers_pre", "0040": "us_movers_open", "0640": "us_movers_close"}}
 UA = {"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36"}
 GAINERS, LOSERS = {"kr": 10, "us": 8}, {"kr": 6, "us": 6}
 MIN_TURNOVER_M = 3_000      # 30억원 (Naver reports 백만원)
@@ -42,7 +42,7 @@ MIN_MARCAP_100M = 500       # 500억원 (Naver reports 억원)
 EXCLUDE = re.compile(r"스팩|\d*우[A-C]?$|우\(전환\)$|ETN|리츠$")
 LATE_LIMIT = dt.timedelta(hours=2)
 # Closing editions stay true for hours, so a missed run may still be written late.
-LATE_LIMITS = {"1600": dt.timedelta(hours=7), "0640": dt.timedelta(hours=5), "2230": dt.timedelta(hours=1, minutes=30)}
+LATE_LIMITS = {"1600": dt.timedelta(hours=7), "0640": dt.timedelta(hours=5), "2100": dt.timedelta(hours=2)}
 MAX_ATTEMPTS = 3
 RETRY_GAP = dt.timedelta(minutes=6)
 
@@ -59,7 +59,7 @@ SCHEMA: dict = {
                    "properties": {"name": {"type": "string"}, "codes": {"type": "array", "items": {"type": "string"}}}}},
         "stocks": {"type": "array", "items": {"type": "object", "required": ["code", "reason", "theme"],
                    "properties": {"code": {"type": "string"},
-                                  "reason": {"type": "string", "description": "움직인 이유 4~6문장. 제공된 뉴스에 근거."},
+                                  "reason": {"type": "string", "description": "움직인 이유 6~8문장(350~550자). 뉴스에 근거."},
                                   "theme": {"type": "string", "description": "8자 이내 테마·재료 키워드"}}}},
     },
 }
@@ -72,7 +72,7 @@ BASE_TAGS_NOTE = {"kr": "#급등주 #특징주 #주식", "us": "#미국주식 #�
 PROMPT = """당신은 증권 전문 기자입니다. 아래는 {when}(한국 시간) 기준 {universe}과 각 종목의 최근 뉴스 제목·요약입니다.
 
 할 일:
-1. 종목마다 왜 올랐는지/내렸는지 4~6문장으로 충실히 설명하세요. 순서: ①무슨 소식(재료)이 있었는지 ②그 소식이 왜 주가에 영향을 주는지 쉬운 말로 ③거래대금·최근 20거래일 흐름(ret_20d) 같은 숫자로 본 수급 ④투자자가 다음에 확인할 점({checks}). 제공된 뉴스에서 확인되는 사실만 쓰고, 뉴스로 이유가 확인되지 않으면 "뚜렷한 뉴스 없이 매수세가 몰렸다"처럼 솔직하게 쓰세요.
+1. 종목마다 왜 올랐는지/내렸는지 6~8문장(350~550자)으로 충실하게 설명하세요. 주식을 잘 모르는 사람도 이해할 수 있게 다음 순서로 쓰세요: ①이 회사가 무엇을 하는 곳인지 한 문장 ②오늘 나온 소식(재료)을 구체적으로(누가, 무엇을, 얼마나) ③그 소식이 왜 주가를 움직이는지 쉬운 말로 ④같은 업종·시장 분위기와의 관계 ⑤거래대금·시가총액·최근 20거래일 흐름(ret_20d) 숫자로 본 수급 ⑥앞으로 확인할 점({checks})과 주의할 점. 제공된 뉴스에서 확인되는 사실만 쓰고, 뉴스로 이유가 확인되지 않으면 "뚜렷한 뉴스 없이 매수세가 몰렸다"처럼 솔직하게 쓰세요.
 2. 종목마다 8자 이내 테마·재료 키워드(예: 2차전지, 수주, 실적, AI반도체, 임상)를 붙이세요.
 3. 여러 종목이 같은 재료로 움직였다면 themes로 묶으세요.
 4. headline: 가장 이야기거리가 되는 움직임을 숫자와 함께 45자 이내로. 예) "상한가 3종목, 로봇주가 시장을 끌었다"
@@ -95,7 +95,7 @@ def _now() -> dt.datetime:
 
 # ------------------------------------------------------------------ slots
 def slot_times(day: dt.date, market: str = "kr") -> list[dt.datetime]:
-    """KR: the slots of that KST day. US: the slots of that US session (22:30 the same KST day, the rest the next)."""
+    """KR: the slots of that KST day. US: the slots of that US session (21:00 the same KST day, the rest the next)."""
     out = []
     for h, m in SLOTS[market]:
         d = day + dt.timedelta(days=1) if market == "us" and h < 12 else day
@@ -455,7 +455,7 @@ def generate(slot: dt.datetime, market: str = "kr") -> dict:
         for s in data["stocks"]:
             w = by_code.get(s["code"].upper())
             if w and w.get("reason"):
-                s["reason"], s["theme"] = _plain(w["reason"], 900), _plain(w.get("theme"), 12) or s["theme"]
+                s["reason"], s["theme"] = _plain(w["reason"], 1400), _plain(w.get("theme"), 12) or s["theme"]
         codes = {s["code"] for s in data["stocks"]}
         payload = {"headline": _plain(written.get("headline"), 60) or payload["headline"],
                    "dek": _plain(written.get("dek"), 300) or payload["dek"],
@@ -476,13 +476,32 @@ _lock = threading.Lock()
 _published: set[str] = set()
 
 
+# An edition written without Opus (headline fallback or a weaker model) gets one revision,
+# stored as a new row "<key>~r1"; the original row is kept as it is (append-only).
+REVISION = "~r1"
+
+
+def _weak(payload: dict) -> bool:
+    return "opus" not in str(payload.get("model") or "").lower()
+
+
+def _target(store, k: str) -> str | None:
+    """The row to write for this slot: the slot itself, its one revision, or None when done."""
+    base = store.get_edition(k)
+    if not base:
+        return k
+    if _weak(base) and not store.get_edition(k + REVISION):
+        return k + REVISION
+    return None
+
+
 def run_slot(slot: dt.datetime, trigger: str, market: str = "kr") -> str:
     from app.services import movers_store as store
-    k = key(slot, market)
     if not _lock.acquire(blocking=False):
         return "busy"
     try:
-        if store.get_edition(k):
+        k = _target(store, key(slot, market))
+        if not k:
             return "exists"
         store.log_run(k, _now().isoformat(timespec="seconds"), "started", trigger)
         try:
@@ -494,7 +513,7 @@ def run_slot(slot: dt.datetime, trigger: str, market: str = "kr") -> str:
         forget(slot, market)
         store.log_run(k, _now().isoformat(timespec="seconds"), "published" if created else "exists", trigger,
                       json.dumps({"stocks": len(payload["stocks"]), "model": payload["model"]}))
-        _published.add(k)
+        _published.add(key(slot, market))
         return "published" if created else "exists"
     finally:
         _lock.release()
@@ -502,11 +521,12 @@ def run_slot(slot: dt.datetime, trigger: str, market: str = "kr") -> str:
 
 def _should_try(slot: dt.datetime, now: dt.datetime, market: str) -> bool:
     from app.services import movers_store as store
-    k = key(slot, market)
-    if k in _published:
+    base = key(slot, market)
+    if base in _published:
         return False
-    if store.get_edition(k):
-        _published.add(k)
+    k = _target(store, base)
+    if not k:
+        _published.add(base)
         return False
     runs = store.runs_for(k)
     if sum(1 for r in runs if r["event"] == "started") >= MAX_ATTEMPTS:
@@ -548,7 +568,7 @@ def edition(slot: dt.datetime, market: str = "kr") -> dict | None:
             return hit[1]
     try:
         from app.services import movers_store
-        value = movers_store.get_edition(k)
+        value = movers_store.get_edition(k + REVISION) or movers_store.get_edition(k)
     except Exception:
         value = None
     if value is not None:
@@ -600,7 +620,7 @@ def for_stock(code: str, now: dt.datetime | None = None) -> dict | None:
 PAGE = ("오늘 급등주·급락주 이유 총정리 — 상한가·특징주 실시간 | KOSPIMAP",
         "코스피·코스닥 급등주와 급락주가 왜 움직였는지 뉴스 근거로 쉽게 정리합니다. 평일 09:20·12:30·16:00 업데이트, 상한가·하한가·테마 흐름과 20일 차트를 한 번에 확인하세요.")
 PAGE_US = ("나스닥100 급등주·급락주 이유 — 미국 주식 특징주 정리 | KOSPIMAP",
-           "엔비디아·테슬라 등 나스닥100 종목이 왜 올랐고 내렸는지 뉴스 근거로 쉽게 정리합니다. 프리마켓 22:30·개장 직후 00:40·마감 06:40(한국 시간) 업데이트.")
+           "엔비디아·테슬라 등 나스닥100 종목이 왜 올랐고 내렸는지 뉴스 근거로 쉽게 정리합니다. 프리마켓 21:00·개장 직후 00:40·마감 06:40(한국 시간) 업데이트.")
 
 
 def page(market: str) -> tuple[str, str]:
@@ -645,7 +665,7 @@ def render_content(data: dict, archive: bool = False) -> str:
     market = data.get("market", "kr")
     us = market == "us"
     if not data.get("stocks"):
-        return f"<p>{'미국장 거래일 22:30 · 00:40 · 06:40(한국 시간)' if us else '평일 09:20 · 12:30 · 16:00'}에 급등·급락 종목과 이유를 정리합니다.</p>"
+        return f"<p>{'미국장 거래일 21:00 · 00:40 · 06:40(한국 시간)' if us else '평일 09:20 · 12:30 · 16:00'}에 급등·급락 종목과 이유를 정리합니다.</p>"
     parts = [f'<p><strong>{esc(data["edition"])} {esc(data["slot_label"])} {esc(data["slot_name"])}</strong> · {esc(data["headline"])}</p>',
              f'<p>{esc(data["dek"])}</p>']
     if archive:

@@ -8,7 +8,7 @@ on:
     - cron: "30 0 * * 1-5" # 09:30 KST movers (early session)
     - cron: "40 3 * * 1-5" # 12:40 KST movers (midday)
     - cron: "15 7 * * 1-5" # 16:15 KST movers (close)
-    - cron: "40 13 * * 1-5" # 22:40 KST NASDAQ-100 movers (pre-market)
+    - cron: "10 12 * * 1-5" # 21:10 KST NASDAQ-100 movers (pre-market)
     - cron: "50 15 * * 1-5" # 00:50 KST NASDAQ-100 movers (first hour)
     - cron: "50 21 * * 1-5" # 06:50 KST NASDAQ-100 movers (close)
     - cron: "0 8 * * *" # 17:00 KST global index scoreboard

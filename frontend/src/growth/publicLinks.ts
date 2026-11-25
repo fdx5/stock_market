@@ -8,7 +8,7 @@ export function todayPath(market: PublicMarket): string {
   return market === "kospi" ? "/today" : `/today?market=${market}`;
 }
 export const MOVERS_EDITION = /^\/movers\/(\d{4}-\d{2}-\d{2})\/(0920|1230|1600)\/?$/;
-export const US_MOVERS_EDITION = /^\/movers\/us\/(\d{4}-\d{2}-\d{2})\/(2230|0040|0640)\/?$/;
+export const US_MOVERS_EDITION = /^\/movers\/us\/(\d{4}-\d{2}-\d{2})\/(2100|0040|0640)\/?$/;
 export const HOT_ISSUE_EDITION = /^\/hot-issues\/(\d{4}-\d{2}-\d{2})\/(0700|2200)\/?$/;
 const PUBLIC_PATHS = new Set(["/", "/today", "/share-market", "/map", "/kosdaq-map", "/nasdaq100-map", "/sp500-map", "/desk", "/stocks", "/global", "/etf", "/news", "/market-brief", "/hot-issues", "/movers", "/movers/us", "/guides", "/kospi-100", "/kosdaq-100", "/nasdaq-100", "/ranking/trading-value", "/community/kr", "/community/global", "/community/property", "/exchange"]);
 /** Share only public routes and enumerated market choices, never the current raw URL. */

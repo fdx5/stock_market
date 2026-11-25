@@ -498,7 +498,7 @@ def due_editions(now):
         start = dt.datetime.combine(day, dt.time(int(slot[:2]), int(slot[2:])), KST)
         if start <= now < start + dt.timedelta(hours=4):
             due.append((day, edition))
-    # Movers editions. KR: 09:30 / 12:40 / 16:15 KST on KRX sessions. US (NASDAQ-100): 22:40 / 00:50 / 06:50 KST
+    # Movers editions. KR: 09:30 / 12:40 / 16:15 KST on KRX sessions. US (NASDAQ-100): 21:10 / 00:50 / 06:50 KST
     # on NYSE sessions (the session is the US date 12 hours earlier). Closing editions get a longer window.
     for edition, (h, m) in movers.POST_AT.items():
         start = dt.datetime.combine(day, dt.time(h, m), KST)
