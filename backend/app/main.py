@@ -602,6 +602,13 @@ def _start_social_publish_trigger() -> None:
 
 
 @app.on_event("startup")
+def _start_indexnow() -> None:
+    # Bing/Naver instant indexing for new editions and the daily pages (app/services/indexnow.py).
+    from app.services import indexnow
+    indexnow.start_scheduler()
+
+
+@app.on_event("startup")
 def _start_naver_session_keepalive() -> None:
     # Not a batch — this only walks blog.naver.com every few hours so Naver keeps
     # rotating the stored session cookies. The publish batch itself runs once per
@@ -609,6 +616,13 @@ def _start_naver_session_keepalive() -> None:
     # datacenter IP is a session that expires early. No-ops when NAVER_SESSION_KEY
     # is unset, which is also how the whole feature stays off until it is seeded.
     naver_publisher.start_keepalive_scheduler()
+
+
+@app.get("/0ea2d0c3462664f25b0c41624bd76ef0.txt", include_in_schema=False)
+def indexnow_key():
+    # IndexNow ownership proof (app/services/indexnow.py); public by design.
+    from app.services import indexnow
+    return Response(content=indexnow.KEY, media_type="text/plain")
 
 
 @app.get("/api/health")

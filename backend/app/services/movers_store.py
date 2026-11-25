@@ -87,7 +87,16 @@ def save_edition(slot: str, payload: dict, model: str, created_at: str) -> bool:
             "ON CONFLICT(slot) DO NOTHING", (slot, body, model, created_at))
         conn.commit()
         return (cur.rowcount or 0) > 0
-    return bool(_with_connection(run))
+    stored = bool(_with_connection(run))
+    if stored:
+        try:  # IndexNow: Bing/Naver learn about the new edition right away.
+            from app.services import indexnow
+            path = indexnow.edition_path("movers", slot)
+            if path:
+                indexnow.notify([path, path.rsplit("/", 2)[0]])
+        except Exception:
+            pass
+    return stored
 
 
 def get_edition(slot: str) -> dict | None:

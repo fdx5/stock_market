@@ -419,6 +419,7 @@ def _generate_stock_brief(symbol: str, force: bool = False):
         "disclaimer": f"오늘 브리핑은 {name}({code})의 공개 시장 데이터, 수급 및 뉴스를 자동 교차 집계한 투자 참고 자료이며 투자 권유가 아닙니다.",
     }
     market_brief_store.save(day, symbol, payload, now.isoformat())
+    _announce(day, symbol)
     return payload
 
 
@@ -510,7 +511,17 @@ def generate(market: str, force: bool = False):
                "checkpoints": checkpoints,
                "disclaimer": "오늘 브리핑은 공개 시장 데이터를 자동 집계한 투자 참고 자료이며 투자 권유가 아닙니다. 가격과 수급은 제공처 사정에 따라 지연·정정될 수 있습니다."}
     market_brief_store.save(day, market, payload, now.isoformat())
+    _announce(day, market)
     return payload
+
+
+def _announce(day: str, market: str) -> None:
+    """Tell Bing/Naver (IndexNow) the brief page exists; never fails the brief."""
+    try:
+        from app.services import indexnow
+        indexnow.notify([f"/market-brief/{day}/{str(market).lower()}", "/market-brief"], min_gap_hours=20)
+    except Exception:
+        pass
 
 
 def run_all(force=False):
