@@ -37,7 +37,7 @@ const SECTIONS: { key: Section; label: string; hint: string }[] = [
   { key: "hotissue", label: "핫이슈", hint: "발행·조회 로그" },
   { key: "exchange", label: "증권 거래소", hint: "3D 방문·동작" },
   { key: "live", label: "실시간", hint: "세션·로그" },
-  { key: "ops", label: "운영·배치", hint: "예측·메일·알림" },
+  { key: "ops", label: "운영·배치", hint: "타임테이블·SNS·배치" },
   { key: "system", label: "시스템", hint: "DB·수집·오류" },
   { key: "comments", label: "댓글", hint: "관리" },
 ];

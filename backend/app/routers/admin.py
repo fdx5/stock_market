@@ -657,6 +657,14 @@ def prediction_delete(
     return {"predict_date": predict_date, "market": market, "deleted": deleted}
 
 
+@router.get("/ops/timeline", dependencies=[Depends(require_admin)])
+def ops_timeline(day: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$")):
+    """운영·배치 timetable: every scheduled job of one KST day, by service, with what happened."""
+    import datetime as _dt
+    from app.services import ops_timeline as timeline
+    return timeline.build(_dt.date.fromisoformat(day) if day else None)
+
+
 @router.get("/naver-blog/status", dependencies=[Depends(require_admin)])
 def naver_blog_status():
     """Is the blog auto-publisher actually able to run right now?

@@ -616,6 +616,17 @@ export class AdminAuthError extends Error {}
  * as opposed to AdminAuthError, which means "your session is gone, start again". */
 export class MonitorLockedError extends Error {}
 
+export type OpsStatus = "ok" | "failed" | "missed" | "running" | "pending" | "off" | "unknown";
+export interface OpsJob {
+  id: string; group: string; at: string; name: string; status: OpsStatus; detail: string;
+  link?: string | null; action?: string; edition?: string;
+}
+export interface OpsTimeline {
+  day: string; now: string; groups: { key: string; label: string; hint: string }[]; jobs: OpsJob[];
+  counts: Record<OpsStatus, number>;
+  github_runs: { id: number; event: string; status: string; conclusion: string | null; at: string; url: string }[];
+}
+
 export async function login(username: string, password: string): Promise<void> {
   const res = await fetch(`${BASE}/login`, {
     method: "POST",
@@ -873,6 +884,7 @@ export const adminApi = {
   deleteMonthlySupporter: (id: number) => authedDelete(`/supporters/${id}`),
   setCommentVisibility: (source: CommentSource, id: number, visible: boolean) =>
     authedPatch<{ visible: boolean }>(`/comments/${source}/${id}/visibility`, { visible }),
+  opsTimeline: (day?: string) => authedGet<OpsTimeline>(`/ops/timeline${day ? `?day=${day}` : ""}`),
   predictionStatus: () => authedGet<PredictionStatus>("/prediction/status"),
   // force=true always: the confirm dialog in front of this call already promises
   // "해당 일자 데이터를 삭제 후 재생성합니다" (delete and regenerate that day's rows), which

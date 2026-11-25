@@ -16,6 +16,7 @@ import {
 } from "../adminApi";
 import { navigate } from "../router";
 import OperationCard, { OperationTone } from "./OperationCard";
+import AdminOpsTimeline from "./AdminOpsTimeline";
 
 /** How the 60% qualitative layer was produced, as reported per market by
  * ai_analyst (SOURCE_CLAUDE / SOURCE_HEURISTIC). The distinction is the panel's
@@ -54,6 +55,7 @@ function handleAuthError(err: unknown) {
  * 소유한 상태·폴링·버튼 핸들러는 기존 AdminDashboardPage.tsx 로직을 그대로 옮긴 것 —
  * 백엔드 계약은 손대지 않았다. */
 export default function AdminOpsPanel() {
+  const [opsTab, setOpsTab] = useState<"timeline" | "detail" | "mail">("timeline");
   const [prediction, setPrediction] = useState<PredictionStatus | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runningRegion, setRunningRegion] = useState<BatchRegion | null>(null);
@@ -262,6 +264,13 @@ export default function AdminOpsPanel() {
 
   return (
     <div className="admin-ops-tab">
+      <nav className="ops-tabs" role="tablist" aria-label="운영·배치 화면">
+        <button type="button" role="tab" aria-selected={opsTab === "timeline"} onClick={() => setOpsTab("timeline")}>운영 타임테이블</button>
+        <button type="button" role="tab" aria-selected={opsTab === "detail"} onClick={() => setOpsTab("detail")}>배치·알림 세부 관리</button>
+        <button type="button" role="tab" aria-selected={opsTab === "mail"} onClick={() => setOpsTab("mail")} className="is-quiet">메일 발송</button>
+      </nav>
+      {opsTab === "timeline" && <AdminOpsTimeline />}
+      {opsTab === "detail" && <>
       <section className="admin-ops-section">
         <h2 className="admin-ops-heading">
           <span className="admin-live-dot" /> 배치
@@ -423,6 +432,8 @@ export default function AdminOpsPanel() {
         </div>
       </section>
 
+      </>}
+      {opsTab === "mail" && <>
       <section className="admin-ops-section">
         <h2 className="admin-ops-heading admin-mail-heading">
           <span className="admin-live-dot" /> 예측 메일 발송
@@ -548,6 +559,8 @@ export default function AdminOpsPanel() {
         )}
       </section>
 
+      </>}
+      {opsTab === "detail" && <>
       <section className="admin-ops-section">
         <h2 className="admin-ops-heading">
           <span className="admin-live-dot" /> 카카오 알림
@@ -701,6 +714,7 @@ export default function AdminOpsPanel() {
           )}
         </div>
       </section>
+      </>}
     </div>
   );
 }
