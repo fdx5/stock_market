@@ -43,11 +43,12 @@ function yawToHeading(yaw: number) {
   return wrap01(deg / 360);
 }
 
-/** Match the exact 3D exterior window 1x 360° parallax UV (equirectUV(dir).x) so opening frames the exact same district. */
+/** Match the exact 3D exterior window 360° skyline azimuth offset so opening frames the exact same district. */
+const SKY_YAW_OFFSET = 0.54;
 function yawToPanoramaU(yaw: number) {
   const dirX = -Math.sin(yaw);
   const dirZ = -Math.cos(yaw);
-  const eqX = Math.atan2(dirZ, dirX) / (Math.PI * 2) + 0.5;
+  const eqX = Math.atan2(dirZ, dirX) / (Math.PI * 2) + 0.5 + SKY_YAW_OFFSET;
   return wrap01(eqX);
 }
 

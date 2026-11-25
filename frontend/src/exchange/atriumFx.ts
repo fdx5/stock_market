@@ -57,7 +57,7 @@ const MOODS: Record<AtriumMood, MoodSpec> = {
     skylightEmit: 0.58,
     windowGoldenMix: 0.0,
     windowNightMix: 0.0,
-    windowExposure: 1.22,
+    windowExposure: 1.12,
     coveMul: 0.68,
     godRayColor: "#e6d8be",
     godRayOpacity: 0.024,
@@ -78,7 +78,7 @@ const MOODS: Record<AtriumMood, MoodSpec> = {
     skylightEmit: 0.50,
     windowGoldenMix: 1.0,
     windowNightMix: 0.0,
-    windowExposure: 1.16,
+    windowExposure: 1.08,
     coveMul: 0.82,
     godRayColor: "#dda25a",
     godRayOpacity: 0.038,
@@ -99,7 +99,7 @@ const MOODS: Record<AtriumMood, MoodSpec> = {
     skylightEmit: 0.24,
     windowGoldenMix: 0.0,
     windowNightMix: 1.0,
-    windowExposure: 1.38,
+    windowExposure: 1.16,
     coveMul: 0.98,
     godRayColor: "#3c8ed0",
     godRayOpacity: 0.028,
@@ -242,18 +242,35 @@ export function createAtriumFX(
   let hiResMat: MeshStandardNodeMaterial | null = null;
   let usingHiRes = false;
 
+  // Building outer glass radius is FLOOR.radii.wall (26.6 m). Place the surrounding 360° city skyline on a
+  // finite 3D architectural cylinder at R_CITY = 62.0 m (~35.4 m outside the curtain wall, matching a real
+  // financial-district avenue/waterfront setback) so walking inside the 53.2 m atrium produces authentic 3D
+  // positional & vertical parallax, neighboring skyscrapers loom closer as you approach the glass, and straight
+  // building edges stay perfectly vertical across all 4 atrium stories.
+  const SKY_CITY_RADIUS = Math.max((FLOOR.radii?.wall ?? 26.6) + 35.4, 62.0);
+  const SKY_WATER_Y = -6.0;
+  const SKY_CYL_HEIGHT = (Math.PI * 0.5) * SKY_CITY_RADIUS * 0.96;
+  const SKY_YAW_OFFSET = 0.54;
+
   const buildWindowSkyCoords = () => {
-    // True 1:1 undistorted optical cylindrical/spherical VR projection:
-    // Horizontal: 360° -> 16,380 px (45.5 px/deg), Vertical: 90° (-45°..+45°) -> 4,096 px (45.5 px/deg).
-    // Exact 1.000 : 1.000 angular pixel scale across the entire skyline (-21°..+32°) -> ZERO stretch up close!
-    // Steep downward (-21°..-89.9°) smoothly hands off to a TRUE 3D ray-plane intersected river surface with
-    // live wave-perturbed 16K skyline reflections (ZERO waterfall/barcode clamping even looking straight down!).
-    // Steep upward (+32°..+89.9°) smoothly hands off to a true 3D Rayleigh zenith sky dome!
     const viewDir = normalize(positionWorld.sub(cameraPosition));
-    const eq = equirectUV(viewDir);
-    const uSky = eq.x;
-    const vRaw = float(0.50).sub(eq.y.sub(0.5).mul(2.0));
-    // Soft asymptotic tail outside [0.10, 0.88] guarantees smooth C1 derivatives everywhere on the sphere
+    // Exact ray-cylinder intersection with x^2 + z^2 = R_CITY^2 (camera is always strictly inside R_WALL < R_CITY)
+    const rCity = float(SKY_CITY_RADIUS);
+    const oXZ = cameraPosition.xz;
+    const dXZ = viewDir.xz;
+    const a = max(dot(dXZ, dXZ), float(1e-5));
+    const b = dot(oXZ, dXZ);
+    const c = dot(oXZ, oXZ).sub(rCity.mul(rCity));
+    const disc = max(b.mul(b).sub(a.mul(c)), float(0.0));
+    const tCyl = b.negate().add(sqrt(disc)).div(a);
+    const hitPos = cameraPosition.add(viewDir.mul(tCyl));
+
+    // Azimuth from the 3D hit point on the finite city cylinder -> real 3D lateral parallax behind mullions!
+    const cylDirXZ = normalize(vec3(hitPos.x, float(0.0), hitPos.z));
+    const uSky = fract(equirectUV(cylDirXZ).x.add(float(SKY_YAW_OFFSET)));
+    // Linear cylindrical height mapping keeps skyscraper verticals 100% straight and matches 1F..4F eye elevation!
+    const vRaw = float(0.571).sub(hitPos.y.sub(float(SKY_WATER_Y)).div(float(SKY_CYL_HEIGHT)));
+    // Soft asymptotic tail outside [0.10, 0.88] guarantees smooth C1 derivatives everywhere on the cylinder
     const overBot = max(vRaw.sub(0.88), float(0.0));
     const vBotSoft = float(0.88).add(overBot.div(float(1.0).add(overBot.mul(9.5))));
     const overTop = max(float(0.10).sub(vRaw), float(0.0));
@@ -321,23 +338,41 @@ export function createAtriumFX(
     const zenithCol = mix(mix(zenDay, zenGold, uWindowGoldenMix), zenNight, uWindowNightMix);
     const sceneCol = mix(withRiver, zenithCol, upBlend.mul(0.85));
 
-    // 3. Ultra-clear low-iron architectural glass: 96%+ crystal-clear straight-on transmission with subtle oblique Fresnel!
+    // 3. Architectural curtain-wall low-iron glazing integration:
+    //    - Subtle glass transmission tint & soft recessed bronze/stone reveal shading around window edges
+    //    - Gentle interior reflection sheen at oblique grazing angles so the skyline sits physically behind glass
     const ndv = clamp(abs(dot(normalView, positionViewDirection)), float(0.0), float(1.0));
-    const glassRim = pow(float(1.0).sub(ndv), float(4.6)).mul(0.030);
-    const exposed = sceneCol.mul(uWindowExposure);
-    // Keep bright night skyscraper lights vivid & razor-sharp while softly capping right under bloom threshold -> ZERO bloom smudge!
-    const nightSafe = exposed.div(float(1.0).add(exposed.mul(0.22))).mul(1.20);
+    const fresnel = pow(float(1.0).sub(ndv), float(3.4));
+    const winUv = uv();
+    const edgeV = smoothstep(float(0.0), float(0.085), min(winUv.y, float(1.0).sub(winUv.y)));
+    const edgeH = smoothstep(float(0.0), float(0.045), min(winUv.x, float(1.0).sub(winUv.x)));
+    const revealShadow = mix(float(0.82), float(1.0), edgeV.mul(float(0.58).add(edgeH.mul(0.42))));
+    const glassTint = mix(
+      mix(vec3(0.94, 0.98, 1.0), vec3(0.99, 0.96, 0.93), uWindowGoldenMix),
+      vec3(0.92, 0.96, 1.0),
+      uWindowNightMix,
+    );
+    const transmission = float(1.0).sub(fresnel.mul(0.18));
+    const exposed = sceneCol.mul(glassTint).mul(uWindowExposure).mul(revealShadow).mul(transmission);
+    // Keep bright night skyscraper lights vivid & razor-sharp while softly capping right under bloom threshold
+    const nightSafe = exposed.div(float(1.0).add(exposed.mul(0.24))).mul(1.18);
     const crispOut = mix(exposed, nightSafe, uWindowNightMix);
-    wm.emissiveNode = crispOut.add(vec3(0.66, 0.78, 0.92).mul(glassRim));
+    const interiorSheenCol = mix(
+      mix(vec3(0.68, 0.78, 0.90), vec3(0.90, 0.76, 0.58), uWindowGoldenMix),
+      vec3(0.46, 0.44, 0.48),
+      uWindowNightMix,
+    );
+    const glassRim = fresnel.mul(mix(float(0.075), float(0.115), uWindowNightMix));
+    wm.emissiveNode = crispOut.add(interiorSheenCol.mul(glassRim));
   };
 
   const makeParallaxSkylineWindow = (src?: MeshStandardMaterial, singleTex?: Texture) => {
     // Single-tex instant boot (only 1 skyline downloaded before reveal!) or full 3-mood crossfade material.
     const wm = new MeshStandardNodeMaterial({
-      color: new Color("#020408"),
-      roughness: 0.03,
-      metalness: 0.02,
-      envMapIntensity: 0.05,
+      color: new Color("#05080e"),
+      roughness: 0.04,
+      metalness: 0.05,
+      envMapIntensity: 0.30,
       side: DoubleSide,
     });
     if (currentEnvMap) wm.envMap = currentEnvMap;
@@ -371,10 +406,10 @@ export function createAtriumFX(
     // Dedicated WebGPU MeshStandardNodeMaterial with fresh immutable GPUBindGroup for effective-16K (2x 8192x4096):
     // Continuous analytical seam-free LOD eliminates both u=0 and u=0.5 mip seams while enabling crisp 16K trilinear supersampling!
     const wm = new MeshStandardNodeMaterial({
-      color: new Color("#020408"),
-      roughness: 0.03,
-      metalness: 0.02,
-      envMapIntensity: 0.05,
+      color: new Color("#05080e"),
+      roughness: 0.04,
+      metalness: 0.05,
+      envMapIntensity: 0.30,
       side: DoubleSide,
     });
     if (currentEnvMap) wm.envMap = currentEnvMap;
