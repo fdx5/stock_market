@@ -387,13 +387,118 @@ html.exchange-immersive[data-design="neo"] .ng-shell[data-workspace="exchange"] 
 .exchange-page[data-immersive] .exchange-controls { padding-bottom: max(4px, env(safe-area-inset-bottom)); }
 html.exchange-immersive, html.exchange-immersive body { overflow: hidden; overscroll-behavior: none; }
 
-/* Compact market switch: in the site context bar (left of 오늘의 핫이슈) or over the floor. */
+/* Compact market switch: portaled into NeoShell's context bar (.ng-exchange-slot) or overlaid inside the floor.
+   Uses self-contained accent variables so styles work identically outside .exchange-page. */
 .exchange-sr-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.exchange-switch-mini { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid #ffffff1f; border-radius: 999px; background: #0c0f18d9; }
-.exchange-switch-mini button { min-height: 26px; padding: 0 10px; border: 0; border-radius: 999px; background: none; color: #aab4c8; font: 700 10.5px var(--f-num, sans-serif); letter-spacing: .04em; cursor: pointer; }
-.exchange-switch-mini button[aria-pressed="true"] { background: color-mix(in srgb, var(--exchange-accent) 18%, #101826); color: var(--exchange-accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--exchange-accent) 45%, transparent); }
+.exchange-switch-mini {
+  --switch-accent: #71e8fe;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid #c8d3e638;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #0b101ce8, #070a13f2);
+  box-shadow: inset 0 1px 3px #0009, 0 1px 0 #ffffff0d;
+}
+.exchange-switch-mini[data-market="kosdaq"] { --switch-accent: #c4a8ff; }
+.exchange-switch-mini[data-market="sp500"] { --switch-accent: #6ee7c0; }
+.exchange-switch-mini button {
+  --btn-accent: #71e8fe;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 0 11px;
+  border: 1px solid #ffffff1a;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff10, #ffffff06);
+  color: #c2cce0;
+  font: 700 11px/1 var(--f-num, var(--f-sans, sans-serif));
+  letter-spacing: .04em;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: inset 0 1px 0 #ffffff12, 0 1px 2px #0006;
+  transition: color .15s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease, transform .12s ease;
+}
+.exchange-switch-mini button[data-option="kosdaq"] { --btn-accent: #c4a8ff; }
+.exchange-switch-mini button[data-option="sp500"] { --btn-accent: #6ee7c0; }
+.exchange-switch-mini .exchange-switch-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #8a97b280;
+  flex: none;
+  transition: background-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.exchange-switch-mini button:hover:not([aria-pressed="true"]) {
+  color: #f4f8ff;
+  border-color: color-mix(in srgb, var(--btn-accent) 52%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--btn-accent) 18%, #1a2438), color-mix(in srgb, var(--btn-accent) 10%, #101828));
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--btn-accent) 18%, #0006), inset 0 1px 0 #ffffff22;
+  transform: translateY(-0.5px);
+}
+.exchange-switch-mini button:hover:not([aria-pressed="true"]) .exchange-switch-dot {
+  background: var(--btn-accent);
+}
+.exchange-switch-mini button:active {
+  transform: translateY(1px) scale(.97);
+}
+.exchange-switch-mini button:focus-visible {
+  outline: 2px solid var(--btn-accent);
+  outline-offset: 1px;
+}
+.exchange-switch-mini button[aria-pressed="true"] {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--btn-accent) 78%, #ffffff);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--btn-accent) 32%, #16243a), color-mix(in srgb, var(--btn-accent) 18%, #0d1729));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--btn-accent) 34%, transparent), inset 0 1px 0 #ffffff33;
+}
+.exchange-switch-mini button[aria-pressed="true"] .exchange-switch-dot {
+  background: var(--btn-accent);
+  box-shadow: 0 0 6px var(--btn-accent);
+  transform: scale(1.15);
+}
+:root[data-tone="light"] .exchange-switch-mini {
+  border-color: #1e2a422e;
+  background: linear-gradient(180deg, #eef2f8, #e4eaf3);
+  box-shadow: inset 0 1px 2px #0f1b3014;
+}
+:root[data-tone="light"] .exchange-switch-mini button {
+  border-color: #1e2a421f;
+  background: linear-gradient(180deg, #ffffff, #f3f6fb);
+  color: #3a4861;
+  box-shadow: 0 1px 2px #0f1b3014;
+}
+:root[data-tone="light"] .exchange-switch-mini button:hover:not([aria-pressed="true"]) {
+  color: #0f172a;
+  border-color: #2563eb66;
+  background: #ffffff;
+}
+:root[data-tone="light"] .exchange-switch-mini button[aria-pressed="true"] {
+  color: #ffffff;
+  border-color: #1d4ed8;
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
+  box-shadow: 0 2px 8px #1d4ed840, inset 0 1px 0 #ffffff38;
+}
+:root[data-tone="light"] .exchange-switch-mini button[aria-pressed="true"][data-option="kosdaq"] {
+  border-color: #6d28d9;
+  background: linear-gradient(180deg, #7c3aed, #6d28d9);
+  box-shadow: 0 2px 8px #6d28d940, inset 0 1px 0 #ffffff38;
+}
+:root[data-tone="light"] .exchange-switch-mini button[aria-pressed="true"][data-option="sp500"] {
+  border-color: #047857;
+  background: linear-gradient(180deg, #059669, #047857);
+  box-shadow: 0 2px 8px #04785740, inset 0 1px 0 #ffffff38;
+}
+:root[data-tone="light"] .exchange-switch-mini button[aria-pressed="true"] .exchange-switch-dot {
+  background: #ffffff;
+  box-shadow: 0 0 6px #ffffffaa;
+}
 .exchange-overlay-top .exchange-switch-mini { margin-right: auto; }
-@media (pointer: coarse) { .exchange-switch-mini button { min-height: 32px; padding: 0 11px; } }
+@media (pointer: coarse) { .exchange-switch-mini button { min-height: 32px; padding: 0 12px; } }
 
 /* Stock search in single-stock detail dialogs. */
 .exchange-stock-search { position: relative; margin: 2px 0 8px; }
@@ -475,8 +580,6 @@ html.exchange-immersive, html.exchange-immersive body { overflow: hidden; oversc
 .exchange-entry span { letter-spacing: .14em; }
 .exchange-progress { height: 3px; }
 .exchange-reticle { width: 8px; height: 8px; border-color: #f4f6fae0; box-shadow: 0 0 0 1px #0007; }
-.exchange-switch-mini { border-color: var(--exchange-line-strong); }
-.exchange-switch-mini button { color: #b3bccb; transition: color .15s, background-color .15s; }
 .exchange-focus { border-radius: 14px; border-color: var(--exchange-line-strong); border-top-color: var(--exchange-line-strong);
   box-shadow: 0 18px 46px #02050cb0, inset 0 2px 0 color-mix(in srgb, var(--exchange-accent) 65%, transparent); }
 .exchange-focus-head span { color: color-mix(in srgb, var(--exchange-accent) 85%, #fff); }

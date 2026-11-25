@@ -330,8 +330,20 @@ function Joystick({ driver, lang }: { driver: FloorDriver | null; lang: Language
 }
 
 function MarketSwitch({ market, lang, choose }: { market: ExchangeMarket; lang: Language; choose: (m: ExchangeMarket) => void }) {
-  return <div className="exchange-switch-mini" role="group" aria-label={t(lang, "거래소 시장 선택", "Select exchange market")}>
-    {MARKETS_LIST.map(key => <button key={key} type="button" aria-pressed={market === key} onClick={() => choose(key)}>{MARKETS[key].label}</button>)}
+  return <div className="exchange-switch-mini" data-market={market} role="group" aria-label={t(lang, "거래소 시장 선택", "Select exchange market")}>
+    {MARKETS_LIST.map(key => (
+      <button
+        key={key}
+        type="button"
+        data-option={key}
+        aria-pressed={market === key}
+        title={t(lang, `${MARKETS[key].label} 거래소로 전환`, `Switch trading floor to ${MARKETS[key].label}`)}
+        onClick={() => choose(key)}
+      >
+        <i className="exchange-switch-dot" aria-hidden="true" />
+        <span>{MARKETS[key].label}</span>
+      </button>
+    ))}
   </div>;
 }
 
