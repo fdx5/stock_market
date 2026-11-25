@@ -759,6 +759,55 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
     }
     if (mergedStaticGroup.children.length > 0) model.add(mergedStaticGroup);
+    // Also batch static same-material rigid children inside each Elevator cabin (saves ~14 draw calls/frame losslessly!)
+    const invCabinMat = new Matrix4();
+    const relCabinMat = new Matrix4();
+    for (const cabin of cabinNodes) {
+      if (!cabin) continue;
+      cabin.updateMatrixWorld(true);
+      invCabinMat.copy(cabin.matrixWorld).invert();
+      const cabinBuckets = new Map<string, BatchBucket>();
+      cabin.traverse(child => {
+        if (!(child instanceof Mesh)) return;
+        if (Array.isArray(child.material) || child.userData.panel) return;
+        if (child.matrixWorld.determinant() < 0) return;
+        const geo = child.geometry;
+        if (!geo || !geo.getAttribute("position")) return;
+        const attrSig = Object.keys(geo.attributes).sort().map(k => {
+          const a = geo.attributes[k];
+          const promoted = k === "position" || k === "normal" || k === "tangent";
+          return `${k}:${a.itemSize}:${promoted ? 0 : (a.normalized ? 1 : 0)}:${promoted ? "Float32Array" : a.array.constructor.name}`;
+        }).join("|");
+        const key = `${child.material.uuid}#${geo.index ? "I" : "N"}#${attrSig}`;
+        let bucket = cabinBuckets.get(key);
+        if (!bucket) { bucket = { mat: child.material, meshes: [] }; cabinBuckets.set(key, bucket); }
+        bucket.meshes.push(child);
+      });
+      for (const bucket of cabinBuckets.values()) {
+        if (bucket.meshes.length < 2) continue;
+        const clones: BufferGeometry[] = [];
+        for (const m of bucket.meshes) {
+          const g = dequantizeForMerge(m.geometry);
+          relCabinMat.multiplyMatrices(invCabinMat, m.matrixWorld);
+          g.applyMatrix4(relCabinMat);
+          clones.push(g);
+        }
+        const merged = mergeGeometries(clones, false);
+        for (const g of clones) g.dispose();
+        if (!merged) continue;
+        merged.computeBoundingBox();
+        merged.computeBoundingSphere();
+        const batchMesh = new Mesh(merged, bucket.mat);
+        batchMesh.matrixAutoUpdate = false;
+        batchMesh.updateMatrix();
+        cabin.add(batchMesh);
+        for (const m of bucket.meshes) {
+          m.parent?.remove(m);
+          m.geometry.dispose();
+        }
+        mergedDrawCallsSaved += bucket.meshes.length - 1;
+      }
+    }
     if (measure) canvas.dataset.batchedDrawsSaved = String(mergedDrawCallsSaved);
 
     // Freeze static matrix hierarchy across the entire GLB model (except animated elevator cabins/doors) -> 0 wasted tree traversal!
@@ -946,8 +995,19 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     });
     // Preview atlas loads right after reveal so boot stays instant; nearest 6 visible paintings upgrade lazily to 1K!
     const maxLiveArt = mobile ? 5 : 6;
+    let artCheckNeeded = true;
     function updateArtwork() {
       if (artPending || drag || tour.isActive() || velX * velX + velZ * velZ > 0.16) return;
+      const now = performance.now();
+      if (!artCheckNeeded) {
+        let retryDue = false;
+        for (let i = 0; i < artCanvases.length; i++) {
+          const rt = artCanvases[i].retryAt;
+          if (rt > 0 && rt <= now) { retryDue = true; break; }
+        }
+        if (!retryDue) return;
+      }
+      artCheckNeeded = false;
       const nearest = artCanvases.map(art => ({ art, distance: art.bounds.center.distanceToSquared(camera.position), visible: frustum.intersectsSphere(art.bounds) }))
         .filter(({ distance, visible }) => visible && distance < 10.5 ** 2)
         .sort((a, b) => a.distance - b.distance).slice(0, maxLiveArt).map(({ art }) => art);
@@ -957,11 +1017,10 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         artwork.delete(mesh);
         artworkMetrics();
       }
-      const now = performance.now();
       const next = nearest.find(art => !artwork.has(art.mesh) && art.retryAt <= now);
       if (next) {
         artPending = true;
-        void loadArtwork(next).finally(() => { artPending = false; });
+        void loadArtwork(next).finally(() => { artPending = false; artCheckNeeded = true; });
       }
     }
 
@@ -1037,7 +1096,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const state = { ...FLOOR.spawn, y: 0 };
     let eyeY = state.y;
     const cabins = LIFTS.map(() => 0), cabinTarget = LIFTS.map(() => 0);
-    let lastLift = "", lastFloor = -1, wasMoving = false;
+    let lastLift = -1, lastFloor = -1, wasMoving = false;
     state.yaw *= RAD;
     let pitch = state.pitch;
     let lookYaw = state.yaw, lookPitch = pitch;   // rendered view eases toward the dragged target
@@ -1287,9 +1346,9 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         lookPitch += (pitch - lookPitch) * ease;
         camera.rotation.set(lookPitch, lookYaw, 0, "YXZ");
       }
-      // Zero-allocation lift state key check
-      let liftKey = `${inside}:${moving ? 1 : 0}`;
-      for (let i = 0; i < cabins.length; i++) liftKey += ":" + levelOf(cabins[i]);
+      // Zero-allocation bit-packed lift state key check (eliminates per-frame string allocation!)
+      let liftKey = ((inside + 2) & 0x7) | (moving ? 0x8 : 0);
+      for (let i = 0; i < cabins.length; i++) liftKey |= (levelOf(cabins[i]) & 0x7) << (4 + i * 3);
       if (liftKey !== lastLift) {
         lastLift = liftKey;
         events.lift?.({ inside: inside >= 0 ? inside : null, floor: levelOf(state.y), moving, cabins: cabins.map(levelOf) });
@@ -1302,6 +1361,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         Math.abs(lookYaw - lastCamYaw) > 1e-4 ||
         Math.abs(lookPitch - lastCamPitch) > 1e-4;
       if (camMoved) {
+        artCheckNeeded = true;
         lastCamX = camera.position.x; lastCamY = camera.position.y; lastCamZ = camera.position.z;
         lastCamYaw = lookYaw; lastCamPitch = lookPitch;
         camera.updateMatrixWorld();

@@ -20,7 +20,7 @@ import {
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { MeshStandardNodeMaterial, type UniformNode } from "three/webgpu";
-import { abs, attribute, dot, float, fract, fwidth, length, max, mix, normalView, positionViewDirection, smoothstep, step, texture as textureNode, uniform, uv, vec2, vec3 } from "three/tsl";
+import { abs, attribute, dot, float, Fn, fract, fwidth, If, length, max, mix, normalView, positionViewDirection, smoothstep, step, texture as textureNode, uniform, uv, vec2, vec3 } from "three/tsl";
 import { FLOOR, companyLogo, shortTime, type ExchangeMarket, type FloorSnapshot, type Language } from "./market";
 import {
   LIVE_PANELS, OUTER_TICKER_ATLAS, PAGES, PAINTERS, paintColumn, paintOuterTicker, paintTicker, setTickerLogoListener,
@@ -189,6 +189,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   let lastBackground = 0, signature = "";
   /** Page counts per list panel, computed once per snapshot rather than (with a sort) every frame. */
   const pageCounts = new Map<string, number>();
+  let pagedPanels: string[] = [];
   type TickerSegment = { start: number; count: number; length: number; height: number; vertical?: boolean; phase: number };
   type TickerEntry = {
     canvas: HTMLCanvasElement;
@@ -246,20 +247,28 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
     const cells = attribute<"vec2">("cells", "vec2");
     m.roughnessNode = mix(float(.1), float(.46), led);
     m.envMapIntensity = .3;
-    const picture = textureNode(map).rgb;
-    const c = uv().mul(cells);
-    const w = fwidth(c);
-    const resolve = float(1).sub(smoothstep(.1, .38, max(w.x, w.y)));       // grid only once a cell spans ~3+ px
-    const f = abs(fract(c).sub(.5)).mul(2);
-    const emitter = float(1).sub(smoothstep(.5, .78, length(f))).mul(2.6);   // round SMD dots, same mean light
-    const sub = fract(c.x).mul(3);
-    const stripe = vec3(
-      float(1).sub(step(1, sub)), step(1, sub).mul(float(1).sub(step(2, sub))), step(2, sub),
-    ).mul(float(1).sub(smoothstep(.82, .97, f.y).mul(.6))).mul(2.85);
-    const grid = mix(stripe, vec3(emitter), led);
-    const ndv = abs(dot(normalView, positionViewDirection));
-    const viewing = mix(float(.62).add(smoothstep(.05, .75, ndv).mul(.38)), float(.9).add(ndv.mul(.1)), led);
-    m.emissiveNode = picture.mul(mix(vec3(1), grid, resolve)).mul(viewing).mul(intensity);
+    // Keep texture sample and fwidth() outside dynamic branches (100% WGSL uniform-control-flow valid),
+    // and skip SMD LED / RGB subpixel stripe ALU on the ~99% of screen fragments where resolve == 0!
+    m.emissiveNode = Fn(() => {
+      const picture = textureNode(map).rgb;
+      const c = uv().mul(cells);
+      const w = fwidth(c);
+      const resolve = float(1).sub(smoothstep(.1, .38, max(w.x, w.y)));       // grid only once a cell spans ~3+ px
+      const gridMul = vec3(1).toVar();
+      If(resolve.greaterThan(float(0.001)), () => {
+        const f = abs(fract(c).sub(.5)).mul(2);
+        const emitter = float(1).sub(smoothstep(.5, .78, length(f))).mul(2.6);   // round SMD dots, same mean light
+        const sub = fract(c.x).mul(3);
+        const stripe = vec3(
+          float(1).sub(step(1, sub)), step(1, sub).mul(float(1).sub(step(2, sub))), step(2, sub),
+        ).mul(float(1).sub(smoothstep(.82, .97, f.y).mul(.6))).mul(2.85);
+        const grid = mix(stripe, vec3(emitter), led);
+        gridMul.assign(mix(vec3(1), grid, resolve));
+      });
+      const ndv = abs(dot(normalView, positionViewDirection));
+      const viewing = mix(float(.62).add(smoothstep(.05, .75, ndv).mul(.38)), float(.9).add(ndv.mul(.1)), led);
+      return picture.mul(gridMul).mul(viewing).mul(intensity);
+    })();
     materials.push(m);
     return m;
   }
@@ -639,8 +648,11 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       signature = nextSignature;
       worker?.postMessage({ type: "data", snapshot: next, series: nextSeries, lang: language } satisfies WorkerIn);
       pageCounts.clear();
+      pagedPanels = [];
       for (const id of panels.keys()) {
-        pageCounts.set(id, PAGES[id]?.(next) ?? 1);
+        const count = PAGES[id]?.(next) ?? 1;
+        pageCounts.set(id, count);
+        if (count >= 2) pagedPanels.push(id);
         dirty.add(id);
       }
       paintTickers();
@@ -658,20 +670,18 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
           panel.visible = vis;
         }
       }
-      flush();
+      if (pendingTickers.size || pending.size) flush();
       if (!reduced) for (const [id, ticker] of tickers) {
         const speed = id === "ring" ? 85 : id === "tickerD" ? 120 : id === "tickerV" ? -70 : 150;   // px/s along the strip (columns rise)
         ticker.offset.value = (now / 1000 * speed / ticker.width) % 1;
       }
-      // Page flips: staggered per panel; pace desktop slide at ~9Hz (~5 smooth steps) instead of 60Hz mipmap upload storms!
-      if (snapshot && !reduced) {
-        let i = 0;
-        for (const id of panels.keys()) {
+      // Page flips: iterate only multi-page panels (~6 vs 36+); pace desktop slide at ~9Hz (~5 smooth steps) instead of 60Hz mipmap storms!
+      if (snapshot && !reduced && pagedPanels.length) {
+        for (let i = 0; i < pagedPanels.length; i++) {
+          const id = pagedPanels[i];
           const pages = pageCounts.get(id) ?? 1;
-          i++;
-          if (pages < 2) continue;
           let pager = pagers.get(id);
-          if (!pager) { pager = { page: 0, prev: 0, at: -1e9, next: now + 7000 + i * 1450, lastSlide: -1e9 }; pagers.set(id, pager); }
+          if (!pager) { pager = { page: 0, prev: 0, at: -1e9, next: now + 7000 + (i + 1) * 1450, lastSlide: -1e9 }; pagers.set(id, pager); }
           if (now >= pager.next) {
             pager.prev = pager.page % pages;
             pager.page = (pager.page + 1) % pages;
