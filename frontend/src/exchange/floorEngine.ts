@@ -1073,7 +1073,17 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     }
     const observer = new ResizeObserver(resize);
     observer.observe(host);
-    releases.push(() => observer.disconnect());
+    const onViewportResize = () => {
+      resize();
+      window.setTimeout(resize, 120);
+    };
+    window.addEventListener("orientationchange", onViewportResize);
+    window.visualViewport?.addEventListener("resize", resize);
+    releases.push(() => {
+      observer.disconnect();
+      window.removeEventListener("orientationchange", onViewportResize);
+      window.visualViewport?.removeEventListener("resize", resize);
+    });
     resize();
 
     function pick(clientX: number, clientY: number) {
@@ -1103,7 +1113,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
       drag.x = event.clientX; drag.y = event.clientY;
       drag.travel += Math.abs(dx) + Math.abs(dy);
-      if (drag.travel < 5) return;
+      const dragThreshold = tour.isActive() && event.pointerType === "touch" ? 20 : 5;
+      if (drag.travel < dragThreshold) return;
       stopTour();
       state.yaw -= dx * .0045;
       pitch = clamp(pitch - dy * .0045, -.8, 1.15);
@@ -1554,8 +1565,15 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         void loadHiResSkyline(mood);
       },
       setTour(on) {
-        if (on) { pause(); tour.start(); events.tour?.(true); }
-        else stopTour();
+        if (on) {
+          pause();
+          suspended = false;
+          onScreen = true;
+          last = 0;
+          tour.start();
+          events.tour?.(true);
+          if (!disposed && !frame) frame = requestAnimationFrame(drawFrame);
+        } else stopTour();
       },
       inspectSculpture(id) {
         if (id) { stopTour(); pause(); }

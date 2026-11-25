@@ -402,8 +402,8 @@ export default function ExchangePage() {
   const [tour, setTour] = useState(false);
   const [lift, setLift] = useState<LiftState | null>(null);
   const [floor, setFloor] = useState(0);
-  // On touch screens the floor fills the viewport without browser fullscreen swipe gestures.
-  const [immersive, setImmersive] = useState(() => matchMedia("(max-width: 760px)").matches);
+  // On phones (portrait or landscape), fill the viewport without browser fullscreen swipe gestures.
+  const [immersive, setImmersive] = useState(() => matchMedia("(max-width: 760px), ((pointer: coarse) and (max-height: 520px))").matches);
   const viewportFullscreen = matchMedia("(any-pointer: coarse), (max-width: 760px)").matches;
   // The market switch lives in the site's context bar, left of 오늘의 핫이슈; inside the floor when immersive.
   const [slot, setSlot] = useState<Element | null>(null);
@@ -571,9 +571,16 @@ export default function ExchangePage() {
     else if (viewportFullscreen) setImmersive(true);
     else void pageRef.current?.requestFullscreen().catch(() => {});
   };
+  const toggleTour = () => {
+    const next = !tour;
+    if (next) setFocus(undefined);
+    setTour(next);
+    driver?.setTour(next);
+    reportExchange("tour:" + (next ? "on" : "off"), "시네마틱 투어");
+  };
   const sampleStatus = data.failed ? t(lang, "표본 갱신 지연", "Sample delayed") : t(lang, "표본 갱신", "Sample updated");
 
-  return <main ref={pageRef} className="exchange-page" data-market={market} data-phase={phase} data-immersive={immersive || undefined}>
+  return <main ref={pageRef} className="exchange-page" data-market={market} data-phase={phase} data-immersive={immersive || undefined} data-tour={tour || undefined}>
     <h1 className="exchange-sr-title">{t(lang, "증권 거래소", "Stock exchange")} · {spec.label}</h1>
     {slot && !immersive && createPortal(<MarketSwitch market={market} lang={lang} choose={chooseMarket} />, slot)}
     <div className="exchange-stage">
@@ -581,11 +588,18 @@ export default function ExchangePage() {
         <canvas key={retry.id} ref={canvas} className="exchange-canvas" tabIndex={0} aria-label={t(lang, "3D 거래소. 방향키로 이동하고 모니터를 선택하세요.", "3D trading floor. Use arrow keys to move and select a monitor.")} />
       </div>
       {!(focus?.startsWith("art:") || focus?.startsWith("sculpture:") || focus === "skyline:view") && <div className="exchange-overlay-top">
-        {(immersive || !slot) && <MarketSwitch market={market} lang={lang} choose={chooseMarket} />}
-        {(data.received || data.failed) && <div className="exchange-status">
-          <i data-live={!data.failed} />
-          <small>{sampleStatus}{data.received ? " " + shortTime(data.received) : ""}</small>
-        </div>}
+        <div className="exchange-top-primary">
+          {(immersive || !slot) && <MarketSwitch market={market} lang={lang} choose={chooseMarket} />}
+          {(data.received || data.failed) && <div className="exchange-status">
+            <i data-live={!data.failed} />
+            <small>{sampleStatus}{data.received ? " " + shortTime(data.received) : ""}</small>
+          </div>}
+          <div className="exchange-top-utility">
+            <button type="button" className="exchange-action" aria-pressed={sound} onClick={() => { void toggleSound(); }}>{sound ? t(lang, "음향 켜짐", "Sound on") : t(lang, "음향", "Sound")}</button>
+            {immersive ? <button type="button" className="exchange-action" onClick={leaveImmersive}>{t(lang, "축소", "Exit")}</button>
+              : (viewportFullscreen || document.fullscreenEnabled) && <button type="button" className="exchange-action" aria-pressed={full} onClick={toggleFullscreen}>{full ? t(lang, "전체화면 종료", "Exit full screen") : t(lang, "전체화면", "Full screen")}</button>}
+          </div>
+        </div>
         <div className="exchange-stage-actions">
           <div className="exchange-mood-switch" role="group" aria-label={t(lang, "아트리움 조명 무드", "Atrium lighting mood")}>
             {([
@@ -597,13 +611,10 @@ export default function ExchangePage() {
                 onClick={() => chooseMood(key, label)}>{label}</button>
             ))}
           </div>
-          <button type="button" className="exchange-action" aria-pressed={tour} disabled={!driver}
-            onClick={() => { const next = !tour; setTour(next); driver?.setTour(next); reportExchange("tour:" + (next ? "on" : "off"), "시네마틱 투어"); }}>
+          <button type="button" className="exchange-action exchange-tour-btn" aria-pressed={tour} disabled={!driver}
+            onClick={toggleTour}>
             {tour ? t(lang, "투어 중지", "Stop tour") : t(lang, "시네마틱 투어", "Tour")}
           </button>
-          <button type="button" className="exchange-action" aria-pressed={sound} onClick={() => { void toggleSound(); }}>{sound ? t(lang, "음향 켜짐", "Sound on") : t(lang, "음향", "Sound")}</button>
-          {immersive ? <button type="button" className="exchange-action" onClick={leaveImmersive}>{t(lang, "축소", "Exit")}</button>
-            : (viewportFullscreen || document.fullscreenEnabled) && <button type="button" className="exchange-action" aria-pressed={full} onClick={toggleFullscreen}>{full ? t(lang, "전체화면 종료", "Exit full screen") : t(lang, "전체화면", "Full screen")}</button>}
         </div>
       </div>}
       {soundError && <p className="exchange-sound-error" role="status">{t(lang, "이 기기에서 음향을 시작하지 못했습니다.", "Sound could not start on this device.")}</p>}

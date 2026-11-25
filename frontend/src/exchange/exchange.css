@@ -88,6 +88,8 @@
   pointer-events: none;
 }
 .exchange-overlay-top > * { pointer-events: auto; }
+.exchange-top-primary { display: contents; }
+.exchange-top-utility { display: inline-flex; align-items: center; gap: 5px; order: 3; pointer-events: auto; }
 .exchange-status {
   display: flex;
   align-items: flex-start;
@@ -100,11 +102,22 @@
   box-shadow: 0 6px 18px #0003;
   color: #dbe7fd;
   font-size: 11px;
+  order: 1;
 }
 .exchange-status small { display: block; font: 10px var(--f-type); color: #aebad0; }
 .exchange-status i { width: 6px; height: 6px; margin-top: 3px; background: #a0a7be; border-radius: 50%; flex-shrink: 0; }
 .exchange-status i[data-live="true"] { background: var(--exchange-accent); box-shadow: 0 0 11px var(--exchange-accent); }
-.exchange-stage-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; margin-left: auto; }
+.exchange-stage-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 5px; margin-left: auto; order: 2; }
+.exchange-tour-btn[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--exchange-accent) 75%, #fff);
+  background: color-mix(in srgb, var(--exchange-accent) 22%, #0e1728);
+  color: #ffffff;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--exchange-accent) 32%, transparent);
+}
+.exchange-page[data-tour] :is(.exchange-joystick, .exchange-reticle) {
+  opacity: 0;
+  pointer-events: none;
+}
 .exchange-mood-switch {
   display: inline-flex;
   gap: 2px;
@@ -338,15 +351,209 @@
   .exchange-benchmark { grid-column: 2; grid-row: 1; }
   .exchange-market-switch { grid-column: 1 / -1; }
   .exchange-market-switch button { flex: 1; min-height: 39px; }
-  .exchange-overlay-top { inset: 8px 8px auto; }
-  .exchange-minimap { bottom: 10px; right: 8px; width: 92px; padding: 5px; }
-  .exchange-minimap > span { font-size: 8px; }
-  .exchange-controls { padding: 4px 6px; }
-  .exchange-controls .exchange-action { min-height: 40px; }
-  .exchange-stage-actions .exchange-action { min-height: 41px; padding: 5px 6px; }
-  .exchange-focus { top: 57px; right: 8px; bottom: 7px; width: min(395px, calc(100% - 16px)); padding: 10px; }
+
+  /* Portrait phone HUD: clean 2-row top bar with zero horizontal overflow or clipping on iPhone (360–430px). */
+  .exchange-overlay-top {
+    inset: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) auto max(8px, env(safe-area-inset-left));
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .exchange-top-primary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+  .exchange-overlay-top .exchange-status { display: none; }
+  .exchange-overlay-top .exchange-switch-mini {
+    margin-right: 0;
+    padding: 2px;
+    gap: 2px;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+  .exchange-overlay-top .exchange-switch-mini button {
+    min-height: 30px;
+    padding: 0 8px;
+    gap: 4px;
+    font-size: 10px;
+    letter-spacing: .02em;
+  }
+  .exchange-overlay-top .exchange-switch-mini .exchange-switch-dot { width: 4px; height: 4px; }
+  .exchange-top-utility {
+    order: 0;
+    gap: 4px;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+  .exchange-top-utility .exchange-action {
+    min-height: 32px;
+    padding: 4px 8px;
+    font-size: 10.5px;
+  }
+  .exchange-stage-actions {
+    order: 0;
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .exchange-mood-switch {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: space-between;
+  }
+  .exchange-mood-btn {
+    flex: 1 1 0;
+    min-height: 32px;
+    padding: 3px 5px;
+    font-size: 10.5px;
+    text-align: center;
+  }
+  .exchange-stage-actions .exchange-tour-btn {
+    min-height: 34px;
+    padding: 4px 10px;
+    font-size: 11px;
+    flex: 0 0 auto;
+  }
+
+  /* Bottom stage HUD: clean corners without colliding with top rows */
+  .exchange-minimap {
+    bottom: 10px;
+    right: max(8px, env(safe-area-inset-right));
+    width: 82px;
+    padding: 5px;
+  }
+  .exchange-minimap > span { font-size: 8px; margin-bottom: 3px; }
+  .exchange-instructions { display: none; }
+
+  /* Bottom controls bar: 2 clean rows (full-width swipeable stations + 3 balanced utility buttons) */
+  .exchange-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
+    padding: 6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+  .exchange-station-list {
+    width: 100%;
+    gap: 5px;
+    padding: 1px 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .exchange-station-list::-webkit-scrollbar { display: none; }
+  .exchange-station-list .exchange-action {
+    min-height: 34px;
+    padding: 4px 10px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .exchange-utilities {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    gap: 5px;
+  }
+  .exchange-utilities .exchange-action,
+  .exchange-utilities .exchange-monitor-picker,
+  .exchange-utilities .exchange-monitor-picker > summary {
+    width: 100%;
+    min-height: 36px;
+    padding: 4px 6px;
+    font-size: 11px;
+    box-sizing: border-box;
+  }
+  .exchange-monitor-picker > div {
+    right: 0;
+    width: min(340px, calc(100vw - 16px));
+    max-height: min(56dvh, 420px);
+  }
+  .exchange-focus {
+    top: max(92px, calc(env(safe-area-inset-top) + 84px));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: 7px;
+    width: min(395px, calc(100% - 16px));
+    padding: 10px;
+  }
   .exchange-focus-head { margin-bottom: 7px; }
 }
+
+/* Mobile landscape (e.g. iPhone 844×390): ultra-compact 1-row top bar + 1-row bottom bar maximizing 3D height */
+@media (max-height: 520px) and (orientation: landscape) {
+  .exchange-overlay-top {
+    inset: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) auto max(10px, env(safe-area-inset-left));
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .exchange-top-primary { display: contents; }
+  .exchange-overlay-top .exchange-status { display: none; }
+  .exchange-overlay-top .exchange-switch-mini {
+    margin-right: auto;
+    padding: 2px;
+    gap: 2px;
+  }
+  .exchange-overlay-top .exchange-switch-mini button {
+    min-height: 26px;
+    padding: 0 8px;
+    font-size: 10px;
+  }
+  .exchange-stage-actions {
+    width: auto;
+    margin-left: 0;
+    flex-wrap: nowrap;
+    gap: 4px;
+    order: 2;
+  }
+  .exchange-mood-switch { flex: 0 0 auto; }
+  .exchange-mood-btn { min-height: 26px; padding: 2px 7px; font-size: 10px; }
+  .exchange-stage-actions .exchange-tour-btn,
+  .exchange-top-utility .exchange-action {
+    min-height: 28px;
+    padding: 3px 8px;
+    font-size: 10.5px;
+  }
+  .exchange-top-utility { order: 3; gap: 4px; margin-left: 0; }
+  .exchange-instructions { display: none; }
+  .exchange-minimap {
+    bottom: 8px;
+    right: max(10px, env(safe-area-inset-right));
+    width: 72px;
+    padding: 4px;
+  }
+  .exchange-minimap > span { font-size: 7.5px; margin-bottom: 2px; }
+  .exchange-controls {
+    flex-direction: row;
+    align-items: center;
+    min-height: 40px;
+    padding: 4px max(10px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    gap: 6px;
+  }
+  .exchange-station-list { flex: 1 1 auto; scrollbar-width: none; }
+  .exchange-station-list::-webkit-scrollbar { display: none; }
+  .exchange-utilities { display: flex; width: auto; flex-shrink: 0; gap: 4px; }
+  .exchange-controls .exchange-action,
+  .exchange-utilities .exchange-monitor-picker > summary {
+    width: auto;
+    min-height: 30px;
+    padding: 3px 8px;
+    font-size: 10.5px;
+  }
+  .exchange-focus {
+    top: max(42px, calc(env(safe-area-inset-top) + 38px));
+    right: max(10px, env(safe-area-inset-right));
+    bottom: 6px;
+    width: min(380px, calc(100% - 20px));
+    padding: 9px;
+  }
+}
+
 @media (pointer: coarse) {
   .exchange-instructions { bottom: auto; top: 62px; left: 8px; padding: 4px 6px; }
   .exchange-instructions > span { display: none; }
@@ -355,18 +562,23 @@
     position: absolute;
     display: grid;
     place-items: center;
-    bottom: 15px;
-    left: 12px;
-    width: 89px;
-    height: 89px;
+    bottom: 12px;
+    left: max(10px, env(safe-area-inset-left));
+    width: 78px;
+    height: 78px;
     touch-action: none;
     z-index: 1;
     border: 1px solid #b4cbea88;
     border-radius: 50%;
     background: #1b273ac2;
     box-shadow: inset 0 0 0 8px #0b142362, 0 3px 13px #0006;
+    transition: opacity .2s ease;
   }
-  .exchange-joystick span { pointer-events: none; width: 32px; height: 32px; border-radius: 50%; background: #d6e3faa6; border: 1px solid #eff5ff; }
+  .exchange-joystick span { pointer-events: none; width: 28px; height: 28px; border-radius: 50%; background: #d6e3faa6; border: 1px solid #eff5ff; }
+}
+@media (pointer: coarse) and (max-height: 520px) and (orientation: landscape) {
+  .exchange-joystick { width: 66px; height: 66px; bottom: 8px; }
+  .exchange-joystick span { width: 24px; height: 24px; }
 }
 
 .exchange-panel-view { display: block; width: 100%; margin: 4px 0 12px; border-radius: 6px; background: #000; box-shadow: 0 0 0 1px #ffffff14, 0 8px 30px #0009; }
@@ -560,7 +772,7 @@ html.exchange-immersive, html.exchange-immersive body { overflow: hidden; oversc
 /* v4 chrome: midnight glass, nickel hairlines, one accent per market. No blur filters: a
    backdrop-filter over a WebGPU canvas costs a full-screen pass per frame on phones. */
 .exchange-status, .exchange-action, .exchange-minimap, .exchange-instructions, .exchange-entry > div,
-.exchange-monitor-picker > div, .exchange-switch-mini {
+.exchange-monitor-picker > div {
   border-color: var(--exchange-line);
   background: var(--exchange-glass);
   box-shadow: var(--exchange-shadow);
@@ -568,10 +780,16 @@ html.exchange-immersive, html.exchange-immersive body { overflow: hidden; oversc
 .exchange-action { border-radius: 8px; padding: 6px 12px; color: #e9edf4; font-weight: 620; letter-spacing: -.005em; transition: border-color .15s, color .15s, background-color .15s; }
 .exchange-action:hover { background: color-mix(in srgb, var(--exchange-accent) 9%, #101826); }
 .exchange-action[aria-pressed="true"] { background: color-mix(in srgb, var(--exchange-accent) 14%, #0f1724); }
+.exchange-action.exchange-tour-btn[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--exchange-accent) 78%, #fff);
+  background: color-mix(in srgb, var(--exchange-accent) 26%, #0e182a);
+  color: #ffffff;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--exchange-accent) 36%, transparent);
+}
 .exchange-action:focus-visible { outline: 2px solid color-mix(in srgb, var(--exchange-accent) 70%, transparent); outline-offset: 1px; }
 .exchange-status { border-radius: 10px; padding: 8px 12px; }
 .exchange-status small { color: var(--exchange-muted); }
-.exchange-minimap { border-radius: 10px; padding: 9px; }
+.exchange-minimap { border-radius: 10px; }
 .exchange-minimap > span { color: var(--exchange-muted); letter-spacing: .04em; }
 .exchange-instructions { border-radius: 999px; padding: 7px 14px; color: #d6dce7; }
 .exchange-entry { background: radial-gradient(ellipse at 50% 45%, #0b0f1880, #05070bd0); }
