@@ -116,12 +116,13 @@ export default function MoversPage({ archiveDay, archiveTime }: { archiveDay?: s
       <p className="mv-site">{shot ? "종목별 이유 전체 보기  kospimap.com/movers" : "kospimap.com/movers"}</p>
     </div>
 
+    <InArticleAd className="mv-ad" />
     <section className="mv-cards" aria-label="종목별 이유">
       {ordered.map((s, i) => <Fragment key={s.code}>
         {i === ups.length && downs.length > 0 && <h2 className="mv-split is-down">많이 내린 종목</h2>}
         {i === 0 && <h2 className="mv-split is-up">많이 오른 종목</h2>}
         <Card s={s} rank={s.direction === "up" ? i + 1 : i - ups.length + 1} />
-        {(i === 2 || i === 7) && i < ordered.length - 1 && <InArticleAd />}
+        {(i === 3 || i === 9) && i < ordered.length - 1 && <InArticleAd className="mv-ad" />}
       </Fragment>)}
       <MultiplexAd slot="5479707639" className="mv-multiplex" />
     </section>

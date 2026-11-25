@@ -125,3 +125,12 @@
 .mv-page.is-shot .mv-dek{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .mv-page.is-shot .mv-board-col small{display:none}
 .mv-page.is-shot .mv-site{font-size:15px;text-align:center;color:#7ff3ff}
+
+/* Ads: framed like a card, space held while loading so the reading position never jumps; gone when unfilled. */
+.mv-page .mv-ad{margin:18px 0 0;padding:10px 12px;border:1px solid var(--mv-line);border-radius:14px;background:#0b111ecc}
+.mv-cards .mv-ad{margin:0}
+.mv-page .mv-ad:is([data-state="pending"],[data-state="preview"]){min-height:250px}
+.mv-page .mv-ad[data-state="empty"]{display:none}
+.mv-page .mv-multiplex{margin-top:6px}
+@media(min-width:721px){.mv-page .mv-ad:is([data-state="pending"],[data-state="preview"]){min-height:160px}}
+:root[data-tone="light"] .mv-page .mv-ad{background:#f7f9fd}
