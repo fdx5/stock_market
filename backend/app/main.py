@@ -847,6 +847,32 @@ if STATIC_DIR.exists():
             raise HTTPException(status_code=404, detail="Edition not found")
         return HTMLResponse(render_spa_shell(_spa_template, hot_issues.edition_path(edition), {}, hot_edition=edition))
 
+    @app.api_route("/movers/us/og/latest.png", methods=["GET", "HEAD"], include_in_schema=False)
+    def us_movers_share_latest():
+        from app.services import movers, movers_og
+        data = movers.current(market="us")
+        return Response(content=movers_og.render(data if data.get("stocks") else None, "us"), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=300"})
+
+    @app.api_route("/movers/us/og/{day}/{hhmm}.png", methods=["GET", "HEAD"], include_in_schema=False)
+    def us_movers_share_image(day: str, hhmm: str):
+        from app.services import movers, movers_og
+        slot = movers.parse_slot(day, hhmm, "us")
+        data = movers.edition(slot, "us") if slot else None
+        if not data:
+            raise HTTPException(status_code=404, detail="Edition image not found")
+        return Response(content=movers_og.render(data, "us"), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400, immutable"})
+
+    @app.api_route("/movers/us/{day}/{hhmm}", methods=["GET", "HEAD"], include_in_schema=False)
+    def us_movers_archive(day: str, hhmm: str):
+        from app.services import movers
+        slot = movers.parse_slot(day, hhmm, "us")
+        data = movers.edition(slot, "us") if slot else None
+        if data is None:
+            raise HTTPException(status_code=404, detail="Edition not found")
+        return HTMLResponse(render_spa_shell(_spa_template, movers.edition_path(data), {}, movers_edition=data))
+
     @app.api_route("/movers/og/latest.png", methods=["GET", "HEAD"], include_in_schema=False)
     def movers_share_latest():
         from app.services import movers, movers_og

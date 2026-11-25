@@ -16,26 +16,37 @@ from urllib.request import Request, urlopen
 from PIL import Image
 
 SITE = "https://kospimap.com"
-EDITIONS = {"movers_open": "0920", "movers_noon": "1230", "movers_close": "1600"}
-POST_AT = {"movers_open": (9, 30), "movers_noon": (12, 40), "movers_close": (16, 15)}
-NAMES = {"movers_open": "장 초반", "movers_noon": "점심", "movers_close": "장 마감"}
-BASE_TAGS = ("#급등주", "#특징주", "#주식")
+EDITIONS = {"movers_open": "0920", "movers_noon": "1230", "movers_close": "1600",
+            "us_movers_pre": "2230", "us_movers_open": "0040", "us_movers_close": "0640"}
+POST_AT = {"movers_open": (9, 30), "movers_noon": (12, 40), "movers_close": (16, 15),
+           "us_movers_pre": (22, 40), "us_movers_open": (0, 50), "us_movers_close": (6, 50)}
+NAMES = {"movers_open": "장 초반", "movers_noon": "점심", "movers_close": "장 마감",
+         "us_movers_pre": "프리마켓", "us_movers_open": "개장 직후", "us_movers_close": "마감"}
+BASE_TAGS_BY = {"kr": ("#급등주", "#특징주", "#주식"), "us": ("#미국주식", "#나스닥", "#해외주식")}
+
+
+def market(edition):
+    return "us" if edition.startswith("us_") else "kr"
+
+
+def base(edition):
+    return "/movers/us" if market(edition) == "us" else "/movers"
 
 
 def headline(day, edition):
-    return f"{day:%m/%d} {NAMES[edition]} 급등·급락 이유"
+    return f"{day:%m/%d} {'나스닥100 ' if market(edition) == 'us' else ''}{NAMES[edition]} 급등·급락 이유"
 
 
 def link(service, day, edition):
     slot = EDITIONS[edition]
     params = urlencode({"utm_source": "x" if service == "twitter" else service, "utm_medium": "social",
                         "utm_campaign": f"{edition}-{day:%Y%m%d}"})
-    return f"{SITE}/movers/{day}/{slot}?{params}"
+    return f"{SITE}{base(edition)}/{day}/{slot}?{params}"
 
 
 def _edition(day, edition):
     slot = EDITIONS[edition]
-    req = Request(f"{SITE}/api/movers/{day}/{slot}", headers={"User-Agent": "KOSPIMAP-SocialPublisher/1"})
+    req = Request(f"{SITE}/api{base(edition)}/{day}/{slot}", headers={"User-Agent": "KOSPIMAP-SocialPublisher/1"})
     try:
         with urlopen(req, timeout=30) as response:
             return json.loads(response.read())
@@ -48,7 +59,7 @@ def _edition(day, edition):
 def screenshot(day, edition):
     from playwright.sync_api import sync_playwright
 
-    url = f"{SITE}/movers/{day}/{EDITIONS[edition]}?shot=1"
+    url = f"{SITE}{base(edition)}/{day}/{EDITIONS[edition]}?shot=1"
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page(viewport={"width": 640, "height": 2200}, device_scale_factor=2,
@@ -87,6 +98,7 @@ def _tag(value):
 
 def captions(day, edition, data, fits):
     first = headline(day, edition)
+    BASE_TAGS = BASE_TAGS_BY[market(edition)]
     hook = " ".join(str(data.get("social_hook") or data["headline"]).split())
     ups = [s for s in data["stocks"] if s["direction"] == "up"]
     downs = [s for s in data["stocks"] if s["direction"] == "down"]
@@ -98,7 +110,9 @@ def captions(day, edition, data, fits):
     out = {}
 
     # Names people recognise draw the click: lead with the most-traded of the top gainers.
-    known = sorted(ups[:6], key=lambda s: -s.get("turnover_100m", 0))
+    # On a day led by the fallers, the lines follow the story.
+    lead = downs if downs and (not ups or abs(downs[0]["change_pct"]) > ups[0]["change_pct"]) else ups
+    known = sorted(lead[:6], key=lambda s: -s.get("turnover_100m", 0))
 
     def short(s):
         return f"{s['name']} {_pct(s['change_pct'])}"

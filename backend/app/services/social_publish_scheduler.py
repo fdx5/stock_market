@@ -24,6 +24,11 @@ def due_slots(now: datetime):
     day = now.date()
     slots = [(clock_time(7, 15), "morning"), (clock_time(22, 15), "evening"),
              (clock_time(8), "world_morning"), (clock_time(17), "world_evening")]
+    # NASDAQ-100 movers: the US session is the date 12 hours before each KST post time.
+    for at, edition in ((clock_time(22, 40), "us_movers_pre"), (clock_time(0, 50), "us_movers_open"), (clock_time(6, 50), "us_movers_close")):
+        session = (datetime.combine(day, at, KST) - timedelta(hours=12)).date()
+        if is_trading_day(session, "US"):
+            slots.append((at, edition))
     if is_trading_day(day, "KR"):
         slots += [(clock_time(16), "close"), (clock_time(9, 30), "movers_open"),
                   (clock_time(12, 40), "movers_noon"), (clock_time(16, 15), "movers_close")]

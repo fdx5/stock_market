@@ -855,7 +855,7 @@ export default function MarketMapPage({
       <Tape />
 
       <main className="d2-main mm-main">
-      {market !== "us" && <MoversEntry place="map" />}
+      <MoversEntry place="map" market={market === "us" ? "us" : "kr"} />
       <header className="app-header-trailing ng-map-heading">
         <div className="kospi-map-titlebar">
           <div>

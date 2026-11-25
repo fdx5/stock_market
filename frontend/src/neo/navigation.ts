@@ -2,7 +2,7 @@ import { SERVICES } from "../markets/catalog";
 import { GUIDE_SEO } from "../guides/catalog";
 const BASE_NEO_GROUPS = [
   { id: "markets", ko: "마켓 워크스페이스", en: "Markets", icon: "chart", links: [
-    ["/", "관제 홈", "Command home"], ["/desk", "국내 증시", "Korea desk"], ["/global", "미국 증시", "US desk"], ["/world-markets", "전세계 증시", "World markets"], ["/pulse-board", "증시 전광판", "Pulse board"], ["/exchange", "증권 거래소", "Stock exchange"], ["/hot-issues", "오늘의 핫이슈", "Today's hot issues"], ["/movers", "급등·급락 이유", "Why stocks moved"], ["/stocks", "종목 탐색", "Stock explorer"], ["/kospi", "코스피 지수", "KOSPI index"], ["/kosdaq", "코스닥 지수", "KOSDAQ index"], ["/nasdaq", "나스닥 지수", "NASDAQ index"],
+    ["/", "관제 홈", "Command home"], ["/desk", "국내 증시", "Korea desk"], ["/global", "미국 증시", "US desk"], ["/world-markets", "전세계 증시", "World markets"], ["/pulse-board", "증시 전광판", "Pulse board"], ["/exchange", "증권 거래소", "Stock exchange"], ["/hot-issues", "오늘의 핫이슈", "Today's hot issues"], ["/movers", "급등·급락 이유", "Why stocks moved"], ["/movers/us", "나스닥 급등·급락 이유", "NASDAQ movers"], ["/stocks", "종목 탐색", "Stock explorer"], ["/kospi", "코스피 지수", "KOSPI index"], ["/kosdaq", "코스닥 지수", "KOSDAQ index"], ["/nasdaq", "나스닥 지수", "NASDAQ index"],
   ] },
   { id: "etfs", ko: "ETF 마켓", en: "ETF markets", icon: "layers", links: [
     ["/etf/kr", "국내 ETF", "Korea ETFs"], ["/etf/us", "해외 ETF", "Overseas ETFs"],

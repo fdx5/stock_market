@@ -8,6 +8,9 @@ on:
     - cron: "30 0 * * 1-5" # 09:30 KST movers (early session)
     - cron: "40 3 * * 1-5" # 12:40 KST movers (midday)
     - cron: "15 7 * * 1-5" # 16:15 KST movers (close)
+    - cron: "40 13 * * 1-5" # 22:40 KST NASDAQ-100 movers (pre-market)
+    - cron: "50 15 * * 1-5" # 00:50 KST NASDAQ-100 movers (first hour)
+    - cron: "50 21 * * 1-5" # 06:50 KST NASDAQ-100 movers (close)
     - cron: "0 8 * * *" # 17:00 KST global index scoreboard
     - cron: "7,27,47 * * * *" # Recover due posts even when earlier runs are delayed
   workflow_dispatch:
@@ -30,7 +33,7 @@ on:
         description: Edition to preview
         required: true
         type: choice
-        options: [morning, evening, close, world_morning, world_evening, movers_open, movers_noon, movers_close]
+        options: [morning, evening, close, world_morning, world_evening, movers_open, movers_noon, movers_close, us_movers_pre, us_movers_open, us_movers_close]
 
 permissions:
   contents: write # Append public PNGs to the separate social-post-assets branch.

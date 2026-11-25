@@ -355,7 +355,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
       </div>
 
       <main className="d2-main">
-        {!us && !isEtf && <MoversEntry code={code} place="stock" />}
+        {!isEtf && <MoversEntry code={code} place="stock" market={us ? "us" : "kr"} />}
         <ServiceConnections compact path={`/stock/${code}`} code={code} market={us ? "nasdaq" : boardMarket === "KOSDAQ" ? "kosdaq" : "kospi"} region={isEtf ? market : undefined} />
         {loading && !name && (
           <div className="sk-loading">

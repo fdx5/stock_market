@@ -503,6 +503,7 @@ PAGES.update(public_markets.PAGES)
 PAGES.update(index_landing.PAGES)
 PAGES["/hot-issues"] = hot_issues.PAGE
 PAGES["/movers"] = movers.PAGE
+PAGES["/movers/us"] = movers.PAGE_US
 PAGES.update({path: (card["title"], card["description"]) for path, card in SOCIAL_CARDS.items() if path.startswith("/community/")})
 
 
@@ -580,17 +581,17 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
             else:
                 description = f"[{hot_data['slot_label']}판] {hot_data['headline']} — {description}"
     movers_data = movers_edition
-    if canonical_path == "/movers":
+    if canonical_path in ("/movers", "/movers/us"):
         try:
-            movers_data = movers.current()
+            movers_data = movers.current(market="us" if canonical_path == "/movers/us" else "kr")
         except Exception:
             movers_data = {}
     if movers_data is not None:
         if movers_edition:
             title, description = movers.edition_metadata(movers_edition)
-            page_image = f"{SITE}/movers/og/{movers_edition['edition']}/{movers_edition['slot_label'].replace(':', '')}.png"
+            page_image = SITE + movers.og_path(movers_edition)
         else:
-            page_image = f"{SITE}/movers/og/latest.png"
+            page_image = f"{SITE}{canonical_path}/og/latest.png"
             if movers_data.get("headline"):
                 description = f"[{movers_data['slot_label']} {movers_data['slot_name']}] {movers_data['headline']} — {description}"[:300]
         if movers_data.get("headline"):

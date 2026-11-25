@@ -498,16 +498,19 @@ def due_editions(now):
         start = dt.datetime.combine(day, dt.time(int(slot[:2]), int(slot[2:])), KST)
         if start <= now < start + dt.timedelta(hours=4):
             due.append((day, edition))
-    # Movers editions: 09:30 / 12:40 / 16:15 KST on KRX sessions, within 3 hours.
-    movers_due = [edition for edition, (h, m) in movers.POST_AT.items()
-                  if dt.datetime.combine(day, dt.time(h, m), KST) <= now
-                  < dt.datetime.combine(day, dt.time(h, m), KST)
-                  + dt.timedelta(hours=6 if edition == "movers_close" else 3)]  # close edition: until 22:15
-    if movers_due:
+    # Movers editions. KR: 09:30 / 12:40 / 16:15 KST on KRX sessions. US (NASDAQ-100): 22:40 / 00:50 / 06:50 KST
+    # on NYSE sessions (the session is the US date 12 hours earlier). Closing editions get a longer window.
+    for edition, (h, m) in movers.POST_AT.items():
+        start = dt.datetime.combine(day, dt.time(h, m), KST)
+        window = dt.timedelta(hours=6 if edition == "movers_close" else 4 if edition == "us_movers_close" else 3)
+        if not start <= now < start + window:
+            continue
         import exchange_calendars
 
-        if exchange_calendars.get_calendar("XKRX").is_session(day.isoformat()):
-            due += [(day, edition) for edition in movers_due]
+        us = movers.market(edition) == "us"
+        session = (start - dt.timedelta(hours=12)).date() if us else day
+        if exchange_calendars.get_calendar("XNYS" if us else "XKRX").is_session(session.isoformat()):
+            due.append((day, edition))
     ready = max(dt.datetime.combine(day, dt.time(16), KST),
                 market_close(day) + dt.timedelta(minutes=10))
     if now >= ready:

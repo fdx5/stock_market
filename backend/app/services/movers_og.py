@@ -16,8 +16,8 @@ _cache: dict[str, bytes] = {}
 _lock = threading.Lock()
 
 
-def render(data: dict | None) -> bytes:
-    cache_key = f"{data['slot']}" if data else "empty"
+def render(data: dict | None, market: str = "kr") -> bytes:
+    cache_key = f"{market}:{data['slot']}" if data else f"{market}:empty"
     with _lock:
         if cache_key in _cache:
             return _cache[cache_key]
@@ -27,9 +27,9 @@ def render(data: dict | None) -> bytes:
         d.line((x, 0, x, H), fill=(12, 18, 32))
     for y in range(0, H, 40):
         d.line((0, y, W, y), fill=(12, 18, 32))
-    d.text((48, 38), "오늘의 급등·급락 이유", font=_font(26, True), fill=CYAN)
+    d.text((48, 38), "나스닥100 급등·급락 이유" if market == "us" else "오늘의 급등·급락 이유", font=_font(26, True), fill=CYAN)
     if not data or not data.get("stocks"):
-        d.text((48, 260), "평일 09:20 · 12:30 · 16:00 업데이트", font=_font(44, True), fill=INK)
+        d.text((48, 260), "22:30 · 00:40 · 06:40 업데이트" if market == "us" else "평일 09:20 · 12:30 · 16:00 업데이트", font=_font(44, True), fill=INK)
     else:
         d.text((W - 48, 40), f"{data['edition'].replace('-', '.')} {data['slot_label']} {data['slot_name']}",
                font=_font(24, True), fill=SUB, anchor="ra")
@@ -51,7 +51,7 @@ def render(data: dict | None) -> bytes:
                 d.text((380, y + (row_h - 10) // 2), tag, font=_font(22), fill=SUB, anchor="lm")
             d.text((W - 70, y + (row_h - 10) // 2), f"{s['change_pct']:+.2f}%", font=_font(32, True), fill=tone, anchor="rm")
             y += row_h
-    d.text((48, H - 34), "kospimap.com/movers", font=_font(22, True), fill=CYAN, anchor="lm")
+    d.text((48, H - 34), "kospimap.com/movers" + ("/us" if market == "us" else ""), font=_font(22, True), fill=CYAN, anchor="lm")
     out = io.BytesIO()
     img.save(out, "PNG", optimize=True)
     value = out.getvalue()
