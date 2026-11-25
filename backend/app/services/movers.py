@@ -345,6 +345,9 @@ def _cli_env() -> dict:
     return env
 
 
+_last_usage: dict[str, int] = {}
+
+
 def ask_claude(prompt: str, timeout: int = 420) -> tuple[dict, str]:
     exe = shutil.which(os.environ.get("CLAUDE_CLI", "claude"))
     if not exe:
@@ -359,7 +362,12 @@ def ask_claude(prompt: str, timeout: int = 420) -> tuple[dict, str]:
     result = json.loads(proc.stdout)
     if result.get("is_error") or not isinstance(result.get("structured_output"), dict):
         raise RuntimeError("no structured output")
-    return result["structured_output"], next(iter(result.get("modelUsage") or {}), "")
+    # modelUsage can list a small helper model first; the writer is the one that produced the most output.
+    usage = result.get("modelUsage") or {}
+    model = max(usage, key=lambda m: (usage[m] or {}).get("outputTokens", 0), default="")
+    _last_usage.clear()
+    _last_usage.update({m: (u or {}).get("outputTokens", 0) for m, u in usage.items()})
+    return result["structured_output"], model
 
 
 def _pct(v: float) -> str:
@@ -469,7 +477,8 @@ def generate(slot: dt.datetime, market: str = "kr") -> dict:
     slot = slot.astimezone(KST)
     return {**payload, **data, "slot": slot.isoformat(timespec="minutes"), "edition": slot.date().isoformat(),
             "slot_label": f"{slot:%H:%M}", "slot_name": SLOT_NAMES.get(f"{slot:%H%M}", ""),
-            "generated_at": _now().isoformat(timespec="seconds"), "model": model or "headlines"}
+            "generated_at": _now().isoformat(timespec="seconds"), "model": model or "headlines",
+            "model_usage": dict(_last_usage) if model else {}}
 
 
 _lock = threading.Lock()
