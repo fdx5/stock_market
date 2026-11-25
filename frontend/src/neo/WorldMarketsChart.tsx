@@ -147,7 +147,7 @@ export default function WorldMarketsChart({points, label, benchmark}: {
           {[0, 1, 2, 3, 4].map(step => <span key={step}>{format(top - (top - bottom) * step / 4)}</span>)}
         </div>
       </div>
-      <div className="wm-chart-axis"><time>{first.date}</time><span>{samples.length}거래일</span><time>{last?.date}</time></div>
+      <div className="wm-chart-axis"><time>{first.date}</time><span>{samples.length - 1}거래일</span><time>{last?.date}</time></div>
     </div>
     <p className="wm-note">{comparing ? "첫 공통 거래일을 0%로 환산합니다. 최신 값에는 장중 시세가 포함될 수 있습니다."
       : benchmark ? "공통 거래일의 데이터가 부족해 선택한 지수만 표시합니다."

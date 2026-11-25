@@ -96,3 +96,25 @@ def test_single_failure_isolated_and_compact_snapshot_tracks_history_corrections
     assert tail["quotes"]["^TWII"]["points"] == [{"date": "2026-11-25", "close": 116}]
     rows["^TWII"]["points"][0]["close"] += 1
     assert not world.board(response, full["history"])["compact"]
+
+
+def test_yahoo_previous_close_a_session_behind_is_rebased_on_daily_bar(monkeypatch):
+    """2026-11-25: Yahoo meta said previousClose=36811.9 (11-23) for ^TWII after the
+    40122.35 close of 11-24, turning a -4.80% day into +3.76%."""
+    monkeypatch.setattr(feed, "_direct_quote", lambda symbol: None)
+    monkeypatch.setattr(feed, "_history", lambda _: [{"date": "2026-11-23", "close": 36811.89},
+                                                     {"date": "2026-11-24", "close": 40122.35}])
+    monkeypatch.setattr(feed, "_chart", lambda *a: {"meta": {"regularMarketPrice": 38195.43, "previousClose": 36811.9,
+                        "regularMarketTime": STAMP - 60, "exchangeTimezoneName": "Asia/Taipei"}})
+    row = feed.get_index("^TWII")
+    assert row["change_pct"] == -4.8 and row["change"] == -1926.92 and row["regular_change_pct"] == -4.8
+    assert row["points"][-2:] == [{"date": "2026-11-24", "close": 40122.35}, {"date": "2026-11-25", "close": 38195.43}]
+
+
+def test_closed_twse_print_is_kept_over_a_slightly_newer_yahoo_print(monkeypatch):
+    close = int(dt.datetime.fromisoformat("2026-11-25T13:33:00+08:00").timestamp())
+    monkeypatch.setattr(feed.time, "time", lambda: close + 7200)
+    twse(monkeypatch, tlong=str(close * 1000))
+    monkeypatch.setattr(feed, "_chart", lambda *a: pytest.fail("Exchange close is authoritative"))
+    row = feed.get_index("^TWII")
+    assert row["quote_source"] == "twse_mis" and row["change_pct"] == -5.26

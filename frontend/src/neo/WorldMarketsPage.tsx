@@ -103,6 +103,15 @@ const indexLinks: Record<string, [string, string]> = {
   SPX: ["/sp500-map", "S&P 500 종목 지도"], IXIC: ["/nasdaq", "나스닥 상세"],
 };
 
+// CNBC labels treasury prints in New York time ("2:37 AM EST"); the page speaks KST.
+function etLabelToKst(label: string) {
+  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)\s*(EST|EDT)$/i.exec(label.trim());
+  if (!match) return label;
+  const hour = (Number(match[1]) % 12) + (match[3].toUpperCase() === "PM" ? 12 : 0);
+  const kstHour = (hour + (match[4].toUpperCase() === "EST" ? 14 : 13)) % 24;
+  return String(kstHour).padStart(2, "0") + ":" + match[2] + " KST";
+}
+
 function MacroWatch() {
   const ticker = useMarketTicker();
   const rates = useFeed<{items: TreasuryHeadline[]}>("/api/global/treasuries/quotes", 60_000);
@@ -124,7 +133,7 @@ function MacroWatch() {
         <span className="wm-macro-name">미국 10년물 금리 <i aria-hidden="true">↗</i></span>
         <strong>{number(rate?.yield_pct, 3)} <small>%</small></strong>
         <b data-tone={tone(rate?.change_bp)}>{signed(rate?.change_bp, " bp", 1)}</b>
-        <time>{rate?.quote_time_label ?? (rates.error ? "시세 미확인" : "시세 확인 중")}{rate && (rate.stale || rates.error) ? " · 최근 확인값" : ""}</time>
+        <time>{(rate?.quote_time_label && etLabelToKst(rate.quote_time_label)) ?? (rates.error ? "시세 미확인" : "시세 확인 중")}{rate && (rate.stale || rates.error) ? " · 최근 확인값" : ""}</time>
       </Link>
     </div>
   </section>;
@@ -270,7 +279,8 @@ function MarketDetail({row, rows, catalog, choose}: {row: IndexRow; rows: IndexR
   const {id, label, market, quote} = row;
   const peer = comparison === id ? undefined : rows.find(item => item.id === comparison);
   const points = quote?.points ?? [];
-  const chartPoints = points.slice(-period);
+  // N trading-day returns span N+1 closes; the chart must match the metrics below it.
+  const chartPoints = points.slice(-(period + 1));
   const prices = chartPoints.map(point => point.close);
   const week = tradingReturn(points, 5), month = tradingReturn(points, 20);
   const link = indexLinks[id];

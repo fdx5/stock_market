@@ -91,6 +91,39 @@ def _direct_quote(symbol):
     return None
 
 
+def _same_session_as_direct(symbol, direct):
+    local = dt.datetime.fromtimestamp(time.time(), ZoneInfo("Asia/Taipei"))
+    return local.date().isoformat() == direct["quote_date"] and local.time() >= dt.time(13, 35)
+
+
+def _rebase_on_history(quote: dict, points: list[dict]) -> dict:
+    """Measure a Yahoo print against the exchange's previous daily close.
+
+    Yahoo's chart meta `previousClose` has been seen a whole session behind for
+    Asian indices (^TWII, ^HSI, 000001.SS, ^AXJO on 2026-11-25), which turned a
+    -4.8% day into +3.8%. The daily series carries the right prior bar, so it wins
+    whenever it is plausibly the same instrument (within 20%).
+    """
+    if quote.get("quote_source") != "yahoo_chart" or not quote.get("quote_date"):
+        return quote
+    prior = [p for p in points if p["date"] < quote["quote_date"]]
+    if not prior:
+        return quote
+    previous = prior[-1]["close"]
+    price, regular = quote.get("close"), quote.get("regular_close")
+    change = quote.get("change")
+    if price is None or change is None or not math.isfinite(previous) or previous <= 0:
+        return quote
+    stated = price - change
+    if stated <= 0 or abs(previous / stated - 1) > 0.2 or abs(previous / stated - 1) < 1e-5:
+        return quote
+    fixed = {**quote, "change": round(price - previous, 4),
+             "change_pct": round((price / previous - 1) * 100, 2), "previous_source": "daily_history"}
+    if quote.get("regular_change_pct") is not None and regular:
+        fixed["regular_change_pct"] = round((regular / previous - 1) * 100, 2)
+    return fixed
+
+
 def _latest_quote(symbol):
     try:
         direct = _direct_quote(symbol)
@@ -98,6 +131,10 @@ def _latest_quote(symbol):
         direct = None
     # A valid but frozen primary feed must also give the alternate a chance.
     if direct and time.time() - direct["quote_time"] < 120:
+        return direct
+    # After the close both feeds hold the same final print; the exchange's own
+    # previous close is authoritative (Yahoo's meta has lagged a session for ^TWII).
+    if direct and direct.get("quote_source") == "twse_mis" and _same_session_as_direct(symbol, direct):
         return direct
     try:
         result = _chart(symbol, "1d", "1m")
@@ -166,6 +203,7 @@ def _refresh(symbol: str) -> dict:
             points.append(point)
         elif points[-1]["date"] == point["date"]:
             points[-1] = point
+        quote = _rebase_on_history(quote, points)
     elif points:
         close = points[-1]["close"]
         previous = points[-2]["close"] if len(points) > 1 else None
