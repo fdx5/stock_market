@@ -86,3 +86,19 @@ def test_text_line_endings_are_portable_but_data_changes_are_not(tmp_path):
     assert asset_cdn.verify(tmp_path, manifest) == 1
     (tmp_path / "settings.json").write_bytes(b'{"a":2}\r\n')
     assert asset_cdn.verify(tmp_path, manifest) == 0
+
+
+def test_exchange_floor_manifest_entries_exist_in_public_with_matching_sha1():
+    repo_root = asset_cdn.MANIFEST.parents[3]
+    public_dir = repo_root / "frontend" / "public"
+    if not public_dir.is_dir():
+        return
+    data = json.loads(asset_cdn.MANIFEST.read_text(encoding="utf-8"))
+    missing_or_mismatched = []
+    for rel, expected_sha1 in data.get("files", {}).items():
+        if not rel.startswith("3d/exchange-floor/"):
+            continue
+        p = public_dir / rel
+        if not p.is_file() or asset_cdn._sha1(p) != expected_sha1:
+            missing_or_mismatched.append(rel)
+    assert missing_or_mismatched == []

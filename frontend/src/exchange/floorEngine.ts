@@ -364,6 +364,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       if (useBitmapUpload) {
         const res = await fetch(url, { signal });
         if (!res.ok) throw new Error(`Texture unavailable (${res.status}): ${url}`);
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        if (ct.includes("text/html")) throw new Error(`Unexpected HTML response for texture: ${url}`);
         const blob = await res.blob();
         signal.throwIfAborted();
         const bitmap = resize
@@ -436,10 +438,63 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       renderer.initTexture(tex);
       return tex;
     };
-    const loadSkylineFallback = async (file: string) => {
-      const tex = await loadSkyline(file, false);
+    const makeEmergencySkyline = (file: string) => {
+      const c = document.createElement("canvas");
+      c.width = 64;
+      c.height = 32;
+      const g = c.getContext("2d", { alpha: false });
+      if (g) {
+        const grad = g.createLinearGradient(0, 0, 0, c.height);
+        if (file.includes("night")) {
+          grad.addColorStop(0, "#091326");
+          grad.addColorStop(0.55, "#132645");
+          grad.addColorStop(1, "#0b1628");
+        } else if (file.includes("golden")) {
+          grad.addColorStop(0, "#4b6b94");
+          grad.addColorStop(0.55, "#d89c6a");
+          grad.addColorStop(1, "#2b3648");
+        } else {
+          grad.addColorStop(0, "#6fa7de");
+          grad.addColorStop(0.55, "#cbe0f5");
+          grad.addColorStop(1, "#3b5875");
+        }
+        g.fillStyle = grad;
+        g.fillRect(0, 0, c.width, c.height);
+      }
+      const tex = new Texture(c);
+      tex.colorSpace = SRGBColorSpace;
+      tex.flipY = false;
+      tex.wrapS = RepeatWrapping;
+      tex.wrapT = ClampToEdgeWrapping;
+      tex.generateMipmaps = false;
+      tex.minFilter = LinearFilter;
+      tex.magFilter = LinearFilter;
+      tex.needsUpdate = true;
+      renderer.initTexture(tex);
       releases.push(() => disposeTexSafe(tex));
       return tex;
+    };
+    const loadSkylineFallback = async (file: string) => {
+      try {
+        const tex = await loadSkyline(file, false);
+        releases.push(() => disposeTexSafe(tex));
+        return tex;
+      } catch (err) {
+        if (disposed || signal.aborted) throw err;
+        const prev = file.replace(/-v7\.webp$/, "-v6.webp");
+        if (prev !== file) {
+          try {
+            console.warn(`[exchange] skyline ${file} unavailable, falling back to ${prev}`, err);
+            const tex = await loadSkyline(prev, false);
+            releases.push(() => disposeTexSafe(tex));
+            return tex;
+          } catch (prevErr) {
+            if (disposed || signal.aborted) throw prevErr;
+          }
+        }
+        console.warn(`[exchange] skyline ${file} unavailable, using procedural sky fallback`, err);
+        return makeEmergencySkyline(file);
+      }
     };
     // Download ONLY the active initial mood's skyline before reveal (saves 8-10MB critical-path bytes + 2x 8K decodes!)
     const { model, shellMap, fixtureMap, groundMap, initialSkyTex } = await (async () => {
