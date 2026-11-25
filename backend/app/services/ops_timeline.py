@@ -259,11 +259,18 @@ def _naver_social(day: dt.date, now: dt.datetime) -> list[dict]:
     except Exception:
         seen_at = None
     if day == now.date():
+        srv = pub.server_status()
+        refused = srv.get("refused_at")
+        recent_refusal = bool(refused) and now - dt.datetime.fromisoformat(refused) < dt.timedelta(hours=3)
+        jobs.append({"id": "nb:server", "group": "blog", "at": f"{now:%H:%M}", "name": "서버 블로그 발행(PC 꺼져도 게시)",
+                     "status": "failed" if recent_refusal else "ok",
+                     "detail": (f"네이버가 서버 글쓰기를 거부함({refused[11:16]}) — 1시간 쉬고 재시도, 그동안 PC가 백업"
+                                if recent_refusal else "서버 발행 가능 상태(최근 거부 없음)")})
         fresh = seen_at is not None and now - seen_at < dt.timedelta(minutes=25)
-        jobs.append({"id": "nb:worker", "group": "blog", "at": f"{now:%H:%M}", "name": "PC 블로그 발행기 응답",
-                     "status": "ok" if fresh else "failed",
+        jobs.append({"id": "nb:worker", "group": "blog", "at": f"{now:%H:%M}", "name": "PC 블로그 발행기(백업) 응답",
+                     "status": "ok" if fresh else "unknown",
                      "detail": (f"마지막 응답 {seen_at:%H:%M} · 버전 {(worker or {}).get('version')}" if seen_at
-                                else "응답 기록 없음") + ("" if fresh else " — PC가 꺼졌거나 예약 작업이 멈췄습니다")})
+                                else "응답 기록 없음") + ("" if fresh else " — PC 꺼짐(서버가 게시 담당)")})
     return jobs
 
 

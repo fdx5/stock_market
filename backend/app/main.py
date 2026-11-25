@@ -616,6 +616,9 @@ def _start_naver_session_keepalive() -> None:
     # datacenter IP is a session that expires early. No-ops when NAVER_SESSION_KEY
     # is unset, which is also how the whole feature stays off until it is seeded.
     naver_publisher.start_keepalive_scheduler()
+    # Blog twins of the SNS editions + briefs, published from the server (PC is the backup).
+    from app.services import naver_social_publisher
+    naver_social_publisher.start_server_scheduler()
 
 
 @app.get("/0ea2d0c3462664f25b0c41624bd76ef0.txt", include_in_schema=False)

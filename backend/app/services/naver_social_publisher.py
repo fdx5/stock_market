@@ -1,9 +1,11 @@
 """Publishes the Naver blog twin of every automated SNS edition, at the SNS time.
 
-Runs on the owner's Windows PC (backend/scripts/naver_blog_worker.py, every 2 minutes
-from Task Scheduler). Not on Render: Naver refuses blog writes from the Render IP
-("no privilege") while the same session writes fine from a Korean residential line —
-see docs/naver-blog-auto-publish-design.md and the brief publisher's history.
+Runs in two places against one ledger, so whichever can write first publishes:
+  * the server (start_server_scheduler, every 2 minutes) — must work with the PC off;
+  * the owner's PC (backend/scripts/naver_blog_worker.py from Task Scheduler) as backup.
+Naver has refused blog writes from the Render IP ("no privilege") while the same session
+writes fine from a Korean residential line; when that happens the server pauses for an
+hour instead of hammering Naver, and the PC (or a later server try) picks the post up.
 
 Per edition (naver_social_content.EDITIONS):
   * due from its SNS post time until its window closes (3–6 hours);
@@ -104,7 +106,7 @@ def publish_edition(day: dt.date, edition: str, cookies: list[dict], *, dry_run:
 
 
 def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list[str] | None = None,
-            force_day: dt.date | None = None) -> dict:
+            force_day: dt.date | None = None, source: str = "pc") -> dict:
     """Publishes everything currently due. `force_day`+`only` publishes those editions
     for that day regardless of the clock (manual tests and recoveries)."""
     now = now or dt.datetime.now(KST)
@@ -167,7 +169,7 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
             except naver_blog_client.NaverSessionExpired as exc:
                 if not dry_run:
                     store.release(k, f"session refused: {exc}", refund=True)
-                    store.log_run(k, "session_refused", str(exc)[:400])
+                    store.log_run(k, "session_refused", f"[{source}] {str(exc)[:400]}")
                 result["failed"].append({"key": k, "error": str(exc)[:200]})
                 result["status"] = "session_refused"
                 break
@@ -175,7 +177,7 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
                 log.exception("naver social publish failed for %s", k)
                 if not dry_run:
                     store.release(k, f"{type(exc).__name__}: {exc}", refund=False)
-                    store.log_run(k, "failed", f"{type(exc).__name__}: {exc}")
+                    store.log_run(k, "failed", f"[{source}] {type(exc).__name__}: {exc}")
                 result["failed"].append({"key": k, "error": f"{type(exc).__name__}: {str(exc)[:180]}"})
                 continue
             post = outcome["post"]
@@ -200,7 +202,7 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
             store.mark_published(k, log_no=outcome["log_no"], post_url=outcome["post_url"], title=post.title,
                                  tags=post.tags, variant=post.variant, campaign=post.campaign, category_seen=seen,
                                  chars=len(post.text()), images=len(post.images))
-            store.log_run(k, "published", f"{outcome['post_url']} · {post.variant} · 카테고리 {seen} · "
+            store.log_run(k, "published", f"[{source}] {outcome['post_url']} · {post.variant} · 카테고리 {seen} · "
                                           f"{int(time.monotonic() - started)}초")
             naver_session_store.mark_ok()
             posted += 1
@@ -211,3 +213,63 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
     if result["failed"] and result["status"] == "ok":
         result["status"] = "partial"
     return result
+
+
+# --- server scheduler ---------------------------------------------------------------
+
+SERVER_PAUSE_SECONDS = int(os.environ.get("NAVER_SERVER_PAUSE_SECONDS", "3600"))
+_server = {"paused_until": 0.0, "done": set(), "briefs_at": 0.0, "briefs_done": "", "last": None, "refused_at": None}
+
+
+def server_status() -> dict:
+    return {"paused_until": _server["paused_until"], "last": _server["last"], "refused_at": _server["refused_at"]}
+
+
+def _server_tick() -> None:
+    from app.services import naver_publisher
+
+    now = dt.datetime.now(KST)
+    if time.time() < _server["paused_until"]:
+        return
+    todo = [(d, e) for d, e in due(now) if f"{d}:{e}" not in _server["done"]]
+    if todo:
+        result = run_due(now, source="server")
+        _server["last"] = {k: v for k, v in result.items() if v}
+        for item in result.get("published", []):
+            _server["done"].add(item["key"])
+        if result["status"] == "all_done":
+            _server["done"].update(f"{d}:{e}" for d, e in todo)
+        if result["status"] == "session_refused":
+            _server["paused_until"] = time.time() + SERVER_PAUSE_SECONDS
+            _server["refused_at"] = now.isoformat(timespec="seconds")
+            log.warning("Naver refused a server-side write; pausing server publishing for %ss", SERVER_PAUSE_SECONDS)
+            return
+    if (trading_calendar.is_trading_day(now.date(), "KR") and dt.time(16, 20) <= now.time() < dt.time(23, 0)
+            and _server["briefs_done"] != now.date().isoformat() and time.time() - _server["briefs_at"] >= 600):
+        _server["briefs_at"] = time.time()
+        result = naver_publisher.run(now.date().isoformat(), triggered_by="server")
+        if result.get("status") == "session_expired":
+            _server["paused_until"] = time.time() + SERVER_PAUSE_SECONDS
+            _server["refused_at"] = now.isoformat(timespec="seconds")
+        elif result.get("status") == "nothing_to_do":
+            rows = [r for r in naver_publish_store.recent(10) if r["report_date"] == now.date().isoformat()]
+            if len(rows) >= 7 and all(r["status"] == "published" for r in rows):
+                _server["briefs_done"] = now.date().isoformat()
+
+
+def _server_loop() -> None:
+    time.sleep(random.randint(60, 180))
+    while True:
+        try:
+            _server_tick()
+        except Exception:
+            log.exception("server naver tick failed")
+        time.sleep(120)
+
+
+def start_server_scheduler() -> None:
+    if os.environ.get("NAVER_PUBLISH_ON_SERVER", "1") == "0" or not naver_session_store.is_configured():
+        log.info("server-side Naver publishing is off")
+        return
+    import threading
+    threading.Thread(target=_server_loop, daemon=True, name="naver-social-server").start()

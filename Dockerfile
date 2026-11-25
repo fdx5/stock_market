@@ -48,6 +48,9 @@ RUN python -m playwright install --with-deps chromium \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY backend/app ./app
+# The SNS image builders the Naver blog twins reuse (app/services/naver_social_content.py).
+COPY scripts/social_publish.py scripts/movers_social.py scripts/world_indices_social.py /scripts/
+COPY scripts/social_flags /scripts/social_flags
 COPY --from=frontend-build /backend/app/data/system_inventory.json ./app/data/system_inventory.json
 COPY --from=frontend-build /frontend/dist ./app/static
 

@@ -66,11 +66,10 @@ CHARTS_ENABLED = os.environ.get("NAVER_PUBLISH_CHARTS", "1") != "0"
 # Blog category "오늘의 브리핑" (under 게시판). Earlier posts stay where they are.
 BRIEF_CATEGORY_NO = int(os.environ.get("NAVER_BRIEF_CATEGORY_NO", "8"))
 
-# Naver refuses blog writes from the Render IP ("no privilege", every day since 2026-09)
-# while the same session writes fine from the owner's PC. On Render the run therefore
-# only queues the day's briefs; backend/scripts/naver_blog_worker.py on the PC publishes
-# them. NAVER_PUBLISH_ON_SERVER=1 restores publishing from the server.
-DEFER_TO_LOCAL = bool(os.environ.get("RENDER")) and os.environ.get("NAVER_PUBLISH_ON_SERVER") != "1"
+# Set NAVER_PUBLISH_ON_SERVER=0 to make the server only queue the briefs and leave
+# publishing to the owner's PC (backend/scripts/naver_blog_worker.py). By default the
+# server publishes too, so the posts go out with the PC off; both share one ledger.
+DEFER_TO_LOCAL = bool(os.environ.get("RENDER")) and os.environ.get("NAVER_PUBLISH_ON_SERVER") == "0"
 
 # One run at a time in this process, mirroring market_brief._lock. The store's claim()
 # is the real cross-process guard; this just avoids two threads spinning up two
@@ -95,9 +94,17 @@ def _meta_for(market: str) -> dict | None:
     return None
 
 
+_alert_sent: dict[str, float] = {}
+
+
 def _alert(text: str) -> None:
     """Admin notification. Never allowed to break the batch — an unconfigured or
-    rate-limited Kakao app must not turn a publishing problem into a crash."""
+    rate-limited Kakao app must not turn a publishing problem into a crash.
+    The same alert is sent at most once every 6 hours (the server retries often)."""
+    first = (text or "").splitlines()[0] if text else ""
+    if time.time() - _alert_sent.get(first, 0) < 6 * 3600:
+        return
+    _alert_sent[first] = time.time()
     try:
         kakao_notify.send_message(text)
     except Exception:
