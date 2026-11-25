@@ -1,5 +1,5 @@
 /* 상단 맥락 바: '오늘의 핫이슈' 미니 전광판 — 판 헤드라인과 01~06 이슈 제목이 오른쪽에서 왼쪽으로 흐른다 */
-.ng-context .ng-hot-ticker{--hot:#ff5f6d;--hot-soft:#ff5f6d33;flex:1 1 540px;min-width:0;display:flex;align-items:stretch;height:38px;margin:0;border:1px solid #ff6b7a59;border-radius:6px;overflow:hidden;background:radial-gradient(circle,#ff8a9612 0.6px,transparent 0.9px) 0 0/4px 4px,linear-gradient(90deg,#1c0d16f2,#120a17f2);box-shadow:inset 0 0 18px #ff5f6d14,0 0 12px #ff5f6d0f}
+.ng-context .ng-hot-ticker{--hot:#ff5f6d;--hot-soft:#ff5f6d33;flex:1 1 420px;min-width:0;display:flex;align-items:stretch;height:38px;margin:0;border:1px solid #ff6b7a59;border-radius:6px;overflow:hidden;background:radial-gradient(circle,#ff8a9612 0.6px,transparent 0.9px) 0 0/4px 4px,linear-gradient(90deg,#1c0d16f2,#120a17f2);box-shadow:inset 0 0 18px #ff5f6d14,0 0 12px #ff5f6d0f}
 .ng-context .ng-hot-ticker.is-empty{flex:0 0 auto;margin-left:auto}
 
 /* 왼쪽 고정 라벨 */
@@ -50,8 +50,16 @@ html[data-fx="minimal"] .ng-context .ng-hot-ticker-seq[aria-hidden]{display:none
   .ng-context:has(>.ng-hot-ticker.is-ready)>.ng-exchange-slot{margin-left:0}
 }
 .ng-context .ng-exchange-slot+.ng-hot-ticker.is-empty{margin-left:8px}
-/* 노트북 폭: 시세 배지와 나눠 쓰면 너무 짧아지므로 전광판이 한 줄을 통째로 쓴다 */
-@media(min-width:900px) and (max-width:1500px){.ng-context .ng-hot-ticker.is-ready{flex-basis:100%}}
+/* 한 줄 배치(전광판 420px 이상 + 시세 배지 + 방문자 + 공유하기)가 안 되는 폭에서는 전광판이 윗줄을
+   통째로 쓰고, 시세 배지·방문자·공유하기는 아랫줄에 함께 둔다. 공유하기만 따로 떨어지는 줄바꿈을 막는다.
+   경계 = 전광판 420 + 배지 묶음(2개 520·3개 760·4개 970) + 방문자·공유·간격 약 210 + 사이드바·여백 296. */
+@media(min-width:900px) and (max-width:1449px){.ng-context:has(>.ng-market-quotes) .ng-hot-ticker.is-ready{flex-basis:100%}}
+@media(min-width:900px) and (max-width:1689px){.ng-context:has(>.ng-market-quotes>:nth-child(3)) .ng-hot-ticker.is-ready{flex-basis:100%}}
+@media(min-width:900px) and (max-width:1899px){.ng-context:has(>.ng-market-quotes>:nth-child(4)) .ng-hot-ticker.is-ready{flex-basis:100%}}
+/* 아랫줄: 배지 묶음이 남는 폭만 쓰도록 해 방문자·공유하기가 같은 줄에 남게 한다 */
+@media(min-width:900px) and (max-width:1449px){.ng-context:has(>.ng-hot-ticker.is-ready) .ng-market-quotes{flex:1 1 0;max-width:760px}.ng-context:has(>.ng-hot-ticker.is-ready) .ng-market-quotes:has(>:nth-child(4)){max-width:970px}.ng-context:has(>.ng-hot-ticker.is-ready) .ng-market-quotes:has(>:nth-child(2):last-child){max-width:520px}}
+@media(min-width:1450px) and (max-width:1689px){.ng-context:has(>.ng-hot-ticker.is-ready) .ng-market-quotes:has(>:nth-child(3)){flex:1 1 0;max-width:760px}.ng-context:has(>.ng-hot-ticker.is-ready) .ng-market-quotes:has(>:nth-child(4)){max-width:970px}}
+@media(min-width:1690px) and (max-width:1899px){.ng-context:has(>.ng-hot-ticker.is-ready) .ng-market-quotes:has(>:nth-child(4)){flex:1 1 0;max-width:970px}}
 
 /* 태블릿·모바일: 전광판을 맨 위 한 줄로 따로 둔다 */
 @media(max-width:899px){
@@ -60,6 +68,9 @@ html[data-fx="minimal"] .ng-context .ng-hot-ticker-seq[aria-hidden]{display:none
   .ng-context .ng-hot-ticker-seq>a>strong{font-size:13px}
 }
 @media(max-width:599px){
+  /* 경로 표시가 한 줄을 다 쓰지 않고 방문자·공유하기와 같은 줄에 남는다(길면 말줄임) */
+  .ng-context:has(>.ng-hot-ticker)>span:first-child{flex:1 1 0;min-width:0;overflow:hidden;white-space:nowrap}
+  .ng-context:has(>.ng-hot-ticker)>span:first-child>*{flex:none}
   .ng-context .ng-hot-ticker{height:34px;border-radius:5px}
   .ng-context .ng-hot-ticker-tag{padding:0 9px;gap:6px;font-size:11px}
   .ng-context .ng-hot-ticker-tag>small{display:none}
