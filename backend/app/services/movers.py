@@ -35,6 +35,8 @@ MIN_TURNOVER_M = 3_000      # 30억원 (Naver reports 백만원)
 MIN_MARCAP_100M = 500       # 500억원 (Naver reports 억원)
 EXCLUDE = re.compile(r"스팩|\d*우[A-C]?$|우\(전환\)$|ETN|리츠$")
 LATE_LIMIT = dt.timedelta(hours=2)
+# The closing edition stays true all evening, so a missed 16:00 run may still be written until 23:00.
+LATE_LIMITS = {"1600": dt.timedelta(hours=7)}
 MAX_ATTEMPTS = 3
 RETRY_GAP = dt.timedelta(minutes=6)
 
@@ -111,7 +113,7 @@ def due_slot(now: dt.datetime | None = None) -> dt.datetime | None:
         return None
     for slot in reversed(slot_times(now.date())):
         if slot <= now:
-            return slot if now - slot <= LATE_LIMIT else None
+            return slot if now - slot <= LATE_LIMITS.get(f"{slot:%H%M}", LATE_LIMIT) else None
     return None
 
 

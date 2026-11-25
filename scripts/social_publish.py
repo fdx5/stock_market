@@ -501,7 +501,8 @@ def due_editions(now):
     # Movers editions: 09:30 / 12:40 / 16:15 KST on KRX sessions, within 3 hours.
     movers_due = [edition for edition, (h, m) in movers.POST_AT.items()
                   if dt.datetime.combine(day, dt.time(h, m), KST) <= now
-                  < dt.datetime.combine(day, dt.time(h, m), KST) + dt.timedelta(hours=3)]
+                  < dt.datetime.combine(day, dt.time(h, m), KST)
+                  + dt.timedelta(hours=6 if edition == "movers_close" else 3)]  # close edition: until 22:15
     if movers_due:
         import exchange_calendars
 
