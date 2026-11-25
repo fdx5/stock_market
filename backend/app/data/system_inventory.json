@@ -95,6 +95,10 @@
     "/market-radar",
     "/market/kospi/foreign-buying",
     "/markets",
+    "/movers",
+    "/movers/",
+    "/movers/us",
+    "/movers/us/",
     "/nasdaq",
     "/nasdaq-100",
     "/nasdaq100-map",
@@ -140,7 +144,7 @@
     "/world-markets",
     "/yield-curve-lab"
   ],
-  "source_files": 1068,
+  "source_files": 1075,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -658,6 +662,16 @@
       "cron": [
         "15 13,22 * * *",
         "0,40 7 * * 1-5",
+        "0 23 * * *",
+        "0 22 * * 1-5",
+        "0 3 * * 1-5",
+        "30 0 * * 1-5",
+        "40 3 * * 1-5",
+        "15 7 * * 1-5",
+        "10 12 * * 1-5",
+        "50 15 * * 1-5",
+        "50 21 * * 1-5",
+        "0 8 * * *",
         "7,27,47 * * * *"
       ],
       "endpoints": []

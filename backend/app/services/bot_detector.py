@@ -84,3 +84,94 @@ def is_bot(user_agent: str | None) -> bool:
         return True
     lowered = user_agent.lower()
     return any(token in lowered for token in _BOT_TOKENS)
+
+
+# Families for the growth control room's bot panel: which kind of automation a
+# declared-bot row came from. Order matters — the first family whose token matches
+# wins, so the specific operators come before the generic "spider"/"crawler" words.
+_FAMILIES = (
+    ("search", "검색엔진 크롤러", ("googlebot", "google-inspectiontool", "storebot-google", "google favicon",
+        "apis-google", "mediapartners-google", "adsbot-google", "feedfetcher-google", "googleother",
+        "google-safety", "bingbot", "bingpreview", "adidxbot", "msnbot", "yeti", "daumoa", "yandex",
+        "baiduspider", "sogou", "exabot", "seznambot", "qwantify", "duckduck", "slurp", "petalbot",
+        "coccocbot", "mojeekbot", "gigabot", "ia_archiver", "applebot")),
+    ("ai", "AI·LLM 크롤러", ("gptbot", "oai-searchbot", "chatgpt-user", "claudebot", "claude-web", "anthropic-ai",
+        "perplexity", "youbot", "ccbot", "google-extended", "amazonbot", "bytespider", "diffbot",
+        "meta-externalagent", "facebookbot", "imagesiftbot", "omgili", "timpibot", "cohere-ai", "img2dataset")),
+    ("preview", "링크 미리보기", ("facebookexternalhit", "twitterbot", "linkedinbot", "slackbot", "telegrambot",
+        "discordbot", "whatsapp", "skypeuripreview", "embedly", "quora link preview", "pinterestbot",
+        "redditbot", "kakaotalk-scrap", "facebookcatalog")),
+    ("seo", "SEO·성능 도구", ("ahrefsbot", "semrushbot", "mj12bot", "dotbot", "rogerbot", "screaming frog",
+        "serpstatbot", "dataforseobot", "blexbot", "seokicks", "sistrix", "lighthouse", "pagespeed", "gtmetrix",
+        "amazonadbot")),
+    ("monitor", "가용성 모니터링", ("uptimerobot", "pingdom", "statuscake", "site24x7", "newrelicpinger")),
+    ("headless", "헤드리스·자동화 브라우저", ("headlesschrome", "headlessshell", "phantomjs", "puppeteer",
+        "playwright", "selenium", "cypress/")),
+    ("script", "스크립트·HTTP 클라이언트", ("curl/", "wget/", "python-requests", "python-urllib", "httpx/",
+        "aiohttp", "go-http-client", "java/", "okhttp", "axios/", "node-fetch", "got (", "scrapy")),
+)
+FAMILY_LABELS = {key: label for key, label, _ in _FAMILIES} | {
+    "other": "기타 크롤러", "no_agent": "User-Agent 없음", "webdriver": "웹드라이버(자동화 표시)",
+    "suspected": "자동화 의심(위장 브라우저)",
+}
+
+
+def family(user_agent: str | None) -> str:
+    """The bot family key of a declared-bot row (see FAMILY_LABELS)."""
+    if not user_agent or not user_agent.strip():
+        return "no_agent"
+    lowered = user_agent.lower()
+    for key, _, tokens in _FAMILIES:
+        if any(token in lowered for token in tokens):
+            return key
+    return "other" if is_bot(user_agent) else "webdriver"
+
+
+def short_agent(user_agent: str | None) -> str:
+    """A readable name for an agent string: the bot token or browser/version it carries."""
+    if not user_agent:
+        return "(User-Agent 없음)"
+    lowered = user_agent.lower()
+    for _, _, tokens in _FAMILIES:
+        for token in tokens:
+            if token in lowered:
+                start = lowered.index(token)
+                end = start + len(token)
+                while end < len(user_agent) and (user_agent[end].isalnum() or user_agent[end] in "/.-_"):
+                    end += 1
+                return user_agent[start:end].strip(" /;(")
+    import re
+    for pattern in (r"(SamsungBrowser/[\d.]+)", r"(Edg/\d+)", r"(Whale/\d+)", r"(Firefox/\d+)",
+                    r"(Chrome/\d+)", r"(Version/[\d.]+).*Safari"):
+        match = re.search(pattern, user_agent)
+        if match:
+            os_name = next((name for token, name in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
+                            ("Windows", "Windows"), ("Macintosh", "Mac"), ("CrOS", "ChromeOS"), ("Linux", "Linux"))
+                            if token in user_agent), "?")
+            return f"{match.group(1)} · {os_name}"
+    return user_agent[:60]
+
+
+def disguise_signals(user_agent: str | None) -> list[str]:
+    """Signals that an agent string which does *not* declare itself a bot is still
+    unlikely to be a person's browser. Used only to mark a cohort as suspected — on
+    its own a signal never reclassifies a visit (see growth_control._suspected_agents).
+    """
+    import re
+    if not user_agent:
+        return ["no_agent"]
+    signals = []
+    if not user_agent.startswith("Mozilla/"):
+        signals.append("non_browser_format")
+    chrome = re.search(r"Chrome/(\d+)", user_agent)
+    if chrome and int(chrome.group(1)) < 100 and "Edg" not in user_agent:
+        signals.append("outdated_chrome")
+    firefox = re.search(r"Firefox/(\d+)", user_agent)
+    if firefox and int(firefox.group(1)) < 90:
+        signals.append("outdated_firefox")
+    safari = re.search(r"Version/(\d+)[\d.]* (Mobile/\S+ )?Safari", user_agent)
+    if safari and int(safari.group(1)) < 13:
+        signals.append("outdated_safari")
+    if re.search(r"X11; Linux x86_64", user_agent) and "Android" not in user_agent:
+        signals.append("server_linux")
+    return signals

@@ -47,6 +47,64 @@ export interface GrowthOverview {
   campaigns: Array<{ campaign: string; source: string; visitors: number; pageviews: number }>;
 }
 
+/* ── 방문자 100배 성장 관제실 (/api/admin/growth/control) ── */
+export type GrowthChannel = "search" | "social" | "referral" | "email" | "direct";
+export interface GrowthLedgerRow {
+  date: string; weekday: number; live: boolean; verified: boolean;
+  sessions: number; pageviews: number; raw_sessions: number; raw_pageviews: number;
+  suspected_sessions: number | null; bot_sessions: number | null; bot_pageviews: number | null;
+  browsers: number | null; new_browsers: number | null;
+  channels: Record<GrowthChannel, number>;
+  bounce_rate: number | null; engaged_rate: number | null; pages_per_session: number | null; corrected_sessions: number | null;
+  ma7: number | null; dod: number | null; wow: number | null; z?: number; multiplier: number | null; flags: string[];
+}
+export interface GrowthRankRow { sessions: number; pageviews: number; bounce_rate: number | null; pages_per_session: number | null; [k: string]: string | number | null }
+export interface GrowthGoal {
+  id: number | null; created_at: string | null; baseline: number | null; method: string; baseline_from?: string | null; baseline_to?: string | null;
+  target_multiplier: number; target_date: string | null; note?: string | null; confirmed: boolean;
+  legacy: { started_at: string; baseline: number; target_multiplier: number } | null;
+  history: Array<{ id: number; created_at: string; baseline: number; method: string; target_multiplier: number; target_date: string | null }>;
+}
+export interface GrowthInsight { severity: "critical" | "warning" | "good" | "info"; area: string; title: string; evidence: string; action: string }
+export interface GrowthAction {
+  id: number; created_at: string; day: string; category: string; category_label: string; title: string; detail: string | null;
+  focus_channel: GrowthChannel | null; focus_path: string | null; days_measured: number; before: number | null; after: number | null;
+  change_pct: number | null; focus_before?: number; focus_after?: number;
+}
+export interface GrowthControl {
+  generated_at: string; start: string; end: string; goal: GrowthGoal;
+  kpis: {
+    ma7: number; ma7_prev: number; ma7_change_pct: number | null; multiplier: number | null; target_daily: number | null;
+    linear_progress: number | null; log_progress: number | null; cdgr: number | null; required_cdgr: number | null; days_left: number | null;
+    today: GrowthLedgerRow | null; projection: { share_done: number; projected_sessions: number; vs_ma7: number | null } | null;
+    range_sessions: number; range_raw_sessions: number; range_suspected: number; range_bot_sessions: number; best_day: GrowthLedgerRow | null;
+  };
+  milestones: Array<{ multiplier: number; target: number | null; reached: string | null; eta: string | null }>;
+  ledger: GrowthLedgerRow[];
+  history: Array<{ date: string; sessions: number; ma7: number | null }>;
+  channels: Array<GrowthRankRow & { channel: GrowthChannel; label: string }>;
+  sources: GrowthRankRow[]; landings: GrowthRankRow[]; campaigns: GrowthRankRow[]; referrers: GrowthRankRow[]; devices: GrowthRankRow[];
+  heatmap: number[][];
+  drivers: Array<{ channel: GrowthChannel; label: string; current: number; previous: number; delta: number }>;
+  landing_movers: Array<{ route: string; current: number; previous: number; delta: number }>;
+  automation: {
+    suspected_sessions: number; bot_sessions: number; bot_pageviews: number;
+    families: Array<{ family: string; label: string; sessions: number; pageviews: number }>;
+    agents: Array<{ agent: string; label: string; family: string; sessions: number; pageviews: number }>;
+    pages: Array<{ route: string; pageviews: number }>;
+    suspected_agents: Array<{ agent: string; sessions: number; pageviews: number; days: number; signals: string[] }>;
+    suspected_landings: GrowthRankRow[];
+  };
+  trust: {
+    score: number; checks: Array<{ key: string; status: "good" | "warning" | "critical" | "info"; title: string; detail: string; penalty: number }>;
+    unverified_days: string[]; mismatch: Array<{ date: string; daily_table: number; rollup: number }>;
+    last_event_at: string | null; rollup_version: number; backfill_days: number;
+  };
+  actions: GrowthAction[]; action_categories: Record<string, string>;
+  baseline_options: Array<{ method: string; label: string; from: string; to: string; value: number }>;
+  insights: GrowthInsight[];
+}
+
 export type DeviceType = "desktop" | "tablet" | "mobile" | "unknown";
 export interface DeviceTraffic {
   days: number; start_date: string; end_date: string; metric: "human_pageviews";
@@ -861,6 +919,18 @@ export const adminApi = {
     }
     return authedGet<GrowthOverview>(`/growth/overview?${params}`);
   },
+  growthControl: (days = 30, startDate?: string, endDate?: string) => {
+    const params = new URLSearchParams({ days: String(days) });
+    if (startDate && endDate) {
+      params.set("start_date", startDate);
+      params.set("end_date", endDate);
+    }
+    return authedGet<GrowthControl>(`/growth/control?${params}`);
+  },
+  growthGoal: (body: { baseline: number; method: string; baseline_from?: string | null; baseline_to?: string | null; target_multiplier: number; target_date?: string | null; note?: string | null }) =>
+    authedPostJson<GrowthGoal>("/growth/goal", body),
+  growthAction: (body: { day: string; category: string; title: string; detail?: string; focus_channel?: string | null; focus_path?: string }) =>
+    authedPostJson<{ ok: boolean }>("/growth/actions", body),
   trend: (range: AdminTrendRange) => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
   visitorTrend: (range: AdminTrendRange) =>
     authedGet<VisitorTrendResponse>(`/pages/visitor-trend?range=${range}`),

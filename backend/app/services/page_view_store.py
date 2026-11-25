@@ -3,7 +3,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.services import device_analytics, libsql_gate, turso
+from app.services import device_analytics, growth_schema, libsql_gate, turso
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -192,6 +192,9 @@ def _new_ready_connection():
     conn.execute(_TREND_DAILY_SCHEMA)
     conn.execute(_VISITORS_DAILY_SCHEMA)
     for sql in device_analytics.SCHEMAS:
+        conn.execute(sql)
+    # 100x growth control room: additive tables only (see growth_schema.py).
+    for sql in growth_schema.SCHEMAS:
         conn.execute(sql)
     # page_views_daily caches one row per closed day and is never recomputed once
     # written - which is right while the definition of a day's totals is stable, and

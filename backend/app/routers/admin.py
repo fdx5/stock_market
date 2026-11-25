@@ -268,6 +268,101 @@ def growth_overview(
             "current_multiplier": round(multiplier, 2), "achievement_pct": round(min(100, multiplier / target * 100), 2)}
 
 
+def _growth_range(days: int, start_date: str | None, end_date: str | None) -> tuple[str, str]:
+    today = (datetime.now(timezone.utc) + timedelta(hours=9)).date()
+    if (start_date is None) != (end_date is None):
+        raise HTTPException(status_code=400, detail="시작일과 종료일을 모두 입력해 주세요.")
+    if start_date and end_date:
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="올바른 날짜를 입력해 주세요.") from exc
+        if start > end:
+            raise HTTPException(status_code=400, detail="시작일은 종료일보다 늦을 수 없습니다.")
+        if end > today:
+            raise HTTPException(status_code=400, detail="종료일은 오늘보다 늦을 수 없습니다.")
+        if (end - start).days + 1 > 730:
+            raise HTTPException(status_code=400, detail="최대 730일까지 조회할 수 있습니다.")
+        return start.isoformat(), end.isoformat()
+    return (today - timedelta(days=days - 1)).isoformat(), today.isoformat()
+
+
+@router.get("/growth/control", dependencies=[Depends(require_admin)])
+def growth_control_overview(
+    days: int = Query(30, ge=1, le=730),
+    start_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+):
+    """방문자 100배 성장 관제실: verified daily ledger, drivers, automation, trust, insights."""
+    from app.services import growth_control
+    start, end = _growth_range(days, start_date, end_date)
+    return growth_control.cached_overview(start, end)
+
+
+class GrowthGoalPayload(BaseModel):
+    baseline: float
+    method: str
+    baseline_from: str | None = None
+    baseline_to: str | None = None
+    target_multiplier: int = 100
+    target_date: str | None = None
+    note: str | None = None
+
+
+@router.post("/growth/goal", dependencies=[Depends(require_admin)])
+def growth_goal_version(payload: GrowthGoalPayload):
+    """Append a goal version (the previous ones stay as history)."""
+    from app.services import growth_control
+    if not 0 < payload.baseline < 10_000_000:
+        raise HTTPException(status_code=400, detail="기준선은 0보다 커야 합니다.")
+    if not 2 <= payload.target_multiplier <= 10_000:
+        raise HTTPException(status_code=400, detail="목표 배수가 올바르지 않습니다.")
+    for value in (payload.baseline_from, payload.baseline_to, payload.target_date):
+        if value is not None and not _is_day(value):
+            raise HTTPException(status_code=400, detail="날짜 형식은 YYYY-MM-DD 입니다.")
+    goal = growth_control.add_goal_version(
+        payload.baseline, payload.method[:40], payload.baseline_from, payload.baseline_to,
+        payload.target_multiplier, payload.target_date, (payload.note or "")[:300] or None)
+    growth_control.invalidate()
+    return goal
+
+
+class GrowthActionPayload(BaseModel):
+    day: str
+    category: str
+    title: str
+    detail: str | None = None
+    focus_channel: str | None = None
+    focus_path: str | None = None
+
+
+@router.post("/growth/actions", dependencies=[Depends(require_admin)])
+def growth_action(payload: GrowthActionPayload):
+    """Append an action note (조치·실험 기록); its before/after impact is computed on read."""
+    from app.services import growth_control
+    if not _is_day(payload.day):
+        raise HTTPException(status_code=400, detail="날짜 형식은 YYYY-MM-DD 입니다.")
+    if payload.category not in growth_control.ACTION_CATEGORIES:
+        raise HTTPException(status_code=400, detail="분류가 올바르지 않습니다.")
+    title = payload.title.strip()
+    if not 1 <= len(title) <= 120:
+        raise HTTPException(status_code=400, detail="제목은 1~120자입니다.")
+    channel = payload.focus_channel if payload.focus_channel in growth_control.CHANNELS else None
+    growth_control.add_action(payload.day, payload.category, title, (payload.detail or "").strip()[:1000] or None,
+                              channel, (payload.focus_path or "").strip()[:200] or None)
+    growth_control.invalidate()
+    return {"ok": True}
+
+
+def _is_day(value: str) -> bool:
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+
 @router.get("/stocks/top", dependencies=[Depends(require_admin)])
 @ttl_cache(285)
 def stocks_top(limit: int = Query(10, ge=1, le=500)):
@@ -794,6 +889,8 @@ def start_warmer() -> None:
     log = logging.getLogger(__name__)
 
     def warm_once() -> None:
+        from app.services import growth_control
+        growth_control.start_rollup_worker()
         jobs = [
             # The batch first: every closed day the day-scale trend ranges read.
             # Idempotent, and a no-op once the month is rolled up.

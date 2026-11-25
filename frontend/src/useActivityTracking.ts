@@ -40,11 +40,14 @@ function acquisitionAttribution(): Attribution {
   if (/email|newsletter|mail/.test(text)) source_channel = "email";
   else if (/^(social|share)$/.test(utmMedium.toLowerCase())) source_channel = "social";
   else if (/^(referral|embed)$/.test(utmMedium.toLowerCase())) source_channel = "referral";
-  else if (query.has("gclid") || /google\.|search\.naver\.|bing\.|search\.daum\./.test(host)) {
+  else if (query.has("gclid") || /google\.|googlequicksearchbox|search\.naver\.|bing\.|search\.daum\.|duckduckgo|search\.yahoo|ecosia|zum\.com|search\.nate/.test(host)) {
     source_channel = "search";
-    source_name = query.has("gclid") || host.includes("google") ? "google" : host.includes("naver") ? "naver" : host.includes("daum") ? "daum" : "bing";
-  } else if (/instagram|facebook|twitter|x\.com|youtube|t\.co|linkedin|threads/.test(host) || /social/.test(text)) source_channel = "social";
-  else if (host && !host.includes(window.location.hostname)) source_channel = "referral";
+    source_name = query.has("gclid") || host.includes("google") ? "google" : host.includes("naver") ? "naver" : host.includes("daum") ? "daum"
+      : host.includes("duckduckgo") ? "duckduckgo" : host.includes("yahoo") ? "yahoo" : host.includes("ecosia") ? "ecosia"
+      : host.includes("zum") ? "zum" : host.includes("nate") ? "nate" : "bing";
+  } else if (/instagram|facebook|twitter|x\.com|youtube|t\.co|linkedin|threads|bsky\.app|reddit|t\.me|telegram|band\.us|kakao|blog\.naver|cafe\.naver/.test(host) || /social/.test(text)) source_channel = "social";
+  // The platform hostname and www/apex variants are this site, not an external link.
+  else if (host && !host.includes(window.location.hostname) && !/kospimap\.com$|onrender\.com$/.test(host)) source_channel = "referral";
   const result = { referrer, source_channel, source_name, utm_source: utmSource, utm_medium: utmMedium, utm_campaign: utmCampaign };
   try { sessionStorage.setItem(ATTRIBUTION_KEY, JSON.stringify(result)); } catch { /* best effort */ }
   return result;

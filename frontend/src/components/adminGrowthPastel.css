@@ -1,5 +1,0 @@
-/* Superseded — the pastel/dark-teal override palette this file used to carry
-   has been folded into adminGrowth.css's own tokens (site theme vars, same
-   card language as admin-dash-page). Kept as an empty file rather than
-   deleted so the existing `import "./adminGrowthPastel.css"` in
-   AdminGrowthPage.tsx doesn't need touching. */
