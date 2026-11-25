@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: "15 13,22 * * *" # 07:15 / 22:15 KST
     - cron: "0,40 7 * * 1-5" # 16:00 KST; 16:40 covers delayed CSAT close
+    - cron: "0 23 * * *" # 08:00 KST global index scoreboard
+    - cron: "0 8 * * *" # 17:00 KST global index scoreboard
     - cron: "7,27,47 * * * *" # Recover due posts even when earlier runs are delayed
   workflow_dispatch:
     inputs:
@@ -25,7 +27,7 @@ on:
         description: Edition to preview
         required: true
         type: choice
-        options: [morning, evening, close]
+        options: [morning, evening, close, world_morning, world_evening]
 
 permissions:
   contents: write # Append public PNGs to the separate social-post-assets branch.
@@ -54,6 +56,7 @@ jobs:
           curl --fail --location --retry 2 --connect-timeout 15 --max-time 90 \
             --output "$RUNNER_TEMP/NotoSansCJKkr-Regular.otf" \
             https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Korean/NotoSansCJKkr-Regular.otf
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 90             --output "$RUNNER_TEMP/NotoSansCJKkr-Bold.otf"             https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Korean/NotoSansCJKkr-Bold.otf
       - name: Prepare and deliver the edition
         env:
           BUFFER_PUBLISH_API_KEY: ${{ secrets.BUFFER_PUBLISH_API_KEY }}
@@ -63,6 +66,7 @@ jobs:
           WORKFLOW_MODE: ${{ inputs.mode }}
           PREPARED_PATH: ${{ inputs.prepared_path }}
           SOCIAL_FONT: ${{ runner.temp }}/NotoSansCJKkr-Regular.otf
+          SOCIAL_FONT_BOLD: ${{ runner.temp }}/NotoSansCJKkr-Bold.otf
           PREVIEW_DATE: ${{ inputs.preview_date }}
           PREVIEW_EDITION: ${{ inputs.edition }}
         run: python scripts/social_publish.py

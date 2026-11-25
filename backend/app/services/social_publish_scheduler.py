@@ -20,16 +20,23 @@ POLL_SECONDS = 15
 RETRY_SECONDS = 5 * 60
 
 
-def due_slot(now: datetime):
+def due_slots(now: datetime):
     day = now.date()
-    slots = [(clock_time(7, 15), "morning"), (clock_time(22, 15), "evening")]
+    slots = [(clock_time(7, 15), "morning"), (clock_time(22, 15), "evening"),
+             (clock_time(8), "world_morning"), (clock_time(17), "world_evening")]
     if is_trading_day(day, "KR"):
         slots.append((clock_time(16), "close"))
+    due = []
     for at, edition in slots:
-        due = datetime.combine(day, at, KST)
-        if due <= now < due + timedelta(minutes=90):
-            return day.isoformat(), edition
-    return None
+        start = datetime.combine(day, at, KST)
+        if start <= now < start + timedelta(minutes=90):
+            due.append((day.isoformat(), edition))
+    return due
+
+
+def due_slot(now: datetime):
+    slots = due_slots(now)
+    return slots[0] if slots else None
 
 
 def _confirmed(day: str, edition: str) -> bool:
@@ -63,24 +70,25 @@ def _dispatch(token: str, edition: str) -> bool:
 
 
 def _run(token: str) -> None:
-    last_slot = None
-    next_attempt = 0.0
-    verified = False
+    # Per-slot retry state; overlapping windows (16:00 close, 17:00 world) run independently.
+    state = {}
     while True:
-        slot = due_slot(datetime.now(KST))
-        if slot != last_slot:
-            last_slot, next_attempt, verified = slot, 0.0, False
-        if slot and not verified and time.monotonic() >= next_attempt:
-            next_attempt = time.monotonic() + RETRY_SECONDS
+        slots = due_slots(datetime.now(KST))
+        state = {slot: state.get(slot, [0.0, False]) for slot in slots}
+        for slot in slots:
+            next_attempt, verified = state[slot]
+            if verified or time.monotonic() < next_attempt:
+                continue
+            state[slot][0] = time.monotonic() + RETRY_SECONDS
             day, edition = slot
             try:
-                verified = _confirmed(day, edition)
-                if verified:
+                state[slot][1] = _confirmed(day, edition)
+                if state[slot][1]:
                     log.info("Social publication %s %s confirmed on all channels", day, edition)
                 elif _dispatch(token, edition):
                     log.info("Requested social publication for %s %s", day, edition)
                 else:
-                    next_attempt = time.monotonic() + 2 * POLL_SECONDS
+                    state[slot][0] = time.monotonic() + 2 * POLL_SECONDS
             except requests.HTTPError as exc:
                 log.warning("Social publisher HTTP error for %s %s: %s", day, edition, exc.response.status_code)
             except (requests.RequestException, ValueError, KeyError) as exc:

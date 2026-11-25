@@ -18,6 +18,11 @@ from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+try:
+    import world_indices_social as world
+except ModuleNotFoundError:  # Imported as scripts.social_publish by the test suite.
+    from scripts import world_indices_social as world
+
 
 SITE = "https://kospimap.com"
 KST = ZoneInfo("Asia/Seoul")
@@ -135,6 +140,16 @@ def lead_hashtags(story):
         if tag and tag.casefold() not in seen:
             return [tag]
     return []
+
+
+def caption_fits(service, text):
+    # X weighs Korean as two; Bluesky allows 300 graphemes; Threads 500 characters
+    # (counted here in UTF-16 units so emoji flags stay safely inside the limit).
+    if service == "twitter":
+        return weighted_length(text) <= 280
+    if service == "bluesky":
+        return len(text) <= 300
+    return len(text.encode("utf-16-le")) // 2 <= 500
 
 
 def news_caption_fits(text, edition):
@@ -325,7 +340,7 @@ def upload_map(day, name, png):
     for _ in range(6):
         try:
             public = request(url)
-            if hashlib.sha256(public).hexdigest() != digest or image_size(public) != (1920, 1200):
+            if hashlib.sha256(public).hexdigest() != digest or image_size(public) != image_size(png):
                 raise RuntimeError("Public heatmap failed integrity or dimension check")
             return url
         except HTTPError as error:
@@ -379,6 +394,8 @@ def deliver(day, edition, prepared=None):
         raise RuntimeError("No configured Buffer profiles are connected")
     if edition == "close":
         headline = f"{day:%m/%d} 국내 증시 마감"
+    elif edition in world.EDITIONS:
+        headline = world.headline(day, edition)
     else:
         slot = SLOTS[edition]
         headline = f"{day:%m/%d} 오늘의 핫이슈 | {slot[:2]}:{slot[2:]}판"
@@ -391,9 +408,14 @@ def deliver(day, edition, prepared=None):
         for service, channel in pending.items():
             try:
                 if not post_status(channel, headline):
-                    caption = campaign_caption(text, service, edition)
-                    if len(caption) > 300 or weighted_length(caption) > 280:
-                        raise RuntimeError("Tagged caption exceeds the cross-platform post length")
+                    if isinstance(text, dict):  # Per-network captions already carry their links.
+                        caption = text[service]
+                        if not caption_fits(service, caption):
+                            raise RuntimeError(f"{service} caption exceeds its post length")
+                    else:
+                        caption = campaign_caption(text, service, edition)
+                        if len(caption) > 300 or weighted_length(caption) > 280:
+                            raise RuntimeError("Tagged caption exceeds the cross-platform post length")
                     publish(channel, caption, assets)
             except (OSError, RuntimeError) as error:
                 print(f"::warning::{service} delivery request needs verification ({type(error).__name__})")
@@ -447,6 +469,8 @@ def record_delivery(day, edition):
 
 
 def prepare(day, edition, *, preview):
+    if edition in world.EDITIONS:
+        return world.make(day, edition, caption_fits)
     text, media = make_close(day, preview=preview) if edition == "close" else make_news(day, edition)
     if len(text) > 300 or weighted_length(text) > 280:
         raise RuntimeError("Caption exceeds the cross-platform post length")
@@ -462,6 +486,11 @@ def due_editions(now):
         due = [(day, "morning")]
     else:
         due = [(day - dt.timedelta(days=1), "evening")]
+    # Global index scoreboards: 08:00 and 17:00 KST, every day, within 4 hours.
+    for edition, slot in world.EDITIONS.items():
+        start = dt.datetime.combine(day, dt.time(int(slot[:2]), int(slot[2:])), KST)
+        if start <= now < start + dt.timedelta(hours=4):
+            due.append((day, edition))
     ready = max(dt.datetime.combine(day, dt.time(16), KST),
                 market_close(day) + dt.timedelta(minutes=10))
     if now >= ready:
@@ -479,6 +508,8 @@ def main():
         text, assets = prepare(day, os.environ["PREVIEW_EDITION"], preview=True)
         path = Path("social-preview")
         path.mkdir(exist_ok=True)
+        if isinstance(text, dict):
+            text = "\n\n".join(f"[{service}]\n{caption}" for service, caption in text.items())
         (path / "caption.txt").write_text(text, encoding="utf-8")
         for name, png, _, _ in assets:
             (path / name).write_bytes(png)
@@ -525,7 +556,8 @@ def main():
         return
     if mode == "publish-current":
         edition = os.environ["PREVIEW_EDITION"]
-        if (now.date(), edition) not in due_editions(now):
+        early = now + dt.timedelta(hours=1) if edition in world.EDITIONS else now
+        if (now.date(), edition) not in due_editions(now) + due_editions(early):
             raise RuntimeError("This edition is outside its current KST publication window")
         deliver(now.date(), edition)
         return
