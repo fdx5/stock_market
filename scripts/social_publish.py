@@ -385,8 +385,9 @@ def publish(channel, text, assets):
         raise RuntimeError("Buffer rejected the post")
 
 
-def deliver(day, edition, prepared=None):
-    if completed_delivery(day, edition):
+def deliver(day, edition, prepared=None, receipt=None):
+    receipt = receipt or edition
+    if completed_delivery(day, receipt):
         print(f"{day} {edition}: all three channels already published")
         return
     profiles = connected_profiles()
@@ -436,7 +437,7 @@ def deliver(day, edition, prepared=None):
             incomplete.append(f"{service}: {status}")
     if incomplete:
         raise RuntimeError("Unconfirmed delivery: " + ", ".join(incomplete))
-    record_delivery(day, edition)
+    record_delivery(day, receipt)
 
 
 def receipt_path(day, edition):
@@ -553,6 +554,14 @@ def main():
         for service, channel in profiles.items():
             post_status(channel, "connection verification")
             print(f"{service}: connected; recent posting history can be read")
+        return
+    if mode == "publish-update":
+        # One manual re-post of a world scoreboard after a data fix, under its own receipt.
+        edition = os.environ["PREVIEW_EDITION"]
+        if edition not in world.EDITIONS:
+            raise RuntimeError("Only world scoreboards can be re-posted")
+        world.UPDATE_STAMP = now.strftime("%H%M")
+        deliver(now.date(), edition, receipt=f"{edition}-update-{world.UPDATE_STAMP}")
         return
     if mode == "publish-current":
         edition = os.environ["PREVIEW_EDITION"]

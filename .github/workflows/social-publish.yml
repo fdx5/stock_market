@@ -14,7 +14,7 @@ on:
         required: true
         type: choice
         default: preview
-        options: [preview, verify, publish-current, catch-up, publish-prepared]
+        options: [preview, verify, publish-current, publish-update, catch-up, publish-prepared]
       prepared_path:
         description: "Verified public plan path on the social-post-assets branch"
         required: false

@@ -225,9 +225,27 @@ def analyze(quotes, weekly):
             "ups": ups, "downs": downs, "kospi_rank": rank}
 
 
+# Set by a manual re-post ("HHMM"): the post is stamped with that time and marked as an update.
+UPDATE_STAMP = None
+COUNTRY = {"kr": "한국", "us": "미국", "jp": "일본", "cn": "중국", "hk": "홍콩"}
+
+
+def _slot(edition):
+    return UPDATE_STAMP or EDITIONS[edition]
+
+
 def headline(day, edition):
-    slot = EDITIONS[edition]
-    return f"🌏 {day:%m/%d} {slot[:2]}:{slot[2:]} 세계 증시 성적표"
+    slot = _slot(edition)
+    suffix = " (업데이트)" if UPDATE_STAMP else ""
+    return f"🌏 {day:%m/%d} {slot[:2]}:{slot[2:]} 세계 증시 성적표{suffix}"
+
+
+def _text_line(q):
+    # Threads clients on Windows show flag emoji as letters; use words and arrows there.
+    country = COUNTRY.get(q["flag"])
+    name = q["label"] if not country or q["label"].startswith(country) else f"{country} {q['label']}"
+    arrow = "▲" if q["pct"] > 0 else "▼" if q["pct"] < 0 else "■"
+    return f"{arrow} {name} {_fmt_pct(q['pct'])}"
 
 
 def link(service):
@@ -266,9 +284,9 @@ def captions(day, edition, quotes, analysis, fits):
 
     # Threads: full ranking and the plain-language read-out.
     full, brief = " ".join(analysis["summary"]), " ".join(analysis["summary"][:2])
-    ranking = "\n".join(f"{i}. {_line(q)}" for i, q in enumerate(quotes, 1))
-    plain = "\n".join(_line(q) for q in quotes)
-    edges = "\n".join(_line(q) for q in quotes[:3] + quotes[-3:])
+    ranking = "\n".join(f"{i}. {_text_line(q)}" for i, q in enumerate(quotes, 1))
+    plain = "\n".join(_text_line(q) for q in quotes)
+    edges = "\n".join(_text_line(q) for q in quotes[:3] + quotes[-3:])
     for body, variant, cta in ((full, ranking, "나라별 지수 차트·히트맵 실시간 보기 👉 "),
                                (full, plain, "나라별 차트·히트맵 👉 "), (brief, plain, "👉 "),
                                (full, edges, "나라별 차트·히트맵 👉 "), (brief, edges, "👉 ")):
@@ -356,7 +374,7 @@ def render(day, edition, quotes, analysis, weekly):
     for y in range(0, H, 40):
         draw.line((0, y, W, y), fill=(13, 19, 34))
 
-    slot = EDITIONS[edition]
+    slot = _slot(edition)
     draw.text((48, 34), "GLOBAL MARKET SCOREBOARD" + ("  ·  WEEKLY" if weekly else ""),
               font=_font(26), fill=CYAN)
     size = max(abs(quotes[0]["pct"]), abs(quotes[-1]["pct"]))
@@ -416,7 +434,7 @@ def make(day, edition, fits):
     analysis = analyze(quotes, weekly)
     texts = captions(day, edition, quotes, analysis, fits)
     png = render(day, edition, quotes, analysis, weekly)
-    slot = EDITIONS[edition]
+    slot = _slot(edition)
     alt = (f"{day:%m/%d} {slot[:2]}:{slot[2:]} 세계 주요 {len(quotes)}개 지수 등락률 순위: "
            + ", ".join(f"{q['label']} {_fmt_pct(q['pct'])}" for q in quotes))
     return texts, [(f"world-{slot}.png", png, alt, None)]
