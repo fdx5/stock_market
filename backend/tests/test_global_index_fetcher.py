@@ -29,6 +29,7 @@ def isolated(monkeypatch):
     monkeypatch.setattr(feed, "cache", TTLCache())
     monkeypatch.setattr(feed, "_last_good", {})
     monkeypatch.setattr(feed, "_chart", lambda *args: payload())
+    monkeypatch.setattr(feed, "_direct_quote", lambda symbol: None)
 
 
 @pytest.mark.parametrize("code,symbol", list(feed.SYMBOLS.items()))
@@ -51,17 +52,17 @@ def test_every_region_has_a_live_quote_actual_timestamp_and_repaired_daily_bar(m
 
 
 def test_quote_expires_in_ten_seconds_while_daily_history_is_reused(monkeypatch):
-    clock = [100.0]
+    clock = [STAMP + 100.]
     monkeypatch.setattr("app.services.cache.time.time", lambda: clock[0])
     calls = []
     def chart(symbol, period, interval):
         calls.append(period)
-        return payload(110 if clock[0] < 110 else 120, STAMP + int(clock[0]))
+        return payload(110 if clock[0] < STAMP + 110 else 120, int(clock[0]))
     monkeypatch.setattr(feed, "_chart", chart)
     assert feed.get_index("N225")["close"] == 110
-    clock[0] = 109
+    clock[0] = STAMP + 109
     assert feed.get_index("N225")["close"] == 110
-    clock[0] = 111
+    clock[0] = STAMP + 111
     row = feed.get_index("N225")
     assert row["close"] == 120 and row["change_pct"] == 20
     assert row["points"][-1]["close"] == 120

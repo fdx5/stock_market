@@ -5,11 +5,14 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
 import re
+import hashlib
+import json
+import logging
 from urllib.parse import parse_qs, unquote, urlsplit
 from xml.etree import ElementTree as ET
 
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 from app.data.global_index_fetcher import get_index
 from app.data.world_market_caps import latest_caps
@@ -46,13 +49,37 @@ def build_catalog(caps):
 
 def _quotes():
     codes = [code for row in MARKETS for code, _ in row[3]]
+    def read(code):
+        try:
+            return get_index(code)
+        except Exception:
+            logging.getLogger(__name__).warning("World index unavailable: %s", code)
+            return {"close": None, "change": None, "change_pct": None, "points": [], "quote_time": None, "stale": True}
     with ThreadPoolExecutor(max_workers=6) as pool:
-        return dict(zip(codes, pool.map(get_index, codes)))
+        return dict(zip(codes, pool.map(read, codes)))
+
+
+def _snapshot():
+    return cache.get_or_set("world_markets:quotes", 10, _quotes, allow_stale=False)
 
 
 @router.get("/quotes")
-def quotes():
-    return cache.get_or_set("world_markets:quotes", 60, _quotes)
+def quotes(response: Response):
+    response.headers["Cache-Control"] = "private, no-store"
+    return _snapshot()
+
+
+@router.get("/board")
+def board(response: Response, history: str = ""):
+    response.headers["Cache-Control"] = "private, no-store"
+    rows = _snapshot()
+    # The client already holds every completed bar when this fingerprint matches.
+    prefixes = {code: row["points"][:-1] for code, row in rows.items()}
+    key = hashlib.blake2s(json.dumps(prefixes, separators=(",", ":")).encode(), digest_size=12).hexdigest()
+    compact = history == key
+    return {"history": key, "compact": compact, "quotes": {
+        code: {**row, "points": row["points"][-1:]} if compact else row for code, row in rows.items()
+    }}
 
 
 # Exact publisher attributions from the RSS providers, including their named
@@ -260,10 +287,10 @@ def _news(country):
         fields += [(row, "paragraphs", i) for i, line in enumerate(row["paragraphs"]) if not hangul.search(line)]
     texts = [GLOSSARY.sub(lambda m: m.group(1) + " Inc.", row[key] if i is None else row[key][i]) for row, key, i in fields]
     translations = translate_via_chrome(texts, "auto", "ko")
-    if fields and not translations and all(not hangul.search(row["title"]) for row in selected):
-        raise HTTPException(503, "Korean translation unavailable")
     for (row, key, i), translated in zip(fields, translations or [""] * len(fields)):
         value = _particles(MARKED.sub(lambda m: GLOSSARY_KO[m.group(1).casefold()], translated)) if hangul.search(translated or "") else ""
+        if not value:
+            continue
         if i is None:
             row[key] = value
         else:

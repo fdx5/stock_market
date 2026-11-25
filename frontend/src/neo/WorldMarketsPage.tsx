@@ -8,9 +8,10 @@ import AdZone from "./AdZone";
 import MarketFlag from "./MarketFlag";
 import { HoloPanel, NeoEmptyState, NeoSkeleton } from "./NeoComponents";
 import WorldMarketsChart from "./WorldMarketsChart";
+import { useWorldQuotes } from "./useWorldQuotes";
 import {
-  indexReturn, indexRows, kst, normalizedQuery, number, quoteStamp, regions, signed, tone, tradingReturn,
-  type BoardPeriod, type Catalog, type ChartPeriod, type IndexRow, type Point, type Quote, type Region,
+  indexReturn, indexRows, kst, normalizedQuery, number, quoteSource, quoteStamp, quoteStatus, regions, signed, tone, tradingReturn,
+  type BoardPeriod, type Catalog, type ChartPeriod, type IndexRow, type Point, type Region,
 } from "./worldMarketModel";
 import "./worldMarkets.css";
 
@@ -92,7 +93,7 @@ function Failure({text, retry}: {text: string; retry: () => void}) {
   return <div className="wm-failure" role="status">{text} <button onClick={retry}>다시 조회</button></div>;
 }
 
-const heroMarkets = ["KOSPI", "SPX", "IXIC", "N225"];
+const heroMarkets = ["^TWII", "KOSPI", "SPX", "IXIC", "N225"];
 const boardPeriods: BoardPeriod[] = [1, 5, 20];
 const chartPeriods: ChartPeriod[] = [5, 20, 60];
 const periodLabel = (period: BoardPeriod) => period === 1 ? "전일 대비" : period + "거래일";
@@ -139,8 +140,46 @@ function IndexTile({row, period, active, choose}: {row: IndexRow; period: BoardP
     <strong className="wm-card-name">{label}</strong>
     <span className="wm-card-numbers"><b className="wm-return" data-tone={tone(value)}>{signed(value)}</b>
       <Sparkline points={quote?.points.slice(-20) ?? []} /></span>
-    <span className="wm-card-price">{number(quote?.close)} <small>{quote?.stale ? "최근값" : "pt"}</small></span>
+    <span className="wm-card-price">{number(quote?.close)} <small>pt</small></span>
+    <span className="wm-card-stamp">{quoteStatus(quote)}<br/>{quoteStamp(quote) ?? "—"}</span>
   </button>;
+}
+
+function FocusMarket({rows, choose}: {rows: IndexRow[]; choose: (id: string) => void}) {
+  const [focus, setFocus] = useState("^TWII");
+  const row = rows.find(item => item.id === focus);
+  if (!row) return <NeoSkeleton rows={3}/>;
+  const q = row.quote;
+  return <section className="wm-focus" aria-label="주요 지수 모니터">
+    <div className="wm-focus-tabs" role="group" aria-label="주요 지수 선택">
+      {heroMarkets.map(id => {
+        const item = rows.find(r => r.id === id);
+        return item && <button key={id} type="button" aria-pressed={focus === id} onClick={() => setFocus(id)}>{item.label}</button>;
+      })}
+    </div>
+    <div className="wm-focus-body">
+      <div><h2><Flag code={row.market.code}/>{row.label}</h2>
+        <strong className="wm-focus-price">{number(q?.close)}<small> pt</small></strong>
+        <p className="wm-focus-move" data-tone={tone(q?.change_pct)}>{signed(q?.change, " pt")} <b>{signed(q?.change_pct)}</b></p>
+      </div>
+      {q && q.points.length > 1 && <figure><Sparkline points={q.points.slice(-20)}/><figcaption>최근 {Math.min(q.points.length, 20)}거래일</figcaption></figure>}
+    </div>
+    <div className="wm-focus-foot"><span><b>{quoteStatus(q)}</b> · {quoteSource(row)}<br/>{quoteStamp(q) ?? "시세 확인 중"}</span>
+      <button type="button" onClick={() => choose(row.id)}>상세 차트</button></div>
+  </section>;
+}
+
+function IndexTable({rows, selected, period, choose}: {rows: IndexRow[]; selected: string; period: BoardPeriod; choose: (id: string) => void}) {
+  return <table className="wm-table"><thead><tr><th scope="col">지수 / 시장</th><th scope="col">현재 지수</th>
+    <th scope="col">{periodLabel(period)}</th><th scope="col">시세 기준</th></tr></thead>
+    <tbody>{rows.map(row => {
+      const move = indexReturn(row.quote, period);
+      return <tr key={row.id} data-selected={row.id === selected || undefined}><th scope="row">
+        <button type="button" aria-pressed={row.id === selected} onClick={() => choose(row.id)}><Flag code={row.market.code}/>
+          <span>{row.label}<small>{row.market.name}</small></span></button></th>
+        <td>{number(row.quote?.close)}</td><td data-tone={tone(move)}>{signed(move)}</td>
+        <td>{quoteStatus(row.quote)}<small>{quoteStamp(row.quote) ?? "—"}</small></td></tr>;
+    })}</tbody></table>;
 }
 
 function Movers({rows, choose}: {rows: IndexRow[]; choose: (id: string) => void}) {
@@ -242,14 +281,14 @@ function MarketDetail({row, rows, catalog, choose}: {row: IndexRow; rows: IndexR
       <h3>{label}</h3>
       <div className="wm-value"><strong>{number(quote?.close)}</strong><span>pt</span>
         <b data-tone={tone(quote?.change_pct)}>{signed(quote?.change_pct)}{quote?.change != null && <small> ({signed(quote.change, " pt")})</small>}</b></div>
-      <p className="wm-note">전 거래일 대비 · {quoteStamp(quote) ?? "시세 확인 중"}{quote?.stale && " · 최근 확인값"} · {quote?.quote_source === "daily_history" && id === "TASI" ? "CNBC" : "Yahoo Finance"}</p>
+      <p className="wm-note">전 거래일 대비 · {quoteStatus(quote)} · {quoteStamp(quote) ?? "시세 확인 중"} · {quoteSource(row)}</p>
     </header>
     <div className="wm-chart-controls">
       <div className="wm-switch" role="group" aria-label="차트 기간">
         {chartPeriods.map(value => <button type="button" aria-pressed={period === value} key={value} onClick={() => setPeriod(value)}>{value}거래일</button>)}
       </div>
       <label className="wm-compare"><span>비교 지수</span>
-        <select value={peer?.id ?? ""} onChange={event => setComparison(event.target.value)}>
+        <select aria-label="비교 지수" value={peer?.id ?? ""} onChange={event => setComparison(event.target.value)}>
           <option value="">선택 안 함</option>
           {rows.filter(item => item.id !== id).map(item => <option value={item.id} key={item.id}>{item.label}</option>)}
         </select>
@@ -284,11 +323,12 @@ function MarketDetail({row, rows, catalog, choose}: {row: IndexRow; rows: IndexR
 
 export default function WorldMarketsPage() {
   const catalog = useFeed<Catalog>("/api/world-markets");
-  const quotes = useFeed<Record<string, Quote>>("/api/world-markets/quotes", 60_000);
-  const [selected, select] = useState("SPX");
+  const quotes = useWorldQuotes();
+  const [selected, select] = useState("^TWII");
   const [region, setRegion] = useState<Region | "전체">("전체");
   const [period, setPeriod] = useState<BoardPeriod>(1);
   const [sort, setSort] = useState<Sort>("region");
+  const [view, setView] = useState<"map" | "table">("map");
   const [search, setSearch] = useState("");
   const markets = catalog.value?.markets ?? [];
   const rows = indexRows(markets, quotes.value);
@@ -326,14 +366,16 @@ export default function WorldMarketsPage() {
       <div className="wm-hero-main">
         <p className="ng-kicker"><span aria-hidden="true"></span> GLOBAL MARKETS</p>
         <h1>전세계 증시</h1>
-        <p className="wm-intro">세계 주요 지수의 방향을 읽고, 움직임이 큰 시장을 확인하세요.</p>
+        <p className="wm-intro">{rows.length ? `${markets.length}개 시장 · ${rows.length}개 대표 지수` : "세계 주요 주가지수"}<br/>거래소별 시세와 전 거래일 대비 흐름</p>
         <nav className="wm-jumps" aria-label="전세계 증시 바로가기">
-          <a href="#wm-board">지수 히트맵 ↓</a><a href="#wm-brief">지수 비교 ↓</a><a href="#wm-news">시장 뉴스 ↓</a>
+          <a href="#wm-board">세계 시세판</a><a href="#wm-brief">지수 비교</a><a href="#wm-news">시장 뉴스</a>
         </nav>
       </div>
-      <section className="wm-breadth" aria-labelledby="wm-breadth-title">
+      <FocusMarket rows={rows} choose={choose}/>
+    </header>
+      <section className="wm-breadth wm-summary" aria-labelledby="wm-breadth-title">
         <div className="wm-breadth-head"><h2 id="wm-breadth-title">세계 지수 분포</h2>
-          {rows.length > 0 && <span>{markets.length}개 시장 · {rows.length}개 지수</span>}
+          {rows.length > 0 && <span>집계 {valid.length} / {rows.length}</span>}
         </div>
         <div className="wm-breadth-counts">
           {breadth.map(item => <div key={item.move}><b data-tone={item.move}>{valid.length ? item.count : "—"}</b><span>{item.label}</span></div>)}
@@ -341,29 +383,20 @@ export default function WorldMarketsPage() {
         <div className="wm-breadth-bar" aria-hidden="true">
           {valid.length > 0 && breadth.filter(item => item.count).map(item => <span key={item.move} data-tone={item.move} style={{flexGrow: item.count}}/>)}
         </div>
-        <div className="wm-breadth-foot"><span>전 거래일 대비 · {valid.length}개 지수 집계</span>
-          {quotes.received && <time dateTime={new Date(quotes.received).toISOString()}>화면 갱신 {kst(new Date(quotes.received))}</time>}</div>
+        <div className="wm-breadth-foot"><span>{quotes.error ? "갱신 지연" : "10초마다 조회"} · 거래 시차 및 공급처 지연 반영</span>
+          {quotes.received && <time dateTime={new Date(quotes.received).toISOString()}>마지막 수신 {new Date(quotes.received).toLocaleTimeString("ko-KR", {timeZone: "Asia/Seoul", hour12: false})} KST</time>}</div>
       </section>
-    </header>
-    {rows.length > 0 && <section className="wm-watch" aria-label="대표 지수">
-      {heroMarkets.map(id => {
-        const row = rows.find(item => item.id === id);
-        if (!row) return null;
-        return <button type="button" onClick={() => choose(id)} key={id} className="wm-watch-item">
-          <span><Flag code={row.market.code} />{row.label}</span>
-          <strong>{number(row.quote?.close)}</strong><b data-tone={tone(row.quote?.change_pct)}>{signed(row.quote?.change_pct)}</b>
-          <small>{quoteStamp(row.quote) ?? "시세 확인 중"}{row.quote?.stale && " · 최근값"}</small>
-        </button>;
-      })}
-    </section>}
-    <MacroWatch />
     {catalog.error && <Failure text="시장 목록을 불러오지 못했습니다." retry={catalog.retry} />}
     {!catalog.value && !catalog.error && <NeoSkeleton />}
     {quotes.error && <Failure text={quotes.value ? "지수 갱신이 지연되어 최근 확인값을 표시합니다." : "지수 시세를 불러오지 못했습니다."} retry={quotes.retry} />}
     {catalog.value && active && <>
       <section className="wm-board-layout" id="wm-board" tabIndex={-1} aria-labelledby="wm-board-title">
         <HoloPanel className="wm-board">
-          <div className="wm-section-head"><div><h2 id="wm-board-title">세계 지수 히트맵</h2><p>지수를 선택해 차트와 시장 뉴스를 확인하세요.</p></div>
+          <div className="wm-section-head"><div><h2 id="wm-board-title">세계 지수 시세판</h2><p>지수를 선택해 차트와 시장 뉴스를 확인하세요.</p></div>
+            <div className="wm-switch" role="group" aria-label="시세판 보기">
+              <button aria-pressed={view === "map"} onClick={() => setView("map")}>히트맵</button>
+              <button aria-pressed={view === "table"} onClick={() => setView("table")}>시세표</button>
+            </div>
             <div className="wm-switch" role="group" aria-label="등락률 기준">
               {boardPeriods.map(value => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{periodLabel(value)}</button>)}
             </div>
@@ -381,7 +414,8 @@ export default function WorldMarketsPage() {
           </div>
           {groups.filter(group => group.rows.length).map(group => <div key={group.name ?? "sorted"} className="wm-region">
             {group.name && <h3>{group.name} <span>{group.rows.length}</span></h3>}
-            <div className="wm-grid">{group.rows.map(row => <IndexTile row={row} key={row.id} period={period} active={active.id === row.id} choose={choose} />)}</div>
+            {view === "map" ? <div className="wm-grid">{group.rows.map(row => <IndexTile row={row} key={row.id} period={period} active={active.id === row.id} choose={choose} />)}</div>
+              : <IndexTable rows={group.rows} selected={active.id} period={period} choose={choose}/>}
           </div>)}
           {filtered.length === 0 && <NeoEmptyState title="조건에 맞는 지수가 없습니다."><button className="wm-soft-button" type="button" onClick={() => {setSearch(""); setRegion("전체");}}>필터 초기화</button></NeoEmptyState>}
           <div className="wm-board-foot"><span className="wm-legend"><span data-tone="down">하락</span><span data-tone="flat">보합</span><span data-tone="up">상승</span></span>
@@ -397,6 +431,7 @@ export default function WorldMarketsPage() {
           }} />
         </div>
       </section>
+      <MacroWatch />
       <section id="wm-brief" tabIndex={-1} className="wm-brief" aria-labelledby="wm-brief-title">
         <div className="wm-section-head wm-brief-head"><div><h2 id="wm-brief-title">지수 상세와 비교</h2><p>지수 수준과 공통 거래일 수익률을 확인하세요.</p></div>
           <select aria-label="상세 지수 선택" value={active.id} onChange={event => choose(event.target.value, false)}>

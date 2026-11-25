@@ -22,6 +22,9 @@ export type Quote = {
   quote_time: number | null;
   quote_date?: string | null;
   quote_source?: string | null;
+  market_status?: string;
+  regular_start?: number;
+  regular_end?: number;
   stale: boolean;
 };
 
@@ -51,8 +54,32 @@ export const kst = (date: Date) => date.toLocaleString("ko-KR", {
   timeZone: "Asia/Seoul", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
 });
 export const quoteStamp = (quote?: Quote) => quote?.quote_time
-  ? kst(new Date(quote.quote_time * 1000)) + " KST"
+  ? new Date(quote.quote_time * 1000).toLocaleString("ko-KR", {
+    timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }) + " KST"
   : quote?.quote_date ?? quote?.points[quote.points.length - 1]?.date;
+
+export function quoteSource(row: IndexRow) {
+  switch (row.quote?.quote_source) {
+    case "twse_mis": return "대만증권거래소";
+    case "naver_index": return "네이버페이 증권";
+    case "yahoo_chart": return "Yahoo Finance";
+    case "daily_history": return row.id === "TASI" ? "CNBC 일봉" : "Yahoo Finance 일봉";
+    default: return "출처 미확인";
+  }
+}
+
+export function quoteStatus(quote?: Quote, now = Date.now() / 1000) {
+  if (quote?.close == null) return "시세 미확인";
+  if (quote.stale) return quote.quote_source === "daily_history" ? "일봉 기준" : "갱신 지연";
+  if (!quote.quote_time) return "시각 미확인";
+  if (quote.market_status === "CLOSE") return "장 마감";
+  const age = Math.max(0, now - quote.quote_time);
+  if (quote.regular_start && quote.regular_end && (now < quote.regular_start || now > quote.regular_end)) return "최근 거래일";
+  if (age >= 7200) return "최근 거래일";
+  if (age >= 120) return Math.floor(age / 60) + "분 전 시세";
+  return "최근 체결";
+}
 
 export const indexRows = (markets: Market[], quotes?: Record<string, Quote>): IndexRow[] =>
   markets.flatMap(market => market.indices.map(([id, label]) => ({

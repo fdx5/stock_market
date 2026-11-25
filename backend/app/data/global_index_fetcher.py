@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from app.data import yahoo_quote
+from app.data import index_fetcher, yahoo_quote
 from app.services.cache import cache
 
 SYMBOLS = {
@@ -26,6 +26,7 @@ CNBC_HISTORY = {"^TASI.SR": ".TASI"}
 QUOTE_TTL = 10
 HISTORY_TTL = 300
 _last_good: dict[str, dict] = {}
+DOMESTIC = {"^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
 
 
 def _chart(symbol: str, period: str, interval: str) -> dict:
@@ -50,6 +51,67 @@ def _chart(symbol: str, period: str, interval: str) -> dict:
 def _date(stamp: int, meta: dict) -> str:
     zone = ZoneInfo(meta.get("exchangeTimezoneName") or "UTC")
     return dt.datetime.fromtimestamp(stamp, zone).date().isoformat()
+
+
+def _cash_quote(price, previous, stamp, zone, source):
+    price, previous, stamp = float(price), float(previous), int(stamp)
+    if not all(math.isfinite(v) and v > 0 for v in (price, previous, stamp)) or stamp > time.time() + 60:
+        raise ValueError("Invalid index print")
+    row = yahoo_quote.as_stock_quote({"price": price, "previous_close": previous,
+                                    "regular_close": price, "session": "regular", "quote_time": stamp})
+    return {**row, "quote_source": source, "quote_date": _date(stamp, {"exchangeTimezoneName": zone})}
+
+
+def _direct_quote(symbol):
+    if symbol in DOMESTIC:
+        data = index_fetcher.get_index(DOMESTIC[symbol], fresh=True)
+        if not data:
+            return None
+        traded = dt.datetime.fromisoformat(data["updated_at"])
+        if traded.tzinfo is None or data["symbol"] != DOMESTIC[symbol]:
+            raise ValueError("Invalid domestic index print")
+        row = _cash_quote(data["close"], data["close"] - data["change"], traded.timestamp(), "Asia/Seoul", "naver_index")
+        return {**row, "market_status": data.get("market_status")}
+    if symbol != "^TWII":
+        return None
+    response = requests.get("https://mis.twse.com.tw/stock/api/getStockInfo.jsp",
+                            params={"ex_ch": "tse_t00.tw", "json": 1, "delay": 0, "_": int(time.time() // QUOTE_TTL)},
+                            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://mis.twse.com.tw/stock/index.jsp"},
+                            timeout=(2, 4))
+    response.raise_for_status()
+    data = response.json()
+    if data.get("rtcode") != "0000":
+        return None
+    for tick in data.get("msgArray") or []:
+        if tick.get("ex") == "tse" and tick.get("ch") == "t00.tw":
+            row = _cash_quote(tick["z"], tick["y"], int(tick["tlong"]) // 1000, "Asia/Taipei", "twse_mis")
+            if row["quote_date"].replace("-", "") != tick.get("d"):
+                raise ValueError("Mismatched TWSE trade date")
+            return row
+    return None
+
+
+def _latest_quote(symbol):
+    try:
+        direct = _direct_quote(symbol)
+    except (requests.RequestException, ValueError, KeyError, IndexError, TypeError, OverflowError, OSError):
+        direct = None
+    # A valid but frozen primary feed must also give the alternate a chance.
+    if direct and time.time() - direct["quote_time"] < 120:
+        return direct
+    try:
+        result = _chart(symbol, "1d", "1m")
+        parsed = yahoo_quote.extract_quote(result)
+        if parsed and parsed.get("quote_time"):
+            stamp = int(parsed["quote_time"])
+            if 0 < stamp <= time.time() + 60 and (not direct or stamp > direct["quote_time"]):
+                meta = result["meta"]
+                regular = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
+                return {**yahoo_quote.as_stock_quote(parsed), "quote_date": _date(stamp, meta),
+                        "regular_start": regular.get("start"), "regular_end": regular.get("end")}
+    except (RuntimeError, ValueError, TypeError, KeyError, IndexError, OverflowError, OSError):
+        pass
+    return direct
 
 
 def cnbc_history(symbol: str) -> list[dict]:
@@ -81,15 +143,7 @@ def _history(symbol: str) -> list[dict]:
 
 def _refresh(symbol: str) -> dict:
     old = _last_good.get(symbol, {})
-    quote = None
-    try:
-        result = _chart(symbol, "1d", "1m")
-        parsed = yahoo_quote.extract_quote(result)
-        if parsed and parsed.get("quote_time"):
-            quote = {**yahoo_quote.as_stock_quote(parsed),
-                     "quote_date": _date(parsed["quote_time"], result["meta"])}
-    except (RuntimeError, ValueError, TypeError, KeyError, IndexError, OverflowError):
-        pass
+    quote = _latest_quote(symbol)
     stale = quote is None
     if old.get("quote_time") and (quote is None or quote["quote_time"] < old["quote_time"]):
         quote = {k: v for k, v in old.items() if k not in ("points", "stale")}
@@ -102,7 +156,10 @@ def _refresh(symbol: str) -> dict:
         points = old.get("points", [])
     # Copy the cached daily series. Repair a missing/null current daily bar using
     # the actual regular-session print; extended-hours prices stay in the headline.
-    points = [dict(p) for p in points]
+    points = list({p["date"]: dict(p) for p in points}.values())
+    if quote and points and points[-1]["date"] > quote["quote_date"]:
+        # A newer dated bar beats a timestamped print from an older session.
+        quote, stale = None, True
     if quote:
         point = {"date": quote["quote_date"], "close": quote["regular_close"]}
         if not points or points[-1]["date"] < point["date"]:
@@ -111,13 +168,26 @@ def _refresh(symbol: str) -> dict:
             points[-1] = point
     elif points:
         close = points[-1]["close"]
-        previous = points[-2]["close"] if len(points) > 1 else close
-        quote = {"close": close, "change": close - previous,
-                 "change_pct": (close / previous - 1) * 100,
+        previous = points[-2]["close"] if len(points) > 1 else None
+        quote = {"close": close, "change": close - previous if previous else None,
+                 "change_pct": (close / previous - 1) * 100 if previous else None,
+                 "quote_date": points[-1]["date"],
                  "session": "regular", "quote_time": None, "quote_source": "daily_history"}
 
     row = {**(quote or {"close": None, "change": None, "change_pct": None,
                        "quote_time": None}), "points": points[-60:], "stale": stale}
+    now = time.time()
+    if quote and quote.get("quote_time"):
+        # Yahoo's session bounds span some midday breaks. Allow for breaks plus
+        # vendor delay before classifying a frozen session as a missed update.
+        if (quote.get("regular_start") or now + 1) < now < (quote.get("regular_end") or 0):
+            row["stale"] |= now - max(quote["quote_time"], quote["regular_start"]) > 2 * 3600
+        if quote.get("market_status") == "OPEN":
+            row["stale"] |= now - quote["quote_time"] > 180
+        if quote.get("quote_source") == "twse_mis":
+            local = dt.datetime.fromtimestamp(now, ZoneInfo("Asia/Taipei"))
+            if local.date().isoformat() == quote["quote_date"] and dt.time(9) < local.time() < dt.time(13, 30):
+                row["stale"] |= now - quote["quote_time"] > 180
     if row["close"] is not None:
         _last_good[symbol] = row
     return row

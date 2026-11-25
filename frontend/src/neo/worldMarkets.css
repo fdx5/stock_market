@@ -386,6 +386,65 @@
   .wm-flag[data-waving] canvas { opacity: 0; }
   .wm-flag[data-waving] img { opacity: 1; }
 }
+
+.wm-focus {
+  display: grid; gap: 15px; min-width: 0; padding: clamp(14px, 2cqi, 24px);
+  background: var(--wm-panel); border: 1px solid var(--wm-edge); border-radius: var(--radius-lg);
+  box-shadow: inset 0 2px 0 var(--accent-neon);
+}
+.wm-focus-tabs { display: flex; flex-wrap: wrap; gap: 2px 6px; border-bottom: 1px solid var(--line-soft); }
+.wm-focus-tabs button {
+  padding: 6px 4px; min-height: 40px; border: 0; border-bottom: 2px solid transparent;
+  background: transparent; color: var(--text-secondary); font-size: .82rem;
+}
+.wm-focus-tabs [aria-pressed=true] { color: var(--accent-neon); border-color: currentColor; }
+.wm-focus-body, .wm-focus-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.wm-focus-body { align-items: end; }
+.wm-focus h2 { display: flex; align-items: center; gap: 8px; font-size: 1.08rem; }
+.wm-focus-price { display: block; font: 700 clamp(28px, 4.3cqi, 58px)/1.2 var(--f-num); letter-spacing: -.045em; }
+.wm-focus-price small { color: var(--text-secondary); font-size: .8rem; }
+.wm-focus-move { display: flex; flex-wrap: wrap; gap: 10px; font: 600 1rem var(--f-num); }
+.wm-focus-body figure { flex: 1 1 25%; max-width: 180px; min-width: 34px; margin: 0; text-align: right; }
+.wm-focus-body .wm-spark { width: 100%; height: clamp(36px, 5.5cqi, 75px); }
+.wm-focus-body figcaption, .wm-focus-foot { color: var(--text-secondary); font-size: .78rem; line-height: 1.5; }
+.wm-focus-foot { border-top: 1px solid var(--line-soft); padding-top: 9px; }
+.wm-focus-foot b { color: var(--text-primary); }
+.wm-focus-foot button { background: transparent; border: 1px solid var(--wm-edge); border-radius: var(--radius-sm); min-height: 42px; padding-inline: 10px; white-space: nowrap; }
+.wm-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 6px 20px; align-items: center; background: var(--wm-panel); }
+.wm-summary .wm-breadth-counts { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+.wm-summary .wm-breadth-bar { margin-bottom: 0; }
+.wm-summary .wm-breadth-foot { grid-column: 1 / -1; font-size: .78rem; }
+.wm-card-stamp { border-top: 1px solid var(--line-soft); margin-top: 4px; padding-top: 4px; font-size: .75rem; line-height: 1.45; color: var(--text-secondary); }
+.wm-table { width: 100%; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+.wm-table th, .wm-table td { border-bottom: 1px solid var(--line-soft); padding: 7px 5px; text-align: right; }
+.wm-table thead th { font-weight: 500; color: var(--text-secondary); }
+.wm-table th:first-child { text-align: left; }
+.wm-table th button { display: flex; gap: 6px; align-items: center; min-height: 40px; background: transparent; border: 0; text-align: left; padding: 0; }
+.wm-table tr[data-selected] { background: color-mix(in srgb, var(--accent-neon) 7%, transparent); }
+.wm-table small { display: block; color: var(--text-secondary); font-size: .75rem; font-weight: 400; }
+.wm-table tbody td:nth-child(3) { font-weight: 700; }
+@container (min-width: 736px) {
+  .wm-header { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); align-items: center; }
+  .wm-board-aside { position: sticky; top: 5rem; }
+}
+@container (max-width: 735px) {
+  .wm-header { grid-template-columns: minmax(0, 1fr); padding: clamp(14px, 3cqi, 22px); }
+  .wm-summary { grid-template-columns: 1fr; }
+  .wm-summary .wm-breadth-counts { grid-column: 1; grid-row: auto; }
+  .wm-page :is(.wm-switch button, .wm-filters button, .wm-jumps a, .wm-focus-tabs button, input, select) { min-height: 44px; }
+  .wm-board-controls { display: grid; }
+  .wm-board-inputs input { flex: 1; min-width: 0; }
+  .wm-focus-tabs { justify-content: space-between; }
+}
+@container (max-width: 500px) {
+  .wm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wm-table th, .wm-table td { padding-inline: 2px; }
+  .wm-table { font-size: .78rem; }
+  .wm-table .wm-mini-flag { display: none; }
+  .wm-table td:last-child { max-width: 80px; }
+  .wm-focus-tabs { justify-content: flex-start; }
+  .wm-card { padding: 10px; }
+}
 @media (orientation: landscape) and (max-height: 500px) and (max-width: 1000px) {
   html[data-design="neo"]:has(.wm-page) { scroll-padding-top: 6px; }
   .ng-shell:has(.wm-page) > :is(.ng-header, .ng-top-rail) { position: relative; top: auto; }
