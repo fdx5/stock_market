@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import MoversEntry from "../neo/MoversEntry";
 import AdZone from "../neo/AdZone";
 import { useTone } from "../neo/settings";
 import CommunityShortcut from "../neo/CommunityShortcut";
@@ -854,6 +855,7 @@ export default function MarketMapPage({
       <Tape />
 
       <main className="d2-main mm-main">
+      {market !== "us" && <MoversEntry place="map" />}
       <header className="app-header-trailing ng-map-heading">
         <div className="kospi-map-titlebar">
           <div>

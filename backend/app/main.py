@@ -21,6 +21,7 @@ from app.services.turso import TursoError
 from app.routers import discovery
 from app.routers import community
 from app.routers import hot_issues as hot_issues_router
+from app.routers import movers as movers_router
 from app.routers import editorial as editorial_router
 from app.services import editorial as editorial_service
 
@@ -238,6 +239,7 @@ def initialize_audience_collection():
 app.include_router(prediction.router, prefix="/api/prediction")
 app.include_router(translate.router, prefix="/api")
 app.include_router(hot_issues_router.router, prefix="/api/hot-issues")
+app.include_router(movers_router.router, prefix="/api/movers")
 app.include_router(geo.router, prefix="/api")
 app.include_router(activity.router, prefix="/api/activity")
 from app.routers import audience_diagnostics
@@ -587,6 +589,13 @@ def _start_hot_issue_writer() -> None:
 
 
 @app.on_event("startup")
+def _start_movers_writer() -> None:
+    # 급등·급락 이유: 09:20 / 12:30 / 16:00 KST on trading days (movers).
+    from app.services import movers
+    movers.start_scheduler()
+
+
+@app.on_event("startup")
 def _start_social_publish_trigger() -> None:
     from app.services import social_publish_scheduler
     social_publish_scheduler.start_scheduler()
@@ -837,6 +846,32 @@ if STATIC_DIR.exists():
         if edition is None:
             raise HTTPException(status_code=404, detail="Edition not found")
         return HTMLResponse(render_spa_shell(_spa_template, hot_issues.edition_path(edition), {}, hot_edition=edition))
+
+    @app.api_route("/movers/og/latest.png", methods=["GET", "HEAD"], include_in_schema=False)
+    def movers_share_latest():
+        from app.services import movers, movers_og
+        data = movers.current()
+        return Response(content=movers_og.render(data if data.get("stocks") else None), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=300"})
+
+    @app.api_route("/movers/og/{day}/{hhmm}.png", methods=["GET", "HEAD"], include_in_schema=False)
+    def movers_share_image(day: str, hhmm: str):
+        from app.services import movers, movers_og
+        slot = movers.parse_slot(day, hhmm)
+        data = movers.edition(slot) if slot else None
+        if not data:
+            raise HTTPException(status_code=404, detail="Edition image not found")
+        return Response(content=movers_og.render(data), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400, immutable"})
+
+    @app.api_route("/movers/{day}/{hhmm}", methods=["GET", "HEAD"], include_in_schema=False)
+    def movers_archive(day: str, hhmm: str):
+        from app.services import movers
+        slot = movers.parse_slot(day, hhmm)
+        data = movers.edition(slot) if slot else None
+        if data is None:
+            raise HTTPException(status_code=404, detail="Edition not found")
+        return HTMLResponse(render_spa_shell(_spa_template, movers.edition_path(data), {}, movers_edition=data))
 
     @app.get("/market-brief/og/{day}/{market}.png", include_in_schema=False)
     def market_brief_share_image(day: str, market: str):

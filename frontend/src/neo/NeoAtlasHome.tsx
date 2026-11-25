@@ -1,4 +1,5 @@
 import AdZone, { MultiplexAd } from "./AdZone";
+import MoversEntry from "./MoversEntry";
 import { useState } from "react";
 import { TodayEntry } from "../growth/MarketPulsePage";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -53,6 +54,7 @@ export default function NeoAtlasHome() {
   return <main className="d2 ng-home ng-atlas ng-home--rail" lang={lang}>
     <div className="ng-home-rail"><AdZone kind="rail" /><MultiplexAd slot="5096564255" media="(min-width: 1680px)" /></div>
     <h1 className="sr-only">{L("관제 홈 — 국내외 증시 한눈에 보기", "Command home — markets at a glance")}</h1>
+    <MoversEntry place="home" />
     <MarketScanner market={market} onMarketChange={chooseMarket} />
     <PremarketForecast scope="kr" />
     <section className="ng-asset-belt" aria-labelledby="ng-assets-h"><div><span>ACROSS ASSETS</span><h2 id="ng-assets-h">{L("시장을 잇는 가격", "Prices in between")}</h2></div><div>{assets.map(asset => { const quote = tick(asset.symbol); return <Link key={asset.key} to={`/prices/${asset.key}`} className="ng-asset-link"><article className={`ng-asset-cell ng-asset-cell--${asset.key}`}><AssetCellFx kind={asset.key} up={(quote?.change_pct ?? 0) > 0}/><span>{L(asset.ko, asset.en)}<small>{asset.unit}</small></span><CyberQuote value={quote?.price}>{quote ? quote.price.toLocaleString("en-US", { maximumFractionDigits: asset.digits }) : "—"}</CyberQuote><b className={`is-${toneOf(quote?.change_pct)}`}>{pct(quote?.change_pct)}</b><small>{quoteTime(quote?.quote_time)} ↗</small></article></Link>; })}</div></section>

@@ -25,7 +25,8 @@ def due_slots(now: datetime):
     slots = [(clock_time(7, 15), "morning"), (clock_time(22, 15), "evening"),
              (clock_time(8), "world_morning"), (clock_time(17), "world_evening")]
     if is_trading_day(day, "KR"):
-        slots.append((clock_time(16), "close"))
+        slots += [(clock_time(16), "close"), (clock_time(9, 30), "movers_open"),
+                  (clock_time(12, 40), "movers_noon"), (clock_time(16, 15), "movers_close")]
     due = []
     for at, edition in slots:
         start = datetime.combine(day, at, KST)

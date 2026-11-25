@@ -237,7 +237,7 @@ def _slot(edition):
 def headline(day, edition):
     slot = _slot(edition)
     suffix = " (업데이트)" if UPDATE_STAMP else ""
-    return f"🌏 {day:%m/%d} {slot[:2]}:{slot[2:]} 세계 증시 성적표{suffix}"
+    return f"{day:%m/%d} {slot[:2]}:{slot[2:]} 세계 증시 성적표{suffix}"
 
 
 def _text_line(q):
@@ -248,9 +248,12 @@ def _text_line(q):
     return f"{arrow} {name} {_fmt_pct(q['pct'])}"
 
 
+CAMPAIGN = "world_indices"
+
+
 def link(service):
     params = urlencode({"utm_source": "x" if service == "twitter" else service,
-                        "utm_campaign": "world_indices"})
+                        "utm_medium": "social", "utm_campaign": CAMPAIGN})
     return f"{SITE}/world-markets?{params}"
 
 
@@ -262,7 +265,9 @@ def captions(day, edition, quotes, analysis, fits):
     """Return {service: text}; ``fits(service, text)`` enforces each network's limit."""
     first = headline(day, edition)
     tags = " ".join([*BASE_TAGS, *analysis["tags"]])
-    hook = f"{analysis['emoji']} {analysis['hook']}"
+    hook = analysis['hook']
+    global CAMPAIGN
+    CAMPAIGN = f"{edition}-{day:%Y%m%d}" + (f"-{UPDATE_STAMP}" if UPDATE_STAMP else "")
     by_key = {q["key"]: q for q in quotes}
     out = {}
 
@@ -275,7 +280,7 @@ def captions(day, edition, quotes, analysis, fits):
     for count in range(len(picks), 0, -1):
         for tag_count in range(len(x_tags), 1, -1):
             text = (f"{first}\n{hook}\n" + " ".join(_line(q, True) for q in picks[:count])
-                    + f"\n👉 {link('twitter')}\n" + " ".join(x_tags[:tag_count]))
+                    + f"\n세계 증시 한눈에 {link('twitter')}\n" + " ".join(x_tags[:tag_count]))
             if fits("twitter", text):
                 out["twitter"] = text
                 break
@@ -287,9 +292,9 @@ def captions(day, edition, quotes, analysis, fits):
     ranking = "\n".join(f"{i}. {_text_line(q)}" for i, q in enumerate(quotes, 1))
     plain = "\n".join(_text_line(q) for q in quotes)
     edges = "\n".join(_text_line(q) for q in quotes[:3] + quotes[-3:])
-    for body, variant, cta in ((full, ranking, "나라별 지수 차트·히트맵 실시간 보기 👉 "),
-                               (full, plain, "나라별 차트·히트맵 👉 "), (brief, plain, "👉 "),
-                               (full, edges, "나라별 차트·히트맵 👉 "), (brief, edges, "👉 ")):
+    for body, variant, cta in ((full, ranking, "나라별 지수 차트·히트맵 실시간 보기 "),
+                               (full, plain, "나라별 차트·히트맵 "), (brief, plain, ""),
+                               (full, edges, "나라별 차트·히트맵 "), (brief, edges, "")):
         text = f"{first}\n{hook}\n\n{body}\n\n{variant}\n\n{cta}{link('threads')}\n{tags}"
         if fits("threads", text):
             out["threads"] = text
@@ -300,7 +305,7 @@ def captions(day, edition, quotes, analysis, fits):
     top3 = " ".join(_line(q, True) for q in quotes[:3])
     low3 = " ".join(_line(q, True) for q in quotes[-3:])
     for text in (
-        f"{first}\n{hook}\n{short_body}\n🔺{top3}\n🔻{low3}\n{link('bluesky')}\n{tags}",
+        f"{first}\n{hook}\n{short_body}\n오름 {top3}\n내림 {low3}\n{link('bluesky')}\n{tags}",
         f"{first}\n{hook}\n{short_body}\n{link('bluesky')}\n{tags}",
         f"{first}\n{hook}\n{analysis['summary'][0]}\n{link('bluesky')}\n{' '.join([*BASE_TAGS[:2], *analysis['tags']])}",
     ):

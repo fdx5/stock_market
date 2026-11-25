@@ -19,8 +19,10 @@ from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 try:
+    import movers_social as movers
     import world_indices_social as world
 except ModuleNotFoundError:  # Imported as scripts.social_publish by the test suite.
+    from scripts import movers_social as movers
     from scripts import world_indices_social as world
 
 
@@ -397,6 +399,8 @@ def deliver(day, edition, prepared=None, receipt=None):
         headline = f"{day:%m/%d} 국내 증시 마감"
     elif edition in world.EDITIONS:
         headline = world.headline(day, edition)
+    elif edition in movers.EDITIONS:
+        headline = movers.headline(day, edition)
     else:
         slot = SLOTS[edition]
         headline = f"{day:%m/%d} 오늘의 핫이슈 | {slot[:2]}:{slot[2:]}판"
@@ -472,6 +476,8 @@ def record_delivery(day, edition):
 def prepare(day, edition, *, preview):
     if edition in world.EDITIONS:
         return world.make(day, edition, caption_fits)
+    if edition in movers.EDITIONS:
+        return movers.make(day, edition, caption_fits)
     text, media = make_close(day, preview=preview) if edition == "close" else make_news(day, edition)
     if len(text) > 300 or weighted_length(text) > 280:
         raise RuntimeError("Caption exceeds the cross-platform post length")
@@ -492,6 +498,15 @@ def due_editions(now):
         start = dt.datetime.combine(day, dt.time(int(slot[:2]), int(slot[2:])), KST)
         if start <= now < start + dt.timedelta(hours=4):
             due.append((day, edition))
+    # Movers editions: 09:30 / 12:40 / 16:15 KST on KRX sessions, within 3 hours.
+    movers_due = [edition for edition, (h, m) in movers.POST_AT.items()
+                  if dt.datetime.combine(day, dt.time(h, m), KST) <= now
+                  < dt.datetime.combine(day, dt.time(h, m), KST) + dt.timedelta(hours=3)]
+    if movers_due:
+        import exchange_calendars
+
+        if exchange_calendars.get_calendar("XKRX").is_session(day.isoformat()):
+            due += [(day, edition) for edition in movers_due]
     ready = max(dt.datetime.combine(day, dt.time(16), KST),
                 market_close(day) + dt.timedelta(minutes=10))
     if now >= ready:

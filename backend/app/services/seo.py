@@ -22,6 +22,7 @@ from app.services import market_guides
 from app.services import public_markets
 from app.services import index_landing
 from app.services import hot_issues
+from app.services import movers
 from app.services.social_cards import SOCIAL_CARDS
 
 from app.site import PRIMARY_SITE_URL
@@ -501,6 +502,7 @@ PAGES.update(market_guides.PAGES)
 PAGES.update(public_markets.PAGES)
 PAGES.update(index_landing.PAGES)
 PAGES["/hot-issues"] = hot_issues.PAGE
+PAGES["/movers"] = movers.PAGE
 PAGES.update({path: (card["title"], card["description"]) for path, card in SOCIAL_CARDS.items() if path.startswith("/community/")})
 
 
@@ -531,7 +533,8 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
     return re.sub(pattern, rf"\g<1>{escaped}\g<2>", document, count=1)
 
 
-def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edition: dict | None = None) -> str:
+def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edition: dict | None = None,
+                     movers_edition: dict | None = None) -> str:
     canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
     if canonical_path in {"/pulse-board", "/pulse-board-2"}:
         template = re.sub(r'<script id="adsense-loader"[^>]*>.*?</script>\s*', "", template, count=1, flags=re.S)
@@ -576,6 +579,22 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
                 title, description = hot_issues.edition_metadata(hot_edition)
             else:
                 description = f"[{hot_data['slot_label']}판] {hot_data['headline']} — {description}"
+    movers_data = movers_edition
+    if canonical_path == "/movers":
+        try:
+            movers_data = movers.current()
+        except Exception:
+            movers_data = {}
+    if movers_data is not None:
+        if movers_edition:
+            title, description = movers.edition_metadata(movers_edition)
+            page_image = f"{SITE}/movers/og/{movers_edition['edition']}/{movers_edition['slot_label'].replace(':', '')}.png"
+        else:
+            page_image = f"{SITE}/movers/og/latest.png"
+            if movers_data.get("headline"):
+                description = f"[{movers_data['slot_label']} {movers_data['slot_name']}] {movers_data['headline']} — {description}"[:300]
+        if movers_data.get("headline"):
+            image_alt = f"급등·급락 이유 {movers_data['edition']} {movers_data['slot_label']} — {movers_data['headline']}"
     if canonical_path in index_landing.BY_PATH:
         # The level itself leads the snippet: it is what the searcher came for.
         try:
@@ -746,7 +765,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
     document = _replace_meta(document, 'property="og:title"', title)
     document = _replace_meta(document, 'property="og:description"', description)
     document = _replace_meta(document, 'property="og:url"', share_url)
-    document = _replace_meta(document, 'property="og:type"', "article" if brief or hot_edition or canonical_path in market_guides.GUIDES else "website")
+    document = _replace_meta(document, 'property="og:type"', "article" if brief or hot_edition or movers_edition or canonical_path in market_guides.GUIDES else "website")
     document = _replace_meta(document, 'property="og:image"', page_image)
     document = _replace_meta(document, 'property="og:image:secure_url"', page_image)
     document = _replace_meta(document, 'property="og:image:type"', "image/jpeg" if page_image.lower().endswith((".jpg", ".jpeg")) else "image/png")
@@ -881,6 +900,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
         structured = index_landing.structured_data(canonical_path, SITE)
     if hot_data is not None:
         structured = hot_issues.structured_data(SITE, hot_data, archive=hot_edition is not None)
+    if movers_data is not None:
+        structured = movers.structured_data(SITE, movers_data, archive=movers_edition is not None)
     script = '<script id="route-structured-data" type="application/ld+json">' + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/") + "</script>"
     document = document.replace("</head>", f"{script}\n  </head>", 1)
 
@@ -889,7 +910,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
     # lightweight shell as soon as it mounts; crawlers and slow connections get
     # a meaningful heading, summary, and crawlable internal links immediately.
     links = [
-        ("/world-markets", "전세계 증시"), ("/hot-issues", "오늘의 핫이슈"), ("/kospi", "코스피 지수"), ("/kosdaq", "코스닥 지수"), ("/nasdaq", "나스닥 지수"),
+        ("/movers", "오늘 급등주·급락주 이유"), ("/world-markets", "전세계 증시"), ("/hot-issues", "오늘의 핫이슈"), ("/kospi", "코스피 지수"), ("/kosdaq", "코스닥 지수"), ("/nasdaq", "나스닥 지수"),
         ("/desk", "국내 주식 시세"), ("/map", "코스피맵 · 코스피 시가총액 맵"),
         ("/kosdaq-map", "코스닥 시가총액 맵"), ("/etf/kr", "국내 ETF"), ("/etf/us", "해외 ETF"),
         ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
@@ -992,8 +1013,17 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
             f'<a href="/stock/{other}">{html.escape(other_name)} 주가</a>'
             for other, other_name in _detail_neighbours(stock_code, "kr_stock")
         )
+        try:
+            mover = movers.for_stock(stock_code)
+        except Exception:
+            mover = None
+        mover_html = (
+            f'<section><h2>{html.escape(stock_name)} {"급등" if mover["direction"] == "up" else "급락"} 이유 '
+            f'({mover["edition"]} {mover["slot_label"]} 기준 {mover["change_pct"]:+.2f}%)</h2>'
+            f'<p>{html.escape(mover.get("reason") or "")}</p><p><a href="{mover["path"]}">오늘 급등·급락 종목 전체 보기</a></p></section>'
+        ) if mover else ""
         report_content = (
-            f'{intro}'
+            f'{intro}{mover_html}'
             + _kr_stock_numbers(stock_code, stock_name, stock_landing_kind, kr_records, kr_digest)
             + '<nav aria-label="종목 관련 분석" style="display:flex;flex-wrap:wrap;gap:12px">'
             f'{siblings}'
@@ -1105,6 +1135,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
         report_content = index_landing.render_content(canonical_path)
     if hot_data is not None:
         report_content = hot_issues.render_content(hot_data, archive=hot_edition is not None)
+    if movers_data is not None:
+        report_content = movers.render_content(movers_data, archive=movers_edition is not None)
     if canonical_path == "/world-markets":
         # Rendering must not wait on quote feeds: use the estimate already cached.
         from app.routers.world_markets import build_catalog
@@ -1211,6 +1243,10 @@ def build_pages_sitemap() -> str:
     except Exception:
         hot_archive = []
     urls.extend((f"{SITE}{path}", "0.7", "never", lastmod) for path, lastmod in hot_archive)
+    try:
+        urls.extend((f"{SITE}{path}", "0.7", "never", lastmod) for path, lastmod in movers.sitemap_editions())
+    except Exception:
+        pass
     seen_briefs = set()
     for item in brief_dates:
         day = str(item.get("date") or "")

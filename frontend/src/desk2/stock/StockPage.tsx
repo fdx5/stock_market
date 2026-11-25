@@ -1,4 +1,5 @@
 import { API_POLL_MS } from "../../apiPolling";
+import MoversEntry from "../../neo/MoversEntry";
 import ServiceConnections from "../../markets/ServiceConnections";
 import "../../markets/researchServices.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -354,6 +355,7 @@ export default function StockPage({ code: rawCode, isEtf = false }: { code: stri
       </div>
 
       <main className="d2-main">
+        {!us && !isEtf && <MoversEntry code={code} place="stock" />}
         <ServiceConnections compact path={`/stock/${code}`} code={code} market={us ? "nasdaq" : boardMarket === "KOSDAQ" ? "kosdaq" : "kospi"} region={isEtf ? market : undefined} />
         {loading && !name && (
           <div className="sk-loading">

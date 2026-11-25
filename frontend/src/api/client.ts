@@ -628,6 +628,22 @@ export interface HotIssueEdition {
   stories: HotIssueStory[]; watchlist?: { when: string; event: string; note: string }[]; takeaways?: string[];
   latest_slot?: string; is_latest?: boolean; next_update?: string; today_slots?: { slot: string; label: string; published: boolean }[];
 }
+export interface MoverNews { title: string; summary: string; press: string; at: string; url: string }
+export interface MoverStock {
+  code: string; name: string; market: string; close: number; change_pct: number; limit: string;
+  turnover_100m: number; marcap_100m: number; direction: "up" | "down"; reason: string; theme: string;
+  news: MoverNews[]; line: number[];
+}
+export interface MoversEdition {
+  slot?: string; edition?: string; slot_label?: string; slot_name?: string; generated_at?: string;
+  headline?: string; dek?: string; social_hook?: string; themes?: { name: string; codes: string[] }[];
+  indices?: { name: string; close: number | null; change_pct: number | null }[]; limit_up?: number; limit_down?: number;
+  stocks: MoverStock[]; next_update?: string; day_slots?: { slot: string; label: string; name: string; published: boolean }[];
+}
+export interface MoverEntry {
+  edition: string; slot_label: string; path: string; name: string; change_pct: number; reason: string;
+  theme: string; limit: string; direction: "up" | "down";
+}
 export interface HotIssueHeadlines {
   slot?: string; edition?: string; slot_label?: string; headline?: string; is_latest?: boolean;
   stories: Pick<HotIssueStory, "id" | "rank" | "title" | "impact">[];
@@ -1635,6 +1651,9 @@ export const api = {
   hotIssues: () => getJSON<HotIssueEdition>(`${BASE}/hot-issues/current`),
   hotIssueHeadlines: () => getJSON<HotIssueHeadlines>(`${BASE}/hot-issues/headlines`),
   hotIssueSlot: (day: string, hhmm: string) => getJSON<HotIssueEdition>(`${BASE}/hot-issues/${day}/${hhmm}`),
+  movers: () => getJSON<MoversEdition>(`${BASE}/movers/current`),
+  moversSlot: (day: string, hhmm: string) => getJSON<MoversEdition>(`${BASE}/movers/${day}/${hhmm}`),
+  moverForStock: (code: string) => getJSON<{ entry: MoverEntry | null }>(`${BASE}/movers/stock/${encodeURIComponent(code)}`),
   orderbook: (code: string) => getJSON<OrderBook>(`${BASE}/stock/${code}/orderbook`),
   balanceHistory: (code: string) => getJSON<BalanceHistory>(`${BASE}/stock/${code}/balance`),
   dailyPrices: (code: string, offset = 0, limit = 20) =>

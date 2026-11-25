@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect } from "react";
 import { GUIDE_SEO } from "./guides/catalog";
-import { GROWTH_SEO, HOT_ISSUE_EDITION, publicMarket, todayMetadata } from "./growth/publicLinks";
+import { GROWTH_SEO, HOT_ISSUE_EDITION, MOVERS_EDITION, publicMarket, todayMetadata } from "./growth/publicLinks";
 import { syncThemeForPath } from "./theme";
 import { attachDeskBgm } from "./desk2/deskBgmStore";
 import LoadingState from "./components/LoadingState";
@@ -61,6 +61,7 @@ const BroadsheetBriefPage = lazy(() => import("./desk2/brief/BriefPage"));
 const NeoTop100Page = lazy(() => import("./neo/Top100Page"));
 const WorldMarketsPage = lazy(() => import("./neo/WorldMarketsPage"));
 const HotIssuesPage = lazy(() => import("./neo/HotIssuesPage"));
+const MoversPage = lazy(() => import("./neo/MoversPage"));
 const IndexLandingPage = lazy(() => import("./neo/IndexLandingPage"));
 const BroadsheetForecastPage = lazy(() => import("./desk2/forecast/ForecastPage"));
 const BroadsheetGradingPage = lazy(() => import("./desk2/forecast/GradingPage"));
@@ -406,6 +407,7 @@ export default function App() {
 
   let page;
   const hotIssueEdition = HOT_ISSUE_EDITION.exec(path);
+  const moversEdition = MOVERS_EDITION.exec(path);
   const portfolioMatch = path.match(/^\/investors\/([a-z]+)\/?$/);
   const investorMatch = path.match(/^\/investor\/([^/]+)\/?$/);
   const indexMatch = path.match(/^\/index\/(kospi|kosdaq)\/?$/i);
@@ -487,6 +489,8 @@ export default function App() {
     page = <WorldMarketsPage />;
   } else if (path === "/hot-issues" || path === "/hot-issues/" || hotIssueEdition) {
     page = <HotIssuesPage key={path} archiveDay={hotIssueEdition?.[1]} archiveTime={hotIssueEdition?.[2]} />;
+  } else if (path === "/movers" || path === "/movers/" || moversEdition) {
+    page = <MoversPage key={path} archiveDay={moversEdition?.[1]} archiveTime={moversEdition?.[2]} />;
   } else if (path === "/kospi-100") {
     page = <NeoTop100Page market="kospi" />;
   } else if (path === "/kosdaq-100") {

@@ -397,6 +397,30 @@ def hot_issue_stats(since_iso: str) -> dict:
             "recent": [{"at": at, "path": path, "action": (key or "view").removeprefix("hotissue:"), "label": label} for at, path, key, label in recent]}
 
 
+_social_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+def social_campaign_views(since_iso: str) -> list[dict]:
+    """SELECT-only: visits that arrived from the automated SNS posts, per campaign and network.
+
+    Held for 20 minutes: the SNS batch and the movers writer ask a few times a day,
+    and each ask would otherwise re-read the human rows of the whole window.
+    """
+    import time as _time
+    hit = _social_cache.get(since_iso[:13])
+    if hit and hit[0] > _time.monotonic():
+        return hit[1]
+    def read(conn):
+        return conn.execute(
+            "SELECT utm_campaign, utm_source, COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
+            f"WHERE created_at >= ? AND {HUMAN} AND event_type='page_view' "
+            "AND utm_source IN ('x','threads','bluesky') AND utm_campaign IS NOT NULL "
+            "GROUP BY utm_campaign, utm_source", (since_iso,)).fetchall()
+    rows = [{"campaign": c, "source": s, "views": int(v or 0), "visitors": int(u or 0)} for c, s, v, u in _with_connection(read)]
+    _social_cache[since_iso[:13]] = (_time.monotonic() + 1200, rows)
+    return rows
+
+
 def exchange_stats(since_iso: str) -> dict:
     """SELECT-only: visits of the 3D /exchange floor and what visitors did there (object_key exchange:*)."""
     where = f"created_at >= ? AND {HUMAN}"
