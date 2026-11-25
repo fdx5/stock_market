@@ -566,7 +566,10 @@ def build_movers(day: dt.date, edition: str, variant: str) -> Post:
     _scripts_on_path()
     import movers_social as movers  # noqa: WPS433
 
-    data = movers._edition(day, edition)
+    try:
+        data = movers._edition(day, edition)
+    except RuntimeError as exc:
+        raise NotReady(str(exc)) from None
     stocks = data.get("stocks") or []
     if not stocks:
         raise NotReady("movers edition has no stocks")
