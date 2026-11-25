@@ -19,7 +19,8 @@ const bannerRoutes = new Set([
 export function adRoute(path: string) {
   const isStockDetail = /^\/stock\/[A-Za-z0-9.-]{1,16}\/?$/.test(path);
   const isBrief = /^\/market-brief\/(?:latest\/(?:kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco)|\d{4}-\d{2}-\d{2}\/(?:kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6}))\/?$/i.test(path);
-  return bannerRoutes.has(path) || isStockDetail || isBrief;
+  const isMovers = /^\/movers(?:\/\d{4}-\d{2}-\d{2}\/(?:0920|1230|1600))?\/?$/.test(path);
+  return bannerRoutes.has(path) || isStockDetail || isBrief || isMovers;
 }
 
 type BannerOptions = { labelled?: boolean; contentReady?: boolean };
