@@ -25,7 +25,7 @@ RUNS_API = "https://api.github.com/repos/fdx5/stock_market/actions/workflows/soc
 GROUPS = [
     {"key": "sns", "label": "SNS 자동 게시", "hint": "Buffer → X · Threads · Bluesky"},
     {"key": "content", "label": "콘텐츠 자동 생성", "hint": "핫이슈 · 급등락 이유 · 장마감 브리핑"},
-    {"key": "blog", "label": "네이버 블로그", "hint": "장마감 브리핑 자동 게시"},
+    {"key": "blog", "label": "네이버 블로그", "hint": "SNS 판과 같은 시각 · 장마감 브리핑 · 로컬 PC 발행기"},
     {"key": "data", "label": "예측·데이터 배치", "hint": "AI 예측 · D램 현물가"},
     {"key": "notify", "label": "알림", "hint": "카카오톡 알림"},
 ]
@@ -187,7 +187,7 @@ def _brief_and_blog(day: dt.date, now: dt.datetime) -> list[dict]:
     jobs = []
     if not _trading(day, "KR"):
         return [{"id": "brief", "group": "content", "at": "16:10", "name": "장마감 브리핑", "status": "off", "detail": "휴장일"},
-                {"id": "blog", "group": "blog", "at": "16:20", "name": "네이버 블로그 장마감 글", "status": "off", "detail": "휴장일"}]
+                {"id": "blog", "group": "blog", "at": "16:20", "name": "네이버 블로그 장마감 브리핑 7건", "status": "off", "detail": "휴장일"}]
     try:
         from app.services import market_brief_store
         markets = {d["market"].lower() for d in market_brief_store.dates(6) if d["date"] == day.isoformat()}
@@ -201,14 +201,69 @@ def _brief_and_blog(day: dt.date, now: dt.datetime) -> list[dict]:
         rows = [r for r in naver_publish_store.recent(8) if str(r.get("report_date")) in (day.isoformat(), day.strftime("%Y%m%d"))]
         published = [r for r in rows if r.get("status") == "published"]
         failed = [r for r in rows if r.get("status") == "failed"]
-        status = _judge(now, _at(day, "16:20"), len(published) >= 2, bool(failed) and not published, grace=dt.timedelta(hours=6))
+        status = _judge(now, _at(day, "16:20"), len(published) >= 7, bool(failed) and not published, grace=dt.timedelta(hours=6))
         detail = (f"{len(published)}건 게시" + (f" · 실패 {len(failed)}" if failed else "")) if rows else "기록 없음"
         if failed:
             detail += f" — {str(failed[0].get('last_error') or '')[:120]}"
-        jobs.append({"id": "blog", "group": "blog", "at": "16:20", "name": "네이버 블로그 장마감 글", "status": status, "detail": detail,
+        jobs.append({"id": "blog", "group": "blog", "at": "16:20", "name": "블로그 · 장마감 브리핑 7건(오늘의 브리핑)", "status": status, "detail": detail,
                      "link": (published[0].get("post_url") if published else None)})
     except Exception as exc:
         jobs.append({"id": "blog", "group": "blog", "at": "16:20", "name": "네이버 블로그 장마감 글", "status": "failed", "detail": type(exc).__name__})
+    return jobs
+
+
+def _naver_social(day: dt.date, now: dt.datetime) -> list[dict]:
+    """Naver blog twins of the SNS editions (published by the PC worker), plus its heartbeat."""
+    jobs = []
+    try:
+        from app.services import naver_social_content as content, naver_social_publisher as pub, naver_social_store as store
+        rows = {r["post_key"]: r for r in store.for_days([day.isoformat()])}
+        worker = store.worker_status()
+    except Exception as exc:
+        return [{"id": "nb:store", "group": "blog", "at": "00:00", "name": "네이버 블로그 발행 원장", "status": "failed",
+                 "detail": f"저장소 오류 {type(exc).__name__}"}]
+    for edition, (hhmm, hours, category, _rule, _kind, label) in content.EDITIONS.items():
+        name = f"블로그 · {label}"
+        jid = f"nb:{edition}"
+        if not pub.applies(day, edition):
+            jobs.append({"id": jid, "group": "blog", "at": hhmm, "name": name, "status": "off", "detail": "휴장일이라 쉽니다"})
+            continue
+        start, end = pub.window(day, edition)
+        if start < pub.START:
+            jobs.append({"id": jid, "group": "blog", "at": hhmm, "name": name, "status": "off", "detail": "도입 전"})
+            continue
+        row = rows.get(f"{day}:{edition}") or {}
+        st = row.get("status")
+        cat = content.CATEGORY_NAMES.get(category, "")
+        if st == "published":
+            seen = row.get("category_seen")
+            status = "ok"
+            detail = f"게시됨 · {cat}" + ("" if seen in (None, category) else f" (실제 카테고리 {seen} — 확인 필요)")
+            detail += f" · {row.get('chars') or 0:,}자 · 변형 {row.get('variant') or '-'}"
+        elif st == "skipped":
+            status, detail = "missed", f"시간 초과로 건너뜀 — {str(row.get('last_error') or '')[:100]}"
+        elif st == "failed" and (row.get("attempts") or 0) >= store.MAX_ATTEMPTS:
+            status, detail = "failed", str(row.get("last_error") or "")[:140]
+        elif now < start:
+            status, detail = "pending", f"예정 · {cat}"
+        elif now < end:
+            status = "running"
+            detail = "게시 대기 — " + (str(row.get("last_error") or "데이터 준비·발행 중")[:120])
+        else:
+            status, detail = "missed", "게시 기록 없음 — PC 발행기 확인"
+        jobs.append({"id": jid, "group": "blog", "at": hhmm, "name": name, "status": status, "detail": detail,
+                     "link": row.get("post_url")})
+    seen_at = None
+    try:
+        seen_at = dt.datetime.fromisoformat(str((worker or {}).get("seen_at"))).astimezone(KST) if worker else None
+    except Exception:
+        seen_at = None
+    if day == now.date():
+        fresh = seen_at is not None and now - seen_at < dt.timedelta(minutes=25)
+        jobs.append({"id": "nb:worker", "group": "blog", "at": f"{now:%H:%M}", "name": "PC 블로그 발행기 응답",
+                     "status": "ok" if fresh else "failed",
+                     "detail": (f"마지막 응답 {seen_at:%H:%M} · 버전 {(worker or {}).get('version')}" if seen_at
+                                else "응답 기록 없음") + ("" if fresh else " — PC가 꺼졌거나 예약 작업이 멈췄습니다")})
     return jobs
 
 
@@ -297,8 +352,8 @@ def build(day: dt.date | None = None) -> dict:
         hit = _cache.get(cache_key)
         if hit and hit[0] > time.monotonic():
             return hit[1]
-    with ThreadPoolExecutor(max_workers=7) as pool:
-        parts = [pool.submit(fn, day, now) for fn in (_sns, _hot, _movers, _brief_and_blog, _data, _notify)]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        parts = [pool.submit(fn, day, now) for fn in (_sns, _hot, _movers, _brief_and_blog, _naver_social, _data, _notify)]
         runs = pool.submit(_github_runs)
         jobs = [job for part in parts for job in part.result()]
         github = runs.result()

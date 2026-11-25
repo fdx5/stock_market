@@ -195,8 +195,15 @@ def publish(
     charts: list[tuple[str, bytes]] | None = None,
     blog_id: str = BLOG_ID,
     dry_run: bool = False,
+    category_no: int | None = None,
+    category_name: str | None = None,
 ) -> dict:
     """Publishes one post. Returns {"log_no", "post_url", "cookies", "request_seen"}.
+
+    `category_no` files the post under that blog category. It is chosen in the publish
+    layer when the dropdown is reachable, and in every case written into the outgoing
+    RabbitWrite request's populationParams, so the category never depends on what the
+    account last used. `category_name` is only the label looked for in the dropdown.
 
     `dry_run=True` stops after the content is verified inside the editor and never
     publishes — this is the safe way to exercise the whole path (session, navigation,
@@ -267,6 +274,9 @@ def publish(
                     log.warning("RabbitWrite response was not parseable JSON")
 
         page.on("response", _on_response)
+
+        if category_no is not None and not dry_run:
+            _route_category(page, int(category_no), captured)
 
         try:
             frame = None
@@ -382,7 +392,7 @@ def publish(
                     "title": landed_title,
                 }
 
-            _click_publish(page, frame, tags)
+            _click_publish(page, frame, tags, category_name=category_name)
 
             # Two independent success signals, because the response body alone is not
             # dependable: publishing navigates the browser to the new post, and reading
@@ -434,6 +444,7 @@ def publish(
                 "cookies": fresh,
                 "request_seen": True,
                 "components": landed,
+                "category_sent": captured.get("category_sent"),
             }
         finally:
             try:
@@ -441,6 +452,93 @@ def publish(
                 browser.close()
             except Exception:
                 pass
+
+
+def _route_category(page, category_no: int, captured: dict) -> None:
+    """Writes the category into the RabbitWrite request itself.
+
+    The publish layer's category dropdown is a styled list whose markup Naver changes
+    from time to time; choosing from it is attempted (see _choose_category) but is not
+    what the category rests on. The request carries `populationParams`, a JSON form
+    field whose `populationMeta.categoryId` is the category the post is filed under, so
+    that one value is set here on the way out. Nothing else in the request is touched.
+    """
+    from urllib.parse import parse_qsl, urlencode
+
+    def handle(route, request):
+        try:
+            body = request.post_data or ""
+            pairs = parse_qsl(body, keep_blank_values=True)
+            changed = False
+            out = []
+            for key, value in pairs:
+                if key == "populationParams":
+                    try:
+                        params = json.loads(value)
+                        meta = params.setdefault("populationMeta", {})
+                        captured["category_before"] = meta.get("categoryId")
+                        meta["categoryId"] = category_no
+                        value = json.dumps(params, ensure_ascii=False, separators=(",", ":"))
+                        changed = True
+                        captured["category_sent"] = category_no
+                    except Exception:
+                        log.warning("populationParams was not JSON; category left as chosen in the editor")
+                out.append((key, value))
+            if changed:
+                route.continue_(post_data=urlencode(out))
+                return
+        except Exception:
+            log.exception("category rewrite failed; sending the request unchanged")
+        route.continue_()
+
+    page.route(re.compile(r".*/RabbitWrite\.naver.*"), handle)
+
+
+def _choose_category(frame, name: str) -> bool:
+    """Best effort: pick `name` in the publish layer's category dropdown."""
+    try:
+        opener = None
+        for selector in ("button[class*='selectbox_button']", "[class*='option_category'] button",
+                         "button[aria-label*='카테고리']"):
+            loc = frame.locator(selector).first
+            if loc.count() and loc.is_visible():
+                opener = loc
+                break
+        if opener is None:
+            return False
+        opener.click(timeout=2500)
+        frame.wait_for_timeout(500)
+        for selector in (f"[class*='option_list'] label:has-text('{name}')",
+                         f"[class*='option_list'] li:has-text('{name}')",
+                         f"label:has-text('{name}')"):
+            item = frame.locator(selector).first
+            if item.count():
+                item.click(timeout=2500, force=True)
+                frame.wait_for_timeout(300)
+                log.info("category chosen in the publish layer: %s", name)
+                return True
+    except Exception as exc:
+        log.info("category dropdown not usable (%s); the request carries it anyway", str(exc).splitlines()[0][:80])
+    return False
+
+
+def post_category(blog_id: str, log_no: str) -> int | None:
+    """The category a published post is filed under, read from the public mobile API."""
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"https://m.blog.naver.com/api/blogs/{blog_id}/post-list?categoryNo=0&itemCount=30&page=1",
+        headers={"User-Agent": USER_AGENT, "Referer": f"https://m.blog.naver.com/{blog_id}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+        for item in (data.get("result") or {}).get("items") or []:
+            if str(item.get("logNo")) == str(log_no):
+                return int(item.get("categoryNo"))
+    except Exception:
+        log.warning("could not read the category of post %s", log_no)
+    return None
 
 
 def _upload_charts(page, frame, charts: list[tuple[str, bytes]]) -> dict[str, dict]:
@@ -651,7 +749,7 @@ def _dismiss_popups(frame) -> None:
         pass
 
 
-def _click_publish(page, frame, tags: list[str]) -> None:
+def _click_publish(page, frame, tags: list[str], *, category_name: str | None = None) -> None:
     """Opens the publish panel, fills tags, confirms.
 
     Two clicks, each tried against several selectors: the first opens the publish
@@ -695,6 +793,9 @@ def _click_publish(page, frame, tags: list[str]) -> None:
                 log.info("publish option set: %s", what)
         except Exception as exc:
             log.warning("could not set %s: %s", what, str(exc).splitlines()[0][:80])
+
+    if category_name:
+        _choose_category(frame, category_name)
 
     if tags:
         for selector in ("#tag-input", "input#tag-input", ".tag_input", "input[placeholder*='태그']"):

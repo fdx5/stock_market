@@ -96,3 +96,13 @@
   .ot-group li{grid-template-columns:44px 1fr}
   .ot-job-tools{grid-column:2;justify-content:flex-start}
 }
+
+.nb-panel h4 { margin: 14px 0 6px; font-size: 13px; }
+.nb-table-wrap { overflow-x: auto; }
+.nb-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.nb-table th, .nb-table td { padding: 5px 6px; border-bottom: 1px solid rgba(127, 140, 170, .18); text-align: left; vertical-align: top; }
+.nb-table td a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.nb-arms { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; font-size: 12px; }
+.nb-arms ul { margin: 4px 0 0; padding-left: 16px; }
+.nb-arms small { display: block; opacity: .7; }
+.nb-panel { grid-column: 1 / -1; }

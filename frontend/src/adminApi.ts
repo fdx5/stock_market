@@ -627,6 +627,22 @@ export interface OpsTimeline {
   github_runs: { id: number; event: string; status: string; conclusion: string | null; at: string; url: string }[];
 }
 
+export interface NaverSocialPost {
+  post_key: string; day: string; edition: string; kind: string; category_no: number | null; status: string; attempts: number;
+  title: string | null; variant: string | null; campaign: string | null; post_url: string | null; category_seen: number | null;
+  chars: number | null; images: number | null; last_error: string | null; published_at: string | null;
+  visits: number | null; visits_live?: number; search_rank: number | null; likes: number | null;
+}
+export interface NaverSocialReport {
+  worker: { seen_at: string; version: string; note: string } | null;
+  posts: NaverSocialPost[];
+  runs: { post_key: string; at: string; event: string; detail: string }[];
+  inflow: { day: string; views: number; sessions: number }[];
+  baseline_sessions_per_day: number; target_sessions_per_day: number;
+  arms: Record<string, Record<string, { n: number; mean: number; best_title: string }>>;
+  categories: Record<string, string>;
+}
+
 export async function login(username: string, password: string): Promise<void> {
   const res = await fetch(`${BASE}/login`, {
     method: "POST",
@@ -885,6 +901,7 @@ export const adminApi = {
   setCommentVisibility: (source: CommentSource, id: number, visible: boolean) =>
     authedPatch<{ visible: boolean }>(`/comments/${source}/${id}/visibility`, { visible }),
   opsTimeline: (day?: string) => authedGet<OpsTimeline>(`/ops/timeline${day ? `?day=${day}` : ""}`),
+  naverBlogSocial: (days = 7) => authedGet<NaverSocialReport>(`/naver-blog/social?days=${days}`),
   predictionStatus: () => authedGet<PredictionStatus>("/prediction/status"),
   // force=true always: the confirm dialog in front of this call already promises
   // "해당 일자 데이터를 삭제 후 재생성합니다" (delete and regenerate that day's rows), which

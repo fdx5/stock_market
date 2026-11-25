@@ -234,7 +234,7 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
     components.append(_image_slot("summary"))
 
     components += _section(
-        "📊 마감 지표",
+        "마감 지표",
         [
             f"· 종가: {_fmt_close(index, is_stock)}",
             f"· 전일 대비: {change_str} ({sign}{pct:.2f}%)",
@@ -245,7 +245,7 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
     breadth = brief.get("breadth") or {}
     if not is_stock and breadth:
         components += _section(
-            "📈 시장 내부 지표",
+            "시장 내부 지표",
             [
                 f"· 상승 {breadth.get('advance', 0)}종목 / 하락 {breadth.get('decline', 0)}종목 / 보합 {breadth.get('flat', 0)}종목",
                 f"· 상승 종목 비중: {breadth.get('advance_ratio', 0)}%",
@@ -253,7 +253,7 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
         )
 
     components += _section(
-        "💰 투자자별 수급",
+        "투자자별 수급",
         [
             f"· 외국인: {_fmt_money(investor.get('foreign_amount'))}",
             f"· 기관: {_fmt_money(investor.get('institution_amount'))}",
@@ -273,17 +273,17 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
                 body.append(_paragraph(""))
             body.append(_paragraph(para))
         components.append(
-            _text_component([_paragraph(""), _paragraph("📝 마감 심층 분석", bold=True, size="fs19")])
+            _text_component([_paragraph(""), _paragraph("마감 심층 분석", bold=True, size="fs19")])
         )
         components.append(_text_component(body))
 
     key_issues = [k for k in (brief.get("key_issues") or []) if k]
     if key_issues:
-        components += _section("💡 오늘 시장 핵심 이슈", [f"{i}. {v}" for i, v in enumerate(key_issues, 1)])
+        components += _section("오늘 시장 핵심 이슈", [f"{i}. {v}" for i, v in enumerate(key_issues, 1)])
 
     checkpoints = [c for c in (brief.get("checkpoints") or []) if c]
     if checkpoints:
-        components += _section("🔍 다음 거래일 체크포인트", [f"{i}. {v}" for i, v in enumerate(checkpoints, 1)])
+        components += _section("다음 거래일 체크포인트", [f"{i}. {v}" for i, v in enumerate(checkpoints, 1)])
 
     components.append(_image_slot("movers"))
     if not is_stock:
@@ -294,7 +294,7 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
         # The headline itself is the link. Printing the raw URL on its own line was both
         # ugly and useless — SmartEditor does not autolink text, so those lines rendered
         # as dead strings the reader had to copy by hand.
-        news_paras = [_paragraph(""), _paragraph("📰 마감 주요 뉴스", bold=True, size="fs19")]
+        news_paras = [_paragraph(""), _paragraph("마감 주요 뉴스", bold=True, size="fs19")]
         for h in headlines[:6]:
             # The two brief paths carry different keys: the stock path sets `press`,
             # the index path sets `stock` (the ticker the headline was collected for)
@@ -310,13 +310,15 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
 
     components.append(_text_component([_paragraph(""), _paragraph(_RULE)]))
 
-    report_url = f"{site_url}/market-brief/{date}/{str(brief.get('market', '')).lower()}"
+    market_slug = str(brief.get('market', '')).lower()
+    utm = f"utm_source=naver_blog&utm_medium=referral&utm_campaign=nb_brief_{market_slug}-{str(date).replace('-', '')}"
+    report_url = f"{site_url}/market-brief/{date}/{market_slug}?{utm}"
     components.append(
         _text_component(
             [
                 _paragraph(""),
-                _paragraph("🌐 실시간 차트 및 인터랙티브 맵", bold=True, size="fs19"),
-                _paragraph_nodes([_text_node("K-Stock Hub에서 이 리포트 보기", url=report_url)]),
+                _paragraph("실시간 차트와 시장 지도", bold=True, size="fs19"),
+                _paragraph_nodes([_text_node("KOSPIMAP에서 이 리포트 전체 보기", url=report_url)]),
             ]
         )
     )
@@ -337,9 +339,19 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
         _text_component(
             [
                 _paragraph(""),
-                _paragraph("🗺️ 코스피 전체 지도 한눈에 보기", bold=True, size="fs19"),
+                _paragraph("함께 보면 좋은 페이지", bold=True, size="fs19"),
+                _paragraph_nodes([_text_node("오늘 급등·급락 종목과 그 이유", url=f"{site_url}/movers?{utm}")]),
+                _paragraph_nodes([_text_node("오늘의 증시 핫이슈", url=f"{site_url}/hot-issues?{utm}")]),
+            ]
+        )
+    )
+    components.append(
+        _text_component(
+            [
+                _paragraph(""),
+                _paragraph("코스피 전체 지도 한눈에 보기", bold=True, size="fs19"),
                 _paragraph_nodes(
-                    [_text_node("K-Stock Hub 코스피 시가총액 MAP 바로가기", url=f"{site_url}/map")]
+                    [_text_node("코스피 시가총액 히트맵 실시간으로 보기", url=f"{site_url}/map?{utm}")]
                 ),
             ]
         )

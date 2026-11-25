@@ -63,6 +63,15 @@ SITE_URL = PRIMARY_SITE_URL
 # rendering or upload failure costs the post its pictures, never its publication.
 CHARTS_ENABLED = os.environ.get("NAVER_PUBLISH_CHARTS", "1") != "0"
 
+# Blog category "오늘의 브리핑" (under 게시판). Earlier posts stay where they are.
+BRIEF_CATEGORY_NO = int(os.environ.get("NAVER_BRIEF_CATEGORY_NO", "8"))
+
+# Naver refuses blog writes from the Render IP ("no privilege", every day since 2026-09)
+# while the same session writes fine from the owner's PC. On Render the run therefore
+# only queues the day's briefs; backend/scripts/naver_blog_worker.py on the PC publishes
+# them. NAVER_PUBLISH_ON_SERVER=1 restores publishing from the server.
+DEFER_TO_LOCAL = bool(os.environ.get("RENDER")) and os.environ.get("NAVER_PUBLISH_ON_SERVER") != "1"
+
 # One run at a time in this process, mirroring market_brief._lock. The store's claim()
 # is the real cross-process guard; this just avoids two threads spinning up two
 # Chromium instances on a 1-CPU container.
@@ -150,7 +159,8 @@ def publish_one(
         charts.append((f"{report_date}_{market.lower()}_kospimap.png", map_image))
 
     return naver_blog_client.publish(
-        brief, meta, title_paragraphs, body, tags, cookies, charts=charts, dry_run=dry_run
+        brief, meta, title_paragraphs, body, tags, cookies, charts=charts, dry_run=dry_run,
+        category_no=BRIEF_CATEGORY_NO, category_name="오늘의 브리핑",
     )
 
 
@@ -214,6 +224,10 @@ def run(
             log.info("released %s stale publish claims", released)
 
         enqueue_for_date(report_date)
+        if DEFER_TO_LOCAL and triggered_by != "local":
+            result["status"] = "queued_for_local_worker"
+            _last_run = result
+            return result
         targets = naver_publish_store.pending(report_date)
         if only:
             wanted = {m.upper() for m in only}

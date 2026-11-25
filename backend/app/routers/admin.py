@@ -709,6 +709,52 @@ def naver_blog_status():
 
 
 
+@router.get("/naver-blog/social", dependencies=[Depends(require_admin)])
+def naver_blog_social(days: int = Query(7, ge=1, le=30)):
+    """Naver blog twins of the SNS editions: recent posts, attempts, performance and what
+    the tuning loop has learned. Read-only; publishing happens on the owner's PC."""
+    import datetime as _dt
+    from collections import defaultdict
+    from zoneinfo import ZoneInfo
+    from app.services import naver_social_content, naver_social_perf, naver_social_store, naver_social_tuning
+
+    kst = ZoneInfo("Asia/Seoul")
+    today = _dt.datetime.now(kst).date()
+    since = (today - _dt.timedelta(days=days)).isoformat()
+    posts = [p for p in naver_social_store.recent(200) if p["day"] >= since]
+    perf = defaultdict(list)
+    for row in naver_social_store.perf_since(since):
+        perf[row["post_key"]].append(row)
+    for post in posts:
+        rows = perf.get(post["post_key"], [])
+        post["visits"] = max((r.get("visits") or 0) for r in rows) if rows else None
+        post["search_rank"] = min((r["search_rank"] for r in rows if r.get("search_rank")), default=None)
+        post["likes"] = max((r.get("likes") or 0) for r in rows) if rows else None
+        post["kind"] = naver_social_content.EDITIONS.get(post["edition"], ("",) * 6)[5]
+    try:
+        inflow = naver_social_perf.blog_inflow_by_day((today - _dt.timedelta(days=max(days, 14))).isoformat())
+    except Exception:
+        inflow = []
+    try:
+        live = naver_social_perf.campaign_visits((today - _dt.timedelta(days=days)).isoformat())
+    except Exception:
+        live = {}
+    for post in posts:
+        if post.get("campaign") in live:
+            post["visits_live"] = live[post["campaign"]]["visits"]
+    arms = {kind: naver_social_tuning.arm_stats(kind) for kind in ("hot", "heatmap", "world", "movers")}
+    return {
+        "worker": naver_social_store.worker_status(),
+        "posts": posts,
+        "runs": naver_social_store.runs_for_days([(today - _dt.timedelta(days=i)).isoformat() for i in range(2)], 60),
+        "inflow": inflow,
+        "baseline_sessions_per_day": 0.37,  # 2026-10-27 ~ 11-26, before this feature
+        "target_sessions_per_day": 37,
+        "arms": arms,
+        "categories": naver_social_content.CATEGORY_NAMES,
+    }
+
+
 # ── system health + keeping the dashboard's aggregates warm ────────────────────
 
 

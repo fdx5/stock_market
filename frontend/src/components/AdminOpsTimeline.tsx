@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { adminApi, type OpsJob, type OpsStatus, type OpsTimeline } from "../adminApi";
 import "./adminOpsTimeline.css";
+import AdminNaverBlogPanel from "./AdminNaverBlogPanel";
 
 const STATUS: Record<OpsStatus, { label: string; tone: string }> = {
   ok: { label: "성공", tone: "ok" }, failed: { label: "실패", tone: "bad" }, missed: { label: "미실행", tone: "bad" },
@@ -125,6 +126,7 @@ export default function AdminOpsTimeline() {
             </div>}
           </section>;
         })}
+        <AdminNaverBlogPanel />
       </div>
     </>}
   </div>;
