@@ -79,6 +79,7 @@ export function Link({
   "aria-label": ariaLabel,
   "aria-current": ariaCurrent,
   title,
+  tabIndex,
   onClick,
 }: {
   to: string;
@@ -90,6 +91,7 @@ export function Link({
   "aria-label"?: string;
   "aria-current"?: "page";
   title?: string;
+  tabIndex?: number;
   /** Runs before navigation (analytics); it cannot cancel the navigation. */
   onClick?: () => void;
 }) {
@@ -101,7 +103,7 @@ export function Link({
   };
 
   return (
-    <a href={to} className={className} style={style} aria-label={ariaLabel} aria-current={ariaCurrent} title={title} onClick={handleClick}>
+    <a href={to} className={className} style={style} aria-label={ariaLabel} aria-current={ariaCurrent} title={title} tabIndex={tabIndex} onClick={handleClick}>
       {children}
     </a>
   );

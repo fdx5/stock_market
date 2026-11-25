@@ -628,6 +628,10 @@ export interface HotIssueEdition {
   stories: HotIssueStory[]; watchlist?: { when: string; event: string; note: string }[]; takeaways?: string[];
   latest_slot?: string; is_latest?: boolean; next_update?: string; today_slots?: { slot: string; label: string; published: boolean }[];
 }
+export interface HotIssueHeadlines {
+  slot?: string; edition?: string; slot_label?: string; headline?: string; is_latest?: boolean;
+  stories: Pick<HotIssueStory, "id" | "rank" | "title" | "impact">[];
+}
 export interface OrderBookLevel {
   price: number;
   qty: number;
@@ -1629,6 +1633,7 @@ export const api = {
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
   indexLanding: (key: "kospi" | "kosdaq" | "nasdaq") => getJSON<IndexLanding>(`${BASE}/market/index-landing/${key}`),
   hotIssues: () => getJSON<HotIssueEdition>(`${BASE}/hot-issues/current`),
+  hotIssueHeadlines: () => getJSON<HotIssueHeadlines>(`${BASE}/hot-issues/headlines`),
   hotIssueSlot: (day: string, hhmm: string) => getJSON<HotIssueEdition>(`${BASE}/hot-issues/${day}/${hhmm}`),
   orderbook: (code: string) => getJSON<OrderBook>(`${BASE}/stock/${code}/orderbook`),
   balanceHistory: (code: string) => getJSON<BalanceHistory>(`${BASE}/stock/${code}/balance`),

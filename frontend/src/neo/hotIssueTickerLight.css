@@ -1,0 +1,12 @@
+/* tone:manual — 핫이슈 전광판 화이트 테마(자동 변환 위에 손으로 맞춘 값). */
+:root[data-tone="light"] .ng-context .ng-hot-ticker{border-color:#f3a3ad;background:radial-gradient(circle,#c52e4812 0.6px,transparent 0.9px) 0 0/4px 4px,linear-gradient(90deg,#fff5f6,#fdf2f8);box-shadow:none}
+:root[data-tone="light"] .ng-context .ng-hot-ticker-tag{color:#a3182a;background:#ffe9ec;border-right-color:#f3a3ad}
+:root[data-tone="light"] .ng-context .ng-hot-ticker-tag>small{color:#a3182a;border-color:#f3a3ad}
+:root[data-tone="light"] .ng-context .ng-hot-ticker-seq>a>strong{color:#25141c;text-shadow:none}
+:root[data-tone="light"] .ng-context .ng-hot-ticker-headline>strong{color:#8a2a00!important}
+:root[data-tone="light"] .ng-context .ng-hot-ticker-seq>a:hover>strong{color:#c52e48}
+:root[data-tone="light"] .ng-context .ng-hot-ticker-item>b{color:#c52e48;text-shadow:none}
+:root[data-tone="light"] .ng-context .ng-hot-ticker-item.is-bad>em{color:#2a62c9}
+:root[data-tone="light"] .ng-context .ng-hot-ticker-item.is-mixed>em{color:#a86200}
+:root[data-tone="light"] .ng-context .ng-hot-ticker-item.is-neutral>em{color:#6d5c74}
+

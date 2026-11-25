@@ -39,6 +39,7 @@ import "./cyberEffects.css";
 import "./communityLinks.css";
 import "./neoLight.css";
 import "./hotIssueEntry.css";
+import HotIssueTicker from "./HotIssueTicker";
 import AdZone, { AdRailContext, MultiplexAd, SHELL_RAIL_MEDIA, useMediaQuery } from "./AdZone";
 import { adRoute } from "./AdSenseBanner";
 
@@ -218,7 +219,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
       <div className="ng-context">
         <span><Link to="/">KOSPIMAP</Link><i>/</i>{routeLabel(path, lang)}</span>
         {path === "/exchange" && <span className="ng-exchange-slot" />}
-        <Link to="/hot-issues" className="ng-hot-entry" aria-current={path === "/hot-issues" ? "page" : undefined} onClick={() => reportHotIssue("entry:header", "상단 진입 버튼")}><i aria-hidden="true" /><span>{L("오늘의 핫이슈", "Hot issues")}</span></Link>
+        <HotIssueTicker path={path} />
         {showNightQuote(path, window.location.search) && <div className="ng-market-quotes">
           {showNasdaqFutures(path) ? <NasdaqFuturesBadges /> : <KospiNightBadge />}
           {showOpenNasdaqFutures(path) && <NasdaqFuturesBadges openOnly />}

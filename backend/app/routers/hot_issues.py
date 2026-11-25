@@ -11,6 +11,18 @@ def current(response: Response):
     return hot_issues.current()
 
 
+@router.get("/headlines")
+def headlines(response: Response):
+    """Titles only, for the ticker in every page's top bar (a few hundred bytes instead of the whole edition)."""
+    response.headers["Cache-Control"] = "public, max-age=120"
+    data = hot_issues.current()
+    return {
+        "slot": data.get("slot"), "edition": data.get("edition"), "slot_label": data.get("slot_label"),
+        "headline": data.get("headline"), "is_latest": data.get("is_latest"),
+        "stories": [{"id": s["id"], "rank": s["rank"], "title": s["title"], "impact": s["impact"]} for s in data["stories"]],
+    }
+
+
 def _reason(detail: str) -> str:
     text = (detail or "").lower()
     if any(k in text for k in ("not found", "찾을 수 없", "no such file")):

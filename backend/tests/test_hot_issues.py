@@ -180,3 +180,16 @@ def test_share_image_is_a_1200x630_png_for_the_edition_and_generic():
         assert img.format == "PNG" and img.size == (1200, 630)
     assert og.image_path(ed) == "/hot-issues/og/2026-11-12/2200.png"
     assert og.image_path(None) == "/hot-issues/og/latest.png"
+
+
+def test_headlines_endpoint_carries_only_titles_for_the_ticker(monkeypatch):
+    from fastapi import Response
+    from app.routers import hot_issues as router
+    published = {hi.archive_path(at(7)): hi.clean(edition([story(), story(), story()]), at(7))}
+    monkeypatch.setattr(hi, "edition", lambda slot: published.get(hi.archive_path(slot)))
+    real_current = hi.current
+    monkeypatch.setattr(hi, "current", lambda: real_current(at(9)))
+    out = router.headlines(Response())
+    assert out["slot_label"] == "07:00" and out["headline"]
+    assert [s["rank"] for s in out["stories"]] == [1, 2, 3]
+    assert set(out["stories"][0]) == {"id", "rank", "title", "impact"}

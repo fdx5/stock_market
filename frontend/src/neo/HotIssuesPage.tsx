@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { InArticleAd, MultiplexAd } from "./AdZone";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { pinnedScrollOffset } from "../scrollNavigation";
 import { api, type HotIssueEdition, type HotIssueStory } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { Link } from "../router";
@@ -17,6 +18,8 @@ const IMPACT_CLASS: Record<string, string> = { 호재: "is-good", 악재: "is-ba
 const MOOD: Record<string, [string, string]> = { "risk-on": ["위험선호", "is-good"], "risk-off": ["위험회피", "is-bad"], mixed: ["혼조", "is-mixed"] };
 const LANG: Record<string, string> = { ko: "국내", en: "영문", ja: "일문", zh: "중문", other: "해외" };
 const REFRESH_MS = 5 * 60 * 1000;
+// A ticker click (/hot-issues#s3) remounts the page; show the edition already read while it refreshes.
+let lastRead: { key: string; data: HotIssueEdition } | null = null;
 
 const grouped = (v: string) => /^-?\d{4,}(\.\d+)?$/.test(v) ? Number(v).toLocaleString("en-US", { maximumFractionDigits: 4 }) : v;
 const time = (iso?: string) => iso ? iso.slice(11, 16) : "";
@@ -83,7 +86,8 @@ function Story({ story, lead = false }: { story: HotIssueStory; lead?: boolean }
 /** 오늘의 핫이슈: one page per edition, refreshed at 07:00 and 22:00 KST. */
 export default function HotIssuesPage({ archiveDay, archiveTime }: { archiveDay?: string; archiveTime?: string }) {
   const { lang } = useLanguage();
-  const [data, setData] = useState<HotIssueEdition | null>(null);
+  const readKey = `${archiveDay ?? ""}/${archiveTime ?? ""}`;
+  const [data, setData] = useState<HotIssueEdition | null>(() => lastRead?.key === readKey ? lastRead.data : null);
   const [failed, setFailed] = useState(false);
   const latestTitle = "오늘의 핫이슈 — 국내·해외 증시 호재·악재 한 장 정리 | KOSPIMAP";
   useDocumentTitle(archiveDay && data?.stories.length
@@ -93,12 +97,35 @@ export default function HotIssuesPage({ archiveDay, archiveTime }: { archiveDay?
   useEffect(() => {
     let live = true;
     const load = () => (archiveDay && archiveTime ? api.hotIssueSlot(archiveDay, archiveTime) : api.hotIssues())
-      .then(value => { if (!live) return; setData(value); setFailed(false); })
+      .then(value => { lastRead = { key: readKey, data: value }; if (!live) return; setData(value); setFailed(false); })
       .catch(() => { if (live) setFailed(true); });
     load();
     const timer = archiveDay ? undefined : window.setInterval(() => { if (!document.hidden) load(); }, REFRESH_MS);
     return () => { live = false; window.clearInterval(timer); };
-  }, [archiveDay, archiveTime]);
+  }, [archiveDay, archiveTime, readKey]);
+  // Ticker links land on /hot-issues#s3. The shell's anchor restoration gives up after a few
+  // seconds, so a slow first load jumps here once the stories exist, then holds while media settles.
+  const jumped = useRef(false);
+  useEffect(() => {
+    if (jumped.current || !data?.stories.length) return;
+    let id = window.location.hash.slice(1);
+    try { id = decodeURIComponent(id); } catch { return; }
+    if (!id || !data.stories.some(s => s.id === id)) return;
+    let stopped = false;
+    const timers: number[] = [];
+    const align = () => {
+      const el = document.getElementById(id);
+      if (stopped || !el) return;
+      jumped.current = true;
+      const top = Math.max(0, window.scrollY + el.getBoundingClientRect().top - pinnedScrollOffset());
+      if (Math.abs(window.scrollY - top) > 2) window.scrollTo({ top, behavior: "instant" as ScrollBehavior });
+    };
+    const stop = () => { stopped = true; };
+    for (const type of ["wheel", "touchstart", "pointerdown", "keydown"]) window.addEventListener(type, stop, { passive: true, once: true });
+    requestAnimationFrame(align);
+    for (const ms of [250, 700, 1500]) timers.push(window.setTimeout(align, ms));
+    return () => { stopped = true; timers.forEach(t => window.clearTimeout(t)); for (const type of ["wheel", "touchstart", "pointerdown", "keydown"]) window.removeEventListener(type, stop); };
+  }, [data]);
   const tally = useMemo(() => {
     const out = { 호재: 0, 악재: 0, 중립: 0, 혼재: 0 } as Record<string, number>;
     data?.stories.forEach(s => { out[s.impact] = (out[s.impact] ?? 0) + 1; });
