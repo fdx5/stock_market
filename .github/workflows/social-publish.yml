@@ -5,6 +5,8 @@ on:
     - cron: "15 13,22 * * *" # 07:15 / 22:15 KST
     - cron: "0,40 7 * * 1-5" # 16:00 KST; 16:40 covers delayed CSAT close
     - cron: "0 23 * * *" # 08:00 KST global index scoreboard
+    - cron: "0 22 * * 1-5" # 07:00 KST NASDAQ-100 close heatmap
+    - cron: "0 3 * * 1-5" # 12:00 KST KOSPI/KOSDAQ midday heatmaps
     - cron: "30 0 * * 1-5" # 09:30 KST movers (early session)
     - cron: "40 3 * * 1-5" # 12:40 KST movers (midday)
     - cron: "15 7 * * 1-5" # 16:15 KST movers (close)
@@ -33,7 +35,7 @@ on:
         description: Edition to preview
         required: true
         type: choice
-        options: [morning, evening, close, world_morning, world_evening, movers_open, movers_noon, movers_close, us_movers_pre, us_movers_open, us_movers_close]
+        options: [morning, evening, close, world_morning, world_evening, movers_open, movers_noon, movers_close, us_movers_pre, us_movers_open, us_movers_close, midday, nasdaq_close]
 
 permissions:
   contents: write # Append public PNGs to the separate social-post-assets branch.

@@ -33,9 +33,11 @@ GROUPS = [
 SNS = [
     ("us_movers_open", "00:50", "나스닥100 개장 직후 급등락", "us-prev"),
     ("us_movers_close", "06:50", "나스닥100 마감 급등락", "us-prev"),
+    ("nasdaq_close", "07:00", "나스닥100 마감 히트맵", "us-prev"),
     ("morning", "07:15", "오늘의 핫이슈 아침판", "daily"),
     ("world_morning", "08:00", "세계 증시 성적표 아침", "daily"),
     ("movers_open", "09:30", "국내 장 초반 급등락", "kr"),
+    ("midday", "12:00", "코스피·코스닥 장중 점검 히트맵", "kr"),
     ("movers_noon", "12:40", "국내 점심 급등락", "kr"),
     ("close", "16:00", "코스피·코스닥 장마감 히트맵", "kr"),
     ("movers_close", "16:15", "국내 장 마감 급등락", "kr"),
@@ -49,6 +51,7 @@ SINCE = {
     "sns:movers_": dt.datetime(2026, 11, 26, 9, 20, tzinfo=KST), "movers:kr:": dt.datetime(2026, 11, 25, 16, 0, tzinfo=KST),
     "sns:us_movers_": dt.datetime(2026, 11, 25, 21, 0, tzinfo=KST), "movers:us:": dt.datetime(2026, 11, 25, 21, 0, tzinfo=KST),
     "sns:world_": dt.datetime(2026, 11, 25, 17, 0, tzinfo=KST),
+    "sns:midday": dt.datetime(2026, 11, 26, 12, 0, tzinfo=KST), "sns:nasdaq_close": dt.datetime(2026, 11, 26, 7, 0, tzinfo=KST),
 }
 SINCE["sns:movers_close"] = dt.datetime(2026, 11, 25, 16, 0, tzinfo=KST)
 

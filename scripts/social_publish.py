@@ -217,7 +217,13 @@ def close_report(day, market):
     return f"{level:,.2f} ({change:+.2f}%)", {"decline": snapshot["down"]}
 
 
-def export_maps():
+MAP_FEEDS = {"kospi": ("map", 500), "kosdaq": ("kosdaq-map", 200), "nasdaq100": ("nasdaq100-map", 103)}
+NASDAQ_MAP = (("nasdaq100", "/nasdaq100-map", "나스닥100 히트맵"),)
+# Heatmap editions beyond the KRX close: KST post time (the first caption line finds earlier posts).
+HEATMAP_EDITIONS = {"midday": "12:00", "nasdaq_close": "07:00"}
+
+
+def export_maps(maps=MAPS):
     from playwright.sync_api import expect, sync_playwright
 
     with sync_playwright() as pw:
@@ -227,10 +233,10 @@ def export_maps():
                                       timezone_id="Asia/Seoul", reduced_motion="reduce")
         # First-party map PNG export draws into its own canvas. The page's ad
         # frames, pointer, and overlays are never part of that canvas.
-        for market, route, title in MAPS:
+        for market, route, title in maps:
             page = context.new_page()
-            limit = 500 if market == "kospi" else 200
-            endpoint = f'/api/market/{"map" if market == "kospi" else "kosdaq-map"}?limit={limit}'
+            feed, limit = MAP_FEEDS[market]
+            endpoint = f"/api/market/{feed}?limit={limit}"
             with page.expect_response(lambda response: endpoint in response.url, timeout=60000) as loaded:
                 page.goto(SITE + route, wait_until="domcontentloaded", timeout=60000)
             full_snapshot = loaded.value.json()
@@ -266,7 +272,7 @@ def export_maps():
             page.close()
 
 
-def format_map(png, title, quote, day, fetched):
+def format_map(png, title, quote, day, fetched, note=None):
     font = os.getenv("SOCIAL_FONT", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
     width, height = image_size(png)
     if width < 1800 or height < 900:
@@ -281,7 +287,7 @@ def format_map(png, title, quote, day, fetched):
         ((22, 23), title, 37, "lt"),
         ((430, 28), quote, 30, "lt"),
         ((1897, 29), f"{day}  ·  KOSPIMAP", 27, "rt"),
-        ((22, 1160), f"지수는 정규장 종가  ·  종목 맵은 {fetched:%H:%M} KST 조회", 22, "lt"),
+        ((22, 1160), note or f"지수는 정규장 종가  ·  종목 맵은 {fetched:%H:%M} KST 조회", 22, "lt"),
     ):
         drawing.text(position, text, font=ImageFont.truetype(font, size), fill="#eeeeff", anchor=anchor)
     output = io.BytesIO()
@@ -309,6 +315,104 @@ def make_close(day, *, preview):
             f"시총 상위 표본 하락 종목은 코스피 {kp[1]['decline']}개, 코스닥 {kd[1]['decline']}개.\n\n"
             f"{SITE}/map\n#코스피 #코스닥 #장마감")
     return text, media
+
+
+def heatmap_headline(day, edition):
+    return f"{day:%m/%d} 국내 증시 장중 점검 | 12시" if edition == "midday" else f"{day:%m/%d} 나스닥100 마감 히트맵"
+
+
+def heatmap_link(service, day, edition, path):
+    params = urlencode({"utm_source": "x" if service == "twitter" else service, "utm_medium": "social",
+                        "utm_campaign": f"{edition}-{day:%Y%m%d}"})
+    return f"{SITE}{path}?{params}"
+
+
+def _first_fit(service, variants):
+    for text in variants:
+        if caption_fits(service, text):
+            return text
+    raise RuntimeError(f"{service} heatmap caption does not fit")
+
+
+def _snapshot(market, day):
+    snap = read_json(f"{SITE}/market-snapshot/{market}.json")
+    stamp = dt.datetime.fromisoformat(snap["collected_at"]).astimezone(KST)
+    if stamp.date() != day or not snap.get("known_count"):
+        raise RuntimeError(f"{market} has no same-day breadth snapshot")
+    return snap
+
+
+def _names(rows, count):
+    return ", ".join(f"{r['name']} {r['change_pct']:+.1f}%" for r in rows[:count])
+
+
+def make_midday(day, *, preview):
+    """12:00 KST: KOSPI and KOSDAQ maps mid-session, with live index levels and breadth."""
+    quotes = read_json(f"{SITE}/api/investor/indices?fresh=true")
+    levels = {}
+    for market in ("kospi", "kosdaq"):
+        q = quotes[market]
+        updated = dt.datetime.fromisoformat(q["updated_at"]).astimezone(KST)
+        level, change = float(q["close"]), float(q["change_pct"])
+        if updated.date() != day or not (math.isfinite(level) and level > 0 and math.isfinite(change)):
+            raise RuntimeError(f"{market} has no same-day intraday quote")
+        levels[market] = f"{level:,.2f} ({change:+.2f}%)"
+    snaps = {m: _snapshot(m, day) for m in ("kospi", "kosdaq")}
+    media = []
+    for market, title, png, stamp in export_maps():
+        fetched = stamp.astimezone(KST)
+        if fetched.date() != day and not preview:
+            raise RuntimeError(f"{market} map was not fetched today")
+        note = f"장중 {fetched:%H:%M} KST 조회  ·  지수와 종목 등락은 조회 시점 기준"
+        media.append((f"midday-{market}.png", format_map(png, f"{title} 장중", levels[market], day, fetched, note),
+                      f"{day:%m/%d} {title}, 장중 {fetched:%H:%M} 조회", None))
+    kp, kd = snaps["kospi"], snaps["kosdaq"]
+    first = heatmap_headline(day, "midday")
+    mood = "오전장은 사는 쪽이 우세" if kp["up"] > kp["down"] else "오전장은 파는 쪽이 우세"
+    lines = [f"코스피 {levels['kospi']} · 코스닥 {levels['kosdaq']}",
+             f"{mood}. 코스피 상위 {kp['known_count']}종목 중 상승 {kp['up']}·하락 {kp['down']}, "
+             f"코스닥 상위 {kd['known_count']}종목 중 상승 {kd['up']}·하락 {kd['down']}."]
+    lead = [f"많이 오른 종목: {_names(kp['gainers'], 3)}"] if kp.get("gainers") else []
+    out = {}
+    for service in ("twitter", "threads", "bluesky"):
+        link = heatmap_link(service, day, "midday", "/map")
+        out[service] = _first_fit(service, [
+            f"{first}\n" + "\n".join(lines + lead) + f"\n\n지금 시장 지도 보기 {link}\n#코스피 #코스닥 #장중시황 #주식",
+            f"{first}\n" + "\n".join(lines) + f"\n{link}\n#코스피 #코스닥 #장중시황",
+            f"{first}\n{lines[0]}\n{link}\n#코스피 #코스닥 #장중시황",
+        ])
+    return out, media
+
+
+def make_nasdaq_close(day, *, preview):
+    """07:00 KST: the NASDAQ-100 map after the US close, with the index close and breadth."""
+    index = read_json("https://api.stock.naver.com/index/.NDX/basic")
+    level, change = float(str(index["closePrice"]).replace(",", "")), float(index["fluctuationsRatio"])
+    session = day - dt.timedelta(days=1)
+    if str(index.get("localTradedAt") or "")[:10] != session.isoformat() and not preview:
+        raise RuntimeError("NASDAQ-100 has no close for the last US session")
+    snap = _snapshot("nasdaq100", day)
+    quote = f"{level:,.2f} ({change:+.2f}%)"
+    media = []
+    for market, title, png, stamp in export_maps(NASDAQ_MAP):
+        fetched = stamp.astimezone(KST)
+        note = f"지수는 미국 {session:%m/%d} 정규장 종가  ·  종목 맵은 {fetched:%H:%M} KST 조회(시간외 변동이 반영될 수 있음)"
+        media.append(("nasdaq100.png", format_map(png, title, quote, day, fetched, note),
+                      f"{day:%m/%d} 나스닥100 히트맵, 미국 {session:%m/%d} 마감 후 조회", None))
+    first = heatmap_headline(day, "nasdaq_close")
+    ends = [f"상승 1위 {g['code']} {g['change_pct']:+.1f}%" for g in snap.get("gainers", [])[:1]] \
+        + [f"하락 1위 {b['code']} {b['change_pct']:+.1f}%" for b in snap.get("losers", [])[:1]]
+    lines = [f"나스닥100 {quote}, 미국 {session:%m/%d} 마감",
+             f"100종목 중 상승 {snap['up']} · 하락 {snap['down']}." + (f" {' · '.join(ends)}" if ends else "")]
+    out = {}
+    for service in ("twitter", "threads", "bluesky"):
+        link = heatmap_link(service, day, "nasdaq_close", "/nasdaq100-map")
+        out[service] = _first_fit(service, [
+            f"{first}\n" + "\n".join(lines) + f"\n\n종목별 등락 한눈에 보기 {link}\n#나스닥 #나스닥100 #미국증시 #미국주식",
+            f"{first}\n" + "\n".join(lines) + f"\n{link}\n#나스닥 #미국증시",
+            f"{first}\n{lines[0]}\n{link}\n#나스닥 #미국증시",
+        ])
+    return out, media
 
 
 def upload_map(day, name, png):
@@ -401,6 +505,8 @@ def deliver(day, edition, prepared=None, receipt=None):
         headline = world.headline(day, edition)
     elif edition in movers.EDITIONS:
         headline = movers.headline(day, edition)
+    elif edition in HEATMAP_EDITIONS:
+        headline = heatmap_headline(day, edition)
     else:
         slot = SLOTS[edition]
         headline = f"{day:%m/%d} 오늘의 핫이슈 | {slot[:2]}:{slot[2:]}판"
@@ -478,6 +584,10 @@ def prepare(day, edition, *, preview):
         return world.make(day, edition, caption_fits)
     if edition in movers.EDITIONS:
         return movers.make(day, edition, caption_fits)
+    if edition == "midday":
+        return make_midday(day, preview=preview)
+    if edition == "nasdaq_close":
+        return make_nasdaq_close(day, preview=preview)
     text, media = make_close(day, preview=preview) if edition == "close" else make_news(day, edition)
     if len(text) > 300 or weighted_length(text) > 280:
         raise RuntimeError("Caption exceeds the cross-platform post length")
@@ -498,6 +608,16 @@ def due_editions(now):
         start = dt.datetime.combine(day, dt.time(int(slot[:2]), int(slot[2:])), KST)
         if start <= now < start + dt.timedelta(hours=4):
             due.append((day, edition))
+    # Heatmaps: 12:00 KST mid-session on KRX days; 07:00 KST after a NYSE session (the US date before).
+    for edition, hhmm in HEATMAP_EDITIONS.items():
+        start = dt.datetime.combine(day, dt.time(int(hhmm[:2]), int(hhmm[3:])), KST)
+        if start <= now < start + dt.timedelta(hours=3):
+            import exchange_calendars
+
+            us = edition == "nasdaq_close"
+            session = day - dt.timedelta(days=1) if us else day
+            if exchange_calendars.get_calendar("XNYS" if us else "XKRX").is_session(session.isoformat()):
+                due.append((day, edition))
     # Movers editions. KR: 09:30 / 12:40 / 16:15 KST on KRX sessions. US (NASDAQ-100): 21:10 / 00:50 / 06:50 KST
     # on NYSE sessions (the session is the US date 12 hours earlier). Closing editions get a longer window.
     for edition, (h, m) in movers.POST_AT.items():
