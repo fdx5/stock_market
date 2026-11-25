@@ -334,7 +334,6 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
     # and resolve_image_slots drops the marker either way); the link text is not, since
     # a dead marker should never be the only thing standing between a reader and the
     # promo link SmartEditor can't attach directly to an uploaded image component.
-    components.append(_image_slot("kospimap"))
     components.append(
         _text_component(
             [
@@ -345,6 +344,7 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
             ]
         )
     )
+    components.append(_image_slot("kospimap"))
     components.append(
         _text_component(
             [

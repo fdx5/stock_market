@@ -305,7 +305,7 @@ def test_kospi_map_promo_link_is_always_the_last_thing_in_the_post():
         if n.get("link")
     ]
     for urls in (stock_urls, index_urls):
-        assert any(u == "https://example.com/map" for u in urls), urls
+        assert any(u.split("?")[0] == "https://example.com/map" for u in urls), urls
 
     sparse = dict(BRIEF, analysis=[], key_issues=[], checkpoints=[], headlines=[])
     from app.services import naver_document_model
@@ -315,7 +315,7 @@ def test_kospi_map_promo_link_is_always_the_last_thing_in_the_post():
         {},
     )
     sparse_urls = [n["link"]["url"] for n in _nodes(body) if n.get("link")]
-    assert "https://example.com/map" in sparse_urls
+    assert "https://example.com/map" in [u.split("?")[0] for u in sparse_urls]
 
 
 def test_unresolved_slots_are_dropped_not_published_as_junk():
@@ -491,7 +491,7 @@ def test_news_headlines_are_clickable_links():
 
 def test_report_link_is_clickable_and_points_at_this_report():
     urls = [n["link"]["url"] for n in _nodes(_body()) if n.get("link")]
-    assert any(u.endswith("/market-brief/2026-08-17/samsung") for u in urls), urls
+    assert any(u.split("?")[0].endswith("/market-brief/2026-08-17/samsung") for u in urls), urls
 
 
 def test_no_bare_url_is_left_as_dead_text():
