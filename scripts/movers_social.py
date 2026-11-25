@@ -71,6 +71,11 @@ def screenshot(day, edition):
           if (getComputedStyle(el).position === 'fixed' && !el.closest('#mv-capture')) el.style.display = 'none'; } }""")
         page.evaluate("document.fonts.ready")
         page.wait_for_timeout(1200)
+        # Never post a card cut on the right: if anything still overflows, widen the viewport to fit it.
+        wide = page.evaluate("Math.max(document.documentElement.scrollWidth, document.querySelector('#mv-capture').scrollWidth + 36)")
+        if wide > 640:
+            page.set_viewport_size({"width": int(wide) + 8, "height": 2200})
+            page.wait_for_timeout(800)
         png = page.locator("#mv-capture").screenshot()
         browser.close()
     with Image.open(io.BytesIO(png)) as image:

@@ -166,6 +166,14 @@
 .mv-page.is-shot .mv-board{grid-template-columns:1fr 1fr}
 .mv-page.is-shot .mv-dek{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .mv-page.is-shot .mv-board-name small{display:none}
+/* Nothing may push the card past the 640px capture (long US names, three index tiles cut its right side). */
+.mv-page.is-shot{width:100%;min-width:0;overflow:hidden}
+.mv-page.is-shot .mv-capture{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow:hidden}
+.mv-page.is-shot .mv-capture>*{min-width:0;max-width:100%;box-sizing:border-box}
+.mv-page.is-shot .mv-summary{grid-template-columns:repeat(auto-fit,minmax(0,1fr))}
+.mv-page.is-shot .mv-summary>div{min-width:0}
+.mv-page.is-shot .mv-board{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.mv-page.is-shot .mv-board-col{min-width:0}
 
 /* Ads: framed like a card, space held while loading so the reading position never jumps; gone when unfilled. */
 .mv-page .mv-ad{margin:16px 0 0;padding:10px 12px;border:1px solid var(--mv-line);border-radius:18px;background:#0b111ecc}
