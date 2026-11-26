@@ -211,7 +211,7 @@ export default function MarketBriefPage({
   async function share() {
     const sharedUrl = new URL(location.href);
     sharedUrl.searchParams.set("utm_source", "native_share");
-    sharedUrl.searchParams.set("utm_medium", "social");
+    sharedUrl.searchParams.set("utm_medium", "share");
     sharedUrl.searchParams.set("utm_campaign", `market_brief_${data?.date || "latest"}`);
     const url = sharedUrl.toString();
     try {

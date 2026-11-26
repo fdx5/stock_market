@@ -311,7 +311,7 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
     components.append(_text_component([_paragraph(""), _paragraph(_RULE)]))
 
     market_slug = str(brief.get('market', '')).lower()
-    utm = f"utm_source=naver_blog&utm_medium=referral&utm_campaign=nb_brief_{market_slug}-{str(date).replace('-', '')}"
+    utm = f"utm_source=naver_blog&utm_medium=blog&utm_campaign=nb_brief_{market_slug}-{str(date).replace('-', '')}"
     report_url = f"{site_url}/market-brief/{date}/{market_slug}?{utm}"
     components.append(
         _text_component(

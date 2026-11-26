@@ -29,7 +29,7 @@ export function publicShareUrl(path: string, search = "", source: "copy" | "nati
   if (!safe) return null;
   const url = new URL(safe, "https://kospimap.com");
   url.searchParams.set("utm_source", source === "native" ? "native_share" : "link_copy");
-  url.searchParams.set("utm_medium", "social");
+  url.searchParams.set("utm_medium", "share");
   url.searchParams.set("utm_campaign", "free_distribution");
   return url.href;
 }

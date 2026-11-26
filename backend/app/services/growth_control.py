@@ -36,12 +36,17 @@ from datetime import date, datetime, timedelta, timezone
 
 from app.services import bot_detector
 from app.services import page_view_store as pvs
+from app.services import traffic_taxonomy as tax
 
 log = logging.getLogger(__name__)
 
 KST = pvs.KST
-METRICS_VERSION = 1
+# v2 (2026-11-26) adds the per-session inflow type bucket ("traffic", traffic_taxonomy) and
+# files AI answers / mail apps correctly. v1 rows stay; the newest version of a day wins.
+METRICS_VERSION = 2
 BACKFILL_DAYS = 120
+# Closed days recomputed under the newest version (older days keep their v1 payload).
+REFRESH_DAYS = 45
 MILESTONES = (2, 5, 10, 25, 50, 100)
 CHANNELS = ("search", "social", "referral", "email", "direct")
 CHANNEL_LABELS = {"search": "검색", "social": "소셜·커뮤니티", "referral": "외부 링크", "email": "메일·알림", "direct": "직접·미식별"}
@@ -87,8 +92,11 @@ def normalize_channel(channel: str, source: str, utm_source: str, utm_medium: st
     usrc, umed = (utm_source or "").lower(), (utm_medium or "").lower()
     label = utm_source or source or host or "direct"
     out = channel
-    if re.search(r"email|newsletter|mail|reminder|notify|push", f"{usrc} {umed}"):
+    kind, platform, _ = tax.classify(utm_source, utm_medium, "", host, channel, source)
+    if kind == "email":
         out = "email"
+    elif kind == "ai":
+        out, label = "search", platform
     elif umed in ("social", "share") or usrc in _SOCIAL_UTM:
         out = "social"
     elif host and any(h in host for h in _SELF_HOSTS):
@@ -197,6 +205,7 @@ def compute_day(conn, day: str) -> dict:
     m = {"day": day, "version": METRICS_VERSION, "sessions": 0, "pageviews": 0, "bounces": 0, "deep_sessions": 0,
          "engaged_sessions": int((engaged[0] if engaged else 0) or 0), "events": int((engaged[1] if engaged else 0) or 0),
          "corrected_sessions": 0, "channels": {}, "sources": {}, "campaigns": {}, "landings": {}, "referrers": {},
+         "traffic": {}, "traffic_landings": {},
          "devices": {}, "hourly": [[h, 0, 0] for h in range(24)],
          "suspected": {"sessions": 0, "pageviews": 0, "agents": suspected_detail, "landings": {}},
          "bots": {"sessions": 0, "pageviews": 0, "families": {}, "agents": {}, "pages": [[r, int(c)] for r, c in bot_pages]}}
@@ -222,6 +231,10 @@ def compute_day(conn, day: str) -> dict:
         if corrected:
             m["corrected_sessions"] += sessions
         bump(m["channels"], channel, sessions, pvs_, bounces)
+        kind, platform, prog = tax.classify(usrc, umed, ucamp, host, ch, sname)
+        bump(m["traffic"], f"{kind}|{platform}|{prog}", sessions, pvs_, bounces)
+        if kind != "direct":
+            bump(m["traffic_landings"], f"{kind}|{route}", sessions, pvs_, bounces)
         bump(m["sources"], f"{channel}|{label}", sessions, pvs_, bounces)
         bump(m["landings"], route, sessions, pvs_, bounces)
         bump(m["devices"], dev, sessions, pvs_, bounces)
@@ -248,6 +261,7 @@ def compute_day(conn, day: str) -> dict:
 
     m["sources"], m["landings"], m["campaigns"] = top(m["sources"], 40), top(m["landings"], 40), top(m["campaigns"], 40)
     m["referrers"] = top(m["referrers"], 30)
+    m["traffic"], m["traffic_landings"] = top(m["traffic"], 120), top(m["traffic_landings"], 60)
     m["suspected"]["landings"] = top(m["suspected"]["landings"], 15)
     m["bots"]["agents"] = dict(sorted(m["bots"]["agents"].items(), key=lambda kv: -kv[1]["pageviews"])[:25])
     return m
@@ -257,12 +271,13 @@ def compute_day(conn, day: str) -> dict:
 # rollup storage (INSERT OR IGNORE only)
 # ---------------------------------------------------------------------------
 
-def _stored_days(conn, days: list[str]) -> set[str]:
+def _stored_days(conn, days: list[str]) -> dict[str, int]:
+    """{day: newest stored version}."""
     if not days:
-        return set()
-    rows = conn.execute("SELECT day FROM growth_day_metrics WHERE version = ? AND day >= ? AND day <= ?",
-                        (METRICS_VERSION, min(days), max(days))).fetchall()
-    return {r[0] for r in rows}
+        return {}
+    rows = conn.execute("SELECT day, MAX(version) FROM growth_day_metrics WHERE day >= ? AND day <= ? GROUP BY day",
+                        (min(days), max(days))).fetchall()
+    return {r[0]: int(r[1] or 0) for r in rows}
 
 
 def ensure_rollups(days: int = BACKFILL_DAYS, max_new: int = 20, pause: float = 1.5) -> int:
@@ -274,7 +289,9 @@ def ensure_rollups(days: int = BACKFILL_DAYS, max_new: int = 20, pause: float = 
     if now.hour == 0 and now.minute < 20:
         candidates = candidates[1:]
     have = pvs._with_connection(lambda conn: _stored_days(conn, candidates))
-    missing = [d for d in candidates if d not in have][:max_new]
+    # Recent days are owed the newest version; older ones only need to exist.
+    missing = [d for i, d in enumerate(candidates)
+               if (have.get(d, 0) < METRICS_VERSION if i < REFRESH_DAYS else d not in have)][:max_new]
     done = 0
     for day in missing:
         def write(conn, day=day):
@@ -322,7 +339,9 @@ def start_rollup_worker() -> None:
 
 def _load_metrics(conn, start: str, end: str) -> dict[str, dict]:
     rows = conn.execute(
-        "SELECT day, payload, computed_at FROM growth_day_metrics WHERE version = ? AND day >= ? AND day <= ?",
+        "SELECT g.day, g.payload, g.computed_at FROM growth_day_metrics g JOIN (SELECT day, MAX(version) v "
+        "FROM growth_day_metrics WHERE version <= ? AND day >= ? AND day <= ? GROUP BY day) n "
+        "ON n.day = g.day AND n.v = g.version",
         (METRICS_VERSION, start, end)).fetchall()
     out = {}
     for day, payload, computed_at in rows:
@@ -799,8 +818,152 @@ def overview(start_day: str, end_day: str) -> dict:
         "action_categories": ACTION_CATEGORIES,
         "baseline_options": _baseline_options(ledger, goal),
     }
-    payload["insights"] = _insights(payload, last7, prev7)
+    payload["traffic"] = traffic_breakdown(in_range, metrics, last7, prev7)
+    payload["insights"] = _insights(payload, last7, prev7) + _traffic_insights(payload["traffic"])
+    order = {"critical": 0, "warning": 1, "good": 2, "info": 3}
+    payload["insights"].sort(key=lambda x: order.get(x["severity"], 9))
     return payload
+
+
+# ---------------------------------------------------------------------------
+# inflow types (UTM + referrer taxonomy)
+# ---------------------------------------------------------------------------
+
+def _sum_into(bucket: dict, key: str, v: dict) -> None:
+    agg = bucket.setdefault(key, {"sessions": 0, "pageviews": 0, "bounces": 0})
+    for f in agg:
+        agg[f] += v.get(f, 0)
+
+
+def traffic_breakdown(in_range: list[dict], metrics: dict, last7: list[dict], prev7: list[dict]) -> dict:
+    """Where sessions came from, by traffic_taxonomy type, over the selected range.
+
+    Only days whose rollup carries the "traffic" bucket (v2+) are used; `coverage` says
+    how many that is, so a share is never computed over a mix of old and new rules."""
+    days = [r for r in in_range if "traffic" in metrics.get(r["date"], {})]
+
+    def merged(rows_, key="traffic"):
+        return _merge([metrics[r["date"]].get(key, {}) for r in rows_])
+
+    rows = merged(days)
+    types: dict[str, dict] = {}
+    platforms: dict[str, dict] = {}
+    programs: dict[str, dict] = {}
+    for key, v in rows.items():
+        kind, platform, prog = (key.split("|") + ["", ""])[:3]
+        _sum_into(types, kind, v)
+        _sum_into(platforms, f"{kind}|{platform}", v)
+        if kind in tax.OWNED:
+            _sum_into(programs, f"{kind}|{prog or '(태그 없음)'}", v)
+    total = sum(v["sessions"] for v in types.values())
+    direct = types.get("direct", {}).get("sessions", 0)
+    known = total - direct
+
+    def per_day(rows_):
+        rows_ = [r for r in rows_ if "traffic" in metrics.get(r["date"], {})]
+        out: dict[str, float] = defaultdict(float)
+        for k, v in merged(rows_).items():
+            out[k.split("|", 1)[0]] += v["sessions"]
+        return {k: v / len(rows_) for k, v in out.items()} if rows_ else {}
+    cur, pre = per_day(last7), per_day(prev7)
+
+    def row(kind, v):
+        return {"type": kind, "label": tax.TYPE_LABELS.get(kind, kind), "group": tax.group_of(kind),
+                "sessions": v["sessions"], "pageviews": v["pageviews"], "share": _rate(v["sessions"], total),
+                "share_known": _rate(v["sessions"], known) if kind != "direct" else None,
+                "bounce_rate": _rate(v["bounces"], v["sessions"]),
+                "pages_per_session": round(v["pageviews"] / v["sessions"], 2) if v["sessions"] else None,
+                "per_day_7d": round(cur.get(kind, 0), 1), "per_day_prev_7d": round(pre.get(kind, 0), 1),
+                "change_pct": _pct(cur.get(kind, 0), pre.get(kind, 0))}
+
+    groups = []
+    for g, kinds in tax.GROUPS.items():
+        s = sum(types.get(k, {}).get("sessions", 0) for k in kinds)
+        s_known = s - (direct if g == "other" else 0)
+        groups.append({"group": g, "label": tax.GROUP_LABELS[g], "sessions": s, "share": _rate(s, total),
+                       "share_known": _rate(s_known, known),
+                       "per_day_7d": round(sum(cur.get(k, 0) for k in kinds if k != "direct"), 1),
+                       "per_day_prev_7d": round(sum(pre.get(k, 0) for k in kinds if k != "direct"), 1)})
+
+    def ranked_rows(bucket, fields, n, where=None):
+        out = []
+        for key, v in sorted(bucket.items(), key=lambda kv: -kv[1]["sessions"]):
+            parts = dict(zip(fields, key.split("|")))
+            if where and not where(parts):
+                continue
+            out.append({"key": key, **parts, "label": tax.TYPE_LABELS.get(parts.get("type"), parts.get("type")),
+                        "sessions": v["sessions"], "pageviews": v["pageviews"],
+                        "bounce_rate": _rate(v["bounces"], v["sessions"]),
+                        "pages_per_session": round(v["pageviews"] / v["sessions"], 2) if v["sessions"] else None})
+            if len(out) >= n:
+                break
+        return out
+
+    # SNS links that reached us with a tag vs without one (in-app browsers drop the
+    # referrer, so an untagged SNS visit often lands in 'direct' and is lost entirely).
+    tagged = sum(types.get(k, {}).get("sessions", 0) for k in tax.OWNED)
+    untagged = types.get("community", {}).get("sessions", 0)
+    series = []
+    for r in days:
+        b: dict[str, int] = defaultdict(int)
+        for k, v in metrics[r["date"]]["traffic"].items():
+            b[k.split("|", 1)[0]] += v["sessions"]
+        series.append({"date": r["date"], "live": r["live"], **{k: b.get(k, 0) for k in tax.TYPES}})
+    return {
+        "coverage": {"days": len(days), "range_days": len(in_range), "from": days[0]["date"] if days else None},
+        "total": total, "known": known,
+        "types": [row(k, types[k]) for k in tax.TYPES if k in types],
+        "groups": groups,
+        "platforms": ranked_rows(platforms, ("type", "platform"), 40),
+        "programs": ranked_rows(programs, ("type", "program"), 40),
+        "posts": ranked_rows(rows, ("type", "platform", "program"), 40, lambda p: p.get("type") in tax.OWNED),
+        "search_engines": ranked_rows(platforms, ("type", "platform"), 12, lambda p: p.get("type") in ("search", "ai")),
+        "landings": ranked_rows(merged(days, "traffic_landings"), ("type", "route"), 40),
+        "tagging": {"tagged_sns": tagged, "untagged_sns": untagged, "tagged_share": _rate(tagged, tagged + untagged)},
+        "series": series,
+        "type_labels": tax.TYPE_LABELS, "group_labels": tax.GROUP_LABELS,
+    }
+
+
+def _traffic_insights(t: dict) -> list[dict]:
+    out: list[dict] = []
+    if not t["total"]:
+        return out
+
+    def add(severity, title, evidence, action):
+        out.append({"severity": severity, "area": "유입 출처", "title": title, "evidence": evidence, "action": action})
+    g = {x["group"]: x for x in t["groups"]}
+    ty = {x["type"]: x for x in t["types"]}
+    sns, search, ai = g["sns"], g["search"], g["ai"]
+    add("info", f"출처를 아는 유입 중 SNS {sns['share_known'] or 0:.0f}% · 검색 {search['share_known'] or 0:.0f}%",
+        f"SNS·블로그·커뮤니티 {sns['sessions']:,} · 검색 {search['sessions']:,} · AI {ai['sessions']:,} 세션 "
+        f"(최근 7일 일평균 SNS {sns['per_day_7d']} / 검색 {search['per_day_7d']})",
+        "7일 평균이 빠르게 오르는 쪽에 발행을 더 배치하세요. 직접·미식별은 비중 계산에서 뺐습니다.")
+    tag = t["tagging"]
+    if tag["tagged_sns"] + tag["untagged_sns"] >= 20 and (tag["tagged_share"] or 0) < 50:
+        add("warning", f"SNS 유입의 {100 - (tag['tagged_share'] or 0):.0f}%가 UTM 없이 들어옴",
+            f"태그 있음 {tag['tagged_sns']:,} · 태그 없음(리퍼러로만 식별) {tag['untagged_sns']:,} 세션",
+            "직접 올리는 글·댓글·프로필 링크에도 utm_source=<플랫폼>&utm_medium=social&utm_campaign=<주제>-<YYYYMMDD>를 붙이세요. "
+            "인앱 브라우저는 리퍼러를 지우므로 태그 없는 방문은 대부분 '직접'으로 사라집니다.")
+    d = ty.get("direct")
+    if d and (d["share"] or 0) > 80:
+        add("warning", f"전체의 {d['share']:.0f}%가 출처 미식별(직접)", f"직접·미식별 {d['sessions']:,} 세션",
+            "북마크·홈화면 재방문이면 정상입니다. 새 유입의 성과는 태그된 링크로만 측정되니 모든 외부 게시 링크에 UTM을 붙이세요.")
+    posts = [p for p in t["posts"] if p.get("program") not in ("", "(태그 없음)")]
+    if posts:
+        best = posts[0]
+        add("good", f"가장 많이 데려온 게시: {best['platform']} · {best['program']}",
+            " · ".join(f"{p['platform']}/{p['program']} {p['sessions']:,}" for p in posts[:5]),
+            "같은 형식(시간대·이미지·제목 틀)을 다른 플랫폼에도 적용해 비교하세요.")
+    nb = ty.get("naver_blog")
+    if nb:
+        add("info", f"네이버 블로그 경유 최근 7일 일평균 {nb['per_day_7d']} 세션 (목표 37)",
+            f"이전 7일 {nb['per_day_prev_7d']} → 최근 7일 {nb['per_day_7d']}",
+            "운영·배치의 '네이버 블로그 성과' 패널에서 글·변형별로 확인하세요.")
+    if ty.get("ai", {}).get("sessions", 0) >= 10:
+        add("info", f"AI 답변 경유 {ty['ai']['sessions']:,} 세션", "ChatGPT·Perplexity 등이 인용한 링크로 들어온 방문",
+            "AI가 인용하는 착지 페이지의 요약·표를 최신으로 유지하세요.")
+    return out
 
 
 def _baseline_options(ledger: list[dict], goal: dict) -> list[dict]:

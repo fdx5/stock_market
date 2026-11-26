@@ -96,11 +96,14 @@ def weighted_length(text):
     )
 
 
-def campaign_caption(text, service, edition):
+def campaign_caption(text, service, edition, day=None):
+    """Tags the caption's site link. With `day` the campaign is <edition>-<YYYYMMDD> like every
+    other automated post (traffic_taxonomy); without it, the older undated names."""
     path = "/map" if edition == "close" else r"/hot-issues(?:/\d{4}-\d{2}-\d{2}/(?:0700|2200))?"
+    campaign = f"{edition}-{day:%Y%m%d}" if day else ("market_close" if edition == "close" else "hot_issues")
     params = urlencode({"utm_source": "x" if service == "twitter" else service,
                         "utm_medium": "social",
-                        "utm_campaign": "market_close" if edition == "close" else "hot_issues"})
+                        "utm_campaign": campaign})
     return re.sub(rf"^{re.escape(SITE)}{path}$", lambda match: f"{match.group()}?{params}", text, flags=re.MULTILINE)
 
 
@@ -154,11 +157,11 @@ def caption_fits(service, text):
     return len(text.encode("utf-16-le")) // 2 <= 500
 
 
-def news_caption_fits(text, edition):
+def news_caption_fits(text, edition, day=None):
     return (
         weighted_length(text) <= 280
-        and len(campaign_caption(text, "bluesky", edition)) <= 300
-        and len(campaign_caption(text, "threads", edition).encode("utf-8")) <= 500
+        and len(campaign_caption(text, "bluesky", edition, day)) <= 300
+        and len(campaign_caption(text, "threads", edition, day).encode("utf-8")) <= 500
     )
 
 
@@ -180,13 +183,13 @@ def make_news(day, edition):
     hashtags = " ".join([*lead_hashtags(lead), "#코스피", "#코스닥", "#증시뉴스"])
     footer = f"\n\n전체 기사·출처 보기\n{SITE}/hot-issues/{day}/{slot}\n{hashtags}"
     text = f"{first}\n{headline}{footer}"
-    while headline and not news_caption_fits(text, edition):
+    while headline and not news_caption_fits(text, edition, day):
         headline = headline[:-1].rstrip()
         text = f"{first}\n{headline}…{footer}"
     lead_title = " ".join(lead["title"].split())
     if lead_title and lead_title not in headline:
         candidate = f"{text.removesuffix(footer)}\n• {lead_title}{footer}"
-        if news_caption_fits(candidate, edition):
+        if news_caption_fits(candidate, edition, day):
             text = candidate
     return text, [(f"news-{slot}.png", png, f"{day:%m/%d} {clock} 오늘의 핫이슈 요약 카드", media)]
 
@@ -524,7 +527,9 @@ def deliver(day, edition, prepared=None, receipt=None):
                         if not caption_fits(service, caption):
                             raise RuntimeError(f"{service} caption exceeds its post length")
                     else:
-                        caption = campaign_caption(text, service, edition)
+                        caption = campaign_caption(text, service, edition, day)
+                        if len(caption) > 300 or weighted_length(caption) > 280:
+                            caption = campaign_caption(text, service, edition)  # undated tag is shorter
                         if len(caption) > 300 or weighted_length(caption) > 280:
                             raise RuntimeError("Tagged caption exceeds the cross-platform post length")
                     publish(channel, caption, assets)

@@ -216,7 +216,7 @@ export default function BriefPage({ initialDate = "", initialMarket = "KOSPI" }:
   const share = async () => {
     const u = new URL(window.location.href);
     u.searchParams.set("utm_source", "native_share");
-    u.searchParams.set("utm_medium", "social");
+    u.searchParams.set("utm_medium", "share");
     u.searchParams.set("utm_campaign", `market_brief_${data?.date || "latest"}`);
     try {
       if (navigator.share) await navigator.share({ title: `${data?.date} ${title} 오늘 브리핑`, text: data?.summary, url: u.toString() });

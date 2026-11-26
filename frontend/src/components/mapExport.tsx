@@ -212,7 +212,7 @@ export function useMapExport({ render, filePrefix, shareTitle, shareText }: MapE
     try {
       const sharedUrl = new URL(location.href);
       sharedUrl.searchParams.set("utm_source", "kakaotalk");
-      sharedUrl.searchParams.set("utm_medium", "social");
+      sharedUrl.searchParams.set("utm_medium", "share");
       sharedUrl.searchParams.set("utm_campaign", `${filePrefix}_map`);
       const url = sharedUrl.toString();
       kakaoShareUrlRef.current = url;

@@ -71,6 +71,22 @@ export interface GrowthAction {
   focus_channel: GrowthChannel | null; focus_path: string | null; days_measured: number; before: number | null; after: number | null;
   change_pct: number | null; focus_before?: number; focus_after?: number;
 }
+export type TrafficType = "sns_auto" | "sns_tagged" | "naver_blog" | "share" | "community" | "search" | "ai" | "referral" | "email" | "direct";
+export type TrafficGroup = "sns" | "search" | "ai" | "other";
+export interface GrowthTrafficType {
+  type: TrafficType; label: string; group: TrafficGroup; sessions: number; pageviews: number; share: number | null; share_known: number | null;
+  bounce_rate: number | null; pages_per_session: number | null; per_day_7d: number; per_day_prev_7d: number; change_pct: number | null;
+}
+export interface GrowthTraffic {
+  coverage: { days: number; range_days: number; from: string | null };
+  total: number; known: number;
+  types: GrowthTrafficType[];
+  groups: Array<{ group: TrafficGroup; label: string; sessions: number; share: number | null; share_known: number | null; per_day_7d: number; per_day_prev_7d: number }>;
+  platforms: GrowthRankRow[]; programs: GrowthRankRow[]; posts: GrowthRankRow[]; search_engines: GrowthRankRow[]; landings: GrowthRankRow[];
+  tagging: { tagged_sns: number; untagged_sns: number; tagged_share: number | null };
+  series: Array<{ date: string; live: boolean } & Record<TrafficType, number>>;
+  type_labels: Record<TrafficType, string>; group_labels: Record<TrafficGroup, string>;
+}
 export interface GrowthControl {
   generated_at: string; start: string; end: string; goal: GrowthGoal;
   kpis: {
@@ -103,6 +119,7 @@ export interface GrowthControl {
   actions: GrowthAction[]; action_categories: Record<string, string>;
   baseline_options: Array<{ method: string; label: string; from: string; to: string; value: number }>;
   insights: GrowthInsight[];
+  traffic?: GrowthTraffic;
 }
 
 export type DeviceType = "desktop" | "tablet" | "mobile" | "unknown";

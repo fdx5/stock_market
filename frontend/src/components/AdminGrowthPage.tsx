@@ -11,6 +11,7 @@ import {
 } from "../adminApi";
 import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import TrafficTab from "./AdminGrowthTraffic";
 import "./adminGrowthControl.css";
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ const CH_COLOR: Record<GrowthChannel, string> = {
 };
 const RANGES = [7, 14, 30, 90, 180, 365, 730];
 const TABS = [
-  ["overview", "관제 개요"], ["ledger", "일별 원장"], ["channels", "유입·채널"], ["landings", "랜딩·콘텐츠"],
+  ["overview", "관제 개요"], ["traffic", "유입 출처(UTM)"], ["ledger", "일별 원장"], ["channels", "유입·채널"], ["landings", "랜딩·콘텐츠"],
   ["actions", "조치·실험"], ["automation", "봇·자동화"], ["trust", "신뢰도 진단"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
@@ -960,6 +961,7 @@ export default function AdminGrowthPage() {
           </nav>
 
           {tab === "overview" && <OverviewTab data={data} />}
+          {tab === "traffic" && <TrafficTab data={data} />}
           {tab === "ledger" && <LedgerTab data={data} />}
           {tab === "channels" && <ChannelsTab data={data} />}
           {tab === "landings" && <LandingsTab data={data} />}

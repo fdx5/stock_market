@@ -129,7 +129,7 @@ def campaign(day: dt.date, edition: str) -> str:
 
 
 def link(path: str, day: dt.date, edition: str, anchor: str = "") -> str:
-    q = urlencode({"utm_source": "naver_blog", "utm_medium": "referral", "utm_campaign": campaign(day, edition)})
+    q = urlencode({"utm_source": "naver_blog", "utm_medium": "blog", "utm_campaign": campaign(day, edition)})
     sep = "&" if "?" in path else "?"
     return f"{SITE}{path}{sep}{q}{anchor}"
 

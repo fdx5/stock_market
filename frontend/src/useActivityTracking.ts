@@ -38,7 +38,7 @@ function acquisitionAttribution(): Attribution {
   let source_channel: Attribution["source_channel"] = "direct";
   let source_name = utmSource || (host ? host.replace(/^www\./, "") : "direct");
   if (/email|newsletter|mail/.test(text)) source_channel = "email";
-  else if (/^(social|share)$/.test(utmMedium.toLowerCase())) source_channel = "social";
+  else if (/^(social|share|blog)$/.test(utmMedium.toLowerCase())) source_channel = "social";
   else if (/^(referral|embed)$/.test(utmMedium.toLowerCase())) source_channel = "referral";
   else if (query.has("gclid") || /google\.|googlequicksearchbox|search\.naver\.|bing\.|search\.daum\.|duckduckgo|search\.yahoo|ecosia|zum\.com|search\.nate/.test(host)) {
     source_channel = "search";

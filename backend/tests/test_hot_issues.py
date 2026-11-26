@@ -101,8 +101,9 @@ def test_news_caption_prioritizes_lead_tags_and_fits_all_channels(monkeypatch, k
     assert ("…" in text) is truncated
     assert media[0][0] == "news-0700.png"
     for service in publish.PROFILES:
-        caption = publish.campaign_caption(text, service, "morning")
+        caption = publish.campaign_caption(text, service, "morning", slot.date())
         assert f"https://kospimap.com/hot-issues/{slot.date()}/0700?utm_source=" in caption
+        assert f"utm_campaign=morning-{slot.date():%Y%m%d}" in caption
         assert publish.weighted_length(caption) <= 280
         assert len(caption) <= 300
         assert len(caption.encode("utf-8")) <= 500

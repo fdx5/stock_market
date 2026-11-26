@@ -9,7 +9,7 @@ test("shared links keep only explicit public market state and campaign tags", ()
   assert.equal(url.pathname, "/today");
   assert.deepEqual([...url.searchParams.keys()], ["market", "utm_source", "utm_medium", "utm_campaign"]);
   assert.equal(url.searchParams.get("market"), "kosdaq");
-  assert.equal(url.searchParams.get("utm_medium"), "social");
+  assert.equal(url.searchParams.get("utm_medium"), "share");
   assert.equal(publicShareUrl("/stock/005930", "?token=secret")?.includes("secret"), false);
 });
 test("private and unknown routes cannot be shared by the contextual control", () => {

@@ -41,7 +41,7 @@ def test_market_rules():
 
 def test_links_carry_the_campaign():
     url = content.link("/map", dt.date(2026, 11, 26), "close", "#s1")
-    assert url.startswith("https://kospimap.com/map?utm_source=naver_blog&utm_medium=referral")
+    assert url.startswith("https://kospimap.com/map?utm_source=naver_blog&utm_medium=blog")
     assert "utm_campaign=nb_close-20261126" in url and url.endswith("#s1")
 
 
