@@ -22,9 +22,11 @@ SNS(Buffer → X·Threads·Bluesky)로 나가는 모든 자동 판마다, 같은
 | 22:15 | evening 오늘의 핫이슈 밤판 | 6 | 매일 |
 
 ## 어디서 도나
-- **게시는 PC에서만**: Render IP에서는 네이버가 글쓰기를 거부한다(`no privilege`, 9월부터 매일).
-  Render의 브리핑 체인은 이제 대기열에 넣기만 하고(`DEFER_TO_LOCAL`, `NAVER_PUBLISH_ON_SERVER=1`이면 서버 게시 복원),
-  PC 작업 스케줄러 `KStockHub-Naver-Blog-Worker`가 2분마다 `backend/scripts/naver_blog_worker.py`를 실행한다.
+- **서버와 PC가 같은 원장으로 함께 게시** (1bbe674): Render(`naver_social_publisher.start_server_scheduler`, 2분마다, 브리핑 16:20~23:00 포함)와
+  PC 작업 스케줄러 `KStockHub-Naver-Blog-Worker`(2분마다 `backend/scripts/naver_blog_worker.py`) 중 먼저 쓰는 쪽이 게시, `claim()`이 중복을 막는다.
+  서버가 거부당하면(`no privilege`) 1시간 쉰다. `NAVER_PUBLISH_ON_SERVER=0`이면 서버 게시 끔.
+- **2026-11-26 09:31 확인: Render(미국 오리건 IP) 글쓰기는 여전히 `no privilege`로 거부.** PC 작업을 끈 시험에서 서버가 거부당했고,
+  PC를 다시 켜자 09:34에 게시됨. PC가 꺼져도 게시되려면 네이버 보안설정(IP 보안·해외 로그인 차단) 확인 또는 한국 IP 실행 서버가 필요.
 - 실행 위치: `H:\ai_work\naver-worker` (origin/main 클론, 할 일이 없을 때 1시간마다 `git pull --ff-only` → main에 푸시한 개선이 자동 반영).
   `.env`는 I:\ai_root\stock_market\backend\.env 복사본(Turso, 세션 키 유도용).
 - 판마다 SNS 시각부터 창(3~6시간) 안에서 데이터가 준비되면 게시. 데이터가 아직이면 재시도 횟수를 쓰지 않고 다음 틱에 재시도,
@@ -58,5 +60,5 @@ python scripts/naver_blog_worker.py --perf
 로그: `backend/logs/naver_blog_worker.log` (쿠키·토큰은 남기지 않음).
 
 ## 위험
-- PC가 꺼져 있으면 게시가 늦어지거나 창이 닫혀 건너뛴다(작업은 WakeToRun, 부팅 후 즉시 실행). 어드민의 'PC 블로그 발행기 응답'으로 감시.
+- 서버 쓰기가 막혀 있는 동안은 PC가 꺼져 있으면 게시가 늦어지거나 창이 닫혀 건너뛴다(작업은 WakeToRun, 부팅 후 즉시 실행). 어드민의 'PC 블로그 발행기 응답'으로 감시.
 - 하루 20건 안팎의 자동 글은 네이버 저품질 판정 위험이 있다. 글마다 내용이 다르고(데이터·이유 본문), 이모지·상투어를 쓰지 않으며, 간격을 둔다.
