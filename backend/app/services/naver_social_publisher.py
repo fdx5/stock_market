@@ -268,7 +268,7 @@ def _server_loop() -> None:
 
 
 def start_server_scheduler() -> None:
-    if os.environ.get("NAVER_PUBLISH_ON_SERVER", "1") == "0" or not naver_session_store.is_configured():
+    if os.environ.get("NAVER_PUBLISH_ON_SERVER", "0") != "1" or not naver_session_store.is_configured():
         log.info("server-side Naver publishing is off")
         return
     import threading

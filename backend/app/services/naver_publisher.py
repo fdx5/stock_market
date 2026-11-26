@@ -69,7 +69,7 @@ BRIEF_CATEGORY_NO = int(os.environ.get("NAVER_BRIEF_CATEGORY_NO", "8"))
 # Set NAVER_PUBLISH_ON_SERVER=0 to make the server only queue the briefs and leave
 # publishing to the owner's PC (backend/scripts/naver_blog_worker.py). By default the
 # server publishes too, so the posts go out with the PC off; both share one ledger.
-DEFER_TO_LOCAL = bool(os.environ.get("RENDER")) and os.environ.get("NAVER_PUBLISH_ON_SERVER") == "0"
+DEFER_TO_LOCAL = bool(os.environ.get("RENDER")) and os.environ.get("NAVER_PUBLISH_ON_SERVER", "0") != "1"
 
 # One run at a time in this process, mirroring market_brief._lock. The store's claim()
 # is the real cross-process guard; this just avoids two threads spinning up two
