@@ -26,6 +26,8 @@ const BASE_NEO_GROUPS = [
     ["/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", "종목 토론", "Discussions"], ["/kospi-orbit", "코스피 궤도", "KOSPI orbit"], ["/kosdaq-orbit", "코스닥 궤도", "KOSDAQ orbit"], ["/nasdaq100-orbit", "나스닥 궤도", "NASDAQ orbit"], ["/drone-explore", "드론 탐험", "Drone explorer"], ["/market-bubbles", "증시 버블", "Market bubbles"], ["/hub", "태양계 입구", "Solar entrance"], ["/support", "커피 한 잔 후원", "Support KOSPIMAP"], ["/desk2", "클래식 데스크", "Classic desk"],
   ] },
  ] as const;
+/** Menu destinations we want people to visit most: rendered in glowing gold. */
+export const NEO_FEATURED = new Set(["/", "/map", "/sp500-map", "/nasdaq100-map"]);
 const RESEARCH_SECTION: Record<string,string> = {
   "/markets":"markets", "/market-inside":"markets", "/stock-context":"markets", "/etf-overlap":"markets", "/etf-tradeoffs":"markets", "/dividend-reality":"markets",
   "/stock-tradeoffs":"rankings", "/recovery-lab":"rankings", "/market-radar":"rankings", "/stock-screener":"rankings", "/stock-compare":"rankings", "/sector-strength":"rankings", "/global-peers":"rankings", "/sector-replay":"rankings",
