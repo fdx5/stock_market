@@ -12,7 +12,7 @@ import re
 import time
 from unicodedata import normalize
 from urllib.error import HTTPError
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
@@ -139,6 +139,31 @@ def threads_topic(text):
         last = tags[-1]
         out = (out[:last.start()].rstrip(" ") + out[last.end():])
     return out
+
+
+# Every link to the site that leaves here carries a campaign tag. Edition captions are
+# tagged where they are written; this is the last check before Buffer, and the way
+# hand-written promo posts (social/promo) get the same tags.
+_SITE_LINK = re.compile(r"(?<![\w/@.])(?:https?://)?(?:www\.)?kospimap\.com(?:/[^\s)\]>\"'…]*)?")
+
+
+def tag_links(text, service, campaign):
+    """Adds utm_source/medium/campaign to every untagged kospimap.com link in `text`."""
+    source = "x" if service == "twitter" else service
+
+    def fix(match):
+        raw = match.group(0)
+        parts = urlsplit(raw if raw.startswith("http") else "https://" + raw)
+        query = parse_qsl(parts.query, keep_blank_values=True)
+        if any(key == "utm_source" for key, _ in query):
+            return raw
+        query += [("utm_source", source), ("utm_medium", "social"), ("utm_campaign", campaign)]
+        return urlunsplit(("https", parts.netloc, parts.path or "/", urlencode(query), parts.fragment))
+    return _SITE_LINK.sub(fix, text)
+
+
+def untagged_links(text):
+    return [m.group(0) for m in _SITE_LINK.finditer(text) if "utm_source=" not in m.group(0)]
 
 
 def story_hashtag(value):
@@ -566,6 +591,9 @@ def deliver(day, edition, prepared=None, receipt=None):
                             caption = campaign_caption(text, service, edition)  # undated tag is shorter
                         if len(caption) > 300 or weighted_length(caption) > 280:
                             raise RuntimeError("Tagged caption exceeds the cross-platform post length")
+                    tagged = tag_links(caption, service, f"{edition}-{day:%Y%m%d}")
+                    if caption_fits(service, tagged) and (service != "twitter" or weighted_length(tagged) <= 280):
+                        caption = tagged
                     if service == "threads":
                         caption = threads_topic(caption)
                     publish(channel, caption, assets)
@@ -589,6 +617,106 @@ def deliver(day, edition, prepared=None, receipt=None):
     if incomplete:
         raise RuntimeError("Unconfirmed delivery: " + ", ".join(incomplete))
     record_delivery(day, receipt)
+
+
+# ---------------------------------------------------------------- promo queue
+#
+# Hand-written posts (a new feature, a drone film, an event) go through the same pipeline
+# as the editions: put a file in social/promo/ and the scheduled run posts it at its time
+# to every connected network, every site link tagged
+#   utm_source=<network>&utm_medium=social&utm_campaign=promo_<campaign>-<YYYYMMDD>
+# so its visits show up per post in the admin '유입 출처(UTM)' tab.
+#
+#   social/promo/2026-11-27-godeok-drone.md
+#   ---
+#   publish_at: 2026-11-27 19:00        # KST; posted within 6 hours after
+#   campaign: drone_godeok              # [a-z0-9_]
+#   networks: threads, x, bluesky       # optional; a network the text does not fit is skipped
+#   images: social/promo/img/godeok.png # optional, PNG, comma separated
+#   threads_topic: Investing            # optional; "none" keeps the text's own first hashtag
+#   ---
+#   고덕동 주변을 실시간 3D로 ... kospimap.com/drone-explore
+PROMO_DIR = Path(__file__).resolve().parents[1] / "social" / "promo"
+PROMO_WINDOW = dt.timedelta(hours=6)
+
+
+def read_promo(path):
+    raw = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    match = re.match(r"---\n(.*?)\n---\n(.*)", raw, re.S)
+    if not match:
+        raise ValueError(f"{path.name}: front matter missing")
+    meta = {}
+    for line in match.group(1).splitlines():
+        if ":" in line and not line.lstrip().startswith("#"):
+            key, value = line.split(":", 1)
+            meta[key.strip()] = value.split("  #")[0].strip()
+    text = match.group(2).strip()
+    at = dt.datetime.strptime(meta["publish_at"], "%Y-%m-%d %H:%M").replace(tzinfo=KST)
+    campaign = meta.get("campaign", "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_]{2,40}", campaign):
+        raise ValueError(f"{path.name}: campaign must be 2-40 of [a-z0-9_]")
+    if not text:
+        raise ValueError(f"{path.name}: empty text")
+    networks = [n.strip().lower().replace("x", "twitter") if n.strip().lower() == "x" else n.strip().lower()
+                for n in meta.get("networks", "threads, twitter, bluesky").split(",") if n.strip()]
+    images = [Path(__file__).resolve().parents[1] / s.strip() for s in meta.get("images", "").split(",") if s.strip()]
+    return {"slug": path.stem, "at": at, "campaign": campaign, "text": text, "networks": networks,
+            "images": images, "threads_topic": meta.get("threads_topic", THREADS_TOPIC)}
+
+
+def promo_caption(promo, service):
+    caption = tag_links(promo["text"], service, f"promo_{promo['campaign']}-{promo['at']:%Y%m%d}")
+    if service == "threads":
+        topic = promo["threads_topic"]
+        if topic.lower() != "none":
+            global THREADS_TOPIC
+            saved, THREADS_TOPIC = THREADS_TOPIC, topic.lstrip("#")
+            try:
+                caption = threads_topic(caption)
+            finally:
+                THREADS_TOPIC = saved
+    return caption
+
+
+def due_promos(now):
+    if not PROMO_DIR.exists():
+        return []
+    out = []
+    for path in sorted(PROMO_DIR.glob("*.md")):
+        try:
+            promo = read_promo(path)
+        except (ValueError, KeyError) as error:
+            print(f"::warning::promo {path.name} skipped: {error}")
+            continue
+        if promo["at"] <= now < promo["at"] + PROMO_WINDOW:
+            out.append(promo)
+    return out
+
+
+def deliver_promo(promo):
+    day, receipt = promo["at"].date(), f"promo-{promo['slug']}"
+    if completed_delivery(day, receipt):
+        return
+    profiles = {s: c for s, c in connected_profiles().items() if s in promo["networks"]}
+    headline = promo["text"].splitlines()[0]
+    assets = []
+    for image in promo["images"]:
+        png = image.read_bytes()
+        assets.append({"image": {"url": upload_map(day, image.name, png), "metadata": {"altText": headline[:120]}}})
+    posted = 0
+    for service, channel in profiles.items():
+        caption = promo_caption(promo, service)
+        if not caption_fits(service, caption) or (service == "twitter" and weighted_length(caption) > 280):
+            print(f"::warning::promo {promo['slug']}: too long for {service}, skipped")
+            continue
+        if not post_status(channel, headline):
+            publish(channel, caption, assets)
+        posted += 1
+    if posted:
+        time.sleep(12)
+        if all(post_status(channel, headline) for service, channel in profiles.items()
+               if caption_fits(service, promo_caption(promo, service))):
+            record_delivery(day, receipt)
 
 
 def receipt_path(day, edition):
@@ -763,6 +891,12 @@ def main():
         except (OSError, RuntimeError, KeyError, ValueError) as error:
             failures.append(f"{day} {edition}: {type(error).__name__}")
             print(f"::error::{day} {edition}: {error}")
+    for promo in due_promos(now):
+        try:
+            deliver_promo(promo)
+        except (OSError, RuntimeError, KeyError, ValueError) as error:
+            failures.append(f"promo {promo['slug']}: {type(error).__name__}")
+            print(f"::error::promo {promo['slug']}: {error}")
     if failures:
         raise RuntimeError("Publication requires retry: " + ", ".join(failures))
 

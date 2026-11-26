@@ -456,6 +456,9 @@ def _goal(conn) -> dict:
         goal.update(dict(zip(("id", "created_at", "baseline", "method", "baseline_from", "baseline_to",
                               "target_multiplier", "target_date", "note"), version)))
         goal["confirmed"] = True
+        goal["checkpoints"] = [{"multiplier": float(m), "date": d} for m, d in conn.execute(
+            "SELECT multiplier, target_date FROM growth_goal_checkpoints WHERE goal_id = ? ORDER BY target_date",
+            (goal["id"],)).fetchall()]
     elif legacy:
         goal.update({"id": None, "created_at": legacy[0], "baseline": float(legacy[1]), "method": "legacy_partial_day",
                      "baseline_from": legacy[0][:10], "baseline_to": legacy[0][:10], "target_multiplier": int(legacy[2]),
@@ -467,13 +470,18 @@ def _goal(conn) -> dict:
 
 
 def add_goal_version(baseline: float, method: str, baseline_from: str | None, baseline_to: str | None,
-                     target_multiplier: int, target_date: str | None, note: str | None) -> dict:
+                     target_multiplier: int, target_date: str | None, note: str | None,
+                     checkpoints: list[tuple[float, str]] | None = None) -> dict:
     def run(conn):
-        conn.execute(
+        cur = conn.execute(
             "INSERT INTO growth_goal_versions (created_at, baseline_daily, baseline_method, baseline_from, baseline_to, "
             "target_multiplier, target_date, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (datetime.now(timezone.utc).isoformat(), float(baseline), method, baseline_from, baseline_to,
              int(target_multiplier), target_date, note))
+        goal_id = getattr(cur, "lastrowid", None) or conn.execute("SELECT MAX(id) FROM growth_goal_versions").fetchone()[0]
+        for mult, day in checkpoints or []:
+            conn.execute("INSERT INTO growth_goal_checkpoints (goal_id, created_at, multiplier, target_date) VALUES (?, ?, ?, ?)",
+                         (goal_id, datetime.now(timezone.utc).isoformat(), float(mult), day))
         conn.commit()
         return _goal(conn)
     return pvs._with_connection(run)
@@ -872,6 +880,7 @@ def overview(start_day: str, end_day: str) -> dict:
                  "range_suspected": sus_total, "range_bot_sessions": bot_total,
                  "best_day": max(closed_in_range, key=lambda r: r["sessions"], default=None)},
         "milestones": milestones,
+        "checkpoints": _checkpoints(goal, baseline, cur7, today),
         "ledger": [r for r in ledger if r["date"] >= start.isoformat()],
         "history": [{"date": r["date"], "sessions": r["sessions"], "ma7": r["ma7"]} for r in ledger],
         "channels": [{"channel": c, "label": CHANNEL_LABELS[c], **ranked({c: channels[c]}, "channel", 1)[0]}
@@ -1050,6 +1059,24 @@ def _traffic_insights(t: dict) -> list[dict]:
     if ty.get("ai", {}).get("sessions", 0) >= 10:
         add("info", f"AI 답변 경유 {ty['ai']['sessions']:,} 세션", "ChatGPT·Perplexity 등이 인용한 링크로 들어온 방문",
             "AI가 인용하는 착지 페이지의 요약·표를 최신으로 유지하세요.")
+    return out
+
+
+def _checkpoints(goal: dict, baseline: float | None, cur7: float, today: date) -> list[dict]:
+    """Each dated target with the daily growth it now needs (final target included)."""
+    points = list(goal.get("checkpoints") or [])
+    if goal.get("target_date"):
+        points.append({"multiplier": float(goal.get("target_multiplier") or 100), "date": goal["target_date"], "final": True})
+    out = []
+    for p in sorted(points, key=lambda x: x["date"]):
+        target = baseline * p["multiplier"] if baseline else None
+        days = (date.fromisoformat(p["date"]) - today).days
+        need = ((target / cur7) ** (1 / days) - 1) * 100 if target and cur7 and days > 0 else None
+        out.append({"multiplier": p["multiplier"], "date": p["date"], "final": bool(p.get("final")),
+                    "target_daily": round(target, 1) if target else None, "days_left": days,
+                    "current_multiplier": round(cur7 / baseline, 2) if baseline else None,
+                    "required_cdgr": round(need, 1) if need is not None else None,
+                    "reached": bool(target and cur7 >= target)})
     return out
 
 

@@ -41,6 +41,16 @@ SCHEMAS = (
         focus_path TEXT
     )
     """,
+    # Interim targets of a goal version ("20x by 11-30" before "100x by 12-31"). Append-only.
+    """
+    CREATE TABLE IF NOT EXISTS growth_goal_checkpoints (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        goal_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        multiplier REAL NOT NULL,
+        target_date TEXT NOT NULL
+    )
+    """,
     # '지금 할 일' completion marks. Append-only: the newest row per key is its state
     # ('done' or 'open' when reopened); nothing is updated or deleted.
     """

@@ -346,3 +346,13 @@
 .gc-resolved summary { cursor: pointer; color: var(--gc-good); font-weight: 700; }
 .gc-resolved ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
 .gc-resolved em { font-style: normal; color: var(--gc-good); }
+
+/* dated goal checkpoints */
+.gc-checkpoints { list-style: none; margin: 10px 0 12px; padding: 0; display: grid; gap: 6px; }
+.gc-checkpoints li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline; padding: 7px 10px; border: 1px solid var(--gc-line); border-radius: 9px; font-size: 12.5px; }
+.gc-checkpoints b { color: var(--text-primary); }
+.gc-checkpoints span { color: var(--text-muted); min-width: 0; }
+.gc-checkpoints em { font-style: normal; font-weight: 700; color: var(--gc-warn); }
+.gc-checkpoints li.is-reached em { color: var(--gc-good); }
+.gc-checkpoints li.is-missed em { color: var(--gc-bad); }
+@media (max-width: 560px) { .gc-checkpoints li { grid-template-columns: 1fr; gap: 2px; } }

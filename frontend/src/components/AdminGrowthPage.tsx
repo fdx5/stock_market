@@ -916,6 +916,17 @@ export default function AdminGrowthPage() {
                 )}
                 {goal?.target_date ? <> · 목표일 {goal.target_date} (D-{k?.days_left})</> : <> · 목표일 미설정</>}
               </p>
+              {!!data.checkpoints?.length && (
+                <ul className="gc-checkpoints">
+                  {data.checkpoints.map((c) => (
+                    <li key={c.date} className={c.reached ? "is-reached" : c.days_left < 0 ? "is-missed" : ""}>
+                      <b>{c.date.slice(5).replace("-", "/")}까지 {c.multiplier}배</b>
+                      <span>일 {n0(c.target_daily)} · 현재 {c.current_multiplier ?? "—"}배 · D-{Math.max(0, c.days_left)}</span>
+                      <em>{c.reached ? "달성" : c.required_cdgr != null ? `필요 성장률 하루 +${c.required_cdgr}%` : c.days_left < 0 ? "기한 지남" : "—"}</em>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <button type="button" className="gc-btn is-primary" onClick={() => setGoalOpen(true)}>목표 설정</button>
             </div>
             <MissionTrack data={data} />

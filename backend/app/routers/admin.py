@@ -308,6 +308,7 @@ class GrowthGoalPayload(BaseModel):
     target_multiplier: int = 100
     target_date: str | None = None
     note: str | None = None
+    checkpoints: list[dict] | None = None   # [{"multiplier": 20, "date": "2026-11-30"}]
 
 
 @router.post("/growth/goal", dependencies=[Depends(require_admin)])
@@ -321,9 +322,18 @@ def growth_goal_version(payload: GrowthGoalPayload):
     for value in (payload.baseline_from, payload.baseline_to, payload.target_date):
         if value is not None and not _is_day(value):
             raise HTTPException(status_code=400, detail="날짜 형식은 YYYY-MM-DD 입니다.")
+    checkpoints = []
+    for cp in (payload.checkpoints or [])[:6]:
+        try:
+            mult, day = float(cp.get("multiplier")), str(cp.get("date"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="중간 목표 형식이 올바르지 않습니다.")
+        if not (1 < mult <= 10_000 and _is_day(day)):
+            raise HTTPException(status_code=400, detail="중간 목표 형식이 올바르지 않습니다.")
+        checkpoints.append((mult, day))
     goal = growth_control.add_goal_version(
         payload.baseline, payload.method[:40], payload.baseline_from, payload.baseline_to,
-        payload.target_multiplier, payload.target_date, (payload.note or "")[:300] or None)
+        payload.target_multiplier, payload.target_date, (payload.note or "")[:300] or None, checkpoints)
     growth_control.invalidate()
     return goal
 

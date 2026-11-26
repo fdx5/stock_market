@@ -97,6 +97,8 @@ export interface GrowthControl {
     range_sessions: number; range_raw_sessions: number; range_suspected: number; range_bot_sessions: number; best_day: GrowthLedgerRow | null;
   };
   milestones: Array<{ multiplier: number; target: number | null; reached: string | null; eta: string | null }>;
+  checkpoints?: Array<{ multiplier: number; date: string; final: boolean; target_daily: number | null; days_left: number;
+    current_multiplier: number | null; required_cdgr: number | null; reached: boolean }>;
   ledger: GrowthLedgerRow[];
   history: Array<{ date: string; sessions: number; ma7: number | null }>;
   channels: Array<GrowthRankRow & { channel: GrowthChannel; label: string }>;
