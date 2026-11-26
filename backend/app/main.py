@@ -77,6 +77,7 @@ from app.services import (
 )
 from app.services import global_top100 as global_top100_service
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
+from app.services.seo_content import CATALOG_ROOT, CATALOG_ROUTE
 from app.services.seo import (
     build_etf_sitemap,
     build_pages_sitemap,
@@ -90,6 +91,7 @@ from app.services.seo import (
     is_unknown_us_code,
     legacy_redirect,
     render_spa_shell,
+    stock_catalog_page,
     unavailable_page,
 )
 from app.services.market_map import get_kosdaq_map, get_kospi_map
@@ -958,6 +960,17 @@ if STATIC_DIR.exists():
             moved = legacy_redirect(path, query)
             if moved:
                 return RedirectResponse(moved, status_code=301)
+            catalog_path = path.rstrip("/")
+            if catalog_path == CATALOG_ROOT or CATALOG_ROUTE.fullmatch(catalog_path):
+                if catalog_path != path:
+                    return RedirectResponse(request.url.replace(path=catalog_path), status_code=301)
+                try:
+                    catalog = stock_catalog_page(catalog_path)
+                except RuntimeError:
+                    return HTMLResponse(unavailable_page(temporary=True), status_code=503, headers={"Retry-After": "300"})
+                if catalog is None:
+                    return HTMLResponse(unavailable_page(), status_code=404)
+                return HTMLResponse(render_spa_shell(_spa_template, path, query, stock_catalog=catalog))
             if not is_public_spa_path(path) or is_unknown_us_code(path):
                 return HTMLResponse(unavailable_page(), status_code=404)
             if is_unknown_kr_code(path):

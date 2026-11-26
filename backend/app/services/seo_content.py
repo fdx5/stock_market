@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from html import escape
-from re import fullmatch
+from re import compile as re_compile, fullmatch
 from zoneinfo import ZoneInfo
 
 from app.services import market_brief_store
@@ -139,7 +139,8 @@ def market_directory(path: str, kr_universe) -> str:
             items.append(f'<li><a href="/stock/{code}">{escape(str(row.get("name") or code))} ({code})</a></li>')
             if len(items) == 100:
                 break
-        return "<section><h2>시가총액 상위 국내 종목</h2><ul>" + "".join(items) + "</ul></section>" if items else ""
+        return ('<p><a href="/stocks/catalog">시장별 전체 주식·ETF 종목 목록</a></p>'
+                + ("<section><h2>시가총액 상위 국내 종목</h2><ul>" + "".join(items) + "</ul></section>" if items else ""))
     if path == "/dram-price":
         from app.services.dram_price import get_latest
 
@@ -189,3 +190,66 @@ def immersive_market_links(path: str) -> str:
             f'<a href="{ranking_path}">{label} 상위 100 종목 표</a></p></section>'
         )
     return "".join(sections)
+
+
+CATALOG_PAGE_SIZE = 120
+CATALOG_LABELS = {
+    "kospi": ("코스피", "KOSPI"),
+    "kosdaq": ("코스닥", "KOSDAQ"),
+    "us": ("미국 주식", "US stocks"),
+    "kr-etf": ("국내 ETF", "Korean ETFs"),
+    "us-etf": ("미국 ETF", "US ETFs"),
+}
+CATALOG_ROOT = "/stocks/catalog"
+CATALOG_ROUTE = re_compile(r"/stocks/catalog/(kospi|kosdaq|us|kr-etf|us-etf)/([1-9][0-9]{0,2})")
+
+
+def build_stock_catalog(path: str, kr_stocks: list[dict], kr_etfs: dict, us_listings: dict) -> dict | None:
+    groups: dict[str, dict[str, str]] = {group: {} for group in CATALOG_LABELS}
+    for item in kr_stocks:
+        code = str(item.get("code") or "").strip()
+        market = str(item.get("market") or "").lower()
+        if market in ("kospi", "kosdaq") and code not in kr_etfs and fullmatch(r"[0-9]{6}", code):
+            groups[market][code] = str(item.get("name") or code)
+    groups["kr-etf"] = kr_etfs
+    for code, (name, kind) in us_listings.items():
+        if fullmatch(r"[A-Z0-9.-]{1,16}", code):
+            groups["us-etf" if kind == "us_etf" else "us"][code] = name
+    counts = {group: len(rows) for group, rows in groups.items() if rows}
+    match = CATALOG_ROUTE.fullmatch(path)
+    if not match:
+        if not counts:
+            raise RuntimeError("Stock catalog data unavailable")
+        return {"groups": counts, "pageSize": CATALOG_PAGE_SIZE}
+    group, page_text = match.groups()
+    if group not in counts:
+        raise RuntimeError(f"Stock catalog data unavailable for {group}")
+    page = int(page_text)
+    start = (page - 1) * CATALOG_PAGE_SIZE
+    entries = sorted(groups[group].items())[start:start + CATALOG_PAGE_SIZE]
+    if not entries:
+        return None
+    return {"groups": counts, "group": group, "page": page, "start": start, "items": entries}
+
+
+def stock_catalog_title(data: dict) -> str:
+    group = data.get("group")
+    if not group:
+        return "주식·ETF 종목 목록"
+    start = data["start"] + 1
+    end = data["start"] + len(data["items"])
+    return f"{CATALOG_LABELS[group][0]} 종목 목록 ({start}–{end})"
+
+
+def render_stock_catalog(data: dict) -> str:
+    sections = []
+    for group, count in data["groups"].items():
+        links = []
+        for page, start in enumerate(range(0, count, CATALOG_PAGE_SIZE), 1):
+            end = min(start + CATALOG_PAGE_SIZE, count)
+            links.append(f'<li><a href="{CATALOG_ROOT}/{group}/{page}">{start + 1}–{end}</a></li>')
+        sections.append(f'<section><h2>{CATALOG_LABELS[group][0]} ({count:,}종목)</h2><ul>{"".join(links)}</ul></section>')
+    if not data.get("group"):
+        return "".join(sections)
+    links = "".join(f'<li><a href="/stock/{code}">{escape(name)} ({code})</a></li>' for code, name in data["items"])
+    return f'<ol start="{data["start"] + 1}">{links}</ol><p><a href="{CATALOG_ROOT}">전체 주식·ETF 종목 목록</a></p>'

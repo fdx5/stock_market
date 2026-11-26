@@ -55,6 +55,7 @@ const MarketPulsePage = lazy(() => import("./growth/MarketPulsePage"));
 const BroadsheetStockPage = lazy(() => import("./desk2/stock/StockPage"));
 const StockReportPage = lazy(() => import("./desk2/stock/StockReportPage"));
 const BroadsheetStocksPage = lazy(() => import("./desk2/stocks/StocksPage"));
+const StockCatalogPage = lazy(() => import("./neo/StockCatalogPage"));
 const EtfMarketPage = lazy(() => import("./neo/etf/EtfMarketPage"));
 const BroadsheetBriefPage = lazy(() => import("./desk2/brief/BriefPage"));
 /* The three TOP 100 boards; one component, so switching boards keeps it mounted.
@@ -478,6 +479,8 @@ export default function App() {
     page = <ExchangePage />;
   } else if (path === "/stocks") {
     page = <BroadsheetStocksPage />;
+  } else if (path === "/stocks/catalog" || path.startsWith("/stocks/catalog/")) {
+    page = <StockCatalogPage />;
   } else if (path === "/kospi" || path === "/kosdaq" || path === "/nasdaq") {
     page = <IndexLandingPage key={path} index={path.slice(1) as "kospi" | "kosdaq" | "nasdaq"} />;
   } else if (path === "/world-markets") {

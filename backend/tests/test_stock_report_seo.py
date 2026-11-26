@@ -196,3 +196,25 @@ def test_etf_type_and_share_url_are_preserved_on_first_html(renderer):
     assert renderer["legacy_redirect"]("/stock/aapl", {"utm_source": "test"}) == "/stock/AAPL?utm_source=test"
     assert not renderer["is_public_spa_path"]("/random-typo")
     assert renderer["is_public_spa_path"]("/global/treasuries/10")
+
+
+def test_catalog_links_to_the_same_tickers_as_the_sitemap(renderer):
+    from app.services import seo_content
+
+    kr_stocks = [{"code": str(i).zfill(6), "name": f"Test {i}", "market": "KOSPI"} for i in range(1, 122)]
+    kr_etfs = {"001000": "Test ETF"}
+    us_listings = {"ABC": ("ABC & Co", "us_stock"), "EFT": ("Fund", "us_etf")}
+    build = lambda path: seo_content.build_stock_catalog(path, kr_stocks, kr_etfs, us_listings)
+    hub = build("/stocks/catalog")
+    assert hub["groups"] == {"kospi": 121, "kr-etf": 1, "us": 1, "us-etf": 1}
+    assert 'href="/stocks/catalog/kospi/2">121–121' in seo_content.render_stock_catalog(hub)
+    page = build("/stocks/catalog/kospi/2")
+    assert page["items"] == [("000121", "Test 121")]
+    assert build("/stocks/catalog/kospi/3") is None
+    assert 'href="/stock/ABC">ABC &amp; Co' in seo_content.render_stock_catalog(build("/stocks/catalog/us/1"))
+
+    renderer["seo_content"] = seo_content
+    template = (Path(__file__).parents[2] / "frontend/index.html").read_text(encoding="utf-8")
+    result = renderer["render_spa_shell"](template, "/stocks/catalog/kospi/2", {}, stock_catalog=page)
+    assert 'rel="canonical" href="https://kospimap.com/stocks/catalog/kospi/2"' in result
+    assert 'href="/stock/000121"' in result and 'id="stock-catalog-data"' in result

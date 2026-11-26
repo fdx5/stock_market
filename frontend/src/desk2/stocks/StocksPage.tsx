@@ -36,6 +36,7 @@ import News from "../reader/News";
 import { useBroadsheet, useFinderHotkey } from "../shell";
 import PreviewChart from "./PreviewChart";
 import "../pages.css";
+import "../../neo/stockCatalog.css";
 
 /* 종목정보 — the paper's stock tables, with a reading pane beside them.
  *
@@ -315,6 +316,7 @@ export default function StocksPage() {
         section={{ ko: "종목정보", en: "Stocks", taglineKo: "시장의 모든 종목을 한 표에 — 고르고, 견주고, 펼쳐 보기", taglineEn: "Every listed name in one table — pick, compare, open" }}
       />
 
+      <p className="st-catalog-link"><a href="/stocks/catalog">{L("시장별 전체 주식·ETF 종목 목록", "Browse all tracked stocks and ETFs by market")}</a></p>
       <div className="d2-cmd st-bar" data-d2-sticky>
         <div className="d2-cmd-inner st-bar-inner">
           <Marker

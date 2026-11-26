@@ -609,7 +609,7 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
 def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edition: dict | None = None,
                      movers_edition: dict | None = None,
                      dated_brief: tuple[dict | None, str, str] | None = None,
-                     indexable: bool = True) -> str:
+                     indexable: bool = True, stock_catalog: dict | None = None) -> str:
     canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
     if canonical_path in {"/pulse-board", "/pulse-board-2"}:
         template = re.sub(r'<script id="adsense-loader"[^>]*>.*?</script>\s*', "", template, count=1, flags=re.S)
@@ -639,6 +639,10 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
     social = SOCIAL_CARDS.get(page_lookup)
     if social:
         title, description = social["title"], social["description"]
+    if stock_catalog:
+        catalog_title = seo_content.stock_catalog_title(stock_catalog)
+        title = f"{catalog_title} | KOSPIMAP"
+        description = f"{catalog_title}에서 종목코드와 이름을 확인하고 시세·차트로 이동하세요."
     page_image = f'{SITE}{social["image"]}' if social else IMAGE
     image_alt = social["alt"] if social else ""
     hot_data = hot_edition
@@ -991,6 +995,9 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
     if brief:
         seed = json.dumps({"day": brief_day, "market": brief_market.upper(), "report": brief}, ensure_ascii=False).replace("</", "<\\/")
         script += f'<script id="initial-market-brief" type="application/json">{seed}</script>'
+    if stock_catalog:
+        seed = json.dumps(stock_catalog, ensure_ascii=False).replace("</", "<\\/")
+        script += f'<script id="stock-catalog-data" type="application/json">{seed}</script>'
     document = document.replace("</head>", f"{script}\n  </head>", 1)
 
     # Naver's Yeti can render JavaScript, but its official SPA guidance still
@@ -1018,7 +1025,9 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
     nav = "".join(f'<a href="{href}">{html.escape(label)}</a>' for href, label in links)
     report_content = ""
     security_snapshot = ""
-    if brief:
+    if stock_catalog:
+        report_content = seo_content.render_stock_catalog(stock_catalog)
+    elif brief:
         report_content = seo_content.closing_brief(brief, brief_day, brief_market)
     elif canonical_path == "/market-brief":
         report_content = seo_content.brief_archive()
@@ -1302,6 +1311,10 @@ def _valid_codes(kr_stocks: list[dict]) -> list[str]:
         if re.fullmatch(r"\d{6}", code):
             codes.append(code)
     return codes
+
+
+def stock_catalog_page(path: str) -> dict | None:
+    return seo_content.build_stock_catalog(path, kr_universe(), _kr_etf_names(), _us_catalog())
 
 
 def build_sitemap_index() -> str:

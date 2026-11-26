@@ -1,0 +1,42 @@
+.st-catalog-link {
+  padding-inline: 1rem;
+  color: var(--accent-neon);
+}
+.ng-stock-catalog {
+  max-width: 1200px;
+  margin-inline: auto;
+  padding: 24px clamp(16px, 4vw, 48px);
+  color: var(--text-primary);
+}
+.ng-stock-catalog a {
+  color: var(--text-primary);
+}
+.ng-stock-catalog a:hover, .ng-stock-catalog a:focus-visible {
+  color: var(--accent-neon);
+  text-decoration: underline;
+}
+.ng-stock-catalog nav, .ng-stock-catalog ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+.ng-stock-catalog ul {
+  list-style: none;
+  padding: 0;
+}
+.ng-stock-catalog ol {
+  columns: 280px;
+  line-height: 1.8;
+}
+.ng-stock-catalog li {
+  break-inside: avoid;
+}
+.ng-stock-catalog small {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.ng-stock-catalog-groups {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
