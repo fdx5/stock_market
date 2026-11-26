@@ -44,7 +44,7 @@ const FLAG_LABEL: Record<string, string> = {
   live: "진행 중", unverified: "미검증", zero: "0건", spike: "급증", drop: "급감", automation_heavy: "자동화 다수",
 };
 const SIGNAL_LABEL: Record<string, string> = {
-  sitemap_walk_cohort: "사이트맵 순회 묶음", outdated_chrome: "구버전 Chrome", outdated_firefox: "구버전 Firefox",
+  sitemap_walk_cohort: "사이트맵 순회 묶음", repeat_single_page_cohort: "같은 페이지 반복·1페이지 이탈 묶음", outdated_chrome: "구버전 Chrome", outdated_firefox: "구버전 Firefox",
   outdated_safari: "구버전 Safari", server_linux: "서버형 Linux", non_browser_format: "비브라우저 형식", no_agent: "UA 없음",
 };
 const SEV_LABEL = { critical: "긴급", warning: "주의", good: "양호", info: "참고" } as const;

@@ -44,13 +44,16 @@ log = logging.getLogger(__name__)
 KST = pvs.KST
 # v2 (2026-11-26) adds the per-session inflow type bucket ("traffic", traffic_taxonomy) and
 # files AI answers / mail apps correctly. v1 rows stay; the newest version of a day wins.
-METRICS_VERSION = 2
+# v3 (2026-11-26) sets aside repeat single-page cohorts (HAMMER_*), including the ones
+# hiding behind common Chrome strings. History was recomputed once, from the owner's PC.
+METRICS_VERSION = 3
 BACKFILL_DAYS = 120
 # Closed days recomputed under the newest version (older days keep their v1 payload).
-# Closed days recomputed under the newest version (older days keep their v1 payload).
-# Refreshing an existing day is optional work, so it only runs at night (KST 02-06),
-# a few days per pass, on its own connection — see _own_connection.
-REFRESH_DAYS = int(os.environ.get("GROWTH_REFRESH_DAYS", "45"))
+# Closed days recomputed under the newest version. Off by default: every recompute is
+# a full scan of that day's page_views on Turso (billed row reads), so stored days keep
+# the rules they were computed with and only new days get the new ones (owner's call,
+# 2026-11-26). When enabled it runs only at night (KST 02-06), a few days per pass.
+REFRESH_DAYS = int(os.environ.get("GROWTH_REFRESH_DAYS", "0"))
 REFRESH_HOURS = range(2, 6)
 MILESTONES = (2, 5, 10, 25, 50, 100)
 CHANNELS = ("search", "social", "referral", "email", "direct")
@@ -69,6 +72,19 @@ _DEEP_LANDING_SQL = (
 COHORT_MIN_SESSIONS = 12
 COHORT_WALK_SHARE = 0.8
 COHORT_DISTINCT_SHARE = 0.6
+# Repeat-hammer cohort (seen 2026-11-22..): one agent string, dozens of sessions a day,
+# nearly all of them one page with no referrer and no tag, cycling over the same few
+# guide pages. The sitemap-walk rule misses it (few distinct pages, not deep pages).
+# Only that cohort's single-page/no-referrer sessions are set aside; a person sharing
+# the same common Chrome string who arrives from search or reads two pages stays.
+HAMMER_MIN_SESSIONS = 40
+HAMMER_SINGLE_SHARE = 0.9
+# The same cohort also borrows the most common Chrome strings, which real people share.
+# There it is told apart per page: one agent string opening one page directly 20+ times
+# a day, almost never going on to a second page. (People landing on "/" from bookmarks
+# bounce ~60%; the hammered guide pages bounce 99.9%.)
+HAMMER_PAGE_MIN = 20
+HAMMER_PAGE_SINGLE_SHARE = 0.95
 
 _SELF_HOSTS = ("kospimap.com", "onrender.com", "localhost", "127.0.0.1")
 _SEARCH_HOSTS = (("google.", "google"), ("googlequicksearchbox", "google"), ("search.naver", "naver"),
@@ -140,17 +156,27 @@ def _first_rows_cte(where: str) -> str:
     )
 
 
-def _suspected_agents(conn, where: str, params: tuple) -> tuple[list[str], list[dict]]:
+_SEP = chr(1)  # agent/route key separator; matches char(1) in SQL
+# A first page view with no outside source (no referrer, or our own site as referrer —
+# the 11-25 cohort sent kospimap.com/<page>?code=... on most visits), no UTM tag, and
+# nothing after it.
+_SINGLE_SQL = ("n = 1 AND ch = 'direct' AND usrc = '' AND (ref = '' OR ref LIKE 'https://kospimap.com%' "
+               "OR ref LIKE 'https://www.kospimap.com%' OR ref LIKE '%.onrender.com%')")
+
+
+def _suspected_agents(conn, where: str, params: tuple) -> tuple[list[str], list[str], list[dict]]:
     """Agent strings whose sessions this day look like a sitemap walk (see module doc)."""
     rows = conn.execute(
         _first_rows_cte(where) +
         "SELECT ua, COUNT(*), "
         f"SUM(CASE WHEN n = 1 AND ch = 'direct' AND {_DEEP_LANDING_SQL} THEN 1 ELSE 0 END), "
-        "COUNT(DISTINCT route || path), SUM(n) FROM f GROUP BY ua",
+        "COUNT(DISTINCT route || path), SUM(n), "
+        f"SUM(CASE WHEN {_SINGLE_SQL} THEN 1 ELSE 0 END) FROM f GROUP BY ua",
         params,
     ).fetchall()
-    flagged, detail = [], []
-    for ua, sessions, walks, distinct_paths, pageviews in rows:
+    flagged, hammer, detail = [], [], []
+    for ua, sessions, walks, distinct_paths, pageviews, singles in rows:
+        singles = int(singles or 0)
         sessions, walks = int(sessions or 0), int(walks or 0)
         signals = bot_detector.disguise_signals(ua)
         walk_share = walks / sessions if sessions else 0
@@ -163,8 +189,32 @@ def _suspected_agents(conn, where: str, params: tuple) -> tuple[list[str], list[
             flagged.append(ua)
             detail.append({"agent": bot_detector.short_agent(ua), "sessions": sessions, "pageviews": int(pageviews or 0),
                            "walk_share": round(walk_share, 3), "signals": (["sitemap_walk_cohort"] if cohort else []) + signals})
+        elif sessions >= HAMMER_MIN_SESSIONS and singles / sessions >= HAMMER_SINGLE_SHARE:
+            hammer.append(ua)
+            detail.append({"agent": bot_detector.short_agent(ua), "sessions": singles, "pageviews": singles,
+                           "walk_share": round(singles / sessions, 3), "signals": ["repeat_single_page_cohort"] + signals,
+                           "kept_sessions": sessions - singles})
+    pages = conn.execute(
+        _first_rows_cte(where) +
+        # Denominator: direct, untagged arrivals on that page (search visitors are not the cohort).
+        f"SELECT ua, route, SUM(CASE WHEN ch = 'direct' AND usrc = '' THEN 1 ELSE 0 END), "
+        f"SUM(CASE WHEN {_SINGLE_SQL} THEN 1 ELSE 0 END) FROM f "
+        f"GROUP BY ua, route HAVING SUM(CASE WHEN {_SINGLE_SQL} THEN 1 ELSE 0 END) >= ?",
+        (*params, HAMMER_PAGE_MIN),
+    ).fetchall()
+    per_agent: dict[str, dict] = {}
+    for ua, route, sessions, singles in pages:
+        if ua in flagged or ua in hammer or singles / sessions < HAMMER_PAGE_SINGLE_SHARE:
+            continue
+        hammer.append(ua + _SEP + route)
+        agg = per_agent.setdefault(ua, {"sessions": 0, "pages": []})
+        agg["sessions"] += int(singles)
+        agg["pages"].append(route)
+    for ua, agg in per_agent.items():
+        detail.append({"agent": bot_detector.short_agent(ua), "sessions": agg["sessions"], "pageviews": agg["sessions"],
+                       "walk_share": None, "signals": ["repeat_single_page_cohort"], "pages": agg["pages"][:12]})
     detail.sort(key=lambda d: -d["sessions"])
-    return flagged, detail[:20]
+    return flagged, hammer, detail[:20]
 
 
 def compute_day(conn, day: str) -> dict:
@@ -173,21 +223,29 @@ def compute_day(conn, day: str) -> dict:
     base = "created_at >= ? AND created_at < ?"
     human_pv = f"{base} AND event_type = 'page_view' AND {pvs.HUMAN}"
     params = (start, end)
-    flagged, suspected_detail = _suspected_agents(conn, human_pv, params)
-    sus_json = json.dumps(flagged)
+    flagged, hammer, suspected_detail = _suspected_agents(conn, human_pv, params)
+    sus_json, hammer_json = json.dumps(flagged), json.dumps(hammer)
     sus_sql = "(COALESCE(user_agent, '') IN (SELECT value FROM json_each(?)))"
+    # Per session: the whole agent for walk cohorts, only the single-page visits for hammers.
+    sus_case = ("CASE WHEN ua IN (SELECT value FROM json_each(?)) THEN 1 "
+                "WHEN (ua IN (SELECT value FROM json_each(?)) OR ua || char(1) || route IN (SELECT value FROM json_each(?))) "
+                f"AND {_SINGLE_SQL} THEN 1 ELSE 0 END")
+    sus_args = (sus_json, hammer_json, hammer_json)
 
     land = conn.execute(
         _first_rows_cte(human_pv) +
-        "SELECT CASE WHEN ua IN (SELECT value FROM json_each(?)) THEN 1 ELSE 0 END sus, route, ch, sname, usrc, umed, ucamp, "
+        f"SELECT {sus_case} sus, route, ch, sname, usrc, umed, ucamp, "
         f"{_host_sql()} host, dev, COUNT(*), SUM(n), SUM(CASE WHEN n = 1 THEN 1 ELSE 0 END), "
         "SUM(CASE WHEN n >= 3 THEN 1 ELSE 0 END) FROM f GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9",
-        (*params, sus_json),
+        (*params, *sus_args),
     ).fetchall()
+    # Hour of each kept session's first page (its page views counted with it).
     hourly = conn.execute(
-        "SELECT CAST(strftime('%H', created_at, '+9 hours') AS INTEGER), COUNT(*), COUNT(DISTINCT session_id) "
-        f"FROM page_views WHERE {human_pv} AND NOT {sus_sql} GROUP BY 1",
-        (*params, sus_json),
+        _first_rows_cte(human_pv).replace("SELECT session_id, COALESCE(user_agent, '') ua,",
+                                          "SELECT session_id, created_at, COALESCE(user_agent, '') ua,") +
+        "SELECT CAST(strftime('%H', created_at, '+9 hours') AS INTEGER), SUM(n), COUNT(*) "
+        f"FROM f WHERE {sus_case} = 0 GROUP BY 1",
+        (*params, *sus_args),
     ).fetchall()
     engaged = conn.execute(
         "SELECT COUNT(*), SUM(ev) FROM (SELECT session_id, SUM(event_type = 'page_view') pv, "
