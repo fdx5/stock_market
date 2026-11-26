@@ -150,11 +150,23 @@ type SectorSolid = { r0: number; r1: number; a0: number; a1: number; y0: number;
 type Slab = { r0: number; r1: number; y0: number; y1: number };
 const OCC = FLOOR.occluders as { cylinders: Solid[]; arcs: SectorSolid[]; slabs: Slab[] };
 function solidAt(x: number, y: number, z: number) {
-  for (const c of OCC.cylinders) if (y >= c.y0 && y <= c.y1 && Math.hypot(x - c.x, z - c.z) < c.r) return true;
-  const r = Math.hypot(x, z);
-  for (const s of OCC.slabs) if (y >= s.y0 && y <= s.y1 && r >= s.r0 && r <= s.r1) return true;
+  for (let i = 0; i < OCC.cylinders.length; i++) {
+    const c = OCC.cylinders[i];
+    if (y >= c.y0 && y <= c.y1) {
+      const dx = x - c.x, dz = z - c.z;
+      if (dx * dx + dz * dz < c.r * c.r) return true;
+    }
+  }
+  const r = Math.sqrt(x * x + z * z);
+  for (let i = 0; i < OCC.slabs.length; i++) {
+    const s = OCC.slabs[i];
+    if (y >= s.y0 && y <= s.y1 && r >= s.r0 && r <= s.r1) return true;
+  }
   const t = angleOf(x, z);
-  for (const a of OCC.arcs) if (y >= a.y0 && y <= a.y1 && r >= a.r0 && r <= a.r1 && within(t, a.a0, a.a1)) return true;
+  for (let i = 0; i < OCC.arcs.length; i++) {
+    const a = OCC.arcs[i];
+    if (y >= a.y0 && y <= a.y1 && r >= a.r0 && r <= a.r1 && within(t, a.a0, a.a1)) return true;
+  }
   return false;
 }
 function occluded(ray: Ray, far: number) {
@@ -329,8 +341,12 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
   };
   try {
     renderer.onDeviceLost = info => fail(new Error(`${info.api} device lost: ${info.message}`));
-    // Start downloading the GLB immediately on desktop while renderer.init() warms up WebGPU!
+    // Start downloading GLB + 2K HDR environment IN PARALLEL on desktop while renderer.init() warms up WebGPU!
+    // Pre-binding scene.environment before Frame 1 eliminates all 46 post-reveal WebGPU pipeline recompilations (5-8s freeze -> 0ms!).
     const earlyDesktopGlb = !mobile ? fetchWithProgress(hallFile(hall.glb), signal, events.progress) : null;
+    const earlyDesktopEnv = !mobile
+      ? new HDRLoader().loadAsync(hallFile(hall.env)).then(t => { t.mapping = EquirectangularReflectionMapping; return t; }).catch(() => undefined)
+      : null;
     await renderer.init();
     const tInitDone = performance.now();
     signal.throwIfAborted();
@@ -414,7 +430,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       releases.push(() => releaseModel(model));
       return model;
     };
-    const loadSkyline = async (file: string, isHiResTile = false) => {
+    const loadSkyline = async (file: string, isHiResTile = false, deferUpload = false) => {
       // Desktop & flagship Android upgrade active mood to native 16K (4096x1024 crossfade fallback);
       // iPad uses crisp 4096x1024 (16MB vs 201MB -> zero crash!); low-mem phones use 2048x512 (4MB VRAM!).
       const resizeFallback = isHiResTile ? undefined : (mobile && !isIPad) ? { width: 2048, height: 512 } : { width: 4096, height: 1024 };
@@ -435,7 +451,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         tex.magFilter = LinearFilter;
         tex.anisotropy = Math.min(4, renderer.getMaxAnisotropy());
       }
-      renderer.initTexture(tex);
+      if (!deferUpload) renderer.initTexture(tex);
       return tex;
     };
     const makeEmergencySkyline = (file: string) => {
@@ -474,9 +490,9 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       releases.push(() => disposeTexSafe(tex));
       return tex;
     };
-    const loadSkylineFallback = async (file: string) => {
+    const loadSkylineFallback = async (file: string, deferUpload = false) => {
       try {
-        const tex = await loadSkyline(file, false);
+        const tex = await loadSkyline(file, false, deferUpload);
         releases.push(() => disposeTexSafe(tex));
         return tex;
       } catch (err) {
@@ -485,7 +501,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         if (prev !== file) {
           try {
             console.warn(`[exchange] skyline ${file} unavailable, falling back to ${prev}`, err);
-            const tex = await loadSkyline(prev, false);
+            const tex = await loadSkyline(prev, false, deferUpload);
             releases.push(() => disposeTexSafe(tex));
             return tex;
           } catch (prevErr) {
@@ -497,7 +513,9 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
     };
     // Download ONLY the active initial mood's skyline before reveal (saves 8-10MB critical-path bytes + 2x 8K decodes!)
-    const { model, shellMap, fixtureMap, groundMap, initialSkyTex } = await (async () => {
+    // On desktop, HDR environment & tiny gallery preview atlas download in parallel with the 28.5MB GLB (0ms extra wait!)
+    // so zero shaders recompile and zero artwork geometries mutate after reveal!
+    const { model, shellMap, fixtureMap, groundMap, initialSkyTex, initialEnvTex, initialPreviewMap } = await (async () => {
       try {
         if (mobile) {
           const model = await loadModel();
@@ -505,16 +523,58 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           const fixtureMap = await lightmap(bake.fixtures.file);
           const groundMap = bake.ground ? await lightmap(bake.ground.file) : undefined;
           const initialSkyTex = await loadSkylineFallback(`skyline-${initialSkyKey}-v7.webp`);
-          return { model, shellMap, fixtureMap, groundMap, initialSkyTex };
+          return { model, shellMap, fixtureMap, groundMap, initialSkyTex, initialEnvTex: undefined as Texture | undefined, initialPreviewMap: undefined as Texture | undefined };
         }
-        const [model, shellMap, fixtureMap, groundMap, initialSkyTex] = await Promise.all([
+        const [model, shellMap, fixtureMap, groundMap, initialSkyTex, initialEnvTex, initialPreviewMap] = await Promise.all([
           loadModel(), lightmap(bake.shell.file), lightmap(bake.fixtures.file),
           bake.ground ? lightmap(bake.ground.file) : Promise.resolve(undefined),
           loadSkylineFallback(`skyline-${initialSkyKey}-v7.webp`),
+          earlyDesktopEnv ?? Promise.resolve(undefined),
+          loadBitmapTexture(`${STORAGE_ASSETS}/art/gallery-preview-v1.webp`).catch(() => undefined),
         ]);
-        return { model, shellMap, fixtureMap, groundMap, initialSkyTex };
+        return { model, shellMap, fixtureMap, groundMap, initialSkyTex, initialEnvTex, initialPreviewMap };
       } finally { ktx?.dispose(); }
     })();
+    if (disposed || signal.aborted) {
+      initialEnvTex?.dispose();
+      if (initialPreviewMap) disposeTexSafe(initialPreviewMap);
+      throw signal.reason ?? new Error("Trading hall GPU context was lost");
+    }
+    // Deduplicate identical GLB texture wrappers referencing the exact same decoded image & sampler state
+    // (eliminates duplicate 2K GPU uploads & mipmap chains like walnut-color 3x -> 1x and veneer-roughness 2x -> 1x).
+    {
+      const dataIds = new WeakMap<object, number>();
+      let nextDataId = 1;
+      const seenTex = new Map<string, Texture>();
+      const unusedTex = new Set<Texture>();
+      const texSlots = ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap", "bumpMap"] as const;
+      model.traverse(child => {
+        if (!(child instanceof Mesh)) return;
+        for (const mat of Array.isArray(child.material) ? child.material : [child.material]) {
+          const m = mat as unknown as Record<string, unknown>;
+          for (const slot of texSlots) {
+            const tex = m[slot];
+            if (!(tex instanceof Texture)) continue;
+            const data = tex.source?.data as object | null | undefined;
+            if (!data || typeof data !== "object") continue;
+            let did = dataIds.get(data);
+            if (!did) { did = nextDataId++; dataIds.set(data, did); }
+            const key = `${did}|${tex.wrapS}|${tex.wrapT}|${tex.repeat.x},${tex.repeat.y}|${tex.offset.x},${tex.offset.y}|${tex.center.x},${tex.center.y}|${tex.rotation}|${tex.flipY ? 1 : 0}|${tex.colorSpace}|${tex.channel}|${tex.magFilter}|${tex.minFilter}|${tex.generateMipmaps ? 1 : 0}`;
+            const canonical = seenTex.get(key);
+            if (canonical && canonical !== tex) {
+              m[slot] = canonical;
+              unusedTex.add(tex);
+            } else if (!canonical) {
+              seenTex.set(key, tex);
+            }
+          }
+        }
+      });
+      for (const tex of unusedTex) {
+        // Dispose only the duplicate Three.js Texture wrapper (shared source.data stays alive on canonical!).
+        tex.dispose();
+      }
+    }
     const tAssetsDone = performance.now();
     signal.throwIfAborted();
 
@@ -819,9 +879,13 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     });
     model.updateMatrixWorld(true);
 
+    if (initialEnvTex) {
+      scene.environment = environment = initialEnvTex;
+      for (const m of propMaterials) { m.envMap = initialEnvTex; m.envMapIntensity = 1.7; }
+    }
     scene.add(model);
     scene.add(screens.group);
-    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile, { initial: initialSkyTex }, camera, screens.group);
+    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile, { initial: initialSkyTex }, camera, screens.group, initialEnvTex);
     scene.add(fx.group);
     releases.push(fx.dispose);
     const tour = new ShowcaseTour();
@@ -830,19 +894,23 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       tour.stop();
       events.tour?.(false);
     };
-    const loadEnvironment = () => void new HDRLoader().loadAsync(mobile ? ENV_MOBILE : hallFile(hall.env)).then(texture => {
-      if (disposed || signal.aborted) { texture.dispose(); return; }
-      texture.mapping = EquirectangularReflectionMapping;
-      scene.environment = environment = texture;
-      inspectScene.environment = texture;
-      for (const m of propMaterials) { m.envMap = texture; m.envMapIntensity = 1.7; m.needsUpdate = true; }
-      fx.setEnvironment(texture);
-    }).catch(() => {});
+    const loadEnvironment = () => {
+      if (environment) return;
+      void new HDRLoader().loadAsync(mobile ? ENV_MOBILE : hallFile(hall.env)).then(texture => {
+        if (disposed || signal.aborted) { texture.dispose(); return; }
+        texture.mapping = EquirectangularReflectionMapping;
+        scene.environment = environment = texture;
+        inspectScene.environment = texture;
+        for (const m of propMaterials) { m.envMap = texture; m.envMapIntensity = 1.7; m.needsUpdate = true; }
+        fx.setEnvironment(texture);
+      }).catch(() => {});
+    };
 
     // ---- Interactive 360° 3D Sculpture Inspection Studio (shares the same WebGPURenderer & 2K HDR!)
     const inspectScene = new Scene();
     inspectScene.background = new Color("#090d16");
     inspectScene.environmentIntensity = 0.85;
+    if (environment) inspectScene.environment = environment;
     const inspectCamera = new PerspectiveCamera(40, 1, 0.05, 30);
     const sHemi = new HemisphereLight("#eef4ff", "#24201c", 0.82);
     const sKey = new DirectionalLight("#fff4e0", 2.05);
@@ -936,9 +1004,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const artworkMetrics = () => {
       if (measure) canvas.dataset.artDetails = artCanvases.filter(({ mesh }) => artwork.has(mesh)).map(({ id }) => id).join(",");
     };
-    const loadPreview = async () => {
-      const map = await loadBitmapTexture(`${STORAGE_ASSETS}/art/gallery-preview-v1.webp`);
-      if (disposed || signal.aborted) { disposeTexSafe(map); return; }
+    const applyPreviewMap = (map: Texture) => {
       map.colorSpace = SRGBColorSpace;
       map.flipY = false;
       map.channel = 1;
@@ -962,6 +1028,13 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
       if (measure) canvas.dataset.artPreviews = String(previewMeshes.size);
     };
+    const loadPreview = async () => {
+      if (previewMaterial) return;
+      const map = await loadBitmapTexture(`${STORAGE_ASSETS}/art/gallery-preview-v1.webp`);
+      if (disposed || signal.aborted) { disposeTexSafe(map); return; }
+      applyPreviewMap(map);
+    };
+    if (initialPreviewMap) applyPreviewMap(initialPreviewMap);
     const loadArtwork = async (art: typeof artCanvases[number]) => {
       const { mesh, id, placeholder } = art;
       let map: Texture | undefined;
@@ -1028,6 +1101,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     // plus screen-space ambient occlusion (GTAO) so chairs, sofas, monitors and planters sit on the floor with real
     // contact shadows. Lit screens/LEDs are masked out of the AO through the emissive channel packed in normal.a.
     let pipeline: RenderPipeline | undefined;
+    let currentScenePass: ReturnType<typeof pass> | undefined;
     const wantBloom = params.get("bloom") === "1" || (params.get("bloom") !== "0" && !mobile);
     let wantAO = wantBloom && params.get("ao") !== "0" && backend === "webgpu";
     let wantSSR = wantAO && params.get("ssr") !== "0";
@@ -1036,6 +1110,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       pipeline?.dispose();
       pipeline = new RenderPipeline(renderer);
       const scenePass = pass(scene, camera);
+      currentScenePass = scenePass;
       const sceneColor = scenePass.getTextureNode("output");
       let color: ReturnType<typeof vec4> | typeof sceneColor = sceneColor;
       if (wantAO) {
@@ -1071,13 +1146,19 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         let rgb = sceneColor.rgb.mul(factor);
         if (wantSSR) {
           // Polished stone floor mirrors the desks, screens and core (only pixels the marble marks are traced).
-          const reflection = ssr(sceneColor, depth, sceneNormal, { metalnessNode: surface.r, roughnessNode: surface.g, camera });
+          // Marble (r~0.185-0.22) and water (r~0.03) only ever sample lod = 4*r^2 in [0.004, 0.20] (strictly between
+          // mip 0 and mip 1). Clamping roughnessNode at 0.5 and trimming unused blur mip levels 2..4 eliminates 3
+          // full-screen 25-tap blur passes every single frame with identical LOD on all reflective floor/water pixels!
+          const reflection = ssr(sceneColor, depth, sceneNormal, { metalnessNode: surface.r, roughnessNode: surface.g.min(0.5), camera });
           reflection.resolutionScale = .5;
           reflection.maxDistance.value = 14;
           reflection.thickness.value = .08;
           reflection.quality.value = .5;
           reflection.maxLuminance.value = 6;
           reflection.screenEdgeFade.value = .25;
+          reflection.blurQuality = 1;
+          const blurTex = (reflection as unknown as { _blurRenderTarget?: { texture?: { mipmaps?: unknown[] } } })._blurRenderTarget?.texture;
+          if (blurTex?.mipmaps && blurTex.mipmaps.length > 2) blurTex.mipmaps.length = 2;
           rgb = rgb.add(reflection.getTextureNode().sample(screenUV).rgb.mul(ssrStrength));
         }
         color = vec4(rgb, sceneColor.a);
@@ -1090,7 +1171,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       if (measure) canvas.dataset.ao = (wantAO ? "ao" : "-") + (wantAO && wantSSR ? "+ssr" : "");
     };
     if (wantBloom) buildPipeline();
-    releases.push(() => pipeline?.dispose());
+    releases.push(() => { pipeline?.dispose(); currentScenePass = undefined; });
 
     const keys = new Set<string>();
     const state = { ...FLOOR.spawn, y: 0 };
@@ -1117,9 +1198,21 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     // Cap DPR: 1.5x on desktop & flagship Android, 1.35x on iPad, 1.25x on low-memory phones.
     const maxRatio = () => Math.min(window.devicePixelRatio || 1, tier >= 4 ? 1.0 : isIPad ? 1.35 : mobile ? 1.25 : tier >= 2 ? 1.25 : 1.5);
 
+    let canvasRect: DOMRect | null = null;
+    const refreshCanvasRect = () => { canvasRect = canvas.getBoundingClientRect(); };
+    // Precompute world-space bounding spheres for all static pick targets so mouse hover skips ~95% of triangle raycasts!
+    screens.group.updateMatrixWorld(true);
+    const pickBounds: Sphere[] = pickTargets.map(target => {
+      const box = new Box3().setFromObject(target);
+      return box.getBoundingSphere(new Sphere());
+    });
+    const pickCandidates: Mesh[] = [];
+
     function resize() {
-      const { width, height } = host.getBoundingClientRect();
+      const rect = host.getBoundingClientRect();
+      const { width, height } = rect;
       if (width <= 0 || height <= 0) return;
+      canvasRect = rect;
       const ratio = maxRatio();
       if (dpr === ratio && canvas.width === Math.floor(width * ratio) && canvas.height === Math.floor(height * ratio)) return;
       dpr = ratio;
@@ -1137,20 +1230,27 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       window.setTimeout(resize, 120);
     };
     window.addEventListener("orientationchange", onViewportResize);
+    window.addEventListener("scroll", refreshCanvasRect, { passive: true });
     window.visualViewport?.addEventListener("resize", resize);
     releases.push(() => {
       observer.disconnect();
       window.removeEventListener("orientationchange", onViewportResize);
+      window.removeEventListener("scroll", refreshCanvasRect);
       window.visualViewport?.removeEventListener("resize", resize);
     });
     resize();
 
     function pick(clientX: number, clientY: number) {
-      const rect = canvas.getBoundingClientRect();
+      const rect = canvasRect && canvasRect.width > 0 ? canvasRect : (canvasRect = canvas.getBoundingClientRect());
       pointer.set((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1);
       ray.setFromCamera(pointer, camera);
       ray.far = 65;
-      const hit = ray.intersectObjects(pickTargets, false)[0];
+      pickCandidates.length = 0;
+      for (let i = 0; i < pickTargets.length; i++) {
+        if (ray.ray.intersectsSphere(pickBounds[i])) pickCandidates.push(pickTargets[i]);
+      }
+      if (!pickCandidates.length) return null;
+      const hit = ray.intersectObjects(pickCandidates, false)[0];
       if (!hit) return null;
       return occluded(ray.ray, hit.distance - .02) ? null : hit.object.userData.panel as string;
     }
@@ -1231,7 +1331,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
             if (wantSSR && pipeline) { wantSSR = false; ssrDropped = true; buildPipeline(); } else resize();
           } else if (tier === 2) resize();
           else if (tier === 3) {
-            if (pipeline) { pipeline.dispose(); pipeline = undefined; }
+            if (pipeline) { pipeline.dispose(); pipeline = undefined; currentScenePass = undefined; }
           } else resize();
           canvas.dataset.qualityTier = String(tier);
         }
@@ -1368,7 +1468,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem);
       }
       fx.tick(now, step, reduced.matches);
-      screens.tick(now, reduced.matches, camMoved ? frustum : undefined);
+      screens.tick(now, reduced.matches, camMoved ? frustum : undefined, Boolean(drag));
       if (pipeline) pipeline.render(); else renderer.render(scene, camera);
       rendered = true;
       if (ready && now - lastArtwork > (mobile ? 400 : 450)) {
@@ -1496,18 +1596,58 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     }
     events.renderer(backend);
     ready = true;
+    // Helper: yield a few animation frames while the user is not dragging so GPU texture uploads & async pipeline builds stay 60 FPS!
+    const waitIdleFrames = async (count = 2) => {
+      for (let k = 0; k < count; k++) {
+        if (disposed || signal.aborted) return;
+        await new Promise<void>(r => requestAnimationFrame(() => r()));
+      }
+      while (drag && !disposed && !signal.aborted) {
+        await new Promise<void>(r => window.setTimeout(r, 60));
+      }
+    };
+    // Helper: compile an object's WebGPU render pipeline asynchronously (device.createRenderPipelineAsync) in the exact
+    // active RenderTarget + MRT context so swapping/panning into it causes 0ms GPU stall!
+    // CRITICAL: restore renderTarget/MRT synchronously BEFORE awaiting the returned Promise so concurrent rAF frames
+    // never render post-processing passes with the scene's MRT still attached!
+    const compileObjectAsync = async (obj: Object3D) => {
+      if (disposed || signal.aborted || backend !== "webgpu") return;
+      const prevTarget = renderer.getRenderTarget();
+      const prevMrt = renderer.getMRT();
+      let promise: Promise<void> | undefined;
+      try {
+        if (pipeline && currentScenePass) {
+          renderer.setRenderTarget(currentScenePass.renderTarget);
+          renderer.setMRT(currentScenePass.getMRT());
+        }
+        promise = renderer.compileAsync(obj, camera, scene).then(() => undefined);
+      } catch {
+        // Safe fallback: renderer compiles on demand if async precompile is unsupported
+      } finally {
+        renderer.setRenderTarget(prevTarget);
+        renderer.setMRT(prevMrt);
+      }
+      if (promise) {
+        try { await promise; } catch { /* safe fallback */ }
+      }
+    };
     // Lazy-load the other 2 inactive fallback skylines after reveal (or immediately on mood switch!)
     let fallbackSkylinesPromise: Promise<void> | null = null;
     const ensureAllFallbackSkylines = () => {
       if (fallbackSkylinesPromise) return fallbackSkylinesPromise;
       fallbackSkylinesPromise = (async () => {
         try {
-          const dayTex = initialMood === "daylight" ? initialSkyTex : await loadSkylineFallback("skyline-day-v7.webp");
+          const dayTex = initialMood === "daylight" ? initialSkyTex : await loadSkylineFallback("skyline-day-v7.webp", true);
           if (disposed || signal.aborted) return;
-          const goldenTex = await loadSkylineFallback("skyline-golden-v7.webp");
+          if (dayTex !== initialSkyTex) { await waitIdleFrames(2); if (disposed || signal.aborted) return; renderer.initTexture(dayTex); }
+          const goldenTex = await loadSkylineFallback("skyline-golden-v7.webp", true);
           if (disposed || signal.aborted) return;
-          const nightTex = initialMood === "night" ? initialSkyTex : await loadSkylineFallback("skyline-night-v7.webp");
+          await waitIdleFrames(2);
           if (disposed || signal.aborted) return;
+          renderer.initTexture(goldenTex);
+          const nightTex = initialMood === "night" ? initialSkyTex : await loadSkylineFallback("skyline-night-v7.webp", true);
+          if (disposed || signal.aborted) return;
+          if (nightTex !== initialSkyTex) { await waitIdleFrames(2); if (disposed || signal.aborted) return; renderer.initTexture(nightTex); }
           fx.setFallbackSkylines(dayTex, goldenTex, nightTex);
         } catch {
           // Keep active skyline intact if secondary fallback fails
@@ -1518,6 +1658,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     // On-demand effective-16K dual-hemisphere skyline loader (desktop only: 2x 8192x4096 = 16,380x4,096 seamless!).
     // Keeps GPU VRAM strictly bounded to ONLY the currently active mood (~256 MB) while instant 8K handles smooth crossfades.
     let activeHiRes: { mood: AtriumMood; L: Texture; R: Texture } | null = null;
+    let loadingHiResMood: AtriumMood | null = null;
     let hiResToken = 0;
     const disposeHiResLater = (pair: { L: Texture; R: Texture }) => {
       window.setTimeout(() => {
@@ -1527,6 +1668,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     };
     releases.push(() => {
       hiResToken += 1;
+      loadingHiResMood = null;
       if (activeHiRes) {
         fx.setHiResSkyline(null);
         disposeTexSafe(activeHiRes.L);
@@ -1536,10 +1678,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     });
     const loadHiResSkyline = async (mood: AtriumMood) => {
       if (mobile || disposed || signal.aborted) return;
-      if (activeHiRes?.mood === mood) {
-        fx.setHiResSkyline(mood, activeHiRes.L, activeHiRes.R);
+      if (activeHiRes?.mood === mood || loadingHiResMood === mood) {
+        if (activeHiRes?.mood === mood) fx.commitHiResSkyline(mood);
         return;
       }
+      loadingHiResMood = mood;
       const token = ++hiResToken;
       if (activeHiRes) {
         const stale = activeHiRes;
@@ -1550,39 +1693,93 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       if (params.has("exchangeMetrics")) canvas.dataset.skylineRes = "8k-loading-16k";
       const key = mood === "daylight" ? "day" : mood;
       try {
+        // Fetch & decode both 8K hemispheres off-thread in parallel, but stagger GPU uploads across separate idle frames!
         const [texL, texR] = await Promise.all([
-          loadSkyline(`skyline-${key}-16k-L-v7.webp`, true),
-          loadSkyline(`skyline-${key}-16k-R-v7.webp`, true),
+          loadSkyline(`skyline-${key}-16k-L-v7.webp`, true, true),
+          loadSkyline(`skyline-${key}-16k-R-v7.webp`, true, true),
         ]);
         if (disposed || signal.aborted || token !== hiResToken) {
-          texL.dispose();
-          texR.dispose();
+          disposeTexSafe(texL);
+          disposeTexSafe(texR);
           return;
         }
-        // Avoid hitching an active pointer drag when binding the 16K pair
-        while (drag && !disposed && !signal.aborted && token === hiResToken) {
-          await new Promise(r => setTimeout(r, 60));
-        }
+        await waitIdleFrames(2);
         if (disposed || signal.aborted || token !== hiResToken) {
-          texL.dispose();
-          texR.dispose();
+          disposeTexSafe(texL);
+          disposeTexSafe(texR);
+          return;
+        }
+        renderer.initTexture(texL);
+        await waitIdleFrames(4);
+        if (disposed || signal.aborted || token !== hiResToken) {
+          disposeTexSafe(texL);
+          disposeTexSafe(texR);
+          return;
+        }
+        renderer.initTexture(texR);
+        await waitIdleFrames(2);
+        if (disposed || signal.aborted || token !== hiResToken) {
+          disposeTexSafe(texL);
+          disposeTexSafe(texR);
           return;
         }
         activeHiRes = { mood, L: texL, R: texR };
-        fx.setHiResSkyline(mood, texL, texR);
+        const hiMat = fx.setHiResSkyline(mood, texL, texR, true);
+        // Precompile the 16K window pipeline asynchronously via a lightweight probe mesh before binding onto live windows!
+        const sampleWin = fx.getWindowMeshes()[0];
+        if (hiMat && sampleWin) {
+          const probe = new Mesh(sampleWin.geometry, hiMat);
+          probe.matrixAutoUpdate = false;
+          probe.matrixWorld.copy(sampleWin.matrixWorld);
+          await compileObjectAsync(probe);
+        }
+        if (disposed || signal.aborted || token !== hiResToken) return;
+        fx.commitHiResSkyline(mood);
         if (params.has("exchangeMetrics")) canvas.dataset.skylineRes = `16k-${key}`;
       } catch {
         // Keep seamless 8K fallback active silently if 16K tiles are unavailable
         if (params.has("exchangeMetrics") && token === hiResToken) canvas.dataset.skylineRes = "8k-fallback";
+      } finally {
+        if (token === hiResToken) loadingHiResMood = null;
       }
     };
 
-    // Post-reveal progressive enhancement: load HDR env, gallery preview atlas, 16K skyline (desktop), & secondary moods!
+    // Incrementally precompile off-frustum GLB materials (sculptures/rear props) asynchronously via WebGPU
+    // device.createRenderPipelineAsync so turning 360 deg for the first time never hits a 150-217ms DXC stall!
+    const prewarmOffscreenPipelines = async () => {
+      if (mobile || backend !== "webgpu" || disposed || signal.aborted) return;
+      const seenMats = new Set<string>();
+      const queue: Mesh[] = [];
+      // Always include all sculptures (high-detail props around the hall) + any unique-material GLB mesh.
+      // Already-compiled pipelines are instant cache hits inside renderer.compileAsync!
+      const enqueue = (child: Object3D) => {
+        if (!(child instanceof Mesh) || !child.visible) return;
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        let isNew = false;
+        for (const m of mats) {
+          if (m && !seenMats.has(m.uuid)) { seenMats.add(m.uuid); isNew = true; }
+        }
+        if (isNew) queue.push(child);
+      };
+      for (const sNode of sculptureNodes.values()) sNode.traverse(enqueue);
+      model.traverse(enqueue);
+      for (const mesh of queue) {
+        if (disposed || signal.aborted) return;
+        await waitIdleFrames(2);
+        if (disposed || signal.aborted) return;
+        await compileObjectAsync(mesh);
+      }
+    };
+
+    // Post-reveal progressive enhancement: on desktop, HDR env & preview atlas are ALREADY bound before Frame 1!
+    // Mobile still defers them lazily; desktop upgrades smoothly to 16K skyline, prewarms offscreen pipelines, then secondary moods.
     loadEnvironment();
     void loadPreview().catch(() => { /* nearby 1K pictures still load independently */ });
     if (!mobile) {
-      void loadHiResSkyline(fx.getMood()).then(() => {
-        if (!disposed && !signal.aborted) window.setTimeout(() => void ensureAllFallbackSkylines(), 1500);
+      void loadHiResSkyline(fx.getMood()).then(async () => {
+        if (disposed || signal.aborted) return;
+        await prewarmOffscreenPipelines();
+        if (!disposed && !signal.aborted) window.setTimeout(() => void ensureAllFallbackSkylines(), 1200);
       });
     } else {
       window.setTimeout(() => { if (!disposed && !signal.aborted) void ensureAllFallbackSkylines(); }, 2500);
@@ -1620,6 +1817,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       },
       stop: pause,
       setMood(mood) {
+        if (mood === fx.getMood()) return;
         void ensureAllFallbackSkylines();
         fx.setMood(mood);
         void loadHiResSkyline(mood);

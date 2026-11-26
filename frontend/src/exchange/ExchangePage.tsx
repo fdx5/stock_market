@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useLanguage } from "../i18n/LanguageContext";
 import { reportExchange } from "../useActivityTracking";
@@ -350,7 +350,7 @@ function MarketSwitch({ market, lang, choose }: { market: ExchangeMarket; lang: 
 const plan = (x: number, z: number) => ({ left: (50 + x / FLOOR.room.width * 100) + "%", top: (50 + z / FLOOR.room.depth * 100) + "%" });
 
 /** The round floor plan, drawn from the same layout the 3D hall is built from (viewBox in metres). */
-function FloorPlan() {
+const FloorPlan = memo(function FloorPlan() {
   const R = FLOOR.room.radius, rad = Math.PI / 180;
   const pt = (r: number, t: number) => `${(r * Math.sin(t * rad)).toFixed(2)} ${(r * Math.cos(t * rad)).toFixed(2)}`;
   const band = (r0: number, r1: number, a0: number, a1: number) => {
@@ -367,7 +367,7 @@ function FloorPlan() {
     <circle r={FLOOR.tower.plinth} className="exchange-plan-core" />
     {FLOOR.columns.map(c => <circle key={c.x + ":" + c.z} cx={c.x} cy={c.z} r={.9} className="exchange-plan-column" />)}
   </svg>;
-}
+});
 
 // Start fetching the 3D WebGPU floorEngine chunk immediately on module load (overlaps with React mount!)
 const floorEngineMod = typeof window !== "undefined" ? import("./floorEngine") : null;

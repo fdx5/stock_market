@@ -17,20 +17,34 @@ const scope = self as unknown as DedicatedWorkerGlobalScope;
 let snapshot: FloorSnapshot | undefined;
 let series: Record<string, number[]> = {};
 let lang: Language = "ko";
-// Reuse a single OffscreenCanvas (worker paints 1 panel at a time -> saves ~40-60MB of resident backing stores!)
-let workCanvas: OffscreenCanvas | undefined;
-let workCtx: G | undefined;
+// Small 4-entry LRU pool of OffscreenCanvases by size: avoids reallocating backing stores when alternating panel sizes
+// while keeping worker RAM tightly bounded (~10-16MB max).
+const canvasPool = new Map<string, { canvas: OffscreenCanvas; g: G }>();
 const logos = new Map<string, ImageBitmap | null | "loading">();
 
 function surface(pxW: number, pxH: number) {
-  if (!workCanvas) {
-    workCanvas = new OffscreenCanvas(pxW, pxH);
-    workCtx = (workCanvas.getContext("2d", { alpha: false }) as unknown as G | null) ?? undefined;
-  } else if (workCanvas.width !== pxW || workCanvas.height !== pxH) {
-    workCanvas.width = pxW;
-    workCanvas.height = pxH;
+  const key = `${pxW}x${pxH}`;
+  const existing = canvasPool.get(key);
+  if (existing) {
+    // Touch LRU order
+    canvasPool.delete(key);
+    canvasPool.set(key, existing);
+    return existing;
   }
-  return workCanvas && workCtx ? { canvas: workCanvas, g: workCtx } : undefined;
+  const canvas = new OffscreenCanvas(pxW, pxH);
+  const g = (canvas.getContext("2d", { alpha: false }) as unknown as G | null) ?? undefined;
+  if (!g) return undefined;
+  if (canvasPool.size >= 4) {
+    const oldestKey = canvasPool.keys().next().value;
+    if (oldestKey !== undefined) {
+      const oldest = canvasPool.get(oldestKey);
+      if (oldest) { oldest.canvas.width = 0; oldest.canvas.height = 0; }
+      canvasPool.delete(oldestKey);
+    }
+  }
+  const entry = { canvas, g };
+  canvasPool.set(key, entry);
+  return entry;
 }
 
 function logo(g: G, market: ExchangeMarket, code: string, x: number, y: number, size: number) {

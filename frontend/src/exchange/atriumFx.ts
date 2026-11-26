@@ -125,7 +125,11 @@ export type AtriumFX = {
   /** Upgrade 1-texture instant-boot skyline material to full 3-mood crossfade fallback once inactive moods load. */
   setFallbackSkylines: (day: Texture, golden: Texture, night: Texture) => void;
   /** Attach (or clear with null) on-demand effective-16K dual-hemisphere skyline textures for the active mood. */
-  setHiResSkyline: (mood: AtriumMood | null, texL?: Texture, texR?: Texture) => void;
+  setHiResSkyline: (mood: AtriumMood | null, texL?: Texture, texR?: Texture, deferBind?: boolean) => MeshStandardNodeMaterial | null;
+  /** Allow tick() to bind the precompiled 16K skyline material once async pipeline compilation finishes. */
+  commitHiResSkyline: (mood: AtriumMood) => void;
+  /** Exterior panoramic window meshes (used for async pipeline precompilation before swapping to 16K). */
+  getWindowMeshes: () => Mesh[];
   setIndexChange: (changePct: number | null | undefined) => void;
   /** Telemetry for >= +3% / >= +4% bull rally celebration pyrotechnics. */
   getCelebrationState: () => { tier: 0 | 1 | 2; activeCeilingSparks: number; rallyBoost: number };
@@ -195,6 +199,7 @@ export function createAtriumFX(
   skyline: { initial: Texture; day?: Texture; golden?: Texture; night?: Texture },
   mainCamera: Object3D,
   screensGroup: Object3D,
+  initialEnv?: Texture,
 ): AtriumFX {
   const group = new Group();
   group.name = "AtriumV6FX";
@@ -239,9 +244,10 @@ export function createAtriumFX(
   let skyGoldenTex = skyline.golden ?? skyline.initial;
   let skyNightTex = skyline.night ?? skyline.initial;
   const windowMeshes: Mesh[] = [];
-  let currentEnvMap: Texture | null = null;
+  let currentEnvMap: Texture | null = initialEnv ?? null;
   let hiResMood: AtriumMood | null = null;
   let hiResMat: MeshStandardNodeMaterial | null = null;
+  let hiResReady = false;
   let usingHiRes = false;
 
   // Building outer glass radius is FLOOR.radii.wall (26.6 m). Place the surrounding 360° city skyline on a
@@ -548,43 +554,93 @@ export function createAtriumFX(
     // Laid stone: level floors become radial large-format slabs (1.2 m rings, ~1.25 m arcs) with 2.5 mm joints.
     // Every slab shows a different cut of the block and a slight shade difference, as real quarried stone does;
     // walls, counters and columns keep their modelled UVs. Joints are matte and do not mirror the hall.
+    // Strictly-lossless warp-coherent branching with explicit analytical gradients (WGSL uniform-control-flow valid):
+    // vertical walls/columns skip radial atan/hash/joint ALU + 2nd texture fetch, and flat floors skip modelled UV fetch!
     const levelFloor = smoothstep(float(0.8), float(0.97), normalWorld.y);
-    let jointOpen: Node<"float"> = float(0);
     if (src.map) {
+      src.map.updateMatrix();
+      const me = src.map.matrix.elements;
+      const baseUv = uv();
+      const modUv = vec2(
+        baseUv.x.mul(me[0]).add(baseUv.y.mul(me[3])).add(me[6]),
+        baseUv.x.mul(me[1]).add(baseUv.y.mul(me[4])).add(me[7]),
+      );
       const ring = 1.2, arc = 1.25, joint = .00125;
       const xz = positionWorld.xz;
-      const radius = xz.length();
-      const ringPos = radius.div(ring);
-      const ringIdx = tslFloor(ringPos);
-      const segments = tslFloor(ringIdx.add(.5).mul(ring * 2 * Math.PI / arc)).max(6);
-      const theta = atan(xz.y, xz.x).div(2 * Math.PI).add(.5);
-      const segPos = theta.mul(segments);
-      const segIdx = tslFloor(segPos);
-      const radialEdge = min(fract(ringPos), float(1).sub(fract(ringPos))).mul(ring);
-      const arcLen = radius.mul(2 * Math.PI).div(segments);
-      const arcEdge = min(fract(segPos), float(1).sub(fract(segPos))).mul(arcLen);
-      const edge = min(radialEdge, arcEdge);
-      const aa = fwidth(edge).max(1e-5);
-      const centre = smoothstep(float(1.15), float(1.3), radius);            // no joints in the core well
-      jointOpen = float(1).sub(smoothstep(float(joint), float(joint).add(aa.mul(1.5)), edge)).mul(centre).mul(levelFloor);
-      const seed = ringIdx.mul(97.0).add(segIdx).add(isDark ? 7000 : 0);
-      const h1 = hash(seed), h2 = hash(seed.add(13.1)), h3 = hash(seed.add(29.7));
-      const slabUv = xz.div(1.5).add(vec2(h1, h2).mul(9.0));
-      const cut = texture(src.map, slabUv).rgb;
-      const modelledTex = texture(src.map);
-      modelledTex.updateMatrix = true;
-      const modelled = modelledTex.rgb;
-      const base = mix(modelled, cut, levelFloor);
-      // Calacatta: warm white ground, crisper grey veins; Emperador keeps its own palette, just a touch richer.
-      const graded = isDark
-        ? base.mul(float(.94).add(h3.mul(.12)))
-        : mix(vec3(luminance3(base)), base, 1.1).sub(.86).mul(1.24).add(.86).mul(vec3(1.0, .985, .955)).mul(float(.965).add(h3.mul(.07)));
-      const grout = vec3(isDark ? .05 : .44, isDark ? .045 : .42, isDark ? .04 : .39);
+      const slabBaseUv = xz.div(1.5);
       const tint = src.color.clone().multiplyScalar(isDark ? 0.84 : 0.72);
-      pm.colorNode = mix(graded.clamp(0, 1), grout, jointOpen).mul(vec3(tint.r, tint.g, tint.b));
-      pm.roughnessNode = mix(float(pm.roughness), float(.85), jointOpen);
-      pm.clearcoatNode = mix(float(pm.clearcoat), float(0), jointOpen);
+      const tintVec = vec3(tint.r, tint.g, tint.b);
+      const grout = vec3(isDark ? .05 : .44, isDark ? .045 : .42, isDark ? .04 : .39);
+      const baseRough = pm.roughness;
+      const baseCoat = pm.clearcoat;
+
+      // Analytical joint mask: guarded by levelFloor so walls/columns skip all atan/length/floor math!
+      const jointMask = Fn(() => {
+        const aa = fwidth(xz).length().mul(0.7071).max(1e-5);
+        const out = float(0).toVar();
+        If(levelFloor.greaterThan(float(0.01)), () => {
+          const radius = xz.length();
+          const ringPos = radius.div(ring);
+          const ringIdx = tslFloor(ringPos);
+          const segments = tslFloor(ringIdx.add(.5).mul(ring * 2 * Math.PI / arc)).max(6);
+          const theta = atan(xz.y, xz.x).div(2 * Math.PI).add(.5);
+          const segPos = theta.mul(segments);
+          const radialEdge = min(fract(ringPos), float(1).sub(fract(ringPos))).mul(ring);
+          const arcLen = radius.mul(2 * Math.PI).div(segments);
+          const arcEdge = min(fract(segPos), float(1).sub(fract(segPos))).mul(arcLen);
+          const edge = min(radialEdge, arcEdge);
+          const centre = smoothstep(float(1.15), float(1.3), radius);          // no joints in the core well
+          out.assign(float(1).sub(smoothstep(float(joint), float(joint).add(aa.mul(1.5)), edge)).mul(centre).mul(levelFloor));
+        });
+        return out;
+      })();
+
+      pm.colorNode = Fn(() => {
+        // Explicit screen-space derivatives hoisted outside dynamic branches (zero mip seam across slab edges too!)
+        const dModDx = dFdx(modUv), dModDy = dFdy(modUv);
+        const dSlabDx = dFdx(slabBaseUv), dSlabDy = dFdy(slabBaseUv);
+        const aa = fwidth(xz).length().mul(0.7071).max(1e-5);
+        const base = vec3(0).toVar();
+        const h3Var = float(0.5).toVar();
+        const jVar = float(0).toVar();
+        If(levelFloor.greaterThan(float(0.01)), () => {
+          const radius = xz.length();
+          const ringPos = radius.div(ring);
+          const ringIdx = tslFloor(ringPos);
+          const segments = tslFloor(ringIdx.add(.5).mul(ring * 2 * Math.PI / arc)).max(6);
+          const theta = atan(xz.y, xz.x).div(2 * Math.PI).add(.5);
+          const segPos = theta.mul(segments);
+          const segIdx = tslFloor(segPos);
+          const radialEdge = min(fract(ringPos), float(1).sub(fract(ringPos))).mul(ring);
+          const arcLen = radius.mul(2 * Math.PI).div(segments);
+          const arcEdge = min(fract(segPos), float(1).sub(fract(segPos))).mul(arcLen);
+          const edge = min(radialEdge, arcEdge);
+          const centre = smoothstep(float(1.15), float(1.3), radius);
+          jVar.assign(float(1).sub(smoothstep(float(joint), float(joint).add(aa.mul(1.5)), edge)).mul(centre).mul(levelFloor));
+          const seed = ringIdx.mul(97.0).add(segIdx).add(isDark ? 7000 : 0);
+          const h1 = hash(seed), h2 = hash(seed.add(13.1));
+          h3Var.assign(hash(seed.add(29.7)));
+          const slabUv = slabBaseUv.add(vec2(h1, h2).mul(9.0));
+          const cut = texture(src.map!, slabUv).grad(dSlabDx, dSlabDy).rgb;
+          If(levelFloor.lessThan(float(0.99)), () => {
+            const modelled = texture(src.map!, modUv).grad(dModDx, dModDy).rgb;
+            base.assign(mix(modelled, cut, levelFloor));
+          }).Else(() => {
+            base.assign(cut);
+          });
+        }).Else(() => {
+          base.assign(texture(src.map!, modUv).grad(dModDx, dModDy).rgb);
+        });
+        // Calacatta: warm white ground, crisper grey veins; Emperador keeps its own palette, just a touch richer.
+        const graded = isDark
+          ? base.mul(float(.94).add(h3Var.mul(.12)))
+          : mix(vec3(luminance3(base)), base, 1.1).sub(.86).mul(1.24).add(.86).mul(vec3(1.0, .985, .955)).mul(float(.965).add(h3Var.mul(.07)));
+        return mix(graded.clamp(0, 1), grout, jVar).mul(tintVec);
+      })();
+      pm.roughnessNode = mix(float(baseRough), float(.85), jointMask);
+      pm.clearcoatNode = mix(float(baseCoat), float(0), jointMask);
     }
+      if (currentEnvMap) pm.envMap = currentEnvMap;
     // Screen-space reflections key off clearcoat (see floorEngine): joints carry none, so they stay matte.
     for (const entry of lightmapped) {
       if (entry.mat === src) entry.mat = pm;
@@ -617,6 +673,7 @@ export function createAtriumFX(
     gm.emissiveNode = isCore
       ? uCoreColor.mul(edge.mul(0.32).mul(uCoreIntensity))
       : vec3(0.46, 0.78, 0.85).mul(edge.mul(0.16));
+    if (currentEnvMap) gm.envMap = currentEnvMap;
     envMats.push(gm);
     disposables.push(gm, src);
     glassNodeCache.set(src.uuid, gm);
@@ -835,6 +892,7 @@ export function createAtriumFX(
     waterMat.roughnessNode = float(0.028).add(ripple.abs().mul(0.048));
     const causticGlow = vec3(0.05, 0.30, 0.40).mul(caustic.mul(0.38).add(0.05)).mul(uHoloBoost);
     waterMat.emissiveNode = causticGlow.add(vec3(0.04, 0.12, 0.18).mul(waterFresnel));
+    if (currentEnvMap) waterMat.envMap = currentEnvMap;
     envMats.push(waterMat);
     disposables.push(waterMat);
     const detachedWater = new Set<MeshStandardMaterial>();
@@ -1343,11 +1401,12 @@ export function createAtriumFX(
       if (!usingHiRes) bindWindowMaterial(windowMatCache);
       if (prev) window.setTimeout(() => prev.dispose(), 250);
     },
-    setHiResSkyline(mood: AtriumMood | null, texL?: Texture, texR?: Texture) {
+    setHiResSkyline(mood: AtriumMood | null, texL?: Texture, texR?: Texture, deferBind = false) {
       if (usingHiRes && windowMatCache) {
         bindWindowMaterial(windowMatCache);
         usingHiRes = false;
       }
+      hiResReady = false;
       if (hiResMat) {
         const staleMat = hiResMat;
         hiResMat = null;
@@ -1355,10 +1414,18 @@ export function createAtriumFX(
       }
       if (!mood || !texL || !texR) {
         hiResMood = null;
-        return;
+        return null;
       }
       hiResMood = mood;
       hiResMat = makeParallaxSkylineWindow16k(texL, texR);
+      hiResReady = !deferBind;
+      return hiResMat;
+    },
+    commitHiResSkyline(mood: AtriumMood) {
+      if (hiResMat && hiResMood === mood) hiResReady = true;
+    },
+    getWindowMeshes() {
+      return windowMeshes;
     },
     setIndexChange(changePct: number | null | undefined) {
       const next = typeof changePct === "number" && Number.isFinite(changePct) ? changePct : 0;
@@ -1409,7 +1476,7 @@ export function createAtriumFX(
       const moodSettled =
         Math.abs(specNow.windowNightMix - curWinNight) < 0.03 &&
         Math.abs(specNow.windowGoldenMix - curWinGolden) < 0.03;
-      if (!usingHiRes && hiResMat && hiResMood === targetMood && moodSettled) {
+      if (!usingHiRes && hiResReady && hiResMat && hiResMood === targetMood && moodSettled) {
         bindWindowMaterial(hiResMat);
         usingHiRes = true;
       }

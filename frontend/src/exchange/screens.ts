@@ -212,6 +212,9 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   const outerCount = uniform(1);
   const outerRepeats = uniform(1);
   let outerSignature = "", outerPaint = 0;
+  const tickerSignatures = new Map<string, string>();
+  const groupSignatures = new Map<string, string>();
+  let dragDeferSince = 0;
   /** Page flips for list panels: page index, the page it left, when the flip started, and last slide paint time. */
   const pagers = new Map<string, { page: number; prev: number; at: number; next: number; lastSlide: number }>();
   const materials: Material[] = [];
@@ -572,8 +575,11 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
         else commit(ticker.canvas);
         continue;
       }
+      const tickerSig = JSON.stringify(tickerEntries(style === "column" ? "ring" : style, snapshot, lang));
+      if (!logosChanged && tickerSignatures.get(id) === tickerSig) continue;
       const width = style === "column" ? paintColumn(ticker.canvas, snapshot, lang) : paintTicker(ticker.canvas, style, snapshot, lang);
       if (!width) continue;
+      tickerSignatures.set(id, tickerSig);
       ticker.width = width;
       // Repeat the strip along each merged ticker segment at its natural pixel aspect.
       const uv = ticker.mesh.geometry.getAttribute("uv");
@@ -649,16 +655,47 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       worker?.postMessage({ type: "data", snapshot: next, series: nextSeries, lang: language } satisfies WorkerIn);
       pageCounts.clear();
       pagedPanels = [];
+      // Selective per-group dirtying: avoid re-painting & re-uploading all 58 panels + mipmaps when only one feed ticked!
+      const signSig = `${language}|${next.market}`;
+      const worldSig = `${language}|${JSON.stringify(next.extras.world)}`;
+      const futuresSig = `${language}|${JSON.stringify(next.extras.futures)}`;
+      const ratesSig = `${language}|${JSON.stringify(next.extras.rates)}`;
+      const newsSig = `${language}|${JSON.stringify(next.extras.hot)}`;
+      const globalTopSig = `${language}|${JSON.stringify(next.extras.globalTop)}`;
+      const investorSig = `${language}|${next.market}|${JSON.stringify(next.extras.investor)}|${JSON.stringify(next.investorTotals)}`;
+      const tickersSig = `${language}|${JSON.stringify(next.tickers)}|${JSON.stringify(next.extras.kospiNight)}|${JSON.stringify(next.extras.kospiFutures)}`;
+      const seriesSig = Object.entries(nextSeries).map(([k, v]) => `${k}:${v.length}:${v[v.length - 1]}`).join(",");
+      const marketSig = `${language}|${next.market}|${shortTime(next.received)}|${next.up}/${next.flat}/${next.down}|${JSON.stringify(next.index)}|${JSON.stringify(next.indices)}|${JSON.stringify(next.rows)}`;
+      const groupFor = (id: string): [string, string] => {
+        if (id === "sign") return ["sign", signSig];
+        if (id === "clocks" || id === "session") return ["clockLang", language];
+        if (id === "world") return ["world", worldSig];
+        if (id === "futures") return ["futures", futuresSig];
+        if (id === "rates") return ["rates", ratesSig];
+        if (id === "news") return ["news", newsSig];
+        if (id === "globaltop") return ["globaltop", globalTopSig];
+        if (id === "investor") return ["investor", investorSig];
+        if (id === "crypto" || id === "fx" || id === "metals" || id === "energy" || id === "agri" || id.startsWith("a:")) return ["tickers", tickersSig];
+        if (id === "brief") return ["brief", `${marketSig}|${newsSig}|${tickersSig}`];
+        if (/^s\d/.test(id)) return ["stocks", `${marketSig}|${seriesSig}`];
+        return ["market", `${marketSig}|${tickersSig}|${ratesSig}`];
+      };
+      const changedGroups = new Set<string>();
+      const nextGroupValues = new Map<string, string>();
       for (const id of panels.keys()) {
         const count = PAGES[id]?.(next) ?? 1;
         pageCounts.set(id, count);
         if (count >= 2) pagedPanels.push(id);
-        dirty.add(id);
+        const [gKey, gVal] = groupFor(id);
+        nextGroupValues.set(gKey, gVal);
+        if (groupSignatures.get(gKey) !== gVal) changedGroups.add(gKey);
+        if (changedGroups.has(gKey)) dirty.add(id);
       }
+      for (const [k, v] of nextGroupValues) groupSignatures.set(k, v);
       paintTickers();
     },
     /** Called once per frame: scrolls tickers, ticks clocks and repaints what the camera can see. */
-    tick(now: number, reduced: boolean, frustum?: Frustum) {
+    tick(now: number, reduced: boolean, frustum?: Frustum, deferUpload = false) {
       if (frustum) {
         // Zero-closure frustum visibility check (runs only when camera actually moved!)
         for (const panel of panels.values()) {
@@ -670,7 +707,18 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
           panel.visible = vis;
         }
       }
-      if (pendingTickers.size || pending.size) flush();
+      if (pendingTickers.size || pending.size) {
+        // During active camera drag after boot, briefly defer non-urgent screen mipmap uploads (max 250ms) so panning stays 60 FPS!
+        if (!bootMode && deferUpload) {
+          if (!dragDeferSince) dragDeferSince = now;
+          if (now - dragDeferSince >= 250) { dragDeferSince = now; flush(); }
+        } else {
+          dragDeferSince = 0;
+          flush();
+        }
+      } else {
+        dragDeferSince = 0;
+      }
       if (!reduced) for (const [id, ticker] of tickers) {
         const speed = id === "ring" ? 85 : id === "tickerD" ? 120 : id === "tickerV" ? -70 : 150;   // px/s along the strip (columns rise)
         ticker.offset.value = (now / 1000 * speed / ticker.width) % 1;
