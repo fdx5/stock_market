@@ -399,7 +399,7 @@ class TestCrawlableInvestorPages:
         outlook = seo.render_spa_shell(self.TEMPLATE, "/stock/001200/outlook", {})
         news = seo.render_spa_shell(self.TEMPLATE, "/stock/001200/news", {})
         assert self._meta(outlook) != self._meta(news)
-        body = lambda page: page.split('<div id="root">')[1]
+        body = lambda page: page.split('<section data-seo-shell="true"')[1]
         assert body(outlook) != body(news)
 
     def test_delisted_code_is_a_hard_404_not_a_populated_page(self, monkeypatch):

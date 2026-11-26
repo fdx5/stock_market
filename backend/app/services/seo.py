@@ -16,7 +16,7 @@ from email.utils import format_datetime
 
 from app.data import investor_fetcher
 from app.data.universe import get_stock_name, get_top_market_cap_all
-from app.services import market_brief_store
+from app.services import market_brief_store, seo_content
 from app.services.cache import cache
 from app.services import market_guides
 from app.services import public_markets
@@ -37,19 +37,30 @@ STOCK_LANDING_ROUTE = re.compile(r"^/stock/(\d{6})/(investor|outlook|news)$", re
 INVESTOR_ROUTE = re.compile(r"^/investor/(\d{6})$", re.I)
 
 
-def _market_brief(path: str) -> tuple[dict | None, str, str]:
+def dated_market_brief(path: str) -> tuple[dict | None, str, str]:
     match = MARKET_BRIEF_ROUTE.fullmatch(path)
     if not match:
         return None, "", ""
     day, market_slug = match.groups()
+    market = _brief_target(market_slug)
     try:
         datetime.strptime(day, "%Y-%m-%d")
-        from app.services.market_brief import normalize_target
-        target = normalize_target(market_slug)
-        report = market_brief_store.get(day, target)
+    except ValueError:
+        return None, day, market
+    return market_brief_store.get(day, market.upper()), day, market
+
+
+def _brief_target(slug: str) -> str:
+    from app.services.market_brief import normalize_target
+
+    return normalize_target(slug).lower()
+
+
+def _market_brief(path: str) -> tuple[dict | None, str, str]:
+    try:
+        return dated_market_brief(path)
     except Exception:
-        report = None
-    return report, day, market_slug.lower()
+        return None, "", ""
 
 
 def _brief_description(report: dict, day: str, market: str) -> str:
@@ -87,7 +98,7 @@ def _us_catalog() -> dict[str, tuple[str, str]]:
 
     def build() -> dict[str, tuple[str, str]]:
         from app.data.us_universe import get_us_universe
-        from app.services.etf_market import get_etfs
+        from app.services.etf_market import US_ETFS
 
         stocks = sorted(get_us_universe(), key=lambda it: -(it.get("market_cap") or 0))
         rows: dict[str, tuple[str, str]] = {}
@@ -97,13 +108,8 @@ def _us_catalog() -> dict[str, tuple[str, str]]:
             if code:
                 rows[code] = (name, "us_stock")
         rows.setdefault("SKHY", ("SK하이닉스 ADR", "us_stock"))
-        try:
-            for it in get_etfs("US").get("items", []):
-                code = str(it.get("code", "")).strip().upper()
-                if code:
-                    rows.setdefault(code, (str(it.get("name", "")).strip() or code, "us_etf"))
-        except Exception:
-            pass
+        for code, name, *_ in US_ETFS:
+            rows.setdefault(code, (name, "us_etf"))
         if not rows:
             raise RuntimeError("US universe unavailable")
         return rows
@@ -161,9 +167,21 @@ def _stock_entry(path: str) -> tuple[str, str, str]:
         except Exception:
             name = code
         return code, name, "kr_stock"
-    us = _us_catalog().get(code)
+    catalog = _us_catalog()
+    normalized = code.replace(".", "-")
+    listed_code = code if code in catalog else normalized
+    us = catalog.get(listed_code)
     if us:
-        return code, _us_display_name(us[0]) if us[1] == "us_stock" else us[0], us[1]
+        return listed_code, _us_display_name(us[0]) if us[1] == "us_stock" else us[0], us[1]
+
+    # The US search directory also resolves stocks outside S&P 500/Nasdaq-100.
+    from app.data import us_listing_directory
+
+    listed = us_listing_directory.lookup(normalized)
+    if listed:
+        return normalized, listed["name"] if listed["etf"] else _us_display_name(listed["name"]), (
+            "us_etf" if listed["etf"] else "us_stock"
+        )
     return "", "", ""
 
 
@@ -424,6 +442,21 @@ def is_unknown_kr_code(path: str) -> bool:
     return bool(known) and code not in known
 
 
+def is_unknown_us_code(path: str) -> bool:
+    match = STOCK_ROUTE.fullmatch(path.removesuffix("/report"))
+    if not match or KRX_CODE.fullmatch(match[1]):
+        return False
+    code = match[1].upper()
+    catalog = _us_catalog()
+    if code in catalog or code.replace(".", "-") in catalog:
+        return False
+
+    from app.data import us_listing_directory
+
+    # A partial or unavailable directory cannot prove that a ticker is unknown.
+    return not us_listing_directory.lookup(code.replace(".", "-")) and bool(us_listing_directory.get_listings())
+
+
 def _investor_faq(name: str, code: str, digest: dict) -> list[tuple[str, str]]:
     if not digest:
         return [
@@ -468,6 +501,8 @@ PAGES: dict[str, tuple[str, str]] = {
     "/hub": ("K-Stock Hub 태양계 시장 탐험", "K-Stock Hub의 태양계 인터페이스에서 국내외 주식 시장과 주요 서비스를 탐험하세요."),
     "/": ("코스피맵 (KOSPIMAP) | 국내외 주식 시세와 ETF", "코스피·코스닥·미국 증시 시세, 시가총액 맵, 거래대금 순위, ETF와 종목토론을 한곳에서 확인하세요."),
     "/desk": ("국내 주식 시세와 오늘의 시장 현황 | K-Stock Hub", "코스피·코스닥 지수, 국내 주식 현재가, 거래대금, 외국인·기관 수급과 오늘의 주목 종목을 확인하세요."),
+    "/kospi-orbit": ("코스피 궤도 · 시가총액과 주가 등락 | KOSPIMAP", "코스피 상장 종목을 시가총액 크기와 최근 등락률에 따라 3D 궤도에서 탐색하세요."),
+    "/kosdaq-orbit": ("코스닥 궤도 · 성장주 시가총액과 주가 등락 | KOSPIMAP", "코스닥 상장 종목의 시가총액과 최근 등락률을 3D 궤도에서 비교하세요."),
     "/pulse-board": ("증시 전광판 | 코스피·코스닥·나스닥100 상위 100종목 시세 | K-Stock Hub", "코스피·코스닥·나스닥100 시가총액 상위 100종목의 시세와 등락을 지수 흐름에 따라 색이 바뀌는 펄스 전광판으로 확인하세요."),
     "/pulse-board-ship": ("증시 전광판(구) | 바다와 배 펄스 전광판 | K-Stock Hub", "코스피·코스닥·나스닥100 시가총액 상위 100종목의 시세를 바다와 배 장면 위에 펼친 이전 증시 전광판입니다."),
     "/exchange": ("증권 거래소 · 3D 트레이딩 플로어 | KOSPIMAP", "672평 원형 아트리움 3D 증권 거래소. 라이트 코어와 59종 실시간 전광판으로 코스피·코스닥·S&P 500, 시장 지도, 수급, 세계 증시를 보고, 4개 층 갤러리와 명화 31점도 감상하세요."),
@@ -508,34 +543,73 @@ PAGES.update({path: (card["title"], card["description"]) for path, card in SOCIA
 
 
 def legacy_redirect(path: str, query: dict[str, str]) -> str | None:
-    """Server-side 301 for URLs the app only rewrote in the browser.
-
-    /news ignores ?code= and the page replaced the address with plain /news, so
-    Search Console filed every /news?code=X link as a page with a redirect. The
-    stock's own news (KR) or detail page (US, ETF) is where that link meant to go.
-    """
-    if path.rstrip("/") != "/news" or "code" not in query:
+    """Resolve equivalent public URLs before the app loads."""
+    clean = path.rstrip("/") or "/"
+    rest = dict(query)
+    target = ""
+    if clean == "/news" and "code" in rest:
+        code = re.sub(r"[^A-Za-z0-9.-]", "", rest.pop("code"))[:16].upper()
+        target = "/news"
+        if code:
+            found, _, kind = _stock_entry(f"/stock/{code}")
+            if kind == "kr_stock":
+                if not is_unknown_kr_code(f"/stock/{found}"):
+                    target = f"/stock/{found}/news"
+            elif found:
+                target = f"/stock/{found}"
+    elif clean == "/etf":
+        target = "/etf/us" if rest.get("region") == "US" else "/etf/kr"
+        rest.pop("region", None)
+    elif clean in {"/type2", "/pulse-board-2", "/sp500-orbit", "/market-brief/latest/kospi"}:
+        target = {"/type2": "/hub", "/pulse-board-2": "/pulse-board",
+                  "/sp500-orbit": "/nasdaq100-orbit", "/market-brief/latest/kospi": "/market-brief"}[clean]
+    elif match := MARKET_BRIEF_ROUTE.fullmatch(clean):
+        day, slug = match.groups()
+        target = f"/market-brief/{day}/{_brief_target(slug)}"
+    elif match := STOCK_ROUTE.fullmatch(clean.removesuffix("/report")):
+        code = match[1]
+        if code != code.upper() or "." in code:
+            found, _, _ = _stock_entry(f"/stock/{code}")
+            if found:
+                target = f"/stock/{found}{'/report' if clean.endswith('/report') else ''}"
+    if not target and clean != path and is_public_spa_path(clean):
+        target = clean
+    if not target or (target == path and rest == query):
         return None
-    code = re.sub(r"[^A-Za-z0-9.-]", "", query.get("code", ""))[:16].upper()
-    rest = {key: value for key, value in query.items() if key != "code"}
-    target = "/news" + ("?" + urlencode(rest) if rest else "")
-    if code:
-        found, _, kind = _stock_entry(f"/stock/{code}")
-        if kind == "kr_stock" and not is_unknown_kr_code(f"/stock/{found}"):
-            target = f"/stock/{found}/news"
-        elif found:
-            target = f"/stock/{found}"
-    return target
+    return target + ("?" + urlencode(rest) if rest else "")
+
+
+def is_public_spa_path(path: str) -> bool:
+    """The SPA routes outside the SEO catalog, plus its dynamic routes."""
+    return (
+        path in PAGES or path in SOCIAL_CARDS
+        or path in {"/dashboard", "/desk2", "/support-success", "/drive", "/walk", "/drone-explore",
+                    "/market-bubbles", "/market-bubbles2", "/battle", "/kospi-orbit", "/kosdaq-orbit",
+                    "/nasdaq100-orbit", "/investors", "/investment-videos", "/ai-prediction/grading",
+                    "/support", "/admin"}
+        or path.startswith("/admin/")
+        or re.fullmatch(
+            r"/(?:walk/.+|global/treasuries/(?:2|5|10)|investors/[a-z]+|investor/[0-9]{6}|"
+            r"stock/[A-Za-z0-9.-]{1,16}(?:/report)?|stock/[0-9]{6}/(?:outlook|news|investor)|"
+            r"etf/compare/[A-Za-z0-9.-]+/[A-Za-z0-9.-]+|"
+            r"market-brief/latest/(?:kosdaq|samsung|hynix|hyundai|sksquare|semco)|"
+            r"(?:hot-issues|movers(?:/us)?)/[0-9]{4}-[0-9]{2}-[0-9]{2}/[0-9]{4})", path
+        ) is not None
+        or MARKET_BRIEF_ROUTE.fullmatch(path) is not None
+    )
+
 
 
 def _replace_meta(document: str, selector: str, value: str) -> str:
     escaped = html.escape(value, quote=True)
     pattern = rf'(<meta\s+{selector}\s+content=")[^"]*("\s*/?>)'
-    return re.sub(pattern, rf"\g<1>{escaped}\g<2>", document, count=1)
+    return re.sub(pattern, lambda match: match[1] + escaped + match[2], document, count=1)
 
 
 def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edition: dict | None = None,
-                     movers_edition: dict | None = None) -> str:
+                     movers_edition: dict | None = None,
+                     dated_brief: tuple[dict | None, str, str] | None = None,
+                     indexable: bool = True) -> str:
     canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
     if canonical_path in {"/pulse-board", "/pulse-board-2"}:
         template = re.sub(r'<script id="adsense-loader"[^>]*>.*?</script>\s*', "", template, count=1, flags=re.S)
@@ -544,7 +618,9 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
         query = expand_walk_query(query)
     if canonical_path == "/etf":
         canonical_path = "/etf/us" if query.get("region") == "US" else "/etf/kr"
-    brief, brief_day, brief_market = _market_brief(canonical_path)
+    brief, brief_day, brief_market = dated_brief if dated_brief is not None else _market_brief(canonical_path)
+    if brief_day:
+        canonical_path = f"/market-brief/{brief_day}/{brief_market}"
     stock_report = re.fullmatch(r"/stock/([A-Za-z0-9.-]{1,16})/report", canonical_path)
     stock_code, stock_name, stock_kind = _stock_entry(f"/stock/{stock_report.group(1)}" if stock_report else canonical_path)
     if stock_code:
@@ -618,9 +694,11 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
         page_image = f"{SITE}/img/social/walk-roomtour-v1.png"
         image_alt = "KOSPIMAP 룸투어(임장) 안내용 아파트 거실 이미지"
     if brief:
-        title = f"{brief_day} {brief_market.upper()} 오늘 브리핑 | K-Stock Hub"
+        subject = str(brief.get("name") or {"kospi": "코스피", "kosdaq": "코스닥"}.get(brief_market, brief_market.upper()))
+        title = f"{brief_day} {subject} 장 마감 브리핑 | K-Stock Hub"
         description = _brief_description(brief, brief_day, brief_market)
-        page_image = f"{SITE}/market-brief/og/{brief_day}/{brief_market}.png"
+        if brief_market in {"kospi", "kosdaq"}:
+            page_image = f"{SITE}/market-brief/og/{brief_day}/{brief_market}.png"
     elif stock_code:
         if stock_report:
             title = f"{stock_name}({stock_code}) 종목 한 장 보고서 | K-Stock Hub"
@@ -680,16 +758,18 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
         image_alt = f"{public_markets.MARKETS[public_market]['name']} 시장 표본 분포와 집계 시각"
         if canonical_path == "/today":
             title, description = public_markets.today_metadata(public_market)
+    stock_share_query: dict[str, str] = {}
     if code and canonical_path in {"/desk", "/global", "/discussion-explorer"}:
-        canonical_query["code"] = code
+        stock_share_query["code"] = code
         if display_name:
-            canonical_query["name"] = display_name
+            stock_share_query["name"] = display_name
             market_word = "미국 주식" if canonical_path == "/global" else "주식"
             title = f"{display_name} {market_word} 시세·차트·수급 | K-Stock Hub"
             description = f"{display_name}({code})의 현재가, 등락률, 차트, 투자자 수급과 최신 종목 정보를 확인하세요."
-        if canonical_path == "/desk" and re.fullmatch(r"\d{6}", code):
-            canonical_path = f"/stock/{code}"
-            canonical_query = {}
+        if canonical_path != "/discussion-explorer":
+            selected, _, kind = _stock_entry(f"/stock/{code}")
+            if selected and (kind != "kr_stock" or not is_unknown_kr_code(f"/stock/{selected}")):
+                canonical_path = f"/stock/{selected}"
     investor_records: list[dict] = []
     investor_digest: dict = {}
     kr_records: list[dict] = []
@@ -739,6 +819,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
     # and view in og:url (a crawler following og:url to the bare map page would preview
     # the map instead); the canonical stays the page, for search engines.
     share_url = canonical
+    if stock_share_query and canonical_path == "/discussion-explorer":
+        share_url += "?" + urlencode(stock_share_query)
     if is_walk:
         # og:url must keep the destination apartment; otherwise Kakao can merge
         # different flats into the generic /walk card. Exclude return paths and
@@ -755,8 +837,11 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
         # under the bare address, so shares are keyed to a fresh one.
         share_url = f"{SITE}/pulse-board?v=2"
 
-    document = re.sub(r"<title>.*?</title>", f"<title>{html.escape(title)}</title>", template, count=1, flags=re.S)
+    document = re.sub(r"<title>.*?</title>", lambda _: f"<title>{html.escape(title)}</title>", template, count=1, flags=re.S)
     document = _replace_meta(document, 'name="description"', description)
+    if (not indexable or (brief_day and not brief) or canonical_path in {"/desk2", "/support-success"}
+            or canonical_path.startswith(("/admin", "/market-brief/latest/"))):
+        document = _replace_meta(document, 'name="robots"', "noindex,follow")
     if page_lookup == "/market-brief":
         document = _replace_meta(
             document,
@@ -799,15 +884,14 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
         "inLanguage": "ko-KR",
     }
     if brief:
-        published = str(brief.get("created_at") or f"{brief_day}T16:00:00+09:00")
+        published = str(brief.get("created_at") or "")
         structured = {
             "@context": "https://schema.org",
             "@type": "Article",
             "headline": title.removesuffix(" | K-Stock Hub"),
             "description": description,
             "image": [page_image],
-            "datePublished": published,
-            "dateModified": published,
+            **({"datePublished": published} if published else {}),
             "mainEntityOfPage": {"@type": "WebPage", "@id": canonical},
             "author": {"@type": "Organization", "name": "K-Stock Hub", "url": SITE},
             "publisher": {"@type": "Organization", "name": "K-Stock Hub", "url": SITE},
@@ -904,6 +988,9 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
     if movers_data is not None:
         structured = movers.structured_data(SITE, movers_data, archive=movers_edition is not None)
     script = '<script id="route-structured-data" type="application/ld+json">' + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/") + "</script>"
+    if brief:
+        seed = json.dumps({"day": brief_day, "market": brief_market.upper(), "report": brief}, ensure_ascii=False).replace("</", "<\\/")
+        script += f'<script id="initial-market-brief" type="application/json">{seed}</script>'
     document = document.replace("</head>", f"{script}\n  </head>", 1)
 
     # Naver's Yeti can render JavaScript, but its official SPA guidance still
@@ -912,7 +999,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
     # a meaningful heading, summary, and crawlable internal links immediately.
     links = [
         ("/movers", "오늘 급등주·급락주 이유"), ("/world-markets", "전세계 증시"), ("/hot-issues", "오늘의 핫이슈"), ("/kospi", "코스피 지수"), ("/kosdaq", "코스닥 지수"), ("/nasdaq", "나스닥 지수"),
-        ("/desk", "국내 주식 시세"), ("/map", "코스피맵 · 코스피 시가총액 맵"),
+        ("/stocks", "국내외 종목 검색"), ("/desk", "국내 주식 시세"), ("/map", "코스피맵 · 코스피 시가총액 맵"),
         ("/kosdaq-map", "코스닥 시가총액 맵"), ("/etf/kr", "국내 ETF"), ("/etf/us", "해외 ETF"),
         ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
         ("/realestate-map", "부동산 맵"),
@@ -930,21 +1017,15 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
     ]
     nav = "".join(f'<a href="{href}">{html.escape(label)}</a>' for href, label in links)
     report_content = ""
+    security_snapshot = ""
     if brief:
-        analysis = brief.get("analysis") or []
-        points = "".join(f"<li>{html.escape(str(point))}</li>" for point in analysis[:6])
-        report_content = f'<ul style="max-width:760px;line-height:1.8">{points}</ul>'
-        try:
-            archive = market_brief_store.dates(24)
-        except Exception:
-            archive = []
-        archive_links = "".join(
-            f'<a href="/market-brief/{item["date"]}/{str(item["market"]).lower()}">'
-            f'{html.escape(str(item["date"]))} {html.escape(str(item["market"]))}</a>'
-            for item in archive
-            if item.get("date") and item.get("market") in {"KOSPI", "KOSDAQ"}
-        )
-        report_content += f'<nav aria-label="최근 오늘 브리핑" style="display:flex;flex-wrap:wrap;gap:12px">{archive_links}</nav>'
+        report_content = seo_content.closing_brief(brief, brief_day, brief_market)
+    elif canonical_path == "/market-brief":
+        report_content = seo_content.brief_archive()
+    elif canonical_path in {"/stocks", "/etf/kr", "/etf/us", "/global", "/dram-price"}:
+        report_content = seo_content.market_directory(canonical_path, kr_universe)
+    elif canonical_path in {"/kospi-orbit", "/kosdaq-orbit", "/pulse-board"}:
+        report_content = seo_content.immersive_market_links(canonical_path)
     elif stock_report and stock_code:
         report_content = (
             f'<p>{html.escape(description)}</p>'
@@ -966,10 +1047,11 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
             for other, other_name in _detail_neighbours(stock_code, stock_kind)
         )
         hub = {"kr_etf": ("/etf/kr", "국내 ETF 순위"), "us_etf": ("/etf/us", "미국 ETF 순위"), "us_stock": ("/global", "해외 증시")}[stock_kind]
+        security_snapshot = seo_content.security_snapshot(stock_code, stock_name, stock_kind)
         report_content = (
-            f'{intro}'
+            f'{intro}{security_snapshot}'
             '<nav aria-label="종목 관련 정보" style="display:flex;flex-wrap:wrap;gap:12px">'
-            f'<a href="/discussion-explorer?code={html.escape(stock_code)}&amp;name={html.escape(stock_name, quote=True)}'
+            f'<a rel="nofollow" href="/discussion-explorer?code={html.escape(stock_code)}&amp;name={html.escape(stock_name, quote=True)}'
             f'&amp;market={"US" if is_us else "KR"}&amp;asset={asset}">{html.escape(stock_name)} 종목토론</a>'
             f'<a href="{hub[0]}">{hub[1]}</a>'
             + ('<a href="/sp500-map">S&amp;P 500 맵</a>' if stock_kind == "us_stock" else "")
@@ -1028,7 +1110,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
             + _kr_stock_numbers(stock_code, stock_name, stock_landing_kind, kr_records, kr_digest)
             + '<nav aria-label="종목 관련 분석" style="display:flex;flex-wrap:wrap;gap:12px">'
             f'{siblings}'
-            f'<a href="/discussion-explorer?code={stock_code}&amp;name={html.escape(stock_name, quote=True)}">{html.escape(stock_name)} 종목토론</a>'
+            f'<a rel="nofollow" href="/discussion-explorer?code={stock_code}&amp;name={html.escape(stock_name, quote=True)}">{html.escape(stock_name)} 종목토론</a>'
             '<a href="/market-brief">오늘 브리핑</a></nav>'
             + (
                 '<nav aria-label="비슷한 시가총액 종목" style="display:flex;flex-wrap:wrap;gap:12px">'
@@ -1103,7 +1185,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
             f'<a href="/stock/{investor_code}">{html.escape(investor_name)} 주가·차트</a>'
             f'<a href="/stock/{investor_code}/outlook">{html.escape(investor_name)} 주가 전망</a>'
             f'<a href="/stock/{investor_code}/news">{html.escape(investor_name)} 관련 뉴스</a>'
-            f'<a href="/discussion-explorer?code={investor_code}&amp;name={html.escape(investor_name, quote=True)}">{html.escape(investor_name)} 종목토론</a>'
+            f'<a rel="nofollow" href="/discussion-explorer?code={investor_code}&amp;name={html.escape(investor_name, quote=True)}">{html.escape(investor_name)} 종목토론</a>'
             f'<a href="{INVESTOR_HUB}">외국인·기관 수급 종목 전체</a>'
             '<a href="/desk">국내 주식 시세</a></nav>'
             + (
@@ -1154,7 +1236,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
                 for m in world["markets"]) + "</ol>"
     if canonical_path == "/share-market":
         report_content = '<p>실제 시장의 상승·하락 분포 카드를 내려받아 링크와 함께 공유하세요. iframe을 허용하는 사이트에는 시장 위젯을 넣을 수 있습니다.</p><p><a href="/today">오늘 증시 한눈에</a> · <a href="/market-feed.xml">장마감 브리핑 RSS 구독</a> · <a href="/market-check.ics">평일 16:30 확인 알림</a></p>'
-    report_content += public_markets.seo_content(canonical_path, stock_code if not stock_report else "", public_market)
+    if not security_snapshot:
+        report_content += public_markets.seo_content(canonical_path, stock_code if not stock_report else "", public_market)
     # The <h1> repeated the site name on every page ("… | K-Stock Hub"), which is
     # boilerplate in the one place Google most wants the page's own subject.
     heading = title.removesuffix(" | K-Stock Hub")
@@ -1167,7 +1250,22 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
         f'<nav aria-label="주요 서비스" style="display:flex;flex-wrap:wrap;gap:16px">{nav}</nav>'
         '</section>'
     )
-    return document.replace('<div id="root"></div>', f'<div id="root">{shell}</div>', 1)
+    asset = f' data-seo-stock-code="{stock_code}" data-seo-stock-kind="{stock_kind}"' if stock_code else ""
+    return document.replace('<div id="root"></div>', f'<div id="root" data-server-seo="true"{asset}>{shell}</div>', 1)
+
+
+def unavailable_page(*, temporary: bool = False) -> str:
+    heading = "페이지를 잠시 불러올 수 없습니다" if temporary else "페이지를 찾을 수 없습니다"
+    message = "잠시 후 다시 시도해 주세요." if temporary else "입력한 주소와 종목 코드를 확인하거나 종목 검색에서 다시 찾아보세요."
+    return (
+        '<!doctype html><html lang="ko">'
+        f'<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<meta name="robots" content="noindex"><title>{heading} | KOSPIMAP</title></head>'
+        f'<body style="background:#0b070e;color:#f8f6f1;font:16px system-ui;margin:8vh 6%">'
+        f'<main><h1>{heading}</h1><p>{message}</p><p><a style="color:#b6f8ff" href="/stocks">종목 검색</a>'
+        ' · <a style="color:#b6f8ff" href="/">코스피맵 홈</a></p></main></body></html>'
+    )
+
 
 
 # One section per kind of page, so Search Console reports coverage separately for
@@ -1261,8 +1359,6 @@ def build_pages_sitemap() -> str:
         lastmod = published if re.fullmatch(r"\d{4}-\d{2}-\d{2}", published) else ""
         urls.append((f"{SITE}/market-brief/{day}/{market}", "0.8", "never", lastmod))
 
-    # US names are in sitemap-us.xml as /stock/<ticker>; the old /global?code= URLs
-    # now forward there, and a redirecting URL has no place in a sitemap.
     return _urlset(urls)
 
 

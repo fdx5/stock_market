@@ -143,6 +143,18 @@ export default function BriefPage({ initialDate = "", initialMarket = "KOSPI" }:
     let cancelled = false;
     setData(null);
     setError("");
+    const seed = document.getElementById("initial-market-brief")?.textContent;
+    if (initialDate && seed) {
+      try {
+        const parsed = JSON.parse(seed) as { day: string; market: string; report: Brief };
+        if (parsed.day === initialDate && parsed.market === market) {
+          setData(parsed.report);
+          return;
+        }
+      } catch {
+        // The API remains available for client-only routes and malformed seed data.
+      }
+    }
     fetch(initialDate ? `/api/market-brief/${initialDate}/${tab.slug}` : `/api/market-brief/latest/${tab.slug}`)
       .then((r) => {
         if (!r.ok) throw Error();
@@ -151,7 +163,6 @@ export default function BriefPage({ initialDate = "", initialMarket = "KOSPI" }:
       .then((b: Brief) => {
         if (cancelled) return;
         setData(b);
-        if (!initialDate) window.history.replaceState({}, "", `/market-brief/${b.date}/${tab.slug}`);
       })
       .catch(() => !cancelled && setError(L("오늘 브리핑을 불러오지 못했습니다.", "Could not load this briefing.")));
     return () => {
@@ -215,6 +226,7 @@ export default function BriefPage({ initialDate = "", initialMarket = "KOSPI" }:
 
   const share = async () => {
     const u = new URL(window.location.href);
+    if (data?.date) u.pathname = `/market-brief/${data.date}/${tab.slug}`;
     u.searchParams.set("utm_source", "native_share");
     u.searchParams.set("utm_medium", "share");
     u.searchParams.set("utm_campaign", `market_brief_${data?.date || "latest"}`);
@@ -279,6 +291,18 @@ export default function BriefPage({ initialDate = "", initialMarket = "KOSPI" }:
       </div>
 
       <main className="d2-main" id="bf-report">
+        {!initialDate && !initialMarket && history.length > 0 && (
+          <section className="bf-recent" aria-label={L("거래일별 마감 브리핑", "Closing briefings by date")}>
+            <h2>{L("거래일별 코스피·코스닥 마감 브리핑", "KOSPI and KOSDAQ closing briefings by date")}</h2>
+            <nav aria-label={L("최근 마감 브리핑", "Recent closing briefings")}>
+              {history.filter(row => row.market === "KOSPI" || row.market === "KOSDAQ").slice(0, 12).map(row => (
+                <Link key={`${row.date}-${row.market}`} to={`/market-brief/${row.date}/${row.market.toLowerCase()}`}>
+                  {row.date} {L(row.market === "KOSPI" ? "코스피" : "코스닥", row.market)}
+                </Link>
+              ))}
+            </nav>
+          </section>
+        )}
         {dates.length > 0 && (
           <nav className="bf-archive" aria-label={L("지난 브리핑", "Archive")}>
             <span>{L("지난 브리핑", "Archive")}</span>

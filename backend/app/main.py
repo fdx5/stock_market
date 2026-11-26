@@ -6,6 +6,7 @@ import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -83,9 +84,13 @@ from app.services.seo import (
     build_sitemap_index,
     build_stocks_sitemap,
     build_us_sitemap,
+    dated_market_brief,
+    is_public_spa_path,
     is_unknown_kr_code,
+    is_unknown_us_code,
     legacy_redirect,
     render_spa_shell,
+    unavailable_page,
 )
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.stock_board import warm_boards
@@ -787,15 +792,15 @@ if STATIC_DIR.exists():
 
     SITEMAP_HEADERS = {"Cache-Control": "public, max-age=3600"}
 
-    @app.get("/sitemap.xml", include_in_schema=False)
+    @app.api_route("/sitemap.xml", methods=["GET", "HEAD"], include_in_schema=False)
     def dynamic_sitemap():
         return Response(content=build_sitemap_index(), media_type="application/xml", headers=SITEMAP_HEADERS)
 
-    @app.get("/sitemap-pages.xml", include_in_schema=False)
+    @app.api_route("/sitemap-pages.xml", methods=["GET", "HEAD"], include_in_schema=False)
     def pages_sitemap():
         return Response(content=build_pages_sitemap(), media_type="application/xml", headers=SITEMAP_HEADERS)
 
-    @app.get("/sitemap-stocks.xml", include_in_schema=False)
+    @app.api_route("/sitemap-stocks.xml", methods=["GET", "HEAD"], include_in_schema=False)
     def stocks_sitemap():
         # Cover the searchable large/mid-cap universe, not only the same 100 names
         # shown in the ranking UI. The universe is cached for a day, so the wider
@@ -803,15 +808,15 @@ if STATIC_DIR.exists():
         xml = build_stocks_sitemap(get_top_market_cap_all(10000))
         return Response(content=xml, media_type="application/xml", headers=SITEMAP_HEADERS)
 
-    @app.get("/sitemap-etf.xml", include_in_schema=False)
+    @app.api_route("/sitemap-etf.xml", methods=["GET", "HEAD"], include_in_schema=False)
     def etf_sitemap():
         return Response(content=build_etf_sitemap(), media_type="application/xml", headers=SITEMAP_HEADERS)
 
-    @app.get("/sitemap-us.xml", include_in_schema=False)
+    @app.api_route("/sitemap-us.xml", methods=["GET", "HEAD"], include_in_schema=False)
     def us_sitemap():
         return Response(content=build_us_sitemap(), media_type="application/xml", headers=SITEMAP_HEADERS)
 
-    @app.get("/sitemap-investor.xml", include_in_schema=False)
+    @app.api_route("/sitemap-investor.xml", methods=["GET", "HEAD"], include_in_schema=False)
     def investor_sitemap():
         # Withdrawn: /investor/<code> is no longer offered for indexing (see
         # SITEMAP_SECTIONS). 410 tells Search Console the file is gone on purpose,
@@ -826,11 +831,9 @@ if STATIC_DIR.exists():
         # URL whatever ranking signals the /stock/ variant had accumulated.
         if re.fullmatch(r"\d{6}", code):
             return RedirectResponse(f"/investor/{code}", status_code=301)
-        return HTMLResponse(
-            render_spa_shell(_spa_template, f"/stock/{code}/investor", {}), status_code=404
-        )
+        return HTMLResponse(unavailable_page(), status_code=404)
 
-    @app.get("/rss.xml", include_in_schema=False)
+    @app.api_route("/rss.xml", methods=["GET", "HEAD"], include_in_schema=False)
     def discovery_rss():
         xml = build_rss(get_top_market_cap(30))
         return Response(content=xml, media_type="application/rss+xml", headers={"Cache-Control": "public, max-age=3600"})
@@ -955,10 +958,21 @@ if STATIC_DIR.exists():
             moved = legacy_redirect(path, query)
             if moved:
                 return RedirectResponse(moved, status_code=301)
-            shell = render_spa_shell(_spa_template, path, query)
-            if is_unknown_kr_code(path.rstrip("/") or "/"):
+            if not is_public_spa_path(path) or is_unknown_us_code(path):
+                return HTMLResponse(unavailable_page(), status_code=404)
+            if is_unknown_kr_code(path):
+                # Older quotes can still be browsed at historical ticker URLs.
+                shell = render_spa_shell(_spa_template, path, query, indexable=False)
                 return HTMLResponse(shell, status_code=404)
-            return HTMLResponse(shell)
+            try:
+                brief = dated_market_brief(path)
+            except Exception:
+                return HTMLResponse(unavailable_page(temporary=True), status_code=503, headers={"Retry-After": "300"})
+            if brief[1] and brief[0] is None:
+                # Today's report can still be published later.
+                if brief[1] != datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat():
+                    return HTMLResponse(unavailable_page(), status_code=404)
+            return HTMLResponse(render_spa_shell(_spa_template, path, query, dated_brief=brief))
 
         # stat_result is passed in so FileResponse fills in etag/last-modified during
         # construction instead of lazily while streaming the body — they have to

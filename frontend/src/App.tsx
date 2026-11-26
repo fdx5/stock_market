@@ -1,3 +1,4 @@
+import { isServerEtf, keepServerMetadata } from "./useStockDetailSeo";
 import { lazy, Suspense, useEffect, useLayoutEffect } from "react";
 import { GUIDE_SEO } from "./guides/catalog";
 import { GROWTH_SEO, HOT_ISSUE_EDITION, MOVERS_EDITION, US_MOVERS_EDITION, publicMarket, todayMetadata } from "./growth/publicLinks";
@@ -298,20 +299,6 @@ const RECENT_DOCK_PATHS = new Set([
   "/ai-prediction", "/global-top100", "/fight", "/news",
 ]);
 
-/** The previous desk at /desk2 is the same content as /desk in another
- * arrangement, so it stays out of the index rather than competing with it. */
-function useNoindexOn(path: string, target: string) {
-  useEffect(() => {
-    if (path !== target) return;
-    const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
-    const previous = robots?.getAttribute("content") ?? null;
-    robots?.setAttribute("content", "noindex,follow");
-    return () => {
-      if (robots && previous !== null) robots.setAttribute("content", previous);
-    };
-  }, [path, target]);
-}
-
 export default function App() {
   useEffect(() => {
     if (window.self === window.top || window.name !== "facility-browser") return;
@@ -333,11 +320,15 @@ export default function App() {
   const stockLandingMatch = path.match(/^\/stock\/(\d{6})\/(investor|outlook|news)\/?$/);
   const etfCompareMatch = path.match(/^\/etf\/compare\/([A-Za-z0-9.-]+)\/([A-Za-z0-9.-]+)\/?$/);
   useActivityTracking(path);
-  useNoindexOn(path, "/desk2");
-  useNoindexOn(path.replace(/\/$/, ""), "/support-success");
 
   useEffect(() => {
+    if (keepServerMetadata()) return;
     let canonicalPath = path === "/type2" ? "/hub" : path.replace(/\/$/, "") || "/";
+    const noindex = canonicalPath === "/desk2" || canonicalPath === "/support-success"
+      || canonicalPath === "/admin" || canonicalPath.startsWith("/admin/") || canonicalPath.startsWith("/market-brief/latest/");
+    document.querySelector<HTMLMetaElement>('meta[name="robots"]')?.setAttribute("content",
+      noindex ? "noindex,follow" : "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1");
+    document.getElementById("route-structured-data")?.remove();
     const params = new URLSearchParams(window.location.search);
     if (canonicalPath === '/walk' || canonicalPath.startsWith('/walk/')) { updateWalkShare(params); return; }
     if (canonicalPath === "/etf") canonicalPath = params.get("region") === "US" ? "/etf/us" : "/etf/kr";
@@ -346,12 +337,15 @@ export default function App() {
     const canonicalName = params.get("name")?.replace(/[<>\r\n]/g, "").trim().slice(0, 80) || "";
     if (canonicalPath === "/desk" && /^\d{6}$/.test(code)) canonicalPath = `/stock/${code}`;
     const market = publicMarket(window.location.search);
-    const canonicalQuery = ["/today", "/share-market"].includes(canonicalPath) && market !== "kospi" ? `?market=${market}` : keepsStockCode && !canonicalPath.startsWith("/stock/")
-      ? `?code=${encodeURIComponent(code)}${canonicalName ? `&name=${encodeURIComponent(canonicalName)}` : ""}`
-      : "";
+    if (canonicalPath === "/global" && /^[A-Za-z][A-Za-z0-9.-]{0,15}$/.test(code)) canonicalPath = `/stock/${code.toUpperCase().replace(".", "-")}`;
+    if (stockMatch) canonicalPath = `/stock/${stockMatch[1].toUpperCase()}`;
+    if (stockReportMatch) canonicalPath = `/stock/${stockReportMatch[1].toUpperCase()}/report`;
+    const shareQuery = keepsStockCode && canonicalPath === "/discussion-explorer"
+      ? `?code=${encodeURIComponent(code)}${canonicalName ? `&name=${encodeURIComponent(canonicalName)}` : ""}` : "";
+    const canonicalQuery = ["/today", "/share-market"].includes(canonicalPath) && market !== "kospi" ? `?market=${market}` : "";
     const canonicalUrl = `https://kospimap.com${canonicalPath}${canonicalQuery}`;
     document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", canonicalUrl);
-    document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", canonicalUrl);
+    document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", canonicalUrl + shareQuery);
 
     // /stock/<code>, /stock/<code>/outlook|news and /investor/<code> already arrive
     // with per-URL title/description rendered by services/seo.py, using the company
@@ -468,11 +462,11 @@ export default function App() {
     page = <MarketDeskPage />;
   } else if (stockReportMatch) {
     const detailCode = stockReportMatch[1].toUpperCase();
-    const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
+    const isEtf = isServerEtf(detailCode) || new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
     page = <StockReportPage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />;
   } else if (stockMatch) {
     const detailCode = stockMatch[1].toUpperCase();
-    const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
+    const isEtf = isServerEtf(detailCode) || new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
     page = <BroadsheetStockPage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />;
   } else if (isPulseBoardPath(path)) {
     // The deep-dive board is the 증시 전광판 now; its preview address forwards here.

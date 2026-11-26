@@ -1,6 +1,7 @@
 import { CSSProperties, MouseEvent, ReactNode, useEffect, useState } from "react";
 import { readingUrl, resolvedBrowsingUrl, saveReadingPosition } from "./browsingMemory";
 import { stopScrollRestoration } from "./scrollNavigation";
+import { serviceForPath } from "./markets/catalog";
 
 const makeEntry = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 let activeUrl = readingUrl();
@@ -102,8 +103,11 @@ export function Link({
     navigate(to);
   };
 
+  const base = to.split("?", 1)[0];
+  const isViewState = to.includes("?") && (serviceForPath(base) || base === "/discussion-explorer"
+    || ["/desk", "/global", "/community/kr", "/community/global", "/community/property"].includes(base));
   return (
-    <a href={to} className={className} style={style} aria-label={ariaLabel} aria-current={ariaCurrent} title={title} tabIndex={tabIndex} onClick={handleClick}>
+    <a href={to} rel={isViewState ? "nofollow" : undefined} className={className} style={style} aria-label={ariaLabel} aria-current={ariaCurrent} title={title} tabIndex={tabIndex} onClick={handleClick}>
       {children}
     </a>
   );

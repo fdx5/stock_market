@@ -24,7 +24,11 @@ def renderer():
                STOCK_LANDING_ROUTE=re.compile(r'/stock/(\d{6})/(investor|outlook|news)'), STOCK_ROUTE=re.compile(r'/stock/([A-Za-z0-9.-]{1,16})'), INVESTOR_ROUTE=re.compile(r'/investor/([A-Za-z0-9.-]{1,16})'), KRX_CODE=re.compile(r'\d[0-9A-Z]{5}'),
                _stock_entry=stock_entry, _stock_identity=lambda path: stock_entry(path)[:2], _market_brief=lambda _path:(None,'',''), _investor_identity=lambda _path:('',''), _detail_neighbours=lambda *_args:[], _kr_etf_names=lambda:{'069500':'KODEX 200'}, kr_universe=lambda:[{'code':'005930','market':'KOSPI'}], cache=FixtureCache(),
                investor_fetcher=SimpleNamespace(get_investor_trend=lambda code, _size: TREND if code == '005930' else []))
-    funcs = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in {'_replace_meta','render_spa_shell','is_unknown_kr_code','legacy_redirect','_investor_digest','_kr_stock_numbers','_kr_rank','_moving_average','_rsi','_amount'}]
+    funcs = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in {'_replace_meta','render_spa_shell','is_unknown_kr_code','legacy_redirect','is_public_spa_path','_brief_description','_investor_digest','_kr_stock_numbers','_kr_rank','_moving_average','_rsi','_amount'}]
+    env['MARKET_BRIEF_ROUTE'] = re.compile(r"/market-brief/(\d{4}-\d{2}-\d{2})/([a-z0-9]+)", re.I)
+    env['_brief_target'] = lambda slug: {'005930': 'samsung'}.get(slug.lower(), slug.lower())
+    env['seo_content'] = SimpleNamespace(security_snapshot=lambda *_: '', market_directory=lambda *_: '',
+                                         immersive_market_links=lambda *_: '', brief_archive=lambda: '')
     env['public_markets'] = SimpleNamespace(MARKETS={'kospi': {'name': 'KOSPI'}}, PAGES={}, seo_content=lambda *_args: '')
     env['market_guides'] = SimpleNamespace(GUIDES={}, PAGES={})
     env['index_landing'] = SimpleNamespace(BY_PATH={}, PAGES={})
@@ -147,7 +151,48 @@ def test_news_code_links_redirect_to_the_stock_page(renderer):
 def test_robots_blocks_query_variants_of_canonical_pages():
     robots = (Path(__file__).parents[2] / 'frontend/public/robots.txt').read_text(encoding='utf-8')
     source = (Path(__file__).parents[1] / 'app/services/discovery_catalog.py').read_text(encoding='utf-8')
-    for path in re.findall(r"\('(/[a-z-]+)',", source) + ['/news', '/desk', '/global', '/discussion-explorer']:
+    for path in re.findall(r"\('(/[a-z-]+)',", source):
         assert robots.splitlines().count(f'Disallow: {path}?') == 2, path
     lines = robots.splitlines()
+    assert all(f'Disallow: {path}?' not in lines for path in ('/news', '/desk', '/global', '/discussion-explorer'))
+    assert 'Allow: /api/us-stock/*/quote$' in lines
+    assert 'Allow: /api/market-brief?' in lines
     assert not {'Disallow: /stock', 'Disallow: /stock/', 'Disallow: /news', 'Disallow: /'} & set(lines)
+
+
+def test_historical_brief_alias_and_tracking_canonical(renderer, monkeypatch):
+    from app.services import seo_content
+
+    renderer["seo_content"] = seo_content
+    monkeypatch.setattr(seo_content.market_brief_store, "dates", lambda _: [])
+    template = (Path(__file__).parents[2] / "frontend/index.html").read_text(encoding="utf-8")
+    report = {
+        "summary": "정규장 종가 기준 시장 요약.",
+        "index": {"close": 4213.56, "change_pct": -1.2},
+        "breadth": {"advance": 130, "decline": 600, "flat": 25},
+        "analysis": ["종가 수급 분석. <원문>"],
+        "checkpoints": ["반도체 거래대금 확인."],
+        "created_at": "2026-10-14T17:00:00+09:00",
+    }
+    result = renderer["render_spa_shell"](template, "/market-brief/2026-10-14/kospi", {"utm_source": "test"},
+                                           dated_brief=(report, "2026-10-14", "kospi"))
+    assert 'href="https://kospimap.com/market-brief/2026-10-14/kospi"' in result
+    assert '4,213.56 포인트' in result and '600 종목' in result
+    assert '종가 수급 분석. &lt;원문&gt;' in result and '반도체 거래대금 확인.' in result
+    assert "utm_source=test" not in result
+    assert 'id="initial-market-brief"' in result
+    assert renderer["legacy_redirect"]("/market-brief/2026-10-14/005930", {"utm_source": "test"}) == (
+        "/market-brief/2026-10-14/samsung?utm_source=test"
+    )
+
+
+def test_etf_type_and_share_url_are_preserved_on_first_html(renderer):
+    template = (Path(__file__).parents[2] / "frontend/index.html").read_text(encoding="utf-8")
+    document = renderer["render_spa_shell"](template, "/stock/069500", {})
+    assert 'data-seo-stock-code="069500" data-seo-stock-kind="kr_etf"' in document
+    discussion = renderer["render_spa_shell"](template, "/discussion-explorer", {"code": "005930", "name": "Samsung"})
+    assert 'rel="canonical" href="https://kospimap.com/discussion-explorer"' in discussion
+    assert 'property="og:url" content="https://kospimap.com/discussion-explorer?code=005930&amp;name=Samsung"' in discussion
+    assert renderer["legacy_redirect"]("/stock/aapl", {"utm_source": "test"}) == "/stock/AAPL?utm_source=test"
+    assert not renderer["is_public_spa_path"]("/random-typo")
+    assert renderer["is_public_spa_path"]("/global/treasuries/10")
