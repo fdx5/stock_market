@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 
-const ids = ['2moWP_PSooE','bcmTHIqefMk','zXGb3k-A1Vo','-lbbHQbZNKg','pF2tXC1pXNo','DUWRbl3eVi0','6WQjgHuUDWU','vP4jqXzphvc','uYjUI_zeeJk','TrNDRrDXQdo','8PqN8kexaT0','TMXlHacZSh0','7dn32JVyB6s','DzYp5uqixz0','DHNZeIy4kjs','twTHMnVM9L4'];
+const ids = ['uX6jCay0c6I','2moWP_PSooE','bcmTHIqefMk','zXGb3k-A1Vo','-lbbHQbZNKg','pF2tXC1pXNo','DUWRbl3eVi0','6WQjgHuUDWU','vP4jqXzphvc','uYjUI_zeeJk','TrNDRrDXQdo','8PqN8kexaT0','TMXlHacZSh0','7dn32JVyB6s','DzYp5uqixz0','DHNZeIy4kjs','twTHMnVM9L4'];
 const source = name => ts.transpileModule(readFileSync(new URL(`../src/${name}.ts`, import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
@@ -53,16 +53,15 @@ test('unavailable browser storage preserves an in-memory fixed order', () => {
   assert.deepEqual(lap(session), lap(session));
 });
 
-test('the lead track is always first; the two opening tracks take positions 2 and 3 in random order', () => {
-  const firsts = new Set();
+test('the lead track is always first; every other track is shuffled after it', () => {
+  const seconds = new Set();
   for (const r of [0, 0.25, 0.49, 0.5, 0.75, 0.99]) {
     const order = lap(playlist.createBgmSession(undefined, () => r));
-    assert.equal(order[0], '2moWP_PSooE');
-    assert.deepEqual(order.slice(1, 3).sort(), ['bcmTHIqefMk', 'zXGb3k-A1Vo'].sort());
+    assert.equal(order[0], 'uX6jCay0c6I');
     assert.deepEqual([...order].sort(), [...ids].sort());
-    firsts.add(order[1]);
+    seconds.add(order[1]);
   }
-  assert.equal(firsts.size, 2);
+  assert.ok(seconds.size > 1, 'the track after the lead must vary between sessions');
   const storage = memoryStorage();
   const first = lap(playlist.createBgmSession(storage, () => 0.1));
   assert.deepEqual(lap(playlist.createBgmSession(storage, () => { throw new Error('must not reshuffle'); })), first);
