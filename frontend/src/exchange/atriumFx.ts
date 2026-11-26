@@ -19,6 +19,7 @@ import {
 } from "three/tsl";
 import { FLOOR } from "./market";
 import { createBullCelebrationFX } from "./bullCelebrationFx";
+import { blur4, createLiveSea, SEA_WATERLINE_V, type SeaPrep } from "./seaFx";
 
 export type AtriumMood = "daylight" | "golden" | "night";
 
@@ -134,6 +135,8 @@ export type AtriumFX = {
   /** Telemetry for >= +3% / >= +4% bull rally celebration pyrotechnics. */
   getCelebrationState: () => { tier: 0 | 1 | 2; activeCeilingSparks: number; rallyBoost: number };
   setEnvironment: (env: Texture) => void;
+  /** Live window sea on/off at runtime (no recompile). No-op when the sea is not built. */
+  setSeaEnabled: (on: boolean) => void;
   /** 2 = full analytical luster, 1 = balanced, 0 = off. */
   setReflectionLevel: (level: 0 | 1 | 2) => void;
   tick: (now: number, dt: number, reduced: boolean) => void;
@@ -200,6 +203,8 @@ export function createAtriumFX(
   mainCamera: Object3D,
   screensGroup: Object3D,
   initialEnv?: Texture,
+  /** Desktop: replace the photo's frozen water with the live sea (seaFx). */
+  liveSea = false,
 ): AtriumFX {
   const group = new Group();
   group.name = "AtriumV6FX";
@@ -234,6 +239,9 @@ export function createAtriumFX(
   const uWindowExposure = uniform(MOODS.daylight.windowExposure);
   const uSkylightColor = uniform(new Color(MOODS.daylight.skylightColor));
   const uSkylightEmit = uniform(MOODS.daylight.skylightEmit);
+
+  const sea = liveSea ? createLiveSea({ time: uTime, golden: uWindowGoldenMix, night: uWindowNightMix }) : null;
+  if (sea) disposables.push(sea);
 
   // Keep unused constructor refs clean (zero-pass analytical marble reflection replaces double-render reflector!)
   void mainCamera;
@@ -315,13 +323,24 @@ export function createAtriumFX(
     vRaw: WindowSkyCoords["vRaw"],
     viewDir: WindowSkyCoords["viewDir"],
     sampleRefl: (dx: Node<"float">, dz: Node<"float">) => Node<"vec3">,
+    seaCtx?: {
+      prep: SeaPrep;
+      samplePano: (u: Node<"float">, v: Node<"float">, lod: Node<"float">) => Node<"vec3">;
+      photoLow: () => Node<"vec3">;
+    },
   ) => {
     // Strictly-lossless GPU warp-coherent branching:
     // 1. River handoff (6x 3D Simplex Noise + reflection fetch) ONLY executes when vRaw > 0.86 (<2% of window pixels!)
     // 2. Zenith sky dome ONLY executes when vRaw < 0.06 (<5% of window pixels!)
     // Produces 100% bit-identical visuals while eliminating ~75% of exterior window GPU ALU & texture bandwidth.
     const sceneCol = vec3(blended).toVar();
-    If(vRaw.greaterThan(float(0.86)), () => {
+    if (sea && seaCtx) {
+      // Live sea over every water pixel below the far-shore waterline (desktop only).
+      If(vRaw.greaterThan(float(SEA_WATERLINE_V + 0.0045)).and(sea.enabledNode.greaterThan(float(0.5))), () => {
+        const seaCol = sea.shade(seaCtx.prep, sceneCol, seaCtx.photoLow(), seaCtx.samplePano);
+        sceneCol.assign(mix(sceneCol, seaCol, sea.weight(vRaw)));
+      });
+    } else If(vRaw.greaterThan(float(0.86)), () => {
       const wave = buildVrWaterWave(viewDir);
       const reflCol = sampleRefl(wave.dx, wave.dz);
       const downBlend = smoothstep(float(0.87), float(1.10), vRaw);
@@ -352,7 +371,6 @@ export function createAtriumFX(
 
     // Architectural curtain-wall low-iron glazing integration:
     // - Subtle glass transmission tint & soft recessed bronze/stone reveal shading around window edges
-    // - Gentle interior reflection sheen at oblique grazing angles so the skyline sits physically behind glass
     const ndv = clamp(abs(dot(normalView, positionViewDirection)), float(0.0), float(1.0));
     const fresnel = pow(float(1.0).sub(ndv), float(3.4));
     const winUv = uv();
@@ -369,13 +387,7 @@ export function createAtriumFX(
     // Keep bright night skyscraper lights vivid & razor-sharp while softly capping right under bloom threshold
     const nightSafe = exposed.div(float(1.0).add(exposed.mul(0.24))).mul(1.18);
     const crispOut = mix(exposed, nightSafe, uWindowNightMix);
-    const interiorSheenCol = mix(
-      mix(vec3(0.68, 0.78, 0.90), vec3(0.90, 0.76, 0.58), uWindowGoldenMix),
-      vec3(0.46, 0.44, 0.48),
-      uWindowNightMix,
-    );
-    const glassRim = fresnel.mul(mix(float(0.075), float(0.115), uWindowNightMix));
-    return crispOut.add(interiorSheenCol.mul(glassRim));
+    return crispOut;
   };
 
   const makeParallaxSkylineWindow = (src?: MeshStandardMaterial, singleTex?: Texture) => {
@@ -384,10 +396,10 @@ export function createAtriumFX(
       color: new Color("#05080e"),
       roughness: 0.04,
       metalness: 0.05,
-      envMapIntensity: 0.30,
+      // No interior reflection on the exterior glass (hall env map mirrored on the panes looked fake).
+      envMapIntensity: 0.0,
       side: DoubleSide,
     });
-    if (currentEnvMap) wm.envMap = currentEnvMap;
     wm.emissiveNode = Fn(() => {
       const { uSky, vSky, vRaw, viewDir } = buildWindowSkyCoords();
       const skyUv = vec2(uSky, vSky);
@@ -399,6 +411,28 @@ export function createAtriumFX(
             texture(skyNightTex, skyUv).rgb,
             uWindowNightMix,
           );
+      // Boot material (single skyline, compiled before reveal) stays sea-free so first paint costs nothing extra;
+      // the live sea arrives with the async-precompiled 16K material and the 3-mood crossfade material.
+      const seaPrep = sea && !singleTex ? sea.prepare(uSky, vRaw) : null;
+      const pano8 = (u: Node<"float">, v: Node<"float">) => {
+        const p = vec2(fract(u), clamp(v, float(0.004), float(0.996)));
+        if (singleTex) return texture(singleTex, p, float(0.0)).rgb;
+        return mix(
+          mix(texture(skyDayTex, p, float(0.0)).rgb, texture(skyGoldenTex, p, float(0.0)).rgb, uWindowGoldenMix),
+          texture(skyNightTex, p, float(0.0)).rgb,
+          uWindowNightMix,
+        );
+      };
+      const seaCtx = seaPrep ? {
+        prep: seaPrep,
+        // Non-mipmapped 4K fallback (shown only until the 16K tiles bind): single-tap reflections keep the
+        // shader small so its post-reveal compile stays short.
+        samplePano: (u: Node<"float">, v: Node<"float">, lod: Node<"float">) => {
+          void lod;
+          return pano8(u, v);
+        },
+        photoLow: () => blur4(pano8, uSky, vSky, 0.0016, 0.0042),
+      } : undefined;
       return buildWindowEmissive(blended, vRaw, viewDir, (dx, dz) => {
         const uRefl = fract(uSky.add(dx.mul(0.0055)));
         const vRefl = clamp(float(0.571).sub(abs(vRaw.sub(0.571)).mul(0.56)).add(dz.mul(0.026)), float(0.04), float(0.565));
@@ -409,9 +443,8 @@ export function createAtriumFX(
           texture(skyNightTex, reflUv, float(0.0)).rgb,
           uWindowNightMix,
         );
-      });
+      }, seaCtx);
     })();
-    envMats.push(wm);
     if (src) disposables.push(src);
     disposables.push(wm);
     return wm;
@@ -424,10 +457,10 @@ export function createAtriumFX(
       color: new Color("#05080e"),
       roughness: 0.04,
       metalness: 0.05,
-      envMapIntensity: 0.30,
+      // No interior reflection on the exterior glass (hall env map mirrored on the panes looked fake).
+      envMapIntensity: 0.0,
       side: DoubleSide,
     });
-    if (currentEnvMap) wm.envMap = currentEnvMap;
     wm.emissiveNode = Fn(() => {
       const { uSky, vSky, vRaw, viewDir } = buildWindowSkyCoords();
       const uWrapped = fract(uSky);
@@ -459,6 +492,28 @@ export function createAtriumFX(
         blended.assign(texture(texL, tileUv, lod).rgb);
       });
 
+      const seaPrep = sea ? sea.prepare(uSky, vRaw) : null;
+      const pano16 = (u: Node<"float">, v: Node<"float">, lodIn: Node<"float">) => {
+        const uw = fract(u);
+        const right = step(float(0.5), uw);
+        const ul = mix(uw.mul(2.0), uw.sub(0.5).mul(2.0), right);
+        const p = vec2(ul.mul(8190.0 / 8192.0).add(1.0 / 8192.0), clamp(v, float(0.002), float(0.998)));
+        const lodC = clamp(lodIn, float(0.0), float(9.0));
+        const col = vec3(0.0).toVar();
+        If(right.greaterThan(float(0.5)), () => {
+          col.assign(texture(texR, p, lodC).rgb);
+        }).Else(() => {
+          col.assign(texture(texL, p, lodC).rgb);
+        });
+        return col;
+      };
+      const seaCtx = seaPrep ? {
+        prep: seaPrep,
+        samplePano: pano16,
+        // The photo's own water, blurred more with distance below the shore (kills its frozen ripples).
+        photoLow: () => pano16(uSky, vSky, mix(float(3.2), float(5.6),
+          smoothstep(float(SEA_WATERLINE_V + 0.01), float(SEA_WATERLINE_V + 0.16), vRaw))),
+      } : undefined;
       return buildWindowEmissive(blended, vRaw, viewDir, (dx, dz) => {
         const uReflW = fract(uSky.add(dx.mul(0.0055)));
         const isReflR = step(float(0.5), uReflW);
@@ -474,7 +529,7 @@ export function createAtriumFX(
           reflCol.assign(texture(texL, reflUv, reflLod).rgb);
         });
         return reflCol;
-      });
+      }, seaCtx);
     })();
     return wm;
   };
@@ -1434,14 +1489,9 @@ export function createAtriumFX(
         m.envMap = env;
         m.needsUpdate = true;
       }
-      if (windowMatCache) {
-        windowMatCache.envMap = env;
-        windowMatCache.needsUpdate = true;
-      }
-      if (hiResMat) {
-        hiResMat.envMap = env;
-        hiResMat.needsUpdate = true;
-      }
+    },
+    setSeaEnabled(on: boolean) {
+      if (sea) sea.enabled.value = on ? 1 : 0;
     },
     setReflectionLevel(level: 0 | 1 | 2) {
       reflectTierMul = level === 0 ? 0.0 : level === 1 ? 0.72 : 1.0;

@@ -674,15 +674,6 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       for (const g of proxyGeos) g.dispose();
       proxyMat.dispose();
     });
-    // Clickable exterior panoramic windows: clicking any daylight window opens the 360° Seoul skyline observatory!
-    model.traverse(child => {
-      if (!(child instanceof Mesh)) return;
-      const mats = Array.isArray(child.material) ? child.material : [child.material];
-      if (mats.some(m => m && /perimeter daylight window/i.test(m.name))) {
-        child.userData.panel = "skyline:view";
-        artTargets.push(child);
-      }
-    });
     const pickTargets = artTargets.length ? [...screens.targets, ...artTargets] : screens.targets;
     if (measure) {
       const names: string[] = [];
@@ -889,7 +880,9 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     }
     scene.add(model);
     scene.add(screens.group);
-    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile, { initial: initialSkyTex }, camera, screens.group, initialEnvTex);
+    // Live sea in the window panorama: desktop only (mouse/keyboard, not touch). ?sea=1 forces it on, ?sea=0 off.
+    const liveSea = params.get("sea") === "1" || (params.get("sea") !== "0" && !touch && !appleTouch && !mobile);
+    const fx = createAtriumFX(model, scene, renderer, sky, lightmapped, mobile, { initial: initialSkyTex }, camera, screens.group, initialEnvTex, liveSea);
     scene.add(fx.group);
     releases.push(fx.dispose);
     const tour = new ShowcaseTour();
@@ -1796,6 +1789,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         state.x = p.x; state.z = p.z; state.y = eyeY = p.y ?? 0;
         state.yaw = lookYaw = p.yaw * RAD; pitch = lookPitch = p.pitch;
       };
+      (window as unknown as { __exchangeSea?: (on: boolean) => void }).__exchangeSea = on => fx.setSeaEnabled(on);
+      releases.push(() => { delete (window as unknown as { __exchangeSea?: unknown }).__exchangeSea; });
       (window as unknown as { __exchangePick?: (x: number, y: number) => unknown }).__exchangePick = (x, y) => {
         const rect = canvas.getBoundingClientRect();
         pointer.set((x - rect.left) / rect.width * 2 - 1, -(y - rect.top) / rect.height * 2 + 1);

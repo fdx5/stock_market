@@ -9,7 +9,6 @@ import {
 } from "./market";
 import type { AtriumMood, FloorDriver, LiftState } from "./floorEngine";
 import ArtViewer, { artLabel } from "./ArtViewer";
-import SkylineViewer from "./SkylineViewer";
 import { PAINTERS, areaChart, searchedStockPainter, type PaintEnv } from "./panels";
 import { api, type MarketMapItem, type StockSearchResult } from "../api/client";
 import { loadDisplayFonts } from "./screens";
@@ -27,7 +26,6 @@ const KINDS = ["market", "stocks", "global", "assets", "desk"] as const;
 const SCROLLERS = ".exchange-focus, .exchange-monitor-picker > div, .exchange-station-list, .exchange-stock-search ul, .exchange-heatmap-box";
 
 function panelLabel(id: string, lang: Language, data?: FloorSnapshot) {
-  if (id === "skyline:view") return t(lang, "서울 미래 도심 360° 전망창", "360° Seoul Skyline Observatory");
   if (id.startsWith("art:") || id.startsWith("sculpture:")) return artLabel(id, lang);
   const i = stockIndex(id);
   if (i >= 0) {
@@ -476,9 +474,9 @@ export default function ExchangePage() {
     }
   }, [data.index?.change]);
   useEffect(() => { driver?.setMood(mood); }, [driver, mood]);
-  // Pause 3D frames while a full-screen 2D overlay (painting or 360° skyline observatory) covers the hall (3D sculpture viewer renders live!).
+  // Pause 3D frames while a full-screen 2D painting overlay covers the hall (3D sculpture viewer renders live!).
   useEffect(() => {
-    const fullOverlay = !!focus && (focus.startsWith("art:") || focus === "skyline:view");
+    const fullOverlay = !!focus && focus.startsWith("art:");
     driver?.suspend(fullOverlay);
   }, [driver, focus]);
   useEffect(() => {
@@ -587,7 +585,7 @@ export default function ExchangePage() {
       <div className="exchange-view" ref={host} style={{ backgroundImage: "url(" + STORAGE_ASSETS + "/floor-preview-v6.webp)" }}>
         <canvas key={retry.id} ref={canvas} className="exchange-canvas" tabIndex={0} aria-label={t(lang, "3D 거래소. 방향키로 이동하고 모니터를 선택하세요.", "3D trading floor. Use arrow keys to move and select a monitor.")} />
       </div>
-      {!(focus?.startsWith("art:") || focus?.startsWith("sculpture:") || focus === "skyline:view") && <div className="exchange-overlay-top">
+      {!(focus?.startsWith("art:") || focus?.startsWith("sculpture:")) && <div className="exchange-overlay-top">
         <div className="exchange-top-primary">
           {(immersive || !slot) && <MarketSwitch market={market} lang={lang} choose={chooseMarket} />}
           {(data.received || data.failed) && <div className="exchange-status">
@@ -640,22 +638,14 @@ export default function ExchangePage() {
             <b ref={mark} className="exchange-plan-person" />
           </div>
         </div>}
-        <div className="exchange-instructions"><span>{t(lang, "WASD / 방향키 이동 · Shift 빠르게 · 드래그 시점 · 모니터·작품·창문 클릭", "WASD / arrows move · Shift runs · drag to look · click monitors, art or windows")}</span>
-          <small>{t(lang, "왼쪽 조이스틱 이동 · 화면 드래그 · 모니터·창문 탭", "Left joystick moves · drag to look · tap monitors or windows")}</small></div>
+        <div className="exchange-instructions"><span>{t(lang, "WASD / 방향키 이동 · Shift 빠르게 · 드래그 시점 · 모니터·작품 클릭", "WASD / arrows move · Shift runs · drag to look · click monitors or art")}</span>
+          <small>{t(lang, "왼쪽 조이스틱 이동 · 화면 드래그 · 모니터·작품 탭", "Left joystick moves · drag to look · tap monitors or art")}</small></div>
       </>}
-      {focus && (focus === "skyline:view"
-        ? <SkylineViewer
-            mood={mood}
-            onMoodChange={next => chooseMood(next, next, "전망 무드 · ")}
-            initialYaw={currentPosition.current.yaw}
-            lang={lang}
-            onClose={() => { setFocus(undefined); canvas.current?.focus({ preventScroll: true }); }}
-          />
-        : focus.startsWith("art:") || focus.startsWith("sculpture:")
-          ? <ArtViewer key={focus} id={focus} lang={lang} driver={driver} onClose={() => { setFocus(undefined); canvas.current?.focus({ preventScroll: true }); }} />
-          : <FocusPanel key={market + ":" + focus} data={data} id={focus} lang={lang} histories={histories} onClose={() => {
-            setFocus(undefined); canvas.current?.focus({ preventScroll: true });
-          }} />)}
+      {focus && (focus.startsWith("art:") || focus.startsWith("sculpture:")
+        ? <ArtViewer key={focus} id={focus} lang={lang} driver={driver} onClose={() => { setFocus(undefined); canvas.current?.focus({ preventScroll: true }); }} />
+        : <FocusPanel key={market + ":" + focus} data={data} id={focus} lang={lang} histories={histories} onClose={() => {
+          setFocus(undefined); canvas.current?.focus({ preventScroll: true });
+        }} />)}
       {driver && lift?.inside != null && !focus && <div className="exchange-lift" role="group" aria-label={t(lang, "엘리베이터 층 선택", "Elevator floors")}>
         <span>{t(lang, "글라스 엘리베이터", "Glass elevator")}</span>
         <div>{[3, 2, 1, 0].map(f => <button key={f} type="button" aria-pressed={lift.floor === f && !lift.moving}
@@ -669,10 +659,6 @@ export default function ExchangePage() {
         {FLOOR.stations.map(station => <button type="button" className="exchange-action" key={station.id} onClick={() => visit(station)}>{station[lang]}</button>)}
       </div>
       <div className="exchange-utilities">
-        <button type="button" className="exchange-action" aria-pressed={focus === "skyline:view"} onClick={() => {
-          if (focus === "skyline:view") { setFocus(undefined); canvas.current?.focus({ preventScroll: true }); }
-          else inspect("skyline:view");
-        }}>{t(lang, "360° 도심 전망", "360° Skyline")}</button>
         <button type="button" className="exchange-action" aria-pressed={showMap} disabled={!driver} onClick={() => setShowMap(value => !value)}>{t(lang, "평면도", "Floor map")}</button>
         <details className="exchange-monitor-picker"><summary className="exchange-action">{t(lang, "관제 화면", "Monitors")} {Object.keys(PANEL_LABELS).length} <span>↑</span></summary>
           <div>{KINDS.map(kind => <section key={kind}>
