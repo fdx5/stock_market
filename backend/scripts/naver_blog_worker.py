@@ -106,8 +106,15 @@ def tick(verbose: bool = False) -> int:
             if verbose:
                 print(json.dumps(result, ensure_ascii=False, indent=1, default=str))
             if result["status"] in ("all_done",):
-                state["done"] = sorted(done | {f"{d}:{e}" for d, e in due})[-60:]
-            elif result["status"] not in ("ok", "nothing_due", "busy"):
+                # "all_done" only means nothing was open for *this* worker — a row can be
+                # claimed by another worker that then fails (11-26 12:00: the server held
+                # the midday post, hit 502s, and the PC had already written it off). Only
+                # rows that are really finished are remembered as done.
+                for d, e in due:
+                    row = naver_social_store.get(naver_social_store.key(d, e)) or {}
+                    if row.get("status") in ("published", "skipped") or (row.get("attempts") or 0) >= naver_social_store.MAX_ATTEMPTS:
+                        done.add(f"{d}:{e}")
+            elif result["status"] not in ("ok", "nothing_due", "busy", "deferred"):
                 code = 1
             for item in result.get("published", []):
                 done.add(item["key"])
@@ -140,8 +147,10 @@ def tick(verbose: bool = False) -> int:
         except Exception:
             log.exception("perf collection failed")
 
-    if not due:
-        _auto_update(state, log)
+    # Each tick is a fresh process, so pulling at the end of one is safe; the next tick
+    # runs the new code. (Waiting for "nothing due" never happened on trading days —
+    # the windows overlap from 06:50 to 23:00 — and the PC ran day-old code.)
+    _auto_update(state, log)
     _save_state(state)
     return code
 

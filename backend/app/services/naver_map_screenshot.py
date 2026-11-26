@@ -14,6 +14,8 @@ map image, never its publication (naver_document_model still always emits the li
 
 from __future__ import annotations
 
+from app.services import browser_guard
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -34,6 +36,7 @@ USER_AGENT = (
 )
 
 
+@browser_guard.uses_browser("kospi map screenshot")
 def capture(url: str = MAP_URL, selector: str = MAP_SELECTOR) -> bytes | None:
     """Returns a PNG of the live treemap, or None on any failure."""
     from playwright.sync_api import sync_playwright

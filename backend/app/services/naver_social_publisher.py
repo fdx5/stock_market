@@ -21,6 +21,8 @@ All Naver writes in this process and the closing-brief publisher share one lease
 
 from __future__ import annotations
 
+from app.services import browser_guard
+
 import datetime as dt
 import logging
 import os
@@ -88,6 +90,22 @@ def expired(now: dt.datetime) -> list[tuple[dt.date, str]]:
     return out
 
 
+def _transient(exc: BaseException) -> bool:
+    """A source that is down for the moment (5xx, connection error, timeout) — not a bad post."""
+    import socket
+    import urllib.error
+
+    import requests
+
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    if isinstance(exc, requests.HTTPError):
+        code = getattr(exc.response, "status_code", 0) or 0
+        return code >= 500 or code == 429
+    return isinstance(exc, (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError,
+                            requests.ConnectionError, requests.Timeout))
+
+
 def _publish(post: content.Post, cookies: list[dict], *, dry_run: bool) -> dict:
     title_paragraphs = naver_document_model.build_title_paragraphs(post.title)
     meta = {"market": post.edition}
@@ -95,6 +113,7 @@ def _publish(post: content.Post, cookies: list[dict], *, dry_run: bool) -> dict:
                                      dry_run=dry_run, category_no=post.category_no, category_name=post.category_name)
 
 
+@browser_guard.uses_browser("naver social edition")
 def publish_edition(day: dt.date, edition: str, cookies: list[dict], *, dry_run: bool = False,
                     variant: str | None = None) -> dict:
     """Builds and publishes one edition. Assumes the claim is held (unless dry_run)."""
@@ -166,6 +185,13 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
                     store.release(k, f"not ready: {exc}", refund=True)
                 result["waiting"].append({"key": k, "why": str(exc)[:160]})
                 continue
+            except browser_guard.BrowserUnavailable as exc:
+                # Not here / not now (web server, low memory, busy): hand it back untouched.
+                if not dry_run:
+                    store.release(k, f"deferred: {exc}", refund=True)
+                result["waiting"].append({"key": k, "why": str(exc)[:160]})
+                result["status"] = "deferred"
+                break
             except naver_blog_client.NaverSessionExpired as exc:
                 if not dry_run:
                     store.release(k, f"session refused: {exc}", refund=True)
@@ -174,6 +200,15 @@ def run_due(now: dt.datetime | None = None, *, dry_run: bool = False, only: list
                 result["status"] = "session_refused"
                 break
             except Exception as exc:
+                if _transient(exc):
+                    # Our own site or a data source answered 5xx / timed out: the data is not
+                    # reachable yet, which is not this post's fault — retry later for free.
+                    # (On 11-26 three 502s used up three of the midday post's four attempts.)
+                    if not dry_run:
+                        store.release(k, f"source unavailable: {type(exc).__name__}: {str(exc)[:120]}", refund=True)
+                        store.log_run(k, "waiting", f"[{source}] source unavailable: {type(exc).__name__}")
+                    result["waiting"].append({"key": k, "why": f"source unavailable: {type(exc).__name__}"})
+                    continue
                 log.exception("naver social publish failed for %s", k)
                 if not dry_run:
                     store.release(k, f"{type(exc).__name__}: {exc}", refund=False)
@@ -239,7 +274,7 @@ def _server_tick() -> None:
             _server["done"].add(item["key"])
         if result["status"] == "all_done":
             _server["done"].update(f"{d}:{e}" for d, e in todo)
-        if result["status"] == "session_refused":
+        if result["status"] in ("session_refused", "deferred"):
             _server["paused_until"] = time.time() + SERVER_PAUSE_SECONDS
             _server["refused_at"] = now.isoformat(timespec="seconds")
             log.warning("Naver refused a server-side write; pausing server publishing for %ss", SERVER_PAUSE_SECONDS)

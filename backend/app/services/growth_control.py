@@ -47,9 +47,11 @@ KST = pvs.KST
 METRICS_VERSION = 2
 BACKFILL_DAYS = 120
 # Closed days recomputed under the newest version (older days keep their v1 payload).
-# 0 by default: recomputing 20 days per pass held the page_views gate for minutes and
-# starved request threads (502s on 2026-11-26 12:06). New days get v2 as they close.
-REFRESH_DAYS = int(os.environ.get("GROWTH_REFRESH_DAYS", "0"))
+# Closed days recomputed under the newest version (older days keep their v1 payload).
+# Refreshing an existing day is optional work, so it only runs at night (KST 02-06),
+# a few days per pass, on its own connection — see _own_connection.
+REFRESH_DAYS = int(os.environ.get("GROWTH_REFRESH_DAYS", "45"))
+REFRESH_HOURS = range(2, 6)
 MILESTONES = (2, 5, 10, 25, 50, 100)
 CHANNELS = ("search", "social", "referral", "email", "direct")
 CHANNEL_LABELS = {"search": "검색", "social": "소셜·커뮤니티", "referral": "외부 링크", "email": "메일·알림", "direct": "직접·미식별"}
@@ -283,6 +285,24 @@ def _stored_days(conn, days: list[str]) -> dict[str, int]:
     return {r[0]: int(r[1] or 0) for r in rows}
 
 
+def _own_connection(fn):
+    """Runs a long analytic job on a connection of its own, outside page_view_store's gate.
+
+    The gate serializes the shared connection that every page-view write and admin read
+    uses; a day's rollup is several full-day scans (10-20 s from the server to Turso), and
+    holding the gate that long queued request threads behind it — the 2026-11-26 12:06
+    outage started minutes after a 45-day recompute began. A separate connection has its
+    own HTTP session, so it neither races the shared one nor blocks it."""
+    conn = pvs._connect()
+    try:
+        return fn(conn)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def ensure_rollups(days: int = BACKFILL_DAYS, max_new: int = 20, pause: float = 1.5) -> int:
     """Store the metrics of closed days not stored yet, newest first, `max_new` per call."""
     now = datetime.now(KST)
@@ -292,9 +312,10 @@ def ensure_rollups(days: int = BACKFILL_DAYS, max_new: int = 20, pause: float = 
     if now.hour == 0 and now.minute < 20:
         candidates = candidates[1:]
     have = pvs._with_connection(lambda conn: _stored_days(conn, candidates))
-    # Recent days are owed the newest version; older ones only need to exist.
-    missing = [d for i, d in enumerate(candidates)
-               if (have.get(d, 0) < METRICS_VERSION if i < REFRESH_DAYS else d not in have)][:max_new]
+    absent = [d for d in candidates if d not in have]
+    # Recent days are owed the newest version, but only at night: it is optional work.
+    stale = [d for d in candidates[:REFRESH_DAYS] if d in have and have[d] < METRICS_VERSION]         if now.hour in REFRESH_HOURS else []
+    missing = (absent + stale)[:max_new if absent else min(max_new, 3)]
     done = 0
     for day in missing:
         def write(conn, day=day):
@@ -304,7 +325,7 @@ def ensure_rollups(days: int = BACKFILL_DAYS, max_new: int = 20, pause: float = 
                           datetime.now(timezone.utc).isoformat()))
             conn.commit()
         try:
-            pvs._with_connection(write, wait=20.0)
+            _own_connection(write)
             done += 1
         except Exception as exc:
             log.warning("growth rollup %s failed: %s", day, type(exc).__name__)
@@ -437,7 +458,7 @@ def _audience_daily(start: str, end: str) -> dict[str, dict]:
 
 def _today_metrics() -> dict:
     today = datetime.now(KST).date().isoformat()
-    return pvs._with_connection(lambda conn: compute_day(conn, today))
+    return _own_connection(lambda conn: compute_day(conn, today))
 
 
 def _last_event() -> str | None:

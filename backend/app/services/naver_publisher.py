@@ -28,6 +28,7 @@ import time
 from zoneinfo import ZoneInfo
 
 from app.services import (
+    browser_guard,
     kakao_notify,
     market_brief_store,
     naver_blog_client,
@@ -421,6 +422,11 @@ def keep_alive_once() -> bool:
         return False
     try:
         fresh = naver_blog_client.keep_alive(session["cookies"])
+    except browser_guard.BrowserUnavailable as exc:
+        # The web server does not run browsers (browser_guard); the PC worker's own
+        # publishing keeps the session fresh.
+        log.info("keep-alive skipped: %s", exc)
+        return False
     except naver_blog_client.NaverSessionExpired:
         log.warning("keep-alive found the Naver session expired")
         _alert(

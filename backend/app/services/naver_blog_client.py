@@ -26,6 +26,7 @@ side. The interceptor records the outgoing request shape, which is what a future
 pure-HTTP path would need.
 """
 
+from app.services import browser_guard
 import datetime as dt
 import json
 import logging
@@ -184,6 +185,7 @@ def _assert_logged_in(page) -> None:
         raise NaverSessionExpired(f"redirected to the Naver login page ({url[:80]})")
 
 
+@browser_guard.uses_browser("naver blog publish")
 def publish(
     brief: dict,
     meta: dict,
@@ -873,6 +875,7 @@ def _click_first(frame, selectors: list[str], *, what: str) -> bool:
     return False
 
 
+@browser_guard.uses_browser("naver session keep-alive")
 def keep_alive(cookies: list[dict]) -> list[dict]:
     """Loads the blog once to let Naver rotate the session cookies, and returns the
     refreshed jar.
