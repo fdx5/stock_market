@@ -107,6 +107,40 @@ def campaign_caption(text, service, edition, day=None):
     return re.sub(rf"^{re.escape(SITE)}{path}$", lambda match: f"{match.group()}?{params}", text, flags=re.MULTILINE)
 
 
+# Threads turns the first hashtag of a post into its topic, and a topic that names a
+# community puts the post in that community's feed. "Investing" is the largest
+# stock-related community on Threads (290k members, Korean stock posts; checked
+# 2026-11-26 — "주식", "주식투자", "stocks" are plain tags, not communities), so every
+# Threads caption leads its hashtags with it instead of a per-post keyword.
+THREADS_TOPIC = os.environ.get("THREADS_TOPIC", "Investing").strip().lstrip("#")
+_HASHTAG = re.compile(r"(?<!\S)#[^\s#]+")
+
+
+def threads_topic(text):
+    """The caption with #THREADS_TOPIC as its first hashtag, still within Threads' length."""
+    if not THREADS_TOPIC:
+        return text
+    tag = f"#{THREADS_TOPIC}"
+    lines = text.split("\n")
+    lines = [" ".join(w for w in line.split(" ") if w.lower() != tag.lower()) if tag.lower() in line.lower() else line
+             for line in lines]
+    first = next((i for i, line in enumerate(lines) if _HASHTAG.search(line)), None)
+    if first is None:
+        lines.append(tag)
+    else:
+        m = _HASHTAG.search(lines[first])
+        lines[first] = lines[first][:m.start()] + tag + " " + lines[first][m.start():]
+    out = "\n".join(lines)
+    # Over the limit: drop trailing hashtags (never the topic) until it fits.
+    while not caption_fits("threads", out):
+        tags = list(_HASHTAG.finditer(out))
+        if len(tags) <= 1:
+            return text if caption_fits("threads", text) else out
+        last = tags[-1]
+        out = (out[:last.start()].rstrip(" ") + out[last.end():])
+    return out
+
+
 def story_hashtag(value):
     if not isinstance(value, str):
         return ""
@@ -532,6 +566,8 @@ def deliver(day, edition, prepared=None, receipt=None):
                             caption = campaign_caption(text, service, edition)  # undated tag is shorter
                         if len(caption) > 300 or weighted_length(caption) > 280:
                             raise RuntimeError("Tagged caption exceeds the cross-platform post length")
+                    if service == "threads":
+                        caption = threads_topic(caption)
                     publish(channel, caption, assets)
             except (OSError, RuntimeError) as error:
                 print(f"::warning::{service} delivery request needs verification ({type(error).__name__})")
