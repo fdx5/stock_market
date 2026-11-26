@@ -25,6 +25,7 @@ Nothing here updates or deletes a stored row.
 from __future__ import annotations
 
 import json
+import os
 import logging
 import math
 import re
@@ -46,7 +47,9 @@ KST = pvs.KST
 METRICS_VERSION = 2
 BACKFILL_DAYS = 120
 # Closed days recomputed under the newest version (older days keep their v1 payload).
-REFRESH_DAYS = 45
+# 0 by default: recomputing 20 days per pass held the page_views gate for minutes and
+# starved request threads (502s on 2026-11-26 12:06). New days get v2 as they close.
+REFRESH_DAYS = int(os.environ.get("GROWTH_REFRESH_DAYS", "0"))
 MILESTONES = (2, 5, 10, 25, 50, 100)
 CHANNELS = ("search", "social", "referral", "email", "direct")
 CHANNEL_LABELS = {"search": "검색", "social": "소셜·커뮤니티", "referral": "외부 링크", "email": "메일·알림", "direct": "직접·미식별"}
