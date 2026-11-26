@@ -133,6 +133,7 @@
     "/stock-screener",
     "/stock-tradeoffs",
     "/stocks",
+    "/stocks/catalog",
     "/support",
     "/support-success",
     "/support-success/",
@@ -144,7 +145,7 @@
     "/world-markets",
     "/yield-curve-lab"
   ],
-  "source_files": 1075,
+  "source_files": 1080,
   "workers": [
     "frontend/src/components/budgetForestWorker.ts",
     "frontend/src/components/coastGeometryWorker.ts",
@@ -170,6 +171,7 @@
     "frontend/src/components/workerCpuRaster.ts",
     "frontend/src/drivegame/world/tileWorker.ts",
     "frontend/src/exchange/paintWorker.ts",
+    "frontend/src/exchange/seaWaveWorker.ts",
     "frontend/src/monitor/synapseGeometry.worker.ts",
     "frontend/src/neo/backdropRenderWorker.ts",
     "frontend/src/neo/nanotubeGeometryWorker.ts",
