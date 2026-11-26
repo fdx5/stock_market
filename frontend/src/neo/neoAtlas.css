@@ -248,3 +248,14 @@ html[data-design="neo"] .ng-content .d2-cmd-find kbd{margin-left:0;flex:0 0 auto
 /* The command home fills the available workspace, including ultra-wide screens. */
 .ng-content.ng-content--atlas{width:100%;max-width:none;box-sizing:border-box}
 .ng-content--atlas>.ng-atlas{width:100%;max-width:none;box-sizing:border-box}
+
+/* Section backing (2026-11-26): the fixed neon river behind the page showed straight through
+   sections that had only a top rule and no fill, so its strands crossed numbers and names.
+   Every desk section now sits on the same near-opaque panel the investor/video sections use. */
+html[data-design="neo"] .ng-content .d2-main>.d2-sec{background:#150f19f2;border:1px solid var(--line-soft);border-radius:2px;padding:22px 18px}
+html[data-design="neo"] .ng-content .d2-main>.d2-sec:first-child{border-top:1px solid var(--line-soft)}
+html[data-design="neo"] .ng-content .ng-sector-digest{background:linear-gradient(#f275600d,#f275600d),#150f19f2;border-inline:1px solid #f2756040}
+html[data-design="neo"] .ng-content .ed-market-details{background:#150f19f2;border:1px solid var(--line-soft);border-top:0;padding:0 12px 8px;margin-top:0}
+html[data-design="neo"] .ng-content .ed-lens-toolbar{width:fit-content;margin:16px 0 0 auto;padding:6px 12px;background:#150f19f2;border:1px solid var(--line-soft);border-radius:2px}
+@media(max-width:599px){html[data-design="neo"] .ng-content .d2-main>.d2-sec{padding:16px 12px}}
+html[data-design="neo"] .ng-footer .d2-colophon{background:#150f19f2;padding:24px 18px 18px;border:1px solid var(--line-soft);border-radius:2px}
