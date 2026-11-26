@@ -574,10 +574,11 @@ export function createAtriumFX(
       const baseRough = pm.roughness;
       const baseCoat = pm.clearcoat;
 
-      // Analytical joint mask: guarded by levelFloor so walls/columns skip all atan/length/floor math!
-      const jointMask = Fn(() => {
-        const aa = fwidth(xz).length().mul(0.7071).max(1e-5);
-        const out = float(0).toVar();
+      // Share the stone cut and seam coverage across the colour and specular channels.
+      // xy offsets the quarry texture, z varies the slab finish, w is visible grout coverage.
+      const slab = Fn(() => {
+        const footprint = fwidth(xz).length().mul(0.7071).max(1e-5);
+        const result = vec4(0, 0, .5, 0).toVar();
         If(levelFloor.greaterThan(float(0.01)), () => {
           const radius = xz.length();
           const ringPos = radius.div(ring);
@@ -589,38 +590,23 @@ export function createAtriumFX(
           const arcLen = radius.mul(2 * Math.PI).div(segments);
           const arcEdge = min(fract(segPos), float(1).sub(fract(segPos))).mul(arcLen);
           const edge = min(radialEdge, arcEdge);
-          const centre = smoothstep(float(1.15), float(1.3), radius);          // no joints in the core well
-          out.assign(float(1).sub(smoothstep(float(joint), float(joint).add(aa.mul(1.5)), edge)).mul(centre).mul(levelFloor));
+          // Overlap of the pixel footprint with a 2.5 mm joint. Distant joints occupy
+          // a fraction of a pixel, so they fade without growing into broad matte bands.
+          const halfPixel = footprint.mul(.5);
+          const overlap = min(edge.add(halfPixel), float(joint)).sub(max(edge.sub(halfPixel), float(-joint)));
+          const coverage = clamp(overlap.div(footprint), 0, 1).mul(smoothstep(1.15, 1.3, radius)).mul(levelFloor);
+          const seed = ringIdx.mul(97.0).add(tslFloor(segPos)).add(isDark ? 7000 : 0);
+          result.assign(vec4(hash(seed), hash(seed.add(13.1)), hash(seed.add(29.7)), coverage));
         });
-        return out;
-      })();
+        return result;
+      })().toVar();
 
       pm.colorNode = Fn(() => {
-        // Explicit screen-space derivatives hoisted outside dynamic branches (zero mip seam across slab edges too!)
         const dModDx = dFdx(modUv), dModDy = dFdy(modUv);
         const dSlabDx = dFdx(slabBaseUv), dSlabDy = dFdy(slabBaseUv);
-        const aa = fwidth(xz).length().mul(0.7071).max(1e-5);
         const base = vec3(0).toVar();
-        const h3Var = float(0.5).toVar();
-        const jVar = float(0).toVar();
         If(levelFloor.greaterThan(float(0.01)), () => {
-          const radius = xz.length();
-          const ringPos = radius.div(ring);
-          const ringIdx = tslFloor(ringPos);
-          const segments = tslFloor(ringIdx.add(.5).mul(ring * 2 * Math.PI / arc)).max(6);
-          const theta = atan(xz.y, xz.x).div(2 * Math.PI).add(.5);
-          const segPos = theta.mul(segments);
-          const segIdx = tslFloor(segPos);
-          const radialEdge = min(fract(ringPos), float(1).sub(fract(ringPos))).mul(ring);
-          const arcLen = radius.mul(2 * Math.PI).div(segments);
-          const arcEdge = min(fract(segPos), float(1).sub(fract(segPos))).mul(arcLen);
-          const edge = min(radialEdge, arcEdge);
-          const centre = smoothstep(float(1.15), float(1.3), radius);
-          jVar.assign(float(1).sub(smoothstep(float(joint), float(joint).add(aa.mul(1.5)), edge)).mul(centre).mul(levelFloor));
-          const seed = ringIdx.mul(97.0).add(segIdx).add(isDark ? 7000 : 0);
-          const h1 = hash(seed), h2 = hash(seed.add(13.1));
-          h3Var.assign(hash(seed.add(29.7)));
-          const slabUv = slabBaseUv.add(vec2(h1, h2).mul(9.0));
+          const slabUv = slabBaseUv.add(slab.xy.mul(9.0));
           const cut = texture(src.map!, slabUv).grad(dSlabDx, dSlabDy).rgb;
           If(levelFloor.lessThan(float(0.99)), () => {
             const modelled = texture(src.map!, modUv).grad(dModDx, dModDy).rgb;
@@ -633,14 +619,15 @@ export function createAtriumFX(
         });
         // Calacatta: warm white ground, crisper grey veins; Emperador keeps its own palette, just a touch richer.
         const graded = isDark
-          ? base.mul(float(.94).add(h3Var.mul(.12)))
-          : mix(vec3(luminance3(base)), base, 1.1).sub(.86).mul(1.24).add(.86).mul(vec3(1.0, .985, .955)).mul(float(.965).add(h3Var.mul(.07)));
-        return mix(graded.clamp(0, 1), grout, jVar).mul(tintVec);
+          ? base.mul(float(.94).add(slab.z.mul(.12)))
+          : mix(vec3(luminance3(base)), base, 1.1).sub(.86).mul(1.24).add(.86).mul(vec3(1.0, .985, .955)).mul(float(.965).add(slab.z.mul(.07)));
+        return mix(graded.clamp(0, 1), grout, slab.w).mul(tintVec);
       })();
-      pm.roughnessNode = mix(float(baseRough), float(.85), jointMask);
-      pm.clearcoatNode = mix(float(baseCoat), float(0), jointMask);
+      const polish = slab.z.sub(.5).mul(.06).add(baseRough);
+      pm.roughnessNode = mix(polish, float(.85), slab.w);
+      pm.clearcoatNode = mix(float(baseCoat), float(0), slab.w);
     }
-      if (currentEnvMap) pm.envMap = currentEnvMap;
+    if (currentEnvMap) pm.envMap = currentEnvMap;
     // Screen-space reflections key off clearcoat (see floorEngine): joints carry none, so they stay matte.
     for (const entry of lightmapped) {
       if (entry.mat === src) entry.mat = pm;

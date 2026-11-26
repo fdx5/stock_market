@@ -583,6 +583,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const detachedSources = new Set<MeshStandardMaterial>();
     const lightmapped: TrackedLightmapMat[] = [];
     const propMaterials = new Set<MeshStandardMaterial>();
+    const emitMaterials = new Set<MeshStandardMaterial>();
     model.traverse(child => {
       if (!(child instanceof Mesh)) return;
       const group = groupOf(child);
@@ -612,6 +613,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         detachedSources.add(source);
         child.material = m;
       } else if (group === "emit") {
+        if (emitMaterials.has(source)) return;
+        emitMaterials.add(source);
         if (source.name === "Daylight glazing") source.emissiveIntensity *= .62;
         else if (/perimeter daylight window/i.test(source.name)) source.emissiveIntensity *= .92;
         else if (source.emissiveIntensity > 1) source.emissiveIntensity *= .85;
@@ -621,6 +624,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           source.depthWrite = false;
         }
       } else {
+        source.envMapIntensity = 1.7;
         propMaterials.add(source);
       }
     });
@@ -881,7 +885,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
 
     if (initialEnvTex) {
       scene.environment = environment = initialEnvTex;
-      for (const m of propMaterials) { m.envMap = initialEnvTex; m.envMapIntensity = 1.7; }
+      for (const m of propMaterials) m.envMap = initialEnvTex;
     }
     scene.add(model);
     scene.add(screens.group);
@@ -901,7 +905,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         texture.mapping = EquirectangularReflectionMapping;
         scene.environment = environment = texture;
         inspectScene.environment = texture;
-        for (const m of propMaterials) { m.envMap = texture; m.envMapIntensity = 1.7; m.needsUpdate = true; }
+        for (const m of propMaterials) { m.envMap = texture; m.needsUpdate = true; }
         fx.setEnvironment(texture);
       }).catch(() => {});
     };
