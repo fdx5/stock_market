@@ -355,6 +355,24 @@ def growth_action(payload: GrowthActionPayload):
     return {"ok": True}
 
 
+class GrowthInsightMarkPayload(BaseModel):
+    key: str
+    status: str
+    title: str | None = None
+    note: str | None = None
+
+
+@router.post("/growth/insights/mark", dependencies=[Depends(require_admin)])
+def growth_insight_mark(payload: GrowthInsightMarkPayload):
+    """Marks a '지금 할 일' item done, or reopens it (append-only; newest mark wins)."""
+    from app.services import growth_control
+    key = payload.key.strip()
+    if not 3 <= len(key) <= 300 or "|" not in key or payload.status not in ("done", "open"):
+        raise HTTPException(status_code=400, detail="항목 키 또는 상태가 올바르지 않습니다.")
+    growth_control.mark_insight(key, payload.status, payload.title, (payload.note or "").strip() or None)
+    return {"ok": True}
+
+
 def _is_day(value: str) -> bool:
     try:
         datetime.strptime(value, "%Y-%m-%d")

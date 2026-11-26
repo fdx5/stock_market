@@ -902,8 +902,12 @@ def overview(start_day: str, end_day: str) -> dict:
     }
     payload["traffic"] = traffic_breakdown(in_range, metrics, last7, prev7)
     payload["insights"] = _insights(payload, last7, prev7) + _traffic_insights(payload["traffic"])
-    order = {"critical": 0, "warning": 1, "good": 2, "info": 3}
-    payload["insights"].sort(key=lambda x: order.get(x["severity"], 9))
+    try:
+        marks = pvs._with_connection(_insight_marks)
+    except Exception as exc:
+        log.warning("insight marks unavailable: %s", type(exc).__name__)
+        marks = {}
+    payload["insights"], payload["resolved_insights"] = _apply_marks(payload["insights"], marks)
     return payload
 
 
@@ -1013,7 +1017,8 @@ def _traffic_insights(t: dict) -> list[dict]:
         return out
 
     def add(severity, title, evidence, action):
-        out.append({"severity": severity, "area": "유입 출처", "title": title, "evidence": evidence, "action": action})
+        out.append({"severity": severity, "area": "유입 출처", "title": title, "evidence": evidence, "action": action,
+                    "key": insight_key("유입 출처", title)})
     g = {x["group"]: x for x in t["groups"]}
     ty = {x["type"]: x for x in t["types"]}
     sns, search, ai = g["sns"], g["search"], g["ai"]
@@ -1070,12 +1075,54 @@ def _baseline_options(ledger: list[dict], goal: dict) -> list[dict]:
     return out
 
 
+def insight_key(area: str, title: str) -> str:
+    """Stable id of a rule's finding: its area and title with the numbers taken out, so
+    "직접·미식별 84%" and "직접·미식별 79%" are the same item on different days."""
+    return f"{area}|" + re.sub(r"\s+", " ", re.sub(r"[+\-]?[\d.,]+", "#", title)).strip()
+
+
+def mark_insight(key: str, status: str, title: str | None = None, note: str | None = None) -> None:
+    if status not in ("done", "open"):
+        raise ValueError("status must be done or open")
+
+    def run(conn):
+        conn.execute("INSERT INTO growth_insight_marks (created_at, insight_key, status, title, note) VALUES (?, ?, ?, ?, ?)",
+                     (datetime.now(timezone.utc).isoformat(), key[:300], status, (title or "")[:300] or None, (note or "")[:500] or None))
+        conn.commit()
+    pvs._with_connection(run)
+    invalidate()
+
+
+def _insight_marks(conn) -> dict[str, dict]:
+    """Newest mark per insight key."""
+    rows = conn.execute(
+        "SELECT m.insight_key, m.status, m.created_at, m.title, m.note FROM growth_insight_marks m "
+        "JOIN (SELECT insight_key, MAX(id) id FROM growth_insight_marks GROUP BY insight_key) n ON n.id = m.id").fetchall()
+    return {k: {"status": s, "at": at, "title": ti, "note": no} for k, s, at, ti, no in rows}
+
+
+def _apply_marks(insights: list[dict], marks: dict[str, dict]) -> tuple[list[dict], list[dict]]:
+    """Open items first, done items after them (struck through in the UI); plus the done
+    items whose rule no longer fires at all — those are shown as resolved."""
+    firing = set()
+    for it in insights:
+        firing.add(it["key"])
+        mark = marks.get(it["key"])
+        it["mark"] = mark if mark and mark["status"] == "done" else None
+    order = {"critical": 0, "warning": 1, "good": 2, "info": 3}
+    insights.sort(key=lambda x: (x["mark"] is not None, order.get(x["severity"], 9)))
+    resolved = sorted(({"key": k, **m} for k, m in marks.items() if m["status"] == "done" and k not in firing),
+                      key=lambda m: m["at"], reverse=True)[:20]
+    return insights, resolved
+
+
 def _insights(p: dict, last7: list[dict], prev7: list[dict]) -> list[dict]:
     """Rule-based findings, each with the evidence and the next action."""
     out = []
 
-    def add(severity, area, title, evidence, action):
-        out.append({"severity": severity, "area": area, "title": title, "evidence": evidence, "action": action})
+    def add(severity, area, title, evidence, action, key=None):
+        out.append({"severity": severity, "area": area, "title": title, "evidence": evidence, "action": action,
+                    "key": key or insight_key(area, title)})
 
     k = p["kpis"]
     if k["cdgr"] is not None:
@@ -1161,7 +1208,8 @@ def _insights(p: dict, last7: list[dict], prev7: list[dict]) -> list[dict]:
         r = anomalies[-1]
         add("warning", "이상치", f"{r['date']} 방문 {'급증' if 'spike' in r['flags'] else '급감'}",
             f"{r['sessions']:,}세션 (최근 28일 중앙값 대비 z={r.get('z')})",
-            "해당 날짜의 채널·착지 페이지를 일별 원장에서 확인하고, 원인이 된 조치나 장애를 기록하세요.")
+            "해당 날짜의 채널·착지 페이지를 일별 원장에서 확인하고, 원인이 된 조치나 장애를 기록하세요.",
+            key=f"이상치|{r['date']}")
     order = {"critical": 0, "warning": 1, "good": 2, "info": 3}
     out.sort(key=lambda x: order.get(x["severity"], 9))
     return out

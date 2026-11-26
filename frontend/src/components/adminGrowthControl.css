@@ -333,3 +333,16 @@
   .gc-tagging { grid-template-columns: 1fr auto; }
   .gc-tagging .gc-meter { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* '지금 할 일' completion marks */
+.gc-insight header .gc-mark-btn { margin-left: auto; padding: 2px 9px; border-radius: 8px; border: 1px solid var(--gc-line); background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; }
+.gc-insight header .gc-mark-btn:hover:not(:disabled) { border-color: var(--gc-good); color: var(--gc-good); }
+.gc-insight.is-done { opacity: 0.62; border-left-color: var(--gc-good); }
+.gc-insight.is-done header i { background: color-mix(in srgb, var(--gc-good) 22%, transparent); color: var(--gc-good); }
+.gc-insight.is-done b, .gc-insight.is-done .gc-todo { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text-muted) 70%, transparent); }
+.gc-done-at { font-style: normal; color: var(--gc-good); font-weight: 700; }
+.gc-done-note { margin: 0 0 6px; font-size: 12px; color: var(--gc-good); }
+.gc-resolved { margin-top: 12px; font-size: 12.5px; color: var(--text-secondary); }
+.gc-resolved summary { cursor: pointer; color: var(--gc-good); font-weight: 700; }
+.gc-resolved ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
+.gc-resolved em { font-style: normal; color: var(--gc-good); }

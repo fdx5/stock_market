@@ -65,7 +65,8 @@ export interface GrowthGoal {
   legacy: { started_at: string; baseline: number; target_multiplier: number } | null;
   history: Array<{ id: number; created_at: string; baseline: number; method: string; target_multiplier: number; target_date: string | null }>;
 }
-export interface GrowthInsight { severity: "critical" | "warning" | "good" | "info"; area: string; title: string; evidence: string; action: string }
+export interface GrowthInsightMark { status: "done" | "open"; at: string; title: string | null; note: string | null }
+export interface GrowthInsight { severity: "critical" | "warning" | "good" | "info"; area: string; title: string; evidence: string; action: string; key: string; mark?: GrowthInsightMark | null }
 export interface GrowthAction {
   id: number; created_at: string; day: string; category: string; category_label: string; title: string; detail: string | null;
   focus_channel: GrowthChannel | null; focus_path: string | null; days_measured: number; before: number | null; after: number | null;
@@ -120,6 +121,7 @@ export interface GrowthControl {
   baseline_options: Array<{ method: string; label: string; from: string; to: string; value: number }>;
   insights: GrowthInsight[];
   traffic?: GrowthTraffic;
+  resolved_insights?: Array<GrowthInsightMark & { key: string }>;
 }
 
 export type DeviceType = "desktop" | "tablet" | "mobile" | "unknown";
@@ -948,6 +950,8 @@ export const adminApi = {
     authedPostJson<GrowthGoal>("/growth/goal", body),
   growthAction: (body: { day: string; category: string; title: string; detail?: string; focus_channel?: string | null; focus_path?: string }) =>
     authedPostJson<{ ok: boolean }>("/growth/actions", body),
+  growthInsightMark: (body: { key: string; status: "done" | "open"; title?: string; note?: string }) =>
+    authedPostJson<{ ok: boolean }>("/growth/insights/mark", body),
   trend: (range: AdminTrendRange) => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
   visitorTrend: (range: AdminTrendRange) =>
     authedGet<VisitorTrendResponse>(`/pages/visitor-trend?range=${range}`),

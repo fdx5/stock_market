@@ -12,6 +12,7 @@ import {
 import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import TrafficTab from "./AdminGrowthTraffic";
+import InsightCard from "./AdminGrowthInsight";
 import "./adminGrowthControl.css";
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -341,7 +342,7 @@ function GoalDialog({ data, onClose, onSaved }: { data: GrowthControl; onClose: 
 
 /* ── tabs ───────────────────────────────────────────────────────────────── */
 
-function OverviewTab({ data }: { data: GrowthControl }) {
+function OverviewTab({ data, onChanged }: { data: GrowthControl; onChanged: () => void }) {
   const [logScale, setLogScale] = useState(false);
   const [showExcluded, setShowExcluded] = useState(true);
   const maxDelta = Math.max(1, ...data.drivers.map((d) => Math.abs(d.delta)));
@@ -353,15 +354,20 @@ function OverviewTab({ data }: { data: GrowthControl }) {
           <span className="gc-sub">규칙 기반 진단 · 근거 수치 포함</span>
         </header>
         <div className="gc-insights">
-          {data.insights.length ? data.insights.map((it, i) => (
-            <article key={i} className={`gc-insight gc-insight--${it.severity}`}>
-              <header><i>{SEV_LABEL[it.severity]}</i><span>{it.area}</span></header>
-              <b>{it.title}</b>
-              <p className="gc-evidence">{it.evidence}</p>
-              <p className="gc-todo">→ {it.action}</p>
-            </article>
+          {data.insights.length ? data.insights.map((it) => (
+            <InsightCard key={it.key} it={it} onChanged={onChanged} />
           )) : <p className="gc-empty">진단할 데이터가 아직 충분하지 않습니다.</p>}
         </div>
+        {!!data.resolved_insights?.length && (
+          <details className="gc-resolved">
+            <summary>해결됨 {data.resolved_insights.length}건 — 완료 처리 후 더 이상 진단되지 않는 항목</summary>
+            <ul>
+              {data.resolved_insights.map((m) => (
+                <li key={m.key}><s>{m.title || m.key.split("|")[1]}</s> <em>✓ {m.at.slice(5, 10).replace("-", "/")}</em>{m.note ? ` — ${m.note}` : ""}</li>
+              ))}
+            </ul>
+          </details>
+        )}
       </section>
       <section className="gc-panel">
         <header className="gc-panel-head">
@@ -955,13 +961,13 @@ export default function AdminGrowthPage() {
               <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "is-on" : ""} onClick={() => pickTab(key)}>
                 {label}
                 {key === "automation" && data.automation.suspected_sessions + data.automation.bot_sessions > 0 && <i>{n0(data.automation.suspected_sessions + data.automation.bot_sessions)}</i>}
-                {key === "overview" && data.insights.some((x) => x.severity === "critical") && <i className="is-critical">!</i>}
+                {key === "overview" && data.insights.some((x) => x.severity === "critical" && !x.mark) && <i className="is-critical">!</i>}
               </button>
             ))}
           </nav>
 
-          {tab === "overview" && <OverviewTab data={data} />}
-          {tab === "traffic" && <TrafficTab data={data} />}
+          {tab === "overview" && <OverviewTab data={data} onChanged={load} />}
+          {tab === "traffic" && <TrafficTab data={data} onChanged={load} />}
           {tab === "ledger" && <LedgerTab data={data} />}
           {tab === "channels" && <ChannelsTab data={data} />}
           {tab === "landings" && <LandingsTab data={data} />}

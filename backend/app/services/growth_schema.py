@@ -41,4 +41,16 @@ SCHEMAS = (
         focus_path TEXT
     )
     """,
+    # '지금 할 일' completion marks. Append-only: the newest row per key is its state
+    # ('done' or 'open' when reopened); nothing is updated or deleted.
+    """
+    CREATE TABLE IF NOT EXISTS growth_insight_marks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL,
+        insight_key TEXT NOT NULL,
+        status TEXT NOT NULL,
+        title TEXT,
+        note TEXT
+    )
+    """,
 )

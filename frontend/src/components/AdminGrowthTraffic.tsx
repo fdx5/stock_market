@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import InsightCard from "./AdminGrowthInsight";
 import type { GrowthControl, GrowthRankRow, GrowthTraffic, TrafficGroup, TrafficType } from "../adminApi";
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -22,7 +23,6 @@ export const TYPE_COLOR: Record<TrafficType, string> = {
   email: "color-mix(in srgb, var(--gc-violet) 45%, var(--gc-muted))", direct: "var(--gc-muted)",
 };
 const GROUP_COLOR: Record<TrafficGroup, string> = { sns: "var(--gc-pink)", search: "var(--gc-blue)", ai: "var(--gc-violet)", other: "var(--gc-muted)" };
-const SEV_LABEL = { critical: "긴급", warning: "주의", good: "양호", info: "참고" } as const;
 const KNOWN: TrafficType[] = ["sns_auto", "sns_tagged", "naver_blog", "share", "community", "search", "ai", "referral", "email"];
 
 function Bar({ value, max, color }: { value: number; max: number; color?: string }) {
@@ -159,7 +159,7 @@ function LinkBuilder() {
   );
 }
 
-export default function TrafficTab({ data }: { data: GrowthControl }) {
+export default function TrafficTab({ data, onChanged }: { data: GrowthControl; onChanged: () => void }) {
   const t = data.traffic;
   if (!t || !t.coverage.days) {
     return (
@@ -196,14 +196,7 @@ export default function TrafficTab({ data }: { data: GrowthControl }) {
         <section className="gc-panel">
           <header className="gc-panel-head"><div><span className="gc-label">ANALYSIS</span><h2>유입 출처 분석</h2></div></header>
           <div className="gc-insights">
-            {insights.map((it, i) => (
-              <article key={i} className={`gc-insight gc-insight--${it.severity}`}>
-                <header><i>{SEV_LABEL[it.severity]}</i><span>{it.area}</span></header>
-                <b>{it.title}</b>
-                <p className="gc-evidence">{it.evidence}</p>
-                <p className="gc-todo">→ {it.action}</p>
-              </article>
-            ))}
+            {insights.map((it) => <InsightCard key={it.key} it={it} onChanged={onChanged} />)}
           </div>
         </section>
       )}
