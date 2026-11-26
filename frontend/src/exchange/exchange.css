@@ -8,8 +8,9 @@
   --exchange-muted: #9aa6ba;
   --exchange-shadow: 0 12px 32px #0007, inset 0 1px 0 #ffffff0d;
   display: grid;
-  grid-template-rows: minmax(240px, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   min-width: 0;
+  min-height: 0;
   height: 100%;
   background: #0b0e15;
   color: #ecf1fb;

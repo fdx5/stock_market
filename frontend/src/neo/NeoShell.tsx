@@ -3,7 +3,7 @@ import ShareButton from "../growth/ShareButton";
 import "../growth/market-pulse.css";
 import "../markets/neoResearch.css";
 import "../markets/researchControls.css";
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "../router";
 import { useLanguage } from "../i18n/LanguageContext";
 import { useMarketIndices } from "../useMarketIndices";
@@ -160,6 +160,37 @@ export default function NeoShell({ path, children }: { path: string; children: R
   useEffect(() => solar ? attachDeskBgm() : undefined, [solar]);
   const family = neoRouteFamily(path);
   const exchange = path === "/exchange" || path === "/exchange/";
+  const shellRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const contextRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Google AdSense stamps inline `height: auto !important; min-height: 0px !important;` on ancestor containers
+  // and injects `.google-auto-placed` nodes while browsing ad-enabled pages; on SPA navigation into an immersive
+  // 3D workspace (/exchange etc.), those leftover styles/nodes collapse the viewport height to its 240px minimum.
+  useLayoutEffect(() => {
+    if (family !== "immersive") return;
+    const targets = [
+      shellRef.current,
+      workspaceRef.current,
+      contextRef.current,
+      contentRef.current,
+      document.getElementById("root"),
+    ].filter((el): el is HTMLElement => el !== null);
+    const clean = () => {
+      for (const el of targets) {
+        if (el.style.height) el.style.removeProperty("height");
+        if (el.style.minHeight) el.style.removeProperty("min-height");
+      }
+      shellRef.current?.querySelectorAll(".google-auto-placed").forEach(node => node.remove());
+    };
+    clean();
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(clean);
+    for (const el of targets) {
+      observer.observe(el, { attributes: true, attributeFilter: ["style"], childList: true });
+    }
+    return () => observer.disconnect();
+  }, [family, path]);
   const scorecard = path === "/ai-prediction/grading";
   const currentTone = neoHeaderCurrentTone(path, window.location.search);
   const showCurrent = family !== "immersive" && frameLight && fx !== "minimal";
@@ -186,7 +217,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     {bgm.on && <div className="d2 d2-bgm-float ng-solar-bgm"><DeskBgm variant="strip" /></div>}
     {finder && <Suspense fallback={null}><div className="d2 ng-finder-host"><Finder open={finder} onClose={close} /></div></Suspense>}
   </div>;
-  return <div className={`ng-shell ng-family-${family}`} data-workspace={exchange ? "exchange" : path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
+  return <div ref={shellRef} className={`ng-shell ng-family-${family}`} data-workspace={exchange ? "exchange" : path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
     {!exchange && !scorecard && !path.startsWith("/pulse-board") && <NeoBackdrop />}
     <GoldCursor />
     <a className="ng-skip" href="#neo-content">{L("본문 바로가기", "Skip to content")}</a>
@@ -215,10 +246,10 @@ export default function NeoShell({ path, children }: { path: string; children: R
       <div className="ng-sidebar-foot"><span className="ng-status-dot" /> NEO GENESIS <small>MARKET INTELLIGENCE SYSTEM</small></div>
     </aside>
     {showCurrent && <NeoHeaderCurrent tone="violet" placement="sidebar" />}
-    <div className="ng-workspace">
-      <div className="ng-context">
+    <div ref={workspaceRef} className="ng-workspace">
+      <div ref={contextRef} className="ng-context">
         <span><Link to="/">KOSPIMAP</Link><i>/</i>{routeLabel(path, lang)}</span>
-        {path === "/exchange" && <span className="ng-exchange-slot" />}
+        {exchange && <span className="ng-exchange-slot" />}
         <HotIssueTicker path={path} />
         {showNightQuote(path, window.location.search) && <div className="ng-market-quotes">
           {showNasdaqFutures(path) ? <NasdaqFuturesBadges /> : <KospiNightBadge />}
@@ -229,7 +260,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
         <ShareButton path={path} search={window.location.search} title={path.startsWith("/community/") ? `${routeLabel(path, lang)} | K Stock Hub` : undefined} />
         <button type="button" onClick={event => open("menu", event.currentTarget)} aria-label={L("다른 워크스페이스", "Change workspace")}><NeoIcon name="layers" /></button>
       </div>
-      <div className={`ng-content${path === "/" ? " ng-content--atlas" : ""}${rail ? " ng-content--ad-rail" : ""}`} id="neo-content" tabIndex={-1}>
+      <div ref={contentRef} className={`ng-content${path === "/" ? " ng-content--atlas" : ""}${rail ? " ng-content--ad-rail" : ""}`} id="neo-content" tabIndex={-1}>
         {family === "map" && <nav className="ng-map-switcher" aria-label={L("시장 지도 전환", "Switch market map")}>
           <div><span>{L("시장 지도", "MARKET MAPS")}</span><small>{L("다른 시장으로 바로 이동", "Go directly to another market")}</small></div>
           <div>{MAP_DESTINATIONS.map(([to, ko, en]) => <Link key={to} to={to} aria-current={path === to ? "page" : undefined}>{L(ko, en)}</Link>)}</div>
