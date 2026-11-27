@@ -48,7 +48,8 @@ function inGamut(L, C, h) {
 }
 // Lightness fold: page (darkest) -> cool off-white, panels (slightly lighter in
 // the dark theme) -> white, hovers/lines -> soft greys, ink -> deep slate.
-const KNOTS = [[0, .952], [.1, .958], [.14, .968], [.17, .988], [.2, .996], [.235, .976], [.28, .948], [.34, .905], [.42, .84], [.5, .74], [.58, .64], [.66, .555], [.74, .48], [.82, .41], [.9, .33], [.96, .255], [1, .22]];
+// 2026-11-27: softened one step (owner: light tone too bright) — page ~#e9ebef, panels ~#f4f5f7, no pure white.
+const KNOTS = [[0, .928], [.1, .933], [.14, .942], [.17, .958], [.2, .966], [.235, .95], [.28, .93], [.34, .905], [.42, .84], [.5, .74], [.58, .64], [.66, .555], [.74, .48], [.82, .41], [.9, .33], [.96, .255], [1, .22]];
 const TEXT_KNOTS = L => L >= .95 ? .24 : L >= .85 ? .24 + (.95 - L) * .9 : L >= .7 ? .33 + (.85 - L) * .8 : Math.min(.54, .45 + (.7 - L) * .45);
 function foldL(L) {
   if (L <= 0) return KNOTS[0][1];
@@ -175,6 +176,10 @@ export default function lightTone({ include }) {
       });
       root.walkRules(rule => {
         if (rule.parent?.type === "atrule" && /keyframes$/i.test(rule.parent.name)) return;
+        // A rule already written for a tone (e.g. `:root[data-tone="light"] .x{...}`) is the
+        // author's light value. Converting it again folds those light colours back to dark
+        // (2026-11-27: /movers masthead and the gold menu labels rendered dark/solid).
+        if (rule.selectors.some(sel => sel.includes("[data-tone"))) return;
         for (let p = rule.parent; p && p.type !== "root"; p = p.parent) if (p.type === "atrule" && /^(media)$/i.test(p.name) && /\bprint\b/.test(p.params) && !/screen/.test(p.params)) return;
         const decls = [];
         rule.each(node => {

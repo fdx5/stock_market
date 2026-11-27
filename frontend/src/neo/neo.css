@@ -226,9 +226,11 @@ html:has(#adsense-loader[data-failed=true]) :is(.ng-adsense-slot,.ng-adsense-pai
 @media(max-width:899px){.ng-footer{padding-inline:18px}}
 @media(max-width:599px){.ng-footer{padding-inline:12px}}
 /* Featured destinations (관제 홈·코스피 맵·코스닥 맵·S&P 500 맵·나스닥 100 맵): glowing gold label. */
-a.ng-gold-link>span:first-child{font-weight:700;color:#ffd76a;background:linear-gradient(100deg,#f6c445 0%,#fff1b8 22%,#ffcf4d 45%,#e9a923 70%,#fff1b8 100%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 4px #ffc23d8c) drop-shadow(0 0 10px #ff9f1a40);animation:ng-gold-sheen 5.5s linear infinite}
+a.ng-gold-link>span:first-child{font-weight:700;color:#ffd76a;background-image:linear-gradient(100deg,#f6c445 0%,#fff1b8 22%,#ffcf4d 45%,#e9a923 70%,#fff1b8 100%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 4px #ffc23d8c) drop-shadow(0 0 10px #ff9f1a40);animation:ng-gold-sheen 5.5s linear infinite}
 a.ng-gold-link{border-left-color:#e9b54a66}
 a.ng-gold-link:hover>span:first-child{filter:drop-shadow(0 0 6px #ffd05acc) drop-shadow(0 0 14px #ffa82466)}
 @keyframes ng-gold-sheen{from{background-position:0% 0}to{background-position:-220% 0}}
-:root[data-tone="light"] a.ng-gold-link>span:first-child{background-image:linear-gradient(100deg,#9a6a00 0%,#d39b12 25%,#8a5c00 50%,#c88a06 75%,#9a6a00 100%);filter:drop-shadow(0 0 3px #f0b42a59)}
+:root[data-tone="light"] a.ng-gold-link>span:first-child{-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;background-image:linear-gradient(100deg,#9a6a00 0%,#d39b12 25%,#8a5c00 50%,#c88a06 75%,#9a6a00 100%);filter:drop-shadow(0 0 3px #f0b42a59)}
 @media (prefers-reduced-motion:reduce){a.ng-gold-link>span:first-child{animation:none}}
+/* Phones: 관제 홈·코스피·코스닥·나스닥 — the header and pulse bar scroll with the page (owner request 2026-11-27). */
+@media(max-width:899px){.ng-shell.ng-header-scrolls :is(.ng-header,.ng-pulse,.ng-top-rail,.ng-map-switcher){position:relative;top:auto}}
