@@ -229,17 +229,73 @@ def macro(indicator="growth"):
     return cache.get_or_set(f"discovery:macro:{indicator}", 6 * 3600, fetch)
 
 
+STABLECOINS = frozenset({"USDT", "USDC", "USDS", "USD1", "USDE", "USDG", "RLUSD", "PYUSD", "DAI", "FDUSD", "TUSD"})
+CAUTION_LABELS = {"PRICE_FLUCTUATIONS": "가격 급등락", "TRADING_VOLUME_SOARING": "거래량 급등", "DEPOSIT_AMOUNT_SOARING": "입금량 급등",
+                  "GLOBAL_PRICE_DIFFERENCES": "해외 가격 차이", "CONCENTRATION_OF_SMALL_ACCOUNTS": "소수 계정 집중"}
+PREMIUM_COINS = ("BTC", "ETH", "XRP", "SOL", "DOGE")
+
+
+def _crypto_premium(krw_prices):
+    """Upbit KRW price against Bybit spot USDT x USD/KRW. Each failure only drops its row."""
+    from app.data.exchange_fetcher import get_usd_krw
+
+    def fetch():
+        fx = get_usd_krw() or {}
+        rate = number(fx.get("rate"))
+        usdt_krw = krw_prices.get("USDT")
+        def spot(coin):
+            try:
+                data = read("https://api.bybit.com/v5/market/tickers", {"category": "spot", "symbol": f"{coin}USDT"}, timeout=6)
+                return number(((data.get("result") or {}).get("list") or [{}])[0].get("lastPrice"))
+            except Exception:
+                return None
+        coins = [c for c in PREMIUM_COINS if krw_prices.get(c)]
+        with ThreadPoolExecutor(max_workers=len(coins) or 1) as pool:
+            spots = list(pool.map(spot, coins))
+        rows = []
+        for coin, usd in zip(coins, spots):
+            krw = krw_prices[coin]
+            if not usd:
+                continue
+            rows.append({"coin": coin, "krw": krw, "usdt": usd,
+                         "premium_fx": (krw / (usd * rate) - 1) * 100 if rate else None,
+                         "premium_usdt": (krw / (usd * usdt_krw) - 1) * 100 if usdt_krw else None})
+        return {"usd_krw": rate, "usdt_krw": usdt_krw,
+                "tether_premium": (usdt_krw / rate - 1) * 100 if rate and usdt_krw else None, "rows": rows}
+    return cache.get_or_set("discovery:crypto:premium", 60, fetch)
+
+
 def crypto():
     def fetch():
-        markets = read("https://api.upbit.com/v1/market/all")
-        names = {m["market"]: m["korean_name"] for m in markets if m["market"].startswith("KRW-")}
+        markets = read("https://api.upbit.com/v1/market/all", {"isDetails": "true"})
+        meta = {m["market"]: m for m in markets if m["market"].startswith("KRW-")}
         quotes = []
-        codes = list(names)
+        codes = list(meta)
         for i in range(0, len(codes), 100):
             quotes.extend(read("https://api.upbit.com/v1/ticker", {"markets": ",".join(codes[i:i+100])}))
-        items = [{"code": r["market"], "name": names[r["market"]], "price": number(r.get("trade_price")), "change": number(r.get("signed_change_rate")) * 100 if number(r.get("signed_change_rate")) is not None else None,
-                  "turnover": number(r.get("acc_trade_price_24h")), "volume": number(r.get("acc_trade_volume_24h")), "quote_at": r.get("timestamp")} for r in quotes]
-        return package("Upbit 원화마켓", sorted(items, key=lambda r: -(r["turnover"] or 0)), currency="KRW", coverage="단일 거래소 원화마켓 표본. 등락률은 UTC 전일 종가 대비, 거래대금은 24시간입니다. 시가총액은 제공하지 않습니다.", source_url="https://upbit.com/exchange")
+        items = []
+        for r in quotes:
+            m = meta.get(r["market"], {})
+            event = m.get("market_event") or {}
+            rate = number(r.get("signed_change_rate"))
+            symbol_ = r["market"].split("-", 1)[-1]
+            items.append({"code": r["market"], "symbol": symbol_, "name": m.get("korean_name") or symbol_, "english_name": m.get("english_name"),
+                          "price": number(r.get("trade_price")), "change": rate * 100 if rate is not None else None,
+                          "turnover": number(r.get("acc_trade_price_24h")), "volume": number(r.get("acc_trade_volume_24h")),
+                          "high": number(r.get("high_price")), "low": number(r.get("low_price")),
+                          "high_52w": number(r.get("highest_52_week_price")), "high_52w_date": r.get("highest_52_week_date"),
+                          "low_52w": number(r.get("lowest_52_week_price")), "low_52w_date": r.get("lowest_52_week_date"),
+                          "stable": symbol_ in STABLECOINS, "warning": bool(event.get("warning") or m.get("market_warning") == "CAUTION"),
+                          "cautions": [CAUTION_LABELS.get(k, k) for k, v in (event.get("caution") or {}).items() if v],
+                          "quote_at": r.get("timestamp")})
+        items.sort(key=lambda r: -(r["turnover"] or 0))
+        try:
+            premium = _crypto_premium({r["symbol"]: r["price"] for r in items if r["price"]})
+        except Exception:
+            premium = None
+        return package("Upbit 원화마켓", items, currency="KRW", premium=premium, stablecoins=sorted(STABLECOINS),
+                       coverage="단일 거래소(업비트) 원화마켓 전 종목. 등락률은 UTC 0시(KST 09시) 기준가 대비, 거래대금은 최근 24시간입니다. 시가총액은 제공하지 않습니다.",
+                       source_url="https://upbit.com/exchange")
     return cache.get_or_set("discovery:crypto", 30, fetch)
 
 
