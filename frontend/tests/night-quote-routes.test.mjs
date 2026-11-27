@@ -4,9 +4,9 @@ import { build } from 'esbuild';
 const { outputFiles } = await build({ entryPoints: [new URL('../src/neo/nightQuoteRoutes.ts', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')], bundle: true, write: false, format: 'esm', platform: 'node' });
 const { showNightQuote, showNasdaqFutures } = await import('data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64'));
 
-test('only the two US constituent maps replace the Korean futures badges', () => {
-  for (const path of ['/sp500-map', '/nasdaq100-map', '/sp500-map/', '/nasdaq100-map/']) assert.equal(showNasdaqFutures(path), true, path);
-  for (const path of ['/map', '/kosdaq-map', '/global', '/desk', '/stock/AAPL', '/nasdaq100-map-other']) assert.equal(showNasdaqFutures(path), false, path);
+test('the US desk and the two US constituent maps replace the Korean futures badges', () => {
+  for (const path of ['/sp500-map', '/nasdaq100-map', '/sp500-map/', '/nasdaq100-map/', '/global', '/global/', '/global/treasuries/10']) assert.equal(showNasdaqFutures(path), true, path);
+  for (const path of ['/map', '/kosdaq-map', '/global-top100', '/desk', '/stock/AAPL', '/nasdaq100-map-other']) assert.equal(showNasdaqFutures(path), false, path);
 });
 test('all requested dashboards, maps, comparisons, ETF children and communities have the quote', () => {
   for (const path of ['/', '/desk', '/global', '/map', '/kosdaq-map', '/sp500-map', '/nasdaq100-map', '/stocks', '/markets', '/kospi-100', '/kosdaq-100', '/nasdaq-100', '/global-top100', '/fight', '/battle', '/index/kospi', '/index/kosdaq', '/stock-tradeoffs', '/recovery-lab', '/market-radar', '/stock-screener', '/stock-compare', '/sector-strength', '/global-peers', '/sector-replay', '/etf', '/etf/kr', '/etf/us', '/etf/compare/SPY/QQQ', '/ranking/us-etf', '/community/kr', '/community/global']) assert.equal(showNightQuote(path), true, path);
