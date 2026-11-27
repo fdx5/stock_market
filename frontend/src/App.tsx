@@ -177,7 +177,7 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
     description: "커피 한 잔으로 마켓데스크의 꾸준한 업데이트와 안정적인 서버 운영을 응원해 주세요. Buy Me a Coffee와 카카오페이로 간편하게 후원하실 수 있습니다.",
   },
   "/": {
-    title: "코스피맵 (KOSPIMAP) | 국내외 주식 시세와 ETF",
+    title: "코스피맵 | 코스피·코스닥 히트맵, 오늘 증시와 급등주 한눈에",
     description: "코스피·코스닥·미국 증시 시세와 시가총액 맵, 주식·ETF 거래대금 순위, 뉴스와 종목토론을 한눈에 확인하세요.",
   },
   "/desk": {
