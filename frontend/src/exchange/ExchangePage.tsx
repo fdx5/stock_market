@@ -23,7 +23,7 @@ const MARKETS_LIST = Object.keys(MARKETS) as ExchangeMarket[];
 const t = (lang: Language, ko: string, en: string) => lang === "ko" ? ko : en;
 const KINDS = ["market", "stocks", "global", "assets", "desk"] as const;
 /** Overlays that scroll by touch; every other touch move on the floor is a camera drag. */
-const SCROLLERS = ".exchange-focus, .exchange-monitor-picker > div, .exchange-station-list, .exchange-stock-search ul, .exchange-heatmap-box";
+const SCROLLERS = ".exchange-focus, .exchange-monitor-picker > div, .exchange-station-list, .exchange-stock-search ul, .exchange-heatmap-box, .exchange-art-docent-body";
 
 function panelLabel(id: string, lang: Language, data?: FloorSnapshot) {
   if (id.startsWith("art:") || id.startsWith("sculpture:")) return artLabel(id, lang);
@@ -464,7 +464,20 @@ export default function ExchangePage() {
     }).catch(onError);
     return () => { controller.abort(); engine?.dispose(); };
   }, [retry]);
-  useEffect(() => { driver?.update(data, histories, lang); }, [data, driver, histories, lang]);
+  const lastUpdateMeta = useRef<{ driver: FloorDriver | null; market: ExchangeMarket; lang: Language }>({ driver: null, market, lang });
+  useEffect(() => {
+    if (!driver) return;
+    const prev = lastUpdateMeta.current;
+    const immediate = prev.driver !== driver || prev.market !== market || prev.lang !== lang;
+    lastUpdateMeta.current = { driver, market, lang };
+    if (immediate) {
+      driver.update(data, histories, lang);
+      return;
+    }
+    // Coalesce staggered polling responses (13 endpoints settling over ~1-3s) so screens.update() runs once per batch!
+    const timer = window.setTimeout(() => { driver.update(data, histories, lang); }, 120);
+    return () => window.clearTimeout(timer);
+  }, [data, driver, histories, lang, market]);
   useEffect(() => {
     if (moodManualRef.current) return;
     const raw = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("testChange") : null;

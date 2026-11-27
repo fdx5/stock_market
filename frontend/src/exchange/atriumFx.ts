@@ -124,7 +124,9 @@ export type AtriumFX = {
   setMood: (mood: AtriumMood) => void;
   getMood: () => AtriumMood;
   /** Upgrade 1-texture instant-boot skyline material to full 3-mood crossfade fallback once inactive moods load. */
-  setFallbackSkylines: (day: Texture, golden: Texture, night: Texture) => void;
+  setFallbackSkylines: (day: Texture, golden: Texture, night: Texture, deferBind?: boolean) => MeshStandardNodeMaterial | null;
+  /** Bind the precompiled 3-mood fallback skyline material once async pipeline compilation finishes. */
+  commitFallbackSkylines: () => void;
   /** Attach (or clear with null) on-demand effective-16K dual-hemisphere skyline textures for the active mood. */
   setHiResSkyline: (mood: AtriumMood | null, texL?: Texture, texR?: Texture, deferBind?: boolean) => MeshStandardNodeMaterial | null;
   /** Allow tick() to bind the precompiled 16K skyline material once async pipeline compilation finishes. */
@@ -255,6 +257,7 @@ export function createAtriumFX(
   let currentEnvMap: Texture | null = initialEnv ?? null;
   let hiResMood: AtriumMood | null = null;
   let hiResMat: MeshStandardNodeMaterial | null = null;
+  let pendingFallbackMat: MeshStandardNodeMaterial | null = null;
   let hiResReady = false;
   let usingHiRes = false;
 
@@ -1425,6 +1428,12 @@ export function createAtriumFX(
       if (mood === targetMood) return;
       targetMood = mood;
       moodDirty = true;
+      if (pendingFallbackMat) {
+        const prev = windowMatCache;
+        windowMatCache = pendingFallbackMat;
+        pendingFallbackMat = null;
+        if (prev) window.setTimeout(() => prev.dispose(), 250);
+      }
       // Switch immediately back to 8K base material during mood crossfade so Day/Golden/Night blend smoothly!
       if (usingHiRes && windowMatCache) {
         bindWindowMaterial(windowMatCache);
@@ -1434,12 +1443,27 @@ export function createAtriumFX(
     getMood() {
       return targetMood;
     },
-    setFallbackSkylines(day: Texture, golden: Texture, night: Texture) {
+    setFallbackSkylines(day: Texture, golden: Texture, night: Texture, deferBind = false) {
       skyDayTex = day;
       skyGoldenTex = golden;
       skyNightTex = night;
+      const next = makeParallaxSkylineWindow(undefined, undefined);
+      if (deferBind) {
+        pendingFallbackMat?.dispose();
+        pendingFallbackMat = next;
+        return next;
+      }
       const prev = windowMatCache;
-      windowMatCache = makeParallaxSkylineWindow(undefined, undefined);
+      windowMatCache = next;
+      if (!usingHiRes) bindWindowMaterial(windowMatCache);
+      if (prev) window.setTimeout(() => prev.dispose(), 250);
+      return next;
+    },
+    commitFallbackSkylines() {
+      if (!pendingFallbackMat) return;
+      const prev = windowMatCache;
+      windowMatCache = pendingFallbackMat;
+      pendingFallbackMat = null;
       if (!usingHiRes) bindWindowMaterial(windowMatCache);
       if (prev) window.setTimeout(() => prev.dispose(), 250);
     },
@@ -1525,6 +1549,8 @@ export function createAtriumFX(
       }
       hiResMat?.dispose();
       hiResMat = null;
+      pendingFallbackMat?.dispose();
+      pendingFallbackMat = null;
       for (const d of disposables) d.dispose();
     },
   };

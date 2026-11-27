@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import art from "./art.json";
+import { getArtworkStory } from "./artStories";
 import type { FloorDriver } from "./floorEngine";
 import { STORAGE_ASSETS, type Language } from "./marketCore";
 
 type Painting = (typeof art.paintings)[number];
+type DocentSection = "story" | "details" | "artist";
+
 const t = (lang: Language, ko: string, en: string) => lang === "ko" ? ko : en;
 const SCULPTURE_NAMES: Record<string, [string, string]> = {
   marble_bust_01: ["대리석 흉상", "Marble bust"], horse_statue_01: ["말 조각상", "Horse statue"], gothic_statue: ["고딕 조각상", "Gothic statue"],
@@ -20,7 +23,7 @@ export function artLabel(id: string, lang: Language) {
   return s ? t(lang, s[0], s[1]) : id;
 }
 
-/** Full-screen viewing for a painting (zero-flicker 1K->4K zoom) or a 360° interactive 3D sculpture studio. */
+/** Full-screen viewing for a painting (editorial museum wall-label + zero-flicker 1K->4K zoom) or a 360° interactive 3D sculpture studio. */
 export default function ArtViewer({
   id,
   lang,
@@ -34,8 +37,15 @@ export default function ArtViewer({
 }) {
   const painting: Painting | undefined = id.startsWith("art:") ? art.paintings.find(p => p.id === id.slice(4)) : undefined;
   const sculpture = id.startsWith("sculpture:") ? id.slice(10) : undefined;
+  const curated = painting ? getArtworkStory(painting.id) : null;
   const [sculpture3D, setSculpture3D] = useState(false);
   const [autoRotate, setAutoRotate] = useState(true);
+  const [infoOpen, setInfoOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    // Open by default on desktop and portrait mobile; start collapsed only on short landscape phones.
+    return !(window.innerHeight <= 520 && window.innerWidth > window.innerHeight);
+  });
+  const [activeSection, setActiveSection] = useState<DocentSection>("story");
 
   // Activate 360° 3D Museum Studio directly on the shared WebGPU canvas when inspecting a sculpture
   useEffect(() => {
@@ -60,6 +70,11 @@ export default function ArtViewer({
   const pointers = useRef(new Map<number, { x: number; y: number; button: number }>());
   const pinch = useRef<{ d: number; s: number } | null>(null);
   const close = useRef<HTMLButtonElement>(null);
+  const docentBodyRef = useRef<HTMLDivElement>(null);
+  const storyRef = useRef<HTMLElement>(null);
+  const detailsRef = useRef<HTMLElement>(null);
+  const artistRef = useRef<HTMLElement>(null);
+  const scrollLockUntil = useRef(0);
 
   useEffect(() => {
     close.current?.focus();
@@ -96,10 +111,19 @@ export default function ArtViewer({
   }, [painting, full, small]);
 
   useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (painting && curated && (e.key === "i" || e.key === "I") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        setInfoOpen(v => !v);
+      }
+    };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [onClose]);
+  }, [onClose, painting, curated]);
+
+  useEffect(() => {
+    if (infoOpen) setActiveSection("story");
+  }, [infoOpen]);
 
   const zoomAt = (factor: number) => {
     if (sculpture3D && driver) {
@@ -111,6 +135,8 @@ export default function ArtViewer({
       return s === 1 ? { s, x: 0, y: 0 } : { s, x: v.x * s / v.s, y: v.y * s / v.s };
     });
   };
+
+  const resetZoom = () => setView({ s: 1, x: 0, y: 0 });
 
   const down = (e: ReactPointerEvent) => {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -159,7 +185,30 @@ export default function ArtViewer({
     if (pointers.current.size < 2) pinch.current = null;
   };
 
+  const jumpToSection = (section: DocentSection) => {
+    setActiveSection(section);
+    scrollLockUntil.current = Date.now() + 500;
+    const target = section === "story" ? storyRef.current : section === "details" ? detailsRef.current : artistRef.current;
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleDocentScroll = () => {
+    if (Date.now() < scrollLockUntil.current) return;
+    const container = docentBodyRef.current;
+    if (!container) return;
+    const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 16;
+    const offset = container.scrollTop + 48;
+    const artistTop = artistRef.current?.offsetTop ?? Infinity;
+    const detailsTop = detailsRef.current?.offsetTop ?? Infinity;
+    if (atBottom || offset >= artistTop - 24) setActiveSection("artist");
+    else if (offset >= detailsTop - 24) setActiveSection("details");
+    else setActiveSection("story");
+  };
+
   const title = painting ? t(lang, painting.ko, painting.en) : sculpture ? t(lang, ...(SCULPTURE_NAMES[sculpture] ?? [sculpture, sculpture])) : id;
+  const secondaryTitle = painting ? (lang === "ko" ? painting.en : painting.ko) : "";
+  const artistName = painting ? t(lang, painting.artistKo, painting.artistEn) : "";
+  const showDocent = Boolean(painting && curated && infoOpen);
 
   const toggleRotate = () => {
     if (!driver) return;
@@ -172,60 +221,223 @@ export default function ArtViewer({
     driver?.sculptureControl({ type: "reset" });
   };
 
-  return <div className="exchange-art" role="dialog" aria-modal="true" aria-label={title} data-sculpture3d={sculpture3D || undefined}>
+  return (
     <div
-      className="exchange-art-stage"
-      onContextMenu={e => { if (sculpture3D) e.preventDefault(); }}
-      onWheel={e => zoomAt(e.deltaY < 0 ? 1.18 : 1 / 1.18)}
-      onDoubleClick={() => {
-        if (sculpture3D) reset3D();
-        else setView(v => v.s > 1 ? { s: 1, x: 0, y: 0 } : { s: 2.6, x: 0, y: 0 });
-      }}
-      onPointerDown={down}
-      onPointerMove={move}
-      onPointerUp={up}
-      onPointerCancel={up}
-      data-zoomed={sculpture3D || view.s > 1 || undefined}
+      className="exchange-art"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      data-painting={painting ? "true" : undefined}
+      data-info-open={showDocent ? "true" : undefined}
+      data-sculpture3d={sculpture3D || undefined}
     >
-      {!sculpture3D && (
-        <div className="exchange-art-frame" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
-          <img className="exchange-art-base" src={small} alt={title} draggable={false} decoding="sync" />
-          {fullReady && full !== small && (
-            <img className="exchange-art-full" src={full} alt="" aria-hidden="true" draggable={false} decoding="sync" />
+      {showDocent && painting && curated && (
+        <aside className="exchange-art-docent" aria-label={t(lang, "작품 해설 및 화가 소개", "Artwork story & artist notes")}>
+          <div className="exchange-art-docent-head">
+            <div className="exchange-art-docent-kicker">
+              <span>{t(lang, curated.story.movementKo, curated.story.movementEn)} · {painting.year}</span>
+              <button
+                type="button"
+                className="exchange-art-docent-hide"
+                onClick={() => setInfoOpen(false)}
+                aria-label={t(lang, "해설 숨기기", "Hide notes")}
+                title={t(lang, "작품만 크게 보기 (I)", "Expand painting (I)")}
+              >
+                {t(lang, "숨기기", "Hide")}
+              </button>
+            </div>
+            <h2 className="exchange-art-docent-title">{title}</h2>
+            <p className="exchange-art-docent-sub">{secondaryTitle}</p>
+            <p className="exchange-art-docent-byline">
+              {artistName}
+              <span>{curated.artist.lifespan}</span>
+            </p>
+            <nav className="exchange-art-docent-nav" aria-label={t(lang, "해설 목차", "Guide sections")}>
+              <button
+                type="button"
+                aria-current={activeSection === "story" ? "true" : undefined}
+                onClick={() => jumpToSection("story")}
+              >
+                {t(lang, "작품 이야기", "Story")}
+              </button>
+              <button
+                type="button"
+                aria-current={activeSection === "details" ? "true" : undefined}
+                onClick={() => jumpToSection("details")}
+              >
+                {t(lang, "세부 감상", "Details")}
+              </button>
+              <button
+                type="button"
+                aria-current={activeSection === "artist" ? "true" : undefined}
+                onClick={() => jumpToSection("artist")}
+              >
+                {t(lang, "화가", "Artist")}
+              </button>
+            </nav>
+          </div>
+
+          <div
+            ref={docentBodyRef}
+            className="exchange-art-docent-body"
+            onScroll={handleDocentScroll}
+          >
+            <section ref={storyRef} className="exchange-art-section exchange-art-story">
+              <p className="exchange-art-standfirst">
+                {t(lang, curated.story.leadKo, curated.story.leadEn)}
+              </p>
+              {(lang === "ko" ? curated.story.storyKo : curated.story.storyEn).map((paragraph, idx) => (
+                <p key={idx} className="exchange-art-prose">{paragraph}</p>
+              ))}
+            </section>
+
+            <section ref={detailsRef} className="exchange-art-section">
+              <div className="exchange-art-section-head">
+                <h3>{t(lang, "그림 속 볼거리", "Closer Look")}</h3>
+                <span>{t(lang, "우측 원화를 확대해 살펴보세요", "Zoom the canvas to inspect")}</span>
+              </div>
+              <ul className="exchange-art-details">
+                {curated.story.details.map((item, idx) => (
+                  <li key={idx}>
+                    <strong>{t(lang, item.titleKo, item.titleEn)}</strong>
+                    <p>{t(lang, item.textKo, item.textEn)}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <section ref={artistRef} className="exchange-art-section">
+              <div className="exchange-art-section-head">
+                <h3>{artistName}</h3>
+                <span>{t(lang, curated.artist.originKo, curated.artist.originEn)}, {curated.artist.lifespan}</span>
+              </div>
+              <p className="exchange-art-prose">
+                {t(lang, curated.artist.bioKo, curated.artist.bioEn)}
+              </p>
+              <p className="exchange-art-traits">
+                {(lang === "ko" ? curated.artist.keywordsKo : curated.artist.keywordsEn).join(" · ")}
+              </p>
+            </section>
+
+            <dl className="exchange-art-colophon">
+              <div>
+                <dt>{t(lang, "소장", "Collection")}</dt>
+                <dd>{t(lang, curated.story.collectionKo, curated.story.collectionEn)}</dd>
+              </div>
+              <div>
+                <dt>{t(lang, "기법", "Medium")}</dt>
+                <dd>{t(lang, curated.story.mediumKo, curated.story.mediumEn)}</dd>
+              </div>
+            </dl>
+          </div>
+        </aside>
+      )}
+
+      <div className="exchange-art-workspace">
+        <div
+          className="exchange-art-stage"
+          onContextMenu={e => { if (sculpture3D) e.preventDefault(); }}
+          onWheel={e => zoomAt(e.deltaY < 0 ? 1.18 : 1 / 1.18)}
+          onDoubleClick={() => {
+            if (sculpture3D) reset3D();
+            else setView(v => v.s > 1 ? { s: 1, x: 0, y: 0 } : { s: 2.6, x: 0, y: 0 });
+          }}
+          onPointerDown={down}
+          onPointerMove={move}
+          onPointerUp={up}
+          onPointerCancel={up}
+          data-zoomed={sculpture3D || view.s > 1 || undefined}
+        >
+          {!sculpture3D && (
+            <div className="exchange-art-frame" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
+              <img className="exchange-art-base" src={small} alt={title} draggable={false} decoding="sync" />
+              {fullReady && full !== small && (
+                <img className="exchange-art-full" src={full} alt="" aria-hidden="true" draggable={false} decoding="sync" />
+              )}
+            </div>
           )}
         </div>
-      )}
-    </div>
-    <header className="exchange-art-caption">
-      <div>
-        <h2>{title}</h2>
-        {painting && <p>{t(lang, painting.artistKo, painting.artistEn)} · {painting.year}</p>}
-        {sculpture && <p>{sculpture3D ? t(lang, "360° 3D 인터랙티브 조형물 감상 · Poly Haven CC0", "360° Interactive 3D Sculpture · Poly Haven CC0") : t(lang, "조형 작품 · Poly Haven CC0", "Sculpture · Poly Haven CC0")}</p>}
-      </div>
-      <div className="exchange-art-tools">
-        {loading && <small>{t(lang, "초고해상도 불러오는 중", "Loading 4K resolution")}</small>}
-        {sculpture3D && (
-          <>
-            <button type="button" className="exchange-action exchange-art-pill" aria-pressed={autoRotate} onClick={toggleRotate}>
-              {t(lang, "360° 회전", "Auto spin")}
-            </button>
-            <button type="button" className="exchange-action exchange-art-pill" onClick={reset3D}>
-              {t(lang, "정면", "Reset")}
-            </button>
-          </>
+
+        <header className="exchange-art-caption">
+          <div className="exchange-art-caption-title">
+            {(!showDocent || !painting) ? (
+              <>
+                <h2>{title}</h2>
+                {painting && <p>{artistName} · {painting.year}</p>}
+                {sculpture && (
+                  <p>
+                    {sculpture3D
+                      ? t(lang, "360° 3D 인터랙티브 조형물 감상 · Poly Haven CC0", "360° Interactive 3D Sculpture · Poly Haven CC0")
+                      : t(lang, "조형 작품 · Poly Haven CC0", "Sculpture · Poly Haven CC0")}
+                  </p>
+                )}
+              </>
+            ) : (
+              view.s > 1.01 && (
+                <button
+                  type="button"
+                  className="exchange-art-zoom-chip"
+                  onClick={resetZoom}
+                  title={t(lang, "원래 크기로 돌아가기", "Reset zoom")}
+                >
+                  {view.s.toFixed(1)}× · {t(lang, "원본 크기", "Reset")}
+                </button>
+              )
+            )}
+          </div>
+          <div className="exchange-art-tools">
+            {loading && <small>{t(lang, "고해상도 불러오는 중", "Loading high-res")}</small>}
+            {!showDocent && painting && view.s > 1.01 && (
+              <button
+                type="button"
+                className="exchange-art-btn exchange-art-pill"
+                onClick={resetZoom}
+              >
+                {view.s.toFixed(1)}×
+              </button>
+            )}
+            {painting && curated && (
+              <button
+                type="button"
+                className="exchange-art-btn exchange-art-pill"
+                aria-pressed={infoOpen}
+                onClick={() => setInfoOpen(v => !v)}
+              >
+                {infoOpen ? t(lang, "해설 닫기", "Hide notes") : t(lang, "작품 해설", "Notes")}
+              </button>
+            )}
+            {sculpture3D && (
+              <>
+                <button type="button" className="exchange-action exchange-art-pill" aria-pressed={autoRotate} onClick={toggleRotate}>
+                  {t(lang, "360° 회전", "Auto spin")}
+                </button>
+                <button type="button" className="exchange-action exchange-art-pill" onClick={reset3D}>
+                  {t(lang, "정면", "Reset")}
+                </button>
+              </>
+            )}
+            <button type="button" className={painting ? "exchange-art-btn" : "exchange-action"} onClick={() => zoomAt(1 / 1.4)} aria-label={t(lang, "축소", "Zoom out")}>−</button>
+            <button type="button" className={painting ? "exchange-art-btn" : "exchange-action"} onClick={() => zoomAt(1.4)} aria-label={t(lang, "확대", "Zoom in")}>+</button>
+            <button ref={close} type="button" className={painting ? "exchange-art-btn" : "exchange-action"} onClick={onClose} aria-label={t(lang, "닫기", "Close")}>×</button>
+          </div>
+        </header>
+
+        {painting && (
+          <footer className="exchange-art-credit">
+            <span>
+              {t(lang, "퍼블릭 도메인 · ", "Public domain · ")}
+              <a href={painting.source} target="_blank" rel="noopener noreferrer">Wikimedia Commons ↗</a>
+            </span>
+            <span>{t(lang, "휠 확대 · 드래그 이동 · 더블클릭 붓질 감상", "Wheel to zoom · drag to pan · double-click for brushwork")}</span>
+          </footer>
         )}
-        <button type="button" className="exchange-action" onClick={() => zoomAt(1 / 1.4)} aria-label={t(lang, "축소", "Zoom out")}>−</button>
-        <button type="button" className="exchange-action" onClick={() => zoomAt(1.4)} aria-label={t(lang, "확대", "Zoom in")}>+</button>
-        <button ref={close} type="button" className="exchange-action" onClick={onClose} aria-label={t(lang, "닫기", "Close")}>×</button>
+        {sculpture3D && (
+          <footer className="exchange-art-credit">
+            <span>{t(lang, "360° 3D 뮤지엄 스튜디오 · Poly Haven CC0", "360° 3D Museum Studio · Poly Haven CC0")}</span>
+            <span>{t(lang, "드래그 360° 자유 회전 · 휠/핀치 확대 · 우클릭/Shift 이동 · 더블클릭 정면 초기화", "Drag to orbit 360° · wheel/pinch to zoom · right-drag/Shift to pan · double-click to reset")}</span>
+          </footer>
+        )}
       </div>
-    </header>
-    {painting && <footer className="exchange-art-credit">
-      {t(lang, "퍼블릭 도메인 · ", "Public domain · ")}<a href={painting.source} target="_blank" rel="noopener noreferrer">Wikimedia Commons ↗</a>
-      <span>{t(lang, "휠·핀치로 확대, 드래그로 이동, 더블클릭으로 붓 터치까지 보기", "Wheel or pinch to zoom, drag to pan, double-click for the brushwork")}</span>
-    </footer>}
-    {sculpture3D && <footer className="exchange-art-credit">
-      <span>{t(lang, "360° 3D 뮤지엄 스튜디오 · Poly Haven CC0", "360° 3D Museum Studio · Poly Haven CC0")}</span>
-      <span>{t(lang, "드래그 360° 자유 회전 · 휠/핀치 확대 · 우클릭/Shift 이동 · 더블클릭 정면 초기화", "Drag to orbit 360° · wheel/pinch to zoom · right-drag/Shift to pan · double-click to reset")}</span>
-    </footer>}
-  </div>;
+    </div>
+  );
 }

@@ -147,12 +147,19 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
   let worker: Worker | undefined;
   let workerReady: Promise<void> = Promise.resolve();
   let workerTimer = 0, finishWorkerStart = () => {};
+  let workerLogoTimer = 0, mainLogoTimer = 0;
   let inflight = 0;
+  const markLogoPanelsDirty = () => {
+    if (!active) return;
+    for (const id of panels.keys()) if (/^s\d|leaders|gainers|laggards|movers|heatgrid/.test(id)) dirty.add(id);
+  };
   const stopWorker = () => {
     worker?.terminate();
     worker = undefined;
     inflight = 0;
     clearTimeout(workerTimer);
+    clearTimeout(workerLogoTimer);
+    workerLogoTimer = 0;
     finishWorkerStart();
   };
   if (WORKER_OK && !disableWorker) {
@@ -166,7 +173,10 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
         const msg = event.data;
         if (msg.type === "ready") { clearTimeout(workerTimer); finishWorkerStart(); return; }
         if (msg.type === "logo") {
-          if (active) for (const id of panels.keys()) if (/^s\d|leaders|gainers|laggards|movers|heatgrid/.test(id)) dirty.add(id);
+          // Batch arriving company logos (up to 96) instead of re-dirtying all 21 stock panels on every single icon!
+          if (active && !workerLogoTimer) {
+            workerLogoTimer = window.setTimeout(() => { workerLogoTimer = 0; markLogoPanelsDirty(); }, 600);
+          }
           return;
         }
         if (msg.type !== "done") return;
@@ -456,7 +466,11 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
     asset.crossOrigin = "anonymous";
     asset.decoding = "async";
     logos.set(url, asset);
-    asset.onload = () => { if (active) for (const id of panels.keys()) if (/^s\d|leaders|gainers|laggards|movers|heatgrid/.test(id)) dirty.add(id); };
+    asset.onload = () => {
+      if (active && !mainLogoTimer) {
+        mainLogoTimer = window.setTimeout(() => { mainLogoTimer = 0; markLogoPanelsDirty(); }, 600);
+      }
+    };
     asset.onerror = () => { logos.set(url, null); };
     asset.src = url;
   };
@@ -530,95 +544,101 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
     }
   }
 
-  // Logos arrive one by one: repaint the strips once they settle (at most every 1.2 s).
+  // Logos arrive one by one: queue ticker repaints once they settle (at most every 1.2 s).
   let logoTimer = 0;
+  const dirtyTickers = new Map<string, boolean>();
+  const queueTickers = (logosChanged = false) => {
+    for (const id of tickers.keys()) {
+      dirtyTickers.set(id, Boolean(dirtyTickers.get(id) || logosChanged));
+    }
+  };
   setTickerLogoListener(() => {
     if (!active || logoTimer) return;
-    logoTimer = window.setTimeout(() => { logoTimer = 0; if (active) paintTickers(true); }, 1200);
+    logoTimer = window.setTimeout(() => { logoTimer = 0; if (active) queueTickers(true); }, 1200);
   });
 
-  function paintTickers(logosChanged = false) {
+  function paintOneTicker(id: string, logosChanged = false) {
     if (!snapshot) return;
-    for (const [id, ticker] of tickers) {
-      const style = TICKERS[id];
-      if (style === "amber") {
-        const entries = tickerEntries(style, snapshot, lang);
-        const signature = JSON.stringify(entries);
-        if (!logosChanged && signature === outerSignature) continue;
-        const source = outerTickerCanvas ?? ticker.canvas;
-        if (!paintOuterTicker(source, entries)) continue;
-        outerSignature = signature;
-        const version = ++outerPaint;
-        const commit = (image: ImageBitmap | HTMLCanvasElement) => {
+    const ticker = tickers.get(id);
+    if (!ticker) return;
+    const style = TICKERS[id];
+    if (style === "amber") {
+      const entries = tickerEntries(style, snapshot, lang);
+      const signature = JSON.stringify(entries);
+      if (!logosChanged && signature === outerSignature) return;
+      const source = outerTickerCanvas ?? ticker.canvas;
+      if (!paintOuterTicker(source, entries)) return;
+      outerSignature = signature;
+      const version = ++outerPaint;
+      const commit = (image: ImageBitmap | HTMLCanvasElement) => {
+        if (!active || version !== outerPaint) {
+          if (isBitmap(image)) image.close();
+          return;
+        }
+        queueTickerCommit(id, image, () => {
           if (!active || version !== outerPaint) {
             if (isBitmap(image)) image.close();
             return;
           }
-          queueTickerCommit(id, image, () => {
-            if (!active || version !== outerPaint) {
-              if (isBitmap(image)) image.close();
-              return;
-            }
-            const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement | null;
-            if (old && old.height !== image.height) ticker.tex.dispose();
-            ticker.tex.image = image;
-            ticker.tex.needsUpdate = true;
-            outerCount.value = entries.length;
-            // Repeat a partial feed a whole number of times until the full selection arrives.
-            outerRepeats.value = Math.max(1, Math.round(ticker.width / (entries.length * OUTER_TICKER_ATLAS.slotWidth)));
-            uploadFn?.(ticker.tex);
-            if (isBitmap(old)) setTimeout(() => old.close(), 500);
-          });
-        };
-        if (outerTickerCanvas) commit(outerTickerCanvas.transferToImageBitmap());
-        else if (typeof createImageBitmap === "function") void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
-        else commit(ticker.canvas);
-        continue;
-      }
-      const tickerSig = JSON.stringify(tickerEntries(style === "column" ? "ring" : style, snapshot, lang));
-      if (!logosChanged && tickerSignatures.get(id) === tickerSig) continue;
-      const width = style === "column" ? paintColumn(ticker.canvas, snapshot, lang) : paintTicker(ticker.canvas, style, snapshot, lang);
-      if (!width) continue;
-      tickerSignatures.set(id, tickerSig);
-      ticker.width = width;
-      // Repeat the strip along each merged ticker segment at its natural pixel aspect.
-      const uv = ticker.mesh.geometry.getAttribute("uv");
-      for (const seg of ticker.segments) {
-        const end = seg.start + seg.count;
-        if (seg.vertical) {
-          // Column strips: the card stack runs along v; each column starts at its own phase.
-          const repeat = seg.length / seg.height * ticker.canvas.width / width;
-          if (!ticker.baseV) ticker.baseV = Float32Array.from({ length: uv.count }, (_, i) => uv.getY(i));
-          const base = ticker.baseV;
-          for (let i = seg.start; i < end; i++) uv.setY(i, base[i] * repeat + seg.phase);
-        } else {
-          const repeat = seg.length / seg.height * 128 / width;
-          if (!ticker.baseU) ticker.baseU = Float32Array.from({ length: uv.count }, (_, i) => uv.getX(i));
-          const base = ticker.baseU;
-          for (let i = seg.start; i < end; i++) uv.setX(i, base[i] * repeat);
-        }
-      }
-      uv.needsUpdate = true;
-      // Same-size repaints reuse the GPU texture; only a size change reallocates it. The upload goes
-      // through an async ImageBitmap so the frame never waits on the 2D canvas.
-      const version = (ticker.tex.userData.paintVersion ?? 0) + 1;
-      ticker.tex.userData.paintVersion = version;
-      const commit = (image: ImageBitmap | HTMLCanvasElement) => {
-        if (!active || version !== ticker.tex.userData.paintVersion) { if (isBitmap(image)) image.close(); return; }
-        queueTickerCommit(id, image, () => {
-          if (!active || version !== ticker.tex.userData.paintVersion) { if (isBitmap(image)) image.close(); return; }
           const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement | null;
-          if (ticker.tex.userData.width !== width) ticker.tex.dispose();
-          ticker.tex.userData.width = width;
+          if (old && old.height !== image.height) ticker.tex.dispose();
           ticker.tex.image = image;
           ticker.tex.needsUpdate = true;
+          outerCount.value = entries.length;
+          // Repeat a partial feed a whole number of times until the full selection arrives.
+          outerRepeats.value = Math.max(1, Math.round(ticker.width / (entries.length * OUTER_TICKER_ATLAS.slotWidth)));
           uploadFn?.(ticker.tex);
           if (isBitmap(old)) setTimeout(() => old.close(), 500);
         });
       };
-      if (typeof createImageBitmap === "function") void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
+      if (outerTickerCanvas) commit(outerTickerCanvas.transferToImageBitmap());
+      else if (typeof createImageBitmap === "function") void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
       else commit(ticker.canvas);
+      return;
     }
+    const tickerSig = JSON.stringify(tickerEntries(style === "column" ? "ring" : style, snapshot, lang));
+    if (!logosChanged && tickerSignatures.get(id) === tickerSig) return;
+    const width = style === "column" ? paintColumn(ticker.canvas, snapshot, lang) : paintTicker(ticker.canvas, style, snapshot, lang);
+    if (!width) return;
+    tickerSignatures.set(id, tickerSig);
+    ticker.width = width;
+    // Repeat the strip along each merged ticker segment at its natural pixel aspect.
+    const uv = ticker.mesh.geometry.getAttribute("uv");
+    for (const seg of ticker.segments) {
+      const end = seg.start + seg.count;
+      if (seg.vertical) {
+        // Column strips: the card stack runs along v; each column starts at its own phase.
+        const repeat = seg.length / seg.height * ticker.canvas.width / width;
+        if (!ticker.baseV) ticker.baseV = Float32Array.from({ length: uv.count }, (_, i) => uv.getY(i));
+        const base = ticker.baseV;
+        for (let i = seg.start; i < end; i++) uv.setY(i, base[i] * repeat + seg.phase);
+      } else {
+        const repeat = seg.length / seg.height * 128 / width;
+        if (!ticker.baseU) ticker.baseU = Float32Array.from({ length: uv.count }, (_, i) => uv.getX(i));
+        const base = ticker.baseU;
+        for (let i = seg.start; i < end; i++) uv.setX(i, base[i] * repeat);
+      }
+    }
+    uv.needsUpdate = true;
+    // Same-size repaints reuse the GPU texture; only a size change reallocates it. The upload goes
+    // through an async ImageBitmap so the frame never waits on the 2D canvas.
+    const version = (ticker.tex.userData.paintVersion ?? 0) + 1;
+    ticker.tex.userData.paintVersion = version;
+    const commit = (image: ImageBitmap | HTMLCanvasElement) => {
+      if (!active || version !== ticker.tex.userData.paintVersion) { if (isBitmap(image)) image.close(); return; }
+      queueTickerCommit(id, image, () => {
+        if (!active || version !== ticker.tex.userData.paintVersion) { if (isBitmap(image)) image.close(); return; }
+        const old = ticker.tex.image as ImageBitmap | HTMLCanvasElement | null;
+        if (ticker.tex.userData.width !== width) ticker.tex.dispose();
+        ticker.tex.userData.width = width;
+        ticker.tex.image = image;
+        ticker.tex.needsUpdate = true;
+        uploadFn?.(ticker.tex);
+        if (isBitmap(old)) setTimeout(() => old.close(), 500);
+      });
+    };
+    if (typeof createImageBitmap === "function") void createImageBitmap(ticker.canvas).then(commit).catch(() => commit(ticker.canvas));
+    else commit(ticker.canvas);
   }
 
   return {
@@ -645,17 +665,8 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       && ![...dirty].some(id => panels.get(id)?.visible !== false),
     painting: () => !!worker,
     update(next: FloorSnapshot, nextSeries: Record<string, number[]>, language: Language) {
-      // Polls return the same data most of the time (always, outside market hours): repaint only
-      // when something a display shows has changed. The header stamp counts at display precision.
-      const nextSignature = language + "|" + JSON.stringify(next, (key, value) => key === "received" ? shortTime(value) : value)
-        + "|" + Object.entries(nextSeries).map(([k, v]) => k + ":" + v.length + ":" + v[v.length - 1]).join(",");
-      snapshot = next; series = nextSeries; lang = language;
-      if (nextSignature === signature) return;
-      signature = nextSignature;
-      worker?.postMessage({ type: "data", snapshot: next, series: nextSeries, lang: language } satisfies WorkerIn);
-      pageCounts.clear();
-      pagedPanels = [];
-      // Selective per-group dirtying: avoid re-painting & re-uploading all 58 panels + mipmaps when only one feed ticked!
+      // Polls return the same data most of the time (always, outside market hours): compute each feed's
+      // signature ONCE (no double JSON.stringify over 500+ rows!) and repaint only changed groups.
       const signSig = `${language}|${next.market}`;
       const worldSig = `${language}|${JSON.stringify(next.extras.world)}`;
       const futuresSig = `${language}|${JSON.stringify(next.extras.futures)}`;
@@ -665,7 +676,15 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       const investorSig = `${language}|${next.market}|${JSON.stringify(next.extras.investor)}|${JSON.stringify(next.investorTotals)}`;
       const tickersSig = `${language}|${JSON.stringify(next.tickers)}|${JSON.stringify(next.extras.kospiNight)}|${JSON.stringify(next.extras.kospiFutures)}`;
       const seriesSig = Object.entries(nextSeries).map(([k, v]) => `${k}:${v.length}:${v[v.length - 1]}`).join(",");
-      const marketSig = `${language}|${next.market}|${shortTime(next.received)}|${next.up}/${next.flat}/${next.down}|${JSON.stringify(next.index)}|${JSON.stringify(next.indices)}|${JSON.stringify(next.rows)}`;
+      const marketSig = `${language}|${next.market}|${shortTime(next.received)}|${next.up}/${next.flat}/${next.down}|${next.failed ? 1 : 0}|${next.capBasis ?? ""}|${next.session ?? ""}|${JSON.stringify(next.index)}|${JSON.stringify(next.indices)}|${JSON.stringify(next.rows)}`;
+      const outerSig = `${next.outerTickerRows.length}:${next.outerTickerRows[0]?.code ?? ""}:${next.outerTickerRows[0]?.close ?? ""}`;
+      const nextSignature = `${signSig}#${worldSig}#${futuresSig}#${ratesSig}#${newsSig}#${globalTopSig}#${investorSig}#${tickersSig}#${seriesSig}#${marketSig}#${outerSig}`;
+      snapshot = next; series = nextSeries; lang = language;
+      if (nextSignature === signature) return;
+      signature = nextSignature;
+      worker?.postMessage({ type: "data", snapshot: next, series: nextSeries, lang: language } satisfies WorkerIn);
+      pageCounts.clear();
+      pagedPanels = [];
       const groupFor = (id: string): [string, string] => {
         if (id === "sign") return ["sign", signSig];
         if (id === "clocks" || id === "session") return ["clockLang", language];
@@ -692,7 +711,7 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
         if (changedGroups.has(gKey)) dirty.add(id);
       }
       for (const [k, v] of nextGroupValues) groupSignatures.set(k, v);
-      paintTickers();
+      queueTickers(false);
     },
     /** Called once per frame: scrolls tickers, ticks clocks and repaints what the camera can see. */
     tick(now: number, reduced: boolean, frustum?: Frustum, deferUpload = false) {
@@ -722,6 +741,18 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       if (!reduced) for (const [id, ticker] of tickers) {
         const speed = id === "ring" ? 85 : id === "tickerD" ? 120 : id === "tickerV" ? -70 : 150;   // px/s along the strip (columns rise)
         ticker.offset.value = (now / 1000 * speed / ticker.width) % 1;
+      }
+      // Pace main-thread Canvas2D ticker redraws: at most 1 strip per idle frame after reveal (2 during boot)
+      // instead of blocking a single frame with all 6 giant ticker strips!
+      if (dirtyTickers.size && (!deferUpload || bootMode) && pendingTickers.size < (bootMode ? 3 : 1)) {
+        const tickerQuota = bootMode ? 2 : 1;
+        let painted = 0;
+        for (const [id, logosChanged] of dirtyTickers) {
+          if (painted >= tickerQuota) break;
+          dirtyTickers.delete(id);
+          paintOneTicker(id, logosChanged);
+          painted++;
+        }
       }
       // Page flips: iterate only multi-page panels (~6 vs 36+); pace desktop slide at ~9Hz (~5 smooth steps) instead of 60Hz mipmap storms!
       if (snapshot && !reduced && pagedPanels.length) {
@@ -787,6 +818,9 @@ export function createScreens(quality: number, lite = false, upload?: (texture: 
       stopWorker();
       setTickerLogoListener(undefined);
       clearTimeout(logoTimer);
+      clearTimeout(workerLogoTimer);
+      clearTimeout(mainLogoTimer);
+      dirtyTickers.clear();
       for (const img of logos.values()) if (img) img.onload = img.onerror = null;
       group.traverse(child => { if (child instanceof Mesh) child.geometry.dispose(); });
       for (const p of panels.values()) {

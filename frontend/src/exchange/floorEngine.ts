@@ -988,7 +988,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     };
     // Defer 6.39MB HDR environment & preview atlas until right after reveal so boot bandwidth stays 100% focused!
 
-    const artwork = new Map<Mesh, () => void>();
+    const artwork = new Map<Mesh, { release: () => void; lastUsed: number }>();
     const previewMeshes = new Set<Mesh>();
     let previewMaterial: MeshStandardMaterial | undefined;
     let artPending = false;
@@ -1032,21 +1032,47 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       applyPreviewMap(map);
     };
     if (initialPreviewMap) applyPreviewMap(initialPreviewMap);
-    const loadArtwork = async (art: typeof artCanvases[number]) => {
+    // Exploration-aware idle gate (initialized below after camera/input state exists)
+    let isUserBusy = () => false;
+    let waitIdleFrames = async (_count = 2) => {};
+    // LRU 1K artwork cache: keeps recently-seen gallery paintings resident so looking around or
+    // walking back and forth never re-fetches, re-decodes, or re-uploads 1K mipmap chains!
+    const maxLiveArt = mobile ? 6 : 12;
+    const evictOldestArtwork = (keep: Set<Mesh>) => {
+      let oldestMesh: Mesh | null = null;
+      let oldestTime = Infinity;
+      for (const [m, entry] of artwork) {
+        if (keep.has(m)) continue;
+        if (entry.lastUsed < oldestTime) { oldestTime = entry.lastUsed; oldestMesh = m; }
+      }
+      if (oldestMesh) {
+        artwork.get(oldestMesh)?.release();
+        artwork.delete(oldestMesh);
+        artworkMetrics();
+      }
+    };
+    const loadArtwork = async (art: typeof artCanvases[number], keep: Set<Mesh>) => {
       const { mesh, id, placeholder } = art;
       let map: Texture | undefined;
       try {
         map = await loadBitmapTexture(`${STORAGE_ASSETS}/art/${id}-1k.webp`);
         if (disposed || signal.aborted) { disposeTexSafe(map); return; }
+        // Wait for an idle non-moving frame before uploading the 1K texture + mipmap chain to GPU!
+        await waitIdleFrames(1);
+        if (disposed || signal.aborted) { disposeTexSafe(map); return; }
         map.colorSpace = SRGBColorSpace;
         map.flipY = false;
         map.anisotropy = maxAniso;
+        if (artwork.size >= maxLiveArt) evictOldestArtwork(keep);
         renderer.initTexture(map);
         const material = pictureMaterial(map);
-        artwork.set(mesh, () => {
-          mesh.material = previewMeshes.has(mesh) && previewMaterial ? previewMaterial : placeholder;
-          if (material.map) disposeTexSafe(material.map);
-          material.dispose();
+        artwork.set(mesh, {
+          lastUsed: performance.now(),
+          release: () => {
+            mesh.material = previewMeshes.has(mesh) && previewMaterial ? previewMaterial : placeholder;
+            if (material.map) disposeTexSafe(material.map);
+            material.dispose();
+          },
         });
         mesh.material = material;
         artworkMetrics();
@@ -1056,18 +1082,16 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       }
     };
     releases.push(() => {
-      for (const release of artwork.values()) release();
+      for (const entry of artwork.values()) entry.release();
       artwork.clear();
       for (const { mesh, placeholder } of artCanvases) mesh.material = placeholder;
       if (previewMaterial?.map) disposeTexSafe(previewMaterial.map);
       previewMaterial?.dispose();
       previewMeshes.clear();
     });
-    // Preview atlas loads right after reveal so boot stays instant; nearest 6 visible paintings upgrade lazily to 1K!
-    const maxLiveArt = mobile ? 5 : 6;
     let artCheckNeeded = true;
     function updateArtwork() {
-      if (artPending || drag || tour.isActive() || velX * velX + velZ * velZ > 0.16) return;
+      if (artPending || tour.isActive() || isUserBusy()) return;
       const now = performance.now();
       if (!artCheckNeeded) {
         let retryDue = false;
@@ -1081,16 +1105,16 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       const nearest = artCanvases.map(art => ({ art, distance: art.bounds.center.distanceToSquared(camera.position), visible: frustum.intersectsSphere(art.bounds) }))
         .filter(({ distance, visible }) => visible && distance < 10.5 ** 2)
         .sort((a, b) => a.distance - b.distance).slice(0, maxLiveArt).map(({ art }) => art);
-      for (const [mesh, release] of artwork) {
-        if (nearest.some(art => art.mesh === mesh)) continue;
-        release();
-        artwork.delete(mesh);
-        artworkMetrics();
+      const keep = new Set<Mesh>();
+      for (const item of nearest) {
+        keep.add(item.mesh);
+        const existing = artwork.get(item.mesh);
+        if (existing) existing.lastUsed = now;
       }
       const next = nearest.find(art => !artwork.has(art.mesh) && art.retryAt <= now);
       if (next) {
         artPending = true;
-        void loadArtwork(next).finally(() => { artPending = false; artCheckNeeded = true; });
+        void loadArtwork(next, keep).finally(() => { artPending = false; artCheckNeeded = true; });
       }
     }
 
@@ -1181,6 +1205,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     let touchX = 0, touchForward = 0, velX = 0, velZ = 0;
     let drag: { pointer: number; x: number; y: number; travel: number } | undefined;
     let last = 0, lastPosition = 0, lastHover = -Infinity, lastArtwork = 0, pushedPose = false, aspect = 1, dpr = 0;
+    let lastFrameMs = 16, interactQuietUntil = 0, jumpUploadQuietUntil = 0, prewarming = false;
+    let loadingHiResMood: AtriumMood | null = null;
     let lastSentX = NaN, lastSentZ = NaN, lastSentYaw = NaN;
     let lastCamX = NaN, lastCamY = NaN, lastCamZ = NaN, lastCamYaw = NaN, lastCamPitch = NaN;
     let slowSince = 0, tier = 0, started = 0, fastSince = 0, ssrDropped = false, ssrRetries = 0;
@@ -1278,9 +1304,11 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     }
     function up(event: PointerEvent) {
       if (!drag || drag.pointer !== event.pointerId) return;
+      const moved = drag.travel >= 5;
       const choose = event.type === "pointerup" && drag.travel < 8;
       drag = undefined;
       canvas.style.cursor = "grab";
+      if (moved) interactQuietUntil = Math.max(interactQuietUntil, performance.now() + 240);
       if (!choose) return;
       const panel = pick(event.clientX, event.clientY);
       if (panel) { pause(); events.select(panel); }
@@ -1297,10 +1325,13 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     const keyup = (event: KeyboardEvent) => { keys.delete(event.code); };
 
     function govern(elapsed: number, now: number) {
-      // Hold locked 60 fps smoothly without pipeline reallocation hitches:
+      // Hold locked 60 fps smoothly without false-positive pipeline reallocation hitches:
       // tier 1 = drop SSR (restored once frames recover) -> tier 2 = cap DPR 1.25 -> tier 3 = disable bloom -> tier 4 = cap DPR 1.0.
       if (!started) started = now;
-      if (now - started < 5000) return;
+      if (now - started < 6000) return;
+      // Never let a background 16K upload, async prewarm, station jump, or isolated GC spike trigger a pipeline rebuild!
+      if (prewarming || loadingHiResMood !== null || now < interactQuietUntil + 1000) return;
+      if (elapsed > 45) return;
       recent.push(elapsed);
       if (recent.length > 60) recent.shift();
       if (recent.length < 60 || tier >= 4) return;
@@ -1340,7 +1371,10 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       if (!last) last = now;
       const elapsed = now - last, step = Math.min(elapsed / 1000, .033);
       last = now;
-      if (elapsed > 0 && elapsed < 250) govern(elapsed, now);
+      if (elapsed > 0 && elapsed < 250) {
+        lastFrameMs = elapsed;
+        govern(elapsed, now);
+      }
       if (measure && elapsed > 0) {
         frames.push(elapsed);
         if (frames.length > 2400) frames.splice(0, 600);
@@ -1465,7 +1499,8 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
         frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem);
       }
       fx.tick(now, step, reduced.matches);
-      screens.tick(now, reduced.matches, camMoved ? frustum : undefined, Boolean(drag));
+      const deferScreenUpload = Boolean(drag) || now < jumpUploadQuietUntil || keys.size > 0 || Math.abs(touchX) > 0.02 || Math.abs(touchForward) > 0.02;
+      screens.tick(now, reduced.matches, camMoved ? frustum : undefined, deferScreenUpload);
       if (pipeline) pipeline.render(); else renderer.render(scene, camera);
       rendered = true;
       if (ready && now - lastArtwork > (mobile ? 400 : 450)) {
@@ -1593,14 +1628,29 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     }
     events.renderer(backend);
     ready = true;
-    // Helper: yield a few animation frames while the user is not dragging so GPU texture uploads & async pipeline builds stay 60 FPS!
-    const waitIdleFrames = async (count = 2) => {
-      for (let k = 0; k < count; k++) {
-        if (disposed || signal.aborted) return;
+    // Exploration-aware idle scheduler: defer heavy 16K/1K texture uploads & async shader precompiles
+    // whenever the visitor is dragging, walking (WASD/joystick), gliding, jumping stations, or right after a slow frame!
+    isUserBusy = () =>
+      Boolean(drag) ||
+      keys.size > 0 ||
+      Math.abs(touchX) > 0.02 ||
+      Math.abs(touchForward) > 0.02 ||
+      velX * velX + velZ * velZ > 0.04 ||
+      performance.now() < interactQuietUntil ||
+      suspended ||
+      document.hidden ||
+      lastFrameMs > 22;
+    waitIdleFrames = async (count = 2) => {
+      let clean = 0;
+      while (clean < count && !disposed && !signal.aborted) {
+        if (isUserBusy()) {
+          clean = 0;
+          await new Promise<void>(r => window.setTimeout(r, 70));
+          continue;
+        }
         await new Promise<void>(r => requestAnimationFrame(() => r()));
-      }
-      while (drag && !disposed && !signal.aborted) {
-        await new Promise<void>(r => window.setTimeout(r, 60));
+        if (isUserBusy()) clean = 0;
+        else clean++;
       }
     };
     // Helper: compile an object's WebGPU render pipeline asynchronously (device.createRenderPipelineAsync) in the exact
@@ -1645,7 +1695,19 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
           const nightTex = initialMood === "night" ? initialSkyTex : await loadSkylineFallback("skyline-night-v7.webp", true);
           if (disposed || signal.aborted) return;
           if (nightTex !== initialSkyTex) { await waitIdleFrames(2); if (disposed || signal.aborted) return; renderer.initTexture(nightTex); }
-          fx.setFallbackSkylines(dayTex, goldenTex, nightTex);
+          const fallbackMat = fx.setFallbackSkylines(dayTex, goldenTex, nightTex, true);
+          // Precompile the 3-mood + liveSea fallback window pipeline asynchronously before binding so switching moods never stalls!
+          const sampleWin = fx.getWindowMeshes()[0];
+          if (fallbackMat && sampleWin) {
+            await waitIdleFrames(2);
+            if (disposed || signal.aborted) return;
+            const probe = new Mesh(sampleWin.geometry, fallbackMat);
+            probe.matrixAutoUpdate = false;
+            probe.matrixWorld.copy(sampleWin.matrixWorld);
+            await compileObjectAsync(probe);
+          }
+          if (disposed || signal.aborted) return;
+          fx.commitFallbackSkylines();
         } catch {
           // Keep active skyline intact if secondary fallback fails
         }
@@ -1655,7 +1717,6 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     // On-demand effective-16K dual-hemisphere skyline loader (desktop only: 2x 8192x4096 = 16,380x4,096 seamless!).
     // Keeps GPU VRAM strictly bounded to ONLY the currently active mood (~256 MB) while instant 8K handles smooth crossfades.
     let activeHiRes: { mood: AtriumMood; L: Texture; R: Texture } | null = null;
-    let loadingHiResMood: AtriumMood | null = null;
     let hiResToken = 0;
     const disposeHiResLater = (pair: { L: Texture; R: Texture }) => {
       window.setTimeout(() => {
@@ -1745,26 +1806,31 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
     // device.createRenderPipelineAsync so turning 360 deg for the first time never hits a 150-217ms DXC stall!
     const prewarmOffscreenPipelines = async () => {
       if (mobile || backend !== "webgpu" || disposed || signal.aborted) return;
-      const seenMats = new Set<string>();
-      const queue: Mesh[] = [];
-      // Always include all sculptures (high-detail props around the hall) + any unique-material GLB mesh.
-      // Already-compiled pipelines are instant cache hits inside renderer.compileAsync!
-      const enqueue = (child: Object3D) => {
-        if (!(child instanceof Mesh) || !child.visible) return;
-        const mats = Array.isArray(child.material) ? child.material : [child.material];
-        let isNew = false;
-        for (const m of mats) {
-          if (m && !seenMats.has(m.uuid)) { seenMats.add(m.uuid); isNew = true; }
+      prewarming = true;
+      try {
+        const seenMats = new Set<string>();
+        const queue: Mesh[] = [];
+        // Always include all sculptures (high-detail props around the hall) + any unique-material GLB mesh.
+        // Already-compiled pipelines are instant cache hits inside renderer.compileAsync!
+        const enqueue = (child: Object3D) => {
+          if (!(child instanceof Mesh) || !child.visible) return;
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          let isNew = false;
+          for (const m of mats) {
+            if (m && !seenMats.has(m.uuid)) { seenMats.add(m.uuid); isNew = true; }
+          }
+          if (isNew) queue.push(child);
+        };
+        for (const sNode of sculptureNodes.values()) sNode.traverse(enqueue);
+        model.traverse(enqueue);
+        for (const mesh of queue) {
+          if (disposed || signal.aborted) return;
+          await waitIdleFrames(3);
+          if (disposed || signal.aborted) return;
+          await compileObjectAsync(mesh);
         }
-        if (isNew) queue.push(child);
-      };
-      for (const sNode of sculptureNodes.values()) sNode.traverse(enqueue);
-      model.traverse(enqueue);
-      for (const mesh of queue) {
-        if (disposed || signal.aborted) return;
-        await waitIdleFrames(2);
-        if (disposed || signal.aborted) return;
-        await compileObjectAsync(mesh);
+      } finally {
+        prewarming = false;
       }
     };
 
@@ -1808,6 +1874,10 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       jump(pose) {
         const y = pose.y ?? 0;
         if (surfaceAt(pose.x, pose.z, y, cabins) === null) return;
+        const now = performance.now();
+        interactQuietUntil = Math.max(interactQuietUntil, now + 450);
+        jumpUploadQuietUntil = Math.max(jumpUploadQuietUntil, now + 180);
+        artCheckNeeded = true;
         stopTour();
         pause();
         state.x = pose.x; state.z = pose.z; state.y = eyeY = y;
@@ -1817,6 +1887,7 @@ export async function createFloor(host: HTMLDivElement, canvas: HTMLCanvasElemen
       stop: pause,
       setMood(mood) {
         if (mood === fx.getMood()) return;
+        interactQuietUntil = Math.max(interactQuietUntil, performance.now() + 500);
         void ensureAllFallbackSkylines();
         fx.setMood(mood);
         void loadHiResSkyline(mood);
