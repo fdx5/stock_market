@@ -70,10 +70,6 @@ function multiplexRoute(path: string) {
   return ["/", "/desk", "/global", "/world-markets", "/news", "/kospi", "/kosdaq", "/nasdaq"].includes(path);
 }
 
-// Phones: on these pages the top bar scrolls away with the page instead of following it
-// (owner request 2026-11-27 — the pinned bar took screen space while reading the market).
-const SCROLLING_HEADER_PATHS = new Set(["/", "/kospi", "/kosdaq", "/nasdaq"]);
-
 export default function NeoShell({ path, children }: { path: string; children: ReactNode }) {
   const frameLight = useFrameLight();
   const design = useDesignMode();
@@ -221,7 +217,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     {bgm.on && <div className="d2 d2-bgm-float ng-solar-bgm"><DeskBgm variant="strip" /></div>}
     {finder && <Suspense fallback={null}><div className="d2 ng-finder-host"><Finder open={finder} onClose={close} /></div></Suspense>}
   </div>;
-  return <div ref={shellRef} className={`ng-shell ng-family-${family}${SCROLLING_HEADER_PATHS.has(path) ? " ng-header-scrolls" : ""}`} data-workspace={exchange ? "exchange" : path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
+  return <div ref={shellRef} className={`ng-shell ng-family-${family}`} data-workspace={exchange ? "exchange" : path === "/desk" ? "kr" : path === "/global" ? "us" : "atlas"}>
     {!exchange && !scorecard && !path.startsWith("/pulse-board") && <NeoBackdrop />}
     <GoldCursor />
     <a className="ng-skip" href="#neo-content">{L("본문 바로가기", "Skip to content")}</a>

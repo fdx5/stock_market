@@ -232,5 +232,3 @@ a.ng-gold-link:hover>span:first-child{filter:drop-shadow(0 0 6px #ffd05acc) drop
 @keyframes ng-gold-sheen{from{background-position:0% 0}to{background-position:-220% 0}}
 :root[data-tone="light"] a.ng-gold-link>span:first-child{-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;background-image:linear-gradient(100deg,#9a6a00 0%,#d39b12 25%,#8a5c00 50%,#c88a06 75%,#9a6a00 100%);filter:drop-shadow(0 0 3px #f0b42a59)}
 @media (prefers-reduced-motion:reduce){a.ng-gold-link>span:first-child{animation:none}}
-/* Phones: 관제 홈·코스피·코스닥·나스닥 — the header and pulse bar scroll with the page (owner request 2026-11-27). */
-@media(max-width:899px){.ng-shell.ng-header-scrolls :is(.ng-header,.ng-pulse,.ng-top-rail,.ng-map-switcher){position:relative;top:auto}}

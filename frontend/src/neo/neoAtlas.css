@@ -228,7 +228,7 @@ html[data-frame-light="off"] .ng-frame-layer,html[data-fx="minimal"] .ng-frame-l
 @media print{.ng-frame-layer{display:none!important}}
 .ng-map-switcher{display:none}
 @media(max-width:899px){
-  .ng-map-switcher{display:block;position:sticky;top:calc(var(--ng-header) + var(--ng-pulse));z-index:80;padding:9px 0 10px;background:var(--bg-root);border-bottom:1px solid var(--line-soft)}
+  .ng-map-switcher{display:block;position:relative;z-index:80;padding:9px 0 10px;background:var(--bg-root);border-bottom:1px solid var(--line-soft)}
   .ng-map-switcher>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
   .ng-map-switcher>div>span{color:var(--mustard);font:600 10px var(--f-sans)}
   .ng-map-switcher small{color:var(--text-muted);font:9px var(--f-sans)}
