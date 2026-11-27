@@ -58,7 +58,7 @@ Disallow: /fundamental-gap?
 Disallow: /macro-context
 Disallow: /yield-curve-lab
 Disallow: /bond-tradeoffs
-Disallow: /crypto-inside
+Disallow: /crypto-inside?
 Disallow: /crypto-liquidity
 Disallow: /derivatives-context
 Disallow: /global-peers?
@@ -131,7 +131,7 @@ Disallow: /fundamental-gap?
 Disallow: /macro-context
 Disallow: /yield-curve-lab
 Disallow: /bond-tradeoffs
-Disallow: /crypto-inside
+Disallow: /crypto-inside?
 Disallow: /crypto-liquidity
 Disallow: /derivatives-context
 Disallow: /global-peers?

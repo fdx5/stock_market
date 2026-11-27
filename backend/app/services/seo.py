@@ -1336,7 +1336,7 @@ def build_sitemap_index() -> str:
 def build_pages_sitemap() -> str:
     # Owner decision 2026-11-27: these market tool pages are kept out of crawling
     # (robots.txt Disallow) to save server CPU/bandwidth, so they leave the sitemap too.
-    crawl_blocked = frozenset(('/markets', '/market-inside', '/stock-context', '/etf-overlap', '/etf-tradeoffs', '/dividend-reality', '/currency-lens', '/rate-paths', '/commodity-impact', '/macro-context', '/yield-curve-lab', '/bond-tradeoffs', '/crypto-inside', '/crypto-liquidity', '/derivatives-context'))
+    crawl_blocked = frozenset(('/markets', '/market-inside', '/stock-context', '/etf-overlap', '/etf-tradeoffs', '/dividend-reality', '/currency-lens', '/rate-paths', '/commodity-impact', '/macro-context', '/yield-curve-lab', '/bond-tradeoffs', '/crypto-liquidity', '/derivatives-context'))
     urls: list[tuple[str, str, str, str]] = []
     priorities = {"/": "1.0", "/hot-issues": "1.0", "/kospi": "1.0", "/kosdaq": "1.0", "/nasdaq": "1.0", "/desk": "0.9", "/map": "0.9", "/market-brief": "0.9", "/etf/kr": "0.8", "/etf/us": "0.8"}
     for path in PAGES:
