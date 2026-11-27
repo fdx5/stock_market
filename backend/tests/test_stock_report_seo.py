@@ -23,7 +23,7 @@ def renderer():
     env = dict(re=re, html=html, json=json, urlencode=urlencode, SITE='https://kospimap.com', IMAGE='fixture.png', SOCIAL_CARDS={}, PAGES={'/':('Home','Home description')}, INVESTOR_HUB='/market/kospi/foreign-buying',
                STOCK_LANDING_ROUTE=re.compile(r'/stock/(\d{6})/(investor|outlook|news)'), STOCK_ROUTE=re.compile(r'/stock/([A-Za-z0-9.-]{1,16})'), INVESTOR_ROUTE=re.compile(r'/investor/([A-Za-z0-9.-]{1,16})'), KRX_CODE=re.compile(r'\d[0-9A-Z]{5}'),
                _stock_entry=stock_entry, _stock_identity=lambda path: stock_entry(path)[:2], _market_brief=lambda _path:(None,'',''), _investor_identity=lambda _path:('',''), _detail_neighbours=lambda *_args:[], _kr_etf_names=lambda:{'069500':'KODEX 200'}, kr_universe=lambda:[{'code':'005930','market':'KOSPI'}], cache=FixtureCache(),
-               investor_fetcher=SimpleNamespace(get_investor_trend=lambda code, _size: TREND if code == '005930' else []))
+               investor_fetcher=SimpleNamespace(cached_investor_trend=lambda code, _size: TREND if code == '005930' else []))
     funcs = [node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in {'_replace_meta','render_spa_shell','is_unknown_kr_code','legacy_redirect','is_public_spa_path','_brief_description','_investor_digest','_kr_stock_numbers','_kr_rank','_moving_average','_rsi','_amount'}]
     env['MARKET_BRIEF_ROUTE'] = re.compile(r"/market-brief/(\d{4}-\d{2}-\d{2})/([a-z0-9]+)", re.I)
     env['_brief_target'] = lambda slug: {'005930': 'samsung'}.get(slug.lower(), slug.lower())
@@ -127,13 +127,13 @@ def test_kr_stock_pages_carry_their_own_numbers(renderer):
     outlook = renderer['render_spa_shell'](template, '/stock/005930/outlook', {})
     assert '5일 이동평균 72,700원' in outlook and '정배열' in outlook and 'RSI(14)는 100.0' in outlook
     assert '20일 이동평균 71,950원' in outlook and '5일 이동평균' not in detail
-    renderer['investor_fetcher'] = SimpleNamespace(get_investor_trend=lambda *_: TREND[:10])
+    renderer['investor_fetcher'] = SimpleNamespace(cached_investor_trend=lambda *_: TREND[:10])
     short = renderer['render_spa_shell'](template, '/stock/005930/outlook', {})
     assert '10일 이동평균 72,450원' in short and 'RSI' not in short.split('최근 10거래일 종가와 수급')[0].split('지표는 참고')[0].split('5일 이동평균')[-1]
 
 
 def test_kr_stock_without_data_keeps_the_plain_shell(renderer):
-    renderer['investor_fetcher'] = SimpleNamespace(get_investor_trend=lambda *_: (_ for _ in ()).throw(RuntimeError('down')))
+    renderer['investor_fetcher'] = SimpleNamespace(cached_investor_trend=lambda *_: (_ for _ in ()).throw(RuntimeError('down')))
     document = renderer['render_spa_shell']('<html><head><title>Home</title></head><body><div id="root"></div></body></html>', '/stock/005930', {})
     assert '삼성전자 주가·차트' in document and '최근 10거래일' not in document
 

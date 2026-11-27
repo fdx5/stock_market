@@ -780,7 +780,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
     kr_digest: dict = {}
     if stock_code and stock_kind == "kr_stock" and not stock_report:
         try:
-            kr_records = investor_fetcher.get_investor_trend(stock_code, 30)
+            kr_records = investor_fetcher.cached_investor_trend(stock_code, 30)
         except Exception:
             kr_records = []
         kr_digest = _investor_digest(kr_records)
@@ -793,7 +793,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str], *, hot_edi
             )
     if investor_code:
         try:
-            investor_records = investor_fetcher.get_investor_trend(investor_code, 30)
+            investor_records = investor_fetcher.cached_investor_trend(investor_code, 30)
         except Exception:
             investor_records = []
         investor_digest = _investor_digest(investor_records)

@@ -1,3 +1,6 @@
+import queue
+import threading
+
 import requests
 
 from app.services.cache import cache
@@ -74,3 +77,53 @@ def get_investor_trend(code: str, page_size: int = 20) -> list[dict]:
         return cache.get_or_set(key, TTL_INVESTOR_SECONDS, lambda: _fetch_investor_trend(code, page_size))
     except Exception:
         return []
+
+
+# Page rendering (server HTML for /stock/{code} and /investor/{code}) must never wait on
+# Naver. Incident 2026-11-27 10:02 KST: a crawler walked thousands of codes at once, every
+# one a cache miss, each request thread blocked on this fetch and the 1-CPU instance stopped
+# answering anything but /api/health for ~90 s. Pages read the cache only; a miss is queued
+# for one background worker (bounded, deduplicated) so later visits get the data.
+STALE_FOR_PAGES_SECONDS = 3 * 24 * 3600
+_WARM_QUEUE_MAX = 200
+_warm_queue: "queue.Queue[tuple[str, int]]" = queue.Queue(maxsize=_WARM_QUEUE_MAX)
+_warm_pending: set[tuple[str, int]] = set()
+_warm_lock = threading.Lock()
+_warm_thread: threading.Thread | None = None
+
+
+def _warm_worker() -> None:
+    while True:
+        item = _warm_queue.get()
+        try:
+            get_investor_trend(*item)
+        except Exception:
+            pass
+        finally:
+            with _warm_lock:
+                _warm_pending.discard(item)
+
+
+def _schedule_warm(code: str, page_size: int) -> None:
+    global _warm_thread
+    item = (code, page_size)
+    with _warm_lock:
+        if item in _warm_pending:
+            return
+        try:
+            _warm_queue.put_nowait(item)
+        except queue.Full:
+            return
+        _warm_pending.add(item)
+        if _warm_thread is None or not _warm_thread.is_alive():
+            _warm_thread = threading.Thread(target=_warm_worker, name="investor-trend-warm", daemon=True)
+            _warm_thread.start()
+
+
+def cached_investor_trend(code: str, page_size: int = 20) -> list[dict]:
+    """Cache-only read for page rendering; never blocks on the network."""
+    hit = cache.peek(f"investor_trend:{code}:{page_size}", max_stale_seconds=STALE_FOR_PAGES_SECONDS)
+    if hit is not None:
+        return hit
+    _schedule_warm(code, page_size)
+    return []

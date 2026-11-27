@@ -351,7 +351,7 @@ class TestCrawlableInvestorPages:
         monkeypatch.setattr(seo, "get_top_market_cap_all", lambda limit=1000: self.UNIVERSE)
         monkeypatch.setattr(seo, "get_stock_name",
                             lambda code: next((row["name"] for row in self.UNIVERSE if row["code"] == code), None))
-        monkeypatch.setattr(seo.investor_fetcher, "get_investor_trend",
+        monkeypatch.setattr(seo.investor_fetcher, "cached_investor_trend",
                             lambda code, days=20: records.get(code, []))
         monkeypatch.setattr(seo, "_kr_etf_names", lambda: {})
         monkeypatch.setattr(seo, "_us_catalog", lambda: {})

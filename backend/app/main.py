@@ -921,6 +921,8 @@ if STATIC_DIR.exists():
             raise HTTPException(status_code=404, detail="Edition not found")
         return HTMLResponse(render_spa_shell(_spa_template, movers.edition_path(data), {}, movers_edition=data))
 
+    _OG_RENDER_SLOTS = threading.BoundedSemaphore(2)
+
     @app.get("/market-brief/og/{day}/{market}.png", include_in_schema=False)
     def market_brief_share_image(day: str, market: str):
         try:
@@ -930,7 +932,14 @@ if STATIC_DIR.exists():
         normalized_market = market.upper()
         if normalized_market not in {"KOSPI", "KOSDAQ"}:
             raise HTTPException(status_code=404, detail="Report image not found")
-        payload = market_brief_og.render(day, normalized_market)
+        # PIL rendering is CPU-bound; crawlers request many past dates at once (incident
+        # 2026-11-27). At most two render together; the rest get a quick retryable 503.
+        if not _OG_RENDER_SLOTS.acquire(timeout=5):
+            return Response(status_code=503, headers={"Retry-After": "60"})
+        try:
+            payload = market_brief_og.render(day, normalized_market)
+        finally:
+            _OG_RENDER_SLOTS.release()
         if payload is None:
             raise HTTPException(status_code=404, detail="Report image not found")
         return Response(
