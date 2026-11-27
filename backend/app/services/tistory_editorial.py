@@ -95,13 +95,18 @@ class Slot:
 
 INTRO = Slot(START_DAY, "intro", "00:00", "KOSPIMAP 소개", "kospimap 소개")
 
+# Owner decision 2026-11-28: Tistory publishes at most ~15 posts a day, so these Naver
+# editions are not mirrored there. A trading day is then exactly 15 posts
+# (8 editions + 7 closing briefs).
+SKIPPED_EDITIONS = frozenset(("movers_noon", "midday", "us_movers_pre", "world_morning", "us_movers_open"))
+
 
 def plan(day: dt.date) -> list[Slot]:
     if day < START_DAY:
         return []
     slots = [Slot(day, edition, at, label, CATEGORIES[category])
              for edition, (at, _, category, _, _, label) in content.EDITIONS.items()
-             if schedule.applies(day, edition)]
+             if schedule.applies(day, edition) and edition not in SKIPPED_EDITIONS]
     if trading_calendar.is_trading_day(day, "KR"):
         slots.extend(Slot(day, edition, "16:20", f"{meta['name']} 장마감 브리핑", CATEGORIES[content.CAT_BRIEF])
                      for edition, meta in BRIEFS.items())
@@ -155,6 +160,28 @@ def get_draft(key: str) -> dict | None:
         "SELECT draft_key, category, title, html, prepared_at, published_url FROM tistory_editorial_drafts WHERE draft_key = ?",
         (key,)).fetchone())
     return dict(zip(names, row)) if row else None
+
+
+def pending(since: dt.date) -> list[dict]:
+    """Prepared drafts from `since` on that are not yet public, oldest due first.
+
+    Used by the local PC publisher (scripts/tistory_publisher.py)."""
+    names = ("key", "source_day", "edition", "campaign", "category", "title", "html")
+    rows = _db(lambda db: db.execute(
+        "SELECT draft_key, source_day, edition, campaign, category, title, html FROM tistory_editorial_drafts "
+        "WHERE published_url IS NULL AND (draft_key = 'intro' OR source_day >= ?)", (str(since),)).fetchall())
+    drafts = [dict(zip(names, row)) for row in rows if row[2] not in SKIPPED_EDITIONS]
+    due = {slot.key: slot.due_at for day in {dt.date.fromisoformat(d["source_day"]) for d in drafts}
+           for slot in plan(day)}
+    far = dt.datetime.max.replace(tzinfo=KST)
+    return sorted((d for d in drafts if d["key"] in due), key=lambda d: (due.get(d["key"], far), d["key"]))
+
+
+def mark_published(key: str, url: str) -> None:
+    """Fills the empty published_url of one draft; never overwrites a recorded one."""
+    _db(lambda db: (db.execute(
+        "UPDATE tistory_editorial_drafts SET published_url = ?, verified_at = ? WHERE draft_key = ? AND published_url IS NULL",
+        (url, _now(), key)), db.commit()))
 
 
 def _save(slot: Slot, title: str, html: str) -> None:

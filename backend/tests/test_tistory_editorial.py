@@ -16,8 +16,10 @@ def test_schedule_uses_kst_and_market_sessions():
     assert next(iter(friday)) == "intro"
     assert friday["brief_kospi"].due_at.time() == dt.time(16, 20)
     assert {key for key in friday if key.startswith("brief_")} == set(editorial.BRIEFS)
-    assert "us_movers_open" not in friday
-    assert saturday["us_movers_open"].campaign == "ts_us_movers_open_20261128"
+    assert "us_movers_open" not in friday and "us_movers_open" not in saturday
+    assert saturday["us_movers_close"].campaign == "ts_us_movers_close_20261128"
+    assert not editorial.SKIPPED_EDITIONS & set(friday)
+    assert len(friday) - 1 <= 15  # Tistory's daily ceiling
     assert "close" not in saturday
 
 
