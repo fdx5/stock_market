@@ -152,7 +152,8 @@ def test_robots_blocks_query_variants_of_canonical_pages():
     robots = (Path(__file__).parents[2] / 'frontend/public/robots.txt').read_text(encoding='utf-8')
     source = (Path(__file__).parents[1] / 'app/services/discovery_catalog.py').read_text(encoding='utf-8')
     for path in re.findall(r"\('(/[a-z-]+)',", source):
-        assert robots.splitlines().count(f'Disallow: {path}?') == 2, path
+        # Either only the query variants, or (owner decision 2026-11-27) the whole page.
+        assert robots.splitlines().count(f'Disallow: {path}?') + robots.splitlines().count(f'Disallow: {path}') == 2, path
     lines = robots.splitlines()
     assert all(f'Disallow: {path}?' not in lines for path in ('/news', '/desk', '/global', '/discussion-explorer'))
     assert 'Allow: /api/us-stock/*/quote$' in lines

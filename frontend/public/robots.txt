@@ -31,8 +31,8 @@ Allow: /api/market/dram-price$
 Allow: /api/market/dram-price/history?
 # Query-string variants (?code=, ?market=, ?name=) repeat their base page, which is
 # canonical; crawling thousands of them spends the budget the real pages need.
-Disallow: /markets?
-Disallow: /market-inside?
+Disallow: /markets
+Disallow: /market-inside
 Disallow: /stock-tradeoffs?
 Disallow: /recovery-lab?
 Disallow: /market-radar?
@@ -41,13 +41,13 @@ Disallow: /stock-compare?
 Disallow: /sector-strength?
 Disallow: /event-impact?
 Disallow: /liquidity-quality?
-Disallow: /stock-context?
-Disallow: /etf-overlap?
-Disallow: /etf-tradeoffs?
-Disallow: /dividend-reality?
-Disallow: /currency-lens?
-Disallow: /rate-paths?
-Disallow: /commodity-impact?
+Disallow: /stock-context
+Disallow: /etf-overlap
+Disallow: /etf-tradeoffs
+Disallow: /dividend-reality
+Disallow: /currency-lens
+Disallow: /rate-paths
+Disallow: /commodity-impact
 Disallow: /event-collision?
 Disallow: /earnings-gap?
 Disallow: /signal-crosscheck?
@@ -55,12 +55,12 @@ Disallow: /news-evidence?
 Disallow: /theme-evidence?
 Disallow: /gap-context?
 Disallow: /fundamental-gap?
-Disallow: /macro-context?
-Disallow: /yield-curve-lab?
-Disallow: /bond-tradeoffs?
-Disallow: /crypto-inside?
-Disallow: /crypto-liquidity?
-Disallow: /derivatives-context?
+Disallow: /macro-context
+Disallow: /yield-curve-lab
+Disallow: /bond-tradeoffs
+Disallow: /crypto-inside
+Disallow: /crypto-liquidity
+Disallow: /derivatives-context
 Disallow: /global-peers?
 Disallow: /sector-replay?
 Disallow: /session-planner?
@@ -104,8 +104,8 @@ Allow: /api/market/dram-price$
 Allow: /api/market/dram-price/history?
 # Query-string variants (?code=, ?market=, ?name=) repeat their base page, which is
 # canonical; crawling thousands of them spends the budget the real pages need.
-Disallow: /markets?
-Disallow: /market-inside?
+Disallow: /markets
+Disallow: /market-inside
 Disallow: /stock-tradeoffs?
 Disallow: /recovery-lab?
 Disallow: /market-radar?
@@ -114,13 +114,13 @@ Disallow: /stock-compare?
 Disallow: /sector-strength?
 Disallow: /event-impact?
 Disallow: /liquidity-quality?
-Disallow: /stock-context?
-Disallow: /etf-overlap?
-Disallow: /etf-tradeoffs?
-Disallow: /dividend-reality?
-Disallow: /currency-lens?
-Disallow: /rate-paths?
-Disallow: /commodity-impact?
+Disallow: /stock-context
+Disallow: /etf-overlap
+Disallow: /etf-tradeoffs
+Disallow: /dividend-reality
+Disallow: /currency-lens
+Disallow: /rate-paths
+Disallow: /commodity-impact
 Disallow: /event-collision?
 Disallow: /earnings-gap?
 Disallow: /signal-crosscheck?
@@ -128,12 +128,12 @@ Disallow: /news-evidence?
 Disallow: /theme-evidence?
 Disallow: /gap-context?
 Disallow: /fundamental-gap?
-Disallow: /macro-context?
-Disallow: /yield-curve-lab?
-Disallow: /bond-tradeoffs?
-Disallow: /crypto-inside?
-Disallow: /crypto-liquidity?
-Disallow: /derivatives-context?
+Disallow: /macro-context
+Disallow: /yield-curve-lab
+Disallow: /bond-tradeoffs
+Disallow: /crypto-inside
+Disallow: /crypto-liquidity
+Disallow: /derivatives-context
 Disallow: /global-peers?
 Disallow: /sector-replay?
 Disallow: /session-planner?
