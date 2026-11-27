@@ -10,9 +10,10 @@ import { useMarketIndices } from "../useMarketIndices";
 import { useMarketTicker } from "../useMarketTicker";
 import { pct } from "../desk2/lib";
 import Colophon from "../desk2/Colophon";
-import { NEO_FEATURED, NEO_GROUPS, neoRouteFamily, neoHeaderCurrentTone, routeLabel } from "./navigation";
+import { NEO_EMBLEM, NEO_FEATURED, NEO_GROUPS, neoRouteFamily, neoHeaderCurrentTone, routeLabel } from "./navigation";
 import { setFxLevel, useDesignMode, useFxLevel, setFrameLight, useFrameLight, setTone, useTone } from "./settings";
 import NeoIcon from "./NeoIcon";
+import RainbowStar from "./RainbowStar";
 import NeoLogo from "./NeoLogo";
 import NeoBackdrop from "./NeoBackdrop";
 import MobileMenuTree from "./MobileMenuTree";
@@ -209,7 +210,7 @@ export default function NeoShell({ path, children }: { path: string; children: R
     const code = path.match(/^\/stock\/([A-Za-z0-9.-]+)/)?.[1] ?? params.get("code") ?? undefined;
     const market = params.get("market") ?? (code && /^[A-Za-z]/.test(code) ? "nasdaq" : "kospi");
     const to = service ? serviceLink(link[0], {code, market, region: params.get("region") ?? undefined}) : link[0];
-    return <Link key={link[0]} to={to} className={NEO_FEATURED.has(link[0]) ? "ng-gold-link" : undefined} aria-current={current(link[0]) ? "page" : undefined} onClick={link[0] === "/hot-issues" ? () => reportHotIssue("entry:menu", "메뉴") : link[0] === "/exchange" ? () => reportExchange("entry:menu", "메뉴") : undefined}><span>{link[lang === "ko" ? 1 : 2]}{(link[0] === "/pulse-board" || link[0] === "/exchange" || link[0].startsWith("/movers")) && <b className="ng-new-badge" aria-label={L("새 메뉴", "New")}>N</b>}</span><NeoIcon name="chevron" /></Link>;
+    return <Link key={link[0]} to={to} className={NEO_FEATURED.has(link[0]) ? "ng-gold-link" : undefined} aria-current={current(link[0]) ? "page" : undefined} onClick={link[0] === "/hot-issues" ? () => reportHotIssue("entry:menu", "메뉴") : link[0] === "/exchange" ? () => reportExchange("entry:menu", "메뉴") : undefined}><span>{link[lang === "ko" ? 1 : 2]}{NEO_EMBLEM.has(link[0]) && <RainbowStar />}{(link[0] === "/pulse-board" || link[0] === "/exchange" || link[0].startsWith("/movers")) && <b className="ng-new-badge" aria-label={L("새 메뉴", "New")}>N</b>}</span><NeoIcon name="chevron" /></Link>;
   };
   if (solar) return <div className="ng-shell ng-shell--solar">
     <GoldCursor />

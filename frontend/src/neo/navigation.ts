@@ -28,6 +28,8 @@ const BASE_NEO_GROUPS = [
  ] as const;
 /** Menu destinations we want people to visit most: rendered in glowing gold. */
 export const NEO_FEATURED = new Set(["/", "/map", "/kosdaq-map", "/sp500-map", "/nasdaq100-map"]);
+/** Menu labels that carry the rainbow-star emblem. */
+export const NEO_EMBLEM = new Set(["/map", "/nasdaq100-map"]);
 const RESEARCH_SECTION: Record<string,string> = {
   "/markets":"markets", "/market-inside":"markets", "/stock-context":"markets", "/etf-overlap":"markets", "/etf-tradeoffs":"markets", "/dividend-reality":"markets",
   "/stock-tradeoffs":"rankings", "/recovery-lab":"rankings", "/market-radar":"rankings", "/stock-screener":"rankings", "/stock-compare":"rankings", "/sector-strength":"rankings", "/global-peers":"rankings", "/sector-replay":"rankings",
