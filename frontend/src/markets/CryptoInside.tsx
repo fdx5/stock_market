@@ -158,14 +158,14 @@ export default function CryptoInside() {
       <div className="ci-ranges">{MAJORS.map(s => m.bySym[s]).filter(Boolean).map(r => { const pos = range52(r); return <div key={r.code}><b>{r.name}<small>{r.symbol}</small></b><div className="ci-range"><i style={{ left: `${pos ?? 0}%` }} /></div><span>{price(r.low_52w)}</span><span>{price(r.high_52w)}</span><em className={tone(fromHigh(r))}>고점 대비 {p(fromHigh(r))}</em><small>고점 {r.high_52w_date ?? "—"} · 저점 {r.low_52w_date ?? "—"}</small></div>; })}</div>
     </Section>
 
-    <Section no="06" kicker="김치 프리미엄" title="국내 코인 가격은 해외보다 얼마나 비싼가" lead="업비트 원화 가격을 해외 거래소(Bybit) 달러 가격에 환율을 곱한 값과 비교합니다. 국내 수요가 몰리면 프리미엄이 커지고, 국내 투자심리가 식으면 작아지거나 역전됩니다.">
+    <Section no="06" kicker="김치 프리미엄" title="국내 코인 가격은 해외보다 얼마나 비싼가" lead="업비트 원화 가격을 해외 거래소(Coinbase) 달러 가격에 환율을 곱한 값과 비교합니다. 국내 수요가 몰리면 프리미엄이 커지고, 국내 투자심리가 식으면 작아지거나 역전됩니다.">
       {premium?.rows?.length ? <>
         <div className="ci-kpis ci-kpis--3">
           <article><small>원/달러 환율 (하나은행 고시)</small><strong>{n(premium.usd_krw, 1)}</strong><p>환율 미수신 시 프리미엄 계산 생략</p></article>
           <article><small>업비트 테더(USDT) 가격</small><strong>{n(premium.usdt_krw, 0)}</strong><p>국내에서 거래되는 달러 가격</p></article>
           <article><small>테더 프리미엄</small><strong className={tone(premium.tether_premium)}>{p(premium.tether_premium)}</strong><p>국내 달러 수요의 온도</p></article>
         </div>
-        <div className="rs-table-wrap"><table className="rs-table ci-table"><caption>주요 코인 국내외 가격 차이</caption><thead><tr><th scope="col">코인</th><th scope="col">업비트 원화</th><th scope="col">해외 달러(USDT)</th><th scope="col">환율 기준 프리미엄</th><th scope="col">테더 기준 차이</th></tr></thead><tbody>{premium.rows.map((r: DataRow) => <tr key={r.coin}><th scope="row">{m.bySym[r.coin]?.name ?? r.coin} <small className="ci-muted">{r.coin}</small></th><td>{price(r.krw)}</td><td>{n(r.usdt, r.usdt >= 100 ? 1 : 4)}</td><td className={tone(r.premium_fx)}>{p(r.premium_fx)}</td><td className={tone(r.premium_usdt)}>{p(r.premium_usdt)}</td></tr>)}</tbody></table></div>
+        <div className="rs-table-wrap"><table className="rs-table ci-table"><caption>주요 코인 국내외 가격 차이</caption><thead><tr><th scope="col">코인</th><th scope="col">업비트 원화</th><th scope="col">해외 달러 가격</th><th scope="col">환율 기준 프리미엄</th><th scope="col">테더 기준 차이</th></tr></thead><tbody>{premium.rows.map((r: DataRow) => <tr key={r.coin}><th scope="row">{m.bySym[r.coin]?.name ?? r.coin} <small className="ci-muted">{r.coin}</small></th><td>{price(r.krw)}</td><td>{n(r.usdt, r.usdt >= 100 ? 1 : 4)}</td><td className={tone(r.premium_fx)}>{p(r.premium_fx)}</td><td className={tone(r.premium_usdt)}>{p(r.premium_usdt)}</td></tr>)}</tbody></table></div>
         <p className="ci-callout">환율 기준 프리미엄은 "해외에서 사서 국내에서 팔면 얼마나 차이 나는가"에 가깝고, 테더 기준 차이는 국내 달러(테더) 가격을 썼을 때 남는 코인 자체의 차이입니다. 두 값이 비슷하면 프리미엄의 대부분이 코인이 아니라 국내 달러 수요에서 나온 것입니다. 환율 고시 시각과 코인 시세 시각이 조금 다를 수 있습니다.</p>
       </> : <p className="ci-muted">해외 시세나 환율을 받지 못해 이번에는 프리미엄을 계산하지 않았습니다.</p>}
     </Section>

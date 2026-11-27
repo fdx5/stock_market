@@ -244,6 +244,11 @@ def _crypto_premium(krw_prices):
         rate = number(fx.get("rate"))
         usdt_krw = krw_prices.get("USDT")
         def spot(coin):
+            # Coinbase answers from the US server region; Bybit is geo-blocked there and stays as a fallback.
+            try:
+                return number(read(f"https://api.exchange.coinbase.com/products/{coin}-USD/ticker", timeout=6).get("price"))
+            except Exception:
+                pass
             try:
                 data = read("https://api.bybit.com/v5/market/tickers", {"category": "spot", "symbol": f"{coin}USDT"}, timeout=6)
                 return number(((data.get("result") or {}).get("list") or [{}])[0].get("lastPrice"))
