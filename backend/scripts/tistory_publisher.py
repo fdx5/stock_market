@@ -77,7 +77,12 @@ async ({title, html, category, images}) => {
     if (host !== img && host.querySelectorAll('img').length === 1 && !host.textContent.trim()) host.remove(); else img.remove();
   }
   if (b.querySelectorAll('img:not([src*="kakaocdn"])').length) throw new Error('external image left');
-  ed.fire('change');
+  // Tistory saves what its own input handlers saw. setContent alone fires none of them, so
+  // a post without images (nothing pasted) was published with an empty body (2026-11-28).
+  ed.focus(); ed.selection.select(b.lastChild); ed.selection.collapse(false);
+  ed.execCommand('mceInsertContent', false, '&nbsp;');
+  ed.undoManager.add(); ed.setDirty(true); ['input', 'keyup', 'change'].forEach(e => ed.fire(e)); ed.save();
+  b.dispatchEvent(new InputEvent('input', {bubbles: true}));
   const fire = el => ['mousedown', 'mouseup', 'click'].forEach(t => el.dispatchEvent(new MouseEvent(t, {bubbles: true, cancelable: true, view: window})));
   fire(document.querySelector('#category-btn')); await sleep(400);
   const item = [...document.querySelectorAll('[id^=category-item-]')].find(e => e.textContent.trim() === category);
@@ -266,13 +271,18 @@ def tick(dry_run: bool = False, verbose: bool = False) -> int:
 
     since = dt.datetime.now(KST).date() - dt.timedelta(days=2)
     drafts = editorial.pending(since)
+    # Posts the owner deleted to be published again (--republish KEY). They already have a
+    # recorded URL, so pending() no longer lists them; they go first.
+    forced = [editorial.get_draft(key) for key in state.get("republish") or []]
+    forced = [{**d, "campaign": None} for d in forced if d]
+    drafts = forced + drafts
     held = {k: v for k, v in (state.get("uncertain") or {}).items() if time.time() - v < UNCERTAIN_KEEP_S}
     if not drafts:
         return 0
     public = _public_campaigns()
     queue = []
     for draft in drafts:
-        if draft["campaign"] in public:
+        if draft["campaign"] and draft["campaign"] in public:
             continue  # already live; the server will record it from RSS
         if draft["key"] in held:
             continue
@@ -307,7 +317,11 @@ def tick(dry_run: bool = False, verbose: bool = False) -> int:
                     continue
                 if dry_run:
                     break
-                editorial.mark_published(draft["key"], url)
+                if draft["campaign"] is None:
+                    state["republish"] = [k for k in state.get("republish") or [] if k != draft["key"]]
+                    state.setdefault("republished", {})[draft["key"]] = url
+                else:
+                    editorial.mark_published(draft["key"], url)
                 state["count"] = state.get("count", 0) + 1
                 log.info("published %s -> %s", draft["key"], url)
                 _save_state({**state, "uncertain": held})
@@ -338,6 +352,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--republish", nargs="+", metavar="KEY", help="queue drafts whose posts were deleted")
     parser.add_argument("-v", "--verbose", action="store_true", help="log to stdout and show the browser")
     args = parser.parse_args()
     _setup_logging(args.verbose or args.login or args.check or args.status)
@@ -348,6 +363,12 @@ def main() -> int:
             state.pop("session_expired_at", None)
             _save_state(state)
         return code
+    if args.republish:
+        state = _state()
+        state["republish"] = list(dict.fromkeys((state.get("republish") or []) + args.republish))
+        _save_state(state)
+        print("queued:", ", ".join(state["republish"]))
+        return 0
     if args.check:
         return check()
     if args.status:
