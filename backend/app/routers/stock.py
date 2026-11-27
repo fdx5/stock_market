@@ -353,6 +353,18 @@ def board(code: str, page: int = 1, fresh: bool = Query(False)):
     return {"code": code, "name": name, "page": page, "items": posts}
 
 
+@router.get("/{code}/board/stream")
+def board_stream(
+    code: str,
+    limit: int = Query(50, ge=1, le=50),
+    offset: str | None = Query(None, max_length=64),
+    fresh: bool = Query(False),
+):
+    name = _resolve_name(code)
+    data = board_fetcher.get_board_stream(code, limit=limit, offset=offset, fresh=fresh)
+    return {"code": code, "name": name, **data}
+
+
 @router.get("/{code}/board/{nid}")
 def board_detail(code: str, nid: str):
     _resolve_name(code)

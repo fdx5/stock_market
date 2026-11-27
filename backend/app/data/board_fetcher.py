@@ -1,3 +1,4 @@
+import html
 import json
 import re
 from urllib.parse import parse_qs, urlparse
@@ -109,6 +110,84 @@ def get_board_posts(code: str, page: int = 1, fresh: bool = False) -> list[dict]
         )
     except Exception:
         return []
+
+
+def _fetch_board_stream(code: str, limit: int = 50, offset: str | None = None) -> dict:
+    """Rich cursor-paginated domestic stock/ETF discussion stream via Naver mobile JSON."""
+    size = max(1, min(50, int(limit)))
+    params: dict[str, object] = {
+        "discussionType": "domesticStock",
+        "itemCode": code,
+        "pageSize": size,
+    }
+    if offset:
+        params["offset"] = offset
+    response = _session.get(MOBILE_BOARD_URL, params=params, timeout=5)
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("isSuccess"):
+        raise ValueError("Naver domestic discussion source unavailable")
+
+    result = payload.get("result") or {}
+    raw_posts = result.get("posts") or []
+    items = []
+    for row in raw_posts:
+        if row.get("isCleanbotPassed") is False:
+            continue
+        nid = str(row.get("id") or "")
+        if not nid:
+            continue
+        writer = row.get("writer") or {}
+        items.append(
+            {
+                "nid": nid,
+                "title": html.unescape(row.get("title") or "").strip(),
+                "preview": html.unescape(row.get("contentSwReplacedButImg") or "").strip(),
+                "date": row.get("writtenAt") or "",
+                "author": writer.get("nickname") or "",
+                "views": int(row.get("viewCount") or 0),
+                "likes": int(row.get("recommendCount") or 0),
+                "dislikes": int(row.get("notRecommendCount") or 0),
+                "image_count": int(row.get("imageCount") or 0),
+                "thumbnail": row.get("topImageUrl") or None,
+                "holder_verified": bool(row.get("isHolderVerified")),
+                "is_reply": (row.get("replyDepth") or 0) > 0,
+            }
+        )
+
+    next_offset = result.get("lastOffset") if raw_posts else None
+    return {
+        "items": items,
+        "next_offset": str(next_offset) if next_offset is not None else None,
+        "source": "naver",
+        "source_label": "네이버페이 증권",
+        "source_url": f"https://m.stock.naver.com/domestic/stock/{code}/discussion",
+    }
+
+
+def get_board_stream(
+    code: str,
+    limit: int = 50,
+    offset: str | None = None,
+    fresh: bool = False,
+) -> dict:
+    size = max(1, min(50, int(limit)))
+    key = f"board_stream:{code}:{size}:{offset or 'first'}"
+    try:
+        return cache.get_or_set(
+            key,
+            TTL_BOARD_SECONDS,
+            lambda: _fetch_board_stream(code, size, offset),
+            allow_stale=not fresh,
+        )
+    except Exception:
+        return {
+            "items": [],
+            "next_offset": None,
+            "source": "naver",
+            "source_label": "네이버페이 증권",
+            "source_url": f"https://m.stock.naver.com/domestic/stock/{code}/discussion",
+        }
 
 
 def _image_src(img) -> str | None:

@@ -119,3 +119,74 @@ def test_board_fetcher_reads_naver_mobile_json_board(monkeypatch):
     ]
     assert seen["url"] == board_fetcher.MOBILE_BOARD_URL
     assert seen["params"] == {"discussionType": "domesticStock", "itemCode": "005930", "pageSize": 30}
+
+
+def test_board_stream_returns_preview_metadata_and_cursor(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "isSuccess": True,
+                "result": {
+                    "lastOffset": -433064323,
+                    "posts": [
+                        {
+                            "id": "433064630",
+                            "title": "삼성전자 &amp; 실적 기대",
+                            "contentSwReplacedButImg": "&lsquo;HBM&rsquo; 수주가 좋아 보입니다.",
+                            "writtenAt": "2026-11-28T08:21:01",
+                            "writer": {"nickname": "주주1"},
+                            "viewCount": 42,
+                            "recommendCount": 5,
+                            "notRecommendCount": 1,
+                            "imageCount": 2,
+                            "topImageUrl": "https://img.example/1.jpg",
+                            "isHolderVerified": True,
+                            "isCleanbotPassed": True,
+                            "replyDepth": 0,
+                        },
+                        {
+                            "id": "433064629",
+                            "title": "차단글",
+                            "isCleanbotPassed": False,
+                        },
+                    ],
+                },
+            }
+
+    seen = {}
+
+    def fake_get(url, **kwargs):
+        seen["url"] = url
+        seen["params"] = kwargs["params"]
+        return Response()
+
+    monkeypatch.setattr(board_fetcher._session, "get", fake_get)
+
+    stream = board_fetcher._fetch_board_stream("005930", limit=50, offset="-999")
+    assert seen["url"] == board_fetcher.MOBILE_BOARD_URL
+    assert seen["params"] == {
+        "discussionType": "domesticStock",
+        "itemCode": "005930",
+        "pageSize": 50,
+        "offset": "-999",
+    }
+    assert stream["next_offset"] == "-433064323"
+    assert stream["source"] == "naver"
+    assert len(stream["items"]) == 1
+    assert stream["items"][0] == {
+        "nid": "433064630",
+        "title": "삼성전자 & 실적 기대",
+        "preview": "‘HBM’ 수주가 좋아 보입니다.",
+        "date": "2026-11-28T08:21:01",
+        "author": "주주1",
+        "views": 42,
+        "likes": 5,
+        "dislikes": 1,
+        "image_count": 2,
+        "thumbnail": "https://img.example/1.jpg",
+        "holder_verified": True,
+        "is_reply": False,
+    }

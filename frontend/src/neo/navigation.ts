@@ -47,7 +47,7 @@ export function routeLabel(path: string, lang: "ko" | "en") {
   return lang === "ko" ? "마켓 인텔리전스" : "Market intelligence";
 }
 export function neoRouteFamily(path: string) {
-  if (/^\/(drone-explore|drive|exchange|hub|type2|market-bubbles2?|.*-orbit|discussion-explorer)(\/|$)/.test(path)) return "immersive";
+  if (/^\/(drone-explore|drive|exchange|hub|type2|market-bubbles2?|.*-orbit)(\/|$)/.test(path)) return "immersive";
   if (/map$/.test(path)) return "map";
   if (/^\/stock\//.test(path)) return "stock";
   if (/^\/(news|market-brief|investment-videos|investors)(\/|$)/.test(path)) return "editorial";

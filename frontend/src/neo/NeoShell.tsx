@@ -68,7 +68,7 @@ function NeoPulse() {
    pixels down, unseen. 오늘의 핫이슈 sets its own at the end of its stories. */
 function multiplexRoute(path: string) {
   if (/^\/(stock\/[A-Za-z0-9.-]{1,16}|prices\/[a-z0-9-]+|market-brief(\/.*)?)\/?$/.test(path)) return adRoute(path);
-  return ["/", "/desk", "/global", "/world-markets", "/news", "/kospi", "/kosdaq", "/nasdaq"].includes(path);
+  return ["/", "/desk", "/global", "/world-markets", "/news", "/kospi", "/kosdaq", "/nasdaq", "/discussion-explorer"].includes(path);
 }
 
 export default function NeoShell({ path, children }: { path: string; children: ReactNode }) {

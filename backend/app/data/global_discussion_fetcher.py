@@ -1,3 +1,5 @@
+import html
+
 import FinanceDataReader as fdr
 import requests
 
@@ -87,8 +89,8 @@ def _fetch_discussion(code: str, limit: int, offset: str | None, discussion_type
         items.append(
             {
                 "id": p.get("id", ""),
-                "title": p.get("title") or "",
-                "text": p.get("contentSwReplacedButImg") or "",
+                "title": html.unescape(p.get("title") or "").strip(),
+                "text": html.unescape(p.get("contentSwReplacedButImg") or "").strip(),
                 "author": writer.get("nickname") or "",
                 "written_at": p.get("writtenAt", ""),
                 "likes": p.get("recommendCount") or 0,

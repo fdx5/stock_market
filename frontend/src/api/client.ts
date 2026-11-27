@@ -568,6 +568,24 @@ export interface BoardPost {
   dislikes: number;
 }
 
+export interface BoardStreamPost extends BoardPost {
+  preview: string;
+  image_count: number;
+  thumbnail: string | null;
+  holder_verified: boolean;
+  is_reply: boolean;
+}
+
+export interface BoardStreamPage {
+  code: string;
+  name: string;
+  items: BoardStreamPost[];
+  next_offset: string | null;
+  source?: string;
+  source_label?: string;
+  source_url?: string;
+}
+
 /** One stock's board, as served by the batched /stock/discussions endpoint the desk's
  * 오늘의 종목 토론 band reads. `posts` is empty for a stock whose board is quiet or
  * whose upstream fetch failed — the band draws that as "아직 글이 없습니다", not as an
@@ -1737,6 +1755,11 @@ export const api = {
   board: (code: string, page = 1, fresh = false) =>
     getJSON<{ code: string; name: string; page: number; items: BoardPost[] }>(
       `${BASE}/stock/${code}/board?page=${page}&fresh=${fresh}`
+    ),
+  boardStream: (code: string, limit = 50, offset?: string | null, fresh = false, signal?: AbortSignal) =>
+    getJSON<BoardStreamPage>(
+      `${BASE}/stock/${encodeURIComponent(code)}/board/stream?limit=${limit}&fresh=${fresh}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`,
+      { signal },
     ),
   /** Several stocks' boards in one request — see the endpoint's docstring for why the
    *  desk band cannot do this one code at a time. */

@@ -280,7 +280,6 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
 // page with an .app column": that would also cover the map pages, /battle,
 // /ai-prediction/grading and friends, none of which were asked for.
 const BGM_FLOAT_PATHS = new Set([
-  "/discussion-explorer",
   "/market-bubbles",
   "/market-bubbles2",
   "/kospi-orbit",
